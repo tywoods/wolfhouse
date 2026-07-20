@@ -1,63 +1,39 @@
 {
   "schema_version": 1,
   "slice": "FORTRESS-15G",
-  "generated_at": "2026-07-20T06:27:35.927Z",
+  "generated_at": "2026-07-20T06:35:00.000Z",
   "master_basis": "a684422903fec3093ac0bb7e13e50f674aec3b7a",
   "live_mutation": false,
   "activation_default": "off",
   "red": {
-    "total": 6,
-    "passed": 6,
+    "total": 9,
+    "passed": 9,
     "cases": [
-      {
-        "id": "disabled_shadow_only_preserved",
-        "ok": true
-      },
-      {
-        "id": "unknown_phone_blocked",
-        "ok": true
-      },
-      {
-        "id": "missing_phone_blocked",
-        "ok": true
-      },
-      {
-        "id": "ambiguous_identity_blocked",
-        "ok": true
-      },
-      {
-        "id": "conflicting_identity_blocked",
-        "ok": true
-      },
-      {
-        "id": "unknown_zero_downstream_calls",
-        "ok": true
-      }
+      { "id": "disabled_shadow_only_preserved", "ok": true },
+      { "id": "unknown_phone_blocked", "ok": true },
+      { "id": "missing_phone_blocked", "ok": true },
+      { "id": "ambiguous_identity_blocked", "ok": true },
+      { "id": "conflicting_identity_blocked", "ok": true },
+      { "id": "unknown_zero_downstream_calls", "ok": true },
+      { "id": "entry_unknown_zero_pool", "ok": true },
+      { "id": "entry_missing_zero_pool", "ok": true },
+      { "id": "entry_conflicting_zero_pool", "ok": true }
     ]
   },
   "green": {
-    "total": 4,
-    "passed": 4,
+    "total": 7,
+    "passed": 7,
     "cases": [
-      {
-        "id": "enabled_known_authoritative",
-        "ok": true
-      },
-      {
-        "id": "legacy_slug_conflict_resolver_wins",
-        "ok": true
-      },
-      {
-        "id": "enabled_routing_absent_inactive",
-        "ok": true
-      },
-      {
-        "id": "default_off_no_env",
-        "ok": true
-      }
+      { "id": "enabled_known_authoritative", "ok": true },
+      { "id": "legacy_slug_conflict_resolver_wins", "ok": true },
+      { "id": "enabled_routing_absent_inactive", "ok": true },
+      { "id": "default_off_no_env", "ok": true },
+      { "id": "entry_enabled_known_reaches_downstream", "ok": true },
+      { "id": "entry_default_off_acquires_pg", "ok": true },
+      { "id": "entry_enabled_routing_absent_acquires_pg", "ok": true }
     ]
   },
-  "pass": 22,
+  "pass": 36,
   "fail": 0,
   "activation_gap": {
     "code_ready": true,

@@ -15,12 +15,14 @@
     "owner_files": [
       "scripts/lib/meta-whatsapp-ingress-authority.js",
       "scripts/lib/luna-meta-whatsapp-webhook.js",
-      "scripts/lib/luna-meta-whatsapp-inbound-process.js"
+      "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+      "scripts/staff-query-api.js"
     ],
     "controls": [
       "META_WHATSAPP_INGRESS_AUTHORITY default-off",
       "when enabled + routing present: known phone_number_id → resolver client_slug/location_id authoritative",
-      "unknown/missing/ambiguous/conflicting identities → block before draft/send/DB",
+      "unknown/missing/ambiguous/conflicting identities → block before withPgClient / draft/send/DB",
+      "processMetaWhatsAppWebhookPostEntry evaluates authority before pool acquisition",
       "disabled or routing-absent → exact prior shadow-only live behavior",
       "no deployment config / live routing-file edits in this slice"
     ]

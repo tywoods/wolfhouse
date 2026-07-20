@@ -4,7 +4,7 @@
  * verify:fortress-slice15g-meta-ingress-authority-policy — FORTRESS Slice 15G
  *
  * Offline RED/GREEN tests for Meta WhatsApp ingress authority policy (B02).
- * No network, no live DB/Stripe/WhatsApp/deploy. Does not rewrite 15A artifacts.
+ * No network, no live DB/Stripe/WhatsApp/deploy. Does not rewrite tracked evidence.
  */
 
 const fs = require('fs');
@@ -32,6 +32,7 @@ const {
 } = require('./lib/luna-meta-whatsapp-webhook');
 const {
   processMetaWhatsAppWebhookInbound,
+  processMetaWhatsAppWebhookPostEntry,
 } = require('./lib/luna-meta-whatsapp-inbound-process');
 const {
   AUTHORITY_ENV_KEY,
@@ -131,6 +132,58 @@ function makeCountingPg() {
   };
 }
 
+function makeEntryCounters() {
+  return {
+    pool: 0,
+    inbound: 0,
+    persist: 0,
+    draft: 0,
+    send: 0,
+    owner: 0,
+    demo: 0,
+  };
+}
+
+function zeroDownstream(counters) {
+  return counters.pool === 0
+    && counters.inbound === 0
+    && counters.persist === 0
+    && counters.draft === 0
+    && counters.send === 0
+    && counters.owner === 0
+    && counters.demo === 0;
+}
+
+async function runBlockedEntry(normalizedOrBody, opts = {}) {
+  const counters = makeEntryCounters();
+  const env = opts.env || { [AUTHORITY_ENV_KEY]: '1' };
+  const entryInput = {
+    env,
+    signatureMeta: { verified: false, skipped: true },
+    normalizeOptions: opts.normalizeOptions || routingOpts(env),
+    withPgClient: async (fn) => {
+      counters.pool += 1;
+      return fn(makeCountingPg());
+    },
+    processInbound: async () => {
+      counters.inbound += 1;
+      counters.persist += 1;
+      counters.draft += 1;
+      counters.send += 1;
+      counters.owner += 1;
+      counters.demo += 1;
+      throw new Error('15G entry: processInbound must not run when blocked');
+    },
+  };
+  if (opts.normalized) {
+    entryInput.normalized = opts.normalized;
+  } else {
+    entryInput.body = normalizedOrBody;
+  }
+  const result = await processMetaWhatsAppWebhookPostEntry(entryInput);
+  return { result, counters };
+}
+
 console.log('verify:fortress-slice15g-meta-ingress-authority-policy — FORTRESS Slice 15G\n');
 
 console.log('── Artifacts ──');
@@ -141,6 +194,7 @@ const matrix = readJson(MATRIX_PATH);
 const attacks = readJson(ATTACK_PATH);
 const doc = fs.readFileSync(DOC_PATH, 'utf8');
 const runbook = fs.readFileSync(RUNBOOK_PATH, 'utf8');
+const committedEvidence = readJson(EVIDENCE_PATH);
 const policySrc = fs.readFileSync(
   path.join(ROOT, 'scripts', 'lib', 'meta-whatsapp-ingress-authority.js'),
   'utf8',
@@ -151,6 +205,10 @@ const webhookSrc = fs.readFileSync(
 );
 const inboundSrc = fs.readFileSync(
   path.join(ROOT, 'scripts', 'lib', 'luna-meta-whatsapp-inbound-process.js'),
+  'utf8',
+);
+const staffApi = fs.readFileSync(
+  path.join(ROOT, 'scripts', 'staff-query-api.js'),
   'utf8',
 );
 
@@ -174,6 +232,10 @@ ok('findings cite B02 + default-off + activation gap',
   && /default-off/i.test(findings)
   && /Activation gap/i.test(findings)
   && /META_WHATSAPP_INGRESS_AUTHORITY/.test(findings));
+ok('findings have no trailing whitespace', (() => {
+  const lines = findings.split('\n');
+  return lines.every((line) => line === line.replace(/\s+$/g, '') || line === '');
+})());
 ok('historical matrix still marks B02 vulnerable',
   (matrix.boundaries || []).some((b) => b.id === 'B02_meta_normalize_live_client_slug' && b.verdict === 'vulnerable'));
 ok('historical attack cases retained for B02',
@@ -189,7 +251,16 @@ ok('webhook + inbound wire authority module',
   /meta-whatsapp-ingress-authority/.test(webhookSrc)
   && /applyMetaWhatsAppIngressAuthority/.test(webhookSrc)
   && /shouldBlockMetaWhatsAppIngressDownstream/.test(inboundSrc)
-  && /buildIngressAuthorityBlockedMetaResponse/.test(inboundSrc));
+  && /buildIngressAuthorityBlockedMetaResponse/.test(inboundSrc)
+  && /processMetaWhatsAppWebhookPostEntry/.test(inboundSrc));
+ok('staff Meta POST uses entry before withPgClient', (() => {
+  const idx = staffApi.indexOf('async function handleMetaWhatsAppWebhookPost');
+  if (idx < 0) return false;
+  const block = staffApi.slice(idx, idx + 2200);
+  return /processMetaWhatsAppWebhookPostEntry/.test(block)
+    && /FORTRESS 15G/.test(block)
+    && !/await withPgClient\(\s*\(?\s*pg\s*\)?\s*=>\s*processMetaWhatsAppWebhookInbound/.test(block);
+})());
 ok('runbook documents 15G policy default-off + activation gap',
   /FORTRESS Slice 15G|15G/.test(runbook)
   && /META_WHATSAPP_INGRESS_AUTHORITY/.test(runbook)
@@ -358,9 +429,9 @@ green('default_off_no_env', (() => {
     && applied.ingress_authority == null;
 })());
 
-console.log('\n── Zero downstream on block ──');
+console.log('\n── Zero downstream on block + entry-point ──');
 
-async function runZeroDownstream() {
+async function runEntryAndZeroDownstream() {
   const body = buildFakeMetaWhatsAppBody('UNKNOWN_META_PHONE_NUMBER_ID_SAMPLE', {
     wa_message_id: 'wamid.SAMPLE_15G_BLOCK',
   });
@@ -386,6 +457,199 @@ async function runZeroDownstream() {
     && processed.event_row == null
     && Array.isArray(processed.response.blocked_reasons)
     && processed.response.blocked_reasons.includes('unknown_channel_identity'));
+
+  const unknownEntry = await runBlockedEntry(body, {
+    env: { [AUTHORITY_ENV_KEY]: '1' },
+  });
+  red('entry_unknown_zero_pool',
+    unknownEntry.result.acquired_pg === false
+    && zeroDownstream(unknownEntry.counters)
+    && unknownEntry.result.response.ingress_authority_blocked === true
+    && unknownEntry.result.response.blocked_reasons.includes('unknown_channel_identity')
+    && unknownEntry.result.response.draft_called === false
+    && unknownEntry.result.response.send_attempted === false
+    && unknownEntry.result.response.event_persisted === false
+    && unknownEntry.result.response.no_write_performed === true);
+
+  const missingBody = buildFakeMetaWhatsAppBody(undefined, {
+    wa_message_id: 'wamid.SAMPLE_15G_MISSING',
+  });
+  missingBody.entry[0].changes[0].value.metadata = { display_phone_number: '15550000000' };
+  const missingEntry = await runBlockedEntry(missingBody, {
+    env: { [AUTHORITY_ENV_KEY]: '1' },
+  });
+  red('entry_missing_zero_pool',
+    missingEntry.result.acquired_pg === false
+    && zeroDownstream(missingEntry.counters)
+    && missingEntry.result.response.ingress_authority_blocked === true
+    && missingEntry.result.response.blocked_reasons.includes('missing_phone_number_id'));
+
+  const conflictBase = normalizeMetaWhatsAppWebhook(
+    buildFakeMetaWhatsAppBody('WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE', {
+      wa_message_id: 'wamid.SAMPLE_15G_CONFLICT',
+    }),
+    routingOpts({ [AUTHORITY_ENV_KEY]: '1' }),
+  );
+  const conflictNormalized = applyMetaWhatsAppIngressAuthority({
+    ...conflictBase,
+    tenant_channel_shadow: {
+      ...conflictBase.tenant_channel_shadow,
+      channel_resolution_blocked: false,
+      channel_resolution_reason: 'stale_conflict_marker',
+      client_slug: 'sunset',
+      location_id: 'sunset-somo',
+    },
+  }, { env: { [AUTHORITY_ENV_KEY]: '1' }, registry: REGISTRY });
+  const conflictEntry = await runBlockedEntry(null, {
+    env: { [AUTHORITY_ENV_KEY]: '1' },
+    normalized: conflictNormalized,
+  });
+  red('entry_conflicting_zero_pool',
+    conflictNormalized.ingress_authority
+    && conflictNormalized.ingress_authority.reason === 'conflicting_channel_identity'
+    && conflictEntry.result.acquired_pg === false
+    && zeroDownstream(conflictEntry.counters)
+    && conflictEntry.result.response.ingress_authority_blocked === true
+    && conflictEntry.result.response.blocked_reasons.includes('conflicting_channel_identity'));
+
+  const knownCounters = makeEntryCounters();
+  let seenInbound = null;
+  const knownBody = buildFakeMetaWhatsAppBody('WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE', {
+    wa_message_id: 'wamid.SAMPLE_15G_KNOWN',
+  });
+  const knownEnv = { [AUTHORITY_ENV_KEY]: '1' };
+  const knownEntry = await processMetaWhatsAppWebhookPostEntry({
+    body: knownBody,
+    env: knownEnv,
+    signatureMeta: { verified: false, skipped: true },
+    normalizeOptions: routingOpts(knownEnv),
+    withPgClient: async (fn) => {
+      knownCounters.pool += 1;
+      return fn({ query: async () => { knownCounters.persist += 1; return { rows: [] }; } });
+    },
+    processInbound: async (input) => {
+      knownCounters.inbound += 1;
+      seenInbound = input;
+      knownCounters.persist += 1;
+      knownCounters.draft += 1;
+      knownCounters.send += 1;
+      const draftInput = {
+        client_slug: input.normalized.client_slug,
+        location_id: input.normalized.location_id,
+        wa_message_id: input.normalized.wa_message_id,
+      };
+      const sendInput = {
+        client_slug: input.normalized.client_slug,
+        location_id: input.normalized.location_id,
+        idempotency_key: `guest-reply:${input.normalized.client_slug}:${input.normalized.wa_message_id}`,
+      };
+      return {
+        response: {
+          client_slug: input.normalized.client_slug,
+          location_id: input.normalized.location_id,
+          draft_called: true,
+          send_attempted: true,
+          event_persisted: true,
+          idempotency_key: sendInput.idempotency_key,
+          draft_input: draftInput,
+          send_input: sendInput,
+          no_write_performed: false,
+        },
+        event_row: { client_slug: input.normalized.client_slug },
+        replay: false,
+      };
+    },
+  });
+  green('entry_enabled_known_reaches_downstream',
+    knownEntry.acquired_pg === true
+    && knownCounters.pool === 1
+    && knownCounters.inbound === 1
+    && knownCounters.persist === 1
+    && knownCounters.draft === 1
+    && knownCounters.send === 1
+    && knownCounters.owner === 0
+    && knownCounters.demo === 0
+    && seenInbound
+    && seenInbound.normalized.client_slug === 'sunset'
+    && seenInbound.normalized.location_id === 'sunset-somo'
+    && knownEntry.response.client_slug === 'sunset'
+    && knownEntry.response.location_id === 'sunset-somo'
+    && knownEntry.response.draft_called === true
+    && knownEntry.response.send_attempted === true
+    && knownEntry.response.event_persisted === true
+    && knownEntry.response.idempotency_key === 'guest-reply:sunset:wamid.SAMPLE_15G_KNOWN'
+    && knownEntry.response.draft_input.client_slug === 'sunset'
+    && knownEntry.response.send_input.client_slug === 'sunset'
+    && knownEntry.event_row.client_slug === 'sunset');
+
+  // Preserve default-off + enabled-without-routing: entry still acquires pg.
+  const offCounters = makeEntryCounters();
+  const offEntry = await processMetaWhatsAppWebhookPostEntry({
+    body: buildFakeMetaWhatsAppBody('WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE', {
+      wa_message_id: 'wamid.SAMPLE_15G_OFF',
+    }),
+    env: {},
+    signatureMeta: { verified: false, skipped: true },
+    normalizeOptions: routingOpts({}),
+    withPgClient: async (fn) => {
+      offCounters.pool += 1;
+      return fn({});
+    },
+    processInbound: async (input) => {
+      offCounters.inbound += 1;
+      return {
+        response: {
+          client_slug: input.normalized.client_slug,
+          ingress_authority: input.normalized.ingress_authority || null,
+          draft_called: false,
+          send_attempted: false,
+        },
+        event_row: null,
+        replay: false,
+      };
+    },
+  });
+  green('entry_default_off_acquires_pg',
+    offEntry.acquired_pg === true
+    && offCounters.pool === 1
+    && offCounters.inbound === 1
+    && offEntry.normalized.ingress_authority == null
+    && offEntry.response.client_slug === DEFAULT_CLIENT_SLUG
+    && shouldBlockMetaWhatsAppIngressDownstream(offEntry.normalized) === false);
+
+  const absentCounters = makeEntryCounters();
+  const absentEntry = await processMetaWhatsAppWebhookPostEntry({
+    body: buildFakeMetaWhatsAppBody('WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE', {
+      wa_message_id: 'wamid.SAMPLE_15G_ABSENT',
+    }),
+    env: { [AUTHORITY_ENV_KEY]: '1' },
+    signatureMeta: { verified: false, skipped: true },
+    normalizeOptions: { env: { [AUTHORITY_ENV_KEY]: '1' } },
+    withPgClient: async (fn) => {
+      absentCounters.pool += 1;
+      return fn({});
+    },
+    processInbound: async (input) => {
+      absentCounters.inbound += 1;
+      return {
+        response: {
+          client_slug: input.normalized.client_slug,
+          reason: input.normalized.ingress_authority && input.normalized.ingress_authority.reason,
+        },
+        event_row: null,
+        replay: false,
+      };
+    },
+  });
+  green('entry_enabled_routing_absent_acquires_pg',
+    absentEntry.acquired_pg === true
+    && absentCounters.pool === 1
+    && absentCounters.inbound === 1
+    && absentEntry.normalized.ingress_authority
+    && absentEntry.normalized.ingress_authority.active === false
+    && absentEntry.normalized.ingress_authority.reason === 'authority_inactive_routing_absent'
+    && absentEntry.response.client_slug === DEFAULT_CLIENT_SLUG
+    && shouldBlockMetaWhatsAppIngressDownstream(absentEntry.normalized) === false);
 }
 
 console.log('\n── Secret-free + packaging ──');
@@ -408,35 +672,50 @@ for (const p of secretScanTargets) {
 }
 ok('secret-free artifacts', secretHits === 0, `hits=${secretHits}`);
 
-runZeroDownstream().then(() => {
-  const evidence = {
-    schema_version: 1,
-    slice: 'FORTRESS-15G',
-    generated_at: new Date().toISOString(),
-    master_basis: contract.master_basis,
-    live_mutation: false,
-    activation_default: 'off',
-    red: {
-      total: redResults.length,
-      passed: redResults.filter((r) => r.ok).length,
-      cases: redResults,
-    },
-    green: {
-      total: greenResults.length,
-      passed: greenResults.filter((r) => r.ok).length,
-      cases: greenResults,
-    },
-    pass,
-    fail,
-    activation_gap: overlay.activation_gap,
-  };
-  fs.writeFileSync(EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`);
-  ok('evidence written', fs.existsSync(EVIDENCE_PATH));
+runEntryAndZeroDownstream().then(() => {
+  console.log('\n── Evidence (read-only) ──');
+  ok('evidence exists (not rewritten by verifier)', fs.existsSync(EVIDENCE_PATH));
+  ok('evidence slice + activation gap',
+    committedEvidence.slice === 'FORTRESS-15G'
+    && committedEvidence.live_mutation === false
+    && committedEvidence.activation_default === 'off'
+    && committedEvidence.activation_gap
+    && committedEvidence.activation_gap.runtime_enabled === false);
+
+  const expectedRedIds = (contract.red_case_ids || []).map((id) => id.replace(/^RED_/, ''));
+  const expectedGreenIds = (contract.green_case_ids || []).map((id) => id.replace(/^GREEN_/, ''));
+  const runRedIds = redResults.map((r) => r.id);
+  const runGreenIds = greenResults.map((r) => r.id);
+  const evidenceRedIds = ((committedEvidence.red && committedEvidence.red.cases) || []).map((c) => c.id);
+  const evidenceGreenIds = ((committedEvidence.green && committedEvidence.green.cases) || []).map((c) => c.id);
+
+  ok('evidence RED ids match contract + this run',
+    expectedRedIds.length === runRedIds.length
+    && expectedRedIds.every((id, i) => id === runRedIds[i])
+    && evidenceRedIds.length === runRedIds.length
+    && evidenceRedIds.every((id, i) => id === runRedIds[i])
+    && redResults.every((r) => r.ok)
+    && ((committedEvidence.red && committedEvidence.red.cases) || []).every((c) => c.ok === true));
+
+  ok('evidence GREEN ids match contract + this run',
+    expectedGreenIds.length === runGreenIds.length
+    && expectedGreenIds.every((id, i) => id === runGreenIds[i])
+    && evidenceGreenIds.length === runGreenIds.length
+    && evidenceGreenIds.every((id, i) => id === runGreenIds[i])
+    && greenResults.every((r) => r.ok)
+    && ((committedEvidence.green && committedEvidence.green.cases) || []).every((c) => c.ok === true));
+
+  ok('verifier does not rewrite tracked evidence', (() => {
+    const src = fs.readFileSync(__filename, 'utf8');
+    const writeHits = src.match(/writeFileSync\s*\(\s*EVIDENCE_PATH/g) || [];
+    return writeHits.length === 0;
+  })());
+
   ok('red/green counts',
-    evidence.red.total === 6
-    && evidence.green.total === 4
-    && evidence.red.passed === evidence.red.total
-    && evidence.green.passed === evidence.green.total);
+    evidenceRedIds.length === 9
+    && evidenceGreenIds.length === 7
+    && redResults.length === 9
+    && greenResults.length === 7);
 
   console.log(`\n── Summary: pass=${pass} fail=${fail} ──`);
   if (fail > 0) process.exit(1);

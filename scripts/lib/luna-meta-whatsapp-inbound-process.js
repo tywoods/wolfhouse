@@ -266,6 +266,74 @@ async function processWithoutPersistence(pg, env, normalized, body, signatureMet
 }
 
 /**
+ * FORTRESS 15G — Meta POST entry after JSON parse / signature check.
+ * Normalize + evaluate ingress authority **before** any pool/client acquisition.
+ * Blocked identities return the authority-blocked envelope with acquired_pg=false
+ * and never invoke withPgClient / processInbound (hence zero persistence/draft/
+ * send/owner/demo work).
+ *
+ * @param {{
+ *   body?: object,
+ *   env?: object,
+ *   signatureMeta?: object,
+ *   normalized?: object,
+ *   normalizeOptions?: object,
+ *   client_slug?: string,
+ *   withPgClient: Function,
+ *   processInbound?: Function,
+ *   normalize?: Function,
+ * }} input
+ */
+async function processMetaWhatsAppWebhookPostEntry(input) {
+  const env = input.env || process.env;
+  const body = input.body || {};
+  const signatureMeta = input.signatureMeta || {};
+  const withPgClientFn = input.withPgClient;
+  const processInbound = input.processInbound || processMetaWhatsAppWebhookInbound;
+  const normalizeFn = input.normalize || normalizeMetaWhatsAppWebhook;
+  const normalizeOptions = Object.assign(
+    { env, client_slug: input.client_slug },
+    input.normalizeOptions || {},
+  );
+
+  const normalized = input.normalized != null
+    ? input.normalized
+    : normalizeFn(body, normalizeOptions);
+
+  if (shouldBlockMetaWhatsAppIngressDownstream(normalized)) {
+    const blocked = buildIngressAuthorityBlockedMetaResponse(normalized, signatureMeta);
+    return {
+      normalized,
+      acquired_pg: false,
+      response: blocked.response,
+      event_row: blocked.event_row,
+      replay: blocked.replay,
+    };
+  }
+
+  if (typeof withPgClientFn !== 'function') {
+    throw new Error('withPgClient_required_when_ingress_authority_allows_downstream');
+  }
+
+  const processed = await withPgClientFn((pg) => processInbound({
+    pg,
+    env,
+    body,
+    normalized,
+    signatureMeta,
+    client_slug: input.client_slug,
+  }));
+
+  return {
+    normalized,
+    acquired_pg: true,
+    response: processed.response,
+    event_row: processed.event_row,
+    replay: processed.replay,
+  };
+}
+
+/**
  * Process Meta inbound webhook POST with guest_message_events persistence.
  *
  * @param {{ pg: object, env?: object, body: object, signatureMeta?: object }} input
@@ -454,6 +522,8 @@ async function processMetaWhatsAppWebhookInbound(input) {
 
 module.exports = {
   processMetaWhatsAppWebhookInbound,
+  processMetaWhatsAppWebhookPostEntry,
+  buildIngressAuthorityBlockedMetaResponse,
   buildResponseFromStoredEvent,
   buildSendResultFromStoredEvent,
 };

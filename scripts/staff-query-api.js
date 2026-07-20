@@ -597,10 +597,9 @@ const {
 const {
   verifyMetaHubChallenge,
   verifyMetaHubSignature256,
-  normalizeMetaWhatsAppWebhook,
 } = require('./lib/luna-meta-whatsapp-webhook');
 const {
-  processMetaWhatsAppWebhookInbound,
+  processMetaWhatsAppWebhookPostEntry,
 } = require('./lib/luna-meta-whatsapp-inbound-process');
 const {
   parseMessageEventsQuery,
@@ -13499,14 +13498,14 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
     return sendJSON(res, 400, { success: false, error: 'Invalid JSON payload' });
   }
 
-  const normalized = normalizeMetaWhatsAppWebhook(body);
-  const processed = await withPgClient((pg) => processMetaWhatsAppWebhookInbound({
-    pg,
-    env: process.env,
+  // FORTRESS 15G — normalize + authority gate before any withPgClient acquisition.
+  const processed = await processMetaWhatsAppWebhookPostEntry({
     body,
-    normalized,
+    env: process.env,
     signatureMeta: sigResult,
-  }));
+    withPgClient,
+  });
+  const normalized = processed.normalized;
   const response = processed.response;
 
   appendAuditLog({
