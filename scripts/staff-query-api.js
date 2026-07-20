@@ -72,6 +72,11 @@ const {
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
 const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
+const {
+  READYZ_PATH,
+  handleStaffApiReadyz,
+  getReadinessPool,
+} = require('./lib/staff-api-readiness');
 
 /** FORTRESS 15J3 offline listener harness — inject PG/session/ACL boundaries only when dual-gated. */
 let __fortress15j3OfflineSeams = null;
@@ -46618,6 +46623,17 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleConversationDetail(convIdMatch[1], parsed.query, res, auth.user);
+  }
+
+  // RADAR 16I: /readyz = dependency readiness via dedicated max-1 readiness pool.
+  // /healthz stays static liveness — must not touch Postgres (ACA liveness/startup).
+  // Lifecycle close of the readiness pool remains open (explicit closeReadinessPool).
+  if (pathname === READYZ_PATH) {
+    const seam = getFortress15j3OfflineSeams();
+    const readinessOpts = (seam && seam.readinessPool)
+      ? { pool: seam.readinessPool }
+      : { getPool: getReadinessPool };
+    return handleStaffApiReadyz(res, sendJSON, withPgClient, readinessOpts);
   }
 
   if (pathname === '/healthz' || pathname === '/') {

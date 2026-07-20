@@ -451,6 +451,47 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
             { name: 'DEPLOY_SHA', value: deploySha }
             { name: 'FORCE_REVISION', value: forceRevision }
           ]
+          // RADAR 16I — ACA probes (port must match ingress targetPort 3036).
+          // Liveness/Startup → /healthz (no Postgres). Readiness → /readyz (PG; removes traffic, no restart).
+          // Readiness periodSeconds (10) exceeds max operation bound (connectionTimeout+query_timeout = 3500ms).
+          probes: [
+            {
+              type: 'Startup'
+              httpGet: {
+                path: '/healthz'
+                port: 3036
+              }
+              initialDelaySeconds: 10
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 30
+              successThreshold: 1
+            }
+            {
+              type: 'Liveness'
+              httpGet: {
+                path: '/healthz'
+                port: 3036
+              }
+              initialDelaySeconds: 30
+              periodSeconds: 20
+              timeoutSeconds: 5
+              failureThreshold: 3
+              successThreshold: 1
+            }
+            {
+              type: 'Readiness'
+              httpGet: {
+                path: '/readyz'
+                port: 3036
+              }
+              initialDelaySeconds: 5
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 3
+              successThreshold: 1
+            }
+          ]
         }
       ]
       scale: {

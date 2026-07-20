@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16H",
-  "outcome_id": "16H_staff_api_metric_alerts",
-  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
-  "branch": "radar/slice-16h-metric-alert-source-only",
+  "slice": "RADAR-16I",
+  "outcome_id": "16I_staff_api_readiness_dependencies",
+  "master_basis": "d922099cc1eec1596ef4c67f265c8b6c5e6bc81e",
+  "branch": "radar/slice-16i-readiness-replacement",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Standalone staging Staff API metric-alert source module (G03 source-partial; supersedes deferred 16F/16G)",
+  "title": "Staff API dependency-aware readiness (/readyz + ACA probes) \u2014 G02 source-partial; supersedes deferred 16C",
   "progress_class": "source_partial_progress_only",
-  "does_not_implement": "live_deploy_notification_delivery_alert_fire",
+  "does_not_implement": "live_deploy_failure_drill_lifecycle_integration",
   "notification_delivery_proof": "open",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -26,7 +26,12 @@
     "scripts/verify-radar-slice16b-staging-cost-budgets.js",
     "scripts/preflight-radar-slice16b-staging-cost-budgets.js",
     "scripts/verify-radar-slice16h-staff-api-metric-alerts.js",
-    "scripts/verify-radar-slice16a-operations-gate-ledger.js"
+    "scripts/verify-radar-slice16a-operations-gate-ledger.js",
+    "fixtures/radar-operations/slice16i-expected-contract.json",
+    "fixtures/radar-operations/slice16i-probe-contract.json",
+    "scripts/lib/staff-api-readiness.js",
+    "scripts/lib/radar-slice16i-staff-api-readiness.js",
+    "scripts/verify-radar-slice16i-staff-api-readiness.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -66,23 +71,23 @@
   },
   "zero_mutation_proof": {
     "runtime_paths_unchanged": [
-      "scripts/staff-query-api.js",
-      "docker/hermes-staging/",
       "database/",
-      "infra/azure/staging/main.bicep",
-      "infra/azure/sunset-staging/main.bicep"
+      "docker/hermes-staging/"
     ],
-    "note": "16H may add standalone staging-staff-api-metric-alerts module + radar fixtures/verifiers; must not modify Staff API/Hermes/DB/main.bicep wiring; no deployment wrapper; live deploy hard-disabled; AG/app referenced only"
+    "note": "16I may modify Staff API /readyz wiring + staging/sunset main.bicep probes; must not mutate DB schema or Hermes staging sources; no live deploy; lifecycle integration open"
   },
   "gates": [
-    "az bicep build --file infra/azure/staging-staff-api-metric-alerts/rg-staff-api-metric-alerts.bicep",
+    "npm run verify:radar-slice16i-staff-api-readiness",
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:radar-slice16b-staging-cost-budgets",
     "npm run verify:radar-slice16h-staff-api-metric-alerts",
+    "npm run verify:staff-auth-api",
+    "az bicep build --file infra/azure/staging/main.bicep",
+    "az bicep build --file infra/azure/sunset-staging/main.bicep",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b..HEAD"
+    "git diff --check d922099cc1eec1596ef4c67f265c8b6c5e6bc81e..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -110,5 +115,12 @@
       "tenantSlug": "sunset",
       "actionGroupName": "luna-sunset-staging-ops-budget-ag"
     }
+  },
+  "selected_16i": {
+    "outcome_id": "16I_staff_api_readiness_dependencies",
+    "gate_id": "G02_readiness_dependencies",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_failure_drill_lifecycle_integration",
+    "supersedes": "16C_staff_api_readiness_dependencies"
   }
 }
