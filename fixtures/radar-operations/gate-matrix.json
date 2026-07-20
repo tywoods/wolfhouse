@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16O",
-  "title": "RADAR operations gate ledger (16O Stripe webhook error minimization source-partial on G08)",
-  "master_basis": "3e94498321cd26e64394984a5926d7a583226692",
-  "branch": "radar/slice-16o-stripe-webhook-error-minimization",
+  "slice": "RADAR-16P",
+  "title": "RADAR operations gate ledger (16P live-drill evidence reconciliation \u2014 partial/live-proven)",
+  "master_basis": "594247f12a823e9b90140c56eb8645b057e1fd37",
+  "branch": "radar/slice-16p-live-drill-evidence",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -95,7 +95,7 @@
       "name": "Readiness / dependencies",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16I adds Staff API /readyz (dedicated max-1 pg Pool via public pg 8.21 options: connectionTimeoutMillis<=1500, statement_timeout<=1500, query_timeout<=2000; fixed SELECT 1; release healthy / release(err) once; no Promise.race/AbortController/private fields/app-pool) and ACA Startup/Liveness/Readiness probes in Wolfhouse + Sunset staging Bicep (port 3036; liveness/startup on /healthz without Postgres; readiness on /readyz; periodSeconds exceeds max operation bound). Source-partial only \u2014 not deployed; live ACA probes still empty/null; controlled readiness failure drill and lifecycle integration (closeReadinessPool) remain open. Supersedes deferred 16C (no signal/shutdown framework in this slice).",
+      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P records operator-observed live proof that after 16O image SHA 594247f deploy (Wolfhouse rev 0000514, Sunset 0000274) and after rollback/rollforward (WH 0000515\u21920000516, Sunset 0000275\u21920000276), health/readiness passed on both tenants with final image 594247f. Partial/live-proven for healthy path only \u2014 controlled dependency-failure traffic-shed drill and closeReadinessPool lifecycle integration remain open. Does not claim dependency failure.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-readiness.js",
@@ -153,22 +153,25 @@
         {
           "ref": "live-inventory.json#container_apps.luna-sunset-staging-staff-api",
           "note": "Live probes=null until approved deploy (source-only progress)"
+        },
+        {
+          "ref": "fixtures/radar-operations/slice16p-live-drill-evidence.json#observed_facts.16o_deploy+rollback_rollforward",
+          "note": "Operator-observed health/ready after 16O deploy + rollback/rollforward; final image 594247f"
         }
       ],
       "gaps": [
-        "Staff API image + ACA probe template not deployed to staging",
         "Controlled readiness failure drill (traffic shed without restart loops) not executed",
-        "Live probe inventory still empty/null",
-        "closeReadinessPool not yet wired into Staff API graceful shutdown lifecycle"
+        "closeReadinessPool not yet wired into Staff API graceful shutdown lifecycle",
+        "Dependency-failure path not claimed by 16P"
       ],
-      "progress_class": "source_partial_progress_only"
+      "progress_class": "partial_live_proven"
     },
     {
       "id": "G03_actionable_tenant_aware_alerts",
       "name": "Actionable tenant-aware alerts",
       "verdict": "partial",
       "severity": "critical",
-      "rationale": "16H adds standalone staging-only Staff API metric-alert IaC (source module only): tenant-named Requests Total statusCodeCategory=5xx >=3 over PT5M/PT1M and RestartCount Total >0 over PT5M/PT1M on both wh-staging-staff-api and luna-sunset-staging-staff-api, referencing existing 16B per-RG ops action-group names. Bicep fail-closes exact subscription + RG/app tuple; derives tenant/AG; alert semantics are vars. No deployment wrapper. Source-partial only \u2014 not deployed; live metric_alerts still []; safe Incremental operator deploy, notification delivery, and alert-fire drill remain open. Template cannot enforce ARM mode.",
+      "rationale": "16H source adds staging Staff API metric-alert IaC. 16P records Azure Action Group test notification API Email Status=Succeeded and state=Complete for Wolfhouse (sent 2026-07-20T21:35:00.5549824Z, completed 21:38:26.1342044Z) and Sunset (sent 21:39:53.8402179Z, completed 21:43:16.2619454Z). Partial/live-proven for AG test-notification API email status only \u2014 does not claim human inbox receipt or organic metric alert firing.",
       "source_evidence": [
         {
           "path": "infra/azure/staging-staff-api-metric-alerts/rg-staff-api-metric-alerts.bicep",
@@ -204,16 +207,19 @@
         {
           "ref": "live-inventory.json#action_groups",
           "note": "16H references 16B ops AG names; live AGs still only Smart Detection on wh-staging (ARM roles)"
+        },
+        {
+          "ref": "fixtures/radar-operations/slice16p-live-drill-evidence.json#observed_facts.action_group_test_notification_api",
+          "note": "AG test notification API Email Status=Succeeded state=Complete both tenants (not human inbox; not organic fire)"
         }
       ],
       "gaps": [
-        "Metric alerts not deployed to live staging RGs (operator Incremental deploy open)",
-        "No proven notification delivery",
-        "No controlled alert-fire drill",
+        "Human inbox receipt not claimed",
+        "Organic metric alert firing not claimed",
         "No client_slug metric dimension (tenant encoded in alert names only)",
         "Template cannot enforce ARM deployment mode"
       ],
-      "progress_class": "source_partial_progress_only"
+      "progress_class": "partial_live_proven"
     },
     {
       "id": "G04_webhook_payment_worker_backlog",
@@ -408,7 +414,7 @@
       "name": "Rollback / incident runbooks",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Written rollback/cutover runbooks and a backup/restore plan exist. PHASE-7.4 explicitly states restore drill not executed. Live PG flexible servers have 7-day backup retention (geo-redundant disabled). No proven recent restore drill evidence artifact.",
+      "rationale": "Written rollback/cutover runbooks and backup/restore plan exist. 16P records operator-observed Staff API revision rollback then rollforward on both tenants (Wolfhouse 0000515\u21920000516, Sunset 0000275\u21920000276) with health/readiness passed and final image SHA 594247f. Partial/live-proven for ACA revision rollback/rollforward only \u2014 Postgres restore drill and geo-redundant backup remain open.",
       "source_evidence": [
         {
           "path": "docs/clients/wolfhouse/LIVE-ROLLBACK-RUNBOOK.md",
@@ -433,20 +439,25 @@
         {
           "ref": "live-inventory.json#postgres_backups",
           "note": "All three flexible servers backupRetentionDays=7 geoRedundant=Disabled"
+        },
+        {
+          "ref": "fixtures/radar-operations/slice16p-live-drill-evidence.json#observed_facts.rollback_rollforward",
+          "note": "WH 0000515\u21920000516 and Sunset 0000275\u21920000276; health/ready passed; final image 594247f"
         }
       ],
       "gaps": [
         "Restore drill not executed / not evidenced",
         "No single staging incident commander runbook covering both RGs",
         "Geo-redundant backup disabled on staging PG"
-      ]
+      ],
+      "progress_class": "partial_live_proven"
     },
     {
       "id": "G08_retention_privacy",
       "name": "Retention / privacy",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16O minimizes public POST /staff/stripe/webhook error responses for all pre-verification failures (raw-body stream/oversize/abort, missing webhook secret, Stripe SDK load failure, signature verification failure) to stable generic bodies ({success:false,code:stripe_webhook_unavailable,retryable:true} HTTP 500 for SDK/secret; {success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature} HTTP 400 for signature; {success:false,code:invalid_webhook_request} HTTP 400 for body-read) with allowlisted audit reasons only (sdk_load_failed/signature_verification_failed/body_read_failed/webhook_secret_unavailable) \u2014 no raw exception text/stack/signature/body/secret/payload/tenant/env. 16K healthz minimization remains prior source-partial progress. Source-partial only \u2014 not deployed; live webhook error bodies and /healthz still expose detailed fields until Staff API image deploy. Log-retention/PII redaction proof and privacy drill remain open. Deployment remains open.",
+      "rationale": "16O minimizes public Stripe webhook pre-verification error bodies (invalid_stripe_signature / stripe_webhook_unavailable / invalid_webhook_request); 16K minimizes /healthz. 16P records operator-observed live deploy of exact SHA 594247f to Wolfhouse 0000514 and Sunset 0000274 with health/ready and malformed/missing/oversize generic webhook responses. Partial/live-proven for those observed paths only \u2014 does not claim abrupt paths, retention/search, log-retention/PII redaction proof, or SDK/secret inject paths.",
       "source_evidence": [
         {
           "path": "scripts/lib/stripe-webhook-public-errors.js",
@@ -536,31 +547,33 @@
         {
           "ref": "live-inventory.json#retention",
           "note": "LAW 30d both RGs; App Insights 90d both RGs"
+        },
+        {
+          "ref": "fixtures/radar-operations/slice16p-live-drill-evidence.json#observed_facts.16o_deploy",
+          "note": "SHA 594247f @ WH 0000514 / Sunset 0000274; health/ready; malformed/missing/oversize generic responses"
         }
       ],
       "gaps": [
-        "Privacy drill (live Wolfhouse+Sunset generic webhook error bodies) open",
-        "Live deploy of minimized Stripe webhook public error bodies not done",
+        "Abrupt Stripe webhook body-read paths not claimed",
+        "SDK-unavailable / missing-secret live inject not claimed",
         "Log retention / PII redaction proof for ops telemetry still open",
-        "Privacy drill (live Wolfhouse+Sunset generic schema) open",
-        "Live deploy of minimized /healthz not done",
+        "Retention/search not claimed",
         "No guest data deletion/export ops procedure for staging telemetry",
-        "Audit retention policy not frozen",
-        "No proven PII redaction in container logs shipped to LAW"
+        "Audit retention policy not frozen"
       ],
-      "progress_class": "source_partial_progress_only"
+      "progress_class": "partial_live_proven"
     },
     {
       "id": "G09_cost_controls",
       "name": "Cost controls",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Cost controls cover (1) budget threshold notifications and (2) anomaly detection as distinct controls. 16B adds standalone staging ActualCost budget-threshold IaC (USD 120/40, Enabled 80%/100%, parameterized ops-email AG per RG) \u2014 source partial progress only. Not deployed; live budgets still empty. Real notification delivery proof remains open. Anomaly detection is absent and not claimed.",
+      "rationale": "Cost controls cover (1) budget threshold notifications and (2) anomaly detection as distinct controls. 16B adds standalone staging ActualCost budget-threshold IaC (source). 16P records ops Action Group test notification API Email Status=Succeeded / state=Complete for both staging tenants (timestamps in evidence fixture). Partial/live-proven for AG test-notification API email status only \u2014 does not claim human inbox receipt, budget resource live-list proof, or anomaly detection.",
       "controls": {
         "budget_threshold": {
           "kind": "threshold",
           "status": "partial",
-          "note": "Standalone IaC declared; live Microsoft.Consumption/budgets still []; delivery proof open"
+          "note": "IaC declared; AG test notification API Email Status=Succeeded both tenants (16P); human inbox + budget live-list still open; anomaly absent"
         },
         "anomaly_detection": {
           "kind": "anomaly_detection",
@@ -611,14 +624,19 @@
         {
           "ref": "live-inventory.json#budgets",
           "note": "budgets=[] both RGs \u2014 live threshold control still absent (source-only partial)"
+        },
+        {
+          "ref": "fixtures/radar-operations/slice16p-live-drill-evidence.json#observed_facts.action_group_test_notification_api",
+          "note": "Ops AG test notification API Email Status=Succeeded state=Complete (not human inbox)"
         }
       ],
       "gaps": [
-        "Budgets/action groups not deployed to live staging RGs",
-        "No proven notification delivery (Enabled config alone is insufficient)",
+        "Human inbox receipt not claimed",
+        "Budget resources live-list proof still open",
         "No cost anomaly detection / anomaly alert path",
-        "16B must not be read as anomaly-detection acceptance"
-      ]
+        "16B/16P must not be read as anomaly-detection acceptance"
+      ],
+      "progress_class": "partial_live_proven"
     }
   ],
   "verdict_counts": {
@@ -738,7 +756,9 @@
         "Re-list metric alerts read-only; freeze evidence JSON secret-free",
         "Confirm docker/app revisions unchanged and no AG mutation"
       ],
-      "pass_rule": "Both RG metric alerts listed Enabled + proven notification delivery + controlled fire; no container restart/deploy/DB write / AG mutation"
+      "pass_rule": "Both RG metric alerts listed Enabled + proven notification delivery + controlled fire; no container restart/deploy/DB write / AG mutation",
+      "status": "partial_ag_test_api_via_16P",
+      "note": "AG test notification API Email Status=Succeeded; human inbox + organic fire open"
     }
   },
   "slice_16i_selection": {
@@ -790,7 +810,9 @@
         "Restore Postgres; prove /readyz=200 and traffic returns",
         "Freeze evidence JSON secret-free"
       ],
-      "pass_rule": "Readiness removes traffic without restart loops; liveness stays up; recovery restores traffic"
+      "pass_rule": "Readiness removes traffic without restart loops; liveness stays up; recovery restores traffic",
+      "status": "partial_live_proven_healthy_path_via_16P",
+      "note": "Healthy health/ready observed; dependency-failure drill still open"
     }
   },
   "slice_16j_selection": {
@@ -895,7 +917,9 @@
         "Prove /readyz unchanged and authenticated ai-status still works",
         "Freeze evidence JSON secret-free"
       ],
-      "pass_rule": "Live public /healthz matches generic schema on both tenants; /readyz + authenticated diagnostics preserved; no deploy claimed by this slice"
+      "pass_rule": "Live public /healthz matches generic schema on both tenants; /readyz + authenticated diagnostics preserved; no deploy claimed by this slice",
+      "status": "partial_live_proven_via_16P",
+      "note": "Health observed after 16O image deploy; full privacy schema drill nuances remain in gaps"
     }
   },
   "slice_16l_selection": {
@@ -1003,7 +1027,7 @@
     "outcome_id": "16O_stripe_webhook_error_minimization",
     "gate_id": "G08_retention_privacy",
     "progress_class": "source_partial_progress_only",
-    "does_not_implement": "live_deploy_privacy_drill",
+    "does_not_implement": "abrupt_paths_retention_search_sdk_secret_inject_full_privacy_drill",
     "title": "Minimize public Stripe webhook error responses (generic fail-closed) \u2014 source partial only",
     "why_smallest": "G08 lacked public Stripe webhook error-body minimization; narrowest ownership is all pre-verification client responses (body-read/secret/SDK/signature) without changing tenant binding, 16M claim logic, or skip_verify semantics.",
     "supersedes": [],
@@ -1045,7 +1069,63 @@
         "Prove 16M claim + tenant binding + skip_verify=false unchanged",
         "Freeze evidence JSON secret-free"
       ],
-      "pass_rule": "Live public Stripe webhook error bodies match generic contract on both tenants; 16M/tenant/skip_verify preserved; no deploy claimed by this slice"
+      "pass_rule": "Live public Stripe webhook error bodies match generic contract on both tenants; 16M/tenant/skip_verify preserved; no deploy claimed by this slice",
+      "status": "partial_live_proven_via_16P",
+      "note": "16P evidences deploy SHA 594247f + malformed/missing/oversize generic bodies + health/ready; abrupt/sdk/secret inject and retention/search remain open"
+    }
+  },
+  "slice_16p_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16P_live_drill_evidence_reconciliation",
+    "gate_id": "G08_retention_privacy",
+    "also_updates_gates": [
+      "G02_readiness_dependencies",
+      "G03_actionable_tenant_aware_alerts",
+      "G07_rollback_incident_runbooks",
+      "G09_cost_controls"
+    ],
+    "progress_class": "partial_live_proven_evidence_only",
+    "does_not_implement": "human_inbox_organic_alert_production_abrupt_retention_search_dependency_failure_real_pg_completion_logging",
+    "title": "Reconcile bounded operator-observed 16O live-drill evidence \u2014 no overclaims",
+    "why_smallest": "Record only operator-observed facts from completed 16O live drill into a bounded fixture; upgrade gate progress_class to partial_live_proven where facts support; keep proven=0.",
+    "owner_files": [
+      "fixtures/radar-operations/slice16p-live-drill-evidence.json",
+      "fixtures/radar-operations/slice16p-expected-contract.json",
+      "scripts/lib/radar-slice16p-live-drill-evidence.js",
+      "scripts/verify-radar-slice16p-live-drill-evidence.js"
+    ],
+    "out_of_scope_for_16p": [
+      "This-slice deploy / restart / live mutation",
+      "Human inbox receipt",
+      "Organic metric alert firing",
+      "Production",
+      "Abrupt webhook paths",
+      "Retention/search",
+      "Dependency failure drill",
+      "Real-PG contention",
+      "Completion logging",
+      "Raising any gate verdict to proven"
+    ],
+    "acceptance_criteria": [
+      "Bounded evidence fixture records exact SHA 594247f @ WH 0000514 / Sunset 0000274 with health/ready and malformed/missing/oversize generic responses",
+      "Records rollback/rollforward WH 0000515\u21920000516 and Sunset 0000275\u21920000276 with health/ready and final image 594247f",
+      "Records AG test notification API Email Status=Succeeded state=Complete with exact sent/completed timestamps for both tenants",
+      "explicitly_not_claimed includes human_inbox_receipt, organic_metric_alert_firing, production, abrupt_paths, retention_search, dependency_failure, real_pg_contention, completion_logging",
+      "Verifier rejects altered evidence and overstated claims",
+      "Gate matrix progress_class partial_live_proven only for G02/G03/G07/G08/G09; proven count remains 0",
+      "No Staff API / Hermes / DB / Bicep runtime mutation in this slice"
+    ],
+    "final_controlled_drill": {
+      "id": "16P_DRILL_evidence_freeze_no_overclaim",
+      "steps": [
+        "Freeze bounded evidence JSON from operator facts only",
+        "Update ledger/matrix progress_class to partial_live_proven where facts support",
+        "Run offline verifier RED/GREEN (altered evidence + overclaim rejection)",
+        "Run ledger/16L/16O/secret/migration/IaC/diff gates",
+        "Push branch; no PR/merge; no deploy by this slice"
+      ],
+      "pass_rule": "Evidence matches locks; overclaims rejected; proven=0; runtime paths unchanged vs master 594247f"
     }
   }
 }

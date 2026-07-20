@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16O",
-  "outcome_id": "16O_stripe_webhook_error_minimization",
-  "master_basis": "3e94498321cd26e64394984a5926d7a583226692",
-  "branch": "radar/slice-16o-stripe-webhook-error-minimization",
+  "slice": "RADAR-16P",
+  "outcome_id": "16P_live_drill_evidence_reconciliation",
+  "master_basis": "594247f12a823e9b90140c56eb8645b057e1fd37",
+  "branch": "radar/slice-16p-live-drill-evidence",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Minimize public Stripe webhook error responses \u2014 G08 source-partial",
-  "progress_class": "source_partial_progress_only",
-  "does_not_implement": "live_deploy_privacy_drill",
-  "notification_delivery_proof": "open",
+  "title": "Reconcile bounded 16O live-drill evidence \u2014 G02/G03/G07/G08/G09 partial/live-proven",
+  "progress_class": "partial_live_proven_evidence_only",
+  "does_not_implement": "human_inbox_organic_alert_production_abrupt_retention_search_dependency_failure_real_pg_completion_logging",
+  "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
     "fixtures/radar-operations/gate-matrix.json",
@@ -51,7 +51,11 @@
     "fixtures/radar-operations/slice16o-expected-contract.json",
     "scripts/lib/stripe-webhook-public-errors.js",
     "scripts/lib/radar-slice16o-stripe-webhook-error-minimization.js",
-    "scripts/verify-radar-slice16o-stripe-webhook-error-minimization.js"
+    "scripts/verify-radar-slice16o-stripe-webhook-error-minimization.js",
+    "fixtures/radar-operations/slice16p-live-drill-evidence.json",
+    "fixtures/radar-operations/slice16p-expected-contract.json",
+    "scripts/lib/radar-slice16p-live-drill-evidence.js",
+    "scripts/verify-radar-slice16p-live-drill-evidence.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -93,28 +97,24 @@
     "runtime_paths_unchanged": [
       "database/",
       "docker/hermes-staging/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/stripe-webhook-public-errors.js",
       "infra/azure/staging/main.bicep",
       "infra/azure/sunset-staging/main.bicep",
-      "infra/azure/staging-staff-api-metric-alerts/"
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
     ],
-    "note": "16O may modify Staff API Stripe webhook public-error helpers + wiring only (sibling to frozen 16M claim helpers); must not mutate DB schema, Hermes staging, staging Bicep, or 16H module; no live deploy; privacy drill remains open"
+    "note": "16P evidence-only; no runtime mutation; records prior operator live drill"
   },
   "gates": [
-    "npm run verify:radar-slice16m-stripe-event-claim",
+    "npm run verify:radar-slice16p-live-drill-evidence",
     "npm run verify:radar-slice16a-operations-gate-ledger",
-    "npm run verify:radar-slice16b-staging-cost-budgets",
-    "npm run verify:radar-slice16h-staff-api-metric-alerts",
-    "npm run verify:radar-slice16i-staff-api-readiness",
-    "npm run verify:radar-slice16j-staff-request-correlation",
-    "npm run verify:radar-slice16k-staff-api-healthz",
     "npm run verify:radar-slice16l-staff-api-capacity-alerts",
-    "npm run verify:staff-auth-api",
+    "npm run verify:radar-slice16o-stripe-webhook-error-minimization",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "npm run verify:radar-slice16o-stripe-webhook-error-minimization",
-    "npm run verify:sunset-stripe-payment-webhook",
-    "git diff --check 3e94498321cd26e64394984a5926d7a583226692..HEAD"
+    "git diff --check 594247f12a823e9b90140c56eb8645b057e1fd37..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -168,9 +168,9 @@
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_log_retention_privacy_drill"
   },
-  "healthz_live_deploy": "open",
+  "healthz_live_deploy": "live_proven_via_16P",
   "healthz_log_retention": "open",
-  "healthz_privacy_drill": "open",
+  "healthz_privacy_drill": "partial_health_observed_via_16P",
   "selected_16l": {
     "outcome_id": "16L_staff_api_capacity_pressure_alerts",
     "gate_id": "G06_scaling_capacity",
@@ -222,8 +222,14 @@
     "outcome_id": "16O_stripe_webhook_error_minimization",
     "gate_id": "G08_retention_privacy",
     "progress_class": "source_partial_progress_only",
-    "does_not_implement": "live_deploy_privacy_drill"
+    "does_not_implement": "abrupt_paths_retention_search_sdk_secret_inject_full_privacy_drill"
   },
-  "stripe_webhook_error_live_deploy": "open",
-  "stripe_webhook_error_privacy_drill": "open"
+  "stripe_webhook_error_live_deploy": "live_proven_via_16P",
+  "stripe_webhook_error_privacy_drill": "partial_malformed_missing_oversize_via_16P",
+  "selected_16p": {
+    "outcome_id": "16P_live_drill_evidence_reconciliation",
+    "gate_id": "G08_retention_privacy",
+    "progress_class": "partial_live_proven_evidence_only",
+    "does_not_implement": "human_inbox_organic_alert_production_abrupt_retention_search_dependency_failure_real_pg_completion_logging"
+  }
 }

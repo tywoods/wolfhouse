@@ -1,7 +1,8 @@
-# RADAR findings (16A freeze + 16B budget-threshold + 16H metric-alert + 16I readiness + 16J correlation + 16K healthz + 16L capacity-pressure + 16M Stripe event-id claim + 16O Stripe webhook error minimization source-partial)
+# RADAR findings (16A freeze + 16B–16O source partials + 16P live-drill evidence reconciliation)
 
-**Master basis (16O):** `3e94498321cd26e64394984a5926d7a583226692`
+**Master basis (16P):** `594247f12a823e9b90140c56eb8645b057e1fd37`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
+**16P progress class:** `partial_live_proven_evidence_only` (this slice does not deploy).
 
 ## Verdict rollup
 
@@ -12,66 +13,46 @@
 | absent | 0 |
 | **total** | **9** |
 
-## Critical gaps
+## Critical gaps (still open — explicitly not claimed by 16P)
 
-1. **G05 retry / replay safety — partial (source only via 16M)**
-   Fail-closed Stripe webhook `payment_events` event-id claim before booking-payment and addon_service mutations (same txn; ON CONFLICT DO NOTHING RETURNING id; minimized payload). **Not deployed.** Live concurrency, replay operator, DLQ, and controlled drill remain open. Ignored/unmatched event types intentionally unclaimed.
+1. **Human inbox receipt** — AG test notification API Email Status=Succeeded is not inbox proof.
+2. **Organic metric alert firing** — not observed / not claimed (5xx, restart, capacity).
+3. **Abrupt Stripe webhook paths** — not claimed (only malformed/missing/oversize observed).
+4. **Retention/search** — log retention / PII redaction / LAW search not claimed.
+5. **Dependency failure** — healthy /readyz observed; failure traffic-shed drill open.
+6. **Real-PG contention** — 16M concurrency drill open.
+7. **Completion logging** — 16J/16N completion logs remain open.
+8. **Production** — staging-only; production forbidden.
 
-2. **G06 scaling / capacity — partial (source only via 16L)**
-   Wolfhouse + Sunset staging Bicep declare Staff API capacity-pressure alerts (CpuPercentage Average >80 + MemoryPercentage Average >80; PT15M/PT5M; severity 2; enabled; static Microsoft.App/containerApps criteria; wired to subscription-pinned future 16B ops AG resource ID param). **Not deployed** — live metric_alerts still `[]`. No autoscaling added; replicas unchanged. Deploy, alert fire, sustained load, response-time/SLO, and backpressure remain open.
+## Gate progress after 16P (truthful)
 
-3. **G03 actionable tenant-aware alerts — partial (source only)**
-   Standalone staging Staff API metric-alert IaC added (tenant-named Requests 5xx >=3 PT5M/PT1M + RestartCount >0 PT5M/PT1M; refs 16B ops AG by name). Source module only — **no deployment wrapper**. **Not deployed** — live metric_alerts still `[]`. Safe Incremental operator deploy, notification delivery, and alert-fire drill remain open. Template cannot enforce ARM mode.
+| Gate | progress_class | Live-proven (bounded) | Still open |
+|------|----------------|----------------------|------------|
+| G01 | source_partial | — | completion logging, delivery/search/retention |
+| G02 | partial_live_proven | health/ready after deploy + rollforward | dependency-failure drill |
+| G03 | partial_live_proven | AG test API Email Status=Succeeded / Complete | human inbox; organic alert fire |
+| G04 | partial | — | backlog metrics / DLQ |
+| G05 | source_partial | — | real-PG contention; replay/DLQ |
+| G06 | source_partial | — | organic capacity alert fire; load/SLO |
+| G07 | partial_live_proven | WH 0000515→0000516; Sunset 0000275→0000276; final 594247f | PG restore drill |
+| G08 | partial_live_proven | SHA 594247f @ 0000514/0000274; malformed/missing/oversize generic | abrupt; retention/search |
+| G09 | partial_live_proven | AG test API Email Status=Succeeded both tenants | human inbox; budget live-list; anomaly |
 
-4. **G09 cost controls — partial (budget-threshold source only)**
-   Standalone staging budget-threshold IaC added (USD 120/40, 80%/100% Enabled, ops-email AG per RG). **Not deployed** — live budgets still `[]`. Real notification delivery proof remains open. **Anomaly detection remains absent / not claimed.**
+## Slice 16P
 
-5. **G02 readiness / dependencies — partial (source only via 16I)**
-   Staff API `/readyz` + ACA probes added in source (dedicated max-1 readiness pool; `/healthz` stays DB-independent). **Not deployed** — live ACA probes still empty/null. Controlled readiness failure drill and lifecycle integration remain open. Supersedes deferred 16C (no signal/shutdown framework in 16I).
+`16P_live_drill_evidence_reconciliation` — evidence-only reconciliation of operator-observed 16O live drill. Records: deploy SHA `594247f` to Wolfhouse `0000514` / Sunset `0000274` with health/ready and malformed/missing/oversize generic responses; rollback then rollforward WH `0000515`→`0000516`, Sunset `0000275`→`0000276`, health/readiness passed, final image `594247f`; Azure Action Group test notification API Email Status=`Succeeded` state=`Complete` (WH sent `2026-07-20T21:35:00.5549824Z` completed `21:38:26.1342044Z`; Sunset sent `21:39:53.8402179Z` completed `21:43:16.2619454Z`). Verifier rejects altered evidence and overstated claims. Does not claim human inbox receipt, organic metric alert firing, production, abrupt paths, retention/search, dependency failure, real-PG contention, or completion logging.
 
-6. **G01 correlation / structured logs — partial (source only via 16J)**
-   Staff API request correlation middleware added (UUIDv4 accept/generate, ALS, response header; header + context only). **No completion logging / lifecycle listeners.** **Not deployed** — request completion logs, LAW/App Insights delivery + search, retention, and correlation drill remain open. Supersedes deferred 16D (no async log queue; no signal/shutdown ownership).
+## Prior slices (retained)
 
-7. **G08 retention / privacy — partial (source only via 16O + 16K)**
-   Public Stripe webhook error bodies minimized in source (SDK unavailable / missing webhook secret → `stripe_webhook_unavailable` retryable 500; raw-body stream/oversize/abort → `invalid_webhook_request` 400; invalid/missing/malformed signature → `invalid_stripe_signature` 400 with stable message; allowlisted audit reasons only). Prior 16K public `/healthz` minimized to `{status:ok,service:staff-api}`. **Not deployed** — live webhook error bodies and `/healthz` still expose detailed fields. LAW/App Insights retention remain proven live. Log-retention/PII redaction proof and privacy drill remain open.
-
-## Other partial notes
-
-- **G04 backlog:** handlers/jobs exist; backlog metrics missing.
-- **G07 runbooks:** docs present; PHASE-7.4 restore drill not executed; PG backup 7d, geo-redundant off.
-
-## Slice 16O
-
-`16O_stripe_webhook_error_minimization` on **G08_retention_privacy** — progress class `source_partial_progress_only`. Generic fail-closed public Stripe webhook error responses for all pre-verification failures (raw-body read, missing webhook secret, SDK load, signature verification); no raw exception/signature/secret/payload/tenant/env leakage; request ID retained; zero DB on those paths. Does not deploy; does not change tenant binding, 16M claim logic, skip_verify=false, or ignored/unmatched behavior; deploy/privacy drill remain open.
-
-## Slice 16M
-
-`16M_stripe_webhook_event_id_claim` on **G05_retry_replay_safety** — progress class `source_partial_progress_only`. Addon path has no pre-transaction already-paid shortcut; every matched addon event claims under transaction, locks owned payment FOR UPDATE after claim; distinct-event already-paid → processed ledger + `duplicate_business_outcome` with `no_business_mutation`/`no_payment_or_service_rewrite` (not `no_db_write`). Exact-ID retry → `stripe_event_id_already_claimed`. COMMIT failure returns `outcome_unknown=true` (never claimed definitely rolled back). Does not deploy; does not add replay operator/DLQ; does not claim ignored event types; deploy/live concurrency/real-PG ambiguous-commit drill/replay/DLQ/drill remain open.
-
-## Slice 16L
-
-`16L_staff_api_capacity_pressure_alerts` on **G06_scaling_capacity** — progress class `source_partial_progress_only`. Does not deploy; does not add autoscaling; does not mutate replicas; does not alter 16H; does not claim load/SLO/backpressure; deploy/fire/load/SLO/backpressure remain open.
-
-## Slice 16K
-
-`16K_staff_api_healthz_minimization` on **G08_retention_privacy** — progress class `source_partial_progress_only`. Does not deploy; does not change `/readyz` or authenticated diagnostics; live deploy / log-retention proof / privacy drill remain open.
-
-## Slice 16J
-
-`16J_staff_api_request_correlation` on **G01_correlation_structured_logs** — progress class `source_partial_progress_only`. Supersedes deferred 16D. Header + ALS only. Does not deploy; does not add completion logging, lifecycle listeners, async log queue, or signal/shutdown ownership; request completion logs/delivery/search/retention/drill remain open.
-
-## Slice 16I
-
-`16I_staff_api_readiness_dependencies` on **G02_readiness_dependencies** — progress class `source_partial_progress_only`. Supersedes deferred 16C. Does not deploy; does not add signal/shutdown framework; lifecycle integration of `closeReadinessPool` remains open.
-
-## Slice 16H
-
-`16H_staff_api_metric_alerts` on **G03_actionable_tenant_aware_alerts** — progress class `source_partial_progress_only`. Supersedes deferred 16F/16G. Does not deploy; does not ship a deployment wrapper; does not prove delivery or alert fire.
-
-## Slice 16B
-
-`16B_staging_rg_cost_budget_threshold` on **G09_cost_controls** — progress class `budget_threshold_partial_progress_only`. Does not implement anomaly detection.
+- **16O** webhook error minimization — live deploy + partial privacy probe via 16P; abrupt/sdk/secret inject open
+- **16M** event-id claim — source-partial; real-PG contention open
+- **16L** capacity alerts — source-partial; organic fire open
+- **16K** healthz — live health observed via 16P; retention open
+- **16J** correlation — source-partial; completion logging open
+- **16I** readiness — healthy path live via 16P; failure drill open
+- **16H** metric alerts — AG test API via 16P; organic fire + inbox open
+- **16B** budget threshold — AG test API via 16P; budget live-list + anomaly open
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16O. Database schema, Hermes staging, staging Bicep, and 16H metric-alert module unchanged vs master. Staff API Stripe webhook public-error helper + wiring are intentional 16O ownership.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16P. Staff API, Hermes, database, and staging IaC unchanged vs master `594247f`. Evidence fixtures + ledger/matrix only.

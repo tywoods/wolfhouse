@@ -794,9 +794,14 @@ async function main() {
     const branch = execSync('git rev-parse --abbrev-ref HEAD', {
       cwd: ROOT, encoding: 'utf8',
     }).trim();
-    ok('C9 HEAD on 16O branch', branch === locks.BRANCH, branch);
+    // Successor 16P may own HEAD while 16O source remains frozen on master basis.
+    const allowed = new Set([
+      locks.BRANCH,
+      'radar/slice-16p-live-drill-evidence',
+    ]);
+    ok('C9 HEAD on 16O branch or successor 16P', allowed.has(branch), branch);
   } catch (err) {
-    ok('C9 HEAD on 16O branch', false, String(err && err.message));
+    ok('C9 HEAD on 16O branch or successor 16P', false, String(err && err.message));
   }
 
   const redMissing = REQUIRED_RED.filter((id) => !redResults.some((r) => r.id === id && r.ok));
