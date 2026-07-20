@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "slice": "RADAR-16H",
+    "purpose": "Secret-free example parameters for luna-sunset-staging-rg Staff API metric alerts. Only containerAppName is a template parameter; tenant slug, 16B action-group name, thresholds, severity, windows, operators, metric names, and enabled state are Bicep vars derived/locked — not overridable. Source module only; operator Incremental deploy and live proof remain open. Template cannot enforce ARM mode.",
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "containerAppName": "luna-sunset-staging-staff-api",
+    "derivedTenantSlug": "sunset",
+    "derivedActionGroupName": "luna-sunset-staging-ops-budget-ag",
+    "deploymentMode": "Incremental",
+    "deploymentModeEnforceableByTemplate": false,
+    "operatorIncrementalDeploy": "open",
+    "liveDeploy": false,
+    "notification_delivery_proof": "open",
+    "alert_fire_drill": "open",
+    "hardLocks": {
+      "subscriptionAssert": "subscription().subscriptionId",
+      "rgAppTupleAssert": "resourceGroup().name + containerAppName",
+      "derivedFromRg": ["tenantSlug", "actionGroupName"],
+      "constantsNotParameters": [
+        "requestsMetricName",
+        "restartMetricName",
+        "requests5xxOperator",
+        "restartCountOperator",
+        "requests5xxThreshold",
+        "restartCountThreshold",
+        "alertSeverity",
+        "windowSize",
+        "evaluationFrequency",
+        "alertsEnabled"
+      ]
+    },
+    "forbidden": [
+      "overriding threshold/severity/window/operator/metric/enabled via parameters",
+      "passing actionGroupName or tenantSlug as parameters",
+      "creating/modifying action groups",
+      "creating/modifying Container Apps",
+      "wiring into main.bicep",
+      "budgets / identity / secrets / DB / network resources",
+      "production RGs",
+      "live Azure deploy from this slice",
+      "deployment wrapper / execution claim in this slice"
+    ]
+  },
+  "parameters": {
+    "containerAppName": {
+      "value": "luna-sunset-staging-staff-api"
+    }
+  }
+}
