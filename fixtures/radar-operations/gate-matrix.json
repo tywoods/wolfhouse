@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16B",
-  "title": "RADAR operations gate ledger (16B budget-threshold partial progress)",
+  "slice": "RADAR-16D",
+  "title": "RADAR operations gate ledger (16D staff request correlation source-partial)",
   "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
-  "branch": "radar/slice-16b-staging-cost-budgets",
+  "branch": "radar/slice-16d-staff-request-correlation",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -27,13 +27,26 @@
       "name": "Correlation / structured logs",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Staff API appends JSONL audit lines locally, and ACA envs ship container logs to Log Analytics, but there is no request correlation ID middleware, no tenant-labeled structured HTTP access log contract, and no proven end-to-end correlation across Meta → Hermes → Staff API → Stripe.",
+      "progress_class": "source_partial_progress_only",
+      "rationale": "16D adds Staff API HTTP-boundary request correlation: strict bounded X-Request-Id (or crypto-random), response echo, AsyncLocalStorage propagation without handler signature changes, and exactly-one structured completion event (correlation_id, method, route_class, status, duration_ms, authoritative client_slug/location_id when bound, error_class). Source-partial only — not deployed; Log Analytics/App Insights query proof and end-to-end Meta→Hermes→Staff→Stripe correlation remain open.",
       "source_evidence": [
         {
+          "path": "scripts/lib/staff-api-request-correlation.js",
+          "lines": "1-80",
+          "symbols": ["runWithRequestCorrelation", "AsyncLocalStorage", "buildCompletionEvent"],
+          "note": "Correlation ID accept/generate, ALS, safe completion event"
+        },
+        {
           "path": "scripts/staff-query-api.js",
-          "lines": "827-828,1595-1599",
-          "symbols": ["LOG_DIR", "LOG_FILE", "appendAuditLog"],
-          "note": "JSONL file append only; silent catch on write failure"
+          "lines": "46644-46660",
+          "symbols": ["createStaffQueryApiHttpServer", "runWithRequestCorrelation"],
+          "note": "HTTP boundary wraps every request"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16d-expected-contract.json",
+          "lines": "1-40",
+          "symbols": [],
+          "note": "Frozen event/context contract"
         },
         {
           "path": "infra/azure/staging/main.bicep",
@@ -53,9 +66,9 @@
         }
       ],
       "gaps": [
-        "No X-Request-Id / correlation_id propagation",
-        "No tenant-aware structured access logs with client_slug dimension",
-        "Audit JSONL is process-local path, not proven shipped as App Insights traces"
+        "Not deployed — live Staff API image lacks correlation middleware until follow-on deploy",
+        "No proven LAW/App Insights query of staff_api_http_request_complete events",
+        "No proven end-to-end correlation across Meta → Hermes → Staff API → Stripe"
       ]
     },
     {
@@ -466,6 +479,43 @@
         "Leave anomaly detection unmet"
       ],
       "pass_rule": "Both RG budgets listed Enabled with thresholds + proven notification delivery; no container restart/deploy/DB write; anomaly detection still absent"
+    }
+  },
+  "slice_16d_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16D_staff_api_request_correlation",
+    "gate_id": "G01_correlation_structured_logs",
+    "progress_class": "source_partial_progress_only",
+    "title": "Staff API safe request correlation at HTTP boundary — source partial only",
+    "owner_files": [
+      "scripts/lib/staff-api-request-correlation.js",
+      "scripts/staff-query-api.js",
+      "scripts/lib/radar-slice16d-staff-request-correlation.js",
+      "scripts/verify-radar-slice16d-staff-request-correlation.js",
+      "fixtures/radar-operations/slice16d-expected-contract.json"
+    ],
+    "out_of_scope_for_16d": [
+      "Live deploy / restart / image push",
+      "Log Analytics / App Insights query proof",
+      "End-to-end Meta → Hermes → Staff → Stripe correlation",
+      "Changing handler signatures",
+      "Emitting raw URL/query/body/headers/guest/credentials/tokens/stack/error messages"
+    ],
+    "acceptance_criteria": [
+      "Every request accepts only strict bounded X-Request-Id or generates crypto-random ID",
+      "Correlation ID returned on every response",
+      "AsyncLocalStorage propagation without handler signature changes",
+      "Exactly one structured completion event with allowed fields only",
+      "Tenant/location only when bound from already-authoritative runtime",
+      "RED: injection/oversize/unicode IDs, secret/query leakage, forged tenant, concurrent bleed, aborted, double completion, raw route cardinality",
+      "GREEN: real listener concurrency/error/404",
+      "G01 remains partial; deployment + log-query proof open"
+    ],
+    "final_controlled_drill": {
+      "id": "16D_DRILL_correlation_log_query",
+      "status": "open",
+      "pass_rule": "After approved deploy: known X-Request-Id traffic yields one completion event per request in LAW/App Insights with route_class (not raw URL) and no secret/guest leakage; concurrent requests do not bleed context"
     }
   },
   "final_controlled_drill_16a": {

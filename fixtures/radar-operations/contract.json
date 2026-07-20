@@ -1,13 +1,18 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16B",
-  "outcome_id": "16B_staging_rg_cost_budget_threshold",
+  "slice": "RADAR-16D",
+  "outcome_id": "16D_staff_api_request_correlation",
   "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
-  "branch": "radar/slice-16b-staging-cost-budgets",
+  "branch": "radar/slice-16d-staff-request-correlation",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Standalone staging ActualCost budget-threshold module (partial progress; not anomaly detection)",
-  "progress_class": "budget_threshold_partial_progress_only",
+  "title": "Staff API safe request correlation (G01 source-partial; 16B budget-threshold still partial)",
+  "progress_class": "source_partial_progress_only",
+  "selected_16d": {
+    "outcome_id": "16D_staff_api_request_correlation",
+    "gate_id": "G01_correlation_structured_logs",
+    "progress_class": "source_partial_progress_only"
+  },
   "does_not_implement": "anomaly_detection",
   "notification_delivery_proof": "open",
   "artifacts": [
@@ -18,10 +23,14 @@
     "fixtures/radar-operations/findings.md",
     "fixtures/radar-operations/slice16b-budget-threshold-plan.json",
     "fixtures/radar-operations/slice16b-expected-contract.json",
+    "fixtures/radar-operations/slice16d-expected-contract.json",
     "infra/azure/staging-cost-budgets/",
     "scripts/lib/radar-slice16b-staging-cost-budgets.js",
     "scripts/verify-radar-slice16b-staging-cost-budgets.js",
     "scripts/preflight-radar-slice16b-staging-cost-budgets.js",
+    "scripts/lib/staff-api-request-correlation.js",
+    "scripts/lib/radar-slice16d-staff-request-correlation.js",
+    "scripts/verify-radar-slice16d-staff-request-correlation.js",
     "scripts/verify-radar-slice16a-operations-gate-ledger.js"
   ],
   "expected_verdict_counts": {
@@ -52,18 +61,18 @@
   },
   "zero_mutation_proof": {
     "runtime_paths_unchanged": [
-      "scripts/staff-query-api.js",
       "docker/hermes-staging/",
       "database/",
       "infra/azure/staging/main.bicep",
       "infra/azure/sunset-staging/main.bicep"
     ],
-    "note": "16B may add standalone staging-cost-budgets module + radar fixtures/verifiers; must not modify Staff API/Hermes/DB/main.bicep wiring; live deploy hard-disabled"
+    "note": "16D may modify Staff API correlation source; must not modify Hermes/DB/main.bicep; live deploy hard-disabled"
   },
   "gates": [
     "az bicep build --file infra/azure/staging-cost-budgets/rg-budget-threshold.bicep",
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:radar-slice16b-staging-cost-budgets",
+    "npm run verify:radar-slice16d-staff-request-correlation",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",

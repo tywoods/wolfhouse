@@ -105,10 +105,13 @@ function secretFree(text, label) {
 }
 
 function runtimePathsUnchanged() {
+  // 16D owns Staff API request correlation at the HTTP boundary; 16A freeze still
+  // requires staging Bicep + database/Hermes sources remain untouched by this slice.
   const paths = [
-    'scripts/staff-query-api.js',
     'infra/azure/staging/main.bicep',
     'infra/azure/sunset-staging/main.bicep',
+    'database/',
+    'docker/hermes-staging/',
   ];
   try {
     const out = execSync(
@@ -281,7 +284,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 zero-mutation: runtime Bicep/staff-api unchanged vs master basis', rt.ok, rt.detail);
+ok('F39 zero-mutation: Bicep/DB/Hermes unchanged vs master basis (16D may touch staff-api)', rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
   matrix.final_controlled_drill_16a
@@ -294,6 +297,17 @@ ok('F43 git range diff --check clean vs master basis', rangeCheck.ok, rangeCheck
 ok('F44 contract gates pin range diff --check',
   Array.isArray(contract.gates)
   && contract.gates.some((g) => g === `git diff --check ${MASTER_BASIS}..HEAD`));
+
+const g01 = matrix.gates.find((g) => g.id === 'G01_correlation_structured_logs');
+ok('F45 G01 partial source-partial via 16D',
+  g01 && g01.verdict === 'partial'
+  && g01.progress_class === 'source_partial_progress_only'
+  && /correlation/i.test(g01.rationale)
+  && /source-partial|source partial/i.test(g01.rationale)
+  && matrix.slice_16d_selection
+  && matrix.slice_16d_selection.outcome_id === '16D_staff_api_request_correlation'
+  && matrix.slice_16d_selection.gate_id === 'G01_correlation_structured_logs'
+  && matrix.slice_16d_selection.progress_class === 'source_partial_progress_only');
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

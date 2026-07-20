@@ -1,34 +1,53 @@
-# RADAR Slice 16B — Operations gate ledger (budget-threshold partial progress)
+# RADAR Slice 16D — Operations gate ledger (Staff API request correlation source-partial)
 
-**Status:** source partial progress only (zero live deploy / mutation / anomaly-detection claim)
-**Master basis:** `5a8b08d395e11c51baf928b918016d5dd5bb4afe`
-**Branch:** `radar/slice-16b-staging-cost-budgets`
+**Status:** source partial progress only (zero live deploy / mutation / log-query claim)
+**Master basis:** `acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b`
+**Branch:** `radar/slice-16d-staff-request-correlation`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
 
 ## Outcome
 
-Add a **standalone staging-only Azure budget-threshold module** (ActualCost budgets + parameterized ops-email action groups). This is **budget-threshold partial progress only**. It does **not** deploy, does **not** prove notification delivery, and does **not** claim cost anomaly detection.
+Establish **safe request correlation at the Staff API HTTP boundary** (source only). For every request: accept only a strict bounded `X-Request-Id` or generate a cryptographically random ID; return it on the response; propagate via AsyncLocalStorage without changing handler signatures; emit exactly one structured completion event. **Do not deploy.** G01 remains `partial` — deployment and log-query proof stay open.
 
 ## Artifacts
 
 | Path | Role |
 |------|------|
-| `infra/azure/staging-cost-budgets/rg-budget-threshold.bicep` | Standalone RG module (AG + budget only) |
-| `infra/azure/staging-cost-budgets/parameters.*.example.json` | Secret-free locked params (no email) |
-| `infra/azure/staging-cost-budgets/README.md` | Module contract |
-| `fixtures/radar-operations/slice16b-budget-threshold-plan.json` | Secret-free resource plan |
-| `scripts/lib/radar-slice16b-staging-cost-budgets.js` | Locks + RED/GREEN + scope short-circuit |
-| `scripts/preflight-radar-slice16b-staging-cost-budgets.js` | Exact sub/RG preflight (no Azure calls) |
-| `scripts/verify-radar-slice16b-staging-cost-budgets.js` | Offline 16B verifier |
-| `fixtures/radar-operations/gate-matrix.json` | Updated gate matrix |
-| `npm run verify:radar-slice16b-staging-cost-budgets` | Gate |
+| `scripts/lib/staff-api-request-correlation.js` | ID accept/generate, ALS, route class, completion event |
+| `scripts/staff-query-api.js` | HTTP boundary wire + authoritative tenant bind |
+| `scripts/lib/radar-slice16d-staff-request-correlation.js` | Locks |
+| `scripts/verify-radar-slice16d-staff-request-correlation.js` | RED/GREEN offline verifier |
+| `fixtures/radar-operations/slice16d-expected-contract.json` | Event/context contract |
+| `npm run verify:radar-slice16d-staff-request-correlation` | Gate |
+
+## Event / context contract
+
+**Header:** `X-Request-Id` — accept `^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$` (8–128 ASCII) else generate 32-char hex.
+
+**Propagation:** `AsyncLocalStorage` (no handler signature changes).
+
+**Completion event** (`staff_api_http_request_complete`), exactly once:
+
+| Field | Rule |
+|-------|------|
+| `correlation_id` | Accepted or generated ID |
+| `method` | HTTP method |
+| `route_class` | Normalized low-cardinality path (IDs collapsed) |
+| `status` | HTTP status |
+| `duration_ms` | Elapsed |
+| `client_slug` / `location_id` | Only when bound from already-authoritative runtime |
+| `error_class` | Status/abort class — never message/stack |
+
+**Must not include:** raw URL/query/body/headers, guest data, credentials, tokens, stack, error message.
+
+Preserves existing response/error bodies and streaming (no body buffering).
 
 ## Verdict counts
 
 | Verdict | Count | Meaning |
 |---------|------:|---------|
-| `proven` | 0 | Control fully evidenced end-to-end (incl. delivery) |
+| `proven` | 0 | Control fully evidenced end-to-end (incl. live deploy + log query) |
 | `partial` | 8 | Some code and/or live evidence; gaps remain |
 | `absent` | 1 | No safe control evidenced (G03) |
 | **total** | **9** | Matrix gates |
@@ -37,7 +56,7 @@ Add a **standalone staging-only Azure budget-threshold module** (ActualCost budg
 
 | ID | Gate | Verdict |
 |----|------|---------|
-| G01 | Correlation / structured logs | `partial` |
+| G01 | Correlation / structured logs | `partial` (source-partial via 16D) |
 | G02 | Readiness / dependencies | `partial` |
 | G03 | Actionable tenant-aware alerts | `absent` |
 | G04 | Webhook / payment / worker backlog | `partial` |
@@ -45,58 +64,44 @@ Add a **standalone staging-only Azure budget-threshold module** (ActualCost budg
 | G06 | Scaling / capacity | `partial` |
 | G07 | Rollback / incident runbooks | `partial` |
 | G08 | Retention / privacy | `partial` |
-| G09 | Cost controls | `partial` |
+| G09 | Cost controls | `partial` (16B budget-threshold source) |
 
-## G09 semantics (truthful)
+## Prior slice 16B (still partial)
 
-**G09 = cost controls** — not “anomaly detection alone”.
+**ID:** `16B_staging_rg_cost_budget_threshold` on **G09_cost_controls** — budget-threshold source only; not anomaly detection; deploy + notification delivery still open.
 
-| Sub-control | Status | Notes |
-|-------------|--------|-------|
-| Budget threshold | `partial` | Standalone IaC source for USD 120/40, 80%/100% Enabled thresholds, ops-email AG per RG. **Not deployed.** Live budgets still `[]`. |
-| Notification delivery | `open` | Real delivery proof required; Enabled configuration alone fails. |
-| Anomaly detection | `absent` / open | **Not implemented; not claimed by 16B.** |
+## Slice 16D progress
 
-## Resource plan (secret-free)
+**ID:** `16D_staff_api_request_correlation`
 
-| RG | Budget | Amount USD | Thresholds | Action group |
-|----|--------|------------|------------|--------------|
-| `wh-staging-rg` | `wh-staging-rg-monthly-actualcost` | 120 | 80%, 100% Actual Enabled | `wh-staging-ops-budget-ag` |
-| `luna-sunset-staging-rg` | `luna-sunset-staging-rg-monthly-actualcost` | 40 | 80%, 100% Actual Enabled | `luna-sunset-staging-ops-budget-ag` |
+**Gate:** `G01_correlation_structured_logs`
 
-Deployment mode: **Incremental** only. Allowed types: `Microsoft.Insights/actionGroups`, `Microsoft.Consumption/budgets` only. `opsNotifyEmail` has **no default** and is **omitted** from committed params.
-
-## Slice 16B progress
-
-**ID:** `16B_staging_rg_cost_budget_threshold`
-**Gate:** `G09_cost_controls`
-**Progress class:** `budget_threshold_partial_progress_only`
-**Does not implement:** `anomaly_detection`
+**Progress class:** `source_partial_progress_only`
 
 ### Still open
 
-1. Live deploy of budgets/AGs to the two staging RGs
-2. Real notification **delivery** proof
-3. Cost **anomaly detection** (separate acceptance)
+1. Live deploy of Staff API image with correlation middleware
+2. Log Analytics / App Insights query proof of completion events
+3. End-to-end Meta → Hermes → Staff API → Stripe correlation
 
 ### Final controlled drill (remaining)
 
-`16B_DRILL_budget_threshold_notify` — after approved deploy: confirm thresholds; prove **notification delivery**; re-list budgets read-only; prove no container restart/deploy/DB write; leave anomaly detection unmet.
+`16D_DRILL_correlation_log_query` — after approved deploy: known `X-Request-Id` traffic; prove one completion event per request in LAW/App Insights with `route_class` (not raw URL) and no secret/guest leakage; prove concurrent requests do not bleed context.
 
 ## Gates
 
 ```bash
-export PATH="/opt/data/.local/bin:$PATH"
-export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
-az bicep build --file infra/azure/staging-cost-budgets/rg-budget-threshold.bicep --outfile tmp/radar-16b-rg-budget-threshold.json
+npm run verify:radar-slice16d-staff-request-correlation
 npm run verify:radar-slice16a-operations-gate-ledger
 npm run verify:radar-slice16b-staging-cost-budgets
+npm run verify:staff-auth-api
+npm run verify:fortress-slice15j3-payment-uuid-callback-tenant-acl
 npm run verify:sunset-staging-iac-secret-scan
 npm run verify:migration-integrity
 npm run verify:sunset-staging-iac-diff-check
-git diff --check 5a8b08d395e11c51baf928b918016d5dd5bb4afe..HEAD
+git diff --check acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b..HEAD
 ```
 
 ## Zero-live / zero-runtime proof
 
-16B adds standalone staging-cost-budgets IaC, fixtures, preflight, and verifiers only. It must not change `scripts/staff-query-api.js`, Hermes runtime, `database/`, or wire into `infra/azure/staging/main.bicep` / `infra/azure/sunset-staging/main.bicep`. Live deploy is hard-disabled. No Azure mutating calls in this slice.
+16D changes Staff API correlation source only. Live deploy is out of scope. No Azure mutating calls. No guest/payment/production actions. Database schema, Hermes staging, and staging main Bicep must remain untouched.

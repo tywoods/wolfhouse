@@ -1,6 +1,6 @@
-# RADAR findings (16A freeze + 16B budget-threshold partial progress)
+# RADAR findings (16A freeze + 16B budget-threshold + 16D correlation source-partial)
 
-**Master basis (16B):** `5a8b08d395e11c51baf928b918016d5dd5bb4afe`
+**Master basis (16D):** `acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
 
 ## Verdict rollup
@@ -23,14 +23,14 @@
 ## Other high partials
 
 - **G02 readiness:** `/healthz` is static ok; ACA probes empty/null; scale-to-zero on Wolfhouse staff API.
-- **G01 logs:** JSONL audit + LAW destination exist; no correlation ID / tenant-structured access log.
+- **G01 logs:** 16D adds Staff API HTTP correlation + structured completion event (source-partial). Deploy + LAW/App Insights query proof + e2e Meta→Hermes→Staff→Stripe remain open.
 - **G04/G05 backlog + replay:** handlers/jobs/idempotency keys exist; backlog metrics and full replay proof missing.
 - **G07 runbooks:** docs present; PHASE-7.4 restore drill not executed; PG backup 7d, geo-redundant off.
 
-## Slice 16B
+## Slice 16D
 
-`16B_staging_rg_cost_budget_threshold` on **G09_cost_controls** — progress class `budget_threshold_partial_progress_only`. Does not implement anomaly detection.
+`16D_staff_api_request_correlation` on **G01_correlation_structured_logs** — progress class `source_partial_progress_only`. Strict `X-Request-Id`, ALS propagation, one safe completion event. Does not claim live log-query proof.
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16B. Module is Incremental-only and structurally limited to action groups + consumption budgets.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16D. Staging main Bicep and Hermes untouched.

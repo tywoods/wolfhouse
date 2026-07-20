@@ -73,6 +73,13 @@ const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(pr
 
 const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
 
+const {
+  runWithRequestCorrelation,
+  bindAuthoritativeRuntimeScope,
+  getRequestCorrelationContext,
+  CORRELATION_HEADER_CANON,
+} = require('./lib/staff-api-request-correlation');
+
 /** FORTRESS 15J3 offline listener harness — inject PG/session/ACL boundaries only when dual-gated. */
 let __fortress15j3OfflineSeams = null;
 
@@ -1196,6 +1203,8 @@ async function requireAuth(req, res, minRole) {
     return { ok: false };
   }
 
+  // RADAR 16D — bind only already-authoritative session tenant (never from headers/query).
+  bindAuthoritativeRuntimeScope({ clientSlug: user.client_slug });
   return { ok: true, user: { ...user, role: resolveStaffRole(user) } };
 }
 
@@ -1284,6 +1293,8 @@ async function requireBotAuth(req, res) {
           });
           return { ok: false };
         }
+        // RADAR 16D — authoritative bot principal tenant only.
+        bindAuthoritativeRuntimeScope({ clientSlug: principal.user.client_slug });
         return { ok: true, user: principal.user, auth_mode: 'bot_token' };
       }
       // Token provided but wrong → 401 immediately (do not fall through to session)
@@ -1313,6 +1324,8 @@ async function requireBotAuth(req, res) {
     return { ok: false };
   }
 
+  // RADAR 16D — authoritative session tenant only.
+  bindAuthoritativeRuntimeScope({ clientSlug: user.client_slug });
   return { ok: true, user, auth_mode: 'session' };
 }
 
@@ -46640,16 +46653,29 @@ async function router(req, res) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 let __staffQueryApiCreateServerCalls = 0;
+/** Fortress dual-gate only: optional request handler override for offline RED/GREEN. */
+let __staffQueryApiRequestHandlerOverride = null;
+
+function setStaffQueryApiRequestHandlerForOfflineTest(handler) {
+  if (!fortressOfflineListenerSeamsActive()) return;
+  __staffQueryApiRequestHandlerOverride = typeof handler === 'function' ? handler : null;
+}
 
 function createStaffQueryApiHttpServer() {
   __staffQueryApiCreateServerCalls += 1;
-  return http.createServer(async (req, res) => {
-    try {
-      await router(req, res);
-    } catch (err) {
-      // Do not expose stack trace to client
-      sendJSON(res, 500, { success: false, error: 'internal server error' });
-    }
+  // RADAR 16D — correlate every request at the HTTP boundary (ALS; no handler signature change).
+  return http.createServer((req, res) => {
+    runWithRequestCorrelation(req, res, async () => {
+      try {
+        const handler = __staffQueryApiRequestHandlerOverride || router;
+        await handler(req, res);
+      } catch (err) {
+        // Do not expose stack trace to client
+        if (!res.headersSent) {
+          sendJSON(res, 500, { success: false, error: 'internal server error' });
+        }
+      }
+    });
   });
 }
 
@@ -46760,8 +46786,12 @@ if (fortressOfflineListenerSeamsActive()) {
     fortressOfflineListenerSeamsActive,
     createStaffQueryApiHttpServer,
     getStaffQueryApiCreateServerCalls: () => __staffQueryApiCreateServerCalls,
+    setStaffQueryApiRequestHandlerForOfflineTest,
     router,
     server,
+    bindAuthoritativeRuntimeScope,
+    getRequestCorrelationContext,
+    CORRELATION_HEADER_CANON,
     COOKIE_NAME,
     PAYMENT_STRIPE_LINK_RE,
     BOT_PAYMENT_STRIPE_LINK_RE,

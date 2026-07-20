@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16D",
+  "outcome_id": "16D_staff_api_request_correlation",
+  "gate_id": "G01_correlation_structured_logs",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
+  "branch": "radar/slice-16d-staff-request-correlation",
+  "live_deploy": false,
+  "live_mutation": false,
+  "title": "Staff API safe request correlation at HTTP boundary — source partial only",
+  "event_context_contract": {
+    "header": "X-Request-Id",
+    "header_accept": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$",
+      "min_len": 8,
+      "max_len": 128,
+      "on_reject": "generate_cryptographically_random_hex_32"
+    },
+    "propagation": "AsyncLocalStorage",
+    "handler_signatures_unchanged": true,
+    "completion_event": {
+      "event": "staff_api_http_request_complete",
+      "exactly_once": true,
+      "fields": [
+        "event",
+        "correlation_id",
+        "method",
+        "route_class",
+        "status",
+        "duration_ms",
+        "client_slug",
+        "location_id",
+        "error_class"
+      ],
+      "tenant_location_rule": "only_when_bound_from_already_authoritative_runtime",
+      "must_not_include": [
+        "raw_url",
+        "query",
+        "body",
+        "headers",
+        "guest_data",
+        "credentials",
+        "tokens",
+        "stack",
+        "error_message"
+      ]
+    },
+    "preserves": [
+      "existing_response_bodies",
+      "existing_error_behavior",
+      "streaming_no_body_buffer"
+    ]
+  },
+  "still_open": [
+    "Live deploy of Staff API image with correlation middleware",
+    "Log Analytics / App Insights query proof of completion events",
+    "End-to-end Meta → Hermes → Staff API → Stripe correlation"
+  ],
+  "final_controlled_drill": {
+    "id": "16D_DRILL_correlation_log_query",
+    "status": "open",
+    "pass_rule": "After approved deploy: generate known X-Request-Id traffic; prove one completion event per request in LAW/App Insights with route_class (not raw URL) and no secret/guest leakage; prove concurrent requests do not bleed context"
+  },
+  "artifacts": [
+    "scripts/lib/staff-api-request-correlation.js",
+    "scripts/staff-query-api.js",
+    "scripts/lib/radar-slice16d-staff-request-correlation.js",
+    "scripts/verify-radar-slice16d-staff-request-correlation.js",
+    "fixtures/radar-operations/slice16d-expected-contract.json"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16d-staff-request-correlation",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16b-staging-cost-budgets",
+    "npm run verify:staff-auth-api",
+    "npm run verify:fortress-slice15j3-payment-uuid-callback-tenant-acl",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b..HEAD"
+  ]
+}

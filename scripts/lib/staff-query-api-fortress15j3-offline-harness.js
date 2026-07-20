@@ -299,9 +299,13 @@ function sortedHeaders(headers) {
 }
 
 function responseFingerprint(res) {
+  // RADAR 16D: X-Request-Id is unique per request by design and must not
+  // participate in foreign-vs-missing identical-404 oracle checks.
+  const headers = { ...sortedHeaders(res.headers) };
+  delete headers['x-request-id'];
   return JSON.stringify({
     status: res.status,
-    headers: sortedHeaders(res.headers),
+    headers,
     body: res.bodyRaw,
   });
 }
