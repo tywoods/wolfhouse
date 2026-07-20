@@ -121,6 +121,24 @@ function runtimePathsUnchanged() {
   }
 }
 
+function noTrailingWhitespace(text) {
+  return !text.split(/\n/).some((line) => /[ \t]+$/.test(line));
+}
+
+/** Range check vs master basis — bare `git diff --check` on a clean tree can miss committed trailing WS. */
+function rangeDiffCheckClean() {
+  try {
+    const out = execSync(
+      `git diff --check ${MASTER_BASIS}..HEAD`,
+      { cwd: ROOT, encoding: 'utf8' },
+    );
+    return { ok: true, detail: out.trim() || '(clean)' };
+  } catch (err) {
+    const detail = String((err && err.stdout) || (err && err.message) || err).trim();
+    return { ok: false, detail: detail.slice(0, 800) };
+  }
+}
+
 console.log('verify:radar-slice16a-operations-gate-ledger — RADAR Slice 16A\n');
 
 ok('F1 gate-matrix exists', fs.existsSync(MATRIX_PATH));
@@ -260,6 +278,14 @@ ok('F39 zero-mutation: runtime Bicep/staff-api unchanged vs master basis', rt.ok
 ok('F40 16A final controlled drill frozen',
   matrix.final_controlled_drill_16a
   && matrix.final_controlled_drill_16a.id === '16A_DRILL_ledger_freeze_read_only');
+
+ok('F41 ledger doc has no trailing whitespace', noTrailingWhitespace(doc));
+ok('F42 findings have no trailing whitespace', noTrailingWhitespace(findings));
+const rangeCheck = rangeDiffCheckClean();
+ok('F43 git range diff --check clean vs master basis', rangeCheck.ok, rangeCheck.detail);
+ok('F44 contract gates pin range diff --check',
+  Array.isArray(contract.gates)
+  && contract.gates.some((g) => g === `git diff --check ${MASTER_BASIS}..HEAD`));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

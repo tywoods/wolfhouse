@@ -50,6 +50,6 @@
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check"
+    "git diff --check 28a30a688baa637e1bcb549d9b585cb5917942d1..HEAD"
   ]
 }

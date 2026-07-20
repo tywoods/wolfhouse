@@ -1,6 +1,6 @@
 # RADAR 16A findings (audit only)
 
-**Master basis:** `28a30a688baa637e1bcb549d9b585cb5917942d1`  
+**Master basis:** `28a30a688baa637e1bcb549d9b585cb5917942d1`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
 
 ## Verdict rollup
@@ -14,10 +14,10 @@
 
 ## Critical gaps
 
-1. **G03 actionable tenant-aware alerts — absent**  
+1. **G03 actionable tenant-aware alerts — absent**
    Live: metric/activity/scheduled alerts = `[]` on both `wh-staging-rg` and `luna-sunset-staging-rg`. Smart Detection action group has ARM roles only (no email/webhook). No tenant dimensions.
 
-2. **G09 cost anomaly detection — absent**  
+2. **G09 cost anomaly detection — absent**
    Live MTD ActualCost captured, but Consumption budgets = `[]` on both RGs. No anomaly notify path.
 
 ## Other high partials
