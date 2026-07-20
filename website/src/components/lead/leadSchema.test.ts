@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   validateLead,
-  looksLikeEmail,
+  isStrictEmail,
+  isConservativePhone,
+  isValidContact,
   extractUtmParams,
   LEAD_MAX_LENGTH,
   type LeadInput,
@@ -89,31 +91,70 @@ describe('validateLead', () => {
     expect(result.ok).toBe(false);
     expect(result.errors.contact).toMatch(/254/);
   });
+
+  it('rejects malformed email-like strings (no phone fallback)', () => {
+    for (const bad of ['user@domain', 'a@b', 'not@valid', '@example.com', 'user@']) {
+      const result = validateLead({ ...validInput, contact: bad });
+      expect(result.ok, bad).toBe(false);
+      expect(result.errors.contact, bad).toMatch(/email/i);
+    }
+  });
+
+  it('rejects arbitrary text that is neither email nor phone', () => {
+    for (const bad of ['call me later', 'whatsapp', 'N/A', '123', '++34', 'hello world']) {
+      const result = validateLead({ ...validInput, contact: bad });
+      expect(result.ok, bad).toBe(false);
+      expect(result.errors.contact, bad).toBeTruthy();
+    }
+  });
 });
 
-describe('looksLikeEmail', () => {
+describe('isStrictEmail', () => {
   it('accepts a well-formed email', () => {
-    expect(looksLikeEmail('hello@example.com')).toBe(true);
+    expect(isStrictEmail('hello@example.com')).toBe(true);
   });
 
   it('accepts email with subdomain', () => {
-    expect(looksLikeEmail('user@mail.example.co.uk')).toBe(true);
+    expect(isStrictEmail('user@mail.example.co.uk')).toBe(true);
   });
 
   it('rejects a string with no @', () => {
-    expect(looksLikeEmail('+34 663 123 456')).toBe(false);
+    expect(isStrictEmail('+34 663 123 456')).toBe(false);
   });
 
   it('rejects an incomplete email (missing TLD)', () => {
-    expect(looksLikeEmail('user@domain')).toBe(false);
+    expect(isStrictEmail('user@domain')).toBe(false);
   });
 
   it('rejects an empty string', () => {
-    expect(looksLikeEmail('')).toBe(false);
+    expect(isStrictEmail('')).toBe(false);
   });
 
   it('rejects a string with spaces in the local part', () => {
-    expect(looksLikeEmail('hello world@example.com')).toBe(false);
+    expect(isStrictEmail('hello world@example.com')).toBe(false);
+  });
+});
+
+describe('isConservativePhone', () => {
+  it('accepts international numbers with spaces or hyphens', () => {
+    expect(isConservativePhone('+34 663 123 456')).toBe(true);
+    expect(isConservativePhone('+1-415-555-2671')).toBe(true);
+    expect(isConservativePhone('(415) 555-2671')).toBe(true);
+  });
+
+  it('rejects too-short digit runs and bare text', () => {
+    expect(isConservativePhone('12345')).toBe(false);
+    expect(isConservativePhone('call me')).toBe(false);
+    expect(isConservativePhone('+')).toBe(false);
+  });
+});
+
+describe('isValidContact', () => {
+  it('accepts strict email or conservative phone only', () => {
+    expect(isValidContact('maria@surfstay.com')).toBe(true);
+    expect(isValidContact('+34 600 000 000')).toBe(true);
+    expect(isValidContact('user@domain')).toBe(false);
+    expect(isValidContact('please email me')).toBe(false);
   });
 });
 

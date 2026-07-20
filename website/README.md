@@ -2,6 +2,15 @@
 
 Static Astro site for [lunafrontdesk.com](https://lunafrontdesk.com) (preview: `preview.lunafrontdesk.com`). Interactive demo is fixture-driven and isolated from live guest/payment systems.
 
+## Branch ancestry (PR #103)
+
+| Slice | Role | Commit |
+|---|---|---|
+| **A** | Reproducibility / metadata (OG, Apple touch, locked QA browser, README) | Parent of current tip: `f2a6462` — *rebased* Slice A on current `origin/master` (not the earlier pre-rebase tip `abe4bae` / `90668d8`) |
+| **B** | Lead truth / privacy / self-hosted fonts (this work) | Tip on `feat/luna-marketing-site` after Slice B |
+
+Treat `f2a6462` as the rebased Slice A baseline when reviewing Slice B diffs (`f2a6462..HEAD`).
+
 ## Setup
 
 Requires **Node.js ≥ 22.12**.
@@ -18,7 +27,7 @@ npm run qa:install-browser   # Playwright Chromium for visual QA (once per machi
 
 ```sh
 npm run check    # astro check (TypeScript + Astro diagnostics)
-npm test         # vitest (demo engine, lead schema, metadata assets)
+npm test         # vitest (demo engine, lead schema, privacy, metadata assets)
 ```
 
 ## Build
@@ -34,7 +43,8 @@ Build-time env (optional):
 |---|---|
 | `PUBLIC_SITE_URL` | Canonical / OG / sitemap base (default `https://preview.lunafrontdesk.com`) |
 | `PUBLIC_INDEXABLE` | Set to `true` only for production so robots allow indexing |
-| `PUBLIC_LEAD_API_ENABLED` | Set to `true` only to allow same-origin `POST /api/leads` (default off). Production (`PUBLIC_INDEXABLE=true`) always refuses posting until a backend audit. No receiver is shipped in this static site. |
+
+There is **no** `PUBLIC_LEAD_*` enablement variable. Lead submission is compile-time disabled (`LEAD_SUBMISSION_ENABLED = false`) with zero network/storage path until an audited receiver is implemented in a future reviewed slice.
 
 Example production-shaped build:
 
@@ -70,8 +80,11 @@ Use the same `PLAYWRIGHT_BROWSERS_PATH` when running `npm run qa` if you overrod
 | File | Role |
 |---|---|
 | `src/config/site.ts` | Site name, tagline, description, `baseUrl`, `indexable`, `ogImage` |
+| `src/config/privacy.ts` | Controller identity placeholders, retention rule, launch-blocker marker |
 | `astro.config.mjs` | Astro `site` URL + Preact + sitemap integrations |
 | `src/layouts/Layout.astro` | Title, robots, Open Graph, Twitter, favicon, apple-touch |
+| `src/styles/fonts.css` | Self-hosted `@font-face` for Inter + Fraunces |
+| `public/fonts/` | WOFF2 font files (SIL OFL) — no Google Fonts |
 | `public/og/luna-front-desk-og.png` | OG / Twitter image (1200×630) |
 | `public/apple-touch-icon.png` | Apple touch icon (180×180) |
 | `public/luna-front-desk-logo.png` | Brand logo source asset |
@@ -86,7 +99,9 @@ The public demo (`src/demo/*`, `DemoStudio`) is a pure, deterministic state mach
 - No live availability or prices presented as real facts
 - Journeys and ops events are fixtures only; label them as demo data in the UI
 
-Lead form posts only to same-origin `/api/leads` when explicitly enabled — never to an arbitrary URL. Default is disabled: the UI states before submit that data will not be sent or saved; after submit it keeps entered values, avoids success/captured language, and offers an encoded mailto. Do not fake delivery success. Privacy notice: `/privacy/`.
+Lead form submission is **compile-time disabled**: the UI states before submit that data will not be sent or saved; after submit it keeps entered values, avoids success/captured language, and offers an encoded mailto. Contact must be a strict email or conservative international phone. Do not fake delivery success. Privacy notice: `/privacy/`.
+
+**Launch blocker:** registered legal controller identity and postal address are unset on purpose (do not invent). The privacy page marks them as a launch-blocking required value; collection stays disabled until they are supplied and an audited receiver exists.
 
 ## Deployment notes
 

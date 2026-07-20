@@ -8,11 +8,17 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage();
 const network = [];
+const externalFonts = [];
 
 page.on('request', (req) => {
   const url = req.url();
   if (req.method() === 'POST' || url.includes('/api/leads')) {
     network.push(`${req.method()} ${url}`);
+  }
+  if (
+    /fonts\.googleapis\.com|fonts\.gstatic\.com|fonts\.google\.com/i.test(url)
+  ) {
+    externalFonts.push(url);
   }
 });
 
@@ -44,8 +50,19 @@ if (maxName !== '100' || maxBiz !== '150' || maxContact !== '254' || maxFree !==
 
 await page.fill('#name', 'QA Tester');
 await page.fill('#businessName', 'QA Hostel');
-await page.fill('#contact', 'qa@example.com');
+await page.fill('#contact', 'user@domain');
 await page.selectOption('#businessType', 'hostel');
+await page.locator('.lf-submit').click();
+await page.waitForTimeout(400);
+if (await page.getByTestId('lead-local-outcome').count()) {
+  failures.push('malformed email-like contact should not reach local outcome');
+}
+const contactErr = page.locator('#contact-error');
+if (!(await contactErr.count()) || !(await contactErr.innerText()).match(/email/i)) {
+  failures.push('malformed contact missing email validation error');
+}
+
+await page.fill('#contact', 'qa@example.com');
 await page.locator('.lf-submit').click();
 
 try {
@@ -96,6 +113,9 @@ const required = [
   'disabled',
   'analytics',
   '/api/leads',
+  'LAUNCH-BLOCKING REQUIRED VALUE',
+  '24 months',
+  'self-hosted',
 ];
 for (const needle of required) {
   if (!new RegExp(needle, 'i').test(body)) {
@@ -103,8 +123,23 @@ for (const needle of required) {
   }
 }
 
+const blocker = page.getByTestId('controller-identity-blocker');
+if (!(await blocker.count())) {
+  failures.push('controller identity launch blocker not visible');
+} else if ((await blocker.getAttribute('data-controller-complete')) !== 'false') {
+  failures.push('false controller-complete claim on privacy page');
+}
+
+if (await page.getByTestId('controller-identity-complete').count()) {
+  failures.push('privacy page claims controller identity is complete');
+}
+
 const footerLink = page.getByTestId('footer-privacy-link');
 if (!(await footerLink.count())) failures.push('footer privacy link missing');
+
+if (externalFonts.length) {
+  failures.push(`external font origins requested: ${externalFonts.join(', ')}`);
+}
 
 await browser.close();
 
@@ -115,3 +150,5 @@ if (failures.length) {
 }
 console.log('LEAD_PRIVACY_QA_OK');
 console.log('NO_LEAD_NETWORK');
+console.log('NO_EXTERNAL_FONTS');
+console.log('CONTROLLER_IDENTITY_LAUNCH_BLOCKER_VISIBLE');

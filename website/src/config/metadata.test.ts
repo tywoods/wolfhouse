@@ -57,6 +57,8 @@ describe('layout metadata wiring', () => {
     expect(layout).toContain('rel="apple-touch-icon"');
     expect(layout).toContain('href="/apple-touch-icon.png"');
     expect(layout).toContain('ogImageUrl');
+    expect(layout).not.toMatch(/fonts\.googleapis\.com/);
+    expect(layout).not.toMatch(/fonts\.gstatic\.com/);
   });
 });
 

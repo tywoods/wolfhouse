@@ -2,33 +2,18 @@
 import { useState } from 'preact/hooks';
 import {
   validateLead,
-  extractUtmParams,
   LEAD_MAX_LENGTH,
   type LeadInput,
   type LeadErrors,
 } from './leadSchema';
-import {
-  isLeadApiEnabled,
-  buildLeadPayload,
-  postLead,
-  LEAD_GENERIC_ERROR,
-} from './leadApi';
+import { isLeadSubmissionEnabled } from './leadApi';
 import { buildMailtoLink } from './mailto';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type SubmitState = 'idle' | 'submitting' | 'local' | 'delivered' | 'error';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function readUtmFromWindow(): ReturnType<typeof extractUtmParams> {
-  if (typeof window === 'undefined') return {};
-  return extractUtmParams(window.location.search);
-}
+type SubmitState = 'idle' | 'local';
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -63,16 +48,14 @@ function Field({ id, label, error, required, children }: FieldProps) {
 // Main island
 // ---------------------------------------------------------------------------
 
-export interface LeadFormProps {
-  /** Override for tests; defaults to {@link isLeadApiEnabled}. */
-  apiEnabled?: boolean;
-  /** Override for tests; defaults to global fetch. */
-  fetchImpl?: typeof fetch;
-}
-
-export default function LeadForm(props: LeadFormProps = {}) {
-  const apiEnabled = props.apiEnabled ?? isLeadApiEnabled();
-  const fetchImpl = props.fetchImpl ?? fetch;
+/**
+ * Lead form island. Submission is compile-time disabled
+ * ({@link isLeadSubmissionEnabled} is always false in this slice): validate
+ * locally, retain values, offer mailto — never POST or store.
+ */
+export default function LeadForm() {
+  // Compile-time constant path — no env/build-variable enablement.
+  const submissionEnabled = isLeadSubmissionEnabled();
 
   const [values, setValues] = useState<LeadInput>({
     name: '',
@@ -84,7 +67,6 @@ export default function LeadForm(props: LeadFormProps = {}) {
   });
   const [errors, setErrors] = useState<LeadErrors>({});
   const [submitState, setSubmitState] = useState<SubmitState>('idle');
-  const [serverError, setServerError] = useState<string>('');
 
   const set = (field: keyof LeadInput) => (e: Event) => {
     const val = (e.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value;
@@ -97,7 +79,7 @@ export default function LeadForm(props: LeadFormProps = {}) {
   const ariaDesc = (id: string) =>
     errors[id as keyof LeadErrors] ? `${id}-error` : undefined;
 
-  async function handleSubmit(e: Event) {
+  function handleSubmit(e: Event) {
     e.preventDefault();
 
     const result = validateLead(values);
@@ -110,31 +92,19 @@ export default function LeadForm(props: LeadFormProps = {}) {
       return;
     }
 
-    if (!apiEnabled) {
-      // No audited backend — do not POST. Keep values; offer mailto.
-      setServerError('');
+    // Zero network/storage path until an audited receiver lands.
+    if (submissionEnabled) {
+      // Unreachable while LEAD_SUBMISSION_ENABLED is false; kept as a
+      // hard deny so accidental enablement cannot invent a POST path here.
       setSubmitState('local');
       return;
     }
 
-    setSubmitState('submitting');
-    setServerError('');
-
-    const payload = buildLeadPayload(values, readUtmFromWindow());
-    const outcome = await postLead(payload, fetchImpl);
-
-    if (outcome.ok) {
-      setSubmitState('delivered');
-    } else {
-      setServerError(LEAD_GENERIC_ERROR);
-      setSubmitState('error');
-    }
+    setSubmitState('local');
   }
 
-  const busy = submitState === 'submitting';
   const mailtoHref = buildMailtoLink(values);
   const showLocalNotice = submitState === 'local';
-  const showDelivered = submitState === 'delivered';
 
   return (
     <form
@@ -143,7 +113,7 @@ export default function LeadForm(props: LeadFormProps = {}) {
       noValidate
       aria-label="Express interest in Luna Front Desk"
     >
-      {!apiEnabled && (
+      {!submissionEnabled && (
         <p class="lf-truth" role="note" data-testid="lead-disabled-truth">
           Submitting this form will not send or save your details — no lead
           backend is connected yet. After you submit, you can email us instead.
@@ -174,17 +144,6 @@ export default function LeadForm(props: LeadFormProps = {}) {
         </div>
       )}
 
-      {showDelivered && (
-        <div
-          class="lf-local-outcome"
-          role="status"
-          aria-live="polite"
-          data-testid="lead-delivered"
-        >
-          <p>Thanks — we received your message and will follow up.</p>
-        </div>
-      )}
-
       <div class="lf-grid">
         <Field id="name" label="Your name" error={errors.name} required>
           <input
@@ -198,7 +157,6 @@ export default function LeadForm(props: LeadFormProps = {}) {
             onInput={set('name')}
             aria-required="true"
             aria-describedby={ariaDesc('name')}
-            disabled={busy}
           />
         </Field>
 
@@ -214,7 +172,6 @@ export default function LeadForm(props: LeadFormProps = {}) {
             onInput={set('businessName')}
             aria-required="true"
             aria-describedby={ariaDesc('businessName')}
-            disabled={busy}
           />
         </Field>
       </div>
@@ -232,7 +189,6 @@ export default function LeadForm(props: LeadFormProps = {}) {
           onInput={set('contact')}
           aria-required="true"
           aria-describedby={ariaDesc('contact')}
-          disabled={busy}
         />
       </Field>
 
@@ -246,7 +202,6 @@ export default function LeadForm(props: LeadFormProps = {}) {
             onChange={set('businessType')}
             aria-required="true"
             aria-describedby={ariaDesc('businessType')}
-            disabled={busy}
           >
             <option value="">Select a type…</option>
             <option value="hostel">Hostel / guest house</option>
@@ -264,7 +219,6 @@ export default function LeadForm(props: LeadFormProps = {}) {
             name="volumeBucket"
             value={values.volumeBucket}
             onChange={set('volumeBucket')}
-            disabled={busy}
           >
             <option value="">Not sure / skip</option>
             <option value="under_20">Fewer than 20</option>
@@ -286,19 +240,12 @@ export default function LeadForm(props: LeadFormProps = {}) {
           value={values.freeText}
           onInput={set('freeText')}
           aria-describedby={ariaDesc('freeText')}
-          disabled={busy}
         />
       </Field>
 
-      {submitState === 'error' && (
-        <p class="lf-server-error" role="alert" data-testid="lead-generic-error">
-          {serverError || LEAD_GENERIC_ERROR}
-        </p>
-      )}
-
       <div class="lf-actions">
-        <button class="btn btn--primary lf-submit" type="submit" disabled={busy}>
-          {busy ? 'Sending…' : 'Show me Luna for my business'}
+        <button class="btn btn--primary lf-submit" type="submit">
+          Show me Luna for my business
         </button>
         <a class="lf-privacy-link" href="/privacy/" data-testid="lead-privacy-link">
           Privacy
@@ -306,9 +253,7 @@ export default function LeadForm(props: LeadFormProps = {}) {
       </div>
 
       <p class="lf-privacy">
-        {!apiEnabled
-          ? 'Your details stay in this browser until you choose to email us. See our '
-          : 'We only use your details to follow up about Luna. See our '}
+        Your details stay in this browser until you choose to email us. See our{' '}
         <a href="/privacy/">privacy notice</a>
         {' '}for controller contact, retention, and your rights.
       </p>

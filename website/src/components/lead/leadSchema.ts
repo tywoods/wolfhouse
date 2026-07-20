@@ -51,9 +51,45 @@ export interface ValidationResult {
   errors: LeadErrors;
 }
 
-/** Returns true if the string looks like an email address. */
-export function looksLikeEmail(s: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s.trim());
+/**
+ * Strict email grammar (single @, dot-separated domain labels, TLD ≥ 2 chars).
+ * Rejects spaces and trailing/leading dots in labels.
+ */
+const STRICT_EMAIL =
+  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
+
+/**
+ * Conservative international phone: optional leading +, digits with optional
+ * spaces / hyphens / parentheses only. Total digit count 8–15 (E.164-ish).
+ */
+const CONSERVATIVE_PHONE = /^\+?[0-9(][0-9\s().-]{5,22}[0-9]$/;
+
+/** Returns true if the string is a strict email address. */
+export function isStrictEmail(s: string): boolean {
+  const t = s.trim();
+  if (!t || t.length > LEAD_MAX_LENGTH.contact) return false;
+  if (t.includes('..') || t.startsWith('.') || t.includes('@.') || t.endsWith('.')) {
+    return false;
+  }
+  return STRICT_EMAIL.test(t);
+}
+
+/** Returns true if the string matches conservative international phone grammar. */
+export function isConservativePhone(s: string): boolean {
+  const t = s.trim();
+  if (!CONSERVATIVE_PHONE.test(t)) return false;
+  const digits = t.replace(/\D/g, '');
+  return digits.length >= 8 && digits.length <= 15;
+}
+
+/** True when contact is either a strict email or a conservative phone. */
+export function isValidContact(s: string): boolean {
+  const t = s.trim();
+  if (!t) return false;
+  // Prefer email when '@' is present — never fall through to phone for
+  // malformed email-like strings (e.g. user@domain with no TLD).
+  if (t.includes('@')) return isStrictEmail(t);
+  return isConservativePhone(t);
 }
 
 export function validateLead(input: LeadInput): ValidationResult {
@@ -76,13 +112,14 @@ export function validateLead(input: LeadInput): ValidationResult {
     errors.contact = 'Please enter a work email or WhatsApp number.';
   } else if (input.contact.length > LEAD_MAX_LENGTH.contact) {
     errors.contact = `Please keep this under ${LEAD_MAX_LENGTH.contact} characters.`;
-  } else if (looksLikeEmail(contact)) {
-    // Looks like an email — validate the format more strictly.
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contact)) {
+  } else if (!isValidContact(contact)) {
+    if (contact.includes('@')) {
       errors.contact = 'That email address doesn\'t look right.';
+    } else {
+      errors.contact =
+        'Enter a work email, or an international phone/WhatsApp number (e.g. +34 600 000 000).';
     }
   }
-  // Otherwise treat as a phone/WhatsApp — no further format enforcement.
 
   if (!input.businessType) {
     errors.businessType = 'Please select a business type.';

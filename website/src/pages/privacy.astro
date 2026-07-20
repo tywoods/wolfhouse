@@ -1,13 +1,21 @@
 ---
 /**
  * Privacy notice for the Luna Front Desk marketing site.
- * Covers controller, fields, purpose/basis, recipients, retention, rights,
- * no-sale, disabled lead-form truth, and self-hosted / no-analytics status.
+ * Covers controller (with launch-blocking identity gaps), fields, purpose/basis,
+ * recipients, retention, rights, no-sale, disabled lead-form truth, and
+ * self-hosted fonts / no-analytics status.
  */
 import Layout from '../layouts/Layout.astro';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import { site } from '../config/site';
+import {
+  CONTROLLER_IDENTITY_LAUNCH_BLOCKER,
+  isControllerIdentityComplete,
+  privacy,
+} from '../config/privacy';
+
+const controllerComplete = isControllerIdentityComplete();
 ---
 
 <Layout
@@ -28,16 +36,37 @@ import { site } from '../config/site';
 
       <section class="privacy__block" aria-labelledby="controller-heading">
         <h2 id="controller-heading">Controller &amp; contact</h2>
+        {!controllerComplete ? (
+          <p
+            class="privacy__blocker"
+            role="status"
+            data-testid="controller-identity-blocker"
+            data-controller-complete="false"
+          >
+            <strong>{CONTROLLER_IDENTITY_LAUNCH_BLOCKER}</strong>
+            Product brand name on this site ({site.name}) is not a substitute for
+            the registered legal controller name or postal address. Until those
+            values are supplied and reviewed, on-site lead collection stays
+            disabled.
+          </p>
+        ) : (
+          <p data-testid="controller-identity-complete" data-controller-complete="true">
+            The controller is <strong>{privacy.controllerLegalName}</strong>,
+            postal address: {privacy.controllerPostalAddress}.
+          </p>
+        )}
         <p>
-          The controller for this marketing site is <strong>{site.name}</strong>.
-          Contact:{' '}
+          Operational contact email:{' '}
           <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a>.
         </p>
       </section>
 
       <section class="privacy__block" aria-labelledby="fields-heading">
         <h2 id="fields-heading">What we may collect</h2>
-        <p>If you use the interest form, the fields are:</p>
+        <p>
+          On-site interest-form collection is currently disabled. If collection
+          is enabled in a future reviewed slice, the fields would be:
+        </p>
         <ul>
           <li>Your name</li>
           <li>Business name</li>
@@ -50,6 +79,11 @@ import { site } from '../config/site';
             (<code>utm_*</code> and <code>ref</code> only)
           </li>
         </ul>
+        <p>
+          Today, the only voluntary personal data path is email you choose to
+          send to{' '}
+          <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a>.
+        </p>
       </section>
 
       <section class="privacy__block" aria-labelledby="purpose-heading">
@@ -59,7 +93,7 @@ import { site } from '../config/site';
           follow up about a possible fit for your business.
         </p>
         <p>
-          Legal basis (when a submission is actually received by us): our
+          Legal basis (when a message is actually received by us via email): our
           legitimate interest in answering business enquiries you initiate, or
           steps prior to a contract at your request.
         </p>
@@ -78,11 +112,13 @@ import { site } from '../config/site';
 
       <section class="privacy__block" aria-labelledby="retention-heading">
         <h2 id="retention-heading">Retention</h2>
+        <p data-testid="voluntary-email-retention">
+          {privacy.voluntaryEmailRetentionRule}
+        </p>
         <p>
-          Emails you send are kept only as long as needed to handle the enquiry
-          and related follow-up, then deleted or archived under ordinary business
-          email practice. While the on-site lead API is disabled, the form does
-          not create a server-side lead record.
+          While on-site lead submission is compile-time disabled, the form does
+          not create a server-side lead record and does not transmit form values
+          to our servers.
         </p>
       </section>
 
@@ -108,10 +144,12 @@ import { site } from '../config/site';
       <section class="privacy__block" aria-labelledby="disabled-heading">
         <h2 id="disabled-heading">Interest form — current disabled state</h2>
         <p>
-          The same-origin <code>/api/leads</code> endpoint is defined as a
-          contract only. No receiver is implemented on this static site, and
-          posting is <strong>disabled by default</strong>. Production enablement
-          remains blocked pending a backend privacy/security audit.
+          Same-origin <code>/api/leads</code> is documented as a future contract
+          only. This static site ships <strong>no</strong> lead receiver,{' '}
+          <strong>no</strong> build-variable enablement, and{' '}
+          <strong>no</strong> POST/storage path. Lead submission remains
+          compile-time disabled until an audited receiver is implemented in a
+          future reviewed slice.
         </p>
         <p>
           While disabled: submitting the form does <strong>not</strong> send or
@@ -123,12 +161,13 @@ import { site } from '../config/site';
       </section>
 
       <section class="privacy__block" aria-labelledby="hosting-heading">
-        <h2 id="hosting-heading">Hosting &amp; analytics</h2>
-        <p>
+        <h2 id="hosting-heading">Hosting, fonts &amp; analytics</h2>
+        <p data-testid="fonts-privacy">
           This marketing site is intended to be self-hosted / statically served.
-          We do not load third-party analytics, advertising pixels, or social
-          tracking scripts on these pages. Fonts may load from Google Fonts when
-          the browser requests them; that is separate from analytics.
+          Display and body fonts (Fraunces and Inter) are self-hosted under{' '}
+          <code>/fonts/</code> on this origin. We do not request Google Fonts or
+          other third-party font CDNs. We do not load third-party analytics,
+          advertising pixels, or social tracking scripts on these pages.
         </p>
       </section>
 
@@ -194,6 +233,20 @@ import { site } from '../config/site';
     color: var(--terracotta-600);
     text-decoration: underline;
     text-underline-offset: 2px;
+  }
+
+  .privacy__blocker {
+    padding: var(--space-s) var(--space-m);
+    background: color-mix(in srgb, var(--terracotta-500) 12%, var(--sand-100));
+    border: 1.5px solid color-mix(in srgb, var(--terracotta-500) 45%, var(--sand-200));
+    border-radius: var(--radius-s);
+    color: var(--ink-900) !important;
+  }
+
+  .privacy__blocker strong {
+    display: block;
+    margin-bottom: var(--space-2xs);
+    color: var(--terracotta-text);
   }
 
   .privacy__back {

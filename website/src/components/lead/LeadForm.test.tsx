@@ -1,8 +1,7 @@
 /** @jsxImportSource preact */
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, fireEvent, cleanup, waitFor } from '@testing-library/preact';
 import LeadForm from './LeadForm';
-import { LEAD_GENERIC_ERROR, LEAD_API_PATH } from './leadApi';
 import { LEAD_MAX_LENGTH } from './leadSchema';
 
 function fillValid(container: Element) {
@@ -18,20 +17,18 @@ function fillValid(container: Element) {
   });
 }
 
-describe('LeadForm (disabled API)', () => {
+describe('LeadForm (compile-time disabled)', () => {
   afterEach(() => cleanup());
 
   it('states before submit that data will not be sent or saved', () => {
-    const { getByTestId } = render(<LeadForm apiEnabled={false} />);
+    const { getByTestId } = render(<LeadForm />);
     const truth = getByTestId('lead-disabled-truth');
     expect(truth.textContent).toMatch(/will not send or save/i);
   });
 
   it('retains values, offers mailto, and makes no network call on submit', async () => {
-    const fetchImpl = vi.fn();
-    const { container, getByTestId, queryByText } = render(
-      <LeadForm apiEnabled={false} fetchImpl={fetchImpl} />,
-    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const { container, getByTestId, queryByText } = render(<LeadForm />);
     fillValid(container);
     fireEvent.submit(container.querySelector('form')!);
 
@@ -39,7 +36,7 @@ describe('LeadForm (disabled API)', () => {
       expect(getByTestId('lead-local-outcome')).toBeTruthy();
     });
 
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect((container.querySelector('#name') as HTMLInputElement).value).toBe('Maria Garcia');
     expect((container.querySelector('#businessName') as HTMLInputElement).value).toBe(
       'Surf Hostel',
@@ -52,21 +49,21 @@ describe('LeadForm (disabled API)', () => {
     expect(mailto.getAttribute('href')).toMatch(/^mailto:hello@lunafrontdesk\.com\?/);
     expect(mailto.getAttribute('href')).toContain(encodeURIComponent('Maria Garcia'));
 
-    // No success / captured language.
     expect(queryByText(/you're on the list/i)).toBeNull();
     expect(queryByText(/we've noted/i)).toBeNull();
     expect(queryByText(/captured/i)).toBeNull();
     expect(getByTestId('lead-local-outcome').textContent).toMatch(/Nothing was sent or saved/i);
+    fetchSpy.mockRestore();
   });
 
   it('links to the privacy notice beside submit', () => {
-    const { getByTestId } = render(<LeadForm apiEnabled={false} />);
+    const { getByTestId } = render(<LeadForm />);
     const link = getByTestId('lead-privacy-link') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('/privacy/');
   });
 
   it('sets maxlength on text fields', () => {
-    const { container } = render(<LeadForm apiEnabled={false} />);
+    const { container } = render(<LeadForm />);
     expect((container.querySelector('#name') as HTMLInputElement).maxLength).toBe(
       LEAD_MAX_LENGTH.name,
     );
@@ -80,29 +77,21 @@ describe('LeadForm (disabled API)', () => {
       LEAD_MAX_LENGTH.freeText,
     );
   });
-});
 
-describe('LeadForm (enabled API failures)', () => {
-  afterEach(() => cleanup());
-
-  it('shows a generic error and never displays the raw response body', async () => {
-    const fetchImpl = vi.fn(
-      async () => new Response('RAW_SERVER_STACKTRACE_SECRET', { status: 502 }),
-    );
-    const { container, getByTestId, queryByText } = render(
-      <LeadForm apiEnabled={true} fetchImpl={fetchImpl} />,
-    );
-    fillValid(container);
-    fireEvent.submit(container.querySelector('form')!);
-
-    await waitFor(() => {
-      expect(getByTestId('lead-generic-error')).toBeTruthy();
+  it('rejects malformed contact on submit (no local outcome)', async () => {
+    const { container, queryByTestId } = render(<LeadForm />);
+    fireEvent.input(container.querySelector('#name')!, { target: { value: 'Maria' } });
+    fireEvent.input(container.querySelector('#businessName')!, {
+      target: { value: 'Hostel' },
     });
-
-    expect(fetchImpl).toHaveBeenCalled();
-    const firstCall = fetchImpl.mock.calls[0] as unknown as [string, RequestInit?];
-    expect(firstCall[0]).toBe(LEAD_API_PATH);
-    expect(getByTestId('lead-generic-error').textContent).toBe(LEAD_GENERIC_ERROR);
-    expect(queryByText(/RAW_SERVER_STACKTRACE_SECRET/)).toBeNull();
+    fireEvent.input(container.querySelector('#contact')!, {
+      target: { value: 'user@domain' },
+    });
+    fireEvent.change(container.querySelector('#businessType')!, {
+      target: { value: 'hostel' },
+    });
+    fireEvent.submit(container.querySelector('form')!);
+    expect(queryByTestId('lead-local-outcome')).toBeNull();
+    expect(container.querySelector('#contact-error')?.textContent).toMatch(/email/i);
   });
 });
