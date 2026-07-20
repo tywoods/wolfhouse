@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16P",
+  "outcome_id": "16P_live_drill_evidence_reconciliation",
+  "gate_id": "G08_retention_privacy",
+  "also_updates_gates": [
+    "G02_readiness_dependencies",
+    "G03_actionable_tenant_aware_alerts",
+    "G07_rollback_incident_runbooks",
+    "G09_cost_controls"
+  ],
+  "progress_class": "partial_live_proven_evidence_only",
+  "master_basis": "594247f12a823e9b90140c56eb8645b057e1fd37",
+  "branch": "radar/slice-16p-live-drill-evidence",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "title": "Reconcile bounded operator-observed 16O live-drill evidence — partial/live-proven only",
+  "evidence_fixture": "fixtures/radar-operations/slice16p-live-drill-evidence.json",
+  "required_observed": {
+    "image_sha_short": "594247f",
+    "wolfhouse_deploy_revision": "0000514",
+    "sunset_deploy_revision": "0000274",
+    "wolfhouse_rollback_revision": "0000515",
+    "wolfhouse_rollforward_revision": "0000516",
+    "sunset_rollback_revision": "0000275",
+    "sunset_rollforward_revision": "0000276",
+    "final_image_sha_short": "594247f",
+    "webhook_generic": [
+      "malformed_signature",
+      "missing_signature",
+      "oversize_body"
+    ],
+    "ag_test_wolfhouse_email_status": "Succeeded",
+    "ag_test_wolfhouse_state": "Complete",
+    "ag_test_wolfhouse_sent_utc": "2026-07-20T21:35:00.5549824Z",
+    "ag_test_wolfhouse_completed_utc": "2026-07-20T21:38:26.1342044Z",
+    "ag_test_sunset_email_status": "Succeeded",
+    "ag_test_sunset_state": "Complete",
+    "ag_test_sunset_sent_utc": "2026-07-20T21:39:53.8402179Z",
+    "ag_test_sunset_completed_utc": "2026-07-20T21:43:16.2619454Z"
+  },
+  "forbidden_claim_tokens": [
+    "human inbox",
+    "human_inbox_receipt",
+    "organic metric alert",
+    "organic_metric_alert_firing",
+    "production",
+    "abrupt path",
+    "abrupt_paths",
+    "retention/search",
+    "retention_search",
+    "dependency failure",
+    "dependency_failure",
+    "real-PG contention",
+    "real_pg_contention",
+    "completion logging",
+    "completion_logging"
+  ],
+  "must_not_claim_as_proven": [
+    "human_inbox_receipt",
+    "organic_metric_alert_firing",
+    "production",
+    "abrupt_paths",
+    "retention_search",
+    "dependency_failure",
+    "real_pg_contention",
+    "completion_logging",
+    "full_G08_privacy_drill",
+    "full_G03_alert_fire",
+    "any_gate_verdict_proven"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "No gate may become proven; live-proven sub-facts upgrade progress_class only"
+  },
+  "still_open": [
+    "Human inbox receipt of Action Group test emails",
+    "Organic metric alert firing (5xx/restart/capacity)",
+    "Abrupt Stripe webhook body-read paths live proof",
+    "Log retention / PII redaction / retention search proof",
+    "Controlled dependency-failure readiness drill",
+    "Real PostgreSQL contention / ambiguous-commit drill",
+    "Request completion logging + LAW search",
+    "Production scope (forbidden)",
+    "Postgres restore drill"
+  ],
+  "final_controlled_drill": {
+    "id": "16P_DRILL_evidence_freeze_no_overclaim",
+    "status": "source_only_this_slice",
+    "pass_rule": "Bounded evidence fixture matches operator facts exactly; verifier rejects overstated claims and altered evidence; ledger/matrix progress_class partial_live_proven only where facts support; proven count remains 0; no deploy/live mutation by this slice"
+  },
+  "artifacts": [
+    "fixtures/radar-operations/slice16p-live-drill-evidence.json",
+    "fixtures/radar-operations/slice16p-expected-contract.json",
+    "scripts/lib/radar-slice16p-live-drill-evidence.js",
+    "scripts/verify-radar-slice16p-live-drill-evidence.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16p-live-drill-evidence",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
+    "npm run verify:radar-slice16o-stripe-webhook-error-minimization",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 594247f12a823e9b90140c56eb8645b057e1fd37..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/stripe-webhook-public-errors.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16P is evidence reconciliation only; records prior operator live drill; does not deploy or mutate runtime"
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16P",
+  "outcome_id": "16P_live_drill_evidence_reconciliation",
+  "gate_ids_touched": [
+    "G02_readiness_dependencies",
+    "G03_actionable_tenant_aware_alerts",
+    "G07_rollback_incident_runbooks",
+    "G08_retention_privacy",
+    "G09_cost_controls"
+  ],
+  "master_basis": "594247f12a823e9b90140c56eb8645b057e1fd37",
+  "branch": "radar/slice-16p-live-drill-evidence",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "progress_class": "partial_live_proven_evidence_only",
+  "title": "Reconcile operator-observed 16O live-drill evidence (bounded; no overclaims)",
+  "lock_hash": "098e3aa5727832c57843aa6fe8a458386da635e393d65e554fb9853cbc9957a4",
+  "image_sha_short": "594247f",
+  "image_sha_full": "594247f12a823e9b90140c56eb8645b057e1fd37",
+  "observed_facts": {
+    "16o_deploy": {
+      "image_sha_short": "594247f",
+      "wolfhouse_revision": "0000514",
+      "sunset_revision": "0000274",
+      "health_ready_observed": true,
+      "webhook_generic_responses_observed": [
+        "malformed_signature",
+        "missing_signature",
+        "oversize_body"
+      ]
+    },
+    "rollback_rollforward": {
+      "wolfhouse": {
+        "rollback_revision": "0000515",
+        "rollforward_revision": "0000516"
+      },
+      "sunset": {
+        "rollback_revision": "0000275",
+        "rollforward_revision": "0000276"
+      },
+      "health_readiness_passed_after": true,
+      "final_image_sha_short": "594247f"
+    },
+    "action_group_test_notification_api": {
+      "wolfhouse": {
+        "email_status": "Succeeded",
+        "state": "Complete",
+        "sent_utc": "2026-07-20T21:35:00.5549824Z",
+        "completed_utc": "2026-07-20T21:38:26.1342044Z"
+      },
+      "sunset": {
+        "email_status": "Succeeded",
+        "state": "Complete",
+        "sent_utc": "2026-07-20T21:39:53.8402179Z",
+        "completed_utc": "2026-07-20T21:43:16.2619454Z"
+      }
+    }
+  },
+  "claims_allowed": [
+    "16O_image_sha_594247f_deployed_to_wolfhouse_0000514_and_sunset_0000274",
+    "health_and_ready_observed_on_deployed_revisions",
+    "malformed_missing_oversize_generic_webhook_responses_observed",
+    "rollback_then_rollforward_wolfhouse_0000515_0000516_sunset_0000275_0000276",
+    "health_readiness_passed_after_rollforward_final_image_594247f",
+    "action_group_test_notification_api_email_status_succeeded_state_complete_both_tenants"
+  ],
+  "explicitly_not_claimed": [
+    "human_inbox_receipt",
+    "organic_metric_alert_firing",
+    "production",
+    "abrupt_paths",
+    "retention_search",
+    "dependency_failure",
+    "real_pg_contention",
+    "completion_logging"
+  ],
+  "gate_progress_updates": {
+    "G02_readiness_dependencies": {
+      "progress_class": "partial_live_proven",
+      "live_proven": [
+        "healthy_/healthz_and_/readyz_after_16O_deploy_and_rollforward"
+      ],
+      "still_open": [
+        "controlled_dependency_failure_traffic_shed_drill",
+        "closeReadinessPool_lifecycle_integration"
+      ]
+    },
+    "G03_actionable_tenant_aware_alerts": {
+      "progress_class": "partial_live_proven",
+      "live_proven": [
+        "action_group_test_notification_api_Email_Status_Succeeded_state_Complete_both_tenants"
+      ],
+      "still_open": [
+        "human_inbox_receipt",
+        "organic_metric_alert_firing"
+      ]
+    },
+    "G07_rollback_incident_runbooks": {
+      "progress_class": "partial_live_proven",
+      "live_proven": [
+        "staff_api_revision_rollback_then_rollforward_both_tenants_health_ready_final_594247f"
+      ],
+      "still_open": [
+        "postgres_restore_drill",
+        "geo_redundant_backup"
+      ]
+    },
+    "G08_retention_privacy": {
+      "progress_class": "partial_live_proven",
+      "live_proven": [
+        "16O_deploy_SHA_594247f",
+        "malformed_missing_oversize_generic_stripe_webhook_error_bodies",
+        "health_ready_observed"
+      ],
+      "still_open": [
+        "abrupt_paths",
+        "log_retention_pii_redaction_proof",
+        "retention_search",
+        "sdk_unavailable_missing_secret_live_inject"
+      ]
+    },
+    "G09_cost_controls": {
+      "progress_class": "partial_live_proven",
+      "live_proven": [
+        "ops_action_group_test_notification_api_Email_Status_Succeeded_state_Complete_both_tenants"
+      ],
+      "still_open": [
+        "human_inbox_receipt",
+        "budget_resource_live_list_proof",
+        "anomaly_detection"
+      ]
+    }
+  },
+  "gates_unchanged_source_partial": [
+    "G01_correlation_structured_logs",
+    "G04_webhook_payment_worker_backlog",
+    "G05_retry_replay_safety",
+    "G06_scaling_capacity"
+  ]
+}
