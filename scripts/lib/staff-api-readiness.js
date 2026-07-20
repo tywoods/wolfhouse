@@ -8,7 +8,9 @@
  * - /readyz uses a dedicated max-1 readiness Pool (pg 8.21 public API only):
  *   connectionTimeoutMillis (<=1500) + statement_timeout (<=1500) +
  *   query_timeout (<=2000) bound acquire/SELECT.
- * - Fixed SQL: SELECT 1. On success release healthy; on error release(err) once.
+ * - Fixed SQL: SELECT 1. On success release() once; on error release(err) once.
+ *   Release-once state is a closure-local boolean per readiness invocation
+ *   (never a property on the pooled client — markers poison idle reuse).
  * - Never touches the application pool; no Promise.race, abort signals,
  *   private fields, or custom cancellation.
  * - Responses are generic: 200 { status: "ready" } or 503 { status: "not-ready" }.
@@ -165,23 +167,12 @@ function _resetReadinessPoolStateForTests() {
 }
 
 /**
- * Release a checked-out client at most once. Passing an Error removes it
- * from the pool (pg-pool public release(err) destroy path).
- * @param {{ release?: Function } | null | undefined} client
- * @param {Error | undefined} err
- */
-function releaseClientOnce(client, err) {
-  if (!client || typeof client.release !== 'function') return;
-  if (client.__staffApiReadinessReleased) return;
-  client.__staffApiReadinessReleased = true;
-  try {
-    client.release(err);
-  } catch (_) { /* ignore double-release races */ }
-}
-
-/**
  * Bounded Postgres readiness via dedicated max-1 pool (public pg 8.21 only).
  * Never throws; never returns error details.
+ *
+ * Release-once is scoped to this invocation via a closure-local boolean —
+ * never a property on the pooled client (markers would poison reuse).
+ * On success: release() once. On error: release(err) once (destroy path).
  *
  * @param {unknown} [_withPgClient] unused — production path is the readiness pool
  * @param {{
@@ -207,14 +198,25 @@ async function checkPostgresReadiness(_withPgClient, opts = {}) {
   }
 
   let client = null;
+  let released = false;
+  const releaseOnce = (err) => {
+    if (released) return;
+    if (!client || typeof client.release !== 'function') return;
+    released = true;
+    try {
+      if (err !== undefined) client.release(err);
+      else client.release();
+    } catch (_) { /* ignore double-release races */ }
+  };
+
   try {
     client = await pool.connect();
     await client.query(sql);
-    releaseClientOnce(client);
+    releaseOnce();
     return { ok: true };
   } catch (err) {
     const destroyErr = err instanceof Error ? err : new Error(String(err || 'readiness_failed'));
-    releaseClientOnce(client, destroyErr);
+    releaseOnce(destroyErr);
     return { ok: false };
   }
 }
@@ -250,7 +252,6 @@ module.exports = {
   createReadinessPool,
   getReadinessPool,
   closeReadinessPool,
-  releaseClientOnce,
   checkPostgresReadiness,
   handleStaffApiReadyz,
   _setReadinessPoolForTests,

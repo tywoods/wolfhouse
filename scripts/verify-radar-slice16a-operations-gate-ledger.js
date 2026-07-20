@@ -22,6 +22,7 @@ const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
 const MASTER_BASIS = 'd922099cc1eec1596ef4c67f265c8b6c5e6bc81e';
+const BRANCH_16I = 'radar/slice-16i-readiness-replacement';
 const VERDICTS = new Set(['proven', 'partial', 'absent']);
 const REQUIRED_GATE_IDS = [
   'G01_correlation_structured_logs',
@@ -137,6 +138,32 @@ function rangeDiffCheckClean() {
   } catch (err) {
     const detail = String((err && err.stdout) || (err && err.message) || err).trim();
     return { ok: false, detail: detail.slice(0, 800) };
+  }
+}
+
+function currentBranch() {
+  try {
+    return execSync('git rev-parse --abbrev-ref HEAD', {
+      cwd: ROOT,
+      encoding: 'utf8',
+    }).trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+function staffApiRuntimeDiffVsMaster() {
+  const paths = [
+    'scripts/staff-query-api.js',
+    'scripts/lib/staff-api-readiness.js',
+  ];
+  try {
+    return execSync(
+      `git diff --name-only ${MASTER_BASIS} -- ${paths.join(' ')}`,
+      { cwd: ROOT, encoding: 'utf8' },
+    ).trim().split(/\n/).filter(Boolean);
+  } catch (_) {
+    return [];
   }
 }
 
@@ -343,6 +370,38 @@ ok('F45 G02 partial source-partial via 16I',
 ok('F46 readiness lib present', pathExists('scripts/lib/staff-api-readiness.js'));
 ok('F47 16I verifier script present',
   pathExists('scripts/verify-radar-slice16i-staff-api-readiness.js'));
+
+const slice16iContract = readJson(path.join(FIXTURE_DIR, 'slice16i-expected-contract.json'));
+const headBranch = currentBranch();
+ok('F48 gate-matrix branch pin equals 16I contract + HEAD',
+  matrix.branch === BRANCH_16I
+  && contract.branch === BRANCH_16I
+  && slice16iContract.branch === BRANCH_16I
+  && headBranch === BRANCH_16I,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16i=${slice16iContract.branch} head=${headBranch}`);
+
+const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
+const hasStaleSourceForbid = mustNot.some((m) =>
+  /^source runtime behavior change$/i.test(String(m).trim()));
+const hasLiveDeployedForbid = mustNot.some((m) =>
+  /live\/deployed runtime mutation/i.test(String(m)));
+ok('F49 must_not forbids live/deployed mutation, not blanket source change',
+  !hasStaleSourceForbid && hasLiveDeployedForbid,
+  JSON.stringify(mustNot));
+
+const runtimeDiff = staffApiRuntimeDiffVsMaster();
+const g02CitesRuntime = g02
+  && Array.isArray(g02.source_evidence)
+  && g02.source_evidence.some((ev) =>
+    ev.path === 'scripts/lib/staff-api-readiness.js'
+    || ev.path === 'scripts/staff-query-api.js');
+ok('F50 must_not does not contradict changed runtime source or G02 evidence',
+  !hasStaleSourceForbid
+  && hasLiveDeployedForbid
+  && g02CitesRuntime
+  && runtimeDiff.length >= 1
+  && matrix.live_mutation === false,
+  `runtimeDiff=${runtimeDiff.join(',') || '(none)'} stale=${hasStaleSourceForbid}`);
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

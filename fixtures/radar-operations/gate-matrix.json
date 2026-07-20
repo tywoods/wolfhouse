@@ -3,7 +3,7 @@
   "slice": "RADAR-16I",
   "title": "RADAR operations gate ledger (16I Staff API readiness source-partial; supersedes deferred 16C)",
   "master_basis": "d922099cc1eec1596ef4c67f265c8b6c5e6bc81e",
-  "branch": "radar/slice-16h-metric-alert-source-only",
+  "branch": "radar/slice-16i-readiness-replacement",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -17,7 +17,7 @@
     "luna-sunset-staging-rg"
   ],
   "must_not": [
-    "source runtime behavior change",
+    "live/deployed runtime mutation",
     "deploy",
     "restart",
     "synthetic traffic generation",

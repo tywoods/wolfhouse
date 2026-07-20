@@ -58,6 +58,8 @@ const REQUIRED_GREEN = [
   'real_listener_readyz_200',
   'real_listener_healthz_200_static',
   'generic_ready_not_ready_bodies',
+  'pg_pool_max1_idle_reuse_release_once',
+  'pg_pool_error_then_success_no_guard_poison',
   'close_readiness_pool_idempotent',
   'compiled_wolfhouse_bicep_has_probes',
   'compiled_sunset_bicep_has_probes',
@@ -573,6 +575,10 @@ ok('C6b public pg 8.21 only — no private queue / race / abort / app pool',
   && /max:\s*1/.test(readinessSrc)
   && /function createReadinessPool/.test(readinessSrc)
   && /client\.release\(err\)/.test(readinessSrc)
+  && /let released = false/.test(readinessSrc)
+  && /const releaseOnce = /.test(readinessSrc)
+  && !/__staffApiReadinessReleased/.test(readinessSrc)
+  && !/client\.__[A-Za-z]/.test(readinessSrc)
   && !/\bPromise\.race\s*\(/.test(readinessSrc)
   && !/\bAbortController\b/.test(readinessSrc)
   && /const \{ getConnectionString \} = require\('\.\/pg-connect'\)/.test(readinessSrc)
@@ -859,6 +865,133 @@ ok('C11 npm script registered',
         green('generic_ready_not_ready_bodies',
           JSON.stringify(readyBody) === JSON.stringify(readiness.READY_BODY)
           && Object.keys(readyBody).length === 1);
+      });
+    } finally {
+      await endPool(pool);
+    }
+  }
+
+  {
+    // Actual installed pg-pool (max=1) + FakeClient: same healthy client reused
+    // across consecutive real-listener /readyz — release once per checkout,
+    // idle preserved, waitingCount=0, third acquisition succeeds.
+    const { pool, shared } = createFakeClientReadinessPool({ timeoutMs: 500 });
+    try {
+      await withRealStaffApiServer({ readinessPool: pool }, async ({ port }) => {
+        const r1 = await httpGet(port, '/readyz');
+        const after1 = {
+          status: r1.statusCode,
+          body: JSON.parse(r1.body).status,
+          releaseClean: shared.releaseClean,
+          releaseWithErr: shared.releaseWithErr,
+          constructed: shared.constructed,
+          idle: pool.idleCount,
+          total: pool.totalCount,
+          waiting: pool.waitingCount,
+        };
+        const r2 = await httpGet(port, '/readyz');
+        const after2 = {
+          status: r2.statusCode,
+          body: JSON.parse(r2.body).status,
+          releaseClean: shared.releaseClean,
+          releaseWithErr: shared.releaseWithErr,
+          constructed: shared.constructed,
+          idle: pool.idleCount,
+          total: pool.totalCount,
+          waiting: pool.waitingCount,
+        };
+        let thirdOk = false;
+        let thirdWaiting = -1;
+        let thirdIdleBeforeRelease = -1;
+        const releaseCleanBeforeThird = shared.releaseClean;
+        const third = await pool.connect();
+        try {
+          thirdWaiting = pool.waitingCount;
+          thirdIdleBeforeRelease = pool.idleCount;
+          thirdOk = true;
+        } finally {
+          third.release();
+        }
+        await new Promise((r) => setTimeout(r, 20));
+        green('pg_pool_max1_idle_reuse_release_once',
+          after1.status === 200 && after1.body === 'ready'
+          && after2.status === 200 && after2.body === 'ready'
+          && after1.releaseClean === 1 && after2.releaseClean === 2
+          && after1.releaseWithErr === 0 && after2.releaseWithErr === 0
+          && after1.constructed === 1 && after2.constructed === 1
+          && after1.idle === 1 && after2.idle === 1
+          && after1.total === 1 && after2.total === 1
+          && after1.waiting === 0 && after2.waiting === 0
+          && releaseCleanBeforeThird === 2
+          && thirdOk === true
+          && thirdWaiting === 0
+          && thirdIdleBeforeRelease === 0
+          && pool.waitingCount === 0
+          && pool.idleCount === 1
+          && pool.totalCount === 1
+          && shared.constructed === 1,
+          `after1=${JSON.stringify(after1)} after2=${JSON.stringify(after2)} `
+          + `releaseCleanBeforeThird=${releaseCleanBeforeThird} `
+          + `thirdOk=${thirdOk} thirdWaiting=${thirdWaiting} thirdIdle=${thirdIdleBeforeRelease} `
+          + `idle=${pool.idleCount} waiting=${pool.waitingCount} `
+          + `releaseClean=${shared.releaseClean} constructed=${shared.constructed}`);
+      });
+    } finally {
+      await endPool(pool);
+    }
+  }
+
+  {
+    // Sequential error then success: destroy via release(err) once, then a fresh
+    // checkout succeeds — prior closure-local guard must not poison the next.
+    const { pool, shared } = createFakeClientReadinessPool({
+      timeoutMs: 300,
+      queryError: new Error('readiness probe boom'),
+    });
+    try {
+      await withRealStaffApiServer({ readinessPool: pool }, async ({ port }) => {
+        const failRes = await httpGet(port, '/readyz');
+        await new Promise((r) => setTimeout(r, 30));
+        const afterFail = {
+          status: failRes.statusCode,
+          body: JSON.parse(failRes.body).status,
+          releaseWithErr: shared.releaseWithErr,
+          releaseClean: shared.releaseClean,
+          constructed: shared.constructed,
+          total: pool.totalCount,
+          idle: pool.idleCount,
+          waiting: pool.waitingCount,
+        };
+        shared.queryError = null;
+        const okRes = await httpGet(port, '/readyz');
+        await new Promise((r) => setTimeout(r, 20));
+        const afterOk = {
+          status: okRes.statusCode,
+          body: JSON.parse(okRes.body).status,
+          releaseWithErr: shared.releaseWithErr,
+          releaseClean: shared.releaseClean,
+          constructed: shared.constructed,
+          total: pool.totalCount,
+          idle: pool.idleCount,
+          waiting: pool.waitingCount,
+        };
+        green('pg_pool_error_then_success_no_guard_poison',
+          afterFail.status === 503 && afterFail.body === 'not-ready'
+          && afterFail.releaseWithErr === 1
+          && afterFail.releaseClean === 0
+          && afterFail.constructed >= 1
+          && afterFail.total === 0
+          && afterFail.waiting === 0
+          && afterOk.status === 200 && afterOk.body === 'ready'
+          && afterOk.releaseWithErr === 1
+          && afterOk.releaseClean === 1
+          && afterOk.constructed === afterFail.constructed + 1
+          && afterOk.idle === 1
+          && afterOk.total === 1
+          && afterOk.waiting === 0
+          && !bodyHasSensitiveLeak(failRes.body)
+          && !bodyHasSensitiveLeak(okRes.body),
+          `afterFail=${JSON.stringify(afterFail)} afterOk=${JSON.stringify(afterOk)}`);
       });
     } finally {
       await endPool(pool);
