@@ -4,8 +4,8 @@
  * FORTRESS Slice 15E — authoritative Staff API bot-token principal tenant binding.
  *
  * Derives the single runtime client_slug that an authenticated internal bot
- * principal may carry. Never trusts request body/query/path as tenant authority
- * (that remains B07). Never hardcodes any tenant slug.
+ * principal may carry. Request body/query tenant binding for generic routes is
+ * owned by Slice 15F (staff-bot-request-tenant-bind). Never hardcodes any tenant slug.
  *
  * Priority:
  *   1. LUNA_BOT_CLIENT_SLUG (dedicated, preferred)
@@ -136,7 +136,7 @@ function isStaffBotInternalPrincipal(user) {
 
 /**
  * Gate a tenant-specific bot route: principal must access the route's effective
- * tenant before any handler runs. Does not select body/query tenant (B07).
+ * tenant before any handler runs. Generic body/query bind is Slice 15F.
  * Open/dev mode (no staff auth / null user / auth_mode=open) preserves prior bypass.
  *
  * @param {{

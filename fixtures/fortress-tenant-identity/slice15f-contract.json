@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15F",
+  "outcome_id": "15F_staff_bot_request_tenant_bind",
+  "boundary_id": "B07_staff_bot_body_client_slug",
+  "master_basis": "11926ad855105a93e85cfd5645ff6bd226129edb",
+  "live_mutation": false,
+  "title": "Bind generic /staff/bot/* request tenant to authenticated bot principal",
+  "status": "implemented",
+  "owner_files": [
+    "scripts/lib/staff-bot-request-tenant-bind.js",
+    "scripts/lib/staff-bot-principal-tenant-config.js",
+    "scripts/lib/staff-bot-v2-routes.js",
+    "scripts/staff-query-api.js"
+  ],
+  "out_of_scope": [
+    "force-tenant /staff/bot/sunset/* path selection (preserved via 15E dispatch)",
+    "staff-session /staff/bot/pause* requireAuth routes (not bot-token principal bind)",
+    "deploy / cloud / database / Stripe / WhatsApp / production operations"
+  ],
+  "api": {
+    "resolveStaffBotRequestEffectiveTenant": {
+      "signature": "resolveStaffBotRequestEffectiveTenant({ authMode, user, body, query, forceTenantSlug })",
+      "bot_token": {
+        "effective": "principal.client_slug",
+        "omission": "allowed (principal supplies tenant)",
+        "empty_alias": "fail closed empty_request_tenant_alias (present null/undefined/empty/non-string; key absence remains omission)",
+        "conflict": "fail closed request_tenant_conflict before handler",
+        "no_hardcoded_default": true
+      },
+      "force_tenant": "path-forced effective; body cannot select",
+      "session": "request alias or session principal; ACL assert left to handlers; DEFAULT defer when unbound",
+      "open": "request alias or defer"
+    },
+    "dispatchStaffBotRouteWithPrincipalRequestTenant": {
+      "behavior": "resolve → deny before handler on conflict/empty → pin effective → 15E ACL gate for bot_token only"
+    },
+    "dispatchBotRouteBoundToPrincipalTenant": {
+      "http_wrapper": "staff-query-api.js — reads cached body, 403 client_access_denied on deny"
+    }
+  },
+  "guarded_route_inventory": {
+    "policy": "principal_request_bind",
+    "effective_tenant_source": "authenticated bot principal (body/query/path aliases cannot override)",
+    "routes": [
+      {
+        "path": "/staff/bot/bookings/:code/guest-packages",
+        "handler": "handleBookingGuestPackagesWrite",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/booking-preview",
+        "handler": "handleBotBookingPreview",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/catalog-service-lookup",
+        "handler": "handleBotCatalogServiceLookup",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/owner-insights",
+        "handler": "handleBotOwnerInsights",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/house-info",
+        "handler": "handleBotHouseInfo",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/add-catalog-service",
+        "handler": "handleBookingAddService",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/booking-dry-run",
+        "handler": "handleBotBookingDryRun",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/booking-write-eligibility",
+        "handler": "handleBotBookingWriteEligibility",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/bookings/confirmation-preview",
+        "handler": "handleBotBookingConfirmationPreview",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/bookings/send-confirmation",
+        "handler": "handleBotBookingSendConfirmation",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/checkin-day-preview",
+        "handler": "handleBotCheckinDayPreview",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/whatsapp-thread-mirror",
+        "handler": "handleBotHermesWhatsAppThreadMirror",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/guest-reply-send",
+        "handler": "handleBotGuestReplySend",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/guest-reply-draft",
+        "handler": "handleBotGuestReplyDraft",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/message-intake-preview",
+        "handler": "handleBotMessageIntakePreview",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/guest-intake-dry-run",
+        "handler": "handleBotGuestIntakeDryRun",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/open-demo-whatsapp-inbound-dry-run",
+        "handler": "handleBotOpenDemoWhatsAppInboundDryRun",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/guest-inbound-review-dry-run",
+        "handler": "handleBotGuestInboundReviewDryRun",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/guest-automation-review-dry-run",
+        "handler": "handleBotGuestAutomationReviewDryRun",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/guest-simulator-create-hold-draft",
+        "handler": "handleBotGuestSimulatorCreateHoldDraft",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/guest-simulator-create-stripe-test-link",
+        "handler": "handleBotGuestSimulatorCreateStripeTestLink",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/booking-create-from-plan",
+        "handler": "handleBotBookingCreateFromPlan",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/availability-check",
+        "handler": "handleBotAvailabilityCheck",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/addon-request-preview",
+        "handler": "handleBotAddonRequestPreview",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/addon-requests/create",
+        "handler": "handleBotAddonRequestCreate",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/transfers/save",
+        "handler": "handleBotTransferSave",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/payments/status",
+        "handler": "handleBotPaymentStatus",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/surf-report",
+        "handler": "handleBotSurfReport",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/bookings/by-phone",
+        "handler": "handleBotListBookingsByPhone",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/bookings/update-contact",
+        "handler": "handleBotUpdateContact",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/conversation/needs-human",
+        "handler": "handleBotConversationNeedsHuman",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/check-guest-automation-gate",
+        "handler": "handleBotCheckGuestAutomationGate",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/effective-pause-state",
+        "handler": "handleBotEffectivePauseState",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/bookings/create",
+        "handler": "handleBotBookingCreate",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/bookings/cancel",
+        "handler": "handleBotBookingCancel",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/payments/:payment_id/create-stripe-link",
+        "handler": "handleBotPaymentCreateStripeLink",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/payments/create-balance-link",
+        "handler": "handleBotCreateBalancePaymentLink",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/package-price-preview",
+        "handler": "handleBotPackagePricePreview",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/booking-guests/payment-status",
+        "handler": "handleBotGuestPaymentStatus",
+        "policy": "principal_request_bind"
+      },
+      {
+        "path": "/staff/bot/booking-guests/:guest_id/create-payment-link",
+        "handler": "handleBotGuestPaymentCreateLink",
+        "policy": "principal_request_bind"
+      }
+    ],
+    "excluded": {
+      "force_tenant_sunset": 12,
+      "staff_session_pause_routes": [
+        "/staff/bot/pause-state",
+        "/staff/bot/pause",
+        "/staff/bot/resume",
+        "/staff/bot/global-pause-state",
+        "/staff/bot/global-pause",
+        "/staff/bot/global-resume"
+      ]
+    }
+  },
+  "red_case_ids": [
+    "RED_conflict_body_client_slug",
+    "RED_conflict_body_client_alias",
+    "RED_conflict_query_client",
+    "RED_empty_body_client_slug",
+    "RED_empty_query_client",
+    "RED_conflicting_aliases",
+    "RED_route_inventory_conflict_zero_handler"
+  ],
+  "green_case_ids": [
+    "GREEN_omission_uses_principal",
+    "GREEN_matching_body_client_slug",
+    "GREEN_matching_client_alias",
+    "GREEN_force_tenant_sunset_preserved",
+    "GREEN_session_request_preserved",
+    "GREEN_guarded_inventory_wired"
+  ],
+  "residual_risk": {
+    "summary": "Staff-session pause routes under /staff/bot/* still use requireAuth + query/body DEFAULT_CLIENT (not bot principal). Non-bot staff portal handlers retain hardcoded DEFAULT_CLIENT. Shared-runtime multi-tenant Staff API still requires correct LUNA_BOT_CLIENT_SLUG per deploy."
+  }
+}

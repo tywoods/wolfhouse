@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15F",
+  "boundary_id": "B07_staff_bot_body_client_slug",
+  "status": "remediated",
+  "historical_audit_unchanged": true,
+  "historical_artifacts": [
+    "fixtures/fortress-tenant-identity/boundary-matrix.json",
+    "fixtures/fortress-tenant-identity/attack-cases.json",
+    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
+  ],
+  "note": "15A matrix/doc retain pre-fix vulnerable verdict for B07 as historical audit. This overlay records the 15F remediation without rewriting 15A artifacts.",
+  "remediation": {
+    "outcome_id": "15F_staff_bot_request_tenant_bind",
+    "owner_files": [
+      "scripts/lib/staff-bot-request-tenant-bind.js",
+      "scripts/lib/staff-bot-principal-tenant-config.js",
+      "scripts/lib/staff-bot-v2-routes.js",
+      "scripts/staff-query-api.js"
+    ],
+    "controls": [
+      "generic /staff/bot/* effective client_slug derived from authenticated bot principal",
+      "body/query client_slug|client aliases cannot override principal; conflict/empty → 403 before handler",
+      "omission compatibility when principal supplies tenant",
+      "force-tenant Sunset routes preserved via dispatchBotRouteWithEffectiveTenant",
+      "staff-session pause routes and session ACL behavior preserved",
+      "B07-owned bot handler DEFAULT_CLIENT fallback replaced by resolveBotHandlerTrustedClientSlug / bound pin"
+    ]
+  },
+  "master_basis_15a": "8ed81111b9a67a656dee0b7dbd5a46ab91ca125c",
+  "master_basis_15f": "11926ad855105a93e85cfd5645ff6bd226129edb",
+  "live_mutation": false
+}

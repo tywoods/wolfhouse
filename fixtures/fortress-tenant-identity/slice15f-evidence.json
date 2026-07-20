@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15F",
+  "generated_at": "2026-07-20T06:30:00.000Z",
+  "master_basis": "11926ad855105a93e85cfd5645ff6bd226129edb",
+  "live_mutation": false,
+  "red": {
+    "total": 16,
+    "passed": 16,
+    "cases": [
+      {
+        "id": "conflict_body_client_slug",
+        "ok": true
+      },
+      {
+        "id": "conflict_body_client_alias",
+        "ok": true
+      },
+      {
+        "id": "conflict_query_client",
+        "ok": true
+      },
+      {
+        "id": "empty_body_client_slug",
+        "ok": true
+      },
+      {
+        "id": "empty_query_client",
+        "ok": true
+      },
+      {
+        "id": "null_body_client_slug",
+        "ok": true
+      },
+      {
+        "id": "null_query_client",
+        "ok": true
+      },
+      {
+        "id": "undefined_present_body_client",
+        "ok": true
+      },
+      {
+        "id": "undefined_present_query_client_slug",
+        "ok": true
+      },
+      {
+        "id": "non_string_body_client_slug",
+        "ok": true
+      },
+      {
+        "id": "conflicting_aliases",
+        "ok": true
+      },
+      {
+        "id": "route_inventory_conflict_zero_handler",
+        "ok": true
+      },
+      {
+        "id": "route_null_body_alias_zero_handler",
+        "ok": true
+      },
+      {
+        "id": "route_null_query_alias_zero_handler",
+        "ok": true
+      },
+      {
+        "id": "route_undefined_present_body_alias_zero_handler",
+        "ok": true
+      },
+      {
+        "id": "route_undefined_present_query_alias_zero_handler",
+        "ok": true
+      }
+    ]
+  },
+  "green": {
+    "total": 6,
+    "passed": 6,
+    "cases": [
+      {
+        "id": "omission_uses_principal",
+        "ok": true
+      },
+      {
+        "id": "matching_body_client_slug",
+        "ok": true
+      },
+      {
+        "id": "matching_client_alias",
+        "ok": true
+      },
+      {
+        "id": "force_tenant_sunset_preserved",
+        "ok": true
+      },
+      {
+        "id": "session_request_preserved",
+        "ok": true
+      },
+      {
+        "id": "guarded_inventory_wired",
+        "ok": true
+      }
+    ]
+  },
+  "pass": 35,
+  "fail": 0,
+  "gates_note": "offline only; zero live Stripe/DB/payment/deploy/guest/WhatsApp mutation; verifier does not rewrite this file",
+  "guarded_route_count": 40,
+  "residual_risk": {
+    "summary": "Staff-session pause routes under /staff/bot/* still use requireAuth + query/body DEFAULT_CLIENT (not bot principal). Non-bot staff portal handlers retain hardcoded DEFAULT_CLIENT. Shared-runtime multi-tenant Staff API still requires correct LUNA_BOT_CLIENT_SLUG per deploy."
+  }
+}

@@ -195,9 +195,34 @@ const channelResolver = fs.readFileSync(path.join(ROOT, 'scripts/lib/client-chan
 
 ok('E DEFAULT_CLIENT hardcoded wolfhouse-somo',
   /const DEFAULT_CLIENT\s*=\s*'wolfhouse-somo'/.test(staffApi));
-ok('E handleBotBookingCreate trustedClientSlug from body',
-  /trustedClientSlug:\s*clientSlug/.test(staffApi)
-  && /body\.client_slug \|\| DEFAULT_CLIENT/.test(staffApi));
+
+// B07 live-code evidence: historical 15A audit stays frozen. When Slice 15F
+// remediation overlay exists, assert remediating patterns instead of body trust.
+const remediation15fOverlayPath = path.join(FIXTURE_DIR, 'slice15f-b07-remediation-overlay.json');
+const has15fRemediation = fs.existsSync(remediation15fOverlayPath);
+if (has15fRemediation) {
+  const overlay15f = readJson(remediation15fOverlayPath);
+  const bindSrc15f = fs.readFileSync(
+    path.join(ROOT, 'scripts', 'lib', 'staff-bot-request-tenant-bind.js'),
+    'utf8',
+  );
+  ok('E B07 remediated via 15F overlay (historical matrix untouched)',
+    overlay15f
+    && overlay15f.boundary_id === 'B07_staff_bot_body_client_slug'
+    && overlay15f.historical_audit_unchanged === true
+    && overlay15f.status === 'remediated'
+    && /dispatchBotRouteBoundToPrincipalTenant/.test(staffApi)
+    && /resolveStaffBotRequestEffectiveTenant/.test(bindSrc15f)
+    && /request_tenant_conflict/.test(bindSrc15f)
+    && /resolveBotHandlerTrustedClientSlug/.test(staffApi));
+  ok('E handleBotBookingCreate uses bound trusted client helper',
+    /trustedClientSlug:\s*clientSlug/.test(staffApi)
+    && /resolveBotHandlerTrustedClientSlug\(req, body/.test(staffApi));
+} else {
+  ok('E handleBotBookingCreate trustedClientSlug from body',
+    /trustedClientSlug:\s*clientSlug/.test(staffApi)
+    && /body\.client_slug \|\| DEFAULT_CLIENT/.test(staffApi));
+}
 
 // B13 live-code evidence: historical 15A audit stays frozen in matrix/attack-cases.
 // When Slice 15B remediation overlay exists, assert remediating patterns instead of
@@ -326,11 +351,35 @@ for (const c of casesDoc.cases) {
         break;
 
       case 'bot_override':
-        actual = classifyBotTenantOverride(input);
-        ok(label, actual.verdict === expect.verdict
-          && (!expect.effective_client_slug || actual.effective_client_slug === expect.effective_client_slug)
-          && (!expect.reason_includes || includesStr(actual.reason, expect.reason_includes)),
-        JSON.stringify(actual));
+        // Historical RED fixtures prove pre-15F body trust. With 15F overlay,
+        // live resolve must fail closed on cross-tenant body vs principal.
+        if (has15fRemediation
+          && input.handler_policy === 'trust_body'
+          && input.auth_mode === 'bot_token'
+          && input.body_client_slug
+          && input.runtime_client_slug
+          && input.body_client_slug !== input.runtime_client_slug) {
+          const {
+            resolveStaffBotRequestEffectiveTenant,
+          } = require('./lib/staff-bot-request-tenant-bind');
+          const live = resolveStaffBotRequestEffectiveTenant({
+            authMode: 'bot_token',
+            principalClientSlug: input.runtime_client_slug,
+            body: { client_slug: input.body_client_slug },
+            query: {},
+          });
+          ok(label,
+            live.ok === false
+            && live.reason === 'request_tenant_conflict'
+            && live.invoke_handler === false,
+            JSON.stringify(live));
+        } else {
+          actual = classifyBotTenantOverride(input);
+          ok(label, actual.verdict === expect.verdict
+            && (!expect.effective_client_slug || actual.effective_client_slug === expect.effective_client_slug)
+            && (!expect.reason_includes || includesStr(actual.reason, expect.reason_includes)),
+          JSON.stringify(actual));
+        }
         break;
 
       case 'portal_session':

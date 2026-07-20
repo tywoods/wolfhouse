@@ -278,6 +278,11 @@ const {
   dispatchStaffBotRouteWithEffectiveTenant,
 } = require('./lib/staff-bot-principal-tenant-config');
 const {
+  pinStaffBotRequestEffectiveTenant,
+  resolveBotHandlerTrustedClientSlug,
+  dispatchStaffBotRouteWithPrincipalRequestTenant,
+} = require('./lib/staff-bot-request-tenant-bind');
+const {
   resolveTenantBusinessConfig,
   resolveTenantBusinessConfigAsync,
   isSunsetAdminDbReadEnabled,
@@ -1188,7 +1193,8 @@ async function requireOwnerInsightsAuth(req, res) {
 //   - Token NEVER echoed in any response.
 //   - Token auth ONLY called from /staff/bot/* router blocks.
 //     Normal staff endpoints use requireAuth exclusively.
-//   - Body/query client_slug handling is unchanged (B07).
+//   - FORTRESS 15F (B07): generic routes bind effective client_slug from the
+//     authenticated bot principal via dispatchBotRouteBoundToPrincipalTenant.
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function requireBotAuth(req, res) {
@@ -1258,7 +1264,8 @@ async function requireBotAuth(req, res) {
 
 // FORTRESS 15E — common bot-route dispatch: require principal access to the
 // route's effective tenant before handler execution. Propagates auth.user into
-// the handler callback. Body/query tenant selection is unchanged (B07).
+// the handler callback. Used by force-tenant Sunset routes and by 15F after
+// principal request-tenant resolve.
 function dispatchBotRouteWithEffectiveTenant(auth, res, effectiveClientSlug, handler) {
   return dispatchStaffBotRouteWithEffectiveTenant({
     user: auth && auth.user,
@@ -1275,6 +1282,48 @@ function dispatchBotRouteWithEffectiveTenant(auth, res, effectiveClientSlug, han
       });
     },
     handler: ({ user, authMode }) => handler(user, authMode),
+  });
+}
+
+// FORTRESS 15F — generic /staff/bot/* dispatch: derive effective client_slug from
+// the authenticated bot principal. Body/query/path aliases and hardcoded defaults
+// cannot override it; explicit conflicts fail before handler/DB/provider work.
+// Force-tenant routes keep dispatchBotRouteWithEffectiveTenant(path-forced).
+// Staff-session omission still allows legacy handler defaults when unbound.
+async function dispatchBotRouteBoundToPrincipalTenant(auth, req, res, query, handler) {
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    send400(res, 'invalid or missing JSON body');
+    return { ok: false, handler_called: false, reason: 'invalid_json_body' };
+  }
+
+  return dispatchStaffBotRouteWithPrincipalRequestTenant({
+    user: auth && auth.user,
+    authMode: auth && auth.auth_mode,
+    body,
+    query: query || {},
+    staffAuthRequired: STAFF_AUTH_REQUIRED,
+    canAccessClient: userCanAccessClient,
+    onDenied: (gate) => {
+      sendJSON(res, 403, {
+        success: false,
+        error: 'client_access_denied',
+        reason: gate.reason || 'request_tenant_conflict',
+        client_slug: gate.principal_client_slug || gate.effective_client_slug || null,
+        requested_client_slug: gate.requested_client_slug != null
+          ? gate.requested_client_slug
+          : null,
+      });
+    },
+    handler: ({ user, authMode, effectiveClientSlug }) => {
+      if (effectiveClientSlug) {
+        pinStaffBotRequestEffectiveTenant(req, body, query, effectiveClientSlug);
+      }
+      return handler(user, authMode, effectiveClientSlug || null);
+    },
   });
 }
 
@@ -7540,7 +7589,7 @@ async function handleBotBookingCancel(req, res, user, authMode) {
     return send400(res, 'invalid or missing JSON body');
   }
 
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   const bookingCode = String(body.booking_code || '').trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!bookingCode) return send400(res, 'booking_code is required');
@@ -9426,7 +9475,7 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
     return send400(res, 'invalid or missing JSON body');
   }
 
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   if (!clientSlug) return send400(res, 'client_slug is required');
 
   const built = buildWolfhouseAvailabilityCommand({
@@ -9526,8 +9575,8 @@ function buildBotAddonDryRunFlags(extra = {}) {
   };
 }
 
-async function resolveBotAddonRequestContext(body) {
-  const clientSlug    = String(body.client_slug || DEFAULT_CLIENT).trim();
+async function resolveBotAddonRequestContext(body, req) {
+  const clientSlug    = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   const bookingCode   = String(body.booking_code || '').trim();
   const guestPhone    = body.guest_phone != null ? String(body.guest_phone).trim() : null;
   const svcNorm = normalizeBotServiceType(body.service_type, body.board_type);
@@ -9861,7 +9910,7 @@ async function handleBotAddonRequestPreview(req, res, user, authMode) {
   }
 
   const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
-  const ctx = await resolveBotAddonRequestContext(body);
+  const ctx = await resolveBotAddonRequestContext(body, req);
 
   if (ctx.kind !== 'ready') {
     return sendJSON(res, ctx.status, { ...ctx.payload, auth_mode: resolvedAuthMode });
@@ -10029,7 +10078,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
   }
 
   const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
-  const ctx = await resolveBotAddonRequestContext(body);
+  const ctx = await resolveBotAddonRequestContext(body, req);
 
   if (ctx.kind !== 'ready') {
     return sendBotAddonCreateContextResponse(res, ctx, resolvedAuthMode);
@@ -10663,7 +10712,7 @@ async function handleBotCheckGuestAutomationGate(req, res, user, authMode) {
     return send400(res, 'invalid JSON body');
   }
 
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   const conversationId = body.conversation_id != null
     ? String(body.conversation_id).trim() || null
     : null;
@@ -10744,7 +10793,7 @@ async function handleBotEffectivePauseState(req, res, user, authMode) {
     return send400(res, 'invalid JSON body');
   }
 
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   const conversationId = body.conversation_id != null
     ? String(body.conversation_id).trim() || null
     : null;
@@ -11361,7 +11410,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
   }
 
   // ── Extract input fields ──────────────────────────────────────────────────
-  const clientSlug    = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug    = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   const phone         = String(body.phone        || '').trim();
   const guestName     = String(body.guest_name   || '').trim();
   const email         = String(body.email        || '').trim();
@@ -11612,7 +11661,7 @@ async function handleBotBookingDryRun(req, res, user, authMode) {
       sends_whatsapp:      false,
       calls_n8n:           false,
       success:             true,
-      client_slug:         body.client_slug || DEFAULT_CLIENT,
+      client_slug:         resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT),
       next_action:         plan.next_action || null,
       planned_actions:     plan.planned_actions || [],
       staff_user_id:       actorId,
@@ -11690,7 +11739,7 @@ async function handleBotBookingWriteEligibility(req, res, user, authMode) {
       calls_n8n:           false,
       success:             true,
       write_ready:         eligibility.write_ready === true,
-      client_slug:         body.client_slug || DEFAULT_CLIENT,
+      client_slug:         resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT),
       blocked_reasons:     eligibility.blocked_reasons || [],
       required_approvals:  eligibility.required_approvals || [],
       safe_next_step:      eligibility.safe_next_step || null,
@@ -12459,7 +12508,7 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
       try {
         availability = await withPgClient((pg) => runGuestAvailabilityDryRun(result, {
           pg,
-          client_slug: body.client_slug || DEFAULT_CLIENT,
+          client_slug: resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT),
           room_type: body.room_type,
         }));
       } catch (_) {
@@ -12482,7 +12531,7 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
     }
 
     const quoteContext = {
-      client_slug: body.client_slug || DEFAULT_CLIENT,
+      client_slug: resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT),
       room_type: body.room_type,
     };
     let quote;
@@ -13218,7 +13267,7 @@ async function handleBotGuestSimulatorCreateHoldDraft(req, res, user, authMode) 
   try {
     const writeOut = await runGuestHoldPaymentDraftWriteDryRunApproved(chain, {
       confirm_write: true,
-      client_slug: String(body.client_slug || DEFAULT_CLIENT).trim(),
+      client_slug: resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT),
       guest_name: body.guest_name,
       guest_email: body.guest_email,
       guest_phone: body.guest_phone,
@@ -13366,6 +13415,7 @@ async function handleBotTransferSave(req, res, user, authMode) {
     sendJSON, send400, readBody, withPgClient,
     handlePostBookingTransfer,
     DEFAULT_CLIENT, STAFF_AUTH_REQUIRED,
+    boundClientSlug: req && req._botBoundClientSlug,
   });
 }
 
@@ -13375,6 +13425,7 @@ async function handleBotPaymentStatus(req, res, user, authMode) {
   return _handleBotPaymentStatus(req, res, user, authMode, {
     sendJSON, readBody, withPgClient,
     DEFAULT_CLIENT,
+    boundClientSlug: req && req._botBoundClientSlug,
   });
 }
 
@@ -13388,6 +13439,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
   return _handleBotBookingCreateFromPlan(req, res, user, authMode, {
     sendJSON, send400, readBody, appendAuditLog, makeInMemoryBotReq,
     DEFAULT_CLIENT, STAFF_AUTH_REQUIRED, BOT_BOOKING_ENABLED,
+    boundClientSlug: req && req._botBoundClientSlug,
     handleBotBookingCreate,
     handlePostBookingTransfer,
     handleBotGuestPaymentCreateLink,
@@ -14697,6 +14749,7 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
 async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authMode) {
   return _handleBotPaymentCreateStripeLink(paymentId, req, res, user, authMode, {
     sendJSON, withPgClient, appendAuditLog,
+    boundClientSlug: req && req._botBoundClientSlug,
     guestPaymentLinkObservability,
     BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     STAFF_AUTH_REQUIRED, STAFF_ACTIONS_ENABLED,
@@ -14712,6 +14765,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode) {
     guestPaymentLinkObservability,
     BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     STAFF_AUTH_REQUIRED, DEFAULT_CLIENT,
+    boundClientSlug: req && req._botBoundClientSlug,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
     stripeCheckoutSessionCancelUrl,
@@ -14731,6 +14785,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode) {
 async function handleBotPackagePricePreview(req, res, user, authMode) {
   return _handleBotPackagePricePreview(req, res, user, authMode, {
     sendJSON, send400, readBody, DEFAULT_CLIENT,
+    boundClientSlug: req && req._botBoundClientSlug,
   });
 }
 
@@ -14740,6 +14795,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
     guestPaymentLinkObservability,
     BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     DEFAULT_CLIENT,
+    boundClientSlug: req && req._botBoundClientSlug,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
     stripeCheckoutSessionCancelUrl,
@@ -14749,6 +14805,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
 async function handleBotGuestPaymentStatus(req, res, user, authMode) {
   return _handleBotGuestPaymentStatus(req, res, user, authMode, {
     sendJSON, send400, readBody, withPgClient, DEFAULT_CLIENT,
+    boundClientSlug: req && req._botBoundClientSlug,
   });
 }
 
@@ -14829,7 +14886,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     ? user.role
     : 'operator';
   const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   const source = String(body.source || 'luna_whatsapp').trim().slice(0, 50);
 
   // ── 4. Build command + execute via shared service ─────────────────────────
@@ -38318,7 +38375,7 @@ async function handleAutomatedNotificationsDelete(idRaw, query, req, res, user) 
 async function handleBotHouseInfo(req, res, user) {
   let body = {};
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
-  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   try {
     const r = await withPgClient((pg) => getTenantHouseNotes(pg, { clientSlug }));
@@ -38335,7 +38392,7 @@ async function handleBotHouseInfo(req, res, user) {
 async function handleBotOwnerInsights(req, res, user) {
   let body = {};
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
-  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   const question = String(body.question || body.message_text || '').trim();
   const phone = String(body.phone || '').trim();
@@ -38594,7 +38651,7 @@ async function handleBookingServiceCatalogGet(query, req, res, user) {
 async function handleBotCatalogServiceLookup(req, res, user) {
   let body = {};
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
-  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   const messageText = String(body.message_text || '').trim();
   if (!messageText) return send400(res, 'message_text is required');
@@ -41938,7 +41995,7 @@ async function handleBotSurfReport(req, res, user, authMode) {
     return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
   }
 
-  const clientSlug  = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug  = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   const day         = String(body.day || 'today').trim().toLowerCase() === 'tomorrow' ? 'tomorrow' : 'today';
   const messageText = String(body.message_text || body.question || '').slice(0, 500);
   const lang        = body.lang ? String(body.lang).slice(0, 5) : null;
@@ -42041,7 +42098,7 @@ async function handleBotUpdateContact(req, res, user, authMode) {
   } catch (_) {
     return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
   }
-  const clientSlug  = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug  = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   const bookingCode = String(body.booking_code || body.bookingCode || '').trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!bookingCode || bookingCode.length > 64 || SQL_INJECT_RE.test(bookingCode)) {
@@ -42113,7 +42170,7 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
   } catch (_) {
     return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
   }
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
   const convId     = String(body.conversation_id || '').trim();
   const phone      = String(body.phone || body.guest_phone || '').trim();
   const reason     = String(body.reason || 'luna_safe_handoff').slice(0, 200);
@@ -44939,7 +44996,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBookingGuestPackagesWrite(botGuestPackagesMatch[1], req, res, auth.user);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBookingGuestPackagesWrite(botGuestPackagesMatch[1], req, res, user));
   }
 
   const guestPackagesMatch = BOOKING_GUEST_PACKAGES_RE.exec(pathname);
@@ -45197,7 +45255,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotBookingPreview(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingPreview(req, res, user, authMode));
   }
 
   // ── Wolfhouse v3 — Luna catalog-service inquiry lookup (read-only) ─────────
@@ -45209,7 +45268,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotCatalogServiceLookup(req, res, auth.user);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotCatalogServiceLookup(req, res, user));
   }
 
   // ── Sunset Luna READ-ONLY price/availability bot endpoints (Phase 1) ────────
@@ -45349,7 +45409,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotOwnerInsights(req, res, auth.user);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotOwnerInsights(req, res, user));
   }
 
   // ── Wolfhouse v3 — Luna fetches owner house notes on demand (read-only) ────
@@ -45360,7 +45421,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotHouseInfo(req, res, auth.user);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotHouseInfo(req, res, user));
   }
 
   // ── Wolfhouse v3 — Luna adds a catalog service to a booking (Phase 2) ──────
@@ -45374,7 +45436,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBookingAddService(req, res, auth.user);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBookingAddService(req, res, user));
   }
 
   // ── Phase 12c — Luna guest booking dry-run orchestrator (read-only plan) ───
@@ -45386,7 +45449,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotBookingDryRun(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingDryRun(req, res, user, authMode));
   }
 
   // ── Phase 13c.4 — Luna booking write eligibility (read-only) ───────────────
@@ -45398,7 +45462,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotBookingWriteEligibility(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingWriteEligibility(req, res, user, authMode));
   }
 
   // ── Phase 14b — Luna confirmation preview (read-only) ───────────────────────
@@ -45410,7 +45475,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotBookingConfirmationPreview(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingConfirmationPreview(req, res, user, authMode));
   }
 
   // ── Phase 20j — Luna booking confirmation send (gated + confirmation_sent_at) ─
@@ -45422,7 +45488,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotBookingSendConfirmation(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingSendConfirmation(req, res, user, authMode));
   }
 
   // ── Phase 18b — Luna guest reply draft (draft-only) ───────────────────────
@@ -45434,7 +45501,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotCheckinDayPreview(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotCheckinDayPreview(req, res, user, authMode));
   }
 
   // POST /staff/bot/whatsapp-thread-mirror
@@ -45445,7 +45513,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotHermesWhatsAppThreadMirror(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotHermesWhatsAppThreadMirror(req, res, user, authMode));
   }
 
   // POST /staff/bot/guest-reply-send
@@ -45456,7 +45525,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotGuestReplySend(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotGuestReplySend(req, res, user, authMode));
   }
 
   // POST /staff/bot/guest-reply-draft
@@ -45467,7 +45537,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotGuestReplyDraft(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotGuestReplyDraft(req, res, user, authMode));
   }
 
   // ── Phase 15b — Luna message intake preview (read-only) ───────────────────
@@ -45479,7 +45550,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotMessageIntakePreview(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotMessageIntakePreview(req, res, user, authMode));
   }
 
   // ── Stage 27c — Luna guest intake dry-run (read-only) ─────────────────────
@@ -45491,7 +45563,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotGuestIntakeDryRun(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotGuestIntakeDryRun(req, res, user, authMode));
   }
 
   // ── Stage 27demo-b — Open demo WhatsApp inbound dry-run (staff/bot only) ───
@@ -45503,7 +45576,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotOpenDemoWhatsAppInboundDryRun(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotOpenDemoWhatsAppInboundDryRun(req, res, user, authMode));
   }
 
   // ── Stage 27x.1 — Inbound guest review dry-run (staff/bot only) ────────────
@@ -45515,7 +45589,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotGuestInboundReviewDryRun(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotGuestInboundReviewDryRun(req, res, user, authMode));
   }
 
   // ── Stage 27v — Luna guest automation review dry-run (staff-only) ─────────
@@ -45527,7 +45602,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotGuestAutomationReviewDryRun(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotGuestAutomationReviewDryRun(req, res, user, authMode));
   }
 
   // ── Stage 27w — Luna Guest Simulator hold/draft write (staff-only) ─────────
@@ -45539,7 +45615,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotGuestSimulatorCreateHoldDraft(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotGuestSimulatorCreateHoldDraft(req, res, user, authMode));
   }
 
   // POST /staff/bot/guest-simulator-create-stripe-test-link
@@ -45550,7 +45627,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotGuestSimulatorCreateStripeTestLink(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotGuestSimulatorCreateStripeTestLink(req, res, user, authMode));
   }
 
   // ── Phase 13c — Luna gated booking write bridge (default-deny) ─────────────
@@ -45562,7 +45640,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotBookingCreateFromPlan(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingCreateFromPlan(req, res, user, authMode));
   }
 
   // ── Stage 8.5.8 — Luna bot availability check (read-only, no writes) ────────
@@ -45576,7 +45655,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotAvailabilityCheck(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotAvailabilityCheck(req, res, user, authMode));
   }
 
   // ── Stage 8.8.25 — Luna bot guest add-on request preview (dry-run) ─────────
@@ -45589,7 +45669,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotAddonRequestPreview(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotAddonRequestPreview(req, res, user, authMode));
   }
 
   // ── Stage 8.8.27 — Luna bot guest add-on create (service row + payment + Stripe) ──
@@ -45601,7 +45682,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotAddonRequestCreate(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotAddonRequestCreate(req, res, user, authMode));
   }
 
 
@@ -45613,7 +45695,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotTransferSave(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotTransferSave(req, res, user, authMode));
   }
 
   if (pathname === '/staff/bot/payments/status') {
@@ -45623,7 +45706,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotPaymentStatus(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotPaymentStatus(req, res, user, authMode));
   }
 
   if (pathname === '/staff/bot/surf-report') {
@@ -45633,7 +45717,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSurfReport(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotSurfReport(req, res, user, authMode));
   }
 
   if (pathname === '/staff/bot/bookings/by-phone') {
@@ -45643,7 +45728,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotListBookingsByPhone(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotListBookingsByPhone(req, res, user, authMode));
   }
 
   if (pathname === '/staff/bot/bookings/update-contact') {
@@ -45653,7 +45739,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotUpdateContact(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotUpdateContact(req, res, user, authMode));
   }
 
   if (pathname === '/staff/bot/conversation/needs-human') {
@@ -45663,7 +45750,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotConversationNeedsHuman(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotConversationNeedsHuman(req, res, user, authMode));
   }
 
   // ── Phase 9.4b — Luna guest bot pause/resume (bot_pause_states SoT) ─────────
@@ -45740,7 +45828,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotCheckGuestAutomationGate(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotCheckGuestAutomationGate(req, res, user, authMode));
   }
 
   if (pathname === '/staff/bot/effective-pause-state') {
@@ -45750,7 +45839,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotEffectivePauseState(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotEffectivePauseState(req, res, user, authMode));
   }
 
   // ── Stage 8.5.4 — Luna bot booking create (shared engine, BOT_BOOKING_ENABLED gate) ──
@@ -45764,7 +45854,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotBookingCreate(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingCreate(req, res, user, authMode));
   }
 
   if (pathname === '/staff/bot/bookings/cancel') {
@@ -45774,7 +45865,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotBookingCancel(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotBookingCancel(req, res, user, authMode));
   }
 
   // ── Stage 8.5.5 — Luna bot Stripe link from draft payment ─────────────────
@@ -45789,7 +45881,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotPaymentCreateStripeLink(botStripeMatch[1], req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotPaymentCreateStripeLink(botStripeMatch[1], req, res, user, authMode));
   }
 
   // POST /staff/bot/payments/create-balance-link — remaining balance on existing booking
@@ -45800,7 +45893,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotCreateBalancePaymentLink(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotCreateBalancePaymentLink(req, res, user, authMode));
   }
 
   // POST /staff/bot/package-price-preview — read-only package totals for Luna (Slice A5)
@@ -45811,7 +45905,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotPackagePricePreview(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotPackagePricePreview(req, res, user, authMode));
   }
 
   // POST /staff/bot/booking-guests/payment-status — per-guest payment truth (Slice A)
@@ -45822,7 +45917,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotGuestPaymentStatus(req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotGuestPaymentStatus(req, res, user, authMode));
   }
 
   // POST /staff/bot/booking-guests/:guest_id/create-payment-link (Slice A3)
@@ -45834,7 +45930,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotGuestPaymentCreateLink(botGuestPayMatch[1], req, res, auth.user, auth.auth_mode);
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotGuestPaymentCreateLink(botGuestPayMatch[1], req, res, user, authMode));
   }
 
   // ── Stage 8.4.4 — Quote preview (pure, no DB, no writes) ─────────────────
