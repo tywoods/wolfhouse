@@ -34,13 +34,6 @@ const steps = [
     accent: 'seaglass',
   },
 ] as const;
-
-type Accent = 'terracotta' | 'seaglass' | 'moon';
-const accentColors: Record<Accent, string> = {
-  terracotta: 'var(--terracotta-500)',
-  seaglass: 'var(--seaglass-500)',
-  moon: 'var(--moon-300)',
-};
 ---
 
 <section class="section onboarding">
@@ -58,10 +51,9 @@ const accentColors: Record<Accent, string> = {
       {steps.map((s) => (
         <li class="onboarding__step">
           <div class="onboarding__step-left">
-            <span
-              class="onboarding__step-num"
-              style={`--step-accent: ${accentColors[s.accent as Accent]}`}
-            >{s.n}</span>
+            <span class:list={['onboarding__step-num', `onboarding__step-num--${s.accent}`]}>
+              {s.n}
+            </span>
             <span class="onboarding__step-line" aria-hidden="true"></span>
           </div>
           <div class="onboarding__step-body">
@@ -128,6 +120,11 @@ const accentColors: Record<Accent, string> = {
     letter-spacing: 0.02em;
     box-shadow: var(--shadow-s);
   }
+
+  /* Accent via classes (no inline style attrs — CSP style-src without unsafe-inline). */
+  .onboarding__step-num--terracotta { --step-accent: var(--terracotta-500); }
+  .onboarding__step-num--seaglass { --step-accent: var(--seaglass-500); }
+  .onboarding__step-num--moon { --step-accent: var(--moon-300); }
 
   .onboarding__step-line {
     flex: 1;

@@ -6,10 +6,11 @@ Static Astro site for [lunafrontdesk.com](https://lunafrontdesk.com) (preview: `
 
 | Slice | Role | Commit |
 |---|---|---|
-| **A** | Reproducibility / metadata (OG, Apple touch, locked QA browser, README) | Parent of current tip: `f2a6462` — *rebased* Slice A on current `origin/master` (not the earlier pre-rebase tip `abe4bae` / `90668d8`) |
-| **B** | Lead truth / privacy / self-hosted fonts (this work) | Tip on `feat/luna-marketing-site` after Slice B |
+| **A** | Reproducibility / metadata (OG, Apple touch, locked QA browser, README) | Parent of Slice B: `f2a6462` |
+| **B** | Lead truth / privacy / self-hosted fonts | Tip before Slice C: `6b1d128` |
+| **C** | Static-site security / deployment hardening (this work) | Tip on `feat/luna-marketing-site` after Slice C |
 
-Treat `f2a6462` as the rebased Slice A baseline when reviewing Slice B diffs (`f2a6462..HEAD`).
+Treat `6b1d128` as the Slice B baseline when reviewing Slice C diffs (`6b1d128..HEAD`).
 
 ## Setup
 
@@ -81,10 +82,13 @@ Use the same `PLAYWRIGHT_BROWSERS_PATH` when running `npm run qa` if you overrod
 |---|---|
 | `src/config/site.ts` | Site name, tagline, description, `baseUrl`, `indexable`, `ogImage` |
 | `src/config/privacy.ts` | Controller identity placeholders, retention rule, launch-blocker marker |
+| `security/headers.contract.json` | Platform-neutral security headers + CSP hash contract |
+| `public/_headers` | Cloudflare Pages / Netlify static-host header config |
 | `astro.config.mjs` | Astro `site` URL + Preact + sitemap integrations |
 | `src/layouts/Layout.astro` | Title, robots, Open Graph, Twitter, favicon, apple-touch |
 | `src/styles/fonts.css` | Self-hosted `@font-face` for Inter + Fraunces |
 | `public/fonts/` | WOFF2 font files (SIL OFL) — no Google Fonts |
+| `public/js/` | External site scripts (js-class, reveal) for CSP without our unsafe-inline |
 | `public/og/luna-front-desk-og.png` | OG / Twitter image (1200×630) |
 | `public/apple-touch-icon.png` | Apple touch icon (180×180) |
 | `public/luna-front-desk-logo.png` | Brand logo source asset |
@@ -110,6 +114,8 @@ Lead form submission is **compile-time disabled**: the UI states before submit t
 - Preview builds should keep `PUBLIC_INDEXABLE` unset/false (`noindex`).
 - Production builds must set `PUBLIC_SITE_URL` to the live origin and `PUBLIC_INDEXABLE=true` only when indexing is intentional.
 - Confirm emitted metadata after build: `npm run verify:emitted` (checks `dist/og/luna-front-desk-og.png`, `dist/apple-touch-icon.png`, logo copy, and HTML refs).
+- **Security headers (Slice C):** platform-neutral contract in `security/headers.contract.json`; concrete Cloudflare Pages / Netlify config in `public/_headers` (copied into `dist/` on build). CSP uses `default-src 'self'`, no `unsafe-eval`, and **sha256 hashes** (not `unsafe-inline`) for any remaining Astro island bootstrap inline script/style. `npm run build` regenerates those hashes via `sync-csp-hashes`. **HSTS** (`max-age=31536000; includeSubDomains`, no preload yet) must only be emitted over HTTPS — not on local `http://127.0.0.1` preview; preview hostnames may set HSTS for that host only.
+- Font / stylesheet origin gate: `npm run scan:fonts` recursively checks every `src` CSS/Astro/HTML file. Post-build: `npm run verify:security`.
 
 ## Scripts
 
@@ -118,10 +124,12 @@ Lead form submission is **compile-time disabled**: the UI states before submit t
 | `npm ci` | Clean install from lockfile |
 | `npm run dev` | Dev server |
 | `npm run check` | Astro/TS check |
-| `npm test` | Unit + component + metadata tests |
-| `npm run test:lead-browser` | Playwright lead truth/privacy checks (`QA_URL`) |
-| `npm run build` | Production static build |
+| `npm test` | Unit + component + metadata + security contract tests |
+| `npm run test:lead-browser` | Playwright lead truth/privacy/same-origin font checks (`QA_URL`) |
+| `npm run build` | Production static build + CSP hash sync into `_headers` / contract |
 | `npm run verify:emitted` | Assert dist OG/Apple/logo + HTML refs (after build) |
+| `npm run verify:security` | CSP/headers contract, local asset scan, dist origin/privacy gates |
+| `npm run scan:fonts` | Source-only local stylesheet/@import/@font-face scanner |
 | `npm run preview` | Preview `dist/` |
 | `npm run qa:install-browser` | Install Playwright Chromium |
 | `npm run qa` | Visual QA screenshots (`QA_URL`) |

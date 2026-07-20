@@ -1,0 +1,100 @@
+{
+  "id": "luna-marketing-site-security-headers",
+  "version": 1,
+  "description": "Platform-neutral security headers contract for the Luna Front Desk static marketing site.",
+  "hosting": {
+    "commonStaticConfig": "public/_headers",
+    "commonStaticConfigFormat": "netlify-cloudflare-pages-headers",
+    "notes": [
+      "Apply these headers at the CDN/static host edge. Astro preview does not read _headers.",
+      "HSTS must only be emitted over HTTPS. Local http://127.0.0.1 preview must not send HSTS.",
+      "Preview hostnames (e.g. preview.lunafrontdesk.com) may set HSTS for that host; do not enable HSTS preload until the production apex is intentionally locked to HTTPS."
+    ]
+  },
+  "headers": {
+    "Content-Security-Policy": {
+      "required": true,
+      "directives": {
+        "default-src": [
+          "'self'"
+        ],
+        "script-src": [
+          "'self'",
+          "'sha256-Q2BPg90ZMplYY+FSdApNErhpWafg2hcRRbndmvxuL/Q='",
+          "'sha256-Ya0pUYrC7nM5Cn/056TyVuEiz6dFGrzmkWzgON0pF0U='"
+        ],
+        "style-src": [
+          "'self'",
+          "'sha256-dWQPlo0XwJLEdJAEfNj1dr6V5ZED/eah4jtK4TfpHOU='",
+          "'sha256-vv9IoKo7BSLbWcUHr3tNmfNVmm5L/9Cfn2H6LMk7/ow='"
+        ],
+        "img-src": [
+          "'self'",
+          "data:"
+        ],
+        "font-src": [
+          "'self'"
+        ],
+        "connect-src": [
+          "'self'"
+        ],
+        "frame-src": [
+          "'none'"
+        ],
+        "object-src": [
+          "'none'"
+        ],
+        "base-uri": [
+          "'self'"
+        ],
+        "form-action": [
+          "'self'"
+        ],
+        "frame-ancestors": [
+          "'none'"
+        ]
+      },
+      "forbiddenTokens": [
+        "'unsafe-eval'",
+        "unsafe-eval"
+      ],
+      "unsafeInlinePolicy": "forbidden-as-keyword; remaining Astro island bootstrap/style tags must use documented sha256 hashes only"
+    },
+    "X-Content-Type-Options": {
+      "required": true,
+      "value": "nosniff"
+    },
+    "Referrer-Policy": {
+      "required": true,
+      "value": "strict-origin-when-cross-origin"
+    },
+    "Permissions-Policy": {
+      "required": true,
+      "value": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+    },
+    "Strict-Transport-Security": {
+      "required": true,
+      "value": "max-age=31536000; includeSubDomains",
+      "httpsOnly": true,
+      "preload": false,
+      "previewCaveat": "Safe on HTTPS preview hosts for that hostname only. Do not send on HTTP local preview. Do not add preload until production apex HTTPS is intentional and stable."
+    },
+    "X-Frame-Options": {
+      "required": true,
+      "value": "DENY",
+      "note": "Legacy complement to CSP frame-ancestors 'none'"
+    }
+  },
+  "inlineHashes": {
+    "script": [
+      "'sha256-Q2BPg90ZMplYY+FSdApNErhpWafg2hcRRbndmvxuL/Q='",
+      "'sha256-Ya0pUYrC7nM5Cn/056TyVuEiz6dFGrzmkWzgON0pF0U='"
+    ],
+    "style": [
+      "'sha256-dWQPlo0XwJLEdJAEfNj1dr6V5ZED/eah4jtK4TfpHOU='",
+      "'sha256-vv9IoKo7BSLbWcUHr3tNmfNVmm5L/9Cfn2H6LMk7/ow='"
+    ],
+    "generatedBy": "scripts/sync-csp-hashes.mjs",
+    "note": "Populated from dist HTML after build. Prefer external scripts; hashes cover unavoidable Astro island bootstrap only."
+  }
+}

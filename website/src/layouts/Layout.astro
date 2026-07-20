@@ -32,8 +32,9 @@ const ogImageUrl = new URL(ogImage, site.baseUrl).href;
     <link rel="canonical" href={canonical} />
     <meta name="theme-color" content="#14132b" />
     <!-- Mark JS active before paint so scroll-reveal starts hidden only when we
-         can actually reveal it; without JS, content stays visible. -->
-    <script is:inline>document.documentElement.classList.add('js');</script>
+         can actually reveal it; without JS, content stays visible.
+         External file keeps CSP free of our own unsafe-inline. -->
+    <script src="/js/js-class.js" is:inline></script>
 
     {site.indexable
       ? <meta name="robots" content="index, follow" />
@@ -68,31 +69,6 @@ const ogImageUrl = new URL(ogImage, site.baseUrl).href;
     </main>
     <slot name="footer" />
 
-    <script is:inline>
-      (function () {
-        var els = document.querySelectorAll('[data-animate]');
-        var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        if (reduce || !('IntersectionObserver' in window)) {
-          els.forEach(function (el) { el.classList.add('is-in'); });
-          return;
-        }
-        var io = new IntersectionObserver(
-          function (entries) {
-            entries.forEach(function (e) {
-              if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); }
-            });
-          },
-          { rootMargin: '0px 0px -8% 0px', threshold: 0.02 }
-        );
-        els.forEach(function (el) { io.observe(el); });
-        // Failsafe: never leave content hidden. Reveal anything still un-revealed
-        // shortly after load (covers unusual scroll patterns / observer misses).
-        setTimeout(function () {
-          document.querySelectorAll('[data-animate]:not(.is-in)').forEach(function (el) {
-            el.classList.add('is-in');
-          });
-        }, 2500);
-      })();
-    </script>
+    <script src="/js/reveal.js" is:inline></script>
   </body>
 </html>
