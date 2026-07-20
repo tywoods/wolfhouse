@@ -33,7 +33,7 @@
    Staff API request correlation middleware added (UUIDv4 accept/generate, ALS, response header; header + context only). **No completion logging / lifecycle listeners.** **Not deployed** — request completion logs, LAW/App Insights delivery + search, retention, and correlation drill remain open. Supersedes deferred 16D (no async log queue; no signal/shutdown ownership).
 
 7. **G08 retention / privacy — partial (source only via 16O + 16K)**
-   Public Stripe webhook error bodies minimized in source (SDK unavailable → `stripe_webhook_unavailable` retryable 500; invalid/missing/malformed signature → `invalid_stripe_signature` 400 with stable message; allowlisted audit reasons only). Prior 16K public `/healthz` minimized to `{status:ok,service:staff-api}`. **Not deployed** — live webhook error bodies and `/healthz` still expose detailed fields. LAW/App Insights retention remain proven live. Log-retention/PII redaction proof and privacy drill remain open.
+   Public Stripe webhook error bodies minimized in source (SDK unavailable / missing webhook secret → `stripe_webhook_unavailable` retryable 500; raw-body stream/oversize/abort → `invalid_webhook_request` 400; invalid/missing/malformed signature → `invalid_stripe_signature` 400 with stable message; allowlisted audit reasons only). Prior 16K public `/healthz` minimized to `{status:ok,service:staff-api}`. **Not deployed** — live webhook error bodies and `/healthz` still expose detailed fields. LAW/App Insights retention remain proven live. Log-retention/PII redaction proof and privacy drill remain open.
 
 ## Other partial notes
 
@@ -42,7 +42,7 @@
 
 ## Slice 16O
 
-`16O_stripe_webhook_error_minimization` on **G08_retention_privacy** — progress class `source_partial_progress_only`. Generic fail-closed public Stripe webhook error responses for SDK load and signature verification failures; no raw exception/signature/secret/payload/tenant leakage; request ID retained; zero DB on those paths. Does not deploy; does not change tenant binding, 16M claim logic, skip_verify=false, or ignored/unmatched behavior; deploy/privacy drill remain open.
+`16O_stripe_webhook_error_minimization` on **G08_retention_privacy** — progress class `source_partial_progress_only`. Generic fail-closed public Stripe webhook error responses for all pre-verification failures (raw-body read, missing webhook secret, SDK load, signature verification); no raw exception/signature/secret/payload/tenant/env leakage; request ID retained; zero DB on those paths. Does not deploy; does not change tenant binding, 16M claim logic, skip_verify=false, or ignored/unmatched behavior; deploy/privacy drill remain open.
 
 ## Slice 16M
 

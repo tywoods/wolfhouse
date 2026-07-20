@@ -4,8 +4,9 @@
  * radar-slice16o-stripe-webhook-error-minimization — RADAR Slice 16O locks.
  *
  * Source-partial progress only: minimize public Stripe webhook error responses
- * (SDK load + signature verification failures). No live deploy. Deployment and
- * privacy drill remain open.
+ * for all pre-verification failures (raw-body read, missing webhook secret,
+ * SDK load, signature verification). No live deploy. Deployment and privacy
+ * drill remain open.
  */
 
 const path = require('path');

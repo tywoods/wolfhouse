@@ -8,14 +8,14 @@
 
 ## Outcome
 
-Add **source-only fail-closed generic public error responses** for `POST /staff/stripe/webhook` Stripe SDK load failure and signature verification failure. Preserve HTTP status classes and internal audit observability, but replace client-visible concatenated `e.message` with stable generic codes/messages. **Do not deploy.** G08 remains `partial` (16O webhook error minimization + prior 16K healthz source-partial). Live deploy and privacy drill remain **open**.
+Add **source-only fail-closed generic public error responses** for `POST /staff/stripe/webhook` pre-verification failures (raw-body read, missing webhook secret, Stripe SDK load, signature verification). Preserve HTTP status classes and internal audit observability, but replace client-visible concatenated `e.message` / env-config naming with stable generic codes/messages. **Do not deploy.** G08 remains `partial` (16O webhook error minimization + prior 16K healthz source-partial). Live deploy and privacy drill remain **open**.
 
 ## Artifacts
 
 | Path | Role |
 |------|------|
 | `scripts/lib/stripe-webhook-public-errors.js` | Frozen public bodies + allowlisted audit reasons |
-| `scripts/staff-query-api.js` | Webhook SDK/signature failure paths wire generic bodies |
+| `scripts/staff-query-api.js` | Webhook pre-verification failure paths wire generic bodies |
 | `scripts/verify-radar-slice16o-stripe-webhook-error-minimization.js` | Offline RED/GREEN + real-listener verifier |
 | `fixtures/radar-operations/slice16o-expected-contract.json` | Frozen independent contract |
 | `npm run verify:radar-slice16o-stripe-webhook-error-minimization` | Gate |
@@ -24,10 +24,11 @@ Add **source-only fail-closed generic public error responses** for `POST /staff/
 
 | Bound | Value |
 |-------|--------|
-| SDK unavailable | HTTP 500 `{success:false,code:stripe_webhook_unavailable,retryable:true}` — no raw error |
+| SDK unavailable / missing webhook secret | HTTP 500 `{success:false,code:stripe_webhook_unavailable,retryable:true}` — no raw error / env-config names |
 | Missing / malformed / constructEvent throw | HTTP 400 `{success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature}` |
-| Forbidden public fields | stack, exception class, parser details, signature, webhook secret, event payload, tenant config, raw `error` text |
-| Internal audit | allowlisted `reason` only: `sdk_load_failed` / `signature_verification_failed`; never raw error/stack/signature/body |
+| Raw-body stream / oversize / abort | HTTP 400 `{success:false,code:invalid_webhook_request}` — no `e.message` |
+| Forbidden public fields | stack, exception class, parser details, signature, webhook secret, event payload, tenant config, env/config names, raw `error`/`detail` text |
+| Internal audit | allowlisted `reason` only: `sdk_load_failed` / `signature_verification_failed` / `body_read_failed` / `webhook_secret_unavailable`; never raw error/stack/signature/body |
 | Preserved | signature-before-routing/DB; `STRIPE_WEBHOOK_SKIP_VERIFY=false`; tenant binding; 16M claim txn; ignored/unmatched; request ID header |
 | Out of scope | live deploy; privacy drill; migration; skip_verify/tenant/16M/ignored behavior changes |
 
@@ -59,7 +60,7 @@ Add **source-only fail-closed generic public error responses** for `POST /staff/
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
 | Public `/healthz` minimization (source) | `partial` | 16K — `{status:ok,service:staff-api}` |
-| Public Stripe webhook error minimization (source) | `partial` | 16O — generic SDK/signature failure bodies |
+| Public Stripe webhook error minimization (source) | `partial` | 16O — generic pre-verification failure bodies |
 | LAW retention 30d / App Insights 90d | proven live | unchanged |
 | Live deploy of minimized bodies | `open` | Not claimed |
 | Log-retention / PII redaction proof | `open` | Not claimed |

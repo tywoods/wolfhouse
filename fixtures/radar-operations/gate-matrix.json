@@ -446,7 +446,7 @@
       "name": "Retention / privacy",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16O minimizes public POST /staff/stripe/webhook error responses for Stripe SDK load failure and signature verification failure to stable generic bodies ({success:false,code:stripe_webhook_unavailable,retryable:true} HTTP 500; {success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature} HTTP 400) with allowlisted audit reasons only (sdk_load_failed/signature_verification_failed) \u2014 no raw exception text/stack/signature/body/secret/payload/tenant. 16K healthz minimization remains prior source-partial progress. Source-partial only \u2014 not deployed; live webhook error bodies and /healthz still expose detailed fields until Staff API image deploy. Log-retention/PII redaction proof and privacy drill remain open. Deployment remains open.",
+      "rationale": "16O minimizes public POST /staff/stripe/webhook error responses for all pre-verification failures (raw-body stream/oversize/abort, missing webhook secret, Stripe SDK load failure, signature verification failure) to stable generic bodies ({success:false,code:stripe_webhook_unavailable,retryable:true} HTTP 500 for SDK/secret; {success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature} HTTP 400 for signature; {success:false,code:invalid_webhook_request} HTTP 400 for body-read) with allowlisted audit reasons only (sdk_load_failed/signature_verification_failed/body_read_failed/webhook_secret_unavailable) \u2014 no raw exception text/stack/signature/body/secret/payload/tenant/env. 16K healthz minimization remains prior source-partial progress. Source-partial only \u2014 not deployed; live webhook error bodies and /healthz still expose detailed fields until Staff API image deploy. Log-retention/PII redaction proof and privacy drill remain open. Deployment remains open.",
       "source_evidence": [
         {
           "path": "scripts/lib/stripe-webhook-public-errors.js",
@@ -456,15 +456,15 @@
             "buildStripeWebhookUnavailableBody",
             "buildStripeWebhookPublicErrorAudit"
           ],
-          "note": "Frozen public Stripe webhook error bodies + allowlisted audit reasons"
+          "note": "Frozen public Stripe webhook error bodies + allowlisted audit reasons (incl. body_read/secret)"
         },
         {
           "path": "scripts/staff-query-api.js",
-          "lines": "13763-13791",
+          "lines": "13741-13798",
           "symbols": [
             "handleStripeWebhook"
           ],
-          "note": "SDK/signature failure paths return generic bodies; no e.message concat"
+          "note": "Pre-verification failure paths return generic bodies; no e.message / env-config naming"
         },
         {
           "path": "fixtures/radar-operations/slice16o-expected-contract.json",
@@ -1005,7 +1005,7 @@
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_privacy_drill",
     "title": "Minimize public Stripe webhook error responses (generic fail-closed) \u2014 source partial only",
-    "why_smallest": "G08 lacked public Stripe webhook error-body minimization; narrowest ownership is SDK-load + signature-verification client responses only without changing tenant binding, 16M claim logic, or skip_verify semantics.",
+    "why_smallest": "G08 lacked public Stripe webhook error-body minimization; narrowest ownership is all pre-verification client responses (body-read/secret/SDK/signature) without changing tenant binding, 16M claim logic, or skip_verify semantics.",
     "supersedes": [],
     "owner_files": [
       "scripts/lib/stripe-webhook-public-errors.js",
@@ -1025,10 +1025,11 @@
       "Production RGs"
     ],
     "acceptance_criteria": [
-      "SDK unavailable \u2192 HTTP 500 {success:false,code:stripe_webhook_unavailable,retryable:true} with no raw error",
+      "SDK unavailable / missing webhook secret \u2192 HTTP 500 {success:false,code:stripe_webhook_unavailable,retryable:true} with no raw error or env/config names",
+      "Raw-body stream/oversize/abort \u2192 HTTP 400 {success:false,code:invalid_webhook_request} with no e.message",
       "Missing/malformed/parser-throw signature \u2192 HTTP 400 {success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature}",
-      "Never return stack/exception class/parser details/signature/secret/payload/tenant config",
-      "Internal audit allowlisted reasons only (sdk_load_failed/signature_verification_failed); no signature/body logged",
+      "Never return stack/exception class/parser details/signature/secret/payload/tenant/env/config",
+      "Internal audit allowlisted reasons only (sdk_load_failed/signature_verification_failed/body_read_failed/webhook_secret_unavailable); no signature/body logged",
       "Signature-before-routing/DB, skip_verify=false, tenant binding, 16M txn, ignored/unmatched preserved",
       "Real-listener RED/GREEN: exact bodies, no canaries, zero DB, no console leak, request ID retained",
       "Live deploy and privacy drill remain open"
@@ -1038,8 +1039,9 @@
       "steps": [
         "Approved deploy of Staff API image with minimized Stripe webhook error bodies (follow-on; not this commit)",
         "POST /staff/stripe/webhook missing/malformed signature on staff-staging and sunset-staging; prove exact generic 400 body",
-        "Prove SDK-unavailable path returns exact generic 500 retryable body (or staged inject)",
-        "Prove X-Request-Id retained; audit reasons allowlisted; no raw error/signature/secret/payload",
+        "Prove raw-body oversize/abort returns exact generic invalid_webhook_request 400",
+        "Prove SDK-unavailable and missing-secret paths return exact generic 500 retryable body (or staged inject)",
+        "Prove X-Request-Id retained; audit reasons allowlisted; no raw error/signature/secret/payload/env",
         "Prove 16M claim + tenant binding + skip_verify=false unchanged",
         "Freeze evidence JSON secret-free"
       ],

@@ -12,6 +12,10 @@
   "response_contract": {
     "sdk_unavailable": {
       "http_status": 500,
+      "applies_to": [
+        "stripe_sdk_load_failure",
+        "missing_webhook_secret"
+      ],
       "body": {
         "success": false,
         "code": "stripe_webhook_unavailable",
@@ -24,12 +28,15 @@
         "exception_class",
         "message",
         "details",
+        "detail",
         "signature",
         "webhook_secret",
         "payload",
         "event",
         "tenant",
-        "client_slug"
+        "client_slug",
+        "env",
+        "config"
       ]
     },
     "invalid_signature": {
@@ -50,6 +57,34 @@
         "exception",
         "exception_class",
         "details",
+        "detail",
+        "signature",
+        "webhook_secret",
+        "payload",
+        "event",
+        "tenant",
+        "client_slug"
+      ]
+    },
+    "invalid_webhook_request": {
+      "http_status": 400,
+      "applies_to": [
+        "raw_body_stream_error",
+        "raw_body_oversize",
+        "raw_body_abort"
+      ],
+      "body": {
+        "success": false,
+        "code": "invalid_webhook_request"
+      },
+      "forbidden_fields": [
+        "error",
+        "stack",
+        "exception",
+        "exception_class",
+        "message",
+        "details",
+        "detail",
         "signature",
         "webhook_secret",
         "payload",
@@ -62,14 +97,18 @@
   "audit_contract": {
     "allowed_reasons": [
       "sdk_load_failed",
-      "signature_verification_failed"
+      "signature_verification_failed",
+      "body_read_failed",
+      "webhook_secret_unavailable"
     ],
     "must_not_include": [
       "raw_error_text",
       "stack",
       "signature",
       "body",
-      "webhook_secret"
+      "webhook_secret",
+      "env",
+      "config"
     ]
   },
   "preserved": [
@@ -95,7 +134,7 @@
   "final_controlled_drill": {
     "id": "16O_DRILL_stripe_webhook_error_privacy_live_prove",
     "status": "open",
-    "pass_rule": "After approved deploy: POST /staff/stripe/webhook with missing/malformed signature on staff-staging and sunset-staging returns exactly {success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature} with HTTP 400; SDK-unavailable path returns {success:false,code:stripe_webhook_unavailable,retryable:true} with HTTP 500; no raw error/stack/signature/secret/payload/tenant fields; X-Request-Id retained; audit reasons allowlisted only; 16M claim + tenant binding + skip_verify=false unchanged"
+    "pass_rule": "After approved deploy: POST /staff/stripe/webhook with missing/malformed signature on staff-staging and sunset-staging returns exactly {success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature} with HTTP 400; raw-body oversize/abort returns {success:false,code:invalid_webhook_request} with HTTP 400; SDK-unavailable and missing-secret paths return {success:false,code:stripe_webhook_unavailable,retryable:true} with HTTP 500; no raw error/stack/signature/secret/payload/tenant/env fields; X-Request-Id retained; audit reasons allowlisted only; 16M claim + tenant binding + skip_verify=false unchanged"
   },
   "artifacts": [
     "scripts/lib/stripe-webhook-public-errors.js",
