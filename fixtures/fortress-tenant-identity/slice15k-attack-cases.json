@@ -102,12 +102,13 @@
       "id": "AC15K_B12_IAC_SKIP_FALSE",
       "color": "GREEN",
       "boundary_ids": ["B12_stripe_webhook_signature"],
-      "attack": "Committed staging/sunset Bicep pin STRIPE_WEBHOOK_SKIP_VERIFY=false and secretRef webhook secret",
+      "attack": "Committed Staff API staging/sunset Bicep pin STRIPE_WEBHOOK_SKIP_VERIFY=false + secretRef; n8n-main skip-only; n8n-worker absent on Azure; compose n8n + n8n-worker separately default false",
       "expect": {
         "verdict": "proven_isolated_by_runtime",
-        "staging_skip_false": true,
-        "sunset_skip_false": true,
-        "secret_ref_present": true
+        "staff_api_skip_false_secret_ref": true,
+        "n8n_main_skip_false_no_secret": true,
+        "n8n_worker_azure_absent": true,
+        "compose_n8n_and_worker_default_false": true
       }
     },
     {

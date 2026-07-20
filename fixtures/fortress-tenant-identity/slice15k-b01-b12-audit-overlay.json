@@ -50,8 +50,9 @@
         "Missing stripe-signature → 400 before DB",
         "constructEvent failure → 400 before DB",
         "Tenant bind (15B) and payment lookup occur only after signature admission",
-        "staging + sunset Bicep pin STRIPE_WEBHOOK_SKIP_VERIFY=false and secretRef stripe-webhook-secret",
-        "docker-compose.local defaults SKIP_VERIFY to false",
+        "staging + sunset Staff API Bicep pin STRIPE_WEBHOOK_SKIP_VERIFY=false and secretRef stripe-webhook-secret",
+        "staging n8n-main pins SKIP_VERIFY=false without STRIPE_WEBHOOK_SECRET; staging n8n-worker omits both",
+        "docker-compose.local n8n + n8n-worker separately default SKIP_VERIFY to false",
         ".env.example documents SKIP_VERIFY=false"
       ],
       "residual_non_blocking": [

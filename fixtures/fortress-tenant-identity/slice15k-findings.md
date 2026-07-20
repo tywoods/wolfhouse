@@ -28,9 +28,18 @@ Live presence/correctness of `META_APP_SECRET` remains **unproven** offline (and
 
 ### B12 — proven_isolated_by_runtime (source + IaC)
 
-When `STRIPE_WEBHOOK_SKIP_VERIFY` is not exactly `true`, missing `STRIPE_WEBHOOK_SECRET` → **503** `no_db_write` before tenant bind / payment DB. Raw `readBodyRaw` + `constructEvent` ordering is correct. Staging/sunset Bicep pin `STRIPE_WEBHOOK_SKIP_VERIFY=false` and `secretRef` the webhook secret.
+When `STRIPE_WEBHOOK_SKIP_VERIFY` is not exactly `true`, missing `STRIPE_WEBHOOK_SECRET` → **503** `no_db_write` before tenant bind / payment DB. Raw `readBodyRaw` + `constructEvent` ordering is correct. Staging/sunset **Staff API** Bicep pin `STRIPE_WEBHOOK_SKIP_VERIFY=false` and `secretRef` the webhook secret.
+
+**Consumer split (source-derived inventory):**
+- **Staff API** — B12 HTTP HMAC owner (`constructEvent` / skip / 503).
+- **n8n-main** — staging Bicep pins skip=`false` without `STRIPE_WEBHOOK_SECRET`; local compose carries both vars for Code nodes (`N8N_BLOCK_ENV_ACCESS_IN_NODE=true` on Azure).
+- **n8n-worker** — local compose mirrors Stripe webhook env; Azure staging worker omits both vars.
 
 **Residual (non-blocking):** `STRIPE_WEBHOOK_SKIP_VERIFY=true` has no `NODE_ENV`/profile startup refuse (docs + IaC pin only). Live secret **value** and Stripe endpoint registration are unproven in this slice.
+
+## Signature config-owner completeness
+
+Completeness method: `source_derived_scoped_occurrence_inventory` in `slice15k-consumer-matrix.json`. Verifier derives occurrences of the five signature symbols from scoped paths, requires every mapped owner, rejects unmapped/stale entries, and executes/binds every attack case by id. 15L owner list is reconciled to B01 Staff API + Bicep + `.env.example` only (n8n/Hermes/preflight/inventory remain inventoried, out of 15L).
 
 ## Source vs live activation
 

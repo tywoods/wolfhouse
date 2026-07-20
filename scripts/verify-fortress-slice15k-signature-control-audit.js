@@ -9,6 +9,10 @@
  *
  * Deterministic: validates committed slice15k-evidence.json; never writes
  * tracked evidence or timestamps (git status must stay clean).
+ *
+ * Completeness: derives signature-symbol occurrences from scoped paths, requires
+ * every mapped owner, rejects unmapped/stale entries, and executes/binds every
+ * attack case by id (not mere ID counts).
  */
 
 const crypto = require('crypto');
@@ -37,10 +41,19 @@ const { scanSecretFreeText } = require('./lib/fortress-tenant-identity-boundary'
 const MASTER_BASIS = '9a734fa8e989e10800afbdde0ac722187f6db2d5';
 const FAKE_APP_SECRET = 'fortress15k_meta_app_secret_SAMPLE_NOT_LIVE';
 
+const SYMBOLS = [
+  'STRIPE_WEBHOOK_SKIP_VERIFY',
+  'STRIPE_WEBHOOK_SECRET',
+  'META_APP_SECRET',
+  'META_WHATSAPP_VERIFY_TOKEN',
+  'DEFAULT_META_WHATSAPP_VERIFY_TOKEN',
+];
+
 let pass = 0;
 let fail = 0;
 const redResults = [];
 const greenResults = [];
+const attackBindings = new Map();
 
 function ok(name, cond, detail) {
   if (cond) {
@@ -56,12 +69,14 @@ function ok(name, cond, detail) {
 function red(id, cond, detail) {
   const passed = ok(`RED ${id}`, cond, detail);
   redResults.push({ id, ok: passed });
+  attackBindings.set(id, { color: 'RED', ok: passed });
   return passed;
 }
 
 function green(id, cond, detail) {
   const passed = ok(`GREEN ${id}`, cond, detail);
   greenResults.push({ id, ok: passed });
+  attackBindings.set(id, { color: 'GREEN', ok: passed });
   return passed;
 }
 
@@ -90,6 +105,104 @@ function extractFunction(src, name) {
     if (m >= 0) end = Math.min(end, m + 1);
   }
   return after.slice(0, end);
+}
+
+function lineOffsets(text) {
+  const offsets = [0];
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === '\n') offsets.push(i + 1);
+  }
+  return offsets;
+}
+
+function lineAt(offsets, index) {
+  let lo = 0;
+  let hi = offsets.length - 1;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (offsets[mid] <= index) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo + 1;
+}
+
+/** Assign service/container context for multi-consumer files. */
+function serviceAt(relPath, text, index) {
+  const before = text.slice(0, index);
+  if (relPath === 'infra/docker-compose.local.yml') {
+    const matches = [...before.matchAll(/^ {2}([a-z0-9-]+):\s*$/gm)];
+    return matches.length ? matches[matches.length - 1][1] : null;
+  }
+  if (relPath.endsWith('main.bicep')) {
+    const matches = [...before.matchAll(/name:\s*'([^']+)'/g)];
+    // Prefer nearest container name among known consumers.
+    for (let i = matches.length - 1; i >= 0; i -= 1) {
+      const name = matches[i][1];
+      if (
+        name === 'staff-api'
+        || name === 'n8n-main'
+        || name === 'n8n-worker'
+        || name === 'luna-sunset-staging-staff-api'
+      ) {
+        return name;
+      }
+    }
+  }
+  return null;
+}
+
+function deriveOccurrences(scopedPaths) {
+  const occ = [];
+  for (const rel of scopedPaths) {
+    const abs = path.join(ROOT, rel);
+    if (!fs.existsSync(abs)) continue;
+    const text = readText(abs);
+    const offsets = lineOffsets(text);
+    for (const symbol of SYMBOLS) {
+      const re = new RegExp(symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        occ.push({
+          path: rel,
+          symbol,
+          line: lineAt(offsets, m.index),
+          service: serviceAt(rel, text, m.index),
+          kind: 'symbol',
+        });
+      }
+    }
+  }
+  return occ;
+}
+
+function occurrenceKey(o) {
+  return `${o.path}|${o.symbol}|${o.service || ''}`;
+}
+
+function ownerCoversOccurrence(owner, o) {
+  if (owner.path !== o.path) return false;
+  if (owner.service != null && owner.service !== o.service) return false;
+  if (Array.isArray(owner.symbols) && owner.symbols.includes(o.symbol)) return true;
+  return false;
+}
+
+function extractServiceBlock(text, serviceName, relPath) {
+  if (relPath === 'infra/docker-compose.local.yml') {
+    const re = new RegExp(`^ {2}${serviceName}:\\s*$`, 'm');
+    const start = text.search(re);
+    if (start < 0) return '';
+    const rest = text.slice(start + 1);
+    const next = rest.search(/^ {2}[a-z0-9-]+:\s*$/m);
+    return text.slice(start, next < 0 ? text.length : start + 1 + next);
+  }
+  if (relPath.endsWith('main.bicep')) {
+    const needle = `name: '${serviceName}'`;
+    const idx = text.indexOf(needle);
+    if (idx < 0) return '';
+    // Bounded window after container name (staging Bicep has long corrupted comments).
+    return text.slice(idx, idx + 12000);
+  }
+  return text;
 }
 
 console.log('verify:fortress-slice15k-signature-control-audit — FORTRESS Slice 15K\n');
@@ -138,13 +251,17 @@ ok('F11 remediation design-only not implemented',
   remediation.status === 'design_only_not_implemented'
   && remediation.next_implementation_slice === 'FORTRESS-15L'
   && remediation.outcome_id === '15L_meta_signature_fail_closed'
-  && remediation.live_mutation === false);
+  && remediation.live_mutation === false
+  && remediation.boundary_id === 'B01_meta_whatsapp_signature_ingress');
 
-ok('F12 findings cite overlay + taxonomy',
+ok('F12 findings cite overlay + taxonomy + completeness',
   /slice15k-b01-b12-audit-overlay/.test(findings)
   && /vulnerable/.test(findings)
   && /proven_isolated_by_runtime/.test(findings)
-  && /15L_meta_signature_fail_closed/.test(findings));
+  && /15L_meta_signature_fail_closed/.test(findings)
+  && /source_derived_scoped_occurrence_inventory/.test(findings)
+  && /n8n-main/.test(findings)
+  && /n8n-worker/.test(findings));
 
 ok('F13 consumer matrix rollup matches contract',
   consumer.boundary_rollup.B01_meta_whatsapp_signature_ingress === 'vulnerable'
@@ -154,7 +271,21 @@ ok('F13 consumer matrix rollup matches contract',
   && Array.isArray(consumer.control_chain_b12)
   && consumer.control_chain_b12.length >= 5
   && Array.isArray(consumer.config_consumers)
-  && consumer.config_consumers.length >= 5);
+  && consumer.config_consumers.length >= 10
+  && consumer.signature_config_owners
+  && Array.isArray(consumer.signature_config_owners.owners)
+  && consumer.signature_config_owners.owners.length >= 14);
+
+ok('F14 completeness method + 15L owner reconciliation',
+  contract.completeness_method === 'source_derived_scoped_occurrence_inventory'
+  && consumer.signature_config_owners.completeness.method
+    === 'source_derived_scoped_occurrence_inventory'
+  && consumer.signature_config_owners.completeness.require_every_mapped_owner === true
+  && consumer.signature_config_owners.completeness.reject_unmapped_occurrences === true
+  && consumer.signature_config_owners.completeness.reject_stale_owners === true
+  && consumer.remediation_owner_reconciliation_15l.must_match_remediation_contract === true
+  && JSON.stringify(consumer.remediation_owner_reconciliation_15l.owner_files)
+    === JSON.stringify(remediation.owner_files));
 
 // ── Secret-free ────────────────────────────────────────────────────────────
 console.log('\n── Secret-free scan ──');
@@ -184,6 +315,17 @@ const composeLocal = readText(path.join(ROOT, 'infra/docker-compose.local.yml'))
 const metaPostFn = extractFunction(apiSrc, 'handleMetaWhatsAppWebhookPost');
 const stripeFn = extractFunction(apiSrc, 'handleStripeWebhook');
 const rawBodySample = Buffer.from('{"object":"whatsapp_business_account","entry":[]}');
+
+const stagingStaffBlock = extractServiceBlock(stagingBicep, 'staff-api', 'infra/azure/staging/main.bicep');
+const stagingN8nMainBlock = extractServiceBlock(stagingBicep, 'n8n-main', 'infra/azure/staging/main.bicep');
+const stagingN8nWorkerBlock = extractServiceBlock(stagingBicep, 'n8n-worker', 'infra/azure/staging/main.bicep');
+const sunsetStaffBlock = extractServiceBlock(
+  sunsetBicep,
+  'luna-sunset-staging-staff-api',
+  'infra/azure/sunset-staging/main.bicep',
+);
+const composeN8nBlock = extractServiceBlock(composeLocal, 'n8n', 'infra/docker-compose.local.yml');
+const composeWorkerBlock = extractServiceBlock(composeLocal, 'n8n-worker', 'infra/docker-compose.local.yml');
 
 console.log('\n── B01 Meta signature / hub ──');
 
@@ -217,6 +359,8 @@ red('AC15K_B01_DEFAULT_VERIFY_TOKEN', (() => {
 red('AC15K_B01_IAC_NO_META_APP_SECRET',
   !/META_APP_SECRET/.test(stagingBicep)
   && !/META_APP_SECRET/.test(sunsetBicep)
+  && !/META_WHATSAPP_VERIFY_TOKEN/.test(stagingBicep)
+  && !/META_WHATSAPP_VERIFY_TOKEN/.test(sunsetBicep)
   && /META_WHATSAPP_TOKEN/.test(stagingBicep));
 
 green('AC15K_B01_MISMATCH_REJECT', (() => {
@@ -278,12 +422,23 @@ green('AC15K_B12_RAW_BODY_BEFORE_CONSTRUCT', (() => {
 })());
 
 green('AC15K_B12_IAC_SKIP_FALSE',
-  /name:\s*'STRIPE_WEBHOOK_SKIP_VERIFY',\s*value:\s*'false'/.test(stagingBicep)
-  && /name:\s*'STRIPE_WEBHOOK_SKIP_VERIFY',\s*value:\s*'false'/.test(sunsetBicep)
-  && /name:\s*'STRIPE_WEBHOOK_SECRET',\s*secretRef:\s*'stripe-webhook-secret'/.test(stagingBicep)
-  && /name:\s*'STRIPE_WEBHOOK_SECRET',\s*secretRef:\s*'stripe-webhook-secret'/.test(sunsetBicep)
+  /STRIPE_WEBHOOK_SKIP_VERIFY/.test(stagingStaffBlock)
+  && /value:\s*'false'/.test(stagingStaffBlock)
+  && /STRIPE_WEBHOOK_SECRET/.test(stagingStaffBlock)
+  && /secretRef:\s*'stripe-webhook-secret'/.test(stagingStaffBlock)
+  && /STRIPE_WEBHOOK_SKIP_VERIFY/.test(stagingN8nMainBlock)
+  && /value:\s*'false'/.test(stagingN8nMainBlock)
+  && !/STRIPE_WEBHOOK_SECRET/.test(stagingN8nMainBlock)
+  && !/STRIPE_WEBHOOK_SKIP_VERIFY/.test(stagingN8nWorkerBlock)
+  && !/STRIPE_WEBHOOK_SECRET/.test(stagingN8nWorkerBlock)
+  && /STRIPE_WEBHOOK_SKIP_VERIFY/.test(sunsetStaffBlock)
+  && /value:\s*'false'/.test(sunsetStaffBlock)
+  && /secretRef:\s*'stripe-webhook-secret'/.test(sunsetStaffBlock)
   && /STRIPE_WEBHOOK_SKIP_VERIFY=false/.test(envExample)
-  && /STRIPE_WEBHOOK_SKIP_VERIFY: \$\{STRIPE_WEBHOOK_SKIP_VERIFY:-false\}/.test(composeLocal));
+  && /STRIPE_WEBHOOK_SKIP_VERIFY: \$\{STRIPE_WEBHOOK_SKIP_VERIFY:-false\}/.test(composeN8nBlock)
+  && /STRIPE_WEBHOOK_SECRET: \$\{STRIPE_WEBHOOK_SECRET\}/.test(composeN8nBlock)
+  && /STRIPE_WEBHOOK_SKIP_VERIFY: \$\{STRIPE_WEBHOOK_SKIP_VERIFY:-false\}/.test(composeWorkerBlock)
+  && /STRIPE_WEBHOOK_SECRET: \$\{STRIPE_WEBHOOK_SECRET\}/.test(composeWorkerBlock));
 
 red('AC15K_B12_SKIP_NO_STARTUP_REFUSE', (() => {
   const hasSkip = /STRIPE_WEBHOOK_SKIP_VERIFY\s*===\s*'true'/.test(apiSrc);
@@ -310,15 +465,140 @@ green('AC15K_HISTORICAL_15A_UNCHANGED',
   && /B01 \| Meta WhatsApp signature \/ hub verify \| `unproven`/.test(docText)
   && /B12 \| Stripe webhook signature \| `proven_isolated_by_runtime`/.test(docText));
 
-ok('Attack case ids covered',
-  Array.isArray(attacks.cases)
-  && attacks.cases.length >= 12
-  && attacks.cases.every((c) => typeof c.id === 'string' && c.color));
-
 ok('Remediation targets B01 only',
   remediation.boundary_id === 'B01_meta_whatsapp_signature_ingress'
   && /missing_signature_header/.test(JSON.stringify(remediation))
-  && /META_APP_SECRET/.test(JSON.stringify(remediation)));
+  && /META_APP_SECRET/.test(JSON.stringify(remediation))
+  && !/implement.*STRIPE_WEBHOOK_SKIP_VERIFY.*startup/.test(JSON.stringify(remediation.required_controls || [])));
+
+// ── Source-derived signature config-owner inventory ─────────────────────────
+console.log('\n── Signature config-owner inventory (source-derived) ──');
+
+const sco = consumer.signature_config_owners;
+const scopedPaths = sco.completeness.scoped_paths;
+const owners = sco.owners;
+const absentOwners = sco.absent_owners || [];
+
+ok('scoped paths exist on disk',
+  scopedPaths.every((p) => fs.existsSync(path.join(ROOT, p))),
+  scopedPaths.filter((p) => !fs.existsSync(path.join(ROOT, p))).join(','));
+
+ok('symbols list matches canonical five',
+  JSON.stringify(sco.completeness.symbols) === JSON.stringify(SYMBOLS));
+
+ok('consumer implications distinguish staff_api / n8n_main / n8n_worker',
+  sco.consumer_implications
+  && /Staff API|B01|B12/.test(sco.consumer_implications.staff_api)
+  && /n8n-main|legacy/i.test(sco.consumer_implications.n8n_main)
+  && /n8n-worker|compose|Azure/i.test(sco.consumer_implications.n8n_worker));
+
+const derived = deriveOccurrences(scopedPaths);
+
+// Hermes default-token uses match_patterns (not META_* symbols).
+const hermesOwner = owners.find((o) => o.id === 'OWN_HERMES_DEFAULT_VERIFY_TOKEN');
+const hermesText = hermesOwner ? readText(path.join(ROOT, hermesOwner.path)) : '';
+const hermesPatternHits = hermesOwner
+  ? (hermesOwner.match_patterns || []).filter((pat) => hermesText.includes(pat))
+  : [];
+ok('Hermes default-token patterns present',
+  hermesOwner
+  && hermesPatternHits.length === (hermesOwner.match_patterns || []).length,
+  hermesPatternHits.join(','));
+
+const coveredKeys = new Set();
+const staleOwners = [];
+for (const owner of owners) {
+  if (owner.id === 'OWN_HERMES_DEFAULT_VERIFY_TOKEN') {
+    if (hermesPatternHits.length === 0) staleOwners.push(owner.id);
+    continue;
+  }
+  const hits = derived.filter((o) => ownerCoversOccurrence(owner, o));
+  const required = owner.symbols || [];
+  const missingSyms = required.filter((sym) => !hits.some((h) => h.symbol === sym));
+  if (hits.length === 0 || missingSyms.length > 0) {
+    staleOwners.push(`${owner.id}[missing:${missingSyms.join('|') || 'all'}]`);
+  } else {
+    for (const h of hits) coveredKeys.add(occurrenceKey(h));
+  }
+}
+
+ok('every mapped owner has derived occurrence(s)',
+  staleOwners.length === 0,
+  staleOwners.join(','));
+
+const unmapped = derived.filter((o) => {
+  if (owners.some((owner) => {
+    if (owner.id === 'OWN_HERMES_DEFAULT_VERIFY_TOKEN') return false;
+    return ownerCoversOccurrence(owner, o);
+  })) {
+    return false;
+  }
+  // File-header / comment mentions (service null) are covered when any same-path
+  // owner already inventories that symbol for a concrete consumer service.
+  if (o.service == null) {
+    return !owners.some((owner) =>
+      owner.path === o.path
+      && Array.isArray(owner.symbols)
+      && owner.symbols.includes(o.symbol));
+  }
+  return true;
+});
+
+ok('no unmapped derived occurrences',
+  unmapped.length === 0,
+  unmapped.map((o) => `${o.path}:${o.line}:${o.symbol}@${o.service || '-'}`).join(','));
+
+const absentFails = [];
+for (const abs of absentOwners) {
+  const text = readText(path.join(ROOT, abs.path));
+  if (abs.service) {
+    const block = extractServiceBlock(text, abs.service, abs.path);
+    for (const sym of abs.symbols) {
+      if (block.includes(sym)) absentFails.push(`${abs.id}:${sym}:present_in_${abs.service}`);
+    }
+  } else {
+    for (const sym of abs.symbols) {
+      if (text.includes(sym)) absentFails.push(`${abs.id}:${sym}:present`);
+    }
+  }
+}
+ok('absent_owners remain absent in scoped source',
+  absentFails.length === 0,
+  absentFails.join(','));
+
+ok('config_consumers enumerate staff_api + n8n_main + n8n_worker separately',
+  consumer.config_consumers.some((c) => c.consumer === 'staff_api' && /staging/.test(c.path || '') && c.service === 'staff-api')
+  && consumer.config_consumers.some((c) => c.consumer === 'n8n_main' && c.service === 'n8n-main')
+  && consumer.config_consumers.some((c) => c.consumer === 'n8n_worker' && c.service === 'n8n-worker')
+  && consumer.config_consumers.some((c) => c.consumer === 'n8n_main' && c.service === 'n8n')
+  && consumer.config_consumers.some((c) => c.consumer === 'n8n_worker' && c.path === 'infra/docker-compose.local.yml'));
+
+// ── Attack case execute/bind (not mere ID counts) ───────────────────────────
+console.log('\n── Attack case execute/bind ──');
+
+ok('attack cases array present', Array.isArray(attacks.cases) && attacks.cases.length >= 12);
+
+const unboundAttacks = [];
+const colorMismatches = [];
+for (const c of attacks.cases) {
+  const bound = attackBindings.get(c.id);
+  if (!bound) {
+    unboundAttacks.push(c.id);
+    continue;
+  }
+  if (bound.color !== c.color) colorMismatches.push(`${c.id}:${c.color}!=${bound.color}`);
+  ok(`attack bind ${c.id}`, bound.ok === true && bound.color === c.color,
+    bound.ok ? `color ${bound.color}` : 'execution failed');
+}
+ok('no unbound attack cases', unboundAttacks.length === 0, unboundAttacks.join(','));
+ok('no attack color mismatches', colorMismatches.length === 0, colorMismatches.join(','));
+
+const orphanExecutions = [...attackBindings.keys()].filter(
+  (id) => !attacks.cases.some((c) => c.id === id),
+);
+ok('no orphan RED/GREEN executions outside attack-cases',
+  orphanExecutions.length === 0,
+  orphanExecutions.join(','));
 
 // ── Evidence: validate committed artifact; do not rewrite ───────────────────
 console.log('\n── Evidence (read-only) ──');
@@ -345,6 +625,10 @@ ok('evidence GREEN ids match this run',
   JSON.stringify(runGreenIds) === JSON.stringify(evidenceGreenIds));
 ok('all RED/GREEN passed',
   redResults.every((r) => r.ok) && greenResults.every((r) => r.ok));
+
+ok('evidence notes completeness proof',
+  Array.isArray(committedEvidence.notes)
+  && committedEvidence.notes.some((n) => /source.derived|config.owner|n8n/i.test(n)));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

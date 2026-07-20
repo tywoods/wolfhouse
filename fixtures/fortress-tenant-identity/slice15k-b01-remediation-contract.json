@@ -17,6 +17,16 @@
     "infra/azure/sunset-staging/main.bicep",
     "infra/.env.example"
   ],
+  "owner_files_reconciliation": {
+    "source": "slice15k-consumer-matrix.json signature_config_owners.remediation_owner_reconciliation_15l",
+    "includes": "B01 Staff API helper + admit gate + staging/sunset Staff API Bicep + .env.example Meta placeholders",
+    "excludes": [
+      "n8n_main / n8n_worker Stripe webhook env (legacy / local compose)",
+      "15C/15D STRIPE_WEBHOOK_SKIP_VERIFY preflight/deploy asserts",
+      "normalized inventory / 15D cited evidence",
+      "Hermes WHATSAPP_VERIFY_TOKEN sample"
+    ]
+  },
   "required_controls": [
     {
       "id": "meta_post_missing_secret_reject",

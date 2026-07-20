@@ -2,7 +2,7 @@
   "schema_version": 1,
   "slice": "FORTRESS-15K",
   "outcome_id": "15K_signature_control_reaudit",
-  "description": "Source/config consumer matrix for B01 Meta signature/hub verify and B12 Stripe webhook signature. Fake IDs only. Distinguishes committed source guarantees from live activation.",
+  "description": "Source/config consumer matrix for B01 Meta signature/hub verify and B12 Stripe webhook signature. Fake IDs only. Distinguishes committed source guarantees from live activation. Signature config owners are source-derived from scoped paths.",
   "boundary_rollup": {
     "B01_meta_whatsapp_signature_ingress": "vulnerable",
     "B12_stripe_webhook_signature": "proven_isolated_by_runtime"
@@ -128,50 +128,354 @@
       "verdict": "proven_fail_closed"
     }
   ],
+  "signature_config_owners": {
+    "completeness": {
+      "method": "source_derived_scoped_occurrence_inventory",
+      "full_repo_ast": false,
+      "require_every_mapped_owner": true,
+      "reject_unmapped_occurrences": true,
+      "reject_stale_owners": true,
+      "symbols": [
+        "STRIPE_WEBHOOK_SKIP_VERIFY",
+        "STRIPE_WEBHOOK_SECRET",
+        "META_APP_SECRET",
+        "META_WHATSAPP_VERIFY_TOKEN",
+        "DEFAULT_META_WHATSAPP_VERIFY_TOKEN"
+      ],
+      "scoped_paths": [
+        "scripts/staff-query-api.js",
+        "scripts/lib/luna-meta-whatsapp-webhook.js",
+        "scripts/lib/luna-guest-stripe-payment-truth-apply.js",
+        "scripts/lib/fortress-slice15c-sunset-rollout-preflight.js",
+        "scripts/lib/fortress-slice15d-sunset-stripe-deploy.js",
+        "scripts/lib/hermes-vm-profile.js",
+        "infra/azure/staging/main.bicep",
+        "infra/azure/sunset-staging/main.bicep",
+        "infra/docker-compose.local.yml",
+        "infra/.env.example",
+        "infra/azure/sunset-staging/inventory/live-inventory.normalized.json",
+        "fixtures/fortress-tenant-identity/slice15d-live-inventory.json",
+        "fixtures/fortress-tenant-identity/slice15d-evidence.json"
+      ],
+      "narrowing": "Inventory covers committed runtime/IaC/compose/preflight/normalized-inventory/cited-evidence owners of the five signature symbols above. Verifier scripts and docs prose are out of scoped derivation. Hermes default-token is inventoried as out_of_scope_hermes_cutover."
+    },
+    "consumer_implications": {
+      "staff_api": "Owns B01 Meta hub/HMAC admit and B12 Stripe constructEvent. Staging/sunset Staff API Bicep must pin skip=false and secretRef webhook secret; Meta app secret / verify token are absent today (B01 gap → 15L).",
+      "n8n_main": "Legacy workflow surface. Staging Bicep pins STRIPE_WEBHOOK_SKIP_VERIFY=false but does not wire STRIPE_WEBHOOK_SECRET; N8N_BLOCK_ENV_ACCESS_IN_NODE=true blocks Code-node $env. Local compose n8n-main receives both Stripe webhook env vars for Code nodes. Not a Staff API B01/B12 HTTP boundary owner.",
+      "n8n_worker": "Local compose mirrors Stripe webhook env into the worker. Staging Bicep n8n-worker does not declare STRIPE_WEBHOOK_SKIP_VERIFY or STRIPE_WEBHOOK_SECRET. Queue workers inherit workflow secrets differently from Staff API HMAC route.",
+      "preflight_deploy": "15C/15D modules assert/preserve STRIPE_WEBHOOK_SKIP_VERIFY=false for sunset Staff API rollout; they do not change Meta signature fail-open.",
+      "inventory_evidence": "Normalized sunset inventory + 15D live inventory/evidence cite skip=false and webhook secretRef presence as historical deploy evidence; secret values remain unproven offline.",
+      "hermes_out_of_scope": "Hermes WHATSAPP_VERIFY_TOKEN sample is not Staff API META_WHATSAPP_VERIFY_TOKEN; cutover is out of 15L."
+    },
+    "owners": [
+      {
+        "id": "OWN_STAFF_API_RUNTIME_STRIPE",
+        "path": "scripts/staff-query-api.js",
+        "consumer": "staff_api",
+        "service": null,
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY", "STRIPE_WEBHOOK_SECRET"],
+        "role": "runtime_hmac_gate",
+        "implication": "B12 HTTP owner: skip flag + secret + constructEvent before DB"
+      },
+      {
+        "id": "OWN_META_HELPER_RUNTIME",
+        "path": "scripts/lib/luna-meta-whatsapp-webhook.js",
+        "consumer": "staff_api",
+        "service": null,
+        "symbols": ["META_APP_SECRET", "META_WHATSAPP_VERIFY_TOKEN", "DEFAULT_META_WHATSAPP_VERIFY_TOKEN"],
+        "role": "runtime_meta_signature_helper",
+        "implication": "B01 helper owner: fail-open skip paths + hardcoded GET default token"
+      },
+      {
+        "id": "OWN_PAYMENT_TRUTH_SKIP_METADATA",
+        "path": "scripts/lib/luna-guest-stripe-payment-truth-apply.js",
+        "consumer": "staff_api",
+        "service": null,
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY"],
+        "role": "post_admit_metadata",
+        "implication": "Records skip_verify_used in payment metadata after signature admit; not an alternate HMAC gate"
+      },
+      {
+        "id": "OWN_STAGING_BICEP_STAFF_API_STRIPE",
+        "path": "infra/azure/staging/main.bicep",
+        "consumer": "staff_api",
+        "service": "staff-api",
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY", "STRIPE_WEBHOOK_SECRET"],
+        "role": "committed_iac",
+        "implication": "Pins skip=false and secretRef stripe-webhook-secret on Staff API"
+      },
+      {
+        "id": "OWN_STAGING_BICEP_N8N_MAIN_SKIP",
+        "path": "infra/azure/staging/main.bicep",
+        "consumer": "n8n_main",
+        "service": "n8n-main",
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY"],
+        "role": "committed_iac_legacy",
+        "implication": "Pins skip=false on n8n-main without STRIPE_WEBHOOK_SECRET; not Staff API B12 route"
+      },
+      {
+        "id": "OWN_SUNSET_BICEP_STAFF_API_STRIPE",
+        "path": "infra/azure/sunset-staging/main.bicep",
+        "consumer": "staff_api",
+        "service": "luna-sunset-staging-staff-api",
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY", "STRIPE_WEBHOOK_SECRET"],
+        "role": "committed_iac",
+        "implication": "Pins skip=false and secretRef on sunset Staff API only (no n8n apps in this Bicep)"
+      },
+      {
+        "id": "OWN_COMPOSE_N8N_MAIN_STRIPE",
+        "path": "infra/docker-compose.local.yml",
+        "consumer": "n8n_main",
+        "service": "n8n",
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY", "STRIPE_WEBHOOK_SECRET"],
+        "role": "committed_local_default",
+        "implication": "Local n8n-main gets host secret + SKIP_VERIFY default false for Code nodes"
+      },
+      {
+        "id": "OWN_COMPOSE_N8N_WORKER_STRIPE",
+        "path": "infra/docker-compose.local.yml",
+        "consumer": "n8n_worker",
+        "service": "n8n-worker",
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY", "STRIPE_WEBHOOK_SECRET"],
+        "role": "committed_local_default",
+        "implication": "Local n8n-worker mirrors Stripe webhook env; Azure staging worker does not"
+      },
+      {
+        "id": "OWN_ENV_EXAMPLE_STRIPE",
+        "path": "infra/.env.example",
+        "consumer": "staff_api",
+        "service": null,
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY", "STRIPE_WEBHOOK_SECRET"],
+        "role": "committed_safe_example",
+        "implication": "Safe placeholder secret name + SKIP_VERIFY=false; no Meta signature vars"
+      },
+      {
+        "id": "OWN_15C_PREFLIGHT_SKIP",
+        "path": "scripts/lib/fortress-slice15c-sunset-rollout-preflight.js",
+        "consumer": "preflight_deploy",
+        "service": null,
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY"],
+        "role": "rollout_preflight",
+        "implication": "Requires/preserves STRIPE_WEBHOOK_SKIP_VERIFY=false for sunset Staff API"
+      },
+      {
+        "id": "OWN_15D_DEPLOY_SKIP",
+        "path": "scripts/lib/fortress-slice15d-sunset-stripe-deploy.js",
+        "consumer": "preflight_deploy",
+        "service": null,
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY"],
+        "role": "deploy_assert",
+        "implication": "Reads live container env skip flag during 15D deploy assert"
+      },
+      {
+        "id": "OWN_NORMALIZED_INVENTORY_SKIP",
+        "path": "infra/azure/sunset-staging/inventory/live-inventory.normalized.json",
+        "consumer": "inventory_evidence",
+        "service": null,
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY"],
+        "role": "normalized_inventory",
+        "implication": "Records plainEnv STRIPE_WEBHOOK_SKIP_VERIFY=false (matches) for sunset staff-api"
+      },
+      {
+        "id": "OWN_15D_LIVE_INVENTORY_STRIPE",
+        "path": "fixtures/fortress-tenant-identity/slice15d-live-inventory.json",
+        "consumer": "inventory_evidence",
+        "service": null,
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY", "STRIPE_WEBHOOK_SECRET"],
+        "role": "cited_evidence",
+        "implication": "15D cited inventory: skip=false + webhook secretRef present; value unproven"
+      },
+      {
+        "id": "OWN_15D_EVIDENCE_SKIP",
+        "path": "fixtures/fortress-tenant-identity/slice15d-evidence.json",
+        "consumer": "inventory_evidence",
+        "service": null,
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY"],
+        "role": "cited_evidence",
+        "implication": "15D evidence cites skip=false as historical deploy observation"
+      },
+      {
+        "id": "OWN_HERMES_DEFAULT_VERIFY_TOKEN",
+        "path": "scripts/lib/hermes-vm-profile.js",
+        "consumer": "hermes_out_of_scope",
+        "service": null,
+        "symbols": [],
+        "match_patterns": ["WHATSAPP_VERIFY_TOKEN", "wolfhouse_verify_token"],
+        "role": "committed_sample",
+        "implication": "Hermes profile hardcoded verify token sample; not Staff API META_* — out of 15L"
+      }
+    ],
+    "absent_owners": [
+      {
+        "id": "ABS_STAGING_BICEP_META_SIGNATURE",
+        "path": "infra/azure/staging/main.bicep",
+        "consumer": "staff_api",
+        "symbols": ["META_APP_SECRET", "META_WHATSAPP_VERIFY_TOKEN"],
+        "implication": "Staff API Meta webhook route exists without IaC META_APP_SECRET / META_WHATSAPP_VERIFY_TOKEN"
+      },
+      {
+        "id": "ABS_SUNSET_BICEP_META_SIGNATURE",
+        "path": "infra/azure/sunset-staging/main.bicep",
+        "consumer": "staff_api",
+        "symbols": ["META_APP_SECRET", "META_WHATSAPP_VERIFY_TOKEN"],
+        "implication": "Sunset Staff API wires META_WHATSAPP_TOKEN (send) but not META_APP_SECRET / verify token"
+      },
+      {
+        "id": "ABS_STAGING_BICEP_N8N_MAIN_WEBHOOK_SECRET",
+        "path": "infra/azure/staging/main.bicep",
+        "consumer": "n8n_main",
+        "service": "n8n-main",
+        "symbols": ["STRIPE_WEBHOOK_SECRET"],
+        "implication": "n8n-main has SKIP_VERIFY=false without webhook secretRef — legacy; Staff API holds the secret"
+      },
+      {
+        "id": "ABS_STAGING_BICEP_N8N_WORKER_STRIPE_WEBHOOK",
+        "path": "infra/azure/staging/main.bicep",
+        "consumer": "n8n_worker",
+        "service": "n8n-worker",
+        "symbols": ["STRIPE_WEBHOOK_SKIP_VERIFY", "STRIPE_WEBHOOK_SECRET"],
+        "implication": "Azure n8n-worker omits Stripe webhook signature env (unlike local compose worker)"
+      },
+      {
+        "id": "ABS_ENV_EXAMPLE_META_SIGNATURE",
+        "path": "infra/.env.example",
+        "consumer": "staff_api",
+        "symbols": ["META_APP_SECRET", "META_WHATSAPP_VERIFY_TOKEN"],
+        "implication": "Safe example documents Stripe webhook vars but not Meta signature vars (15L should add placeholders)"
+      }
+    ]
+  },
   "config_consumers": [
     {
-      "id": "CFG_STAGING_BICEP_STRIPE",
+      "id": "CFG_STAGING_BICEP_STAFF_API_STRIPE",
       "path": "infra/azure/staging/main.bicep",
+      "consumer": "staff_api",
+      "service": "staff-api",
       "vars": ["STRIPE_WEBHOOK_SKIP_VERIFY=false", "STRIPE_WEBHOOK_SECRET secretRef"],
-      "meta_signature_vars": "absent (META_WHATSAPP_TOKEN / PHONE_NUMBER_ID only)",
+      "meta_signature_vars": "absent (META_WHATSAPP_TOKEN / PHONE_NUMBER_ID only on n8n; Staff API has neither META_APP_SECRET nor verify token)",
       "guarantee": "committed_iac",
       "live_activation": "unproven_in_15k"
     },
     {
-      "id": "CFG_SUNSET_BICEP_STRIPE",
+      "id": "CFG_STAGING_BICEP_N8N_MAIN_SKIP",
+      "path": "infra/azure/staging/main.bicep",
+      "consumer": "n8n_main",
+      "service": "n8n-main",
+      "vars": ["STRIPE_WEBHOOK_SKIP_VERIFY=false"],
+      "meta_signature_vars": "META_WHATSAPP_TOKEN / PHONE_NUMBER_ID present; META_APP_SECRET / META_WHATSAPP_VERIFY_TOKEN absent",
+      "guarantee": "committed_iac_legacy",
+      "live_activation": "unproven_in_15k",
+      "implication": "Not Staff API B12; no STRIPE_WEBHOOK_SECRET on this container"
+    },
+    {
+      "id": "CFG_STAGING_BICEP_N8N_WORKER_ABSENT_STRIPE_WEBHOOK",
+      "path": "infra/azure/staging/main.bicep",
+      "consumer": "n8n_worker",
+      "service": "n8n-worker",
+      "vars": [],
+      "meta_signature_vars": "META_WHATSAPP_TOKEN / PHONE_NUMBER_ID present; no Stripe webhook signature env",
+      "guarantee": "none_for_stripe_webhook_signature",
+      "live_activation": "n/a",
+      "implication": "Differs from local compose n8n-worker which carries both Stripe webhook vars"
+    },
+    {
+      "id": "CFG_SUNSET_BICEP_STAFF_API_STRIPE",
       "path": "infra/azure/sunset-staging/main.bicep",
+      "consumer": "staff_api",
+      "service": "luna-sunset-staging-staff-api",
       "vars": ["STRIPE_WEBHOOK_SKIP_VERIFY=false", "STRIPE_WEBHOOK_SECRET secretRef", "STRIPE_WEBHOOK_CLIENT_SLUG=sunset"],
-      "meta_signature_vars": "absent",
+      "meta_signature_vars": "META_WHATSAPP_TOKEN present; META_APP_SECRET / META_WHATSAPP_VERIFY_TOKEN absent",
       "guarantee": "committed_iac",
       "live_activation": "skip_false_recorded_in_15d_inventory_secret_value_unproven"
     },
     {
       "id": "CFG_ENV_EXAMPLE_STRIPE",
       "path": "infra/.env.example",
+      "consumer": "staff_api",
       "vars": ["STRIPE_WEBHOOK_SECRET placeholder name only", "STRIPE_WEBHOOK_SKIP_VERIFY=false"],
       "meta_signature_vars": "absent",
       "guarantee": "committed_safe_example",
       "live_activation": "n/a"
     },
     {
-      "id": "CFG_COMPOSE_LOCAL_STRIPE",
+      "id": "CFG_COMPOSE_N8N_MAIN_STRIPE",
       "path": "infra/docker-compose.local.yml",
+      "consumer": "n8n_main",
+      "service": "n8n",
       "vars": ["STRIPE_WEBHOOK_SECRET from host env", "STRIPE_WEBHOOK_SKIP_VERIFY default false"],
       "meta_signature_vars": "absent",
       "guarantee": "committed_local_default",
       "live_activation": "n/a"
     },
     {
+      "id": "CFG_COMPOSE_N8N_WORKER_STRIPE",
+      "path": "infra/docker-compose.local.yml",
+      "consumer": "n8n_worker",
+      "service": "n8n-worker",
+      "vars": ["STRIPE_WEBHOOK_SECRET from host env", "STRIPE_WEBHOOK_SKIP_VERIFY default false"],
+      "meta_signature_vars": "absent",
+      "guarantee": "committed_local_default",
+      "live_activation": "n/a",
+      "implication": "Local-only parity; Azure staging worker omits these vars"
+    },
+    {
+      "id": "CFG_15C_PREFLIGHT_SKIP",
+      "path": "scripts/lib/fortress-slice15c-sunset-rollout-preflight.js",
+      "consumer": "preflight_deploy",
+      "vars": ["STRIPE_WEBHOOK_SKIP_VERIFY preserve false"],
+      "meta_signature_vars": "absent",
+      "guarantee": "rollout_preflight",
+      "live_activation": "n/a"
+    },
+    {
+      "id": "CFG_15D_DEPLOY_SKIP",
+      "path": "scripts/lib/fortress-slice15d-sunset-stripe-deploy.js",
+      "consumer": "preflight_deploy",
+      "vars": ["STRIPE_WEBHOOK_SKIP_VERIFY assert"],
+      "meta_signature_vars": "absent",
+      "guarantee": "deploy_assert",
+      "live_activation": "n/a"
+    },
+    {
+      "id": "CFG_NORMALIZED_INVENTORY_SKIP",
+      "path": "infra/azure/sunset-staging/inventory/live-inventory.normalized.json",
+      "consumer": "inventory_evidence",
+      "vars": ["STRIPE_WEBHOOK_SKIP_VERIFY=false matches"],
+      "meta_signature_vars": "absent",
+      "guarantee": "normalized_inventory",
+      "live_activation": "historical_cite_only"
+    },
+    {
+      "id": "CFG_15D_LIVE_INVENTORY_STRIPE",
+      "path": "fixtures/fortress-tenant-identity/slice15d-live-inventory.json",
+      "consumer": "inventory_evidence",
+      "vars": ["STRIPE_WEBHOOK_SKIP_VERIFY=false", "STRIPE_WEBHOOK_SECRET secretRef"],
+      "meta_signature_vars": "META_WHATSAPP_TOKEN secretRef only",
+      "guarantee": "cited_evidence",
+      "live_activation": "historical_cite_only_secret_value_unproven"
+    },
+    {
+      "id": "CFG_15D_EVIDENCE_SKIP",
+      "path": "fixtures/fortress-tenant-identity/slice15d-evidence.json",
+      "consumer": "inventory_evidence",
+      "vars": ["STRIPE_WEBHOOK_SKIP_VERIFY=false"],
+      "meta_signature_vars": "absent",
+      "guarantee": "cited_evidence",
+      "live_activation": "historical_cite_only"
+    },
+    {
       "id": "CFG_HERMES_VERIFY_TOKEN_HARDCODE",
       "path": "scripts/lib/hermes-vm-profile.js",
+      "consumer": "hermes_out_of_scope",
       "vars": ["WHATSAPP_VERIFY_TOKEN hardcoded sample"],
-      "meta_signature_vars": "Hermes profile constant; not Staff API META_APP_SECRET",
+      "meta_signature_vars": "Hermes profile constant; not Staff API META_APP_SECRET / META_WHATSAPP_VERIFY_TOKEN",
       "guarantee": "committed_sample",
       "live_activation": "out_of_scope_hermes_cutover"
     },
     {
-      "id": "CFG_META_APP_SECRET_IAC",
+      "id": "CFG_META_APP_SECRET_IAC_ABSENT",
       "path": "infra/azure/staging/main.bicep + infra/azure/sunset-staging/main.bicep",
+      "consumer": "staff_api",
       "vars": [],
       "meta_signature_vars": "META_APP_SECRET not declared",
       "guarantee": "none",
@@ -191,7 +495,12 @@
       "mechanism": "env === 'true' bypasses constructEvent",
       "production_guard": "docs + Bicep pin false; no startup refuse",
       "boundary": "B12",
-      "verdict": "proven_isolated_by_runtime"
+      "verdict": "proven_isolated_by_runtime",
+      "consumers": {
+        "staff_api": "HTTP HMAC gate owner",
+        "n8n_main": "legacy env pin / local Code-node env",
+        "n8n_worker": "local compose only; absent on Azure staging worker"
+      }
     }
   ],
   "startup_validation": {
@@ -202,5 +511,17 @@
     "B01_reject_path": "403 JSON before PostEntry when !skipped && !verified",
     "B01_skip_admit_path": "continues to PostEntry/PG — gap",
     "B12_reject_path": "400/503 with no_db_write before tenant bind and payment UPDATEs"
+  },
+  "remediation_owner_reconciliation_15l": {
+    "outcome_id": "15L_meta_signature_fail_closed",
+    "owner_files": [
+      "scripts/lib/luna-meta-whatsapp-webhook.js",
+      "scripts/staff-query-api.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/.env.example"
+    ],
+    "rationale": "15L is B01-only: Meta helper + Staff API admit gate + Staff API Bicep secretRefs + .env.example placeholders. n8n-main/n8n-worker Stripe env, 15C/15D preflight, normalized inventory, 15D evidence, and Hermes default-token remain inventoried here but out of 15L implementation scope.",
+    "must_match_remediation_contract": true
   }
 }

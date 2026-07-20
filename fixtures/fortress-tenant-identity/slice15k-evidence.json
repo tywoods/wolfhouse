@@ -41,6 +41,7 @@
   "notes": [
     "No live secret reads; FAKE_APP_SECRET used only inside verifier process memory",
     "15A historical B01 unproven and B12 proven_isolated_by_runtime preserved",
-    "B12 residual skip footgun documented; rollup unchanged"
+    "B12 residual skip footgun documented; rollup unchanged",
+    "Completeness: source_derived_scoped_occurrence_inventory — Staff API / n8n-main / n8n-worker owners distinguished; unmapped/stale rejected; every attack case execute/bound"
   ]
 }

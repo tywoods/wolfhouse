@@ -18,17 +18,23 @@
     "fixtures/fortress-tenant-identity/attack-cases.json",
     "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
   ],
-  "completeness_method": "source_derived_control_consumer_inventory",
-  "completeness_claim_narrowing": "Inventory covers Meta hub GET/POST signature helpers + Staff API Meta/Stripe webhook handlers + committed IaC/env examples that name META_* / STRIPE_WEBHOOK_* signature controls. Full AST exhaustiveness of staff-query-api.js is not claimed. Live secret values and Azure runtime activation are out of scope (unproven by design).",
+  "completeness_method": "source_derived_scoped_occurrence_inventory",
+  "completeness_claim_narrowing": "Signature config owners are derived from scoped runtime/IaC/compose/preflight/normalized-inventory/cited-evidence paths for STRIPE_WEBHOOK_SKIP_VERIFY, STRIPE_WEBHOOK_SECRET, META_APP_SECRET, META_WHATSAPP_VERIFY_TOKEN, and DEFAULT_META_WHATSAPP_VERIFY_TOKEN. Staff API, n8n-main, and n8n-worker are inventoried separately with consumer implications. Verifier requires every mapped owner, rejects unmapped/stale occurrences, and binds every attack case by execution. Full-repo AST exhaustiveness is not claimed. Live secret values remain unproven by design.",
   "owner_files_audit_only": [
+    "scripts/staff-query-api.js",
     "scripts/lib/luna-meta-whatsapp-webhook.js",
     "scripts/lib/luna-meta-whatsapp-inbound-process.js",
-    "scripts/staff-query-api.js",
+    "scripts/lib/luna-guest-stripe-payment-truth-apply.js",
+    "scripts/lib/fortress-slice15c-sunset-rollout-preflight.js",
+    "scripts/lib/fortress-slice15d-sunset-stripe-deploy.js",
+    "scripts/lib/hermes-vm-profile.js",
     "infra/azure/staging/main.bicep",
     "infra/azure/sunset-staging/main.bicep",
-    "infra/.env.example",
     "infra/docker-compose.local.yml",
-    "scripts/lib/hermes-vm-profile.js"
+    "infra/.env.example",
+    "infra/azure/sunset-staging/inventory/live-inventory.normalized.json",
+    "fixtures/fortress-tenant-identity/slice15d-live-inventory.json",
+    "fixtures/fortress-tenant-identity/slice15d-evidence.json"
   ],
   "out_of_scope": [
     "any runtime behavior change on master paths",
