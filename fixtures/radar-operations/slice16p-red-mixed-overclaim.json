@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "label": "16P_RED_mixed_denial_and_positive_overclaims",
+  "purpose": "Denial/open tokens must not mask separate positive claims in sibling fields",
+  "explicitly_not_claimed": [
+    "human_inbox_receipt",
+    "organic_metric_alert_firing",
+    "production",
+    "abrupt_paths",
+    "retention_search",
+    "dependency_failure",
+    "real_pg_contention",
+    "completion_logging"
+  ],
+  "still_open": [
+    "human_inbox_receipt remains open",
+    "organic metric alert firing remains open",
+    "production remains open",
+    "retention/search remains open",
+    "dependency failure remains open",
+    "real-PG contention remains open",
+    "completion logging remains open"
+  ],
+  "sibling_positive_claims": {
+    "inbox": "human inbox receipt proven",
+    "organic": "organic metric alert firing proven",
+    "production": "production deploy done",
+    "retention_search": "retention/search proven",
+    "dependency": "dependency failure proven",
+    "pg": "real-PG contention proven",
+    "completion": "completion logging implemented"
+  },
+  "verdict": "partial",
+  "proven": 0
+}

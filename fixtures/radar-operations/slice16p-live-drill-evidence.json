@@ -16,7 +16,7 @@
   "this_slice_deploys": false,
   "progress_class": "partial_live_proven_evidence_only",
   "title": "Reconcile operator-observed 16O live-drill evidence (bounded; no overclaims)",
-  "lock_hash": "098e3aa5727832c57843aa6fe8a458386da635e393d65e554fb9853cbc9957a4",
+  "lock_hash": "5da9736d39aafbf4d32304887ce6cb95ac9d6883fc46dbdd16f89a7dab5f926b",
   "image_sha_short": "594247f",
   "image_sha_full": "594247f12a823e9b90140c56eb8645b057e1fd37",
   "observed_facts": {
