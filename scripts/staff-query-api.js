@@ -62,7 +62,21 @@ const STAFF_AUTH_HTTPS = STAFF_AUTH_CONFIG.authHttps;
 const STAFF_QUERY_API_BIND_HOST = STAFF_AUTH_CONFIG.bindHost;
 const LUNA_BOT_INTERNAL_TOKEN = STAFF_AUTH_CONFIG.botInternalToken;
 
-const { withPgClient }       = require('./lib/pg-connect');
+const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
+
+/** FORTRESS 15J offline listener harness — inject PG boundary only; runtime default unchanged. */
+let __fortress15jOfflineSeams = null;
+function setFortress15jOfflineSeams(seams) {
+  __fortress15jOfflineSeams = seams || null;
+}
+function getFortress15jOfflineSeams() {
+  return __fortress15jOfflineSeams;
+}
+function withPgClient(fn) {
+  const seam = __fortress15jOfflineSeams && __fortress15jOfflineSeams.withPgClient;
+  const impl = typeof seam === 'function' ? seam : _withPgClientImpl;
+  return impl(fn);
+}
 const {
   parsePaymentShortLinkToken,
   resolvePaymentShortLinkRedirectFromDb,
@@ -1077,6 +1091,13 @@ function clearSessionCookie(res) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function loadAuthSession(req) {
+  const seamUser = __fortress15jOfflineSeams
+    && typeof __fortress15jOfflineSeams.resolveSessionUser === 'function'
+    && __fortress15jOfflineSeams.resolveSessionUser(req);
+  if (seamUser !== undefined) {
+    return seamUser;
+  }
+
   const cookies  = parseCookies(req);
   const rawToken = cookies[COOKIE_NAME];
   if (!rawToken) return null;
@@ -46588,7 +46609,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
+if (require.main === module) server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
   console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
   console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);
@@ -46672,7 +46693,22 @@ server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log('\nCtrl+C to stop.\n');
 });
 
-server.on('error', (err) => {
-  console.error(`Server error: ${err.message}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  server.on('error', (err) => {
+    console.error(`Server error: ${err.message}`);
+    process.exit(1);
+  });
+}
+
+if (process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER === '1') {
+  module.exports = {
+    router,
+    server,
+    setFortress15jOfflineSeams,
+    getFortress15jOfflineSeams,
+    COOKIE_NAME,
+    PAYMENT_STRIPE_LINK_RE,
+    BOT_PAYMENT_STRIPE_LINK_RE,
+    BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE,
+  };
+}

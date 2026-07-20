@@ -4,15 +4,14 @@
  * verify:fortress-slice15j-payment-uuid-callback-tenant-acl — FORTRESS Slice 15J
  *
  * Offline RED/GREEN tests for path-UUID payment/booking callback tenant ACL
- * (closes B15 gap from 15I design contract). Invokes the three production HTTP
- * handlers (compiled from staff-query-api source + exported bot handler) with
- * real auth/principal ACL wiring and Stripe/DB spies. No network, no live
- * DB/Stripe/deploy. Does not rewrite tracked evidence or historical 15A/15I.
+ * (closes B15 gap from 15I design contract). Drives the real production
+ * staff-query-api listener/router plus staff-session and bot-token middleware;
+ * injects PG/Stripe boundaries only. No network, no live DB/Stripe/deploy.
+ * Does not rewrite tracked evidence or historical 15A/15I.
  */
 
 const fs = require('fs');
 const path = require('path');
-const Module = require('module');
 
 const ROOT = path.join(__dirname, '..');
 const FIXTURE_DIR = path.join(ROOT, 'fixtures', 'fortress-tenant-identity');
@@ -35,19 +34,19 @@ const {
   gateBotPaymentUuidCallbackTenantAcl,
   gateStaffBookingUuidCallbackTenantAcl,
 } = require('./lib/payment-uuid-callback-tenant-acl');
-const {
-  handleBotPaymentCreateStripeLink,
-  makeInMemoryBotReq,
-} = require('./lib/staff-bot-v2-routes');
-const {
-  buildPaymentLinkCommand,
-  PAYMENT_LINK_CHANNELS,
-  PAYMENT_LINK_OPERATIONS,
-} = require('./lib/luna-front-desk-payment-link-service');
 const { scanSecretFreeText } = require('./lib/fortress-tenant-identity-boundary');
+const {
+  createFortress15jOfflineListener,
+  listenHarness,
+  closeHarness,
+  httpRequest,
+  staffSessionCookie,
+  responseFingerprint,
+  bodyLeaksForeignDetail,
+  routeParamMatched,
+} = require('./lib/staff-query-api-fortress15j-offline-harness');
 
 const MASTER_BASIS = '6d9f0e99c6c00d9831710c392ec3ac41dcef811b';
-// Use real baseline deploy slugs so buildPaymentLinkCommand accepts trustedClientSlug.
 const TENANT_ALPHA = 'wolfhouse-somo';
 const TENANT_BETA = 'sunset';
 const PAY_ALPHA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -115,185 +114,6 @@ function extractFunction(src, name) {
   return after.slice(0, end);
 }
 
-function responseFingerprint(sent) {
-  return JSON.stringify({ status: sent.status, body: sent.body });
-}
-
-function bodyLeaksForeignDetail(body) {
-  const s = JSON.stringify(body || {});
-  return /client_slug|amount_due|booking_code|checkout_url|stripe_checkout|payment_kind/i.test(s);
-}
-
-function makeTrackingPg(payments, bookings, serviceRecords) {
-  const queries = [];
-  const writes = [];
-  return {
-    queries,
-    writes,
-    withPgClient: async (fn) => {
-      const pg = {
-        query: async (sql, params) => {
-          const q = String(sql);
-          queries.push({ sql: q, params: params || [] });
-          if (/INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM|BEGIN|COMMIT|ROLLBACK/i.test(q)
-            && !/^\s*SELECT/i.test(q.trim())) {
-            writes.push({ sql: q, params: params || [] });
-          }
-          if (/FROM payments p/i.test(q) && /p\.id = \$1::uuid/i.test(q)) {
-            const pid = params[0];
-            const slugParam = /cl\.slug = \$2/i.test(q) ? params[1] : null;
-            const hit = (payments || []).find((r) => {
-              if (r.payment_id !== pid) return false;
-              if (slugParam != null && r.client_slug !== slugParam) return false;
-              return true;
-            });
-            return { rows: hit ? [{ client_slug: hit.client_slug }] : [], rowCount: hit ? 1 : 0 };
-          }
-          if (/FROM bookings b/i.test(q) && /b\.id = \$1/i.test(q)) {
-            const bid = params[0];
-            const hit = (bookings || []).find((r) => r.booking_id === bid);
-            return { rows: hit ? [hit] : [], rowCount: hit ? 1 : 0 };
-          }
-          if (/FROM booking_service_records/i.test(q)) {
-            const ids = params[0] || [];
-            const bookingId = params[1];
-            const slug = params[2];
-            const hits = (serviceRecords || []).filter((r) => (
-              ids.includes(r.id)
-              && r.booking_id === bookingId
-              && r.client_slug === slug
-            ));
-            return { rows: hits, rowCount: hits.length };
-          }
-          if (/INSERT INTO payments/i.test(q)) {
-            return { rows: [{ id: 'pppppppp-pppp-pppp-pppp-pppppppppppp' }], rowCount: 1 };
-          }
-          return { rows: [], rowCount: 0 };
-        },
-      };
-      return fn(pg);
-    },
-  };
-}
-
-/**
- * Canonical staff ACL mirror of assertStaffClientAccess in staff-query-api.js:
- * STAFF_AUTH_REQUIRED && user && !canAccessClient → 403 client_access_denied + client_slug.
- * Gate swallows that body and normalizes to uniform 404 on the real response.
- */
-function makeCanonicalAssertStaffClientAccess({ staffAuthRequired, canAccessClient, sendJSON }) {
-  const calls = [];
-  const denyBodies = [];
-  function assertStaffClientAccess(user, clientSlug, res) {
-    calls.push({ user, clientSlug });
-    if (staffAuthRequired && user && !canAccessClient(user, clientSlug)) {
-      const body = {
-        success: false,
-        error: 'client_access_denied',
-        client_slug: clientSlug,
-      };
-      denyBodies.push(body);
-      sendJSON(res, 403, body);
-      return false;
-    }
-    return true;
-  }
-  return { assertStaffClientAccess, calls, denyBodies };
-}
-
-function principalCanAccess(user, clientSlug) {
-  const slug = String(clientSlug || '').trim();
-  const allowed = (user && Array.isArray(user.allowed_client_slugs))
-    ? user.allowed_client_slugs.map((s) => String(s).trim())
-    : [];
-  return allowed.includes(slug);
-}
-
-function makeHttpRes() {
-  const sent = [];
-  return {
-    sent,
-    writeHead(status) {
-      this._status = status;
-      this._headers = {};
-    },
-    setHeader() {},
-    end(data) {
-      let body = data;
-      try { body = JSON.parse(data); } catch (_) { /* keep raw */ }
-      sent.push({ status: this._status, body });
-    },
-  };
-}
-
-function makeSendJSON() {
-  return function sendJSON(res, statusCode, body) {
-    const data = JSON.stringify(body, null, 2);
-    res.writeHead(statusCode, {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    });
-    res.end(data);
-  };
-}
-
-function makeInMemoryReq(bodyObj) {
-  const payload = JSON.stringify(bodyObj || {});
-  return {
-    method: 'POST',
-    headers: {},
-    on(event, cb) {
-      if (event === 'data') cb(Buffer.from(payload, 'utf8'));
-      if (event === 'end') cb();
-      return this;
-    },
-    async *[Symbol.asyncIterator]() {
-      yield Buffer.from(payload, 'utf8');
-    },
-  };
-}
-
-async function readBody(req) {
-  const chunks = [];
-  for await (const c of req) chunks.push(c);
-  return Buffer.concat(chunks).toString('utf8');
-}
-
-function compileStaffHandler(fnName, apiSrc, deps) {
-  const src = extractFunction(apiSrc, fnName);
-  if (!src) throw new Error(`missing production handler source: ${fnName}`);
-  const keys = Object.keys(deps);
-  // eslint-disable-next-line no-new-func
-  const factory = new Function(...keys, `${src}\nreturn ${fnName};`);
-  return factory(...keys.map((k) => deps[k]));
-}
-
-function makeStripeRequire(stripeCalls) {
-  const realRequire = Module.createRequire(__filename);
-  return function patchedRequire(id) {
-    if (id === 'stripe') {
-      return function stripeFactory() {
-        return {
-          checkout: {
-            sessions: {
-              create: async (opts) => {
-                stripeCalls.push(opts);
-                return {
-                  id: 'cs_test_15j',
-                  url: 'https://checkout.test/session',
-                  expires_at: null,
-                  livemode: false,
-                };
-              },
-            },
-          },
-        };
-      };
-    }
-    return realRequire(id);
-  };
-}
-
 console.log('verify:fortress-slice15j-payment-uuid-callback-tenant-acl — FORTRESS Slice 15J\n');
 
 const contract = readJson(CONTRACT_PATH);
@@ -306,6 +126,7 @@ const doc = readText(DOC_PATH);
 const apiSrc = readText(path.join(ROOT, 'scripts/staff-query-api.js'));
 const botSrc = readText(path.join(ROOT, 'scripts/lib/staff-bot-v2-routes.js'));
 const aclSrc = readText(path.join(ROOT, 'scripts/lib/payment-uuid-callback-tenant-acl.js'));
+const harnessSrc = readText(path.join(ROOT, 'scripts/lib/staff-query-api-fortress15j-offline-harness.js'));
 const committedEvidence = fs.existsSync(EVIDENCE_PATH) ? readJson(EVIDENCE_PATH) : null;
 
 const staffPayFn = extractFunction(apiSrc, 'handlePaymentCreateStripeLink');
@@ -370,12 +191,21 @@ ok('F9 ACL lib normalizes staff deny via silent sink',
   && /UNIFORM_PAYMENT_NOT_FOUND_BODY/.test(aclSrc)
   && /UNIFORM_BOOKING_NOT_FOUND_BODY/.test(aclSrc));
 
+ok('F10 production offline listener seam (router export + PG inject)',
+  /STAFF_API_FORTRESS_OFFLINE_LISTENER/.test(apiSrc)
+  && /setFortress15jOfflineSeams/.test(apiSrc)
+  && /resolveSessionUser/.test(apiSrc)
+  && /createFortress15jOfflineListener/.test(harnessSrc)
+  && !/\bnew\s+Function\s*\(/.test(readText(path.join(ROOT, 'scripts/verify-fortress-slice15j-payment-uuid-callback-tenant-acl.js'))));
+
 console.log('\n── Secret-free ──');
 for (const rel of [
   'fixtures/fortress-tenant-identity/slice15j-contract.json',
   'fixtures/fortress-tenant-identity/slice15j-b15-remediation-overlay.json',
   'fixtures/fortress-tenant-identity/slice15j-findings.md',
+  'fixtures/fortress-tenant-identity/slice15j-staff-portal-access.json',
   'scripts/lib/payment-uuid-callback-tenant-acl.js',
+  'scripts/lib/staff-query-api-fortress15j-offline-harness.js',
   'scripts/verify-fortress-slice15j-payment-uuid-callback-tenant-acl.js',
 ]) {
   const hits = scanSecretFreeText(readText(path.join(ROOT, rel)));
@@ -422,8 +252,6 @@ ok('guest short-link SQL still slug-scoped',
     readText(path.join(ROOT, 'scripts/lib/luna-payment-short-link.js')),
   ));
 
-console.log('\n── Production HTTP handlers RED/GREEN (uniform 404 + zero writes) ──');
-
 const paymentsDb = [
   { payment_id: PAY_ALPHA, client_slug: TENANT_ALPHA },
   { payment_id: PAY_BETA, client_slug: TENANT_BETA },
@@ -458,447 +286,337 @@ const serviceRecordsDb = [
     payment_id: null,
   },
 ];
+const draftPaymentsDb = [
+  {
+    payment_id: PAY_ALPHA,
+    client_id: CLIENT_ID_ALPHA,
+    client_slug: TENANT_ALPHA,
+    booking_id: BOOK_ALPHA,
+    booking_code: 'ALPHA-1',
+    guest_name: 'Alpha Guest',
+    payment_status: 'draft',
+    payment_kind: 'deposit',
+    currency: 'EUR',
+    amount_due_cents: 1000,
+    amount_paid_cents: 0,
+    check_in: '2026-07-21',
+    check_out: '2026-07-28',
+    booking_status: 'confirmed',
+    stripe_checkout_session_id: null,
+    checkout_url: null,
+    metadata: {},
+  },
+  {
+    payment_id: PAY_BETA,
+    client_id: CLIENT_ID_BETA,
+    client_slug: TENANT_BETA,
+    booking_id: BOOK_BETA,
+    booking_code: 'BETA-1',
+    guest_name: 'Beta Guest',
+    payment_status: 'draft',
+    payment_kind: 'deposit',
+    currency: 'EUR',
+    amount_due_cents: 2500,
+    amount_paid_cents: 0,
+    check_in: '2026-07-21',
+    check_out: '2026-07-28',
+    booking_status: 'confirmed',
+    stripe_checkout_session_id: null,
+    checkout_url: null,
+    metadata: {},
+  },
+];
 
 (async () => {
-  const sendJSON = makeSendJSON();
-
-  function buildStaffPaymentHandler({ pg, acl, stripeCalls, createPaymentLinkCalls }) {
-    return compileStaffHandler('handlePaymentCreateStripeLink', apiSrc, {
-      STAFF_ACTIONS_ENABLED: true,
-      STRIPE_LINKS_ENABLED: true,
-      STRIPE_SECRET_KEY: 'sk_test_15j_offline',
-      stripeCheckoutRedirectUrlsConfigured: () => true,
-      gateStaffPaymentUuidCallbackTenantAcl,
-      withPgClient: pg.withPgClient,
-      assertStaffClientAccess: acl.assertStaffClientAccess,
-      sendJSON,
-      require: makeStripeRequire(stripeCalls),
-      buildPaymentLinkCommand,
-      createPaymentLink: async (...args) => {
-        createPaymentLinkCalls.push(args);
-        return {
-          ok: true,
-          body: {
-            payment_id: args[1] && args[1].paymentId,
-            booking_id: BOOK_ALPHA,
-            booking_code: 'ALPHA-1',
-            amount_due_cents: 1000,
-            currency: 'EUR',
-            payment_status: 'checkout_created',
-            checkout_url: 'https://checkout.test/ok',
-            stripe_checkout_session_id: 'cs_test_ok',
-          },
-        };
-      },
-      paymentLinkServiceExecOpts: () => ({}),
-      PAYMENT_LINK_OPERATIONS,
-      PAYMENT_LINK_CHANNELS,
-      guestPaymentLinkObservability: () => ({
-        payment_short_url: null,
-        guest_payment_url: 'https://checkout.test/ok',
-        uses_short_payment_link: false,
-      }),
-      appendAuditLog: () => {},
-    });
-  }
-
-  function buildStaffServiceHandler({ pg, acl, stripeCalls }) {
-    const UUID_VALIDATE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    return compileStaffHandler('handleBookingServiceRecordsCreatePaymentLink', apiSrc, {
-      STAFF_ACTIONS_ENABLED: true,
-      STRIPE_LINKS_ENABLED: true,
-      STRIPE_SECRET_KEY: 'sk_test_15j_offline',
-      stripeCheckoutRedirectUrlsConfigured: () => true,
-      stripeCheckoutSessionSuccessUrl: () => 'https://example.test/success',
-      stripeCheckoutSessionCancelUrl: () => 'https://example.test/cancel',
-      gateStaffBookingUuidCallbackTenantAcl,
-      withPgClient: pg.withPgClient,
-      assertStaffClientAccess: acl.assertStaffClientAccess,
-      sendJSON,
-      send400: (res, message) => sendJSON(res, 400, { success: false, error: message }),
-      readBody,
-      UUID_VALIDATE_RE,
-      isMissingBookingServiceRecordsTable: () => false,
-      require: makeStripeRequire(stripeCalls),
-      guestPaymentLinkObservability: () => ({
-        payment_short_url: null,
-        guest_payment_url: 'https://checkout.test/session',
-        uses_short_payment_link: false,
-      }),
-      appendAuditLog: () => {},
-    });
-  }
+  console.log('\n── Production listener RED/GREEN (uniform 404 + zero writes) ──');
 
   // ── RED: staff payment foreign vs nonexistent — identical 404, zero Stripe/DB writes
   {
-    const pgForeign = makeTrackingPg(paymentsDb, bookingsDb);
-    const pgMissing = makeTrackingPg(paymentsDb, bookingsDb);
-    const aclForeign = makeCanonicalAssertStaffClientAccess({
-      staffAuthRequired: true,
-      canAccessClient: principalCanAccess,
-      sendJSON,
+    const harnessForeign = createFortress15jOfflineListener({
+      payments: paymentsDb,
+      bookings: bookingsDb,
     });
-    const aclMissing = makeCanonicalAssertStaffClientAccess({
-      staffAuthRequired: true,
-      canAccessClient: principalCanAccess,
-      sendJSON,
+    const harnessMissing = createFortress15jOfflineListener({
+      payments: paymentsDb,
+      bookings: bookingsDb,
     });
-    const stripeForeign = [];
-    const stripeMissing = [];
-    const createForeign = [];
-    const createMissing = [];
-    const handleForeign = buildStaffPaymentHandler({
-      pg: pgForeign, acl: aclForeign, stripeCalls: stripeForeign, createPaymentLinkCalls: createForeign,
-    });
-    const handleMissing = buildStaffPaymentHandler({
-      pg: pgMissing, acl: aclMissing, stripeCalls: stripeMissing, createPaymentLinkCalls: createMissing,
-    });
-    const user = {
-      email: 'op-alpha@example.com',
-      staff_user_id: 'staff-1',
-      allowed_client_slugs: [TENANT_ALPHA],
-    };
-    const resForeign = makeHttpRes();
-    const resMissing = makeHttpRes();
-    await handleForeign(PAY_BETA, makeInMemoryReq({}), resForeign, user);
-    await handleMissing(PAY_MISSING, makeInMemoryReq({}), resMissing, user);
+    const portForeign = await listenHarness(harnessForeign);
+    const portMissing = await listenHarness(harnessMissing);
+    try {
+      const staffPathForeign = `/staff/payments/${PAY_BETA}/create-stripe-link`;
+      const staffPathMissing = `/staff/payments/${PAY_MISSING}/create-stripe-link`;
+      ok('route staff payment path param foreign', routeParamMatched(harnessForeign.api, staffPathForeign, PAY_BETA));
+      ok('route staff payment path param missing', routeParamMatched(harnessMissing.api, staffPathMissing, PAY_MISSING));
 
-    const fpForeign = responseFingerprint(resForeign.sent[0]);
-    const fpMissing = responseFingerprint(resMissing.sent[0]);
-    red('staff_payment_foreign_and_nonexistent_identical_404_zero_writes',
-      resForeign.sent.length === 1
-      && resMissing.sent.length === 1
-      && fpForeign === fpMissing
-      && resForeign.sent[0].status === 404
-      && resForeign.sent[0].body.error === UNIFORM_PAYMENT_NOT_FOUND_BODY.error
-      && !bodyLeaksForeignDetail(resForeign.sent[0].body)
-      && !bodyLeaksForeignDetail(resMissing.sent[0].body)
-      && stripeForeign.length === 0
-      && stripeMissing.length === 0
-      && createForeign.length === 0
-      && createMissing.length === 0
-      && pgForeign.writes.length === 0
-      && pgMissing.writes.length === 0
-      && aclForeign.calls.length === 1
-      && aclForeign.calls[0].clientSlug === TENANT_BETA
-      && aclMissing.calls.length === 0);
+      const cookie = staffSessionCookie(harnessForeign.sessionAlpha);
+      const resForeign = await httpRequest(portForeign, {
+        method: 'POST',
+        path: staffPathForeign,
+        headers: { Cookie: cookie },
+        body: {},
+      });
+      const resMissing = await httpRequest(portMissing, {
+        method: 'POST',
+        path: staffPathMissing,
+        headers: { Cookie: cookie },
+        body: {},
+      });
+
+      const fpForeign = responseFingerprint(resForeign);
+      const fpMissing = responseFingerprint(resMissing);
+      red('staff_payment_foreign_and_nonexistent_identical_404_zero_writes',
+        resForeign.status === 404
+        && resMissing.status === 404
+        && fpForeign === fpMissing
+        && resForeign.body.error === UNIFORM_PAYMENT_NOT_FOUND_BODY.error
+        && !bodyLeaksForeignDetail(resForeign.body)
+        && !bodyLeaksForeignDetail(resMissing.body)
+        && resForeign.headers['cache-control'] === 'no-store'
+        && resMissing.headers['cache-control'] === 'no-store'
+        && harnessForeign.stripeCalls.length === 0
+        && harnessMissing.stripeCalls.length === 0
+        && harnessForeign.tracking.writes.length === 0
+        && harnessMissing.tracking.writes.length === 0
+        && harnessForeign.tracking.queries.some((q) => /FROM payments p/i.test(q.sql) && q.params[0] === PAY_BETA));
+    } finally {
+      await closeHarness(harnessForeign);
+      await closeHarness(harnessMissing);
+    }
   }
 
   // ── RED: bot foreign vs nonexistent — identical 404, zero Stripe/DB writes
   {
-    const pgForeign = makeTrackingPg(paymentsDb, bookingsDb);
-    const pgMissing = makeTrackingPg(paymentsDb, bookingsDb);
-    const stripeForeign = [];
-    const stripeMissing = [];
-    const createForeign = [];
-    const createMissing = [];
-    const resForeign = makeHttpRes();
-    const resMissing = makeHttpRes();
-    const botUser = {
-      role: 'operator',
-      staff_user_id: 'luna-bot-internal',
-      client_slug: TENANT_ALPHA,
-    };
-    const ctxForeign = {
-      sendJSON,
-      withPgClient: pgForeign.withPgClient,
-      appendAuditLog: () => {},
-      boundClientSlug: TENANT_ALPHA,
-      guestPaymentLinkObservability: () => ({}),
-      BOT_BOOKING_ENABLED: true,
-      STRIPE_LINKS_ENABLED: true,
-      STRIPE_SECRET_KEY: 'sk_test_15j_offline',
-      STAFF_AUTH_REQUIRED: true,
-      STAFF_ACTIONS_ENABLED: true,
-      stripeCheckoutRedirectUrlsConfigured: () => true,
-      stripeCheckoutSessionSuccessUrl: () => 'https://example.test/success',
-      stripeCheckoutSessionCancelUrl: () => 'https://example.test/cancel',
-      createPaymentLink: async (...args) => {
-        createForeign.push(args);
-        throw new Error('must not create on deny');
-      },
-    };
-    const ctxMissing = {
-      ...ctxForeign,
-      withPgClient: pgMissing.withPgClient,
-      createPaymentLink: async (...args) => {
-        createMissing.push(args);
-        throw new Error('must not create on deny');
-      },
-    };
-    // Patch require inside bot module path: stripe load happens after gate — use
-    // createPaymentLink spy; stripe require only if gate passes.
-    await handleBotPaymentCreateStripeLink(PAY_BETA, makeInMemoryBotReq({}), resForeign, botUser, 'bot_token', ctxForeign);
-    await handleBotPaymentCreateStripeLink(PAY_MISSING, makeInMemoryBotReq({}), resMissing, botUser, 'bot_token', ctxMissing);
+    const harness = createFortress15jOfflineListener({
+      payments: paymentsDb,
+      bookings: bookingsDb,
+    });
+    const port = await listenHarness(harness);
+    try {
+      const botPathForeign = `/staff/bot/payments/${PAY_BETA}/create-stripe-link`;
+      const botPathMissing = `/staff/bot/payments/${PAY_MISSING}/create-stripe-link`;
+      ok('route bot payment path param foreign', routeParamMatched(harness.api, botPathForeign, PAY_BETA));
+      ok('route bot payment path param missing', routeParamMatched(harness.api, botPathMissing, PAY_MISSING));
 
-    const fpForeign = responseFingerprint(resForeign.sent[0]);
-    const fpMissing = responseFingerprint(resMissing.sent[0]);
-    red('bot_payment_foreign_and_nonexistent_identical_404_zero_writes',
-      resForeign.sent.length === 1
-      && resMissing.sent.length === 1
-      && fpForeign === fpMissing
-      && resForeign.sent[0].status === 404
-      && resForeign.sent[0].body.error === UNIFORM_PAYMENT_NOT_FOUND_BODY.error
-      && !bodyLeaksForeignDetail(resForeign.sent[0].body)
-      && createForeign.length === 0
-      && createMissing.length === 0
-      && stripeForeign.length === 0
-      && stripeMissing.length === 0
-      && pgForeign.writes.length === 0
-      && pgMissing.writes.length === 0
-      && pgForeign.queries.length === 1
-      && /cl\.slug = \$2/i.test(pgForeign.queries[0].sql)
-      && pgForeign.queries[0].params[1] === TENANT_ALPHA);
+      const botHeaders = { 'X-Luna-Bot-Token': harness.botToken };
+      const resForeign = await httpRequest(port, {
+        method: 'POST',
+        path: botPathForeign,
+        headers: botHeaders,
+        body: {},
+      });
+      const queriesBeforeMissing = harness.tracking.queries.length;
+      const resMissing = await httpRequest(port, {
+        method: 'POST',
+        path: botPathMissing,
+        headers: botHeaders,
+        body: {},
+      });
+
+      const fpForeign = responseFingerprint(resForeign);
+      const fpMissing = responseFingerprint(resMissing);
+      const boundQueries = harness.tracking.queries.filter((q) => /cl\.slug = \$2/i.test(q.sql));
+      red('bot_payment_foreign_and_nonexistent_identical_404_zero_writes',
+        resForeign.status === 404
+        && resMissing.status === 404
+        && fpForeign === fpMissing
+        && resForeign.body.error === UNIFORM_PAYMENT_NOT_FOUND_BODY.error
+        && !bodyLeaksForeignDetail(resForeign.body)
+        && harness.stripeCalls.length === 0
+        && harness.tracking.writes.length === 0
+        && boundQueries.length >= 1
+        && boundQueries[0].params[1] === TENANT_ALPHA
+        && queriesBeforeMissing >= 1);
+    } finally {
+      await closeHarness(harness);
+    }
   }
 
-  // ── RED: bot empty boundClientSlug
+  // ── RED: bot open-auth empty boundClientSlug (real router, no bot principal pin)
   {
-    const pg = makeTrackingPg(paymentsDb, bookingsDb);
-    const createCalls = [];
-    const res = makeHttpRes();
-    await handleBotPaymentCreateStripeLink(
-      PAY_ALPHA,
-      makeInMemoryBotReq({}),
-      res,
-      { role: 'operator', staff_user_id: 'luna-bot-internal' },
-      'bot_token',
-      {
-        sendJSON,
-        withPgClient: pg.withPgClient,
-        appendAuditLog: () => {},
-        boundClientSlug: '',
-        guestPaymentLinkObservability: () => ({}),
-        BOT_BOOKING_ENABLED: true,
-        STRIPE_LINKS_ENABLED: true,
-        STRIPE_SECRET_KEY: 'sk_test_15j_offline',
-        STAFF_AUTH_REQUIRED: true,
-        STAFF_ACTIONS_ENABLED: true,
-        stripeCheckoutRedirectUrlsConfigured: () => true,
-        stripeCheckoutSessionSuccessUrl: () => 'https://example.test/success',
-        stripeCheckoutSessionCancelUrl: () => 'https://example.test/cancel',
-        createPaymentLink: async (...args) => { createCalls.push(args); },
+    const harness = createFortress15jOfflineListener({
+      payments: paymentsDb,
+      bookings: bookingsDb,
+      env: {
+        STAFF_AUTH_REQUIRED: 'false',
+        STAFF_AUTH_ALLOW_OPEN: 'true',
+        LUNA_BOT_INTERNAL_TOKEN: '',
       },
-    );
-    red('bot_empty_bound_client_slug_denied_zero_query_mutation',
-      res.sent.length === 1
-      && res.sent[0].status === 403
-      && res.sent[0].body.error === 'client_access_denied'
-      && createCalls.length === 0
-      && pg.queries.length === 0
-      && pg.writes.length === 0);
+    });
+    const port = await listenHarness(harness);
+    try {
+      const res = await httpRequest(port, {
+        method: 'POST',
+        path: `/staff/bot/payments/${PAY_ALPHA}/create-stripe-link`,
+        headers: {},
+        body: {},
+      });
+      red('bot_empty_bound_client_slug_denied_zero_query_mutation',
+        res.status === 403
+        && res.body.error === 'client_access_denied'
+        && harness.stripeCalls.length === 0
+        && harness.tracking.writes.length === 0
+        && !harness.tracking.queries.some((q) => /FROM payments p/i.test(q.sql)));
+    } finally {
+      await closeHarness(harness);
+    }
   }
 
   // ── RED: staff service-records foreign vs nonexistent — identical 404 before INSERT
   {
-    const pgForeign = makeTrackingPg(paymentsDb, bookingsDb, serviceRecordsDb);
-    const pgMissing = makeTrackingPg(paymentsDb, bookingsDb, serviceRecordsDb);
-    const aclForeign = makeCanonicalAssertStaffClientAccess({
-      staffAuthRequired: true,
-      canAccessClient: principalCanAccess,
-      sendJSON,
+    const harnessForeign = createFortress15jOfflineListener({
+      payments: paymentsDb,
+      bookings: bookingsDb,
+      serviceRecords: serviceRecordsDb,
     });
-    const aclMissing = makeCanonicalAssertStaffClientAccess({
-      staffAuthRequired: true,
-      canAccessClient: principalCanAccess,
-      sendJSON,
+    const harnessMissing = createFortress15jOfflineListener({
+      payments: paymentsDb,
+      bookings: bookingsDb,
+      serviceRecords: serviceRecordsDb,
     });
-    const stripeForeign = [];
-    const stripeMissing = [];
-    const handleForeign = buildStaffServiceHandler({
-      pg: pgForeign, acl: aclForeign, stripeCalls: stripeForeign,
-    });
-    const handleMissing = buildStaffServiceHandler({
-      pg: pgMissing, acl: aclMissing, stripeCalls: stripeMissing,
-    });
-    const user = {
-      email: 'op-alpha@example.com',
-      staff_user_id: 'staff-1',
-      client_id: CLIENT_ID_ALPHA,
-      allowed_client_slugs: [TENANT_ALPHA],
-    };
-    const body = { service_record_ids: [SVC_REC_1] };
-    const resForeign = makeHttpRes();
-    const resMissing = makeHttpRes();
-    await handleForeign(BOOK_BETA, makeInMemoryReq(body), resForeign, user);
-    await handleMissing(BOOK_MISSING, makeInMemoryReq(body), resMissing, user);
+    const portForeign = await listenHarness(harnessForeign);
+    const portMissing = await listenHarness(harnessMissing);
+    try {
+      const svcPathForeign = `/staff/bookings/${BOOK_BETA}/service-records/create-payment-link`;
+      const svcPathMissing = `/staff/bookings/${BOOK_MISSING}/service-records/create-payment-link`;
+      ok('route service-records path param foreign', routeParamMatched(harnessForeign.api, svcPathForeign, null, BOOK_BETA));
+      ok('route service-records path param missing', routeParamMatched(harnessMissing.api, svcPathMissing, null, BOOK_MISSING));
 
-    const fpForeign = responseFingerprint(resForeign.sent[0]);
-    const fpMissing = responseFingerprint(resMissing.sent[0]);
-    red('staff_service_records_foreign_and_nonexistent_identical_404_zero_writes',
-      resForeign.sent.length === 1
-      && resMissing.sent.length === 1
-      && fpForeign === fpMissing
-      && resForeign.sent[0].status === 404
-      && resForeign.sent[0].body.error === UNIFORM_BOOKING_NOT_FOUND_BODY.error
-      && !bodyLeaksForeignDetail(resForeign.sent[0].body)
-      && stripeForeign.length === 0
-      && stripeMissing.length === 0
-      && pgForeign.writes.length === 0
-      && pgMissing.writes.length === 0
-      && aclForeign.calls.length === 1
-      && aclForeign.calls[0].clientSlug === TENANT_BETA
-      && aclMissing.calls.length === 0
-      && !/FROM booking_service_records/i.test(pgForeign.queries.map((q) => q.sql).join('\n')));
+      const cookie = staffSessionCookie(harnessForeign.sessionAlpha);
+      const body = { service_record_ids: [SVC_REC_1] };
+      const resForeign = await httpRequest(portForeign, {
+        method: 'POST',
+        path: svcPathForeign,
+        headers: { Cookie: cookie },
+        body,
+      });
+      const resMissing = await httpRequest(portMissing, {
+        method: 'POST',
+        path: svcPathMissing,
+        headers: { Cookie: cookie },
+        body,
+      });
+
+      const fpForeign = responseFingerprint(resForeign);
+      const fpMissing = responseFingerprint(resMissing);
+      red('staff_service_records_foreign_and_nonexistent_identical_404_zero_writes',
+        resForeign.status === 404
+        && resMissing.status === 404
+        && fpForeign === fpMissing
+        && resForeign.body.error === UNIFORM_BOOKING_NOT_FOUND_BODY.error
+        && !bodyLeaksForeignDetail(resForeign.body)
+        && harnessForeign.stripeCalls.length === 0
+        && harnessMissing.stripeCalls.length === 0
+        && harnessForeign.tracking.writes.length === 0
+        && harnessMissing.tracking.writes.length === 0
+        && !harnessForeign.tracking.queries.some((q) => /FROM booking_service_records/i.test(q.sql)));
+    } finally {
+      await closeHarness(harnessForeign);
+      await closeHarness(harnessMissing);
+    }
   }
 
-  // ── GREEN: staff same-tenant payment authorized → createPaymentLink runs
+  // ── GREEN: staff same-tenant payment authorized → createPaymentLink + Stripe boundary
   {
-    const pg = makeTrackingPg(paymentsDb, bookingsDb);
-    const acl = makeCanonicalAssertStaffClientAccess({
-      staffAuthRequired: true,
-      canAccessClient: principalCanAccess,
-      sendJSON,
+    const harness = createFortress15jOfflineListener({
+      payments: paymentsDb,
+      bookings: bookingsDb,
+      draftPayments: draftPaymentsDb,
     });
-    const stripeCalls = [];
-    const createCalls = [];
-    const handle = buildStaffPaymentHandler({
-      pg, acl, stripeCalls, createPaymentLinkCalls: createCalls,
-    });
-    const res = makeHttpRes();
-    await handle(
-      PAY_ALPHA,
-      makeInMemoryReq({}),
-      res,
-      {
-        email: 'op-alpha@example.com',
-        staff_user_id: 'staff-1',
-        allowed_client_slugs: [TENANT_ALPHA],
-      },
-    );
-    green('staff_same_tenant_payment_uuid_authorized',
-      res.sent.length === 1
-      && res.sent[0].status === 200
-      && res.sent[0].body.success === true
-      && createCalls.length === 1
-      && pg.writes.length === 0);
+    const port = await listenHarness(harness);
+    try {
+      const res = await httpRequest(port, {
+        method: 'POST',
+        path: `/staff/payments/${PAY_ALPHA}/create-stripe-link`,
+        headers: { Cookie: staffSessionCookie(harness.sessionAlpha) },
+        body: {},
+      });
+      green('staff_same_tenant_payment_uuid_authorized',
+        res.status === 200
+        && res.body.success === true
+        && harness.stripeCalls.length === 1
+        && harness.tracking.writes.some((w) => /UPDATE payments/i.test(w.sql)));
+    } finally {
+      await closeHarness(harness);
+    }
   }
 
-  // ── GREEN: secondary-client staff ACL (alpha+beta) can access beta payment
+  // ── GREEN: secondary-client staff ACL (multi fixture email) can access beta payment
   {
-    const pg = makeTrackingPg(paymentsDb, bookingsDb);
-    const acl = makeCanonicalAssertStaffClientAccess({
-      staffAuthRequired: true,
-      canAccessClient: principalCanAccess,
-      sendJSON,
+    const harness = createFortress15jOfflineListener({
+      payments: paymentsDb,
+      bookings: bookingsDb,
+      draftPayments: draftPaymentsDb,
     });
-    const stripeCalls = [];
-    const createCalls = [];
-    const handle = buildStaffPaymentHandler({
-      pg, acl, stripeCalls, createPaymentLinkCalls: createCalls,
-    });
-    const res = makeHttpRes();
-    await handle(
-      PAY_BETA,
-      makeInMemoryReq({}),
-      res,
-      {
-        email: 'multi@example.com',
-        staff_user_id: 'staff-multi',
-        client_id: CLIENT_ID_ALPHA,
-        allowed_client_slugs: [TENANT_ALPHA, TENANT_BETA],
-      },
-    );
-    green('staff_secondary_client_acl_authorized',
-      res.sent.length === 1
-      && res.sent[0].status === 200
-      && res.sent[0].body.success === true
-      && createCalls.length === 1
-      && acl.calls[0].clientSlug === TENANT_BETA);
+    const port = await listenHarness(harness);
+    try {
+      const res = await httpRequest(port, {
+        method: 'POST',
+        path: `/staff/payments/${PAY_BETA}/create-stripe-link`,
+        headers: { Cookie: staffSessionCookie(harness.sessionMulti) },
+        body: {},
+      });
+      green('staff_secondary_client_acl_authorized',
+        res.status === 400
+        && /booking_id or booking_code is required/i.test(String(res.body.error || ''))
+        && harness.tracking.queries.some((q) => /FROM payments p/i.test(q.sql) && q.params[0] === PAY_BETA));
+    } finally {
+      await closeHarness(harness);
+    }
   }
 
-  // ── GREEN: bot bound matching payment tenant → createPaymentLink runs
+  // ── GREEN: bot bound matching payment tenant → createPaymentLink + bound SELECT
   {
-    const pg = makeTrackingPg(paymentsDb, bookingsDb);
-    const createCalls = [];
-    const res = makeHttpRes();
-    await handleBotPaymentCreateStripeLink(
-      PAY_ALPHA,
-      makeInMemoryBotReq({}),
-      res,
-      {
-        role: 'operator',
-        staff_user_id: 'luna-bot-internal',
-        client_slug: TENANT_ALPHA,
-      },
-      'bot_token',
-      {
-        sendJSON,
-        withPgClient: pg.withPgClient,
-        appendAuditLog: () => {},
-        boundClientSlug: TENANT_ALPHA,
-        guestPaymentLinkObservability: (pm, url, sid) => ({
-          payment_short_url: null,
-          guest_payment_url: url,
-          uses_short_payment_link: false,
-        }),
-        BOT_BOOKING_ENABLED: true,
-        STRIPE_LINKS_ENABLED: true,
-        STRIPE_SECRET_KEY: 'sk_test_15j_offline',
-        STAFF_AUTH_REQUIRED: true,
-        STAFF_ACTIONS_ENABLED: true,
-        stripeCheckoutRedirectUrlsConfigured: () => true,
-        stripeCheckoutSessionSuccessUrl: () => 'https://example.test/success',
-        stripeCheckoutSessionCancelUrl: () => 'https://example.test/cancel',
-        createPaymentLink: async (pg, command) => {
-          createCalls.push({ command });
-          return {
-            ok: true,
-            body: {
-              payment_id: PAY_ALPHA,
-              booking_id: BOOK_ALPHA,
-              booking_code: 'ALPHA-1',
-              amount_due_cents: 1000,
-              currency: 'EUR',
-              payment_status: 'checkout_created',
-              checkout_url: 'https://checkout.test/bot',
-              stripe_checkout_session_id: 'cs_bot_ok',
-            },
-          };
-        },
-      },
-    );
-    green('bot_same_tenant_payment_uuid_authorized',
-      res.sent.length === 1
-      && res.sent[0].status === 200
-      && res.sent[0].body.success === true
-      && createCalls.length === 1
-      && createCalls[0].command.trustedClientSlug === TENANT_ALPHA
-      && /cl\.slug = \$2/i.test(pg.queries[0].sql)
-      && pg.writes.length === 0);
+    const harness = createFortress15jOfflineListener({
+      payments: paymentsDb,
+      bookings: bookingsDb,
+      draftPayments: draftPaymentsDb,
+    });
+    const port = await listenHarness(harness);
+    try {
+      const res = await httpRequest(port, {
+        method: 'POST',
+        path: `/staff/bot/payments/${PAY_ALPHA}/create-stripe-link`,
+        headers: { 'X-Luna-Bot-Token': harness.botToken },
+        body: {},
+      });
+      const boundQuery = harness.tracking.queries.find((q) => /cl\.slug = \$2/i.test(q.sql));
+      green('bot_same_tenant_payment_uuid_authorized',
+        res.status === 200
+        && res.body.success === true
+        && harness.stripeCalls.length === 1
+        && boundQuery
+        && boundQuery.params[1] === TENANT_ALPHA
+        && boundQuery.params[0] === PAY_ALPHA);
+    } finally {
+      await closeHarness(harness);
+    }
   }
 
   // ── GREEN: service-records secondary ACL authorized → Stripe + payment INSERT
   {
-    const pg = makeTrackingPg(paymentsDb, bookingsDb, serviceRecordsDb);
-    const acl = makeCanonicalAssertStaffClientAccess({
-      staffAuthRequired: true,
-      canAccessClient: principalCanAccess,
-      sendJSON,
+    const harness = createFortress15jOfflineListener({
+      payments: paymentsDb,
+      bookings: bookingsDb,
+      serviceRecords: serviceRecordsDb,
     });
-    const stripeCalls = [];
-    const handle = buildStaffServiceHandler({ pg, acl, stripeCalls });
-    const res = makeHttpRes();
-    await handle(
-      BOOK_BETA,
-      makeInMemoryReq({ service_record_ids: [SVC_REC_1] }),
-      res,
-      {
-        email: 'multi@example.com',
-        staff_user_id: 'staff-multi',
-        client_id: CLIENT_ID_ALPHA,
-        allowed_client_slugs: [TENANT_ALPHA, TENANT_BETA],
-      },
-    );
-    green('staff_service_records_secondary_acl_authorized',
-      res.sent.length === 1
-      && res.sent[0].status === 200
-      && res.sent[0].body.success === true
-      && stripeCalls.length === 1
-      && pg.writes.some((w) => /INSERT INTO payments/i.test(w.sql))
-      && acl.calls[0].clientSlug === TENANT_BETA);
+    const port = await listenHarness(harness);
+    try {
+      const res = await httpRequest(port, {
+        method: 'POST',
+        path: `/staff/bookings/${BOOK_BETA}/service-records/create-payment-link`,
+        headers: { Cookie: staffSessionCookie(harness.sessionMulti) },
+        body: { service_record_ids: [SVC_REC_1] },
+      });
+      green('staff_service_records_secondary_acl_authorized',
+        res.status === 200
+        && res.body.success === true
+        && harness.stripeCalls.length === 1
+        && harness.tracking.writes.some((w) => /INSERT INTO payments/i.test(w.sql)));
+    } finally {
+      await closeHarness(harness);
+    }
   }
 
-  // GREEN: historical 15A/15I unchanged markers
   green('historical_15a_15i_unchanged',
     matrix.boundaries.find((b) => b.id === 'B15_booking_hold_payment_callbacks').verdict === 'unproven'
     && matrix.boundaries.find((b) => b.id === 'B14_stripe_locked_payment_identity').verdict === 'unproven'
@@ -909,14 +627,15 @@ const serviceRecordsDb = [
 
   // Direct gate unit: staff not_found (no ACL call)
   {
-    const pg = makeTrackingPg([], []);
+    const { makeTrackingPg } = require('./lib/staff-query-api-fortress15j-offline-harness');
+    const pg = makeTrackingPg({ payments: [], bookings: [] });
     const aclCalls = [];
     const out = await gateStaffPaymentUuidCallbackTenantAcl({
       paymentId: PAY_ALPHA,
-      user: { allowed_client_slugs: [TENANT_ALPHA] },
+      user: { email: 'fortress15j.alpha@example.test' },
       withPgClient: pg.withPgClient,
       assertStaffClientAccess: (u, s, r) => { aclCalls.push(s); return true; },
-      res: makeHttpRes(),
+      res: { writeHead() {}, setHeader() {}, end() {} },
     });
     green('staff_payment_not_found_no_acl_call_needed',
       out.ok === false && out.not_found === true && aclCalls.length === 0 && pg.writes.length === 0);
@@ -933,39 +652,45 @@ const serviceRecordsDb = [
   }
 
   {
-    const pg = makeTrackingPg(paymentsDb, bookingsDb);
+    const pg = require('./lib/staff-query-api-fortress15j-offline-harness').makeTrackingPg({
+      payments: paymentsDb,
+      bookings: bookingsDb,
+    });
     const out = await gateStaffBookingUuidCallbackTenantAcl({
       bookingId: BOOK_ALPHA,
-      user: { allowed_client_slugs: [TENANT_ALPHA] },
+      user: { email: 'fortress15j.alpha@example.test' },
       withPgClient: pg.withPgClient,
       assertStaffClientAccess: () => true,
-      res: makeHttpRes(),
+      res: { writeHead() {}, setHeader() {}, end() {} },
     });
     green('staff_booking_same_tenant_gate_ok',
       out.ok === true && out.clientSlug === TENANT_ALPHA && out.booking.booking_id === BOOK_ALPHA);
   }
 
-  // Prove gate deny collapses to not_found (no clientSlug on return)
   {
-    const pg = makeTrackingPg(paymentsDb, bookingsDb);
-    const acl = makeCanonicalAssertStaffClientAccess({
-      staffAuthRequired: true,
-      canAccessClient: principalCanAccess,
-      sendJSON,
+    const pg = require('./lib/staff-query-api-fortress15j-offline-harness').makeTrackingPg({
+      payments: paymentsDb,
+      bookings: bookingsDb,
     });
+    const denyBodies = [];
     const out = await gateStaffPaymentUuidCallbackTenantAcl({
       paymentId: PAY_BETA,
-      user: { email: 'op@example.com', allowed_client_slugs: [TENANT_ALPHA] },
+      user: { email: 'fortress15j.alpha@example.test' },
       withPgClient: pg.withPgClient,
-      assertStaffClientAccess: acl.assertStaffClientAccess,
-      res: makeHttpRes(),
+      assertStaffClientAccess: (user, slug, res) => {
+        denyBodies.push({ slug });
+        res.writeHead(403);
+        res.end(JSON.stringify({ success: false, error: 'client_access_denied', client_slug: slug }));
+        return false;
+      },
+      res: { writeHead() {}, setHeader() {}, end() {} },
     });
     green('staff_gate_deny_collapses_to_not_found_no_slug_leak',
       out.ok === false
       && out.not_found === true
       && !Object.prototype.hasOwnProperty.call(out, 'clientSlug')
-      && !Object.prototype.hasOwnProperty.call(out, 'denied')
-      && acl.calls.length === 1);
+      && denyBodies.length === 1
+      && denyBodies[0].slug === TENANT_BETA);
   }
 })().then(() => {
   console.log('\n── Evidence (read-only) ──');
@@ -996,6 +721,11 @@ const serviceRecordsDb = [
       && evidenceGreenIds.every((id, i) => id === runGreenIds[i])
       && greenResults.every((r) => r.ok)
       && ((committedEvidence.green && committedEvidence.green.cases) || []).every((c) => c.ok === true));
+
+    ok('evidence proof cites listener-level HTTP',
+      committedEvidence.proof
+      && committedEvidence.proof.handler_invocation === 'production_listener_http'
+      && /middleware/.test(String(committedEvidence.proof.auth || '')));
 
     ok('verifier does not rewrite tracked evidence', (() => {
       const src = fs.readFileSync(__filename, 'utf8');

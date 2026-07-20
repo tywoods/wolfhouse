@@ -65,8 +65,12 @@ function appendHiddenDevTabs(hidden) {
 }
 
 function readAccessConfig() {
+  const override = process.env.STAFF_PORTAL_ACCESS_FILE;
+  const filePath = override && String(override).trim()
+    ? path.resolve(String(override).trim())
+    : ACCESS_FILE;
   try {
-    return JSON.parse(fs.readFileSync(ACCESS_FILE, 'utf8'));
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch {
     return { all_clients_emails: [], client_access: {} };
   }

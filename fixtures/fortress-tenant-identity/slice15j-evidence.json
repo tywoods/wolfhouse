@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "slice": "FORTRESS-15J",
-  "generated_at": "2026-07-20T09:00:00.000Z",
+  "generated_at": "2026-07-20T09:30:00.000Z",
   "master_basis": "6d9f0e99c6c00d9831710c392ec3ac41dcef811b",
   "live_mutation": false,
   "boundary_id": "B15_booking_hold_payment_callbacks",
@@ -13,10 +13,11 @@
     "POST /staff/bookings/:booking_id/service-records/create-payment-link"
   ],
   "proof": {
-    "handler_invocation": "production_http_handlers",
-    "staff_handlers": "compiled from scripts/staff-query-api.js source",
-    "bot_handler": "require scripts/lib/staff-bot-v2-routes.js handleBotPaymentCreateStripeLink",
-    "uniform_404": "staff foreign deny fingerprint === nonexistent UUID fingerprint"
+    "handler_invocation": "production_listener_http",
+    "router": "scripts/staff-query-api.js router + http.createServer",
+    "auth": "real requireAuth session cookies + requireBotAuth X-Luna-Bot-Token middleware",
+    "boundaries_injected": "PG via setFortress15jOfflineSeams.withPgClient; Stripe via Module._load patch",
+    "uniform_404": "staff/bot foreign deny fingerprint === nonexistent UUID fingerprint (status/headers/body bytes)"
   },
   "red": {
     "total": 4,
@@ -82,6 +83,6 @@
       }
     ]
   },
-  "pass": 38,
+  "pass": 48,
   "fail": 0
 }

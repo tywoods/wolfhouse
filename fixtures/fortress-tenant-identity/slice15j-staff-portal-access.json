@@ -1,0 +1,14 @@
+{
+  "_note": "FORTRESS 15J offline listener harness only — multi-client ACL fixture.",
+  "all_clients_emails": [],
+  "portal_admin_emails": [],
+  "client_access": {
+    "fortress15j.alpha@example.test": [
+      "wolfhouse-somo"
+    ],
+    "fortress15j.multi@example.test": [
+      "wolfhouse-somo",
+      "sunset"
+    ]
+  }
+}
