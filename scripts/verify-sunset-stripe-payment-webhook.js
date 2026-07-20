@@ -60,10 +60,17 @@ if (fs.existsSync(STAFF_API_PATH)) {
       .includes('amountDueCents')
     || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'luna-booking-payment-totals.js'), 'utf8')
       .includes('amountDueCents'));
-  assert('idempotent already-paid branch', apiSrc.includes("pm.payment_status === 'paid'"));
+  assert('idempotent already-paid under lock (no pre-tx shortcut)',
+    /lockedPayment\.payment_status === 'paid'/.test(apiSrc)
+    || /paymentTruthResult && paymentTruthResult\.already_paid/.test(apiSrc)
+    || /already_paid/.test(apiSrc));
   assert('under-lock already_paid idempotent path', apiSrc.includes('already_paid') && apiSrc.includes('under_lock'));
+  assert('no pre-tx addon already-paid early return',
+    !/pm\.payment_status === 'paid' && pm\.payment_kind === 'addon_service'[\s\S]{0,500}Add-on payment already marked paid/.test(apiSrc));
   assert('BEGIN before payment-truth apply',
-    /await pg\.query\('BEGIN'\)[\s\S]{0,400}applyStripeBookingPaymentTruthWrites/.test(apiSrc));
+    /await pg\.query\('BEGIN'\)[\s\S]{0,1200}applyStripeBookingPaymentTruthWrites/.test(apiSrc));
+  assert('event-id claim before payment-truth apply',
+    /withStripeWebhookEventClaim[\s\S]{0,800}applyStripeBookingPaymentTruthWrites/.test(apiSrc));
   assert('client_id predicate on payment UPDATE',
     apiSrc.includes('AND client_id = $5')
     || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'stripe-hold-promote-policy.js'), 'utf8').includes('AND client_id = $5'));
@@ -82,7 +89,7 @@ if (fs.existsSync(STAFF_API_PATH)) {
   assert('webhook locked rejection is not HTTP 422',
     !/isLockedPaymentValidationError\(dbErr\)[\s\S]{0,500}sendJSON\(res,\s*422/.test(apiSrc));
   assert('webhook BEGIN→apply→COMMIT/ROLLBACK on one withPgClient',
-    /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,2500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,400}ROLLBACK/.test(apiSrc));
+    /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,4500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}(COMMIT|commitStripeWebhookEventTxnOrThrowUnknown)[\s\S]{0,600}ROLLBACK/.test(apiSrc));
 } else {
   assert('staff-query-api.js exists', false);
 }

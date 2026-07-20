@@ -566,14 +566,15 @@ async function main() {
     const branch = execSync('git rev-parse --abbrev-ref HEAD', {
       cwd: ROOT, encoding: 'utf8',
     }).trim();
-    // Successor 16L may own HEAD while 16K source remains frozen on master basis.
+    // Successor 16L/16M may own HEAD while 16K source remains frozen on master basis.
     const allowed = new Set([
       locks.BRANCH,
       'radar/slice-16l-capacity-pressure-alerts',
+      'radar/slice-16m-stripe-event-claim',
     ]);
-    ok('C11 HEAD on 16K branch or successor 16L', allowed.has(branch), branch);
+    ok('C11 HEAD on 16K branch or successor 16L/16M', allowed.has(branch), branch);
   } catch (err) {
-    ok('C11 HEAD on 16K branch or successor 16L', false, String(err && err.message));
+    ok('C11 HEAD on 16K branch or successor 16L/16M', false, String(err && err.message));
   }
 
   console.log(`\nResult: ${pass} passed, ${fail} failed`);

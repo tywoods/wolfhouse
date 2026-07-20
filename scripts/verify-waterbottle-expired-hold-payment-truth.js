@@ -428,10 +428,11 @@ async function main() {
   console.log('[wiring] shared under-lock boundary');
   assert('staff-query-api requires stripe-hold-promote-policy', /stripe-hold-promote-policy/.test(apiSrc));
   assert('reconcile requires stripe-hold-promote-policy', /stripe-hold-promote-policy/.test(reconcileSrc));
-  assert('BEGIN before apply in webhook', /await pg\.query\('BEGIN'\)[\s\S]{0,500}applyStripeBookingPaymentTruthWrites/.test(apiSrc));
+  assert('BEGIN before apply in webhook', /await pg\.query\('BEGIN'\)[\s\S]{0,1200}applyStripeBookingPaymentTruthWrites/.test(apiSrc));
+  assert('event-id claim before apply in webhook', /withStripeWebhookEventClaim[\s\S]{0,800}applyStripeBookingPaymentTruthWrites/.test(apiSrc));
   assert('BEGIN before apply in reconcile', /await pg\.query\('BEGIN'\)[\s\S]{0,500}applyStripeBookingPaymentTruthWrites/.test(reconcileSrc));
   assert('webhook one withPgClient for BEGIN→helper→COMMIT/ROLLBACK',
-    /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,2500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,400}ROLLBACK/.test(apiSrc));
+    /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,4500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}(COMMIT|commitStripeWebhookEventTxnOrThrowUnknown)[\s\S]{0,600}ROLLBACK/.test(apiSrc));
   assert('reconcile one pg client for BEGIN→helper→COMMIT/ROLLBACK',
     /await pg\.query\('BEGIN'\)[\s\S]{0,2500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,500}ROLLBACK/.test(reconcileSrc));
   assert('webhook maps locked validation to HTTP 200 application rejection',
@@ -469,8 +470,11 @@ async function main() {
     && LOCKED_PAYMENT_VALIDATION_CODES.BINDING_MISSING === 'locked_stripe_binding_missing');
 
   console.log('\n[wb2-wiring] no pre-transaction paid booking shortcut');
-  assert('webhook addon paid shortcut preserved',
-    /pm\.payment_status === 'paid' && pm\.payment_kind === 'addon_service'/.test(apiSrc));
+  assert('webhook no pre-tx addon paid shortcut',
+    !/pm\.payment_status === 'paid' && pm\.payment_kind === 'addon_service'[\s\S]{0,400}Add-on payment already marked paid/.test(apiSrc)
+    && !/Idempotency — addon_service already paid/.test(apiSrc));
+  assert('webhook addon under-lock already-paid path retained',
+    /lockOwnedPaymentForAddonEventClaim[\s\S]{0,900}lockedPayment\.payment_status === 'paid'[\s\S]{0,200}duplicate_business_outcome/.test(apiSrc));
   assert('webhook no pre-tx booking paid idempotent return',
     !/if \(pm\.payment_status === 'paid'\)[\s\S]{0,1200}Payment already marked paid \(idempotent — no double-count\)/.test(apiSrc));
   assert('reconcile no pre-tx already_paid short-circuit before validate',

@@ -27,6 +27,7 @@ const PAYMENT_LOOKUP_SQL = `
   SELECT p.id                     AS payment_id,
          p.booking_id,
          p.client_id,
+         p.client_id              AS hostel_id,
          p.booking_guest_id,
          p.status                 AS payment_status,
          p.payment_kind,

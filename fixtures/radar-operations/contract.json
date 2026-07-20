@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16L",
-  "outcome_id": "16L_staff_api_capacity_pressure_alerts",
-  "master_basis": "c01e08d3b0039840ced37ae5a8e04fdd2384aba2",
-  "branch": "radar/slice-16l-capacity-pressure-alerts",
+  "slice": "RADAR-16M",
+  "outcome_id": "16M_stripe_webhook_event_id_claim",
+  "master_basis": "49b4ccff673014b28047307514f91a508cc8c497",
+  "branch": "radar/slice-16m-stripe-event-claim",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Staff API capacity-pressure alerts (CPU/Memory Average >80) — G06 source-partial",
+  "title": "Stripe webhook event-id claim before payment mutations — G05 source-partial",
   "progress_class": "source_partial_progress_only",
-  "does_not_implement": "live_deploy_alert_fire_autoscaling_load_backpressure_slo",
+  "does_not_implement": "live_deploy_concurrency_replay_operator_dlq_drill",
   "notification_delivery_proof": "open",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -43,6 +43,9 @@
     "fixtures/radar-operations/slice16l-capacity-alert-plan.json",
     "fixtures/radar-operations/slice16l-expected-contract.json",
     "scripts/verify-radar-slice16l-staff-api-capacity-alerts.js",
+    "fixtures/radar-operations/slice16m-expected-contract.json",
+    "scripts/lib/stripe-webhook-event-claim.js",
+    "scripts/verify-radar-slice16m-stripe-event-claim.js",
     "infra/azure/staging/main.bicep",
     "infra/azure/sunset-staging/main.bicep"
   ],
@@ -86,25 +89,26 @@
     "runtime_paths_unchanged": [
       "database/",
       "docker/hermes-staging/",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
       "infra/azure/staging-staff-api-metric-alerts/"
     ],
-    "note": "16L may modify Wolfhouse/Sunset staging main.bicep for capacity alerts only; must not mutate DB schema, Hermes staging, or 16H module; no live deploy; load/SLO/backpressure remain open"
+    "note": "16M may modify Staff API Stripe webhook claim helpers only; must not mutate DB schema, Hermes staging, staging Bicep, or 16H module; no live deploy; concurrency/real-PG ambiguous-commit/replay/DLQ/drill remain open"
   },
   "gates": [
-    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
+    "npm run verify:radar-slice16m-stripe-event-claim",
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:radar-slice16b-staging-cost-budgets",
     "npm run verify:radar-slice16h-staff-api-metric-alerts",
     "npm run verify:radar-slice16i-staff-api-readiness",
     "npm run verify:radar-slice16j-staff-request-correlation",
     "npm run verify:radar-slice16k-staff-api-healthz",
+    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
     "npm run verify:staff-auth-api",
-    "az bicep build --file infra/azure/staging/main.bicep",
-    "az bicep build --file infra/azure/sunset-staging/main.bicep",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check c01e08d3b0039840ced37ae5a8e04fdd2384aba2..HEAD"
+    "git diff --check 49b4ccff673014b28047307514f91a508cc8c497..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -195,5 +199,17 @@
   "capacity_alert_fire": "open",
   "capacity_load_proof": "open",
   "capacity_slo": "open",
-  "capacity_backpressure": "open"
+  "capacity_backpressure": "open",
+  "selected_16m": {
+    "outcome_id": "16M_stripe_webhook_event_id_claim",
+    "gate_id": "G05_retry_replay_safety",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_concurrency_replay_operator_dlq_drill"
+  },
+  "stripe_event_claim_live_deploy": "open",
+  "stripe_event_claim_concurrency_proof": "open",
+  "stripe_event_claim_real_pg_contention_drill": "open",
+  "stripe_event_claim_replay_operator": "open",
+  "stripe_event_claim_dlq": "open",
+  "stripe_event_claim_drill": "open"
 }

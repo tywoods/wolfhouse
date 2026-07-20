@@ -772,6 +772,15 @@ const {
   resolveStripeWebhookExpectedClientSlug,
 } = require('./lib/stripe-webhook-tenant-config');
 const {
+  withStripeWebhookEventClaim,
+  buildStripeEventClaimIdempotentBody,
+  buildStripeEventDistinctBusinessIdempotentBody,
+  buildStripeEventClaimOutcomeUnknownBody,
+  isStripeEventClaimCommitOutcomeUnknown,
+  commitStripeWebhookEventTxnOrThrowUnknown,
+  lockOwnedPaymentForAddonEventClaim,
+} = require('./lib/stripe-webhook-event-claim');
+const {
   applyStripeBookingPaymentTruthWrites,
   isLockedPaymentValidationError,
 } = require('./lib/stripe-hold-promote-policy');
@@ -13839,46 +13848,11 @@ async function handleStripeWebhook(req, res) {
     });
   }
 
-  // ── 5. Idempotency — addon_service already paid (separate path; not booking-payment truth) ──
-  if (pm.payment_status === 'paid' && pm.payment_kind === 'addon_service') {
-      let svcPaidCount = 0;
-      try {
-        svcPaidCount = await withPgClient(async (pg) => {
-          const r = await pg.query(
-            `SELECT COUNT(*)::int AS n FROM booking_service_records
-              WHERE payment_id = $1
-                AND client_slug = $2
-                AND payment_status = 'paid'`,
-            [pm.payment_id, pm.client_slug],
-          );
-          return r.rows[0].n;
-        });
-      } catch (_) { /* count optional on idempotent replay */ }
-      appendAuditLog({
-        ts: new Date().toISOString(), intent: 'webhook:stripe:idempotent',
-        category: 'stripe_webhook', payment_id: pm.payment_id, booking_id: pm.booking_id,
-        addon_service: true,
-      });
-      return sendJSON(res, 200, {
-        success:                        true,
-        idempotent:                     true,
-        addon_service_payment:          true,
-        service_records_paid_count:     svcPaidCount,
-        no_booking_payment_status_change: true,
-        no_confirmation_sent:           true,
-        no_whatsapp:                    true,
-        no_n8n:                         true,
-        event_type:                     eventType,
-        payment_id:                     pm.payment_id,
-        booking_id:                     pm.booking_id,
-        booking_code:                   pm.booking_code,
-        amount_paid_cents:              Number(pm.pm_amount_paid || 0),
-        payment_status:                 'paid',
-        message:                        'Add-on payment already marked paid (idempotent — no double-count)',
-    });
-  }
+  // Addon already-paid is NOT short-circuited here. Matched addon_service events
+  // always enter BEGIN → stripe_event_id claim → FOR UPDATE reload → exact-id
+  // conflict or under-lock distinct-business handling → mark processed → COMMIT.
 
-  // ── 6. Validate currency ──────────────────────────────────────────────────
+  // ── 5. Validate currency ──────────────────────────────────────────────────
   if ((pm.currency || '').toUpperCase() !== 'EUR') {
     return sendJSON(res, 422, {
       success: false,
@@ -13886,14 +13860,17 @@ async function handleStripeWebhook(req, res) {
     });
   }
 
-  // ── 6b. Add-on service payment (Stage 8.8.21) ─────────────────────────────
+  // ── 6. Add-on service payment (Stage 8.8.21) ───────────────────────────────
   // Separate Checkout for mid-stay / Luna add-ons. Marks payment + linked service
   // rows only — never mutates booking deposit/full payment truth.
+  // Always claims under transaction (no pre-tx already-paid shortcut).
   if (pm.payment_kind === 'addon_service') {
     const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
     const newPmPaidCents  = stripePaidCents;
     let serviceRecordsPaidCount = 0;
     let addonWarning = null;
+    let addonDuplicateClaim = false;
+    let addonDistinctBusinessDuplicate = false;
 
     const pmMeta = (() => {
       const raw = pm.payment_metadata;
@@ -13901,85 +13878,174 @@ async function handleStripeWebhook(req, res) {
       try { return JSON.parse(raw || '{}'); } catch (_) { return {}; }
     })();
     const allocationMap = pmMeta.service_record_allocation_cents || {};
+    const hostelId = pm.hostel_id || pm.client_id;
 
     try {
       await withPgClient(async (pg) => {
         await pg.query('BEGIN');
         try {
-          await pg.query(
-            `UPDATE payments
-               SET status                   = 'paid'::payment_record_status,
-                   amount_paid_cents        = $1,
-                   paid_at                  = NOW(),
-                   stripe_payment_intent_id = $2,
-                   metadata                 = metadata || $3::jsonb
-             WHERE id = $4
-               AND client_id = $5`,
-            [
-              newPmPaidCents,
-              session.payment_intent || null,
-              JSON.stringify({
-                stripe_event_id:   event.id,
-                stripe_event_type: event.type,
-                stripe_session_id: sessionId,
-                stripe_livemode:   event.livemode || false,
-                skip_verify_used:  STRIPE_WEBHOOK_SKIP_VERIFY,
-                source:            'staff_portal_webhook_addon_service_stage8821',
-              }),
-              pm.payment_id,
-              pm.client_id,
-            ],
-          );
-
-          const linked = await pg.query(
-            `SELECT id, amount_due_cents, payment_status
-               FROM booking_service_records
-              WHERE payment_id = $1
-                AND client_slug = $2`,
-            [pm.payment_id, pm.client_slug],
-          );
-
-          for (const row of linked.rows) {
-            const dueCents = Number(row.amount_due_cents || 0);
-            if (dueCents <= 0) continue;
-            if (row.payment_status === 'paid') {
-              serviceRecordsPaidCount++;
-              continue;
+          const claimOutcome = await withStripeWebhookEventClaim(pg, {
+            hostelId,
+            paymentId: pm.payment_id,
+            bookingId: pm.booking_id,
+            stripeEventId: event.id,
+            eventType: event.type,
+            sessionId,
+            clientSlug: pm.client_slug,
+            paymentKind: pm.payment_kind,
+            currency: pm.currency,
+            amountPaidCents: newPmPaidCents,
+            paymentStatusBefore: pm.payment_status,
+            lookupPath: lookup.lookup_path,
+            livemode: event.livemode || false,
+            path: 'addon_service',
+          }, async () => {
+            // After claim, before any addon mutation: lock owned payment and reload.
+            const lockedPayment = await lockOwnedPaymentForAddonEventClaim(pg, {
+              paymentId: pm.payment_id,
+              clientId: pm.client_id,
+            });
+            if (!lockedPayment) {
+              const err = new Error('addon_payment_lock_miss');
+              err.code = 'addon_payment_lock_miss';
+              throw err;
             }
-            const allocRaw = allocationMap[row.id];
-            const paidCents = allocRaw != null
-              ? Math.min(Number(allocRaw), dueCents)
-              : dueCents;
-            if (paidCents <= 0) continue;
+            if (lockedPayment.payment_kind !== 'addon_service') {
+              const err = new Error('addon_payment_kind_ineligible');
+              err.code = 'addon_payment_kind_ineligible';
+              throw err;
+            }
+            if (lockedPayment.payment_status === 'paid') {
+              // Distinct-event loser: claim stays, no payment/service rewrite.
+              return { duplicate_business_outcome: 'payment_already_paid' };
+            }
 
-            const upd = await pg.query(
-              `UPDATE booking_service_records
-                  SET payment_status    = 'paid',
-                      amount_paid_cents = $1,
-                      status            = 'paid',
-                      updated_at        = NOW()
-                WHERE id = $2
-                  AND payment_id = $3
-                  AND client_slug = $4
-                  AND payment_status IS DISTINCT FROM 'paid'`,
-              [paidCents, row.id, pm.payment_id, pm.client_slug],
+            // Only the lock winner (eligible unpaid addon_service) may mutate.
+            await pg.query(
+              `UPDATE payments
+                 SET status                   = 'paid'::payment_record_status,
+                     amount_paid_cents        = $1,
+                     paid_at                  = NOW(),
+                     stripe_payment_intent_id = $2,
+                     metadata                 = metadata || $3::jsonb
+               WHERE id = $4
+                 AND client_id = $5
+                 AND status IS DISTINCT FROM 'paid'::payment_record_status
+                 AND payment_kind = 'addon_service'::payment_kind`,
+              [
+                newPmPaidCents,
+                session.payment_intent || null,
+                JSON.stringify({
+                  stripe_event_id:   event.id,
+                  stripe_event_type: event.type,
+                  stripe_session_id: sessionId,
+                  stripe_livemode:   event.livemode || false,
+                  skip_verify_used:  STRIPE_WEBHOOK_SKIP_VERIFY,
+                  source:            'staff_portal_webhook_addon_service_stage8821',
+                }),
+                pm.payment_id,
+                pm.client_id,
+              ],
             );
-            if (upd.rowCount > 0) serviceRecordsPaidCount++;
+
+            const linked = await pg.query(
+              `SELECT id, amount_due_cents, payment_status
+                 FROM booking_service_records
+                WHERE payment_id = $1
+                  AND client_slug = $2`,
+              [pm.payment_id, pm.client_slug],
+            );
+
+            for (const row of linked.rows) {
+              const dueCents = Number(row.amount_due_cents || 0);
+              if (dueCents <= 0) continue;
+              if (row.payment_status === 'paid') {
+                serviceRecordsPaidCount++;
+                continue;
+              }
+              const allocRaw = allocationMap[row.id];
+              const paidCents = allocRaw != null
+                ? Math.min(Number(allocRaw), dueCents)
+                : dueCents;
+              if (paidCents <= 0) continue;
+
+              const upd = await pg.query(
+                `UPDATE booking_service_records
+                    SET payment_status    = 'paid',
+                        amount_paid_cents = $1,
+                        status            = 'paid',
+                        updated_at        = NOW()
+                  WHERE id = $2
+                    AND payment_id = $3
+                    AND client_slug = $4
+                    AND payment_status IS DISTINCT FROM 'paid'`,
+                [paidCents, row.id, pm.payment_id, pm.client_slug],
+              );
+              if (upd.rowCount > 0) serviceRecordsPaidCount++;
+            }
+            return null;
+          });
+
+          if (claimOutcome.duplicate) {
+            await pg.query('ROLLBACK');
+            addonDuplicateClaim = true;
+            return;
           }
 
-          await pg.query('COMMIT');
+          if (claimOutcome.duplicate_business_outcome) {
+            addonDistinctBusinessDuplicate = true;
+          }
+
+          await commitStripeWebhookEventTxnOrThrowUnknown(pg);
         } catch (e) {
-          try { await pg.query('ROLLBACK'); } catch (_) {}
+          if (!isStripeEventClaimCommitOutcomeUnknown(e)) {
+            try { await pg.query('ROLLBACK'); } catch (_) {}
+          }
           throw e;
         }
       });
     } catch (dbErr) {
+      if (isStripeEventClaimCommitOutcomeUnknown(dbErr)) {
+        appendAuditLog({
+          ts: new Date().toISOString(), intent: 'webhook:stripe:commit_outcome_unknown',
+          category: 'stripe_webhook', payment_id: pm.payment_id,
+          outcome_unknown: true, addon_service: true,
+        });
+        return sendJSON(res, 500, buildStripeEventClaimOutcomeUnknownBody());
+      }
       appendAuditLog({
         ts: new Date().toISOString(), intent: 'webhook:stripe:db_error',
         category: 'stripe_webhook', payment_id: pm.payment_id, error: dbErr.message,
         addon_service: true,
       });
       return sendJSON(res, 500, { success: false, error: 'DB update failed: ' + dbErr.message });
+    }
+
+    if (addonDuplicateClaim) {
+      return sendJSON(res, 200, Object.assign(
+        buildStripeEventClaimIdempotentBody({
+          stripeEventId: event.id,
+          eventType,
+          paymentId: pm.payment_id,
+          bookingId: pm.booking_id,
+          bookingCode: pm.booking_code,
+        }),
+        { addon_service_payment: true },
+      ));
+    }
+
+    if (addonDistinctBusinessDuplicate) {
+      return sendJSON(res, 200, Object.assign(
+        buildStripeEventDistinctBusinessIdempotentBody({
+          stripeEventId: event.id,
+          eventType,
+          paymentId: pm.payment_id,
+          bookingId: pm.booking_id,
+          bookingCode: pm.booking_code,
+          duplicateBusinessOutcome: 'payment_already_paid',
+        }),
+        { addon_service_payment: true },
+      ));
     }
 
     if (serviceRecordsPaidCount === 0) {
@@ -14036,7 +14102,7 @@ async function handleStripeWebhook(req, res) {
     });
   }
 
-  // ── 7–9. Shared payment-truth apply (BEGIN → locks → derive → writes) ──────
+  // ── 7–9. Shared payment-truth apply (BEGIN → claim → locks → derive → writes → processed) ──────
   const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
   let newPmPaidCents;
   let newBkPaid;
@@ -14044,42 +14110,70 @@ async function handleStripeWebhook(req, res) {
   let newBkPayStatus;
   let confirmationDraft = null;
   let paymentTruthResult = null;
+  let bookingDuplicateClaim = false;
+  const hostelId = pm.hostel_id || pm.client_id;
 
   try {
     await withPgClient(async (pg) => {
       await pg.query('BEGIN');
       try {
-        paymentTruthResult = await applyStripeBookingPaymentTruthWrites(pg, {
-          pm,
-          session,
-          stripePaidCents,
-          paymentMetadataPatch: {
-            stripe_event_id:   event.id,
-            stripe_event_type: event.type,
-            stripe_session_id: sessionId,
-            stripe_livemode:   event.livemode || false,
-            skip_verify_used:  STRIPE_WEBHOOK_SKIP_VERIFY,
-            source:            'staff_portal_webhook_stage8411',
-          },
-          buildBookingMetaMerge: ({ money, decision }) => {
-            const merge = {};
-            if (decision.allow_auto_confirmation) {
-              const draft = buildPaymentConfirmationDraft(
-                pm,
-                money.newBkPayStatus,
-                money.newBkPaid,
-                money.newBkBalance,
-              );
-              if (draft) merge.confirmation_draft = draft;
-            }
-            const bkMetaPatch = bookingMetadataPatchForStripePayment(pm, money.newBkPayStatus);
-            if (bkMetaPatch) Object.assign(merge, bkMetaPatch);
-            return merge;
-          },
+        const claimOutcome = await withStripeWebhookEventClaim(pg, {
+          hostelId,
+          paymentId: pm.payment_id,
+          bookingId: pm.booking_id,
+          stripeEventId: event.id,
+          eventType: event.type,
+          sessionId,
+          clientSlug: pm.client_slug,
+          paymentKind: pm.payment_kind,
+          currency: pm.currency,
+          amountPaidCents: stripePaidCents,
+          paymentStatusBefore: pm.payment_status,
+          lookupPath: lookup.lookup_path,
+          livemode: event.livemode || false,
+          path: 'booking_payment',
+        }, async () => {
+          paymentTruthResult = await applyStripeBookingPaymentTruthWrites(pg, {
+            pm,
+            session,
+            stripePaidCents,
+            paymentMetadataPatch: {
+              stripe_event_id:   event.id,
+              stripe_event_type: event.type,
+              stripe_session_id: sessionId,
+              stripe_livemode:   event.livemode || false,
+              skip_verify_used:  STRIPE_WEBHOOK_SKIP_VERIFY,
+              source:            'staff_portal_webhook_stage8411',
+            },
+            buildBookingMetaMerge: ({ money, decision }) => {
+              const merge = {};
+              if (decision.allow_auto_confirmation) {
+                const draft = buildPaymentConfirmationDraft(
+                  pm,
+                  money.newBkPayStatus,
+                  money.newBkPaid,
+                  money.newBkBalance,
+                );
+                if (draft) merge.confirmation_draft = draft;
+              }
+              const bkMetaPatch = bookingMetadataPatchForStripePayment(pm, money.newBkPayStatus);
+              if (bkMetaPatch) Object.assign(merge, bkMetaPatch);
+              return merge;
+            },
+          });
         });
-        await pg.query('COMMIT');
+
+        if (claimOutcome.duplicate) {
+          await pg.query('ROLLBACK');
+          bookingDuplicateClaim = true;
+          return;
+        }
+
+        await commitStripeWebhookEventTxnOrThrowUnknown(pg);
       } catch (e) {
-        try { await pg.query('ROLLBACK'); } catch (_) {}
+        if (!isStripeEventClaimCommitOutcomeUnknown(e)) {
+          try { await pg.query('ROLLBACK'); } catch (_) {}
+        }
         throw e;
       }
     });
@@ -14111,11 +14205,29 @@ async function handleStripeWebhook(req, res) {
         no_whatsapp: true,
       });
     }
+    if (isStripeEventClaimCommitOutcomeUnknown(dbErr)) {
+      appendAuditLog({
+        ts: new Date().toISOString(), intent: 'webhook:stripe:commit_outcome_unknown',
+        category: 'stripe_webhook', payment_id: pm.payment_id,
+        outcome_unknown: true,
+      });
+      return sendJSON(res, 500, buildStripeEventClaimOutcomeUnknownBody());
+    }
     appendAuditLog({
       ts: new Date().toISOString(), intent: 'webhook:stripe:db_error',
       category: 'stripe_webhook', payment_id: pm.payment_id, error: dbErr.message,
     });
     return sendJSON(res, 500, { success: false, error: 'DB update failed: ' + dbErr.message });
+  }
+
+  if (bookingDuplicateClaim) {
+    return sendJSON(res, 200, buildStripeEventClaimIdempotentBody({
+      stripeEventId: event.id,
+      eventType,
+      paymentId: pm.payment_id,
+      bookingId: pm.booking_id,
+      bookingCode: pm.booking_code,
+    }));
   }
 
   if (paymentTruthResult && paymentTruthResult.already_paid) {

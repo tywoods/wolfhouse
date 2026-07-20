@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16L",
-  "title": "RADAR operations gate ledger (16L Staff API capacity-pressure alerts source-partial on G06)",
-  "master_basis": "c01e08d3b0039840ced37ae5a8e04fdd2384aba2",
-  "branch": "radar/slice-16l-capacity-pressure-alerts",
+  "slice": "RADAR-16M",
+  "title": "RADAR operations gate ledger (16M Stripe webhook event-id claim source-partial on G05)",
+  "master_basis": "49b4ccff673014b28047307514f91a508cc8c497",
+  "branch": "radar/slice-16m-stripe-event-claim",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -269,7 +269,8 @@
       "name": "Retry / replay safety",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Many Staff write paths require idempotency_key; payment_events.stripe_event_id is UNIQUE in schema; Meta inbound marks duplicates. Stripe webhook path stores stripe_event_id in payment metadata but this audit did not prove a fail-closed payment_events ledger insert before side effects for every event type. Absence of full replay suite → partial, not proven.",
+      "rationale": "16M adds source-only fail-closed Stripe webhook event-id claim before booking-payment and addon_service mutations: INSERT payment_events ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id inside the same existing transaction; zero rows → ROLLBACK + HTTP 200 idempotent exact-id (reason=stripe_event_id_already_claimed, no_db_write); first claim → addon FOR UPDATE lock/reload (or booking under-lock truth) → writes or distinct-event duplicate_business_outcome skip → mark processed=true → COMMIT; addon has no pre-transaction already-paid shortcut — stale lookup paid still claims; distinct-event response uses no_business_mutation + no_payment_or_service_rewrite (never no_db_write — ledger claim is a DB write); pre-commit claim/write/processed failure → ROLLBACK + retryable 500; COMMIT failure is AMBIGUOUS → best-effort ROLLBACK + retryable 500 outcome_unknown=true (never claim definitely rolled back; retry via durable stripe_event_id). Privacy-minimized payload (allowlisted non-PII only). Uses existing UNIQUE stripe_event_id (001_init hostel_id ownership column → client_id post-003). Signature verification, authoritative tenant gate, validation, locked money math, and distinct-event business idempotency preserved. Ignored/unmatched/invalid events unchanged (no claim). Source-partial only — not deployed; live concurrency, real-PG ambiguous-commit drill, replay operator, DLQ, and controlled drill remain open. Does not claim all event types.",
+      "progress_class": "source_partial_progress_only",
       "source_evidence": [
         {
           "path": "database/migrations/001_init.sql",
@@ -278,35 +279,59 @@
             "payment_events",
             "stripe_event_id TEXT UNIQUE"
           ],
-          "note": "Schema supports Stripe event uniqueness"
+          "note": "Schema supports Stripe event uniqueness (hostel_id renamed to client_id in 003)"
+        },
+        {
+          "path": "scripts/lib/stripe-webhook-event-claim.js",
+          "lines": "1-120",
+          "symbols": [
+            "claimStripeWebhookEvent",
+            "withStripeWebhookEventClaim",
+            "markStripeWebhookEventProcessed",
+            "CLAIM_INSERT_SQL"
+          ],
+          "note": "Fail-closed claim helper; ON CONFLICT DO NOTHING RETURNING id; minimized payload"
         },
         {
           "path": "scripts/staff-query-api.js",
-          "lines": "3102-3117,13706-13746,13906-13911",
+          "lines": "13890-14180",
           "symbols": [
-            "idempotency_key",
-            "handleStripeWebhook"
+            "handleStripeWebhook",
+            "withStripeWebhookEventClaim"
           ],
-          "note": "Idempotency required on writes; Stripe signature gate; event id in metadata"
+          "note": "Booking-payment + addon_service paths claim before mutations in same txn"
         },
         {
-          "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
-          "lines": "651",
+          "path": "scripts/lib/stripe-webhook-payment-truth.js",
+          "lines": "26-35",
           "symbols": [
-            "duplicate"
+            "PAYMENT_LOOKUP_SQL",
+            "hostel_id"
           ],
-          "note": "Inbound duplicate flag when event row already present"
+          "note": "Tenant-scoped lookup returns owned hostel_id (client_id alias)"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16m-expected-contract.json",
+          "lines": "1-40",
+          "symbols": [],
+          "note": "Frozen 16M transaction contract; deploy/replay/DLQ open"
         }
       ],
       "live_evidence": [
         {
           "ref": "live-inventory.json#mutation_policy",
-          "note": "No live webhook replay or payment mutation performed in 16A"
+          "note": "No live webhook replay or payment mutation performed in 16M"
         }
       ],
       "gaps": [
-        "No offline RED/GREEN Stripe event.id replay suite frozen for all booking payment event types",
-        "No proven Meta webhook replay safety across Hermes + Staff dual ingress"
+        "Staff API image with event-id claim not deployed",
+        "Live concurrency proof under real Postgres UNIQUE contention open",
+        "Real PostgreSQL contention / ambiguous-commit drill open (no isolated ephemeral PostgreSQL on this host)",
+        "Replay operator / stuck processed=false recovery open",
+        "DLQ for unprocessable webhook events open",
+        "Controlled replay drill open",
+        "No proven Meta webhook replay safety across Hermes + Staff dual ingress",
+        "Claim not applied to ignored/unmatched event types (intentional)"
       ]
     },
     {
@@ -895,6 +920,55 @@
         "Freeze evidence JSON secret-free"
       ],
       "pass_rule": "Both tenants have capacity alerts Enabled with delivery proof after approved deploy; replicas/16H unchanged; no load/SLO/backpressure claim by this slice"
+    }
+  },
+  "slice_16m_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16M_stripe_webhook_event_id_claim",
+    "gate_id": "G05_retry_replay_safety",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_concurrency_replay_operator_dlq_drill",
+    "title": "Add fail-closed Stripe webhook event-id claim before payment mutations — source partial only",
+    "why_smallest": "G05 lacked proven fail-closed payment_events ledger insert before Stripe webhook side effects; narrowest ownership is claim-before-mutation for booking-payment + addon_service paths using existing UNIQUE stripe_event_id, without deploy/DLQ/replay operator.",
+    "supersedes": [],
+    "owner_files": [
+      "scripts/lib/stripe-webhook-event-claim.js",
+      "scripts/lib/stripe-webhook-payment-truth.js",
+      "scripts/staff-query-api.js",
+      "scripts/verify-radar-slice16m-stripe-event-claim.js",
+      "fixtures/radar-operations/slice16m-expected-contract.json"
+    ],
+    "out_of_scope_for_16m": [
+      "Live deploy / restart",
+      "DB migration (schema UNIQUE already present)",
+      "Replay operator / DLQ",
+      "Claiming ignored/unmatched/invalid event types",
+      "Meta inbound dual-ingress replay proof",
+      "Production RGs"
+    ],
+    "acceptance_criteria": [
+      "Booking-payment and addon_service paths claim stripe_event_id inside same txn before mutations",
+      "INSERT ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id; zero rows → 200 idempotent exact-id, no mutations",
+      "Addon: no pre-transaction already-paid shortcut; after claim, FOR UPDATE owned payment reload; already paid → processed + duplicate_business_outcome with no_business_mutation/no_payment_or_service_rewrite (never no_db_write); ineligible → fail closed",
+      "First event winner: mutations then mark processed=true before COMMIT; only lock winner mutates",
+      "Pre-commit claim/write/processed failure → ROLLBACK + retryable 500",
+      "COMMIT failure → outcome_unknown=true retryable 500 (never claim definitely rolled back); retry via durable stripe_event_id",
+      "Lookup returns owned hostel_id (client_id); payload allowlisted non-PII only",
+      "Signature/tenant/validation/locked money math/business idempotency preserved",
+      "Offline fake-pg RED/GREEN proves order, exact-id replay, distinct-event concurrency, pre-commit rollback+retry, modeled post-durable ack-failure retry, ownership fail-closed, canaries absent",
+      "Deploy/live concurrency/real-PG ambiguous-commit drill/replay operator/DLQ/drill remain open"
+    ],
+    "final_controlled_drill": {
+      "id": "16M_DRILL_stripe_event_claim_replay",
+      "steps": [
+        "Approved deploy of Staff API image with event-id claim (follow-on; not this commit)",
+        "Deliver same Stripe event.id twice; prove second is HTTP 200 idempotent with zero mutations",
+        "Prove concurrent distinct events on same addon payment: one business mutation, both claims processed",
+        "Prove pre-commit failure retries successfully; COMMIT ambiguity returns outcome_unknown and retry resolves via durable claim",
+        "Freeze evidence JSON secret-free"
+      ],
+      "pass_rule": "Live replay/concurrency proofs pass after approved deploy; no DLQ/operator claimed by this slice; real-PG ambiguous-commit drill remains open until proven"
     }
   }
 }
