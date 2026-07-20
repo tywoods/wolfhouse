@@ -874,3 +874,5 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14AC — ledger bootstrap eligibility matrix (39 forwards; 020 tenant-scoped vacuous DML eligible; prefix may reach 39; design-only ledger DDL; zero mutation) — 2026-07-20*
 
 *FORTRESS Slice 15C — Sunset-staging Stripe webhook slug rollout preflight + declarative STRIPE_WEBHOOK_CLIENT_SLUG=sunset (no build/deploy/mutation; 15D sequence documented) — 2026-07-20*
+
+*FORTRESS Slice 15D — Sunset-staging Staff API SHA deploy (fe6e1e5) + live STRIPE_WEBHOOK_CLIENT_SLUG=sunset; ACR scheduleRun cb10q; revision --0000267 Healthy 100*FORTRESS Slice 15D — Sunset-staging Staff API SHA deploy (fe6e1e5) + live STRIPE_WEBHOOK_CLIENT_SLUG=sunset; ACR scheduleRun cb10q; revision --0000267 Healthy 100%; rollback not required — 2026-07-20*
