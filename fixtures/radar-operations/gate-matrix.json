@@ -1,13 +1,17 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16B",
-  "title": "RADAR operations gate ledger (16B budget-threshold partial progress)",
-  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
-  "branch": "radar/slice-16b-staging-cost-budgets",
+  "slice": "RADAR-16G",
+  "title": "RADAR operations gate ledger (16G Staff API metric alerts source-partial)",
+  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
+  "branch": "radar/slice-16g-staff-api-metric-alerts-replacement",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
-  "verdicts_allowed": ["proven", "partial", "absent"],
+  "verdicts_allowed": [
+    "proven",
+    "partial",
+    "absent"
+  ],
   "azure_read_only_scope": [
     "wh-staging-rg",
     "luna-sunset-staging-rg"
@@ -27,18 +31,25 @@
       "name": "Correlation / structured logs",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Staff API appends JSONL audit lines locally, and ACA envs ship container logs to Log Analytics, but there is no request correlation ID middleware, no tenant-labeled structured HTTP access log contract, and no proven end-to-end correlation across Meta → Hermes → Staff API → Stripe.",
+      "rationale": "Staff API appends JSONL audit lines locally, and ACA envs ship container logs to Log Analytics, but there is no request correlation ID middleware, no tenant-labeled structured HTTP access log contract, and no proven end-to-end correlation across Meta \u2192 Hermes \u2192 Staff API \u2192 Stripe.",
       "source_evidence": [
         {
           "path": "scripts/staff-query-api.js",
           "lines": "827-828,1595-1599",
-          "symbols": ["LOG_DIR", "LOG_FILE", "appendAuditLog"],
+          "symbols": [
+            "LOG_DIR",
+            "LOG_FILE",
+            "appendAuditLog"
+          ],
           "note": "JSONL file append only; silent catch on write failure"
         },
         {
           "path": "infra/azure/staging/main.bicep",
           "lines": "113-120,282-284",
-          "symbols": ["logAnalytics", "logAnalyticsConfiguration"],
+          "symbols": [
+            "logAnalytics",
+            "logAnalyticsConfiguration"
+          ],
           "note": "LAW + ACA env log destination declared in IaC"
         }
       ],
@@ -68,7 +79,9 @@
         {
           "path": "scripts/staff-query-api.js",
           "lines": "46623-46633",
-          "symbols": ["pathname === '/healthz'"],
+          "symbols": [
+            "pathname === '/healthz'"
+          ],
           "note": "Always 200 with status ok; no SELECT 1 / dependency probes"
         },
         {
@@ -107,43 +120,52 @@
     {
       "id": "G03_actionable_tenant_aware_alerts",
       "name": "Actionable tenant-aware alerts",
-      "verdict": "absent",
+      "verdict": "partial",
       "severity": "critical",
-      "rationale": "Live inventory shows zero metric alerts, zero activity-log alerts, and zero scheduled query rules on both staging RGs. Only an Application Insights Smart Detection action group exists on wh-staging-rg with ARM role receivers and no email/webhook receivers. No tenant (client_slug) dimensions or runbook-linked alert actions proven.",
+      "progress_class": "source_partial_progress_only",
+      "rationale": "16G adds standalone staging-only Staff API metric-alert IaC: tenant-named Requests Total statusCodeCategory=5xx >=3 over PT5M/PT1M and RestartCount Total >0 over PT5M/PT1M on both wh-staging-staff-api and luna-sunset-staging-staff-api, referencing existing 16B per-RG ops action-group names. Source-partial only \u2014 not deployed; live metric_alerts still []; notification delivery and alert-fire drill remain open. Includes hard-locked safe deployment entry point (no live apply in this slice).",
       "source_evidence": [
         {
-          "path": "infra/azure/README.md",
-          "lines": "15",
+          "path": "infra/azure/staging-staff-api-metric-alerts/rg-staff-api-metric-alerts.bicep",
+          "lines": "1-80",
+          "symbols": [
+            "requests5xxAlert",
+            "restartCountAlert",
+            "opsActionGroup"
+          ],
+          "note": "MetricAlerts only; existing AG reference; Microsoft.App/containerApps metric namespace + app ARM scope"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16g-metric-alert-plan.json",
+          "lines": "1-40",
+          "symbols": [
+            "apps",
+            "alerts"
+          ],
+          "note": "Secret-free locked RG/app/tenant/AG alert plan for both staging pairs"
+        },
+        {
+          "path": "scripts/verify-radar-slice16g-staff-api-metric-alerts.js",
+          "lines": "1-40",
           "symbols": [],
-          "note": "Mentions Application Insights for logs + alerts aspirationally"
-        },
-        {
-          "path": "infra/azure/staging/main.bicep",
-          "lines": "124-132",
-          "symbols": ["appInsights"],
-          "note": "App Insights component only; no metricAlert / actionGroup resources"
-        },
-        {
-          "path": "infra/azure/sunset-staging/main.bicep",
-          "lines": "191-198",
-          "symbols": ["appInsights"],
-          "note": "App Insights only; no alert rules in Bicep"
+          "note": "Independent compiled-template verifier with RED suite"
         }
       ],
       "live_evidence": [
         {
           "ref": "live-inventory.json#alerts",
-          "note": "metric_alerts=[], activity_log_alerts=[], scheduled_query_rules=[] both RGs"
+          "note": "metric_alerts=[], activity_log_alerts=[], scheduled_query_rules=[] both RGs (still empty live)"
         },
         {
           "ref": "live-inventory.json#action_groups",
-          "note": "wh-staging: Application Insights Smart Detection (ARM roles only); sunset: []"
+          "note": "16G references 16B ops AG names; live AGs still only Smart Detection on wh-staging (ARM roles)"
         }
       ],
       "gaps": [
-        "No 5xx / latency / webhook failure alerts",
-        "No tenant-aware dimensions",
-        "No on-call email/SMS/webhook action group for ops"
+        "Metric alerts not deployed to live staging RGs",
+        "No proven notification delivery",
+        "No controlled alert-fire drill",
+        "No client_slug metric dimension (tenant encoded in alert names only)"
       ]
     },
     {
@@ -156,19 +178,26 @@
         {
           "path": "scripts/staff-query-api.js",
           "lines": "13644,13706-13805,45292-45299",
-          "symbols": ["handleStripeWebhook"],
+          "symbols": [
+            "handleStripeWebhook"
+          ],
           "note": "Stripe webhook route present"
         },
         {
           "path": "infra/azure/staging/main.bicep",
           "lines": "497,530-532",
-          "symbols": ["n8n worker scale"],
+          "symbols": [
+            "n8n worker scale"
+          ],
           "note": "n8n worker maxReplicas=1; no backlog metric wiring"
         },
         {
           "path": "infra/azure/sunset-staging/main.bicep",
           "lines": "14-20,320,464-470",
-          "symbols": ["hold-expiry", "schemaObserverJob"],
+          "symbols": [
+            "hold-expiry",
+            "schemaObserverJob"
+          ],
           "note": "Hold-expiry unmanaged in template notes; schema observer optional"
         }
       ],
@@ -193,24 +222,32 @@
       "name": "Retry / replay safety",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Many Staff write paths require idempotency_key; payment_events.stripe_event_id is UNIQUE in schema; Meta inbound marks duplicates. Stripe webhook path stores stripe_event_id in payment metadata but this audit did not prove a fail-closed payment_events ledger insert before side effects for every event type. Absence of full replay suite → partial, not proven.",
+      "rationale": "Many Staff write paths require idempotency_key; payment_events.stripe_event_id is UNIQUE in schema; Meta inbound marks duplicates. Stripe webhook path stores stripe_event_id in payment metadata but this audit did not prove a fail-closed payment_events ledger insert before side effects for every event type. Absence of full replay suite \u2192 partial, not proven.",
       "source_evidence": [
         {
           "path": "database/migrations/001_init.sql",
           "lines": "453-466",
-          "symbols": ["payment_events", "stripe_event_id TEXT UNIQUE"],
+          "symbols": [
+            "payment_events",
+            "stripe_event_id TEXT UNIQUE"
+          ],
           "note": "Schema supports Stripe event uniqueness"
         },
         {
           "path": "scripts/staff-query-api.js",
           "lines": "3102-3117,13706-13746,13906-13911",
-          "symbols": ["idempotency_key", "handleStripeWebhook"],
+          "symbols": [
+            "idempotency_key",
+            "handleStripeWebhook"
+          ],
           "note": "Idempotency required on writes; Stripe signature gate; event id in metadata"
         },
         {
           "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
           "lines": "651",
-          "symbols": ["duplicate"],
+          "symbols": [
+            "duplicate"
+          ],
           "note": "Inbound duplicate flag when event row already present"
         }
       ],
@@ -235,20 +272,26 @@
         {
           "path": "infra/azure/staging/main.bicep",
           "lines": "365-367,452-454,530-532",
-          "symbols": ["minReplicas", "maxReplicas"],
+          "symbols": [
+            "minReplicas",
+            "maxReplicas"
+          ],
           "note": "Staff API / n8n / worker maxReplicas=1"
         },
         {
           "path": "infra/azure/sunset-staging/main.bicep",
           "lines": "456-458",
-          "symbols": ["staffApiMinReplicas", "staffApiMaxReplicas"],
+          "symbols": [
+            "staffApiMinReplicas",
+            "staffApiMaxReplicas"
+          ],
           "note": "Sunset staff scale params"
         },
         {
           "path": "docs/STAGE-40C-HAMMER-REVIEW-PACK.md",
           "lines": "1-14,201",
           "symbols": [],
-          "note": "Conversation stress pack — not infra load test"
+          "note": "Conversation stress pack \u2014 not infra load test"
         }
       ],
       "live_evidence": [
@@ -329,7 +372,9 @@
         {
           "path": "infra/azure/staging/main.bicep",
           "lines": "78,118",
-          "symbols": ["logRetentionDays"],
+          "symbols": [
+            "logRetentionDays"
+          ],
           "note": "Default LAW retention param 30"
         }
       ],
@@ -350,7 +395,7 @@
       "name": "Cost controls",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Cost controls cover (1) budget threshold notifications and (2) anomaly detection as distinct controls. 16B adds standalone staging ActualCost budget-threshold IaC (USD 120/40, Enabled 80%/100%, parameterized ops-email AG per RG) — source partial progress only. Not deployed; live budgets still empty. Real notification delivery proof remains open. Anomaly detection is absent and not claimed.",
+      "rationale": "Cost controls cover (1) budget threshold notifications and (2) anomaly detection as distinct controls. 16B adds standalone staging ActualCost budget-threshold IaC (USD 120/40, Enabled 80%/100%, parameterized ops-email AG per RG) \u2014 source partial progress only. Not deployed; live budgets still empty. Real notification delivery proof remains open. Anomaly detection is absent and not claimed.",
       "controls": {
         "budget_threshold": {
           "kind": "threshold",
@@ -367,7 +412,10 @@
         {
           "path": "infra/azure/staging-cost-budgets/rg-budget-threshold.bicep",
           "lines": "1-116",
-          "symbols": ["opsBudgetActionGroup", "monthlyActualCostBudget"],
+          "symbols": [
+            "opsBudgetActionGroup",
+            "monthlyActualCostBudget"
+          ],
           "note": "Standalone AG + ActualCost budget module; Incremental-only; no email default"
         },
         {
@@ -379,13 +427,19 @@
         {
           "path": "scripts/lib/radar-slice16b-staging-cost-budgets.js",
           "lines": "1-80",
-          "symbols": ["LOCKS", "assertExactStagingScope", "runRedCases"],
+          "symbols": [
+            "LOCKS",
+            "assertExactStagingScope",
+            "runRedCases"
+          ],
           "note": "Exact sub/RG short-circuit + RED tests; live deploy hard-disabled"
         },
         {
           "path": "scripts/capture-sunset-staging-rg-cost.js",
           "lines": "1-96",
-          "symbols": ["main"],
+          "symbols": [
+            "main"
+          ],
           "note": "Read-only ActualCost capture; secret-free; no budget create"
         }
       ],
@@ -396,7 +450,7 @@
         },
         {
           "ref": "live-inventory.json#budgets",
-          "note": "budgets=[] both RGs — live threshold control still absent (source-only partial)"
+          "note": "budgets=[] both RGs \u2014 live threshold control still absent (source-only partial)"
         }
       ],
       "gaps": [
@@ -409,8 +463,8 @@
   ],
   "verdict_counts": {
     "proven": 0,
-    "partial": 8,
-    "absent": 1,
+    "partial": 9,
+    "absent": 0,
     "total": 9
   },
   "slice_16b_selection": {
@@ -421,7 +475,7 @@
     "progress_class": "budget_threshold_partial_progress_only",
     "does_not_implement": "anomaly_detection",
     "title": "Add staging RG ActualCost budgets with ops notify thresholds (not anomaly detection)",
-    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free IaC/fixtures. This is budget-threshold partial progress only — anomaly detection remains a separate absent control.",
+    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free IaC/fixtures. This is budget-threshold partial progress only \u2014 anomaly detection remains a separate absent control.",
     "owner_files": [
       "infra/azure/staging-cost-budgets/",
       "scripts/lib/radar-slice16b-staging-cost-budgets.js",
@@ -434,26 +488,26 @@
       "Production RGs",
       "Cost anomaly detection (separate acceptance; not claimed by 16B)",
       "Real notification delivery proof (remains open)",
-      "Tenant-aware metric alerts (G03 — larger follow-on)",
+      "Tenant-aware metric alerts (G03 \u2014 larger follow-on)",
       "Readiness probe implementation (G02)"
     ],
     "acceptance_criteria": [
       "Standalone Consumption budget IaC for wh-staging-rg amount USD 120 with Enabled 80% and 100% Actual thresholds",
       "Standalone Consumption budget IaC for luna-sunset-staging-rg amount USD 40 with the same threshold properties",
-      "One parameterized ops-email action group per RG — no email default/personal address/secret in git",
+      "One parameterized ops-email action group per RG \u2014 no email default/personal address/secret in git",
       "Secret-free fixture + verifier prove budget names/scopes/thresholds without reading secret values",
       "Deployment Incremental-only and structurally unable to touch Container Apps/DB/KV/identities/networking/production",
       "Exact subscription/RG short-circuit preflight + RED tests for wrong scope/email/amounts/thresholds/extra resources/non-incremental",
-      "Real notification-delivery proof required for drill pass — Enabled configuration alone fails",
+      "Real notification-delivery proof required for drill pass \u2014 Enabled configuration alone fails",
       "16B must not claim anomaly-detection acceptance; anomaly remains separately absent",
       "No Staff API, Hermes, DB schema, or guest/payment runtime behavior change in the 16B diff"
     ],
     "budget_notification_acceptance": [
-      "Budget resources present on both staging RGs with explicit % thresholds (live — still open)",
-      "Ops receiver exists and a real notification delivery event is evidenced (not merely Enabled=true) — still open"
+      "Budget resources present on both staging RGs with explicit % thresholds (live \u2014 still open)",
+      "Ops receiver exists and a real notification delivery event is evidenced (not merely Enabled=true) \u2014 still open"
     ],
     "anomaly_detection_acceptance": [
-      "Separate follow-on: Cost Management anomaly alert or equivalent with delivery proof — out of scope for 16B"
+      "Separate follow-on: Cost Management anomaly alert or equivalent with delivery proof \u2014 out of scope for 16B"
     ],
     "final_controlled_drill": {
       "id": "16B_DRILL_budget_threshold_notify",
@@ -466,6 +520,56 @@
         "Leave anomaly detection unmet"
       ],
       "pass_rule": "Both RG budgets listed Enabled with thresholds + proven notification delivery; no container restart/deploy/DB write; anomaly detection still absent"
+    }
+  },
+  "slice_16g_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16G_staff_api_metric_alerts",
+    "gate_id": "G03_actionable_tenant_aware_alerts",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_notification_delivery_alert_fire",
+    "title": "Add staging Staff API tenant-named metric alerts (Requests 5xx + RestartCount)",
+    "why_smallest": "G03 was fully absent live; smallest ownership surface is metricAlerts-only IaC scoped to exact Staff API app pairs, referencing existing 16B ops AG names without creating AGs/apps/budgets.",
+    "owner_files": [
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "scripts/lib/radar-slice16g-staff-api-metric-alerts.js",
+      "scripts/verify-radar-slice16g-staff-api-metric-alerts.js",
+      "scripts/preflight-radar-slice16g-staff-api-metric-alerts.js",
+      "fixtures/radar-operations/slice16g-metric-alert-plan.json",
+      "fixtures/radar-operations/slice16g-expected-contract.json"
+    ],
+    "out_of_scope_for_16g": [
+      "Live deploy / restart",
+      "Creating or modifying action groups",
+      "Creating or modifying Container Apps / identity / secrets / DB / network / budgets",
+      "Notification delivery proof",
+      "Alert-fire controlled drill",
+      "Production RGs",
+      "Staff API / Hermes runtime behavior change"
+    ],
+    "acceptance_criteria": [
+      "Standalone metricAlerts IaC for wh-staging-staff-api and luna-sunset-staging-staff-api only",
+      "Enabled tenant-named Requests Total statusCodeCategory=5xx >=3 over PT5M evaluated PT1M",
+      "Enabled tenant-named RestartCount Total >0 over PT5M/PT1M",
+      "Exact Microsoft.App/containerApps metric namespace and app ARM scope",
+      "Reference-only existing 16B per-RG ops action-group names (never create/modify AG)",
+      "Source may create only Microsoft.Insights/metricAlerts; Incremental only",
+      "Safe deployment entry point: realpath-locked Bicep, pinned git blob, temp 0700/0400 ARM, shell-free spawn with exact argv; independent RED suite for path/hash/temp/Complete/extra-args",
+      "Secret-free plan for both RGs; deployment/notification delivery/alert-fire drill remain open",
+      "No Staff API, Hermes, DB schema, or guest/payment runtime behavior change in the 16G diff"
+    ],
+    "final_controlled_drill": {
+      "id": "16G_DRILL_metric_alert_fire_notify",
+      "steps": [
+        "Record pre-create metric alert list (read-only) for both RGs",
+        "Deploy Incremental metricAlerts module only (approved follow-on; not this commit)",
+        "Prove notification delivery via referenced 16B ops AG",
+        "Prove controlled alert fire for 5xx and/or RestartCount criteria",
+        "Re-run read-only metric alert list; freeze evidence JSON secret-free",
+        "Confirm no AG create/modify, no container restart/deploy/DB write"
+      ],
+      "pass_rule": "Both RG metric alerts listed Enabled with locked criteria + proven notification delivery + fire evidence; no AG/app/DB mutation"
     }
   },
   "final_controlled_drill_16a": {

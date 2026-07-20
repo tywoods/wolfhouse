@@ -1,15 +1,16 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16B",
-  "outcome_id": "16B_staging_rg_cost_budget_threshold",
-  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
-  "branch": "radar/slice-16b-staging-cost-budgets",
+  "slice": "RADAR-16G",
+  "outcome_id": "16G_staff_api_metric_alerts",
+  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
+  "branch": "radar/slice-16g-staff-api-metric-alerts-replacement",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Standalone staging ActualCost budget-threshold module (partial progress; not anomaly detection)",
-  "progress_class": "budget_threshold_partial_progress_only",
-  "does_not_implement": "anomaly_detection",
+  "title": "Standalone staging Staff API metric alerts (G03 source-partial; 16B budget-threshold still partial)",
+  "progress_class": "source_partial_progress_only",
+  "does_not_implement": "live_deploy_notification_delivery_alert_fire",
   "notification_delivery_proof": "open",
+  "alert_fire_drill": "open",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
     "fixtures/radar-operations/gate-matrix.json",
@@ -18,26 +19,37 @@
     "fixtures/radar-operations/findings.md",
     "fixtures/radar-operations/slice16b-budget-threshold-plan.json",
     "fixtures/radar-operations/slice16b-expected-contract.json",
+    "fixtures/radar-operations/slice16g-metric-alert-plan.json",
+    "fixtures/radar-operations/slice16g-expected-contract.json",
     "infra/azure/staging-cost-budgets/",
+    "infra/azure/staging-staff-api-metric-alerts/",
     "scripts/lib/radar-slice16b-staging-cost-budgets.js",
     "scripts/verify-radar-slice16b-staging-cost-budgets.js",
     "scripts/preflight-radar-slice16b-staging-cost-budgets.js",
+    "scripts/lib/radar-slice16g-staff-api-metric-alerts.js",
+    "scripts/verify-radar-slice16g-staff-api-metric-alerts.js",
+    "scripts/preflight-radar-slice16g-staff-api-metric-alerts.js",
     "scripts/verify-radar-slice16a-operations-gate-ledger.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
-    "partial": 8,
-    "absent": 1,
+    "partial": 9,
+    "absent": 0,
     "total": 9
   },
-  "critical_absent_gates": [
-    "G03_actionable_tenant_aware_alerts"
-  ],
+  "critical_absent_gates": [],
   "selected_16b": {
     "outcome_id": "16B_staging_rg_cost_budget_threshold",
     "gate_id": "G09_cost_controls",
     "progress_class": "budget_threshold_partial_progress_only",
     "does_not_implement": "anomaly_detection"
+  },
+  "selected_16g": {
+    "outcome_id": "16G_staff_api_metric_alerts",
+    "gate_id": "G03_actionable_tenant_aware_alerts",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_notification_delivery_alert_fire",
+    "supersedes": "RADAR-16F"
   },
   "costs_mtd_usd_frozen": {
     "wh-staging-rg": 65.1200802322302,
@@ -47,8 +59,38 @@
   "budget_plan_locked": {
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
     "deploymentMode": "Incremental",
-    "wh-staging-rg": { "amountUsd": 120, "thresholds": [80, 100] },
-    "luna-sunset-staging-rg": { "amountUsd": 40, "thresholds": [80, 100] }
+    "wh-staging-rg": {
+      "amountUsd": 120,
+      "thresholds": [
+        80,
+        100
+      ]
+    },
+    "luna-sunset-staging-rg": {
+      "amountUsd": 40,
+      "thresholds": [
+        80,
+        100
+      ]
+    }
+  },
+  "metric_alert_plan_locked": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "deploymentMode": "Incremental",
+    "metricNamespace": "Microsoft.App/containerApps",
+    "windowSize": "PT5M",
+    "evaluationFrequency": "PT1M",
+    "severity": 2,
+    "wh-staging-rg": {
+      "containerAppName": "wh-staging-staff-api",
+      "tenantSlug": "wolfhouse",
+      "actionGroupName": "wh-staging-ops-budget-ag"
+    },
+    "luna-sunset-staging-rg": {
+      "containerAppName": "luna-sunset-staging-staff-api",
+      "tenantSlug": "sunset",
+      "actionGroupName": "luna-sunset-staging-ops-budget-ag"
+    }
   },
   "zero_mutation_proof": {
     "runtime_paths_unchanged": [
@@ -58,15 +100,16 @@
       "infra/azure/staging/main.bicep",
       "infra/azure/sunset-staging/main.bicep"
     ],
-    "note": "16B may add standalone staging-cost-budgets module + radar fixtures/verifiers; must not modify Staff API/Hermes/DB/main.bicep wiring; live deploy hard-disabled"
+    "note": "16G may add standalone staging-staff-api-metric-alerts module + safe deploy entry + radar fixtures/verifiers; must not modify Staff API/Hermes/DB/main.bicep wiring; live deploy hard-disabled; AG/app referenced only"
   },
   "gates": [
-    "az bicep build --file infra/azure/staging-cost-budgets/rg-budget-threshold.bicep",
+    "az bicep build --file infra/azure/staging-staff-api-metric-alerts/rg-staff-api-metric-alerts.bicep",
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:radar-slice16b-staging-cost-budgets",
+    "npm run verify:radar-slice16g-staff-api-metric-alerts",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 5a8b08d395e11c51baf928b918016d5dd5bb4afe..HEAD"
+    "git diff --check acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b..HEAD"
   ]
 }

@@ -21,7 +21,7 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '5a8b08d395e11c51baf928b918016d5dd5bb4afe';
+const MASTER_BASIS = 'acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b';
 const VERDICTS = new Set(['proven', 'partial', 'absent']);
 const REQUIRED_GATE_IDS = [
   'G01_correlation_structured_logs',
@@ -184,16 +184,18 @@ ok('F15 verdict counts match matrix.verdict_counts',
   && counts.partial === matrix.verdict_counts.partial
   && counts.absent === matrix.verdict_counts.absent
   && counts.total === matrix.verdict_counts.total);
-ok('F16 expected frozen counts proven=0 partial=8 absent=1',
-  counts.proven === 0 && counts.partial === 8 && counts.absent === 1 && counts.total === 9);
+ok('F16 expected frozen counts proven=0 partial=9 absent=0',
+  counts.proven === 0 && counts.partial === 9 && counts.absent === 0 && counts.total === 9);
 ok('F17 contract expected counts match',
   contract.expected_verdict_counts.proven === 0
-  && contract.expected_verdict_counts.partial === 8
-  && contract.expected_verdict_counts.absent === 1);
+  && contract.expected_verdict_counts.partial === 9
+  && contract.expected_verdict_counts.absent === 0);
 
 const g03 = matrix.gates.find((g) => g.id === 'G03_actionable_tenant_aware_alerts');
 const g09 = matrix.gates.find((g) => g.id === 'G09_cost_controls');
-ok('F18 G03 absent critical', g03 && g03.verdict === 'absent' && g03.severity === 'critical');
+ok('F18 G03 partial critical (metric-alert source only)',
+  g03 && g03.verdict === 'partial' && g03.severity === 'critical'
+  && g03.progress_class === 'source_partial_progress_only');
 ok('F19 G09 partial high (budget-threshold source only)',
   g09 && g09.verdict === 'partial' && g09.severity === 'high'
   && g09.controls
@@ -217,6 +219,22 @@ ok('F22 16B final controlled drill present',
 ok('F23 contract selected_16b matches',
   contract.selected_16b.outcome_id === '16B_staging_rg_cost_budget_threshold'
   && contract.selected_16b.gate_id === 'G09_cost_controls');
+
+const sel16g = matrix.slice_16g_selection;
+ok('F23b exactly one 16G selection',
+  sel16g && sel16g.selected === true
+  && sel16g.outcome_id === '16G_staff_api_metric_alerts'
+  && sel16g.gate_id === 'G03_actionable_tenant_aware_alerts'
+  && sel16g.progress_class === 'source_partial_progress_only');
+ok('F23c contract selected_16g matches',
+  contract.selected_16g
+  && contract.selected_16g.outcome_id === '16G_staff_api_metric_alerts'
+  && contract.selected_16g.gate_id === 'G03_actionable_tenant_aware_alerts');
+ok('F23d 16G final controlled drill present',
+  sel16g.final_controlled_drill
+  && sel16g.final_controlled_drill.id === '16G_DRILL_metric_alert_fire_notify');
+ok('F23e 16G acceptance criteria finite (>=4)',
+  Array.isArray(sel16g.acceptance_criteria) && sel16g.acceptance_criteria.length >= 4);
 
 ok('F24 live inventory read_only + no mutation',
   live.read_only === true && live.live_mutation === false);
@@ -269,10 +287,11 @@ const blob = [
 const sec = secretFree(blob, 'fixtures+doc');
 ok('F32 secret-free fixtures and doc', sec.ok, sec.detail);
 
-ok('F33 doc mentions selected 16B id', /16B_staging_rg_cost_budget_threshold/.test(doc));
-ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /absent.*1/i.test(doc));
-ok('F35 findings lists G03 absent and G09 partial',
-  /G03/.test(findings) && /G09/.test(findings) && /absent/i.test(findings) && /partial/i.test(findings));
+ok('F33 doc mentions selected 16G id', /16G_staff_api_metric_alerts/.test(doc));
+ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /partial.*9/i.test(doc) && /absent.*0/i.test(doc));
+ok('F35 findings lists G03 partial and G09 partial',
+  /G03/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
+  && /16G/.test(findings));
 
 ok('F36 healthz source cite present', pathExists('scripts/staff-query-api.js'));
 ok('F37 capture cost script present (read-only helper)',
