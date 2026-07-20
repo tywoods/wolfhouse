@@ -9,16 +9,28 @@ const browser = await chromium.launch({
 const page = await browser.newPage();
 const network = [];
 const externalFonts = [];
+const sameOriginFonts = [];
+const pageOrigin = new URL(BASE).origin;
 
 page.on('request', (req) => {
   const url = req.url();
   if (req.method() === 'POST' || url.includes('/api/leads')) {
     network.push(`${req.method()} ${url}`);
   }
-  if (
-    /fonts\.googleapis\.com|fonts\.gstatic\.com|fonts\.google\.com/i.test(url)
-  ) {
-    externalFonts.push(url);
+  // Any font resource must share the page origin (no CDN / third-party fonts).
+  if (req.resourceType() === 'font') {
+    let reqOrigin;
+    try {
+      reqOrigin = new URL(url).origin;
+    } catch {
+      externalFonts.push(url);
+      return;
+    }
+    if (reqOrigin !== pageOrigin) {
+      externalFonts.push(url);
+    } else {
+      sameOriginFonts.push(url);
+    }
   }
 });
 
@@ -138,7 +150,18 @@ const footerLink = page.getByTestId('footer-privacy-link');
 if (!(await footerLink.count())) failures.push('footer privacy link missing');
 
 if (externalFonts.length) {
-  failures.push(`external font origins requested: ${externalFonts.join(', ')}`);
+  failures.push(`cross-origin font resource(s): ${externalFonts.join(', ')}`);
+}
+if (!sameOriginFonts.length) {
+  failures.push('no same-origin font resources observed (expected /fonts/*)');
+} else if (!sameOriginFonts.every((u) => {
+  try {
+    return new URL(u).pathname.startsWith('/fonts/');
+  } catch {
+    return false;
+  }
+})) {
+  failures.push(`font URL(s) not under /fonts/: ${sameOriginFonts.join(', ')}`);
 }
 
 await browser.close();
@@ -151,4 +174,5 @@ if (failures.length) {
 console.log('LEAD_PRIVACY_QA_OK');
 console.log('NO_LEAD_NETWORK');
 console.log('NO_EXTERNAL_FONTS');
+console.log('SAME_ORIGIN_FONTS_ONLY');
 console.log('CONTROLLER_IDENTITY_LAUNCH_BLOCKER_VISIBLE');

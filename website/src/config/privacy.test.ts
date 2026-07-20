@@ -63,6 +63,26 @@ describe('controller identity launch blocker', () => {
   });
 });
 
+/** Absolute or protocol-relative URL that is clearly a font stylesheet/asset. */
+const CROSS_ORIGIN_FONT_URL =
+  /(?:https?:)?\/\/[^\s"'`)]+(?:fonts?|woff2?|ttf|otf|eot)[^\s"'`)]*/gi;
+
+/** Extract url(...) targets from @font-face blocks. */
+function fontFaceSrcUrls(css: string): string[] {
+  const urls: string[] = [];
+  const faceRe = /@font-face\s*\{([^}]*)\}/gi;
+  let face: RegExpExecArray | null;
+  while ((face = faceRe.exec(css)) !== null) {
+    const block = face[1] ?? '';
+    const urlRe = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = urlRe.exec(block)) !== null) {
+      urls.push((m[2] ?? '').trim());
+    }
+  }
+  return urls;
+}
+
 describe('self-hosted fonts (no external font origins)', () => {
   it('ships Inter and Fraunces woff2 under public/fonts', () => {
     const fontsDir = join(ROOT, 'public/fonts');
@@ -74,17 +94,29 @@ describe('self-hosted fonts (no external font origins)', () => {
     );
   });
 
-  it('Layout and fonts.css never request Google Fonts origins', () => {
+  it('rejects absolute/protocol-relative cross-origin font stylesheet/URLs', () => {
     const layout = readFileSync(join(ROOT, 'src/layouts/Layout.astro'), 'utf8');
     const fontsCss = readFileSync(join(ROOT, 'src/styles/fonts.css'), 'utf8');
     const globalCss = readFileSync(join(ROOT, 'src/styles/global.css'), 'utf8');
     for (const src of [layout, fontsCss, globalCss]) {
+      const hits = src.match(CROSS_ORIGIN_FONT_URL) ?? [];
+      expect(hits, `cross-origin font URL(s): ${hits.join(', ')}`).toEqual([]);
+      // Still catch the classic Google hosts explicitly.
       expect(src).not.toMatch(/fonts\.googleapis\.com/);
       expect(src).not.toMatch(/fonts\.gstatic\.com/);
       expect(src).not.toMatch(/fonts\.google\.com/);
     }
     expect(layout).toContain("import '../styles/fonts.css'");
-    expect(fontsCss).toMatch(/url\('\/fonts\//);
+  });
+
+  it('requires every @font-face src URL to be a local /fonts path', () => {
+    const fontsCss = readFileSync(join(ROOT, 'src/styles/fonts.css'), 'utf8');
+    const urls = fontFaceSrcUrls(fontsCss);
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) {
+      expect(url, `non-local @font-face src: ${url}`).toMatch(/^\/fonts\/[^/].+\.woff2$/);
+      expect(url).not.toMatch(/^(?:https?:)?\/\//);
+    }
   });
 
   it('privacy text states fonts are self-hosted (not Google Fonts)', () => {

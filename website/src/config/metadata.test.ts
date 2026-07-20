@@ -59,6 +59,7 @@ describe('layout metadata wiring', () => {
     expect(layout).toContain('ogImageUrl');
     expect(layout).not.toMatch(/fonts\.googleapis\.com/);
     expect(layout).not.toMatch(/fonts\.gstatic\.com/);
+    expect(layout).not.toMatch(/(?:https?:)?\/\/[^\s"'`)]+(?:fonts?|woff2?)[^\s"'`)]*/i);
   });
 });
 

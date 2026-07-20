@@ -59,10 +59,14 @@ const STRICT_EMAIL =
   /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
 
 /**
- * Conservative international phone: optional leading +, digits with optional
- * spaces / hyphens / parentheses only. Total digit count 8–15 (E.164-ish).
+ * Conservative international phone:
+ * - optional leading +
+ * - 7–15 digits total
+ * - digits separated only by at most one ASCII space or hyphen (no repeats,
+ *   no trailing separator)
+ * - no parentheses, periods, letters, or other punctuation
  */
-const CONSERVATIVE_PHONE = /^\+?[0-9(][0-9\s().-]{5,22}[0-9]$/;
+const CONSERVATIVE_PHONE = /^\+?\d(?:[ -]?\d){6,14}$/;
 
 /** Returns true if the string is a strict email address. */
 export function isStrictEmail(s: string): boolean {
@@ -79,7 +83,7 @@ export function isConservativePhone(s: string): boolean {
   const t = s.trim();
   if (!CONSERVATIVE_PHONE.test(t)) return false;
   const digits = t.replace(/\D/g, '');
-  return digits.length >= 8 && digits.length <= 15;
+  return digits.length >= 7 && digits.length <= 15;
 }
 
 /** True when contact is either a strict email or a conservative phone. */

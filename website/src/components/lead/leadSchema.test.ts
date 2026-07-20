@@ -136,16 +136,49 @@ describe('isStrictEmail', () => {
 });
 
 describe('isConservativePhone', () => {
-  it('accepts international numbers with spaces or hyphens', () => {
+  it('accepts valid international examples (space/hyphen separators only)', () => {
     expect(isConservativePhone('+34 663 123 456')).toBe(true);
     expect(isConservativePhone('+1-415-555-2671')).toBe(true);
-    expect(isConservativePhone('(415) 555-2671')).toBe(true);
+    expect(isConservativePhone('34663123456')).toBe(true);
+    expect(isConservativePhone('+34663123456')).toBe(true);
+    expect(isConservativePhone('415-555-2671')).toBe(true);
+    // 7-digit lower bound
+    expect(isConservativePhone('1234567')).toBe(true);
+    // 15-digit upper bound (E.164 max)
+    expect(isConservativePhone('+123456789012345')).toBe(true);
   });
 
-  it('rejects too-short digit runs and bare text', () => {
-    expect(isConservativePhone('12345')).toBe(false);
+  it('rejects parentheses (repeated, open, close, unmatched groups)', () => {
+    expect(isConservativePhone('(415) 555-2671')).toBe(false);
+    expect(isConservativePhone('((415)) 555-2671')).toBe(false);
+    expect(isConservativePhone('(415 555-2671')).toBe(false);
+    expect(isConservativePhone('415) 555-2671')).toBe(false);
+    expect(isConservativePhone('415 (555) 2671')).toBe(false);
+    expect(isConservativePhone('+34 (663) 123 456')).toBe(false);
+  });
+
+  it('rejects periods and repeated dots', () => {
+    expect(isConservativePhone('415.555.2671')).toBe(false);
+    expect(isConservativePhone('415..555.2671')).toBe(false);
+    expect(isConservativePhone('+34.663.123.456')).toBe(false);
+  });
+
+  it('rejects repeated spaces/hyphens and trailing separators', () => {
+    expect(isConservativePhone('+34  663 123 456')).toBe(false);
+    expect(isConservativePhone('+34--663-123-456')).toBe(false);
+    expect(isConservativePhone('+34663123456-')).toBe(false);
+    expect(isConservativePhone('+34 663 123 456-')).toBe(false);
+    expect(isConservativePhone('-34663123456')).toBe(false);
+    expect(isConservativePhone('34- 663123456')).toBe(false);
+  });
+
+  it('rejects letters, too-short/too-long digit runs, and bare text', () => {
+    expect(isConservativePhone('123456')).toBe(false); // 6 digits
+    expect(isConservativePhone('+1234567890123456')).toBe(false); // 16 digits
     expect(isConservativePhone('call me')).toBe(false);
+    expect(isConservativePhone('+34abc663')).toBe(false);
     expect(isConservativePhone('+')).toBe(false);
+    expect(isConservativePhone('++34663123456')).toBe(false);
   });
 });
 
