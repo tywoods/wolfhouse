@@ -1,6 +1,6 @@
-# RADAR findings (16A freeze + 16B budget-threshold + 16H metric-alert + 16I readiness + 16J correlation + 16K healthz source-partial)
+# RADAR findings (16A freeze + 16B budget-threshold + 16H metric-alert + 16I readiness + 16J correlation + 16K healthz + 16L capacity-pressure source-partial)
 
-**Master basis (16K):** `0d7340865d34804562c0e955a6276cfeff90560d`
+**Master basis (16L):** `c01e08d3b0039840ced37ae5a8e04fdd2384aba2`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
 
 ## Verdict rollup
@@ -14,25 +14,32 @@
 
 ## Critical gaps
 
-1. **G03 actionable tenant-aware alerts — partial (source only)**
+1. **G06 scaling / capacity — partial (source only via 16L)**
+   Wolfhouse + Sunset staging Bicep declare Staff API capacity-pressure alerts (CpuPercentage Average >80 + MemoryPercentage Average >80; PT15M/PT5M; severity 2; enabled; static Microsoft.App/containerApps criteria; wired to subscription-pinned future 16B ops AG resource ID param). **Not deployed** — live metric_alerts still `[]`. No autoscaling added; replicas unchanged. Deploy, alert fire, sustained load, response-time/SLO, and backpressure remain open.
+
+2. **G03 actionable tenant-aware alerts — partial (source only)**
    Standalone staging Staff API metric-alert IaC added (tenant-named Requests 5xx >=3 PT5M/PT1M + RestartCount >0 PT5M/PT1M; refs 16B ops AG by name). Source module only — **no deployment wrapper**. **Not deployed** — live metric_alerts still `[]`. Safe Incremental operator deploy, notification delivery, and alert-fire drill remain open. Template cannot enforce ARM mode.
 
-2. **G09 cost controls — partial (budget-threshold source only)**
+3. **G09 cost controls — partial (budget-threshold source only)**
    Standalone staging budget-threshold IaC added (USD 120/40, 80%/100% Enabled, ops-email AG per RG). **Not deployed** — live budgets still `[]`. Real notification delivery proof remains open. **Anomaly detection remains absent / not claimed.**
 
-3. **G02 readiness / dependencies — partial (source only via 16I)**
+4. **G02 readiness / dependencies — partial (source only via 16I)**
    Staff API `/readyz` + ACA probes added in source (dedicated max-1 readiness pool; `/healthz` stays DB-independent). **Not deployed** — live ACA probes still empty/null. Controlled readiness failure drill and lifecycle integration remain open. Supersedes deferred 16C (no signal/shutdown framework in 16I).
 
-4. **G01 correlation / structured logs — partial (source only via 16J)**
+5. **G01 correlation / structured logs — partial (source only via 16J)**
    Staff API request correlation middleware added (UUIDv4 accept/generate, ALS, response header; header + context only). **No completion logging / lifecycle listeners.** **Not deployed** — request completion logs, LAW/App Insights delivery + search, retention, and correlation drill remain open. Supersedes deferred 16D (no async log queue; no signal/shutdown ownership).
 
-5. **G08 retention / privacy — partial (source only via 16K)**
+6. **G08 retention / privacy — partial (source only via 16K)**
    Public Staff API `/healthz` minimized in source to `{status:ok,service:staff-api}` (no auth/stage/provider/model/key/config/tenant/note). **Not deployed** — live `/healthz` still exposes detailed fields. LAW/App Insights retention remain proven live. Log-retention/PII redaction proof and privacy drill remain open.
 
 ## Other partial notes
 
 - **G04/G05 backlog + replay:** handlers/jobs/idempotency keys exist; backlog metrics and full replay proof missing.
 - **G07 runbooks:** docs present; PHASE-7.4 restore drill not executed; PG backup 7d, geo-redundant off.
+
+## Slice 16L
+
+`16L_staff_api_capacity_pressure_alerts` on **G06_scaling_capacity** — progress class `source_partial_progress_only`. Does not deploy; does not add autoscaling; does not mutate replicas; does not alter 16H; does not claim load/SLO/backpressure; deploy/fire/load/SLO/backpressure remain open.
 
 ## Slice 16K
 
@@ -56,4 +63,4 @@
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16K. Database, Hermes staging, and staging Bicep unchanged vs master. Staff API public `/healthz` minimization is intentional 16K ownership.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16L. Database, Hermes staging, and 16H metric-alert module unchanged vs master. Wolfhouse/Sunset staging Bicep capacity-alert additions are intentional 16L ownership; replica/traffic/auth/DB paths protected.

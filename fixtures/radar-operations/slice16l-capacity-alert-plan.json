@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16L",
+  "outcome_id": "16L_staff_api_capacity_pressure_alerts",
+  "gate_id": "G06_scaling_capacity",
+  "progress_class": "source_partial_progress_only",
+  "does_not_implement": "live_deploy_alert_fire_autoscaling_load_backpressure_slo",
+  "master_basis": "c01e08d3b0039840ced37ae5a8e04fdd2384aba2",
+  "branch": "radar/slice-16l-capacity-pressure-alerts",
+  "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "metricNamespace": "Microsoft.App/containerApps",
+  "windowSize": "PT15M",
+  "evaluationFrequency": "PT5M",
+  "severity": 2,
+  "timeAggregation": "Average",
+  "operator": "GreaterThan",
+  "threshold": 80,
+  "criterionType": "StaticThresholdCriterion",
+  "alertsEnabled": true,
+  "opsActionGroupParam": "opsActionGroupResourceId",
+  "referencedActionGroupSource": "RADAR-16B",
+  "liveDeployEnabled": false,
+  "execution_claim": false,
+  "zero_live_mutation": true,
+  "does_not_mutate": [
+    "minReplicas",
+    "maxReplicas",
+    "autoscaling_rules",
+    "ingress_traffic",
+    "auth_env",
+    "database",
+    "16H_requests_5xx_restart_alerts"
+  ],
+  "apps": [
+    {
+      "tenantSlug": "wolfhouse",
+      "resourceGroup": "wh-staging-rg",
+      "bicepRel": "infra/azure/staging/main.bicep",
+      "containerAppResource": "staffApiApp",
+      "opsActionGroupName": "wh-staging-ops-budget-ag",
+      "opsActionGroupResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/actionGroups/wh-staging-ops-budget-ag",
+      "alerts": [
+        {
+          "name": "wolfhouse-staff-api-cpu-pressure",
+          "metricName": "CpuPercentage"
+        },
+        {
+          "name": "wolfhouse-staff-api-memory-pressure",
+          "metricName": "MemoryPercentage"
+        }
+      ]
+    },
+    {
+      "tenantSlug": "sunset",
+      "resourceGroup": "luna-sunset-staging-rg",
+      "bicepRel": "infra/azure/sunset-staging/main.bicep",
+      "containerAppResource": "staffApiApp",
+      "opsActionGroupName": "luna-sunset-staging-ops-budget-ag",
+      "opsActionGroupResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/actionGroups/luna-sunset-staging-ops-budget-ag",
+      "alerts": [
+        {
+          "name": "sunset-staff-api-cpu-pressure",
+          "metricName": "CpuPercentage"
+        },
+        {
+          "name": "sunset-staff-api-memory-pressure",
+          "metricName": "MemoryPercentage"
+        }
+      ]
+    }
+  ]
+}

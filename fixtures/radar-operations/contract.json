@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16K",
-  "outcome_id": "16K_staff_api_healthz_minimization",
-  "master_basis": "0d7340865d34804562c0e955a6276cfeff90560d",
-  "branch": "radar/slice-16k-healthz-minimization",
+  "slice": "RADAR-16L",
+  "outcome_id": "16L_staff_api_capacity_pressure_alerts",
+  "master_basis": "c01e08d3b0039840ced37ae5a8e04fdd2384aba2",
+  "branch": "radar/slice-16l-capacity-pressure-alerts",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Staff API /healthz minimization (generic public schema) \u2014 G08 source-partial",
+  "title": "Staff API capacity-pressure alerts (CPU/Memory Average >80) — G06 source-partial",
   "progress_class": "source_partial_progress_only",
-  "does_not_implement": "live_deploy_log_retention_privacy_drill",
+  "does_not_implement": "live_deploy_alert_fire_autoscaling_load_backpressure_slo",
   "notification_delivery_proof": "open",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -39,7 +39,12 @@
     "fixtures/radar-operations/slice16k-expected-contract.json",
     "scripts/lib/staff-api-healthz.js",
     "scripts/lib/radar-slice16k-staff-api-healthz.js",
-    "scripts/verify-radar-slice16k-staff-api-healthz.js"
+    "scripts/verify-radar-slice16k-staff-api-healthz.js",
+    "fixtures/radar-operations/slice16l-capacity-alert-plan.json",
+    "fixtures/radar-operations/slice16l-expected-contract.json",
+    "scripts/verify-radar-slice16l-staff-api-capacity-alerts.js",
+    "infra/azure/staging/main.bicep",
+    "infra/azure/sunset-staging/main.bicep"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -81,25 +86,25 @@
     "runtime_paths_unchanged": [
       "database/",
       "docker/hermes-staging/",
-      "infra/azure/staging/main.bicep",
-      "infra/azure/sunset-staging/main.bicep"
+      "infra/azure/staging-staff-api-metric-alerts/"
     ],
-    "note": "16K may modify Staff API public /healthz body only; must not mutate DB schema, Hermes staging, or staging Bicep; no live deploy; log-retention/privacy drill open"
+    "note": "16L may modify Wolfhouse/Sunset staging main.bicep for capacity alerts only; must not mutate DB schema, Hermes staging, or 16H module; no live deploy; load/SLO/backpressure remain open"
   },
   "gates": [
-    "npm run verify:radar-slice16k-staff-api-healthz",
+    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:radar-slice16b-staging-cost-budgets",
     "npm run verify:radar-slice16h-staff-api-metric-alerts",
     "npm run verify:radar-slice16i-staff-api-readiness",
     "npm run verify:radar-slice16j-staff-request-correlation",
+    "npm run verify:radar-slice16k-staff-api-healthz",
     "npm run verify:staff-auth-api",
     "az bicep build --file infra/azure/staging/main.bicep",
     "az bicep build --file infra/azure/sunset-staging/main.bicep",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 0d7340865d34804562c0e955a6276cfeff90560d..HEAD"
+    "git diff --check c01e08d3b0039840ced37ae5a8e04fdd2384aba2..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -155,5 +160,40 @@
   },
   "healthz_live_deploy": "open",
   "healthz_log_retention": "open",
-  "healthz_privacy_drill": "open"
+  "healthz_privacy_drill": "open",
+  "selected_16l": {
+    "outcome_id": "16L_staff_api_capacity_pressure_alerts",
+    "gate_id": "G06_scaling_capacity",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_alert_fire_autoscaling_load_backpressure_slo"
+  },
+  "capacity_alert_plan_locked": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "metricNamespace": "Microsoft.App/containerApps",
+    "windowSize": "PT15M",
+    "evaluationFrequency": "PT5M",
+    "severity": 2,
+    "timeAggregation": "Average",
+    "operator": "GreaterThan",
+    "threshold": 80,
+    "wh-staging-rg": {
+      "alerts": [
+        "wolfhouse-staff-api-cpu-pressure",
+        "wolfhouse-staff-api-memory-pressure"
+      ],
+      "actionGroupResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/actionGroups/wh-staging-ops-budget-ag"
+    },
+    "luna-sunset-staging-rg": {
+      "alerts": [
+        "sunset-staff-api-cpu-pressure",
+        "sunset-staff-api-memory-pressure"
+      ],
+      "actionGroupResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/actionGroups/luna-sunset-staging-ops-budget-ag"
+    }
+  },
+  "capacity_live_deploy": "open",
+  "capacity_alert_fire": "open",
+  "capacity_load_proof": "open",
+  "capacity_slo": "open",
+  "capacity_backpressure": "open"
 }

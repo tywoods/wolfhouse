@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16K",
-  "title": "RADAR operations gate ledger (16K Staff API /healthz minimization source-partial on G08)",
-  "master_basis": "0d7340865d34804562c0e955a6276cfeff90560d",
-  "branch": "radar/slice-16k-healthz-minimization",
+  "slice": "RADAR-16L",
+  "title": "RADAR operations gate ledger (16L Staff API capacity-pressure alerts source-partial on G06)",
+  "master_basis": "c01e08d3b0039840ced37ae5a8e04fdd2384aba2",
+  "branch": "radar/slice-16l-capacity-pressure-alerts",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -31,7 +31,7 @@
       "name": "Correlation / structured logs",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16J adds Staff API HTTP-boundary request correlation (AsyncLocalStorage): accept X-Request-Id only as strict UUIDv4 (normalize lowercase) else crypto.randomUUID(); set response header before route handling; expose getRequestContext/requestId; trusted-ingress tenant binding. Header + ALS context only \u2014 no req/res finish/close/aborted/error listeners; no duration/route/status completion logging; no console emission; no one-record claims. No async log queue; no signal/shutdown ownership. Source-partial correlation only \u2014 not deployed; request completion logs, LAW/App Insights delivery+search, retention, and correlation drill remain open. Supersedes deferred 16D.",
+      "rationale": "16J adds Staff API HTTP-boundary request correlation (AsyncLocalStorage): accept X-Request-Id only as strict UUIDv4 (normalize lowercase) else crypto.randomUUID(); set response header before route handling; expose getRequestContext/requestId; trusted-ingress tenant binding. Header + ALS context only — no req/res finish/close/aborted/error listeners; no duration/route/status completion logging; no console emission; no one-record claims. No async log queue; no signal/shutdown ownership. Source-partial correlation only — not deployed; request completion logs, LAW/App Insights delivery+search, retention, and correlation drill remain open. Supersedes deferred 16D.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-request-correlation.js",
@@ -86,7 +86,7 @@
         "Staff API image with correlation middleware not deployed to staging",
         "No proven LAW/App Insights delivery or search of correlation events",
         "Retention policy for correlation completion records not frozen",
-        "End-to-end Meta \u2192 Hermes \u2192 Staff API \u2192 Stripe correlation drill open"
+        "End-to-end Meta → Hermes → Staff API → Stripe correlation drill open"
       ],
       "progress_class": "source_partial_progress_only"
     },
@@ -95,7 +95,7 @@
       "name": "Readiness / dependencies",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16I adds Staff API /readyz (dedicated max-1 pg Pool via public pg 8.21 options: connectionTimeoutMillis<=1500, statement_timeout<=1500, query_timeout<=2000; fixed SELECT 1; release healthy / release(err) once; no Promise.race/AbortController/private fields/app-pool) and ACA Startup/Liveness/Readiness probes in Wolfhouse + Sunset staging Bicep (port 3036; liveness/startup on /healthz without Postgres; readiness on /readyz; periodSeconds exceeds max operation bound). Source-partial only \u2014 not deployed; live ACA probes still empty/null; controlled readiness failure drill and lifecycle integration (closeReadinessPool) remain open. Supersedes deferred 16C (no signal/shutdown framework in this slice).",
+      "rationale": "16I adds Staff API /readyz (dedicated max-1 pg Pool via public pg 8.21 options: connectionTimeoutMillis<=1500, statement_timeout<=1500, query_timeout<=2000; fixed SELECT 1; release healthy / release(err) once; no Promise.race/AbortController/private fields/app-pool) and ACA Startup/Liveness/Readiness probes in Wolfhouse + Sunset staging Bicep (port 3036; liveness/startup on /healthz without Postgres; readiness on /readyz; periodSeconds exceeds max operation bound). Source-partial only — not deployed; live ACA probes still empty/null; controlled readiness failure drill and lifecycle integration (closeReadinessPool) remain open. Supersedes deferred 16C (no signal/shutdown framework in this slice).",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-readiness.js",
@@ -168,7 +168,7 @@
       "name": "Actionable tenant-aware alerts",
       "verdict": "partial",
       "severity": "critical",
-      "rationale": "16H adds standalone staging-only Staff API metric-alert IaC (source module only): tenant-named Requests Total statusCodeCategory=5xx >=3 over PT5M/PT1M and RestartCount Total >0 over PT5M/PT1M on both wh-staging-staff-api and luna-sunset-staging-staff-api, referencing existing 16B per-RG ops action-group names. Bicep fail-closes exact subscription + RG/app tuple; derives tenant/AG; alert semantics are vars. No deployment wrapper. Source-partial only \u2014 not deployed; live metric_alerts still []; safe Incremental operator deploy, notification delivery, and alert-fire drill remain open. Template cannot enforce ARM mode.",
+      "rationale": "16H adds standalone staging-only Staff API metric-alert IaC (source module only): tenant-named Requests Total statusCodeCategory=5xx >=3 over PT5M/PT1M and RestartCount Total >0 over PT5M/PT1M on both wh-staging-staff-api and luna-sunset-staging-staff-api, referencing existing 16B per-RG ops action-group names. Bicep fail-closes exact subscription + RG/app tuple; derives tenant/AG; alert semantics are vars. No deployment wrapper. Source-partial only — not deployed; live metric_alerts still []; safe Incremental operator deploy, notification delivery, and alert-fire drill remain open. Template cannot enforce ARM mode.",
       "source_evidence": [
         {
           "path": "infra/azure/staging-staff-api-metric-alerts/rg-staff-api-metric-alerts.bicep",
@@ -269,7 +269,7 @@
       "name": "Retry / replay safety",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Many Staff write paths require idempotency_key; payment_events.stripe_event_id is UNIQUE in schema; Meta inbound marks duplicates. Stripe webhook path stores stripe_event_id in payment metadata but this audit did not prove a fail-closed payment_events ledger insert before side effects for every event type. Absence of full replay suite \u2192 partial, not proven.",
+      "rationale": "Many Staff write paths require idempotency_key; payment_events.stripe_event_id is UNIQUE in schema; Meta inbound marks duplicates. Stripe webhook path stores stripe_event_id in payment metadata but this audit did not prove a fail-closed payment_events ledger insert before side effects for every event type. Absence of full replay suite → partial, not proven.",
       "source_evidence": [
         {
           "path": "database/migrations/001_init.sql",
@@ -314,44 +314,69 @@
       "name": "Scaling / capacity",
       "verdict": "partial",
       "severity": "medium",
-      "rationale": "ACA scale bounds exist (often maxReplicas=1). Conversational Luna stress fixtures exist (Stage 40) but no HTTP/infrastructure load test, soak, or capacity SLO for Staff API / webhooks. Scale-to-zero on Wolfhouse staff API is a capacity/cold-start risk without readiness probes.",
+      "rationale": "16L adds source-only Staff API capacity-pressure metric alerts on Wolfhouse + Sunset staging Bicep: CpuPercentage Average >80 and MemoryPercentage Average >80 (PT15M window / PT5M eval, severity 2, enabled), scoped to each Staff API Container App, wired to the future 16B ops action group resource ID parameter (subscription-pinned/owned). Exact Microsoft.App/containerApps namespace and StaticThresholdCriterion only. Does not add autoscaling, mutate min/max replicas, alter 16H 5xx/restart alerts, or claim backpressure/load/SLO proof. Deploy, actual firing, sustained load, response-time/SLO, and backpressure remain open. ACA scale bounds still often maxReplicas=1; no HTTP load suite yet.",
       "source_evidence": [
         {
           "path": "infra/azure/staging/main.bicep",
-          "lines": "365-367,452-454,530-532",
+          "lines": "102,410-411,422-504",
           "symbols": [
-            "minReplicas",
-            "maxReplicas"
+            "opsActionGroupResourceId",
+            "staffApiCpuPressureAlert",
+            "staffApiMemoryPressureAlert",
+            "CpuPercentage",
+            "MemoryPercentage"
           ],
-          "note": "Staff API / n8n / worker maxReplicas=1"
+          "note": "Wolfhouse capacity-pressure alerts + subscription-pinned 16B AG param; replicas unchanged"
         },
         {
           "path": "infra/azure/sunset-staging/main.bicep",
-          "lines": "456-458",
+          "lines": "102,501-502,513-595",
           "symbols": [
-            "staffApiMinReplicas",
-            "staffApiMaxReplicas"
+            "opsActionGroupResourceId",
+            "staffApiCpuPressureAlert",
+            "staffApiMemoryPressureAlert",
+            "CpuPercentage",
+            "MemoryPercentage"
           ],
-          "note": "Sunset staff scale params"
+          "note": "Sunset capacity-pressure alerts + subscription-pinned 16B AG param; replicas unchanged"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16l-expected-contract.json",
+          "lines": "1-40",
+          "symbols": [],
+          "note": "Frozen independent 16L capacity-alert contract"
+        },
+        {
+          "path": "scripts/verify-radar-slice16l-staff-api-capacity-alerts.js",
+          "lines": "1-40",
+          "symbols": [],
+          "note": "Offline RED/GREEN compiled Bicep assertions"
         },
         {
           "path": "docs/STAGE-40C-HAMMER-REVIEW-PACK.md",
           "lines": "1-14,201",
           "symbols": [],
-          "note": "Conversation stress pack \u2014 not infra load test"
+          "note": "Conversation stress pack — not infra load test (still open)"
         }
       ],
       "live_evidence": [
         {
           "ref": "live-inventory.json#container_apps",
-          "note": "Live scale matches maxReplicas=1; wh staff minReplicas=0"
+          "note": "Live scale matches maxReplicas=1; wh staff minReplicas=0 (unchanged by 16L source)"
+        },
+        {
+          "ref": "live-inventory.json#alerts",
+          "note": "metric_alerts=[] both RGs — capacity alerts source-only; not deployed"
         }
       ],
       "gaps": [
-        "No k6/artillery/locust Staff API load suite",
-        "No autoscaling rules (rules=null live)",
-        "No capacity SLO / error budget"
-      ]
+        "Capacity-pressure alerts not deployed to live staging RGs",
+        "No proven alert fire / notification delivery",
+        "No k6/artillery/locust Staff API load suite / soak",
+        "No autoscaling rules (rules=null live; not added by 16L)",
+        "No capacity SLO / error budget / backpressure proof"
+      ],
+      "progress_class": "source_partial_progress_only"
     },
     {
       "id": "G07_rollback_incident_runbooks",
@@ -396,7 +421,7 @@
       "name": "Retention / privacy",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16K minimizes public Staff API /healthz to a stable generic schema {status:ok,service:staff-api} with Cache-Control no-store \u2014 no auth_enabled/stage/stormglass/luna_ai provider/model/key/config/tenant/note fields. Source-partial only \u2014 not deployed; live public /healthz still exposes detailed fields until Staff API image deploy. Authenticated diagnostics remain on GET /staff/ask-luna/ai-status. LAW retention 30d and App Insights 90d remain proven live. Log-retention/PII redaction proof and privacy drill remain open. Deployment remains open.",
+      "rationale": "16K minimizes public Staff API /healthz to a stable generic schema {status:ok,service:staff-api} with Cache-Control no-store — no auth_enabled/stage/stormglass/luna_ai provider/model/key/config/tenant/note fields. Source-partial only — not deployed; live public /healthz still exposes detailed fields until Staff API image deploy. Authenticated diagnostics remain on GET /staff/ask-luna/ai-status. LAW retention 30d and App Insights 90d remain proven live. Log-retention/PII redaction proof and privacy drill remain open. Deployment remains open.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-healthz.js",
@@ -479,7 +504,7 @@
       "name": "Cost controls",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Cost controls cover (1) budget threshold notifications and (2) anomaly detection as distinct controls. 16B adds standalone staging ActualCost budget-threshold IaC (USD 120/40, Enabled 80%/100%, parameterized ops-email AG per RG) \u2014 source partial progress only. Not deployed; live budgets still empty. Real notification delivery proof remains open. Anomaly detection is absent and not claimed.",
+      "rationale": "Cost controls cover (1) budget threshold notifications and (2) anomaly detection as distinct controls. 16B adds standalone staging ActualCost budget-threshold IaC (USD 120/40, Enabled 80%/100%, parameterized ops-email AG per RG) — source partial progress only. Not deployed; live budgets still empty. Real notification delivery proof remains open. Anomaly detection is absent and not claimed.",
       "controls": {
         "budget_threshold": {
           "kind": "threshold",
@@ -534,7 +559,7 @@
         },
         {
           "ref": "live-inventory.json#budgets",
-          "note": "budgets=[] both RGs \u2014 live threshold control still absent (source-only partial)"
+          "note": "budgets=[] both RGs — live threshold control still absent (source-only partial)"
         }
       ],
       "gaps": [
@@ -559,7 +584,7 @@
     "progress_class": "budget_threshold_partial_progress_only",
     "does_not_implement": "anomaly_detection",
     "title": "Add staging RG ActualCost budgets with ops notify thresholds (not anomaly detection)",
-    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free IaC/fixtures. This is budget-threshold partial progress only \u2014 anomaly detection remains a separate absent control.",
+    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free IaC/fixtures. This is budget-threshold partial progress only — anomaly detection remains a separate absent control.",
     "owner_files": [
       "infra/azure/staging-cost-budgets/",
       "scripts/lib/radar-slice16b-staging-cost-budgets.js",
@@ -578,20 +603,20 @@
     "acceptance_criteria": [
       "Standalone Consumption budget IaC for wh-staging-rg amount USD 120 with Enabled 80% and 100% Actual thresholds",
       "Standalone Consumption budget IaC for luna-sunset-staging-rg amount USD 40 with the same threshold properties",
-      "One parameterized ops-email action group per RG \u2014 no email default/personal address/secret in git",
+      "One parameterized ops-email action group per RG — no email default/personal address/secret in git",
       "Secret-free fixture + verifier prove budget names/scopes/thresholds without reading secret values",
       "Deployment Incremental-only and structurally unable to touch Container Apps/DB/KV/identities/networking/production",
       "Exact subscription/RG short-circuit preflight + RED tests for wrong scope/email/amounts/thresholds/extra resources/non-incremental",
-      "Real notification-delivery proof required for drill pass \u2014 Enabled configuration alone fails",
+      "Real notification-delivery proof required for drill pass — Enabled configuration alone fails",
       "16B must not claim anomaly-detection acceptance; anomaly remains separately absent",
       "No Staff API, Hermes, DB schema, or guest/payment runtime behavior change in the 16B diff"
     ],
     "budget_notification_acceptance": [
-      "Budget resources present on both staging RGs with explicit % thresholds (live \u2014 still open)",
-      "Ops receiver exists and a real notification delivery event is evidenced (not merely Enabled=true) \u2014 still open"
+      "Budget resources present on both staging RGs with explicit % thresholds (live — still open)",
+      "Ops receiver exists and a real notification delivery event is evidenced (not merely Enabled=true) — still open"
     ],
     "anomaly_detection_acceptance": [
-      "Separate follow-on: Cost Management anomaly alert or equivalent with delivery proof \u2014 out of scope for 16B"
+      "Separate follow-on: Cost Management anomaly alert or equivalent with delivery proof — out of scope for 16B"
     ],
     "final_controlled_drill": {
       "id": "16B_DRILL_budget_threshold_notify",
@@ -618,7 +643,7 @@
     "gate_id": "G03_actionable_tenant_aware_alerts",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_notification_delivery_alert_fire",
-    "title": "Add staging Staff API tenant-named metric alerts (Requests 5xx + RestartCount) \u2014 source module only",
+    "title": "Add staging Staff API tenant-named metric alerts (Requests 5xx + RestartCount) — source module only",
     "why_smallest": "G03 was fully absent live; smallest ownership surface is metricAlerts-only IaC scoped to exact Staff API app pairs, referencing existing 16B ops AG names, with no deployment wrapper.",
     "supersedes": [
       "16F_staff_api_metric_alerts",
@@ -672,7 +697,7 @@
     "gate_id": "G02_readiness_dependencies",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_failure_drill_lifecycle_integration",
-    "title": "Add Staff API /readyz + ACA probes (dedicated max-1 readiness pool) \u2014 source partial only",
+    "title": "Add Staff API /readyz + ACA probes (dedicated max-1 readiness pool) — source partial only",
     "why_smallest": "G02 lacked dependency-aware readiness; narrowest ownership is /readyz + probe IaC without signal/shutdown framework.",
     "supersedes": [
       "16C_staff_api_readiness_dependencies"
@@ -724,7 +749,7 @@
     "gate_id": "G01_correlation_structured_logs",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "completion_logs_lifecycle_listeners_async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
-    "title": "Add Staff API request correlation middleware (UUIDv4 + ALS header/context only) \u2014 source partial only",
+    "title": "Add Staff API request correlation middleware (UUIDv4 + ALS header/context only) — source partial only",
     "why_smallest": "G01 lacked request correlation ID middleware; narrowest ownership is HTTP-boundary ALS + response header without completion logging, lifecycle listeners, async queue, or signal/shutdown framework.",
     "supersedes": [
       "16D_staff_api_request_correlation"
@@ -746,7 +771,7 @@
       "Live deploy / restart",
       "LAW/App Insights delivery + search proof",
       "Retention policy freeze",
-      "E2E Meta\u2192Hermes\u2192Staff\u2192Stripe correlation drill",
+      "E2E Meta→Hermes→Staff→Stripe correlation drill",
       "Production RGs"
     ],
     "acceptance_criteria": [
@@ -781,7 +806,7 @@
     "gate_id": "G08_retention_privacy",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_log_retention_privacy_drill",
-    "title": "Minimize public Staff API /healthz to generic schema \u2014 source partial only",
+    "title": "Minimize public Staff API /healthz to generic schema — source partial only",
     "why_smallest": "G08 lacked public healthz privacy minimization; narrowest ownership is public body schema only without touching /readyz or authenticated diagnostics.",
     "supersedes": [],
     "owner_files": [
@@ -820,6 +845,56 @@
         "Freeze evidence JSON secret-free"
       ],
       "pass_rule": "Live public /healthz matches generic schema on both tenants; /readyz + authenticated diagnostics preserved; no deploy claimed by this slice"
+    }
+  },
+  "slice_16l_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16L_staff_api_capacity_pressure_alerts",
+    "gate_id": "G06_scaling_capacity",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_alert_fire_autoscaling_load_backpressure_slo",
+    "title": "Add Staff API capacity-pressure metric alerts (CPU/Memory Average >80) — source partial only",
+    "why_smallest": "G06 lacked capacity-pressure alerting; narrowest ownership is CpuPercentage+MemoryPercentage static metric alerts on both staging Staff API apps wired to future 16B ops AG resource IDs without autoscaling or replica mutation.",
+    "supersedes": [],
+    "owner_files": [
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "fixtures/radar-operations/slice16l-capacity-alert-plan.json",
+      "fixtures/radar-operations/slice16l-expected-contract.json",
+      "scripts/verify-radar-slice16l-staff-api-capacity-alerts.js"
+    ],
+    "out_of_scope_for_16l": [
+      "Live deploy / restart",
+      "Autoscaling rules",
+      "Mutating min/max replicas",
+      "Altering 16H 5xx/restart alerts",
+      "Sustained load / soak proof",
+      "Response-time / capacity SLO",
+      "Backpressure behavior proof",
+      "Alert-fire / notification delivery drill",
+      "Production RGs"
+    ],
+    "acceptance_criteria": [
+      "Wolfhouse + Sunset staging Bicep declare exactly two capacity alerts each (CpuPercentage + MemoryPercentage)",
+      "Average >80, severity 2, enabled, PT15M window, PT5M evaluation",
+      "Exact Microsoft.App/containerApps metric namespace and StaticThresholdCriterion only",
+      "Scopes are the tenant Staff API Container App; actions use opsActionGroupResourceId param",
+      "Action group IDs subscription-pinned/owned to future 16B ops AGs",
+      "Tenant-specific alert names; no cross-scope or duplicate alerts",
+      "Protected replica/traffic/auth/DB paths and 16H module unchanged",
+      "Offline RED/GREEN compiled Bicep verifier; deploy/fire/load/SLO/backpressure remain open"
+    ],
+    "final_controlled_drill": {
+      "id": "16L_DRILL_capacity_pressure_alert_fire",
+      "steps": [
+        "Approved Incremental deploy of capacity alerts in both staging Bicep templates (follow-on; not this commit)",
+        "Confirm CpuPercentage + MemoryPercentage alerts Enabled on both Staff API apps",
+        "Prove notification delivery via owned 16B ops AG (not merely Enabled)",
+        "Optional controlled fire under approved ops; do not claim load/SLO/backpressure",
+        "Freeze evidence JSON secret-free"
+      ],
+      "pass_rule": "Both tenants have capacity alerts Enabled with delivery proof after approved deploy; replicas/16H unchanged; no load/SLO/backpressure claim by this slice"
     }
   }
 }

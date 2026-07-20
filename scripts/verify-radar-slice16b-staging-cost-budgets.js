@@ -822,8 +822,12 @@ if (compiled) {
 
 for (const rel of MAIN_BICEP) {
   const text = readText(rel);
+  // 16L may reference the future 16B ops AG resource ID from capacity alerts.
+  // Still forbid wiring the budget module / budget resources into main.bicep.
   ok(`L8 not wired into ${path.basename(path.dirname(rel))}/main.bicep`,
-    !/staging-cost-budgets|rg-budget-threshold|monthly-actualcost|ops-budget-ag/.test(text));
+    !/staging-cost-budgets|rg-budget-threshold|monthly-actualcost/.test(text)
+    && !/Microsoft\.Consumption\/budgets/.test(text)
+    && !/module\s+\w+\s+'.*staging-cost-budgets/.test(text));
 }
 
 function paramsOmitEmail(rel) {

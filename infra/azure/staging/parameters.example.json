@@ -62,6 +62,9 @@
     },
     "n8nTimezone": {
       "value": "Europe/Madrid"
+    },
+    "opsActionGroupResourceId": {
+      "value": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/actionGroups/wh-staging-ops-budget-ag"
     }
   }
 }
