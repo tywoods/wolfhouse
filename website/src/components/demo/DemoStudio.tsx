@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { BusinessType, OpsEvent } from '../../demo/types';
 import { businesses, businessOrder } from '../../demo/journeys';
-import { getJourney, journeysFor, matchJourneyByText } from '../../demo/engine';
+import { getJourney, journeysFor, nextScriptedGuest } from '../../demo/engine';
 import './DemoStudio.css';
 
 interface Bubble {
@@ -11,6 +11,10 @@ interface Bubble {
   id: string;
 }
 type Phase = 'idle' | 'playing' | 'guestTyping' | 'lunaTyping' | 'complete';
+type MobilePanel = 'chat' | 'ops';
+
+const DEMO_TRUTH =
+  'Interactive scripted demo — stays in this browser; no WhatsApp, live availability, booking, payment or staff write';
 
 const OPS_META: Record<OpsEvent['kind'], { icon: string; tone: string }> = {
   availability: { icon: '◷', tone: 'sea' },
@@ -34,6 +38,32 @@ function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
+function useRovingTablist(selectedIndex: number, count: number, onSelect: (i: number) => void) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (count === 0) return;
+    let next = selectedIndex;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      next = (selectedIndex + 1) % count;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      next = (selectedIndex - 1 + count) % count;
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      next = 0;
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      next = count - 1;
+    } else {
+      return;
+    }
+    onSelect(next);
+    refs.current[next]?.focus();
+  };
+  return { refs, onKeyDown };
+}
+
 export default function DemoStudio() {
   const [businessType, setBusinessType] = useState<BusinessType>('hostel');
   const [journeyId, setJourneyId] = useState<string | null>(null);
@@ -41,7 +71,7 @@ export default function DemoStudio() {
   const [transcript, setTranscript] = useState<Bubble[]>([]);
   const [ops, setOps] = useState<OpsEvent[]>([]);
   const [phase, setPhase] = useState<Phase>('idle');
-  const [input, setInput] = useState('');
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>('chat');
   const reduced = usePrefersReducedMotion();
 
   const threadRef = useRef<HTMLDivElement>(null);
@@ -73,21 +103,31 @@ export default function DemoStudio() {
     setTranscript([]);
     setOps([]);
     setPhase('idle');
-    setInput('');
+    setMobilePanel('chat');
   }, []);
 
-  const switchBusiness = (bt: BusinessType) => {
-    if (bt === businessType) return;
-    clearTimers();
-    setBusinessType(bt);
-    setJourneyId(null);
-    setTurnIndex(0);
-    setTranscript([]);
-    setOps([]);
-    setPhase('idle');
-  };
+  const switchBusiness = useCallback((bt: BusinessType) => {
+    setBusinessType((current) => {
+      if (bt === current) return current;
+      clearTimers();
+      setJourneyId(null);
+      setTurnIndex(0);
+      setTranscript([]);
+      setOps([]);
+      setPhase('idle');
+      setMobilePanel('chat');
+      return bt;
+    });
+  }, []);
 
-  // Play one turn: guest bubble → Luna typing → Luna reply + staged ops.
+  const bizIndex = businessOrder.indexOf(businessType);
+  const bizRoving = useRovingTablist(bizIndex, businessOrder.length, (i) => {
+    switchBusiness(businessOrder[i]);
+  });
+  const panelIndex = mobilePanel === 'chat' ? 0 : 1;
+  const panelRoving = useRovingTablist(panelIndex, 2, (i) => setMobilePanel(i === 0 ? 'chat' : 'ops'));
+
+  // Stage simulated ops first, then Luna reply — truth ordering in the UI.
   const playTurn = useCallback(
     async (jId: string, idx: number, guestOverride?: string) => {
       const journey = getJourney(jId);
@@ -105,15 +145,14 @@ export default function DemoStudio() {
       const thinking = Math.min(1500, 500 + turn.luna.length * 12);
       await wait(thinking);
 
-      setTranscript((t) => [...t, { from: 'luna', text: turn.luna, id: `${jId}-l${idx}` }]);
-
-      // Stage the operational events in one after another for a "work happening" feel.
       if (turn.ops?.length) {
         for (let k = 0; k < turn.ops.length; k++) {
-          await wait(300);
+          await wait(reduced ? 0 : 220);
           setOps((o) => [...o, turn.ops![k]]);
         }
       }
+
+      setTranscript((t) => [...t, { from: 'luna', text: turn.luna, id: `${jId}-l${idx}` }]);
 
       const nextIdx = idx + 1;
       setTurnIndex(nextIdx);
@@ -128,6 +167,7 @@ export default function DemoStudio() {
     setTurnIndex(0);
     setTranscript([]);
     setOps([]);
+    setMobilePanel('chat');
     void playTurn(jId, 0);
   };
 
@@ -135,28 +175,18 @@ export default function DemoStudio() {
     if (!activeJourney || phase === 'guestTyping' || phase === 'lunaTyping') return;
     if (turnIndex >= activeJourney.turns.length) return;
     void playTurn(activeJourney.id, turnIndex, guestText);
-    setInput('');
   };
 
-  const onSubmit = (e: Event) => {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text) return;
-    if (!activeJourney) {
-      // Free-text opener → match to a journey, else fall back to first journey.
-      const matched = matchJourneyByText(text, businessType) ?? journeyList[0];
-      if (matched) {
-        clearTimers();
-        setJourneyId(matched.id);
-        setTurnIndex(0);
-        setTranscript([]);
-        setOps([]);
-        void playTurn(matched.id, 0, text);
-        setInput('');
-      }
-      return;
-    }
-    sendNext(text);
+  const continueScripted = () => {
+    const next = nextScriptedGuest({
+      businessType,
+      journeyId,
+      turnIndex,
+      transcript: [],
+      ops: [],
+      status: phase === 'complete' ? 'complete' : journeyId ? 'playing' : 'idle',
+    });
+    if (next) sendNext(next);
   };
 
   const busy = phase === 'guestTyping' || phase === 'lunaTyping';
@@ -164,16 +194,31 @@ export default function DemoStudio() {
     activeJourney && turnIndex > 0 && turnIndex < activeJourney.turns.length && !busy
       ? activeJourney.turns[turnIndex - 1].suggestions ?? []
       : [];
+  const canContinue =
+    Boolean(activeJourney) && !busy && phase !== 'complete' && turnIndex < (activeJourney?.turns.length ?? 0);
 
   return (
-    <div class="studio" aria-label="Interactive Luna demo">
-      {/* Business-type switcher */}
-      <div class="studio__biz" role="tablist" aria-label="Choose a business type">
-        {businessOrder.map((bt) => (
+    <div class="studio" aria-label="Interactive scripted Luna demo" data-testid="demo-studio">
+      <p class="studio__truth" data-testid="demo-truth-label" role="note">
+        {DEMO_TRUTH}
+      </p>
+
+      <div
+        class="studio__biz"
+        role="tablist"
+        aria-label="Choose a business type"
+        onKeyDown={bizRoving.onKeyDown}
+      >
+        {businessOrder.map((bt, i) => (
           <button
             key={bt}
+            ref={(el) => {
+              bizRoving.refs.current[i] = el;
+            }}
             role="tab"
+            id={`biz-tab-${bt}`}
             aria-selected={bt === businessType}
+            tabIndex={bt === businessType ? 0 : -1}
             class={`studio__biz-tab${bt === businessType ? ' is-active' : ''}`}
             onClick={() => switchBusiness(bt)}
           >
@@ -182,9 +227,55 @@ export default function DemoStudio() {
         ))}
       </div>
 
+      <div
+        class="studio__panels"
+        role="tablist"
+        aria-label="Demo panels"
+        data-testid="demo-panel-tabs"
+        onKeyDown={panelRoving.onKeyDown}
+      >
+        <button
+          ref={(el) => {
+            panelRoving.refs.current[0] = el;
+          }}
+          role="tab"
+          id="demo-tab-chat"
+          aria-controls="demo-panel-chat"
+          aria-selected={mobilePanel === 'chat'}
+          tabIndex={mobilePanel === 'chat' ? 0 : -1}
+          class={`studio__panel-tab${mobilePanel === 'chat' ? ' is-active' : ''}`}
+          onClick={() => setMobilePanel('chat')}
+          data-testid="demo-tab-chat"
+        >
+          Chat
+        </button>
+        <button
+          ref={(el) => {
+            panelRoving.refs.current[1] = el;
+          }}
+          role="tab"
+          id="demo-tab-ops"
+          aria-controls="demo-panel-ops"
+          aria-selected={mobilePanel === 'ops'}
+          tabIndex={mobilePanel === 'ops' ? 0 : -1}
+          class={`studio__panel-tab${mobilePanel === 'ops' ? ' is-active' : ''}`}
+          onClick={() => setMobilePanel('ops')}
+          data-testid="demo-tab-ops"
+        >
+          Operations
+        </button>
+      </div>
+
       <div class="studio__grid">
-        {/* LEFT — guest WhatsApp */}
-        <section class="phone" aria-label="Guest WhatsApp conversation">
+        <section
+          id="demo-panel-chat"
+          role="tabpanel"
+          aria-labelledby="demo-tab-chat"
+          class={`phone${mobilePanel === 'chat' ? ' is-panel-active' : ''}`}
+          aria-label="Guest WhatsApp conversation (scripted demo)"
+          data-testid="demo-chat-panel"
+          hidden={false}
+        >
           <header class="phone__bar">
             <span class="phone__avatar" aria-hidden="true">L</span>
             <div class="phone__id">
@@ -196,7 +287,7 @@ export default function DemoStudio() {
 
           <div class="phone__thread" ref={threadRef} role="log" aria-live="polite">
             {transcript.length === 0 && phase === 'idle' && (
-              <p class="phone__hint">Pick a scenario below, or type a guest message to start.</p>
+              <p class="phone__hint">Pick a scenario below to start the scripted demo.</p>
             )}
             {transcript.map((b) => (
               <div key={b.id} class={`bubble bubble--${b.from}`}>
@@ -213,37 +304,55 @@ export default function DemoStudio() {
           </div>
 
           {suggestions.length > 0 && (
-            <div class="phone__chips">
+            <div class="phone__chips" role="group" aria-label="Scripted reply choices">
               {suggestions.map((s) => (
-                <button key={s} class="chip chip--reply" onClick={() => sendNext(s)}>{s}</button>
+                <button
+                  key={s}
+                  type="button"
+                  class="chip chip--reply"
+                  onClick={() => sendNext(s)}
+                  disabled={busy}
+                >
+                  {s}
+                </button>
               ))}
             </div>
           )}
 
-          <form class="phone__compose" onSubmit={onSubmit}>
-            <label class="sr-only" for="demo-input">Type a guest message</label>
-            <input
-              id="demo-input"
-              class="phone__input"
-              value={input}
-              placeholder={activeJourney ? 'Reply as the guest…' : 'e.g. Do you have space this weekend?'}
-              onInput={(e) => setInput((e.target as HTMLInputElement).value)}
-              disabled={phase === 'complete'}
-            />
-            <button class="phone__send" type="submit" aria-label="Send" disabled={busy || phase === 'complete'}>➤</button>
-          </form>
+          <div class="phone__compose">
+            <button
+              class="phone__send"
+              type="button"
+              aria-label="Continue with next scripted guest message"
+              data-testid="demo-continue"
+              disabled={!canContinue}
+              onClick={continueScripted}
+            >
+              Continue
+            </button>
+          </div>
         </section>
 
-        {/* RIGHT — business operations */}
-        <section class="ops" aria-label="What Luna did for the business">
+        <section
+          id="demo-panel-ops"
+          role="tabpanel"
+          aria-labelledby="demo-tab-ops"
+          class={`ops${mobilePanel === 'ops' ? ' is-panel-active' : ''}`}
+          aria-label="Simulated operations summary"
+          data-testid="demo-ops-panel"
+        >
           <header class="ops__head">
             <span class="eyebrow eyebrow--moon">Behind the scenes</span>
-            <h3 class="ops__title">Your staff view</h3>
-            <p class="ops__sub">Plain-language of what Luna checked and prepared — no guessing, from your real business rules.</p>
+            <h3 class="ops__title">Simulated operations summary</h3>
+            <p class="ops__sub">
+              Each step is a simulated demo outcome from seeded fixtures — not a live write to availability, bookings, payments, or staff systems.
+            </p>
           </header>
 
-          <ol class="ops__list">
-            {ops.length === 0 && <li class="ops__empty">Operational steps will appear here as the conversation moves.</li>}
+          <ol class="ops__list" data-testid="demo-ops-list">
+            {ops.length === 0 && (
+              <li class="ops__empty">Simulated operational steps will appear here as the scripted conversation moves.</li>
+            )}
             {ops.map((e, i) => {
               const meta = OPS_META[e.kind];
               return (
@@ -267,23 +376,31 @@ export default function DemoStudio() {
         </section>
       </div>
 
-      {/* Scenario picker / controls */}
       <div class="studio__foot">
         <div class="studio__journeys" role="group" aria-label="Demo scenarios">
           {journeyList.map((j) => (
             <button
               key={j.id}
+              type="button"
               class={`chip chip--journey${journeyId === j.id ? ' is-active' : ''}`}
               onClick={() => startJourney(j.id)}
+              data-testid={`demo-scenario-${j.id}`}
             >
               {j.title}
             </button>
           ))}
         </div>
         <div class="studio__actions">
-          <span class="studio__flag">Demo data</span>
+          <span class="studio__flag" data-testid="demo-truth-flag">{DEMO_TRUTH}</span>
           {(transcript.length > 0 || journeyId) && (
-            <button class="btn btn--ghost-night studio__reset" onClick={reset}>↺ Reset</button>
+            <button
+              type="button"
+              class="btn btn--ghost-night studio__reset"
+              onClick={reset}
+              data-testid="demo-reset"
+            >
+              ↺ Reset
+            </button>
           )}
         </div>
       </div>

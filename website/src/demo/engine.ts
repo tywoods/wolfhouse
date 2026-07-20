@@ -1,5 +1,6 @@
 // Pure, deterministic demo state machine. No framework imports, no I/O — so it
 // is trivially unit-testable and can never produce a side effect.
+// Scripted only: journeys advance via scenario/reply chips. No free-text matching.
 
 import type { BusinessType, Journey, OpsEvent, Turn } from './types';
 import { journeys } from './journeys';
@@ -30,48 +31,6 @@ export function getJourney(id: string): Journey | undefined {
 
 export function initialState(bt: BusinessType): DemoState {
   return { businessType: bt, journeyId: null, turnIndex: 0, transcript: [], ops: [], status: 'idle' };
-}
-
-function normalize(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-const STOP = new Set(
-  'a an the to for of in on at is it do i we you my our can could would like want need got have has'.split(' '),
-);
-
-function tokens(s: string): Set<string> {
-  return new Set(
-    normalize(s)
-      .split(' ')
-      .filter((w) => w.length > 2 && !STOP.has(w)),
-  );
-}
-
-// Controlled free-text intent matching: map a visitor's typed opener to the best
-// journey within the selected business type by keyword overlap. Returns null when
-// nothing clears a small confidence floor (caller then shows guided chips).
-export function matchJourneyByText(text: string, bt: BusinessType): Journey | null {
-  const t = tokens(text);
-  if (t.size === 0) return null;
-  let best: Journey | null = null;
-  let bestScore = 0;
-  for (const j of journeysFor(bt)) {
-    const hay = tokens(`${j.title} ${j.summary} ${j.turns[0]?.guest ?? ''} ${j.kind}`);
-    let score = 0;
-    for (const w of t) if (hay.has(w)) score += 1;
-    if (score > bestScore) {
-      bestScore = score;
-      best = j;
-    }
-  }
-  return bestScore >= 1 ? best : null;
 }
 
 // Reveal the next turn of the active journey. Pure: returns a new state.
@@ -119,4 +78,11 @@ export function currentSuggestions(state: DemoState): string[] {
   if (!journey || state.turnIndex === 0) return [];
   const last = journey.turns[state.turnIndex - 1];
   return last?.suggestions ?? [];
+}
+
+/** Scripted next guest line for Continue — never free-text. */
+export function nextScriptedGuest(state: DemoState): string | null {
+  const journey = state.journeyId ? getJourney(state.journeyId) : null;
+  if (!journey || state.turnIndex >= journey.turns.length) return null;
+  return journey.turns[state.turnIndex]?.guest ?? null;
 }

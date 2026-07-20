@@ -8,9 +8,10 @@ Static Astro site for [lunafrontdesk.com](https://lunafrontdesk.com) (preview: `
 |---|---|---|
 | **A** | Reproducibility / metadata (OG, Apple touch, locked QA browser, README) | Parent of Slice B: `f2a6462` |
 | **B** | Lead truth / privacy / self-hosted fonts | Tip before Slice C: `6b1d128` |
-| **C** | Static-site security / deployment hardening (this work) | Tip on `feat/luna-marketing-site` after Slice C |
+| **C** | Static-site security / deployment hardening | Tip before Slice D: `24213a2` |
+| **D** | Scripted interactive demo truth (this work) | Tip on `feat/luna-marketing-site` after Slice D |
 
-Treat `6b1d128` as the Slice B baseline when reviewing Slice C diffs (`6b1d128..HEAD`).
+Treat `24213a2` as the Slice C baseline when reviewing Slice D diffs (`24213a2..HEAD`).
 
 ## Setup
 
@@ -95,13 +96,14 @@ Use the same `PLAYWRIGHT_BROWSERS_PATH` when running `npm run qa` if you overrod
 
 ## Demo isolation
 
-The public demo (`src/demo/*`, `DemoStudio`) is a pure, deterministic state machine over seeded journeys:
+The public demo (`src/demo/*`, `DemoStudio`) is a **guided/scripted** state machine over seeded journeys:
 
-- No WhatsApp sends
-- No Staff API / production DB calls
-- No Stripe or booking writes
-- No live availability or prices presented as real facts
-- Journeys and ops events are fixtures only; label them as demo data in the UI
+- Scenario + reply chips only — no free-text composer or unsupported-input fallback
+- Always-visible truth label: stays in this browser; no WhatsApp, live availability, booking, payment or staff write
+- Ops panel is a **Simulated operations summary** — every step is a simulated demo outcome
+- Truth ordering: no held/reserved/confirmed/scheduled/created claim before a matching simulated success op
+- Terminal non-handoff copy ends at awaiting-payment with **no checkout link**
+- No network / websocket / beacon / storage / navigation side effects in demo paths
 
 Lead form submission is **compile-time disabled**: the UI states before submit that data will not be sent or saved; after submit it keeps entered values, avoids success/captured language, and offers an encoded mailto. Contact must be a strict email or conservative international phone. Do not fake delivery success. Privacy notice: `/privacy/`.
 
@@ -126,6 +128,7 @@ Lead form submission is **compile-time disabled**: the UI states before submit t
 | `npm run check` | Astro/TS check |
 | `npm test` | Unit + component + metadata + security contract tests |
 | `npm run test:lead-browser` | Playwright lead truth/privacy/same-origin font checks (`QA_URL`) |
+| `npm run test:demo-browser` | Playwright scripted-demo isolation / mobile tabs / touch targets (`QA_URL`) |
 | `npm run build` | Production static build + inventory verify + copy committed `_headers` to dist |
 | `npm run verify:emitted` | Assert dist OG/Apple/logo + HTML refs (after build) |
 | `npm run verify:security` | CSP/headers/inventory equivalence, local asset scan, dist origin/privacy gates |

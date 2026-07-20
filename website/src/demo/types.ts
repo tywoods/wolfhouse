@@ -17,19 +17,20 @@ export interface BusinessProfile {
 
 // A single operational event shown on the staff/business side, in plain
 // owner-friendly language. Never expose prompts, tool names, SQL, or internals.
+// Every event is a simulated demo outcome — never a real write.
 export type OpsKind =
-  | 'availability' // checked real availability
-  | 'package' // selected a package / service / tier
-  | 'detail' // collected a missing booking detail
-  | 'quote' // prepared a quote
-  | 'draft' // created a demo booking draft
-  | 'inbox' // conversation surfaced to staff inbox
-  | 'handoff'; // flagged for a human
+  | 'availability' // simulated availability check
+  | 'package' // simulated package / service / tier selection
+  | 'detail' // simulated detail collection
+  | 'quote' // simulated quote
+  | 'draft' // simulated staff-ready booking draft
+  | 'inbox' // simulated inbox surface
+  | 'handoff'; // simulated handoff flag
 
 export interface OpsEvent {
   kind: OpsKind;
-  title: string; // "Availability checked"
-  detail: string; // "3 beds free in a mixed dorm, 5–8 Jul"
+  title: string; // must read as a simulated demo outcome
+  detail: string;
 }
 
 // One conversational turn: the guest message and Luna's reply, plus whatever
@@ -38,8 +39,8 @@ export interface Turn {
   guest: string; // guest WhatsApp message
   luna: string; // Luna's reply (pre-captured, human-reviewed)
   ops?: OpsEvent[]; // business-side events produced by this turn
-  // Optional quick-reply chips offered to the visitor to send the next guest
-  // message. If omitted, the visitor can still type freely.
+  // Scripted quick-reply chips offered to advance. Demo is chip-guided only —
+  // there is no free-text composer or unsupported-input fallback.
   suggestions?: string[];
 }
 
@@ -50,8 +51,7 @@ export interface Journey {
   kind: 'accommodation' | 'service' | 'handoff';
   title: string;
   summary: string;
-  // The first guest message is offered as the opener chip; the visitor can also
-  // type their own and the engine will map it to this journey's first turn.
+  // Scenario chips start a journey; reply chips advance it. No free-text path.
   turns: Turn[];
   // Closing payoff line shown when the journey completes.
   payoff: string;

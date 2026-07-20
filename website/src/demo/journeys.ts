@@ -35,22 +35,28 @@ export const businessOrder: BusinessType[] = ['hostel', 'surf_school', 'tours', 
 // NOTE: Luna replies here are pre-captured, human-reviewed copy that follows the
 // guest-behaviour spec (one clear question per message, warm tone, no internal
 // jargon, facts from the seeded business). They are illustrative demo content.
+//
+// Truth ordering: held / reserved / confirmed / scheduled / created claims appear
+// only with a matching Simulated ops success on the same or an earlier turn.
+// Handoffs never promise SLAs. Terminal booking copy stays at awaiting-payment —
+// no checkout URL or control.
 export const journeys: Journey[] = [
   {
     id: 'hostel-accommodation',
     businessType: 'hostel',
     kind: 'accommodation',
-    title: 'A stay enquiry, start to finish',
+    title: 'Enquiry → staff-ready booking draft',
     summary: 'Guest asks about a few nights next month in plain language.',
-    payoff: 'A real conversation for the guest — a structured, ready-to-confirm booking for you.',
+    payoff:
+      'A scripted guest chat ends in a simulated staff-ready booking draft — awaiting payment in this demo, with no checkout link sent.',
     turns: [
       {
         guest: 'Hey! Do you have space for 2 people next weekend?',
         luna:
           "Hi! 🌊 Yes — we've got room next weekend. Are you thinking Friday to Sunday (2 nights), or different dates?",
         ops: [
-          { kind: 'inbox', title: 'New conversation', detail: 'WhatsApp enquiry surfaced in the staff inbox' },
-          { kind: 'availability', title: 'Availability checked', detail: 'Fri–Sun · 2 guests · space in a mixed dorm and 1 private twin' },
+          { kind: 'inbox', title: 'Simulated inbox: new conversation', detail: 'Demo WhatsApp enquiry surfaced for staff review' },
+          { kind: 'availability', title: 'Simulated availability check', detail: 'Fri–Sun · 2 guests · mixed dorm and 1 private twin (demo data)' },
         ],
         suggestions: ['Friday to Sunday works', 'Actually, can we do 3 nights?'],
       },
@@ -59,7 +65,7 @@ export const journeys: Journey[] = [
         luna:
           "Two ways to stay:\n\n• Mixed dorm bed — €26/night per person\n• Private twin room — €78/night\n\nBoth include breakfast and board storage. Would you like the dorm beds or the private twin?",
         ops: [
-          { kind: 'package', title: 'Options prepared', detail: '2× dorm bed or 1× private twin, breakfast included' },
+          { kind: 'package', title: 'Simulated options prepared', detail: '2× dorm bed or 1× private twin, breakfast included (demo)' },
         ],
         suggestions: ['The private twin, please', 'Two dorm beds'],
       },
@@ -68,17 +74,21 @@ export const journeys: Journey[] = [
         luna:
           "Lovely choice. That's 2 nights in the private twin — €156 total, breakfast included. Can I get the name for the booking?",
         ops: [
-          { kind: 'quote', title: 'Quote prepared', detail: 'Private twin · 2 nights · €156 total (breakfast incl.)' },
+          { kind: 'quote', title: 'Simulated quote prepared', detail: 'Private twin · 2 nights · €156 total (breakfast incl.)' },
         ],
-        suggestions: ['It’s Marco Ferrari'],
+        suggestions: ["It's Marco Ferrari"],
       },
       {
         guest: "It's Marco Ferrari.",
         luna:
-          "Thanks Marco! I've set aside the private twin for Fri–Sun and put together your booking. I'll send a secure payment link to confirm — one moment while the team gives it a quick look. 🙌",
+          "Thanks Marco! I've prepared a staff-ready booking draft for the private twin (Fri–Sun, €156). In this demo the status is awaiting payment — no checkout link is sent here. 🙌",
         ops: [
-          { kind: 'detail', title: 'Detail collected', detail: 'Lead guest: Marco Ferrari' },
-          { kind: 'draft', title: 'Booking draft created', detail: 'Marco Ferrari · Private twin · Fri–Sun · €156 · awaiting payment' },
+          { kind: 'detail', title: 'Simulated detail collected', detail: 'Lead guest: Marco Ferrari' },
+          {
+            kind: 'draft',
+            title: 'Simulated draft created',
+            detail: 'Marco Ferrari · Private twin · Fri–Sun · €156 · awaiting payment (demo — no checkout)',
+          },
         ],
       },
     ],
@@ -89,44 +99,48 @@ export const journeys: Journey[] = [
     kind: 'service',
     title: 'A surf lesson enquiry',
     summary: 'Guest asks about beginner lessons for the family this week.',
-    payoff: 'The guest gets clear options; your schedule gets a structured lesson request.',
+    payoff: 'The guest gets clear options; your schedule gets a simulated lesson request draft.',
     turns: [
       {
         guest: 'Hi, do you do surf lessons for beginners? We are 2 adults and a 10 year old',
         luna:
           "Hi! Yes — beginners are our favourite. 🏄 We run group lessons at 10:00 and 12:30, and your 10-year-old is very welcome. Which day were you thinking?",
         ops: [
-          { kind: 'inbox', title: 'New conversation', detail: 'Lesson enquiry · 2 adults + 1 child (10)' },
-          { kind: 'availability', title: 'Availability checked', detail: 'Group lessons 10:00 & 12:30 have space this week' },
+          { kind: 'inbox', title: 'Simulated inbox: new conversation', detail: 'Lesson enquiry · 2 adults + 1 child (10)' },
+          { kind: 'availability', title: 'Simulated availability check', detail: 'Group lessons 10:00 & 12:30 have space this week (demo)' },
         ],
         suggestions: ['Thursday if possible', 'What does it cost?'],
       },
       {
         guest: 'Thursday if possible. What does it include?',
         luna:
-          "Thursday it is. A group lesson is 2 hours with a certified instructor, and includes the board and wetsuit — €40 per person, €30 for under-12s. Shall I pencil in the three of you for 10:00 or 12:30?",
+          "Thursday it is. A group lesson is 2 hours with a certified instructor, and includes the board and wetsuit — €40 per person, €30 for under-12s. Shall I note the three of you for 10:00 or 12:30?",
         ops: [
-          { kind: 'package', title: 'Service explained', detail: '2-hr group lesson · board + wetsuit included' },
-          { kind: 'quote', title: 'Quote prepared', detail: '2 × €40 + 1 × €30 (child) = €110' },
+          { kind: 'package', title: 'Simulated service explained', detail: '2-hr group lesson · board + wetsuit included' },
+          { kind: 'quote', title: 'Simulated quote prepared', detail: '2 × €40 + 1 × €30 (child) = €110' },
         ],
         suggestions: ['10:00 please', '12:30 is better'],
       },
       {
         guest: '10:00 please',
         luna:
-          "Perfect — three spots held for Thursday at 10:00. Could I get a name and a good number so the instructor can reach you on the day?",
+          "Perfect — I'll note Thursday at 10:00 for three. Could I get a name and a good number so the instructor can reach you on the day?",
         ops: [
-          { kind: 'detail', title: 'Slot selected', detail: 'Thu 10:00 · 3 spots held (2 adult, 1 child)' },
+          { kind: 'detail', title: 'Simulated slot noted', detail: 'Thu 10:00 · 3 guests noted (2 adult, 1 child) — draft not started' },
         ],
         suggestions: ['Sophie, and this number is fine'],
       },
       {
         guest: 'Sophie, and this number is fine 🙂',
         luna:
-          "Thanks Sophie! You're down for Thursday 10:00 — I'll send a payment link to lock it in and pop it into the schedule for the team. See you in the water! 🌞",
+          "Thanks Sophie! I've prepared a staff-ready lesson draft for Thursday 10:00 (€110). In this demo the status is awaiting payment — no checkout link is sent here. 🌞",
         ops: [
-          { kind: 'detail', title: 'Detail collected', detail: 'Contact: Sophie · WhatsApp number on file' },
-          { kind: 'draft', title: 'Lesson request created', detail: 'Sophie · Thu 10:00 · 3 spots · €110 · in the schedule' },
+          { kind: 'detail', title: 'Simulated detail collected', detail: 'Contact: Sophie · WhatsApp number on file (demo)' },
+          {
+            kind: 'draft',
+            title: 'Simulated lesson draft created',
+            detail: 'Sophie · Thu 10:00 · 3 spots · €110 · awaiting payment (demo — no checkout)',
+          },
         ],
       },
     ],
@@ -145,17 +159,17 @@ export const journeys: Journey[] = [
         luna:
           "I'm sorry about that — a billing issue is something our team should look at directly, so I'm bringing a person in now. Could you share the name the booking was under so they can pull it up straight away?",
         ops: [
-          { kind: 'inbox', title: 'New conversation', detail: 'Returning guest · payment concern' },
-          { kind: 'handoff', title: 'Handed to the team', detail: 'Reason: billing dispute — needs a human · marked urgent' },
+          { kind: 'inbox', title: 'Simulated inbox: new conversation', detail: 'Returning guest · payment concern' },
+          { kind: 'handoff', title: 'Simulated handoff to the team', detail: 'Reason: billing dispute — needs a human · marked urgent (demo)' },
         ],
         suggestions: ['It was under Delgado'],
       },
       {
         guest: 'It was under Delgado.',
         luna:
-          "Thank you — I've passed everything to the team with the name Delgado and flagged it as a possible double charge. Someone will be with you shortly. 🙏",
+          "Thank you — I've passed everything to the team with the name Delgado and flagged it as a possible double charge. A teammate will follow up from here. 🙏",
         ops: [
-          { kind: 'detail', title: 'Context attached', detail: 'Booking name: Delgado · added to the handoff note' },
+          { kind: 'detail', title: 'Simulated context attached', detail: 'Booking name: Delgado · added to the handoff note' },
         ],
       },
     ],
@@ -168,44 +182,48 @@ export const journeys: Journey[] = [
     kind: 'service',
     title: 'Board & wetsuit rental',
     summary: 'Guest wants to rent gear for a few days without booking a lesson.',
-    payoff: 'Gear is reserved and the guest knows exactly what to bring — no phone tag.',
+    payoff: 'A simulated rental draft is ready for staff — the guest knows what to bring.',
     turns: [
       {
         guest: 'Hi! Can I rent a board and wetsuit for a couple of days without taking a lesson?',
         luna:
           "Hi! Absolutely — rental only is no problem. 🏄 We have shortboards, funboards and longboards; wetsuits in all sizes. How many days were you thinking, and roughly what dates?",
         ops: [
-          { kind: 'inbox', title: 'New conversation', detail: 'Gear rental enquiry · no lesson required' },
-          { kind: 'availability', title: 'Availability checked', detail: 'Rental boards & wetsuits available this week' },
+          { kind: 'inbox', title: 'Simulated inbox: new conversation', detail: 'Gear rental enquiry · no lesson required' },
+          { kind: 'availability', title: 'Simulated availability check', detail: 'Rental boards & wetsuits available this week (demo)' },
         ],
         suggestions: ['2 days, starting tomorrow', 'This Saturday and Sunday'],
       },
       {
         guest: 'This Saturday and Sunday.',
         luna:
-          "Great timing — Saturday and Sunday are clear. Board + wetsuit for 2 days is €45. Do you know roughly what size board suits you, or would you like the team to help pick one on the day?",
+          "Great timing — Saturday and Sunday look clear in this demo. Board + wetsuit for 2 days is €45. Do you know roughly what size board suits you, or would you like the team to help pick one on the day?",
         ops: [
-          { kind: 'package', title: 'Rental option selected', detail: 'Board + wetsuit · 2 days (Sat–Sun) · €45' },
-          { kind: 'quote', title: 'Quote prepared', detail: 'Board + wetsuit × 2 days = €45' },
+          { kind: 'package', title: 'Simulated rental option selected', detail: 'Board + wetsuit · 2 days (Sat–Sun) · €45' },
+          { kind: 'quote', title: 'Simulated quote prepared', detail: 'Board + wetsuit × 2 days = €45' },
         ],
         suggestions: ['I usually ride a longboard', 'Happy to choose on the day'],
       },
       {
         guest: 'I usually ride a longboard.',
         luna:
-          "Perfect — I'll hold a longboard and wetsuit for you for Saturday and Sunday. Could I get your name so we can tag the kit?",
+          "Perfect — I'll note a longboard and wetsuit for Saturday and Sunday. Could I get your name so we can tag the kit?",
         ops: [
-          { kind: 'detail', title: 'Preference noted', detail: 'Board type: longboard' },
+          { kind: 'detail', title: 'Simulated preference noted', detail: 'Board type: longboard' },
         ],
-        suggestions: ['Yep, it\'s Tomás'],
+        suggestions: ["Yep, it's Tomás"],
       },
       {
         guest: "Yep, it's Tomás.",
         luna:
-          "Done, Tomás! Longboard + wetsuit reserved for Saturday–Sunday. Pop in from 9:00 to pick up and the team will have it ready for you. See you at the beach! 🌊",
+          "Thanks Tomás! I've prepared a staff-ready rental draft for a longboard + wetsuit (Sat–Sun, €45). In this demo the status is awaiting payment — no checkout link is sent here. 🌊",
         ops: [
-          { kind: 'detail', title: 'Detail collected', detail: 'Guest name: Tomás' },
-          { kind: 'draft', title: 'Rental reservation created', detail: 'Tomás · longboard + wetsuit · Sat–Sun · €45' },
+          { kind: 'detail', title: 'Simulated detail collected', detail: 'Guest name: Tomás' },
+          {
+            kind: 'draft',
+            title: 'Simulated rental draft created',
+            detail: 'Tomás · longboard + wetsuit · Sat–Sun · €45 · awaiting payment (demo — no checkout)',
+          },
         ],
       },
     ],
@@ -225,17 +243,17 @@ export const journeys: Journey[] = [
         luna:
           "Thank you for letting us know — that's really important and we take it seriously. This is something one of our instructors should speak to you about directly so they can give you the right advice. I'm flagging it for them now. What's the best way for them to reach you?",
         ops: [
-          { kind: 'inbox', title: 'New conversation', detail: 'Parent enquiry · medical — epilepsy · safety check needed' },
-          { kind: 'handoff', title: 'Handed to the team', detail: 'Reason: medical question — certified instructor review required' },
+          { kind: 'inbox', title: 'Simulated inbox: new conversation', detail: 'Parent enquiry · medical — epilepsy · safety check needed' },
+          { kind: 'handoff', title: 'Simulated handoff to the team', detail: 'Reason: medical question — certified instructor review required (demo)' },
         ],
         suggestions: ['This WhatsApp is best', 'A call is easier'],
       },
       {
         guest: 'This WhatsApp is best.',
         luna:
-          "Got it — an instructor will message you here within a few hours to talk it through properly. We really appreciate you reaching out first. 🙏",
+          "Got it — an instructor will follow up here to talk it through properly. We really appreciate you reaching out first. 🙏",
         ops: [
-          { kind: 'detail', title: 'Contact preference noted', detail: 'WhatsApp · instructor will follow up directly' },
+          { kind: 'detail', title: 'Simulated contact preference noted', detail: 'WhatsApp · instructor will follow up directly (demo — no SLA)' },
         ],
       },
     ],
@@ -248,45 +266,49 @@ export const journeys: Journey[] = [
     kind: 'service',
     title: 'Day tour for a group',
     summary: 'Guest asks about availability for a group day tour and a specific date.',
-    payoff: 'Group size, date and contact confirmed in a single chat — no spreadsheet needed.',
+    payoff: 'Group size, date and contact gathered in one chat — ending in a simulated booking draft.',
     turns: [
       {
         guest: 'Hi! Do you run day tours to the volcanic crater? We are a group of 6.',
         luna:
           "Hi! 🌋 Yes — the Crater Ridge day tour is our most popular. It runs Tuesday, Thursday and Saturday, guided in English and Spanish, with lunch included. Which date were you thinking?",
         ops: [
-          { kind: 'inbox', title: 'New conversation', detail: 'Group enquiry · 6 guests · Crater Ridge tour' },
-          { kind: 'availability', title: 'Availability checked', detail: 'Crater Ridge tour runs Tue / Thu / Sat — next 3 dates available' },
+          { kind: 'inbox', title: 'Simulated inbox: new conversation', detail: 'Group enquiry · 6 guests · Crater Ridge tour' },
+          { kind: 'availability', title: 'Simulated availability check', detail: 'Crater Ridge tour runs Tue / Thu / Sat — next 3 dates available (demo)' },
         ],
         suggestions: ['This Saturday', 'Next Thursday'],
       },
       {
         guest: 'This Saturday — is there space for all 6 of us?',
         luna:
-          "Yes, Saturday has room for your whole group! 🎉 The tour is €55 per person, so €330 for six — that covers transport, guide and a set lunch at a local restaurant. Shall I hold 6 spots for you?",
+          "Yes, Saturday has room for your whole group in this demo! 🎉 The tour is €55 per person, so €330 for six — that covers transport, guide and a set lunch at a local restaurant. Shall I note 6 spots for you?",
         ops: [
-          { kind: 'availability', title: 'Group availability confirmed', detail: 'Saturday · 6 spots free on Crater Ridge tour' },
-          { kind: 'quote', title: 'Quote prepared', detail: '6 × €55 = €330 (transport + guide + lunch incl.)' },
+          { kind: 'availability', title: 'Simulated group availability check', detail: 'Saturday · 6 spots free on Crater Ridge tour (demo)' },
+          { kind: 'quote', title: 'Simulated quote prepared', detail: '6 × €55 = €330 (transport + guide + lunch incl.)' },
         ],
-        suggestions: ['Yes please, hold 6 spots', 'What time does it start?'],
+        suggestions: ['Yes please, note 6 spots', 'What time does it start?'],
       },
       {
         guest: 'Yes please! What time does it start?',
         luna:
-          "The tour leaves the meeting point at 08:30 and returns around 17:30. I'll hold those 6 spots now. Could I get the lead name for the booking?",
+          "The tour leaves the meeting point at 08:30 and returns around 17:30. I'll note those 6 spots for now. Could I get the lead name for the booking?",
         ops: [
-          { kind: 'detail', title: 'Tour details shared', detail: 'Departure 08:30 · return ~17:30 · meeting point details sent on confirmation' },
-          { kind: 'package', title: 'Tour confirmed', detail: 'Crater Ridge · Saturday · 6 guests' },
+          { kind: 'detail', title: 'Simulated tour details shared', detail: 'Departure 08:30 · return ~17:30 · meeting point shared after payment in a live flow' },
+          { kind: 'package', title: 'Simulated tour package noted', detail: 'Crater Ridge · Saturday · 6 guests (demo — draft not started)' },
         ],
-        suggestions: ['It\'s under Nguyen'],
+        suggestions: ["It's under Nguyen"],
       },
       {
         guest: "It's under Nguyen.",
         luna:
-          "Wonderful — 6 spots reserved for the Nguyen group, Saturday Crater Ridge tour. I'll send a payment link to confirm the booking. You'll get meeting-point details once that's through. Have an amazing day! 🌄",
+          "Wonderful — I've prepared a staff-ready booking draft for the Nguyen group (Saturday Crater Ridge, €330). In this demo the status is awaiting payment — no checkout link is sent here. 🌄",
         ops: [
-          { kind: 'detail', title: 'Detail collected', detail: 'Lead guest: Nguyen' },
-          { kind: 'draft', title: 'Booking draft created', detail: 'Nguyen × 6 · Saturday · Crater Ridge · €330 · awaiting payment' },
+          { kind: 'detail', title: 'Simulated detail collected', detail: 'Lead guest: Nguyen' },
+          {
+            kind: 'draft',
+            title: 'Simulated draft created',
+            detail: 'Nguyen × 6 · Saturday · Crater Ridge · €330 · awaiting payment (demo — no checkout)',
+          },
         ],
       },
     ],
@@ -306,17 +328,17 @@ export const journeys: Journey[] = [
         luna:
           "Thanks for reaching out, and for giving us that heads-up about accessibility — it means a lot. A group of 18 with specific access needs is something our team needs to plan carefully, so I'm going to bring one of our guides in directly. Could I get the best number or email to reach you?",
         ops: [
-          { kind: 'inbox', title: 'New conversation', detail: 'Large group · 18 guests · 2 wheelchair users' },
-          { kind: 'handoff', title: 'Handed to the team', detail: 'Reason: accessibility + large group — specialist guide required' },
+          { kind: 'inbox', title: 'Simulated inbox: new conversation', detail: 'Large group · 18 guests · 2 wheelchair users' },
+          { kind: 'handoff', title: 'Simulated handoff to the team', detail: 'Reason: accessibility + large group — specialist guide required (demo)' },
         ],
         suggestions: ['This number is best', 'Email is easier — give me a sec'],
       },
       {
         guest: 'This number is best.',
         luna:
-          "Perfect — I've passed your number to the team along with the group size and accessibility details. A guide will be in touch within a few hours to talk through options and make sure everything works for everyone. 🙏",
+          "Perfect — I've passed your number to the team along with the group size and accessibility details. A guide will follow up to talk through options and make sure everything works for everyone. 🙏",
         ops: [
-          { kind: 'detail', title: 'Contact preference noted', detail: 'WhatsApp number · guide will follow up directly' },
+          { kind: 'detail', title: 'Simulated contact preference noted', detail: 'WhatsApp number · guide will follow up directly (demo — no SLA)' },
         ],
       },
     ],
@@ -329,54 +351,58 @@ export const journeys: Journey[] = [
     kind: 'service',
     title: 'Board & bike rental enquiry',
     summary: 'Guest asks to rent a board and a bike for a multi-day stay.',
-    payoff: 'Dates, kit and deposit confirmed without a single phone call.',
+    payoff: 'Dates, kit and deposit gathered without a phone call — ending in a simulated rental draft.',
     turns: [
       {
         guest: "Hello! I'd like to rent a surfboard and a bike for 3 days. Do you have availability?",
         luna:
           "Hi! Yes — we have boards and bikes free across most of this week. 🚲🏄 Which three days were you planning, so I can check the full availability?",
         ops: [
-          { kind: 'inbox', title: 'New conversation', detail: 'Rental enquiry · surfboard + bike · 3 days' },
-          { kind: 'availability', title: 'Availability checked', detail: 'Boards and bikes available — exact dates needed to confirm' },
+          { kind: 'inbox', title: 'Simulated inbox: new conversation', detail: 'Rental enquiry · surfboard + bike · 3 days' },
+          { kind: 'availability', title: 'Simulated availability check', detail: 'Boards and bikes available — exact dates needed (demo)' },
         ],
         suggestions: ['Tuesday, Wednesday and Thursday', 'Friday to Sunday'],
       },
       {
         guest: 'Tuesday, Wednesday and Thursday.',
         luna:
-          "All clear for Tuesday–Thursday. Here's what that looks like:\n\n• Surfboard (your choice of size) — €15/day → €45\n• City bike — €10/day → €30\n• Total — €75 for 3 days\n\nA €20 refundable deposit is held against the gear, returned when everything comes back undamaged. Does that work for you?",
+          "All clear for Tuesday–Thursday in this demo. Here's what that looks like:\n\n• Surfboard (your choice of size) — €15/day → €45\n• City bike — €10/day → €30\n• Total — €75 for 3 days\n\nA €20 refundable deposit applies against the gear, returned when everything comes back undamaged. Does that work for you?",
         ops: [
-          { kind: 'availability', title: 'Dates confirmed', detail: 'Tue–Thu · surfboard + city bike both free' },
-          { kind: 'package', title: 'Rental package prepared', detail: 'Surfboard €45 + bike €30 = €75 · €20 refundable deposit' },
-          { kind: 'quote', title: 'Quote prepared', detail: '3-day bundle · surfboard + bike · €75 total + €20 deposit' },
+          { kind: 'availability', title: 'Simulated dates checked', detail: 'Tue–Thu · surfboard + city bike both free (demo)' },
+          { kind: 'package', title: 'Simulated rental package prepared', detail: 'Surfboard €45 + bike €30 = €75 · €20 refundable deposit' },
+          { kind: 'quote', title: 'Simulated quote prepared', detail: '3-day bundle · surfboard + bike · €75 total + €20 deposit' },
         ],
-        suggestions: ['Sounds good, let\'s do it', 'What size boards do you have?'],
+        suggestions: ["Sounds good, let's do it", 'What size boards do you have?'],
       },
       {
-        guest: "What size boards do you have?",
+        guest: 'What size boards do you have?',
         luna:
           "We stock 7'0\" funboards, 8'0\" mini-mals and 9'0\" longboards — all with fins included. Which size suits you best?",
         ops: [
-          { kind: 'detail', title: 'Board options shared', detail: '7\'0" funboard · 8\'0" mini-mal · 9\'0" longboard' },
+          { kind: 'detail', title: 'Simulated board options shared', detail: '7\'0" funboard · 8\'0" mini-mal · 9\'0" longboard' },
         ],
         suggestions: ['The 8\'0" mini-mal please', 'The 9\'0" longboard'],
       },
       {
         guest: "The 8'0\" mini-mal please.",
         luna:
-          "Perfect choice. Could I get a name for the reservation so we can tag the board and bike for you?",
+          "Perfect choice. Could I get a name for the draft so we can tag the board and bike for you?",
         ops: [
-          { kind: 'detail', title: 'Board selected', detail: '8\'0" mini-mal confirmed' },
+          { kind: 'detail', title: 'Simulated board selected', detail: '8\'0" mini-mal noted (demo — draft not started)' },
         ],
-        suggestions: ['It\'s Lena Schmidt'],
+        suggestions: ["It's Lena Schmidt"],
       },
       {
         guest: "It's Lena Schmidt.",
         luna:
-          "All set, Lena! I've reserved the 8'0\" mini-mal and a city bike for Tuesday–Thursday. The team will confirm by sending a payment link for €75 plus the €20 deposit. See you Tuesday! 🤙",
+          "All set for the draft, Lena! I've prepared a staff-ready rental draft for the 8'0\" mini-mal and a city bike (Tue–Thu, €75 + €20 deposit). In this demo the status is awaiting payment — no checkout link is sent here. 🤙",
         ops: [
-          { kind: 'detail', title: 'Detail collected', detail: 'Guest: Lena Schmidt' },
-          { kind: 'draft', title: 'Rental draft created', detail: 'Lena Schmidt · 8\'0" board + bike · Tue–Thu · €75 + €20 deposit' },
+          { kind: 'detail', title: 'Simulated detail collected', detail: 'Guest: Lena Schmidt' },
+          {
+            kind: 'draft',
+            title: 'Simulated rental draft created',
+            detail: 'Lena Schmidt · 8\'0" board + bike · Tue–Thu · €75 + €20 deposit · awaiting payment (demo — no checkout)',
+          },
         ],
       },
     ],
@@ -396,17 +422,17 @@ export const journeys: Journey[] = [
         luna:
           "I'm sorry for the confusion — deposit questions are something our team needs to look at directly so they can review the check-in and check-out notes. I'm flagging this for them now. Could you share the name the rental was under?",
         ops: [
-          { kind: 'inbox', title: 'New conversation', detail: 'Returning renter · deposit refund dispute' },
-          { kind: 'handoff', title: 'Handed to the team', detail: 'Reason: deposit dispute — owner review required · marked urgent' },
+          { kind: 'inbox', title: 'Simulated inbox: new conversation', detail: 'Returning renter · deposit refund dispute' },
+          { kind: 'handoff', title: 'Simulated handoff to the team', detail: 'Reason: deposit dispute — owner review required · marked urgent (demo)' },
         ],
         suggestions: ['It was under Eriksen'],
       },
       {
         guest: 'It was under Eriksen.',
         luna:
-          "Thank you — I've passed this to the team with the name Eriksen and flagged it as a deposit query. Someone will come back to you shortly to sort it out. 🙏",
+          "Thank you — I've passed this to the team with the name Eriksen and flagged it as a deposit query. A teammate will follow up to sort it out. 🙏",
         ops: [
-          { kind: 'detail', title: 'Context attached', detail: 'Rental name: Eriksen · deposit dispute added to handoff note' },
+          { kind: 'detail', title: 'Simulated context attached', detail: 'Rental name: Eriksen · deposit dispute added to handoff note' },
         ],
       },
     ],

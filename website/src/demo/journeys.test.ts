@@ -14,6 +14,30 @@ const VALID_OPS_KINDS: OpsKind[] = [
 
 const ALL_BUSINESS_TYPES: BusinessType[] = ['hostel', 'surf_school', 'tours', 'rentals'];
 
+const SLA_CLAIM = /\b(within a few hours|shortly|in \d+\s*(minutes?|hours?|days?)|asap|immediately)\b/i;
+const CHECKOUT_URL = /https?:\/\/|checkout\.stripe|buy\.stripe|payment[\s_-]?link|\/pay\b/i;
+
+function claimWords(text: string): string[] {
+  const out: string[] = [];
+  const re = /\b(held|reserved|confirmed|scheduled|created)\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) out.push(m[1].toLowerCase());
+  return out;
+}
+
+function isSimulatedSuccessFor(opText: string, claim: string): boolean {
+  if (!/simulated/i.test(opText)) return false;
+  // Map claim → acceptable simulated success markers in the op.
+  const patterns: Record<string, RegExp> = {
+    held: /\b(held|hold|reserved|created|draft)\b/i,
+    reserved: /\b(reserved|reservation|created|draft)\b/i,
+    confirmed: /\b(confirmed|created|draft)\b/i,
+    scheduled: /\b(scheduled|schedule|created|draft)\b/i,
+    created: /\b(created|draft)\b/i,
+  };
+  return patterns[claim]?.test(opText) ?? false;
+}
+
 // ── Journey structural integrity ──────────────────────────────────────────────
 
 describe('journeys structure', () => {
@@ -89,6 +113,91 @@ describe('journeys structure', () => {
           expect(op.detail.trim().length, `Journey "${j.id}" turn ${i} op has empty detail`).toBeGreaterThan(0);
         }
       }
+    }
+  });
+});
+
+// ── Slice D truth ordering + simulated ops ────────────────────────────────────
+
+describe('Slice D demo truth ordering', () => {
+  it('every ops title is explicitly simulated', () => {
+    for (const j of journeys) {
+      for (const [i, turn] of j.turns.entries()) {
+        for (const op of turn.ops ?? []) {
+          expect(
+            /simulated/i.test(op.title),
+            `${j.id} turn ${i} op "${op.title}" must be simulated`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('success claim phrases are ordered behind matching simulated ops', () => {
+    for (const j of journeys) {
+      const priorOps: string[] = [];
+      for (const [i, turn] of j.turns.entries()) {
+        // Ops for this turn become available before guest/luna claims (UI + fixture order).
+        for (const op of turn.ops ?? []) {
+          priorOps.push(`${op.title} ${op.detail}`);
+        }
+        const claimTexts = [turn.guest, turn.luna, ...(turn.suggestions ?? []), j.payoff];
+        // Payoff only checked on final turn
+        const texts =
+          i === j.turns.length - 1
+            ? claimTexts
+            : [turn.guest, turn.luna, ...(turn.suggestions ?? [])];
+        for (const text of texts) {
+          for (const claim of claimWords(text)) {
+            // Claims that appear only inside an already-qualified simulated op string
+            // on this turn are covered by priorOps including this turn's ops.
+            const covered = priorOps.some((opText) => isSimulatedSuccessFor(opText, claim));
+            expect(
+              covered,
+              `${j.id} turn ${i}: claim "${claim}" in "${text.slice(0, 80)}" lacks prior simulated success`,
+            ).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it('handoff copy has no SLA promises', () => {
+    for (const j of journeys.filter((x) => x.kind === 'handoff')) {
+      for (const turn of j.turns) {
+        const blob = `${turn.guest}\n${turn.luna}\n${(turn.ops ?? []).map((o) => `${o.title} ${o.detail}`).join('\n')}`;
+        expect(SLA_CLAIM.test(blob), `${j.id} still has SLA language`).toBe(false);
+      }
+    }
+  });
+
+  it('fixtures contain no checkout URL or payment-link control', () => {
+    for (const j of journeys) {
+      const blob = JSON.stringify(j);
+      expect(CHECKOUT_URL.test(blob), `${j.id} has checkout/payment URL`).toBe(false);
+      expect(/\bpay now\b/i.test(blob), `${j.id} has pay-now control copy`).toBe(false);
+    }
+  });
+
+  it('flagship hostel journey is enquiry → staff-ready booking draft with awaiting-payment', () => {
+    const flagship = journeys.find((j) => j.id === 'hostel-accommodation');
+    expect(flagship).toBeTruthy();
+    expect(flagship!.title).toMatch(/enquiry.*staff-ready booking draft/i);
+    const last = flagship!.turns[flagship!.turns.length - 1];
+    expect(last.luna).toMatch(/awaiting payment/i);
+    expect(last.luna).toMatch(/no checkout link/i);
+    expect(last.ops?.some((o) => o.kind === 'draft' && /awaiting payment/i.test(o.detail))).toBe(true);
+  });
+
+  it('non-handoff journeys end awaiting-payment without checkout', () => {
+    for (const j of journeys.filter((x) => x.kind !== 'handoff')) {
+      const last = j.turns[j.turns.length - 1];
+      const draft = last.ops?.find((o) => o.kind === 'draft');
+      expect(draft, `${j.id} missing terminal draft op`).toBeTruthy();
+      expect(/awaiting payment/i.test(`${last.luna}\n${draft!.detail}`), `${j.id} missing awaiting-payment`).toBe(
+        true,
+      );
+      expect(/checkout/i.test(last.luna) ? /no checkout/i.test(last.luna) : true).toBe(true);
     }
   });
 });

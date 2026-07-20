@@ -13,6 +13,7 @@
     "check": "astro check",
     "test": "vitest run",
     "test:lead-browser": "node qa/lead-privacy.mjs",
+    "test:demo-browser": "node qa/demo-scripted.mjs",
     "verify:emitted": "node scripts/verify-emitted-metadata.mjs",
     "verify:security": "node scripts/verify-security.mjs",
     "verify:adversarial-csp": "node scripts/assert-adversarial-csp.mjs",

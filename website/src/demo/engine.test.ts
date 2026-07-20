@@ -3,9 +3,9 @@ import {
   initialState,
   startJourney,
   advance,
-  matchJourneyByText,
   journeysFor,
   currentSuggestions,
+  nextScriptedGuest,
 } from './engine';
 import type { DemoState } from './engine';
 
@@ -63,7 +63,6 @@ describe('startJourney', () => {
       status: 'playing',
     };
     const restarted = startJourney(state, 'hostel-handoff');
-    // transcript should only contain the first turn of the new journey
     const ids = restarted.transcript.map((b) => b.id);
     expect(ids.every((id) => id.startsWith('hostel-handoff'))).toBe(true);
   });
@@ -89,7 +88,6 @@ describe('advance', () => {
   it('sets status to complete on the last turn', () => {
     let state = initialState('hostel');
     state = startJourney(state, 'hostel-accommodation');
-    // Advance until complete
     while (state.status !== 'complete') {
       state = advance(state);
     }
@@ -125,49 +123,27 @@ describe('advance', () => {
   });
 });
 
-// ── matchJourneyByText ────────────────────────────────────────────────────────
+// ── scripted-only engine (no free-text fallback) ──────────────────────────────
 
-describe('matchJourneyByText', () => {
-  it('returns a hostel journey when the text mentions beds and dorm', () => {
-    const result = matchJourneyByText('beds in a dorm for the weekend', 'hostel');
-    expect(result).not.toBeNull();
-    expect(result!.businessType).toBe('hostel');
+describe('scripted-only engine', () => {
+  it('does not export free-text journey matching', async () => {
+    const mod = await import('./engine');
+    expect('matchJourneyByText' in mod).toBe(false);
   });
 
-  it('returns a surf_school journey when text mentions lessons beginners', () => {
-    const result = matchJourneyByText('beginner surf lessons for adults', 'surf_school');
-    expect(result).not.toBeNull();
-    expect(result!.businessType).toBe('surf_school');
+  it('nextScriptedGuest returns the next fixture guest line', () => {
+    let state = initialState('hostel');
+    state = startJourney(state, 'hostel-accommodation');
+    const next = nextScriptedGuest(state);
+    expect(next).toBeTruthy();
+    expect(next).toContain('Friday to Sunday');
   });
 
-  it('returns a tours journey when text mentions day tour group', () => {
-    const result = matchJourneyByText('day tour for our group of 5', 'tours');
-    expect(result).not.toBeNull();
-    expect(result!.businessType).toBe('tours');
-  });
-
-  it('returns a rentals journey when text mentions rent board', () => {
-    const result = matchJourneyByText('rent a board for a few days', 'rentals');
-    expect(result).not.toBeNull();
-    expect(result!.businessType).toBe('rentals');
-  });
-
-  it('returns null for pure gibberish', () => {
-    const result = matchJourneyByText('xqzwjfk blorptastic', 'hostel');
-    expect(result).toBeNull();
-  });
-
-  it('returns null for an empty string', () => {
-    const result = matchJourneyByText('', 'hostel');
-    expect(result).toBeNull();
-  });
-
-  it('only returns journeys matching the given business type', () => {
-    // A surf lesson query against the hostel type should not match surf_school journeys
-    const result = matchJourneyByText('surf lesson group beginners', 'hostel');
-    if (result !== null) {
-      expect(result.businessType).toBe('hostel');
-    }
+  it('nextScriptedGuest is null when complete', () => {
+    let state = initialState('hostel');
+    state = startJourney(state, 'hostel-handoff');
+    while (state.status !== 'complete') state = advance(state);
+    expect(nextScriptedGuest(state)).toBeNull();
   });
 });
 
@@ -204,19 +180,16 @@ describe('currentSuggestions', () => {
     let state = initialState('hostel');
     state = startJourney(state, 'hostel-accommodation');
     const suggestions = currentSuggestions(state);
-    // hostel-accommodation turn 0 defines suggestions
     expect(Array.isArray(suggestions)).toBe(true);
     expect(suggestions.length).toBeGreaterThan(0);
   });
 
   it('returns empty array for a turn that has no suggestions', () => {
     let state = initialState('hostel');
-    // Advance hostel-accommodation to its final turn, which has no suggestions
     state = startJourney(state, 'hostel-accommodation');
     while (state.status !== 'complete') {
       state = advance(state);
     }
-    // Final turn has no suggestions defined
     expect(currentSuggestions(state)).toEqual([]);
   });
 
