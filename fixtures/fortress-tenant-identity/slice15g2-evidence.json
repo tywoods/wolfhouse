@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15G2",
+  "generated_at": "2026-07-20T07:30:00.000Z",
+  "master_basis": "a684422903fec3093ac0bb7e13e50f674aec3b7a",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "status": "design_frozen",
+  "shared_authority_owner": "processMetaWhatsAppWebhookPostEntry",
+  "enforcement": "before_withPgClient",
+  "must_return_effective_normalized": true,
+  "owner_read_scope": "tenant_wide",
+  "completeness_method": "source_derived_control_consumer_inventory",
+  "full_ast_derivation": false,
+  "frozen_identity_rules": {
+    "replay": "REPLAY_IDENTITY_COMPARE_REJECT_FILL",
+    "error": "ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED"
+  },
+  "taxonomy": {
+    "pre_normalize": [
+      "BR_HTTP_ERROR_BODY_READ",
+      "BR_HTTP_ERROR_SIGNATURE",
+      "BR_HTTP_ERROR_INVALID_JSON"
+    ],
+    "post_normalize": [
+      "BR_INCOMPLETE_IDENTITY",
+      "BR_DUPLICATE_REPLAY",
+      "BR_UNPROCESSED_DUPLICATE_CONFLICT_CONTINUE",
+      "BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE",
+      "BR_OWNER_COMMAND_CENTER",
+      "BR_BLOCKED_PHONE_GATE",
+      "BR_OPEN_DEMO",
+      "BR_OPEN_DEMO_VALIDATION_FAILURE",
+      "BR_GUEST_PERSIST_DRAFT_SEND",
+      "BR_TERMINAL_NO_DRAFT_SEND",
+      "BR_PG_OR_DOWNSTREAM_ERROR"
+    ],
+    "renamed_from": {
+      "BR_NO_PERSISTENCE_FALLBACK": "BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE"
+    }
+  },
+  "supersedes": {
+    "slice": "FORTRESS-15G",
+    "branch": "fortress/slice-15g-meta-ingress-authority-policy",
+    "tip_sha": "50f87a1f115ef9ba0c06dc91cd3dfab59c3f7b2b",
+    "policy": "do_not_merge_do_not_modify"
+  },
+  "replacement_implementation_slice": "FORTRESS-15H",
+  "replacement_outcome_id": "15H_meta_ingress_authority_enforce_before_pg",
+  "red": {
+    "total": 5,
+    "passed": 5,
+    "cases": [
+      { "id": "AC15G2_MASTER_PG_BEFORE_AUTHORITY", "ok": true },
+      { "id": "AC15G2_SHADOW_SUNSET_LIVE_DEFAULT", "ok": true },
+      { "id": "AC15G2_UNKNOWN_NO_HARDBLOCK", "ok": true },
+      { "id": "AC15G2_DRAFT_SEND_NO_LOCATION", "ok": true },
+      { "id": "AC15G2_OPEN_DEMO_HARDCODED_FALLBACK", "ok": true }
+    ]
+  },
+  "green": {
+    "total": 5,
+    "passed": 5,
+    "cases": [
+      { "id": "AC15G2_SHARED_OWNER_NAMED", "ok": true },
+      { "id": "AC15G2_REPLACEMENT_ACCEPTANCE_BOUNDED", "ok": true },
+      { "id": "AC15G2_DEFERRED_15G_SUPERSEDED", "ok": true },
+      { "id": "AC15G2_RESOLVER_STILL_FAIL_CLOSED", "ok": true },
+      { "id": "AC15G2_BRANCH_MATRIX_COMPLETE", "ok": true }
+    ]
+  },
+  "blockers": [
+    "Live B02 remains vulnerable until FORTRESS-15H implements pre-PG authority + location propagation from this design",
+    "Deferred fortress/slice-15g-meta-ingress-authority-policy @ 50f87a1 must not be merged",
+    "Registry client_slug wolfhouse vs legacy DEFAULT_CLIENT_SLUG wolfhouse-somo alias risk under active authority",
+    "Open-demo hardcoded wolfhouse-somo fallback must be addressed in 15H when authority active",
+    "guest_message_events table absence still allows other reads/writes — not a full side-effect stop",
+    "Activation + CLIENT_CHANNEL_ROUTING_* remain operator-owned and out of 15H scope"
+  ],
+  "pass": 46,
+  "fail": 0
+}
