@@ -210,7 +210,7 @@ async function savePendingTransfersForBooking(body, bookingId, bookingCode, ctx)
     handlePostBookingTransfer,
     DEFAULT_CLIENT,
   } = ctx;
-  const clientSlug = trimStr(body.client_slug || DEFAULT_CLIENT);
+  const clientSlug = trimStr((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT));
   const entries = collectPendingTransferEntries(body);
   if (!entries.length || !bookingId) return { results: [], saved: [] };
 
@@ -273,7 +273,7 @@ async function handleBotTransferSave(req, res, user, authMode, ctx) {
     return send400(res, 'invalid or missing JSON body');
   }
 
-  const clientSlug   = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT)).trim();
   const bookingIdRaw = String(body.booking_id  || body.bookingId  || '').trim();
   const bookingCode  = String(body.booking_code || body.bookingCode || '').trim();
 
@@ -412,7 +412,7 @@ async function handleBotPaymentStatus(req, res, user, authMode, ctx) {
     return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
   }
 
-  const clientSlug  = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT)).trim();
   const paymentId   = String(body.payment_id   || body.paymentId   || '').trim();
   const bookingId   = String(body.booking_id   || body.bookingId   || '').trim();
   const bookingCode = String(body.booking_code || body.bookingCode || '').trim().toUpperCase();
@@ -554,7 +554,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
 
   // Delegate to the existing bot booking create handler
   // but capture its response and flatten the key fields to top-level
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT)).trim();
 
   const guestsNormPreview = normalizeBookingGuestsInput(body);
   const usesPerGuestModelPreview = guestsNormPreview.uses_per_guest_model === true;
@@ -974,7 +974,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
     return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
   }
 
-  const clientSlug  = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || body.client || DEFAULT_CLIENT)).trim();
   const bookingId   = String(body.booking_id || body.bookingId || '').trim();
   const bookingCode = String(body.booking_code || body.bookingCode || '').trim();
 
@@ -1297,7 +1297,7 @@ async function handleBotPackagePricePreview(req, res, user, authMode, ctx) {
     return send400(res, 'invalid or missing JSON body');
   }
 
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT)).trim();
   const checkIn = String(body.check_in || '').trim();
   const checkOut = String(body.check_out || '').trim();
   const guestCount = parseInt(body.guest_count, 10) || 0;
@@ -1380,7 +1380,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
     return send400(res, 'invalid or missing JSON body');
   }
 
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT)).trim();
   const paymentTarget = String(body.payment_target || 'deposit').trim().toLowerCase();
   const actorId = user ? user.staff_user_id : 'luna-bot-internal';
 
@@ -1644,7 +1644,7 @@ async function handleBotGuestPaymentStatus(req, res, user, authMode, ctx) {
     return send400(res, 'invalid or missing JSON body');
   }
 
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT)).trim();
   const guestId = String(body.booking_guest_id || body.guest_id || '').trim();
   const bookingCode = String(body.booking_code || '').trim().toUpperCase();
   const guestNumber = parseInt(body.guest_number, 10);

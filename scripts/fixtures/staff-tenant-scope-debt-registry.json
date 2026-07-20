@@ -418,6 +418,20 @@
       "migrated_from_v1": "staff-query-api-43162"
     },
     {
+      "fingerprint": "b78174c90e68d62b",
+      "file": "scripts/staff-query-api.js",
+      "line": 42090,
+      "table": "bookings",
+      "operation": "comment",
+      "owner": "bookings",
+      "normalized_sql": "// post /staff/bot/bookings/update-contact (luna: update guest name/email)",
+      "snippet": "// POST /staff/bot/bookings/update-contact  (Luna: update guest name/email)",
+      "id": "scripts-staff-query-api-js-b78174c90e68d62b",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Bot route section comment; not executable SQL. Request tenant bind is FORTRESS 15F principal dispatch."
+    },
+    {
       "fingerprint": "5183cce2c03da0e4",
       "file": "scripts/staff-query-api.js",
       "line": 45176,
