@@ -43,7 +43,9 @@ const REQUIRED_RED = [
   'status_code_bounds',
   'method_allowlist',
   'route_normalization_unit',
+  'route_pathname_canaries_unit',
   'logger_throw_swallowed',
+  'stale_module_logger_injection_cannot_satisfy_green',
   'no_process_handlers_installed',
 ];
 
@@ -56,9 +58,11 @@ const REQUIRED_GREEN = [
   'listener_concurrent_isolation',
   'listener_trusted_tenant',
   'listener_canaries_absent',
+  'listener_route_pathname_canaries',
   'listener_route_normalization',
   'listener_duration_bounds',
   'listener_logger_throw_http_unchanged',
+  'listener_logger_throw_5xx_unchanged',
   'listener_counts_process_exit_unchanged',
 ];
 
@@ -234,8 +238,16 @@ function canaryLeakInLine(line) {
     || s.includes('hunter2')
     || s.includes('guest_phone')
     || s.includes('+34123456789')
+    || s.includes('34123456789')
     || s.includes('Bearer eyJ')
     || s.includes('password')
+    || s.includes('Alice Example')
+    || s.includes('Alice%20Example')
+    || s.includes('Alice-Example')
+    || s.includes('radar16n_tok_')
+    || s.includes('nope-16n')
+    || s.includes('%40example')
+    || s.includes('%ZZ')
     || /"email"\s*:/.test(s)
     || /"phone"\s*:/.test(s)
     || /"name"\s*:/.test(s)
@@ -246,6 +258,22 @@ function canaryLeakInLine(line) {
     || /"headers"\s*:/.test(s)
     || /"url"\s*:/.test(s)
     || /"stack"\s*:/.test(s);
+}
+
+/** Pathname privacy canaries — none may appear in emitted route (or console JSON). */
+const PATHNAME_CANARIES = Object.freeze([
+  { label: 'email', path: '/staff/alice@example.com', forbid: ['alice@', 'example.com'] },
+  { label: 'full_name', path: '/staff/Alice%20Example', forbid: ['Alice', 'Example', 'Alice%20'] },
+  { label: 'phone', path: '/staff/%2B34123456789', forbid: ['34123456789', '+34', '%2B'] },
+  { label: 'token', path: '/staff/radar16n_tok_ABCDEFGHIJKLMNOP', forbid: ['radar16n_tok_'] },
+  { label: 'encoded_email', path: '/staff/alice%40example.com', forbid: ['alice', 'example', '%40'] },
+  { label: 'malformed_percent', path: '/staff/bad%ZZtoken', forbid: ['bad%ZZ', '%ZZ', 'bad%'] },
+  { label: 'unknown_short', path: '/nope-16n', forbid: ['nope-16n', 'nope'] },
+]);
+
+function routeHasForbidden(route, forbidList) {
+  const r = String(route || '');
+  return forbidList.some((f) => r.includes(f));
 }
 
 async function main() {
@@ -349,9 +377,46 @@ async function main() {
     && completion.allowlistMethod('FOO') === 'GET');
 
   red('route_normalization_unit',
-    corr.normalizeRoute('/staff/bookings/12345?token=secret') === '/staff/bookings/:id'
-    && corr.normalizeRoute('/pay/abc/def?x=1') === '/pay/:booking/:guest'
-    && !corr.normalizeRoute('/a?b=1').includes('?'));
+    completion.normalizeCompletionRoute('/staff/bookings/12345?token=secret') === '/staff/bookings/:id'
+    && completion.normalizeCompletionRoute('/pay/abc/def?x=1') === '/pay/:redacted/:redacted'
+    && completion.normalizeCompletionRoute('/healthz') === '/healthz'
+    && completion.normalizeCompletionRoute('/readyz') === '/readyz'
+    && completion.normalizeCompletionRoute('/nope-16n') === completion.ROUTE_UNMATCHED
+    && !completion.normalizeCompletionRoute('/a?b=1').includes('?')
+    && !completion.normalizeCompletionRoute('/staff/x#frag').includes('#')
+    && Object.isFrozen(completion.ROUTE_STATIC_SEGMENT_ALLOWLIST)
+    && completion.ROUTE_STATIC_SEGMENT_ALLOWLIST.includes('staff')
+    && completion.ROUTE_STATIC_SEGMENT_ALLOWLIST.includes('healthz')
+    && completion.ROUTE_STATIC_SEGMENT_ALLOWLIST.includes('readyz')
+    && !completion.ROUTE_STATIC_SEGMENT_ALLOWLIST.includes('wolfhouse-somo')
+    && !completion.ROUTE_STATIC_SEGMENT_ALLOWLIST.includes('details'));
+
+  {
+    const unitRoutes = PATHNAME_CANARIES.map((c) => completion.normalizeCompletionRoute(c.path));
+    const unitOk = PATHNAME_CANARIES.every((c, i) => {
+      const route = unitRoutes[i];
+      return typeof route === 'string'
+        && !route.includes('?')
+        && !route.includes('#')
+        && !routeHasForbidden(route, c.forbid)
+        && completion.assertSafeRequestCompletedRecord({
+          event: completion.EVENT_NAME,
+          request_id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+          method: 'GET',
+          route,
+          status_code: 200,
+          duration_ms: 5,
+        }).ok;
+    });
+    // Deterministic cardinality: same inputs → identical outputs
+    const again = PATHNAME_CANARIES.map((c) => completion.normalizeCompletionRoute(c.path));
+    red('route_pathname_canaries_unit',
+      unitOk
+      && JSON.stringify(unitRoutes) === JSON.stringify(again)
+      && unitRoutes.includes(completion.ROUTE_UNMATCHED)
+      && unitRoutes.every((r) => r === completion.ROUTE_UNMATCHED || r.startsWith('/staff/')),
+      JSON.stringify(PATHNAME_CANARIES.map((c, i) => ({ label: c.label, route: unitRoutes[i] }))));
+  }
 
   {
     const listenersBefore = {
@@ -363,9 +428,6 @@ async function main() {
     let threw = false;
     completion.setCompletionLogger(() => { throw new Error('logger_boom'); });
     try {
-      // Simulate ALS context via runWithRequestCorrelation
-      const { IncomingMessage, ServerResponse } = require('http');
-      // Use correlation run so emit can read ALS
       const req = { method: 'GET', url: '/healthz', headers: {} };
       const res = {
         statusCode: 200,
@@ -377,6 +439,8 @@ async function main() {
           startedAtMs: Date.now() - 3,
           res,
           trustedTenantSlug: 'wolfhouse-somo',
+          rawUrl: '/healthz',
+          logger: () => { throw new Error('logger_boom_di'); },
         });
       });
     } catch (err) {
@@ -386,6 +450,71 @@ async function main() {
     red('logger_throw_swallowed',
       threw === false
       && contract.emission_contract.logger_failure_must_not_alter_response_or_rejection === true);
+
+    // RED: setCompletionLogger on a stale module instance (pre-cache-clear) cannot
+    // control the instance wired into staff-query-api after clear — so it cannot
+    // satisfy GREEN "no completion JSON when logger throws".
+    {
+      const staleCompletion = require('./lib/staff-api-request-completion-log');
+      let staleHookHits = 0;
+      staleCompletion.setCompletionLogger(() => {
+        staleHookHits += 1;
+        throw new Error('stale_module_logger_throw');
+      });
+      applyMinimalStaffApiEnv();
+      process.env.DEFAULT_CLIENT_SLUG = 'wolfhouse-somo';
+      clearStaffApiCache();
+      const apiFresh = require('../scripts/staff-query-api.js');
+      const liveCompletion = require('./lib/staff-api-request-completion-log');
+      const staleIsDifferentInstance = staleCompletion !== liveCompletion;
+      const consoleCap = [];
+      const origLog = console.log;
+      console.log = (...args) => {
+        consoleCap.push(args.map((a) => String(a)).join(' '));
+      };
+      let portStale;
+      let serverStale;
+      let staleProof = null;
+      try {
+        serverStale = apiFresh.createStaffQueryApiHttpServer({
+          ingressBinding: { tenant_slug: 'wolfhouse-somo' },
+          // Intentionally omit completionLogger DI — production default console.
+        });
+        portStale = await listen(serverStale);
+        const r = await httpRequest(portStale, {
+          method: 'GET',
+          reqPath: '/healthz',
+          headers: {
+            'x-request-id': 'aaaaaaaa-bbbb-4ccc-8ddd-999999999991',
+            accept: 'application/json',
+          },
+        });
+        const emitted = liveCompletion.parseCompletionRecordsFromConsole(consoleCap);
+        staleProof = {
+          staleIsDifferentInstance,
+          staleHookHits,
+          status: r.statusCode,
+          emitted: emitted.length,
+          event: emitted[0] && emitted[0].event,
+        };
+      } finally {
+        console.log = origLog;
+        staleCompletion.setCompletionLogger(null);
+        liveCompletion.setCompletionLogger(null);
+        if (serverStale) await closeServer(serverStale);
+        clearStaffApiCache();
+      }
+      // Stale hook did not fire; default logger still emitted completion JSON.
+      // Therefore stale-module injection cannot satisfy GREEN no-emission proof.
+      red('stale_module_logger_injection_cannot_satisfy_green',
+        staleProof
+        && staleProof.staleIsDifferentInstance
+        && staleProof.staleHookHits === 0
+        && staleProof.status === 200
+        && staleProof.emitted === 1
+        && staleProof.event === completion.EVENT_NAME,
+        JSON.stringify(staleProof));
+    }
 
     const listenersAfter = {
       SIGTERM: countProcessListeners('SIGTERM'),
@@ -418,13 +547,25 @@ async function main() {
   const origLogG = console.log;
   const origInfoG = console.info;
 
+  /** Construction-time logger DI — toggled for throw proofs (not module-level hook). */
+  let activeCompletionLogger = null;
+  function diCompletionLogger(record) {
+    if (typeof activeCompletionLogger === 'function') {
+      return activeCompletionLogger(record);
+    }
+    return console.log(JSON.stringify(record));
+  }
+
   let api;
   let server;
   let port;
   try {
     api = loadStaffApi();
+    // Re-bind completion helpers to the live module instance staff-query-api loaded.
+    const liveCompletion = require('./lib/staff-api-request-completion-log');
     server = api.createStaffQueryApiHttpServer({
       ingressBinding: { tenant_slug: 'wolfhouse-somo' },
+      completionLogger: diCompletionLogger,
     });
     port = await listen(server);
 
@@ -446,7 +587,7 @@ async function main() {
     wrapConsole();
 
     function takeRecordsSince(n) {
-      return completion.parseCompletionRecordsFromConsole(consoleCalls.slice(n));
+      return liveCompletion.parseCompletionRecordsFromConsole(consoleCalls.slice(n));
     }
 
     // 2xx
@@ -461,12 +602,13 @@ async function main() {
     green('listener_2xx_exactly_one',
       r2xx.statusCode === 200
       && rec2xx.length === 1
-      && completion.assertSafeRequestCompletedRecord(rec2xx[0]).ok
+      && liveCompletion.assertSafeRequestCompletedRecord(rec2xx[0]).ok
       && rec2xx[0].status_code === 200
-      && rec2xx[0].request_id === suppliedId,
+      && rec2xx[0].request_id === suppliedId
+      && rec2xx[0].route === '/healthz',
       JSON.stringify({ status: r2xx.statusCode, n: rec2xx.length, rec: rec2xx[0] }));
 
-    // 4xx
+    // 4xx — unknown short segment → /:unmatched (never emit raw segment text)
     mark = consoleCalls.length;
     const id4xx = 'aaaaaaaa-bbbb-4ccc-8ddd-444444444444';
     const r4xx = await httpRequest(port, {
@@ -479,7 +621,9 @@ async function main() {
       r4xx.statusCode === 404
       && rec4xx.length === 1
       && rec4xx[0].status_code === 404
-      && rec4xx[0].request_id === id4xx,
+      && rec4xx[0].request_id === id4xx
+      && rec4xx[0].route === liveCompletion.ROUTE_UNMATCHED
+      && !String(rec4xx[0].route).includes('nope'),
       JSON.stringify({ status: r4xx.statusCode, n: rec4xx.length, rec: rec4xx[0] }));
 
     // 5xx via existing catch
@@ -501,6 +645,7 @@ async function main() {
       && rec5xx[0].status_code === 500
       && rec5xx[0].request_id === id5xx
       && !r5xx.body.includes('radar16n_forced_internal_error')
+      && r5xx.body.includes('internal server error')
       && !JSON.stringify(rec5xx[0]).includes('radar16n_forced')
       && !JSON.stringify(rec5xx[0]).includes('stack'),
       JSON.stringify({ status: r5xx.statusCode, n: rec5xx.length, body: r5xx.body.slice(0, 80) }));
@@ -554,7 +699,7 @@ async function main() {
       rec2xx[0].tenant_slug === 'wolfhouse-somo'
       && rec4xx[0].tenant_slug === 'wolfhouse-somo'
       && !Object.prototype.hasOwnProperty.call(
-        completion.buildRequestCompletedRecord({
+        liveCompletion.buildRequestCompletedRecord({
           request_id: suppliedId,
           method: 'GET',
           route: '/healthz',
@@ -593,9 +738,48 @@ async function main() {
       canaryRes.headers['x-request-id'] === 'aaaaaaaa-bbbb-4ccc-8ddd-666666666666'
       && canaryRecs.length === 1
       && !leaky
+      && canaryRecs[0].route === '/healthz'
       && !String(canaryRecs[0].route || '').includes('?')
       && !String(canaryRecs[0].route || '').includes('sk_'),
       JSON.stringify({ route: canaryRecs[0] && canaryRecs[0].route, n: canaryRecs.length }));
+
+    // Real-listener pathname canaries (email, name, phone, token, encoded, malformed, unknown)
+    const pathCanaryResults = [];
+    api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    });
+    for (let i = 0; i < PATHNAME_CANARIES.length; i += 1) {
+      const c = PATHNAME_CANARIES[i];
+      mark = consoleCalls.length;
+      const cid = `aaaaaaaa-bbbb-4ccc-8ddd-${String(700000000000 + i).padStart(12, '0')}`;
+      const cres = await httpRequest(port, {
+        method: 'GET',
+        reqPath: c.path,
+        headers: { 'x-request-id': cid, accept: 'application/json' },
+      });
+      const crecs = takeRecordsSince(mark);
+      const route = crecs[0] && crecs[0].route;
+      const slice = consoleCalls.slice(mark);
+      pathCanaryResults.push({
+        label: c.label,
+        status: cres.statusCode,
+        route,
+        n: crecs.length,
+        forbidden: routeHasForbidden(route, c.forbid)
+          || slice.some((line) => routeHasForbidden(line, c.forbid))
+          || (crecs[0] && routeHasForbidden(JSON.stringify(crecs[0]), c.forbid)),
+        safe: crecs[0] ? liveCompletion.assertSafeRequestCompletedRecord(crecs[0]).ok : false,
+      });
+    }
+    api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+    const pathCanaryOk = pathCanaryResults.every((r) =>
+      r.n === 1 && r.safe && !r.forbidden && typeof r.route === 'string')
+      && pathCanaryResults.some((r) => r.route === liveCompletion.ROUTE_UNMATCHED)
+      && new Set(pathCanaryResults.map((r) => `${r.label}:${r.route}`)).size === pathCanaryResults.length;
+    green('listener_route_pathname_canaries',
+      pathCanaryOk,
+      JSON.stringify(pathCanaryResults));
 
     mark = consoleCalls.length;
     const routeId = 'aaaaaaaa-bbbb-4ccc-8ddd-777777777777';
@@ -613,9 +797,11 @@ async function main() {
     green('listener_route_normalization',
       routeRes.statusCode === 200
       && routeRecs.length === 1
-      && routeRecs[0].route === '/staff/bookings/:id/details'
+      && routeRecs[0].route === '/staff/bookings/:id/:redacted'
       && !routeRecs[0].route.includes('?')
-      && !routeRecs[0].route.includes('#'),
+      && !routeRecs[0].route.includes('#')
+      && !routeRecs[0].route.includes('details')
+      && !routeRecs[0].route.includes('42'),
       JSON.stringify(routeRecs[0]));
 
     green('listener_duration_bounds',
@@ -624,24 +810,57 @@ async function main() {
         && r.duration_ms >= 5
         && r.duration_ms % 5 === 0
         && r.duration_ms <= 300000)
-      && completion.bucketDurationMs(300001) === 300000);
+      && liveCompletion.bucketDurationMs(300001) === 300000);
 
-    // Logger throw must not alter HTTP
+    // Logger throw via construction DI — 2xx unchanged; exactly no completion JSON
     mark = consoleCalls.length;
-    completion.setCompletionLogger(() => { throw new Error('radar16n_logger_throw'); });
+    activeCompletionLogger = () => { throw new Error('radar16n_logger_throw'); };
     const idThrow = 'aaaaaaaa-bbbb-4ccc-8ddd-888888888888';
     const throwRes = await httpRequest(port, {
       method: 'GET',
       reqPath: '/healthz',
       headers: { 'x-request-id': idThrow, accept: 'application/json' },
     });
-    completion.setCompletionLogger(null);
+    const throwRecs = takeRecordsSince(mark);
     green('listener_logger_throw_http_unchanged',
       throwRes.statusCode === 200
       && throwRes.headers['x-request-id'] === idThrow
       && throwRes.body.includes('"status"')
+      && throwRecs.length === 0
+      && !consoleCalls.slice(mark).some((l) => l.includes(liveCompletion.EVENT_NAME))
       && process.exitCode === exitCodeBefore,
-      JSON.stringify({ status: throwRes.statusCode, exit: process.exitCode }));
+      JSON.stringify({
+        status: throwRes.statusCode,
+        exit: process.exitCode,
+        n: throwRecs.length,
+      }));
+
+    // Logger throw must not alter existing caught-5xx body/status semantics
+    mark = consoleCalls.length;
+    api.setStaffQueryApiRequestHandlerForOfflineTest(async () => {
+      throw new Error('radar16n_forced_internal_error_with_logger_throw');
+    });
+    const idThrow5 = 'aaaaaaaa-bbbb-4ccc-8ddd-888888888889';
+    const throw5 = await httpRequest(port, {
+      method: 'GET',
+      reqPath: '/healthz',
+      headers: { 'x-request-id': idThrow5, accept: 'application/json' },
+    });
+    api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+    activeCompletionLogger = null;
+    const throw5Recs = takeRecordsSince(mark);
+    green('listener_logger_throw_5xx_unchanged',
+      throw5.statusCode === 500
+      && throw5.body.includes('internal server error')
+      && !throw5.body.includes('radar16n_forced_internal_error')
+      && throw5Recs.length === 0
+      && !consoleCalls.slice(mark).some((l) => l.includes(liveCompletion.EVENT_NAME))
+      && process.exitCode === exitCodeBefore,
+      JSON.stringify({
+        status: throw5.statusCode,
+        body: throw5.body.slice(0, 80),
+        n: throw5Recs.length,
+      }));
 
     // Snapshot listener counts on a fresh request pair via correlation helper
     const { countLifecycleListeners } = corr;
@@ -687,6 +906,7 @@ async function main() {
   } catch (err) {
     console.log = origLogG;
     console.info = origInfoG;
+    activeCompletionLogger = null;
     completion.setCompletionLogger(null);
     for (const id of REQUIRED_GREEN) {
       if (!greenResults.some((r) => r.id === id)) {
@@ -696,6 +916,7 @@ async function main() {
   } finally {
     console.log = origLogG;
     console.info = origInfoG;
+    activeCompletionLogger = null;
     completion.setCompletionLogger(null);
     if (server) await closeServer(server);
   }

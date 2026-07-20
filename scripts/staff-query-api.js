@@ -86,6 +86,7 @@ const {
 } = require('./lib/staff-api-request-correlation');
 const {
   emitStaffApiRequestCompleted,
+  defaultCompletionLogger,
 } = require('./lib/staff-api-request-completion-log');
 const {
   HEALTHZ_PATH,
@@ -46785,7 +46786,10 @@ function setStaffQueryApiRequestHandlerForOfflineTest(handler) {
 }
 
 /**
- * @param {{ ingressBinding?: { tenant_slug?: unknown, tenantSlug?: unknown, client_slug?: unknown, clientSlug?: unknown } }} [options]
+ * @param {{
+ *   ingressBinding?: { tenant_slug?: unknown, tenantSlug?: unknown, client_slug?: unknown, clientSlug?: unknown },
+ *   completionLogger?: ((record: object) => void) | null,
+ * }} [options]
  */
 function createStaffQueryApiHttpServer(options) {
   __staffQueryApiCreateServerCalls += 1;
@@ -46793,7 +46797,12 @@ function createStaffQueryApiHttpServer(options) {
   // Trusted tenant slug from construction-time ingress binding only (never request headers/query).
   // RADAR 16N — await ALS-wrapped handler; emit one allowlisted completion record in finally
   // for normal settlement only (no req/res lifecycle listeners / signal / flush ownership).
+  // completionLogger is construction-time DI (production default: console); avoids require-cache
+  // sensitivity of module-level setCompletionLogger hooks across verifier reloads.
   const ingressBinding = resolveTrustedIngressBinding(options && options.ingressBinding);
+  const completionLog = options && typeof options.completionLogger === 'function'
+    ? options.completionLogger
+    : defaultCompletionLogger;
   return http.createServer((req, res) => {
     void runWithRequestCorrelation(req, res, async () => {
       const startedAtMs = Date.now();
@@ -46810,6 +46819,8 @@ function createStaffQueryApiHttpServer(options) {
           startedAtMs,
           res,
           trustedTenantSlug: ingressBinding.tenant_slug,
+          rawUrl: req && req.url,
+          logger: completionLog,
         });
       }
     }, { ingressBinding });

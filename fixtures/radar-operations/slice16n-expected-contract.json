@@ -27,7 +27,7 @@
     "request_id": "from_ALS_16J",
     "tenant_slug": "trusted_construction_binding_only_else_omit",
     "method": "allowlisted_uppercased",
-    "route": "normalized_pathname_no_query_fragments_uuid_numeric_ids_replaced",
+    "route": "fail_closed_allowlisted_static_segments_only_ids_to_:id_else_:redacted_or_/:unmatched_no_query_fragment",
     "status_code": "res.statusCode_bounded_integer",
     "duration_ms": {
       "bucket_ms": 5,

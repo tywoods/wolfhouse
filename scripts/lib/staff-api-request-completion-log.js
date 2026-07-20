@@ -7,6 +7,10 @@
  * existing console/process stdout logger when the HTTP boundary handler settles
  * (try/catch/finally around the awaited ALS-wrapped handler).
  *
+ * Route field is fail-closed / low-cardinality: only immutable allowlisted static
+ * vocabulary (verified from router) plus `:id` / `:redacted` / `/:unmatched`.
+ * Never emits arbitrary pathname segment text.
+ *
  * Explicitly does NOT:
  * - attach req/res finish/close/aborted/error listeners
  * - install process signals / change exit codes
@@ -16,7 +20,6 @@
 
 const {
   getRequestContext,
-  normalizeRoute,
   sanitizeTenantSlug,
   UUID_V4_RE,
 } = require('./staff-api-request-correlation');
@@ -31,6 +34,187 @@ const DURATION_MS_CAP = 300000;
 
 const STATUS_CODE_MIN = 100;
 const STATUS_CODE_MAX = 599;
+
+const ROUTE_MAX_LEN = 160;
+
+const ROUTE_ID_PLACEHOLDER = ':id';
+const ROUTE_REDACTED_PLACEHOLDER = ':redacted';
+const ROUTE_UNMATCHED = '/:unmatched';
+
+/**
+ * Immutable allowlist of known static route vocabulary for operational grouping.
+ * Derived from Staff API router string equality paths + regex static literals
+ * (healthz/readyz/staff/pay + verified canonical segments). Not tenant slugs.
+ */
+const ROUTE_STATIC_SEGMENT_ALLOWLIST = Object.freeze([
+  'add-catalog-service',
+  'add-service',
+  'addon-request-preview',
+  'addon-requests',
+  'admin',
+  'ai-status',
+  'ask-luna',
+  'assets',
+  'auth',
+  'automated-notifications',
+  'availability-check',
+  'bed-calendar',
+  'beds',
+  'block',
+  'blocks',
+  'booking-create',
+  'booking-create-from-plan',
+  'booking-dry-run',
+  'booking-guests',
+  'booking-preview',
+  'booking-write-eligibility',
+  'bookings',
+  'bot',
+  'bulk-delete',
+  'by-phone',
+  'calendar',
+  'cancel',
+  'cancel-payment-link',
+  'catalog',
+  'catalog-service-lookup',
+  'check-guest-automation-gate',
+  'checkin-day-preview',
+  'clear-messages',
+  'config',
+  'confirm',
+  'confirmation-preview',
+  'context',
+  'conversation',
+  'conversations',
+  'create',
+  'create-balance-link',
+  'create-conversation',
+  'create-payment-link',
+  'create-stripe-link',
+  'customers',
+  'date-change-preview',
+  'day',
+  'detail',
+  'draft',
+  'edit',
+  'edit-preview',
+  'effective-pause-state',
+  'execute',
+  'flight-lookup',
+  'full-day-addon',
+  'full-day-equipment-addon',
+  'generate',
+  'generate-guest-payment-link',
+  'generate-payment-link',
+  'global-pause',
+  'global-pause-state',
+  'global-resume',
+  'group-availability',
+  'guest-automation-review-dry-run',
+  'guest-inbound-review-dry-run',
+  'guest-intake-dry-run',
+  'guest-packages',
+  'guest-reply-draft',
+  'guest-reply-send',
+  'guest-simulator-create-hold-draft',
+  'guest-simulator-create-stripe-test-link',
+  'handoff',
+  'handoffs',
+  'healthz',
+  'house-info',
+  'house-notes',
+  'images',
+  'inbox',
+  'intents',
+  'joinable-courses',
+  'lesson-availability',
+  'lesson-capacity',
+  'lesson-quote',
+  'lesson-times',
+  'login',
+  'logout',
+  'luna-front-desk-logo.png',
+  'luna-login-bg.jpg',
+  'luna-login-signin-btn.png',
+  'manual-bookings',
+  'message-events',
+  'message-intake-preview',
+  'message-templates',
+  'messages',
+  'meta',
+  'move',
+  'move-preview',
+  'move-targets',
+  'needs-human',
+  'notification-settings',
+  'offering-quote',
+  'open-demo-whatsapp-inbound-dry-run',
+  'outreach',
+  'owner',
+  'owner-insights',
+  'package-price-preview',
+  'pause',
+  'pause-state',
+  'pay',
+  'payment',
+  'payment-link',
+  'payment-status',
+  'payments',
+  'plan',
+  'plan-and-execute',
+  'preview',
+  'prices',
+  'private-lesson',
+  'query',
+  'quote',
+  'quote-preview',
+  'readyz',
+  'reassign',
+  'record-cash-payment',
+  'release',
+  'remove-service',
+  'rental-price',
+  'reset-agent-session',
+  'reset-luna-context',
+  'reset-luna-phone',
+  'resolve',
+  'resume',
+  'review',
+  'rooms',
+  'save',
+  'schedule',
+  'send',
+  'send-confirmation',
+  'send-reply',
+  'service-catalog',
+  'services',
+  'session',
+  'sql',
+  'staff',
+  'staff-state',
+  'status',
+  'stripe',
+  'stripe-link',
+  'success',
+  'sunset',
+  'surf-forecast',
+  'surf-packs',
+  'surf-report',
+  'tags',
+  'test',
+  'tour-operator',
+  'transfers',
+  'ui',
+  'update-contact',
+  'validate',
+  'waiver-link',
+  'webhook',
+  'whatsapp',
+  'whatsapp-numbers',
+  'whatsapp-thread-mirror',
+]);
+
+const ROUTE_STATIC_SEGMENT_SET = new Set(ROUTE_STATIC_SEGMENT_ALLOWLIST);
 
 const ALLOWED_METHODS = Object.freeze([
   'GET',
@@ -118,6 +302,108 @@ function bucketDurationMs(ms) {
 }
 
 /**
+ * Safe percent-decode — never throws. Malformed encodings left as-is.
+ * @param {string} s
+ * @returns {string}
+ */
+function safeDecodeURIComponent(s) {
+  if (typeof s !== 'string' || s.indexOf('%') < 0) return s;
+  try {
+    return decodeURIComponent(s);
+  } catch (_) {
+    return s;
+  }
+}
+
+/**
+ * Pathname only — never keep query/hash. Decode only safely; never throw.
+ * @param {unknown} rawUrl
+ * @returns {string}
+ */
+function completionPathnameOnly(rawUrl) {
+  const s = typeof rawUrl === 'string' ? rawUrl : '';
+  if (!s) return '/';
+  let end = s.length;
+  const q = s.indexOf('?');
+  const h = s.indexOf('#');
+  if (q >= 0) end = Math.min(end, q);
+  if (h >= 0) end = Math.min(end, h);
+  let p = s.slice(0, end) || '/';
+  p = safeDecodeURIComponent(p);
+  p = p.replace(/\/{2,}/g, '/');
+  if (p.length > 1) p = p.replace(/\/+$/, '') || '/';
+  if (!p.startsWith('/')) p = `/${p}`;
+  return p;
+}
+
+/**
+ * Recognized identifier / opaque token segments → `:id`.
+ * @param {string} seg
+ * @returns {boolean}
+ */
+function isRecognizedIdSegment(seg) {
+  if (!seg) return false;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(seg)) {
+    return true;
+  }
+  if (/^[0-9a-f]{16,}$/i.test(seg)) return true;
+  if (/^\d{1,18}$/.test(seg)) return true;
+  if (/^WH-[A-Z0-9-]{4,40}$/i.test(seg)) return true;
+  if (/^[A-Za-z0-9_-]{20,}$/.test(seg)) return true;
+  return false;
+}
+
+/**
+ * Fail-closed low-cardinality route for completion logs.
+ * Emits allowlisted static segments only; IDs → `:id`; everything else → `:redacted`.
+ * Paths with no allowlisted static segment collapse to `/:unmatched`.
+ * Query/fragment never retained. Decode failures never throw.
+ *
+ * @param {unknown} rawUrl
+ * @returns {string}
+ */
+function normalizeCompletionRoute(rawUrl) {
+  const p = completionPathnameOnly(rawUrl);
+  if (p === '/') return '/';
+
+  const rawSegs = p.split('/').filter((s) => s.length > 0);
+  const out = [];
+  let sawAllowlistedStatic = false;
+
+  for (const rawSeg of rawSegs) {
+    const seg = safeDecodeURIComponent(rawSeg);
+    if (seg === ROUTE_ID_PLACEHOLDER || seg === ROUTE_REDACTED_PLACEHOLDER) {
+      out.push(seg);
+      continue;
+    }
+    // Legacy ALS placeholders → `:id` (never emit raw business placeholder names).
+    if (/^:[A-Za-z_][A-Za-z0-9_]*$/.test(seg)) {
+      out.push(ROUTE_ID_PLACEHOLDER);
+      continue;
+    }
+    if (isRecognizedIdSegment(seg)) {
+      out.push(ROUTE_ID_PLACEHOLDER);
+      continue;
+    }
+    if (ROUTE_STATIC_SEGMENT_SET.has(seg)) {
+      out.push(seg);
+      sawAllowlistedStatic = true;
+      continue;
+    }
+    out.push(ROUTE_REDACTED_PLACEHOLDER);
+  }
+
+  if (out.length === 0) return '/';
+  if (!sawAllowlistedStatic) return ROUTE_UNMATCHED;
+
+  let route = `/${out.join('/')}`;
+  if (route.length > ROUTE_MAX_LEN) {
+    route = route.slice(0, ROUTE_MAX_LEN);
+  }
+  return route;
+}
+
+/**
  * Build allowlisted completion record. Never includes query/raw URL/headers/body/PII.
  * @param {{
  *   request_id?: unknown,
@@ -136,10 +422,7 @@ function buildRequestCompletedRecord(fields) {
   }
 
   const method = allowlistMethod(fields.method);
-  let route = typeof fields.route === 'string' ? fields.route : '/';
-  if (!route || route.includes('?') || route.includes('#')) {
-    route = normalizeRoute(route);
-  }
+  let route = normalizeCompletionRoute(fields.route);
   if (typeof route !== 'string' || !route.startsWith('/') || route.includes('?') || route.includes('#')) {
     route = '/';
   }
@@ -184,7 +467,9 @@ function defaultCompletionLogger(record) {
 let completionLogger = defaultCompletionLogger;
 
 /**
- * Test harness override. Pass null to restore default console logger.
+ * Test harness override on THIS module instance. Pass null to restore default.
+ * Prefer createStaffQueryApiHttpServer({ completionLogger }) for listener proofs —
+ * cache-cleared staff-query-api may hold a different module instance.
  * @param {((record: object) => void) | null} fn
  */
 function setCompletionLogger(fn) {
@@ -194,12 +479,15 @@ function setCompletionLogger(fn) {
 /**
  * Emit exactly one allowlisted completion record for normal handler settlement.
  * Logger failures are swallowed — must not alter response/handler/process semantics.
- * Reads request_id / method / route / tenant from ALS (16J); status from res.statusCode.
+ * Reads request_id / method / tenant from ALS (16J); route from rawUrl (fail-closed)
+ * when provided, else ALS route; status from res.statusCode.
  *
  * @param {{
  *   startedAtMs: number,
  *   res?: { statusCode?: number },
  *   trustedTenantSlug?: unknown,
+ *   rawUrl?: unknown,
+ *   logger?: ((record: object) => void) | null,
  * }} opts
  */
 function emitStaffApiRequestCompleted(opts) {
@@ -220,20 +508,29 @@ function emitStaffApiRequestCompleted(opts) {
       ? opts.trustedTenantSlug
       : (ctx.tenantSlug || null);
 
+    const routeSource = opts && Object.prototype.hasOwnProperty.call(opts, 'rawUrl')
+      ? opts.rawUrl
+      : (ctx.route || '/');
+
     const record = buildRequestCompletedRecord({
       request_id: ctx.requestId,
       tenant_slug: trusted,
       method: ctx.method,
-      route: ctx.route,
+      route: routeSource,
       status_code: opts && opts.res ? opts.res.statusCode : 0,
       duration_ms: elapsed,
     });
     if (!record) return;
 
+    const logger = opts && typeof opts.logger === 'function'
+      ? opts.logger
+      : completionLogger;
+
     try {
-      completionLogger(record);
+      logger(record);
     } catch (_) {
       // Logger failure must not alter response / handler rejection / process semantics.
+      // No console fallback — exactly zero completion JSON when injected logger throws.
     }
   } catch (_) {
     // Never let completion logging break the request path.
@@ -269,6 +566,16 @@ function assertSafeRequestCompletedRecord(event) {
   }
   if (typeof event.route !== 'string' || !event.route || event.route.includes('?') || event.route.includes('#')) {
     return { ok: false, detail: 'bad_route' };
+  }
+  // Fail-closed route: only `/`, allowlisted static segments, `:id`, `:redacted`, or `/:unmatched`.
+  if (event.route !== '/' && event.route !== ROUTE_UNMATCHED) {
+    const segs = event.route.split('/').filter((s) => s.length > 0);
+    for (const seg of segs) {
+      if (seg === ROUTE_ID_PLACEHOLDER || seg === ROUTE_REDACTED_PLACEHOLDER) continue;
+      if (!ROUTE_STATIC_SEGMENT_SET.has(seg)) {
+        return { ok: false, detail: `route_non_allowlisted_segment:${seg}` };
+      }
+    }
   }
   if (!Number.isFinite(event.status_code)
     || event.status_code < 0
@@ -324,12 +631,21 @@ module.exports = {
   ALLOWED_METHODS,
   EVENT_ALLOWED_KEYS,
   FORBIDDEN_EVENT_KEYS,
+  ROUTE_STATIC_SEGMENT_ALLOWLIST,
+  ROUTE_ID_PLACEHOLDER,
+  ROUTE_REDACTED_PLACEHOLDER,
+  ROUTE_UNMATCHED,
   allowlistMethod,
   boundStatusCode,
   bucketDurationMs,
+  safeDecodeURIComponent,
+  completionPathnameOnly,
+  isRecognizedIdSegment,
+  normalizeCompletionRoute,
   buildRequestCompletedRecord,
   emitStaffApiRequestCompleted,
   setCompletionLogger,
+  defaultCompletionLogger,
   assertSafeRequestCompletedRecord,
   parseCompletionRecordsFromConsole,
 };

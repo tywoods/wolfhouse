@@ -30,7 +30,7 @@ Add **safe synchronous normal-completion structured request logs** for Staff API
 | `request_id` | from ALS (16J) |
 | `tenant_slug` | trusted construction binding only (else omit) |
 | `method` | allowlisted + uppercased |
-| `route` | normalized pathname only; no query/fragments; common UUID/numeric IDs replaced |
+| `route` | fail-closed allowlisted static segments only; IDs → `:id`; else `:redacted` or `/:unmatched`; no query/fragment |
 | `status_code` | `res.statusCode` bounded integer |
 | `duration_ms` | round UP to 5ms; cap 300000 |
 
