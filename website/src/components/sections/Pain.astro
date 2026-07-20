@@ -1,0 +1,148 @@
+---
+// Pain — empathetic, editorial. Light sand canvas.
+// A grid of honest friction points that front-desk-heavy hospitality teams recognise.
+---
+
+<section id="pain" class="section">
+  <div class="container">
+
+    <div class="pain__header stack" data-animate>
+      <p class="eyebrow">The front-desk reality</p>
+      <h2 class="pain__heading">
+        Your WhatsApp never&nbsp;clocks&nbsp;off.<br />
+        <span class="pain__heading--muted">You have to.</span>
+      </h2>
+      <p class="lead">
+        Running a hospitality or activity business on WhatsApp works — until it
+        doesn't. The same friction shows up everywhere, every season.
+      </p>
+    </div>
+
+    <ul class="pain__grid" role="list" data-animate>
+
+      <li class="pain__card">
+        <span class="pain__icon" aria-hidden="true">🔁</span>
+        <h3 class="pain__card-title">The same questions, forever</h3>
+        <p>
+          "What time does the lesson start?" "Do you have boards for kids?"
+          "Is the 10 o'clock still available?" Every day, the same ten
+          messages — typed out fresh each time.
+        </p>
+      </li>
+
+      <li class="pain__card">
+        <span class="pain__icon" aria-hidden="true">📵</span>
+        <h3 class="pain__card-title">Messages land at the worst moments</h3>
+        <p>
+          In the water during a lesson. At check-in with a queue at the door.
+          After dinner on a Sunday. Guests don't wait; leads go cold in under
+          an hour.
+        </p>
+      </li>
+
+      <li class="pain__card">
+        <span class="pain__icon" aria-hidden="true">🗂️</span>
+        <h3 class="pain__card-title">Availability lives in your head</h3>
+        <p>
+          Prices in one spreadsheet, session slots in a calendar, rules in
+          a notes app. Every team member has a slightly different version of
+          the truth. Guests sense it.
+        </p>
+      </li>
+
+      <li class="pain__card">
+        <span class="pain__icon" aria-hidden="true">🤷</span>
+        <h3 class="pain__card-title">Inconsistent answers erode trust</h3>
+        <p>
+          One staff member quotes Monday's price. Another quotes last
+          season's. The guest screenshots both and asks which one is real.
+          That conversation takes twenty minutes to unpick.
+        </p>
+      </li>
+
+      <li class="pain__card">
+        <span class="pain__icon" aria-hidden="true">🪤</span>
+        <h3 class="pain__card-title">The owner becomes the bottleneck</h3>
+        <p>
+          Complex questions always float up. Staff forward the tricky ones
+          "just to be safe." You're answering WhatsApp on your days off
+          because nobody else knows the full picture.
+        </p>
+      </li>
+
+      <li class="pain__card">
+        <span class="pain__icon" aria-hidden="true">🤖</span>
+        <h3 class="pain__card-title">Generic chatbots make things worse</h3>
+        <p>
+          Off-the-shelf bots confidently invent answers, quote wrong prices,
+          and promise availability you don't have. Guests lose trust. Staff
+          spend time fixing what the bot got wrong.
+        </p>
+      </li>
+
+    </ul>
+
+  </div>
+</section>
+
+<style>
+  .pain__header { max-width: 680px; }
+
+  .pain__heading { font-size: var(--step-4); margin-top: var(--space-xs); }
+  .pain__heading--muted {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  /* 2-col on tablet, 3-col on desktop, 1-col on mobile */
+  .pain__grid {
+    list-style: none;
+    padding: 0;
+    margin-top: var(--space-2xl);
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-m);
+  }
+  @media (min-width: 560px) {
+    .pain__grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (min-width: 900px) {
+    .pain__grid { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  .pain__card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-l);
+    padding: var(--space-l);
+    box-shadow: var(--shadow-s);
+    /* subtle left accent bar */
+    border-left: 3px solid var(--sand-300);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-s);
+    transition: box-shadow var(--dur) var(--ease-out), border-left-color var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+  }
+  .pain__card:hover {
+    box-shadow: var(--shadow-m);
+    border-left-color: var(--terracotta-500);
+    transform: translateY(-2px);
+  }
+
+  .pain__icon { font-size: 1.5rem; display: block; line-height: 1; }
+
+  .pain__card-title {
+    font-size: var(--step-0);
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    color: var(--ink-900);
+  }
+
+  .pain__card p {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+    line-height: 1.65;
+  }
+</style>

@@ -1,0 +1,133 @@
+---
+/**
+ * FinalCta — closing band before the footer.
+ * Terracotta-accented night canvas; anchors back to #lead.
+ */
+---
+
+<section class="final-cta night section--tight" aria-label="Final call to action">
+  <div class="final-cta__glow" aria-hidden="true"></div>
+  <div class="container final-cta__inner">
+
+    <div class="final-cta__content" data-animate>
+      <p class="eyebrow eyebrow--moon">Ready to hand over the repetition?</p>
+
+      <h2 class="final-cta__heading">
+        Imagine this running on your&nbsp;WhatsApp — with your availability,
+        prices, rules and&nbsp;<span class="final-cta__accent">tone.</span>
+      </h2>
+
+      <p class="lead final-cta__lead">
+        Luna doesn't replace your team. It handles the queue so your team can
+        focus on the guests who are actually in front of them.
+      </p>
+
+      <div class="final-cta__actions">
+        <a href="#lead" class="btn btn--primary">Show me Luna for my business</a>
+        <a href="#demo" class="btn btn--ghost-night">Try the demo first ↑</a>
+      </div>
+    </div>
+
+    <ul class="final-cta__proofs" data-animate aria-label="Key outcomes">
+      <li class="final-cta__proof">
+        <span class="final-cta__proof-mark" aria-hidden="true">◷</span>
+        <span>Answers enquiries around the clock — no staff needed</span>
+      </li>
+      <li class="final-cta__proof">
+        <span class="final-cta__proof-mark" aria-hidden="true">✓</span>
+        <span>Only quotes prices and availability from your actual data</span>
+      </li>
+      <li class="final-cta__proof">
+        <span class="final-cta__proof-mark" aria-hidden="true">❏</span>
+        <span>Every conversation visible to your team, handoff any time</span>
+      </li>
+      <li class="final-cta__proof">
+        <span class="final-cta__proof-mark" aria-hidden="true">◎</span>
+        <span>Set up in days — no code, no long contracts</span>
+      </li>
+    </ul>
+
+  </div>
+</section>
+
+<style>
+  .final-cta {
+    position: relative;
+    overflow: hidden;
+    border-top: 1px solid var(--night-border);
+  }
+
+  .final-cta__glow {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 80% 50%, rgba(224, 122, 95, 0.18), transparent 60%),
+      radial-gradient(ellipse at 10% 80%, rgba(183, 179, 236, 0.14), transparent 55%);
+    pointer-events: none;
+  }
+
+  .final-cta__inner {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-2xl);
+    align-items: center;
+  }
+
+  @media (min-width: 820px) {
+    .final-cta__inner {
+      grid-template-columns: 1fr 320px;
+    }
+  }
+
+  /* ---- Headline ---- */
+  .final-cta__heading {
+    font-size: var(--step-3);
+    color: var(--night-text);
+    margin-top: var(--space-s);
+    max-width: 22ch;
+  }
+
+  .final-cta__accent {
+    color: var(--terracotta-400);
+    font-style: italic;
+  }
+
+  .final-cta__lead {
+    margin-top: var(--space-m);
+    color: var(--night-muted);
+  }
+
+  /* ---- Actions ---- */
+  .final-cta__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-s);
+    margin-top: var(--space-l);
+  }
+
+  /* ---- Proof list ---- */
+  .final-cta__proofs {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-m);
+  }
+
+  .final-cta__proof {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-s);
+    font-size: var(--step--1);
+    color: var(--night-muted);
+    line-height: 1.55;
+  }
+
+  .final-cta__proof-mark {
+    flex-shrink: 0;
+    font-size: 1rem;
+    color: var(--terracotta-400);
+    margin-top: 0.15em;
+  }
+</style>

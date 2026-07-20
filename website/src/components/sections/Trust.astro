@@ -1,0 +1,124 @@
+---
+// Trust — light section. Reassuring cards covering data provenance, isolation,
+// human handoff, write controls, auditability, and honest current state.
+// No invented certifications or compliance claims.
+
+const trustCards = [
+  {
+    icon: '📐',
+    title: 'Facts from your systems, not model guesses',
+    body: 'Availability, prices, and package details come from your configured business data — not from what the model happens to know. Luna will not invent a rate or promise a room it cannot verify.',
+  },
+  {
+    icon: '⚙️',
+    title: 'Configured per business',
+    body: 'Every rule, price band, tone of voice, and workflow is set explicitly for your operation. Nothing is shared between businesses, and nothing is assumed.',
+  },
+  {
+    icon: '🔒',
+    title: 'Complete tenant isolation',
+    body: "Each business operates as a separate tenant — your guest data, WhatsApp identity, and payment flows are isolated. Other Luna clients cannot access your data, and you cannot access theirs.",
+  },
+  {
+    icon: '🤝',
+    title: 'Human handoff, always available',
+    body: 'Any conversation can be paused and transferred to a staff member at any time — by the guest, by the bot when it is uncertain, or by your team proactively. Luna never blocks the path to a real person.',
+  },
+  {
+    icon: '✏️',
+    title: 'Controlled, approved writes only',
+    body: "Luna does not write bookings, send payment links, or update records without an explicit, bounded permission for that action. Anything outside the defined scope falls to a human.",
+  },
+  {
+    icon: '🔍',
+    title: 'Operational visibility',
+    body: 'Your team sees every conversation in real time via the staff portal. Activity logs capture what the bot said, what system data it used, and how each conversation resolved.',
+  },
+  {
+    icon: '🌱',
+    title: 'Honest about where we are',
+    body: 'Luna is in active development. Current customers run on a staging environment with direct oversight. Production deployments are gated and carried out with the customer alongside us.',
+  },
+] as const;
+---
+
+<section id="trust" class="section trust">
+  <div class="container">
+    <div class="trust__intro" data-animate>
+      <p class="eyebrow eyebrow--accent">Trust &amp; control</p>
+      <h2 class="trust__heading">You stay in control. Always.</h2>
+      <p class="lead">
+        An AI front desk is only useful if your team trusts it completely. Luna is designed
+        around clear constraints: it works from your data, respects your rules, and never
+        operates outside what you have explicitly approved.
+      </p>
+    </div>
+
+    <ul class="trust__grid" data-animate>
+      {trustCards.map((c, i) => (
+        <li class:list={['trust__card card', { 'trust__card--wide': i === trustCards.length - 1 && trustCards.length % 2 !== 0 }]}>
+          <span class="trust__card-icon" aria-hidden="true">{c.icon}</span>
+          <div class="trust__card-body">
+            <h3 class="trust__card-title">{c.title}</h3>
+            <p class="trust__card-text">{c.body}</p>
+          </div>
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>
+
+<style>
+  .trust { background: var(--sand-50); }
+
+  .trust__intro { max-width: 60ch; margin-bottom: var(--space-2xl); }
+  .trust__intro .eyebrow { margin-bottom: var(--space-xs); }
+  .trust__heading { font-size: var(--step-4); margin-top: var(--space-xs); margin-bottom: var(--space-m); }
+
+  .trust__grid {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+    gap: var(--space-m);
+  }
+
+  .trust__card {
+    display: flex;
+    gap: var(--space-m);
+    align-items: flex-start;
+    transition: box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  }
+  .trust__card:hover {
+    box-shadow: var(--shadow-m);
+    transform: translateY(-2px);
+  }
+
+  /* Last card spans full width on odd-count grids to avoid orphan half-card */
+  @media (min-width: 720px) {
+    .trust__card--wide { grid-column: 1 / -1; max-width: 540px; }
+  }
+
+  .trust__card-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .trust__card-body { display: flex; flex-direction: column; gap: var(--space-2xs); }
+
+  .trust__card-title {
+    font-family: var(--font-display);
+    font-size: var(--step-0);
+    font-weight: 550;
+    color: var(--ink-900);
+    line-height: 1.25;
+  }
+
+  .trust__card-text {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+</style>

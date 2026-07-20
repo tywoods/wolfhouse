@@ -1,0 +1,135 @@
+import { describe, it, expect } from 'vitest';
+import {
+  validateLead,
+  looksLikeEmail,
+  extractUtmParams,
+  type LeadInput,
+} from './leadSchema';
+
+const validInput: LeadInput = {
+  name: 'Maria Garcia',
+  businessName: 'Surf & Stay Hostel',
+  contact: 'maria@surfstay.com',
+  businessType: 'hostel',
+  volumeBucket: '50_150',
+  freeText: 'Mostly handle availability questions on WhatsApp.',
+};
+
+describe('validateLead', () => {
+  it('passes for a fully valid input', () => {
+    const result = validateLead(validInput);
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual({});
+  });
+
+  it('passes when contact is a WhatsApp/phone number', () => {
+    const result = validateLead({ ...validInput, contact: '+34 663 123 456' });
+    expect(result.ok).toBe(true);
+  });
+
+  it('passes when volumeBucket and freeText are empty (both optional)', () => {
+    const result = validateLead({ ...validInput, volumeBucket: '', freeText: '' });
+    expect(result.ok).toBe(true);
+  });
+
+  it('fails when name is missing', () => {
+    const result = validateLead({ ...validInput, name: '' });
+    expect(result.ok).toBe(false);
+    expect(result.errors.name).toBeTruthy();
+  });
+
+  it('fails when name is only whitespace', () => {
+    const result = validateLead({ ...validInput, name: '   ' });
+    expect(result.ok).toBe(false);
+    expect(result.errors.name).toBeTruthy();
+  });
+
+  it('fails when businessName is missing', () => {
+    const result = validateLead({ ...validInput, businessName: '' });
+    expect(result.ok).toBe(false);
+    expect(result.errors.businessName).toBeTruthy();
+  });
+
+  it('fails when contact is empty', () => {
+    const result = validateLead({ ...validInput, contact: '' });
+    expect(result.ok).toBe(false);
+    expect(result.errors.contact).toBeTruthy();
+  });
+
+  it('fails when businessType is empty', () => {
+    const result = validateLead({ ...validInput, businessType: '' });
+    expect(result.ok).toBe(false);
+    expect(result.errors.businessType).toBeTruthy();
+  });
+
+  it('reports multiple errors at once', () => {
+    const result = validateLead({
+      name: '',
+      businessName: '',
+      contact: '',
+      businessType: '',
+      volumeBucket: '',
+    });
+    expect(result.ok).toBe(false);
+    expect(Object.keys(result.errors).length).toBe(4);
+  });
+});
+
+describe('looksLikeEmail', () => {
+  it('accepts a well-formed email', () => {
+    expect(looksLikeEmail('hello@example.com')).toBe(true);
+  });
+
+  it('accepts email with subdomain', () => {
+    expect(looksLikeEmail('user@mail.example.co.uk')).toBe(true);
+  });
+
+  it('rejects a string with no @', () => {
+    expect(looksLikeEmail('+34 663 123 456')).toBe(false);
+  });
+
+  it('rejects an incomplete email (missing TLD)', () => {
+    expect(looksLikeEmail('user@domain')).toBe(false);
+  });
+
+  it('rejects an empty string', () => {
+    expect(looksLikeEmail('')).toBe(false);
+  });
+
+  it('rejects a string with spaces in the local part', () => {
+    expect(looksLikeEmail('hello world@example.com')).toBe(false);
+  });
+});
+
+describe('extractUtmParams', () => {
+  it('keeps only allowlisted utm_* and ref keys', () => {
+    const result = extractUtmParams('?utm_source=google&utm_medium=cpc&evil_key=drop&ref=homepage');
+    expect(result.utm_source).toBe('google');
+    expect(result.utm_medium).toBe('cpc');
+    expect(result.ref).toBe('homepage');
+    expect((result as Record<string, unknown>)['evil_key']).toBeUndefined();
+  });
+
+  it('returns an empty object when no utm params present', () => {
+    const result = extractUtmParams('?page=1&other=val');
+    expect(result).toEqual({});
+  });
+
+  it('truncates values longer than 128 characters', () => {
+    const longValue = 'a'.repeat(200);
+    const result = extractUtmParams(`?utm_campaign=${longValue}`);
+    expect(result.utm_campaign).toHaveLength(128);
+  });
+
+  it('accepts URLSearchParams directly', () => {
+    const params = new URLSearchParams('utm_source=twitter&utm_content=banner');
+    const result = extractUtmParams(params);
+    expect(result.utm_source).toBe('twitter');
+    expect(result.utm_content).toBe('banner');
+  });
+
+  it('does not include keys with null values', () => {
+    const result = extractUtmParams('?utm_source=fb');
+    expect('utm_medium' in result).toBe(false);
+  });
+});

@@ -1,0 +1,258 @@
+---
+// NotAChatbot — light sand canvas. Two-column compare table.
+// Luna column is visually favoured; Generic column is honest, not mocking.
+---
+
+<section id="not-a-chatbot" class="section">
+  <div class="container">
+
+    <div class="nac__header stack" data-animate>
+      <p class="eyebrow">Why it's different</p>
+      <h2 class="nac__heading">
+        Not a chatbot.<br />
+        <span class="nac__heading--accent">An operational layer.</span>
+      </h2>
+      <p class="lead">
+        Generic chatbots are built to reply. Luna is built to handle — with
+        access to your real data, clear limits on what it won't guess, and
+        a clean path to a human when one is genuinely needed.
+      </p>
+    </div>
+
+    <div class="nac__compare" data-animate aria-label="Comparison: Generic chatbot vs Luna">
+
+      <!-- Generic chatbot column -->
+      <div class="nac__col nac__col--generic">
+        <div class="nac__col-header">
+          <span class="nac__col-kicker">Generic chatbot</span>
+          <h3 class="nac__col-title">Answers questions.<br />Creates new ones.</h3>
+        </div>
+        <ul class="nac__list" role="list">
+          <li class="nac__item nac__item--minus">
+            <span class="nac__bullet nac__bullet--minus" aria-label="Limitation">✕</span>
+            <div>
+              <strong>Generic answers</strong>
+              <p>Responds from a static FAQ or a trained persona — not from
+              your actual schedule, prices, or house rules.</p>
+            </div>
+          </li>
+          <li class="nac__item nac__item--minus">
+            <span class="nac__bullet nac__bullet--minus" aria-label="Limitation">✕</span>
+            <div>
+              <strong>Disconnected from availability</strong>
+              <p>Can't see your calendar, your session capacity, or what's
+              already booked. Confirmation is always provisional.</p>
+            </div>
+          </li>
+          <li class="nac__item nac__item--minus">
+            <span class="nac__bullet nac__bullet--minus" aria-label="Limitation">✕</span>
+            <div>
+              <strong>Invents facts under pressure</strong>
+              <p>When the guest asks something outside the script, it fills
+              the gap with plausible-sounding information that may simply
+              be wrong.</p>
+            </div>
+          </li>
+          <li class="nac__item nac__item--minus">
+            <span class="nac__bullet nac__bullet--minus" aria-label="Limitation">✕</span>
+            <div>
+              <strong>Sends staff back to manual work</strong>
+              <p>Conversations still need to be re-read, prices double-checked,
+              and bookings manually entered. The bot saved no actual time.</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Luna column — favoured styling -->
+      <div class="nac__col nac__col--luna">
+        <div class="nac__col-header">
+          <span class="nac__col-kicker nac__col-kicker--luna">Luna</span>
+          <h3 class="nac__col-title nac__col-title--luna">Grounded in your<br />real business.</h3>
+        </div>
+        <ul class="nac__list" role="list">
+          <li class="nac__item">
+            <span class="nac__bullet nac__bullet--check" aria-label="Feature">✓</span>
+            <div>
+              <strong>Business-specific by design</strong>
+              <p>Every reply draws from your actual packages, policies, and
+              tone — not a generic hospitality template.</p>
+            </div>
+          </li>
+          <li class="nac__item">
+            <span class="nac__bullet nac__bullet--check" aria-label="Feature">✓</span>
+            <div>
+              <strong>Grounded in real tools &amp; data</strong>
+              <p>Luna checks live availability and configured pricing before
+              it says anything about slots or costs. No guessing.</p>
+            </div>
+          </li>
+          <li class="nac__item">
+            <span class="nac__bullet nac__bullet--check" aria-label="Feature">✓</span>
+            <div>
+              <strong>Clear safety boundaries</strong>
+              <p>When it doesn't know, it says so. Luna won't invent an
+              answer to keep the conversation moving — it asks, or escalates.</p>
+            </div>
+          </li>
+          <li class="nac__item">
+            <span class="nac__bullet nac__bullet--check" aria-label="Feature">✓</span>
+            <div>
+              <strong>Knows when a human should step in</strong>
+              <p>Complaints, edge cases, or anything that needs discretion
+              get flagged and handed off cleanly — with the full conversation
+              context already waiting for staff.</p>
+            </div>
+          </li>
+        </ul>
+        <div class="nac__luna-cta">
+          <a href="#lead" class="btn btn--primary">See Luna for my business</a>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+<style>
+  .nac__header { max-width: 680px; }
+  .nac__heading { font-size: var(--step-4); margin-top: var(--space-xs); }
+  .nac__heading--accent {
+    color: var(--seaglass-600);
+    font-style: italic;
+  }
+
+  /* Two-column compare layout */
+  .nac__compare {
+    margin-top: var(--space-2xl);
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-m);
+    align-items: start;
+  }
+  @media (min-width: 700px) {
+    .nac__compare { grid-template-columns: 1fr 1fr; }
+  }
+
+  /* ---- Shared column base ---- */
+  .nac__col {
+    border-radius: var(--radius-xl);
+    padding: var(--space-xl);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-l);
+  }
+
+  /* Generic column — muted, recessed */
+  .nac__col--generic {
+    background: var(--sand-100);
+    border: 1px solid var(--border);
+  }
+
+  /* Luna column — elevated, indigo-accented */
+  .nac__col--luna {
+    background: var(--ink-900);
+    border: 1px solid var(--night-border);
+    box-shadow: var(--shadow-l);
+    color: var(--night-text);
+    /* Subtle inner glow */
+    background-image: radial-gradient(ellipse at 80% 0%, rgba(183,179,236,0.12), transparent 60%);
+  }
+
+  /* ---- Column header ---- */
+  .nac__col-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding-bottom: var(--space-m);
+    border-bottom: 1px solid var(--border);
+  }
+  .nac__col--luna .nac__col-header { border-bottom-color: var(--night-border); }
+
+  .nac__col-kicker {
+    font-family: var(--font-sans);
+    font-size: var(--step--1);
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .nac__col-kicker--luna {
+    color: var(--moon-300);
+    letter-spacing: 0.14em;
+  }
+
+  .nac__col-title {
+    font-family: var(--font-display);
+    font-size: var(--step-1);
+    font-weight: 550;
+    line-height: 1.15;
+    color: var(--ink-900);
+  }
+  .nac__col-title--luna { color: var(--night-text); }
+
+  /* ---- Lists ---- */
+  .nac__list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-m);
+  }
+
+  .nac__item {
+    display: grid;
+    grid-template-columns: 1.5rem 1fr;
+    gap: var(--space-s);
+    align-items: start;
+  }
+  /* Dimmer text in generic column */
+  .nac__item--minus strong { color: var(--text-muted); }
+  .nac__item--minus p { color: var(--text-faint); }
+
+  /* Normal text in Luna column */
+  .nac__col--luna .nac__item strong { color: var(--night-text); }
+  .nac__col--luna .nac__item p { color: var(--night-muted); }
+
+  .nac__item strong {
+    display: block;
+    font-size: var(--step--1);
+    font-weight: 600;
+    line-height: 1.3;
+    margin-bottom: 0.25em;
+  }
+  .nac__item p {
+    font-size: var(--step--1);
+    line-height: 1.65;
+    color: var(--text-muted);
+  }
+
+  /* ---- Bullets ---- */
+  .nac__bullet {
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: var(--radius-pill);
+    font-size: 0.7rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 0.1em;
+  }
+  .nac__bullet--minus {
+    background: var(--sand-200);
+    color: var(--text-faint);
+  }
+  .nac__bullet--check {
+    background: var(--seaglass-600);
+    color: #fff;
+  }
+
+  /* ---- CTA at base of Luna column ---- */
+  .nac__luna-cta {
+    padding-top: var(--space-s);
+    border-top: 1px solid var(--night-border);
+  }
+</style>
