@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16P",
-  "title": "RADAR operations gate ledger (16P live-drill evidence reconciliation \u2014 partial/live-proven)",
-  "master_basis": "594247f12a823e9b90140c56eb8645b057e1fd37",
-  "branch": "radar/slice-16p-live-drill-evidence",
+  "slice": "RADAR-16Q",
+  "title": "RADAR operations gate ledger (16Q readiness-failure drill harness \u2014 source-partial)",
+  "master_basis": "06b7a3f2173863afa81bfc557cd31cbd3e80d6c1",
+  "branch": "radar/slice-16q-readiness-failure-drill-harness",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -95,7 +95,7 @@
       "name": "Readiness / dependencies",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P records operator-observed live proof that after 16O image SHA 594247f deploy (Wolfhouse rev 0000514, Sunset 0000274) and after rollback/rollforward (WH 0000515\u21920000516, Sunset 0000275\u21920000276), health/readiness passed on both tenants with final image 594247f. Partial/live-proven for healthy path only \u2014 controlled dependency-failure traffic-shed drill and closeReadinessPool lifecycle integration remain open. Does not claim dependency failure.",
+      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P records operator-observed live proof that after 16O image SHA 594247f deploy (Wolfhouse rev 0000514, Sunset 0000274) and after rollback/rollforward (WH 0000515\u21920000516, Sunset 0000275\u21920000276), health/readiness passed on both tenants with final image 594247f. 16Q adds a fail-closed operator harness (source-partial only) for a controlled ACA database-readiness failure + exact restoration (WOLFHOUSE_DATABASE_URL secretRef\u2192unreachable non-secret DSN; default dry-run; --apply requires exact confirm token). Does NOT execute or claim the live dependency-failure traffic-shed drill.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-readiness.js",
@@ -139,6 +139,36 @@
             "Startup"
           ],
           "note": "Identical probe contract to Wolfhouse staging (drift-gated)"
+        },
+        {
+          "path": "scripts/lib/radar-slice16q-readiness-failure-drill-harness.js",
+          "lines": "1-120",
+          "symbols": [
+            "CONFIRM_TOKEN",
+            "buildFailureTemplate",
+            "installCleanupTrap",
+            "runHarness"
+          ],
+          "note": "16Q fail-closed harness locks + narrow template + trap restore (source only)"
+        },
+        {
+          "path": "scripts/radar-slice16q-readiness-failure-drill.js",
+          "lines": "1-80",
+          "symbols": [
+            "main",
+            "applyTemplate",
+            "showApp"
+          ],
+          "note": "Operator CLI; default dry-run; never prints secret values"
+        },
+        {
+          "path": "scripts/verify-radar-slice16q-readiness-failure-drill-harness.js",
+          "lines": "1-80",
+          "symbols": [
+            "RED",
+            "GREEN"
+          ],
+          "note": "Offline RED/GREEN for every refuse point + restoration"
         }
       ],
       "live_evidence": [
@@ -161,6 +191,7 @@
       ],
       "gaps": [
         "Controlled readiness failure drill (traffic shed without restart loops) not executed",
+        "16Q harness shipped source-only; live --apply drill not run in this slice",
         "closeReadinessPool not yet wired into Staff API graceful shutdown lifecycle",
         "Dependency-failure path not claimed by 16P"
       ],
@@ -1126,6 +1157,51 @@
         "Push branch; no PR/merge; no deploy by this slice"
       ],
       "pass_rule": "Evidence matches locks; overclaims rejected; proven=0; runtime paths unchanged vs master 594247f"
+    }
+  },
+  "slice_16q_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16Q_readiness_failure_drill_harness",
+    "gate_id": "G02_readiness_dependencies",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_apply_dependency_failure_traffic_shed",
+    "title": "Fail-closed ACA database-readiness failure drill harness with exact restoration \u2014 source partial only",
+    "why_smallest": "G02 still lacked an operator-owned, fail-closed, restorable readiness-failure drill harness; ship source + offline proofs without live mutation.",
+    "owner_files": [
+      "scripts/lib/radar-slice16q-readiness-failure-drill-harness.js",
+      "scripts/radar-slice16q-readiness-failure-drill.js",
+      "scripts/verify-radar-slice16q-readiness-failure-drill-harness.js",
+      "fixtures/radar-operations/slice16q-expected-contract.json"
+    ],
+    "out_of_scope_for_16q": [
+      "Live --apply execution on Wolfhouse or Sunset",
+      "Claiming live dependency-failure traffic-shed",
+      "Production RGs/hosts",
+      "Secret value reads",
+      "Staff API / Bicep runtime changes",
+      "Raising any gate verdict to proven"
+    ],
+    "acceptance_criteria": [
+      "CLI default dry-run; --apply requires --tenant wolfhouse|sunset and exact confirm token",
+      "Pins staging RG/app/URL, WOLFHOUSE_DATABASE_URL, image SHA 594247f",
+      "Captures template/revisions/image/probes to temp outside repo; cleanup trap before mutation",
+      "Temporary template changes only database env secretRef\u2192unreachable non-secret DSN",
+      "Observation contract: failed rev Running/started=true/ready=false/restartCount=0 not latest-ready; public old health/ready 200",
+      "Always restores exact original template; verifies image/probes/secretRef/endpoints",
+      "Offline RED/GREEN covers every refuse point + restoration",
+      "Ledger source-partial only; no live claims"
+    ],
+    "final_controlled_drill": {
+      "id": "16Q_DRILL_readiness_failure_traffic_shed_harness",
+      "steps": [
+        "Dry-run plan per tenant",
+        "Offline RED/GREEN verifier",
+        "Future approved live --apply with exact confirm token (not this slice)",
+        "Freeze redacted evidence JSON"
+      ],
+      "pass_rule": "Harness fail-closed + restore proven offline; live drill remains open",
+      "status": "source_only_harness_not_executed"
     }
   }
 }

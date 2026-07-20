@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16P",
-  "outcome_id": "16P_live_drill_evidence_reconciliation",
-  "master_basis": "594247f12a823e9b90140c56eb8645b057e1fd37",
-  "branch": "radar/slice-16p-live-drill-evidence",
+  "slice": "RADAR-16Q",
+  "outcome_id": "16Q_readiness_failure_drill_harness",
+  "master_basis": "06b7a3f2173863afa81bfc557cd31cbd3e80d6c1",
+  "branch": "radar/slice-16q-readiness-failure-drill-harness",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Reconcile bounded 16O live-drill evidence \u2014 G02/G03/G07/G08/G09 partial/live-proven",
-  "progress_class": "partial_live_proven_evidence_only",
-  "does_not_implement": "human_inbox_organic_alert_production_abrupt_retention_search_dependency_failure_real_pg_completion_logging",
+  "title": "Fail-closed ACA readiness-failure drill harness \u2014 G02 source-partial (no live apply)",
+  "progress_class": "source_partial_progress_only",
+  "does_not_implement": "live_apply_dependency_failure_traffic_shed",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -55,7 +55,11 @@
     "fixtures/radar-operations/slice16p-live-drill-evidence.json",
     "fixtures/radar-operations/slice16p-expected-contract.json",
     "scripts/lib/radar-slice16p-live-drill-evidence.js",
-    "scripts/verify-radar-slice16p-live-drill-evidence.js"
+    "scripts/verify-radar-slice16p-live-drill-evidence.js",
+    "fixtures/radar-operations/slice16q-expected-contract.json",
+    "scripts/lib/radar-slice16q-readiness-failure-drill-harness.js",
+    "scripts/radar-slice16q-readiness-failure-drill.js",
+    "scripts/verify-radar-slice16q-readiness-failure-drill-harness.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -107,6 +111,7 @@
     "note": "16P evidence-only; no runtime mutation; records prior operator live drill"
   },
   "gates": [
+    "npm run verify:radar-slice16q-readiness-failure-drill-harness",
     "npm run verify:radar-slice16p-live-drill-evidence",
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:radar-slice16l-staff-api-capacity-alerts",
@@ -114,7 +119,7 @@
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 594247f12a823e9b90140c56eb8645b057e1fd37..HEAD"
+    "git diff --check 06b7a3f2173863afa81bfc557cd31cbd3e80d6c1..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -231,5 +236,13 @@
     "gate_id": "G08_retention_privacy",
     "progress_class": "partial_live_proven_evidence_only",
     "does_not_implement": "human_inbox_organic_alert_production_abrupt_retention_search_dependency_failure_real_pg_completion_logging"
-  }
+  },
+  "selected_16q": {
+    "outcome_id": "16Q_readiness_failure_drill_harness",
+    "gate_id": "G02_readiness_dependencies",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_apply_dependency_failure_traffic_shed"
+  },
+  "readiness_failure_drill_live": "open",
+  "readiness_failure_drill_harness": "source_partial_via_16Q"
 }

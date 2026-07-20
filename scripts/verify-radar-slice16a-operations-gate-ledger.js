@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '594247f12a823e9b90140c56eb8645b057e1fd37';
+const MASTER_BASIS = '06b7a3f2173863afa81bfc557cd31cbd3e80d6c1';
+const BRANCH_16Q = 'radar/slice-16q-readiness-failure-drill-harness';
 const BRANCH_16P = 'radar/slice-16p-live-drill-evidence';
 const BRANCH_16O = 'radar/slice-16o-stripe-webhook-error-minimization';
 const VERDICTS = new Set(['proven', 'partial', 'absent']);
@@ -344,12 +345,13 @@ const blob = [
 const sec = secretFree(blob, 'fixtures+doc');
 ok('F32 secret-free fixtures and doc', sec.ok, sec.detail);
 
-ok('F33 doc mentions selected 16P id', /16P_live_drill_evidence_reconciliation/.test(doc));
-ok('F33b doc retains 16O id', /16O_stripe_webhook_error_minimization/.test(doc));
+ok('F33 doc mentions selected 16Q id', /16Q_readiness_failure_drill_harness/.test(doc));
+ok('F33b doc retains 16P id', /16P_live_drill_evidence_reconciliation/.test(doc));
+ok('F33c doc retains 16O id', /16O_stripe_webhook_error_minimization/.test(doc));
 ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /partial.*9/i.test(doc) && /absent.*0/i.test(doc));
 ok('F35 findings lists G01/G02/G03/G05/G06/G08/G09 partial',
   /G01/.test(findings) && /G02/.test(findings) && /G03/.test(findings) && /G05/.test(findings) && /G06/.test(findings) && /G08/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
-  && /16O/.test(findings) && /16P/.test(findings));
+  && /16O/.test(findings) && /16P/.test(findings) && /16Q/.test(findings));
 
 ok('F36 healthz source cite present', pathExists('scripts/staff-query-api.js'));
 ok('F37 capture cost script present (read-only helper)',
@@ -358,7 +360,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 zero-mutation: database/Hermes/StaffAPI/Bicep/16H/16B unchanged vs master basis (16P evidence-only)', rt.ok, rt.detail);
+ok('F39 zero-mutation: database/Hermes/StaffAPI/Bicep/16H/16B unchanged vs master basis (16Q harness-only)', rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
   matrix.final_controlled_drill_16a
@@ -373,25 +375,30 @@ ok('F44 contract gates pin range diff --check',
   && contract.gates.some((g) => g === `git diff --check ${MASTER_BASIS}..HEAD`));
 
 const g02 = matrix.gates.find((g) => g.id === 'G02_readiness_dependencies');
-ok('F45 G02 partial_live_proven via 16P (healthy path; 16I source retained)',
+ok('F45 G02 partial_live_proven via 16P healthy path; 16Q harness source-partial (live drill open)',
   g02 && g02.verdict === 'partial'
   && g02.progress_class === 'partial_live_proven'
   && /readyz|health\/ready|health.ready/i.test(g02.rationale)
-  && (/16I/.test(g02.rationale) || /16P/.test(g02.rationale)));
+  && /16Q/.test(g02.rationale)
+  && (/16I/.test(g02.rationale) || /16P/.test(g02.rationale))
+  && g02.gaps.some((x) => /failure drill|dependency-failure|not executed/i.test(x)));
 ok('F46 readiness lib present', pathExists('scripts/lib/staff-api-readiness.js'));
 ok('F47 16I verifier script present',
   pathExists('scripts/verify-radar-slice16i-staff-api-readiness.js'));
 
+const slice16qContract = readJson(path.join(FIXTURE_DIR, 'slice16q-expected-contract.json'));
 const slice16pContract = readJson(path.join(FIXTURE_DIR, 'slice16p-expected-contract.json'));
 const slice16oContract = readJson(path.join(FIXTURE_DIR, 'slice16o-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16P contract + HEAD',
-  matrix.branch === BRANCH_16P
-  && contract.branch === BRANCH_16P
-  && slice16pContract.branch === BRANCH_16P
-  && headBranch === BRANCH_16P,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16p=${slice16pContract.branch} head=${headBranch}`);
-ok('F48b frozen 16O contract retains its own branch pin',
+ok('F48 gate-matrix branch pin equals 16Q contract + HEAD',
+  matrix.branch === BRANCH_16Q
+  && contract.branch === BRANCH_16Q
+  && slice16qContract.branch === BRANCH_16Q
+  && headBranch === BRANCH_16Q,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16q=${slice16qContract.branch} head=${headBranch}`);
+ok('F48b frozen 16P contract retains its own branch pin',
+  slice16pContract.branch === BRANCH_16P);
+ok('F48c frozen 16O contract retains its own branch pin',
   slice16oContract.branch === BRANCH_16O);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
@@ -619,6 +626,35 @@ ok('F104 G01/G05/G06 remain not partial_live_proven',
     .every((g) => g.progress_class !== 'partial_live_proven'));
 ok('F105 doc forbids overclaims',
   /human inbox/i.test(doc) && /organic metric/i.test(doc) && /not claim/i.test(doc));
+
+const sel16q = matrix.slice_16q_selection;
+ok('F106 exactly one 16Q selection',
+  sel16q && sel16q.selected === true
+  && sel16q.outcome_id === '16Q_readiness_failure_drill_harness'
+  && sel16q.gate_id === 'G02_readiness_dependencies'
+  && sel16q.progress_class === 'source_partial_progress_only');
+ok('F107 contract selected_16q matches',
+  contract.selected_16q
+  && contract.selected_16q.outcome_id === '16Q_readiness_failure_drill_harness'
+  && contract.selected_16q.gate_id === 'G02_readiness_dependencies');
+ok('F108 16Q harness + verifier present',
+  pathExists('scripts/lib/radar-slice16q-readiness-failure-drill-harness.js')
+  && pathExists('scripts/radar-slice16q-readiness-failure-drill.js')
+  && pathExists('scripts/verify-radar-slice16q-readiness-failure-drill-harness.js')
+  && pathExists('fixtures/radar-operations/slice16q-expected-contract.json'));
+ok('F109 16Q final controlled drill present',
+  sel16q.final_controlled_drill
+  && sel16q.final_controlled_drill.id === '16Q_DRILL_readiness_failure_traffic_shed_harness');
+ok('F110 16Q acceptance criteria finite (>=4)',
+  Array.isArray(sel16q.acceptance_criteria) && sel16q.acceptance_criteria.length >= 4);
+ok('F111 16Q does not claim live apply / dependency failure proven',
+  /live_apply|dependency_failure|traffic_shed/i.test(String(sel16q.does_not_implement || ''))
+  && /open/i.test(String(contract.readiness_failure_drill_live || ''))
+  && /source_partial/i.test(String(contract.readiness_failure_drill_harness || ''))
+  && slice16qContract.this_slice_executes_live === false
+  && slice16qContract.live_mutation === false);
+ok('F112 doc mentions 16Q harness source-partial only',
+  /16Q/.test(doc) && /source partial|source_partial/i.test(doc) && /dry-run|confirm/i.test(doc));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

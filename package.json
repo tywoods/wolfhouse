@@ -462,6 +462,8 @@
     "verify:radar-slice16m-stripe-event-claim": "node scripts/verify-radar-slice16m-stripe-event-claim.js",
     "verify:radar-slice16o-stripe-webhook-error-minimization": "node scripts/verify-radar-slice16o-stripe-webhook-error-minimization.js",
     "verify:radar-slice16p-live-drill-evidence": "node scripts/verify-radar-slice16p-live-drill-evidence.js",
+    "verify:radar-slice16q-readiness-failure-drill-harness": "node scripts/verify-radar-slice16q-readiness-failure-drill-harness.js",
+    "radar:slice16q-readiness-failure-drill": "node scripts/radar-slice16q-readiness-failure-drill.js",
     "verify:staff-tenant-scope": "node scripts/verify-staff-tenant-scope.js",
     "verify:staff-whatsapp-notifications": "node scripts/verify-staff-whatsapp-notifications.js",
     "verify:staff-automated-notification-ui": "node scripts/verify-staff-automated-notification-ui.js",

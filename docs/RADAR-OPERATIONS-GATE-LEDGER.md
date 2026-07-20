@@ -1,37 +1,38 @@
-# RADAR Slice 16P — Operations gate ledger (live-drill evidence reconciliation)
+# RADAR Slice 16Q — Operations gate ledger (readiness-failure drill harness source-partial)
 
-**Status:** partial/live-proven evidence only (this slice does **not** deploy; records prior operator-observed 16O live drill)
-**Master basis:** `594247f12a823e9b90140c56eb8645b057e1fd37`
-**Branch:** `radar/slice-16p-live-drill-evidence`
+**Status:** source partial progress only (harness shipped; **no live apply** in this slice)
+**Master basis:** `06b7a3f2173863afa81bfc557cd31cbd3e80d6c1`
+**Branch:** `radar/slice-16q-readiness-failure-drill-harness`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
 
 ## Outcome
 
-Reconcile **bounded operator-observed facts** from the completed 16O live drill into a secret-free evidence fixture and upgrade gate `progress_class` to `partial_live_proven` only where those facts support. **Do not deploy in this slice.** Verdict `proven` remains **0**. Explicitly do **not** claim human inbox receipt, organic metric alert firing, production, abrupt paths, retention/search, dependency failure, real-PG contention, or completion logging.
+Ship a **fail-closed operator harness** for a controlled ACA **database-readiness failure** and **exact restoration** (source only). Default mode is dry-run. Live mutation requires explicit `--tenant wolfhouse|sunset` plus `--apply` plus `--confirm` with the exact token `RADAR-16Q-READINESS-FAILURE-DRILL`. Pins staging RG/app/URL, env `WOLFHOUSE_DATABASE_URL`, and staging image SHA `594247f`. Does **not** claim the live dependency-failure traffic-shed drill is proven.
 
-## Operator-observed facts (locked)
+## Harness contract (locked)
 
-| Fact | Value |
+| Item | Value |
 |------|-------|
-| Image SHA | `594247f` (`594247f12a823e9b90140c56eb8645b057e1fd37`) |
-| Wolfhouse deploy revision | `0000514` |
-| Sunset deploy revision | `0000274` |
-| Observed on deploy | health/ready; malformed / missing / oversize generic webhook responses |
-| Wolfhouse rollback → rollforward | `0000515` → `0000516` |
-| Sunset rollback → rollforward | `0000275` → `0000276` |
-| After rollforward | health/readiness passed; final image `594247f` |
-| AG test API Wolfhouse | Email Status=`Succeeded`, state=`Complete`; sent `2026-07-20T21:35:00.5549824Z`; completed `2026-07-20T21:38:26.1342044Z` |
-| AG test API Sunset | Email Status=`Succeeded`, state=`Complete`; sent `2026-07-20T21:39:53.8402179Z`; completed `2026-07-20T21:43:16.2619454Z` |
+| Tenants | `wolfhouse` → `wh-staging-rg` / `wh-staging-staff-api` / `https://staff-staging.lunafrontdesk.com`; `sunset` → `luna-sunset-staging-rg` / `luna-sunset-staging-staff-api` / `https://sunset-staging.lunafrontdesk.com` |
+| Database env | `WOLFHOUSE_DATABASE_URL` (secretRef only at baseline) |
+| Image pin | staging SHA `594247f` |
+| Failure inject | change **only** that env from secretRef → unreachable non-secret PostgreSQL DSN |
+| Capture | live template/revisions/image/probes → temp **outside** repo |
+| Trap | cleanup/restore installed **before** mutation (SIGINT/error) |
+| Observe | failed revision Running / started=true / ready=false / restartCount=0 / not latest-ready; public old `/healthz`+`/readyz` stay 200 |
+| Restore | exact original template; wait healthy latest-ready; verify image/probes/env secretRef/endpoints |
+| Secrets | never read/print secret values; evidence redacted |
 
 ## Artifacts
 
 | Path | Role |
 |------|------|
-| `fixtures/radar-operations/slice16p-live-drill-evidence.json` | Bounded locked evidence + `lock_hash` |
-| `fixtures/radar-operations/slice16p-expected-contract.json` | Independent contract |
-| `scripts/verify-radar-slice16p-live-drill-evidence.js` | Offline RED/GREEN; rejects altered/overstated evidence |
-| `npm run verify:radar-slice16p-live-drill-evidence` | Gate |
+| `scripts/lib/radar-slice16q-readiness-failure-drill-harness.js` | Locks + pure helpers + orchestrator |
+| `scripts/radar-slice16q-readiness-failure-drill.js` | Operator CLI (default dry-run) |
+| `scripts/verify-radar-slice16q-readiness-failure-drill-harness.js` | Offline RED/GREEN |
+| `fixtures/radar-operations/slice16q-expected-contract.json` | Independent contract |
+| `npm run verify:radar-slice16q-readiness-failure-drill-harness` | Gate |
 
 ## Verdict counts
 
@@ -47,7 +48,7 @@ Reconcile **bounded operator-observed facts** from the completed 16O live drill 
 | ID | Gate | Verdict / progress |
 |----|------|-------------------|
 | G01 | Correlation / structured logs | `partial` / source_partial (completion logging open) |
-| G02 | Readiness / dependencies | `partial` / **partial_live_proven** (healthy path) |
+| G02 | Readiness / dependencies | `partial` / **partial_live_proven** healthy path (16P) + **16Q harness source-partial**; live failure drill open |
 | G03 | Actionable tenant-aware alerts | `partial` / **partial_live_proven** (AG test API only) |
 | G04 | Webhook / payment / worker backlog | `partial` |
 | G05 | Retry / replay safety | `partial` / source_partial (16M event-id claim / stripe_event_id; real-PG open) |
@@ -58,45 +59,42 @@ Reconcile **bounded operator-observed facts** from the completed 16O live drill 
 
 ## Explicitly not claimed
 
+- Live `--apply` execution of the readiness-failure drill
+- Live dependency-failure traffic-shed
+- Production
+- Secret values
 - human inbox receipt
 - organic metric alert firing
-- production
-- abrupt paths
-- retention/search
-- dependency failure
+- abrupt paths / retention/search
 - real-PG contention
 - completion logging
 
-## Slice 16P progress
+## Slice 16Q progress
 
-**ID:** `16P_live_drill_evidence_reconciliation`
-**Primary gate:** `G08_retention_privacy` (also updates G02/G03/G07/G09)
-**Progress class:** `partial_live_proven_evidence_only`
-**Does not implement:** human inbox, organic alert fire, production, abrupt paths, retention/search, dependency failure, real-PG contention, completion logging, any `proven` gate verdict
+**ID:** `16Q_readiness_failure_drill_harness`
+**Primary gate:** `G02_readiness_dependencies`
+**Progress class:** `source_partial_progress_only`
+**Does not implement:** live apply / dependency-failure traffic-shed proven
 
 ### Still open
 
-- Human inbox receipt of AG test emails
-- Organic metric alert firing
-- Abrupt webhook paths; SDK/secret live inject
-- Log retention / PII redaction / retention search
-- Controlled dependency-failure readiness drill
-- Real PostgreSQL contention drill
-- Request completion logging
-- Postgres restore drill
-- Budget resource live-list; anomaly detection
+- Approved live `--apply` on Wolfhouse staging
+- Approved live `--apply` on Sunset staging
+- closeReadinessPool lifecycle integration
+- Any `proven` gate verdict
 
 ## Prior partial progress retained
 
-- **16O** `16O_stripe_webhook_error_minimization` — live deploy + partial privacy probe via 16P
-- **16M** `16M_stripe_webhook_event_id_claim` on G05 — source-partial (real-PG open)
-- **16L** `16L_staff_api_capacity_pressure_alerts` on G06 — source-partial (organic fire open)
-- **16K** `16K_staff_api_healthz_minimization` on G08 — health observed via 16P
-- **16J** `16J_staff_api_request_correlation` on G01 — source-partial (completion logging open)
-- **16I** `16I_staff_api_readiness_dependencies` on G02 — healthy path via 16P
-- **16H** `16H_staff_api_metric_alerts` on G03 — AG test API via 16P
-- **16B** `16B_staging_rg_cost_budget_threshold` on G09 — AG test API via 16P; anomaly absent
+- **16O** `16O_stripe_webhook_error_minimization` — live deploy + partial privacy via 16P
+- **16M** `16M_stripe_webhook_event_id_claim` — source-partial
+- **16L** `16L_staff_api_capacity_pressure_alerts` — source-partial
+- **16K** `16K_staff_api_healthz_minimization` — health observed via 16P
+- **16J** `16J_staff_api_request_correlation` — source-partial
+- **16I** `16I_staff_api_readiness_dependencies` — healthy path via 16P; failure drill harness via 16Q (not executed)
+- **16H** `16H_staff_api_metric_alerts` — AG test API via 16P
+- **16B** `16B_staging_rg_cost_budget_threshold` — AG test API via 16P; anomaly absent
+- **16P** `16P_live_drill_evidence_reconciliation` — partial/live-proven evidence only
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16P. Database, Hermes staging, Staff API runtime, staging Bicep, 16H metric-alert module, and 16B budget module must remain unchanged vs master basis `594247f`.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16Q. Database, Hermes staging, Staff API runtime, readiness lib, and staging Bicep must remain unchanged vs master basis `06b7a3f`.

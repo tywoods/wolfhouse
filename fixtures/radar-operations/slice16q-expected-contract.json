@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16Q",
+  "outcome_id": "16Q_readiness_failure_drill_harness",
+  "gate_id": "G02_readiness_dependencies",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "06b7a3f2173863afa81bfc557cd31cbd3e80d6c1",
+  "branch": "radar/slice-16q-readiness-failure-drill-harness",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_executes_live": false,
+  "this_slice_deploys": false,
+  "title": "Fail-closed ACA database-readiness failure drill harness with exact restoration — source partial only",
+  "confirm_token": "RADAR-16Q-READINESS-FAILURE-DRILL",
+  "database_env": "WOLFHOUSE_DATABASE_URL",
+  "image_sha_short": "594247f",
+  "image_sha_full": "594247f12a823e9b90140c56eb8645b057e1fd37",
+  "unreachable_dsn_policy": "non_secret_postgresql_to_127.0.0.1:1_only",
+  "tenants": {
+    "wolfhouse": {
+      "resourceGroup": "wh-staging-rg",
+      "containerApp": "wh-staging-staff-api",
+      "publicBaseUrl": "https://staff-staging.lunafrontdesk.com",
+      "expectedSecretRef": "wolfhouse-database-url"
+    },
+    "sunset": {
+      "resourceGroup": "luna-sunset-staging-rg",
+      "containerApp": "luna-sunset-staging-staff-api",
+      "publicBaseUrl": "https://sunset-staging.lunafrontdesk.com",
+      "expectedSecretRef": "sunset-database-url"
+    }
+  },
+  "cli": {
+    "default_mode": "dry-run",
+    "apply_requires": ["--tenant", "--apply", "--confirm exact token"],
+    "supported_tenants": ["wolfhouse", "sunset"]
+  },
+  "refuse": [
+    "production_hosts_or_rgs",
+    "dirty_or_unsynced_repo",
+    "wrong_master",
+    "wrong_image_sha",
+    "missing_probes",
+    "missing_or_plaintext_database_secretRef",
+    "multi_revision_traffic",
+    "ambiguous_latest_ready",
+    "apply_without_exact_confirm_token"
+  ],
+  "observation_contract": {
+    "failed_revision": {
+      "runningState": "Running",
+      "started": true,
+      "ready": false,
+      "restartCount": 0,
+      "is_latest_ready": false
+    },
+    "public_old_revision": {
+      "healthz": 200,
+      "readyz": 200
+    },
+    "restore": {
+      "exact_original_template": true,
+      "latest_ready_healthy": true,
+      "image_probes_secretRef_verified": true,
+      "endpoints_200": true
+    }
+  },
+  "still_open": [
+    "Live execution of controlled readiness-failure traffic-shed drill on Wolfhouse staging",
+    "Live execution on Sunset staging",
+    "closeReadinessPool lifecycle integration",
+    "Any claim that dependency failure is proven"
+  ],
+  "final_controlled_drill": {
+    "id": "16Q_DRILL_readiness_failure_traffic_shed_harness",
+    "status": "source_only_harness_not_executed",
+    "pass_rule": "Offline RED/GREEN prove fail-closed refuses + narrow template + trap restore; ledger remains source-partial; no live apply in this slice"
+  },
+  "artifacts": [
+    "scripts/lib/radar-slice16q-readiness-failure-drill-harness.js",
+    "scripts/radar-slice16q-readiness-failure-drill.js",
+    "scripts/verify-radar-slice16q-readiness-failure-drill-harness.js",
+    "fixtures/radar-operations/slice16q-expected-contract.json",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16q-readiness-failure-drill-harness",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:radar-slice16p-live-drill-evidence",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "git diff --check 06b7a3f2173863afa81bfc557cd31cbd3e80d6c1..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-readiness.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16Q ships operator harness source only; does not execute live drill or mutate staging"
+  }
+}
