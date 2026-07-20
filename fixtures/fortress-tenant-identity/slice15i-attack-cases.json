@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15I",
+  "description": "Offline RED/GREEN attack cases for B14/B15 reaudit after B13. Fake IDs only — no live secrets, no network. Complements (does not rewrite) 15A attack-cases.json.",
+  "boundary_ids": [
+    "B14_stripe_locked_payment_identity",
+    "B15_booking_hold_payment_callbacks"
+  ],
+  "master_basis": "7ae3d75f7223a3aea0027b047f2537081fa7e1ee",
+  "cases": [
+    {
+      "id": "AC15I_B14_IDENTITY_BEFORE_ALREADY_PAID",
+      "color": "GREEN",
+      "boundary_ids": ["B14_stripe_locked_payment_identity"],
+      "attack": "Already-paid shortcut must not run before locked identity validation",
+      "input": {
+        "classifier": "source_order",
+        "module": "scripts/lib/stripe-hold-promote-policy.js",
+        "before": "validateLockedPaymentIdentityForStripeTruth",
+        "after": "payment_status === 'paid'"
+      },
+      "expect": {
+        "verdict": "proven_fail_closed",
+        "order_ok": true
+      }
+    },
+    {
+      "id": "AC15I_B14_EXPECTED_CLIENT_FROM_PM_ROW",
+      "color": "GREEN",
+      "boundary_ids": ["B14_stripe_locked_payment_identity"],
+      "attack": "Document residual: expectedClientId equals pm.client_id (row-derived), not independent slug resolve",
+      "input": {
+        "classifier": "source_pattern",
+        "module": "scripts/lib/stripe-hold-promote-policy.js",
+        "pattern": "expectedClientId:\\s*pm\\.client_id"
+      },
+      "expect": {
+        "present": true,
+        "independent_slug_to_client_id": false,
+        "verdict_impact": "non_blocking_given_b13_callers"
+      }
+    },
+    {
+      "id": "AC15I_B14_WEBHOOK_CALLER_BINDS_SLUG",
+      "color": "GREEN",
+      "boundary_ids": ["B14_stripe_locked_payment_identity", "B13_stripe_webhook_payment_lookup"],
+      "attack": "Webhook resolves expectedClientSlug then lookup+validate before apply (inventoried, not assumed)",
+      "input": {
+        "classifier": "source_order",
+        "module": "scripts/staff-query-api.js",
+        "chain": [
+          "resolveStripeWebhookExpectedClientSlug",
+          "lookupPaymentForStripeSession",
+          "validateStripeBookingPaymentEvent",
+          "applyStripeBookingPaymentTruthWrites"
+        ]
+      },
+      "expect": {
+        "order_ok": true
+      }
+    },
+    {
+      "id": "AC15I_B14_RECONCILE_REQUIRES_SLUG",
+      "color": "GREEN",
+      "boundary_ids": ["B14_stripe_locked_payment_identity"],
+      "attack": "reconcilePaidStripeSession refuses apply without expectedClientSlug",
+      "input": {
+        "classifier": "source_pattern",
+        "module": "scripts/lib/stripe-payment-reconcile.js",
+        "pattern": "expected_client_slug_required"
+      },
+      "expect": {
+        "present": true
+      }
+    },
+    {
+      "id": "AC15I_B14_SESSION_REPLACED_FAIL_CLOSED",
+      "color": "GREEN",
+      "boundary_ids": ["B14_stripe_locked_payment_identity"],
+      "attack": "Locked session id mismatch rejects even when metadata.payment_id matches",
+      "input": {
+        "classifier": "locked_identity_unit",
+        "lockedPayment": {
+          "payment_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          "booking_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          "client_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+          "stripe_checkout_session_id": "cs_test_OLD_SAMPLE"
+        },
+        "session": {
+          "id": "cs_test_NEW_SAMPLE",
+          "metadata": {
+            "payment_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+          }
+        },
+        "ctx": {
+          "expectedBookingId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          "expectedClientId": "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        }
+      },
+      "expect": {
+        "throws_code": "locked_stripe_session_replaced"
+      }
+    },
+    {
+      "id": "AC15I_B15_STAFF_PAYMENT_UUID_NO_ACL",
+      "color": "RED",
+      "boundary_ids": ["B15_booking_hold_payment_callbacks"],
+      "attack": "Staff path-UUID Stripe link derives trustedClientSlug from global payment lookup without assertStaffClientAccess",
+      "input": {
+        "classifier": "handler_acl",
+        "handler": "handlePaymentCreateStripeLink",
+        "module": "scripts/staff-query-api.js"
+      },
+      "expect": {
+        "verdict": "vulnerable",
+        "global_payment_uuid_lookup": true,
+        "assertStaffClientAccess": false
+      }
+    },
+    {
+      "id": "AC15I_B15_BOT_PAYMENT_UUID_IGNORES_BOUND",
+      "color": "RED",
+      "boundary_ids": ["B15_booking_hold_payment_callbacks"],
+      "attack": "Bot path-UUID Stripe link ignores boundClientSlug and trusts payment row slug",
+      "input": {
+        "classifier": "handler_acl",
+        "handler": "handleBotPaymentCreateStripeLink",
+        "module": "scripts/lib/staff-bot-v2-routes.js"
+      },
+      "expect": {
+        "verdict": "vulnerable",
+        "global_payment_uuid_lookup": true,
+        "compares_boundClientSlug": false
+      }
+    },
+    {
+      "id": "AC15I_B15_SERVICE_RECORDS_WEAK_CLIENT_ID",
+      "color": "RED",
+      "boundary_ids": ["B15_booking_hold_payment_callbacks"],
+      "attack": "Service-records payment link uses global booking UUID + user.client_id equality instead of assertStaffClientAccess",
+      "input": {
+        "classifier": "handler_acl",
+        "handler": "handleBookingServiceRecordsCreatePaymentLink",
+        "module": "scripts/staff-query-api.js"
+      },
+      "expect": {
+        "verdict": "vulnerable",
+        "assertStaffClientAccess": false,
+        "weak_user_client_id_check": true
+      }
+    },
+    {
+      "id": "AC15I_B15_SHORT_LINK_SQL_SCOPED",
+      "color": "GREEN",
+      "boundary_ids": ["B15_booking_hold_payment_callbacks"],
+      "attack": "Guest short-link redirect SQL always predicates clients.slug",
+      "input": {
+        "classifier": "source_pattern",
+        "module": "scripts/lib/luna-payment-short-link.js",
+        "sql_const": "PAYMENT_SHORT_LINK_LOOKUP_SQL"
+      },
+      "expect": {
+        "has_slug_predicate": true,
+        "verdict": "proven_isolated_by_runtime"
+      }
+    },
+    {
+      "id": "AC15I_B15_BOOKING_CODE_PER_CLIENT_UNIQUE",
+      "color": "GREEN",
+      "boundary_ids": ["B15_booking_hold_payment_callbacks"],
+      "attack": "Schema proves booking_code uniqueness is per-client after hostel→client rename",
+      "input": {
+        "classifier": "schema",
+        "migrations": [
+          "database/migrations/001_init.sql",
+          "database/migrations/003_rename_hostel_to_client.sql"
+        ]
+      },
+      "expect": {
+        "unique_hostel_booking_code": true,
+        "hostel_renamed_to_client": true
+      }
+    },
+    {
+      "id": "AC15I_B15_FRONT_DESK_LOAD_PAYMENT_SCOPED",
+      "color": "GREEN",
+      "boundary_ids": ["B15_booking_hold_payment_callbacks"],
+      "attack": "Canonical loadPaymentById requires client slug predicate",
+      "input": {
+        "classifier": "source_pattern",
+        "module": "scripts/lib/luna-front-desk-payment-link-service.js",
+        "symbol": "loadPaymentById"
+      },
+      "expect": {
+        "has_slug_predicate": true,
+        "verdict": "proven_fail_closed"
+      }
+    },
+    {
+      "id": "AC15I_HISTORICAL_15A_UNCHANGED",
+      "color": "GREEN",
+      "boundary_ids": ["B14_stripe_locked_payment_identity", "B15_booking_hold_payment_callbacks"],
+      "attack": "15A matrix still records B14/B15 as unproven; status lives in 15I overlay only",
+      "input": {
+        "classifier": "historical_matrix",
+        "matrix": "fixtures/fortress-tenant-identity/boundary-matrix.json"
+      },
+      "expect": {
+        "B14": "unproven",
+        "B15": "unproven"
+      }
+    },
+    {
+      "id": "AC15I_B13_NOT_ASSUMED_CLOSE_B15",
+      "color": "GREEN",
+      "boundary_ids": ["B15_booking_hold_payment_callbacks"],
+      "attack": "B13 tenant-bound Stripe lookup does not touch staff/bot path-UUID Stripe link handlers",
+      "input": {
+        "classifier": "source_absence",
+        "handlers": [
+          "handlePaymentCreateStripeLink",
+          "handleBotPaymentCreateStripeLink"
+        ],
+        "must_not_include": "lookupPaymentForStripeSession"
+      },
+      "expect": {
+        "b13_does_not_cover": true
+      }
+    }
+  ]
+}

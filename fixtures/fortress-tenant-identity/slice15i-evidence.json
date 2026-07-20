@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15I",
+  "generated_at": "2026-07-20T08:32:14.426Z",
+  "master_basis": "7ae3d75f7223a3aea0027b047f2537081fa7e1ee",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "reaudit_verdicts": {
+    "B14_stripe_locked_payment_identity": {
+      "verdict": "proven_fail_closed",
+      "severity": "medium",
+      "summary": "Locked session/metadata/booking identity fail-closed and runs before already-paid idempotent shortcut; webhook/reconcile callers bind expectedClientSlug via B13 before apply. expectedClientId remains row-derived (tautological under FOR UPDATE client_id lock) but is not a standalone reproducible cross-tenant gap given inventoried callers."
+    },
+    "B15_booking_hold_payment_callbacks": {
+      "verdict": "vulnerable",
+      "severity": "high",
+      "summary": "Path-UUID payment/booking callbacks derive trustedClientSlug from global object lookup without assertStaffClientAccess (staff) or boundClientSlug compare (bot). Mixed slug-scoped SQL elsewhere does not close this confused-deputy surface."
+    }
+  },
+  "red": {
+    "total": 3,
+    "passed": 3,
+    "cases": [
+      {
+        "id": "AC15I_B15_STAFF_PAYMENT_UUID_NO_ACL",
+        "ok": true
+      },
+      {
+        "id": "AC15I_B15_BOT_PAYMENT_UUID_IGNORES_BOUND",
+        "ok": true
+      },
+      {
+        "id": "AC15I_B15_SERVICE_RECORDS_WEAK_CLIENT_ID",
+        "ok": true
+      }
+    ]
+  },
+  "green": {
+    "total": 10,
+    "passed": 10,
+    "cases": [
+      {
+        "id": "AC15I_B14_IDENTITY_BEFORE_ALREADY_PAID",
+        "ok": true
+      },
+      {
+        "id": "AC15I_B14_EXPECTED_CLIENT_FROM_PM_ROW",
+        "ok": true
+      },
+      {
+        "id": "AC15I_B14_WEBHOOK_CALLER_BINDS_SLUG",
+        "ok": true
+      },
+      {
+        "id": "AC15I_B14_RECONCILE_REQUIRES_SLUG",
+        "ok": true
+      },
+      {
+        "id": "AC15I_B14_SESSION_REPLACED_FAIL_CLOSED",
+        "ok": true
+      },
+      {
+        "id": "AC15I_B15_SHORT_LINK_SQL_SCOPED",
+        "ok": true
+      },
+      {
+        "id": "AC15I_B15_BOOKING_CODE_PER_CLIENT_UNIQUE",
+        "ok": true
+      },
+      {
+        "id": "AC15I_B15_FRONT_DESK_LOAD_PAYMENT_SCOPED",
+        "ok": true
+      },
+      {
+        "id": "AC15I_HISTORICAL_15A_UNCHANGED",
+        "ok": true
+      },
+      {
+        "id": "AC15I_B13_NOT_ASSUMED_CLOSE_B15",
+        "ok": true
+      }
+    ]
+  },
+  "pass": 39,
+  "fail": 0,
+  "remediation_next_gate": "FORTRESS-15J / 15J_payment_uuid_callback_tenant_acl"
+}
