@@ -34,12 +34,13 @@ const DOC_PATH = path.join(ROOT, 'docs', 'FORTRESS-TENANT-IDENTITY-BOUNDARY-MATR
 const {
   verifyMetaHubSignature256,
   verifyMetaHubChallenge,
-  DEFAULT_META_WHATSAPP_VERIFY_TOKEN,
 } = require('./lib/luna-meta-whatsapp-webhook');
 const { scanSecretFreeText } = require('./lib/fortress-tenant-identity-boundary');
 
 const MASTER_BASIS = '9a734fa8e989e10800afbdde0ac722187f6db2d5';
 const FAKE_APP_SECRET = 'fortress15k_meta_app_secret_SAMPLE_NOT_LIVE';
+/** Historical 15K hardcoded default token (removed from runtime by 15L). */
+const HISTORICAL_DEFAULT_META_WHATSAPP_VERIFY_TOKEN = 'wolfhouse_verify_token';
 
 const SYMBOLS = [
   'STRIPE_WEBHOOK_SKIP_VERIFY',
@@ -48,6 +49,10 @@ const SYMBOLS = [
   'META_WHATSAPP_VERIFY_TOKEN',
   'DEFAULT_META_WHATSAPP_VERIFY_TOKEN',
 ];
+
+const REMEDIATION_15L_OVERLAY_PATH = path.join(FIXTURE_DIR, 'slice15l-b01-remediation-overlay.json');
+const has15lRemediation = fs.existsSync(REMEDIATION_15L_OVERLAY_PATH);
+const overlay15l = has15lRemediation ? JSON.parse(fs.readFileSync(REMEDIATION_15L_OVERLAY_PATH, 'utf8')) : null;
 
 let pass = 0;
 let fail = 0;
@@ -328,8 +333,23 @@ const composeN8nBlock = extractServiceBlock(composeLocal, 'n8n', 'infra/docker-c
 const composeWorkerBlock = extractServiceBlock(composeLocal, 'n8n-worker', 'infra/docker-compose.local.yml');
 
 console.log('\n── B01 Meta signature / hub ──');
+if (has15lRemediation) {
+  ok('15L remediation overlay present (historical 15K RED cases assert remediating posture)',
+    overlay15l
+    && overlay15l.status === 'remediated'
+    && overlay15l.historical_audit_unchanged === true
+    && overlay15l.boundary_id === 'B01_meta_whatsapp_signature_ingress');
+}
 
 red('AC15K_B01_NO_SECRET_SKIP_ADMIT', (() => {
+  if (has15lRemediation) {
+    const r = verifyMetaHubSignature256(rawBodySample, null, {});
+    return r.verified === false
+      && r.skipped === false
+      && r.error === 'app_secret_unconfigured'
+      && /decideMetaWhatsAppWebhookPostAdmit/.test(metaPostFn)
+      && !/!sigResult\.skipped\s*&&\s*!sigResult\.verified/.test(metaPostFn);
+  }
   const r = verifyMetaHubSignature256(rawBodySample, null, {});
   return r.verified === false
     && r.skipped === true
@@ -337,6 +357,13 @@ red('AC15K_B01_NO_SECRET_SKIP_ADMIT', (() => {
 })());
 
 red('AC15K_B01_SECRET_MISSING_HEADER_SKIP_ADMIT', (() => {
+  if (has15lRemediation) {
+    const r = verifyMetaHubSignature256(rawBodySample, null, { META_APP_SECRET: FAKE_APP_SECRET });
+    return r.verified === false
+      && r.skipped === false
+      && r.error === 'missing_signature_header'
+      && /decideMetaWhatsAppWebhookPostAdmit/.test(metaPostFn);
+  }
   const r = verifyMetaHubSignature256(rawBodySample, null, { META_APP_SECRET: FAKE_APP_SECRET });
   return r.verified === false
     && r.skipped === true
@@ -345,9 +372,21 @@ red('AC15K_B01_SECRET_MISSING_HEADER_SKIP_ADMIT', (() => {
 })());
 
 red('AC15K_B01_DEFAULT_VERIFY_TOKEN', (() => {
+  if (has15lRemediation) {
+    const hub = verifyMetaHubChallenge({
+      'hub.mode': 'subscribe',
+      'hub.verify_token': HISTORICAL_DEFAULT_META_WHATSAPP_VERIFY_TOKEN,
+      'hub.challenge': '15k-challenge',
+    }, {});
+    return hub.ok === false
+      && hub.status === 403
+      && hub.error === 'verify_token_unconfigured'
+      && !/DEFAULT_META_WHATSAPP_VERIFY_TOKEN\s*=/.test(metaLibSrc)
+      && !/return DEFAULT_META_WHATSAPP_VERIFY_TOKEN/.test(metaLibSrc);
+  }
   const hub = verifyMetaHubChallenge({
     'hub.mode': 'subscribe',
-    'hub.verify_token': DEFAULT_META_WHATSAPP_VERIFY_TOKEN,
+    'hub.verify_token': HISTORICAL_DEFAULT_META_WHATSAPP_VERIFY_TOKEN,
     'hub.challenge': '15k-challenge',
   }, {});
   return hub.ok === true
@@ -357,11 +396,19 @@ red('AC15K_B01_DEFAULT_VERIFY_TOKEN', (() => {
 })());
 
 red('AC15K_B01_IAC_NO_META_APP_SECRET',
-  !/META_APP_SECRET/.test(stagingBicep)
-  && !/META_APP_SECRET/.test(sunsetBicep)
-  && !/META_WHATSAPP_VERIFY_TOKEN/.test(stagingBicep)
-  && !/META_WHATSAPP_VERIFY_TOKEN/.test(sunsetBicep)
-  && /META_WHATSAPP_TOKEN/.test(stagingBicep));
+  has15lRemediation
+    ? (/META_APP_SECRET/.test(stagingBicep)
+      && /META_APP_SECRET/.test(sunsetBicep)
+      && /META_WHATSAPP_VERIFY_TOKEN/.test(stagingBicep)
+      && /META_WHATSAPP_VERIFY_TOKEN/.test(sunsetBicep)
+      && /secretRef:\s*'meta-app-secret'/.test(stagingStaffBlock)
+      && /secretRef:\s*'meta-app-secret'/.test(sunsetStaffBlock)
+      && /META_WHATSAPP_TOKEN/.test(stagingBicep))
+    : (!/META_APP_SECRET/.test(stagingBicep)
+      && !/META_APP_SECRET/.test(sunsetBicep)
+      && !/META_WHATSAPP_VERIFY_TOKEN/.test(stagingBicep)
+      && !/META_WHATSAPP_VERIFY_TOKEN/.test(sunsetBicep)
+      && /META_WHATSAPP_TOKEN/.test(stagingBicep)));
 
 green('AC15K_B01_MISMATCH_REJECT', (() => {
   const r = verifyMetaHubSignature256(
@@ -512,8 +559,12 @@ for (const owner of owners) {
     if (hermesPatternHits.length === 0) staleOwners.push(owner.id);
     continue;
   }
+  // FORTRESS 15L removes DEFAULT_META_WHATSAPP_VERIFY_TOKEN from the Meta helper.
+  // Historical owner inventory still lists it; when remediated, require remaining Meta symbols only.
+  const required = has15lRemediation && owner.id === 'OWN_META_HELPER_RUNTIME'
+    ? (owner.symbols || []).filter((sym) => sym !== 'DEFAULT_META_WHATSAPP_VERIFY_TOKEN')
+    : (owner.symbols || []);
   const hits = derived.filter((o) => ownerCoversOccurrence(owner, o));
-  const required = owner.symbols || [];
   const missingSyms = required.filter((sym) => !hits.some((h) => h.symbol === sym));
   if (hits.length === 0 || missingSyms.length > 0) {
     staleOwners.push(`${owner.id}[missing:${missingSyms.join('|') || 'all'}]`);
@@ -536,10 +587,24 @@ const unmapped = derived.filter((o) => {
   // File-header / comment mentions (service null) are covered when any same-path
   // owner already inventories that symbol for a concrete consumer service.
   if (o.service == null) {
-    return !owners.some((owner) =>
+    const samePathOwner = owners.some((owner) =>
       owner.path === o.path
       && Array.isArray(owner.symbols)
       && owner.symbols.includes(o.symbol));
+    if (samePathOwner) return false;
+  }
+  // FORTRESS 15L remediating Meta signature wiring (historical 15K listed these as absent).
+  if (has15lRemediation
+    && (o.symbol === 'META_APP_SECRET' || o.symbol === 'META_WHATSAPP_VERIFY_TOKEN')
+    && (
+      (o.path === 'infra/azure/staging/main.bicep' && o.service === 'staff-api')
+      || (o.path === 'infra/azure/sunset-staging/main.bicep'
+        && o.service === 'luna-sunset-staging-staff-api')
+      || (o.path === 'infra/.env.example' && o.service == null)
+      || (o.path === 'scripts/staff-query-api.js' && o.service == null)
+      || (o.path === 'scripts/lib/luna-meta-whatsapp-webhook.js' && o.service == null)
+    )) {
+    return false;
   }
   return true;
 });
@@ -550,6 +615,22 @@ ok('no unmapped derived occurrences',
 
 const absentFails = [];
 for (const abs of absentOwners) {
+  // 15L remediates Meta signature absences on Staff API Bicep + .env.example.
+  if (has15lRemediation && (
+    abs.id === 'ABS_STAGING_BICEP_META_SIGNATURE'
+    || abs.id === 'ABS_SUNSET_BICEP_META_SIGNATURE'
+    || abs.id === 'ABS_ENV_EXAMPLE_META_SIGNATURE'
+  )) {
+    const text = readText(path.join(ROOT, abs.path));
+    const block = abs.service
+      ? extractServiceBlock(text, abs.service, abs.path)
+      : text;
+    const missing = (abs.symbols || []).filter((sym) => !block.includes(sym));
+    if (missing.length > 0) {
+      absentFails.push(`${abs.id}:remediation_incomplete:${missing.join('|')}`);
+    }
+    continue;
+  }
   const text = readText(path.join(ROOT, abs.path));
   if (abs.service) {
     const block = extractServiceBlock(text, abs.service, abs.path);

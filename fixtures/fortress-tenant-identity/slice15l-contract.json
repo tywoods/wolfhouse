@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15L",
+  "outcome_id": "15L_meta_signature_fail_closed",
+  "boundary_id": "B01_meta_whatsapp_signature_ingress",
+  "master_basis": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
+  "design_freeze": "fixtures/fortress-tenant-identity/slice15k-b01-remediation-contract.json",
+  "branch": "fortress/slice-15l-meta-signature-fail-closed",
+  "live_mutation": false,
+  "title": "Fail-closed Meta WhatsApp hub signature and verify-token admission before PostEntry/PG",
+  "status": "implemented",
+  "owner_files": [
+    "scripts/lib/luna-meta-whatsapp-webhook.js",
+    "scripts/lib/meta-whatsapp-signature-config.js",
+    "scripts/staff-query-api.js",
+    "infra/azure/staging/main.bicep",
+    "infra/azure/sunset-staging/main.bicep",
+    "infra/.env.example"
+  ],
+  "guarded_routes": [
+    {
+      "id": "meta_whatsapp_webhook_get",
+      "method": "GET",
+      "path": "/staff/meta/whatsapp/webhook",
+      "handler": "handleMetaWhatsAppWebhookGet",
+      "control": "verifyMetaHubChallenge — env META_WHATSAPP_VERIFY_TOKEN required; no hardcoded default; mismatch/absent → 403"
+    },
+    {
+      "id": "meta_whatsapp_webhook_post",
+      "method": "POST",
+      "path": "/staff/meta/whatsapp/webhook",
+      "handler": "handleMetaWhatsAppWebhookPost",
+      "control": "readBodyRaw → verifyMetaHubSignature256 → decideMetaWhatsAppWebhookPostAdmit → reject 503/403 before JSON.parse/PostEntry/PG unless verified:true (or local META_WEBHOOK_SKIP_VERIFY)"
+    }
+  ],
+  "controls": {
+    "post_missing_secret": "verified:false skipped:false error:app_secret_unconfigured (audit/helper) → HTTP 503 external signature_verification_unavailable + no_write_performed",
+    "post_missing_header": "verified:false skipped:false error:missing_signature_header (audit/helper) → HTTP 403 external signature_verification_failed",
+    "post_mismatch": "signature_mismatch (audit/helper) → HTTP 403 external signature_verification_failed",
+    "post_valid_hmac": "verified:true → admit PostEntry (B02 authority/DB gates unchanged)",
+    "get_no_hardcoded_default": "resolveMetaWhatsAppVerifyToken returns env only; absent → verify_token_unconfigured on helper; HTTP external hub_verify_failed 403",
+    "get_match": "matching META_WHATSAPP_VERIFY_TOKEN returns hub.challenge",
+    "skip_verify": "META_WEBHOOK_SKIP_VERIFY=true only for consistent local/test signals; startup refuses staging/production (either NODE_ENV or STAFF_RUNTIME_PROFILE), unknown/preview/ci, and contradictory signals",
+    "startup": "if either NODE_ENV or STAFF_RUNTIME_PROFILE is staging/production → require META_APP_SECRET + META_WHATSAPP_VERIFY_TOKEN; contradictory signals refuse startup",
+    "iac": "staging + sunset Staff API Bicep secretRef meta-app-secret + meta-whatsapp-verify-token; META_WEBHOOK_SKIP_VERIFY=false; no secret values in git",
+    "real_listener": "offline dual-gated staff-query-api listener proves GET/POST raw-byte HMAC admit + generic reject before PostEntry/PG"
+  },
+  "out_of_scope": [
+    "B02 Meta live client_slug authority activation (remains 15H2 default-off)",
+    "B12 Stripe webhook signature behavior change",
+    "n8n_main / n8n_worker Stripe webhook env",
+    "live Meta / Azure / Key Vault secret rotation execution",
+    "Hermes WhatsApp verify token cutover on Lunabox",
+    "deploy / cloud / database / live network calls"
+  ],
+  "must_not": [
+    "treat skipped:true as HTTP admit for Meta POST (except explicit local skip flag)",
+    "commit real META_APP_SECRET or verify token values",
+    "enable META_WEBHOOK_SKIP_VERIFY without staging/production refuse",
+    "rewrite 15A historical B01 verdict or 15K historical audit artifacts"
+  ],
+  "activation": {
+    "code_ready": true,
+    "runtime_enabled": false,
+    "kv_secrets_created": false,
+    "deploy_performed": false,
+    "required_for_live_close": [
+      "Create Key Vault secrets meta-app-secret and meta-whatsapp-verify-token (staging + sunset as applicable)",
+      "Deploy Staff API image + Bicep revision so secretRefs mount",
+      "Confirm META_WEBHOOK_SKIP_VERIFY remains false on staging/production",
+      "Register Meta webhook with matching verify token; confirm HMAC with app secret"
+    ]
+  },
+  "gates": [
+    "npm run verify:fortress-slice15l-meta-signature-fail-closed",
+    "npm run verify:fortress-slice15k-signature-control-audit",
+    "npm run verify:meta-whatsapp-tenant-shadow",
+    "npm run verify:staff-auth-api",
+    "npm run verify:multiclient",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-bicep-preflight",
+    "git diff --check"
+  ]
+}

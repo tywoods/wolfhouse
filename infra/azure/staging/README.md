@@ -102,6 +102,14 @@ az keyvault secret set --vault-name wh-staging-kv --name meta-whatsapp-token \
 az keyvault secret set --vault-name wh-staging-kv --name meta-whatsapp-phone-id \
   --value "<PHONE_ID_PLACEHOLDER>"
 
+# FORTRESS 15L — Meta hub HMAC + verify token (Staff API webhook). Names required by Bicep secretRef;
+# set real values out-of-band — never commit live secrets. Placeholders below are not live reads.
+az keyvault secret set --vault-name wh-staging-kv --name meta-app-secret \
+  --value "<META_APP_SECRET_PLACEHOLDER>"
+
+az keyvault secret set --vault-name wh-staging-kv --name meta-whatsapp-verify-token \
+  --value "<META_WHATSAPP_VERIFY_TOKEN_PLACEHOLDER>"
+
 az keyvault secret set --vault-name wh-staging-kv --name wolfhouse-airtable-token \
   --value "pat<PLACEHOLDER>"
 

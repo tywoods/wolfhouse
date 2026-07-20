@@ -62,6 +62,15 @@ const STAFF_AUTH_HTTPS = STAFF_AUTH_CONFIG.authHttps;
 const STAFF_QUERY_API_BIND_HOST = STAFF_AUTH_CONFIG.bindHost;
 const LUNA_BOT_INTERNAL_TOKEN = STAFF_AUTH_CONFIG.botInternalToken;
 
+// FORTRESS 15L — Meta hub signature / verify-token config (staging/prod require secrets;
+// META_WEBHOOK_SKIP_VERIFY refused outside local/test).
+const {
+  applyMetaWhatsAppSignatureConfigOrExit,
+  decideMetaWhatsAppWebhookPostAdmit,
+  EXTERNAL_GET_FAILED,
+} = require('./lib/meta-whatsapp-signature-config');
+const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
+
 const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
 
 /** FORTRESS 15J3 offline listener harness — inject PG/session/ACL boundaries only when dual-gated. */
@@ -13505,7 +13514,8 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
 function handleMetaWhatsAppWebhookGet(query, res) {
   const result = verifyMetaHubChallenge(query, process.env);
   if (!result.ok) {
-    return sendJSON(res, result.status, { success: false, error: result.error });
+    // Detailed reason stays on result.error for internal callers; external body is generic.
+    return sendJSON(res, result.status, { success: false, error: EXTERNAL_GET_FAILED });
   }
   return sendPlainText(res, result.status, result.challenge);
 }
@@ -13519,19 +13529,24 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
     return sendJSON(res, 400, { success: false, error: 'Failed to read request body: ' + e.message });
   }
 
+  // FORTRESS 15L — fail-closed Meta HMAC before JSON parse / PostEntry / PG.
+  // Detailed admit.error is audit-only; external body uses frozen generic status semantics.
   const sigHeader = req.headers['x-hub-signature-256'];
   const sigResult = verifyMetaHubSignature256(rawBody, sigHeader, process.env);
-  if (!sigResult.skipped && !sigResult.verified) {
+  const admit = decideMetaWhatsAppWebhookPostAdmit(sigResult, process.env);
+  if (!admit.admit) {
     appendAuditLog({
       ts: new Date().toISOString(),
       intent: 'webhook:meta_whatsapp:signature_rejected',
       category: 'meta_whatsapp_webhook',
       signature_verified: false,
-      error: sigResult.error || 'signature_mismatch',
+      signature_verification_skipped: false,
+      error: admit.error || 'signature_mismatch',
+      no_write_performed: true,
     });
-    return sendJSON(res, 403, {
+    return sendJSON(res, admit.status, {
       success: false,
-      error: sigResult.error || 'signature_verification_failed',
+      error: admit.external_error || 'signature_verification_failed',
       preview_only: true,
       no_write_performed: true,
     });
@@ -13551,7 +13566,11 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
     processed = await processMetaWhatsAppWebhookPostEntry({
       body,
       env: process.env,
-      signatureMeta: sigResult,
+      signatureMeta: {
+        verified: sigResult.verified === true,
+        skipped: admit.skipped === true,
+        error: sigResult.error,
+      },
       withPgClient,
     });
   } catch (err) {
@@ -13605,7 +13624,7 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
     idempotent_replay:            response.idempotent_replay === true,
     guest_message_event_id:       response.guest_message_event_id || null,
     signature_verified:           sigResult.verified === true,
-    signature_verification_skipped: sigResult.skipped === true,
+    signature_verification_skipped: admit.skipped === true,
     preview_only:                 true,
     no_write_performed:           response.no_write_performed === true,
     sends_whatsapp:               response.sends_whatsapp === true,

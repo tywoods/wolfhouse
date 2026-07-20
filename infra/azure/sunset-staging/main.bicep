@@ -368,6 +368,16 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
           identity: managedIdentity.id
         }
         {
+          name: 'meta-app-secret'
+          keyVaultUrl: '${kvBaseUri}/meta-app-secret'
+          identity: managedIdentity.id
+        }
+        {
+          name: 'meta-whatsapp-verify-token'
+          keyVaultUrl: '${kvBaseUri}/meta-whatsapp-verify-token'
+          identity: managedIdentity.id
+        }
+        {
           name: 'staff-session-secret'
           keyVaultUrl: '${kvBaseUri}/staff-session-secret'
           identity: managedIdentity.id
@@ -414,6 +424,10 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
             { name: 'STRIPE_WEBHOOK_SECRET', secretRef: 'stripe-webhook-secret' }
             { name: 'STAFF_SESSION_SECRET', secretRef: 'staff-session-secret' }
             { name: 'META_WHATSAPP_TOKEN', secretRef: 'meta-whatsapp-token' }
+            // FORTRESS 15L — Meta WhatsApp webhook signature fail-closed (Staff API route owner)
+            { name: 'META_APP_SECRET', secretRef: 'meta-app-secret' }
+            { name: 'META_WHATSAPP_VERIFY_TOKEN', secretRef: 'meta-whatsapp-verify-token' }
+            { name: 'META_WEBHOOK_SKIP_VERIFY', value: 'false' }
             { name: 'SUNSET_ADMIN_DB_READ_ENABLED', value: 'true' }
             { name: 'SUNSET_ADMIN_WRITES_ENABLED', value: 'true' }
             { name: 'STRIPE_LINKS_ENABLED', value: 'true' }

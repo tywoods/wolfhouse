@@ -50,6 +50,10 @@ function baseSpawnEnv(overrides) {
   delete env.LUNA_BOT_INTERNAL_TOKEN;
   delete env.STAFF_QUERY_API_HOST;
   delete env.NODE_ENV;
+  // FORTRESS 15L — clear Meta signature vars so spawn cases are explicit.
+  delete env.META_APP_SECRET;
+  delete env.META_WHATSAPP_VERIFY_TOKEN;
+  delete env.META_WEBHOOK_SKIP_VERIFY;
   return { ...env, ...overrides };
 }
 
@@ -355,6 +359,10 @@ async function runSpawnChecks() {
     STAFF_AUTH_HTTPS: 'true',
     NODE_ENV: 'staging',
     STAFF_QUERY_API_HOST: '127.0.0.1',
+    // FORTRESS 15L — staging profile requires Meta signature config (sample values only).
+    META_APP_SECRET: 'fortress_staff_auth_meta_app_secret_SAMPLE_NOT_LIVE',
+    META_WHATSAPP_VERIFY_TOKEN: 'fortress_staff_auth_verify_token_SAMPLE_NOT_LIVE',
+    META_WEBHOOK_SKIP_VERIFY: 'false',
   });
 
   await expectStart('explicit local/test open mode on loopback', BASE_PORT + 6, {

@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15L",
+  "generated_at": "2026-07-20T10:45:00.000Z",
+  "master_basis": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
+  "live_mutation": false,
+  "boundary_id": "B01_meta_whatsapp_signature_ingress",
+  "status": "remediated",
+  "outcome_id": "15L_meta_signature_fail_closed",
+  "guarded_routes": [
+    "GET /staff/meta/whatsapp/webhook",
+    "POST /staff/meta/whatsapp/webhook"
+  ],
+  "activation_gap": {
+    "code_ready": true,
+    "kv_secrets_mounted": false,
+    "deploy_performed": false
+  },
+  "red": {
+    "total": 11,
+    "passed": 11,
+    "cases": [
+      { "id": "AC15L_RED_STARTUP_CONTRADICTION_PROD_PREVIEW", "ok": true },
+      { "id": "AC15L_RED_STARTUP_EITHER_SIGNAL_STAGING", "ok": true },
+      { "id": "AC15L_RED_STARTUP_CONTRADICTION_LOCAL_CI", "ok": true },
+      { "id": "AC15L_RED_STARTUP_UNKNOWN_SKIP_REFUSED", "ok": true },
+      { "id": "AC15L_RED_POST_MISSING_SECRET_503", "ok": true },
+      { "id": "AC15L_RED_POST_MISSING_HEADER_403", "ok": true },
+      { "id": "AC15L_RED_POST_BAD_HMAC_403", "ok": true },
+      { "id": "AC15L_RED_GET_UNCONFIGURED_TOKEN_403", "ok": true },
+      { "id": "AC15L_RED_STARTUP_STAGING_MISSING_SECRET", "ok": true },
+      { "id": "AC15L_RED_STARTUP_STAGING_SKIP_REFUSED", "ok": true },
+      { "id": "AC15L_RED_REAL_LISTENER_POST_REJECT_BEFORE_PG", "ok": true }
+    ]
+  },
+  "green": {
+    "total": 7,
+    "passed": 7,
+    "cases": [
+      { "id": "AC15L_GREEN_POST_VALID_HMAC_ADMITS", "ok": true },
+      { "id": "AC15L_GREEN_GET_MATCHING_TOKEN", "ok": true },
+      { "id": "AC15L_GREEN_IAC_SECRET_REFS", "ok": true },
+      { "id": "AC15L_GREEN_LOCAL_SKIP_EXPLICIT", "ok": true },
+      { "id": "AC15L_GREEN_PROFILE_CONSISTENT_LOCAL", "ok": true },
+      { "id": "AC15L_GREEN_HISTORICAL_15A_15K_UNCHANGED", "ok": true },
+      { "id": "AC15L_GREEN_REAL_LISTENER_GET_POST", "ok": true }
+    ]
+  },
+  "preserved": {
+    "b02_default_off": true,
+    "b12_stripe": true,
+    "n8n_owners": true,
+    "historical_15a_b01_unproven": true,
+    "historical_15k_vulnerable_overlay": true
+  },
+  "profile_fail_closed": {
+    "either_signal_staging_or_production": true,
+    "contradictory_signals_refuse_startup": true,
+    "unknown_profiles_refuse_skip": true,
+    "local_test_requires_consistent_signals": true
+  },
+  "external_failure_bodies": {
+    "post_503": "signature_verification_unavailable",
+    "post_403": "signature_verification_failed",
+    "get_403": "hub_verify_failed",
+    "detailed_reasons": "audit_and_helper_only"
+  }
+}

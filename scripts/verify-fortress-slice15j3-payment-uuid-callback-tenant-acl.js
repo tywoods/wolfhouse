@@ -387,6 +387,12 @@ const draftPaymentsDb = [
     process.env.STAFF_AUTH_HTTPS = nodeEnv === 'test' ? 'false' : 'true';
     process.env.STAFF_QUERY_API_HOST = '127.0.0.1';
     process.env.LUNA_BOT_INTERNAL_TOKEN = 'fortress15j3_bot_token_offline_test_01';
+    // FORTRESS 15L — staging/production require Meta signature samples (not live).
+    if (nodeEnv === 'staging' || nodeEnv === 'production' || nodeEnv === 'prod') {
+      process.env.META_APP_SECRET = 'fortress15j3_meta_app_secret_SAMPLE_NOT_LIVE';
+      process.env.META_WHATSAPP_VERIFY_TOKEN = 'fortress15j3_verify_token_SAMPLE_NOT_LIVE';
+      process.env.META_WEBHOOK_SKIP_VERIFY = 'false';
+    }
   }
 
   function snapshotStaffApiEnv() {
@@ -398,6 +404,9 @@ const draftPaymentsDb = [
       STAFF_QUERY_API_HOST: process.env.STAFF_QUERY_API_HOST,
       LUNA_BOT_INTERNAL_TOKEN: process.env.LUNA_BOT_INTERNAL_TOKEN,
       STAFF_API_FORTRESS_OFFLINE_LISTENER: process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER,
+      META_APP_SECRET: process.env.META_APP_SECRET,
+      META_WHATSAPP_VERIFY_TOKEN: process.env.META_WHATSAPP_VERIFY_TOKEN,
+      META_WEBHOOK_SKIP_VERIFY: process.env.META_WEBHOOK_SKIP_VERIFY,
     };
   }
 
@@ -474,6 +483,11 @@ const draftPaymentsDb = [
       process.env.STAFF_QUERY_API_HOST = '127.0.0.1';
       process.env.LUNA_BOT_INTERNAL_TOKEN = 'fortress15j3_bot_token_offline_test_01';
       process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = ${JSON.stringify(flag)};
+      if (${JSON.stringify(nodeEnv === 'staging' || nodeEnv === 'production' || nodeEnv === 'prod')}) {
+        process.env.META_APP_SECRET = 'fortress15j3_meta_app_secret_SAMPLE_NOT_LIVE';
+        process.env.META_WHATSAPP_VERIFY_TOKEN = 'fortress15j3_verify_token_SAMPLE_NOT_LIVE';
+        process.env.META_WEBHOOK_SKIP_VERIFY = 'false';
+      }
       const api = require(${JSON.stringify(apiScript)});
       const keys = Object.keys(api).sort();
       process.stdout.write(JSON.stringify({ createServerCalls, keys }));
