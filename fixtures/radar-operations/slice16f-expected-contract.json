@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16F",
+  "outcome_id": "16F_staff_api_metric_alerts",
+  "gate_id": "G03_actionable_tenant_aware_alerts",
+  "progress_class": "source_partial_progress_only",
+  "does_not_implement": "live_deploy_notification_delivery_alert_fire",
+  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
+  "branch": "radar/slice-16f-staff-api-metric-alerts",
+  "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "resourceGroups": ["wh-staging-rg", "luna-sunset-staging-rg"],
+  "deploymentMode": "Incremental",
+  "liveDeployEnabled": false,
+  "notification_delivery_proof": "open",
+  "alert_fire_drill": "open",
+  "zero_live_mutation": true,
+  "metricNamespace": "Microsoft.App/containerApps",
+  "windowSize": "PT5M",
+  "evaluationFrequency": "PT1M",
+  "severity": 2,
+  "timeAggregation": "Total",
+  "allowedResourceTypes": [
+    "Microsoft.Insights/metricAlerts"
+  ],
+  "forbiddenCreateTypes": [
+    "Microsoft.Insights/actionGroups",
+    "Microsoft.Consumption/budgets",
+    "Microsoft.App/containerApps",
+    "Microsoft.App/managedEnvironments",
+    "Microsoft.DBforPostgreSQL/flexibleServers",
+    "Microsoft.KeyVault/vaults",
+    "Microsoft.ManagedIdentity/userAssignedIdentities",
+    "Microsoft.Network/virtualNetworks"
+  ],
+  "bicepModuleRel": "infra/azure/staging-staff-api-metric-alerts/rg-staff-api-metric-alerts.bicep",
+  "planFixtureRel": "fixtures/radar-operations/slice16f-metric-alert-plan.json",
+  "referencedActionGroupSource": "RADAR-16B",
+  "actionGroupIdExpression": "[resourceId('Microsoft.Insights/actionGroups', parameters('actionGroupName'))]",
+  "containerAppScopeExpression": "[variables('containerAppResourceId')]",
+  "containerAppResourceIdVariable": "[resourceId('Microsoft.App/containerApps', parameters('containerAppName'))]",
+  "alertCriteriaODataType": "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
+  "apps": [
+    {
+      "resourceGroup": "wh-staging-rg",
+      "containerAppName": "wh-staging-staff-api",
+      "tenantSlug": "wolfhouse",
+      "actionGroupName": "wh-staging-ops-budget-ag",
+      "parametersExampleRel": "infra/azure/staging-staff-api-metric-alerts/parameters.wh-staging.example.json",
+      "alerts": [
+        {
+          "key": "requests_5xx",
+          "name": "wolfhouse-staff-api-requests-5xx",
+          "nameExpression": "[variables('requests5xxAlertName')]",
+          "metricName": "Requests",
+          "operator": "GreaterThanOrEqual",
+          "threshold": 3,
+          "thresholdParam": "requests5xxThreshold",
+          "dimensionName": "statusCodeCategory",
+          "dimensionOperator": "Include",
+          "dimensionValues": ["5xx"],
+          "enabled": true
+        },
+        {
+          "key": "restart_count",
+          "name": "wolfhouse-staff-api-restart-count",
+          "nameExpression": "[variables('restartCountAlertName')]",
+          "metricName": "RestartCount",
+          "operator": "GreaterThan",
+          "threshold": 0,
+          "thresholdParam": "restartCountThreshold",
+          "dimensionName": null,
+          "dimensionValues": [],
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "resourceGroup": "luna-sunset-staging-rg",
+      "containerAppName": "luna-sunset-staging-staff-api",
+      "tenantSlug": "sunset",
+      "actionGroupName": "luna-sunset-staging-ops-budget-ag",
+      "parametersExampleRel": "infra/azure/staging-staff-api-metric-alerts/parameters.luna-sunset-staging.example.json",
+      "alerts": [
+        {
+          "key": "requests_5xx",
+          "name": "sunset-staff-api-requests-5xx",
+          "nameExpression": "[variables('requests5xxAlertName')]",
+          "metricName": "Requests",
+          "operator": "GreaterThanOrEqual",
+          "threshold": 3,
+          "thresholdParam": "requests5xxThreshold",
+          "dimensionName": "statusCodeCategory",
+          "dimensionOperator": "Include",
+          "dimensionValues": ["5xx"],
+          "enabled": true
+        },
+        {
+          "key": "restart_count",
+          "name": "sunset-staff-api-restart-count",
+          "nameExpression": "[variables('restartCountAlertName')]",
+          "metricName": "RestartCount",
+          "operator": "GreaterThan",
+          "threshold": 0,
+          "thresholdParam": "restartCountThreshold",
+          "dimensionName": null,
+          "dimensionValues": [],
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "compiled": {
+    "resourceCount": 2,
+    "deploymentModeOutput": "Incremental",
+    "allowedResourceTypeOutput": "Microsoft.Insights/metricAlerts",
+    "paramDefaults": {
+      "requests5xxThreshold": 3,
+      "restartCountThreshold": 0,
+      "alertSeverity": 2,
+      "windowSize": "PT5M",
+      "evaluationFrequency": "PT1M"
+    },
+    "variables": {
+      "containerAppResourceId": "[resourceId('Microsoft.App/containerApps', parameters('containerAppName'))]",
+      "requests5xxAlertName": "[format('{0}-staff-api-requests-5xx', parameters('tenantSlug'))]",
+      "restartCountAlertName": "[format('{0}-staff-api-restart-count', parameters('tenantSlug'))]"
+    },
+    "expressions": {
+      "containerAppName": "[parameters('containerAppName')]",
+      "actionGroupName": "[parameters('actionGroupName')]",
+      "tenantSlug": "[parameters('tenantSlug')]",
+      "requests5xxThreshold": "[parameters('requests5xxThreshold')]",
+      "restartCountThreshold": "[parameters('restartCountThreshold')]",
+      "alertSeverity": "[parameters('alertSeverity')]",
+      "windowSize": "[parameters('windowSize')]",
+      "evaluationFrequency": "[parameters('evaluationFrequency')]",
+      "actionGroupId": "[resourceId('Microsoft.Insights/actionGroups', parameters('actionGroupName'))]",
+      "scope": "[variables('containerAppResourceId')]"
+    }
+  },
+  "full_field_coverage": [
+    "schema_version",
+    "slice",
+    "master_basis",
+    "branch",
+    "resourceGroups",
+    "containerAppName",
+    "actionGroupName",
+    "tenantSlug",
+    "metricNamespace",
+    "metricName_requests",
+    "metricName_restart",
+    "dimension_statusCodeCategory",
+    "operator_requests",
+    "operator_restart",
+    "threshold_requests",
+    "threshold_restart",
+    "windowSize",
+    "evaluationFrequency",
+    "severity",
+    "enabled",
+    "actions_actionGroupId",
+    "scopes",
+    "deploymentMode",
+    "allowedResourceTypes"
+  ]
+}

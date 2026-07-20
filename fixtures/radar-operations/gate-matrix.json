@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16B",
-  "title": "RADAR operations gate ledger (16B budget-threshold partial progress)",
-  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
-  "branch": "radar/slice-16b-staging-cost-budgets",
+  "slice": "RADAR-16F",
+  "title": "RADAR operations gate ledger (16F Staff API metric alerts source-partial)",
+  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
+  "branch": "radar/slice-16f-staff-api-metric-alerts",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -107,43 +107,45 @@
     {
       "id": "G03_actionable_tenant_aware_alerts",
       "name": "Actionable tenant-aware alerts",
-      "verdict": "absent",
+      "verdict": "partial",
       "severity": "critical",
-      "rationale": "Live inventory shows zero metric alerts, zero activity-log alerts, and zero scheduled query rules on both staging RGs. Only an Application Insights Smart Detection action group exists on wh-staging-rg with ARM role receivers and no email/webhook receivers. No tenant (client_slug) dimensions or runbook-linked alert actions proven.",
+      "progress_class": "source_partial_progress_only",
+      "rationale": "16F adds standalone staging-only Staff API metric-alert IaC: tenant-named Requests Total statusCodeCategory=5xx >=3 over PT5M/PT1M and RestartCount Total >0 over PT5M/PT1M on both wh-staging-staff-api and luna-sunset-staging-staff-api, referencing existing 16B per-RG ops action-group names. Source-partial only — not deployed; live metric_alerts still []; notification delivery and alert-fire drill remain open.",
       "source_evidence": [
         {
-          "path": "infra/azure/README.md",
-          "lines": "15",
+          "path": "infra/azure/staging-staff-api-metric-alerts/rg-staff-api-metric-alerts.bicep",
+          "lines": "1-80",
+          "symbols": ["requests5xxAlert", "restartCountAlert", "opsActionGroup"],
+          "note": "MetricAlerts only; existing AG reference; Microsoft.App/containerApps metric namespace + app ARM scope"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16f-metric-alert-plan.json",
+          "lines": "1-40",
+          "symbols": ["apps", "alerts"],
+          "note": "Secret-free locked RG/app/tenant/AG alert plan for both staging pairs"
+        },
+        {
+          "path": "scripts/verify-radar-slice16f-staff-api-metric-alerts.js",
+          "lines": "1-40",
           "symbols": [],
-          "note": "Mentions Application Insights for logs + alerts aspirationally"
-        },
-        {
-          "path": "infra/azure/staging/main.bicep",
-          "lines": "124-132",
-          "symbols": ["appInsights"],
-          "note": "App Insights component only; no metricAlert / actionGroup resources"
-        },
-        {
-          "path": "infra/azure/sunset-staging/main.bicep",
-          "lines": "191-198",
-          "symbols": ["appInsights"],
-          "note": "App Insights only; no alert rules in Bicep"
+          "note": "Independent compiled-template verifier with RED suite"
         }
       ],
       "live_evidence": [
         {
           "ref": "live-inventory.json#alerts",
-          "note": "metric_alerts=[], activity_log_alerts=[], scheduled_query_rules=[] both RGs"
+          "note": "metric_alerts=[], activity_log_alerts=[], scheduled_query_rules=[] both RGs (still empty live)"
         },
         {
           "ref": "live-inventory.json#action_groups",
-          "note": "wh-staging: Application Insights Smart Detection (ARM roles only); sunset: []"
+          "note": "16F references 16B ops AG names; live AGs still only Smart Detection on wh-staging (ARM roles)"
         }
       ],
       "gaps": [
-        "No 5xx / latency / webhook failure alerts",
-        "No tenant-aware dimensions",
-        "No on-call email/SMS/webhook action group for ops"
+        "Metric alerts not deployed to live staging RGs",
+        "No proven notification delivery",
+        "No controlled alert-fire drill",
+        "No client_slug metric dimension (tenant encoded in alert names only)"
       ]
     },
     {
@@ -409,8 +411,8 @@
   ],
   "verdict_counts": {
     "proven": 0,
-    "partial": 8,
-    "absent": 1,
+    "partial": 9,
+    "absent": 0,
     "total": 9
   },
   "slice_16b_selection": {
@@ -466,6 +468,56 @@
         "Leave anomaly detection unmet"
       ],
       "pass_rule": "Both RG budgets listed Enabled with thresholds + proven notification delivery; no container restart/deploy/DB write; anomaly detection still absent"
+    }
+  },
+  "slice_16f_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16F_staff_api_metric_alerts",
+    "gate_id": "G03_actionable_tenant_aware_alerts",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_notification_delivery_alert_fire",
+    "title": "Add staging Staff API tenant-named metric alerts (Requests 5xx + RestartCount)",
+    "why_smallest": "G03 was fully absent live; smallest ownership surface is metricAlerts-only IaC scoped to exact Staff API app pairs, referencing existing 16B ops AG names without creating AGs/apps/budgets.",
+    "owner_files": [
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "scripts/lib/radar-slice16f-staff-api-metric-alerts.js",
+      "scripts/verify-radar-slice16f-staff-api-metric-alerts.js",
+      "scripts/preflight-radar-slice16f-staff-api-metric-alerts.js",
+      "fixtures/radar-operations/slice16f-metric-alert-plan.json",
+      "fixtures/radar-operations/slice16f-expected-contract.json"
+    ],
+    "out_of_scope_for_16f": [
+      "Live deploy / restart",
+      "Creating or modifying action groups",
+      "Creating or modifying Container Apps / identity / secrets / DB / network / budgets",
+      "Notification delivery proof",
+      "Alert-fire controlled drill",
+      "Production RGs",
+      "Staff API / Hermes runtime behavior change"
+    ],
+    "acceptance_criteria": [
+      "Standalone metricAlerts IaC for wh-staging-staff-api and luna-sunset-staging-staff-api only",
+      "Enabled tenant-named Requests Total statusCodeCategory=5xx >=3 over PT5M evaluated PT1M",
+      "Enabled tenant-named RestartCount Total >0 over PT5M/PT1M",
+      "Exact Microsoft.App/containerApps metric namespace and app ARM scope",
+      "Reference-only existing 16B per-RG ops action-group names (never create/modify AG)",
+      "Source may create only Microsoft.Insights/metricAlerts; Incremental only",
+      "Exact scope/action-group preflight + independent compiled-template verifier with required RED suite",
+      "Secret-free plan for both RGs; deployment/notification delivery/alert-fire drill remain open",
+      "No Staff API, Hermes, DB schema, or guest/payment runtime behavior change in the 16F diff"
+    ],
+    "final_controlled_drill": {
+      "id": "16F_DRILL_metric_alert_fire_notify",
+      "steps": [
+        "Record pre-create metric alert list (read-only) for both RGs",
+        "Deploy Incremental metricAlerts module only (approved follow-on; not this commit)",
+        "Prove notification delivery via referenced 16B ops AG",
+        "Prove controlled alert fire for 5xx and/or RestartCount criteria",
+        "Re-run read-only metric alert list; freeze evidence JSON secret-free",
+        "Confirm no AG create/modify, no container restart/deploy/DB write"
+      ],
+      "pass_rule": "Both RG metric alerts listed Enabled with locked criteria + proven notification delivery + fire evidence; no AG/app/DB mutation"
     }
   },
   "final_controlled_drill_16a": {

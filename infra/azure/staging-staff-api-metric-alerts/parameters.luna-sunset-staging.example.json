@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "slice": "RADAR-16F",
+    "purpose": "Secret-free example parameters for luna-sunset-staging-rg Staff API metric alerts. References existing 16B ops action group by name only — never creates/modifies AG, apps, budgets, identity, secrets, DB, or network. Live deploy false.",
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "containerAppName": "luna-sunset-staging-staff-api",
+    "tenantSlug": "sunset",
+    "actionGroupName": "luna-sunset-staging-ops-budget-ag",
+    "deploymentMode": "Incremental",
+    "liveDeploy": false,
+    "notification_delivery_proof": "open",
+    "alert_fire_drill": "open",
+    "forbidden": [
+      "creating/modifying action groups",
+      "creating/modifying Container Apps",
+      "Complete deployment mode",
+      "wiring into main.bicep",
+      "budgets / identity / secrets / DB / network resources",
+      "production RGs",
+      "live Azure deploy from this slice"
+    ]
+  },
+  "parameters": {
+    "containerAppName": {
+      "value": "luna-sunset-staging-staff-api"
+    },
+    "actionGroupName": {
+      "value": "luna-sunset-staging-ops-budget-ag"
+    },
+    "tenantSlug": {
+      "value": "sunset"
+    },
+    "requests5xxThreshold": {
+      "value": 3
+    },
+    "restartCountThreshold": {
+      "value": 0
+    },
+    "alertSeverity": {
+      "value": 2
+    },
+    "windowSize": {
+      "value": "PT5M"
+    },
+    "evaluationFrequency": {
+      "value": "PT1M"
+    }
+  }
+}
