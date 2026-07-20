@@ -456,6 +456,7 @@
     "preflight:radar-slice16b-staging-cost-budgets": "node scripts/preflight-radar-slice16b-staging-cost-budgets.js",
     "verify:radar-slice16h-staff-api-metric-alerts": "node scripts/verify-radar-slice16h-staff-api-metric-alerts.js",
     "verify:radar-slice16i-staff-api-readiness": "node scripts/verify-radar-slice16i-staff-api-readiness.js",
+    "verify:radar-slice16j-staff-request-correlation": "node scripts/verify-radar-slice16j-staff-request-correlation.js",
     "verify:staff-tenant-scope": "node scripts/verify-staff-tenant-scope.js",
     "verify:staff-whatsapp-notifications": "node scripts/verify-staff-whatsapp-notifications.js",
     "verify:staff-automated-notification-ui": "node scripts/verify-staff-automated-notification-ui.js",

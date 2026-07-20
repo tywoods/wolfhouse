@@ -1,6 +1,6 @@
-# RADAR findings (16A freeze + 16B budget-threshold + 16H metric-alert + 16I readiness source-partial)
+# RADAR findings (16A freeze + 16B budget-threshold + 16H metric-alert + 16I readiness + 16J correlation source-partial)
 
-**Master basis (16I):** `d922099cc1eec1596ef4c67f265c8b6c5e6bc81e`
+**Master basis (16J):** `d9d297e8d28b499316fdcb89ff7954ebb4cdae06`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
 
 ## Verdict rollup
@@ -23,11 +23,18 @@
 3. **G02 readiness / dependencies — partial (source only via 16I)**
    Staff API `/readyz` + ACA probes added in source (dedicated max-1 readiness pool; `/healthz` stays DB-independent). **Not deployed** — live ACA probes still empty/null. Controlled readiness failure drill and lifecycle integration remain open. Supersedes deferred 16C (no signal/shutdown framework in 16I).
 
+4. **G01 correlation / structured logs — partial (source only via 16J)**
+   Staff API request correlation middleware added (UUIDv4 accept/generate, ALS, sync console completion). **Not deployed** — LAW/App Insights delivery + search, retention, and correlation drill remain open. Supersedes deferred 16D (no async log queue; no signal/shutdown ownership).
+
 ## Other partial notes
 
-- **G01 correlation:** source or partial controls exist; full live proof gaps remain.
 - **G04/G05 backlog + replay:** handlers/jobs/idempotency keys exist; backlog metrics and full replay proof missing.
 - **G07 runbooks:** docs present; PHASE-7.4 restore drill not executed; PG backup 7d, geo-redundant off.
+- **G08 retention / privacy:** LAW/App Insights retention proven live; correlation completion retention still open.
+
+## Slice 16J
+
+`16J_staff_api_request_correlation` on **G01_correlation_structured_logs** — progress class `source_partial_progress_only`. Supersedes deferred 16D. Does not deploy; does not add async log queue or signal/shutdown ownership; delivery/search/retention/drill remain open.
 
 ## Slice 16I
 
@@ -43,4 +50,4 @@
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16I. Database and Hermes staging sources unchanged vs master. Staff API `/readyz` wiring + staging Bicep probes are intentional 16I ownership.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16J. Database, Hermes staging, and staging Bicep unchanged vs master. Staff API correlation middleware is intentional 16J ownership.
