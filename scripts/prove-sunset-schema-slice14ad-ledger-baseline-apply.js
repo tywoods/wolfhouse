@@ -108,6 +108,9 @@ const {
   hashProposedLedgerRows,
   loadSlice14acEvidence,
   simulateLegacyUpgradeReconcileFailure,
+  simulateLegacyHashUnderCanonicalModeFailure,
+  simulateCanonicalRepairedRowReconcile,
+  assertLegacyUpgradeDdlNoDataDefaults,
   validateProposedLedgerRows,
 } = require('./lib/phase-d-ledger-baseline-apply');
 
@@ -144,6 +147,10 @@ const REQUIRED_RED = Object.freeze([
   'fabricated_historical_timestamp_refuse',
   'future_runner_mislabel_refuse',
   'legacy_upgrade_null_kind_reconcile_fails',
+  'legacy_upgrade_null_provenance_reconcile_fails',
+  'legacy_hash_auto_mislabeled_canonical_fails',
+  'canonical_mode_legacy_hash_inconsistency',
+  'legacy_upgrade_no_silent_recorded_at_default',
   'default_path_zero_http_and_clients',
   'missing_apply_flag_or_env',
   'wrong_or_forbidden_argv',
@@ -159,6 +166,8 @@ const REQUIRED_GREEN = Object.freeze([
   'injected_http_success_exact_sequence',
   'runner_reconcile_baseline_kinds_ok',
   'runner_reconcile_null_kind_fails',
+  'exact_canonical_repaired_row_reconcile_ok',
+  'legacy_upgrade_ddl_nullable_no_defaults',
   'executed_runner_provenance_shape',
   'timestamp_semantics_documented',
 ]);
@@ -631,7 +640,57 @@ async function main() {
       ok: legacyFail.ok === false
         && legacyFail.errors.some((e) => e.code === 'ledger_apply_kind_null')
         && hasUpgrade === true,
-      code: legacyFail.errors[0] && legacyFail.errors[0].code,
+      code: 'ledger_apply_kind_null',
+    });
+    red.push({
+      name: 'legacy_upgrade_null_provenance_reconcile_fails',
+      ok: legacyFail.ok === false
+        && legacyFail.errors.some((e) => e.code === 'ledger_apply_kind_null')
+        && legacyFail.errors.some((e) => e.code === 'ledger_checksum_mode_null')
+        && legacyFail.errors.some((e) => e.code === 'ledger_recorded_at_null')
+        && legacyFail.errors.some((e) => e.code === 'ledger_checksum_unprovenanced'),
+      codes: legacyFail.errors.map((e) => e.code),
+    });
+  }
+
+  {
+    const mislabel = simulateLegacyHashUnderCanonicalModeFailure(forward);
+    red.push({
+      name: 'legacy_hash_auto_mislabeled_canonical_fails',
+      ok: mislabel.ok === false
+        && mislabel.errors.some((e) => e.code === 'ledger_checksum_mode_hash_inconsistency'),
+      code: 'ledger_checksum_mode_hash_inconsistency',
+    });
+    const withLegacy = forward.find((e) => e.legacySha256);
+    const ts = '2026-07-20T00:31:52.213Z';
+    const single = withLegacy
+      ? reconcileLedger(forward, [{
+        id: withLegacy.id,
+        filename: withLegacy.filename,
+        checksum_sha256: withLegacy.legacySha256,
+        apply_order: withLegacy.order,
+        apply_kind: APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
+        checksum_mode: CHECKSUM_MODE_CANONICAL_LF_V1,
+        ledger_recorded_at: ts,
+        applied_at: ts,
+      }])
+      : { ok: true, errors: [] };
+    red.push({
+      name: 'canonical_mode_legacy_hash_inconsistency',
+      ok: single.ok === false
+        && single.errors.some((e) => e.code === 'ledger_checksum_mode_hash_inconsistency')
+        && !single.errors.some((e) => e.code === 'ledger_checksum_mismatch'),
+      code: 'ledger_checksum_mode_hash_inconsistency',
+    });
+  }
+
+  {
+    const ddlGate = assertLegacyUpgradeDdlNoDataDefaults();
+    red.push({
+      name: 'legacy_upgrade_no_silent_recorded_at_default',
+      ok: ddlGate.ok === true && ddlGate.noRecordedAtNow === true && ddlGate.noChecksumDefault === true,
+      noRecordedAtNow: ddlGate.noRecordedAtNow,
+      noChecksumDefault: ddlGate.noChecksumDefault,
     });
   }
 
@@ -825,11 +884,33 @@ async function main() {
       apply_order: forward[0].order,
       apply_kind: null,
       checksum_mode: CHECKSUM_MODE_CANONICAL_LF_V1,
+      ledger_recorded_at: new Date().toISOString(),
     }]);
     green.push({
       name: 'runner_reconcile_null_kind_fails',
       ok: nullKind.ok === false
         && nullKind.errors.some((e) => e.code === 'ledger_apply_kind_null'),
+    });
+  }
+
+  {
+    const repaired = simulateCanonicalRepairedRowReconcile(forward);
+    green.push({
+      name: 'exact_canonical_repaired_row_reconcile_ok',
+      ok: repaired.ok === true,
+      errors: repaired.ok ? [] : repaired.errors.slice(0, 3),
+    });
+  }
+
+  {
+    const ddlGate = assertLegacyUpgradeDdlNoDataDefaults();
+    const freshStrict = /checksum_mode TEXT NOT NULL DEFAULT 'canonical_lf_v1'/.test(String(LEDGER_DDL))
+      && /ledger_recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW\(\)/.test(String(LEDGER_DDL));
+    green.push({
+      name: 'legacy_upgrade_ddl_nullable_no_defaults',
+      ok: ddlGate.ok === true && freshStrict === true,
+      hasNullableCols: ddlGate.hasNullableCols,
+      freshStrict,
     });
   }
 
@@ -1042,6 +1123,21 @@ async function main() {
     authorizedSequence: AUTHORIZED_SEQUENCE.slice(),
     successPathQueryCount: SUCCESS_PATH_QUERY_COUNT,
     timestampSemantics: LEDGER_TIMESTAMP_SEMANTICS,
+    offlineCorrection: preserveLive ? {
+      kind: 'legacy_checksum_provenance_fix',
+      additionalLiveCalls: 0,
+      additionalHttpCalls: 0,
+      additionalArmCalls: 0,
+      additionalKvCalls: 0,
+      additionalPostgresCalls: 0,
+      preservedGeneratedAt: generatedAt,
+      preservedLiveOutcome: true,
+      preservedLedgerTxnTs: Boolean(liveBlock && liveBlock.liveApplyOutcome && liveBlock.liveApplyOutcome.ledgerTxnTs),
+      note:
+        'Offline correction only: LEDGER_LEGACY_UPGRADE_DDL no longer DEFAULTs checksum_mode/ledger_recorded_at; '
+        + 'reconcileLedger requires canonical sha256 under canonical_lf_v1 and fails closed on null provenance / mode-hash inconsistency. '
+        + 'Live Sunset 39 canonical baseline rows remain valid; zero additional live calls.',
+    } : null,
     redCases: red,
     greenCases: green,
     liveOutcome: liveBlock,
@@ -1145,6 +1241,15 @@ async function main() {
     `**proposedLedgerRows sha256:** \`${PROPOSED_LEDGER_ROWS_SHA256}\``,
     `**14AC evidence file sha256:** \`${SLICE14AC_EVIDENCE_FILE_SHA256}\``,
     `**Generated:** ${generatedAt}`,
+    '',
+    '## Offline correction (zero additional live calls)',
+    '',
+    '- Kind: `legacy_checksum_provenance_fix`',
+    '- LEDGER_LEGACY_UPGRADE_DDL adds apply_kind/checksum_mode/evidence_ref/provenance_notes/ledger_recorded_at **nullable with no DEFAULTs/backfill**.',
+    '- Fresh LEDGER_DDL remains strict (NOT NULL / defaulted as appropriate); runner inserts provenance explicitly.',
+    '- `reconcileLedger` fails closed on null provenance (`ledger_apply_kind_null`, `ledger_checksum_mode_null`, `ledger_recorded_at_null`, `ledger_checksum_unprovenanced`).',
+    '- `checksum_mode=canonical_lf_v1` requires `row.checksum_sha256 === entry.sha256`; exact `legacySha256` under canonical mode → `ledger_checksum_mode_hash_inconsistency` (no legacy mode introduced).',
+    '- Live Sunset 39 canonical baseline rows remain valid; preserved live capture/hashes/txn ts; **zero additional HTTP/ARM/KV/PostgreSQL calls**.',
     '',
     '## Baseline rows',
     '',

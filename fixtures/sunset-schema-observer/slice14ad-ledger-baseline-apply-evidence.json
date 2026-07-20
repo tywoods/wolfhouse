@@ -88,6 +88,18 @@
     "ledger_recorded_at": "Same transaction recording timestamp as applied_at; documents when the ledger row was written.",
     "neverHistoricalExecutionTime": true
   },
+  "offlineCorrection": {
+    "kind": "legacy_checksum_provenance_fix",
+    "additionalLiveCalls": 0,
+    "additionalHttpCalls": 0,
+    "additionalArmCalls": 0,
+    "additionalKvCalls": 0,
+    "additionalPostgresCalls": 0,
+    "preservedGeneratedAt": "2026-07-20T00:31:49.100Z",
+    "preservedLiveOutcome": true,
+    "preservedLedgerTxnTs": true,
+    "note": "Offline correction only: LEDGER_LEGACY_UPGRADE_DDL no longer DEFAULTs checksum_mode/ledger_recorded_at; reconcileLedger requires canonical sha256 under canonical_lf_v1 and fails closed on null provenance / mode-hash inconsistency. Live Sunset 39 canonical baseline rows remain valid; zero additional live calls."
+  },
   "redCases": [
     {
       "name": "eligibility_hash_drift",
@@ -151,6 +163,32 @@
       "name": "legacy_upgrade_null_kind_reconcile_fails",
       "ok": true,
       "code": "ledger_apply_kind_null"
+    },
+    {
+      "name": "legacy_upgrade_null_provenance_reconcile_fails",
+      "ok": true,
+      "codes": [
+        "ledger_apply_kind_null",
+        "ledger_checksum_mode_null",
+        "ledger_recorded_at_null",
+        "ledger_checksum_unprovenanced"
+      ]
+    },
+    {
+      "name": "legacy_hash_auto_mislabeled_canonical_fails",
+      "ok": true,
+      "code": "ledger_checksum_mode_hash_inconsistency"
+    },
+    {
+      "name": "canonical_mode_legacy_hash_inconsistency",
+      "ok": true,
+      "code": "ledger_checksum_mode_hash_inconsistency"
+    },
+    {
+      "name": "legacy_upgrade_no_silent_recorded_at_default",
+      "ok": true,
+      "noRecordedAtNow": true,
+      "noChecksumDefault": true
     },
     {
       "name": "default_path_zero_http_and_clients",
@@ -245,6 +283,17 @@
     {
       "name": "runner_reconcile_null_kind_fails",
       "ok": true
+    },
+    {
+      "name": "exact_canonical_repaired_row_reconcile_ok",
+      "ok": true,
+      "errors": []
+    },
+    {
+      "name": "legacy_upgrade_ddl_nullable_no_defaults",
+      "ok": true,
+      "hasNullableCols": true,
+      "freshStrict": true
     },
     {
       "name": "executed_runner_provenance_shape",

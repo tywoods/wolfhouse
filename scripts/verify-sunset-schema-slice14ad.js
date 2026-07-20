@@ -70,6 +70,10 @@ const REQUIRED_RED = [
   'fabricated_historical_timestamp_refuse',
   'future_runner_mislabel_refuse',
   'legacy_upgrade_null_kind_reconcile_fails',
+  'legacy_upgrade_null_provenance_reconcile_fails',
+  'legacy_hash_auto_mislabeled_canonical_fails',
+  'canonical_mode_legacy_hash_inconsistency',
+  'legacy_upgrade_no_silent_recorded_at_default',
   'default_path_zero_http_and_clients',
   'missing_apply_flag_or_env',
   'wrong_or_forbidden_argv',
@@ -85,6 +89,8 @@ const REQUIRED_GREEN = [
   'injected_http_success_exact_sequence',
   'runner_reconcile_baseline_kinds_ok',
   'runner_reconcile_null_kind_fails',
+  'exact_canonical_repaired_row_reconcile_ok',
+  'legacy_upgrade_ddl_nullable_no_defaults',
   'executed_runner_provenance_shape',
   'timestamp_semantics_documented',
 ];
@@ -232,6 +238,24 @@ async function main() {
     LEDGER_TIMESTAMP_SEMANTICS.neverHistoricalExecutionTime === true
     && evidence.timestampSemantics
     && evidence.timestampSemantics.neverHistoricalExecutionTime === true);
+
+  const upgradeDdl = String(require('./lib/migration-integrity').LEDGER_LEGACY_UPGRADE_DDL);
+  pass('legacy-upgrade-ddl-nullable-no-defaults',
+    /ADD COLUMN IF NOT EXISTS checksum_mode TEXT;/.test(upgradeDdl)
+    && /ADD COLUMN IF NOT EXISTS ledger_recorded_at TIMESTAMPTZ;/.test(upgradeDdl)
+    && !/checksum_mode TEXT(?:\s+NOT NULL)?\s+DEFAULT/.test(upgradeDdl)
+    && !/ledger_recorded_at TIMESTAMPTZ DEFAULT NOW\(\)/.test(upgradeDdl));
+
+  pass('offline-correction-zero-live-calls',
+    evidence.offlineCorrection
+    && evidence.offlineCorrection.kind === 'legacy_checksum_provenance_fix'
+    && evidence.offlineCorrection.additionalLiveCalls === 0
+    && evidence.offlineCorrection.additionalHttpCalls === 0
+    && evidence.offlineCorrection.additionalPostgresCalls === 0
+    && evidence.generatedAt === '2026-07-20T00:31:49.100Z'
+    && evidence.liveExecutionCount === 1
+    && /zero additional live calls/i.test(findings)
+    && /ledger_checksum_mode_hash_inconsistency/.test(findings));
 
   resetLedgerBaselineApplyCounters();
   resetManagedIdentityHttpCounters();

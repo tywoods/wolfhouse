@@ -406,14 +406,18 @@ pass(
   pass('red-sql-semantics-token-change', !assertSqlSemanticsUnchanged(a, c).ok);
 }
 
-// Ledger reconcile RED + narrow legacy GREEN (Slice 14AD provenance-aware)
+// Ledger reconcile RED + GREEN (Slice 14AD provenance-aware; no silent legacy→canonical)
 {
   const {
     APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
     APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
+    APPLY_KIND_VERIFIED_CURRENT_STATE_BASELINE,
     CHECKSUM_MODE_CANONICAL_LF_V1: MODE,
+    LEDGER_DDL,
+    LEDGER_LEGACY_UPGRADE_DDL,
   } = require('./lib/migration-integrity');
   const forward = forwardEntries(manifest);
+  const TS = '2026-07-20T00:31:52.213Z';
   function row(e, extra) {
     return {
       id: e.id,
@@ -422,9 +426,30 @@ pass(
       apply_order: e.order,
       apply_kind: APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
       checksum_mode: MODE,
+      ledger_recorded_at: TS,
+      applied_at: TS,
       ...(extra || {}),
     };
   }
+
+  // Fresh DDL remains strict; legacy upgrade is nullable with NO data defaults.
+  pass(
+    'green-fresh-ledger-ddl-strict-defaults',
+    /checksum_mode TEXT NOT NULL DEFAULT 'canonical_lf_v1'/.test(LEDGER_DDL)
+      && /ledger_recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW\(\)/.test(LEDGER_DDL)
+      && /apply_kind TEXT NOT NULL/.test(LEDGER_DDL),
+  );
+  pass(
+    'red-legacy-upgrade-no-checksum-mode-default',
+    /ADD COLUMN IF NOT EXISTS checksum_mode TEXT;/.test(LEDGER_LEGACY_UPGRADE_DDL)
+      && !/checksum_mode TEXT(?:\s+NOT NULL)?\s+DEFAULT/.test(LEDGER_LEGACY_UPGRADE_DDL),
+  );
+  pass(
+    'red-legacy-upgrade-no-silent-now-ledger-recorded-at',
+    /ADD COLUMN IF NOT EXISTS ledger_recorded_at TIMESTAMPTZ;/.test(LEDGER_LEGACY_UPGRADE_DDL)
+      && !/ledger_recorded_at TIMESTAMPTZ DEFAULT NOW\(\)/.test(LEDGER_LEGACY_UPGRADE_DDL),
+  );
+
   const r = reconcileLedger(forward, [
     row(forward[0], { checksum_sha256: 'f'.repeat(64) }),
   ]);
@@ -435,14 +460,32 @@ pass(
   pass('red-ledger-apply-kind-unknown', !rBadKind.ok && rBadKind.errors.some((e) => e.code === 'ledger_apply_kind_unknown'));
   const rNullMode = reconcileLedger(forward, [row(forward[0], { checksum_mode: null })]);
   pass('red-ledger-checksum-mode-null', !rNullMode.ok && rNullMode.errors.some((e) => e.code === 'ledger_checksum_mode_null'));
-}
-{
-  const {
-    APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
-    CHECKSUM_MODE_CANONICAL_LF_V1: MODE,
-  } = require('./lib/migration-integrity');
-  const forward = forwardEntries(manifest);
-  const r = reconcileLedger(forward, [
+  const rNullRecorded = reconcileLedger(forward, [row(forward[0], { ledger_recorded_at: null })]);
+  pass('red-ledger-recorded-at-null', !rNullRecorded.ok && rNullRecorded.errors.some((e) => e.code === 'ledger_recorded_at_null'));
+
+  // Post-upgrade unrepaired five-column row: all provenance null — fail closed.
+  const rNullProv = reconcileLedger(forward, [{
+    id: forward[0].id,
+    filename: forward[0].filename,
+    checksum_sha256: forward[0].sha256,
+    apply_order: forward[0].order,
+    apply_kind: null,
+    checksum_mode: null,
+    evidence_ref: null,
+    provenance_notes: null,
+    ledger_recorded_at: null,
+    applied_at: TS,
+  }]);
+  pass(
+    'red-ledger-null-legacy-provenance',
+    !rNullProv.ok
+      && rNullProv.errors.some((e) => e.code === 'ledger_apply_kind_null')
+      && rNullProv.errors.some((e) => e.code === 'ledger_checksum_mode_null')
+      && rNullProv.errors.some((e) => e.code === 'ledger_recorded_at_null')
+      && rNullProv.errors.some((e) => e.code === 'ledger_checksum_unprovenanced'),
+  );
+
+  const rPartial = reconcileLedger(forward, [
     {
       id: forward[1].id,
       filename: forward[1].filename,
@@ -450,18 +493,11 @@ pass(
       apply_order: 2,
       apply_kind: APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
       checksum_mode: MODE,
+      ledger_recorded_at: TS,
     },
   ]);
-  pass('red-ledger-partial-history', !r.ok && r.errors.some((e) => e.code === 'ledger_partial_history'));
-}
-{
-  const {
-    APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
-    APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
-    APPLY_KIND_VERIFIED_CURRENT_STATE_BASELINE,
-    CHECKSUM_MODE_CANONICAL_LF_V1: MODE,
-  } = require('./lib/migration-integrity');
-  const forward = forwardEntries(manifest);
+  pass('red-ledger-partial-history', !rPartial.ok && rPartial.errors.some((e) => e.code === 'ledger_partial_history'));
+
   const withLegacy = forward.find((e) => e.legacySha256);
   pass('green-legacy-sha-present-on-some-entries', Boolean(withLegacy));
   if (withLegacy) {
@@ -469,39 +505,50 @@ pass(
     const acceptLegacy = ledgerChecksumAccepted(withLegacy, withLegacy.legacySha256);
     const rejectOther = ledgerChecksumAccepted(withLegacy, 'a'.repeat(64));
     pass('green-ledger-accepts-canonical-hash', acceptCanon.ok && acceptCanon.mode === CHECKSUM_MODE_CANONICAL_LF_V1);
+    // Disk/era helper may still recognize exact legacySha256; reconcile must NOT.
     pass('green-ledger-accepts-exact-legacy-hash-only', acceptLegacy.ok && acceptLegacy.mode === 'legacy_crlf_era_exact');
     pass('red-ledger-rejects-arbitrary-hash', !rejectOther.ok);
 
-    const rowsLegacyPrefix = forward.slice(0, withLegacy.order).map((e) => ({
+    // RED: legacy hash auto-mislabeled as canonical_lf_v1 must fail mode/hash consistency.
+    const rowsLegacyMislabeled = forward.slice(0, withLegacy.order).map((e) => ({
       id: e.id,
       filename: e.filename,
       checksum_sha256: e.id === withLegacy.id ? e.legacySha256 : e.sha256,
       apply_order: e.order,
       apply_kind: APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
       checksum_mode: MODE,
+      ledger_recorded_at: TS,
     }));
-    const recon = reconcileLedger(forward, rowsLegacyPrefix);
-    pass('green-ledger-reconcile-exact-legacy-prefix', recon.ok, JSON.stringify(recon.errors.slice(0, 2)));
+    const reconMislabel = reconcileLedger(forward, rowsLegacyMislabeled);
+    pass(
+      'red-ledger-legacy-hash-under-canonical-mode',
+      !reconMislabel.ok
+        && reconMislabel.errors.some((e) => e.code === 'ledger_checksum_mode_hash_inconsistency'),
+      JSON.stringify(reconMislabel.errors.slice(0, 2)),
+    );
 
-    const rowsCanon = forward.slice(0, 3).map((e) => ({
-      id: e.id,
-      filename: e.filename,
-      checksum_sha256: e.sha256,
-      apply_order: e.order,
-      apply_kind: APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
-      checksum_mode: MODE,
-    }));
+    // Single-row RED: canonical mode + exact legacy hash → inconsistency (not mismatch).
+    const rInconsistency = reconcileLedger(forward, [
+      row(withLegacy, { checksum_sha256: withLegacy.legacySha256 }),
+    ]);
+    pass(
+      'red-ledger-canonical-mode-legacy-hash-inconsistency',
+      !rInconsistency.ok
+        && rInconsistency.errors.some((e) => e.code === 'ledger_checksum_mode_hash_inconsistency')
+        && !rInconsistency.errors.some((e) => e.code === 'ledger_checksum_mismatch'),
+    );
+
+    // GREEN: exact canonical repaired row under canonical mode.
+    const repaired = reconcileLedger(forward, [row(withLegacy)]);
+    pass('green-ledger-exact-canonical-repaired-row', repaired.ok, JSON.stringify(repaired.errors.slice(0, 2)));
+
+    const rowsCanon = forward.slice(0, 3).map((e) => row(e));
     pass('green-ledger-reconcile-canonical-writes', reconcileLedger(forward, rowsCanon).ok);
 
-    const rowsBaseline = forward.slice(0, 3).map((e, i) => ({
-      id: e.id,
-      filename: e.filename,
-      checksum_sha256: e.sha256,
-      apply_order: e.order,
+    const rowsBaseline = forward.slice(0, 3).map((e, i) => row(e, {
       apply_kind: i === 0
         ? APPLY_KIND_VERIFIED_CURRENT_STATE_BASELINE
         : APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
-      checksum_mode: MODE,
     }));
     pass('green-ledger-reconcile-baseline-kinds-as-applied', reconcileLedger(forward, rowsBaseline).ok);
   }

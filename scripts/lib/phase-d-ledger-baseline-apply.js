@@ -1626,6 +1626,10 @@ function renderLedgerBaselineApplyUsage() {
   ].join('\n');
 }
 
+/**
+ * Simulate a five-column legacy ledger after LEDGER_LEGACY_UPGRADE_DDL:
+ * provenance columns exist but remain NULL (no defaults/backfill).
+ */
 function simulateLegacyUpgradeReconcileFailure(forward) {
   const rows = [{
     id: forward[0].id,
@@ -1633,14 +1637,93 @@ function simulateLegacyUpgradeReconcileFailure(forward) {
     checksum_sha256: forward[0].sha256,
     apply_order: forward[0].order,
     apply_kind: null,
-    checksum_mode: CHECKSUM_MODE_CANONICAL_LF_V1,
+    checksum_mode: null,
     evidence_ref: null,
     provenance_notes: null,
-    ledger_recorded_at: new Date().toISOString(),
+    ledger_recorded_at: null,
     applied_at: new Date().toISOString(),
   }];
   return reconcileLedger(forward, rows);
 }
+
+/**
+ * RED: legacySha256 stored under checksum_mode=canonical_lf_v1 (false canonical label).
+ */
+function simulateLegacyHashUnderCanonicalModeFailure(forward) {
+  const withLegacy = forward.find((e) => e.legacySha256);
+  if (!withLegacy) {
+    return { ok: false, errors: [{ code: 'no_legacy_entry' }] };
+  }
+  const ts = '2026-07-20T00:31:52.213Z';
+  const rows = forward.slice(0, withLegacy.order).map((e) => ({
+    id: e.id,
+    filename: e.filename,
+    checksum_sha256: e.id === withLegacy.id ? e.legacySha256 : e.sha256,
+    apply_order: e.order,
+    apply_kind: APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
+    checksum_mode: CHECKSUM_MODE_CANONICAL_LF_V1,
+    evidence_ref: 'test',
+    provenance_notes: 'mislabeled',
+    ledger_recorded_at: ts,
+    applied_at: ts,
+  }));
+  return reconcileLedger(forward, rows);
+}
+
+/**
+ * GREEN: explicit repair — canonical sha256 + full provenance under canonical_lf_v1.
+ */
+function simulateCanonicalRepairedRowReconcile(forward) {
+  const withLegacy = forward.find((e) => e.legacySha256) || forward[0];
+  const ts = '2026-07-20T00:31:52.213Z';
+  const rows = [{
+    id: withLegacy.id,
+    filename: withLegacy.filename,
+    checksum_sha256: withLegacy.sha256,
+    apply_order: withLegacy.order,
+    apply_kind: APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
+    checksum_mode: CHECKSUM_MODE_CANONICAL_LF_V1,
+    evidence_ref: 'operator_repair:canonical',
+    provenance_notes: 'explicit canonical checksum repair',
+    ledger_recorded_at: ts,
+    applied_at: ts,
+  }];
+  // Contiguous prefix required: pad 1..order-1 with matching canonical rows.
+  const prefix = forward.slice(0, withLegacy.order - 1).map((e) => ({
+    id: e.id,
+    filename: e.filename,
+    checksum_sha256: e.sha256,
+    apply_order: e.order,
+    apply_kind: APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
+    checksum_mode: CHECKSUM_MODE_CANONICAL_LF_V1,
+    evidence_ref: 'operator_repair:canonical',
+    provenance_notes: 'explicit canonical checksum repair',
+    ledger_recorded_at: ts,
+    applied_at: ts,
+  }));
+  return reconcileLedger(forward, [...prefix, ...rows]);
+}
+
+/**
+ * Assert legacy upgrade DDL adds nullable provenance columns without defaults.
+ */
+function assertLegacyUpgradeDdlNoDataDefaults() {
+  const ddl = String(LEDGER_LEGACY_UPGRADE_DDL);
+  const hasNullableCols = /ADD COLUMN IF NOT EXISTS apply_kind TEXT;/.test(ddl)
+    && /ADD COLUMN IF NOT EXISTS checksum_mode TEXT;/.test(ddl)
+    && /ADD COLUMN IF NOT EXISTS evidence_ref TEXT;/.test(ddl)
+    && /ADD COLUMN IF NOT EXISTS provenance_notes TEXT;/.test(ddl)
+    && /ADD COLUMN IF NOT EXISTS ledger_recorded_at TIMESTAMPTZ;/.test(ddl);
+  const noChecksumDefault = !/checksum_mode TEXT(?:\s+NOT NULL)?\s+DEFAULT/.test(ddl);
+  const noRecordedAtNow = !/ledger_recorded_at TIMESTAMPTZ DEFAULT NOW\(\)/.test(ddl);
+  return {
+    ok: hasNullableCols && noChecksumDefault && noRecordedAtNow,
+    hasNullableCols,
+    noChecksumDefault,
+    noRecordedAtNow,
+  };
+}
+
 
 module.exports = {
   PHASE_D_LEDGER_BASELINE_APPLY_LIVE_ENABLED,
@@ -1697,6 +1780,9 @@ module.exports = {
   buildApplyConnectConfig,
   buildApplyPgClientConfig,
   simulateLegacyUpgradeReconcileFailure,
+  simulateLegacyHashUnderCanonicalModeFailure,
+  simulateCanonicalRepairedRowReconcile,
+  assertLegacyUpgradeDdlNoDataDefaults,
   reconcileLedger,
   buildExecutedByCanonicalRunnerProvenance,
 };

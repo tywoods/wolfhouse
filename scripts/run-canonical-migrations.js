@@ -6,10 +6,12 @@
  * Refuses staging/prod/Azure and non-ephemeral DB names.
  *
  * Slice 14AD: ensureLedger creates/upgrades additive provenance columns;
+ * legacy upgrade adds nullable provenance with NO defaults/backfill;
  * new applies insert executed_by_canonical_runner with canonical checksum/mode;
- * reconcile treats baseline kinds as applied only in exact contiguous
- * checksum-valid prefix and fails closed on null/unknown kind, mode, gap,
- * or mismatch.
+ * reconcile requires canonical sha256 under canonical_lf_v1, treats baseline
+ * kinds as applied only in exact contiguous checksum-valid prefix, and fails
+ * closed on null/unknown kind, mode, recorded_at, gap, mismatch, or
+ * checksum_mode/hash inconsistency (legacy hash under canonical mode).
  */
 
 const fs = require('fs');

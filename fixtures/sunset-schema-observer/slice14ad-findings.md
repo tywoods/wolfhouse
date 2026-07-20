@@ -7,6 +7,15 @@
 **14AC evidence file sha256:** `45219e7b6738d847f9dc066db27b92caf271e0ee305e7c6e643f27519033ff96`
 **Generated:** 2026-07-20T00:31:49.100Z
 
+## Offline correction (zero additional live calls)
+
+- Kind: `legacy_checksum_provenance_fix`
+- LEDGER_LEGACY_UPGRADE_DDL adds apply_kind/checksum_mode/evidence_ref/provenance_notes/ledger_recorded_at **nullable with no DEFAULTs/backfill**.
+- Fresh LEDGER_DDL remains strict (NOT NULL / defaulted as appropriate); runner inserts provenance explicitly.
+- `reconcileLedger` fails closed on null provenance (`ledger_apply_kind_null`, `ledger_checksum_mode_null`, `ledger_recorded_at_null`, `ledger_checksum_unprovenanced`).
+- `checksum_mode=canonical_lf_v1` requires `row.checksum_sha256 === entry.sha256`; exact `legacySha256` under canonical mode → `ledger_checksum_mode_hash_inconsistency` (no legacy mode introduced).
+- Live Sunset 39 canonical baseline rows remain valid; preserved live capture/hashes/txn ts; **zero additional HTTP/ARM/KV/PostgreSQL calls**.
+
 ## Baseline rows
 
 - structural: **34**
@@ -15,8 +24,8 @@
 
 ## Offline gates
 
-- RED: 14 cases
-- GREEN: 9 cases
+- RED: 18 cases
+- GREEN: 11 cases
 - Authorized sequence length: **54**
 - Advisory locks: WH (0x57480001) / MIG1 (0x4d494731)
 

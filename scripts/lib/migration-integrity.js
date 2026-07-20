@@ -96,22 +96,42 @@ CREATE UNIQUE INDEX IF NOT EXISTS schema_migration_ledger_apply_order_uidx
 `;
 
 /**
+ * Historical Slice 4 five-column ledger DDL (pre-14AD).
+ * Preserved for Slice 14AC design-only eligibility evidence byte-lock stability;
+ * fresh installs use LEDGER_DDL; legacy tables use LEDGER_LEGACY_UPGRADE_DDL.
+ */
+const LEDGER_DDL_SLICE4_BASE = `
+CREATE TABLE IF NOT EXISTS schema_migration_ledger (
+  id TEXT PRIMARY KEY,
+  filename TEXT NOT NULL UNIQUE,
+  checksum_sha256 TEXT NOT NULL,
+  apply_order INTEGER NOT NULL,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`;
+
+/**
  * Additive upgrade for pre-14AD five-column ledgers.
  * Safe to run after LEDGER_DDL on fresh tables (IF NOT EXISTS no-ops).
- * Does not backfill apply_kind — reconcile fails closed on NULL/unknown kind
- * until rows are properly baselined or runner-labelled.
+ *
+ * Provenance columns are added NULLABLE with NO column DEFAULTs and NO
+ * backfill: preexisting rows keep null apply_kind/checksum_mode/
+ * evidence_ref/provenance_notes/ledger_recorded_at until an explicit
+ * operator repair writes canonical provenance + canonical checksum.
+ * Reconcile fails closed on null provenance / mode-hash inconsistency —
+ * upgrade schema succeeds; runner refuses unrepaired legacy rows.
  */
 const LEDGER_LEGACY_UPGRADE_DDL = `
 ALTER TABLE schema_migration_ledger
   ADD COLUMN IF NOT EXISTS apply_kind TEXT;
 ALTER TABLE schema_migration_ledger
-  ADD COLUMN IF NOT EXISTS checksum_mode TEXT DEFAULT 'canonical_lf_v1';
+  ADD COLUMN IF NOT EXISTS checksum_mode TEXT;
 ALTER TABLE schema_migration_ledger
   ADD COLUMN IF NOT EXISTS evidence_ref TEXT;
 ALTER TABLE schema_migration_ledger
   ADD COLUMN IF NOT EXISTS provenance_notes TEXT;
 ALTER TABLE schema_migration_ledger
-  ADD COLUMN IF NOT EXISTS ledger_recorded_at TIMESTAMPTZ DEFAULT NOW();
+  ADD COLUMN IF NOT EXISTS ledger_recorded_at TIMESTAMPTZ;
 DO $upgrade$
 BEGIN
   IF NOT EXISTS (
@@ -419,8 +439,14 @@ function isKnownApplyKind(kind) {
  *
  * Both baseline kinds and executed_by_canonical_runner count as applied only
  * when checksums validate and apply_order forms an exact contiguous prefix.
- * Fail closed on null/unknown apply_kind, null/unknown checksum_mode, gaps,
- * or mismatches.
+ * Fail closed on null/unknown apply_kind, null/unknown checksum_mode, null
+ * ledger_recorded_at, gaps, mismatches, or checksum_mode/hash inconsistency.
+ *
+ * checksum_mode=canonical_lf_v1 requires row.checksum_sha256 === entry.sha256.
+ * An exact legacySha256 under canonical mode is NOT accepted (no silent
+ * legacy→canonical mislabel); operator must repair to the canonical hash.
+ * A dedicated ledger checksum_mode for legacy eras is intentionally not
+ * introduced here.
  */
 function reconcileLedger(forward, ledgerRows) {
   const errors = [];
@@ -454,6 +480,13 @@ function reconcileLedger(forward, ledgerRows) {
       });
     }
 
+    if (row.ledger_recorded_at == null || String(row.ledger_recorded_at) === '') {
+      errors.push({
+        code: 'ledger_recorded_at_null',
+        message: `ledger row ${row.id} has null/empty ledger_recorded_at`,
+      });
+    }
+
     const expected = forward.find((f) => f.id === row.id);
     if (!expected) {
       errors.push({
@@ -462,13 +495,37 @@ function reconcileLedger(forward, ledgerRows) {
       });
       continue;
     }
-    const checksumGate = ledgerChecksumAccepted(expected, row.checksum_sha256);
-    if (!checksumGate.ok) {
+
+    const got = String(row.checksum_sha256 || '');
+    if (!got || !/^[0-9a-f]{64}$/.test(got)) {
       errors.push({
-        code: 'ledger_checksum_mismatch',
-        message: `ledger checksum mismatch for ${row.id}`,
+        code: 'ledger_checksum_malformed',
+        message: `ledger checksum malformed for ${row.id}`,
+      });
+    } else if (mode === CHECKSUM_MODE_CANONICAL_LF_V1) {
+      if (got === expected.sha256) {
+        // canonical hash under canonical mode — ok
+      } else if (expected.legacySha256 && got === expected.legacySha256) {
+        errors.push({
+          code: 'ledger_checksum_mode_hash_inconsistency',
+          message:
+            `ledger row ${row.id} stores legacySha256 under checksum_mode=${CHECKSUM_MODE_CANONICAL_LF_V1}; `
+            + 'canonical mode requires entry.sha256 (explicit repair; no legacy mode)',
+        });
+      } else {
+        errors.push({
+          code: 'ledger_checksum_mismatch',
+          message: `ledger checksum mismatch for ${row.id}`,
+        });
+      }
+    } else if (mode == null || mode === '') {
+      // Null mode already recorded; refuse to treat any stored hash as validated.
+      errors.push({
+        code: 'ledger_checksum_unprovenanced',
+        message: `ledger row ${row.id} checksum cannot be validated without checksum_mode`,
       });
     }
+
     if (row.filename !== expected.filename) {
       errors.push({
         code: 'ledger_filename_mismatch',
@@ -959,6 +1016,7 @@ module.exports = {
   FORBIDDEN_DB_NAMES,
   CLASSIFICATIONS,
   LEDGER_DDL,
+  LEDGER_DDL_SLICE4_BASE,
   LEDGER_LEGACY_UPGRADE_DDL,
   LEDGER_TIMESTAMP_SEMANTICS,
   LEDGER_SELECT_COLUMNS,
