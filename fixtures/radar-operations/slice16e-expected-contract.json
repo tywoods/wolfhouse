@@ -84,14 +84,26 @@
     "shell_metacharacter_revision",
     "argv_expansion_rejected",
     "live_capture_runner_required",
-    "capture_mutation_argv_rejected"
+    "capture_mutation_argv_rejected",
+    "missing_app_arm_id",
+    "spoofed_app_arm_id",
+    "mismatched_app_arm_id",
+    "missing_revision_arm_id",
+    "spoofed_revision_arm_id",
+    "mismatched_revision_arm_id",
+    "app_name_absent",
+    "subscription_context_race_shape",
+    "repeated_revision_weight_option",
+    "omitted_revision_weight_pair",
+    "unsupported_traffic_snapshot_latest_with_revision",
+    "unsupported_traffic_snapshot_label_with_revision"
   ],
   "required_green_names": [
     "green_plan_wh-staging-staff-api",
     "green_plan_luna-sunset-staging-staff-api",
     "green_capture_injectable_runner",
     "green_traffic_set_argv_rollback_restore",
-    "green_preserve_latest_with_revision_name"
+    "green_capture_argv_subscription_pin"
   ],
   "sample_inventory_rels": [
     "fixtures/radar-operations/slice16e-sample-inventory.wh.json",

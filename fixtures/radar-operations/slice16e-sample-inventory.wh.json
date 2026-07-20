@@ -10,7 +10,8 @@
       "runningState": "Running",
       "healthState": "Healthy",
       "provisioningState": "Provisioned",
-      "image": "whstagingacr.azurecr.io/wh-staff-api:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      "image": "whstagingacr.azurecr.io/wh-staff-api:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api/revisions/wh-staging-staff-api--rev-current"
     },
     {
       "name": "wh-staging-staff-api--rev-target",
@@ -19,7 +20,8 @@
       "runningState": "Running",
       "healthState": "Healthy",
       "provisioningState": "Provisioned",
-      "image": "whstagingacr.azurecr.io/wh-staff-api:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "image": "whstagingacr.azurecr.io/wh-staff-api:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api/revisions/wh-staging-staff-api--rev-target"
     }
   ],
   "traffic": [
@@ -31,5 +33,7 @@
       "revisionName": "wh-staging-staff-api--rev-target",
       "weight": 0
     }
-  ]
+  ],
+  "appName": "wh-staging-staff-api",
+  "appId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api"
 }

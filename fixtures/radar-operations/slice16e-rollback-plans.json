@@ -44,8 +44,11 @@
         "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
         "resourceGroup": "wh-staging-rg",
         "containerApp": "wh-staging-staff-api",
+        "appName": "wh-staging-staff-api",
+        "appId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api",
         "revisions": [
           {
+            "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api/revisions/wh-staging-staff-api--rev-current",
             "name": "wh-staging-staff-api--rev-current",
             "containerApp": "wh-staging-staff-api",
             "active": true,
@@ -55,6 +58,7 @@
             "image": "whstagingacr.azurecr.io/wh-staff-api:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
           },
           {
+            "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api/revisions/wh-staging-staff-api--rev-target",
             "name": "wh-staging-staff-api--rev-target",
             "containerApp": "wh-staging-staff-api",
             "active": true,
@@ -94,8 +98,11 @@
         "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
         "resourceGroup": "luna-sunset-staging-rg",
         "containerApp": "luna-sunset-staging-staff-api",
+        "appName": "luna-sunset-staging-staff-api",
+        "appId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api",
         "revisions": [
           {
+            "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api/revisions/luna-sunset-staging-staff-api--rev-current",
             "name": "luna-sunset-staging-staff-api--rev-current",
             "containerApp": "luna-sunset-staging-staff-api",
             "active": true,
@@ -105,6 +112,7 @@
             "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
           },
           {
+            "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api/revisions/luna-sunset-staging-staff-api--rev-target",
             "name": "luna-sunset-staging-staff-api--rev-target",
             "containerApp": "luna-sunset-staging-staff-api",
             "active": true,

@@ -24,6 +24,19 @@ const REVISION_WEIGHT_PAIR_RE = /^[A-Za-z0-9._-]+=\d+$/;
 const SHELL_METACHAR_RE = /[;&|<>$`\\*!?({\[\s'"\n\r]/;
 const ARGV_EXPANSION_RE = /\$\(|\$\{|`/;
 
+/** Full ARM id for a Container App (Azure-returned identity only). */
+const CONTAINER_APP_ARM_RE = new RegExp(
+  String.raw`^/subscriptions/([^/]+)/resourceGroups/([^/]+)`
+  + String.raw`/providers/Microsoft\.App/containerApps/([^/]+)$`,
+  'i',
+);
+/** Full ARM id for a revision — parent must be the exact app ARM id. */
+const REVISION_ARM_RE = new RegExp(
+  String.raw`^/subscriptions/([^/]+)/resourceGroups/([^/]+)`
+  + String.raw`/providers/Microsoft\.App/containerApps/([^/]+)/revisions/([^/]+)$`,
+  'i',
+);
+
 const APP_PLANS = Object.freeze({
   'wh-staging-staff-api': Object.freeze({
     resourceGroup: 'wh-staging-rg',
@@ -109,6 +122,58 @@ const LOCKS = Object.freeze({
 function trimStr(v) {
   if (v == null) return '';
   return String(v).trim();
+}
+
+function buildContainerAppArmId({ subscriptionId, resourceGroup, containerApp } = {}) {
+  return (
+    `/subscriptions/${trimStr(subscriptionId)}`
+    + `/resourceGroups/${trimStr(resourceGroup)}`
+    + `/providers/Microsoft.App/containerApps/${trimStr(containerApp)}`
+  );
+}
+
+function buildRevisionArmId({
+  subscriptionId, resourceGroup, containerApp, revisionName,
+} = {}) {
+  return (
+    `${buildContainerAppArmId({ subscriptionId, resourceGroup, containerApp })}`
+    + `/revisions/${trimStr(revisionName)}`
+  );
+}
+
+function parseContainerAppArmId(id) {
+  const raw = trimStr(id);
+  const m = CONTAINER_APP_ARM_RE.exec(raw);
+  if (!m) return { ok: false, errors: ['invalid_app_arm_id'] };
+  return {
+    ok: true,
+    errors: [],
+    id: raw,
+    subscriptionId: m[1],
+    resourceGroup: m[2],
+    containerApp: m[3],
+  };
+}
+
+function parseRevisionArmId(id) {
+  const raw = trimStr(id);
+  const m = REVISION_ARM_RE.exec(raw);
+  if (!m) return { ok: false, errors: ['invalid_revision_arm_id'] };
+  const parentAppId = buildContainerAppArmId({
+    subscriptionId: m[1],
+    resourceGroup: m[2],
+    containerApp: m[3],
+  });
+  return {
+    ok: true,
+    errors: [],
+    id: raw,
+    subscriptionId: m[1],
+    resourceGroup: m[2],
+    containerApp: m[3],
+    revisionName: m[4],
+    parentAppId,
+  };
 }
 
 function parseImage(image) {
@@ -248,9 +313,9 @@ function findRevision(inventory, revisionName) {
 /**
  * Strict traffic snapshot validation.
  * Each entry must have a concrete revisionName (unique), finite nonnegative weight,
- * and total weight === 100. labels/latestRevision are preserved only when
- * revisionName is present (exact --revision-weight restore representable);
- * otherwise refuse unsupported_traffic_snapshot rather than drop data.
+ * and total weight === 100.
+ * Mutation is traffic weights only — any label or latestRevision semantics is
+ * unsupported_traffic_snapshot (refuse rather than claim exact restore).
  */
 function assertStrictTrafficSnapshot(traffic) {
   const errors = [];
@@ -277,12 +342,13 @@ function assertStrictTrafficSnapshot(traffic) {
     const label = trimStr(t.label || t.revisionLabel);
     const weightRaw = t.weight;
 
+    // Traffic-weight mutation cannot restore label/latest semantics exactly.
+    if (hasLatest || label) {
+      errors.push('unsupported_traffic_snapshot');
+      continue;
+    }
     if (!revisionName) {
-      if (hasLatest || label) {
-        errors.push('unsupported_traffic_snapshot');
-      } else {
-        errors.push('malformed_traffic');
-      }
+      errors.push('malformed_traffic');
       continue;
     }
     if (!SAFE_REVISION_NAME_RE.test(revisionName)) {
@@ -301,11 +367,7 @@ function assertStrictTrafficSnapshot(traffic) {
       continue;
     }
     sum += weight;
-
-    const entry = { revisionName, weight };
-    if (hasLatest) entry.latestRevision = true;
-    if (label) entry.label = label;
-    normalized.push(entry);
+    normalized.push({ revisionName, weight });
   }
 
   if (errors.length === 0 && sum !== 100) {
@@ -327,8 +389,9 @@ function snapshotTraffic(inventory) {
 }
 
 /**
- * Inventory must carry exact subscription/RG/app identity — no missing fields,
- * no fallbacks.
+ * Inventory identity must be proven from Azure-returned full ARM IDs/names —
+ * never synthesized from requested inputs. Requires app id/name/RG/sub and each
+ * revision full id whose parent is the exact app ARM id. Refuse missing fields.
  */
 function assertInventoryIdentity(inventory, {
   subscriptionId,
@@ -359,13 +422,83 @@ function assertInventoryIdentity(inventory, {
     errors.push('inventory_container_app_mismatch');
   }
 
-  return { ok: errors.length === 0, errors };
+  const appName = trimStr(inventory.containerApp);
+  if (inventory.appName == null || trimStr(inventory.appName) === '') {
+    errors.push('app_name_absent');
+  } else if (trimStr(inventory.appName) !== appName && appName) {
+    errors.push('app_name_absent');
+  }
+
+  const appId = trimStr(inventory.appId);
+  if (!appId) {
+    errors.push('missing_app_arm_id');
+  } else {
+    const parsedApp = parseContainerAppArmId(appId);
+    if (!parsedApp.ok) {
+      errors.push('spoofed_app_arm_id');
+    } else {
+      if (trimStr(inventory.subscriptionId)
+        && parsedApp.subscriptionId !== trimStr(inventory.subscriptionId)) {
+        errors.push('mismatched_app_arm_id');
+      }
+      if (trimStr(inventory.resourceGroup)
+        && parsedApp.resourceGroup !== trimStr(inventory.resourceGroup)) {
+        errors.push('mismatched_app_arm_id');
+      }
+      if (trimStr(inventory.containerApp)
+        && parsedApp.containerApp !== trimStr(inventory.containerApp)) {
+        errors.push('mismatched_app_arm_id');
+      }
+      if (trimStr(subscriptionId)
+        && parsedApp.subscriptionId.toLowerCase() !== trimStr(subscriptionId).toLowerCase()) {
+        errors.push('mismatched_app_arm_id');
+      }
+      if (trimStr(resourceGroup)
+        && parsedApp.resourceGroup.toLowerCase() !== trimStr(resourceGroup).toLowerCase()) {
+        errors.push('mismatched_app_arm_id');
+      }
+      if (trimStr(containerApp)
+        && parsedApp.containerApp !== trimStr(containerApp)) {
+        errors.push('mismatched_app_arm_id');
+      }
+
+      const revs = Array.isArray(inventory.revisions) ? inventory.revisions : [];
+      for (const rev of revs) {
+        const revId = trimStr(rev && rev.id);
+        if (!revId) {
+          errors.push('missing_revision_arm_id');
+          continue;
+        }
+        const parsedRev = parseRevisionArmId(revId);
+        if (!parsedRev.ok) {
+          errors.push('spoofed_revision_arm_id');
+          continue;
+        }
+        if (parsedRev.parentAppId.toLowerCase() !== parsedApp.id.toLowerCase()) {
+          errors.push('mismatched_revision_arm_id');
+          continue;
+        }
+        if (trimStr(rev.name) && parsedRev.revisionName !== trimStr(rev.name)) {
+          errors.push('mismatched_revision_arm_id');
+        }
+        // Ownership must come from ARM parent — never from requested inputs alone.
+        if (rev.containerApp == null || trimStr(rev.containerApp) === '') {
+          errors.push('missing_target_ownership');
+        } else if (trimStr(rev.containerApp) !== parsedRev.containerApp) {
+          errors.push('cross_app_revision');
+        }
+      }
+    }
+  }
+
+  return { ok: errors.length === 0, errors: [...new Set(errors)] };
 }
 
 /**
  * Target revision proofs — no OR/fallback. Requires active===true and exact
  * Healthy / Running / Provisioned, mandatory image equal to supplied full SHA,
- * and ownership containerApp === request containerApp.
+ * and ownership proven from revision full ARM id parent === exact app
+ * (never synthesized from requested inputs alone).
  */
 function assertTargetHealthyInInventory({
   inventory,
@@ -376,14 +509,35 @@ function assertTargetHealthyInInventory({
   expectedSha,
 } = {}) {
   const errors = [];
-  // Inventory identity vs request is asserted by the caller.
-  // Here enforce ownership + exact health/image fields on the target revision.
   void resourceGroup;
 
   const rev = findRevision(inventory, targetRevisionName);
   if (!rev) {
     errors.push('target_revision_not_found');
     return { ok: false, errors, revision: null };
+  }
+
+  const appId = trimStr(inventory && inventory.appId)
+    || buildContainerAppArmId({
+      subscriptionId: trimStr(inventory && inventory.subscriptionId),
+      resourceGroup: trimStr(inventory && inventory.resourceGroup),
+      containerApp: trimStr(containerApp),
+    });
+
+  const revId = trimStr(rev.id);
+  if (!revId) {
+    errors.push('missing_revision_arm_id');
+  } else {
+    const parsedRev = parseRevisionArmId(revId);
+    if (!parsedRev.ok) {
+      errors.push('spoofed_revision_arm_id');
+    } else if (parsedRev.parentAppId.toLowerCase() !== appId.toLowerCase()) {
+      errors.push('mismatched_revision_arm_id');
+    } else if (parsedRev.containerApp !== trimStr(containerApp)) {
+      errors.push('cross_app_revision');
+    } else if (parsedRev.revisionName !== trimStr(targetRevisionName)) {
+      errors.push('mismatched_revision_arm_id');
+    }
   }
 
   if (rev.containerApp == null || trimStr(rev.containerApp) === '') {
@@ -495,24 +649,113 @@ function buildRestorePlan({ currentTraffic } = {}) {
   return {
     mode: 'restore_prior_traffic_weights',
     mutation: ALLOWED_MUTATION,
-    traffic: (currentTraffic || []).map((t) => {
-      const entry = {
-        revisionName: trimStr(t.revisionName),
-        weight: Number(t.weight),
-      };
-      if (t.latestRevision === true) entry.latestRevision = true;
-      if (trimStr(t.label)) entry.label = trimStr(t.label);
-      return entry;
-    }),
-    note: 'Repoint ingress traffic weights exactly to the pre-rollback snapshot. No image/env/secret/scaling/DB change.',
+    traffic: (currentTraffic || []).map((t) => ({
+      revisionName: trimStr(t.revisionName),
+      weight: Number(t.weight),
+    })),
+    note: 'Repoint ingress traffic weights exactly to the pre-rollback snapshot. No image/env/secret/scaling/DB change. Label/latestRevision snapshots are refused upstream.',
+  };
+}
+
+/**
+ * Count --revision-weight occurrences and collect following pairs until next flag.
+ */
+function extractRevisionWeightPairs(argv) {
+  const args = Array.isArray(argv) ? argv : [];
+  const indices = [];
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === '--revision-weight') indices.push(i);
+  }
+  if (indices.length === 0) {
+    return { count: 0, pairs: [], errors: ['omitted_revision_weight_pair'] };
+  }
+  if (indices.length > 1) {
+    return { count: indices.length, pairs: [], errors: ['repeated_revision_weight_option'] };
+  }
+  const start = indices[0] + 1;
+  const pairs = [];
+  for (let i = start; i < args.length; i += 1) {
+    const tok = args[i];
+    if (typeof tok !== 'string' || tok.startsWith('-')) break;
+    pairs.push(tok);
+  }
+  return { count: 1, pairs, errors: [] };
+}
+
+/**
+ * Independent argv contract for Azure CLI 2.88 traffic set:
+ * exactly one --revision-weight followed by the complete ordered revision=weight
+ * pair set; --subscription pinned; full argv compared.
+ */
+function assertTrafficSetArgvContract(argv, {
+  subscriptionId,
+  resourceGroup,
+  containerApp,
+  expectedPairs,
+} = {}) {
+  const errors = [];
+  if (!Array.isArray(argv) || argv.length === 0) {
+    return { ok: false, errors: ['malformed_argv'], expected: null };
+  }
+
+  const extracted = extractRevisionWeightPairs(argv);
+  if (extracted.errors.length) {
+    errors.push(...extracted.errors);
+  }
+
+  const wantPairs = Array.isArray(expectedPairs) ? expectedPairs.map(String) : [];
+  if (extracted.errors.length === 0) {
+    if (extracted.pairs.length !== wantPairs.length) {
+      errors.push('omitted_revision_weight_pair');
+    } else {
+      for (let i = 0; i < wantPairs.length; i += 1) {
+        if (extracted.pairs[i] !== wantPairs[i]) {
+          errors.push('omitted_revision_weight_pair');
+          break;
+        }
+      }
+    }
+  }
+
+  const subIdx = argv.indexOf('--subscription');
+  if (subIdx < 0 || argv[subIdx + 1] !== trimStr(subscriptionId)) {
+    errors.push('subscription_context_race_shape');
+  }
+
+  const expected = [
+    'az', 'containerapp', 'ingress', 'traffic', 'set',
+    '-g', trimStr(resourceGroup),
+    '-n', trimStr(containerApp),
+    '--subscription', trimStr(subscriptionId),
+    '--revision-weight',
+    ...wantPairs,
+  ];
+
+  if (argv.length !== expected.length
+    || expected.some((tok, i) => argv[i] !== tok)) {
+    // Full argv drift — classify by dominant symptom when not already tagged.
+    if (!errors.includes('subscription_context_race_shape')
+      && !argv.includes('--subscription')) {
+      errors.push('subscription_context_race_shape');
+    }
+    if (!errors.length) errors.push('malformed_argv');
+  }
+
+  return {
+    ok: errors.length === 0 && argv.join('\0') === expected.join('\0'),
+    errors: [...new Set(errors)],
+    expected,
+    extractedPairs: extracted.pairs,
   };
 }
 
 /**
  * Structured traffic-set argv for rollback/restore only. Fixed tokens.
- * No shell, no metachar expansion, no executor.
+ * Azure CLI 2.88: exactly one --revision-weight followed by all pairs.
+ * Pins --subscription. No shell, no metachar expansion, no executor.
  */
 function buildTrafficSetArgv({
+  subscriptionId,
   resourceGroup,
   containerApp,
   traffic,
@@ -523,8 +766,10 @@ function buildTrafficSetArgv({
   if (m !== 'rollback' && m !== 'restore') {
     errors.push('traffic_set_mode_invalid');
   }
+  const sub = trimStr(subscriptionId) || SUBSCRIPTION_ID;
   const rg = trimStr(resourceGroup);
   const app = trimStr(containerApp);
+  if (sub !== SUBSCRIPTION_ID) errors.push('wrong_subscription');
   if (!RESOURCE_GROUPS.includes(rg)) errors.push('wrong_resource_group');
   if (!ALLOWED_APPS.includes(app)) errors.push('wrong_app');
 
@@ -533,6 +778,20 @@ function buildTrafficSetArgv({
 
   if (errors.length) {
     return { ok: false, errors: [...new Set(errors)], argv: null, executed: false };
+  }
+
+  const pairs = [];
+  for (const t of trafficCheck.traffic) {
+    const pair = `${t.revisionName}=${Math.trunc(t.weight)}`;
+    if (!REVISION_WEIGHT_PAIR_RE.test(pair)) {
+      return {
+        ok: false,
+        errors: ['shell_metacharacter_rejected'],
+        argv: null,
+        executed: false,
+      };
+    }
+    pairs.push(pair);
   }
 
   const argv = [
@@ -545,23 +804,25 @@ function buildTrafficSetArgv({
     rg,
     '-n',
     app,
+    '--subscription',
+    sub,
+    '--revision-weight',
+    ...pairs,
   ];
-  for (const t of trafficCheck.traffic) {
-    const pair = `${t.revisionName}=${Math.trunc(t.weight)}`;
-    if (!REVISION_WEIGHT_PAIR_RE.test(pair)) {
-      return {
-        ok: false,
-        errors: ['shell_metacharacter_rejected'],
-        argv: null,
-        executed: false,
-      };
-    }
-    argv.push('--revision-weight', pair);
-  }
 
   const safe = assertSafeArgvTokens(argv);
   if (!safe.ok) {
     return { ok: false, errors: safe.errors, argv: null, executed: false };
+  }
+
+  const contract = assertTrafficSetArgvContract(argv, {
+    subscriptionId: sub,
+    resourceGroup: rg,
+    containerApp: app,
+    expectedPairs: pairs,
+  });
+  if (!contract.ok) {
+    return { ok: false, errors: contract.errors, argv: null, executed: false };
   }
 
   return {
@@ -576,11 +837,19 @@ function buildTrafficSetArgv({
 
 /**
  * Exact read-only capture argv plan for account/app/revision/traffic GET/list/show.
+ * Pins --subscription on every app/revision/traffic resource argv (no ambient
+ * subscription-context race).
  */
-function buildLiveCaptureArgvPlan({ resourceGroup, containerApp } = {}) {
+function buildLiveCaptureArgvPlan({
+  subscriptionId,
+  resourceGroup,
+  containerApp,
+} = {}) {
   const errors = [];
+  const sub = trimStr(subscriptionId) || SUBSCRIPTION_ID;
   const rg = trimStr(resourceGroup);
   const app = trimStr(containerApp);
+  if (sub !== SUBSCRIPTION_ID) errors.push('wrong_subscription');
   if (!RESOURCE_GROUPS.includes(rg)) errors.push('wrong_resource_group');
   if (!ALLOWED_APPS.includes(app)) errors.push('wrong_app');
   if (tokenHasShellMetachar(rg) || tokenHasArgvExpansion(rg)) {
@@ -601,20 +870,28 @@ function buildLiveCaptureArgvPlan({ resourceGroup, containerApp } = {}) {
     {
       id: 'containerapp_show',
       argv: Object.freeze([
-        'az', 'containerapp', 'show', '-g', rg, '-n', app, '-o', 'json',
+        'az', 'containerapp', 'show',
+        '-g', rg, '-n', app,
+        '--subscription', sub,
+        '-o', 'json',
       ]),
     },
     {
       id: 'revision_list',
       argv: Object.freeze([
-        'az', 'containerapp', 'revision', 'list', '-g', rg, '-n', app, '-o', 'json',
+        'az', 'containerapp', 'revision', 'list',
+        '-g', rg, '-n', app,
+        '--subscription', sub,
+        '-o', 'json',
       ]),
     },
     {
       id: 'ingress_traffic_show',
       argv: Object.freeze([
         'az', 'containerapp', 'ingress', 'traffic', 'show',
-        '-g', rg, '-n', app, '-o', 'json',
+        '-g', rg, '-n', app,
+        '--subscription', sub,
+        '-o', 'json',
       ]),
     },
   ];
@@ -628,6 +905,16 @@ function buildLiveCaptureArgvPlan({ resourceGroup, containerApp } = {}) {
     if (!ro.ok) {
       return { ok: false, errors: ro.errors, steps: null };
     }
+    if (step.id !== 'account_show') {
+      const subIdx = step.argv.indexOf('--subscription');
+      if (subIdx < 0 || step.argv[subIdx + 1] !== sub) {
+        return {
+          ok: false,
+          errors: ['subscription_context_race_shape'],
+          steps: null,
+        };
+      }
+    }
   }
 
   return {
@@ -637,6 +924,34 @@ function buildLiveCaptureArgvPlan({ resourceGroup, containerApp } = {}) {
     shell: false,
     mutationExecution: false,
   };
+}
+
+/**
+ * Independently compare a capture step argv against the exact expected plan.
+ * Detects subscription-context race (resource argv missing --subscription pin).
+ */
+function assertCaptureResourceArgvExact(argv, expectedArgv) {
+  const errors = [];
+  if (!Array.isArray(argv) || !Array.isArray(expectedArgv)) {
+    return { ok: false, errors: ['malformed_argv'] };
+  }
+  if (argv.join('\0') !== expectedArgv.join('\0')) {
+    const isResource = argv.includes('containerapp') && !argv.includes('account');
+    if (isResource && !argv.includes('--subscription')) {
+      errors.push('subscription_context_race_shape');
+    } else if (isResource) {
+      const subIdx = argv.indexOf('--subscription');
+      const expIdx = expectedArgv.indexOf('--subscription');
+      if (subIdx < 0 || expIdx < 0 || argv[subIdx + 1] !== expectedArgv[expIdx + 1]) {
+        errors.push('subscription_context_race_shape');
+      } else {
+        errors.push('malformed_argv');
+      }
+    } else {
+      errors.push('malformed_argv');
+    }
+  }
+  return { ok: errors.length === 0, errors };
 }
 
 function parseJsonStdout(stdout, label) {
@@ -652,21 +967,47 @@ function parseJsonStdout(stdout, label) {
   return JSON.parse(s.slice(i));
 }
 
-function mapRevisionFromAz(rev, containerApp) {
+/**
+ * Map a revision from Azure JSON. Ownership/name/id come ONLY from the Azure
+ * returned full ARM id — never from requested containerApp inputs.
+ */
+function mapRevisionFromAz(rev) {
   const props = (rev && rev.properties) || rev || {};
   const template = props.template || {};
   const containers = Array.isArray(template.containers) ? template.containers : [];
   const image = containers[0] && containers[0].image
     ? String(containers[0].image)
     : (rev && rev.image != null ? String(rev.image) : '');
+  const id = trimStr(rev && rev.id);
+  const parsed = parseRevisionArmId(id);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      errors: id ? ['spoofed_revision_arm_id'] : ['missing_revision_arm_id'],
+      revision: null,
+    };
+  }
+  const nameFromBody = trimStr(rev && (rev.name || props.name));
+  if (nameFromBody && nameFromBody !== parsed.revisionName) {
+    return {
+      ok: false,
+      errors: ['mismatched_revision_arm_id'],
+      revision: null,
+    };
+  }
   return {
-    name: trimStr(rev && (rev.name || props.name)),
-    containerApp: trimStr(containerApp),
-    active: props.active === true || rev.active === true,
-    runningState: trimStr(props.runningState || rev.runningState),
-    healthState: trimStr(props.healthState || rev.healthState),
-    provisioningState: trimStr(props.provisioningState || rev.provisioningState),
-    image,
+    ok: true,
+    errors: [],
+    revision: {
+      id: parsed.id,
+      name: parsed.revisionName,
+      containerApp: parsed.containerApp,
+      active: props.active === true || rev.active === true,
+      runningState: trimStr(props.runningState || rev.runningState),
+      healthState: trimStr(props.healthState || rev.healthState),
+      provisioningState: trimStr(props.provisioningState || rev.provisioningState),
+      image,
+    },
   };
 }
 
@@ -689,10 +1030,107 @@ function mapTrafficFromAz(trafficRaw) {
 }
 
 /**
+ * Prove inventory identity solely from Azure-returned full ARM IDs/names.
+ * Requires app id + name + RG/sub (from ARM) and each revision full id whose
+ * parent is the exact app. Never synthesizes from requested inputs.
+ */
+function proveAzureInventoryIdentity({
+  accountBody,
+  appBody,
+  revisionList,
+  requested,
+} = {}) {
+  const errors = [];
+  const accountSub = trimStr(
+    accountBody && (accountBody.id || accountBody.subscriptionId),
+  );
+  if (!accountSub) {
+    errors.push('missing_inventory_subscription');
+  } else if (accountSub !== SUBSCRIPTION_ID) {
+    errors.push('inventory_subscription_mismatch');
+  } else if (trimStr(requested && requested.subscriptionId)
+    && accountSub !== trimStr(requested.subscriptionId)) {
+    errors.push('inventory_subscription_mismatch');
+  }
+
+  const appId = trimStr(appBody && appBody.id);
+  const appName = trimStr(appBody && appBody.name);
+  if (!appName) errors.push('app_name_absent');
+  if (!appId) {
+    errors.push('missing_app_arm_id');
+    return { ok: false, errors: [...new Set(errors)], identity: null };
+  }
+
+  const parsedApp = parseContainerAppArmId(appId);
+  if (!parsedApp.ok) {
+    errors.push('spoofed_app_arm_id');
+    return { ok: false, errors: [...new Set(errors)], identity: null };
+  }
+
+  if (appName && parsedApp.containerApp !== appName) {
+    errors.push('mismatched_app_arm_id');
+  }
+  if (accountSub && parsedApp.subscriptionId !== accountSub) {
+    errors.push('mismatched_app_arm_id');
+  }
+
+  const scope = assertExactStagingScope({
+    subscriptionId: parsedApp.subscriptionId,
+    resourceGroup: parsedApp.resourceGroup,
+    containerApp: parsedApp.containerApp,
+  });
+  if (!scope.ok) errors.push(...scope.errors);
+
+  if (trimStr(requested && requested.resourceGroup)
+    && parsedApp.resourceGroup !== trimStr(requested.resourceGroup)) {
+    errors.push('inventory_resource_group_mismatch');
+  }
+  if (trimStr(requested && requested.containerApp)
+    && parsedApp.containerApp !== trimStr(requested.containerApp)) {
+    errors.push('inventory_container_app_mismatch');
+  }
+
+  const revisions = [];
+  const list = Array.isArray(revisionList) ? revisionList : [];
+  for (const raw of list) {
+    const mapped = mapRevisionFromAz(raw);
+    if (!mapped.ok) {
+      errors.push(...mapped.errors);
+      continue;
+    }
+    const parentPrefix = `${parsedApp.id.toLowerCase()}/revisions/`;
+    if (mapped.revision.containerApp !== parsedApp.containerApp
+      || mapped.revision.id.toLowerCase().indexOf(parentPrefix) !== 0) {
+      errors.push('mismatched_revision_arm_id');
+      continue;
+    }
+    revisions.push(mapped.revision);
+  }
+
+  if (errors.length) {
+    return { ok: false, errors: [...new Set(errors)], identity: null };
+  }
+
+  return {
+    ok: true,
+    errors: [],
+    identity: {
+      subscriptionId: parsedApp.subscriptionId,
+      resourceGroup: parsedApp.resourceGroup,
+      containerApp: parsedApp.containerApp,
+      appName: parsedApp.containerApp,
+      appId: parsedApp.id,
+      revisions,
+    },
+  };
+}
+
+/**
  * Read-only live inventory capture for eventual operator use.
  * Requires injectable runner(argv) => { stdout } | string.
  * Never uses a shell. Never executes mutation argv.
  * Live capture execution remains disabled unless a runner is injected (tests).
+ * Inventory identity is proven only from Azure-returned full ARM IDs/names.
  */
 function captureLiveInventory({
   subscriptionId,
@@ -714,7 +1152,6 @@ function captureLiveInventory({
     };
   }
   if (LOCKS.liveCaptureExecuteEnabled === true && LOCKS.liveExecuteEnabled === true) {
-    // Hard lock: even if someone flips flags, slice contract forbids live execute.
     return {
       ok: false,
       errors: ['live_capture_hard_disabled'],
@@ -725,6 +1162,7 @@ function captureLiveInventory({
   }
 
   const plan = buildLiveCaptureArgvPlan({
+    subscriptionId: SUBSCRIPTION_ID,
     resourceGroup: scope.resourceGroup,
     containerApp: scope.containerApp,
   });
@@ -772,32 +1210,25 @@ function captureLiveInventory({
     };
   }
 
-  const account = byId.account_show || {};
-  const accountSub = trimStr(account.id || account.subscriptionId);
-  if (accountSub !== SUBSCRIPTION_ID) {
+  const proven = proveAzureInventoryIdentity({
+    accountBody: byId.account_show || {},
+    appBody: byId.containerapp_show || {},
+    revisionList: byId.revision_list,
+    requested: {
+      subscriptionId: scope.subscriptionId,
+      resourceGroup: scope.resourceGroup,
+      containerApp: scope.containerApp,
+    },
+  });
+  if (!proven.ok) {
     return {
       ok: false,
-      errors: ['inventory_subscription_mismatch'],
+      errors: proven.errors,
       inventory: null,
       azureCalls,
       executed: false,
     };
   }
-
-  const appBody = byId.containerapp_show || {};
-  const appName = trimStr(appBody.name || (appBody.properties && appBody.properties.name));
-  if (appName && appName !== scope.containerApp) {
-    return {
-      ok: false,
-      errors: ['inventory_container_app_mismatch'],
-      inventory: null,
-      azureCalls,
-      executed: false,
-    };
-  }
-
-  const revList = Array.isArray(byId.revision_list) ? byId.revision_list : [];
-  const revisions = revList.map((r) => mapRevisionFromAz(r, scope.containerApp));
 
   const trafficMapped = mapTrafficFromAz(byId.ingress_traffic_show);
   if (!trafficMapped) {
@@ -821,10 +1252,12 @@ function captureLiveInventory({
   }
 
   const inventory = {
-    subscriptionId: SUBSCRIPTION_ID,
-    resourceGroup: scope.resourceGroup,
-    containerApp: scope.containerApp,
-    revisions,
+    subscriptionId: proven.identity.subscriptionId,
+    resourceGroup: proven.identity.resourceGroup,
+    containerApp: proven.identity.containerApp,
+    appName: proven.identity.appName,
+    appId: proven.identity.appId,
+    revisions: proven.identity.revisions,
     traffic: trafficCheck.traffic,
   };
 
@@ -989,6 +1422,7 @@ function evaluateRollbackRequest(req = {}) {
 
     if (errors.length === 0) {
       const rbArgv = buildTrafficSetArgv({
+        subscriptionId: SUBSCRIPTION_ID,
         resourceGroup: scope.resourceGroup || trimStr(req.resourceGroup),
         containerApp: scope.containerApp || trimStr(req.containerApp),
         traffic: plannedTraffic,
@@ -998,6 +1432,7 @@ function evaluateRollbackRequest(req = {}) {
       else rollbackTrafficSetArgv = rbArgv.argv;
 
       const rsArgv = buildTrafficSetArgv({
+        subscriptionId: SUBSCRIPTION_ID,
         resourceGroup: scope.resourceGroup || trimStr(req.resourceGroup),
         containerApp: scope.containerApp || trimStr(req.containerApp),
         traffic: trafficSnapshotBefore,
@@ -1050,12 +1485,25 @@ function syntheticInventoryForApp(appKey, {
   currentWeight = 100,
 } = {}) {
   const plan = APP_PLANS[appKey];
+  const appId = buildContainerAppArmId({
+    subscriptionId: SUBSCRIPTION_ID,
+    resourceGroup: plan.resourceGroup,
+    containerApp: plan.containerApp,
+  });
   return {
     subscriptionId: SUBSCRIPTION_ID,
     resourceGroup: plan.resourceGroup,
     containerApp: plan.containerApp,
+    appName: plan.containerApp,
+    appId,
     revisions: [
       {
+        id: buildRevisionArmId({
+          subscriptionId: SUBSCRIPTION_ID,
+          resourceGroup: plan.resourceGroup,
+          containerApp: plan.containerApp,
+          revisionName: currentRevisionName,
+        }),
         name: currentRevisionName,
         containerApp: plan.containerApp,
         active: true,
@@ -1065,6 +1513,12 @@ function syntheticInventoryForApp(appKey, {
         image: `${plan.imageRepository}:${'b'.repeat(40)}`,
       },
       {
+        id: buildRevisionArmId({
+          subscriptionId: SUBSCRIPTION_ID,
+          resourceGroup: plan.resourceGroup,
+          containerApp: plan.containerApp,
+          revisionName: targetRevisionName,
+        }),
         name: targetRevisionName,
         containerApp: plan.containerApp,
         active: true,
@@ -1267,6 +1721,18 @@ function runRedCases() {
     },
   }, 'unsupported_traffic_snapshot');
 
+  red('unsupported_label_with_revision_name', {
+    ...base,
+    inventory: {
+      ...base.inventory,
+      traffic: [{
+        revisionName: base.currentRevisionName,
+        weight: 100,
+        label: 'production',
+      }],
+    },
+  }, 'unsupported_traffic_snapshot');
+
   return cases;
 }
 
@@ -1310,6 +1776,10 @@ module.exports = {
   CAPTURE_STEP_IDS,
   SAFE_AZ_TOKEN_RE,
   expectedConfirmationToken,
+  buildContainerAppArmId,
+  buildRevisionArmId,
+  parseContainerAppArmId,
+  parseRevisionArmId,
   assertExactStagingScope,
   assertImmutableFullShaImage,
   assertInventoryIdentity,
@@ -1319,6 +1789,10 @@ module.exports = {
   assertTargetTrafficWeights,
   assertSafeArgvTokens,
   assertArgvReadOnlyCapture,
+  assertTrafficSetArgvContract,
+  assertCaptureResourceArgvExact,
+  extractRevisionWeightPairs,
+  proveAzureInventoryIdentity,
   evaluateRollbackRequest,
   buildSecretFreePlans,
   buildPlannedTraffic,

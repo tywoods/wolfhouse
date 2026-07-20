@@ -31,7 +31,20 @@ const {
   buildTrafficSetArgv,
   assertArgvReadOnlyCapture,
   assertSafeArgvTokens,
+  assertTrafficSetArgvContract,
+  assertCaptureResourceArgvExact,
+  proveAzureInventoryIdentity,
 } = require('./lib/radar-slice16e-staff-api-rollback');
+
+const SUB = '6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9';
+
+function appArmId(rg, app) {
+  return `/subscriptions/${SUB}/resourceGroups/${rg}/providers/Microsoft.App/containerApps/${app}`;
+}
+
+function revArmId(rg, app, rev) {
+  return `${appArmId(rg, app)}/revisions/${rev}`;
+}
 
 const SECRET_PATTERNS = [
   /sk_live_[A-Za-z0-9]+/,
@@ -238,7 +251,9 @@ const whRepo = expected.apps[0].imageRepository;
     && !/\bbuildPlannedTraffic\b/.test(imported)
     && !/\bbuildRestorePlan\b/.test(imported)
     && !/\brunRedCases\b/.test(imported)
-    && !/\bexpectedConfirmationToken\b/.test(imported),
+    && !/\bexpectedConfirmationToken\b/.test(imported)
+    && !/\bbuildContainerAppArmId\b/.test(imported)
+    && !/\bsyntheticInventoryForApp\b/.test(imported),
     imported.slice(0, 200));
 }
 
@@ -256,9 +271,12 @@ for (const app of [whApp, sunApp]) {
     && result.plannedTraffic.some((t) => t.revisionName === app.targetRevisionName && t.weight === 100)
     && result.trafficSnapshotBefore.some((t) => t.revisionName === app.currentRevisionName && t.weight === 100)
     && Array.isArray(result.rollbackTrafficSetArgv)
-    && result.rollbackTrafficSetArgv.includes('--revision-weight')
+    && result.rollbackTrafficSetArgv.filter((t) => t === '--revision-weight').length === 1
+    && result.rollbackTrafficSetArgv.includes('--subscription')
+    && result.rollbackTrafficSetArgv.includes(SUB)
     && Array.isArray(result.restoreTrafficSetArgv)
-    && result.restoreTrafficSetArgv[4] === 'set';
+    && result.restoreTrafficSetArgv[4] === 'set'
+    && result.restoreTrafficSetArgv.filter((t) => t === '--revision-weight').length === 1;
   pushGreen(`green_plan_${app.containerApp}`, good,
     good ? null : `errors=${result.errors.join(',')}`);
 }
@@ -498,15 +516,137 @@ for (const app of [whApp, sunApp]) {
     pushRed('capture_mutation_argv_rejected',
       !mut.ok && mut.errors.includes('capture_mutation_argv_rejected'));
   }
+
+  // ARM identity REDs (independent; inventory-level)
+  {
+    const noAppId = deepClone(base);
+    delete noAppId.inventory.appId;
+    r = evaluateRollbackRequest(noAppId);
+    pushRed('missing_app_arm_id', !r.ok && r.errors.includes('missing_app_arm_id'));
+  }
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      appId: 'not-a-full-arm-id',
+    },
+  });
+  pushRed('spoofed_app_arm_id', !r.ok && r.errors.includes('spoofed_app_arm_id'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      appId: appArmId('luna-sunset-staging-rg', 'luna-sunset-staging-staff-api'),
+    },
+  });
+  pushRed('mismatched_app_arm_id', !r.ok && r.errors.includes('mismatched_app_arm_id'));
+
+  {
+    const noRevId = deepClone(base);
+    noRevId.inventory.revisions = noRevId.inventory.revisions.map((rev) => {
+      const copy = { ...rev };
+      delete copy.id;
+      return copy;
+    });
+    r = evaluateRollbackRequest(noRevId);
+    pushRed('missing_revision_arm_id', !r.ok && r.errors.includes('missing_revision_arm_id'));
+  }
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      revisions: base.inventory.revisions.map((rev) => (
+        rev.name === base.targetRevisionName
+          ? { ...rev, id: '/not/a/valid/revision/arm/id' }
+          : rev
+      )),
+    },
+  });
+  pushRed('spoofed_revision_arm_id', !r.ok && r.errors.includes('spoofed_revision_arm_id'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      revisions: base.inventory.revisions.map((rev) => (
+        rev.name === base.targetRevisionName
+          ? {
+            ...rev,
+            id: revArmId(
+              'luna-sunset-staging-rg',
+              'luna-sunset-staging-staff-api',
+              rev.name,
+            ),
+          }
+          : rev
+      )),
+    },
+  });
+  pushRed('mismatched_revision_arm_id', !r.ok && r.errors.includes('mismatched_revision_arm_id'));
+
+  {
+    const noName = deepClone(base);
+    delete noName.inventory.appName;
+    r = evaluateRollbackRequest(noName);
+    pushRed('app_name_absent', !r.ok && r.errors.includes('app_name_absent'));
+  }
+
+  // Label/latest even WITH revisionName must refuse (traffic-weight mutation only)
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      traffic: [{
+        revisionName: base.currentRevisionName,
+        weight: 100,
+        latestRevision: true,
+      }],
+    },
+  });
+  pushRed('unsupported_traffic_snapshot_latest_with_revision',
+    !r.ok && r.errors.includes('unsupported_traffic_snapshot'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      traffic: [{
+        revisionName: base.currentRevisionName,
+        weight: 100,
+        label: 'production',
+      }],
+    },
+  });
+  pushRed('unsupported_traffic_snapshot_label_with_revision',
+    !r.ok && r.errors.includes('unsupported_traffic_snapshot'));
 }
 
 // Capture argv contract + injectable runner GREEN
 {
   const planCap = buildLiveCaptureArgvPlan({
+    subscriptionId: SUB,
     resourceGroup: whApp.resourceGroup,
     containerApp: whApp.containerApp,
   });
   const ids = planCap.ok ? planCap.steps.map((s) => s.id) : [];
+  const expectedShow = [
+    'az', 'containerapp', 'show',
+    '-g', whApp.resourceGroup, '-n', whApp.containerApp,
+    '--subscription', SUB, '-o', 'json',
+  ];
+  const expectedRevList = [
+    'az', 'containerapp', 'revision', 'list',
+    '-g', whApp.resourceGroup, '-n', whApp.containerApp,
+    '--subscription', SUB, '-o', 'json',
+  ];
+  const expectedTraffic = [
+    'az', 'containerapp', 'ingress', 'traffic', 'show',
+    '-g', whApp.resourceGroup, '-n', whApp.containerApp,
+    '--subscription', SUB, '-o', 'json',
+  ];
   const argvOk = planCap.ok
     && ids.join(',') === expected.captureStepIds.join(',')
     && planCap.shell === false
@@ -515,12 +655,32 @@ for (const app of [whApp, sunApp]) {
       const ro = assertArgvReadOnlyCapture(s.argv);
       const safe = assertSafeArgvTokens(s.argv);
       return ro.ok && safe.ok && s.argv[0] === 'az' && !s.argv.includes('set');
-    });
+    })
+    && planCap.steps.find((s) => s.id === 'containerapp_show').argv.join('\0')
+      === expectedShow.join('\0')
+    && planCap.steps.find((s) => s.id === 'revision_list').argv.join('\0')
+      === expectedRevList.join('\0')
+    && planCap.steps.find((s) => s.id === 'ingress_traffic_show').argv.join('\0')
+      === expectedTraffic.join('\0');
 
+  pushGreen('green_capture_argv_subscription_pin',
+    argvOk
+    && assertCaptureResourceArgvExact(expectedShow, expectedShow).ok
+    && assertCaptureResourceArgvExact(
+      ['az', 'containerapp', 'show', '-g', whApp.resourceGroup, '-n', whApp.containerApp, '-o', 'json'],
+      expectedShow,
+    ).errors.includes('subscription_context_race_shape'),
+    argvOk ? null : 'capture argv pin failed');
+
+  const whAppId = appArmId(whApp.resourceGroup, whApp.containerApp);
   const fakeByStep = {
-    account_show: JSON.stringify({ id: expected.subscriptionId }),
-    containerapp_show: JSON.stringify({ name: whApp.containerApp }),
+    account_show: JSON.stringify({ id: SUB }),
+    containerapp_show: JSON.stringify({
+      id: whAppId,
+      name: whApp.containerApp,
+    }),
     revision_list: JSON.stringify(whApp.inventory.revisions.map((rev) => ({
+      id: rev.id,
       name: rev.name,
       properties: {
         active: rev.active,
@@ -534,7 +694,7 @@ for (const app of [whApp, sunApp]) {
   };
   let runnerCalls = 0;
   const captured = captureLiveInventory({
-    subscriptionId: expected.subscriptionId,
+    subscriptionId: SUB,
     resourceGroup: whApp.resourceGroup,
     containerApp: whApp.containerApp,
   }, {
@@ -553,15 +713,73 @@ for (const app of [whApp, sunApp]) {
     && captured.mutationExecution === false
     && runnerCalls === 4
     && captured.inventory
-    && captured.inventory.subscriptionId === expected.subscriptionId
+    && captured.inventory.subscriptionId === SUB
+    && captured.inventory.appId === whAppId
+    && captured.inventory.appName === whApp.containerApp
     && captured.inventory.containerApp === whApp.containerApp
     && Array.isArray(captured.inventory.traffic)
-    && captured.inventory.traffic.reduce((s, t) => s + t.weight, 0) === 100,
+    && captured.inventory.traffic.reduce((s, t) => s + t.weight, 0) === 100
+    && captured.inventory.revisions.every((rev) => rev.id && rev.id.startsWith(`${whAppId}/revisions/`)),
     captured.ok ? null : `errors=${(captured.errors || []).join(',')}`);
+
+  // Capture provenance REDs via proveAzureInventoryIdentity (Azure-returned only)
+  {
+    const goodRevs = whApp.inventory.revisions.map((rev) => ({
+      id: rev.id,
+      name: rev.name,
+      properties: {
+        active: true,
+        runningState: 'Running',
+        healthState: 'Healthy',
+        provisioningState: 'Provisioned',
+        template: { containers: [{ image: rev.image }] },
+      },
+    }));
+    const req = {
+      subscriptionId: SUB,
+      resourceGroup: whApp.resourceGroup,
+      containerApp: whApp.containerApp,
+    };
+    let p = proveAzureInventoryIdentity({
+      accountBody: { id: SUB },
+      appBody: { id: whAppId }, // name absent
+      revisionList: goodRevs,
+      requested: req,
+    });
+    pushRed('app_name_absent_capture',
+      !p.ok && p.errors.includes('app_name_absent'));
+    // required list uses app_name_absent — alias by also evaluating inventory path above
+
+    p = proveAzureInventoryIdentity({
+      accountBody: { id: SUB },
+      appBody: { name: whApp.containerApp }, // id missing
+      revisionList: goodRevs,
+      requested: req,
+    });
+    pushRed('missing_app_arm_id_capture',
+      !p.ok && p.errors.includes('missing_app_arm_id'));
+
+    p = proveAzureInventoryIdentity({
+      accountBody: { id: SUB },
+      appBody: {
+        id: 'totally-spoofed-app-id',
+        name: whApp.containerApp,
+      },
+      revisionList: goodRevs,
+      requested: req,
+    });
+    pushRed('spoofed_app_arm_id_capture',
+      !p.ok && p.errors.includes('spoofed_app_arm_id'));
+  }
 }
 
 {
+  const pairs = [
+    `${whApp.targetRevisionName}=100`,
+    `${whApp.currentRevisionName}=0`,
+  ];
   const rb = buildTrafficSetArgv({
+    subscriptionId: SUB,
     resourceGroup: whApp.resourceGroup,
     containerApp: whApp.containerApp,
     traffic: [
@@ -571,48 +789,87 @@ for (const app of [whApp, sunApp]) {
     mode: 'rollback',
   });
   const rs = buildTrafficSetArgv({
+    subscriptionId: SUB,
     resourceGroup: whApp.resourceGroup,
     containerApp: whApp.containerApp,
     traffic: whApp.inventory.traffic,
     mode: 'restore',
   });
+  const expectedRb = [
+    'az', 'containerapp', 'ingress', 'traffic', 'set',
+    '-g', whApp.resourceGroup,
+    '-n', whApp.containerApp,
+    '--subscription', SUB,
+    '--revision-weight',
+    ...pairs,
+  ];
+  const contractOk = assertTrafficSetArgvContract(rb.argv, {
+    subscriptionId: SUB,
+    resourceGroup: whApp.resourceGroup,
+    containerApp: whApp.containerApp,
+    expectedPairs: pairs,
+  });
   pushGreen('green_traffic_set_argv_rollback_restore',
     rb.ok && rs.ok
     && rb.executed === false && rs.executed === false
-    && rb.argv[0] === 'az'
-    && rb.argv.includes('set')
-    && rb.argv.includes('--revision-weight')
-    && rb.argv.includes(`${whApp.targetRevisionName}=100`)
-    && rs.argv.includes(`${whApp.currentRevisionName}=100`)
+    && rb.argv.join('\0') === expectedRb.join('\0')
+    && contractOk.ok
+    && rb.argv.filter((t) => t === '--revision-weight').length === 1
+    && rs.argv.filter((t) => t === '--revision-weight').length === 1
+    && rb.argv.includes('--subscription')
     && !rb.argv.some((t) => /[;&|`$]/.test(t)),
     rb.ok ? null : `rb=${rb.errors.join(',')}`);
+
+  // Argv shape REDs — independent full-argv compare
+  const repeated = [
+    'az', 'containerapp', 'ingress', 'traffic', 'set',
+    '-g', whApp.resourceGroup, '-n', whApp.containerApp,
+    '--subscription', SUB,
+    '--revision-weight', pairs[0],
+    '--revision-weight', pairs[1],
+  ];
+  const repeatedCheck = assertTrafficSetArgvContract(repeated, {
+    subscriptionId: SUB,
+    resourceGroup: whApp.resourceGroup,
+    containerApp: whApp.containerApp,
+    expectedPairs: pairs,
+  });
+  pushRed('repeated_revision_weight_option',
+    !repeatedCheck.ok
+    && repeatedCheck.errors.includes('repeated_revision_weight_option'));
+
+  const omitted = [
+    'az', 'containerapp', 'ingress', 'traffic', 'set',
+    '-g', whApp.resourceGroup, '-n', whApp.containerApp,
+    '--subscription', SUB,
+    '--revision-weight', pairs[0],
+  ];
+  const omittedCheck = assertTrafficSetArgvContract(omitted, {
+    subscriptionId: SUB,
+    resourceGroup: whApp.resourceGroup,
+    containerApp: whApp.containerApp,
+    expectedPairs: pairs,
+  });
+  pushRed('omitted_revision_weight_pair',
+    !omittedCheck.ok
+    && omittedCheck.errors.includes('omitted_revision_weight_pair'));
+
+  const raceArgv = [
+    'az', 'containerapp', 'ingress', 'traffic', 'set',
+    '-g', whApp.resourceGroup, '-n', whApp.containerApp,
+    '--revision-weight', ...pairs,
+  ];
+  const raceCheck = assertTrafficSetArgvContract(raceArgv, {
+    subscriptionId: SUB,
+    resourceGroup: whApp.resourceGroup,
+    containerApp: whApp.containerApp,
+    expectedPairs: pairs,
+  });
+  pushRed('subscription_context_race_shape',
+    !raceCheck.ok
+    && raceCheck.errors.includes('subscription_context_race_shape'));
 }
 
-{
-  const base = reqFromPlanApp(whApp, expected);
-  const inv = deepClone(base.inventory);
-  inv.traffic = [
-    {
-      revisionName: whApp.currentRevisionName,
-      weight: 100,
-      latestRevision: true,
-      label: 'active',
-    },
-    { revisionName: whApp.targetRevisionName, weight: 0 },
-  ];
-  const r = evaluateRollbackRequest({ ...base, inventory: inv });
-  const preserved = r.ok
-    && r.trafficSnapshotBefore.some((t) => (
-      t.revisionName === whApp.currentRevisionName
-      && t.latestRevision === true
-      && t.label === 'active'
-      && t.weight === 100
-    ))
-    && Array.isArray(r.restoreTrafficSetArgv)
-    && r.restoreTrafficSetArgv.includes(`${whApp.currentRevisionName}=100`);
-  pushGreen('green_preserve_latest_with_revision_name', preserved,
-    preserved ? null : `errors=${r.errors.join(',')}`);
-}
 
 for (const name of expected.required_red_names) {
   const c = redResults.find((x) => x.name === name);
