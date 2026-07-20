@@ -714,11 +714,51 @@ function validateManifestIntegrity(manifest, opts) {
   return { ok: errors.length === 0, errors, forwardCount: forward.length, checksumMode: mode };
 }
 
-function assertSafeDatabaseTarget(connectionInfo) {
+/**
+ * Locked Sunset staging target for Slice 14AE canonical-runner no-op only.
+ * Default assertSafeDatabaseTarget still refuses Azure/staging; this allow
+ * path requires an explicit opt-in on runCanonicalMigrations and exact match.
+ */
+const SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET = Object.freeze({
+  host: 'luna-sunset-staging-pg-app.postgres.database.azure.com',
+  database: 'sunset_staging',
+  port: 5432,
+});
+
+function assertSafeDatabaseTarget(connectionInfo, opts) {
+  const options = opts || {};
   const errors = [];
   const host = String(connectionInfo.host || '');
   const database = String(connectionInfo.database || '');
   const port = Number(connectionInfo.port);
+
+  // Slice 14AE: gated Sunset staging no-op allowlist (exact host/db/port only).
+  // Does not weaken the default ephemeral-loopback policy for other callers.
+  if (options.allowSunsetStagingCanonicalRunnerNoop === true) {
+    if (host !== SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET.host) {
+      errors.push({
+        code: 'sunset_noop_host_mismatch',
+        message: 'Sunset canonical-runner no-op requires exact locked postgres host',
+      });
+    }
+    if (database !== SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET.database) {
+      errors.push({
+        code: 'sunset_noop_database_mismatch',
+        message: 'Sunset canonical-runner no-op requires exact locked database',
+      });
+    }
+    if (!Number.isFinite(port) || port !== SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET.port) {
+      errors.push({
+        code: 'sunset_noop_port_mismatch',
+        message: 'Sunset canonical-runner no-op requires exact locked port',
+      });
+    }
+    return {
+      ok: errors.length === 0,
+      errors,
+      mode: 'sunset_staging_canonical_runner_noop',
+    };
+  }
 
   if (!host || host === '') {
     errors.push({ code: 'target_host_missing', message: 'host required' });
@@ -748,7 +788,7 @@ function assertSafeDatabaseTarget(connectionInfo) {
     errors.push({ code: 'target_port_invalid', message: 'invalid port' });
   }
 
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, mode: 'ephemeral_loopback' };
 }
 
 /**
@@ -1014,6 +1054,7 @@ module.exports = {
   MANIFEST_PATH,
   FORBIDDEN_HOST_PATTERNS,
   FORBIDDEN_DB_NAMES,
+  SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET,
   CLASSIFICATIONS,
   LEDGER_DDL,
   LEDGER_DDL_SLICE4_BASE,
