@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15G",
+  "outcome_id": "15G_meta_whatsapp_ingress_authority_policy",
+  "boundary_id": "B02_meta_normalize_live_client_slug",
+  "master_basis": "a684422903fec3093ac0bb7e13e50f674aec3b7a",
+  "live_mutation": false,
+  "title": "Source-only Meta WhatsApp ingress authority policy for frozen B02",
+  "status": "implemented",
+  "activation": {
+    "default": "off",
+    "env_key": "META_WHATSAPP_INGRESS_AUTHORITY",
+    "env_truthy": ["1", "true", "yes", "on"],
+    "requires_routing_config": true,
+    "deployment_config_edited": false,
+    "live_routing_file_setup": false
+  },
+  "owner_files": [
+    "scripts/lib/meta-whatsapp-ingress-authority.js",
+    "scripts/lib/luna-meta-whatsapp-webhook.js",
+    "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+    "docs/MULTICLIENT-STAGING-ROUTING.md"
+  ],
+  "out_of_scope": [
+    "enabling META_WHATSAPP_INGRESS_AUTHORITY on any runtime",
+    "creating or mounting live CLIENT_CHANNEL_ROUTING_FILE",
+    "editing Azure/Bicep/compose/deployment env",
+    "rewriting 15A historical B02 vulnerable verdict",
+    "deploy / cloud / database / Stripe / production WhatsApp operations"
+  ],
+  "api": {
+    "isMetaWhatsAppIngressAuthorityEnabled": {
+      "default": false,
+      "env": "META_WHATSAPP_INGRESS_AUTHORITY"
+    },
+    "resolveMetaWhatsAppIngressAuthority": {
+      "signature": "resolveMetaWhatsAppIngressAuthority(normalized, { env, registry })",
+      "disabled": "authority_policy_disabled — invoke_downstream true, live slug unchanged",
+      "enabled_routing_absent": "authority_inactive_routing_absent — shadow-only preserved",
+      "enabled_routing_present": {
+        "known_phone_number_id": "phone_number_id_authoritative — live client_slug+location_id from resolver",
+        "unknown": "unknown_channel_identity — blocked, invoke_downstream false",
+        "missing": "missing_phone_number_id — blocked",
+        "ambiguous": "ambiguous_channel_identity — blocked",
+        "conflicting": "conflicting_channel_identity — blocked"
+      }
+    },
+    "applyMetaWhatsAppIngressAuthority": {
+      "disabled": "returns normalized unchanged (exact shadow-only shape)",
+      "active_known": "sets client_slug + location_id from shadow; records ingress_authority",
+      "active_blocked": "does not switch live tenant; ingress_authority.blocked=true"
+    },
+    "shouldBlockMetaWhatsAppIngressDownstream": {
+      "behavior": "true only when authority active + blocked — inbound skips draft/send/DB"
+    },
+    "processMetaWhatsAppWebhookInbound": {
+      "behavior": "authority block returns before find/insert/draft/send (zero downstream)"
+    }
+  },
+  "red_case_ids": [
+    "RED_disabled_shadow_only_preserved",
+    "RED_unknown_phone_blocked",
+    "RED_missing_phone_blocked",
+    "RED_ambiguous_identity_blocked",
+    "RED_conflicting_identity_blocked",
+    "RED_unknown_zero_downstream_calls"
+  ],
+  "green_case_ids": [
+    "GREEN_enabled_known_authoritative",
+    "GREEN_legacy_slug_conflict_resolver_wins",
+    "GREEN_enabled_routing_absent_inactive",
+    "GREEN_default_off_no_env"
+  ],
+  "residual_risk": {
+    "summary": "Policy remains default-off. Live B02 stays vulnerable until an operator separately enables META_WHATSAPP_INGRESS_AUTHORITY and provides CLIENT_CHANNEL_ROUTING_* with verified phone_number_id maps. Enabling without accurate routing will hard-block unknown numbers. Wolfhouse registry client_slug is wolfhouse while legacy DEFAULT_CLIENT_SLUG is wolfhouse-somo — authority mode uses resolver client_slug."
+  }
+}

@@ -18,10 +18,11 @@ Related: [`MULTICLIENT-ARCHITECTURE.md`](MULTICLIENT-ARCHITECTURE.md) §5,
 |-------|----------------|
 | **Resolver** | `scripts/lib/client-channel-resolver.js` maps `phone_number_id` / email inbox → `client_slug` + `location_id`. Unknown IDs are blocked — never Wolfhouse fallback. |
 | **Meta ingress** | `scripts/lib/luna-meta-whatsapp-webhook.js` attaches `normalized.tenant_channel_shadow` on every webhook normalize. |
+| **Ingress authority (FORTRESS 15G)** | Source-only policy in `scripts/lib/meta-whatsapp-ingress-authority.js`. **Default-off.** When `META_WHATSAPP_INGRESS_AUTHORITY` is explicitly enabled **and** routing config is present, known `phone_number_id` makes resolver `client_slug`/`location_id` live-authoritative; unknown/missing/ambiguous/conflicting identities block before draft/send/DB. When disabled (current staging posture), behavior is unchanged shadow-only. **Not enabled on any runtime in this slice.** |
 | **Staff/API SQL** | Tenant-scope SQL debt cleared; `verify:multiclient` passes. |
 | **Live routing** | **Off** unless `CLIENT_CHANNEL_ROUTING_JSON` or `CLIENT_CHANNEL_ROUTING_FILE` is set at runtime. Without it, shadow reports `routing_config_absent` and legacy `normalized.client_slug` stays on the default (`wolfhouse`). |
-| **Hard blocking** | **Not enabled.** Unknown `phone_number_id` values are recorded in shadow only; guests are not rejected at the edge. |
-| **Outbound tenant switch** | **Not enabled.** Hermes/Staff API still process with legacy client defaults. |
+| **Hard blocking** | **Not enabled at runtime.** 15G ships the fail-closed gate in source behind `META_WHATSAPP_INGRESS_AUTHORITY` (default-off). Until that env is set **and** routing config is present, unknown `phone_number_id` values remain shadow-only and guests are not rejected at the edge. |
+| **Outbound tenant switch** | **Not enabled at runtime.** With 15G policy off, Hermes/Staff API still process with legacy client defaults. Enabling 15G authority (separate operator step) switches live `normalized.client_slug`/`location_id` from the resolver for known IDs only. |
 
 No new Azure resources are required for shadow observation — only env + restart on existing apps.
 
@@ -179,6 +180,7 @@ Only if Meta webhook still hits ACA Hermes instead of Lunabox. Same env vars; se
 ```bash
 node scripts/verify-tenant-resolution.js
 node scripts/verify-meta-whatsapp-tenant-shadow.js
+node scripts/verify-fortress-slice15g-meta-ingress-authority-policy.js
 npm run verify:multiclient
 npm run verify:luna-all
 ```
@@ -259,8 +261,20 @@ No DB migration or data change required.
 |------|------------------------|--------------|
 | Enable `CLIENT_CHANNEL_ROUTING_*` on staging | Yes — observation | — |
 | Confirm shadow matches expected tenant per number | Required before any live switch | — |
-| Hard-block unknown `phone_number_id` at ingress | **No** | Separate explicit slice |
-| Switch outbound / `normalized.client_slug` to shadow tenant | **No** | Separate explicit slice |
+| Hard-block unknown `phone_number_id` at ingress | **Runtime still off.** FORTRESS 15G added source policy (`META_WHATSAPP_INGRESS_AUTHORITY`, default-off) — enable only after shadow sign-off | Explicit operator activation |
+| Switch outbound / `normalized.client_slug` to resolver tenant | **Runtime still off.** Same 15G flag + routing present makes known IDs authoritative in normalize/inbound | Explicit operator activation (do not combine with first routing-file setup casually) |
 | Prod routing | **No** | Per-client go-live checklists |
 
-**Order of operations:** shadow observation → operator sign-off on shadow accuracy → hard-block slice (if desired) → outbound tenant routing slice → prod per [`docs/clients/<client>/GO-LIVE-CHECKLIST.md`](clients/wolfhouse/GO-LIVE-CHECKLIST.md).
+**Order of operations:** shadow observation → operator sign-off on shadow accuracy → enable `META_WHATSAPP_INGRESS_AUTHORITY` (15G policy) with verified routing → prod per [`docs/clients/<client>/GO-LIVE-CHECKLIST.md`](clients/wolfhouse/GO-LIVE-CHECKLIST.md).
+
+### 9a. FORTRESS 15G activation gap (truthful)
+
+| Item | 15G slice status |
+|------|------------------|
+| Policy module + normalize/inbound wiring | **In source** |
+| Offline verifier `verify:fortress-slice15g-meta-ingress-authority-policy` | **In source** |
+| `META_WHATSAPP_INGRESS_AUTHORITY` on staging/prod | **Not set** (default-off) |
+| Live `CLIENT_CHANNEL_ROUTING_FILE` mount | **Not done in 15G** (separate from policy commit) |
+| Deploy / restart | **Not done in 15G** |
+
+Do **not** treat merging 15G as closing live B02. Historical 15A still records B02 as `vulnerable` until activation.

@@ -10,6 +10,9 @@
 const crypto = require('crypto');
 
 const { resolveWhatsAppTenantShadow } = require('./client-channel-resolver');
+const {
+  applyMetaWhatsAppIngressAuthority,
+} = require('./meta-whatsapp-ingress-authority');
 
 const DEFAULT_CLIENT_SLUG = 'wolfhouse-somo';
 const DEFAULT_META_WHATSAPP_VERIFY_TOKEN = 'wolfhouse_verify_token';
@@ -188,6 +191,18 @@ function attachTenantChannelShadow(normalized, options = {}) {
 }
 
 /**
+ * Shadow attachment + optional FORTRESS 15G ingress authority policy.
+ * Authority is default-off; when inactive, live fields stay shadow-only.
+ */
+function finalizeNormalizedMetaWhatsApp(normalized, options = {}) {
+  const withShadow = attachTenantChannelShadow(normalized, options);
+  return applyMetaWhatsAppIngressAuthority(withShadow, {
+    env: options.env,
+    registry: options.registry,
+  });
+}
+
+/**
  * Normalize Meta WhatsApp webhook POST body.
  * @param {object} body - parsed JSON webhook payload
  * @param {{ client_slug?: string, env?: object, allowSampleFallback?: boolean, routingLoad?: object, channelConfig?: object }} [options]
@@ -206,7 +221,7 @@ function normalizeMetaWhatsAppWebhook(body, options = {}) {
   const inbound = findFirstInboundMessage(body || {});
 
   if (!inbound) {
-    return attachTenantChannelShadow({
+    return finalizeNormalizedMetaWhatsApp({
       client_slug: clientSlug,
       channel: 'whatsapp',
       phone_number_id: null,
@@ -232,7 +247,7 @@ function normalizeMetaWhatsAppWebhook(body, options = {}) {
     unsupportedReason = 'missing_text_body';
   }
 
-  return attachTenantChannelShadow({
+  return finalizeNormalizedMetaWhatsApp({
     client_slug: clientSlug,
     channel: 'whatsapp',
     phone_number_id: inbound.phone_number_id,
@@ -404,4 +419,5 @@ module.exports = {
   findFirstInboundMessage,
   resolveMetaWhatsAppTenantShadow,
   attachTenantChannelShadow,
+  finalizeNormalizedMetaWhatsApp,
 };

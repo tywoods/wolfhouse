@@ -39,6 +39,9 @@ const {
   buildMetaGuestPhoneGateBlockedExtras,
   shouldRouteActiveStaffPhoneToOwnerCommandCenter,
 } = require('./luna-open-phone-testing-gate');
+const {
+  shouldBlockMetaWhatsAppIngressDownstream,
+} = require('./meta-whatsapp-ingress-authority');
 
 function buildDraftFromStoredEvent(row) {
   if (!row) return null;
@@ -118,6 +121,35 @@ function buildGuestPhoneGateBlockedMetaResponse(normalized, signatureMeta, event
   };
 }
 
+/**
+ * FORTRESS 15G — fail closed before draft/send/DB when ingress authority blocks.
+ */
+function buildIngressAuthorityBlockedMetaResponse(normalized, signatureMeta) {
+  const ia = (normalized && normalized.ingress_authority) || {};
+  const reason = ia.reason || 'ingress_authority_blocked';
+  const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {
+    draft_called: false,
+    send_attempted: false,
+    event_persisted: false,
+  });
+  return {
+    response: {
+      ...response,
+      duplicate: false,
+      idempotent_replay: false,
+      guest_message_event_id: null,
+      ingress_authority_blocked: true,
+      blocked_reasons: [reason],
+      draft_called: false,
+      send_attempted: false,
+      event_persisted: false,
+      no_write_performed: true,
+    },
+    event_row: null,
+    replay: false,
+  };
+}
+
 function enrichDraftForStorage(draft, bookingWritePreview) {
   if (!draft || typeof draft !== 'object') {
     return bookingWritePreview ? { booking_write_preview: bookingWritePreview } : null;
@@ -169,6 +201,10 @@ async function runDraftAndSendGate(pg, env, normalized) {
 }
 
 async function processWithoutPersistence(pg, env, normalized, body, signatureMeta) {
+  if (shouldBlockMetaWhatsAppIngressDownstream(normalized)) {
+    return buildIngressAuthorityBlockedMetaResponse(normalized, signatureMeta);
+  }
+
   const staffPhoneAccess = pg
     ? await lookupStaffPhoneAccess(pg, {
       client_slug: normalized.client_slug,
@@ -244,6 +280,11 @@ async function processMetaWhatsAppWebhookInbound(input) {
     env,
     client_slug: input.client_slug,
   });
+
+  // FORTRESS 15G — authority block before any DB lookup/insert or draft/send.
+  if (shouldBlockMetaWhatsAppIngressDownstream(normalized)) {
+    return buildIngressAuthorityBlockedMetaResponse(normalized, signatureMeta);
+  }
 
   if (!normalized.wa_message_id || !normalized.client_slug) {
     const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {
