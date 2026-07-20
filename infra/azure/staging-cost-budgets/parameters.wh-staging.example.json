@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "slice": "RADAR-16B",
+    "purpose": "Secret-free example parameters for wh-staging-rg monthly ActualCost budget threshold. opsNotifyEmail is intentionally omitted — supply via secure overlay or WH_RADAR_16B_OPS_NOTIFY_EMAIL at deploy time. Never commit a real address.",
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "wh-staging-rg",
+    "deploymentMode": "Incremental",
+    "amountUsd": 120,
+    "liveDeploy": false,
+    "anomalyDetectionClaimed": false,
+    "forbidden": [
+      "email defaults / personal addresses in git",
+      "Complete deployment mode",
+      "wiring into main.bicep",
+      "Container Apps / DB / Key Vault / identity / networking resources",
+      "production RGs",
+      "live Azure deploy from this slice"
+    ]
+  },
+  "parameters": {
+    "amountUsd": {
+      "value": 120
+    },
+    "budgetName": {
+      "value": "wh-staging-rg-monthly-actualcost"
+    },
+    "actionGroupName": {
+      "value": "wh-staging-ops-budget-ag"
+    },
+    "actionGroupShortName": {
+      "value": "whStgBudAg"
+    },
+    "budgetStartDate": {
+      "value": "2026-07-01"
+    },
+    "thresholdPercent80": {
+      "value": 80
+    },
+    "thresholdPercent100": {
+      "value": 100
+    }
+  }
+}

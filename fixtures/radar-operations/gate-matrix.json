@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16A",
-  "title": "RADAR operations gate ledger",
-  "master_basis": "28a30a688baa637e1bcb549d9b585cb5917942d1",
-  "branch": "radar/slice-16a-gate-ledger",
+  "slice": "RADAR-16B",
+  "title": "RADAR operations gate ledger (16B budget-threshold partial progress)",
+  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
+  "branch": "radar/slice-16b-staging-cost-budgets",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -346,29 +346,47 @@
       ]
     },
     {
-      "id": "G09_cost_anomaly_detection",
-      "name": "Cost anomaly detection",
-      "verdict": "absent",
+      "id": "G09_cost_controls",
+      "name": "Cost controls",
+      "verdict": "partial",
       "severity": "high",
-      "rationale": "MTD ActualCost captured read-only for both staging RGs. Zero Consumption budgets on either RG. No cost anomaly alert rule. Capture helper exists for Sunset cost snapshots but does not create budgets or anomaly detection.",
+      "rationale": "Cost controls cover (1) budget threshold notifications and (2) anomaly detection as distinct controls. 16B adds standalone staging ActualCost budget-threshold IaC (USD 120/40, Enabled 80%/100%, parameterized ops-email AG per RG) — source partial progress only. Not deployed; live budgets still empty. Real notification delivery proof remains open. Anomaly detection is absent and not claimed.",
+      "controls": {
+        "budget_threshold": {
+          "kind": "threshold",
+          "status": "partial",
+          "note": "Standalone IaC declared; live Microsoft.Consumption/budgets still []; delivery proof open"
+        },
+        "anomaly_detection": {
+          "kind": "anomaly_detection",
+          "status": "absent",
+          "note": "No Cost Management anomaly alert path; explicitly out of scope for 16B"
+        }
+      },
       "source_evidence": [
+        {
+          "path": "infra/azure/staging-cost-budgets/rg-budget-threshold.bicep",
+          "lines": "1-116",
+          "symbols": ["opsBudgetActionGroup", "monthlyActualCostBudget"],
+          "note": "Standalone AG + ActualCost budget module; Incremental-only; no email default"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16b-budget-threshold-plan.json",
+          "lines": "1-77",
+          "symbols": [],
+          "note": "Secret-free plan: 120/40 USD, 80/100 thresholds, both RGs"
+        },
+        {
+          "path": "scripts/lib/radar-slice16b-staging-cost-budgets.js",
+          "lines": "1-80",
+          "symbols": ["LOCKS", "assertExactStagingScope", "runRedCases"],
+          "note": "Exact sub/RG short-circuit + RED tests; live deploy hard-disabled"
+        },
         {
           "path": "scripts/capture-sunset-staging-rg-cost.js",
           "lines": "1-96",
           "symbols": ["main"],
           "note": "Read-only ActualCost capture; secret-free; no budget create"
-        },
-        {
-          "path": "infra/azure/staging/README.md",
-          "lines": "61-66",
-          "symbols": [],
-          "note": "Budget confirmation is a human checklist, not an Azure budget resource"
-        },
-        {
-          "path": "docs/PHASE-7.3C-AZURE-STAGING-DEPLOYMENT-PREFLIGHT.md",
-          "lines": "106,405",
-          "symbols": [],
-          "note": "Manual monthly budget comfort level — not automated anomaly detection"
         }
       ],
       "live_evidence": [
@@ -378,58 +396,76 @@
         },
         {
           "ref": "live-inventory.json#budgets",
-          "note": "budgets=[] both RGs"
+          "note": "budgets=[] both RGs — live threshold control still absent (source-only partial)"
         }
       ],
       "gaps": [
-        "No Microsoft.Consumption/budgets resources",
-        "No cost anomaly alert action group with ops notify",
-        "No threshold tied to measured MTD baseline"
+        "Budgets/action groups not deployed to live staging RGs",
+        "No proven notification delivery (Enabled config alone is insufficient)",
+        "No cost anomaly detection / anomaly alert path",
+        "16B must not be read as anomaly-detection acceptance"
       ]
     }
   ],
   "verdict_counts": {
     "proven": 0,
-    "partial": 7,
-    "absent": 2,
+    "partial": 8,
+    "absent": 1,
     "total": 9
   },
   "slice_16b_selection": {
     "selected": true,
-    "outcome_id": "16B_staging_rg_cost_budget_anomaly",
-    "gate_id": "G09_cost_anomaly_detection",
-    "title": "Add staging RG ActualCost budgets with ops notify thresholds",
-    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free IaC/fixtures, builds on measured MTD costs.",
+    "implemented_partial": true,
+    "outcome_id": "16B_staging_rg_cost_budget_threshold",
+    "gate_id": "G09_cost_controls",
+    "progress_class": "budget_threshold_partial_progress_only",
+    "does_not_implement": "anomaly_detection",
+    "title": "Add staging RG ActualCost budgets with ops notify thresholds (not anomaly detection)",
+    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free IaC/fixtures. This is budget-threshold partial progress only — anomaly detection remains a separate absent control.",
     "owner_files": [
-      "infra/azure/staging/README.md",
-      "infra/azure/sunset-staging/README.md",
-      "scripts/capture-sunset-staging-rg-cost.js",
-      "fixtures/radar-operations/ (16B contract overlay)"
+      "infra/azure/staging-cost-budgets/",
+      "scripts/lib/radar-slice16b-staging-cost-budgets.js",
+      "scripts/verify-radar-slice16b-staging-cost-budgets.js",
+      "fixtures/radar-operations/slice16b-budget-threshold-plan.json"
     ],
     "out_of_scope_for_16b": [
       "Staff API / Hermes code changes",
       "Deploy or restart",
       "Production RGs",
+      "Cost anomaly detection (separate acceptance; not claimed by 16B)",
+      "Real notification delivery proof (remains open)",
       "Tenant-aware metric alerts (G03 — larger follow-on)",
       "Readiness probe implementation (G02)"
     ],
     "acceptance_criteria": [
-      "Azure Consumption budget exists on wh-staging-rg with amount >= measured MTD baseline and at least one notification threshold (e.g. 80% and 100%)",
-      "Azure Consumption budget exists on luna-sunset-staging-rg with the same properties",
-      "Action group used by budgets has a non-ARM ops receiver (email or webhook) — no secrets in git",
+      "Standalone Consumption budget IaC for wh-staging-rg amount USD 120 with Enabled 80% and 100% Actual thresholds",
+      "Standalone Consumption budget IaC for luna-sunset-staging-rg amount USD 40 with the same threshold properties",
+      "One parameterized ops-email action group per RG — no email default/personal address/secret in git",
       "Secret-free fixture + verifier prove budget names/scopes/thresholds without reading secret values",
+      "Deployment Incremental-only and structurally unable to touch Container Apps/DB/KV/identities/networking/production",
+      "Exact subscription/RG short-circuit preflight + RED tests for wrong scope/email/amounts/thresholds/extra resources/non-incremental",
+      "Real notification-delivery proof required for drill pass — Enabled configuration alone fails",
+      "16B must not claim anomaly-detection acceptance; anomaly remains separately absent",
       "No Staff API, Hermes, DB schema, or guest/payment runtime behavior change in the 16B diff"
+    ],
+    "budget_notification_acceptance": [
+      "Budget resources present on both staging RGs with explicit % thresholds (live — still open)",
+      "Ops receiver exists and a real notification delivery event is evidenced (not merely Enabled=true) — still open"
+    ],
+    "anomaly_detection_acceptance": [
+      "Separate follow-on: Cost Management anomaly alert or equivalent with delivery proof — out of scope for 16B"
     ],
     "final_controlled_drill": {
       "id": "16B_DRILL_budget_threshold_notify",
       "steps": [
         "Record pre-create MTD ActualCost (read-only) for both RGs",
-        "Create budgets with notify thresholds only (no other resource changes)",
-        "Trigger a test notification or confirm Azure shows Enabled + threshold definitions",
+        "Deploy Incremental budget+AG module only (approved follow-on; not this commit)",
+        "Prove notification delivery (not merely Enabled)",
         "Re-run read-only budget list; freeze evidence JSON secret-free",
-        "Confirm docker/app revisions unchanged (zero runtime mutation)"
+        "Confirm docker/app revisions unchanged (zero runtime mutation)",
+        "Leave anomaly detection unmet"
       ],
-      "pass_rule": "Both RG budgets listed Enabled with thresholds + action group receiver present; no container restart/deploy/DB write"
+      "pass_rule": "Both RG budgets listed Enabled with thresholds + proven notification delivery; no container restart/deploy/DB write; anomaly detection still absent"
     }
   },
   "final_controlled_drill_16a": {
