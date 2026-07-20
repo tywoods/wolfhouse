@@ -452,6 +452,7 @@
     "verify:fortress-slice15k-signature-control-audit": "node scripts/verify-fortress-slice15k-signature-control-audit.js",
     "verify:fortress-slice15l-meta-signature-fail-closed": "node scripts/verify-fortress-slice15l-meta-signature-fail-closed.js",
     "verify:radar-slice16a-operations-gate-ledger": "node scripts/verify-radar-slice16a-operations-gate-ledger.js",
+    "capture:radar-operations-staging-readonly": "node scripts/capture-radar-operations-staging-readonly.js",
     "verify:staff-tenant-scope": "node scripts/verify-staff-tenant-scope.js",
     "verify:staff-whatsapp-notifications": "node scripts/verify-staff-whatsapp-notifications.js",
     "verify:staff-automated-notification-ui": "node scripts/verify-staff-automated-notification-ui.js",

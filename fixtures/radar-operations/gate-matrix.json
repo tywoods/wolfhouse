@@ -1,13 +1,17 @@
 {
-  "schema_version": 1,
-  "slice": "RADAR-16A",
-  "title": "RADAR operations gate ledger",
-  "master_basis": "28a30a688baa637e1bcb549d9b585cb5917942d1",
-  "branch": "radar/slice-16a-gate-ledger",
+  "schema_version": 2,
+  "slice": "RADAR-16A2",
+  "title": "RADAR operations gate ledger (provenance-corrected)",
+  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
+  "branch": "radar/slice-16a2-ledger-provenance",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
-  "verdicts_allowed": ["proven", "partial", "absent"],
+  "verdicts_allowed": [
+    "proven",
+    "partial",
+    "absent"
+  ],
   "azure_read_only_scope": [
     "wh-staging-rg",
     "luna-sunset-staging-rg"
@@ -32,13 +36,20 @@
         {
           "path": "scripts/staff-query-api.js",
           "lines": "827-828,1595-1599",
-          "symbols": ["LOG_DIR", "LOG_FILE", "appendAuditLog"],
+          "symbols": [
+            "LOG_DIR",
+            "LOG_FILE",
+            "appendAuditLog"
+          ],
           "note": "JSONL file append only; silent catch on write failure"
         },
         {
           "path": "infra/azure/staging/main.bicep",
           "lines": "113-120,282-284",
-          "symbols": ["logAnalytics", "logAnalyticsConfiguration"],
+          "symbols": [
+            "logAnalytics",
+            "logAnalyticsConfiguration"
+          ],
           "note": "LAW + ACA env log destination declared in IaC"
         }
       ],
@@ -49,7 +60,7 @@
         },
         {
           "ref": "live-inventory.json#diagnostic_settings",
-          "note": "No per-resource diagnostic settings on staff-api/pg/kv/appinsights samples"
+          "note": "Sampled allowlist only: no diagnostic settings on staff-api/pg/kv/appinsights/logs samples (both RGs)"
         }
       ],
       "gaps": [
@@ -68,7 +79,9 @@
         {
           "path": "scripts/staff-query-api.js",
           "lines": "46623-46633",
-          "symbols": ["pathname === '/healthz'"],
+          "symbols": [
+            "pathname === '/healthz'"
+          ],
           "note": "Always 200 with status ok; no SELECT 1 / dependency probes"
         },
         {
@@ -120,13 +133,17 @@
         {
           "path": "infra/azure/staging/main.bicep",
           "lines": "124-132",
-          "symbols": ["appInsights"],
+          "symbols": [
+            "appInsights"
+          ],
           "note": "App Insights component only; no metricAlert / actionGroup resources"
         },
         {
           "path": "infra/azure/sunset-staging/main.bicep",
           "lines": "191-198",
-          "symbols": ["appInsights"],
+          "symbols": [
+            "appInsights"
+          ],
           "note": "App Insights only; no alert rules in Bicep"
         }
       ],
@@ -156,19 +173,27 @@
         {
           "path": "scripts/staff-query-api.js",
           "lines": "13644,13706-13805,45292-45299",
-          "symbols": ["handleStripeWebhook"],
+          "symbols": [
+            "handleStripeWebhook"
+          ],
           "note": "Stripe webhook route present"
         },
         {
           "path": "infra/azure/staging/main.bicep",
           "lines": "497,530-532",
-          "symbols": ["n8n worker scale"],
-          "note": "n8n worker maxReplicas=1; no backlog metric wiring"
+          "symbols": [
+            "maxReplicas",
+            "n8nWorkerCpu"
+          ],
+          "note": "n8n worker scale bounds in IaC; no backlog metric wiring"
         },
         {
           "path": "infra/azure/sunset-staging/main.bicep",
           "lines": "14-20,320,464-470",
-          "symbols": ["hold-expiry", "schemaObserverJob"],
+          "symbols": [
+            "hold-expiry",
+            "schemaObserverJob"
+          ],
           "note": "Hold-expiry unmanaged in template notes; schema observer optional"
         }
       ],
@@ -198,19 +223,27 @@
         {
           "path": "database/migrations/001_init.sql",
           "lines": "453-466",
-          "symbols": ["payment_events", "stripe_event_id TEXT UNIQUE"],
+          "symbols": [
+            "payment_events",
+            "stripe_event_id"
+          ],
           "note": "Schema supports Stripe event uniqueness"
         },
         {
           "path": "scripts/staff-query-api.js",
           "lines": "3102-3117,13706-13746,13906-13911",
-          "symbols": ["idempotency_key", "handleStripeWebhook"],
+          "symbols": [
+            "idempotency_key",
+            "handleStripeWebhook"
+          ],
           "note": "Idempotency required on writes; Stripe signature gate; event id in metadata"
         },
         {
           "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
           "lines": "651",
-          "symbols": ["duplicate"],
+          "symbols": [
+            "duplicate"
+          ],
           "note": "Inbound duplicate flag when event row already present"
         }
       ],
@@ -235,13 +268,19 @@
         {
           "path": "infra/azure/staging/main.bicep",
           "lines": "365-367,452-454,530-532",
-          "symbols": ["minReplicas", "maxReplicas"],
+          "symbols": [
+            "minReplicas",
+            "maxReplicas"
+          ],
           "note": "Staff API / n8n / worker maxReplicas=1"
         },
         {
           "path": "infra/azure/sunset-staging/main.bicep",
           "lines": "456-458",
-          "symbols": ["staffApiMinReplicas", "staffApiMaxReplicas"],
+          "symbols": [
+            "staffApiMinReplicas",
+            "staffApiMaxReplicas"
+          ],
           "note": "Sunset staff scale params"
         },
         {
@@ -306,7 +345,7 @@
       "name": "Retention / privacy",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "LAW retention 30d and App Insights 90d proven live; privacy/GDPR gate documented before customer memory. Audit-log retention still TBD in Sunset admin spec. No end-to-end guest PII retention/deletion procedure proven for staging ops telemetry.",
+      "rationale": "LAW retention 30d proven live. App Insights components report retentionInDays=90 but are workspace-based (ingestionMode=LogAnalytics); effective analytics retention follows linked LAW (30d), not the component field alone. Privacy/GDPR gate documented before customer memory. Audit-log retention still TBD. Diagnostic settings absence is qualified to an explicit sampled allowlist only.",
       "source_evidence": [
         {
           "path": "docs/ROADMAP.md",
@@ -329,34 +368,64 @@
         {
           "path": "infra/azure/staging/main.bicep",
           "lines": "78,118",
-          "symbols": ["logRetentionDays"],
+          "symbols": [
+            "logRetentionDays"
+          ],
           "note": "Default LAW retention param 30"
         }
       ],
       "live_evidence": [
         {
           "ref": "live-inventory.json#retention",
-          "note": "LAW 30d both RGs; App Insights 90d both RGs"
+          "note": "LAW 30d both RGs; App Insights workspace-based effective analytics retention 30d (component field 90d is not effective alone)"
+        },
+        {
+          "ref": "live-inventory.json#diagnostic_settings",
+          "note": "Sampled allowlist (staff-api/pg/kv/appinsights/logs × both RGs): zero diagnostic settings; not an exhaustive RG claim"
         }
       ],
       "gaps": [
         "No guest data deletion/export ops procedure for staging telemetry",
         "Audit retention policy not frozen",
-        "No proven PII redaction in container logs shipped to LAW"
+        "No proven PII redaction in container logs shipped to LAW",
+        "Component App Insights retentionInDays=90 must not be read as effective analytics retention under workspace mode"
       ]
     },
     {
-      "id": "G09_cost_anomaly_detection",
-      "name": "Cost anomaly detection",
+      "id": "G09_cost_controls",
+      "name": "Cost controls",
       "verdict": "absent",
       "severity": "high",
-      "rationale": "MTD ActualCost captured read-only for both staging RGs. Zero Consumption budgets on either RG. No cost anomaly alert rule. Capture helper exists for Sunset cost snapshots but does not create budgets or anomaly detection.",
+      "rationale": "Cost controls cover (1) budget threshold notifications and (2) anomaly detection as distinct controls. MTD ActualCost is captured read-only for both staging RGs. Consumption budgets are empty on both RGs (threshold control absent). No Azure cost anomaly alert/detection path is evidenced. Budgets are threshold controls, not anomaly detection — do not conflate them.",
+      "controls": {
+        "budget_threshold": {
+          "kind": "threshold",
+          "status": "absent",
+          "note": "Microsoft.Consumption/budgets empty both RGs; thresholds notify at % of amount, not anomaly models"
+        },
+        "anomaly_detection": {
+          "kind": "anomaly_detection",
+          "status": "absent",
+          "note": "No Cost Management anomaly alert / Advisor cost anomaly notify path proven"
+        }
+      },
       "source_evidence": [
         {
           "path": "scripts/capture-sunset-staging-rg-cost.js",
           "lines": "1-96",
-          "symbols": ["main"],
-          "note": "Read-only ActualCost capture; secret-free; no budget create"
+          "symbols": [
+            "main"
+          ],
+          "note": "Read-only ActualCost capture helper; secret-free; no budget create"
+        },
+        {
+          "path": "scripts/capture-radar-operations-staging-readonly.js",
+          "lines": "1-40",
+          "symbols": [
+            "captureStagingReadonly",
+            "runCaptureRedTests"
+          ],
+          "note": "16A2 exact allowlisted read-only capture entrypoint"
         },
         {
           "path": "infra/azure/staging/README.md",
@@ -374,17 +443,18 @@
       "live_evidence": [
         {
           "ref": "live-inventory.json#costs_mtd",
-          "note": "wh-staging-rg 65.12 USD; luna-sunset-staging-rg 16.91 USD (MonthToDate ActualCost)"
+          "note": "wh-staging-rg 65.12008023223014 USD; luna-sunset-staging-rg 16.91189807526882 USD (MonthToDate ActualCost)"
         },
         {
           "ref": "live-inventory.json#budgets",
-          "note": "budgets=[] both RGs"
+          "note": "budgets=[] both RGs — budget threshold control absent"
         }
       ],
       "gaps": [
-        "No Microsoft.Consumption/budgets resources",
-        "No cost anomaly alert action group with ops notify",
-        "No threshold tied to measured MTD baseline"
+        "No Microsoft.Consumption/budgets resources (threshold control)",
+        "No cost anomaly detection / anomaly alert path",
+        "No threshold tied to measured MTD baseline",
+        "No proven notification delivery (Enabled config alone is insufficient)"
       ]
     }
   ],
@@ -396,20 +466,23 @@
   },
   "slice_16b_selection": {
     "selected": true,
-    "outcome_id": "16B_staging_rg_cost_budget_anomaly",
-    "gate_id": "G09_cost_anomaly_detection",
-    "title": "Add staging RG ActualCost budgets with ops notify thresholds",
-    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free IaC/fixtures, builds on measured MTD costs.",
+    "outcome_id": "16B_staging_rg_cost_budget_threshold",
+    "gate_id": "G09_cost_controls",
+    "progress_class": "budget_threshold_partial_progress_only",
+    "does_not_implement": "anomaly_detection",
+    "title": "Add staging RG ActualCost budgets with ops notify thresholds (not anomaly detection)",
+    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free fixtures, builds on measured MTD costs. This is budget-threshold partial progress only — anomaly detection remains a separate absent control.",
     "owner_files": [
       "infra/azure/staging/README.md",
       "infra/azure/sunset-staging/README.md",
-      "scripts/capture-sunset-staging-rg-cost.js",
+      "scripts/capture-radar-operations-staging-readonly.js",
       "fixtures/radar-operations/ (16B contract overlay)"
     ],
     "out_of_scope_for_16b": [
       "Staff API / Hermes code changes",
       "Deploy or restart",
       "Production RGs",
+      "Cost anomaly detection (separate acceptance; not claimed by 16B)",
       "Tenant-aware metric alerts (G03 — larger follow-on)",
       "Readiness probe implementation (G02)"
     ],
@@ -418,23 +491,41 @@
       "Azure Consumption budget exists on luna-sunset-staging-rg with the same properties",
       "Action group used by budgets has a non-ARM ops receiver (email or webhook) — no secrets in git",
       "Secret-free fixture + verifier prove budget names/scopes/thresholds without reading secret values",
-      "No Staff API, Hermes, DB schema, or guest/payment runtime behavior change in the 16B diff"
+      "Real notification-delivery proof required (test notification received/delivered) — Enabled configuration alone fails",
+      "No Staff API, Hermes, DB schema, or guest/payment runtime behavior change in the 16B diff",
+      "16B must not claim anomaly-detection acceptance; anomaly remains separately absent"
+    ],
+    "budget_notification_acceptance": [
+      "Budget resources present on both staging RGs with explicit % thresholds",
+      "Ops receiver exists and a real notification delivery event is evidenced (not merely Enabled=true)"
+    ],
+    "anomaly_detection_acceptance": [
+      "Separate follow-on: Cost Management anomaly alert or equivalent with delivery proof — out of scope for 16B"
     ],
     "final_controlled_drill": {
       "id": "16B_DRILL_budget_threshold_notify",
       "steps": [
-        "Record pre-create MTD ActualCost (read-only) for both RGs",
+        "Record pre-create MTD ActualCost (read-only) for both RGs via capture tool",
         "Create budgets with notify thresholds only (no other resource changes)",
-        "Trigger a test notification or confirm Azure shows Enabled + threshold definitions",
+        "Send/trigger a test notification and record delivery proof (received email/webhook delivery id) — Enabled flags alone are insufficient",
         "Re-run read-only budget list; freeze evidence JSON secret-free",
-        "Confirm docker/app revisions unchanged (zero runtime mutation)"
+        "Confirm docker/app revisions unchanged (zero runtime mutation)",
+        "Explicitly leave anomaly-detection acceptance unmet"
       ],
-      "pass_rule": "Both RG budgets listed Enabled with thresholds + action group receiver present; no container restart/deploy/DB write"
+      "pass_rule": "Both RG budgets listed with thresholds + action group receiver present AND real notification delivery evidenced; no container restart/deploy/DB write; anomaly detection not claimed"
     }
   },
   "final_controlled_drill_16a": {
     "id": "16A_DRILL_ledger_freeze_read_only",
-    "description": "Freeze this ledger from clean master; verify offline; push branch; no PR/merge; no live mutation.",
-    "pass_rule": "npm run verify:radar-slice16a-operations-gate-ledger exits 0; git diff against runtime sources empty for behavior; Azure calls were GET/CostManagement query only"
+    "description": "Freeze provenance-corrected ledger from clean master 5a8b08d; re-capture via allowlisted tool; verify offline; push branch; no PR/merge; no live mutation.",
+    "pass_rule": "npm run verify:radar-slice16a-operations-gate-ledger exits 0; git diff against runtime sources empty; Azure calls were GET/CostManagement query only within the two staging RGs"
+  },
+  "outcome_id": "16A2_ledger_provenance",
+  "reproducibility": {
+    "capture_tool": "scripts/capture-radar-operations-staging-readonly.js",
+    "capture_lib": "scripts/lib/radar-operations-azure-capture.js",
+    "capture_manifest": "fixtures/radar-operations/capture-manifest.json",
+    "capture_log": "fixtures/radar-operations/capture-log.json",
+    "note": "Frozen live inventory is independently re-capturable via the exact allowlisted read-only tool"
   }
 }

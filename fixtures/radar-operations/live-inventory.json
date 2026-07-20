@@ -1,11 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16A",
-  "captured_at_utc": "2026-07-20T12:00:00Z",
+  "slice": "RADAR-16A2",
+  "captured_at_utc": "2026-07-20T12:20:48.652Z",
   "subscription_id_suffix": "0c46f704a3b9",
   "read_only": true,
   "live_mutation": false,
-  "scope_resource_groups": ["wh-staging-rg", "luna-sunset-staging-rg"],
+  "scope_resource_groups": [
+    "wh-staging-rg",
+    "luna-sunset-staging-rg"
+  ],
   "mutation_policy": {
     "deploys": 0,
     "restarts": 0,
@@ -14,40 +17,415 @@
     "guest_actions": 0,
     "payment_actions": 0,
     "production_queries": 0,
-    "azure_methods_allowed": ["GET", "CostManagement/query POST read-only"]
+    "azure_methods_allowed": [
+      "GET",
+      "CostManagement/query POST read-only"
+    ]
+  },
+  "capture_provenance": {
+    "tool": "scripts/capture-radar-operations-staging-readonly.js",
+    "lib": "scripts/lib/radar-operations-azure-capture.js",
+    "manifest": "fixtures/radar-operations/capture-manifest.json",
+    "allowed_method_ids": [
+      "arm_account_show",
+      "arm_rg_show",
+      "arm_resource_list",
+      "cost_query",
+      "consumption_budgets_list",
+      "metric_alerts_list",
+      "activity_log_alerts_list",
+      "scheduled_query_rules_list",
+      "action_groups_list",
+      "diagnostic_settings_list",
+      "containerapp_env_show",
+      "containerapp_show",
+      "containerapp_job_show",
+      "postgres_flexible_show",
+      "law_show",
+      "appinsights_show",
+      "public_healthz_get"
+    ],
+    "call_count": 42,
+    "response_hashes": [
+      {
+        "method_id": "arm_account_show",
+        "rg": null,
+        "started_at_utc": "2026-07-20T12:17:32.465Z",
+        "response_sha256": "3f0ada7cb80ab54af5e51b3514fe44166690475902775cf10f7f6bdef910066c",
+        "rest_path": null,
+        "api_version": null
+      },
+      {
+        "method_id": "arm_rg_show",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:17:33.916Z",
+        "response_sha256": "9c33dca0ca5e5a45b172e29152413ef4bef285fb8e2e0984ab3b7290c64e3090",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg",
+        "api_version": "2021-04-01"
+      },
+      {
+        "method_id": "arm_resource_list",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:17:36.173Z",
+        "response_sha256": "fd1ec6f8170eaea64a332251b599ae272863f12bcd64b8b85b42175c7035eed1",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/resources",
+        "api_version": "2021-04-01"
+      },
+      {
+        "method_id": "arm_rg_show",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:17:39.850Z",
+        "response_sha256": "a74855a4697eb3bc136b1abe5b108c468be83d2bdf1d39f7e1de1a53b0bb237b",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+        "api_version": "2021-04-01"
+      },
+      {
+        "method_id": "arm_resource_list",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:17:42.384Z",
+        "response_sha256": "275f9a3fe05ce1d56ed1e180b45de9da5fb5b3ea03cd0351df508e43ae989bb0",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/resources",
+        "api_version": "2021-04-01"
+      },
+      {
+        "method_id": "cost_query",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:18:30.247Z",
+        "response_sha256": "0c1b18169dfbf188cde0d120bab83c1c4c8d9d06b79eba109e868bfea13c0c9c",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.CostManagement/query",
+        "api_version": "2023-11-01"
+      },
+      {
+        "method_id": "cost_query",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:18:47.405Z",
+        "response_sha256": "1ed06786ce7cf241215c6fae3d00527210fdec237f7df789fe74d9a960b1865c",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.CostManagement/query",
+        "api_version": "2023-11-01"
+      },
+      {
+        "method_id": "consumption_budgets_list",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:05.461Z",
+        "response_sha256": "ba6b28ef7d9e13314d4d21bc8fe249beb4f59c92238972d2921789389a2e0d31",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Consumption/budgets?api-version=2023-11-01",
+        "api_version": "2023-11-01"
+      },
+      {
+        "method_id": "consumption_budgets_list",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:07.124Z",
+        "response_sha256": "ba6b28ef7d9e13314d4d21bc8fe249beb4f59c92238972d2921789389a2e0d31",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Consumption/budgets?api-version=2023-11-01",
+        "api_version": "2023-11-01"
+      },
+      {
+        "method_id": "metric_alerts_list",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:09.794Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/metricAlerts",
+        "api_version": "2018-03-01"
+      },
+      {
+        "method_id": "activity_log_alerts_list",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:12.086Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/activityLogAlerts",
+        "api_version": "2020-10-01"
+      },
+      {
+        "method_id": "scheduled_query_rules_list",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:14.204Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/scheduledQueryRules",
+        "api_version": "2023-03-15-preview"
+      },
+      {
+        "method_id": "action_groups_list",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:16.361Z",
+        "response_sha256": "33ea5b0ef9ff0aacc13b96b999a99618d2ab1f609ce134f5493e24c8594aec9e",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/actionGroups",
+        "api_version": "2023-01-01"
+      },
+      {
+        "method_id": "metric_alerts_list",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:19.149Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/metricAlerts",
+        "api_version": "2018-03-01"
+      },
+      {
+        "method_id": "activity_log_alerts_list",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:21.315Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/activityLogAlerts",
+        "api_version": "2020-10-01"
+      },
+      {
+        "method_id": "scheduled_query_rules_list",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:23.531Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/scheduledQueryRules",
+        "api_version": "2023-03-15-preview"
+      },
+      {
+        "method_id": "action_groups_list",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:25.668Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/actionGroups",
+        "api_version": "2023-01-01"
+      },
+      {
+        "method_id": "diagnostic_settings_list",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:27.758Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api/providers/Microsoft.Insights/diagnosticSettings",
+        "api_version": "2021-05-01-preview"
+      },
+      {
+        "method_id": "diagnostic_settings_list",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:30.240Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/wh-staging-pg-app/providers/Microsoft.Insights/diagnosticSettings",
+        "api_version": "2021-05-01-preview"
+      },
+      {
+        "method_id": "diagnostic_settings_list",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:32.521Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.KeyVault/vaults/wh-staging-kv/providers/Microsoft.Insights/diagnosticSettings",
+        "api_version": "2021-05-01-preview"
+      },
+      {
+        "method_id": "diagnostic_settings_list",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:34.920Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/components/wh-staging-appinsights/providers/Microsoft.Insights/diagnosticSettings",
+        "api_version": "2021-05-01-preview"
+      },
+      {
+        "method_id": "diagnostic_settings_list",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:38.266Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.OperationalInsights/workspaces/wh-staging-logs/providers/Microsoft.Insights/diagnosticSettings",
+        "api_version": "2021-05-01-preview"
+      },
+      {
+        "method_id": "diagnostic_settings_list",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:40.620Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api/providers/Microsoft.Insights/diagnosticSettings",
+        "api_version": "2021-05-01-preview"
+      },
+      {
+        "method_id": "diagnostic_settings_list",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:42.873Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app/providers/Microsoft.Insights/diagnosticSettings",
+        "api_version": "2021-05-01-preview"
+      },
+      {
+        "method_id": "diagnostic_settings_list",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:45.312Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv/providers/Microsoft.Insights/diagnosticSettings",
+        "api_version": "2021-05-01-preview"
+      },
+      {
+        "method_id": "diagnostic_settings_list",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:48.017Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/components/luna-sunset-staging-appinsights/providers/Microsoft.Insights/diagnosticSettings",
+        "api_version": "2021-05-01-preview"
+      },
+      {
+        "method_id": "diagnostic_settings_list",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:51.470Z",
+        "response_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.OperationalInsights/workspaces/luna-sunset-staging-logs/providers/Microsoft.Insights/diagnosticSettings",
+        "api_version": "2021-05-01-preview"
+      },
+      {
+        "method_id": "containerapp_env_show",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:53.847Z",
+        "response_sha256": "f14f6f47b2b0c000d46d213478558cd15215554fdd32ee47535739f8d8813586",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/managedEnvironments/wh-staging-env",
+        "api_version": "2024-03-01"
+      },
+      {
+        "method_id": "containerapp_env_show",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:56.615Z",
+        "response_sha256": "e3d4727e091e8d16d5f4d0b1a8ea01bd918427e92eb57bedf1578beef8cdddc0",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/managedEnvironments/luna-sunset-staging-env",
+        "api_version": "2024-03-01"
+      },
+      {
+        "method_id": "law_show",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:19:59.074Z",
+        "response_sha256": "be77afad38f31f318aa342fedcf0f9192ad9a0c05ed38e98d14d28674eb14399",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.OperationalInsights/workspaces/wh-staging-logs",
+        "api_version": "2022-10-01"
+      },
+      {
+        "method_id": "law_show",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:20:01.320Z",
+        "response_sha256": "5ed1ca90e61bd1634937f7f768735d4e8ed2f700713ba7c0ddea07b10a87d774",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.OperationalInsights/workspaces/luna-sunset-staging-logs",
+        "api_version": "2022-10-01"
+      },
+      {
+        "method_id": "appinsights_show",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:20:03.652Z",
+        "response_sha256": "e0461c90314f3e04da4b5074687dfaccc0629381d37b3ae149d9c00a46382c56",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/components/wh-staging-appinsights",
+        "api_version": "2020-02-02"
+      },
+      {
+        "method_id": "appinsights_show",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:20:06.168Z",
+        "response_sha256": "09f9c8895a7e227fb511bec2afa64f47fc4ca990142154b49bd968463df051d7",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/components/luna-sunset-staging-appinsights",
+        "api_version": "2020-02-02"
+      },
+      {
+        "method_id": "containerapp_show",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:20:08.441Z",
+        "response_sha256": "075c783a85598607e595c186cd7508a9c834f1aee0fcde1cc8ba9ab2c784c01f",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api",
+        "api_version": "2024-03-01"
+      },
+      {
+        "method_id": "containerapp_show",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:20:11.616Z",
+        "response_sha256": "ec828b09e67628721763749fd3be6ae6d505f58c99ce3b3dcfb89c8a5fe1cafd",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api",
+        "api_version": "2024-03-01"
+      },
+      {
+        "method_id": "containerapp_job_show",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:20:14.887Z",
+        "response_sha256": "7df4b37ccf4eadf62658f3d103e80db09a222c323a2631e6aaa8b027cb4e6206",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/jobs/luna-sunset-staging-hold-expiry",
+        "api_version": "2024-03-01"
+      },
+      {
+        "method_id": "containerapp_job_show",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:20:17.585Z",
+        "response_sha256": "461225419e9b5dab45440081c23c6519f1d41b11b001f484b50dd980fdc7c0a6",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/jobs/luna-sunset-staging-sch-obs",
+        "api_version": "2024-03-01"
+      },
+      {
+        "method_id": "postgres_flexible_show",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:20:20.532Z",
+        "response_sha256": "0ba6162067a347043adb632374d8d186c4f1e7295ef7ae14f59c5af07af11e35",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/wh-staging-pg-app",
+        "api_version": "2023-12-01-preview"
+      },
+      {
+        "method_id": "postgres_flexible_show",
+        "rg": "wh-staging-rg",
+        "started_at_utc": "2026-07-20T12:20:23.437Z",
+        "response_sha256": "1ee7cb3871287b5305f33ddea35ea2497257ab014e0edbc569d0d67d16d715f9",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/wh-staging-pg-n8n",
+        "api_version": "2023-12-01-preview"
+      },
+      {
+        "method_id": "postgres_flexible_show",
+        "rg": "luna-sunset-staging-rg",
+        "started_at_utc": "2026-07-20T12:20:25.940Z",
+        "response_sha256": "c6b57b7bd8dc8bb16b262e689b57c96a4c4d3cfc7e4e2d36d786a1632c1c8b46",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app",
+        "api_version": "2023-12-01-preview"
+      },
+      {
+        "method_id": "public_healthz_get",
+        "rg": null,
+        "started_at_utc": "2026-07-20T12:20:28.409Z",
+        "response_sha256": "ae18b99d7315cd5bfd5d05b1c7347cea40b5438e9c0afa0f58da8ccf1b34dece",
+        "rest_path": "https://staff-staging.lunafrontdesk.com/healthz",
+        "api_version": null
+      },
+      {
+        "method_id": "public_healthz_get",
+        "rg": null,
+        "started_at_utc": "2026-07-20T12:20:48.609Z",
+        "response_sha256": "df72a3308a623e47350d58c4b0a911cd4847149be35326acfc93747a1b457a39",
+        "rest_path": "https://sunset-staging.lunafrontdesk.com/healthz",
+        "api_version": null
+      }
+    ]
   },
   "resource_groups": {
     "wh-staging-rg": {
       "location": "westeurope",
       "provisioningState": "Succeeded",
       "resource_names": [
-        "wh-staging-identity",
-        "wh-staging-logs",
-        "whstagingacr",
-        "wh-staging-kv",
-        "wh-staging-env",
-        "wh-staging-appinsights",
         "Application Insights Smart Detection",
+        "crowsnest-internal",
+        "lunabox",
+        "lunaboxNSG",
+        "lunaboxPublicIP",
+        "lunaboxVMNic",
+        "lunaboxVNET",
+        "lunabox_OsDisk_1_c6f61951b1cc4b90837258efae4d3151",
+        "wh-staging-appinsights",
+        "wh-staging-env",
+        "wh-staging-env/mc-wh-staging-env-crowsnest-lunafr-2069",
+        "wh-staging-env/mc-wh-staging-env-staff-staging-lu-5595",
+        "wh-staging-identity",
+        "wh-staging-kv",
+        "wh-staging-logs",
         "wh-staging-pg-app",
         "wh-staging-pg-n8n",
         "wh-staging-staff-api",
-        "lunabox",
-        "crowsnest-internal"
+        "whstagingacr",
+        "whstaginghermes"
       ]
     },
     "luna-sunset-staging-rg": {
       "location": "westeurope",
       "provisioningState": "Succeeded",
       "resource_names": [
-        "luna-sunset-staging-identity",
-        "luna-sunset-staging-logs",
-        "luna-sunset-staging-pg-app",
-        "luna-sunset-staging-kv",
         "luna-sunset-staging-appinsights",
         "luna-sunset-staging-env",
-        "luna-sunset-staging-staff-api",
+        "luna-sunset-staging-env/mc-luna-sunset-st-sunset-staging-l-4218",
         "luna-sunset-staging-hold-expiry",
-        "luna-sunset-staging-sch-obs"
+        "luna-sunset-staging-identity",
+        "luna-sunset-staging-kv",
+        "luna-sunset-staging-logs",
+        "luna-sunset-staging-pg-app",
+        "luna-sunset-staging-sch-obs",
+        "luna-sunset-staging-staff-api"
       ]
     }
   },
@@ -55,31 +433,77 @@
     "timeframe": "MonthToDate",
     "currency": "USD",
     "api": "Microsoft.CostManagement/query ActualCost",
+    "period": {
+      "from": "2026-07-01",
+      "to": "2026-07-20"
+    },
     "wh-staging-rg": {
-      "total": 65.1200802322302,
+      "total": 65.12008023223014,
       "by_service": [
-        { "service": "Virtual Machines", "cost": 21.224286419 },
-        { "service": "Azure Database for PostgreSQL", "cost": 15.0342258064516 },
-        { "service": "Azure Container Apps", "cost": 9.866106 },
-        { "service": "Redis Cache", "cost": 7.65783333333333 },
-        { "service": "Container Registry", "cost": 5.6481586564 },
-        { "service": "Storage", "cost": 3.285285024 },
-        { "service": "Virtual Network", "cost": 2.315 },
-        { "service": "Key Vault", "cost": 0.048183 },
-        { "service": "Bandwidth", "cost": 0.0410019930452108 },
-        { "service": "Log Analytics", "cost": 0.0 }
+        {
+          "service": "Virtual Machines",
+          "cost": 21.224286419
+        },
+        {
+          "service": "Azure Database for PostgreSQL",
+          "cost": 15.0342258064516
+        },
+        {
+          "service": "Azure Container Apps",
+          "cost": 9.866106
+        },
+        {
+          "service": "Redis Cache",
+          "cost": 7.65783333333333
+        },
+        {
+          "service": "Container Registry",
+          "cost": 5.6481586564
+        },
+        {
+          "service": "Storage",
+          "cost": 3.285285024
+        },
+        {
+          "service": "Virtual Network",
+          "cost": 2.315
+        },
+        {
+          "service": "Key Vault",
+          "cost": 0.048183
+        },
+        {
+          "service": "Bandwidth",
+          "cost": 0.0410019930452108
+        },
+        {
+          "service": "Log Analytics",
+          "cost": 0
+        }
       ]
     },
     "luna-sunset-staging-rg": {
-      "total": 16.9118980752688,
+      "total": 16.91189807526882,
       "by_service": [
-        { "service": "Azure Container Apps", "cost": 9.339867 },
-        { "service": "Azure Database for PostgreSQL", "cost": 7.54290107526882 },
-        { "service": "Key Vault", "cost": 0.02913 },
-        { "service": "Log Analytics", "cost": 0.0 }
+        {
+          "service": "Azure Container Apps",
+          "cost": 9.339867
+        },
+        {
+          "service": "Azure Database for PostgreSQL",
+          "cost": 7.54290107526882
+        },
+        {
+          "service": "Key Vault",
+          "cost": 0.02913
+        },
+        {
+          "service": "Log Analytics",
+          "cost": 0
+        }
       ]
     },
-    "combined_total": 82.031978307499
+    "combined_total": 82.03197830749896
   },
   "budgets": {
     "wh-staging-rg": [],
@@ -105,15 +529,91 @@
         "email_receivers_count": 0,
         "sms_receivers_count": 0,
         "webhook_receivers_count": 0,
-        "arm_role_receivers": ["Monitoring Contributor", "Monitoring Reader"],
+        "arm_role_receivers": [
+          "Monitoring Contributor",
+          "Monitoring Reader"
+        ],
         "note": "Default Smart Detection group; not ops on-call notify"
       }
     ],
     "luna-sunset-staging-rg": []
   },
   "diagnostic_settings": {
+    "sampling_policy": "explicit_allowlist_only",
+    "sampled_resources": [
+      {
+        "rg": "wh-staging-rg",
+        "name": "wh-staging-staff-api",
+        "type": "Microsoft.App/containerApps",
+        "settings_count": 0,
+        "setting_names": []
+      },
+      {
+        "rg": "wh-staging-rg",
+        "name": "wh-staging-pg-app",
+        "type": "Microsoft.DBforPostgreSQL/flexibleServers",
+        "settings_count": 0,
+        "setting_names": []
+      },
+      {
+        "rg": "wh-staging-rg",
+        "name": "wh-staging-kv",
+        "type": "Microsoft.KeyVault/vaults",
+        "settings_count": 0,
+        "setting_names": []
+      },
+      {
+        "rg": "wh-staging-rg",
+        "name": "wh-staging-appinsights",
+        "type": "Microsoft.Insights/components",
+        "settings_count": 0,
+        "setting_names": []
+      },
+      {
+        "rg": "wh-staging-rg",
+        "name": "wh-staging-logs",
+        "type": "Microsoft.OperationalInsights/workspaces",
+        "settings_count": 0,
+        "setting_names": []
+      },
+      {
+        "rg": "luna-sunset-staging-rg",
+        "name": "luna-sunset-staging-staff-api",
+        "type": "Microsoft.App/containerApps",
+        "settings_count": 0,
+        "setting_names": []
+      },
+      {
+        "rg": "luna-sunset-staging-rg",
+        "name": "luna-sunset-staging-pg-app",
+        "type": "Microsoft.DBforPostgreSQL/flexibleServers",
+        "settings_count": 0,
+        "setting_names": []
+      },
+      {
+        "rg": "luna-sunset-staging-rg",
+        "name": "luna-sunset-staging-kv",
+        "type": "Microsoft.KeyVault/vaults",
+        "settings_count": 0,
+        "setting_names": []
+      },
+      {
+        "rg": "luna-sunset-staging-rg",
+        "name": "luna-sunset-staging-appinsights",
+        "type": "Microsoft.Insights/components",
+        "settings_count": 0,
+        "setting_names": []
+      },
+      {
+        "rg": "luna-sunset-staging-rg",
+        "name": "luna-sunset-staging-logs",
+        "type": "Microsoft.OperationalInsights/workspaces",
+        "settings_count": 0,
+        "setting_names": []
+      }
+    ],
     "sampled_resources_with_settings": [],
-    "note": "Targeted list on staff-api, pg-app, kv, appinsights, logs returned NONE for both RGs"
+    "note": "Absence of settings is qualified to the sampled allowlist only; not an exhaustive claim over every resource in either RG"
   },
   "aca_env_logging": {
     "wh-staging-env": {
@@ -121,14 +621,39 @@
       "law_customer_id_suffix": "2ae8f"
     },
     "luna-sunset-staging-env": {
-      "logsDestination": "log-analytics"
+      "logsDestination": "log-analytics",
+      "law_customer_id_suffix": "aa7d0"
     }
   },
   "retention": {
-    "wh-staging-logs": { "retentionInDays": 30, "sku": "PerGB2018", "dailyQuotaGb": -1 },
-    "luna-sunset-staging-logs": { "retentionInDays": 30, "sku": "PerGB2018", "dailyQuotaGb": -1 },
-    "wh-staging-appinsights": { "retentionInDays": 90 },
-    "luna-sunset-staging-appinsights": { "retentionInDays": 90 }
+    "wh-staging-logs": {
+      "retentionInDays": 30,
+      "sku": "PerGB2018",
+      "dailyQuotaGb": -1
+    },
+    "luna-sunset-staging-logs": {
+      "retentionInDays": 30,
+      "sku": "PerGB2018",
+      "dailyQuotaGb": -1
+    },
+    "wh-staging-appinsights": {
+      "component_retentionInDays": 90,
+      "ingestionMode": "LogAnalytics",
+      "workspace_based": true,
+      "workspace_name": "wh-staging-logs",
+      "workspace_resource_id_suffix": "rkspaces/wh-staging-logs",
+      "effective_analytics_retentionInDays": 30,
+      "qualification": "workspace-based App Insights: effective analytics retention follows linked LAW, not component retentionInDays alone"
+    },
+    "luna-sunset-staging-appinsights": {
+      "component_retentionInDays": 90,
+      "ingestionMode": "LogAnalytics",
+      "workspace_based": true,
+      "workspace_name": "luna-sunset-staging-logs",
+      "workspace_resource_id_suffix": "luna-sunset-staging-logs",
+      "effective_analytics_retentionInDays": 30,
+      "qualification": "workspace-based App Insights: effective analytics retention follows linked LAW, not component retentionInDays alone"
+    }
   },
   "container_apps": {
     "wh-staging-staff-api": {
@@ -158,9 +683,8 @@
     {
       "name": "luna-sunset-staging-hold-expiry",
       "triggerType": "Schedule",
-      "cronExpression": "15 * * * *",
-      "parallelism": 1,
-      "replicaTimeout": 600
+      "replicaTimeout": 600,
+      "cronExpression": "15 * * * *"
     },
     {
       "name": "luna-sunset-staging-sch-obs",
@@ -202,7 +726,8 @@
       "service": "wolfhouse-staff-query-api",
       "auth_enabled": true,
       "stage": "7.7b",
-      "dependency_fields_present": false
+      "dependency_fields_present": false,
+      "config_flags_present": true
     },
     "sunset-staging.lunafrontdesk.com": {
       "path": "/healthz",
@@ -211,7 +736,8 @@
       "service": "wolfhouse-staff-query-api",
       "auth_enabled": true,
       "stage": "7.7b",
-      "dependency_fields_present": false
+      "dependency_fields_present": false,
+      "config_flags_present": true
     }
   }
 }

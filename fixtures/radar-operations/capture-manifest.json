@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16A2",
+  "title": "Exact read-only Azure capture manifest",
+  "allowed_subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "allowed_resource_groups": [
+    "wh-staging-rg",
+    "luna-sunset-staging-rg"
+  ],
+  "forbidden_resource_groups": [
+    "wh-prod-rg",
+    "wolfhouse-prod-rg",
+    "luna-sunset-prod-rg",
+    "production"
+  ],
+  "allowed_method_inventory": [
+    {
+      "id": "arm_account_show",
+      "method": "GET",
+      "surface": "az_cli",
+      "command_template": "az account show -o json",
+      "rest_path": null,
+      "api_version": null,
+      "notes": "Preflight subscription pin only"
+    },
+    {
+      "id": "arm_rg_show",
+      "method": "GET",
+      "surface": "arm",
+      "command_template": "az group show -n {rg} -o json",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}",
+      "api_version": "2021-04-01"
+    },
+    {
+      "id": "arm_resource_list",
+      "method": "GET",
+      "surface": "arm",
+      "command_template": "az resource list -g {rg} -o json",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/resources",
+      "api_version": "2021-04-01"
+    },
+    {
+      "id": "cost_query",
+      "method": "POST",
+      "surface": "arm",
+      "command_template": "az rest --method post --url {costUrl} --body @{body}",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.CostManagement/query",
+      "api_version": "2023-11-01",
+      "notes": "Read-only ActualCost aggregation; no budget mutation"
+    },
+    {
+      "id": "consumption_budgets_list",
+      "method": "GET",
+      "surface": "arm",
+      "command_template": "az rest --method get --url {budgetsUrl}",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Consumption/budgets",
+      "api_version": "2023-11-01"
+    },
+    {
+      "id": "metric_alerts_list",
+      "method": "GET",
+      "surface": "az_cli",
+      "command_template": "az monitor metrics alert list -g {rg} -o json",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/metricAlerts",
+      "api_version": "2018-03-01"
+    },
+    {
+      "id": "activity_log_alerts_list",
+      "method": "GET",
+      "surface": "az_cli",
+      "command_template": "az monitor activity-log alert list -g {rg} -o json",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/activityLogAlerts",
+      "api_version": "2020-10-01"
+    },
+    {
+      "id": "scheduled_query_rules_list",
+      "method": "GET",
+      "surface": "az_cli",
+      "command_template": "az monitor scheduled-query list -g {rg} -o json",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/scheduledQueryRules",
+      "api_version": "2023-03-15-preview"
+    },
+    {
+      "id": "action_groups_list",
+      "method": "GET",
+      "surface": "az_cli",
+      "command_template": "az monitor action-group list -g {rg} -o json",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/actionGroups",
+      "api_version": "2023-01-01"
+    },
+    {
+      "id": "diagnostic_settings_list",
+      "method": "GET",
+      "surface": "az_cli",
+      "command_template": "az monitor diagnostic-settings list --resource {resourceId} -o json",
+      "rest_path": "{resourceId}/providers/Microsoft.Insights/diagnosticSettings",
+      "api_version": "2021-05-01-preview",
+      "notes": "Sampled resources only — not an exhaustive RG scan"
+    },
+    {
+      "id": "containerapp_env_show",
+      "method": "GET",
+      "surface": "az_cli",
+      "command_template": "az containerapp env show -g {rg} -n {name} -o json",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name}",
+      "api_version": "2024-03-01"
+    },
+    {
+      "id": "containerapp_show",
+      "method": "GET",
+      "surface": "az_cli",
+      "command_template": "az containerapp show -g {rg} -n {name} -o json",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name}",
+      "api_version": "2024-03-01"
+    },
+    {
+      "id": "containerapp_job_show",
+      "method": "GET",
+      "surface": "az_cli",
+      "command_template": "az containerapp job show -g {rg} -n {name} -o json",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/jobs/{name}",
+      "api_version": "2024-03-01"
+    },
+    {
+      "id": "postgres_flexible_show",
+      "method": "GET",
+      "surface": "az_cli",
+      "command_template": "az postgres flexible-server show -g {rg} -n {name} -o json",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name}",
+      "api_version": "2023-12-01-preview"
+    },
+    {
+      "id": "law_show",
+      "method": "GET",
+      "surface": "az_cli",
+      "command_template": "az monitor log-analytics workspace show -g {rg} -n {name} -o json",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.OperationalInsights/workspaces/{name}",
+      "api_version": "2022-10-01"
+    },
+    {
+      "id": "appinsights_show",
+      "method": "GET",
+      "surface": "az_cli",
+      "command_template": "az monitor app-insights component show -g {rg} -a {name} -o json",
+      "rest_path": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/components/{name}",
+      "api_version": "2020-02-02"
+    },
+    {
+      "id": "public_healthz_get",
+      "method": "GET",
+      "surface": "https",
+      "command_template": "HTTPS GET https://{host}/healthz",
+      "rest_path": "https://{host}/healthz",
+      "api_version": null,
+      "notes": "Staging public hostnames only; no auth secrets"
+    }
+  ],
+  "sampled_diagnostic_resources": [
+    {
+      "rg": "wh-staging-rg",
+      "name": "wh-staging-staff-api",
+      "type": "Microsoft.App/containerApps"
+    },
+    {
+      "rg": "wh-staging-rg",
+      "name": "wh-staging-pg-app",
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers"
+    },
+    {
+      "rg": "wh-staging-rg",
+      "name": "wh-staging-kv",
+      "type": "Microsoft.KeyVault/vaults"
+    },
+    {
+      "rg": "wh-staging-rg",
+      "name": "wh-staging-appinsights",
+      "type": "Microsoft.Insights/components"
+    },
+    {
+      "rg": "wh-staging-rg",
+      "name": "wh-staging-logs",
+      "type": "Microsoft.OperationalInsights/workspaces"
+    },
+    {
+      "rg": "luna-sunset-staging-rg",
+      "name": "luna-sunset-staging-staff-api",
+      "type": "Microsoft.App/containerApps"
+    },
+    {
+      "rg": "luna-sunset-staging-rg",
+      "name": "luna-sunset-staging-pg-app",
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers"
+    },
+    {
+      "rg": "luna-sunset-staging-rg",
+      "name": "luna-sunset-staging-kv",
+      "type": "Microsoft.KeyVault/vaults"
+    },
+    {
+      "rg": "luna-sunset-staging-rg",
+      "name": "luna-sunset-staging-appinsights",
+      "type": "Microsoft.Insights/components"
+    },
+    {
+      "rg": "luna-sunset-staging-rg",
+      "name": "luna-sunset-staging-logs",
+      "type": "Microsoft.OperationalInsights/workspaces"
+    }
+  ],
+  "public_healthz_hosts": [
+    "staff-staging.lunafrontdesk.com",
+    "sunset-staging.lunafrontdesk.com"
+  ],
+  "mutation_policy": {
+    "deploys": 0,
+    "restarts": 0,
+    "db_reads": 0,
+    "secret_value_reads": 0,
+    "guest_actions": 0,
+    "payment_actions": 0,
+    "production_queries": 0,
+    "azure_methods_allowed": [
+      "GET",
+      "CostManagement/query POST read-only"
+    ]
+  },
+  "pre_dispatch_rule": "assertAllowedBeforeDispatch must pass before any az/rest/https call"
+}

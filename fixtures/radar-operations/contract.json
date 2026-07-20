@@ -1,18 +1,22 @@
 {
-  "schema_version": 1,
-  "slice": "RADAR-16A",
-  "outcome_id": "16A_operations_gate_ledger",
-  "master_basis": "28a30a688baa637e1bcb549d9b585cb5917942d1",
-  "branch": "radar/slice-16a-gate-ledger",
+  "schema_version": 2,
+  "slice": "RADAR-16A2",
+  "outcome_id": "16A2_ledger_provenance",
+  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
+  "branch": "radar/slice-16a2-ledger-provenance",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Freeze RADAR operations gate ledger from code + staging live evidence; select one 16B gate",
+  "title": "Make frozen RADAR operations gate ledger independently reproducible and semantically truthful",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
     "fixtures/radar-operations/gate-matrix.json",
     "fixtures/radar-operations/live-inventory.json",
+    "fixtures/radar-operations/capture-manifest.json",
+    "fixtures/radar-operations/capture-log.json",
     "fixtures/radar-operations/contract.json",
     "fixtures/radar-operations/findings.md",
+    "scripts/lib/radar-operations-azure-capture.js",
+    "scripts/capture-radar-operations-staging-readonly.js",
     "scripts/verify-radar-slice16a-operations-gate-ledger.js"
   ],
   "expected_verdict_counts": {
@@ -23,33 +27,45 @@
   },
   "critical_absent_gates": [
     "G03_actionable_tenant_aware_alerts",
-    "G09_cost_anomaly_detection"
+    "G09_cost_controls"
   ],
   "selected_16b": {
-    "outcome_id": "16B_staging_rg_cost_budget_anomaly",
-    "gate_id": "G09_cost_anomaly_detection"
+    "outcome_id": "16B_staging_rg_cost_budget_threshold",
+    "gate_id": "G09_cost_controls",
+    "progress_class": "budget_threshold_partial_progress_only",
+    "does_not_implement": "anomaly_detection"
   },
   "costs_mtd_usd_frozen": {
-    "wh-staging-rg": 65.1200802322302,
-    "luna-sunset-staging-rg": 16.9118980752688,
-    "combined": 82.031978307499
+    "wh-staging-rg": 65.12008023223014,
+    "luna-sunset-staging-rg": 16.91189807526882,
+    "combined": 82.03197830749896
   },
+  "semantic_corrections": [
+    "G09 renamed from cost anomaly detection to cost controls",
+    "Budgets classified as threshold controls, not anomaly detection",
+    "Separate budget-notification vs anomaly-detection acceptance frozen",
+    "16B selected as budget-threshold partial progress only",
+    "Notification acceptance requires real delivery proof, not Enabled config",
+    "Diagnostic settings absence qualified to sampled allowlist",
+    "Workspace-based App Insights effective analytics retention follows LAW (30d)"
+  ],
   "zero_mutation_proof": {
     "runtime_paths_unchanged": [
       "scripts/staff-query-api.js",
-      "scripts/lib/",
+      "scripts/lib/luna-guest-frontdesk-planner.js",
+      "scripts/lib/luna-guest-reply-composer.js",
       "docker/hermes-staging/",
       "database/",
       "infra/azure/staging/main.bicep",
       "infra/azure/sunset-staging/main.bicep"
     ],
-    "note": "16A commit may only add ledger/docs/fixtures/verifier/npm script; must not modify runtime behavior sources listed above"
+    "note": "16A2 may only add/update ledger docs/fixtures/capture/verifier/npm script; must not modify runtime behavior sources listed above"
   },
   "gates": [
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 28a30a688baa637e1bcb549d9b585cb5917942d1..HEAD"
+    "git diff --check 5a8b08d395e11c51baf928b918016d5dd5bb4afe..HEAD"
   ]
 }
