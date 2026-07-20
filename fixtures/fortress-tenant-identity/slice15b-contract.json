@@ -17,9 +17,15 @@
     "lookupPaymentForStripeSession": {
       "signature": "lookupPaymentForStripeSession(pg, session, expectedClientSlug)",
       "requires_expected_client_slug": true,
-      "returns": "{ ok, payment, reason, queried, lookup_path }",
+      "returns": "{ ok, payment, reason, queried, query_count, lookup_path, metadata_fallback_queried, metadata_query_executed }",
+      "query_count_semantics": {
+        "early_missing_slug_or_invalid_session": "queried=false, query_count=0, metadata_fallback_queried=false, metadata_query_executed=false",
+        "session_id_path": "queried=true, query_count=1, metadata_fallback_queried=false, metadata_query_executed=false",
+        "rejected_metadata_fallback_after_session_miss": "queried=true, query_count=1, metadata_fallback_queried=false, metadata_query_executed=false (session SELECT already ran; no p.id UUID probe)",
+        "metadata_payment_id_path": "queried=true, query_count=2, metadata_fallback_queried=true, metadata_query_executed=true"
+      },
       "session_id_path": "authoritative inside expected tenant; AND cl.slug = $2; may accept absent metadata.client_slug",
-      "metadata_payment_id_fallback": "requires metadata.client_slug present and === expectedClientSlug before any DB query; scoped AND cl.slug = $2"
+      "metadata_payment_id_fallback": "requires metadata.client_slug present and === expectedClientSlug before any metadata.payment_id UUID query; scoped AND cl.slug = $2; rejected fallback does not query metadata.payment_id and cannot leak that object's existence (session-id SELECT may already have run)"
     },
     "validateStripeBookingPaymentEvent": {
       "signature": "validateStripeBookingPaymentEvent(pm, session, eventType, expectedClientSlug)",
@@ -65,7 +71,7 @@
     "RED_returned_row_client_mismatch",
     "RED_caller_omits_slug",
     "RED_reconcile_omission",
-    "RED_no_query_on_rejected_fallback"
+    "RED_no_metadata_UUID_query_on_rejected_fallback"
   ],
   "green_case_ids": [
     "GREEN_session_id_absent_metadata_slug",

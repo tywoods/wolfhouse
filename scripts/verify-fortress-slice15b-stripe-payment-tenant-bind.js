@@ -229,6 +229,9 @@ console.log('\n── Lookup RED/GREEN (fake PG) ──');
       omitted.ok === false
       && omitted.reason === 'expected_client_slug_required'
       && omitted.queried === false
+      && omitted.query_count === 0
+      && omitted.metadata_fallback_queried === false
+      && omitted.metadata_query_executed === false
       && pg.queries.length === 0);
   }
 
@@ -242,7 +245,10 @@ console.log('\n── Lookup RED/GREEN (fake PG) ──');
     red('metadata_fallback_missing_slug',
       r.ok === false
       && r.reason === 'metadata_client_slug_required'
-      && r.queried === false
+      && r.queried === true
+      && r.query_count === 1
+      && r.metadata_fallback_queried === false
+      && r.metadata_query_executed === false
       && pg.queries.length === 1
       && /stripe_checkout_session_id/.test(pg.queries[0].sql)
       && pg.queries.every((q) => !/p\.id = \$1::uuid/.test(q.sql)));
@@ -258,7 +264,12 @@ console.log('\n── Lookup RED/GREEN (fake PG) ──');
     red('metadata_fallback_mismatched_slug',
       r.ok === false
       && r.reason === 'metadata_client_slug_mismatch'
-      && r.queried === false
+      && r.queried === true
+      && r.query_count === 1
+      && r.metadata_fallback_queried === false
+      && r.metadata_query_executed === false
+      && pg.queries.length === 1
+      && /stripe_checkout_session_id/.test(pg.queries[0].sql)
       && pg.queries.every((q) => !/p\.id = \$1::uuid/.test(q.sql)));
   }
 
@@ -326,9 +337,14 @@ console.log('\n── Lookup RED/GREEN (fake PG) ──');
       { id: 'cs_unknown', metadata: { payment_id: PAY_A, client_slug: TENANT_B } },
       TENANT_A,
     );
-    red('no_query_on_rejected_fallback',
-      r.queried === false
+    red('no_metadata_UUID_query_on_rejected_fallback',
+      r.queried === true
+      && r.query_count === 1
+      && r.metadata_fallback_queried === false
+      && r.metadata_query_executed === false
       && r.reason === 'metadata_client_slug_mismatch'
+      && pg.queries.length === 1
+      && /stripe_checkout_session_id/.test(pg.queries[0].sql)
       && pg.queries.every((q) => !/p\.id = \$1::uuid/.test(q.sql)));
   }
 
@@ -342,6 +358,11 @@ console.log('\n── Lookup RED/GREEN (fake PG) ──');
     green('session_id_absent_metadata_slug',
       r.ok && r.payment && r.payment.payment_id === PAY_A
       && r.lookup_path === 'session_id'
+      && r.queried === true
+      && r.query_count === 1
+      && r.metadata_fallback_queried === false
+      && r.metadata_query_executed === false
+      && pg.queries.length === 1
       && pg.queries[0].params[1] === TENANT_A
       && /cl\.slug = \$2/.test(pg.queries[0].sql));
   }
@@ -356,6 +377,11 @@ console.log('\n── Lookup RED/GREEN (fake PG) ──');
     green('same_tenant_metadata_fallback',
       r.ok && r.payment && r.payment.payment_id === PAY_A
       && r.lookup_path === 'metadata_payment_id'
+      && r.queried === true
+      && r.query_count === 2
+      && r.metadata_fallback_queried === true
+      && r.metadata_query_executed === true
+      && pg.queries.length === 2
       && pg.queries.some((q) => /p\.id = \$1::uuid/.test(q.sql) && q.params[0] === PAY_A && q.params[1] === TENANT_A));
   }
 

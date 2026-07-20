@@ -17,7 +17,7 @@ Fail-closed bind of Stripe checkout-session payment lookup and validation to an 
 
 | Surface | Behavior |
 |---------|----------|
-| `lookupPaymentForStripeSession(pg, session, expectedClientSlug)` | Requires nonempty slug. Session-id SELECT: `AND cl.slug = $2`. Metadata fallback: require `metadata.client_slug === expectedClientSlug` before any query; SELECT also `AND cl.slug = $2`. Returns `{ ok, payment, reason, queried, lookup_path }`. |
+| `lookupPaymentForStripeSession(pg, session, expectedClientSlug)` | Requires nonempty slug. Session-id SELECT: `AND cl.slug = $2`. Metadata fallback: require `metadata.client_slug === expectedClientSlug` before any `p.id` UUID query; SELECT also `AND cl.slug = $2`. Rejected fallback reports `queried=true` / `query_count=1` (session miss already ran) with `metadata_fallback_queried=false` / `metadata_query_executed=false` — it does not probe `metadata.payment_id` existence. Early missing slug/invalid session stay `queried=false` / `query_count=0`. Session hit `query_count=1`; metadata path `query_count=2`. Returns `{ ok, payment, reason, queried, query_count, lookup_path, metadata_fallback_queried, metadata_query_executed }`. |
 | `validateStripeBookingPaymentEvent(..., expectedClientSlug)` | Independent `pm.client_slug === expectedClientSlug`; retains metadata/session/amount/status checks. |
 | `resolveStripeWebhookExpectedClientSlug(env)` | `STRIPE_WEBHOOK_CLIENT_SLUG` preferred; nonempty `DEFAULT_CLIENT_SLUG` compat; both conflict or neither → fail closed `no_db_write`. No hardcoded tenants. |
 | Webhook | Resolve tenant before DB; 503 + `no_db_write` if unconfigured. Addon path inherits scoped lookup. |

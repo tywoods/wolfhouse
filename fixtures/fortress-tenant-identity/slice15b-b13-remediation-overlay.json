@@ -21,7 +21,7 @@
     "controls": [
       "expectedClientSlug required on lookup and validate",
       "session-id and metadata.payment_id SELECTs scoped by cl.slug = $2",
-      "metadata fallback requires metadata.client_slug === expectedClientSlug before query",
+      "metadata fallback requires metadata.client_slug === expectedClientSlug before metadata.payment_id UUID query (rejected fallback does not query that object / cannot leak its existence; session-id SELECT may already have run)",
       "independent pm.client_slug === expectedClientSlug validation",
       "runtime tenant from STRIPE_WEBHOOK_CLIENT_SLUG (compat DEFAULT_CLIENT_SLUG); conflict/missing fail closed"
     ]

@@ -59,40 +59,82 @@ const PAYMENT_LOOKUP_SQL = `
     JOIN clients  cl ON cl.id = p.client_id`;
 
 /**
- * Look up a payment for a Stripe Checkout Session, scoped to expectedClientSlug.
- *
- * Session-id path is authoritative inside the expected tenant and may accept
- * absent metadata.client_slug. Metadata.payment_id fallback requires
- * metadata.client_slug present and exactly equal to expectedClientSlug before
- * any DB query (fail closed; no existence leak on absent/mismatch).
+ * Structured lookup result. query_count is the number of payment SELECTs
+ * executed (0 early gate / 1 session-id path / 2 session miss + metadata UUID).
+ * metadata_fallback_queried / metadata_query_executed are true only when the
+ * p.id UUID SELECT ran. Rejected metadata fallback still reports queried=true
+ * and query_count=1 after the session-id SELECT missed — it does not claim
+ * zero DB queries; it refuses the metadata.payment_id existence probe.
  *
  * @returns {{
  *   ok: boolean,
  *   payment: object|null,
  *   reason: string|null,
  *   queried: boolean,
+ *   query_count: number,
  *   lookup_path: string|null,
+ *   metadata_fallback_queried: boolean,
+ *   metadata_query_executed: boolean,
+ * }}
+ */
+function lookupResult(fields) {
+  return {
+    ok: fields.ok,
+    payment: fields.payment,
+    reason: fields.reason,
+    queried: fields.queried,
+    query_count: fields.query_count,
+    lookup_path: fields.lookup_path,
+    metadata_fallback_queried: fields.metadata_fallback_queried,
+    metadata_query_executed: fields.metadata_query_executed,
+  };
+}
+
+/**
+ * Look up a payment for a Stripe Checkout Session, scoped to expectedClientSlug.
+ *
+ * Session-id path is authoritative inside the expected tenant and may accept
+ * absent metadata.client_slug. Metadata.payment_id fallback requires
+ * metadata.client_slug present and exactly equal to expectedClientSlug before
+ * any metadata.payment_id UUID query (fail closed; cannot leak that object's
+ * existence on absent/mismatch). The session-id SELECT still runs first.
+ *
+ * @returns {{
+ *   ok: boolean,
+ *   payment: object|null,
+ *   reason: string|null,
+ *   queried: boolean,
+ *   query_count: number,
+ *   lookup_path: string|null,
+ *   metadata_fallback_queried: boolean,
+ *   metadata_query_executed: boolean,
  * }}
  */
 async function lookupPaymentForStripeSession(pg, session, expectedClientSlug) {
   const slug = trimSlug(expectedClientSlug);
   if (!slug) {
-    return {
+    return lookupResult({
       ok: false,
       payment: null,
       reason: 'expected_client_slug_required',
       queried: false,
+      query_count: 0,
       lookup_path: null,
-    };
+      metadata_fallback_queried: false,
+      metadata_query_executed: false,
+    });
   }
   if (!pg || !session || !session.id) {
-    return {
+    return lookupResult({
       ok: false,
       payment: null,
       reason: 'invalid_session',
       queried: false,
+      query_count: 0,
       lookup_path: null,
-    };
+      metadata_fallback_queried: false,
+      metadata_query_executed: false,
+    });
   }
 
   const sessionId = session.id;
@@ -113,51 +155,68 @@ async function lookupPaymentForStripeSession(pg, session, expectedClientSlug) {
   if (bySession.rows[0]) {
     const row = bySession.rows[0];
     if (trimSlug(row.client_slug) !== slug) {
-      return {
+      return lookupResult({
         ok: false,
         payment: null,
         reason: 'payment_client_slug_mismatch',
         queried: true,
+        query_count: 1,
         lookup_path: 'session_id',
-      };
+        metadata_fallback_queried: false,
+        metadata_query_executed: false,
+      });
     }
-    return {
+    return lookupResult({
       ok: true,
       payment: row,
       reason: null,
       queried: true,
+      query_count: 1,
       lookup_path: 'session_id',
-    };
+      metadata_fallback_queried: false,
+      metadata_query_executed: false,
+    });
   }
 
   if (!metaPaymentId) {
-    return {
+    return lookupResult({
       ok: true,
       payment: null,
       reason: 'payment_not_found',
       queried: true,
+      query_count: 1,
       lookup_path: null,
-    };
+      metadata_fallback_queried: false,
+      metadata_query_executed: false,
+    });
   }
 
-  // Metadata-ID fallback: require metadata.client_slug === expected before ANY query.
+  // Metadata-ID fallback: require metadata.client_slug === expected before any
+  // p.id UUID query. Session-id SELECT already ran (query_count=1); do not
+  // probe metadata.payment_id existence on absent/mismatched slug.
   if (!metaClientSlug) {
-    return {
+    return lookupResult({
       ok: false,
       payment: null,
       reason: 'metadata_client_slug_required',
-      queried: false,
+      queried: true,
+      query_count: 1,
       lookup_path: null,
-    };
+      metadata_fallback_queried: false,
+      metadata_query_executed: false,
+    });
   }
   if (metaClientSlug !== slug) {
-    return {
+    return lookupResult({
       ok: false,
       payment: null,
       reason: 'metadata_client_slug_mismatch',
-      queried: false,
+      queried: true,
+      query_count: 1,
       lookup_path: null,
-    };
+      metadata_fallback_queried: false,
+      metadata_query_executed: false,
+    });
   }
 
   const byMeta = await pg.query(
@@ -169,21 +228,27 @@ async function lookupPaymentForStripeSession(pg, session, expectedClientSlug) {
   );
   const row = byMeta.rows[0] || null;
   if (row && trimSlug(row.client_slug) !== slug) {
-    return {
+    return lookupResult({
       ok: false,
       payment: null,
       reason: 'payment_client_slug_mismatch',
       queried: true,
+      query_count: 2,
       lookup_path: 'metadata_payment_id',
-    };
+      metadata_fallback_queried: true,
+      metadata_query_executed: true,
+    });
   }
-  return {
+  return lookupResult({
     ok: true,
     payment: row,
     reason: row ? null : 'payment_not_found',
     queried: true,
+    query_count: 2,
     lookup_path: row ? 'metadata_payment_id' : null,
-  };
+    metadata_fallback_queried: true,
+    metadata_query_executed: true,
+  });
 }
 
 /**

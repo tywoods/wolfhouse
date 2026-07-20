@@ -345,15 +345,23 @@ console.log('\n[7] stripe-webhook-payment-truth.js — payment lookup');
     { id: 'cs_unknown', metadata: { payment_id: 'pay-stale' } },
     'sunset',
   );
-  assert('metadata fallback without client_slug fail-closed no query',
+  assert('metadata fallback without client_slug fail-closed no metadata UUID query',
     missingMetaSlug.ok === false
     && missingMetaSlug.reason === 'metadata_client_slug_required'
-    && missingMetaSlug.queried === false
+    && missingMetaSlug.queried === true
+    && missingMetaSlug.query_count === 1
+    && missingMetaSlug.metadata_fallback_queried === false
+    && missingMetaSlug.metadata_query_executed === false
+    && queries.length === 1
+    && /stripe_checkout_session_id/.test(queries[0].sql)
     && queries.every((q) => !/p\.id = \$1::uuid/.test(q.sql)));
 
   const omitted = await lookupPaymentForStripeSession(mockPg, { id: 'cs_test_abc' }, '');
   assert('lookup requires expectedClientSlug',
-    omitted.ok === false && omitted.reason === 'expected_client_slug_required' && omitted.queried === false);
+    omitted.ok === false
+    && omitted.reason === 'expected_client_slug_required'
+    && omitted.queried === false
+    && omitted.query_count === 0);
 
   console.log(`\nResult: ${pass} passed, ${fail} failed\n`);
   process.exit(fail > 0 ? 1 : 0);
