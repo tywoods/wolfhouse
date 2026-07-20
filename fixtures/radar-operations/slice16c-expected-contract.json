@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16C",
+  "outcome_id": "16C_staff_api_readiness_dependencies",
+  "gate_id": "G02_readiness_dependencies",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
+  "branch": "radar/slice-16c-staff-api-readiness",
+  "live_deploy": false,
+  "live_mutation": false,
+  "title": "Staff API dependency-aware readiness (/readyz + ACA probes) — source partial only",
+  "endpoint_contract": {
+    "liveness": {
+      "path": "/healthz",
+      "depends_on_postgres": false,
+      "success": { "http_status": 200, "body_status": "ok" }
+    },
+    "readiness": {
+      "path": "/readyz",
+      "depends_on_postgres": true,
+      "check": "bounded_readonly_select_1_via_existing_pool",
+      "sql": "SELECT 1",
+      "timeout_ms": 2500,
+      "success": { "http_status": 200, "body": { "status": "ready" } },
+      "failure": { "http_status": 503, "body": { "status": "not-ready" } },
+      "must_not_expose": ["credentials", "sql", "stack", "upstream_error_message"]
+    }
+  },
+  "probe_contract": {
+    "port": 3036,
+    "startup": {
+      "type": "Startup",
+      "path": "/healthz",
+      "initialDelaySeconds": 10,
+      "periodSeconds": 10,
+      "timeoutSeconds": 5,
+      "failureThreshold": 30,
+      "successThreshold": 1
+    },
+    "liveness": {
+      "type": "Liveness",
+      "path": "/healthz",
+      "initialDelaySeconds": 30,
+      "periodSeconds": 20,
+      "timeoutSeconds": 5,
+      "failureThreshold": 3,
+      "successThreshold": 1
+    },
+    "readiness": {
+      "type": "Readiness",
+      "path": "/readyz",
+      "initialDelaySeconds": 5,
+      "periodSeconds": 10,
+      "timeoutSeconds": 5,
+      "failureThreshold": 3,
+      "successThreshold": 1
+    },
+    "semantics": {
+      "readiness_failure": "removes_traffic_without_restart",
+      "liveness_failure": "restarts_container",
+      "liveness_must_not_depend_on_postgres": true,
+      "startup_must_not_depend_on_postgres": true
+    }
+  },
+  "still_open": [
+    "Live deploy of Staff API image + ACA probe template to Wolfhouse and Sunset staging",
+    "Controlled readiness failure drill proving traffic removal without restart loops",
+    "Live probe inventory no longer empty/null"
+  ],
+  "final_controlled_drill": {
+    "id": "16C_DRILL_readiness_failure_traffic_shed",
+    "status": "open",
+    "pass_rule": "With Postgres unreachable, /readyz=503 and ACA readiness removes traffic; /healthz stays 200 and replica is not restart-looped; after PG recovery /readyz=200 and traffic returns"
+  },
+  "artifacts": [
+    "scripts/lib/staff-api-readiness.js",
+    "scripts/staff-query-api.js",
+    "infra/azure/staging/main.bicep",
+    "infra/azure/sunset-staging/main.bicep",
+    "scripts/lib/radar-slice16c-staff-api-readiness.js",
+    "scripts/verify-radar-slice16c-staff-api-readiness.js",
+    "fixtures/radar-operations/slice16c-expected-contract.json",
+    "fixtures/radar-operations/slice16c-probe-contract.json"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16c-staff-api-readiness",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16b-staging-cost-budgets",
+    "az bicep build --file infra/azure/staging/main.bicep",
+    "az bicep build --file infra/azure/sunset-staging/main.bicep",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b..HEAD"
+  ]
+}

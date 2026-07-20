@@ -962,15 +962,15 @@ ok('L19 README threshold not anomaly / Incremental / no live deploy',
   && /Incremental/i.test(readme)
   && /disabled/i.test(readme));
 
+// 16C owns Staff API /readyz + staging Bicep probes; 16B still forbids DB/Hermes mutation.
 const runtimeDiff = execFileSync(
   'git',
   ['diff', '--name-only', MASTER, '--',
-    'scripts/staff-query-api.js', 'database/',
-    'infra/azure/staging/main.bicep', 'infra/azure/sunset-staging/main.bicep',
+    'database/',
     'docker/hermes-staging/'],
   { cwd: ROOT, encoding: 'utf8' },
 ).trim();
-ok('L20 zero runtime mutation vs master', runtimeDiff === '', runtimeDiff);
+ok('L20 zero DB/Hermes mutation vs master (16C may touch staff-api + staging bicep)', runtimeDiff === '', runtimeDiff);
 
 const pkg = readJson('package.json');
 ok('L21 npm script registered',

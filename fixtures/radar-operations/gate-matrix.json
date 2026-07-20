@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16B",
-  "title": "RADAR operations gate ledger (16B budget-threshold partial progress)",
-  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
-  "branch": "radar/slice-16b-staging-cost-budgets",
+  "slice": "RADAR-16C",
+  "title": "RADAR operations gate ledger (16C staff-api readiness source-partial)",
+  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
+  "branch": "radar/slice-16c-staff-api-readiness",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -63,45 +63,53 @@
       "name": "Readiness / dependencies",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Public /healthz returns static ok without checking Postgres, Stripe, or Redis. Live ACA staff apps have empty/null probes. Hermes/Luna /health exists in deploy scripts but is not a dependency-aware readiness gate for Staff API.",
+      "progress_class": "source_partial_progress_only",
+      "rationale": "16C adds Staff API /readyz (bounded read-only SELECT 1 via existing pool; generic 200 ready / 503 not-ready; no credential/query/error leakage) and ACA Startup/Liveness/Readiness probes in Wolfhouse + Sunset staging Bicep (port 3036; liveness/startup on /healthz without Postgres; readiness on /readyz). Source-partial only — not deployed; live ACA probes still empty/null; controlled readiness failure drill remains open.",
       "source_evidence": [
         {
+          "path": "scripts/lib/staff-api-readiness.js",
+          "lines": "1-120",
+          "symbols": ["READINESS_SQL", "checkPostgresReadiness", "handleStaffApiReadyz"],
+          "note": "Bounded read-only Postgres readiness; generic ready/not-ready bodies"
+        },
+        {
           "path": "scripts/staff-query-api.js",
-          "lines": "46623-46633",
-          "symbols": ["pathname === '/healthz'"],
-          "note": "Always 200 with status ok; no SELECT 1 / dependency probes"
+          "lines": "46629-46645",
+          "symbols": ["READYZ_PATH", "handleStaffApiReadyz", "pathname === '/healthz'"],
+          "note": "/readyz wired; /healthz remains static liveness"
         },
         {
-          "path": "infra/azure/staging/README.md",
-          "lines": "183",
-          "symbols": [],
-          "note": "Runbook checks /healthz JSON shape only"
+          "path": "infra/azure/staging/main.bicep",
+          "lines": "363-405",
+          "symbols": ["probes", "Liveness", "Readiness", "Startup"],
+          "note": "ACA probes declared; readiness=/readyz liveness=/healthz port 3036"
         },
         {
-          "path": "docs/MULTICLIENT-STAGING-ROUTING.md",
-          "lines": "134,166,190",
-          "symbols": [],
-          "note": "Health curls for Staff API and Luna"
+          "path": "infra/azure/sunset-staging/main.bicep",
+          "lines": "454-496",
+          "symbols": ["probes", "Liveness", "Readiness", "Startup"],
+          "note": "Identical probe contract to Wolfhouse staging (drift-gated)"
         }
       ],
       "live_evidence": [
         {
           "ref": "live-inventory.json#public_healthz",
-          "note": "staff-staging and sunset-staging /healthz HTTP 200; body status=ok without dependency fields"
+          "note": "Frozen live inventory still shows /healthz-only public checks; /readyz not live-proven"
         },
         {
           "ref": "live-inventory.json#container_apps.wh-staging-staff-api",
-          "note": "probes=[] ; minReplicas=0 maxReplicas=1"
+          "note": "Live probes=[] until approved deploy (source-only progress)"
         },
         {
           "ref": "live-inventory.json#container_apps.luna-sunset-staging-staff-api",
-          "note": "probes=null ; minReplicas=1 maxReplicas=1"
+          "note": "Live probes=null until approved deploy (source-only progress)"
         }
       ],
       "gaps": [
-        "No /readyz distinct from liveness",
-        "No PG/Stripe/Redis dependency checks",
-        "No ACA HTTP probes configured live"
+        "Staff API image + ACA probe template not deployed to staging",
+        "Controlled readiness failure drill (traffic shed without restart loops) not executed",
+        "Live probe inventory still empty/null",
+        "Stripe/Redis dependency checks not in scope for 16C (Postgres only)"
       ]
     },
     {
@@ -466,6 +474,45 @@
         "Leave anomaly detection unmet"
       ],
       "pass_rule": "Both RG budgets listed Enabled with thresholds + proven notification delivery; no container restart/deploy/DB write; anomaly detection still absent"
+    }
+  },
+  "slice_16c_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16C_staff_api_readiness_dependencies",
+    "gate_id": "G02_readiness_dependencies",
+    "progress_class": "source_partial_progress_only",
+    "title": "Staff API /readyz + ACA probes (Wolfhouse + Sunset) — source partial only",
+    "owner_files": [
+      "scripts/lib/staff-api-readiness.js",
+      "scripts/staff-query-api.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "scripts/lib/radar-slice16c-staff-api-readiness.js",
+      "scripts/verify-radar-slice16c-staff-api-readiness.js",
+      "fixtures/radar-operations/slice16c-expected-contract.json"
+    ],
+    "out_of_scope_for_16c": [
+      "Live deploy / restart / image push",
+      "Controlled readiness failure drill",
+      "Stripe or Redis readiness checks",
+      "Production RGs",
+      "Hermes/Luna probe changes",
+      "Database schema changes"
+    ],
+    "acceptance_criteria": [
+      "/healthz remains static liveness without Postgres",
+      "/readyz performs bounded read-only SELECT 1 via existing pool",
+      "/readyz returns only generic 200 ready or 503 not-ready (no credentials/query/errors)",
+      "ACA Startup+Liveness+Readiness probes in both staging Bicep templates on port 3036",
+      "Readiness failure sheds traffic without restart loops; liveness does not depend on Postgres",
+      "RED/GREEN offline verifier covers timeout/error/missing pool/leakage/DML/path swap/probes/ports/timings/drift",
+      "G02 remains partial — deployment and failure drill open"
+    ],
+    "final_controlled_drill": {
+      "id": "16C_DRILL_readiness_failure_traffic_shed",
+      "status": "open",
+      "pass_rule": "With Postgres unreachable, /readyz=503 and ACA readiness removes traffic; /healthz stays 200 without restart loops; after recovery traffic returns"
     }
   },
   "final_controlled_drill_16a": {

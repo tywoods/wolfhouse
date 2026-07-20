@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16C",
+  "port": 3036,
+  "startup": {
+    "type": "Startup",
+    "path": "/healthz",
+    "initialDelaySeconds": 10,
+    "periodSeconds": 10,
+    "timeoutSeconds": 5,
+    "failureThreshold": 30,
+    "successThreshold": 1
+  },
+  "liveness": {
+    "type": "Liveness",
+    "path": "/healthz",
+    "initialDelaySeconds": 30,
+    "periodSeconds": 20,
+    "timeoutSeconds": 5,
+    "failureThreshold": 3,
+    "successThreshold": 1
+  },
+  "readiness": {
+    "type": "Readiness",
+    "path": "/readyz",
+    "initialDelaySeconds": 5,
+    "periodSeconds": 10,
+    "timeoutSeconds": 5,
+    "failureThreshold": 3,
+    "successThreshold": 1
+  }
+}

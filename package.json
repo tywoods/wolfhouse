@@ -453,6 +453,7 @@
     "verify:fortress-slice15l-meta-signature-fail-closed": "node scripts/verify-fortress-slice15l-meta-signature-fail-closed.js",
     "verify:radar-slice16a-operations-gate-ledger": "node scripts/verify-radar-slice16a-operations-gate-ledger.js",
     "verify:radar-slice16b-staging-cost-budgets": "node scripts/verify-radar-slice16b-staging-cost-budgets.js",
+    "verify:radar-slice16c-staff-api-readiness": "node scripts/verify-radar-slice16c-staff-api-readiness.js",
     "preflight:radar-slice16b-staging-cost-budgets": "node scripts/preflight-radar-slice16b-staging-cost-budgets.js",
     "verify:staff-tenant-scope": "node scripts/verify-staff-tenant-scope.js",
     "verify:staff-whatsapp-notifications": "node scripts/verify-staff-whatsapp-notifications.js",

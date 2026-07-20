@@ -21,7 +21,7 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '5a8b08d395e11c51baf928b918016d5dd5bb4afe';
+const MASTER_BASIS = 'acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b';
 const VERDICTS = new Set(['proven', 'partial', 'absent']);
 const REQUIRED_GATE_IDS = [
   'G01_correlation_structured_logs',
@@ -105,10 +105,11 @@ function secretFree(text, label) {
 }
 
 function runtimePathsUnchanged() {
+  // 16C owns Staff API readiness + staging Bicep probes; 16A freeze still
+  // requires database/ and Hermes staging sources remain untouched.
   const paths = [
-    'scripts/staff-query-api.js',
-    'infra/azure/staging/main.bicep',
-    'infra/azure/sunset-staging/main.bicep',
+    'database/',
+    'docker/hermes-staging/',
   ];
   try {
     const out = execSync(
@@ -281,7 +282,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 zero-mutation: runtime Bicep/staff-api unchanged vs master basis', rt.ok, rt.detail);
+ok('F39 zero-mutation: database/Hermes unchanged vs master basis (16C may touch staff-api+bicep)', rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
   matrix.final_controlled_drill_16a
@@ -295,6 +296,32 @@ ok('F44 contract gates pin range diff --check',
   Array.isArray(contract.gates)
   && contract.gates.some((g) => g === `git diff --check ${MASTER_BASIS}..HEAD`));
 
+const g02 = matrix.gates.find((g) => g.id === 'G02_readiness_dependencies');
+ok('F45 G02 partial source-partial via 16C',
+  g02 && g02.verdict === 'partial'
+  && g02.progress_class === 'source_partial_progress_only'
+  && /readyz/i.test(g02.rationale)
+  && /source-partial|source partial/i.test(g02.rationale));
+
+const sel16c = matrix.slice_16c_selection;
+ok('F46 exactly one 16C selection',
+  sel16c && sel16c.selected === true
+  && sel16c.outcome_id === '16C_staff_api_readiness_dependencies'
+  && sel16c.gate_id === 'G02_readiness_dependencies'
+  && sel16c.progress_class === 'source_partial_progress_only'
+  && sel16c.final_controlled_drill
+  && sel16c.final_controlled_drill.status === 'open');
+ok('F47 contract selected_16c matches',
+  contract.selected_16c
+  && contract.selected_16c.outcome_id === '16C_staff_api_readiness_dependencies'
+  && contract.selected_16c.gate_id === 'G02_readiness_dependencies'
+  && contract.selected_16c.live_deploy === false);
+ok('F48 doc mentions 16C readiness',
+  /16C_staff_api_readiness_dependencies/.test(doc)
+  && /readyz/i.test(doc));
+ok('F49 readiness lib present', pathExists('scripts/lib/staff-api-readiness.js'));
+ok('F50 16C verifier script present',
+  pathExists('scripts/verify-radar-slice16c-staff-api-readiness.js'));
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
 console.log('RADAR 16A operations gate ledger: PASS');
