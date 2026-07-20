@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15K",
+  "outcome_id": "15K_signature_control_reaudit",
+  "boundary_ids": [
+    "B01_meta_whatsapp_signature_ingress",
+    "B12_stripe_webhook_signature"
+  ],
+  "master_basis": "9a734fa8e989e10800afbdde0ac722187f6db2d5",
+  "branch": "fortress/slice-15k-signature-control-audit",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "title": "Re-audit frozen B01 Meta signature/hub verify and B12 Stripe webhook signature controls",
+  "status": "reaudit_complete",
+  "historical_audit_unchanged": true,
+  "historical_artifacts": [
+    "fixtures/fortress-tenant-identity/boundary-matrix.json",
+    "fixtures/fortress-tenant-identity/attack-cases.json",
+    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
+  ],
+  "completeness_method": "source_derived_scoped_occurrence_inventory",
+  "completeness_claim_narrowing": "Signature config owners are derived from scoped runtime/IaC/compose/preflight/normalized-inventory/cited-evidence paths for STRIPE_WEBHOOK_SKIP_VERIFY, STRIPE_WEBHOOK_SECRET, META_APP_SECRET, META_WHATSAPP_VERIFY_TOKEN, and DEFAULT_META_WHATSAPP_VERIFY_TOKEN. Staff API, n8n-main, and n8n-worker are inventoried separately with consumer implications. Verifier requires every mapped owner, rejects unmapped/stale occurrences, and binds every attack case by execution. Full-repo AST exhaustiveness is not claimed. Live secret values remain unproven by design.",
+  "owner_files_audit_only": [
+    "scripts/staff-query-api.js",
+    "scripts/lib/luna-meta-whatsapp-webhook.js",
+    "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+    "scripts/lib/luna-guest-stripe-payment-truth-apply.js",
+    "scripts/lib/fortress-slice15c-sunset-rollout-preflight.js",
+    "scripts/lib/fortress-slice15d-sunset-stripe-deploy.js",
+    "scripts/lib/hermes-vm-profile.js",
+    "infra/azure/staging/main.bicep",
+    "infra/azure/sunset-staging/main.bicep",
+    "infra/docker-compose.local.yml",
+    "infra/.env.example",
+    "infra/azure/sunset-staging/inventory/live-inventory.normalized.json",
+    "fixtures/fortress-tenant-identity/slice15d-live-inventory.json",
+    "fixtures/fortress-tenant-identity/slice15d-evidence.json"
+  ],
+  "out_of_scope": [
+    "any runtime behavior change on master paths",
+    "rewriting 15A historical B01/B12 verdicts",
+    "deploy / cloud / database / Stripe / Meta / production WhatsApp operations",
+    "live Meta / WhatsApp / DB / Stripe / Azure / network calls",
+    "reading live secrets or Key Vault values",
+    "implementing the bounded remediation contract in this slice",
+    "B02 Meta tenant authority (15G2/15H2) except as post-signature side-effect context"
+  ],
+  "reaudit_verdicts": {
+    "B01_meta_whatsapp_signature_ingress": {
+      "verdict": "vulnerable",
+      "severity": "high",
+      "summary": "Source fail-opens Meta POST when META_APP_SECRET is absent (skipped:true) and also when the secret is present but X-Hub-Signature-256 is missing (skipped:true + missing_signature_header). Handler admits skipped results and proceeds to normalize/PostEntry/PG. Staging/sunset Bicep do not declare META_APP_SECRET. GET hub verify falls back to hardcoded DEFAULT_META_WHATSAPP_VERIFY_TOKEN. Live secret activation remains unproven offline."
+    },
+    "B12_stripe_webhook_signature": {
+      "verdict": "proven_isolated_by_runtime",
+      "severity": "high",
+      "summary": "Source fail-closes Stripe POST without STRIPE_WEBHOOK_SECRET when SKIP_VERIFY is false (503, no_db_write) before any payment DB. Raw Buffer + constructEvent path is correct. Committed staging/sunset Bicep pin SKIP_VERIFY=false and secretRef the webhook secret. Residual: SKIP_VERIFY=true has no NODE_ENV/runtime-profile startup refuse (documentation-only). Live secret value correctness remains unproven offline."
+    }
+  },
+  "source_vs_live_activation": {
+    "B01": {
+      "committed_source_guarantee": "None for fail-closed POST admission; skip paths are source-proven",
+      "live_activation_evidence": "unproven (no META_APP_SECRET in staging/sunset Bicep; no offline proof of runtime secret)"
+    },
+    "B12": {
+      "committed_source_guarantee": "Fail-closed without secret when skip false; HMAC via constructEvent; skip only when env === 'true'",
+      "committed_iac_guarantee": "staging + sunset Bicep set STRIPE_WEBHOOK_SKIP_VERIFY=false and STRIPE_WEBHOOK_SECRET secretRef",
+      "live_activation_evidence": "secret value / endpoint registration unproven in this slice; 15D inventory recorded SKIP_VERIFY=false for sunset-staging as historical deploy evidence only"
+    }
+  },
+  "remediation_contract": {
+    "present": true,
+    "path": "fixtures/fortress-tenant-identity/slice15k-b01-remediation-contract.json",
+    "next_slice": "FORTRESS-15L",
+    "outcome_id": "15L_meta_signature_fail_closed"
+  },
+  "gates": [
+    "npm run verify:fortress-slice15k-signature-control-audit",
+    "npm run verify:fortress-tenant-identity-boundary-matrix",
+    "npm run verify:meta-whatsapp-tenant-shadow",
+    "npm run verify:sunset-stripe-payment-webhook",
+    "npm run verify:staff-auth-api",
+    "npm run verify:multiclient",
+    "npm run verify:migration-integrity",
+    "git diff --check"
+  ]
+}
