@@ -44,7 +44,10 @@ const {
   responseFingerprint,
   bodyLeaksForeignDetail,
   routeParamMatched,
+  assertFortress15j2DualGate,
+  fortress15j2DualGateActive,
 } = require('./lib/staff-query-api-fortress15j2-offline-harness');
+const Module = require('module');
 
 const MASTER_BASIS = '6d9f0e99c6c00d9831710c392ec3ac41dcef811b';
 const TENANT_ALPHA = 'wolfhouse-somo';
@@ -195,10 +198,13 @@ ok('F10 dual-gate offline listener seam (router export + fail-closed inject)',
   /STAFF_API_FORTRESS_OFFLINE_LISTENER/.test(apiSrc)
   && /fortressOfflineListenerSeamsActive/.test(apiSrc)
   && /NODE_ENV/.test(apiSrc)
+  && /if \(fortressOfflineListenerSeamsActive\(\)\)/.test(apiSrc)
   && /setFortress15j2OfflineSeams/.test(apiSrc)
   && /canAccessClient/.test(apiSrc)
   && /resolveSessionUser/.test(apiSrc)
   && /createFortress15j2OfflineListener/.test(harnessSrc)
+  && /assertFortress15j2DualGate/.test(harnessSrc)
+  && /delete safeOverrides\.NODE_ENV/.test(harnessSrc)
   && !/STAFF_PORTAL_ACCESS_FILE/.test(harnessSrc)
   && !/\bnew\s+Function\s*\(/.test(readText(path.join(ROOT, 'scripts/verify-fortress-slice15j2-payment-uuid-callback-tenant-acl.js'))));
 
@@ -335,6 +341,158 @@ const draftPaymentsDb = [
 ];
 
 (async () => {
+  console.log('\n── Dual-gate RED (listener export + Stripe patch inert before rejection) ──');
+
+  function clearStaffApiCacheLocal() {
+    for (const key of Object.keys(require.cache)) {
+      if (/staff-query-api\.js$/.test(key)) delete require.cache[key];
+    }
+  }
+
+  function applyMinimalStaffApiEnvForRequire(nodeEnv) {
+    process.env.NODE_ENV = nodeEnv;
+    process.env.STAFF_RUNTIME_PROFILE = nodeEnv;
+    process.env.STAFF_AUTH_REQUIRED = 'true';
+    process.env.STAFF_AUTH_HTTPS = nodeEnv === 'test' ? 'false' : 'true';
+    process.env.STAFF_QUERY_API_HOST = '127.0.0.1';
+    process.env.LUNA_BOT_INTERNAL_TOKEN = 'fortress15j2_bot_token_offline_test_01';
+  }
+
+  function snapshotStaffApiEnv() {
+    return {
+      NODE_ENV: process.env.NODE_ENV,
+      STAFF_RUNTIME_PROFILE: process.env.STAFF_RUNTIME_PROFILE,
+      STAFF_AUTH_REQUIRED: process.env.STAFF_AUTH_REQUIRED,
+      STAFF_AUTH_HTTPS: process.env.STAFF_AUTH_HTTPS,
+      STAFF_QUERY_API_HOST: process.env.STAFF_QUERY_API_HOST,
+      LUNA_BOT_INTERNAL_TOKEN: process.env.LUNA_BOT_INTERNAL_TOKEN,
+      STAFF_API_FORTRESS_OFFLINE_LISTENER: process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER,
+    };
+  }
+
+  function restoreStaffApiEnv(saved) {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+
+  function listenerExportsPresent(apiMod) {
+    return apiMod
+      && typeof apiMod.router === 'function'
+      && typeof apiMod.server !== 'undefined'
+      && apiMod.COOKIE_NAME
+      && apiMod.PAYMENT_STRIPE_LINK_RE
+      && apiMod.BOT_PAYMENT_STRIPE_LINK_RE
+      && apiMod.BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE;
+  }
+
+  function tryAssertDualGateNoStripePatch(envSetup) {
+    const savedLoad = Module._load;
+    const savedNodeEnv = process.env.NODE_ENV;
+    const savedFlag = process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER;
+    try {
+      envSetup();
+      let threw = false;
+      try {
+        assertFortress15j2DualGate();
+      } catch (err) {
+        threw = err && err.code === 'FORTRESS_15J2_DUAL_GATE';
+      }
+      return { threw, stripePatched: Module._load !== savedLoad };
+    } finally {
+      process.env.NODE_ENV = savedNodeEnv;
+      process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = savedFlag;
+      Module._load = savedLoad;
+    }
+  }
+
+  // ── RED: production — listener exports absent, dual gate rejects before Stripe patch
+  {
+    const saved = snapshotStaffApiEnv();
+    try {
+      applyMinimalStaffApiEnvForRequire('production');
+      process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = '';
+      clearStaffApiCacheLocal();
+      const apiProd = require('./staff-query-api');
+      const gateTry = tryAssertDualGateNoStripePatch(() => {
+        applyMinimalStaffApiEnvForRequire('production');
+        process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = '';
+      });
+      red('dual_gate_production_listener_export_and_stripe_patch_inert',
+        !listenerExportsPresent(apiProd)
+        && apiProd.fortressOfflineListenerSeamsActive() === false
+        && gateTry.threw
+        && !gateTry.stripePatched);
+    } finally {
+      restoreStaffApiEnv(saved);
+      clearStaffApiCacheLocal();
+    }
+  }
+
+  // ── RED: flag-only (production + flag) — exports absent, no Stripe patch before rejection
+  {
+    const saved = snapshotStaffApiEnv();
+    try {
+      applyMinimalStaffApiEnvForRequire('production');
+      process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = '1';
+      clearStaffApiCacheLocal();
+      const apiFlagOnly = require('./staff-query-api');
+      const gateTry = tryAssertDualGateNoStripePatch(() => {
+        applyMinimalStaffApiEnvForRequire('production');
+        process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = '1';
+      });
+      red('dual_gate_flag_only_listener_export_and_stripe_patch_inert',
+        !listenerExportsPresent(apiFlagOnly)
+        && apiFlagOnly.fortressOfflineListenerSeamsActive() === false
+        && gateTry.threw
+        && !gateTry.stripePatched);
+    } finally {
+      restoreStaffApiEnv(saved);
+      clearStaffApiCacheLocal();
+    }
+  }
+
+  // ── RED: test-only (NODE_ENV=test, no flag) — exports absent, no Stripe patch before rejection
+  {
+    const saved = snapshotStaffApiEnv();
+    try {
+      applyMinimalStaffApiEnvForRequire('test');
+      process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = '';
+      clearStaffApiCacheLocal();
+      const apiTestOnly = require('./staff-query-api');
+      const gateTry = tryAssertDualGateNoStripePatch(() => {
+        applyMinimalStaffApiEnvForRequire('test');
+        process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = '';
+      });
+      red('dual_gate_test_only_listener_export_and_stripe_patch_inert',
+        !listenerExportsPresent(apiTestOnly)
+        && apiTestOnly.fortressOfflineListenerSeamsActive() === false
+        && gateTry.threw
+        && !gateTry.stripePatched);
+    } finally {
+      restoreStaffApiEnv(saved);
+      clearStaffApiCacheLocal();
+    }
+  }
+
+  {
+    const harness = createFortress15j2OfflineListener({
+      payments: paymentsDb,
+      bookings: bookingsDb,
+      env: { NODE_ENV: 'production', STAFF_API_FORTRESS_OFFLINE_LISTENER: '' },
+    });
+    try {
+      green('env_override_cannot_downgrade_node_env',
+        process.env.NODE_ENV === 'test'
+        && process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER === '1'
+        && fortress15j2DualGateActive()
+        && listenerExportsPresent(harness.api));
+    } finally {
+      await closeHarness(harness);
+    }
+  }
+
   console.log('\n── Production listener RED/GREEN (uniform 404 + zero writes) ──');
 
   // ── RED: staff payment foreign vs nonexistent — identical 404, zero Stripe/DB writes
@@ -702,21 +860,11 @@ const draftPaymentsDb = [
 
   // ── Production-mode seam attempts must be inert (fail closed) ──
   {
-    const { clearStaffApiCache } = (() => {
-      function clearStaffApiCacheLocal() {
-        for (const key of Object.keys(require.cache)) {
-          if (/staff-query-api\.js$/.test(key)) delete require.cache[key];
-        }
-      }
-      return { clearStaffApiCache: clearStaffApiCacheLocal };
-    })();
-
-    const savedNodeEnv = process.env.NODE_ENV;
-    const savedFlag = process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER;
+    const saved = snapshotStaffApiEnv();
     try {
-      process.env.NODE_ENV = 'production';
+      applyMinimalStaffApiEnvForRequire('production');
       process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = '1';
-      clearStaffApiCache();
+      clearStaffApiCacheLocal();
       const apiProd = require('./staff-query-api');
       apiProd.setFortress15j2OfflineSeams({
         withPgClient: async () => { throw new Error('seam must not activate in production NODE_ENV'); },
@@ -727,9 +875,9 @@ const draftPaymentsDb = [
         apiProd.getFortress15j2OfflineSeams() == null
         && apiProd.fortressOfflineListenerSeamsActive() === false);
 
-      process.env.NODE_ENV = 'test';
+      applyMinimalStaffApiEnvForRequire('test');
       process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = '';
-      clearStaffApiCache();
+      clearStaffApiCacheLocal();
       const apiPartial = require('./staff-query-api');
       apiPartial.setFortress15j2OfflineSeams({
         withPgClient: async () => { throw new Error('seam must not activate without listener flag'); },
@@ -738,11 +886,8 @@ const draftPaymentsDb = [
         apiPartial.getFortress15j2OfflineSeams() == null
         && apiPartial.fortressOfflineListenerSeamsActive() === false);
     } finally {
-      process.env.NODE_ENV = savedNodeEnv;
-      process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = savedFlag;
-      for (const key of Object.keys(require.cache)) {
-        if (/staff-query-api\.js$/.test(key)) delete require.cache[key];
-      }
+      restoreStaffApiEnv(saved);
+      clearStaffApiCacheLocal();
     }
   }
 

@@ -46723,7 +46723,7 @@ module.exports.setFortress15j2OfflineSeams = setFortress15j2OfflineSeams;
 module.exports.getFortress15j2OfflineSeams = getFortress15j2OfflineSeams;
 module.exports.fortressOfflineListenerSeamsActive = fortressOfflineListenerSeamsActive;
 
-if (process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER === '1') {
+if (fortressOfflineListenerSeamsActive()) {
   Object.assign(module.exports, {
     router,
     server,

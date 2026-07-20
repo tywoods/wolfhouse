@@ -181,6 +181,21 @@ function clearStaffApiCache() {
   }
 }
 
+function fortress15j2DualGateActive() {
+  return String(process.env.NODE_ENV || '').toLowerCase() === 'test'
+    && String(process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER || '').trim() === '1';
+}
+
+function assertFortress15j2DualGate() {
+  if (!fortress15j2DualGateActive()) {
+    const err = new Error(
+      'FORTRESS 15J2 offline listener requires NODE_ENV=test AND STAFF_API_FORTRESS_OFFLINE_LISTENER=1',
+    );
+    err.code = 'FORTRESS_15J2_DUAL_GATE';
+    throw err;
+  }
+}
+
 function applyHarnessEnv(overrides) {
   const base = {
     NODE_ENV: 'test',
@@ -201,7 +216,12 @@ function applyHarnessEnv(overrides) {
   for (const k of Object.keys(process.env)) {
     if (/^STAFF_|^LUNA_BOT_|^STRIPE_|^BOT_/.test(k)) delete process.env[k];
   }
-  Object.assign(process.env, base, overrides || {});
+  const safeOverrides = { ...(overrides || {}) };
+  delete safeOverrides.NODE_ENV;
+  delete safeOverrides.STAFF_API_FORTRESS_OFFLINE_LISTENER;
+  Object.assign(process.env, base, safeOverrides);
+  process.env.NODE_ENV = 'test';
+  process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = '1';
 }
 
 function createFortress15j2OfflineListener(opts) {
@@ -212,6 +232,7 @@ function createFortress15j2OfflineListener(opts) {
   const envOverrides = (opts && opts.env) || {};
 
   applyHarnessEnv(envOverrides);
+  assertFortress15j2DualGate();
   clearStaffApiCache();
 
   const stripeCalls = [];
@@ -364,6 +385,8 @@ module.exports = {
   SESSION_MULTI,
   HARNESS_CLIENT_ACCESS,
   makeTrackingPg,
+  fortress15j2DualGateActive,
+  assertFortress15j2DualGate,
   createFortress15j2OfflineListener,
   listenHarness,
   closeHarness,

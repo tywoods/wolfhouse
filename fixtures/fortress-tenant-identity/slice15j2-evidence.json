@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "slice": "FORTRESS-15J2",
-  "generated_at": "2026-07-20T09:45:00.000Z",
+  "generated_at": "2026-07-20T10:15:00.000Z",
   "master_basis": "6d9f0e99c6c00d9831710c392ec3ac41dcef811b",
   "live_mutation": false,
   "boundary_id": "B15_booking_hold_payment_callbacks",
@@ -17,14 +17,27 @@
     "router": "scripts/staff-query-api.js router + http.createServer",
     "auth": "real requireAuth session cookies + requireBotAuth X-Luna-Bot-Token middleware",
     "boundaries_injected": "PG via setFortress15j2OfflineSeams.withPgClient; session via resolveSessionUser; ACL via canAccessClient seam (not STAFF_PORTAL_ACCESS_FILE); Stripe via Module._load patch",
-    "dual_gate": "NODE_ENV=test AND STAFF_API_FORTRESS_OFFLINE_LISTENER=1 required for seam activation",
-    "production_inert": "seam set attempts with NODE_ENV=production or partial flag leave getFortress15j2OfflineSeams null",
+    "dual_gate": "NODE_ENV=test AND STAFF_API_FORTRESS_OFFLINE_LISTENER=1 required for seam activation and listener/router test exports",
+    "production_inert": "production, flag-only, and test-only gate failures leave listener exports absent, seams null, and Module._load unpatchable before assertFortress15j2DualGate rejection",
+    "env_override_pin": "applyHarnessEnv strips NODE_ENV/STAFF_API_FORTRESS_OFFLINE_LISTENER overrides; createFortress15j2OfflineListener verifies dual gate before Stripe patch",
     "uniform_404": "staff/bot foreign deny fingerprint === nonexistent UUID fingerprint (status/headers/body bytes)"
   },
   "red": {
-    "total": 4,
-    "passed": 4,
+    "total": 7,
+    "passed": 7,
     "cases": [
+      {
+        "id": "dual_gate_production_listener_export_and_stripe_patch_inert",
+        "ok": true
+      },
+      {
+        "id": "dual_gate_flag_only_listener_export_and_stripe_patch_inert",
+        "ok": true
+      },
+      {
+        "id": "dual_gate_test_only_listener_export_and_stripe_patch_inert",
+        "ok": true
+      },
       {
         "id": "staff_payment_foreign_and_nonexistent_identical_404_zero_writes",
         "ok": true
@@ -44,9 +57,13 @@
     ]
   },
   "green": {
-    "total": 12,
-    "passed": 12,
+    "total": 13,
+    "passed": 13,
     "cases": [
+      {
+        "id": "env_override_cannot_downgrade_node_env",
+        "ok": true
+      },
       {
         "id": "staff_same_tenant_payment_uuid_authorized",
         "ok": true
@@ -97,6 +114,6 @@
       }
     ]
   },
-  "pass": 52,
+  "pass": 56,
   "fail": 0
 }
