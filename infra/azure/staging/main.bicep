@@ -320,6 +320,9 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
         { name: 'stripe-secret-key',       keyVaultUrl: '${kvBaseUri}/stripe-secret-key',       identity: managedIdentity.id }
         { name: 'stripe-webhook-secret',   keyVaultUrl: '${kvBaseUri}/stripe-webhook-secret',   identity: managedIdentity.id }
         { name: 'staff-session-secret',    keyVaultUrl: '${kvBaseUri}/staff-session-secret',    identity: managedIdentity.id }
+        // FORTRESS 15L — Meta hub HMAC + verify token (names only; values stay in Key Vault)
+        { name: 'meta-app-secret',         keyVaultUrl: '${kvBaseUri}/meta-app-secret',         identity: managedIdentity.id }
+        { name: 'meta-whatsapp-verify-token', keyVaultUrl: '${kvBaseUri}/meta-whatsapp-verify-token', identity: managedIdentity.id }
       ]
       registries: [
         {
@@ -352,6 +355,10 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
             { name: 'STRIPE_SECRET_KEY',       secretRef: 'stripe-secret-key' }
             { name: 'STRIPE_WEBHOOK_SECRET',   secretRef: 'stripe-webhook-secret' }
             { name: 'STAFF_SESSION_SECRET',    secretRef: 'staff-session-secret' }
+            // FORTRESS 15L — Meta WhatsApp webhook signature fail-closed (Staff API route owner)
+            { name: 'META_APP_SECRET',         secretRef: 'meta-app-secret' }
+            { name: 'META_WHATSAPP_VERIFY_TOKEN', secretRef: 'meta-whatsapp-verify-token' }
+            { name: 'META_WEBHOOK_SKIP_VERIFY', value: 'false' }
           ]
         }
       ]

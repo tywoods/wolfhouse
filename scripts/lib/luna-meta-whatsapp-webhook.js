@@ -15,7 +15,6 @@ const {
 } = require('./meta-whatsapp-ingress-authority');
 
 const DEFAULT_CLIENT_SLUG = 'wolfhouse-somo';
-const DEFAULT_META_WHATSAPP_VERIFY_TOKEN = 'wolfhouse_verify_token';
 
 const WEBHOOK_SAFETY_FLAGS = {
   preview_only: true,
@@ -41,10 +40,12 @@ function trimStr(v) {
   return String(v).trim();
 }
 
+/**
+ * Hub verify token from env only — no hardcoded default (FORTRESS 15L).
+ * Empty → fail closed in verifyMetaHubChallenge.
+ */
 function resolveMetaWhatsAppVerifyToken(env = process.env) {
-  const fromEnv = trimStr(env.META_WHATSAPP_VERIFY_TOKEN);
-  if (fromEnv) return fromEnv;
-  return DEFAULT_META_WHATSAPP_VERIFY_TOKEN;
+  return trimStr(env.META_WHATSAPP_VERIFY_TOKEN);
 }
 
 function resolveMetaAppSecret(env = process.env) {
@@ -64,6 +65,9 @@ function verifyMetaHubChallenge(query, env = process.env) {
   if (mode !== 'subscribe') {
     return { ok: false, status: 403, error: 'invalid_hub_mode' };
   }
+  if (!expected) {
+    return { ok: false, status: 403, error: 'verify_token_unconfigured' };
+  }
   if (!token || token !== expected) {
     return { ok: false, status: 403, error: 'invalid_verify_token' };
   }
@@ -74,7 +78,9 @@ function verifyMetaHubChallenge(query, env = process.env) {
 }
 
 /**
- * Verify Meta X-Hub-Signature-256 when app secret is configured.
+ * Verify Meta X-Hub-Signature-256 (fail-closed — FORTRESS 15L).
+ * Never returns skipped:true for missing secret or missing header.
+ * HTTP admit uses decideMetaWhatsAppWebhookPostAdmit (verified:true or explicit skip).
  * @returns {{ verified: boolean, skipped: boolean, error?: string }}
  */
 function verifyMetaHubSignature256(rawBody, signatureHeader, env = process.env) {
@@ -82,10 +88,10 @@ function verifyMetaHubSignature256(rawBody, signatureHeader, env = process.env) 
   const sig = trimStr(signatureHeader);
 
   if (!appSecret) {
-    return { verified: false, skipped: true };
+    return { verified: false, skipped: false, error: 'app_secret_unconfigured' };
   }
   if (!sig) {
-    return { verified: false, skipped: true, error: 'missing_signature_header' };
+    return { verified: false, skipped: false, error: 'missing_signature_header' };
   }
 
   const expectedPrefix = 'sha256=';
@@ -421,7 +427,6 @@ function buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta = {}, op
 
 module.exports = {
   DEFAULT_CLIENT_SLUG,
-  DEFAULT_META_WHATSAPP_VERIFY_TOKEN,
   WEBHOOK_SAFETY_FLAGS,
   SUPPORTED_MESSAGE_TYPES,
   resolveMetaWhatsAppVerifyToken,

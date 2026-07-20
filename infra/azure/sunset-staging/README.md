@@ -144,9 +144,9 @@ Container App uses user-assigned identity for Key Vault secret refs and ACR pull
 
 ## Secrets (Key Vault — manual; names only in git)
 
-Secrets are **not** created by Bicep. Expected secret **names:** `sunset-database-url`, `staff-session-secret`, `stripe-secret-key`, `stripe-webhook-secret`, `meta-whatsapp-token`.
+Secrets are **not** created by Bicep. Expected secret **names:** `sunset-database-url`, `staff-session-secret`, `stripe-secret-key`, `stripe-webhook-secret`, `meta-whatsapp-token`, `meta-app-secret`, `meta-whatsapp-verify-token`.
 
-**App env mapping:** KV secret `sunset-database-url` → env `WOLFHOUSE_DATABASE_URL` (value must be Sunset DB only).
+**App env mapping:** KV secret `sunset-database-url` → env `WOLFHOUSE_DATABASE_URL` (value must be Sunset DB only). FORTRESS 15L: `meta-app-secret` → `META_APP_SECRET`, `meta-whatsapp-verify-token` → `META_WHATSAPP_VERIFY_TOKEN` (Staff API Meta hub fail-closed; no secret values in git).
 
 ---
 
@@ -159,6 +159,7 @@ Secrets are **not** created by Bicep. Expected secret **names:** `sunset-databas
 | `STAFF_AUTH_REQUIRED` | `true` |
 | `STAFF_AUTH_HTTPS` | `true` |
 | `STRIPE_WEBHOOK_SKIP_VERIFY` | `false` |
+| `META_WEBHOOK_SKIP_VERIFY` | `false` (FORTRESS 15L; Meta hub HMAC required) |
 | `DEFAULT_CLIENT_SLUG` | `sunset` (canonical Sunset tenant) |
 | `STRIPE_WEBHOOK_CLIENT_SLUG` | `sunset` — **declared in `main.bicep` (FORTRESS 15C)** for 15B webhook tenant bind. Prefer over `DEFAULT_CLIENT_SLUG`. If both are set they must match; missing/conflicting → webhook fail-closed (`no_db_write`). Live runtime gains this env on the next approved Sunset image+Bicep deploy (15D). |
 

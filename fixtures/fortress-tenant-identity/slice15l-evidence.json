@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15L",
+  "generated_at": "2026-07-20T10:35:00.000Z",
+  "master_basis": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
+  "live_mutation": false,
+  "boundary_id": "B01_meta_whatsapp_signature_ingress",
+  "status": "remediated",
+  "outcome_id": "15L_meta_signature_fail_closed",
+  "guarded_routes": [
+    "GET /staff/meta/whatsapp/webhook",
+    "POST /staff/meta/whatsapp/webhook"
+  ],
+  "activation_gap": {
+    "code_ready": true,
+    "kv_secrets_mounted": false,
+    "deploy_performed": false
+  },
+  "red": {
+    "total": 6,
+    "passed": 6,
+    "cases": [
+      { "id": "AC15L_RED_POST_MISSING_SECRET_503", "ok": true },
+      { "id": "AC15L_RED_POST_MISSING_HEADER_403", "ok": true },
+      { "id": "AC15L_RED_POST_BAD_HMAC_403", "ok": true },
+      { "id": "AC15L_RED_GET_UNCONFIGURED_TOKEN_403", "ok": true },
+      { "id": "AC15L_RED_STARTUP_STAGING_MISSING_SECRET", "ok": true },
+      { "id": "AC15L_RED_STARTUP_STAGING_SKIP_REFUSED", "ok": true }
+    ]
+  },
+  "green": {
+    "total": 5,
+    "passed": 5,
+    "cases": [
+      { "id": "AC15L_GREEN_POST_VALID_HMAC_ADMITS", "ok": true },
+      { "id": "AC15L_GREEN_GET_MATCHING_TOKEN", "ok": true },
+      { "id": "AC15L_GREEN_IAC_SECRET_REFS", "ok": true },
+      { "id": "AC15L_GREEN_LOCAL_SKIP_EXPLICIT", "ok": true },
+      { "id": "AC15L_GREEN_HISTORICAL_15A_15K_UNCHANGED", "ok": true }
+    ]
+  },
+  "preserved": {
+    "b02_default_off": true,
+    "b12_stripe": true,
+    "n8n_owners": true,
+    "historical_15a_b01_unproven": true,
+    "historical_15k_vulnerable_overlay": true
+  }
+}

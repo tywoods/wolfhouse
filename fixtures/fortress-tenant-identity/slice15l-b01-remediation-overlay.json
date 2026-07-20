@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15L",
+  "boundary_id": "B01_meta_whatsapp_signature_ingress",
+  "status": "remediated",
+  "historical_audit_unchanged": true,
+  "historical_artifacts": [
+    "fixtures/fortress-tenant-identity/boundary-matrix.json",
+    "fixtures/fortress-tenant-identity/attack-cases.json",
+    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md",
+    "fixtures/fortress-tenant-identity/slice15k-b01-b12-audit-overlay.json",
+    "fixtures/fortress-tenant-identity/slice15k-contract.json",
+    "fixtures/fortress-tenant-identity/slice15k-evidence.json",
+    "fixtures/fortress-tenant-identity/slice15k-consumer-matrix.json",
+    "fixtures/fortress-tenant-identity/slice15k-attack-cases.json",
+    "fixtures/fortress-tenant-identity/slice15k-b01-remediation-contract.json",
+    "fixtures/fortress-tenant-identity/slice15k-findings.md"
+  ],
+  "note": "15A matrix/doc retain pre-fix unproven verdict for B01 as historical audit. 15K overlay retains reaudit vulnerable verdict + design-only remediation contract as historical audit. This overlay records the 15L source+IaC fail-closed Meta hub signature remediation without rewriting 15A/15K artifacts. Live close still requires KV secret creation + Staff API deploy/restart — not performed in 15L.",
+  "remediation": {
+    "outcome_id": "15L_meta_signature_fail_closed",
+    "design_freeze": "FORTRESS-15K / slice15k-b01-remediation-contract.json",
+    "owner_files": [
+      "scripts/lib/luna-meta-whatsapp-webhook.js",
+      "scripts/lib/meta-whatsapp-signature-config.js",
+      "scripts/staff-query-api.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/.env.example"
+    ],
+    "controls": [
+      "verifyMetaHubSignature256 never returns skipped:true for missing META_APP_SECRET or missing X-Hub-Signature-256",
+      "missing secret → app_secret_unconfigured (HTTP 503) before PostEntry/PG",
+      "missing/malformed header or HMAC mismatch → 403 before PostEntry/PG",
+      "valid raw-body HMAC → admit PostEntry (B02 authority default-off unchanged)",
+      "decideMetaWhatsAppWebhookPostAdmit rejects unless verified:true (or explicit local META_WEBHOOK_SKIP_VERIFY)",
+      "resolveMetaWhatsAppVerifyToken has no hardcoded default; absent → verify_token_unconfigured 403",
+      "startup validateMetaWhatsAppSignatureConfig requires META_APP_SECRET + META_WHATSAPP_VERIFY_TOKEN under staging/production; refuses META_WEBHOOK_SKIP_VERIFY=true there",
+      "staging + sunset Staff API Bicep declare meta-app-secret + meta-whatsapp-verify-token secretRefs and META_WEBHOOK_SKIP_VERIFY=false",
+      ".env.example documents Meta signature placeholders without secret values",
+      "B12 Stripe, n8n owners, 15H2 B02 default-off, Hermes sample token untouched"
+    ]
+  },
+  "activation_gap": {
+    "code_ready": true,
+    "runtime_enabled": false,
+    "kv_secrets_mounted": false,
+    "deploy_performed": false,
+    "required_for_live_close": [
+      "Create Key Vault secrets meta-app-secret and meta-whatsapp-verify-token on target vault(s)",
+      "Deploy Staff API image built from merged master + Bicep revision so secretRefs mount",
+      "Confirm META_WEBHOOK_SKIP_VERIFY=false on staging/production runtimes",
+      "Point Meta webhook subscription at Staff API with matching verify token; confirm HMAC"
+    ]
+  },
+  "master_basis_15a": "8ed81111b9a67a656dee0b7dbd5a46ab91ca125c",
+  "master_basis_15k": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
+  "master_basis_15l": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
+  "live_mutation": false
+}

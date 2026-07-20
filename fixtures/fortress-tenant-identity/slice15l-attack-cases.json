@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15L",
+  "description": "Offline RED/GREEN attack cases for B01 Meta signature fail-closed remediation. Fake IDs only — no live secrets, no network.",
+  "cases": [
+    {
+      "id": "AC15L_RED_POST_MISSING_SECRET_503",
+      "color": "RED",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "META_APP_SECRET unset + POST body → 503 app_secret_unconfigured; PostEntry not called; acquired_pg false",
+      "expect": {
+        "status": 503,
+        "error": "app_secret_unconfigured",
+        "post_entry_called": false,
+        "acquired_pg": false
+      }
+    },
+    {
+      "id": "AC15L_RED_POST_MISSING_HEADER_403",
+      "color": "RED",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "META_APP_SECRET set + missing X-Hub-Signature-256 → 403; no PostEntry/PG",
+      "expect": {
+        "status": 403,
+        "error": "missing_signature_header",
+        "post_entry_called": false,
+        "acquired_pg": false
+      }
+    },
+    {
+      "id": "AC15L_RED_POST_BAD_HMAC_403",
+      "color": "RED",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "META_APP_SECRET set + wrong sha256 → 403; no PostEntry/PG",
+      "expect": {
+        "status": 403,
+        "error": "signature_mismatch",
+        "post_entry_called": false,
+        "acquired_pg": false
+      }
+    },
+    {
+      "id": "AC15L_RED_GET_UNCONFIGURED_TOKEN_403",
+      "color": "RED",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "GET hub verify with unset META_WHATSAPP_VERIFY_TOKEN → 403 verify_token_unconfigured (no hardcoded default)",
+      "expect": {
+        "status": 403,
+        "error": "verify_token_unconfigured",
+        "hub_ok": false
+      }
+    },
+    {
+      "id": "AC15L_RED_STARTUP_STAGING_MISSING_SECRET",
+      "color": "RED",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "staging/production profile without META_APP_SECRET refuses startup",
+      "expect": {
+        "ok": false,
+        "variable": "META_APP_SECRET"
+      }
+    },
+    {
+      "id": "AC15L_RED_STARTUP_STAGING_SKIP_REFUSED",
+      "color": "RED",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "META_WEBHOOK_SKIP_VERIFY=true under staging/production refused at startup",
+      "expect": {
+        "ok": false,
+        "variable": "META_WEBHOOK_SKIP_VERIFY"
+      }
+    },
+    {
+      "id": "AC15L_GREEN_POST_VALID_HMAC_ADMITS",
+      "color": "GREEN",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "valid sha256=HMAC over raw body admits to PostEntry path",
+      "expect": {
+        "admit": true,
+        "post_entry_called": true
+      }
+    },
+    {
+      "id": "AC15L_GREEN_GET_MATCHING_TOKEN",
+      "color": "GREEN",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "GET with matching META_WHATSAPP_VERIFY_TOKEN returns hub.challenge",
+      "expect": {
+        "hub_ok": true,
+        "status": 200
+      }
+    },
+    {
+      "id": "AC15L_GREEN_IAC_SECRET_REFS",
+      "color": "GREEN",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "staging + sunset Staff API Bicep wire META_APP_SECRET and META_WHATSAPP_VERIFY_TOKEN via secretRef; skip=false",
+      "expect": {
+        "staging_wired": true,
+        "sunset_wired": true
+      }
+    },
+    {
+      "id": "AC15L_GREEN_LOCAL_SKIP_EXPLICIT",
+      "color": "GREEN",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "local/test profile may set META_WEBHOOK_SKIP_VERIFY=true and admit without HMAC",
+      "expect": {
+        "startup_ok": true,
+        "admit": true,
+        "skipped": true
+      }
+    },
+    {
+      "id": "AC15L_GREEN_HISTORICAL_15A_15K_UNCHANGED",
+      "color": "GREEN",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "15A B01 unproven + 15K vulnerable overlay + design-only remediation contract preserved",
+      "expect": {
+        "historical_unchanged": true
+      }
+    }
+  ]
+}
