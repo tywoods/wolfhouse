@@ -21,8 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = 'c01e08d3b0039840ced37ae5a8e04fdd2384aba2';
-const BRANCH_16L = 'radar/slice-16l-capacity-pressure-alerts';
+const MASTER_BASIS = '49b4ccff673014b28047307514f91a508cc8c497';
+const BRANCH_16M = 'radar/slice-16m-stripe-event-claim';
 const VERDICTS = new Set(['proven', 'partial', 'absent']);
 const REQUIRED_GATE_IDS = [
   'G01_correlation_structured_logs',
@@ -106,11 +106,13 @@ function secretFree(text, label) {
 }
 
 function runtimePathsUnchanged() {
-  // 16L owns Wolfhouse/Sunset staging Bicep capacity alerts; 16A freeze still
-  // requires database/, Hermes staging, and 16H metric-alert module untouched.
+  // 16M owns Staff API Stripe event-claim wiring; 16A freeze still requires
+  // database/, Hermes staging, staging Bicep, and 16H metric-alert module untouched.
   const paths = [
     'database/',
     'docker/hermes-staging/',
+    'infra/azure/staging/main.bicep',
+    'infra/azure/sunset-staging/main.bicep',
     'infra/azure/staging-staff-api-metric-alerts/',
   ];
   try {
@@ -156,9 +158,8 @@ function currentBranch() {
 function staffApiRuntimeDiffVsMaster() {
   const paths = [
     'scripts/staff-query-api.js',
-    'scripts/lib/staff-api-readiness.js',
-    'scripts/lib/staff-api-request-correlation.js',
-    'scripts/lib/staff-api-healthz.js',
+    'scripts/lib/stripe-webhook-event-claim.js',
+    'scripts/lib/stripe-webhook-payment-truth.js',
   ];
   try {
     return execSync(
@@ -337,11 +338,11 @@ const blob = [
 const sec = secretFree(blob, 'fixtures+doc');
 ok('F32 secret-free fixtures and doc', sec.ok, sec.detail);
 
-ok('F33 doc mentions selected 16L id', /16L_staff_api_capacity_pressure_alerts/.test(doc));
+ok('F33 doc mentions selected 16M id', /16M_stripe_webhook_event_id_claim/.test(doc));
 ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /partial.*9/i.test(doc) && /absent.*0/i.test(doc));
-ok('F35 findings lists G01/G02/G03/G06/G08/G09 partial',
-  /G01/.test(findings) && /G02/.test(findings) && /G03/.test(findings) && /G06/.test(findings) && /G08/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
-  && /16L/.test(findings));
+ok('F35 findings lists G01/G02/G03/G05/G06/G08/G09 partial',
+  /G01/.test(findings) && /G02/.test(findings) && /G03/.test(findings) && /G05/.test(findings) && /G06/.test(findings) && /G08/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
+  && /16M/.test(findings));
 
 ok('F36 healthz source cite present', pathExists('scripts/staff-query-api.js'));
 ok('F37 capture cost script present (read-only helper)',
@@ -350,7 +351,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 zero-mutation: database/Hermes/16H unchanged vs master basis (16L may touch staging bicep)', rt.ok, rt.detail);
+ok('F39 zero-mutation: database/Hermes/Bicep/16H unchanged vs master basis (16M may touch Staff API claim paths)', rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
   matrix.final_controlled_drill_16a
@@ -374,14 +375,14 @@ ok('F46 readiness lib present', pathExists('scripts/lib/staff-api-readiness.js')
 ok('F47 16I verifier script present',
   pathExists('scripts/verify-radar-slice16i-staff-api-readiness.js'));
 
-const slice16lContract = readJson(path.join(FIXTURE_DIR, 'slice16l-expected-contract.json'));
+const slice16mContract = readJson(path.join(FIXTURE_DIR, 'slice16m-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16L contract + HEAD',
-  matrix.branch === BRANCH_16L
-  && contract.branch === BRANCH_16L
-  && slice16lContract.branch === BRANCH_16L
-  && headBranch === BRANCH_16L,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16l=${slice16lContract.branch} head=${headBranch}`);
+ok('F48 gate-matrix branch pin equals 16M contract + HEAD',
+  matrix.branch === BRANCH_16M
+  && contract.branch === BRANCH_16M
+  && slice16mContract.branch === BRANCH_16M
+  && headBranch === BRANCH_16M,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16m=${slice16mContract.branch} head=${headBranch}`);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -394,33 +395,26 @@ ok('F49 must_not forbids live/deployed mutation, not blanket source change',
 
 const g01 = matrix.gates.find((g) => g.id === 'G01_correlation_structured_logs');
 const g08 = matrix.gates.find((g) => g.id === 'G08_retention_privacy');
-const g06forF50 = matrix.gates.find((g) => g.id === 'G06_scaling_capacity');
+const g05forF50 = matrix.gates.find((g) => g.id === 'G05_retry_replay_safety');
 const runtimeDiff = staffApiRuntimeDiffVsMaster();
 const bicepDiff = execSync(
   `git diff --name-only ${MASTER_BASIS} -- infra/azure/staging/main.bicep infra/azure/sunset-staging/main.bicep`,
   { cwd: ROOT, encoding: 'utf8' },
 ).trim().split(/\n/).filter(Boolean);
-const g08CitesRuntime = g08
-  && Array.isArray(g08.source_evidence)
-  && g08.source_evidence.some((ev) =>
-    ev.path === 'scripts/lib/staff-api-healthz.js'
+const g05CitesClaim = g05forF50
+  && Array.isArray(g05forF50.source_evidence)
+  && g05forF50.source_evidence.some((ev) =>
+    ev.path === 'scripts/lib/stripe-webhook-event-claim.js'
     || ev.path === 'scripts/staff-query-api.js');
-const g06CitesBicep = g06forF50
-  && Array.isArray(g06forF50.source_evidence)
-  && g06forF50.source_evidence.some((ev) =>
-    ev.path === 'infra/azure/staging/main.bicep'
-    || ev.path === 'infra/azure/sunset-staging/main.bicep');
-ok('F50 must_not does not contradict changed staging bicep or G06/G08 evidence',
+ok('F50 must_not does not contradict 16M Staff API claim changes or G05 evidence',
   !hasStaleSourceForbid
   && hasLiveDeployedForbid
-  && g08CitesRuntime
-  && g06CitesBicep
-  && runtimeDiff.length === 0
-  && bicepDiff.includes('infra/azure/staging/main.bicep')
-  && bicepDiff.includes('infra/azure/sunset-staging/main.bicep')
-  && pathExists('scripts/lib/staff-api-healthz.js')
+  && g05CitesClaim
+  && runtimeDiff.includes('scripts/staff-query-api.js')
+  && pathExists('scripts/lib/stripe-webhook-event-claim.js')
+  && bicepDiff.length === 0
   && matrix.live_mutation === false,
-  `runtimeDiff=${runtimeDiff.join(',') || '(none)'} bicepDiff=${bicepDiff.join(',')} stale=${hasStaleSourceForbid}`);
+  `runtimeDiff=${runtimeDiff.join(',') || '(none)'} bicepDiff=${bicepDiff.join(',') || '(none)'} stale=${hasStaleSourceForbid}`);
 
 ok('F51 G01 partial source-partial via 16J',
   g01 && g01.verdict === 'partial'
@@ -515,6 +509,41 @@ ok('F74 16L leaves deploy/load/SLO/backpressure open',
   && /open/i.test(String(contract.capacity_slo || '')));
 ok('F75 doc mentions G06 capacity-pressure',
   /G06/.test(doc) && /capacity-pressure|CpuPercentage/i.test(doc));
+
+const g05 = matrix.gates.find((g) => g.id === 'G05_retry_replay_safety');
+ok('F76 G05 partial source-partial via 16M',
+  g05 && g05.verdict === 'partial'
+  && g05.progress_class === 'source_partial_progress_only'
+  && /16M/.test(g05.rationale)
+  && /stripe_event_id|event-id claim|event_id claim/i.test(g05.rationale));
+ok('F77 16M claim lib present', pathExists('scripts/lib/stripe-webhook-event-claim.js'));
+ok('F78 16M verifier script present',
+  pathExists('scripts/verify-radar-slice16m-stripe-event-claim.js'));
+ok('F79 16M contract fixture present',
+  pathExists('fixtures/radar-operations/slice16m-expected-contract.json'));
+
+const sel16m = matrix.slice_16m_selection;
+ok('F80 exactly one 16M selection',
+  sel16m && sel16m.selected === true
+  && sel16m.outcome_id === '16M_stripe_webhook_event_id_claim'
+  && sel16m.gate_id === 'G05_retry_replay_safety'
+  && sel16m.progress_class === 'source_partial_progress_only');
+ok('F81 contract selected_16m matches',
+  contract.selected_16m
+  && contract.selected_16m.outcome_id === '16M_stripe_webhook_event_id_claim'
+  && contract.selected_16m.gate_id === 'G05_retry_replay_safety');
+ok('F82 16M final controlled drill present',
+  sel16m.final_controlled_drill
+  && sel16m.final_controlled_drill.id === '16M_DRILL_stripe_event_claim_replay');
+ok('F83 16M acceptance criteria finite (>=4)',
+  Array.isArray(sel16m.acceptance_criteria) && sel16m.acceptance_criteria.length >= 4);
+ok('F84 16M leaves deploy/concurrency/replay/DLQ/drill open',
+  /live_deploy/.test(String(sel16m.does_not_implement || ''))
+  && /open/i.test(String(contract.stripe_event_claim_live_deploy || ''))
+  && /open/i.test(String(contract.stripe_event_claim_dlq || ''))
+  && /open/i.test(String(contract.stripe_event_claim_drill || '')));
+ok('F85 doc mentions G05 event-id claim',
+  /G05/.test(doc) && /event-id claim|stripe_event_id/i.test(doc));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

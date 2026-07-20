@@ -1,54 +1,44 @@
-# RADAR Slice 16L — Operations gate ledger (Staff API capacity-pressure alerts source-partial)
+# RADAR Slice 16M — Operations gate ledger (Stripe webhook event-id claim source-partial)
 
-**Status:** source partial progress only (zero live deploy / mutation; load / SLO / backpressure / alert-fire open)
-**Master basis:** `c01e08d3b0039840ced37ae5a8e04fdd2384aba2`
-**Branch:** `radar/slice-16l-capacity-pressure-alerts`
+**Status:** source partial progress only (zero live deploy / mutation; concurrency / replay operator / DLQ / drill open)
+**Master basis:** `49b4ccff673014b28047307514f91a508cc8c497`
+**Branch:** `radar/slice-16m-stripe-event-claim`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
 
 ## Outcome
 
-Add **source-only Staff API capacity-pressure metric alerts** for both Wolfhouse and Sunset staging Container Apps: `CpuPercentage` Average >80 and `MemoryPercentage` Average >80, severity 2, enabled, 5-minute evaluation, 15-minute window. Wire each alert to the existing future **16B operations action group resource ID parameter** with subscription-pinned/owned AG IDs. Use exact `Microsoft.App/containerApps` metric namespace and static criteria only. **Do not** add autoscaling, mutate min/max replicas, alter 16H 5xx/restart alerts, or claim backpressure/load/SLO proof. **Do not deploy.** G06 remains `partial` (capacity-alert source-partial only).
+Add **source-only fail-closed Stripe webhook event-id claim** before booking-payment and addon_service payment mutations. Use existing `payment_events.stripe_event_id` UNIQUE. Claim inside the same transaction: `INSERT … ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id`; zero rows → rollback + HTTP 200 idempotent; first claim → existing writes → `processed=true` → COMMIT; any failure → full rollback + retryable 500. Privacy-minimized payload only. **Do not deploy.** G05 remains `partial` (event-claim source-partial only).
 
 ## Artifacts
 
 | Path | Role |
 |------|------|
-| `infra/azure/staging/main.bicep` | Wolfhouse capacity alerts + `opsActionGroupResourceId` |
-| `infra/azure/sunset-staging/main.bicep` | Sunset capacity alerts + `opsActionGroupResourceId` |
-| `scripts/verify-radar-slice16l-staff-api-capacity-alerts.js` | Offline RED/GREEN verifier |
-| `fixtures/radar-operations/slice16l-expected-contract.json` | Frozen independent contract |
-| `fixtures/radar-operations/slice16l-capacity-alert-plan.json` | Plan fixture |
-| `npm run verify:radar-slice16l-staff-api-capacity-alerts` | Gate |
+| `scripts/lib/stripe-webhook-event-claim.js` | Claim / mark-processed / minimized payload helper |
+| `scripts/lib/stripe-webhook-payment-truth.js` | Lookup returns owned `hostel_id` (`client_id` alias) |
+| `scripts/staff-query-api.js` | Webhook booking + addon paths wire claim-before-mutation |
+| `scripts/verify-radar-slice16m-stripe-event-claim.js` | Offline RED/GREEN verifier |
+| `fixtures/radar-operations/slice16m-expected-contract.json` | Frozen independent contract |
+| `npm run verify:radar-slice16m-stripe-event-claim` | Gate |
 
 ## Bounded contract
 
 | Bound | Value |
 |-------|--------|
-| Alerts per tenant | exactly 2 (`cpu-pressure`, `memory-pressure`) |
-| Metrics | `CpuPercentage`, `MemoryPercentage` |
-| Aggregation / operator / threshold | Average / GreaterThan / 80 |
-| Window / eval | PT15M / PT5M |
-| Severity / enabled | 2 / true |
-| Namespace | `Microsoft.App/containerApps` |
-| Criteria | StaticThresholdCriterion only |
-| Actions | `opsActionGroupResourceId` (16B ops AG, subscription-pinned) |
-| Forbidden | autoscaling, replica mutation, 16H edits, load/SLO/backpressure claims |
-
-## Exact alerts
-
-| Tenant | Alert name |
-|--------|------------|
-| Wolfhouse | `wolfhouse-staff-api-cpu-pressure` |
-| Wolfhouse | `wolfhouse-staff-api-memory-pressure` |
-| Sunset | `sunset-staff-api-cpu-pressure` |
-| Sunset | `sunset-staff-api-memory-pressure` |
+| Paths | `booking_payment`, `addon_service` only |
+| Claim SQL | `ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id` |
+| Ownership column | `client_id` (001_init `hostel_id`) |
+| Duplicate | HTTP 200 `idempotent` `reason=stripe_event_id_already_claimed` |
+| Failure | ROLLBACK + HTTP 500 (never ack after partial failure) |
+| Payload | allowlisted non-PII identifiers/state only |
+| Forbidden | raw Stripe event/session/customer; email/phone/name/addresses/tokens |
+| Out of scope | ignored/unmatched/invalid events; DLQ; replay operator; deploy |
 
 ## Verdict counts
 
 | Verdict | Count | Meaning |
 |---------|------:|---------|
-| `proven` | 0 | Control fully evidenced end-to-end (incl. live deploy + fire + load) |
+| `proven` | 0 | Control fully evidenced end-to-end (incl. live deploy + concurrency + drill) |
 | `partial` | 9 | Some code and/or live evidence; gaps remain |
 | `absent` | 0 | No safe control evidenced |
 | **total** | **9** | Matrix gates |
@@ -61,42 +51,43 @@ Add **source-only Staff API capacity-pressure metric alerts** for both Wolfhouse
 | G02 | Readiness / dependencies | `partial` (16I readiness source still partial) |
 | G03 | Actionable tenant-aware alerts | `partial` (16H metric-alert source still partial) |
 | G04 | Webhook / payment / worker backlog | `partial` |
-| G05 | Retry / replay safety | `partial` |
-| G06 | Scaling / capacity | `partial` (16L capacity-pressure source-partial; deploy/load/SLO open) |
+| G05 | Retry / replay safety | `partial` (16M event-id claim source-partial; deploy/replay/DLQ open) |
+| G06 | Scaling / capacity | `partial` (16L capacity-pressure source still partial) |
 | G07 | Rollback / incident runbooks | `partial` |
-| G08 | Retention / privacy | `partial` (16K healthz source-partial; deploy/retention/drill open) |
+| G08 | Retention / privacy | `partial` (16K healthz source still partial) |
 | G09 | Cost controls | `partial` (16B budget-threshold source still partial) |
 
-## G06 semantics (truthful)
+## G05 semantics (truthful)
 
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
-| Capacity-pressure metric alerts (source) | `partial` | CPU+Memory Average >80 in both staging Bicep |
-| Autoscaling rules | `open` / absent live | Not added by 16L |
-| Replica bounds | unchanged | min/max not mutated |
-| Live deploy of capacity alerts | `open` | Not claimed |
-| Alert fire / delivery | `open` | Not claimed |
-| Sustained load / soak | `open` | Not claimed |
-| Response-time / capacity SLO | `open` | Not claimed |
-| Backpressure behavior | `open` | Not claimed |
+| Stripe event-id claim before mutations (source) | `partial` | booking + addon paths; same txn |
+| Schema UNIQUE `stripe_event_id` | present | 001_init (no new migration) |
+| Live deploy of claim path | `open` | Not claimed |
+| Live concurrency proof | `open` | Not claimed |
+| Replay operator / stuck recovery | `open` | Not claimed |
+| DLQ | `open` | Not claimed |
+| Controlled replay drill | `open` | Not claimed |
+| All event types claimed | out of scope | Ignored/unmatched unchanged |
 
-## Slice 16L progress
+## Slice 16M progress
 
-**ID:** `16L_staff_api_capacity_pressure_alerts`
-**Gate:** `G06_scaling_capacity`
+**ID:** `16M_stripe_webhook_event_id_claim`
+**Gate:** `G05_retry_replay_safety`
 **Progress class:** `source_partial_progress_only`
-**Does not implement:** live deploy, alert fire, autoscaling, load proof, response-time/SLO, backpressure
+**Does not implement:** live deploy, concurrency proof, replay operator, DLQ, drill
 
 ### Still open
 
-- Live deploy of capacity-pressure alerts to Wolfhouse + Sunset staging
-- Actual alert firing / notification delivery
-- Sustained load / soak proof
-- Response-time / capacity SLO
-- Backpressure behavior proof
+- Live deploy of Staff API image with event-id claim
+- Live concurrency proof under real Postgres UNIQUE contention
+- Replay operator / stuck `processed=false` recovery
+- DLQ for unprocessable webhook events
+- Controlled replay drill
 
 ## Prior partial progress retained
 
+- **16L** `16L_staff_api_capacity_pressure_alerts` on G06 — source-partial capacity alerts (not deployed)
 - **16K** `16K_staff_api_healthz_minimization` on G08 — source-partial healthz (not deployed)
 - **16J** `16J_staff_api_request_correlation` on G01 — source-partial correlation (not deployed)
 - **16I** `16I_staff_api_readiness_dependencies` on G02 — source-partial readiness (not deployed)
@@ -105,4 +96,4 @@ Add **source-only Staff API capacity-pressure metric alerts** for both Wolfhouse
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16L. Database, Hermes staging, and 16H metric-alert module must remain unchanged vs master basis. Wolfhouse/Sunset staging Bicep capacity-alert additions are intentional 16L ownership; replica/traffic/auth/DB paths protected.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16M. Database, Hermes staging, staging Bicep, and 16H metric-alert module must remain unchanged vs master basis. Staff API Stripe webhook claim helper + wiring are intentional 16M ownership.

@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16M",
+  "outcome_id": "16M_stripe_webhook_event_id_claim",
+  "gate_id": "G05_retry_replay_safety",
+  "progress_class": "source_partial_progress_only",
+  "does_not_implement": "live_deploy_concurrency_replay_operator_dlq_drill",
+  "master_basis": "49b4ccff673014b28047307514f91a508cc8c497",
+  "branch": "radar/slice-16m-stripe-event-claim",
+  "title": "Fail-closed Stripe webhook event-id claim before payment mutations — G05 source-partial",
+  "liveDeployEnabled": false,
+  "execution_claim": false,
+  "zero_live_mutation": true,
+  "transaction_contract": {
+    "same_transaction": true,
+    "order": [
+      "BEGIN",
+      "INSERT payment_events ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id",
+      "payment_or_booking_or_service_mutations",
+      "UPDATE payment_events SET processed=true WHERE id=claimed",
+      "COMMIT"
+    ],
+    "duplicate_zero_rows": "ROLLBACK + HTTP 200 idempotent reason=stripe_event_id_already_claimed",
+    "any_failure": "ROLLBACK claim+mutations + HTTP 500 retryable",
+    "ownership_column": "client_id",
+    "ownership_alias": "hostel_id",
+    "schema_unique": "payment_events.stripe_event_id UNIQUE (001_init; renamed hostel_id→client_id in 003)",
+    "payload": "allowlisted non-PII identifiers/state only; never raw Stripe event/session/customer/email/phone/name/addresses/tokens"
+  },
+  "compatibility": {
+    "signature_verification": "preserved",
+    "authoritative_tenant_gate": "preserved",
+    "validation": "preserved",
+    "locked_money_math": "preserved",
+    "distinct_event_business_idempotency": "preserved",
+    "ignored_unmatched_invalid_events": "behaviorally unchanged (no claim)"
+  },
+  "paths": [
+    "booking_payment",
+    "addon_service"
+  ],
+  "still_open": [
+    "Live deploy of Staff API image with event-id claim",
+    "Live concurrency proof under real Postgres UNIQUE contention",
+    "Replay operator / stuck processed=false recovery",
+    "DLQ for unprocessable webhook events",
+    "Controlled replay drill across all event types",
+    "Claim coverage for ignored/unmatched event types (explicitly out of scope)"
+  ],
+  "final_controlled_drill": {
+    "id": "16M_DRILL_stripe_event_claim_replay",
+    "status": "open",
+    "pass_rule": "After approved Staff API deploy: same Stripe event.id replay returns HTTP 200 idempotent with zero payment/booking mutations; concurrent delivery permits one mutation path; failure before COMMIT retries successfully; no raw PII payload persistence"
+  },
+  "artifacts": [
+    "scripts/lib/stripe-webhook-event-claim.js",
+    "scripts/lib/stripe-webhook-payment-truth.js",
+    "scripts/staff-query-api.js",
+    "scripts/verify-radar-slice16m-stripe-event-claim.js",
+    "fixtures/radar-operations/slice16m-expected-contract.json"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16m-stripe-event-claim",
+    "npm run verify:sunset-stripe-payment-webhook",
+    "npm run verify:waterbottle-expired-hold-payment-truth",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16b-staging-cost-budgets",
+    "npm run verify:radar-slice16h-staff-api-metric-alerts",
+    "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:radar-slice16j-staff-request-correlation",
+    "npm run verify:radar-slice16k-staff-api-healthz",
+    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
+    "npm run verify:staff-auth-api",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 49b4ccff673014b28047307514f91a508cc8c497..HEAD"
+  ],
+  "protected_paths_unchanged": [
+    "database/",
+    "docker/hermes-staging/",
+    "infra/azure/staging/main.bicep",
+    "infra/azure/sunset-staging/main.bicep",
+    "infra/azure/staging-staff-api-metric-alerts"
+  ]
+}
