@@ -1,0 +1,187 @@
+---
+// HowItWorks — night canvas, 5 numbered steps.
+// id="how" required for nav anchor.
+---
+
+<section id="how" class="section night">
+  <div class="container">
+
+    <div class="hiw__header stack" data-animate>
+      <p class="eyebrow eyebrow--moon">How Luna works</p>
+      <h2 class="hiw__heading">
+        From first WhatsApp message<br />to structured booking.
+      </h2>
+      <p class="lead">
+        Luna fits into the conversation your guests are already having —
+        no new apps, no friction, nothing to install.
+      </p>
+    </div>
+
+    <ol class="hiw__steps" role="list" data-animate>
+
+      <li class="hiw__step">
+        <div class="hiw__step-num" aria-hidden="true">01</div>
+        <div class="hiw__step-body">
+          <h3 class="hiw__step-title">Guest writes naturally on WhatsApp</h3>
+          <p class="hiw__step-text">
+            No commands, no forms. They ask about a lesson, a board rental, a
+            package, or availability — the same way they'd message a friend.
+            Voice notes, typos, and mid-conversation topic switches included.
+          </p>
+        </div>
+        <div class="hiw__connector" aria-hidden="true"></div>
+      </li>
+
+      <li class="hiw__step">
+        <div class="hiw__step-num" aria-hidden="true">02</div>
+        <div class="hiw__step-body">
+          <h3 class="hiw__step-title">Luna understands the request</h3>
+          <p class="hiw__step-text">
+            Luna reads the message in context — the full thread, not just the
+            last line. It identifies what the guest actually needs: a specific
+            date, a group size, a price, a change to an existing booking.
+          </p>
+        </div>
+        <div class="hiw__connector" aria-hidden="true"></div>
+      </li>
+
+      <li class="hiw__step">
+        <div class="hiw__step-num" aria-hidden="true">03</div>
+        <div class="hiw__step-body">
+          <h3 class="hiw__step-title">Luna checks your real business info</h3>
+          <p class="hiw__step-text">
+            Availability, pricing rules, session capacity, add-ons, your
+            house policies — Luna reads from your actual data, not a
+            static FAQ. It never quotes a price it didn't get from your
+            system.
+          </p>
+        </div>
+        <div class="hiw__connector" aria-hidden="true"></div>
+      </li>
+
+      <li class="hiw__step">
+        <div class="hiw__step-num" aria-hidden="true">04</div>
+        <div class="hiw__step-body">
+          <h3 class="hiw__step-title">Luna replies and fills in the gaps</h3>
+          <p class="hiw__step-text">
+            If something is missing — a date, a headcount, a contact detail —
+            Luna asks for it clearly. One question at a time, in the guest's
+            own language. It stays patient however long the exchange takes.
+          </p>
+        </div>
+        <div class="hiw__connector" aria-hidden="true"></div>
+      </li>
+
+      <li class="hiw__step hiw__step--last">
+        <div class="hiw__step-num hiw__step-num--accent" aria-hidden="true">05</div>
+        <div class="hiw__step-body">
+          <h3 class="hiw__step-title">Your team sees everything, steps in when needed</h3>
+          <p class="hiw__step-text">
+            Staff get full conversation context the moment they open the inbox.
+            When something genuinely needs a human — a complex situation, a
+            discretionary call — Luna flags it clearly and hands off cleanly.
+            No hunting through chat history.
+          </p>
+        </div>
+      </li>
+
+    </ol>
+
+  </div>
+</section>
+
+<style>
+  .hiw__header { max-width: 680px; }
+  .hiw__heading { font-size: var(--step-4); margin-top: var(--space-xs); }
+
+  .hiw__steps {
+    list-style: none;
+    padding: 0;
+    margin-top: var(--space-2xl);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-width: 760px;
+  }
+
+  /* Each step: number + body side by side */
+  .hiw__step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 3.5rem 1fr;
+    gap: 0 var(--space-l);
+    padding-bottom: var(--space-xl);
+  }
+  .hiw__step--last { padding-bottom: 0; }
+
+  /* Vertical connector line — runs from the bottom of the number to the next */
+  .hiw__connector {
+    position: absolute;
+    left: 1.65rem; /* center of the 3.5rem column */
+    top: 3rem;     /* below the number circle */
+    bottom: 0;
+    width: 1px;
+    background: var(--night-border);
+  }
+
+  .hiw__step-num {
+    width: 3.25rem;
+    height: 3.25rem;
+    border-radius: var(--radius-pill);
+    border: 1.5px solid var(--night-border);
+    background: var(--night-surface);
+    color: var(--moon-300);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: var(--step--1);
+    letter-spacing: 0.04em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+    transition: background var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+  }
+  .hiw__step:hover .hiw__step-num {
+    background: var(--ink-600);
+    border-color: var(--moon-300);
+  }
+
+  /* Final step number — seaglass highlight */
+  .hiw__step-num--accent {
+    background: #2d6155;
+    border-color: var(--seaglass-600);
+    color: #fff;
+  }
+  .hiw__step--last:hover .hiw__step-num--accent {
+    background: #356f5f;
+    border-color: var(--seaglass-500);
+  }
+
+  .hiw__step-body {
+    padding-top: 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+
+  .hiw__step-title {
+    font-size: var(--step-1);
+    color: var(--night-text);
+    line-height: 1.2;
+  }
+
+  .hiw__step-text {
+    font-size: var(--step--1);
+    color: var(--night-muted);
+    line-height: 1.7;
+    max-width: 56ch;
+  }
+
+  @media (max-width: 400px) {
+    .hiw__step { grid-template-columns: 2.75rem 1fr; gap: 0 var(--space-m); }
+    .hiw__step-num { width: 2.6rem; height: 2.6rem; font-size: 0.72rem; }
+    .hiw__connector { left: 1.3rem; }
+  }
+</style>

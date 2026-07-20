@@ -1,0 +1,24 @@
+---
+import DemoStudio from './demo/DemoStudio.tsx';
+---
+<section id="demo" class="section night demo-section">
+  <div class="container">
+    <div class="demo-section__head" data-animate>
+      <p class="eyebrow eyebrow--moon">See it work</p>
+      <h2>Watch Luna handle a scripted enquiry</h2>
+      <p class="lead">
+        On the left, a guest WhatsApp thread. On the right, a simulated operations summary.
+        Pick a scenario and advance with reply chips — a guided demo in this browser only.
+      </p>
+    </div>
+    <div class="demo-section__studio" data-animate>
+      <DemoStudio client:visible />
+    </div>
+  </div>
+</section>
+
+<style>
+  .demo-section { padding-block: var(--space-2xl); }
+  .demo-section__head { max-width: 60ch; margin-bottom: var(--space-l); }
+  .demo-section__head .lead { margin-top: var(--space-s); }
+</style>

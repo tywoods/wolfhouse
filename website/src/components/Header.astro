@@ -1,0 +1,44 @@
+---
+// Sticky, translucent header. Nav collapses to the CTA on small screens.
+const links = [
+  { href: '#demo', label: 'Interactive demo' },
+  { href: '#how', label: 'How it works' },
+  { href: '#who', label: "Who it's for" },
+  { href: '#trust', label: 'Trust' },
+];
+---
+<header class="site-header">
+  <div class="container site-header__inner">
+    <a href="#top" class="brand">
+      <span class="brand__moon" aria-hidden="true"></span>
+      <span class="brand__name">Luna<span>Front&nbsp;Desk</span></span>
+    </a>
+    <nav class="site-nav" aria-label="Primary">
+      {links.map((l) => <a href={l.href}>{l.label}</a>)}
+    </nav>
+    <a href="#lead" class="btn btn--primary site-header__cta">See Luna for my business</a>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: saturate(140%) blur(12px);
+    background: color-mix(in srgb, var(--sand-50) 82%, transparent);
+    border-bottom: 1px solid var(--border);
+  }
+  .site-header__inner { display: flex; align-items: center; gap: var(--space-m); padding-block: 0.7rem; }
+  .brand { display: flex; align-items: center; gap: 0.55rem; margin-right: auto; }
+  .brand__moon {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: radial-gradient(circle at 32% 30%, var(--moon-200), var(--ink-700) 78%);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--moon-300) 25%, transparent);
+  }
+  .brand__name { font-family: var(--font-display); font-weight: 600; font-size: 1.2rem; line-height: 1; color: var(--ink-900); }
+  .brand__name span { color: var(--text-muted); font-weight: 500; }
+  .site-nav { display: flex; gap: var(--space-m); font-size: var(--step--1); font-weight: 500; color: var(--text-muted); }
+  .site-nav a:hover { color: var(--ink-900); }
+  .site-header__cta { padding: 0.6em 1.1em; font-size: var(--step--1); }
+  @media (max-width: 860px) { .site-nav { display: none; } }
+  @media (max-width: 480px) { .brand__name span { display: none; } .site-header__cta { padding: 0.55em 0.9em; } }
+</style>

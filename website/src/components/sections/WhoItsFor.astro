@@ -1,0 +1,131 @@
+---
+// WhoItsFor — audience grid. Light section on sand canvas.
+// Business types are honest; copy describes what Luna concretely handles per category.
+const businesses = [
+  {
+    icon: '🏄',
+    type: 'Surf schools',
+    handle: 'Lesson slots, instructor availability, equipment sizes, weather-day rescheduling.',
+  },
+  {
+    icon: '🏠',
+    type: 'Hostels & guest houses',
+    handle: 'Bed-type questions, dorm vs private options, check-in times, seasonal pricing.',
+  },
+  {
+    icon: '🏡',
+    type: 'Boutique hotels',
+    handle: 'Room availability, rate plans, in-house services, add-on enquiries.',
+  },
+  {
+    icon: '🧘',
+    type: 'Retreats & wellness centres',
+    handle: 'Programme schedules, dietary requirements, pre-arrival intake, group bookings.',
+  },
+  {
+    icon: '🚣',
+    type: 'Tour & activity operators',
+    handle: 'Departure times, group sizes, what-to-bring lists, multi-day itinerary questions.',
+  },
+  {
+    icon: '🏄‍♀️',
+    type: 'Rental businesses',
+    handle: 'Gear availability, daily vs hourly pricing, deposit policy, return logistics.',
+  },
+] as const;
+---
+
+<section id="who" class="section who">
+  <div class="container">
+    <div class="who__intro" data-animate>
+      <p class="eyebrow">Who it's for</p>
+      <h2 class="who__heading">Built for businesses that run on WhatsApp.</h2>
+      <p class="lead">
+        Whether you run a surf school in the Basque Country or a guest house on the Algarve,
+        the pattern is the same: a constant stream of repetitive WhatsApp messages sitting alongside
+        the structured work of checking availability, quoting packages, and managing bookings.
+        Luna is built for exactly that gap.
+      </p>
+    </div>
+
+    <ul class="who__grid" data-animate>
+      {businesses.map((b) => (
+        <li class="who__card card">
+          <span class="who__icon" aria-hidden="true">{b.icon}</span>
+          <h3 class="who__type">{b.type}</h3>
+          <p class="who__handle">{b.handle}</p>
+        </li>
+      ))}
+    </ul>
+
+    <p class="who__closer" data-animate>
+      If your business runs on WhatsApp, Luna fits.
+    </p>
+  </div>
+</section>
+
+<style>
+  .who { background: var(--bg); }
+
+  .who__intro { max-width: 62ch; margin-bottom: var(--space-2xl); }
+  .who__intro .eyebrow { margin-bottom: var(--space-xs); }
+  .who__heading { font-size: var(--step-4); margin-top: var(--space-xs); margin-bottom: var(--space-m); }
+
+  .who__grid {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+    gap: var(--space-m);
+  }
+
+  .who__card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast);
+  }
+  .who__card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-m);
+  }
+
+  .who__icon {
+    font-size: 1.75rem;
+    line-height: 1;
+    display: block;
+  }
+
+  .who__type {
+    font-family: var(--font-display);
+    font-size: var(--step-1);
+    color: var(--ink-900);
+    margin-top: var(--space-2xs);
+  }
+
+  .who__handle {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+    line-height: 1.55;
+    flex: 1;
+  }
+
+  .who__closer {
+    margin-top: var(--space-2xl);
+    font-family: var(--font-display);
+    font-size: var(--step-2);
+    font-weight: 550;
+    color: var(--terracotta-600);
+    letter-spacing: -0.01em;
+    text-align: center;
+    position: relative;
+  }
+  .who__closer::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 2px;
+    background: var(--sand-300);
+    margin: 0 auto var(--space-m);
+  }
+</style>

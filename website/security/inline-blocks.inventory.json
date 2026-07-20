@@ -1,0 +1,40 @@
+{
+  "id": "luna-marketing-inline-blocks",
+  "version": 1,
+  "description": "Exact reviewed inventory of unavoidable Astro island bootstrap/style inline blocks. This file is the authorization source — never derive approval from dist.",
+  "reviewed": true,
+  "blocks": [
+    {
+      "id": "astro-client-visible",
+      "type": "script",
+      "pages": ["index.html"],
+      "sha256": "sha256-Q2BPg90ZMplYY+FSdApNErhpWafg2hcRRbndmvxuL/Q=",
+      "expectedCount": 1,
+      "note": "Astro client:visible IntersectionObserver bootstrap (home islands only)."
+    },
+    {
+      "id": "astro-island-element",
+      "type": "script",
+      "pages": ["index.html"],
+      "sha256": "sha256-Ya0pUYrC7nM5Cn/056TyVuEiz6dFGrzmkWzgON0pF0U=",
+      "expectedCount": 1,
+      "note": "Astro island custom-element hydration bootstrap (home islands only)."
+    },
+    {
+      "id": "astro-island-display-contents",
+      "type": "style",
+      "pages": ["index.html"],
+      "sha256": "sha256-vv9IoKo7BSLbWcUHr3tNmfNVmm5L/9Cfn2H6LMk7/ow=",
+      "expectedCount": 1,
+      "note": "Astro island/slot display:contents style (home page)."
+    },
+    {
+      "id": "privacy-scoped-css",
+      "type": "style",
+      "pages": ["privacy/index.html"],
+      "sha256": "sha256-dWQPlo0XwJLEdJAEfNj1dr6V5ZED/eah4jtK4TfpHOU=",
+      "expectedCount": 1,
+      "note": "Astro scoped CSS for the privacy page."
+    }
+  ]
+}

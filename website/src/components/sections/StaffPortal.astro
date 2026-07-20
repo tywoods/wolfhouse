@@ -1,0 +1,454 @@
+---
+// StaffPortal — night section with a tasteful mocked UI illustration.
+// All names, bookings, and messages are clearly fictional demo data.
+// The mock conveys: inbox, handoff queue, conversation context panel,
+// operational status, and per-conversation bot pause/resume.
+
+const inbox = [
+  {
+    id: 'c1',
+    name: 'Marco V.',
+    preview: 'Is the 9am surf lesson still available this Saturday?',
+    time: '2m ago',
+    status: 'bot',
+    unread: true,
+  },
+  {
+    id: 'c2',
+    name: 'Sienna K.',
+    preview: 'Perfect — I\'ll take the 3-night board + room package.',
+    time: '14m ago',
+    status: 'bot',
+    unread: false,
+  },
+  {
+    id: 'c3',
+    name: 'Rafa & Ana',
+    preview: 'We need two rooms, not one. Can you check?',
+    time: '31m ago',
+    status: 'handoff',
+    unread: true,
+  },
+  {
+    id: 'c4',
+    name: 'Tom H.',
+    preview: 'Do you have wetsuits in size XL?',
+    time: '1h ago',
+    status: 'bot',
+    unread: false,
+  },
+] as const;
+---
+
+<section class="section night portal">
+  <div class="container">
+    <div class="portal__intro" data-animate>
+      <p class="eyebrow eyebrow--moon">The staff portal</p>
+      <h2 class="portal__heading">Your team stays in control.</h2>
+      <p class="lead">
+        Every conversation Luna handles is visible to your team in real time. One click pauses
+        the bot and hands control back to a person — for any conversation, at any moment.
+      </p>
+    </div>
+
+    <figure class="portal__window" data-animate aria-label="Illustration of the Luna staff portal (fictional demo data)">
+      <!-- Window chrome -->
+      <div class="portal__chrome" aria-hidden="true">
+        <span class="portal__dot portal__dot--red"></span>
+        <span class="portal__dot portal__dot--amber"></span>
+        <span class="portal__dot portal__dot--green"></span>
+        <span class="portal__chrome-title">Luna Front Desk — Staff Portal</span>
+      </div>
+
+      <div class="portal__body">
+        <!-- Sidebar: inbox -->
+        <aside class="portal__sidebar">
+          <div class="portal__sidebar-header">
+            <span class="portal__sidebar-label">Conversations</span>
+            <span class="portal__badge">2 handoffs</span>
+          </div>
+
+          <ul class="portal__inbox">
+            {inbox.map((c) => (
+              <li class:list={['portal__thread', { 'portal__thread--active': c.id === 'c3', 'portal__thread--unread': c.unread }]}>
+                <div class="portal__avatar" aria-hidden="true">
+                  {c.name.charAt(0)}
+                </div>
+                <div class="portal__thread-body">
+                  <div class="portal__thread-meta">
+                    <span class="portal__thread-name">{c.name}</span>
+                    <span class="portal__thread-time">{c.time}</span>
+                  </div>
+                  <p class="portal__thread-preview">{c.preview}</p>
+                </div>
+                <span
+                  class:list={['portal__status-dot', {
+                    'portal__status-dot--bot': c.status === 'bot',
+                    'portal__status-dot--handoff': c.status === 'handoff',
+                  }]}
+                  title={c.status === 'bot' ? 'Bot active' : 'Needs human'}
+                ></span>
+              </li>
+            ))}
+          </ul>
+        </aside>
+
+        <!-- Main: context panel -->
+        <main class="portal__main">
+          <div class="portal__convo-header">
+            <div class="portal__convo-name">
+              <div class="portal__avatar portal__avatar--lg" aria-hidden="true">R</div>
+              <div>
+                <p class="portal__convo-title">Rafa &amp; Ana</p>
+                <p class="portal__convo-sub">+34 612 ··· 847 · Enquiry · Arrival 28 Jul</p>
+              </div>
+            </div>
+            <div class="portal__convo-actions">
+              <button class="portal__toggle portal__toggle--paused" tabindex="-1">
+                <span class="portal__toggle-dot"></span>
+                Bot paused
+              </button>
+              <button class="portal__resolve-btn">Mark resolved</button>
+            </div>
+          </div>
+
+          <!-- Context cards -->
+          <div class="portal__context">
+            <div class="portal__ctx-card">
+              <p class="portal__ctx-label">Enquiry summary</p>
+              <p class="portal__ctx-value">2 adults, 3 nights · Superior double room × 2 · Breakfast add-on queried</p>
+            </div>
+            <div class="portal__ctx-card">
+              <p class="portal__ctx-label">Availability</p>
+              <p class="portal__ctx-value">
+                <span class="portal__avail portal__avail--ok">2 Superior rooms free · 28–31 Jul</span>
+              </p>
+            </div>
+            <div class="portal__ctx-card">
+              <p class="portal__ctx-label">Handoff reason</p>
+              <p class="portal__ctx-value portal__ctx-value--warn">Guest requested room configuration not in catalogue — needs staff confirmation.</p>
+            </div>
+          </div>
+
+          <!-- Mini message thread excerpt -->
+          <div class="portal__messages">
+            <div class="portal__msg portal__msg--guest">
+              <p>Hi! We're actually two couples — we need two separate rooms, not one. Can you still help?</p>
+              <span class="portal__msg-time">09:14</span>
+            </div>
+            <div class="portal__msg portal__msg--luna">
+              <p>Of course — let me check availability for two Superior rooms on those dates and pass you to the team.</p>
+              <span class="portal__msg-time">09:14</span>
+            </div>
+            <div class="portal__msg portal__msg--system">
+              <span>Luna handed off to staff · 09:15</span>
+            </div>
+          </div>
+
+          <div class="portal__reply-bar">
+            <span class="portal__reply-hint">Replying as staff (bot paused)</span>
+            <button class="portal__send-btn" tabindex="-1">Send ↑</button>
+          </div>
+        </main>
+      </div>
+
+      <figcaption class="portal__caption">
+        Illustration only — all names and messages are fictional demo data.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<style>
+  .portal { background: var(--night-bg); }
+
+  .portal__intro { max-width: 60ch; margin-bottom: var(--space-2xl); }
+  .portal__intro .eyebrow { margin-bottom: var(--space-xs); }
+  .portal__heading { font-size: var(--step-4); margin-top: var(--space-xs); margin-bottom: var(--space-m); }
+
+  /* Outer window */
+  .portal__window {
+    border: 1px solid var(--night-border);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    box-shadow: var(--shadow-night);
+    margin: 0;
+    background: var(--ink-800);
+  }
+
+  /* Chrome bar */
+  .portal__chrome {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    padding: var(--space-xs) var(--space-m);
+    background: var(--ink-900);
+    border-bottom: 1px solid var(--night-border);
+    user-select: none;
+  }
+  .portal__dot {
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .portal__dot--red   { background: #ff5f57; }
+  .portal__dot--amber { background: #febc2e; }
+  .portal__dot--green { background: #28c840; }
+  .portal__chrome-title {
+    margin-left: var(--space-xs);
+    font-size: var(--step--1);
+    color: var(--night-muted);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+
+  /* Two-column layout */
+  .portal__body {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    min-height: 460px;
+  }
+  @media (max-width: 700px) {
+    .portal__body { grid-template-columns: 1fr; }
+  }
+
+  /* Sidebar */
+  .portal__sidebar {
+    border-right: 1px solid var(--night-border);
+    display: flex;
+    flex-direction: column;
+    background: color-mix(in srgb, var(--ink-900) 60%, var(--ink-800));
+  }
+  @media (max-width: 700px) {
+    .portal__sidebar { display: none; }
+  }
+
+  .portal__sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-s) var(--space-m);
+    border-bottom: 1px solid var(--night-border);
+  }
+  .portal__sidebar-label {
+    font-size: var(--step--1);
+    font-weight: 600;
+    color: var(--night-muted);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .portal__badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.25em 0.6em;
+    background: color-mix(in srgb, var(--terracotta-500) 22%, transparent);
+    color: var(--terracotta-400);
+    border: 1px solid color-mix(in srgb, var(--terracotta-500) 35%, transparent);
+    border-radius: var(--radius-pill);
+  }
+
+  .portal__inbox { list-style: none; padding: 0; flex: 1; overflow-y: auto; }
+
+  .portal__thread {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-xs);
+    padding: var(--space-s) var(--space-m);
+    border-bottom: 1px solid var(--night-border);
+    cursor: default;
+    position: relative;
+    transition: background var(--dur-fast);
+  }
+  .portal__thread:hover { background: color-mix(in srgb, var(--ink-700) 50%, transparent); }
+  .portal__thread--active { background: var(--ink-700); }
+  .portal__thread--unread .portal__thread-name { color: var(--night-text); font-weight: 600; }
+
+  .portal__avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--ink-600);
+    color: var(--moon-200);
+    font-size: 0.8rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .portal__avatar--lg { width: 38px; height: 38px; font-size: 1rem; background: var(--ink-700); }
+
+  .portal__thread-body { flex: 1; min-width: 0; }
+  .portal__thread-meta { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2xs); }
+  .portal__thread-name { font-size: var(--step--1); font-weight: 500; color: var(--night-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .portal__thread-time { font-size: 0.7rem; color: var(--night-muted); flex-shrink: 0; opacity: 0.7; }
+  .portal__thread-preview { font-size: 0.72rem; color: #a29ecb; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .portal__status-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px;
+  }
+  .portal__status-dot--bot   { background: var(--seaglass-500); }
+  .portal__status-dot--handoff { background: var(--terracotta-500); }
+
+  /* Main panel */
+  .portal__main {
+    display: flex;
+    flex-direction: column;
+    background: var(--ink-800);
+  }
+
+  .portal__convo-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-s);
+    padding: var(--space-s) var(--space-m);
+    border-bottom: 1px solid var(--night-border);
+  }
+  .portal__convo-name { display: flex; align-items: center; gap: var(--space-xs); }
+  .portal__convo-title { font-size: var(--step-0); font-weight: 600; color: var(--night-text); }
+  .portal__convo-sub { font-size: 0.72rem; color: var(--night-muted); margin-top: 1px; }
+
+  .portal__convo-actions { display: flex; align-items: center; gap: var(--space-xs); }
+
+  .portal__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0.4em 0.85em;
+    border-radius: var(--radius-pill);
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: 1.5px solid color-mix(in srgb, var(--terracotta-500) 40%, transparent);
+    background: color-mix(in srgb, var(--terracotta-500) 12%, transparent);
+    color: var(--terracotta-400);
+    cursor: default;
+  }
+  .portal__toggle-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--terracotta-500);
+  }
+  .portal__toggle--paused .portal__toggle-dot { background: var(--terracotta-400); }
+
+  .portal__resolve-btn {
+    padding: 0.4em 0.85em;
+    border-radius: var(--radius-pill);
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: 1.5px solid var(--night-border);
+    background: transparent;
+    color: var(--night-muted);
+    cursor: default;
+  }
+
+  /* Context cards */
+  .portal__context {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    padding: var(--space-s) var(--space-m);
+    border-bottom: 1px solid var(--night-border);
+  }
+  .portal__ctx-card {
+    background: color-mix(in srgb, var(--ink-900) 55%, transparent);
+    border: 1px solid var(--night-border);
+    border-radius: var(--radius-m);
+    padding: var(--space-xs) var(--space-s);
+    display: flex;
+    gap: var(--space-s);
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .portal__ctx-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #b0abd8;
+    flex-shrink: 0;
+    min-width: 110px;
+  }
+  .portal__ctx-value {
+    font-size: 0.78rem;
+    color: var(--night-text);
+    line-height: 1.4;
+  }
+  .portal__ctx-value--warn { color: var(--terracotta-400); }
+  .portal__avail--ok { color: var(--seaglass-300); }
+
+  /* Messages */
+  .portal__messages {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-m);
+    overflow-y: auto;
+  }
+  .portal__msg { max-width: 78%; }
+  .portal__msg p {
+    padding: var(--space-xs) var(--space-s);
+    border-radius: var(--radius-m);
+    font-size: 0.8rem;
+    line-height: 1.5;
+  }
+  .portal__msg-time {
+    display: block;
+    font-size: 0.65rem;
+    color: #a29ecb;
+    margin-top: 3px;
+    padding-inline: 4px;
+  }
+  .portal__msg--guest { align-self: flex-start; }
+  .portal__msg--guest p { background: var(--ink-700); color: var(--night-text); border-bottom-left-radius: 4px; }
+  .portal__msg--luna { align-self: flex-end; }
+  .portal__msg--luna p {
+    background: color-mix(in srgb, var(--seaglass-600) 25%, var(--ink-700));
+    color: var(--night-text);
+    border-bottom-right-radius: 4px;
+  }
+  .portal__msg--luna .portal__msg-time { text-align: right; }
+  .portal__msg--system {
+    align-self: center;
+    font-size: 0.68rem;
+    color: var(--night-muted);
+    font-style: italic;
+  }
+
+  /* Reply bar */
+  .portal__reply-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-s) var(--space-m);
+    border-top: 1px solid var(--night-border);
+    background: color-mix(in srgb, var(--ink-900) 40%, transparent);
+  }
+  .portal__reply-hint {
+    font-size: 0.72rem;
+    color: #a8a4cc;
+    font-style: italic;
+  }
+  .portal__send-btn {
+    padding: 0.4em 0.9em;
+    border-radius: var(--radius-pill);
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: #2d6155;
+    color: #fff;
+    border: none;
+    cursor: default;
+  }
+
+  /* Caption */
+  .portal__caption {
+    display: block;
+    text-align: center;
+    font-size: 0.72rem;
+    color: #a29ecb;
+    padding: var(--space-xs) var(--space-m);
+    border-top: 1px solid var(--night-border);
+    background: var(--ink-900);
+    font-style: italic;
+  }
+</style>

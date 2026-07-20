@@ -1,0 +1,289 @@
+---
+/**
+ * LeadForm section — wraps the Preact island.
+ * Provides the #lead anchor that navigation CTAs link to.
+ */
+import LeadFormIsland from '../lead/LeadForm';
+---
+
+<section id="lead" class="section lf-section">
+  <div class="container">
+
+    <div class="lf-section__header stack" data-animate>
+      <p class="eyebrow">Get early access</p>
+      <h2 class="lf-section__heading">
+        Show me Luna for my&nbsp;business
+      </h2>
+      <p class="lead">
+        Tell us a little about your operation and we'll reach out with a personalised
+        look at how Luna would work for you — with your availability, prices, rules
+        and tone.
+      </p>
+    </div>
+
+    <div class="lf-section__body" data-animate>
+      <div class="card lf-card">
+        <LeadFormIsland client:visible />
+      </div>
+
+      <aside class="lf-aside stack">
+        <div class="lf-aside__item">
+          <span class="lf-aside__icon" aria-hidden="true">◷</span>
+          <div>
+            <strong>Set up in days, not months</strong>
+            <p>We configure Luna around your business — your prices, packages, availability and tone.</p>
+          </div>
+        </div>
+        <div class="lf-aside__item">
+          <span class="lf-aside__icon" aria-hidden="true">✓</span>
+          <div>
+            <strong>Your team stays in control</strong>
+            <p>Luna handles the repetitive questions; your staff see every conversation and step in when it matters.</p>
+          </div>
+        </div>
+        <div class="lf-aside__item">
+          <span class="lf-aside__icon" aria-hidden="true">🔒</span>
+          <div>
+            <strong>No scripts, no wrong answers</strong>
+            <p>Luna only answers from what you tell it — it won't invent prices or availability.</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+  </div>
+</section>
+
+<style>
+  .lf-section {
+    background: var(--sand-50);
+  }
+
+  .lf-section__heading {
+    font-size: var(--step-3);
+    max-width: 22ch;
+  }
+
+  .lf-section__body {
+    margin-top: var(--space-2xl);
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-xl);
+    align-items: start;
+  }
+
+  @media (min-width: 860px) {
+    .lf-section__body {
+      grid-template-columns: 1fr 360px;
+    }
+  }
+
+  /* ---- Card wrapper ---- */
+  .lf-card {
+    padding: var(--space-xl);
+  }
+
+  /* ---- Aside ---- */
+  .lf-aside {
+    padding: var(--space-l) 0;
+  }
+
+  .lf-aside__item {
+    display: flex;
+    gap: var(--space-m);
+    align-items: flex-start;
+  }
+
+  .lf-aside__icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    margin-top: 0.1em;
+    color: var(--seaglass-600);
+  }
+
+  .lf-aside__item strong {
+    display: block;
+    font-family: var(--font-display);
+    font-size: var(--step-0);
+    font-weight: 600;
+    color: var(--ink-900);
+    margin-bottom: var(--space-2xs);
+  }
+
+  .lf-aside__item p {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  /* ---- Form styles (scoped here so they're co-located with the section) ---- */
+  :global(.lf-form) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-m);
+  }
+
+  :global(.lf-grid) {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-m);
+  }
+
+  @media (min-width: 560px) {
+    :global(.lf-grid) {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  :global(.lf-field) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+  }
+
+  :global(.lf-label) {
+    font-size: var(--step--1);
+    font-weight: 600;
+    color: var(--ink-900);
+  }
+
+  :global(.lf-required) {
+    color: var(--terracotta-600);
+  }
+
+  :global(.lf-input),
+  :global(.lf-select),
+  :global(.lf-textarea) {
+    width: 100%;
+    padding: 0.7em 0.9em;
+    font-family: var(--font-sans);
+    font-size: var(--step-0);
+    color: var(--text);
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-s);
+    transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast);
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  :global(.lf-select) {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' viewBox='0 0 12 8'%3E%3Cpath stroke='%236b6784' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.9em center;
+    padding-right: 2.5em;
+    cursor: pointer;
+  }
+
+  :global(.lf-textarea) {
+    resize: vertical;
+    min-height: 90px;
+  }
+
+  :global(.lf-input:focus-visible),
+  :global(.lf-select:focus-visible),
+  :global(.lf-textarea:focus-visible) {
+    outline: 3px solid var(--seaglass-500);
+    outline-offset: 2px;
+    border-color: var(--seaglass-500);
+  }
+
+  :global(.lf-input--error) {
+    border-color: var(--terracotta-500);
+  }
+
+  :global(.lf-input--error:focus-visible) {
+    outline-color: var(--terracotta-500);
+  }
+
+  :global(.lf-error) {
+    font-size: var(--step--1);
+    color: var(--terracotta-600);
+    margin: 0;
+  }
+
+  :global(.lf-server-error) {
+    font-size: var(--step--1);
+    color: var(--terracotta-600);
+    padding: var(--space-s);
+    background: color-mix(in srgb, var(--terracotta-500) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--terracotta-500) 30%, transparent);
+    border-radius: var(--radius-s);
+    margin: 0;
+  }
+
+  :global(.lf-actions) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-m);
+    margin-top: var(--space-xs);
+  }
+
+  :global(.lf-submit:disabled) {
+    opacity: 0.65;
+    pointer-events: none;
+  }
+
+  :global(.lf-privacy-link) {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  :global(.lf-privacy-link:hover) {
+    color: var(--terracotta-600);
+  }
+
+  :global(.lf-privacy) {
+    font-size: var(--step--1);
+    color: var(--text-faint);
+    margin: 0;
+  }
+
+  :global(.lf-privacy a) {
+    color: var(--terracotta-600);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  :global(.lf-truth) {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+    margin: 0;
+    padding: var(--space-s) var(--space-m);
+    background: var(--sand-100);
+    border: 1px solid var(--sand-200);
+    border-radius: var(--radius-s);
+    line-height: 1.55;
+  }
+
+  :global(.lf-local-outcome) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-s);
+    padding: var(--space-m);
+    background: var(--sand-100);
+    border: 1.5px solid var(--sand-200);
+    border-radius: var(--radius-m);
+  }
+
+  :global(.lf-local-outcome p) {
+    color: var(--text-muted);
+    font-size: var(--step--1);
+    margin: 0;
+    line-height: 1.55;
+  }
+
+  :global(.lf-outcome__mailto) {
+    color: var(--terracotta-600);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  :global(.lf-outcome__mailto:hover) {
+    color: var(--terracotta-500);
+  }
+</style>
