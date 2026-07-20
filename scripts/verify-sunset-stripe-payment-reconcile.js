@@ -99,6 +99,7 @@ function buildReconcilePg(pm, booking) {
       }
       if (/FROM payments p[\s\S]*stripe_checkout_session_id = \$1/i.test(q)) {
         return state.pm.stripe_checkout_session_id === params[0]
+          && (!params[1] || params[1] === state.pm.client_slug)
           ? { rows: [state.pm], rowCount: 1 }
           : { rows: [], rowCount: 0 };
       }
@@ -172,13 +173,19 @@ console.log('[1] reconcilePaidStripeSession marks paid');
     status: 'confirmed',
     client_id: 'client-1',
   });
-  const first = await reconcilePaidStripeSession(pg, session, { eventType: 'checkout.session.completed' });
+  const first = await reconcilePaidStripeSession(pg, session, {
+    eventType: 'checkout.session.completed',
+    expectedClientSlug: 'sunset',
+  });
   assert('first reconcile applied', first.reconciled === true);
   assert('payment ledger paid', pg.state.pm.payment_status === 'paid');
   assert('booking amount_paid_cents', pg.state.booking.amount_paid_cents === 4500);
   assert('booking payment_status paid', pg.state.booking.payment_status === 'paid');
 
-  const second = await reconcilePaidStripeSession(pg, session, { eventType: 'checkout.session.completed' });
+  const second = await reconcilePaidStripeSession(pg, session, {
+    eventType: 'checkout.session.completed',
+    expectedClientSlug: 'sunset',
+  });
   assert('idempotent second reconcile', second.reconciled === false && second.reason === 'already_paid');
 
   console.log('\n[2] reconcilePendingStripePaymentsForBooking scoped');
@@ -260,7 +267,8 @@ console.log('[1] reconcilePaidStripeSession marks paid');
           };
         }
         if (/FROM payments p[\s\S]*stripe_checkout_session_id = \$1/i.test(q)) {
-          const hit = payments.find((p) => p.stripe_checkout_session_id === params[0]);
+          const hit = payments.find((p) => p.stripe_checkout_session_id === params[0]
+            && (!params[1] || p.client_slug === params[1]));
           return hit ? { rows: [hit], rowCount: 1 } : { rows: [], rowCount: 0 };
         }
         if (/COALESCE\(SUM\(amount_paid_cents\)/i.test(q) || /sum\(amount_paid_cents\)/i.test(q)) {
@@ -342,14 +350,20 @@ console.log('[1] reconcilePaidStripeSession marks paid');
     amount_total: 4500,
     metadata: { payment_id: 'pay-b', client_slug: 'sunset' },
   };
-  const dupRes = await reconcilePaidStripeSession(dupPg, dupSession, { eventType: 'checkout.session.completed' });
+  const dupRes = await reconcilePaidStripeSession(dupPg, dupSession, {
+    eventType: 'checkout.session.completed',
+    expectedClientSlug: 'sunset',
+  });
   assert('duplicate transition reconciled', dupRes.reconciled === true);
   assert('duplicate diagnostic emitted', dupRes.duplicate_full_payment_diagnostic != null);
   assert('both session ids in diagnostic',
     dupRes.duplicate_full_payment_diagnostic.session_ids.includes('cs_test_paid_a')
     && dupRes.duplicate_full_payment_diagnostic.session_ids.includes('cs_test_paid_b'));
   assert('booking not over-credited', dupPg.booking.amount_paid_cents <= 4500);
-  const dupAgain = await reconcilePaidStripeSession(dupPg, dupSession, { eventType: 'checkout.session.completed' });
+  const dupAgain = await reconcilePaidStripeSession(dupPg, dupSession, {
+    eventType: 'checkout.session.completed',
+    expectedClientSlug: 'sunset',
+  });
   assert('duplicate reconcile idempotent', dupAgain.reconciled === false && dupAgain.reason === 'already_paid');
 
   console.log('\n[5] Drawer cannot stay Unpaid after ledger paid');

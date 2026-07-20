@@ -327,9 +327,13 @@ function buildPublicReconcilePg(seed) {
     const q = String(sql);
     if (/FROM payments p[\s\S]*stripe_checkout_session_id = \$1/i.test(q)) {
       const sid = params[0];
+      const expectedSlug = params[1];
       for (const p of Object.values(fake.state.payments)) {
         if (p.stripe_checkout_session_id === sid || p._lookupBySession) {
           const row = pmLookupRowFromSeed(p);
+          if (expectedSlug && row.client_slug !== expectedSlug) {
+            return { rows: [], rowCount: 0 };
+          }
           // Unlocked lookup snapshot may still carry the session id that matched.
           row.stripe_checkout_session_id = sid;
           return { rowCount: 1, rows: [row] };
@@ -339,8 +343,14 @@ function buildPublicReconcilePg(seed) {
     }
     if (/FROM payments p[\s\S]*WHERE p\.id = \$1::uuid/i.test(q) && /JOIN bookings/i.test(q)) {
       const pid = params[0];
+      const expectedSlug = params[1];
       const p = fake.state.payments[pid];
-      return p ? { rowCount: 1, rows: [pmLookupRowFromSeed(p)] } : { rows: [], rowCount: 0 };
+      if (!p) return { rows: [], rowCount: 0 };
+      const row = pmLookupRowFromSeed(p);
+      if (expectedSlug && row.client_slug !== expectedSlug) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rowCount: 1, rows: [row] };
     }
     return inner(sql, params);
   };
@@ -358,7 +368,7 @@ async function runWebhookBookingPaymentEntry(fake, pm, session) {
   if (pm.payment_kind === 'addon_service') {
     return { kind: 'addon_path' };
   }
-  const validationReasons = validateStripeBookingPaymentEvent(pm, session, eventType);
+  const validationReasons = validateStripeBookingPaymentEvent(pm, session, eventType, 'wolfhouse-somo');
   if (validationReasons.length > 0) {
     return { kind: 'validation_failed', reasons: validationReasons };
   }
@@ -876,7 +886,10 @@ async function main() {
         return { rows: [], rowCount: 0 };
       },
     };
-    const res = await reconcilePaidStripeSession(pg, baseSession(), { eventType: 'checkout.session.completed' });
+    const res = await reconcilePaidStripeSession(pg, baseSession(), {
+      eventType: 'checkout.session.completed',
+      expectedClientSlug: 'wolfhouse-somo',
+    });
     assert('reconcile locked reject ok:false', res.ok === false && res.reconciled === false);
     assert('11 reconcile reason locked_payment_validation_failed', res.reason === 'locked_payment_validation_failed');
     assert('11 reconcile code status not eligible', res.code === LOCKED_PAYMENT_VALIDATION_CODES.STATUS_NOT_ELIGIBLE);
@@ -1186,6 +1199,7 @@ async function main() {
     const qBefore = fake.state.queries.length;
     const res = await reconcilePaidStripeSessionFn(fake, baseSession(sessionOverrides || {}), {
       eventType: 'checkout.session.completed',
+      expectedClientSlug: 'wolfhouse-somo',
     });
     const updates = fake.state.queries.slice(qBefore).filter((q) => /UPDATE (payments|bookings|booking_guests)/i.test(q.text));
     if (expectKind === 'under_lock_idempotent') {
@@ -1246,7 +1260,10 @@ async function main() {
         },
       },
     });
-    const res = await reconcilePaidStripeSessionFn(fake, baseSession(), { eventType: 'checkout.session.completed' });
+    const res = await reconcilePaidStripeSessionFn(fake, baseSession(), {
+      eventType: 'checkout.session.completed',
+      expectedClientSlug: 'wolfhouse-somo',
+    });
     assert('reconcile checkout_created reconciled', res.reconciled === true);
     assert('reconcile checkout_created payment paid', fake.state.payments[PAYMENT].status === 'paid');
   }
@@ -1257,6 +1274,7 @@ async function main() {
       basePm({ payment_status: 'paid', pm_amount_paid: 10000 }),
       baseSession(),
       'checkout.session.completed',
+      'wolfhouse-somo',
     );
     assert('validator empty for already paid', reasons.length === 0);
     assert('reconcilePaidStripeSession exported', typeof reconcilePaidStripeSession === 'function');

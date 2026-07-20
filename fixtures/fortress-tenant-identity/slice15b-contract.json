@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15B",
+  "outcome_id": "15B_stripe_metadata_payment_lookup_tenant_bind",
+  "boundary_id": "B13_stripe_webhook_payment_lookup",
+  "master_basis": "8ed81111b9a67a656dee0b7dbd5a46ab91ca125c",
+  "live_mutation": false,
+  "title": "Bind Stripe checkout-session payment lookup to authoritative runtime tenant",
+  "status": "implemented",
+  "owner_files": [
+    "scripts/lib/stripe-webhook-payment-truth.js",
+    "scripts/lib/stripe-webhook-tenant-config.js",
+    "scripts/lib/stripe-payment-reconcile.js",
+    "scripts/staff-query-api.js"
+  ],
+  "api": {
+    "lookupPaymentForStripeSession": {
+      "signature": "lookupPaymentForStripeSession(pg, session, expectedClientSlug)",
+      "requires_expected_client_slug": true,
+      "returns": "{ ok, payment, reason, queried, query_count, lookup_path, metadata_fallback_queried, metadata_query_executed }",
+      "query_count_semantics": {
+        "early_missing_slug_or_invalid_session": "queried=false, query_count=0, metadata_fallback_queried=false, metadata_query_executed=false",
+        "session_id_path": "queried=true, query_count=1, metadata_fallback_queried=false, metadata_query_executed=false",
+        "rejected_metadata_fallback_after_session_miss": "queried=true, query_count=1, metadata_fallback_queried=false, metadata_query_executed=false (session SELECT already ran; no p.id UUID probe)",
+        "metadata_payment_id_path": "queried=true, query_count=2, metadata_fallback_queried=true, metadata_query_executed=true"
+      },
+      "session_id_path": "authoritative inside expected tenant; AND cl.slug = $2; may accept absent metadata.client_slug",
+      "metadata_payment_id_fallback": "requires metadata.client_slug present and === expectedClientSlug before any metadata.payment_id UUID query; scoped AND cl.slug = $2; rejected fallback does not query metadata.payment_id and cannot leak that object's existence (session-id SELECT may already have run)"
+    },
+    "validateStripeBookingPaymentEvent": {
+      "signature": "validateStripeBookingPaymentEvent(pm, session, eventType, expectedClientSlug)",
+      "independent_row_check": "pm.client_slug === expectedClientSlug → payment_client_slug_mismatch",
+      "retains": ["stripe_metadata_client_slug_mismatch", "session", "amount", "status"]
+    },
+    "resolveStripeWebhookExpectedClientSlug": {
+      "signature": "resolveStripeWebhookExpectedClientSlug(env)",
+      "priority": ["STRIPE_WEBHOOK_CLIENT_SLUG", "DEFAULT_CLIENT_SLUG nonempty compat"],
+      "fail_closed": ["missing_runtime_client_slug", "conflicting_runtime_client_slugs"],
+      "no_hardcoded_tenants": true
+    },
+    "reconcilePaidStripeSession": {
+      "signature": "reconcilePaidStripeSession(pg, session, meta)",
+      "requires": "meta.expectedClientSlug nonempty before query"
+    }
+  },
+  "rollout_env_requirement": {
+    "wolfhouse_staff_api": {
+      "STRIPE_WEBHOOK_CLIENT_SLUG": "set to this deployment tenant slug (e.g. wolfhouse-somo)",
+      "DEFAULT_CLIENT_SLUG": "optional compat only when nonempty and equal; must not conflict"
+    },
+    "sunset_staff_api": {
+      "STRIPE_WEBHOOK_CLIENT_SLUG": "set to this deployment tenant slug (e.g. sunset)",
+      "DEFAULT_CLIENT_SLUG": "optional compat only when nonempty and equal; must not conflict"
+    },
+    "note": "Both tenant deployments must set STRIPE_WEBHOOK_CLIENT_SLUG (or a consistent nonempty DEFAULT_CLIENT_SLUG) before webhook/reconcile can apply payment truth. Missing or conflicting slugs fail closed with no_db_write."
+  },
+  "callers_updated": [
+    "scripts/staff-query-api.js#handleStripeWebhook",
+    "scripts/lib/stripe-payment-reconcile.js#reconcilePaidStripeSession",
+    "scripts/lib/stripe-payment-reconcile.js#reconcilePendingStripePaymentsForDate",
+    "scripts/lib/stripe-payment-reconcile.js#reconcilePendingStripePaymentsForBooking"
+  ],
+  "red_case_ids": [
+    "RED_missing_runtime_slug",
+    "RED_conflicting_runtime_slugs",
+    "RED_metadata_fallback_missing_slug",
+    "RED_metadata_fallback_mismatched_slug",
+    "RED_other_tenant_uuid",
+    "RED_same_uuid_wrong_expected_tenant",
+    "RED_session_id_other_tenant",
+    "RED_returned_row_client_mismatch",
+    "RED_caller_omits_slug",
+    "RED_reconcile_omission",
+    "RED_no_metadata_UUID_query_on_rejected_fallback"
+  ],
+  "green_case_ids": [
+    "GREEN_session_id_absent_metadata_slug",
+    "GREEN_same_tenant_metadata_fallback",
+    "GREEN_addon_same_tenant",
+    "GREEN_idempotent_same_tenant",
+    "GREEN_payment_truth_locked_hold_paths"
+  ],
+  "sql_contract": {
+    "session_predicate": "WHERE p.stripe_checkout_session_id = $1 AND cl.slug = $2",
+    "metadata_predicate": "WHERE p.id = $1::uuid AND cl.slug = $2",
+    "parameterized": true,
+    "no_string_interpolation_of_slug": true
+  }
+}

@@ -3,7 +3,14 @@
 /**
  * Stripe checkout.session payment truth — lookup + validation helpers for
  * POST /staff/stripe/webhook (Stage 8.4.11). Shared by staff-query-api and tests.
+ *
+ * FORTRESS Slice 15B: lookup and validation bind to an authoritative
+ * expectedClientSlug (deployment/runtime). Stripe metadata is never tenant
+ * authority. Both session-id and metadata.payment_id SELECTs are scoped by
+ * exact cl.slug ownership via parameterization.
  */
+
+const { trimSlug } = require('./stripe-webhook-tenant-config');
 
 const STRIPE_BOOKING_PAYMENT_EVENT_TYPES = Object.freeze([
   'checkout.session.completed',
@@ -51,39 +58,223 @@ const PAYMENT_LOOKUP_SQL = `
     JOIN bookings b  ON b.id = p.booking_id AND b.client_id = p.client_id
     JOIN clients  cl ON cl.id = p.client_id`;
 
-async function lookupPaymentForStripeSession(pg, session) {
-  if (!pg || !session || !session.id) return null;
+/**
+ * Structured lookup result. query_count is the number of payment SELECTs
+ * executed (0 early gate / 1 session-id path / 2 session miss + metadata UUID).
+ * metadata_fallback_queried / metadata_query_executed are true only when the
+ * p.id UUID SELECT ran. Rejected metadata fallback still reports queried=true
+ * and query_count=1 after the session-id SELECT missed — it does not claim
+ * zero DB queries; it refuses the metadata.payment_id existence probe.
+ *
+ * @returns {{
+ *   ok: boolean,
+ *   payment: object|null,
+ *   reason: string|null,
+ *   queried: boolean,
+ *   query_count: number,
+ *   lookup_path: string|null,
+ *   metadata_fallback_queried: boolean,
+ *   metadata_query_executed: boolean,
+ * }}
+ */
+function lookupResult(fields) {
+  return {
+    ok: fields.ok,
+    payment: fields.payment,
+    reason: fields.reason,
+    queried: fields.queried,
+    query_count: fields.query_count,
+    lookup_path: fields.lookup_path,
+    metadata_fallback_queried: fields.metadata_fallback_queried,
+    metadata_query_executed: fields.metadata_query_executed,
+  };
+}
+
+/**
+ * Look up a payment for a Stripe Checkout Session, scoped to expectedClientSlug.
+ *
+ * Session-id path is authoritative inside the expected tenant and may accept
+ * absent metadata.client_slug. Metadata.payment_id fallback requires
+ * metadata.client_slug present and exactly equal to expectedClientSlug before
+ * any metadata.payment_id UUID query (fail closed; cannot leak that object's
+ * existence on absent/mismatch). The session-id SELECT still runs first.
+ *
+ * @returns {{
+ *   ok: boolean,
+ *   payment: object|null,
+ *   reason: string|null,
+ *   queried: boolean,
+ *   query_count: number,
+ *   lookup_path: string|null,
+ *   metadata_fallback_queried: boolean,
+ *   metadata_query_executed: boolean,
+ * }}
+ */
+async function lookupPaymentForStripeSession(pg, session, expectedClientSlug) {
+  const slug = trimSlug(expectedClientSlug);
+  if (!slug) {
+    return lookupResult({
+      ok: false,
+      payment: null,
+      reason: 'expected_client_slug_required',
+      queried: false,
+      query_count: 0,
+      lookup_path: null,
+      metadata_fallback_queried: false,
+      metadata_query_executed: false,
+    });
+  }
+  if (!pg || !session || !session.id) {
+    return lookupResult({
+      ok: false,
+      payment: null,
+      reason: 'invalid_session',
+      queried: false,
+      query_count: 0,
+      lookup_path: null,
+      metadata_fallback_queried: false,
+      metadata_query_executed: false,
+    });
+  }
+
   const sessionId = session.id;
-  const metaPaymentId = session.metadata && session.metadata.payment_id;
+  const metaPaymentId = session.metadata && session.metadata.payment_id
+    ? trimSlug(session.metadata.payment_id)
+    : '';
+  const metaClientSlug = session.metadata && session.metadata.client_slug
+    ? trimSlug(session.metadata.client_slug)
+    : '';
 
   const bySession = await pg.query(
     `${PAYMENT_LOOKUP_SQL}
      WHERE p.stripe_checkout_session_id = $1
+       AND cl.slug = $2
      LIMIT 1`,
-    [sessionId],
+    [sessionId, slug],
   );
   if (bySession.rows[0]) {
-    return bySession.rows[0];
+    const row = bySession.rows[0];
+    if (trimSlug(row.client_slug) !== slug) {
+      return lookupResult({
+        ok: false,
+        payment: null,
+        reason: 'payment_client_slug_mismatch',
+        queried: true,
+        query_count: 1,
+        lookup_path: 'session_id',
+        metadata_fallback_queried: false,
+        metadata_query_executed: false,
+      });
+    }
+    return lookupResult({
+      ok: true,
+      payment: row,
+      reason: null,
+      queried: true,
+      query_count: 1,
+      lookup_path: 'session_id',
+      metadata_fallback_queried: false,
+      metadata_query_executed: false,
+    });
   }
 
-  if (metaPaymentId) {
-    const byMeta = await pg.query(
-      `${PAYMENT_LOOKUP_SQL}
-       WHERE p.id = $1::uuid
-       LIMIT 1`,
-      [metaPaymentId],
-    );
-    return byMeta.rows[0] || null;
+  if (!metaPaymentId) {
+    return lookupResult({
+      ok: true,
+      payment: null,
+      reason: 'payment_not_found',
+      queried: true,
+      query_count: 1,
+      lookup_path: null,
+      metadata_fallback_queried: false,
+      metadata_query_executed: false,
+    });
   }
 
-  return null;
+  // Metadata-ID fallback: require metadata.client_slug === expected before any
+  // p.id UUID query. Session-id SELECT already ran (query_count=1); do not
+  // probe metadata.payment_id existence on absent/mismatched slug.
+  if (!metaClientSlug) {
+    return lookupResult({
+      ok: false,
+      payment: null,
+      reason: 'metadata_client_slug_required',
+      queried: true,
+      query_count: 1,
+      lookup_path: null,
+      metadata_fallback_queried: false,
+      metadata_query_executed: false,
+    });
+  }
+  if (metaClientSlug !== slug) {
+    return lookupResult({
+      ok: false,
+      payment: null,
+      reason: 'metadata_client_slug_mismatch',
+      queried: true,
+      query_count: 1,
+      lookup_path: null,
+      metadata_fallback_queried: false,
+      metadata_query_executed: false,
+    });
+  }
+
+  const byMeta = await pg.query(
+    `${PAYMENT_LOOKUP_SQL}
+     WHERE p.id = $1::uuid
+       AND cl.slug = $2
+     LIMIT 1`,
+    [metaPaymentId, slug],
+  );
+  const row = byMeta.rows[0] || null;
+  if (row && trimSlug(row.client_slug) !== slug) {
+    return lookupResult({
+      ok: false,
+      payment: null,
+      reason: 'payment_client_slug_mismatch',
+      queried: true,
+      query_count: 2,
+      lookup_path: 'metadata_payment_id',
+      metadata_fallback_queried: true,
+      metadata_query_executed: true,
+    });
+  }
+  return lookupResult({
+    ok: true,
+    payment: row,
+    reason: row ? null : 'payment_not_found',
+    queried: true,
+    query_count: 2,
+    lookup_path: row ? 'metadata_payment_id' : null,
+    metadata_fallback_queried: true,
+    metadata_query_executed: true,
+  });
 }
 
-function validateStripeBookingPaymentEvent(pm, session, eventType) {
+/**
+ * Validate Stripe session against a looked-up payment row.
+ * Independently requires pm.client_slug === expectedClientSlug (metadata is not authority).
+ * Retains metadata mismatch / session / amount / status checks.
+ *
+ * @param {object|null} pm
+ * @param {object} session
+ * @param {string} eventType
+ * @param {string} expectedClientSlug
+ * @returns {string[]}
+ */
+function validateStripeBookingPaymentEvent(pm, session, eventType, expectedClientSlug) {
   const reasons = [];
+  const slug = trimSlug(expectedClientSlug);
+  if (!slug) {
+    reasons.push('expected_client_slug_required');
+    return reasons;
+  }
   if (!pm) {
     reasons.push('payment_not_found');
     return reasons;
+  }
+  if (trimSlug(pm.client_slug) !== slug) {
+    reasons.push('payment_client_slug_mismatch');
   }
   if (pm.payment_status === 'paid') {
     return reasons;
@@ -158,6 +349,7 @@ function bookingMetadataPatchForStripePayment(pm, newBkPayStatus) {
 module.exports = {
   STRIPE_BOOKING_PAYMENT_EVENT_TYPES,
   ELIGIBLE_PAYMENT_LEDGER_STATUSES,
+  PAYMENT_LOOKUP_SQL,
   lookupPaymentForStripeSession,
   validateStripeBookingPaymentEvent,
   bookingMetadataPatchForStripePayment,

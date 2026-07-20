@@ -201,12 +201,33 @@ ok('E DEFAULT_CLIENT hardcoded wolfhouse-somo',
 ok('E handleBotBookingCreate trustedClientSlug from body',
   /trustedClientSlug:\s*clientSlug/.test(staffApi)
   && /body\.client_slug \|\| DEFAULT_CLIENT/.test(staffApi));
-ok('E Stripe lookup falls back to metadata.payment_id without client_id in WHERE',
-  /WHERE p\.id = \$1::uuid/.test(stripeTruth)
-  && /metaPaymentId/.test(stripeTruth)
-  && !/WHERE p\.id = \$1::uuid[\s\S]{0,80}client_id/.test(stripeTruth));
-ok('E validateStripeBookingPaymentEvent optional client_slug check',
-  /if \(metaClientSlug && metaClientSlug !== pm\.client_slug\)/.test(stripeTruth));
+
+// B13 live-code evidence: historical 15A audit stays frozen in matrix/attack-cases.
+// When Slice 15B remediation overlay exists, assert remediating patterns instead of
+// re-asserting the pre-fix vulnerable SQL shape against live code.
+const remediationOverlayPath = path.join(FIXTURE_DIR, 'slice15b-b13-remediation-overlay.json');
+const has15bRemediation = fs.existsSync(remediationOverlayPath);
+if (has15bRemediation) {
+  const overlay = readJson(remediationOverlayPath);
+  ok('E B13 remediated via 15B overlay (historical matrix untouched)',
+    overlay
+    && overlay.boundary_id === 'B13_stripe_webhook_payment_lookup'
+    && overlay.historical_audit_unchanged === true
+    && overlay.status === 'remediated'
+    && /expectedClientSlug/.test(stripeTruth)
+    && /cl\.slug = \$2/.test(stripeTruth)
+    && /metadata_client_slug_required/.test(stripeTruth));
+  ok('E validateStripeBookingPaymentEvent retains metadata mismatch check',
+    /if \(metaClientSlug && metaClientSlug !== pm\.client_slug\)/.test(stripeTruth)
+    && /payment_client_slug_mismatch/.test(stripeTruth));
+} else {
+  ok('E Stripe lookup falls back to metadata.payment_id without client_id in WHERE',
+    /WHERE p\.id = \$1::uuid/.test(stripeTruth)
+    && /metaPaymentId/.test(stripeTruth)
+    && !/WHERE p\.id = \$1::uuid[\s\S]{0,80}client_id/.test(stripeTruth));
+  ok('E validateStripeBookingPaymentEvent optional client_slug check',
+    /if \(metaClientSlug && metaClientSlug !== pm\.client_slug\)/.test(stripeTruth));
+}
 ok('E Meta DEFAULT_CLIENT_SLUG wolfhouse-somo',
   /DEFAULT_CLIENT_SLUG = 'wolfhouse-somo'/.test(metaWh));
 ok('E Meta attachTenantChannelShadow does not overwrite client_slug',
@@ -304,7 +325,16 @@ for (const c of casesDoc.cases) {
         break;
 
       case 'stripe_validate_helper': {
-        const reasons = validateStripeBookingPaymentEvent(input.pm, input.session, input.eventType);
+        // 15A historical cases model optional metadata.client_slug checks.
+        // Pass matching expectedClientSlug so independent 15B tenant bind does not
+        // rewrite the historical metadata-optional assertion surface.
+        const expectedSlug = (input.pm && input.pm.client_slug) || 'sunset';
+        const reasons = validateStripeBookingPaymentEvent(
+          input.pm,
+          input.session,
+          input.eventType,
+          expectedSlug,
+        );
         if (expect.reasons_include) {
           ok(label, reasons.includes(expect.reasons_include), JSON.stringify(reasons));
         } else if (expect.reasons_exclude) {
