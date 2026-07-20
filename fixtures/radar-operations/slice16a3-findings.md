@@ -7,7 +7,7 @@
 
 ## Outcome
 
-Freeze an **independent, data-only** exact Azure evidence-capture contract that binds every method ID to command/REST method/path/API version/body schema, allowed subscription/RGs/hosts, retry + fallback policy, and one attempt-log record per physical dispatch (including failures). Sanitized raw response artifact hashes and the complete manifest hash are independently recomputable. The offline verifier consumes only the frozen spec and artifacts — it must not import any capture implementation.
+Freeze an **independent, data-only** exact Azure evidence-capture contract that binds every method ID to exact executable command and/or REST method/path/API version/body (no free URL/body/name placeholders), per-method resource-name and sampled-diagnostic allowlists, retry + fallback policy, and a closed whole attempt-log schema (one row per physical dispatch including failures). Sanitized raw response artifact hashes and `complete_manifest_sha256` are independently recomputable over the full frozen scope. The offline verifier consumes only the frozen spec and artifacts — it must not import any capture implementation.
 
 ## Why 16A2 is deferred
 
@@ -16,11 +16,13 @@ Freeze an **independent, data-only** exact Azure evidence-capture contract that 
 ## Frozen method / attempt semantics
 
 - **17 method IDs** in `slice16a3-method-spec.json` (subscription pin, RG inventory, CostManagement ActualCost query, budgets/alerts/diagnostics/ACA/PG/LAW/AppInsights/healthz).
+- **Exact bindings:** each method enumerates `bindings[]` with concrete `command`, `rest.method`/`path`/`api_version`, and `body` — no `{rg}`/`{name}`/`{host}`/`{url}`/`{body}` placeholders.
+- **Per-method allowlists:** `allowed_resource_names` and `allowed_sampled_diagnostic_resource_ids` (exact subscription/RG/resource IDs for diagnostics).
 - **Scope:** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`; healthz hosts `staff-staging.lunafrontdesk.com`, `sunset-staging.lunafrontdesk.com`.
 - **POST** allowed only for `cost_query` with frozen ActualCost body schema.
 - **Retry/fallback** are explicit per method; hidden retries/fallbacks are defects.
-- **Attempt unit:** one log record per physical dispatch attempt, including failures and declared fallback steps.
-- **Hashes:** canonical JSON + SHA-256; `complete_manifest_sha256` covers the hashable method-spec projection.
+- **Attempt log:** closed whole-log schema — unique contiguous ordered IDs (`att-001`…), bounded attempts, exact retryable classes and fallback chain, one row per physical dispatch, outcome-conditional error/response/hash fields, `additionalProperties=false`.
+- **Hashes:** canonical JSON + SHA-256; `complete_manifest_sha256` covers every frozen spec/schema/policy/owner/adversarial/artifact-index byte (manifest-hash fields stripped).
 
 ## Preserved G09 budget-vs-anomaly semantics (from 16A2)
 
@@ -34,6 +36,8 @@ Merged 16A historical matrix naming remains until a later ledger remediation sli
 
 ## Adversarial RED coverage
 
+Each RED case is a **one-field mutation** of a schema-valid GREEN control (no `implied_*` metadata). Verifier proves intended delta and actual rejection.
+
 | ID | Attack |
 |----|--------|
 | AC16A3_COMMAND_SUBSTITUTION | Allowlisted method_id with substituted secret command |
@@ -42,18 +46,18 @@ Merged 16A historical matrix naming remains until a later ledger remediation sli
 | AC16A3_ALTERED_PATH | REST path drift |
 | AC16A3_ALTERED_API_VERSION | API version drift |
 | AC16A3_ALTERED_BODY | cost_query body schema drift |
-| AC16A3_HIDDEN_RETRY | Unrecorded 429 retry |
-| AC16A3_HIDDEN_FALLBACK | Unrecorded healthz transport fallback |
-| AC16A3_MISSING_FAILURE_RECORD | Known failure absent from attempt log |
+| AC16A3_HIDDEN_RETRY | Unrecorded 429 retry (remove failure row) |
+| AC16A3_HIDDEN_FALLBACK | Unrecorded healthz transport fallback (`is_fallback` flip) |
+| AC16A3_MISSING_FAILURE_RECORD | Known failure flipped to success |
 | AC16A3_SHARED_CONSTANT_DRIFT | Impl hardcoded inventory diverges from frozen spec |
 
 ## Bounded replacement implementation owner
 
-**Slice:** `16A4_azure_capture_implementation`  
-**Planned module:** `scripts/lib/radar-operations-azure-capture.js`  
-**Planned CLI:** `scripts/capture-radar-operations-staging-readonly.js`  
-**Must load:** `fixtures/radar-operations/slice16a3-method-spec.json`  
-**Must not be imported by the verifier.**  
+**Slice:** `16A4_azure_capture_implementation`
+**Planned module:** `scripts/lib/radar-operations-azure-capture.js`
+**Planned CLI:** `scripts/capture-radar-operations-staging-readonly.js`
+**Must load:** `fixtures/radar-operations/slice16a3-method-spec.json`
+**Must not be imported by the verifier.**
 **Ancestry:** clean master after 16A3 merge — not deferred 16A2.
 
 ## Gates

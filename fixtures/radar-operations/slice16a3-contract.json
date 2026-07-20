@@ -41,12 +41,11 @@
     "fixtures/radar-operations/slice16a3-findings.md",
     "scripts/verify-radar-slice16a3-azure-capture-contract.js"
   ],
-  "complete_manifest_sha256": "ee92698d15a60f9a6d7b95e92db6b55c330f6a13ec9b0fb99af66291b5efb57c",
   "frozen_method_attempt_semantics": {
-    "method_binding": "Each method_id binds exact command_template and/or REST method/path_template/api_version/body_schema, plus allowed subscription/RGs/hosts, retry_policy, and fallback_policy.",
+    "method_binding": "Each method_id binds exact executable command and/or REST method/path/api_version/body entries in bindings[], plus per-method allowed_resource_names and allowed_sampled_diagnostic_resource_ids, retry_policy, and fallback_policy. No free URL/body/name placeholders.",
     "attempt_unit": "physical_dispatch_attempt",
-    "attempt_rule": "One attempt-log record per physical dispatch including failures, retries, and declared fallback steps. Hidden retries/fallbacks and missing failure records are defects.",
-    "hash_rule": "response_sha256 and complete_manifest_sha256 are independently recomputable from sanitized fixtures via frozen canonical JSON + SHA-256."
+    "attempt_rule": "Closed whole-log schema: unique contiguous ordered attempt IDs, bounded attempts, exact retryable classes and fallback chain, one row per physical dispatch, outcome-conditional error/response/hash fields, additionalProperties=false. Hidden retries/fallbacks and missing failure records are defects.",
+    "hash_rule": "response_sha256 and complete_manifest_sha256 are independently recomputable from sanitized fixtures via frozen canonical JSON + SHA-256 over the full manifest scope."
   },
   "verifier_independence": {
     "may_consume": [
@@ -75,7 +74,7 @@
       "Record one attempt log row per physical attempt including failures",
       "Declare and record every fallback step",
       "Write sanitized raw response artifacts with recomputable hashes",
-      "Emit complete_manifest_sha256 matching frozen method-spec hashable projection"
+      "Emit complete_manifest_sha256 matching frozen multi-artifact byte scope"
     ],
     "basis": "clean master after 16A3 merge; do not use deferred 16A2 branch as ancestry"
   },
@@ -106,5 +105,6 @@
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
     "git diff --check 5a8b08d395e11c51baf928b918016d5dd5bb4afe..HEAD"
-  ]
+  ],
+  "complete_manifest_sha256": "693e94d47f80d102ad380d56e4d4da74f6fe9c348892a9fb623aec5ad1c9af5b"
 }

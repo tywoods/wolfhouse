@@ -14,11 +14,20 @@
   },
   "response_sha256": "sha256(canonical_json(sanitized_raw_response_object))",
   "request_body_sha256": "sha256(canonical_json(request_body_object_or_null))",
-  "complete_manifest_sha256": "sha256(canonical_json({allowed_subscription_id,allowed_resource_groups,forbidden_resource_groups,allowed_public_healthz_hosts,forbidden_path_markers,forbidden_command_markers,mutation_policy,sampled_diagnostic_resources,methods,attempt_semantics,pre_dispatch_rule}))",
+  "complete_manifest_scope": [
+    "fixtures/radar-operations/slice16a3-method-spec.json",
+    "fixtures/radar-operations/slice16a3-attempt-log.schema.json",
+    "fixtures/radar-operations/slice16a3-hash-policy.json",
+    "fixtures/radar-operations/slice16a3-contract.json#bounded_replacement_implementation_owner",
+    "fixtures/radar-operations/slice16a3-adversarial-cases.json",
+    "fixtures/radar-operations/slice16a3-sample-artifacts/artifact-index.json"
+  ],
+  "complete_manifest_sha256_rule": "sha256(canonical_json({path: strip_manifest_hash(parsed_json_or_owner_projection)} for each scope entry, keys sorted))",
   "sanitization_rules": [
     "Redact secret-bearing string values to [REDACTED] / [REDACTED_DSN] / [REDACTED_AI_CONN]",
     "Never store live secret material in fixtures",
     "Hash only after sanitization"
   ],
-  "verifier_independence": "Hashes must recompute from frozen fixtures alone; verifier must not import capture implementation modules."
+  "verifier_independence": "Hashes must recompute from frozen fixtures alone; verifier must not import capture implementation modules.",
+  "complete_manifest_sha256": "693e94d47f80d102ad380d56e4d4da74f6fe9c348892a9fb623aec5ad1c9af5b"
 }

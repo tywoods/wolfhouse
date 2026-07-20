@@ -1,21 +1,32 @@
 {
+  "id": "sanitized-cost-query",
+  "name": "Query",
   "properties": {
+    "nextLink": null,
     "columns": [
       {
-        "name": "PreTaxCost"
+        "name": "ServiceName",
+        "type": "string"
       },
       {
-        "name": "ServiceName"
+        "name": "Cost",
+        "type": "number"
+      },
+      {
+        "name": "Currency",
+        "type": "string"
       }
     ],
     "rows": [
       [
-        12.5,
-        "Azure Container Apps"
+        "Virtual Machines",
+        21.22,
+        "USD"
       ],
       [
-        3.25,
-        "Log Analytics"
+        "Azure Database for PostgreSQL",
+        15.03,
+        "USD"
       ]
     ]
   }

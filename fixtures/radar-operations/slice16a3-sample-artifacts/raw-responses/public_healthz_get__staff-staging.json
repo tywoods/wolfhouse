@@ -1,6 +1,5 @@
 {
-  "status": 200,
-  "body": {
-    "status": "ok"
-  }
+  "status": "ok",
+  "service": "wolfhouse-staff-query-api",
+  "stage": "7.7b"
 }

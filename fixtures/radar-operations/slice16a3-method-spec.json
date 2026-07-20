@@ -68,56 +68,73 @@
     {
       "rg": "wh-staging-rg",
       "name": "wh-staging-staff-api",
-      "type": "Microsoft.App/containerApps"
+      "type": "Microsoft.App/containerApps",
+      "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api"
     },
     {
       "rg": "wh-staging-rg",
       "name": "wh-staging-pg-app",
-      "type": "Microsoft.DBforPostgreSQL/flexibleServers"
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers",
+      "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/wh-staging-pg-app"
     },
     {
       "rg": "wh-staging-rg",
       "name": "wh-staging-kv",
-      "type": "Microsoft.KeyVault/vaults"
+      "type": "Microsoft.KeyVault/vaults",
+      "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.KeyVault/vaults/wh-staging-kv"
     },
     {
       "rg": "wh-staging-rg",
       "name": "wh-staging-appinsights",
-      "type": "Microsoft.Insights/components"
+      "type": "Microsoft.Insights/components",
+      "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/components/wh-staging-appinsights"
     },
     {
       "rg": "wh-staging-rg",
       "name": "wh-staging-logs",
-      "type": "Microsoft.OperationalInsights/workspaces"
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.OperationalInsights/workspaces/wh-staging-logs"
     },
     {
       "rg": "luna-sunset-staging-rg",
       "name": "luna-sunset-staging-staff-api",
-      "type": "Microsoft.App/containerApps"
+      "type": "Microsoft.App/containerApps",
+      "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api"
     },
     {
       "rg": "luna-sunset-staging-rg",
       "name": "luna-sunset-staging-pg-app",
-      "type": "Microsoft.DBforPostgreSQL/flexibleServers"
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers",
+      "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app"
     },
     {
       "rg": "luna-sunset-staging-rg",
       "name": "luna-sunset-staging-kv",
-      "type": "Microsoft.KeyVault/vaults"
+      "type": "Microsoft.KeyVault/vaults",
+      "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv"
     },
     {
       "rg": "luna-sunset-staging-rg",
       "name": "luna-sunset-staging-appinsights",
-      "type": "Microsoft.Insights/components"
+      "type": "Microsoft.Insights/components",
+      "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/components/luna-sunset-staging-appinsights"
     },
     {
       "rg": "luna-sunset-staging-rg",
       "name": "luna-sunset-staging-logs",
-      "type": "Microsoft.OperationalInsights/workspaces"
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.OperationalInsights/workspaces/luna-sunset-staging-logs"
     }
   ],
   "methods": [
     {
+      "id": "arm_account_show",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "allowed_resource_groups": [],
+      "allowed_resource_names": [],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 1,
         "retry_on_error_classes": [],
@@ -132,57 +149,33 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": false
       },
-      "id": "arm_account_show",
-      "surface": "az_cli",
-      "http_method": "GET",
-      "command_template": "az account show -o json",
-      "rest": null,
+      "bindings": [
+        {
+          "resource_group": null,
+          "resource_name": null,
+          "host": null,
+          "command": "az account show -o json",
+          "rest": null,
+          "body": null
+        }
+      ],
       "notes": "Preflight subscription pin only"
     },
     {
-      "retry_policy": {
-        "max_physical_attempts": 5,
-        "retry_on_error_classes": [
-          "http_429",
-          "azure_throttled"
-        ],
-        "backoff_ms_by_attempt_index": [
-          8000,
-          16000,
-          24000,
-          32000
-        ],
-        "record_each_physical_attempt": true,
-        "record_failures": true,
-        "hidden_retries_forbidden": true
-      },
-      "fallback_policy": {
-        "declared_chain": [],
-        "undeclared_fallbacks_forbidden": true,
-        "record_each_fallback_step": true
-      },
-      "body_schema": null,
-      "allowed_hosts": [],
-      "scope": {
-        "subscription_required": true,
-        "resource_group_required": true
-      },
       "id": "arm_rg_show",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az group show -n {rg} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}",
-        "api_version": "2021-04-01"
-      }
-    },
-    {
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 5,
         "retry_on_error_classes": [
@@ -205,22 +198,112 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az group show -n wh-staging-rg -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg",
+            "api_version": "2021-04-01"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az group show -n luna-sunset-staging-rg -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+            "api_version": "2021-04-01"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "arm_resource_list",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az resource list -g {rg} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/resources",
-        "api_version": "2021-04-01"
-      }
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az resource list -g wh-staging-rg -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/resources",
+            "api_version": "2021-04-01"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az resource list -g luna-sunset-staging-rg -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/resources",
+            "api_version": "2021-04-01"
+          },
+          "body": null
+        }
+      ]
     },
     {
+      "id": "cost_query",
+      "surface": "arm_rest",
+      "http_method": "POST",
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 7,
         "retry_on_error_classes": [
@@ -311,61 +394,93 @@
           }
         }
       },
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
-      "id": "cost_query",
-      "surface": "arm_rest",
-      "http_method": "POST",
-      "command_template": "az rest --method post --url {costUrl} --body @{bodyPath} -o json",
-      "rest": {
-        "method": "POST",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.CostManagement/query",
-        "api_version": "2023-11-01"
-      },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az rest --method post --url https://management.azure.com/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.CostManagement/query?api-version=2023-11-01 --body @cost-query-body.sample.json -o json",
+          "rest": {
+            "method": "POST",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.CostManagement/query",
+            "api_version": "2023-11-01"
+          },
+          "body": {
+            "type": "ActualCost",
+            "timeframe": "Custom",
+            "timePeriod": {
+              "from": "2026-07-01",
+              "to": "2026-07-20"
+            },
+            "dataset": {
+              "granularity": "None",
+              "aggregation": {
+                "totalCost": {
+                  "name": "Cost",
+                  "function": "Sum"
+                }
+              },
+              "grouping": [
+                {
+                  "type": "Dimension",
+                  "name": "ServiceName"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az rest --method post --url https://management.azure.com/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.CostManagement/query?api-version=2023-11-01 --body @cost-query-body.sample.json -o json",
+          "rest": {
+            "method": "POST",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.CostManagement/query",
+            "api_version": "2023-11-01"
+          },
+          "body": {
+            "type": "ActualCost",
+            "timeframe": "Custom",
+            "timePeriod": {
+              "from": "2026-07-01",
+              "to": "2026-07-20"
+            },
+            "dataset": {
+              "granularity": "None",
+              "aggregation": {
+                "totalCost": {
+                  "name": "Cost",
+                  "function": "Sum"
+                }
+              },
+              "grouping": [
+                {
+                  "type": "Dimension",
+                  "name": "ServiceName"
+                }
+              ]
+            }
+          }
+        }
+      ],
       "notes": "Only allowed POST; ActualCost aggregation; no budget mutation"
     },
     {
-      "retry_policy": {
-        "max_physical_attempts": 5,
-        "retry_on_error_classes": [
-          "http_429",
-          "azure_throttled"
-        ],
-        "backoff_ms_by_attempt_index": [
-          8000,
-          16000,
-          24000,
-          32000
-        ],
-        "record_each_physical_attempt": true,
-        "record_failures": true,
-        "hidden_retries_forbidden": true
-      },
-      "fallback_policy": {
-        "declared_chain": [],
-        "undeclared_fallbacks_forbidden": true,
-        "record_each_fallback_step": true
-      },
-      "body_schema": null,
-      "allowed_hosts": [],
-      "scope": {
-        "subscription_required": true,
-        "resource_group_required": true
-      },
       "id": "consumption_budgets_list",
       "surface": "arm_rest",
       "http_method": "GET",
-      "command_template": "az rest --method get --url {budgetsUrl} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Consumption/budgets",
-        "api_version": "2023-11-01"
-      }
-    },
-    {
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 5,
         "retry_on_error_classes": [
@@ -388,22 +503,48 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az rest --method get --url https://management.azure.com/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Consumption/budgets?api-version=2023-11-01 -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Consumption/budgets",
+            "api_version": "2023-11-01"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az rest --method get --url https://management.azure.com/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Consumption/budgets?api-version=2023-11-01 -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Consumption/budgets",
+            "api_version": "2023-11-01"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "metric_alerts_list",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az monitor metrics alert list -g {rg} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/metricAlerts",
-        "api_version": "2018-03-01"
-      }
-    },
-    {
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 5,
         "retry_on_error_classes": [
@@ -426,22 +567,48 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az monitor metrics alert list -g wh-staging-rg -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/metricAlerts",
+            "api_version": "2018-03-01"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az monitor metrics alert list -g luna-sunset-staging-rg -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/metricAlerts",
+            "api_version": "2018-03-01"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "activity_log_alerts_list",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az monitor activity-log alert list -g {rg} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/activityLogAlerts",
-        "api_version": "2020-10-01"
-      }
-    },
-    {
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 5,
         "retry_on_error_classes": [
@@ -464,22 +631,48 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az monitor activity-log alert list -g wh-staging-rg -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/activityLogAlerts",
+            "api_version": "2020-10-01"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az monitor activity-log alert list -g luna-sunset-staging-rg -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/activityLogAlerts",
+            "api_version": "2020-10-01"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "scheduled_query_rules_list",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az monitor scheduled-query list -g {rg} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/scheduledQueryRules",
-        "api_version": "2023-03-15-preview"
-      }
-    },
-    {
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 5,
         "retry_on_error_classes": [
@@ -502,22 +695,48 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az monitor scheduled-query list -g wh-staging-rg -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/scheduledQueryRules",
+            "api_version": "2023-03-15-preview"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az monitor scheduled-query list -g luna-sunset-staging-rg -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/scheduledQueryRules",
+            "api_version": "2023-03-15-preview"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "action_groups_list",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az monitor action-group list -g {rg} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/actionGroups",
-        "api_version": "2023-01-01"
-      }
-    },
-    {
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 5,
         "retry_on_error_classes": [
@@ -540,23 +759,70 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az monitor action-group list -g wh-staging-rg -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/actionGroups",
+            "api_version": "2023-01-01"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": null,
+          "host": null,
+          "command": "az monitor action-group list -g luna-sunset-staging-rg -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/actionGroups",
+            "api_version": "2023-01-01"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "diagnostic_settings_list",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az monitor diagnostic-settings list --resource {resourceId} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "{resourceId}/providers/Microsoft.Insights/diagnosticSettings",
-        "api_version": "2021-05-01-preview"
-      },
-      "notes": "Sampled allowlist resources only — not exhaustive RG scan"
-    },
-    {
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [
+        "wh-staging-staff-api",
+        "wh-staging-pg-app",
+        "wh-staging-kv",
+        "wh-staging-appinsights",
+        "wh-staging-logs",
+        "luna-sunset-staging-staff-api",
+        "luna-sunset-staging-pg-app",
+        "luna-sunset-staging-kv",
+        "luna-sunset-staging-appinsights",
+        "luna-sunset-staging-logs"
+      ],
+      "allowed_sampled_diagnostic_resource_ids": [
+        "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api",
+        "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/wh-staging-pg-app",
+        "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.KeyVault/vaults/wh-staging-kv",
+        "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/components/wh-staging-appinsights",
+        "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.OperationalInsights/workspaces/wh-staging-logs",
+        "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api",
+        "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app",
+        "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv",
+        "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/components/luna-sunset-staging-appinsights",
+        "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.OperationalInsights/workspaces/luna-sunset-staging-logs"
+      ],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 5,
         "retry_on_error_classes": [
@@ -579,22 +845,148 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": "wh-staging-staff-api",
+          "host": null,
+          "command": "az monitor diagnostic-settings list --resource /subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api/providers/Microsoft.Insights/diagnosticSettings",
+            "api_version": "2021-05-01-preview"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": "wh-staging-pg-app",
+          "host": null,
+          "command": "az monitor diagnostic-settings list --resource /subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/wh-staging-pg-app -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/wh-staging-pg-app/providers/Microsoft.Insights/diagnosticSettings",
+            "api_version": "2021-05-01-preview"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": "wh-staging-kv",
+          "host": null,
+          "command": "az monitor diagnostic-settings list --resource /subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.KeyVault/vaults/wh-staging-kv -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.KeyVault/vaults/wh-staging-kv/providers/Microsoft.Insights/diagnosticSettings",
+            "api_version": "2021-05-01-preview"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": "wh-staging-appinsights",
+          "host": null,
+          "command": "az monitor diagnostic-settings list --resource /subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/components/wh-staging-appinsights -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/components/wh-staging-appinsights/providers/Microsoft.Insights/diagnosticSettings",
+            "api_version": "2021-05-01-preview"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": "wh-staging-logs",
+          "host": null,
+          "command": "az monitor diagnostic-settings list --resource /subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.OperationalInsights/workspaces/wh-staging-logs -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.OperationalInsights/workspaces/wh-staging-logs/providers/Microsoft.Insights/diagnosticSettings",
+            "api_version": "2021-05-01-preview"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": "luna-sunset-staging-staff-api",
+          "host": null,
+          "command": "az monitor diagnostic-settings list --resource /subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api/providers/Microsoft.Insights/diagnosticSettings",
+            "api_version": "2021-05-01-preview"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": "luna-sunset-staging-pg-app",
+          "host": null,
+          "command": "az monitor diagnostic-settings list --resource /subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app/providers/Microsoft.Insights/diagnosticSettings",
+            "api_version": "2021-05-01-preview"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": "luna-sunset-staging-kv",
+          "host": null,
+          "command": "az monitor diagnostic-settings list --resource /subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv/providers/Microsoft.Insights/diagnosticSettings",
+            "api_version": "2021-05-01-preview"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": "luna-sunset-staging-appinsights",
+          "host": null,
+          "command": "az monitor diagnostic-settings list --resource /subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/components/luna-sunset-staging-appinsights -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/components/luna-sunset-staging-appinsights/providers/Microsoft.Insights/diagnosticSettings",
+            "api_version": "2021-05-01-preview"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": "luna-sunset-staging-logs",
+          "host": null,
+          "command": "az monitor diagnostic-settings list --resource /subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.OperationalInsights/workspaces/luna-sunset-staging-logs -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.OperationalInsights/workspaces/luna-sunset-staging-logs/providers/Microsoft.Insights/diagnosticSettings",
+            "api_version": "2021-05-01-preview"
+          },
+          "body": null
+        }
+      ],
+      "notes": "Sampled allowlist resources only — exact subscription/RG/resource IDs; not exhaustive RG scan"
+    },
+    {
       "id": "containerapp_env_show",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az containerapp env show -g {rg} -n {name} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name}",
-        "api_version": "2024-03-01"
-      }
-    },
-    {
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [
+        "wh-staging-env",
+        "luna-sunset-staging-env"
+      ],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 5,
         "retry_on_error_classes": [
@@ -617,22 +1009,51 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": "wh-staging-env",
+          "host": null,
+          "command": "az containerapp env show -g wh-staging-rg -n wh-staging-env -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/managedEnvironments/wh-staging-env",
+            "api_version": "2024-03-01"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": "luna-sunset-staging-env",
+          "host": null,
+          "command": "az containerapp env show -g luna-sunset-staging-rg -n luna-sunset-staging-env -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/managedEnvironments/luna-sunset-staging-env",
+            "api_version": "2024-03-01"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "containerapp_show",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az containerapp show -g {rg} -n {name} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name}",
-        "api_version": "2024-03-01"
-      }
-    },
-    {
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [
+        "wh-staging-staff-api",
+        "luna-sunset-staging-staff-api"
+      ],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 5,
         "retry_on_error_classes": [
@@ -655,22 +1076,50 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": "wh-staging-staff-api",
+          "host": null,
+          "command": "az containerapp show -g wh-staging-rg -n wh-staging-staff-api -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api",
+            "api_version": "2024-03-01"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": "luna-sunset-staging-staff-api",
+          "host": null,
+          "command": "az containerapp show -g luna-sunset-staging-rg -n luna-sunset-staging-staff-api -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api",
+            "api_version": "2024-03-01"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "containerapp_job_show",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az containerapp job show -g {rg} -n {name} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/jobs/{name}",
-        "api_version": "2024-03-01"
-      }
-    },
-    {
+      "allowed_resource_groups": [
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [
+        "luna-sunset-staging-hold-expiry",
+        "luna-sunset-staging-sch-obs"
+      ],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 5,
         "retry_on_error_classes": [
@@ -693,22 +1142,52 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
+      "bindings": [
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": "luna-sunset-staging-hold-expiry",
+          "host": null,
+          "command": "az containerapp job show -g luna-sunset-staging-rg -n luna-sunset-staging-hold-expiry -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/jobs/luna-sunset-staging-hold-expiry",
+            "api_version": "2024-03-01"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": "luna-sunset-staging-sch-obs",
+          "host": null,
+          "command": "az containerapp job show -g luna-sunset-staging-rg -n luna-sunset-staging-sch-obs -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/jobs/luna-sunset-staging-sch-obs",
+            "api_version": "2024-03-01"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "postgres_flexible_show",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az postgres flexible-server show -g {rg} -n {name} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name}",
-        "api_version": "2023-12-01-preview"
-      }
-    },
-    {
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [
+        "wh-staging-pg-app",
+        "wh-staging-pg-n8n",
+        "luna-sunset-staging-pg-app"
+      ],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 5,
         "retry_on_error_classes": [
@@ -731,22 +1210,63 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": "wh-staging-pg-app",
+          "host": null,
+          "command": "az postgres flexible-server show -g wh-staging-rg -n wh-staging-pg-app -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/wh-staging-pg-app",
+            "api_version": "2023-12-01-preview"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": "wh-staging-pg-n8n",
+          "host": null,
+          "command": "az postgres flexible-server show -g wh-staging-rg -n wh-staging-pg-n8n -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/wh-staging-pg-n8n",
+            "api_version": "2023-12-01-preview"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": "luna-sunset-staging-pg-app",
+          "host": null,
+          "command": "az postgres flexible-server show -g luna-sunset-staging-rg -n luna-sunset-staging-pg-app -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app",
+            "api_version": "2023-12-01-preview"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "law_show",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az monitor log-analytics workspace show -g {rg} -n {name} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.OperationalInsights/workspaces/{name}",
-        "api_version": "2022-10-01"
-      }
-    },
-    {
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [
+        "wh-staging-logs",
+        "luna-sunset-staging-logs"
+      ],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
       "retry_policy": {
         "max_physical_attempts": 5,
         "retry_on_error_classes": [
@@ -769,22 +1289,115 @@
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [],
       "scope": {
         "subscription_required": true,
         "resource_group_required": true
       },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": "wh-staging-logs",
+          "host": null,
+          "command": "az monitor log-analytics workspace show -g wh-staging-rg -n wh-staging-logs -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.OperationalInsights/workspaces/wh-staging-logs",
+            "api_version": "2022-10-01"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": "luna-sunset-staging-logs",
+          "host": null,
+          "command": "az monitor log-analytics workspace show -g luna-sunset-staging-rg -n luna-sunset-staging-logs -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.OperationalInsights/workspaces/luna-sunset-staging-logs",
+            "api_version": "2022-10-01"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "appinsights_show",
       "surface": "az_cli",
       "http_method": "GET",
-      "command_template": "az monitor app-insights component show -g {rg} -a {name} -o json",
-      "rest": {
-        "method": "GET",
-        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/components/{name}",
-        "api_version": "2020-02-02"
-      }
+      "allowed_resource_groups": [
+        "wh-staging-rg",
+        "luna-sunset-staging-rg"
+      ],
+      "allowed_resource_names": [
+        "wh-staging-appinsights",
+        "luna-sunset-staging-appinsights"
+      ],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [],
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "bindings": [
+        {
+          "resource_group": "wh-staging-rg",
+          "resource_name": "wh-staging-appinsights",
+          "host": null,
+          "command": "az monitor app-insights component show -g wh-staging-rg -a wh-staging-appinsights -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/components/wh-staging-appinsights",
+            "api_version": "2020-02-02"
+          },
+          "body": null
+        },
+        {
+          "resource_group": "luna-sunset-staging-rg",
+          "resource_name": "luna-sunset-staging-appinsights",
+          "host": null,
+          "command": "az monitor app-insights component show -g luna-sunset-staging-rg -a luna-sunset-staging-appinsights -o json",
+          "rest": {
+            "method": "GET",
+            "path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/components/luna-sunset-staging-appinsights",
+            "api_version": "2020-02-02"
+          },
+          "body": null
+        }
+      ]
     },
     {
+      "id": "public_healthz_get",
+      "surface": "https",
+      "http_method": "GET",
+      "allowed_resource_groups": [],
+      "allowed_resource_names": [],
+      "allowed_sampled_diagnostic_resource_ids": [],
+      "allowed_hosts": [
+        "staff-staging.lunafrontdesk.com",
+        "sunset-staging.lunafrontdesk.com"
+      ],
       "retry_policy": {
         "max_physical_attempts": 1,
         "retry_on_error_classes": [],
@@ -798,41 +1411,61 @@
           {
             "id": "curl_https_get",
             "surface": "curl",
-            "command_template": "curl -sS -m 45 -w \\n__HTTP_STATUS__:%{http_code} https://{host}/healthz"
+            "commands": [
+              "curl -sS -m 45 -w \\n__HTTP_STATUS__:%{http_code} https://staff-staging.lunafrontdesk.com/healthz",
+              "curl -sS -m 45 -w \\n__HTTP_STATUS__:%{http_code} https://sunset-staging.lunafrontdesk.com/healthz"
+            ]
           },
           {
             "id": "node_https_get",
             "surface": "https",
-            "command_template": "HTTPS GET https://{host}/healthz"
+            "commands": [
+              "HTTPS GET https://staff-staging.lunafrontdesk.com/healthz",
+              "HTTPS GET https://sunset-staging.lunafrontdesk.com/healthz"
+            ]
           }
         ],
         "undeclared_fallbacks_forbidden": true,
         "record_each_fallback_step": true
       },
       "body_schema": null,
-      "allowed_hosts": [
-        "staff-staging.lunafrontdesk.com",
-        "sunset-staging.lunafrontdesk.com"
-      ],
       "scope": {
         "subscription_required": false,
         "resource_group_required": false
       },
-      "id": "public_healthz_get",
-      "surface": "https",
-      "http_method": "GET",
-      "command_template": "HTTPS GET https://{host}/healthz",
-      "rest": {
-        "method": "GET",
-        "path_template": "https://{host}/healthz",
-        "api_version": null
-      },
-      "notes": "Staging public hostnames only; no auth secrets"
+      "bindings": [
+        {
+          "resource_group": null,
+          "resource_name": null,
+          "host": "staff-staging.lunafrontdesk.com",
+          "command": "HTTPS GET https://staff-staging.lunafrontdesk.com/healthz",
+          "rest": {
+            "method": "GET",
+            "path": "https://staff-staging.lunafrontdesk.com/healthz",
+            "api_version": null
+          },
+          "body": null
+        },
+        {
+          "resource_group": null,
+          "resource_name": null,
+          "host": "sunset-staging.lunafrontdesk.com",
+          "command": "HTTPS GET https://sunset-staging.lunafrontdesk.com/healthz",
+          "rest": {
+            "method": "GET",
+            "path": "https://sunset-staging.lunafrontdesk.com/healthz",
+            "api_version": null
+          },
+          "body": null
+        }
+      ],
+      "notes": "Staging public hostnames only; no auth secrets; curl→node fallback chain exact"
     }
   ],
   "attempt_semantics": {
     "unit": "physical_dispatch_attempt",
     "rule": "Exactly one attempt-log record per physical network/CLI dispatch, including failures, refusals after pre-dispatch, retries, and declared fallback steps.",
+    "whole_log_schema": "fixtures/radar-operations/slice16a3-attempt-log.schema.json",
     "required_fields": [
       "attempt_id",
       "logical_call_id",
@@ -845,6 +1478,7 @@
       "request_body_sha256",
       "subscription_id",
       "resource_group",
+      "resource_name",
       "host",
       "started_at_utc",
       "finished_at_utc",
@@ -861,9 +1495,39 @@
       "failure",
       "refused_pre_dispatch"
     ],
+    "attempt_id_rules": {
+      "pattern": "^att-\\d{3}$",
+      "unique": true,
+      "contiguous_ordered_from": "att-001"
+    },
+    "bounded_attempts": {
+      "max_attempts_in_log": 64,
+      "per_logical_call_max": "method.retry_policy.max_physical_attempts"
+    },
+    "retryable_error_classes_must_match_method_policy": true,
+    "fallback_chain_must_match_method_policy": true,
+    "one_row_per_physical_dispatch": true,
+    "outcome_conditional_fields": {
+      "success": {
+        "error_class": null,
+        "response_sha256": "required_hex64",
+        "response_artifact_relpath": "required_string"
+      },
+      "failure": {
+        "error_class": "required_string",
+        "response_sha256": null,
+        "response_artifact_relpath": null
+      },
+      "refused_pre_dispatch": {
+        "error_class": "required_string",
+        "response_sha256": null,
+        "response_artifact_relpath": null
+      }
+    },
     "hidden_retry_or_fallback_is_defect": true,
     "missing_failure_record_is_defect": true
   },
-  "pre_dispatch_rule": "Evaluate method_id, http_method, command_or_url, rest_path, api_version, body schema, subscription, RG, and host against this spec before any physical dispatch.",
-  "complete_manifest_sha256": "ee92698d15a60f9a6d7b95e92db6b55c330f6a13ec9b0fb99af66291b5efb57c"
+  "pre_dispatch_rule": "Evaluate method_id, http_method, command_or_url, rest_path, api_version, body, subscription, RG, resource_name, host, and sampled-diagnostic resource_id against exact bindings before any physical dispatch. Free URL/body/name placeholders are forbidden.",
+  "binding_rule": "Every method binds only exact executable commands and exact REST method/path/api_version/body entries enumerated in bindings[]. No {rg}/{name}/{host}/{url}/{body} placeholders.",
+  "complete_manifest_sha256": "693e94d47f80d102ad380d56e4d4da74f6fe9c348892a9fb623aec5ad1c9af5b"
 }

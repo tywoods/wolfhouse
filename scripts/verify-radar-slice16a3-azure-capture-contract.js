@@ -56,6 +56,8 @@ const REQUIRED_ADVERSARIAL_IDS = [
   'AC16A3_SHARED_CONSTANT_DRIFT',
 ];
 
+const FREE_PLACEHOLDER_RE = /(?<!%)\{[a-zA-Z_][a-zA-Z0-9_]*\}/;
+
 let pass = 0;
 let fail = 0;
 const redResults = [];
@@ -73,7 +75,7 @@ function ok(name, cond, detail) {
 
 function red(id, cond, detail) {
   const passed = ok(`RED ${id}`, cond, detail);
-  redResults.push({ id, ok: passed });
+  redResults.push({ id, ok: passed, detail: detail || '' });
   return passed;
 }
 
@@ -107,48 +109,93 @@ function secretFree(text, label) {
   return { ok: true };
 }
 
-function expandPathTemplate(template, vars) {
-  if (template == null) return null;
-  return String(template)
-    .replace(/\{sub\}/g, vars.sub || '')
-    .replace(/\{rg\}/g, vars.rg || '')
-    .replace(/\{name\}/g, vars.name || '')
-    .replace(/\{host\}/g, vars.host || '')
-    .replace(/\{resourceId\}/g, vars.resourceId || '');
-}
-
-function pathMatchesTemplate(actual, template, vars) {
-  if (template == null && actual == null) return true;
-  if (template == null || actual == null) return false;
-  if (template.includes('{resourceId}')) {
-    // Allow any resourceId prefix under allowed subscription + RG, then exact suffix.
-    const suffix = '/providers/Microsoft.Insights/diagnosticSettings';
-    if (!String(actual).endsWith(suffix)) return false;
-    const sub = vars.sub;
-    const rg = vars.rg;
-    const prefix = `/subscriptions/${sub}/resourceGroups/${rg}/`;
-    return String(actual).startsWith(prefix) || String(actual).includes('/providers/');
+function stripManifestHash(obj) {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(stripManifestHash);
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === 'complete_manifest_sha256' || k === 'method_spec_complete_manifest_sha256') continue;
+    out[k] = stripManifestHash(v);
   }
-  const expected = expandPathTemplate(template, vars);
-  return String(actual) === String(expected);
+  return out;
 }
 
-function commandMatchesTemplate(command, template) {
-  if (!template) return false;
-  const cmd = String(command || '');
-  // Template tokens {rg}/{name}/{host}/... become non-empty segments.
-  const escaped = template
-    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    .replace(/\\\{rg\\\}/g, '[A-Za-z0-9._-]+')
-    .replace(/\\\{name\\\}/g, '[A-Za-z0-9._-]+')
-    .replace(/\\\{host\\\}/g, '[A-Za-z0-9._-]+')
-    .replace(/\\\{sub\\\}/g, '[0-9a-fA-F-]+')
-    .replace(/\\\{resourceId\\\}/g, '\\S+')
-    .replace(/\\\{costUrl\\\}/g, '\\S+')
-    .replace(/\\\{budgetsUrl\\\}/g, '\\S+')
-    .replace(/\\\{bodyPath\\\}/g, '\\S+')
-    .replace(/\\\{body\\\}/g, '\\S+');
-  return new RegExp(`^${escaped}$`).test(cmd);
+function computeCompleteManifest(parts) {
+  const map = {};
+  for (const [rel, value] of Object.entries(parts)) {
+    map[rel] = stripManifestHash(value);
+  }
+  return hashCanonical(map);
+}
+
+function deepClone(v) {
+  return JSON.parse(JSON.stringify(v));
+}
+
+function getByPath(obj, dotted) {
+  const parts = String(dotted).split('.');
+  let cur = obj;
+  for (const p of parts) {
+    if (cur == null || typeof cur !== 'object') return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+function setByPath(obj, dotted, value) {
+  const parts = String(dotted).split('.');
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const p = parts[i];
+    if (cur[p] == null || typeof cur[p] !== 'object') cur[p] = {};
+    cur = cur[p];
+  }
+  cur[parts[parts.length - 1]] = value;
+}
+
+function applyMutation(target, mutation) {
+  const out = deepClone(target);
+  const field = mutation.field;
+  if (mutation.op === 'remove_attempt_id') {
+    out.attempts = (out.attempts || []).filter((a) => a.attempt_id !== mutation.value);
+    return out;
+  }
+  if (mutation.op === 'append' && field === 'allowed_method_ids') {
+    out.allowed_method_ids = [...(out.allowed_method_ids || []), mutation.value];
+    return out;
+  }
+  const m = /^attempts\[attempt_id=([^\]]+)\]\.(.+)$/.exec(field);
+  if (m) {
+    const attempt = (out.attempts || []).find((a) => a.attempt_id === m[1]);
+    if (!attempt) throw new Error(`attempt ${m[1]} not found for mutation`);
+    setByPath(attempt, m[2], mutation.value);
+    return out;
+  }
+  setByPath(out, field, mutation.value);
+  return out;
+}
+
+function proveIntendedDelta(before, after, intended) {
+  if (intended.op === 'remove_attempt_id' && intended.field === 'attempts') {
+    const beforeHas = (before.attempts || []).some((a) => a.attempt_id === 'att-003');
+    const afterHas = (after.attempts || []).some((a) => a.attempt_id === 'att-003');
+    return beforeHas && !afterHas
+      && (after.attempts || []).some((a) => a.attempt_id === 'att-004' && a.attempt_index === 1);
+  }
+  if (intended.op === 'append' && intended.field === 'allowed_method_ids') {
+    return (before.allowed_method_ids || []).length === intended.before_length
+      && (after.allowed_method_ids || []).includes(intended.after_extra)
+      && (after.allowed_method_ids || []).length === intended.before_length + 1;
+  }
+  const field = intended.field;
+  const m = /^attempts\[attempt_id=([^\]]+)\]\.(.+)$/.exec(field);
+  if (m) {
+    const b = (before.attempts || []).find((a) => a.attempt_id === m[1]);
+    const a = (after.attempts || []).find((a) => a.attempt_id === m[1]);
+    if (!b || !a) return false;
+    return getByPath(b, m[2]) === intended.before && getByPath(a, m[2]) === intended.after;
+  }
+  return getByPath(before, field) === intended.before && getByPath(after, field) === intended.after;
 }
 
 function bodyMatchesSchema(body, schema) {
@@ -182,9 +229,31 @@ function bodyMatchesSchema(body, schema) {
   return true;
 }
 
+function bindingMatches(binding, input) {
+  if (binding.command !== input.command_or_url) return false;
+  const restPath = input.rest_path == null ? null : String(input.rest_path);
+  if (binding.rest == null) {
+    if (restPath != null) return false;
+  } else {
+    if (binding.rest.method !== String(input.http_method || '').toUpperCase()) return false;
+    if (binding.rest.path !== restPath) return false;
+    if (binding.rest.api_version !== input.api_version) return false;
+  }
+  if ((binding.resource_group || null) !== (input.resource_group || null)) return false;
+  if ((binding.resource_name || null) !== (input.resource_name || null)) return false;
+  if ((binding.host || null) !== (input.host || null)) return false;
+  if (binding.body == null) {
+    if (input.request_body != null) return false;
+  } else if (hashCanonical(binding.body) !== hashCanonical(input.request_body)) {
+    // Binding freezes one sample body; schema may still accept shape variants —
+    // exact binding match requires exact body when binding.body is set.
+    return false;
+  }
+  return true;
+}
+
 /**
- * Evaluate a proposed dispatch against the frozen method-spec.
- * Returns { ok: true } or { ok: false, reasons: string[] }.
+ * Evaluate a proposed dispatch against exact frozen bindings.
  */
 function evaluatePreDispatch(spec, input) {
   const reasons = [];
@@ -198,7 +267,6 @@ function evaluatePreDispatch(spec, input) {
   if (http !== String(method.http_method).toUpperCase()) {
     reasons.push(`http_method mismatch (expected ${method.http_method})`);
   }
-
   if (http === 'POST' && !(spec.mutation_policy.post_allowed_only_for_method_ids || []).includes(method.id)) {
     reasons.push('POST not allowed for method_id');
   }
@@ -218,8 +286,11 @@ function evaluatePreDispatch(spec, input) {
       reasons.push(`forbidden command marker: ${marker}`);
     }
   }
-
   if (/restart/i.test(blob)) reasons.push('restart forbidden');
+
+  if (FREE_PLACEHOLDER_RE.test(cmd) || (restPath && FREE_PLACEHOLDER_RE.test(restPath))) {
+    reasons.push('free placeholder forbidden in command/path');
+  }
 
   if (method.scope && method.scope.subscription_required) {
     if (input.subscription_id !== spec.allowed_subscription_id) {
@@ -230,9 +301,21 @@ function evaluatePreDispatch(spec, input) {
     if (!(spec.allowed_resource_groups || []).includes(input.resource_group)) {
       reasons.push('resource_group not allowlisted');
     }
+    if ((method.allowed_resource_groups || []).length
+      && !(method.allowed_resource_groups || []).includes(input.resource_group)) {
+      reasons.push('resource_group not in method allowlist');
+    }
   }
   if ((spec.forbidden_resource_groups || []).includes(input.resource_group)) {
     reasons.push('forbidden resource_group');
+  }
+
+  if ((method.allowed_resource_names || []).length) {
+    if (!(method.allowed_resource_names || []).includes(input.resource_name)) {
+      reasons.push('resource_name not allowlisted');
+    }
+  } else if (input.resource_name != null) {
+    reasons.push('unexpected resource_name');
   }
 
   if ((method.allowed_hosts || []).length) {
@@ -241,43 +324,45 @@ function evaluatePreDispatch(spec, input) {
     }
   }
 
-  if (method.rest && method.rest.path_template) {
-    const vars = {
-      sub: spec.allowed_subscription_id,
-      rg: input.resource_group,
-      host: input.host,
-      name: 'x',
-      resourceId: restPath ? String(restPath).replace(/\/providers\/Microsoft\.Insights\/diagnosticSettings$/, '') : '',
-    };
-    if (!pathMatchesTemplate(restPath, method.rest.path_template, vars)) {
-      // For templates with {name}, compare structurally: same prefix/suffix around {name}
-      const tpl = method.rest.path_template;
-      if (tpl.includes('{name}')) {
-        const [pre, post] = expandPathTemplate(tpl, { ...vars, name: '\u0000' }).split('\u0000');
-        if (!(restPath && restPath.startsWith(pre) && restPath.endsWith(post))) {
-          reasons.push('rest path mismatch vs template');
-        }
-      } else if (tpl.includes('{host}')) {
-        const expected = expandPathTemplate(tpl, vars);
-        if (restPath !== expected) reasons.push('rest path mismatch vs template');
-      } else if (!pathMatchesTemplate(restPath, tpl, vars)) {
-        reasons.push('rest path mismatch vs template');
-      }
-    }
-    if (method.rest.api_version !== input.api_version) {
-      reasons.push(`api_version mismatch (expected ${method.rest.api_version})`);
-    }
-  } else if (method.rest === null && restPath != null) {
-    // account show has null rest; tolerate null only
-    reasons.push('unexpected rest_path');
+  if ((method.allowed_sampled_diagnostic_resource_ids || []).length) {
+    const okDiag = (method.allowed_sampled_diagnostic_resource_ids || []).some((id) => {
+      const suffix = `${id}/providers/Microsoft.Insights/diagnosticSettings`;
+      return restPath === suffix || cmd.includes(id);
+    });
+    if (!okDiag) reasons.push('diagnostic resource_id not in exact allowlist');
   }
 
-  if (method.command_template && !commandMatchesTemplate(cmd, method.command_template)) {
-    // Allow healthz fallback commands from declared chain
+  // Exact binding match (command may also be a declared fallback command)
+  const bindings = method.bindings || [];
+  let matched = bindings.some((b) => bindingMatches(b, input));
+  if (!matched) {
     const fallbackCmds = ((method.fallback_policy && method.fallback_policy.declared_chain) || [])
-      .map((s) => s.command_template);
-    const okFallback = fallbackCmds.some((t) => commandMatchesTemplate(cmd, t));
-    if (!okFallback) reasons.push('command does not match method command_template');
+      .flatMap((s) => s.commands || []);
+    const cmdOk = fallbackCmds.includes(cmd);
+    const restOk = bindings.some((b) => b.rest && b.rest.path === restPath
+      && b.rest.api_version === input.api_version
+      && (b.host || null) === (input.host || null));
+    if (!(cmdOk && (restPath == null || restOk || bindings.some((b) => b.rest && b.rest.path === restPath)))) {
+      reasons.push('command/path does not match exact binding');
+    } else {
+      matched = true;
+    }
+    if (!matched && method.rest === undefined) {
+      // keep reasons
+    }
+  }
+
+  if (!matched) {
+    // More specific mismatch reasons for RED needles
+    const anyPath = bindings.some((b) => b.rest && b.rest.path === restPath);
+    const anyApi = bindings.some((b) => b.rest && b.rest.api_version === input.api_version);
+    const anyCmd = bindings.some((b) => b.command === cmd) || ((method.fallback_policy && method.fallback_policy.declared_chain) || [])
+      .flatMap((s) => s.commands || []).includes(cmd);
+    if (!anyCmd) reasons.push('command does not match exact binding template');
+    if (restPath != null && !anyPath) reasons.push('rest path mismatch vs exact binding');
+    if (input.api_version !== undefined && bindings.some((b) => b.rest) && !anyApi) {
+      reasons.push(`api_version mismatch (expected exact binding)`);
+    }
   }
 
   if (method.body_schema) {
@@ -288,19 +373,236 @@ function evaluatePreDispatch(spec, input) {
     reasons.push('unexpected request body');
   }
 
-  return reasons.length ? { ok: false, reasons } : { ok: true, reasons: [] };
+  // Deduplicate reasons
+  const uniq = [...new Set(reasons)];
+  return uniq.length ? { ok: false, reasons: uniq } : { ok: true, reasons: [] };
 }
 
-function evaluateAdversarial(spec, c) {
+function typeOf(v) {
+  if (v === null) return 'null';
+  if (Array.isArray(v)) return 'array';
+  return typeof v;
+}
+
+function matchesSchemaNode(value, schema, pathLabel, errs) {
+  if (!schema || typeof schema !== 'object') return;
+  if (schema.const !== undefined) {
+    if (hashCanonical(value) !== hashCanonical(schema.const)) {
+      errs.push(`${pathLabel}: const mismatch`);
+    }
+    return;
+  }
+  if (schema.enum && !schema.enum.includes(value)) {
+    errs.push(`${pathLabel}: enum mismatch`);
+  }
+  if (schema.type) {
+    const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+    const t = typeOf(value);
+    const okType = types.some((x) => (x === 'integer' ? Number.isInteger(value) : x === t)
+      || (x === 'number' && typeof value === 'number'));
+    if (!okType) errs.push(`${pathLabel}: type ${t} not in ${types.join('|')}`);
+  }
+  if (schema.pattern && typeof value === 'string' && !new RegExp(schema.pattern).test(value)) {
+    errs.push(`${pathLabel}: pattern mismatch`);
+  }
+  if (typeof schema.minLength === 'number' && typeof value === 'string' && value.length < schema.minLength) {
+    errs.push(`${pathLabel}: minLength`);
+  }
+  if (typeof schema.minimum === 'number' && typeof value === 'number' && value < schema.minimum) {
+    errs.push(`${pathLabel}: minimum`);
+  }
+  if (typeof schema.maximum === 'number' && typeof value === 'number' && value > schema.maximum) {
+    errs.push(`${pathLabel}: maximum`);
+  }
+  if (schema.type === 'object' || (Array.isArray(schema.type) && schema.type.includes('object')) || schema.properties) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      if (schema.additionalProperties === false) {
+        const allowed = new Set(Object.keys(schema.properties || {}));
+        for (const k of Object.keys(value)) {
+          if (!allowed.has(k)) errs.push(`${pathLabel}: additional property ${k}`);
+        }
+      }
+      for (const req of schema.required || []) {
+        if (!Object.prototype.hasOwnProperty.call(value, req)) errs.push(`${pathLabel}: missing ${req}`);
+      }
+      for (const [k, sub] of Object.entries(schema.properties || {})) {
+        if (Object.prototype.hasOwnProperty.call(value, k)) {
+          matchesSchemaNode(value[k], sub, `${pathLabel}.${k}`, errs);
+        }
+      }
+    }
+  }
+  if ((schema.type === 'array' || (Array.isArray(schema.type) && schema.type.includes('array'))) && Array.isArray(value)) {
+    if (typeof schema.minItems === 'number' && value.length < schema.minItems) errs.push(`${pathLabel}: minItems`);
+    if (typeof schema.maxItems === 'number' && value.length > schema.maxItems) errs.push(`${pathLabel}: maxItems`);
+    if (schema.items) {
+      value.forEach((item, i) => matchesSchemaNode(item, schema.items, `${pathLabel}[${i}]`, errs));
+    }
+  }
+  for (const branch of schema.allOf || []) {
+    if (branch.if && branch.then) {
+      const ifErrs = [];
+      matchesSchemaNode(value, branch.if, pathLabel, ifErrs);
+      // Lightweight if: check outcome const when present
+      let applies = true;
+      if (branch.if.properties && branch.if.properties.outcome && branch.if.properties.outcome.const !== undefined) {
+        applies = value && value.outcome === branch.if.properties.outcome.const;
+      }
+      if (applies) matchesSchemaNode(value, branch.then, pathLabel, errs);
+    } else {
+      matchesSchemaNode(value, branch, pathLabel, errs);
+    }
+  }
+}
+
+function validateAgainstSchema(doc, schema) {
+  const errs = [];
+  matchesSchemaNode(doc, schema, '$', errs);
+  return errs;
+}
+
+function validateWholeAttemptLog(spec, log) {
+  const reasons = [];
+  const attempts = log.attempts || [];
+  if (!Array.isArray(attempts) || attempts.length === 0) {
+    return { ok: false, reasons: ['empty attempts'] };
+  }
+  if (attempts.length > 64) reasons.push('attempts exceed bound 64');
+
+  // Unique + contiguous ordered IDs att-001..att-NNN
+  const ids = attempts.map((a) => a.attempt_id);
+  if (new Set(ids).size !== ids.length) reasons.push('attempt_id not unique');
+  for (let i = 0; i < attempts.length; i += 1) {
+    const expected = `att-${String(i + 1).padStart(3, '0')}`;
+    if (attempts[i].attempt_id !== expected) {
+      reasons.push(`attempt_id not contiguous ordered (expected ${expected} at index ${i})`);
+      break;
+    }
+  }
+
+  // Per logical call: contiguous attempt_index from 0, bounded by method max
+  const byCall = new Map();
+  for (const a of attempts) {
+    if (!byCall.has(a.logical_call_id)) byCall.set(a.logical_call_id, []);
+    byCall.get(a.logical_call_id).push(a);
+  }
+  for (const [callId, rows] of byCall.entries()) {
+    rows.sort((x, y) => x.attempt_index - y.attempt_index);
+    for (let i = 0; i < rows.length; i += 1) {
+      if (rows[i].attempt_index !== i) {
+        reasons.push(`attempt_index not contiguous for ${callId}`);
+        break;
+      }
+    }
+    const method = (spec.methods || []).find((m) => m.id === rows[0].method_id);
+    if (method) {
+      const chainLen = ((method.fallback_policy && method.fallback_policy.declared_chain) || []).length;
+      const maxA = Math.max(method.retry_policy.max_physical_attempts, chainLen || 1);
+      if (rows.length > maxA) reasons.push(`attempts exceed method max_physical_attempts for ${callId}`);
+      for (const r of rows) {
+        if (r.outcome === 'failure' && r.error_class) {
+          const retryable = method.retry_policy.retry_on_error_classes || [];
+          // failure classes used for retries must be in policy when followed by another attempt
+        }
+      }
+      // If success at index>0, prior rows must be failures with retryable classes (else hidden retry)
+      const success = rows.filter((r) => r.outcome === 'success');
+      for (const s of success) {
+        if (s.attempt_index > 0) {
+          const priors = rows.filter((r) => r.attempt_index < s.attempt_index);
+          const okPriors = priors.length === s.attempt_index
+            && priors.every((r) => r.outcome === 'failure'
+              && (method.retry_policy.retry_on_error_classes || []).includes(r.error_class));
+          // healthz uses fallback not retry classes
+          if (method.id === 'public_healthz_get') {
+            // handled below
+          } else if (!okPriors) {
+            reasons.push(`hidden retry for ${callId}`);
+          }
+        }
+      }
+
+      // Fallback chain exact
+      const chain = (method.fallback_policy && method.fallback_policy.declared_chain) || [];
+      for (const r of rows) {
+        if (r.fallback_step_id) {
+          const step = chain.find((s) => s.id === r.fallback_step_id);
+          if (!step) reasons.push(`fallback_step_id not in declared chain for ${callId}`);
+          else if (!(step.commands || []).includes(r.command_or_url)) {
+            reasons.push(`fallback command not in exact chain for ${callId}`);
+          }
+        }
+        if (r.is_fallback) {
+          const stepIdx = chain.findIndex((s) => s.id === r.fallback_step_id);
+          if (stepIdx <= 0) reasons.push(`hidden fallback for ${callId}`);
+          if (!r.fallback_of_attempt_id) reasons.push(`fallback missing parent for ${callId}`);
+        } else if (r.fallback_step_id && chain.findIndex((s) => s.id === r.fallback_step_id) > 0) {
+          reasons.push(`hidden fallback for ${callId}`);
+        }
+      }
+    }
+  }
+
+  // Outcome-conditional fields (also in schema; re-check)
+  for (const a of attempts) {
+    if (a.outcome === 'success') {
+      if (a.error_class !== null) reasons.push(`success has error_class ${a.attempt_id}`);
+      if (!a.response_sha256 || !a.response_artifact_relpath) reasons.push(`success missing response hash ${a.attempt_id}`);
+    } else if (a.outcome === 'failure' || a.outcome === 'refused_pre_dispatch') {
+      if (!a.error_class) reasons.push(`failure missing error_class ${a.attempt_id}`);
+      if (a.response_sha256 !== null || a.response_artifact_relpath !== null) {
+        reasons.push(`failure has response fields ${a.attempt_id}`);
+      }
+    }
+  }
+
+  // Missing failure: if a logical call has attempt_index>=1 success after non-failure prior
+  for (const [callId, rows] of byCall.entries()) {
+    const method = (spec.methods || []).find((m) => m.id === rows[0].method_id);
+    if (!method || method.id === 'public_healthz_get') continue;
+    const sorted = [...rows].sort((x, y) => x.attempt_index - y.attempt_index);
+    for (let i = 1; i < sorted.length; i += 1) {
+      if (sorted[i].outcome === 'success' || sorted[i].attempt_index > 0) {
+        const prior = sorted[i - 1];
+        if (prior.outcome !== 'failure') {
+          reasons.push(`missing failure before retry for ${callId}`);
+        }
+      }
+    }
+    // Two successes without intervening failure when indices suggest retry
+    const failures = sorted.filter((r) => r.outcome === 'failure');
+    const successes = sorted.filter((r) => r.outcome === 'success');
+    if (successes.length >= 1 && sorted.some((r) => r.attempt_index > 0) && failures.length === 0) {
+      reasons.push(`missing failure for ${callId}`);
+    }
+    // Outcome flipped: failure expected class path — if first row is success with attempt_index 0
+    // but second also success, missing failure
+    if (sorted.length >= 2 && sorted[0].outcome === 'success' && sorted[1].outcome === 'success') {
+      reasons.push(`missing failure for ${callId}`);
+    }
+  }
+
+  return { ok: reasons.length === 0, reasons: [...new Set(reasons)] };
+}
+
+function evaluateAdversarial(spec, adversarial, greenLog, c) {
   const classifier = c.classifier;
-  if (classifier.startsWith('pre_dispatch')) {
-    const result = evaluatePreDispatch(spec, c.input);
+  const intended = c.intended_delta;
+
+  if (classifier === 'pre_dispatch_one_field_mutation') {
+    const green = adversarial.green_controls[c.green_control];
+    if (!green) return { ok: false, detail: 'missing green control' };
+    const greenEval = evaluatePreDispatch(spec, green);
+    if (!greenEval.ok) return { ok: false, detail: `GREEN control not accepted: ${greenEval.reasons.join('; ')}` };
+    const mutated = applyMutation(green, c.mutation);
+    const deltaOk = proveIntendedDelta(green, mutated, intended);
+    if (!deltaOk) return { ok: false, detail: 'intended delta not proven' };
+    const result = evaluatePreDispatch(spec, mutated);
     const refused = !result.ok;
     const reasonText = result.reasons.join(' | ').toLowerCase();
     const needles = (c.expect.reason_includes || []).map((s) => String(s).toLowerCase());
     const reasonsOk = needles.every((n) => reasonText.includes(n)
       || (n === 'command' && reasonText.includes('command'))
-      || (n === 'template' && reasonText.includes('template'))
       || (n === 'path' && reasonText.includes('path'))
       || (n === 'post' && reasonText.includes('post'))
       || (n === 'restart' && reasonText.includes('restart'))
@@ -309,73 +611,47 @@ function evaluateAdversarial(spec, c) {
       || (n === 'body' && reasonText.includes('body'))
       || (n === 'actualcost' && reasonText.includes('actualcost')));
     return {
-      ok: c.expect.verdict === 'refuse' ? (refused && reasonsOk) : false,
-      detail: result.reasons.join('; '),
+      ok: c.expect.verdict === 'refuse' && refused && reasonsOk && deltaOk,
+      detail: `delta=${deltaOk}; ${result.reasons.join('; ')}`,
     };
   }
 
-  if (classifier === 'attempt_log_hidden_retry') {
-    const slice = c.input.attempt_log_slice || [];
-    const hidden = slice.some((a) => a.implied_prior_failures > 0 && a.outcome === 'success' && a.attempt_index === 0);
+  if (classifier === 'attempt_log_one_field_mutation') {
+    const green = deepClone(greenLog);
+    const greenVal = validateWholeAttemptLog(spec, green);
+    if (!greenVal.ok) return { ok: false, detail: `GREEN log invalid: ${greenVal.reasons.join('; ')}` };
+    const mutated = applyMutation(green, c.mutation);
+    const deltaOk = proveIntendedDelta(greenLog, mutated, intended);
+    if (!deltaOk) return { ok: false, detail: 'intended delta not proven' };
+    const result = validateWholeAttemptLog(spec, mutated);
+    const failed = !result.ok;
+    const reasonText = result.reasons.join(' | ').toLowerCase();
+    const needles = (c.expect.reason_includes || []).map((s) => String(s).toLowerCase());
+    const reasonsOk = needles.every((n) => reasonText.includes(n));
     return {
-      ok: hidden && c.expect.verdict === 'fail',
-      detail: hidden ? 'hidden retry detected' : 'no hidden retry signal',
+      ok: c.expect.verdict === 'fail' && failed && reasonsOk && deltaOk,
+      detail: `delta=${deltaOk}; ${result.reasons.join('; ')}`,
     };
   }
 
-  if (classifier === 'attempt_log_hidden_fallback') {
-    const slice = c.input.attempt_log_slice || [];
-    const hidden = slice.some((a) => a.implied_undeclared_prior_transport && a.is_fallback === false);
-    return {
-      ok: hidden && c.expect.verdict === 'fail',
-      detail: hidden ? 'hidden fallback detected' : 'no hidden fallback signal',
-    };
-  }
-
-  if (classifier === 'attempt_log_missing_failure') {
-    const known = c.input.known_physical_failures || [];
-    const slice = c.input.attempt_log_slice || [];
-    const missing = known.some((k) => {
-      const match = slice.find((a) => a.logical_call_id === k.logical_call_id && a.attempt_index === k.attempt_index);
-      return !match || match.outcome !== 'failure' || match.error_class !== k.error_class;
-    });
-    return {
-      ok: missing && c.expect.verdict === 'fail',
-      detail: missing ? 'missing failure record' : 'failure present',
-    };
-  }
-
-  if (classifier === 'shared_constant_drift') {
+  if (classifier === 'shared_constant_one_field_mutation') {
+    const green = adversarial.green_controls[c.green_control];
+    const mutated = applyMutation(green, c.mutation);
+    const deltaOk = proveIntendedDelta(green, mutated, intended);
     const frozenIds = (spec.methods || []).map((m) => m.id).sort();
-    const drifted = (c.input.drifted_implementation_constants.allowed_method_ids || []).slice().sort();
+    const drifted = (mutated.allowed_method_ids || []).slice().sort();
     const extra = drifted.filter((id) => !frozenIds.includes(id));
     const drift = extra.length > 0 || drifted.length !== frozenIds.length;
     const reasonText = `drift extras=${extra.join(',')}`;
     const needles = (c.expect.reason_includes || []).map((s) => String(s).toLowerCase());
     const reasonsOk = needles.every((n) => reasonText.toLowerCase().includes(n) || n === 'drift');
     return {
-      ok: drift && reasonsOk && c.expect.verdict === 'fail',
-      detail: reasonText,
+      ok: drift && reasonsOk && deltaOk && c.expect.verdict === 'fail',
+      detail: `delta=${deltaOk}; ${reasonText}`,
     };
   }
 
   return { ok: false, detail: `unknown classifier ${classifier}` };
-}
-
-function methodSpecHashable(spec) {
-  return {
-    allowed_subscription_id: spec.allowed_subscription_id,
-    allowed_resource_groups: spec.allowed_resource_groups,
-    forbidden_resource_groups: spec.forbidden_resource_groups,
-    allowed_public_healthz_hosts: spec.allowed_public_healthz_hosts,
-    forbidden_path_markers: spec.forbidden_path_markers,
-    forbidden_command_markers: spec.forbidden_command_markers,
-    mutation_policy: spec.mutation_policy,
-    sampled_diagnostic_resources: spec.sampled_diagnostic_resources,
-    methods: spec.methods,
-    attempt_semantics: spec.attempt_semantics,
-    pre_dispatch_rule: spec.pre_dispatch_rule,
-  };
 }
 
 function walkFiles(dir, acc) {
@@ -447,12 +723,34 @@ ok('F16 method inventory size 17', Array.isArray(spec.methods) && spec.methods.l
 ok('F17 cost_query is sole POST',
   spec.methods.filter((m) => m.http_method === 'POST').map((m) => m.id).join(',') === 'cost_query'
   && (spec.mutation_policy.post_allowed_only_for_method_ids || []).join(',') === 'cost_query');
-ok('F18 every method has retry+fallback policy',
+ok('F18 every method has retry+fallback policy + exact bindings',
   spec.methods.every((m) => m.retry_policy && m.fallback_policy
+    && Array.isArray(m.bindings) && m.bindings.length >= 1
+    && Array.isArray(m.allowed_resource_names)
+    && Array.isArray(m.allowed_sampled_diagnostic_resource_ids)
     && m.retry_policy.record_each_physical_attempt === true
     && m.retry_policy.record_failures === true
     && m.retry_policy.hidden_retries_forbidden === true
     && m.fallback_policy.undeclared_fallbacks_forbidden === true));
+
+ok('F18b no free placeholders in bindings/fallback commands',
+  spec.methods.every((m) => (m.bindings || []).every((b) => !FREE_PLACEHOLDER_RE.test(b.command)
+    && !(b.rest && b.rest.path && FREE_PLACEHOLDER_RE.test(b.rest.path)))
+    && ((m.fallback_policy && m.fallback_policy.declared_chain) || []).every((s) => (s.commands || [])
+      .every((c) => !FREE_PLACEHOLDER_RE.test(c)))));
+
+ok('F18c diagnostic paths are exact subscription/RG/resource IDs',
+  (() => {
+    const diag = spec.methods.find((m) => m.id === 'diagnostic_settings_list');
+    if (!diag) return false;
+    const ids = diag.allowed_sampled_diagnostic_resource_ids || [];
+    if (ids.length !== 10) return false;
+    return ids.every((id) => id.startsWith(`/subscriptions/${spec.allowed_subscription_id}/resourceGroups/`))
+      && diag.bindings.every((b) => ids.includes(
+        String(b.rest.path).replace(/\/providers\/Microsoft\.Insights\/diagnosticSettings$/, ''),
+      ));
+  })());
+
 ok('F19 attempt semantics require physical-dispatch records',
   spec.attempt_semantics
   && spec.attempt_semantics.unit === 'physical_dispatch_attempt'
@@ -460,30 +758,62 @@ ok('F19 attempt semantics require physical-dispatch records',
   && spec.attempt_semantics.missing_failure_record_is_defect === true
   && Array.isArray(spec.attempt_semantics.required_fields)
   && spec.attempt_semantics.required_fields.includes('outcome')
-  && spec.attempt_semantics.required_fields.includes('error_class'));
+  && spec.attempt_semantics.required_fields.includes('error_class')
+  && spec.attempt_semantics.required_fields.includes('resource_name'));
 
-const recomputedManifest = hashCanonical(methodSpecHashable(spec));
-ok('F20 complete_manifest_sha256 recomputes',
+ok('F19b attempt schema is closed whole-log (additionalProperties=false)',
+  attemptSchema.additionalProperties === false
+  && attemptSchema.properties
+  && attemptSchema.properties.attempts
+  && attemptSchema.properties.attempts.items
+  && attemptSchema.properties.attempts.items.additionalProperties === false
+  && attemptSchema.properties.attempts.maxItems === 64
+  && (attemptSchema.verifier_enforced_whole_log_rules || {}).attempt_ids_contiguous_ordered_from_att_001 === true);
+
+const recomputedManifest = computeCompleteManifest({
+  'fixtures/radar-operations/slice16a3-method-spec.json': spec,
+  'fixtures/radar-operations/slice16a3-attempt-log.schema.json': attemptSchema,
+  'fixtures/radar-operations/slice16a3-hash-policy.json': hashPolicy,
+  'fixtures/radar-operations/slice16a3-contract.json#bounded_replacement_implementation_owner':
+    contract.bounded_replacement_implementation_owner,
+  'fixtures/radar-operations/slice16a3-adversarial-cases.json': adversarial,
+  'fixtures/radar-operations/slice16a3-sample-artifacts/artifact-index.json': artifactIndex,
+});
+ok('F20 complete_manifest_sha256 recomputes over full frozen scope',
   recomputedManifest === spec.complete_manifest_sha256
-  && recomputedManifest === contract.complete_manifest_sha256,
+  && recomputedManifest === contract.complete_manifest_sha256
+  && recomputedManifest === artifactIndex.complete_manifest_sha256
+  && recomputedManifest === hashPolicy.complete_manifest_sha256,
   `got ${recomputedManifest}`);
 
-ok('F21 hash policy algorithm sha256+canonical',
+ok('F21 hash policy algorithm sha256+canonical + full scope',
   hashPolicy.algorithm === 'sha256'
   && hashPolicy.canonical_json
-  && hashPolicy.canonical_json.object_keys === 'sorted_lexicographic');
+  && hashPolicy.canonical_json.object_keys === 'sorted_lexicographic'
+  && Array.isArray(hashPolicy.complete_manifest_scope)
+  && hashPolicy.complete_manifest_scope.length === 6);
 
 ok('F22 attempt schema outcomes include failure',
   attemptSchema.properties
-  && attemptSchema.properties.outcome
-  && (attemptSchema.properties.outcome.enum || []).includes('failure'));
+  && attemptSchema.properties.attempts
+  && attemptSchema.properties.attempts.items
+  && attemptSchema.properties.attempts.items.properties
+  && attemptSchema.properties.attempts.items.properties.outcome
+  && (attemptSchema.properties.attempts.items.properties.outcome.enum || []).includes('failure'));
 
-ok('F23 green attempt log pins manifest hash',
+const schemaErrs = validateAgainstSchema(greenLog, attemptSchema);
+ok('F23 GREEN attempt log validates against closed whole-log schema',
+  schemaErrs.length === 0, schemaErrs.slice(0, 5).join('; '));
+
+const wholeGreen = validateWholeAttemptLog(spec, greenLog);
+ok('F23b GREEN whole-log rules pass', wholeGreen.ok, wholeGreen.reasons.join('; '));
+
+ok('F24 green attempt log pins manifest hash',
   greenLog.method_spec_complete_manifest_sha256 === spec.complete_manifest_sha256);
-ok('F24 green log records failure then success for cost_query',
+ok('F25 green log records failure then success for cost_query',
   greenLog.attempts.some((a) => a.method_id === 'cost_query' && a.outcome === 'failure' && a.error_class === 'http_429')
   && greenLog.attempts.some((a) => a.method_id === 'cost_query' && a.outcome === 'success' && a.attempt_index === 1));
-ok('F25 green log records declared healthz fallback',
+ok('F26 green log records declared healthz fallback',
   greenLog.attempts.some((a) => a.method_id === 'public_healthz_get' && a.outcome === 'failure' && a.fallback_step_id === 'curl_https_get')
   && greenLog.attempts.some((a) => a.method_id === 'public_healthz_get' && a.is_fallback === true && a.fallback_step_id === 'node_https_get'));
 
@@ -500,10 +830,10 @@ for (const art of artifactIndex.artifacts) {
     break;
   }
 }
-ok('F26 sample raw response hashes independently recompute', artifactHashOk);
-ok('F27 cost body sample hash matches index',
+ok('F27 sample raw response hashes independently recompute', artifactHashOk);
+ok('F28 cost body sample hash matches index',
   hashCanonical(costBody) === artifactIndex.cost_query_body_sha256);
-ok('F28 green attempt response hashes match artifacts',
+ok('F29 green attempt response hashes match artifacts',
   greenLog.attempts
     .filter((a) => a.response_artifact_relpath)
     .every((a) => {
@@ -511,34 +841,37 @@ ok('F28 green attempt response hashes match artifacts',
       return hashCanonical(obj) === a.response_sha256;
     }));
 
-ok('F29 adversarial case ids complete',
+ok('F30 adversarial case ids complete',
   REQUIRED_ADVERSARIAL_IDS.every((id) => (adversarial.cases || []).some((c) => c.id === id)));
+ok('F30b adversarial cases are one-field mutations (no implied_* metadata)',
+  (adversarial.cases || []).every((c) => c.mutation && c.intended_delta && c.green_control)
+  && !/implied_prior_failures|implied_undeclared_prior_transport/.test(JSON.stringify(adversarial)));
 
 for (const c of adversarial.cases) {
-  const ev = evaluateAdversarial(spec, c);
+  const ev = evaluateAdversarial(spec, adversarial, greenLog, c);
   red(c.id, ev.ok, ev.detail);
 }
 
-ok('F30 all RED cases passed', redResults.length === REQUIRED_ADVERSARIAL_IDS.length && redResults.every((r) => r.ok));
+ok('F31 all RED cases passed', redResults.length === REQUIRED_ADVERSARIAL_IDS.length && redResults.every((r) => r.ok));
 
 const requireImportRe = /require\s*\(\s*['"][^'"]*(?:radar-operations-azure-capture|capture-radar-operations-staging-readonly)[^'"]*['"]\s*\)/;
-ok('F31 verifier source does not import capture implementation',
+ok('F32 verifier source does not import capture implementation',
   !requireImportRe.test(verifierSrc)
   && !/from\s+['"][^'"]*(?:radar-operations-azure-capture|capture-radar-operations-staging-readonly)/.test(verifierSrc));
 
-ok('F32 capture implementation absent on this design-freeze branch',
+ok('F33 capture implementation absent on this design-freeze branch',
   !fs.existsSync(path.join(ROOT, 'scripts', 'lib', 'radar-operations-azure-capture.js'))
   && !fs.existsSync(path.join(ROOT, 'scripts', 'capture-radar-operations-staging-readonly.js')));
 
-ok('F33 doc marks 16A2 deferred',
+ok('F34 doc marks 16A2 deferred',
   /16A2/.test(doc) && /deferred/i.test(doc) && /do not merge/i.test(doc));
-ok('F34 doc preserves G09 budget-vs-anomaly semantics',
+ok('F35 doc preserves G09 budget-vs-anomaly semantics',
   /G09_cost_controls/.test(doc)
   && /threshold/i.test(doc)
   && /anomaly detection/i.test(doc)
   && /16B_staging_rg_cost_budget_threshold/.test(doc)
   && /real delivery proof/i.test(doc));
-ok('F35 findings name 16A4 owner + deferred 16A2',
+ok('F36 findings name 16A4 owner + deferred 16A2',
   /16A4_azure_capture_implementation/.test(findings)
   && /deferred/i.test(findings)
   && /16A2/.test(findings));
@@ -559,16 +892,31 @@ for (const rel of runtimePaths) {
     runtimeClean = false;
   }
 }
-ok('F36 runtime paths unchanged vs master basis', runtimeClean);
+ok('F37 runtime paths unchanged vs master basis', runtimeClean);
 
-let diffCheckOk = true;
-try {
-  execSync(`git diff --check ${MASTER_BASIS}`, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-} catch (err) {
-  diffCheckOk = false;
-  console.log(`        git diff --check failed: ${String(err.stderr || err.message).slice(0, 300)}`);
+function rangeDiffCheckClean() {
+  try {
+    const out = execSync(
+      `git diff --check ${MASTER_BASIS}..HEAD`,
+      { cwd: ROOT, encoding: 'utf8' },
+    );
+    return { ok: true, detail: out.trim() || '(clean)' };
+  } catch (err) {
+    const detail = String((err && err.stdout) || (err && err.message) || err).trim();
+    return { ok: false, detail: detail.slice(0, 800) };
+  }
 }
-ok('F37 exact git diff --check clean', diffCheckOk);
+
+function noTrailingWhitespace(text) {
+  return !text.split(/\n/).some((line) => /[ \t]+$/.test(line));
+}
+
+const rangeCheck = rangeDiffCheckClean();
+ok('F38 exact git diff --check clean vs master basis', rangeCheck.ok, rangeCheck.detail);
+ok('F38b findings have no trailing whitespace', noTrailingWhitespace(findings));
+ok('F38c contract gates pin range diff --check',
+  Array.isArray(contract.gates)
+  && contract.gates.some((g) => g === `git diff --check ${MASTER_BASIS}..HEAD`));
 
 const fixtureFiles = walkFiles(FIXTURE_DIR, []).filter((p) => /slice16a3/.test(p));
 let secretsOk = true;
@@ -581,37 +929,16 @@ for (const p of fixtureFiles.concat([DOC_PATH, VERIFIER_PATH, FINDINGS_PATH])) {
     break;
   }
 }
-ok('F38 secret-free fixtures/docs/verifier', secretsOk, secretDetail);
+ok('F39 secret-free fixtures/docs/verifier', secretsOk, secretDetail);
 
-ok('F39 package.json registers 16A3 gate',
+ok('F40 package.json registers 16A3 gate',
   /verify:radar-slice16a3-azure-capture-contract/.test(readText(path.join(ROOT, 'package.json'))));
 
-// Positive control: a clearly valid arm_rg_show dispatch must accept
-const greenDispatch = evaluatePreDispatch(spec, {
-  method_id: 'arm_rg_show',
-  http_method: 'GET',
-  command_or_url: 'az group show -n wh-staging-rg -o json',
-  rest_path: `/subscriptions/${spec.allowed_subscription_id}/resourceGroups/wh-staging-rg`,
-  api_version: '2021-04-01',
-  subscription_id: spec.allowed_subscription_id,
-  resource_group: 'wh-staging-rg',
-  host: null,
-  request_body: null,
-});
-ok('F40 GREEN pre-dispatch accepts exact arm_rg_show', greenDispatch.ok, greenDispatch.reasons.join('; '));
+const greenDispatch = evaluatePreDispatch(spec, adversarial.green_controls.GC_arm_rg_show_wh);
+ok('F41 GREEN pre-dispatch accepts exact arm_rg_show', greenDispatch.ok, greenDispatch.reasons.join('; '));
 
-const greenCost = evaluatePreDispatch(spec, {
-  method_id: 'cost_query',
-  http_method: 'POST',
-  command_or_url: 'az rest --method post --url https://example.invalid --body @cost.json -o json',
-  rest_path: `/subscriptions/${spec.allowed_subscription_id}/resourceGroups/wh-staging-rg/providers/Microsoft.CostManagement/query`,
-  api_version: '2023-11-01',
-  subscription_id: spec.allowed_subscription_id,
-  resource_group: 'wh-staging-rg',
-  host: null,
-  request_body: costBody,
-});
-ok('F41 GREEN pre-dispatch accepts frozen cost_query body', greenCost.ok, greenCost.reasons.join('; '));
+const greenCost = evaluatePreDispatch(spec, adversarial.green_controls.GC_cost_query_wh);
+ok('F42 GREEN pre-dispatch accepts frozen cost_query body', greenCost.ok, greenCost.reasons.join('; '));
 
 console.log(`\n── RADAR 16A3 capture contract: ${fail === 0 ? 'PASS' : 'FAIL'} (${pass} pass, ${fail} fail) ──`);
 console.log(`complete_manifest_sha256=${spec.complete_manifest_sha256}`);

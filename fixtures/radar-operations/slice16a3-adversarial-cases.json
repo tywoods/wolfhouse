@@ -1,31 +1,123 @@
 {
   "schema_version": 1,
   "slice": "RADAR-16A3",
-  "title": "Adversarial fixtures for exact Azure evidence-capture contract",
-  "description": "Offline RED cases. Fake paths/commands only. No network. Verifier evaluates against frozen method-spec alone.",
+  "title": "Adversarial fixtures — one-field mutations of schema-valid GREEN controls",
+  "description": "Offline RED cases. Each case mutates exactly one field of a GREEN control. No network. No implied-failure metadata.",
   "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
+  "green_controls": {
+    "GC_arm_rg_show_wh": {
+      "method_id": "arm_rg_show",
+      "http_method": "GET",
+      "command_or_url": "az group show -n wh-staging-rg -o json",
+      "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg",
+      "api_version": "2021-04-01",
+      "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+      "resource_group": "wh-staging-rg",
+      "resource_name": null,
+      "host": null,
+      "request_body": null
+    },
+    "GC_cost_query_wh": {
+      "method_id": "cost_query",
+      "http_method": "POST",
+      "command_or_url": "az rest --method post --url https://management.azure.com/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.CostManagement/query?api-version=2023-11-01 --body @cost-query-body.sample.json -o json",
+      "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.CostManagement/query",
+      "api_version": "2023-11-01",
+      "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+      "resource_group": "wh-staging-rg",
+      "resource_name": null,
+      "host": null,
+      "request_body": {
+        "type": "ActualCost",
+        "timeframe": "Custom",
+        "timePeriod": {
+          "from": "2026-07-01",
+          "to": "2026-07-20"
+        },
+        "dataset": {
+          "granularity": "None",
+          "aggregation": {
+            "totalCost": {
+              "name": "Cost",
+              "function": "Sum"
+            }
+          },
+          "grouping": [
+            {
+              "type": "Dimension",
+              "name": "ServiceName"
+            }
+          ]
+        }
+      }
+    },
+    "GC_containerapp_show_wh": {
+      "method_id": "containerapp_show",
+      "http_method": "GET",
+      "command_or_url": "az containerapp show -g wh-staging-rg -n wh-staging-staff-api -o json",
+      "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api",
+      "api_version": "2024-03-01",
+      "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+      "resource_group": "wh-staging-rg",
+      "resource_name": "wh-staging-staff-api",
+      "host": null,
+      "request_body": null
+    },
+    "GC_budgets_list_wh": {
+      "method_id": "consumption_budgets_list",
+      "http_method": "GET",
+      "command_or_url": "az rest --method get --url https://management.azure.com/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Consumption/budgets?api-version=2023-11-01 -o json",
+      "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Consumption/budgets",
+      "api_version": "2023-11-01",
+      "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+      "resource_group": "wh-staging-rg",
+      "resource_name": null,
+      "host": null,
+      "request_body": null
+    },
+    "GC_method_ids_frozen": {
+      "allowed_method_ids": [
+        "arm_account_show",
+        "arm_rg_show",
+        "arm_resource_list",
+        "cost_query",
+        "consumption_budgets_list",
+        "metric_alerts_list",
+        "activity_log_alerts_list",
+        "scheduled_query_rules_list",
+        "action_groups_list",
+        "diagnostic_settings_list",
+        "containerapp_env_show",
+        "containerapp_show",
+        "containerapp_job_show",
+        "postgres_flexible_show",
+        "law_show",
+        "appinsights_show",
+        "public_healthz_get"
+      ]
+    }
+  },
+  "green_attempt_log_ref": "fixtures/radar-operations/slice16a3-sample-artifacts/green-attempt-log.json",
   "cases": [
     {
       "id": "AC16A3_COMMAND_SUBSTITUTION",
       "color": "RED",
       "attack": "Command substitution under an allowlisted method_id",
-      "classifier": "pre_dispatch_command_template_mismatch",
-      "input": {
-        "method_id": "arm_rg_show",
-        "http_method": "GET",
-        "command_or_url": "az keyvault secret show --vault-name wh-staging-kv -n db-url -o json",
-        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg",
-        "api_version": "2021-04-01",
-        "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
-        "resource_group": "wh-staging-rg",
-        "host": null,
-        "request_body": null
+      "classifier": "pre_dispatch_one_field_mutation",
+      "green_control": "GC_arm_rg_show_wh",
+      "mutation": {
+        "field": "command_or_url",
+        "value": "az keyvault secret show --vault-name wh-staging-kv -n db-url -o json"
+      },
+      "intended_delta": {
+        "field": "command_or_url",
+        "before": "az group show -n wh-staging-rg -o json",
+        "after": "az keyvault secret show --vault-name wh-staging-kv -n db-url -o json"
       },
       "expect": {
         "verdict": "refuse",
         "reason_includes": [
-          "command",
-          "template"
+          "command"
         ]
       }
     },
@@ -33,17 +125,16 @@
       "id": "AC16A3_LISTKEYS",
       "color": "RED",
       "attack": "listKeys secret-material surface",
-      "classifier": "pre_dispatch_forbidden_marker",
-      "input": {
-        "method_id": "containerapp_show",
-        "http_method": "GET",
-        "command_or_url": "az containerapp show -g wh-staging-rg -n wh-staging-staff-api -o json",
-        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api/listKeys",
-        "api_version": "2024-03-01",
-        "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
-        "resource_group": "wh-staging-rg",
-        "host": null,
-        "request_body": null
+      "classifier": "pre_dispatch_one_field_mutation",
+      "green_control": "GC_containerapp_show_wh",
+      "mutation": {
+        "field": "rest_path",
+        "value": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api/listKeys"
+      },
+      "intended_delta": {
+        "field": "rest_path",
+        "before": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api",
+        "after": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api/listKeys"
       },
       "expect": {
         "verdict": "refuse",
@@ -56,23 +147,21 @@
       "id": "AC16A3_RESTART_POST",
       "color": "RED",
       "attack": "Container restart POST mutation",
-      "classifier": "pre_dispatch_mutation",
-      "input": {
-        "method_id": "containerapp_show",
-        "http_method": "POST",
-        "command_or_url": "az containerapp revision restart -g wh-staging-rg -n wh-staging-staff-api --revision latest",
-        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api/restart",
-        "api_version": "2024-03-01",
-        "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
-        "resource_group": "wh-staging-rg",
-        "host": null,
-        "request_body": null
+      "classifier": "pre_dispatch_one_field_mutation",
+      "green_control": "GC_containerapp_show_wh",
+      "mutation": {
+        "field": "http_method",
+        "value": "POST"
+      },
+      "intended_delta": {
+        "field": "http_method",
+        "before": "GET",
+        "after": "POST"
       },
       "expect": {
         "verdict": "refuse",
         "reason_includes": [
-          "POST",
-          "restart"
+          "POST"
         ]
       }
     },
@@ -80,17 +169,16 @@
       "id": "AC16A3_ALTERED_PATH",
       "color": "RED",
       "attack": "Altered REST path for allowlisted method_id",
-      "classifier": "pre_dispatch_rest_path_mismatch",
-      "input": {
-        "method_id": "consumption_budgets_list",
-        "http_method": "GET",
-        "command_or_url": "az rest --method get --url https://management.azure.com/.../budgets -o json",
-        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Consumption/budgets/evil",
-        "api_version": "2023-11-01",
-        "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
-        "resource_group": "wh-staging-rg",
-        "host": null,
-        "request_body": null
+      "classifier": "pre_dispatch_one_field_mutation",
+      "green_control": "GC_budgets_list_wh",
+      "mutation": {
+        "field": "rest_path",
+        "value": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Consumption/budgets/evil"
+      },
+      "intended_delta": {
+        "field": "rest_path",
+        "before": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Consumption/budgets",
+        "after": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Consumption/budgets/evil"
       },
       "expect": {
         "verdict": "refuse",
@@ -103,17 +191,16 @@
       "id": "AC16A3_ALTERED_API_VERSION",
       "color": "RED",
       "attack": "Altered API version",
-      "classifier": "pre_dispatch_api_version_mismatch",
-      "input": {
-        "method_id": "arm_rg_show",
-        "http_method": "GET",
-        "command_or_url": "az group show -n wh-staging-rg -o json",
-        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg",
-        "api_version": "2019-01-01",
-        "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
-        "resource_group": "wh-staging-rg",
-        "host": null,
-        "request_body": null
+      "classifier": "pre_dispatch_one_field_mutation",
+      "green_control": "GC_arm_rg_show_wh",
+      "mutation": {
+        "field": "api_version",
+        "value": "2019-01-01"
+      },
+      "intended_delta": {
+        "field": "api_version",
+        "before": "2021-04-01",
+        "after": "2019-01-01"
       },
       "expect": {
         "verdict": "refuse",
@@ -126,39 +213,16 @@
       "id": "AC16A3_ALTERED_BODY",
       "color": "RED",
       "attack": "Altered cost_query body schema (wrong type)",
-      "classifier": "pre_dispatch_body_schema_mismatch",
-      "input": {
-        "method_id": "cost_query",
-        "http_method": "POST",
-        "command_or_url": "az rest --method post --url {costUrl} --body @{bodyPath} -o json",
-        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.CostManagement/query",
-        "api_version": "2023-11-01",
-        "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
-        "resource_group": "wh-staging-rg",
-        "host": null,
-        "request_body": {
-          "type": "AmortizedCost",
-          "timeframe": "Custom",
-          "timePeriod": {
-            "from": "2026-07-01",
-            "to": "2026-07-20"
-          },
-          "dataset": {
-            "granularity": "None",
-            "aggregation": {
-              "totalCost": {
-                "name": "Cost",
-                "function": "Sum"
-              }
-            },
-            "grouping": [
-              {
-                "type": "Dimension",
-                "name": "ServiceName"
-              }
-            ]
-          }
-        }
+      "classifier": "pre_dispatch_one_field_mutation",
+      "green_control": "GC_cost_query_wh",
+      "mutation": {
+        "field": "request_body.type",
+        "value": "AmortizedCost"
+      },
+      "intended_delta": {
+        "field": "request_body.type",
+        "before": "ActualCost",
+        "after": "AmortizedCost"
       },
       "expect": {
         "verdict": "refuse",
@@ -171,22 +235,19 @@
     {
       "id": "AC16A3_HIDDEN_RETRY",
       "color": "RED",
-      "attack": "Hidden retry: logical call had 429 then success but only success attempt recorded",
-      "classifier": "attempt_log_hidden_retry",
-      "input": {
-        "method_spec_ref": "cost_query",
-        "claimed_retry_policy_max_physical_attempts": 7,
-        "attempt_log_slice": [
-          {
-            "logical_call_id": "call-cost-hidden",
-            "attempt_index": 0,
-            "method_id": "cost_query",
-            "outcome": "success",
-            "error_class": null,
-            "meta_note": "impl privately retried after http_429 without recording failure",
-            "implied_prior_failures": 1
-          }
-        ]
+      "attack": "Hidden retry: remove recorded http_429 failure, leave success at attempt_index 1",
+      "classifier": "attempt_log_one_field_mutation",
+      "green_control": "GREEN_ATTEMPT_LOG",
+      "mutation": {
+        "field": "attempts",
+        "op": "remove_attempt_id",
+        "value": "att-003"
+      },
+      "intended_delta": {
+        "field": "attempts",
+        "op": "remove_attempt_id",
+        "before": "att-003 present (failure http_429)",
+        "after": "att-003 absent; att-004 remains success at attempt_index 1"
       },
       "expect": {
         "verdict": "fail",
@@ -199,24 +260,17 @@
     {
       "id": "AC16A3_HIDDEN_FALLBACK",
       "color": "RED",
-      "attack": "Hidden fallback: curl failed then Node HTTPS succeeded without fallback attempt records",
-      "classifier": "attempt_log_hidden_fallback",
-      "input": {
-        "method_id": "public_healthz_get",
-        "host": "staff-staging.lunafrontdesk.com",
-        "attempt_log_slice": [
-          {
-            "logical_call_id": "call-hz-hidden",
-            "attempt_index": 0,
-            "method_id": "public_healthz_get",
-            "outcome": "success",
-            "is_fallback": false,
-            "fallback_step_id": null,
-            "command_or_url": "HTTPS GET https://staff-staging.lunafrontdesk.com/healthz",
-            "meta_note": "curl failed first but was not recorded; undeclared silent fallback",
-            "implied_undeclared_prior_transport": "curl"
-          }
-        ]
+      "attack": "Hidden fallback: mark node transport success as non-fallback",
+      "classifier": "attempt_log_one_field_mutation",
+      "green_control": "GREEN_ATTEMPT_LOG",
+      "mutation": {
+        "field": "attempts[attempt_id=att-006].is_fallback",
+        "value": false
+      },
+      "intended_delta": {
+        "field": "attempts[attempt_id=att-006].is_fallback",
+        "before": true,
+        "after": false
       },
       "expect": {
         "verdict": "fail",
@@ -229,26 +283,17 @@
     {
       "id": "AC16A3_MISSING_FAILURE_RECORD",
       "color": "RED",
-      "attack": "Missing failure record for a known failed physical attempt",
-      "classifier": "attempt_log_missing_failure",
-      "input": {
-        "known_physical_failures": [
-          {
-            "logical_call_id": "call-cost-miss",
-            "attempt_index": 0,
-            "method_id": "cost_query",
-            "error_class": "http_429"
-          }
-        ],
-        "attempt_log_slice": [
-          {
-            "logical_call_id": "call-cost-miss",
-            "attempt_index": 0,
-            "method_id": "cost_query",
-            "outcome": "success",
-            "error_class": null
-          }
-        ]
+      "attack": "Missing failure record: flip recorded failure outcome to success",
+      "classifier": "attempt_log_one_field_mutation",
+      "green_control": "GREEN_ATTEMPT_LOG",
+      "mutation": {
+        "field": "attempts[attempt_id=att-003].outcome",
+        "value": "success"
+      },
+      "intended_delta": {
+        "field": "attempts[attempt_id=att-003].outcome",
+        "before": "failure",
+        "after": "success"
       },
       "expect": {
         "verdict": "fail",
@@ -261,34 +306,19 @@
     {
       "id": "AC16A3_SHARED_CONSTANT_DRIFT",
       "color": "RED",
-      "attack": "Implementation/verifier shared-constant drift (hardcoded method inventory diverges from frozen spec)",
-      "classifier": "shared_constant_drift",
-      "input": {
-        "frozen_method_ids_source": "fixtures/radar-operations/slice16a3-method-spec.json",
-        "drifted_implementation_constants": {
-          "allowed_method_ids": [
-            "arm_account_show",
-            "arm_rg_show",
-            "arm_resource_list",
-            "cost_query",
-            "consumption_budgets_list",
-            "metric_alerts_list",
-            "activity_log_alerts_list",
-            "scheduled_query_rules_list",
-            "action_groups_list",
-            "diagnostic_settings_list",
-            "containerapp_env_show",
-            "containerapp_show",
-            "containerapp_job_show",
-            "postgres_flexible_show",
-            "law_show",
-            "appinsights_show",
-            "public_healthz_get",
-            "storage_list_keys"
-          ],
-          "note": "extra storage_list_keys id not present in frozen spec"
-        },
-        "verifier_must_not_import_implementation": true
+      "attack": "Implementation hardcoded inventory diverges from frozen spec",
+      "classifier": "shared_constant_one_field_mutation",
+      "green_control": "GC_method_ids_frozen",
+      "mutation": {
+        "field": "allowed_method_ids",
+        "op": "append",
+        "value": "storage_list_keys"
+      },
+      "intended_delta": {
+        "field": "allowed_method_ids",
+        "op": "append",
+        "before_length": 17,
+        "after_extra": "storage_list_keys"
       },
       "expect": {
         "verdict": "fail",

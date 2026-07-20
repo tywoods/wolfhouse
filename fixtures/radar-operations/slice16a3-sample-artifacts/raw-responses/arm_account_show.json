@@ -1,6 +1,7 @@
 {
   "id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
-  "name": "SAMPLE-STAGING-SUB",
+  "name": "Wolfhouse Staging",
   "state": "Enabled",
-  "tenantId": "00000000-0000-0000-0000-000000000001"
+  "isDefault": true,
+  "environmentName": "AzureCloud"
 }

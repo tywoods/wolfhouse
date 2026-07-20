@@ -2,24 +2,24 @@
   "schema_version": 1,
   "slice": "RADAR-16A3",
   "title": "Sample sanitized raw response artifacts",
-  "complete_manifest_sha256": "ee92698d15a60f9a6d7b95e92db6b55c330f6a13ec9b0fb99af66291b5efb57c",
   "cost_query_body_sha256": "9ddead1fac2b9410c8aa7ba964ce04ed92a20be86830171aaf8419839de53501",
   "artifacts": [
     {
       "relpath": "raw-responses/arm_account_show.json",
-      "response_sha256": "70ee3aac18a02941afd6313906b44ca64153a72ab2841d26743c0bbc24ac740b"
+      "response_sha256": "196c00f6eb5876ec829f782efd1ce404f103e366b3a0d9a6bf37587d1b822779"
     },
     {
       "relpath": "raw-responses/arm_rg_show__wh-staging-rg.json",
-      "response_sha256": "a815bd80512a91adc98366424309aaacf40af50f47bceeab4675ba46429e6484"
+      "response_sha256": "3743addcb16e8f5c5fc01f931fe17bf1d39bf8d1354d977b536d068a18fc7081"
     },
     {
       "relpath": "raw-responses/cost_query__wh-staging-rg.json",
-      "response_sha256": "27b13aac0615a479fa2aa8c55e9788434465d36302eb760cf9356c8d4cf8644f"
+      "response_sha256": "6d761f17686cb72b7a9e9015a2e046c7492503afeeebb9509a57d4db2dd63db3"
     },
     {
       "relpath": "raw-responses/public_healthz_get__staff-staging.json",
-      "response_sha256": "e1aaeec471720714dc5f86cd1477a05cde726f6d1fe9f28dd803868dfd8ff51e"
+      "response_sha256": "11ec04cbaaf6436ff873d993c38656725ef149a7fb415518e513b1adf945c930"
     }
-  ]
+  ],
+  "complete_manifest_sha256": "693e94d47f80d102ad380d56e4d4da74f6fe9c348892a9fb623aec5ad1c9af5b"
 }
