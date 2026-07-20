@@ -3,6 +3,7 @@ import {
   validateLead,
   looksLikeEmail,
   extractUtmParams,
+  LEAD_MAX_LENGTH,
   type LeadInput,
 } from './leadSchema';
 
@@ -62,16 +63,31 @@ describe('validateLead', () => {
     expect(result.errors.businessType).toBeTruthy();
   });
 
-  it('reports multiple errors at once', () => {
+  it('fails when freeText exceeds maxlength', () => {
     const result = validateLead({
-      name: '',
-      businessName: '',
-      contact: '',
-      businessType: '',
-      volumeBucket: '',
+      ...validInput,
+      freeText: 'x'.repeat(LEAD_MAX_LENGTH.freeText + 1),
     });
     expect(result.ok).toBe(false);
-    expect(Object.keys(result.errors).length).toBe(4);
+    expect(result.errors.freeText).toBeTruthy();
+  });
+
+  it('fails when name exceeds maxlength', () => {
+    const result = validateLead({
+      ...validInput,
+      name: 'n'.repeat(LEAD_MAX_LENGTH.name + 1),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors.name).toMatch(/100/);
+  });
+
+  it('fails when contact exceeds maxlength', () => {
+    const result = validateLead({
+      ...validInput,
+      contact: 'c'.repeat(LEAD_MAX_LENGTH.contact + 1),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors.contact).toMatch(/254/);
   });
 });
 

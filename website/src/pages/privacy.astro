@@ -1,0 +1,210 @@
+---
+/**
+ * Privacy notice for the Luna Front Desk marketing site.
+ * Covers controller, fields, purpose/basis, recipients, retention, rights,
+ * no-sale, disabled lead-form truth, and self-hosted / no-analytics status.
+ */
+import Layout from '../layouts/Layout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import { site } from '../config/site';
+---
+
+<Layout
+  title="Privacy"
+  description="How Luna Front Desk handles interest-form and marketing-site data."
+  path="/privacy/"
+>
+  <Header slot="header" />
+
+  <article class="section privacy">
+    <div class="container privacy__inner">
+      <p class="eyebrow">Legal</p>
+      <h1>Privacy notice</h1>
+      <p class="lead privacy__lead">
+        This page explains what happens with personal data on the Luna Front Desk
+        marketing site. It is written for clarity, not as legal advice.
+      </p>
+
+      <section class="privacy__block" aria-labelledby="controller-heading">
+        <h2 id="controller-heading">Controller &amp; contact</h2>
+        <p>
+          The controller for this marketing site is <strong>{site.name}</strong>.
+          Contact:{' '}
+          <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a>.
+        </p>
+      </section>
+
+      <section class="privacy__block" aria-labelledby="fields-heading">
+        <h2 id="fields-heading">What we may collect</h2>
+        <p>If you use the interest form, the fields are:</p>
+        <ul>
+          <li>Your name</li>
+          <li>Business name</li>
+          <li>Work email or WhatsApp number</li>
+          <li>Business type</li>
+          <li>Approximate monthly WhatsApp enquiry volume (optional)</li>
+          <li>Free-text context about your operation (optional)</li>
+          <li>
+            Allowlisted marketing source parameters from the page URL when present
+            (<code>utm_*</code> and <code>ref</code> only)
+          </li>
+        </ul>
+      </section>
+
+      <section class="privacy__block" aria-labelledby="purpose-heading">
+        <h2 id="purpose-heading">Purpose &amp; legal basis</h2>
+        <p>
+          Purpose: respond to your request to learn about Luna Front Desk and
+          follow up about a possible fit for your business.
+        </p>
+        <p>
+          Legal basis (when a submission is actually received by us): our
+          legitimate interest in answering business enquiries you initiate, or
+          steps prior to a contract at your request.
+        </p>
+      </section>
+
+      <section class="privacy__block" aria-labelledby="recipients-heading">
+        <h2 id="recipients-heading">Recipients</h2>
+        <p>
+          When email is used, your message goes to our inbox at{' '}
+          <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a>.
+          We do not sell lead data. We do not share it with advertising networks
+          or data brokers. Hosting or email providers may process messages as
+          processors under their terms when you choose to email us.
+        </p>
+      </section>
+
+      <section class="privacy__block" aria-labelledby="retention-heading">
+        <h2 id="retention-heading">Retention</h2>
+        <p>
+          Emails you send are kept only as long as needed to handle the enquiry
+          and related follow-up, then deleted or archived under ordinary business
+          email practice. While the on-site lead API is disabled, the form does
+          not create a server-side lead record.
+        </p>
+      </section>
+
+      <section class="privacy__block" aria-labelledby="rights-heading">
+        <h2 id="rights-heading">Your rights &amp; deletion</h2>
+        <p>
+          Depending on where you live, you may have rights to access, correct,
+          delete, restrict, or object to processing of personal data we hold, and
+          to lodge a complaint with a supervisory authority. To request deletion
+          or exercise other rights for an enquiry you emailed us, write to{' '}
+          <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a> with
+          enough detail for us to find the message.
+        </p>
+      </section>
+
+      <section class="privacy__block" aria-labelledby="sale-heading">
+        <h2 id="sale-heading">No sale of personal data</h2>
+        <p>
+          We do not sell personal information collected through this site.
+        </p>
+      </section>
+
+      <section class="privacy__block" aria-labelledby="disabled-heading">
+        <h2 id="disabled-heading">Interest form — current disabled state</h2>
+        <p>
+          The same-origin <code>/api/leads</code> endpoint is defined as a
+          contract only. No receiver is implemented on this static site, and
+          posting is <strong>disabled by default</strong>. Production enablement
+          remains blocked pending a backend privacy/security audit.
+        </p>
+        <p>
+          While disabled: submitting the form does <strong>not</strong> send or
+          save your details to our servers. Values stay in your browser so you
+          can review them, and you may open an encoded <code>mailto:</code> link
+          to email us yourself. We do not claim that details were “captured” or
+          successfully stored when nothing was transmitted.
+        </p>
+      </section>
+
+      <section class="privacy__block" aria-labelledby="hosting-heading">
+        <h2 id="hosting-heading">Hosting &amp; analytics</h2>
+        <p>
+          This marketing site is intended to be self-hosted / statically served.
+          We do not load third-party analytics, advertising pixels, or social
+          tracking scripts on these pages. Fonts may load from Google Fonts when
+          the browser requests them; that is separate from analytics.
+        </p>
+      </section>
+
+      <p class="privacy__back">
+        <a href="/#lead">Back to the interest form</a>
+        {' · '}
+        <a href="/">Home</a>
+      </p>
+    </div>
+  </article>
+
+  <Footer slot="footer" />
+</Layout>
+
+<style>
+  .privacy__inner {
+    max-width: 42rem;
+  }
+
+  .privacy h1 {
+    font-family: var(--font-display);
+    font-size: var(--step-4);
+    color: var(--ink-900);
+    margin-top: var(--space-xs);
+  }
+
+  .privacy__lead {
+    margin-top: var(--space-m);
+  }
+
+  .privacy__block {
+    margin-top: var(--space-xl);
+  }
+
+  .privacy__block h2 {
+    font-family: var(--font-display);
+    font-size: var(--step-1);
+    color: var(--ink-900);
+    margin-bottom: var(--space-s);
+  }
+
+  .privacy__block p,
+  .privacy__block li {
+    color: var(--text-muted);
+    font-size: var(--step-0);
+    line-height: 1.65;
+  }
+
+  .privacy__block ul {
+    margin: var(--space-s) 0 0;
+    padding-left: 1.25rem;
+  }
+
+  .privacy__block li + li {
+    margin-top: var(--space-2xs);
+  }
+
+  .privacy__block code {
+    font-size: 0.92em;
+  }
+
+  .privacy__block a {
+    color: var(--terracotta-600);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .privacy__back {
+    margin-top: var(--space-2xl);
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .privacy__back a {
+    color: var(--terracotta-600);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+</style>

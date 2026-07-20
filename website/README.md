@@ -34,7 +34,7 @@ Build-time env (optional):
 |---|---|
 | `PUBLIC_SITE_URL` | Canonical / OG / sitemap base (default `https://preview.lunafrontdesk.com`) |
 | `PUBLIC_INDEXABLE` | Set to `true` only for production so robots allow indexing |
-| `PUBLIC_LEAD_ENDPOINT` | POST URL for lead capture; omit for honest demo/no-backend mode |
+| `PUBLIC_LEAD_API_ENABLED` | Set to `true` only to allow same-origin `POST /api/leads` (default off). Production (`PUBLIC_INDEXABLE=true`) always refuses posting until a backend audit. No receiver is shipped in this static site. |
 
 Example production-shaped build:
 
@@ -86,7 +86,7 @@ The public demo (`src/demo/*`, `DemoStudio`) is a pure, deterministic state mach
 - No live availability or prices presented as real facts
 - Journeys and ops events are fixtures only; label them as demo data in the UI
 
-Lead form without `PUBLIC_LEAD_ENDPOINT` stays in an honest demo state (mailto fallback). Do not fake delivery success.
+Lead form posts only to same-origin `/api/leads` when explicitly enabled — never to an arbitrary URL. Default is disabled: the UI states before submit that data will not be sent or saved; after submit it keeps entered values, avoids success/captured language, and offers an encoded mailto. Do not fake delivery success. Privacy notice: `/privacy/`.
 
 ## Deployment notes
 
@@ -103,7 +103,8 @@ Lead form without `PUBLIC_LEAD_ENDPOINT` stays in an honest demo state (mailto f
 | `npm ci` | Clean install from lockfile |
 | `npm run dev` | Dev server |
 | `npm run check` | Astro/TS check |
-| `npm test` | Unit + metadata tests |
+| `npm test` | Unit + component + metadata tests |
+| `npm run test:lead-browser` | Playwright lead truth/privacy checks (`QA_URL`) |
 | `npm run build` | Production static build |
 | `npm run verify:emitted` | Assert dist OG/Apple/logo + HTML refs (after build) |
 | `npm run preview` | Preview `dist/` |

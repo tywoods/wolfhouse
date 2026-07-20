@@ -12,6 +12,7 @@
     "astro": "astro",
     "check": "astro check",
     "test": "vitest run",
+    "test:lead-browser": "node qa/lead-privacy.mjs",
     "verify:emitted": "node scripts/verify-emitted-metadata.mjs",
     "qa": "node qa/shot.mjs",
     "qa:install-browser": "playwright install chromium"
@@ -24,6 +25,8 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
+    "@testing-library/preact": "^3.2.4",
+    "happy-dom": "^20.11.0",
     "playwright": "1.61.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"

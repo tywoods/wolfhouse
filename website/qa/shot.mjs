@@ -20,40 +20,56 @@ const sections = [
   { sel: '.section:has(.eyebrow)', file: null },
 ];
 
+/** Bounded Node-driven scroll — avoids in-page setInterval hangs and OOM loops. */
 async function autoScroll(page) {
-  await page.evaluate(async () => {
-    await new Promise((resolve) => {
-      let y = 0;
-      const step = Math.round(window.innerHeight * 0.7);
-      const timer = setInterval(() => {
-        window.scrollBy(0, step);
-        y += step;
-        if (y >= document.body.scrollHeight) {
-          clearInterval(timer);
-          window.scrollTo(0, 0);
-          setTimeout(resolve, 250);
-        }
-      }, 90);
+  for (let i = 0; i < 48; i++) {
+    const done = await page.evaluate(() => {
+      const max = Math.max(
+        document.body?.scrollHeight || 0,
+        document.documentElement?.scrollHeight || 0,
+      );
+      const next = window.scrollY + Math.round(window.innerHeight * 0.85);
+      window.scrollTo(0, next);
+      return window.scrollY + window.innerHeight >= max - 4;
     });
-  });
+    await page.waitForTimeout(70);
+    if (done) break;
+  }
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(200);
 }
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({
+  args: ['--disable-dev-shm-usage', '--no-sandbox'],
+});
 const errors = [];
 for (const vp of viewports) {
   // deviceScaleFactor 1 keeps full-page captures under Chromium's texture limit
   // on this long marketing page; section crops still read clearly for QA.
-  const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 });
+  const ctx = await browser.newContext({
+    viewport: { width: vp.width, height: vp.height },
+    deviceScaleFactor: 1,
+  });
   const page = await ctx.newPage();
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`[${vp.name}] ${m.text()}`); });
   page.on('pageerror', (e) => errors.push(`[${vp.name}] PAGEERROR ${e.message}`));
-  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.goto(BASE, { waitUntil: 'load' });
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${OUT}/${vp.name}-top.png` });
 
-  await autoScroll(page);
+  try {
+    await autoScroll(page);
+  } catch (e) {
+    errors.push(`[${vp.name}] autoscroll: ${e.message}`);
+  }
   await page.waitForTimeout(400);
-  await page.screenshot({ path: `${OUT}/${vp.name}-full.png`, fullPage: true });
+  try {
+    await page.screenshot({ path: `${OUT}/${vp.name}-full.png`, fullPage: true });
+  } catch (e) {
+    // Long-page full capture can OOM headless Chromium; viewport shot still exists.
+    errors.push(`[${vp.name}] full-shot: ${e.message}`);
+    await page.screenshot({ path: `${OUT}/${vp.name}-full.png` }).catch(() => {});
+  }
 
   // Named sections
   for (const s of sections) {

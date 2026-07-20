@@ -213,8 +213,11 @@ import LeadFormIsland from '../lead/LeadForm';
     margin: 0;
   }
 
-  :global(.lf-submit) {
-    align-self: flex-start;
+  :global(.lf-actions) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-m);
     margin-top: var(--space-xs);
   }
 
@@ -223,59 +226,55 @@ import LeadFormIsland from '../lead/LeadForm';
     pointer-events: none;
   }
 
+  :global(.lf-privacy-link) {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  :global(.lf-privacy-link:hover) {
+    color: var(--terracotta-600);
+  }
+
   :global(.lf-privacy) {
     font-size: var(--step--1);
     color: var(--text-faint);
     margin: 0;
   }
 
-  /* ---- Outcome states ---- */
-  :global(.lf-outcome) {
+  :global(.lf-privacy a) {
+    color: var(--terracotta-600);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  :global(.lf-truth) {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+    margin: 0;
+    padding: var(--space-s) var(--space-m);
+    background: var(--sand-100);
+    border: 1px solid var(--sand-200);
+    border-radius: var(--radius-s);
+    line-height: 1.55;
+  }
+
+  :global(.lf-local-outcome) {
     display: flex;
     flex-direction: column;
     gap: var(--space-s);
-    padding: var(--space-l);
-    border-radius: var(--radius-m);
-    text-align: center;
-    align-items: center;
-  }
-
-  :global(.lf-outcome--success) {
-    background: color-mix(in srgb, var(--seaglass-500) 10%, transparent);
-    border: 1.5px solid color-mix(in srgb, var(--seaglass-500) 40%, transparent);
-  }
-
-  :global(.lf-outcome--demo) {
+    padding: var(--space-m);
     background: var(--sand-100);
     border: 1.5px solid var(--sand-200);
+    border-radius: var(--radius-m);
   }
 
-  :global(.lf-outcome__icon) {
-    font-size: 2rem;
-    color: var(--seaglass-600);
-    line-height: 1;
-  }
-
-  :global(.lf-outcome--demo .lf-outcome__icon) {
-    color: var(--text-muted);
-  }
-
-  :global(.lf-outcome__heading) {
-    font-family: var(--font-display);
-    font-size: var(--step-2);
-    color: var(--ink-900);
-  }
-
-  :global(.lf-outcome p) {
+  :global(.lf-local-outcome p) {
     color: var(--text-muted);
     font-size: var(--step--1);
-    max-width: 42ch;
     margin: 0;
-  }
-
-  :global(.lf-outcome__note) {
-    font-style: italic;
-    color: var(--text-faint);
+    line-height: 1.55;
   }
 
   :global(.lf-outcome__mailto) {

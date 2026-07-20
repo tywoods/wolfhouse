@@ -22,13 +22,15 @@ const year = new Date().getFullYear();
       <div>
         <h3>Company</h3>
         <a href={`mailto:${site.contactEmail}`}>Contact</a>
-        <a href="#lead">Request a demo</a>
+        <a href="/#lead">Request a demo</a>
+        <a href="/privacy/" data-testid="footer-privacy-link">Privacy</a>
       </div>
     </nav>
   </div>
   <div class="container site-footer__legal">
     <span>© {year} {site.name}</span>
     <span>Demo conversations use fictional data.</span>
+    <a href="/privacy/">Privacy</a>
   </div>
 
   <style>
@@ -43,5 +45,7 @@ const year = new Date().getFullYear();
     .site-footer__links a { display: block; color: var(--night-muted); font-size: var(--step--1); padding-block: 0.28rem; }
     .site-footer__links a:hover { color: var(--night-text); }
     .site-footer__legal { display: flex; flex-wrap: wrap; gap: var(--space-m); justify-content: space-between; margin-top: var(--space-xl); padding-top: var(--space-m); border-top: 1px solid var(--night-border); color: var(--night-muted); font-size: var(--step--1); }
+    .site-footer__legal a { color: var(--night-muted); text-decoration: underline; text-underline-offset: 2px; }
+    .site-footer__legal a:hover { color: var(--night-text); }
   </style>
 </footer>

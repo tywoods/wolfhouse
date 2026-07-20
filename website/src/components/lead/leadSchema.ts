@@ -18,6 +18,14 @@ export const VOLUME_BUCKETS = [
   '150_plus',
 ] as const;
 
+/** Field max lengths enforced in validation and on inputs. */
+export const LEAD_MAX_LENGTH = {
+  name: 100,
+  businessName: 150,
+  contact: 254,
+  freeText: 1000,
+} as const;
+
 export type BusinessType = (typeof BUSINESS_TYPES)[number];
 export type VolumeBucket = (typeof VOLUME_BUCKETS)[number];
 
@@ -35,6 +43,7 @@ export interface LeadErrors {
   businessName?: string;
   contact?: string;
   businessType?: string;
+  freeText?: string;
 }
 
 export interface ValidationResult {
@@ -52,15 +61,21 @@ export function validateLead(input: LeadInput): ValidationResult {
 
   if (!input.name.trim()) {
     errors.name = 'Your name is required.';
+  } else if (input.name.length > LEAD_MAX_LENGTH.name) {
+    errors.name = `Please keep this under ${LEAD_MAX_LENGTH.name} characters.`;
   }
 
   if (!input.businessName.trim()) {
     errors.businessName = 'Business name is required.';
+  } else if (input.businessName.length > LEAD_MAX_LENGTH.businessName) {
+    errors.businessName = `Please keep this under ${LEAD_MAX_LENGTH.businessName} characters.`;
   }
 
   const contact = input.contact.trim();
   if (!contact) {
     errors.contact = 'Please enter a work email or WhatsApp number.';
+  } else if (input.contact.length > LEAD_MAX_LENGTH.contact) {
+    errors.contact = `Please keep this under ${LEAD_MAX_LENGTH.contact} characters.`;
   } else if (looksLikeEmail(contact)) {
     // Looks like an email — validate the format more strictly.
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contact)) {
@@ -71,6 +86,11 @@ export function validateLead(input: LeadInput): ValidationResult {
 
   if (!input.businessType) {
     errors.businessType = 'Please select a business type.';
+  }
+
+  const freeText = input.freeText ?? '';
+  if (freeText.length > LEAD_MAX_LENGTH.freeText) {
+    errors.freeText = `Please keep this under ${LEAD_MAX_LENGTH.freeText} characters.`;
   }
 
   return { ok: Object.keys(errors).length === 0, errors };

@@ -3,37 +3,31 @@ import { useState } from 'preact/hooks';
 import {
   validateLead,
   extractUtmParams,
+  LEAD_MAX_LENGTH,
   type LeadInput,
   type LeadErrors,
 } from './leadSchema';
+import {
+  isLeadApiEnabled,
+  buildLeadPayload,
+  postLead,
+  LEAD_GENERIC_ERROR,
+} from './leadApi';
+import { buildMailtoLink } from './mailto';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type SubmitState = 'idle' | 'submitting' | 'success' | 'demo' | 'error';
+type SubmitState = 'idle' | 'submitting' | 'local' | 'delivered' | 'error';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildMailtoLink(input: LeadInput): string {
-  const body = [
-    `Name: ${input.name}`,
-    `Business: ${input.businessName}`,
-    `Contact: ${input.contact}`,
-    `Business type: ${input.businessType}`,
-    `Monthly WhatsApp volume: ${input.volumeBucket || 'not specified'}`,
-    input.freeText ? `\nContext:\n${input.freeText}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
-  return `mailto:hello@lunafrontdesk.com?subject=${encodeURIComponent('Luna Front Desk — interest from ' + input.businessName)}&body=${encodeURIComponent(body)}`;
-}
-
-function readUtmFromWindow(): Record<string, string> {
+function readUtmFromWindow(): ReturnType<typeof extractUtmParams> {
   if (typeof window === 'undefined') return {};
-  return extractUtmParams(window.location.search) as Record<string, string>;
+  return extractUtmParams(window.location.search);
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +63,17 @@ function Field({ id, label, error, required, children }: FieldProps) {
 // Main island
 // ---------------------------------------------------------------------------
 
-export default function LeadForm() {
+export interface LeadFormProps {
+  /** Override for tests; defaults to {@link isLeadApiEnabled}. */
+  apiEnabled?: boolean;
+  /** Override for tests; defaults to global fetch. */
+  fetchImpl?: typeof fetch;
+}
+
+export default function LeadForm(props: LeadFormProps = {}) {
+  const apiEnabled = props.apiEnabled ?? isLeadApiEnabled();
+  const fetchImpl = props.fetchImpl ?? fetch;
+
   const [values, setValues] = useState<LeadInput>({
     name: '',
     businessName: '',
@@ -85,7 +89,6 @@ export default function LeadForm() {
   const set = (field: keyof LeadInput) => (e: Event) => {
     const val = (e.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value;
     setValues((v) => ({ ...v, [field]: val }));
-    // Clear error for field on change.
     if (errors[field as keyof LeadErrors]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }));
     }
@@ -100,91 +103,38 @@ export default function LeadForm() {
     const result = validateLead(values);
     if (!result.ok) {
       setErrors(result.errors);
-      // Focus first error field for accessibility.
       const firstKey = Object.keys(result.errors)[0];
       if (firstKey) {
-        const el = document.getElementById(firstKey);
-        el?.focus();
+        document.getElementById(firstKey)?.focus();
       }
       return;
     }
 
-    const endpoint = (import.meta as unknown as { env: Record<string, string | undefined> }).env
-      .PUBLIC_LEAD_ENDPOINT;
-
-    if (!endpoint) {
-      // Honest demo state — no endpoint configured.
-      setSubmitState('demo');
+    if (!apiEnabled) {
+      // No audited backend — do not POST. Keep values; offer mailto.
+      setServerError('');
+      setSubmitState('local');
       return;
     }
 
     setSubmitState('submitting');
     setServerError('');
 
-    try {
-      const payload = {
-        ...values,
-        capturedAt: new Date().toISOString(),
-        source: readUtmFromWindow(),
-      };
+    const payload = buildLeadPayload(values, readUtmFromWindow());
+    const outcome = await postLead(payload, fetchImpl);
 
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) {
-        setSubmitState('success');
-      } else {
-        const text = await res.text().catch(() => '');
-        setServerError(text || `Server returned ${res.status}.`);
-        setSubmitState('error');
-      }
-    } catch (err) {
-      setServerError('Network error — please check your connection and try again.');
+    if (outcome.ok) {
+      setSubmitState('delivered');
+    } else {
+      setServerError(LEAD_GENERIC_ERROR);
       setSubmitState('error');
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Success states
-  // ---------------------------------------------------------------------------
-
-  if (submitState === 'success') {
-    return (
-      <div class="lf-outcome lf-outcome--success" role="status" aria-live="polite">
-        <span class="lf-outcome__icon" aria-hidden="true">✓</span>
-        <h3 class="lf-outcome__heading">You're on the list.</h3>
-        <p>Thanks, {values.name.split(' ')[0]}. We'll be in touch with you at <strong>{values.contact}</strong> shortly.</p>
-      </div>
-    );
-  }
-
-  if (submitState === 'demo') {
-    return (
-      <div class="lf-outcome lf-outcome--demo" role="status" aria-live="polite">
-        <span class="lf-outcome__icon" aria-hidden="true">◎</span>
-        <h3 class="lf-outcome__heading">Thanks — we've noted your details.</h3>
-        <p class="lf-outcome__note">
-          <em>Demo preview:</em> submissions are delivered once the lead backend is connected.
-        </p>
-        <p class="lf-outcome__fallback">
-          In the meantime, you can{' '}
-          <a class="lf-outcome__mailto" href={buildMailtoLink(values)}>
-            send your details directly via email
-          </a>{' '}
-          to hello@lunafrontdesk.com and we'll follow up.
-        </p>
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Form
-  // ---------------------------------------------------------------------------
-
   const busy = submitState === 'submitting';
+  const mailtoHref = buildMailtoLink(values);
+  const showLocalNotice = submitState === 'local';
+  const showDelivered = submitState === 'delivered';
 
   return (
     <form
@@ -193,6 +143,48 @@ export default function LeadForm() {
       noValidate
       aria-label="Express interest in Luna Front Desk"
     >
+      {!apiEnabled && (
+        <p class="lf-truth" role="note" data-testid="lead-disabled-truth">
+          Submitting this form will not send or save your details — no lead
+          backend is connected yet. After you submit, you can email us instead.
+        </p>
+      )}
+
+      {showLocalNotice && (
+        <div
+          class="lf-local-outcome"
+          role="status"
+          aria-live="polite"
+          data-testid="lead-local-outcome"
+        >
+          <p>
+            Nothing was sent or saved. Your answers are still in the form below.
+            To reach us, use the email link:
+          </p>
+          <p>
+            <a
+              class="lf-outcome__mailto"
+              href={mailtoHref}
+              data-testid="lead-mailto"
+            >
+              Open an email with your details
+            </a>{' '}
+            to hello@lunafrontdesk.com.
+          </p>
+        </div>
+      )}
+
+      {showDelivered && (
+        <div
+          class="lf-local-outcome"
+          role="status"
+          aria-live="polite"
+          data-testid="lead-delivered"
+        >
+          <p>Thanks — we received your message and will follow up.</p>
+        </div>
+      )}
+
       <div class="lf-grid">
         <Field id="name" label="Your name" error={errors.name} required>
           <input
@@ -201,6 +193,7 @@ export default function LeadForm() {
             type="text"
             name="name"
             autocomplete="name"
+            maxlength={LEAD_MAX_LENGTH.name}
             value={values.name}
             onInput={set('name')}
             aria-required="true"
@@ -216,6 +209,7 @@ export default function LeadForm() {
             type="text"
             name="businessName"
             autocomplete="organization"
+            maxlength={LEAD_MAX_LENGTH.businessName}
             value={values.businessName}
             onInput={set('businessName')}
             aria-required="true"
@@ -233,6 +227,7 @@ export default function LeadForm() {
           name="contact"
           autocomplete="email"
           placeholder="e.g. hello@mybusiness.com or +34 600 000 000"
+          maxlength={LEAD_MAX_LENGTH.contact}
           value={values.contact}
           onInput={set('contact')}
           aria-required="true"
@@ -280,31 +275,42 @@ export default function LeadForm() {
         </Field>
       </div>
 
-      <Field id="freeText" label="What takes most of your time? (optional)">
+      <Field id="freeText" label="What takes most of your time? (optional)" error={errors.freeText}>
         <textarea
           id="freeText"
           class="lf-textarea"
           name="freeText"
           rows={3}
           placeholder="e.g. Answering the same availability questions, chasing deposits…"
+          maxlength={LEAD_MAX_LENGTH.freeText}
           value={values.freeText}
           onInput={set('freeText')}
+          aria-describedby={ariaDesc('freeText')}
           disabled={busy}
         />
       </Field>
 
       {submitState === 'error' && (
-        <p class="lf-server-error" role="alert">
-          {serverError || 'Something went wrong — please try again.'}
+        <p class="lf-server-error" role="alert" data-testid="lead-generic-error">
+          {serverError || LEAD_GENERIC_ERROR}
         </p>
       )}
 
-      <button class="btn btn--primary lf-submit" type="submit" disabled={busy}>
-        {busy ? 'Sending…' : 'Show me Luna for my business'}
-      </button>
+      <div class="lf-actions">
+        <button class="btn btn--primary lf-submit" type="submit" disabled={busy}>
+          {busy ? 'Sending…' : 'Show me Luna for my business'}
+        </button>
+        <a class="lf-privacy-link" href="/privacy/" data-testid="lead-privacy-link">
+          Privacy
+        </a>
+      </div>
 
       <p class="lf-privacy">
-        We'll only use your details to follow up about Luna. No spam, no third-party sharing.
+        {!apiEnabled
+          ? 'Your details stay in this browser until you choose to email us. See our '
+          : 'We only use your details to follow up about Luna. See our '}
+        <a href="/privacy/">privacy notice</a>
+        {' '}for controller contact, retention, and your rights.
       </p>
     </form>
   );
