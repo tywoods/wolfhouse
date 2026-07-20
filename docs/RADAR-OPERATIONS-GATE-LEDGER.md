@@ -10,16 +10,18 @@
 
 Add **truthful dependency-aware Staff API readiness** for Wolfhouse and Sunset **source/IaC only**. Keep `/healthz` as liveness. Add `/readyz` that performs a bounded read-only PostgreSQL check through the existing pool. Add ACA liveness/readiness/startup probes to both staging Bicep templates. **Do not deploy.** G02 remains `partial` — deployment and failure drill stay open.
 
+**Correction (source-partial):** `/readyz` uses a cancellable readiness operation (not `Promise.race`) so timeout clears pending acquisition, checked-out client, in-flight SELECT, and timer. Staff API CLI installs SIGTERM/SIGINT graceful shutdown (stop accept → bound drain → `closePgPool` once). Runtime RED/GREEN proofs use real `createStaffQueryApiHttpServer`/router.
+
 ## Artifacts
 
 | Path | Role |
 |------|------|
-| `scripts/lib/staff-api-readiness.js` | `/readyz` contract + bounded SELECT 1 check |
-| `scripts/staff-query-api.js` | Wires `/readyz`; `/healthz` unchanged (static) |
+| `scripts/lib/staff-api-readiness.js` | `/readyz` contract + cancellable bounded SELECT 1 |
+| `scripts/staff-query-api.js` | Wires `/readyz`; `/healthz` static; SIGTERM/SIGINT lifecycle |
 | `infra/azure/staging/main.bicep` | ACA probes (port 3036) |
 | `infra/azure/sunset-staging/main.bicep` | Identical ACA probe contract |
 | `scripts/lib/radar-slice16c-staff-api-readiness.js` | Locks + probe validators |
-| `scripts/verify-radar-slice16c-staff-api-readiness.js` | RED/GREEN offline verifier |
+| `scripts/verify-radar-slice16c-staff-api-readiness.js` | RED/GREEN offline verifier (real HTTP server) |
 | `fixtures/radar-operations/slice16c-*.json` | Expected endpoint/probe contracts |
 | `npm run verify:radar-slice16c-staff-api-readiness` | Gate |
 

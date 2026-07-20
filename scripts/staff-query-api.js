@@ -71,7 +71,11 @@ const {
 } = require('./lib/meta-whatsapp-signature-config');
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
-const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
+const {
+  withPgClient: _withPgClientImpl,
+  getPool: _getPgPool,
+  closePgPool,
+} = require('./lib/pg-connect');
 const {
   READYZ_PATH,
   handleStaffApiReadyz,
@@ -46627,7 +46631,12 @@ async function router(req, res) {
   // RADAR 16C: /readyz = dependency readiness (bounded read-only Postgres via pool).
   // /healthz stays static liveness — must not touch Postgres (ACA liveness/startup).
   if (pathname === READYZ_PATH) {
-    return handleStaffApiReadyz(res, sendJSON, withPgClient);
+    // Prefer pool-bounded acquire/cancel when not on the fortress offline seam;
+    // seam tests inject withPgClient and must keep that path.
+    const readinessOpts = fortressOfflineListenerSeamsActive()
+      ? {}
+      : { getPool: _getPgPool };
+    return handleStaffApiReadyz(res, sendJSON, withPgClient, readinessOpts);
   }
 
   if (pathname === '/healthz' || pathname === '/') {
@@ -46665,6 +46674,98 @@ function createStaffQueryApiHttpServer() {
 
 function shouldEagerCreateStaffQueryApiServer() {
   return require.main === module || fortressOfflineListenerSeamsActive();
+}
+
+/** RADAR 16C — bound how long SIGTERM/SIGINT waits for in-flight HTTP to finish. */
+const STAFF_API_SHUTDOWN_DRAIN_MS = Number(process.env.STAFF_API_SHUTDOWN_DRAIN_MS || 10000);
+
+/**
+ * Graceful lifecycle for a Staff API HTTP server: stop accepting, drain in-flight
+ * (bounded), close shared PG pool + keepalive exactly once. Safe to call repeatedly.
+ * Importing this module does NOT attach signals or close the pool (one-shot CLIs
+ * that only require() staff-query-api stay unaffected).
+ *
+ * @param {import('http').Server} httpServer
+ * @param {{
+ *   drainMs?: number,
+ *   closePool?: () => Promise<void>,
+ *   onAfterClose?: () => void,
+ *   log?: (msg: string) => void,
+ * }} [opts]
+ */
+function attachStaffQueryApiLifecycle(httpServer, opts = {}) {
+  const drainMs = Number.isFinite(opts.drainMs) && opts.drainMs >= 0
+    ? opts.drainMs
+    : STAFF_API_SHUTDOWN_DRAIN_MS;
+  const closePool = typeof opts.closePool === 'function' ? opts.closePool : closePgPool;
+  const log = typeof opts.log === 'function' ? opts.log : ((msg) => console.log(msg));
+  let shuttingDown = false;
+  /** @type {Promise<void> | null} */
+  let shutdownPromise = null;
+  let poolClosed = false;
+
+  async function shutdown(reason) {
+    if (shutdownPromise) return shutdownPromise;
+    shuttingDown = true;
+    shutdownPromise = (async () => {
+      log(`Staff API shutting down (${reason || 'signal'})…`);
+      await new Promise((resolve) => {
+        let settled = false;
+        const done = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        try {
+          httpServer.close(done);
+        } catch (_) {
+          done();
+          return;
+        }
+        const drainTimer = setTimeout(done, drainMs);
+        if (drainTimer && typeof drainTimer.unref === 'function') drainTimer.unref();
+      });
+      if (!poolClosed) {
+        poolClosed = true;
+        try {
+          await closePool();
+        } catch (_) {
+          // Pool close is best-effort; never throw out of signal handlers.
+        }
+      }
+      if (typeof opts.onAfterClose === 'function') {
+        try { opts.onAfterClose(); } catch (_) { /* ignore */ }
+      }
+    })();
+    return shutdownPromise;
+  }
+
+  function installSignalHandlers() {
+    const handler = (signal) => {
+      shutdown(signal).then(() => {
+        // Allow natural exit after pool/timers clear; force if something remains.
+        const force = setTimeout(() => {
+          process.exit(process.exitCode || 0);
+        }, 1500);
+        if (force && typeof force.unref === 'function') force.unref();
+      }).catch(() => {
+        process.exitCode = 1;
+        process.exit(1);
+      });
+    };
+    process.on('SIGTERM', handler);
+    process.on('SIGINT', handler);
+    return () => {
+      process.removeListener('SIGTERM', handler);
+      process.removeListener('SIGINT', handler);
+    };
+  }
+
+  return {
+    shutdown,
+    installSignalHandlers,
+    isShuttingDown: () => shuttingDown,
+  };
 }
 
 const server = shouldEagerCreateStaffQueryApiServer()
@@ -46760,6 +46861,8 @@ if (require.main === module) {
     console.error(`Server error: ${err.message}`);
     process.exit(1);
   });
+  // RADAR 16C: SIGTERM/SIGINT → stop HTTP accept, bound drain, close PG pool once.
+  attachStaffQueryApiLifecycle(server).installSignalHandlers();
 }
 
 // FORTRESS 15J3: ZERO seam/factory/counter/router/server test exports unless dual-gated.
@@ -46770,6 +46873,7 @@ if (fortressOfflineListenerSeamsActive()) {
     fortressOfflineListenerSeamsActive,
     createStaffQueryApiHttpServer,
     getStaffQueryApiCreateServerCalls: () => __staffQueryApiCreateServerCalls,
+    attachStaffQueryApiLifecycle,
     router,
     server,
     COOKIE_NAME,

@@ -88,8 +88,17 @@ async function testStaffApiDoesNotAutoClose() {
   const fake = makeFakePool();
   pg._setPoolForTests(fake, null);
 
-  assert('staff-query-api does not reference closePgPool',
-    !fs.readFileSync(API_PATH, 'utf8').includes('closePgPool'));
+  // RADAR 16C: Staff API may closePgPool only via SIGTERM/SIGINT graceful shutdown.
+  // Importing the module must still leave the pool open (proven below).
+  {
+    const apiSrc = fs.readFileSync(API_PATH, 'utf8');
+    assert('staff-query-api closes pool only via graceful shutdown lifecycle',
+      /closePgPool/.test(apiSrc)
+      && /attachStaffQueryApiLifecycle/.test(apiSrc)
+      && /SIGTERM/.test(apiSrc)
+      && /SIGINT/.test(apiSrc)
+      && /require\.main === module[\s\S]*attachStaffQueryApiLifecycle/.test(apiSrc));
+  }
 
   // Requiring pg-connect (as Staff API does via withPgClient) must not close.
   await new Promise((r) => setTimeout(r, 20));
