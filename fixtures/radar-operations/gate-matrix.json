@@ -1,0 +1,440 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16A",
+  "title": "RADAR operations gate ledger",
+  "master_basis": "28a30a688baa637e1bcb549d9b585cb5917942d1",
+  "branch": "radar/slice-16a-gate-ledger",
+  "audit_only": true,
+  "live_mutation": false,
+  "classification_policy": "fail_closed_absence_is_not_safe",
+  "verdicts_allowed": ["proven", "partial", "absent"],
+  "azure_read_only_scope": [
+    "wh-staging-rg",
+    "luna-sunset-staging-rg"
+  ],
+  "must_not": [
+    "source runtime behavior change",
+    "deploy",
+    "restart",
+    "synthetic traffic generation",
+    "DB or secret value read",
+    "guest or payment action",
+    "production query"
+  ],
+  "gates": [
+    {
+      "id": "G01_correlation_structured_logs",
+      "name": "Correlation / structured logs",
+      "verdict": "partial",
+      "severity": "high",
+      "rationale": "Staff API appends JSONL audit lines locally, and ACA envs ship container logs to Log Analytics, but there is no request correlation ID middleware, no tenant-labeled structured HTTP access log contract, and no proven end-to-end correlation across Meta → Hermes → Staff API → Stripe.",
+      "source_evidence": [
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "827-828,1595-1599",
+          "symbols": ["LOG_DIR", "LOG_FILE", "appendAuditLog"],
+          "note": "JSONL file append only; silent catch on write failure"
+        },
+        {
+          "path": "infra/azure/staging/main.bicep",
+          "lines": "113-120,282-284",
+          "symbols": ["logAnalytics", "logAnalyticsConfiguration"],
+          "note": "LAW + ACA env log destination declared in IaC"
+        }
+      ],
+      "live_evidence": [
+        {
+          "ref": "live-inventory.json#aca_env_logging",
+          "note": "wh-staging-env and luna-sunset-staging-env logsDestination=log-analytics"
+        },
+        {
+          "ref": "live-inventory.json#diagnostic_settings",
+          "note": "No per-resource diagnostic settings on staff-api/pg/kv/appinsights samples"
+        }
+      ],
+      "gaps": [
+        "No X-Request-Id / correlation_id propagation",
+        "No tenant-aware structured access logs with client_slug dimension",
+        "Audit JSONL is process-local path, not proven shipped as App Insights traces"
+      ]
+    },
+    {
+      "id": "G02_readiness_dependencies",
+      "name": "Readiness / dependencies",
+      "verdict": "partial",
+      "severity": "high",
+      "rationale": "Public /healthz returns static ok without checking Postgres, Stripe, or Redis. Live ACA staff apps have empty/null probes. Hermes/Luna /health exists in deploy scripts but is not a dependency-aware readiness gate for Staff API.",
+      "source_evidence": [
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "46623-46633",
+          "symbols": ["pathname === '/healthz'"],
+          "note": "Always 200 with status ok; no SELECT 1 / dependency probes"
+        },
+        {
+          "path": "infra/azure/staging/README.md",
+          "lines": "183",
+          "symbols": [],
+          "note": "Runbook checks /healthz JSON shape only"
+        },
+        {
+          "path": "docs/MULTICLIENT-STAGING-ROUTING.md",
+          "lines": "134,166,190",
+          "symbols": [],
+          "note": "Health curls for Staff API and Luna"
+        }
+      ],
+      "live_evidence": [
+        {
+          "ref": "live-inventory.json#public_healthz",
+          "note": "staff-staging and sunset-staging /healthz HTTP 200; body status=ok without dependency fields"
+        },
+        {
+          "ref": "live-inventory.json#container_apps.wh-staging-staff-api",
+          "note": "probes=[] ; minReplicas=0 maxReplicas=1"
+        },
+        {
+          "ref": "live-inventory.json#container_apps.luna-sunset-staging-staff-api",
+          "note": "probes=null ; minReplicas=1 maxReplicas=1"
+        }
+      ],
+      "gaps": [
+        "No /readyz distinct from liveness",
+        "No PG/Stripe/Redis dependency checks",
+        "No ACA HTTP probes configured live"
+      ]
+    },
+    {
+      "id": "G03_actionable_tenant_aware_alerts",
+      "name": "Actionable tenant-aware alerts",
+      "verdict": "absent",
+      "severity": "critical",
+      "rationale": "Live inventory shows zero metric alerts, zero activity-log alerts, and zero scheduled query rules on both staging RGs. Only an Application Insights Smart Detection action group exists on wh-staging-rg with ARM role receivers and no email/webhook receivers. No tenant (client_slug) dimensions or runbook-linked alert actions proven.",
+      "source_evidence": [
+        {
+          "path": "infra/azure/README.md",
+          "lines": "15",
+          "symbols": [],
+          "note": "Mentions Application Insights for logs + alerts aspirationally"
+        },
+        {
+          "path": "infra/azure/staging/main.bicep",
+          "lines": "124-132",
+          "symbols": ["appInsights"],
+          "note": "App Insights component only; no metricAlert / actionGroup resources"
+        },
+        {
+          "path": "infra/azure/sunset-staging/main.bicep",
+          "lines": "191-198",
+          "symbols": ["appInsights"],
+          "note": "App Insights only; no alert rules in Bicep"
+        }
+      ],
+      "live_evidence": [
+        {
+          "ref": "live-inventory.json#alerts",
+          "note": "metric_alerts=[], activity_log_alerts=[], scheduled_query_rules=[] both RGs"
+        },
+        {
+          "ref": "live-inventory.json#action_groups",
+          "note": "wh-staging: Application Insights Smart Detection (ARM roles only); sunset: []"
+        }
+      ],
+      "gaps": [
+        "No 5xx / latency / webhook failure alerts",
+        "No tenant-aware dimensions",
+        "No on-call email/SMS/webhook action group for ops"
+      ]
+    },
+    {
+      "id": "G04_webhook_payment_worker_backlog",
+      "name": "Webhook / payment / worker backlog",
+      "verdict": "partial",
+      "severity": "high",
+      "rationale": "Stripe and Meta webhook handlers exist; Sunset hold-expiry scheduled job is live; staging Bicep declares n8n worker scale. No backlog depth metrics, DLQ, or alert on webhook/payment/worker lag proven in code or Azure monitor inventory.",
+      "source_evidence": [
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "13644,13706-13805,45292-45299",
+          "symbols": ["handleStripeWebhook"],
+          "note": "Stripe webhook route present"
+        },
+        {
+          "path": "infra/azure/staging/main.bicep",
+          "lines": "497,530-532",
+          "symbols": ["n8n worker scale"],
+          "note": "n8n worker maxReplicas=1; no backlog metric wiring"
+        },
+        {
+          "path": "infra/azure/sunset-staging/main.bicep",
+          "lines": "14-20,320,464-470",
+          "symbols": ["hold-expiry", "schemaObserverJob"],
+          "note": "Hold-expiry unmanaged in template notes; schema observer optional"
+        }
+      ],
+      "live_evidence": [
+        {
+          "ref": "live-inventory.json#jobs",
+          "note": "luna-sunset-staging-hold-expiry Schedule cron 15 * * * *; sch-obs Manual"
+        },
+        {
+          "ref": "live-inventory.json#alerts",
+          "note": "No backlog/queue alerts"
+        }
+      ],
+      "gaps": [
+        "No queue depth / failed-execution metrics",
+        "No DLQ or replay operator surface for stuck webhooks",
+        "No alert on hold-expiry job failure"
+      ]
+    },
+    {
+      "id": "G05_retry_replay_safety",
+      "name": "Retry / replay safety",
+      "verdict": "partial",
+      "severity": "high",
+      "rationale": "Many Staff write paths require idempotency_key; payment_events.stripe_event_id is UNIQUE in schema; Meta inbound marks duplicates. Stripe webhook path stores stripe_event_id in payment metadata but this audit did not prove a fail-closed payment_events ledger insert before side effects for every event type. Absence of full replay suite → partial, not proven.",
+      "source_evidence": [
+        {
+          "path": "database/migrations/001_init.sql",
+          "lines": "453-466",
+          "symbols": ["payment_events", "stripe_event_id TEXT UNIQUE"],
+          "note": "Schema supports Stripe event uniqueness"
+        },
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "3102-3117,13706-13746,13906-13911",
+          "symbols": ["idempotency_key", "handleStripeWebhook"],
+          "note": "Idempotency required on writes; Stripe signature gate; event id in metadata"
+        },
+        {
+          "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+          "lines": "651",
+          "symbols": ["duplicate"],
+          "note": "Inbound duplicate flag when event row already present"
+        }
+      ],
+      "live_evidence": [
+        {
+          "ref": "live-inventory.json#mutation_policy",
+          "note": "No live webhook replay or payment mutation performed in 16A"
+        }
+      ],
+      "gaps": [
+        "No offline RED/GREEN Stripe event.id replay suite frozen for all booking payment event types",
+        "No proven Meta webhook replay safety across Hermes + Staff dual ingress"
+      ]
+    },
+    {
+      "id": "G06_scaling_capacity",
+      "name": "Scaling / capacity",
+      "verdict": "partial",
+      "severity": "medium",
+      "rationale": "ACA scale bounds exist (often maxReplicas=1). Conversational Luna stress fixtures exist (Stage 40) but no HTTP/infrastructure load test, soak, or capacity SLO for Staff API / webhooks. Scale-to-zero on Wolfhouse staff API is a capacity/cold-start risk without readiness probes.",
+      "source_evidence": [
+        {
+          "path": "infra/azure/staging/main.bicep",
+          "lines": "365-367,452-454,530-532",
+          "symbols": ["minReplicas", "maxReplicas"],
+          "note": "Staff API / n8n / worker maxReplicas=1"
+        },
+        {
+          "path": "infra/azure/sunset-staging/main.bicep",
+          "lines": "456-458",
+          "symbols": ["staffApiMinReplicas", "staffApiMaxReplicas"],
+          "note": "Sunset staff scale params"
+        },
+        {
+          "path": "docs/STAGE-40C-HAMMER-REVIEW-PACK.md",
+          "lines": "1-14,201",
+          "symbols": [],
+          "note": "Conversation stress pack — not infra load test"
+        }
+      ],
+      "live_evidence": [
+        {
+          "ref": "live-inventory.json#container_apps",
+          "note": "Live scale matches maxReplicas=1; wh staff minReplicas=0"
+        }
+      ],
+      "gaps": [
+        "No k6/artillery/locust Staff API load suite",
+        "No autoscaling rules (rules=null live)",
+        "No capacity SLO / error budget"
+      ]
+    },
+    {
+      "id": "G07_rollback_incident_runbooks",
+      "name": "Rollback / incident runbooks",
+      "verdict": "partial",
+      "severity": "high",
+      "rationale": "Written rollback/cutover runbooks and a backup/restore plan exist. PHASE-7.4 explicitly states restore drill not executed. Live PG flexible servers have 7-day backup retention (geo-redundant disabled). No proven recent restore drill evidence artifact.",
+      "source_evidence": [
+        {
+          "path": "docs/clients/wolfhouse/LIVE-ROLLBACK-RUNBOOK.md",
+          "lines": "1-60",
+          "symbols": [],
+          "note": "Image-tag rollback principles; preserve DB/payments"
+        },
+        {
+          "path": "docs/PHASE-7.4-BACKUP-RESTORE-ROLLBACK-PLAN.md",
+          "lines": "1-8",
+          "symbols": [],
+          "note": "Status: planning; no restore drill executed"
+        },
+        {
+          "path": "docs/sunset/SUNSET-PORTAL-SLICE-1-STAGING-APPROVAL-PACKET.md",
+          "lines": "275-295",
+          "symbols": [],
+          "note": "Sunset staging cleanup/rollback section"
+        }
+      ],
+      "live_evidence": [
+        {
+          "ref": "live-inventory.json#postgres_backups",
+          "note": "All three flexible servers backupRetentionDays=7 geoRedundant=Disabled"
+        }
+      ],
+      "gaps": [
+        "Restore drill not executed / not evidenced",
+        "No single staging incident commander runbook covering both RGs",
+        "Geo-redundant backup disabled on staging PG"
+      ]
+    },
+    {
+      "id": "G08_retention_privacy",
+      "name": "Retention / privacy",
+      "verdict": "partial",
+      "severity": "high",
+      "rationale": "LAW retention 30d and App Insights 90d proven live; privacy/GDPR gate documented before customer memory. Audit-log retention still TBD in Sunset admin spec. No end-to-end guest PII retention/deletion procedure proven for staging ops telemetry.",
+      "source_evidence": [
+        {
+          "path": "docs/ROADMAP.md",
+          "lines": "962-976",
+          "symbols": [],
+          "note": "Privacy / GDPR gate before customer memory"
+        },
+        {
+          "path": "docs/migration-risks.md",
+          "lines": "41",
+          "symbols": [],
+          "note": "PII in logs called out as GDPR risk"
+        },
+        {
+          "path": "docs/sunset/SUNSET-ADMIN-CONFIG-SPEC.md",
+          "lines": "340,576",
+          "symbols": [],
+          "note": "Audit retention TBD"
+        },
+        {
+          "path": "infra/azure/staging/main.bicep",
+          "lines": "78,118",
+          "symbols": ["logRetentionDays"],
+          "note": "Default LAW retention param 30"
+        }
+      ],
+      "live_evidence": [
+        {
+          "ref": "live-inventory.json#retention",
+          "note": "LAW 30d both RGs; App Insights 90d both RGs"
+        }
+      ],
+      "gaps": [
+        "No guest data deletion/export ops procedure for staging telemetry",
+        "Audit retention policy not frozen",
+        "No proven PII redaction in container logs shipped to LAW"
+      ]
+    },
+    {
+      "id": "G09_cost_anomaly_detection",
+      "name": "Cost anomaly detection",
+      "verdict": "absent",
+      "severity": "high",
+      "rationale": "MTD ActualCost captured read-only for both staging RGs. Zero Consumption budgets on either RG. No cost anomaly alert rule. Capture helper exists for Sunset cost snapshots but does not create budgets or anomaly detection.",
+      "source_evidence": [
+        {
+          "path": "scripts/capture-sunset-staging-rg-cost.js",
+          "lines": "1-96",
+          "symbols": ["main"],
+          "note": "Read-only ActualCost capture; secret-free; no budget create"
+        },
+        {
+          "path": "infra/azure/staging/README.md",
+          "lines": "61-66",
+          "symbols": [],
+          "note": "Budget confirmation is a human checklist, not an Azure budget resource"
+        },
+        {
+          "path": "docs/PHASE-7.3C-AZURE-STAGING-DEPLOYMENT-PREFLIGHT.md",
+          "lines": "106,405",
+          "symbols": [],
+          "note": "Manual monthly budget comfort level — not automated anomaly detection"
+        }
+      ],
+      "live_evidence": [
+        {
+          "ref": "live-inventory.json#costs_mtd",
+          "note": "wh-staging-rg 65.12 USD; luna-sunset-staging-rg 16.91 USD (MonthToDate ActualCost)"
+        },
+        {
+          "ref": "live-inventory.json#budgets",
+          "note": "budgets=[] both RGs"
+        }
+      ],
+      "gaps": [
+        "No Microsoft.Consumption/budgets resources",
+        "No cost anomaly alert action group with ops notify",
+        "No threshold tied to measured MTD baseline"
+      ]
+    }
+  ],
+  "verdict_counts": {
+    "proven": 0,
+    "partial": 7,
+    "absent": 2,
+    "total": 9
+  },
+  "slice_16b_selection": {
+    "selected": true,
+    "outcome_id": "16B_staging_rg_cost_budget_anomaly",
+    "gate_id": "G09_cost_anomaly_detection",
+    "title": "Add staging RG ActualCost budgets with ops notify thresholds",
+    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free IaC/fixtures, builds on measured MTD costs.",
+    "owner_files": [
+      "infra/azure/staging/README.md",
+      "infra/azure/sunset-staging/README.md",
+      "scripts/capture-sunset-staging-rg-cost.js",
+      "fixtures/radar-operations/ (16B contract overlay)"
+    ],
+    "out_of_scope_for_16b": [
+      "Staff API / Hermes code changes",
+      "Deploy or restart",
+      "Production RGs",
+      "Tenant-aware metric alerts (G03 — larger follow-on)",
+      "Readiness probe implementation (G02)"
+    ],
+    "acceptance_criteria": [
+      "Azure Consumption budget exists on wh-staging-rg with amount >= measured MTD baseline and at least one notification threshold (e.g. 80% and 100%)",
+      "Azure Consumption budget exists on luna-sunset-staging-rg with the same properties",
+      "Action group used by budgets has a non-ARM ops receiver (email or webhook) — no secrets in git",
+      "Secret-free fixture + verifier prove budget names/scopes/thresholds without reading secret values",
+      "No Staff API, Hermes, DB schema, or guest/payment runtime behavior change in the 16B diff"
+    ],
+    "final_controlled_drill": {
+      "id": "16B_DRILL_budget_threshold_notify",
+      "steps": [
+        "Record pre-create MTD ActualCost (read-only) for both RGs",
+        "Create budgets with notify thresholds only (no other resource changes)",
+        "Trigger a test notification or confirm Azure shows Enabled + threshold definitions",
+        "Re-run read-only budget list; freeze evidence JSON secret-free",
+        "Confirm docker/app revisions unchanged (zero runtime mutation)"
+      ],
+      "pass_rule": "Both RG budgets listed Enabled with thresholds + action group receiver present; no container restart/deploy/DB write"
+    }
+  },
+  "final_controlled_drill_16a": {
+    "id": "16A_DRILL_ledger_freeze_read_only",
+    "description": "Freeze this ledger from clean master; verify offline; push branch; no PR/merge; no live mutation.",
+    "pass_rule": "npm run verify:radar-slice16a-operations-gate-ledger exits 0; git diff against runtime sources empty for behavior; Azure calls were GET/CostManagement query only"
+  }
+}

@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16A",
+  "captured_at_utc": "2026-07-20T12:00:00Z",
+  "subscription_id_suffix": "0c46f704a3b9",
+  "read_only": true,
+  "live_mutation": false,
+  "scope_resource_groups": ["wh-staging-rg", "luna-sunset-staging-rg"],
+  "mutation_policy": {
+    "deploys": 0,
+    "restarts": 0,
+    "db_reads": 0,
+    "secret_value_reads": 0,
+    "guest_actions": 0,
+    "payment_actions": 0,
+    "production_queries": 0,
+    "azure_methods_allowed": ["GET", "CostManagement/query POST read-only"]
+  },
+  "resource_groups": {
+    "wh-staging-rg": {
+      "location": "westeurope",
+      "provisioningState": "Succeeded",
+      "resource_names": [
+        "wh-staging-identity",
+        "wh-staging-logs",
+        "whstagingacr",
+        "wh-staging-kv",
+        "wh-staging-env",
+        "wh-staging-appinsights",
+        "Application Insights Smart Detection",
+        "wh-staging-pg-app",
+        "wh-staging-pg-n8n",
+        "wh-staging-staff-api",
+        "lunabox",
+        "crowsnest-internal"
+      ]
+    },
+    "luna-sunset-staging-rg": {
+      "location": "westeurope",
+      "provisioningState": "Succeeded",
+      "resource_names": [
+        "luna-sunset-staging-identity",
+        "luna-sunset-staging-logs",
+        "luna-sunset-staging-pg-app",
+        "luna-sunset-staging-kv",
+        "luna-sunset-staging-appinsights",
+        "luna-sunset-staging-env",
+        "luna-sunset-staging-staff-api",
+        "luna-sunset-staging-hold-expiry",
+        "luna-sunset-staging-sch-obs"
+      ]
+    }
+  },
+  "costs_mtd": {
+    "timeframe": "MonthToDate",
+    "currency": "USD",
+    "api": "Microsoft.CostManagement/query ActualCost",
+    "wh-staging-rg": {
+      "total": 65.1200802322302,
+      "by_service": [
+        { "service": "Virtual Machines", "cost": 21.224286419 },
+        { "service": "Azure Database for PostgreSQL", "cost": 15.0342258064516 },
+        { "service": "Azure Container Apps", "cost": 9.866106 },
+        { "service": "Redis Cache", "cost": 7.65783333333333 },
+        { "service": "Container Registry", "cost": 5.6481586564 },
+        { "service": "Storage", "cost": 3.285285024 },
+        { "service": "Virtual Network", "cost": 2.315 },
+        { "service": "Key Vault", "cost": 0.048183 },
+        { "service": "Bandwidth", "cost": 0.0410019930452108 },
+        { "service": "Log Analytics", "cost": 0.0 }
+      ]
+    },
+    "luna-sunset-staging-rg": {
+      "total": 16.9118980752688,
+      "by_service": [
+        { "service": "Azure Container Apps", "cost": 9.339867 },
+        { "service": "Azure Database for PostgreSQL", "cost": 7.54290107526882 },
+        { "service": "Key Vault", "cost": 0.02913 },
+        { "service": "Log Analytics", "cost": 0.0 }
+      ]
+    },
+    "combined_total": 82.031978307499
+  },
+  "budgets": {
+    "wh-staging-rg": [],
+    "luna-sunset-staging-rg": []
+  },
+  "alerts": {
+    "wh-staging-rg": {
+      "metric_alerts": [],
+      "activity_log_alerts": [],
+      "scheduled_query_rules": []
+    },
+    "luna-sunset-staging-rg": {
+      "metric_alerts": [],
+      "activity_log_alerts": [],
+      "scheduled_query_rules": []
+    }
+  },
+  "action_groups": {
+    "wh-staging-rg": [
+      {
+        "name": "Application Insights Smart Detection",
+        "enabled": true,
+        "email_receivers_count": 0,
+        "sms_receivers_count": 0,
+        "webhook_receivers_count": 0,
+        "arm_role_receivers": ["Monitoring Contributor", "Monitoring Reader"],
+        "note": "Default Smart Detection group; not ops on-call notify"
+      }
+    ],
+    "luna-sunset-staging-rg": []
+  },
+  "diagnostic_settings": {
+    "sampled_resources_with_settings": [],
+    "note": "Targeted list on staff-api, pg-app, kv, appinsights, logs returned NONE for both RGs"
+  },
+  "aca_env_logging": {
+    "wh-staging-env": {
+      "logsDestination": "log-analytics",
+      "law_customer_id_suffix": "2ae8f"
+    },
+    "luna-sunset-staging-env": {
+      "logsDestination": "log-analytics"
+    }
+  },
+  "retention": {
+    "wh-staging-logs": { "retentionInDays": 30, "sku": "PerGB2018", "dailyQuotaGb": -1 },
+    "luna-sunset-staging-logs": { "retentionInDays": 30, "sku": "PerGB2018", "dailyQuotaGb": -1 },
+    "wh-staging-appinsights": { "retentionInDays": 90 },
+    "luna-sunset-staging-appinsights": { "retentionInDays": 90 }
+  },
+  "container_apps": {
+    "wh-staging-staff-api": {
+      "runningStatus": "Running",
+      "cpu": 0.5,
+      "memory": "1Gi",
+      "minReplicas": 0,
+      "maxReplicas": 1,
+      "scale_rules": null,
+      "probes": [],
+      "ingress_fqdn_suffix": "northeurope.azurecontainerapps.io",
+      "targetPort": 3036
+    },
+    "luna-sunset-staging-staff-api": {
+      "runningStatus": "Running",
+      "cpu": 0.5,
+      "memory": "1Gi",
+      "minReplicas": 1,
+      "maxReplicas": 1,
+      "scale_rules": null,
+      "probes": null,
+      "ingress_fqdn_suffix": "northeurope.azurecontainerapps.io",
+      "targetPort": 3036
+    }
+  },
+  "jobs": [
+    {
+      "name": "luna-sunset-staging-hold-expiry",
+      "triggerType": "Schedule",
+      "cronExpression": "15 * * * *",
+      "parallelism": 1,
+      "replicaTimeout": 600
+    },
+    {
+      "name": "luna-sunset-staging-sch-obs",
+      "triggerType": "Manual",
+      "replicaTimeout": 120
+    }
+  ],
+  "postgres_backups": [
+    {
+      "name": "wh-staging-pg-app",
+      "version": "15",
+      "sku": "Standard_B1ms",
+      "backupRetentionDays": 7,
+      "geoRedundant": "Disabled",
+      "state": "Ready"
+    },
+    {
+      "name": "wh-staging-pg-n8n",
+      "version": "15",
+      "sku": "Standard_B1ms",
+      "backupRetentionDays": 7,
+      "geoRedundant": "Disabled",
+      "state": "Ready"
+    },
+    {
+      "name": "luna-sunset-staging-pg-app",
+      "version": "15",
+      "sku": "Standard_B1ms",
+      "backupRetentionDays": 7,
+      "geoRedundant": "Disabled",
+      "state": "Ready"
+    }
+  ],
+  "public_healthz": {
+    "staff-staging.lunafrontdesk.com": {
+      "path": "/healthz",
+      "http_status": 200,
+      "body_status": "ok",
+      "service": "wolfhouse-staff-query-api",
+      "auth_enabled": true,
+      "stage": "7.7b",
+      "dependency_fields_present": false
+    },
+    "sunset-staging.lunafrontdesk.com": {
+      "path": "/healthz",
+      "http_status": 200,
+      "body_status": "ok",
+      "service": "wolfhouse-staff-query-api",
+      "auth_enabled": true,
+      "stage": "7.7b",
+      "dependency_fields_present": false
+    }
+  }
+}

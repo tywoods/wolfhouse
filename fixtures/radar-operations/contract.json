@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16A",
+  "outcome_id": "16A_operations_gate_ledger",
+  "master_basis": "28a30a688baa637e1bcb549d9b585cb5917942d1",
+  "branch": "radar/slice-16a-gate-ledger",
+  "audit_only": true,
+  "live_mutation": false,
+  "title": "Freeze RADAR operations gate ledger from code + staging live evidence; select one 16B gate",
+  "artifacts": [
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/live-inventory.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md",
+    "scripts/verify-radar-slice16a-operations-gate-ledger.js"
+  ],
+  "expected_verdict_counts": {
+    "proven": 0,
+    "partial": 7,
+    "absent": 2,
+    "total": 9
+  },
+  "critical_absent_gates": [
+    "G03_actionable_tenant_aware_alerts",
+    "G09_cost_anomaly_detection"
+  ],
+  "selected_16b": {
+    "outcome_id": "16B_staging_rg_cost_budget_anomaly",
+    "gate_id": "G09_cost_anomaly_detection"
+  },
+  "costs_mtd_usd_frozen": {
+    "wh-staging-rg": 65.1200802322302,
+    "luna-sunset-staging-rg": 16.9118980752688,
+    "combined": 82.031978307499
+  },
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "scripts/staff-query-api.js",
+      "scripts/lib/",
+      "docker/hermes-staging/",
+      "database/",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep"
+    ],
+    "note": "16A commit may only add ledger/docs/fixtures/verifier/npm script; must not modify runtime behavior sources listed above"
+  },
+  "gates": [
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 28a30a688baa637e1bcb549d9b585cb5917942d1..HEAD"
+  ]
+}
