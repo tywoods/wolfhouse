@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * Fail-closed canonical migration runner (FOUNDATION Slice 4 + 14AD).
+ * Fail-closed canonical migration runner (FOUNDATION Slice 4 + 14AD + 14AE).
  * Uses provenance-aware schema_migration_ledger + PostgreSQL advisory lock.
- * Refuses staging/prod/Azure and non-ephemeral DB names.
+ * Default: refuses staging/prod/Azure and non-ephemeral DB names.
  *
  * Slice 14AD: ensureLedger creates/upgrades additive provenance columns;
  * legacy upgrade adds nullable provenance with NO defaults/backfill;
@@ -12,6 +12,11 @@
  * kinds as applied only in exact contiguous checksum-valid prefix, and fails
  * closed on null/unknown kind, mode, recorded_at, gap, mismatch, or
  * checksum_mode/hash inconsistency (legacy hash under canonical mode).
+ *
+ * Slice 14AE: optional allowSunsetStagingCanonicalRunnerNoop (exact locked
+ * Sunset host/db/port only) + ssl/application_name/Client injection so the
+ * managed-identity TLS wrapper can invoke this same implementation once and
+ * prove a zero-apply no-op over the 39-row provenance baseline ledger.
  */
 
 const fs = require('fs');
@@ -134,18 +139,29 @@ async function applyOne(client, entry, migrationsDir, hooks, checksumMode) {
 
 /**
  * @param {object} opts
- * @param {{host:string,port:number,user:string,password:string,database:string}} opts.connection
+ * @param {{host:string,port:number,user:string,password:string,database:string,ssl?:object,application_name?:string}} opts.connection
  * @param {string} [opts.manifestPath]
  * @param {string} [opts.migrationsDir]
  * @param {boolean} [opts.dryRun]
+ * @param {boolean} [opts.allowSunsetStagingCanonicalRunnerNoop] Slice 14AE gated allow
+ * @param {typeof Client} [opts.Client] injectable pg Client (instrumentation / tests)
  * @param {(client:object, entry:object)=>Promise<void>} [opts.beforeLedgerInsert]
  */
 async function runCanonicalMigrations(opts) {
   const options = opts || {};
   const connection = options.connection;
-  const safety = assertSafeDatabaseTarget(connection);
+  const safety = assertSafeDatabaseTarget(connection, {
+    allowSunsetStagingCanonicalRunnerNoop: options.allowSunsetStagingCanonicalRunnerNoop === true,
+  });
   if (!safety.ok) {
-    return { ok: false, applied: [], skipped: [], errors: safety.errors };
+    return {
+      ok: false,
+      applied: [],
+      skipped: [],
+      pending: [],
+      errors: safety.errors,
+      safetyMode: safety.mode || null,
+    };
   }
 
   const manifest = loadManifest(options.manifestPath || MANIFEST_PATH);
@@ -155,18 +171,28 @@ async function runCanonicalMigrations(opts) {
       ok: false,
       applied: [],
       skipped: [],
+      pending: [],
       errors: [{ code: modeGate.code, message: modeGate.message }],
+      safetyMode: safety.mode || null,
     };
   }
   const integrity = validateManifestIntegrity(manifest, {
     migrationsDir: options.migrationsDir || MIGRATIONS_DIR,
   });
   if (!integrity.ok) {
-    return { ok: false, applied: [], skipped: [], errors: integrity.errors };
+    return {
+      ok: false,
+      applied: [],
+      skipped: [],
+      pending: [],
+      errors: integrity.errors,
+      safetyMode: safety.mode || null,
+    };
   }
 
   const forward = forwardEntries(manifest);
-  const client = new Client({
+  const ClientCtor = options.Client || Client;
+  const clientConfig = {
     host: connection.host,
     port: connection.port,
     user: connection.user,
@@ -174,11 +200,17 @@ async function runCanonicalMigrations(opts) {
     database: connection.database,
     connectionTimeoutMillis: 10000,
     statement_timeout: 120000,
-  });
+  };
+  if (connection.ssl != null) clientConfig.ssl = connection.ssl;
+  if (connection.application_name != null) {
+    clientConfig.application_name = connection.application_name;
+  }
+  const client = new ClientCtor(clientConfig);
 
   const applied = [];
   const skipped = [];
   const errors = [];
+  let pending = forward.map((e) => e.id);
 
   try {
     await client.connect();
@@ -188,6 +220,7 @@ async function runCanonicalMigrations(opts) {
       const recon = reconcileLedger(forward, ledgerRows);
       if (!recon.ok) {
         errors.push(...recon.errors);
+        pending = forward.filter((e) => !recon.byId.has(e.id)).map((e) => e.id);
         return;
       }
 
@@ -211,6 +244,9 @@ async function runCanonicalMigrations(opts) {
         );
         applied.push(entry.id);
       }
+      pending = forward
+        .filter((e) => !skipped.includes(e.id) && !applied.includes(e.id))
+        .map((e) => e.id);
     });
   } catch (e) {
     errors.push({
@@ -229,8 +265,10 @@ async function runCanonicalMigrations(opts) {
     ok: errors.length === 0,
     applied,
     skipped,
+    pending,
     errors,
     forwardCount: forward.length,
+    safetyMode: safety.mode || null,
   };
 }
 
