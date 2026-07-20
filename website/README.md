@@ -114,8 +114,8 @@ Lead form submission is **compile-time disabled**: the UI states before submit t
 - Preview builds should keep `PUBLIC_INDEXABLE` unset/false (`noindex`).
 - Production builds must set `PUBLIC_SITE_URL` to the live origin and `PUBLIC_INDEXABLE=true` only when indexing is intentional.
 - Confirm emitted metadata after build: `npm run verify:emitted` (checks `dist/og/luna-front-desk-og.png`, `dist/apple-touch-icon.png`, logo copy, and HTML refs).
-- **Security headers (Slice C):** platform-neutral contract in `security/headers.contract.json`; concrete Cloudflare Pages / Netlify config in `public/_headers` (copied into `dist/` on build). CSP uses `default-src 'self'`, no `unsafe-eval`, and **sha256 hashes** (not `unsafe-inline`) for any remaining Astro island bootstrap inline script/style. `npm run build` regenerates those hashes via `sync-csp-hashes`. **HSTS** (`max-age=31536000; includeSubDomains`, no preload yet) must only be emitted over HTTPS — not on local `http://127.0.0.1` preview; preview hostnames may set HSTS for that host only.
-- Font / stylesheet origin gate: `npm run scan:fonts` recursively checks every `src` CSS/Astro/HTML file. Post-build: `npm run verify:security`.
+- **Security headers (Slice C):** platform-neutral contract in `security/headers.contract.json`; concrete Cloudflare Pages / Netlify config in `public/_headers` (copied into `dist/` on build only). CSP uses `default-src 'self'`, no `unsafe-eval`, and **sha256 hashes** (not `unsafe-inline`) for remaining Astro island bootstrap inline script/style. Authorization is the reviewed `security/inline-blocks.inventory.json` (type, pages, SHA-256, expected count) — **not** dist. `npm run build` verifies dist against that inventory and copies the committed `_headers`; it never rewrites tracked inventory/contract/`_headers`. Print-only candidates: `npm run report:inline` (never in build). **HSTS** (`max-age=31536000; includeSubDomains`, no preload yet) must only be emitted over HTTPS — not on local `http://127.0.0.1` preview; preview hostnames may set HSTS for that host only.
+- Font / stylesheet origin gate: `npm run scan:fonts` recursively checks every `src` CSS/Astro/HTML file. Post-build: `npm run verify:security` (+ `verify:adversarial-csp`).
 
 ## Scripts
 
@@ -126,9 +126,12 @@ Lead form submission is **compile-time disabled**: the UI states before submit t
 | `npm run check` | Astro/TS check |
 | `npm test` | Unit + component + metadata + security contract tests |
 | `npm run test:lead-browser` | Playwright lead truth/privacy/same-origin font checks (`QA_URL`) |
-| `npm run build` | Production static build + CSP hash sync into `_headers` / contract |
+| `npm run build` | Production static build + inventory verify + copy committed `_headers` to dist |
 | `npm run verify:emitted` | Assert dist OG/Apple/logo + HTML refs (after build) |
-| `npm run verify:security` | CSP/headers contract, local asset scan, dist origin/privacy gates |
+| `npm run verify:security` | CSP/headers/inventory equivalence, local asset scan, dist origin/privacy gates |
+| `npm run verify:adversarial-csp` | Injected unknown/moved/duplicate/missing/extra hash-header-directive must fail |
+| `npm run verify:build-readonly` | Two builds → git-clean tracked CSP files + identical dist |
+| `npm run report:inline` | Print-only inline candidates from dist (never writes; not part of build) |
 | `npm run scan:fonts` | Source-only local stylesheet/@import/@font-face scanner |
 | `npm run preview` | Preview `dist/` |
 | `npm run qa:install-browser` | Install Playwright Chromium |

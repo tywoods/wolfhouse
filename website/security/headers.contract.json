@@ -8,7 +8,8 @@
     "notes": [
       "Apply these headers at the CDN/static host edge. Astro preview does not read _headers.",
       "HSTS must only be emitted over HTTPS. Local http://127.0.0.1 preview must not send HSTS.",
-      "Preview hostnames (e.g. preview.lunafrontdesk.com) may set HSTS for that host; do not enable HSTS preload until the production apex is intentionally locked to HTTPS."
+      "Preview hostnames (e.g. preview.lunafrontdesk.com) may set HSTS for that host; do not enable HSTS preload until the production apex is intentionally locked to HTTPS.",
+      "CSP sha256 hashes are authorized only by the reviewed security/inline-blocks.inventory.json. Build never rewrites this contract or public/_headers from dist."
     ]
   },
   "headers": {
@@ -94,7 +95,7 @@
       "'sha256-dWQPlo0XwJLEdJAEfNj1dr6V5ZED/eah4jtK4TfpHOU='",
       "'sha256-vv9IoKo7BSLbWcUHr3tNmfNVmm5L/9Cfn2H6LMk7/ow='"
     ],
-    "generatedBy": "scripts/sync-csp-hashes.mjs",
-    "note": "Populated from dist HTML after build. Prefer external scripts; hashes cover unavoidable Astro island bootstrap only."
+    "authorizedBy": "security/inline-blocks.inventory.json",
+    "note": "Exact reviewed hashes from the committed inline-block inventory. Never auto-populated from dist."
   }
 }

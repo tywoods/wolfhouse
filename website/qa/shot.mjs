@@ -1,6 +1,7 @@
 // Playwright visual QA: screenshots at several viewports + drives the demo.
 // Scrolls through the page first so IntersectionObserver reveal fires before the
 // full-page capture (otherwise below-fold [data-animate] blocks read as blank).
+// One Chromium launch per viewport: a fullPage OOM/SEGV must not abort mobile QA.
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 
@@ -13,7 +14,6 @@ const viewports = [
   { name: 'mobile', width: 390, height: 844 },
 ];
 
-// Section anchors/selectors worth an individual capture.
 const sections = [
   { id: 'demo', file: 'demo' },
   { sel: '#how', file: 'how' },
@@ -39,64 +39,64 @@ async function autoScroll(page) {
   await page.waitForTimeout(200);
 }
 
-const browser = await chromium.launch({
-  args: ['--disable-dev-shm-usage', '--no-sandbox'],
-});
 const errors = [];
 for (const vp of viewports) {
-  // deviceScaleFactor 1 keeps full-page captures under Chromium's texture limit
-  // on this long marketing page; section crops still read clearly for QA.
-  const ctx = await browser.newContext({
-    viewport: { width: vp.width, height: vp.height },
-    deviceScaleFactor: 1,
+  const browser = await chromium.launch({
+    args: ['--disable-dev-shm-usage', '--no-sandbox'],
   });
-  const page = await ctx.newPage();
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(`[${vp.name}] ${m.text()}`); });
-  page.on('pageerror', (e) => errors.push(`[${vp.name}] PAGEERROR ${e.message}`));
-  await page.goto(BASE, { waitUntil: 'load' });
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: `${OUT}/${vp.name}-top.png` });
-
   try {
-    await autoScroll(page);
-  } catch (e) {
-    errors.push(`[${vp.name}] autoscroll: ${e.message}`);
-  }
-  await page.waitForTimeout(400);
-  try {
-    await page.screenshot({ path: `${OUT}/${vp.name}-full.png`, fullPage: true });
-  } catch (e) {
-    // Long-page full capture can OOM headless Chromium; viewport shot still exists.
-    errors.push(`[${vp.name}] full-shot: ${e.message}`);
-    await page.screenshot({ path: `${OUT}/${vp.name}-full.png` }).catch(() => {});
-  }
+    const ctx = await browser.newContext({
+      viewport: { width: vp.width, height: vp.height },
+      deviceScaleFactor: 1,
+    });
+    const page = await ctx.newPage();
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(`[${vp.name}] ${m.text()}`); });
+    page.on('pageerror', (e) => errors.push(`[${vp.name}] PAGEERROR ${e.message}`));
+    await page.goto(BASE, { waitUntil: 'load' });
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${OUT}/${vp.name}-top.png` });
 
-  // Named sections
-  for (const s of sections) {
-    if (!s.file) continue;
     try {
-      const loc = page.locator(s.id ? `#${s.id}` : s.sel).first();
-      await loc.scrollIntoViewIfNeeded();
-      await page.waitForTimeout(500);
-      await loc.screenshot({ path: `${OUT}/${vp.name}-${s.file}.png` });
-    } catch (e) { errors.push(`[${vp.name}] ${s.file}: ${e.message}`); }
-  }
-
-  // Drive the demo interaction
-  try {
-    await page.locator('#demo').scrollIntoViewIfNeeded();
-    await page.waitForTimeout(300);
-    const chip = page.locator('.chip--journey').first();
-    if (await chip.count()) {
-      await chip.click();
-      await page.waitForTimeout(3400);
-      await page.locator('#demo').screenshot({ path: `${OUT}/${vp.name}-demo-active.png` });
+      await autoScroll(page);
+    } catch (e) {
+      errors.push(`[${vp.name}] autoscroll: ${e.message}`);
     }
-  } catch (e) { errors.push(`[${vp.name}] demo drive: ${e.message}`); }
+    await page.waitForTimeout(400);
 
-  await ctx.close();
+    // Named sections + demo drive before fullPage (fullPage can SEGV headless Chromium).
+    for (const s of sections) {
+      if (!s.file) continue;
+      try {
+        const loc = page.locator(s.id ? `#${s.id}` : s.sel).first();
+        await loc.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(500);
+        await loc.screenshot({ path: `${OUT}/${vp.name}-${s.file}.png` });
+      } catch (e) { errors.push(`[${vp.name}] ${s.file}: ${e.message}`); }
+    }
+
+    try {
+      await page.locator('#demo').scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      const chip = page.locator('.chip--journey').first();
+      if (await chip.count()) {
+        await chip.click();
+        await page.waitForTimeout(3400);
+        await page.locator('#demo').screenshot({ path: `${OUT}/${vp.name}-demo-active.png` });
+      }
+    } catch (e) { errors.push(`[${vp.name}] demo drive: ${e.message}`); }
+
+    try {
+      await page.screenshot({ path: `${OUT}/${vp.name}-full.png`, fullPage: true });
+    } catch (e) {
+      errors.push(`[${vp.name}] full-shot: ${e.message.split('\n')[0]}`);
+      await page.screenshot({ path: `${OUT}/${vp.name}-full.png` }).catch(() => {});
+    }
+
+    await ctx.close();
+  } finally {
+    await browser.close().catch(() => {});
+  }
 }
-await browser.close();
 console.log('SHOTS_DONE');
 if (errors.length) { console.log('CONSOLE_ERRORS:'); errors.forEach((e) => console.log('  ' + e)); }
 else console.log('NO_CONSOLE_ERRORS');

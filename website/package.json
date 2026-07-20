@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build && node scripts/sync-csp-hashes.mjs",
+    "build": "astro build && node scripts/seal-dist-security.mjs",
     "preview": "astro preview",
     "astro": "astro",
     "check": "astro check",
@@ -15,7 +15,10 @@
     "test:lead-browser": "node qa/lead-privacy.mjs",
     "verify:emitted": "node scripts/verify-emitted-metadata.mjs",
     "verify:security": "node scripts/verify-security.mjs",
+    "verify:adversarial-csp": "node scripts/assert-adversarial-csp.mjs",
+    "verify:build-readonly": "node scripts/assert-build-readonly.mjs",
     "scan:fonts": "node scripts/scan-local-font-origins.mjs",
+    "report:inline": "node scripts/report-inline-candidates.mjs",
     "sync:csp": "node scripts/sync-csp-hashes.mjs",
     "qa": "node qa/shot.mjs",
     "qa:install-browser": "playwright install chromium"

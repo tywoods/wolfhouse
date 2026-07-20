@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 const ROOT = join(import.meta.dirname, '../..');
 
-// Load the ESM scanner via dynamic import — vitest handles it.
 const scanMod = await import('../../scripts/lib/local-asset-scan.mjs');
+const cspMod = await import('../../scripts/lib/inline-csp.mjs');
 
 describe('security headers contract', () => {
   it('commits a platform-neutral headers contract with required directives', () => {
@@ -22,9 +22,12 @@ describe('security headers contract', () => {
         }
       >;
       hosting: { commonStaticConfig: string; notes: string[] };
+      inlineHashes: { authorizedBy?: string };
     };
     expect(contract.hosting.commonStaticConfig).toBe('public/_headers');
     expect(contract.hosting.notes.some((n) => /HSTS/i.test(n))).toBe(true);
+    expect(contract.hosting.notes.some((n) => /inline-blocks\.inventory/i.test(n))).toBe(true);
+    expect(contract.inlineHashes.authorizedBy).toBe('security/inline-blocks.inventory.json');
 
     const csp = contract.headers['Content-Security-Policy'];
     expect(csp.directives?.['default-src']).toEqual(["'self'"]);
@@ -59,6 +62,45 @@ describe('security headers contract', () => {
     expect(headers).not.toMatch(/unsafe-eval/);
     expect(headers).not.toMatch(/'unsafe-inline'/);
     expect(headers).toMatch(/HSTS caveat/i);
+    expect(headers).toMatch(/never regenerates hashes from dist/i);
+  });
+});
+
+describe('reviewed inline-block inventory (authorization source)', () => {
+  it('commits exact type/page/sha256/expectedCount entries', () => {
+    const path = join(ROOT, 'security/inline-blocks.inventory.json');
+    expect(existsSync(path)).toBe(true);
+    const inv = JSON.parse(readFileSync(path, 'utf8')) as {
+      reviewed: boolean;
+      blocks: Array<{
+        id: string;
+        type: string;
+        pages: string[];
+        sha256: string;
+        expectedCount: number;
+      }>;
+    };
+    expect(inv.reviewed).toBe(true);
+    expect(inv.blocks.length).toBe(4);
+    for (const b of inv.blocks) {
+      expect(['script', 'style']).toContain(b.type);
+      expect(b.pages.length).toBeGreaterThan(0);
+      expect(b.sha256).toMatch(/^sha256-[A-Za-z0-9+/=]+$/);
+      expect(b.expectedCount).toBe(1);
+    }
+    const ids = inv.blocks.map((b) => b.id).sort();
+    expect(ids).toEqual([
+      'astro-client-visible',
+      'astro-island-display-contents',
+      'astro-island-element',
+      'privacy-scoped-css',
+    ]);
+  });
+
+  it('keeps contract/_headers bidirectionally canonical with inventory', () => {
+    const result = cspMod.verifyContractHeadersInventoryEquivalence(ROOT);
+    expect(result.errors, result.errors.join('\n')).toEqual([]);
+    expect(result.ok).toBe(true);
   });
 });
 
@@ -69,7 +111,6 @@ describe('deterministic local asset / font origin source scanner', () => {
     expect(files.some((f: string) => f.endsWith('layouts/Layout.astro'))).toBe(true);
     expect(files.some((f: string) => f.endsWith('pages/index.astro'))).toBe(true);
     expect(files.every((f: string) => f.startsWith('src/'))).toBe(true);
-    // Deterministic order
     expect(files).toEqual([...files].sort());
   });
 
@@ -99,5 +140,23 @@ describe('lead + privacy invariants preserved (Slice C)', () => {
     expect(privacy.controllerLegalName).toBe('');
     expect(privacy.controllerPostalAddress).toBe('');
     expect(isControllerIdentityComplete()).toBe(false);
+  });
+});
+
+describe('no dist-as-authorization writers', () => {
+  it('build script seals without rewriting tracked CSP files', () => {
+    const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    expect(pkg.scripts.build).toContain('seal-dist-security');
+    expect(pkg.scripts.build).not.toContain('sync-csp-hashes');
+    expect(pkg.scripts.build).not.toContain('report:inline');
+    const stub = readFileSync(join(ROOT, 'scripts/sync-csp-hashes.mjs'), 'utf8');
+    expect(stub).not.toMatch(/writeFileSync/);
+    const seal = readFileSync(join(ROOT, 'scripts/seal-dist-security.mjs'), 'utf8');
+    expect(seal).toMatch(/copyCommittedHeadersToDist/);
+    expect(seal).not.toMatch(/writeFileSync\([^)]*headers\.contract/);
+    expect(seal).not.toMatch(/writeFileSync\([^)]*_headers/);
+    expect(seal).not.toMatch(/writeFileSync\([^)]*inventory/);
   });
 });
