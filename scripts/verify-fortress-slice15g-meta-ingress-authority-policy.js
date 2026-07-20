@@ -29,6 +29,11 @@ const {
 const {
   DEFAULT_CLIENT_SLUG,
   normalizeMetaWhatsAppWebhook,
+  buildDraftInputFromNormalized,
+  buildMetaWebhookSendBody,
+  buildMetaInboundIdempotencyKey,
+  resolveMetaWebhookSendKind,
+  buildMetaWhatsAppWebhookPostResponse,
 } = require('./lib/luna-meta-whatsapp-webhook');
 const {
   processMetaWhatsAppWebhookInbound,
@@ -41,7 +46,21 @@ const {
   applyMetaWhatsAppIngressAuthority,
   shouldBlockMetaWhatsAppIngressDownstream,
 } = require('./lib/meta-whatsapp-ingress-authority');
+const { buildInboundEventSeed } = require('./lib/luna-guest-message-events-sql');
 const { scanSecretFreeText } = require('./lib/fortress-tenant-identity-boundary');
+
+/** Minimal eligible draft for real send-body builder proofs (no live draft LLM). */
+function sampleEligibleDraft() {
+  return {
+    suggested_reply: 'Could you share your check-in date?',
+    next_action: 'ask_missing_field',
+    send_eligibility: {
+      send_allowed_later: true,
+      requires_staff: false,
+      allowed_send_kind: 'ask_missing_field',
+    },
+  };
+}
 
 let pass = 0;
 let fail = 0;
@@ -429,6 +448,91 @@ green('default_off_no_env', (() => {
     && applied.ingress_authority == null;
 })());
 
+green('real_builders_propagate_location_and_idempotency', (() => {
+  const body = buildFakeMetaWhatsAppBody('WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE', {
+    wa_message_id: 'wamid.SAMPLE_15G_BUILDERS',
+  });
+  const normalized = normalizeMetaWhatsAppWebhook(
+    body,
+    routingOpts({ [AUTHORITY_ENV_KEY]: '1' }),
+  );
+  const draft = sampleEligibleDraft();
+  const sendKind = resolveMetaWebhookSendKind(draft.next_action);
+  const draftInput = buildDraftInputFromNormalized(normalized);
+  const sendBody = buildMetaWebhookSendBody(normalized, draft, sendKind);
+  const seed = buildInboundEventSeed(normalized, body);
+  const expectedKey = 'luna:sunset:sunset-somo:wamid.SAMPLE_15G_BUILDERS:ask_missing_field';
+  const response = buildMetaWhatsAppWebhookPostResponse(normalized, { verified: false, skipped: true }, {
+    draft,
+    draft_called: true,
+    send_attempted: true,
+    send_result: {
+      send_performed: false,
+      no_write_performed: true,
+      blocked_reasons: ['luna_auto_send_not_enabled'],
+    },
+    idempotency_key: sendBody.idempotency_key,
+    event_persisted: true,
+  });
+  return normalized.client_slug === 'sunset'
+    && normalized.location_id === 'sunset-somo'
+    && draftInput
+    && draftInput.client_slug === 'sunset'
+    && draftInput.location_id === 'sunset-somo'
+    && sendBody.client_slug === 'sunset'
+    && sendBody.location_id === 'sunset-somo'
+    && sendBody.idempotency_key === expectedKey
+    && buildMetaInboundIdempotencyKey(
+      normalized.client_slug,
+      normalized.wa_message_id,
+      sendKind,
+      normalized.location_id,
+    ) === expectedKey
+    && seed.client_slug === 'sunset'
+    && seed.normalized.location_id === 'sunset-somo'
+    && seed.normalized.client_slug === 'sunset'
+    && response.normalized.client_slug === 'sunset'
+    && response.normalized.location_id === 'sunset-somo'
+    && response.idempotency_key === expectedKey
+    && response.event_persisted === true;
+})());
+
+green('legacy_idempotency_key_unchanged_without_location', (() => {
+  const body = buildFakeMetaWhatsAppBody('WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE', {
+    wa_message_id: 'wamid.SAMPLE_15G_LEGACY_KEY',
+  });
+  const normalized = normalizeMetaWhatsAppWebhook(body, routingOpts({}));
+  const draft = sampleEligibleDraft();
+  const sendKind = resolveMetaWebhookSendKind(draft.next_action);
+  const draftInput = buildDraftInputFromNormalized(normalized);
+  const sendBody = buildMetaWebhookSendBody(normalized, draft, sendKind);
+  const legacyKey = `luna:${DEFAULT_CLIENT_SLUG}:wamid.SAMPLE_15G_LEGACY_KEY:ask_missing_field`;
+  return normalized.location_id == null
+    && draftInput
+    && draftInput.client_slug === DEFAULT_CLIENT_SLUG
+    && !Object.prototype.hasOwnProperty.call(draftInput, 'location_id')
+    && sendBody.client_slug === DEFAULT_CLIENT_SLUG
+    && !Object.prototype.hasOwnProperty.call(sendBody, 'location_id')
+    && sendBody.idempotency_key === legacyKey
+    && buildMetaInboundIdempotencyKey(
+      DEFAULT_CLIENT_SLUG,
+      'wamid.SAMPLE_15G_LEGACY_KEY',
+      'ask_missing_field',
+    ) === legacyKey
+    && buildMetaInboundIdempotencyKey(
+      DEFAULT_CLIENT_SLUG,
+      'wamid.SAMPLE_15G_LEGACY_KEY',
+      'ask_missing_field',
+      null,
+    ) === legacyKey
+    && buildMetaInboundIdempotencyKey(
+      DEFAULT_CLIENT_SLUG,
+      'wamid.SAMPLE_15G_LEGACY_KEY',
+      'ask_missing_field',
+      '',
+    ) === legacyKey;
+})());
+
 console.log('\n── Zero downstream on block + entry-point ──');
 
 async function runEntryAndZeroDownstream() {
@@ -514,10 +618,14 @@ async function runEntryAndZeroDownstream() {
 
   const knownCounters = makeEntryCounters();
   let seenInbound = null;
+  let realDraftInput = null;
+  let realSendBody = null;
+  let realPersistSeed = null;
   const knownBody = buildFakeMetaWhatsAppBody('WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE', {
     wa_message_id: 'wamid.SAMPLE_15G_KNOWN',
   });
   const knownEnv = { [AUTHORITY_ENV_KEY]: '1' };
+  const expectedKnownKey = 'luna:sunset:sunset-somo:wamid.SAMPLE_15G_KNOWN:ask_missing_field';
   const knownEntry = await processMetaWhatsAppWebhookPostEntry({
     body: knownBody,
     env: knownEnv,
@@ -530,32 +638,42 @@ async function runEntryAndZeroDownstream() {
     processInbound: async (input) => {
       knownCounters.inbound += 1;
       seenInbound = input;
+      // Real builders (same as runDraftAndSendGate / persistence seed path).
+      realDraftInput = buildDraftInputFromNormalized(input.normalized);
+      const draft = sampleEligibleDraft();
+      const sendKind = resolveMetaWebhookSendKind(draft.next_action);
+      realSendBody = buildMetaWebhookSendBody(input.normalized, draft, sendKind);
+      realPersistSeed = buildInboundEventSeed(input.normalized, knownBody);
       knownCounters.persist += 1;
       knownCounters.draft += 1;
       knownCounters.send += 1;
-      const draftInput = {
-        client_slug: input.normalized.client_slug,
-        location_id: input.normalized.location_id,
-        wa_message_id: input.normalized.wa_message_id,
-      };
-      const sendInput = {
-        client_slug: input.normalized.client_slug,
-        location_id: input.normalized.location_id,
-        idempotency_key: `guest-reply:${input.normalized.client_slug}:${input.normalized.wa_message_id}`,
-      };
-      return {
-        response: {
-          client_slug: input.normalized.client_slug,
-          location_id: input.normalized.location_id,
+      const response = buildMetaWhatsAppWebhookPostResponse(
+        input.normalized,
+        { verified: false, skipped: true },
+        {
+          draft,
           draft_called: true,
           send_attempted: true,
+          send_result: {
+            send_performed: false,
+            no_write_performed: true,
+            blocked_reasons: ['luna_auto_send_not_enabled'],
+          },
+          idempotency_key: realSendBody.idempotency_key,
           event_persisted: true,
-          idempotency_key: sendInput.idempotency_key,
-          draft_input: draftInput,
-          send_input: sendInput,
-          no_write_performed: false,
         },
-        event_row: { client_slug: input.normalized.client_slug },
+      );
+      return {
+        response: {
+          ...response,
+          draft_input: realDraftInput,
+          send_input: realSendBody,
+          persist_seed: realPersistSeed,
+        },
+        event_row: {
+          client_slug: realPersistSeed.client_slug,
+          normalized: realPersistSeed.normalized,
+        },
         replay: false,
       };
     },
@@ -572,15 +690,26 @@ async function runEntryAndZeroDownstream() {
     && seenInbound
     && seenInbound.normalized.client_slug === 'sunset'
     && seenInbound.normalized.location_id === 'sunset-somo'
-    && knownEntry.response.client_slug === 'sunset'
-    && knownEntry.response.location_id === 'sunset-somo'
+    && realDraftInput
+    && realDraftInput.client_slug === 'sunset'
+    && realDraftInput.location_id === 'sunset-somo'
+    && realSendBody
+    && realSendBody.client_slug === 'sunset'
+    && realSendBody.location_id === 'sunset-somo'
+    && realSendBody.idempotency_key === expectedKnownKey
+    && realPersistSeed
+    && realPersistSeed.client_slug === 'sunset'
+    && realPersistSeed.normalized.location_id === 'sunset-somo'
+    && knownEntry.response.normalized.client_slug === 'sunset'
+    && knownEntry.response.normalized.location_id === 'sunset-somo'
     && knownEntry.response.draft_called === true
     && knownEntry.response.send_attempted === true
     && knownEntry.response.event_persisted === true
-    && knownEntry.response.idempotency_key === 'guest-reply:sunset:wamid.SAMPLE_15G_KNOWN'
-    && knownEntry.response.draft_input.client_slug === 'sunset'
-    && knownEntry.response.send_input.client_slug === 'sunset'
-    && knownEntry.event_row.client_slug === 'sunset');
+    && knownEntry.response.idempotency_key === expectedKnownKey
+    && knownEntry.response.draft_input.location_id === 'sunset-somo'
+    && knownEntry.response.send_input.location_id === 'sunset-somo'
+    && knownEntry.event_row.client_slug === 'sunset'
+    && knownEntry.event_row.normalized.location_id === 'sunset-somo');
 
   // Preserve default-off + enabled-without-routing: entry still acquires pg.
   const offCounters = makeEntryCounters();
@@ -713,9 +842,9 @@ runEntryAndZeroDownstream().then(() => {
 
   ok('red/green counts',
     evidenceRedIds.length === 9
-    && evidenceGreenIds.length === 7
+    && evidenceGreenIds.length === 9
     && redResults.length === 9
-    && greenResults.length === 7);
+    && greenResults.length === 9);
 
   console.log(`\n── Summary: pass=${pass} fail=${fail} ──`);
   if (fail > 0) process.exit(1);

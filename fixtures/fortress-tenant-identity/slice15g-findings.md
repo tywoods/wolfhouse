@@ -20,6 +20,10 @@ shadow-only behavior is preserved exactly.
 
 - `scripts/lib/meta-whatsapp-ingress-authority.js` — resolve / apply / block gate
 - `normalizeMetaWhatsAppWebhook` applies policy after shadow attachment
+- Trusted `normalized.location_id` reaches real `buildDraftInputFromNormalized` /
+  `buildMetaWebhookSendBody`; enabled-authority idempotency is
+  `luna:{client}:{location}:{wamid}:{send_kind}` while absent-location legacy keys
+  stay `luna:{client}:{wamid}:{send_kind}`
 - `processMetaWhatsAppWebhookPostEntry` evaluates authority before `withPgClient`
 - `handleMetaWhatsAppWebhookPost` delegates to that entry (blocked → HTTP envelope
   with zero pool/client/persistence/draft/send/owner/demo calls)

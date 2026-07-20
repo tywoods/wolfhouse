@@ -55,10 +55,20 @@
       "behavior": "true only when authority active + blocked — inbound skips draft/send/DB"
     },
     "processMetaWhatsAppWebhookPostEntry": {
-      "behavior": "normalize + authority gate before withPgClient; blocked → acquired_pg=false and zero pool/inbound/persist/draft/send/owner/demo; known authoritative tenant reaches processInbound with persistence/draft/send/idempotency inputs"
+      "behavior": "normalize + authority gate before withPgClient; blocked → acquired_pg=false and zero pool/inbound/persist/draft/send/owner/demo; known authoritative tenant+location reach real draft/send builders, persistence seed, response.normalized, and location-scoped idempotency"
     },
     "processMetaWhatsAppWebhookInbound": {
       "behavior": "authority block returns before find/insert/draft/send (zero downstream)"
+    },
+    "buildDraftInputFromNormalized": {
+      "behavior": "includes trusted normalized.location_id when present; omits key when absent (legacy)"
+    },
+    "buildMetaWebhookSendBody": {
+      "behavior": "includes location_id when present; idempotency via buildMetaInboundIdempotencyKey"
+    },
+    "buildMetaInboundIdempotencyKey": {
+      "with_location": "luna:{client_slug}:{location_id}:{wa_message_id}:{send_kind}",
+      "without_location": "luna:{client_slug}:{wa_message_id}:{send_kind} (legacy unchanged)"
     }
   },
   "red_case_ids": [
@@ -77,6 +87,8 @@
     "GREEN_legacy_slug_conflict_resolver_wins",
     "GREEN_enabled_routing_absent_inactive",
     "GREEN_default_off_no_env",
+    "GREEN_real_builders_propagate_location_and_idempotency",
+    "GREEN_legacy_idempotency_key_unchanged_without_location",
     "GREEN_entry_enabled_known_reaches_downstream",
     "GREEN_entry_default_off_acquires_pg",
     "GREEN_entry_enabled_routing_absent_acquires_pg"

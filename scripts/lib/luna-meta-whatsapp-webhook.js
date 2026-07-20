@@ -267,6 +267,7 @@ function normalizeMetaWhatsAppWebhook(body, options = {}) {
 
 /**
  * Build Luna guest-reply-draft input from normalized Meta webhook fields.
+ * Propagates trusted normalized.location_id when present (FORTRESS 15G authority).
  */
 function buildDraftInputFromNormalized(normalized) {
   if (!normalized || normalized.supported !== true || !normalized.message_text) {
@@ -283,6 +284,10 @@ function buildDraftInputFromNormalized(normalized) {
   if (normalized.profile_name) {
     input.guest_name = normalized.profile_name;
   }
+  const locationId = trimStr(normalized.location_id);
+  if (locationId) {
+    input.location_id = locationId;
+  }
   return input;
 }
 
@@ -296,9 +301,18 @@ function resolveMetaWebhookSendKind(nextAction) {
 
 /**
  * Stable idempotency key for Meta inbound → send gate.
+ * When location_id is present (enabled-authority scope), include it.
+ * When absent, preserve legacy `luna:{client}:{wamid}:{send_kind}` keys.
  */
-function buildMetaInboundIdempotencyKey(clientSlug, waMessageId, sendKind) {
-  return `luna:${trimStr(clientSlug) || DEFAULT_CLIENT_SLUG}:${trimStr(waMessageId)}:${sendKind}`;
+function buildMetaInboundIdempotencyKey(clientSlug, waMessageId, sendKind, locationId) {
+  const slug = trimStr(clientSlug) || DEFAULT_CLIENT_SLUG;
+  const wamid = trimStr(waMessageId);
+  const kind = trimStr(sendKind);
+  const loc = trimStr(locationId);
+  if (loc) {
+    return `luna:${slug}:${loc}:${wamid}:${kind}`;
+  }
+  return `luna:${slug}:${wamid}:${kind}`;
 }
 
 /**
@@ -320,9 +334,11 @@ function shouldAttemptMetaWebhookSend(draft, normalized) {
 
 /**
  * Build internal guest-reply-send evaluator input from Meta draft context.
+ * Propagates trusted normalized.location_id when present (FORTRESS 15G authority).
  */
 function buildMetaWebhookSendBody(normalized, draft, sendKind) {
-  return {
+  const locationId = trimStr(normalized && normalized.location_id);
+  const body = {
     client_slug: normalized.client_slug,
     to: normalized.from,
     suggested_reply: draft.suggested_reply,
@@ -332,10 +348,15 @@ function buildMetaWebhookSendBody(normalized, draft, sendKind) {
       normalized.client_slug,
       normalized.wa_message_id,
       sendKind,
+      locationId || null,
     ),
     source: 'meta_whatsapp_webhook',
     draft,
   };
+  if (locationId) {
+    body.location_id = locationId;
+  }
+  return body;
 }
 
 /**

@@ -21,6 +21,7 @@
     "controls": [
       "META_WHATSAPP_INGRESS_AUTHORITY default-off",
       "when enabled + routing present: known phone_number_id → resolver client_slug/location_id authoritative",
+      "trusted normalized.location_id propagates through real draft/send builders and location-scoped idempotency (legacy keys unchanged when location absent)",
       "unknown/missing/ambiguous/conflicting identities → block before withPgClient / draft/send/DB",
       "processMetaWhatsAppWebhookPostEntry evaluates authority before pool acquisition",
       "disabled or routing-absent → exact prior shadow-only live behavior",
