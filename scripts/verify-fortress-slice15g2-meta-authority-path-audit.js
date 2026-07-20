@@ -135,6 +135,11 @@ const openDemoSrc = readText(path.join(ROOT, 'scripts', 'lib', 'meta-open-demo-i
 const staffPhoneSrc = readText(path.join(ROOT, 'scripts', 'lib', 'staff-phone-access.js'));
 const eventsSqlSrc = readText(path.join(ROOT, 'scripts', 'lib', 'luna-guest-message-events-sql.js'));
 const authorityModulePath = path.join(ROOT, 'scripts', 'lib', 'meta-whatsapp-ingress-authority.js');
+const overlay15hPath = path.join(FIXTURE_DIR, 'slice15h-b02-remediation-overlay.json');
+const overlay15h2Path = path.join(FIXTURE_DIR, 'slice15h2-b02-remediation-overlay.json');
+const slice15hPresent = fs.existsSync(authorityModulePath)
+  && (fs.existsSync(overlay15h2Path) || fs.existsSync(overlay15hPath));
+const remediationOverlayPath = fs.existsSync(overlay15h2Path) ? overlay15h2Path : overlay15hPath;
 const committedEvidence = readJson(EVIDENCE_PATH);
 
 const sourceByRelPath = {
@@ -188,11 +193,15 @@ ok('historical 15A attack cases retained for B02',
 ok('historical doc still cites B02 vulnerable',
   /B02/.test(doc) && /vulnerable/.test(doc));
 
-ok('no authority module on master tree (design-only slice)',
-  !fs.existsSync(authorityModulePath));
+ok('authority module absent unless 15H remediation overlay present',
+  slice15hPresent
+    ? fs.existsSync(authorityModulePath)
+    : !fs.existsSync(authorityModulePath));
 
-ok('inbound has no PostEntry on master',
-  !/processMetaWhatsAppWebhookPostEntry/.test(inboundSrc));
+ok('inbound PostEntry absent unless 15H remediation overlay present',
+  slice15hPresent
+    ? /processMetaWhatsAppWebhookPostEntry/.test(inboundSrc)
+    : !/processMetaWhatsAppWebhookPostEntry/.test(inboundSrc));
 
 ok('contract supersedes deferred 15G tip',
   contract.supersedes
@@ -273,10 +282,47 @@ const missingAnchors = [];
 const taxonomyMismatches = [];
 const siteTypeMismatches = [];
 const modulesSeen = new Set();
+/** Freeze-time patterns remapped after FORTRESS-15H remediation (inventory stays historical). */
+const inventoryPatternAlternates = slice15hPresent ? {
+  CCI_HTTP_PG_CALL: [
+    'processMetaWhatsAppWebhookPostEntry',
+    'await withPgClientFn((pg) => processInbound',
+  ],
+  CCI_HTTP_AUDIT_CALL: [
+    'client_slug:                  normalized.client_slug',
+    'client_slug: normalized.client_slug',
+  ],
+  CCI_INBOUND_REPLAY_EXISTING_CALL: [
+    'isGuestMessageEventProcessed(existingRow)',
+    'findGuestMessageEventCandidatesByWaMessageId',
+    'claimGuestMessageEventInboundByWaMessageId',
+  ],
+  CCI_INBOUND_REPLAY_INSERTED_CALL: [
+    'isGuestMessageEventProcessed(inserted.row)',
+    'claim.inserted === true',
+    '!insertedNew && isGuestMessageEventProcessed(existingRow)',
+  ],
+  CCI_INBOUND_TABLE_MISSING_FIND_RETURN: [
+    'if (claim.table_missing)',
+    'if (candidates.table_missing)',
+    'claimGuestMessageEventInboundByWaMessageId',
+    'findGuestMessageEventCandidatesByWaMessageId',
+  ],
+  CCI_INBOUND_TABLE_MISSING_INSERT_RETURN: [
+    'if (inserted.table_missing)',
+    'if (claim.table_missing)',
+    'claimGuestMessageEventInboundByWaMessageId',
+  ],
+} : {};
 for (const anchor of inventory) {
   modulesSeen.add(anchor.module);
   const src = sourceByRelPath[anchor.path];
-  if (!src || !anchor.pattern || !src.includes(anchor.pattern)) {
+  const alts = inventoryPatternAlternates[anchor.id] || [];
+  const matched = !!(src && anchor.pattern && (
+    src.includes(anchor.pattern)
+    || alts.some((p) => src.includes(p))
+  ));
+  if (!matched) {
     missingAnchors.push(anchor.id);
   }
   if (!allBranchIds.has(anchor.branch_id)) {
@@ -327,7 +373,7 @@ ok('PG/downstream error branch freezes structured effective-normalized shape',
     && b.replacement_required.structured_shape_carries_effective_normalized === true
     && b.replacement_required.http_failure_audit_and_response_use_effective_normalized === true));
 
-console.log('\n── Master path audit (RED = current vulnerable posture) ──');
+console.log('\n── Master path audit (RED = freeze-time vulnerable posture; default-off preserved after 15H) ──');
 
 const handlerSlice = staffApi.slice(
   staffApi.indexOf('async function handleMetaWhatsAppWebhookPost'),
@@ -335,9 +381,21 @@ const handlerSlice = staffApi.slice(
 );
 const normalizeThenPg = /normalizeMetaWhatsAppWebhook\(body\)[\s\S]*?withPgClient\(\(pg\)\s*=>\s*processMetaWhatsAppWebhookInbound/.test(handlerSlice);
 red('AC15G2_MASTER_PG_BEFORE_AUTHORITY',
-  normalizeThenPg === true
-  && !/processMetaWhatsAppWebhookPostEntry/.test(handlerSlice),
-  'expected normalize→withPgClient and no PostEntry');
+  slice15hPresent
+    ? (
+      /processMetaWhatsAppWebhookPostEntry/.test(handlerSlice)
+      && contract.current_master_posture
+      && /withPgClient after normalize/i.test(contract.current_master_posture.pg_acquisition)
+      && branches.shared_authority_choke_point
+      && branches.shared_authority_choke_point.present_on_master === false
+    )
+    : (
+      normalizeThenPg === true
+      && !/processMetaWhatsAppWebhookPostEntry/.test(handlerSlice)
+    ),
+  slice15hPresent
+    ? '15H present: freeze docs retain pre-remediation gap; handler uses PostEntry'
+    : 'expected normalize→withPgClient and no PostEntry');
 
 {
   const body = buildFakeMetaWhatsAppBody('WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE');
@@ -348,7 +406,8 @@ red('AC15G2_MASTER_PG_BEFORE_AUTHORITY',
     && normalized.client_slug === 'wolfhouse-somo'
     && normalized.location_id == null
     && shadow.client_slug === 'sunset'
-    && shadow.location_id === 'sunset-somo',
+    && shadow.location_id === 'sunset-somo'
+    && !normalized.ingress_authority,
     `live=${normalized.client_slug} loc=${normalized.location_id} shadow=${shadow.client_slug}/${shadow.location_id}`);
 }
 
@@ -400,14 +459,27 @@ red('AC15G2_MASTER_PG_BEFORE_AUTHORITY',
     draft && draft.location_id == null
     && sendBody.location_id == null
     && key === 'luna:wolfhouse-somo:wamid.SAMPLE_15G2:ask_missing_field'
-    && !/location_id/.test(webhookSrc.match(/function buildDraftInputFromNormalized[\s\S]*?^}/m)[0] || ''),
+    && (slice15hPresent
+      ? !Object.prototype.hasOwnProperty.call(draft, 'location_id')
+        && !Object.prototype.hasOwnProperty.call(sendBody, 'location_id')
+      : !/location_id/.test(webhookSrc.match(/function buildDraftInputFromNormalized[\s\S]*?^}/m)[0] || '')),
     `draft.loc=${draft && draft.location_id} key=${key}`);
 }
 
 red('AC15G2_OPEN_DEMO_HARDCODED_FALLBACK',
-  /client_slug:\s*trimStr\(n\.client_slug\)\s*\|\|\s*'wolfhouse-somo'/.test(openDemoSrc)
-  || /trimStr\(n\.client_slug\) \|\| 'wolfhouse-somo'/.test(openDemoSrc),
-  'open-demo fallback literal missing');
+  slice15hPresent
+    ? (
+      /wolfhouse-somo/.test(openDemoSrc)
+      && /authorityActive/.test(openDemoSrc)
+      && /Legacy default-off/.test(openDemoSrc)
+    )
+    : (
+      /client_slug:\s*trimStr\(n\.client_slug\)\s*\|\|\s*'wolfhouse-somo'/.test(openDemoSrc)
+      || /trimStr\(n\.client_slug\) \|\| 'wolfhouse-somo'/.test(openDemoSrc)
+    ),
+  slice15hPresent
+    ? '15H: legacy fallback retained only when authority inactive'
+    : 'open-demo fallback literal missing');
 
 console.log('\n── Design contract (GREEN) ──');
 
@@ -459,7 +531,15 @@ green('AC15G2_DEFERRED_15G_SUPERSEDED',
   && overlay.supersedes_deferred.tip_sha === '50f87a1f115ef9ba0c06dc91cd3dfab59c3f7b2b'
   && overlay.supersedes_deferred.policy === 'do_not_merge_do_not_modify'
   && contract.runtime_behavior_changed === false
-  && !fs.existsSync(authorityModulePath));
+  && (slice15hPresent
+    ? (
+      fs.existsSync(authorityModulePath)
+      && fs.existsSync(remediationOverlayPath)
+      && !/fortress\/slice-15g-meta-ingress-authority-policy/.test(
+        require('child_process').execSync('git rev-parse --abbrev-ref HEAD', { cwd: ROOT }).toString(),
+      )
+    )
+    : !fs.existsSync(authorityModulePath)));
 
 {
   const shadow = resolveWhatsAppTenantShadow(
@@ -505,8 +585,12 @@ green('AC15G2_BRANCH_MATRIX_COMPLETE',
 console.log('\n── Source ownership anchors ──');
 ok('staff handler owns Meta POST',
   /async function handleMetaWhatsAppWebhookPost/.test(staffApi)
-  && /normalizeMetaWhatsAppWebhook\(body\)/.test(handlerSlice)
-  && /processMetaWhatsAppWebhookInbound/.test(handlerSlice));
+  && (slice15hPresent
+    ? /processMetaWhatsAppWebhookPostEntry/.test(handlerSlice)
+    : (
+      /normalizeMetaWhatsAppWebhook\(body\)/.test(handlerSlice)
+      && /processMetaWhatsAppWebhookInbound/.test(handlerSlice)
+    )));
 ok('inbound owns guest/owner/demo/gate/table-missing branches',
   /async function processWithoutPersistence/.test(inboundSrc)
   && /processOwnerWhatsAppCommandCenterInbound/.test(inboundSrc)
@@ -514,8 +598,13 @@ ok('inbound owns guest/owner/demo/gate/table-missing branches',
   && /shouldRouteMetaInboundToOpenDemo/.test(inboundSrc)
   && /runDraftAndSendGate/.test(inboundSrc)
   && /isGuestMessageEventProcessed/.test(inboundSrc)
-  && /existing\.table_missing/.test(inboundSrc)
-  && /inserted\.table_missing/.test(inboundSrc)
+  && (slice15hPresent
+    ? (/claim\.table_missing/.test(inboundSrc) || /candidates\.table_missing/.test(inboundSrc))
+      && (/claimGuestMessageEventInboundByWaMessageId/.test(inboundSrc)
+        || /findGuestMessageEventCandidatesByWaMessageId/.test(inboundSrc))
+    : /existing\.table_missing/.test(inboundSrc))
+  && (/inserted\.table_missing/.test(inboundSrc)
+    || /claim\.table_missing/.test(inboundSrc))
   && /normalized\.supported && normalized\.message_text/.test(inboundSrc));
 ok('owner source present in verification map',
   /function buildOwnerSendBody/.test(ownerSrc)

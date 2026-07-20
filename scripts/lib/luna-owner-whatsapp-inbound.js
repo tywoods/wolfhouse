@@ -17,6 +17,7 @@ const {
 const {
   buildDecisionPatch,
   updateGuestMessageEventDecisions,
+  mergeNormalizedPreservingStoredIdentity,
 } = require('./luna-guest-message-events-sql');
 
 const OWNER_SEND_KIND = 'staff_reply';
@@ -69,12 +70,14 @@ function buildOwnerDraftFromAskLuna(askResult) {
 }
 
 function buildOwnerSendBody(normalized, draft) {
+  const locationId = trimStr(normalized && normalized.location_id);
   const idempotencyKey = buildMetaInboundIdempotencyKey(
     normalized.client_slug,
     normalized.wa_message_id,
     OWNER_SEND_KIND,
+    locationId || null,
   );
-  return {
+  const body = {
     client_slug: normalized.client_slug,
     to: normalized.from,
     suggested_reply: draft.suggested_reply,
@@ -84,6 +87,10 @@ function buildOwnerSendBody(normalized, draft) {
     source: 'owner_whatsapp_command_center',
     draft,
   };
+  if (locationId) {
+    body.location_id = locationId;
+  }
+  return body;
 }
 
 function buildOwnerWebhookResponse(normalized, signatureMeta, options = {}) {
@@ -119,8 +126,47 @@ function buildOwnerWebhookResponse(normalized, signatureMeta, options = {}) {
 }
 
 function buildOwnerResponseFromStoredEvent(row, signatureMeta, replayMeta = {}) {
+  const {
+    resolveReplayNormalizedIdentity,
+  } = require('./meta-whatsapp-ingress-authority');
+
+  let baseNormalized = (row && row.normalized && typeof row.normalized === 'object')
+    ? { ...row.normalized }
+    : {};
+  if (!String(baseNormalized.client_slug || '').trim() && row && row.client_slug) {
+    baseNormalized.client_slug = row.client_slug;
+  }
+  if (replayMeta.authoritative_normalized) {
+    const identity = resolveReplayNormalizedIdentity(
+      baseNormalized,
+      replayMeta.authoritative_normalized,
+    );
+    if (!identity.ok) {
+      const conflictResponse = buildMetaWhatsAppWebhookPostResponse(
+        replayMeta.authoritative_normalized,
+        signatureMeta,
+        { draft_called: false, send_attempted: false, event_persisted: true },
+      );
+      return {
+        ...conflictResponse,
+        success: false,
+        duplicate: true,
+        idempotent_replay: false,
+        replay_identity_rejected: true,
+        blocked_reasons: [identity.reason || 'replay_identity_conflict'],
+        guest_flow_skipped: true,
+        owner_luna_route: true,
+        draft_called: false,
+        send_attempted: false,
+        no_write_performed: true,
+        guest_message_event_id: row.id,
+      };
+    }
+    baseNormalized = identity.response_normalized;
+  }
+
   const normalized = enrichNormalizedForOwnerRoute(
-    row.normalized || {},
+    baseNormalized,
     {
       role: (row.normalized && row.normalized.staff_role) || 'owner',
     },
@@ -280,11 +326,18 @@ async function processOwnerWhatsAppCommandCenterInbound(input) {
 
   const ran = await runOwnerCommandCenterCore(pg, env, normalized, staffAccess);
 
-  const normalizedForStorage = enrichNormalizedForOwnerRoute(normalized, staffAccess, {
+  let normalizedForStorage = enrichNormalizedForOwnerRoute(normalized, staffAccess, {
     command_center_intent: ran.askResult.intent,
     command_center: ran.draft.command_center,
     send_eligibility: ran.draft.send_eligibility,
   });
+  if (input.preserve_stored_normalized === true && eventRow) {
+    // Historical candidate — preserve stored identity; authority fills response only.
+    normalizedForStorage = mergeNormalizedPreservingStoredIdentity(
+      eventRow.normalized,
+      normalizedForStorage,
+    );
+  }
 
   const decisionPatch = buildDecisionPatch({
     draft: ran.draft,
@@ -297,20 +350,21 @@ async function processOwnerWhatsAppCommandCenterInbound(input) {
 
   let updatedRow = eventRow;
   if (pg && eventRow) {
+    const storageClientSlug = eventRow.client_slug || normalized.client_slug;
     await pg.query(
       `UPDATE guest_message_events
           SET normalized = $3::jsonb
         WHERE client_slug = $1
           AND wa_message_id = $2`,
       [
-        normalized.client_slug,
+        storageClientSlug,
         normalized.wa_message_id,
         JSON.stringify(normalizedForStorage),
       ],
     ).catch(() => {});
     const updated = await updateGuestMessageEventDecisions(
       pg,
-      normalized.client_slug,
+      storageClientSlug,
       normalized.wa_message_id,
       decisionPatch,
     );
@@ -382,6 +436,7 @@ async function processOwnerWhatsAppCommandCenterWithoutPersistence(input) {
 module.exports = {
   lookupStaffPhoneAccess,
   buildOwnerRouteFlags,
+  buildOwnerSendBody,
   isOwnerLunaStoredEvent,
   buildOwnerResponseFromStoredEvent,
   processOwnerWhatsAppCommandCenterInbound,

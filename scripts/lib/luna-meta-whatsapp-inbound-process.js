@@ -2,6 +2,8 @@
 
 /**
  * Phase 19g.8 — Meta WhatsApp inbound webhook processing with DB persistence.
+ * FORTRESS 15H2 — authority before PG via processMetaWhatsAppWebhookPostEntry;
+ * frozen replay compare/reject/fill; structured downstream error identity.
  */
 
 const { buildLunaGuestReplyDraft } = require('./luna-guest-reply-draft');
@@ -17,8 +19,8 @@ const {
 const {
   buildInboundEventSeed,
   buildDecisionPatch,
-  findGuestMessageEventByWaMessageId,
-  insertGuestMessageEventInbound,
+  claimGuestMessageEventInboundByWaMessageId,
+  mergeNormalizedPreservingStoredIdentity,
   updateGuestMessageEventDecisions,
   isGuestMessageEventProcessed,
 } = require('./luna-guest-message-events-sql');
@@ -39,6 +41,12 @@ const {
   buildMetaGuestPhoneGateBlockedExtras,
   shouldRouteActiveStaffPhoneToOwnerCommandCenter,
 } = require('./luna-open-phone-testing-gate');
+const {
+  applyMetaWhatsAppIngressAuthority,
+  shouldBlockMetaWhatsAppIngressDownstream,
+  resolveReplayNormalizedIdentity,
+  attachEffectiveNormalizedToError,
+} = require('./meta-whatsapp-ingress-authority');
 
 function buildDraftFromStoredEvent(row) {
   if (!row) return null;
@@ -72,11 +80,79 @@ function buildSendResultFromStoredEvent(row) {
   };
 }
 
+/**
+ * Global replay conflict/ambiguity envelope.
+ * Returns non-sensitive metadata only — never attaches a foreign event_row or
+ * cross-tenant stored content (suggested_reply, raw_payload, etc.).
+ */
+function buildReplayIdentityConflictResponse(normalized, signatureMeta, conflict) {
+  const reason = (conflict && conflict.reason) || 'replay_identity_conflict';
+  const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {
+    draft_called: false,
+    send_attempted: false,
+    event_persisted: true,
+  });
+  const meta = {
+    reason,
+  };
+  if (conflict && conflict.stored_client_slug) {
+    meta.stored_client_slug = String(conflict.stored_client_slug);
+  }
+  if (conflict && conflict.authoritative_client_slug) {
+    meta.authoritative_client_slug = String(conflict.authoritative_client_slug);
+  }
+  if (conflict && conflict.stored_location_id) {
+    meta.stored_location_id = String(conflict.stored_location_id);
+  }
+  if (conflict && conflict.authoritative_location_id) {
+    meta.authoritative_location_id = String(conflict.authoritative_location_id);
+  }
+  if (conflict && conflict.candidate_count != null) {
+    meta.candidate_count = Number(conflict.candidate_count) || 0;
+  }
+  return {
+    ...response,
+    success: false,
+    duplicate: true,
+    idempotent_replay: false,
+    replay_identity_rejected: true,
+    guest_message_event_id: null,
+    blocked_reasons: [reason],
+    replay_identity: meta,
+    draft_called: false,
+    send_attempted: false,
+    no_write_performed: true,
+  };
+}
+
+/**
+ * Stored identity for REPLAY_IDENTITY_COMPARE_REJECT_FILL.
+ * Prefer nonempty normalized fields; fall back to row.client_slug.
+ */
+function storedNormalizedIdentityFromRow(row) {
+  const stored = (row && row.normalized && typeof row.normalized === 'object')
+    ? { ...row.normalized }
+    : {};
+  if (!String(stored.client_slug || '').trim() && row && row.client_slug) {
+    stored.client_slug = row.client_slug;
+  }
+  return stored;
+}
+
 function buildResponseFromStoredEvent(row, signatureMeta, replayMeta = {}) {
-  const normalized = row.normalized || {};
+  const authoritative = replayMeta.authoritative_normalized || null;
+  let normalized = storedNormalizedIdentityFromRow(row);
+  if (authoritative) {
+    const identity = resolveReplayNormalizedIdentity(normalized, authoritative);
+    if (!identity.ok) {
+      return buildReplayIdentityConflictResponse(authoritative, signatureMeta, identity);
+    }
+    normalized = identity.response_normalized;
+  }
+
   const draft = buildDraftFromStoredEvent(row);
   const sendResult = buildSendResultFromStoredEvent(row);
-  const storedPreview = normalized.booking_write_preview || null;
+  const storedPreview = (row.normalized && row.normalized.booking_write_preview) || null;
   const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {
     draft: draftCalledDraft(draft, row),
     draft_called: row.draft_called === true,
@@ -91,6 +167,7 @@ function buildResponseFromStoredEvent(row, signatureMeta, replayMeta = {}) {
     duplicate: replayMeta.duplicate === true,
     idempotent_replay: replayMeta.idempotent_replay === true,
     guest_message_event_id: row.id,
+    replay_history_rewritten: false,
   };
 }
 
@@ -114,6 +191,35 @@ function buildGuestPhoneGateBlockedMetaResponse(normalized, signatureMeta, event
       ...buildMetaGuestPhoneGateBlockedExtras(gate),
     },
     event_row: eventRow,
+    replay: false,
+  };
+}
+
+/**
+ * FORTRESS 15H2 — fail closed before draft/send/DB when ingress authority blocks.
+ */
+function buildIngressAuthorityBlockedMetaResponse(normalized, signatureMeta) {
+  const ia = (normalized && normalized.ingress_authority) || {};
+  const reason = ia.reason || 'ingress_authority_blocked';
+  const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {
+    draft_called: false,
+    send_attempted: false,
+    event_persisted: false,
+  });
+  return {
+    response: {
+      ...response,
+      duplicate: false,
+      idempotent_replay: false,
+      guest_message_event_id: null,
+      ingress_authority_blocked: true,
+      blocked_reasons: [reason],
+      draft_called: false,
+      send_attempted: false,
+      event_persisted: false,
+      no_write_performed: true,
+    },
+    event_row: null,
     replay: false,
   };
 }
@@ -168,7 +274,26 @@ async function runDraftAndSendGate(pg, env, normalized) {
   };
 }
 
+function buildProcessedReplay(row, signatureMeta, authoritativeNormalized) {
+  const buildReplay = isOwnerLunaStoredEvent(row)
+    ? buildOwnerResponseFromStoredEvent
+    : buildResponseFromStoredEvent;
+  return {
+    response: buildReplay(row, signatureMeta, {
+      duplicate: true,
+      idempotent_replay: true,
+      authoritative_normalized: authoritativeNormalized,
+    }),
+    event_row: row,
+    replay: true,
+  };
+}
+
 async function processWithoutPersistence(pg, env, normalized, body, signatureMeta) {
+  if (shouldBlockMetaWhatsAppIngressDownstream(normalized)) {
+    return buildIngressAuthorityBlockedMetaResponse(normalized, signatureMeta);
+  }
+
   const staffPhoneAccess = pg
     ? await lookupStaffPhoneAccess(pg, {
       client_slug: normalized.client_slug,
@@ -230,6 +355,90 @@ async function processWithoutPersistence(pg, env, normalized, body, signatureMet
 }
 
 /**
+ * FORTRESS 15H2 — Meta POST entry after JSON parse / signature check.
+ * Normalize + apply ingress authority **before** any pool/client acquisition.
+ * Blocked identities return the authority-blocked envelope with acquired_pg=false
+ * and never invoke withPgClient / processInbound (hence zero persistence/draft/
+ * send/owner/demo work). Returns effective post-authority normalized for HTTP
+ * audit. Downstream failures throw a structured error carrying effective_normalized.
+ *
+ * @param {{
+ *   body?: object,
+ *   env?: object,
+ *   signatureMeta?: object,
+ *   normalized?: object,
+ *   normalizeOptions?: object,
+ *   client_slug?: string,
+ *   registry?: object,
+ *   withPgClient: Function,
+ *   processInbound?: Function,
+ *   normalize?: Function,
+ * }} input
+ */
+async function processMetaWhatsAppWebhookPostEntry(input) {
+  const env = input.env || process.env;
+  const body = input.body || {};
+  const signatureMeta = input.signatureMeta || {};
+  const withPgClientFn = input.withPgClient;
+  const processInbound = input.processInbound || processMetaWhatsAppWebhookInbound;
+  const normalizeFn = input.normalize || normalizeMetaWhatsAppWebhook;
+  const normalizeOptions = Object.assign(
+    { env, client_slug: input.client_slug },
+    input.normalizeOptions || {},
+  );
+  const registry = input.registry
+    || normalizeOptions.registry
+    || null;
+
+  let normalized = input.normalized != null
+    ? input.normalized
+    : normalizeFn(body, normalizeOptions);
+
+  // Shared choke point: apply authority after normalize (idempotent if already applied).
+  normalized = applyMetaWhatsAppIngressAuthority(normalized, { env, registry });
+
+  if (shouldBlockMetaWhatsAppIngressDownstream(normalized)) {
+    const blocked = buildIngressAuthorityBlockedMetaResponse(normalized, signatureMeta);
+    return {
+      normalized,
+      acquired_pg: false,
+      response: blocked.response,
+      event_row: blocked.event_row,
+      replay: blocked.replay,
+    };
+  }
+
+  if (typeof withPgClientFn !== 'function') {
+    throw attachEffectiveNormalizedToError(
+      new Error('withPgClient_required_when_ingress_authority_allows_downstream'),
+      normalized,
+    );
+  }
+
+  try {
+    const processed = await withPgClientFn((pg) => processInbound({
+      pg,
+      env,
+      body,
+      normalized,
+      signatureMeta,
+      client_slug: input.client_slug,
+      executeOpenDemo: input.executeOpenDemo,
+    }));
+
+    return {
+      normalized,
+      acquired_pg: true,
+      response: processed.response,
+      event_row: processed.event_row,
+      replay: processed.replay,
+    };
+  } catch (err) {
+    throw attachEffectiveNormalizedToError(err, normalized);
+  }
+}
+
+/**
  * Process Meta inbound webhook POST with guest_message_events persistence.
  *
  * @param {{ pg: object, env?: object, body: object, signatureMeta?: object }} input
@@ -245,6 +454,11 @@ async function processMetaWhatsAppWebhookInbound(input) {
     client_slug: input.client_slug,
   });
 
+  // FORTRESS 15H2 — authority block before any DB lookup/insert or draft/send.
+  if (shouldBlockMetaWhatsAppIngressDownstream(normalized)) {
+    return buildIngressAuthorityBlockedMetaResponse(normalized, signatureMeta);
+  }
+
   if (!normalized.wa_message_id || !normalized.client_slug) {
     const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {
       draft_called: false,
@@ -253,52 +467,70 @@ async function processMetaWhatsAppWebhookInbound(input) {
     return { response, event_row: null, replay: false };
   }
 
-  const existing = await findGuestMessageEventByWaMessageId(
-    pg,
-    normalized.client_slug,
-    normalized.wa_message_id,
-  );
+  // FORTRESS 15H2 — concurrency-safe claim by WhatsApp message identity across
+  // tenant slugs (advisory lock). Do not trust requested tenant; do not rely on
+  // check-then-insert outside the lock; no global UNIQUE(wa_message_id) required.
+  let claim;
+  try {
+    claim = await claimGuestMessageEventInboundByWaMessageId(
+      pg,
+      buildInboundEventSeed(normalized, body),
+    );
+  } catch (err) {
+    throw attachEffectiveNormalizedToError(err, normalized);
+  }
 
-  if (existing.table_missing) {
+  if (claim.table_missing) {
     return processWithoutPersistence(pg, env, normalized, body, signatureMeta);
   }
 
-  if (existing.row && isGuestMessageEventProcessed(existing.row)) {
-    const buildReplay = isOwnerLunaStoredEvent(existing.row)
-      ? buildOwnerResponseFromStoredEvent
-      : buildResponseFromStoredEvent;
+  const rows = Array.isArray(claim.rows) ? claim.rows : [];
+  const insertedNew = claim.inserted === true;
+
+  if (rows.length > 1) {
     return {
-      response: buildReplay(existing.row, signatureMeta, {
-        duplicate: true,
-        idempotent_replay: true,
+      response: buildReplayIdentityConflictResponse(normalized, signatureMeta, {
+        reason: 'replay_ambiguous_wa_message_id',
+        candidate_count: rows.length,
       }),
-      event_row: existing.row,
-      replay: true,
+      event_row: null,
+      replay: false,
     };
   }
 
-  const seed = buildInboundEventSeed(normalized, body);
-  const inserted = await insertGuestMessageEventInbound(pg, seed);
+  let eventRow = null;
 
-  if (inserted.table_missing) {
+  if (rows.length === 1) {
+    const existingRow = rows[0];
+    const identity = resolveReplayNormalizedIdentity(
+      storedNormalizedIdentityFromRow(existingRow),
+      normalized,
+    );
+    if (!identity.ok) {
+      return {
+        response: buildReplayIdentityConflictResponse(normalized, signatureMeta, {
+          ...identity,
+          candidate_count: 1,
+        }),
+        // Never return cross-tenant row content on conflict/ambiguity.
+        event_row: null,
+        replay: false,
+      };
+    }
+
+    if (!insertedNew && isGuestMessageEventProcessed(existingRow)) {
+      return buildProcessedReplay(existingRow, signatureMeta, normalized);
+    }
+
+    // Historical unprocessed (or freshly inserted) — continue without duplicating.
+    eventRow = existingRow;
+  } else {
+    // Claim found nothing and could not insert (should be rare); treat as no persist.
     return processWithoutPersistence(pg, env, normalized, body, signatureMeta);
   }
 
-  const eventRow = inserted.row;
-
-  if (inserted.row && isGuestMessageEventProcessed(inserted.row)) {
-    const buildReplay = isOwnerLunaStoredEvent(inserted.row)
-      ? buildOwnerResponseFromStoredEvent
-      : buildResponseFromStoredEvent;
-    return {
-      response: buildReplay(inserted.row, signatureMeta, {
-        duplicate: true,
-        idempotent_replay: true,
-      }),
-      event_row: inserted.row,
-      replay: true,
-    };
-  }
+  // Updates must target the stored row tenant (never invent a second event).
+  const storageClientSlug = (eventRow && eventRow.client_slug) || normalized.client_slug;
 
   const staffPhoneAccess = pg
     ? await lookupStaffPhoneAccess(pg, {
@@ -316,6 +548,7 @@ async function processMetaWhatsAppWebhookInbound(input) {
       signatureMeta,
       staff_access: staffPhoneAccess,
       event_row: eventRow,
+      preserve_stored_normalized: !insertedNew,
     });
   }
 
@@ -336,6 +569,8 @@ async function processMetaWhatsAppWebhookInbound(input) {
       normalized,
       signatureMeta,
       event_row: eventRow,
+      executeOpenDemo: input.executeOpenDemo,
+      preserve_stored_normalized: !insertedNew,
     });
   }
 
@@ -362,10 +597,21 @@ async function processMetaWhatsAppWebhookInbound(input) {
 
   const bookingWritePreview = ran.bookingWritePreview;
 
-  const normalizedForStorage = {
-    ...normalized,
-    ...enrichDraftForStorage(draftResult, bookingWritePreview),
-  };
+  const draftEnrichment = enrichDraftForStorage(draftResult, bookingWritePreview) || {};
+  let normalizedForStorage;
+  if (insertedNew) {
+    normalizedForStorage = {
+      ...normalized,
+      ...draftEnrichment,
+    };
+  } else {
+    // Historical candidate — preserve stored identity/history; authority fills
+    // response/runtime only.
+    normalizedForStorage = mergeNormalizedPreservingStoredIdentity(
+      eventRow && eventRow.normalized,
+      draftEnrichment,
+    );
+  }
 
   let updatedRow = eventRow;
   if (pg && eventRow) {
@@ -375,14 +621,14 @@ async function processMetaWhatsAppWebhookInbound(input) {
         WHERE client_slug = $1
           AND wa_message_id = $2`,
       [
-        normalized.client_slug,
+        storageClientSlug,
         normalized.wa_message_id,
         JSON.stringify(normalizedForStorage),
       ],
     ).catch(() => {});
     const updated = await updateGuestMessageEventDecisions(
       pg,
-      normalized.client_slug,
+      storageClientSlug,
       normalized.wa_message_id,
       decisionPatch,
     );
@@ -402,9 +648,10 @@ async function processMetaWhatsAppWebhookInbound(input) {
   return {
     response: {
       ...response,
-      duplicate: false,
+      duplicate: insertedNew ? false : !!eventRow,
       idempotent_replay: false,
       guest_message_event_id: updatedRow ? updatedRow.id : null,
+      replay_history_rewritten: false,
     },
     event_row: updatedRow,
     replay: false,
@@ -413,6 +660,9 @@ async function processMetaWhatsAppWebhookInbound(input) {
 
 module.exports = {
   processMetaWhatsAppWebhookInbound,
+  processMetaWhatsAppWebhookPostEntry,
+  buildIngressAuthorityBlockedMetaResponse,
   buildResponseFromStoredEvent,
   buildSendResultFromStoredEvent,
+  resolveReplayNormalizedIdentity,
 };
