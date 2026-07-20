@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16J",
+  "outcome_id": "16J_staff_api_request_correlation",
+  "gate_id": "G01_correlation_structured_logs",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "d9d297e8d28b499316fdcb89ff7954ebb4cdae06",
+  "branch": "radar/slice-16j-request-correlation",
+  "live_deploy": false,
+  "live_mutation": false,
+  "title": "Staff API request correlation at HTTP boundary (header + ALS only) — source partial; supersedes deferred 16D",
+  "supersedes": {
+    "outcome_id": "16D_staff_api_request_correlation",
+    "branch": "radar/slice-16d-staff-request-correlation",
+    "tip_sha": "4478ac2ad65d385e4bbf577ebe77c5c80ad028e4",
+    "policy": "do_not_merge_do_not_modify"
+  },
+  "event_context_contract": {
+    "header": "X-Request-Id",
+    "header_accept": {
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+      "canonical": "uuid_v4",
+      "normalize": "lowercase",
+      "on_reject": "crypto.randomUUID",
+      "reject_array_duplicate_ambiguous": true,
+      "reject_oversize_non_uuid": true
+    },
+    "header_set_before_route_handling": true,
+    "propagation": "AsyncLocalStorage",
+    "downstream_accessors": ["getRequestContext", "requestId"],
+    "handler_signatures_unchanged": true,
+    "route_in_als_context": "normalized_template_or_pathname_without_query",
+    "tenant_slug_rule": "trusted_ingress_binding_at_construction_else_omit",
+    "completion_logging": false,
+    "req_res_lifecycle_listeners": false,
+    "console_completion_emission": false,
+    "one_record_completion_claim": false,
+    "completion_ownership": {
+      "async_log_queue": false,
+      "signal_shutdown_handlers": false,
+      "exit_code_mutation": false,
+      "flush_delivery_guarantee": false,
+      "req_res_lifecycle_listeners": false,
+      "completion_console_emission": false,
+      "duration_route_status_logging": false,
+      "one_record_completion_claim": false
+    },
+    "preserves": [
+      "existing_response_bodies",
+      "existing_error_behavior",
+      "base_router_catch_path",
+      "headersSent_sendJSON_semantics",
+      "streaming_no_body_buffer",
+      "original_process_response_semantics"
+    ]
+  },
+  "still_open": [
+    "Request completion logs (structured completion records)",
+    "Live deploy of Staff API image with correlation middleware",
+    "Log Analytics / App Insights delivery + search proof",
+    "Retention policy for correlation completion records",
+    "End-to-end Meta → Hermes → Staff API → Stripe correlation drill"
+  ],
+  "final_controlled_drill": {
+    "id": "16J_DRILL_correlation_log_query",
+    "status": "open",
+    "pass_rule": "After approved deploy + completion logging follow-on: known X-Request-Id traffic; prove searchable correlation in LAW/App Insights with safe fields only; prove concurrent requests do not bleed context"
+  },
+  "artifacts": [
+    "scripts/lib/staff-api-request-correlation.js",
+    "scripts/staff-query-api.js",
+    "scripts/lib/radar-slice16j-staff-request-correlation.js",
+    "scripts/verify-radar-slice16j-staff-request-correlation.js",
+    "fixtures/radar-operations/slice16j-expected-contract.json"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16j-staff-request-correlation",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16b-staging-cost-budgets",
+    "npm run verify:radar-slice16h-staff-api-metric-alerts",
+    "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:staff-auth-api",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check d9d297e8d28b499316fdcb89ff7954ebb4cdae06..HEAD"
+  ]
+}

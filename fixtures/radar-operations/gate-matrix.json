@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16I",
-  "title": "RADAR operations gate ledger (16I Staff API readiness source-partial; supersedes deferred 16C)",
-  "master_basis": "d922099cc1eec1596ef4c67f265c8b6c5e6bc81e",
-  "branch": "radar/slice-16i-readiness-replacement",
+  "slice": "RADAR-16J",
+  "title": "RADAR operations gate ledger (16J Staff API request correlation header+ALS source-partial; supersedes deferred 16D)",
+  "master_basis": "d9d297e8d28b499316fdcb89ff7954ebb4cdae06",
+  "branch": "radar/slice-16j-request-correlation",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -31,17 +31,35 @@
       "name": "Correlation / structured logs",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Staff API appends JSONL audit lines locally, and ACA envs ship container logs to Log Analytics, but there is no request correlation ID middleware, no tenant-labeled structured HTTP access log contract, and no proven end-to-end correlation across Meta \u2192 Hermes \u2192 Staff API \u2192 Stripe.",
+      "rationale": "16J adds Staff API HTTP-boundary request correlation (AsyncLocalStorage): accept X-Request-Id only as strict UUIDv4 (normalize lowercase) else crypto.randomUUID(); set response header before route handling; expose getRequestContext/requestId; trusted-ingress tenant binding. Header + ALS context only \u2014 no req/res finish/close/aborted/error listeners; no duration/route/status completion logging; no console emission; no one-record claims. No async log queue; no signal/shutdown ownership. Source-partial correlation only \u2014 not deployed; request completion logs, LAW/App Insights delivery+search, retention, and correlation drill remain open. Supersedes deferred 16D.",
       "source_evidence": [
         {
-          "path": "scripts/staff-query-api.js",
-          "lines": "827-828,1595-1599",
+          "path": "scripts/lib/staff-api-request-correlation.js",
+          "lines": "43-95,208-227,233-240,267-295",
           "symbols": [
-            "LOG_DIR",
-            "LOG_FILE",
-            "appendAuditLog"
+            "acceptOrGenerateRequestId",
+            "runWithRequestCorrelation",
+            "getRequestContext",
+            "requestId",
+            "setResponseCorrelationHeader"
           ],
-          "note": "JSONL file append only; silent catch on write failure"
+          "note": "UUIDv4 accept/generate + ALS + response header; no lifecycle listeners / completion emission"
+        },
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "74-86,46677-46698",
+          "symbols": [
+            "runWithRequestCorrelation",
+            "createStaffQueryApiHttpServer",
+            "resolveTrustedIngressBinding"
+          ],
+          "note": "Real-router wire at createServer; base catch path preserved; trusted ingress binding at construction"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16j-expected-contract.json",
+          "lines": "1-40",
+          "symbols": [],
+          "note": "Frozen independent header+ALS contract (completion logging false)"
         },
         {
           "path": "infra/azure/staging/main.bicep",
@@ -50,7 +68,7 @@
             "logAnalytics",
             "logAnalyticsConfiguration"
           ],
-          "note": "LAW + ACA env log destination declared in IaC"
+          "note": "LAW + ACA env log destination declared in IaC (delivery still unproven)"
         }
       ],
       "live_evidence": [
@@ -64,10 +82,13 @@
         }
       ],
       "gaps": [
-        "No X-Request-Id / correlation_id propagation",
-        "No tenant-aware structured access logs with client_slug dimension",
-        "Audit JSONL is process-local path, not proven shipped as App Insights traces"
-      ]
+        "Request completion logs (structured completion records) not implemented",
+        "Staff API image with correlation middleware not deployed to staging",
+        "No proven LAW/App Insights delivery or search of correlation events",
+        "Retention policy for correlation completion records not frozen",
+        "End-to-end Meta \u2192 Hermes \u2192 Staff API \u2192 Stripe correlation drill open"
+      ],
+      "progress_class": "source_partial_progress_only"
     },
     {
       "id": "G02_readiness_dependencies",
@@ -657,6 +678,63 @@
         "Freeze evidence JSON secret-free"
       ],
       "pass_rule": "Readiness removes traffic without restart loops; liveness stays up; recovery restores traffic"
+    }
+  },
+  "slice_16j_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16J_staff_api_request_correlation",
+    "gate_id": "G01_correlation_structured_logs",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "completion_logs_lifecycle_listeners_async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
+    "title": "Add Staff API request correlation middleware (UUIDv4 + ALS header/context only) \u2014 source partial only",
+    "why_smallest": "G01 lacked request correlation ID middleware; narrowest ownership is HTTP-boundary ALS + response header without completion logging, lifecycle listeners, async queue, or signal/shutdown framework.",
+    "supersedes": [
+      "16D_staff_api_request_correlation"
+    ],
+    "owner_files": [
+      "scripts/lib/staff-api-request-correlation.js",
+      "scripts/staff-query-api.js",
+      "scripts/lib/radar-slice16j-staff-request-correlation.js",
+      "scripts/verify-radar-slice16j-staff-request-correlation.js",
+      "fixtures/radar-operations/slice16j-expected-contract.json"
+    ],
+    "out_of_scope_for_16j": [
+      "Request completion logs / structured completion records",
+      "Req/res finish/close/aborted/error lifecycle listeners",
+      "Duration/route/status console emission",
+      "Async log delivery queue",
+      "Signal/shutdown flush hooks",
+      "Exit-code mutation / process handler install",
+      "Live deploy / restart",
+      "LAW/App Insights delivery + search proof",
+      "Retention policy freeze",
+      "E2E Meta\u2192Hermes\u2192Staff\u2192Stripe correlation drill",
+      "Production RGs"
+    ],
+    "acceptance_criteria": [
+      "Real-router middleware via AsyncLocalStorage",
+      "Accept x-request-id only as strict UUIDv4 (any hex case); normalize lowercase; else crypto.randomUUID()",
+      "Set response x-request-id before route handling",
+      "Expose getRequestContext / requestId to downstream",
+      "Trusted ingress tenant binding only (forged request headers ignored)",
+      "No req/res finish/close/aborted/error listeners beyond base counts",
+      "Synthetic req/res error behavior byte-for-byte baseline (no new error listeners)",
+      "Router catch block unchanged from master base (no headersSent guard)",
+      "No console/log completion side effect",
+      "Request completion logs/delivery/search/retention/drill remain open"
+    ],
+    "final_controlled_drill": {
+      "id": "16J_DRILL_correlation_log_query",
+      "steps": [
+        "Approved deploy of Staff API image with correlation middleware (follow-on; not this commit)",
+        "Follow-on completion logging ownership (not this commit)",
+        "Generate known X-Request-Id traffic",
+        "Prove searchable correlation in LAW/App Insights with safe fields only",
+        "Prove concurrent requests do not bleed context",
+        "Freeze evidence JSON secret-free"
+      ],
+      "pass_rule": "Correlation searchable in LAW/App Insights with safe fields only after deploy + completion-logging follow-on; concurrent isolation proven; no deploy claimed by this slice"
     }
   }
 }

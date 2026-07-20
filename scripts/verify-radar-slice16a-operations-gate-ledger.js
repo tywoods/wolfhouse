@@ -21,8 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = 'd922099cc1eec1596ef4c67f265c8b6c5e6bc81e';
-const BRANCH_16I = 'radar/slice-16i-readiness-replacement';
+const MASTER_BASIS = 'd9d297e8d28b499316fdcb89ff7954ebb4cdae06';
+const BRANCH_16J = 'radar/slice-16j-request-correlation';
 const VERDICTS = new Set(['proven', 'partial', 'absent']);
 const REQUIRED_GATE_IDS = [
   'G01_correlation_structured_logs',
@@ -106,11 +106,13 @@ function secretFree(text, label) {
 }
 
 function runtimePathsUnchanged() {
-  // 16I owns Staff API readiness + staging Bicep probes; 16A freeze still
-  // requires database/ and Hermes staging sources remain untouched.
+  // 16J owns Staff API correlation wiring only; 16A freeze still
+  // requires database/, Hermes staging, and staging Bicep remain untouched.
   const paths = [
     'database/',
     'docker/hermes-staging/',
+    'infra/azure/staging/main.bicep',
+    'infra/azure/sunset-staging/main.bicep',
   ];
   try {
     const out = execSync(
@@ -156,6 +158,7 @@ function staffApiRuntimeDiffVsMaster() {
   const paths = [
     'scripts/staff-query-api.js',
     'scripts/lib/staff-api-readiness.js',
+    'scripts/lib/staff-api-request-correlation.js',
   ];
   try {
     return execSync(
@@ -334,11 +337,11 @@ const blob = [
 const sec = secretFree(blob, 'fixtures+doc');
 ok('F32 secret-free fixtures and doc', sec.ok, sec.detail);
 
-ok('F33 doc mentions selected 16I id', /16I_staff_api_readiness_dependencies/.test(doc));
+ok('F33 doc mentions selected 16J id', /16J_staff_api_request_correlation/.test(doc));
 ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /partial.*9/i.test(doc) && /absent.*0/i.test(doc));
-ok('F35 findings lists G02/G03/G09 partial',
-  /G02/.test(findings) && /G03/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
-  && /16I/.test(findings));
+ok('F35 findings lists G01/G02/G03/G09 partial',
+  /G01/.test(findings) && /G02/.test(findings) && /G03/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
+  && /16J/.test(findings));
 
 ok('F36 healthz source cite present', pathExists('scripts/staff-query-api.js'));
 ok('F37 capture cost script present (read-only helper)',
@@ -347,7 +350,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 zero-mutation: database/Hermes unchanged vs master basis (16I may touch staff-api+bicep)', rt.ok, rt.detail);
+ok('F39 zero-mutation: database/Hermes/Bicep unchanged vs master basis (16J may touch staff-api correlation)', rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
   matrix.final_controlled_drill_16a
@@ -371,14 +374,14 @@ ok('F46 readiness lib present', pathExists('scripts/lib/staff-api-readiness.js')
 ok('F47 16I verifier script present',
   pathExists('scripts/verify-radar-slice16i-staff-api-readiness.js'));
 
-const slice16iContract = readJson(path.join(FIXTURE_DIR, 'slice16i-expected-contract.json'));
+const slice16jContract = readJson(path.join(FIXTURE_DIR, 'slice16j-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16I contract + HEAD',
-  matrix.branch === BRANCH_16I
-  && contract.branch === BRANCH_16I
-  && slice16iContract.branch === BRANCH_16I
-  && headBranch === BRANCH_16I,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16i=${slice16iContract.branch} head=${headBranch}`);
+ok('F48 gate-matrix branch pin equals 16J contract + HEAD',
+  matrix.branch === BRANCH_16J
+  && contract.branch === BRANCH_16J
+  && slice16jContract.branch === BRANCH_16J
+  && headBranch === BRANCH_16J,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16j=${slice16jContract.branch} head=${headBranch}`);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -389,19 +392,49 @@ ok('F49 must_not forbids live/deployed mutation, not blanket source change',
   !hasStaleSourceForbid && hasLiveDeployedForbid,
   JSON.stringify(mustNot));
 
+const g01 = matrix.gates.find((g) => g.id === 'G01_correlation_structured_logs');
 const runtimeDiff = staffApiRuntimeDiffVsMaster();
-const g02CitesRuntime = g02
-  && Array.isArray(g02.source_evidence)
-  && g02.source_evidence.some((ev) =>
-    ev.path === 'scripts/lib/staff-api-readiness.js'
+const g01CitesRuntime = g01
+  && Array.isArray(g01.source_evidence)
+  && g01.source_evidence.some((ev) =>
+    ev.path === 'scripts/lib/staff-api-request-correlation.js'
     || ev.path === 'scripts/staff-query-api.js');
-ok('F50 must_not does not contradict changed runtime source or G02 evidence',
+ok('F50 must_not does not contradict changed runtime source or G01 evidence',
   !hasStaleSourceForbid
   && hasLiveDeployedForbid
-  && g02CitesRuntime
-  && runtimeDiff.length >= 1
+  && g01CitesRuntime
+  && runtimeDiff.includes('scripts/staff-query-api.js')
+  && pathExists('scripts/lib/staff-api-request-correlation.js')
   && matrix.live_mutation === false,
   `runtimeDiff=${runtimeDiff.join(',') || '(none)'} stale=${hasStaleSourceForbid}`);
+
+ok('F51 G01 partial source-partial via 16J',
+  g01 && g01.verdict === 'partial'
+  && g01.progress_class === 'source_partial_progress_only'
+  && /16J/.test(g01.rationale)
+  && /UUIDv4|uuid.?v4/i.test(g01.rationale));
+ok('F52 correlation lib present', pathExists('scripts/lib/staff-api-request-correlation.js'));
+ok('F53 16J verifier script present',
+  pathExists('scripts/verify-radar-slice16j-staff-request-correlation.js'));
+
+const sel16j = matrix.slice_16j_selection;
+ok('F54 exactly one 16J selection',
+  sel16j && sel16j.selected === true
+  && sel16j.outcome_id === '16J_staff_api_request_correlation'
+  && sel16j.gate_id === 'G01_correlation_structured_logs'
+  && sel16j.progress_class === 'source_partial_progress_only');
+ok('F55 contract selected_16j matches',
+  contract.selected_16j
+  && contract.selected_16j.outcome_id === '16J_staff_api_request_correlation'
+  && contract.selected_16j.gate_id === 'G01_correlation_structured_logs');
+ok('F56 16J final controlled drill present',
+  sel16j.final_controlled_drill
+  && sel16j.final_controlled_drill.id === '16J_DRILL_correlation_log_query');
+ok('F57 16J acceptance criteria finite (>=4)',
+  Array.isArray(sel16j.acceptance_criteria) && sel16j.acceptance_criteria.length >= 4);
+ok('F58 16J supersedes deferred 16D',
+  Array.isArray(sel16j.supersedes)
+  && sel16j.supersedes.includes('16D_staff_api_request_correlation'));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

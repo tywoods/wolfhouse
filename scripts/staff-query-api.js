@@ -77,6 +77,13 @@ const {
   handleStaffApiReadyz,
   getReadinessPool,
 } = require('./lib/staff-api-readiness');
+const {
+  runWithRequestCorrelation,
+  resolveTrustedIngressBinding,
+  getRequestContext,
+  requestId,
+  CORRELATION_HEADER_CANON,
+} = require('./lib/staff-api-request-correlation');
 
 /** FORTRESS 15J3 offline listener harness — inject PG/session/ACL boundaries only when dual-gated. */
 let __fortress15j3OfflineSeams = null;
@@ -46656,16 +46663,32 @@ async function router(req, res) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 let __staffQueryApiCreateServerCalls = 0;
+/** Fortress dual-gate only: optional request handler override for offline RED/GREEN. */
+let __staffQueryApiRequestHandlerOverride = null;
 
-function createStaffQueryApiHttpServer() {
+function setStaffQueryApiRequestHandlerForOfflineTest(handler) {
+  if (!fortressOfflineListenerSeamsActive()) return;
+  __staffQueryApiRequestHandlerOverride = typeof handler === 'function' ? handler : null;
+}
+
+/**
+ * @param {{ ingressBinding?: { tenant_slug?: unknown, tenantSlug?: unknown, client_slug?: unknown, clientSlug?: unknown } }} [options]
+ */
+function createStaffQueryApiHttpServer(options) {
   __staffQueryApiCreateServerCalls += 1;
-  return http.createServer(async (req, res) => {
-    try {
-      await router(req, res);
-    } catch (err) {
-      // Do not expose stack trace to client
-      sendJSON(res, 500, { success: false, error: 'internal server error' });
-    }
+  // RADAR 16J — correlate every request at the HTTP boundary (ALS; no handler signature change).
+  // Trusted tenant slug from construction-time ingress binding only (never request headers/query).
+  const ingressBinding = resolveTrustedIngressBinding(options && options.ingressBinding);
+  return http.createServer((req, res) => {
+    runWithRequestCorrelation(req, res, async () => {
+      try {
+        const handler = __staffQueryApiRequestHandlerOverride || router;
+        await handler(req, res);
+      } catch (err) {
+        // Do not expose stack trace to client
+        sendJSON(res, 500, { success: false, error: 'internal server error' });
+      }
+    }, { ingressBinding });
   });
 }
 
@@ -46776,8 +46799,13 @@ if (fortressOfflineListenerSeamsActive()) {
     fortressOfflineListenerSeamsActive,
     createStaffQueryApiHttpServer,
     getStaffQueryApiCreateServerCalls: () => __staffQueryApiCreateServerCalls,
+    setStaffQueryApiRequestHandlerForOfflineTest,
     router,
     server,
+    getRequestContext,
+    requestId,
+    CORRELATION_HEADER_CANON,
+    resolveTrustedIngressBinding,
     COOKIE_NAME,
     PAYMENT_STRIPE_LINK_RE,
     BOT_PAYMENT_STRIPE_LINK_RE,
