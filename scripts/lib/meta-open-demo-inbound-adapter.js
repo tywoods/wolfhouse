@@ -8,6 +8,7 @@ const { buildMetaWhatsAppWebhookPostResponse } = require('./luna-meta-whatsapp-w
 const {
   buildDecisionPatch,
   updateGuestMessageEventDecisions,
+  mergeNormalizedPreservingStoredIdentity,
 } = require('./luna-guest-message-events-sql');
 const {
   isProductionEnvironment,
@@ -45,6 +46,9 @@ function buildOpenDemoGuestEmailFromPhone(phone) {
 
 /**
  * Map normalized Meta webhook fields to n8n-shaped open-demo body.
+ * When ingress authority is active, never fall back to a hardcoded conflicting
+ * wolfhouse-somo slug — use post-authority normalized.client_slug only.
+ * Propagates location_id when present.
  */
 function buildOpenDemoRequestBodyFromMeta(normalized) {
   const n = normalized || {};
@@ -60,9 +64,17 @@ function buildOpenDemoRequestBodyFromMeta(normalized) {
     }
   }
 
-  return {
+  const ia = n.ingress_authority;
+  const authorityActive = !!(ia && ia.active === true);
+  let clientSlug = trimStr(n.client_slug);
+  if (!clientSlug && !authorityActive) {
+    // Legacy default-off / routing-absent posture only.
+    clientSlug = 'wolfhouse-somo';
+  }
+
+  const body = {
     source: META_OPEN_DEMO_SOURCE,
-    client_slug: trimStr(n.client_slug) || 'wolfhouse-somo',
+    client_slug: clientSlug,
     channel: 'whatsapp',
     phone_number_id: n.phone_number_id != null ? trimStr(n.phone_number_id) : null,
     receiving_whatsapp_number: n.receiving_whatsapp_number != null
@@ -77,6 +89,11 @@ function buildOpenDemoRequestBodyFromMeta(normalized) {
     inbound_message_id: n.wa_message_id,
     received_at: receivedAt || new Date().toISOString(),
   };
+  const locationId = trimStr(n.location_id);
+  if (locationId) {
+    body.location_id = locationId;
+  }
+  return body;
 }
 
 /**
@@ -290,7 +307,11 @@ async function processMetaOpenDemoGuestInbound(input) {
     executeBody.send_live_reply_confirmed = true;
   }
 
-  const outcome = await executeOpenDemoWhatsAppInbound(pg, executeBody, env, {
+  const executeFn = typeof input.executeOpenDemo === 'function'
+    ? input.executeOpenDemo
+    : executeOpenDemoWhatsAppInbound;
+
+  const outcome = await executeFn(pg, executeBody, env, {
     hostHeader: '',
     actorId: 'meta-whatsapp-open-demo',
     resolveWriteFlagsAfterReview: (review) => buildMetaOpenDemoWriteConfirmFlags(env, review, executeBody),
@@ -317,7 +338,7 @@ async function processMetaOpenDemoGuestInbound(input) {
     send_status: sendStatus,
   });
 
-  const normalizedForStorage = {
+  const normalizedForStorageBase = {
     ...normalized,
     open_demo_route: true,
     guest_flow_skipped: false,
@@ -333,19 +354,23 @@ async function processMetaOpenDemoGuestInbound(input) {
       blocked_reasons: writeCreated ? [] : undefined,
     },
   };
+  const normalizedForStorage = input.preserve_stored_normalized === true && eventRow
+    ? mergeNormalizedPreservingStoredIdentity(eventRow.normalized, normalizedForStorageBase)
+    : normalizedForStorageBase;
 
   let updatedRow = eventRow;
   if (pg && eventRow) {
+    const storageClientSlug = eventRow.client_slug || normalized.client_slug;
     await pg.query(
       `UPDATE guest_message_events
           SET normalized = $3::jsonb
         WHERE client_slug = $1
           AND wa_message_id = $2`,
-      [normalized.client_slug, normalized.wa_message_id, JSON.stringify(normalizedForStorage)],
+      [storageClientSlug, normalized.wa_message_id, JSON.stringify(normalizedForStorage)],
     ).catch(() => {});
     const updated = await updateGuestMessageEventDecisions(
       pg,
-      normalized.client_slug,
+      storageClientSlug,
       normalized.wa_message_id,
       decisionPatch,
     );

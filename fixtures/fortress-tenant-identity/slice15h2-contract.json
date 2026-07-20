@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15H2",
+  "outcome_id": "15H2_meta_ingress_authority_xact_lock",
+  "boundary_id": "B02_meta_normalize_live_client_slug",
+  "master_basis": "9a09f479f1a65fec45557cf2c94c5e9628b902dc",
+  "branch": "fortress/slice-15h2-meta-authority-xact-lock",
+  "live_mutation": false,
+  "title": "Enforce Meta WhatsApp ingress authority before PG (B02) with transactional wa_message_id claim",
+  "status": "implemented_source_default_off",
+  "design_freeze": {
+    "slice": "FORTRESS-15G2",
+    "contract": "fixtures/fortress-tenant-identity/slice15g2-contract.json",
+    "branch_matrix": "fixtures/fortress-tenant-identity/slice15g2-branch-matrix.json"
+  },
+  "supersedes_deferred": {
+    "slice": "FORTRESS-15H",
+    "branch": "fortress/slice-15h-meta-authority-enforcement",
+    "tip_sha": "72fb0413c5dcbd9fd0542a991f53dca1cbc3b0cc",
+    "policy": "do_not_merge_do_not_modify",
+    "reason": "Deferred 15H used session pg_advisory_lock/pg_advisory_unlock for global wa_message_id claim. 15H2 replaces that with one BEGIN → pg_advisory_xact_lock → global lookup → conditional insert → COMMIT transaction; ROLLBACK on every failure. Same 15G2 acceptance boundary otherwise."
+  },
+  "activation": {
+    "default": "off",
+    "env_key": "META_WHATSAPP_INGRESS_AUTHORITY",
+    "env_truthy": ["1", "true", "yes", "on"],
+    "requires_routing_config": true,
+    "deployment_config_edited": false,
+    "live_routing_file_setup": false
+  },
+  "owner_files": [
+    "scripts/lib/meta-whatsapp-ingress-authority.js",
+    "scripts/lib/luna-meta-whatsapp-webhook.js",
+    "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+    "scripts/lib/luna-guest-message-events-sql.js",
+    "scripts/lib/luna-owner-whatsapp-inbound.js",
+    "scripts/lib/meta-open-demo-inbound-adapter.js",
+    "scripts/staff-query-api.js",
+    "docs/MULTICLIENT-STAGING-ROUTING.md"
+  ],
+  "out_of_scope": [
+    "enabling META_WHATSAPP_INGRESS_AUTHORITY on any runtime",
+    "creating or mounting live CLIENT_CHANNEL_ROUTING_FILE",
+    "editing Azure/Bicep/compose/deployment env",
+    "rewriting 15A historical B02 vulnerable verdict",
+    "merging deferred fortress/slice-15h-meta-authority-enforcement",
+    "changing owner-read scope from tenant-wide to location-scoped",
+    "deploy / cloud / database / Stripe / production WhatsApp operations",
+    "live Meta / WhatsApp / DB / network calls",
+    "adding UNIQUE(wa_message_id) schema constraint"
+  ],
+  "frozen_identity_rules": {
+    "replay": "REPLAY_IDENTITY_COMPARE_REJECT_FILL",
+    "error": "ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED"
+  },
+  "owner_read_scope": "tenant_wide",
+  "api": {
+    "processMetaWhatsAppWebhookPostEntry": {
+      "behavior": "normalize + applyMetaWhatsAppIngressAuthority before withPgClient; blocked → acquired_pg=false; returns effective post-authority normalized; downstream failures throw with effective_normalized"
+    },
+    "resolveReplayNormalizedIdentity": {
+      "behavior": "find/claim candidates by wa_message_id under transactional advisory lock without trusting requested tenant; reject ambiguous or nonempty client/location conflicts with event_row=null and non-sensitive metadata only; fill legacy-missing location in response only; never rewrite stored normalized/history for processed or unprocessed historical candidates; never insert a duplicate"
+    },
+    "claimGuestMessageEventInboundByWaMessageId": {
+      "behavior": "ONE transaction: BEGIN → SELECT pg_advisory_xact_lock(hashtext(ns), hashtext(wa_message_id)) → global lookup by wa_message_id → conditional insert when no candidates → COMMIT. ROLLBACK on every failure (lookup error, insert error, or any thrown error). Never pg_advisory_lock/pg_advisory_unlock. Concurrency-safe across tenant slugs without UNIQUE(wa_message_id) migration; retains ON CONFLICT (client_slug, wa_message_id) DO NOTHING"
+    },
+    "attachEffectiveNormalizedToError": {
+      "behavior": "structured failure shape carries effective_normalized for HTTP failure audit/response"
+    },
+    "buildMetaInboundIdempotencyKey": {
+      "with_location": "luna:{client_slug}:{location_id}:{wa_message_id}:{send_kind}",
+      "without_location": "luna:{client_slug}:{wa_message_id}:{send_kind} (legacy unchanged)"
+    }
+  },
+  "red_case_ids": [
+    "RED_disabled_shadow_only_preserved",
+    "RED_unknown_phone_blocked",
+    "RED_missing_phone_blocked",
+    "RED_ambiguous_identity_blocked",
+    "RED_conflicting_identity_blocked",
+    "RED_unknown_zero_downstream_calls",
+    "RED_entry_unknown_zero_pool",
+    "RED_entry_missing_zero_pool",
+    "RED_entry_conflicting_zero_pool",
+    "RED_replay_rejects_client_slug_conflict",
+    "RED_replay_rejects_location_conflict",
+    "RED_authority_active_blocks_before_pg_on_unknown"
+  ],
+  "green_case_ids": [
+    "GREEN_enabled_known_authoritative",
+    "GREEN_legacy_slug_conflict_resolver_wins",
+    "GREEN_enabled_routing_absent_inactive",
+    "GREEN_default_off_no_env",
+    "GREEN_real_builders_propagate_location_and_idempotency",
+    "GREEN_legacy_idempotency_key_unchanged_without_location",
+    "GREEN_entry_enabled_known_reaches_downstream",
+    "GREEN_entry_default_off_acquires_pg",
+    "GREEN_entry_enabled_routing_absent_acquires_pg",
+    "GREEN_replay_fills_legacy_missing_location_without_history_rewrite",
+    "GREEN_structured_error_carries_effective_normalized",
+    "GREEN_open_demo_no_conflicting_hardcoded_when_authority_active",
+    "GREEN_open_demo_legacy_fallback_when_authority_off",
+    "GREEN_owner_send_propagates_location_tenant_wide_slug",
+    "GREEN_postentry_returns_effective_normalized_for_audit"
+  ],
+  "residual_risk": {
+    "summary": "Policy remains default-off. Live B02 stays vulnerable until an operator separately enables META_WHATSAPP_INGRESS_AUTHORITY and provides CLIENT_CHANNEL_ROUTING_* with verified phone_number_id maps. Enabling without accurate routing will hard-block unknown numbers. Resolver client_slug for Wolfhouse is wolfhouse while legacy DEFAULT_CLIENT_SLUG is wolfhouse-somo — authority mode uses resolver client_slug. Deferred FORTRESS-15H (session advisory lock) must not be merged; use 15H2 transactional claim instead."
+  }
+}

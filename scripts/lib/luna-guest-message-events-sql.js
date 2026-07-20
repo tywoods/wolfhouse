@@ -151,6 +151,133 @@ async function findGuestMessageEventByWaMessageId(pg, clientSlug, waMessageId) {
   }
 }
 
+/**
+ * FORTRESS 15H2 — find historical guest_message_events by WhatsApp message
+ * identity only. Does not trust the requested tenant/client_slug. Callers must
+ * compare/reject/fill against authoritative identity and must not insert a
+ * duplicate when any candidate already exists.
+ *
+ * @param {object} pg
+ * @param {string} waMessageId
+ * @returns {Promise<{ rows: object[], table_missing?: boolean }>}
+ */
+async function findGuestMessageEventCandidatesByWaMessageId(pg, waMessageId) {
+  try {
+    const r = await pg.query(
+      `SELECT ${SELECT_GUEST_MESSAGE_EVENT_COLS}
+         FROM guest_message_events
+        WHERE wa_message_id = $1
+        ORDER BY created_at ASC NULLS LAST, id ASC`,
+      [waMessageId],
+    );
+    const rows = (r.rows || []).map((row) => formatGuestMessageEventRow(row));
+    return { rows };
+  } catch (err) {
+    if (isMissingGuestMessageEventsTable(err)) return { rows: [], table_missing: true };
+    throw err;
+  }
+}
+
+/**
+ * FORTRESS 15H2 — transactional advisory lock namespace for wa_message_id.
+ * Serializes cross-tenant find+insert without requiring a global
+ * UNIQUE(wa_message_id) schema constraint at code rollout. Existing unique is
+ * still (client_slug, wa_message_id) only. Never use session pg_advisory_lock.
+ */
+const WA_MESSAGE_ID_LOCK_NAMESPACE = 'guest_message_events.wa_message_id';
+
+/**
+ * Merge next normalized onto stored history while preserving stored identity.
+ * Authority may fill response/runtime identity only — never rewrite stored
+ * client_slug / location_id (including leaving location absent when legacy-null).
+ *
+ * @param {object|null|undefined} storedNormalized
+ * @param {object|null|undefined} nextNormalized
+ * @returns {object}
+ */
+function mergeNormalizedPreservingStoredIdentity(storedNormalized, nextNormalized) {
+  const stored = storedNormalized && typeof storedNormalized === 'object'
+    ? storedNormalized
+    : {};
+  const next = nextNormalized && typeof nextNormalized === 'object'
+    ? nextNormalized
+    : {};
+  const out = { ...stored, ...next };
+  if (Object.prototype.hasOwnProperty.call(stored, 'client_slug')) {
+    out.client_slug = stored.client_slug;
+  }
+  if (Object.prototype.hasOwnProperty.call(stored, 'location_id')) {
+    out.location_id = stored.location_id;
+  } else {
+    delete out.location_id;
+  }
+  return out;
+}
+
+/**
+ * FORTRESS 15H2 — concurrency-safe claim across tenant slugs.
+ * ONE transaction: BEGIN → pg_advisory_xact_lock → global lookup → conditional
+ * insert → COMMIT. ROLLBACK on every failure. Does not use session
+ * pg_advisory_lock/unlock and does not require UNIQUE(wa_message_id).
+ *
+ * @param {object} pg
+ * @param {object} seed
+ * @returns {Promise<{ rows: object[], inserted: boolean, table_missing?: boolean }>}
+ */
+async function claimGuestMessageEventInboundByWaMessageId(pg, seed) {
+  const payload = seed || {};
+  const waMessageId = payload.wa_message_id;
+  if (!waMessageId) {
+    return { rows: [], inserted: false };
+  }
+
+  await pg.query('BEGIN');
+  try {
+    await pg.query(
+      `SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))`,
+      [WA_MESSAGE_ID_LOCK_NAMESPACE, String(waMessageId)],
+    );
+
+    const candidates = await findGuestMessageEventCandidatesByWaMessageId(pg, waMessageId);
+    if (candidates.table_missing) {
+      // Query failed inside the xact (42P01) — transaction is aborted; must ROLLBACK.
+      await pg.query('ROLLBACK');
+      return { rows: [], inserted: false, table_missing: true };
+    }
+    const existing = Array.isArray(candidates.rows) ? candidates.rows : [];
+    if (existing.length > 0) {
+      await pg.query('COMMIT');
+      return { rows: existing, inserted: false };
+    }
+
+    const inserted = await insertGuestMessageEventInbound(pg, payload);
+    if (inserted.table_missing) {
+      await pg.query('ROLLBACK');
+      return { rows: [], inserted: false, table_missing: true };
+    }
+    if (inserted.row) {
+      await pg.query('COMMIT');
+      return { rows: [inserted.row], inserted: inserted.inserted === true };
+    }
+
+    // ON CONFLICT DO NOTHING / concurrent same-slug: re-find under the same xact lock.
+    const again = await findGuestMessageEventCandidatesByWaMessageId(pg, waMessageId);
+    if (again.table_missing) {
+      await pg.query('ROLLBACK');
+      return { rows: [], inserted: false, table_missing: true };
+    }
+    await pg.query('COMMIT');
+    return { rows: again.rows || [], inserted: false };
+  } catch (err) {
+    try {
+      await pg.query('ROLLBACK');
+    } catch (_) {
+      /* ignore rollback errors; surface original failure */
+    }
+    throw err;
+  }
+}
+
 async function insertGuestMessageEventInbound(pg, seed) {
   const payload = seed || {};
   try {
@@ -230,12 +357,16 @@ async function updateGuestMessageEventDecisions(pg, clientSlug, waMessageId, pat
 
 module.exports = {
   SELECT_GUEST_MESSAGE_EVENT_COLS,
+  WA_MESSAGE_ID_LOCK_NAMESPACE,
   isMissingGuestMessageEventsTable,
   formatGuestMessageEventRow,
   isGuestMessageEventProcessed,
   buildInboundEventSeed,
   buildDecisionPatch,
   findGuestMessageEventByWaMessageId,
+  findGuestMessageEventCandidatesByWaMessageId,
+  mergeNormalizedPreservingStoredIdentity,
+  claimGuestMessageEventInboundByWaMessageId,
   insertGuestMessageEventInbound,
   updateGuestMessageEventDecisions,
 };

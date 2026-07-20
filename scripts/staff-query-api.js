@@ -601,6 +601,7 @@ const {
 } = require('./lib/luna-meta-whatsapp-webhook');
 const {
   processMetaWhatsAppWebhookInbound,
+  processMetaWhatsAppWebhookPostEntry,
 } = require('./lib/luna-meta-whatsapp-inbound-process');
 const {
   parseMessageEventsQuery,
@@ -13499,14 +13500,44 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
     return sendJSON(res, 400, { success: false, error: 'Invalid JSON payload' });
   }
 
-  const normalized = normalizeMetaWhatsAppWebhook(body);
-  const processed = await withPgClient((pg) => processMetaWhatsAppWebhookInbound({
-    pg,
-    env: process.env,
-    body,
-    normalized,
-    signatureMeta: sigResult,
-  }));
+  // FORTRESS 15H2 — normalize + authority gate before any withPgClient acquisition.
+  // PostEntry returns effective post-authority normalized for HTTP audit.
+  let processed;
+  try {
+    processed = await processMetaWhatsAppWebhookPostEntry({
+      body,
+      env: process.env,
+      signatureMeta: sigResult,
+      withPgClient,
+    });
+  } catch (err) {
+    const effective = err && err.effective_normalized ? err.effective_normalized : null;
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'webhook:meta_whatsapp:downstream_error',
+      category: 'meta_whatsapp_webhook',
+      client_slug: effective ? effective.client_slug : null,
+      location_id: effective && effective.location_id ? effective.location_id : null,
+      phone_number_id: effective ? effective.phone_number_id : null,
+      wa_message_id: effective ? effective.wa_message_id : null,
+      error: err && err.message ? err.message : String(err),
+      signature_verified: sigResult.verified === true,
+      signature_verification_skipped: sigResult.skipped === true,
+      preview_only: true,
+      no_write_performed: true,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, {
+      success: false,
+      error: err && err.message ? err.message : 'meta_whatsapp_inbound_failed',
+      normalized: effective,
+      preview_only: true,
+      no_write_performed: true,
+      elapsed_ms: Date.now() - started,
+    });
+  }
+
+  const normalized = processed.normalized;
   const response = processed.response;
 
   appendAuditLog({
@@ -13514,6 +13545,7 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
     intent:                       'webhook:meta_whatsapp:received',
     category:                     'meta_whatsapp_webhook',
     client_slug:                  normalized.client_slug,
+    location_id:                  normalized.location_id || null,
     phone_number_id:              normalized.phone_number_id,
     wa_message_id:                normalized.wa_message_id,
     from:                         normalized.from,
@@ -13535,6 +13567,7 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
     sends_whatsapp:               response.sends_whatsapp === true,
     calls_graph_api:              false,
     calls_n8n:                    false,
+    acquired_pg:                  processed.acquired_pg === true,
     elapsed_ms:                   Date.now() - started,
   });
 
