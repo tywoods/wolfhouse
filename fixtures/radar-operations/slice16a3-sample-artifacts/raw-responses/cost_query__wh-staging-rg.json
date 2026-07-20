@@ -1,0 +1,22 @@
+{
+  "properties": {
+    "columns": [
+      {
+        "name": "PreTaxCost"
+      },
+      {
+        "name": "ServiceName"
+      }
+    ],
+    "rows": [
+      [
+        12.5,
+        "Azure Container Apps"
+      ],
+      [
+        3.25,
+        "Log Analytics"
+      ]
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16A3",
+  "title": "Sanitized artifact hash policy (independently recomputable)",
+  "algorithm": "sha256",
+  "encoding": "utf8",
+  "digest_encoding": "hex",
+  "canonical_json": {
+    "object_keys": "sorted_lexicographic",
+    "arrays": "order_preserving",
+    "no_whitespace": true,
+    "nulls": "literal_null",
+    "numbers": "json_number_serialization"
+  },
+  "response_sha256": "sha256(canonical_json(sanitized_raw_response_object))",
+  "request_body_sha256": "sha256(canonical_json(request_body_object_or_null))",
+  "complete_manifest_sha256": "sha256(canonical_json({allowed_subscription_id,allowed_resource_groups,forbidden_resource_groups,allowed_public_healthz_hosts,forbidden_path_markers,forbidden_command_markers,mutation_policy,sampled_diagnostic_resources,methods,attempt_semantics,pre_dispatch_rule}))",
+  "sanitization_rules": [
+    "Redact secret-bearing string values to [REDACTED] / [REDACTED_DSN] / [REDACTED_AI_CONN]",
+    "Never store live secret material in fixtures",
+    "Hash only after sanitization"
+  ],
+  "verifier_independence": "Hashes must recompute from frozen fixtures alone; verifier must not import capture implementation modules."
+}

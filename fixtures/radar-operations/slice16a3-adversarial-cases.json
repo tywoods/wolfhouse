@@ -1,0 +1,302 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16A3",
+  "title": "Adversarial fixtures for exact Azure evidence-capture contract",
+  "description": "Offline RED cases. Fake paths/commands only. No network. Verifier evaluates against frozen method-spec alone.",
+  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
+  "cases": [
+    {
+      "id": "AC16A3_COMMAND_SUBSTITUTION",
+      "color": "RED",
+      "attack": "Command substitution under an allowlisted method_id",
+      "classifier": "pre_dispatch_command_template_mismatch",
+      "input": {
+        "method_id": "arm_rg_show",
+        "http_method": "GET",
+        "command_or_url": "az keyvault secret show --vault-name wh-staging-kv -n db-url -o json",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg",
+        "api_version": "2021-04-01",
+        "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "resource_group": "wh-staging-rg",
+        "host": null,
+        "request_body": null
+      },
+      "expect": {
+        "verdict": "refuse",
+        "reason_includes": [
+          "command",
+          "template"
+        ]
+      }
+    },
+    {
+      "id": "AC16A3_LISTKEYS",
+      "color": "RED",
+      "attack": "listKeys secret-material surface",
+      "classifier": "pre_dispatch_forbidden_marker",
+      "input": {
+        "method_id": "containerapp_show",
+        "http_method": "GET",
+        "command_or_url": "az containerapp show -g wh-staging-rg -n wh-staging-staff-api -o json",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api/listKeys",
+        "api_version": "2024-03-01",
+        "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "resource_group": "wh-staging-rg",
+        "host": null,
+        "request_body": null
+      },
+      "expect": {
+        "verdict": "refuse",
+        "reason_includes": [
+          "listKeys"
+        ]
+      }
+    },
+    {
+      "id": "AC16A3_RESTART_POST",
+      "color": "RED",
+      "attack": "Container restart POST mutation",
+      "classifier": "pre_dispatch_mutation",
+      "input": {
+        "method_id": "containerapp_show",
+        "http_method": "POST",
+        "command_or_url": "az containerapp revision restart -g wh-staging-rg -n wh-staging-staff-api --revision latest",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api/restart",
+        "api_version": "2024-03-01",
+        "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "resource_group": "wh-staging-rg",
+        "host": null,
+        "request_body": null
+      },
+      "expect": {
+        "verdict": "refuse",
+        "reason_includes": [
+          "POST",
+          "restart"
+        ]
+      }
+    },
+    {
+      "id": "AC16A3_ALTERED_PATH",
+      "color": "RED",
+      "attack": "Altered REST path for allowlisted method_id",
+      "classifier": "pre_dispatch_rest_path_mismatch",
+      "input": {
+        "method_id": "consumption_budgets_list",
+        "http_method": "GET",
+        "command_or_url": "az rest --method get --url https://management.azure.com/.../budgets -o json",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Consumption/budgets/evil",
+        "api_version": "2023-11-01",
+        "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "resource_group": "wh-staging-rg",
+        "host": null,
+        "request_body": null
+      },
+      "expect": {
+        "verdict": "refuse",
+        "reason_includes": [
+          "path"
+        ]
+      }
+    },
+    {
+      "id": "AC16A3_ALTERED_API_VERSION",
+      "color": "RED",
+      "attack": "Altered API version",
+      "classifier": "pre_dispatch_api_version_mismatch",
+      "input": {
+        "method_id": "arm_rg_show",
+        "http_method": "GET",
+        "command_or_url": "az group show -n wh-staging-rg -o json",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg",
+        "api_version": "2019-01-01",
+        "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "resource_group": "wh-staging-rg",
+        "host": null,
+        "request_body": null
+      },
+      "expect": {
+        "verdict": "refuse",
+        "reason_includes": [
+          "api_version"
+        ]
+      }
+    },
+    {
+      "id": "AC16A3_ALTERED_BODY",
+      "color": "RED",
+      "attack": "Altered cost_query body schema (wrong type)",
+      "classifier": "pre_dispatch_body_schema_mismatch",
+      "input": {
+        "method_id": "cost_query",
+        "http_method": "POST",
+        "command_or_url": "az rest --method post --url {costUrl} --body @{bodyPath} -o json",
+        "rest_path": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.CostManagement/query",
+        "api_version": "2023-11-01",
+        "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "resource_group": "wh-staging-rg",
+        "host": null,
+        "request_body": {
+          "type": "AmortizedCost",
+          "timeframe": "Custom",
+          "timePeriod": {
+            "from": "2026-07-01",
+            "to": "2026-07-20"
+          },
+          "dataset": {
+            "granularity": "None",
+            "aggregation": {
+              "totalCost": {
+                "name": "Cost",
+                "function": "Sum"
+              }
+            },
+            "grouping": [
+              {
+                "type": "Dimension",
+                "name": "ServiceName"
+              }
+            ]
+          }
+        }
+      },
+      "expect": {
+        "verdict": "refuse",
+        "reason_includes": [
+          "body",
+          "ActualCost"
+        ]
+      }
+    },
+    {
+      "id": "AC16A3_HIDDEN_RETRY",
+      "color": "RED",
+      "attack": "Hidden retry: logical call had 429 then success but only success attempt recorded",
+      "classifier": "attempt_log_hidden_retry",
+      "input": {
+        "method_spec_ref": "cost_query",
+        "claimed_retry_policy_max_physical_attempts": 7,
+        "attempt_log_slice": [
+          {
+            "logical_call_id": "call-cost-hidden",
+            "attempt_index": 0,
+            "method_id": "cost_query",
+            "outcome": "success",
+            "error_class": null,
+            "meta_note": "impl privately retried after http_429 without recording failure",
+            "implied_prior_failures": 1
+          }
+        ]
+      },
+      "expect": {
+        "verdict": "fail",
+        "reason_includes": [
+          "hidden",
+          "retry"
+        ]
+      }
+    },
+    {
+      "id": "AC16A3_HIDDEN_FALLBACK",
+      "color": "RED",
+      "attack": "Hidden fallback: curl failed then Node HTTPS succeeded without fallback attempt records",
+      "classifier": "attempt_log_hidden_fallback",
+      "input": {
+        "method_id": "public_healthz_get",
+        "host": "staff-staging.lunafrontdesk.com",
+        "attempt_log_slice": [
+          {
+            "logical_call_id": "call-hz-hidden",
+            "attempt_index": 0,
+            "method_id": "public_healthz_get",
+            "outcome": "success",
+            "is_fallback": false,
+            "fallback_step_id": null,
+            "command_or_url": "HTTPS GET https://staff-staging.lunafrontdesk.com/healthz",
+            "meta_note": "curl failed first but was not recorded; undeclared silent fallback",
+            "implied_undeclared_prior_transport": "curl"
+          }
+        ]
+      },
+      "expect": {
+        "verdict": "fail",
+        "reason_includes": [
+          "hidden",
+          "fallback"
+        ]
+      }
+    },
+    {
+      "id": "AC16A3_MISSING_FAILURE_RECORD",
+      "color": "RED",
+      "attack": "Missing failure record for a known failed physical attempt",
+      "classifier": "attempt_log_missing_failure",
+      "input": {
+        "known_physical_failures": [
+          {
+            "logical_call_id": "call-cost-miss",
+            "attempt_index": 0,
+            "method_id": "cost_query",
+            "error_class": "http_429"
+          }
+        ],
+        "attempt_log_slice": [
+          {
+            "logical_call_id": "call-cost-miss",
+            "attempt_index": 0,
+            "method_id": "cost_query",
+            "outcome": "success",
+            "error_class": null
+          }
+        ]
+      },
+      "expect": {
+        "verdict": "fail",
+        "reason_includes": [
+          "missing",
+          "failure"
+        ]
+      }
+    },
+    {
+      "id": "AC16A3_SHARED_CONSTANT_DRIFT",
+      "color": "RED",
+      "attack": "Implementation/verifier shared-constant drift (hardcoded method inventory diverges from frozen spec)",
+      "classifier": "shared_constant_drift",
+      "input": {
+        "frozen_method_ids_source": "fixtures/radar-operations/slice16a3-method-spec.json",
+        "drifted_implementation_constants": {
+          "allowed_method_ids": [
+            "arm_account_show",
+            "arm_rg_show",
+            "arm_resource_list",
+            "cost_query",
+            "consumption_budgets_list",
+            "metric_alerts_list",
+            "activity_log_alerts_list",
+            "scheduled_query_rules_list",
+            "action_groups_list",
+            "diagnostic_settings_list",
+            "containerapp_env_show",
+            "containerapp_show",
+            "containerapp_job_show",
+            "postgres_flexible_show",
+            "law_show",
+            "appinsights_show",
+            "public_healthz_get",
+            "storage_list_keys"
+          ],
+          "note": "extra storage_list_keys id not present in frozen spec"
+        },
+        "verifier_must_not_import_implementation": true
+      },
+      "expect": {
+        "verdict": "fail",
+        "reason_includes": [
+          "drift",
+          "storage_list_keys"
+        ]
+      }
+    }
+  ]
+}

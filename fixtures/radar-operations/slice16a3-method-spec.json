@@ -1,0 +1,869 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16A3",
+  "title": "Exact Azure evidence-capture method specification (data-only)",
+  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
+  "allowed_subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "allowed_resource_groups": [
+    "wh-staging-rg",
+    "luna-sunset-staging-rg"
+  ],
+  "forbidden_resource_groups": [
+    "wh-prod-rg",
+    "wolfhouse-prod-rg",
+    "luna-sunset-prod-rg",
+    "production"
+  ],
+  "allowed_public_healthz_hosts": [
+    "staff-staging.lunafrontdesk.com",
+    "sunset-staging.lunafrontdesk.com"
+  ],
+  "forbidden_path_markers": [
+    "/listSecrets",
+    "/listKeys",
+    "/secrets/",
+    "show-secret",
+    "keyvault secret show",
+    "az keyvault secret show",
+    "az keyvault secret list",
+    "connectionString",
+    "instrumentationKey",
+    "restart",
+    "/stop",
+    "/start"
+  ],
+  "forbidden_command_markers": [
+    "listKeys",
+    "list-keys",
+    "listSecrets",
+    "secret show",
+    "secret list",
+    "containerapp revision restart",
+    "containerapp restart",
+    "az containerapp revision restart",
+    "psql ",
+    "pg_connect",
+    "flexible-server execute",
+    "DATABASE_URL",
+    "postgres://",
+    "postgresql://"
+  ],
+  "mutation_policy": {
+    "deploys": 0,
+    "restarts": 0,
+    "db_reads": 0,
+    "secret_value_reads": 0,
+    "guest_actions": 0,
+    "payment_actions": 0,
+    "production_queries": 0,
+    "azure_http_methods_allowed": [
+      "GET",
+      "POST"
+    ],
+    "post_allowed_only_for_method_ids": [
+      "cost_query"
+    ]
+  },
+  "sampled_diagnostic_resources": [
+    {
+      "rg": "wh-staging-rg",
+      "name": "wh-staging-staff-api",
+      "type": "Microsoft.App/containerApps"
+    },
+    {
+      "rg": "wh-staging-rg",
+      "name": "wh-staging-pg-app",
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers"
+    },
+    {
+      "rg": "wh-staging-rg",
+      "name": "wh-staging-kv",
+      "type": "Microsoft.KeyVault/vaults"
+    },
+    {
+      "rg": "wh-staging-rg",
+      "name": "wh-staging-appinsights",
+      "type": "Microsoft.Insights/components"
+    },
+    {
+      "rg": "wh-staging-rg",
+      "name": "wh-staging-logs",
+      "type": "Microsoft.OperationalInsights/workspaces"
+    },
+    {
+      "rg": "luna-sunset-staging-rg",
+      "name": "luna-sunset-staging-staff-api",
+      "type": "Microsoft.App/containerApps"
+    },
+    {
+      "rg": "luna-sunset-staging-rg",
+      "name": "luna-sunset-staging-pg-app",
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers"
+    },
+    {
+      "rg": "luna-sunset-staging-rg",
+      "name": "luna-sunset-staging-kv",
+      "type": "Microsoft.KeyVault/vaults"
+    },
+    {
+      "rg": "luna-sunset-staging-rg",
+      "name": "luna-sunset-staging-appinsights",
+      "type": "Microsoft.Insights/components"
+    },
+    {
+      "rg": "luna-sunset-staging-rg",
+      "name": "luna-sunset-staging-logs",
+      "type": "Microsoft.OperationalInsights/workspaces"
+    }
+  ],
+  "methods": [
+    {
+      "retry_policy": {
+        "max_physical_attempts": 1,
+        "retry_on_error_classes": [],
+        "backoff_ms_by_attempt_index": [],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": false
+      },
+      "id": "arm_account_show",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az account show -o json",
+      "rest": null,
+      "notes": "Preflight subscription pin only"
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "arm_rg_show",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az group show -n {rg} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}",
+        "api_version": "2021-04-01"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "arm_resource_list",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az resource list -g {rg} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/resources",
+        "api_version": "2021-04-01"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 7,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000,
+          40000,
+          48000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": {
+        "$id": "radar16a3.cost_query.body",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "timeframe",
+          "timePeriod",
+          "dataset"
+        ],
+        "properties": {
+          "type": {
+            "const": "ActualCost"
+          },
+          "timeframe": {
+            "const": "Custom"
+          },
+          "timePeriod": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-01$"
+              },
+              "to": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              }
+            }
+          },
+          "dataset": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "granularity",
+              "aggregation",
+              "grouping"
+            ],
+            "properties": {
+              "granularity": {
+                "const": "None"
+              },
+              "aggregation": {
+                "const": {
+                  "totalCost": {
+                    "name": "Cost",
+                    "function": "Sum"
+                  }
+                }
+              },
+              "grouping": {
+                "const": [
+                  {
+                    "type": "Dimension",
+                    "name": "ServiceName"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "cost_query",
+      "surface": "arm_rest",
+      "http_method": "POST",
+      "command_template": "az rest --method post --url {costUrl} --body @{bodyPath} -o json",
+      "rest": {
+        "method": "POST",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.CostManagement/query",
+        "api_version": "2023-11-01"
+      },
+      "notes": "Only allowed POST; ActualCost aggregation; no budget mutation"
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "consumption_budgets_list",
+      "surface": "arm_rest",
+      "http_method": "GET",
+      "command_template": "az rest --method get --url {budgetsUrl} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Consumption/budgets",
+        "api_version": "2023-11-01"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "metric_alerts_list",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az monitor metrics alert list -g {rg} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/metricAlerts",
+        "api_version": "2018-03-01"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "activity_log_alerts_list",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az monitor activity-log alert list -g {rg} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/activityLogAlerts",
+        "api_version": "2020-10-01"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "scheduled_query_rules_list",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az monitor scheduled-query list -g {rg} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/scheduledQueryRules",
+        "api_version": "2023-03-15-preview"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "action_groups_list",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az monitor action-group list -g {rg} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/actionGroups",
+        "api_version": "2023-01-01"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "diagnostic_settings_list",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az monitor diagnostic-settings list --resource {resourceId} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "{resourceId}/providers/Microsoft.Insights/diagnosticSettings",
+        "api_version": "2021-05-01-preview"
+      },
+      "notes": "Sampled allowlist resources only — not exhaustive RG scan"
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "containerapp_env_show",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az containerapp env show -g {rg} -n {name} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/managedEnvironments/{name}",
+        "api_version": "2024-03-01"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "containerapp_show",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az containerapp show -g {rg} -n {name} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/containerApps/{name}",
+        "api_version": "2024-03-01"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "containerapp_job_show",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az containerapp job show -g {rg} -n {name} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/jobs/{name}",
+        "api_version": "2024-03-01"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "postgres_flexible_show",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az postgres flexible-server show -g {rg} -n {name} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DBforPostgreSQL/flexibleServers/{name}",
+        "api_version": "2023-12-01-preview"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "law_show",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az monitor log-analytics workspace show -g {rg} -n {name} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.OperationalInsights/workspaces/{name}",
+        "api_version": "2022-10-01"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 5,
+        "retry_on_error_classes": [
+          "http_429",
+          "azure_throttled"
+        ],
+        "backoff_ms_by_attempt_index": [
+          8000,
+          16000,
+          24000,
+          32000
+        ],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [],
+      "scope": {
+        "subscription_required": true,
+        "resource_group_required": true
+      },
+      "id": "appinsights_show",
+      "surface": "az_cli",
+      "http_method": "GET",
+      "command_template": "az monitor app-insights component show -g {rg} -a {name} -o json",
+      "rest": {
+        "method": "GET",
+        "path_template": "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Insights/components/{name}",
+        "api_version": "2020-02-02"
+      }
+    },
+    {
+      "retry_policy": {
+        "max_physical_attempts": 1,
+        "retry_on_error_classes": [],
+        "backoff_ms_by_attempt_index": [],
+        "record_each_physical_attempt": true,
+        "record_failures": true,
+        "hidden_retries_forbidden": true
+      },
+      "fallback_policy": {
+        "declared_chain": [
+          {
+            "id": "curl_https_get",
+            "surface": "curl",
+            "command_template": "curl -sS -m 45 -w \\n__HTTP_STATUS__:%{http_code} https://{host}/healthz"
+          },
+          {
+            "id": "node_https_get",
+            "surface": "https",
+            "command_template": "HTTPS GET https://{host}/healthz"
+          }
+        ],
+        "undeclared_fallbacks_forbidden": true,
+        "record_each_fallback_step": true
+      },
+      "body_schema": null,
+      "allowed_hosts": [
+        "staff-staging.lunafrontdesk.com",
+        "sunset-staging.lunafrontdesk.com"
+      ],
+      "scope": {
+        "subscription_required": false,
+        "resource_group_required": false
+      },
+      "id": "public_healthz_get",
+      "surface": "https",
+      "http_method": "GET",
+      "command_template": "HTTPS GET https://{host}/healthz",
+      "rest": {
+        "method": "GET",
+        "path_template": "https://{host}/healthz",
+        "api_version": null
+      },
+      "notes": "Staging public hostnames only; no auth secrets"
+    }
+  ],
+  "attempt_semantics": {
+    "unit": "physical_dispatch_attempt",
+    "rule": "Exactly one attempt-log record per physical network/CLI dispatch, including failures, refusals after pre-dispatch, retries, and declared fallback steps.",
+    "required_fields": [
+      "attempt_id",
+      "logical_call_id",
+      "attempt_index",
+      "method_id",
+      "http_method",
+      "command_or_url",
+      "rest_path",
+      "api_version",
+      "request_body_sha256",
+      "subscription_id",
+      "resource_group",
+      "host",
+      "started_at_utc",
+      "finished_at_utc",
+      "outcome",
+      "error_class",
+      "is_fallback",
+      "fallback_step_id",
+      "fallback_of_attempt_id",
+      "response_artifact_relpath",
+      "response_sha256"
+    ],
+    "outcomes": [
+      "success",
+      "failure",
+      "refused_pre_dispatch"
+    ],
+    "hidden_retry_or_fallback_is_defect": true,
+    "missing_failure_record_is_defect": true
+  },
+  "pre_dispatch_rule": "Evaluate method_id, http_method, command_or_url, rest_path, api_version, body schema, subscription, RG, and host against this spec before any physical dispatch.",
+  "complete_manifest_sha256": "ee92698d15a60f9a6d7b95e92db6b55c330f6a13ec9b0fb99af66291b5efb57c"
+}

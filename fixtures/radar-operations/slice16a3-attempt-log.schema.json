@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16A3",
+  "title": "Attempt log record schema",
+  "type": "object",
+  "required": [
+    "attempt_id",
+    "logical_call_id",
+    "attempt_index",
+    "method_id",
+    "http_method",
+    "command_or_url",
+    "rest_path",
+    "api_version",
+    "request_body_sha256",
+    "subscription_id",
+    "resource_group",
+    "host",
+    "started_at_utc",
+    "finished_at_utc",
+    "outcome",
+    "error_class",
+    "is_fallback",
+    "fallback_step_id",
+    "fallback_of_attempt_id",
+    "response_artifact_relpath",
+    "response_sha256",
+    "schema_version",
+    "slice"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "slice": {
+      "const": "RADAR-16A3"
+    },
+    "attempt_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "logical_call_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt_index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "method_id": {
+      "type": "string"
+    },
+    "http_method": {
+      "enum": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "HEAD"
+      ]
+    },
+    "command_or_url": {
+      "type": "string"
+    },
+    "rest_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "api_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "request_body_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "subscription_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "resource_group": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "host": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "started_at_utc": {
+      "type": "string"
+    },
+    "finished_at_utc": {
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "success",
+        "failure",
+        "refused_pre_dispatch"
+      ]
+    },
+    "error_class": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "is_fallback": {
+      "type": "boolean"
+    },
+    "fallback_step_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fallback_of_attempt_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "response_artifact_relpath": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "response_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

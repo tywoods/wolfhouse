@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16A3",
+  "outcome_id": "16A3_azure_evidence_capture_contract",
+  "title": "Freeze independent exact Azure evidence-capture contract superseding unmerged 16A2",
+  "status": "design_frozen",
+  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
+  "branch": "radar/slice-16a3-capture-contract",
+  "audit_only": true,
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "network_calls": false,
+  "supersedes": {
+    "slice": "RADAR-16A2",
+    "branch": "radar/slice-16a2-ledger-provenance",
+    "tip_sha": "9d98590109c99f53a2d03b59d488373d9f9377d1",
+    "policy": "deferred_do_not_merge_do_not_modify",
+    "reason": "16A2 mixed live capture implementation with contract constants shared into the verifier. 16A3 freezes an independent data-only capture contract; a bounded replacement slice implements capture by loading this spec."
+  },
+  "preserves_from_16a2": {
+    "g09_semantics": {
+      "gate_id_corrected": "G09_cost_controls",
+      "legacy_merged_16a_id": "G09_cost_anomaly_detection",
+      "budgets_are": "threshold_controls",
+      "budgets_are_not": "anomaly_detection",
+      "selected_16b": "16B_staging_rg_cost_budget_threshold",
+      "selected_16b_progress_class": "budget_threshold_partial_progress_only",
+      "selected_16b_does_not_implement": "anomaly_detection",
+      "notification_acceptance": "real_delivery_proof_required",
+      "note": "Corrected G09 budget-vs-anomaly semantics from unmerged 16A2 are preserved here for the next ledger remediation; merged 16A historical artifacts retain legacy naming until a ledger slice rewrites them."
+    }
+  },
+  "artifacts": [
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/slice16a3-contract.json",
+    "fixtures/radar-operations/slice16a3-method-spec.json",
+    "fixtures/radar-operations/slice16a3-attempt-log.schema.json",
+    "fixtures/radar-operations/slice16a3-hash-policy.json",
+    "fixtures/radar-operations/slice16a3-adversarial-cases.json",
+    "fixtures/radar-operations/slice16a3-sample-artifacts/",
+    "fixtures/radar-operations/slice16a3-findings.md",
+    "scripts/verify-radar-slice16a3-azure-capture-contract.js"
+  ],
+  "complete_manifest_sha256": "ee92698d15a60f9a6d7b95e92db6b55c330f6a13ec9b0fb99af66291b5efb57c",
+  "frozen_method_attempt_semantics": {
+    "method_binding": "Each method_id binds exact command_template and/or REST method/path_template/api_version/body_schema, plus allowed subscription/RGs/hosts, retry_policy, and fallback_policy.",
+    "attempt_unit": "physical_dispatch_attempt",
+    "attempt_rule": "One attempt-log record per physical dispatch including failures, retries, and declared fallback steps. Hidden retries/fallbacks and missing failure records are defects.",
+    "hash_rule": "response_sha256 and complete_manifest_sha256 are independently recomputable from sanitized fixtures via frozen canonical JSON + SHA-256."
+  },
+  "verifier_independence": {
+    "may_consume": [
+      "fixtures/radar-operations/slice16a3-*.json",
+      "fixtures/radar-operations/slice16a3-sample-artifacts/**",
+      "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+      "Node crypto/fs/path/child_process only for offline checks"
+    ],
+    "must_not_import": [
+      "scripts/lib/radar-operations-azure-capture.js",
+      "scripts/capture-radar-operations-staging-readonly.js",
+      "any future capture implementation module"
+    ],
+    "must_not_share_constants_with_implementation": "Implementation must load method IDs/paths/versions/retry/fallback from slice16a3-method-spec.json; verifier and implementation must not hardcode divergent copies."
+  },
+  "bounded_replacement_implementation_owner": {
+    "slice_id": "16A4_azure_capture_implementation",
+    "planned_module": "scripts/lib/radar-operations-azure-capture.js",
+    "planned_cli": "scripts/capture-radar-operations-staging-readonly.js",
+    "must_load_spec_from": "fixtures/radar-operations/slice16a3-method-spec.json",
+    "must_emit_attempt_log_conforming_to": "fixtures/radar-operations/slice16a3-attempt-log.schema.json",
+    "must_emit_hashes_per": "fixtures/radar-operations/slice16a3-hash-policy.json",
+    "must_not_be_imported_by_verifier": true,
+    "acceptance_minimum": [
+      "Refuse out-of-spec dispatch before physical call",
+      "Record one attempt log row per physical attempt including failures",
+      "Declare and record every fallback step",
+      "Write sanitized raw response artifacts with recomputable hashes",
+      "Emit complete_manifest_sha256 matching frozen method-spec hashable projection"
+    ],
+    "basis": "clean master after 16A3 merge; do not use deferred 16A2 branch as ancestry"
+  },
+  "out_of_scope": [
+    "any runtime behavior change",
+    "live Azure / network / DB / Stripe / WhatsApp calls",
+    "merging or amending deferred radar/slice-16a2-ledger-provenance",
+    "rewriting merged 16A gate-matrix verdicts in this slice",
+    "implementing capture CLI/lib in this slice",
+    "Staff API / Hermes / database / Bicep edits"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "scripts/staff-query-api.js",
+      "scripts/lib/luna-guest-frontdesk-planner.js",
+      "scripts/lib/luna-guest-reply-composer.js",
+      "docker/hermes-staging/",
+      "database/",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep"
+    ],
+    "note": "16A3 may only add/update capture-contract docs/fixtures/verifier/npm script"
+  },
+  "gates": [
+    "npm run verify:radar-slice16a3-azure-capture-contract",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 5a8b08d395e11c51baf928b918016d5dd5bb4afe..HEAD"
+  ]
+}
