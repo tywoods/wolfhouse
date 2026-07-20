@@ -1,60 +1,31 @@
-# RADAR Slice 16R — Operations gate ledger (Staff API request-completion log source-partial)
+# RADAR Slice 16S — Operations gate ledger (request-completion delivery/search/retention evidence)
 
-**Status:** source partial progress only (zero live deploy / mutation; delivery / search / retention / drill open)
-**Master basis:** `06b7a3f2173863afa81bfc557cd31cbd3e80d6c1`
-**Branch:** `radar/slice-16r-request-completion-log`
+**Status:** partial/live-proven evidence only (zero deploy / live mutation by this slice; E2E correlation drill remains open)
+**Master basis:** `1bf9695264250680c41c3e7f82baba97300001a0`
+**Branch:** `radar/slice-16s-request-log-live-evidence`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16J `16J_staff_api_request_correlation` (ALS correlation)
+**Builds on:** 16R `16R_staff_api_request_completion_log` + 16J correlation
 
 ## Outcome
 
-Add **one bounded Staff API request-completion record per real HTTP request** (source only). Extend existing 16J request context/correlation (no duplicate middleware). At `createStaffQueryApiHttpServer`, inside the ALS wrapper, attach finish/close/error settlement listeners and emit exactly one allowlisted JSON record (`event=staff_api_request_completion`) via the existing console/process stdout logger. Listeners are removed on settle (no lifecycle listener growth). Fields: `request_id`, `method`, `route` (fail-closed template), `status_code`, `status_class`, integer bounded `duration_ms`, `outcome` (`completed`|`client_aborted`|`server_error`), optional trusted `tenant_slug`. Never log headers/query/body/cookies/auth/IP/UA/PII/Stripe signature/payload/secrets/DB errors/exception text/stack. Logger failure must never alter HTTP behavior or recurse. Existing router catch remains byte-identical. Auth/webhook/16M semantics preserved. **Do not deploy.** G01 remains `partial`.
+Record **operator-observed dual-staging 16R delivery / search / retention evidence** into a redacted, lock-hashed fixture. Exact Staff API image SHA `1bf9695264250680c41c3e7f82baba97300001a0` on Wolfhouse revision `wh-staging-staff-api--0000517` and Sunset revision `luna-sunset-staging-staff-api--0000277` (latest=latestReady; public `/healthz` 200). ACA env `logsDestination=log-analytics`. LAW workspaces `wh-staging-logs` (customerId `43ae26dd-4a82-4a91-b744-5e1f94a2ae8f`, retention 30) and `luna-sunset-staging-logs` (customerId `552489bf-8e57-48df-8413-6e775caaa7d0`, retention 30). Independently queried `ContainerAppConsoleLogs_CL` by supplied request IDs yields exactly one bounded `staff_api_request_completion` each (`route=/healthz`, `status_code=200`, `status_class=2xx`, `duration_ms=5`, `outcome=completed`) at `2026-07-20T23:32:38.0049767Z` (WH `aaaaaaaa-bbbb-4ccc-8ddd-16a000000001`) and `2026-07-20T23:32:54.8551295Z` (Sunset `aaaaaaaa-bbbb-4ccc-8ddd-16a000000002`, tenant `sunset`). **Do not deploy.** G01 upgrades to `partial_live_proven` but remains verdict `partial` because the end-to-end Meta → Hermes → Staff API → Stripe correlation drill is still open. G02–G09 scores unchanged. Matrix proven-count remains 0.
 
 ## Artifacts
 
 | Path | Role |
 |------|------|
-| `scripts/lib/staff-api-request-completion-log.js` | Allowlisted build/attach/emit/assert helpers |
-| `scripts/staff-query-api.js` | createServer wire inside 16J ALS |
-| `scripts/lib/radar-slice16r-staff-request-completion-log.js` | Slice locks |
-| `scripts/verify-radar-slice16r-staff-request-completion-log.js` | Offline RED/GREEN verifier |
-| `fixtures/radar-operations/slice16r-expected-contract.json` | Frozen independent contract |
-| `npm run verify:radar-slice16r-staff-request-completion-log` | Gate |
-
-## Bounded schema
-
-| Field | Rule |
-|-------|------|
-| `event` | always `staff_api_request_completion` |
-| `request_id` | from ALS (16J supplied/generated UUIDv4) |
-| `tenant_slug` | trusted construction binding only (else omit) |
-| `method` | allowlisted + uppercased |
-| `route` | fail-closed allowlisted static / `:id` / `:redacted` / `:truncated` / `/:unmatched`; no query/fragment |
-| `status_code` | `res.statusCode` bounded integer |
-| `status_class` | `0xx`–`5xx` from status_code |
-| `duration_ms` | integer; ceil to 5ms; cap 300000 |
-| `outcome` | `completed` \| `client_aborted` \| `server_error` |
-
-### Outcome semantics
-
-| Outcome | When |
-|---------|------|
-| `completed` | ServerResponse `finish` — application completed the response, **including intentional application-written 5xx**. Not a transport failure. |
-| `client_aborted` | IncomingMessage `aborted` and/or `req.aborted`/`readableAborted` snapshot, or premature `close` without `finish` after peer abort. **Wins** even when `res.destroyed===true` and `writableEnded===false` (Node’s normal premature-close shape) and even when abort also sets `req.errored`. |
-| `server_error` | req/res transport `error` **without** client-abort evidence. |
-
-GREEN abort proofs use real TCP/HTTP (`net.connect` + client `socket.destroy`) against `createStaffQueryApiHttpServer` with an injected slow/streaming handler. EventEmitter-only abort simulations are unit supplements only — not sufficient for GREEN.
-
-## Exclusions (never logged)
-
-URL query, raw URL, headers, body, guest/customer/name/phone/email, auth/cookie/token/key, IP/UA, Stripe signature/payload/secrets, stack/error text, DB errors, exception text, response body.
+| `fixtures/radar-operations/slice16s-request-log-live-evidence.json` | Redacted canonical evidence + lock_hash |
+| `fixtures/radar-operations/slice16s-expected-contract.json` | Frozen 16S contract |
+| `scripts/lib/radar-slice16s-request-log-live-evidence.js` | Slice locks |
+| `scripts/verify-radar-slice16s-request-log-live-evidence.js` | Offline RED/GREEN verifier |
+| `npm run verify:radar-slice16s-request-log-live-evidence` | Gate |
 
 ## Verdict counts
 
 | Verdict | Count | Meaning |
 |---------|------:|---------|
-| `proven` | 0 | Control fully evidenced end-to-end (incl. live deploy + delivery + drill) |
+| `proven` | 0 | Control fully evidenced end-to-end (incl. E2E drill) — not met |
 | `partial` | 9 | Some code and/or live evidence; gaps remain |
 | `absent` | 0 | No safe control evidenced |
 | **total** | **9** | Matrix gates |
@@ -63,7 +34,7 @@ URL query, raw URL, headers, body, guest/customer/name/phone/email, auth/cookie/
 
 | ID | Gate | Verdict |
 |----|------|---------|
-| G01 | Correlation / structured logs | `partial` (16J + 16R source still partial) |
+| G01 | Correlation / structured logs | `partial` (`partial_live_proven` via 16S; E2E drill open) |
 | G02 | Readiness / dependencies | `partial` (16I + 16P healthy path) |
 | G03 | Actionable tenant-aware alerts | `partial` (16H + 16P AG test) |
 | G04 | Webhook / payment / worker backlog | `partial` |
@@ -79,38 +50,41 @@ URL query, raw URL, headers, body, guest/customer/name/phone/email, auth/cookie/
 |-------------|--------|-------|
 | Request correlation (header + ALS) | `partial` | 16J source |
 | Request-completion log (source) | `partial` | 16R finish/close/error exactly-once |
-| Lifecycle listener growth | absent by design | Removed on settle |
-| Live deploy | `open` | Not claimed |
-| Azure stdout / LAW delivery | `open` | Not claimed |
-| Searchable query | `open` | Not claimed |
-| Retention policy | `open` | Not claimed |
-| Controlled correlation drill | `open` | Not claimed |
+| Live deploy (exact SHA) | `live_proven` | WH `0000517` / Sunset `0000277` @ `1bf9695` |
+| Azure stdout / LAW delivery | `live_proven` | `ContainerAppConsoleLogs_CL` |
+| Searchable query | `live_proven` | by supplied request ID; match_count=1 |
+| Retention policy | `live_proven` | LAW retention 30 both workspaces |
+| Controlled E2E correlation drill | `open` | Meta → Hermes → Staff → Stripe **not claimed** |
 
-## Slice 16R progress
+## Slice 16S progress
 
-**ID:** `16R_staff_api_request_completion_log`
+**ID:** `16S_request_completion_log_live_evidence`
 **Gate:** `G01_correlation_structured_logs`
-**Progress class:** `source_partial_progress_only`
-**Does not implement:** live deploy, Azure stdout delivery, searchable query, retention, drill
+**Progress class:** `partial_live_proven_evidence_only`
+**Does not implement:** E2E Meta→Hermes→Staff→Stripe drill, concurrent isolation, abort/error LAW outcomes, any gate verdict=proven, G02–G09 score changes, deploy by this slice
 
-### Still open
+### Still open (explicit remaining item before a full G01 close)
 
-- Live deploy of Staff API image with completion logging
-- Azure stdout / LAW / App Insights delivery proof
-- Searchable query of completion records
-- Retention policy for completion records
 - End-to-end Meta → Hermes → Staff API → Stripe correlation drill
+
+### Explicitly not claimed
+
+- Concurrent isolation proof in LAW
+- Abort/error completion outcomes searchable in LAW
+- Human inbox receipt / organic metric alert firing / production
+- Raising any gate verdict to `proven`
 
 ## Prior partial progress retained
 
+- **16R** source completion logging (schema/emission) — retained; live follow-on is 16S
 - **16P** live-drill evidence reconciliation — partial/live-proven on selected gates
-- **16O** `16O_stripe_webhook_error_minimization` on G08
-- **16M** `16M_stripe_webhook_event_id_claim` on G05 — source-partial
-- **16L** `16L_staff_api_capacity_pressure_alerts` on G06 — source-partial
+- **16O** `16O_stripe_webhook_error_minimization` on G08 — webhook error body minimization retained
+- **16M** `16M_stripe_webhook_event_id_claim` on G05 — source-partial event-id claim retained
+- **16L** `16L_staff_api_capacity_pressure_alerts` on G06 — source-partial capacity-pressure alerts retained
 - **16K** `16K_staff_api_healthz_minimization` on G08
 - **16J** `16J_staff_api_request_correlation` on G01 — source-partial correlation
 - **16I** / **16H** / **16B** — prior partials retained
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16R. Database, Hermes staging, staging Bicep, and 16H metric-alert module must remain unchanged vs master basis. Staff API completion-log helper + createServer wiring are intentional 16R ownership.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16S. Database, Hermes staging, Staff API runtime, completion-log helper, staging Bicep, and metric-alert/budget modules must remain unchanged vs master basis `1bf9695`. Evidence fixtures + ledger/matrix only.

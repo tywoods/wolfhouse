@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16R",
-  "outcome_id": "16R_staff_api_request_completion_log",
-  "master_basis": "06b7a3f2173863afa81bfc557cd31cbd3e80d6c1",
-  "branch": "radar/slice-16r-request-completion-log",
+  "slice": "RADAR-16S",
+  "outcome_id": "16S_request_completion_log_live_evidence",
+  "master_basis": "1bf9695264250680c41c3e7f82baba97300001a0",
+  "branch": "radar/slice-16s-request-log-live-evidence",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Staff API one bounded request-completion record per HTTP request \u2014 G01 source-partial",
-  "progress_class": "source_partial_progress_only",
-  "does_not_implement": "live_deploy_azure_stdout_delivery_search_retention_drill",
+  "title": "Dual-staging 16R completion-log delivery/search/retention evidence — G01 partial_live_proven",
+  "progress_class": "partial_live_proven_evidence_only",
+  "does_not_implement": "e2e_meta_hermes_staff_stripe_drill_concurrent_isolation_abort_error_law_any_gate_proven",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -59,7 +59,11 @@
     "fixtures/radar-operations/slice16r-expected-contract.json",
     "scripts/lib/staff-api-request-completion-log.js",
     "scripts/lib/radar-slice16r-staff-request-completion-log.js",
-    "scripts/verify-radar-slice16r-staff-request-completion-log.js"
+    "scripts/verify-radar-slice16r-staff-request-completion-log.js",
+    "fixtures/radar-operations/slice16s-request-log-live-evidence.json",
+    "fixtures/radar-operations/slice16s-expected-contract.json",
+    "scripts/lib/radar-slice16s-request-log-live-evidence.js",
+    "scripts/verify-radar-slice16s-request-log-live-evidence.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -102,23 +106,23 @@
       "database/",
       "docker/hermes-staging/",
       "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-request-completion-log.js",
       "scripts/lib/stripe-webhook-public-errors.js",
       "infra/azure/staging/main.bicep",
       "infra/azure/sunset-staging/main.bicep",
       "infra/azure/staging-staff-api-metric-alerts/",
       "infra/azure/staging-cost-budgets/"
     ],
-    "note": "16P evidence-only; no runtime mutation; records prior operator live drill"
+    "note": "16S evidence-only; no runtime mutation; records prior operator 16R live delivery/search/retention"
   },
   "gates": [
-    "npm run verify:radar-slice16p-live-drill-evidence",
+    "npm run verify:radar-slice16s-request-log-live-evidence",
+    "npm run verify:radar-slice16r-staff-request-completion-log",
     "npm run verify:radar-slice16a-operations-gate-ledger",
-    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
-    "npm run verify:radar-slice16o-stripe-webhook-error-minimization",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 594247f12a823e9b90140c56eb8645b057e1fd37..HEAD"
+    "git diff --check 1bf9695264250680c41c3e7f82baba97300001a0..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -161,11 +165,11 @@
     "does_not_implement": "completion_logs_lifecycle_listeners_async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
     "supersedes": "16D_staff_api_request_correlation"
   },
-  "correlation_completion_logs": "source_partial_via_16R",
-  "correlation_delivery_proof": "open",
-  "correlation_search_proof": "open",
-  "correlation_retention": "open",
-  "correlation_drill": "open",
+  "correlation_completion_logs": "live_proven_via_16S",
+  "correlation_delivery_proof": "live_proven_via_16S",
+  "correlation_search_proof": "live_proven_via_16S",
+  "correlation_retention": "live_proven_via_16S_retention_30",
+  "correlation_drill": "open_e2e_meta_hermes_staff_stripe",
   "selected_16k": {
     "outcome_id": "16K_staff_api_healthz_minimization",
     "gate_id": "G08_retention_privacy",
@@ -242,5 +246,12 @@
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_azure_stdout_delivery_search_retention_drill",
     "builds_on": "16J_staff_api_request_correlation"
+  },
+  "selected_16s": {
+    "outcome_id": "16S_request_completion_log_live_evidence",
+    "gate_id": "G01_correlation_structured_logs",
+    "progress_class": "partial_live_proven_evidence_only",
+    "does_not_implement": "e2e_meta_hermes_staff_stripe_drill_concurrent_isolation_abort_error_law_any_gate_proven",
+    "builds_on": "16R_staff_api_request_completion_log"
   }
 }
