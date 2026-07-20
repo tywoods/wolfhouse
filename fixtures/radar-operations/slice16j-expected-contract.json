@@ -8,7 +8,7 @@
   "branch": "radar/slice-16j-request-correlation",
   "live_deploy": false,
   "live_mutation": false,
-  "title": "Staff API request correlation at HTTP boundary — source partial only; supersedes deferred 16D",
+  "title": "Staff API request correlation at HTTP boundary (header + ALS only) — source partial; supersedes deferred 16D",
   "supersedes": {
     "outcome_id": "16D_staff_api_request_correlation",
     "branch": "radar/slice-16d-staff-request-correlation",
@@ -29,62 +29,42 @@
     "propagation": "AsyncLocalStorage",
     "downstream_accessors": ["getRequestContext", "requestId"],
     "handler_signatures_unchanged": true,
-    "route": "normalized_template_or_pathname_without_query",
+    "route_in_als_context": "normalized_template_or_pathname_without_query",
     "tenant_slug_rule": "trusted_ingress_binding_at_construction_else_omit",
-    "completion_sink": "synchronous_process_logger_console_only",
+    "completion_logging": false,
+    "req_res_lifecycle_listeners": false,
+    "console_completion_emission": false,
+    "one_record_completion_claim": false,
     "completion_ownership": {
       "async_log_queue": false,
       "signal_shutdown_handlers": false,
       "exit_code_mutation": false,
-      "flush_delivery_guarantee": false
-    },
-    "duration_ms": {
-      "bucket_ms": 5,
-      "rounding": "ceil_bound"
-    },
-    "completion_event": {
-      "event": "staff_api_http_request_complete",
-      "at_most_once": true,
-      "completion_triggers": ["finish", "close", "request_error", "response_error"],
-      "fields": [
-        "event",
-        "request_id",
-        "tenant_slug",
-        "method",
-        "route",
-        "status",
-        "duration_ms"
-      ],
-      "tenant_slug": "omit_unless_trusted_ingress_binding_present",
-      "must_not_include": [
-        "url_query",
-        "headers",
-        "body",
-        "phone",
-        "email",
-        "name",
-        "tokens",
-        "stack",
-        "error_text"
-      ]
+      "flush_delivery_guarantee": false,
+      "req_res_lifecycle_listeners": false,
+      "completion_console_emission": false,
+      "duration_route_status_logging": false,
+      "one_record_completion_claim": false
     },
     "preserves": [
       "existing_response_bodies",
       "existing_error_behavior",
+      "base_router_catch_path",
+      "headersSent_sendJSON_semantics",
       "streaming_no_body_buffer",
       "original_process_response_semantics"
     ]
   },
   "still_open": [
+    "Request completion logs (structured completion records)",
     "Live deploy of Staff API image with correlation middleware",
-    "Log Analytics / App Insights delivery + search proof of completion events",
+    "Log Analytics / App Insights delivery + search proof",
     "Retention policy for correlation completion records",
     "End-to-end Meta → Hermes → Staff API → Stripe correlation drill"
   ],
   "final_controlled_drill": {
     "id": "16J_DRILL_correlation_log_query",
     "status": "open",
-    "pass_rule": "After approved deploy: known X-Request-Id traffic; prove one completion event per request in LAW/App Insights with route (not raw URL/query) and no secret/guest leakage; prove concurrent requests do not bleed context"
+    "pass_rule": "After approved deploy + completion logging follow-on: known X-Request-Id traffic; prove searchable correlation in LAW/App Insights with safe fields only; prove concurrent requests do not bleed context"
   },
   "artifacts": [
     "scripts/lib/staff-api-request-correlation.js",

@@ -46686,9 +46686,7 @@ function createStaffQueryApiHttpServer(options) {
         await handler(req, res);
       } catch (err) {
         // Do not expose stack trace to client
-        if (!res.headersSent) {
-          sendJSON(res, 500, { success: false, error: 'internal server error' });
-        }
+        sendJSON(res, 500, { success: false, error: 'internal server error' });
       }
     }, { ingressBinding });
   });

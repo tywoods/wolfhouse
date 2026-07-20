@@ -8,15 +8,10 @@
  *   canonical form; normalize to lowercase. Otherwise generate crypto.randomUUID().
  * - Set response x-request-id before route handling.
  * - Propagate via AsyncLocalStorage; expose getRequestContext / requestId.
- * - Emit at most one minimal synchronous structured completion JSON record via
- *   the existing process logger (console) — no async queue, no signal/shutdown
- *   ownership, no exit-code mutation, no process handler install.
- * - Fields: request_id, tenant_slug (trusted ingress binding only), method,
- *   route (normalized template / pathname without query), status,
- *   duration_ms (ceil bucket bound).
- * - Never log URL query, headers, body, phone/email/name, tokens, stack/error text.
- * - On finish/close/error paths emit at most once; preserve original semantics.
- * - No flush/delivery guarantee claimed.
+ * - Trusted tenant slug from construction-time ingress binding only.
+ * - No request/response finish/close/aborted/error listeners.
+ * - No duration/route/status completion logging, console emission, or one-record claims.
+ * - Outcome is header + AsyncLocalStorage context only.
  */
 
 const { AsyncLocalStorage } = require('async_hooks');
@@ -28,70 +23,9 @@ const CORRELATION_HEADER_CANON = 'X-Request-Id';
 /** Canonical UUIDv4 (version nibble 4, variant 8/9/a/b). Case-insensitive accept. */
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const EVENT_NAME = 'staff_api_http_request_complete';
-
-/** Ceil duration to this millisecond bucket to bound cardinality. */
-const DURATION_MS_BUCKET = 5;
-
 const ROUTE_MAX_LEN = 160;
 
-const EVENT_ALLOWED_KEYS = Object.freeze([
-  'event',
-  'request_id',
-  'tenant_slug',
-  'method',
-  'route',
-  'status',
-  'duration_ms',
-]);
-
-const FORBIDDEN_EVENT_KEYS = Object.freeze([
-  'url',
-  'path',
-  'pathname',
-  'query',
-  'body',
-  'headers',
-  'header',
-  'authorization',
-  'cookie',
-  'token',
-  'password',
-  'secret',
-  'stack',
-  'message',
-  'error_message',
-  'errorMessage',
-  'error_class',
-  'guest',
-  'phone',
-  'email',
-  'name',
-  'raw_url',
-  'req',
-  'res',
-  'correlation_id',
-]);
-
 const als = new AsyncLocalStorage();
-
-/** @type {(event: object) => void} */
-let emitSink = defaultEmitSink;
-
-function defaultEmitSink(event) {
-  // Stay quiet under NODE_ENV=test unless a verifier installs a sink.
-  if (String(process.env.NODE_ENV || '').toLowerCase() === 'test') return;
-  // Synchronous process logger only — no queue, no handlers, no exit mutation.
-  console.log(JSON.stringify(event));
-}
-
-/**
- * Test/harness override for completion emission. Pass null to restore default.
- * @param {((event: object) => void) | null} fn
- */
-function setCompletionEmitSink(fn) {
-  emitSink = typeof fn === 'function' ? fn : defaultEmitSink;
-}
 
 /**
  * @returns {string}
@@ -187,6 +121,7 @@ function pathnameOnly(rawUrl) {
 
 /**
  * Normalize to a low-cardinality route template (no raw IDs/query).
+ * Used only for ALS context — never logged by this module.
  * @param {unknown} pathname
  * @returns {string}
  */
@@ -267,16 +202,6 @@ function resolveTrustedIngressBinding(explicit, env = process.env) {
 }
 
 /**
- * Ceil duration into a fixed millisecond bucket (cardinality bound).
- * @param {number} ms
- * @returns {number}
- */
-function bucketDurationMs(ms) {
-  const n = Math.max(0, Number(ms) || 0);
-  return Math.ceil(n / DURATION_MS_BUCKET) * DURATION_MS_BUCKET;
-}
-
-/**
  * Active request context for downstream (ALS).
  * @returns {{ requestId: string, tenantSlug: string|null, method: string, route: string } | null}
  */
@@ -301,130 +226,38 @@ function requestId() {
 }
 
 /**
- * Build the frozen completion event. Strips forbidden keys defensively.
- * @param {object} store
- * @returns {object}
- */
-function buildCompletionEvent(store) {
-  const elapsed = Math.max(0, Date.now() - (store.startedAtMs || Date.now()));
-  const status = Number.isFinite(store.status) ? store.status : 0;
-  const event = {
-    event: EVENT_NAME,
-    request_id: store.request_id,
-    method: store.method,
-    route: store.route,
-    status,
-    duration_ms: bucketDurationMs(elapsed),
-  };
-  if (store.ingress_binding_present && store.tenant_slug) {
-    event.tenant_slug = store.tenant_slug;
-  }
-
-  const out = {};
-  for (const key of EVENT_ALLOWED_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(event, key)) {
-      out[key] = event[key];
-    }
-  }
-  for (const bad of FORBIDDEN_EVENT_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(out, bad)) {
-      delete out[bad];
-    }
-  }
-  return out;
-}
-
-/**
- * Emit at most once per request store (synchronous sink).
- * @param {object} store
- */
-function emitCompletionOnce(store) {
-  if (!store || store.completed) return;
-  store.completed = true;
-  const event = buildCompletionEvent(store);
-  try {
-    emitSink(event);
-  } catch (_) {
-    // Never let logging break the response path.
-  }
-}
-
-/**
- * Capture status and ensure x-request-id is present; emit once on finish/close.
- * @param {import('http').IncomingMessage} req
+ * Set response x-request-id before route handling. No lifecycle listeners.
  * @param {import('http').ServerResponse} res
- * @param {object} store
+ * @param {string} id
  */
-function attachResponseCorrelation(req, res, store) {
+function setResponseCorrelationHeader(res, id) {
   try {
-    res.setHeader(CORRELATION_HEADER_CANON, store.request_id);
+    res.setHeader(CORRELATION_HEADER_CANON, id);
   } catch (_) {
-    // Headers may already be sent in exotic paths; completion still emits.
+    // Headers may already be sent in exotic paths; do not alter response semantics.
   }
+}
 
-  const origWriteHead = res.writeHead;
-  res.writeHead = function writeHeadCorrelated(...args) {
-    if (!store.statusCaptured) {
-      const code = typeof args[0] === 'number' ? args[0] : res.statusCode;
-      if (Number.isFinite(code)) {
-        store.status = code;
-        store.statusCaptured = true;
-      }
-    }
-    try {
-      if (!res.headersSent) {
-        if (args.length >= 2 && args[1] && typeof args[1] === 'object' && !Array.isArray(args[1])) {
-          args[1][CORRELATION_HEADER_CANON] = store.request_id;
-        } else if (args.length >= 3 && args[2] && typeof args[2] === 'object' && !Array.isArray(args[2])) {
-          args[2][CORRELATION_HEADER_CANON] = store.request_id;
-        } else {
-          res.setHeader(CORRELATION_HEADER_CANON, store.request_id);
-        }
-      }
-    } catch (_) { /* ignore */ }
-    return origWriteHead.apply(this, args);
+/**
+ * Snapshot req/res listener counts for verifier proofs (no side effects).
+ * @param {import('events').EventEmitter} ee
+ * @returns {{ finish: number, close: number, error: number, aborted: number }}
+ */
+function countLifecycleListeners(ee) {
+  if (!ee || typeof ee.listenerCount !== 'function') {
+    return { finish: 0, close: 0, error: 0, aborted: 0 };
+  }
+  return {
+    finish: ee.listenerCount('finish'),
+    close: ee.listenerCount('close'),
+    error: ee.listenerCount('error'),
+    aborted: ee.listenerCount('aborted'),
   };
-
-  const complete = () => {
-    if (!store.statusCaptured) {
-      const code = res.statusCode;
-      if (Number.isFinite(code)) store.status = code;
-    }
-    emitCompletionOnce(store);
-  };
-
-  res.on('finish', () => {
-    store.aborted = false;
-    complete();
-  });
-
-  res.on('close', () => {
-    if (!res.writableFinished) {
-      store.aborted = true;
-      if (!store.statusCaptured && Number.isFinite(res.statusCode)) {
-        store.status = res.statusCode;
-      }
-      complete();
-    }
-  });
-
-  req.on('aborted', () => {
-    store.aborted = true;
-  });
-
-  req.on('error', () => {
-    store.requestError = true;
-    complete();
-  });
-
-  res.on('error', () => {
-    store.responseError = true;
-    complete();
-  });
 }
 
 /**
  * Run handler inside ALS request scope. Does not alter handler arity/signature.
+ * Does not attach finish/close/aborted/error listeners. Does not emit logs.
  * @param {import('http').IncomingMessage} req
  * @param {import('http').ServerResponse} res
  * @param {(req: import('http').IncomingMessage, res: import('http').ServerResponse) => *} handler
@@ -446,78 +279,20 @@ function runWithRequestCorrelation(req, res, handler, opts = {}) {
     accepted_from_header: accepted.accepted_from_header,
     method,
     route,
-    status: 0,
-    statusCaptured: false,
-    startedAtMs: Date.now(),
     tenant_slug: binding.tenant_slug,
     ingress_binding_present: binding.present,
-    aborted: false,
-    requestError: false,
-    responseError: false,
-    completed: false,
   };
 
-  // Set response header before route handling.
-  attachResponseCorrelation(req, res, store);
+  // Set response header before route handling — no lifecycle instrumentation.
+  setResponseCorrelationHeader(res, store.request_id);
 
   return als.run(store, async () => handler(req, res));
-}
-
-/**
- * Assert an event object matches the safe completion contract (for verifiers).
- * @param {object} event
- * @returns {{ ok: boolean, detail?: string }}
- */
-function assertSafeCompletionEvent(event) {
-  if (!event || typeof event !== 'object' || Array.isArray(event)) {
-    return { ok: false, detail: 'event_not_object' };
-  }
-  if (event.event !== EVENT_NAME) {
-    return { ok: false, detail: 'bad_event_name' };
-  }
-  for (const key of Object.keys(event)) {
-    if (!EVENT_ALLOWED_KEYS.includes(key)) {
-      return { ok: false, detail: `unexpected_key:${key}` };
-    }
-    if (FORBIDDEN_EVENT_KEYS.includes(key)) {
-      return { ok: false, detail: `forbidden_key:${key}` };
-    }
-  }
-  if (!UUID_V4_RE.test(String(event.request_id || ''))
-    || String(event.request_id) !== String(event.request_id).toLowerCase()) {
-    return { ok: false, detail: 'bad_request_id' };
-  }
-  if (!/^[A-Z]+$/.test(String(event.method || ''))) {
-    return { ok: false, detail: 'bad_method' };
-  }
-  if (typeof event.route !== 'string' || !event.route || event.route.includes('?')) {
-    return { ok: false, detail: 'bad_route' };
-  }
-  if (!Number.isFinite(event.status) || event.status < 0) {
-    return { ok: false, detail: 'bad_status' };
-  }
-  if (!Number.isFinite(event.duration_ms) || event.duration_ms < 0) {
-    return { ok: false, detail: 'bad_duration' };
-  }
-  if (event.duration_ms % DURATION_MS_BUCKET !== 0) {
-    return { ok: false, detail: 'duration_not_bucketed' };
-  }
-  if (Object.prototype.hasOwnProperty.call(event, 'tenant_slug')) {
-    if (event.tenant_slug != null && !sanitizeTenantSlug(event.tenant_slug)) {
-      return { ok: false, detail: 'bad_tenant_slug' };
-    }
-  }
-  return { ok: true };
 }
 
 module.exports = {
   CORRELATION_HEADER,
   CORRELATION_HEADER_CANON,
   UUID_V4_RE,
-  EVENT_NAME,
-  DURATION_MS_BUCKET,
-  EVENT_ALLOWED_KEYS,
-  FORBIDDEN_EVENT_KEYS,
   generateRequestId,
   acceptOrGenerateRequestId,
   pathnameOnly,
@@ -525,15 +300,11 @@ module.exports = {
   sanitizeTenantSlug,
   validateTrustedIngressBinding,
   resolveTrustedIngressBinding,
-  bucketDurationMs,
   getRequestContext,
   requestId,
-  buildCompletionEvent,
-  emitCompletionOnce,
-  attachResponseCorrelation,
+  setResponseCorrelationHeader,
+  countLifecycleListeners,
   runWithRequestCorrelation,
-  setCompletionEmitSink,
-  assertSafeCompletionEvent,
-  // Exposed for verifier double-completion / abort unit proofs.
+  // Exposed for verifier concurrent-isolation proofs.
   _als: als,
 };

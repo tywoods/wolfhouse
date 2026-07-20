@@ -6,9 +6,9 @@
   "branch": "radar/slice-16j-request-correlation",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Staff API request correlation (UUIDv4 + ALS + sync completion) \u2014 G01 source-partial; supersedes deferred 16D",
+  "title": "Staff API request correlation (UUIDv4 + ALS header/context only) \u2014 G01 source-partial; supersedes deferred 16D",
   "progress_class": "source_partial_progress_only",
-  "does_not_implement": "async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
+  "does_not_implement": "completion_logs_lifecycle_listeners_async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
   "notification_delivery_proof": "open",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -80,7 +80,7 @@
       "infra/azure/staging/main.bicep",
       "infra/azure/sunset-staging/main.bicep"
     ],
-    "note": "16J may modify Staff API correlation wiring only; must not mutate DB schema, Hermes staging, or staging Bicep; no live deploy; delivery/search/retention/drill open"
+    "note": "16J may modify Staff API correlation wiring only; must not mutate DB schema, Hermes staging, or staging Bicep; no live deploy; completion logs/delivery/search/retention/drill open"
   },
   "gates": [
     "npm run verify:radar-slice16j-staff-request-correlation",
@@ -134,9 +134,10 @@
     "outcome_id": "16J_staff_api_request_correlation",
     "gate_id": "G01_correlation_structured_logs",
     "progress_class": "source_partial_progress_only",
-    "does_not_implement": "async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
+    "does_not_implement": "completion_logs_lifecycle_listeners_async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
     "supersedes": "16D_staff_api_request_correlation"
   },
+  "correlation_completion_logs": "open",
   "correlation_delivery_proof": "open",
   "correlation_search_proof": "open",
   "correlation_retention": "open",

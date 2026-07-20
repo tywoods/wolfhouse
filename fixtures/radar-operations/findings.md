@@ -24,7 +24,7 @@
    Staff API `/readyz` + ACA probes added in source (dedicated max-1 readiness pool; `/healthz` stays DB-independent). **Not deployed** — live ACA probes still empty/null. Controlled readiness failure drill and lifecycle integration remain open. Supersedes deferred 16C (no signal/shutdown framework in 16I).
 
 4. **G01 correlation / structured logs — partial (source only via 16J)**
-   Staff API request correlation middleware added (UUIDv4 accept/generate, ALS, sync console completion). **Not deployed** — LAW/App Insights delivery + search, retention, and correlation drill remain open. Supersedes deferred 16D (no async log queue; no signal/shutdown ownership).
+   Staff API request correlation middleware added (UUIDv4 accept/generate, ALS, response header; header + context only). **No completion logging / lifecycle listeners.** **Not deployed** — request completion logs, LAW/App Insights delivery + search, retention, and correlation drill remain open. Supersedes deferred 16D (no async log queue; no signal/shutdown ownership).
 
 ## Other partial notes
 
@@ -34,7 +34,7 @@
 
 ## Slice 16J
 
-`16J_staff_api_request_correlation` on **G01_correlation_structured_logs** — progress class `source_partial_progress_only`. Supersedes deferred 16D. Does not deploy; does not add async log queue or signal/shutdown ownership; delivery/search/retention/drill remain open.
+`16J_staff_api_request_correlation` on **G01_correlation_structured_logs** — progress class `source_partial_progress_only`. Supersedes deferred 16D. Header + ALS only. Does not deploy; does not add completion logging, lifecycle listeners, async log queue, or signal/shutdown ownership; request completion logs/delivery/search/retention/drill remain open.
 
 ## Slice 16I
 

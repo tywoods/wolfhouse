@@ -3,9 +3,10 @@
 /**
  * radar-slice16j-staff-request-correlation — RADAR Slice 16J locks.
  *
- * Source-partial progress only: Staff API HTTP request correlation + minimal
- * synchronous completion record. Supersedes deferred 16D (no async log queue,
- * no signal/shutdown ownership). No live deploy. Delivery / search / retention /
+ * Source-partial progress only: Staff API HTTP request correlation
+ * (header + AsyncLocalStorage). Supersedes deferred 16D. No completion
+ * logging / lifecycle listeners / async queue / signal-shutdown ownership.
+ * No live deploy. Request completion logs / delivery / search / retention /
  * drill remain open.
  */
 
@@ -26,8 +27,6 @@ const DEFERRED_16D = Object.freeze({
 
 const CORRELATION_HEADER = 'x-request-id';
 const CORRELATION_HEADER_CANON = 'X-Request-Id';
-const EVENT_NAME = 'staff_api_http_request_complete';
-const DURATION_MS_BUCKET = 5;
 const UUID_V4_PATTERN = '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
 
 const STAFF_API_REL = 'scripts/staff-query-api.js';
@@ -41,35 +40,24 @@ const OWNED_RELS = Object.freeze([
   'fixtures/radar-operations/slice16j-expected-contract.json',
 ]);
 
-const EVENT_ALLOWED_KEYS = Object.freeze([
-  'event',
-  'request_id',
-  'tenant_slug',
-  'method',
-  'route',
-  'status',
-  'duration_ms',
-]);
-
-const MUST_NOT_EMIT = Object.freeze([
-  'raw_url',
-  'query',
-  'body',
-  'headers',
-  'phone',
-  'email',
-  'name',
-  'tokens',
-  'stack',
-  'error_text',
-]);
-
 const MUST_NOT_OWN = Object.freeze([
   'async_log_queue',
   'signal_shutdown_handlers',
   'exit_code_mutation',
   'flush_delivery_guarantee',
+  'req_res_lifecycle_listeners',
+  'completion_console_emission',
+  'duration_route_status_logging',
+  'one_record_completion_claim',
 ]);
+
+/** Base (master) router catch semantic body — preserve except correlation wrapper indent. */
+const BASE_ROUTER_CATCH_SEMANTIC = [
+  '} catch (err) {',
+  '// Do not expose stack trace to client',
+  "sendJSON(res, 500, { success: false, error: 'internal server error' });",
+  '}',
+].join('\n');
 
 module.exports = {
   MASTER_BASIS,
@@ -81,15 +69,12 @@ module.exports = {
   DEFERRED_16D,
   CORRELATION_HEADER,
   CORRELATION_HEADER_CANON,
-  EVENT_NAME,
-  DURATION_MS_BUCKET,
   UUID_V4_PATTERN,
   STAFF_API_REL,
   CORRELATION_LIB_REL,
   OWNED_RELS,
-  EVENT_ALLOWED_KEYS,
-  MUST_NOT_EMIT,
   MUST_NOT_OWN,
+  BASE_ROUTER_CATCH_SEMANTIC,
   rootJoin(...parts) {
     return path.join(__dirname, '..', '..', ...parts);
   },
