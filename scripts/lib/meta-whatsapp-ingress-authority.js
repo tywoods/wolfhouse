@@ -240,8 +240,10 @@ function resolveMetaWhatsAppIngressAuthority(normalized, options = {}) {
 
 /**
  * Apply authority decision onto a normalized Meta webhook object.
- * Disabled / routing-absent paths return the input object unchanged
- * (plus an explicit ingress_authority record when authority was considered).
+ * Disabled and enabled-without-routing paths return the input object unchanged
+ * (byte/shape-compatible with default shadow behavior — no ingress_authority
+ * metadata). Active authority attaches ingress_authority and may switch live
+ * client_slug/location_id.
  *
  * @param {object} normalized
  * @param {object} [options]
@@ -252,9 +254,9 @@ function applyMetaWhatsAppIngressAuthority(normalized, options = {}) {
 
   const decision = resolveMetaWhatsAppIngressAuthority(normalized, options);
 
-  // Fully disabled → preserve shadow-only normalize output exactly (no new
-  // fields, no live slug/location mutation).
-  if (!decision.authority_enabled) {
+  // Disabled OR enabled-without-routing → preserve shadow-only normalize
+  // output exactly (no new fields, no live slug/location mutation).
+  if (!decision.authority_enabled || !decision.authority_active) {
     return normalized;
   }
 
@@ -264,19 +266,11 @@ function applyMetaWhatsAppIngressAuthority(normalized, options = {}) {
     blocked: decision.blocked,
     reason: decision.reason,
     invoke_downstream: decision.invoke_downstream,
-    source: decision.authority_active ? 'phone_number_id' : null,
+    source: 'phone_number_id',
     legacy_client_slug: decision.legacy_client_slug,
     legacy_slug_conflict: decision.legacy_slug_conflict === true,
     phone_number_id: decision.phone_number_id,
   };
-
-  // Enabled but routing absent → still shadow-only for live tenant fields.
-  if (!decision.authority_active) {
-    return {
-      ...normalized,
-      ingress_authority: ingressAuthority,
-    };
-  }
 
   if (decision.blocked) {
     return {

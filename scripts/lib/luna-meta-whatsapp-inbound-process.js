@@ -19,7 +19,7 @@ const {
 const {
   buildInboundEventSeed,
   buildDecisionPatch,
-  findGuestMessageEventByWaMessageId,
+  findGuestMessageEventCandidatesByWaMessageId,
   insertGuestMessageEventInbound,
   updateGuestMessageEventDecisions,
   isGuestMessageEventProcessed,
@@ -99,9 +99,23 @@ function buildReplayIdentityConflictResponse(normalized, signatureMeta, conflict
   };
 }
 
+/**
+ * Stored identity for REPLAY_IDENTITY_COMPARE_REJECT_FILL.
+ * Prefer nonempty normalized fields; fall back to row.client_slug.
+ */
+function storedNormalizedIdentityFromRow(row) {
+  const stored = (row && row.normalized && typeof row.normalized === 'object')
+    ? { ...row.normalized }
+    : {};
+  if (!String(stored.client_slug || '').trim() && row && row.client_slug) {
+    stored.client_slug = row.client_slug;
+  }
+  return stored;
+}
+
 function buildResponseFromStoredEvent(row, signatureMeta, replayMeta = {}) {
   const authoritative = replayMeta.authoritative_normalized || null;
-  let normalized = row.normalized || {};
+  let normalized = storedNormalizedIdentityFromRow(row);
   if (authoritative) {
     const identity = resolveReplayNormalizedIdentity(normalized, authoritative);
     if (!identity.ok) {
@@ -383,6 +397,7 @@ async function processMetaWhatsAppWebhookPostEntry(input) {
       normalized,
       signatureMeta,
       client_slug: input.client_slug,
+      executeOpenDemo: input.executeOpenDemo,
     }));
 
     return {
@@ -426,42 +441,81 @@ async function processMetaWhatsAppWebhookInbound(input) {
     return { response, event_row: null, replay: false };
   }
 
-  let existing;
+  // FORTRESS 15H — look up by WhatsApp message identity without trusting the
+  // requested tenant. Authority may change client_slug vs historical rows;
+  // tenant-scoped find would miss them and create duplicates.
+  let candidates;
   try {
-    existing = await findGuestMessageEventByWaMessageId(
+    candidates = await findGuestMessageEventCandidatesByWaMessageId(
       pg,
-      normalized.client_slug,
       normalized.wa_message_id,
     );
   } catch (err) {
     throw attachEffectiveNormalizedToError(err, normalized);
   }
 
-  if (existing.table_missing) {
+  if (candidates.table_missing) {
     return processWithoutPersistence(pg, env, normalized, body, signatureMeta);
   }
 
-  if (existing.row && isGuestMessageEventProcessed(existing.row)) {
-    return buildProcessedReplay(existing.row, signatureMeta, normalized);
+  const rows = Array.isArray(candidates.rows) ? candidates.rows : [];
+
+  if (rows.length > 1) {
+    return {
+      response: buildReplayIdentityConflictResponse(normalized, signatureMeta, {
+        reason: 'replay_ambiguous_wa_message_id',
+      }),
+      event_row: null,
+      replay: false,
+    };
   }
 
-  const seed = buildInboundEventSeed(normalized, body);
-  let inserted;
-  try {
-    inserted = await insertGuestMessageEventInbound(pg, seed);
-  } catch (err) {
-    throw attachEffectiveNormalizedToError(err, normalized);
+  let eventRow = null;
+  let insertedNew = false;
+
+  if (rows.length === 1) {
+    const existingRow = rows[0];
+    const identity = resolveReplayNormalizedIdentity(
+      storedNormalizedIdentityFromRow(existingRow),
+      normalized,
+    );
+    if (!identity.ok) {
+      return {
+        response: buildReplayIdentityConflictResponse(normalized, signatureMeta, identity),
+        event_row: existingRow,
+        replay: false,
+      };
+    }
+
+    if (isGuestMessageEventProcessed(existingRow)) {
+      return buildProcessedReplay(existingRow, signatureMeta, normalized);
+    }
+
+    // Unprocessed historical row — continue without inserting a duplicate.
+    eventRow = existingRow;
+  } else {
+    const seed = buildInboundEventSeed(normalized, body);
+    let inserted;
+    try {
+      inserted = await insertGuestMessageEventInbound(pg, seed);
+    } catch (err) {
+      throw attachEffectiveNormalizedToError(err, normalized);
+    }
+
+    if (inserted.table_missing) {
+      return processWithoutPersistence(pg, env, normalized, body, signatureMeta);
+    }
+
+    eventRow = inserted.row;
+    insertedNew = inserted.inserted === true;
+
+    if (inserted.row && isGuestMessageEventProcessed(inserted.row)) {
+      return buildProcessedReplay(inserted.row, signatureMeta, normalized);
+    }
   }
 
-  if (inserted.table_missing) {
-    return processWithoutPersistence(pg, env, normalized, body, signatureMeta);
-  }
-
-  const eventRow = inserted.row;
-
-  if (inserted.row && isGuestMessageEventProcessed(inserted.row)) {
-    return buildProcessedReplay(inserted.row, signatureMeta, normalized);
-  }
+  // Updates must target the stored row tenant (never invent a second event).
+  const storageClientSlug = (eventRow && eventRow.client_slug) || normalized.client_slug;
 
   const staffPhoneAccess = pg
     ? await lookupStaffPhoneAccess(pg, {
@@ -499,6 +553,7 @@ async function processMetaWhatsAppWebhookInbound(input) {
       normalized,
       signatureMeta,
       event_row: eventRow,
+      executeOpenDemo: input.executeOpenDemo,
     });
   }
 
@@ -538,14 +593,14 @@ async function processMetaWhatsAppWebhookInbound(input) {
         WHERE client_slug = $1
           AND wa_message_id = $2`,
       [
-        normalized.client_slug,
+        storageClientSlug,
         normalized.wa_message_id,
         JSON.stringify(normalizedForStorage),
       ],
     ).catch(() => {});
     const updated = await updateGuestMessageEventDecisions(
       pg,
-      normalized.client_slug,
+      storageClientSlug,
       normalized.wa_message_id,
       decisionPatch,
     );
@@ -565,9 +620,10 @@ async function processMetaWhatsAppWebhookInbound(input) {
   return {
     response: {
       ...response,
-      duplicate: false,
+      duplicate: insertedNew ? false : !!eventRow,
       idempotent_replay: false,
       guest_message_event_id: updatedRow ? updatedRow.id : null,
+      replay_history_rewritten: false,
     },
     event_row: updatedRow,
     replay: false,

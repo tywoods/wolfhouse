@@ -289,6 +289,14 @@ const inventoryPatternAlternates = slice15hPresent ? {
     'client_slug:                  normalized.client_slug',
     'client_slug: normalized.client_slug',
   ],
+  CCI_INBOUND_REPLAY_EXISTING_CALL: [
+    'isGuestMessageEventProcessed(existingRow)',
+    'findGuestMessageEventCandidatesByWaMessageId',
+  ],
+  CCI_INBOUND_TABLE_MISSING_FIND_RETURN: [
+    'if (candidates.table_missing)',
+    'findGuestMessageEventCandidatesByWaMessageId',
+  ],
 } : {};
 for (const anchor of inventory) {
   modulesSeen.add(anchor.module);
@@ -574,7 +582,10 @@ ok('inbound owns guest/owner/demo/gate/table-missing branches',
   && /shouldRouteMetaInboundToOpenDemo/.test(inboundSrc)
   && /runDraftAndSendGate/.test(inboundSrc)
   && /isGuestMessageEventProcessed/.test(inboundSrc)
-  && /existing\.table_missing/.test(inboundSrc)
+  && (slice15hPresent
+    ? /candidates\.table_missing/.test(inboundSrc)
+      && /findGuestMessageEventCandidatesByWaMessageId/.test(inboundSrc)
+    : /existing\.table_missing/.test(inboundSrc))
   && /inserted\.table_missing/.test(inboundSrc)
   && /normalized\.supported && normalized\.message_text/.test(inboundSrc));
 ok('owner source present in verification map',

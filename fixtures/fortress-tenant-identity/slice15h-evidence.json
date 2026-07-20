@@ -73,6 +73,26 @@
     "Registry client_slug wolfhouse vs legacy DEFAULT_CLIENT_SLUG wolfhouse-somo alias risk under active authority",
     "Deploy/restart not performed in 15H"
   ],
-  "pass": 48,
+  "real_path_proof": {
+    "harness": "HTTP-shaped processMetaWhatsAppWebhookPostEntry + withPgClient + real processInbound",
+    "branches": [
+      "guest",
+      "owner",
+      "open_demo",
+      "phone_gate",
+      "event_table_unavailable",
+      "terminal",
+      "processed_replay",
+      "unprocessed_conflict",
+      "ambiguous_reject",
+      "audit",
+      "send",
+      "response",
+      "structured_error"
+    ],
+    "replay_lookup": "findGuestMessageEventCandidatesByWaMessageId(wa_message_id only)",
+    "enabled_without_routing": "no ingress_authority metadata (shape-compatible with default-off)"
+  },
+  "pass": 61,
   "fail": 0
 }

@@ -151,6 +151,33 @@ async function findGuestMessageEventByWaMessageId(pg, clientSlug, waMessageId) {
   }
 }
 
+/**
+ * FORTRESS 15H — find historical guest_message_events by WhatsApp message
+ * identity only. Does not trust the requested tenant/client_slug. Callers must
+ * compare/reject/fill against authoritative identity and must not insert a
+ * duplicate when any candidate already exists.
+ *
+ * @param {object} pg
+ * @param {string} waMessageId
+ * @returns {Promise<{ rows: object[], table_missing?: boolean }>}
+ */
+async function findGuestMessageEventCandidatesByWaMessageId(pg, waMessageId) {
+  try {
+    const r = await pg.query(
+      `SELECT ${SELECT_GUEST_MESSAGE_EVENT_COLS}
+         FROM guest_message_events
+        WHERE wa_message_id = $1
+        ORDER BY created_at ASC NULLS LAST, id ASC`,
+      [waMessageId],
+    );
+    const rows = (r.rows || []).map((row) => formatGuestMessageEventRow(row));
+    return { rows };
+  } catch (err) {
+    if (isMissingGuestMessageEventsTable(err)) return { rows: [], table_missing: true };
+    throw err;
+  }
+}
+
 async function insertGuestMessageEventInbound(pg, seed) {
   const payload = seed || {};
   try {
@@ -236,6 +263,7 @@ module.exports = {
   buildInboundEventSeed,
   buildDecisionPatch,
   findGuestMessageEventByWaMessageId,
+  findGuestMessageEventCandidatesByWaMessageId,
   insertGuestMessageEventInbound,
   updateGuestMessageEventDecisions,
 };

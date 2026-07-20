@@ -306,7 +306,11 @@ async function processMetaOpenDemoGuestInbound(input) {
     executeBody.send_live_reply_confirmed = true;
   }
 
-  const outcome = await executeOpenDemoWhatsAppInbound(pg, executeBody, env, {
+  const executeFn = typeof input.executeOpenDemo === 'function'
+    ? input.executeOpenDemo
+    : executeOpenDemoWhatsAppInbound;
+
+  const outcome = await executeFn(pg, executeBody, env, {
     hostHeader: '',
     actorId: 'meta-whatsapp-open-demo',
     resolveWriteFlagsAfterReview: (review) => buildMetaOpenDemoWriteConfirmFlags(env, review, executeBody),
@@ -352,16 +356,17 @@ async function processMetaOpenDemoGuestInbound(input) {
 
   let updatedRow = eventRow;
   if (pg && eventRow) {
+    const storageClientSlug = eventRow.client_slug || normalized.client_slug;
     await pg.query(
       `UPDATE guest_message_events
           SET normalized = $3::jsonb
         WHERE client_slug = $1
           AND wa_message_id = $2`,
-      [normalized.client_slug, normalized.wa_message_id, JSON.stringify(normalizedForStorage)],
+      [storageClientSlug, normalized.wa_message_id, JSON.stringify(normalizedForStorage)],
     ).catch(() => {});
     const updated = await updateGuestMessageEventDecisions(
       pg,
-      normalized.client_slug,
+      storageClientSlug,
       normalized.wa_message_id,
       decisionPatch,
     );

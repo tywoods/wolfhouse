@@ -30,9 +30,18 @@ absent, shadow-only behavior is preserved exactly.
   **before** `withPgClient`; returns effective post-authority normalized for HTTP audit
 - Trusted `normalized.location_id` reaches real draft/send/owner/open-demo builders;
   location-scoped idempotency when present; legacy keys unchanged when absent
+- Historical replay looks up candidates by `wa_message_id` only (does not trust the
+  requested tenant). Ambiguous or nonempty client/location conflicts are rejected;
+  legacy-missing location is filled in the **response** only; history is never
+  rewritten and no duplicate event is inserted
+- Enabled-without-routing is byte/shape-compatible with default shadow (no
+  `ingress_authority` metadata)
 - Owner reads remain **tenant-wide** (`client_slug` only)
 - Open-demo skips conflicting hardcoded `wolfhouse-somo` fallback when authority is active
 - Activation env default-off; no compose/Bicep/ACA env edits in this slice
+- Offline verifier uses a real HTTP/`withPgClient` harness (not helper-only) across
+  guest, owner, open-demo, phone-gate, table-unavailable, terminal, processed
+  replay, unprocessed conflict, audit, send, response, and structured-error branches
 
 ## Activation gap (explicit)
 

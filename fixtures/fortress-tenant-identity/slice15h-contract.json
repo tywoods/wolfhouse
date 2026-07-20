@@ -30,6 +30,7 @@
     "scripts/lib/meta-whatsapp-ingress-authority.js",
     "scripts/lib/luna-meta-whatsapp-webhook.js",
     "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+    "scripts/lib/luna-guest-message-events-sql.js",
     "scripts/lib/luna-owner-whatsapp-inbound.js",
     "scripts/lib/meta-open-demo-inbound-adapter.js",
     "scripts/staff-query-api.js",
@@ -55,7 +56,7 @@
       "behavior": "normalize + applyMetaWhatsAppIngressAuthority before withPgClient; blocked → acquired_pg=false; returns effective post-authority normalized; downstream failures throw with effective_normalized"
     },
     "resolveReplayNormalizedIdentity": {
-      "behavior": "compare stored nonempty client/location with authoritative; reject conflicts; fill legacy-missing location in response without rewriting history"
+      "behavior": "find candidates by wa_message_id without trusting requested tenant; reject ambiguous or nonempty client/location conflicts; fill legacy-missing location in response only; never rewrite history or insert a duplicate"
     },
     "attachEffectiveNormalizedToError": {
       "behavior": "structured failure shape carries effective_normalized for HTTP failure audit/response"
