@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15J3",
+  "outcome_id": "15J3_payment_uuid_callback_tenant_acl_no_prod_exports",
+  "boundary_id": "B15_booking_hold_payment_callbacks",
+  "master_basis": "6d9f0e99c6c00d9831710c392ec3ac41dcef811b",
+  "design_freeze": "fixtures/fortress-tenant-identity/slice15i-b15-remediation-contract.json",
+  "live_mutation": false,
+  "title": "Bind path-UUID payment/booking callbacks to expected tenant ACL before mutation (no production test exports)",
+  "status": "implemented",
+  "owner_files": [
+    "scripts/lib/payment-uuid-callback-tenant-acl.js",
+    "scripts/lib/staff-query-api-fortress15j3-offline-harness.js",
+    "scripts/staff-query-api.js",
+    "scripts/lib/staff-bot-v2-routes.js"
+  ],
+  "guarded_routes": [
+    {
+      "id": "staff_payment_create_stripe_link",
+      "symbol": "handlePaymentCreateStripeLink",
+      "path": "POST /staff/payments/:payment_id/create-stripe-link",
+      "control": "gateStaffPaymentUuidCallbackTenantAcl → assertStaffClientAccess (silent) → uniform 404 or createPaymentLink"
+    },
+    {
+      "id": "bot_payment_create_stripe_link",
+      "symbol": "handleBotPaymentCreateStripeLink",
+      "path": "POST /staff/bot/payments/:payment_id/create-stripe-link",
+      "control": "gateBotPaymentUuidCallbackTenantAcl requires boundClientSlug + SELECT AND cl.slug = bound before createPaymentLink"
+    },
+    {
+      "id": "staff_service_records_payment_link",
+      "symbol": "handleBookingServiceRecordsCreatePaymentLink",
+      "path": "POST /staff/bookings/:booking_id/service-records/create-payment-link",
+      "control": "gateStaffBookingUuidCallbackTenantAcl → assertStaffClientAccess (silent) → uniform 404 or payment INSERT/Stripe"
+    }
+  ],
+  "harness_gates": {
+    "required_env": ["NODE_ENV=test", "STAFF_API_FORTRESS_OFFLINE_LISTENER=1"],
+    "fail_closed": "PG/session/Stripe seams inert unless both gates active",
+    "acl_loading": "production staff-portal-access.json unchanged; secondary-client ACL via canAccessClient seam only"
+  },
+  "out_of_scope": [
+    "guest GET /pay/:bookingCode short-link",
+    "B14 locked-payment identity",
+    "Stripe webhook / B13 lookup",
+    "live Stripe / DB / deploy",
+    "deferred FORTRESS-15J branch",
+    "deferred FORTRESS-15J2 branch (not ancestry)"
+  ],
+  "must_not": [
+    "derive trusted tenant solely from object row without ACL/principal compare",
+    "enable STRIPE_WEBHOOK_SKIP_VERIFY",
+    "hardcode wolfhouse-somo / sunset as authority",
+    "override production ACL via STAFF_PORTAL_ACCESS_FILE env",
+    "export seam/factory/counter/router/server test symbols outside dual gate"
+  ],
+  "harness_export_policy": {
+    "production_and_partial_gate": "ZERO test exports; createServerCalls=0; Module._load identity unchanged",
+    "full_dual_gate": "NODE_ENV=test AND STAFF_API_FORTRESS_OFFLINE_LISTENER=1 may export seams/factory/counter/router/server"
+  },
+  "gates": [
+    "npm run verify:fortress-slice15j3-payment-uuid-callback-tenant-acl",
+    "npm run verify:fortress-slice15i-payment-callback-boundary-audit",
+    "npm run verify:fortress-slice15b-stripe-payment-tenant-bind",
+    "npm run verify:waterbottle-expired-hold-payment-truth",
+    "npm run verify:sunset-stripe-payment-webhook",
+    "node scripts/verify-sunset-stripe-payment-reconcile.js",
+    "npm run verify:staff-auth-api",
+    "npm run verify:multiclient",
+    "npm run verify:migration-integrity",
+    "git diff --check"
+  ]
+}

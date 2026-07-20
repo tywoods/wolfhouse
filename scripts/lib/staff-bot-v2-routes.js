@@ -41,6 +41,9 @@ const {
   PAYMENT_LINK_CHANNELS,
   PAYMENT_LINK_OPERATIONS,
 } = require('./luna-front-desk-payment-link-service');
+const {
+  gateBotPaymentUuidCallbackTenantAcl,
+} = require('./payment-uuid-callback-tenant-acl');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // In-memory fake request — used to delegate to existing handler functions
@@ -752,33 +755,29 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     });
   }
 
+  // FORTRESS 15J3 / B15: nonempty boundClientSlug + scoped payment SELECT before Stripe/mutation.
+  const started = Date.now();
+  const tenantGate = await gateBotPaymentUuidCallbackTenantAcl({
+    paymentId,
+    boundClientSlug: ctx.boundClientSlug,
+    withPgClient,
+  });
+  if (tenantGate.error) {
+    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + tenantGate.error.message });
+  }
+  if (!tenantGate.ok) {
+    if (tenantGate.reason === 'bound_client_slug_required') {
+      return sendJSON(res, 403, { success: false, error: 'client_access_denied' });
+    }
+    return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
+  }
+  const clientSlug = tenantGate.clientSlug;
+
   let stripe;
   try {
     stripe = require('stripe')(STRIPE_SECRET_KEY);
   } catch (e) {
     return sendJSON(res, 500, { success: false, error: 'Failed to load Stripe SDK: ' + e.message, no_db_write: true });
-  }
-
-  const started = Date.now();
-  let clientSlug;
-  try {
-    const row = await withPgClient(async (pg) => {
-      const r = await pg.query(
-        `SELECT cl.slug AS client_slug
-           FROM payments p
-           JOIN clients cl ON cl.id = p.client_id
-          WHERE p.id = $1::uuid
-          LIMIT 1`,
-        [paymentId],
-      );
-      return r.rows[0] || null;
-    });
-    if (!row) {
-      return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
-    }
-    clientSlug = row.client_slug;
-  } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
   }
 
   const actorId = user ? user.staff_user_id : 'luna-bot-internal';
