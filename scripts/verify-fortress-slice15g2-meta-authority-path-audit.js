@@ -130,6 +130,7 @@ const doc = readText(DOC_PATH);
 const staffApi = readText(path.join(ROOT, 'scripts', 'staff-query-api.js'));
 const webhookSrc = readText(path.join(ROOT, 'scripts', 'lib', 'luna-meta-whatsapp-webhook.js'));
 const inboundSrc = readText(path.join(ROOT, 'scripts', 'lib', 'luna-meta-whatsapp-inbound-process.js'));
+const ownerSrc = readText(path.join(ROOT, 'scripts', 'lib', 'luna-owner-whatsapp-inbound.js'));
 const openDemoSrc = readText(path.join(ROOT, 'scripts', 'lib', 'meta-open-demo-inbound-adapter.js'));
 const staffPhoneSrc = readText(path.join(ROOT, 'scripts', 'lib', 'staff-phone-access.js'));
 const eventsSqlSrc = readText(path.join(ROOT, 'scripts', 'lib', 'luna-guest-message-events-sql.js'));
@@ -140,6 +141,7 @@ const sourceByRelPath = {
   'scripts/staff-query-api.js': staffApi,
   'scripts/lib/luna-meta-whatsapp-webhook.js': webhookSrc,
   'scripts/lib/luna-meta-whatsapp-inbound-process.js': inboundSrc,
+  'scripts/lib/luna-owner-whatsapp-inbound.js': ownerSrc,
   'scripts/lib/meta-open-demo-inbound-adapter.js': openDemoSrc,
   'scripts/lib/staff-phone-access.js': staffPhoneSrc,
   'scripts/lib/luna-guest-message-events-sql.js': eventsSqlSrc,
@@ -161,7 +163,7 @@ ok('overlay design_frozen + historical untouched',
   && Array.isArray(overlay.historical_artifacts)
   && overlay.historical_artifacts.includes('fixtures/fortress-tenant-identity/boundary-matrix.json'));
 
-ok('findings cite shared owner + supersession + 15H + taxonomy',
+ok('findings cite shared owner + supersession + 15H + taxonomy + frozen rules',
   /processMetaWhatsAppWebhookPostEntry/.test(findings)
   && /before.*PG|before PostgreSQL|before_withPgClient|before `withPgClient`/i.test(findings)
   && /supersede|supersedes/i.test(findings)
@@ -171,7 +173,11 @@ ok('findings cite shared owner + supersession + 15H + taxonomy',
   && /post_normalize|post-normalize/i.test(findings)
   && /GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE|guest-message-event-table-unavailable/i.test(findings)
   && /tenant-wide/i.test(findings)
-  && /source-anchor/i.test(findings));
+  && /source.derived|control.consumer inventory|control_consumer_inventory/i.test(findings)
+  && /REPLAY_IDENTITY_COMPARE_REJECT_FILL/.test(findings)
+  && /ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED/.test(findings)
+  && /without rewriting history/i.test(findings)
+  && /structured shape/i.test(findings));
 
 ok('historical matrix still marks B02 vulnerable',
   (matrix.boundaries || []).some((b) => b.id === 'B02_meta_normalize_live_client_slug' && b.verdict === 'vulnerable'));
@@ -209,7 +215,24 @@ ok('taxonomy separates pre vs post normalize ids',
   && !contract.taxonomy.post_normalize_branch_ids.some((id) => /^BR_HTTP_ERROR_/.test(id))
   && contract.taxonomy.post_normalize_branch_ids.includes('BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE')
   && !contract.taxonomy.post_normalize_branch_ids.includes('BR_NO_PERSISTENCE_FALLBACK')
-  && contract.taxonomy.completeness_method === 'source_anchor_driven');
+  && contract.taxonomy.completeness_method === 'source_derived_control_consumer_inventory');
+
+ok('frozen replay + error identity rules present',
+  contract.frozen_identity_rules
+  && contract.frozen_identity_rules.replay
+  && contract.frozen_identity_rules.replay.id === 'REPLAY_IDENTITY_COMPARE_REJECT_FILL'
+  && /compare stored nonempty/i.test(contract.frozen_identity_rules.replay.exact)
+  && /reject conflicts/i.test(contract.frozen_identity_rules.replay.exact)
+  && /legacy-missing location/i.test(contract.frozen_identity_rules.replay.exact)
+  && /without rewriting history/i.test(contract.frozen_identity_rules.replay.exact)
+  && contract.frozen_identity_rules.error
+  && contract.frozen_identity_rules.error.id === 'ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED'
+  && /return or throw a structured shape/i.test(contract.frozen_identity_rules.error.exact)
+  && /effective normalized identity/i.test(contract.frozen_identity_rules.error.exact)
+  && /HTTP failure audit/i.test(contract.frozen_identity_rules.error.exact)
+  && branches.frozen_identity_rules
+  && branches.frozen_identity_rules.replay.id === 'REPLAY_IDENTITY_COMPARE_REJECT_FILL'
+  && branches.frozen_identity_rules.error.id === 'ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED');
 
 ok('rename documented: no-persistence → guest-message-event-table-unavailable',
   (contract.taxonomy.renames || []).some((r) => r.from === 'BR_NO_PERSISTENCE_FALLBACK'
@@ -240,14 +263,18 @@ ok('shared choke point named before_withPgClient',
 ok('attack fixture case count',
   Array.isArray(attacks.cases) && attacks.cases.length === 10);
 
-console.log('\n── Source-anchor completeness ──');
-const sourceAnchors = branches.source_anchors || [];
+console.log('\n── Control/consumer inventory completeness ──');
+const inventory = branches.control_consumer_inventory || [];
 const postIds = (branches.post_normalize_branches || []).map((b) => b.id);
 const preIds = (branches.pre_normalize_http_errors || []).map((b) => b.id);
 const allBranchIds = new Set([...postIds, ...preIds]);
+const requiredModules = ['http', 'inbound', 'webhook', 'owner', 'open_demo', 'sql_replay', 'send'];
 const missingAnchors = [];
 const taxonomyMismatches = [];
-for (const anchor of sourceAnchors) {
+const siteTypeMismatches = [];
+const modulesSeen = new Set();
+for (const anchor of inventory) {
+  modulesSeen.add(anchor.module);
   const src = sourceByRelPath[anchor.path];
   if (!src || !anchor.pattern || !src.includes(anchor.pattern)) {
     missingAnchors.push(anchor.id);
@@ -261,17 +288,44 @@ for (const anchor of sourceAnchors) {
   if (anchor.taxonomy === 'post_normalize' && !postIds.includes(anchor.branch_id)) {
     taxonomyMismatches.push(`${anchor.id}:post`);
   }
+  if (!['return', 'throw', 'call'].includes(anchor.site_type)) {
+    siteTypeMismatches.push(anchor.id);
+  }
 }
-ok('source anchors present in named source files',
-  sourceAnchors.length >= 15 && missingAnchors.length === 0,
-  missingAnchors.join(',') || `n=${sourceAnchors.length}`);
-ok('source anchors map into taxonomy branch ids',
+const ownerInventory = inventory.filter((a) => a.module === 'owner' || a.path === 'scripts/lib/luna-owner-whatsapp-inbound.js');
+ok('control/consumer inventory anchors present in named source files',
+  inventory.length >= 20 && missingAnchors.length === 0,
+  missingAnchors.join(',') || `n=${inventory.length}`);
+ok('inventory anchors map into taxonomy branch ids',
   taxonomyMismatches.length === 0,
   taxonomyMismatches.join(','));
-ok('completeness method is source_anchor_driven (not self-authored list)',
+ok('inventory site_type is return|throw|call',
+  siteTypeMismatches.length === 0,
+  siteTypeMismatches.join(','));
+ok('inventory covers required modules including owner',
+  requiredModules.every((m) => modulesSeen.has(m))
+  && ownerInventory.length >= 3
+  && sourceByRelPath['scripts/lib/luna-owner-whatsapp-inbound.js'] != null);
+ok('completeness method is narrowed source-derived inventory (not full AST / not bare source-anchor claim)',
   branches.completeness
-  && branches.completeness.method === 'source_anchor_driven'
-  && contract.taxonomy.completeness_method === 'source_anchor_driven');
+  && branches.completeness.method === 'source_derived_control_consumer_inventory'
+  && branches.completeness.full_ast_derivation === false
+  && branches.completeness.require_every_named_consumer_anchor === true
+  && branches.completeness.owner_source_required_in_verification === true
+  && contract.taxonomy.completeness_method === 'source_derived_control_consumer_inventory');
+ok('replay branch freezes compare/reject/fill without history rewrite',
+  (branches.post_normalize_branches || []).some((b) => b.id === 'BR_DUPLICATE_REPLAY'
+    && b.replacement_required
+    && b.replacement_required.compare_stored_nonempty_with_authoritative === true
+    && b.replacement_required.reject_stored_nonempty_conflicts === true
+    && b.replacement_required.fill_legacy_missing_location_in_response_from_authoritative === true
+    && b.replacement_required.rewrite_stored_history_on_replay === false));
+ok('PG/downstream error branch freezes structured effective-normalized shape',
+  (branches.post_normalize_branches || []).some((b) => b.id === 'BR_PG_OR_DOWNSTREAM_ERROR'
+    && b.replacement_required
+    && b.replacement_required.downstream_failures_return_or_throw_structured_shape === true
+    && b.replacement_required.structured_shape_carries_effective_normalized === true
+    && b.replacement_required.http_failure_audit_and_response_use_effective_normalized === true));
 
 console.log('\n── Master path audit (RED = current vulnerable posture) ──');
 
@@ -383,6 +437,11 @@ green('AC15G2_SHARED_OWNER_NAMED',
     && /open-demo/i.test(mustPass)
     && /blocked-phone/i.test(mustPass)
     && /replay/i.test(mustPass)
+    && /compare stored nonempty/i.test(mustPass)
+    && /legacy-missing location/i.test(mustPass)
+    && /without rewriting history/i.test(mustPass)
+    && /structured shape/i.test(mustPass)
+    && /effective normalized identity/i.test(mustPass)
     && /table_missing/i.test(mustPass)
     && /terminal no-draft/i.test(mustPass)
     && /tenant-wide/i.test(mustPass)
@@ -390,6 +449,7 @@ green('AC15G2_SHARED_OWNER_NAMED',
     && /acquire PG before authority/i.test(mustNot)
     && /location-scoped owner/i.test(mustNot)
     && /pre-authority normalized/i.test(mustNot)
+    && /rewrite stored/i.test(mustNot)
     && (contract.replacement_implementation_slice.explicitly_excluded_from_15h || [])
       .some((x) => /activation/i.test(x)));
 }
@@ -415,6 +475,13 @@ green('AC15G2_DEFERRED_15G_SUPERSEDED',
 green('AC15G2_BRANCH_MATRIX_COMPLETE',
   missingAnchors.length === 0
   && taxonomyMismatches.length === 0
+  && siteTypeMismatches.length === 0
+  && requiredModules.every((m) => modulesSeen.has(m))
+  && ownerInventory.length >= 3
+  && branches.completeness.method === 'source_derived_control_consumer_inventory'
+  && branches.completeness.full_ast_derivation === false
+  && branches.frozen_identity_rules.replay.id === 'REPLAY_IDENTITY_COMPARE_REJECT_FILL'
+  && branches.frozen_identity_rules.error.id === 'ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED'
   && postIds.includes('BR_TERMINAL_NO_DRAFT_SEND')
   && postIds.includes('BR_UNPROCESSED_DUPLICATE_CONFLICT_CONTINUE')
   && postIds.includes('BR_OPEN_DEMO_VALIDATION_FAILURE')
@@ -450,6 +517,10 @@ ok('inbound owns guest/owner/demo/gate/table-missing branches',
   && /existing\.table_missing/.test(inboundSrc)
   && /inserted\.table_missing/.test(inboundSrc)
   && /normalized\.supported && normalized\.message_text/.test(inboundSrc));
+ok('owner source present in verification map',
+  /function buildOwnerSendBody/.test(ownerSrc)
+  && /function buildOwnerResponseFromStoredEvent/.test(ownerSrc)
+  && /async function processOwnerWhatsAppCommandCenterInbound/.test(ownerSrc));
 ok('open-demo validation failure path present',
   /if \(!validation\.ok\)/.test(openDemoSrc));
 ok('unprocessed conflict path present in SQL',

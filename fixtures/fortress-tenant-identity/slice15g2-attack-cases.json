@@ -171,12 +171,18 @@
       "id": "AC15G2_BRANCH_MATRIX_COMPLETE",
       "color": "GREEN",
       "boundary_ids": ["B02_meta_normalize_live_client_slug"],
-      "attack": "Branch matrix completeness is source-anchor-driven across pre/post taxonomy including renamed table-unavailable, terminal no-draft/send, unprocessed conflict, open-demo validation failure, and PG errors",
+      "attack": "Branch matrix completeness is a narrowed source-derived control/consumer inventory (return/throw/call) across HTTP, inbound, webhook, owner, open-demo, SQL/replay, and send; every named anchor required; owner source verified; frozen replay+error identity rules present",
       "input": {
-        "classifier": "branch_matrix_source_anchors"
+        "classifier": "branch_matrix_control_consumer_inventory"
       },
       "expect": {
-        "completeness_method": "source_anchor_driven",
+        "completeness_method": "source_derived_control_consumer_inventory",
+        "full_ast_derivation": false,
+        "require_every_named_consumer_anchor": true,
+        "owner_source_required_in_verification": true,
+        "required_modules": ["http", "inbound", "webhook", "owner", "open_demo", "sql_replay", "send"],
+        "frozen_replay_rule_id": "REPLAY_IDENTITY_COMPARE_REJECT_FILL",
+        "frozen_error_rule_id": "ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED",
         "renamed_to": "BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE",
         "required_post_normalize_ids": [
           "BR_GUEST_PERSIST_DRAFT_SEND",

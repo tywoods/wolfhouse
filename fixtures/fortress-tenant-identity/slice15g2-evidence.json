@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "slice": "FORTRESS-15G2",
-  "generated_at": "2026-07-20T07:15:00.000Z",
+  "generated_at": "2026-07-20T07:30:00.000Z",
   "master_basis": "a684422903fec3093ac0bb7e13e50f674aec3b7a",
   "live_mutation": false,
   "runtime_behavior_changed": false,
@@ -10,7 +10,12 @@
   "enforcement": "before_withPgClient",
   "must_return_effective_normalized": true,
   "owner_read_scope": "tenant_wide",
-  "completeness_method": "source_anchor_driven",
+  "completeness_method": "source_derived_control_consumer_inventory",
+  "full_ast_derivation": false,
+  "frozen_identity_rules": {
+    "replay": "REPLAY_IDENTITY_COMPARE_REJECT_FILL",
+    "error": "ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED"
+  },
   "taxonomy": {
     "pre_normalize": [
       "BR_HTTP_ERROR_BODY_READ",
@@ -72,6 +77,6 @@
     "guest_message_events table absence still allows other reads/writes — not a full side-effect stop",
     "Activation + CLIENT_CHANNEL_ROUTING_* remain operator-owned and out of 15H scope"
   ],
-  "pass": 40,
+  "pass": 46,
   "fail": 0
 }

@@ -79,7 +79,18 @@
         "reason": "guest_message_events table missing does not stop other reads/writes (staff lookup, owner, open-demo, draft/send)"
       }
     ],
-    "completeness_method": "source_anchor_driven"
+    "completeness_method": "source_derived_control_consumer_inventory",
+    "completeness_claim_narrowing": "Full AST derivation of every return/throw/call site is impractical for this offline freeze. Completeness requires every named control/consumer inventory anchor across HTTP, inbound, webhook, owner, open-demo, SQL/replay, and send modules; owner source must be included in verification."
+  },
+  "frozen_identity_rules": {
+    "replay": {
+      "id": "REPLAY_IDENTITY_COMPARE_REJECT_FILL",
+      "exact": "Replay must compare stored nonempty client_slug/location_id with current authoritative identity, reject conflicts, and use authoritative identity to fill legacy-missing location in the response without rewriting history."
+    },
+    "error": {
+      "id": "ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED",
+      "exact": "Downstream failures must return or throw a structured shape carrying effective normalized identity so HTTP failure audit and response use it."
+    }
   },
   "shared_authority_owner": {
     "id": "processMetaWhatsAppWebhookPostEntry",
@@ -116,9 +127,10 @@
       "open-demo request body + execute path (must not hardcode conflicting wolfhouse-somo when authority active)",
       "open-demo validation-failure envelope",
       "blocked-phone gate normalized.client_slug",
-      "replay lookup key + replay response.normalized",
+      "replay lookup key + replay response.normalized (compare stored nonempty client/location with authoritative; reject conflicts; fill legacy-missing location in response without rewriting history)",
       "both guest_message_events table_missing entry points (find + insert)",
       "terminal no-draft/send response.normalized",
+      "downstream failure structured shape carrying effective normalized → HTTP failure audit + response",
       "HTTP response.normalized + audit log client_slug"
     ],
     "registry_note": "Resolver registry client_slug for Wolfhouse is 'wolfhouse' with location_id 'wolfhouse-somo'; legacy DEFAULT_CLIENT_SLUG remains 'wolfhouse-somo'. Replacement must treat resolver client_slug+location_id as authoritative when policy active, and document alias risk."
@@ -160,9 +172,11 @@
         "post-authority identity at open-demo request body and open-demo execution path; no conflicting hardcoded wolfhouse-somo when authority active",
         "post-authority identity at blocked-phone gate",
         "post-authority identity at replay lookup key and replay response",
+        "replay identity: compare stored nonempty client_slug/location_id with current authoritative identity; reject conflicts; fill legacy-missing location in response from authoritative without rewriting history",
         "post-authority identity on both guest_message_events table_missing entry points (find + insert → processWithoutPersistence)",
         "post-authority identity on terminal no-draft/send (unsupported/empty text) response.normalized",
-        "post-authority identity on open-demo validation-failure envelope and documented PG/downstream error handling posture",
+        "post-authority identity on open-demo validation-failure envelope",
+        "downstream failures return or throw a structured shape carrying effective normalized identity so HTTP failure audit and response use it",
         "owner reads remain tenant-wide (client_slug); location_id propagates to storage/idempotency without inventing location-scoped owner reads",
         "15A historical B02 artifacts unchanged",
         "no deploy config edits; activation remains default-off"
@@ -175,7 +189,9 @@
         "leave location_id only in tenant_channel_shadow when authority active+known",
         "treat guest_message_events table_missing as stopping all other reads/writes",
         "audit HTTP with pre-authority normalized when PostEntry produced an effective post-authority identity",
-        "silently change owner-read scope to location-scoped owner reads"
+        "silently change owner-read scope to location-scoped owner reads",
+        "rewrite stored guest_message_events history on replay solely to invent missing location_id",
+        "HTTP failure audit/response without effective normalized when a structured downstream failure shape carried it"
       ]
     }
   },

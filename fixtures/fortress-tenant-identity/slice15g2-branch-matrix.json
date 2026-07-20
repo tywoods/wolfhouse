@@ -39,143 +39,398 @@
     "basis": "lookupStaffPhoneAccess and owner SQL (planAndExecuteOwnerSqlQuestion / validateOwnerSqlPlan) filter only on client_slug; no location_id predicate exists on staff_phone_access or owner-read SQL today",
     "replacement_implication": "When authority is active, authoritative client_slug drives owner lookup/query/send/storage/replay. location_id must still propagate into stored normalized + idempotency when present, but owner reads remain tenant-wide by client_slug."
   },
-  "completeness": {
-    "method": "source_anchor_driven",
-    "note": "Completeness is proven by verifying each source_anchors[].pattern exists in the named source file and maps to a taxonomy branch id — not by a self-authored ID checklist in the verifier."
+  "frozen_identity_rules": {
+    "replay": {
+      "id": "REPLAY_IDENTITY_COMPARE_REJECT_FILL",
+      "exact": "Replay must compare stored nonempty client_slug/location_id with current authoritative identity, reject conflicts, and use authoritative identity to fill legacy-missing location in the response without rewriting history.",
+      "rules": [
+        "compare_stored_nonempty_client_slug_and_location_id_with_current_authoritative_identity",
+        "reject_when_stored_nonempty_client_slug_or_location_id_conflicts_with_authoritative",
+        "fill_legacy_missing_location_in_response_from_authoritative_without_rewriting_stored_history"
+      ],
+      "no_history_rewrite": "Do not UPDATE guest_message_events.normalized (or other stored row fields) solely to invent a missing location_id on replay; fill response.normalized only."
+    },
+    "error": {
+      "id": "ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED",
+      "exact": "Downstream failures must return or throw a structured shape carrying effective normalized identity so HTTP failure audit and response use it.",
+      "rules": [
+        "downstream_failures_return_or_throw_structured_shape_with_effective_normalized",
+        "http_failure_audit_and_response_must_use_effective_normalized_from_that_shape"
+      ],
+      "structured_shape_minimum": {
+        "must_carry": ["effective_normalized.client_slug", "effective_normalized.location_id (when present)"],
+        "carriers": ["return value with effective_normalized field", "thrown error object with effective_normalized (or equivalent) property"]
+      }
+    }
   },
-  "source_anchors": [
+  "completeness": {
+    "method": "source_derived_control_consumer_inventory",
+    "full_ast_derivation": false,
+    "claim_narrowing": "Full machine derivation of every return/throw/call site across Meta POST modules is impractical for this offline freeze. Completeness is narrowed to a source-derived named control/consumer inventory: every inventory anchor must be present in its named source file. Inventory covers return, throw, and call sites in HTTP, inbound, webhook, owner, open-demo, SQL/replay, and send modules.",
+    "required_modules": ["http", "inbound", "webhook", "owner", "open_demo", "sql_replay", "send"],
+    "require_every_named_consumer_anchor": true,
+    "owner_source_required_in_verification": true
+  },
+  "control_consumer_inventory": [
     {
-      "id": "SA_HTTP_BODY_READ",
+      "id": "CCI_HTTP_BODY_READ_RETURN",
+      "module": "http",
+      "site_type": "return",
       "taxonomy": "pre_normalize",
       "branch_id": "BR_HTTP_ERROR_BODY_READ",
       "path": "scripts/staff-query-api.js",
       "pattern": "Failed to read request body"
     },
     {
-      "id": "SA_HTTP_SIGNATURE",
+      "id": "CCI_HTTP_SIGNATURE_RETURN",
+      "module": "http",
+      "site_type": "return",
       "taxonomy": "pre_normalize",
       "branch_id": "BR_HTTP_ERROR_SIGNATURE",
       "path": "scripts/staff-query-api.js",
       "pattern": "signature_verification_failed"
     },
     {
-      "id": "SA_HTTP_INVALID_JSON",
+      "id": "CCI_HTTP_INVALID_JSON_RETURN",
+      "module": "http",
+      "site_type": "return",
       "taxonomy": "pre_normalize",
       "branch_id": "BR_HTTP_ERROR_INVALID_JSON",
       "path": "scripts/staff-query-api.js",
       "pattern": "Invalid JSON payload"
     },
     {
-      "id": "SA_INCOMPLETE_IDENTITY",
+      "id": "CCI_HTTP_PG_CALL",
+      "module": "http",
+      "site_type": "call",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_PG_OR_DOWNSTREAM_ERROR",
+      "path": "scripts/staff-query-api.js",
+      "pattern": "const processed = await withPgClient((pg) => processMetaWhatsAppWebhookInbound"
+    },
+    {
+      "id": "CCI_HTTP_AUDIT_CALL",
+      "module": "http",
+      "site_type": "call",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_GUEST_PERSIST_DRAFT_SEND",
+      "path": "scripts/staff-query-api.js",
+      "pattern": "client_slug:                  normalized.client_slug"
+    },
+    {
+      "id": "CCI_INBOUND_INCOMPLETE_RETURN",
+      "module": "inbound",
+      "site_type": "return",
       "taxonomy": "post_normalize",
       "branch_id": "BR_INCOMPLETE_IDENTITY",
       "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
       "pattern": "!normalized.wa_message_id || !normalized.client_slug"
     },
     {
-      "id": "SA_DUPLICATE_REPLAY_EXISTING",
+      "id": "CCI_INBOUND_REPLAY_EXISTING_CALL",
+      "module": "inbound",
+      "site_type": "call",
       "taxonomy": "post_normalize",
       "branch_id": "BR_DUPLICATE_REPLAY",
       "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
       "pattern": "existing.row && isGuestMessageEventProcessed(existing.row)"
     },
     {
-      "id": "SA_DUPLICATE_REPLAY_INSERTED",
+      "id": "CCI_INBOUND_REPLAY_INSERTED_CALL",
+      "module": "inbound",
+      "site_type": "call",
       "taxonomy": "post_normalize",
       "branch_id": "BR_DUPLICATE_REPLAY",
       "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
       "pattern": "inserted.row && isGuestMessageEventProcessed(inserted.row)"
     },
     {
-      "id": "SA_UNPROCESSED_CONFLICT_CONTINUE",
+      "id": "CCI_INBOUND_GUEST_REPLAY_RETURN",
+      "module": "inbound",
+      "site_type": "return",
       "taxonomy": "post_normalize",
-      "branch_id": "BR_UNPROCESSED_DUPLICATE_CONFLICT_CONTINUE",
-      "path": "scripts/lib/luna-guest-message-events-sql.js",
-      "pattern": "ON CONFLICT (client_slug, wa_message_id) DO NOTHING"
+      "branch_id": "BR_DUPLICATE_REPLAY",
+      "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+      "pattern": "function buildResponseFromStoredEvent"
     },
     {
-      "id": "SA_TABLE_MISSING_FIND",
+      "id": "CCI_INBOUND_TABLE_MISSING_FIND_RETURN",
+      "module": "inbound",
+      "site_type": "return",
       "taxonomy": "post_normalize",
       "branch_id": "BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE",
       "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
       "pattern": "if (existing.table_missing)"
     },
     {
-      "id": "SA_TABLE_MISSING_INSERT",
+      "id": "CCI_INBOUND_TABLE_MISSING_INSERT_RETURN",
+      "module": "inbound",
+      "site_type": "return",
       "taxonomy": "post_normalize",
       "branch_id": "BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE",
       "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
       "pattern": "if (inserted.table_missing)"
     },
     {
-      "id": "SA_PROCESS_WITHOUT_PERSISTENCE",
+      "id": "CCI_INBOUND_WITHOUT_PERSISTENCE_CALL",
+      "module": "inbound",
+      "site_type": "call",
       "taxonomy": "post_normalize",
       "branch_id": "BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE",
       "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
       "pattern": "async function processWithoutPersistence"
     },
     {
-      "id": "SA_OWNER_COMMAND_CENTER",
+      "id": "CCI_INBOUND_OWNER_ROUTE_CALL",
+      "module": "inbound",
+      "site_type": "call",
       "taxonomy": "post_normalize",
       "branch_id": "BR_OWNER_COMMAND_CENTER",
       "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
       "pattern": "shouldRouteActiveStaffPhoneToOwnerCommandCenter"
     },
     {
-      "id": "SA_OWNER_LOOKUP_TENANT_WIDE",
-      "taxonomy": "post_normalize",
-      "branch_id": "BR_OWNER_COMMAND_CENTER",
-      "path": "scripts/lib/staff-phone-access.js",
-      "pattern": "WHERE client_slug = $1"
-    },
-    {
-      "id": "SA_BLOCKED_PHONE_GATE",
+      "id": "CCI_INBOUND_PHONE_GATE_CALL",
+      "module": "inbound",
+      "site_type": "call",
       "taxonomy": "post_normalize",
       "branch_id": "BR_BLOCKED_PHONE_GATE",
       "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
       "pattern": "shouldBlockMetaGuestInboundAfterOpenDemo"
     },
     {
-      "id": "SA_OPEN_DEMO_ROUTE",
+      "id": "CCI_INBOUND_OPEN_DEMO_CALL",
+      "module": "inbound",
+      "site_type": "call",
       "taxonomy": "post_normalize",
       "branch_id": "BR_OPEN_DEMO",
       "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
       "pattern": "shouldRouteMetaInboundToOpenDemo"
     },
     {
-      "id": "SA_OPEN_DEMO_VALIDATION_FAILURE",
-      "taxonomy": "post_normalize",
-      "branch_id": "BR_OPEN_DEMO_VALIDATION_FAILURE",
-      "path": "scripts/lib/meta-open-demo-inbound-adapter.js",
-      "pattern": "if (!validation.ok)"
-    },
-    {
-      "id": "SA_GUEST_DRAFT_SEND_GATE",
+      "id": "CCI_INBOUND_DRAFT_SEND_CALL",
+      "module": "inbound",
+      "site_type": "call",
       "taxonomy": "post_normalize",
       "branch_id": "BR_GUEST_PERSIST_DRAFT_SEND",
       "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
       "pattern": "async function runDraftAndSendGate"
     },
     {
-      "id": "SA_TERMINAL_NO_DRAFT_SEND",
+      "id": "CCI_INBOUND_TERMINAL_NO_DRAFT_RETURN",
+      "module": "inbound",
+      "site_type": "return",
       "taxonomy": "post_normalize",
       "branch_id": "BR_TERMINAL_NO_DRAFT_SEND",
       "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
       "pattern": "if (normalized.supported && normalized.message_text)"
     },
     {
-      "id": "SA_PG_DOWNSTREAM_THROW_FIND",
+      "id": "CCI_INBOUND_GUEST_SEND_CALL",
+      "module": "inbound",
+      "site_type": "call",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_GUEST_PERSIST_DRAFT_SEND",
+      "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+      "pattern": "const sendBody = buildMetaWebhookSendBody(normalized, draftResult, sendKind)"
+    },
+    {
+      "id": "CCI_WEBHOOK_NORMALIZE_RETURN",
+      "module": "webhook",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_INCOMPLETE_IDENTITY",
+      "path": "scripts/lib/luna-meta-whatsapp-webhook.js",
+      "pattern": "function normalizeMetaWhatsAppWebhook"
+    },
+    {
+      "id": "CCI_WEBHOOK_DRAFT_RETURN",
+      "module": "webhook",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_GUEST_PERSIST_DRAFT_SEND",
+      "path": "scripts/lib/luna-meta-whatsapp-webhook.js",
+      "pattern": "function buildDraftInputFromNormalized"
+    },
+    {
+      "id": "CCI_WEBHOOK_SEND_RETURN",
+      "module": "webhook",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_GUEST_PERSIST_DRAFT_SEND",
+      "path": "scripts/lib/luna-meta-whatsapp-webhook.js",
+      "pattern": "function buildMetaWebhookSendBody"
+    },
+    {
+      "id": "CCI_WEBHOOK_IDEMPOTENCY_RETURN",
+      "module": "webhook",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_GUEST_PERSIST_DRAFT_SEND",
+      "path": "scripts/lib/luna-meta-whatsapp-webhook.js",
+      "pattern": "function buildMetaInboundIdempotencyKey"
+    },
+    {
+      "id": "CCI_WEBHOOK_RESPONSE_RETURN",
+      "module": "webhook",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_TERMINAL_NO_DRAFT_SEND",
+      "path": "scripts/lib/luna-meta-whatsapp-webhook.js",
+      "pattern": "function buildMetaWhatsAppWebhookPostResponse"
+    },
+    {
+      "id": "CCI_OWNER_SEND_RETURN",
+      "module": "owner",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_OWNER_COMMAND_CENTER",
+      "path": "scripts/lib/luna-owner-whatsapp-inbound.js",
+      "pattern": "function buildOwnerSendBody"
+    },
+    {
+      "id": "CCI_OWNER_REPLAY_RETURN",
+      "module": "owner",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_DUPLICATE_REPLAY",
+      "path": "scripts/lib/luna-owner-whatsapp-inbound.js",
+      "pattern": "function buildOwnerResponseFromStoredEvent"
+    },
+    {
+      "id": "CCI_OWNER_PROCESS_RETURN",
+      "module": "owner",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_OWNER_COMMAND_CENTER",
+      "path": "scripts/lib/luna-owner-whatsapp-inbound.js",
+      "pattern": "async function processOwnerWhatsAppCommandCenterInbound"
+    },
+    {
+      "id": "CCI_OWNER_WITHOUT_PERSISTENCE_RETURN",
+      "module": "owner",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_OWNER_COMMAND_CENTER",
+      "path": "scripts/lib/luna-owner-whatsapp-inbound.js",
+      "pattern": "async function processOwnerWhatsAppCommandCenterWithoutPersistence"
+    },
+    {
+      "id": "CCI_OWNER_SEND_CALL",
+      "module": "owner",
+      "site_type": "call",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_OWNER_COMMAND_CENTER",
+      "path": "scripts/lib/luna-owner-whatsapp-inbound.js",
+      "pattern": "const sendBody = buildOwnerSendBody(normalized, draft)"
+    },
+    {
+      "id": "CCI_OWNER_LOOKUP_TENANT_WIDE_CALL",
+      "module": "owner",
+      "site_type": "call",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_OWNER_COMMAND_CENTER",
+      "path": "scripts/lib/staff-phone-access.js",
+      "pattern": "WHERE client_slug = $1"
+    },
+    {
+      "id": "CCI_OPEN_DEMO_REQUEST_RETURN",
+      "module": "open_demo",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_OPEN_DEMO",
+      "path": "scripts/lib/meta-open-demo-inbound-adapter.js",
+      "pattern": "function buildOpenDemoRequestBodyFromMeta"
+    },
+    {
+      "id": "CCI_OPEN_DEMO_VALIDATION_FAILURE_RETURN",
+      "module": "open_demo",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_OPEN_DEMO_VALIDATION_FAILURE",
+      "path": "scripts/lib/meta-open-demo-inbound-adapter.js",
+      "pattern": "if (!validation.ok)"
+    },
+    {
+      "id": "CCI_OPEN_DEMO_PROCESS_RETURN",
+      "module": "open_demo",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_OPEN_DEMO",
+      "path": "scripts/lib/meta-open-demo-inbound-adapter.js",
+      "pattern": "async function processMetaOpenDemoGuestInbound"
+    },
+    {
+      "id": "CCI_SQL_FIND_THROW",
+      "module": "sql_replay",
+      "site_type": "throw",
       "taxonomy": "post_normalize",
       "branch_id": "BR_PG_OR_DOWNSTREAM_ERROR",
       "path": "scripts/lib/luna-guest-message-events-sql.js",
       "pattern": "throw err;"
     },
     {
-      "id": "SA_HTTP_NO_CATCH_AROUND_PG",
+      "id": "CCI_SQL_FIND_RETURN",
+      "module": "sql_replay",
+      "site_type": "return",
       "taxonomy": "post_normalize",
-      "branch_id": "BR_PG_OR_DOWNSTREAM_ERROR",
-      "path": "scripts/staff-query-api.js",
-      "pattern": "const processed = await withPgClient((pg) => processMetaWhatsAppWebhookInbound"
+      "branch_id": "BR_DUPLICATE_REPLAY",
+      "path": "scripts/lib/luna-guest-message-events-sql.js",
+      "pattern": "async function findGuestMessageEventByWaMessageId"
+    },
+    {
+      "id": "CCI_SQL_INSERT_CONFLICT_RETURN",
+      "module": "sql_replay",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_UNPROCESSED_DUPLICATE_CONFLICT_CONTINUE",
+      "path": "scripts/lib/luna-guest-message-events-sql.js",
+      "pattern": "ON CONFLICT (client_slug, wa_message_id) DO NOTHING"
+    },
+    {
+      "id": "CCI_SQL_SEED_RETURN",
+      "module": "sql_replay",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_GUEST_PERSIST_DRAFT_SEND",
+      "path": "scripts/lib/luna-guest-message-events-sql.js",
+      "pattern": "function buildInboundEventSeed"
+    },
+    {
+      "id": "CCI_SEND_GUEST_BUILDER_RETURN",
+      "module": "send",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_GUEST_PERSIST_DRAFT_SEND",
+      "path": "scripts/lib/luna-meta-whatsapp-webhook.js",
+      "pattern": "function buildMetaWebhookSendBody(normalized, draft, sendKind)"
+    },
+    {
+      "id": "CCI_SEND_OWNER_BUILDER_RETURN",
+      "module": "send",
+      "site_type": "return",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_OWNER_COMMAND_CENTER",
+      "path": "scripts/lib/luna-owner-whatsapp-inbound.js",
+      "pattern": "function buildOwnerSendBody(normalized, draft)"
+    },
+    {
+      "id": "CCI_SEND_GUEST_CALL",
+      "module": "send",
+      "site_type": "call",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_GUEST_PERSIST_DRAFT_SEND",
+      "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+      "pattern": "buildMetaWebhookSendBody(normalized, draftResult, sendKind)"
+    },
+    {
+      "id": "CCI_SEND_OWNER_CALL",
+      "module": "send",
+      "site_type": "call",
+      "taxonomy": "post_normalize",
+      "branch_id": "BR_OWNER_COMMAND_CENTER",
+      "path": "scripts/lib/luna-owner-whatsapp-inbound.js",
+      "pattern": "buildOwnerSendBody(normalized, draft)"
     }
   ],
   "pre_normalize_http_errors": [
@@ -266,8 +521,12 @@
       "replacement_required": {
         "authority_gate_before_pg": true,
         "lookup_key": "authoritative client_slug after gate",
-        "response_identity": "replay response.normalized must reflect lookup under authoritative client_slug; pre-authority rows may retain legacy slug",
-        "note": "Replays of pre-authority rows may retain legacy slug; new authoritative inserts must store live location_id on normalized"
+        "frozen_replay_identity_rule": "REPLAY_IDENTITY_COMPARE_REJECT_FILL",
+        "compare_stored_nonempty_with_authoritative": true,
+        "reject_stored_nonempty_conflicts": true,
+        "fill_legacy_missing_location_in_response_from_authoritative": true,
+        "rewrite_stored_history_on_replay": false,
+        "response_identity": "After compare/reject: response.normalized uses authoritative identity to fill legacy-missing location_id; stored nonempty client/location that conflict with authoritative are rejected; do not rewrite stored history"
       }
     },
     {
@@ -503,7 +762,11 @@
       },
       "replacement_required": {
         "authority_gate_before_pg": true,
-        "note": "Blocked identities must never reach PG error paths. When authority allows PG, error handling must not leak cross-tenant work; audit of failures should still prefer effective normalized identity when available."
+        "frozen_error_identity_rule": "ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED",
+        "downstream_failures_return_or_throw_structured_shape": true,
+        "structured_shape_carries_effective_normalized": true,
+        "http_failure_audit_and_response_use_effective_normalized": true,
+        "note": "Blocked identities must never reach PG error paths. When authority allows PG, downstream failures must return or throw a structured shape carrying effective normalized identity so HTTP failure audit and response use it."
       }
     }
   ],

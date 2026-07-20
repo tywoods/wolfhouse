@@ -7,7 +7,7 @@
 
 ## Outcome
 
-Freeze a complete, **source-anchor-driven** design for Meta WhatsApp POST tenant authority **before** any replacement implementation. Enumerate every real pre- and post-normalize branch, map `client_slug` / `location_id` through persistence → draft → send → idempotency → response → HTTP audit, and name the exact shared owner where authority must be enforced **before PostgreSQL acquisition**.
+Freeze a complete design for Meta WhatsApp POST tenant authority **before** any replacement implementation. Enumerate every real pre- and post-normalize branch, map `client_slug` / `location_id` through persistence → draft → send → idempotency → response → HTTP audit, and name the exact shared owner where authority must be enforced **before PostgreSQL acquisition**.
 
 ## Taxonomy (pre vs post normalize)
 
@@ -16,7 +16,36 @@ Freeze a complete, **source-anchor-driven** design for Meta WhatsApp POST tenant
 | **pre_normalize** | HTTP failures before `normalizeMetaWhatsAppWebhook` (body read / signature / invalid JSON). No live identity. `acquires_pg=false`. Outside the authority-identity surface except as contrast. |
 | **post_normalize** | Everything after successful normalize on master today (incomplete identity, replay, unprocessed conflict continue, table-unavailable, owner, phone gate, open-demo ± validation failure, guest draft/send, terminal no-draft/send, PG/downstream errors). |
 
-Completeness is proven by `source_anchors` in `slice15g2-branch-matrix.json` (pattern present in named source file → maps to a branch id), **not** by a self-authored ID checklist in the verifier.
+## Completeness (narrowed, honest)
+
+Full AST derivation of every return/throw/call site across Meta POST modules is **impractical** for this offline freeze.
+
+Completeness method: **`source_derived_control_consumer_inventory`**.
+
+- Inventory covers return / throw / call sites in **HTTP, inbound, webhook, owner, open-demo, SQL/replay, and send** modules.
+- Every named consumer/control anchor must be present in its named source file.
+- Owner source (`scripts/lib/luna-owner-whatsapp-inbound.js`) **must** be included in verification.
+- This does **not** claim machine-proven exhaustiveness of every AST node.
+
+Machine-readable inventory: `control_consumer_inventory` in `slice15g2-branch-matrix.json`.
+
+## Frozen identity rules (unambiguous)
+
+### Replay — `REPLAY_IDENTITY_COMPARE_REJECT_FILL`
+
+> Replay must compare stored nonempty client_slug/location_id with current authoritative identity, reject conflicts, and use authoritative identity to fill legacy-missing location in the response without rewriting history.
+
+- Compare stored nonempty `client_slug` / `location_id` with current authoritative identity.
+- Reject when a stored nonempty field conflicts with authoritative.
+- If stored location is legacy-missing and authoritative has `location_id`, fill **response** identity from authoritative.
+- Do **not** rewrite stored history (no UPDATE inventing `location_id` on the row solely for replay).
+
+### Error — `ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED`
+
+> Downstream failures must return or throw a structured shape carrying effective normalized identity so HTTP failure audit and response use it.
+
+- Downstream failures after authority allows PG must return **or** throw a structured shape that carries effective normalized identity.
+- HTTP failure audit and response must use that identity (not a stale pre-authority snapshot / not identity-less).
 
 ## Current master path (vulnerable)
 
@@ -44,7 +73,7 @@ Hard blocking is off. Shadow may resolve Sunset while live handling stays Wolfho
 | ID | Branch | PG today | Notes |
 |----|--------|----------|-------|
 | BR_INCOMPLETE_IDENTITY | missing wa_message_id / client_slug | yes | |
-| BR_DUPLICATE_REPLAY | processed event replay (guest or owner) | yes | lookup + response identity |
+| BR_DUPLICATE_REPLAY | processed event replay (guest or owner) | yes | frozen replay identity rule |
 | BR_UNPROCESSED_DUPLICATE_CONFLICT_CONTINUE | unprocessed existing / ON CONFLICT → continue | yes | not replay |
 | BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE | table_missing on **find or insert** | yes | renamed from no-persistence; **other reads/writes may continue** |
 | BR_OWNER_COMMAND_CENTER | staff phone → Command Center | yes | owner reads are **tenant-wide** (`client_slug` only) |
@@ -53,9 +82,9 @@ Hard blocking is off. Shadow may resolve Sunset while live handling stays Wolfho
 | BR_OPEN_DEMO_VALIDATION_FAILURE | `validateOpenDemoInboundBody` fails | yes | no execute |
 | BR_GUEST_PERSIST_DRAFT_SEND | supported+text → draft (±send) | yes | |
 | BR_TERMINAL_NO_DRAFT_SEND | unsupported/empty → no draft/send | yes | still returns normalized |
-| BR_PG_OR_DOWNSTREAM_ERROR | non-table_missing throw / uncaught PG | yes | no Meta success envelope |
+| BR_PG_OR_DOWNSTREAM_ERROR | non-table_missing throw / uncaught PG | yes | frozen error identity rule |
 
-Full machine-readable map + source anchors: `fixtures/fortress-tenant-identity/slice15g2-branch-matrix.json`.
+Full machine-readable map + inventory: `fixtures/fortress-tenant-identity/slice15g2-branch-matrix.json`.
 
 ## Shared owner (authority before PG)
 
@@ -95,7 +124,9 @@ Bounded slice `FORTRESS-15H` / `15H_meta_ingress_authority_enforce_before_pg`:
 - Known `phone_number_id` → resolver `client_slug`+`location_id` authoritative through persistence, draft, send, idempotency, response
 - Unknown/missing/ambiguous/conflicting → block with `acquired_pg=false` and zero downstream calls
 - PostEntry returns effective normalized; **HTTP audit** uses it
-- Prove post-authority identity at: owner lookup/query/send/storage/replay; open-demo request/execution; blocked-phone gate; replay lookup/response; **both** table-missing entry points; terminal no-draft/send; open-demo validation failure + error handling posture
+- Prove post-authority identity at: owner lookup/query/send/storage/replay; open-demo request/execution; blocked-phone gate; replay lookup/response; **both** table-missing entry points; terminal no-draft/send; open-demo validation failure
+- **Replay:** compare/reject/fill per frozen rule (no history rewrite)
+- **Errors:** structured shape with effective normalized for HTTP failure audit/response
 - Owner reads remain tenant-wide
 - Do not merge deferred 15G; do not rewrite 15A historical B02 `vulnerable` verdict
 
