@@ -206,6 +206,73 @@ red('empty_query_client', (() => {
   return !r.ok && r.reason === 'empty_request_tenant_alias';
 })());
 
+red('null_body_client_slug', (() => {
+  const body = { client_slug: null };
+  const r = resolveStaffBotRequestEffectiveTenant({
+    authMode: 'bot_token',
+    user: botWh,
+    body,
+    query: {},
+  });
+  return !r.ok
+    && r.reason === 'empty_request_tenant_alias'
+    && r.invoke_handler === false
+    && Object.prototype.hasOwnProperty.call(body, 'client_slug')
+    && collectStaffBotRequestTenantAliases(body, {}).length === 1;
+})());
+
+red('null_query_client', (() => {
+  const query = { client: null };
+  const r = resolveStaffBotRequestEffectiveTenant({
+    authMode: 'bot_token',
+    user: botWh,
+    body: {},
+    query,
+  });
+  return !r.ok
+    && r.reason === 'empty_request_tenant_alias'
+    && r.invoke_handler === false
+    && Object.prototype.hasOwnProperty.call(query, 'client');
+})());
+
+red('undefined_present_body_client', (() => {
+  const body = { client: undefined };
+  const r = resolveStaffBotRequestEffectiveTenant({
+    authMode: 'bot_token',
+    user: botWh,
+    body,
+    query: {},
+  });
+  return !r.ok
+    && r.reason === 'empty_request_tenant_alias'
+    && r.invoke_handler === false
+    && Object.prototype.hasOwnProperty.call(body, 'client');
+})());
+
+red('undefined_present_query_client_slug', (() => {
+  const query = { client_slug: undefined };
+  const r = resolveStaffBotRequestEffectiveTenant({
+    authMode: 'bot_token',
+    user: botWh,
+    body: {},
+    query,
+  });
+  return !r.ok
+    && r.reason === 'empty_request_tenant_alias'
+    && r.invoke_handler === false
+    && Object.prototype.hasOwnProperty.call(query, 'client_slug');
+})());
+
+red('non_string_body_client_slug', (() => {
+  const r = resolveStaffBotRequestEffectiveTenant({
+    authMode: 'bot_token',
+    user: botWh,
+    body: { client_slug: 123 },
+    query: {},
+  });
+  return !r.ok && r.reason === 'empty_request_tenant_alias' && r.invoke_handler === false;
+})());
+
 red('conflicting_aliases', (() => {
   const r = resolveStaffBotRequestEffectiveTenant({
     authMode: 'bot_token',
@@ -302,6 +369,58 @@ red('route_inventory_conflict_zero_handler', (() => {
   });
 })());
 
+red('route_null_body_alias_zero_handler', (() => {
+  const { out, handlerCalls, denied } = runPrincipalDispatch(
+    botWh,
+    { client_slug: null },
+    {},
+  );
+  return out.ok === false
+    && out.handler_called === false
+    && handlerCalls === 0
+    && denied
+    && denied.reason === 'empty_request_tenant_alias';
+})());
+
+red('route_null_query_alias_zero_handler', (() => {
+  const { out, handlerCalls, denied } = runPrincipalDispatch(
+    botWh,
+    {},
+    { client: null },
+  );
+  return out.ok === false
+    && out.handler_called === false
+    && handlerCalls === 0
+    && denied
+    && denied.reason === 'empty_request_tenant_alias';
+})());
+
+red('route_undefined_present_body_alias_zero_handler', (() => {
+  const { out, handlerCalls, denied } = runPrincipalDispatch(
+    botWh,
+    { client: undefined },
+    {},
+  );
+  return out.ok === false
+    && out.handler_called === false
+    && handlerCalls === 0
+    && denied
+    && denied.reason === 'empty_request_tenant_alias';
+})());
+
+red('route_undefined_present_query_alias_zero_handler', (() => {
+  const { out, handlerCalls, denied } = runPrincipalDispatch(
+    botWh,
+    {},
+    { client_slug: undefined },
+  );
+  return out.ok === false
+    && out.handler_called === false
+    && handlerCalls === 0
+    && denied
+    && denied.reason === 'empty_request_tenant_alias';
+})());
+
 green('guarded_inventory_wired', (() => {
   const callSites = (staffApi.match(/return dispatchBotRouteBoundToPrincipalTenant\(/g) || []).length;
   const sunsetSites = (staffApi.match(/return dispatchBotRouteWithEffectiveTenant\(auth, res, SUNSET_CLIENT_SLUG/g) || []).length;
@@ -343,7 +462,7 @@ ok('pause routes remain requireAuth (staff session preserved)', (() => {
 })());
 ok('committed evidence counts match',
   committedEvidence.guarded_route_count === inventory.length
-  && committedEvidence.red.total === 7
+  && committedEvidence.red.total === 16
   && committedEvidence.green.total === 6);
 
 console.log('\n── Secret-free scan ──');

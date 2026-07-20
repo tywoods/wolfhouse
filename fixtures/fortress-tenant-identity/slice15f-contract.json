@@ -24,7 +24,7 @@
       "bot_token": {
         "effective": "principal.client_slug",
         "omission": "allowed (principal supplies tenant)",
-        "empty_alias": "fail closed empty_request_tenant_alias",
+        "empty_alias": "fail closed empty_request_tenant_alias (present null/undefined/empty/non-string; key absence remains omission)",
         "conflict": "fail closed request_tenant_conflict before handler",
         "no_hardcoded_default": true
       },

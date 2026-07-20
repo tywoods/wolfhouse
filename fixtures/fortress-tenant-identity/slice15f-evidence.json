@@ -5,8 +5,8 @@
   "master_basis": "11926ad855105a93e85cfd5645ff6bd226129edb",
   "live_mutation": false,
   "red": {
-    "total": 7,
-    "passed": 7,
+    "total": 16,
+    "passed": 16,
     "cases": [
       {
         "id": "conflict_body_client_slug",
@@ -29,11 +29,47 @@
         "ok": true
       },
       {
+        "id": "null_body_client_slug",
+        "ok": true
+      },
+      {
+        "id": "null_query_client",
+        "ok": true
+      },
+      {
+        "id": "undefined_present_body_client",
+        "ok": true
+      },
+      {
+        "id": "undefined_present_query_client_slug",
+        "ok": true
+      },
+      {
+        "id": "non_string_body_client_slug",
+        "ok": true
+      },
+      {
         "id": "conflicting_aliases",
         "ok": true
       },
       {
         "id": "route_inventory_conflict_zero_handler",
+        "ok": true
+      },
+      {
+        "id": "route_null_body_alias_zero_handler",
+        "ok": true
+      },
+      {
+        "id": "route_null_query_alias_zero_handler",
+        "ok": true
+      },
+      {
+        "id": "route_undefined_present_body_alias_zero_handler",
+        "ok": true
+      },
+      {
+        "id": "route_undefined_present_query_alias_zero_handler",
         "ok": true
       }
     ]
@@ -68,7 +104,7 @@
       }
     ]
   },
-  "pass": 26,
+  "pass": 35,
   "fail": 0,
   "gates_note": "offline only; zero live Stripe/DB/payment/deploy/guest/WhatsApp mutation; verifier does not rewrite this file",
   "guarded_route_count": 40,

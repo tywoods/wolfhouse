@@ -20,7 +20,8 @@ const BODY_ALIAS_KEYS = ['client_slug', 'client'];
 const QUERY_ALIAS_KEYS = ['client_slug', 'client'];
 
 /**
- * Collect present tenant alias fields from body/query (including empty strings).
+ * Collect present tenant alias fields from body/query (including null,
+ * undefined, empty strings, and non-strings). Key absence is omission.
  * @param {object|null|undefined} body
  * @param {object|null|undefined} query
  * @returns {Array<{ source: string, key: string, raw: * }>}
@@ -90,16 +91,21 @@ function resolveStaffBotRequestEffectiveTenant(input) {
     };
   }
 
-  // Explicit empty / whitespace-only present alias keys → fail closed
+  // Present alias keys: distinguish absence (omission) from explicit
+  // null / undefined / empty / non-string — those fail closed. True omission
+  // (key not collected) still falls through to the trusted principal.
   for (const alias of aliases) {
-    if (alias.raw == null) continue;
-    if (typeof alias.raw === 'string' && alias.raw.trim() === '') {
+    const raw = alias.raw;
+    const invalid = raw == null
+      || typeof raw !== 'string'
+      || raw.trim() === '';
+    if (invalid) {
       return {
         ok: false,
         invoke_handler: false,
         reason: 'empty_request_tenant_alias',
         effective_client_slug: principal || null,
-        requested_client_slug: '',
+        requested_client_slug: typeof raw === 'string' ? raw.trim() : '',
         principal_client_slug: principal || null,
         source: `${alias.source}.${alias.key}`,
         defer_default: false,
