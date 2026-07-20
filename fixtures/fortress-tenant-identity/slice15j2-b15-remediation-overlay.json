@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15J2",
+  "boundary_id": "B15_booking_hold_payment_callbacks",
+  "status": "remediated",
+  "historical_audit_unchanged": true,
+  "historical_artifacts": [
+    "fixtures/fortress-tenant-identity/boundary-matrix.json",
+    "fixtures/fortress-tenant-identity/attack-cases.json",
+    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md",
+    "fixtures/fortress-tenant-identity/slice15i-b14-b15-audit-overlay.json",
+    "fixtures/fortress-tenant-identity/slice15i-contract.json",
+    "fixtures/fortress-tenant-identity/slice15i-evidence.json",
+    "fixtures/fortress-tenant-identity/slice15i-b15-remediation-contract.json"
+  ],
+  "note": "15A matrix/doc retain pre-fix unproven verdict for B15 as historical audit. 15I overlay retains reaudit vulnerable verdict + design-only contract as historical audit. This overlay records the 15J2 remediation of the three path-UUID payment-link callbacks without rewriting 15A/15I artifacts. Clean implementation from master 6d9f0e9 — not built on deferred FORTRESS-15J branch.",
+  "remediation": {
+    "outcome_id": "15J2_payment_uuid_callback_tenant_acl_safe_harness",
+    "design_freeze": "FORTRESS-15I / slice15i-b15-remediation-contract.json",
+    "owner_files": [
+      "scripts/lib/payment-uuid-callback-tenant-acl.js",
+      "scripts/lib/staff-query-api-fortress15j2-offline-harness.js",
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-bot-v2-routes.js"
+    ],
+    "controls": [
+      "staff payment UUID: read-only payment.client_slug lookup then assertStaffClientAccess (canonical ACL, silent sink) before Stripe SDK / createPaymentLink; foreign deny normalized to same uniform 404 as nonexistent UUID",
+      "bot payment UUID: require nonempty boundClientSlug; SELECT payment AND cl.slug = boundClientSlug; 403 if unbound; 404 uniform miss on cross-tenant; trustedClientSlug = bound",
+      "staff service-records booking UUID: read-only booking.client_slug then assertStaffClientAccess (silent) before payment INSERT / Stripe; foreign deny ≡ nonexistent 404 (preserves secondary-client staff ACL)",
+      "fail closed with no foreign client_slug / amount / booking / checkout disclosure on staff deny paths",
+      "guest short links, B13 webhook lookup, B14 locked-payment identity unchanged",
+      "offline harness: dual-gate NODE_ENV=test + STAFF_API_FORTRESS_OFFLINE_LISTENER=1; no STAFF_PORTAL_ACCESS_FILE override"
+    ]
+  },
+  "master_basis_15a": "8ed81111b9a67a656dee0b7dbd5a46ab91ca125c",
+  "master_basis_15i": "6d9f0e99c6c00d9831710c392ec3ac41dcef811b",
+  "master_basis_15j2": "6d9f0e99c6c00d9831710c392ec3ac41dcef811b",
+  "live_mutation": false
+}

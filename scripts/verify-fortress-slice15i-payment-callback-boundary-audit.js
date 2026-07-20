@@ -251,20 +251,43 @@ ok('B13 lookup still tenant-bound (context, not assumed close of B15)',
 
 console.log('\n── B15 callback consumers ──');
 
+// Live-code evidence: historical 15I reaudit stays frozen in overlay/evidence.
+// When Slice 15J2 remediation overlay exists, assert remediating patterns instead of
+// re-asserting the pre-fix vulnerable handler shape against live code.
+const remediation15j2OverlayPath = path.join(FIXTURE_DIR, 'slice15j2-b15-remediation-overlay.json');
+const has15j2Remediation = fs.existsSync(remediation15j2OverlayPath);
+const overlay15j2 = has15j2Remediation ? readJson(remediation15j2OverlayPath) : null;
+const aclLibSrc = has15j2Remediation
+  ? readText(path.join(ROOT, 'scripts/lib/payment-uuid-callback-tenant-acl.js'))
+  : '';
+
 red('AC15I_B15_STAFF_PAYMENT_UUID_NO_ACL',
-  /FROM payments p[\s\S]{0,120}WHERE p\.id = \$1::uuid/.test(staffPayFn)
-  && !/assertStaffClientAccess/.test(staffPayFn)
-  && /trustedClientSlug:\s*clientSlug/.test(staffPayFn));
+  has15j2Remediation
+    ? (overlay15j2.status === 'remediated'
+      && overlay15j2.historical_audit_unchanged === true
+      && /gateStaffPaymentUuidCallbackTenantAcl/.test(staffPayFn)
+      && /assertStaffClientAccess/.test(staffPayFn))
+    : (/FROM payments p[\s\S]{0,120}WHERE p\.id = \$1::uuid/.test(staffPayFn)
+      && !/assertStaffClientAccess/.test(staffPayFn)
+      && /trustedClientSlug:\s*clientSlug/.test(staffPayFn)));
 
 red('AC15I_B15_BOT_PAYMENT_UUID_IGNORES_BOUND',
-  /FROM payments p[\s\S]{0,120}WHERE p\.id = \$1::uuid/.test(botPayFn)
-  && !/boundClientSlug/.test(botPayFn)
-  && /trustedClientSlug:\s*clientSlug/.test(botPayFn));
+  has15j2Remediation
+    ? (/gateBotPaymentUuidCallbackTenantAcl/.test(botPayFn)
+      && /boundClientSlug/.test(botPayFn)
+      && /AND cl\.slug = \$2/.test(aclLibSrc))
+    : (/FROM payments p[\s\S]{0,120}WHERE p\.id = \$1::uuid/.test(botPayFn)
+      && !/boundClientSlug/.test(botPayFn)
+      && /trustedClientSlug:\s*clientSlug/.test(botPayFn)));
 
 red('AC15I_B15_SERVICE_RECORDS_WEAK_CLIENT_ID',
-  /WHERE b\.id = \$1/.test(staffSvcFn)
-  && /user\.client_id/.test(staffSvcFn)
-  && !/assertStaffClientAccess/.test(staffSvcFn));
+  has15j2Remediation
+    ? (/gateStaffBookingUuidCallbackTenantAcl/.test(staffSvcFn)
+      && /assertStaffClientAccess/.test(staffSvcFn)
+      && !/user\.client_id/.test(staffSvcFn))
+    : (/WHERE b\.id = \$1/.test(staffSvcFn)
+      && /user\.client_id/.test(staffSvcFn)
+      && !/assertStaffClientAccess/.test(staffSvcFn)));
 
 green('AC15I_B15_SHORT_LINK_SQL_SCOPED',
   /WHERE c\.slug = \$1[\s\S]{0,40}AND UPPER\(b\.booking_code\) = UPPER\(\$2\)/.test(shortLinkSrc));
