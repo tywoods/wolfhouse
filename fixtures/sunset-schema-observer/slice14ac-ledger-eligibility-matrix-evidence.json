@@ -1,0 +1,1542 @@
+{
+  "kind": "slice14ac-ledger-eligibility-matrix-evidence",
+  "slice": "14AC",
+  "masterShaBasis": "0b92b7eff718f928ccb590d287830d4d104c37c4",
+  "applicationName": "wh-sunset-ledger-eligibility",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "productFingerprintExpected": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "checksumMode": "canonical_lf_v1",
+  "secretFree": true,
+  "liveMutation": false,
+  "schemaMutation": false,
+  "dataMutation": false,
+  "ledgerWritten": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "networkMutation": false,
+  "offline": {
+    "red": [
+      {
+        "name": "default_path_zero_http_and_clients",
+        "ok": true
+      },
+      {
+        "name": "missing_prove_flag_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "missing_ledger_eligibility_env_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "wrong_exact_targets_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "forbidden_argv_dsn_sql_drop_dml_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "zero_drift_missing_fails",
+        "ok": true,
+        "detail": {
+          "code": "zero_drift_missing"
+        }
+      },
+      {
+        "name": "ledger_present_fails",
+        "ok": true,
+        "detail": {
+          "code": "ledger_present"
+        }
+      },
+      {
+        "name": "checksum_drift_fails",
+        "ok": true,
+        "detail": {
+          "code": "checksum_drift"
+        }
+      },
+      {
+        "name": "partial_ambiguous_effect_fails",
+        "ok": true,
+        "detail": {
+          "code": "partial_effect_unproven"
+        }
+      },
+      {
+        "name": "unproven_dml_fails",
+        "ok": true,
+        "detail": {
+          "code": "unproven_dml"
+        }
+      },
+      {
+        "name": "unproven_comment_fails",
+        "ok": true,
+        "detail": {
+          "code": "unproven_comment"
+        }
+      },
+      {
+        "name": "unproven_rename_fails",
+        "ok": true,
+        "detail": {
+          "code": "unproven_rename"
+        }
+      },
+      {
+        "name": "dec006_failures_fail_closed",
+        "ok": true,
+        "detail": {
+          "code": "dec006_fail"
+        }
+      },
+      {
+        "name": "gap_noncontiguous_prefix_fails",
+        "ok": true,
+        "detail": {
+          "code": "gap_noncontiguous"
+        }
+      },
+      {
+        "name": "mislabel_executed_runner_fails",
+        "ok": true,
+        "detail": {
+          "code": "mislabel_executed_runner"
+        }
+      },
+      {
+        "name": "expected_bytes_change_fails",
+        "ok": true
+      }
+    ],
+    "green": [
+      {
+        "name": "forward_count_39_canonical_lf_v1",
+        "ok": true
+      },
+      {
+        "name": "cli_gates_exact_targets",
+        "ok": true
+      },
+      {
+        "name": "cli_default_disabled",
+        "ok": true
+      },
+      {
+        "name": "locks_identity_vault_secret_pg_tls_application_name",
+        "ok": true
+      },
+      {
+        "name": "global_live_apply_remains_false",
+        "ok": true
+      },
+      {
+        "name": "dec006_018_019_pass_with_metadata",
+        "ok": true,
+        "detail": {
+          "id018": "018_booking_service_records_nullable_service_date",
+          "id019": "019_bookings_language",
+          "classification018": "eligible_verified_structural_baseline",
+          "classification019": "eligible_verified_structural_baseline"
+        }
+      },
+      {
+        "name": "dec006_020_requires_aggregate_for_current_state",
+        "ok": true,
+        "detail": {
+          "aggregate0": "unproven_dml_zero_aggregate",
+          "aggregatePositive": "eligible_verified_current_state_baseline"
+        }
+      },
+      {
+        "name": "never_labels_executed_by_canonical_runner",
+        "ok": true
+      },
+      {
+        "name": "design_ledger_ddl_extensions_additive_only",
+        "ok": true
+      },
+      {
+        "name": "contiguous_prefix_algorithm",
+        "ok": true
+      },
+      {
+        "name": "offline_injected_authority_same_target",
+        "ok": true,
+        "detail": {
+          "code": "ledger_eligibility_matrix_ok",
+          "sameTarget": true,
+          "maxPrefixCount": 18
+        }
+      }
+    ]
+  },
+  "offlineMatrix": {
+    "forwardCount": 39,
+    "maxPrefixCount": 18,
+    "maxPrefixOrder": 18,
+    "firstBlocker": {
+      "id": "020_wolfhouse_room_gender_metadata",
+      "apply_order": 19,
+      "blockedReason": "unproven_dml_zero_aggregate"
+    },
+    "proposedLedgerRowCount": 18,
+    "note": "Offline fixture uses DEC-006 aggregate 0 (Sunset-likely); first blocker 020 at prefix 18"
+  },
+  "eligibilitySummary": {
+    "forwardCount": 39,
+    "maxPrefixCount": 18,
+    "maxPrefixOrder": 18,
+    "firstBlocker": {
+      "id": "020_wolfhouse_room_gender_metadata",
+      "apply_order": 19,
+      "blockedReason": "unproven_dml_zero_aggregate"
+    },
+    "proposedLedgerRowCount": 18
+  },
+  "proposedLedgerRows": [
+    {
+      "id": "001_init",
+      "filename": "001_init.sql",
+      "checksum_sha256": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+      "apply_order": 1,
+      "apply_kind": "verified_current_state_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:extensions:pgcrypto",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline)"
+    },
+    {
+      "id": "003_rename_hostel_to_client",
+      "filename": "003_rename_hostel_to_client.sql",
+      "checksum_sha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+      "apply_order": 2,
+      "apply_kind": "verified_current_state_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "weak:renames:public.IF",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline)"
+    },
+    {
+      "id": "002_package_pricing",
+      "filename": "002_package_pricing.sql",
+      "checksum_sha256": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+      "apply_order": 3,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.package_price_rules",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "004_payment_schema_phase2",
+      "filename": "004_payment_schema_phase2.sql",
+      "checksum_sha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+      "apply_order": 4,
+      "apply_kind": "verified_current_state_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:enums:public.payment_kind_v2",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline)"
+    },
+    {
+      "id": "005_payment_intent_unique_partial",
+      "filename": "005_payment_intent_unique_partial.sql",
+      "checksum_sha256": "57ca5eb7b49a368f4cb24f858735c9e74b6689b21eb0c9e209ee0ad5b82a78ec",
+      "apply_order": 5,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:indexes:public.payments.payments_stripe_payment_intent_id_unique",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "006_confirmation_sent_at",
+      "filename": "006_confirmation_sent_at.sql",
+      "checksum_sha256": "8adf2ba65d4c1c06728317cb9501274e43ff11fbb1cd8cce0a71636d141dc544",
+      "apply_order": 6,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:columns:public.bookings.confirmation_sent_at",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "007_add_addon_orders",
+      "filename": "007_add_addon_orders.sql",
+      "checksum_sha256": "4000be0a42cb17ae92d5001d6203a964a9eb9ed26d0d92fed73f61d80a84e300",
+      "apply_order": 7,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.add_on_orders",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "008_add_staff_handoffs",
+      "filename": "008_add_staff_handoffs.sql",
+      "checksum_sha256": "3c07e60ceebbf6a6ae0d6122540fe6d3bf32af30171314c9db0e32867ae02a70",
+      "apply_order": 8,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.staff_handoffs",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "009_auth_staff_users",
+      "filename": "009_auth_staff_users.sql",
+      "checksum_sha256": "b130017563616937b16fb9b5f43ac8e9adefd1d8470662e34f5f71e5477a6e22",
+      "apply_order": 9,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.staff_users",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "010_booking_service_records",
+      "filename": "010_booking_service_records.sql",
+      "checksum_sha256": "237d20d2379c974a26efb171735718c63dadcd54adc564ba99b33dd1020a3d1a",
+      "apply_order": 10,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.booking_service_records",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "011_service_payment_linkage",
+      "filename": "011_service_payment_linkage.sql",
+      "checksum_sha256": "3ae97e90b12c3ad284296ae36070d57302d61d5e857a16b66348c2d2ebab3d39",
+      "apply_order": 11,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:columns:public.booking_service_records.payment_id",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "012_bot_pause_states",
+      "filename": "012_bot_pause_states.sql",
+      "checksum_sha256": "cdb3915d1db0e48c9dae06487a5bad4c3bcfe6a43da796d031354ec75b7b9486",
+      "apply_order": 12,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.bot_pause_states",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "013_guest_message_sends",
+      "filename": "013_guest_message_sends.sql",
+      "checksum_sha256": "beb7dd1ebdc32ac41b39875f7f616d72f2b47c4e4b18ec6d8cb92beffc667a82",
+      "apply_order": 13,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.guest_message_sends",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "014_guest_message_events",
+      "filename": "014_guest_message_events.sql",
+      "checksum_sha256": "2995260bfdc7eb238b177bddfccc2b6c164e42c2c3a3465a2a4009212edcf44d",
+      "apply_order": 14,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.guest_message_events",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "016_staff_phone_access",
+      "filename": "016_staff_phone_access.sql",
+      "checksum_sha256": "c526bea8ac25c0ef12739d541809141a1d68a0eedab292488ca346b26f14c64d",
+      "apply_order": 15,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.staff_phone_access",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "017_booking_transfers",
+      "filename": "017_booking_transfers.sql",
+      "checksum_sha256": "6278a9de6647ee082a639934bf34bac17e8e8037cfc5521eb66b47253a7e310c",
+      "apply_order": 16,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.booking_transfers",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "018_booking_service_records_nullable_service_date",
+      "filename": "018_booking_service_records_nullable_service_date.sql",
+      "checksum_sha256": "80bbadff728382f6c9ef20ada35f40279921b7bc411b9f1e0771bb67783bf2f6",
+      "apply_order": 17,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "dec006:018-col-nullability",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "019_bookings_language",
+      "filename": "019_bookings_language.sql",
+      "checksum_sha256": "95354b32377fcc390990b2296d7bb19385e070d2153806e28708b0d2ab42d622",
+      "apply_order": 18,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "dec006:019-column-present",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    }
+  ],
+  "ledgerDdlDesign": {
+    "designOnly": true,
+    "executes": false,
+    "baseLedgerDdl": "CREATE TABLE IF NOT EXISTS schema_migration_ledger (\n  id TEXT PRIMARY KEY,\n  filename TEXT NOT NULL UNIQUE,\n  checksum_sha256 TEXT NOT NULL,\n  apply_order INTEGER NOT NULL,\n  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);",
+    "additiveDdl": "ALTER TABLE schema_migration_ledger\n  ADD COLUMN IF NOT EXISTS apply_kind TEXT\n    CHECK (apply_kind IN (\n      'verified_structural_baseline',\n      'verified_current_state_baseline',\n      'executed_by_canonical_runner'\n    ));\nALTER TABLE schema_migration_ledger\n  ADD COLUMN IF NOT EXISTS evidence_ref TEXT;\nALTER TABLE schema_migration_ledger\n  ADD COLUMN IF NOT EXISTS provenance_notes TEXT;\nALTER TABLE schema_migration_ledger\n  ADD COLUMN IF NOT EXISTS checksum_mode TEXT NOT NULL DEFAULT 'canonical_lf_v1';",
+    "compatibilityNotes": [
+      "Additive columns only; existing Slice 4 ledger rows remain valid.",
+      "Bootstrap rows use apply_kind verified_structural_baseline or verified_current_state_baseline only.",
+      "Never insert executed_by_canonical_runner during bootstrap (Slice 13B / DEC-005).",
+      "checksum_mode canonical_lf_v1 for new baseline rows; legacy acceptance via Slice 13A.1 exact legacySha256 only.",
+      "applied_at: baseline rows may use explicit applied_at NULL policy in future runner; 14AC does not fabricate applied_at.",
+      "Future runner appends executed_by_canonical_runner with canonical sha256 at apply time."
+    ],
+    "legacyHashPolicy": {
+      "checksumMode": "canonical_lf_v1",
+      "acceptedModes": [
+        "canonical_lf_v1",
+        "legacy_crlf_era_exact"
+      ],
+      "contractRef": "scripts/lib/migration-integrity.js → ledgerChecksumAccepted",
+      "note": "Exact legacySha256 acceptance only under Slice 13A.1; bootstrap rows use canonical_lf_v1 sha256."
+    }
+  },
+  "liveOutcome": {
+    "ok": true,
+    "code": "ledger_eligibility_matrix_ok",
+    "sameTarget": true,
+    "sessionReadOnly": true,
+    "transactionReadOnly": true,
+    "serverVersionClass": {
+      "ok": true,
+      "serverVersionNum": 150018,
+      "serverVersion": "15.18",
+      "major": 15,
+      "versionClass": "postgresql_15"
+    },
+    "remainingMismatchCount": 0,
+    "remainingKeys": [],
+    "productFingerprintLive": "039b67d034d4bd1eec68cf8a348a1f6fad2b13bcc526f24584127d028d3f0c12",
+    "applicationName": "wh-sunset-ledger-eligibility",
+    "httpRequestCount": 6,
+    "clientsInstantiated": 1,
+    "realPostgresCall": true,
+    "ledgerGate": {
+      "ok": true,
+      "ledgerPresent": false,
+      "method": "snapshot_tables"
+    },
+    "ledgerAbsent": true,
+    "firstBlocker": {
+      "id": "020_wolfhouse_room_gender_metadata",
+      "apply_order": 19,
+      "blockedReason": "unproven_dml_zero_aggregate"
+    },
+    "maxPrefixCount": 18,
+    "maxPrefixOrder": 18,
+    "proposedLedgerRowCount": 18,
+    "eligibilitySummary": {
+      "forwardCount": 39,
+      "maxPrefixCount": 18,
+      "maxPrefixOrder": 18,
+      "firstBlocker": {
+        "id": "020_wolfhouse_room_gender_metadata",
+        "apply_order": 19,
+        "blockedReason": "unproven_dml_zero_aggregate"
+      },
+      "proposedLedgerRowCount": 18,
+      "classificationCounts": {
+        "eligible_verified_structural_baseline": 15,
+        "eligible_verified_current_state_baseline": 3,
+        "blocked_unproven": 1,
+        "blocked_by_prefix": 20
+      },
+      "effectTotals": {
+        "extensions": 1,
+        "enums": 17,
+        "functions": 5,
+        "tables": 53,
+        "columns": 78,
+        "triggers": 43,
+        "indexes": 176,
+        "renames": 2,
+        "drops": 16,
+        "comments": 73,
+        "data_mutations": 11,
+        "defaults": 8,
+        "constraints": 6
+      }
+    },
+    "eligibilityMatrix": {
+      "forwardCount": 39,
+      "maxPrefixCount": 18,
+      "maxPrefixOrder": 18,
+      "firstBlocker": {
+        "id": "020_wolfhouse_room_gender_metadata",
+        "apply_order": 19,
+        "blockedReason": "unproven_dml_zero_aggregate"
+      },
+      "proposedLedgerRowCount": 18,
+      "evaluations": [
+        {
+          "id": "001_init",
+          "apply_order": 1,
+          "classification": "eligible_verified_current_state_baseline",
+          "apply_kind": "verified_current_state_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "extensions": 1,
+            "enums": 16,
+            "functions": 1,
+            "tables": 15,
+            "columns": 15,
+            "triggers": 13,
+            "indexes": 23,
+            "weakCount": 0,
+            "strongCount": 84
+          },
+          "dec006": null
+        },
+        {
+          "id": "003_rename_hostel_to_client",
+          "apply_order": 2,
+          "classification": "eligible_verified_current_state_baseline",
+          "apply_kind": "verified_current_state_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "renames": 1,
+            "drops": 3,
+            "triggers": 2,
+            "comments": 1,
+            "tables": 2,
+            "weakCount": 6,
+            "strongCount": 3
+          },
+          "dec006": null
+        },
+        {
+          "id": "002_package_pricing",
+          "apply_order": 3,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "indexes": 1,
+            "drops": 1,
+            "triggers": 1,
+            "functions": 3,
+            "data_mutations": 1,
+            "comments": 1,
+            "weakCount": 3,
+            "strongCount": 7
+          },
+          "dec006": null
+        },
+        {
+          "id": "004_payment_schema_phase2",
+          "apply_order": 4,
+          "classification": "eligible_verified_current_state_baseline",
+          "apply_kind": "verified_current_state_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "enums": 1,
+            "drops": 2,
+            "renames": 1,
+            "columns": 1,
+            "defaults": 1,
+            "constraints": 2,
+            "comments": 8,
+            "indexes": 2,
+            "weakCount": 11,
+            "strongCount": 7
+          },
+          "dec006": null
+        },
+        {
+          "id": "005_payment_intent_unique_partial",
+          "apply_order": 5,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "drops": 2,
+            "indexes": 1,
+            "comments": 1,
+            "weakCount": 3,
+            "strongCount": 1
+          },
+          "dec006": null
+        },
+        {
+          "id": "006_confirmation_sent_at",
+          "apply_order": 6,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "columns": 1,
+            "indexes": 1,
+            "comments": 1,
+            "weakCount": 1,
+            "strongCount": 2
+          },
+          "dec006": null
+        },
+        {
+          "id": "007_add_addon_orders",
+          "apply_order": 7,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 7,
+            "columns": 7,
+            "indexes": 31,
+            "triggers": 7,
+            "weakCount": 0,
+            "strongCount": 52
+          },
+          "dec006": null
+        },
+        {
+          "id": "008_add_staff_handoffs",
+          "apply_order": 8,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 2,
+            "columns": 2,
+            "indexes": 18,
+            "triggers": 2,
+            "weakCount": 0,
+            "strongCount": 24
+          },
+          "dec006": null
+        },
+        {
+          "id": "009_auth_staff_users",
+          "apply_order": 9,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 2,
+            "columns": 2,
+            "indexes": 12,
+            "triggers": 2,
+            "weakCount": 0,
+            "strongCount": 18
+          },
+          "dec006": null
+        },
+        {
+          "id": "010_booking_service_records",
+          "apply_order": 10,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "comments": 6,
+            "indexes": 4,
+            "triggers": 1,
+            "weakCount": 6,
+            "strongCount": 7
+          },
+          "dec006": null
+        },
+        {
+          "id": "011_service_payment_linkage",
+          "apply_order": 11,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "columns": 1,
+            "comments": 2,
+            "indexes": 1,
+            "weakCount": 2,
+            "strongCount": 2
+          },
+          "dec006": null
+        },
+        {
+          "id": "012_bot_pause_states",
+          "apply_order": 12,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "comments": 6,
+            "indexes": 6,
+            "triggers": 1,
+            "weakCount": 6,
+            "strongCount": 9
+          },
+          "dec006": null
+        },
+        {
+          "id": "013_guest_message_sends",
+          "apply_order": 13,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "comments": 1,
+            "indexes": 2,
+            "triggers": 1,
+            "weakCount": 1,
+            "strongCount": 5
+          },
+          "dec006": null
+        },
+        {
+          "id": "014_guest_message_events",
+          "apply_order": 14,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "comments": 1,
+            "indexes": 3,
+            "triggers": 1,
+            "weakCount": 1,
+            "strongCount": 6
+          },
+          "dec006": null
+        },
+        {
+          "id": "016_staff_phone_access",
+          "apply_order": 15,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "comments": 1,
+            "indexes": 3,
+            "triggers": 1,
+            "weakCount": 1,
+            "strongCount": 6
+          },
+          "dec006": null
+        },
+        {
+          "id": "017_booking_transfers",
+          "apply_order": 16,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "comments": 2,
+            "indexes": 5,
+            "triggers": 1,
+            "weakCount": 2,
+            "strongCount": 8
+          },
+          "dec006": null
+        },
+        {
+          "id": "018_booking_service_records_nullable_service_date",
+          "apply_order": 17,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "columns": 1,
+            "comments": 1,
+            "weakCount": 2,
+            "strongCount": 0
+          },
+          "dec006": {
+            "migrationId": "018_booking_service_records_nullable_service_date",
+            "requiredChecks": [
+              {
+                "id": "018-col-nullability",
+                "pass": true
+              },
+              {
+                "id": "018-no-conflicting-check",
+                "pass": true
+              }
+            ],
+            "optionalChecks": [
+              {
+                "id": "018-optional-comment",
+                "pass": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "019_bookings_language",
+          "apply_order": 18,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "columns": 1,
+            "defaults": 1,
+            "data_mutations": 1,
+            "weakCount": 1,
+            "strongCount": 2
+          },
+          "dec006": {
+            "migrationId": "019_bookings_language",
+            "requiredChecks": [
+              {
+                "id": "019-column-present",
+                "pass": true
+              },
+              {
+                "id": "019-default-or-nullability",
+                "pass": true
+              }
+            ],
+            "optionalChecks": []
+          }
+        },
+        {
+          "id": "020_wolfhouse_room_gender_metadata",
+          "apply_order": 19,
+          "classification": "blocked_unproven",
+          "apply_kind": null,
+          "blockedReason": "unproven_dml_zero_aggregate",
+          "effectSummary": {
+            "data_mutations": 1,
+            "weakCount": 1,
+            "strongCount": 0
+          },
+          "dec006": {
+            "migrationId": "020_wolfhouse_room_gender_metadata",
+            "requiredChecks": [
+              {
+                "id": "020-columns-present",
+                "pass": true
+              }
+            ],
+            "optionalChecks": [
+              {
+                "id": "020-aggregate-population-optional",
+                "pass": false
+              }
+            ]
+          }
+        },
+        {
+          "id": "021_sunset_admin_business_config",
+          "apply_order": 20,
+          "classification": "eligible_verified_current_state_baseline",
+          "apply_kind": "verified_current_state_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 4,
+            "columns": 4,
+            "comments": 6,
+            "indexes": 16,
+            "triggers": 3,
+            "weakCount": 6,
+            "strongCount": 27
+          },
+          "dec006": null
+        },
+        {
+          "id": "024_booking_guests",
+          "apply_order": 21,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 2,
+            "indexes": 3,
+            "triggers": 1,
+            "comments": 3,
+            "weakCount": 3,
+            "strongCount": 7
+          },
+          "dec006": null
+        },
+        {
+          "id": "026_tenant_surf_pack_rules",
+          "apply_order": 22,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "comments": 1,
+            "indexes": 2,
+            "triggers": 1,
+            "weakCount": 1,
+            "strongCount": 5
+          },
+          "dec006": null
+        },
+        {
+          "id": "027_wolfhouse_staff_whatsapp_numbers",
+          "apply_order": 23,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "indexes": 1,
+            "comments": 3,
+            "weakCount": 3,
+            "strongCount": 3
+          },
+          "dec006": null
+        },
+        {
+          "id": "028_tenant_services",
+          "apply_order": 24,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "indexes": 1,
+            "comments": 1,
+            "weakCount": 1,
+            "strongCount": 3
+          },
+          "dec006": null
+        },
+        {
+          "id": "029_booking_service_records_generic_type",
+          "apply_order": 25,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "drops": 1,
+            "constraints": 1,
+            "comments": 1,
+            "weakCount": 2,
+            "strongCount": 1
+          },
+          "dec006": null
+        },
+        {
+          "id": "030_tenant_house_notes",
+          "apply_order": 26,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "comments": 1,
+            "weakCount": 1,
+            "strongCount": 2
+          },
+          "dec006": null
+        },
+        {
+          "id": "030_booking_service_records_slot_reservations",
+          "apply_order": 27,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "columns": 1,
+            "indexes": 1,
+            "weakCount": 0,
+            "strongCount": 2
+          },
+          "dec006": null
+        },
+        {
+          "id": "031_customers",
+          "apply_order": 28,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 3,
+            "indexes": 2,
+            "functions": 1,
+            "drops": 2,
+            "triggers": 2,
+            "data_mutations": 5,
+            "weakCount": 7,
+            "strongCount": 9
+          },
+          "dec006": null
+        },
+        {
+          "id": "032_client_notification_settings",
+          "apply_order": 29,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 2,
+            "columns": 2,
+            "indexes": 5,
+            "comments": 4,
+            "weakCount": 4,
+            "strongCount": 9
+          },
+          "dec006": null
+        },
+        {
+          "id": "033_tenant_private_lesson_rules",
+          "apply_order": 30,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "comments": 1,
+            "indexes": 2,
+            "triggers": 1,
+            "weakCount": 1,
+            "strongCount": 5
+          },
+          "dec006": null
+        },
+        {
+          "id": "033_staff_automated_notifications",
+          "apply_order": 31,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 2,
+            "columns": 2,
+            "indexes": 5,
+            "comments": 4,
+            "weakCount": 4,
+            "strongCount": 9
+          },
+          "dec006": null
+        },
+        {
+          "id": "034_customers_crm_tags",
+          "apply_order": 32,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "columns": 1,
+            "defaults": 1,
+            "indexes": 1,
+            "weakCount": 0,
+            "strongCount": 3
+          },
+          "dec006": null
+        },
+        {
+          "id": "035_customer_message_templates",
+          "apply_order": 33,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 1,
+            "columns": 1,
+            "indexes": 1,
+            "comments": 1,
+            "weakCount": 1,
+            "strongCount": 3
+          },
+          "dec006": null
+        },
+        {
+          "id": "036_sunset_waivers",
+          "apply_order": 34,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "tables": 2,
+            "columns": 2,
+            "indexes": 9,
+            "drops": 1,
+            "triggers": 1,
+            "comments": 4,
+            "weakCount": 5,
+            "strongCount": 14
+          },
+          "dec006": null
+        },
+        {
+          "id": "037_sunset_group_waivers",
+          "apply_order": 35,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "columns": 2,
+            "defaults": 1,
+            "drops": 3,
+            "constraints": 2,
+            "indexes": 3,
+            "comments": 2,
+            "weakCount": 5,
+            "strongCount": 8
+          },
+          "dec006": null
+        },
+        {
+          "id": "038_sunset_payment_link_idempotency",
+          "apply_order": 36,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "drops": 1,
+            "indexes": 1,
+            "comments": 1,
+            "weakCount": 2,
+            "strongCount": 1
+          },
+          "dec006": null
+        },
+        {
+          "id": "039_sunset_admin_location_aware_rules",
+          "apply_order": 37,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "columns": 7,
+            "data_mutations": 3,
+            "comments": 4,
+            "indexes": 6,
+            "weakCount": 10,
+            "strongCount": 10
+          },
+          "dec006": null
+        },
+        {
+          "id": "040_tenant_services_saas_catalog_columns",
+          "apply_order": 38,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "columns": 8,
+            "defaults": 4,
+            "comments": 4,
+            "weakCount": 4,
+            "strongCount": 12
+          },
+          "dec006": null
+        },
+        {
+          "id": "041_notification_surfpack_convergence",
+          "apply_order": 39,
+          "classification": "eligible_verified_structural_baseline",
+          "apply_kind": "verified_structural_baseline",
+          "blockedReason": null,
+          "effectSummary": {
+            "indexes": 4,
+            "constraints": 1,
+            "triggers": 1,
+            "weakCount": 0,
+            "strongCount": 6
+          },
+          "dec006": null
+        }
+      ],
+      "proposedLedgerRows": [
+        {
+          "id": "001_init",
+          "filename": "001_init.sql",
+          "checksum_sha256": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "apply_order": 1,
+          "apply_kind": "verified_current_state_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:extensions:pgcrypto",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline)"
+        },
+        {
+          "id": "003_rename_hostel_to_client",
+          "filename": "003_rename_hostel_to_client.sql",
+          "checksum_sha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+          "apply_order": 2,
+          "apply_kind": "verified_current_state_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "weak:renames:public.IF",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline)"
+        },
+        {
+          "id": "002_package_pricing",
+          "filename": "002_package_pricing.sql",
+          "checksum_sha256": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+          "apply_order": 3,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.package_price_rules",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "004_payment_schema_phase2",
+          "filename": "004_payment_schema_phase2.sql",
+          "checksum_sha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+          "apply_order": 4,
+          "apply_kind": "verified_current_state_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:enums:public.payment_kind_v2",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline)"
+        },
+        {
+          "id": "005_payment_intent_unique_partial",
+          "filename": "005_payment_intent_unique_partial.sql",
+          "checksum_sha256": "57ca5eb7b49a368f4cb24f858735c9e74b6689b21eb0c9e209ee0ad5b82a78ec",
+          "apply_order": 5,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:indexes:public.payments.payments_stripe_payment_intent_id_unique",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "006_confirmation_sent_at",
+          "filename": "006_confirmation_sent_at.sql",
+          "checksum_sha256": "8adf2ba65d4c1c06728317cb9501274e43ff11fbb1cd8cce0a71636d141dc544",
+          "apply_order": 6,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:columns:public.bookings.confirmation_sent_at",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "007_add_addon_orders",
+          "filename": "007_add_addon_orders.sql",
+          "checksum_sha256": "4000be0a42cb17ae92d5001d6203a964a9eb9ed26d0d92fed73f61d80a84e300",
+          "apply_order": 7,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.add_on_orders",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "008_add_staff_handoffs",
+          "filename": "008_add_staff_handoffs.sql",
+          "checksum_sha256": "3c07e60ceebbf6a6ae0d6122540fe6d3bf32af30171314c9db0e32867ae02a70",
+          "apply_order": 8,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.staff_handoffs",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "009_auth_staff_users",
+          "filename": "009_auth_staff_users.sql",
+          "checksum_sha256": "b130017563616937b16fb9b5f43ac8e9adefd1d8470662e34f5f71e5477a6e22",
+          "apply_order": 9,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.staff_users",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "010_booking_service_records",
+          "filename": "010_booking_service_records.sql",
+          "checksum_sha256": "237d20d2379c974a26efb171735718c63dadcd54adc564ba99b33dd1020a3d1a",
+          "apply_order": 10,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.booking_service_records",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "011_service_payment_linkage",
+          "filename": "011_service_payment_linkage.sql",
+          "checksum_sha256": "3ae97e90b12c3ad284296ae36070d57302d61d5e857a16b66348c2d2ebab3d39",
+          "apply_order": 11,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:columns:public.booking_service_records.payment_id",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "012_bot_pause_states",
+          "filename": "012_bot_pause_states.sql",
+          "checksum_sha256": "cdb3915d1db0e48c9dae06487a5bad4c3bcfe6a43da796d031354ec75b7b9486",
+          "apply_order": 12,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.bot_pause_states",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "013_guest_message_sends",
+          "filename": "013_guest_message_sends.sql",
+          "checksum_sha256": "beb7dd1ebdc32ac41b39875f7f616d72f2b47c4e4b18ec6d8cb92beffc667a82",
+          "apply_order": 13,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.guest_message_sends",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "014_guest_message_events",
+          "filename": "014_guest_message_events.sql",
+          "checksum_sha256": "2995260bfdc7eb238b177bddfccc2b6c164e42c2c3a3465a2a4009212edcf44d",
+          "apply_order": 14,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.guest_message_events",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "016_staff_phone_access",
+          "filename": "016_staff_phone_access.sql",
+          "checksum_sha256": "c526bea8ac25c0ef12739d541809141a1d68a0eedab292488ca346b26f14c64d",
+          "apply_order": 15,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.staff_phone_access",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "017_booking_transfers",
+          "filename": "017_booking_transfers.sql",
+          "checksum_sha256": "6278a9de6647ee082a639934bf34bac17e8e8037cfc5521eb66b47253a7e310c",
+          "apply_order": 16,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.booking_transfers",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "018_booking_service_records_nullable_service_date",
+          "filename": "018_booking_service_records_nullable_service_date.sql",
+          "checksum_sha256": "80bbadff728382f6c9ef20ada35f40279921b7bc411b9f1e0771bb67783bf2f6",
+          "apply_order": 17,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "dec006:018-col-nullability",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "019_bookings_language",
+          "filename": "019_bookings_language.sql",
+          "checksum_sha256": "95354b32377fcc390990b2296d7bb19385e070d2153806e28708b0d2ab42d622",
+          "apply_order": 18,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "dec006:019-column-present",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        }
+      ]
+    },
+    "proposedLedgerRows": [
+      {
+        "id": "001_init",
+        "filename": "001_init.sql",
+        "checksum_sha256": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+        "apply_order": 1,
+        "apply_kind": "verified_current_state_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:extensions:pgcrypto",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline)"
+      },
+      {
+        "id": "003_rename_hostel_to_client",
+        "filename": "003_rename_hostel_to_client.sql",
+        "checksum_sha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+        "apply_order": 2,
+        "apply_kind": "verified_current_state_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "weak:renames:public.IF",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline)"
+      },
+      {
+        "id": "002_package_pricing",
+        "filename": "002_package_pricing.sql",
+        "checksum_sha256": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+        "apply_order": 3,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.package_price_rules",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "004_payment_schema_phase2",
+        "filename": "004_payment_schema_phase2.sql",
+        "checksum_sha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+        "apply_order": 4,
+        "apply_kind": "verified_current_state_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:enums:public.payment_kind_v2",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline)"
+      },
+      {
+        "id": "005_payment_intent_unique_partial",
+        "filename": "005_payment_intent_unique_partial.sql",
+        "checksum_sha256": "57ca5eb7b49a368f4cb24f858735c9e74b6689b21eb0c9e209ee0ad5b82a78ec",
+        "apply_order": 5,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:indexes:public.payments.payments_stripe_payment_intent_id_unique",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "006_confirmation_sent_at",
+        "filename": "006_confirmation_sent_at.sql",
+        "checksum_sha256": "8adf2ba65d4c1c06728317cb9501274e43ff11fbb1cd8cce0a71636d141dc544",
+        "apply_order": 6,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:columns:public.bookings.confirmation_sent_at",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "007_add_addon_orders",
+        "filename": "007_add_addon_orders.sql",
+        "checksum_sha256": "4000be0a42cb17ae92d5001d6203a964a9eb9ed26d0d92fed73f61d80a84e300",
+        "apply_order": 7,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.add_on_orders",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "008_add_staff_handoffs",
+        "filename": "008_add_staff_handoffs.sql",
+        "checksum_sha256": "3c07e60ceebbf6a6ae0d6122540fe6d3bf32af30171314c9db0e32867ae02a70",
+        "apply_order": 8,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.staff_handoffs",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "009_auth_staff_users",
+        "filename": "009_auth_staff_users.sql",
+        "checksum_sha256": "b130017563616937b16fb9b5f43ac8e9adefd1d8470662e34f5f71e5477a6e22",
+        "apply_order": 9,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.staff_users",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "010_booking_service_records",
+        "filename": "010_booking_service_records.sql",
+        "checksum_sha256": "237d20d2379c974a26efb171735718c63dadcd54adc564ba99b33dd1020a3d1a",
+        "apply_order": 10,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.booking_service_records",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "011_service_payment_linkage",
+        "filename": "011_service_payment_linkage.sql",
+        "checksum_sha256": "3ae97e90b12c3ad284296ae36070d57302d61d5e857a16b66348c2d2ebab3d39",
+        "apply_order": 11,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:columns:public.booking_service_records.payment_id",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "012_bot_pause_states",
+        "filename": "012_bot_pause_states.sql",
+        "checksum_sha256": "cdb3915d1db0e48c9dae06487a5bad4c3bcfe6a43da796d031354ec75b7b9486",
+        "apply_order": 12,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.bot_pause_states",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "013_guest_message_sends",
+        "filename": "013_guest_message_sends.sql",
+        "checksum_sha256": "beb7dd1ebdc32ac41b39875f7f616d72f2b47c4e4b18ec6d8cb92beffc667a82",
+        "apply_order": 13,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.guest_message_sends",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "014_guest_message_events",
+        "filename": "014_guest_message_events.sql",
+        "checksum_sha256": "2995260bfdc7eb238b177bddfccc2b6c164e42c2c3a3465a2a4009212edcf44d",
+        "apply_order": 14,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.guest_message_events",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "016_staff_phone_access",
+        "filename": "016_staff_phone_access.sql",
+        "checksum_sha256": "c526bea8ac25c0ef12739d541809141a1d68a0eedab292488ca346b26f14c64d",
+        "apply_order": 15,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.staff_phone_access",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "017_booking_transfers",
+        "filename": "017_booking_transfers.sql",
+        "checksum_sha256": "6278a9de6647ee082a639934bf34bac17e8e8037cfc5521eb66b47253a7e310c",
+        "apply_order": 16,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.booking_transfers",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "018_booking_service_records_nullable_service_date",
+        "filename": "018_booking_service_records_nullable_service_date.sql",
+        "checksum_sha256": "80bbadff728382f6c9ef20ada35f40279921b7bc411b9f1e0771bb67783bf2f6",
+        "apply_order": 17,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "dec006:018-col-nullability",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "019_bookings_language",
+        "filename": "019_bookings_language.sql",
+        "checksum_sha256": "95354b32377fcc390990b2296d7bb19385e070d2153806e28708b0d2ab42d622",
+        "apply_order": 18,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "dec006:019-column-present",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      }
+    ],
+    "liveMutation": false,
+    "schemaMutation": false,
+    "dataMutation": false,
+    "ledgerWritten": false,
+    "verifyNeverRerunsLive": true
+  },
+  "secretHandlingProof": {
+    "leakScanPassed": true,
+    "fakeCredentialsUsed": true,
+    "dsnNeverPersisted": true
+  },
+  "verifyNeverRerunsLive": true
+}
