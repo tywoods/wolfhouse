@@ -131,8 +131,19 @@ const staffApi = readText(path.join(ROOT, 'scripts', 'staff-query-api.js'));
 const webhookSrc = readText(path.join(ROOT, 'scripts', 'lib', 'luna-meta-whatsapp-webhook.js'));
 const inboundSrc = readText(path.join(ROOT, 'scripts', 'lib', 'luna-meta-whatsapp-inbound-process.js'));
 const openDemoSrc = readText(path.join(ROOT, 'scripts', 'lib', 'meta-open-demo-inbound-adapter.js'));
+const staffPhoneSrc = readText(path.join(ROOT, 'scripts', 'lib', 'staff-phone-access.js'));
+const eventsSqlSrc = readText(path.join(ROOT, 'scripts', 'lib', 'luna-guest-message-events-sql.js'));
 const authorityModulePath = path.join(ROOT, 'scripts', 'lib', 'meta-whatsapp-ingress-authority.js');
 const committedEvidence = readJson(EVIDENCE_PATH);
+
+const sourceByRelPath = {
+  'scripts/staff-query-api.js': staffApi,
+  'scripts/lib/luna-meta-whatsapp-webhook.js': webhookSrc,
+  'scripts/lib/luna-meta-whatsapp-inbound-process.js': inboundSrc,
+  'scripts/lib/meta-open-demo-inbound-adapter.js': openDemoSrc,
+  'scripts/lib/staff-phone-access.js': staffPhoneSrc,
+  'scripts/lib/luna-guest-message-events-sql.js': eventsSqlSrc,
+};
 
 ok('contract slice 15G2 design freeze',
   contract.slice === 'FORTRESS-15G2'
@@ -150,12 +161,17 @@ ok('overlay design_frozen + historical untouched',
   && Array.isArray(overlay.historical_artifacts)
   && overlay.historical_artifacts.includes('fixtures/fortress-tenant-identity/boundary-matrix.json'));
 
-ok('findings cite shared owner + supersession + 15H',
+ok('findings cite shared owner + supersession + 15H + taxonomy',
   /processMetaWhatsAppWebhookPostEntry/.test(findings)
   && /before.*PG|before PostgreSQL|before_withPgClient|before `withPgClient`/i.test(findings)
   && /supersede|supersedes/i.test(findings)
   && /FORTRESS-15H|15H_meta_ingress/.test(findings)
-  && /50f87a1/.test(findings));
+  && /50f87a1/.test(findings)
+  && /pre_normalize|pre-normalize/i.test(findings)
+  && /post_normalize|post-normalize/i.test(findings)
+  && /GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE|guest-message-event-table-unavailable/i.test(findings)
+  && /tenant-wide/i.test(findings)
+  && /source-anchor/i.test(findings));
 
 ok('historical matrix still marks B02 vulnerable',
   (matrix.boundaries || []).some((b) => b.id === 'B02_meta_normalize_live_client_slug' && b.verdict === 'vulnerable'));
@@ -183,26 +199,37 @@ ok('replacement slice bounded to 15H',
   && contract.replacement_implementation_slice.slice === 'FORTRESS-15H'
   && contract.replacement_implementation_slice.outcome_id === '15H_meta_ingress_authority_enforce_before_pg'
   && Array.isArray(contract.replacement_implementation_slice.acceptance_boundary.must_pass)
-  && contract.replacement_implementation_slice.acceptance_boundary.must_pass.length >= 6);
+  && contract.replacement_implementation_slice.acceptance_boundary.must_pass.length >= 12);
 
-const requiredBranchIds = [
-  'BR_GUEST_PERSIST_DRAFT_SEND',
-  'BR_OWNER_COMMAND_CENTER',
-  'BR_OPEN_DEMO',
-  'BR_NO_PERSISTENCE_FALLBACK',
-  'BR_DUPLICATE_REPLAY',
-  'BR_BLOCKED_PHONE_GATE',
-  'BR_HTTP_ERROR_SIGNATURE',
-  'BR_HTTP_ERROR_INVALID_JSON',
-  'BR_HTTP_ERROR_BODY_READ',
-  'BR_INCOMPLETE_IDENTITY',
-];
-const postIds = (branches.post_normalize_branches || []).map((b) => b.id);
-const preIds = (branches.pre_normalize_http_errors || []).map((b) => b.id);
-const allBranchIds = new Set([...postIds, ...preIds]);
-ok('branch matrix enumerates required Meta POST branches',
-  requiredBranchIds.every((id) => allBranchIds.has(id)),
-  [...requiredBranchIds.filter((id) => !allBranchIds.has(id))].join(','));
+ok('taxonomy separates pre vs post normalize ids',
+  contract.taxonomy
+  && Array.isArray(contract.taxonomy.pre_normalize_branch_ids)
+  && Array.isArray(contract.taxonomy.post_normalize_branch_ids)
+  && contract.taxonomy.pre_normalize_branch_ids.every((id) => /^BR_HTTP_ERROR_/.test(id))
+  && !contract.taxonomy.post_normalize_branch_ids.some((id) => /^BR_HTTP_ERROR_/.test(id))
+  && contract.taxonomy.post_normalize_branch_ids.includes('BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE')
+  && !contract.taxonomy.post_normalize_branch_ids.includes('BR_NO_PERSISTENCE_FALLBACK')
+  && contract.taxonomy.completeness_method === 'source_anchor_driven');
+
+ok('rename documented: no-persistence → guest-message-event-table-unavailable',
+  (contract.taxonomy.renames || []).some((r) => r.from === 'BR_NO_PERSISTENCE_FALLBACK'
+    && r.to === 'BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE')
+  && (branches.post_normalize_branches || []).some((b) => b.id === 'BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE'
+    && b.other_reads_writes_may_continue === true
+    && Array.isArray(b.entry_points) && b.entry_points.length >= 2));
+
+ok('owner read scope decision is tenant_wide',
+  contract.owner_read_scope_decision
+  && contract.owner_read_scope_decision.decision === 'tenant_wide'
+  && contract.owner_read_scope_decision.not === 'location_scoped'
+  && branches.owner_read_scope_decision
+  && branches.owner_read_scope_decision.decision === 'tenant_wide');
+
+ok('PostEntry must return effective normalized for audit',
+  contract.shared_authority_owner
+  && contract.shared_authority_owner.must_return_effective_normalized === true
+  && branches.shared_authority_choke_point
+  && branches.shared_authority_choke_point.must_return_effective_normalized === true);
 
 ok('shared choke point named before_withPgClient',
   branches.shared_authority_choke_point
@@ -212,6 +239,39 @@ ok('shared choke point named before_withPgClient',
 
 ok('attack fixture case count',
   Array.isArray(attacks.cases) && attacks.cases.length === 10);
+
+console.log('\n── Source-anchor completeness ──');
+const sourceAnchors = branches.source_anchors || [];
+const postIds = (branches.post_normalize_branches || []).map((b) => b.id);
+const preIds = (branches.pre_normalize_http_errors || []).map((b) => b.id);
+const allBranchIds = new Set([...postIds, ...preIds]);
+const missingAnchors = [];
+const taxonomyMismatches = [];
+for (const anchor of sourceAnchors) {
+  const src = sourceByRelPath[anchor.path];
+  if (!src || !anchor.pattern || !src.includes(anchor.pattern)) {
+    missingAnchors.push(anchor.id);
+  }
+  if (!allBranchIds.has(anchor.branch_id)) {
+    taxonomyMismatches.push(`${anchor.id}->${anchor.branch_id}`);
+  }
+  if (anchor.taxonomy === 'pre_normalize' && !preIds.includes(anchor.branch_id)) {
+    taxonomyMismatches.push(`${anchor.id}:pre`);
+  }
+  if (anchor.taxonomy === 'post_normalize' && !postIds.includes(anchor.branch_id)) {
+    taxonomyMismatches.push(`${anchor.id}:post`);
+  }
+}
+ok('source anchors present in named source files',
+  sourceAnchors.length >= 15 && missingAnchors.length === 0,
+  missingAnchors.join(',') || `n=${sourceAnchors.length}`);
+ok('source anchors map into taxonomy branch ids',
+  taxonomyMismatches.length === 0,
+  taxonomyMismatches.join(','));
+ok('completeness method is source_anchor_driven (not self-authored list)',
+  branches.completeness
+  && branches.completeness.method === 'source_anchor_driven'
+  && contract.taxonomy.completeness_method === 'source_anchor_driven');
 
 console.log('\n── Master path audit (RED = current vulnerable posture) ──');
 
@@ -300,12 +360,15 @@ console.log('\n── Design contract (GREEN) ──');
 green('AC15G2_SHARED_OWNER_NAMED',
   contract.shared_authority_owner
   && contract.shared_authority_owner.id === 'processMetaWhatsAppWebhookPostEntry'
+  && contract.shared_authority_owner.must_return_effective_normalized === true
   && Array.isArray(contract.shared_authority_owner.enforcement_order)
   && contract.shared_authority_owner.enforcement_order.some((s) => /blocked/i.test(s))
   && contract.shared_authority_owner.enforcement_order.some((s) => /withPgClient/i.test(s))
-  && (contract.post_normalize_branch_ids || []).includes('BR_GUEST_PERSIST_DRAFT_SEND')
-  && (contract.post_normalize_branch_ids || []).includes('BR_OWNER_COMMAND_CENTER')
-  && (contract.post_normalize_branch_ids || []).includes('BR_OPEN_DEMO'));
+  && (contract.taxonomy.post_normalize_branch_ids || []).includes('BR_GUEST_PERSIST_DRAFT_SEND')
+  && (contract.taxonomy.post_normalize_branch_ids || []).includes('BR_OWNER_COMMAND_CENTER')
+  && (contract.taxonomy.post_normalize_branch_ids || []).includes('BR_OPEN_DEMO')
+  && (contract.taxonomy.post_normalize_branch_ids || []).includes('BR_TERMINAL_NO_DRAFT_SEND')
+  && (contract.taxonomy.post_normalize_branch_ids || []).includes('BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE'));
 
 {
   const acc = contract.replacement_implementation_slice.acceptance_boundary;
@@ -315,8 +378,18 @@ green('AC15G2_SHARED_OWNER_NAMED',
     /acquired_pg=false/.test(mustPass)
     && /location_id/.test(mustPass)
     && /default-off/.test(mustPass)
+    && /HTTP audit/i.test(mustPass)
+    && /owner lookup/i.test(mustPass)
+    && /open-demo/i.test(mustPass)
+    && /blocked-phone/i.test(mustPass)
+    && /replay/i.test(mustPass)
+    && /table_missing/i.test(mustPass)
+    && /terminal no-draft/i.test(mustPass)
+    && /tenant-wide/i.test(mustPass)
     && /merge deferred 15G/i.test(mustNot)
     && /acquire PG before authority/i.test(mustNot)
+    && /location-scoped owner/i.test(mustNot)
+    && /pre-authority normalized/i.test(mustNot)
     && (contract.replacement_implementation_slice.explicitly_excluded_from_15h || [])
       .some((x) => /activation/i.test(x)));
 }
@@ -340,9 +413,22 @@ green('AC15G2_DEFERRED_15G_SUPERSEDED',
 }
 
 green('AC15G2_BRANCH_MATRIX_COMPLETE',
-  requiredBranchIds.every((id) => allBranchIds.has(id))
+  missingAnchors.length === 0
+  && taxonomyMismatches.length === 0
+  && postIds.includes('BR_TERMINAL_NO_DRAFT_SEND')
+  && postIds.includes('BR_UNPROCESSED_DUPLICATE_CONFLICT_CONTINUE')
+  && postIds.includes('BR_OPEN_DEMO_VALIDATION_FAILURE')
+  && postIds.includes('BR_PG_OR_DOWNSTREAM_ERROR')
+  && postIds.includes('BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE')
+  && !postIds.includes('BR_NO_PERSISTENCE_FALLBACK')
+  && preIds.every((id) => /^BR_HTTP_ERROR_/.test(id))
+  && !postIds.some((id) => /^BR_HTTP_ERROR_/.test(id))
   && (branches.post_normalize_branches || []).every((b) => b.replacement_required
     && b.replacement_required.authority_gate_before_pg === true)
+  && branches.owner_read_scope_decision.decision === 'tenant_wide'
+  && (branches.authority_surface_map.http_audit || []).length >= 1
+  && (branches.authority_surface_map.owner || []).length >= 1
+  && (branches.authority_surface_map.open_demo || []).length >= 1
   && (branches.authority_surface_map.persistence || []).length >= 2
   && (branches.authority_surface_map.draft || []).length >= 1
   && (branches.authority_surface_map.send || []).length >= 1
@@ -354,13 +440,20 @@ ok('staff handler owns Meta POST',
   /async function handleMetaWhatsAppWebhookPost/.test(staffApi)
   && /normalizeMetaWhatsAppWebhook\(body\)/.test(handlerSlice)
   && /processMetaWhatsAppWebhookInbound/.test(handlerSlice));
-ok('inbound owns guest/owner/demo/gate branches',
+ok('inbound owns guest/owner/demo/gate/table-missing branches',
   /async function processWithoutPersistence/.test(inboundSrc)
   && /processOwnerWhatsAppCommandCenterInbound/.test(inboundSrc)
   && /shouldBlockMetaGuestInboundAfterOpenDemo/.test(inboundSrc)
   && /shouldRouteMetaInboundToOpenDemo/.test(inboundSrc)
   && /runDraftAndSendGate/.test(inboundSrc)
-  && /isGuestMessageEventProcessed/.test(inboundSrc));
+  && /isGuestMessageEventProcessed/.test(inboundSrc)
+  && /existing\.table_missing/.test(inboundSrc)
+  && /inserted\.table_missing/.test(inboundSrc)
+  && /normalized\.supported && normalized\.message_text/.test(inboundSrc));
+ok('open-demo validation failure path present',
+  /if \(!validation\.ok\)/.test(openDemoSrc));
+ok('unprocessed conflict path present in SQL',
+  /ON CONFLICT \(client_slug, wa_message_id\) DO NOTHING/.test(eventsSqlSrc));
 ok('webhook DEFAULT_CLIENT_SLUG remains wolfhouse-somo',
   /const DEFAULT_CLIENT_SLUG = 'wolfhouse-somo'/.test(webhookSrc));
 

@@ -97,13 +97,14 @@
       "id": "AC15G2_SHARED_OWNER_NAMED",
       "color": "GREEN",
       "boundary_ids": ["B02_meta_normalize_live_client_slug"],
-      "attack": "Design names single shared owner before PG for all post-normalize branches",
+      "attack": "Design names single shared owner before PG that returns effective normalized for audit",
       "input": {
         "classifier": "design_contract",
         "shared_owner_id": "processMetaWhatsAppWebhookPostEntry"
       },
       "expect": {
         "enforcement": "before_withPgClient",
+        "must_return_effective_normalized": true,
         "covers_all_post_normalize_branches": true
       }
     },
@@ -111,7 +112,7 @@
       "id": "AC15G2_REPLACEMENT_ACCEPTANCE_BOUNDED",
       "color": "GREEN",
       "boundary_ids": ["B02_meta_normalize_live_client_slug"],
-      "attack": "Replacement 15H acceptance requires zero PG on block and location propagation on known path",
+      "attack": "Replacement 15H acceptance requires zero PG on block, location propagation, audit identity, and expanded post-authority surfaces",
       "input": {
         "classifier": "design_contract",
         "replacement_slice": "FORTRESS-15H"
@@ -120,11 +121,20 @@
         "must_include": [
           "acquired_pg=false",
           "location_id",
-          "default-off"
+          "default-off",
+          "HTTP audit",
+          "owner lookup",
+          "open-demo",
+          "blocked-phone",
+          "replay",
+          "table_missing",
+          "terminal no-draft",
+          "tenant-wide"
         ],
         "must_exclude": [
           "merge deferred 15G",
-          "runtime activation"
+          "runtime activation",
+          "location-scoped owner reads"
         ]
       }
     },
@@ -161,23 +171,32 @@
       "id": "AC15G2_BRANCH_MATRIX_COMPLETE",
       "color": "GREEN",
       "boundary_ids": ["B02_meta_normalize_live_client_slug"],
-      "attack": "Branch matrix enumerates guest, owner, open-demo, no-persistence, replay, phone gate, and HTTP errors",
+      "attack": "Branch matrix completeness is source-anchor-driven across pre/post taxonomy including renamed table-unavailable, terminal no-draft/send, unprocessed conflict, open-demo validation failure, and PG errors",
       "input": {
-        "classifier": "branch_matrix"
+        "classifier": "branch_matrix_source_anchors"
       },
       "expect": {
-        "required_ids": [
+        "completeness_method": "source_anchor_driven",
+        "renamed_to": "BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE",
+        "required_post_normalize_ids": [
           "BR_GUEST_PERSIST_DRAFT_SEND",
+          "BR_TERMINAL_NO_DRAFT_SEND",
           "BR_OWNER_COMMAND_CENTER",
           "BR_OPEN_DEMO",
-          "BR_NO_PERSISTENCE_FALLBACK",
+          "BR_OPEN_DEMO_VALIDATION_FAILURE",
+          "BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE",
           "BR_DUPLICATE_REPLAY",
+          "BR_UNPROCESSED_DUPLICATE_CONFLICT_CONTINUE",
           "BR_BLOCKED_PHONE_GATE",
+          "BR_INCOMPLETE_IDENTITY",
+          "BR_PG_OR_DOWNSTREAM_ERROR"
+        ],
+        "required_pre_normalize_ids": [
           "BR_HTTP_ERROR_SIGNATURE",
           "BR_HTTP_ERROR_INVALID_JSON",
-          "BR_HTTP_ERROR_BODY_READ",
-          "BR_INCOMPLETE_IDENTITY"
-        ]
+          "BR_HTTP_ERROR_BODY_READ"
+        ],
+        "owner_read_scope": "tenant_wide"
       }
     }
   ]

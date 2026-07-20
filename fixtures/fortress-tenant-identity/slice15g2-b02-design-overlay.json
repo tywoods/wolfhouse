@@ -9,7 +9,7 @@
     "fixtures/fortress-tenant-identity/attack-cases.json",
     "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
   ],
-  "note": "15A matrix/doc retain pre-fix vulnerable verdict for B02. 15G2 freezes the replacement design and supersedes deferred 15G without merging or modifying that branch. No runtime remediation in this slice.",
+  "note": "15A matrix/doc retain pre-fix vulnerable verdict for B02. 15G2 freezes the replacement design (source-anchor taxonomy; guest-message-event-table-unavailable rename; tenant-wide owner reads; PostEntry must return effective normalized) and supersedes deferred 15G without merging or modifying that branch. No runtime remediation in this slice.",
   "supersedes_deferred": {
     "slice": "FORTRESS-15G",
     "branch": "fortress/slice-15g-meta-ingress-authority-policy",

@@ -29,6 +29,7 @@
     "scripts/lib/luna-owner-whatsapp-inbound.js",
     "scripts/lib/meta-open-demo-inbound-adapter.js",
     "scripts/lib/luna-open-phone-testing-gate.js",
+    "scripts/lib/staff-phone-access.js",
     "scripts/lib/client-channel-resolver.js",
     "docs/MULTICLIENT-STAGING-ROUTING.md"
   ],
@@ -52,42 +53,72 @@
     "idempotency_key_shape": "luna:{client_slug}:{wa_message_id}:{send_kind}",
     "b02_verdict_historical": "vulnerable"
   },
+  "taxonomy": {
+    "pre_normalize_branch_ids": [
+      "BR_HTTP_ERROR_BODY_READ",
+      "BR_HTTP_ERROR_SIGNATURE",
+      "BR_HTTP_ERROR_INVALID_JSON"
+    ],
+    "post_normalize_branch_ids": [
+      "BR_INCOMPLETE_IDENTITY",
+      "BR_DUPLICATE_REPLAY",
+      "BR_UNPROCESSED_DUPLICATE_CONFLICT_CONTINUE",
+      "BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE",
+      "BR_OWNER_COMMAND_CENTER",
+      "BR_BLOCKED_PHONE_GATE",
+      "BR_OPEN_DEMO",
+      "BR_OPEN_DEMO_VALIDATION_FAILURE",
+      "BR_GUEST_PERSIST_DRAFT_SEND",
+      "BR_TERMINAL_NO_DRAFT_SEND",
+      "BR_PG_OR_DOWNSTREAM_ERROR"
+    ],
+    "renames": [
+      {
+        "from": "BR_NO_PERSISTENCE_FALLBACK",
+        "to": "BR_GUEST_MESSAGE_EVENT_TABLE_UNAVAILABLE",
+        "reason": "guest_message_events table missing does not stop other reads/writes (staff lookup, owner, open-demo, draft/send)"
+      }
+    ],
+    "completeness_method": "source_anchor_driven"
+  },
   "shared_authority_owner": {
     "id": "processMetaWhatsAppWebhookPostEntry",
     "module": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
     "http_caller": "handleMetaWhatsAppWebhookPost",
     "http_module": "scripts/staff-query-api.js",
     "policy_module_planned": "scripts/lib/meta-whatsapp-ingress-authority.js",
+    "must_return_effective_normalized": true,
     "enforcement_order": [
       "normalizeMetaWhatsAppWebhook(body, { env, ... })",
       "applyMetaWhatsAppIngressAuthority(normalized, { env })",
-      "if blocked → build authority-blocked HTTP envelope; acquired_pg=false; return (zero withPgClient / persistence / draft / send / owner / demo)",
-      "else → withPgClient(pg => processMetaWhatsAppWebhookInbound({ pg, env, body, normalized, signatureMeta }))"
+      "if blocked → build authority-blocked HTTP envelope; acquired_pg=false; return effective normalized + blocked response (zero withPgClient / persistence / draft / send / owner / demo)",
+      "else → withPgClient(pg => processMetaWhatsAppWebhookInbound({ pg, env, body, normalized, signatureMeta })); return effective post-authority normalized for HTTP audit + response"
     ],
-    "why_shared": "Every post-normalize success branch (guest persist/send, owner Command Center, open demo, no-persistence fallback, duplicate/replay, blocked phone gate) is reached only after the same Staff API POST entry acquires PG today. Authority must gate that single choke point before pool/client acquisition so blocked identities cannot touch any branch."
+    "why_shared": "Every post-normalize branch (guest persist/send, terminal no-draft/send, owner Command Center, open demo + validation failure, guest-message-event-table-unavailable continuation, processed replay, unprocessed duplicate/conflict continuation, blocked phone gate, PG/downstream errors) is reached only after the same Staff API POST entry acquires PG today. Authority must gate that single choke point before pool/client acquisition so blocked identities cannot touch any branch. The entry must return the effective normalized identity so HTTP audit does not log a stale pre-authority snapshot."
   },
-  "post_normalize_branch_ids": [
-    "BR_HTTP_ERROR_BODY_READ",
-    "BR_HTTP_ERROR_SIGNATURE",
-    "BR_HTTP_ERROR_INVALID_JSON",
-    "BR_INCOMPLETE_IDENTITY",
-    "BR_DUPLICATE_REPLAY",
-    "BR_NO_PERSISTENCE_FALLBACK",
-    "BR_OWNER_COMMAND_CENTER",
-    "BR_BLOCKED_PHONE_GATE",
-    "BR_OPEN_DEMO",
-    "BR_GUEST_PERSIST_DRAFT_SEND"
-  ],
+  "owner_read_scope_decision": {
+    "decision": "tenant_wide",
+    "not": "location_scoped",
+    "basis": "lookupStaffPhoneAccess and owner SQL filter only on client_slug; no location_id predicate on staff allowlist or owner-read SQL",
+    "replacement_implication": "Authoritative client_slug drives owner lookup/query/send/storage/replay. Propagate location_id into stored normalized + idempotency when present, without inventing location-scoped owner reads."
+  },
   "authoritative_identity_propagation_required": {
     "fields": ["client_slug", "location_id"],
     "surfaces": [
       "normalized (live fields, not shadow-only)",
+      "processMetaWhatsAppWebhookPostEntry return → HTTP appendAuditLog",
       "buildInboundEventSeed / guest_message_events.client_slug + normalized JSON",
       "buildDraftInputFromNormalized",
       "buildMetaWebhookSendBody",
       "buildMetaInboundIdempotencyKey (location-scoped when location_id present; legacy shape when absent)",
-      "owner Command Center send body + stored normalized",
-      "open-demo request body (must not hardcode conflicting wolfhouse-somo when authority active)",
+      "owner lookupStaffPhoneAccess + owner SQL query (tenant-wide by client_slug)",
+      "owner Command Center send body + stored normalized + owner replay",
+      "open-demo request body + execute path (must not hardcode conflicting wolfhouse-somo when authority active)",
+      "open-demo validation-failure envelope",
+      "blocked-phone gate normalized.client_slug",
+      "replay lookup key + replay response.normalized",
+      "both guest_message_events table_missing entry points (find + insert)",
+      "terminal no-draft/send response.normalized",
       "HTTP response.normalized + audit log client_slug"
     ],
     "registry_note": "Resolver registry client_slug for Wolfhouse is 'wolfhouse' with location_id 'wolfhouse-somo'; legacy DEFAULT_CLIENT_SLUG remains 'wolfhouse-somo'. Replacement must treat resolver client_slug+location_id as authoritative when policy active, and document alias risk."
@@ -101,7 +132,9 @@
       "Add scripts/lib/meta-whatsapp-ingress-authority.js (default-off)",
       "Introduce processMetaWhatsAppWebhookPostEntry; wire handleMetaWhatsAppWebhookPost to it",
       "Apply authority after normalize; block before withPgClient",
+      "Return effective post-authority normalized from PostEntry for HTTP audit",
       "Propagate trusted location_id through draft/send/idempotency builders",
+      "Prove post-authority identity on all enumerated post-normalize surfaces",
       "Offline RED/GREEN verifier proving zero PG on block + location propagation on known enabled path",
       "15H overlay; leave 15A historical B02 vulnerable until live activation"
     ],
@@ -111,7 +144,8 @@
       "deploy/restart",
       "rewriting 15A matrix verdict",
       "open-demo booking-write / Stripe / Graph API enablement",
-      "non-Meta ingress paths"
+      "non-Meta ingress paths",
+      "changing owner-read scope from tenant-wide to location-scoped"
     ],
     "acceptance_boundary": {
       "must_pass": [
@@ -121,6 +155,15 @@
         "enabled+routing-absent → inactive shadow-only preserved (no hard block)",
         "legacy idempotency key unchanged when location_id absent",
         "location-scoped idempotency when location_id present",
+        "PostEntry returns effective post-authority normalized; HTTP audit uses that identity (not a stale pre-authority snapshot)",
+        "post-authority identity at owner lookup (tenant-wide client_slug), owner SQL query, owner send body, owner storage, and owner replay",
+        "post-authority identity at open-demo request body and open-demo execution path; no conflicting hardcoded wolfhouse-somo when authority active",
+        "post-authority identity at blocked-phone gate",
+        "post-authority identity at replay lookup key and replay response",
+        "post-authority identity on both guest_message_events table_missing entry points (find + insert → processWithoutPersistence)",
+        "post-authority identity on terminal no-draft/send (unsupported/empty text) response.normalized",
+        "post-authority identity on open-demo validation-failure envelope and documented PG/downstream error handling posture",
+        "owner reads remain tenant-wide (client_slug); location_id propagates to storage/idempotency without inventing location-scoped owner reads",
         "15A historical B02 artifacts unchanged",
         "no deploy config edits; activation remains default-off"
       ],
@@ -129,7 +172,10 @@
         "enable policy on any runtime in-slice",
         "acquire PG before authority decision when policy active+blocked",
         "trust body/options client_slug over resolver when authority active",
-        "leave location_id only in tenant_channel_shadow when authority active+known"
+        "leave location_id only in tenant_channel_shadow when authority active+known",
+        "treat guest_message_events table_missing as stopping all other reads/writes",
+        "audit HTTP with pre-authority normalized when PostEntry produced an effective post-authority identity",
+        "silently change owner-read scope to location-scoped owner reads"
       ]
     }
   },
