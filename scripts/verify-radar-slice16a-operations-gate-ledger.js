@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = 'acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b';
+const MASTER_BASIS = 'd922099cc1eec1596ef4c67f265c8b6c5e6bc81e';
+const BRANCH_16I = 'radar/slice-16i-readiness-replacement';
 const VERDICTS = new Set(['proven', 'partial', 'absent']);
 const REQUIRED_GATE_IDS = [
   'G01_correlation_structured_logs',
@@ -105,10 +106,11 @@ function secretFree(text, label) {
 }
 
 function runtimePathsUnchanged() {
+  // 16I owns Staff API readiness + staging Bicep probes; 16A freeze still
+  // requires database/ and Hermes staging sources remain untouched.
   const paths = [
-    'scripts/staff-query-api.js',
-    'infra/azure/staging/main.bicep',
-    'infra/azure/sunset-staging/main.bicep',
+    'database/',
+    'docker/hermes-staging/',
   ];
   try {
     const out = execSync(
@@ -136,6 +138,32 @@ function rangeDiffCheckClean() {
   } catch (err) {
     const detail = String((err && err.stdout) || (err && err.message) || err).trim();
     return { ok: false, detail: detail.slice(0, 800) };
+  }
+}
+
+function currentBranch() {
+  try {
+    return execSync('git rev-parse --abbrev-ref HEAD', {
+      cwd: ROOT,
+      encoding: 'utf8',
+    }).trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+function staffApiRuntimeDiffVsMaster() {
+  const paths = [
+    'scripts/staff-query-api.js',
+    'scripts/lib/staff-api-readiness.js',
+  ];
+  try {
+    return execSync(
+      `git diff --name-only ${MASTER_BASIS} -- ${paths.join(' ')}`,
+      { cwd: ROOT, encoding: 'utf8' },
+    ).trim().split(/\n/).filter(Boolean);
+  } catch (_) {
+    return [];
   }
 }
 
@@ -236,6 +264,25 @@ ok('F23d 16H final controlled drill present',
 ok('F23e 16H acceptance criteria finite (>=4)',
   Array.isArray(sel16h.acceptance_criteria) && sel16h.acceptance_criteria.length >= 4);
 
+const sel16i = matrix.slice_16i_selection;
+ok('F23f exactly one 16I selection',
+  sel16i && sel16i.selected === true
+  && sel16i.outcome_id === '16I_staff_api_readiness_dependencies'
+  && sel16i.gate_id === 'G02_readiness_dependencies'
+  && sel16i.progress_class === 'source_partial_progress_only');
+ok('F23g contract selected_16i matches',
+  contract.selected_16i
+  && contract.selected_16i.outcome_id === '16I_staff_api_readiness_dependencies'
+  && contract.selected_16i.gate_id === 'G02_readiness_dependencies');
+ok('F23h 16I final controlled drill present',
+  sel16i.final_controlled_drill
+  && sel16i.final_controlled_drill.id === '16I_DRILL_readiness_failure_traffic_shed');
+ok('F23i 16I acceptance criteria finite (>=4)',
+  Array.isArray(sel16i.acceptance_criteria) && sel16i.acceptance_criteria.length >= 4);
+ok('F23j 16I supersedes deferred 16C',
+  Array.isArray(sel16i.supersedes)
+  && sel16i.supersedes.includes('16C_staff_api_readiness_dependencies'));
+
 ok('F24 live inventory read_only + no mutation',
   live.read_only === true && live.live_mutation === false);
 ok('F25 live budgets empty both RGs',
@@ -287,11 +334,11 @@ const blob = [
 const sec = secretFree(blob, 'fixtures+doc');
 ok('F32 secret-free fixtures and doc', sec.ok, sec.detail);
 
-ok('F33 doc mentions selected 16H id', /16H_staff_api_metric_alerts/.test(doc));
+ok('F33 doc mentions selected 16I id', /16I_staff_api_readiness_dependencies/.test(doc));
 ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /partial.*9/i.test(doc) && /absent.*0/i.test(doc));
-ok('F35 findings lists G03 partial and G09 partial',
-  /G03/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
-  && /16H/.test(findings));
+ok('F35 findings lists G02/G03/G09 partial',
+  /G02/.test(findings) && /G03/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
+  && /16I/.test(findings));
 
 ok('F36 healthz source cite present', pathExists('scripts/staff-query-api.js'));
 ok('F37 capture cost script present (read-only helper)',
@@ -300,7 +347,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 zero-mutation: runtime Bicep/staff-api unchanged vs master basis', rt.ok, rt.detail);
+ok('F39 zero-mutation: database/Hermes unchanged vs master basis (16I may touch staff-api+bicep)', rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
   matrix.final_controlled_drill_16a
@@ -313,6 +360,48 @@ ok('F43 git range diff --check clean vs master basis', rangeCheck.ok, rangeCheck
 ok('F44 contract gates pin range diff --check',
   Array.isArray(contract.gates)
   && contract.gates.some((g) => g === `git diff --check ${MASTER_BASIS}..HEAD`));
+
+const g02 = matrix.gates.find((g) => g.id === 'G02_readiness_dependencies');
+ok('F45 G02 partial source-partial via 16I',
+  g02 && g02.verdict === 'partial'
+  && g02.progress_class === 'source_partial_progress_only'
+  && /readyz/i.test(g02.rationale)
+  && /16I/.test(g02.rationale));
+ok('F46 readiness lib present', pathExists('scripts/lib/staff-api-readiness.js'));
+ok('F47 16I verifier script present',
+  pathExists('scripts/verify-radar-slice16i-staff-api-readiness.js'));
+
+const slice16iContract = readJson(path.join(FIXTURE_DIR, 'slice16i-expected-contract.json'));
+const headBranch = currentBranch();
+ok('F48 gate-matrix branch pin equals 16I contract + HEAD',
+  matrix.branch === BRANCH_16I
+  && contract.branch === BRANCH_16I
+  && slice16iContract.branch === BRANCH_16I
+  && headBranch === BRANCH_16I,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16i=${slice16iContract.branch} head=${headBranch}`);
+
+const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
+const hasStaleSourceForbid = mustNot.some((m) =>
+  /^source runtime behavior change$/i.test(String(m).trim()));
+const hasLiveDeployedForbid = mustNot.some((m) =>
+  /live\/deployed runtime mutation/i.test(String(m)));
+ok('F49 must_not forbids live/deployed mutation, not blanket source change',
+  !hasStaleSourceForbid && hasLiveDeployedForbid,
+  JSON.stringify(mustNot));
+
+const runtimeDiff = staffApiRuntimeDiffVsMaster();
+const g02CitesRuntime = g02
+  && Array.isArray(g02.source_evidence)
+  && g02.source_evidence.some((ev) =>
+    ev.path === 'scripts/lib/staff-api-readiness.js'
+    || ev.path === 'scripts/staff-query-api.js');
+ok('F50 must_not does not contradict changed runtime source or G02 evidence',
+  !hasStaleSourceForbid
+  && hasLiveDeployedForbid
+  && g02CitesRuntime
+  && runtimeDiff.length >= 1
+  && matrix.live_mutation === false,
+  `runtimeDiff=${runtimeDiff.join(',') || '(none)'} stale=${hasStaleSourceForbid}`);
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

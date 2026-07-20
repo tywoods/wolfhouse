@@ -939,15 +939,16 @@ ok('L19b no deployment wrapper artifacts',
   && !fs.existsSync(path.join(ROOT, 'scripts/lib/radar-slice16f-staff-api-metric-alerts.js'))
   && !fs.existsSync(path.join(ROOT, 'scripts/lib/radar-slice16g-staff-api-metric-alerts.js')));
 
+// 16I owns Staff API /readyz + staging Bicep probes; 16H still forbids DB/Hermes mutation
+// and must not gain a deployment wrapper.
 const runtimeDiff = execFileSync(
   'git',
   ['diff', '--name-only', MASTER, '--',
-    'scripts/staff-query-api.js', 'database/',
-    'infra/azure/staging/main.bicep', 'infra/azure/sunset-staging/main.bicep',
+    'database/',
     'docker/hermes-staging/'],
   { cwd: ROOT, encoding: 'utf8' },
 ).trim();
-ok('L20 zero runtime mutation vs master', runtimeDiff === '', runtimeDiff);
+ok('L20 zero DB/Hermes mutation vs master (16I may touch staff-api + staging bicep)', runtimeDiff === '', runtimeDiff);
 
 const pkg = readJson('package.json');
 ok('L21 npm script registered',

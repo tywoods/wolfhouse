@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16H",
-  "title": "RADAR operations gate ledger (16H Staff API metric alerts source-partial)",
-  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
-  "branch": "radar/slice-16h-metric-alert-source-only",
+  "slice": "RADAR-16I",
+  "title": "RADAR operations gate ledger (16I Staff API readiness source-partial; supersedes deferred 16C)",
+  "master_basis": "d922099cc1eec1596ef4c67f265c8b6c5e6bc81e",
+  "branch": "radar/slice-16i-readiness-replacement",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -17,7 +17,7 @@
     "luna-sunset-staging-rg"
   ],
   "must_not": [
-    "source runtime behavior change",
+    "live/deployed runtime mutation",
     "deploy",
     "restart",
     "synthetic traffic generation",
@@ -74,48 +74,73 @@
       "name": "Readiness / dependencies",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Public /healthz returns static ok without checking Postgres, Stripe, or Redis. Live ACA staff apps have empty/null probes. Hermes/Luna /health exists in deploy scripts but is not a dependency-aware readiness gate for Staff API.",
+      "rationale": "16I adds Staff API /readyz (dedicated max-1 pg Pool via public pg 8.21 options: connectionTimeoutMillis<=1500, statement_timeout<=1500, query_timeout<=2000; fixed SELECT 1; release healthy / release(err) once; no Promise.race/AbortController/private fields/app-pool) and ACA Startup/Liveness/Readiness probes in Wolfhouse + Sunset staging Bicep (port 3036; liveness/startup on /healthz without Postgres; readiness on /readyz; periodSeconds exceeds max operation bound). Source-partial only \u2014 not deployed; live ACA probes still empty/null; controlled readiness failure drill and lifecycle integration (closeReadinessPool) remain open. Supersedes deferred 16C (no signal/shutdown framework in this slice).",
       "source_evidence": [
         {
-          "path": "scripts/staff-query-api.js",
-          "lines": "46623-46633",
+          "path": "scripts/lib/staff-api-readiness.js",
+          "lines": "1-120",
           "symbols": [
+            "READINESS_SQL",
+            "checkPostgresReadiness",
+            "handleStaffApiReadyz",
+            "closeReadinessPool"
+          ],
+          "note": "Dedicated max-1 readiness pool; generic ready/not-ready bodies; explicit idempotent close"
+        },
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "46631-46650",
+          "symbols": [
+            "READYZ_PATH",
+            "handleStaffApiReadyz",
             "pathname === '/healthz'"
           ],
-          "note": "Always 200 with status ok; no SELECT 1 / dependency probes"
+          "note": "/readyz wired through real router; /healthz remains static liveness; no signal lifecycle"
         },
         {
-          "path": "infra/azure/staging/README.md",
-          "lines": "183",
-          "symbols": [],
-          "note": "Runbook checks /healthz JSON shape only"
+          "path": "infra/azure/staging/main.bicep",
+          "lines": "363-405",
+          "symbols": [
+            "probes",
+            "Liveness",
+            "Readiness",
+            "Startup"
+          ],
+          "note": "ACA probes declared; readiness=/readyz liveness=/healthz port 3036"
         },
         {
-          "path": "docs/MULTICLIENT-STAGING-ROUTING.md",
-          "lines": "134,166,190",
-          "symbols": [],
-          "note": "Health curls for Staff API and Luna"
+          "path": "infra/azure/sunset-staging/main.bicep",
+          "lines": "454-496",
+          "symbols": [
+            "probes",
+            "Liveness",
+            "Readiness",
+            "Startup"
+          ],
+          "note": "Identical probe contract to Wolfhouse staging (drift-gated)"
         }
       ],
       "live_evidence": [
         {
           "ref": "live-inventory.json#public_healthz",
-          "note": "staff-staging and sunset-staging /healthz HTTP 200; body status=ok without dependency fields"
+          "note": "Frozen live inventory still shows /healthz-only public checks; /readyz not live-proven"
         },
         {
           "ref": "live-inventory.json#container_apps.wh-staging-staff-api",
-          "note": "probes=[] ; minReplicas=0 maxReplicas=1"
+          "note": "Live probes=[] until approved deploy (source-only progress)"
         },
         {
           "ref": "live-inventory.json#container_apps.luna-sunset-staging-staff-api",
-          "note": "probes=null ; minReplicas=1 maxReplicas=1"
+          "note": "Live probes=null until approved deploy (source-only progress)"
         }
       ],
       "gaps": [
-        "No /readyz distinct from liveness",
-        "No PG/Stripe/Redis dependency checks",
-        "No ACA HTTP probes configured live"
-      ]
+        "Staff API image + ACA probe template not deployed to staging",
+        "Controlled readiness failure drill (traffic shed without restart loops) not executed",
+        "Live probe inventory still empty/null",
+        "closeReadinessPool not yet wired into Staff API graceful shutdown lifecycle"
+      ],
+      "progress_class": "source_partial_progress_only"
     },
     {
       "id": "G03_actionable_tenant_aware_alerts",
@@ -580,6 +605,58 @@
         "Confirm docker/app revisions unchanged and no AG mutation"
       ],
       "pass_rule": "Both RG metric alerts listed Enabled + proven notification delivery + controlled fire; no container restart/deploy/DB write / AG mutation"
+    }
+  },
+  "slice_16i_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16I_staff_api_readiness_dependencies",
+    "gate_id": "G02_readiness_dependencies",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_failure_drill_lifecycle_integration",
+    "title": "Add Staff API /readyz + ACA probes (dedicated max-1 readiness pool) \u2014 source partial only",
+    "why_smallest": "G02 lacked dependency-aware readiness; narrowest ownership is /readyz + probe IaC without signal/shutdown framework.",
+    "supersedes": [
+      "16C_staff_api_readiness_dependencies"
+    ],
+    "owner_files": [
+      "scripts/lib/staff-api-readiness.js",
+      "scripts/staff-query-api.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "scripts/verify-radar-slice16i-staff-api-readiness.js",
+      "fixtures/radar-operations/slice16i-expected-contract.json",
+      "fixtures/radar-operations/slice16i-probe-contract.json"
+    ],
+    "out_of_scope_for_16i": [
+      "Signal/shutdown framework (SIGTERM/SIGINT drain)",
+      "Composing closeReadinessPool into closePgPool",
+      "Live deploy / restart",
+      "Controlled readiness failure drill",
+      "Production RGs",
+      "Stripe/Redis dependency probes"
+    ],
+    "acceptance_criteria": [
+      "/healthz remains DB-independent static liveness",
+      "/readyz via real router + dedicated max-1 Pool (public pg 8.21 options only)",
+      "connectionTimeoutMillis<=1500, statement_timeout<=1500, query_timeout<=2000; fixed SELECT 1",
+      "No Promise.race/AbortController/private fields/custom cancellation/app-pool use",
+      "On success release healthy; on error release(err) once",
+      "ACA readiness periodSeconds exceeds max operation bound",
+      "ACA Startup/Liveness /healthz + Readiness /readyz on Wolfhouse and Sunset Bicep",
+      "Real listener + fake Client RED/GREEN offline proofs",
+      "Lifecycle integration and live deploy/drill remain open"
+    ],
+    "final_controlled_drill": {
+      "id": "16I_DRILL_readiness_failure_traffic_shed",
+      "steps": [
+        "Approved deploy of Staff API image + ACA probe template (follow-on; not this commit)",
+        "With Postgres unreachable, prove /readyz=503 and traffic shed without restart loop",
+        "Prove /healthz stays 200",
+        "Restore Postgres; prove /readyz=200 and traffic returns",
+        "Freeze evidence JSON secret-free"
+      ],
+      "pass_rule": "Readiness removes traffic without restart loops; liveness stays up; recovery restores traffic"
     }
   }
 }
