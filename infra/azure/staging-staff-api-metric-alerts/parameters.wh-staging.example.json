@@ -3,17 +3,36 @@
   "contentVersion": "1.0.0.0",
   "metadata": {
     "slice": "RADAR-16F",
-    "purpose": "Secret-free example parameters for wh-staging-rg Staff API metric alerts. References existing 16B ops action group by name only — never creates/modifies AG, apps, budgets, identity, secrets, DB, or network. Live deploy false.",
+    "purpose": "Secret-free example parameters for wh-staging-rg Staff API metric alerts. Only containerAppName is a template parameter; tenant slug, 16B action-group name, thresholds, severity, windows, operators, metric names, and enabled state are Bicep vars derived/locked — not overridable. Live deploy false.",
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
     "resourceGroup": "wh-staging-rg",
     "containerAppName": "wh-staging-staff-api",
-    "tenantSlug": "wolfhouse",
-    "actionGroupName": "wh-staging-ops-budget-ag",
+    "derivedTenantSlug": "wolfhouse",
+    "derivedActionGroupName": "wh-staging-ops-budget-ag",
     "deploymentMode": "Incremental",
     "liveDeploy": false,
     "notification_delivery_proof": "open",
     "alert_fire_drill": "open",
+    "hardLocks": {
+      "subscriptionAssert": "subscription().subscriptionId",
+      "rgAppTupleAssert": "resourceGroup().name + containerAppName",
+      "derivedFromRg": ["tenantSlug", "actionGroupName"],
+      "constantsNotParameters": [
+        "requestsMetricName",
+        "restartMetricName",
+        "requests5xxOperator",
+        "restartCountOperator",
+        "requests5xxThreshold",
+        "restartCountThreshold",
+        "alertSeverity",
+        "windowSize",
+        "evaluationFrequency",
+        "alertsEnabled"
+      ]
+    },
     "forbidden": [
+      "overriding threshold/severity/window/operator/metric/enabled via parameters",
+      "passing actionGroupName or tenantSlug as parameters",
       "creating/modifying action groups",
       "creating/modifying Container Apps",
       "Complete deployment mode",
@@ -26,27 +45,6 @@
   "parameters": {
     "containerAppName": {
       "value": "wh-staging-staff-api"
-    },
-    "actionGroupName": {
-      "value": "wh-staging-ops-budget-ag"
-    },
-    "tenantSlug": {
-      "value": "wolfhouse"
-    },
-    "requests5xxThreshold": {
-      "value": 3
-    },
-    "restartCountThreshold": {
-      "value": 0
-    },
-    "alertSeverity": {
-      "value": 2
-    },
-    "windowSize": {
-      "value": "PT5M"
-    },
-    "evaluationFrequency": {
-      "value": "PT1M"
     }
   }
 }

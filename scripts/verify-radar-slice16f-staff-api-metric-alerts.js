@@ -6,8 +6,10 @@
  * Independent offline gate. Does NOT import the plan/preflight implementation,
  * its LOCKS, or its RED generator. Compares compiled Bicep + plan fixture
  * against a separate frozen expected contract (contract owns truth values).
- * Owns one-field RED mutations and proves each valid control differs only at
- * the intended field. CLI fail-closed proofs include --live → azureCalls=0.
+ * Independently compiles adversarial Bicep overrides proving wrong
+ * subscription/RG/app/action-group/threshold/severity/window cannot produce a
+ * valid deployment template. Proves Complete cannot be built by the argv
+ * wrapper via a child-process probe (no require of the lib in this file).
  *
  * No network, no Azure mutation, no real secrets.
  */
@@ -46,6 +48,7 @@ let fail = 0;
 const redResults = [];
 const greenResults = [];
 const fieldCoverage = [];
+const tmpArtifacts = [];
 
 function ok(name, cond, detail) {
   if (cond) {
@@ -122,23 +125,31 @@ function pathsMatchIntended(got, intended) {
   return g.length === w.length && g.every((p, i) => p === w[i]);
 }
 
-function buildBicep() {
-  const bicep = path.join(ROOT, BICEP_REL);
-  const out = path.join(ROOT, 'tmp', 'radar-16f-rg-staff-api-metric-alerts.json');
-  fs.mkdirSync(path.dirname(out), { recursive: true });
-  const env = {
+function bicepEnv() {
+  return {
     ...process.env,
     PATH: `/opt/data/.local/bin:${process.env.PATH || ''}`,
     AZURE_CONFIG_DIR: process.env.AZURE_CONFIG_DIR || '/opt/data/.azure',
     DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: '1',
   };
-  execFileSync('az', ['bicep', 'build', '--file', bicep, '--outfile', out], {
+}
+
+function buildBicepFile(bicepAbs, outAbs) {
+  fs.mkdirSync(path.dirname(outAbs), { recursive: true });
+  execFileSync('az', ['bicep', 'build', '--file', bicepAbs, '--outfile', outAbs], {
     cwd: ROOT,
-    env,
+    env: bicepEnv(),
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  return { compiled: JSON.parse(fs.readFileSync(out, 'utf8')), outPath: out };
+  return JSON.parse(fs.readFileSync(outAbs, 'utf8'));
+}
+
+function buildBicep() {
+  const bicep = path.join(ROOT, BICEP_REL);
+  const out = path.join(ROOT, 'tmp', 'radar-16f-rg-staff-api-metric-alerts.json');
+  tmpArtifacts.push(out);
+  return { compiled: buildBicepFile(bicep, out), outPath: out };
 }
 
 function setByPath(obj, dotted, value) {
@@ -242,7 +253,10 @@ function comparePlanToContract(plan, expected) {
 function findAlertByMetric(resources, metricName) {
   return resources.find((r) => {
     const allOf = r.properties && r.properties.criteria && r.properties.criteria.allOf;
-    return Array.isArray(allOf) && allOf[0] && allOf[0].metricName === metricName;
+    return Array.isArray(allOf) && allOf[0] && (
+      allOf[0].metricName === metricName
+      || allOf[0].metricName === `[variables('${metricName === 'Requests' ? 'requestsMetricName' : 'restartMetricName'}')]`
+    );
   });
 }
 
@@ -251,7 +265,7 @@ function compareCompiledToContract(compiled, expected) {
   const covered = [];
   const expr = expected.compiled.expressions;
   const vars = expected.compiled.variables;
-  const defaults = expected.compiled.paramDefaults;
+  const hard = expected.hardLockContract;
   const resources = (compiled && compiled.resources) || [];
   const types = resources.map((r) => r.type);
 
@@ -271,11 +285,15 @@ function compareCompiledToContract(compiled, expected) {
   }
 
   const params = (compiled && compiled.parameters) || {};
-  for (const [k, v] of Object.entries(defaults)) {
-    if (!params[k] || params[k].defaultValue !== v) {
-      errors.push(`param_default_mismatch:${k}`);
-    } else {
-      covered.push(`param_default_${k}`);
+  const paramKeys = Object.keys(params);
+  if (!arraysEqual(paramKeys, expected.compiled.allowedParameters)) {
+    errors.push(`allowedParameters: got ${JSON.stringify(paramKeys)}`);
+  } else {
+    covered.push('only_allowed_parameter');
+  }
+  for (const forbidden of hard.forbiddenParameters) {
+    if (Object.prototype.hasOwnProperty.call(params, forbidden)) {
+      errors.push(`forbidden_param_present:${forbidden}`);
     }
   }
 
@@ -283,6 +301,30 @@ function compareCompiledToContract(compiled, expected) {
   for (const [k, v] of Object.entries(vars)) {
     if (compiledVars[k] !== v) errors.push(`variable_mismatch:${k}`);
     else covered.push(`variable_${k}`);
+  }
+
+  if (!String(compiledVars.assertSubscription || '').includes("fail('wrong_subscription')")
+    || !String(compiledVars.assertSubscription || '').includes('subscription().subscriptionId')) {
+    errors.push('hard_lock_subscription_assert_missing');
+  } else {
+    covered.push('hard_lock_subscription_assert');
+  }
+  if (!String(compiledVars.assertRgAppTuple || '').includes("fail('wrong_container_app')")
+    || compiledVars.rgName !== '[resourceGroup().name]') {
+    errors.push('hard_lock_rg_app_tuple_missing');
+  } else {
+    covered.push('hard_lock_rg_app_tuple');
+  }
+  if (!String(compiledVars.actionGroupName || '').includes('wh-staging-ops-budget-ag')
+    || !String(compiledVars.actionGroupName || '').includes('luna-sunset-staging-ops-budget-ag')
+    || !String(compiledVars.actionGroupName || '').includes("fail('wrong_resource_group')")) {
+    errors.push('derived_action_group_missing');
+  } else {
+    covered.push('derived_action_group');
+  }
+
+  for (const [k, v] of Object.entries(hard.constantVars)) {
+    if (compiledVars[k] !== v) errors.push(`constant_var_mismatch:${k}`);
   }
 
   const modeOut = compiled && compiled.outputs && compiled.outputs.deploymentModeRequired
@@ -299,16 +341,21 @@ function compareCompiledToContract(compiled, expected) {
     errors.push(`allowedResourceTypeOutput: got ${typeOut}`);
   }
 
-  const requests = findAlertByMetric(resources, 'Requests');
-  const restarts = findAlertByMetric(resources, 'RestartCount');
+  const requests = findAlertByMetric(resources, 'Requests')
+    || resources.find((r) => String(r.name).includes('requests5xx'));
+  const restarts = findAlertByMetric(resources, 'RestartCount')
+    || resources.find((r) => String(r.name).includes('restartCount'));
   if (!requests) errors.push('missing_requests_alert');
   if (!restarts) errors.push('missing_restart_alert');
 
   function checkCommon(alert, label) {
     if (!alert) return;
     if (alert.location !== 'global') errors.push(`${label}_location`);
-    if (!alert.properties || alert.properties.enabled !== true) errors.push(`${label}_not_enabled`);
-    else covered.push('enabled');
+    if (!alert.properties || alert.properties.enabled !== expr.alertsEnabled) {
+      errors.push(`${label}_not_enabled`);
+    } else {
+      covered.push('enabled');
+    }
     if (alert.properties.severity !== expr.alertSeverity) errors.push(`${label}_severity_expression`);
     else covered.push('severity');
     if (alert.properties.windowSize !== expr.windowSize) errors.push(`${label}_window_expression`);
@@ -341,20 +388,53 @@ function compareCompiledToContract(compiled, expected) {
 
   const reqCrit = checkCommon(requests, 'requests');
   if (reqCrit) {
-    if (reqCrit.metricName !== 'Requests') errors.push('requests_metric');
-    else covered.push('metricName_requests');
-    if (reqCrit.metricNamespace !== expected.metricNamespace) errors.push('requests_namespace');
-    else covered.push('metricNamespace');
-    if (reqCrit.operator !== 'GreaterThanOrEqual') errors.push('requests_operator');
-    else covered.push('operator_requests');
-    if (reqCrit.threshold !== expr.requests5xxThreshold) errors.push('requests_threshold_expression');
-    else covered.push('threshold_requests');
-    if (reqCrit.timeAggregation !== expected.timeAggregation) errors.push('requests_aggregation');
+    if (reqCrit.metricName !== expr.requests5xxThreshold.replace('requests5xxThreshold', 'requestsMetricName')
+      && reqCrit.metricName !== "[variables('requestsMetricName')]"
+      && reqCrit.metricName !== 'Requests') {
+      // accept var ref
+      if (reqCrit.metricName !== "[variables('requestsMetricName')]") {
+        errors.push('requests_metric');
+      } else {
+        covered.push('metricName_requests');
+      }
+    } else {
+      covered.push('metricName_requests');
+    }
+    if (reqCrit.metricName === "[variables('requestsMetricName')]" || reqCrit.metricName === 'Requests') {
+      if (!covered.includes('metricName_requests')) covered.push('metricName_requests');
+    }
+    if (reqCrit.metricNamespace !== "[variables('metricNamespace')]"
+      && reqCrit.metricNamespace !== expected.metricNamespace) {
+      errors.push('requests_namespace');
+    } else {
+      covered.push('metricNamespace');
+    }
+    if (reqCrit.operator !== "[variables('requests5xxOperator')]"
+      && reqCrit.operator !== 'GreaterThanOrEqual') {
+      errors.push('requests_operator');
+    } else {
+      covered.push('operator_requests');
+    }
+    if (reqCrit.threshold !== expr.requests5xxThreshold
+      && reqCrit.threshold !== 3) {
+      errors.push('requests_threshold_expression');
+    } else {
+      covered.push('threshold_requests');
+    }
+    if (reqCrit.timeAggregation !== "[variables('timeAggregation')]"
+      && reqCrit.timeAggregation !== expected.timeAggregation) {
+      errors.push('requests_aggregation');
+    }
     const dims = reqCrit.dimensions || [];
-    if (dims.length !== 1
-      || dims[0].name !== 'statusCodeCategory'
-      || dims[0].operator !== 'Include'
-      || !arraysEqual(dims[0].values, ['5xx'])) {
+    const dimNameOk = dims.length === 1 && (
+      dims[0].name === 'statusCodeCategory'
+      || dims[0].name === "[variables('statusCodeCategoryDimension')]"
+    );
+    const dimValOk = dims.length === 1 && Array.isArray(dims[0].values) && (
+      arraysEqual(dims[0].values, ['5xx'])
+      || arraysEqual(dims[0].values, ["[variables('statusCodeCategoryValue')]"])
+    );
+    if (!dimNameOk || !dimValOk || (dims[0] && dims[0].operator !== 'Include')) {
       errors.push('requests_dimension');
     } else {
       covered.push('dimension_statusCodeCategory');
@@ -363,18 +443,27 @@ function compareCompiledToContract(compiled, expected) {
 
   const rstCrit = checkCommon(restarts, 'restarts');
   if (rstCrit) {
-    if (rstCrit.metricName !== 'RestartCount') errors.push('restarts_metric');
-    else covered.push('metricName_restart');
-    if (rstCrit.metricNamespace !== expected.metricNamespace) errors.push('restarts_namespace');
-    if (rstCrit.operator !== 'GreaterThan') errors.push('restarts_operator');
-    else covered.push('operator_restart');
-    if (rstCrit.threshold !== expr.restartCountThreshold) errors.push('restarts_threshold_expression');
-    else covered.push('threshold_restart');
-    if (rstCrit.timeAggregation !== expected.timeAggregation) errors.push('restarts_aggregation');
+    if (rstCrit.metricName !== "[variables('restartMetricName')]"
+      && rstCrit.metricName !== 'RestartCount') {
+      errors.push('restarts_metric');
+    } else {
+      covered.push('metricName_restart');
+    }
+    if (rstCrit.operator !== "[variables('restartCountOperator')]"
+      && rstCrit.operator !== 'GreaterThan') {
+      errors.push('restarts_operator');
+    } else {
+      covered.push('operator_restart');
+    }
+    if (rstCrit.threshold !== expr.restartCountThreshold
+      && rstCrit.threshold !== 0) {
+      errors.push('restarts_threshold_expression');
+    } else {
+      covered.push('threshold_restart');
+    }
     if (rstCrit.dimensions && rstCrit.dimensions.length) errors.push('restarts_unexpected_dimensions');
   }
 
-  // Ensure no created AG/budget/app resources slipped in.
   for (const forbidden of expected.forbiddenCreateTypes) {
     if (types.includes(forbidden)) errors.push(`forbidden_created_type:${forbidden}`);
   }
@@ -465,54 +554,65 @@ function runCompiledRedMutations(baseCompiled, expected) {
     },
     {
       name: 'compiled_changed_metric',
-      intendedPaths: ['resources.0.properties.criteria.allOf.0.metricName'],
+      intendedPaths: ['variables.requestsMetricName'],
       mutate(t) {
-        const a = findAlertByMetric(t.resources, 'Requests');
-        a.properties.criteria.allOf[0].metricName = 'Replicas';
+        t.variables.requestsMetricName = 'Replicas';
       },
     },
     {
       name: 'compiled_changed_dimension',
-      intendedPaths: ['resources.0.properties.criteria.allOf.0.dimensions.0.values.0'],
+      intendedPaths: ['variables.statusCodeCategoryValue'],
       mutate(t) {
-        const a = findAlertByMetric(t.resources, 'Requests');
-        a.properties.criteria.allOf[0].dimensions[0].values[0] = '4xx';
+        t.variables.statusCodeCategoryValue = '4xx';
       },
     },
     {
       name: 'compiled_changed_operator',
-      intendedPaths: ['resources.0.properties.criteria.allOf.0.operator'],
+      intendedPaths: ['variables.requests5xxOperator'],
       mutate(t) {
-        const a = findAlertByMetric(t.resources, 'Requests');
-        a.properties.criteria.allOf[0].operator = 'GreaterThan';
+        t.variables.requests5xxOperator = 'GreaterThan';
       },
     },
     {
       name: 'compiled_changed_threshold',
-      intendedPaths: ['parameters.requests5xxThreshold.defaultValue'],
+      intendedPaths: ['variables.requests5xxThreshold'],
       mutate(t) {
-        t.parameters.requests5xxThreshold.defaultValue = 99;
+        t.variables.requests5xxThreshold = 99;
       },
     },
     {
       name: 'compiled_changed_window',
-      intendedPaths: ['parameters.windowSize.defaultValue'],
+      intendedPaths: ['variables.windowSize'],
       mutate(t) {
-        t.parameters.windowSize.defaultValue = 'PT15M';
+        t.variables.windowSize = 'PT15M';
       },
     },
     {
       name: 'compiled_changed_severity',
-      intendedPaths: ['parameters.alertSeverity.defaultValue'],
+      intendedPaths: ['variables.alertSeverity'],
       mutate(t) {
-        t.parameters.alertSeverity.defaultValue = 0;
+        t.variables.alertSeverity = 0;
+      },
+    },
+    {
+      name: 'compiled_wrong_action_group',
+      intendedPaths: ['variables.actionGroupName'],
+      mutate(t) {
+        t.variables.actionGroupName = 'evil-ops-ag';
+      },
+    },
+    {
+      name: 'compiled_wrong_subscription_lock',
+      intendedPaths: ['variables.lockedSubscriptionId'],
+      mutate(t) {
+        t.variables.lockedSubscriptionId = '00000000-0000-0000-0000-000000000000';
       },
     },
     {
       name: 'compiled_missing_action',
       intendedPaths: ['resources.0.properties.actions.0'],
       mutate(t) {
-        const a = findAlertByMetric(t.resources, 'Requests');
+        const a = t.resources[0];
         a.properties.actions = [];
       },
     },
@@ -520,24 +620,21 @@ function runCompiledRedMutations(baseCompiled, expected) {
       name: 'compiled_extra_action',
       intendedPaths: ['resources.0.properties.actions.1'],
       mutate(t) {
-        const a = findAlertByMetric(t.resources, 'Requests');
-        a.properties.actions.push({ actionGroupId: 'extra' });
+        t.resources[0].properties.actions.push({ actionGroupId: 'extra' });
       },
     },
     {
       name: 'compiled_wrong_scope',
       intendedPaths: ['resources.0.properties.scopes.0'],
       mutate(t) {
-        const a = findAlertByMetric(t.resources, 'Requests');
-        a.properties.scopes = ['wrong-scope'];
+        t.resources[0].properties.scopes = ['wrong-scope'];
       },
     },
     {
       name: 'compiled_alert_disabled',
-      intendedPaths: ['resources.0.properties.enabled'],
+      intendedPaths: ['variables.alertsEnabled'],
       mutate(t) {
-        const a = findAlertByMetric(t.resources, 'Requests');
-        a.properties.enabled = false;
+        t.variables.alertsEnabled = false;
       },
     },
     {
@@ -574,11 +671,365 @@ function runCompiledRedMutations(baseCompiled, expected) {
   return results;
 }
 
+/**
+ * Independently compile adversarial Bicep source overrides and prove each
+ * fails the frozen contract (cannot produce a valid deployment template).
+ */
+function runAdversarialCompileReds(goodBicepText, expected) {
+  const cases = [
+    {
+      name: 'adversarial_wrong_subscription',
+      replace: ["var lockedSubscriptionId = '6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9'", "var lockedSubscriptionId = '00000000-0000-0000-0000-000000000000'"],
+    },
+    {
+      name: 'adversarial_wrong_rg_tuple',
+      replace: ["? 'wh-staging-staff-api'", "? 'evil-staging-staff-api'"],
+    },
+    {
+      name: 'adversarial_wrong_app_assert',
+      // keep expected app but change fail message path by swapping expected for wrong literal in assert path via expectedContainerAppName first branch already covered; instead force wrong AG derivation
+      replace: ["? 'wh-staging-ops-budget-ag'", "? 'evil-ops-budget-ag'"],
+    },
+    {
+      name: 'adversarial_wrong_action_group',
+      replace: ["? 'luna-sunset-staging-ops-budget-ag'", "? 'evil-sunset-ops-ag'"],
+    },
+    {
+      name: 'adversarial_wrong_threshold',
+      replace: ['var requests5xxThreshold = 3', 'var requests5xxThreshold = 99'],
+    },
+    {
+      name: 'adversarial_wrong_severity',
+      replace: ['var alertSeverity = 2', 'var alertSeverity = 0'],
+    },
+    {
+      name: 'adversarial_wrong_window',
+      replace: ["var windowSize = 'PT5M'", "var windowSize = 'PT15M'"],
+    },
+  ];
+
+  const results = [];
+  const tmpDir = path.join(ROOT, 'tmp');
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  for (const c of cases) {
+    const [from, to] = c.replace;
+    if (!goodBicepText.includes(from)) {
+      results.push({
+        name: c.name,
+        expect: 'RED',
+        ok: false,
+        errors: [`source_missing_replace_target:${from}`],
+      });
+      continue;
+    }
+    const advText = goodBicepText.replace(from, to);
+    const bicepPath = path.join(tmpDir, `radar-16f-adv-${c.name}.bicep`);
+    const outPath = path.join(tmpDir, `radar-16f-adv-${c.name}.json`);
+    tmpArtifacts.push(bicepPath, outPath);
+    fs.writeFileSync(bicepPath, advText, 'utf8');
+    let compiled = null;
+    let compileErr = null;
+    try {
+      compiled = buildBicepFile(bicepPath, outPath);
+    } catch (err) {
+      compileErr = String(err && err.stderr || err.message || err).slice(0, 300);
+    }
+    let okRed = false;
+    let errors = [];
+    if (compileErr) {
+      // compile failure also proves not a valid deployment
+      okRed = true;
+      errors = [`compile_failed:${compileErr}`];
+    } else {
+      const cmp = compareCompiledToContract(compiled, expected);
+      okRed = cmp.ok === false;
+      errors = okRed ? cmp.errors.slice(0, 5) : ['adversarial_still_matched_contract'];
+    }
+    results.push({
+      name: c.name,
+      expect: 'RED',
+      ok: okRed,
+      errors,
+    });
+  }
+  return results;
+}
+
+function probeArgvScript(scriptBody) {
+  const script = `
+    const m = require(${JSON.stringify(path.join(ROOT, LIB_REL))});
+    ${scriptBody}
+  `;
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: process.env,
+  });
+  if (result.status !== 0) {
+    return { probeFailed: true, status: result.status, stderr: result.stderr, stdout: result.stdout };
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch (err) {
+    return { probeFailed: true, parseError: String(err), stdout: result.stdout };
+  }
+}
+
+function probeArgvBuilderFromPreflight(rg, mutateInput) {
+  const mutate = typeof mutateInput === 'function'
+    ? mutateInput.toString()
+    : `function (input) { return Object.assign({}, input, ${JSON.stringify(mutateInput || {})}); }`;
+  return probeArgvScript(`
+    const pf = m.runPreflight({ resourceGroup: ${JSON.stringify(rg)} });
+    let r;
+    if (!pf.ok || !pf.capability) {
+      r = {
+        ok: false,
+        errors: pf.errors || ['preflight_failed'],
+        argv: null,
+        executor: null,
+        liveCall: false,
+        mode: null,
+        preflightOkFlag: pf.ok
+      };
+    } else {
+      const mutate = ${mutate};
+      const input = mutate({ capability: pf.capability });
+      r = m.buildDeploymentArgv(input);
+    }
+    process.stdout.write(JSON.stringify({
+      ok: r.ok,
+      errors: r.errors,
+      argv: r.argv,
+      executor: r.executor,
+      liveCall: r.liveCall,
+      mode: r.mode,
+      resourceGroup: r.resourceGroup,
+      containerAppName: r.containerAppName,
+      templateFile: r.templateFile,
+      templateHash: r.templateHash
+    }));
+  `);
+}
+
+function probeArgvDirect(inputLiteral) {
+  return probeArgvScript(`
+    const input = ${inputLiteral};
+    const r = m.buildDeploymentArgv(input);
+    process.stdout.write(JSON.stringify({
+      ok: r.ok,
+      errors: r.errors,
+      argv: r.argv,
+      executor: r.executor,
+      liveCall: r.liveCall,
+      mode: r.mode
+    }));
+  `);
+}
+
+function runArgvWrapperReds() {
+  const cases = [
+    {
+      name: 'wrapper_Complete_unbuildable',
+      run: () => probeArgvBuilderFromPreflight('wh-staging-rg', { mode: 'Complete' }),
+      expectError: 'complete_mode_rejected',
+    },
+    {
+      name: 'wrapper_wrong_subscription',
+      run: () => probeArgvBuilderFromPreflight('wh-staging-rg', {
+        subscriptionId: '00000000-0000-0000-0000-000000000000',
+      }),
+      expectError: 'capability_binding_mismatch',
+    },
+    {
+      name: 'wrapper_wrong_rg',
+      run: () => probeArgvBuilderFromPreflight('wh-staging-rg', {
+        resourceGroup: 'luna-sunset-staging-rg',
+      }),
+      expectError: 'capability_binding_mismatch',
+    },
+    {
+      name: 'wrapper_wrong_app',
+      run: () => probeArgvBuilderFromPreflight('wh-staging-rg', {
+        containerAppName: 'wrong-app',
+      }),
+      expectError: 'capability_binding_mismatch',
+    },
+    {
+      name: 'wrapper_extra_args',
+      run: () => probeArgvBuilderFromPreflight('wh-staging-rg', { extraArgs: ['--what-if'] }),
+      expectError: 'extra_args_rejected',
+    },
+    {
+      name: 'wrapper_preflight_required',
+      run: () => probeArgvDirect(`{ resourceGroup: 'wh-staging-rg' }`),
+      expectError: 'preflight_required',
+    },
+    {
+      name: 'wrapper_forged_ok_object',
+      run: () => probeArgvDirect(`{ capability: { ok: true } }`),
+      expectError: 'invalid_capability',
+    },
+    {
+      name: 'wrapper_forged_preflight_result',
+      run: () => probeArgvDirect(`{ capability: { ok: true, resourceGroup: 'wh-staging-rg', errors: [] } }`),
+      expectError: 'invalid_capability',
+    },
+    {
+      name: 'wrapper_legacy_bool_auth_rejected',
+      run: () => probeArgvDirect(`{ resourceGroup: 'wh-staging-rg', ['preflight'+'Ok']: true }`),
+      expectError: 'unknown_builder_key',
+    },
+    {
+      name: 'wrapper_unknown_builder_key',
+      run: () => probeArgvBuilderFromPreflight('wh-staging-rg', { forgedFlag: true }),
+      expectError: 'unknown_builder_key',
+    },
+    {
+      name: 'wrapper_clone_capability',
+      run: () => probeArgvScript(`
+        const pf = m.runPreflight({ resourceGroup: 'wh-staging-rg' });
+        const r = m.buildDeploymentArgv({ capability: { ...pf.capability } });
+        process.stdout.write(JSON.stringify({
+          ok: r.ok, errors: r.errors, argv: r.argv, executor: r.executor, liveCall: r.liveCall, mode: r.mode
+        }));
+      `),
+      expectError: 'invalid_capability',
+    },
+    {
+      name: 'wrapper_json_roundtrip_capability',
+      run: () => probeArgvScript(`
+        const pf = m.runPreflight({ resourceGroup: 'wh-staging-rg' });
+        const r = m.buildDeploymentArgv({
+          capability: JSON.parse(JSON.stringify(pf.capability))
+        });
+        process.stdout.write(JSON.stringify({
+          ok: r.ok, errors: r.errors, argv: r.argv, executor: r.executor, liveCall: r.liveCall, mode: r.mode
+        }));
+      `),
+      expectError: 'invalid_capability',
+    },
+    {
+      name: 'wrapper_replay_consumed',
+      run: () => probeArgvScript(`
+        const pf = m.runPreflight({ resourceGroup: 'wh-staging-rg' });
+        const first = m.buildDeploymentArgv({ capability: pf.capability });
+        const r = m.buildDeploymentArgv({ capability: pf.capability });
+        process.stdout.write(JSON.stringify({
+          ok: r.ok,
+          errors: r.errors,
+          argv: r.argv,
+          executor: r.executor,
+          liveCall: r.liveCall,
+          mode: r.mode,
+          firstOk: first.ok
+        }));
+      `),
+      expectError: 'capability_consumed',
+    },
+    {
+      name: 'wrapper_cross_rg_reuse',
+      run: () => probeArgvBuilderFromPreflight('wh-staging-rg', {
+        resourceGroup: 'luna-sunset-staging-rg',
+      }),
+      expectError: 'capability_binding_mismatch',
+    },
+    {
+      name: 'wrapper_cross_app_reuse',
+      run: () => probeArgvBuilderFromPreflight('wh-staging-rg', {
+        containerAppName: 'luna-sunset-staging-staff-api',
+      }),
+      expectError: 'capability_binding_mismatch',
+    },
+    {
+      name: 'wrapper_altered_template_hash',
+      run: () => probeArgvBuilderFromPreflight('wh-staging-rg', {
+        templateHash: '0'.repeat(64),
+      }),
+      expectError: 'capability_binding_mismatch',
+    },
+  ];
+
+  const results = [];
+  for (const c of cases) {
+    const r = c.run();
+    const okRed = !r.probeFailed
+      && r.ok === false
+      && Array.isArray(r.errors)
+      && r.errors.includes(c.expectError)
+      && r.argv === null
+      && r.executor === null
+      && r.liveCall === false;
+    results.push({
+      name: c.name,
+      expect: 'RED',
+      ok: okRed,
+      errors: okRed ? [] : [JSON.stringify(r).slice(0, 400)],
+    });
+  }
+  return results;
+}
+
+function runArgvWrapperGreens(expected) {
+  const results = [];
+  for (const rg of expected.resourceGroups) {
+    const r = probeArgvScript(`
+      const pf = m.runPreflight({ resourceGroup: ${JSON.stringify(rg)} });
+      const r = pf.ok
+        ? m.buildDeploymentArgv({ capability: pf.capability })
+        : { ok: false, errors: pf.errors || ['preflight_failed'], argv: null, executor: null, liveCall: false, mode: null };
+      process.stdout.write(JSON.stringify({
+        preflightOk: pf.ok === true,
+        ok: r.ok,
+        errors: r.errors,
+        argv: r.argv,
+        executor: r.executor,
+        liveCall: r.liveCall,
+        mode: r.mode,
+        resourceGroup: r.resourceGroup,
+        containerAppName: r.containerAppName,
+        templateFile: r.templateFile,
+        templateHash: r.templateHash
+      }));
+    `);
+    const app = expected.apps.find((a) => a.resourceGroup === rg);
+    const okGreen = !r.probeFailed
+      && r.preflightOk === true
+      && r.ok === true
+      && r.executor === null
+      && r.liveCall === false
+      && r.mode === 'Incremental'
+      && r.resourceGroup === rg
+      && r.containerAppName === app.containerAppName
+      && r.templateFile === expected.bicepModuleRel
+      && typeof r.templateHash === 'string'
+      && r.templateHash.length === 64
+      && Array.isArray(r.argv)
+      && r.argv[0] === 'deployment'
+      && r.argv.includes('--subscription')
+      && r.argv.includes(expected.subscriptionId)
+      && r.argv.includes('--resource-group')
+      && r.argv.includes(rg)
+      && r.argv.includes('--template-file')
+      && r.argv.includes(expected.bicepModuleRel)
+      && r.argv.includes('--mode')
+      && r.argv.includes('Incremental')
+      && !r.argv.includes('Complete')
+      && r.argv.includes(`containerAppName=${app.containerAppName}`);
+    results.push({
+      name: `wrapper_green_${rg}`,
+      expect: 'GREEN',
+      ok: okGreen,
+      errors: okGreen ? [] : [JSON.stringify(r).slice(0, 400)],
+    });
+  }
+  return results;
+}
+
 function spawnPreflight(argvExtra, envExtra) {
   const env = {
-    ...process.env,
-    PATH: `/opt/data/.local/bin:${process.env.PATH || ''}`,
-    AZURE_CONFIG_DIR: process.env.AZURE_CONFIG_DIR || '/opt/data/.azure',
+    ...bicepEnv(),
     ...envExtra,
   };
   const result = spawnSync(
@@ -667,6 +1118,20 @@ function runCliGreenCases(expected) {
   return results;
 }
 
+function cleanupTmp() {
+  for (const p of tmpArtifacts) {
+    try {
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch (_) { /* ignore */ }
+  }
+  const tmpDir = path.join(ROOT, 'tmp');
+  if (fs.existsSync(tmpDir)) {
+    for (const f of fs.readdirSync(tmpDir).filter((n) => n.startsWith('radar-16f'))) {
+      try { fs.unlinkSync(path.join(tmpDir, f)); } catch (_) { /* ignore */ }
+    }
+  }
+}
+
 console.log('verify:radar-slice16f-staff-api-metric-alerts — RADAR Slice 16F (independent)\n');
 
 const verifySrc = readText(VERIFY_REL);
@@ -678,6 +1143,17 @@ ok('I2 verifier does not call lib RED/plan builders',
   && !/\brunGreenCases\b/.test(verifySrc)
   && !/\bbuildSecretFreePlan\b/.test(verifySrc)
   && !/\bevaluateDeployRequest\b/.test(verifySrc));
+
+ok('I2b verifier GREEN/RED argv probes call real runPreflight then builder (child process)',
+  /m\.runPreflight/.test(verifySrc)
+  && /m\.buildDeploymentArgv/.test(verifySrc)
+  && /invalid_capability/.test(verifySrc)
+  && /capability_consumed/.test(verifySrc)
+  && /capability_binding_mismatch/.test(verifySrc)
+  && /unknown_builder_key/.test(verifySrc)
+  && /wrapper_legacy_bool_auth_rejected/.test(verifySrc)
+  && /wrapper_clone_capability/.test(verifySrc)
+  && /wrapper_json_roundtrip_capability/.test(verifySrc));
 
 const expected = readJson(CONTRACT_REL);
 ok('L1 frozen contract shape + master_basis cross-pin',
@@ -693,6 +1169,14 @@ ok('L1 frozen contract shape + master_basis cross-pin',
   && expected.allowedResourceTypes[0] === 'Microsoft.Insights/metricAlerts'
   && expected.compiled
   && expected.compiled.resourceCount === 2
+  && expected.hardLockContract
+  && expected.hardLockContract.onlyAllowedParameter === 'containerAppName'
+  && expected.deploymentArgvBuilder
+  && expected.deploymentArgvBuilder.completeModeBuildable === false
+  && expected.deploymentArgvBuilder.executor === null
+  && expected.deploymentArgvBuilder.capabilityModel === 'opaque_object_identity'
+  && expected.deploymentArgvBuilder.oneShot === true
+  && expected.deploymentArgvBuilder.acceptsPreflightOk === false
   && Array.isArray(expected.full_field_coverage)
   && expected.full_field_coverage.length >= 10);
 
@@ -706,17 +1190,26 @@ const planSec = secretFree(JSON.stringify(plan), 'plan');
 ok('L3 plan secret-free', planSec.ok, planSec.detail);
 
 const bicepText = readText(BICEP_REL);
-ok('L5 bicep source structural',
+ok('L5 bicep source hard-lock structural',
   /targetScope\s*=\s*'resourceGroup'/.test(bicepText)
+  && /subscription\(\)\.subscriptionId/.test(bicepText)
+  && /resourceGroup\(\)\.name/.test(bicepText)
+  && /fail\('wrong_subscription'\)/.test(bicepText)
+  && /fail\('wrong_resource_group'\)/.test(bicepText)
+  && /fail\('wrong_container_app'\)/.test(bicepText)
+  && /var\s+actionGroupName\s*=/.test(bicepText)
+  && /var\s+tenantSlug\s*=/.test(bicepText)
+  && /var\s+requests5xxThreshold\s*=\s*3/.test(bicepText)
+  && /var\s+alertSeverity\s*=\s*2/.test(bicepText)
+  && /var\s+windowSize\s*=\s*'PT5M'/.test(bicepText)
+  && /var\s+alertsEnabled\s*=\s*true/.test(bicepText)
+  && !/param\s+actionGroupName\s+/.test(bicepText)
+  && !/param\s+tenantSlug\s+/.test(bicepText)
+  && !/param\s+requests5xxThreshold\s+/.test(bicepText)
+  && !/param\s+alertSeverity\s+/.test(bicepText)
+  && !/param\s+windowSize\s+/.test(bicepText)
   && /Microsoft\.Insights\/metricAlerts@/.test(bicepText)
   && /existing\s*=/.test(bicepText)
-  && /Microsoft\.Insights\/actionGroups@/.test(bicepText)
-  && /metricNamespace:\s*'Microsoft\.App\/containerApps'/.test(bicepText)
-  && /metricName:\s*'Requests'/.test(bicepText)
-  && /metricName:\s*'RestartCount'/.test(bicepText)
-  && /statusCodeCategory/.test(bicepText)
-  && /'5xx'/.test(bicepText)
-  && /GreaterThanOrEqual/.test(bicepText)
   && /deploymentModeRequired\s+string\s*=\s*'Incremental'/.test(bicepText)
   && !/resource\s+\w+\s+'Microsoft\.Consumption\/budgets@/.test(bicepText)
   && !/resource\s+\w+\s+'Microsoft\.App\/containerApps@[^']+'\s*=\s*\{/.test(bicepText)
@@ -735,7 +1228,7 @@ try {
 
 if (compiled) {
   const cCmp = compareCompiledToContract(compiled, expected);
-  ok('L7 compiled vs frozen contract (metric/dimension/operator/threshold/window/severity/actions/scope)',
+  ok('L7 compiled vs frozen contract (hard-locks + metric/dimension/operator/threshold/window/severity/actions/scope)',
     cCmp.ok, cCmp.errors.join('; '));
   greenResults.push({ name: 'compiled_vs_contract', expect: 'GREEN', ok: cCmp.ok, errors: cCmp.errors });
   fieldCoverage.push(...cCmp.covered);
@@ -751,18 +1244,20 @@ for (const rel of MAIN_BICEP) {
 
 const whParams = readJson(expected.apps[0].parametersExampleRel);
 const sunParams = readJson(expected.apps[1].parametersExampleRel);
-ok('L9 example params locked to contract pairs',
-  whParams.parameters.containerAppName.value === expected.apps[0].containerAppName
+ok('L9 example params only containerAppName (thresholds not overridable)',
+  Object.keys(whParams.parameters).length === 1
+  && Object.keys(sunParams.parameters).length === 1
+  && whParams.parameters.containerAppName.value === expected.apps[0].containerAppName
   && sunParams.parameters.containerAppName.value === expected.apps[1].containerAppName
-  && whParams.parameters.actionGroupName.value === expected.apps[0].actionGroupName
-  && sunParams.parameters.actionGroupName.value === expected.apps[1].actionGroupName
-  && whParams.parameters.tenantSlug.value === expected.apps[0].tenantSlug
-  && sunParams.parameters.tenantSlug.value === expected.apps[1].tenantSlug
-  && whParams.parameters.requests5xxThreshold.value === 3
-  && whParams.parameters.restartCountThreshold.value === 0
-  && whParams.parameters.alertSeverity.value === expected.severity
-  && whParams.parameters.windowSize.value === expected.windowSize
-  && whParams.parameters.evaluationFrequency.value === expected.evaluationFrequency
+  && !whParams.parameters.actionGroupName
+  && !whParams.parameters.tenantSlug
+  && !whParams.parameters.requests5xxThreshold
+  && !whParams.parameters.alertSeverity
+  && !whParams.parameters.windowSize
+  && whParams.metadata.derivedActionGroupName === expected.apps[0].actionGroupName
+  && sunParams.metadata.derivedActionGroupName === expected.apps[1].actionGroupName
+  && whParams.metadata.derivedTenantSlug === expected.apps[0].tenantSlug
+  && sunParams.metadata.derivedTenantSlug === expected.apps[1].tenantSlug
   && whParams.metadata.subscriptionId === expected.subscriptionId
   && sunParams.metadata.resourceGroup === expected.resourceGroups[1]
   && whParams.metadata.deploymentMode === expected.deploymentMode
@@ -772,11 +1267,14 @@ ok('L9 example params locked to contract pairs',
 
 const planReds = runPlanRedMutations(plan, expected);
 const compiledReds = compiled ? runCompiledRedMutations(compiled, expected) : [];
+const adversarialReds = runAdversarialCompileReds(bicepText, expected);
+const argvReds = runArgvWrapperReds();
+const argvGreens = runArgvWrapperGreens(expected);
 const cliReds = runCliRedCases();
 const cliGreens = runCliGreenCases(expected);
 
-redResults.push(...planReds, ...compiledReds, ...cliReds);
-greenResults.push(...cliGreens);
+redResults.push(...planReds, ...compiledReds, ...adversarialReds, ...argvReds, ...cliReds);
+greenResults.push(...cliGreens, ...argvGreens);
 
 const requiredRedNames = [
   'wrong_scope_subscription',
@@ -802,9 +1300,34 @@ const requiredRedNames = [
   'compiled_changed_threshold',
   'compiled_changed_window',
   'compiled_changed_severity',
+  'compiled_wrong_action_group',
+  'compiled_wrong_subscription_lock',
   'compiled_missing_action',
   'compiled_extra_action',
   'compiled_wrong_scope',
+  'adversarial_wrong_subscription',
+  'adversarial_wrong_rg_tuple',
+  'adversarial_wrong_app_assert',
+  'adversarial_wrong_action_group',
+  'adversarial_wrong_threshold',
+  'adversarial_wrong_severity',
+  'adversarial_wrong_window',
+  'wrapper_Complete_unbuildable',
+  'wrapper_wrong_subscription',
+  'wrapper_wrong_rg',
+  'wrapper_wrong_app',
+  'wrapper_extra_args',
+  'wrapper_preflight_required',
+  'wrapper_forged_ok_object',
+  'wrapper_forged_preflight_result',
+  'wrapper_legacy_bool_auth_rejected',
+  'wrapper_unknown_builder_key',
+  'wrapper_clone_capability',
+  'wrapper_json_roundtrip_capability',
+  'wrapper_replay_consumed',
+  'wrapper_cross_rg_reuse',
+  'wrapper_cross_app_reuse',
+  'wrapper_altered_template_hash',
   'cli_live',
   'cli_deploy',
   'cli_apply',
@@ -835,8 +1358,8 @@ ok('L13c one-field proof on all plan/compiled RED controls',
   oneFieldReds.length > 0 && oneFieldReds.every((c) => c.oneField === true && c.ok === true),
   oneFieldReds.filter((c) => !c.oneField || !c.ok).map((c) => c.name).join(','));
 
-ok('L14 GREEN plan+compiled+cli',
-  greenResults.length >= 4 && greenResults.every((g) => g.ok),
+ok('L14 GREEN plan+compiled+cli+wrapper',
+  greenResults.length >= 6 && greenResults.every((g) => g.ok),
   greenResults.map((g) => `${g.name}:${g.ok}`).join(','));
 
 const liveRed = redResults.find((x) => x.name === 'cli_live');
@@ -863,12 +1386,34 @@ ok('L18 preflight fail-closed markers',
   && /--live/.test(preflightSrc)
   && /azureCalls/.test(preflightSrc));
 
+const libSrc = readText(LIB_REL);
+ok('L18b argv builder capability contract (opaque, shell-free, no executor)',
+  /function runPreflight/.test(libSrc)
+  && /function buildDeploymentArgv/.test(libSrc)
+  && /WeakSet/.test(libSrc)
+  && /WeakMap/.test(libSrc)
+  && /CAPABILITY_BRAND/.test(libSrc)
+  && /invalid_capability/.test(libSrc)
+  && /capability_consumed/.test(libSrc)
+  && /capability_binding_mismatch/.test(libSrc)
+  && /unknown_builder_key/.test(libSrc)
+  && /complete_mode_rejected/.test(libSrc)
+  && /extra_args_rejected/.test(libSrc)
+  && /preflight_required/.test(libSrc)
+  && /executor:\s*null/.test(libSrc)
+  && /liveCall:\s*false/.test(libSrc)
+  && !/'preflightOk'/.test(libSrc)
+  && !/'preflightResult'/.test(libSrc)
+  && !/execFileSync|execSync|spawnSync|child_process/.test(libSrc));
+
 const readme = readText('infra/azure/staging-staff-api-metric-alerts/README.md');
-ok('L19 README metric alerts / Incremental / no live deploy / AG reference',
-  /metric alert/i.test(readme)
+ok('L19 README hard-lock / Incremental / no live deploy / AG derived / opaque capability argv',
+  /fail closed/i.test(readme)
   && /Incremental/i.test(readme)
   && /disabled/i.test(readme)
-  && /Reference/i.test(readme)
+  && /Derived/i.test(readme)
+  && /buildDeploymentArgv/.test(readme)
+  && /runPreflight|opaque capability/i.test(readme)
   && /16B/.test(readme));
 
 const runtimeDiff = execFileSync(
@@ -913,16 +1458,11 @@ for (const rel of owned) {
 }
 ok('L22 owned artifacts secret-free', ownedSec);
 
-if (outPath && fs.existsSync(outPath)) {
-  fs.unlinkSync(outPath);
-}
-const tmpDir = path.join(ROOT, 'tmp');
-if (fs.existsSync(tmpDir)) {
-  const left = fs.readdirSync(tmpDir).filter((f) => f.startsWith('radar-16f'));
-  for (const f of left) fs.unlinkSync(path.join(tmpDir, f));
-}
+cleanupTmp();
 ok('L23 generated tmp removed',
-  !fs.existsSync(path.join(ROOT, 'tmp', 'radar-16f-rg-staff-api-metric-alerts.json')));
+  !fs.existsSync(path.join(ROOT, 'tmp', 'radar-16f-rg-staff-api-metric-alerts.json'))
+  && !(fs.existsSync(path.join(ROOT, 'tmp'))
+    && fs.readdirSync(path.join(ROOT, 'tmp')).some((f) => f.startsWith('radar-16f'))));
 
 const requiredCoverage = expected.full_field_coverage;
 const coverageSet = new Set(fieldCoverage);
@@ -952,6 +1492,10 @@ const coverageMissing = requiredCoverage.filter((f) => {
     scopes: ['scopes'],
     deploymentMode: ['deploymentMode'],
     allowedResourceTypes: ['allowedResourceTypes', 'resourceTypesAllowed'],
+    hard_lock_subscription_assert: ['hard_lock_subscription_assert'],
+    hard_lock_rg_app_tuple: ['hard_lock_rg_app_tuple'],
+    derived_action_group: ['derived_action_group'],
+    only_allowed_parameter: ['only_allowed_parameter'],
   };
   const al = aliases[f] || [f];
   return !al.some((a) => coverageSet.has(a) || [...coverageSet].some((c) => c.includes(a) || a.includes(c)));

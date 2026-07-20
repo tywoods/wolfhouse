@@ -6,6 +6,7 @@
  * Exact subscription/RG/app/action-group short-circuit preflight for RADAR 16F.
  * NEVER deploys. NEVER calls Azure mutating APIs.
  * Fail-closed on every unknown/positional argv. Explicitly rejects --live.
+ * Delegates authorization to module runPreflight (opaque capability issuer).
  *
  * Usage:
  *   node scripts/preflight-radar-slice16f-staff-api-metric-alerts.js \
@@ -20,9 +21,7 @@ const {
   WINDOW_SIZE,
   EVALUATION_FREQUENCY,
   SEVERITY,
-  assertExactStagingScope,
-  assertDeploymentMode,
-  evaluateDeployRequest,
+  runPreflight,
 } = require('./lib/radar-slice16f-staff-api-metric-alerts');
 
 /** Azure dispatch counter — must remain 0 for this source-only slice. */
@@ -133,38 +132,20 @@ function main() {
   }
 
   // Short-circuit BEFORE any Azure consideration. azureCalls stays 0.
-  const scope = assertExactStagingScope({
-    subscriptionId: LOCKS.subscriptionId,
-    resourceGroup: args.resourceGroup,
-    containerAppName: plan.containerAppName,
-    actionGroupName: plan.actionGroupName,
-  });
-  if (!scope.ok) {
-    refuse('scope_short_circuit', scope.errors.join(','));
-  }
-
-  const mode = assertDeploymentMode(args.deploymentMode);
-  if (!mode.ok) {
-    refuse('deployment_mode', mode.errors.join(','));
-  }
-
-  const evalResult = evaluateDeployRequest({
-    subscriptionId: LOCKS.subscriptionId,
+  const pf = runPreflight({
     resourceGroup: args.resourceGroup,
     deploymentMode: args.deploymentMode,
-    containerAppName: plan.containerAppName,
-    actionGroupName: plan.actionGroupName,
-    tenantSlug: plan.tenantSlug,
-    metricNamespace: METRIC_NAMESPACE,
-    windowSize: WINDOW_SIZE,
-    evaluationFrequency: EVALUATION_FREQUENCY,
-    severity: SEVERITY,
-    alerts: plan.alerts.map((a) => ({ ...a, dimensionValues: [...a.dimensionValues] })),
-    resourceTypes: [...ALLOWED_RESOURCE_TYPES],
   });
 
-  if (!evalResult.ok) {
-    refuse('preflight_eval', evalResult.errors.join(','));
+  if (!pf.ok || !pf.capability) {
+    const detail = (pf.errors || []).join(',') || 'preflight_failed';
+    if ((pf.errors || []).some((e) => /wrong_|production_/.test(e))) {
+      refuse('scope_short_circuit', detail);
+    }
+    if ((pf.errors || []).includes('non_incremental_mode_rejected')) {
+      refuse('deployment_mode', detail);
+    }
+    refuse('preflight_eval', detail);
   }
 
   if (azureCalls.count !== 0) {
@@ -200,8 +181,11 @@ function main() {
     })),
     resourceTypesAllowed: [...ALLOWED_RESOURCE_TYPES],
     bicepModuleRel: LOCKS.bicepModuleRel,
+    templateHash: pf.templateHash,
+    capabilityIssued: true,
+    capabilitySerializable: false,
     azureCalls: azureCalls.count,
-    note: 'Preflight only — no Azure calls, no deploy; AG referenced by name only',
+    note: 'Preflight only — opaque capability issued in-process; no Azure calls, no deploy; AG referenced by name only',
   };
 
   console.log(JSON.stringify(report, null, 2));

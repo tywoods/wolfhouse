@@ -19,7 +19,7 @@ Add a **standalone staging-only Azure metric-alert module** for both Staff API C
 | `infra/azure/staging-staff-api-metric-alerts/README.md` | Module contract |
 | `fixtures/radar-operations/slice16f-metric-alert-plan.json` | Secret-free alert plan |
 | `fixtures/radar-operations/slice16f-expected-contract.json` | Frozen independent contract |
-| `scripts/lib/radar-slice16f-staff-api-metric-alerts.js` | Locks + RED/GREEN + scope short-circuit |
+| `scripts/lib/radar-slice16f-staff-api-metric-alerts.js` | Locks + RED/GREEN + scope short-circuit + opaque-capability `runPreflight` / shell-free `buildDeploymentArgv` |
 | `scripts/preflight-radar-slice16f-staff-api-metric-alerts.js` | Exact sub/RG/app/AG preflight (no Azure calls) |
 | `scripts/verify-radar-slice16f-staff-api-metric-alerts.js` | Offline independent 16F verifier |
 | `fixtures/radar-operations/gate-matrix.json` | Updated gate matrix (G03 source-partial) |
@@ -52,8 +52,8 @@ Add a **standalone staging-only Azure metric-alert module** for both Staff API C
 
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
-| Metric alert IaC | `partial` | Standalone Incremental module: tenant-named Requests 5xx (>=3 / PT5M/PT1M) + RestartCount (>0 / PT5M/PT1M) on both Staff API apps. Namespace `Microsoft.App/containerApps`. **Not deployed.** Live metric_alerts still `[]`. |
-| Action group | reference-only | Uses existing 16B per-RG ops AG names; never creates/modifies AGs |
+| Metric alert IaC | `partial` | Standalone Incremental module: tenant-named Requests 5xx (>=3 / PT5M/PT1M) + RestartCount (>0 / PT5M/PT1M) on both Staff API apps. Namespace `Microsoft.App/containerApps`. Bicep fail-closes exact subscription + RG/app tuple via `subscription()`/`resourceGroup()`; derives tenant slug + 16B AG from RG; thresholds/severity/windows are vars (not params). **Not deployed.** Live metric_alerts still `[]`. |
+| Action group | reference-only | 16B per-RG ops AG name **derived from RG** in Bicep; never creates/modifies AGs |
 | Notification delivery | `open` | Real delivery proof required |
 | Alert-fire drill | `open` | Controlled fire drill required |
 
