@@ -448,6 +448,7 @@
     "verify:fortress-slice15g2-meta-authority-path-audit": "node scripts/verify-fortress-slice15g2-meta-authority-path-audit.js",
     "verify:fortress-slice15h2-meta-ingress-authority-xact-lock": "node scripts/verify-fortress-slice15h2-meta-ingress-authority-xact-lock.js",
     "verify:fortress-slice15i-payment-callback-boundary-audit": "node scripts/verify-fortress-slice15i-payment-callback-boundary-audit.js",
+    "verify:fortress-slice15j-payment-uuid-callback-tenant-acl": "node scripts/verify-fortress-slice15j-payment-uuid-callback-tenant-acl.js",
     "verify:staff-tenant-scope": "node scripts/verify-staff-tenant-scope.js",
     "verify:staff-whatsapp-notifications": "node scripts/verify-staff-whatsapp-notifications.js",
     "verify:staff-automated-notification-ui": "node scripts/verify-staff-automated-notification-ui.js",

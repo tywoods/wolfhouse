@@ -86,6 +86,10 @@ const {
   handleBotGuestPaymentStatus: _handleBotGuestPaymentStatus,
 } = require('./lib/staff-bot-v2-routes');
 const {
+  gateStaffPaymentUuidCallbackTenantAcl,
+  gateStaffBookingUuidCallbackTenantAcl,
+} = require('./lib/payment-uuid-callback-tenant-acl');
+const {
   buildServiceChargesDueFromContext,
   formatAddonServicePaymentLedgerLabel,
 } = require('./lib/luna-guest-addon-service-payment-ledger');
@@ -14222,7 +14226,28 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
     });
   }
 
-  // ── 3. Load Stripe SDK lazily (never crashes if require fails) ─────────────
+  // ── 3. Resolve object tenant (read-only) + staff ACL before Stripe/mutation ─
+  // FORTRESS 15J / B15: never trust path-UUID object slug alone as trustedClientSlug.
+  const tenantGate = await gateStaffPaymentUuidCallbackTenantAcl({
+    paymentId,
+    user,
+    withPgClient,
+    assertStaffClientAccess,
+    res,
+  });
+  if (tenantGate.error) {
+    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + tenantGate.error.message });
+  }
+  if (tenantGate.not_found) {
+    return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
+  }
+  if (!tenantGate.ok) {
+    // assertStaffClientAccess already sent 403 client_access_denied
+    return;
+  }
+  const clientSlug = tenantGate.clientSlug;
+
+  // ── 4. Load Stripe SDK lazily (only after ACL allow) ───────────────────────
   let stripe;
   try {
     stripe = require('stripe')(STRIPE_SECRET_KEY);
@@ -14234,28 +14259,7 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
     });
   }
 
-  // ── 4. Resolve tenant + delegate to canonical payment-link service ────────
-  let clientSlug;
-  try {
-    const row = await withPgClient(async (pg) => {
-      const r = await pg.query(
-        `SELECT cl.slug AS client_slug
-           FROM payments p
-           JOIN clients cl ON cl.id = p.client_id
-          WHERE p.id = $1::uuid
-          LIMIT 1`,
-        [paymentId],
-      );
-      return r.rows[0] || null;
-    });
-    if (!row) {
-      return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
-    }
-    clientSlug = row.client_slug;
-  } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
-  }
-
+  // ── 5. Delegate to canonical payment-link service ──────────────────────────
   const built = buildPaymentLinkCommand({
     operation: PAYMENT_LINK_OPERATIONS.CREATE,
     channel: PAYMENT_LINK_CHANNELS.STAFF_PORTAL,
@@ -14419,6 +14423,34 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
     }
   }
 
+  // FORTRESS 15J / B15: read-only booking tenant + assertStaffClientAccess before
+  // any payment INSERT / Stripe session (replaces weak primary-client-id equality).
+  const bookingGate = await gateStaffBookingUuidCallbackTenantAcl({
+    bookingId,
+    user,
+    withPgClient,
+    assertStaffClientAccess,
+    res,
+  });
+  if (bookingGate.error) {
+    if (isMissingBookingServiceRecordsTable(bookingGate.error)) {
+      return sendJSON(res, 503, {
+        success: false,
+        error: 'booking_service_records table not available',
+        service_records_available: false,
+      });
+    }
+    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + bookingGate.error.message });
+  }
+  if (bookingGate.not_found) {
+    return sendJSON(res, 404, { success: false, error: 'Booking not found.' });
+  }
+  if (!bookingGate.ok) {
+    // assertStaffClientAccess already sent 403 client_access_denied
+    return;
+  }
+  const booking = bookingGate.booking;
+
   let stripe;
   try {
     stripe = require('stripe')(STRIPE_SECRET_KEY);
@@ -14426,38 +14458,20 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
     return sendJSON(res, 500, { success: false, error: 'Failed to load Stripe SDK: ' + e.message, no_db_write: true });
   }
 
-  let booking;
   let rows;
   try {
-    const result = await withPgClient(async (pg) => {
-      const bk = await pg.query(
-        `SELECT b.id AS booking_id, b.booking_code, b.guest_name, b.client_id,
-                cl.slug AS client_slug
-           FROM bookings b
-           JOIN clients cl ON cl.id = b.client_id
-          WHERE b.id = $1`,
-        [bookingId],
-      );
-      if (!bk.rows[0]) return { booking: null, rows: [] };
-
-      if (user && user.client_id && bk.rows[0].client_id !== user.client_id) {
-        return { booking: bk.rows[0], rows: [], forbidden: true };
-      }
-
+    rows = await withPgClient(async (pg) => {
       const svc = await pg.query(
         `SELECT id, booking_id, service_type, service_date, status, payment_status,
                 amount_due_cents, amount_paid_cents, payment_id
            FROM booking_service_records
-          WHERE id = ANY($1::uuid[])`,
-        [serviceRecordIds],
+          WHERE id = ANY($1::uuid[])
+            AND booking_id = $2
+            AND client_slug = $3`,
+        [serviceRecordIds, bookingId, booking.client_slug],
       );
-      return { booking: bk.rows[0], rows: svc.rows, forbidden: false };
+      return svc.rows;
     });
-    booking = result.booking;
-    rows = result.rows;
-    if (result.forbidden) {
-      return sendJSON(res, 403, { success: false, error: 'Booking not accessible for this staff client.' });
-    }
   } catch (err) {
     if (isMissingBookingServiceRecordsTable(err)) {
       return sendJSON(res, 503, {
@@ -14467,10 +14481,6 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
       });
     }
     return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
-  }
-
-  if (!booking) {
-    return sendJSON(res, 404, { success: false, error: 'Booking not found.' });
   }
   if (rows.length !== serviceRecordIds.length) {
     return sendJSON(res, 404, {

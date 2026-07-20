@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15J",
+  "outcome_id": "15J_payment_uuid_callback_tenant_acl",
+  "boundary_id": "B15_booking_hold_payment_callbacks",
+  "master_basis": "6d9f0e99c6c00d9831710c392ec3ac41dcef811b",
+  "design_freeze": "fixtures/fortress-tenant-identity/slice15i-b15-remediation-contract.json",
+  "live_mutation": false,
+  "title": "Bind path-UUID payment/booking callbacks to expected tenant ACL before mutation",
+  "status": "implemented",
+  "owner_files": [
+    "scripts/lib/payment-uuid-callback-tenant-acl.js",
+    "scripts/staff-query-api.js",
+    "scripts/lib/staff-bot-v2-routes.js"
+  ],
+  "guarded_routes": [
+    {
+      "id": "staff_payment_create_stripe_link",
+      "symbol": "handlePaymentCreateStripeLink",
+      "path": "POST /staff/payments/:payment_id/create-stripe-link",
+      "control": "gateStaffPaymentUuidCallbackTenantAcl → assertStaffClientAccess before createPaymentLink"
+    },
+    {
+      "id": "bot_payment_create_stripe_link",
+      "symbol": "handleBotPaymentCreateStripeLink",
+      "path": "POST /staff/bot/payments/:payment_id/create-stripe-link",
+      "control": "gateBotPaymentUuidCallbackTenantAcl requires boundClientSlug + SELECT AND cl.slug = bound before createPaymentLink"
+    },
+    {
+      "id": "staff_service_records_payment_link",
+      "symbol": "handleBookingServiceRecordsCreatePaymentLink",
+      "path": "POST /staff/bookings/:booking_id/service-records/create-payment-link",
+      "control": "gateStaffBookingUuidCallbackTenantAcl → assertStaffClientAccess before payment INSERT/Stripe"
+    }
+  ],
+  "out_of_scope": [
+    "guest GET /pay/:bookingCode short-link",
+    "B14 locked-payment identity",
+    "Stripe webhook / B13 lookup",
+    "live Stripe / DB / deploy",
+    "other staff/bot routes beyond the three contract handlers"
+  ],
+  "must_not": [
+    "derive trusted tenant solely from object row without ACL/principal compare",
+    "enable STRIPE_WEBHOOK_SKIP_VERIFY",
+    "hardcode wolfhouse-somo / sunset as authority"
+  ],
+  "gates": [
+    "npm run verify:fortress-slice15j-payment-uuid-callback-tenant-acl",
+    "npm run verify:fortress-slice15i-payment-callback-boundary-audit",
+    "npm run verify:fortress-slice15b-stripe-payment-tenant-bind",
+    "npm run verify:waterbottle-expired-hold-payment-truth",
+    "npm run verify:sunset-stripe-payment-webhook",
+    "node scripts/verify-sunset-stripe-payment-reconcile.js",
+    "npm run verify:staff-auth-api",
+    "npm run verify:multiclient",
+    "npm run verify:migration-integrity",
+    "git diff --check"
+  ]
+}
