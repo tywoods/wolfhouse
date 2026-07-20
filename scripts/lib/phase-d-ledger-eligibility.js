@@ -66,6 +66,7 @@ const {
   MIGRATIONS_DIR,
   MANIFEST_PATH,
   LEDGER_DDL,
+  LEDGER_DDL_SLICE4_BASE,
   CHECKSUM_MODE_CANONICAL_LF_V1,
   loadManifest,
   forwardEntries,
@@ -1555,7 +1556,9 @@ function computeContiguousPrefix(evaluations) {
 }
 
 function designLedgerDdlExtensions() {
-  const base = String(LEDGER_DDL || '').trim();
+  // Slice 14AC design evidence is byte-locked to the historical Slice 4
+  // five-column base DDL (not the post-14AD provenance-aware LEDGER_DDL).
+  const base = String(LEDGER_DDL_SLICE4_BASE || '').trim();
   const additive = [
     'ALTER TABLE schema_migration_ledger',
     "  ADD COLUMN IF NOT EXISTS apply_kind TEXT",

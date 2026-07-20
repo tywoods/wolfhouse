@@ -1,9 +1,17 @@
 'use strict';
 
 /**
- * Fail-closed canonical migration runner (FOUNDATION Slice 4).
- * Uses schema_migration_ledger + PostgreSQL advisory lock.
+ * Fail-closed canonical migration runner (FOUNDATION Slice 4 + 14AD).
+ * Uses provenance-aware schema_migration_ledger + PostgreSQL advisory lock.
  * Refuses staging/prod/Azure and non-ephemeral DB names.
+ *
+ * Slice 14AD: ensureLedger creates/upgrades additive provenance columns;
+ * legacy upgrade adds nullable provenance with NO defaults/backfill;
+ * new applies insert executed_by_canonical_runner with canonical checksum/mode;
+ * reconcile requires canonical sha256 under canonical_lf_v1, treats baseline
+ * kinds as applied only in exact contiguous checksum-valid prefix, and fails
+ * closed on null/unknown kind, mode, recorded_at, gap, mismatch, or
+ * checksum_mode/hash inconsistency (legacy hash under canonical mode).
  */
 
 const fs = require('fs');
@@ -13,6 +21,8 @@ const {
   MANIFEST_PATH,
   MIGRATIONS_DIR,
   LEDGER_DDL,
+  LEDGER_LEGACY_UPGRADE_DDL,
+  LEDGER_SELECT_COLUMNS,
   ADVISORY_LOCK_KEY1,
   ADVISORY_LOCK_KEY2,
   loadManifest,
@@ -21,7 +31,8 @@ const {
   assertSafeDatabaseTarget,
   prepareMigrationBody,
   checksumMigrationFile,
-  ledgerChecksumAccepted,
+  reconcileLedger,
+  buildExecutedByCanonicalRunnerProvenance,
   resolveChecksumMode,
   CHECKSUM_MODE_CANONICAL_LF_V1,
 } = require('./lib/migration-integrity');
@@ -35,69 +46,30 @@ async function withAdvisoryLock(client, fn) {
   }
 }
 
+/**
+ * Create fresh provenance-aware ledger, then additively upgrade any legacy
+ * five-column ledger before runner use.
+ */
 async function ensureLedger(client) {
   await client.query(LEDGER_DDL);
+  await client.query(LEDGER_LEGACY_UPGRADE_DDL);
 }
 
 async function loadLedger(client) {
+  const cols = LEDGER_SELECT_COLUMNS.join(', ');
   const res = await client.query(
-    'SELECT id, filename, checksum_sha256, apply_order, applied_at FROM schema_migration_ledger ORDER BY apply_order ASC',
+    `SELECT ${cols} FROM schema_migration_ledger ORDER BY apply_order ASC`,
   );
   return res.rows;
-}
-
-function reconcileLedger(forward, ledgerRows) {
-  const errors = [];
-  const byId = new Map(ledgerRows.map((r) => [r.id, r]));
-
-  for (const row of ledgerRows) {
-    const expected = forward.find((f) => f.id === row.id);
-    if (!expected) {
-      errors.push({
-        code: 'ledger_unknown_id',
-        message: `ledger contains unknown id ${row.id}`,
-      });
-      continue;
-    }
-    const checksumGate = ledgerChecksumAccepted(expected, row.checksum_sha256);
-    if (!checksumGate.ok) {
-      errors.push({
-        code: 'ledger_checksum_mismatch',
-        message: `ledger checksum mismatch for ${row.id}`,
-      });
-    }
-    if (row.filename !== expected.filename) {
-      errors.push({
-        code: 'ledger_filename_mismatch',
-        message: `ledger filename mismatch for ${row.id}`,
-      });
-    }
-    if (Number(row.apply_order) !== expected.order) {
-      errors.push({
-        code: 'ledger_order_mismatch',
-        message: `ledger order mismatch for ${row.id}`,
-      });
-    }
-  }
-
-  // Partial history: applied set must be a prefix of the forward chain
-  const appliedOrders = ledgerRows.map((r) => Number(r.apply_order)).sort((a, b) => a - b);
-  for (let i = 0; i < appliedOrders.length; i += 1) {
-    if (appliedOrders[i] !== i + 1) {
-      errors.push({
-        code: 'ledger_partial_history',
-        message: `ledger is not a contiguous prefix (gap at order ${i + 1})`,
-      });
-      break;
-    }
-  }
-
-  return { ok: errors.length === 0, errors, byId };
 }
 
 /**
  * Apply one migration + ledger insert in a single atomic transaction.
  * Outer BEGIN/COMMIT wrappers are stripped conservatively before execution.
+ * Ledger insert always labels executed_by_canonical_runner with canonical
+ * checksum/mode and useful evidence/provenance. applied_at and
+ * ledger_recorded_at are the transaction recording timestamp (NOW()), never
+ * historical execution time claims.
  */
 async function applyOne(client, entry, migrationsDir, hooks, checksumMode) {
   const mode = checksumMode || CHECKSUM_MODE_CANONICAL_LF_V1;
@@ -118,6 +90,8 @@ async function applyOne(client, entry, migrationsDir, hooks, checksumMode) {
     });
   }
 
+  const provenance = buildExecutedByCanonicalRunnerProvenance(entry);
+
   await client.query('BEGIN');
   try {
     await client.query(prepared.body);
@@ -125,10 +99,27 @@ async function applyOne(client, entry, migrationsDir, hooks, checksumMode) {
       await hooks.beforeLedgerInsert(client, entry);
     }
     // New ledger rows always store canonical_lf_v1 (entry.sha256 under declared mode).
+    // NOW() is transaction-stable: applied_at === ledger_recorded_at === txn recording time.
     await client.query(
-      `INSERT INTO schema_migration_ledger (id, filename, checksum_sha256, apply_order)
-       VALUES ($1, $2, $3, $4)`,
-      [entry.id, entry.filename, entry.sha256, entry.order],
+      `INSERT INTO schema_migration_ledger (
+         id, filename, checksum_sha256, apply_order,
+         apply_kind, checksum_mode, evidence_ref, provenance_notes,
+         applied_at, ledger_recorded_at
+       ) VALUES (
+         $1, $2, $3, $4,
+         $5, $6, $7, $8,
+         NOW(), NOW()
+       )`,
+      [
+        entry.id,
+        entry.filename,
+        entry.sha256,
+        entry.order,
+        provenance.apply_kind,
+        provenance.checksum_mode,
+        provenance.evidence_ref,
+        provenance.provenance_notes,
+      ],
     );
     await client.query('COMMIT');
   } catch (e) {
@@ -249,6 +240,7 @@ module.exports = {
   ensureLedger,
   withAdvisoryLock,
   applyOne,
+  loadLedger,
 };
 
 if (require.main === module) {

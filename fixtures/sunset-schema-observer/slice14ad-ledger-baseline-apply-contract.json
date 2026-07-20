@@ -1,0 +1,143 @@
+{
+  "kind": "sunset-schema-observer-slice14ad-ledger-baseline-apply-contract",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": true,
+  "ledgerBaselineApplyLiveEnabled": true,
+  "globalLiveApplyEnabled": false,
+  "liveReadonlyConnectEnabled": true,
+  "liveHttpEnabled": true,
+  "writesLedger": true,
+  "executesMigrations": false,
+  "dataMutation": false,
+  "schemaMutation": "ledger_only",
+  "defaultEnabled": false,
+  "verifyNeverRerunsLive": true,
+  "liveExecutionCount": 1,
+  "generatedAt": "2026-07-20T00:31:49.100Z",
+  "masterShaBasis": "d6834dbbecc2aa0a8b0ecbdfa2ad1402210a6657",
+  "slice": "14AD",
+  "purpose": "Create provenance-aware schema_migration_ledger and insert exactly 39 Slice-14AC baseline rows; no migration SQL execution.",
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-ledger-baseline-apply",
+    "port": 5432
+  },
+  "applyLocks": {
+    "applicationName": "wh-sunset-ledger-baseline-apply",
+    "advisoryLockKey1": 1464336385,
+    "advisoryLockKey2": 1296647985,
+    "advisoryLockLabels": [
+      "WH",
+      "MIG1"
+    ],
+    "proposedLedgerRowsSha256": "c136abccd8d61b723fddc61b1971b4553b0256306bbe546c01d672a63e1e5226",
+    "slice14acEvidenceFileSha256": "45219e7b6738d847f9dc066db27b92caf271e0ee305e7c6e643f27519033ff96",
+    "baselineRowCount": 39,
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url"
+  },
+  "commandContract": {
+    "ledgerBaselineApply": {
+      "script": "scripts/run-phase-d-ledger-baseline-apply.js",
+      "npm": "phase-d:ledger-baseline-apply",
+      "requiredEnv": [
+        "SUNSET_PHASE_D_LIVE_READONLY=1",
+        "SUNSET_PHASE_D_LIVE_PREFLIGHT=1",
+        "SUNSET_PHASE_D_LEDGER_BASELINE_APPLY=1",
+        "SUNSET_PHASE_D_CREDENTIAL_SOURCE=managed-identity",
+        "AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9"
+      ],
+      "requiredArgv": [
+        "--apply-ledger-baseline",
+        "--credential-source managed-identity",
+        "--subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "--resource-group luna-sunset-staging-rg",
+        "--postgres-server luna-sunset-staging-pg-app",
+        "--database sunset_staging"
+      ],
+      "forbiddenArgv": [
+        "--dsn",
+        "--connection-string",
+        "--database-url",
+        "--host",
+        "--port",
+        "--user",
+        "--password",
+        "--username",
+        "--query",
+        "--sql",
+        "--sslmode",
+        "--execute-count-only",
+        "--drop",
+        "--delete",
+        "--retry",
+        "--retries",
+        "--force",
+        "--rollback",
+        "--repair",
+        "--dml",
+        "--concurrently",
+        "--alter",
+        "--truncate",
+        "--migrate",
+        "--run-migrations"
+      ]
+    }
+  },
+  "ledgerDdlContains": [
+    "apply_kind",
+    "checksum_mode",
+    "evidence_ref",
+    "provenance_notes",
+    "ledger_recorded_at",
+    "schema_migration_ledger_apply_kind_check",
+    "schema_migration_ledger_checksum_mode_check"
+  ],
+  "requiredRed": [
+    "eligibility_hash_drift",
+    "ledger_present_refuse",
+    "incompatible_ledger_relation_refuse",
+    "extra_unauthorized_sql_refuse",
+    "partial_insert_rollback_no_retry",
+    "wrong_kind_mode_checksum_order_refuse",
+    "fabricated_historical_timestamp_refuse",
+    "future_runner_mislabel_refuse",
+    "legacy_upgrade_null_kind_reconcile_fails",
+    "legacy_upgrade_null_provenance_reconcile_fails",
+    "legacy_hash_auto_mislabeled_canonical_fails",
+    "canonical_mode_legacy_hash_inconsistency",
+    "legacy_upgrade_no_silent_recorded_at_default",
+    "default_path_zero_http_and_clients",
+    "missing_apply_flag_or_env",
+    "wrong_or_forbidden_argv",
+    "managed_identity_requires_env_and_argv",
+    "global_live_apply_remains_false"
+  ],
+  "requiredGreen": [
+    "forward_count_39_hash_locks",
+    "cli_gates_exact_targets",
+    "cli_default_disabled",
+    "locks_identity_vault_secret_pg_tls_application_name",
+    "injected_http_success_exact_sequence",
+    "runner_reconcile_baseline_kinds_ok",
+    "runner_reconcile_null_kind_fails",
+    "exact_canonical_repaired_row_reconcile_ok",
+    "legacy_upgrade_ddl_nullable_no_defaults",
+    "executed_runner_provenance_shape",
+    "timestamp_semantics_documented"
+  ],
+  "forbidden": [
+    "migration SQL execution",
+    "product DDL/DML",
+    "DROP/ALTER product tables",
+    "DSN/secrets in evidence",
+    "second live apply in verify"
+  ]
+}
