@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15C",
+  "generated_at": "2026-07-20T01:26:38.342Z",
+  "master_basis": "f6507cca9a11572911b4f5707e8728ee9c59d181",
+  "live_mutation": false,
+  "wolfhouse_production_queried": false,
+  "verifier_reruns_live": false,
+  "live_inventory_sha256": "29b96e9552d8cb9102e6a9a6f118768d5337053188c07f59174f461c087a07ad",
+  "live_preflight": {
+    "ok": true,
+    "summary": {
+      "scope_ok": true,
+      "default_client_slug": "sunset",
+      "stripe_webhook_client_slug": null,
+      "stripe_webhook_client_slug_present": false,
+      "stripe_webhook_skip_verify": "false",
+      "revision": "luna-sunset-staging-staff-api--0000266",
+      "health": "Healthy",
+      "traffic_weight": 100,
+      "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:186307418400581a74f86b096e02bc32a41513b6",
+      "image_provenance": "immutable_sha_tag",
+      "cost_amount": 16.4316563548387,
+      "cost_currency": "USD",
+      "cost_spike": false,
+      "cost_threshold": 26.987118688172,
+      "iac_pending_webhook_slug": true
+    },
+    "failures": []
+  },
+  "bicep": {
+    "ok": true,
+    "hasWebhook": true,
+    "hasDefault": true,
+    "skipFalse": true
+  },
+  "bicep_tooling": {
+    "compile": "succeeded_local_bicep_cli_invariant",
+    "what_if": "not_executed",
+    "what_if_reason": "az CLI absent in Cursor workspace; Docker daemon unavailable; secure deploy params not supplied. Expected Incremental what-if surface: staff-api env add STRIPE_WEBHOOK_CLIENT_SLUG=sunset plus image tag when staffApiImageTag supplied; platform noise only otherwise.",
+    "expected_what_if_surface": {
+      "env_add": [
+        {
+          "name": "STRIPE_WEBHOOK_CLIENT_SLUG",
+          "value": "sunset"
+        }
+      ],
+      "other_changes": [
+        "image_tag_when_supplied",
+        "platform_noise"
+      ],
+      "touched_surfaces": []
+    }
+  },
+  "cost": {
+    "captured": {
+      "type": "ActualCost",
+      "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+      "period": {
+        "from": "2026-07-01",
+        "to": "2026-07-20",
+        "label": "month-to-date"
+      },
+      "amount": 16.4316563548387,
+      "currency": "USD",
+      "note": "Read-only Cost Management ActualCost via ARM/IMDS. No Azure mutations. Secret-free."
+    },
+    "baseline": {
+      "type": "ActualCost",
+      "amount": 13.493559344086,
+      "currency": "USD",
+      "period": {
+        "from": "2026-07-01",
+        "to": "2026-07-17",
+        "label": "month-to-date"
+      },
+      "source": "infra/azure/sunset-staging/inventory/live-inventory.normalized.json"
+    },
+    "spike_flagged": false
+  },
+  "iac_delta": {
+    "module": "infra/azure/sunset-staging/main.bicep",
+    "add_env": [
+      {
+        "name": "STRIPE_WEBHOOK_CLIENT_SLUG",
+        "value": "sunset"
+      }
+    ],
+    "preserve_env": [
+      {
+        "name": "DEFAULT_CLIENT_SLUG",
+        "value": "sunset"
+      },
+      {
+        "name": "STRIPE_WEBHOOK_SKIP_VERIFY",
+        "value": "false"
+      }
+    ],
+    "future_image_when_supplied": "staffApiImageTag == full merged master SHA",
+    "forbidden_surfaces": [
+      "secrets",
+      "rbac",
+      "network",
+      "database",
+      "scaling",
+      "ingress",
+      "traffic",
+      "stripe_account",
+      "payment_config"
+    ],
+    "generic_wolfhouse_prod_iac_edited": false
+  },
+  "deploy_sequence_15d": [
+    {
+      "step": 1,
+      "id": "sync_clean_master",
+      "command": "git checkout master && git fetch origin && git pull --ff-only origin master",
+      "notes": "After 15C merge; working tree must be clean at origin/master"
+    },
+    {
+      "step": 2,
+      "id": "assert_repo_sync",
+      "command": "node scripts/assert-repo-sync.js",
+      "notes": "Also runs via pre-push hook after setup-git-hooks"
+    },
+    {
+      "step": 3,
+      "id": "deploy_preflight_assert_master",
+      "command": "node scripts/assert-deploy-from-master.js",
+      "notes": "npm run deploy:preflight — refuse dirty / non-master tree before az acr build"
+    },
+    {
+      "step": 4,
+      "id": "acr_build_sha_tag",
+      "command": "az acr build -r whstagingacr -g wh-staging-rg -t luna-sunset-staff-api:$(git rev-parse HEAD) -f Dockerfile.luna-sunset-staff-api .",
+      "notes": "Image tag MUST equal exact merged master SHA; never :latest"
+    },
+    {
+      "step": 5,
+      "id": "bicep_or_containerapp_update",
+      "command": "az deployment group create --resource-group luna-sunset-staging-rg --mode Incremental --template-file infra/azure/sunset-staging/main.bicep --parameters @infra/azure/sunset-staging/parameters.example.json --parameters staffApiImageTag=$(git rev-parse HEAD) deploySha=$(git rev-parse HEAD) forceRevision=$(git rev-parse HEAD) + secure params (never committed)",
+      "notes": "Or equivalent az containerapp update scoped only to this app; expected delta: STRIPE_WEBHOOK_CLIENT_SLUG=sunset + SHA-tagged image only"
+    },
+    {
+      "step": 6,
+      "id": "health_readonly_verify",
+      "command": "az containerapp revision list -g luna-sunset-staging-rg -n luna-sunset-staging-staff-api && curl -fsS https://sunset-staging.lunafrontdesk.com/healthz (or staff health)",
+      "notes": "Confirm single healthy revision, 100% traffic, env slugs sunset, skip-verify false"
+    },
+    {
+      "step": 7,
+      "id": "cost_postcheck",
+      "command": "node scripts/capture-sunset-staging-rg-cost.js --phase after",
+      "notes": "Secret-free ActualCost for luna-sunset-staging-rg; flag spike vs 15C baseline"
+    },
+    {
+      "step": 8,
+      "id": "rollback_on_health_fail",
+      "command": "az containerapp ingress traffic set -g luna-sunset-staging-rg -n luna-sunset-staging-staff-api --revision-weight <prior-revision>=100 (or redeploy prior image tag)",
+      "notes": "If health fails: route traffic to previous healthy revision / prior SHA image"
+    }
+  ],
+  "red": {
+    "total": 15,
+    "passed": 15,
+    "cases": [
+      {
+        "id": "wrong_default_slug",
+        "ok": true
+      },
+      {
+        "id": "wrong_webhook_slug",
+        "ok": true
+      },
+      {
+        "id": "missing_both_slugs_conflict_pair",
+        "ok": true
+      },
+      {
+        "id": "conflicting_slugs",
+        "ok": true
+      },
+      {
+        "id": "skip_verify_true",
+        "ok": true
+      },
+      {
+        "id": "secret_leakage_in_inventory",
+        "ok": true
+      },
+      {
+        "id": "wrong_subscription",
+        "ok": true
+      },
+      {
+        "id": "wrong_resource_group",
+        "ok": true
+      },
+      {
+        "id": "wrong_app",
+        "ok": true
+      },
+      {
+        "id": "unhealthy_revision",
+        "ok": true
+      },
+      {
+        "id": "ambiguous_traffic",
+        "ok": true
+      },
+      {
+        "id": "mutable_latest_image",
+        "ok": true
+      },
+      {
+        "id": "unknown_image_tag",
+        "ok": true
+      },
+      {
+        "id": "excessive_what_if",
+        "ok": true
+      },
+      {
+        "id": "cost_spike",
+        "ok": true
+      }
+    ]
+  },
+  "green": {
+    "total": 7,
+    "passed": 7,
+    "cases": [
+      {
+        "id": "live_inventory_hash_lock",
+        "ok": true
+      },
+      {
+        "id": "live_preflight_pass",
+        "ok": true
+      },
+      {
+        "id": "bicep_declares_webhook_slug",
+        "ok": true
+      },
+      {
+        "id": "expected_what_if_surface",
+        "ok": true
+      },
+      {
+        "id": "cost_below_spike_threshold",
+        "ok": true
+      },
+      {
+        "id": "15d_sequence_complete",
+        "ok": true
+      },
+      {
+        "id": "zero_mutation_contract",
+        "ok": true
+      }
+    ]
+  },
+  "pass": 39,
+  "fail": 0
+}

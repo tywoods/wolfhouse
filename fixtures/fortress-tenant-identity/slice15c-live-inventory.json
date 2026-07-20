@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15C",
+  "captured_at": "2026-07-20T01:24:29Z",
+  "capture_method": "IMDS_ARM_readonly",
+  "live_mutation": false,
+  "wolfhouse_production_queried": false,
+  "scope": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "subscriptionDisplayName": "Azure subscription 1",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "containerApp": "luna-sunset-staging-staff-api",
+    "portalHost": "sunset-staging.lunafrontdesk.com",
+    "tenantSlug": "sunset"
+  },
+  "app": {
+    "name": "luna-sunset-staging-staff-api",
+    "provisioningState": "Succeeded",
+    "runningStatus": "Running",
+    "latestRevisionName": "luna-sunset-staging-staff-api--0000266",
+    "latestReadyRevisionName": "luna-sunset-staging-staff-api--0000266",
+    "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:186307418400581a74f86b096e02bc32a41513b6",
+    "scale": {
+      "minReplicas": 1,
+      "maxReplicas": 1,
+      "rules": null
+    },
+    "identityType": "UserAssigned",
+    "userAssignedIdentity": "luna-sunset-staging-identity"
+  },
+  "managed_identity": {
+    "name": "luna-sunset-staging-identity",
+    "principalId": "5338388f-1685-40cb-ae69-dc2e00f32ad6",
+    "clientId": "0e05fbe3-e8c5-48aa-a914-30aed284e6f7"
+  },
+  "traffic": [
+    {
+      "weight": 100,
+      "latestRevision": true
+    }
+  ],
+  "custom_domains": [
+    {
+      "name": "sunset-staging.lunafrontdesk.com",
+      "bindingType": "SniEnabled"
+    }
+  ],
+  "active_revision": {
+    "name": "luna-sunset-staging-staff-api--0000266",
+    "active": true,
+    "trafficWeight": 100,
+    "healthState": "Healthy",
+    "provisioningState": "Provisioned",
+    "replicas": 1,
+    "runningState": "RunningAtMaxScale",
+    "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:186307418400581a74f86b096e02bc32a41513b6"
+  },
+  "replica_state": {
+    "replicas": 1,
+    "runningState": "RunningAtMaxScale",
+    "minReplicas": 1,
+    "maxReplicas": 1
+  },
+  "container_env": {
+    "WHATSAPP_DRY_RUN": {
+      "value": "true"
+    },
+    "STAFF_ACTIONS_ENABLED": {
+      "value": "true"
+    },
+    "STAFF_AUTH_REQUIRED": {
+      "value": "true"
+    },
+    "STAFF_AUTH_HTTPS": {
+      "value": "true"
+    },
+    "STRIPE_WEBHOOK_SKIP_VERIFY": {
+      "value": "false"
+    },
+    "STAFF_QUERY_API_PORT": {
+      "value": "3036"
+    },
+    "STAFF_QUERY_API_HOST": {
+      "value": "0.0.0.0"
+    },
+    "STAFF_SESSION_COOKIE_NAME": {
+      "value": "luna_staff_session"
+    },
+    "STAFF_SESSION_TTL_HOURS": {
+      "value": "12"
+    },
+    "NODE_ENV": {
+      "value": "staging"
+    },
+    "WOLFHOUSE_DATABASE_URL": {
+      "secretRef": "sunset-database-url"
+    },
+    "STRIPE_SECRET_KEY": {
+      "secretRef": "stripe-secret-key"
+    },
+    "STRIPE_WEBHOOK_SECRET": {
+      "secretRef": "stripe-webhook-secret"
+    },
+    "STAFF_SESSION_SECRET": {
+      "secretRef": "staff-session-secret"
+    },
+    "META_WHATSAPP_TOKEN": {
+      "secretRef": "meta-whatsapp-token"
+    },
+    "SUNSET_ADMIN_DB_READ_ENABLED": {
+      "value": "true"
+    },
+    "SUNSET_ADMIN_WRITES_ENABLED": {
+      "value": "true"
+    },
+    "STRIPE_LINKS_ENABLED": {
+      "value": "true"
+    },
+    "STRIPE_CHECKOUT_SUCCESS_URL": {
+      "value": "https://sunset-staging.lunafrontdesk.com/staff/login?checkout=success&session_id={CHECKOUT_SESSION_ID}"
+    },
+    "STRIPE_CHECKOUT_CANCEL_URL": {
+      "value": "https://sunset-staging.lunafrontdesk.com/staff/login?checkout=cancel"
+    },
+    "NODE_OPTIONS": {
+      "value": "--dns-result-order=ipv4first"
+    },
+    "SUNSET_ADMIN_JSON_OVERLAY": {
+      "value": "false"
+    },
+    "SUNSET_SOMO_WHATSAPP_NUMBER": {
+      "value": "<staging_placeholder_omitted>"
+    },
+    "SUNSET_SARDINERO_WHATSAPP_NUMBER": {
+      "value": "<staging_placeholder_omitted>"
+    },
+    "SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID": {
+      "value": "<staging_placeholder_omitted>"
+    },
+    "SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID": {
+      "value": "<staging_placeholder_omitted>"
+    },
+    "SUNSET_SOMO_INBOX_EMAIL": {
+      "value": "<staging_placeholder_omitted>"
+    },
+    "SUNSET_SARDINERO_INBOX_EMAIL": {
+      "value": "<staging_placeholder_omitted>"
+    },
+    "BOT_PAUSE_CONTROLS_ENABLED": {
+      "value": "true"
+    },
+    "DEFAULT_CLIENT_SLUG": {
+      "value": "sunset"
+    },
+    "LUNA_BOT_INTERNAL_TOKEN": {
+      "secretRef": "luna-bot-internal-token"
+    },
+    "BOT_BOOKING_ENABLED": {
+      "value": "true"
+    },
+    "BOT_ADDON_REQUESTS_ENABLED": {
+      "value": "true"
+    },
+    "DEPLOY_SHA": {
+      "value": "d9e4e88a97b7d22540cdd2aca0a8f12649266e47"
+    },
+    "FORCE_REVISION": {
+      "value": "d9e4e88a97b7d22540cdd2aca0a8f12649266e47"
+    }
+  },
+  "secret_ref_names": [
+    {
+      "name": "stripe-webhook-secret",
+      "hasKeyVaultUrl": true
+    },
+    {
+      "name": "sunset-database-url",
+      "hasKeyVaultUrl": true
+    },
+    {
+      "name": "meta-whatsapp-token",
+      "hasKeyVaultUrl": true
+    },
+    {
+      "name": "staff-session-secret",
+      "hasKeyVaultUrl": true
+    },
+    {
+      "name": "stripe-secret-key",
+      "hasKeyVaultUrl": true
+    },
+    {
+      "name": "luna-bot-internal-token",
+      "hasKeyVaultUrl": false,
+      "inline": true
+    }
+  ],
+  "cost": {
+    "type": "ActualCost",
+    "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+    "period": {
+      "from": "2026-07-01",
+      "to": "2026-07-20",
+      "label": "month-to-date"
+    },
+    "amount": 16.4316563548387,
+    "currency": "USD",
+    "note": "Read-only Cost Management ActualCost via ARM/IMDS. No Azure mutations. Secret-free."
+  },
+  "notes": [
+    "STRIPE_WEBHOOK_CLIENT_SLUG absent on live at capture \u2014 declared in main.bicep by 15C for 15D deploy",
+    "DEFAULT_CLIENT_SLUG=sunset present (15B compat path)",
+    "STRIPE_WEBHOOK_SKIP_VERIFY=false",
+    "No secret values resolved or persisted"
+  ]
+}

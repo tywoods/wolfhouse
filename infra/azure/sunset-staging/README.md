@@ -159,7 +159,8 @@ Secrets are **not** created by Bicep. Expected secret **names:** `sunset-databas
 | `STAFF_AUTH_REQUIRED` | `true` |
 | `STAFF_AUTH_HTTPS` | `true` |
 | `STRIPE_WEBHOOK_SKIP_VERIFY` | `false` |
-| `STRIPE_WEBHOOK_CLIENT_SLUG` | **Required for FORTRESS 15B** — set to this deployment’s tenant slug (`sunset`). Prefer over `DEFAULT_CLIENT_SLUG`. If both are set they must match; missing/conflicting → webhook fail-closed (`no_db_write`). Same requirement on Wolfhouse Staff API with its tenant slug. |
+| `DEFAULT_CLIENT_SLUG` | `sunset` (canonical Sunset tenant) |
+| `STRIPE_WEBHOOK_CLIENT_SLUG` | `sunset` — **declared in `main.bicep` (FORTRESS 15C)** for 15B webhook tenant bind. Prefer over `DEFAULT_CLIENT_SLUG`. If both are set they must match; missing/conflicting → webhook fail-closed (`no_db_write`). Live runtime gains this env on the next approved Sunset image+Bicep deploy (15D). |
 
 ---
 
@@ -871,3 +872,5 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14AA — apply tenant_surf_pack_rules_updated_at (baseline 5→4; schema mutation only; zero data/ledger) — 2026-07-19*
 *FOUNDATION Slice 14AB — Azure PG15 pgcrypto compatibility normalization (baseline 4→0; presentation only; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14AC — ledger bootstrap eligibility matrix (39 forwards; 020 tenant-scoped vacuous DML eligible; prefix may reach 39; design-only ledger DDL; zero mutation) — 2026-07-20*
+
+*FORTRESS Slice 15C — Sunset-staging Stripe webhook slug rollout preflight + declarative STRIPE_WEBHOOK_CLIENT_SLUG=sunset (no build/deploy/mutation; 15D sequence documented) — 2026-07-20*
