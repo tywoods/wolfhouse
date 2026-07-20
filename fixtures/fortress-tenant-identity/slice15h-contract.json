@@ -56,7 +56,10 @@
       "behavior": "normalize + applyMetaWhatsAppIngressAuthority before withPgClient; blocked → acquired_pg=false; returns effective post-authority normalized; downstream failures throw with effective_normalized"
     },
     "resolveReplayNormalizedIdentity": {
-      "behavior": "find candidates by wa_message_id without trusting requested tenant; reject ambiguous or nonempty client/location conflicts; fill legacy-missing location in response only; never rewrite history or insert a duplicate"
+      "behavior": "find/claim candidates by wa_message_id under advisory lock without trusting requested tenant; reject ambiguous or nonempty client/location conflicts with event_row=null and non-sensitive metadata only; fill legacy-missing location in response only; never rewrite stored normalized/history for processed or unprocessed historical candidates; never insert a duplicate"
+    },
+    "claimGuestMessageEventInboundByWaMessageId": {
+      "behavior": "pg_advisory_lock(hashtext(ns), hashtext(wa_message_id)) then find-or-insert; concurrency-safe across tenant slugs; deployment-compatible without UNIQUE(wa_message_id) migration at rollout; retains ON CONFLICT (client_slug, wa_message_id) DO NOTHING"
     },
     "attachEffectiveNormalizedToError": {
       "behavior": "structured failure shape carries effective_normalized for HTTP failure audit/response"

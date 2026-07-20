@@ -48,7 +48,11 @@ const {
   resolveReplayNormalizedIdentity,
   attachEffectiveNormalizedToError,
 } = require('./lib/meta-whatsapp-ingress-authority');
-const { buildInboundEventSeed } = require('./lib/luna-guest-message-events-sql');
+const {
+  buildInboundEventSeed,
+  claimGuestMessageEventInboundByWaMessageId,
+  WA_MESSAGE_ID_LOCK_NAMESPACE,
+} = require('./lib/luna-guest-message-events-sql');
 const { buildOpenDemoRequestBodyFromMeta } = require('./lib/meta-open-demo-inbound-adapter');
 const { scanSecretFreeText } = require('./lib/fortress-tenant-identity-boundary');
 
@@ -191,6 +195,7 @@ function cloneEventRow(row) {
 /**
  * In-memory PG harness for real processInbound / PostEntry paths.
  * Tracks side effects; never opens a network or live DB connection.
+ * Unexpected owner/demo/persistence SQL fails closed (no generic success).
  */
 function makeHarnessPg(options = {}) {
   const events = Array.isArray(options.events) ? options.events.map(cloneEventRow) : [];
@@ -198,6 +203,8 @@ function makeHarnessPg(options = {}) {
   const tableMissing = options.tableMissing === true;
   const throwOnQuery = options.throwOnQuery || null;
   let idSeq = options.idSeq || 1000;
+  const lockWaiters = new Map(); // key -> Promise chain tail
+  const heldLocks = new Map(); // key -> hold count
   const effects = {
     queries: [],
     candidate_selects: 0,
@@ -205,6 +212,8 @@ function makeHarnessPg(options = {}) {
     updates: 0,
     staff_lookups: 0,
     send_lookups: 0,
+    advisory_locks: 0,
+    advisory_unlocks: 0,
   };
 
   function missingTableError() {
@@ -212,6 +221,28 @@ function makeHarnessPg(options = {}) {
     err.code = '42P01';
     return err;
   }
+
+  function lockKey(params) {
+    return `${params[0]}::${params[1]}`;
+  }
+
+  async function acquireAdvisory(params) {
+    const key = lockKey(params);
+    effects.advisory_locks += 1;
+    const prev = lockWaiters.get(key) || Promise.resolve();
+    let releaseCurrent;
+    const gate = new Promise((resolve) => { releaseCurrent = resolve; });
+    const next = prev.then(() => gate);
+    lockWaiters.set(key, next.then(() => {}, () => {}));
+    await prev;
+    heldLocks.set(key, (heldLocks.get(key) || 0) + 1);
+    return () => {
+      heldLocks.set(key, Math.max(0, (heldLocks.get(key) || 1) - 1));
+      releaseCurrent();
+    };
+  }
+
+  const releaseByKey = new Map();
 
   async function query(sql, params) {
     const s = String(sql);
@@ -223,6 +254,22 @@ function makeHarnessPg(options = {}) {
       if (forced) throw forced;
     }
 
+    if (/pg_advisory_lock\s*\(/i.test(s) && !/unlock/i.test(s)) {
+      const release = await acquireAdvisory(p);
+      releaseByKey.set(lockKey(p), release);
+      return { rows: [{ pg_advisory_lock: true }] };
+    }
+    if (/pg_advisory_unlock\s*\(/i.test(s)) {
+      effects.advisory_unlocks += 1;
+      const key = lockKey(p);
+      const release = releaseByKey.get(key);
+      if (release) {
+        releaseByKey.delete(key);
+        release();
+      }
+      return { rows: [{ pg_advisory_unlock: true }] };
+    }
+
     if (tableMissing && /guest_message_events/.test(s)) {
       throw missingTableError();
     }
@@ -231,7 +278,10 @@ function makeHarnessPg(options = {}) {
     if (
       /FROM\s+guest_message_events/i.test(s)
       && /WHERE\s+wa_message_id\s*=\s*\$1/i.test(s)
-      && !/client_slug\s*=\s*\$1/i.test(s)
+      && !/client_slug\s*=/i.test(s)
+      && /^\s*SELECT/i.test(s)
+      && !/\bUPDATE\b/i.test(s)
+      && !/\bINSERT\b/i.test(s)
     ) {
       effects.candidate_selects += 1;
       const wamid = p[0];
@@ -247,8 +297,8 @@ function makeHarnessPg(options = {}) {
       /FROM\s+guest_message_events/i.test(s)
       && /client_slug\s*=\s*\$1/i.test(s)
       && /wa_message_id\s*=\s*\$2/i.test(s)
-      && /SELECT/i.test(s)
-      && !/UPDATE/i.test(s)
+      && /^\s*SELECT/i.test(s)
+      && !/\bUPDATE\b/i.test(s)
     ) {
       const slug = p[0];
       const wamid = p[1];
@@ -256,12 +306,14 @@ function makeHarnessPg(options = {}) {
       return { rows: hit ? [cloneEventRow(hit)] : [] };
     }
 
-    if (/INSERT\s+INTO\s+guest_message_events/i.test(s)) {
+    if (/\bINSERT\s+INTO\s+guest_message_events\b/i.test(s)) {
       effects.inserts += 1;
       const slug = p[0];
       const wamid = p[5];
-      const existing = events.find((e) => e.client_slug === slug && e.wa_message_id === wamid);
-      if (existing) {
+      // Cross-slug uniqueness is enforced by advisory claim, not schema.
+      // Same-slug still honors ON CONFLICT (client_slug, wa_message_id).
+      const existingSameSlug = events.find((e) => e.client_slug === slug && e.wa_message_id === wamid);
+      if (existingSameSlug) {
         return { rows: [] }; // ON CONFLICT DO NOTHING
       }
       const row = {
@@ -292,7 +344,7 @@ function makeHarnessPg(options = {}) {
       return { rows: [cloneEventRow(row)] };
     }
 
-    if (/UPDATE\s+guest_message_events/i.test(s)) {
+    if (/\bUPDATE\s+guest_message_events\b/i.test(s)) {
       effects.updates += 1;
       const slug = p[0];
       const wamid = p[1];
@@ -329,13 +381,37 @@ function makeHarnessPg(options = {}) {
       return { rows: hit ? [hit] : [] };
     }
 
-    if (/guest_message_sends|bot_pause|conversation_pause|FROM\s+pause/i.test(s)) {
+    // Send-route / pause lookups (proves evaluateGuestReplySendRouteWithPause ran).
+    if (
+      /guest_message_sends/i.test(s)
+      || /bot_pause|conversation_pause|FROM\s+pause/i.test(s)
+      || /staff_bot_pause/i.test(s)
+    ) {
       effects.send_lookups += 1;
       return { rows: [] };
     }
 
-    // Soft-empty for unrelated owner/open-demo SQL probes.
-    return { rows: [] };
+    // Owner Command Center / Ask Luna readonly probes — empty result, never generic success
+    // for unknown write/DDL shapes.
+    if (
+      /SELECT/i.test(s)
+      && !/INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE/i.test(s)
+      && (
+        /FROM\s+bookings\b/i.test(s)
+        || /FROM\s+guests\b/i.test(s)
+        || /FROM\s+payments\b/i.test(s)
+        || /FROM\s+clients\b/i.test(s)
+        || /FROM\s+rooms\b/i.test(s)
+        || /FROM\s+beds\b/i.test(s)
+        || /information_schema/i.test(s)
+        || /pg_catalog/i.test(s)
+        || /current_setting/i.test(s)
+      )
+    ) {
+      return { rows: [] };
+    }
+
+    throw new Error(`15H harness: unexpected SQL (fail-closed): ${s.replace(/\s+/g, ' ').slice(0, 160)}`);
   }
 
   return {
@@ -343,6 +419,7 @@ function makeHarnessPg(options = {}) {
     effects,
     events,
     staffRows,
+    heldLocks,
   };
 }
 
@@ -565,7 +642,10 @@ ok('webhook + inbound wire authority module + replay/error helpers',
   && /processMetaWhatsAppWebhookPostEntry/.test(inboundSrc)
   && /resolveReplayNormalizedIdentity/.test(inboundSrc)
   && /attachEffectiveNormalizedToError/.test(inboundSrc)
-  && /findGuestMessageEventCandidatesByWaMessageId/.test(inboundSrc)
+  && /claimGuestMessageEventInboundByWaMessageId/.test(inboundSrc)
+  && /pg_advisory_lock/.test(
+    fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'luna-guest-message-events-sql.js'), 'utf8'),
+  )
   && /resolveReplayNormalizedIdentity/.test(policySrc));
 ok('staff Meta POST uses entry before withPgClient + structured error audit', (() => {
   const idx = staffApi.indexOf('async function handleMetaWhatsAppWebhookPost');
@@ -1028,10 +1108,22 @@ async function runEntryAndZeroDownstream() {
     && conflictReplayHttp.response.idempotent_replay === false
     && conflictReplayHttp.response.draft_called === false
     && conflictReplayHttp.response.send_attempted === false
+    && conflictReplayHttp.response.guest_message_event_id == null
+    && conflictReplayHttp.processed.event_row == null
+    && conflictReplayHttp.response.replay_identity
+    && conflictReplayHttp.response.replay_identity.reason === 'replay_client_slug_conflict'
+    && conflictReplayHttp.response.replay_identity.stored_client_slug === 'wolfhouse-somo'
+    && conflictReplayHttp.response.replay_identity.authoritative_client_slug === 'sunset'
+    && !Object.prototype.hasOwnProperty.call(conflictReplayHttp.response, 'suggested_reply')
+    && conflictReplayHttp.response.normalized
+    && conflictReplayHttp.response.normalized.suggested_reply == null
+    && JSON.stringify(conflictReplayHttp.response).indexOf('legacy reply') === -1
+    && JSON.stringify(conflictReplayHttp.response).indexOf('evt-legacy-1') === -1
     && conflictHarness.effects.inserts === 0
     && conflictHarness.events.length === 1
     && conflictHarness.events[0].client_slug === 'wolfhouse-somo'
-    && conflictHarness.events[0].normalized.location_id == null);
+    && conflictHarness.events[0].normalized.location_id == null
+    && conflictHarness.events[0].suggested_reply === 'legacy reply');
 
   const locConflictHarness = makeHarnessPg({
     events: [{
@@ -1076,6 +1168,10 @@ async function runEntryAndZeroDownstream() {
   red('replay_rejects_location_conflict',
     locConflictHttp.response.replay_identity_rejected === true
     && (locConflictHttp.response.blocked_reasons || []).includes('replay_location_id_conflict')
+    && locConflictHttp.processed.event_row == null
+    && locConflictHttp.response.guest_message_event_id == null
+    && locConflictHttp.response.replay_identity
+    && locConflictHttp.response.replay_identity.stored_location_id === 'sunset-sardinero'
     && locConflictHarness.effects.inserts === 0
     && locConflictHarness.events[0].normalized.location_id === 'sunset-sardinero');
 
@@ -1312,7 +1408,8 @@ async function runEntryAndZeroDownstream() {
   realPath.processed_replay = fillHttp.response.idempotent_replay === true
     && fillHttp.response.normalized.location_id === 'sunset-somo';
 
-  // Unprocessed conflict continue — same slug, no duplicate insert
+  // Unprocessed historical candidate — continue without duplicate; do not rewrite
+  // stored identity/history (authority fills response/runtime only).
   const unprocessedHarness = makeHarnessPg({
     events: [{
       id: 'evt-unproc-1',
@@ -1328,10 +1425,10 @@ async function runEntryAndZeroDownstream() {
       raw_payload: null,
       normalized: {
         client_slug: 'sunset',
-        location_id: 'sunset-somo',
+        // legacy-null location must stay absent in stored history
         wa_message_id: 'wamid.SAMPLE_15H_UNPROCESSED',
         supported: true,
-        message_text: 'Hola',
+        message_text: 'Hola legacy unprocessed',
       },
       draft_called: false,
       next_action: null,
@@ -1345,6 +1442,7 @@ async function runEntryAndZeroDownstream() {
       updated_at: '2026-01-01T00:00:00.000Z',
     }],
   });
+  const unprocessedStoredBefore = JSON.stringify(unprocessedHarness.events[0].normalized);
   const unprocessedHttp = await runHttpWithPgHarness({
     body: buildFakeMetaWhatsAppBody('WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE', {
       wa_message_id: 'wamid.SAMPLE_15H_UNPROCESSED',
@@ -1359,9 +1457,18 @@ async function runEntryAndZeroDownstream() {
     && unprocessedHttp.response.idempotent_replay === false
     && unprocessedHttp.response.normalized.client_slug === 'sunset'
     && unprocessedHttp.response.normalized.location_id === 'sunset-somo'
-    && unprocessedHttp.response.guest_message_event_id === 'evt-unproc-1';
+    && unprocessedHttp.response.guest_message_event_id === 'evt-unproc-1'
+    && unprocessedHttp.response.replay_history_rewritten === false
+    && unprocessedHarness.events[0].normalized.client_slug === 'sunset'
+    && unprocessedHarness.events[0].normalized.location_id == null
+    && !Object.prototype.hasOwnProperty.call(
+      unprocessedHarness.events[0].normalized,
+      'location_id',
+    )
+    && unprocessedHarness.events[0].normalized.message_text === 'Hola legacy unprocessed'
+    && unprocessedStoredBefore.indexOf('"location_id"') === -1;
 
-  // Ambiguous multi-tenant candidates → reject, no insert
+  // Ambiguous multi-tenant candidates → reject, no insert, no foreign event_row
   const ambigHarness = makeHarnessPg({
     events: [
       {
@@ -1371,7 +1478,7 @@ async function runEntryAndZeroDownstream() {
         normalized: { client_slug: 'wolfhouse-somo' },
         draft_called: true,
         next_action: 'ask_missing_field',
-        suggested_reply: 'a',
+        suggested_reply: 'secret-cross-tenant-a',
         send_attempted: false,
         send_blocked_reasons: [],
         created_at: '2026-01-01T00:00:00.000Z',
@@ -1383,7 +1490,7 @@ async function runEntryAndZeroDownstream() {
         normalized: { client_slug: 'sunset', location_id: 'sunset-somo' },
         draft_called: true,
         next_action: 'ask_missing_field',
-        suggested_reply: 'b',
+        suggested_reply: 'secret-cross-tenant-b',
         send_attempted: false,
         send_blocked_reasons: [],
         created_at: '2026-01-02T00:00:00.000Z',
@@ -1400,6 +1507,11 @@ async function runEntryAndZeroDownstream() {
   });
   realPath.ambiguous_reject = ambigHttp.response.replay_identity_rejected === true
     && (ambigHttp.response.blocked_reasons || []).includes('replay_ambiguous_wa_message_id')
+    && ambigHttp.processed.event_row == null
+    && ambigHttp.response.guest_message_event_id == null
+    && ambigHttp.response.replay_identity
+    && ambigHttp.response.replay_identity.candidate_count === 2
+    && JSON.stringify(ambigHttp.response).indexOf('secret-cross-tenant') === -1
     && ambigHarness.effects.inserts === 0
     && ambigHarness.events.length === 2;
 
@@ -1409,8 +1521,13 @@ async function runEntryAndZeroDownstream() {
     && guestHttp.audit[0].client_slug === 'sunset'
     && errHttp.audit[0]
     && errHttp.audit[0].intent === 'webhook:meta_whatsapp:downstream_error';
+  // Real send callback (evaluateGuestReplySendRouteWithPause) must run — do not
+  // infer send solely from idempotency key presence.
   realPath.send = guestHttp.response.send_attempted === true
-    || String(guestHttp.response.idempotency_key || '').includes('luna:sunset:sunset-somo:');
+    && guestHttp.harness.effects.send_lookups >= 1
+    && guestHttp.harness.effects.queries.some((q) => (
+      /guest_message_sends|bot_pause|conversation_pause|staff_bot_pause/i.test(q.sql)
+    ));
   realPath.response = guestHttp.response.normalized
     && guestHttp.response.normalized.client_slug === 'sunset'
     && guestHttp.response.normalized.location_id === 'sunset-somo';
@@ -1435,6 +1552,72 @@ async function runEntryAndZeroDownstream() {
   for (const id of realPathIds) {
     ok(`real-path ${id}`, realPath[id] === true, realPath[id] ? '' : `branch=${id}`);
   }
+
+  // Concurrent cross-slug claim: advisory lock ensures only one insert wins.
+  console.log('\n── Concurrency / isolation proofs ──');
+  const concurHarness = makeHarnessPg({});
+  const concurWamid = 'wamid.SAMPLE_15H_CONCUR';
+  const seedSunset = buildInboundEventSeed({
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    wa_message_id: concurWamid,
+    from: '34600000001',
+    phone_number_id: 'WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE',
+    message_type: 'text',
+    message_text: 'A',
+  }, { object: 'whatsapp_business_account' });
+  const seedWolf = buildInboundEventSeed({
+    client_slug: 'wolfhouse-somo',
+    wa_message_id: concurWamid,
+    from: '34600000001',
+    phone_number_id: 'WHATSAPP_PHONE_NUMBER_ID_WOLFHOUSE_SOMO_SAMPLE',
+    message_type: 'text',
+    message_text: 'B',
+  }, { object: 'whatsapp_business_account' });
+  const [claimA, claimB] = await Promise.all([
+    claimGuestMessageEventInboundByWaMessageId(concurHarness, seedSunset),
+    claimGuestMessageEventInboundByWaMessageId(concurHarness, seedWolf),
+  ]);
+  const concurInserted = [claimA, claimB].filter((c) => c.inserted === true).length;
+  ok('concurrent cross-slug claims cannot both insert',
+    concurInserted === 1
+    && concurHarness.effects.inserts === 1
+    && concurHarness.events.length === 1
+    && concurHarness.effects.advisory_locks >= 2
+    && concurHarness.effects.advisory_unlocks >= 2
+    && claimA.rows.length === 1
+    && claimB.rows.length === 1
+    && claimA.rows[0].id === claimB.rows[0].id
+    && concurHarness.events[0].wa_message_id === concurWamid);
+
+  ok('SQL helpers use advisory lock (no unapplied UNIQUE wa_message_id required)', (() => {
+    const sqlSrc = fs.readFileSync(
+      path.join(ROOT, 'scripts', 'lib', 'luna-guest-message-events-sql.js'),
+      'utf8',
+    );
+    const constraintAdds = sqlSrc.match(
+      /^\s*CONSTRAINT\s+\w+\s+UNIQUE\s*\(\s*wa_message_id\s*\)/gim,
+    ) || [];
+    const alterUnique = sqlSrc.match(
+      /ADD\s+(?:CONSTRAINT\s+\w+\s+)?UNIQUE\s*\(\s*wa_message_id\s*\)/gi,
+    ) || [];
+    return /pg_advisory_lock\(hashtext\(\$1\),\s*hashtext\(\$2\)\)/.test(sqlSrc)
+      && /claimGuestMessageEventInboundByWaMessageId/.test(sqlSrc)
+      && sqlSrc.includes(WA_MESSAGE_ID_LOCK_NAMESPACE)
+      && /ON CONFLICT \(client_slug, wa_message_id\) DO NOTHING/.test(sqlSrc)
+      && constraintAdds.length === 0
+      && alterUnique.length === 0;
+  })());
+
+  ok('unexpected harness SQL fails closed', await (async () => {
+    const h = makeHarnessPg({});
+    try {
+      await h.query('SELECT 1 FROM totally_unknown_table_xyz', []);
+      return false;
+    } catch (err) {
+      return /unexpected SQL/i.test(String(err && err.message));
+    }
+  })());
 
 }
 

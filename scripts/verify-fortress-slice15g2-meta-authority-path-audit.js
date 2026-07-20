@@ -292,10 +292,23 @@ const inventoryPatternAlternates = slice15hPresent ? {
   CCI_INBOUND_REPLAY_EXISTING_CALL: [
     'isGuestMessageEventProcessed(existingRow)',
     'findGuestMessageEventCandidatesByWaMessageId',
+    'claimGuestMessageEventInboundByWaMessageId',
+  ],
+  CCI_INBOUND_REPLAY_INSERTED_CALL: [
+    'isGuestMessageEventProcessed(inserted.row)',
+    'claim.inserted === true',
+    '!insertedNew && isGuestMessageEventProcessed(existingRow)',
   ],
   CCI_INBOUND_TABLE_MISSING_FIND_RETURN: [
+    'if (claim.table_missing)',
     'if (candidates.table_missing)',
+    'claimGuestMessageEventInboundByWaMessageId',
     'findGuestMessageEventCandidatesByWaMessageId',
+  ],
+  CCI_INBOUND_TABLE_MISSING_INSERT_RETURN: [
+    'if (inserted.table_missing)',
+    'if (claim.table_missing)',
+    'claimGuestMessageEventInboundByWaMessageId',
   ],
 } : {};
 for (const anchor of inventory) {
@@ -583,10 +596,12 @@ ok('inbound owns guest/owner/demo/gate/table-missing branches',
   && /runDraftAndSendGate/.test(inboundSrc)
   && /isGuestMessageEventProcessed/.test(inboundSrc)
   && (slice15hPresent
-    ? /candidates\.table_missing/.test(inboundSrc)
-      && /findGuestMessageEventCandidatesByWaMessageId/.test(inboundSrc)
+    ? (/claim\.table_missing/.test(inboundSrc) || /candidates\.table_missing/.test(inboundSrc))
+      && (/claimGuestMessageEventInboundByWaMessageId/.test(inboundSrc)
+        || /findGuestMessageEventCandidatesByWaMessageId/.test(inboundSrc))
     : /existing\.table_missing/.test(inboundSrc))
-  && /inserted\.table_missing/.test(inboundSrc)
+  && (/inserted\.table_missing/.test(inboundSrc)
+    || /claim\.table_missing/.test(inboundSrc))
   && /normalized\.supported && normalized\.message_text/.test(inboundSrc));
 ok('owner source present in verification map',
   /function buildOwnerSendBody/.test(ownerSrc)

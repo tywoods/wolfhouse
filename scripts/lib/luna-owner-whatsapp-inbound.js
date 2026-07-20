@@ -17,6 +17,7 @@ const {
 const {
   buildDecisionPatch,
   updateGuestMessageEventDecisions,
+  mergeNormalizedPreservingStoredIdentity,
 } = require('./luna-guest-message-events-sql');
 
 const OWNER_SEND_KIND = 'staff_reply';
@@ -325,11 +326,18 @@ async function processOwnerWhatsAppCommandCenterInbound(input) {
 
   const ran = await runOwnerCommandCenterCore(pg, env, normalized, staffAccess);
 
-  const normalizedForStorage = enrichNormalizedForOwnerRoute(normalized, staffAccess, {
+  let normalizedForStorage = enrichNormalizedForOwnerRoute(normalized, staffAccess, {
     command_center_intent: ran.askResult.intent,
     command_center: ran.draft.command_center,
     send_eligibility: ran.draft.send_eligibility,
   });
+  if (input.preserve_stored_normalized === true && eventRow) {
+    // Historical candidate — preserve stored identity; authority fills response only.
+    normalizedForStorage = mergeNormalizedPreservingStoredIdentity(
+      eventRow.normalized,
+      normalizedForStorage,
+    );
+  }
 
   const decisionPatch = buildDecisionPatch({
     draft: ran.draft,

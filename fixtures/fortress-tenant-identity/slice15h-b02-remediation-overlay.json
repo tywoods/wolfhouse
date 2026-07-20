@@ -28,12 +28,13 @@
       "PostEntry returns effective post-authority normalized for HTTP audit",
       "when enabled + routing present: known phone_number_id → resolver client_slug/location_id authoritative through persistence/draft/send/idempotency/response/owner/open-demo/gate/replay/terminal",
       "unknown/missing/ambiguous/conflicting → acquired_pg=false and zero pool/inbound/persist/draft/send/owner/demo",
-      "REPLAY_IDENTITY_COMPARE_REJECT_FILL via wa_message_id candidate find (no trusted tenant); reject ambiguous/conflicts; fill missing location in response only; never rewrite history or duplicate",
+      "REPLAY_IDENTITY_COMPARE_REJECT_FILL via wa_message_id advisory-lock claim (no trusted tenant); reject ambiguous/conflicts with event_row=null + non-sensitive metadata only; fill missing location in response only; never rewrite stored normalized for processed/unprocessed historical candidates; never duplicate",
+      "cross-slug wa_message_id concurrency via pg_advisory_lock(hashtext) — no unapplied UNIQUE(wa_message_id) required at rollout",
       "ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED for HTTP failure audit/response",
       "owner reads remain tenant-wide by client_slug; location_id propagates to storage/idempotency only",
       "open-demo does not apply conflicting wolfhouse-somo hardcoded fallback when authority active",
       "disabled or routing-absent → exact prior shadow-only live behavior (no ingress_authority metadata)",
-      "HTTP/withPgClient real-path harness proves guest/owner/demo/gate/table-unavailable/terminal/replay/conflict/audit/send/response/error",
+      "HTTP/withPgClient real-path harness proves guest/owner/demo/gate/table-unavailable/terminal/replay/conflict/audit/send/response/error; send proved via real send-route callback lookups; SQL mocks fail-closed on unexpected queries",
       "no deployment config / live routing-file edits in this slice"
     ]
   },

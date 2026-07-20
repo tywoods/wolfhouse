@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "slice": "FORTRESS-15H",
-  "generated_at": "2026-07-20T07:30:00.000Z",
+  "generated_at": "2026-07-20T07:50:00.000Z",
   "master_basis": "9a09f479f1a65fec45557cf2c94c5e9628b902dc",
   "live_mutation": false,
   "activation_default": "off",
@@ -90,9 +90,14 @@
       "response",
       "structured_error"
     ],
-    "replay_lookup": "findGuestMessageEventCandidatesByWaMessageId(wa_message_id only)",
+    "replay_lookup": "claimGuestMessageEventInboundByWaMessageId (advisory lock + wa_message_id find/insert)",
+    "conflict_ambiguity": "event_row=null + non-sensitive replay_identity metadata only",
+    "history_preserve": "processed and unprocessed historical normalized identity not rewritten",
+    "concurrency": "concurrent cross-slug claims cannot both insert",
+    "send_proof": "evaluateGuestReplySendRouteWithPause invoked (send_lookups >= 1), not inferred from idempotency key",
+    "sql_mocks": "unexpected owner/demo/persistence queries fail-closed",
     "enabled_without_routing": "no ingress_authority metadata (shape-compatible with default-off)"
   },
-  "pass": 61,
+  "pass": 64,
   "fail": 0
 }

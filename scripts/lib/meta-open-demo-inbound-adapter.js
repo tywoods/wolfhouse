@@ -8,6 +8,7 @@ const { buildMetaWhatsAppWebhookPostResponse } = require('./luna-meta-whatsapp-w
 const {
   buildDecisionPatch,
   updateGuestMessageEventDecisions,
+  mergeNormalizedPreservingStoredIdentity,
 } = require('./luna-guest-message-events-sql');
 const {
   isProductionEnvironment,
@@ -337,7 +338,7 @@ async function processMetaOpenDemoGuestInbound(input) {
     send_status: sendStatus,
   });
 
-  const normalizedForStorage = {
+  const normalizedForStorageBase = {
     ...normalized,
     open_demo_route: true,
     guest_flow_skipped: false,
@@ -353,6 +354,9 @@ async function processMetaOpenDemoGuestInbound(input) {
       blocked_reasons: writeCreated ? [] : undefined,
     },
   };
+  const normalizedForStorage = input.preserve_stored_normalized === true && eventRow
+    ? mergeNormalizedPreservingStoredIdentity(eventRow.normalized, normalizedForStorageBase)
+    : normalizedForStorageBase;
 
   let updatedRow = eventRow;
   if (pg && eventRow) {

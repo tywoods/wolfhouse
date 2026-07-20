@@ -31,9 +31,15 @@ absent, shadow-only behavior is preserved exactly.
 - Trusted `normalized.location_id` reaches real draft/send/owner/open-demo builders;
   location-scoped idempotency when present; legacy keys unchanged when absent
 - Historical replay looks up candidates by `wa_message_id` only (does not trust the
-  requested tenant). Ambiguous or nonempty client/location conflicts are rejected;
-  legacy-missing location is filled in the **response** only; history is never
-  rewritten and no duplicate event is inserted
+  requested tenant). Ambiguous or nonempty client/location conflicts are rejected
+  with `event_row=null` and non-sensitive replay metadata only (no cross-tenant row
+  content). Legacy-missing location is filled in the **response** only; history is
+  never rewritten for processed or unprocessed historical candidates; no duplicate
+  event is inserted
+- Cross-tenant `wa_message_id` claim uses PostgreSQL session advisory locks
+  (`pg_advisory_lock(hashtext(ns), hashtext(wa_message_id))`) so concurrent
+  cross-slug inserts cannot both win without requiring an unapplied
+  `UNIQUE(wa_message_id)` schema constraint at code rollout
 - Enabled-without-routing is byte/shape-compatible with default shadow (no
   `ingress_authority` metadata)
 - Owner reads remain **tenant-wide** (`client_slug` only)

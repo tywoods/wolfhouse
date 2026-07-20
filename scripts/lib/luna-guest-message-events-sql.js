@@ -178,6 +178,102 @@ async function findGuestMessageEventCandidatesByWaMessageId(pg, waMessageId) {
   }
 }
 
+/**
+ * FORTRESS 15H — session advisory lock keyed by wa_message_id.
+ * Serializes cross-tenant find+insert without requiring a global
+ * UNIQUE(wa_message_id) schema constraint at code rollout. Existing unique is
+ * still (client_slug, wa_message_id) only.
+ */
+const WA_MESSAGE_ID_LOCK_NAMESPACE = 'guest_message_events.wa_message_id';
+
+async function withGuestMessageEventWaMessageIdLock(pg, waMessageId, fn) {
+  const key = String(waMessageId || '');
+  await pg.query(
+    `SELECT pg_advisory_lock(hashtext($1), hashtext($2))`,
+    [WA_MESSAGE_ID_LOCK_NAMESPACE, key],
+  );
+  try {
+    return await fn();
+  } finally {
+    await pg.query(
+      `SELECT pg_advisory_unlock(hashtext($1), hashtext($2))`,
+      [WA_MESSAGE_ID_LOCK_NAMESPACE, key],
+    ).catch(() => {});
+  }
+}
+
+/**
+ * Merge next normalized onto stored history while preserving stored identity.
+ * Authority may fill response/runtime identity only — never rewrite stored
+ * client_slug / location_id (including leaving location absent when legacy-null).
+ *
+ * @param {object|null|undefined} storedNormalized
+ * @param {object|null|undefined} nextNormalized
+ * @returns {object}
+ */
+function mergeNormalizedPreservingStoredIdentity(storedNormalized, nextNormalized) {
+  const stored = storedNormalized && typeof storedNormalized === 'object'
+    ? storedNormalized
+    : {};
+  const next = nextNormalized && typeof nextNormalized === 'object'
+    ? nextNormalized
+    : {};
+  const out = { ...stored, ...next };
+  if (Object.prototype.hasOwnProperty.call(stored, 'client_slug')) {
+    out.client_slug = stored.client_slug;
+  }
+  if (Object.prototype.hasOwnProperty.call(stored, 'location_id')) {
+    out.location_id = stored.location_id;
+  } else {
+    delete out.location_id;
+  }
+  return out;
+}
+
+/**
+ * FORTRESS 15H — concurrency-safe claim across tenant slugs.
+ * Under wa_message_id advisory lock: find candidates globally; insert only when
+ * none exist. Do not rely on check-then-insert outside the lock. Does not require
+ * an unapplied UNIQUE(wa_message_id) migration.
+ *
+ * @param {object} pg
+ * @param {object} seed
+ * @returns {Promise<{ rows: object[], inserted: boolean, table_missing?: boolean }>}
+ */
+async function claimGuestMessageEventInboundByWaMessageId(pg, seed) {
+  const payload = seed || {};
+  const waMessageId = payload.wa_message_id;
+  if (!waMessageId) {
+    return { rows: [], inserted: false };
+  }
+
+  return withGuestMessageEventWaMessageIdLock(pg, waMessageId, async () => {
+    const candidates = await findGuestMessageEventCandidatesByWaMessageId(pg, waMessageId);
+    if (candidates.table_missing) {
+      return { rows: [], inserted: false, table_missing: true };
+    }
+    const existing = Array.isArray(candidates.rows) ? candidates.rows : [];
+    if (existing.length > 0) {
+      return { rows: existing, inserted: false };
+    }
+
+    const inserted = await insertGuestMessageEventInbound(pg, payload);
+    if (inserted.table_missing) {
+      return { rows: [], inserted: false, table_missing: true };
+    }
+    if (inserted.row) {
+      return { rows: [inserted.row], inserted: inserted.inserted === true };
+    }
+
+    // ON CONFLICT DO NOTHING / concurrent same-slug: re-find under the same lock.
+    const again = await findGuestMessageEventCandidatesByWaMessageId(pg, waMessageId);
+    if (again.table_missing) {
+      return { rows: [], inserted: false, table_missing: true };
+    }
+    return { rows: again.rows || [], inserted: false };
+  });
+}
+
 async function insertGuestMessageEventInbound(pg, seed) {
   const payload = seed || {};
   try {
@@ -257,6 +353,7 @@ async function updateGuestMessageEventDecisions(pg, clientSlug, waMessageId, pat
 
 module.exports = {
   SELECT_GUEST_MESSAGE_EVENT_COLS,
+  WA_MESSAGE_ID_LOCK_NAMESPACE,
   isMissingGuestMessageEventsTable,
   formatGuestMessageEventRow,
   isGuestMessageEventProcessed,
@@ -264,6 +361,9 @@ module.exports = {
   buildDecisionPatch,
   findGuestMessageEventByWaMessageId,
   findGuestMessageEventCandidatesByWaMessageId,
+  withGuestMessageEventWaMessageIdLock,
+  mergeNormalizedPreservingStoredIdentity,
+  claimGuestMessageEventInboundByWaMessageId,
   insertGuestMessageEventInbound,
   updateGuestMessageEventDecisions,
 };
