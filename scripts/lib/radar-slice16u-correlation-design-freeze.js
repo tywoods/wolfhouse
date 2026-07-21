@@ -29,6 +29,26 @@ const G01A_BOUNDARY = 'meta_hermes_staff_correlated_read_path';
 /** Stripe is business-ID join only — not same HTTP ALS as Meta ingress. */
 const G01B_BOUNDARY = 'stripe_business_id_join_not_inbound_als';
 
+/** G01-B today: tenant/payment/booking/session metadata only. */
+const G01B_CORRELATION_TODAY = 'tenant_payment_booking_session_metadata_only';
+
+const NEXT_SLICE_ID = '16V_candidate_central_capability_boundary_audit_freeze';
+
+const LIVE_CADDY_ROUTES = Object.freeze({
+  whatsapp: Object.freeze({
+    path_prefix: '/whatsapp/*',
+    upstream: 'localhost:8092',
+    container: 'hermes-sunset-luna',
+  }),
+  wolfhouse: Object.freeze({
+    path_prefix: '/wolfhouse/*',
+    upstream: 'localhost:8090',
+    container: 'hermes-luna',
+  }),
+});
+
+const TRACKED_CADDY_STATUS = 'stale_evidence_not_authority';
+
 const FORBIDDEN_AS_E2E_EVIDENCE = Object.freeze([
   'independent_same_id_healthz_probe',
   'independent_same_id_stripe_preverify_probe',
@@ -47,6 +67,10 @@ const EXPLICITLY_NOT_CLAIMED = Object.freeze([
   'single_als_spanning_meta_to_stripe_webhook',
   'production',
   'independent_same_id_probes_as_e2e',
+  'dry_run_implementable_today',
+  'tracked_caddy_reference_as_live_authority',
+  'invented_single_parent_for_coalesced_burst',
+  'inbound_trace_wamid_payment_propagation_today',
 ]);
 
 const GATES_UNCHANGED = Object.freeze([
@@ -88,12 +112,27 @@ const MUST_NOT_MUTATE = Object.freeze([
 
 const REQUIRED_INSTRUMENTATION_POINTS = Object.freeze([
   'hermes_meta_admit_mint_trace_id',
-  'hermes_bind_parent_event_id_wamid',
+  'hermes_bind_message_provenance',
   'hermes_post_bot_send_x_request_id',
   'staff_als_accept_same_trace_id',
   'staff_completion_log_emit_trace_id',
-  'optional_stripe_metadata_copy_on_mutating_create_only',
 ]);
+
+const G01B_JOIN_KEYS_TODAY = Object.freeze([
+  'client_slug',
+  'payment_id',
+  'booking_id',
+  'stripe_checkout_session_id',
+]);
+
+function failClosed(code, errors) {
+  return {
+    ok: false,
+    fail_closed: true,
+    code,
+    errors: errors || [code],
+  };
+}
 
 /**
  * Classify a candidate evidence package.
@@ -105,12 +144,9 @@ function classifyEvidenceClaim(candidate) {
   const claim = String(c.claim_class || '');
 
   if (FORBIDDEN_AS_E2E_EVIDENCE.includes(claim)) {
-    return {
-      ok: false,
-      fail_closed: true,
-      code: 'independent_same_id_probes_rejected_as_e2e',
-      errors: [`claim_class=${claim} is not causal E2E evidence`],
-    };
+    return failClosed('independent_same_id_probes_rejected_as_e2e', [
+      `claim_class=${claim} is not causal E2E evidence`,
+    ]);
   }
 
   if (c.independent_probes === true) {
@@ -140,9 +176,41 @@ function classifyEvidenceClaim(candidate) {
   if (c.runtime_changed === true) {
     errors.push('runtime_must_remain_unchanged_in_16u');
   }
+  if (c.treats_tracked_caddy_as_live_authority === true) {
+    errors.push('tracked_caddy_is_stale_not_authority');
+  }
+  if (c.invented_burst_parent === true || c.invented_single_parent_for_burst === true) {
+    errors.push('invented_burst_parent_forbidden');
+  }
+  if (c.dispersed_suppression_lists_as_sole_control === true) {
+    errors.push('dispersed_suppression_lists_rejected');
+  }
+  if (c.incomplete_mutation_adapter_inventory === true) {
+    errors.push('incomplete_mutation_adapter_inventory');
+  }
+  if (
+    c.claims_inbound_trace_wamid_payment_join_today === true
+    || c.claims_g01b_trace_wamid_propagation_today === true
+  ) {
+    errors.push('trace_wamid_payment_overclaim');
+  }
+  if (c.claims_dry_run_implementable_today === true) {
+    errors.push('dry_run_not_implementable_yet');
+  }
 
   if (claim === 'g01a_meta_hermes_staff' || claim === G01A_BOUNDARY) {
-    if (!c.single_trace_id || !c.parent_event_id) {
+    const isBurst = c.message_kind === 'coalesced_sunset_burst' || c.coalesced_burst === true;
+    if (isBurst) {
+      if (c.parent_event_id && !c.allow_invented_burst_parent) {
+        errors.push('burst_must_not_invent_single_parent');
+      }
+      if (!Array.isArray(c.source_wamid_set) || c.source_wamid_set.length < 2) {
+        errors.push('burst_requires_ordered_immutable_source_wamid_set');
+      }
+      if (c.source_wamid_set_mutable === true) {
+        errors.push('source_wamid_set_must_be_immutable');
+      }
+    } else if (!c.single_trace_id || !c.parent_event_id) {
       errors.push('g01a_requires_trace_id_and_parent_event_id');
     }
     if (c.causal_chain !== true) {
@@ -153,13 +221,17 @@ function classifyEvidenceClaim(candidate) {
     }
   }
 
+  if (claim === 'g01b_stripe_business_join' || claim === G01B_BOUNDARY) {
+    if (c.inbound_trace_id_propagation === true || c.inbound_wamid_propagation === true) {
+      errors.push('trace_wamid_payment_overclaim');
+    }
+    if (c.correlation_today && c.correlation_today !== G01B_CORRELATION_TODAY) {
+      errors.push('g01b_correlation_today_must_be_metadata_only');
+    }
+  }
+
   if (errors.length) {
-    return {
-      ok: false,
-      fail_closed: true,
-      code: errors[0],
-      errors,
-    };
+    return failClosed(errors[0], errors);
   }
 
   if (claim === 'g01a_meta_hermes_staff' || claim === G01A_BOUNDARY) {
@@ -174,16 +246,142 @@ function classifyEvidenceClaim(candidate) {
     return {
       ok: true,
       code: 'design_accepts_g01b_business_join_shape',
-      note: 'Stripe join is metadata/business-id only; mutating Checkout create required to exercise',
+      note: 'G01-B today is tenant/payment/booking/session metadata only; mutating Checkout required to exercise',
     };
   }
 
-  return {
-    ok: false,
-    fail_closed: true,
-    code: 'unknown_claim_class',
-    errors: [`unknown claim_class=${claim}`],
-  };
+  return failClosed('unknown_claim_class', [`unknown claim_class=${claim}`]);
+}
+
+/**
+ * Reject designs that treat the tracked Caddy reference as live authority.
+ */
+function classifyIngressAuthorityClaim(candidate) {
+  const c = candidate || {};
+  if (c.authority_source === 'tracked_caddy_reference'
+    || c.authority_source === 'docker/hermes-staging/lunabox-caddyfile.reference'
+    || c.authority_source === 'scripts/_lunabox-caddyfile') {
+    return failClosed('stale_caddy_authority_rejected', [
+      'tracked Caddy reference is stale evidence, not live authority',
+    ]);
+  }
+  if (c.whatsapp_upstream === 'localhost:8090' && c.claims_live === true) {
+    return failClosed('stale_caddy_authority_rejected', [
+      'live /whatsapp/* is localhost:8092 hermes-sunset-luna',
+    ]);
+  }
+  if (
+    c.whatsapp_upstream === LIVE_CADDY_ROUTES.whatsapp.upstream
+    && c.wolfhouse_upstream === LIVE_CADDY_ROUTES.wolfhouse.upstream
+    && c.tracked_caddy_status === TRACKED_CADDY_STATUS
+  ) {
+    return {
+      ok: true,
+      code: 'live_caddy_authority_accepted',
+    };
+  }
+  return failClosed('ingress_authority_incomplete', [
+    'require live /whatsapp→8092, /wolfhouse→8090, tracked=stale',
+  ]);
+}
+
+/**
+ * Reject invented single parent for coalesced Sunset bursts.
+ */
+function classifyBurstProvenance(candidate) {
+  const c = candidate || {};
+  if (c.message_kind !== 'coalesced_sunset_burst' && c.coalesced_burst !== true) {
+    if (c.parent_event_id && !c.source_wamid_set) {
+      return { ok: true, code: 'single_message_wamid_parent_accepted' };
+    }
+    return failClosed('provenance_shape_unknown', ['expected single or coalesced burst']);
+  }
+  if (c.parent_event_id || c.invented_single_parent === true) {
+    return failClosed('invented_burst_parent_rejected', [
+      'coalesced burst must use ordered immutable source-wamid set; no invented single parent',
+    ]);
+  }
+  if (!Array.isArray(c.source_wamid_set) || c.source_wamid_set.length < 2) {
+    return failClosed('burst_source_wamid_set_required', [
+      'ordered immutable source-wamid set required',
+    ]);
+  }
+  if (c.source_wamid_set_mutable === true) {
+    return failClosed('source_wamid_set_must_be_immutable', [
+      'source-wamid set must be immutable',
+    ]);
+  }
+  return { ok: true, code: 'burst_source_wamid_set_accepted' };
+}
+
+/**
+ * Reject dry-run designs that rely on dispersed suppression lists or incomplete
+ * mutation-adapter inventories, or that claim implementable without a central
+ * capability boundary.
+ */
+function classifyCapabilityBoundaryDesign(candidate) {
+  const c = candidate || {};
+  if (c.implementable_today === true && c.central_capability_boundary !== true) {
+    return failClosed('dry_run_not_implementable_yet', [
+      'dry-run is not implementable before central capability boundary',
+    ]);
+  }
+  if (c.dispersed_suppression_lists_as_sole_control === true) {
+    return failClosed('dispersed_suppression_lists_rejected', [
+      'dispersed suppression lists are not the control plane',
+    ]);
+  }
+  if (c.incomplete_mutation_adapter_inventory === true) {
+    return failClosed('incomplete_mutation_adapter_inventory', [
+      'mutation-adapter inventory must be complete under central boundary',
+    ]);
+  }
+  if (
+    c.central_capability_boundary === true
+    && c.denies_every_whatsapp_send === true
+    && c.denies_every_staff_db_stripe_mutation === true
+    && c.permits_real_read_dispatch === true
+    && c.incomplete_mutation_adapter_inventory !== true
+    && c.dispersed_suppression_lists_as_sole_control !== true
+  ) {
+    return {
+      ok: true,
+      code: 'capability_boundary_shape_accepted',
+      note: 'Shape only — 16U does not implement; 16V audits/freezes this boundary',
+    };
+  }
+  return failClosed('capability_boundary_incomplete', [
+    'require central deny-send+deny-mutation+permit-read boundary',
+  ]);
+}
+
+/**
+ * Reject G01-B overclaims that inbound trace/wamid payment join exists today.
+ */
+function classifyG01BCorrelationClaim(candidate) {
+  const c = candidate || {};
+  if (
+    c.inbound_trace_id_propagation === true
+    || c.inbound_wamid_propagation === true
+    || c.claims_trace_wamid_payment_join_today === true
+  ) {
+    return failClosed('trace_wamid_payment_overclaim', [
+      'G01-B today is tenant/payment/booking/session metadata only',
+    ]);
+  }
+  const keys = Array.isArray(c.join_keys_today) ? c.join_keys_today : [];
+  const missing = G01B_JOIN_KEYS_TODAY.filter((k) => !keys.includes(k));
+  if (
+    c.correlation_today === G01B_CORRELATION_TODAY
+    && missing.length === 0
+    && c.inbound_trace_id_propagation === false
+    && c.inbound_wamid_propagation === false
+  ) {
+    return { ok: true, code: 'g01b_metadata_only_accepted' };
+  }
+  return failClosed('g01b_correlation_incomplete', [
+    'require metadata-only join keys and explicit false inbound trace/wamid',
+  ]);
 }
 
 module.exports = {
@@ -199,13 +397,22 @@ module.exports = {
   SUBSCRIPTION_ID,
   G01A_BOUNDARY,
   G01B_BOUNDARY,
+  G01B_CORRELATION_TODAY,
+  NEXT_SLICE_ID,
+  LIVE_CADDY_ROUTES,
+  TRACKED_CADDY_STATUS,
   FORBIDDEN_AS_E2E_EVIDENCE,
   EXPLICITLY_NOT_CLAIMED,
   GATES_UNCHANGED,
   OWNED_RELS,
   MUST_NOT_MUTATE,
   REQUIRED_INSTRUMENTATION_POINTS,
+  G01B_JOIN_KEYS_TODAY,
   classifyEvidenceClaim,
+  classifyIngressAuthorityClaim,
+  classifyBurstProvenance,
+  classifyCapabilityBoundaryDesign,
+  classifyG01BCorrelationClaim,
   rootJoin(...parts) {
     return path.join(__dirname, '..', '..', ...parts);
   },

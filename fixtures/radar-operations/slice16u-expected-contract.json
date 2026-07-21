@@ -22,14 +22,21 @@
     "gate_id": "G01_correlation_structured_logs"
   },
   "required_design_facts": {
-    "active_wolfhouse_ingress": "https://lunabox.lunafrontdesk.com/whatsapp/webhook",
+    "live_whatsapp_upstream": "localhost:8092 hermes-sunset-luna",
+    "live_wolfhouse_upstream": "localhost:8090 hermes-luna",
+    "tracked_caddy_reference": "stale_evidence_not_authority",
     "hermes_propagates_x_request_id_today": false,
     "staff_meta_dual_ingress_on_active_path": false,
     "stripe_webhook_on_active_inbound_path": false,
     "stripe_checkout_without_mutation": false,
     "g01a_boundary": "meta_hermes_staff_correlated_read_path",
     "g01b_boundary": "stripe_business_id_join_not_inbound_als",
-    "dry_run_default": "hard_disabled"
+    "g01b_correlation_today": "tenant_payment_booking_session_metadata_only",
+    "inbound_trace_wamid_propagation_today": false,
+    "dry_run_implementable_today": false,
+    "dry_run_default": "hard_disabled",
+    "burst_provenance": "ordered_immutable_source_wamid_set_no_invented_parent",
+    "next_slice": "16V_candidate_central_capability_boundary_audit_freeze"
   },
   "forbidden_claim_tokens": [
     "independent same-id probe is e2e",
@@ -37,7 +44,11 @@
     "runtime changed",
     "gate verdict proven",
     "live drill executed",
-    "single als meta to stripe webhook"
+    "single als meta to stripe webhook",
+    "dry-run implementable",
+    "tracked caddy is live authority",
+    "invented burst parent",
+    "inbound trace wamid payment join current"
   ],
   "must_not_claim_as_proven": [
     "live_correlation_drill_executed",
@@ -45,26 +56,29 @@
     "hermes_x_request_id_propagation_implemented",
     "stripe_checkout_without_mutation",
     "independent_same_id_probes_as_e2e",
+    "dry_run_implementable_today",
+    "inbound_trace_wamid_payment_propagation_today",
     "G01_full_proven"
   ],
   "verdict_policy": {
     "proven": 0,
     "partial": 9,
     "absent": 0,
-    "note": "G01 remains partial; 16U is audit-only design freeze; 16S live-proven delivery/search/retention retained; live G01-A drill still open"
+    "note": "G01 remains partial; 16U is audit-only design freeze; 16S live-proven delivery/search/retention retained; live G01-A drill still open; dry-run not implementable yet"
   },
   "still_open": [
-    "Implement Hermes trace_id mint + X-Request-Id propagation (smallest follow-on)",
-    "Hard-disabled G01_CORRELATION_DRY_RUN send suppress",
+    "16V audit/freeze central capability boundary (deny WhatsApp send + Staff/DB/Stripe mutation; permit real read dispatch)",
+    "After 16V: Hermes trace_id mint + X-Request-Id propagation",
+    "After capability boundary: hard-disabled G01_CORRELATION_DRY_RUN",
     "Live G01-A Meta→Hermes→Staff read-only correlation evidence freeze",
-    "G01-B Stripe business-ID join (mutating; optional later)",
+    "G01-B remains tenant/payment/booking/session metadata only until inbound trace/wamid exists",
     "Concurrent isolation / abort-error LAW outcomes",
     "Production scope (forbidden)"
   ],
   "final_controlled_drill": {
     "id": "16U_DRILL_design_freeze_reject_independent_probes",
     "status": "audit_only_design_frozen",
-    "pass_rule": "Fixtures freeze authoritative call graph + dry-run design + G01-A/B redefinition; verifier rejects independent same-ID probes as E2E; runtime paths unchanged; proven=0"
+    "pass_rule": "Fixtures freeze live Caddy authority + provenance + G01-A/B honesty; dry-run not implementable; verifier RED-rejects stale Caddy authority, invented burst parent, dispersed suppressions, incomplete mutation inventories, trace/wamid payment overclaims, and independent same-ID probes; runtime paths unchanged; proven=0"
   },
   "artifacts": [
     "fixtures/radar-operations/slice16u-call-graph.json",

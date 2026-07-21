@@ -14,40 +14,74 @@
   "replaces_deferred": "16T_independent_same_id_probe_harness_concept",
   "title": "Audit-only design freeze for genuine non-mutating G01 correlation drill",
   "call_graph_fixture": "fixtures/radar-operations/slice16u-call-graph.json",
+  "ingress_authority": {
+    "live_truth": {
+      "/whatsapp/*": "localhost:8092 hermes-sunset-luna",
+      "/wolfhouse/*": "localhost:8090 hermes-luna"
+    },
+    "tracked_caddy_reference": "stale_evidence_not_authority"
+  },
+  "message_provenance": {
+    "single_message": {
+      "parent_event_id": "messages[].id (wamid)",
+      "source_wamid_set": null
+    },
+    "coalesced_sunset_burst": {
+      "parent_event_id": null,
+      "forbid_invented_single_parent": true,
+      "source_wamid_set": "ordered_immutable_whatsapp_burst_source_wamids"
+    }
+  },
   "g01_boundary_redefinition": {
     "g01a_provable_target": {
       "id": "meta_hermes_staff_correlated_read_path",
       "chain": "Meta-shaped admit → Hermes gateway turn → ≥1 Staff /staff/bot/* call with same immutable trace_id",
-      "parent_event_id": "Meta wamid (immutable)",
-      "trace_id": "UUIDv4 minted once per logical guest turn at Hermes admit",
+      "provenance": {
+        "single_message": "parent_event_id = that message wamid",
+        "coalesced_sunset_burst": "ordered immutable source-wamid set; no invented single parent"
+      },
+      "trace_id": "UUIDv4 minted once per logical guest turn at Hermes admit (future; not implemented)",
       "mutation": "none — read tools and/or write gates off",
       "stripe_on_chain": false
     },
     "g01b_business_join_only": {
       "id": "stripe_business_id_join_not_inbound_als",
-      "chain": "Checkout create Staff request ↔ later Stripe webhook request via payment_id / session_id / metadata.trace_id",
+      "chain": "Checkout create Staff request ↔ later Stripe webhook request via tenant/payment/booking/session metadata",
+      "correlation_today": {
+        "kind": "tenant_payment_booking_session_metadata_only",
+        "join_keys": [
+          "client_slug",
+          "payment_id",
+          "booking_id",
+          "stripe_checkout_session_id"
+        ],
+        "inbound_trace_id_propagation": false,
+        "inbound_wamid_propagation": false
+      },
       "same_http_als_as_meta": false,
       "requires_mutation": true,
-      "note": "Genuine Stripe Checkout Session create always mutates Stripe + typically payments row; webhook is a separate ingress"
+      "note": "Genuine Stripe Checkout Session create always mutates Stripe + typically payments row; webhook is a separate ingress. Do not claim inbound trace/wamid payment join as current."
     },
     "not_provable_as_single_inbound_als": "Meta admit through Stripe webhook without regeneration — physically different HTTP clients"
   },
   "stripe_truth": {
     "checkout_create_without_mutation": false,
     "webhook_on_meta_inbound_path": false,
-    "honest_statement": "Genuine Stripe invocation cannot be exercised without mutation. G01 E2E must not claim Stripe as a fourth hop of the inbound ALS; redefine Stripe as G01-B business-ID join after a mutating create."
+    "inbound_trace_wamid_propagation_today": false,
+    "honest_statement": "Genuine Stripe invocation cannot be exercised without mutation. G01 E2E must not claim Stripe as a fourth hop of the inbound ALS; redefine Stripe as G01-B business-ID join after a mutating create. Current G01-B correlation is tenant/payment/booking/session metadata only — inbound trace/wamid propagation does not exist."
   },
   "minimum_instrumentation": {
+    "status": "design_target_not_implemented",
     "points": [
       {
         "id": "hermes_meta_admit_mint_trace_id",
-        "where": "Hermes WhatsApp webhook admit (first parse of inbound message / burst first wamid)",
+        "where": "Hermes WhatsApp webhook admit (first parse of inbound message / burst admit)",
         "action": "Mint immutable UUIDv4 trace_id once per logical turn; bind to turn context"
       },
       {
-        "id": "hermes_bind_parent_event_id_wamid",
-        "where": "Same admit",
-        "action": "Bind parent_event_id = Meta messages[].id (wamid); for burst retain source_wamids children"
+        "id": "hermes_bind_message_provenance",
+        "where": "Same admit / burst flush",
+        "action": "Single message: bind parent_event_id = that wamid. Coalesced Sunset burst: bind ordered immutable source_wamid_set only — never invent a single parent_event_id"
       },
       {
         "id": "hermes_post_bot_send_x_request_id",
@@ -63,73 +97,96 @@
         "id": "staff_completion_log_emit_trace_id",
         "where": "scripts/lib/staff-api-request-completion-log.js",
         "action": "Existing request_id field becomes the searchable trace_id in LAW"
-      },
-      {
-        "id": "optional_stripe_metadata_copy_on_mutating_create_only",
-        "where": "Checkout Session create bot routes",
-        "action": "Copy trace_id + parent_event_id into Stripe metadata + payments metadata for G01-B join only"
       }
+    ],
+    "not_current_g01b": [
+      "inbound_trace_id_copied_into_stripe_metadata",
+      "inbound_wamid_or_parent_event_id_copied_into_stripe_metadata",
+      "trace_or_wamid_as_current_payment_join_key"
     ],
     "not_required_for_g01a": [
       "Staff Meta dual-ingress instrumentation",
       "Independent /healthz probe",
       "Stripe pre-verify unsigned probe",
-      "Single ALS spanning Meta to Stripe webhook"
+      "Single ALS spanning Meta to Stripe webhook",
+      "Invented single parent_event_id for coalesced burst"
     ]
   },
   "hard_disabled_dry_run_mode": {
     "name": "G01_CORRELATION_DRY_RUN",
     "default": "hard_disabled",
-    "purpose": "Exercise real Hermes→Staff internal dispatch while suppressing every WhatsApp send, booking/hold/payment/database write, and Stripe operation",
+    "implementable_today": false,
+    "blocked_on": "central_capability_boundary_audit_freeze",
+    "purpose": "Future: exercise real Hermes→Staff internal read dispatch while denying every WhatsApp send and Staff/DB/Stripe mutation",
+    "reserved_confirmation_phrase": "RADAR-16U-CORRELATION-DRY-RUN",
     "activation_authority": {
-      "required_all": [
-        "Explicit operator env G01_CORRELATION_DRY_RUN=1 on Hermes runtime only",
-        "Explicit operator env BOT_BOOKING_ENABLED=false and STRIPE_LINKS_ENABLED=false on Staff API (or equivalent fail-closed write gates)",
+      "status": "not_activatable_until_capability_boundary_frozen",
+      "required_all_future": [
+        "Central capability boundary denying WhatsApp send + Staff/DB/Stripe mutation while permitting real read dispatch",
+        "Explicit operator env only after that boundary exists",
         "Staging subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 only",
         "Tenant wolfhouse-somo or sunset only — never production hosts",
         "Confirmation phrase RADAR-16U-CORRELATION-DRY-RUN for any follow-on live apply slice"
       ],
       "forbidden": [
+        "Claiming dry-run implementable before central capability boundary",
         "Default-on",
         "Production RGs or hosts",
         "sk_live_ Stripe keys",
+        "Dispersed per-adapter suppression lists as the sole control",
         "Signed live guest send while dry-run claims active"
       ]
     },
-    "suppressions": [
-      "WhatsApp Cloud outbound send (Hermes send path no-op / capture-only)",
+    "required_control_shape": {
+      "kind": "central_capability_boundary",
+      "must_deny": [
+        "every_whatsapp_send",
+        "every_staff_db_stripe_mutation"
+      ],
+      "must_permit": [
+        "real_read_dispatch"
+      ],
+      "forbid": [
+        "dispersed_suppression_lists_as_sole_control",
+        "incomplete_mutation_adapter_inventories"
+      ]
+    },
+    "aspirational_suppressions_not_inventory": [
+      "WhatsApp Cloud outbound send",
       "booking-create / hold / guest_message_events write paths",
       "payment row creates and Stripe checkout.sessions.create",
       "open-demo live write gates",
       "conversation reset / test phone mutation helpers"
     ],
-    "still_exercised": [
+    "still_exercised_when_implementable": [
       "Hermes Meta-shaped webhook admit + gateway turn",
-      "Burst coalesce (Sunset)",
+      "Burst coalesce (Sunset) with ordered source-wamid set provenance",
       "_post_bot to Staff with X-Request-Id once instrumentation lands",
-      "Staff ALS + completion log on read routes (availability-check, booking-preview, sunset quote/catalog)",
-      "simulate-guest-turn allow_writes=false as offline/staging rehearsal path"
+      "Staff ALS + completion log on read routes"
     ],
-    "existing_building_blocks": [
+    "existing_building_blocks_partial_not_sufficient": [
       "docker/hermes-staging/wolfhouse/simulate_core.py allow_writes=false",
       "BOT_BOOKING_ENABLED default-deny on booking-create-from-plan",
       "STRIPE_LINKS_ENABLED gate on create-stripe-link",
       "POST /staff/bot/booking-dry-run and booking-preview read paths"
     ],
     "not_existing_today": [
+      "Central capability boundary denying every WhatsApp send + Staff/DB/Stripe mutation while permitting real read dispatch",
+      "Complete mutation-adapter inventory under that boundary",
       "Hard-disabled WhatsApp send suppress switch named G01_CORRELATION_DRY_RUN",
       "Hermes X-Request-Id propagation",
-      "stripe_links_dry_run synthetic checkout without Stripe SDK call"
+      "Inbound trace/wamid propagation into Stripe/payment metadata"
     ],
     "fail_closed": [
-      "If dry-run env unset → normal staging behavior (no silent dry-run)",
-      "If any write or Stripe create is attempted while dry-run claimed → refuse and mark drill failed",
-      "If trace_id regenerated at Staff (Hermes omitted header) → fail closed for G01-A",
-      "If evidence is only independent same-ID probes → reject as non-E2E"
+      "If dry-run claimed implementable without central capability boundary → reject design",
+      "If suppressions are dispersed lists without central boundary → reject",
+      "If mutation-adapter inventory incomplete → reject",
+      "If evidence is only independent same-ID probes → reject as non-E2E",
+      "If G01-B claims inbound trace/wamid propagation as current → reject overclaim"
     ],
     "tenant_isolation": {
-      "wolfhouse": "LUNA_CLIENT_SLUG=wolfhouse-somo; Staff DEFAULT/client binding wolfhouse-somo; staff-staging host",
-      "sunset": "LUNA_CLIENT_SLUG=sunset; STRIPE_WEBHOOK_CLIENT_SLUG=sunset; sunset-staging host; location via SUNSET_INGRESS_LOCATION_ID"
+      "wolfhouse": "LUNA_CLIENT_SLUG=wolfhouse-somo; Staff DEFAULT/client binding wolfhouse-somo; staff-staging host; live path /wolfhouse/* → :8090",
+      "sunset": "LUNA_CLIENT_SLUG=sunset; STRIPE_WEBHOOK_CLIENT_SLUG=sunset; sunset-staging host; live Meta /whatsapp/* → :8092; location via SUNSET_INGRESS_LOCATION_ID"
     },
     "test_mode_locks": {
       "stripe_mode": "test",
@@ -138,8 +195,8 @@
       "resource_groups": ["wh-staging-rg", "luna-sunset-staging-rg"]
     },
     "cleanup": {
-      "policy": "Dry-run creates no bookings/holds/payments/guest messages — cleanup is no-op if fail-closed held",
-      "if_mutation_leaked": "Stop drill; mark fail-closed; operator cleanup via existing staging reset tools outside 16U; do not auto-delete in design freeze"
+      "policy": "Design freeze creates no bookings/holds/payments/guest messages",
+      "if_mutation_leaked": "Stop; mark fail-closed; operator cleanup via existing staging reset tools outside 16U; do not auto-delete in design freeze"
     }
   },
   "evidence_schema_design": {
@@ -147,6 +204,7 @@
       "event",
       "trace_id",
       "parent_event_id",
+      "source_wamid_set",
       "tenant_slug",
       "component",
       "route",
@@ -174,15 +232,24 @@
       "parallel_unrelated_http_calls_sharing_uuid",
       "deferred_16t_style_multi_ingress_same_id_harness"
     ],
-    "pass_rule_g01a": "One immutable trace_id minted at Hermes admit equals Staff ALS request_id on ≥1 real /staff/bot/* hop; parent_event_id=wamid; mutation=false; WhatsApp send suppressed; searchable completion in LAW"
+    "pass_rule_g01a": "One immutable trace_id minted at Hermes admit equals Staff ALS request_id on ≥1 real /staff/bot/* hop; single-message parent_event_id=wamid OR burst ordered immutable source_wamid_set (no invented parent); mutation=false; WhatsApp send denied by central capability boundary; searchable completion in LAW"
   },
   "smallest_implementation_slice_after_freeze": {
-    "id": "16V_candidate_hermes_trace_propagate_read_only",
+    "id": "16V_candidate_central_capability_boundary_audit_freeze",
+    "scope": "Audit and freeze a central capability boundary denying every WhatsApp send and Staff/DB/Stripe mutation while permitting real read dispatch",
+    "does_not": [
+      "trace_implementation",
+      "x_request_id_propagation",
+      "deploy",
+      "evidence_capture",
+      "live_drill",
+      "claim_dry_run_implementable"
+    ],
     "steps": [
-      "Hermes mint trace_id + bind wamid; _post_bot send X-Request-Id",
-      "Hard-disabled G01_CORRELATION_DRY_RUN send suppress + write gates",
-      "Offline + staging read-only drill evidence freeze for G01-A only",
-      "Do not claim Stripe Checkout or webhook as inbound ALS"
+      "Inventory every WhatsApp send adapter and Staff/DB/Stripe mutation adapter",
+      "Freeze one central capability boundary that denies all of those mutations",
+      "Prove real read dispatch remains permitted under that boundary",
+      "Do not implement trace/wamid propagation, deploy, or capture live evidence in 16V"
     ]
   },
   "explicitly_not_claimed": [
@@ -194,6 +261,10 @@
     "stripe_checkout_without_mutation",
     "single_als_spanning_meta_to_stripe_webhook",
     "production",
-    "independent_same_id_probes_as_e2e"
+    "independent_same_id_probes_as_e2e",
+    "dry_run_implementable_today",
+    "tracked_caddy_reference_as_live_authority",
+    "invented_single_parent_for_coalesced_burst",
+    "inbound_trace_wamid_payment_propagation_today"
   ]
 }

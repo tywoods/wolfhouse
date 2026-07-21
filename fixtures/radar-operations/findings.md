@@ -16,13 +16,14 @@
 ## Critical gaps (still open — explicitly not claimed by 16U)
 
 1. **G01-A live Meta → Hermes → Staff correlated read path** — design frozen; Hermes does not send `X-Request-Id` today; end-to-end G01-A evidence remains open.
-2. **Hard-disabled `G01_CORRELATION_DRY_RUN` send suppress** — designed, not implemented.
-3. **Genuine Stripe on inbound ALS** — **not provable without mutation**; Stripe is G01-B business-ID join only.
-4. **Independent same-ID probes are not E2E** — `/healthz` + Stripe pre-verify sharing a UUID must not close G01.
-5. Concurrent isolation / abort-error LAW outcomes.
-6. Human inbox receipt / organic metric alert firing.
-7. Dependency-failure readiness drill / real-PG contention.
-8. Production — forbidden.
+2. **Central capability boundary (16V)** — audit/freeze deny WhatsApp send + Staff/DB/Stripe mutation while permitting real read dispatch; prerequisite before dry-run.
+3. **Hard-disabled `G01_CORRELATION_DRY_RUN`** — reserved (`RADAR-16U-CORRELATION-DRY-RUN`); **not implementable yet**.
+4. **Genuine Stripe on inbound ALS** — **not provable without mutation**; G01-B is tenant/payment/booking/session metadata only (no inbound trace/wamid today).
+5. **Independent same-ID probes are not E2E** — `/healthz` + Stripe pre-verify sharing a UUID must not close G01.
+6. Concurrent isolation / abort-error LAW outcomes.
+7. Human inbox receipt / organic metric alert firing.
+8. Dependency-failure readiness drill / real-PG contention.
+9. Production — forbidden.
 
 ## Gate progress after 16U (truthful)
 
@@ -40,7 +41,7 @@
 
 ## Slice 16U
 
-`16U_correlation_design_freeze` — audit-only. Freezes authoritative Wolfhouse/Sunset active ingress (Hermes Lunabox, not Staff Meta). Documents `_post_bot` header gap (no `X-Request-Id`). Redefines G01-A (Meta→Hermes→Staff non-mutating) vs G01-B (Stripe metadata join; mutating). Designs hard-disabled dry-run with confirmation `RADAR-16U-CORRELATION-DRY-RUN`. Verifier RED-rejects independent same-ID probe packages as E2E. Does not implement runtime or execute live. Replaces deferred independent multi-ingress same-ID harness concept. Does not claim human inbox, organic metric fire, or production.
+`16U_correlation_design_freeze` — audit-only. Freezes **live** Lunabox Caddy authority: `/whatsapp/*` → `:8092` (`hermes-sunset-luna`), `/wolfhouse/*` → `:8090` (`hermes-luna`); tracked Caddy reference is stale evidence, not authority. Documents `_post_bot` header gap (no `X-Request-Id`). Defines provenance: single-message `wamid`; coalesced Sunset burst = ordered immutable source-wamid set (no invented single parent). Redefines G01-A (Meta→Hermes→Staff non-mutating) vs G01-B (tenant/payment/booking/session metadata only; no inbound trace/wamid). Dry-run **not implementable yet** — next slice is central capability boundary audit/freeze (no trace/deploy/evidence). Verifier RED-rejects stale Caddy authority, invented burst parent, dispersed suppression lists, incomplete mutation-adapter inventories, trace/wamid payment overclaims, and independent same-ID probes. Does not implement runtime or execute live. Replaces deferred independent multi-ingress same-ID harness concept. Does not claim human inbox, organic metric fire, or production. G01 partial/runtime unchanged.
 
 ## Prior slices (retained)
 

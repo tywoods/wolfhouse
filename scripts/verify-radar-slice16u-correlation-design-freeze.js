@@ -93,6 +93,7 @@ const ledger = readText('docs/RADAR-OPERATIONS-GATE-LEDGER.md');
 const findings = readText('fixtures/radar-operations/findings.md');
 const pluginSrc = readText('docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py');
 const corrSrc = readText('scripts/lib/staff-api-request-correlation.js');
+const trackedCaddy = readText('docker/hermes-staging/lunabox-caddyfile.reference');
 
 green('fixtures_present',
   fs.existsSync(path.join(ROOT, locks.DESIGN_REL))
@@ -115,11 +116,56 @@ green('contract_pins',
   && contract.progress_class === locks.PROGRESS_CLASS
   && contract.this_slice_implements_runtime === false);
 
-green('active_wolfhouse_ingress_frozen',
-  callGraph.active_ingress.wolfhouse.meta_callback_url
+green('live_caddy_authority_frozen',
+  (() => {
+    const auth = callGraph.live_caddy_authority || {};
+    const routes = auth.routes || [];
+    const wa = routes.find((r) => r.path_prefix === '/whatsapp/*');
+    const wh = routes.find((r) => r.path_prefix === '/wolfhouse/*');
+    return auth.authority === 'live_lunabox_caddy_not_tracked_git_reference'
+      && auth.tracked_caddy_reference
+      && auth.tracked_caddy_reference.status === locks.TRACKED_CADDY_STATUS
+      && wa
+      && wa.upstream === locks.LIVE_CADDY_ROUTES.whatsapp.upstream
+      && wa.container === locks.LIVE_CADDY_ROUTES.whatsapp.container
+      && wh
+      && wh.upstream === locks.LIVE_CADDY_ROUTES.wolfhouse.upstream
+      && wh.container === locks.LIVE_CADDY_ROUTES.wolfhouse.container;
+  })());
+
+green('tracked_caddy_cited_as_stale_not_authority',
+  /reverse_proxy \/whatsapp\/\* localhost:8090/.test(trackedCaddy)
+  && /reverse_proxy \/wolfhouse\/\* localhost:8090/.test(trackedCaddy)
+  && callGraph.live_caddy_authority.tracked_caddy_reference.status
+    === locks.TRACKED_CADDY_STATUS
+  && design.ingress_authority.tracked_caddy_reference
+    === locks.TRACKED_CADDY_STATUS
+  && contract.required_design_facts.tracked_caddy_reference
+    === locks.TRACKED_CADDY_STATUS);
+
+green('active_sunset_ingress_on_whatsapp_8092',
+  callGraph.active_ingress.sunset.meta_callback_url
     === 'https://lunabox.lunafrontdesk.com/whatsapp/webhook'
+  && callGraph.active_ingress.sunset.container === 'hermes-sunset-luna'
+  && callGraph.active_ingress.sunset.client_slug === 'sunset'
+  && /8092/.test(callGraph.active_ingress.sunset.receiver));
+
+green('active_wolfhouse_on_wolfhouse_path_8090',
+  callGraph.active_ingress.wolfhouse.meta_callback_url_on_shared_whatsapp_path === false
+  && callGraph.active_ingress.wolfhouse.control_path_prefix === '/wolfhouse/*'
+  && callGraph.active_ingress.wolfhouse.container === 'hermes-luna'
   && callGraph.active_ingress.wolfhouse.client_slug === 'wolfhouse-somo'
-  && callGraph.active_ingress.wolfhouse.staff_app === 'wh-staging-staff-api');
+  && /8090/.test(callGraph.active_ingress.wolfhouse.receiver));
+
+green('message_provenance_frozen',
+  callGraph.message_provenance.single_message.parent_event_id
+    === 'messages[].id (wamid)'
+  && callGraph.message_provenance.coalesced_sunset_burst.parent_event_id === null
+  && callGraph.message_provenance.coalesced_sunset_burst.forbid_invented_single_parent === true
+  && /ordered_immutable/.test(
+    String(callGraph.message_provenance.coalesced_sunset_burst.source_wamid_set),
+  )
+  && design.message_provenance.coalesced_sunset_burst.forbid_invented_single_parent === true);
 
 green('hermes_no_x_request_id_today_cited',
   callGraph.correlation_gap_today.hermes_propagates_x_request_id === false
@@ -148,17 +194,49 @@ green('g01a_g01b_redefined',
   && design.g01_boundary_redefinition.g01a_provable_target.stripe_on_chain === false
   && design.g01_boundary_redefinition.g01b_business_join_only.requires_mutation === true);
 
+green('g01b_metadata_only_today',
+  design.g01_boundary_redefinition.g01b_business_join_only.correlation_today.kind
+    === locks.G01B_CORRELATION_TODAY
+  && design.g01_boundary_redefinition.g01b_business_join_only
+    .correlation_today.inbound_trace_id_propagation === false
+  && design.g01_boundary_redefinition.g01b_business_join_only
+    .correlation_today.inbound_wamid_propagation === false
+  && callGraph.g01b_correlation_today.inbound_trace_id_propagation === false
+  && callGraph.g01b_correlation_today.inbound_wamid_propagation === false
+  && locks.G01B_JOIN_KEYS_TODAY.every((k) =>
+    (design.g01_boundary_redefinition.g01b_business_join_only.correlation_today.join_keys || [])
+      .includes(k)));
+
 green('instrumentation_points_complete',
   locks.REQUIRED_INSTRUMENTATION_POINTS.every((id) =>
-    (design.minimum_instrumentation.points || []).some((p) => p.id === id)));
-
-green('dry_run_hard_disabled_default',
-  design.hard_disabled_dry_run_mode.default === 'hard_disabled'
-  && Array.isArray(design.hard_disabled_dry_run_mode.suppressions)
-  && design.hard_disabled_dry_run_mode.suppressions.length >= 4
-  && /RADAR-16U-CORRELATION-DRY-RUN/.test(
-    JSON.stringify(design.hard_disabled_dry_run_mode.activation_authority),
+    (design.minimum_instrumentation.points || []).some((p) => p.id === id))
+  && design.minimum_instrumentation.status === 'design_target_not_implemented'
+  && (design.minimum_instrumentation.not_current_g01b || []).includes(
+    'trace_or_wamid_as_current_payment_join_key',
   ));
+
+green('dry_run_not_implementable_yet',
+  design.hard_disabled_dry_run_mode.implementable_today === false
+  && design.hard_disabled_dry_run_mode.default === 'hard_disabled'
+  && design.hard_disabled_dry_run_mode.blocked_on
+    === 'central_capability_boundary_audit_freeze'
+  && contract.required_design_facts.dry_run_implementable_today === false
+  && /RADAR-16U-CORRELATION-DRY-RUN/.test(
+    String(design.hard_disabled_dry_run_mode.reserved_confirmation_phrase || ''),
+  ));
+
+green('next_slice_capability_boundary',
+  design.smallest_implementation_slice_after_freeze.id === locks.NEXT_SLICE_ID
+  && /central capability boundary/i.test(
+    design.smallest_implementation_slice_after_freeze.scope,
+  )
+  && (design.smallest_implementation_slice_after_freeze.does_not || [])
+    .includes('trace_implementation')
+  && (design.smallest_implementation_slice_after_freeze.does_not || [])
+    .includes('deploy')
+  && (design.smallest_implementation_slice_after_freeze.does_not || [])
+    .includes('evidence_capture')
+  && contract.required_design_facts.next_slice === locks.NEXT_SLICE_ID);
 
 green('replaces_deferred_independent_probe_concept',
   /16T|independent same-id|same_id_probe/i.test(String(design.replaces_deferred || ''))
@@ -166,7 +244,7 @@ green('replaces_deferred_independent_probe_concept',
     'deferred_16t_style_multi_ingress_same_id_harness',
   ));
 
-green('design_accepts_g01a_shape',
+green('design_accepts_g01a_single_message_shape',
   locks.classifyEvidenceClaim({
     claim_class: 'g01a_meta_hermes_staff',
     single_trace_id: true,
@@ -175,9 +253,44 @@ green('design_accepts_g01a_shape',
     mutation_performed: false,
   }).ok === true);
 
-green('design_accepts_g01b_shape',
+green('design_accepts_g01a_burst_source_wamid_set',
+  locks.classifyEvidenceClaim({
+    claim_class: 'g01a_meta_hermes_staff',
+    single_trace_id: true,
+    coalesced_burst: true,
+    source_wamid_set: ['wamid.1', 'wamid.2'],
+    causal_chain: true,
+    mutation_performed: false,
+  }).ok === true);
+
+green('design_accepts_g01b_metadata_only_shape',
   locks.classifyEvidenceClaim({
     claim_class: 'g01b_stripe_business_join',
+    correlation_today: locks.G01B_CORRELATION_TODAY,
+    inbound_trace_id_propagation: false,
+    inbound_wamid_propagation: false,
+  }).ok === true
+  && locks.classifyG01BCorrelationClaim({
+    correlation_today: locks.G01B_CORRELATION_TODAY,
+    join_keys_today: [...locks.G01B_JOIN_KEYS_TODAY],
+    inbound_trace_id_propagation: false,
+    inbound_wamid_propagation: false,
+  }).ok === true);
+
+green('design_accepts_live_ingress_authority',
+  locks.classifyIngressAuthorityClaim({
+    whatsapp_upstream: 'localhost:8092',
+    wolfhouse_upstream: 'localhost:8090',
+    tracked_caddy_status: locks.TRACKED_CADDY_STATUS,
+  }).ok === true);
+
+green('design_accepts_capability_boundary_shape',
+  locks.classifyCapabilityBoundaryDesign({
+    central_capability_boundary: true,
+    denies_every_whatsapp_send: true,
+    denies_every_staff_db_stripe_mutation: true,
+    permits_real_read_dispatch: true,
+    implementable_today: false,
   }).ok === true);
 
 // --- RED: independent same-ID probes are NOT E2E ---
@@ -255,6 +368,105 @@ red('no_16t_harness_artifacts_on_branch',
   && !fs.existsSync(path.join(ROOT, 'scripts/lib/radar-slice16t-e2e-correlation-drill.js'))
   && !fs.existsSync(path.join(ROOT, 'fixtures/radar-operations/slice16t-boundary-map.json')));
 
+// --- RED: correction targets ---
+red('reject_stale_caddy_authority',
+  locks.classifyIngressAuthorityClaim({
+    authority_source: 'tracked_caddy_reference',
+    claims_live: true,
+    whatsapp_upstream: 'localhost:8090',
+  }).ok === false
+  && locks.classifyIngressAuthorityClaim({
+    authority_source: 'docker/hermes-staging/lunabox-caddyfile.reference',
+  }).code === 'stale_caddy_authority_rejected'
+  && locks.classifyEvidenceClaim({
+    claim_class: 'g01a_meta_hermes_staff',
+    single_trace_id: true,
+    parent_event_id: 'wamid.x',
+    causal_chain: true,
+    treats_tracked_caddy_as_live_authority: true,
+  }).ok === false);
+
+red('reject_invented_burst_parent',
+  locks.classifyBurstProvenance({
+    coalesced_burst: true,
+    parent_event_id: 'wamid.FIRST_ONLY',
+    source_wamid_set: ['wamid.1', 'wamid.2'],
+  }).ok === false
+  && locks.classifyEvidenceClaim({
+    claim_class: 'g01a_meta_hermes_staff',
+    single_trace_id: true,
+    coalesced_burst: true,
+    parent_event_id: 'wamid.FIRST_ONLY',
+    source_wamid_set: ['wamid.1', 'wamid.2'],
+    causal_chain: true,
+  }).ok === false
+  && locks.classifyEvidenceClaim({
+    claim_class: 'g01a_meta_hermes_staff',
+    single_trace_id: true,
+    coalesced_burst: true,
+    invented_burst_parent: true,
+    source_wamid_set: ['wamid.1', 'wamid.2'],
+    causal_chain: true,
+  }).ok === false);
+
+red('reject_dispersed_suppression_lists',
+  locks.classifyCapabilityBoundaryDesign({
+    dispersed_suppression_lists_as_sole_control: true,
+    implementable_today: false,
+  }).ok === false
+  && locks.classifyEvidenceClaim({
+    claim_class: 'g01a_meta_hermes_staff',
+    single_trace_id: true,
+    parent_event_id: 'wamid.x',
+    causal_chain: true,
+    dispersed_suppression_lists_as_sole_control: true,
+  }).ok === false);
+
+red('reject_incomplete_mutation_adapter_inventory',
+  locks.classifyCapabilityBoundaryDesign({
+    central_capability_boundary: true,
+    denies_every_whatsapp_send: true,
+    denies_every_staff_db_stripe_mutation: true,
+    permits_real_read_dispatch: true,
+    incomplete_mutation_adapter_inventory: true,
+  }).ok === false
+  && locks.classifyEvidenceClaim({
+    claim_class: 'g01a_meta_hermes_staff',
+    single_trace_id: true,
+    parent_event_id: 'wamid.x',
+    causal_chain: true,
+    incomplete_mutation_adapter_inventory: true,
+  }).ok === false);
+
+red('reject_trace_wamid_payment_overclaim',
+  locks.classifyG01BCorrelationClaim({
+    correlation_today: locks.G01B_CORRELATION_TODAY,
+    join_keys_today: [...locks.G01B_JOIN_KEYS_TODAY],
+    inbound_trace_id_propagation: true,
+    inbound_wamid_propagation: false,
+  }).ok === false
+  && locks.classifyEvidenceClaim({
+    claim_class: 'g01b_stripe_business_join',
+    claims_inbound_trace_wamid_payment_join_today: true,
+  }).ok === false
+  && locks.classifyEvidenceClaim({
+    claim_class: 'g01b_stripe_business_join',
+    inbound_wamid_propagation: true,
+  }).ok === false);
+
+red('reject_dry_run_implementable_without_boundary',
+  locks.classifyCapabilityBoundaryDesign({
+    implementable_today: true,
+    central_capability_boundary: false,
+  }).ok === false
+  && locks.classifyEvidenceClaim({
+    claim_class: 'g01a_meta_hermes_staff',
+    single_trace_id: true,
+    parent_event_id: 'wamid.x',
+    causal_chain: true,
+    claims_dry_run_implementable_today: true,
+  }).ok === false);
+
 // --- Ledger / matrix ---
 green('matrix_tip_16u',
   matrix.slice === locks.SLICE
@@ -290,12 +502,21 @@ green('ledger_mentions_16u_design',
   && /G01-A|meta_hermes_staff/i.test(ledger)
   && /independent same-id|same-ID probe/i.test(ledger)
   && /RADAR-16U-CORRELATION-DRY-RUN/.test(ledger)
-  && /cannot be exercised without mutation/i.test(ledger));
+  && /cannot be exercised without mutation/i.test(ledger)
+  && /8092/.test(ledger)
+  && /stale/i.test(ledger)
+  && /not implementable|not yet implementable|blocked/i.test(ledger)
+  && /capability boundary/i.test(ledger)
+  && /source-wamid|source_wamid/i.test(ledger)
+  && /tenant\/payment\/booking\/session|metadata only/i.test(ledger));
 
 green('findings_mentions_16u',
   /16U/.test(findings)
   && /design freeze|audit-only/i.test(findings)
-  && /G01-A/i.test(findings));
+  && /G01-A/i.test(findings)
+  && /8092/.test(findings)
+  && /capability boundary/i.test(findings)
+  && /not implementable|not yet implementable/i.test(findings));
 
 green('branch_pin', currentBranch() === locks.BRANCH, currentBranch());
 
@@ -324,23 +545,38 @@ const requiredRed = [
   'reject_g01a_missing_parent_event',
   'reject_g01a_with_mutation',
   'no_16t_harness_artifacts_on_branch',
+  'reject_stale_caddy_authority',
+  'reject_invented_burst_parent',
+  'reject_dispersed_suppression_lists',
+  'reject_incomplete_mutation_adapter_inventory',
+  'reject_trace_wamid_payment_overclaim',
+  'reject_dry_run_implementable_without_boundary',
 ];
 const requiredGreen = [
   'fixtures_present',
   'pins',
   'contract_pins',
-  'active_wolfhouse_ingress_frozen',
+  'live_caddy_authority_frozen',
+  'tracked_caddy_cited_as_stale_not_authority',
+  'active_sunset_ingress_on_whatsapp_8092',
+  'active_wolfhouse_on_wolfhouse_path_8090',
+  'message_provenance_frozen',
   'hermes_no_x_request_id_today_cited',
   'staff_accepts_uuid_header_today',
   'staff_meta_not_active_path',
   'stripe_webhook_not_active_inbound',
   'stripe_cannot_without_mutation',
   'g01a_g01b_redefined',
+  'g01b_metadata_only_today',
   'instrumentation_points_complete',
-  'dry_run_hard_disabled_default',
+  'dry_run_not_implementable_yet',
+  'next_slice_capability_boundary',
   'replaces_deferred_independent_probe_concept',
-  'design_accepts_g01a_shape',
-  'design_accepts_g01b_shape',
+  'design_accepts_g01a_single_message_shape',
+  'design_accepts_g01a_burst_source_wamid_set',
+  'design_accepts_g01b_metadata_only_shape',
+  'design_accepts_live_ingress_authority',
+  'design_accepts_capability_boundary_shape',
   'matrix_tip_16u',
   'matrix_g01_partial_drill_open',
   'matrix_16u_selection',

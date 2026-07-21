@@ -6,7 +6,7 @@
   "branch": "radar/slice-16u-correlation-design-freeze",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Audit-only G01 correlation design freeze — G01-A/B redefined; independent same-ID probes rejected",
+  "title": "Audit-only G01 correlation design freeze — live Caddy authority; provenance; G01-B metadata-only; dry-run not implementable",
   "progress_class": "audit_only_design_freeze",
   "does_not_implement": "runtime_instrumentation_dry_run_switch_live_g01a_drill_any_gate_proven",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
@@ -120,7 +120,7 @@
       "infra/azure/staging-staff-api-metric-alerts/",
       "infra/azure/staging-cost-budgets/"
     ],
-    "note": "16U audit-only design freeze; no runtime mutation"
+    "note": "16U audit-only design freeze; no runtime mutation; G01 partial unchanged"
   },
   "gates": [
     "npm run verify:radar-slice16u-correlation-design-freeze",
@@ -268,6 +268,9 @@
     "gate_id": "G01_correlation_structured_logs",
     "progress_class": "audit_only_design_freeze",
     "does_not_implement": "runtime_instrumentation_dry_run_switch_live_g01a_drill_any_gate_proven",
+    "dry_run_implementable_today": false,
+    "g01b_correlation_today": "tenant_payment_booking_session_metadata_only",
+    "next_slice": "16V_candidate_central_capability_boundary_audit_freeze",
     "builds_on": [
       "16J_staff_api_request_correlation",
       "16R_staff_api_request_completion_log",

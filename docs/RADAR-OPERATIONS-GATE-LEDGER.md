@@ -10,21 +10,30 @@
 
 ## Outcome
 
-Freeze an **authoritative active staging call graph** and a **genuine non-mutating G01 correlation drill design**. Active Meta ingress is Hermes on Lunabox (`https://lunabox.lunafrontdesk.com/whatsapp/webhook` → `hermes-luna:8090` for Wolfhouse; Sunset `hermes-sunset-luna:8092`). Staff Meta dual-ingress and Stripe webhook are **not** on the active inbound path. Hermes `_post_bot` does **not** send `X-Request-Id` today. Genuine Stripe Checkout create **cannot be exercised without mutation**; therefore G01 E2E is redefined:
+Freeze an **authoritative live staging call graph** and a **genuine non-mutating G01 correlation drill design**. Live Lunabox Caddy authority (captured staging truth; **not** the tracked git Caddy reference):
 
-- **G01-A (provable target):** Meta → Hermes → Staff `/staff/bot/*` with one immutable `trace_id` + `parent_event_id=wamid` on a non-mutating read path.
-- **G01-B (business join only):** Stripe Checkout create ↔ webhook via metadata/business IDs — not the same inbound ALS.
+- `/whatsapp/*` → `localhost:8092` (`hermes-sunset-luna`) — live Meta WhatsApp surface
+- `/wolfhouse/*` → `localhost:8090` (`hermes-luna`) — Wolfhouse Luna control/session routes
 
-Independent same-ID probes (`/healthz` + Stripe pre-verify sharing a UUID) are **rejected as E2E evidence**. Design specifies hard-disabled `G01_CORRELATION_DRY_RUN` (confirmation `RADAR-16U-CORRELATION-DRY-RUN` for later apply). **This slice does not implement runtime, execute live, or deploy.** G01 verdict stays `partial`. G02–G09 unchanged. Proven count remains 0.
+Tracked `docker/hermes-staging/lunabox-caddyfile.reference` (both paths → `:8090`) is **stale evidence, not authority**. Staff Meta dual-ingress and Stripe webhook are **not** on the active inbound path. Hermes `_post_bot` does **not** send `X-Request-Id` today.
+
+**Message provenance:** a single message uses its `wamid` as `parent_event_id`; a coalesced Sunset burst uses the ordered immutable `source_wamid` set — **no invented single parent**.
+
+Genuine Stripe Checkout create **cannot be exercised without mutation**; therefore G01 E2E is redefined:
+
+- **G01-A (provable target):** Meta → Hermes → Staff `/staff/bot/*` with one immutable `trace_id` on a non-mutating read path (provenance as above).
+- **G01-B (business join only):** Stripe Checkout create ↔ webhook via **tenant/payment/booking/session metadata only**. Inbound trace/wamid propagation **does not exist** today — do not overclaim it.
+
+Independent same-ID probes (`/healthz` + Stripe pre-verify sharing a UUID) are **rejected as E2E evidence**. Hard-disabled `G01_CORRELATION_DRY_RUN` is **design-only and not implementable yet** (blocked on a central capability boundary); confirmation phrase `RADAR-16U-CORRELATION-DRY-RUN` is reserved for a later apply slice. **This slice does not implement runtime, execute live, or deploy.** G01 verdict stays `partial`. G02–G09 unchanged. Proven count remains 0.
 
 ## Artifacts
 
 | Path | Role |
 |------|------|
-| `fixtures/radar-operations/slice16u-call-graph.json` | Authoritative active-path call graph |
-| `fixtures/radar-operations/slice16u-correlation-design-freeze.json` | Design freeze (instrumentation, dry-run, evidence schema) |
+| `fixtures/radar-operations/slice16u-call-graph.json` | Authoritative live-path call graph + Caddy authority |
+| `fixtures/radar-operations/slice16u-correlation-design-freeze.json` | Design freeze (provenance, G01-A/B, dry-run blocked, 16V) |
 | `fixtures/radar-operations/slice16u-expected-contract.json` | Frozen 16U contract |
-| `scripts/lib/radar-slice16u-correlation-design-freeze.js` | Locks + evidence classifier |
+| `scripts/lib/radar-slice16u-correlation-design-freeze.js` | Locks + evidence classifiers |
 | `scripts/verify-radar-slice16u-correlation-design-freeze.js` | Offline RED/GREEN verifier |
 | `npm run verify:radar-slice16u-correlation-design-freeze` | Gate |
 
@@ -51,9 +60,11 @@ Independent same-ID probes (`/healthz` + Stripe pre-verify sharing a UUID) are *
 | Request correlation (header + ALS) | `partial` | 16J source |
 | Request-completion log | `partial` | 16R + 16S live LAW |
 | Live deploy / LAW delivery/search/retention | `live_proven` | via 16S @ `1bf9695` |
-| Correlation drill **design** | `audit_frozen` | 16U G01-A/B + dry-run design |
-| Correlation drill **live G01-A** | `open` | Needs Hermes `X-Request-Id` propagate + dry-run suppress |
+| Correlation drill **design** | `audit_frozen` | 16U G01-A/B + live Caddy + provenance |
+| Correlation drill **live G01-A** | `open` | Blocked on capability boundary then Hermes `X-Request-Id` |
+| Dry-run mode | `not_implementable_yet` | Needs central capability boundary first |
 | Stripe as inbound ALS hop | `not_provable` | Cannot exercise genuine Stripe without mutation |
+| G01-B join today | `metadata_only` | tenant/payment/booking/session; no inbound trace/wamid |
 
 ## Slice 16U progress
 
@@ -62,17 +73,22 @@ Independent same-ID probes (`/healthz` + Stripe pre-verify sharing a UUID) are *
 **Progress class:** `audit_only_design_freeze`
 **Does not implement:** runtime instrumentation, dry-run switch, live drill, any gate proven, G02–G09 changes
 
-### Still open (smallest follow-on)
+### Still open (smallest follow-on = 16V)
 
-1. Hermes mint `trace_id` + send `X-Request-Id` on `_post_bot`
-2. Hard-disabled `G01_CORRELATION_DRY_RUN` WhatsApp-send suppress
-3. Live G01-A read-only evidence freeze
+1. **16V:** audit and freeze a **central capability boundary** denying every WhatsApp send and Staff/DB/Stripe mutation while permitting real read dispatch — **no** trace implementation, deploy, or evidence capture
+2. After 16V: Hermes mint `trace_id` + send `X-Request-Id` on `_post_bot`
+3. After capability boundary: hard-disabled `G01_CORRELATION_DRY_RUN` (phrase `RADAR-16U-CORRELATION-DRY-RUN`)
+4. Live G01-A read-only evidence freeze
 
 ### Explicitly not claimed
 
 - Independent same-ID probes as E2E
 - Stripe Checkout without mutation
 - Single ALS spanning Meta → Stripe webhook
+- Tracked Caddy reference as live ingress authority
+- Invented single parent for coalesced Sunset burst
+- Inbound trace/wamid payment propagation as current
+- Dry-run implementable today
 - Live drill executed / any gate `proven`
 - Human inbox receipt / organic metric alert firing / production
 
@@ -85,4 +101,4 @@ Independent same-ID probes (`/healthz` + Stripe pre-verify sharing a UUID) are *
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation. No live HTTP. Database, Hermes, Staff API runtime, correlation/completion helpers, and staging IaC unchanged vs master `87121456`. Audit fixtures + ledger/matrix/findings/contract only. End-to-end G01-A live evidence remains open (not claimed).
+No deploy/restart/DB/secret/guest/payment/production mutation. No live HTTP. Database, Hermes, Staff API runtime, correlation/completion helpers, and staging IaC unchanged vs master `87121456`. Audit fixtures + ledger/matrix/findings/contract only. End-to-end G01-A live evidence remains open (not claimed). G01 partial/runtime unchanged.
