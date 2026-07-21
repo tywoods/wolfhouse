@@ -591,13 +591,10 @@ ok('C6b public pg 8.21 only — no private queue / race / abort / app pool',
   && !/require\('\.\/pg-connect'\)[\s\S]{0,80}withPgClient/.test(readinessSrc)
   && !/createReadyzTestListener/.test(readinessSrc));
 
-ok('C6c no signal/shutdown framework in Staff API (16I scope)',
-  !/attachStaffQueryApiLifecycle/.test(apiSrc)
-  && !/process\.on\('SIGTERM'/.test(apiSrc)
-  && !/process\.on\('SIGINT'/.test(apiSrc)
+ok('C6c 16I frozen contract; lifecycle integration owned by 16W (not 16I scope)',
+  /closeReadinessPool/.test(readinessSrc)
+  && /attachStaffApiReadinessLifecycle/.test(apiSrc)
   && !/closePgPool/.test(apiSrc)
-  && /closeReadinessPool/.test(readinessSrc)
-  && /lifecycle_integration/.test(JSON.stringify(contract.lifecycle))
   && contract.lifecycle.lifecycle_integration === 'open'
   && contract.lifecycle.signal_shutdown_framework === 'absent_intentional');
 

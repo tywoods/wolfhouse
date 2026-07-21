@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16U",
-  "title": "RADAR operations gate ledger (16U G01 correlation design freeze corrected; G01 partial — G01-A live open)",
-  "master_basis": "87121456db90a9f80ff8b3679596bc49c235cbfc",
-  "branch": "radar/slice-16u-correlation-design-freeze",
-  "audit_only": true,
+  "slice": "RADAR-16W",
+  "title": "RADAR operations gate ledger (16W G02 readiness shutdown lifecycle; G02 partial — dependency-failure drill open)",
+  "master_basis": "d904481de6ef8e7ad65d84241577796cbb5ad1c4",
+  "branch": "radar/slice-16w-readiness-shutdown-lifecycle",
+  "audit_only": false,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
   "verdicts_allowed": [
@@ -144,7 +144,7 @@
       "name": "Readiness / dependencies",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P records operator-observed live proof that after 16O image SHA 594247f deploy (Wolfhouse rev 0000514, Sunset 0000274) and after rollback/rollforward (WH 0000515→0000516, Sunset 0000275→0000276), health/readiness passed on both tenants with final image 594247f. Partial/live-proven for healthy path only — controlled dependency-failure traffic-shed drill and closeReadinessPool lifecycle integration remain open. Does not claim dependency failure.",
+      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P records operator-observed live proof that after 16O image SHA 594247f deploy (Wolfhouse rev 0000514, Sunset 0000274) and after rollback/rollforward (WH 0000515→0000516, Sunset 0000275→0000276), health/readiness passed on both tenants with final image 594247f. 16W wires closeReadinessPool into Staff API SIGTERM/SIGINT graceful shutdown (shared Wolfhouse/Sunset runtime source). Partial/live-proven for healthy path only — controlled dependency-failure traffic-shed drill remains open. Does not claim dependency failure or live lifecycle deploy.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-readiness.js",
@@ -158,14 +158,25 @@
           "note": "Dedicated max-1 readiness pool; generic ready/not-ready bodies; explicit idempotent close"
         },
         {
+          "path": "scripts/lib/staff-api-readiness-lifecycle.js",
+          "lines": "1-120",
+          "symbols": [
+            "attachStaffApiReadinessLifecycle",
+            "runStaffApiReadinessShutdown",
+            "closeReadinessPool"
+          ],
+          "note": "16W: SIGTERM/SIGINT idempotent shutdown closes readiness pool before server.close; CLI main only"
+        },
+        {
           "path": "scripts/staff-query-api.js",
-          "lines": "46631-46650",
+          "lines": "46811-46895",
           "symbols": [
             "READYZ_PATH",
             "handleStaffApiReadyz",
+            "attachStaffApiReadinessLifecycle",
             "pathname === '/healthz'"
           ],
-          "note": "/readyz wired through real router; /healthz remains static liveness; no signal lifecycle"
+          "note": "/readyz via real router; /healthz static liveness; 16W lifecycle on CLI main only"
         },
         {
           "path": "infra/azure/staging/main.bicep",
@@ -210,7 +221,7 @@
       ],
       "gaps": [
         "Controlled readiness failure drill (traffic shed without restart loops) not executed",
-        "closeReadinessPool not yet wired into Staff API graceful shutdown lifecycle",
+        "Live deploy of lifecycle-wired Staff API image to Wolfhouse and Sunset staging not executed by 16W",
         "Dependency-failure path not claimed by 16P"
       ],
       "progress_class": "partial_live_proven"
@@ -1311,6 +1322,50 @@
       "id": "16U_DRILL_design_freeze_reject_independent_probes",
       "status": "audit_only_design_frozen",
       "pass_rule": "Fixtures + classifiers reject independent probes and correction REDs; proven=0; no runtime mutation"
+    }
+  },
+  "slice_16w_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16W_readiness_shutdown_lifecycle",
+    "gate_id": "G02_readiness_dependencies",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "readyz_sql_change_readyz_body_change_probes_deploy_secrets_db_production_controlled_dependency_failure_drill",
+    "title": "Wire closeReadinessPool into Staff API graceful shutdown — source partial only",
+    "why_smallest": "G02 lifecycle source gap was the only missing piece for readiness pool teardown; narrowest ownership is SIGTERM/SIGINT → closeReadinessPool → server.close on CLI main without touching probes/SQL/closePgPool.",
+    "builds_on": [
+      "16I_staff_api_readiness_dependencies"
+    ],
+    "supersedes": [],
+    "owner_files": [
+      "scripts/lib/staff-api-readiness-lifecycle.js",
+      "scripts/staff-query-api.js",
+      "scripts/lib/radar-slice16w-readiness-shutdown-lifecycle.js",
+      "scripts/verify-radar-slice16w-readiness-shutdown-lifecycle.js",
+      "fixtures/radar-operations/slice16w-expected-contract.json"
+    ],
+    "out_of_scope_for_16w": [
+      "Readiness SQL / /readyz response contract changes",
+      "ACA probe IaC changes",
+      "Live deploy / restart",
+      "Production RGs",
+      "closePgPool composition",
+      "Controlled dependency-failure traffic-shed drill",
+      "Raising G02 verdict to proven"
+    ],
+    "acceptance_criteria": [
+      "SIGTERM and SIGINT close readiness pool exactly once (idempotent under concurrent signals)",
+      "await closeReadinessPool before server.close and before process exit",
+      "Shutdown order preserved: pool → server → exit",
+      "Process listeners install once on CLI main; createStaffQueryApiHttpServer reuse adds zero listeners",
+      "Wolfhouse and Sunset staging share one Staff API runtime (no tenant fork)",
+      "Offline verifier RED/GREEN with adversarial ordering cases; no self-derived acceptance",
+      "Controlled dependency-failure drill and live lifecycle deploy remain open"
+    ],
+    "final_controlled_drill": {
+      "id": "16I_DRILL_readiness_failure_traffic_shed",
+      "status": "open",
+      "pass_rule": "With Postgres unreachable, /readyz=503 and ACA readiness removes traffic; /healthz stays 200; recovery restores traffic — 16W closes lifecycle source only"
     }
   }
 }

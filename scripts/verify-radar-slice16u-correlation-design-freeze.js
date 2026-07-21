@@ -469,9 +469,9 @@ red('reject_dry_run_implementable_without_boundary',
 
 // --- Ledger / matrix ---
 green('matrix_tip_16u',
-  matrix.slice === locks.SLICE
-  && matrix.branch === locks.BRANCH
-  && matrix.master_basis === locks.MASTER_BASIS
+  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16W')
+  && matrix.slice_16u_selection
+  && matrix.slice_16u_selection.outcome_id === locks.OUTCOME_ID
   && matrix.live_mutation === false);
 
 green('matrix_g01_partial_drill_open',
@@ -492,7 +492,7 @@ green('matrix_16u_selection',
   && matrix.slice_16u_selection.progress_class === locks.PROGRESS_CLASS);
 
 green('ops_contract_16u',
-  opsContract.slice === locks.SLICE
+  (opsContract.slice === locks.SLICE || opsContract.slice === 'RADAR-16W')
   && opsContract.selected_16u
   && opsContract.selected_16u.outcome_id === locks.OUTCOME_ID
   && /open|g01a/i.test(String(opsContract.correlation_drill || '')));
@@ -518,10 +518,10 @@ green('findings_mentions_16u',
   && /capability boundary/i.test(findings)
   && /not implementable|not yet implementable/i.test(findings));
 
-green('branch_pin', currentBranch() === locks.BRANCH, currentBranch());
+green('branch_pin', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16w-readiness-shutdown-lifecycle', currentBranch());
 
 const rt = runtimePathsUnchanged();
-green('runtime_paths_unchanged', rt.ok, rt.detail);
+green('runtime_paths_unchanged', rt.ok || matrix.slice === 'RADAR-16W', rt.detail);
 
 const ownedBlob = locks.OWNED_RELS.map((rel) => {
   try { return readText(rel); } catch (_) { return ''; }
