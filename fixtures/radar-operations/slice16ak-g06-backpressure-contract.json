@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AK",
+  "outcome_id": "16AK_g06_backpressure_source",
+  "gate_id": "G06_scaling_capacity",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "9fa3626326c0e2bc21f2d37905967d6ff47b7520",
+  "branch": "radar/slice-16ak-g06-backpressure-source",
+  "title": "Tenant-safe Staff API admission-control / backpressure source contract",
+  "live_deploy": false,
+  "live_mutation": false,
+  "live_network": false,
+  "runtime_wired": false,
+  "azure_scope": {
+    "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resource_groups": [
+      "wh-staging-rg",
+      "luna-sunset-staging-rg"
+    ],
+    "note": "Staging-only scope lock; production forbidden"
+  },
+  "topology_inspected": {
+    "entry": "scripts/staff-query-api.js#createStaffQueryApiHttpServer \u2192 runWithRequestCorrelation \u2192 attachStaffApiRequestCompletion \u2192 router",
+    "router": "scripts/staff-query-api.js#router (~L45049)",
+    "healthz": "scripts/lib/staff-api-healthz.js via pathname /healthz|/| (L46824-46826)",
+    "readyz": "scripts/lib/staff-api-readiness.js via pathname /readyz (L46816-46822); dedicated max-1 readiness pool",
+    "trusted_tenant": "resolveTrustedIngressBinding(...).tenant_slug only",
+    "existing_backpressure": "none \u2014 no in-flight semaphore, admission queue, or 503 Retry-After shed in Staff API runtime",
+    "transactional_patterns": [
+      "POST /staff/stripe/webhook \u2192 handleStripeWebhook BEGIN \u2192 claimStripeWebhookEvent \u2192 mutate \u2192 COMMIT (16M)",
+      "Booking write handlers with BEGIN/COMMIT (edit/cancel/move/cash/payment-link)",
+      "Preview handlers may BEGIN/ROLLBACK (non-durable)"
+    ]
+  },
+  "limits": {
+    "max_in_flight_global": 8,
+    "max_queued_global": 16,
+    "max_in_flight_per_tenant": 4,
+    "max_queued_per_tenant": 8,
+    "retry_after_seconds": 1,
+    "max_diag_events": 32,
+    "max_tenant_keys_tracked": 64,
+    "max_tombstones": 128
+  },
+  "http_reject": {
+    "status": 503,
+    "retry_after_header": "Retry-After",
+    "only_before_side_effects": true,
+    "only_pre_side_effect_overload": true,
+    "post_side_effect": "internal_continue_fail_closed_no_http_retry_metadata"
+  },
+  "route_classes": [
+    "health_probe",
+    "read_idempotent",
+    "read_like_non_durable",
+    "write_side_effect",
+    "webhook_side_effect"
+  ],
+  "exclusions": {
+    "health_readiness": [
+      "/healthz",
+      "/readyz",
+      "/"
+    ],
+    "in_progress_transactional": "markSideEffectStarted \u2192 tryRejectWith503 forbidden",
+    "readiness_independence": true
+  },
+  "trusted_tenant_only": true,
+  "per_tenant_isolation": true,
+  "fairness": "round_robin_promote_across_waiting_tenants",
+  "cleanup": [
+    "release",
+    "abort",
+    "timeout"
+  ],
+  "no_double_release": true,
+  "bounded_diagnostics": true,
+  "future_integration_drill": {
+    "id": "16AK_INTEGRATION_staff_api_admission_wire",
+    "status": "defined_not_executed",
+    "pass_rule": "Wire createAdmissionController using only resolveTrustedIngressBinding(...).tenant_slug; eligible-route allowlist; unknown default-exclude fail-closed; 503 only pre-side-effect overload; post-side-effect internal continue; close() settles; no sync-throw ownership / production / G06 proven"
+  },
+  "offline_source_contract": {
+    "id": "16AK_OFFLINE_admission_control_source_contract",
+    "status": "offline_source_proven"
+  },
+  "g06_disposition": {
+    "verdict": "partial",
+    "backpressure_source": "source_defined_via_16AK",
+    "backpressure_runtime_proof": "open",
+    "score": {
+      "proven": 0,
+      "partial": 9,
+      "absent": 0
+    }
+  },
+  "explicitly_not_claimed": [
+    "backpressure_proven",
+    "admission_control_runtime_wired",
+    "live_503_shed_observed",
+    "load_soak_proof",
+    "autoscaling",
+    "capacity_slo_proven",
+    "production",
+    "full_G06_proven",
+    "sync_throw_integration_ownership",
+    "all_router_literal_route_coverage",
+    "suffix_heuristic_classification"
+  ],
+  "trusted_tenant_only_source": "resolveTrustedIngressBinding(...).tenant_slug",
+  "trusted_tenant": "resolveTrustedIngressBinding(...).tenant_slug",
+  "route_classification": {
+    "eligible_allowlist": true,
+    "unknown_default": "exclude_fail_closed",
+    "no_suffix_heuristic": true,
+    "no_all_router_literal_coverage_claim": true
+  },
+  "lifecycle": {
+    "tombstone_ring": true,
+    "max_tombstones": 128,
+    "evict_idle_empty_tenant_buckets": true,
+    "close_shutdown": true
+  },
+  "diagnostics": {
+    "aggregate_bounded_counts_only": true,
+    "opaque_event_kinds_only": true,
+    "no_raw_tenant_identifiers": true
+  }
+}

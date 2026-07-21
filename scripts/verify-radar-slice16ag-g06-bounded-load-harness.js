@@ -527,23 +527,27 @@ async function runVerifier() {
   const tip16ah = matrix.slice === 'RADAR-16AH';
   const tip16ai = matrix.slice === 'RADAR-16AI';
   const tip16aj = matrix.slice === 'RADAR-16AJ';
+  const tip16ak = matrix.slice === 'RADAR-16AK';
   const tipBranchOk = (tip16ah && currentBranch() === 'radar/slice-16ah-g06-live-load-correction')
     || (tip16ai && currentBranch() === 'radar/slice-16ai-g06-live-load-evidence')
-    || (tip16aj && currentBranch() === 'radar/slice-16aj-g06-slo-error-budget-source');
+    || (tip16aj && currentBranch() === 'radar/slice-16aj-g06-slo-error-budget-source')
+    || (tip16ak && currentBranch() === 'radar/slice-16ak-g06-backpressure-source');
   const tipBasisOk = (tip16ah && matrix.master_basis === '6c24e9456bd42c7fa1b051bb1308aae8f632b293'
       && topContract.master_basis === '6c24e9456bd42c7fa1b051bb1308aae8f632b293')
     || (tip16ai && matrix.master_basis === 'd04b633390bdcacfe3a04eed4796bba4184e29f8'
       && topContract.master_basis === 'd04b633390bdcacfe3a04eed4796bba4184e29f8')
     || (tip16aj && matrix.master_basis === '0994989a3d5d14daa98797fac55083b0c2ea809c'
-      && topContract.master_basis === '0994989a3d5d14daa98797fac55083b0c2ea809c');
-  ok('C1 HEAD on 16AG branch (or 16AH/16AI/16AJ tip)', currentBranch() === locks.BRANCH || tipBranchOk, currentBranch());
-  ok('C2 master_basis locked (16AG lock or 16AH/16AI/16AJ tip)',
+      && topContract.master_basis === '0994989a3d5d14daa98797fac55083b0c2ea809c')
+    || (tip16ak && matrix.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520'
+      && topContract.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520');
+  ok('C1 HEAD on 16AG branch (or 16AH/16AI/16AJ/16AK tip)', currentBranch() === locks.BRANCH || tipBranchOk, currentBranch());
+  ok('C2 master_basis locked (16AG lock or 16AH/16AI/16AJ/16AK tip)',
     (locks.MASTER_BASIS === '7a283b70d38a4906e6279d82a49c0f6dd2a4994e'
       && sliceContract.master_basis === locks.MASTER_BASIS
       && matrix.master_basis === locks.MASTER_BASIS
       && topContract.master_basis === locks.MASTER_BASIS)
     || tipBasisOk);
-  ok('C3 slice/outcome/branch locked (16AG lock or 16AH/16AI/16AJ tip)',
+  ok('C3 slice/outcome/branch locked (16AG lock or 16AH/16AI/16AJ/16AK tip)',
     (sliceContract.slice === locks.SLICE
       && sliceContract.outcome_id === locks.OUTCOME_ID
       && sliceContract.branch === locks.BRANCH
@@ -570,6 +574,13 @@ async function runVerifier() {
       && matrix.branch === 'radar/slice-16aj-g06-slo-error-budget-source'
       && topContract.slice === 'RADAR-16AJ'
       && topContract.branch === 'radar/slice-16aj-g06-slo-error-budget-source'
+      && sliceContract.slice === locks.SLICE
+      && sliceContract.branch === locks.BRANCH)
+    || (tip16ak
+      && matrix.slice === 'RADAR-16AK'
+      && matrix.branch === 'radar/slice-16ak-g06-backpressure-source'
+      && topContract.slice === 'RADAR-16AK'
+      && topContract.branch === 'radar/slice-16ak-g06-backpressure-source'
       && sliceContract.slice === locks.SLICE
       && sliceContract.branch === locks.BRANCH));
 

@@ -1,12 +1,48 @@
-# RADAR Slice 16AJ — Operations gate ledger (G06 capacity SLO / error-budget source)
+# RADAR Slice 16AK — Operations gate ledger (G06 backpressure / admission-control source)
 
-**Status:** source/text-only (no deploy / live / scale mutation by this tip; G06 remains partial)
-**Master basis:** `0994989a3d5d14daa98797fac55083b0c2ea809c`
-**Branch:** `radar/slice-16aj-g06-slo-error-budget-source`
+**Status:** source/text-only (no deploy / live / scale / runtime wire by this tip; G06 remains partial)
+**Master basis:** `9fa3626326c0e2bc21f2d37905967d6ff47b7520`
+**Branch:** `radar/slice-16ak-g06-backpressure-source`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16AI conservative `/readyz` live evidence + 16AH/16AG harness + 16AF/16L capacity alerts + 16H Requests metric surface
-**This slice does not deploy / does not execute live / does not mutate scale:** SLO/error-budget source contract + pure calculator + offline verifier only; future burn-alert/drill acceptance `defined_not_executed`
+**Builds on:** 16AJ SLO/error-budget source + 16AI/16AH/16AG/16AF/16L capacity path + 16M Stripe claim + 16J/16K/16I correlation/health/ready
+**This slice does not deploy / does not execute live / does not mutate scale / does not wire Staff API runtime:** admission/backpressure source contract + pure library + offline verifier only; Staff API integration drill `defined_not_executed`
+
+## Outcome (16AK)
+
+Define the smallest **tenant-safe admission controller** for future Staff API integration (no runtime wire invented):
+
+| Contract | Locked value |
+|----------|----------------|
+| Topology (inspected) | `createStaffQueryApiHttpServer` → correlation → completion → `router`; health/ready at `/healthz` `/` `/readyz`; Stripe/Meta webhooks; write vs preview vs GET families — see `slice16ak-staff-api-topology.json` |
+| Existing runtime backpressure | **none** (no semaphore / admission queue / 503 Retry-After shed in Staff API) |
+| Limits | in-flight global **8** / queue global **16**; per-tenant in-flight **4** / queue **8**; Retry-After **1**s; diag ring **32**; tombstones **128**; tracked tenants **64** |
+| Reject | HTTP **503** + `Retry-After` **only** for **pre-side-effect overload**; post-side-effect = internal continue/fail-closed (**no** `http_status` / Retry-After / retryable metadata) |
+| Route class | reviewed **eligible-route allowlist**; unknown routes **default-exclude fail-closed**; **no** suffix heuristic; **no** all-router-literal coverage claim; `move-targets` read-like; `reset-luna-phone` write |
+| Tenant identity | **only** `resolveTrustedIngressBinding(...).tenant_slug` — never request header/query/body spoof |
+| Isolation / fairness | per-tenant caps + round-robin promote; idle empty tenant buckets + rr keys **evicted** (historical tenants do not exhaust cardinality) |
+| Cleanup | `release` / `abort` / `timeout` / `close`; terminal tokens deleted + **tombstone ring**; underflow/overflow guards; reentrancy-safe promote |
+| Diagnostics | aggregate/bounded counts + opaque event kinds only — **no** raw tenant identifiers/keys |
+| Exclusions | `/healthz` `/readyz` `/` always excluded (readiness independence); in-progress transactional work after `markSideEffectStarted` cannot be 503-shed |
+| Library | pure dependency-free `radar-g06-admission-control.js` |
+| Integration drill | `16AK_INTEGRATION_staff_api_admission_wire` **`defined_not_executed`** only |
+| Offline source | `16AK_OFFLINE_admission_control_source_contract` **`offline_source_proven`** |
+
+### Claim ownership (16AK locked)
+
+| Observation | Proves | Does not prove |
+|-------------|--------|----------------|
+| Topology-informed admission/backpressure source contract + pure state machine + offline RED/GREEN | Exact limits/allowlist/fail-closed behaviors exist in source | Runtime wire; live 503 shed; soak; production; sync-throw integration ownership |
+| Integration drill locked | Parameters ready for a later approved wire slice | That wire ran; claiming backpressure is proven; raising G06; sync-throw ownership |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
+
+## Truthful disposition (16AK)
+
+**Proves (source):** Tenant-safe admission-control / backpressure **source** contract with pure dependency-free controller and deterministic RED/GREEN covering burst, fairness, spoofed/missing tenant, queue overflow, timeout/abort/races, counter underflow/overflow, real induced reentrancy, post-side-effect internal continue, tombstone-bounded churn, idle tenant eviction (65th historical), close/shutdown settle, cross-tenant isolation, readiness independence, and opaque bounded diagnostics; Staff API integration defined only.
+
+**Does not prove:** Staff API runtime wire; live 503 shed under load; load soak; autoscaling; capacity SLO live; claiming backpressure is proven; production; sync-throw integration ownership; raising G06 to `proven`.
+
+**Backpressure source gap closed; runtime/live proof remains open; G06 remains partial.**
 
 ## Outcome (16AJ)
 
@@ -312,7 +348,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | `scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js` | Strict RED/GREEN verifier |
 
 
-## G06 semantics (truthful after 16AJ)
+## G06 semantics (truthful after 16AK)
 
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
@@ -329,8 +365,20 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | Alert fire / notification delivery | `open` / `not claimed` | |
 | Load soak / sustained capacity | `open` / `not claimed` | 16AI does not claim soak |
 | Autoscaling | `open` / `not claimed` | rules=null |
-| Backpressure | `open` / `not claimed` | |
+| Backpressure / admission **source** | `source_defined_16AK` | topology-informed contract + pure controller + offline verifier; integration `defined_not_executed` |
+| Backpressure / admission **runtime/live** | `open` / `not claimed` | 16AK does not wire Staff API or claim live shed |
 | Production | `open` / forbidden | intentionally untouched |
+
+## Slice 16AK artifacts
+
+| Path | Role |
+|------|------|
+| `fixtures/radar-operations/slice16ak-g06-backpressure-contract.json` | Frozen admission/backpressure source contract |
+| `fixtures/radar-operations/slice16ak-expected-contract.json` | Contract |
+| `fixtures/radar-operations/slice16ak-staff-api-topology.json` | Inspected topology classification |
+| `scripts/lib/radar-g06-admission-control.js` | Pure dependency-free state machine |
+| `scripts/lib/radar-slice16ak-g06-backpressure.js` | Locks |
+| `scripts/verify-radar-slice16ak-g06-backpressure.js` | Strict RED/GREEN verifier |
 
 ## Slice 16AJ artifacts
 
@@ -387,7 +435,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 2. Load soak / sustained capacity — **not claimed** (16AI `live_proven` is conservative `/readyz` bounded profile only; 16AH prior attempt remains `attempted_not_proof`; 16AG profile lock remains `defined_not_executed`)
 3. Autoscaling (rules=null) — **not claimed**
 4. Capacity SLO / error budget **live** proof — **not claimed** (16AJ source contract only; burn alert/drill `defined_not_executed`)
-5. Backpressure — **not claimed**
+5. Backpressure **runtime/live** proof — **not claimed** (16AK source contract + library only; integration `defined_not_executed`)
 6. Absolute/continuous zero downtime / between-sample / sub-second interruption — **not claimed**
 7. Cold-start availability — **not claimed** (WH warmup timeouts remain real)
 8. G01-A live Meta→Hermes→Staff correlated read path
