@@ -442,6 +442,7 @@
     "verify:owner-insight-agent-live": "node scripts/verify-owner-insight-agent-live.js",
     "eval:owner-insight-live": "node scripts/eval-owner-insight-live.js",
     "verify:multiclient": "node scripts/verify-multiclient-isolation.js && node scripts/verify-no-client-hardcoding.js && node scripts/verify-tenant-resolution.js && node scripts/verify-meta-whatsapp-tenant-shadow.js && node scripts/verify-staff-tenant-scope.js",
+    "verify:factory-slice1a-acceptance-contract": "node scripts/verify-factory-slice1a-acceptance-contract.js",
     "verify:fortress-tenant-identity-boundary-matrix": "node scripts/verify-fortress-tenant-identity-boundary-matrix.js",
     "verify:fortress-slice15b-stripe-payment-tenant-bind": "node scripts/verify-fortress-slice15b-stripe-payment-tenant-bind.js",
     "verify:fortress-slice15c-sunset-stripe-rollout-preflight": "node scripts/verify-fortress-slice15c-sunset-stripe-rollout-preflight.js",

@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "slice": "FACTORY-1A",
+  "outcome_id": "1A_source_only_acceptance_contract",
+  "completeness_method": "source_derived_registration_read_site_inventory",
+  "completeness_claim_narrowing": "Inventory categories are derived by scripts/lib/factory-slice1a-inventory-discovery.js from real config/clients registration files and scripts/lib read/require sites. Fixture must match discovery bidirectionally. Does not claim full-repo AST exhaustiveness outside scripts/lib + config/clients + listed overlays/verifiers.",
+  "reference_pair": {
+    "wolfhouse": {
+      "client_slug": "wolfhouse",
+      "live_enabled": false,
+      "location_ids": [
+        "wolfhouse-somo"
+      ],
+      "baseline": "config/clients/wolfhouse-somo.baseline.json",
+      "vertical": "lodging_surf_house"
+    },
+    "sunset": {
+      "client_slug": "sunset",
+      "live_enabled": false,
+      "location_ids": [
+        "sunset-somo",
+        "sunset-sardinero"
+      ],
+      "baseline": "config/clients/sunset.baseline.json",
+      "vertical": "surf_school_rentals"
+    }
+  },
+  "categories": [
+    "client_config_files",
+    "registries",
+    "feature_flag_symbols",
+    "pricing_services_schedule_profile_consumers",
+    "deployment_overlays",
+    "existing_verifiers"
+  ],
+  "client_config_files": [
+    "config/clients/_deploy-config.template.json",
+    "config/clients/channel-routing.sample.json",
+    "config/clients/channel-routing.staging.example.json",
+    "config/clients/clients.json",
+    "config/clients/lawave.baseline.json",
+    "config/clients/mirleft.baseline.json",
+    "config/clients/staff-portal-access.json",
+    "config/clients/staff-portal-access.sunset-staging.json",
+    "config/clients/sunset.baseline.json",
+    "config/clients/sunset.location-admin.json",
+    "config/clients/sunset.messaging.json",
+    "config/clients/sunset.secrets.example.json",
+    "config/clients/sunset.waiver-form.json",
+    "config/clients/surf-school.sample.json",
+    "config/clients/surf-shop-rental.sample.json",
+    "config/clients/wolfhouse-somo.baseline.json",
+    "config/clients/wolfhouse-somo.cami-voice-mining.json",
+    "config/clients/wolfhouse-somo.knowledge.json",
+    "config/clients/wolfhouse-somo.messaging.json",
+    "config/clients/wolfhouse-somo.personalities.json",
+    "config/clients/wolfhouse-somo.pricing.json",
+    "config/clients/wolfhouse-somo.secrets.example.json",
+    "config/clients/wolfhouse-somo.staff-whatsapp-allowlist.json",
+    "config/clients/wolfhouse-somo.surf-report.json"
+  ],
+  "registries": [
+    "config/clients/channel-routing.sample.json",
+    "config/clients/channel-routing.staging.example.json",
+    "config/clients/clients.json",
+    "config/clients/staff-portal-access.json",
+    "config/clients/staff-portal-access.sunset-staging.json"
+  ],
+  "feature_flag_symbols": [
+    "live_enabled",
+    "DEFAULT_CLIENT_SLUG",
+    "STAFF_API_INGRESS_TENANT_SLUG",
+    "STRIPE_WEBHOOK_CLIENT_SLUG",
+    "LUNA_BOT_CLIENT_SLUG",
+    "CLIENT_CHANNEL_ROUTING_FILE",
+    "SUNSET_ADMIN_DB_READ_ENABLED",
+    "SUNSET_ADMIN_JSON_OVERLAY",
+    "STAFF_PORTAL_DEV_TABS",
+    "STAFF_API_ADMISSION_CONTROL"
+  ],
+  "pricing_services_schedule_profile_consumers": [
+    "scripts/lib/client-channel-resolver.js",
+    "scripts/lib/guest-addon-combo-rebalance-db.js",
+    "scripts/lib/guest-addon-pricing.js",
+    "scripts/lib/luna-booking-addons-policy.js",
+    "scripts/lib/luna-booking-confirmation-preview.js",
+    "scripts/lib/luna-booking-confirmation-send.js",
+    "scripts/lib/luna-booking-reactive-services-policy.js",
+    "scripts/lib/luna-checkin-day-preview-context.js",
+    "scripts/lib/luna-client-messaging-playbook.js",
+    "scripts/lib/luna-front-desk-booking-create-service.js",
+    "scripts/lib/luna-front-desk-catalog-service.js",
+    "scripts/lib/luna-front-desk-quote-service.js",
+    "scripts/lib/luna-guest-addon-service-attach.js",
+    "scripts/lib/luna-guest-booking-dry-run.js",
+    "scripts/lib/luna-guest-checkin-day-message.js",
+    "scripts/lib/luna-guest-confirmation-auto-send.js",
+    "scripts/lib/luna-guest-confirmation-preview-dry-run.js",
+    "scripts/lib/luna-guest-confirmation-send-go-no-go.js",
+    "scripts/lib/luna-guest-knowledge-config.js",
+    "scripts/lib/luna-guest-lesson-schedule-config.js",
+    "scripts/lib/luna-guest-personality-config.js",
+    "scripts/lib/luna-guest-stripe-payment-truth-apply.js",
+    "scripts/lib/luna-guest-surf-report.js",
+    "scripts/lib/luna-hermes-whatsapp-thread-mirror.js",
+    "scripts/lib/luna-meta-whatsapp-webhook.js",
+    "scripts/lib/luna-payment-short-link.js",
+    "scripts/lib/service-record-invoice-line.js",
+    "scripts/lib/staff-customer-outreach-draft-generate.js",
+    "scripts/lib/staff-customer-queries.js",
+    "scripts/lib/staff-portal-clients.js",
+    "scripts/lib/staff-whatsapp-notifications.js",
+    "scripts/lib/sunset-admin-location-store.js",
+    "scripts/lib/sunset-admin-pack-rules.js",
+    "scripts/lib/sunset-admin-price-resolve.js",
+    "scripts/lib/sunset-admin-price-sync.js",
+    "scripts/lib/sunset-admin-verify-ui-html.js",
+    "scripts/lib/sunset-catalog-tool-executor.js",
+    "scripts/lib/sunset-course-lesson-price-lookup.js",
+    "scripts/lib/sunset-group-lesson-quote.js",
+    "scripts/lib/sunset-luna-school-context.js",
+    "scripts/lib/sunset-rental-price-lookup.js",
+    "scripts/lib/sunset-schedule-booking-drawer.js",
+    "scripts/lib/sunset-schedule-booking-writes.js",
+    "scripts/lib/sunset-stripe-payment-links.js",
+    "scripts/lib/sunset-waiver-model.js",
+    "scripts/lib/tenant-admin-writes.js",
+    "scripts/lib/tenant-business-config.js",
+    "scripts/lib/wolfhouse-quote-calculator.js"
+  ],
+  "deployment_overlays": [
+    "infra/azure/staging/main.bicep",
+    "infra/azure/sunset-staging/main.bicep",
+    "infra/docker-compose.local.yml",
+    "infra/.env.example",
+    "docker/hermes-staging/docker-compose.vm.yml",
+    "config/clients/staff-portal-access.json",
+    "config/clients/staff-portal-access.sunset-staging.json",
+    "config/clients/channel-routing.staging.example.json"
+  ],
+  "existing_verifiers": [
+    "scripts/verify-multiclient-isolation.js",
+    "scripts/verify-no-client-hardcoding.js",
+    "scripts/verify-tenant-resolution.js",
+    "scripts/verify-meta-whatsapp-tenant-shadow.js",
+    "scripts/verify-staff-tenant-scope.js",
+    "scripts/verify-tenant-business-config.js",
+    "scripts/verify-sunset-portal-slice1.js",
+    "scripts/verify-wolfhouse-live-readiness-static.js"
+  ],
+  "notes": {
+    "archetype_map": {
+      "surf_house": "wolfhouse / lodging_surf_house / wolfhouse-somo",
+      "surf_school_shop": "sunset / surf_school_rentals / sunset-somo+sunset-sardinero"
+    },
+    "non_reference_registry_samples": "Additional clients.json sample rows remain inventory-only while live_enabled=false; third-tenant live/prod onboarding remains out of scope and triggers RADAR third_tenant_factory reopen."
+  }
+}
