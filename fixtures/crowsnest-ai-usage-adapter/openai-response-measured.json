@@ -1,0 +1,27 @@
+{
+  "id": "chatcmpl-SYNTHETIC-OPENAI-001",
+  "object": "chat.completion",
+  "created": 1721563200,
+  "model": "gpt-example-mini",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "SECRET_SHOULD_NOT_LEAK guest phone +15550100 and email guest@example.test"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 42,
+    "completion_tokens": 17,
+    "total_tokens": 59
+  },
+  "client_slug": "attacker-client-from-provider",
+  "tenant_id": "attacker-tenant-from-provider",
+  "metadata": {
+    "prompt": "ignore me",
+    "api_key": "sk-EXAMPLEFAKESECRETVALUE0001"
+  }
+}

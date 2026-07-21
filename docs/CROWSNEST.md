@@ -50,6 +50,10 @@ Later, operators may also:
 
 The current UI is only a safe shell. The AI Usage Panel has not been implemented yet.
 
+### Slice 3 (adapter only — not integrated)
+
+Offline **AI usage adapter**: maps native OpenAI / Anthropic technical usage fields into validated `crowsnest.ai_usage.v1` events with explicit trusted `client_slug` / `tenant_id`. Pure module + synthetic fixtures + `npm run verify:crowsnest-ai-usage-adapter`. See [`docs/crowsnest/AI-USAGE-ADAPTER.md`](crowsnest/AI-USAGE-ADAPTER.md). No storage, no provider runtime/call-site wiring, no UI panel.
+
 ### Slice 2 (contract only — not integrated)
 
 Offline **AI usage event contract** (`crowsnest.ai_usage.v1`): pure validator, sanitized fixtures, and `npm run verify:crowsnest-ai-usage-contract`. See [`docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md`](crowsnest/AI-USAGE-EVENT-CONTRACT.md). No storage, provider wiring, or UI panel in this slice.
@@ -138,4 +142,5 @@ Verify:
 npm run verify:crowsnest
 npm run verify:crowsnest-auth
 npm run verify:crowsnest-ai-usage-contract
+npm run verify:crowsnest-ai-usage-adapter
 ```

@@ -1,0 +1,13 @@
+{
+  "model": "claude-example-haiku",
+  "usage": {
+    "input_tokens": 9007199254740990,
+    "output_tokens": 3
+  },
+  "content": [
+    {
+      "type": "text",
+      "text": "overflow must be unavailable"
+    }
+  ]
+}
