@@ -12,7 +12,10 @@
  * completion, non-ok pool/server, non-SIGTERM signal, secret fields,
  * claimed concurrent restart continuity, historical arrays labelled
  * Azure-derived, missing transcript attribution, fabricated current
- * verification of historical samples, and G02 proven overclaims.
+ * verification of historical samples, unbounded/revision-lifetime
+ * exactly-one LAW cardinality, missing later-record disclosure,
+ * drill records outside declared windows, overlapping windows,
+ * later records relabelled as drill completions, and G02 proven overclaims.
  * No Azure mutation.
  */
 
@@ -171,6 +174,59 @@ function buildClassATenant(kind) {
   };
 }
 
+function buildAllowlistedRecord() {
+  return {
+    event: locks.COMPLETION_RECORD.event,
+    original_signal: locks.COMPLETION_RECORD.original_signal,
+    pool_close_result: locks.COMPLETION_RECORD.pool_close_result,
+    server_close_result: locks.COMPLETION_RECORD.server_close_result,
+    failure_classes: [],
+    completion: true,
+  };
+}
+
+function buildLawQueryWindow(kind) {
+  const isWh = kind === 'wolfhouse';
+  const window = isWh ? locks.WH_LAW_QUERY_WINDOW : locks.SUNSET_LAW_QUERY_WINDOW;
+  return {
+    start_utc: window.start_utc,
+    end_utc: window.end_utc,
+    start_inclusive: window.start_inclusive,
+    end_inclusive: window.end_inclusive,
+    semantics: window.semantics,
+    derivation: window.derivation,
+    source_type: locks.SOURCE_TYPE_B,
+    source_ref: locks.SOURCE_REF_LAW_CARDINALITY,
+    observed_at: locks.LAW_CARDINALITY_REVERIFY_UTC,
+  };
+}
+
+function buildLawRevisionLifetimeDisclosure(kind) {
+  const isWh = kind === 'wolfhouse';
+  const later = isWh
+    ? locks.WH_LATER_LAW_RECORDS_AT_REVIEW.map((r) => ({
+      TimeGenerated: r.TimeGenerated,
+      class: r.class,
+      revision: r.revision,
+      record: buildAllowlistedRecord(),
+    }))
+    : [];
+  return {
+    source_type: locks.SOURCE_TYPE_B,
+    source_ref: locks.SOURCE_REF_LAW_CARDINALITY,
+    observed_at: locks.LAW_CARDINALITY_REVERIFY_UTC,
+    unqualified_exactly_one_per_revision: false,
+    revision_lifetime_count_is_one: false,
+    may_continue_growing_due_to_scaling_restarts: true,
+    known_revision_lifetime_count_at_review: isWh ? 3 : 1,
+    claim_limited_to: 'exactly_one_in_declared_drill_query_window',
+    known_later_records_at_review: later,
+    note: isWh
+      ? 'WH target revision has additional valid SIGTERM completions after the drill window (later lifecycle/scaling/restart events). Revision-lifetime count is not one and may continue growing. 16Z claims exactly one only inside the declared WH drill query window.'
+      : 'Sunset known later records at review: none in lookback. Revision-lifetime exactly-one is still not claimed as a durable invariant (may grow via scaling/restarts). 16Z claims exactly one only inside the declared Sunset drill query window.',
+  };
+}
+
 function buildClassBTenant(kind) {
   const isWh = kind === 'wolfhouse';
   const tl = isWh ? locks.WH_TIMELINE_B : locks.SUNSET_TIMELINE_B;
@@ -202,21 +258,17 @@ function buildClassBTenant(kind) {
     },
     law_completion: {
       source_type: locks.SOURCE_TYPE_B,
-      source_ref: locks.SOURCE_REF_B,
-      observed_at: locks.INDEPENDENT_VERIFY_UTC,
+      source_ref: locks.SOURCE_REF_LAW_CARDINALITY,
+      observed_at: locks.LAW_CARDINALITY_REVERIFY_UTC,
       table: locks.LOG_TABLE,
+      cardinality_semantics: locks.CARDINALITY_SEMANTICS,
+      query_window: buildLawQueryWindow(kind),
       match_count: 1,
       TimeGenerated: lawTime,
       revision: isWh ? locks.WH_REVISION : locks.SUNSET_REVISION,
-      record: {
-        event: locks.COMPLETION_RECORD.event,
-        original_signal: locks.COMPLETION_RECORD.original_signal,
-        pool_close_result: locks.COMPLETION_RECORD.pool_close_result,
-        server_close_result: locks.COMPLETION_RECORD.server_close_result,
-        failure_classes: [],
-        completion: true,
-      },
+      record: buildAllowlistedRecord(),
     },
+    law_revision_lifetime_disclosure: buildLawRevisionLifetimeDisclosure(kind),
     final_state: {
       source_type: locks.SOURCE_TYPE_B,
       source_ref: locks.SOURCE_REF_B,
@@ -253,6 +305,7 @@ function buildExpectedEvidence() {
     image_sha_full: locks.IMAGE_SHA_FULL,
     subscription_id: locks.SUBSCRIPTION_ID,
     independent_azure_verify_utc: locks.INDEPENDENT_VERIFY_UTC,
+    law_cardinality_reverify_utc: locks.LAW_CARDINALITY_REVERIFY_UTC,
     provenance_limitations: locks.PROVENANCE_LIMITATIONS,
     non_recoverability: locks.NON_RECOVERABILITY,
     observed_facts: {
@@ -280,7 +333,8 @@ function buildExpectedEvidence() {
           'acr_digests',
           'images_and_serving_revisions',
           'revision_create_timelines',
-          'law_shutdown_completion_exactly_one_each',
+          'law_shutdown_completion_exactly_one_each_in_declared_drill_query_window',
+          'law_revision_lifetime_later_records_disclosed',
           'probes',
           'public_current_healthz_readyz',
         ],
@@ -300,10 +354,11 @@ function buildExpectedEvidence() {
     explicitly_not_claimed: [...locks.EXPLICITLY_NOT_CLAIMED],
     disposition: {
       proves: [
-        'dual_staging_sigterm_cleanup_telemetry_law_exactly_one_each',
+        'dual_staging_sigterm_cleanup_telemetry_law_exactly_one_each_in_declared_drill_query_window',
         'allowlisted_completion_sigterm_pool_ok_server_ok_empty_failures',
         'post_restart_recovery_healthz_readyz_200_both_tenants',
         'exact_sha_95dc363_digests_revisions_healthy_serving',
+        'wh_later_sigterm_records_disclosed_revision_lifetime_not_one',
       ],
       does_not_prove: [...locks.EXPLICITLY_NOT_CLAIMED],
       g02_verdict: 'partial',
@@ -315,7 +370,7 @@ function buildExpectedEvidence() {
         verdict: 'partial',
         live_proven: [
           'lifecycle_wired_image_95dc363_deployed_wh_0000519_sunset_0000279',
-          'live_sigterm_completion_law_exactly_one_each_tenant',
+          'live_sigterm_completion_law_exactly_one_each_tenant_in_declared_drill_query_window',
           'post_restart_recovery_31x_healthz_readyz_200',
           'prior_16X_traffic_shed_retained',
           'prior_16Y_completion_log_source_retained',
@@ -513,6 +568,12 @@ function validateGateMatrix(matrix) {
     if (!/16Z|SIGTERM|LAW/i.test(String(g02.rationale || ''))) {
       errors.push('G02 rationale missing 16Z/SIGTERM/LAW facts');
     }
+    if (!/drill.?query.?window|bounded.?drill|query.?window/i.test(String(g02.rationale || ''))) {
+      errors.push('G02 rationale missing bounded drill query window cardinality');
+    }
+    if (!/later|revision.?lifetime|11:24:48|not one/i.test(String(g02.rationale || ''))) {
+      errors.push('G02 rationale missing later-record / revision-lifetime disclosure');
+    }
     if (!Array.isArray(g02.gaps) || !g02.gaps.some((g) => (
       /SIGINT|serving.?revision.?readyz.?503|readyz.?=?503|zero.?downtime/i.test(String(g))
     ))) {
@@ -593,15 +654,32 @@ function observationOk(tenantOrObs) {
   return { ok: true };
 }
 
-function lawCompletionOk(tenant, expectedTime) {
-  const lc = tenant && tenant.law_completion;
-  if (!lc) return { ok: false, detail: 'missing law_completion' };
-  if (lc.match_count !== 1) return { ok: false, detail: `match_count=${lc.match_count}` };
-  if (lc.TimeGenerated !== expectedTime) {
-    return { ok: false, detail: `TimeGenerated=${lc.TimeGenerated}` };
-  }
-  if (lc.table !== locks.LOG_TABLE) return { ok: false, detail: `table=${lc.table}` };
-  const rec = lc.record;
+function parseUtcMs(utc) {
+  const ms = Date.parse(String(utc || '').replace(
+    /\.(\d{3})\d*Z$/,
+    '.$1Z',
+  ));
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
+function timeInInclusiveWindow(timeUtc, window) {
+  const t = parseUtcMs(timeUtc);
+  const start = parseUtcMs(window && window.start_utc);
+  const end = parseUtcMs(window && window.end_utc);
+  if (![t, start, end].every(Number.isFinite)) return false;
+  return t >= start && t <= end;
+}
+
+function windowsOverlap(a, b) {
+  const a0 = parseUtcMs(a && a.start_utc);
+  const a1 = parseUtcMs(a && a.end_utc);
+  const b0 = parseUtcMs(b && b.start_utc);
+  const b1 = parseUtcMs(b && b.end_utc);
+  if (![a0, a1, b0, b1].every(Number.isFinite)) return true;
+  return a0 <= b1 && b0 <= a1;
+}
+
+function allowlistedRecordOk(rec) {
   if (!rec || typeof rec !== 'object' || Array.isArray(rec)) {
     return { ok: false, detail: 'record missing' };
   }
@@ -609,11 +687,6 @@ function lawCompletionOk(tenant, expectedTime) {
   const allowed = [...locks.ALLOWED_RECORD_KEYS].sort();
   if (keys.length !== allowed.length || keys.some((k, i) => k !== allowed[i])) {
     return { ok: false, detail: `record keys=${keys.join(',')}` };
-  }
-  for (const k of locks.ALLOWED_RECORD_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(rec, k)) {
-      return { ok: false, detail: `missing key ${k}` };
-    }
   }
   if (rec.event !== locks.COMPLETION_RECORD.event) return { ok: false, detail: 'event' };
   if (rec.original_signal !== locks.COMPLETION_RECORD.original_signal) {
@@ -629,6 +702,134 @@ function lawCompletionOk(tenant, expectedTime) {
     return { ok: false, detail: 'failure_classes' };
   }
   if (rec.completion !== true) return { ok: false, detail: 'completion' };
+  return { ok: true };
+}
+
+function lawCompletionOk(tenant, expectedTime, expectedWindow) {
+  const lc = tenant && tenant.law_completion;
+  if (!lc) return { ok: false, detail: 'missing law_completion' };
+  if (lc.cardinality_semantics !== locks.CARDINALITY_SEMANTICS) {
+    return { ok: false, detail: `cardinality_semantics=${lc.cardinality_semantics}` };
+  }
+  if (lc.source_ref !== locks.SOURCE_REF_LAW_CARDINALITY) {
+    return { ok: false, detail: 'law_completion source_ref' };
+  }
+  if (lc.observed_at !== locks.LAW_CARDINALITY_REVERIFY_UTC) {
+    return { ok: false, detail: 'law_completion observed_at' };
+  }
+  if (lc.match_count !== 1) return { ok: false, detail: `match_count=${lc.match_count}` };
+  if (lc.TimeGenerated !== expectedTime) {
+    return { ok: false, detail: `TimeGenerated=${lc.TimeGenerated}` };
+  }
+  if (lc.table !== locks.LOG_TABLE) return { ok: false, detail: `table=${lc.table}` };
+  const qw = lc.query_window;
+  if (!qw || typeof qw !== 'object') return { ok: false, detail: 'missing query_window' };
+  if (qw.start_utc !== expectedWindow.start_utc || qw.end_utc !== expectedWindow.end_utc) {
+    return { ok: false, detail: 'query_window bounds' };
+  }
+  if (qw.start_inclusive !== true || qw.end_inclusive !== true) {
+    return { ok: false, detail: 'query_window inclusivity' };
+  }
+  if (qw.semantics !== locks.WH_LAW_QUERY_WINDOW.semantics) {
+    return { ok: false, detail: `query_window semantics=${qw.semantics}` };
+  }
+  if (!qw.derivation || typeof qw.derivation !== 'string') {
+    return { ok: false, detail: 'query_window derivation' };
+  }
+  if (qw.source_type !== locks.SOURCE_TYPE_B || qw.source_ref !== locks.SOURCE_REF_LAW_CARDINALITY) {
+    return { ok: false, detail: 'query_window source refs' };
+  }
+  if (!timeInInclusiveWindow(lc.TimeGenerated, qw)) {
+    return { ok: false, detail: 'drill TimeGenerated outside query_window' };
+  }
+  return allowlistedRecordOk(lc.record);
+}
+
+function lawDisclosureOk(tenant, kind) {
+  const d = tenant && tenant.law_revision_lifetime_disclosure;
+  if (!d) return { ok: false, detail: 'missing law_revision_lifetime_disclosure' };
+  if (d.unqualified_exactly_one_per_revision !== false) {
+    return { ok: false, detail: 'unqualified_exactly_one_per_revision must be false' };
+  }
+  if (d.revision_lifetime_count_is_one !== false) {
+    return { ok: false, detail: 'revision_lifetime_count_is_one must be false' };
+  }
+  if (d.may_continue_growing_due_to_scaling_restarts !== true) {
+    return { ok: false, detail: 'may_continue_growing missing' };
+  }
+  if (d.claim_limited_to !== 'exactly_one_in_declared_drill_query_window') {
+    return { ok: false, detail: 'claim_limited_to' };
+  }
+  if (!Array.isArray(d.known_later_records_at_review)) {
+    return { ok: false, detail: 'known_later_records_at_review missing' };
+  }
+  if (kind === 'wolfhouse') {
+    if (d.known_revision_lifetime_count_at_review !== 3) {
+      return { ok: false, detail: 'WH lifetime count' };
+    }
+    if (d.known_later_records_at_review.length !== locks.WH_LATER_LAW_RECORDS_AT_REVIEW.length) {
+      return { ok: false, detail: 'WH later records length' };
+    }
+    for (let i = 0; i < locks.WH_LATER_LAW_RECORDS_AT_REVIEW.length; i += 1) {
+      const got = d.known_later_records_at_review[i];
+      const exp = locks.WH_LATER_LAW_RECORDS_AT_REVIEW[i];
+      if (!got || got.TimeGenerated !== exp.TimeGenerated) {
+        return { ok: false, detail: `later TimeGenerated[${i}]` };
+      }
+      if (got.class !== 'later_lifecycle_event_not_16z_drill_completion') {
+        return { ok: false, detail: `later class[${i}]` };
+      }
+      if (timeInInclusiveWindow(got.TimeGenerated, locks.WH_LAW_QUERY_WINDOW)) {
+        return { ok: false, detail: `later record[${i}] inside drill window` };
+      }
+      const rec = allowlistedRecordOk(got.record);
+      if (!rec.ok) return { ok: false, detail: `later record[${i}] ${rec.detail}` };
+    }
+  } else if (d.known_later_records_at_review.length !== 0) {
+    return { ok: false, detail: 'Sunset later records must be empty at review' };
+  }
+  return { ok: true };
+}
+
+function lawCardinalityContractOk(ev) {
+  const b = ev && ev.observed_facts && ev.observed_facts.B_independently_recoverable_azure_readonly;
+  if (!b) return { ok: false, detail: 'missing B' };
+  const wh = b.wolfhouse;
+  const su = b.sunset;
+  const whLaw = lawCompletionOk(wh, locks.WH_LAW_TIME, locks.WH_LAW_QUERY_WINDOW);
+  const suLaw = lawCompletionOk(su, locks.SUNSET_LAW_TIME, locks.SUNSET_LAW_QUERY_WINDOW);
+  if (!whLaw.ok) return { ok: false, detail: `WH ${whLaw.detail}` };
+  if (!suLaw.ok) return { ok: false, detail: `Sunset ${suLaw.detail}` };
+  const whDisc = lawDisclosureOk(wh, 'wolfhouse');
+  const suDisc = lawDisclosureOk(su, 'sunset');
+  if (!whDisc.ok) return { ok: false, detail: `WH disclosure ${whDisc.detail}` };
+  if (!suDisc.ok) return { ok: false, detail: `Sunset disclosure ${suDisc.detail}` };
+  if (windowsOverlap(wh.law_completion.query_window, su.law_completion.query_window)) {
+    return { ok: false, detail: 'drill query windows overlap' };
+  }
+  // Reject later records being relabelled as the drill completion.
+  for (const later of wh.law_revision_lifetime_disclosure.known_later_records_at_review) {
+    if (later.TimeGenerated === wh.law_completion.TimeGenerated) {
+      return { ok: false, detail: 'later record equals drill TimeGenerated' };
+    }
+    if (later.class !== 'later_lifecycle_event_not_16z_drill_completion') {
+      return { ok: false, detail: `later class=${later.class}` };
+    }
+    if (/^16z_drill|^drill_completion|relabelled_as_drill/i.test(String(later.class))) {
+      return { ok: false, detail: 'later record relabelled as drill completion' };
+    }
+  }
+  if (ev.claims_allowed.includes('law_exactly_one_sigterm_completion_each_tenant')
+    && !ev.claims_allowed.includes('law_exactly_one_sigterm_completion_each_tenant_in_declared_drill_query_window')) {
+    return { ok: false, detail: 'unbounded/unqualified exactly-one claim present' };
+  }
+  if (!ev.explicitly_not_claimed.includes('revision_lifetime_exactly_one_sigterm_completion')
+    || !ev.explicitly_not_claimed.includes('unbounded_law_cardinality_exactly_one')) {
+    return { ok: false, detail: 'missing cardinality exclusions' };
+  }
+  if (ev.law_cardinality_reverify_utc !== locks.LAW_CARDINALITY_REVERIFY_UTC) {
+    return { ok: false, detail: 'law_cardinality_reverify_utc' };
+  }
   return { ok: true };
 }
 
@@ -764,10 +965,19 @@ function runVerifier() {
   }
 
   {
-    const whLaw = lawCompletionOk(classBTenant(evidence, 'wolfhouse'), locks.WH_LAW_TIME);
-    const suLaw = lawCompletionOk(classBTenant(evidence, 'sunset'), locks.SUNSET_LAW_TIME);
-    ok('C9 LAW exactly one each + allowlisted SIGTERM/ok/ok/[]/true',
-      whLaw.ok && suLaw.ok, `${whLaw.detail}|${suLaw.detail}`);
+    const card = lawCardinalityContractOk(evidence);
+    const whLaw = lawCompletionOk(
+      classBTenant(evidence, 'wolfhouse'),
+      locks.WH_LAW_TIME,
+      locks.WH_LAW_QUERY_WINDOW,
+    );
+    const suLaw = lawCompletionOk(
+      classBTenant(evidence, 'sunset'),
+      locks.SUNSET_LAW_TIME,
+      locks.SUNSET_LAW_QUERY_WINDOW,
+    );
+    ok('C9 LAW exactly one each in declared drill windows + allowlisted payload + later disclosure',
+      card.ok && whLaw.ok && suLaw.ok, `${card.detail}|${whLaw.detail}|${suLaw.detail}`);
   }
 
   {
@@ -786,19 +996,22 @@ function runVerifier() {
     && topContract.selected_16w
     && topContract.selected_16w.g02_lifecycle_source === 'closed_via_16W');
 
-  ok('C12 doc mentions 16Z + SIGTERM/LAW without G02 proven overclaim',
+  ok('C12 doc mentions 16Z + SIGTERM/LAW drill windows without G02 proven overclaim',
     /16Z|g02.?live.?sigterm/i.test(doc)
     && /SIGTERM/i.test(doc)
     && /LAW|completion/i.test(doc)
     && /partial/i.test(doc)
     && /transcript|provenance|class A|operator-observed/i.test(doc)
     && /independently|class B|Azure read-only|LAW/i.test(doc)
+    && /drill.?query.?window|11:15:18Z|bounded/i.test(doc)
+    && /11:24:48|later|revision.?lifetime/i.test(doc)
     && !/\bG02\s+proven\b/i.test(doc));
 
   ok('C13 findings mention 16Z without proven overclaim',
     /16Z/.test(findings)
     && /SIGTERM|sigterm/i.test(findings)
     && /partial/i.test(findings)
+    && /drill.?query.?window|11:15:18Z|cardinality/i.test(findings)
     && !/\bG02\s+proven\b/i.test(findings));
 
   {
@@ -835,8 +1048,17 @@ function runVerifier() {
     && evidence.disposition.does_not_prove.includes('concurrent_restart_continuity'));
 
   green('law_completions_exact_both_tenants',
-    lawCompletionOk(classBTenant(evidence, 'wolfhouse'), locks.WH_LAW_TIME).ok
-    && lawCompletionOk(classBTenant(evidence, 'sunset'), locks.SUNSET_LAW_TIME).ok);
+    lawCardinalityContractOk(evidence).ok
+    && lawCompletionOk(
+      classBTenant(evidence, 'wolfhouse'),
+      locks.WH_LAW_TIME,
+      locks.WH_LAW_QUERY_WINDOW,
+    ).ok
+    && lawCompletionOk(
+      classBTenant(evidence, 'sunset'),
+      locks.SUNSET_LAW_TIME,
+      locks.SUNSET_LAW_QUERY_WINDOW,
+    ).ok);
 
   green('post_restart_sample_class_locked',
     observationOk(classATenant(evidence, 'wolfhouse')).ok
@@ -899,7 +1121,11 @@ function runVerifier() {
       '2026-07-21T00:00:00.0000000Z';
     red('wrong_wh_law_timestamp_rejected',
       !validateEvidenceExact(bad).ok
-      || !lawCompletionOk(classBTenant(bad, 'wolfhouse'), locks.WH_LAW_TIME).ok);
+      || !lawCompletionOk(
+        classBTenant(bad, 'wolfhouse'),
+        locks.WH_LAW_TIME,
+        locks.WH_LAW_QUERY_WINDOW,
+      ).ok);
   }
   {
     const bad = deepClone(evidence);
@@ -907,21 +1133,33 @@ function runVerifier() {
       '2026-07-21T00:00:00.0000000Z';
     red('wrong_sunset_law_timestamp_rejected',
       !validateEvidenceExact(bad).ok
-      || !lawCompletionOk(classBTenant(bad, 'sunset'), locks.SUNSET_LAW_TIME).ok);
+      || !lawCompletionOk(
+        classBTenant(bad, 'sunset'),
+        locks.SUNSET_LAW_TIME,
+        locks.SUNSET_LAW_QUERY_WINDOW,
+      ).ok);
   }
   {
     const bad = deepClone(evidence);
     bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse.law_completion.match_count = 2;
     red('duplicate_completion_rejected',
       !validateEvidenceExact(bad).ok
-      || !lawCompletionOk(classBTenant(bad, 'wolfhouse'), locks.WH_LAW_TIME).ok);
+      || !lawCompletionOk(
+        classBTenant(bad, 'wolfhouse'),
+        locks.WH_LAW_TIME,
+        locks.WH_LAW_QUERY_WINDOW,
+      ).ok);
   }
   {
     const bad = deepClone(evidence);
     bad.observed_facts.B_independently_recoverable_azure_readonly.sunset.law_completion.match_count = 0;
     red('missing_completion_rejected',
       !validateEvidenceExact(bad).ok
-      || !lawCompletionOk(classBTenant(bad, 'sunset'), locks.SUNSET_LAW_TIME).ok);
+      || !lawCompletionOk(
+        classBTenant(bad, 'sunset'),
+        locks.SUNSET_LAW_TIME,
+        locks.SUNSET_LAW_QUERY_WINDOW,
+      ).ok);
   }
   {
     const bad = deepClone(evidence);
@@ -929,14 +1167,22 @@ function runVerifier() {
     bad.observed_facts.B_independently_recoverable_azure_readonly.sunset.law_completion.record.server_close_result = 'error';
     red('non_ok_pool_or_server_rejected',
       !validateEvidenceExact(bad).ok
-      || !lawCompletionOk(classBTenant(bad, 'wolfhouse'), locks.WH_LAW_TIME).ok);
+      || !lawCompletionOk(
+        classBTenant(bad, 'wolfhouse'),
+        locks.WH_LAW_TIME,
+        locks.WH_LAW_QUERY_WINDOW,
+      ).ok);
   }
   {
     const bad = deepClone(evidence);
     bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse.law_completion.record.original_signal = 'SIGINT';
     red('wrong_signal_not_sigterm_rejected',
       !validateEvidenceExact(bad).ok
-      || !lawCompletionOk(classBTenant(bad, 'wolfhouse'), locks.WH_LAW_TIME).ok);
+      || !lawCompletionOk(
+        classBTenant(bad, 'wolfhouse'),
+        locks.WH_LAW_TIME,
+        locks.WH_LAW_QUERY_WINDOW,
+      ).ok);
   }
   {
     const bad = deepClone(evidence);
@@ -947,7 +1193,11 @@ function runVerifier() {
     bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse.law_completion.record.secret = fakeSk;
     bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse.law_completion.record.dsn = fakeDsn;
     const v = validateEvidenceExact(bad);
-    const law = lawCompletionOk(classBTenant(bad, 'wolfhouse'), locks.WH_LAW_TIME);
+    const law = lawCompletionOk(
+      classBTenant(bad, 'wolfhouse'),
+      locks.WH_LAW_TIME,
+      locks.WH_LAW_QUERY_WINDOW,
+    );
     const sec = secretFree(JSON.stringify(bad), 'tampered');
     red('extra_secret_fields_rejected', (!v.ok || !law.ok) && !sec.ok);
   }
@@ -1037,6 +1287,78 @@ function runVerifier() {
       samplesClaimFabricatedCurrentVerify(aWh)
       || !validateProvenanceSplit(bad).ok);
   }
+  {
+    const bad = deepClone(evidence);
+    bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse
+      .law_completion.cardinality_semantics = 'exactly_one_per_revision_unbounded';
+    bad.claims_allowed = bad.claims_allowed
+      .filter((c) => c !== 'law_exactly_one_sigterm_completion_each_tenant_in_declared_drill_query_window');
+    bad.claims_allowed.push('law_exactly_one_sigterm_completion_each_tenant');
+    delete bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse
+      .law_completion.query_window;
+    red('unbounded_cardinality_rejected',
+      !lawCardinalityContractOk(bad).ok
+      || !validateEvidenceExact(bad).ok);
+  }
+  {
+    const bad = deepClone(evidence);
+    bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse
+      .law_revision_lifetime_disclosure.revision_lifetime_count_is_one = true;
+    bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse
+      .law_revision_lifetime_disclosure.unqualified_exactly_one_per_revision = true;
+    bad.explicitly_not_claimed = bad.explicitly_not_claimed
+      .filter((x) => x !== 'revision_lifetime_exactly_one_sigterm_completion');
+    red('revision_lifetime_exactly_one_rejected',
+      !lawCardinalityContractOk(bad).ok
+      || !validateEvidenceExact(bad).ok);
+  }
+  {
+    const bad = deepClone(evidence);
+    bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse
+      .law_revision_lifetime_disclosure.known_later_records_at_review = [];
+    bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse
+      .law_revision_lifetime_disclosure.known_revision_lifetime_count_at_review = 1;
+    red('missing_later_record_disclosure_rejected',
+      !lawCardinalityContractOk(bad).ok
+      || !validateEvidenceExact(bad).ok);
+  }
+  {
+    const bad = deepClone(evidence);
+    bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse
+      .law_completion.TimeGenerated = '2026-07-21T11:24:48.5525367Z';
+    red('drill_record_outside_window_rejected',
+      !lawCompletionOk(
+        classBTenant(bad, 'wolfhouse'),
+        locks.WH_LAW_TIME,
+        locks.WH_LAW_QUERY_WINDOW,
+      ).ok
+      || !lawCardinalityContractOk(bad).ok
+      || !validateEvidenceExact(bad).ok);
+  }
+  {
+    const bad = deepClone(evidence);
+    bad.observed_facts.B_independently_recoverable_azure_readonly.sunset
+      .law_completion.query_window.start_utc = '2026-07-21T11:17:00Z';
+    red('overlapping_windows_rejected',
+      windowsOverlap(
+        bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse.law_completion.query_window,
+        bad.observed_facts.B_independently_recoverable_azure_readonly.sunset.law_completion.query_window,
+      )
+      || !lawCardinalityContractOk(bad).ok
+      || !validateEvidenceExact(bad).ok);
+  }
+  {
+    const bad = deepClone(evidence);
+    const later = bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse
+      .law_revision_lifetime_disclosure.known_later_records_at_review[0];
+    later.class = '16z_drill_completion';
+    later.TimeGenerated = locks.WH_LAW_TIME;
+    bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse
+      .law_completion.TimeGenerated = later.TimeGenerated;
+    red('later_records_relabelled_as_drill_completions_rejected',
+      !lawCardinalityContractOk(bad).ok
+      || !validateEvidenceExact(bad).ok);
+  }
 
   const REQUIRED_RED = [
     'wrong_sha_rejected',
@@ -1060,6 +1382,12 @@ function runVerifier() {
     'doc_overclaim_tokens_rejected',
     'missing_provenance_split_rejected',
     'fabricated_current_verification_of_historical_samples_rejected',
+    'unbounded_cardinality_rejected',
+    'revision_lifetime_exactly_one_rejected',
+    'missing_later_record_disclosure_rejected',
+    'drill_record_outside_window_rejected',
+    'overlapping_windows_rejected',
+    'later_records_relabelled_as_drill_completions_rejected',
   ];
   const REQUIRED_GREEN = [
     'claims_and_disposition_locked',
@@ -1088,6 +1416,8 @@ module.exports = {
   validateProvenanceSplit,
   observationOk,
   lawCompletionOk,
+  lawCardinalityContractOk,
+  windowsOverlap,
   runVerifier,
 };
 

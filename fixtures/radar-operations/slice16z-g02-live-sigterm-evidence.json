@@ -16,8 +16,9 @@
   "image_sha_full": "95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
   "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
   "independent_azure_verify_utc": "2026-07-21T11:42:38Z",
-  "provenance_limitations": "Class A operator restart windows and post-restart healthz/readyz sample arrays are operator-observed contemporaneous transcript facts. Class B digests/revisions/LAW completion records/probes/public-current are independently reverified Azure/ACR/LAW/public read-only facts at independent_azure_verify_utc. Do not treat A as Azure-reconstructible, and do not treat current public probes as authority to rewrite A historical samples or claim concurrent restart continuity.",
-  "non_recoverability": "Azure/ACR/LAW read-only APIs cannot recreate or replay the historical post-restart healthz/readyz sample arrays or operator restart command windows; those values exist only in the operator drill command transcript. Current public probes and LAW queries verify present state / stored completion rows only.",
+  "law_cardinality_reverify_utc": "2026-07-21T11:59:43Z",
+  "provenance_limitations": "Class A operator restart windows and post-restart healthz/readyz sample arrays are operator-observed contemporaneous transcript facts. Class B digests/revisions/probes/public-current are independently reverified Azure/ACR/public read-only facts at independent_azure_verify_utc; LAW drill-window cardinality + later-record disclosure are independently reverified at law_cardinality_reverify_utc via bounded non-overlapping query windows. Unqualified revision-lifetime exactly-one is false (WH has later SIGTERM completions; count may grow via scaling/restarts). Do not treat A as Azure-reconstructible, and do not treat current public probes as authority to rewrite A historical samples or claim concurrent restart continuity.",
+  "non_recoverability": "Azure/ACR/LAW read-only APIs cannot recreate or replay the historical post-restart healthz/readyz sample arrays or operator restart command windows; those values exist only in the operator drill command transcript. Current public probes and LAW queries verify present state / stored completion rows only. LAW cardinality claims require declared bounded query windows; revision-lifetime counts are not frozen at one.",
   "observed_facts": {
     "A_operator_observed_drill_transcript": {
       "source_type": "operator_drill_transcript_contemporaneous_observation",
@@ -745,7 +746,8 @@
         "acr_digests",
         "images_and_serving_revisions",
         "revision_create_timelines",
-        "law_shutdown_completion_exactly_one_each",
+        "law_shutdown_completion_exactly_one_each_in_declared_drill_query_window",
+        "law_revision_lifetime_later_records_disclosed",
         "probes",
         "public_current_healthz_readyz"
       ],
@@ -786,9 +788,21 @@
         },
         "law_completion": {
           "source_type": "azure_acr_law_readonly_independently_reverified",
-          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
-          "observed_at": "2026-07-21T11:42:38Z",
+          "source_ref": "az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T11:59:43Z",
+          "observed_at": "2026-07-21T11:59:43Z",
           "table": "ContainerAppConsoleLogs_CL",
+          "cardinality_semantics": "exactly_one_in_declared_bounded_drill_query_window_not_revision_lifetime",
+          "query_window": {
+            "start_utc": "2026-07-21T11:15:18Z",
+            "end_utc": "2026-07-21T11:17:18Z",
+            "start_inclusive": true,
+            "end_inclusive": true,
+            "semantics": "bounded_non_overlapping_drill_query_window",
+            "derivation": "WH drill LAW query window = operator restart start 2026-07-21T11:15:18Z through 2026-07-21T11:17:18Z (inclusive); locked non-overlapping with Sunset window; cardinality claim is exactly one target-revision allowlisted completion in this window only",
+            "source_type": "azure_acr_law_readonly_independently_reverified",
+            "source_ref": "az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T11:59:43Z",
+            "observed_at": "2026-07-21T11:59:43Z"
+          },
           "match_count": 1,
           "TimeGenerated": "2026-07-21T11:16:20.3631884Z",
           "revision": "wh-staging-staff-api--0000519",
@@ -800,6 +814,45 @@
             "failure_classes": [],
             "completion": true
           }
+        },
+        "law_revision_lifetime_disclosure": {
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T11:59:43Z",
+          "observed_at": "2026-07-21T11:59:43Z",
+          "unqualified_exactly_one_per_revision": false,
+          "revision_lifetime_count_is_one": false,
+          "may_continue_growing_due_to_scaling_restarts": true,
+          "known_revision_lifetime_count_at_review": 3,
+          "claim_limited_to": "exactly_one_in_declared_drill_query_window",
+          "known_later_records_at_review": [
+            {
+              "TimeGenerated": "2026-07-21T11:24:48.5525367Z",
+              "class": "later_lifecycle_event_not_16z_drill_completion",
+              "revision": "wh-staging-staff-api--0000519",
+              "record": {
+                "event": "staff_api_readiness_shutdown_completion",
+                "original_signal": "SIGTERM",
+                "pool_close_result": "ok",
+                "server_close_result": "ok",
+                "failure_classes": [],
+                "completion": true
+              }
+            },
+            {
+              "TimeGenerated": "2026-07-21T11:47:54.2072273Z",
+              "class": "later_lifecycle_event_not_16z_drill_completion",
+              "revision": "wh-staging-staff-api--0000519",
+              "record": {
+                "event": "staff_api_readiness_shutdown_completion",
+                "original_signal": "SIGTERM",
+                "pool_close_result": "ok",
+                "server_close_result": "ok",
+                "failure_classes": [],
+                "completion": true
+              }
+            }
+          ],
+          "note": "WH target revision has additional valid SIGTERM completions after the drill window (later lifecycle/scaling/restart events). Revision-lifetime count is not one and may continue growing. 16Z claims exactly one only inside the declared WH drill query window."
         },
         "final_state": {
           "source_type": "azure_acr_law_readonly_independently_reverified",
@@ -862,9 +915,21 @@
         },
         "law_completion": {
           "source_type": "azure_acr_law_readonly_independently_reverified",
-          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
-          "observed_at": "2026-07-21T11:42:38Z",
+          "source_ref": "az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T11:59:43Z",
+          "observed_at": "2026-07-21T11:59:43Z",
           "table": "ContainerAppConsoleLogs_CL",
+          "cardinality_semantics": "exactly_one_in_declared_bounded_drill_query_window_not_revision_lifetime",
+          "query_window": {
+            "start_utc": "2026-07-21T11:17:30Z",
+            "end_utc": "2026-07-21T11:19:30Z",
+            "start_inclusive": true,
+            "end_inclusive": true,
+            "semantics": "bounded_non_overlapping_drill_query_window",
+            "derivation": "Sunset drill LAW query window = operator restart start 2026-07-21T11:17:30Z through 2026-07-21T11:19:30Z (inclusive); locked non-overlapping with WH window; cardinality claim is exactly one target-revision allowlisted completion in this window only",
+            "source_type": "azure_acr_law_readonly_independently_reverified",
+            "source_ref": "az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T11:59:43Z",
+            "observed_at": "2026-07-21T11:59:43Z"
+          },
           "match_count": 1,
           "TimeGenerated": "2026-07-21T11:18:04.1610218Z",
           "revision": "luna-sunset-staging-staff-api--0000279",
@@ -876,6 +941,18 @@
             "failure_classes": [],
             "completion": true
           }
+        },
+        "law_revision_lifetime_disclosure": {
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T11:59:43Z",
+          "observed_at": "2026-07-21T11:59:43Z",
+          "unqualified_exactly_one_per_revision": false,
+          "revision_lifetime_count_is_one": false,
+          "may_continue_growing_due_to_scaling_restarts": true,
+          "known_revision_lifetime_count_at_review": 1,
+          "claim_limited_to": "exactly_one_in_declared_drill_query_window",
+          "known_later_records_at_review": [],
+          "note": "Sunset known later records at review: none in lookback. Revision-lifetime exactly-one is still not claimed as a durable invariant (may grow via scaling/restarts). 16Z claims exactly one only inside the declared Sunset drill query window."
         },
         "final_state": {
           "source_type": "azure_acr_law_readonly_independently_reverified",
@@ -915,11 +992,12 @@
     "exact_sha_95dc363_images_digests_both_tenants",
     "revisions_wh_0000519_sunset_0000279_healthy_serving",
     "operator_restart_wh_111518_111521_sunset_111730_111733",
-    "law_exactly_one_sigterm_completion_each_tenant",
+    "law_exactly_one_sigterm_completion_each_tenant_in_declared_drill_query_window",
     "allowlisted_completion_json_sigterm_pool_ok_server_ok_failures_empty_completion_true",
     "post_restart_31_healthz_readyz_200_pairs_approx_2s_both_tenants",
     "public_current_healthz_readyz_200_both_tenants",
-    "no_production_scope"
+    "no_production_scope",
+    "wh_later_sigterm_records_disclosed_not_drill_completions"
   ],
   "explicitly_not_claimed": [
     "sigint_live_lifecycle",
@@ -930,14 +1008,17 @@
     "human_inbox_receipt",
     "production",
     "full_G02_proven",
-    "any_gate_verdict_proven"
+    "any_gate_verdict_proven",
+    "revision_lifetime_exactly_one_sigterm_completion",
+    "unbounded_law_cardinality_exactly_one"
   ],
   "disposition": {
     "proves": [
-      "dual_staging_sigterm_cleanup_telemetry_law_exactly_one_each",
+      "dual_staging_sigterm_cleanup_telemetry_law_exactly_one_each_in_declared_drill_query_window",
       "allowlisted_completion_sigterm_pool_ok_server_ok_empty_failures",
       "post_restart_recovery_healthz_readyz_200_both_tenants",
-      "exact_sha_95dc363_digests_revisions_healthy_serving"
+      "exact_sha_95dc363_digests_revisions_healthy_serving",
+      "wh_later_sigterm_records_disclosed_revision_lifetime_not_one"
     ],
     "does_not_prove": [
       "sigint_live_lifecycle",
@@ -948,7 +1029,9 @@
       "human_inbox_receipt",
       "production",
       "full_G02_proven",
-      "any_gate_verdict_proven"
+      "any_gate_verdict_proven",
+      "revision_lifetime_exactly_one_sigterm_completion",
+      "unbounded_law_cardinality_exactly_one"
     ],
     "g02_verdict": "partial",
     "g02_progress_class": "partial_live_proven"
@@ -959,7 +1042,7 @@
       "verdict": "partial",
       "live_proven": [
         "lifecycle_wired_image_95dc363_deployed_wh_0000519_sunset_0000279",
-        "live_sigterm_completion_law_exactly_one_each_tenant",
+        "live_sigterm_completion_law_exactly_one_each_tenant_in_declared_drill_query_window",
         "post_restart_recovery_31x_healthz_readyz_200",
         "prior_16X_traffic_shed_retained",
         "prior_16Y_completion_log_source_retained"
@@ -983,5 +1066,5 @@
     "G08_retention_privacy",
     "G09_cost_controls"
   ],
-  "lock_hash": "554cda0da94863ece766c58f75bf26338202b82ca0383f5f769cab041ae5d53f"
+  "lock_hash": "0158eea333c025dc45ee387a3cfd513fd9b1244aa9deb87eca135bdaae73882f"
 }

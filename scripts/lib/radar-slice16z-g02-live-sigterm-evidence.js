@@ -8,9 +8,14 @@
  *   (A) operator-observed drill transcript contemporaneous facts
  *   (B) independently recoverable Azure/ACR/LAW read-only facts
  *
- * Proves: live SIGTERM cleanup telemetry + post-restart recovery both tenants.
+ * LAW cardinality is locked to exactly one allowlisted SIGTERM completion in each
+ * declared bounded non-overlapping drill query window — not revision-lifetime
+ * exactly-one (WH target revision has later lifecycle completions).
+ *
+ * Proves: live SIGTERM cleanup telemetry in drill windows + post-restart recovery.
  * Does not prove: SIGINT live, serving /readyz=503, zero-downtime during restart,
- * concurrent restart continuity, organic alerts, production, full G02.
+ * concurrent restart continuity, organic alerts, production, full G02,
+ * unqualified revision-lifetime exactly-one LAW cardinality.
  */
 
 const path = require('path');
@@ -96,14 +101,64 @@ const OBSERVED_AT_SEMANTICS_B = 'independently_reverified_at_recorded_utc';
 
 const INDEPENDENT_VERIFY_UTC = '2026-07-21T11:42:38Z';
 
+/** LAW cardinality reverify (bounded drill windows + later-record disclosure). */
+const LAW_CARDINALITY_REVERIFY_UTC = '2026-07-21T11:59:43Z';
+const SOURCE_REF_LAW_CARDINALITY =
+  'az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T11:59:43Z';
+
+const CARDINALITY_SEMANTICS =
+  'exactly_one_in_declared_bounded_drill_query_window_not_revision_lifetime';
+
+const WH_LAW_QUERY_WINDOW = Object.freeze({
+  start_utc: '2026-07-21T11:15:18Z',
+  end_utc: '2026-07-21T11:17:18Z',
+  start_inclusive: true,
+  end_inclusive: true,
+  semantics: 'bounded_non_overlapping_drill_query_window',
+  derivation:
+    'WH drill LAW query window = operator restart start 2026-07-21T11:15:18Z through '
+    + '2026-07-21T11:17:18Z (inclusive); locked non-overlapping with Sunset window; '
+    + 'cardinality claim is exactly one target-revision allowlisted completion in this window only',
+});
+
+const SUNSET_LAW_QUERY_WINDOW = Object.freeze({
+  start_utc: '2026-07-21T11:17:30Z',
+  end_utc: '2026-07-21T11:19:30Z',
+  start_inclusive: true,
+  end_inclusive: true,
+  semantics: 'bounded_non_overlapping_drill_query_window',
+  derivation:
+    'Sunset drill LAW query window = operator restart start 2026-07-21T11:17:30Z through '
+    + '2026-07-21T11:19:30Z (inclusive); locked non-overlapping with WH window; '
+    + 'cardinality claim is exactly one target-revision allowlisted completion in this window only',
+});
+
+const WH_LATER_LAW_RECORDS_AT_REVIEW = Object.freeze([
+  Object.freeze({
+    TimeGenerated: '2026-07-21T11:24:48.5525367Z',
+    class: 'later_lifecycle_event_not_16z_drill_completion',
+    revision: WH_REVISION,
+    record: Object.freeze({ ...COMPLETION_RECORD, failure_classes: Object.freeze([]) }),
+  }),
+  Object.freeze({
+    TimeGenerated: '2026-07-21T11:47:54.2072273Z',
+    class: 'later_lifecycle_event_not_16z_drill_completion',
+    revision: WH_REVISION,
+    record: Object.freeze({ ...COMPLETION_RECORD, failure_classes: Object.freeze([]) }),
+  }),
+]);
+
 const PROVENANCE_LIMITATIONS =
   'Class A operator restart windows and post-restart healthz/readyz sample arrays are operator-observed contemporaneous transcript facts. '
-  + 'Class B digests/revisions/LAW completion records/probes/public-current are independently reverified Azure/ACR/LAW/public read-only facts at independent_azure_verify_utc. '
+  + 'Class B digests/revisions/probes/public-current are independently reverified Azure/ACR/public read-only facts at independent_azure_verify_utc; '
+  + 'LAW drill-window cardinality + later-record disclosure are independently reverified at law_cardinality_reverify_utc via bounded non-overlapping query windows. '
+  + 'Unqualified revision-lifetime exactly-one is false (WH has later SIGTERM completions; count may grow via scaling/restarts). '
   + 'Do not treat A as Azure-reconstructible, and do not treat current public probes as authority to rewrite A historical samples or claim concurrent restart continuity.';
 
 const NON_RECOVERABILITY =
   'Azure/ACR/LAW read-only APIs cannot recreate or replay the historical post-restart healthz/readyz sample arrays or operator restart command windows; '
-  + 'those values exist only in the operator drill command transcript. Current public probes and LAW queries verify present state / stored completion rows only.';
+  + 'those values exist only in the operator drill command transcript. Current public probes and LAW queries verify present state / stored completion rows only. '
+  + 'LAW cardinality claims require declared bounded query windows; revision-lifetime counts are not frozen at one.';
 
 const OBS_CADENCE_S = 2;
 const OBS_SAMPLE_COUNT = 31;
@@ -176,17 +231,20 @@ const EXPLICITLY_NOT_CLAIMED = Object.freeze([
   'production',
   'full_G02_proven',
   'any_gate_verdict_proven',
+  'revision_lifetime_exactly_one_sigterm_completion',
+  'unbounded_law_cardinality_exactly_one',
 ]);
 
 const CLAIMS_ALLOWED = Object.freeze([
   'exact_sha_95dc363_images_digests_both_tenants',
   'revisions_wh_0000519_sunset_0000279_healthy_serving',
   'operator_restart_wh_111518_111521_sunset_111730_111733',
-  'law_exactly_one_sigterm_completion_each_tenant',
+  'law_exactly_one_sigterm_completion_each_tenant_in_declared_drill_query_window',
   'allowlisted_completion_json_sigterm_pool_ok_server_ok_failures_empty_completion_true',
   'post_restart_31_healthz_readyz_200_pairs_approx_2s_both_tenants',
   'public_current_healthz_readyz_200_both_tenants',
   'no_production_scope',
+  'wh_later_sigterm_records_disclosed_not_drill_completions',
 ]);
 
 const OWNED_RELS = Object.freeze([
@@ -308,6 +366,12 @@ module.exports = {
   SOURCE_REF_B,
   OBSERVED_AT_SEMANTICS_B,
   INDEPENDENT_VERIFY_UTC,
+  LAW_CARDINALITY_REVERIFY_UTC,
+  SOURCE_REF_LAW_CARDINALITY,
+  CARDINALITY_SEMANTICS,
+  WH_LAW_QUERY_WINDOW,
+  SUNSET_LAW_QUERY_WINDOW,
+  WH_LATER_LAW_RECORDS_AT_REVIEW,
   PROVENANCE_LIMITATIONS,
   NON_RECOVERABILITY,
   OBS_CADENCE_S,

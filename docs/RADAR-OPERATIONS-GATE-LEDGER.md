@@ -15,15 +15,15 @@ Reconcile the completed dual-staging **live SIGTERM lifecycle drill** with manda
 | Class | Source | Covers |
 |-------|--------|--------|
 | **A** | Operator drill transcript (contemporaneous) | Restart windows WH `11:15:18Z→11:15:21Z` / Sunset `11:17:30Z→11:17:33Z`; **post-restart** 31× `/healthz=200`+`/readyz=200` pairs ~every 2s (WH `11:15:22→11:16:25Z`, Sunset `11:17:35→11:18:38Z`) |
-| **B** | Independently reverified Azure/ACR/LAW @ `2026-07-21T11:42:38Z` | Digests WH `sha256:a9677f75…` rev `--0000519` / Sunset `sha256:8a0b1647…` rev `--0000279`; LAW exactly one `staff_api_readiness_shutdown_completion` each (WH `11:16:20.3631884Z`, Sunset `11:18:04.1610218Z`); allowlisted JSON SIGTERM/pool ok/server ok/`failures []`/`completion true`; probes; public-current 200 |
+| **B** | Independently reverified Azure/ACR @ `2026-07-21T11:42:38Z`; LAW cardinality reverify @ `2026-07-21T11:59:43Z` | Digests WH `sha256:a9677f75…` rev `--0000519` / Sunset `sha256:8a0b1647…` rev `--0000279`; **bounded non-overlapping drill query windows** — WH `11:15:18Z→11:17:18Z` exactly one completion `11:16:20.3631884Z`; Sunset `11:17:30Z→11:19:30Z` exactly one `11:18:04.1610218Z`; allowlisted JSON SIGTERM/pool ok/server ok/`failures []`/`completion true`; WH later lifecycle records disclosed `11:24:48.5525367Z`, `11:47:54.2072273Z` (revision-lifetime count **not** one; may grow via scaling/restarts); probes; public-current 200 |
 
 **Explicitly not covered by A:** concurrent restart continuity; zero downtime during restart.
 
 ## Truthful disposition
 
-**Proves (live):** SIGTERM cleanup telemetry delivered to LAW (exactly one allowlisted completion each tenant) + post-restart recovery `/healthz`+`/readyz=200` both staging tenants on exact SHA `95dc363`.
+**Proves (live):** SIGTERM cleanup telemetry delivered to LAW (**exactly one** allowlisted completion **in each declared drill query window**) + post-restart recovery `/healthz`+`/readyz=200` both staging tenants on exact SHA `95dc363`.
 
-**Does not prove:** SIGINT live; serving-revision `/readyz=503`; zero downtime during restart / concurrent restart continuity; organic metric alerts; human inbox; production; **full G02**.
+**Does not prove:** SIGINT live; serving-revision `/readyz=503`; zero downtime during restart / concurrent restart continuity; organic metric alerts; human inbox; production; **full G02**; unqualified revision-lifetime exactly-one LAW cardinality.
 
 **G02 verdict stays `partial`.** 16X traffic-shed and 16Y completion-log source retained.
 
@@ -92,7 +92,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | Shutdown completion log source | `source_closed_16Y` | one JSON record per shutdown |
 | Live lifecycle image deploy | `live_proven_16X` / `95dc363 via 16Z` | exact SHA both tenants |
 | Dependency-failure traffic-shed drill | `live_proven_16X` | Activating never latestReady |
-| SIGTERM live cleanup telemetry | `live_proven_16Z` | LAW exactly one allowlisted completion each |
+| SIGTERM live cleanup telemetry | `live_proven_16Z` | LAW exactly one allowlisted completion **in each declared drill query window** (not revision-lifetime) |
 | Post-restart recovery | `live_proven_16Z` | 31× healthz/readyz 200 post-restart (not concurrent continuity) |
 | SIGINT live lifecycle behavior | `open` | not exercised |
 | Serving-revision /readyz=503 path | `open` | fail rev never served traffic |
@@ -106,6 +106,17 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | `fixtures/radar-operations/slice16z-expected-contract.json` | Contract |
 | `scripts/lib/radar-slice16z-g02-live-sigterm-evidence.js` | Locks |
 | `scripts/verify-radar-slice16z-g02-live-sigterm-evidence.js` | Strict RED/GREEN verifier |
+
+## LAW cardinality (locked after correction)
+
+| Window | Bounds (inclusive) | Exact drill completion |
+|--------|--------------------|------------------------|
+| WH | `2026-07-21T11:15:18Z` → `2026-07-21T11:17:18Z` | `2026-07-21T11:16:20.3631884Z` |
+| Sunset | `2026-07-21T11:17:30Z` → `2026-07-21T11:19:30Z` | `2026-07-21T11:18:04.1610218Z` |
+
+Windows are non-overlapping. Query start/end are inclusive. Source refs: digests/probes `az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z`; LAW windows `az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T11:59:43Z`.
+
+**WH later records known at review (not drill completions):** `11:24:48.5525367Z`, `11:47:54.2072273Z`. Revision-lifetime count is **not** one and may continue growing due to scaling/restarts. Claim is limited to exactly one in each declared drill window.
 
 ## Still open
 

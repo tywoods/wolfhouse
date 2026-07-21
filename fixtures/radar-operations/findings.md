@@ -23,6 +23,7 @@
 6. Zero downtime during restart / concurrent restart continuity — **not claimed** (post-restart samples only).
 7. Human inbox receipt / organic metric alert firing.
 8. Production — forbidden.
+9. Unqualified revision-lifetime exactly-one LAW cardinality — **false** at WH target revision; not claimed.
 
 ## Gate progress after 16Z (truthful)
 
@@ -40,7 +41,7 @@
 
 ## Slice 16Z
 
-`16Z_g02_live_sigterm_lifecycle_evidence` — reconciles dual-staging live SIGTERM drill with provenance split (A)/(B). Class A: operator restart + 31 post-restart healthz/readyz 200 pairs. Class B: digests/revisions/LAW exactly-one allowlisted SIGTERM completion each @ verify UTC `2026-07-21T11:42:38Z`. **Does not claim** SIGINT live, serving `/readyz=503`, zero-downtime-during-restart, organic alerts, production, or closing G02 as fully proven. G02 stays **partial**.
+`16Z_g02_live_sigterm_lifecycle_evidence` — reconciles dual-staging live SIGTERM drill with provenance split (A)/(B). Class A: operator restart + 31 post-restart healthz/readyz 200 pairs. Class B: digests/revisions/probes @ `2026-07-21T11:42:38Z`; LAW cardinality @ `2026-07-21T11:59:43Z` = exactly one allowlisted SIGTERM completion **in each declared non-overlapping drill query window** (WH `11:15:18Z–11:17:18Z` → `11:16:20.3631884Z`; Sunset `11:17:30Z–11:19:30Z` → `11:18:04.1610218Z`). WH later records disclosed (`11:24:48.5525367Z`, `11:47:54.2072273Z`); revision-lifetime count is not one. **Does not claim** SIGINT live, serving `/readyz=503`, zero-downtime-during-restart, organic alerts, production, or closing G02 as fully proven. G02 stays **partial**.
 
 ## Slice 16Y (retained)
 
