@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16T",
+  "outcome_id": "16T_e2e_correlation_drill_harness",
+  "gate_id": "G01_correlation_structured_logs",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "87121456db90a9f80ff8b3679596bc49c235cbfc",
+  "branch": "radar/slice-16t-e2e-correlation-drill",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "this_slice_executes_live_drill": false,
+  "title": "Staging-only dry-run-default E2E correlation-drill harness — G01 source-partial; live drill remains open",
+  "boundary_map_fixture": "fixtures/radar-operations/slice16t-boundary-map.json",
+  "builds_on": {
+    "outcome_ids": [
+      "16J_staff_api_request_correlation",
+      "16R_staff_api_request_completion_log",
+      "16S_request_completion_log_live_evidence",
+      "16O_stripe_webhook_error_minimization"
+    ],
+    "gate_id": "G01_correlation_structured_logs"
+  },
+  "required_hard_locks": {
+    "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "tenants": ["wolfhouse", "sunset"],
+    "confirmation_phrase": "RADAR-16T-CORRELATION-DRILL",
+    "stripe_mode": "test",
+    "image_sha_full": "87121456db90a9f80ff8b3679596bc49c235cbfc",
+    "image_sha_short": "87121456",
+    "wolfhouse_staff_host": "staff-staging.lunafrontdesk.com",
+    "wolfhouse_staff_app": "wh-staging-staff-api",
+    "wolfhouse_hermes_host": "lunabox.lunafrontdesk.com",
+    "wolfhouse_client_slug": "wolfhouse-somo",
+    "sunset_staff_host": "sunset-staging.lunafrontdesk.com",
+    "sunset_staff_app": "luna-sunset-staging-staff-api",
+    "sunset_hermes_container": "hermes-sunset-luna",
+    "sunset_client_slug": "sunset"
+  },
+  "boundaries": [
+    "meta_shaped_ingress",
+    "hermes_gateway",
+    "staff_api",
+    "stripe_test_mode"
+  ],
+  "cli": {
+    "script": "scripts/run-radar-slice16t-e2e-correlation-drill.js",
+    "default_mode": "dry-run",
+    "apply_requires": ["--apply", "--confirm RADAR-16T-CORRELATION-DRILL"],
+    "tenant_flag": "--tenant wolfhouse|sunset"
+  },
+  "forbidden_claim_tokens": [
+    "live_e2e_correlation_drill_executed",
+    "live_e2e_correlation_drill_proven",
+    "gate_verdict_proven",
+    "verdict proven",
+    "production",
+    "booking created",
+    "payment link",
+    "guest whatsapp send"
+  ],
+  "must_not_claim_as_proven": [
+    "live_e2e_meta_hermes_staff_stripe_correlation_drill",
+    "any_gate_verdict_proven",
+    "g02_g09_score_changes",
+    "production",
+    "hermes_x_request_id_forward_to_staff_bot"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "G01 remains partial; 16T adds source-partial harness only; 16S live-proven delivery/search/retention retained; live E2E drill stays open"
+  },
+  "still_open": [
+    "End-to-end Meta → Hermes → Staff API → Stripe correlation drill (live execution + evidence freeze)",
+    "Hermes X-Request-Id echo / forward proof on staging",
+    "Concurrent isolation proof in LAW",
+    "Abort/error completion outcomes searchable in LAW",
+    "Production scope (forbidden)"
+  ],
+  "final_controlled_drill": {
+    "id": "16T_DRILL_e2e_correlation_harness_source_only",
+    "status": "source_partial_harness_ready_live_open",
+    "pass_rule": "Offline verifier proves dry-run default, apply+confirmation gate, hard locks, same-ID evidence evaluation, and RED cases (wrong scope, production host, real Stripe mode, missing correlation, ID substitution, duplicate records, sensitive fields, unsupported ingress, mutation-capable path). Live drill not executed by this slice."
+  },
+  "artifacts": [
+    "fixtures/radar-operations/slice16t-boundary-map.json",
+    "fixtures/radar-operations/slice16t-expected-contract.json",
+    "scripts/lib/radar-slice16t-e2e-correlation-drill.js",
+    "scripts/run-radar-slice16t-e2e-correlation-drill.js",
+    "scripts/verify-radar-slice16t-e2e-correlation-drill.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16t-e2e-correlation-drill",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16s-request-log-live-evidence",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 87121456db90a9f80ff8b3679596bc49c235cbfc..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "docker/hermes-sunset/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-request-correlation.js",
+      "scripts/lib/staff-api-request-completion-log.js",
+      "scripts/lib/stripe-webhook-public-errors.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16T is harness source-partial only; does not deploy, does not execute live drill, does not mutate runtime"
+  }
+}

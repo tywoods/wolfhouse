@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16T",
+  "outcome_id": "16T_e2e_correlation_drill_harness",
+  "master_basis": "87121456db90a9f80ff8b3679596bc49c235cbfc",
+  "branch": "radar/slice-16t-e2e-correlation-drill",
+  "title": "Wolfhouse + Sunset staging correlation boundary map (synthetic Meta-shaped; no live drill)",
+  "architecture_note": "Stripe does not ride through Hermes. Correlation drill proves one operator UUIDv4 across Meta-shaped Staff dual-ingress, Hermes gateway echo, Staff /healthz, and Stripe pre-verify — without bookings/holds/links/charges/guest sends.",
+  "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "tenants": {
+    "wolfhouse": {
+      "tenant": "wolfhouse",
+      "client_slug": "wolfhouse-somo",
+      "resource_group": "wh-staging-rg",
+      "staff_public_host": "staff-staging.lunafrontdesk.com",
+      "staff_app": "wh-staging-staff-api",
+      "staff_base_url": "https://staff-staging.lunafrontdesk.com",
+      "hermes_public_host": "lunabox.lunafrontdesk.com",
+      "hermes_container": "hermes-luna",
+      "hermes_port": 8090,
+      "hermes_webhook_path": "/whatsapp/webhook",
+      "hermes_webhook_url": "https://lunabox.lunafrontdesk.com/whatsapp/webhook",
+      "hermes_role": "luna",
+      "phone_number_id_env": "WHATSAPP_CLOUD_PHONE_NUMBER_ID",
+      "phone_number_id_fixture_sample": "1152900101233109",
+      "stripe_mode": "test",
+      "stripe_webhook_client_slug": null,
+      "stripe_webhook_path": "/staff/stripe/webhook",
+      "meta_webhook_path": "/staff/meta/whatsapp/webhook",
+      "healthz_path": "/healthz"
+    },
+    "sunset": {
+      "tenant": "sunset",
+      "client_slug": "sunset",
+      "resource_group": "luna-sunset-staging-rg",
+      "staff_public_host": "sunset-staging.lunafrontdesk.com",
+      "staff_app": "luna-sunset-staging-staff-api",
+      "staff_base_url": "https://sunset-staging.lunafrontdesk.com",
+      "hermes_public_host": null,
+      "hermes_container": "hermes-sunset-luna",
+      "hermes_port": 8092,
+      "hermes_webhook_path": "/whatsapp/webhook",
+      "hermes_webhook_url": "http://127.0.0.1:8092/whatsapp/webhook",
+      "hermes_probe_mode": "lunabox_local_only",
+      "hermes_role": "sunset-luna",
+      "phone_number_id_env": "SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID",
+      "phone_number_id_fixture_sample": null,
+      "stripe_mode": "test",
+      "stripe_webhook_client_slug": "sunset",
+      "stripe_webhook_path": "/staff/stripe/webhook",
+      "meta_webhook_path": "/staff/meta/whatsapp/webhook",
+      "healthz_path": "/healthz"
+    }
+  },
+  "boundaries": [
+    {
+      "id": "meta_shaped_ingress",
+      "description": "Meta-shaped unsigned POST to Staff dual-ingress webhook (signature fail-closed; no guest write)",
+      "method": "POST",
+      "path_key": "meta_webhook_path",
+      "host_key": "staff_base_url",
+      "expects_status_class": "4xx",
+      "mutation": false,
+      "requires_correlation_echo": true
+    },
+    {
+      "id": "hermes_gateway",
+      "description": "Synthetic Meta-shaped unsigned POST to Hermes WhatsApp webhook; must echo X-Request-Id without guest send",
+      "method": "POST",
+      "path_key": "hermes_webhook_path",
+      "url_key": "hermes_webhook_url",
+      "expects_status_class": "any_non_mutating",
+      "mutation": false,
+      "requires_correlation_echo": true
+    },
+    {
+      "id": "staff_api",
+      "description": "Staff API GET /healthz with operator X-Request-Id (16J/16S)",
+      "method": "GET",
+      "path_key": "healthz_path",
+      "host_key": "staff_base_url",
+      "expects_status_class": "2xx",
+      "mutation": false,
+      "requires_correlation_echo": true
+    },
+    {
+      "id": "stripe_test_mode",
+      "description": "Staff Stripe webhook POST with missing signature (16O pre-verify; no payment_events write)",
+      "method": "POST",
+      "path_key": "stripe_webhook_path",
+      "host_key": "staff_base_url",
+      "expects_status_class": "4xx",
+      "mutation": false,
+      "requires_correlation_echo": true
+    }
+  ],
+  "reuse": {
+    "staff_correlation": "scripts/lib/staff-api-request-correlation.js",
+    "staff_completion": "scripts/lib/staff-api-request-completion-log.js",
+    "meta_fail_closed": "scripts/lib/meta-whatsapp-signature-config.js",
+    "stripe_public_errors": "scripts/lib/stripe-webhook-public-errors.js",
+    "meta_shaped_envelope": "docker/hermes-staging/wolfhouse/simulate_core.py#build_meta_webhook_payload"
+  },
+  "forbidden_mutation_paths": [
+    "/staff/bot/open-demo-whatsapp-inbound-dry-run",
+    "/staff/test/reset-luna-phone",
+    "/staff/payments",
+    "/staff/bot/create",
+    "/staff/bot/hold",
+    "/staff/bot/generate-guest-payment-link",
+    "/staff/guest-simulator-create-stripe-test-link",
+    "/staff/guest-simulator-create-hold-draft",
+    "checkout.session",
+    "payment_intent",
+    "sk_live_"
+  ],
+  "forbidden_ingress": [
+    "production_meta_webhook",
+    "signed_live_guest_message",
+    "hermes_staff_bot_tool_booking",
+    "hermes_staff_bot_payment_link",
+    "valid_stripe_checkout_completed",
+    "whatsapp_cloud_send"
+  ],
+  "fail_closed_rule": "Refuse if any boundary cannot preserve the same X-Request-Id without invoking a real guest/payment mutation; Hermes→Staff bot tool path is not an allowlisted correlation hop."
+}

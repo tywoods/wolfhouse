@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16S",
-  "title": "RADAR operations gate ledger (16S dual-staging request-completion delivery/search/retention evidence; G01 partial_live_proven)",
-  "master_basis": "1bf9695264250680c41c3e7f82baba97300001a0",
-  "branch": "radar/slice-16s-request-log-live-evidence",
+  "slice": "RADAR-16T",
+  "title": "RADAR operations gate ledger (16T E2E correlation-drill harness source-partial; G01 partial — live drill open)",
+  "master_basis": "87121456db90a9f80ff8b3679596bc49c235cbfc",
+  "branch": "radar/slice-16t-e2e-correlation-drill",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -31,7 +31,7 @@
       "name": "Correlation / structured logs",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16J adds Staff API HTTP-boundary request correlation (AsyncLocalStorage). 16R extends 16J with exactly one allowlisted staff_api_request_completion record per real HTTP request. 16S records operator-observed dual-staging live proof on exact SHA 1bf9695264250680c41c3e7f82baba97300001a0: Wolfhouse revision wh-staging-staff-api--0000517 (request aaaaaaaa-bbbb-4ccc-8ddd-16a000000001) and Sunset luna-sunset-staging-staff-api--0000277 tenant sunset (request aaaaaaaa-bbbb-4ccc-8ddd-16a000000002); both latest=latestReady and public /healthz 200; ACA env logsDestination=log-analytics; LAW workspaces wh-staging-logs (customerId 43ae26dd-4a82-4a91-b744-5e1f94a2ae8f, retention 30) and luna-sunset-staging-logs (customerId 552489bf-8e57-48df-8413-6e775caaa7d0, retention 30); independently queried ContainerAppConsoleLogs_CL by supplied request ID yields exactly one bounded completion line each (route /healthz status 200 2xx duration_ms 5 outcome completed) at 2026-07-20T23:32:38.0049767Z and 2026-07-20T23:32:54.8551295Z. Partial/live-proven for deploy+delivery+search+retention only — end-to-end Meta → Hermes → Staff API → Stripe correlation drill remains open. Verdict stays partial; not a full end-to-end close.",
+      "rationale": "16J adds Staff API HTTP-boundary request correlation (AsyncLocalStorage). 16R extends 16J with exactly one allowlisted staff_api_request_completion record per real HTTP request. 16S records operator-observed dual-staging live proof on exact SHA 1bf9695264250680c41c3e7f82baba97300001a0: Wolfhouse revision wh-staging-staff-api--0000517 and Sunset luna-sunset-staging-staff-api--0000277; LAW ContainerAppConsoleLogs_CL searchable by request ID with retention 30. 16T adds a staging-only dry-run-default E2E correlation-drill harness (source-partial only) that hard-locks wolfhouse|sunset staging hosts/tenant/phone-runtime/Staff app/Stripe test mode/subscription/master SHA 87121456, requires --apply plus exact confirmation RADAR-16T-CORRELATION-DRILL for live probes, generates one correlation ID, and fail-closes if any Meta-shaped/Hermes/Staff/Stripe boundary cannot preserve that ID without a guest/payment mutation. Live E2E drill is not executed by 16T and remains open. Verdict stays partial; not a full end-to-end close.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-request-correlation.js",
@@ -93,6 +93,23 @@
           "lines": "1-120",
           "symbols": [],
           "note": "16S redacted dual-staging delivery/search/retention evidence (lock-hashed)"
+        },
+        {
+          "path": "scripts/lib/radar-slice16t-e2e-correlation-drill.js",
+          "lines": "1-120,200-360",
+          "symbols": [
+            "buildDryRunPlan",
+            "evaluateApplyGate",
+            "evaluateCorrelationEvidence",
+            "CONFIRMATION_PHRASE"
+          ],
+          "note": "16T staging-only dry-run-default correlation-drill harness (source-partial; live drill open)"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16t-boundary-map.json",
+          "lines": "1-80",
+          "symbols": [],
+          "note": "Traced Wolfhouse+Sunset Meta-shaped → Hermes → Staff → Stripe test boundaries"
         }
       ],
       "live_evidence": [
@@ -114,7 +131,7 @@
         }
       ],
       "gaps": [
-        "End-to-end Meta → Hermes → Staff API → Stripe correlation drill open"
+        "End-to-end Meta → Hermes → Staff API → Stripe correlation drill open (16T harness source-partial only; live not executed)"
       ],
       "progress_class": "partial_live_proven"
     },
@@ -1240,6 +1257,52 @@
       "id": "16S_DRILL_completion_log_delivery_search_retention",
       "status": "partial_delivery_search_retention_proven",
       "pass_rule": "Dual-staging exact-SHA searchable allowlisted completions in ContainerAppConsoleLogs_CL with retention 30; G01 remains partial until E2E drill; proven=0"
+    }
+  },
+  "slice_16t_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16T_e2e_correlation_drill_harness",
+    "gate_id": "G01_correlation_structured_logs",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_e2e_meta_hermes_staff_stripe_drill_execution_evidence_freeze_any_gate_proven",
+    "title": "Staging-only dry-run-default E2E correlation-drill harness — source-partial; live drill open",
+    "why_smallest": "G01 still lacks a controlled Meta→Hermes→Staff→Stripe correlation drill; narrowest next step is a fail-closed dry-run-default harness that reuses existing staging test endpoints and 16J/16R/16O mechanisms without mutating runtime or executing the live drill in this slice.",
+    "builds_on": [
+      "16J_staff_api_request_correlation",
+      "16R_staff_api_request_completion_log",
+      "16S_request_completion_log_live_evidence",
+      "16O_stripe_webhook_error_minimization"
+    ],
+    "supersedes": [],
+    "owner_files": [
+      "fixtures/radar-operations/slice16t-boundary-map.json",
+      "fixtures/radar-operations/slice16t-expected-contract.json",
+      "scripts/lib/radar-slice16t-e2e-correlation-drill.js",
+      "scripts/run-radar-slice16t-e2e-correlation-drill.js",
+      "scripts/verify-radar-slice16t-e2e-correlation-drill.js"
+    ],
+    "out_of_scope_for_16t": [
+      "Live drill execution / evidence freeze",
+      "Deploy / restart",
+      "Hermes X-Request-Id forward to Staff bot tools",
+      "Bookings / holds / payment links / charges / guest WhatsApp sends",
+      "Raising any gate verdict to proven",
+      "Changing G02–G09 scores",
+      "Production RGs"
+    ],
+    "acceptance_criteria": [
+      "Harness accepts only --tenant wolfhouse|sunset; default dry-run emits plan with one correlation ID and hard locks",
+      "Live mode requires --apply plus exact confirmation RADAR-16T-CORRELATION-DRILL",
+      "Hard-locks staging hosts, tenant, phone/runtime binding, Staff API app, Stripe test mode, subscription, master/image SHA 87121456",
+      "evaluateCorrelationEvidence fail-closes on wrong scope, production host, real Stripe mode, missing correlation, ID substitution, duplicate records, sensitive fields, unsupported ingress, mutation-capable paths, missing boundaries",
+      "G01 remains partial with live E2E drill open; 16T progress_class source_partial only",
+      "Runtime paths unchanged vs master 87121456; no live drill executed by this slice"
+    ],
+    "final_controlled_drill": {
+      "id": "16T_DRILL_e2e_correlation_harness_source_only",
+      "status": "source_partial_harness_ready_live_open",
+      "pass_rule": "Offline RED/GREEN proves harness gates; live Meta→Hermes→Staff→Stripe drill remains operator follow-on with --apply --confirm RADAR-16T-CORRELATION-DRILL"
     }
   }
 }

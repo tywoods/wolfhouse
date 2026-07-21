@@ -1,31 +1,33 @@
-# RADAR Slice 16S — Operations gate ledger (request-completion delivery/search/retention evidence)
+# RADAR Slice 16T — Operations gate ledger (E2E correlation-drill harness)
 
-**Status:** partial/live-proven evidence only (zero deploy / live mutation by this slice; E2E correlation drill remains open)
-**Master basis:** `1bf9695264250680c41c3e7f82baba97300001a0`
-**Branch:** `radar/slice-16s-request-log-live-evidence`
+**Status:** source-partial harness only (zero deploy / live drill by this slice; E2E correlation drill remains open)
+**Master basis:** `87121456db90a9f80ff8b3679596bc49c235cbfc`
+**Branch:** `radar/slice-16t-e2e-correlation-drill`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16R `16R_staff_api_request_completion_log` + 16J correlation
+**Builds on:** 16S `16S_request_completion_log_live_evidence` + 16J/16R correlation + 16O Stripe pre-verify errors
 
 ## Outcome
 
-Record **operator-observed dual-staging 16R delivery / search / retention evidence** into a redacted, lock-hashed fixture. Exact Staff API image SHA `1bf9695264250680c41c3e7f82baba97300001a0` on Wolfhouse revision `wh-staging-staff-api--0000517` and Sunset revision `luna-sunset-staging-staff-api--0000277` (latest=latestReady; public `/healthz` 200). ACA env `logsDestination=log-analytics`. LAW workspaces `wh-staging-logs` (customerId `43ae26dd-4a82-4a91-b744-5e1f94a2ae8f`, retention 30) and `luna-sunset-staging-logs` (customerId `552489bf-8e57-48df-8413-6e775caaa7d0`, retention 30). Independently queried `ContainerAppConsoleLogs_CL` by supplied request IDs yields exactly one bounded `staff_api_request_completion` each (`route=/healthz`, `status_code=200`, `status_class=2xx`, `duration_ms=5`, `outcome=completed`) at `2026-07-20T23:32:38.0049767Z` (WH `aaaaaaaa-bbbb-4ccc-8ddd-16a000000001`) and `2026-07-20T23:32:54.8551295Z` (Sunset `aaaaaaaa-bbbb-4ccc-8ddd-16a000000002`, tenant `sunset`). **Do not deploy.** G01 upgrades to `partial_live_proven` but remains verdict `partial` because the end-to-end Meta → Hermes → Staff API → Stripe correlation drill is still open. G02–G09 scores unchanged. Matrix proven-count remains 0.
+Ship a **staging-only, dry-run-default** Meta → Hermes → Staff API → Stripe **correlation-drill harness** for G01. Trace Wolfhouse and Sunset staging boundaries from synthetic Meta-shaped ingress through Hermes, Staff API, and Stripe test-mode using existing staging test endpoints and request-correlation mechanisms. Harness accepts only `--tenant wolfhouse|sunset`. Live probes require `--apply` plus exact confirmation `RADAR-16T-CORRELATION-DRILL`. Hard-locks staging hosts, tenant, phone/runtime binding, Staff API app, Stripe test mode, subscription, and current master/image SHA `87121456`. Generates one correlation ID and evaluates bounded redacted hop evidence for same-ID propagation; fail-closes if any boundary cannot preserve the ID without a guest/payment mutation. **Do not execute the live drill in this slice.** G01 retains `partial_live_proven` (via 16S) with harness progress `source_partial`; live E2E drill remains open. G02–G09 scores unchanged. Matrix proven-count remains 0. Prior G05 event-id claim (16M) and G06 capacity-pressure alerts (16L) source-partial progress retained.
 
 ## Artifacts
 
 | Path | Role |
 |------|------|
-| `fixtures/radar-operations/slice16s-request-log-live-evidence.json` | Redacted canonical evidence + lock_hash |
-| `fixtures/radar-operations/slice16s-expected-contract.json` | Frozen 16S contract |
-| `scripts/lib/radar-slice16s-request-log-live-evidence.js` | Slice locks |
-| `scripts/verify-radar-slice16s-request-log-live-evidence.js` | Offline RED/GREEN verifier |
-| `npm run verify:radar-slice16s-request-log-live-evidence` | Gate |
+| `fixtures/radar-operations/slice16t-boundary-map.json` | Traced Wolfhouse+Sunset boundary map |
+| `fixtures/radar-operations/slice16t-expected-contract.json` | Frozen 16T contract |
+| `scripts/lib/radar-slice16t-e2e-correlation-drill.js` | Slice locks + dry-run/apply/evidence core |
+| `scripts/run-radar-slice16t-e2e-correlation-drill.js` | CLI harness (dry-run default) |
+| `scripts/verify-radar-slice16t-e2e-correlation-drill.js` | Offline RED/GREEN verifier |
+| `npm run verify:radar-slice16t-e2e-correlation-drill` | Gate |
+| `npm run run:radar-slice16t-e2e-correlation-drill` | Dry-run / gated apply runner |
 
 ## Verdict counts
 
 | Verdict | Count | Meaning |
 |---------|------:|---------|
-| `proven` | 0 | Control fully evidenced end-to-end (incl. E2E drill) — not met |
+| `proven` | 0 | Control fully evidenced end-to-end (incl. live E2E drill) — not met |
 | `partial` | 9 | Some code and/or live evidence; gaps remain |
 | `absent` | 0 | No safe control evidenced |
 | **total** | **9** | Matrix gates |
@@ -34,7 +36,7 @@ Record **operator-observed dual-staging 16R delivery / search / retention eviden
 
 | ID | Gate | Verdict |
 |----|------|---------|
-| G01 | Correlation / structured logs | `partial` (`partial_live_proven` via 16S; E2E drill open) |
+| G01 | Correlation / structured logs | `partial` (`partial_live_proven` via 16S; **16T harness source-partial**; live E2E drill open) |
 | G02 | Readiness / dependencies | `partial` (16I + 16P healthy path) |
 | G03 | Actionable tenant-aware alerts | `partial` (16H + 16P AG test) |
 | G04 | Webhook / payment / worker backlog | `partial` |
@@ -50,25 +52,30 @@ Record **operator-observed dual-staging 16R delivery / search / retention eviden
 |-------------|--------|-------|
 | Request correlation (header + ALS) | `partial` | 16J source |
 | Request-completion log (source) | `partial` | 16R finish/close/error exactly-once |
-| Live deploy (exact SHA) | `live_proven` | WH `0000517` / Sunset `0000277` @ `1bf9695` |
-| Azure stdout / LAW delivery | `live_proven` | `ContainerAppConsoleLogs_CL` |
-| Searchable query | `live_proven` | by supplied request ID; match_count=1 |
-| Retention policy | `live_proven` | LAW retention 30 both workspaces |
-| Controlled E2E correlation drill | `open` | Meta → Hermes → Staff → Stripe **not claimed** |
+| Live deploy (exact SHA) | `live_proven` | WH `0000517` / Sunset `0000277` @ `1bf9695` (16S) |
+| Azure stdout / LAW delivery | `live_proven` | `ContainerAppConsoleLogs_CL` (16S) |
+| Searchable query | `live_proven` | by supplied request ID; match_count=1 (16S) |
+| Retention policy | `live_proven` | LAW retention 30 both workspaces (16S) |
+| E2E correlation-drill harness | `source_partial` | 16T dry-run-default CLI + fail-closed evidence evaluator |
+| Controlled E2E correlation drill (live) | `open` | Meta → Hermes → Staff → Stripe **not executed / not claimed** |
 
-## Slice 16S progress
+## Slice 16T progress
 
-**ID:** `16S_request_completion_log_live_evidence`
+**ID:** `16T_e2e_correlation_drill_harness`
 **Gate:** `G01_correlation_structured_logs`
-**Progress class:** `partial_live_proven_evidence_only`
-**Does not implement:** E2E Meta→Hermes→Staff→Stripe drill, concurrent isolation, abort/error LAW outcomes, any gate verdict=proven, G02–G09 score changes, deploy by this slice
+**Progress class:** `source_partial_progress_only`
+**Confirmation (live only):** `RADAR-16T-CORRELATION-DRILL`
+**Does not implement:** live drill execution, evidence freeze of live hops, Hermes→Staff bot X-Request-Id forward, any gate verdict=proven, G02–G09 score changes, deploy by this slice
 
 ### Still open (explicit remaining item before a full G01 close)
 
-- End-to-end Meta → Hermes → Staff API → Stripe correlation drill
+- End-to-end Meta → Hermes → Staff API → Stripe correlation drill (**live**):  
+  `node scripts/run-radar-slice16t-e2e-correlation-drill.js --tenant wolfhouse|sunset --apply --confirm RADAR-16T-CORRELATION-DRILL`  
+  then freeze bounded redacted evidence (follow-on slice)
 
 ### Explicitly not claimed
 
+- Live drill executed or proven
 - Concurrent isolation proof in LAW
 - Abort/error completion outcomes searchable in LAW
 - Human inbox receipt / organic metric alert firing / production
@@ -76,15 +83,14 @@ Record **operator-observed dual-staging 16R delivery / search / retention eviden
 
 ## Prior partial progress retained
 
-- **16R** source completion logging (schema/emission) — retained; live follow-on is 16S
-- **16P** live-drill evidence reconciliation — partial/live-proven on selected gates
-- **16O** `16O_stripe_webhook_error_minimization` on G08 — webhook error body minimization retained
-- **16M** `16M_stripe_webhook_event_id_claim` on G05 — source-partial event-id claim retained
-- **16L** `16L_staff_api_capacity_pressure_alerts` on G06 — source-partial capacity-pressure alerts retained
-- **16K** `16K_staff_api_healthz_minimization` on G08
-- **16J** `16J_staff_api_request_correlation` on G01 — source-partial correlation
-- **16I** / **16H** / **16B** — prior partials retained
+- **16S** `16S_request_completion_log_live_evidence` dual-staging completion-log delivery/search/retention @ SHA `1bf9695` — retained
+- **16R** source completion logging — retained
+- **16P** live-drill evidence reconciliation — retained
+- **16O** Stripe webhook error minimization — retained
+- **16M** G05 event-id claim — source-partial retained
+- **16L** G06 capacity-pressure alerts — source-partial retained
+- **16K** / **16J** / **16I** / **16H** / **16B** — prior partials retained
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16S. Database, Hermes staging, Staff API runtime, completion-log helper, staging Bicep, and metric-alert/budget modules must remain unchanged vs master basis `1bf9695`. Evidence fixtures + ledger/matrix only.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16T. No live drill execution. Database, Hermes staging/sunset, Staff API runtime, correlation/completion helpers, staging Bicep, and metric-alert/budget modules must remain unchanged vs master basis `87121456`. Harness + ledger/matrix/findings/contract only.

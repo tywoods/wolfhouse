@@ -1,8 +1,8 @@
-# RADAR findings (16A freeze + 16B–16R source/live partials + 16S request-log live evidence)
+# RADAR findings (16A freeze + 16B–16S partials + 16T correlation-drill harness)
 
-**Master basis (16S):** `1bf9695264250680c41c3e7f82baba97300001a0`
+**Master basis (16T):** `87121456db90a9f80ff8b3679596bc49c235cbfc`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
-**16S progress class:** `partial_live_proven_evidence_only` (this slice does not deploy).
+**16T progress class:** `source_partial_progress_only` (harness only; live E2E drill open / not executed).
 
 ## Verdict rollup
 
@@ -13,22 +13,23 @@
 | absent | 0 |
 | **total** | **9** |
 
-## Critical gaps (still open — explicitly not claimed by 16S)
+## Critical gaps (still open — explicitly not claimed by 16T)
 
-1. **End-to-end Meta → Hermes → Staff API → Stripe correlation drill** — remaining G01 item before a full close.
-2. **Concurrent isolation / abort-error LAW outcomes** — not claimed by the /healthz completion probe.
-3. **Human inbox receipt** — AG test notification API Email Status=Succeeded is not inbox proof.
-4. **Organic metric alert firing** — not observed / not claimed (5xx, restart, capacity).
-5. **Abrupt Stripe webhook paths** — not claimed (only malformed/missing/oversize observed).
-6. **Dependency failure** — healthy /readyz observed; failure traffic-shed drill open.
-7. **Real-PG contention** — 16M concurrency drill open.
-8. **Production** — staging-only; production forbidden.
+1. **End-to-end Meta → Hermes → Staff API → Stripe correlation drill (live)** — harness is source-partial; live apply + evidence freeze remain open.
+2. **Hermes X-Request-Id echo / forward on staging** — allowlisted hop must preserve the same ID without guest/payment mutation; live proof open.
+3. **Concurrent isolation / abort-error LAW outcomes** — not claimed by the /healthz completion probe.
+4. **Human inbox receipt** — AG test notification API Email Status=Succeeded is not inbox proof.
+5. **Organic metric alert firing** — not observed / not claimed (5xx, restart, capacity).
+6. **Abrupt Stripe webhook paths** — not claimed (only malformed/missing/oversize observed).
+7. **Dependency failure** — healthy /readyz observed; failure traffic-shed drill open.
+8. **Real-PG contention** — 16M concurrency drill open.
+9. **Production** — staging-only; production forbidden.
 
-## Gate progress after 16S (truthful)
+## Gate progress after 16T (truthful)
 
 | Gate | progress_class | Live-proven (bounded) | Still open |
 |------|----------------|----------------------|------------|
-| G01 | partial_live_proven | SHA `1bf9695` @ WH `0000517` / Sunset `0000277`; LAW `ContainerAppConsoleLogs_CL` match_count=1; retention 30 | E2E Meta→Hermes→Staff→Stripe drill |
+| G01 | partial_live_proven (+ 16T source-partial harness) | SHA `1bf9695` @ WH `0000517` / Sunset `0000277`; LAW match_count=1; retention 30 | Live E2E Meta→Hermes→Staff→Stripe drill |
 | G02 | partial_live_proven | health/ready after deploy + rollforward | dependency-failure drill |
 | G03 | partial_live_proven | AG test API Email Status=Succeeded / Complete | human inbox; organic alert fire |
 | G04 | partial | — | backlog metrics / DLQ |
@@ -38,15 +39,16 @@
 | G08 | partial_live_proven | SHA 594247f @ 0000514/0000274; malformed/missing/oversize generic | abrupt; retention/search privacy extras |
 | G09 | partial_live_proven | AG test API Email Status=Succeeded both tenants | human inbox; budget live-list; anomaly |
 
-## Slice 16S
+## Slice 16T
 
-`16S_request_completion_log_live_evidence` — evidence-only reconciliation of operator-observed dual-staging 16R delivery/search/retention. Records: exact SHA `1bf9695` on Wolfhouse `wh-staging-staff-api--0000517` and Sunset `luna-sunset-staging-staff-api--0000277` (latest=latestReady; public `/healthz` 200); ACA `logsDestination=log-analytics`; LAW `wh-staging-logs` customerId `43ae26dd-4a82-4a91-b744-5e1f94a2ae8f` retention 30 and `luna-sunset-staging-logs` customerId `552489bf-8e57-48df-8413-6e775caaa7d0` retention 30; independently queried `ContainerAppConsoleLogs_CL` by request IDs `aaaaaaaa-bbbb-4ccc-8ddd-16a000000001` / `aaaaaaaa-bbbb-4ccc-8ddd-16a000000002` yields exactly one bounded completion (`/healthz` 200 `2xx` duration 5 `completed`) at `2026-07-20T23:32:38.0049767Z` and `2026-07-20T23:32:54.8551295Z` (Sunset tenant `sunset`). Verifier rejects altered evidence, wrong SHA/revision/app/workspace/customerId/retention/table/timestamp/schema, match_count≠1, sensitive fields, and overclaims. Does not claim E2E Meta→Hermes→Staff→Stripe drill, concurrent isolation, abort/error LAW outcomes, production, or any gate as fully closed. G02–G09 scores unchanged.
+`16T_e2e_correlation_drill_harness` — staging-only dry-run-default correlation-drill harness for G01. Traces Wolfhouse (`staff-staging.lunafrontdesk.com` / `lunabox.lunafrontdesk.com` / `wh-staging-staff-api` / `wolfhouse-somo`) and Sunset (`sunset-staging.lunafrontdesk.com` / `hermes-sunset-luna:8092` / `luna-sunset-staging-staff-api` / `sunset`) boundaries: Meta-shaped Staff dual-ingress unsigned reject, Hermes synthetic Meta-shaped webhook, Staff `/healthz`, Stripe webhook pre-verify missing signature. Reuses 16J `X-Request-Id`, 16R completion logs, 16O public errors. CLI default dry-run; live requires `--apply` + `RADAR-16T-CORRELATION-DRILL`. Offline RED/GREEN covers wrong scope, production host, real Stripe mode, missing correlation, ID substitution, duplicate records, sensitive fields, unsupported ingress, mutation-capable paths. Does not execute live drill, deploy, or raise any gate to proven. G02–G09 unchanged.
 
 ## Prior slices (retained)
 
-- **16R** completion logging source — live delivery/search/retention via 16S; E2E drill open
+- **16S** completion-log delivery/search/retention live evidence — retained; E2E live drill still open
+- **16R** completion logging source — retained
 - **16P** live-drill evidence — partial/live-proven on G02/G03/G07/G08/G09
-- **16O** webhook error minimization — live deploy + partial privacy probe via 16P; abrupt/sdk/secret inject open
+- **16O** webhook error minimization — retained
 - **16M** event-id claim — source-partial; real-PG contention open
 - **16L** capacity alerts — source-partial; organic fire open
 - **16K** healthz — live health observed via 16P; retention open
@@ -57,4 +59,4 @@
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16S. Staff API, Hermes, database, and staging IaC unchanged vs master `1bf9695`. Evidence fixtures + ledger/matrix only.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16T. No live drill execution. Staff API, Hermes, database, and staging IaC unchanged vs master `87121456`. Harness + ledger/matrix/findings/contract only.
