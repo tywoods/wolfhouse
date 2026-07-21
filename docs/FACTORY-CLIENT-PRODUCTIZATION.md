@@ -1,11 +1,12 @@
 # FACTORY — Client productization (finite stages 1A–1E)
 
-**Status:** Slice **1A frozen** (source-only acceptance contract).
+**Status:** Slice **1B delivered** (static disabled archetype templates). Slice **1A frozen**.
 
-**Master basis:** `0ef5958ed8b81ca04b196062505bf4be7a403221`
+**Master basis (1B):** `86f4cb9daaefdecab75ad02a2e755e2e7503216d`
+**Master basis (1A freeze parent):** `0ef5958ed8b81ca04b196062505bf4be7a403221`
 
 **Owner artifacts:**
-`fixtures/factory-client-productization/` · `scripts/lib/factory-slice1a-acceptance-contract.js` · `scripts/lib/factory-slice1a-inventory-discovery.js` · `scripts/verify-factory-slice1a-acceptance-contract.js`
+`config/archetypes/` · `fixtures/factory-client-productization/` · `scripts/lib/factory-slice1a-acceptance-contract.js` · `scripts/lib/factory-slice1a-inventory-discovery.js` · `scripts/lib/factory-slice1b-archetype-templates.js` · `scripts/verify-factory-slice1a-acceptance-contract.js` · `scripts/verify-factory-slice1b-archetype-templates.js`
 
 Related: [`MULTICLIENT-ARCHITECTURE.md`](MULTICLIENT-ARCHITECTURE.md) · [`DEPLOYMENT-CONFIG.md`](DEPLOYMENT-CONFIG.md) · RADAR reopen `third_tenant_factory` in [`RADAR-OPERATIONS-GATE-LEDGER.md`](RADAR-OPERATIONS-GATE-LEDGER.md).
 
@@ -13,38 +14,42 @@ Related: [`MULTICLIENT-ARCHITECTURE.md`](MULTICLIENT-ARCHITECTURE.md) · [`DEPLO
 
 ## Purpose
 
-Freeze a **finite, source-only acceptance contract** before any client-productization implementation. FACTORY turns the Wolfhouse + Sunset worked examples into two reusable archetypes without drifting into open-ended platform work.
+Freeze a **finite, source-only acceptance contract** before any client-productization implementation, then ship **reviewed static archetype templates** (1B) before any generator (1C). FACTORY turns the Wolfhouse + Sunset worked examples into two reusable archetypes without drifting into open-ended platform work.
 
 ## Finite stages (reject drift beyond these five)
 
-| Stage | Title | 1A status |
-|-------|-------|-----------|
-| **1A** | Source-only acceptance contract + inventory freeze | **Current — docs/fixtures/verifier only** |
-| **1B** | Archetype schema + disabled-by-default templates | Deferred |
+| Stage | Title | Status |
+|-------|-------|--------|
+| **1A** | Source-only acceptance contract + inventory freeze | **Complete** — docs/fixtures/verifier |
+| **1B** | Archetype schema + disabled-by-default templates | **Complete** — `config/archetypes/{surf_house,surf_school_shop}/` |
 | **1C** | Deterministic generator (secret rejection, no live-target copy) | Deferred |
 | **1D** | Tenant/location isolation + legacy-compatibility proofs | Deferred |
 | **1E** | Dry-run proof packaging + milestone closeout | Deferred |
 
 **1A forbids:** templates, generator, runtime, IaC, DB, deploy, secrets, live calls.
 
+**1B forbids:** generator, client instance materialization, runtime loading, IaC, DB, deploy, live calls.
+
 **Reject:** extra stages, renamed gates, or claiming third-tenant live/prod as current-stage evidence.
 
-**Tip scope:** docs, fixtures, and verifier-support only. `package.json` may change for the locked script key `verify:factory-slice1a-acceptance-contract` and the pinned `acorn@8.14.1` dependency (diff-validated; `package-lock.json` allowed for the pin).
+**1A tip scope (frozen at tip `86f4cb9d…`):** docs, fixtures, and verifier-support only, plus locked `verify:factory-slice1a-acceptance-contract` and pinned `acorn@8.14.1`.
+
+**1B tip scope:** `config/archetypes/`, factory fixtures/docs, 1B verifier + lock module, 1A ledger evidence updates, and locked `verify:factory-slice1b-archetype-templates`.
 
 ## Archetypes
 
-| FACTORY id | Reference client | Locations | Legacy vertical |
-|------------|------------------|-----------|-----------------|
-| `surf_house` | `wolfhouse` | `wolfhouse-somo` | `lodging_surf_house` |
-| `surf_school_shop` | `sunset` | `sunset-somo`, `sunset-sardinero` | `surf_school_rentals` |
+| FACTORY id | Reference client | Locations | Legacy vertical | Template root |
+|------------|------------------|-----------|-----------------|---------------|
+| `surf_house` | `wolfhouse` | `wolfhouse-somo` | `lodging_surf_house` | `config/archetypes/surf_house/` |
+| `surf_school_shop` | `sunset` | `sunset-somo`, `sunset-sardinero` | `surf_school_rentals` | `config/archetypes/surf_school_shop/` |
 
-Crowsnest mock templates (`surf_house` / `surf_school`) are UI reference only until 1B+.
+Crowsnest mock templates (`surf_house` / `surf_school`) remain UI reference only; FACTORY templates under `config/archetypes/` are the productization source of truth starting 1B.
 
 ## Acceptance gates (nine)
 
-1. **`G_ARCHETYPE_SURF_HOUSE`** — surf-house shape matches Wolfhouse lodging defaults.
-2. **`G_ARCHETYPE_SURF_SCHOOL_SHOP`** — school+shop shape matches Sunset multi-location lessons/rentals.
-3. **`G_DISABLED_BY_DEFAULT_GENERATION`** — generated clients stay `live_enabled=false` / channels disabled until an explicit later enablement gate.
+1. **`G_ARCHETYPE_SURF_HOUSE`** — surf-house shape matches Wolfhouse lodging defaults. **1B evidence:** static disabled template.
+2. **`G_ARCHETYPE_SURF_SCHOOL_SHOP`** — school+shop shape matches Sunset multi-location lessons/rentals. **1B evidence:** static disabled template.
+3. **`G_DISABLED_BY_DEFAULT_GENERATION`** — generated clients stay `live_enabled=false` / channels disabled until an explicit later enablement gate (generator proof in 1C+; 1B templates already disabled).
 4. **`G_SECRET_REJECTION`** — no live secrets in committed outputs; `secret:<key>` + example files only.
 5. **`G_NO_LIVE_TARGET_COPYING`** — do not copy live Azure IDs, Meta phone_number_ids, Stripe live keys, or live hostnames.
 6. **`G_TENANT_LOCATION_ISOLATION`** — unique `client_slug` / globally unique `location_id`; live isolation per multiclient architecture.
@@ -72,9 +77,13 @@ Categories:
 
 Canonical freeze: `fixtures/factory-client-productization/slice1a-inventory.json`.
 
+1B templates under `config/archetypes/` are **outside** the `config/clients/` acquisition graph and are not runtime-loaded.
+
 ## Current-stage evidence vs third-tenant live/prod
 
 **Required for 1A:** inventory + gate/stage freeze + independent completeness verifier + docs/fixtures/verifier delivery (plus the single locked `package.json` script registration).
+
+**Required for 1B:** exactly two static archetype template trees; placeholders only; all enablement off; independent schema/cross-ref/isolation verifier with adversarial REDs (including pricing shape from `wolfhouse-quote-calculator` reads: `add_ons`, `deposits.tiers`, `room_supplements`, numeric `month_numbers`+`priority`, `payment_options`; plus recognized `rounding`/`hold` companion metadata that is **not** calculator-consumed; nested scalar/season/slot/price REDs); working-tree reference bytes vs master blobs; 1A ledger evidence update for archetype gates **only when** the independent 1B validator passes.
 
 **Out of scope for 1A–1E current-stage evidence:** third-tenant **live/prod** onboarding beyond the Wolfhouse + Sunset staging pair.
 
@@ -86,12 +95,13 @@ Mirleft/La Wave registry rows remain inventory-only while `live_enabled=false`.
 
 ```bash
 npm run verify:factory-slice1a-acceptance-contract
+npm run verify:factory-slice1b-archetype-templates
 ```
 
-Hard regressions spawned by the verifier: multiclient-isolation, no-client-hardcoding, tenant-resolution, meta-whatsapp-tenant-shadow.
+Hard regressions spawned by the verifiers: multiclient-isolation, no-client-hardcoding, tenant-resolution, meta-whatsapp-tenant-shadow.
 
-**Retained master REDs** (not introduced by 1A; reported, not fail-closed here): `verify-staff-tenant-scope` H3; `verify-tenant-business-config` “DB prices used” merge behavior.
+**Retained master REDs** (not introduced by 1A/1B; reported, not fail-closed here): `verify-staff-tenant-scope` H3; `verify-tenant-business-config` “DB prices used” merge behavior.
 
-## What 1A does not authorize
+## What 1B does not authorize
 
-Shipping templates/generators, mutating runtime/IaC/DB, deploying, materializing secrets, live network calls, raising RADAR gates, or treating a third live tenant as FACTORY closeout evidence.
+Generator, client instance materialization, runtime loading of archetype templates, mutating IaC/DB, deploying, materializing secrets, live network calls, raising RADAR gates, or treating a third live tenant as FACTORY closeout evidence.

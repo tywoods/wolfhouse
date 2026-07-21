@@ -11,7 +11,7 @@
     {
       "id": "1A",
       "title": "Source-only acceptance contract",
-      "status": "in_scope_current",
+      "status": "complete",
       "allows": [
         "docs",
         "fixtures",
@@ -35,8 +35,10 @@
     {
       "id": "1B",
       "title": "Archetype schema and disabled-by-default templates",
-      "status": "deferred_future_stage",
-      "depends_on": "1A"
+      "status": "complete",
+      "depends_on": "1A",
+      "completion_evidence": "1B_static_disabled_archetype_templates",
+      "completion_requires": "verify:factory-slice1b-archetype-templates"
     },
     {
       "id": "1C",
@@ -88,14 +90,14 @@
       "title": "surf_house archetype gate",
       "requirement": "Productization must emit a surf_house client whose reference shape matches Wolfhouse lodging_surf_house (single primary location, bed/room inventory, portal default bed-calendar).",
       "proof_stage": "1B+",
-      "current_stage_evidence": "inventory_and_contract_freeze_only"
+      "current_stage_evidence": "1B_static_disabled_archetype_templates"
     },
     {
       "id": "G_ARCHETYPE_SURF_SCHOOL_SHOP",
       "title": "surf_school_shop archetype gate",
       "requirement": "Productization must emit a surf_school_shop client whose reference shape matches Sunset surf_school_rentals (multi-location, lessons+rentals catalog, portal default portal-home).",
       "proof_stage": "1B+",
-      "current_stage_evidence": "inventory_and_contract_freeze_only"
+      "current_stage_evidence": "1B_static_disabled_archetype_templates"
     },
     {
       "id": "G_DISABLED_BY_DEFAULT_GENERATION",

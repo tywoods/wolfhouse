@@ -1,0 +1,297 @@
+{
+  "_meta": {
+    "status": "archetype_template",
+    "version": "1B.0",
+    "purpose": "FACTORY 1B static surf_house archetype template derived from Wolfhouse lodging shape. Placeholders only. Not a live client.",
+    "client_slug": "{{CLIENT_SLUG}}",
+    "client_name": "{{CLIENT_NAME}}",
+    "vertical": "lodging_surf_house",
+    "timezone": "{{TIMEZONE}}",
+    "languages": ["{{LANGUAGE_PRIMARY}}"],
+    "currency": "{{CURRENCY}}",
+    "based_on_schema": "config/clients/wolfhouse-somo.baseline.json",
+    "slice": "FACTORY-1B"
+  },
+  "live_enabled": false,
+  "deployment": {
+    "enabled": false,
+    "deploy_target": null,
+    "whatsapp_phone_number_id": null,
+    "staff_api_tenant_scope": "{{CLIENT_SLUG}}",
+    "stripe_context_ref": "secret:stripe_publishable_key"
+  },
+  "secrets": {
+    "_note": "Real credentials must never be committed. Generator (1C+) may only emit secret:<key> refs plus a secrets.example file.",
+    "secret_file": "config/clients/{{CLIENT_SLUG}}.secrets.json",
+    "example_file": "config/archetypes/surf_house/secrets.example.template.json",
+    "keys": [
+      "handoff_whatsapp_phone",
+      "master_admin_numbers",
+      "staff_admin_password",
+      "stripe_publishable_key",
+      "stripe_secret_key",
+      "stripe_webhook_secret"
+    ]
+  },
+  "persona": {
+    "assistant_name": "{{ASSISTANT_NAME}}",
+    "brand_name": "{{BRAND_NAME}}",
+    "role": "{{PERSONA_ROLE}}",
+    "voice_summary": "{{VOICE_SUMMARY}}",
+    "no_ai_mention": true,
+    "one_clear_next_step": true,
+    "emoji_level": "{{EMOJI_LEVEL}}"
+  },
+  "channels": {
+    "whatsapp": {
+      "enabled": false,
+      "reply_style": "short_one_question_per_reply",
+      "max_reply_chars": 900
+    },
+    "email": {
+      "enabled": false,
+      "reply_style": "structured_sections_allowed"
+    }
+  },
+  "features": {
+    "portal_default_tab": "bed-calendar",
+    "inventory_model": "lodging_rooms_beds",
+    "supports_rooming": true,
+    "supports_package_nights": true
+  },
+  "pricing_policy": {
+    "currency": "{{CURRENCY}}",
+    "global_pricing_status": "unverified_seed",
+    "live_autonomous_charge_requires": "pricing_status_confirmed",
+    "on_provisional_in_live": "handoff_or_block_do_not_autocharge",
+    "rounding_rule_packages": "prorate_per_night_then_round_up_to_nearest_5_eur",
+    "rounding_rule_addons": "round_up_to_nearest_1_eur"
+  },
+  "packages": {
+    "pricing_status": "unverified_seed",
+    "known_packages": ["{{PACKAGE_CODE_1}}", "{{PACKAGE_CODE_2}}", "{{PACKAGE_CODE_3}}"],
+    "price_basis": "per_person",
+    "base_nights": 7,
+    "currency": "{{CURRENCY}}",
+    "inclusions": {
+      "{{PACKAGE_CODE_1}}": ["{{INCLUSION_1}}"],
+      "{{PACKAGE_CODE_2}}": ["{{INCLUSION_1}}", "{{INCLUSION_2}}"],
+      "{{PACKAGE_CODE_3}}": ["{{INCLUSION_1}}", "{{INCLUSION_2}}", "{{INCLUSION_3}}"]
+    },
+    "room_type_pricing": {
+      "shared": { "modifier_eur": 0 },
+      "double": { "modifier_eur_per_night_per_person": "{{DOUBLE_ROOM_MODIFIER_EUR}}" }
+    },
+    "seasons": {
+      "{{SEASON_SHOULDER}}": ["{{MONTH_1}}", "{{MONTH_2}}"],
+      "{{SEASON_HIGH}}": ["{{MONTH_3}}"],
+      "{{SEASON_PEAK}}": ["{{MONTH_4}}"]
+    },
+    "closed_months": ["{{CLOSED_MONTH_1}}", "{{CLOSED_MONTH_2}}"],
+    "prices_per_person_base_nights_shared": {
+      "{{SEASON_SHOULDER}}": {
+        "{{PACKAGE_CODE_1}}": "{{PRICE_EUR_PLACEHOLDER}}",
+        "{{PACKAGE_CODE_2}}": "{{PRICE_EUR_PLACEHOLDER}}",
+        "{{PACKAGE_CODE_3}}": "{{PRICE_EUR_PLACEHOLDER}}"
+      },
+      "{{SEASON_HIGH}}": {
+        "{{PACKAGE_CODE_1}}": "{{PRICE_EUR_PLACEHOLDER}}",
+        "{{PACKAGE_CODE_2}}": "{{PRICE_EUR_PLACEHOLDER}}",
+        "{{PACKAGE_CODE_3}}": "{{PRICE_EUR_PLACEHOLDER}}"
+      },
+      "{{SEASON_PEAK}}": {
+        "{{PACKAGE_CODE_1}}": "{{PRICE_EUR_PLACEHOLDER}}",
+        "{{PACKAGE_CODE_2}}": "{{PRICE_EUR_PLACEHOLDER}}",
+        "{{PACKAGE_CODE_3}}": "{{PRICE_EUR_PLACEHOLDER}}"
+      }
+    },
+    "non_7_night_pricing": {
+      "method": "prorate_chosen_package_per_night_then_multiply_nights",
+      "per_night_formula": "round_up_to_nearest_5_eur(chosen_package_season_price / base_nights)",
+      "addons_billed_separately": true
+    },
+    "safe_default": "quote_only_from_config_with_pricing_status_respected_else_handoff"
+  },
+  "service_addons": {
+    "during_stay_requests_enabled": false,
+    "service_catalog": {
+      "{{SERVICE_WETSUIT}}": {
+        "pricing_unit": "per_day",
+        "price_eur": "{{PRICE_EUR_PLACEHOLDER}}",
+        "pricing_status": "unverified_seed",
+        "fulfillment": "onsite_redeem"
+      },
+      "{{SERVICE_BOARD}}": {
+        "pricing_unit": "per_day",
+        "price_eur": "{{PRICE_EUR_PLACEHOLDER}}",
+        "pricing_status": "unverified_seed",
+        "fulfillment": "onsite_redeem"
+      },
+      "{{SERVICE_LESSON}}": {
+        "pricing_unit": "per_lesson",
+        "pricing_model": "tiered_by_quantity",
+        "tiers": [
+          { "min_qty": 1, "max_qty": 1, "price_eur": "{{PRICE_EUR_PLACEHOLDER}}" },
+          { "min_qty": 2, "max_qty": null, "price_eur_each": "{{PRICE_EUR_PLACEHOLDER}}" }
+        ],
+        "pricing_status": "unverified_seed",
+        "fulfillment": "onsite_redeem"
+      }
+    },
+    "bundles": {
+      "{{BUNDLE_1}}": {
+        "pricing_unit": "per_day",
+        "price_eur": "{{PRICE_EUR_PLACEHOLDER}}",
+        "includes": ["{{SERVICE_WETSUIT}}", "{{SERVICE_BOARD}}"],
+        "pricing_status": "unverified_seed"
+      }
+    },
+    "lesson_scheduling": {
+      "enabled": false,
+      "tracking": "manual_by_staff",
+      "bot_assigns_slot": false,
+      "bot_collects_request_then_staff_schedule": true,
+      "daily_slots": [
+        {
+          "group": 1,
+          "transport_time": "{{SLOT_1_TRANSPORT}}",
+          "lesson_window": "{{SLOT_1_WINDOW}}"
+        },
+        {
+          "group": 2,
+          "transport_time": "{{SLOT_2_TRANSPORT}}",
+          "lesson_window": "{{SLOT_2_WINDOW}}"
+        }
+      ]
+    }
+  },
+  "rooming": {
+    "rooming_uses_rooms_table": true,
+    "rooming_auto_assign_allowed": false,
+    "manual_assignment_lock": true,
+    "never_move_staff_assignments": true,
+    "rooms": {
+      "{{ROOM_ID_1}}": {
+        "capacity": "{{ROOM_CAPACITY_1}}",
+        "type": "{{ROOM_TYPE_1}}",
+        "guest_assignable": true
+      },
+      "{{ROOM_ID_2}}": {
+        "capacity": "{{ROOM_CAPACITY_2}}",
+        "type": "{{ROOM_TYPE_2}}",
+        "guest_assignable": true
+      }
+    }
+  },
+  "payment": {
+    "payment_link_auto_allowed": false,
+    "payment_link_options": ["deposit", "full"],
+    "ask_deposit_or_full": true,
+    "payment_link_requires_name": true,
+    "payment_link_requires_email": true,
+    "hold_expiry_minutes": "{{HOLD_EXPIRY_MINUTES}}",
+    "deposit_rule": {
+      "type": "tiered_by_booking_type",
+      "scope": "per_booking",
+      "pricing_status": "unverified_seed",
+      "tiers": {
+        "standard_package": {
+          "amount_eur": "{{DEPOSIT_STANDARD_EUR}}",
+          "_match": "named package at standard terms"
+        },
+        "custom_or_short_stay": {
+          "amount_eur": "{{DEPOSIT_SHORT_EUR}}",
+          "_match": "custom-built package OR shorter stay"
+        }
+      },
+      "default_eur": "{{DEPOSIT_DEFAULT_EUR}}"
+    },
+    "balance_payment_methods": ["{{BALANCE_METHOD_1}}", "{{BALANCE_METHOD_2}}"],
+    "payment_claim_behavior": "check_stripe_payment_events_not_llm",
+    "safe_default": "do_not_send_payment_link_while_template_disabled"
+  },
+  "confirmation": {
+    "auto_confirm_after_deposit": false,
+    "confirmation_send_mode": "dry_run",
+    "confirmation_requires_payment_truth": true,
+    "include_address": true,
+    "include_gate_code": true,
+    "address": "{{PROPERTY_ADDRESS}}",
+    "maps_link": "{{MAPS_LINK}}",
+    "gate_code": "{{GATE_CODE}}",
+    "include_room_number": true,
+    "include_bed_number": false,
+    "include_checkin_checkout": true
+  },
+  "cancellation": {
+    "auto_cancel_allowed_if_unpaid": true,
+    "paid_cancellation_handoff": true,
+    "refund_requests_handoff": true,
+    "refund_mechanism": {
+      "default_remedy": "{{REFUND_DEFAULT_REMEDY}}",
+      "all_refunds_manual_staff": true,
+      "bot_issues_refund_or_voucher": false
+    },
+    "no_show_policy": "{{NO_SHOW_POLICY}}"
+  },
+  "handoff": {
+    "handoff_channel": "whatsapp",
+    "handoff_whatsapp_target": {
+      "label": "{{HANDOFF_LABEL}}",
+      "phone_ref": "secret:handoff_whatsapp_phone",
+      "editable": true
+    },
+    "tell_guest_before_handoff": true,
+    "handoff_safe_reply": "{{HANDOFF_SAFE_REPLY}}",
+    "always_handoff": [
+      "refund_request",
+      "complaint_or_angry_guest",
+      "discount_request",
+      "medical_legal_emergency",
+      "low_route_confidence",
+      "llm_parse_error_or_api_failure"
+    ]
+  },
+  "operations": {
+    "check_in_time": "{{CHECK_IN_TIME}}",
+    "check_out_time": "{{CHECK_OUT_TIME}}",
+    "housekeeping": {
+      "cleaning_scope": "{{CLEANING_SCOPE}}",
+      "cleaning_buffer_minutes": "{{CLEANING_BUFFER_MINUTES}}",
+      "no_next_guest_rule": "{{NO_NEXT_GUEST_RULE}}"
+    }
+  },
+  "llm_safety": {
+    "low_confidence_behavior": "handoff",
+    "api_error_behavior": "handoff_or_logged_safe_fallback",
+    "parsing_uncertainty_behavior": "ask_clarification_not_act",
+    "never_mark_from_llm_alone": ["paid", "confirmed", "cancelled"]
+  },
+  "customer_memory_privacy": {
+    "layer2_personal_data_to_pg_allowed": false,
+    "raw_whatsapp_exports_in_repo": false
+  },
+  "staff_directory": {
+    "default_for_unknown_number": "treat_as_guest_no_staff_privileges",
+    "master_admin": {
+      "numbers_ref": "secret:master_admin_numbers",
+      "default_permissions": {
+        "can_query": true,
+        "can_reply_handoff": true,
+        "can_manage_staff": true
+      }
+    },
+    "approved_numbers": []
+  },
+  "staff_queries": {
+    "read_only": true,
+    "staff_channel_only": true,
+    "safe_intents": [
+      "arrivals_on_date",
+      "departures_on_date",
+      "room_occupancy_on_date",
+      "free_beds_on_range",
+      "balance_outstanding"
+    ]
+  }
+}

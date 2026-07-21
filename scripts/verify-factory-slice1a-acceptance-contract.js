@@ -112,7 +112,7 @@ function packageJsonDeltaOnlyAllowedPins() {
   let diff;
   try {
     diff = execSync(
-      `git diff ${locks.MASTER_BASIS} -- package.json`,
+      `git diff ${locks.MASTER_BASIS} ${locks.SLICE_TIP_SHA} -- package.json`,
       { cwd: ROOT, encoding: 'utf8' },
     );
   } catch (err) {
@@ -228,9 +228,18 @@ ok('retained master RED deep-equal locks',
 
 const stageIds = contract.finite_stages.map((s) => s.id);
 ok('exactly five stages 1A–1E', deepEqual(stageIds, ['1A', '1B', '1C', '1D', '1E']));
-ok('only 1A in_scope_current', contract.finite_stages.filter((s) => s.status === 'in_scope_current').length === 1
-  && contract.finite_stages[0].id === '1A');
+ok('1A/1B complete; later stages deferred',
+  contract.finite_stages[0].id === '1A'
+  && contract.finite_stages[0].status === 'complete'
+  && contract.finite_stages[1].id === '1B'
+  && contract.finite_stages[1].status === 'complete'
+  && contract.finite_stages.slice(2).every((s) => s.status === 'deferred_future_stage'));
 ok('1A forbids productization surfaces', deepEqual(contract.finite_stages[0].forbids, expected.finite_stages[0].forbids));
+ok('1B completion_requires independent verifier',
+  contract.finite_stages[1].completion_requires === 'verify:factory-slice1b-archetype-templates');
+ok('archetype gate ledger evidence is 1B templates',
+  contract.gates[0].current_stage_evidence === '1B_static_disabled_archetype_templates'
+  && contract.gates[1].current_stage_evidence === '1B_static_disabled_archetype_templates');
 
 const gateIds = contract.gates.map((g) => g.id);
 ok('nine gates present', gateIds.length === 9);
@@ -866,10 +875,15 @@ ok('no generator/template productization files added',
 {
   let changed = [];
   try {
-    changed = execSync(`git diff --name-only ${locks.MASTER_BASIS}`, {
-      cwd: ROOT,
-      encoding: 'utf8',
-    }).trim().split('\n').filter(Boolean);
+    // Freeze tip scope at the merged 1A tip so later FACTORY stages do not
+    // falsely fail this historical tip-path check.
+    changed = execSync(
+      `git diff --name-only ${locks.MASTER_BASIS} ${locks.SLICE_TIP_SHA}`,
+      {
+        cwd: ROOT,
+        encoding: 'utf8',
+      },
+    ).trim().split('\n').filter(Boolean);
   } catch (err) {
     changed = [`__git_diff_failed__:${err && err.message}`];
   }
@@ -878,6 +892,7 @@ ok('no generator/template productization files added',
 
   const pkgDelta = packageJsonDeltaOnlyAllowedPins();
   ok('package.json delta is only locked verifier script + acorn pin', pkgDelta.ok, pkgDelta.detail);
+  ok('1A slice tip sha pinned', locks.SLICE_TIP_SHA === '86f4cb9daaefdecab75ad02a2e755e2e7503216d');
 }
 
 // ── Existing regressions ────────────────────────────────────────────────────
@@ -916,6 +931,53 @@ for (const row of retained) {
     ok(`${rel} retains expected failure marker`, stillRed && out.includes(row.retained_failure.split('(')[0].trim()),
       `expected to mention: ${row.retained_failure}`);
   }
+}
+
+// ── 1B ledger gate (independent validator) ──────────────────────────────────
+console.log('\n── 1B ledger gate (independent validator) ──');
+let slice1bVerifierPassed = false;
+if (process.env.FACTORY_1A_SKIP_NESTED_1B === '1') {
+  // Called from the 1B verifier after its own core/RED suite already passed.
+  slice1bVerifierPassed = true;
+  ok('nested from 1B — skip re-entry into 1B verifier', true);
+} else {
+  const r = spawnSync('npm', ['run', 'verify:factory-slice1b-archetype-templates'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, FACTORY_1B_LEDGER_PROBE: '1' },
+    timeout: 180000,
+    shell: true,
+  });
+  slice1bVerifierPassed = r.status === 0;
+  ok('independent 1B validator exit 0',
+    slice1bVerifierPassed,
+    r.status !== 0 ? (r.stderr || r.stdout || '').slice(-600) : '');
+}
+
+{
+  const ledgerErrs = locks.validate1bLedgerClaim(
+    contract.finite_stages[1],
+    contract.gates,
+    slice1bVerifierPassed,
+  );
+  ok('1B ledger complete only if independent validator passes',
+    ledgerErrs.length === 0,
+    ledgerErrs.join(','));
+}
+
+{
+  const badErrs = locks.validate1bLedgerClaim(
+    {
+      id: '1B',
+      status: 'complete',
+      completion_evidence: '1B_static_disabled_archetype_templates',
+      completion_requires: 'verify:factory-slice1b-archetype-templates',
+    },
+    contract.gates,
+    false,
+  );
+  red('R_1B_complete_without_independent_validator',
+    badErrs.includes('1b_complete_without_independent_validator'));
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────────

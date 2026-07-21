@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "slice": "FACTORY-1B",
+  "archetype_id": "surf_house",
+  "label": "Surf house",
+  "reference_client_slug": "wolfhouse",
+  "reference_location_ids": ["wolfhouse-somo"],
+  "reference_baseline": "config/clients/wolfhouse-somo.baseline.json",
+  "legacy_vertical": "lodging_surf_house",
+  "live_enabled": false,
+  "files": [
+    "archetype.manifest.json",
+    "baseline.template.json",
+    "pricing.template.json",
+    "secrets.example.template.json",
+    "compatibility.json"
+  ],
+  "compatibility_file": "compatibility.json",
+  "notes": [
+    "Static reviewed template only. Placeholders must be filled by a later generator slice (1C).",
+    "Does not load at runtime. Does not create a client instance."
+  ]
+}

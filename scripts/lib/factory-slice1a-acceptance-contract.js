@@ -22,13 +22,15 @@ function deepFreeze(value) {
 const SLICE = 'FACTORY-1A';
 const BRANCH = 'factory/slice-1a-contract';
 const MASTER_BASIS = '0ef5958ed8b81ca04b196062505bf4be7a403221';
+/** Frozen tip that delivered 1A onto master; later stages must not widen this tip scope check. */
+const SLICE_TIP_SHA = '86f4cb9daaefdecab75ad02a2e755e2e7503216d';
 const OUTCOME_ID = '1A_source_only_acceptance_contract';
 
 const FINITE_STAGES = Object.freeze([
   Object.freeze({
     id: '1A',
     title: 'Source-only acceptance contract',
-    status: 'in_scope_current',
+    status: 'complete',
     allows: Object.freeze([
       'docs',
       'fixtures',
@@ -52,8 +54,10 @@ const FINITE_STAGES = Object.freeze([
   Object.freeze({
     id: '1B',
     title: 'Archetype schema and disabled-by-default templates',
-    status: 'deferred_future_stage',
+    status: 'complete',
     depends_on: '1A',
+    completion_evidence: '1B_static_disabled_archetype_templates',
+    completion_requires: 'verify:factory-slice1b-archetype-templates',
   }),
   Object.freeze({
     id: '1C',
@@ -103,7 +107,7 @@ const GATES = Object.freeze([
     requirement:
       'Productization must emit a surf_house client whose reference shape matches Wolfhouse lodging_surf_house (single primary location, bed/room inventory, portal default bed-calendar).',
     proof_stage: '1B+',
-    current_stage_evidence: 'inventory_and_contract_freeze_only',
+    current_stage_evidence: '1B_static_disabled_archetype_templates',
   }),
   Object.freeze({
     id: 'G_ARCHETYPE_SURF_SCHOOL_SHOP',
@@ -111,7 +115,7 @@ const GATES = Object.freeze([
     requirement:
       'Productization must emit a surf_school_shop client whose reference shape matches Sunset surf_school_rentals (multi-location, lessons+rentals catalog, portal default portal-home).',
     proof_stage: '1B+',
-    current_stage_evidence: 'inventory_and_contract_freeze_only',
+    current_stage_evidence: '1B_static_disabled_archetype_templates',
   }),
   Object.freeze({
     id: 'G_DISABLED_BY_DEFAULT_GENERATION',
@@ -360,12 +364,45 @@ function validateFactory1aContract(candidate) {
   return { ok: errors.length === 0, errors };
 }
 
+/**
+ * 1B ledger may claim complete only when the independent 1B verifier passed.
+ * Gates G_ARCHETYPE_* must carry matching 1B evidence in that case.
+ */
+function validate1bLedgerClaim(stage1b, gates, slice1bVerifierPassed) {
+  const errors = [];
+  if (!stage1b || stage1b.id !== '1B') {
+    errors.push('1b_stage_missing');
+    return errors;
+  }
+  if (stage1b.status === 'complete') {
+    if (!slice1bVerifierPassed) {
+      errors.push('1b_complete_without_independent_validator');
+    }
+    if (stage1b.completion_evidence !== '1B_static_disabled_archetype_templates') {
+      errors.push('1b_complete_evidence_mismatch');
+    }
+    if (stage1b.completion_requires !== 'verify:factory-slice1b-archetype-templates') {
+      errors.push('1b_complete_requires_mismatch');
+    }
+    const g0 = gates && gates[0];
+    const g1 = gates && gates[1];
+    if (!g0 || g0.current_stage_evidence !== '1B_static_disabled_archetype_templates') {
+      errors.push('1b_gate_surf_house_evidence_mismatch');
+    }
+    if (!g1 || g1.current_stage_evidence !== '1B_static_disabled_archetype_templates') {
+      errors.push('1b_gate_surf_school_shop_evidence_mismatch');
+    }
+  }
+  return errors;
+}
+
 deepFreeze(CONTRACT);
 
 module.exports = Object.freeze({
   SLICE,
   BRANCH,
   MASTER_BASIS,
+  SLICE_TIP_SHA,
   OUTCOME_ID,
   FINITE_STAGES,
   ARCHETYPES,
@@ -383,4 +420,5 @@ module.exports = Object.freeze({
   thaw,
   deepEqual,
   validateFactory1aContract,
+  validate1bLedgerClaim,
 });
