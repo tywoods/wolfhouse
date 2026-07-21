@@ -4,6 +4,8 @@
  * Runtime verifier for Crowsnest login portal — spawns local server, no DB/network deps.
  */
 
+const crypto = require('crypto');
+const fs = require('fs');
 const http = require('http');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -11,8 +13,32 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const API_SCRIPT = path.join(ROOT, 'scripts', 'crowsnest-api.js');
 const AUTH_MODULE_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-auth.js');
+const LOGO_PATH = path.join(ROOT, 'public', 'crowsnest', 'logo.png');
+const EXPECTED_LOGO_SHA256 = '7ace8b7e584e0848da3ca248d90988ab71c288f895961f03ec4aa6ee6367ad24';
+const REMOVED_LOGIN_COPY = 'This private portal is for Monshies and Earthling. Use your operator credentials to continue.';
 const auth = require(AUTH_MODULE_PATH);
 const BASE_PORT = Number(process.env.CROWSNEST_VERIFY_PORT) || 13040;
+
+function sha256File(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function sha256Buffer(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+function loginLogoCssLooksCentered(html) {
+  const styleMatch = /<style\b[^>]*>([\s\S]*?)<\/style>/i.exec(String(html || ''));
+  const css = styleMatch ? styleMatch[1] : '';
+  const ruleMatch = /\.login-logo\s*\{([^}]*)\}/.exec(css);
+  const rule = ruleMatch ? ruleMatch[1] : '';
+  const hasDisplayBlock = /display\s*:\s*block\b/.test(rule);
+  const hasMarginInlineAuto = /margin-inline\s*:\s*auto\b/.test(rule);
+  const hasResponsiveWidth = /width\s*:\s*min\s*\(/.test(rule) || /width\s*:\s*100%\b/.test(rule);
+  const hasHeightAuto = /height\s*:\s*auto\b/.test(rule);
+  const hasOpaqueBlackBg = /background(?:-color)?\s*:\s*(?:#000(?:000)?|black|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))\b/i.test(rule);
+  return hasDisplayBlock && hasMarginInlineAuto && hasResponsiveWidth && hasHeightAuto && !hasOpaqueBlackBg;
+}
 
 let pass = 0;
 let fail = 0;
@@ -326,7 +352,10 @@ async function main() {
       ok('GET /login returns 200', login.statusCode === 200);
       ok('login page renders HTML', /text\/html/i.test(String(login.headers['content-type'] || '')) && login.body.includes('<form'));
       ok('login page includes logo', login.body.includes('/crowsnest/assets/logo.png'));
-      ok('login page includes portal copy', /private portal|internal portal/i.test(login.body));
+      ok('login page keeps operator badge', /Private operator portal/i.test(login.body));
+      ok('login page omits removed Monshies/Earthling sentence', !login.body.includes(REMOVED_LOGIN_COPY));
+      ok('login logo CSS is centered and responsive', loginLogoCssLooksCentered(login.body));
+      ok('login markup keeps login-logo class', /class="login-logo"/.test(login.body));
       assertBrowserSecurityHeaders('GET /login', login, { expectCsp: true });
       ok('login page keeps no-store cache-control', /no-store/i.test(String(login.headers['cache-control'] || '')));
     },
@@ -336,6 +365,8 @@ async function main() {
       ok('logo asset content-type is PNG', String(logo.headers['content-type'] || '') === 'image/png');
       ok('logo asset cache-control is immutable', /immutable/.test(String(logo.headers['cache-control'] || '')));
       ok('logo asset is full PNG', logo.buffer.length > 1000);
+      ok('bundled logo SHA-256 matches replacement asset', sha256File(LOGO_PATH) === EXPECTED_LOGO_SHA256);
+      ok('served logo SHA-256 matches replacement asset', sha256Buffer(logo.buffer) === EXPECTED_LOGO_SHA256);
     },
     async (port) => {
       const badBody = 'username=wrong&password=creds';
