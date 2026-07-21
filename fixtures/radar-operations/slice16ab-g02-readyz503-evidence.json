@@ -1,0 +1,494 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AB",
+  "outcome_id": "16AB_g02_serving_readyz_503_body_path_evidence",
+  "gate_ids_touched": [
+    "G02_readiness_dependencies"
+  ],
+  "master_basis": "c43b4a14d14d5618d99e0e969b4f39784a526722",
+  "branch": "radar/slice-16ab-g02-readyz503-evidence",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "progress_class": "partial_live_proven_evidence_only",
+  "title": "Reconcile dual-staging serving-revision /readyz=503 body-path drill evidence (bounded; no overclaims)",
+  "image_sha_short": "95dc363",
+  "image_sha_full": "95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+  "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "independent_azure_verify_utc": "2026-07-21T12:43:09Z",
+  "provenance_limitations": "Class A operator Multiple-mode temporary switch, 100% public traffic pin to known healthy revision, isolated min=1/max=1 fail revision copy on exact image with dummy unreachable literal WOLFHOUSE_DATABASE_URL (value not recorded), exact fail replicas, az containerapp exec local Node HTTP GET http://127.0.0.1:3036/readyz exact status 503 and body {status:not-ready}, public healthy /readyz stayed 200, and cleanup sequence are operator-observed contemporaneous transcript facts. No exact transcript timestamp was captured: observed_at is locked to unavailable_in_command_transcript and must not be invented. Class B digests/restore revisions/fail inactive-stopped-0 replicas/scale/mode/traffic/public-current are independently reverified Azure/ACR/public read-only facts at independent_azure_verify_utc. Do not treat A as Azure-reconstructible, and do not treat current public probes as authority to rewrite A historical localhost 503/body or traffic sequence. Isolation means fail revision was not selected for public traffic; do not claim non-isolated traffic.",
+  "non_recoverability": "Azure/ACR/public read-only APIs cannot recreate or replay the historical operator localhost 503/body samples, exact fail-replica loopback HTTP observations, Multiple-mode traffic pin sequence, or contemporaneous public healthy /readyz=200 during the drill window; those values exist only in the operator drill command transcript. Fail replica names are not recoverable from Azure once revisions are stopped (replica list empty). Current public probes and revision metadata verify present final state only. Azure cannot invent a missing transcript timestamp.",
+  "claim_ownership": {
+    "local_readyz_503_body": {
+      "owner_class": "A_operator_observed_drill_transcript",
+      "observation": "az_exec_local_node_http_get_readyz_503_not_ready_body",
+      "proves": [
+        "serving_failed_revision_emits_bounded_generic_503_body",
+        "exact_status_503",
+        "exact_body_status_not_ready",
+        "both_staging_tenants"
+      ],
+      "does_not_prove": [
+        "concurrent_sampled_continuity",
+        "zero_downtime_during_restart",
+        "public_fail_revision_traffic",
+        "organic_metric_alert_firing",
+        "production",
+        "full_G02_proven"
+      ],
+      "observed_at": "unavailable_in_command_transcript",
+      "limitation": "Localhost 503/body is transcript-only; observed_at unavailable_in_command_transcript; Azure cannot recreate historical localhost samples"
+    },
+    "traffic_isolation_during_drill": {
+      "owner_class": "A_operator_observed_drill_transcript",
+      "observation": "multiple_mode_100_percent_pin_healthy_fail_isolated_zero_public_traffic",
+      "proves": [
+        "public_healthy_revision_remained_selected",
+        "fail_revision_not_public_traffic"
+      ],
+      "does_not_prove": [
+        "concurrent_sampled_continuity",
+        "zero_downtime_during_restart"
+      ],
+      "observed_at": "unavailable_in_command_transcript",
+      "limitation": "Traffic-isolation sequence is transcript-only; Azure final Single/100% restore does not reconstruct the historical Multiple-mode pin sequence"
+    },
+    "final_azure_restore_state": {
+      "owner_class": "B_independently_recoverable_azure_readonly",
+      "observation": "single_mode_restore_healthy_latestReady_100_fail_inactive_stopped_0",
+      "proves": [
+        "exact_sha_95dc363_images_digests_both_tenants",
+        "restore_revisions_healthy_latestReady_100",
+        "fail_revisions_inactive_stopped_replicas_0",
+        "public_current_readyz_healthz_200",
+        "wh_restore_min0_max1_sunset_restore_min1_max1"
+      ],
+      "does_not_derive_from": "historical_localhost_503",
+      "limitation": "Class B final state does not prove or recreate class-A historical localhost 503/body or traffic sequence"
+    }
+  },
+  "observed_facts": {
+    "A_operator_observed_drill_transcript": {
+      "source_type": "operator_drill_transcript_contemporaneous_observation",
+      "source_ref": "operator_g02_serving_readyz_503_command_transcript",
+      "observed_at": "unavailable_in_command_transcript",
+      "observed_at_semantics": "contemporaneous_operator_exec_local_readyz_503_and_traffic_isolation_not_azure_reconstructible_observed_at_unavailable_in_command_transcript",
+      "covers": [
+        "temporary_multiple_mode_switch",
+        "public_traffic_pin_100_percent_known_healthy_revision",
+        "isolated_fail_revision_min1_max1_exact_image_dummy_dsn_literal",
+        "az_exec_local_readyz_503_not_ready_body",
+        "public_healthy_readyz_stayed_200",
+        "cleanup_deactivate_fail_restore_single_100"
+      ],
+      "explicitly_not_covered": [
+        "concurrent_sampled_continuity",
+        "zero_downtime_during_restart",
+        "fail_revision_received_public_traffic",
+        "organic_metric_alert_firing",
+        "production",
+        "full_G02_proven",
+        "invented_transcript_timestamp",
+        "dsn_or_secret_value_disclosure",
+        "azure_derived_historical_localhost_503"
+      ],
+      "wolfhouse": {
+        "app": "wh-staging-staff-api",
+        "fail_revision": "wh-staging-staff-api--g02503",
+        "fail_replica": "wh-staging-staff-api--g02503-66667d8476-r2jzv",
+        "traffic_isolation": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_serving_readyz_503_command_transcript",
+          "observed_at": "unavailable_in_command_transcript",
+          "observed_at_semantics": "contemporaneous_operator_exec_local_readyz_503_and_traffic_isolation_not_azure_reconstructible_observed_at_unavailable_in_command_transcript",
+          "active_revisions_mode_temporary": "Multiple",
+          "public_traffic_pin_percent": 100,
+          "public_traffic_pin_target": "known_healthy_revision",
+          "fail_revision_public_traffic_percent": 0,
+          "fail_scale_min": 1,
+          "fail_scale_max": 1,
+          "semantics": "fail_revision_isolated_zero_public_traffic_healthy_revision_selected_100_percent",
+          "note": "Temporary Multiple mode with 100% public traffic pinned to known healthy revision; fail revision isolated at min=1/max=1 with zero public traffic; transcript-only; observed_at unavailable_in_command_transcript"
+        },
+        "fail_revision_setup": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_serving_readyz_503_command_transcript",
+          "observed_at": "unavailable_in_command_transcript",
+          "observed_at_semantics": "contemporaneous_operator_exec_local_readyz_503_and_traffic_isolation_not_azure_reconstructible_observed_at_unavailable_in_command_transcript",
+          "image_sha_full": "95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+          "image": "whstagingacr.azurecr.io/wh-staff-api:95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+          "database_url_class": "dummy_unreachable_literal_WOLFHOUSE_DATABASE_URL",
+          "database_url_value_recorded": false,
+          "note": "Fail revision used a dummy unreachable literal WOLFHOUSE_DATABASE_URL; the literal value is intentionally not recorded (secret/DSN rejection)."
+        },
+        "local_readyz_503": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_serving_readyz_503_command_transcript",
+          "observed_at": "unavailable_in_command_transcript",
+          "observed_at_semantics": "contemporaneous_operator_exec_local_readyz_503_and_traffic_isolation_not_azure_reconstructible_observed_at_unavailable_in_command_transcript",
+          "method": "az_containerapp_exec",
+          "probe_semantics": "local_node_http_get_readyz_on_fail_replica_loopback",
+          "revision": "wh-staging-staff-api--g02503",
+          "replica": "wh-staging-staff-api--g02503-66667d8476-r2jzv",
+          "url": "http://127.0.0.1:3036/readyz",
+          "http_method": "GET",
+          "status": 503,
+          "body": {
+            "status": "not-ready"
+          },
+          "note": "az containerapp exec into exact fail replica; local Node HTTP GET http://127.0.0.1:3036/readyz returned exact status 503 and body {status:not-ready}; transcript-only; not Azure-reconstructible; observed_at unavailable_in_command_transcript"
+        },
+        "public_healthy_readyz_during_drill": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_serving_readyz_503_command_transcript",
+          "observed_at": "unavailable_in_command_transcript",
+          "observed_at_semantics": "contemporaneous_operator_exec_local_readyz_503_and_traffic_isolation_not_azure_reconstructible_observed_at_unavailable_in_command_transcript",
+          "public_readyz": 200,
+          "semantics": "public_healthy_revision_readyz_stayed_200_not_concurrent_sampled_continuity",
+          "note": "Public healthy revision /readyz stayed 200 while fail was isolated; explicitly not concurrent sampled continuity or zero-downtime-during-restart proof; transcript-only"
+        },
+        "cleanup": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_serving_readyz_503_command_transcript",
+          "observed_at": "unavailable_in_command_transcript",
+          "observed_at_semantics": "contemporaneous_operator_exec_local_readyz_503_and_traffic_isolation_not_azure_reconstructible_observed_at_unavailable_in_command_transcript",
+          "steps": [
+            "exited_exec",
+            "deactivated_fail_revision",
+            "created_healthy_restore_from_original_exact_revision_image",
+            "restored_single_mode",
+            "restored_100_percent_traffic_to_restore"
+          ],
+          "note": "Cleanup sequence transcript-only; final Azure state independently verified as class B"
+        }
+      },
+      "sunset": {
+        "app": "luna-sunset-staging-staff-api",
+        "fail_revision": "luna-sunset-staging-staff-api--g02503",
+        "fail_replica": "luna-sunset-staging-staff-api--g02503-58d5745f7c-fhnqt",
+        "traffic_isolation": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_serving_readyz_503_command_transcript",
+          "observed_at": "unavailable_in_command_transcript",
+          "observed_at_semantics": "contemporaneous_operator_exec_local_readyz_503_and_traffic_isolation_not_azure_reconstructible_observed_at_unavailable_in_command_transcript",
+          "active_revisions_mode_temporary": "Multiple",
+          "public_traffic_pin_percent": 100,
+          "public_traffic_pin_target": "known_healthy_revision",
+          "fail_revision_public_traffic_percent": 0,
+          "fail_scale_min": 1,
+          "fail_scale_max": 1,
+          "semantics": "fail_revision_isolated_zero_public_traffic_healthy_revision_selected_100_percent",
+          "note": "Temporary Multiple mode with 100% public traffic pinned to known healthy revision; fail revision isolated at min=1/max=1 with zero public traffic; transcript-only; observed_at unavailable_in_command_transcript"
+        },
+        "fail_revision_setup": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_serving_readyz_503_command_transcript",
+          "observed_at": "unavailable_in_command_transcript",
+          "observed_at_semantics": "contemporaneous_operator_exec_local_readyz_503_and_traffic_isolation_not_azure_reconstructible_observed_at_unavailable_in_command_transcript",
+          "image_sha_full": "95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+          "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+          "database_url_class": "dummy_unreachable_literal_WOLFHOUSE_DATABASE_URL",
+          "database_url_value_recorded": false,
+          "note": "Fail revision used a dummy unreachable literal WOLFHOUSE_DATABASE_URL; the literal value is intentionally not recorded (secret/DSN rejection)."
+        },
+        "local_readyz_503": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_serving_readyz_503_command_transcript",
+          "observed_at": "unavailable_in_command_transcript",
+          "observed_at_semantics": "contemporaneous_operator_exec_local_readyz_503_and_traffic_isolation_not_azure_reconstructible_observed_at_unavailable_in_command_transcript",
+          "method": "az_containerapp_exec",
+          "probe_semantics": "local_node_http_get_readyz_on_fail_replica_loopback",
+          "revision": "luna-sunset-staging-staff-api--g02503",
+          "replica": "luna-sunset-staging-staff-api--g02503-58d5745f7c-fhnqt",
+          "url": "http://127.0.0.1:3036/readyz",
+          "http_method": "GET",
+          "status": 503,
+          "body": {
+            "status": "not-ready"
+          },
+          "note": "az containerapp exec into exact fail replica; local Node HTTP GET http://127.0.0.1:3036/readyz returned exact status 503 and body {status:not-ready}; transcript-only; not Azure-reconstructible; observed_at unavailable_in_command_transcript"
+        },
+        "public_healthy_readyz_during_drill": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_serving_readyz_503_command_transcript",
+          "observed_at": "unavailable_in_command_transcript",
+          "observed_at_semantics": "contemporaneous_operator_exec_local_readyz_503_and_traffic_isolation_not_azure_reconstructible_observed_at_unavailable_in_command_transcript",
+          "public_readyz": 200,
+          "semantics": "public_healthy_revision_readyz_stayed_200_not_concurrent_sampled_continuity",
+          "note": "Public healthy revision /readyz stayed 200 while fail was isolated; explicitly not concurrent sampled continuity or zero-downtime-during-restart proof; transcript-only"
+        },
+        "cleanup": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_serving_readyz_503_command_transcript",
+          "observed_at": "unavailable_in_command_transcript",
+          "observed_at_semantics": "contemporaneous_operator_exec_local_readyz_503_and_traffic_isolation_not_azure_reconstructible_observed_at_unavailable_in_command_transcript",
+          "steps": [
+            "exited_exec",
+            "deactivated_fail_revision",
+            "created_healthy_restore_from_original_exact_revision_image",
+            "restored_single_mode",
+            "restored_100_percent_traffic_to_restore"
+          ],
+          "note": "Cleanup sequence transcript-only; final Azure state independently verified as class B"
+        }
+      }
+    },
+    "B_independently_recoverable_azure_readonly": {
+      "source_type": "azure_acr_public_readonly_independently_reverified",
+      "source_ref": "az_containerapp_acr_public_curl_readonly_2026-07-21T12:43:09Z",
+      "observed_at": "2026-07-21T12:43:09Z",
+      "observed_at_semantics": "independently_reverified_at_recorded_utc",
+      "covers": [
+        "acr_digests",
+        "fail_revision_inactive_stopped_replicas_0",
+        "restore_revision_healthy_latestReady_100",
+        "active_revisions_mode_single",
+        "scale_min_max_restore_and_fail_metadata",
+        "probes",
+        "public_current_healthz_readyz"
+      ],
+      "explicitly_cannot_recreate": [
+        "historical_localhost_503_body",
+        "historical_traffic_pin_sequence",
+        "fail_replica_names_when_stopped",
+        "missing_transcript_timestamp"
+      ],
+      "wolfhouse": {
+        "app": "wh-staging-staff-api",
+        "resource_group": "wh-staging-rg",
+        "public_host": "staff-staging.lunafrontdesk.com",
+        "image": "whstagingacr.azurecr.io/wh-staff-api:95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+        "digest": "sha256:a9677f75a7d17be9b6ae75b60bc026d462df971cc164496344c29b8c57aee6de",
+        "source_type": "azure_acr_public_readonly_independently_reverified",
+        "source_ref": "az_containerapp_acr_public_curl_readonly_2026-07-21T12:43:09Z",
+        "observed_at": "2026-07-21T12:43:09Z",
+        "observed_at_semantics": "independently_reverified_at_recorded_utc",
+        "fail_revision_final": {
+          "source_type": "azure_acr_public_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_public_curl_readonly_2026-07-21T12:43:09Z",
+          "observed_at": "2026-07-21T12:43:09Z",
+          "revision": "wh-staging-staff-api--g02503",
+          "active": false,
+          "running_state": "Stopped",
+          "replicas": 0,
+          "traffic_weight": 0,
+          "scale_min": 1,
+          "scale_max": 1,
+          "image": "whstagingacr.azurecr.io/wh-staff-api:95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+          "created_time": "2026-07-21T12:33:11+00:00",
+          "last_active_time": "2026-07-21T12:35:49+00:00",
+          "replica_list_at_review": [],
+          "replica_recoverability": "fail_replica_names_not_recoverable_from_azure_when_stopped_transcript_only",
+          "database_url_class_present": "dummy_unreachable_literal_WOLFHOUSE_DATABASE_URL",
+          "database_url_value_recorded": false,
+          "note": "Fail revision inactive/stopped/replicas=0/traffic=0; replica names empty in Azure; DSN value not recorded"
+        },
+        "restore_revision_final": {
+          "source_type": "azure_acr_public_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_public_curl_readonly_2026-07-21T12:43:09Z",
+          "observed_at": "2026-07-21T12:43:09Z",
+          "revision": "wh-staging-staff-api--g02503r",
+          "replica": "wh-staging-staff-api--g02503r-9764596b8-gwl7r",
+          "active": true,
+          "health_state": "Healthy",
+          "running_state": "RunningAtMaxScale",
+          "latest_revision": "wh-staging-staff-api--g02503r",
+          "latest_ready_revision": "wh-staging-staff-api--g02503r",
+          "traffic_weight": 100,
+          "scale_min": 0,
+          "scale_max": 1,
+          "image": "whstagingacr.azurecr.io/wh-staff-api:95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+          "created_time": "2026-07-21T12:35:48+00:00",
+          "database_url_binding": "secretRef_only_value_not_recorded",
+          "note": "Healthy restore revision exact SHA; latestReady; 100% traffic; scale locked"
+        },
+        "app_final": {
+          "source_type": "azure_acr_public_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_public_curl_readonly_2026-07-21T12:43:09Z",
+          "observed_at": "2026-07-21T12:43:09Z",
+          "active_revisions_mode": "Single",
+          "traffic_latest_percent": 100,
+          "public_healthz": 200,
+          "public_readyz": 200,
+          "public_current_note": "public_healthz/public_readyz here are independently reverified current values at observed_at — not a recreation of class-A historical localhost 503 or during-drill public samples",
+          "probes": [
+            {
+              "type": "Liveness",
+              "path": "/healthz",
+              "port": 3036
+            },
+            {
+              "type": "Readiness",
+              "path": "/readyz",
+              "port": 3036
+            },
+            {
+              "type": "Startup",
+              "path": "/healthz",
+              "port": 3036
+            }
+          ]
+        }
+      },
+      "sunset": {
+        "app": "luna-sunset-staging-staff-api",
+        "resource_group": "luna-sunset-staging-rg",
+        "public_host": "sunset-staging.lunafrontdesk.com",
+        "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+        "digest": "sha256:8a0b1647ba246bb548d437fcc37e3e4f600181ca1d04dc1eb73e3f4a69d51c10",
+        "source_type": "azure_acr_public_readonly_independently_reverified",
+        "source_ref": "az_containerapp_acr_public_curl_readonly_2026-07-21T12:43:09Z",
+        "observed_at": "2026-07-21T12:43:09Z",
+        "observed_at_semantics": "independently_reverified_at_recorded_utc",
+        "fail_revision_final": {
+          "source_type": "azure_acr_public_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_public_curl_readonly_2026-07-21T12:43:09Z",
+          "observed_at": "2026-07-21T12:43:09Z",
+          "revision": "luna-sunset-staging-staff-api--g02503",
+          "active": false,
+          "running_state": "Stopped",
+          "replicas": 0,
+          "traffic_weight": 0,
+          "scale_min": 1,
+          "scale_max": 1,
+          "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+          "created_time": "2026-07-21T12:37:35+00:00",
+          "last_active_time": "2026-07-21T12:38:40+00:00",
+          "replica_list_at_review": [],
+          "replica_recoverability": "fail_replica_names_not_recoverable_from_azure_when_stopped_transcript_only",
+          "database_url_class_present": "dummy_unreachable_literal_WOLFHOUSE_DATABASE_URL",
+          "database_url_value_recorded": false,
+          "note": "Fail revision inactive/stopped/replicas=0/traffic=0; replica names empty in Azure; DSN value not recorded"
+        },
+        "restore_revision_final": {
+          "source_type": "azure_acr_public_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_public_curl_readonly_2026-07-21T12:43:09Z",
+          "observed_at": "2026-07-21T12:43:09Z",
+          "revision": "luna-sunset-staging-staff-api--g02503r",
+          "replica": "luna-sunset-staging-staff-api--g02503r-f4d4b7875-dw7cx",
+          "active": true,
+          "health_state": "Healthy",
+          "running_state": "RunningAtMaxScale",
+          "latest_revision": "luna-sunset-staging-staff-api--g02503r",
+          "latest_ready_revision": "luna-sunset-staging-staff-api--g02503r",
+          "traffic_weight": 100,
+          "scale_min": 1,
+          "scale_max": 1,
+          "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+          "created_time": "2026-07-21T12:38:53+00:00",
+          "database_url_binding": "secretRef_only_value_not_recorded",
+          "note": "Healthy restore revision exact SHA; latestReady; 100% traffic; scale locked"
+        },
+        "app_final": {
+          "source_type": "azure_acr_public_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_public_curl_readonly_2026-07-21T12:43:09Z",
+          "observed_at": "2026-07-21T12:43:09Z",
+          "active_revisions_mode": "Single",
+          "traffic_latest_percent": 100,
+          "public_healthz": 200,
+          "public_readyz": 200,
+          "public_current_note": "public_healthz/public_readyz here are independently reverified current values at observed_at — not a recreation of class-A historical localhost 503 or during-drill public samples",
+          "probes": [
+            {
+              "type": "Liveness",
+              "path": "/healthz",
+              "port": 3036
+            },
+            {
+              "type": "Readiness",
+              "path": "/readyz",
+              "port": 3036
+            },
+            {
+              "type": "Startup",
+              "path": "/healthz",
+              "port": 3036
+            }
+          ]
+        }
+      }
+    }
+  },
+  "claims_allowed": [
+    "exact_sha_95dc363_images_digests_both_tenants",
+    "fail_revisions_wh_g02503_sunset_g02503_exact_image",
+    "exact_fail_replicas_wh_r2jzv_sunset_fhnqt_transcript_only",
+    "az_exec_local_readyz_503_not_ready_body_both_tenants",
+    "public_healthy_revision_remained_selected_fail_isolated",
+    "public_healthy_readyz_stayed_200_during_drill_transcript",
+    "cleanup_fail_deactivated_restore_single_100",
+    "final_restore_wh_g02503r_min0_max1_sunset_g02503r_min1_max1",
+    "fail_inactive_stopped_replicas_0_both_tenants",
+    "public_current_healthz_readyz_200_both_tenants",
+    "observed_at_unavailable_in_command_transcript_disclosed",
+    "no_production_scope",
+    "no_dsn_or_secret_values_recorded"
+  ],
+  "explicitly_not_claimed": [
+    "concurrent_sampled_continuity",
+    "zero_downtime_during_restart",
+    "organic_metric_alert_firing",
+    "human_inbox_receipt",
+    "production",
+    "full_G02_proven",
+    "any_gate_verdict_proven",
+    "fail_revision_received_public_traffic",
+    "azure_derived_historical_localhost_503",
+    "invented_transcript_timestamp",
+    "dsn_or_secret_value_disclosure"
+  ],
+  "disposition": {
+    "proves": [
+      "serving_failed_revision_emits_bounded_generic_503_body_both_staging_tenants",
+      "exact_local_readyz_status_503_body_status_not_ready",
+      "public_healthy_revision_remained_selected_fail_isolated",
+      "exact_sha_95dc363_digests_restore_healthy_fail_inactive",
+      "observed_at_unavailable_in_command_transcript_disclosed_not_invented",
+      "prior_16AA_sigint_16Z_sigterm_16X_traffic_shed_16Y_source_retained"
+    ],
+    "does_not_prove": [
+      "concurrent_sampled_continuity",
+      "zero_downtime_during_restart",
+      "organic_metric_alert_firing",
+      "human_inbox_receipt",
+      "production",
+      "full_G02_proven",
+      "any_gate_verdict_proven",
+      "fail_revision_received_public_traffic",
+      "azure_derived_historical_localhost_503",
+      "invented_transcript_timestamp"
+    ],
+    "g02_verdict": "partial",
+    "g02_progress_class": "partial_live_proven"
+  },
+  "gate_progress_updates": {
+    "G02_readiness_dependencies": {
+      "progress_class": "partial_live_proven",
+      "verdict": "partial",
+      "live_proven": [
+        "serving_revision_readyz_503_body_path_via_16AB",
+        "prior_16AA_sigint_law_and_post_drill_recovery",
+        "prior_16Z_sigterm_law_retained",
+        "prior_16X_traffic_shed_retained",
+        "prior_16Y_completion_log_source_retained",
+        "exact_sha_95dc363_restore_healthy_both_tenants"
+      ],
+      "still_open": [
+        "zero_downtime_during_restart",
+        "organic_metric_alert_firing",
+        "production"
+      ]
+    }
+  },
+  "gates_unchanged": [
+    "G01_correlation_structured_logs",
+    "G03_actionable_tenant_aware_alerts",
+    "G04_webhook_payment_worker_backlog",
+    "G05_retry_replay_safety",
+    "G06_scaling_capacity",
+    "G07_rollback_incident_runbooks",
+    "G08_retention_privacy",
+    "G09_cost_controls"
+  ],
+  "lock_hash": "4187c53cafeb40b92b1d0631c749d84504c434433d974248750696aed83914d6"
+}
