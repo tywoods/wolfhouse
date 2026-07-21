@@ -36,6 +36,7 @@
     "inventory_independently_pinned": true,
     "identity_rule_id": "ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION",
     "completeness_method": "source_derived_exact_set_comparison",
+    "frozen_specification": "fixtures/radar-operations/slice16ae-frozen-capability-ids.json",
     "whatsapp_send_count": 4,
     "mutation_count": 21,
     "read_dispatch_count": 18,
@@ -50,6 +51,8 @@
     "later_owner_tests": "docker/hermes-staging/wolfhouse/test_capability_boundary.py",
     "exact_location_binding": true,
     "immutable_tenant_location_adapter_context": true,
+    "canonical_turn_id_required": true,
+    "per_turn_boundary_object": true,
     "fulfills_16u_candidate": "16V_candidate_central_capability_boundary_audit_freeze"
   },
   "forbidden_claim_tokens": [
@@ -92,10 +95,11 @@
   "final_controlled_drill": {
     "id": "16AE_DRILL_capability_boundary_audit_freeze",
     "status": "audit_only_boundary_frozen",
-    "pass_rule": "Source-derived exact-set inventory (4/21/18=43); decideCapability inventory-lookup + exact tenant/location + pinned effect + immutable per-turn tenant/location/adapter context; RED-rejects missing/extra/duplicate/bypass/context-tamper; runtime paths unchanged; proven=0"
+    "pass_rule": "Independent source enumeration of registrations+acquisition sites compared bidirectionally to separate frozen specification (4/21/18=43); decideCapability inventory-lookup + exact tenant/location + pinned effect + non-empty turn_id + one immutable per-turn tenant/location/adapter boundary; RED-rejects missing/extra/duplicate/bypass/context-tamper/unclassified/acquisition-omission/missing-turn/cross-decision-drift; verifier does not import implementation expected-set constants; runtime paths unchanged; proven=0"
   },
   "artifacts": [
     "fixtures/radar-operations/slice16ae-adapter-inventory.json",
+    "fixtures/radar-operations/slice16ae-frozen-capability-ids.json",
     "fixtures/radar-operations/slice16ae-capability-boundary-freeze.json",
     "fixtures/radar-operations/slice16ae-expected-contract.json",
     "scripts/lib/radar-slice16ae-g01-capability-boundary-freeze.js",

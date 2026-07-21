@@ -21,10 +21,11 @@
   },
   "title": "Audit-only freeze of the central capability boundary required before any G01-A dry-run",
   "inventory_fixture": "fixtures/radar-operations/slice16ae-adapter-inventory.json",
+  "frozen_capability_ids_fixture": "fixtures/radar-operations/slice16ae-frozen-capability-ids.json",
   "identity_rule": {
     "id": "ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION",
     "completeness_method": "source_derived_exact_set_comparison",
-    "exact": "One adapter_id per registered active Hermes tool primary staff route or unique external acquisition site; collapse producer/path duplicates that converge before acquisition; completeness is exact-set equality vs source derivation"
+    "exact": "One adapter_id per registered active Hermes tool primary staff route or unique external acquisition site; collapse producer/path duplicates that converge before acquisition; completeness is bidirectional exact-set equality between independently enumerated source IDs and a separate frozen specification (not circular expected-set constants)"
   },
   "preserved_16u_provenance": {
     "live_whatsapp_upstream": "localhost:8092 hermes-sunset-luna",
@@ -77,7 +78,10 @@
       "context_tamper",
       "tenant_location_mismatch",
       "missing_location",
-      "cross_location"
+      "cross_location",
+      "circular_expected_set_derivation",
+      "missing_turn",
+      "cross_decision_context_drift"
     ],
     "denies_every_whatsapp_send": true,
     "denies_every_staff_db_stripe_mutation": true,
@@ -85,9 +89,13 @@
     "note": "Shape freeze only \u2014 decideCapability is not wired into runtime in 16AE",
     "exact_location_binding": true,
     "immutable_tenant_location_adapter_context": true,
+    "canonical_turn_id_required": true,
+    "per_turn_boundary_object": true,
     "context_tamper_denies": true,
     "missing_location_denies": true,
-    "cross_location_denies": true
+    "cross_location_denies": true,
+    "missing_turn_denies": true,
+    "cross_decision_context_drift_denies": true
   },
   "dry_run_status": {
     "name": "G01_CORRELATION_DRY_RUN",
@@ -161,7 +169,10 @@
     "dispersed_env_checks_as_sole_control",
     "post_acquisition_denial_accepted",
     "mutable_capability_state_accepted",
-    "self_reported_inventory_complete_flag"
+    "self_reported_inventory_complete_flag",
+    "circular_expected_set_derivation",
+    "missing_turn_accepted",
+    "cross_decision_context_drift_accepted"
   ],
   "fulfills_16u_next_slice_candidate": "16V_candidate_central_capability_boundary_audit_freeze"
 }

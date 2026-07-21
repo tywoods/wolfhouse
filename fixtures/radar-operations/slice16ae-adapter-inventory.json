@@ -12,7 +12,7 @@
     "wolfhouse-somo",
     "sunset"
   ],
-  "note": "Audit inventory only. Identity = registered active Hermes tool primary staff route OR unique external acquisition site; producer/path duplicates that converge before acquisition are collapsed. Completeness is exact-set equality vs source derivation \u2014 not a self-reported flag. Every adapter must pass decideCapability before acquisition; unknown/missing/cross-tenant/cross-location deny. Capability object is turn-scoped and bound to immutable tenant+location+adapter context. Fulfills 16U-required central capability boundary (candidate was labeled 16V; sequenced as 16AE).",
+  "note": "Audit inventory only. Identity = registered active Hermes tool primary staff route OR unique external acquisition site; producer/path duplicates that converge before acquisition are collapsed. Completeness is bidirectional exact-set equality between independently enumerated source IDs and the separate frozen specification fixture (slice16ae-frozen-capability-ids.json) \u2014 not a self-reported flag and not circular expected-set constants. Every adapter must pass decideCapability before acquisition; unknown/missing/cross-tenant/cross-location/missing-turn deny. Capability object is turn-scoped and bound through one immutable per-turn tenant+location+adapter boundary object. Fulfills 16U-required central capability boundary (candidate was labeled 16V; sequenced as 16AE).",
   "counts": {
     "whatsapp_send": 4,
     "mutation": 21,

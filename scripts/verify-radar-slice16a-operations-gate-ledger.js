@@ -1024,6 +1024,7 @@ ok('F174 contract selected_16ae matches',
   && contract.selected_16ae.dry_run_implementable_today === false);
 ok('F175 16AE inventory + design fixtures present',
   pathExists('fixtures/radar-operations/slice16ae-adapter-inventory.json')
+  && pathExists('fixtures/radar-operations/slice16ae-frozen-capability-ids.json')
   && pathExists('fixtures/radar-operations/slice16ae-capability-boundary-freeze.json')
   && pathExists('fixtures/radar-operations/slice16ae-expected-contract.json'));
 ok('F176 16AE verifier present',

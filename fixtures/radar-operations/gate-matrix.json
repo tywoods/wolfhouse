@@ -1832,15 +1832,16 @@
     ],
     "acceptance_criteria": [
       "Source-derived exact-set inventory counts 4/21/18 total 43 with bidirectional compare",
-      "decideCapability inventory-lookup + exact tenant/location + pinned effect + immutable per-turn context",
-      "Verifier RED-rejects missing/extra/duplicate/bypass/context-tamper",
+      "Independent source enumeration vs separate frozen capability-ID specification (no circular expected-set constants)",
+      "decideCapability inventory-lookup + exact tenant/location + pinned effect + non-empty turn_id + immutable per-turn boundary",
+      "Verifier RED-rejects missing/extra/duplicate/bypass/context-tamper/unclassified/acquisition-omission/missing-turn/cross-decision-drift",
       "Dry-run not implementable; later owner specified not created",
       "G01 remains partial; proven=0; runtime paths unchanged vs master 0a2fb08"
     ],
     "final_controlled_drill": {
       "id": "16AE_DRILL_capability_boundary_audit_freeze",
       "status": "audit_only_boundary_frozen",
-      "pass_rule": "Source-derived exact-set inventory (4/21/18); decideCapability inventory-lookup + exact tenant/location + pinned effect + immutable per-turn; RED-rejects missing/extra/duplicate/bypass/context-tamper; runtime paths unchanged; proven=0"
+      "pass_rule": "Independent source enumeration vs separate frozen specification (4/21/18); decideCapability inventory-lookup + exact tenant/location + pinned effect + non-empty turn_id + per-turn boundary; RED-rejects missing/extra/duplicate/bypass/context-tamper/unclassified/acquisition-omission/missing-turn/cross-decision-drift; runtime paths unchanged; proven=0"
     },
     "g01_verdict": "partial",
     "dry_run_implementable_today": false,

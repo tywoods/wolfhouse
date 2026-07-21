@@ -16,10 +16,10 @@ Freeze the **central capability boundary** required by 16U before any G01-A dry-
 - **Permit** genuine read dispatch
 - **Deny** every WhatsApp send and every Staff/DB/Stripe mutation
 - Decision must occur **before** Meta Graph / Staff HTTP / DB pool / Stripe SDK / queue / session-store acquisition
-- Inventory lookup by adapter ID; exact allowed-tenant **and** allowed-location binding; effect/class from pinned entry (caller spoof ignored); one immutable frozen per-turn object bound to **tenant+location+adapter** context
-- Unknown, missing, cross-tenant, cross-location, bypass, or context-tamper paths **deny**
+- Inventory lookup by adapter ID; exact allowed-tenant **and** allowed-location binding; effect/class from pinned entry (caller spoof ignored); non-empty canonical `turn_id`; one immutable frozen per-turn **boundary object** binding **tenant+location+adapter** (rejects missing/mismatched repeated context)
+- Unknown, missing, cross-tenant, cross-location, missing-turn, bypass, context-tamper, or cross-decision drift paths **deny**
 
-**Identity rule** `ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION`: one adapter per registered active Hermes tool primary staff route **or** unique external acquisition site; producer/path duplicates that converge before acquisition collapse. Completeness = **source_derived_exact_set_comparison** (bidirectional exact-set equality vs source derivation — not a self-reported `complete` flag).
+**Identity rule** `ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION`: one adapter per registered active Hermes tool primary staff route **or** unique external acquisition site; producer/path duplicates that converge before acquisition collapse. Completeness = **source_derived_exact_set_comparison** (independently enumerate capability IDs from actual registrations + acquisition sites, then bidirectional exact-set equality vs a **separate frozen specification** — not a self-reported `complete` flag and not circular expected-set constants).
 
 Source-derived exact-set inventory (active Hermes guest turns, Wolfhouse + Sunset):
 
@@ -41,6 +41,7 @@ Includes previously omitted Sunset reads (`full-day-addon`, `private-lesson`, `j
 | Path | Role |
 |------|------|
 | `fixtures/radar-operations/slice16ae-adapter-inventory.json` | Source-derived send/mutation/read inventory |
+| `fixtures/radar-operations/slice16ae-frozen-capability-ids.json` | Separate frozen capability-ID specification |
 | `fixtures/radar-operations/slice16ae-capability-boundary-freeze.json` | Boundary + later owner freeze |
 | `fixtures/radar-operations/slice16ae-expected-contract.json` | Frozen 16AE contract |
 | `scripts/lib/radar-slice16ae-g01-capability-boundary-freeze.js` | Locks + decideCapability classifiers |

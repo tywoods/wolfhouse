@@ -14,6 +14,18 @@ const { execSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const locks = require('./lib/radar-slice16ae-g01-capability-boundary-freeze');
 
+// Frozen specification is the expected-set authority — never import implementation
+// expected-set constants from the locks module.
+const frozenSpec = locks.loadFrozenCapabilityIds(ROOT);
+if (!frozenSpec.ok) {
+  console.error('FATAL: frozen capability specification missing', frozenSpec);
+  process.exit(1);
+}
+const FROZEN_COUNTS = frozenSpec.counts;
+const FROZEN_SEND = frozenSpec.whatsapp_send;
+const FROZEN_MUTATION = frozenSpec.mutation;
+const FROZEN_READ = frozenSpec.read_dispatch;
+
 let pass = 0;
 let fail = 0;
 const redResults = [];
@@ -117,7 +129,8 @@ const callGraph16u = readJson('fixtures/radar-operations/slice16u-call-graph.jso
 green('fixtures_present',
   fs.existsSync(path.join(ROOT, locks.DESIGN_REL))
   && fs.existsSync(path.join(ROOT, locks.INVENTORY_REL))
-  && fs.existsSync(path.join(ROOT, locks.CONTRACT_REL)));
+  && fs.existsSync(path.join(ROOT, locks.CONTRACT_REL))
+  && fs.existsSync(path.join(ROOT, locks.FROZEN_SPEC_REL)));
 
 green('pins',
   design.slice === locks.SLICE
@@ -144,23 +157,34 @@ green('contract_pins',
   && contract.outcome_id === locks.OUTCOME_ID
   && contract.progress_class === locks.PROGRESS_CLASS
   && contract.this_slice_implements_runtime === false
-  && contract.required_design_facts.whatsapp_send_count === locks.EXPECTED_COUNTS.whatsapp_send
-  && contract.required_design_facts.mutation_count === locks.EXPECTED_COUNTS.mutation
-  && contract.required_design_facts.read_dispatch_count === locks.EXPECTED_COUNTS.read_dispatch
-  && contract.required_design_facts.total_count === locks.EXPECTED_COUNTS.total);
+  && contract.required_design_facts.whatsapp_send_count === FROZEN_COUNTS.whatsapp_send
+  && contract.required_design_facts.mutation_count === FROZEN_COUNTS.mutation
+  && contract.required_design_facts.read_dispatch_count === FROZEN_COUNTS.read_dispatch
+  && contract.required_design_facts.total_count === FROZEN_COUNTS.total
+  && contract.required_design_facts.frozen_specification === locks.FROZEN_SPEC_REL
+  && contract.required_design_facts.canonical_turn_id_required === true
+  && contract.required_design_facts.per_turn_boundary_object === true);
 
 green('inventory_pins',
   inventory.slice === locks.SLICE
   && inventory.independently_pinned === true
   && inventory.completeness_method === locks.IDENTITY_RULE.completeness_method
   && inventory.complete !== true
-  && inventory.counts.whatsapp_send === locks.EXPECTED_COUNTS.whatsapp_send
-  && inventory.counts.mutation === locks.EXPECTED_COUNTS.mutation
-  && inventory.counts.read_dispatch === locks.EXPECTED_COUNTS.read_dispatch
-  && inventory.counts.total === locks.EXPECTED_COUNTS.total
-  && inventory.whatsapp_send_adapters.length === locks.EXPECTED_COUNTS.whatsapp_send
-  && inventory.mutation_adapters.length === locks.EXPECTED_COUNTS.mutation
-  && inventory.read_dispatch_adapters.length === locks.EXPECTED_COUNTS.read_dispatch);
+  && inventory.counts.whatsapp_send === FROZEN_COUNTS.whatsapp_send
+  && inventory.counts.mutation === FROZEN_COUNTS.mutation
+  && inventory.counts.read_dispatch === FROZEN_COUNTS.read_dispatch
+  && inventory.counts.total === FROZEN_COUNTS.total
+  && inventory.whatsapp_send_adapters.length === FROZEN_COUNTS.whatsapp_send
+  && inventory.mutation_adapters.length === FROZEN_COUNTS.mutation
+  && inventory.read_dispatch_adapters.length === FROZEN_COUNTS.read_dispatch);
+
+green('frozen_specification_loaded',
+  frozenSpec.ok === true
+  && fs.existsSync(path.join(ROOT, locks.FROZEN_SPEC_REL))
+  && FROZEN_SEND.length === FROZEN_COUNTS.whatsapp_send
+  && FROZEN_MUTATION.length === FROZEN_COUNTS.mutation
+  && FROZEN_READ.length === FROZEN_COUNTS.read_dispatch
+  && FROZEN_COUNTS.total === 43);
 
 const invClass = locks.classifyInventoryDocument(inventory, ROOT);
 green('inventory_classifier_accepts', invClass.ok === true, JSON.stringify(invClass));
@@ -168,26 +192,43 @@ green('inventory_classifier_accepts', invClass.ok === true, JSON.stringify(invCl
 const exact = locks.compareInventoryExactSet(inventory, ROOT);
 green('source_derived_exact_set', exact.ok === true, JSON.stringify(exact));
 
+const enumerated = locks.enumerateCapabilityIdsFromSource(ROOT);
+green('source_enumeration_independent',
+  enumerated.ok === true
+  && enumerated.note
+  && /independently enumerated/i.test(enumerated.note)
+  && !Object.prototype.hasOwnProperty.call(locks, 'EXPECTED_WHATSAPP_SEND_IDS')
+  && !Object.prototype.hasOwnProperty.call(locks, 'EXPECTED_MUTATION_IDS')
+  && !Object.prototype.hasOwnProperty.call(locks, 'EXPECTED_READ_IDS')
+  && !Object.prototype.hasOwnProperty.call(locks, 'EXPECTED_COUNTS'),
+  (enumerated.errors || []).slice(0, 6).join(' | '));
+
 green('bidirectional_exact_set',
   (() => {
-    const d = locks.deriveExpectedAdapterIdsFromSource(ROOT);
-    if (!d.ok) return false;
+    if (!enumerated.ok) return false;
+    const vsFrozen = locks.compareEnumeratedToFrozenSpec(enumerated, frozenSpec);
+    if (!vsFrozen.ok) return false;
     const sends = inventory.whatsapp_send_adapters.map((a) => a.adapter_id).sort();
     const muts = inventory.mutation_adapters.map((a) => a.adapter_id).sort();
     const reads = inventory.read_dispatch_adapters.map((a) => a.adapter_id).sort();
-    const ds = [...d.whatsapp_send].sort();
-    const dm = [...d.mutation].sort();
-    const dr = [...d.read_dispatch].sort();
+    const ds = [...enumerated.whatsapp_send].sort();
+    const dm = [...enumerated.mutation].sort();
+    const dr = [...enumerated.read_dispatch].sort();
+    const fsS = [...FROZEN_SEND].sort();
+    const fsM = [...FROZEN_MUTATION].sort();
+    const fsR = [...FROZEN_READ].sort();
     return JSON.stringify(sends) === JSON.stringify(ds)
       && JSON.stringify(muts) === JSON.stringify(dm)
       && JSON.stringify(reads) === JSON.stringify(dr)
-      && sends.length === locks.EXPECTED_COUNTS.whatsapp_send
-      && muts.length === locks.EXPECTED_COUNTS.mutation
-      && reads.length === locks.EXPECTED_COUNTS.read_dispatch;
+      && JSON.stringify(ds) === JSON.stringify(fsS)
+      && JSON.stringify(dm) === JSON.stringify(fsM)
+      && JSON.stringify(dr) === JSON.stringify(fsR)
+      && sends.length === FROZEN_COUNTS.whatsapp_send
+      && muts.length === FROZEN_COUNTS.mutation
+      && reads.length === FROZEN_COUNTS.read_dispatch;
   })());
 
-const derived = locks.deriveExpectedAdapterIdsFromSource(ROOT);
-green('source_derivation_ok', derived.ok === true, (derived.errors || []).slice(0, 6).join(' | '));
+green('source_derivation_ok', enumerated.ok === true, (enumerated.errors || []).slice(0, 6).join(' | '));
 
 const needleMiss = needlesPresent(inventory);
 green('inventory_source_needles_present', needleMiss.length === 0, needleMiss.slice(0, 8).join(' | '));
@@ -202,6 +243,8 @@ green('central_decision_point_frozen',
   && design.central_capability_boundary.exact_location_binding === true
   && design.central_capability_boundary.immutable_tenant_location_adapter_context === true
   && design.central_capability_boundary.immutable_per_turn_decision === true
+  && design.central_capability_boundary.canonical_turn_id_required === true
+  && design.central_capability_boundary.per_turn_boundary_object === true
   && design.central_capability_boundary.denies_every_whatsapp_send === true
   && design.central_capability_boundary.denies_every_staff_db_stripe_mutation === true
   && design.central_capability_boundary.permits_real_read_dispatch === true
@@ -221,6 +264,8 @@ green('design_freeze_classifier_accepts',
     exact_location_binding: true,
     immutable_per_turn_decision: true,
     immutable_tenant_location_adapter_context: true,
+    canonical_turn_id_required: true,
+    per_turn_boundary_object: true,
     this_slice_implements_runtime: false,
     dry_run_implementable_today: false,
   }).ok === true);
@@ -239,12 +284,44 @@ green('decide_permits_read',
       && r.adapter_id === 'hermes_post_bot_availability_check'
       && r.tenant === locks.TENANT_WOLFHOUSE
       && r.location === locks.LOCATION_WOLFHOUSE
+      && r.turn_id === 'turn-read-1'
       && r.context
       && r.context.tenant === locks.TENANT_WOLFHOUSE
       && r.context.location === locks.LOCATION_WOLFHOUSE
       && r.context.adapter_id === 'hermes_post_bot_availability_check'
+      && r.context.turn_id === 'turn-read-1'
+      && r.boundary
+      && r.boundary.ok === true
+      && r.boundary.turn_id === 'turn-read-1'
+      && r.boundary.tenant === locks.TENANT_WOLFHOUSE
+      && r.boundary.location === locks.LOCATION_WOLFHOUSE
+      && r.boundary.adapter_id === 'hermes_post_bot_availability_check'
       && Object.isFrozen(r)
-      && Object.isFrozen(r.context);
+      && Object.isFrozen(r.context)
+      && Object.isFrozen(r.boundary);
+  })());
+
+green('decide_binds_per_turn_boundary_across_decisions',
+  (() => {
+    const first = locks.decideCapability({
+      adapter_id: 'hermes_post_bot_availability_check',
+      tenant: locks.TENANT_WOLFHOUSE,
+      location: locks.LOCATION_WOLFHOUSE,
+      turn_id: 'turn-multi-1',
+    }, inventory);
+    if (!first.ok || !first.boundary) return false;
+    const second = locks.decideCapability({
+      adapter_id: 'hermes_post_bot_booking_preview',
+      tenant: locks.TENANT_WOLFHOUSE,
+      location: locks.LOCATION_WOLFHOUSE,
+      turn_id: 'turn-multi-1',
+    }, inventory, first.boundary);
+    return second.ok
+      && second.boundary.turn_id === 'turn-multi-1'
+      && second.boundary.tenant === locks.TENANT_WOLFHOUSE
+      && second.boundary.location === locks.LOCATION_WOLFHOUSE
+      && second.boundary.decisions.length === 2
+      && Object.isFrozen(second.boundary);
   })());
 
 green('decide_denies_whatsapp_send',
@@ -731,6 +808,82 @@ red('reject_bidirectional_missing_expected_id',
     return locks.compareInventoryExactSet(truncated, ROOT).ok === false;
   })());
 
+red('reject_newly_registered_unclassified_capability',
+  (() => {
+    const r = locks.enumerateCapabilityIdsFromSource(ROOT, {
+      inject_discovered_tools: ['brand_new_unclassified_capability_tool'],
+    });
+    return r.ok === false
+      && (r.errors || []).some((e) =>
+        /newly_registered_unclassified_capability:brand_new_unclassified_capability_tool/.test(e));
+  })());
+
+red('reject_acquisition_site_omission',
+  (() => {
+    const r = locks.enumerateCapabilityIdsFromSource(ROOT, {
+      force_omit_acquisition_ids: ['hermes_whatsapp_cloud_graph_send'],
+    });
+    return r.ok === false
+      && (r.errors || []).some((e) =>
+        /acquisition_site_omission:hermes_whatsapp_cloud_graph_send/.test(e));
+  })());
+
+red('reject_missing_turn',
+  locks.decideCapability({
+    adapter_id: 'hermes_post_bot_availability_check',
+    tenant: locks.TENANT_WOLFHOUSE,
+    location: locks.LOCATION_WOLFHOUSE,
+  }, inventory).ok === false
+  && locks.decideCapability({
+    adapter_id: 'hermes_post_bot_availability_check',
+    tenant: locks.TENANT_WOLFHOUSE,
+    location: locks.LOCATION_WOLFHOUSE,
+  }, inventory).code === 'missing_turn_denied'
+  && locks.decideCapability({
+    adapter_id: 'hermes_post_bot_availability_check',
+    tenant: locks.TENANT_WOLFHOUSE,
+    location: locks.LOCATION_WOLFHOUSE,
+    turn_id: '   ',
+  }, inventory).code === 'missing_turn_denied');
+
+red('reject_cross_decision_turn_context_drift',
+  (() => {
+    const first = locks.decideCapability({
+      adapter_id: 'hermes_post_bot_availability_check',
+      tenant: locks.TENANT_WOLFHOUSE,
+      location: locks.LOCATION_WOLFHOUSE,
+      turn_id: 'turn-stable',
+    }, inventory);
+    if (!first.ok || !first.boundary) return false;
+    const tenantDrift = locks.decideCapability({
+      adapter_id: 'hermes_whatsapp_cloud_graph_send',
+      tenant: locks.TENANT_SUNSET,
+      location: locks.LOCATION_SUNSET,
+      turn_id: 'turn-stable',
+    }, inventory, first.boundary);
+    const turnDrift = locks.decideCapability({
+      adapter_id: 'hermes_post_bot_booking_preview',
+      tenant: locks.TENANT_WOLFHOUSE,
+      location: locks.LOCATION_WOLFHOUSE,
+      turn_id: 'turn-other',
+    }, inventory, first.boundary);
+    const missingPriorContext = locks.bindTurnBoundary(
+      {
+        turn_id: 'turn-stable',
+        tenant: locks.TENANT_WOLFHOUSE,
+        location: locks.LOCATION_WOLFHOUSE,
+        adapter_id: 'hermes_post_bot_availability_check',
+      },
+      { turn_id: 'turn-stable' },
+    );
+    return tenantDrift.ok === false
+      && tenantDrift.code === 'cross_decision_context_drift'
+      && turnDrift.ok === false
+      && turnDrift.code === 'cross_decision_turn_drift'
+      && missingPriorContext.ok === false
+      && missingPriorContext.code === 'missing_turn_context';
+  })());
+
 // --- Ledger / matrix ---
 green('matrix_tip_16ae',
   matrix.slice === locks.SLICE
@@ -756,17 +909,17 @@ green('matrix_16ae_selection',
   && matrix.slice_16ae_selection.outcome_id === locks.OUTCOME_ID
   && matrix.slice_16ae_selection.progress_class === locks.PROGRESS_CLASS
   && matrix.slice_16ae_selection.inventory_counts
-  && matrix.slice_16ae_selection.inventory_counts.whatsapp_send === locks.EXPECTED_COUNTS.whatsapp_send
-  && matrix.slice_16ae_selection.inventory_counts.mutation === locks.EXPECTED_COUNTS.mutation
-  && matrix.slice_16ae_selection.inventory_counts.read_dispatch === locks.EXPECTED_COUNTS.read_dispatch
-  && matrix.slice_16ae_selection.inventory_counts.total === locks.EXPECTED_COUNTS.total);
+  && matrix.slice_16ae_selection.inventory_counts.whatsapp_send === FROZEN_COUNTS.whatsapp_send
+  && matrix.slice_16ae_selection.inventory_counts.mutation === FROZEN_COUNTS.mutation
+  && matrix.slice_16ae_selection.inventory_counts.read_dispatch === FROZEN_COUNTS.read_dispatch
+  && matrix.slice_16ae_selection.inventory_counts.total === FROZEN_COUNTS.total);
 
 green('ops_contract_16ae',
   opsContract.slice === locks.SLICE
   && opsContract.selected_16ae
   && opsContract.selected_16ae.outcome_id === locks.OUTCOME_ID
   && opsContract.selected_16ae.inventory_counts
-  && opsContract.selected_16ae.inventory_counts.total === locks.EXPECTED_COUNTS.total
+  && opsContract.selected_16ae.inventory_counts.total === FROZEN_COUNTS.total
   && opsContract.selected_16u
   && opsContract.selected_16u.outcome_id === '16U_correlation_design_freeze'
   && opsContract.capability_boundary_design === 'frozen_via_16AE'
@@ -776,10 +929,10 @@ green('ops_contract_16ae',
 green('ledger_mentions_16ae',
   /16AE_g01_capability_boundary_freeze|16AE/.test(ledger)
   && /decideCapability|capability boundary/i.test(ledger)
-  && /source_derived_exact_set|identity rule|ADAPTER_IDENTITY/i.test(ledger)
-  && new RegExp(String(locks.EXPECTED_COUNTS.whatsapp_send)).test(ledger)
-  && new RegExp(String(locks.EXPECTED_COUNTS.mutation)).test(ledger)
-  && new RegExp(String(locks.EXPECTED_COUNTS.read_dispatch)).test(ledger)
+  && /source_derived_exact_set|identity rule|ADAPTER_IDENTITY|frozen specification/i.test(ledger)
+  && new RegExp(String(FROZEN_COUNTS.whatsapp_send)).test(ledger)
+  && new RegExp(String(FROZEN_COUNTS.mutation)).test(ledger)
+  && new RegExp(String(FROZEN_COUNTS.read_dispatch)).test(ledger)
   && /16U/.test(ledger)
   && /16AD/.test(ledger)
   && /partial/i.test(ledger)
@@ -836,6 +989,10 @@ const requiredRed = [
   'reject_context_tamper_flag',
   'reject_extra_adapter_set',
   'reject_bidirectional_missing_expected_id',
+  'reject_newly_registered_unclassified_capability',
+  'reject_acquisition_site_omission',
+  'reject_missing_turn',
+  'reject_cross_decision_turn_context_drift',
 ];
 const requiredGreen = [
   'fixtures_present',
@@ -843,14 +1000,17 @@ const requiredGreen = [
   'identity_rule_frozen',
   'contract_pins',
   'inventory_pins',
+  'frozen_specification_loaded',
   'inventory_classifier_accepts',
   'source_derived_exact_set',
+  'source_enumeration_independent',
   'bidirectional_exact_set',
   'source_derivation_ok',
   'inventory_source_needles_present',
   'central_decision_point_frozen',
   'design_freeze_classifier_accepts',
   'decide_permits_read',
+  'decide_binds_per_turn_boundary_across_decisions',
   'decide_denies_whatsapp_send',
   'decide_denies_mutation',
   'later_owner_specified_not_created',

@@ -42,7 +42,7 @@
 
 ## Slice 16AE
 
-`16AE_g01_capability_boundary_freeze` — audit-only freeze of the central capability boundary required by 16U before G01 dry-run can exist. Source-derived exact-set inventory: WhatsApp send **4**, mutation **21**, read dispatch **18**, total **43**. One fail-closed turn-scoped `decideCapability` object bound to immutable tenant/location/adapter context centrally denies all sends/mutations while permitting reads. Independent verifier RED-rejects missing/extra/duplicate/bypass/context-tamper. **Does not** implement runtime, trace headers, deploy, or claim dry-run activatable. Fulfills 16U candidate `16V_candidate_central_capability_boundary_audit_freeze` (sequenced as 16AE). G01 stays **partial**; proven=0.
+`16AE_g01_capability_boundary_freeze` — audit-only freeze of the central capability boundary required by 16U before G01 dry-run can exist. Independently enumerated source IDs compared bidirectionally to a separate frozen specification: WhatsApp send **4**, mutation **21**, read dispatch **18**, total **43**. One fail-closed turn-scoped `decideCapability` bound through an immutable per-turn tenant/location/adapter boundary (non-empty `turn_id`) centrally denies all sends/mutations while permitting reads. Independent verifier RED-rejects missing/extra/duplicate/bypass/context-tamper/unclassified/acquisition-omission/missing-turn/cross-decision-drift; does not import implementation expected-set constants. **Does not** implement runtime, trace headers, deploy, or claim dry-run activatable. Fulfills 16U candidate `16V_candidate_central_capability_boundary_audit_freeze` (sequenced as 16AE). G01 stays **partial**; proven=0.
 
 ## Slice 16AD
 
