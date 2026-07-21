@@ -17,9 +17,10 @@ Correct the G06 bounded load harness so `pinnedLookup` honors Node’s `dns.look
 | `all=true` | `callback(err, addresses[])` with validated pinned `{address,family}` entries |
 | `all=false` | scalar `callback(err, address, family)` retained |
 | family filter | exact pins only; miss → `RADAR_LOAD_DNS_PIN_MISS` |
+| pin validation | every pin through `assertPublicDnsAddresses` before selection (`RADAR_LOAD_DNS` / `_ADDRESS` / `_FAMILY` / `_PRIVATE`; no coercion/TypeError) |
 | diagnostics | safe error-code classes only (no messages/hosts/bodies) |
 
-Offline production-shaped RED proves scalar replies under `all=true` fail **before HTTP** with `ERR_INVALID_IP_ADDRESS`. GREEN proves the corrected array contract reaches local fake HTTP.
+Offline production-shaped RED proves scalar replies under `all=true` fail **before TLS/HTTP** with `ERR_INVALID_IP_ADDRESS` via real local TLS + real Node `https.request`/`net.connect` lookup (ephemeral self-signed cert at test runtime; OpenSSL required or fail-closed). GREEN proves the corrected array contract reaches that local TLS endpoint while preserving allowlisted SNI/hostname.
 
 ### Post-16AG live attempt (cautious)
 
@@ -35,7 +36,7 @@ A controlled attempt of profile `16AG_DRILL_dual_staging_readyz_bounded_load` ag
 
 ## Truthful disposition (16AH)
 
-**Proves (source):** Corrected `pinnedLookup` Node callback contract for `all=true` with offline production-shaped proof; safe error-code class aggregation; prior live attempt classified `attempted_not_proof`.
+**Proves (source):** Corrected `pinnedLookup` Node callback contract for `all=true` with fail-closed public-address validation and offline production-shaped real-TLS proof; safe error-code class aggregation; prior live attempt classified `attempted_not_proof`.
 
 **Does not prove:** live load/soak success; capacity alert firing/notification; autoscaling; capacity SLO/error budget; backpressure; production; raising G06 to `proven`.
 

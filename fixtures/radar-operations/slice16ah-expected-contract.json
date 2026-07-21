@@ -28,6 +28,8 @@
     "pinned_lookup_all_true": "callback(err, addresses[]) with validated pinned {address,family} entries",
     "pinned_lookup_all_false": "callback(err, address, family) scalar retained",
     "family_filter": "exact pins only; miss → RADAR_LOAD_DNS_PIN_MISS",
+    "pin_validation": "every pin through assertPublicDnsAddresses before selection; null/malformed → RADAR_LOAD_DNS_ADDRESS; invalid/mismatched family → RADAR_LOAD_DNS_FAMILY; empty → RADAR_LOAD_DNS; no coercion/TypeError",
+    "production_shaped_proof": "real local TLS server + real https.request/net.connect lookup; ephemeral self-signed cert at runtime; OpenSSL required or fail-closed; allowlisted SNI/hostname preserved",
     "safe_error_code_classes": "uppercase identifier codes only; no messages/hosts/bodies"
   },
   "post_16ag_live_load_attempt": {
@@ -99,7 +101,7 @@
   "final_controlled_drill": {
     "id": "16AH_OFFLINE_pinned_lookup_all_true_correction",
     "status": "offline_source_proven",
-    "pass_rule": "Offline fail-closed production-shaped RED proves scalar lookup under options.all=true fails before HTTP with safe error-code class only (no messages/hosts/bodies). GREEN proves corrected pinnedLookup returns validated pinned address array for all=true, retains scalar for all=false, honors family filter/exact pins, and production-shaped transport reaches local fake HTTP. Post-16AG live attempt locked as attempted_not_proof. No live network/deploy/scale. G06 remains partial; proven count remains 0."
+    "pass_rule": "Offline fail-closed production-shaped RED proves scalar lookup under options.all=true fails before TLS/HTTP with safe error-code class only (no messages/hosts/bodies) via real local TLS + real Node https.request/net.connect. Pin inputs fail closed through assertPublicDnsAddresses (null/malformed address, invalid/mismatched family, empty pins, family miss) with stable safe codes and no coercion/TypeError. GREEN proves corrected pinnedLookup returns validated pinned address array for all=true, retains scalar for all=false, honors family filter/exact pins, and production-shaped transport reaches local TLS while preserving allowlisted SNI/hostname (ephemeral self-signed cert; OpenSSL required or fail-closed). Post-16AG live attempt locked as attempted_not_proof. No live network/deploy/scale. G06 remains partial; proven count remains 0."
   },
   "artifacts": [
     "scripts/lib/radar-g06-bounded-load-harness.js",

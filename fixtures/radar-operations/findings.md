@@ -2,7 +2,7 @@
 
 **Master basis (16AH):** `6c24e9456bd42c7fa1b051bb1308aae8f632b293`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
-**16AH progress class:** `source_partial_progress_only` (pinnedLookup Happy Eyeballs `all=true` callback-contract correction + offline production-shaped RED; post-16AG live attempt recorded as `attempted_not_proof` — not load success; G06 remains partial).
+**16AH progress class:** `source_partial_progress_only` (pinnedLookup Happy Eyeballs `all=true` callback-contract correction + fail-closed pin validation + offline real-TLS production-shaped RED; post-16AG live attempt recorded as `attempted_not_proof` — not load success; G06 remains partial).
 **16AG progress class (retained):** `source_partial_progress_only` (bounded staging `/readyz` load harness + offline verifier; future drill profile `defined_not_executed`).
 **16AF progress class (retained):** `partial_live_proven_evidence_only` (four capacity-pressure alerts deployed Enabled + scale truth recorded).
 
@@ -45,7 +45,7 @@
 
 ## Slice 16AH
 
-`16AH_g06_live_load_correction` — corrects `pinnedLookup` so Node Happy Eyeballs (`options.all=true`) receives a validated pinned `{address,family}[]` (scalar retained for `all=false`; family filter + exact pins retained). Offline production-shaped RED proves scalar replies fail before HTTP with safe error-code classes only (no messages/hosts/bodies). Records the controlled post-16AG dual-staging `/readyz` attempt (60/60 error-before-HTTP while direct pre/post `/readyz` stayed ready) as **`attempted_not_proof`** — **not** load/soak success. Does **not** claim live load success, alert fire/notification, autoscaling, SLO/error budget, backpressure, production, or raising G06 to `proven`. G06 remains **partial**; score unchanged (proven=0 / partial=9 / absent=0).
+`16AH_g06_live_load_correction` — corrects `pinnedLookup` so Node Happy Eyeballs (`options.all=true`) receives a validated pinned `{address,family}[]` (scalar retained for `all=false`; family filter + exact pins retained; every pin fail-closed through `assertPublicDnsAddresses` — null/malformed → `RADAR_LOAD_DNS_ADDRESS`, invalid/mismatched family → `RADAR_LOAD_DNS_FAMILY`, empty → `RADAR_LOAD_DNS`, family miss → `RADAR_LOAD_DNS_PIN_MISS`; no coercion/TypeError). Offline production-shaped RED proves scalar replies fail before TLS/HTTP via real local TLS + real `https.request`/`net.connect` (ephemeral self-signed cert; OpenSSL required or fail-closed; allowlisted SNI preserved) with safe error-code classes only. Records the controlled post-16AG dual-staging `/readyz` attempt (60/60 error-before-HTTP while direct pre/post `/readyz` stayed ready) as **`attempted_not_proof`** — **not** load/soak success. Does **not** claim live load success, alert fire/notification, autoscaling, SLO/error budget, backpressure, production, or raising G06 to `proven`. G06 remains **partial**; score unchanged (proven=0 / partial=9 / absent=0).
 
 ## Slice 16AG
 

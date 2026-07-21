@@ -4,11 +4,14 @@
  * verify:radar-slice16ah-g06-live-load-correction — RADAR Slice 16AH
  *
  * Offline gate: prove pinnedLookup honors Node dns.lookup callback contract
- * for options.all=true (Happy Eyeballs). Production-shaped RED shows scalar
- * replies fail before HTTP with safe error-code classes only. GREEN proves
- * validated pinned address arrays, family filtering, and fake-HTTP reach.
- * Records post-16AG live attempt as attempted_not_proof. No live network,
- * deploy, or scale mutation.
+ * for options.all=true (Happy Eyeballs). Every pin fails closed through the
+ * public-address validator (null/malformed/family/empty → stable safe codes;
+ * no coercion / TypeError). Production-shaped RED shows scalar replies fail
+ * before TLS via real Node https.request/net.connect. GREEN proves corrected
+ * array contract reaches a real local TLS server (ephemeral self-signed cert
+ * generated at runtime; trust only that cert; allowlisted hostname/SNI;
+ * loopback pin inside sealed offline test). Records post-16AG live attempt as
+ * attempted_not_proof. No live network, deploy, or scale mutation.
  */
 
 const fs = require('fs');
@@ -16,13 +19,15 @@ const http = require('http');
 const https = require('https');
 const net = require('net');
 const dns = require('dns');
+const os = require('os');
 const path = require('path');
-const { EventEmitter } = require('events');
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const locks = require('./lib/radar-slice16ah-g06-live-load-correction');
 const harness = require('./lib/radar-g06-bounded-load-harness');
+
+const ALLOWLIST_HOST = 'staff-staging.lunafrontdesk.com';
 
 let pass = 0;
 let fail = 0;
@@ -89,18 +94,27 @@ function reportHasNoBodies(report) {
 }
 
 function reportHasNoHostsOrMessages(report) {
-  const json = JSON.stringify(report);
-  if (/error_message|err_message|"message"\s*:/i.test(json)) return false;
-  if (/staff-staging|sunset-staging|lunafrontdesk/i.test(json)
-    && !/"target":"https:\/\/(staff|sunset)-staging\.lunafrontdesk\.com\/readyz"/.test(json)) {
-    // allow exact allowlisted target field only
-  }
-  // error_code_classes keys must be safe codes only
   const classes = report.error_code_classes || {};
   for (const k of Object.keys(classes)) {
     if (harness.safeErrorCodeClass(k) !== k) return false;
   }
+  const json = JSON.stringify(report);
+  if (/error_message|err_message|"message"\s*:/i.test(json)) return false;
   return true;
+}
+
+function expectThrow(fn) {
+  try {
+    fn();
+    return { threw: false, code: null, isTypeError: false };
+  } catch (err) {
+    return {
+      threw: true,
+      code: err && err.code ? String(err.code) : null,
+      isTypeError: err instanceof TypeError,
+      name: err && err.name,
+    };
+  }
 }
 
 /** Legacy buggy scalar pinnedLookup (16AG defect) — verifier-local only. */
@@ -121,7 +135,7 @@ function legacyScalarPinnedLookup(pinned) {
 
 /**
  * Simulate Node Happy Eyeballs consumer: calls lookup with {all:true,hints:32}
- * and treats non-array results as ERR_INVALID_IP_ADDRESS (pre-HTTP failure).
+ * and treats non-array results as ERR_INVALID_IP_ADDRESS (pre-TLS failure).
  */
 function simulateHappyEyeballsConsumer(lookupFn) {
   return new Promise((resolve) => {
@@ -130,7 +144,7 @@ function simulateHappyEyeballsConsumer(lookupFn) {
         resolve({
           kind: 'error',
           error_code: harness.safeErrorCodeClass(err.code || 'LOOKUP_ERROR'),
-          before_http: true,
+          before_tls: true,
         });
         return;
       }
@@ -138,7 +152,7 @@ function simulateHappyEyeballsConsumer(lookupFn) {
         resolve({
           kind: 'error',
           error_code: 'ERR_INVALID_IP_ADDRESS',
-          before_http: true,
+          before_tls: true,
         });
         return;
       }
@@ -149,14 +163,14 @@ function simulateHappyEyeballsConsumer(lookupFn) {
         resolve({
           kind: 'error',
           error_code: 'ERR_INVALID_IP_ADDRESS',
-          before_http: true,
+          before_tls: true,
         });
         return;
       }
       resolve({
         kind: 'ok',
         addresses,
-        before_http: false,
+        before_tls: false,
         error_code: undefined,
       });
     });
@@ -169,6 +183,7 @@ const realHttp = {
   get: http.get.bind(http),
 };
 const realHttps = {
+  createServer: https.createServer.bind(https),
   request: https.request.bind(https),
   get: https.get.bind(https),
 };
@@ -193,15 +208,16 @@ function sealThrow(kind) {
   };
 }
 
+function isLoopbackHost(host) {
+  const h = String(host || '');
+  return h === '127.0.0.1' || h === '::1' || h === 'localhost';
+}
+
 function installNetworkFailClosed() {
   http.request = sealThrow('http.request');
   http.get = sealThrow('http.get');
   https.request = sealThrow('https.request');
   https.get = sealThrow('https.get');
-  function isLoopbackHost(host) {
-    const h = String(host || '');
-    return h === '127.0.0.1' || h === '::1' || h === 'localhost';
-  }
   net.connect = function sealedConnect(...args) {
     const opts = args[0];
     let host = null;
@@ -266,15 +282,62 @@ function restoreNetwork() {
   if (realDns.Resolver) dns.Resolver = realDns.Resolver;
 }
 
-function startFakeServer(handler) {
+/**
+ * Generate ephemeral self-signed cert+key at test runtime.
+ * Material lives only in memory after generation; temp files are unlinked.
+ * Fail-closed if openssl is unavailable. Never commit cert/key.
+ */
+function generateEphemeralTlsMaterial(hostname, opts = {}) {
+  const opensslBin = opts.opensslBin || 'openssl';
+  try {
+    execFileSync(opensslBin, ['version'], { stdio: 'pipe' });
+  } catch (_) {
+    const err = new Error('fail_closed: openssl unavailable for ephemeral TLS material');
+    err.code = 'RADAR_OFFLINE_OPENSSL_UNAVAILABLE';
+    throw err;
+  }
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'radar16ah-tls-'));
+  const keyPath = path.join(dir, 'key.pem');
+  const certPath = path.join(dir, 'cert.pem');
+  try {
+    execFileSync(opensslBin, [
+      'req', '-x509', '-newkey', 'rsa:2048',
+      '-keyout', keyPath,
+      '-out', certPath,
+      '-days', '1',
+      '-nodes',
+      '-subj', `/CN=${hostname}`,
+      '-addext', `subjectAltName=DNS:${hostname}`,
+    ], { stdio: 'pipe' });
+    const keyPem = fs.readFileSync(keyPath);
+    const certPem = fs.readFileSync(certPath);
+    return { keyPem, certPem, hostname, dir };
+  } catch (err) {
+    if (err && err.code === 'RADAR_OFFLINE_OPENSSL_UNAVAILABLE') throw err;
+    const wrapped = new Error('fail_closed: openssl ephemeral cert generation failed');
+    wrapped.code = 'RADAR_OFFLINE_OPENSSL_UNAVAILABLE';
+    throw wrapped;
+  } finally {
+    try { fs.unlinkSync(keyPath); } catch (_) { /* ignore */ }
+    try { fs.unlinkSync(certPath); } catch (_) { /* ignore */ }
+    try { fs.rmdirSync(dir); } catch (_) { /* ignore */ }
+  }
+}
+
+function startLocalTlsServer(material, handler) {
   return new Promise((resolve, reject) => {
-    const server = realHttp.createServer(handler);
+    const server = realHttps.createServer(
+      { key: material.keyPem, cert: material.certPem },
+      handler,
+    );
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       resolve({
         server,
         port: addr.port,
-        origin: `http://127.0.0.1:${addr.port}`,
+        hostname: material.hostname,
+        certPem: material.certPem,
       });
     });
     server.on('error', reject);
@@ -289,103 +352,82 @@ function closeServer(server) {
 }
 
 /**
- * Production-shaped offline https.request: invokes options.lookup with
- * Happy Eyeballs {all:true,hints:32} before any local HTTP, matching Node
- * net.connect / https.request behavior. Scalar replies → ERR_INVALID_IP_ADDRESS.
+ * Real Node https.request path for offline proof:
+ * - preserves allowlisted hostname + SNI (servername)
+ * - trusts only the ephemeral cert
+ * - remaps validated pinnedLookup array results to loopback for net.connect
+ * - passes scalar replies through unchanged so Node yields ERR_INVALID_IP_ADDRESS
  */
-function makeProductionShapedHttpsRequest(fakeOrigin, capture) {
-  const port = Number(new URL(fakeOrigin).port);
+function makeRealTlsHttpsRequest(tlsCtx, capture) {
   return function offlineHttpsRequest(options, callback) {
-    const opts = typeof options === 'string' ? new URL(options) : (options || {});
-    if (capture) {
-      capture.calls.push({
-        method: opts.method || 'GET',
-        headers: { ...(opts.headers || {}) },
-        path: opts.path,
-        lookup_invoked: false,
-        lookup_all: null,
-        lookup_result_kind: null,
-      });
-    }
-    const call = capture && capture.calls.length
-      ? capture.calls[capture.calls.length - 1]
-      : null;
-
-    const req = new EventEmitter();
-    req.destroyed = false;
-    req.destroy = function destroy(err) {
-      req.destroyed = true;
-      process.nextTick(() => {
-        req.emit('error', err || Object.assign(new Error('destroyed'), { code: 'ECONNRESET' }));
-      });
+    const opts = { ...(options || {}) };
+    const hostname = opts.hostname || opts.host || tlsCtx.hostname;
+    const servername = opts.servername || hostname;
+    const meta = {
+      method: opts.method || 'GET',
+      headers: { ...(opts.headers || {}) },
+      path: opts.path,
+      hostname,
+      servername,
+      lookup_invoked: false,
+      lookup_all: null,
+      lookup_result_kind: null,
     };
-    req.write = function write() { return true; };
-    req.end = function end() {
-      const lookup = opts.lookup;
-      function afterLookup(err, addresses) {
-        if (call) call.lookup_invoked = true;
+    if (capture) capture.calls.push(meta);
+
+    const origLookup = opts.lookup;
+    opts.port = tlsCtx.port;
+    opts.hostname = hostname;
+    opts.servername = servername;
+    opts.ca = [tlsCtx.certPem];
+    opts.rejectUnauthorized = true;
+    // Disable keep-alive so each request exercises the injected lookup path.
+    opts.agent = false;
+    opts.headers = {};
+
+    opts.lookup = function remappingLookup(host, lookupOpts, cb) {
+      let callback = cb;
+      let o = lookupOpts;
+      if (typeof lookupOpts === 'function') {
+        callback = lookupOpts;
+        o = {};
+      }
+      meta.lookup_invoked = true;
+      meta.lookup_all = !!(o && o.all);
+
+      if (typeof origLookup !== 'function') {
+        meta.lookup_result_kind = 'err';
+        const err = Object.assign(new Error('missing_lookup'), { code: 'RADAR_LOAD_DNS' });
+        process.nextTick(() => callback(err));
+        return;
+      }
+
+      origLookup(host, o || {}, (err, addresses, family) => {
         if (err) {
-          if (call) call.lookup_result_kind = 'err';
-          process.nextTick(() => {
-            req.emit('error', Object.assign(new Error('lookup_failed'), {
-              code: harness.safeErrorCodeClass(err.code || 'LOOKUP_ERROR'),
-            }));
-          });
+          meta.lookup_result_kind = 'err';
+          callback(err);
           return;
         }
         if (!Array.isArray(addresses)) {
-          if (call) {
-            call.lookup_all = true;
-            call.lookup_result_kind = 'scalar';
-          }
-          process.nextTick(() => {
-            req.emit('error', Object.assign(new Error('Invalid IP address: undefined'), {
-              code: 'ERR_INVALID_IP_ADDRESS',
-            }));
-          });
+          meta.lookup_result_kind = 'scalar';
+          // Real Node Happy Eyeballs path: scalar under all=true → ERR_INVALID_IP_ADDRESS
+          callback(null, addresses, family);
           return;
         }
-        if (call) {
-          call.lookup_all = true;
-          call.lookup_result_kind = 'array';
-        }
-        // Reach local fake HTTP only after validated array lookup.
-        const local = realHttp.request({
-          hostname: '127.0.0.1',
-          port,
-          path: '/readyz',
-          method: 'GET',
-          headers: {},
-        }, (res) => {
-          const wrapped = new EventEmitter();
-          wrapped.statusCode = res.statusCode;
-          wrapped.headers = res.headers;
-          wrapped.complete = false;
-          callback(wrapped);
-          res.on('data', (c) => wrapped.emit('data', c));
-          res.on('end', () => {
-            wrapped.complete = true;
-            wrapped.emit('end');
-          });
-          res.on('error', (e) => wrapped.emit('error', e));
-          res.on('close', () => wrapped.emit('close'));
-        });
-        local.on('error', (e) => req.emit('error', e));
-        const origDestroy = req.destroy;
-        req.destroy = function destroyBoth(err) {
-          try { local.destroy(err); } catch (_) { /* ignore */ }
-          return origDestroy.call(req, err);
-        };
-        local.end();
-      }
-
-      if (typeof lookup !== 'function') {
-        afterLookup(Object.assign(new Error('missing_lookup'), { code: 'RADAR_LOAD_DNS' }));
-        return;
-      }
-      lookup(opts.hostname || 'pinned.invalid', { all: true, hints: 32 }, afterLookup);
+        meta.lookup_result_kind = 'array';
+        // Pin to loopback inside sealed offline test; prefer IPv4 (server on 127.0.0.1).
+        const remapped = addresses
+          .filter((a) => a && (a.family === 4 || a.family === 6))
+          .map((a) => ({
+            address: a.family === 6 ? '::1' : '127.0.0.1',
+            family: a.family,
+          }));
+        const v4 = remapped.filter((a) => a.family === 4);
+        callback(null, v4.length ? v4 : remapped);
+      });
     };
-    return req;
+
+    return realHttps.request(opts, callback);
   };
 }
 
@@ -440,30 +482,96 @@ async function runVerifier() {
   ok('C0 pinnedLookup exported and all=true branch present',
     typeof harness.pinnedLookup === 'function'
     && typeof harness.safeErrorCodeClass === 'function'
+    && typeof harness.assertPublicDnsAddresses === 'function'
     && /wantAll|opts\.all|options\.all/.test(harnessSrc)
+    && /assertPublicDnsAddresses\(pinned\)/.test(harnessSrc)
+    && /RADAR_LOAD_DNS_ADDRESS|RADAR_LOAD_DNS_FAMILY/.test(harnessSrc)
     && /ERR_INVALID_IP_ADDRESS|Happy Eyeballs|all===true|all=true/.test(harnessSrc)
     && /POST_16AG_LIVE_LOAD_ATTEMPT/.test(harnessSrc)
-    && /attempted_not_proof/.test(harnessSrc));
+    && /attempted_not_proof/.test(harnessSrc)
+    && /generateEphemeralTlsMaterial|RADAR_OFFLINE_OPENSSL_UNAVAILABLE/.test(verifySrc)
+    && /realHttps\.request|https\.createServer/.test(verifySrc)
+    && !verifySrc.includes(['makeProduction', 'ShapedHttpsRequest'].join(''))
+    && !verifySrc.includes(['startFake', 'Server'].join('') + '('));
 
   const pins = harness.assertPublicDnsAddresses([
     { address: '8.8.8.8', family: 4 },
     { address: '2001:4860:4860::8888', family: 6 },
   ]);
 
-  // --- RED: production-shaped scalar under all=true fails before HTTP ---
+  // --- RED: openssl unavailable fail-closed ---
+  {
+    const missing = expectThrow(() => generateEphemeralTlsMaterial(ALLOWLIST_HOST, {
+      opensslBin: '/nonexistent/radar16ah-openssl',
+    }));
+    red('openssl_required_fail_closed_when_unavailable',
+      missing.threw === true
+      && missing.code === 'RADAR_OFFLINE_OPENSSL_UNAVAILABLE'
+      && missing.isTypeError === false,
+      JSON.stringify(missing));
+  }
+
+  // --- RED: public-address validator via pinnedLookup (no coercion / TypeError) ---
+  {
+    const cases = [
+      { label: 'null_entry', input: [null], code: 'RADAR_LOAD_DNS_ADDRESS' },
+      { label: 'undefined_entry', input: [undefined], code: 'RADAR_LOAD_DNS_ADDRESS' },
+      { label: 'empty_object', input: [{}], code: 'RADAR_LOAD_DNS_ADDRESS' },
+      { label: 'null_address', input: [{ address: null, family: 4 }], code: 'RADAR_LOAD_DNS_ADDRESS' },
+      { label: 'numeric_address', input: [{ address: 1, family: 4 }], code: 'RADAR_LOAD_DNS_ADDRESS' },
+      { label: 'malformed_address', input: [{ address: 'not-an-ip', family: 4 }], code: 'RADAR_LOAD_DNS_ADDRESS' },
+      { label: 'empty_address', input: [{ address: '  ', family: 4 }], code: 'RADAR_LOAD_DNS_ADDRESS' },
+    ];
+    const results = cases.map((c) => {
+      const r = expectThrow(() => harness.pinnedLookup(c.input));
+      return { ...c, ...r };
+    });
+    red('pinned_lookup_null_malformed_address_rejected',
+      results.every((r) => r.threw && r.code === 'RADAR_LOAD_DNS_ADDRESS' && !r.isTypeError),
+      JSON.stringify(results.map((r) => ({ label: r.label, code: r.code, typeError: r.isTypeError }))));
+  }
+
+  {
+    const cases = [
+      { label: 'string_family', input: [{ address: '8.8.8.8', family: '4' }], code: 'RADAR_LOAD_DNS_FAMILY' },
+      { label: 'mismatched_family', input: [{ address: '8.8.8.8', family: 6 }], code: 'RADAR_LOAD_DNS_FAMILY' },
+      { label: 'truthy_family', input: [{ address: '8.8.8.8', family: true }], code: 'RADAR_LOAD_DNS_FAMILY' },
+      { label: 'zero_family', input: [{ address: '8.8.8.8', family: 0 }], code: 'RADAR_LOAD_DNS_FAMILY' },
+    ];
+    const results = cases.map((c) => {
+      const r = expectThrow(() => harness.pinnedLookup(c.input));
+      return { ...c, ...r };
+    });
+    red('pinned_lookup_invalid_mismatched_family_rejected',
+      results.every((r) => r.threw && r.code === 'RADAR_LOAD_DNS_FAMILY' && !r.isTypeError),
+      JSON.stringify(results.map((r) => ({ label: r.label, code: r.code, typeError: r.isTypeError }))));
+  }
+
+  {
+    const empty = expectThrow(() => harness.pinnedLookup([]));
+    const nonArray = expectThrow(() => harness.pinnedLookup(null));
+    red('pinned_lookup_empty_pins_rejected',
+      empty.threw && empty.code === 'RADAR_LOAD_DNS' && !empty.isTypeError
+      && nonArray.threw && nonArray.code === 'RADAR_LOAD_DNS' && !nonArray.isTypeError,
+      JSON.stringify({ empty, nonArray }));
+  }
+
+  // --- RED: production-shaped scalar under all=true fails before TLS ---
   {
     const legacy = legacyScalarPinnedLookup(pins);
     const result = await simulateHappyEyeballsConsumer(legacy);
     red('production_shaped_all_true_scalar_fails_before_http',
       result.kind === 'error'
-      && result.before_http === true
+      && result.before_tls === true
       && result.error_code === 'ERR_INVALID_IP_ADDRESS'
       && harness.safeErrorCodeClass(result.error_code) === 'ERR_INVALID_IP_ADDRESS',
-      JSON.stringify({ kind: result.kind, code: result.error_code, before_http: result.before_http }));
+      JSON.stringify({ kind: result.kind, code: result.error_code, before_tls: result.before_tls }));
   }
 
   red('safe_error_code_classes_no_message_host_body',
     harness.safeErrorCodeClass('ERR_INVALID_IP_ADDRESS') === 'ERR_INVALID_IP_ADDRESS'
+    && harness.safeErrorCodeClass('RADAR_LOAD_DNS_ADDRESS') === 'RADAR_LOAD_DNS_ADDRESS'
+    && harness.safeErrorCodeClass('RADAR_LOAD_DNS_FAMILY') === 'RADAR_LOAD_DNS_FAMILY'
     && harness.safeErrorCodeClass('ECONNRESET') === 'ECONNRESET'
     && harness.safeErrorCodeClass('not a code!') === 'UNCLASSIFIED'
     && harness.safeErrorCodeClass({ code: 'EPIPE', message: 'boom at host.example' }) === 'EPIPE'
@@ -471,14 +579,6 @@ async function runVerifier() {
     && !/host\.example|boom/.test(harness.safeErrorCodeClass({ code: 'EPIPE', message: 'boom at host.example' })));
 
   {
-    const lookup = harness.pinnedLookup(pins);
-    const miss = await new Promise((resolve) => {
-      lookup('x', { all: true, family: 4 }, (err, addresses) => {
-        // family 4 exists — not a miss; use family that won't match after filtering dual then empty
-        resolve({ err, addresses });
-      });
-    });
-    void miss;
     const emptyPins = harness.pinnedLookup([{ address: '8.8.8.8', family: 4 }]);
     const familyMiss = await new Promise((resolve) => {
       emptyPins('x', { all: true, family: 6 }, (err, addresses) => {
@@ -509,7 +609,7 @@ async function runVerifier() {
       && allTrue.family === undefined
       && allTrue.addresses.every((e) => typeof e.address === 'string' && (e.family === 4 || e.family === 6))
       && consumer.kind === 'ok'
-      && consumer.before_http === false);
+      && consumer.before_tls === false);
   }
 
   {
@@ -542,6 +642,23 @@ async function runVerifier() {
       && v6.addresses[0].address === '2001:4860:4860::8888');
   }
 
+  // Ephemeral TLS material (runtime only; no committed cert/key).
+  let material;
+  try {
+    material = generateEphemeralTlsMaterial(ALLOWLIST_HOST);
+  } catch (err) {
+    ok('C_TLS_MATERIAL ephemeral openssl cert', false, String(err && err.code));
+    console.log(`\n${pass} passed, ${fail} failed`);
+    console.log('RADAR 16AH G06 live-load correction: FAIL');
+    process.exit(1);
+  }
+  ok('C_TLS_MATERIAL ephemeral openssl cert in-memory only',
+    Buffer.isBuffer(material.keyPem)
+    && Buffer.isBuffer(material.certPem)
+    && material.hostname === ALLOWLIST_HOST
+    && !fs.existsSync(path.join(material.dir || '', 'key.pem'))
+    && !fs.existsSync(path.join(material.dir || '', 'cert.pem')));
+
   installNetworkFailClosed();
   try {
     ok('C_SEAL http/https/net/dns fail closed',
@@ -553,11 +670,7 @@ async function runVerifier() {
       })()
       && (() => {
         try { net.connect({ host: '1.1.1.1', port: 443 }); return false; } catch (e) { return e.code === 'RADAR_OFFLINE_NETWORK_SEAL'; }
-      })()
-      && (() => new Promise((resolve) => {
-        dns.lookup('example.com', (err) => resolve(!!(err && err.code === 'RADAR_OFFLINE_NETWORK_SEAL')));
-      })));
-    // dns.lookup is async under seal — await the promise form
+      })());
     {
       const dnsSealed = await new Promise((resolve) => {
         dns.lookup('example.com', (err) => resolve(!!(err && err.code === 'RADAR_OFFLINE_NETWORK_SEAL')));
@@ -565,7 +678,7 @@ async function runVerifier() {
       ok('C_SEAL dns.lookup non-loopback fail closed', dnsSealed);
     }
 
-    const fake = await startFakeServer((req, res) => {
+    const tls = await startLocalTlsServer(material, (req, res) => {
       if (req.method !== 'GET' || req.url !== '/readyz') {
         res.writeHead(404);
         res.end('nope');
@@ -589,37 +702,32 @@ async function runVerifier() {
         },
         {
           seal: harness.OFFLINE_SEAL,
-          httpsRequest: makeProductionShapedHttpsRequest(fake.origin, capture),
-          dnsLookup: dualStackDnsLookup,
+          httpsRequest: makeRealTlsHttpsRequest(tls, capture),
+          dnsLookup: publicDnsLookup,
         },
       );
 
-      green('production_shaped_pinned_lookup_reaches_http',
+      green('production_shaped_pinned_lookup_reaches_tls',
         report.status_counts['2xx'] === 4
         && report.status_counts.error === 0
         && capture.calls.length === 4
         && capture.calls.every((c) => c.lookup_invoked === true
           && c.lookup_all === true
-          && c.lookup_result_kind === 'array')
+          && c.lookup_result_kind === 'array'
+          && c.hostname === ALLOWLIST_HOST
+          && c.servername === ALLOWLIST_HOST)
         && reportHasNoBodies(report),
         JSON.stringify({
           status_counts: report.status_counts,
           lookup_kinds: capture.calls.map((c) => c.lookup_result_kind),
+          sni: capture.calls.map((c) => c.servername),
         }));
 
-      // RED path via production-shaped transport + legacy scalar lookup injection
-      // is covered by simulateHappyEyeballs; additionally prove report path:
       const badCapture = { calls: [] };
-      // Force scalar by wrapping fixed path: use production-shaped request that
-      // still calls opts.lookup — inject via a custom httpsRequest that swaps
-      // lookup to legacy scalar before calling production-shaped core.
       function scalarInjectingHttpsRequest(options, callback) {
         const opts = { ...(options || {}) };
-        const pinned = [
-          { address: '8.8.8.8', family: 4 },
-        ];
-        opts.lookup = legacyScalarPinnedLookup(pinned);
-        return makeProductionShapedHttpsRequest(fake.origin, badCapture)(opts, callback);
+        opts.lookup = legacyScalarPinnedLookup([{ address: '8.8.8.8', family: 4 }]);
+        return makeRealTlsHttpsRequest(tls, badCapture)(opts, callback);
       }
       const badReport = await harness.runBoundedLoadOffline(
         {
@@ -637,7 +745,7 @@ async function runVerifier() {
           dnsLookup: publicDnsLookup,
         },
       );
-      ok('C_RED_SHAPE scalar injection yields all errors before HTTP',
+      ok('C_RED_SHAPE scalar injection yields all errors before TLS',
         badReport.status_counts.error === 3
         && badReport.status_counts['2xx'] === 0
         && badReport.error_code_classes
@@ -660,7 +768,7 @@ async function runVerifier() {
         && report.error_code_classes
         && Object.keys(report.error_code_classes).length === 0);
     } finally {
-      await closeServer(fake.server);
+      await closeServer(tls.server);
     }
 
     green('live_attempt_recorded_attempted_not_proof',
@@ -705,6 +813,8 @@ async function runVerifier() {
       && /OFFLINE_SEAL/.test(verifySrc)
       && /attempted_not_proof/.test(verifySrc)
       && /legacyScalarPinnedLookup|ERR_INVALID_IP_ADDRESS/.test(verifySrc)
+      && /generateEphemeralTlsMaterial/.test(verifySrc)
+      && /makeRealTlsHttpsRequest/.test(verifySrc)
       && (verifySrc.match(/\brunBoundedLoad\s*\(/g) || []).length === 0);
 
     {
@@ -768,6 +878,10 @@ async function runVerifier() {
     locks.REQUIRED_GREEN.filter((id) => !greenIds.has(id)).join(','));
   ok('C12 all RED/GREEN assertions passed',
     redResults.every((r) => r.ok) && greenResults.every((r) => r.ok));
+
+  // dualStackDnsLookup retained for family-filter unit path coverage above;
+  // reference so lint/unused does not drop the allowlisted dual-stack helper.
+  void dualStackDnsLookup;
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) {

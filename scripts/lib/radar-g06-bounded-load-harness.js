@@ -25,7 +25,10 @@
  * pinnedLookup must honor Node's dns.lookup callback contract: when
  * options.all===true (Happy Eyeballs / autoSelectFamily), callback receives
  * (err, addresses[]) — never a scalar address. Scalar replies make
- * net.connect fail with ERR_INVALID_IP_ADDRESS before any HTTP exchange.
+ * net.connect fail with ERR_INVALID_IP_ADDRESS before any HTTP/TLS exchange.
+ * Every pin is fail-closed through assertPublicDnsAddresses before selection
+ * (null/malformed address, invalid/mismatched family, empty pins → stable
+ * safe codes; no String/Number coercion / TypeError).
  */
 
 const https = require('https');
@@ -634,6 +637,15 @@ function isPublicIp(address) {
   return isGloballyRoutableIp(address);
 }
 
+/**
+ * Fail-closed public-address validator used by DNS pin + pinnedLookup.
+ * No String()/Number() coercion of null/malformed inputs (avoids TypeError and
+ * silent family defaults). Stable safe codes only:
+ *   RADAR_LOAD_DNS          — empty list
+ *   RADAR_LOAD_DNS_ADDRESS  — null/non-string/malformed address
+ *   RADAR_LOAD_DNS_FAMILY   — invalid or net.isIP-mismatched family
+ *   RADAR_LOAD_DNS_PRIVATE  — not globally routable
+ */
 function assertPublicDnsAddresses(addresses) {
   const list = Array.isArray(addresses) ? addresses : [];
   if (!list.length) {
@@ -641,17 +653,75 @@ function assertPublicDnsAddresses(addresses) {
   }
   const publicOnes = [];
   for (const entry of list) {
-    const address = typeof entry === 'string' ? entry : (entry && entry.address);
-    const family = typeof entry === 'object' && entry && entry.family
-      ? entry.family
-      : (String(address).includes(':') ? 6 : 4);
-    if (!isGloballyRoutableIp(address)) {
+    let address = null;
+    let familyHint = null;
+
+    if (typeof entry === 'string') {
+      address = entry;
+    } else if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      if (typeof entry.address !== 'string') {
+        failClosed(
+          'RADAR_LOAD_DNS_ADDRESS',
+          'fail_closed: DNS address null or malformed',
+        );
+      }
+      address = entry.address;
+      if (Object.prototype.hasOwnProperty.call(entry, 'family') && entry.family != null) {
+        familyHint = entry.family;
+      }
+    } else {
       failClosed(
-        'RADAR_LOAD_DNS_PRIVATE',
-        `fail_closed: DNS resolved to non-globally-routable address: ${String(address)}`,
+        'RADAR_LOAD_DNS_ADDRESS',
+        'fail_closed: DNS address null or malformed',
       );
     }
-    publicOnes.push(Object.freeze({ address: String(address), family: Number(family) || 4 }));
+
+    if (typeof address !== 'string') {
+      failClosed(
+        'RADAR_LOAD_DNS_ADDRESS',
+        'fail_closed: DNS address null or malformed',
+      );
+    }
+    const trimmed = address.trim();
+    if (!trimmed) {
+      failClosed(
+        'RADAR_LOAD_DNS_ADDRESS',
+        'fail_closed: DNS address null or malformed',
+      );
+    }
+    const detected = net.isIP(trimmed);
+    if (detected !== 4 && detected !== 6) {
+      failClosed(
+        'RADAR_LOAD_DNS_ADDRESS',
+        'fail_closed: DNS address null or malformed',
+      );
+    }
+
+    let family = detected;
+    if (familyHint != null) {
+      // Exact 4|6 only — no Number("4") / truthy coercion.
+      if (familyHint !== 4 && familyHint !== 6) {
+        failClosed(
+          'RADAR_LOAD_DNS_FAMILY',
+          'fail_closed: DNS family invalid or mismatched',
+        );
+      }
+      if (familyHint !== detected) {
+        failClosed(
+          'RADAR_LOAD_DNS_FAMILY',
+          'fail_closed: DNS family invalid or mismatched',
+        );
+      }
+      family = familyHint;
+    }
+
+    if (!isGloballyRoutableIp(trimmed)) {
+      failClosed(
+        'RADAR_LOAD_DNS_PRIVATE',
+        `fail_closed: DNS resolved to non-globally-routable address: ${trimmed}`,
+      );
+    }
+    publicOnes.push(Object.freeze({ address: trimmed, family }));
   }
   return Object.freeze(publicOnes);
 }
@@ -733,15 +803,9 @@ async function pinValidatedPublicDns(hostname, lookupFn, runDeadlineNs, abortRea
 }
 
 function pinnedLookup(pinned) {
-  const pins = Array.isArray(pinned) ? pinned.slice() : [];
-  if (!pins.length) {
-    failClosed('RADAR_LOAD_DNS', 'fail_closed: pinnedLookup requires validated pinned addresses');
-  }
-  // Exact pins only — callers must pass assertPublicDnsAddresses results.
-  const frozenPins = pins.map((p) => Object.freeze({
-    address: String(p.address),
-    family: Number(p.family) === 6 ? 6 : 4,
-  }));
+  // Every pin fails closed through the same public-address validator before
+  // selection — no String()/Number() coercion, no TypeError on null/malformed.
+  const frozenPins = assertPublicDnsAddresses(pinned);
 
   return function lookup(_hostname, options, callback) {
     let cb = callback;
@@ -755,8 +819,10 @@ function pinnedLookup(pinned) {
     }
 
     const wantAll = !!(opts && opts.all);
-    const familyRaw = opts && opts.family != null ? Number(opts.family) : 0;
-    const familyFilter = familyRaw === 4 || familyRaw === 6 ? familyRaw : 0;
+    // Family filter: only exact numeric 4|6; other values mean "no filter"
+    // (Node treats non-4/6 similarly). Do not coerce strings like "4".
+    const familyRaw = opts && opts.family;
+    const familyFilter = (familyRaw === 4 || familyRaw === 6) ? familyRaw : 0;
 
     let list = frozenPins;
     if (familyFilter) {

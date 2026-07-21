@@ -4,8 +4,10 @@
  * radar-slice16ah-g06-live-load-correction — RADAR Slice 16AH locks.
  *
  * Source correction for G06 load harness: pinnedLookup must honor Node's
- * dns.lookup callback contract when options.all===true (Happy Eyeballs).
- * Offline production-shaped RED proves scalar replies fail before HTTP with
+ * dns.lookup callback contract when options.all===true (Happy Eyeballs),
+ * validating every pin fail-closed through assertPublicDnsAddresses before
+ * selection. Offline production-shaped RED proves scalar replies fail before
+ * TLS/HTTP via real local TLS + real https.request/net.connect lookup, with
  * safe error-code classes only. Preserves G06 partial; records the failed
  * post-16AG live attempt as attempted_not_proof (not load success). No live
  * execution / deploy / scale mutation by this tip.
@@ -68,13 +70,17 @@ const REQUIRED_RED = Object.freeze([
   'production_shaped_all_true_scalar_fails_before_http',
   'safe_error_code_classes_no_message_host_body',
   'pinned_lookup_family_miss_errors',
+  'pinned_lookup_null_malformed_address_rejected',
+  'pinned_lookup_invalid_mismatched_family_rejected',
+  'pinned_lookup_empty_pins_rejected',
+  'openssl_required_fail_closed_when_unavailable',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
   'pinned_lookup_all_true_returns_validated_array',
   'pinned_lookup_all_false_scalar_contract',
   'pinned_lookup_family_filter_exact_pins',
-  'production_shaped_pinned_lookup_reaches_http',
+  'production_shaped_pinned_lookup_reaches_tls',
   'error_code_classes_aggregated_safely',
   'live_attempt_recorded_attempted_not_proof',
   'g06_remains_partial',
@@ -101,7 +107,8 @@ const EXPLICITLY_NOT_CLAIMED = Object.freeze([
 
 const CLAIMS_ALLOWED = Object.freeze([
   'pinned_lookup_all_true_callback_contract_corrected',
-  'offline_production_shaped_red_green',
+  'pinned_lookup_fail_closed_public_address_validation',
+  'offline_production_shaped_real_tls_red_green',
   'safe_diagnostic_error_code_classes',
   'post_16ag_live_attempt_attempted_not_proof',
   'g06_remains_partial_score_unchanged',
