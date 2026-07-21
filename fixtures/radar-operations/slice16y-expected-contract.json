@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16Y",
+  "outcome_id": "16Y_readiness_shutdown_completion_log",
+  "gate_id": "G02_readiness_dependencies",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "798a5f26e9aa0376e2993b7d590fc818dfa171f7",
+  "branch": "radar/slice-16y-shutdown-completion-log",
+  "live_deploy": false,
+  "live_mutation": false,
+  "title": "Bounded Staff API readiness-shutdown completion record — source observability enabling truthful live SIGTERM proof",
+  "builds_on": [
+    "16W_readiness_shutdown_lifecycle",
+    "16X_g02_lifecycle_deploy_traffic_shed_live_evidence"
+  ],
+  "does_not_implement": "readyz_sql_change_readyz_body_change_probes_deploy_secrets_db_production_sigterm_live_lifecycle_drill_full_g02",
+  "event_schema": {
+    "event": "staff_api_readiness_shutdown_completion",
+    "fields_only": [
+      "event",
+      "original_signal",
+      "pool_close_result",
+      "server_close_result",
+      "failure_classes",
+      "completion"
+    ],
+    "original_signal": ["SIGTERM", "SIGINT"],
+    "pool_close_result": ["ok", "rejected", "timeout", "throw"],
+    "server_close_result": ["ok", "rejected", "timeout", "throw", "already_closed"],
+    "failure_classes": "bounded_16W_enum_subset_array",
+    "completion": true
+  },
+  "emission_contract": {
+    "boundary": "runStaffApiReadinessShutdown",
+    "timing": "after_bounded_pool_and_server_results_before_detach_and_native_re_signal",
+    "exactly_one_record_per_shutdown": true,
+    "same_repeated_mixed_signals": "exactly_one",
+    "default_logger": "one_json_line_stdout",
+    "injected_logger": "supported_non_throwing_path",
+    "logger_throw_must_not_block_detach_or_terminate": true,
+    "terminate_throw_no_duplicate": true
+  },
+  "exclusions": [
+    "pid",
+    "secrets",
+    "tokens",
+    "urls",
+    "error_messages",
+    "stacks",
+    "timing_guesses",
+    "dsn",
+    "connection_strings"
+  ],
+  "preserves": [
+    "16W_shutdown_semantics",
+    "readyz_sql",
+    "readyz_body",
+    "aca_probes",
+    "shared_tenant_runtime",
+    "g02_partial"
+  ],
+  "tenant_scope": {
+    "wolfhouse_staging_image": "shared_staff_api_runtime",
+    "sunset_staging_image": "shared_staff_api_runtime",
+    "note": "Both ACA apps run the same Staff API image; completion log is tenant-agnostic at source"
+  },
+  "still_open": [
+    "SIGTERM/SIGINT closeReadinessPool live lifecycle behavior on deployed revision",
+    "Serving-revision /readyz=503 body path",
+    "Raising G02 verdict to proven"
+  ],
+  "final_controlled_drill": {
+    "id": "16Y_DRILL_live_sigterm_completion_log_evidence",
+    "status": "open",
+    "note": "16Y closes source observability only; live signal evidence remains open until deployment/drill"
+  },
+  "artifacts": [
+    "scripts/lib/staff-api-readiness-shutdown-completion-log.js",
+    "scripts/lib/staff-api-readiness-lifecycle.js",
+    "scripts/lib/radar-slice16y-shutdown-completion-log.js",
+    "scripts/verify-radar-slice16y-shutdown-completion-log.js",
+    "fixtures/radar-operations/slice16y-expected-contract.json"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16y-shutdown-completion-log",
+    "npm run verify:radar-slice16w-readiness-shutdown-lifecycle",
+    "npm run verify:radar-slice16x-g02-live-evidence",
+    "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 798a5f26e9aa0376e2993b7d590fc818dfa171f7..HEAD"
+  ]
+}

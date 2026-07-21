@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '2dcda08008fe951565560cefafe37f1a78b0791a';
+const MASTER_BASIS = '798a5f26e9aa0376e2993b7d590fc818dfa171f7';
+const BRANCH_16Y = 'radar/slice-16y-shutdown-completion-log';
 const BRANCH_16X = 'radar/slice-16x-g02-live-evidence';
 const BRANCH_16W = 'radar/slice-16w-readiness-shutdown-lifecycle';
 const BRANCH_16U = 'radar/slice-16u-correlation-design-freeze';
@@ -172,6 +173,7 @@ function staffApiRuntimeDiffVsMaster() {
     'scripts/staff-query-api.js',
     'scripts/lib/staff-api-readiness.js',
     'scripts/lib/staff-api-readiness-lifecycle.js',
+    'scripts/lib/staff-api-readiness-shutdown-completion-log.js',
     'scripts/lib/stripe-webhook-public-errors.js',
     'scripts/lib/stripe-webhook-event-claim.js',
     'scripts/lib/stripe-webhook-payment-truth.js',
@@ -201,7 +203,7 @@ const doc = readText(DOC_PATH);
 const findings = readText(FINDINGS_PATH);
 
 ok('F6 matrix schema_version=1', matrix.schema_version === 1);
-ok('F7 no live mutation (16X evidence-only; audit_only=true)', matrix.audit_only === true && matrix.live_mutation === false);
+ok('F7 no live mutation (16Y source observability; audit_only=false)', matrix.audit_only === false && matrix.live_mutation === false);
 ok('F8 master_basis pinned', matrix.master_basis === MASTER_BASIS);
 ok('F9 contract master_basis pinned', contract.master_basis === MASTER_BASIS);
 ok('F10 classification policy fail-closed',
@@ -360,10 +362,11 @@ ok('F33c doc retains 16P id', /16P_live_drill_evidence_reconciliation|16P/.test(
 ok('F33d doc retains 16O id', /16O_stripe_webhook_error_minimization|16O/.test(doc));
 ok('F33e doc mentions 16X evidence', /16X|g02.?live.?evidence/i.test(doc));
 ok('F33f doc retains 16W lifecycle', /16W|closeReadinessPool/i.test(doc));
+ok('F33g doc mentions 16Y shutdown completion', /16Y|shutdown.?completion/i.test(doc));
 ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /partial.*9/i.test(doc) && /absent.*0/i.test(doc));
 ok('F35 findings lists G01/G02/G03/G05/G06/G08/G09 partial',
   /G01/.test(findings) && /G02/.test(findings) && /G03/.test(findings) && /G05/.test(findings) && /G06/.test(findings) && /G08/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
-  && /16O/.test(findings) && /16P/.test(findings) && /16S/.test(findings) && /16U/.test(findings) && /16W/.test(findings) && /16X/.test(findings));
+  && /16O/.test(findings) && /16P/.test(findings) && /16S/.test(findings) && /16U/.test(findings) && /16W/.test(findings) && /16X/.test(findings) && /16Y/.test(findings));
 
 ok('F36 healthz source cite present', pathExists('scripts/staff-query-api.js'));
 ok('F37 capture cost script present (read-only helper)',
@@ -372,8 +375,15 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 zero-mutation: runtime paths unchanged vs master basis (16X evidence-only)',
-  rt.ok,
+ok('F39 non-16Y runtime paths unchanged vs master basis (16Y owned lifecycle+completion-log only)',
+  (() => {
+    const allowed = new Set([
+      'scripts/lib/staff-api-readiness-lifecycle.js',
+      'scripts/lib/staff-api-readiness-shutdown-completion-log.js',
+    ]);
+    const changed = rt.detail === '(clean)' ? [] : String(rt.detail).split('\n').filter(Boolean);
+    return rt.ok || changed.every((p) => allowed.has(p));
+  })(),
   rt.detail);
 
 ok('F40 16A final controlled drill frozen',
@@ -389,12 +399,13 @@ ok('F44 contract gates pin range diff --check',
   && contract.gates.some((g) => g === `git diff --check ${MASTER_BASIS}..HEAD`));
 
 const g02 = matrix.gates.find((g) => g.id === 'G02_readiness_dependencies');
-ok('F45 G02 partial_live_proven via 16X deploy+traffic-shed (16W lifecycle source; SIGTERM live open)',
+ok('F45 G02 partial_live_proven via 16X deploy+traffic-shed + 16Y completion source (SIGTERM live open)',
   g02 && g02.verdict === 'partial'
   && g02.progress_class === 'partial_live_proven'
   && /readyz|health\/ready|health.ready|traffic.?shed|g02fail|2dcda08|16X/i.test(g02.rationale)
   && (/16I/.test(g02.rationale) || /16P/.test(g02.rationale) || /16W/.test(g02.rationale))
   && /16X|g02fail|traffic.?shed/i.test(g02.rationale)
+  && /16Y|shutdown.?completion/i.test(g02.rationale)
   && Array.isArray(g02.gaps)
   && !g02.gaps.some((g) => /closeReadinessPool not yet wired/i.test(String(g)))
   && !g02.gaps.some((g) => /dependency.failure.*not executed|traffic.shed.*not executed/i.test(String(g)))
@@ -410,20 +421,22 @@ const slice16sContract = readJson(path.join(FIXTURE_DIR, 'slice16s-expected-cont
 const slice16uContract = readJson(path.join(FIXTURE_DIR, 'slice16u-expected-contract.json'));
 const slice16wContract = readJson(path.join(FIXTURE_DIR, 'slice16w-expected-contract.json'));
 const slice16xContract = readJson(path.join(FIXTURE_DIR, 'slice16x-expected-contract.json'));
+const slice16yContract = readJson(path.join(FIXTURE_DIR, 'slice16y-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16X contract + HEAD',
-  matrix.branch === BRANCH_16X
-  && contract.branch === BRANCH_16X
-  && slice16xContract.branch === BRANCH_16X
-  && headBranch === BRANCH_16X,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16x=${slice16xContract.branch} head=${headBranch}`);
-ok('F48b frozen 16O/16P/16R/16S/16U/16W contracts retain their own branch pins',
+ok('F48 gate-matrix branch pin equals 16Y contract + HEAD',
+  matrix.branch === BRANCH_16Y
+  && contract.branch === BRANCH_16Y
+  && slice16yContract.branch === BRANCH_16Y
+  && headBranch === BRANCH_16Y,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16y=${slice16yContract.branch} head=${headBranch}`);
+ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
   && slice16rContract.branch === BRANCH_16R
   && slice16sContract.branch === BRANCH_16S
   && slice16uContract.branch === BRANCH_16U
-  && slice16wContract.branch === BRANCH_16W);
+  && slice16wContract.branch === BRANCH_16W
+  && slice16xContract.branch === BRANCH_16X);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -446,16 +459,20 @@ const g08CitesPublicErrors = g08
   && g08.source_evidence.some((ev) =>
     ev.path === 'scripts/lib/stripe-webhook-public-errors.js'
     || ev.path === 'scripts/staff-query-api.js');
-ok('F50 must_not forbids live mutation; 16X evidence-only keeps runtime/bicep clean; G08 still cites public-errors',
+ok('F50 must_not forbids live mutation; 16Y owned runtime diff only; bicep unchanged; G08 still cites public-errors',
   !hasStaleSourceForbid
   && hasLiveDeployedForbid
   && g08CitesPublicErrors
-  && runtimeDiff.length === 0
+  && runtimeDiff.every((p) => [
+    'scripts/lib/staff-api-readiness-lifecycle.js',
+    'scripts/lib/staff-api-readiness-shutdown-completion-log.js',
+  ].includes(p))
   && pathExists('scripts/lib/staff-api-readiness-lifecycle.js')
+  && pathExists('scripts/lib/staff-api-readiness-shutdown-completion-log.js')
   && pathExists('scripts/lib/stripe-webhook-public-errors.js')
   && bicepDiff.length === 0
   && matrix.live_mutation === false
-  && matrix.audit_only === true,
+  && matrix.audit_only === false,
   `runtimeDiff=${runtimeDiff.join(',') || '(none)'} bicepDiff=${bicepDiff.join(',') || '(none)'} stale=${hasStaleSourceForbid}`);
 
 ok('F51 G01 partial_live_proven via 16S + 16U design freeze (G01-A live open)',
@@ -766,6 +783,34 @@ ok('F134 16X explicitly does not claim SIGTERM live / full G02 / production',
 ok('F135 16I matrix drill status live_proven via 16X',
   sel16i.final_controlled_drill
   && /live_proven_via_16X/i.test(String(sel16i.final_controlled_drill.status)));
+
+const sel16y = matrix.slice_16y_selection;
+ok('F136 exactly one 16Y selection',
+  sel16y && sel16y.selected === true
+  && sel16y.outcome_id === '16Y_readiness_shutdown_completion_log'
+  && sel16y.gate_id === 'G02_readiness_dependencies'
+  && sel16y.progress_class === 'source_partial_progress_only');
+ok('F137 contract selected_16y matches',
+  contract.selected_16y
+  && contract.selected_16y.outcome_id === '16Y_readiness_shutdown_completion_log'
+  && contract.selected_16y.g02_shutdown_completion_log === 'closed_via_16Y'
+  && contract.selected_16y.g02_sigterm_live === 'open'
+  && contract.selected_16y.g02_verdict === 'partial');
+ok('F138 16Y fixtures + verifier present',
+  pathExists('fixtures/radar-operations/slice16y-expected-contract.json')
+  && pathExists('scripts/lib/radar-slice16y-shutdown-completion-log.js')
+  && pathExists('scripts/verify-radar-slice16y-shutdown-completion-log.js')
+  && pathExists('scripts/lib/staff-api-readiness-shutdown-completion-log.js'));
+ok('F139 16Y final controlled drill open (live SIGTERM evidence)',
+  sel16y.final_controlled_drill
+  && sel16y.final_controlled_drill.id === '16Y_DRILL_live_sigterm_completion_log_evidence'
+  && /open/i.test(String(sel16y.final_controlled_drill.status)));
+ok('F140 16Y does not claim deploy/probes/SQL/production/live SIGTERM',
+  /readyz_sql|probes|production|sigterm_live/i.test(String(sel16y.does_not_implement || '')));
+ok('F141 doc mentions 16Y + G02 partial; SIGTERM live open',
+  /16Y|shutdown.?completion/i.test(doc)
+  && /G02.*partial|partial.*G02/i.test(doc)
+  && /SIGTERM|lifecycle.?live/i.test(doc));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

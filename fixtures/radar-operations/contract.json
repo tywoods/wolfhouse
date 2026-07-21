@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16X",
-  "outcome_id": "16X_g02_lifecycle_deploy_traffic_shed_live_evidence",
-  "master_basis": "2dcda08008fe951565560cefafe37f1a78b0791a",
-  "branch": "radar/slice-16x-g02-live-evidence",
-  "audit_only": true,
+  "slice": "RADAR-16Y",
+  "outcome_id": "16Y_readiness_shutdown_completion_log",
+  "master_basis": "798a5f26e9aa0376e2993b7d590fc818dfa171f7",
+  "branch": "radar/slice-16y-shutdown-completion-log",
+  "audit_only": false,
   "live_mutation": false,
-  "title": "G02 lifecycle deploy + dependency-failure traffic-shed drill evidence (partial/live-proven)",
-  "progress_class": "partial_live_proven_evidence_only",
-  "does_not_implement": "sigterm_live_lifecycle_organic_alerts_production_full_g02_serving_readyz_503",
+  "title": "G02 readiness-shutdown completion log (source-partial observability; SIGTERM live open)",
+  "progress_class": "source_partial_progress_only",
+  "does_not_implement": "readyz_sql_change_readyz_body_change_probes_deploy_secrets_db_production_sigterm_live_lifecycle_drill_full_g02",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -76,7 +76,11 @@
     "fixtures/radar-operations/slice16x-g02-live-evidence.json",
     "fixtures/radar-operations/slice16x-expected-contract.json",
     "scripts/lib/radar-slice16x-g02-live-evidence.js",
-    "scripts/verify-radar-slice16x-g02-live-evidence.js"
+    "scripts/verify-radar-slice16x-g02-live-evidence.js",
+    "scripts/lib/staff-api-readiness-shutdown-completion-log.js",
+    "scripts/lib/radar-slice16y-shutdown-completion-log.js",
+    "scripts/verify-radar-slice16y-shutdown-completion-log.js",
+    "fixtures/radar-operations/slice16y-expected-contract.json"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -127,22 +131,22 @@
       "infra/azure/staging-staff-api-metric-alerts/",
       "infra/azure/staging-cost-budgets/"
     ],
-    "runtime_paths_changed_owned_by_16w": [
-      "scripts/staff-query-api.js",
-      "scripts/lib/staff-api-readiness.js",
-      "scripts/lib/staff-api-readiness-lifecycle.js"
+    "runtime_paths_changed_owned_by_16y": [
+      "scripts/lib/staff-api-readiness-lifecycle.js",
+      "scripts/lib/staff-api-readiness-shutdown-completion-log.js"
     ],
-    "note": "16X evidence-only; runtime unchanged vs master 2dcda08; prior 16W lifecycle wiring retained on master"
+    "note": "16Y source observability only; owned lifecycle + completion-log change vs master 798a5f26; readyz/probes/SQL/bicep unchanged; SIGTERM live remains open"
   },
   "gates": [
-    "npm run verify:radar-slice16x-g02-live-evidence",
+    "npm run verify:radar-slice16y-shutdown-completion-log",
     "npm run verify:radar-slice16w-readiness-shutdown-lifecycle",
+    "npm run verify:radar-slice16x-g02-live-evidence",
     "npm run verify:radar-slice16i-staff-api-readiness",
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 2dcda08008fe951565560cefafe37f1a78b0791a..HEAD"
+    "git diff --check 798a5f26e9aa0376e2993b7d590fc818dfa171f7..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -311,6 +315,22 @@
     ],
     "g02_verdict": "partial",
     "g02_lifecycle_source": "closed_via_16W",
+    "g02_lifecycle_deploy": "live_proven_via_16X",
+    "g02_dependency_failure_drill": "live_proven_via_16X",
+    "g02_sigterm_live": "open"
+  },
+  "selected_16y": {
+    "outcome_id": "16Y_readiness_shutdown_completion_log",
+    "gate_id": "G02_readiness_dependencies",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "readyz_sql_change_readyz_body_change_probes_deploy_secrets_db_production_sigterm_live_lifecycle_drill_full_g02",
+    "builds_on": [
+      "16W_readiness_shutdown_lifecycle",
+      "16X_g02_lifecycle_deploy_traffic_shed_live_evidence"
+    ],
+    "g02_verdict": "partial",
+    "g02_lifecycle_source": "closed_via_16W",
+    "g02_shutdown_completion_log": "closed_via_16Y",
     "g02_lifecycle_deploy": "live_proven_via_16X",
     "g02_dependency_failure_drill": "live_proven_via_16X",
     "g02_sigterm_live": "open"
