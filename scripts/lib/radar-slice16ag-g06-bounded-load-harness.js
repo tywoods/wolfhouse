@@ -5,9 +5,11 @@
  *
  * Source-partial G06 progress: dependency-free bounded Node load harness hard-
  * locked to the two exact staging Staff API /readyz URLs. Offline RED/GREEN
- * fake-server verifier proves bounds/concurrency/redirects/target-escape/
- * latency/non-2xx accounting. Future drill profile defined but NOT executed.
- * No live network, deploy, scale mutation, SLO, or backpressure claims.
+ * verifier (fail-closed http/https/net/DNS) proves bounds/concurrency/
+ * redirects/target-escape/latency/non-2xx plus hanging/trickle/abort/close/
+ * deadline cleanup/DNS-private/header-body-auth/transport-escape. Future
+ * drill profile defined but NOT executed. No live network, deploy, scale
+ * mutation, SLO, or backpressure claims.
  */
 
 const path = require('path');
@@ -70,6 +72,13 @@ const REQUIRED_RED = Object.freeze([
   'collect_bodies_rejected',
   'redirect_not_followed',
   'response_bodies_absent_from_report',
+  'hanging_request_deadline_settles',
+  'trickle_body_settles_or_times_out',
+  'abort_error_close_paths_settle',
+  'deadline_cleanup_destroys_actives',
+  'dns_private_address_rejected',
+  'header_body_auth_not_sent',
+  'transport_escape_rejected',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([

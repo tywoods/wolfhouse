@@ -3,15 +3,23 @@
 /**
  * verify:radar-slice16ag-g06-bounded-load-harness — RADAR Slice 16AG
  *
- * Offline gate: dependency-free bounded /readyz load harness with local fake
- * server. Proves allowlist fail-closed, bounds, concurrency, no redirects,
- * latency percentiles, and timeout/error/non-2xx accounting without bodies.
- * Does NOT execute live staging network calls, deploy, or scale mutation.
+ * Offline gate: dependency-free bounded /readyz load harness with fail-closed
+ * seals against real http/https/net/DNS. Exercises production-shaped fixed
+ * HTTPS transport via runBoundedLoadOffline(OFFLINE_SEAL) against a local fake
+ * server. Proves allowlist, bounds, concurrency, redirects, latency (monotonic,
+ * transport latency ignored), timeout/error/non-2xx, hanging/trickle/abort/
+ * close settle, deadline cleanup, DNS private reject, header/body/auth not
+ * sent, and caller transport escape reject. Does NOT execute live staging
+ * network calls, deploy, or scale mutation.
  */
 
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
+const net = require('net');
+const dns = require('dns');
 const path = require('path');
+const { EventEmitter } = require('events');
 const { execSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
@@ -22,7 +30,7 @@ let pass = 0;
 let fail = 0;
 const redResults = [];
 const greenResults = [];
-let liveNetworkAttempts = 0;
+let sealedNetworkHits = 0;
 
 function ok(name, cond, detail) {
   if (cond) {
@@ -73,9 +81,155 @@ function runtimePathsUnchanged() {
   }
 }
 
+function expectThrow(fn, codePrefix) {
+  try {
+    fn();
+    return { ok: false, detail: 'did not throw' };
+  } catch (err) {
+    const code = err && err.code ? String(err.code) : '';
+    const msg = err && err.message ? String(err.message) : '';
+    if (codePrefix && !code.startsWith(codePrefix) && !msg.includes('fail_closed')) {
+      return { ok: false, detail: `code=${code} msg=${msg}` };
+    }
+    return { ok: true, detail: code || msg };
+  }
+}
+
+async function expectThrowAsync(fn, codePrefix) {
+  try {
+    await fn();
+    return { ok: false, detail: 'did not throw' };
+  } catch (err) {
+    const code = err && err.code ? String(err.code) : '';
+    const msg = err && err.message ? String(err.message) : '';
+    if (codePrefix && !code.startsWith(codePrefix) && !msg.includes('fail_closed')) {
+      return { ok: false, detail: `code=${code} msg=${msg}` };
+    }
+    return { ok: true, detail: code || msg };
+  }
+}
+
+function reportHasNoBodies(report) {
+  const json = JSON.stringify(report);
+  if (/"body"\s*:/.test(json) && !/"body_sent":false/.test(json)) return false;
+  if (/response_body/i.test(json) && !/"response_bodies_collected":false/.test(json)) return false;
+  if (/"_test_body"/.test(json)) return false;
+  if (/"status":"ready"/.test(json)) return false;
+  return report.response_bodies_collected === false;
+}
+
+/** Hold real primitives before fail-closed seal; used only for local fake server. */
+const realHttp = {
+  createServer: http.createServer.bind(http),
+  request: http.request.bind(http),
+  get: http.get.bind(http),
+};
+const realHttps = {
+  request: https.request.bind(https),
+  get: https.get.bind(https),
+};
+const realNet = {
+  connect: net.connect.bind(net),
+  createConnection: net.createConnection.bind(net),
+  createServer: net.createServer.bind(net),
+};
+const realDns = {
+  lookup: dns.lookup.bind(dns),
+  resolve: dns.resolve && dns.resolve.bind(dns),
+  resolve4: dns.resolve4 && dns.resolve4.bind(dns),
+  resolve6: dns.resolve6 && dns.resolve6.bind(dns),
+  Resolver: dns.Resolver,
+};
+
+function sealThrow(kind) {
+  return function sealedNetworkCall() {
+    sealedNetworkHits += 1;
+    const err = new Error(`fail_closed: offline verifier blocked ${kind}`);
+    err.code = 'RADAR_OFFLINE_NETWORK_SEAL';
+    throw err;
+  };
+}
+
+function installNetworkFailClosed() {
+  http.request = sealThrow('http.request');
+  http.get = sealThrow('http.get');
+  https.request = sealThrow('https.request');
+  https.get = sealThrow('https.get');
+  function isLoopbackHost(host) {
+    const h = String(host || '');
+    return h === '127.0.0.1' || h === '::1' || h === 'localhost';
+  }
+
+  // Allow loopback sockets only for the local fake server; block all other net.
+  net.connect = function sealedConnect(...args) {
+    const opts = args[0];
+    let host = null;
+    if (typeof opts === 'number') {
+      host = typeof args[1] === 'string' ? args[1] : 'localhost';
+    } else if (typeof opts === 'string') {
+      host = opts;
+    } else if (opts && typeof opts === 'object') {
+      host = opts.host || opts.hostname || null;
+    }
+    if (isLoopbackHost(host)) return realNet.connect(...args);
+    sealedNetworkHits += 1;
+    const err = new Error('fail_closed: offline verifier blocked net.connect');
+    err.code = 'RADAR_OFFLINE_NETWORK_SEAL';
+    throw err;
+  };
+  net.createConnection = function sealedCreateConnection(...args) {
+    return net.connect(...args);
+  };
+  // Allow literal loopback DNS only so local fake-server listen(127.0.0.1)
+  // can bind; any other hostname/DNS API remains fail-closed.
+  dns.lookup = function sealedDnsLookup(hostname, options, callback) {
+    const host = String(hostname || '');
+    if (isLoopbackHost(host)) {
+      return realDns.lookup(hostname, options, callback);
+    }
+    sealedNetworkHits += 1;
+    const err = new Error('fail_closed: offline verifier blocked dns.lookup');
+    err.code = 'RADAR_OFFLINE_NETWORK_SEAL';
+    if (typeof options === 'function') {
+      process.nextTick(() => options(err));
+      return;
+    }
+    if (typeof callback === 'function') {
+      process.nextTick(() => callback(err));
+      return;
+    }
+    throw err;
+  };
+  if (dns.resolve) dns.resolve = sealThrow('dns.resolve');
+  if (dns.resolve4) dns.resolve4 = sealThrow('dns.resolve4');
+  if (dns.resolve6) dns.resolve6 = sealThrow('dns.resolve6');
+  if (dns.Resolver) {
+    dns.Resolver = function SealedResolver() {
+      sealedNetworkHits += 1;
+      throw Object.assign(new Error('fail_closed: offline verifier blocked dns.Resolver'), {
+        code: 'RADAR_OFFLINE_NETWORK_SEAL',
+      });
+    };
+  }
+}
+
+function restoreNetwork() {
+  http.request = realHttp.request;
+  http.get = realHttp.get;
+  https.request = realHttps.request;
+  https.get = realHttps.get;
+  net.connect = realNet.connect;
+  net.createConnection = realNet.createConnection;
+  dns.lookup = realDns.lookup;
+  if (realDns.resolve) dns.resolve = realDns.resolve;
+  if (realDns.resolve4) dns.resolve4 = realDns.resolve4;
+  if (realDns.resolve6) dns.resolve6 = realDns.resolve6;
+  if (realDns.Resolver) dns.Resolver = realDns.Resolver;
+}
+
 function startFakeServer(handler) {
   return new Promise((resolve, reject) => {
-    const server = http.createServer(handler);
+    const server = realHttp.createServer(handler);
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       resolve({
@@ -96,130 +250,249 @@ function closeServer(server) {
 }
 
 /**
- * Transport that talks to a local fake origin while preserving the allowlisted
- * logical target for harness validation. Never opens staging network sockets.
+ * Offline https.request stand-in: talks to local fake HTTP origin while the
+ * harness still validates allowlisted logical HTTPS targets + pinned DNS.
+ * Captures request options for header/body/auth REDs. Never touches staging.
  */
-function fakeTransport(fakeOrigin, behavior) {
-  return function transport(logicalTarget, timeoutMs) {
-    if (!harness.ALLOWED_TARGETS.includes(logicalTarget)) {
-      liveNetworkAttempts += 1;
-      return Promise.reject(Object.assign(new Error('escape'), { code: 'ESCAPE' }));
+function makeOfflineHttpsRequest(fakeOrigin, behavior, capture) {
+  const port = Number(new URL(fakeOrigin).port);
+  return function offlineHttpsRequest(options, callback) {
+    const opts = typeof options === 'string' ? new URL(options) : (options || {});
+    if (capture) {
+      capture.calls.push({
+        method: opts.method || 'GET',
+        headers: { ...(opts.headers || {}) },
+        path: opts.path,
+        hostname: opts.hostname,
+        hasAuth: !!(opts.auth || (opts.headers && (opts.headers.Authorization || opts.headers.authorization))),
+        bodyChunks: [],
+      });
     }
-    const started = Date.now();
-    return new Promise((resolve) => {
-      if (behavior && behavior.forceTimeout) {
-        setTimeout(() => {
-          resolve({
-            kind: 'timeout',
-            status_code: null,
-            latency_ms: Date.now() - started,
-            redirected: false,
-          });
-        }, Math.min(timeoutMs, behavior.forceTimeoutMs || 30));
-        return;
-      }
-      if (behavior && behavior.forceError) {
-        resolve({
-          kind: 'error',
-          status_code: null,
-          latency_ms: Date.now() - started,
-          redirected: false,
-          error_code: 'FAKE_ERROR',
-        });
-        return;
-      }
-      if (behavior && behavior.forceRedirect) {
-        resolve({
-          kind: 'status',
-          status_code: 302,
-          latency_ms: Date.now() - started,
-          redirected: true,
-          location: 'https://evil.example/readyz',
-        });
-        return;
-      }
 
-      const delayMs = behavior && behavior.delayMs ? behavior.delayMs : 0;
-      const statusCode = behavior && behavior.statusCode ? behavior.statusCode : 200;
-      const body = behavior && behavior.body != null ? behavior.body : '{"status":"ready"}';
+    const mode = behavior && typeof behavior.mode === 'function'
+      ? behavior.mode()
+      : (behavior && behavior.mode) || 'ok';
 
-      const doReq = () => {
-        const req = http.request({
-          hostname: '127.0.0.1',
-          port: Number(new URL(fakeOrigin).port),
-          path: '/readyz',
-          method: 'GET',
-          headers: {},
-          timeout: timeoutMs,
-        }, (res) => {
-          let collected = '';
-          res.on('data', (c) => {
-            // Intentionally discard for harness report; local drain only.
-            if (behavior && behavior.captureBody) collected += c;
-          });
-          res.on('end', () => {
-            resolve({
-              kind: 'status',
-              status_code: res.statusCode || statusCode,
-              latency_ms: Date.now() - started,
-              redirected: false,
-              // Must never leak into harness aggregate; kept only if test asks.
-              _test_body: behavior && behavior.captureBody ? collected : undefined,
-            });
-          });
+    // Synthetic ClientRequest-like emitter for hang/abort/close/redirect modes
+    // that do not need a real socket, plus real local HTTP for ok/trickle.
+    if (mode === 'hang') {
+      const req = new EventEmitter();
+      req.destroyed = false;
+      req.destroy = function destroy(err) {
+        req.destroyed = true;
+        process.nextTick(() => {
+          req.emit('error', err || Object.assign(new Error('destroyed'), { code: 'ECONNRESET' }));
         });
-        req.on('timeout', () => {
-          req.destroy();
-          resolve({
-            kind: 'timeout',
-            status_code: null,
-            latency_ms: Date.now() - started,
-            redirected: false,
-          });
-        });
-        req.on('error', (err) => {
-          resolve({
-            kind: 'error',
-            status_code: null,
-            latency_ms: Date.now() - started,
-            redirected: false,
-            error_code: err && err.code ? String(err.code) : 'ERROR',
-          });
-        });
-        req.end();
       };
+      req.end = function end() {};
+      req.write = function write() {
+        if (capture && capture.calls.length) capture.calls[capture.calls.length - 1].bodyChunks.push('x');
+        return true;
+      };
+      return req;
+    }
 
-      if (delayMs > 0) setTimeout(doReq, delayMs);
-      else doReq();
+    if (mode === 'force_redirect') {
+      const req = new EventEmitter();
+      req.destroyed = false;
+      req.destroy = function destroy(err) {
+        req.destroyed = true;
+        process.nextTick(() => req.emit('error', err || new Error('destroyed')));
+      };
+      req.end = function end() {
+        process.nextTick(() => {
+          const res = new EventEmitter();
+          res.statusCode = 302;
+          res.headers = { location: 'https://evil.example/readyz' };
+          callback(res);
+          process.nextTick(() => {
+            res.emit('data', Buffer.from('redirect'));
+            res.emit('end');
+          });
+        });
+      };
+      req.write = function write() { return true; };
+      return req;
+    }
+
+    if (mode === 'premature_close') {
+      const req = new EventEmitter();
+      req.destroyed = false;
+      req.destroy = function destroy(err) {
+        req.destroyed = true;
+        process.nextTick(() => req.emit('error', err || new Error('destroyed')));
+      };
+      req.end = function end() {
+        process.nextTick(() => {
+          const res = new EventEmitter();
+          res.statusCode = 200;
+          callback(res);
+          process.nextTick(() => {
+            res.emit('data', Buffer.from('partial'));
+            res.emit('close'); // no 'end' → premature close settle
+          });
+        });
+      };
+      req.write = function write() { return true; };
+      return req;
+    }
+
+    if (mode === 'response_error') {
+      const req = new EventEmitter();
+      req.destroyed = false;
+      req.destroy = function destroy(err) {
+        req.destroyed = true;
+        process.nextTick(() => req.emit('error', err || new Error('destroyed')));
+      };
+      req.end = function end() {
+        process.nextTick(() => {
+          const res = new EventEmitter();
+          res.statusCode = 200;
+          callback(res);
+          process.nextTick(() => {
+            res.emit('error', Object.assign(new Error('res boom'), { code: 'RES_BOOM' }));
+          });
+        });
+      };
+      req.write = function write() { return true; };
+      return req;
+    }
+
+    if (mode === 'aborted') {
+      const req = new EventEmitter();
+      req.destroyed = false;
+      req.destroy = function destroy(err) {
+        req.destroyed = true;
+        process.nextTick(() => req.emit('error', err || new Error('destroyed')));
+      };
+      req.end = function end() {
+        process.nextTick(() => {
+          const res = new EventEmitter();
+          res.statusCode = 200;
+          callback(res);
+          process.nextTick(() => {
+            res.emit('aborted');
+          });
+        });
+      };
+      req.write = function write() { return true; };
+      return req;
+    }
+
+    if (mode === 'req_error') {
+      const req = new EventEmitter();
+      req.destroyed = false;
+      req.destroy = function destroy(err) {
+        req.destroyed = true;
+        process.nextTick(() => req.emit('error', err || new Error('destroyed')));
+      };
+      req.end = function end() {
+        process.nextTick(() => {
+          req.emit('error', Object.assign(new Error('req boom'), { code: 'REQ_BOOM' }));
+        });
+      };
+      req.write = function write() { return true; };
+      return req;
+    }
+
+    // Real local HTTP for ok / trickle / status cycling.
+    const statusCode = behavior && behavior.statusCode ? behavior.statusCode : 200;
+    const trickle = mode === 'trickle';
+    const delayMs = behavior && behavior.delayMs ? behavior.delayMs : 0;
+
+    const req = realHttp.request({
+      hostname: '127.0.0.1',
+      port,
+      path: '/readyz',
+      method: 'GET',
+      headers: {},
+    }, (res) => {
+      if (trickle) {
+        const wrapped = new EventEmitter();
+        wrapped.statusCode = res.statusCode || statusCode;
+        wrapped.headers = res.headers;
+        callback(wrapped);
+        let n = 0;
+        const iv = setInterval(() => {
+          n += 1;
+          wrapped.emit('data', Buffer.from('.'));
+          if (n >= 3) {
+            clearInterval(iv);
+            wrapped.emit('end');
+          }
+        }, behavior.trickleIntervalMs || 40);
+        res.on('data', () => {});
+        res.on('end', () => {});
+        return;
+      }
+      // Pass through the real IncomingMessage so end/close ordering stays intact
+      // (wrapping with late listeners can miss 'end' and false-trigger premature close).
+      if (behavior && behavior.statusCycle) {
+        const wrapped = new EventEmitter();
+        wrapped.statusCode = behavior.statusCycle();
+        wrapped.headers = res.headers;
+        callback(wrapped);
+        res.on('data', (c) => wrapped.emit('data', c));
+        res.on('end', () => {
+          wrapped.complete = true;
+          wrapped.emit('end');
+        });
+        res.on('aborted', () => wrapped.emit('aborted'));
+        res.on('error', (e) => wrapped.emit('error', e));
+        res.on('close', () => wrapped.emit('close'));
+        return;
+      }
+      callback(res);
     });
+
+    // Bridge destroy/error so harness deadline abort settles.
+    const origDestroy = req.destroy.bind(req);
+    req.destroy = function destroy(err) {
+      return origDestroy(err);
+    };
+
+    if (delayMs > 0) {
+      const end = req.end.bind(req);
+      req.end = function delayedEnd() {
+        setTimeout(() => end(), delayMs);
+      };
+    }
+    return req;
   };
 }
 
-function reportHasNoBodies(report) {
-  const json = JSON.stringify(report);
-  if (/"body"\s*:/.test(json) && !/"body_sent":false/.test(json)) return false;
-  if (/response_body/i.test(json) && !/"response_bodies_collected":false/.test(json)) return false;
-  if (/"_test_body"/.test(json)) return false;
-  if (/"status":"ready"/.test(json)) return false;
-  return report.response_bodies_collected === false;
+function publicDnsLookup(hostname, options, callback) {
+  let cb = callback;
+  if (typeof options === 'function') cb = options;
+  // Fixture public address (TEST-NET-1) — never a live resolve.
+  process.nextTick(() => cb(null, [{ address: '192.0.2.10', family: 4 }]));
 }
 
-function expectThrow(fn, codePrefix) {
-  try {
-    fn();
-    return { ok: false, detail: 'did not throw' };
-  } catch (err) {
-    const code = err && err.code ? String(err.code) : '';
-    const msg = err && err.message ? String(err.message) : '';
-    if (codePrefix && !code.startsWith(codePrefix) && !msg.includes('fail_closed')) {
-      return { ok: false, detail: `code=${code} msg=${msg}` };
-    }
-    return { ok: true, detail: code || msg };
-  }
+function privateDnsLookup(hostname, options, callback) {
+  let cb = callback;
+  if (typeof options === 'function') cb = options;
+  process.nextTick(() => cb(null, [{ address: '10.0.0.5', family: 4 }]));
+}
+
+function loopbackDnsLookup(hostname, options, callback) {
+  let cb = callback;
+  if (typeof options === 'function') cb = options;
+  process.nextTick(() => cb(null, [{ address: '127.0.0.1', family: 4 }]));
+}
+
+async function runOffline(target, profile, fakeOrigin, behavior, capture) {
+  return harness.runBoundedLoadOffline(
+    { target, profile },
+    {
+      seal: harness.OFFLINE_SEAL,
+      httpsRequest: makeOfflineHttpsRequest(fakeOrigin, behavior || { mode: 'ok' }, capture),
+      dnsLookup: publicDnsLookup,
+    },
+  );
 }
 
 async function runVerifier() {
-  console.log('RADAR 16AG G06 bounded load harness — offline fake-server verifier\n');
+  console.log('RADAR 16AG G06 bounded load harness — offline fail-closed verifier\n');
 
   const sliceContract = readJson(locks.CONTRACT_REL);
   const matrix = readJson('fixtures/radar-operations/gate-matrix.json');
@@ -227,6 +500,7 @@ async function runVerifier() {
   const doc = readText('docs/RADAR-OPERATIONS-GATE-LEDGER.md');
   const findings = readText('fixtures/radar-operations/findings.md');
   const harnessSrc = readText(locks.HARNESS_REL);
+  const verifySrc = readText(locks.VERIFY_REL);
 
   ok('C1 HEAD on 16AG branch', currentBranch() === locks.BRANCH, currentBranch());
   ok('C2 master_basis locked',
@@ -255,6 +529,16 @@ async function runVerifier() {
     && harness.ALLOWED_TARGETS[0] === locks.WH_READYZ_URL
     && harness.ALLOWED_TARGETS[1] === locks.SUNSET_READYZ_URL
     && JSON.stringify(sliceContract.allowed_targets) === JSON.stringify(locks.ALLOWED_TARGETS));
+
+  // Source: production runBoundedLoad must not accept caller transport.
+  ok('C0 production path has no caller transport escape',
+    /rejectCallerTransportEscape/.test(harnessSrc)
+    && /RADAR_LOAD_TRANSPORT_ESCAPE/.test(harnessSrc)
+    && /fixedHttpsGet/.test(harnessSrc)
+    && /hrtime\.bigint/.test(harnessSrc)
+    && /pinValidatedPublicDns/.test(harnessSrc)
+    && !/opts\.transport\s*=/.test(harnessSrc)
+    && !/_defaultHttpsTransport/.test(harnessSrc));
 
   // --- RED: fail-closed target / profile escapes ---
   red('target_escape_rejected',
@@ -358,219 +642,388 @@ async function runVerifier() {
       collect_response_bodies: true,
     }), 'RADAR_LOAD').ok);
 
-  // --- Fake-server GREEN battery ---
-  const fake = await startFakeServer((req, res) => {
-    if (req.method !== 'GET' || req.url !== '/readyz') {
-      res.writeHead(404);
-      res.end('nope');
-      return;
-    }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end('{"status":"ready"}');
-  });
+  // Transport escape on production entry
+  {
+    const t = await expectThrowAsync(
+      () => harness.runBoundedLoad({
+        target: locks.WH_READYZ_URL,
+        transport: async () => ({ kind: 'status', status_code: 200, latency_ms: 1 }),
+      }),
+      'RADAR_LOAD_TRANSPORT_ESCAPE',
+    );
+    red('transport_escape_rejected', t.ok, t.detail);
+  }
+
+  // DNS / private address
+  red('dns_private_address_rejected',
+    expectThrow(() => harness.assertPublicDnsAddresses([{ address: '10.1.2.3', family: 4 }]), 'RADAR_LOAD').ok
+    && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '127.0.0.1', family: 4 }]), 'RADAR_LOAD').ok
+    && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '192.168.0.1', family: 4 }]), 'RADAR_LOAD').ok
+    && harness.isPublicIp('192.0.2.10') === true
+    && harness.isPublicIp('10.0.0.1') === false);
+
+  // Install fail-closed seals BEFORE any offline load runs.
+  installNetworkFailClosed();
 
   try {
-    const report = await harness.runBoundedLoad({
-      target: locks.WH_READYZ_URL,
-      profile: {
-        concurrency: 2,
-        max_duration_ms: 5000,
-        max_requests: 8,
-        request_timeout_ms: 1000,
-      },
-      transport: fakeTransport(fake.origin, { statusCode: 200 }),
+    // Prove sealed modules reject (dns.lookup uses callback err for non-loopback).
+    let dnsSealOk = false;
+    {
+      const dnsErr = await new Promise((resolve) => {
+        try {
+          dns.lookup('example.com', (err) => resolve(err || new Error('missing err')));
+        } catch (err) {
+          resolve(err);
+        }
+      });
+      dnsSealOk = !!(dnsErr && dnsErr.code === 'RADAR_OFFLINE_NETWORK_SEAL');
+    }
+    ok('C_SEAL http/https/net/dns fail closed',
+      expectThrow(() => http.request('http://example.com'), 'RADAR_OFFLINE').ok
+      && expectThrow(() => https.request('https://example.com'), 'RADAR_OFFLINE').ok
+      && expectThrow(() => net.connect({ host: '1.1.1.1', port: 443 }), 'RADAR_OFFLINE').ok
+      && dnsSealOk);
+
+    const fake = await startFakeServer((req, res) => {
+      if (req.method !== 'GET' || req.url !== '/readyz') {
+        res.writeHead(404);
+        res.end('nope');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"status":"ready"}');
     });
 
-    green('bounds_respected',
-      report.completed <= 8
-      && report.started <= 8
-      && report.peak_in_flight <= 2
-      && report.profile.concurrency === 2);
-
-    green('concurrency_peak_bounded',
-      report.peak_in_flight >= 1
-      && report.peak_in_flight <= 2);
-
-    green('max_requests_stop',
-      report.stop_reason === 'max_requests'
-      && report.completed === 8
-      && report.status_counts['2xx'] === 8);
-
-    green('latency_percentiles_present',
-      report.latency
-      && report.latency.count === 8
-      && typeof report.latency.p50_ms === 'number'
-      && typeof report.latency.p95_ms === 'number'
-      && typeof report.latency.p99_ms === 'number'
-      && typeof report.latency.max_ms === 'number'
-      && report.latency.max_ms >= report.latency.p50_ms);
-
-    red('response_bodies_absent_from_report', reportHasNoBodies(report));
-  } finally {
-    await closeServer(fake.server);
-  }
-
-  // Duration stop
-  {
-    const slow = await startFakeServer((req, res) => {
-      setTimeout(() => {
-        res.writeHead(200);
-        res.end('ok');
-      }, 200);
-    });
     try {
-      const report = await harness.runBoundedLoad({
-        target: locks.SUNSET_READYZ_URL,
-        profile: {
+      const capture = { calls: [] };
+      const report = await runOffline(
+        locks.WH_READYZ_URL,
+        {
           concurrency: 2,
-          max_duration_ms: 1000,
-          max_requests: 100,
+          max_duration_ms: 5000,
+          max_requests: 8,
           request_timeout_ms: 1000,
         },
-        transport: fakeTransport(slow.origin, { delayMs: 150, statusCode: 200 }),
-      });
-      green('max_duration_stop',
-        report.stop_reason === 'max_duration'
-        && report.completed >= 1
-        && report.completed < 100
-        && report.wall_ms >= 800);
+        fake.origin,
+        { mode: 'ok' },
+        capture,
+      );
+
+      green('bounds_respected',
+        report.completed <= 8
+        && report.started <= 8
+        && report.peak_in_flight <= 2
+        && report.profile.concurrency === 2);
+
+      green('concurrency_peak_bounded',
+        report.peak_in_flight >= 1
+        && report.peak_in_flight <= 2);
+
+      green('max_requests_stop',
+        report.stop_reason === 'max_requests'
+        && report.completed === 8
+        && report.status_counts['2xx'] === 8);
+
+      green('latency_percentiles_present',
+        report.latency
+        && report.latency.count === 8
+        && typeof report.latency.p50_ms === 'number'
+        && typeof report.latency.p95_ms === 'number'
+        && typeof report.latency.p99_ms === 'number'
+        && typeof report.latency.max_ms === 'number'
+        && report.latency.max_ms >= report.latency.p50_ms);
+
+      red('response_bodies_absent_from_report', reportHasNoBodies(report));
+
+      red('header_body_auth_not_sent',
+        capture.calls.length >= 1
+        && capture.calls.every((c) => c.method === 'GET'
+          && (!c.headers || Object.keys(c.headers).length === 0 || (
+            !c.headers.Authorization && !c.headers.authorization
+            && !c.headers.Cookie && !c.headers.cookie
+          ))
+          && c.hasAuth === false
+          && c.bodyChunks.length === 0)
+        && report.headers_sent === false
+        && report.auth_sent === false
+        && report.body_sent === false);
     } finally {
-      await closeServer(slow.server);
+      await closeServer(fake.server);
     }
-  }
 
-  // Redirect not followed
-  {
-    const report = await harness.runBoundedLoad({
-      target: locks.WH_READYZ_URL,
-      profile: {
-        concurrency: 1,
-        max_duration_ms: 3000,
-        max_requests: 3,
-        request_timeout_ms: 1000,
-      },
-      transport: fakeTransport('http://127.0.0.1:9', { forceRedirect: true }),
-    });
-    red('redirect_not_followed',
-      report.redirects_followed === false
-      && report.status_counts['3xx'] === 3
-      && report.status_counts['2xx'] === 0
-      && reportHasNoBodies(report));
-  }
+    // Duration stop + deadline cleanup
+    {
+      const slow = await startFakeServer((req, res) => {
+        setTimeout(() => {
+          res.writeHead(200);
+          res.end('ok');
+        }, 200);
+      });
+      try {
+        const report = await runOffline(
+          locks.SUNSET_READYZ_URL,
+          {
+            concurrency: 2,
+            max_duration_ms: 1000,
+            max_requests: 100,
+            request_timeout_ms: 1000,
+          },
+          slow.origin,
+          { mode: 'ok', delayMs: 150 },
+        );
+        green('max_duration_stop',
+          report.stop_reason === 'max_duration'
+          && report.completed >= 1
+          && report.completed < 100
+          && report.wall_ms >= 800);
 
-  // Timeout class
-  {
-    const report = await harness.runBoundedLoad({
-      target: locks.WH_READYZ_URL,
-      profile: {
-        concurrency: 1,
-        max_duration_ms: 3000,
-        max_requests: 4,
-        request_timeout_ms: 500,
-      },
-      transport: fakeTransport('http://127.0.0.1:9', { forceTimeout: true, forceTimeoutMs: 20 }),
-    });
-    green('timeout_class_accounted',
-      report.status_counts.timeout === 4
-      && report.completed === 4
-      && reportHasNoBodies(report));
-  }
+        red('deadline_cleanup_destroys_actives',
+          report.active_requests_remaining === 0
+          && report.stop_reason === 'max_duration');
+      } finally {
+        await closeServer(slow.server);
+      }
+    }
 
-  // Error class
-  {
-    const report = await harness.runBoundedLoad({
-      target: locks.SUNSET_READYZ_URL,
-      profile: {
-        concurrency: 1,
-        max_duration_ms: 3000,
-        max_requests: 3,
-        request_timeout_ms: 500,
-      },
-      transport: fakeTransport('http://127.0.0.1:9', { forceError: true }),
-    });
-    green('error_class_accounted',
-      report.status_counts.error === 3
-      && reportHasNoBodies(report));
-  }
+    // Redirect not followed
+    {
+      const report = await runOffline(
+        locks.WH_READYZ_URL,
+        {
+          concurrency: 1,
+          max_duration_ms: 3000,
+          max_requests: 3,
+          request_timeout_ms: 1000,
+        },
+        'http://127.0.0.1:9',
+        { mode: 'force_redirect' },
+      );
+      red('redirect_not_followed',
+        report.redirects_followed === false
+        && report.status_counts['3xx'] === 3
+        && report.status_counts['2xx'] === 0
+        && reportHasNoBodies(report));
+    }
 
-  // Non-2xx status classes
-  {
-    const statuses = [200, 301, 404, 503];
-    let idx = 0;
-    const report = await harness.runBoundedLoad({
-      target: locks.WH_READYZ_URL,
-      profile: {
-        concurrency: 1,
-        max_duration_ms: 5000,
-        max_requests: 4,
-        request_timeout_ms: 1000,
-      },
-      transport: async (target, timeoutMs) => {
+    // Hanging request → per-request deadline settles timeout
+    {
+      const report = await runOffline(
+        locks.WH_READYZ_URL,
+        {
+          concurrency: 1,
+          max_duration_ms: 3000,
+          max_requests: 2,
+          request_timeout_ms: 500,
+        },
+        'http://127.0.0.1:9',
+        { mode: 'hang' },
+      );
+      red('hanging_request_deadline_settles',
+        report.status_counts.timeout === 2
+        && report.completed === 2
+        && report.active_requests_remaining === 0
+        && reportHasNoBodies(report));
+      green('timeout_class_accounted',
+        report.status_counts.timeout === 2
+        && report.completed === 2);
+    }
+
+    // Trickle body settles (or times out) — must not hang the run
+    {
+      const trickleServer = await startFakeServer((req, res) => {
+        res.writeHead(200);
+        res.write('a');
+        // Leave hanging without end — client-side trickle wrapper ends itself;
+        // also support server that never ends: harness deadline must win.
+        setTimeout(() => {
+          try { res.end('z'); } catch (_) { /* ignore */ }
+        }, 80);
+      });
+      try {
+        const t0 = Date.now();
+        const report = await runOffline(
+          locks.SUNSET_READYZ_URL,
+          {
+            concurrency: 1,
+            max_duration_ms: 3000,
+            max_requests: 2,
+            request_timeout_ms: 1000,
+          },
+          trickleServer.origin,
+          { mode: 'trickle', trickleIntervalMs: 30 },
+        );
+        const elapsed = Date.now() - t0;
+        red('trickle_body_settles_or_times_out',
+          report.completed === 2
+          && report.active_requests_remaining === 0
+          && elapsed < 5000
+          && (report.status_counts['2xx'] + report.status_counts.timeout + report.status_counts.error) === 2
+          && reportHasNoBodies(report));
+      } finally {
+        await closeServer(trickleServer.server);
+      }
+    }
+
+    // Abort / error / premature-close settle paths
+    {
+      const modes = ['aborted', 'response_error', 'premature_close', 'req_error'];
+      let idx = 0;
+      const report = await runOffline(
+        locks.WH_READYZ_URL,
+        {
+          concurrency: 1,
+          max_duration_ms: 5000,
+          max_requests: 4,
+          request_timeout_ms: 1000,
+        },
+        'http://127.0.0.1:9',
+        { mode: () => modes[idx++] },
+      );
+      red('abort_error_close_paths_settle',
+        report.completed === 4
+        && report.status_counts.error === 4
+        && report.active_requests_remaining === 0
+        && reportHasNoBodies(report));
+      green('error_class_accounted',
+        report.status_counts.error === 4
+        && reportHasNoBodies(report));
+    }
+
+    // Non-2xx status classes
+    {
+      const statuses = [200, 301, 404, 503];
+      let idx = 0;
+      const statusServer = await startFakeServer((req, res) => {
         const code = statuses[idx % statuses.length];
         idx += 1;
-        return {
-          kind: 'status',
-          status_code: code,
-          latency_ms: 5,
-          redirected: code >= 300 && code < 400,
-        };
-      },
-    });
-    green('non_2xx_status_classes_accounted',
-      report.status_counts['2xx'] === 1
-      && report.status_counts['3xx'] === 1
-      && report.status_counts['4xx'] === 1
-      && report.status_counts['5xx'] === 1
-      && reportHasNoBodies(report));
-  }
+        res.writeHead(code, code >= 300 && code < 400 ? { Location: 'https://evil.example/readyz' } : {});
+        res.end('x');
+      });
+      try {
+        const report = await runOffline(
+          locks.WH_READYZ_URL,
+          {
+            concurrency: 1,
+            max_duration_ms: 5000,
+            max_requests: 4,
+            request_timeout_ms: 1000,
+          },
+          statusServer.origin,
+          { mode: 'ok' },
+        );
+        green('non_2xx_status_classes_accounted',
+          report.status_counts['2xx'] === 1
+          && report.status_counts['3xx'] === 1
+          && report.status_counts['4xx'] === 1
+          && report.status_counts['5xx'] === 1
+          && reportHasNoBodies(report));
+      } finally {
+        await closeServer(statusServer.server);
+      }
+    }
 
-  green('future_drill_defined_not_executed',
-    harness.FUTURE_DRILL_PROFILE.status === 'defined_not_executed'
-    && sliceContract.future_drill_profile.status === 'defined_not_executed'
-    && sliceContract.final_controlled_drill.status === 'defined_not_executed'
-    && harness.FUTURE_DRILL_PROFILE.concurrency === 2
-    && harness.FUTURE_DRILL_PROFILE.max_requests === 60
-    && harness.FUTURE_DRILL_PROFILE.max_duration_ms === 30_000
-    && harness.FUTURE_DRILL_PROFILE.request_timeout_ms === 4_000
-    && sliceContract.final_controlled_drill.status === 'defined_not_executed'
-    && !/^executed$/i.test(String(sliceContract.final_controlled_drill.status))
-    && !/live_proven/i.test(String(sliceContract.final_controlled_drill.status)));
+    // Transport-supplied latency must be ignored (adversarial offline settle cannot inject)
+    {
+      // Hanging path settles timeout; latency must be harness-monotonic (~>= request timeout),
+      // not a forged 1ms value. Covered by hanging RED + percentiles on ok path.
+      ok('C_LATENCY harness ignores transport latency values (source)',
+        /ignore any[\s\S]*latency_ms|Intentionally drop any latency_ms|void ignored/.test(harnessSrc)
+        && /hrtime\.bigint/.test(harnessSrc));
+    }
 
-  const g06 = matrix.gates.find((g) => g.id === 'G06_scaling_capacity');
-  green('g06_remains_partial',
-    g06
-    && g06.verdict === 'partial'
-    && /16AG/.test(g06.rationale)
-    && Array.isArray(g06.gaps)
-    && g06.gaps.some((x) => /load|soak/i.test(String(x)))
-    && g06.gaps.some((x) => /autoscal/i.test(String(x)))
-    && g06.gaps.some((x) => /SLO|backpressure/i.test(String(x))));
+    // Private DNS via offline sealed dnsLookup injection
+    {
+      const t = await expectThrowAsync(
+        () => harness.runBoundedLoadOffline(
+          {
+            target: locks.WH_READYZ_URL,
+            profile: {
+              concurrency: 1,
+              max_duration_ms: 1000,
+              max_requests: 1,
+              request_timeout_ms: 500,
+            },
+          },
+          {
+            seal: harness.OFFLINE_SEAL,
+            httpsRequest: makeOfflineHttpsRequest('http://127.0.0.1:9', { mode: 'hang' }),
+            dnsLookup: privateDnsLookup,
+          },
+        ),
+        'RADAR_LOAD_DNS',
+      );
+      const t2 = await expectThrowAsync(
+        () => harness.runBoundedLoadOffline(
+          {
+            target: locks.WH_READYZ_URL,
+            profile: {
+              concurrency: 1,
+              max_duration_ms: 1000,
+              max_requests: 1,
+              request_timeout_ms: 500,
+            },
+          },
+          {
+            seal: harness.OFFLINE_SEAL,
+            httpsRequest: makeOfflineHttpsRequest('http://127.0.0.1:9', { mode: 'hang' }),
+            dnsLookup: loopbackDnsLookup,
+          },
+        ),
+        'RADAR_LOAD_DNS',
+      );
+      ok('C_DNS private/loopback offline lookup rejected', t.ok && t2.ok, `${t.detail}|${t2.detail}`);
+    }
 
-  green('score_not_inflated',
-    topContract.expected_verdict_counts
-    && topContract.expected_verdict_counts.proven === 0
-    && topContract.expected_verdict_counts.partial === 9
-    && topContract.expected_verdict_counts.absent === 0
-    && sliceContract.verdict_policy.proven === 0
-    && sliceContract.verdict_policy.partial === 9);
+    green('future_drill_defined_not_executed',
+      harness.FUTURE_DRILL_PROFILE.status === 'defined_not_executed'
+      && sliceContract.future_drill_profile.status === 'defined_not_executed'
+      && sliceContract.final_controlled_drill.status === 'defined_not_executed'
+      && harness.FUTURE_DRILL_PROFILE.concurrency === 2
+      && harness.FUTURE_DRILL_PROFILE.max_requests === 60
+      && harness.FUTURE_DRILL_PROFILE.max_duration_ms === 30_000
+      && harness.FUTURE_DRILL_PROFILE.request_timeout_ms === 4_000
+      && !/^executed$/i.test(String(sliceContract.final_controlled_drill.status))
+      && !/live_proven/i.test(String(sliceContract.final_controlled_drill.status)));
 
-  green('no_live_network_in_verifier',
-    liveNetworkAttempts === 0
-    && /FUTURE_DRILL_PROFILE/.test(harnessSrc)
-    && /defined_not_executed/.test(harnessSrc)
-    && /fail_closed/.test(harnessSrc)
-    && /transport:/.test(readText(locks.VERIFY_REL))
-    && !/\b_defaultHttpsTransport\b/.test(readText(locks.VERIFY_REL).replace(
-      /green\('no_live_network_in_verifier'[\s\S]*?\);/,
-      '',
-    )));
+    const g06 = matrix.gates.find((g) => g.id === 'G06_scaling_capacity');
+    green('g06_remains_partial',
+      g06
+      && g06.verdict === 'partial'
+      && /16AG/.test(g06.rationale)
+      && Array.isArray(g06.gaps)
+      && g06.gaps.some((x) => /load|soak/i.test(String(x)))
+      && g06.gaps.some((x) => /autoscal/i.test(String(x)))
+      && g06.gaps.some((x) => /SLO|backpressure/i.test(String(x))));
 
-  {
-    const pkg = readJson('package.json');
-    green('package_script_registered',
-      pkg.scripts
-      && pkg.scripts['verify:radar-slice16ag-g06-bounded-load-harness']
-        === 'node scripts/verify-radar-slice16ag-g06-bounded-load-harness.js');
+    green('score_not_inflated',
+      topContract.expected_verdict_counts
+      && topContract.expected_verdict_counts.proven === 0
+      && topContract.expected_verdict_counts.partial === 9
+      && topContract.expected_verdict_counts.absent === 0
+      && sliceContract.verdict_policy.proven === 0
+      && sliceContract.verdict_policy.partial === 9);
+
+    green('no_live_network_in_verifier',
+      sealedNetworkHits >= 4
+      && /installNetworkFailClosed|RADAR_OFFLINE_NETWORK_SEAL/.test(verifySrc)
+      && /runBoundedLoadOffline/.test(verifySrc)
+      && /OFFLINE_SEAL/.test(verifySrc)
+      && /FUTURE_DRILL_PROFILE/.test(harnessSrc)
+      && /defined_not_executed/.test(harnessSrc)
+      && /fail_closed/.test(harnessSrc)
+      && /transport_escape_rejected/.test(verifySrc)
+      // Production runBoundedLoad appears only in the transport-escape RED (must throw).
+      && (verifySrc.match(/\brunBoundedLoad\s*\(/g) || []).length === 1);
+
+    {
+      const pkg = readJson('package.json');
+      green('package_script_registered',
+        pkg.scripts
+        && pkg.scripts['verify:radar-slice16ag-g06-bounded-load-harness']
+          === 'node scripts/verify-radar-slice16ag-g06-bounded-load-harness.js');
+    }
+  } finally {
+    restoreNetwork();
   }
 
   ok('C5 selected_16ag in top contract',
@@ -601,7 +1054,6 @@ async function runVerifier() {
     && sliceContract.progress_class === 'source_partial_progress_only'
     && matrix.slice_16ag_selection.progress_class === 'source_partial_progress_only');
 
-  // Required RED/GREEN coverage
   const redIds = new Set(redResults.map((r) => r.id));
   const greenIds = new Set(greenResults.map((r) => r.id));
   ok('C10 all REQUIRED_RED present',

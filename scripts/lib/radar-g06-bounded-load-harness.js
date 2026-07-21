@@ -5,16 +5,20 @@
  *
  * Hard-locked to the two exact staging Staff API /readyz URLs.
  * GET only; no headers/body/auth; no redirects; TLS required; fail-closed on
- * any other target. Emits aggregate counts + latency percentiles + timeout/
- * error/status classes without response bodies.
+ * any other target. Production runBoundedLoad uses an unexported fixed HTTPS
+ * transport only (no caller transport escape), pins validated public DNS
+ * before requests, owns one absolute run deadline + per-request deadline,
+ * aborts/destroys actives on deadline, and settles end/aborted/error/
+ * premature-close/trickle paths. Latency is measured with monotonic time;
+ * transport-supplied latency values are ignored.
  *
  * Live drill is NOT executed by RADAR 16AG — FUTURE_DRILL_PROFILE is defined
- * only. Offline verifiers may inject `transport` to exercise accounting against
- * a local fake server after the logical target passes the allowlist.
+ * only. Offline verifiers must use runBoundedLoadOffline with OFFLINE_SEAL
+ * after fail-closing real http/https/net/DNS.
  */
 
 const https = require('https');
-const http = require('http');
+const dns = require('dns');
 const { URL } = require('url');
 
 const WH_READYZ_URL = 'https://staff-staging.lunafrontdesk.com/readyz';
@@ -66,33 +70,66 @@ const STATUS_CLASSES = Object.freeze([
   'other',
 ]);
 
+/** Opaque seal required for offline verifier request/DNS injection. */
+const OFFLINE_SEAL = Symbol('RADAR_G06_OFFLINE_SEAL');
+
+const NS_PER_MS = 1_000_000n;
+
+function monoNowNs() {
+  return process.hrtime.bigint();
+}
+
+function msBetween(startNs, endNs) {
+  const delta = endNs - startNs;
+  if (delta <= 0n) return 0;
+  return Number(delta / NS_PER_MS);
+}
+
+function failClosed(code, message) {
+  const err = new Error(message);
+  err.code = code;
+  throw err;
+}
+
 function assertAllowedTarget(targetUrl) {
   if (typeof targetUrl !== 'string' || !ALLOWED_TARGET_SET.has(targetUrl)) {
-    const err = new Error(
+    failClosed(
+      'RADAR_LOAD_TARGET_REJECTED',
       `fail_closed: target not in hard-locked staging /readyz allowlist: ${String(targetUrl)}`,
     );
-    err.code = 'RADAR_LOAD_TARGET_REJECTED';
-    throw err;
   }
   let parsed;
   try {
     parsed = new URL(targetUrl);
   } catch (e) {
-    const err = new Error(`fail_closed: invalid target URL: ${String(targetUrl)}`);
-    err.code = 'RADAR_LOAD_TARGET_REJECTED';
-    throw err;
+    failClosed('RADAR_LOAD_TARGET_REJECTED', `fail_closed: invalid target URL: ${String(targetUrl)}`);
   }
   if (parsed.protocol !== 'https:') {
-    const err = new Error('fail_closed: TLS required (https only)');
-    err.code = 'RADAR_LOAD_TLS_REQUIRED';
-    throw err;
+    failClosed('RADAR_LOAD_TLS_REQUIRED', 'fail_closed: TLS required (https only)');
   }
   if (parsed.pathname !== '/readyz' || parsed.search || parsed.hash) {
-    const err = new Error('fail_closed: only exact /readyz path allowed');
-    err.code = 'RADAR_LOAD_TARGET_REJECTED';
-    throw err;
+    failClosed('RADAR_LOAD_TARGET_REJECTED', 'fail_closed: only exact /readyz path allowed');
   }
   return parsed;
+}
+
+function rejectCallerTransportEscape(opts) {
+  if (!opts || typeof opts !== 'object') return;
+  if (Object.prototype.hasOwnProperty.call(opts, 'transport') && opts.transport != null) {
+    failClosed(
+      'RADAR_LOAD_TRANSPORT_ESCAPE',
+      'fail_closed: caller transport escape forbidden; production uses fixed HTTPS transport only',
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(opts, 'agent') && opts.agent != null) {
+    failClosed('RADAR_LOAD_TRANSPORT_ESCAPE', 'fail_closed: caller agent escape forbidden');
+  }
+  if (Object.prototype.hasOwnProperty.call(opts, 'lookup') && opts.lookup != null) {
+    failClosed('RADAR_LOAD_TRANSPORT_ESCAPE', 'fail_closed: caller lookup escape forbidden');
+  }
+  if (Object.prototype.hasOwnProperty.call(opts, 'httpsRequest') && opts.httpsRequest != null) {
+    failClosed('RADAR_LOAD_TRANSPORT_ESCAPE', 'fail_closed: caller httpsRequest escape forbidden');
+  }
 }
 
 function clampProfile(profile) {
@@ -105,72 +142,56 @@ function clampProfile(profile) {
   if (!Number.isInteger(concurrency)
     || concurrency < HARNESS_BOUNDS.MIN_CONCURRENCY
     || concurrency > HARNESS_BOUNDS.MAX_CONCURRENCY) {
-    const err = new Error(
+    failClosed(
+      'RADAR_LOAD_BOUNDS',
       `fail_closed: concurrency out of bounds [${HARNESS_BOUNDS.MIN_CONCURRENCY}..${HARNESS_BOUNDS.MAX_CONCURRENCY}]`,
     );
-    err.code = 'RADAR_LOAD_BOUNDS';
-    throw err;
   }
   if (!Number.isInteger(maxDurationMs)
     || maxDurationMs < HARNESS_BOUNDS.MIN_DURATION_MS
     || maxDurationMs > HARNESS_BOUNDS.MAX_DURATION_MS) {
-    const err = new Error(
+    failClosed(
+      'RADAR_LOAD_BOUNDS',
       `fail_closed: max_duration_ms out of bounds [${HARNESS_BOUNDS.MIN_DURATION_MS}..${HARNESS_BOUNDS.MAX_DURATION_MS}]`,
     );
-    err.code = 'RADAR_LOAD_BOUNDS';
-    throw err;
   }
   if (!Number.isInteger(maxRequests)
     || maxRequests < HARNESS_BOUNDS.MIN_REQUESTS
     || maxRequests > HARNESS_BOUNDS.MAX_REQUESTS) {
-    const err = new Error(
+    failClosed(
+      'RADAR_LOAD_BOUNDS',
       `fail_closed: max_requests out of bounds [${HARNESS_BOUNDS.MIN_REQUESTS}..${HARNESS_BOUNDS.MAX_REQUESTS}]`,
     );
-    err.code = 'RADAR_LOAD_BOUNDS';
-    throw err;
   }
   if (!Number.isInteger(requestTimeoutMs)
     || requestTimeoutMs < HARNESS_BOUNDS.MIN_REQUEST_TIMEOUT_MS
     || requestTimeoutMs > HARNESS_BOUNDS.MAX_REQUEST_TIMEOUT_MS) {
-    const err = new Error(
+    failClosed(
+      'RADAR_LOAD_BOUNDS',
       `fail_closed: request_timeout_ms out of bounds `
       + `[${HARNESS_BOUNDS.MIN_REQUEST_TIMEOUT_MS}..${HARNESS_BOUNDS.MAX_REQUEST_TIMEOUT_MS}]`,
     );
-    err.code = 'RADAR_LOAD_BOUNDS';
-    throw err;
   }
   if (src.method != null && String(src.method).toUpperCase() !== 'GET') {
-    const err = new Error('fail_closed: GET only');
-    err.code = 'RADAR_LOAD_METHOD';
-    throw err;
+    failClosed('RADAR_LOAD_METHOD', 'fail_closed: GET only');
   }
   if (src.headers != null && (
     (typeof src.headers === 'object' && Object.keys(src.headers).length > 0)
     || typeof src.headers !== 'object'
   )) {
-    const err = new Error('fail_closed: no custom headers allowed');
-    err.code = 'RADAR_LOAD_HEADERS';
-    throw err;
+    failClosed('RADAR_LOAD_HEADERS', 'fail_closed: no custom headers allowed');
   }
   if (src.body != null && src.body !== '') {
-    const err = new Error('fail_closed: no request body allowed');
-    err.code = 'RADAR_LOAD_BODY';
-    throw err;
+    failClosed('RADAR_LOAD_BODY', 'fail_closed: no request body allowed');
   }
   if (src.auth != null && src.auth !== false) {
-    const err = new Error('fail_closed: no auth allowed');
-    err.code = 'RADAR_LOAD_AUTH';
-    throw err;
+    failClosed('RADAR_LOAD_AUTH', 'fail_closed: no auth allowed');
   }
   if (src.follow_redirects === true || Number(src.max_redirects) > 0) {
-    const err = new Error('fail_closed: redirects forbidden');
-    err.code = 'RADAR_LOAD_REDIRECTS';
-    throw err;
+    failClosed('RADAR_LOAD_REDIRECTS', 'fail_closed: redirects forbidden');
   }
   if (src.collect_response_bodies === true) {
-    const err = new Error('fail_closed: response bodies must not be collected');
-    err.code = 'RADAR_LOAD_BODIES';
-    throw err;
+    failClosed('RADAR_LOAD_BODIES', 'fail_closed: response bodies must not be collected');
   }
 
   return Object.freeze({
@@ -226,68 +247,295 @@ function emptyStatusCounts() {
   return out;
 }
 
-function defaultHttpsTransport(targetUrl, timeoutMs) {
-  return new Promise((resolve) => {
-    const parsed = new URL(targetUrl);
-    const started = Date.now();
-    const req = https.request({
-      protocol: parsed.protocol,
-      hostname: parsed.hostname,
-      port: parsed.port || 443,
-      path: parsed.pathname,
-      method: 'GET',
-      headers: {},
-      timeout: timeoutMs,
-      // Do not follow redirects; https.request never auto-follows.
-      maxRedirects: 0,
-    }, (res) => {
-      // Drain without retaining body bytes in aggregate output.
-      res.on('data', () => {});
-      res.on('end', () => {
-        resolve({
-          kind: 'status',
-          status_code: res.statusCode,
-          latency_ms: Date.now() - started,
-          redirected: false,
-        });
-      });
+function parseIpv4(ip) {
+  const parts = String(ip).split('.');
+  if (parts.length !== 4) return null;
+  const nums = [];
+  for (const p of parts) {
+    if (!/^\d+$/.test(p)) return null;
+    const n = Number(p);
+    if (!Number.isInteger(n) || n < 0 || n > 255) return null;
+    nums.push(n);
+  }
+  return nums;
+}
+
+/**
+ * True only for globally routable unicast addresses (fail-closed otherwise).
+ * Rejects loopback, RFC1918, link-local, CGNAT, unspecified, multicast, and
+ * IPv6 ULA/link-local/loopback/mapped-private.
+ */
+function isPublicIp(address) {
+  const raw = String(address || '').trim().toLowerCase();
+  if (!raw) return false;
+
+  if (raw.includes(':')) {
+    if (raw === '::' || raw === '::1') return false;
+    if (raw.startsWith('fe80:') || raw.startsWith('fc') || raw.startsWith('fd')) return false;
+    const v4mapped = raw.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (v4mapped) return isPublicIp(v4mapped[1]);
+    // Other IPv6: accept only if it does not look like local/special; keep narrow.
+    if (raw.startsWith('ff')) return false; // multicast
+    return true;
+  }
+
+  const n = parseIpv4(raw);
+  if (!n) return false;
+  const [a, b] = n;
+  if (a === 0 || a === 10 || a === 127) return false;
+  if (a === 169 && b === 254) return false;
+  if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 192 && b === 168) return false;
+  if (a === 100 && b >= 64 && b <= 127) return false; // CGNAT
+  if (a >= 224) return false; // multicast / reserved
+  return true;
+}
+
+function assertPublicDnsAddresses(addresses) {
+  const list = Array.isArray(addresses) ? addresses : [];
+  if (!list.length) {
+    failClosed('RADAR_LOAD_DNS', 'fail_closed: DNS returned no addresses');
+  }
+  const publicOnes = [];
+  for (const entry of list) {
+    const address = typeof entry === 'string' ? entry : (entry && entry.address);
+    const family = typeof entry === 'object' && entry && entry.family
+      ? entry.family
+      : (String(address).includes(':') ? 6 : 4);
+    if (!isPublicIp(address)) {
+      failClosed(
+        'RADAR_LOAD_DNS_PRIVATE',
+        `fail_closed: DNS resolved to non-public address: ${String(address)}`,
+      );
+    }
+    publicOnes.push(Object.freeze({ address: String(address), family: Number(family) || 4 }));
+  }
+  return Object.freeze(publicOnes);
+}
+
+function dnsLookupPromise(lookupFn, hostname) {
+  return new Promise((resolve, reject) => {
+    lookupFn(hostname, { all: true }, (err, addresses) => {
+      if (err) return reject(err);
+      if (Array.isArray(addresses)) return resolve(addresses);
+      // Node may return (address, family) when all:false; normalize.
+      resolve([{ address: addresses, family: 4 }]);
     });
-    req.on('timeout', () => {
-      req.destroy();
-      resolve({
-        kind: 'timeout',
-        status_code: null,
-        latency_ms: Date.now() - started,
-        redirected: false,
-      });
-    });
-    req.on('error', (err) => {
-      resolve({
-        kind: 'error',
-        status_code: null,
-        latency_ms: Date.now() - started,
-        redirected: false,
-        error_code: err && err.code ? String(err.code) : 'ERROR',
-      });
-    });
-    req.end();
   });
 }
 
 /**
- * Run a bounded load against one hard-locked staging /readyz URL.
- *
- * @param {object} options
- * @param {string} options.target Exact allowlisted URL
- * @param {object} [options.profile] Bounds (defaults to FUTURE_DRILL_PROFILE numeric fields)
- * @param {function} [options.transport] Optional injectable transport(url, timeoutMs)→Promise
- *   Used only by offline verifiers; live default is https GET with no redirects/headers/body.
- * @returns {Promise<object>} Aggregate report (no response bodies)
+ * Resolve hostname and pin validated public DNS results before any request.
+ * Unexported for production; offline may inject lookupFn via sealed path.
  */
-async function runBoundedLoad(options) {
+async function pinValidatedPublicDns(hostname, lookupFn) {
+  const lookup = typeof lookupFn === 'function' ? lookupFn : dns.lookup;
+  let addresses;
+  try {
+    addresses = await dnsLookupPromise(lookup, hostname);
+  } catch (err) {
+    failClosed(
+      'RADAR_LOAD_DNS',
+      `fail_closed: DNS lookup failed: ${err && err.code ? err.code : String(err && err.message)}`,
+    );
+  }
+  return assertPublicDnsAddresses(addresses);
+}
+
+function pinnedLookup(pinned) {
+  const primary = pinned[0];
+  return function lookup(_hostname, options, callback) {
+    let cb = callback;
+    let opts = options;
+    if (typeof options === 'function') {
+      cb = options;
+      opts = {};
+    }
+    const family = (opts && opts.family) || primary.family;
+    const match = pinned.find((p) => p.family === family) || primary;
+    process.nextTick(() => cb(null, match.address, match.family));
+  };
+}
+
+/**
+ * Unexported fixed HTTPS GET transport. Owns per-request deadline, destroys on
+ * timeout, drains without retaining bodies, and settles all terminal paths.
+ * Latency is NOT returned — caller measures with monotonic time.
+ */
+function fixedHttpsGet(deps) {
+  const httpsRequest = deps.httpsRequest;
+  const pinned = deps.pinned;
+  const requestTimeoutMs = deps.requestTimeoutMs;
+  const runDeadlineNs = deps.runDeadlineNs;
+  const activeRequests = deps.activeRequests;
+  const targetUrl = deps.targetUrl;
+  const abortReasonRef = deps.abortReasonRef;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let req = null;
+    let timer = null;
+    let timeoutFired = false;
+
+    function settle(outcome) {
+      if (settled) return;
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (req) activeRequests.delete(req);
+      // Intentionally drop any latency_ms / body fields from settle input.
+      resolve({
+        kind: outcome.kind,
+        status_code: outcome.status_code == null ? null : outcome.status_code,
+        redirected: outcome.redirected === true,
+        error_code: outcome.error_code || undefined,
+      });
+    }
+
+    const now = monoNowNs();
+    const untilRunMs = Math.max(0, msBetween(now, runDeadlineNs));
+    const budgetMs = Math.max(1, Math.min(requestTimeoutMs, untilRunMs || 1));
+
+    if (untilRunMs <= 0 || (abortReasonRef && abortReasonRef.reason)) {
+      settle({
+        kind: 'timeout',
+        status_code: null,
+        redirected: false,
+        error_code: 'RUN_DEADLINE',
+      });
+      return;
+    }
+
+    timer = setTimeout(() => {
+      timeoutFired = true;
+      if (req) {
+        try {
+          req.destroy(Object.assign(new Error('request_deadline'), { code: 'RADAR_REQUEST_DEADLINE' }));
+        } catch (_) { /* ignore */ }
+      }
+      settle({ kind: 'timeout', status_code: null, redirected: false, error_code: 'REQUEST_DEADLINE' });
+    }, budgetMs);
+    // Do not unref: deadline timers must keep the event loop alive so hanging
+    // requests settle even when the socket never connects.
+
+    const parsed = new URL(targetUrl);
+    try {
+      req = httpsRequest({
+        protocol: 'https:',
+        hostname: parsed.hostname,
+        port: parsed.port || 443,
+        path: parsed.pathname,
+        method: 'GET',
+        headers: {},
+        servername: parsed.hostname,
+        lookup: pinnedLookup(pinned),
+        // No agent/auth/body; redirects never followed by https.request.
+      }, (res) => {
+        const code = typeof res.statusCode === 'number' ? res.statusCode : null;
+        const redirected = typeof code === 'number' && code >= 300 && code < 400;
+        // Drain trickle/hanging body bytes without retaining them.
+        res.on('data', () => {});
+        res.on('end', () => {
+          settle({ kind: 'status', status_code: code, redirected });
+        });
+        res.on('aborted', () => {
+          if (timeoutFired || (abortReasonRef && abortReasonRef.reason)) {
+            settle({
+              kind: 'timeout',
+              status_code: null,
+              redirected: false,
+              error_code: 'ABORTED_DEADLINE',
+            });
+            return;
+          }
+          settle({
+            kind: 'error',
+            status_code: null,
+            redirected: false,
+            error_code: 'ABORTED',
+          });
+        });
+        res.on('error', (err) => {
+          if (timeoutFired || (abortReasonRef && abortReasonRef.reason)) {
+            settle({
+              kind: 'timeout',
+              status_code: null,
+              redirected: false,
+              error_code: 'ABORTED_DEADLINE',
+            });
+            return;
+          }
+          settle({
+            kind: 'error',
+            status_code: null,
+            redirected: false,
+            error_code: err && err.code ? String(err.code) : 'RESPONSE_ERROR',
+          });
+        });
+        res.on('close', () => {
+          // Premature close only when message did not complete (no 'end').
+          // Normal responses also emit 'close' after 'end' — ignore those.
+          if (settled) return;
+          if (res.complete) return;
+          if (timeoutFired || (abortReasonRef && abortReasonRef.reason)) {
+            settle({
+              kind: 'timeout',
+              status_code: null,
+              redirected: false,
+              error_code: 'PREMATURE_CLOSE_DEADLINE',
+            });
+          } else {
+            settle({
+              kind: 'error',
+              status_code: null,
+              redirected: false,
+              error_code: 'PREMATURE_CLOSE',
+            });
+          }
+        });
+      });
+    } catch (err) {
+      settle({
+        kind: 'error',
+        status_code: null,
+        redirected: false,
+        error_code: err && err.code ? String(err.code) : 'REQUEST_CREATE',
+      });
+      return;
+    }
+
+    activeRequests.add(req);
+
+    req.on('error', (err) => {
+      if (timeoutFired || (abortReasonRef && abortReasonRef.reason)) {
+        settle({
+          kind: 'timeout',
+          status_code: null,
+          redirected: false,
+          error_code: 'ABORTED_DEADLINE',
+        });
+        return;
+      }
+      settle({
+        kind: 'error',
+        status_code: null,
+        redirected: false,
+        error_code: err && err.code ? String(err.code) : 'ERROR',
+      });
+    });
+
+    // Never send a body; never attach auth headers.
+    req.end();
+  });
+}
+
+async function runBoundedLoadCore(options, runtime) {
   const opts = options && typeof options === 'object' ? options : {};
+  rejectCallerTransportEscape(opts);
   const target = opts.target;
-  assertAllowedTarget(target);
+  const parsed = assertAllowedTarget(target);
 
   const profile = clampProfile({
     concurrency: FUTURE_DRILL_PROFILE.concurrency,
@@ -304,9 +552,13 @@ async function runBoundedLoad(options) {
     ...(opts.profile || {}),
   });
 
-  const transport = typeof opts.transport === 'function'
-    ? opts.transport
-    : defaultHttpsTransport;
+  const httpsRequest = runtime.httpsRequest;
+  const dnsLookup = runtime.dnsLookup;
+  if (typeof httpsRequest !== 'function') {
+    failClosed('RADAR_LOAD_TRANSPORT', 'fail_closed: fixed HTTPS transport missing');
+  }
+
+  const pinned = await pinValidatedPublicDns(parsed.hostname, dnsLookup);
 
   const status_counts = emptyStatusCounts();
   const latencies = [];
@@ -315,21 +567,35 @@ async function runBoundedLoad(options) {
   let inFlight = 0;
   let peakInFlight = 0;
   let stopReason = null;
-  const wallStart = Date.now();
-  const deadline = wallStart + profile.max_duration_ms;
+  const activeRequests = new Set();
+  const abortReasonRef = { reason: null };
+  const wallStartNs = monoNowNs();
+  const runDeadlineNs = wallStartNs + BigInt(profile.max_duration_ms) * NS_PER_MS;
 
-  function record(outcome) {
+  let runTimer = setTimeout(() => {
+    abortReasonRef.reason = 'max_duration';
+    stopReason = stopReason || 'max_duration';
+    for (const req of [...activeRequests]) {
+      try {
+        req.destroy(Object.assign(new Error('run_deadline'), { code: 'RADAR_RUN_DEADLINE' }));
+      } catch (_) { /* ignore */ }
+    }
+  }, profile.max_duration_ms);
+
+  function record(outcome, reqStartNs) {
     completed += 1;
     const cls = statusClassFor(outcome);
     status_counts[cls] += 1;
-    if (typeof outcome.latency_ms === 'number' && Number.isFinite(outcome.latency_ms)) {
-      latencies.push(outcome.latency_ms);
-    }
+    // Always measure latency internally with monotonic time; ignore any
+    // transport-supplied latency_ms (including adversarial offline values).
+    const ignored = outcome && typeof outcome === 'object' ? outcome.latency_ms : undefined;
+    void ignored;
+    latencies.push(msBetween(reqStartNs, monoNowNs()));
   }
 
   async function worker() {
     while (true) {
-      if (Date.now() >= deadline) {
+      if (abortReasonRef.reason || monoNowNs() >= runDeadlineNs) {
         stopReason = stopReason || 'max_duration';
         return;
       }
@@ -340,39 +606,56 @@ async function runBoundedLoad(options) {
       started += 1;
       inFlight += 1;
       if (inFlight > peakInFlight) peakInFlight = inFlight;
+      const reqStartNs = monoNowNs();
       let outcome;
       try {
-        outcome = await transport(target, profile.request_timeout_ms);
+        outcome = await fixedHttpsGet({
+          httpsRequest,
+          pinned,
+          requestTimeoutMs: profile.request_timeout_ms,
+          runDeadlineNs,
+          activeRequests,
+          targetUrl: target,
+          abortReasonRef,
+        });
         if (!outcome || typeof outcome !== 'object') {
-          outcome = { kind: 'error', status_code: null, latency_ms: 0, error_code: 'BAD_TRANSPORT' };
-        }
-        // Hard rule: never follow redirects even if a transport returns Location.
-        if (outcome.redirected === true) {
-          outcome = {
-            kind: 'status',
-            status_code: typeof outcome.status_code === 'number' ? outcome.status_code : 302,
-            latency_ms: outcome.latency_ms || 0,
-            redirected: true,
-          };
+          outcome = { kind: 'error', status_code: null, redirected: false, error_code: 'BAD_TRANSPORT' };
         }
       } catch (err) {
         outcome = {
           kind: 'error',
           status_code: null,
-          latency_ms: 0,
+          redirected: false,
           error_code: err && err.code ? String(err.code) : 'THROW',
         };
       }
       inFlight -= 1;
-      record(outcome);
+      record(outcome, reqStartNs);
     }
   }
 
-  const workers = [];
-  for (let i = 0; i < profile.concurrency; i += 1) {
-    workers.push(worker());
+  try {
+    const workers = [];
+    for (let i = 0; i < profile.concurrency; i += 1) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
+  } finally {
+    if (runTimer) {
+      clearTimeout(runTimer);
+      runTimer = null;
+    }
+    // Deadline cleanup: destroy any stragglers and wait until set drains.
+    if (activeRequests.size > 0) {
+      abortReasonRef.reason = abortReasonRef.reason || 'cleanup';
+      for (const req of [...activeRequests]) {
+        try {
+          req.destroy(Object.assign(new Error('cleanup'), { code: 'RADAR_CLEANUP' }));
+        } catch (_) { /* ignore */ }
+      }
+    }
   }
-  await Promise.all(workers);
+
   if (!stopReason) stopReason = 'drained';
 
   const latency = summarizeLatencies(latencies);
@@ -383,7 +666,7 @@ async function runBoundedLoad(options) {
     started,
     completed,
     peak_in_flight: peakInFlight,
-    wall_ms: Date.now() - wallStart,
+    wall_ms: msBetween(wallStartNs, monoNowNs()),
     stop_reason: stopReason,
     status_counts: Object.freeze({ ...status_counts }),
     latency,
@@ -392,6 +675,45 @@ async function runBoundedLoad(options) {
     headers_sent: false,
     auth_sent: false,
     body_sent: false,
+    dns_pinned: true,
+    active_requests_remaining: activeRequests.size,
+  });
+}
+
+/**
+ * Production entry: fixed unexported HTTPS transport + real DNS. Rejects any
+ * caller transport/agent/lookup/httpsRequest escape.
+ */
+async function runBoundedLoad(options) {
+  rejectCallerTransportEscape(options);
+  return runBoundedLoadCore(options, {
+    httpsRequest: https.request.bind(https),
+    dnsLookup: dns.lookup.bind(dns),
+  });
+}
+
+/**
+ * Offline verifier entry. Requires OFFLINE_SEAL and injected httpsRequest +
+ * dnsLookup (typically local fake + public-IP fixture). Must not be used for
+ * live staging drills.
+ */
+async function runBoundedLoadOffline(options, offline) {
+  if (!offline || offline.seal !== OFFLINE_SEAL) {
+    failClosed(
+      'RADAR_LOAD_OFFLINE_SEAL',
+      'fail_closed: runBoundedLoadOffline requires OFFLINE_SEAL',
+    );
+  }
+  if (typeof offline.httpsRequest !== 'function' || typeof offline.dnsLookup !== 'function') {
+    failClosed(
+      'RADAR_LOAD_OFFLINE_SEAL',
+      'fail_closed: offline httpsRequest and dnsLookup required',
+    );
+  }
+  rejectCallerTransportEscape(options);
+  return runBoundedLoadCore(options, {
+    httpsRequest: offline.httpsRequest,
+    dnsLookup: offline.dnsLookup,
   });
 }
 
@@ -409,15 +731,16 @@ module.exports = {
   HARNESS_BOUNDS,
   FUTURE_DRILL_PROFILE,
   STATUS_CLASSES,
+  OFFLINE_SEAL,
   assertAllowedTarget,
   clampProfile,
   validateProfileOnly,
   statusClassFor,
   percentileNearestRank,
   summarizeLatencies,
+  isPublicIp,
+  assertPublicDnsAddresses,
+  pinValidatedPublicDns,
   runBoundedLoad,
-  // Exported for offline verifier fake-server wiring only; not a live escape hatch.
-  _defaultHttpsTransport: defaultHttpsTransport,
-  _http: http,
-  _https: https,
+  runBoundedLoadOffline,
 };

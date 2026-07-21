@@ -120,7 +120,7 @@
   "final_controlled_drill": {
     "id": "16AG_DRILL_dual_staging_readyz_bounded_load",
     "status": "defined_not_executed",
-    "pass_rule": "Offline fake-server RED/GREEN proves allowlist fail-closed, bounds, concurrency peak, no redirects, latency percentiles, and timeout/error/non-2xx accounting without response bodies. Future drill profile locked. No live network/deploy/scale. G06 remains partial; proven count remains 0."
+    "pass_rule": "Offline fail-closed (http/https/net/DNS sealed) RED/GREEN proves allowlist, bounds, concurrency peak, no redirects, monotonic latency (transport latency ignored), timeout/error/non-2xx, hanging/trickle/abort/close settle, deadline cleanup, DNS private reject, header/body/auth not sent, and caller transport escape reject — without response bodies. Future drill profile locked. No live network/deploy/scale. G06 remains partial; proven count remains 0."
   },
   "artifacts": [
     "scripts/lib/radar-g06-bounded-load-harness.js",
