@@ -1,0 +1,318 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AM",
+  "outcome_id": "16AM_g06_backpressure_deploy_evidence",
+  "gate_ids_touched": [
+    "G06_scaling_capacity"
+  ],
+  "master_basis": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+  "branch": "radar/slice-16am-g06-backpressure-deploy-evidence",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "progress_class": "partial_live_proven_evidence_only",
+  "title": "Reconcile dual-staging 16AL Staff API deploy with STAFF_API_ADMISSION_CONTROL OFF/unset — deploy evidence only; no live shed; G06 partial",
+  "independent_verify_utc": "2026-07-21T19:53:21Z",
+  "provenance_limitations": "Records only what committed secret-free raw fixtures prove for the dual-staging Staff API deploy of 16AL @ master 905ff9ff57a75d0b3defc15a16078b47e94e930f: clean exact-SHA preflight on synchronized Lunabox master; initial remote continuation stopped before build because az absent; resumed through authenticated local Azure CLI; ACR build cb11f succeeded; both repos tag full SHA and digest sha256:55ddc5ebaba3c6021b3d3a1d746935bb5dfc20b228d1de71daa97e33c6e235e1; Wolfhouse image exact tag with revision wh-staging-staff-api--0000521; Sunset image exact tag with reported latestReady luna-sunset-staging-staff-api--g02503r; both /readyz returned {status:ready}; STAFF_API_ADMISSION_CONTROL env query empty/absent for both so controller remains disabled and no live backpressure/shed is claimed; Sunset MTD ActualCost before/after identical 18.4680092365591 USD. Disclose Sunset revision name unchanged (luna-sunset-staging-staff-api--g02503r) while image readback changed; do not infer new Sunset revision identity beyond readback (latestRevisionName present in raw only). G06 remains partial score 0/9/0; activation/load/fire/autoscale/SLO/production open. Ephemeral /tmp and tmp/ source paths excluded from the tip.",
+  "non_recoverability": "A flag-OFF dual-staging image deploy cannot prove admission activation, live 503 shed, load soak, capacity alert firing, autoscaling, SLO/error-budget live compliance, or backpressure proven. Do not invent flag enable, shed under load, new Sunset revision identity beyond latestReady readback, or raising G06 to proven.",
+  "durable_raw_artifact_provenance": {
+    "note": "Claims bound only to committed secret-free raw fixtures via SHA-256 of exact file bytes; ephemeral /tmp and tmp/ paths excluded.",
+    "excluded_ephemeral_paths": [
+      "/tmp/16al-wh-update.json",
+      "/tmp/16al-sunset-update.json",
+      "/tmp/wh-readyz.txt",
+      "/tmp/sunset-readyz.txt",
+      "tmp/foundation-slice9/"
+    ],
+    "artifacts": [
+      {
+        "id": "raw_wh_update",
+        "path": "fixtures/radar-operations/slice16am-raw-wh-update.json",
+        "sha256": "b197dfb3af5815976ddee023f795735ec676379b6e1252ea22aa912ec809ecd9",
+        "proves": "WH image/tag/revision/admission-env-absence",
+        "does_not_prove": "flag_enabled_or_live_shed"
+      },
+      {
+        "id": "raw_sunset_update",
+        "path": "fixtures/radar-operations/slice16am-raw-sunset-update.json",
+        "sha256": "4c965a3108544613358b36f9e92db359d9378fa0c3e424afaf10940a9ed1a150",
+        "proves": "Sunset image/tag/latestReady/admission-env-absence",
+        "does_not_prove": "sunset_new_revision_identity_beyond_latestReady_readback"
+      },
+      {
+        "id": "raw_cost_before",
+        "path": "fixtures/radar-operations/slice16am-raw-cost-before.json",
+        "sha256": "e5f6edc31075ef9028cc2409ee44879dc74ec8a4a769ab5bf20045ddd738fad4",
+        "proves": "Sunset MTD ActualCost before",
+        "does_not_prove": "production_cost_proof"
+      },
+      {
+        "id": "raw_cost_after",
+        "path": "fixtures/radar-operations/slice16am-raw-cost-after.json",
+        "sha256": "bf5339f49f7540ba6a3836cd4aef96aa67ea98211503f081c31a6c2afbdb3445",
+        "proves": "Sunset MTD ActualCost after",
+        "does_not_prove": "production_cost_proof"
+      },
+      {
+        "id": "raw_readyz_wh",
+        "path": "fixtures/radar-operations/slice16am-raw-readyz-wh.json",
+        "sha256": "9994e13386b29bde4071dd062d8c4ab8dbb6b4b877f968b4a34fb2c7b0ead65e",
+        "proves": "WH /readyz status ready",
+        "does_not_prove": "load_soak_proof"
+      },
+      {
+        "id": "raw_readyz_sunset",
+        "path": "fixtures/radar-operations/slice16am-raw-readyz-sunset.json",
+        "sha256": "9994e13386b29bde4071dd062d8c4ab8dbb6b4b877f968b4a34fb2c7b0ead65e",
+        "proves": "Sunset /readyz status ready",
+        "does_not_prove": "load_soak_proof"
+      },
+      {
+        "id": "raw_acr_digest",
+        "path": "fixtures/radar-operations/slice16am-raw-acr-digest.json",
+        "sha256": "8730b220a94c16ab0fe9a4685ad424a03261daa56e4be407695b11d956c0868c",
+        "proves": "ACR cb11f + digest + full SHA tag both repos + preflight/resume facts",
+        "does_not_prove": "flag_enabled"
+      }
+    ]
+  },
+  "claim_ownership": {
+    "dual_staging_16al_image_deploy_flag_off": {
+      "owner_class": "committed_sanitized_containerapp_update_readback_plus_acr_digest_operator_fact",
+      "observation": "both_repos_tag_full_sha_digest_locked_wh_revision_0000521_sunset_latestReady_g02503r_admission_env_absent",
+      "proves": [
+        "clean_exact_sha_preflight_passed_synchronized_lunabox_master",
+        "acr_build_cb11f_succeeded",
+        "both_repos_tag_full_sha_905ff9ff57a75d0b3defc15a16078b47e94e930f",
+        "digest_sha256_55ddc5ebaba3c6021b3d3a1d746935bb5dfc20b228d1de71daa97e33c6e235e1",
+        "wolfhouse_image_exact_tag",
+        "wolfhouse_revision_wh_staging_staff_api_0000521",
+        "sunset_image_exact_tag",
+        "sunset_latestReady_revision_luna_sunset_staging_staff_api_g02503r",
+        "sunset_revision_name_unchanged_while_image_readback_changed",
+        "both_readyz_status_ready",
+        "STAFF_API_ADMISSION_CONTROL_env_absent_both_controller_disabled",
+        "no_live_backpressure_shed_claimed"
+      ],
+      "does_not_prove": [
+        "flag_enabled",
+        "live_503_shed",
+        "admission_controller_activated",
+        "load_soak_proof",
+        "capacity_alert_firing",
+        "autoscaling",
+        "capacity_slo_error_budget_live",
+        "backpressure_live_proven",
+        "production",
+        "full_G06_proven",
+        "sunset_new_revision_identity_beyond_latestReady_readback"
+      ],
+      "limitation": "Deploy evidence with admission flag OFF/unset only; Sunset latestReady name unchanged g02503r while image tag changed; do not infer new Sunset revision identity beyond readback; WH revision locked as 0000521 from operator/update latestRevisionName"
+    },
+    "sunset_mtd_actual_cost_guard": {
+      "owner_class": "committed_raw_azure_cost_before_after_readonly",
+      "observation": "sunset_mtd_actualcost_before_after_identical",
+      "proves": [
+        "sunset_mtd_actualcost_before_equals_after",
+        "amount_18_4680092365591_USD"
+      ],
+      "does_not_prove": [
+        "budget_anomaly_detection",
+        "production_cost_proof",
+        "full_G06_proven"
+      ],
+      "limitation": "Sunset staging RG MTD ActualCost guard only from raw before/after JSON; identical before/after"
+    }
+  },
+  "observed_facts": {
+    "dual_staging_16al_deploy_flag_off": {
+      "source_type": "committed_sanitized_update_readback_readyz_acr_digest_cost",
+      "source_ref": "16AL_dual_staging_deploy_flag_off_2026-07-21T19:53:21Z",
+      "observed_at": "2026-07-21T19:53:21Z",
+      "observed_at_semantics": "cost_after_capture_and_post_update_readyz_window_utc",
+      "master_sha": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+      "acr_build_run_id": "cb11f",
+      "digest": "sha256:55ddc5ebaba3c6021b3d3a1d746935bb5dfc20b228d1de71daa97e33c6e235e1",
+      "image_tag": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+      "preflight": {
+        "clean_exact_sha_preflight_passed": true,
+        "synchronized_lunabox_master": true,
+        "initial_remote_continuation_stopped_before_build_az_absent": true,
+        "resumed_authenticated_local_azure_cli": true
+      },
+      "wolfhouse": {
+        "app": "wh-staging-staff-api",
+        "resource_group": "wh-staging-rg",
+        "image": "whstagingacr.azurecr.io/wh-staff-api:905ff9ff57a75d0b3defc15a16078b47e94e930f",
+        "image_tag": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+        "revision": "wh-staging-staff-api--0000521",
+        "latestRevisionName": "wh-staging-staff-api--0000521",
+        "latestReadyRevisionName_at_update_readback": "wh-staging-staff-api--0000520",
+        "latestReady_equals_claimed_revision": false,
+        "traffic_at_update_readback_revision": "wh-staging-staff-api--0000520",
+        "STAFF_API_ADMISSION_CONTROL": null,
+        "STAFF_API_ADMISSION_CONTROL_present": false,
+        "readyz": {
+          "status": "ready"
+        },
+        "raw_update_path": "fixtures/radar-operations/slice16am-raw-wh-update.json",
+        "raw_update_sha256": "b197dfb3af5815976ddee023f795735ec676379b6e1252ea22aa912ec809ecd9",
+        "raw_readyz_path": "fixtures/radar-operations/slice16am-raw-readyz-wh.json",
+        "raw_readyz_sha256": "9994e13386b29bde4071dd062d8c4ab8dbb6b4b877f968b4a34fb2c7b0ead65e",
+        "note": "Operator/update latestRevisionName locked as 0000521; update readback still showed latestReady/traffic on 0000520 — do not invent traffic cutover beyond locked revision fact"
+      },
+      "sunset": {
+        "app": "luna-sunset-staging-staff-api",
+        "resource_group": "luna-sunset-staging-rg",
+        "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:905ff9ff57a75d0b3defc15a16078b47e94e930f",
+        "image_tag": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+        "latestReadyRevisionName": "luna-sunset-staging-staff-api--g02503r",
+        "latestRevisionName_at_update_readback": "luna-sunset-staging-staff-api--0000280",
+        "revision_name_unchanged_while_image_changed": true,
+        "do_not_infer_new_revision_identity_beyond_latestReady_readback": true,
+        "STAFF_API_ADMISSION_CONTROL": null,
+        "STAFF_API_ADMISSION_CONTROL_present": false,
+        "readyz": {
+          "status": "ready"
+        },
+        "raw_update_path": "fixtures/radar-operations/slice16am-raw-sunset-update.json",
+        "raw_update_sha256": "4c965a3108544613358b36f9e92db359d9378fa0c3e424afaf10940a9ed1a150",
+        "raw_readyz_path": "fixtures/radar-operations/slice16am-raw-readyz-sunset.json",
+        "raw_readyz_sha256": "9994e13386b29bde4071dd062d8c4ab8dbb6b4b877f968b4a34fb2c7b0ead65e",
+        "note": "Reported latestReady remains g02503r while image tag changed to full SHA; latestRevisionName 0000280 present in raw readback only — not claimed as serving revision identity"
+      },
+      "admission_flag": {
+        "env": "STAFF_API_ADMISSION_CONTROL",
+        "wolfhouse_query": null,
+        "sunset_query": null,
+        "both_empty_or_unset": true,
+        "controller_enabled": false,
+        "live_backpressure_shed_claimed": false
+      },
+      "raw_acr_digest_path": "fixtures/radar-operations/slice16am-raw-acr-digest.json",
+      "raw_acr_digest_sha256": "8730b220a94c16ab0fe9a4685ad424a03261daa56e4be407695b11d956c0868c"
+    },
+    "sunset_mtd_actual_cost_guard": {
+      "type": "ActualCost",
+      "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+      "period": {
+        "from": "2026-07-01",
+        "to": "2026-07-21",
+        "label": "month-to-date"
+      },
+      "currency": "USD",
+      "amount_before": 18.4680092365591,
+      "amount_after": 18.4680092365591,
+      "identical": true,
+      "captured_before_at": "2026-07-21T19:48:52.671Z",
+      "captured_after_at": "2026-07-21T19:53:21.970Z",
+      "raw_before_path": "fixtures/radar-operations/slice16am-raw-cost-before.json",
+      "raw_before_sha256": "e5f6edc31075ef9028cc2409ee44879dc74ec8a4a769ab5bf20045ddd738fad4",
+      "raw_after_path": "fixtures/radar-operations/slice16am-raw-cost-after.json",
+      "raw_after_sha256": "bf5339f49f7540ba6a3836cd4aef96aa67ea98211503f081c31a6c2afbdb3445"
+    }
+  },
+  "claims_allowed": [
+    "dual_staging_16al_image_deploy_flag_off_live_proven",
+    "acr_build_cb11f_digest_and_full_sha_tag_both_repos",
+    "wolfhouse_image_exact_tag_revision_0000521",
+    "sunset_image_exact_tag_latestReady_g02503r_unchanged_name",
+    "both_readyz_status_ready",
+    "STAFF_API_ADMISSION_CONTROL_absent_both_controller_disabled",
+    "sunset_mtd_actualcost_identical_before_after",
+    "durable_raw_artifact_sha256_provenance",
+    "g06_remains_partial_score_unchanged_0_9_0",
+    "activation_load_fire_autoscale_slo_production_open",
+    "no_live_backpressure_shed_claim"
+  ],
+  "explicitly_not_claimed": [
+    "flag_enabled",
+    "live_503_shed",
+    "admission_controller_activated",
+    "backpressure_live_proven",
+    "backpressure_proven",
+    "load_soak_proof",
+    "capacity_alert_firing",
+    "notification_delivery",
+    "autoscaling",
+    "capacity_slo_error_budget_live",
+    "production",
+    "full_G06_proven",
+    "any_gate_verdict_proven",
+    "sunset_new_revision_identity_beyond_latestReady_readback",
+    "min_max_replica_mutation"
+  ],
+  "disposition": {
+    "proves": [
+      "dual_staging_16al_image_deploy_flag_off_live_proven",
+      "acr_cb11f_digest_and_full_sha_tag_both_repos",
+      "both_readyz_status_ready",
+      "admission_flag_absent_controller_disabled",
+      "sunset_mtd_actualcost_identical_before_after",
+      "sunset_latestReady_name_unchanged_while_image_changed",
+      "prior_16AL_wire_source_retained",
+      "prior_16AK_backpressure_source_retained",
+      "prior_16AI_conservative_readyz_live_proven_retained",
+      "prior_16AF_capacity_alert_deploy_retained"
+    ],
+    "does_not_prove": [
+      "flag_enabled",
+      "live_503_shed",
+      "admission_controller_activated",
+      "backpressure_live_proven",
+      "backpressure_proven",
+      "load_soak_proof",
+      "capacity_alert_firing",
+      "notification_delivery",
+      "autoscaling",
+      "capacity_slo_error_budget_live",
+      "production",
+      "full_G06_proven",
+      "any_gate_verdict_proven",
+      "sunset_new_revision_identity_beyond_latestReady_readback",
+      "min_max_replica_mutation"
+    ],
+    "g06_verdict": "partial",
+    "g06_progress_class": "partial_live_proven",
+    "final_controlled_drill_status": "live_proven"
+  },
+  "gate_progress_updates": {
+    "G06_scaling_capacity": {
+      "progress_class": "partial_live_proven",
+      "verdict": "partial",
+      "live_proven": [
+        "16al_dual_staging_deploy_flag_off_via_16AM",
+        "conservative_dual_staging_readyz_bounded_load_via_16AI",
+        "capacity_pressure_alerts_deployed_enabled_via_16AF",
+        "prior_16AL_admission_wire_source",
+        "prior_16AK_backpressure_source",
+        "prior_16AJ_slo_source",
+        "prior_16AG_harness_source",
+        "prior_16AH_pinned_lookup_correction"
+      ],
+      "still_open": [
+        "admission_flag_enable",
+        "admission_controller_activation",
+        "live_503_shed",
+        "load_soak_proof",
+        "capacity_alert_firing",
+        "notification_delivery",
+        "autoscaling",
+        "capacity_slo_error_budget_live",
+        "backpressure",
+        "production"
+      ]
+    }
+  },
+  "gates_unchanged": [
+    "G01_correlation_structured_logs",
+    "G02_readiness_dependencies",
+    "G03_actionable_tenant_aware_alerts",
+    "G04_webhook_payment_worker_backlog",
+    "G05_retry_replay_safety",
+    "G07_rollback_incident_runbooks",
+    "G08_retention_privacy",
+    "G09_cost_controls"
+  ],
+  "lock_hash": "2cb6a06829e446de4cdb9f87b3556b559eb08f3c8c25838ac3d60c82ccc9d668"
+}

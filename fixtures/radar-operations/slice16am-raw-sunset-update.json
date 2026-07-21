@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "sanitized_containerapp_update_readback",
+  "tenant": "sunset",
+  "name": "luna-sunset-staging-staff-api",
+  "resourceGroup": "luna-sunset-staging-rg",
+  "type": "Microsoft.App/containerApps",
+  "location": "North Europe",
+  "systemData": {
+    "lastModifiedAt": "2026-07-21T19:52:30.3325685",
+    "lastModifiedByType": "User"
+  },
+  "properties": {
+    "provisioningState": "Succeeded",
+    "runningStatus": "Running",
+    "latestRevisionName": "luna-sunset-staging-staff-api--0000280",
+    "latestReadyRevisionName": "luna-sunset-staging-staff-api--g02503r",
+    "configuration": {
+      "activeRevisionsMode": "Single",
+      "ingress": {
+        "fqdn": "luna-sunset-staging-staff-api.redriver-a800b8d6.northeurope.azurecontainerapps.io",
+        "traffic": [
+          {
+            "revisionName": "luna-sunset-staging-staff-api--g02503r",
+            "weight": 100
+          }
+        ]
+      },
+      "secret_names_only": [
+        "luna-bot-internal-token",
+        "meta-app-secret",
+        "meta-whatsapp-token",
+        "meta-whatsapp-verify-token",
+        "staff-session-secret",
+        "stripe-secret-key",
+        "stripe-webhook-secret",
+        "sunset-database-url"
+      ]
+    },
+    "template": {
+      "containers": [
+        {
+          "name": "luna-sunset-staging-staff-api",
+          "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:905ff9ff57a75d0b3defc15a16078b47e94e930f",
+          "env_names": [
+            "BOT_ADDON_REQUESTS_ENABLED",
+            "BOT_BOOKING_ENABLED",
+            "BOT_PAUSE_CONTROLS_ENABLED",
+            "DEFAULT_CLIENT_SLUG",
+            "DEPLOY_SHA",
+            "FORCE_REVISION",
+            "LUNA_BOT_INTERNAL_TOKEN",
+            "META_APP_SECRET",
+            "META_WEBHOOK_SKIP_VERIFY",
+            "META_WHATSAPP_TOKEN",
+            "META_WHATSAPP_VERIFY_TOKEN",
+            "NODE_ENV",
+            "NODE_OPTIONS",
+            "STAFF_ACTIONS_ENABLED",
+            "STAFF_AUTH_HTTPS",
+            "STAFF_AUTH_REQUIRED",
+            "STAFF_QUERY_API_HOST",
+            "STAFF_QUERY_API_PORT",
+            "STAFF_SESSION_COOKIE_NAME",
+            "STAFF_SESSION_SECRET",
+            "STAFF_SESSION_TTL_HOURS",
+            "STRIPE_CHECKOUT_CANCEL_URL",
+            "STRIPE_CHECKOUT_SUCCESS_URL",
+            "STRIPE_LINKS_ENABLED",
+            "STRIPE_SECRET_KEY",
+            "STRIPE_WEBHOOK_CLIENT_SLUG",
+            "STRIPE_WEBHOOK_SECRET",
+            "STRIPE_WEBHOOK_SKIP_VERIFY",
+            "SUNSET_ADMIN_DB_READ_ENABLED",
+            "SUNSET_ADMIN_JSON_OVERLAY",
+            "SUNSET_ADMIN_WRITES_ENABLED",
+            "SUNSET_SARDINERO_INBOX_EMAIL",
+            "SUNSET_SARDINERO_WHATSAPP_NUMBER",
+            "SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID",
+            "SUNSET_SOMO_INBOX_EMAIL",
+            "SUNSET_SOMO_WHATSAPP_NUMBER",
+            "SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID",
+            "WHATSAPP_DRY_RUN",
+            "WOLFHOUSE_DATABASE_URL"
+          ],
+          "STAFF_API_ADMISSION_CONTROL_present": false
+        }
+      ]
+    }
+  },
+  "sanitization": {
+    "removed": [
+      "identity.userAssignedIdentities.*.clientId/principalId",
+      "configuration.secrets.keyVaultUrl/identity",
+      "configuration.registries.passwordSecretRef",
+      "env values and secretRef targets",
+      "scale/probes/resources full blobs not required for 16AM claims"
+    ],
+    "note": "Secret-free; env retained as names only to prove STAFF_API_ADMISSION_CONTROL absence"
+  }
+}

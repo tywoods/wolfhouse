@@ -155,19 +155,25 @@ const findings = readText('fixtures/radar-operations/findings.md');
 const calcSrc = readText(locks.CALC_REL);
 const verifySrc = readText(locks.VERIFY_REL);
 
+const tip16am = matrix.slice === 'RADAR-16AM'
+  && matrix.branch === 'radar/slice-16am-g06-backpressure-deploy-evidence';
 const tip16al = matrix.slice === 'RADAR-16AL'
   && matrix.branch === 'radar/slice-16al-g06-backpressure-wire';
 const tip16ak = matrix.slice === 'RADAR-16AK'
   && matrix.branch === 'radar/slice-16ak-g06-backpressure-source';
-const tipSuccessor = tip16al || tip16ak;
-const tipBranchOk = (tip16al && currentBranch() === 'radar/slice-16al-g06-backpressure-wire')
+const tipSuccessor = tip16am || tip16al || tip16ak;
+const tipBranchOk = (tip16am && currentBranch() === 'radar/slice-16am-g06-backpressure-deploy-evidence')
+  || (tip16al && currentBranch() === 'radar/slice-16al-g06-backpressure-wire')
   || (tip16ak && currentBranch() === 'radar/slice-16ak-g06-backpressure-source');
 ok('C1 HEAD on 16AJ branch (or later tip)', currentBranch() === locks.BRANCH || tipBranchOk, currentBranch());
 ok('C2 master_basis locked (16AJ lock or later tip)',
   tipSuccessor
     ? (contract.master_basis === locks.MASTER_BASIS
       && design.master_basis === locks.MASTER_BASIS
-      && (tip16al
+      && (tip16am
+        ? (matrix.master_basis === '905ff9ff57a75d0b3defc15a16078b47e94e930f'
+          && topContract.master_basis === '905ff9ff57a75d0b3defc15a16078b47e94e930f')
+        : tip16al
         ? (matrix.master_basis === '502d762f897432c67bb8b17a8a49bfab01a0787d'
           && topContract.master_basis === '502d762f897432c67bb8b17a8a49bfab01a0787d')
         : (matrix.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520'
@@ -183,7 +189,9 @@ ok('C3 slice/outcome/branch locked (16AJ lock or later tip)',
       && contract.branch === locks.BRANCH
       && design.slice === locks.SLICE
       && design.outcome_id === locks.OUTCOME_ID
-      && (tip16al
+      && (tip16am
+        ? (matrix.slice === 'RADAR-16AM' && topContract.slice === 'RADAR-16AM')
+        : tip16al
         ? (matrix.slice === 'RADAR-16AL' && topContract.slice === 'RADAR-16AL')
         : (matrix.slice === 'RADAR-16AK' && topContract.slice === 'RADAR-16AK')))
     : (contract.slice === locks.SLICE

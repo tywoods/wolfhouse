@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AM",
+  "outcome_id": "16AM_g06_backpressure_deploy_evidence",
+  "gate_ids": [
+    "G06_scaling_capacity"
+  ],
+  "progress_class": "partial_live_proven_evidence_only",
+  "master_basis": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+  "branch": "radar/slice-16am-g06-backpressure-deploy-evidence",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "title": "Reconcile dual-staging 16AL Staff API deploy with admission flag OFF/unset \u2014 evidence only; G06 partial",
+  "evidence_fixture": "fixtures/radar-operations/slice16am-g06-backpressure-deploy-evidence.json",
+  "raw_artifacts": [
+    "fixtures/radar-operations/slice16am-raw-wh-update.json",
+    "fixtures/radar-operations/slice16am-raw-sunset-update.json",
+    "fixtures/radar-operations/slice16am-raw-cost-before.json",
+    "fixtures/radar-operations/slice16am-raw-cost-after.json",
+    "fixtures/radar-operations/slice16am-raw-readyz-wh.json",
+    "fixtures/radar-operations/slice16am-raw-readyz-sunset.json",
+    "fixtures/radar-operations/slice16am-raw-acr-digest.json"
+  ],
+  "raw_artifact_sha256": {
+    "fixtures/radar-operations/slice16am-raw-wh-update.json": "b197dfb3af5815976ddee023f795735ec676379b6e1252ea22aa912ec809ecd9",
+    "fixtures/radar-operations/slice16am-raw-sunset-update.json": "4c965a3108544613358b36f9e92db359d9378fa0c3e424afaf10940a9ed1a150",
+    "fixtures/radar-operations/slice16am-raw-cost-before.json": "e5f6edc31075ef9028cc2409ee44879dc74ec8a4a769ab5bf20045ddd738fad4",
+    "fixtures/radar-operations/slice16am-raw-cost-after.json": "bf5339f49f7540ba6a3836cd4aef96aa67ea98211503f081c31a6c2afbdb3445",
+    "fixtures/radar-operations/slice16am-raw-readyz-wh.json": "9994e13386b29bde4071dd062d8c4ab8dbb6b4b877f968b4a34fb2c7b0ead65e",
+    "fixtures/radar-operations/slice16am-raw-readyz-sunset.json": "9994e13386b29bde4071dd062d8c4ab8dbb6b4b877f968b4a34fb2c7b0ead65e",
+    "fixtures/radar-operations/slice16am-raw-acr-digest.json": "8730b220a94c16ab0fe9a4685ad424a03261daa56e4be407695b11d956c0868c"
+  },
+  "excluded_ephemeral_paths": [
+    "/tmp/16al-wh-update.json",
+    "/tmp/16al-sunset-update.json",
+    "/tmp/wh-readyz.txt",
+    "/tmp/sunset-readyz.txt",
+    "tmp/foundation-slice9/"
+  ],
+  "builds_on": [
+    "16AL_g06_backpressure_wire",
+    "16AK_g06_backpressure_source",
+    "16AJ_g06_slo_error_budget_source",
+    "16AI_g06_live_load_evidence",
+    "16AH_g06_live_load_correction",
+    "16AG_g06_bounded_load_harness",
+    "16AF_g06_capacity_alert_live_evidence"
+  ],
+  "does_not_implement": "flag_enable_activation_live_shed_load_soak_autoscaling_slo_live_backpressure_proven_production_full_g06_scale_mutation",
+  "provenance": {
+    "source_type": "committed_sanitized_update_readback_readyz_acr_digest_cost",
+    "independent_verify_utc": "2026-07-21T19:53:21Z",
+    "non_recoverability": "A flag-OFF dual-staging image deploy cannot prove admission activation, live 503 shed, load soak, capacity alert firing, autoscaling, SLO/error-budget live compliance, or backpressure proven. Do not invent flag enable, shed under load, new Sunset revision identity beyond latestReady readback, or raising G06 to proven."
+  },
+  "required_observed": {
+    "master_sha": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+    "acr_build_run_id": "cb11f",
+    "digest": "sha256:55ddc5ebaba3c6021b3d3a1d746935bb5dfc20b228d1de71daa97e33c6e235e1",
+    "image_tag": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+    "wh_image": "whstagingacr.azurecr.io/wh-staff-api:905ff9ff57a75d0b3defc15a16078b47e94e930f",
+    "wh_revision": "wh-staging-staff-api--0000521",
+    "sunset_image": "whstagingacr.azurecr.io/luna-sunset-staff-api:905ff9ff57a75d0b3defc15a16078b47e94e930f",
+    "sunset_latestReadyRevisionName": "luna-sunset-staging-staff-api--g02503r",
+    "sunset_revision_name_unchanged_while_image_changed": true,
+    "wh_readyz_status": "ready",
+    "sunset_readyz_status": "ready",
+    "STAFF_API_ADMISSION_CONTROL_both_absent": true,
+    "controller_enabled": false,
+    "sunset_mtd_actualcost_usd": 18.4680092365591,
+    "cost_before_after_identical": true,
+    "cost_before_at": "2026-07-21T19:48:52.671Z",
+    "cost_after_at": "2026-07-21T19:53:21.970Z",
+    "independent_verify_utc": "2026-07-21T19:53:21Z"
+  },
+  "forbidden_claim_tokens": [
+    "backpressure proven",
+    "backpressure live",
+    "admission control proven",
+    "flag enabled",
+    "live shed proven",
+    "load soak proven",
+    "autoscaling proven",
+    "capacity SLO proven",
+    "error budget proven",
+    "production",
+    "full G06",
+    "full_G06_proven",
+    "G06 proven"
+  ],
+  "must_not_claim_as_proven": [
+    "flag_enabled",
+    "live_503_shed",
+    "admission_controller_activated",
+    "backpressure_live_proven",
+    "backpressure_proven",
+    "load_soak_proof",
+    "capacity_alert_firing",
+    "notification_delivery",
+    "autoscaling",
+    "capacity_slo_error_budget_live",
+    "production",
+    "full_G06_proven",
+    "any_gate_verdict_proven",
+    "sunset_new_revision_identity_beyond_latestReady_readback",
+    "min_max_replica_mutation"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "G06 dual-staging 16AL deploy-with-flag-OFF gap closed via 16AM; G06 remains partial because activation/shed/soak/fire/autoscale/SLO-live/production remain open"
+  },
+  "still_open": [
+    "Admission flag enable / controller activation (not claimed)",
+    "Live 503 shed under load (not claimed)",
+    "Load / soak proof (not claimed)",
+    "Capacity alert firing / notification (not claimed)",
+    "Autoscaling (not claimed)",
+    "Capacity SLO / error budget live (not claimed)",
+    "Backpressure live/proven (not claimed)",
+    "Production scope (forbidden)",
+    "Raising G06 verdict to proven"
+  ],
+  "final_controlled_drill": {
+    "id": "16AM_EVIDENCE_dual_staging_16al_deploy_flag_off",
+    "status": "live_proven",
+    "pass_rule": "Committed sanitized update/readback/readyz/acr/cost fixtures prove exact digest/tag/WH revision/Sunset latestReady/flag-absent/readyz/cost; REDs reject digest/tag/revision/flag/readiness/cost/overclaim drift; G06 score unchanged 0/9/0"
+  },
+  "g06_verdict": "partial",
+  "flag_enabled": false,
+  "g06_backpressure": "open",
+  "g06_backpressure_wire_source": "integration_source_proven_via_16AL",
+  "g06_backpressure_deploy_flag_off": "live_proven_via_16AM"
+}

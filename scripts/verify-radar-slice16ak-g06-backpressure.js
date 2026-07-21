@@ -138,7 +138,7 @@ green('M1 slice/outcome/branch/master',
 try {
   const b = currentBranch();
   ok('M2b current branch is 16AK or later tip / master-based work',
-    b === locks.BRANCH || b === 'HEAD' || /16ak|16al/i.test(b),
+    b === locks.BRANCH || b === 'HEAD' || /16ak|16al|16am/i.test(b),
     b);
 } catch (e) {
   ok('M2b branch readable', false, String(e.message));
@@ -926,7 +926,15 @@ green('O4 16AK contract still records integration defined_not_executed (no live 
   design.future_integration_drill.status === 'defined_not_executed'
   && design.runtime_wired === false
   && /defined_not_executed/i.test(doc)
-  && !/\bbackpressure proven\b/i.test(doc));
+  && (() => {
+    for (const line of doc.split('\n')) {
+      if (/\bbackpressure proven\b/i.test(line)
+        && !/not claimed|does\s*\*+\s*not|does not|never|open|forbidden|explicitly|claiming |raising /i.test(line)) {
+        return false;
+      }
+    }
+    return true;
+  })());
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

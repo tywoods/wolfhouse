@@ -1,14 +1,47 @@
-# RADAR Slice 16AL — Operations gate ledger (G06 admission-control Staff API wire)
+# RADAR Slice 16AM — Operations gate ledger (G06 dual-staging 16AL deploy evidence, flag OFF)
 
-**Status:** integration source proof only (flag default OFF; no deploy / live load / flag enable by this tip; G06 remains partial)
-**Master basis:** `502d762f897432c67bb8b17a8a49bfab01a0787d`
-**Branch:** `radar/slice-16al-g06-backpressure-wire`
+**Status:** evidence-only dual-staging deploy of 16AL with `STAFF_API_ADMISSION_CONTROL` OFF/unset (no flag enable / live shed / activation claim by this tip; G06 remains partial)
+**Master basis:** `905ff9ff57a75d0b3defc15a16078b47e94e930f`
+**Branch:** `radar/slice-16am-g06-backpressure-deploy-evidence`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16AK admission/backpressure source + 16AJ SLO source + 16AI/16AH/16AG/16AF/16L capacity path + 16J/16R/16K/16I correlation/completion/health/ready
-**This slice does not deploy / does not enable the flag / does not execute live load / does not mutate scale:** Staff API wire behind `STAFF_API_ADMISSION_CONTROL` default OFF + deterministic fake req/res integration tests only
+**Builds on:** 16AL admission wire source + 16AK backpressure source + 16AJ SLO source + 16AI/16AH/16AG/16AF/16L capacity path
+**This tip does not enable the flag / does not claim live shed / does not mutate scale:** durable sanitized update/readback/readyz/ACR/cost evidence only
 
-## Outcome (16AL)
+## Outcome (16AM)
+
+Reconcile operator dual-staging Staff API deploy of **16AL** @ master `905ff9ff` with admission flag **OFF/unset**:
+
+| Fact | Locked value |
+|------|----------------|
+| Preflight | clean exact-SHA preflight passed on synchronized Lunabox master |
+| Resume path | initial remote continuation stopped before build (`az` absent); resumed via authenticated local Azure CLI |
+| ACR | build **cb11f** succeeded; both repos tag full SHA `905ff9ff57a75d0b3defc15a16078b47e94e930f`; digest `sha256:55ddc5ebaba3c6021b3d3a1d746935bb5dfc20b228d1de71daa97e33c6e235e1` |
+| Wolfhouse | image exact tag; revision `wh-staging-staff-api--0000521` |
+| Sunset | image exact tag; reported latestReady `luna-sunset-staging-staff-api--g02503r` (**unchanged name** while image readback changed; do **not** infer new revision identity beyond readback) |
+| `/readyz` | both returned `{status:ready}` |
+| Flag | `STAFF_API_ADMISSION_CONTROL` env query **empty/absent** both → controller remains **disabled**; **no** live backpressure/shed claimed |
+| Cost | Sunset RG MTD ActualCost before/after identical **18.4680092365591 USD** |
+| Proof | `16AM_EVIDENCE_dual_staging_16al_deploy_flag_off` **`live_proven`** (deploy-with-flag-OFF only) |
+| Score | proven=0 / partial=9 / absent=0 — **unchanged** |
+
+### Claim ownership (16AM locked)
+
+| Observation | Proves | Does not prove |
+|-------------|--------|----------------|
+| Dual-staging 16AL image deploy + flag absent | Exact digest/tag/WH revision/Sunset latestReady/readyz/cost from committed raw fixtures | Flag enable / controller activation / live 503 shed / soak / fire / autoscale / SLO live / raising backpressure or G06 verdicts — **not claimed** |
+| Sunset latestReady name unchanged while image changed | Readback honesty for g02503r | New Sunset revision identity beyond latestReady readback |
+| G06 stays partial | Score preserved (0/9/0) | Raising G06 to `proven` |
+
+## Truthful disposition (16AM)
+
+**Proves (evidence):** Dual-staging Staff API deploy of the 16AL image at exact SHA/digest with admission flag OFF/unset, both `/readyz` ready, and Sunset MTD ActualCost unchanged; Sunset latestReady revision **name** remains `g02503r` while image tag changed.
+
+**Does not prove:** flag enabled; admission activation; live 503 shed; load soak; alert fire/notification; autoscaling; capacity SLO live; backpressure live/proven; production; raising G06 to `proven`.
+
+**16AL deploy-with-flag-OFF gap closed; activation/shed/soak/fire/autoscale/SLO-live remain open; G06 remains partial.**
+
+## Outcome (16AL — retained)
 
 Integrate the reviewed **16AK** tenant-safe admission controller into Staff API behind a fail-closed deployment flag:
 

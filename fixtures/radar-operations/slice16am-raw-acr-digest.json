@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "acr_build_digest_operator_fact",
+  "registry": "whstagingacr",
+  "run_id": "cb11f",
+  "run_id_note": "ACR build cb11f succeeded (operator fact; local Azure CLI resume after remote az-absent stop)",
+  "image_tag": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+  "digest": "sha256:55ddc5ebaba3c6021b3d3a1d746935bb5dfc20b228d1de71daa97e33c6e235e1",
+  "repositories": [
+    {
+      "repository": "wh-staff-api",
+      "tag": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+      "digest": "sha256:55ddc5ebaba3c6021b3d3a1d746935bb5dfc20b228d1de71daa97e33c6e235e1"
+    },
+    {
+      "repository": "luna-sunset-staff-api",
+      "tag": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+      "digest": "sha256:55ddc5ebaba3c6021b3d3a1d746935bb5dfc20b228d1de71daa97e33c6e235e1"
+    }
+  ],
+  "preflight": {
+    "clean_exact_sha_preflight_passed": true,
+    "synchronized_lunabox_master": true,
+    "master_sha": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+    "initial_remote_continuation_stopped_before_build_az_absent": true,
+    "resumed_authenticated_local_azure_cli": true
+  }
+}

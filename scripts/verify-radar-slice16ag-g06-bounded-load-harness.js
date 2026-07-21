@@ -73,7 +73,9 @@ function currentBranch() {
 function runtimePathsUnchanged() {
   try {
     const matrix = JSON.parse(fs.readFileSync(path.join(ROOT, 'fixtures/radar-operations/gate-matrix.json'), 'utf8'));
-    const basis = matrix.slice === 'RADAR-16AL'
+    const basis = matrix.slice === 'RADAR-16AM'
+      ? '905ff9ff57a75d0b3defc15a16078b47e94e930f'
+      : matrix.slice === 'RADAR-16AL'
       ? '502d762f897432c67bb8b17a8a49bfab01a0787d'
       : matrix.slice === 'RADAR-16AK'
       ? '9fa3626326c0e2bc21f2d37905967d6ff47b7520'
@@ -536,11 +538,13 @@ async function runVerifier() {
   const tip16aj = matrix.slice === 'RADAR-16AJ';
   const tip16ak = matrix.slice === 'RADAR-16AK';
   const tip16al = matrix.slice === 'RADAR-16AL';
+  const tip16am = matrix.slice === 'RADAR-16AM';
   const tipBranchOk = (tip16ah && currentBranch() === 'radar/slice-16ah-g06-live-load-correction')
     || (tip16ai && currentBranch() === 'radar/slice-16ai-g06-live-load-evidence')
     || (tip16aj && currentBranch() === 'radar/slice-16aj-g06-slo-error-budget-source')
     || (tip16ak && currentBranch() === 'radar/slice-16ak-g06-backpressure-source')
-    || (tip16al && currentBranch() === 'radar/slice-16al-g06-backpressure-wire');
+    || (tip16al && currentBranch() === 'radar/slice-16al-g06-backpressure-wire')
+    || (tip16am && currentBranch() === 'radar/slice-16am-g06-backpressure-deploy-evidence');
   const tipBasisOk = (tip16ah && matrix.master_basis === '6c24e9456bd42c7fa1b051bb1308aae8f632b293'
       && topContract.master_basis === '6c24e9456bd42c7fa1b051bb1308aae8f632b293')
     || (tip16ai && matrix.master_basis === 'd04b633390bdcacfe3a04eed4796bba4184e29f8'
@@ -550,7 +554,9 @@ async function runVerifier() {
     || (tip16ak && matrix.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520'
       && topContract.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520')
     || (tip16al && matrix.master_basis === '502d762f897432c67bb8b17a8a49bfab01a0787d'
-      && topContract.master_basis === '502d762f897432c67bb8b17a8a49bfab01a0787d');
+      && topContract.master_basis === '502d762f897432c67bb8b17a8a49bfab01a0787d')
+    || (tip16am && matrix.master_basis === '905ff9ff57a75d0b3defc15a16078b47e94e930f'
+      && topContract.master_basis === '905ff9ff57a75d0b3defc15a16078b47e94e930f');
   ok('C1 HEAD on 16AG branch (or later tip)', currentBranch() === locks.BRANCH || tipBranchOk, currentBranch());
   ok('C2 master_basis locked (16AG lock or later tip)',
     (locks.MASTER_BASIS === '7a283b70d38a4906e6279d82a49c0f6dd2a4994e'
@@ -599,6 +605,13 @@ async function runVerifier() {
       && matrix.branch === 'radar/slice-16al-g06-backpressure-wire'
       && topContract.slice === 'RADAR-16AL'
       && topContract.branch === 'radar/slice-16al-g06-backpressure-wire'
+      && sliceContract.slice === locks.SLICE
+      && sliceContract.branch === locks.BRANCH)
+    || (tip16am
+      && matrix.slice === 'RADAR-16AM'
+      && matrix.branch === 'radar/slice-16am-g06-backpressure-deploy-evidence'
+      && topContract.slice === 'RADAR-16AM'
+      && topContract.branch === 'radar/slice-16am-g06-backpressure-deploy-evidence'
       && sliceContract.slice === locks.SLICE
       && sliceContract.branch === locks.BRANCH));
 

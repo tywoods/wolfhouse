@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '502d762f897432c67bb8b17a8a49bfab01a0787d';
+const MASTER_BASIS = '905ff9ff57a75d0b3defc15a16078b47e94e930f';
+const MASTER_BASIS_16AM = '905ff9ff57a75d0b3defc15a16078b47e94e930f';
 const MASTER_BASIS_16AK = '9fa3626326c0e2bc21f2d37905967d6ff47b7520';
 const MASTER_BASIS_16AJ = '0994989a3d5d14daa98797fac55083b0c2ea809c';
 const MASTER_BASIS_16AI = 'd04b633390bdcacfe3a04eed4796bba4184e29f8';
@@ -35,6 +36,7 @@ const BRANCH_16AJ = 'radar/slice-16aj-g06-slo-error-budget-source';
 const BRANCH_16AK = 'radar/slice-16ak-g06-backpressure-source';
 const BRANCH_16AL = 'radar/slice-16al-g06-backpressure-wire';
 const MASTER_BASIS_16AL = '502d762f897432c67bb8b17a8a49bfab01a0787d';
+const BRANCH_16AM = 'radar/slice-16am-g06-backpressure-deploy-evidence';
 const BRANCH_16AD = 'radar/slice-16ad-g02-sampled-restart-continuity-evidence';
 const BRANCH_16AC = 'radar/slice-16ac-organic-restart-alert-evidence';
 const BRANCH_16AB = 'radar/slice-16ab-g02-readyz503-evidence';
@@ -74,6 +76,18 @@ const SECRET_PATTERNS = [
 
 let pass = 0;
 let fail = 0;
+
+function docLacksBareOverclaim(docText, patterns) {
+  const neg = /not claimed|does\s*\*+\s*not|does not|never|open|forbidden|explicitly|default OFF|not enabled|claiming |raising |OFF\/unset|disabled|no live/i;
+  for (const line of String(docText).split(/\n/)) {
+    if (neg.test(line)) continue;
+    for (const re of patterns) {
+      if (re.test(line)) return false;
+    }
+  }
+  return true;
+}
+
 
 function ok(name, cond, detail) {
   if (cond) {
@@ -468,17 +482,19 @@ const slice16aiContract = readJson(path.join(FIXTURE_DIR, 'slice16ai-expected-co
 const slice16ajContract = readJson(path.join(FIXTURE_DIR, 'slice16aj-expected-contract.json'));
 const slice16akContract = readJson(path.join(FIXTURE_DIR, 'slice16ak-expected-contract.json'));
 const slice16alContract = readJson(path.join(FIXTURE_DIR, 'slice16al-expected-contract.json'));
-ok('F48 gate-matrix branch pin equals 16AL tip contract + HEAD (16AK/16AJ/16AI/16AH/16AG locks retained)',
-  matrix.branch === BRANCH_16AL
-  && contract.branch === BRANCH_16AL
+const slice16amContract = readJson(path.join(FIXTURE_DIR, 'slice16am-expected-contract.json'));
+ok('F48 gate-matrix branch pin equals 16AM tip contract + HEAD (16AL/16AK/16AJ/16AI/16AH/16AG locks retained)',
+  matrix.branch === BRANCH_16AM
+  && contract.branch === BRANCH_16AM
+  && slice16amContract.branch === BRANCH_16AM
+  && headBranch === BRANCH_16AM
   && slice16alContract.branch === BRANCH_16AL
-  && headBranch === BRANCH_16AL
   && slice16akContract.branch === BRANCH_16AK
   && slice16ajContract.branch === BRANCH_16AJ
   && slice16aiContract.branch === BRANCH_16AI
   && slice16ahContract.branch === BRANCH_16AH
   && slice16agContract.branch === BRANCH_16AG,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16al=${slice16alContract.branch} slice16ak=${slice16akContract.branch} head=${headBranch}`);
+  `matrix=${matrix.branch} contract=${contract.branch} slice16am=${slice16amContract.branch} slice16al=${slice16alContract.branch} head=${headBranch}`);
 ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC/16AD/16AF contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
@@ -1256,9 +1272,7 @@ ok('F203 16AK fixtures + verifier present',
 ok('F204 16AK does not claim backpressure proven / soak / autoscale / production / full G06',
   /live_deploy|runtime_wire|soak|autoscale|backpressure_proven|production|full_g06/i.test(
     String(sel16ak.does_not_implement || ''))
-  && !/\bbackpressure\s+proven\b/i.test(doc)
-  && !/\bG06\s+proven\b/i.test(doc)
-  && !/\bfull\s+G06\b/i.test(doc)
+  && docLacksBareOverclaim(doc, [/\bbackpressure\s+proven\b/i, /\bG06\s+proven\b/i, /\bfull\s+G06\b/i])
   && /16AK|admission|backpressure/i.test(doc)
   && /16AK/i.test(findings)
   && /defined_not_executed/i.test(doc));
@@ -1299,9 +1313,7 @@ ok('F208 16AL fixtures + verifier + boundary present',
 ok('F209 16AL does not claim backpressure live/proven / flag enabled / soak / production / full G06',
   /live_deploy|flag_enable|soak|autoscale|backpressure_proven|production|full_g06/i.test(
     String(sel16al.does_not_implement || ''))
-  && !/\bbackpressure\s+proven\b/i.test(doc.replace(/claiming backpressure live\/proven/gi, ''))
-  && !/\bG06\s+proven\b/i.test(doc)
-  && !/\bfull\s+G06\b/i.test(doc)
+  && docLacksBareOverclaim(doc, [/\bbackpressure\s+proven\b/i, /\bG06\s+proven\b/i, /\bfull\s+G06\b/i])
   && /16AL/i.test(doc)
   && /16AL/i.test(findings)
   && /default OFF|flag.*OFF|not enabled/i.test(doc)
@@ -1312,6 +1324,57 @@ ok('F210 score unchanged after 16AL (proven=0 partial=9 absent=0)',
   && contract.expected_verdict_counts.partial === 9
   && contract.expected_verdict_counts.absent === 0
   && slice16alContract.master_basis === MASTER_BASIS_16AL);
+
+const sel16am = matrix.slice_16am_selection;
+ok('F211 exactly one 16AM selection',
+  sel16am && sel16am.selected === true
+  && sel16am.outcome_id === '16AM_g06_backpressure_deploy_evidence'
+  && sel16am.gate_id === 'G06_scaling_capacity'
+  && sel16am.progress_class === 'partial_live_proven_evidence_only'
+  && sel16am.flag_enabled === false
+  && sel16am.final_controlled_drill
+  && sel16am.final_controlled_drill.status === 'live_proven'
+  && sel16am.g06_backpressure_deploy_flag_off === 'live_proven_via_16AM'
+  && sel16am.g06_backpressure === 'open');
+ok('F212 contract selected_16am matches',
+  contract.selected_16am
+  && contract.selected_16am.outcome_id === '16AM_g06_backpressure_deploy_evidence'
+  && contract.selected_16am.g06_backpressure_deploy_flag_off === 'live_proven_via_16AM'
+  && contract.selected_16am.g06_backpressure === 'open'
+  && contract.selected_16am.flag_enabled === false
+  && contract.selected_16am.final_controlled_drill_status === 'live_proven'
+  && contract.selected_16am.g06_verdict === 'partial'
+  && contract.g06_backpressure_deploy_flag_off === 'live_proven_via_16AM'
+  && contract.g06_backpressure_wire_source === 'integration_source_proven_via_16AL'
+  && contract.g06_backpressure === 'open');
+ok('F213 16AM fixtures + verifier present',
+  pathExists('fixtures/radar-operations/slice16am-g06-backpressure-deploy-evidence.json')
+  && pathExists('fixtures/radar-operations/slice16am-expected-contract.json')
+  && pathExists('fixtures/radar-operations/slice16am-raw-wh-update.json')
+  && pathExists('fixtures/radar-operations/slice16am-raw-sunset-update.json')
+  && pathExists('fixtures/radar-operations/slice16am-raw-cost-before.json')
+  && pathExists('fixtures/radar-operations/slice16am-raw-cost-after.json')
+  && pathExists('fixtures/radar-operations/slice16am-raw-readyz-wh.json')
+  && pathExists('fixtures/radar-operations/slice16am-raw-readyz-sunset.json')
+  && pathExists('fixtures/radar-operations/slice16am-raw-acr-digest.json')
+  && pathExists('scripts/lib/radar-slice16am-g06-backpressure-deploy-evidence.js')
+  && pathExists('scripts/verify-radar-slice16am-g06-backpressure-deploy-evidence.js'));
+ok('F214 16AM does not claim flag enable / live shed / backpressure proven / production / full G06',
+  /flag_enable|activation|live_shed|soak|autoscale|backpressure_proven|production|full_g06/i.test(
+    String(sel16am.does_not_implement || ''))
+  && docLacksBareOverclaim(doc, [/\bbackpressure\s+proven\b/i, /\bG06\s+proven\b/i, /\bfull\s+G06\b/i])
+  && /16AM/i.test(doc)
+  && /16AM/i.test(findings)
+  && /OFF|unset|not enabled|disabled/i.test(doc)
+  && /g02503r/i.test(doc)
+  && /0000521/i.test(doc)
+  && MASTER_BASIS_16AM === '905ff9ff57a75d0b3defc15a16078b47e94e930f');
+ok('F215 score unchanged after 16AM (proven=0 partial=9 absent=0)',
+  contract.expected_verdict_counts.proven === 0
+  && contract.expected_verdict_counts.partial === 9
+  && contract.expected_verdict_counts.absent === 0
+  && slice16amContract.master_basis === MASTER_BASIS_16AM
+  && matrix.master_basis === MASTER_BASIS_16AM);
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

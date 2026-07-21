@@ -1,9 +1,10 @@
-# RADAR findings (16A freeze + 16B–16Z partials + 16AA–16AD G02 + 16AF–16AL G06)
+# RADAR findings (16A freeze + 16B–16Z partials + 16AA–16AD G02 + 16AF–16AM G06)
 
-**Master basis (16AL):** `502d762f897432c67bb8b17a8a49bfab01a0787d`
+**Master basis (16AM):** `905ff9ff57a75d0b3defc15a16078b47e94e930f`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
-**16AL progress class:** `integration_source_partial_progress_only` (Staff API admission-control **wire** behind `STAFF_API_ADMISSION_CONTROL` default **OFF**; deterministic fake req/res integration source proof; flag **not** enabled; no deploy/live load; does **not** claim backpressure live/proven/full G06; G06 remains partial).
-**16AK progress class (retained):** `source_partial_progress_only` (tenant-safe admission/backpressure source contract + pure state machine + offline RED/GREEN; Staff API integration was `defined_not_executed` at 16AK tip — wire ownership is 16AL).
+**16AM progress class:** `partial_live_proven_evidence_only` (dual-staging **deploy** of 16AL Staff API image with `STAFF_API_ADMISSION_CONTROL` **OFF/unset**; ACR cb11f + digest/tag locked; WH revision `0000521`; Sunset latestReady `g02503r` name unchanged while image changed; both `/readyz` ready; Sunset MTD ActualCost identical **18.4680092365591 USD**; does **not** claim flag enable, live shed, raising backpressure/G06 verdicts; G06 remains partial).
+**16AL progress class (retained):** `integration_source_partial_progress_only` (Staff API admission-control **wire** behind flag default **OFF**; deterministic fake req/res integration source proof).
+**16AK progress class (retained):** `source_partial_progress_only` (tenant-safe admission/backpressure source contract + pure state machine + offline RED/GREEN).
 ## Verdict rollup
 
 | Verdict | Count |
@@ -13,7 +14,7 @@
 | absent | 0 |
 | **total** | **9** |
 
-## Critical gaps (still open — explicitly not claimed by 16AK)
+## Critical gaps (still open — explicitly not claimed by 16AM)
 
 1. **G01-A live Meta → Hermes → Staff correlated read path** — design frozen (16U); live open.
 2. **Central capability boundary** — prerequisite before dry-run.
@@ -22,14 +23,15 @@
 5. Autoscaling (rules=null) — **not claimed**.
 6. Capacity SLO / error budget **live** proof — **not claimed** (16AJ defines availability-only source contract + calculator only; burn alert/drill acceptance `defined_not_executed`).
 7. Latency percentile SLI — **blocked** pending joint request telemetry/instrumentation (not part of 16AJ SLO; no ACA duration histogram / p99≤500ms / combined intersection).
-8. Backpressure **runtime/live** — **not claimed** (16AK source + 16AL wire **source** behind flag default OFF; flag not enabled; no live 503 shed proof).
-9. Absolute/continuous zero downtime / cold-start — **not claimed** (16AD sampling-resolution only).
-10. Human inbox receipt — **not claimed** (organic restart fire closed via 16AC).
-11. Requests 5xx alert firing — **not claimed**.
-12. Production — forbidden.
-13. Raising any gate verdict to `proven`.
+8. Backpressure **runtime/live** — **not claimed** (16AK source + 16AL wire source + **16AM deploy with flag OFF/unset**; flag not enabled; no live 503 shed proof).
+9. Admission flag enable / controller activation — **not claimed** (16AM proves deploy-with-flag-OFF only).
+10. Absolute/continuous zero downtime / cold-start — **not claimed** (16AD sampling-resolution only).
+11. Human inbox receipt — **not claimed** (organic restart fire closed via 16AC).
+12. Requests 5xx alert firing — **not claimed**.
+13. Production — forbidden.
+14. Raising any gate verdict to `proven`.
 
-## Gate progress after 16AL (truthful)
+## Gate progress after 16AM (truthful)
 
 | Gate | progress_class | Notes |
 |------|----------------|-------|
@@ -38,14 +40,18 @@
 | G03 | partial_live_proven | **16AC** organic restart fire/resolve + **16P** AG test; human inbox open |
 | G04 | partial | backlog open |
 | G05 | source_partial | 16M event-id claim |
-| G06 | partial_live_proven + 16AL wire source + 16AK backpressure source + 16AJ SLO source | **16AL** Staff API admission **wire** behind flag default OFF (integration source only); **16AK** admission/backpressure **source** contract + library; **16AJ** SLO/error-budget **source**; **16AI** conservative dual-staging `/readyz` bounded-load `live_proven`; prior 16AH `attempted_not_proof` retained; **16AG** harness source; **16AF** capacity-alert deploy live; **16L** source retained; flag-on live shed, soak, firing/notification, autoscaling, SLO **live** proof open |
+| G06 | partial_live_proven + 16AM deploy flag-OFF + 16AL wire source + 16AK backpressure source + 16AJ SLO source | **16AM** dual-staging 16AL **deploy** with admission flag OFF/unset (digest/tag/WH `0000521`/Sunset latestReady `g02503r` unchanged name/readyz/cost); **16AL** wire source; **16AK** source; **16AJ** SLO source; **16AI** conservative `/readyz` load `live_proven`; **16AF** capacity-alert deploy live; activation/shed/soak/fire/autoscale/SLO **live** open |
 | G07 | partial_live_proven | via 16P rollback |
 | G08 | partial_live_proven | via 16P/16O webhook error minimization |
 | G09 | partial_live_proven | via 16P AG test |
 
+## Slice 16AM
+
+`16AM_g06_backpressure_deploy_evidence` — evidence-only reconciliation of dual-staging Staff API deploy of **16AL** @ master `905ff9ff57a75d0b3defc15a16078b47e94e930f` with `STAFF_API_ADMISSION_CONTROL` **OFF/unset**. Operator facts locked via committed secret-free raw fixtures (sanitized update/readback, `/readyz`, ACR digest, Sunset MTD cost before/after; SHA-256 provenance): clean exact-SHA preflight on synchronized Lunabox master; remote continuation stopped before build (`az` absent) then resumed via authenticated local Azure CLI; ACR build **cb11f**; both repos full SHA tag + digest `sha256:55ddc5ebaba3c6021b3d3a1d746935bb5dfc20b228d1de71daa97e33c6e235e1`; Wolfhouse image exact tag + revision `wh-staging-staff-api--0000521`; Sunset image exact tag + reported latestReady `luna-sunset-staging-staff-api--g02503r` (**disclose revision name unchanged while image readback changed**; do **not** infer new revision identity beyond readback); both `/readyz` `{status:ready}`; admission env query empty both so controller remains disabled and **no** live backpressure/shed claimed; Sunset MTD ActualCost before/after identical **18.4680092365591 USD**. Strict REDs for digest/tag/revision/flag/readiness/cost/overclaim drift. **Does not** enable the flag, claim live shed, or raise G06. Score unchanged (proven=0 / partial=9 / absent=0). G06 remains **partial**.
+
 ## Slice 16AL
 
-`16AL_g06_backpressure_wire` — integrate the reviewed **16AK** admission controller into Staff API `createStaffQueryApiHttpServer` behind fail-closed deployment flag **`STAFF_API_ADMISSION_CONTROL` default OFF**. Placement: after `resolveTrustedIngressBinding(...).tenant_slug`, before router body/DB/tool side effects; **eligible-route allowlist only**; `/healthz` `/readyz` `/` and unknown routes **excluded**. Response lifecycle releases **exactly once** on finish/close/error/abort; queued disconnect cancels; queued promotion resumes handler exactly once; transport-dead cancel before queue and before promoted router execution; named once listeners detach to baseline; late events cannot cancel promoted tokens; sync/async throws clean up; `admissionBoundary.close()` at readiness-lifecycle shutdown **BEGIN** (before `server.close` waits on connections — not the server `close` event) via per-server **Set-deduped registry/dispatcher** with module-private **WeakSet fired sentinel** (duplicate bind no-op; close exactly once; prior hook once; no wrapper chains; mark fired before snapshot; symbols cleared after fire; reentrant/post-fire bind immediately safe-closes with documented `already_fired` result and no symbol reinstall; independent safe invoke of prior+owners absorbs sync throws and thenable rejections / getter-call adversaries; OFF registers nothing); post-side-effect work is never 503-shed; public 503 body/Retry-After bounded/non-sensitive. Flag parsing rejects malformed values; OFF is exact behavior-preserving. Ships `staff-api-admission-boundary.js` + deterministic fake req/res integration tests including adversarial REDs. **Does not** enable the flag, deploy, run live load, or claim backpressure live/proven/full G06. Score unchanged (proven=0 / partial=9 / absent=0). G06 remains **partial**.
+`16AL_g06_backpressure_wire` — integrate the reviewed **16AK** admission controller into Staff API `createStaffQueryApiHttpServer` behind fail-closed deployment flag **`STAFF_API_ADMISSION_CONTROL` default OFF**. Placement: after `resolveTrustedIngressBinding(...).tenant_slug`, before router body/DB/tool side effects; **eligible-route allowlist only**; `/healthz` `/readyz` `/` and unknown routes **excluded**. Response lifecycle releases **exactly once** on finish/close/error/abort; queued disconnect cancels; queued promotion resumes handler exactly once; transport-dead cancel before queue and before promoted router execution; named once listeners detach to baseline; late events cannot cancel promoted tokens; sync/async throws clean up; `admissionBoundary.close()` at readiness-lifecycle shutdown **BEGIN** (before `server.close` waits on connections — not the server `close` event) via per-server **Set-deduped registry/dispatcher** with module-private **WeakSet fired sentinel** (duplicate bind no-op; close exactly once; prior hook once; no wrapper chains; mark fired before snapshot; symbols cleared after fire; reentrant/post-fire bind immediately safe-closes with documented `already_fired` result and no symbol reinstall; independent safe invoke of prior+owners absorbs sync throws and thenable rejections / getter-call adversaries; OFF registers nothing); post-side-effect work is never 503-shed; public 503 body/Retry-After bounded/non-sensitive. Flag parsing rejects malformed values; OFF is exact behavior-preserving. Ships `staff-api-admission-boundary.js` + deterministic fake req/res integration tests including adversarial REDs. **Does not** enable the flag, deploy, run live load, or claim live shed or raise backpressure/G06 verdicts. Score unchanged (proven=0 / partial=9 / absent=0). G06 remains **partial**.
 
 ## Slice 16AK
 
