@@ -24,7 +24,7 @@ Standalone Crowsnest with the branded login portal is deployed and verified live
 | Target port | `3040` |
 | Public hostname | `crowsnest.lunafrontdesk.com` |
 | Authentication | Branded session portal; unauthenticated `/` redirects `302` to `/login` with no Basic challenge; legacy Basic Auth still accepted for compatibility |
-| Auth secrets | Azure secret refs `cn-auth-user` / `cn-auth-pass` (values never in docs; live operator credential distribution is out of scope for this runbook) |
+| Auth secrets | Live still binds legacy single-account refs `cn-auth-user` / `cn-auth-pass`. **Planned multi-account mapping (not deployed yet):** `cn-auth-user`/`cn-auth-pass` → Earthling (`CROWSNEST_AUTH_EARTHLING_*`); new `cn-monshies-user`/`cn-monshies-pass` → Monshies (`CROWSNEST_AUTH_MONSHIES_*`). Values never in docs; live operator credential distribution is out of scope for this runbook. |
 | Health route | Public `GET /healthz` |
 | Health stage | `stage: portal` |
 | Allowed users (health) | Monshies, Earthling |
@@ -65,9 +65,15 @@ The following must remain true:
 | `CROWSNEST_HOST` | `0.0.0.0` |
 | `NODE_ENV` | `production` in Azure |
 | `CROWSNEST_AUTH_REQUIRED` | `true` on the public app |
-| `CROWSNEST_AUTH_USERNAME` | Azure secret ref `cn-auth-user`; never commit the value |
-| `CROWSNEST_AUTH_PASSWORD` | Azure secret ref `cn-auth-pass`; never commit the value |
+| `CROWSNEST_AUTH_EARTHLING_USERNAME` | Azure secret ref `cn-auth-user` (planned multi-account cutover; **not deployed yet**); never commit the value |
+| `CROWSNEST_AUTH_EARTHLING_PASSWORD` | Azure secret ref `cn-auth-pass` (planned multi-account cutover; **not deployed yet**); never commit the value |
+| `CROWSNEST_AUTH_MONSHIES_USERNAME` | Azure secret ref `cn-monshies-user` (**new; not deployed yet**); never commit the value |
+| `CROWSNEST_AUTH_MONSHIES_PASSWORD` | Azure secret ref `cn-monshies-pass` (**new; not deployed yet**); never commit the value |
+| `CROWSNEST_AUTH_USERNAME` | Legacy single-account fallback only when none of the four multi-account vars are present; live today still uses `cn-auth-user` |
+| `CROWSNEST_AUTH_PASSWORD` | Legacy single-account fallback only; live today still uses `cn-auth-pass` |
 | `CROWSNEST_ALLOWED_USERS` | `Monshies,Earthling` while access is limited to the initial operators |
+
+Multi-account mode requires both complete Earthling and Monshies pairs. Missing/blank/duplicate usernames or blank passwords misconfigure auth (`503` when required). Never combine legacy fallback credentials with multi-account credentials. Do not put defaults in production.
 
 Do not add database, Stripe, WhatsApp, or Staff API credentials merely to support the current read-only shell.
 
@@ -115,7 +121,7 @@ The exact command must be reviewed against the current Azure CLI and Container A
 
 1. Build `Dockerfile.crowsnest` in `whstagingacr` as `crowsnest:<approved-git-sha>`.
 2. Update only `crowsnest-internal` to that immutable image tag.
-3. Preserve port 3040, external HTTPS ingress, auth secrets (`cn-auth-user` / `cn-auth-pass`), and the custom hostname.
+3. Preserve port 3040, external HTTPS ingress, auth secrets (`cn-auth-user` / `cn-auth-pass` today; add `cn-monshies-user` / `cn-monshies-pass` only when multi-account cutover is approved — **not deployed yet**), and the custom hostname.
 4. Wait for the new revision to become healthy.
 5. Verify the default FQDN, then the public hostname.
 

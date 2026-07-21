@@ -146,6 +146,11 @@ ok('only /login advertises POST in Allow header', (apiSrc.match(/sendMethodNotAl
 
 ok('CROWSNEST_AUTH_USERNAME env referenced', /CROWSNEST_AUTH_USERNAME/.test(authSrc));
 ok('CROWSNEST_AUTH_PASSWORD env referenced', /CROWSNEST_AUTH_PASSWORD/.test(authSrc));
+ok('CROWSNEST_AUTH_EARTHLING_USERNAME env referenced', /CROWSNEST_AUTH_EARTHLING_USERNAME/.test(authSrc));
+ok('CROWSNEST_AUTH_EARTHLING_PASSWORD env referenced', /CROWSNEST_AUTH_EARTHLING_PASSWORD/.test(authSrc));
+ok('CROWSNEST_AUTH_MONSHIES_USERNAME env referenced', /CROWSNEST_AUTH_MONSHIES_USERNAME/.test(authSrc));
+ok('CROWSNEST_AUTH_MONSHIES_PASSWORD env referenced', /CROWSNEST_AUTH_MONSHIES_PASSWORD/.test(authSrc));
+ok('getCrowsnestAuthAccounts helper exists', /function getCrowsnestAuthAccounts|getCrowsnestAuthAccounts\s*\(/.test(authSrc));
 ok('Basic auth parsing helper exists', /function parseBasicAuthHeader|parseBasicAuthHeader\s*\(/.test(authSrc));
 ok('isCrowsnestRequestAuthorized helper exists', /function isCrowsnestRequestAuthorized|isCrowsnestRequestAuthorized\s*\(/.test(authSrc));
 ok('login session helper exists', /createCrowsnestSession|buildCrowsnestSessionCookie|isCrowsnestSessionAuthorized/.test(authSrc));
@@ -182,7 +187,14 @@ ok('product doc records login portal as live', /Login portal \(live\)|Browser ac
 ok('product doc keeps pre-portal shell as history only', /History \(pre-login-portal/i.test(productDoc) && /stage:\s*skeleton/i.test(productDoc));
 ok('deploy plan mentions CROWSNEST_AUTH_USERNAME', /CROWSNEST_AUTH_USERNAME/.test(deployDoc));
 ok('deploy plan mentions CROWSNEST_AUTH_PASSWORD', /CROWSNEST_AUTH_PASSWORD/.test(deployDoc));
+ok('deploy plan mentions Earthling multi-account env', /CROWSNEST_AUTH_EARTHLING_USERNAME/.test(deployDoc) && /CROWSNEST_AUTH_EARTHLING_PASSWORD/.test(deployDoc));
+ok('deploy plan mentions Monshies multi-account env', /CROWSNEST_AUTH_MONSHIES_USERNAME/.test(deployDoc) && /CROWSNEST_AUTH_MONSHIES_PASSWORD/.test(deployDoc));
 ok('deploy plan records Azure auth secret refs', /cn-auth-user/.test(deployDoc) && /cn-auth-pass/.test(deployDoc));
+ok('deploy plan records planned Monshies Azure secret refs', /cn-monshies-user/.test(deployDoc) && /cn-monshies-pass/.test(deployDoc));
+ok('deploy plan does not claim multi-account already deployed', /not deployed yet/i.test(deployDoc));
+ok('product doc mentions Earthling multi-account env', /CROWSNEST_AUTH_EARTHLING_USERNAME/.test(productDoc) && /CROWSNEST_AUTH_EARTHLING_PASSWORD/.test(productDoc));
+ok('product doc mentions Monshies multi-account env', /CROWSNEST_AUTH_MONSHIES_USERNAME/.test(productDoc) && /CROWSNEST_AUTH_MONSHIES_PASSWORD/.test(productDoc));
+ok('product doc records planned Azure Earthling/Monshies secret mapping', /cn-auth-user/.test(productDoc) && /cn-monshies-user/.test(productDoc) && /not deployed/i.test(productDoc));
 
 const writeRouteRe = /\.(post|put|patch|delete)\(|\/(create|update|delete|save|write|submit)\b/i;
 ok('no business/data write routes in crowsnest-api', !writeRouteRe.test(apiSrc));

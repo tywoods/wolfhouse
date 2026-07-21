@@ -14,7 +14,7 @@ Product overview: [`CROWSNEST.md`](CROWSNEST.md)
 | App | Azure Container App `crowsnest-internal` in `wh-staging-rg` (revision `crowsnest-internal--0000007`, 100% traffic) |
 | Image | `whstagingacr.azurecr.io/crowsnest:d8b52b452aa0535d242ac5fcf31077f62068ce4e` |
 | Runtime | `scripts/crowsnest-api.js` on port 3040; separate from `staff-query-api.js` |
-| Live safety | Branded login portal enabled; unauthenticated UI redirects to `/login`; legacy Basic Auth retained for compatibility; `/healthz` public; `stage: portal`; `writes_enabled: false`; auth secrets via Azure refs `cn-auth-user` / `cn-auth-pass` |
+| Live safety | Branded login portal enabled; unauthenticated UI redirects to `/login`; legacy Basic Auth retained for compatibility; `/healthz` public; `stage: portal`; `writes_enabled: false`; live auth secrets via Azure refs `cn-auth-user` / `cn-auth-pass` (single shared credential today). Planned multi-account mapping (code-ready, **not deployed yet**): those refs → Earthling; new `cn-monshies-user` / `cn-monshies-pass` → Monshies |
 | Staff API | Unchanged at `wh-staging-staff-api--0000520` / image `458ed255e8a06b7b0557718031e57f4d7064fa62` |
 
 Verified live on 2026-07-21: the app reported `service: crowsnest`, `stage: portal`, `auth_enabled: true`, and `writes_enabled: false` with allowed users Monshies/Earthling. Unauthenticated `/` redirected `302` to `/login` with no Basic challenge; `/login` rendered the branded portal; production login/session/logout and Secure cookie flow passed with CSP and no browser errors. Live operator credential distribution is out of scope for this plan.

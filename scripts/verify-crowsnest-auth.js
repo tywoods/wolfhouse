@@ -144,12 +144,285 @@ function basicAuthRequest(username, password) {
   return { headers: { authorization: `Basic ${token}` } };
 }
 
+const MULTI_AUTH_ENV_KEYS = [
+  'CROWSNEST_AUTH_EARTHLING_USERNAME',
+  'CROWSNEST_AUTH_EARTHLING_PASSWORD',
+  'CROWSNEST_AUTH_MONSHIES_USERNAME',
+  'CROWSNEST_AUTH_MONSHIES_PASSWORD',
+];
+
+const LEGACY_AUTH_ENV_KEYS = [
+  'CROWSNEST_AUTH_USERNAME',
+  'CROWSNEST_AUTH_PASSWORD',
+];
+
+function snapshotAuthEnv() {
+  const keys = [
+    'CROWSNEST_AUTH_REQUIRED',
+    'NODE_ENV',
+    ...MULTI_AUTH_ENV_KEYS,
+    ...LEGACY_AUTH_ENV_KEYS,
+  ];
+  const snap = {};
+  for (const key of keys) snap[key] = process.env[key];
+  return snap;
+}
+
+function restoreAuthEnv(snap) {
+  for (const [key, value] of Object.entries(snap)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
+
+function clearAuthCredentialEnv() {
+  for (const key of [...MULTI_AUTH_ENV_KEYS, ...LEGACY_AUTH_ENV_KEYS]) {
+    delete process.env[key];
+  }
+}
+
+function assertAuthAccountsConfigContract() {
+  const prev = snapshotAuthEnv();
+  try {
+    clearAuthCredentialEnv();
+    delete process.env.NODE_ENV;
+
+    ok(
+      'getCrowsnestAuthAccounts helper is exported',
+      typeof auth.getCrowsnestAuthAccounts === 'function',
+    );
+    if (typeof auth.getCrowsnestAuthAccounts !== 'function') return;
+
+    {
+      const cfg = auth.getCrowsnestAuthAccounts();
+      ok('non-production default is configured', cfg && cfg.configured === true);
+      ok('non-production default mode is default', cfg && cfg.mode === 'default');
+      ok(
+        'non-production default is single admin/admin account',
+        Array.isArray(cfg.accounts)
+          && cfg.accounts.length === 1
+          && cfg.accounts[0].username === 'admin'
+          && cfg.accounts[0].password === 'admin',
+      );
+      const legacy = auth.getCrowsnestBasicAuthConfig();
+      ok(
+        'deprecated basic config mirrors default admin/admin',
+        legacy.configured === true && legacy.username === 'admin' && legacy.password === 'admin',
+      );
+    }
+
+    {
+      process.env.NODE_ENV = 'production';
+      const cfg = auth.getCrowsnestAuthAccounts();
+      ok('production without credentials is misconfigured', cfg && cfg.configured === false);
+      ok('production without credentials has empty accounts', Array.isArray(cfg.accounts) && cfg.accounts.length === 0);
+      ok('deprecated basic config reports production misconfigured', auth.getCrowsnestBasicAuthConfig().configured === false);
+      delete process.env.NODE_ENV;
+    }
+
+    {
+      clearAuthCredentialEnv();
+      process.env.CROWSNEST_AUTH_USERNAME = 'legacy-user';
+      process.env.CROWSNEST_AUTH_PASSWORD = 'legacy-pass';
+      const cfg = auth.getCrowsnestAuthAccounts();
+      ok('legacy pair configures one account', cfg.configured === true && cfg.mode === 'legacy' && cfg.accounts.length === 1);
+      ok(
+        'legacy account uses username/password env',
+        cfg.accounts[0].username === 'legacy-user' && cfg.accounts[0].password === 'legacy-pass',
+      );
+      const legacy = auth.getCrowsnestBasicAuthConfig();
+      ok(
+        'deprecated basic config mirrors legacy pair',
+        legacy.configured === true && legacy.username === 'legacy-user' && legacy.password === 'legacy-pass',
+      );
+    }
+
+    {
+      clearAuthCredentialEnv();
+      process.env.CROWSNEST_AUTH_EARTHLING_USERNAME = 'earthling';
+      process.env.CROWSNEST_AUTH_EARTHLING_PASSWORD = 'earth-secret';
+      process.env.CROWSNEST_AUTH_MONSHIES_USERNAME = 'monshies';
+      process.env.CROWSNEST_AUTH_MONSHIES_PASSWORD = 'mon-secret';
+      process.env.CROWSNEST_AUTH_USERNAME = 'ignored-legacy';
+      process.env.CROWSNEST_AUTH_PASSWORD = 'ignored-legacy-pass';
+      const cfg = auth.getCrowsnestAuthAccounts();
+      ok('multi-account mode is configured when all four are set', cfg.configured === true && cfg.mode === 'multi');
+      ok('multi-account mode exposes exactly two accounts', cfg.accounts.length === 2);
+      ok(
+        'multi-account mode never mixes legacy credentials',
+        cfg.accounts.every((a) => a.username !== 'ignored-legacy' && a.password !== 'ignored-legacy-pass'),
+      );
+      ok(
+        'multi-account mode includes Earthling pair',
+        cfg.accounts.some((a) => a.id === 'earthling' && a.username === 'earthling' && a.password === 'earth-secret'),
+      );
+      ok(
+        'multi-account mode includes Monshies pair',
+        cfg.accounts.some((a) => a.id === 'monshies' && a.username === 'monshies' && a.password === 'mon-secret'),
+      );
+      ok(
+        'deprecated basic config reports multi configured without claiming legacy user',
+        auth.getCrowsnestBasicAuthConfig().configured === true
+          && auth.getCrowsnestBasicAuthConfig().username !== 'ignored-legacy',
+      );
+    }
+
+    {
+      clearAuthCredentialEnv();
+      process.env.CROWSNEST_AUTH_EARTHLING_USERNAME = 'earthling';
+      process.env.CROWSNEST_AUTH_EARTHLING_PASSWORD = 'earth-secret';
+      // Missing Monshies pair entirely → multi mode selected, misconfigured
+      const cfg = auth.getCrowsnestAuthAccounts();
+      ok('partial multi-account env is misconfigured', cfg.configured === false && cfg.mode === 'multi');
+      ok('partial multi-account does not fall back to legacy/default', cfg.accounts.length === 0);
+      ok('deprecated basic config reports partial multi as misconfigured', auth.getCrowsnestBasicAuthConfig().configured === false);
+    }
+
+    {
+      clearAuthCredentialEnv();
+      process.env.CROWSNEST_AUTH_EARTHLING_USERNAME = 'earthling';
+      process.env.CROWSNEST_AUTH_EARTHLING_PASSWORD = 'earth-secret';
+      process.env.CROWSNEST_AUTH_MONSHIES_USERNAME = 'monshies';
+      process.env.CROWSNEST_AUTH_MONSHIES_PASSWORD = '';
+      const cfg = auth.getCrowsnestAuthAccounts();
+      ok('blank multi-account password is misconfigured', cfg.configured === false && cfg.mode === 'multi');
+    }
+
+    {
+      clearAuthCredentialEnv();
+      process.env.CROWSNEST_AUTH_EARTHLING_USERNAME = 'same-user';
+      process.env.CROWSNEST_AUTH_EARTHLING_PASSWORD = 'earth-secret';
+      process.env.CROWSNEST_AUTH_MONSHIES_USERNAME = 'same-user';
+      process.env.CROWSNEST_AUTH_MONSHIES_PASSWORD = 'mon-secret';
+      const cfg = auth.getCrowsnestAuthAccounts();
+      ok('duplicate multi-account usernames are misconfigured', cfg.configured === false && cfg.mode === 'multi');
+    }
+
+    {
+      clearAuthCredentialEnv();
+      process.env.CROWSNEST_AUTH_EARTHLING_USERNAME = '';
+      process.env.CROWSNEST_AUTH_EARTHLING_PASSWORD = 'earth-secret';
+      process.env.CROWSNEST_AUTH_MONSHIES_USERNAME = 'monshies';
+      process.env.CROWSNEST_AUTH_MONSHIES_PASSWORD = 'mon-secret';
+      const cfg = auth.getCrowsnestAuthAccounts();
+      ok('blank multi-account username is misconfigured', cfg.configured === false && cfg.mode === 'multi');
+    }
+
+    {
+      clearAuthCredentialEnv();
+      process.env.CROWSNEST_AUTH_USERNAME = '';
+      process.env.CROWSNEST_AUTH_PASSWORD = 'x';
+      const cfg = auth.getCrowsnestAuthAccounts();
+      ok('blank legacy username is misconfigured', cfg.configured === false && cfg.mode === 'legacy');
+    }
+  } finally {
+    restoreAuthEnv(prev);
+  }
+}
+
+function assertMultiAccountLoginAndBasicAuth() {
+  const prev = snapshotAuthEnv();
+  try {
+    clearAuthCredentialEnv();
+    process.env.CROWSNEST_AUTH_REQUIRED = 'true';
+    process.env.CROWSNEST_AUTH_EARTHLING_USERNAME = 'earthling';
+    process.env.CROWSNEST_AUTH_EARTHLING_PASSWORD = 'earth-secret';
+    process.env.CROWSNEST_AUTH_MONSHIES_USERNAME = 'monshies';
+    process.env.CROWSNEST_AUTH_MONSHIES_PASSWORD = 'mon-secret';
+
+    ok('Earthling form login accepted', auth.isCrowsnestLoginAccepted('earthling', 'earth-secret') === true);
+    ok('Monshies form login accepted', auth.isCrowsnestLoginAccepted('monshies', 'mon-secret') === true);
+    ok('wrong password form login rejected', auth.isCrowsnestLoginAccepted('earthling', 'mon-secret') === false);
+    ok('wrong username form login rejected', auth.isCrowsnestLoginAccepted('nobody', 'earth-secret') === false);
+    ok('cross-account password form login rejected', auth.isCrowsnestLoginAccepted('earthling', 'wrong') === false);
+
+    ok(
+      'Earthling Basic Auth accepted',
+      auth.isCrowsnestRequestAuthorized(basicAuthRequest('earthling', 'earth-secret')) === true,
+    );
+    ok(
+      'Monshies Basic Auth accepted',
+      auth.isCrowsnestRequestAuthorized(basicAuthRequest('monshies', 'mon-secret')) === true,
+    );
+    ok(
+      'wrong Basic Auth credentials rejected',
+      auth.isCrowsnestRequestAuthorized(basicAuthRequest('earthling', 'nope')) === false,
+    );
+    ok(
+      'unknown Basic Auth username rejected',
+      auth.isCrowsnestRequestAuthorized(basicAuthRequest('admin', 'admin')) === false,
+    );
+  } finally {
+    restoreAuthEnv(prev);
+  }
+}
+
+function assertMultiAccountConstantComparisonCount() {
+  const prev = snapshotAuthEnv();
+  try {
+    clearAuthCredentialEnv();
+    process.env.CROWSNEST_AUTH_REQUIRED = 'true';
+    process.env.CROWSNEST_AUTH_EARTHLING_USERNAME = 'earthling';
+    process.env.CROWSNEST_AUTH_EARTHLING_PASSWORD = 'earth-secret';
+    process.env.CROWSNEST_AUTH_MONSHIES_USERNAME = 'monshies';
+    process.env.CROWSNEST_AUTH_MONSHIES_PASSWORD = 'mon-secret';
+
+    const cases = [
+      { label: 'valid-first-account', username: 'earthling', password: 'earth-secret', expect: true },
+      { label: 'valid-second-account', username: 'monshies', password: 'mon-secret', expect: true },
+      { label: 'wrong-username', username: 'nobody', password: 'earth-secret', expect: false },
+      { label: 'wrong-password', username: 'earthling', password: 'wrong-pass', expect: false },
+    ];
+
+    for (const testCase of cases) {
+      const form = withTimingSafeEqualStringCallCount(() => (
+        auth.isCrowsnestLoginAccepted(testCase.username, testCase.password)
+      ));
+      ok(
+        `multi form ${testCase.label} performs exactly four digest comparisons`,
+        form.calls === 4,
+        `calls=${form.calls}`,
+      );
+      ok(
+        `multi form ${testCase.label} acceptance`,
+        form.result === testCase.expect,
+        `result=${form.result}`,
+      );
+
+      const basic = withTimingSafeEqualStringCallCount(() => (
+        auth.isCrowsnestRequestAuthorized(basicAuthRequest(testCase.username, testCase.password))
+      ));
+      ok(
+        `multi basic ${testCase.label} performs exactly four digest comparisons`,
+        basic.calls === 4,
+        `calls=${basic.calls}`,
+      );
+      ok(
+        `multi basic ${testCase.label} acceptance`,
+        basic.result === testCase.expect,
+        `result=${basic.result}`,
+      );
+    }
+
+    const authSrc = fs.readFileSync(AUTH_MODULE_PATH, 'utf8');
+    const matchFn = /function credentialsMatchAnyConfiguredAccount[\s\S]*?\n\}/.exec(authSrc);
+    const matchSrc = matchFn ? matchFn[0] : '';
+    ok(
+      'multi-account matcher does not short-circuit via Array.some',
+      matchSrc.includes('credentialsMatchAnyConfiguredAccount') && !/\.some\s*\(/.test(matchSrc),
+    );
+    ok(
+      'multi-account matcher does not short-circuit via Array.find',
+      !/\.find\s*\(/.test(matchSrc),
+    );
+  } finally {
+    restoreAuthEnv(prev);
+  }
+}
+
 function assertBothCredentialComparisonsAlwaysRun() {
-  const prev = {
-    required: process.env.CROWSNEST_AUTH_REQUIRED,
-    username: process.env.CROWSNEST_AUTH_USERNAME,
-    password: process.env.CROWSNEST_AUTH_PASSWORD,
-  };
+  const prev = snapshotAuthEnv();
+  clearAuthCredentialEnv();
   process.env.CROWSNEST_AUTH_REQUIRED = 'true';
   process.env.CROWSNEST_AUTH_USERNAME = 'admin';
   process.env.CROWSNEST_AUTH_PASSWORD = 'secret';
@@ -191,12 +464,7 @@ function assertBothCredentialComparisonsAlwaysRun() {
       );
     }
   } finally {
-    if (prev.required === undefined) delete process.env.CROWSNEST_AUTH_REQUIRED;
-    else process.env.CROWSNEST_AUTH_REQUIRED = prev.required;
-    if (prev.username === undefined) delete process.env.CROWSNEST_AUTH_USERNAME;
-    else process.env.CROWSNEST_AUTH_USERNAME = prev.username;
-    if (prev.password === undefined) delete process.env.CROWSNEST_AUTH_PASSWORD;
-    else process.env.CROWSNEST_AUTH_PASSWORD = prev.password;
+    restoreAuthEnv(prev);
   }
 }
 
@@ -316,6 +584,15 @@ async function runScenario(name, port, env, tests) {
 
 async function main() {
   console.log('verify:crowsnest-auth — runtime login portal gate\n');
+
+  console.log('[config] auth accounts parsing / legacy isolation');
+  assertAuthAccountsConfigContract();
+
+  console.log('[auth] dual operator login + Basic Auth');
+  assertMultiAccountLoginAndBasicAuth();
+
+  console.log('[auth] constant-work digest comparisons');
+  assertMultiAccountConstantComparisonCount();
 
   assertTimingSafeEqualStringCoverage();
 
@@ -511,6 +788,121 @@ async function main() {
       assertBrowserSecurityHeaders('405 JSON', method);
       ok('405 JSON body is safe', /method not allowed/i.test(method.body) && !method.body.includes('<!DOCTYPE html>'));
       ok('405 JSON Allow header stays correct', String(method.headers.allow || '') === 'GET, HEAD');
+    },
+  ]);
+
+  await runScenario('F multi-account Earthling + Monshies', BASE_PORT + 5, {
+    CROWSNEST_AUTH_REQUIRED: 'true',
+    CROWSNEST_AUTH_EARTHLING_USERNAME: 'earthling-op',
+    CROWSNEST_AUTH_EARTHLING_PASSWORD: 'earth-pass',
+    CROWSNEST_AUTH_MONSHIES_USERNAME: 'monshies-op',
+    CROWSNEST_AUTH_MONSHIES_PASSWORD: 'mon-pass',
+    // Legacy present must be ignored in multi mode
+    CROWSNEST_AUTH_USERNAME: 'admin',
+    CROWSNEST_AUTH_PASSWORD: 'admin',
+  }, [
+    async (port) => {
+      const bad = await request(port, '/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'username=admin&password=admin',
+      });
+      ok('multi mode rejects legacy shared credential', bad.statusCode === 200 && /Invalid credentials/i.test(bad.body));
+      ok('multi mode bad login stays generic', !bad.body.includes('admin') && !bad.body.includes('earthling-op'));
+      ok('multi mode bad login sets no cookie', !('set-cookie' in bad.headers));
+    },
+    async (port) => {
+      const earthlingLogin = await request(port, '/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'username=earthling-op&password=earth-pass',
+      });
+      ok('Earthling browser login redirects to /', earthlingLogin.statusCode === 302 && String(earthlingLogin.headers.location || '') === '/');
+      const earthlingCookie = extractCookiePair(earthlingLogin.headers['set-cookie']);
+      ok('Earthling login sets session cookie', /crowsnest_session=/.test(earthlingCookie));
+
+      const monshiesLogin = await request(port, '/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'username=monshies-op&password=mon-pass',
+      });
+      ok('Monshies browser login redirects to /', monshiesLogin.statusCode === 302 && String(monshiesLogin.headers.location || '') === '/');
+      const monshiesCookie = extractCookiePair(monshiesLogin.headers['set-cookie']);
+      ok('Monshies login sets session cookie', /crowsnest_session=/.test(monshiesCookie));
+      ok('Earthling and Monshies sessions are distinct tokens', earthlingCookie !== monshiesCookie);
+
+      const earthlingUi = await request(port, '/', { headers: { Cookie: earthlingCookie } });
+      ok('Earthling session opens protected UI', earthlingUi.statusCode === 200 && earthlingUi.body.includes('Clients'));
+      const monshiesUi = await request(port, '/', { headers: { Cookie: monshiesCookie } });
+      ok('Monshies session opens protected UI', monshiesUi.statusCode === 200 && monshiesUi.body.includes('Clients'));
+
+      const logoutEarthling = await request(port, '/logout', {
+        method: 'POST',
+        headers: { Cookie: earthlingCookie },
+      });
+      ok('Earthling logout redirects to /login', logoutEarthling.statusCode === 302 && String(logoutEarthling.headers.location || '') === '/login');
+      const afterEarthlingLogout = await request(port, '/', { headers: { Cookie: earthlingCookie } });
+      ok('Earthling logout invalidates only Earthling session', afterEarthlingLogout.statusCode === 302 && String(afterEarthlingLogout.headers.location || '') === '/login');
+      const monshiesStillAuthed = await request(port, '/', { headers: { Cookie: monshiesCookie } });
+      ok('Monshies session remains valid after Earthling logout', monshiesStillAuthed.statusCode === 200 && monshiesStillAuthed.body.includes('Clients'));
+    },
+    async (port) => {
+      const earthlingBasic = await request(port, '/crowsnest/ui', {
+        username: 'earthling-op',
+        password: 'earth-pass',
+      });
+      ok('Earthling legacy Basic Auth opens UI', earthlingBasic.statusCode === 200 && earthlingBasic.body.includes('Clients'));
+      const monshiesBasic = await request(port, '/crowsnest/ui', {
+        username: 'monshies-op',
+        password: 'mon-pass',
+      });
+      ok('Monshies legacy Basic Auth opens UI', monshiesBasic.statusCode === 200 && monshiesBasic.body.includes('Clients'));
+      const legacyBasic = await request(port, '/crowsnest/ui', { username: 'admin', password: 'admin' });
+      ok('multi mode rejects legacy Basic Auth shared credential', legacyBasic.statusCode === 302 && String(legacyBasic.headers.location || '') === '/login');
+    },
+    async (port) => {
+      const hz = await request(port, '/healthz');
+      ok('multi mode GET /healthz stays public 200', hz.statusCode === 200);
+      let body;
+      try { body = JSON.parse(hz.body); } catch { body = null; }
+      ok('multi mode healthz auth_enabled:true', body && body.auth_enabled === true);
+      ok('multi mode healthz omits passwords', !/earth-pass|mon-pass|admin/i.test(hz.body));
+      ok('multi mode healthz omits credential env names', !/CROWSNEST_AUTH_.*PASSWORD/i.test(hz.body));
+    },
+  ]);
+
+  await runScenario('G multi-account production Secure cookie', BASE_PORT + 6, {
+    NODE_ENV: 'production',
+    CROWSNEST_AUTH_REQUIRED: 'true',
+    CROWSNEST_AUTH_EARTHLING_USERNAME: 'earthling-op',
+    CROWSNEST_AUTH_EARTHLING_PASSWORD: 'earth-pass',
+    CROWSNEST_AUTH_MONSHIES_USERNAME: 'monshies-op',
+    CROWSNEST_AUTH_MONSHIES_PASSWORD: 'mon-pass',
+  }, [
+    async (port) => {
+      const login = await request(port, '/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'username=monshies-op&password=mon-pass',
+      });
+      const cookie = flattenSetCookieHeader(login.headers['set-cookie']);
+      ok('multi-account production login sets Secure cookie', /Secure/i.test(cookie));
+    },
+  ]);
+
+  await runScenario('H multi-account misconfigured duplicate usernames', BASE_PORT + 7, {
+    CROWSNEST_AUTH_REQUIRED: 'true',
+    CROWSNEST_AUTH_EARTHLING_USERNAME: 'same-op',
+    CROWSNEST_AUTH_EARTHLING_PASSWORD: 'earth-pass',
+    CROWSNEST_AUTH_MONSHIES_USERNAME: 'same-op',
+    CROWSNEST_AUTH_MONSHIES_PASSWORD: 'mon-pass',
+  }, [
+    async (port) => {
+      const ui = await request(port, '/crowsnest/ui');
+      ok('duplicate usernames => 503 when auth required', ui.statusCode === 503);
+      ok('duplicate usernames 503 message is safe', ui.body.includes('Crowsnest auth is not configured'));
+      const hz = await request(port, '/healthz');
+      ok('duplicate usernames still leave /healthz public', hz.statusCode === 200);
     },
   ]);
 
