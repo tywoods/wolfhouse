@@ -387,8 +387,9 @@ const doc = readText('docs/RADAR-OPERATIONS-GATE-LEDGER.md');
 const findings = readText('fixtures/radar-operations/findings.md');
 const pkg = readJson('package.json');
 
-ok('C1 HEAD on 16AO branch',
-  currentBranch() === locks.BRANCH,
+ok('C1 HEAD on 16AO branch (or 16AP closeout tip retaining 16AO)',
+  currentBranch() === locks.BRANCH
+    || currentBranch() === 'radar/slice-16ap-finite-closeout',
   currentBranch());
 ok('C2 evidence master_basis locked', evidence.master_basis === locks.MASTER_BASIS);
 ok('C3 slice/outcome/branch locked',
@@ -504,20 +505,29 @@ green('16an_ingress_source_retained',
   && topContract.selected_16an.outcome_id === '16AN_g06_wolfhouse_ingress_binding'
   && topContract.g06_backpressure === 'open');
 
-ok('C7 tip matrix/contract 16AO + selected_16ao',
-  matrix.slice === 'RADAR-16AO'
-  && topContract.slice === 'RADAR-16AO'
-  && matrix.branch === locks.BRANCH
-  && matrix.master_basis === locks.MASTER_BASIS
-  && topContract.branch === locks.BRANCH
-  && topContract.master_basis === locks.MASTER_BASIS
+ok('C7 tip matrix/contract 16AO (or 16AP closeout tip) + selected_16ao',
+  (matrix.slice === 'RADAR-16AO' || matrix.slice === 'RADAR-16AP')
+  && (topContract.slice === 'RADAR-16AO' || topContract.slice === 'RADAR-16AP')
   && matrix.slice_16ao_selection
   && matrix.slice_16ao_selection.outcome_id === locks.OUTCOME_ID
   && topContract.selected_16ao
   && topContract.selected_16ao.outcome_id === locks.OUTCOME_ID
   && topContract.g06_admission_activation === 'live_proven_via_16AO'
   && topContract.selected_16ao.flag_enabled === true
-  && topContract.g06_backpressure === 'open');
+  && topContract.g06_backpressure === 'open'
+  && (
+    (matrix.slice === 'RADAR-16AO'
+      && matrix.branch === locks.BRANCH
+      && matrix.master_basis === locks.MASTER_BASIS
+      && topContract.branch === locks.BRANCH
+      && topContract.master_basis === locks.MASTER_BASIS)
+    || (matrix.slice === 'RADAR-16AP'
+      && matrix.branch === 'radar/slice-16ap-finite-closeout'
+      && topContract.branch === 'radar/slice-16ap-finite-closeout'
+      && topContract.selected_16ap
+      && topContract.selected_16ap.outcome_id === '16AP_finite_milestone_closeout'
+      && topContract.radar_current_stage === 'complete_under_bounded_staging_readiness_exit')
+  ));
 
 ok('C8 doc/findings mention 16AO without overclaim',
   /16AO/i.test(doc)

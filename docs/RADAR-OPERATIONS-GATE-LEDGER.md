@@ -1,14 +1,97 @@
-# RADAR Slice 16AO — Operations gate ledger (G06 corrected dual-staging admission activation evidence)
+# RADAR Slice 16AP — Finite milestone closeout (staging-readiness current-stage exit)
 
-**Status:** evidence-only corrected dual-staging admission activation of 16AN image @ master `9da22843` (auth-rejection 403 / healthy activation only; **not** overload shed; G06 remains partial)
-**Master basis:** `9da228436c21bf7777cee553c91877a7e62a4092`
-**Branch:** `radar/slice-16ao-g06-backpressure-activation-evidence`
-**Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
+**Status:** finite milestone closeout — **not** an implementation expansion. RADAR **current-stage complete** only under the bounded **staging-readiness exit** below. All nine formal gates remain **`partial`**; score frozen **proven=0 / partial=9 / absent=0**.
+**Master basis:** `66e34a5833ff3bcc7f297108f594b4fc58a0eccc`
+**Branch:** `radar/slice-16ap-finite-closeout`
+**Azure scope (locked, retained):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16AN ingress-binding source + 16AM deploy-flag-OFF evidence + 16AL admission wire + 16AK backpressure source
-**This tip does not mutate runtime/IaC/live:** evidence sanitize/hash/commit only; operator already performed corrected activation
+**Builds on:** full retained ledger through 16AO (incl. G06 activation evidence)
+**This tip does not mutate runtime/IaC/live:** docs / fixtures / verifier only
 
-## Outcome (16AO)
+## Executive closeout (16AP)
+
+Honest freeze after reading the full gate matrix/ledger and retained slice evidence through 16AO.
+
+| Freeze | Locked value |
+|--------|----------------|
+| Formal score | proven=**0** / partial=**9** / absent=**0** |
+| Formal gate verdicts | all nine **`partial`** — **not** redefined to proven |
+| Current-stage | **complete** under bounded staging-readiness exit only |
+| Production | **unknown / forbidden** until reopen |
+| Additional RADAR implementation slices | **blocked** absent explicit reopen trigger |
+
+### Staging-readiness exit definition (bounded)
+
+RADAR **current-stage** is complete when dual-staging Staff API readiness evidence is retained through 16AO (source contracts + committed staging-live partials), the score remains **0/9/0**, and residual gaps/deferred owners remain listed. This exit **does not** mean production-ready, raising any formal gate (including G06) to `proven`, claiming full_G06_proven, or gaps erased.
+
+### Gate evidence-class freeze (G01–G09)
+
+| Gate | Formal | Evidence class | Source-proven (examples) | Staging-live partial | Production-only unknowns | Deferred owner |
+|------|--------|----------------|--------------------------|----------------------|--------------------------|----------------|
+| G01 | partial | staging_live_partial | 16J/16R/16U | 16S LAW | prod correlation/LAW | platform-correlation / Hermes ingress |
+| G02 | partial | staging_live_partial | 16I/16W/16Y | 16X–16AD | prod ZDT/lifecycle | platform-ops / ACA lifecycle |
+| G03 | partial | staging_live_partial | 16H IaC | 16P AG test + 16AC fire | prod inbox/routing | platform-ops / Azure Monitor |
+| G04 | partial | source_partial | webhook handlers exist | — | prod backlog/DLQ | payments / worker-ops |
+| G05 | partial | source_partial | 16M event-id claim | — | prod replay/contention | payments / Stripe webhook |
+| G06 | partial | staging_live_partial | 16L/16AG–16AL/16AJ/16AK/16AN | 16AF/16AI/16AM/16AO | prod capacity/SLO/shed | platform-capacity / Staff API admission |
+| G07 | partial | staging_live_partial | rollback runbooks | 16P ACA rollback | prod restore | platform-ops / incident |
+| G08 | partial | staging_live_partial | 16O/16K | 16P webhook privacy | prod PII/retention | security / privacy |
+| G09 | partial | staging_live_partial | 16B budgets | 16P AG test | prod budgets/anomaly | platform-ops / cost |
+
+### G06 honesty (retained — not upgraded)
+
+**Closed / evidenced (complete G06 remains open):** exact-SHA capacity deploy (16AM/16AO); bounded readiness load (16AI); availability SLO **source** (16AJ); backpressure **source/wire/deploy/activation** (16AK→16AL→16AM→16AO); failed identity canary + rollback + correction (16AN/16AO).
+
+**Still open:** overload shed; fairness; soak; autoscale; live SLO; alert fire; production. Activation/auth-rejection **403 ≠** overload shed. G06 remains **partial**.
+
+### Residual risks (concrete — all 10 locked)
+
+| ID | Severity | Status | Owner | Description |
+|----|----------|--------|-------|-------------|
+| G01A_meta_hermes_staff_correlation | high | open_retained | platform-correlation / Hermes ingress | No live Meta→Hermes→Staff correlated read path. |
+| G02_cold_start_and_absolute_zdt | medium | open_retained | platform-ops / ACA lifecycle | Cold-start and absolute/continuous zero-downtime unproven. |
+| G03_human_inbox | medium | open_retained | platform-ops / Azure Monitor | Human inbox receipt and 5xx alert fire unproven. |
+| G04_backlog_dlq | high | open_retained | payments / worker-ops | Webhook/payment/worker backlog depth and DLQ absent. |
+| G05_live_replay | high | open_retained | payments / Stripe webhook | Live Stripe/Meta replay safety drills open. |
+| G06_overload_shed_and_capacity | high | open_retained | platform-capacity / Staff API admission | Overload shed, fairness, soak, autoscale, live SLO, alert fire unproven; activation≠shed. |
+| G07_restore_drill | medium | open_retained | platform-ops / incident | Postgres restore drill and geo-redundant backup open. |
+| G08_retention_search | medium | open_retained | security / privacy | Abrupt paths and retention/search privacy proof open. |
+| G09_anomaly_and_live_budgets | low | open_retained | platform-ops / cost | Live budget list proof and cost anomaly detection open. |
+| production_scope | high | open_retained | operator / production launch | All production controls remain intentionally untouched / unknown. |
+
+### Unconditional break-glass (never delayed by closeout)
+
+RADAR closeout **must never delay or prohibit** urgent incident containment/recovery, credential compromise response, vulnerability/security remediation, legal/compliance action, or availability/data-integrity safety fix **at any severity**. Work may start **immediately**; evidence/reopen bookkeeping **follows after stabilization**. Normal discretionary successor RADAR work remains reopen-trigger-gated.
+
+Locked categories (`16AP_unconditional_break_glass`): `urgent_incident_containment_recovery`, `credential_compromise_response`, `vulnerability_security_remediation`, `legal_compliance_action`, `availability_data_integrity_safety_fix`.
+
+### Objective reopen triggers (discretionary successor work only)
+
+Exact IDs + descriptions + thresholds + applicability are locked (not count-only). Additional discretionary RADAR implementation slices (or score/claim changes) require **one** of:
+
+| ID | Threshold | Applicability |
+|----|-----------|---------------|
+| **production_launch** | `first_production_cutover_or_any_production_rg_mutation` | discretionary successor RADAR implementation and score/claim changes |
+| **third_tenant_factory** | `tenant_count_gt_2_or_new_tenant_slug_beyond_wolfhouse_somo_and_sunset` | discretionary FACTORY expansion RADAR successor work |
+| **traffic_or_cost_threshold** | `sustained_crossing_of_locked_16B_budget_or_16H_or_16L_alert_thresholds` | discretionary capacity or cost RADAR successor work |
+| **incident** | `sev1_or_sev2_incident_tied_to_named_open_residual_risk_id` | discretionary post-incident RADAR follow-up **after** break-glass stabilization |
+| **security_boundary_change** | `any_ingress_tenant_auth_webhook_or_privacy_boundary_change_invalidating_freeze` | discretionary boundary revalidation RADAR successor work |
+
+### FACTORY handoff gate (short)
+
+Hand off only when: score frozen 0/9/0; all nine formal gates partial; evidence classes frozen; residual risks + deferred owners listed; reopen triggers explicit with thresholds; unconditional break-glass present; 16AP made no runtime/IaC/live mutation; successor RADAR slice requires a reopen trigger. **Blocked without reopen:** implementation-expansion slices, raising any gate to proven, claiming production ready, erasing retained gaps. **Break-glass override:** unconditional break-glass categories are never blocked by reopen or handoff.
+
+### Claim ownership (16AP locked)
+
+| Observation | Proves | Does not prove |
+|-------------|--------|----------------|
+| Closeout freeze + verifier | Score/evidence-class freeze; staging-readiness current-stage exit; objective reopen/FACTORY locks; unconditional break-glass; sole production `validateCloseout` closed over private deep-frozen locks via immutable `module.exports` | Any formal gate raised to proven; production ready; full_G06_proven; gap erasure; gating break-glass behind reopen |
+| Export immutability | Post-require assignment/redefinition of exported locks/`validateCloseout` cannot alter validation (deep-frozen non-writable/non-configurable descriptors) | Defense against `require.cache` replacement, rewriting the module before load, or other process-level code injection |
+| Retained prior slices | Prior source/staging-live claims unchanged | New live/production proof by this tip |
+
+**Score frozen 0/9/0; formal gates remain partial; current-stage complete only under staging-readiness exit.**
+
+## Outcome (16AO — retained)
 
 Reconcile corrected dual-staging Staff API admission activation after 16AN ingress-identity fix:
 

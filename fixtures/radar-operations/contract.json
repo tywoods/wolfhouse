@@ -1,16 +1,20 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16AO",
-  "outcome_id": "16AN_g06_wolfhouse_ingress_binding",
-  "master_basis": "9da228436c21bf7777cee553c91877a7e62a4092",
-  "branch": "radar/slice-16ao-g06-backpressure-activation-evidence",
+  "slice": "RADAR-16AP",
+  "outcome_id": "16AP_finite_milestone_closeout",
+  "master_basis": "66e34a5833ff3bcc7f297108f594b4fc58a0eccc",
+  "branch": "radar/slice-16ap-finite-closeout",
   "audit_only": true,
   "live_mutation": false,
-  "title": "RADAR operations gate ledger (16AO G06 corrected dual-staging admission activation evidence; auth-rejection 403 not overload shed; G06 partial \u2014 overload-shed/fairness/soak/fire/autoscale/SLO-live/backpressure-proven open)",
-  "progress_class": "source_deploy_config_partial_progress_only",
-  "does_not_implement": "live_deploy_flag_enable_overload_shed_load_soak_autoscaling_slo_live_backpressure_proven_production_full_g06_scale_mutation",
+  "title": "RADAR operations gate ledger (16AP finite milestone closeout; staging-readiness current-stage complete; formal gates remain partial 0/9/0; unconditional break-glass)",
+  "progress_class": "finite_milestone_closeout_staging_readiness_only",
+  "does_not_implement": "runtime_iac_live_mutation_gate_proven_production_ready_full_g06_gap_erasure_endless_radar_slices_without_reopen",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
+    "scripts/verify-radar-slice16ap-finite-closeout.js",
+    "scripts/lib/radar-slice16ap-finite-closeout.js",
+    "fixtures/radar-operations/slice16ap-expected-contract.json",
+    "fixtures/radar-operations/slice16ap-finite-closeout.json",
     "scripts/verify-radar-slice16ao-g06-backpressure-activation-evidence.js",
     "scripts/verify-radar-slice16an-g06-wolfhouse-ingress-binding.js",
     "scripts/lib/radar-slice16an-g06-wolfhouse-ingress-binding.js",
@@ -228,7 +232,8 @@
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 9da228436c21bf7777cee553c91877a7e62a4092..HEAD"
+    "git diff --check 9da228436c21bf7777cee553c91877a7e62a4092..HEAD",
+    "git diff --check 66e34a5833ff3bcc7f297108f594b4fc58a0eccc..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -821,5 +826,41 @@
     "g06_capacity_alert_fire": "open",
     "g06_autoscaling": "open",
     "g06_production": "open"
-  }
+  },
+  "selected_16ap": {
+    "outcome_id": "16AP_finite_milestone_closeout",
+    "gate_id": "ALL_G01_G09_FREEZE",
+    "progress_class": "finite_milestone_closeout_staging_readiness_only",
+    "does_not_implement": "runtime_iac_live_mutation_gate_proven_production_ready_full_g06_gap_erasure_endless_radar_slices_without_reopen",
+    "builds_on": [
+      "16AO_g06_backpressure_activation_evidence",
+      "16AN_g06_wolfhouse_ingress_binding",
+      "16AM_g06_backpressure_deploy_evidence"
+    ],
+    "frozen_score": {
+      "proven": 0,
+      "partial": 9,
+      "absent": 0,
+      "total": 9
+    },
+    "staging_readiness_exit_status": "complete_under_bounded_staging_readiness_exit",
+    "formal_gates_status": "all_nine_remain_partial",
+    "final_controlled_drill_status": "offline_closeout_proven",
+    "g06_admission_activation": "live_proven_via_16AO",
+    "g06_ingress_binding_source": "source_deploy_config_proven_via_16AN",
+    "g06_backpressure_deploy_flag_off": "live_proven_via_16AM",
+    "g06_backpressure": "open",
+    "g06_verdict": "partial"
+  },
+  "radar_current_stage": "complete_under_bounded_staging_readiness_exit",
+  "formal_gates_status": "all_nine_remain_partial",
+  "reopen_triggers": [
+    "production_launch",
+    "third_tenant_factory",
+    "traffic_or_cost_threshold",
+    "incident",
+    "security_boundary_change"
+  ],
+  "factory_handoff_gate": "16AP_FACTORY_handoff_gate",
+  "break_glass": "16AP_unconditional_break_glass"
 }
