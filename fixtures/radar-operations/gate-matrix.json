@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16AL",
-  "title": "RADAR operations gate ledger (16AL G06 admission wire source behind flag default OFF; G06 partial \u2014 live shed/flag-on/soak/fire/autoscale/SLO-live open)",
-  "master_basis": "502d762f897432c67bb8b17a8a49bfab01a0787d",
-  "branch": "radar/slice-16al-g06-backpressure-wire",
+  "slice": "RADAR-16AM",
+  "title": "RADAR operations gate ledger (16AM G06 dual-staging 16AL deploy evidence flag OFF/unset; G06 partial \u2014 activation/shed/soak/fire/autoscale/SLO-live open)",
+  "master_basis": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+  "branch": "radar/slice-16am-g06-backpressure-deploy-evidence",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -444,7 +444,7 @@
       "name": "Scaling / capacity",
       "verdict": "partial",
       "severity": "medium",
-      "rationale": "16L source-only capacity-pressure alerts remain in Bicep. 16AF live-proves dual-staging deploy readback @ 2026-07-21T14:30:07Z: four Staff API capacity alerts Enabled Sev2 Average>80 PT5M eval/PT15M window (CpuPercentage + MemoryPercentage per tenant) scoped to exact WH/Sunset Staff API apps wired to tenant ops AGs (ops-email Enabled; address not recorded). Current scale truth recorded: WH minReplicas=0 maxReplicas=1 rules=null; Sunset minReplicas=1 maxReplicas=1 rules=null; latest=latestReady g02503r both tenants. 16AG adds a dependency-free bounded Node load harness hard-locked to the two exact staging /readyz URLs with offline fake-server RED/GREEN verifier; future drill profile defined_not_executed as the 16AG source lock. 16AH corrects pinnedLookup to honor Node dns.lookup callback contract when options.all=true (Happy Eyeballs): return validated pinned address array (retain scalar for all=false; family filter/exact pins). Offline production-shaped RED proves scalar replies fail before HTTP with safe error-code classes only. A controlled post-16AG live attempt against both exact staging /readyz targets yielded 60/60 error-class while direct pre/post /readyz stayed ready \u2014 recorded cautiously as attempted_not_proof (root_cause_class=pinned_lookup_scalar_under_options_all_true). 16AI reconciles the successful controlled re-run @ 2026-07-21T16:50:16Z of profile 16AG_DRILL_dual_staging_readyz_bounded_load against the exact two staging /readyz targets, claiming only what committed secret-free raw fixtures prove (slice16ai-raw-drill + slice16ai-raw-cost-before/after; SHA-256 locked; ephemeral /tmp and tmp/ excluded): each 60/60 2xx; peak_in_flight=2; zero timeout/error/non-2xx; WH p50/p95/p99/max 30/32/44/44ms wall 954; Sunset 28/29/40/40ms wall 879; response bodies/redirects/headers/auth/body false; DNS pinned; active remaining 0; Sunset MTD ActualCost before/after identical 18.2443795483871 USD. Explicitly does not claim pre/post /readyz readiness (absent from raw drill) or after-query 429/retry (no durable transcript). final_controlled_drill status live_proven for this conservative readiness profile only. 16AJ source-defines an availability-only finite staging readiness SLO/error-budget contract (ACA Requests Total/Sum split by statusCodeCategory; exact rolling PT7D; coverage against PT7D; PT5M grain; availability 99%; latency percentile SLI blocked; combined/intersection forbidden; error-budget + multi-window burn math with baseline-within-grain slicing; fail-closed missing/reset/out-of-order/zero-traffic/sparse/stale/span-mismatch/unsafe-integer/NaN/latency-blocked/combined-forbidden) with a pure dependency-free calculator and offline RED/GREEN verifier; future burn-alert/drill acceptance defined_not_executed only. G06 remains partial: load soak, alert firing/notification, autoscaling, SLO/error-budget live proof, and backpressure remain open. 16AK source-defines a tenant-safe Staff API admission-control / backpressure contract from inspected request topology (health/ready excluded; trusted ingress tenant only; exact in-flight/queue ceilings; fail-fast 503+Retry-After only before side effects; per-tenant isolation + round-robin fairness; cancellation/timeout cleanup; no double release; bounded diagnostics; readiness independence; in-progress transactional work non-rejectable after side effects) with a pure dependency-free state machine and offline RED/GREEN verifier; Staff API integration drill defined_not_executed only \u2014 not wired into runtime. G06 remains partial: runtime wire/live 503 shed, load soak, alert firing/notification, autoscaling, and SLO/error-budget live proof remain open. 16AL wires the reviewed 16AK admission controller into Staff API createStaffQueryApiHttpServer behind STAFF_API_ADMISSION_CONTROL (fail-closed parse; default OFF). Placement: after resolveTrustedIngressBinding(...).tenant_slug, before router body/DB/tool side effects; eligible-route allowlist only; health/ready/unknown excluded; release-once finish/close/error/abort; queued disconnect cancels; queued promotion resumes once; sync/async throw cleanup; shutdown closes controller; post-side-effect never 503-shed; public 503 body/Retry-After bounded/non-sensitive. Deterministic fake req/res integration tests prove OFF-parity paths and ON behaviors in-process. Flag not enabled; no deploy/live load. G06 remains partial: live 503 shed under load, flag-on staging proof, soak, alert fire/notification, autoscaling, and SLO/error-budget live proof remain open.",
+      "rationale": "16L source-only capacity-pressure alerts remain in Bicep (CpuPercentage + MemoryPercentage). 16AF live-proves dual-staging capacity-alert deploy readback. 16AG harness source + 16AH pinned-lookup correction retained; 16AI live-proves conservative dual-staging /readyz bounded-load only. 16AJ availability-only SLO/error-budget source; 16AK admission/backpressure source; 16AL Staff API admission wire behind STAFF_API_ADMISSION_CONTROL default OFF (integration source). 16AM live-proves dual-staging deploy of 16AL image @ master 905ff9ff with admission flag OFF/unset (ACR cb11f; digest sha256:55ddc5eb\u2026; WH revision 0000521; Sunset latestReady g02503r unchanged name while image changed; both /readyz ready; Sunset MTD ActualCost identical 18.4680092365591 USD). Does not claim flag enable, live 503 shed, soak, alert fire/notification, autoscaling, SLO live, raising backpressure or G06 verdicts, or production. G06 remains partial.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-admission-boundary.js",
@@ -662,14 +662,21 @@
         {
           "ref": "fixtures/radar-operations/slice16ai-g06-live-load-evidence.json",
           "note": "16AI @ 2026-07-21T16:50:16Z: conservative dual-staging /readyz bounded-load 60/60 2xx both targets; peak2; zero timeout/error/non2xx; exact latency/wall; transport hygiene; Sunset MTD ActualCost identical before/after; claims bound to committed raw fixtures via SHA-256; pre/post readiness and 429/retry omitted"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16am-g06-backpressure-deploy-evidence.json",
+          "lines": "1-120",
+          "symbols": [],
+          "note": "16AM dual-staging 16AL deploy flag-OFF evidence (digest/tag/revision/readyz/cost; lock-hashed)"
         }
       ],
       "gaps": [
+        "No admission flag enable / controller activation / live 503 shed (16AM deploy flag OFF only)",
         "No load soak / sustained capacity proof (16AI live-proves only the conservative dual-staging /readyz bounded profile; soak remains open)",
         "No proven capacity-alert fire / notification delivery",
         "No autoscaling rules (rules=null live; not added by 16AF/16AG/16AH/16AI/16AJ)",
         "No capacity SLO / error budget live proof (16AJ defines source contract + calculator only; burn alert/drill acceptance defined_not_executed)",
-        "No backpressure runtime/live proof (16AK defines source contract + pure library only; Staff API integration defined_not_executed; not wired)",
+        "No backpressure runtime/live proof (16AK source + 16AL wire source + 16AM deploy-with-flag-OFF; flag not enabled; no live 503 shed)",
         "Production scope forbidden"
       ],
       "progress_class": "partial_live_proven"
@@ -2378,6 +2385,73 @@
     "g06_verdict": "partial",
     "g06_backpressure_source": "source_defined_via_16AK",
     "g06_backpressure_wire_source": "integration_source_proven_via_16AL",
+    "g06_backpressure": "open",
+    "g06_slo_source": "source_defined_via_16AJ",
+    "g06_slo": "open",
+    "g06_conservative_readyz_bounded_load": "live_proven_via_16AI",
+    "g06_load_soak": "open",
+    "g06_load_harness_source": "source_closed_via_16AG",
+    "g06_pinned_lookup_all_true": "corrected_via_16AH",
+    "g06_capacity_alert_deploy": "live_proven_via_16AF",
+    "g06_capacity_alert_fire": "open",
+    "g06_autoscaling": "open"
+  },
+  "slice_16am_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16AM_g06_backpressure_deploy_evidence",
+    "gate_id": "G06_scaling_capacity",
+    "progress_class": "partial_live_proven_evidence_only",
+    "does_not_implement": "flag_enable_activation_live_shed_load_soak_autoscaling_slo_live_backpressure_proven_production_full_g06_scale_mutation",
+    "title": "Reconcile dual-staging 16AL Staff API deploy with STAFF_API_ADMISSION_CONTROL OFF/unset; evidence only",
+    "why_smallest": "16AL closed the wire in source; narrowest next ownership is durable dual-staging deploy evidence with flag remaining OFF and no live shed claim.",
+    "builds_on": [
+      "16AL_g06_backpressure_wire",
+      "16AK_g06_backpressure_source",
+      "16AJ_g06_slo_error_budget_source",
+      "16AI_g06_live_load_evidence",
+      "16AH_g06_live_load_correction",
+      "16AG_g06_bounded_load_harness",
+      "16AF_g06_capacity_alert_live_evidence"
+    ],
+    "supersedes": [],
+    "owner_files": [
+      "fixtures/radar-operations/slice16am-g06-backpressure-deploy-evidence.json",
+      "fixtures/radar-operations/slice16am-expected-contract.json",
+      "scripts/lib/radar-slice16am-g06-backpressure-deploy-evidence.js",
+      "scripts/verify-radar-slice16am-g06-backpressure-deploy-evidence.js"
+    ],
+    "flag_enabled": false,
+    "flag_env": "STAFF_API_ADMISSION_CONTROL",
+    "out_of_scope_for_16am": [
+      "Enabling STAFF_API_ADMISSION_CONTROL in staging/production",
+      "Live 503 shed / load soak proof",
+      "Autoscaling / replica mutation",
+      "Capacity SLO live proof",
+      "Capacity alert fire / notification",
+      "Inferring new Sunset revision identity beyond latestReady readback",
+      "Production RGs",
+      "Raising G06 verdict to proven"
+    ],
+    "acceptance_criteria": [
+      "Clean exact-SHA preflight on synchronized Lunabox master",
+      "ACR build cb11f; both repos full SHA tag + digest locked",
+      "WH image exact tag; revision wh-staging-staff-api--0000521",
+      "Sunset image exact tag; latestReady g02503r unchanged name disclosed",
+      "Both /readyz status ready",
+      "STAFF_API_ADMISSION_CONTROL absent both; controller disabled",
+      "Sunset MTD ActualCost identical before/after",
+      "No live backpressure/shed claim; G06 remains partial 0/9/0"
+    ],
+    "final_controlled_drill": {
+      "id": "16AM_EVIDENCE_dual_staging_16al_deploy_flag_off",
+      "status": "live_proven",
+      "pass_rule": "See slice16am-expected-contract.json final_controlled_drill.pass_rule"
+    },
+    "g06_verdict": "partial",
+    "g06_backpressure_source": "source_defined_via_16AK",
+    "g06_backpressure_wire_source": "integration_source_proven_via_16AL",
+    "g06_backpressure_deploy_flag_off": "live_proven_via_16AM",
     "g06_backpressure": "open",
     "g06_slo_source": "source_defined_via_16AJ",
     "g06_slo": "open",

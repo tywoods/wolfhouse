@@ -591,6 +591,7 @@ async function main() {
       'radar/slice-16aj-g06-slo-error-budget-source',
       'radar/slice-16ak-g06-backpressure-source',
       'radar/slice-16al-g06-backpressure-wire',
+      'radar/slice-16am-g06-backpressure-deploy-evidence',
     ]);
     ok('C11 HEAD on 16K branch or successor tip', allowed.has(branch), branch);
   } catch (err) {
