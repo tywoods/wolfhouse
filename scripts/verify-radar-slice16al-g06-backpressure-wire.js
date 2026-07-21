@@ -1008,41 +1008,168 @@ async function runIntegration() {
   }
 
   {
-    // Dual-bind idempotent: second bindAdmissionShutdownBegin still closes once
+    // Dual-bind Set-dedupe: same boundary twice → close exactly once; prior once;
+    // registry/dispatcher/hook absent after fire; repeated invoke no rerun;
+    // multi-server isolation; distinct boundaries; no wrapper growth.
     const lifecycle = require('./lib/staff-api-readiness-lifecycle');
     lifecycle._resetStaffApiReadinessLifecycleForTests();
-    const b = boundary.createAdmissionBoundary({
-      trustedTenantSlug: 'wolfhouse-somo',
-      limits: tinyLimits(),
-    });
-    let closes = 0;
-    const wrapping = {
-      close() {
-        closes += 1;
-        return b.close();
-      },
-    };
-    const fakeServer = {
-      listening: false,
-      close(cb) { if (typeof cb === 'function') cb(); },
-    };
-    boundary.bindAdmissionShutdownBegin(fakeServer, wrapping);
-    boundary.bindAdmissionShutdownBegin(fakeServer, wrapping);
-    await lifecycle.runStaffApiReadinessShutdown(fakeServer, 'SIGINT', {
-      closeReadinessPool: async () => {},
-      terminate: false,
-      log: () => {},
-    });
-    // First composed hook runs once per shutdown; outer wrap may compose —
-    // admission close itself is idempotent (boundaryClosed).
-    await lifecycle.runStaffApiReadinessShutdown(fakeServer, 'SIGINT', {
-      closeReadinessPool: async () => {},
-      terminate: false,
-      log: () => {},
-    });
-    red('R8 shutdown begin hook idempotent across joined signals',
-      closes >= 1
-      && b.diagnostics().closed === true);
+
+    const HOOK = boundary.ON_SHUTDOWN_BEGIN_HOOK;
+    const REG = boundary.SHUTDOWN_BEGIN_REGISTRY;
+    const DISP = boundary.SHUTDOWN_BEGIN_DISPATCHER;
+
+    // R8 / R8a — duplicate bind → close === 1 (not wrapper-chain 2)
+    {
+      const b = boundary.createAdmissionBoundary({
+        trustedTenantSlug: 'wolfhouse-somo',
+        limits: tinyLimits(),
+      });
+      let closes = 0;
+      const wrapping = {
+        close() {
+          closes += 1;
+          return b.close();
+        },
+      };
+      const fakeServer = {
+        listening: false,
+        close(cb) { if (typeof cb === 'function') cb(); },
+      };
+      boundary.bindAdmissionShutdownBegin(fakeServer, wrapping);
+      boundary.bindAdmissionShutdownBegin(fakeServer, wrapping);
+      await lifecycle.runStaffApiReadinessShutdown(fakeServer, 'SIGINT', {
+        closeReadinessPool: async () => {},
+        terminate: false,
+        log: () => {},
+      });
+      await lifecycle.runStaffApiReadinessShutdown(fakeServer, 'SIGINT', {
+        closeReadinessPool: async () => {},
+        terminate: false,
+        log: () => {},
+      });
+      red('R8 shutdown begin hook idempotent across joined signals',
+        closes === 1
+        && b.diagnostics().closed === true);
+      red('R8a duplicate bind => close === 1',
+        closes === 1);
+      lifecycle._resetStaffApiReadinessLifecycleForTests();
+    }
+
+    // R8b — prior hook runs exactly once; registry/dispatcher/hook absent after
+    {
+      let priorCalls = 0;
+      const fakeServer = {
+        listening: false,
+        close(cb) { if (typeof cb === 'function') cb(); },
+      };
+      fakeServer[HOOK] = function priorOwner() { priorCalls += 1; };
+      let closes = 0;
+      const owner = { close() { closes += 1; } };
+      boundary.bindAdmissionShutdownBegin(fakeServer, owner);
+      boundary.bindAdmissionShutdownBegin(fakeServer, owner);
+      const dispatcher = fakeServer[DISP];
+      red('R8b0 dispatcher installed; registry present before fire',
+        typeof dispatcher === 'function'
+        && fakeServer[HOOK] === dispatcher
+        && fakeServer[REG]
+        && fakeServer[REG].owners instanceof Set
+        && fakeServer[REG].owners.size === 1);
+
+      lifecycle._invokeShutdownBeginHooksForTests(fakeServer, {});
+      red('R8b prior hook === 1 and close === 1',
+        priorCalls === 1 && closes === 1);
+      red('R8c property/registry absent after run',
+        !(REG in fakeServer)
+        && !(DISP in fakeServer)
+        && !(HOOK in fakeServer)
+        && fakeServer[REG] === undefined
+        && fakeServer[DISP] === undefined
+        && fakeServer[HOOK] === undefined);
+
+      // R8d — repeated invoke (held dispatcher + lifecycle) cannot rerun
+      if (typeof dispatcher === 'function') {
+        dispatcher();
+        dispatcher();
+      }
+      lifecycle._invokeShutdownBeginHooksForTests(fakeServer, {});
+      red('R8d repeated invoke no rerun',
+        priorCalls === 1 && closes === 1);
+    }
+
+    // R8e — multi-server isolation
+    {
+      let closesA = 0;
+      let closesB = 0;
+      const serverA = { listening: false, close(cb) { if (typeof cb === 'function') cb(); } };
+      const serverB = { listening: false, close(cb) { if (typeof cb === 'function') cb(); } };
+      boundary.bindAdmissionShutdownBegin(serverA, { close() { closesA += 1; } });
+      boundary.bindAdmissionShutdownBegin(serverB, { close() { closesB += 1; } });
+      lifecycle._invokeShutdownBeginHooksForTests(serverA, {});
+      red('R8e multi-server isolation — A fires, B untouched',
+        closesA === 1
+        && closesB === 0
+        && typeof serverB[DISP] === 'function'
+        && serverB[REG]
+        && serverB[REG].owners.size === 1);
+      lifecycle._invokeShutdownBeginHooksForTests(serverB, {});
+      red('R8e2 multi-server isolation — B fires independently',
+        closesA === 1 && closesB === 1
+        && !(REG in serverB) && !(DISP in serverB));
+    }
+
+    // R8f — distinct boundaries on one server each close once
+    {
+      let closes1 = 0;
+      let closes2 = 0;
+      const fakeServer = {
+        listening: false,
+        close(cb) { if (typeof cb === 'function') cb(); },
+      };
+      const b1 = { close() { closes1 += 1; } };
+      const b2 = { close() { closes2 += 1; } };
+      boundary.bindAdmissionShutdownBegin(fakeServer, b1);
+      boundary.bindAdmissionShutdownBegin(fakeServer, b2);
+      boundary.bindAdmissionShutdownBegin(fakeServer, b1); // dedupe
+      red('R8f0 distinct owners registered once each',
+        fakeServer[REG].owners.size === 2);
+      lifecycle._invokeShutdownBeginHooksForTests(fakeServer, {});
+      red('R8f distinct-boundary behavior — each close === 1',
+        closes1 === 1 && closes2 === 1);
+    }
+
+    // R8g — no wrapper growth (dispatcher identity stable across binds)
+    {
+      const fakeServer = {
+        listening: false,
+        close(cb) { if (typeof cb === 'function') cb(); },
+      };
+      const o1 = { close() {} };
+      const o2 = { close() {} };
+      boundary.bindAdmissionShutdownBegin(fakeServer, o1);
+      const d1 = fakeServer[HOOK];
+      const disp1 = fakeServer[DISP];
+      boundary.bindAdmissionShutdownBegin(fakeServer, o1);
+      const d2 = fakeServer[HOOK];
+      boundary.bindAdmissionShutdownBegin(fakeServer, o2);
+      const d3 = fakeServer[HOOK];
+      red('R8g no wrapper growth — dispatcher identity stable',
+        typeof d1 === 'function'
+        && d1 === d2
+        && d2 === d3
+        && d1 === disp1
+        && fakeServer[DISP] === d1
+        && fakeServer[REG].owners.size === 2);
+      // Clean up symbols for isolation
+      lifecycle._invokeShutdownBeginHooksForTests(fakeServer, {});
+    }
+
+    // R8h — OFF registers nothing (factory skips bind when admission disabled)
+    {
+      red('R8h OFF registers nothing — source gate',
+        /if\s*\(\s*admissionBoundary\s*\)\s*\{[\s\S]*?bindAdmissionShutdownBegin\s*\(\s*server\s*,\s*admissionBoundary\s*\)/.test(apiSrc)
+        && /admissionEnabled\s*\?\s*createAdmissionBoundary/.test(apiSrc));
+    }
+
     lifecycle._resetStaffApiReadinessLifecycleForTests();
   }
 }

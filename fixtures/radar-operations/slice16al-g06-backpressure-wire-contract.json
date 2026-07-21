@@ -42,6 +42,12 @@
     "shutdown_closes_controller": true,
     "shutdown_begin_via_readiness_lifecycle": true,
     "shutdown_not_server_close_event": true,
+    "shutdown_begin_set_deduped_registry_dispatcher": true,
+    "shutdown_begin_close_exactly_once": true,
+    "shutdown_begin_prior_hook_exactly_once": true,
+    "shutdown_begin_no_wrapper_chains": true,
+    "shutdown_begin_symbols_cleared_after_fire": true,
+    "shutdown_begin_off_registers_nothing": true,
     "post_side_effect_never_503_shed": true
   },
   "public_503": {

@@ -42,6 +42,16 @@ const ADMISSION_REQ_KEY = '__staffApiAdmission';
 const ON_SHUTDOWN_BEGIN_HOOK = Symbol.for('wh.staffApi.readiness.onShutdownBegin');
 
 /**
+ * Per-server admission shutdown-begin registry (Set of boundary owners) + prior
+ * owner capture. Installed once per server; deleted on first dispatcher fire so
+ * no stale boundary / prior-owner strong refs remain.
+ */
+const SHUTDOWN_BEGIN_REGISTRY = Symbol.for('wh.staffApi.admission.shutdownBeginRegistry');
+
+/** Identity of the installed admission dispatcher (no wrapper chains). */
+const SHUTDOWN_BEGIN_DISPATCHER = Symbol.for('wh.staffApi.admission.shutdownBeginDispatcher');
+
+/**
  * Fail-closed flag parse. Unset/empty → OFF (behavior-preserving).
  * Exact ON/OFF tokens only; any other value is malformed.
  * @param {unknown} raw
@@ -192,7 +202,16 @@ function isTransportDead(req, res) {
 
 /**
  * Bind admissionBoundary.close() to the readiness-lifecycle shutdown BEGIN hook
- * on an http.Server. Idempotent compose with any prior hook. No-op when args missing.
+ * on an http.Server via a per-server registry/dispatcher (Set identity dedupe).
+ *
+ * - Binding the same boundary twice is a no-op (Set.add).
+ * - One shutdown calls each bound close exactly once; prior hook exactly once.
+ * - Does not create wrapper chains — dispatcher identity is stable.
+ * - First dispatcher invocation: atomically mark fired, snapshot/clear owners,
+ *   run prior + closes, then detach/delete registry/dispatcher/hook symbols.
+ * - Repeated invocation is harmless (closure fired + symbols absent).
+ * - No-op when args missing. OFF callers must not register (factory skips).
+ *
  * @param {import('http').Server|null|undefined} server
  * @param {{ close: () => unknown }|null|undefined} admissionBoundary
  */
@@ -200,16 +219,71 @@ function bindAdmissionShutdownBegin(server, admissionBoundary) {
   if (!server || !admissionBoundary || typeof admissionBoundary.close !== 'function') {
     return false;
   }
-  let ran = false;
-  const prev = server[ON_SHUTDOWN_BEGIN_HOOK];
-  server[ON_SHUTDOWN_BEGIN_HOOK] = function staffApiAdmissionOnShutdownBegin() {
-    if (typeof prev === 'function') {
-      try { prev(); } catch (_) { /* prior hook best-effort */ }
-    }
-    if (ran) return;
-    ran = true;
-    try { admissionBoundary.close(); } catch (_) { /* ignore */ }
-  };
+
+  let registry = server[SHUTDOWN_BEGIN_REGISTRY];
+  let dispatcher = server[SHUTDOWN_BEGIN_DISPATCHER];
+
+  if (!registry || typeof dispatcher !== 'function') {
+    // Capture any pre-existing readiness shutdown-begin owner exactly once.
+    const existing = server[ON_SHUTDOWN_BEGIN_HOOK];
+    const prior = (typeof existing === 'function' && existing !== dispatcher)
+      ? existing
+      : null;
+
+    /** @type {{ owners: Set<object>, prior: Function|null, fired: boolean }} */
+    registry = {
+      owners: new Set(),
+      prior,
+      fired: false,
+    };
+    server[SHUTDOWN_BEGIN_REGISTRY] = registry;
+
+    dispatcher = function staffApiAdmissionShutdownBeginDispatcher() {
+      // Closure + registry.fired: repeated invoke cannot rerun closes/prior.
+      if (!registry || registry.fired) {
+        return;
+      }
+      registry.fired = true;
+
+      const priorHook = registry.prior;
+      const ownersSnap = Array.from(registry.owners);
+      registry.owners.clear();
+      registry.prior = null;
+
+      // Detach symbol state so no stale boundary / prior-owner strong refs remain.
+      try { delete server[SHUTDOWN_BEGIN_REGISTRY]; } catch (_) {
+        server[SHUTDOWN_BEGIN_REGISTRY] = undefined;
+      }
+      try { delete server[SHUTDOWN_BEGIN_DISPATCHER]; } catch (_) {
+        server[SHUTDOWN_BEGIN_DISPATCHER] = undefined;
+      }
+      if (server[ON_SHUTDOWN_BEGIN_HOOK] === dispatcher) {
+        try { delete server[ON_SHUTDOWN_BEGIN_HOOK]; } catch (_) {
+          server[ON_SHUTDOWN_BEGIN_HOOK] = undefined;
+        }
+      }
+
+      if (typeof priorHook === 'function') {
+        try { priorHook(); } catch (_) { /* prior hook best-effort */ }
+      }
+      for (let i = 0; i < ownersSnap.length; i += 1) {
+        const owner = ownersSnap[i];
+        if (owner && typeof owner.close === 'function') {
+          try { owner.close(); } catch (_) { /* ignore */ }
+        }
+      }
+    };
+
+    server[SHUTDOWN_BEGIN_DISPATCHER] = dispatcher;
+    server[ON_SHUTDOWN_BEGIN_HOOK] = dispatcher;
+  }
+
+  // Already fired (held registry after partial teardown) — do not re-add owners.
+  if (registry.fired) {
+    return false;
+  }
+
+  registry.owners.add(admissionBoundary);
   return true;
 }
 
@@ -661,6 +735,8 @@ module.exports = {
   PUBLIC_503_BODY,
   ADMISSION_REQ_KEY,
   ON_SHUTDOWN_BEGIN_HOOK,
+  SHUTDOWN_BEGIN_REGISTRY,
+  SHUTDOWN_BEGIN_DISPATCHER,
   LIMITS,
   DECISIONS,
   HTTP_REJECT,
