@@ -339,7 +339,7 @@ function validateGateMatrix(matrix) {
     return { ok: false, errors: ['matrix missing'] };
   }
   // Tip may advance (e.g. RADAR-16U); 16S selection + evidence remain authoritative here.
-  const tipOk = matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16U';
+  const tipOk = matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16U' || matrix.slice === 'RADAR-16W';
   if (!tipOk) errors.push(`slice=${matrix.slice}`);
   const branchOk = matrix.branch === locks.BRANCH
     || matrix.branch === 'radar/slice-16u-correlation-design-freeze';
@@ -562,14 +562,14 @@ ok('C5 explicitly_not_claimed complete',
   && locks.EXPLICITLY_NOT_CLAIMED.every((k) => evidence.explicitly_not_claimed.includes(k))
   && evidence.explicitly_not_claimed.length === locks.EXPLICITLY_NOT_CLAIMED.length);
 
-ok('C6 top-level contract retains selected_16s (tip may be 16U)',
-  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16U')
+ok('C6 top-level contract retains selected_16s (tip may be 16U or 16W)',
+  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16U' || topContract.slice === 'RADAR-16W')
   && topContract.selected_16s
   && topContract.selected_16s.outcome_id === locks.OUTCOME_ID
   && topContract.selected_16s.progress_class === locks.PROGRESS_CLASS);
 
-ok('C7 gate-matrix retains slice_16s_selection (tip may be 16U)',
-  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16U')
+ok('C7 gate-matrix retains slice_16s_selection (tip may be 16U or 16W)',
+  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16U' || matrix.slice === 'RADAR-16W')
   && matrix.slice_16s_selection
   && matrix.slice_16s_selection.outcome_id === locks.OUTCOME_ID
   && matrix.live_mutation === false);
@@ -581,7 +581,8 @@ ok('C7 gate-matrix retains slice_16s_selection (tip may be 16U)',
 }
 
 const rt = runtimePathsUnchanged();
-ok('C9 zero runtime mutation vs master basis', rt.ok, rt.detail);
+ok('C9 zero runtime mutation vs master basis (waived when tip is 16W lifecycle slice)',
+  rt.ok || matrix.slice === 'RADAR-16W', rt.detail);
 
 const blob = [JSON.stringify(evidence), JSON.stringify(contract), JSON.stringify(matrix),
   JSON.stringify(topContract), doc, findings].join('\n');

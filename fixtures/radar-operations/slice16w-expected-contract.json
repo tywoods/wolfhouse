@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16W",
+  "outcome_id": "16W_readiness_shutdown_lifecycle",
+  "gate_id": "G02_readiness_dependencies",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "d904481de6ef8e7ad65d84241577796cbb5ad1c4",
+  "branch": "radar/slice-16w-readiness-shutdown-lifecycle",
+  "live_deploy": false,
+  "live_mutation": false,
+  "title": "Wire closeReadinessPool into Staff API graceful shutdown lifecycle — source partial only",
+  "builds_on": [
+    "16I_staff_api_readiness_dependencies"
+  ],
+  "does_not_implement": "readyz_sql_change_readyz_body_change_probes_deploy_secrets_db_production_controlled_dependency_failure_drill",
+  "lifecycle": {
+    "signal_shutdown_framework": "readiness_pool_only",
+    "signals": ["SIGTERM", "SIGINT"],
+    "closeReadinessPool": "wired_idempotent_once",
+    "closePgPool_composition": "forbidden",
+    "listener_install": "cli_main_once_not_on_factory_reuse",
+    "shutdown_order": [
+      "close_readiness_pool",
+      "server_close",
+      "process_exit"
+    ]
+  },
+  "tenant_scope": {
+    "wolfhouse_staging_image": "shared_staff_api_runtime",
+    "sunset_staging_image": "shared_staff_api_runtime",
+    "note": "Both ACA apps run the same Staff API image; lifecycle is tenant-agnostic at source"
+  },
+  "still_open": [
+    "Controlled readiness dependency-failure traffic-shed drill (16I_DRILL_readiness_failure_traffic_shed)",
+    "Live deploy of lifecycle-wired image to Wolfhouse and Sunset staging",
+    "Raising G02 verdict to proven"
+  ],
+  "final_controlled_drill": {
+    "id": "16I_DRILL_readiness_failure_traffic_shed",
+    "status": "open",
+    "note": "16W closes lifecycle source gap only; drill evidence remains open"
+  },
+  "artifacts": [
+    "scripts/lib/staff-api-readiness-lifecycle.js",
+    "scripts/staff-query-api.js",
+    "scripts/lib/radar-slice16w-readiness-shutdown-lifecycle.js",
+    "scripts/verify-radar-slice16w-readiness-shutdown-lifecycle.js",
+    "fixtures/radar-operations/slice16w-expected-contract.json"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16w-readiness-shutdown-lifecycle",
+    "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check d904481de6ef8e7ad65d84241577796cbb5ad1c4..HEAD"
+  ]
+}

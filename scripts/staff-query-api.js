@@ -46812,7 +46812,7 @@ async function router(req, res) {
   // RADAR 16K: /healthz = minimized public liveness — must not touch Postgres or
   // expose auth/stage/provider/model/key/config/tenant/note fields (ACA liveness/startup).
   // Authenticated AI diagnostics: GET /staff/ask-luna/ai-status (viewer+).
-  // Lifecycle close of the readiness pool remains open (explicit closeReadinessPool).
+  // RADAR 16W: readiness pool close on SIGTERM/SIGINT via staff-api-readiness-lifecycle (CLI main).
   if (pathname === READYZ_PATH) {
     const seam = getFortress15j3OfflineSeams();
     const readinessOpts = (seam && seam.readinessPool)
@@ -46884,6 +46884,11 @@ function shouldEagerCreateStaffQueryApiServer() {
 const server = shouldEagerCreateStaffQueryApiServer()
   ? createStaffQueryApiHttpServer()
   : null;
+
+if (require.main === module) {
+  const { attachStaffApiReadinessLifecycle } = require('./lib/staff-api-readiness-lifecycle');
+  attachStaffApiReadinessLifecycle(server);
+}
 
 if (require.main === module) server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);

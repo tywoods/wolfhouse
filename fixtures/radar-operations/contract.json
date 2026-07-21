@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16U",
-  "outcome_id": "16U_correlation_design_freeze",
-  "master_basis": "87121456db90a9f80ff8b3679596bc49c235cbfc",
-  "branch": "radar/slice-16u-correlation-design-freeze",
-  "audit_only": true,
+  "slice": "RADAR-16W",
+  "outcome_id": "16W_readiness_shutdown_lifecycle",
+  "master_basis": "d904481de6ef8e7ad65d84241577796cbb5ad1c4",
+  "branch": "radar/slice-16w-readiness-shutdown-lifecycle",
+  "audit_only": false,
   "live_mutation": false,
-  "title": "Audit-only G01 correlation design freeze — live Caddy authority; provenance; G01-B metadata-only; dry-run not implementable",
-  "progress_class": "audit_only_design_freeze",
-  "does_not_implement": "runtime_instrumentation_dry_run_switch_live_g01a_drill_any_gate_proven",
+  "title": "G02 readiness shutdown lifecycle — wire closeReadinessPool on SIGTERM/SIGINT (source partial)",
+  "progress_class": "source_partial_progress_only",
+  "does_not_implement": "readyz_sql_change_readyz_body_change_probes_deploy_secrets_db_production_controlled_dependency_failure_drill",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -68,7 +68,11 @@
     "fixtures/radar-operations/slice16u-correlation-design-freeze.json",
     "fixtures/radar-operations/slice16u-expected-contract.json",
     "scripts/lib/radar-slice16u-correlation-design-freeze.js",
-    "scripts/verify-radar-slice16u-correlation-design-freeze.js"
+    "scripts/verify-radar-slice16u-correlation-design-freeze.js",
+    "scripts/lib/staff-api-readiness-lifecycle.js",
+    "scripts/lib/radar-slice16w-readiness-shutdown-lifecycle.js",
+    "scripts/verify-radar-slice16w-readiness-shutdown-lifecycle.js",
+    "fixtures/radar-operations/slice16w-expected-contract.json"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -111,7 +115,6 @@
       "database/",
       "docker/hermes-staging/",
       "docker/hermes-sunset/",
-      "scripts/staff-query-api.js",
       "scripts/lib/staff-api-request-correlation.js",
       "scripts/lib/staff-api-request-completion-log.js",
       "scripts/lib/stripe-webhook-public-errors.js",
@@ -120,16 +123,21 @@
       "infra/azure/staging-staff-api-metric-alerts/",
       "infra/azure/staging-cost-budgets/"
     ],
-    "note": "16U audit-only design freeze; no runtime mutation; G01 partial unchanged"
+    "runtime_paths_changed_owned_by_16w": [
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-readiness.js",
+      "scripts/lib/staff-api-readiness-lifecycle.js"
+    ],
+    "note": "16W source-only lifecycle wiring; no live deploy; probes/SQL/readyz contract unchanged"
   },
   "gates": [
-    "npm run verify:radar-slice16u-correlation-design-freeze",
-    "npm run verify:radar-slice16s-request-log-live-evidence",
+    "npm run verify:radar-slice16w-readiness-shutdown-lifecycle",
+    "npm run verify:radar-slice16i-staff-api-readiness",
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 87121456db90a9f80ff8b3679596bc49c235cbfc..HEAD"
+    "git diff --check d904481de6ef8e7ad65d84241577796cbb5ad1c4..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -276,5 +284,15 @@
       "16R_staff_api_request_completion_log",
       "16S_request_completion_log_live_evidence"
     ]
+  },
+  "selected_16w": {
+    "outcome_id": "16W_readiness_shutdown_lifecycle",
+    "gate_id": "G02_readiness_dependencies",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "readyz_sql_change_readyz_body_change_probes_deploy_secrets_db_production_controlled_dependency_failure_drill",
+    "builds_on": "16I_staff_api_readiness_dependencies",
+    "g02_verdict": "partial",
+    "g02_lifecycle_source": "closed_via_16W",
+    "g02_dependency_failure_drill": "open"
   }
 }

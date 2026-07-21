@@ -15,7 +15,7 @@
  *   private fields, or custom cancellation.
  * - Responses are generic: 200 { status: "ready" } or 503 { status: "not-ready" }.
  * - closeReadinessPool is explicit + idempotent; Staff API lifecycle integration
- *   remains open (not wired through closePgPool / signal handlers in this slice).
+ *   is wired via staff-api-readiness-lifecycle (RADAR 16W) — not closePgPool.
  */
 
 const { Pool } = require('pg');
@@ -138,7 +138,7 @@ function getReadinessPool() {
 
 /**
  * Close the readiness pool exactly once (idempotent).
- * Not composed into closePgPool in this slice — lifecycle integration open.
+ * Not composed into closePgPool — lifecycle wired in staff-api-readiness-lifecycle (16W).
  * @returns {Promise<void>}
  */
 async function closeReadinessPool() {
