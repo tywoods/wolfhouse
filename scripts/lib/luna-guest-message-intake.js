@@ -234,6 +234,21 @@ function dayMonthYearToIso(day, month, year, ref) {
   return toIsoDate(y, month, day);
 }
 
+/**
+ * Keep an omitted-year range coherent: check-in year is authoritative;
+ * checkout stays in that year unless month wraps earlier (genuine New Year crossing).
+ * Never independently re-infer checkout year (that produced checkout-before-check-in).
+ */
+function coherentCheckoutForCheckIn(checkInIso, checkOutIso) {
+  if (!checkInIso) return { check_in: null, check_out: checkOutIso || null };
+  if (!checkOutIso) return { check_in: checkInIso, check_out: null };
+  const a = parseIsoDateParts(checkInIso);
+  const b = parseIsoDateParts(checkOutIso);
+  if (!a || !b) return { check_in: checkInIso, check_out: checkOutIso };
+  const yearOut = b.month < a.month ? a.year + 1 : a.year;
+  return { check_in: checkInIso, check_out: toIsoDate(yearOut, b.month, b.day) };
+}
+
 function parseNamedDate(text, ref) {
   const t = String(text || '').toLowerCase();
   const explicitYear = parseYearFromText(t);
@@ -614,7 +629,7 @@ function extractGuests(text) {
   const patterns = [
     /\b(\d{1,2})\s+of\s+us\b/i,
     /\b(\d{1,2})\s+ppl\b/i,
-    /\b(\d{1,2})\s*(?:people|persons|guests|pax|persone|personas|personnes|gäste|gaste)\b/i,
+    /\b(\d{1,2})\s*(?:people|persons?|guests?|pax|persone|personas|personnes|gäste|gaste)\b/i,
     /\b(?:for|per|para|pour|für|we are|we're|somos|siamo{1,2}|nous sommes|wir sind|wir w(?:ä|a)ren)\s+(\d{1,2})\b/i,
     /\b(?:siamo+|somos+)\s+in\s+(\d{1,2})\b/i,
     /\bsiamo\s+(due|tre|quattro|cinque)\b/i,
@@ -650,7 +665,7 @@ function extractGuests(text) {
     }
   }
   for (const re of [
-    /\bfor\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:people|guests|persons)\b/i,
+    /\bfor\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:people|guests?|persons?)\b/i,
     /\b(?:we are|we're)\s+(one|two|three|four|five|six|seven|eight|nine|ten)\b/i,
   ]) {
     const m = t.match(re);
@@ -868,7 +883,11 @@ function extractLunaGuestMessageIntake(input, context = {}) {
   }
 
   const isoDates = extractIsoDates(messageText);
-  const namedRange = extractNamedDateRange(messageText, ref);
+  const rawNamedRange = extractNamedDateRange(messageText, ref);
+  // Explicit ISO dates keep their years; named/omitted-year ranges align checkout to check-in.
+  const namedRange = (isoDates[0] && isoDates[1])
+    ? rawNamedRange
+    : coherentCheckoutForCheckIn(rawNamedRange.check_in, rawNamedRange.check_out);
   let checkIn  = isoDates[0] || namedRange.check_in || null;
   let checkOut = isoDates[1] || namedRange.check_out || null;
 
@@ -991,6 +1010,8 @@ function validateLunaGuestMessageIntake(extraction, context = {}) {
     const b = parseIsoDate(ex.check_out);
     if (!a || !b || b <= a) {
       errors.push('invalid_date_range');
+      // Earliest owning transition: clear the bad range and ask for dates — not safe handoff.
+      ex.check_in = null;
       ex.check_out = null;
       ex.nights = null;
     } else {
@@ -999,6 +1020,7 @@ function validateLunaGuestMessageIntake(extraction, context = {}) {
   }
 
   const confidenceMin = Number(context.confidence_min) || 0.45;
+  const needsDateClarification = errors.includes('invalid_date_range');
 
   // Phase 15c — partial multilingual inquiries: prefer ask_next over low-confidence handoff.
   if (!ex.handoff_required && ex.intent === 'unknown' && hasPartialBookingSignal(ex, ex.message_text)) {
@@ -1011,19 +1033,22 @@ function validateLunaGuestMessageIntake(extraction, context = {}) {
   if (!ex.handoff_required
     && ex.intent === 'unknown'
     && ex.confidence < confidenceMin
-    && !hasPartialBookingSignal(ex, ex.message_text)) {
+    && !hasPartialBookingSignal(ex, ex.message_text)
+    && !needsDateClarification) {
     ex.handoff_required = true;
     ex.handoff_reason = 'low_confidence';
   }
 
-  if (PARTIAL_INTENTS.has(ex.intent)) {
+  if (PARTIAL_INTENTS.has(ex.intent) || needsDateClarification) {
     ex.handoff_required = false;
     ex.handoff_reason = null;
   }
 
   if (!ex.handoff_required) {
     ex.missing_fields = buildMissingFields(ex);
-    if (ex.missing_fields.length) {
+    if (needsDateClarification) {
+      ex.ask_next = buildAskNext(['check_in'], ex.language);
+    } else if (ex.missing_fields.length) {
       ex.ask_next = buildAskNext(ex.missing_fields, ex.language);
     } else {
       ex.ask_next = null;
