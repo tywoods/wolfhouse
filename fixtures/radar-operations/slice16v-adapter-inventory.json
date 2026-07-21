@@ -11,9 +11,9 @@
   "note": "Audit inventory only. Every adapter below must pass through decideCapability before provider/pool/client/queue acquisition. Unknown adapters deny.",
   "counts": {
     "whatsapp_send": 18,
-    "mutation": 21,
-    "read_dispatch": 16,
-    "total": 55
+    "mutation": 23,
+    "read_dispatch": 15,
+    "total": 56
   },
   "whatsapp_send_adapters": [
     {
@@ -480,6 +480,31 @@
       "line": 87,
       "acquisition_point": "hermes_session_store",
       "reachability": "Local in-process automation block state after handoff"
+    },
+    {
+      "adapter_id": "sunset_payment_status_reconcile_write",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "path": "scripts/lib/stripe-payment-reconcile.js",
+      "symbol": "reconcilePendingStripePaymentsForBooking",
+      "source_needle": "async function reconcilePendingStripePaymentsForBooking",
+      "line": 288,
+      "staff_route": "/staff/bot/sunset/payment-status",
+      "acquisition_point": "stripe_sdk",
+      "downstream_acquisition": ["db_pool_client"],
+      "reachability": "Hermes get_sunset_payment_status → Staff reconcile mutates paid truth (write-on-read; DENY)"
+    },
+    {
+      "adapter_id": "sunset_waiver_ensure_write",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "path": "scripts/lib/sunset-waiver-booking.js",
+      "symbol": "ensureWaiverForBookingSoft",
+      "source_needle": "async function ensureWaiverForBookingSoft",
+      "line": 222,
+      "staff_route": "/staff/bot/sunset/waiver-link",
+      "acquisition_point": "db_pool_client",
+      "reachability": "Hermes get_sunset_waiver_link → ensureWaiver INSERT waiver_form_requests (write-on-read; DENY)"
     }
   ],
   "read_dispatch_adapters": [
@@ -662,19 +687,11 @@
       "staff_route": "/staff/bot/sunset/lesson-availability",
       "acquisition_point": "staff_http_client",
       "reachability": "Sunset lesson capacity read"
-    },
-    {
-      "adapter_id": "hermes_post_bot_sunset_payment_status",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "get_sunset_payment_status",
-      "source_needle": "/sunset/payment-status",
-      "line": 2297,
-      "staff_route": "/staff/bot/sunset/payment-status",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Sunset payment status read"
     }
+  ],
+  "caveat_tools_that_look_like_reads_but_mutate": [
+    "get_sunset_payment_status → sunset_payment_status_reconcile_write",
+    "get_sunset_waiver_link → sunset_waiver_ensure_write"
   ],
   "aspirational_suppressions_not_central_boundary": [
     "docker/hermes-staging/wolfhouse/simulate_core.py allow_writes=false",

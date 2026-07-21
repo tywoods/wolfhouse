@@ -31,7 +31,7 @@
       "name": "Correlation / structured logs",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16J Staff HTTP correlation (ALS). 16R allowlisted staff_api_request_completion. 16S live-proven dual-staging LAW delivery/search/retention @ SHA 1bf9695 (WH 0000517 / Sunset 0000277). 16U provenance retained: live Lunabox Caddy /whatsapp/*→:8092 hermes-sunset-luna and /wolfhouse/*→:8090 hermes-luna; single wamid or ordered immutable source-wamid set; G01-B metadata-only. 16V audit-only capability boundary freeze: independently pinned inventory (18 WhatsApp send + 21 Staff/DB/Stripe mutation + 16 read dispatch); central decideCapability permits reads and denies all sends/writes before provider/pool/client/queue acquisition; unknown adapters deny; dry-run still not implementable (blocked on capability_boundary_runtime_apply). Live G01-A drill remains open. Verdict stays partial.",
+      "rationale": "16J Staff HTTP correlation (ALS). 16R allowlisted staff_api_request_completion. 16S live-proven dual-staging LAW delivery/search/retention @ SHA 1bf9695 (WH 0000517 / Sunset 0000277). 16U provenance retained: live Lunabox Caddy /whatsapp/*→:8092 hermes-sunset-luna and /wolfhouse/*→:8090 hermes-luna; single wamid or ordered immutable source-wamid set; G01-B metadata-only. 16V audit-only capability boundary freeze: independently pinned inventory (18 WhatsApp send + 23 Staff/DB/Stripe mutation + 15 read dispatch); central decideCapability permits reads and denies all sends/writes before provider/pool/client/queue acquisition; unknown adapters deny; dry-run still not implementable (blocked on capability_boundary_runtime_apply). Live G01-A drill remains open. Verdict stays partial.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-request-correlation.js",
@@ -119,7 +119,7 @@
           "path": "fixtures/radar-operations/slice16v-adapter-inventory.json",
           "lines": "1-120",
           "symbols": [],
-          "note": "16V independently pinned send/mutation/read inventory (18/21/16)"
+          "note": "16V independently pinned send/mutation/read inventory (18/23/15)"
         },
         {
           "path": "fixtures/radar-operations/slice16v-capability-boundary-freeze.json",
@@ -1354,9 +1354,9 @@
     "next_slice": "16W_candidate_capability_boundary_runtime_apply",
     "inventory_counts": {
       "whatsapp_send": 18,
-      "mutation": 21,
-      "read_dispatch": 16,
-      "total": 55
+      "mutation": 23,
+      "read_dispatch": 15,
+      "total": 56
     },
     "enforcement_owner": {
       "primary_module": "docker/hermes-staging/wolfhouse/capability_boundary.py",
@@ -1384,7 +1384,7 @@
       "Any gate verdict proven"
     ],
     "acceptance_criteria": [
-      "Independently pinned inventory covers send/mutation/read with required categories; counts 18/21/16",
+      "Independently pinned inventory covers send/mutation/read with required categories; counts 18/23/15",
       "Central decideCapability permits reads and denies sends/mutations before acquisition; unknown denies",
       "Verifier RED-rejects omissions, duplicates, dispersed env checks, bypasses, post-acquisition denial, mutable state, tenant confusion, trace/deploy/live overclaims",
       "Later owner + tests specified separately from deploy/evidence; modules not created",

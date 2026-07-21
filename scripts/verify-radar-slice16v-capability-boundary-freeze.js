@@ -135,20 +135,20 @@ green('contract_pins',
   && contract.progress_class === locks.PROGRESS_CLASS
   && contract.this_slice_implements_runtime === false
   && contract.required_design_facts.whatsapp_send_count === 18
-  && contract.required_design_facts.mutation_count === 21
-  && contract.required_design_facts.read_dispatch_count === 16);
+  && contract.required_design_facts.mutation_count === 23
+  && contract.required_design_facts.read_dispatch_count === 15);
 
 green('inventory_pins',
   inventory.slice === locks.SLICE
   && inventory.independently_pinned === true
   && inventory.complete === true
   && inventory.counts.whatsapp_send === 18
-  && inventory.counts.mutation === 21
-  && inventory.counts.read_dispatch === 16
-  && inventory.counts.total === 55
+  && inventory.counts.mutation === 23
+  && inventory.counts.read_dispatch === 15
+  && inventory.counts.total === 56
   && inventory.whatsapp_send_adapters.length === 18
-  && inventory.mutation_adapters.length === 21
-  && inventory.read_dispatch_adapters.length === 16);
+  && inventory.mutation_adapters.length === 23
+  && inventory.read_dispatch_adapters.length === 15);
 
 const invClass = locks.classifyInventoryDocument(inventory);
 green('inventory_classifier_accepts', invClass.ok === true, JSON.stringify(invClass));
@@ -430,7 +430,7 @@ green('ledger_mentions_16v',
   /16V_central_capability_boundary_audit_freeze|16V/.test(ledger)
   && /decideCapability|capability boundary/i.test(ledger)
   && /18/.test(ledger)
-  && /21/.test(ledger)
+  && /23/.test(ledger)
   && /16U/.test(ledger)
   && /partial/i.test(ledger)
   && /not implement|runtime apply|not wired/i.test(ledger));

@@ -287,9 +287,9 @@
     "dry_run_implementable_today": false,
     "inventory_counts": {
       "whatsapp_send": 18,
-      "mutation": 21,
-      "read_dispatch": 16,
-      "total": 55
+      "mutation": 23,
+      "read_dispatch": 15,
+      "total": 56
     },
     "central_decision_point": "decideCapability",
     "enforcement_owner": "docker/hermes-staging/wolfhouse/capability_boundary.py::decide_capability",

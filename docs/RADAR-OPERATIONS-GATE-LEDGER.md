@@ -22,9 +22,9 @@ Independently pinned adapter inventory (complete for active Hermes guest turns):
 | Class | Count |
 |-------|------:|
 | WhatsApp send | 18 |
-| Staff/DB/Stripe mutation | 21 |
-| Read dispatch (permitted) | 16 |
-| **Total** | **55** |
+| Staff/DB/Stripe mutation | 23 |
+| Read dispatch (permitted) | 15 |
+| **Total** | **56** |
 
 Categories covered for sends and mutations: direct, queued, mirror, handoff, booking/payment, reset/error/fallback, future tool-registration (+ session for mutations).
 
