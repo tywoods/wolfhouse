@@ -337,7 +337,7 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  if (matrix.slice !== locks.SLICE && matrix.slice !== 'RADAR-16W') errors.push(`slice=${matrix.slice}`);
+  if (matrix.slice !== locks.SLICE && matrix.slice !== 'RADAR-16W' && matrix.slice !== 'RADAR-16X') errors.push(`slice=${matrix.slice}`);
   if (matrix.slice === locks.SLICE) {
     if (matrix.branch !== locks.BRANCH) errors.push(`branch=${matrix.branch}`);
     if (matrix.master_basis !== locks.MASTER_BASIS) errors.push('master_basis mismatch');
@@ -606,7 +606,7 @@ ok('C2 contract slice/branch/master',
   && contract.live_deploy === false
   && contract.this_slice_deploys === false);
 
-ok('C3 HEAD on 16P branch (tip may be 16W)', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16w-readiness-shutdown-lifecycle', currentBranch());
+ok('C3 HEAD on 16P branch (tip may be 16W/16X)', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16w-readiness-shutdown-lifecycle' || currentBranch() === 'radar/slice-16x-g02-live-evidence', currentBranch());
 
 {
   const v = validateEvidenceExact(evidence);
@@ -618,13 +618,13 @@ ok('C5 explicitly_not_claimed complete',
   && locks.EXPLICITLY_NOT_CLAIMED.every((k) => evidence.explicitly_not_claimed.includes(k))
   && evidence.explicitly_not_claimed.length === locks.EXPLICITLY_NOT_CLAIMED.length);
 
-ok('C6 top-level contract owns 16P (tip may advance to 16W)',
-  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16W')
+ok('C6 top-level contract owns 16P (tip may advance to 16W/16X)',
+  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16W' || topContract.slice === 'RADAR-16X')
   && topContract.selected_16p
   && topContract.selected_16p.outcome_id === locks.OUTCOME_ID);
 
-ok('C7 gate-matrix owns 16P (tip may advance to 16W)',
-  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16W')
+ok('C7 gate-matrix owns 16P (tip may advance to 16W/16X)',
+  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X')
   && matrix.slice_16p_selection
   && matrix.slice_16p_selection.outcome_id === locks.OUTCOME_ID
   && matrix.live_mutation === false);
@@ -636,8 +636,8 @@ ok('C7 gate-matrix owns 16P (tip may advance to 16W)',
 }
 
 const rt = runtimePathsUnchanged();
-ok('C11 zero runtime mutation vs master basis (waived when tip is 16W lifecycle slice)',
-  rt.ok || matrix.slice === 'RADAR-16W', rt.detail);
+ok('C11 zero runtime mutation vs master basis (waived when tip is 16W/16X ledger tip)',
+  rt.ok || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X', rt.detail);
 
 const blob = [JSON.stringify(evidence), JSON.stringify(contract), JSON.stringify(matrix),
   JSON.stringify(topContract), doc, findings].join('\n');

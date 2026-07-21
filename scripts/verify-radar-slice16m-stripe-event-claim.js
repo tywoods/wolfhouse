@@ -557,8 +557,11 @@ const allowedBranches = new Set([
   'radar/slice-16p-live-drill-evidence',
   'radar/slice-16r-request-completion-log',
   'radar/slice-16s-request-log-live-evidence',
+  'radar/slice-16u-correlation-design-freeze',
+  'radar/slice-16w-readiness-shutdown-lifecycle',
+  'radar/slice-16x-g02-live-evidence',
 ]);
-ok('C2 HEAD branch matches (16M or successor 16O/16P/16R/16S)', allowedBranches.has(branch), `head=${branch}`);
+ok('C2 HEAD branch matches (16M or successor tip)', allowedBranches.has(branch), `head=${branch}`);
 ok('C3 ownership column is client_id (hostel rename)',
   PAYMENT_EVENTS_OWNERSHIP_COLUMN === 'client_id'
   && /INSERT INTO payment_events[\s\S]*client_id/.test(CLAIM_INSERT_SQL));

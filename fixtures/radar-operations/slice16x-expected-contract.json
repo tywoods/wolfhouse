@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16X",
+  "outcome_id": "16X_g02_lifecycle_deploy_traffic_shed_live_evidence",
+  "gate_id": "G02_readiness_dependencies",
+  "progress_class": "partial_live_proven_evidence_only",
+  "master_basis": "2dcda08008fe951565560cefafe37f1a78b0791a",
+  "branch": "radar/slice-16x-g02-live-evidence",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "title": "Reconcile dual-staging G02 lifecycle deploy + dependency-failure traffic-shed drill — partial/live-proven only",
+  "evidence_fixture": "fixtures/radar-operations/slice16x-g02-live-evidence.json",
+  "provenance_split": {
+    "A": "operator_drill_transcript_contemporaneous_observation",
+    "B": "azure_readonly_independently_reverified",
+    "A_covers": [
+      "fail_observation_samples_0_90s_5s",
+      "public_healthz_readyz_continuity_during_fail",
+      "fail_env_literal_unreachable_dsn_intent",
+      "fail_scale_min_replicas"
+    ],
+    "B_covers": [
+      "acr_digests",
+      "images_and_base_restore_revisions",
+      "revision_create_timelines",
+      "final_revision_ready_health_traffic_secretRef",
+      "probes",
+      "public_current_healthz_readyz"
+    ],
+    "non_recoverability": "Azure cannot recreate historical 0..90s/5s sample arrays or contemporaneous public continuity; those are transcript-derived only",
+    "independent_azure_verify_utc": "2026-07-21T10:33:28Z"
+  },
+  "required_observed": {
+    "image_sha_full": "2dcda08008fe951565560cefafe37f1a78b0791a",
+    "wolfhouse_digest": "sha256:536828373f2deaf5da638bdd4650cdcc2d9d97d4352aa9a6cac718c7f9d4054b",
+    "sunset_digest": "sha256:3c7022173cc931b2701b0a9adcbf0b092fe933281e81538d886028e53ec40a05",
+    "wolfhouse_base_revision_suffix": "0000518",
+    "sunset_base_revision_suffix": "0000278",
+    "wolfhouse_fail_revision": "wh-staging-staff-api--g02fail",
+    "sunset_fail_revision": "luna-sunset-staging-staff-api--g02fail",
+    "wolfhouse_restore_revision": "wh-staging-staff-api--g02restore",
+    "sunset_restore_revision": "luna-sunset-staging-staff-api--g02restore",
+    "wolfhouse_secret_ref": "wolfhouse-database-url",
+    "sunset_secret_ref": "sunset-database-url",
+    "observation_duration_seconds": 90,
+    "observation_cadence_seconds": 5,
+    "observation_sample_count": 19,
+    "fail_running_state": "Activating",
+    "fail_was_latest_ready": false,
+    "public_healthz": 200,
+    "public_readyz": 200,
+    "traffic_latest_percent": 100,
+    "fail_revision_active": false
+  },
+  "forbidden_claim_tokens": [
+    "sigterm live",
+    "SIGINT live",
+    "organic metric alert",
+    "organic_metric_alert_firing",
+    "human inbox",
+    "production",
+    "full G02",
+    "full_G02_proven",
+    "any_gate_verdict_proven",
+    "G02 proven",
+    "verdict proven"
+  ],
+  "must_not_claim_as_proven": [
+    "sigterm_sigint_closeReadinessPool_live_lifecycle_behavior",
+    "organic_metric_alert_firing",
+    "human_inbox_receipt",
+    "production",
+    "full_G02_proven",
+    "serving_revision_readyz_503_body_path",
+    "any_gate_verdict_proven"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "G02 remains partial; drill + deploy live-proven; SIGTERM live and serving /readyz=503 path still open"
+  },
+  "still_open": [
+    "SIGTERM/SIGINT closeReadinessPool live lifecycle behavior on deployed revision",
+    "Serving-revision /readyz=503 body path (failed revision never became ready to serve)",
+    "Organic metric alert firing",
+    "Human inbox receipt",
+    "Production scope (forbidden)",
+    "Raising G02 verdict to proven"
+  ],
+  "final_controlled_drill": {
+    "id": "16I_DRILL_readiness_failure_traffic_shed",
+    "status": "live_proven_via_16X_activating_traffic_shed",
+    "pass_rule": "Class-A transcript: g02fail Activating ≥90s @ 5s never latestReady with prior public /healthz+/readyz=200 continuity (not Azure-reconstructible). Class-B Azure read-only at 2026-07-21T10:33:28Z: digests/revisions/secretRefs/probes/traffic/public-current. Verifier requires A/B split; rejects Azure-labelled historical arrays, missing transcript attribution, fabricated current verification of historical samples, and live-timeout rewrites of historical 200s. G02 stays partial; no overclaims"
+  },
+  "artifacts": [
+    "fixtures/radar-operations/slice16x-g02-live-evidence.json",
+    "fixtures/radar-operations/slice16x-expected-contract.json",
+    "scripts/lib/radar-slice16x-g02-live-evidence.js",
+    "scripts/verify-radar-slice16x-g02-live-evidence.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16x-g02-live-evidence",
+    "npm run verify:radar-slice16w-readiness-shutdown-lifecycle",
+    "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 2dcda08008fe951565560cefafe37f1a78b0791a..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-readiness.js",
+      "scripts/lib/staff-api-readiness-lifecycle.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16X is evidence reconciliation only; records (A) operator drill transcript contemporaneous facts + (B) independent Azure read-only reverify; does not deploy or mutate runtime; Azure cannot recreate historical samples"
+  }
+}
