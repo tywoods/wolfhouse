@@ -730,6 +730,14 @@ function validateSurfSchoolShopBaselineDeep(baseline) {
         || Object.keys(off.prices_eur).length < 1) {
         errors.push(`rental_prices_eur_missing:${code}`);
       } else {
+        // Reserved keys (_*) are metadata only. Require ≥1 non-reserved key with a
+        // usable scalar; reserved-only maps fail before any per-window checks.
+        const nonReserved = Object.entries(off.prices_eur)
+          .filter(([unitKey]) => !unitKey.startsWith('_'));
+        if (nonReserved.length === 0) {
+          errors.push(`rental_prices_eur_reserved_only:${code}`);
+          continue;
+        }
         if (Array.isArray(windows)) {
           for (const w of windows) {
             if (!(w in off.prices_eur)) {
@@ -737,11 +745,16 @@ function validateSurfSchoolShopBaselineDeep(baseline) {
             }
           }
         }
-        for (const [unitKey, amount] of Object.entries(off.prices_eur)) {
-          if (unitKey.startsWith('_')) continue;
+        let hasUsableScalar = false;
+        for (const [unitKey, amount] of nonReserved) {
           if (isObjectOrNotesOnlyMap(amount) || !isNumberOrTypedPlaceholder(amount)) {
             errors.push(`rental_prices_eur_not_usable_scalar:${code}.${unitKey}`);
+          } else {
+            hasUsableScalar = true;
           }
+        }
+        if (!hasUsableScalar) {
+          errors.push(`rental_prices_eur_no_usable_non_reserved:${code}`);
         }
       }
     }
@@ -759,11 +772,24 @@ function validateSurfSchoolShopBaselineDeep(baseline) {
         || Object.keys(off.prices_eur).length < 1) {
         errors.push(`lesson_prices_eur_missing:${code}`);
       } else {
-        for (const [unitKey, amount] of Object.entries(off.prices_eur)) {
-          if (unitKey.startsWith('_')) continue;
+        // Reserved keys (_*) are metadata only. Require ≥1 non-reserved key with a
+        // usable scalar; reserved-only maps fail with a deterministic error.
+        const nonReserved = Object.entries(off.prices_eur)
+          .filter(([unitKey]) => !unitKey.startsWith('_'));
+        if (nonReserved.length === 0) {
+          errors.push(`lesson_prices_eur_reserved_only:${code}`);
+          continue;
+        }
+        let hasUsableScalar = false;
+        for (const [unitKey, amount] of nonReserved) {
           if (isObjectOrNotesOnlyMap(amount) || !isNumberOrTypedPlaceholder(amount)) {
             errors.push(`lesson_prices_eur_not_usable_scalar:${code}.${unitKey}`);
+          } else {
+            hasUsableScalar = true;
           }
+        }
+        if (!hasUsableScalar) {
+          errors.push(`lesson_prices_eur_no_usable_non_reserved:${code}`);
         }
       }
     }

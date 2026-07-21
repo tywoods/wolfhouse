@@ -679,6 +679,29 @@ console.log('\n── Adversarial REDs ──');
 
 {
   const bad = clone(school);
+  const first = Object.keys(bad.baseline.catalog.rentals.offerings)[0];
+  bad.baseline.catalog.rentals.offerings[first].prices_eur = {
+    _note: 'ask staff for rental rates',
+  };
+  const errs = locks.validateBaselineTemplate(bad.baseline, 'surf_school_shop');
+  red('R39_rental_prices_eur_reserved_only_rejected',
+    errs.some((e) => new RegExp(`rental_prices_eur_reserved_only:${first}`).test(e))
+    && !errs.some((e) => /rental_prices_eur_window_missing/.test(e)));
+}
+
+{
+  const bad = clone(school);
+  const first = Object.keys(bad.baseline.catalog.lessons.offerings)[0];
+  bad.baseline.catalog.lessons.offerings[first].prices_eur = {
+    _note: 'ask staff for lesson rates',
+  };
+  const errs = locks.validateBaselineTemplate(bad.baseline, 'surf_school_shop');
+  red('R40_lesson_prices_eur_reserved_only_rejected',
+    errs.some((e) => new RegExp(`lesson_prices_eur_reserved_only:${first}`).test(e)));
+}
+
+{
+  const bad = clone(school);
   bad.baseline.catalog.lessons.scheduling.common_slot_times = [
     { label: 'morning' },
     'eleven-ish',
