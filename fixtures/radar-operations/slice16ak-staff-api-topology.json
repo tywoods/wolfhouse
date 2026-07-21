@@ -3,7 +3,7 @@
   "slice": "RADAR-16AK",
   "title": "Staff API request topology classification (inspected; source contract)",
   "master_basis": "9fa3626326c0e2bc21f2d37905967d6ff47b7520",
-  "source_of_truth": "scripts/staff-query-api.js router + required libs \u2014 not guessed",
+  "source_of_truth": "scripts/staff-query-api.js router + required libs — not guessed",
   "request_entry": {
     "factory": "createStaffQueryApiHttpServer",
     "order": [
@@ -21,16 +21,15 @@
   },
   "trusted_tenant_identity": {
     "accepted": [
-      "construction-time ingressBinding.tenant_slug",
-      "process.env.DEFAULT_CLIENT_SLUG via resolveTrustedIngressBinding",
-      "bot principal LUNA_BOT_CLIENT_SLUG / DEFAULT_CLIENT_SLUG",
-      "STRIPE_WEBHOOK_CLIENT_SLUG / DEFAULT_CLIENT_SLUG",
-      "staff session DB client membership"
+      "resolveTrustedIngressBinding(...).tenant_slug only (construction-time ingressBinding / DEFAULT_CLIENT_SLUG)"
     ],
     "rejected_for_admission_keying": [
       "request headers client / client_slug / tenant_slug",
       "query ?client= / ?tenant_slug=",
-      "body client_slug aliases without principal bind (15F conflict fail-closed for bot)"
+      "body client_slug aliases",
+      "bot principal slug alone (not resolveTrustedIngressBinding)",
+      "stripe webhook env slug alone (not resolveTrustedIngressBinding)",
+      "staff session DB membership alone (not resolveTrustedIngressBinding)"
     ],
     "evidence": [
       "scripts/lib/staff-api-request-correlation.js#resolveTrustedIngressBinding",
@@ -53,7 +52,7 @@
           "method": "GET",
           "path": "/",
           "evidence": "router L46824-46826 (alias) and early L45073",
-          "notes": "healthz alias in late router; early / may differ for public landing \u2014 admission excludes both"
+          "notes": "healthz alias in late router; admission excludes both"
         },
         {
           "method": "GET",
@@ -71,8 +70,8 @@
         {
           "method": "POST",
           "path": "/staff/stripe/webhook",
-          "evidence": "router L45482-45487 \u2192 handleStripeWebhook; stripe-webhook-event-claim.js",
-          "notes": "BEGIN \u2192 claimStripeWebhookEvent \u2192 mutate \u2192 COMMIT; post-claim must not 503-shed"
+          "evidence": "router L45482-45487 → handleStripeWebhook; stripe-webhook-event-claim.js",
+          "notes": "BEGIN → claimStripeWebhookEvent → mutate → COMMIT; post-claim must not 503-shed"
         },
         {
           "method": "POST",
@@ -103,37 +102,37 @@
         {
           "method": "POST",
           "path": "/staff/bookings/cancel",
-          "evidence": "router L45301 \u2192 handleBookingCancel (BEGIN/COMMIT)",
+          "evidence": "router L45301 → handleBookingCancel (BEGIN/COMMIT)",
           "notes": "durable booking cancel"
         },
         {
           "method": "POST",
           "path": "/staff/bookings/edit",
-          "evidence": "router L45267 \u2192 handleBookingEditWrite",
+          "evidence": "router L45267 → handleBookingEditWrite",
           "notes": "durable edit write"
         },
         {
           "method": "POST",
           "path": "/staff/bookings/move",
-          "evidence": "router L45410 \u2192 handleBookingMoveWrite",
+          "evidence": "router L45410 → handleBookingMoveWrite",
           "notes": "durable bed move"
         },
         {
           "method": "POST",
           "path": "/staff/bookings/record-cash-payment",
-          "evidence": "router L45356 \u2192 handleBookingRecordCashPayment",
+          "evidence": "router L45356 → handleBookingRecordCashPayment",
           "notes": "durable payment record"
         },
         {
           "method": "POST",
           "path": "/staff/bookings/generate-payment-link",
-          "evidence": "router L45367 \u2192 handleBookingGeneratePaymentLink",
+          "evidence": "router L45367 → handleBookingGeneratePaymentLink",
           "notes": "Stripe session create + DB"
         },
         {
           "method": "POST",
           "path": "/staff/manual-bookings/create",
-          "evidence": "router L45459 \u2192 handleManualBookingCreate",
+          "evidence": "router L45459 → handleManualBookingCreate",
           "notes": "durable booking create"
         },
         {
@@ -163,7 +162,7 @@
         {
           "method": "POST",
           "path": "/staff/auth/login",
-          "evidence": "router L45083 \u2192 handleLogin",
+          "evidence": "router L45083 → handleLogin",
           "notes": "session insert side effect"
         },
         {
@@ -171,6 +170,12 @@
           "path": "/staff/customers/bulk-delete",
           "evidence": "router L46629",
           "notes": "durable delete"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/test/reset-luna-phone",
+          "evidence": "router L45131 → handleTestResetLunaPhone",
+          "notes": "staging-only durable DELETE of guest_message_events + guest_message_sends — write_side_effect (not read-only)"
         }
       ]
     },
@@ -182,7 +187,7 @@
         {
           "method": "POST",
           "path": "/staff/manual-bookings/preview",
-          "evidence": "router L45213 \u2192 handleManualBookingPreview",
+          "evidence": "router L45213 → handleManualBookingPreview",
           "notes": "preview; may use txn rollback patterns"
         },
         {
@@ -190,6 +195,12 @@
           "path": "/staff/bookings/move-preview",
           "evidence": "router L45234",
           "notes": "preview"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/bookings/move-targets",
+          "evidence": "router L45224 → handleBookingMoveTargets",
+          "notes": "read-only POST; preview_only:true would_mutate:false; SELECT availability only — not suffix-guessed"
         },
         {
           "method": "POST",
@@ -231,7 +242,7 @@
         {
           "method": "GET",
           "path": "/staff/query",
-          "evidence": "router L46759 \u2192 handleQuery",
+          "evidence": "router L46759 → handleQuery",
           "notes": "read-only staff query"
         },
         {
@@ -268,12 +279,14 @@
     }
   },
   "classification_rules_for_library": {
-    "health_probe": "pathname in [/healthz,/readyz,/] \u2192 admission exclude",
-    "webhook_side_effect": "POST /staff/stripe/webhook or POST /staff/meta/whatsapp/webhook",
-    "read_idempotent": "GET/HEAD (non-excluded), including Meta webhook GET verify",
-    "read_like_non_durable": "non-GET path matching preview/dry-run/quote/availability/lookup/catalog/status suffixes",
-    "write_side_effect": "POST/PUT/PATCH/DELETE otherwise"
+    "health_probe": "pathname in [/healthz,/readyz,/] → admission exclude",
+    "eligible_allowlist": true,
+    "unknown_default": "exclude_fail_closed",
+    "note": "Reviewed ELIGIBLE_ROUTES allowlist only — no suffix heuristic; no claim of full router-literal coverage. Unknown method+path pairs fail closed.",
+    "webhook_side_effect": "allowlisted POST /staff/stripe/webhook or POST /staff/meta/whatsapp/webhook",
+    "read_idempotent": "allowlisted GET/HEAD only",
+    "read_like_non_durable": "allowlisted non-durable POSTs (including /staff/bookings/move-targets)",
+    "write_side_effect": "allowlisted durable POSTs (including /staff/test/reset-luna-phone)"
   },
-  "router_pathname_literal_count_inspected": 159,
-  "note": "Fixture lists evidenced exemplars per family; library classifyRoute applies deterministic rules above to all paths. Full 159 literal paths were enumerated from router if-chain \u2014 not inventing endpoints."
+  "note": "Fixture lists reviewed eligible exemplars per family for future integration. Unknown routes are default-exclude fail-closed. Does not claim coverage of every router pathname literal."
 }

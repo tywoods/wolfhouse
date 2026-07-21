@@ -16,11 +16,13 @@ Define the smallest **tenant-safe admission controller** for future Staff API in
 |----------|----------------|
 | Topology (inspected) | `createStaffQueryApiHttpServer` → correlation → completion → `router`; health/ready at `/healthz` `/` `/readyz`; Stripe/Meta webhooks; write vs preview vs GET families — see `slice16ak-staff-api-topology.json` |
 | Existing runtime backpressure | **none** (no semaphore / admission queue / 503 Retry-After shed in Staff API) |
-| Limits | in-flight global **8** / queue global **16**; per-tenant in-flight **4** / queue **8**; Retry-After **1**s; diag ring **32** |
-| Reject | HTTP **503** + `Retry-After` **only before** side effects |
-| Tenant identity | trusted only (`resolveTrustedIngressBinding` / bot principal / webhook slug / session DB) — never request header/query/body spoof |
-| Isolation / fairness | per-tenant caps + round-robin promote across waiting tenants |
-| Cleanup | `release` / `abort` / `timeout`; **no double release**; underflow/overflow guards; reentrancy-safe promote |
+| Limits | in-flight global **8** / queue global **16**; per-tenant in-flight **4** / queue **8**; Retry-After **1**s; diag ring **32**; tombstones **128**; tracked tenants **64** |
+| Reject | HTTP **503** + `Retry-After` **only** for **pre-side-effect overload**; post-side-effect = internal continue/fail-closed (**no** `http_status` / Retry-After / retryable metadata) |
+| Route class | reviewed **eligible-route allowlist**; unknown routes **default-exclude fail-closed**; **no** suffix heuristic; **no** all-router-literal coverage claim; `move-targets` read-like; `reset-luna-phone` write |
+| Tenant identity | **only** `resolveTrustedIngressBinding(...).tenant_slug` — never request header/query/body spoof |
+| Isolation / fairness | per-tenant caps + round-robin promote; idle empty tenant buckets + rr keys **evicted** (historical tenants do not exhaust cardinality) |
+| Cleanup | `release` / `abort` / `timeout` / `close`; terminal tokens deleted + **tombstone ring**; underflow/overflow guards; reentrancy-safe promote |
+| Diagnostics | aggregate/bounded counts + opaque event kinds only — **no** raw tenant identifiers/keys |
 | Exclusions | `/healthz` `/readyz` `/` always excluded (readiness independence); in-progress transactional work after `markSideEffectStarted` cannot be 503-shed |
 | Library | pure dependency-free `radar-g06-admission-control.js` |
 | Integration drill | `16AK_INTEGRATION_staff_api_admission_wire` **`defined_not_executed`** only |
@@ -30,15 +32,15 @@ Define the smallest **tenant-safe admission controller** for future Staff API in
 
 | Observation | Proves | Does not prove |
 |-------------|--------|----------------|
-| Topology-informed admission/backpressure source contract + pure state machine + offline RED/GREEN | Exact limits/classification/fail-closed behaviors exist in source | Runtime wire; live 503 shed; soak; production |
-| Integration drill locked | Parameters ready for a later approved wire slice | That wire ran; claiming backpressure is proven; raising G06 |
+| Topology-informed admission/backpressure source contract + pure state machine + offline RED/GREEN | Exact limits/allowlist/fail-closed behaviors exist in source | Runtime wire; live 503 shed; soak; production; sync-throw integration ownership |
+| Integration drill locked | Parameters ready for a later approved wire slice | That wire ran; claiming backpressure is proven; raising G06; sync-throw ownership |
 | G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
 
 ## Truthful disposition (16AK)
 
-**Proves (source):** Tenant-safe admission-control / backpressure **source** contract with pure dependency-free controller and deterministic RED/GREEN covering burst, fairness, spoofed/missing tenant, queue overflow, timeout/abort/races, counter underflow/overflow, reentrancy, post-side-effect rejection, cross-tenant isolation, readiness independence, and bounded diagnostics; Staff API integration defined only.
+**Proves (source):** Tenant-safe admission-control / backpressure **source** contract with pure dependency-free controller and deterministic RED/GREEN covering burst, fairness, spoofed/missing tenant, queue overflow, timeout/abort/races, counter underflow/overflow, real induced reentrancy, post-side-effect internal continue, tombstone-bounded churn, idle tenant eviction (65th historical), close/shutdown settle, cross-tenant isolation, readiness independence, and opaque bounded diagnostics; Staff API integration defined only.
 
-**Does not prove:** Staff API runtime wire; live 503 shed under load; load soak; autoscaling; capacity SLO live; claiming backpressure is proven; production; raising G06 to `proven`.
+**Does not prove:** Staff API runtime wire; live 503 shed under load; load soak; autoscaling; capacity SLO live; claiming backpressure is proven; production; sync-throw integration ownership; raising G06 to `proven`.
 
 **Backpressure source gap closed; runtime/live proof remains open; G06 remains partial.**
 

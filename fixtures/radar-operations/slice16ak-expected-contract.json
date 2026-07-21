@@ -2,7 +2,9 @@
   "schema_version": 1,
   "slice": "RADAR-16AK",
   "outcome_id": "16AK_g06_backpressure_source",
-  "gate_ids": ["G06_scaling_capacity"],
+  "gate_ids": [
+    "G06_scaling_capacity"
+  ],
   "progress_class": "source_partial_progress_only",
   "master_basis": "9fa3626326c0e2bc21f2d37905967d6ff47b7520",
   "branch": "radar/slice-16ak-g06-backpressure-source",
@@ -12,7 +14,7 @@
   "this_slice_deploys": false,
   "this_slice_implements_runtime": false,
   "audit_only": true,
-  "title": "G06 backpressure / admission-control source contract — tenant-safe pure state machine + topology classification; integration defined_not_executed",
+  "title": "G06 backpressure / admission-control source contract \u2014 tenant-safe pure state machine + topology classification; integration defined_not_executed",
   "design_fixture": "fixtures/radar-operations/slice16ak-g06-backpressure-contract.json",
   "topology_fixture": "fixtures/radar-operations/slice16ak-staff-api-topology.json",
   "builds_on": [
@@ -35,22 +37,25 @@
     "max_queued_per_tenant": 8,
     "retry_after_seconds": 1,
     "max_diag_events": 32,
-    "max_tenant_keys_tracked": 64
+    "max_tenant_keys_tracked": 64,
+    "max_tombstones": 128
   },
   "http_reject": {
     "status": 503,
     "retry_after_header": "Retry-After",
-    "only_before_side_effects": true
+    "only_before_side_effects": true,
+    "only_pre_side_effect_overload": true,
+    "post_side_effect": "internal_continue_fail_closed_no_http_retry_metadata"
   },
   "final_controlled_drill": {
     "id": "16AK_INTEGRATION_staff_api_admission_wire",
     "status": "defined_not_executed",
-    "pass_rule": "After approved future slice: wire admission at createStaffQueryApiHttpServer with trusted ingress tenant only; exclude health/ready; markSideEffectStarted before durable work; 503+Retry-After only pre-side-effect; does not claim production/soak/autoscale/G06 proven"
+    "pass_rule": "After approved future slice: wire admission at createStaffQueryApiHttpServer with ONLY resolveTrustedIngressBinding(...).tenant_slug; eligible-route allowlist; unknown default-exclude fail-closed; 503+Retry-After only pre-side-effect overload; post-side-effect internal continue; close() rejects queued pre-side-effect and settles; does not claim sync-throw ownership/production/soak/autoscale/G06 proven"
   },
   "offline_source_contract": {
     "id": "16AK_OFFLINE_admission_control_source_contract",
     "status": "offline_source_proven",
-    "pass_rule": "Pure dependency-free admission controller + deterministic RED/GREEN verifier prove exact locked limits, topology-informed classification, burst/queue overflow, fairness, spoofed/missing tenant, timeout/abort/races, no double release, counter underflow/overflow, reentrancy, post-side-effect rejection forbidden, cross-tenant isolation, readiness independence, bounded diagnostics; integration defined_not_executed; G06 partial; score unchanged; no runtime wire"
+    "pass_rule": "Pure dependency-free admission controller + RED/GREEN prove limits, eligible allowlist, 503 only pre-side-effect overload, post-side-effect internal continue, tombstone bound, idle tenant eviction (65th historical), close/shutdown, real reentrancy, opaque diagnostics; integration defined_not_executed; sync-throw ownership not claimed; G06 partial; no runtime wire"
   },
   "forbidden_claim_tokens": [
     "backpressure proven",
@@ -64,7 +69,9 @@
     "autoscaling proven",
     "load soak proven",
     "wired into runtime",
-    "live shed proven"
+    "live shed proven",
+    "all 159",
+    "all-159"
   ],
   "must_not_claim_as_proven": [
     "backpressure_proven",
@@ -79,7 +86,10 @@
     "any_gate_verdict_proven",
     "scale_mutation_by_this_slice",
     "deploy_by_this_slice",
-    "staff_api_runtime_mutation"
+    "staff_api_runtime_mutation",
+    "sync_throw_integration_ownership",
+    "all_router_literal_route_coverage",
+    "suffix_heuristic_classification"
   ],
   "verdict_policy": {
     "proven": 0,

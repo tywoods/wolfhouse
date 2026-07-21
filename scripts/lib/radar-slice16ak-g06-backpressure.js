@@ -5,12 +5,13 @@
  *
  * Text/source-only G06 backpressure / admission-control contract + pure
  * dependency-free state machine. Inspected Staff API topology classification
- * (side-effect / idempotency) informs the contract; library is NOT wired into
- * runtime by this slice.
+ * (side-effect / idempotency) informs the reviewed eligible-route allowlist;
+ * library is NOT wired into runtime by this slice.
  *
  * Does NOT deploy, execute live/load/soak, mutate scale, claim backpressure
  * proven / G06 proven / production, or change the score. Final Staff API
- * integration drill is defined_not_executed only.
+ * integration drill is defined_not_executed only. Sync-throw integration
+ * ownership is explicitly not claimed.
  */
 
 const ac = require('./radar-g06-admission-control');
@@ -39,26 +40,18 @@ const RESOURCE_GROUPS = Object.freeze([
 /** Exact locked limits — smallest tenant-safe ceilings (source only). */
 const LIMITS_LOCK = ac.LIMITS;
 
+/**
+ * Trusted admission tenant source for future integration — ONLY
+ * resolveTrustedIngressBinding(...).tenant_slug. Never request headers/query/body.
+ */
 const TRUSTED_TENANT_SOURCES = Object.freeze([
   Object.freeze({
-    id: 'ingress_binding_DEFAULT_CLIENT_SLUG',
+    id: 'resolveTrustedIngressBinding_tenant_slug',
     evidence: 'scripts/lib/staff-api-request-correlation.js#resolveTrustedIngressBinding',
-    note: 'Construction-time ingress binding / DEFAULT_CLIENT_SLUG only — never request headers/query',
-  }),
-  Object.freeze({
-    id: 'bot_principal_LUNA_BOT_CLIENT_SLUG',
-    evidence: 'scripts/lib/staff-bot-principal-tenant-config.js + staff-query-api.js#requireBotAuth',
-    note: 'Bot token principal binds LUNA_BOT_CLIENT_SLUG / DEFAULT_CLIENT_SLUG; body/query aliases cannot override (15F)',
-  }),
-  Object.freeze({
-    id: 'stripe_webhook_STRIPE_WEBHOOK_CLIENT_SLUG',
-    evidence: 'scripts/lib/stripe-webhook-tenant-config.js',
-    note: 'Webhook tenant from STRIPE_WEBHOOK_CLIENT_SLUG / DEFAULT_CLIENT_SLUG — not request body',
-  }),
-  Object.freeze({
-    id: 'staff_session_db_client_membership',
-    evidence: 'scripts/staff-query-api.js#loadAuthSession / requireAuth',
-    note: 'Session-backed client access list from DB — not client-supplied spoof headers',
+    field: 'tenant_slug',
+    note:
+      'Construction-time ingress binding / DEFAULT_CLIENT_SLUG via '
+      + 'resolveTrustedIngressBinding(...).tenant_slug only — never request headers/query/body',
   }),
 ]);
 
@@ -72,6 +65,9 @@ const EXCLUSIONS = Object.freeze({
   readiness_independence:
     'Admission saturation must not cause /healthz or /readyz to return 503; '
     + 'those paths are classifyRoute admission=exclude and never count toward limits',
+  unknown_routes:
+    'Unknown method+path pairs are default-exclude fail-closed — not on the reviewed '
+    + 'eligible-route allowlist; no suffix heuristic; no all-router-literal coverage claim',
 });
 
 const BUILDS_ON = Object.freeze([
@@ -101,6 +97,9 @@ const EXPLICITLY_NOT_CLAIMED = Object.freeze([
   'scale_mutation_by_this_slice',
   'deploy_by_this_slice',
   'staff_api_runtime_mutation',
+  'sync_throw_integration_ownership',
+  'all_router_literal_route_coverage',
+  'suffix_heuristic_classification',
 ]);
 
 const FORBIDDEN_CLAIM_TOKENS = Object.freeze([
@@ -116,6 +115,8 @@ const FORBIDDEN_CLAIM_TOKENS = Object.freeze([
   'load soak proven',
   'wired into runtime',
   'live shed proven',
+  'all 159',
+  'all-159',
 ]);
 
 const FUTURE_INTEGRATION_DRILL = Object.freeze({
@@ -123,11 +124,14 @@ const FUTURE_INTEGRATION_DRILL = Object.freeze({
   status: 'defined_not_executed',
   pass_rule:
     'After an approved future slice: wire createAdmissionController at '
-    + 'createStaffQueryApiHttpServer boundary using resolveTrustedIngressBinding '
-    + 'tenant only; exclude /healthz+/readyz+/; markSideEffectStarted before '
-    + 'BEGIN/claim/durable writes; fail-fast 503+Retry-After only pre-side-effect; '
-    + 'per-tenant isolation preserved; does not claim production, soak, autoscale, '
-    + 'or raising G06 to proven',
+    + 'createStaffQueryApiHttpServer boundary using ONLY '
+    + 'resolveTrustedIngressBinding(...).tenant_slug; exclude /healthz+/readyz+/; '
+    + 'admit only reviewed eligible-route allowlist (unknown default-exclude fail-closed); '
+    + 'markSideEffectStarted before BEGIN/claim/durable writes; fail-fast 503+Retry-After '
+    + 'only for pre-side-effect overload; post-side-effect rejection is internal '
+    + 'continue/fail-closed with no HTTP/retry metadata; close() rejects queued '
+    + 'pre-side-effect work and settles state; does not claim production, soak, '
+    + 'autoscale, sync-throw integration ownership, or raising G06 to proven',
 });
 
 const FINAL_CONTROLLED_DRILL = FUTURE_INTEGRATION_DRILL;
@@ -137,14 +141,16 @@ const OFFLINE_SOURCE_CONTRACT = Object.freeze({
   status: 'offline_source_proven',
   pass_rule:
     'Pure dependency-free admission controller + deterministic RED/GREEN verifier '
-    + 'prove exact locked limits, route classification from inspected topology, '
-    + 'burst/queue overflow 503+Retry-After, starvation/fairness round-robin, '
-    + 'spoofed/missing tenant fail-closed, timeout/abort/race cleanup, no double '
-    + 'release, counter underflow/overflow guards, reentrancy-safe promote, '
-    + 'post-side-effect rejection forbidden, cross-tenant isolation, readiness '
-    + 'independence, bounded diagnostics; integration drill defined_not_executed '
-    + 'only; G06 remains partial; proven count remains 0; no live/deploy/scale/'
-    + 'runtime wire',
+    + 'prove exact locked limits, reviewed eligible-route allowlist classification, '
+    + 'burst/queue overflow 503+Retry-After only pre-side-effect, post-side-effect '
+    + 'internal continue/fail-closed (no http_status/Retry-After/retryable), '
+    + 'starvation/fairness round-robin, spoofed/missing tenant fail-closed, '
+    + 'timeout/abort/race cleanup, tombstone-bounded terminal memory, idle tenant '
+    + 'bucket eviction (65th historical tenant), close/shutdown settle, real induced '
+    + 'reentrancy, opaque diagnostics (no tenant slugs), readiness independence; '
+    + 'integration drill defined_not_executed only; sync-throw integration ownership '
+    + 'explicitly not claimed; G06 remains partial; proven count remains 0; no '
+    + 'live/deploy/scale/runtime wire',
 });
 
 const OWNED_RELS = Object.freeze([

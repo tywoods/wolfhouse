@@ -79,6 +79,16 @@ function secretFree(text, label) {
   return { ok: true };
 }
 
+function hasHttpRetryMeta(obj) {
+  if (!obj || typeof obj !== 'object') return false;
+  return (
+    Object.prototype.hasOwnProperty.call(obj, 'http_status')
+    || Object.prototype.hasOwnProperty.call(obj, 'retry_after_seconds')
+    || Object.prototype.hasOwnProperty.call(obj, 'retryable')
+    || (obj.headers && Object.prototype.hasOwnProperty.call(obj.headers, 'Retry-After'))
+  );
+}
+
 function makeCtrl(extraLimits) {
   return ac.createAdmissionController({
     limits: extraLimits || undefined,
@@ -119,8 +129,6 @@ green('M1 slice/outcome/branch/master',
   && design.master_basis === locks.MASTER_BASIS
   && topology.master_basis === locks.MASTER_BASIS);
 
-green('M2 branch tip name matches lock (or local tip)',
-  true); // branch checked softly — allow detached during hooks
 try {
   const b = currentBranch();
   ok('M2b current branch is 16AK or master-based work',
@@ -180,7 +188,12 @@ const sf = [
 ];
 green('M11 secret-free artifacts', sf.every((s) => s.ok), sf.filter((s) => !s.ok).map((s) => s.detail).join(';'));
 
-// ── Topology inspection (do not guess) ───────────────────────────────────────
+red('M12 sync-throw integration ownership explicitly not claimed',
+  locks.EXPLICITLY_NOT_CLAIMED.includes('sync_throw_integration_ownership')
+  && contract.must_not_claim_as_proven.includes('sync_throw_integration_ownership')
+  && /sync.?throw/i.test(JSON.stringify(design.explicitly_not_claimed || locks.EXPLICITLY_NOT_CLAIMED)));
+
+// ── Topology inspection ──────────────────────────────────────────────────────
 
 green('T1 topology cites staff-query-api router entry',
   /createStaffQueryApiHttpServer/.test(topology.request_entry.factory)
@@ -188,11 +201,14 @@ green('T1 topology cites staff-query-api router entry',
   && /createStaffQueryApiHttpServer/.test(apiSrc)
   && /resolveTrustedIngressBinding/.test(apiSrc));
 
-green('T2 trusted ingress never request input (code)',
-  /never request input/i.test(corrSrc)
-  && /DEFAULT_CLIENT_SLUG/.test(corrSrc)
+green('T2 trusted ingress only resolveTrustedIngressBinding.tenant_slug',
+  locks.TRUSTED_TENANT_SOURCES.length === 1
+  && locks.TRUSTED_TENANT_SOURCES[0].id === 'resolveTrustedIngressBinding_tenant_slug'
+  && locks.TRUSTED_TENANT_SOURCES[0].field === 'tenant_slug'
+  && /never request input/i.test(corrSrc)
   && /Never reads request headers\/query\/body/i.test(corrSrc)
-  && topology.trusted_tenant_identity.rejected_for_admission_keying.length >= 2);
+  && topology.trusted_tenant_identity.accepted.length === 1
+  && /resolveTrustedIngressBinding/.test(topology.trusted_tenant_identity.accepted[0]));
 
 green('T3 healthz/readyz evidence present in API',
   /HEALTHZ_PATH|handleStaffApiHealthz/.test(apiSrc)
@@ -213,7 +229,18 @@ green('T5 existing backpressure absent in runtime',
 green('T6 library not required by staff-query-api',
   !/radar-g06-admission-control|radar-slice16ak/.test(apiSrc));
 
-// ── Classification ───────────────────────────────────────────────────────────
+red('T7 no suffix heuristic / no all-159 coverage claim',
+  ac.READ_LIKE_NON_DURABLE_SUFFIXES.length === 0
+  && !/\.endsWith\(/.test(libSrc)
+  && !/p\.includes\('\/preview'\)|p\.includes\('dry-run'\)/.test(libSrc)
+  && !/all.?159|159 literal|router_pathname_literal_count_inspected/.test(JSON.stringify(topology))
+  && !/\ball 159\b|\ball-159\b|uses suffix heuristic|suffix-heuristic classification/i.test(doc)
+  && /no.*suffix heuristic|eligible-route allowlist/i.test(doc)
+  && topology.classification_rules_for_library
+  && topology.classification_rules_for_library.eligible_allowlist === true
+  && topology.classification_rules_for_library.unknown_default === 'exclude_fail_closed');
+
+// ── Classification (allowlist) ───────────────────────────────────────────────
 
 green('C1 health probes excluded',
   ac.classifyRoute({ method: 'GET', pathname: '/healthz' }).admission === 'exclude'
@@ -245,6 +272,40 @@ green('C6 GET query read_idempotent',
 red('C7 bad input rejected',
   ac.classifyRoute({ method: '', pathname: '/staff/query' }).ok === false);
 
+red('C8 move-targets is read_like_non_durable (inspected preview_only)',
+  ac.classifyRoute({ method: 'POST', pathname: '/staff/bookings/move-targets' }).class
+    === ac.ROUTE_CLASSES.READ_LIKE_NON_DURABLE
+  && /preview_only:\s*true/.test(apiSrc)
+  && /handleBookingMoveTargets/.test(apiSrc));
+
+red('C9 reset-luna-phone is write_side_effect (durable delete)',
+  ac.classifyRoute({ method: 'POST', pathname: '/staff/test/reset-luna-phone' }).class
+    === ac.ROUTE_CLASSES.WRITE_SIDE_EFFECT
+  && /Deletes guest_message_events/.test(apiSrc)
+  && /handleTestResetLunaPhone/.test(apiSrc));
+
+red('C10 unknown route default-exclude fail-closed',
+  ac.classifyRoute({ method: 'POST', pathname: '/staff/not-a-reviewed-route' }).ok === false
+  && ac.classifyRoute({ method: 'POST', pathname: '/staff/not-a-reviewed-route' }).default_exclude === true
+  && (() => {
+    const ctrl = makeCtrl();
+    const r = ctrl.tryAdmit({
+      method: 'POST',
+      pathname: '/staff/not-a-reviewed-route',
+      trustedTenantSlug: 'wolfhouse-somo',
+    });
+    return r.ok === false
+      && r.decision === ac.DECISIONS.REJECTED_UNKNOWN_ROUTE
+      && !hasHttpRetryMeta(r);
+  })());
+
+green('C11 eligible allowlist exported and non-empty',
+  Object.keys(ac.ELIGIBLE_ROUTES).length >= 10
+  && ac.ELIGIBLE_ROUTES['POST /staff/bookings/move-targets']
+    === ac.ROUTE_CLASSES.READ_LIKE_NON_DURABLE
+  && ac.ELIGIBLE_ROUTES['POST /staff/test/reset-luna-phone']
+    === ac.ROUTE_CLASSES.WRITE_SIDE_EFFECT);
+
 // ── Limits lock ──────────────────────────────────────────────────────────────
 
 green('L1 exact locked ceilings',
@@ -253,6 +314,7 @@ green('L1 exact locked ceilings',
   && ac.LIMITS.max_in_flight_per_tenant === 4
   && ac.LIMITS.max_queued_per_tenant === 8
   && ac.LIMITS.retry_after_seconds === 1
+  && ac.LIMITS.max_tombstones === 128
   && contract.limits.max_in_flight_global === 8
   && design.limits.max_in_flight_global === 8);
 
@@ -265,7 +327,7 @@ red('L2 cannot exceed locked ceilings', (() => {
   }
 })());
 
-// ── Burst / queue overflow ───────────────────────────────────────────────────
+// ── Burst / queue overflow (503 only here) ───────────────────────────────────
 
 (() => {
   const ctrl = makeCtrl();
@@ -279,7 +341,6 @@ red('L2 cannot exceed locked ceilings', (() => {
     green(`B1 admit ${i}`, r.ok && r.decision === ac.DECISIONS.ADMITTED);
     tokens.push(r.token_id);
   }
-  // per-tenant in-flight=4 full → queue
   const q = [];
   for (let i = 0; i < 8; i += 1) {
     const r = ctrl.tryAdmit({
@@ -300,7 +361,8 @@ red('L2 cannot exceed locked ceilings', (() => {
     && overflow.decision === ac.DECISIONS.REJECTED_QUEUE_OVERFLOW
     && overflow.http_status === 503
     && overflow.headers['Retry-After'] === '1'
-    && overflow.retry_after_seconds === 1);
+    && overflow.retry_after_seconds === 1
+    && overflow.retryable === true);
   green('B4 diagnostics bounded after burst',
     ctrl.diagnostics().event_count <= ac.LIMITS.max_diag_events
     && ctrl.diagnostics().in_flight_global === 4
@@ -349,7 +411,6 @@ red('L2 cannot exceed locked ceilings', (() => {
   const bq = ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 'tenant-b' });
   const aq2 = ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 'tenant-a' });
   green('F2 queues form', aq.decision === 'queued' && bq.decision === 'queued' && aq2.decision === 'queued');
-  // Release A then B — promotions should alternate (round-robin), preventing A starvation.
   const r1 = ctrl.release(a1.token_id);
   green('F3 promote after A release', r1.ok && r1.promoted && r1.promoted.ok);
   const firstPromotedTenant = r1.promoted.tenant;
@@ -357,25 +418,23 @@ red('L2 cannot exceed locked ceilings', (() => {
   green('F4 promote after B release', r2.ok && r2.promoted && r2.promoted.ok);
   const secondPromotedTenant = r2.promoted.tenant;
   red('F5 fairness not same-tenant starvation',
-    firstPromotedTenant !== secondPromotedTenant
-    || (firstPromotedTenant === 'tenant-b' || secondPromotedTenant === 'tenant-a'),
+    firstPromotedTenant !== secondPromotedTenant,
     `first=${firstPromotedTenant} second=${secondPromotedTenant}`);
-  // Stronger: across two promotes, both tenants should appear if both had waiters.
   const promotedTenants = [firstPromotedTenant, secondPromotedTenant].sort().join(',');
   green('F6 both waiting tenants promoted across releases',
-    promotedTenants === 'tenant-a,tenant-b' || firstPromotedTenant !== secondPromotedTenant);
+    promotedTenants === 'tenant-a,tenant-b');
   ctrl.assertConsistent();
 })();
 
-// ── Spoofed / missing tenant ─────────────────────────────────────────────────
+// ── Spoofed / missing tenant (internal — no 503) ─────────────────────────────
 
 (() => {
   const ctrl = makeCtrl();
   const missing = ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query' });
-  red('S1 missing tenant 503',
+  red('S1 missing tenant fail-closed no 503',
     missing.ok === false
     && missing.decision === ac.DECISIONS.REJECTED_MISSING_TENANT
-    && missing.http_status === 503);
+    && !hasHttpRetryMeta(missing));
 
   const spoof = ctrl.tryAdmit({
     method: 'GET',
@@ -383,21 +442,21 @@ red('L2 cannot exceed locked ceilings', (() => {
     trustedTenantSlug: 'wolfhouse-somo',
     claimFromRequest: 'evil-tenant',
   });
-  red('S2 spoofed request claim rejected',
+  red('S2 spoofed request claim rejected no 503',
     spoof.ok === false
     && spoof.decision === ac.DECISIONS.REJECTED_UNTRUSTED_TENANT
-    && spoof.http_status === 503);
+    && !hasHttpRetryMeta(spoof));
 
   const badSlug = ctrl.tryAdmit({
     method: 'GET',
     pathname: '/staff/query',
     trustedTenantSlug: '../evil',
   });
-  red('S3 invalid slug rejected as missing',
+  red('S3 invalid slug rejected as missing no 503',
     badSlug.ok === false
-    && badSlug.decision === ac.DECISIONS.REJECTED_MISSING_TENANT);
+    && badSlug.decision === ac.DECISIONS.REJECTED_MISSING_TENANT
+    && !hasHttpRetryMeta(badSlug));
 
-  // Exclude does not require tenant
   const ex = ctrl.tryAdmit({ method: 'GET', pathname: '/readyz' });
   green('S4 readiness exclude without tenant',
     ex.ok && ex.decision === ac.DECISIONS.EXCLUDED && ex.counts_toward_limits === false);
@@ -424,14 +483,14 @@ red('L2 cannot exceed locked ceilings', (() => {
     to.ok && to.promoted && to.promoted.token_id === q2.token_id);
   ctrl.assertConsistent();
 
-  // Race: double abort
   const d = ctrl.abort(q2.token_id);
   const d2 = ctrl.abort(q2.token_id);
   green('R5 first abort ok', d.ok);
-  red('R6 second abort no double release',
+  red('R6 second abort no double release (tombstone)',
     d2.ok === false
     && d2.decision === ac.DECISIONS.REJECTED_ALREADY_RELEASED
     && d2.counters_unchanged === true
+    && !hasHttpRetryMeta(d2)
     && ctrl.diagnostics().in_flight_global === 0);
 })();
 
@@ -446,21 +505,22 @@ red('L2 cannot exceed locked ceilings', (() => {
   });
   const a = ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
   green('U1 admit', a.decision === 'admitted');
-  // Force underflow attempt via internal inconsistency is not exposed; release twice covers double-release.
   ctrl.release(a.token_id);
   const again = ctrl.release(a.token_id);
-  red('U2 double release ignored (no underflow)',
+  red('U2 double release ignored (tombstone, no underflow)',
     again.ok === false
     && again.counters_unchanged === true
-    && ctrl.diagnostics().in_flight_global === 0);
+    && !hasHttpRetryMeta(again)
+    && ctrl.diagnostics().in_flight_global === 0
+    && ctrl.diagnostics().token_record_count === 0
+    && ctrl.diagnostics().tombstone_count >= 1);
 
-  // Overflow ceiling throw already tested; also admit beyond via limits=1
   const b = ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
   const c = ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  green('U3 second hits in-flight limit', b.decision === 'admitted' && c.ok === false);
+  green('U3 second hits in-flight limit', b.decision === 'admitted' && c.ok === false && c.http_status === 503);
 })();
 
-// ── Reentrancy ───────────────────────────────────────────────────────────────
+// ── Real induced reentrancy ──────────────────────────────────────────────────
 
 (() => {
   const ctrl = makeCtrl({
@@ -471,134 +531,40 @@ red('L2 cannot exceed locked ceilings', (() => {
   });
   const a = ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
   ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  // Monkey-patch: call promoteOne while promoting by nesting via release→promote.
-  // Library sets promoting flag; nested promoteOne should fail closed.
-  const orig = ctrl.promoteOne;
-  let nested = null;
-  ctrl.promoteOne = function wrapped() {
-    if (nested === null) {
-      nested = orig.call(ctrl);
-      return nested;
+
+  let nestedResult = null;
+  let bucketGets = 0;
+  const origGet = Map.prototype.get;
+  Map.prototype.get = function patchedGet(key) {
+    const v = origGet.call(this, key);
+    // release() does one tenants.get before promoteOne; subsequent bucket gets
+    // are inside promoteOne while promoting===true — induce real reentrancy there.
+    if (v && typeof v === 'object' && Array.isArray(v.queue)) {
+      bucketGets += 1;
+      if (bucketGets >= 2 && v.queue.length > 0 && nestedResult === null) {
+        nestedResult = ctrl.promoteOne();
+      }
     }
-    return orig.call(ctrl);
+    return v;
   };
-  // Direct reentrant call:
-  const ctrl2 = makeCtrl({
-    max_in_flight_global: 1,
-    max_in_flight_per_tenant: 1,
-    max_queued_global: 4,
-    max_queued_per_tenant: 4,
-  });
-  const x = ctrl2.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  ctrl2.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  // Simulate reentrancy by setting promoting through overlapping promoteOne
-  let sawReentrant = false;
-  const realPromote = ctrl2.promoteOne.bind(ctrl2);
-  // Access via release path is safe; call promoteOne twice overlapping using a hack:
-  // We expose promoteOne — call it, and inside diagnostics assertConsistent after release.
-  ctrl2.release(x.token_id);
-  ctrl2.assertConsistent();
-  // Force reentrant: call promoteOne while a custom bucket triggers nested call —
-  // use the REJECTED_REENTRANT path by calling promoteOne when promoting=true.
-  // Implement by temporarily wrapping internal state via double-entry:
-  const p1 = realPromote();
-  // After promote, second promote with empty queues returns null
-  const p2 = realPromote();
-  green('RE1 promote safe when idle/empty', p1 === null || p1.ok || p1.ok === false);
-  green('RE2 second promote null or reject', p2 === null || p2.ok === false);
-  // Explicit reentrancy test using a controller subclass pattern:
-  const ctrl3 = makeCtrl({
-    max_in_flight_global: 1,
-    max_in_flight_per_tenant: 1,
-    max_queued_global: 4,
-    max_queued_per_tenant: 4,
-  });
-  const y = ctrl3.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  ctrl3.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  let reentrantHit = false;
-  const inner = ctrl3.promoteOne.bind(ctrl3);
-  ctrl3.promoteOne = function () {
-    if (!reentrantHit) {
-      reentrantHit = true;
-      const nestedRes = inner();
-      // While first promote runs, nested should see promoting flag —
-      // but our implementation sets promoting around the whole body, so nested
-      // call from inside would hit REJECTED_REENTRANT. Invoke nested at start:
-      return nestedRes;
-    }
-    return inner();
-  };
-  // Better explicit test: call promoteOne, and from a patched tenants iteration…
-  // Simplest reliable test: set promoting by calling promoteOne recursively via patch at top.
-  const ctrl4 = makeCtrl({
-    max_in_flight_global: 1,
-    max_in_flight_per_tenant: 1,
-    max_queued_global: 4,
-    max_queued_per_tenant: 4,
-  });
-  ctrl4.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  ctrl4.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  let depth = 0;
-  let reentrantResult = null;
-  const basePromote = ctrl4.promoteOne.bind(ctrl4);
-  // We need to hook inside. Use release which calls promoteOne once — instead
-  // manually invoke: first line of promoteOne checks promoting. We'll call
-  // promoteOne from within a replaced version:
-  ctrl4.promoteOne = function () {
-    depth += 1;
-    if (depth === 1) {
-      reentrantResult = basePromote(); // this sets promoting; but we're outside
-      // Call again while... can't. Alternative: export isn't wrapping.
-      // Direct: invoke basePromote, then while not applicable.
-      depth -= 1;
-      return reentrantResult;
-    }
-    depth -= 1;
-    return basePromote();
-  };
-  // Use a dedicated internal approach: create controller and call promoteOne
-  // twice in parallel by faking promoting via overlapping sync recursion:
-  const ctrl5 = ac.createAdmissionController({
-    limits: {
-      max_in_flight_global: 1,
-      max_in_flight_per_tenant: 1,
-      max_queued_global: 4,
-      max_queued_per_tenant: 4,
-    },
-  });
-  ctrl5.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  ctrl5.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  // Patch Map.forEach? Too heavy. Instead verify source contains reentrancy guard.
-  red('RE3 source has promoting reentrancy guard',
+  try {
+    ctrl.release(a.token_id);
+  } finally {
+    Map.prototype.get = origGet;
+  }
+  red('RE1 real induced reentrancy returns REJECTED_REENTRANT',
+    nestedResult
+    && nestedResult.ok === false
+    && nestedResult.decision === ac.DECISIONS.REJECTED_REENTRANT
+    && !hasHttpRetryMeta(nestedResult),
+    nestedResult ? JSON.stringify(nestedResult) : `no nested call bucketGets=${bucketGets}`);
+  red('RE2 source has promoting reentrancy guard',
     /if \(promoting\)/.test(libSrc) && /REJECTED_REENTRANT/.test(libSrc));
-  // Functional: release is reentrancy-safe (no throw, consistent)
-  const z = ctrl5.release(ctrl5.diagnostics().tenants['t1']
-    ? Object.keys(ctrl5.diagnostics().tenants) && (() => {
-      // get token via admit tracking
-      return null;
-    })()
-    : null);
-  void z;
-  void a;
-  void y;
-  void sawReentrant;
-  // Clean functional reentrancy: call promoteOne; during release nested promote won't double-count
-  const ctrl6 = makeCtrl({
-    max_in_flight_global: 1,
-    max_in_flight_per_tenant: 1,
-    max_queued_global: 8,
-    max_queued_per_tenant: 8,
-  });
-  const tA = ctrl6.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  ctrl6.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  ctrl6.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  const rel = ctrl6.release(tA.token_id);
-  green('RE4 release+promote consistent', rel.ok && ctrl6.assertConsistent() === true);
-  const rel2 = ctrl6.release(rel.promoted.token_id);
-  green('RE5 chained release consistent', rel2.ok && ctrl6.assertConsistent() === true);
+  green('RE3 controller consistent after induced reentrancy',
+    ctrl.assertConsistent() === true);
 })();
 
-// ── Post-side-effect rejection ───────────────────────────────────────────────
+// ── Post-side-effect rejection (internal continue — no 503) ──────────────────
 
 (() => {
   const ctrl = makeCtrl();
@@ -611,21 +577,25 @@ red('L2 cannot exceed locked ceilings', (() => {
   const se = ctrl.markSideEffectStarted(r.token_id);
   green('P2 side effect marked', se.ok && se.rejectable_with_503 === false);
   const shed = ctrl.tryRejectWith503(r.token_id);
-  red('P3 post-side-effect 503 forbidden',
+  red('P3 post-side-effect is internal continue — no http/retry metadata',
     shed.ok === false
     && shed.decision === ac.DECISIONS.REJECTED_POST_SIDE_EFFECT
+    && shed.continue === true
+    && shed.rejectable_with_503 === false
+    && shed.counters_unchanged === true
+    && !hasHttpRetryMeta(shed)
     && ctrl.diagnostics().in_flight_global === 1);
-  // Pre-side-effect shed still allowed
   const r2 = ctrl.tryAdmit({
     method: 'POST',
     pathname: '/staff/bookings/cancel',
     trustedTenantSlug: 'wolfhouse-somo',
   });
   const shed2 = ctrl.tryRejectWith503(r2.token_id);
-  green('P4 pre-side-effect shed 503',
+  green('P4 pre-side-effect shed 503 only',
     shed2.ok === false
     && shed2.http_status === 503
-    && shed2.headers['Retry-After'] === '1');
+    && shed2.headers['Retry-After'] === '1'
+    && shed2.retryable === true);
   ctrl.release(r.token_id);
   ctrl.assertConsistent();
 })();
@@ -639,12 +609,8 @@ red('L2 cannot exceed locked ceilings', (() => {
     max_queued_global: 16,
     max_queued_per_tenant: 2,
   });
-  // Fill tenant-a to its cap + queue
-  const aTokens = [];
   for (let i = 0; i < 2; i += 1) {
-    aTokens.push(ctrl.tryAdmit({
-      method: 'GET', pathname: '/staff/query', trustedTenantSlug: 'tenant-a',
-    }).token_id);
+    ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 'tenant-a' });
   }
   for (let i = 0; i < 2; i += 1) {
     ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 'tenant-a' });
@@ -652,9 +618,8 @@ red('L2 cannot exceed locked ceilings', (() => {
   const aBlock = ctrl.tryAdmit({
     method: 'GET', pathname: '/staff/query', trustedTenantSlug: 'tenant-a',
   });
-  red('X1 tenant-a saturated rejects', aBlock.ok === false);
+  red('X1 tenant-a saturated rejects', aBlock.ok === false && aBlock.http_status === 503);
 
-  // tenant-b still admits
   const b1 = ctrl.tryAdmit({
     method: 'GET', pathname: '/staff/query', trustedTenantSlug: 'tenant-b',
   });
@@ -664,11 +629,14 @@ red('L2 cannot exceed locked ceilings', (() => {
   green('X2 tenant-b isolated admit',
     b1.decision === 'admitted' && b2.decision === 'admitted');
   const d = ctrl.diagnostics();
-  green('X3 per-tenant counters isolated',
-    d.tenants['tenant-a'].in_flight === 2
-    && d.tenants['tenant-a'].queued === 2
-    && d.tenants['tenant-b'].in_flight === 2
-    && d.tenants['tenant-b'].queued === 0);
+  green('X3 aggregate counters show isolation without tenant key map',
+    d.tracked_tenant_count === 2
+    && d.non_empty_tenant_count === 2
+    && d.in_flight_global === 4
+    && d.queued_global === 2
+    && d.max_tenant_in_flight === 2
+    && d.max_tenant_queued === 2
+    && !Object.prototype.hasOwnProperty.call(d, 'tenants'));
   ctrl.assertConsistent();
 })();
 
@@ -682,7 +650,6 @@ red('L2 cannot exceed locked ceilings', (() => {
     max_queued_per_tenant: 0,
   });
   ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
-  // Saturated
   const blocked = ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
   red('RD1 saturated rejects work', blocked.ok === false && blocked.http_status === 503);
   const hz = ctrl.tryAdmit({ method: 'GET', pathname: '/healthz' });
@@ -693,7 +660,7 @@ red('L2 cannot exceed locked ceilings', (() => {
     && ctrl.diagnostics().in_flight_global === 1);
 })();
 
-// ── Bounded diagnostics ──────────────────────────────────────────────────────
+// ── Bounded diagnostics — no tenant slugs ────────────────────────────────────
 
 (() => {
   const ctrl = makeCtrl({
@@ -703,35 +670,211 @@ red('L2 cannot exceed locked ceilings', (() => {
     max_queued_per_tenant: 8,
     max_diag_events: 8,
   });
+  const slugs = ['wolfhouse-somo', 'tenant-secret-slug', 'luna-sunset-staging'];
   for (let i = 0; i < 40; i += 1) {
     const r = ctrl.tryAdmit({
       method: 'GET',
       pathname: '/staff/query',
-      trustedTenantSlug: i % 2 === 0 ? 't1' : 't2',
+      trustedTenantSlug: slugs[i % slugs.length],
     });
     if (r.token_id) ctrl.release(r.token_id);
   }
   const d = ctrl.diagnostics();
+  const dump = JSON.stringify(d);
   green('D1 diag ring bounded', d.event_count === 8 && d.events.length === 8);
   green('D2 diag has no secrets fields',
-    !JSON.stringify(d).includes('sk_live')
-    && !JSON.stringify(d).includes('password'));
+    !dump.includes('sk_live') && !dump.includes('password'));
+  red('D3 diagnostics expose no raw tenant identifiers/keys',
+    !dump.includes('wolfhouse-somo')
+    && !dump.includes('tenant-secret-slug')
+    && !dump.includes('luna-sunset-staging')
+    && !Object.prototype.hasOwnProperty.call(d, 'tenants')
+    && d.events.every((e) => e.kind && !e.tenant && !e.tenant_slug)
+    && typeof d.tracked_tenant_count === 'number'
+    && typeof d.tombstone_count === 'number');
+})();
+
+// ── Tombstone lifecycle memory bound + large churn ───────────────────────────
+
+(() => {
+  const ctrl = makeCtrl({
+    max_in_flight_global: 8,
+    max_in_flight_per_tenant: 4,
+    max_queued_global: 16,
+    max_queued_per_tenant: 8,
+    max_tombstones: 32,
+  });
+  const N = 500;
+  let peakTokens = 0;
+  let churnOk = true;
+  for (let i = 0; i < N; i += 1) {
+    const r = ctrl.tryAdmit({
+      method: 'GET',
+      pathname: '/staff/query',
+      trustedTenantSlug: 'churn-tenant',
+    });
+    if (!r.ok) {
+      churnOk = false;
+      red('CH2 churn admit failed unexpectedly', false, `i=${i} ${JSON.stringify(r)}`);
+      break;
+    }
+    const rel = ctrl.release(r.token_id);
+    if (!rel.ok) {
+      churnOk = false;
+      red('CH2b churn release failed', false, `i=${i} ${JSON.stringify(rel)}`);
+      break;
+    }
+    const d = ctrl.diagnostics();
+    if (d.token_record_count > peakTokens) peakTokens = d.token_record_count;
+    if (d.tombstone_count > 32) {
+      churnOk = false;
+      red('CH3 tombstone exceeded max', false, String(d.tombstone_count));
+      break;
+    }
+  }
+  green('CH1 large sequential churn completed', churnOk && N === 500);
+  const d = ctrl.diagnostics();
+  red('CH4 steady-state token records bound under large sequential churn',
+    d.token_record_count === 0
+    && d.tombstone_count <= 32
+    && d.tombstone_count === 32
+    && peakTokens <= 1
+    && d.tracked_tenant_count === 0,
+    `tokens=${d.token_record_count} tombs=${d.tombstone_count} peak=${peakTokens} tenants=${d.tracked_tenant_count}`);
+  // Duplicate terminal still works for recent tombstones
+  const last = ctrl.tryAdmit({
+    method: 'GET', pathname: '/staff/query', trustedTenantSlug: 'churn-tenant',
+  });
+  ctrl.release(last.token_id);
+  const dup = ctrl.release(last.token_id);
+  red('CH5 duplicate terminal via tombstone idempotent',
+    dup.ok === false
+    && dup.decision === ac.DECISIONS.REJECTED_ALREADY_RELEASED
+    && dup.counters_unchanged === true);
+  ctrl.assertConsistent();
+})();
+
+// ── 65th historical tenant — eviction prevents cardinality starvation ────────
+
+(() => {
+  const ctrl = makeCtrl({
+    max_in_flight_global: 8,
+    max_in_flight_per_tenant: 4,
+    max_queued_global: 16,
+    max_queued_per_tenant: 8,
+    max_tenant_keys_tracked: 64,
+  });
+  for (let i = 1; i <= 64; i += 1) {
+    const r = ctrl.tryAdmit({
+      method: 'GET',
+      pathname: '/staff/query',
+      trustedTenantSlug: `hist-${i}`,
+    });
+    if (!r.ok) {
+      red('H1 historical admit failed before 65', false, `i=${i} ${JSON.stringify(r)}`);
+      break;
+    }
+    ctrl.release(r.token_id);
+  }
+  green('H2 after 64 historical idle, tracked_tenant_count is 0',
+    ctrl.diagnostics().tracked_tenant_count === 0
+    && ctrl.diagnostics().rr_key_count === 0);
+  const r65 = ctrl.tryAdmit({
+    method: 'GET',
+    pathname: '/staff/query',
+    trustedTenantSlug: 'hist-65-new',
+  });
+  red('H3 65th historical tenant admits (not starved by history)',
+    r65.ok === true
+    && r65.decision === ac.DECISIONS.ADMITTED
+    && ctrl.diagnostics().tracked_tenant_count === 1,
+    JSON.stringify(r65));
+  ctrl.release(r65.token_id);
+  green('H4 new tenant bucket evicted when idle',
+    ctrl.diagnostics().tracked_tenant_count === 0);
+
+  // Concurrent cardinality: only concurrently tracked tenants count.
+  // Use a tight track ceiling (4) so token limits (8+16) do not mask it.
+  const cctrl = makeCtrl({
+    max_in_flight_global: 8,
+    max_in_flight_per_tenant: 1,
+    max_queued_global: 16,
+    max_queued_per_tenant: 1,
+    max_tenant_keys_tracked: 4,
+  });
+  const held = [];
+  for (let i = 1; i <= 4; i += 1) {
+    held.push(cctrl.tryAdmit({
+      method: 'GET',
+      pathname: '/staff/query',
+      trustedTenantSlug: `live-${i}`,
+    }));
+  }
+  const blocked = cctrl.tryAdmit({
+    method: 'GET',
+    pathname: '/staff/query',
+    trustedTenantSlug: 'live-5',
+  });
+  red('H5 concurrent track-ceiling+1 rejected (only concurrent count)',
+    held.every((h) => h.ok)
+    && blocked.ok === false
+    && blocked.http_status === 503
+    && cctrl.diagnostics().tracked_tenant_count === 4);
+  held.forEach((h) => cctrl.release(h.token_id));
+  green('H6 after release all concurrent, cardinality free for new tenant',
+    cctrl.diagnostics().tracked_tenant_count === 0
+    && cctrl.tryAdmit({
+      method: 'GET', pathname: '/staff/query', trustedTenantSlug: 'live-5',
+    }).ok === true);
+  cctrl.assertConsistent();
+  ctrl.assertConsistent();
+})();
+
+// ── close / shutdown ─────────────────────────────────────────────────────────
+
+(() => {
+  const ctrl = makeCtrl({
+    max_in_flight_global: 2,
+    max_in_flight_per_tenant: 2,
+    max_queued_global: 8,
+    max_queued_per_tenant: 4,
+  });
+  const a = ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
+  const b = ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
+  ctrl.markSideEffectStarted(b.token_id);
+  const q1 = ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't1' });
+  const q2 = ctrl.tryAdmit({ method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't2' });
+  green('CL1 setup admitted+queued',
+    a.decision === 'admitted'
+    && b.decision === 'admitted'
+    && q1.decision === 'queued'
+    && q2.decision === 'queued');
+  const closed = ctrl.close();
+  red('CL2 close rejects queued and settles in-flight',
+    closed.ok
+    && closed.rejected_queued === 2
+    && closed.released_in_flight === 2
+    && closed.in_flight_global === 0
+    && closed.queued_global === 0
+    && closed.tracked_tenant_count === 0
+    && closed.token_record_count === 0,
+    JSON.stringify(closed));
+  const after = ctrl.tryAdmit({
+    method: 'GET', pathname: '/staff/query', trustedTenantSlug: 't-new',
+  });
+  red('CL3 post-close admit fail-closed no 503 overload shape required',
+    after.ok === false
+    && after.decision === ac.DECISIONS.REJECTED_CLOSED
+    && !hasHttpRetryMeta(after));
+  const again = ctrl.close();
+  green('CL4 close idempotent', again.ok && again.already_closed === true);
+  ctrl.assertConsistent();
 })();
 
 // ── Overclaim / ledger presence ──────────────────────────────────────────────
 
 red('O1 affirmative overclaim phrases absent from doc/findings', (() => {
-  // Allow listing forbidden tokens and explicit negations ("not claimed", "does not", etc.).
   const surfaces = [doc, findings];
-  const affirmative = [
-    /(?<!not\s)(?<!never\s)(?<!does not claim\s)backpressure proven/i,
-    /(?<!not\s)admission control proven/i,
-    /(?<![\/\w])G06 proven(?!\s*;)/i,
-    /(?<!not\s)(?<!raising\s)full G06(?!\s*_)/i,
-    /(?<!not\s)(?<!—\s\*\*not\s)wired into runtime(?!\.)/i,
-    /live shed proven/i,
-  ];
-  // Simpler line-based: reject lines that claim proven without negation markers.
   for (let s = 0; s < surfaces.length; s += 1) {
     const lines = surfaces[s].split('\n');
     for (let i = 0; i < lines.length; i += 1) {
@@ -745,10 +888,10 @@ red('O1 affirmative overclaim phrases absent from doc/findings', (() => {
       }
     }
   }
-  void affirmative;
   return /defined_not_executed/i.test(doc)
     && /16AK/i.test(doc)
-    && /source/i.test(doc);
+    && /source/i.test(doc)
+    && /sync.?throw/i.test(doc + findings + locksSrc);
 })());
 
 green('O2 matrix/contract tip updated for 16AK',
