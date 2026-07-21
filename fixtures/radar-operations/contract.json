@@ -6,7 +6,7 @@
   "branch": "radar/slice-16ap-finite-closeout",
   "audit_only": true,
   "live_mutation": false,
-  "title": "RADAR operations gate ledger (16AP finite milestone closeout; staging-readiness current-stage complete; formal gates remain partial 0/9/0)",
+  "title": "RADAR operations gate ledger (16AP finite milestone closeout; staging-readiness current-stage complete; formal gates remain partial 0/9/0; unconditional break-glass)",
   "progress_class": "finite_milestone_closeout_staging_readiness_only",
   "does_not_implement": "runtime_iac_live_mutation_gate_proven_production_ready_full_g06_gap_erasure_endless_radar_slices_without_reopen",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
@@ -861,5 +861,6 @@
     "incident",
     "security_boundary_change"
   ],
-  "factory_handoff_gate": "16AP_FACTORY_handoff_gate"
+  "factory_handoff_gate": "16AP_FACTORY_handoff_gate",
+  "break_glass": "16AP_unconditional_break_glass"
 }

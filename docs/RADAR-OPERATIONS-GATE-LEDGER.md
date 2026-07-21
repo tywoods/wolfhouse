@@ -44,38 +44,48 @@ RADAR **current-stage** is complete when dual-staging Staff API readiness eviden
 
 **Still open:** overload shed; fairness; soak; autoscale; live SLO; alert fire; production. Activation/auth-rejection **403 ≠** overload shed. G06 remains **partial**.
 
-### Residual risks (concrete)
+### Residual risks (concrete — all 10 locked)
 
-1. G01-A Meta→Hermes→Staff correlation live path open — owner: platform-correlation / Hermes ingress
-2. G02 cold-start + absolute/continuous zero-downtime unproven — owner: platform-ops / ACA lifecycle
-3. G03 human inbox + 5xx fire unproven — owner: platform-ops / Azure Monitor
-4. G04 backlog depth / DLQ absent — owner: payments / worker-ops
-5. G05 live replay drills open — owner: payments / Stripe webhook
-6. G06 overload shed / fairness / soak / autoscale / live SLO / alert fire open — owner: platform-capacity / Staff API admission
-7. G07 Postgres restore + geo-redundant backup open — owner: platform-ops / incident
-8. G08 abrupt paths + retention/search open — owner: security / privacy
-9. G09 live budget list + anomaly detection open — owner: platform-ops / cost
-10. Production scope intentionally untouched — owner: operator / production launch
+| ID | Severity | Status | Owner | Description |
+|----|----------|--------|-------|-------------|
+| G01A_meta_hermes_staff_correlation | high | open_retained | platform-correlation / Hermes ingress | No live Meta→Hermes→Staff correlated read path. |
+| G02_cold_start_and_absolute_zdt | medium | open_retained | platform-ops / ACA lifecycle | Cold-start and absolute/continuous zero-downtime unproven. |
+| G03_human_inbox | medium | open_retained | platform-ops / Azure Monitor | Human inbox receipt and 5xx alert fire unproven. |
+| G04_backlog_dlq | high | open_retained | payments / worker-ops | Webhook/payment/worker backlog depth and DLQ absent. |
+| G05_live_replay | high | open_retained | payments / Stripe webhook | Live Stripe/Meta replay safety drills open. |
+| G06_overload_shed_and_capacity | high | open_retained | platform-capacity / Staff API admission | Overload shed, fairness, soak, autoscale, live SLO, alert fire unproven; activation≠shed. |
+| G07_restore_drill | medium | open_retained | platform-ops / incident | Postgres restore drill and geo-redundant backup open. |
+| G08_retention_search | medium | open_retained | security / privacy | Abrupt paths and retention/search privacy proof open. |
+| G09_anomaly_and_live_budgets | low | open_retained | platform-ops / cost | Live budget list proof and cost anomaly detection open. |
+| production_scope | high | open_retained | operator / production launch | All production controls remain intentionally untouched / unknown. |
 
-### Objective reopen triggers
+### Unconditional break-glass (never delayed by closeout)
 
-Additional RADAR implementation slices (or score/claim changes) require **one** of:
+RADAR closeout **must never delay or prohibit** urgent incident containment/recovery, credential compromise response, vulnerability/security remediation, legal/compliance action, or availability/data-integrity safety fix **at any severity**. Work may start **immediately**; evidence/reopen bookkeeping **follows after stabilization**. Normal discretionary successor RADAR work remains reopen-trigger-gated.
 
-1. **production_launch** — production cutover / production RG change
-2. **third_tenant_factory** — third-tenant FACTORY beyond Wolfhouse + Sunset
-3. **traffic_or_cost_threshold** — sustained traffic/cost crossing locked staging thresholds
-4. **incident** — Sev1/Sev2 exposing an open residual risk
-5. **security_boundary_change** — ingress/tenant/auth/webhook/privacy boundary change invalidating freeze
+Locked categories (`16AP_unconditional_break_glass`): `urgent_incident_containment_recovery`, `credential_compromise_response`, `vulnerability_security_remediation`, `legal_compliance_action`, `availability_data_integrity_safety_fix`.
+
+### Objective reopen triggers (discretionary successor work only)
+
+Exact IDs + descriptions + thresholds + applicability are locked (not count-only). Additional discretionary RADAR implementation slices (or score/claim changes) require **one** of:
+
+| ID | Threshold | Applicability |
+|----|-----------|---------------|
+| **production_launch** | `first_production_cutover_or_any_production_rg_mutation` | discretionary successor RADAR implementation and score/claim changes |
+| **third_tenant_factory** | `tenant_count_gt_2_or_new_tenant_slug_beyond_wolfhouse_somo_and_sunset` | discretionary FACTORY expansion RADAR successor work |
+| **traffic_or_cost_threshold** | `sustained_crossing_of_locked_16B_budget_or_16H_or_16L_alert_thresholds` | discretionary capacity or cost RADAR successor work |
+| **incident** | `sev1_or_sev2_incident_tied_to_named_open_residual_risk_id` | discretionary post-incident RADAR follow-up **after** break-glass stabilization |
+| **security_boundary_change** | `any_ingress_tenant_auth_webhook_or_privacy_boundary_change_invalidating_freeze` | discretionary boundary revalidation RADAR successor work |
 
 ### FACTORY handoff gate (short)
 
-Hand off only when: score frozen 0/9/0; all nine formal gates partial; evidence classes frozen; residual risks + deferred owners listed; reopen triggers explicit; 16AP made no runtime/IaC/live mutation; successor RADAR slice requires a reopen trigger. **Blocked without reopen:** implementation-expansion slices, raising any gate to proven, claiming production ready, erasing retained gaps.
+Hand off only when: score frozen 0/9/0; all nine formal gates partial; evidence classes frozen; residual risks + deferred owners listed; reopen triggers explicit with thresholds; unconditional break-glass present; 16AP made no runtime/IaC/live mutation; successor RADAR slice requires a reopen trigger. **Blocked without reopen:** implementation-expansion slices, raising any gate to proven, claiming production ready, erasing retained gaps. **Break-glass override:** unconditional break-glass categories are never blocked by reopen or handoff.
 
 ### Claim ownership (16AP locked)
 
 | Observation | Proves | Does not prove |
 |-------------|--------|----------------|
-| Closeout freeze + verifier | Score/evidence-class freeze; staging-readiness current-stage exit; reopen/FACTORY locks | Any formal gate raised to proven; production ready; full_G06_proven; gap erasure |
+| Closeout freeze + verifier | Score/evidence-class freeze; staging-readiness current-stage exit; objective reopen/FACTORY locks; unconditional break-glass | Any formal gate raised to proven; production ready; full_G06_proven; gap erasure; gating break-glass behind reopen |
 | Retained prior slices | Prior source/staging-live claims unchanged | New live/production proof by this tip |
 
 **Score frozen 0/9/0; formal gates remain partial; current-stage complete only under staging-readiness exit.**

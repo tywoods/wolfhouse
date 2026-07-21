@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "slice": "RADAR-16AP",
-  "title": "RADAR operations gate ledger (16AP finite milestone closeout; staging-readiness current-stage complete; formal gates remain partial 0/9/0)",
+  "title": "RADAR operations gate ledger (16AP finite milestone closeout; staging-readiness current-stage complete; formal gates remain partial 0/9/0; unconditional break-glass)",
   "master_basis": "66e34a5833ff3bcc7f297108f594b4fc58a0eccc",
   "branch": "radar/slice-16ap-finite-closeout",
   "audit_only": true,
@@ -2644,8 +2644,8 @@
     "gate_id": "ALL_G01_G09_FREEZE",
     "progress_class": "finite_milestone_closeout_staging_readiness_only",
     "does_not_implement": "runtime_iac_live_mutation_gate_proven_production_ready_full_g06_gap_erasure_endless_radar_slices_without_reopen",
-    "title": "Finite RADAR milestone closeout — freeze score/evidence classes; staging-readiness exit only",
-    "why_smallest": "Stop implementation expansion; lock honest executive closeout with reopen triggers and FACTORY handoff; docs/fixtures/verifier only.",
+    "title": "Finite RADAR milestone closeout — freeze score/evidence classes; staging-readiness exit; unconditional break-glass",
+    "why_smallest": "Stop implementation expansion; lock honest executive closeout with objective reopen triggers, unconditional break-glass, and FACTORY handoff; docs/fixtures/verifier only.",
     "builds_on": [
       "16AO_g06_backpressure_activation_evidence",
       "16AN_g06_wolfhouse_ingress_binding",
@@ -2663,7 +2663,8 @@
       "Raising any gate to proven",
       "Erasing retained gaps",
       "Production readiness claim",
-      "Endless additional RADAR slices without reopen trigger"
+      "Endless additional RADAR slices without reopen trigger",
+      "Gating break-glass urgent work behind reopen triggers"
     ],
     "acceptance_criteria": [
       "Score frozen proven=0 partial=9 absent=0",
@@ -2671,12 +2672,15 @@
       "Staging-readiness current-stage complete without redefining proven",
       "Reopen triggers + FACTORY handoff present",
       "Deterministic verifier rejects inflation/gap deletion/overclaim/endless slices",
-      "No runtime/IaC/live mutation by this tip"
+      "No runtime/IaC/live mutation by this tip",
+      "Objective reopen triggers with thresholds + FACTORY handoff present",
+      "Unconditional break-glass present (never delays urgent safety/security/legal work)",
+      "Deterministic verifier deep-compares canonical locks; rejects inflation/gap deletion/overclaim/endless slices/break-glass deletion"
     ],
     "final_controlled_drill": {
       "id": "16AP_CLOSEOUT_finite_milestone_freeze",
       "status": "offline_closeout_proven",
-      "pass_rule": "Deterministic verifier locks score 0/9/0, evidence classes, reopen triggers, FACTORY handoff; rejects score inflation, gap deletion, unsupported live/production claims, and endless slices without reopen"
+      "pass_rule": "Deterministic verifier deep-compares canonical locks for score 0/9/0, per-gate freeze, residual risks, objective reopen triggers, FACTORY handoff, unconditional break-glass; REDs share production validation path"
     },
     "frozen_score": {
       "proven": 0,

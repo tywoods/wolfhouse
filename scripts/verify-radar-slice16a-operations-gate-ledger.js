@@ -1506,9 +1506,14 @@ ok('F227 contract selected_16ap matches',
   && contract.radar_current_stage === 'complete_under_bounded_staging_readiness_exit'
   && contract.formal_gates_status === 'all_nine_remain_partial'
   && Array.isArray(contract.reopen_triggers)
+  && contract.reopen_triggers.length === 5
   && contract.reopen_triggers.includes('production_launch')
   && contract.reopen_triggers.includes('third_tenant_factory')
+  && contract.reopen_triggers.includes('traffic_or_cost_threshold')
+  && contract.reopen_triggers.includes('incident')
+  && contract.reopen_triggers.includes('security_boundary_change')
   && contract.factory_handoff_gate === '16AP_FACTORY_handoff_gate'
+  && contract.break_glass === '16AP_unconditional_break_glass'
   && contract.g06_admission_activation === 'live_proven_via_16AO'
   && contract.g06_backpressure === 'open');
 ok('F228 16AP fixtures + verifier present',
@@ -1526,6 +1531,17 @@ ok('F229 16AP does not claim gate proven / production ready / full G06 / gap era
   && /reopen/i.test(doc)
   && /FACTORY handoff|factory_handoff/i.test(doc)
   && /deferred owner|residual risk/i.test(doc)
+  && /break-glass|break_glass|unconditional/i.test(doc)
+  && /must never delay|never delay/i.test(doc)
+  && /credential compromise/i.test(doc)
+  && slice16apContract.canonical_freeze_source
+    === 'scripts/lib/radar-slice16ap-finite-closeout.js'
+  && Array.isArray(slice16apContract.reopen_triggers)
+  && slice16apContract.reopen_triggers.every((t) => t.id && t.description && t.threshold && t.applicability)
+  && slice16apContract.break_glass
+  && slice16apContract.break_glass.id === '16AP_unconditional_break_glass'
+  && Array.isArray(slice16apContract.residual_risks)
+  && slice16apContract.residual_risks.length === 10
   && MASTER_BASIS_16AP === '66e34a5833ff3bcc7f297108f594b4fc58a0eccc');
 ok('F230 score frozen after 16AP (proven=0 partial=9 absent=0)',
   contract.expected_verdict_counts.proven === 0

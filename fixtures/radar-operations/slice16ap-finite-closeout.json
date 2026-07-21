@@ -19,8 +19,8 @@
   "live_mutation": false,
   "this_slice_deploys": false,
   "progress_class": "finite_milestone_closeout_staging_readiness_only",
-  "title": "Finite RADAR milestone closeout — freeze 0/9/0 evidence classes; staging-readiness current-stage complete; formal gates remain partial",
-  "independent_verify_utc": "2026-07-21T21:05:00Z",
+  "title": "Finite RADAR milestone closeout — freeze 0/9/0 evidence classes; staging-readiness current-stage complete; formal gates remain partial; unconditional break-glass retained",
+  "independent_verify_utc": "2026-07-21T21:20:00Z",
   "provenance_limitations": "Docs/fixtures/verifier-only closeout from master 66e34a5833ff3bcc7f297108f594b4fc58a0eccc after 16AO merge. Freezes retained evidence classes and gaps; does not invent live/production proof or raise any formal gate to proven.",
   "frozen_score": {
     "proven": 0,
@@ -279,25 +279,66 @@
   "reopen_triggers": [
     {
       "id": "production_launch",
-      "description": "Any production Staff API / WhatsApp / payment cutover or production RG change."
+      "description": "Any production Staff API / WhatsApp / payment cutover or production RG change.",
+      "threshold": "first_production_cutover_or_any_production_rg_mutation",
+      "applicability": "discretionary_successor_RADAR_implementation_and_score_claim_changes"
     },
     {
       "id": "third_tenant_factory",
-      "description": "Third-tenant FACTORY onboarding beyond Wolfhouse + Sunset staging pair."
+      "description": "Third-tenant FACTORY onboarding beyond Wolfhouse + Sunset staging pair.",
+      "threshold": "tenant_count_gt_2_or_new_tenant_slug_beyond_wolfhouse_somo_and_sunset",
+      "applicability": "discretionary_FACTORY_expansion_RADAR_successor_work"
     },
     {
       "id": "traffic_or_cost_threshold",
-      "description": "Sustained traffic or cost crossing locked staging budget/alert thresholds requiring capacity work."
+      "description": "Sustained traffic or cost crossing locked staging budget/alert thresholds requiring capacity work.",
+      "threshold": "sustained_crossing_of_locked_16B_budget_or_16H_or_16L_alert_thresholds",
+      "applicability": "discretionary_capacity_or_cost_RADAR_successor_work"
     },
     {
       "id": "incident",
-      "description": "Sev1/Sev2 staging or production incident exposing an open residual risk."
+      "description": "Sev1/Sev2 staging or production incident exposing an open residual risk (discretionary post-stabilization RADAR follow-up).",
+      "threshold": "sev1_or_sev2_incident_tied_to_named_open_residual_risk_id",
+      "applicability": "discretionary_post_incident_RADAR_follow_up_after_break_glass_stabilization"
     },
     {
       "id": "security_boundary_change",
-      "description": "Ingress, tenant-identity, auth, webhook, or privacy boundary change invalidating frozen evidence."
+      "description": "Ingress, tenant-identity, auth, webhook, or privacy boundary change invalidating frozen evidence.",
+      "threshold": "any_ingress_tenant_auth_webhook_or_privacy_boundary_change_invalidating_freeze",
+      "applicability": "discretionary_boundary_revalidation_RADAR_successor_work"
     }
   ],
+  "break_glass": {
+    "id": "16AP_unconditional_break_glass",
+    "principle": "RADAR closeout must never delay or prohibit urgent incident containment/recovery, credential compromise response, vulnerability/security remediation, legal/compliance action, or availability/data-integrity safety fix at any severity.",
+    "never_delays_or_prohibits": true,
+    "work_may_start": "immediately",
+    "evidence_and_reopen_bookkeeping": "follows_after_stabilization",
+    "discretionary_successor_work": "remains_reopen_trigger_gated",
+    "severity_applicability": "any_severity",
+    "categories": [
+      {
+        "id": "urgent_incident_containment_recovery",
+        "description": "Urgent incident containment and recovery."
+      },
+      {
+        "id": "credential_compromise_response",
+        "description": "Credential compromise response."
+      },
+      {
+        "id": "vulnerability_security_remediation",
+        "description": "Vulnerability and security remediation."
+      },
+      {
+        "id": "legal_compliance_action",
+        "description": "Legal and compliance action."
+      },
+      {
+        "id": "availability_data_integrity_safety_fix",
+        "description": "Availability or data-integrity safety fix."
+      }
+    ]
+  },
   "factory_handoff_gate": {
     "id": "16AP_FACTORY_handoff_gate",
     "required": [
@@ -305,7 +346,8 @@
       "all_nine_formal_gates_partial",
       "gate_evidence_classes_frozen",
       "residual_risks_and_deferred_owners_listed",
-      "reopen_triggers_explicit",
+      "reopen_triggers_explicit_with_thresholds",
+      "unconditional_break_glass_present",
       "no_runtime_iac_live_mutation_by_16AP",
       "successor_RADAR_slice_requires_reopen_trigger"
     ],
@@ -314,58 +356,79 @@
       "raising_any_gate_to_proven",
       "claiming_production_ready",
       "erasing_retained_gaps"
-    ]
+    ],
+    "break_glass_override": "unconditional_break_glass_categories_never_blocked_by_reopen_or_handoff"
   },
   "residual_risks": [
     {
       "id": "G01A_meta_hermes_staff_correlation",
-      "risk": "No live Meta→Hermes→Staff correlated read path.",
-      "owner": "platform-correlation / Hermes ingress"
+      "severity": "high",
+      "description": "No live Meta→Hermes→Staff correlated read path.",
+      "owner": "platform-correlation / Hermes ingress",
+      "status": "open_retained"
     },
     {
       "id": "G02_cold_start_and_absolute_zdt",
-      "risk": "Cold-start and absolute/continuous zero-downtime unproven.",
-      "owner": "platform-ops / ACA lifecycle"
+      "severity": "medium",
+      "description": "Cold-start and absolute/continuous zero-downtime unproven.",
+      "owner": "platform-ops / ACA lifecycle",
+      "status": "open_retained"
     },
     {
       "id": "G03_human_inbox",
-      "risk": "Human inbox receipt and 5xx alert fire unproven.",
-      "owner": "platform-ops / Azure Monitor"
+      "severity": "medium",
+      "description": "Human inbox receipt and 5xx alert fire unproven.",
+      "owner": "platform-ops / Azure Monitor",
+      "status": "open_retained"
     },
     {
       "id": "G04_backlog_dlq",
-      "risk": "Webhook/payment/worker backlog depth and DLQ absent.",
-      "owner": "payments / worker-ops"
+      "severity": "high",
+      "description": "Webhook/payment/worker backlog depth and DLQ absent.",
+      "owner": "payments / worker-ops",
+      "status": "open_retained"
     },
     {
       "id": "G05_live_replay",
-      "risk": "Live Stripe/Meta replay safety drills open.",
-      "owner": "payments / Stripe webhook"
+      "severity": "high",
+      "description": "Live Stripe/Meta replay safety drills open.",
+      "owner": "payments / Stripe webhook",
+      "status": "open_retained"
     },
     {
       "id": "G06_overload_shed_and_capacity",
-      "risk": "Overload shed, fairness, soak, autoscale, live SLO, alert fire unproven; activation≠shed.",
-      "owner": "platform-capacity / Staff API admission"
+      "severity": "high",
+      "description": "Overload shed, fairness, soak, autoscale, live SLO, alert fire unproven; activation≠shed.",
+      "owner": "platform-capacity / Staff API admission",
+      "status": "open_retained"
     },
     {
       "id": "G07_restore_drill",
-      "risk": "Postgres restore drill and geo-redundant backup open.",
-      "owner": "platform-ops / incident"
+      "severity": "medium",
+      "description": "Postgres restore drill and geo-redundant backup open.",
+      "owner": "platform-ops / incident",
+      "status": "open_retained"
     },
     {
       "id": "G08_retention_search",
-      "risk": "Abrupt paths and retention/search privacy proof open.",
-      "owner": "security / privacy"
+      "severity": "medium",
+      "description": "Abrupt paths and retention/search privacy proof open.",
+      "owner": "security / privacy",
+      "status": "open_retained"
     },
     {
       "id": "G09_anomaly_and_live_budgets",
-      "risk": "Live budget list proof and cost anomaly detection open.",
-      "owner": "platform-ops / cost"
+      "severity": "low",
+      "description": "Live budget list proof and cost anomaly detection open.",
+      "owner": "platform-ops / cost",
+      "status": "open_retained"
     },
     {
       "id": "production_scope",
-      "risk": "All production controls remain intentionally untouched / unknown.",
-      "owner": "operator / production launch"
+      "severity": "high",
+      "description": "All production controls remain intentionally untouched / unknown.",
+      "owner": "operator / production launch",
+      "status": "open_retained"
     }
   ],
   "retained_prior_outcomes": [
@@ -409,6 +472,7 @@
       "score_and_evidence_classes_frozen",
       "staging_readiness_current_stage_exit_defined",
       "reopen_triggers_and_factory_handoff_locked",
+      "unconditional_break_glass_locked",
       "residual_risks_and_deferred_owners_listed",
       "g06_subcontrol_honesty_retained"
     ],
@@ -439,7 +503,8 @@
     "capacity_SLO_live_proven",
     "alert_fire_notification_proven",
     "gaps_erased",
-    "endless_radar_slices_without_reopen"
+    "endless_radar_slices_without_reopen",
+    "break_glass_gated_by_reopen_triggers"
   ],
   "builds_on": [
     "16AO_g06_backpressure_activation_evidence",
@@ -447,5 +512,5 @@
     "16AM_g06_backpressure_deploy_evidence"
   ],
   "does_not_implement": "runtime_iac_live_mutation_gate_proven_production_ready_full_g06_gap_erasure_endless_radar_slices_without_reopen",
-  "lock_hash": "f4017df57a7efc7122528a5c92b5f4b7ba07de7ce9c9b56941f676c1074b715e"
+  "lock_hash": "fc1c443db0d0c276483e96078918dff6465552d0bd80cbd62096ffaf9c12bc2c"
 }
