@@ -1,0 +1,337 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AC",
+  "outcome_id": "16AC_organic_restart_alert_evidence",
+  "gate_ids_touched": [
+    "G02_readiness_dependencies",
+    "G03_actionable_tenant_aware_alerts"
+  ],
+  "master_basis": "72d8faf74df27a714482ebdefb8f88870d080306",
+  "branch": "radar/slice-16ac-organic-restart-alert-evidence",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "progress_class": "partial_live_proven_evidence_only",
+  "title": "Reconcile independently discovered organic Azure Monitor restart alerts after 16AA SIGINT drills (bounded; no overclaims)",
+  "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "independent_azure_verify_utc": "2026-07-21T13:07:35Z",
+  "provenance_limitations": "Independently recovered Azure Monitor Alerts Management alert instances, metric-alert rule definitions, and action-group enabled/receiver-name/status fields via read-only Azure calls at independent_azure_verify_utc. Chronology cautiously attributes these organic restart-alert instances as temporally associated with completed 16AA dual-staging SIGINT drills (WH LAW SIGINT 2026-07-21T12:08:28.6734879Z; Sunset LAW SIGINT 2026-07-21T12:09:25.9915987Z) and exact app/rule — not proof of email receipt or unique causality beyond platform alert fields. Human inbox receipt remains unproven. Receiver email addresses are intentionally not recorded. CostManagement query was RBAC-denied on this reverify identity; MTD costs are locked to the discovery before/after unchanged figures with no resources created in this evidence capture. Does not claim 5xx alert firing, production, zero downtime, or full G02/G03.",
+  "non_recoverability": "Azure read-only APIs cannot prove human inbox delivery, SMTP acceptance, or unique causality beyond platform alert essentials/actionStatus fields. CostManagement ActualCost reverify was RBAC-denied for this identity; locked MTD figures must not be rewritten from invented values. Alert instance history is recovered from Alerts Management; do not invent suppressed=false, wrong timestamps, or 5xx alert fire claims.",
+  "claim_ownership": {
+    "organic_restart_alert_instances": {
+      "owner_class": "azure_monitor_readonly_independently_reverified",
+      "observation": "restart_count_metric_alerts_fired_resolved_unsuppressed_both_tenants",
+      "proves": [
+        "organic_restart_alert_fired_and_resolved_both_staging_apps",
+        "monitorCondition_Resolved_Metric_Sev2_Platform",
+        "actionStatus_isSuppressed_false",
+        "exact_rule_names_targets_timestamps"
+      ],
+      "does_not_prove": [
+        "human_inbox_receipt",
+        "unique_causality_beyond_platform_alert_fields",
+        "requests_5xx_alert_firing",
+        "production",
+        "zero_downtime_during_restart",
+        "full_G02_proven",
+        "full_G03_proven"
+      ],
+      "limitation": "Platform alert fields + unsuppressed actionStatus only; inbox and unique causality remain open"
+    },
+    "deployed_restart_rules_and_action_groups": {
+      "owner_class": "azure_monitor_readonly_independently_reverified",
+      "observation": "enabled_restart_rules_scoped_to_apps_wired_to_ops_budget_ags",
+      "proves": [
+        "rules_enabled_RestartCount_Total_GreaterThan_0_PT1M_PT5M",
+        "exact_app_scopes",
+        "exact_ops_budget_action_group_ids",
+        "action_groups_enabled_ops_email_receiver_Enabled"
+      ],
+      "does_not_prove": [
+        "receiver_email_address",
+        "human_inbox_receipt",
+        "requests_5xx_alert_firing"
+      ],
+      "limitation": "Receiver address intentionally omitted; delivery unproven"
+    },
+    "chronology_with_16aa_sigint": {
+      "owner_class": "prior_16AA_locked_law_plus_alert_timestamps",
+      "observation": "alert_start_after_16AA_sigint_law_completions_same_apps",
+      "proves": [
+        "temporal_association_with_16AA_sigint_restart_producing_drills"
+      ],
+      "does_not_prove": [
+        "unique_causality_beyond_platform_alert_fields",
+        "human_inbox_receipt"
+      ],
+      "limitation": "Cautious temporal association only; not unique-causality proof"
+    },
+    "cost_unchanged_no_resources_created": {
+      "owner_class": "locked_discovery_mtd_figures_plus_readonly_capture",
+      "observation": "mtd_costs_locked_unchanged_no_resources_created_this_capture",
+      "proves": [
+        "locked_mtd_costs_wh_69_3920793568176_sunset_18_1452292043011",
+        "no_resources_created_in_this_evidence_capture"
+      ],
+      "does_not_prove": [
+        "cost_management_reverify_succeeded_on_this_identity",
+        "cost_decreased",
+        "cost_increased"
+      ],
+      "limitation": "CostManagement reverify RBAC-denied; figures locked from discovery before/after unchanged values"
+    }
+  },
+  "attribution_semantics": "organic_alert_instances_temporally_associated_with_16AA_sigint_restart_producing_drills_exact_app_rule_not_proof_of_email_receipt_or_unique_causality_beyond_platform_alert_fields",
+  "observed_facts": {
+    "azure_monitor_readonly_independently_reverified": {
+      "source_type": "azure_monitor_alerts_management_metric_alert_action_group_readonly_independently_reverified",
+      "source_ref": "az_monitor_alerts_management_metric_alert_ag_readonly_2026-07-21T13:07:35Z",
+      "observed_at": "2026-07-21T13:07:35Z",
+      "observed_at_semantics": "independently_reverified_at_recorded_utc",
+      "covers": [
+        "organic_restart_alert_instances_fired_resolved",
+        "actionStatus_isSuppressed_false",
+        "enabled_restart_metric_alert_rules",
+        "action_groups_enabled_ops_email_Enabled",
+        "temporal_association_with_16AA_sigint_law",
+        "locked_mtd_costs_unchanged"
+      ],
+      "explicitly_not_covered": [
+        "human_inbox_receipt",
+        "unique_causality_beyond_platform_alert_fields",
+        "requests_5xx_alert_firing",
+        "receiver_email_address_disclosure",
+        "production",
+        "zero_downtime_during_restart",
+        "full_G02_proven",
+        "full_G03_proven",
+        "cost_management_reverify_succeeded_on_this_identity"
+      ],
+      "wolfhouse": {
+        "source_type": "azure_monitor_alerts_management_metric_alert_action_group_readonly_independently_reverified",
+        "source_ref": "az_monitor_alerts_management_metric_alert_ag_readonly_2026-07-21T13:07:35Z",
+        "observed_at": "2026-07-21T13:07:35Z",
+        "alert_instance": {
+          "app": "wh-staging-staff-api",
+          "resource_group": "wh-staging-rg",
+          "rule_name": "wolfhouse-staff-api-restart-count",
+          "alert_name": "wolfhouse-staff-api-restart-count",
+          "alert_instance_id": "89b5348f-af7a-4c27-9f90-98003722f000",
+          "alert_resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/microsoft.app/containerapps/wh-staging-staff-api/providers/Microsoft.AlertsManagement/alerts/89b5348f-af7a-4c27-9f90-98003722f000",
+          "rule_resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourcegroups/wh-staging-rg/providers/Microsoft.Insights/metricAlerts/wolfhouse-staff-api-restart-count",
+          "target_resource_name": "wh-staging-staff-api",
+          "signal_type": "Metric",
+          "severity": "Sev2",
+          "monitor_service": "Platform",
+          "monitor_condition": "Resolved",
+          "start_date_time": "2026-07-21T12:11:40.2497189Z",
+          "monitor_condition_resolved_date_time": "2026-07-21T12:17:59.4591399Z",
+          "action_status": {
+            "isSuppressed": false
+          },
+          "metric_value_at_fire": 1,
+          "prior_16aa_sigint_law_completion_utc": "2026-07-21T12:08:28.6734879Z",
+          "attribution_semantics": "organic_alert_instances_temporally_associated_with_16AA_sigint_restart_producing_drills_exact_app_rule_not_proof_of_email_receipt_or_unique_causality_beyond_platform_alert_fields",
+          "note": "Organic Metric/Sev2/Platform alert instance Resolved; actionStatus.isSuppressed=false; temporally associated with 16AA SIGINT LAW completion — not inbox or unique-causality proof"
+        },
+        "metric_alert_rule": {
+          "name": "wolfhouse-staff-api-restart-count",
+          "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourcegroups/wh-staging-rg/providers/Microsoft.Insights/metricAlerts/wolfhouse-staff-api-restart-count",
+          "enabled": true,
+          "severity": 2,
+          "evaluation_frequency": "PT1M",
+          "window_size": "PT5M",
+          "metric_name": "RestartCount",
+          "metric_namespace": "Microsoft.App/containerApps",
+          "time_aggregation": "Total",
+          "operator": "GreaterThan",
+          "threshold": 0,
+          "scope_app": "wh-staging-staff-api",
+          "action_group_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/actionGroups/wh-staging-ops-budget-ag",
+          "note": "Enabled RestartCount Total GreaterThan 0; PT1M eval; PT5M window; scoped to exact Staff API app; wired to tenant ops-budget AG"
+        },
+        "action_group": {
+          "name": "wh-staging-ops-budget-ag",
+          "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/actionGroups/wh-staging-ops-budget-ag",
+          "enabled": true,
+          "email_receiver": {
+            "name": "ops-email",
+            "status": "Enabled",
+            "email_address_recorded": false
+          },
+          "note": "Action group enabled; receiver name ops-email status Enabled; address intentionally not recorded; inbox receipt unproven"
+        },
+        "cost_mtd_usd": 69.3920793568176
+      },
+      "sunset": {
+        "source_type": "azure_monitor_alerts_management_metric_alert_action_group_readonly_independently_reverified",
+        "source_ref": "az_monitor_alerts_management_metric_alert_ag_readonly_2026-07-21T13:07:35Z",
+        "observed_at": "2026-07-21T13:07:35Z",
+        "alert_instance": {
+          "app": "luna-sunset-staging-staff-api",
+          "resource_group": "luna-sunset-staging-rg",
+          "rule_name": "sunset-staff-api-restart-count",
+          "alert_name": "sunset-staff-api-restart-count",
+          "alert_instance_id": "b162b124-7d78-42cf-97dc-0ddb8150f000",
+          "alert_resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/microsoft.app/containerapps/luna-sunset-staging-staff-api/providers/Microsoft.AlertsManagement/alerts/b162b124-7d78-42cf-97dc-0ddb8150f000",
+          "rule_resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourcegroups/luna-sunset-staging-rg/providers/Microsoft.Insights/metricAlerts/sunset-staff-api-restart-count",
+          "target_resource_name": "luna-sunset-staging-staff-api",
+          "signal_type": "Metric",
+          "severity": "Sev2",
+          "monitor_service": "Platform",
+          "monitor_condition": "Resolved",
+          "start_date_time": "2026-07-21T12:12:51.2774974Z",
+          "monitor_condition_resolved_date_time": "2026-07-21T12:19:32.3682899Z",
+          "action_status": {
+            "isSuppressed": false
+          },
+          "metric_value_at_fire": 1,
+          "prior_16aa_sigint_law_completion_utc": "2026-07-21T12:09:25.9915987Z",
+          "attribution_semantics": "organic_alert_instances_temporally_associated_with_16AA_sigint_restart_producing_drills_exact_app_rule_not_proof_of_email_receipt_or_unique_causality_beyond_platform_alert_fields",
+          "note": "Organic Metric/Sev2/Platform alert instance Resolved; actionStatus.isSuppressed=false; temporally associated with 16AA SIGINT LAW completion — not inbox or unique-causality proof"
+        },
+        "metric_alert_rule": {
+          "name": "sunset-staff-api-restart-count",
+          "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourcegroups/luna-sunset-staging-rg/providers/Microsoft.Insights/metricAlerts/sunset-staff-api-restart-count",
+          "enabled": true,
+          "severity": 2,
+          "evaluation_frequency": "PT1M",
+          "window_size": "PT5M",
+          "metric_name": "RestartCount",
+          "metric_namespace": "Microsoft.App/containerApps",
+          "time_aggregation": "Total",
+          "operator": "GreaterThan",
+          "threshold": 0,
+          "scope_app": "luna-sunset-staging-staff-api",
+          "action_group_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/actionGroups/luna-sunset-staging-ops-budget-ag",
+          "note": "Enabled RestartCount Total GreaterThan 0; PT1M eval; PT5M window; scoped to exact Staff API app; wired to tenant ops-budget AG"
+        },
+        "action_group": {
+          "name": "luna-sunset-staging-ops-budget-ag",
+          "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/actionGroups/luna-sunset-staging-ops-budget-ag",
+          "enabled": true,
+          "email_receiver": {
+            "name": "ops-email",
+            "status": "Enabled",
+            "email_address_recorded": false
+          },
+          "note": "Action group enabled; receiver name ops-email status Enabled; address intentionally not recorded; inbox receipt unproven"
+        },
+        "cost_mtd_usd": 18.1452292043011
+      },
+      "cost_capture": {
+        "semantics": "before_after_readonly_unchanged_locked",
+        "wolfhouse_mtd_usd": 69.3920793568176,
+        "sunset_mtd_usd": 18.1452292043011,
+        "resources_created_this_capture": false,
+        "cost_management_reverify_status": "rbac_denied_on_this_identity",
+        "note": "MTD costs locked to discovery before/after unchanged figures; CostManagement reverify RBAC-denied; no resources created in this evidence capture"
+      },
+      "chronology": {
+        "wolfhouse_16aa_sigint_law_utc": "2026-07-21T12:08:28.6734879Z",
+        "sunset_16aa_sigint_law_utc": "2026-07-21T12:09:25.9915987Z",
+        "wolfhouse_alert_start_utc": "2026-07-21T12:11:40.2497189Z",
+        "sunset_alert_start_utc": "2026-07-21T12:12:51.2774974Z",
+        "attribution_semantics": "organic_alert_instances_temporally_associated_with_16AA_sigint_restart_producing_drills_exact_app_rule_not_proof_of_email_receipt_or_unique_causality_beyond_platform_alert_fields",
+        "note": "Alert starts follow 16AA LAW SIGINT completions; cautious temporal association with controlled restart-producing SIGINT drills and exact app/rule only"
+      }
+    }
+  },
+  "claims_allowed": [
+    "organic_restart_alert_fired_resolved_both_tenants",
+    "exact_wh_start_12_11_40_resolved_12_17_59_unsuppressed",
+    "exact_sunset_start_12_12_51_resolved_12_19_32_unsuppressed",
+    "rules_enabled_RestartCount_Total_GreaterThan_0_PT1M_eval_PT5M_window",
+    "exact_app_scopes_and_ops_budget_action_group_ids",
+    "action_groups_enabled_ops_email_receiver_Enabled_no_address",
+    "temporal_association_with_16AA_sigint_law_completions",
+    "locked_mtd_costs_unchanged_no_resources_created",
+    "g02_organic_restart_alert_gap_closed_g02_remains_partial",
+    "g03_organic_firing_closed_inbox_receipt_open_g03_remains_partial",
+    "no_production_scope",
+    "no_5xx_alert_fire_claim"
+  ],
+  "explicitly_not_claimed": [
+    "human_inbox_receipt",
+    "unique_causality_beyond_platform_alert_fields",
+    "requests_5xx_alert_firing",
+    "receiver_email_address_disclosure",
+    "invented_email_delivery_proof",
+    "production",
+    "zero_downtime_during_restart",
+    "full_G02_proven",
+    "full_G03_proven",
+    "any_gate_verdict_proven",
+    "cost_mutation",
+    "resources_created_this_capture"
+  ],
+  "disposition": {
+    "proves": [
+      "organic_restart_alerts_fired_and_resolved_both_staging_apps",
+      "unsuppressed_action_path_invoked_both_tenants",
+      "enabled_restart_rules_exact_threshold_window_scope_ag",
+      "action_groups_enabled_ops_email_Enabled_no_address",
+      "temporal_association_with_16AA_sigint_law_completions",
+      "locked_mtd_costs_unchanged_no_resources_created",
+      "prior_16AB_readyz503_16AA_sigint_16Z_sigterm_retained"
+    ],
+    "does_not_prove": [
+      "human_inbox_receipt",
+      "unique_causality_beyond_platform_alert_fields",
+      "requests_5xx_alert_firing",
+      "receiver_email_address_disclosure",
+      "production",
+      "zero_downtime_during_restart",
+      "full_G02_proven",
+      "full_G03_proven",
+      "any_gate_verdict_proven",
+      "cost_mutation"
+    ],
+    "g02_verdict": "partial",
+    "g02_progress_class": "partial_live_proven",
+    "g03_verdict": "partial",
+    "g03_progress_class": "partial_live_proven"
+  },
+  "gate_progress_updates": {
+    "G02_readiness_dependencies": {
+      "progress_class": "partial_live_proven",
+      "verdict": "partial",
+      "live_proven": [
+        "organic_restart_metric_alert_firing_via_16AC",
+        "prior_16AB_serving_readyz_503_body_path",
+        "prior_16AA_sigint_law_and_post_drill_recovery",
+        "prior_16Z_sigterm_law_retained",
+        "prior_16X_traffic_shed_retained",
+        "prior_16Y_completion_log_source_retained"
+      ],
+      "still_open": [
+        "zero_downtime_during_restart",
+        "production"
+      ]
+    },
+    "G03_actionable_tenant_aware_alerts": {
+      "progress_class": "partial_live_proven",
+      "verdict": "partial",
+      "live_proven": [
+        "organic_restart_metric_alert_firing_via_16AC",
+        "prior_16P_action_group_test_notification_api_email_status",
+        "prior_16H_metric_alert_iac_source"
+      ],
+      "still_open": [
+        "human_inbox_receipt",
+        "client_slug_metric_dimension",
+        "arm_deployment_mode_enforcement"
+      ]
+    }
+  },
+  "gates_unchanged": [
+    "G01_correlation_structured_logs",
+    "G04_webhook_payment_worker_backlog",
+    "G05_retry_replay_safety",
+    "G06_scaling_capacity",
+    "G07_rollback_incident_runbooks",
+    "G08_retention_privacy",
+    "G09_cost_controls"
+  ],
+  "lock_hash": "f25f1f516518ee209dd012435b1248c41371b7f2188c63857fe4cccda2d9d17f"
+}

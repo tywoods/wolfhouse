@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16AB",
-  "outcome_id": "16AB_g02_serving_readyz_503_body_path_evidence",
-  "master_basis": "c43b4a14d14d5618d99e0e969b4f39784a526722",
-  "branch": "radar/slice-16ab-g02-readyz503-evidence",
+  "slice": "RADAR-16AC",
+  "outcome_id": "16AC_organic_restart_alert_evidence",
+  "master_basis": "72d8faf74df27a714482ebdefb8f88870d080306",
+  "branch": "radar/slice-16ac-organic-restart-alert-evidence",
   "audit_only": true,
   "live_mutation": false,
-  "title": "G02 serving /readyz=503 body-path evidence (partial/live-proven; zero-downtime/organic-alerts/production open)",
+  "title": "G02/G03 organic restart alert evidence (partial/live-proven; inbox/zero-downtime/production open)",
   "progress_class": "partial_live_proven_evidence_only",
-  "does_not_implement": "zero_downtime_during_restart_concurrent_sampled_continuity_organic_alerts_production_full_g02",
+  "does_not_implement": "human_inbox_receipt_unique_causality_5xx_alert_zero_downtime_production_full_g02_full_g03",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -92,7 +92,11 @@
     "fixtures/radar-operations/slice16ab-g02-readyz503-evidence.json",
     "fixtures/radar-operations/slice16ab-expected-contract.json",
     "scripts/lib/radar-slice16ab-g02-readyz503-evidence.js",
-    "scripts/verify-radar-slice16ab-g02-readyz503-evidence.js"
+    "scripts/verify-radar-slice16ab-g02-readyz503-evidence.js",
+    "fixtures/radar-operations/slice16ac-organic-restart-alert-evidence.json",
+    "fixtures/radar-operations/slice16ac-expected-contract.json",
+    "scripts/lib/radar-slice16ac-organic-restart-alert-evidence.js",
+    "scripts/verify-radar-slice16ac-organic-restart-alert-evidence.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -150,6 +154,7 @@
     "note": "16Z evidence-only; no runtime mutation vs master 95dc3634; Azure/ACR/LAW read-only verification only"
   },
   "gates": [
+    "npm run verify:radar-slice16ac-organic-restart-alert-evidence",
     "npm run verify:radar-slice16ab-g02-readyz503-evidence",
     "npm run verify:radar-slice16aa-g02-live-sigint-evidence",
     "npm run verify:radar-slice16z-g02-live-sigterm-evidence",
@@ -161,7 +166,7 @@
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check c43b4a14d14d5618d99e0e969b4f39784a526722..HEAD"
+    "git diff --check 72d8faf74df27a714482ebdefb8f88870d080306..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -334,7 +339,8 @@
     "g02_dependency_failure_drill": "live_proven_via_16X",
     "g02_sigterm_live": "live_proven_via_16Z",
     "g02_sigint_live": "live_proven_via_16AA",
-    "g02_serving_readyz_503_live": "live_proven_via_16AB"
+    "g02_serving_readyz_503_live": "live_proven_via_16AB",
+    "g02_organic_restart_alert": "live_proven_via_16AC"
   },
   "selected_16y": {
     "outcome_id": "16Y_readiness_shutdown_completion_log",
@@ -352,7 +358,8 @@
     "g02_dependency_failure_drill": "live_proven_via_16X",
     "g02_sigterm_live": "live_proven_via_16Z",
     "g02_sigint_live": "live_proven_via_16AA",
-    "g02_serving_readyz_503_live": "live_proven_via_16AB"
+    "g02_serving_readyz_503_live": "live_proven_via_16AB",
+    "g02_organic_restart_alert": "live_proven_via_16AC"
   },
   "selected_16z": {
     "outcome_id": "16Z_g02_live_sigterm_lifecycle_evidence",
@@ -371,7 +378,8 @@
     "g02_dependency_failure_drill": "live_proven_via_16X",
     "g02_sigterm_live": "live_proven_via_16Z",
     "g02_sigint_live": "live_proven_via_16AA",
-    "g02_serving_readyz_503_live": "live_proven_via_16AB"
+    "g02_serving_readyz_503_live": "live_proven_via_16AB",
+    "g02_organic_restart_alert": "live_proven_via_16AC"
   },
   "selected_16aa": {
     "outcome_id": "16AA_g02_live_sigint_lifecycle_evidence",
@@ -391,7 +399,8 @@
     "g02_dependency_failure_drill": "live_proven_via_16X",
     "g02_sigterm_live": "live_proven_via_16Z",
     "g02_sigint_live": "live_proven_via_16AA",
-    "g02_serving_readyz_503_live": "live_proven_via_16AB"
+    "g02_serving_readyz_503_live": "live_proven_via_16AB",
+    "g02_organic_restart_alert": "live_proven_via_16AC"
   },
   "selected_16ab": {
     "outcome_id": "16AB_g02_serving_readyz_503_body_path_evidence",
@@ -413,6 +422,31 @@
     "g02_dependency_failure_drill": "live_proven_via_16X",
     "g02_sigterm_live": "live_proven_via_16Z",
     "g02_sigint_live": "live_proven_via_16AA",
-    "g02_serving_readyz_503_live": "live_proven_via_16AB"
+    "g02_serving_readyz_503_live": "live_proven_via_16AB",
+    "g02_organic_restart_alert": "live_proven_via_16AC"
+  },
+  "selected_16ac": {
+    "outcome_id": "16AC_organic_restart_alert_evidence",
+    "gate_id": "G02_readiness_dependencies",
+    "gate_ids": [
+      "G02_readiness_dependencies",
+      "G03_actionable_tenant_aware_alerts"
+    ],
+    "progress_class": "partial_live_proven_evidence_only",
+    "does_not_implement": "human_inbox_receipt_unique_causality_5xx_alert_zero_downtime_production_full_g02_full_g03",
+    "builds_on": [
+      "16H_staff_api_metric_alerts",
+      "16P_live_drill_evidence_reconciliation",
+      "16AA_g02_live_sigint_lifecycle_evidence",
+      "16AB_g02_serving_readyz_503_body_path_evidence"
+    ],
+    "g02_verdict": "partial",
+    "g03_verdict": "partial",
+    "g02_organic_restart_alert": "live_proven_via_16AC",
+    "g03_organic_restart_alert": "live_proven_via_16AC",
+    "g03_human_inbox_receipt": "open",
+    "g02_serving_readyz_503_live": "live_proven_via_16AB",
+    "g02_sigint_live": "live_proven_via_16AA",
+    "g02_sigterm_live": "live_proven_via_16Z"
   }
 }
