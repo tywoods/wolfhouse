@@ -78,12 +78,12 @@ Preferred configuration is **two independent operator accounts** (Earthling + Mo
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `CROWSNEST_AUTH_REQUIRED` | `false` | Set `true` to require login for normal browser UI access |
-| `CROWSNEST_AUTH_EARTHLING_USERNAME` | _(none)_ | Earthling operator username; Azure secret ref `cn-auth-user` (value never in docs). **Not deployed as multi-account yet** — mapping documented for cutover. |
-| `CROWSNEST_AUTH_EARTHLING_PASSWORD` | _(none)_ | Earthling operator password; Azure secret ref `cn-auth-pass` (value never in docs). **Not deployed as multi-account yet.** |
-| `CROWSNEST_AUTH_MONSHIES_USERNAME` | _(none)_ | Monshies operator username; Azure secret ref `cn-monshies-user` (value never in docs). **Not deployed yet.** |
-| `CROWSNEST_AUTH_MONSHIES_PASSWORD` | _(none)_ | Monshies operator password; Azure secret ref `cn-monshies-pass` (value never in docs). **Not deployed yet.** |
-| `CROWSNEST_AUTH_USERNAME` | `admin` (non-production only) | **Legacy single-account fallback only** when none of the four multi-account variables are present. Never combined with multi-account mode. |
-| `CROWSNEST_AUTH_PASSWORD` | `admin` (non-production only) | Legacy single-account fallback password (same isolation rules as username). |
+| `CROWSNEST_AUTH_EARTHLING_USERNAME` | _(none)_ | Earthling operator username; Azure secret ref `cn-auth-user` (value never in docs). **VERIFIED CURRENT LIVE** multi-account mapping. |
+| `CROWSNEST_AUTH_EARTHLING_PASSWORD` | _(none)_ | Earthling operator password; Azure secret ref `cn-auth-pass` (value never in docs). **VERIFIED CURRENT LIVE** multi-account mapping. |
+| `CROWSNEST_AUTH_MONSHIES_USERNAME` | _(none)_ | Monshies operator username; Azure secret ref `cn-monshies-user` (value never in docs). **VERIFIED CURRENT LIVE** multi-account mapping. |
+| `CROWSNEST_AUTH_MONSHIES_PASSWORD` | _(none)_ | Monshies operator password; Azure secret ref `cn-monshies-pass` (value never in docs). **VERIFIED CURRENT LIVE** multi-account mapping. |
+| `CROWSNEST_AUTH_USERNAME` | `admin` (non-production only) | **Legacy single-account fallback only** when none of the four multi-account variables are present. Never combined with multi-account mode. Compatibility behavior only — live production uses the four-variable pairs above. |
+| `CROWSNEST_AUTH_PASSWORD` | `admin` (non-production only) | Legacy single-account fallback password (same isolation rules as username). Compatibility behavior only. |
 | `CROWSNEST_ALLOWED_USERS` | `Monshies,Earthling` | Informational allow-list in `/healthz` only |
 
 Multi-account rules:

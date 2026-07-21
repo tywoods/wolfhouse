@@ -190,11 +190,11 @@ ok('deploy plan mentions CROWSNEST_AUTH_PASSWORD', /CROWSNEST_AUTH_PASSWORD/.tes
 ok('deploy plan mentions Earthling multi-account env', /CROWSNEST_AUTH_EARTHLING_USERNAME/.test(deployDoc) && /CROWSNEST_AUTH_EARTHLING_PASSWORD/.test(deployDoc));
 ok('deploy plan mentions Monshies multi-account env', /CROWSNEST_AUTH_MONSHIES_USERNAME/.test(deployDoc) && /CROWSNEST_AUTH_MONSHIES_PASSWORD/.test(deployDoc));
 ok('deploy plan records Azure auth secret refs', /cn-auth-user/.test(deployDoc) && /cn-auth-pass/.test(deployDoc));
-ok('deploy plan records planned Monshies Azure secret refs', /cn-monshies-user/.test(deployDoc) && /cn-monshies-pass/.test(deployDoc));
-ok('deploy plan does not claim multi-account already deployed', /not deployed yet/i.test(deployDoc));
+ok('deploy plan records Monshies Azure secret refs', /cn-monshies-user/.test(deployDoc) && /cn-monshies-pass/.test(deployDoc));
+ok('deploy plan records multi-account as verified current live', /VERIFIED CURRENT LIVE/i.test(deployDoc) && /Earthling/.test(deployDoc) && /Monshies/.test(deployDoc) && /cn-monshies-user/.test(deployDoc) && !/not deployed yet/i.test(deployDoc));
 ok('product doc mentions Earthling multi-account env', /CROWSNEST_AUTH_EARTHLING_USERNAME/.test(productDoc) && /CROWSNEST_AUTH_EARTHLING_PASSWORD/.test(productDoc));
 ok('product doc mentions Monshies multi-account env', /CROWSNEST_AUTH_MONSHIES_USERNAME/.test(productDoc) && /CROWSNEST_AUTH_MONSHIES_PASSWORD/.test(productDoc));
-ok('product doc records planned Azure Earthling/Monshies secret mapping', /cn-auth-user/.test(productDoc) && /cn-monshies-user/.test(productDoc) && /not deployed/i.test(productDoc));
+ok('product doc records live Azure Earthling/Monshies secret mapping', /cn-auth-user/.test(productDoc) && /cn-monshies-user/.test(productDoc) && /Earthling/.test(productDoc) && /Monshies/.test(productDoc) && !/not deployed/i.test(productDoc));
 
 const writeRouteRe = /\.(post|put|patch|delete)\(|\/(create|update|delete|save|write|submit)\b/i;
 ok('no business/data write routes in crowsnest-api', !writeRouteRe.test(apiSrc));
@@ -225,10 +225,16 @@ ok('deploy plan has rollback plan', /rollback/i.test(deployDoc));
 ok('deploy runbook identifies the live baseline', /VERIFIED CURRENT LIVE BASELINE|live baseline|currently deployed|status:\s*live/i.test(deployDoc));
 ok('deploy plan verified live auth redirects to /login', /Verified on[\s\S]*redirected[\s\S]*\/login/i.test(deployDoc) && /stage:\s*portal/i.test(deployDoc) && /legacy Basic/i.test(deployDoc));
 ok('deploy plan keeps pre-portal Basic Auth challenge as history', /History \(pre-login-portal/i.test(deployDoc) && /Basic Auth challenge/i.test(deployDoc) && /stage:\s*skeleton/i.test(deployDoc));
-ok('deploy plan records live revision and image SHA', /crowsnest-internal--0000007/.test(deployDoc) && /d8b52b452aa0535d242ac5fcf31077f62068ce4e/.test(deployDoc));
+ok('deploy plan records live revision and image SHA', /crowsnest-internal--0000009/.test(deployDoc) && /3c3f6b5071bc8f5dc51c7216463e515f29fee258/.test(deployDoc));
+ok('location plan records live revision and image SHA', /crowsnest-internal--0000009/.test(planDoc) && /3c3f6b5071bc8f5dc51c7216463e515f29fee258/.test(planDoc));
 ok('deploy plan records Staff API unchanged at verified revision', /wh-staging-staff-api--0000520/.test(deployDoc) && /458ed255e8a06b7b0557718031e57f4d7064fa62/.test(deployDoc));
 ok('deploy plan keeps credential distribution out of scope', /credential distribution is out of scope/i.test(deployDoc));
 ok('deploy plan does not assert credentials delivered to humans', !/humans (?:have )?(?:received|been issued) (?:live )?credentials|credentials were (?:sent|issued|delivered) to/i.test(deployDoc));
+ok('deploy plan preserves legacy single-account fallback docs', /Legacy single-account fallback/i.test(deployDoc) && /CROWSNEST_AUTH_USERNAME/.test(deployDoc));
+ok('product doc preserves legacy single-account fallback docs', /Legacy single-account fallback/i.test(productDoc) && /CROWSNEST_AUTH_USERNAME/.test(productDoc));
+ok('location plan records live multi-account secret mapping', /cn-auth-user/.test(planDoc) && /cn-monshies-user/.test(planDoc) && /Earthling/.test(planDoc) && /Monshies/.test(planDoc) && !/not deployed yet/i.test(planDoc));
+ok('deploy plan records verified Monshies production login checks', /Monshies/.test(deployDoc) && /Secure cookie/i.test(deployDoc) && /logout isolation/i.test(deployDoc) && /invalid login/i.test(deployDoc));
+ok('deploy plan does not invent unverified Earthling production login test', !/Earthling production (?:browser )?login (?:was )?(?:verified|passed|confirmed)/i.test(deployDoc));
 
 const dockerSrc = read(DOCKERFILE_PATH) || '';
 ok('Dockerfile.crowsnest exists', fs.existsSync(DOCKERFILE_PATH));
