@@ -1,14 +1,48 @@
-# RADAR Slice 16AM — Operations gate ledger (G06 dual-staging 16AL deploy evidence, flag OFF)
+# RADAR Slice 16AN — Operations gate ledger (G06 Wolfhouse ingress binding correction)
 
-**Status:** evidence-only dual-staging deploy of 16AL with `STAFF_API_ADMISSION_CONTROL` OFF/unset (no flag enable / live shed / activation claim by this tip; G06 remains partial)
-**Master basis:** `905ff9ff57a75d0b3defc15a16078b47e94e930f`
-**Branch:** `radar/slice-16am-g06-backpressure-deploy-evidence`
+**Status:** source + staging deploy-config correction for Wolfhouse admission identity fail-closed (no live deploy/mutation by this tip; G06 remains partial)
+**Master basis:** `63ba28fe4149609db8277e7ebb8a80e5f1d18945`
+**Branch:** `radar/slice-16an-g06-wolfhouse-ingress-binding`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16AL admission wire source + 16AK backpressure source + 16AJ SLO source + 16AI/16AH/16AG/16AF/16L capacity path
-**This tip does not enable the flag / does not claim live shed / does not mutate scale:** durable sanitized update/readback/readyz/ACR/cost evidence only
+**Builds on:** 16AM deploy-flag-OFF evidence + 16AL admission wire + 16AK backpressure source + 16J trusted ingress
+**This tip does not deploy / does not enable the flag / does not claim live overload shed:** source + IaC only; failed canary recorded honestly
 
-## Outcome (16AM)
+## Outcome (16AN)
+
+Diagnose and safely correct the live Wolfhouse admission activation failure observed after 16AL flag-on canary:
+
+| Fact | Locked value |
+|------|----------------|
+| Sunset canary | `DEFAULT_CLIENT_SLUG=sunset`; flag true; revision `--0000281`; 80/80 invalid-signature webhook probes **403**; `/readyz` **200**; flag remains true |
+| Wolfhouse canary | **no** `DEFAULT_CLIENT_SLUG`; flag true; revision `--0000522`; 80/80 same probes **503**; `/readyz` **200** |
+| Wolfhouse rollback | operator set flag false; converged `--0000523`; probe **403** |
+| Classification | **identity fail-closed** (`REJECTED_MISSING_TENANT` → public 503 **without** overload `Retry-After`) — **not** live overload shedding |
+| Root cause | `resolveTrustedIngressBinding` used only `DEFAULT_CLIENT_SLUG` |
+| Safety | setting Wolfhouse `DEFAULT_CLIENT_SLUG=wolfhouse-somo` alone **would** fix admission but has unrelated semantic risk (portal / payment short-link / bot / Stripe defaults) — **rejected** |
+| Correction | dedicated immutable `STAFF_API_INGRESS_TENANT_SLUG` preferred; own-property presence (no `String()` coercion); present-but-malformed dedicated **fail-closed** (never fall through to `DEFAULT_CLIENT_SLUG`); absent-only strict `DEFAULT_CLIENT_SLUG` compat fallback; conflict fail-closed on normalized mismatch; safe env inspector maps Proxy/getter/revoked inspection failures to `env_inspection_failed` (never throw/partial-accept/raw echo); explicit binding skips env |
+| Wolfhouse IaC | `STAFF_API_INGRESS_TENANT_SLUG=wolfhouse-somo`; **leave** `DEFAULT_CLIENT_SLUG` unset |
+| Sunset IaC | `STAFF_API_INGRESS_TENANT_SLUG=sunset` matching existing `DEFAULT_CLIENT_SLUG=sunset` |
+| Proof | `16AN_SOURCE_dedicated_ingress_tenant_slug` **`source_deploy_config_proven`** (offline RED/GREEN + IaC locks) |
+| Score | proven=0 / partial=9 / absent=0 — **unchanged** |
+
+### Claim ownership (16AN locked)
+
+| Observation | Proves | Does not prove |
+|-------------|--------|----------------|
+| Dedicated ingress env + IaC + REDs | Source/deploy-config fix for missing Wolfhouse admission identity; conflict fail-closed; OFF parity | Does not prove live deploy, flag enable, live overload shed, or raising G06 |
+| Failed canary/rollback record | Honest operator observation: WH 503 was identity fail-closed; Sunset stayed healthy | That this tip performed the live canary or rollback |
+| G06 stays partial | Score preserved (0/9/0) | Raising G06 to `proven` |
+
+## Truthful disposition (16AN)
+
+**Proves (source/deploy-config):** Dedicated `STAFF_API_INGRESS_TENANT_SLUG` with strict own-property presence (primitive string + slug-valid; present-but-malformed fail-closed, no `String()` fallthrough), backwards-compatible `DEFAULT_CLIENT_SLUG` fallback only when dedicated is truly absent, and conflict fail-closed; safe own-env inspector fail-closed on hostile/revoked Proxy traps (`env_inspection_failed`); Wolfhouse/Sunset staging Bicep wired explicitly; REDs for missing/conflict/spoof/OFF parity plus blank/non-string/NUL/inherited/nullish/getter/hostile-coercion/Proxy-SECRET_RAW/revoked/hostile-DEFAULT; failed Wolfhouse canary recorded as identity fail-closed (not overload shed).
+
+**Does not prove:** live deploy by this tip; flag enable; live overload 503 shed; load soak; backpressure proven; production; raising G06 to `proven`.
+
+**Ingress-identity source gap closed; live re-activation remains open; G06 remains partial.**
+
+## Outcome (16AM — retained)
 
 Reconcile operator dual-staging Staff API deploy of **16AL** @ master `905ff9ff` with admission flag **OFF/unset**:
 

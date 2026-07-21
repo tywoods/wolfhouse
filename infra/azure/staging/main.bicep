@@ -362,6 +362,10 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
             { name: 'META_APP_SECRET',         secretRef: 'meta-app-secret' }
             { name: 'META_WHATSAPP_VERIFY_TOKEN', secretRef: 'meta-whatsapp-verify-token' }
             { name: 'META_WEBHOOK_SKIP_VERIFY', value: 'false' }
+            // RADAR 16AN — dedicated immutable admission ingress identity.
+            // Prefer over DEFAULT_CLIENT_SLUG so portal/payment/bot/Stripe defaults stay decoupled.
+            // Do not set DEFAULT_CLIENT_SLUG here unless an unrelated route explicitly needs it.
+            { name: 'STAFF_API_INGRESS_TENANT_SLUG', value: 'wolfhouse-somo' }
           ]
           // RADAR 16I — ACA probes (port must match ingress targetPort 3036).
           // Liveness/Startup → /healthz (no Postgres). Readiness → /readyz (PG; removes traffic, no restart).

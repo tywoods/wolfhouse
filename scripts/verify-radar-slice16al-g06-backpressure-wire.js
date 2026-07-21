@@ -164,7 +164,8 @@ ok('M1 locks identity',
 const branch = headBranch();
 ok('M2 branch is 16AL tip or master-based work',
   branch === locks.BRANCH || branch === 'master' || branch.startsWith('radar/slice-16al')
-  || branch === 'radar/slice-16am-g06-backpressure-deploy-evidence');
+  || branch === 'radar/slice-16am-g06-backpressure-deploy-evidence'
+  || branch === 'radar/slice-16an-g06-wolfhouse-ingress-binding');
 
 const contract = readJson(locks.CONTRACT_REL);
 const design = readJson(locks.DESIGN_REL);
@@ -1417,9 +1418,9 @@ function checkDocs() {
   const findings = read('fixtures/radar-operations/findings.md');
   const doc = read('docs/RADAR-OPERATIONS-GATE-LEDGER.md');
 
-  green('O1 tip matrix/contract 16AL (or later 16AM tip retaining 16AL selection)',
-    (matrix.slice === 'RADAR-16AL' || matrix.slice === 'RADAR-16AM')
-    && (topContract.slice === 'RADAR-16AL' || topContract.slice === 'RADAR-16AM')
+  green('O1 tip matrix/contract 16AL (or later 16AM/16AN tip retaining 16AL selection)',
+    (matrix.slice === 'RADAR-16AL' || matrix.slice === 'RADAR-16AM' || matrix.slice === 'RADAR-16AN')
+    && (topContract.slice === 'RADAR-16AL' || topContract.slice === 'RADAR-16AM' || topContract.slice === 'RADAR-16AN')
     && matrix.slice_16al_selection
     && matrix.slice_16al_selection.outcome_id === '16AL_g06_backpressure_wire'
     && topContract.selected_16al

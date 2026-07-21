@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16AM",
-  "title": "RADAR operations gate ledger (16AM G06 dual-staging 16AL deploy evidence flag OFF/unset; G06 partial \u2014 activation/shed/soak/fire/autoscale/SLO-live open)",
-  "master_basis": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
-  "branch": "radar/slice-16am-g06-backpressure-deploy-evidence",
+  "slice": "RADAR-16AN",
+  "title": "RADAR operations gate ledger (16AN G06 Wolfhouse ingress binding source/deploy-config; failed canary identity fail-closed; G06 partial \u2014 activation/overload-shed/soak/fire/autoscale/SLO-live open)",
+  "master_basis": "63ba28fe4149609db8277e7ebb8a80e5f1d18945",
+  "branch": "radar/slice-16an-g06-wolfhouse-ingress-binding",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -444,7 +444,7 @@
       "name": "Scaling / capacity",
       "verdict": "partial",
       "severity": "medium",
-      "rationale": "16L source-only capacity-pressure alerts remain in Bicep (CpuPercentage + MemoryPercentage). 16AF live-proves dual-staging capacity-alert deploy readback. 16AG harness source + 16AH pinned-lookup correction retained; 16AI live-proves conservative dual-staging /readyz bounded-load only. 16AJ availability-only SLO/error-budget source; 16AK admission/backpressure source; 16AL Staff API admission wire behind STAFF_API_ADMISSION_CONTROL default OFF (integration source). 16AM live-proves dual-staging deploy of 16AL image @ master 905ff9ff with admission flag OFF/unset (ACR cb11f; digest sha256:55ddc5eb\u2026; WH revision 0000521; Sunset latestReady g02503r unchanged name while image changed; both /readyz ready; Sunset MTD ActualCost identical 18.4680092365591 USD). Does not claim flag enable, live 503 shed, soak, alert fire/notification, autoscaling, SLO live, raising backpressure or G06 verdicts, or production. G06 remains partial.",
+      "rationale": "16L source-only capacity-pressure alerts remain in Bicep (CpuPercentage + MemoryPercentage). 16AF live-proves dual-staging capacity-alert deploy readback. 16AG harness source + 16AH pinned-lookup correction retained; 16AI live-proves conservative dual-staging /readyz bounded-load only. 16AJ availability-only SLO/error-budget source; 16AK admission/backpressure source; 16AL Staff API admission wire behind STAFF_API_ADMISSION_CONTROL default OFF (integration source). 16AM live-proves dual-staging deploy of 16AL image @ master 905ff9ff with admission flag OFF/unset (ACR cb11f; digest sha256:55ddc5eb\u2026; WH revision 0000521; Sunset latestReady g02503r unchanged name while image changed; both /readyz ready; Sunset MTD ActualCost identical 18.4680092365591 USD). 16AN source/deploy-config: dedicated STAFF_API_INGRESS_TENANT_SLUG with DEFAULT_CLIENT_SLUG fallback + conflict fail-closed; Wolfhouse/Sunset staging IaC wired; operator Wolfhouse flag-on canary --0000522 80/80 503 classified identity fail-closed (not overload shed) with rollback --0000523; Sunset --0000281 stayed 403. Does not claim live deploy by this tip, flag re-enable, live overload shed, soak, alert fire/notification, autoscaling, SLO live, raising backpressure or G06 verdicts, or production. G06 remains partial.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-admission-boundary.js",
@@ -456,6 +456,16 @@
             "writePublic503"
           ],
           "note": "16AL HTTP-boundary wire + fail-closed flag parse; default OFF"
+        },
+        {
+          "path": "scripts/lib/staff-api-request-correlation.js",
+          "lines": "188-260",
+          "symbols": [
+            "resolveTrustedIngressBinding",
+            "STAFF_API_INGRESS_TENANT_SLUG_ENV",
+            "DEFAULT_CLIENT_SLUG_ENV"
+          ],
+          "note": "16AN dedicated STAFF_API_INGRESS_TENANT_SLUG preferred; DEFAULT_CLIENT_SLUG compat; conflict fail-closed"
         },
         {
           "path": "scripts/staff-query-api.js",
@@ -475,27 +485,30 @@
         },
         {
           "path": "infra/azure/staging/main.bicep",
-          "lines": "102,410-411,422-504",
+          "lines": "102,365-368,410-411,422-504",
           "symbols": [
             "opsActionGroupResourceId",
             "staffApiCpuPressureAlert",
             "staffApiMemoryPressureAlert",
             "CpuPercentage",
-            "MemoryPercentage"
+            "MemoryPercentage",
+            "STAFF_API_INGRESS_TENANT_SLUG"
           ],
-          "note": "Wolfhouse capacity-pressure alerts + subscription-pinned 16B AG param; replicas unchanged"
+          "note": "Wolfhouse capacity-pressure alerts + 16AN ingress tenant slug; replicas unchanged"
         },
         {
           "path": "infra/azure/sunset-staging/main.bicep",
-          "lines": "102,501-502,513-595",
+          "lines": "102,448-450,501-502,513-595",
           "symbols": [
             "opsActionGroupResourceId",
             "staffApiCpuPressureAlert",
             "staffApiMemoryPressureAlert",
             "CpuPercentage",
-            "MemoryPercentage"
+            "MemoryPercentage",
+            "STAFF_API_INGRESS_TENANT_SLUG",
+            "DEFAULT_CLIENT_SLUG"
           ],
-          "note": "Sunset capacity-pressure alerts + subscription-pinned 16B AG param; replicas unchanged"
+          "note": "Sunset capacity-pressure alerts + 16AN ingress tenant slug matching DEFAULT; replicas unchanged"
         },
         {
           "path": "fixtures/radar-operations/slice16l-expected-contract.json",
@@ -668,15 +681,21 @@
           "lines": "1-120",
           "symbols": [],
           "note": "16AM dual-staging 16AL deploy flag-OFF evidence (digest/tag/revision/readyz/cost; lock-hashed)"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16an-g06-wolfhouse-ingress-binding-contract.json",
+          "lines": "1-80",
+          "symbols": [],
+          "note": "16AN dedicated STAFF_API_INGRESS_TENANT_SLUG + failed canary identity fail-closed record"
         }
       ],
       "gaps": [
-        "No admission flag enable / controller activation / live 503 shed (16AM deploy flag OFF only)",
+        "No admission flag enable / controller activation / live overload 503 shed (16AM deploy flag OFF; 16AN source/IaC only; WH canary rolled back)",
         "No load soak / sustained capacity proof (16AI live-proves only the conservative dual-staging /readyz bounded profile; soak remains open)",
         "No proven capacity-alert fire / notification delivery",
         "No autoscaling rules (rules=null live; not added by 16AF/16AG/16AH/16AI/16AJ)",
         "No capacity SLO / error budget live proof (16AJ defines source contract + calculator only; burn alert/drill acceptance defined_not_executed)",
-        "No backpressure runtime/live proof (16AK source + 16AL wire source + 16AM deploy-with-flag-OFF; flag not enabled; no live 503 shed)",
+        "No backpressure runtime/live proof (16AK source + 16AL wire source + 16AM deploy-with-flag-OFF + 16AN ingress identity source; flag not re-enabled on Wolfhouse; no live overload shed)",
         "Production scope forbidden"
       ],
       "progress_class": "partial_live_proven"
@@ -2452,6 +2471,73 @@
     "g06_backpressure_source": "source_defined_via_16AK",
     "g06_backpressure_wire_source": "integration_source_proven_via_16AL",
     "g06_backpressure_deploy_flag_off": "live_proven_via_16AM",
+    "g06_backpressure": "open",
+    "g06_slo_source": "source_defined_via_16AJ",
+    "g06_slo": "open",
+    "g06_conservative_readyz_bounded_load": "live_proven_via_16AI",
+    "g06_load_soak": "open",
+    "g06_load_harness_source": "source_closed_via_16AG",
+    "g06_pinned_lookup_all_true": "corrected_via_16AH",
+    "g06_capacity_alert_deploy": "live_proven_via_16AF",
+    "g06_capacity_alert_fire": "open",
+    "g06_autoscaling": "open"
+  },
+  "slice_16an_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16AN_g06_wolfhouse_ingress_binding",
+    "gate_id": "G06_scaling_capacity",
+    "progress_class": "source_deploy_config_partial_progress_only",
+    "does_not_implement": "live_deploy_flag_enable_overload_shed_load_soak_autoscaling_slo_live_backpressure_proven_production_full_g06_scale_mutation",
+    "title": "Dedicated STAFF_API_INGRESS_TENANT_SLUG + Wolfhouse/Sunset staging IaC; failed canary identity fail-closed",
+    "why_smallest": "Operator Wolfhouse flag-on canary failed closed on missing DEFAULT_CLIENT_SLUG ingress identity; dedicated immutable ingress env avoids coupling admission to unrelated route defaults.",
+    "builds_on": [
+      "16AM_g06_backpressure_deploy_evidence",
+      "16AL_g06_backpressure_wire",
+      "16AK_g06_backpressure_source",
+      "16J_staff_request_correlation"
+    ],
+    "supersedes": [],
+    "owner_files": [
+      "fixtures/radar-operations/slice16an-g06-wolfhouse-ingress-binding-contract.json",
+      "fixtures/radar-operations/slice16an-expected-contract.json",
+      "scripts/lib/radar-slice16an-g06-wolfhouse-ingress-binding.js",
+      "scripts/verify-radar-slice16an-g06-wolfhouse-ingress-binding.js",
+      "scripts/lib/staff-api-request-correlation.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep"
+    ],
+    "flag_enabled": false,
+    "flag_env": "STAFF_API_ADMISSION_CONTROL",
+    "ingress_env": "STAFF_API_INGRESS_TENANT_SLUG",
+    "out_of_scope_for_16an": [
+      "Live deploy / Bicep apply by this tip",
+      "Re-enabling STAFF_API_ADMISSION_CONTROL on Wolfhouse",
+      "Claiming live overload 503 shed",
+      "Setting DEFAULT_CLIENT_SLUG alone on Wolfhouse",
+      "Production RGs",
+      "Raising G06 verdict to proven"
+    ],
+    "acceptance_criteria": [
+      "resolveTrustedIngressBinding prefers STAFF_API_INGRESS_TENANT_SLUG",
+      "DEFAULT_CLIENT_SLUG compat fallback retained",
+      "Conflict fail-closed",
+      "Wolfhouse Bicep wires STAFF_API_INGRESS_TENANT_SLUG=wolfhouse-somo without DEFAULT_CLIENT_SLUG",
+      "Sunset Bicep wires STAFF_API_INGRESS_TENANT_SLUG=sunset matching DEFAULT",
+      "REDs for missing/conflict/spoof/OFF parity",
+      "Failed canary recorded as identity fail-closed (WH --0000522/0000523; Sunset --0000281)",
+      "No live deploy/mutation by this tip; G06 remains partial 0/9/0"
+    ],
+    "final_controlled_drill": {
+      "id": "16AN_SOURCE_dedicated_ingress_tenant_slug",
+      "status": "source_deploy_config_proven",
+      "pass_rule": "See slice16an-expected-contract.json final_controlled_drill.pass_rule"
+    },
+    "g06_verdict": "partial",
+    "g06_backpressure_source": "source_defined_via_16AK",
+    "g06_backpressure_wire_source": "integration_source_proven_via_16AL",
+    "g06_backpressure_deploy_flag_off": "live_proven_via_16AM",
+    "g06_ingress_binding_source": "source_deploy_config_proven_via_16AN",
     "g06_backpressure": "open",
     "g06_slo_source": "source_defined_via_16AJ",
     "g06_slo": "open",

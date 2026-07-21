@@ -55,11 +55,15 @@ function currentBranch() {
 
 function runtimePathsUnchanged() {
   // 16AK historically forbade mutating Staff API; later tip 16AL owns that wire
-  // plus a bounded readiness-lifecycle shutdown-BEGIN hook.
+  // plus a bounded readiness-lifecycle shutdown-BEGIN hook. 16AN owns trusted
+  // ingress binding + Wolfhouse/Sunset staging main.bicep ingress slug.
   // Keep freeze on non-wire paths relative to 16AK master basis.
   const paths = locks.MUST_NOT_MUTATE.filter((p) =>
     p !== 'scripts/staff-query-api.js'
-    && p !== 'scripts/lib/staff-api-readiness-lifecycle.js');
+    && p !== 'scripts/lib/staff-api-readiness-lifecycle.js'
+    && p !== 'scripts/lib/staff-api-request-correlation.js'
+    && p !== 'infra/azure/staging/main.bicep'
+    && p !== 'infra/azure/sunset-staging/main.bicep');
   try {
     const out = execSync(
       `git diff --name-only ${locks.MASTER_BASIS} -- ${paths.join(' ')}`,
@@ -138,7 +142,7 @@ green('M1 slice/outcome/branch/master',
 try {
   const b = currentBranch();
   ok('M2b current branch is 16AK or later tip / master-based work',
-    b === locks.BRANCH || b === 'HEAD' || /16ak|16al|16am/i.test(b),
+    b === locks.BRANCH || b === 'HEAD' || /16ak|16al|16am|16an/i.test(b),
     b);
 } catch (e) {
   ok('M2b branch readable', false, String(e.message));

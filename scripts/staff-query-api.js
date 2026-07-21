@@ -46863,7 +46863,10 @@ function createStaffQueryApiHttpServer(options) {
   // completion record (no duplicate correlation middleware; listeners removed on
   // settle — no growth). Client abort wins over destroyed/!writableEnded.
   // RADAR 16AL — optional 16AK admission behind STAFF_API_ADMISSION_CONTROL (default OFF).
-  const ingressBinding = resolveTrustedIngressBinding(options && options.ingressBinding);
+  // RADAR 16AN — trusted ingress prefers STAFF_API_INGRESS_TENANT_SLUG with
+  // DEFAULT_CLIENT_SLUG compat fallback; conflict fail-closed.
+  const env = (options && options.env) || process.env;
+  const ingressBinding = resolveTrustedIngressBinding(options && options.ingressBinding, env);
   const completionLogger = options && typeof options.completionLogger === 'function'
     ? options.completionLogger
     : null;
