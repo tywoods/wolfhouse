@@ -21,13 +21,15 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = 'd04b633390bdcacfe3a04eed4796bba4184e29f8';
+const MASTER_BASIS = '0994989a3d5d14daa98797fac55083b0c2ea809c';
+const MASTER_BASIS_16AI = 'd04b633390bdcacfe3a04eed4796bba4184e29f8';
 const MASTER_BASIS_16AH = '6c24e9456bd42c7fa1b051bb1308aae8f632b293';
 const MASTER_BASIS_16AG = '7a283b70d38a4906e6279d82a49c0f6dd2a4994e';
 const BRANCH_16AF = 'radar/slice-16af-g06-capacity-alert-live-evidence';
 const BRANCH_16AG = 'radar/slice-16ag-g06-bounded-load-harness';
 const BRANCH_16AH = 'radar/slice-16ah-g06-live-load-correction';
 const BRANCH_16AI = 'radar/slice-16ai-g06-live-load-evidence';
+const BRANCH_16AJ = 'radar/slice-16aj-g06-slo-error-budget-source';
 const BRANCH_16AD = 'radar/slice-16ad-g02-sampled-restart-continuity-evidence';
 const BRANCH_16AC = 'radar/slice-16ac-organic-restart-alert-evidence';
 const BRANCH_16AB = 'radar/slice-16ab-g02-readyz503-evidence';
@@ -457,14 +459,16 @@ const slice16afContract = readJson(path.join(FIXTURE_DIR, 'slice16af-expected-co
 const slice16agContract = readJson(path.join(FIXTURE_DIR, 'slice16ag-expected-contract.json'));
 const slice16ahContract = readJson(path.join(FIXTURE_DIR, 'slice16ah-expected-contract.json'));
 const slice16aiContract = readJson(path.join(FIXTURE_DIR, 'slice16ai-expected-contract.json'));
-ok('F48 gate-matrix branch pin equals 16AI tip contract + HEAD (16AH/16AG locks retained)',
-  matrix.branch === BRANCH_16AI
-  && contract.branch === BRANCH_16AI
+const slice16ajContract = readJson(path.join(FIXTURE_DIR, 'slice16aj-expected-contract.json'));
+ok('F48 gate-matrix branch pin equals 16AJ tip contract + HEAD (16AI/16AH/16AG locks retained)',
+  matrix.branch === BRANCH_16AJ
+  && contract.branch === BRANCH_16AJ
+  && slice16ajContract.branch === BRANCH_16AJ
+  && headBranch === BRANCH_16AJ
   && slice16aiContract.branch === BRANCH_16AI
-  && headBranch === BRANCH_16AI
   && slice16ahContract.branch === BRANCH_16AH
   && slice16agContract.branch === BRANCH_16AG,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16ah=${slice16ahContract.branch} slice16ag=${slice16agContract.branch} head=${headBranch}`);
+  `matrix=${matrix.branch} contract=${contract.branch} slice16aj=${slice16ajContract.branch} slice16ai=${slice16aiContract.branch} head=${headBranch}`);
 ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC/16AD/16AF contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
@@ -1169,7 +1173,49 @@ ok('F195 score unchanged after 16AI (proven=0 partial=9 absent=0)',
   contract.expected_verdict_counts.proven === 0
   && contract.expected_verdict_counts.partial === 9
   && contract.expected_verdict_counts.absent === 0
-  && MASTER_BASIS === 'd04b633390bdcacfe3a04eed4796bba4184e29f8');
+  && MASTER_BASIS_16AI === 'd04b633390bdcacfe3a04eed4796bba4184e29f8');
+
+const sel16aj = matrix.slice_16aj_selection;
+ok('F196 exactly one 16AJ selection',
+  sel16aj && sel16aj.selected === true
+  && sel16aj.outcome_id === '16AJ_g06_slo_error_budget_source'
+  && sel16aj.gate_id === 'G06_scaling_capacity'
+  && sel16aj.progress_class === 'source_partial_progress_only'
+  && sel16aj.final_controlled_drill
+  && sel16aj.final_controlled_drill.status === 'offline_source_proven'
+  && sel16aj.g06_slo_source === 'source_defined_via_16AJ'
+  && sel16aj.g06_slo === 'open');
+ok('F197 contract selected_16aj matches',
+  contract.selected_16aj
+  && contract.selected_16aj.outcome_id === '16AJ_g06_slo_error_budget_source'
+  && contract.selected_16aj.g06_slo_source === 'source_defined_via_16AJ'
+  && contract.selected_16aj.g06_slo === 'open'
+  && contract.selected_16aj.final_controlled_drill_status === 'offline_source_proven'
+  && contract.selected_16aj.g06_verdict === 'partial'
+  && contract.g06_slo_source === 'source_defined_via_16AJ'
+  && contract.g06_slo === 'open'
+  && contract.slo_live_proof === 'open');
+ok('F198 16AJ fixtures + verifier present',
+  pathExists('fixtures/radar-operations/slice16aj-g06-slo-error-budget-contract.json')
+  && pathExists('fixtures/radar-operations/slice16aj-expected-contract.json')
+  && pathExists('scripts/lib/radar-g06-slo-error-budget.js')
+  && pathExists('scripts/lib/radar-slice16aj-g06-slo-error-budget.js')
+  && pathExists('scripts/verify-radar-slice16aj-g06-slo-error-budget.js'));
+ok('F199 16AJ does not claim live SLO / fire / autoscale / backpressure / production / full G06',
+  /live_deploy|alert_fire|soak|autoscale|slo_proven|backpressure|production|full_g06/i.test(
+    String(sel16aj.does_not_implement || ''))
+  && !/\bG06\s+proven\b/i.test(doc)
+  && !/\bcapacity\s+SLO\s+proven\b/i.test(doc)
+  && !/\bSLO\s+proven\b/i.test(doc)
+  && !/\bfull\s+G06\b/i.test(doc)
+  && /16AJ|slo|error.?budget/i.test(doc)
+  && /16AJ/i.test(findings)
+  && /defined_not_executed/i.test(doc));
+ok('F200 score unchanged after 16AJ (proven=0 partial=9 absent=0)',
+  contract.expected_verdict_counts.proven === 0
+  && contract.expected_verdict_counts.partial === 9
+  && contract.expected_verdict_counts.absent === 0
+  && MASTER_BASIS === '0994989a3d5d14daa98797fac55083b0c2ea809c');
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

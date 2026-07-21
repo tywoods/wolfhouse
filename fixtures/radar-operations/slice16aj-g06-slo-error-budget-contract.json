@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AJ",
+  "outcome_id": "16AJ_g06_slo_error_budget_source",
+  "gate_id": "G06_scaling_capacity",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "0994989a3d5d14daa98797fac55083b0c2ea809c",
+  "branch": "radar/slice-16aj-g06-slo-error-budget-source",
+  "title": "Finite staging readiness SLO / error-budget source contract",
+  "live_deploy": false,
+  "live_mutation": false,
+  "live_network": false,
+  "azure_scope": {
+    "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resource_groups": ["wh-staging-rg", "luna-sunset-staging-rg"],
+    "note": "Staging-only scope lock; production forbidden"
+  },
+  "metric_surface_inspected": {
+    "availability": {
+      "namespace": "Microsoft.App/containerApps",
+      "metric": "Requests",
+      "aggregation": "Total",
+      "dimension": "statusCodeCategory",
+      "good_value": "2xx",
+      "known_values": ["2xx", "3xx", "4xx", "5xx"],
+      "prior_use": "16H tenant Requests 5xx alerts (statusCodeCategory=5xx >=3 PT5M/PT1M)"
+    },
+    "latency_histogram": {
+      "input_kind": "cumulative_latency_histogram_buckets_ms",
+      "binding_note": "Calculator accepts le_ms[] + cumulative counts[]; future binding may use RequestsDuration histogram or drill buckets. This slice does not scrape live metrics.",
+      "not_claimed_from_16ai": "16AI WH/Sunset p50/p95/p99 values prove drill observability only — not SLO compliance"
+    },
+    "alert_cadence_inspected": {
+      "capacity_pressure": "Average >80 Sev2 PT5M eval / PT15M window (16L source + 16AF live deploy)",
+      "requests_5xx": "Total >=3 statusCodeCategory=5xx PT5M/PT1M (16H)",
+      "slo_eval_grain": "PT5M aligned to capacity evaluation frequency"
+    }
+  },
+  "sli_contract": {
+    "name": "staging_staff_api_readiness_capacity",
+    "scope": "staging_only",
+    "availability_target": 0.99,
+    "latency_objective_ms": 500,
+    "latency_success_fraction": 0.99,
+    "combined_target": 0.99,
+    "slo_window_ms": 604800000,
+    "slo_window_label": "PT7D_finite_staging",
+    "sample_step_ms": 300000,
+    "sample_step_label": "PT5M",
+    "min_sample_coverage": 0.5,
+    "min_requests": 100,
+    "availability_formula": "requests_2xx_delta / requests_total_delta",
+    "latency_formula": "histogram_count(le >= objective_ms) / histogram_total",
+    "combined_formula": "min(availability_sli, latency_success_ratio)",
+    "error_budget_fraction": 0.01
+  },
+  "multi_window_burns": [
+    {
+      "id": "page_fast",
+      "severity": "page",
+      "short_ms": 300000,
+      "long_ms": 3600000,
+      "burn_threshold": 14.4,
+      "fire_rule": "short AND long burn_rate >= threshold"
+    },
+    {
+      "id": "page_slow",
+      "severity": "page",
+      "short_ms": 1800000,
+      "long_ms": 21600000,
+      "burn_threshold": 6,
+      "fire_rule": "short AND long burn_rate >= threshold"
+    },
+    {
+      "id": "ticket_fast",
+      "severity": "ticket",
+      "short_ms": 7200000,
+      "long_ms": 86400000,
+      "burn_threshold": 3,
+      "fire_rule": "short AND long burn_rate >= threshold"
+    },
+    {
+      "id": "ticket_slow",
+      "severity": "ticket",
+      "short_ms": 21600000,
+      "long_ms": 259200000,
+      "burn_threshold": 1,
+      "fire_rule": "short AND long burn_rate >= threshold"
+    }
+  ],
+  "fail_closed_states": {
+    "missing_samples": "null/undefined counters, <2 samples, or missing latency histogram",
+    "counter_reset": "requests_total or requests_2xx decreases between ordered samples",
+    "out_of_order": "sample t_ms not strictly increasing",
+    "zero_traffic_insufficient_coverage": "request delta or histogram total is zero — never claim SLO met",
+    "insufficient_sample_coverage": "present/expected PT5M slots < min_sample_coverage",
+    "insufficient_requests": "request delta < min_requests",
+    "percentile_misuse": "average_ms or scalar p99_ms without cumulative histogram",
+    "invalid_histogram": "non-cumulative, mismatched lengths, or final count != total"
+  },
+  "future_acceptance_only": {
+    "alert": {
+      "id": "16AJ_ALERT_multi_window_burn_acceptance",
+      "status": "defined_not_executed"
+    },
+    "drill": {
+      "id": "16AJ_DRILL_error_budget_burn_acceptance",
+      "status": "defined_not_executed"
+    }
+  },
+  "g06_disposition": {
+    "verdict": "partial",
+    "slo_source": "source_defined_via_16AJ",
+    "slo_live_proof": "open",
+    "score": { "proven": 0, "partial": 9, "absent": 0 }
+  },
+  "explicitly_not_claimed": [
+    "capacity_slo_proven",
+    "error_budget_proven",
+    "live_burn_alert_deployed",
+    "live_burn_alert_fired",
+    "notification_delivery",
+    "load_soak_proof",
+    "autoscaling",
+    "backpressure",
+    "production",
+    "full_G06_proven",
+    "16AI_latency_as_slo_proof"
+  ]
+}

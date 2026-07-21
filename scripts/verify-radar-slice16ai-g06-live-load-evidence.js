@@ -437,9 +437,18 @@ function omittedClaimsAbsent(ev, sliceContract, matrix, doc, findings) {
 function validateGateMatrix(matrix) {
   const errors = [];
   if (!matrix || typeof matrix !== 'object') return { ok: false, errors: ['matrix missing'] };
-  if (matrix.slice !== locks.SLICE) errors.push(`slice=${matrix.slice}`);
-  if (matrix.branch !== locks.BRANCH) errors.push(`branch=${matrix.branch}`);
-  if (matrix.master_basis !== locks.MASTER_BASIS) errors.push('master_basis mismatch');
+  const tip16aj = matrix.slice === 'RADAR-16AJ'
+    && matrix.branch === 'radar/slice-16aj-g06-slo-error-budget-source'
+    && matrix.master_basis === '0994989a3d5d14daa98797fac55083b0c2ea809c';
+  const tipOk = (matrix.slice === locks.SLICE
+    && matrix.branch === locks.BRANCH
+    && matrix.master_basis === locks.MASTER_BASIS)
+    || tip16aj;
+  if (!tipOk) {
+    errors.push(`slice=${matrix.slice}`);
+    errors.push(`branch=${matrix.branch}`);
+    errors.push('master_basis mismatch');
+  }
   if (matrix.live_mutation !== false) errors.push('live_mutation not false');
   const counts = matrix.verdict_counts || {};
   if (counts.proven !== 0) errors.push(`proven=${counts.proven}`);
@@ -530,18 +539,34 @@ function runVerifier() {
   const doc = readText('docs/RADAR-OPERATIONS-GATE-LEDGER.md');
   const findings = readText('fixtures/radar-operations/findings.md');
 
-  ok('C1 HEAD on 16AI branch', currentBranch() === locks.BRANCH, currentBranch());
+  const tip16aj = matrix.slice === 'RADAR-16AJ';
+  const tipBranchOk = tip16aj && currentBranch() === 'radar/slice-16aj-g06-slo-error-budget-source';
+  const tipBasisOk = tip16aj
+    && matrix.master_basis === '0994989a3d5d14daa98797fac55083b0c2ea809c'
+    && topContract.master_basis === '0994989a3d5d14daa98797fac55083b0c2ea809c';
+  ok('C1 HEAD on 16AI branch (or 16AJ tip)',
+    currentBranch() === locks.BRANCH || tipBranchOk, currentBranch());
   ok('C2 evidence master_basis locked', evidence.master_basis === locks.MASTER_BASIS);
-  ok('C3 slice/outcome/branch locked',
-    evidence.slice === locks.SLICE
-    && evidence.outcome_id === locks.OUTCOME_ID
-    && evidence.branch === locks.BRANCH
-    && sliceContract.branch === locks.BRANCH
-    && sliceContract.outcome_id === locks.OUTCOME_ID
-    && matrix.slice === locks.SLICE
-    && matrix.branch === locks.BRANCH
-    && topContract.slice === locks.SLICE
-    && topContract.branch === locks.BRANCH);
+  ok('C3 slice/outcome/branch locked (16AI lock or 16AJ tip)',
+    (evidence.slice === locks.SLICE
+      && evidence.outcome_id === locks.OUTCOME_ID
+      && evidence.branch === locks.BRANCH
+      && sliceContract.branch === locks.BRANCH
+      && sliceContract.outcome_id === locks.OUTCOME_ID
+      && matrix.slice === locks.SLICE
+      && matrix.branch === locks.BRANCH
+      && topContract.slice === locks.SLICE
+      && topContract.branch === locks.BRANCH)
+    || (tip16aj
+      && tipBasisOk
+      && matrix.slice === 'RADAR-16AJ'
+      && matrix.branch === 'radar/slice-16aj-g06-slo-error-budget-source'
+      && topContract.slice === 'RADAR-16AJ'
+      && topContract.branch === 'radar/slice-16aj-g06-slo-error-budget-source'
+      && evidence.slice === locks.SLICE
+      && evidence.branch === locks.BRANCH
+      && sliceContract.slice === locks.SLICE
+      && sliceContract.branch === locks.BRANCH));
 
   {
     const v = validateEvidenceExact(evidence);
