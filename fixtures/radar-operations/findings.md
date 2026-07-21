@@ -30,7 +30,7 @@
 
 | Gate | progress_class | Notes |
 |------|----------------|-------|
-| G01 | partial_live_proven + 16U provenance + **16AE boundary freeze** | 16S LAW retained @ SHA `1bf9695` (WH 0000517 / Sunset 0000277); inventory 4/21/18; decideCapability shape frozen; G01-A Meta→Hermes live open; dry-run blocked on 16AF runtime apply; E2E still open / not claimed |
+| G01 | partial_live_proven + 16U provenance + **16AE boundary freeze** | 16S LAW retained @ SHA `1bf9695` (WH 0000517 / Sunset 0000277); inventory 3/23/19; decideCapability shape frozen; G01-A Meta→Hermes live open; dry-run blocked on 16AF runtime apply; E2E still open / not claimed |
 | G02 | partial_live_proven | **16AD** sampled restart continuity retained; absolute zero-downtime / cold-start / production open |
 | G03 | partial_live_proven | **16AC** organic restart fire/resolve + **16P** AG test; human inbox open |
 | G04 | partial | backlog open |
@@ -42,7 +42,7 @@
 
 ## Slice 16AE
 
-`16AE_g01_capability_boundary_freeze` — audit-only freeze of the central capability boundary required by 16U before G01 dry-run can exist. Independently enumerated source IDs compared bidirectionally to a separate frozen specification: WhatsApp send **4**, mutation **21**, read dispatch **18**, total **43**. One fail-closed turn-scoped `decideCapability` bound through an immutable per-turn tenant/location/adapter boundary (non-empty `turn_id`) centrally denies all sends/mutations while permitting reads. Independent verifier RED-rejects missing/extra/duplicate/bypass/context-tamper/unclassified/acquisition-omission/missing-turn/cross-decision-drift; does not import implementation expected-set constants. **Does not** implement runtime, trace headers, deploy, or claim dry-run activatable. Fulfills 16U candidate `16V_candidate_central_capability_boundary_audit_freeze` (sequenced as 16AE). G01 stays **partial**; proven=0.
+`16AE_g01_capability_boundary_freeze` — audit-only freeze of the central capability boundary required by 16U before G01 dry-run can exist. AST-discovered physical sites over an explicit production import graph (Python ast; Node Acorn) reconciled to site policy and frozen site keys: WhatsApp send **3**, mutation **23**, read dispatch **19**, total **45**. One fail-closed turn-scoped `decideCapability` with immutable per-turn tenant/location scope plus fresh opaque single-use per-decision site grant centrally denies all sends/mutations while permitting reads; multiple legitimate sites per turn are allowed. Independent verifier RED-rejects unmatched/stale policy sites, parse/unresolved dynamic imports/calls, production imports into exclusions, grant reuse/site/effect/context drift, and real source-mutation fixtures; discovery does not consume adapter IDs. **Does not** implement runtime, trace headers, deploy, or claim dry-run activatable. Fulfills 16U candidate `16V_candidate_central_capability_boundary_audit_freeze` (sequenced as 16AE). G01 stays **partial**; proven=0.
 
 ## Slice 16AD
 

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "slice": "RADAR-16AE",
-  "title": "RADAR operations gate ledger (16AE G01 capability boundary freeze; G01 partial; 16AD G02 sampled continuity retained \u2014 absolute zero-downtime/production open)",
+  "title": "RADAR operations gate ledger (16AE G01 capability boundary freeze; G01 partial; 16AD G02 sampled continuity retained — absolute zero-downtime/production open)",
   "master_basis": "0a2fb08486b835dd45a4fc904e3dd152702bea6f",
   "branch": "radar/slice-16ae-g01-capability-boundary-freeze",
   "audit_only": true,
@@ -31,7 +31,7 @@
       "name": "Correlation / structured logs",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16J Staff HTTP correlation (ALS). 16R allowlisted staff_api_request_completion. 16S live-proven dual-staging LAW delivery/search/retention @ SHA 1bf9695 (WH 0000517 / Sunset 0000277). 16U provenance retained: live Lunabox Caddy /whatsapp/*\u2192:8092 hermes-sunset-luna and /wolfhouse/*\u2192:8090 hermes-luna (tracked Caddy reference is stale evidence, not authority); single wamid or ordered immutable source-wamid set (no invented burst parent); G01-B=tenant/payment/booking/session metadata only (no inbound trace/wamid today); Hermes _post_bot omits X-Request-Id today; genuine Stripe Checkout cannot be exercised without mutation. 16AE audit-only central capability boundary freeze: source-derived exact-set inventory whatsapp_send=4 mutation=21 read_dispatch=18 total=43 under identity ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION; one fail-closed decideCapability before acquisition denies every WhatsApp send and Staff/DB/Stripe mutation while permitting real read dispatch; immutable per-turn object bound to tenant+location+adapter context; fulfills 16U-required boundary (candidate labeled 16V; sequenced as 16AE). Dry-run still not implementable (blocked on capability_boundary_runtime_apply). Independent same-ID probes rejected as E2E. Live G01-A drill remains open. Verdict stays partial.",
+      "rationale": "16J Staff HTTP correlation (ALS). 16R allowlisted staff_api_request_completion. 16S live-proven dual-staging LAW delivery/search/retention @ SHA 1bf9695 (WH 0000517 / Sunset 0000277). 16U provenance retained: live Lunabox Caddy /whatsapp/*→:8092 hermes-sunset-luna and /wolfhouse/*→:8090 hermes-luna (tracked Caddy reference is stale evidence, not authority); single wamid or ordered immutable source-wamid set (no invented burst parent); G01-B=tenant/payment/booking/session metadata only (no inbound trace/wamid today); Hermes _post_bot omits X-Request-Id today; genuine Stripe Checkout cannot be exercised without mutation. 16AE audit-only central capability boundary freeze: AST-discovered physical-site inventory whatsapp_send=3 mutation=23 read_dispatch=19 total=45 under identity PHYSICAL_SITE_AST_DISCOVERY_OVER_EXPLICIT_PRODUCTION_IMPORT_GRAPH; one fail-closed decideCapability before acquisition denies every WhatsApp send and Staff/DB/Stripe mutation while permitting real read dispatch; immutable per-turn object bound to tenant+location+adapter context; fulfills 16U-required boundary (candidate labeled 16V; sequenced as 16AE). Dry-run still not implementable (blocked on capability_boundary_runtime_apply). Independent same-ID probes rejected as E2E. Live G01-A drill remains open. Verdict stays partial.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-request-correlation.js",
@@ -147,7 +147,7 @@
         }
       ],
       "gaps": [
-        "G01-A live Meta\u2192Hermes\u2192Staff correlated read path open (16AE boundary audit-frozen; runtime apply then Hermes X-Request-Id; dry-run not implementable yet; independent same-ID probes are not E2E)"
+        "G01-A live Meta→Hermes→Staff correlated read path open (16AE boundary audit-frozen; runtime apply then Hermes X-Request-Id; dry-run not implementable yet; independent same-ID probes are not E2E)"
       ],
       "progress_class": "partial_live_proven"
     },
@@ -156,7 +156,7 @@
       "name": "Readiness / dependencies",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P healthy-path live @ 594247f retained. 16W wires closeReadinessPool into SIGTERM/SIGINT shutdown (source). 16X records dual-staging exact-SHA 2dcda08 lifecycle deploy with provenance split (A transcript Activating traffic-shed; B Azure reverify). 16Y adds one bounded staff_api_readiness_shutdown_completion JSON record per readiness shutdown (source). 16Z reconciles completed dual-staging live SIGTERM drill with provenance split and bounded drill-window LAW cardinality (retained). 16AA reconciles completed dual-staging live SIGINT drill with provenance split; LAW cardinality in bounded inclusive drill query windows WH 12:08:00Z\u201312:09:00Z / Sunset 12:09:00Z\u201312:10:00Z with other revision-lifetime records disclosed \u2014 revision-lifetime count is not one. 16AB reconciles completed dual-staging serving-revision /readyz=503 body-path drill with provenance split; observed_at=unavailable_in_command_transcript; Azure cannot recreate historical localhost 503/body or traffic sequence. 16AC reconciles independently discovered organic Azure Monitor RestartCount alert instances temporally associated with completed 16AA SIGINT drills (fired/resolved/unsuppressed both tenants; inbox/unique-causality open). 16AD reconciles completed dual-staging concurrent sampled revision-restart continuity drill with provenance split: Class A bounded sequential public /healthz+/readyz poller (max-time 4s ~1s) during az containerapp revision restart \u2014 WH samples 0..90 @ 13:21:11Z\u201313:23:17Z with samples 0..2 timeout disclosed/excluded (scale-from-zero warmup before restart); samples 3..90 both 200; restart window 13:21:47Z\u201313:21:50Z samples 8..11 both 200; Sunset samples 0..90 @ 13:23:39Z\u201313:25:18Z all both 200; restart 13:23:54Z\u201313:23:58Z samples 14..17 both 200. Class B @ 2026-07-21T13:29:32Z: LAW SIGTERM completions WH 13:22:29.3669823Z revision wh-staging-staff-api--g02503r replica \u2026-9764596b8-mgfw2 / Sunset 13:24:29.7970752Z revision luna-sunset-staging-staff-api--g02503r replica \u2026-f4d4b7875-dw7cx allowlisted payload pool/server ok failures=[] completion=true; both apps Single/latest/latestReady/100%; public current healthz/readyz 200. Claim only no observed public interruption at this sampling resolution during declared restart command windows after WH warmup exclusion \u2014 not absolute/continuous zero downtime, not between-sample proof, not cold-start availability, not production, not full G02. Partial/live-proven for concurrent sampled restart continuity + prior organic restart alerts/SIGINT/SIGTERM/traffic-shed/readyz=503 \u2014 G02 remains partial (production intentionally untouched / acceptance policy).",
+      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P healthy-path live @ 594247f retained. 16W wires closeReadinessPool into SIGTERM/SIGINT shutdown (source). 16X records dual-staging exact-SHA 2dcda08 lifecycle deploy with provenance split (A transcript Activating traffic-shed; B Azure reverify). 16Y adds one bounded staff_api_readiness_shutdown_completion JSON record per readiness shutdown (source). 16Z reconciles completed dual-staging live SIGTERM drill with provenance split and bounded drill-window LAW cardinality (retained). 16AA reconciles completed dual-staging live SIGINT drill with provenance split; LAW cardinality in bounded inclusive drill query windows WH 12:08:00Z–12:09:00Z / Sunset 12:09:00Z–12:10:00Z with other revision-lifetime records disclosed — revision-lifetime count is not one. 16AB reconciles completed dual-staging serving-revision /readyz=503 body-path drill with provenance split; observed_at=unavailable_in_command_transcript; Azure cannot recreate historical localhost 503/body or traffic sequence. 16AC reconciles independently discovered organic Azure Monitor RestartCount alert instances temporally associated with completed 16AA SIGINT drills (fired/resolved/unsuppressed both tenants; inbox/unique-causality open). 16AD reconciles completed dual-staging concurrent sampled revision-restart continuity drill with provenance split: Class A bounded sequential public /healthz+/readyz poller (max-time 4s ~1s) during az containerapp revision restart — WH samples 0..90 @ 13:21:11Z–13:23:17Z with samples 0..2 timeout disclosed/excluded (scale-from-zero warmup before restart); samples 3..90 both 200; restart window 13:21:47Z–13:21:50Z samples 8..11 both 200; Sunset samples 0..90 @ 13:23:39Z–13:25:18Z all both 200; restart 13:23:54Z–13:23:58Z samples 14..17 both 200. Class B @ 2026-07-21T13:29:32Z: LAW SIGTERM completions WH 13:22:29.3669823Z revision wh-staging-staff-api--g02503r replica …-9764596b8-mgfw2 / Sunset 13:24:29.7970752Z revision luna-sunset-staging-staff-api--g02503r replica …-f4d4b7875-dw7cx allowlisted payload pool/server ok failures=[] completion=true; both apps Single/latest/latestReady/100%; public current healthz/readyz 200. Claim only no observed public interruption at this sampling resolution during declared restart command windows after WH warmup exclusion — not absolute/continuous zero downtime, not between-sample proof, not cold-start availability, not production, not full G02. Partial/live-proven for concurrent sampled restart continuity + prior organic restart alerts/SIGINT/SIGTERM/traffic-shed/readyz=503 — G02 remains partial (production intentionally untouched / acceptance policy).",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-readiness.js",
@@ -264,7 +264,7 @@
         },
         {
           "ref": "fixtures/radar-operations/slice16ad-g02-sampled-restart-continuity-evidence.json#observed_facts",
-          "note": "16AD: (A) transcript concurrent public poll samples + restart windows with WH warmup 0..2 timeout disclosed/excluded; (B) LAW SIGTERM completions + Single/latest/latestReady/100% + public current @ 2026-07-21T13:29:32Z; sampling-resolution claim only \u2014 not absolute zero downtime"
+          "note": "16AD: (A) transcript concurrent public poll samples + restart windows with WH warmup 0..2 timeout disclosed/excluded; (B) LAW SIGTERM completions + Single/latest/latestReady/100% + public current @ 2026-07-21T13:29:32Z; sampling-resolution claim only — not absolute zero downtime"
         }
       ],
       "gaps": [
@@ -279,7 +279,7 @@
       "name": "Actionable tenant-aware alerts",
       "verdict": "partial",
       "severity": "critical",
-      "rationale": "16H source adds staging Staff API metric-alert IaC. 16P records Azure Action Group test notification API Email Status=Succeeded and state=Complete for Wolfhouse and Sunset. 16AC records independently discovered organic RestartCount metric alerts fired and resolved on both staging Staff API apps with actionStatus.isSuppressed=false and enabled ops-budget action groups (receiver ops-email status Enabled; address not recorded). Partial/live-proven for AG test-notification API email status + organic restart alert fire/resolve/unsuppressed action path \u2014 does not claim human inbox receipt, unique causality beyond platform fields, or 5xx alert firing.",
+      "rationale": "16H source adds staging Staff API metric-alert IaC. 16P records Azure Action Group test notification API Email Status=Succeeded and state=Complete for Wolfhouse and Sunset. 16AC records independently discovered organic RestartCount metric alerts fired and resolved on both staging Staff API apps with actionStatus.isSuppressed=false and enabled ops-budget action groups (receiver ops-email status Enabled; address not recorded). Partial/live-proven for AG test-notification API email status + organic restart alert fire/resolve/unsuppressed action path — does not claim human inbox receipt, unique causality beyond platform fields, or 5xx alert firing.",
       "source_evidence": [
         {
           "path": "infra/azure/staging-staff-api-metric-alerts/rg-staff-api-metric-alerts.bicep",
@@ -386,7 +386,7 @@
       "name": "Retry / replay safety",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16M adds source-only fail-closed Stripe webhook event-id claim before booking-payment and addon_service mutations: INSERT payment_events ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id inside the same existing transaction; zero rows \u2192 ROLLBACK + HTTP 200 idempotent exact-id (reason=stripe_event_id_already_claimed, no_db_write); first claim \u2192 addon FOR UPDATE lock/reload (or booking under-lock truth) \u2192 writes or distinct-event duplicate_business_outcome skip \u2192 mark processed=true \u2192 COMMIT; addon has no pre-transaction already-paid shortcut \u2014 stale lookup paid still claims; distinct-event response uses no_business_mutation + no_payment_or_service_rewrite (never no_db_write \u2014 ledger claim is a DB write); pre-commit claim/write/processed failure \u2192 ROLLBACK + retryable 500; COMMIT failure is AMBIGUOUS \u2192 best-effort ROLLBACK + retryable 500 outcome_unknown=true (never claim definitely rolled back; retry via durable stripe_event_id). Privacy-minimized payload (allowlisted non-PII only). Uses existing UNIQUE stripe_event_id (001_init hostel_id ownership column \u2192 client_id post-003). Signature verification, authoritative tenant gate, validation, locked money math, and distinct-event business idempotency preserved. Ignored/unmatched/invalid events unchanged (no claim). Source-partial only \u2014 not deployed; live concurrency, real-PG ambiguous-commit drill, replay operator, DLQ, and controlled drill remain open. Does not claim all event types.",
+      "rationale": "16M adds source-only fail-closed Stripe webhook event-id claim before booking-payment and addon_service mutations: INSERT payment_events ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id inside the same existing transaction; zero rows → ROLLBACK + HTTP 200 idempotent exact-id (reason=stripe_event_id_already_claimed, no_db_write); first claim → addon FOR UPDATE lock/reload (or booking under-lock truth) → writes or distinct-event duplicate_business_outcome skip → mark processed=true → COMMIT; addon has no pre-transaction already-paid shortcut — stale lookup paid still claims; distinct-event response uses no_business_mutation + no_payment_or_service_rewrite (never no_db_write — ledger claim is a DB write); pre-commit claim/write/processed failure → ROLLBACK + retryable 500; COMMIT failure is AMBIGUOUS → best-effort ROLLBACK + retryable 500 outcome_unknown=true (never claim definitely rolled back; retry via durable stripe_event_id). Privacy-minimized payload (allowlisted non-PII only). Uses existing UNIQUE stripe_event_id (001_init hostel_id ownership column → client_id post-003). Signature verification, authoritative tenant gate, validation, locked money math, and distinct-event business idempotency preserved. Ignored/unmatched/invalid events unchanged (no claim). Source-partial only — not deployed; live concurrency, real-PG ambiguous-commit drill, replay operator, DLQ, and controlled drill remain open. Does not claim all event types.",
       "progress_class": "source_partial_progress_only",
       "source_evidence": [
         {
@@ -498,7 +498,7 @@
           "path": "docs/STAGE-40C-HAMMER-REVIEW-PACK.md",
           "lines": "1-14,201",
           "symbols": [],
-          "note": "Conversation stress pack \u2014 not infra load test (still open)"
+          "note": "Conversation stress pack — not infra load test (still open)"
         }
       ],
       "live_evidence": [
@@ -508,7 +508,7 @@
         },
         {
           "ref": "live-inventory.json#alerts",
-          "note": "metric_alerts=[] both RGs \u2014 capacity alerts source-only; not deployed"
+          "note": "metric_alerts=[] both RGs — capacity alerts source-only; not deployed"
         }
       ],
       "gaps": [
@@ -525,7 +525,7 @@
       "name": "Rollback / incident runbooks",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Written rollback/cutover runbooks and backup/restore plan exist. 16P records operator-observed Staff API revision rollback then rollforward on both tenants (Wolfhouse 0000515\u21920000516, Sunset 0000275\u21920000276) with health/readiness passed and final image SHA 594247f. Partial/live-proven for ACA revision rollback/rollforward only \u2014 Postgres restore drill and geo-redundant backup remain open.",
+      "rationale": "Written rollback/cutover runbooks and backup/restore plan exist. 16P records operator-observed Staff API revision rollback then rollforward on both tenants (Wolfhouse 0000515→0000516, Sunset 0000275→0000276) with health/readiness passed and final image SHA 594247f. Partial/live-proven for ACA revision rollback/rollforward only — Postgres restore drill and geo-redundant backup remain open.",
       "source_evidence": [
         {
           "path": "docs/clients/wolfhouse/LIVE-ROLLBACK-RUNBOOK.md",
@@ -553,7 +553,7 @@
         },
         {
           "ref": "fixtures/radar-operations/slice16p-live-drill-evidence.json#observed_facts.rollback_rollforward",
-          "note": "WH 0000515\u21920000516 and Sunset 0000275\u21920000276; health/ready passed; final image 594247f"
+          "note": "WH 0000515→0000516 and Sunset 0000275→0000276; health/ready passed; final image 594247f"
         }
       ],
       "gaps": [
@@ -568,7 +568,7 @@
       "name": "Retention / privacy",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16O minimizes public Stripe webhook pre-verification error bodies (invalid_stripe_signature / stripe_webhook_unavailable / invalid_webhook_request); 16K minimizes /healthz. 16P records operator-observed live deploy of exact SHA 594247f to Wolfhouse 0000514 and Sunset 0000274 with health/ready and malformed/missing/oversize generic webhook responses. Partial/live-proven for those observed paths only \u2014 does not claim abrupt paths, retention/search, log-retention/PII redaction proof, or SDK/secret inject paths.",
+      "rationale": "16O minimizes public Stripe webhook pre-verification error bodies (invalid_stripe_signature / stripe_webhook_unavailable / invalid_webhook_request); 16K minimizes /healthz. 16P records operator-observed live deploy of exact SHA 594247f to Wolfhouse 0000514 and Sunset 0000274 with health/ready and malformed/missing/oversize generic webhook responses. Partial/live-proven for those observed paths only — does not claim abrupt paths, retention/search, log-retention/PII redaction proof, or SDK/secret inject paths.",
       "source_evidence": [
         {
           "path": "scripts/lib/stripe-webhook-public-errors.js",
@@ -679,7 +679,7 @@
       "name": "Cost controls",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Cost controls cover (1) budget threshold notifications and (2) anomaly detection as distinct controls. 16B adds standalone staging ActualCost budget-threshold IaC (source). 16P records ops Action Group test notification API Email Status=Succeeded / state=Complete for both staging tenants (timestamps in evidence fixture). Partial/live-proven for AG test-notification API email status only \u2014 does not claim human inbox receipt, budget resource live-list proof, or anomaly detection.",
+      "rationale": "Cost controls cover (1) budget threshold notifications and (2) anomaly detection as distinct controls. 16B adds standalone staging ActualCost budget-threshold IaC (source). 16P records ops Action Group test notification API Email Status=Succeeded / state=Complete for both staging tenants (timestamps in evidence fixture). Partial/live-proven for AG test-notification API email status only — does not claim human inbox receipt, budget resource live-list proof, or anomaly detection.",
       "controls": {
         "budget_threshold": {
           "kind": "threshold",
@@ -734,7 +734,7 @@
         },
         {
           "ref": "live-inventory.json#budgets",
-          "note": "budgets=[] both RGs \u2014 live threshold control still absent (source-only partial)"
+          "note": "budgets=[] both RGs — live threshold control still absent (source-only partial)"
         },
         {
           "ref": "fixtures/radar-operations/slice16p-live-drill-evidence.json#observed_facts.action_group_test_notification_api",
@@ -764,7 +764,7 @@
     "progress_class": "budget_threshold_partial_progress_only",
     "does_not_implement": "anomaly_detection",
     "title": "Add staging RG ActualCost budgets with ops notify thresholds (not anomaly detection)",
-    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free IaC/fixtures. This is budget-threshold partial progress only \u2014 anomaly detection remains a separate absent control.",
+    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free IaC/fixtures. This is budget-threshold partial progress only — anomaly detection remains a separate absent control.",
     "owner_files": [
       "infra/azure/staging-cost-budgets/",
       "scripts/lib/radar-slice16b-staging-cost-budgets.js",
@@ -783,20 +783,20 @@
     "acceptance_criteria": [
       "Standalone Consumption budget IaC for wh-staging-rg amount USD 120 with Enabled 80% and 100% Actual thresholds",
       "Standalone Consumption budget IaC for luna-sunset-staging-rg amount USD 40 with the same threshold properties",
-      "One parameterized ops-email action group per RG \u2014 no email default/personal address/secret in git",
+      "One parameterized ops-email action group per RG — no email default/personal address/secret in git",
       "Secret-free fixture + verifier prove budget names/scopes/thresholds without reading secret values",
       "Deployment Incremental-only and structurally unable to touch Container Apps/DB/KV/identities/networking/production",
       "Exact subscription/RG short-circuit preflight + RED tests for wrong scope/email/amounts/thresholds/extra resources/non-incremental",
-      "Real notification-delivery proof required for drill pass \u2014 Enabled configuration alone fails",
+      "Real notification-delivery proof required for drill pass — Enabled configuration alone fails",
       "16B must not claim anomaly-detection acceptance; anomaly remains separately absent",
       "No Staff API, Hermes, DB schema, or guest/payment runtime behavior change in the 16B diff"
     ],
     "budget_notification_acceptance": [
-      "Budget resources present on both staging RGs with explicit % thresholds (live \u2014 still open)",
-      "Ops receiver exists and a real notification delivery event is evidenced (not merely Enabled=true) \u2014 still open"
+      "Budget resources present on both staging RGs with explicit % thresholds (live — still open)",
+      "Ops receiver exists and a real notification delivery event is evidenced (not merely Enabled=true) — still open"
     ],
     "anomaly_detection_acceptance": [
-      "Separate follow-on: Cost Management anomaly alert or equivalent with delivery proof \u2014 out of scope for 16B"
+      "Separate follow-on: Cost Management anomaly alert or equivalent with delivery proof — out of scope for 16B"
     ],
     "final_controlled_drill": {
       "id": "16B_DRILL_budget_threshold_notify",
@@ -823,7 +823,7 @@
     "gate_id": "G03_actionable_tenant_aware_alerts",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_notification_delivery_alert_fire",
-    "title": "Add staging Staff API tenant-named metric alerts (Requests 5xx + RestartCount) \u2014 source module only",
+    "title": "Add staging Staff API tenant-named metric alerts (Requests 5xx + RestartCount) — source module only",
     "why_smallest": "G03 was fully absent live; smallest ownership surface is metricAlerts-only IaC scoped to exact Staff API app pairs, referencing existing 16B ops AG names, with no deployment wrapper.",
     "supersedes": [
       "16F_staff_api_metric_alerts",
@@ -879,7 +879,7 @@
     "gate_id": "G02_readiness_dependencies",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_failure_drill_lifecycle_integration",
-    "title": "Add Staff API /readyz + ACA probes (dedicated max-1 readiness pool) \u2014 source partial only",
+    "title": "Add Staff API /readyz + ACA probes (dedicated max-1 readiness pool) — source partial only",
     "why_smallest": "G02 lacked dependency-aware readiness; narrowest ownership is /readyz + probe IaC without signal/shutdown framework.",
     "supersedes": [
       "16C_staff_api_readiness_dependencies"
@@ -933,7 +933,7 @@
     "gate_id": "G01_correlation_structured_logs",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
-    "title": "Add Staff API request correlation middleware (UUIDv4 + ALS header/context only) \u2014 source partial only",
+    "title": "Add Staff API request correlation middleware (UUIDv4 + ALS header/context only) — source partial only",
     "why_smallest": "G01 lacked request correlation ID middleware; narrowest ownership is HTTP-boundary ALS + response header without completion logging, lifecycle listeners, async queue, or signal/shutdown framework.",
     "supersedes": [
       "16D_staff_api_request_correlation"
@@ -953,7 +953,7 @@
       "Live deploy / restart",
       "LAW/App Insights delivery + search proof",
       "Retention policy freeze",
-      "E2E Meta\u2192Hermes\u2192Staff\u2192Stripe correlation drill",
+      "E2E Meta→Hermes→Staff→Stripe correlation drill",
       "Production RGs",
       "Completion emission owned by follow-on 16R (not 16J)"
     ],
@@ -989,7 +989,7 @@
     "gate_id": "G08_retention_privacy",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_log_retention_privacy_drill",
-    "title": "Minimize public Staff API /healthz to generic schema \u2014 source partial only",
+    "title": "Minimize public Staff API /healthz to generic schema — source partial only",
     "why_smallest": "G08 lacked public healthz privacy minimization; narrowest ownership is public body schema only without touching /readyz or authenticated diagnostics.",
     "supersedes": [],
     "owner_files": [
@@ -1039,7 +1039,7 @@
     "gate_id": "G06_scaling_capacity",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_alert_fire_autoscaling_load_backpressure_slo",
-    "title": "Add Staff API capacity-pressure metric alerts (CPU/Memory Average >80) \u2014 source partial only",
+    "title": "Add Staff API capacity-pressure metric alerts (CPU/Memory Average >80) — source partial only",
     "why_smallest": "G06 lacked capacity-pressure alerting; narrowest ownership is CpuPercentage+MemoryPercentage static metric alerts on both staging Staff API apps wired to future 16B ops AG resource IDs without autoscaling or replica mutation.",
     "supersedes": [],
     "owner_files": [
@@ -1089,7 +1089,7 @@
     "gate_id": "G05_retry_replay_safety",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_concurrency_replay_operator_dlq_drill",
-    "title": "Add fail-closed Stripe webhook event-id claim before payment mutations \u2014 source partial only",
+    "title": "Add fail-closed Stripe webhook event-id claim before payment mutations — source partial only",
     "why_smallest": "G05 lacked proven fail-closed payment_events ledger insert before Stripe webhook side effects; narrowest ownership is claim-before-mutation for booking-payment + addon_service paths using existing UNIQUE stripe_event_id, without deploy/DLQ/replay operator.",
     "supersedes": [],
     "owner_files": [
@@ -1109,11 +1109,11 @@
     ],
     "acceptance_criteria": [
       "Booking-payment and addon_service paths claim stripe_event_id inside same txn before mutations",
-      "INSERT ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id; zero rows \u2192 200 idempotent exact-id, no mutations",
-      "Addon: no pre-transaction already-paid shortcut; after claim, FOR UPDATE owned payment reload; already paid \u2192 processed + duplicate_business_outcome with no_business_mutation/no_payment_or_service_rewrite (never no_db_write); ineligible \u2192 fail closed",
+      "INSERT ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id; zero rows → 200 idempotent exact-id, no mutations",
+      "Addon: no pre-transaction already-paid shortcut; after claim, FOR UPDATE owned payment reload; already paid → processed + duplicate_business_outcome with no_business_mutation/no_payment_or_service_rewrite (never no_db_write); ineligible → fail closed",
       "First event winner: mutations then mark processed=true before COMMIT; only lock winner mutates",
-      "Pre-commit claim/write/processed failure \u2192 ROLLBACK + retryable 500",
-      "COMMIT failure \u2192 outcome_unknown=true retryable 500 (never claim definitely rolled back); retry via durable stripe_event_id",
+      "Pre-commit claim/write/processed failure → ROLLBACK + retryable 500",
+      "COMMIT failure → outcome_unknown=true retryable 500 (never claim definitely rolled back); retry via durable stripe_event_id",
       "Lookup returns owned hostel_id (client_id); payload allowlisted non-PII only",
       "Signature/tenant/validation/locked money math/business idempotency preserved",
       "Offline fake-pg RED/GREEN proves order, exact-id replay, distinct-event concurrency, pre-commit rollback+retry, modeled post-durable ack-failure retry, ownership fail-closed, canaries absent",
@@ -1138,7 +1138,7 @@
     "gate_id": "G08_retention_privacy",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "abrupt_paths_retention_search_sdk_secret_inject_full_privacy_drill",
-    "title": "Minimize public Stripe webhook error responses (generic fail-closed) \u2014 source partial only",
+    "title": "Minimize public Stripe webhook error responses (generic fail-closed) — source partial only",
     "why_smallest": "G08 lacked public Stripe webhook error-body minimization; narrowest ownership is all pre-verification client responses (body-read/secret/SDK/signature) without changing tenant binding, 16M claim logic, or skip_verify semantics.",
     "supersedes": [],
     "owner_files": [
@@ -1159,9 +1159,9 @@
       "Production RGs"
     ],
     "acceptance_criteria": [
-      "SDK unavailable / missing webhook secret \u2192 HTTP 500 {success:false,code:stripe_webhook_unavailable,retryable:true} with no raw error or env/config names",
-      "Raw-body stream/oversize/abort \u2192 HTTP 400 {success:false,code:invalid_webhook_request} with no e.message",
-      "Missing/malformed/parser-throw signature \u2192 HTTP 400 {success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature}",
+      "SDK unavailable / missing webhook secret → HTTP 500 {success:false,code:stripe_webhook_unavailable,retryable:true} with no raw error or env/config names",
+      "Raw-body stream/oversize/abort → HTTP 400 {success:false,code:invalid_webhook_request} with no e.message",
+      "Missing/malformed/parser-throw signature → HTTP 400 {success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature}",
       "Never return stack/exception class/parser details/signature/secret/payload/tenant/env/config",
       "Internal audit allowlisted reasons only (sdk_load_failed/signature_verification_failed/body_read_failed/webhook_secret_unavailable); no signature/body logged",
       "Signature-before-routing/DB, skip_verify=false, tenant binding, 16M txn, ignored/unmatched preserved",
@@ -1197,7 +1197,7 @@
     ],
     "progress_class": "partial_live_proven_evidence_only",
     "does_not_implement": "human_inbox_organic_alert_production_abrupt_retention_search_dependency_failure_real_pg_completion_logging",
-    "title": "Reconcile bounded operator-observed 16O live-drill evidence \u2014 no overclaims",
+    "title": "Reconcile bounded operator-observed 16O live-drill evidence — no overclaims",
     "why_smallest": "Record only operator-observed facts from completed 16O live drill into a bounded fixture; upgrade gate progress_class to partial_live_proven where facts support; keep proven=0.",
     "owner_files": [
       "fixtures/radar-operations/slice16p-live-drill-evidence.json",
@@ -1219,7 +1219,7 @@
     ],
     "acceptance_criteria": [
       "Bounded evidence fixture records exact SHA 594247f @ WH 0000514 / Sunset 0000274 with health/ready and malformed/missing/oversize generic responses",
-      "Records rollback/rollforward WH 0000515\u21920000516 and Sunset 0000275\u21920000276 with health/ready and final image 594247f",
+      "Records rollback/rollforward WH 0000515→0000516 and Sunset 0000275→0000276 with health/ready and final image 594247f",
       "Records AG test notification API Email Status=Succeeded state=Complete with exact sent/completed timestamps for both tenants",
       "explicitly_not_claimed includes human_inbox_receipt, organic_metric_alert_firing, production, abrupt_paths, retention_search, dependency_failure, real_pg_contention, completion_logging",
       "Verifier rejects altered evidence and overstated claims",
@@ -1245,7 +1245,7 @@
     "gate_id": "G01_correlation_structured_logs",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_azure_stdout_delivery_search_retention_drill",
-    "title": "Add Staff API one bounded request-completion record per HTTP request \u2014 source partial only",
+    "title": "Add Staff API one bounded request-completion record per HTTP request — source partial only",
     "why_smallest": "G01 lacked safe request-completion records after 16J ALS; narrowest ownership is finish/close/error exactly-once allowlisted emission extending 16J without duplicate middleware or signal/queue ownership.",
     "builds_on": [
       "16J_staff_api_request_correlation"
@@ -1265,7 +1265,7 @@
       "Azure stdout / LAW / App Insights delivery proof",
       "Searchable query proof",
       "Retention policy freeze",
-      "E2E Meta\u2192Hermes\u2192Staff\u2192Stripe correlation drill",
+      "E2E Meta→Hermes→Staff→Stripe correlation drill",
       "Production RGs"
     ],
     "acceptance_criteria": [
@@ -1290,7 +1290,7 @@
     "gate_id": "G01_correlation_structured_logs",
     "progress_class": "partial_live_proven_evidence_only",
     "does_not_implement": "e2e_meta_hermes_staff_stripe_drill_concurrent_isolation_abort_error_law_any_gate_proven",
-    "title": "Record dual-staging 16R completion-log delivery/search/retention evidence \u2014 G01 partial_live_proven only",
+    "title": "Record dual-staging 16R completion-log delivery/search/retention evidence — G01 partial_live_proven only",
     "why_smallest": "Record only operator-observed dual-staging LAW delivery/search/retention facts into a bounded fixture; upgrade G01 progress_class to partial_live_proven; keep proven=0 and other gate scores unchanged.",
     "builds_on": [
       "16R_staff_api_request_completion_log",
@@ -1305,18 +1305,18 @@
     ],
     "out_of_scope_for_16s": [
       "Live deploy / restart by this slice",
-      "E2E Meta\u2192Hermes\u2192Staff\u2192Stripe correlation drill",
+      "E2E Meta→Hermes→Staff→Stripe correlation drill",
       "Concurrent isolation proof",
       "Abort/error LAW outcome proof",
       "Raising any gate verdict to proven",
-      "Changing G02\u2013G09 scores",
+      "Changing G02–G09 scores",
       "Production RGs"
     ],
     "acceptance_criteria": [
       "Evidence fixture matches operator facts exactly (SHA/revisions/request IDs/timestamps/LAW/retention/table/match_count=1)",
       "Verifier rejects altered/missing/extra keys, wrong fields, sensitive keys, and overclaims",
       "G01 progress_class partial_live_proven with verdict partial; gaps list only E2E drill",
-      "proven count remains 0; G02\u2013G09 scores unchanged",
+      "proven count remains 0; G02–G09 scores unchanged",
       "Runtime paths unchanged vs master 1bf9695; no deploy by this slice"
     ],
     "final_controlled_drill": {
@@ -1362,7 +1362,7 @@
       "Any gate verdict proven"
     ],
     "acceptance_criteria": [
-      "Call graph freezes live Caddy /whatsapp\u21928092 and /wolfhouse\u21928090; tracked Caddy is stale not authority",
+      "Call graph freezes live Caddy /whatsapp→8092 and /wolfhouse→8090; tracked Caddy is stale not authority",
       "Provenance: single wamid or ordered immutable source-wamid set; no invented burst parent",
       "Design states Stripe Checkout cannot be exercised without mutation; G01-B is metadata-only today",
       "Dry-run not implementable yet; next slice is central capability boundary audit/freeze",
@@ -1382,8 +1382,8 @@
     "gate_id": "G02_readiness_dependencies",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "readyz_sql_change_readyz_body_change_probes_deploy_secrets_db_production_controlled_dependency_failure_drill",
-    "title": "Wire closeReadinessPool into Staff API graceful shutdown \u2014 source partial only",
-    "why_smallest": "G02 lifecycle source gap was the only missing piece for readiness pool teardown; narrowest ownership is SIGTERM/SIGINT \u2192 closeReadinessPool \u2192 server.close on CLI main without touching probes/SQL/closePgPool.",
+    "title": "Wire closeReadinessPool into Staff API graceful shutdown — source partial only",
+    "why_smallest": "G02 lifecycle source gap was the only missing piece for readiness pool teardown; narrowest ownership is SIGTERM/SIGINT → closeReadinessPool → server.close on CLI main without touching probes/SQL/closePgPool.",
     "builds_on": [
       "16I_staff_api_readiness_dependencies"
     ],
@@ -1407,7 +1407,7 @@
     "acceptance_criteria": [
       "SIGTERM and SIGINT close readiness pool exactly once (idempotent under concurrent signals)",
       "await closeReadinessPool before server.close and before process exit",
-      "Shutdown order preserved: pool \u2192 server \u2192 exit",
+      "Shutdown order preserved: pool → server → exit",
       "Process listeners install once on CLI main; createStaffQueryApiHttpServer reuse adds zero listeners",
       "Wolfhouse and Sunset staging share one Staff API runtime (no tenant fork)",
       "Offline verifier RED/GREEN with adversarial ordering cases; no self-derived acceptance",
@@ -1416,7 +1416,7 @@
     "final_controlled_drill": {
       "id": "16I_DRILL_readiness_failure_traffic_shed",
       "status": "live_proven_via_16X_activating_traffic_shed",
-      "pass_rule": "With Postgres unreachable, Activating revision never latestReady; prior /healthz+/readyz stay 200; recovery restores secretRef/latestReady \u2014 16W closed lifecycle source; 16X closed drill+deploy live; SIGTERM live still open"
+      "pass_rule": "With Postgres unreachable, Activating revision never latestReady; prior /healthz+/readyz stay 200; recovery restores secretRef/latestReady — 16W closed lifecycle source; 16X closed drill+deploy live; SIGTERM live still open"
     }
   },
   "slice_16x_selection": {
@@ -1426,7 +1426,7 @@
     "gate_id": "G02_readiness_dependencies",
     "progress_class": "partial_live_proven_evidence_only",
     "does_not_implement": "sigterm_live_lifecycle_organic_alerts_production_full_g02_serving_readyz_503",
-    "title": "Reconcile dual-staging G02 lifecycle deploy + dependency-failure traffic-shed drill \u2014 evidence only",
+    "title": "Reconcile dual-staging G02 lifecycle deploy + dependency-failure traffic-shed drill — evidence only",
     "why_smallest": "G02 deploy + traffic-shed drill completed live; narrowest ownership is lock-hashed evidence + independent verifier without further mutation.",
     "builds_on": [
       "16I_staff_api_readiness_dependencies",
@@ -1452,7 +1452,7 @@
       "Provenance split: (A) operator-transcript contemporaneous samples vs (B) Azure read-only independently reverified facts",
       "Exact SHA 2dcda08 image digests match ACR for Wolfhouse and Sunset (class B)",
       "Base healthy revisions WH 0000518 and Sunset 0000278 recorded (class B)",
-      "g02fail min=1 unreachable DSN stayed Activating \u226590s @ 5s never latestReady (class A transcript)",
+      "g02fail min=1 unreachable DSN stayed Activating ≥90s @ 5s never latestReady (class A transcript)",
       "Prior revision public /healthz=200 and /readyz=200 on every observation (class A; not Azure-reconstructible)",
       "g02restore exact SHA secretRef Healthy/latestReady/100% traffic; fail inactive (class B @ verify UTC)",
       "Verifier requires A/B split; RED-rejects Azure-labelled historical arrays, missing transcript attribution, fabricated current verification of historical samples, live-timeout rewrite of historical 200s, wrong SHA/digest/revision, secrets, overclaims",
@@ -1472,7 +1472,7 @@
     "gate_id": "G02_readiness_dependencies",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "readyz_sql_change_readyz_body_change_probes_deploy_secrets_db_production_sigterm_live_lifecycle_drill_full_g02",
-    "title": "Bounded Staff API readiness-shutdown completion record \u2014 source observability only",
+    "title": "Bounded Staff API readiness-shutdown completion record — source observability only",
     "why_smallest": "G02 still lacks truthful live SIGTERM lifecycle proof; narrowest ownership is one bounded completion JSON record per readiness shutdown so a future drill can prove live behavior without widening readiness/probes/SQL.",
     "builds_on": [
       "16W_readiness_shutdown_lifecycle",
@@ -1520,7 +1520,7 @@
     "gate_id": "G02_readiness_dependencies",
     "progress_class": "partial_live_proven_evidence_only",
     "does_not_implement": "sigint_live_serving_readyz_503_zero_downtime_during_restart_organic_alerts_production_full_g02",
-    "title": "Reconcile dual-staging live SIGTERM lifecycle drill evidence \u2014 partial/live-proven only",
+    "title": "Reconcile dual-staging live SIGTERM lifecycle drill evidence — partial/live-proven only",
     "why_smallest": "G02 lacked live SIGTERM cleanup telemetry proof after 16Y source observability; narrowest ownership is evidence-only reconciliation of completed dual-staging restart drill with A/B provenance split.",
     "builds_on": [
       "16W_readiness_shutdown_lifecycle",
@@ -1567,7 +1567,7 @@
     "gate_id": "G02_readiness_dependencies",
     "progress_class": "partial_live_proven_evidence_only",
     "does_not_implement": "serving_readyz_503_zero_downtime_during_restart_organic_alerts_production_full_g02",
-    "title": "Reconcile dual-staging live SIGINT lifecycle drill evidence \u2014 partial/live-proven only",
+    "title": "Reconcile dual-staging live SIGINT lifecycle drill evidence — partial/live-proven only",
     "why_smallest": "G02 lacked live SIGINT cleanup telemetry proof after 16Z SIGTERM; narrowest ownership is evidence-only reconciliation of completed dual-staging kill -INT 1 exec drill with A/B provenance split.",
     "builds_on": [
       "16W_readiness_shutdown_lifecycle",
@@ -1597,7 +1597,7 @@
     "acceptance_criteria": [
       "Exact SHA 95dc363 images/digests/revisions/replicas both tenants locked (class B)",
       "LAW exactly one allowlisted SIGINT completion each tenant inside locked bounded inclusive drill query windows with exact timestamps (class B); other revision-lifetime records disclosed; revision-lifetime not claimed as one",
-      "Operator az containerapp exec + kill -INT 1 + exit 137 transport/process-termination disconnect only (not app failure; not native exit/shell/signal/ACA-restart proof) + post-drill /readyz=200 both tenants (class A transcript); LAW allowlisted record \u2014 not 137 \u2014 owns SIGINT pool/server cleanup evidence (class B)",
+      "Operator az containerapp exec + kill -INT 1 + exit 137 transport/process-termination disconnect only (not app failure; not native exit/shell/signal/ACA-restart proof) + post-drill /readyz=200 both tenants (class A transcript); LAW allowlisted record — not 137 — owns SIGINT pool/server cleanup evidence (class B)",
       "Verifier requires A/B split + claim_ownership; rejects wrong replica/revision/times/signal/outcomes, unbounded/revision-lifetime exactly-one, missing exact command provenance, treating exit137 as app failure, claiming exit137 proves app/Node native exit/shell code/signal encoding/ACA restart reason, claimed concurrent continuity, secret fields, overclaims",
       "G02 remains partial; proven count remains 0"
     ],
@@ -1620,7 +1620,7 @@
     "gate_id": "G02_readiness_dependencies",
     "progress_class": "partial_live_proven_evidence_only",
     "does_not_implement": "zero_downtime_during_restart_concurrent_sampled_continuity_organic_alerts_production_full_g02",
-    "title": "Reconcile dual-staging serving-revision /readyz=503 body-path drill evidence \u2014 partial/live-proven only",
+    "title": "Reconcile dual-staging serving-revision /readyz=503 body-path drill evidence — partial/live-proven only",
     "why_smallest": "G02 lacked live serving-revision /readyz=503 body-path proof after 16AA SIGINT; narrowest ownership is evidence-only reconciliation of completed dual-staging isolated fail-revision local 503 drill with A/B provenance split.",
     "builds_on": [
       "16I_staff_api_readiness_dependencies",
@@ -1679,7 +1679,7 @@
     ],
     "progress_class": "partial_live_proven_evidence_only",
     "does_not_implement": "human_inbox_receipt_unique_causality_5xx_alert_zero_downtime_production_full_g02_full_g03",
-    "title": "Reconcile organic Azure Monitor restart alerts after 16AA SIGINT \u2014 partial/live-proven only",
+    "title": "Reconcile organic Azure Monitor restart alerts after 16AA SIGINT — partial/live-proven only",
     "why_smallest": "G02/G03 lacked organic restart-alert fire/resolve proof after 16AA SIGINT; narrowest ownership is evidence-only Azure-readonly reconciliation of exact alert instances/rules/AGs.",
     "builds_on": [
       "16H_staff_api_metric_alerts",
@@ -1735,7 +1735,7 @@
     "gate_id": "G02_readiness_dependencies",
     "progress_class": "partial_live_proven_evidence_only",
     "does_not_implement": "absolute_continuous_zero_downtime_between_samples_sub_second_cold_start_production_full_g02",
-    "title": "Reconcile dual-staging concurrent sampled revision-restart continuity \u2014 partial/live-proven only",
+    "title": "Reconcile dual-staging concurrent sampled revision-restart continuity — partial/live-proven only",
     "why_smallest": "G02 lacked concurrent sampled restart continuity proof after prior post-restart-only samples; narrowest ownership is evidence-only reconciliation of completed dual-staging poll-during-restart drill with A/B provenance and explicit WH warmup disclosure.",
     "builds_on": [
       "16Z_g02_live_sigterm_lifecycle_evidence",
@@ -1789,7 +1789,7 @@
     "progress_class": "audit_only_capability_boundary_freeze",
     "does_not_implement": "runtime_decideCapability_wiring_dry_run_switch_trace_x_request_id_live_g01a_drill_any_gate_proven",
     "title": "Audit-only freeze of central capability boundary + complete adapter inventory",
-    "why_smallest": "Inventory every Hermes-guest WhatsApp send and Staff/DB/Stripe mutation; freeze one fail-closed decideCapability before acquisition bound to immutable tenant/location/adapter context \u2014 prerequisite before dry-run runtime.",
+    "why_smallest": "AST-discover physical acquisition sites over explicit production import graph; freeze fail-closed decideCapability with immutable per-turn tenant/location scope + single-use site grant — prerequisite before dry-run runtime.",
     "builds_on": [
       "16U_correlation_design_freeze",
       "16S_request_completion_log_live_evidence",
@@ -1800,10 +1800,10 @@
     "fulfills_16u_candidate": "16V_candidate_central_capability_boundary_audit_freeze",
     "next_slice": "16AF_candidate_capability_boundary_runtime_apply",
     "inventory_counts": {
-      "whatsapp_send": 4,
-      "mutation": 21,
-      "read_dispatch": 18,
-      "total": 43
+      "whatsapp_send": 3,
+      "mutation": 23,
+      "read_dispatch": 19,
+      "total": 45
     },
     "enforcement_owner": {
       "primary_module": "docker/hermes-staging/wolfhouse/capability_boundary.py",
@@ -1828,23 +1828,44 @@
       "Activating G01_CORRELATION_DRY_RUN",
       "Claiming dry-run implementable",
       "Any gate verdict proven",
-      "G02\u2013G09 score changes"
+      "G02–G09 score changes"
     ],
     "acceptance_criteria": [
-      "Source-derived exact-set inventory counts 4/21/18 total 43 with bidirectional compare",
-      "Independent source enumeration vs separate frozen capability-ID specification (no circular expected-set constants)",
-      "decideCapability inventory-lookup + exact tenant/location + pinned effect + non-empty turn_id + immutable per-turn boundary",
-      "Verifier RED-rejects missing/extra/duplicate/bypass/context-tamper/unclassified/acquisition-omission/missing-turn/cross-decision-drift",
-      "Dry-run not implementable; later owner specified not created",
-      "G01 remains partial; proven=0; runtime paths unchanged vs master 0a2fb08"
+      "AST physical-site discovery counts whatsapp_send=3 mutation=23 read_dispatch=19 total=45 with bidirectional policy/frozen compare",
+      "Discovery uses Python ast + Node Acorn; does not consume adapter IDs; fail-closed unmatched/stale/parse/dynamic/exclusion",
+      "decideCapability: immutable per-turn tenant/location scope + fresh opaque single-use site grant; multi-site per turn OK; reuse/site/effect/context drift denies",
+      "Real source-mutation RED fixtures under slice16ae-red-source",
+      "16U provenance + G01 partial preserved; runtime paths unchanged; proven=0"
     ],
     "final_controlled_drill": {
       "id": "16AE_DRILL_capability_boundary_audit_freeze",
       "status": "audit_only_boundary_frozen",
-      "pass_rule": "Independent source enumeration vs separate frozen specification (4/21/18); decideCapability inventory-lookup + exact tenant/location + pinned effect + non-empty turn_id + per-turn boundary; RED-rejects missing/extra/duplicate/bypass/context-tamper/unclassified/acquisition-omission/missing-turn/cross-decision-drift; runtime paths unchanged; proven=0"
+      "pass_rule": "AST discovery 3/23/19; site grant semantics; RED unmatched/stale/source-mutation/grant-drift; proven=0"
     },
     "g01_verdict": "partial",
     "dry_run_implementable_today": false,
-    "capability_boundary_design": "frozen_via_16AE"
+    "capability_boundary_design": "frozen_via_16AE",
+    "scanner_counts": {
+      "python_sites": 39,
+      "javascript_sites": 6,
+      "total_sites": 45,
+      "by_primitive": {
+        "meta_graph_http_client": 2,
+        "staff_http_client": 33,
+        "db_pool_client": 4,
+        "stripe_sdk": 1,
+        "in_process_queue": 3,
+        "hermes_session_store": 2
+      },
+      "python_scanned_files": 7,
+      "javascript_scanned_files": 6
+    },
+    "identity_rule_id": "PHYSICAL_SITE_AST_DISCOVERY_OVER_EXPLICIT_PRODUCTION_IMPORT_GRAPH",
+    "completeness_method": "ast_discovered_site_policy_exact_set_comparison",
+    "artifacts": [
+      "fixtures/radar-operations/slice16ae-site-policy.json",
+      "scripts/lib/radar-slice16ae-physical-site-discovery.js",
+      "scripts/lib/radar-slice16ae-scan-python-sites.py"
+    ]
   }
 }

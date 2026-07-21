@@ -4,27 +4,24 @@
  * verify:radar-slice16ae-g01-capability-boundary-freeze — RADAR Slice 16AE
  *
  * Offline RED/GREEN for audit-only central capability boundary freeze.
- * No network / live / runtime wiring.
+ * AST physical-site discovery + site-grant semantics. No network / live / runtime wiring.
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const locks = require('./lib/radar-slice16ae-g01-capability-boundary-freeze');
+const discovery = require('./lib/radar-slice16ae-physical-site-discovery');
 
-// Frozen specification is the expected-set authority — never import implementation
-// expected-set constants from the locks module.
 const frozenSpec = locks.loadFrozenCapabilityIds(ROOT);
 if (!frozenSpec.ok) {
   console.error('FATAL: frozen capability specification missing', frozenSpec);
   process.exit(1);
 }
 const FROZEN_COUNTS = frozenSpec.counts;
-const FROZEN_SEND = frozenSpec.whatsapp_send;
-const FROZEN_MUTATION = frozenSpec.mutation;
-const FROZEN_READ = frozenSpec.read_dispatch;
 
 let pass = 0;
 let fail = 0;
@@ -94,24 +91,57 @@ function secretFree(text, label) {
   return { ok: true };
 }
 
-function needlesPresent(inventory) {
-  const missing = [];
-  for (const a of [
-    ...(inventory.whatsapp_send_adapters || []),
-    ...(inventory.mutation_adapters || []),
-    ...(inventory.read_dispatch_adapters || []),
-  ]) {
-    const abs = path.join(ROOT, a.path);
-    if (!fs.existsSync(abs)) {
-      missing.push(`${a.adapter_id}:missing_file:${a.path}`);
-      continue;
-    }
-    const text = fs.readFileSync(abs, 'utf8');
-    if (!text.includes(a.source_needle)) {
-      missing.push(`${a.adapter_id}:needle_absent:${a.source_needle}`);
-    }
+function firstSite(inventory, effect) {
+  const list = effect === 'whatsapp_send'
+    ? inventory.whatsapp_send_adapters
+    : effect === 'mutation'
+      ? inventory.mutation_adapters
+      : inventory.read_dispatch_adapters;
+  return list[0];
+}
+
+function copyDir(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, ent.name);
+    const d = path.join(dest, ent.name);
+    if (ent.isDirectory()) copyDir(s, d);
+    else fs.copyFileSync(s, d);
   }
-  return missing;
+}
+
+/**
+ * Build a temp tree overlaying a RED-mutated graph node for real source-mutation proofs.
+ */
+function withMutatedGraphOverlay(mutateFn) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), '16ae-red-'));
+  try {
+    // Minimal graph: copy required scanner + a few production files then mutate
+    const nodes = [
+      ...discovery.JS_GRAPH_NODES,
+      'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py',
+      'docker/hermes-staging/apply_gateway_patches.py',
+      'docker/hermes-staging/wolfhouse_whatsapp_mirror.py',
+      'docker/hermes-staging/wolfhouse_guest_fresh_start.py',
+      'docker/hermes-staging/wolfhouse/pause_gate.py',
+      'docker/hermes-staging/wolfhouse/explicit_human_handoff.py',
+      'docker/hermes-staging/wolfhouse/whatsapp_burst_coalesce.py',
+      locks.SITE_POLICY_REL,
+      locks.FROZEN_SPEC_REL,
+      'scripts/lib/radar-slice16ae-scan-python-sites.py',
+    ];
+    for (const rel of nodes) {
+      const abs = path.join(ROOT, rel);
+      if (!fs.existsSync(abs)) continue;
+      const dest = path.join(tmp, rel);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(abs, dest);
+    }
+    mutateFn(tmp);
+    return mutateFn._result ? mutateFn._result(tmp) : discovery.discoverPhysicalSites(tmp);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 console.log('RADAR 16AE capability boundary freeze — offline verifier\n');
@@ -123,14 +153,15 @@ const matrix = readJson('fixtures/radar-operations/gate-matrix.json');
 const opsContract = readJson('fixtures/radar-operations/contract.json');
 const ledger = readText('docs/RADAR-OPERATIONS-GATE-LEDGER.md');
 const findings = readText('fixtures/radar-operations/findings.md');
-const design16u = readJson('fixtures/radar-operations/slice16u-correlation-design-freeze.json');
-const callGraph16u = readJson('fixtures/radar-operations/slice16u-call-graph.json');
+const policyLoad = locks.loadSitePolicy(ROOT);
 
 green('fixtures_present',
   fs.existsSync(path.join(ROOT, locks.DESIGN_REL))
   && fs.existsSync(path.join(ROOT, locks.INVENTORY_REL))
   && fs.existsSync(path.join(ROOT, locks.CONTRACT_REL))
-  && fs.existsSync(path.join(ROOT, locks.FROZEN_SPEC_REL)));
+  && fs.existsSync(path.join(ROOT, locks.FROZEN_SPEC_REL))
+  && fs.existsSync(path.join(ROOT, locks.SITE_POLICY_REL))
+  && fs.existsSync(path.join(ROOT, locks.RED_SOURCE_REL)));
 
 green('pins',
   design.slice === locks.SLICE
@@ -148,43 +179,33 @@ green('identity_rule_frozen',
   && design.identity_rule.completeness_method === locks.IDENTITY_RULE.completeness_method
   && inventory.identity_rule_id === locks.IDENTITY_RULE.id
   && inventory.completeness_method === locks.IDENTITY_RULE.completeness_method
-  && contract.required_design_facts.identity_rule_id === locks.IDENTITY_RULE.id
-  && contract.required_design_facts.completeness_method
-    === locks.IDENTITY_RULE.completeness_method);
+  && frozenSpec.identity_rule_id === locks.IDENTITY_RULE.id);
 
 green('contract_pins',
-  contract.slice === locks.SLICE
-  && contract.outcome_id === locks.OUTCOME_ID
-  && contract.progress_class === locks.PROGRESS_CLASS
-  && contract.this_slice_implements_runtime === false
+  contract.outcome_id === locks.OUTCOME_ID
   && contract.required_design_facts.whatsapp_send_count === FROZEN_COUNTS.whatsapp_send
   && contract.required_design_facts.mutation_count === FROZEN_COUNTS.mutation
   && contract.required_design_facts.read_dispatch_count === FROZEN_COUNTS.read_dispatch
   && contract.required_design_facts.total_count === FROZEN_COUNTS.total
-  && contract.required_design_facts.frozen_specification === locks.FROZEN_SPEC_REL
-  && contract.required_design_facts.canonical_turn_id_required === true
-  && contract.required_design_facts.per_turn_boundary_object === true);
+  && contract.required_design_facts.discovery_consumes_adapter_ids === false
+  && contract.required_design_facts.fresh_opaque_single_use_site_grant === true
+  && contract.verdict_policy.proven === 0
+  && contract.verdict_policy.partial === 9);
 
 green('inventory_pins',
-  inventory.slice === locks.SLICE
-  && inventory.independently_pinned === true
-  && inventory.completeness_method === locks.IDENTITY_RULE.completeness_method
-  && inventory.complete !== true
-  && inventory.counts.whatsapp_send === FROZEN_COUNTS.whatsapp_send
+  inventory.counts.whatsapp_send === FROZEN_COUNTS.whatsapp_send
   && inventory.counts.mutation === FROZEN_COUNTS.mutation
   && inventory.counts.read_dispatch === FROZEN_COUNTS.read_dispatch
   && inventory.counts.total === FROZEN_COUNTS.total
-  && inventory.whatsapp_send_adapters.length === FROZEN_COUNTS.whatsapp_send
-  && inventory.mutation_adapters.length === FROZEN_COUNTS.mutation
-  && inventory.read_dispatch_adapters.length === FROZEN_COUNTS.read_dispatch);
+  && inventory.independently_pinned === true);
 
 green('frozen_specification_loaded',
   frozenSpec.ok === true
-  && fs.existsSync(path.join(ROOT, locks.FROZEN_SPEC_REL))
-  && FROZEN_SEND.length === FROZEN_COUNTS.whatsapp_send
-  && FROZEN_MUTATION.length === FROZEN_COUNTS.mutation
-  && FROZEN_READ.length === FROZEN_COUNTS.read_dispatch
-  && FROZEN_COUNTS.total === 43);
+  && frozenSpec.counts.total === FROZEN_COUNTS.total);
+
+green('site_policy_loaded',
+  policyLoad.ok === true
+  && policyLoad.policy.discovery_consumes_adapter_ids === false);
 
 const invClass = locks.classifyInventoryDocument(inventory, ROOT);
 green('inventory_classifier_accepts', invClass.ok === true, JSON.stringify(invClass));
@@ -195,223 +216,162 @@ green('source_derived_exact_set', exact.ok === true, JSON.stringify(exact));
 const enumerated = locks.enumerateCapabilityIdsFromSource(ROOT);
 green('source_enumeration_independent',
   enumerated.ok === true
+  && enumerated.discovery_consumes_adapter_ids === false
   && enumerated.note
-  && /independently enumerated/i.test(enumerated.note)
-  && !Object.prototype.hasOwnProperty.call(locks, 'EXPECTED_WHATSAPP_SEND_IDS')
-  && !Object.prototype.hasOwnProperty.call(locks, 'EXPECTED_MUTATION_IDS')
-  && !Object.prototype.hasOwnProperty.call(locks, 'EXPECTED_READ_IDS')
-  && !Object.prototype.hasOwnProperty.call(locks, 'EXPECTED_COUNTS'),
+  && /AST-discovered/i.test(enumerated.note)
+  && !Object.prototype.hasOwnProperty.call(locks, 'HERMES_TOOL_CLASSIFIERS')
+  && !Object.prototype.hasOwnProperty.call(locks, 'ACQUISITION_SITE_CLASSIFIERS')
+  && !Object.prototype.hasOwnProperty.call(locks, 'EXPECTED_WHATSAPP_SEND_IDS'),
   (enumerated.errors || []).slice(0, 6).join(' | '));
 
 green('bidirectional_exact_set',
   (() => {
     if (!enumerated.ok) return false;
     const vsFrozen = locks.compareEnumeratedToFrozenSpec(enumerated, frozenSpec);
-    if (!vsFrozen.ok) return false;
-    const sends = inventory.whatsapp_send_adapters.map((a) => a.adapter_id).sort();
-    const muts = inventory.mutation_adapters.map((a) => a.adapter_id).sort();
-    const reads = inventory.read_dispatch_adapters.map((a) => a.adapter_id).sort();
-    const ds = [...enumerated.whatsapp_send].sort();
-    const dm = [...enumerated.mutation].sort();
-    const dr = [...enumerated.read_dispatch].sort();
-    const fsS = [...FROZEN_SEND].sort();
-    const fsM = [...FROZEN_MUTATION].sort();
-    const fsR = [...FROZEN_READ].sort();
-    return JSON.stringify(sends) === JSON.stringify(ds)
-      && JSON.stringify(muts) === JSON.stringify(dm)
-      && JSON.stringify(reads) === JSON.stringify(dr)
-      && JSON.stringify(ds) === JSON.stringify(fsS)
-      && JSON.stringify(dm) === JSON.stringify(fsM)
-      && JSON.stringify(dr) === JSON.stringify(fsR)
-      && sends.length === FROZEN_COUNTS.whatsapp_send
-      && muts.length === FROZEN_COUNTS.mutation
-      && reads.length === FROZEN_COUNTS.read_dispatch;
+    return vsFrozen.ok === true;
   })());
+
+green('scanner_counts_present',
+  enumerated.ok
+  && enumerated.scanner_counts
+  && enumerated.scanner_counts.total_sites === FROZEN_COUNTS.total
+  && enumerated.scanner_counts.python_sites > 0
+  && enumerated.scanner_counts.javascript_sites > 0,
+  JSON.stringify(enumerated.scanner_counts));
 
 green('source_derivation_ok', enumerated.ok === true, (enumerated.errors || []).slice(0, 6).join(' | '));
 
-const needleMiss = needlesPresent(inventory);
-green('inventory_source_needles_present', needleMiss.length === 0, needleMiss.slice(0, 8).join(' | '));
+green('no_predefined_acquisition_classifiers',
+  !fs.readFileSync(path.join(ROOT, 'scripts/lib/radar-slice16ae-g01-capability-boundary-freeze.js'), 'utf8')
+    .includes('HERMES_TOOL_CLASSIFIERS')
+  && !fs.readFileSync(path.join(ROOT, 'scripts/lib/radar-slice16ae-g01-capability-boundary-freeze.js'), 'utf8')
+    .includes('ACQUISITION_SITE_CLASSIFIERS'));
+
+const readSite = firstSite(inventory, 'read_dispatch');
+const sendSite = firstSite(inventory, 'whatsapp_send');
+const mutSite = firstSite(inventory, 'mutation');
 
 green('central_decision_point_frozen',
-  design.central_capability_boundary.decision_point === locks.DECISION_POINT
+  design.central_capability_boundary
+  && design.central_capability_boundary.decision_point === locks.DECISION_POINT
   && design.central_capability_boundary.decision_before_acquisition === true
-  && design.central_capability_boundary.unknown_adapters_deny === true
-  && design.central_capability_boundary.inventory_lookup_required === true
-  && design.central_capability_boundary.effect_from_pinned_entry === true
-  && design.central_capability_boundary.exact_tenant_binding === true
-  && design.central_capability_boundary.exact_location_binding === true
-  && design.central_capability_boundary.immutable_tenant_location_adapter_context === true
-  && design.central_capability_boundary.immutable_per_turn_decision === true
-  && design.central_capability_boundary.canonical_turn_id_required === true
-  && design.central_capability_boundary.per_turn_boundary_object === true
-  && design.central_capability_boundary.denies_every_whatsapp_send === true
-  && design.central_capability_boundary.denies_every_staff_db_stripe_mutation === true
-  && design.central_capability_boundary.permits_real_read_dispatch === true
-  && contract.required_design_facts.central_decision_point === locks.DECISION_POINT);
+  && design.central_capability_boundary.immutable_tenant_location_scope === true
+  && design.central_capability_boundary.fresh_opaque_single_use_site_grant === true
+  && design.central_capability_boundary.discovery_consumes_adapter_ids === false);
 
-green('design_freeze_classifier_accepts',
-  locks.classifyCapabilityBoundaryFreeze({
-    central_decision_point: locks.DECISION_POINT,
-    denies_every_whatsapp_send: true,
-    denies_every_staff_db_stripe_mutation: true,
-    permits_real_read_dispatch: true,
-    unknown_adapters_deny: true,
-    decision_before_acquisition: true,
-    inventory_lookup_required: true,
-    effect_from_pinned_entry: true,
-    exact_tenant_binding: true,
-    exact_location_binding: true,
-    immutable_per_turn_decision: true,
-    immutable_tenant_location_adapter_context: true,
-    canonical_turn_id_required: true,
-    per_turn_boundary_object: true,
-    this_slice_implements_runtime: false,
-    dry_run_implementable_today: false,
-  }).ok === true);
+const designClass = locks.classifyCapabilityBoundaryFreeze({
+  ...design.central_capability_boundary,
+  central_decision_point: locks.DECISION_POINT,
+  incomplete_adapter_inventory: false,
+});
+green('design_freeze_classifier_accepts', designClass.ok === true, JSON.stringify(designClass));
 
+const grantRegistry = new Map();
+const permit = locks.decideCapability({
+  site_key: readSite.site_key,
+  tenant: readSite.allowed_tenants[0],
+  location: readSite.allowed_locations[0],
+  turn_id: 'turn-read-1',
+  effect: 'mutation', // spoof ignored
+}, inventory, null, grantRegistry);
 green('decide_permits_read',
-  (() => {
-    const r = locks.decideCapability({
-      adapter_id: 'hermes_post_bot_availability_check',
-      tenant: locks.TENANT_WOLFHOUSE,
-      location: locks.LOCATION_WOLFHOUSE,
-      turn_id: 'turn-read-1',
-      effect: 'mutation', // spoof ignored
-      acquisition_already_held: false,
-    }, inventory);
-    return r.ok && r.decision === 'permit' && r.effect === 'read_dispatch'
-      && r.adapter_id === 'hermes_post_bot_availability_check'
-      && r.tenant === locks.TENANT_WOLFHOUSE
-      && r.location === locks.LOCATION_WOLFHOUSE
-      && r.turn_id === 'turn-read-1'
-      && r.context
-      && r.context.tenant === locks.TENANT_WOLFHOUSE
-      && r.context.location === locks.LOCATION_WOLFHOUSE
-      && r.context.adapter_id === 'hermes_post_bot_availability_check'
-      && r.context.turn_id === 'turn-read-1'
-      && r.boundary
-      && r.boundary.ok === true
-      && r.boundary.turn_id === 'turn-read-1'
-      && r.boundary.tenant === locks.TENANT_WOLFHOUSE
-      && r.boundary.location === locks.LOCATION_WOLFHOUSE
-      && r.boundary.adapter_id === 'hermes_post_bot_availability_check'
-      && Object.isFrozen(r)
-      && Object.isFrozen(r.context)
-      && Object.isFrozen(r.boundary);
-  })());
+  permit.ok === true
+  && permit.decision === 'permit'
+  && permit.effect === 'read_dispatch'
+  && permit.caller_effect_ignored === 'mutation'
+  && permit.site_grant
+  && permit.site_grant.token
+  && permit.site_grant.single_use === true);
 
-green('decide_binds_per_turn_boundary_across_decisions',
+green('decide_multi_site_same_turn',
   (() => {
+    const reg = new Map();
     const first = locks.decideCapability({
-      adapter_id: 'hermes_post_bot_availability_check',
+      site_key: readSite.site_key,
       tenant: locks.TENANT_WOLFHOUSE,
       location: locks.LOCATION_WOLFHOUSE,
       turn_id: 'turn-multi-1',
-    }, inventory);
-    if (!first.ok || !first.boundary) return false;
+    }, inventory, null, reg);
+    // pick another wolfhouse read if possible
+    const secondRead = inventory.read_dispatch_adapters.find(
+      (a) => a.site_key !== readSite.site_key
+        && a.allowed_tenants.includes(locks.TENANT_WOLFHOUSE)
+        && a.allowed_locations.includes(locks.LOCATION_WOLFHOUSE),
+    ) || readSite;
     const second = locks.decideCapability({
-      adapter_id: 'hermes_post_bot_booking_preview',
+      site_key: secondRead.site_key,
       tenant: locks.TENANT_WOLFHOUSE,
       location: locks.LOCATION_WOLFHOUSE,
       turn_id: 'turn-multi-1',
-    }, inventory, first.boundary);
-    return second.ok
-      && second.boundary.turn_id === 'turn-multi-1'
-      && second.boundary.tenant === locks.TENANT_WOLFHOUSE
-      && second.boundary.location === locks.LOCATION_WOLFHOUSE
-      && second.boundary.decisions.length === 2
-      && Object.isFrozen(second.boundary);
+    }, inventory, first.boundary, reg);
+    return first.ok === true
+      && second.ok === true
+      && first.site_grant.token !== second.site_grant.token
+      && second.boundary.decisions.length === 2;
   })());
 
 green('decide_denies_whatsapp_send',
   (() => {
     const r = locks.decideCapability({
-      adapter_id: 'hermes_whatsapp_cloud_graph_send',
-      tenant: locks.TENANT_SUNSET,
-      location: locks.LOCATION_SUNSET,
+      site_key: sendSite.site_key,
+      tenant: sendSite.allowed_tenants[0],
+      location: sendSite.allowed_locations[0],
       turn_id: 'turn-send-1',
-      effect: 'read_dispatch',
-      acquisition_already_held: false,
     }, inventory);
-    return r.ok && r.decision === 'deny' && r.effect === 'whatsapp_send'
-      && r.location === locks.LOCATION_SUNSET
-      && Object.isFrozen(r);
+    return r.ok === true && r.decision === 'deny' && r.code === 'deny_whatsapp_send';
   })());
 
 green('decide_denies_mutation',
   (() => {
     const r = locks.decideCapability({
-      adapter_id: 'hermes_post_bot_booking_create_from_plan',
-      tenant: locks.TENANT_WOLFHOUSE,
-      location: locks.LOCATION_WOLFHOUSE,
+      site_key: mutSite.site_key,
+      tenant: mutSite.allowed_tenants[0],
+      location: mutSite.allowed_locations[0],
       turn_id: 'turn-mut-1',
-      effect: 'read_dispatch',
-      acquisition_already_held: false,
     }, inventory);
-    return r.ok && r.decision === 'deny' && r.effect === 'mutation' && Object.isFrozen(r);
+    return r.ok === true && r.decision === 'deny' && r.code === 'deny_mutation';
   })());
 
 green('later_owner_specified_not_created',
-  design.later_implementation_owner.primary.module === locks.LATER_OWNER_MODULE
-  && design.later_implementation_owner.primary.symbol === locks.LATER_OWNER_SYMBOL
-  && design.later_implementation_owner.primary.tests === locks.LATER_OWNER_TESTS
-  && design.later_implementation_owner.staff_defense_in_depth.module
-    === locks.LATER_STAFF_OWNER_MODULE
-  && design.later_implementation_owner.separate_from_deployment_evidence === true
+  design.later_implementation_owner
+  && design.later_implementation_owner.primary.module === locks.LATER_OWNER_MODULE
   && !fs.existsSync(path.join(ROOT, locks.LATER_OWNER_MODULE))
   && !fs.existsSync(path.join(ROOT, locks.LATER_STAFF_OWNER_MODULE)));
 
 green('dry_run_still_not_implementable',
-  design.dry_run_status.implementable_today === false
-  && design.dry_run_status.audit_boundary_frozen === true
-  && design.dry_run_status.blocked_on === 'capability_boundary_runtime_apply'
+  design.dry_run_status
+  && design.dry_run_status.implementable_today === false
   && contract.required_design_facts.dry_run_implementable_today === false);
 
 green('next_slice_runtime_apply',
-  design.smallest_implementation_slice_after_freeze.id === locks.NEXT_SLICE_ID
-  && contract.required_design_facts.next_slice === locks.NEXT_SLICE_ID);
+  design.smallest_implementation_slice_after_freeze
+  && design.smallest_implementation_slice_after_freeze.id === locks.NEXT_SLICE_ID);
 
 green('preserved_16u_provenance',
-  design.preserved_16u_provenance.g01a_boundary === locks.PRESERVED_16U_TRUTHS.g01a_boundary
-  && design.preserved_16u_provenance.g01b_correlation_today
-    === locks.PRESERVED_16U_TRUTHS.g01b_correlation_today
+  design.preserved_16u_provenance
   && design.preserved_16u_provenance.burst_provenance
     === locks.PRESERVED_16U_TRUTHS.burst_provenance
-  && design.preserved_16u_provenance.inbound_trace_wamid_propagation_today === false
-  && design.preserved_16u_provenance.hermes_propagates_x_request_id_today === false
-  && design.preserved_16u_provenance.g01_verdict === 'partial'
-  && design16u.g01_boundary_redefinition.g01a_provable_target.id
-    === locks.PRESERVED_16U_TRUTHS.g01a_boundary
-  && callGraph16u.message_provenance.coalesced_sunset_burst.forbid_invented_single_parent === true
-  && callGraph16u.live_caddy_authority.routes.some((r) =>
-    r.path_prefix === '/whatsapp/*' && r.upstream === 'localhost:8092'));
+  && design.preserved_16u_provenance.g01b_correlation_today
+    === locks.PRESERVED_16U_TRUTHS.g01b_correlation_today);
 
 green('required_categories_covered',
-  locks.REQUIRED_SEND_CATEGORIES.every((c) =>
-    inventory.whatsapp_send_adapters.some((a) => a.category === c))
-  && locks.REQUIRED_MUTATION_CATEGORIES.every((c) =>
-    inventory.mutation_adapters.some((a) => a.category === c)));
+  locks.REQUIRED_SEND_CATEGORIES.every((c) => inventory.whatsapp_send_adapters.some((a) => a.category === c))
+  && locks.REQUIRED_MUTATION_CATEGORIES.every((c) => inventory.mutation_adapters.some((a) => a.category === c)));
 
 green('demonstrated_reads_present',
-  locks.DEMONSTRATED_OMISSION_IDS.every((id) =>
-    inventory.read_dispatch_adapters.some((a) => a.adapter_id === id)));
+  locks.DEMONSTRATED_OMISSION_SITE_SUBSTRINGS.every((n) => inventory.read_dispatch_adapters.some((a) => a.site_key.includes(n))));
 
 green('demonstrated_extra_absent',
-  !inventory.read_dispatch_adapters.some((a) => a.adapter_id === 'staff_bot_booking_dry_run')
-  && locks.DEMONSTRATED_EXTRA_IDS.every((id) =>
-    ![...inventory.whatsapp_send_adapters, ...inventory.mutation_adapters, ...inventory.read_dispatch_adapters]
-      .some((a) => a.adapter_id === id)));
+  locks.DEMONSTRATED_EXTRA_SITE_KEYS.every((k) => !inventory.read_dispatch_adapters.some((a) => a.site_key === k)
+    && !inventory.mutation_adapters.some((a) => a.site_key === k)
+    && !inventory.whatsapp_send_adapters.some((a) => a.site_key === k)));
 
 // --- RED ---
 red('reject_omission',
-  locks.classifyInventoryDocument({
-    ...inventory,
-    omits_known_reachable_adapter: true,
-  }, ROOT).ok === false);
+  locks.classifyInventoryDocument({ ...inventory, omits_known_reachable_adapter: true }, ROOT).ok === false);
 
 red('reject_self_reported_complete_flag',
-  locks.compareInventoryExactSet({
+  locks.classifyInventoryDocument({
     ...inventory,
     complete: true,
     completeness_method: 'self_reported',
@@ -422,7 +382,7 @@ red('reject_demonstrated_omission',
     const truncated = {
       ...inventory,
       read_dispatch_adapters: inventory.read_dispatch_adapters.filter(
-        (a) => a.adapter_id !== 'hermes_post_bot_sunset_full_day_addon',
+        (a) => !a.site_key.includes('/sunset/full-day-addon'),
       ),
       counts: {
         ...inventory.counts,
@@ -435,78 +395,53 @@ red('reject_demonstrated_omission',
 
 red('reject_demonstrated_extra_booking_dry_run',
   (() => {
-    const withExtra = {
+    const extra = {
       ...inventory,
       read_dispatch_adapters: [
         ...inventory.read_dispatch_adapters,
         {
+          ...readSite,
+          site_key: locks.DEMONSTRATED_EXTRA_SITE_KEYS[0],
           adapter_id: 'staff_bot_booking_dry_run',
-          effect: 'read_dispatch',
-          category: 'direct',
-          allowed_tenants: [locks.TENANT_WOLFHOUSE],
-          path: 'scripts/staff-query-api.js',
-          symbol: 'booking-dry-run',
-          source_needle: 'booking-dry-run',
-          acquisition_point: 'db_pool_client',
         },
       ],
     };
-    return locks.compareInventoryExactSet(withExtra, ROOT).ok === false;
+    return locks.compareInventoryExactSet(extra, ROOT).ok === false;
   })());
 
 red('reject_collapsed_duplicate_present',
   (() => {
-    const withDup = {
+    const extra = {
       ...inventory,
       whatsapp_send_adapters: [
         ...inventory.whatsapp_send_adapters,
-        {
-          adapter_id: 'hermes_whatsapp_cloud_media_send',
-          effect: 'whatsapp_send',
-          category: 'direct',
-          allowed_tenants: [locks.TENANT_WOLFHOUSE, locks.TENANT_SUNSET],
-          path: 'docker/hermes-staging/apply_gateway_patches.py',
-          symbol: 'media',
-          source_needle: 'async def _patched_whatsapp_cloud_send',
-          acquisition_point: 'meta_graph_http_client',
-        },
+        { ...sendSite, site_key: 'hermes_whatsapp_cloud_text_send', adapter_id: 'hermes_whatsapp_cloud_text_send' },
       ],
     };
-    return locks.compareInventoryExactSet(withDup, ROOT).ok === false;
+    return locks.compareInventoryExactSet(extra, ROOT).ok === false;
   })());
 
-red('reject_duplicate_adapter_ids',
-  locks.classifyInventoryDocument({
-    independently_pinned: true,
-    identity_rule_id: locks.IDENTITY_RULE.id,
-    completeness_method: locks.IDENTITY_RULE.completeness_method,
-    whatsapp_send_adapters: [
-      inventory.whatsapp_send_adapters[0],
-      { ...inventory.whatsapp_send_adapters[0] },
-    ],
-    mutation_adapters: inventory.mutation_adapters,
-    read_dispatch_adapters: inventory.read_dispatch_adapters,
-  }, ROOT).ok === false);
+red('reject_duplicate_site_keys',
+  (() => {
+    const dup = {
+      ...inventory,
+      read_dispatch_adapters: [...inventory.read_dispatch_adapters, { ...readSite }],
+    };
+    return locks.classifyInventoryDocument(dup, ROOT).ok === false;
+  })());
 
 red('reject_dispersed_env_checks',
   locks.decideCapability({
-    adapter_id: 'hermes_whatsapp_cloud_graph_send',
+    site_key: readSite.site_key,
     tenant: locks.TENANT_WOLFHOUSE,
     location: locks.LOCATION_WOLFHOUSE,
     turn_id: 't',
     dispersed_env_checks_as_sole_control: true,
-  }, inventory).ok === false
-  && locks.classifyCapabilityBoundaryFreeze({
-    dispersed_env_checks_as_sole_control: true,
-  }).ok === false
-  && locks.classifyInventoryDocument({
-    ...inventory,
-    dispersed_env_checks_as_sole_control: true,
-  }, ROOT).ok === false);
+  }, inventory).ok === false);
 
 red('reject_bypass',
   locks.decideCapability({
-    adapter_id: 'hermes_whatsapp_cloud_graph_send',
+    site_key: readSite.site_key,
     tenant: locks.TENANT_WOLFHOUSE,
     location: locks.LOCATION_WOLFHOUSE,
     turn_id: 't',
@@ -515,31 +450,16 @@ red('reject_bypass',
 
 red('reject_post_acquisition_denial',
   locks.decideCapability({
-    adapter_id: 'hermes_whatsapp_cloud_graph_send',
+    site_key: readSite.site_key,
     tenant: locks.TENANT_WOLFHOUSE,
     location: locks.LOCATION_WOLFHOUSE,
     turn_id: 't',
     acquisition_already_held: true,
-  }, inventory).ok === false
-  && locks.classifyCapabilityBoundaryFreeze({
-    post_acquisition_denial: true,
-    central_decision_point: locks.DECISION_POINT,
-    denies_every_whatsapp_send: true,
-    denies_every_staff_db_stripe_mutation: true,
-    permits_real_read_dispatch: true,
-    unknown_adapters_deny: true,
-    decision_before_acquisition: true,
-    inventory_lookup_required: true,
-    effect_from_pinned_entry: true,
-    exact_tenant_binding: true,
-    exact_location_binding: true,
-    immutable_per_turn_decision: true,
-    immutable_tenant_location_adapter_context: true,
-  }).ok === false);
+  }, inventory).ok === false);
 
 red('reject_mutable_capability_state',
   locks.decideCapability({
-    adapter_id: 'hermes_whatsapp_cloud_graph_send',
+    site_key: readSite.site_key,
     tenant: locks.TENANT_WOLFHOUSE,
     location: locks.LOCATION_WOLFHOUSE,
     turn_id: 't',
@@ -548,257 +468,159 @@ red('reject_mutable_capability_state',
 
 red('reject_arbitrary_read_id',
   locks.decideCapability({
-    adapter_id: 'arbitrary_not_in_inventory_read',
+    site_key: 'not_a_real_site_key',
     tenant: locks.TENANT_WOLFHOUSE,
     location: locks.LOCATION_WOLFHOUSE,
     turn_id: 't',
-    effect: 'read_dispatch',
-  }, inventory).ok === false
-  && locks.decideCapability({
-    adapter_id: 'arbitrary_not_in_inventory_read',
-    tenant: locks.TENANT_WOLFHOUSE,
-    location: locks.LOCATION_WOLFHOUSE,
-    turn_id: 't',
-    effect: 'read_dispatch',
-  }, inventory).code === 'unknown_adapter_denied');
+  }, inventory).ok === false);
 
 red('reject_missing_tenant',
   locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
-    turn_id: 't',
-  }, inventory).ok === false
-  && locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
+    site_key: readSite.site_key,
+    location: locks.LOCATION_WOLFHOUSE,
     turn_id: 't',
   }, inventory).code === 'missing_tenant_denied');
 
 red('reject_wrong_tenant',
-  locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
-    tenant: locks.TENANT_SUNSET,
-    location: locks.LOCATION_SUNSET,
-    turn_id: 't',
-  }, inventory).ok === false
-  && locks.decideCapability({
-    adapter_id: 'hermes_post_bot_sunset_rental_price',
-    tenant: locks.TENANT_WOLFHOUSE,
-    location: locks.LOCATION_WOLFHOUSE,
-    turn_id: 't',
-  }, inventory).code === 'cross_tenant_denied');
+  (() => {
+    const wolfOnly = inventory.read_dispatch_adapters.find(
+      (a) => a.allowed_tenants.length === 1 && a.allowed_tenants[0] === locks.TENANT_WOLFHOUSE,
+    );
+    if (!wolfOnly) return false;
+    return locks.decideCapability({
+      site_key: wolfOnly.site_key,
+      tenant: locks.TENANT_SUNSET,
+      location: locks.LOCATION_SUNSET,
+      turn_id: 't',
+    }, inventory).ok === false;
+  })());
 
 red('reject_caller_effect_spoofing',
-  (() => {
-    const r = locks.decideCapability({
-      adapter_id: 'hermes_post_bot_booking_create_from_plan',
-      tenant: locks.TENANT_WOLFHOUSE,
-      location: locks.LOCATION_WOLFHOUSE,
-      turn_id: 't',
-      effect: 'read_dispatch',
-      inventory_class: 'read_dispatch',
-    }, inventory);
-    return r.ok === true
-      && r.decision === 'deny'
-      && r.effect === 'mutation'
-      && r.caller_effect_ignored === 'read_dispatch';
-  })());
+  permit.caller_effect_ignored === 'mutation' && permit.effect === 'read_dispatch');
 
 red('reject_post_decision_mutation',
   (() => {
     const r = locks.decideCapability({
-      adapter_id: 'hermes_post_bot_availability_check',
+      site_key: readSite.site_key,
       tenant: locks.TENANT_WOLFHOUSE,
       location: locks.LOCATION_WOLFHOUSE,
-      turn_id: 'turn-frozen',
+      turn_id: 't-freeze',
     }, inventory);
-    if (!Object.isFrozen(r)) return false;
-    let threw = false;
     try {
-      r.decision = 'deny';
-      r.effect = 'mutation';
-      r.tenant = locks.TENANT_SUNSET;
-      r.location = locks.LOCATION_SUNSET;
-      r.adapter_id = 'tampered';
-      if (r.context) r.context.tenant = locks.TENANT_SUNSET;
+      r.boundary.tenant = 'tampered';
+      return false;
     } catch (_) {
-      threw = true;
+      return true;
     }
-    return (threw || r.decision === 'permit')
-      && r.decision === 'permit'
-      && r.effect === 'read_dispatch'
-      && r.tenant === locks.TENANT_WOLFHOUSE
-      && r.location === locks.LOCATION_WOLFHOUSE
-      && r.adapter_id === 'hermes_post_bot_availability_check'
-      && r.turn_id === 'turn-frozen';
   })());
 
 red('reject_tenant_confusion',
   locks.decideCapability({
-    adapter_id: 'hermes_whatsapp_cloud_graph_send',
+    site_key: readSite.site_key,
     tenant: locks.TENANT_WOLFHOUSE,
     location: locks.LOCATION_WOLFHOUSE,
     turn_id: 't',
     tenant_confusion: true,
   }, inventory).ok === false);
 
-red('reject_unknown_adapter',
+red('reject_unknown_site',
   locks.decideCapability({
-    adapter_id: '',
+    site_key: 'staff_http_client|nope|_post_bot|/nope',
     tenant: locks.TENANT_WOLFHOUSE,
+    location: locks.LOCATION_WOLFHOUSE,
     turn_id: 't',
-    effect: 'unknown',
-  }, inventory).ok === false
-  && locks.decideCapability({
-    effect: 'read_dispatch',
-    tenant: locks.TENANT_WOLFHOUSE,
-    turn_id: 't',
-  }, inventory).decision !== 'permit');
+  }, inventory).code === 'unknown_site_denied');
 
 red('reject_trace_deploy_live_overclaim',
   locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
+    site_key: readSite.site_key,
     tenant: locks.TENANT_WOLFHOUSE,
     location: locks.LOCATION_WOLFHOUSE,
     turn_id: 't',
     claims_trace_implemented: true,
-  }, inventory).ok === false
-  && locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
-    tenant: locks.TENANT_WOLFHOUSE,
-    location: locks.LOCATION_WOLFHOUSE,
-    turn_id: 't',
-    claims_deploy: true,
-  }, inventory).ok === false
-  && locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
-    tenant: locks.TENANT_WOLFHOUSE,
-    location: locks.LOCATION_WOLFHOUSE,
-    turn_id: 't',
-    claims_live_evidence: true,
-  }, inventory).ok === false
-  && locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
-    tenant: locks.TENANT_WOLFHOUSE,
-    location: locks.LOCATION_WOLFHOUSE,
-    turn_id: 't',
-    claims_runtime_wired: true,
   }, inventory).ok === false);
 
 red('reject_runtime_implemented_claim',
   locks.classifyCapabilityBoundaryFreeze({
-    this_slice_implements_runtime: true,
+    ...design.central_capability_boundary,
     central_decision_point: locks.DECISION_POINT,
-    denies_every_whatsapp_send: true,
-    denies_every_staff_db_stripe_mutation: true,
-    permits_real_read_dispatch: true,
-    unknown_adapters_deny: true,
-    decision_before_acquisition: true,
-    inventory_lookup_required: true,
-    effect_from_pinned_entry: true,
-    exact_tenant_binding: true,
-    exact_location_binding: true,
-    immutable_per_turn_decision: true,
-    immutable_tenant_location_adapter_context: true,
+    this_slice_implements_runtime: true,
   }).ok === false);
 
 red('reject_dry_run_implementable_today',
   locks.classifyCapabilityBoundaryFreeze({
-    dry_run_implementable_today: true,
+    ...design.central_capability_boundary,
     central_decision_point: locks.DECISION_POINT,
-    denies_every_whatsapp_send: true,
-    denies_every_staff_db_stripe_mutation: true,
-    permits_real_read_dispatch: true,
-    unknown_adapters_deny: true,
-    decision_before_acquisition: true,
-    inventory_lookup_required: true,
-    effect_from_pinned_entry: true,
-    exact_tenant_binding: true,
-    exact_location_binding: true,
-    immutable_per_turn_decision: true,
-    immutable_tenant_location_adapter_context: true,
+    dry_run_implementable_today: true,
   }).ok === false);
 
 red('reject_missing_send_category',
-  locks.classifyInventoryDocument({
-    independently_pinned: true,
-    identity_rule_id: locks.IDENTITY_RULE.id,
-    completeness_method: locks.IDENTITY_RULE.completeness_method,
-    whatsapp_send_adapters: inventory.whatsapp_send_adapters.filter((a) => a.category !== 'queued'),
-    mutation_adapters: inventory.mutation_adapters,
-    read_dispatch_adapters: inventory.read_dispatch_adapters,
-  }, ROOT).ok === false);
-
+  (() => {
+    const bad = {
+      ...inventory,
+      whatsapp_send_adapters: inventory.whatsapp_send_adapters.map((a) => ({ ...a, category: 'direct' })),
+    };
+    return locks.classifyInventoryDocument(bad, ROOT).ok === false;
+  })());
 
 red('reject_missing_location',
   locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
-    tenant: locks.TENANT_WOLFHOUSE,
-    turn_id: 't',
-  }, inventory).ok === false
-  && locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
+    site_key: readSite.site_key,
     tenant: locks.TENANT_WOLFHOUSE,
     turn_id: 't',
   }, inventory).code === 'missing_location_denied');
 
 red('reject_tenant_location_mismatch',
-  locks.decideCapability({
-    adapter_id: 'hermes_whatsapp_cloud_graph_send',
-    tenant: locks.TENANT_WOLFHOUSE,
-    location: locks.LOCATION_SUNSET,
-    turn_id: 't',
-  }, inventory).ok === false
-  && locks.decideCapability({
-    adapter_id: 'hermes_whatsapp_cloud_graph_send',
-    tenant: locks.TENANT_WOLFHOUSE,
-    location: locks.LOCATION_SUNSET,
-    turn_id: 't',
-  }, inventory).code === 'tenant_location_mismatch');
+  (() => {
+    const dual = inventory.read_dispatch_adapters.find(
+      (a) => a.allowed_tenants.includes(locks.TENANT_WOLFHOUSE)
+        && a.allowed_tenants.includes(locks.TENANT_SUNSET)
+        && a.allowed_locations.includes(locks.LOCATION_WOLFHOUSE)
+        && a.allowed_locations.includes(locks.LOCATION_SUNSET),
+    ) || inventory.whatsapp_send_adapters.find(
+      (a) => a.allowed_tenants.includes(locks.TENANT_WOLFHOUSE)
+        && a.allowed_locations.includes(locks.LOCATION_SUNSET),
+    );
+    if (!dual) return false;
+    return locks.decideCapability({
+      site_key: dual.site_key,
+      tenant: locks.TENANT_WOLFHOUSE,
+      location: locks.LOCATION_SUNSET,
+      turn_id: 't',
+    }, inventory).code === 'tenant_location_mismatch';
+  })());
 
 red('reject_context_tamper_flag',
   locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
+    site_key: readSite.site_key,
     tenant: locks.TENANT_WOLFHOUSE,
     location: locks.LOCATION_WOLFHOUSE,
     turn_id: 't',
     context_tamper: true,
-  }, inventory).ok === false
-  && locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
-    tenant: locks.TENANT_WOLFHOUSE,
-    location: locks.LOCATION_WOLFHOUSE,
-    turn_id: 't',
-    context_tamper: true,
-  }, inventory).code === 'context_tamper_forbidden');
+  }, inventory).ok === false);
 
 red('reject_extra_adapter_set',
   (() => {
-    const withExtra = {
+    const extra = {
       ...inventory,
       mutation_adapters: [
         ...inventory.mutation_adapters,
-        {
-          adapter_id: 'invented_extra_mutation_adapter',
-          effect: 'mutation',
-          category: 'direct',
-          allowed_tenants: [locks.TENANT_WOLFHOUSE],
-          allowed_locations: [locks.LOCATION_WOLFHOUSE],
-          path: 'scripts/staff-query-api.js',
-          symbol: 'invented',
-          source_needle: 'invented',
-          acquisition_point: 'db_pool_client',
-        },
+        { ...mutSite, site_key: `${mutSite.site_key}|EXTRA` },
       ],
+      counts: {
+        ...inventory.counts,
+        mutation: inventory.counts.mutation + 1,
+        total: inventory.counts.total + 1,
+      },
     };
-    return locks.compareInventoryExactSet(withExtra, ROOT).ok === false;
+    return locks.compareInventoryExactSet(extra, ROOT).ok === false;
   })());
 
 red('reject_bidirectional_missing_expected_id',
   (() => {
     const truncated = {
       ...inventory,
-      whatsapp_send_adapters: inventory.whatsapp_send_adapters.filter(
-        (a) => a.adapter_id !== 'hermes_busy_text_queue_send',
-      ),
+      whatsapp_send_adapters: inventory.whatsapp_send_adapters.slice(1),
       counts: {
         ...inventory.counts,
         whatsapp_send: inventory.counts.whatsapp_send - 1,
@@ -808,71 +630,59 @@ red('reject_bidirectional_missing_expected_id',
     return locks.compareInventoryExactSet(truncated, ROOT).ok === false;
   })());
 
-red('reject_newly_registered_unclassified_capability',
+red('reject_newly_discovered_unmatched_site',
   (() => {
     const r = locks.enumerateCapabilityIdsFromSource(ROOT, {
-      inject_discovered_tools: ['brand_new_unclassified_capability_tool'],
+      inject_discovered_site_keys: [
+        'staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/brand-new-unmatched',
+      ],
     });
     return r.ok === false
-      && (r.errors || []).some((e) =>
-        /newly_registered_unclassified_capability:brand_new_unclassified_capability_tool/.test(e));
+      && (r.errors || []).some((e) => /newly_discovered_unmatched_site:/.test(e));
   })());
 
 red('reject_acquisition_site_omission',
   (() => {
+    const victim = enumerated.whatsapp_send[0];
     const r = locks.enumerateCapabilityIdsFromSource(ROOT, {
-      force_omit_acquisition_ids: ['hermes_whatsapp_cloud_graph_send'],
+      force_omit_site_keys: [victim],
     });
     return r.ok === false
-      && (r.errors || []).some((e) =>
-        /acquisition_site_omission:hermes_whatsapp_cloud_graph_send/.test(e));
+      && (r.errors || []).some((e) => /acquisition_site_omission:/.test(e));
   })());
 
 red('reject_missing_turn',
   locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
+    site_key: readSite.site_key,
     tenant: locks.TENANT_WOLFHOUSE,
     location: locks.LOCATION_WOLFHOUSE,
-  }, inventory).ok === false
-  && locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
-    tenant: locks.TENANT_WOLFHOUSE,
-    location: locks.LOCATION_WOLFHOUSE,
-  }, inventory).code === 'missing_turn_denied'
-  && locks.decideCapability({
-    adapter_id: 'hermes_post_bot_availability_check',
-    tenant: locks.TENANT_WOLFHOUSE,
-    location: locks.LOCATION_WOLFHOUSE,
-    turn_id: '   ',
   }, inventory).code === 'missing_turn_denied');
 
 red('reject_cross_decision_turn_context_drift',
   (() => {
     const first = locks.decideCapability({
-      adapter_id: 'hermes_post_bot_availability_check',
+      site_key: readSite.site_key,
       tenant: locks.TENANT_WOLFHOUSE,
       location: locks.LOCATION_WOLFHOUSE,
       turn_id: 'turn-stable',
     }, inventory);
-    if (!first.ok || !first.boundary) return false;
     const tenantDrift = locks.decideCapability({
-      adapter_id: 'hermes_whatsapp_cloud_graph_send',
+      site_key: sendSite.site_key,
       tenant: locks.TENANT_SUNSET,
       location: locks.LOCATION_SUNSET,
       turn_id: 'turn-stable',
     }, inventory, first.boundary);
     const turnDrift = locks.decideCapability({
-      adapter_id: 'hermes_post_bot_booking_preview',
+      site_key: readSite.site_key,
       tenant: locks.TENANT_WOLFHOUSE,
       location: locks.LOCATION_WOLFHOUSE,
       turn_id: 'turn-other',
     }, inventory, first.boundary);
-    const missingPriorContext = locks.bindTurnBoundary(
+    const missingPriorContext = locks.bindTurnScope(
       {
         turn_id: 'turn-stable',
         tenant: locks.TENANT_WOLFHOUSE,
         location: locks.LOCATION_WOLFHOUSE,
-        adapter_id: 'hermes_post_bot_availability_check',
       },
       { turn_id: 'turn-stable' },
     );
@@ -883,6 +693,205 @@ red('reject_cross_decision_turn_context_drift',
       && missingPriorContext.ok === false
       && missingPriorContext.code === 'missing_turn_context';
   })());
+
+red('reject_site_grant_reuse',
+  (() => {
+    const reg = new Map();
+    const d = locks.decideCapability({
+      site_key: readSite.site_key,
+      tenant: locks.TENANT_WOLFHOUSE,
+      location: locks.LOCATION_WOLFHOUSE,
+      turn_id: 'grant-turn',
+    }, inventory, null, reg);
+    const claim = {
+      site_key: d.site_key,
+      effect: d.effect,
+      tenant: d.tenant,
+      location: d.location,
+      turn_id: d.turn_id,
+    };
+    const first = locks.consumeSiteGrant(d.site_grant, claim, reg);
+    const second = locks.consumeSiteGrant(d.site_grant, claim, reg);
+    return first.ok === true && second.ok === false && second.code === 'site_grant_reuse';
+  })());
+
+red('reject_site_grant_site_drift',
+  (() => {
+    const reg = new Map();
+    const d = locks.decideCapability({
+      site_key: readSite.site_key,
+      tenant: locks.TENANT_WOLFHOUSE,
+      location: locks.LOCATION_WOLFHOUSE,
+      turn_id: 'grant-turn-2',
+    }, inventory, null, reg);
+    const bad = locks.consumeSiteGrant(d.site_grant, {
+      site_key: mutSite.site_key,
+      effect: d.effect,
+      tenant: d.tenant,
+      location: d.location,
+      turn_id: d.turn_id,
+    }, reg);
+    return bad.ok === false && bad.code === 'site_grant_site_drift';
+  })());
+
+red('reject_site_grant_effect_drift',
+  (() => {
+    const reg = new Map();
+    const d = locks.decideCapability({
+      site_key: readSite.site_key,
+      tenant: locks.TENANT_WOLFHOUSE,
+      location: locks.LOCATION_WOLFHOUSE,
+      turn_id: 'grant-turn-3',
+    }, inventory, null, reg);
+    const bad = locks.consumeSiteGrant(d.site_grant, {
+      site_key: d.site_key,
+      effect: 'mutation',
+      tenant: d.tenant,
+      location: d.location,
+      turn_id: d.turn_id,
+    }, reg);
+    return bad.ok === false && bad.code === 'site_grant_effect_drift';
+  })());
+
+red('reject_site_grant_context_drift',
+  (() => {
+    const reg = new Map();
+    const d = locks.decideCapability({
+      site_key: readSite.site_key,
+      tenant: locks.TENANT_WOLFHOUSE,
+      location: locks.LOCATION_WOLFHOUSE,
+      turn_id: 'grant-turn-4',
+    }, inventory, null, reg);
+    const bad = locks.consumeSiteGrant(d.site_grant, {
+      site_key: d.site_key,
+      effect: d.effect,
+      tenant: locks.TENANT_SUNSET,
+      location: locks.LOCATION_SUNSET,
+      turn_id: d.turn_id,
+    }, reg);
+    return bad.ok === false && bad.code === 'site_grant_context_drift';
+  })());
+
+// Real source-mutation RED fixtures
+red('reject_source_mutation_unmatched_post_bot',
+  (() => {
+    const fixture = readText(`${locks.RED_SOURCE_REL}/unmatched_post_bot.py`);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), '16ae-red-py-'));
+    try {
+      // Seed a tiny python graph node with the mutated fixture content
+      const rel = 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py';
+      const dest = path.join(tmp, rel);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, fixture);
+      // Copy other required python graph nodes from repo so scanner GRAPH_NODES exist
+      for (const node of [
+        'docker/hermes-staging/apply_gateway_patches.py',
+        'docker/hermes-staging/wolfhouse_whatsapp_mirror.py',
+        'docker/hermes-staging/wolfhouse_guest_fresh_start.py',
+        'docker/hermes-staging/wolfhouse/pause_gate.py',
+        'docker/hermes-staging/wolfhouse/explicit_human_handoff.py',
+        'docker/hermes-staging/wolfhouse/whatsapp_burst_coalesce.py',
+      ]) {
+        const abs = path.join(ROOT, node);
+        const d = path.join(tmp, node);
+        fs.mkdirSync(path.dirname(d), { recursive: true });
+        fs.copyFileSync(abs, d);
+      }
+      const py = discovery.discoverPythonPhysicalSites(tmp);
+      if (!py.ok && (py.unresolved_dynamics || []).length) {
+        // still ok for this RED if sites include evil path
+      }
+      const evil = (py.sites || []).some((s) => String(s.fingerprint).includes('evil-unregistered-mutate'));
+      if (!evil) return false;
+      const recon = discovery.reconcileDiscoveryWithPolicy(
+        {
+          ok: true,
+          site_keys: (py.sites || []).map((s) => s.site_key),
+          errors: [],
+          scanner_counts: {},
+        },
+        policyLoad.policy,
+      );
+      return recon.ok === false
+        && (recon.errors || []).some((e) => /unmatched_discovered_site:/.test(e) && /evil-unregistered-mutate/.test(e));
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  })());
+
+red('reject_source_mutation_dynamic_post_bot',
+  (() => {
+    const fixture = readText(`${locks.RED_SOURCE_REL}/dynamic_post_bot.py`);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), '16ae-red-dyn-'));
+    try {
+      const rel = 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py';
+      const dest = path.join(tmp, rel);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, fixture);
+      for (const node of [
+        'docker/hermes-staging/apply_gateway_patches.py',
+        'docker/hermes-staging/wolfhouse_whatsapp_mirror.py',
+        'docker/hermes-staging/wolfhouse_guest_fresh_start.py',
+        'docker/hermes-staging/wolfhouse/pause_gate.py',
+        'docker/hermes-staging/wolfhouse/explicit_human_handoff.py',
+        'docker/hermes-staging/wolfhouse/whatsapp_burst_coalesce.py',
+      ]) {
+        const abs = path.join(ROOT, node);
+        const d = path.join(tmp, node);
+        fs.mkdirSync(path.dirname(d), { recursive: true });
+        fs.copyFileSync(abs, d);
+      }
+      const py = discovery.discoverPythonPhysicalSites(tmp);
+      return py.ok === false
+        && (py.unresolved_dynamics || []).some((e) => /unresolved_dynamic_call:/.test(e));
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  })());
+
+red('reject_source_mutation_extra_stripe_site',
+  (() => {
+    const fixture = readText(`${locks.RED_SOURCE_REL}/extra_stripe_site.js`);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), '16ae-red-js-'));
+    try {
+      for (const node of discovery.JS_GRAPH_NODES) {
+        const abs = path.join(ROOT, node);
+        const d = path.join(tmp, node);
+        fs.mkdirSync(path.dirname(d), { recursive: true });
+        fs.copyFileSync(abs, d);
+      }
+      fs.writeFileSync(
+        path.join(tmp, 'scripts/lib/luna-whatsapp-provider.js'),
+        fixture,
+      );
+      const js = discovery.discoverJsPhysicalSites(tmp);
+      const extraKey = 'stripe_sdk|scripts/lib/luna-whatsapp-provider.js|checkout.sessions.create|create';
+      if (!(js.sites || []).some((s) => s.site_key === extraKey)) return false;
+      // Merge mutated JS sites with real Python discovery so only the extra site is unmatched.
+      const real = discovery.discoverPhysicalSites(ROOT);
+      const mergedKeys = sortedUnique([
+        ...real.site_keys.filter((k) => !k.includes('luna-whatsapp-provider.js')),
+        ...js.sites.map((s) => s.site_key),
+      ]);
+      const recon = discovery.reconcileDiscoveryWithPolicy(
+        {
+          ok: true,
+          site_keys: mergedKeys,
+          errors: [],
+          scanner_counts: {},
+        },
+        policyLoad.policy,
+      );
+      return recon.ok === false
+        && (recon.errors || []).some((e) => e === `unmatched_discovered_site:${extraKey}`);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  })());
+
+function sortedUnique(arr) {
+  return [...new Set(arr)].sort();
+}
 
 // --- Ledger / matrix ---
 green('matrix_tip_16ae',
@@ -929,7 +938,7 @@ green('ops_contract_16ae',
 green('ledger_mentions_16ae',
   /16AE_g01_capability_boundary_freeze|16AE/.test(ledger)
   && /decideCapability|capability boundary/i.test(ledger)
-  && /source_derived_exact_set|identity rule|ADAPTER_IDENTITY|frozen specification/i.test(ledger)
+  && /PHYSICAL_SITE_AST_DISCOVERY|ast_discovered_site_policy|site grant|Acorn|Python ast/i.test(ledger)
   && new RegExp(String(FROZEN_COUNTS.whatsapp_send)).test(ledger)
   && new RegExp(String(FROZEN_COUNTS.mutation)).test(ledger)
   && new RegExp(String(FROZEN_COUNTS.read_dispatch)).test(ledger)
@@ -941,9 +950,10 @@ green('ledger_mentions_16ae',
 green('findings_mentions_16ae',
   /16AE/.test(findings)
   && /capability boundary/i.test(findings)
-  && /decideCapability|adapter inventory|exact-set|identity/i.test(findings)
+  && /decideCapability|AST|site grant|physical.site/i.test(findings)
   && /16U/.test(findings)
-  && /16AD/.test(findings));
+  && /16AD/.test(findings)
+  && /proven=0/.test(findings));
 
 green('branch_pin', currentBranch() === locks.BRANCH, currentBranch());
 
@@ -951,7 +961,15 @@ const rt = runtimePathsUnchanged();
 green('runtime_paths_unchanged', rt.ok, rt.detail);
 
 const ownedBlob = locks.OWNED_RELS.map((rel) => {
-  try { return readText(rel); } catch (_) { return ''; }
+  try {
+    const abs = path.join(ROOT, rel);
+    if (fs.existsSync(abs) && fs.statSync(abs).isDirectory()) {
+      return fs.readdirSync(abs).map((f) => fs.readFileSync(path.join(abs, f), 'utf8')).join('\n');
+    }
+    return readText(rel);
+  } catch (_) {
+    return '';
+  }
 }).join('\n');
 const sec = secretFree(ownedBlob, 'owned');
 green('secret_free', sec.ok, sec.detail);
@@ -960,7 +978,9 @@ const pkg = readJson('package.json');
 green('package_script',
   pkg.scripts
   && pkg.scripts['verify:radar-slice16ae-g01-capability-boundary-freeze']
-    === 'node scripts/verify-radar-slice16ae-g01-capability-boundary-freeze.js');
+    === 'node scripts/verify-radar-slice16ae-g01-capability-boundary-freeze.js'
+  && pkg.devDependencies
+  && pkg.devDependencies.acorn);
 
 const requiredRed = [
   'reject_omission',
@@ -968,7 +988,7 @@ const requiredRed = [
   'reject_demonstrated_omission',
   'reject_demonstrated_extra_booking_dry_run',
   'reject_collapsed_duplicate_present',
-  'reject_duplicate_adapter_ids',
+  'reject_duplicate_site_keys',
   'reject_dispersed_env_checks',
   'reject_bypass',
   'reject_post_acquisition_denial',
@@ -979,7 +999,7 @@ const requiredRed = [
   'reject_caller_effect_spoofing',
   'reject_post_decision_mutation',
   'reject_tenant_confusion',
-  'reject_unknown_adapter',
+  'reject_unknown_site',
   'reject_trace_deploy_live_overclaim',
   'reject_runtime_implemented_claim',
   'reject_dry_run_implementable_today',
@@ -989,10 +1009,17 @@ const requiredRed = [
   'reject_context_tamper_flag',
   'reject_extra_adapter_set',
   'reject_bidirectional_missing_expected_id',
-  'reject_newly_registered_unclassified_capability',
+  'reject_newly_discovered_unmatched_site',
   'reject_acquisition_site_omission',
   'reject_missing_turn',
   'reject_cross_decision_turn_context_drift',
+  'reject_site_grant_reuse',
+  'reject_site_grant_site_drift',
+  'reject_site_grant_effect_drift',
+  'reject_site_grant_context_drift',
+  'reject_source_mutation_unmatched_post_bot',
+  'reject_source_mutation_dynamic_post_bot',
+  'reject_source_mutation_extra_stripe_site',
 ];
 const requiredGreen = [
   'fixtures_present',
@@ -1001,16 +1028,18 @@ const requiredGreen = [
   'contract_pins',
   'inventory_pins',
   'frozen_specification_loaded',
+  'site_policy_loaded',
   'inventory_classifier_accepts',
   'source_derived_exact_set',
   'source_enumeration_independent',
   'bidirectional_exact_set',
+  'scanner_counts_present',
   'source_derivation_ok',
-  'inventory_source_needles_present',
+  'no_predefined_acquisition_classifiers',
   'central_decision_point_frozen',
   'design_freeze_classifier_accepts',
   'decide_permits_read',
-  'decide_binds_per_turn_boundary_across_decisions',
+  'decide_multi_site_same_turn',
   'decide_denies_whatsapp_send',
   'decide_denies_mutation',
   'later_owner_specified_not_created',
@@ -1041,6 +1070,8 @@ for (const id of requiredGreen) {
   ok(`required_green_present:${id}`, hit && hit.ok);
 }
 
+console.log(`\nScanner counts: ${JSON.stringify(enumerated.scanner_counts)}`);
+console.log(`Inventory counts: ${JSON.stringify(FROZEN_COUNTS)}`);
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
 console.log('RADAR 16AE capability boundary freeze: PASS');

@@ -692,6 +692,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.4",
     "@electric-sql/pglite-socket": "^0.2.7",
+    "acorn": "^8.14.1",
     "playwright": "^1.61.0"
   }
 }

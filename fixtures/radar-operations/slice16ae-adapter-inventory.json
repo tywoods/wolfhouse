@@ -5,924 +5,965 @@
   "master_basis": "0a2fb08486b835dd45a4fc904e3dd152702bea6f",
   "branch": "radar/slice-16ae-g01-capability-boundary-freeze",
   "independently_pinned": true,
-  "identity_rule_id": "ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION",
-  "completeness_method": "source_derived_exact_set_comparison",
+  "identity_rule_id": "PHYSICAL_SITE_AST_DISCOVERY_OVER_EXPLICIT_PRODUCTION_IMPORT_GRAPH",
+  "completeness_method": "ast_discovered_site_policy_exact_set_comparison",
   "scope": "active_hermes_guest_turns",
   "tenants": [
     "wolfhouse-somo",
     "sunset"
   ],
-  "note": "Audit inventory only. Identity = registered active Hermes tool primary staff route OR unique external acquisition site; producer/path duplicates that converge before acquisition are collapsed. Completeness is bidirectional exact-set equality between independently enumerated source IDs and the separate frozen specification fixture (slice16ae-frozen-capability-ids.json) \u2014 not a self-reported flag and not circular expected-set constants. Every adapter must pass decideCapability before acquisition; unknown/missing/cross-tenant/cross-location/missing-turn deny. Capability object is turn-scoped and bound through one immutable per-turn tenant+location+adapter boundary object. Fulfills 16U-required central capability boundary (candidate was labeled 16V; sequenced as 16AE).",
+  "note": "Audit inventory of AST-discovered physical sites. Completeness = bidirectional exact-set equality between discovery∩policy site keys and the frozen specification. Discovery does not consume adapter IDs; adapter_id is a human label only. decideCapability binds immutable per-turn tenant/location scope and issues a fresh opaque single-use per-decision site grant.",
   "counts": {
-    "whatsapp_send": 4,
-    "mutation": 21,
-    "read_dispatch": 18,
-    "total": 43
+    "whatsapp_send": 3,
+    "mutation": 23,
+    "read_dispatch": 19,
+    "total": 45
   },
-  "collapsed_producer_path_duplicates": [
-    "hermes_whatsapp_cloud_text_send+media+interactive+handoff_ack+payment_paste+output/outage/simulate \u2192 hermes_whatsapp_cloud_graph_send",
-    "staff_notify_*+guest_reply+booking_confirmation+typing \u2192 staff_luna_whatsapp_provider_send",
-    "hermes_explicit_handoff_persist \u2192 hermes_post_bot_needs_human",
-    "future_tool_registration placeholders removed (not active acquisition sites)",
-    "staff_bot_booking_dry_run removed (unreachable from Hermes tools)"
-  ],
+  "scanner_counts": {
+    "python_sites": 39,
+    "javascript_sites": 6,
+    "total_sites": 45,
+    "by_primitive": {
+      "meta_graph_http_client": 2,
+      "staff_http_client": 33,
+      "db_pool_client": 4,
+      "stripe_sdk": 1,
+      "in_process_queue": 3,
+      "hermes_session_store": 2
+    },
+    "python_scanned_files": 7,
+    "javascript_scanned_files": 6
+  },
   "whatsapp_send_adapters": [
     {
-      "adapter_id": "hermes_whatsapp_cloud_graph_send",
+      "site_key": "in_process_queue|docker/hermes-staging/wolfhouse/whatsapp_burst_coalesce.py|BurstCoalescer|class",
+      "adapter_id": "in_process_queue__class",
       "effect": "whatsapp_send",
-      "category": "direct",
+      "category": "queued",
+      "primitive_kind": "in_process_queue",
       "allowed_tenants": [
         "wolfhouse-somo",
         "sunset"
       ],
-      "path": "docker/hermes-staging/apply_gateway_patches.py",
-      "symbol": "_patched_whatsapp_cloud_send",
-      "source_needle": "async def _patched_whatsapp_cloud_send",
-      "line": 830,
-      "acquisition_point": "meta_graph_http_client",
-      "upstream_symbol": "WhatsAppCloudAdapter.send / _send_media / send_clarify / send_exec_approval",
-      "reachability": "Unique Hermes Meta Graph acquisition; text/media/interactive/handoff-ack/payment-paste/fallback producers converge here before Graph client use",
       "allowed_locations": [
-        "sunset",
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_burst_coalesce_queue_send",
-      "effect": "whatsapp_send",
-      "category": "queued",
-      "allowed_tenants": [
-        "wolfhouse-somo",
+        "wolfhouse",
         "sunset"
       ],
       "path": "docker/hermes-staging/wolfhouse/whatsapp_burst_coalesce.py",
       "symbol": "BurstCoalescer",
+      "fingerprint": "class",
       "source_needle": "class BurstCoalescer",
       "line": 226,
       "acquisition_point": "in_process_queue",
-      "reachability": "Sunset burst buffer acquires in-process queue before later Graph send",
-      "allowed_locations": [
-        "sunset",
-        "wolfhouse"
-      ]
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
     },
     {
-      "adapter_id": "hermes_busy_text_queue_send",
+      "site_key": "meta_graph_http_client|docker/hermes-staging/apply_gateway_patches.py|_patched_whatsapp_cloud_send|send",
+      "adapter_id": "meta_graph_http_client__send",
       "effect": "whatsapp_send",
-      "category": "queued",
+      "category": "direct",
+      "primitive_kind": "meta_graph_http_client",
       "allowed_tenants": [
         "wolfhouse-somo",
+        "sunset"
+      ],
+      "allowed_locations": [
+        "wolfhouse",
         "sunset"
       ],
       "path": "docker/hermes-staging/apply_gateway_patches.py",
       "symbol": "_patched_whatsapp_cloud_send",
-      "source_needle": "async def _patched_whatsapp_cloud_send",
+      "fingerprint": "send",
+      "source_needle": "def _patched_whatsapp_cloud_send",
       "line": 830,
-      "acquisition_point": "in_process_queue",
-      "upstream_symbol": "BasePlatformAdapter._queue_text_debounce/follow-up drain",
-      "reachability": "busy_text_mode=queue acquires in-process queue before patched send",
-      "allowed_locations": [
-        "sunset",
-        "wolfhouse"
-      ]
+      "acquisition_point": "meta_graph_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
     },
     {
-      "adapter_id": "staff_luna_whatsapp_provider_send",
+      "site_key": "meta_graph_http_client|scripts/lib/luna-whatsapp-provider.js|sendLunaWhatsAppMessage|send",
+      "adapter_id": "meta_graph_http_client__send",
       "effect": "whatsapp_send",
       "category": "direct",
+      "primitive_kind": "meta_graph_http_client",
       "allowed_tenants": [
         "wolfhouse-somo",
+        "sunset"
+      ],
+      "allowed_locations": [
+        "wolfhouse",
         "sunset"
       ],
       "path": "scripts/lib/luna-whatsapp-provider.js",
       "symbol": "sendLunaWhatsAppMessage",
-      "source_needle": "async function sendLunaWhatsAppMessage",
+      "fingerprint": "send",
+      "source_needle": "function sendLunaWhatsAppMessage",
       "line": 69,
       "acquisition_point": "meta_graph_http_client",
-      "reachability": "Unique Staff Meta Graph acquisition; notifies/typing/guest-reply/booking-confirmation converge here",
-      "allowed_locations": [
-        "sunset",
-        "wolfhouse"
-      ]
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
     }
   ],
   "mutation_adapters": [
     {
-      "adapter_id": "hermes_post_bot_booking_create_from_plan",
-      "effect": "mutation",
-      "category": "booking_payment",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "create_booking_from_plan",
-      "source_needle": "def create_booking_from_plan",
-      "line": 511,
-      "staff_route": "/staff/bot/booking-create-from-plan",
-      "hermes_tool": "create_booking_from_plan",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client"
-      ],
-      "reachability": "Registered Wolfhouse write tool\u2192_post_bot\u2192Staff booking hold/create",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_create_stripe_link",
-      "effect": "mutation",
-      "category": "booking_payment",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "create_payment_link",
-      "source_needle": "def create_payment_link",
-      "line": 725,
-      "staff_route": "/staff/bot/payments/:id/create-stripe-link",
-      "hermes_tool": "create_payment_link",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client",
-        "stripe_sdk"
-      ],
-      "reachability": "Registered Wolfhouse write tool\u2192Staff\u2192Stripe checkout.sessions.create",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_create_guest_payment_link",
-      "effect": "mutation",
-      "category": "booking_payment",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "create_guest_payment_link",
-      "source_needle": "def create_guest_payment_link",
-      "line": 891,
-      "staff_route": "/staff/bot/booking-guests/:id/create-payment-link",
-      "hermes_tool": "create_guest_payment_link",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client",
-        "stripe_sdk"
-      ],
-      "reachability": "Registered per-guest payment link create",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_create_balance_link",
-      "effect": "mutation",
-      "category": "booking_payment",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "create_balance_payment_link",
-      "source_needle": "def create_balance_payment_link",
-      "line": 803,
-      "staff_route": "/staff/bot/payments/create-balance-link",
-      "hermes_tool": "create_balance_payment_link",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client",
-        "stripe_sdk"
-      ],
-      "reachability": "Registered balance link create",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_addon_requests_create",
-      "effect": "mutation",
-      "category": "booking_payment",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "add_service_to_booking",
-      "source_needle": "def add_service_to_booking",
-      "line": 1105,
-      "staff_route": "/staff/bot/addon-requests/create",
-      "hermes_tool": "add_service_to_booking",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client",
-        "stripe_sdk"
-      ],
-      "reachability": "Registered post-booking add-on create",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_add_catalog_service",
-      "effect": "mutation",
-      "category": "booking_payment",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "add_catalog_service_to_booking",
-      "source_needle": "def add_catalog_service_to_booking",
-      "line": 1295,
-      "staff_route": "/staff/bot/add-catalog-service",
-      "hermes_tool": "add_catalog_service_to_booking",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client"
-      ],
-      "reachability": "Registered catalog camp/service attach",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_transfers_save",
-      "effect": "mutation",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "save_transfer_request",
-      "source_needle": "def save_transfer_request",
-      "line": 1215,
-      "staff_route": "/staff/bot/transfers/save",
-      "hermes_tool": "save_transfer_request",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client"
-      ],
-      "reachability": "Registered transfer/shuttle write",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_guest_packages_update",
-      "effect": "mutation",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "update_guest_packages",
-      "source_needle": "def update_guest_packages",
-      "line": 1178,
-      "staff_route": "/staff/bot/bookings/:code/guest-packages",
-      "hermes_tool": "update_guest_packages",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client"
-      ],
-      "reachability": "Registered per-guest package mutation",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_update_contact",
-      "effect": "mutation",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "update_booking_contact",
-      "source_needle": "def update_booking_contact",
-      "line": 1036,
-      "staff_route": "/staff/bot/bookings/update-contact",
-      "hermes_tool": "update_booking_contact",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client"
-      ],
-      "reachability": "Registered guest name/email update",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_needs_human",
+      "site_key": "db_pool_client|scripts/lib/luna-guest-handoff-persist.js|markConversationNeedsHumanByPhone|handoff_persist",
+      "adapter_id": "db_pool_client__handoff_persist",
       "effect": "mutation",
       "category": "handoff",
+      "primitive_kind": "db_pool_client",
       "allowed_tenants": [
         "wolfhouse-somo",
         "sunset"
       ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "flag_needs_human",
-      "source_needle": "def flag_needs_human",
-      "line": 1051,
-      "staff_route": "/staff/bot/conversation/needs-human",
-      "hermes_tool": "flag_needs_human",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client"
-      ],
-      "reachability": "Registered handoff tool (both tenants); explicit_human_handoff producer collapses here",
       "allowed_locations": [
-        "sunset",
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_sunset_booking_create",
-      "effect": "mutation",
-      "category": "booking_payment",
-      "allowed_tenants": [
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "create_sunset_booking",
-      "source_needle": "def create_sunset_booking",
-      "line": 1995,
-      "staff_route": "/staff/bot/sunset/booking-create",
-      "hermes_tool": "create_sunset_booking",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client"
-      ],
-      "reachability": "Registered Sunset booking create",
-      "allowed_locations": [
-        "sunset"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_sunset_payment_link",
-      "effect": "mutation",
-      "category": "booking_payment",
-      "allowed_tenants": [
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "create_sunset_payment_link",
-      "source_needle": "def create_sunset_payment_link",
-      "line": 2225,
-      "staff_route": "/staff/bot/sunset/payment-link",
-      "hermes_tool": "create_sunset_payment_link",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client",
-        "stripe_sdk"
-      ],
-      "reachability": "Registered Sunset payment link / Stripe mutation",
-      "allowed_locations": [
-        "sunset"
-      ]
-    },
-    {
-      "adapter_id": "sunset_payment_status_reconcile_write",
-      "effect": "mutation",
-      "category": "booking_payment",
-      "allowed_tenants": [
-        "sunset"
-      ],
-      "path": "scripts/lib/stripe-payment-reconcile.js",
-      "symbol": "reconcilePendingStripePaymentsForBooking",
-      "source_needle": "async function reconcilePendingStripePaymentsForBooking",
-      "line": 288,
-      "staff_route": "/staff/bot/sunset/payment-status",
-      "hermes_tool": "get_sunset_payment_status",
-      "acquisition_point": "stripe_sdk",
-      "downstream_acquisition": [
-        "db_pool_client"
-      ],
-      "reachability": "Registered Sunset tool looks like read but reconciles paid truth (write-on-read; DENY)",
-      "allowed_locations": [
-        "sunset"
-      ]
-    },
-    {
-      "adapter_id": "sunset_waiver_ensure_write",
-      "effect": "mutation",
-      "category": "booking_payment",
-      "allowed_tenants": [
-        "sunset"
-      ],
-      "path": "scripts/lib/sunset-waiver-booking.js",
-      "symbol": "ensureWaiverForBookingSoft",
-      "source_needle": "async function ensureWaiverForBookingSoft",
-      "line": 222,
-      "staff_route": "/staff/bot/sunset/waiver-link",
-      "hermes_tool": "get_sunset_waiver_link",
-      "acquisition_point": "db_pool_client",
-      "reachability": "Registered Sunset tool ensureWaiver INSERT (write-on-read; DENY)",
-      "allowed_locations": [
-        "sunset"
-      ]
-    },
-    {
-      "adapter_id": "hermes_whatsapp_thread_mirror_enqueue",
-      "effect": "mutation",
-      "category": "queued",
-      "allowed_tenants": [
-        "wolfhouse-somo",
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py",
-      "symbol": "mirror_whatsapp_thread",
-      "source_needle": "def mirror_whatsapp_thread",
-      "line": 418,
-      "acquisition_point": "in_process_queue",
-      "downstream_acquisition": [
-        "staff_http_client",
-        "db_pool_client"
-      ],
-      "reachability": "Unique mirror queue acquisition on every guest turn",
-      "allowed_locations": [
-        "sunset",
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_whatsapp_thread_mirror_deliver",
-      "effect": "mutation",
-      "category": "mirror",
-      "allowed_tenants": [
-        "wolfhouse-somo",
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py",
-      "symbol": "MirrorQueue._deliver",
-      "source_needle": "def _deliver(self, item: dict)",
-      "line": 338,
-      "staff_route": "/staff/bot/whatsapp-thread-mirror",
-      "acquisition_point": "staff_http_client",
-      "downstream_acquisition": [
-        "db_pool_client"
-      ],
-      "reachability": "Mirror worker unique Staff HTTP acquisition",
-      "allowed_locations": [
-        "sunset",
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "staff_whatsapp_thread_mirror_db_write",
-      "effect": "mutation",
-      "category": "mirror",
-      "allowed_tenants": [
-        "wolfhouse-somo",
-        "sunset"
-      ],
-      "path": "scripts/lib/luna-hermes-whatsapp-thread-mirror.js",
-      "symbol": "mirrorHermesWhatsAppThreadMessage",
-      "source_needle": "async function mirrorHermesWhatsAppThreadMessage",
-      "line": 242,
-      "acquisition_point": "db_pool_client",
-      "reachability": "Staff defense-in-depth DB write behind mirror route",
-      "allowed_locations": [
-        "sunset",
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_guest_fresh_start_reset",
-      "effect": "mutation",
-      "category": "session",
-      "allowed_tenants": [
-        "wolfhouse-somo",
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/wolfhouse_guest_fresh_start.py",
-      "symbol": "register_fresh_start_route",
-      "source_needle": "def register_fresh_start_route",
-      "line": 234,
-      "acquisition_point": "hermes_session_store",
-      "reachability": "Unique session-store wipe acquisition",
-      "allowed_locations": [
-        "sunset",
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_local_automation_block_session",
-      "effect": "mutation",
-      "category": "session",
-      "allowed_tenants": [
-        "wolfhouse-somo",
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/wolfhouse/explicit_human_handoff.py",
-      "symbol": "mark_local_automation_blocked",
-      "source_needle": "def mark_local_automation_blocked",
-      "line": 87,
-      "acquisition_point": "hermes_session_store",
-      "reachability": "Unique local automation-block session acquisition after handoff",
-      "allowed_locations": [
-        "sunset",
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "staff_bot_stripe_checkout_sessions_create",
-      "effect": "mutation",
-      "category": "booking_payment",
-      "allowed_tenants": [
-        "wolfhouse-somo",
-        "sunset"
-      ],
-      "path": "scripts/lib/staff-bot-v2-routes.js",
-      "symbol": "createStripeCheckoutSession",
-      "source_needle": "createStripeCheckoutSession: async (sessionOpts) => stripe.checkout.sessions.create",
-      "line": 803,
-      "acquisition_point": "stripe_sdk",
-      "reachability": "Unique Staff Stripe SDK acquisition for bot checkout create",
-      "allowed_locations": [
-        "sunset",
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "staff_db_handoff_persist",
-      "effect": "mutation",
-      "category": "handoff",
-      "allowed_tenants": [
-        "wolfhouse-somo",
+        "wolfhouse",
         "sunset"
       ],
       "path": "scripts/lib/luna-guest-handoff-persist.js",
       "symbol": "markConversationNeedsHumanByPhone",
-      "source_needle": "async function markConversationNeedsHumanByPhone",
+      "fingerprint": "handoff_persist",
+      "source_needle": "function markConversationNeedsHumanByPhone",
       "line": 62,
       "acquisition_point": "db_pool_client",
-      "reachability": "Staff defense-in-depth DB handoff write behind needs-human",
-      "allowed_locations": [
-        "sunset",
-        "wolfhouse"
-      ]
-    }
-  ],
-  "read_dispatch_adapters": [
-    {
-      "adapter_id": "hermes_post_bot_availability_check",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "check_availability",
-      "source_needle": "def check_availability",
-      "line": 297,
-      "staff_route": "/staff/bot/availability-check",
-      "hermes_tool": "check_availability",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered Wolfhouse read; genuine G01-A hop",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
     },
     {
-      "adapter_id": "hermes_post_bot_booking_preview",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "quote_booking",
-      "source_needle": "def quote_booking",
-      "line": 337,
-      "staff_route": "/staff/bot/booking-preview",
-      "hermes_tool": "quote_booking",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered quote/preview read",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_package_price_preview",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "preview_package_prices",
-      "source_needle": "/package-price-preview",
-      "line": 872,
-      "staff_route": "/staff/bot/package-price-preview",
-      "hermes_tool": "preview_package_prices",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered package price read",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_payments_status",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "get_payment_status",
-      "source_needle": "/payments/status",
-      "line": 974,
-      "staff_route": "/staff/bot/payments/status",
-      "hermes_tool": "get_payment_status",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered Wolfhouse payment status read (SELECT-only)",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_guest_payment_status",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "get_guest_payment_status",
-      "source_needle": "/booking-guests/payment-status",
-      "line": 948,
-      "staff_route": "/staff/bot/booking-guests/payment-status",
-      "hermes_tool": "get_guest_payment_status",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered per-guest payment status read",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_surf_report",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "get_surf_report",
-      "source_needle": "/surf-report",
-      "line": 999,
-      "staff_route": "/staff/bot/surf-report",
-      "hermes_tool": "get_surf_report",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered surf report read",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_bookings_by_phone",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "list_my_bookings",
-      "source_needle": "/bookings/by-phone",
-      "line": 1022,
-      "staff_route": "/staff/bot/bookings/by-phone",
-      "hermes_tool": "list_my_bookings",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered list bookings read",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_house_info",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "get_house_info",
-      "source_needle": "/house-info",
-      "line": 1360,
-      "staff_route": "/staff/bot/house-info",
-      "hermes_tool": "get_house_info",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered house info read",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_catalog_lookup",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "lookup_catalog_service",
-      "source_needle": "/catalog-service-lookup",
-      "line": 1277,
-      "staff_route": "/staff/bot/catalog-service-lookup",
-      "hermes_tool": "lookup_catalog_service",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered catalog lookup read",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_owner_insights",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "wolfhouse-somo"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "owner_insights",
-      "source_needle": "/owner-insights",
-      "line": 1344,
-      "staff_route": "/staff/bot/owner-insights",
-      "hermes_tool": "owner_insights",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered owner insights read (authz server-side)",
-      "allowed_locations": [
-        "wolfhouse"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_sunset_rental_price",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "get_sunset_rental_price",
-      "source_needle": "/sunset/rental-price",
-      "line": 1395,
-      "staff_route": "/staff/bot/sunset/rental-price",
-      "hermes_tool": "get_sunset_rental_price",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered Sunset rental price read",
-      "allowed_locations": [
-        "sunset"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_sunset_full_day_addon",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "get_sunset_full_day_equipment_addon",
-      "source_needle": "/sunset/full-day-addon",
-      "line": 1429,
-      "staff_route": "/staff/bot/sunset/full-day-addon",
-      "hermes_tool": "get_sunset_full_day_equipment_addon",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered Sunset full-day equipment add-on read (was omitted at 89ab35b)",
-      "allowed_locations": [
-        "sunset"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_sunset_private_lesson",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "get_sunset_private_lesson",
-      "source_needle": "/sunset/private-lesson",
-      "line": 1455,
-      "staff_route": "/staff/bot/sunset/private-lesson",
-      "hermes_tool": "get_sunset_private_lesson",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered Sunset private lesson read (was omitted at 89ab35b)",
-      "allowed_locations": [
-        "sunset"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_sunset_lesson_availability",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "get_sunset_lesson_availability",
-      "source_needle": "/sunset/lesson-availability",
-      "line": 1488,
-      "staff_route": "/staff/bot/sunset/lesson-availability",
-      "hermes_tool": "get_sunset_lesson_availability",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered Sunset lesson capacity read",
-      "allowed_locations": [
-        "sunset"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_sunset_joinable_courses",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "get_sunset_joinable_courses",
-      "source_needle": "/sunset/joinable-courses",
-      "line": 1523,
-      "staff_route": "/staff/bot/sunset/joinable-courses",
-      "hermes_tool": "get_sunset_joinable_courses",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered Sunset joinable courses read (was omitted at 89ab35b)",
-      "allowed_locations": [
-        "sunset"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_sunset_catalog",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "get_sunset_lesson_catalog",
-      "source_needle": "/sunset/catalog",
-      "line": 1581,
-      "staff_route": "/staff/bot/sunset/catalog",
-      "hermes_tool": "get_sunset_lesson_catalog",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered Sunset catalog read",
-      "allowed_locations": [
-        "sunset"
-      ]
-    },
-    {
-      "adapter_id": "hermes_post_bot_sunset_offering_quote",
-      "effect": "read_dispatch",
-      "category": "direct",
-      "allowed_tenants": [
-        "sunset"
-      ],
-      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
-      "symbol": "get_sunset_offering_quote",
-      "source_needle": "/sunset/offering-quote",
-      "line": 1632,
-      "staff_route": "/staff/bot/sunset/offering-quote",
-      "hermes_tool": "get_sunset_offering_quote",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Registered Sunset offering quote read",
-      "allowed_locations": [
-        "sunset"
-      ]
-    },
-    {
-      "adapter_id": "hermes_pause_gate_automation_check",
-      "effect": "read_dispatch",
-      "category": "direct",
+      "site_key": "db_pool_client|scripts/lib/luna-hermes-whatsapp-thread-mirror.js|mirrorHermesWhatsAppThreadMessage|mirror_write",
+      "adapter_id": "db_pool_client__mirror_write",
+      "effect": "mutation",
+      "category": "mirror",
+      "primitive_kind": "db_pool_client",
       "allowed_tenants": [
         "wolfhouse-somo",
         "sunset"
       ],
-      "path": "docker/hermes-staging/wolfhouse/pause_gate.py",
-      "symbol": "guest_paused_for_event",
-      "source_needle": "check-guest-automation-gate",
-      "line": 160,
-      "staff_route": "/staff/bot/check-guest-automation-gate",
-      "acquisition_point": "staff_http_client",
-      "reachability": "Unique runtime Staff HTTP read on every Hermes guest turn",
       "allowed_locations": [
-        "sunset",
+        "wolfhouse",
+        "sunset"
+      ],
+      "path": "scripts/lib/luna-hermes-whatsapp-thread-mirror.js",
+      "symbol": "mirrorHermesWhatsAppThreadMessage",
+      "fingerprint": "mirror_write",
+      "source_needle": "function mirrorHermesWhatsAppThreadMessage",
+      "line": 242,
+      "acquisition_point": "db_pool_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "db_pool_client|scripts/lib/stripe-payment-reconcile.js|reconcilePendingStripePaymentsForBooking|reconcile_write",
+      "adapter_id": "db_pool_client__reconcile_write",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "db_pool_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "scripts/lib/stripe-payment-reconcile.js",
+      "symbol": "reconcilePendingStripePaymentsForBooking",
+      "fingerprint": "reconcile_write",
+      "source_needle": "function reconcilePendingStripePaymentsForBooking",
+      "line": 288,
+      "acquisition_point": "db_pool_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "db_pool_client|scripts/lib/sunset-waiver-booking.js|ensureWaiverForBookingSoft|waiver_ensure",
+      "adapter_id": "db_pool_client__waiver_ensure",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "db_pool_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "scripts/lib/sunset-waiver-booking.js",
+      "symbol": "ensureWaiverForBookingSoft",
+      "fingerprint": "waiver_ensure",
+      "source_needle": "function ensureWaiverForBookingSoft",
+      "line": 222,
+      "acquisition_point": "db_pool_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "hermes_session_store|docker/hermes-staging/wolfhouse_guest_fresh_start.py|register_fresh_start_route|reset",
+      "adapter_id": "hermes_session_store__reset",
+      "effect": "mutation",
+      "category": "session",
+      "primitive_kind": "hermes_session_store",
+      "allowed_tenants": [
+        "wolfhouse-somo",
+        "sunset"
+      ],
+      "allowed_locations": [
+        "wolfhouse",
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/wolfhouse_guest_fresh_start.py",
+      "symbol": "register_fresh_start_route",
+      "fingerprint": "reset",
+      "source_needle": "def register_fresh_start_route",
+      "line": 234,
+      "acquisition_point": "hermes_session_store",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "hermes_session_store|docker/hermes-staging/wolfhouse/explicit_human_handoff.py|mark_local_automation_blocked|block",
+      "adapter_id": "hermes_session_store__block",
+      "effect": "mutation",
+      "category": "handoff",
+      "primitive_kind": "hermes_session_store",
+      "allowed_tenants": [
+        "wolfhouse-somo",
+        "sunset"
+      ],
+      "allowed_locations": [
+        "wolfhouse",
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/wolfhouse/explicit_human_handoff.py",
+      "symbol": "mark_local_automation_blocked",
+      "fingerprint": "block",
+      "source_needle": "def mark_local_automation_blocked",
+      "line": 87,
+      "acquisition_point": "hermes_session_store",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "in_process_queue|docker/hermes-staging/wolfhouse_whatsapp_mirror.py|enqueue|queue",
+      "adapter_id": "in_process_queue__queue",
+      "effect": "mutation",
+      "category": "queued",
+      "primitive_kind": "in_process_queue",
+      "allowed_tenants": [
+        "wolfhouse-somo",
+        "sunset"
+      ],
+      "allowed_locations": [
+        "wolfhouse",
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py",
+      "symbol": "enqueue",
+      "fingerprint": "queue",
+      "source_needle": "enqueue",
+      "line": 415,
+      "acquisition_point": "in_process_queue",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "in_process_queue|docker/hermes-staging/wolfhouse_whatsapp_mirror.py|MirrorQueue|class",
+      "adapter_id": "in_process_queue__class",
+      "effect": "mutation",
+      "category": "queued",
+      "primitive_kind": "in_process_queue",
+      "allowed_tenants": [
+        "wolfhouse-somo",
+        "sunset"
+      ],
+      "allowed_locations": [
+        "wolfhouse",
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py",
+      "symbol": "MirrorQueue",
+      "fingerprint": "class",
+      "source_needle": "class MirrorQueue",
+      "line": 271,
+      "acquisition_point": "in_process_queue",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/add-catalog-service",
+      "adapter_id": "staff_http_client__add-catalog-service",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
         "wolfhouse"
-      ]
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/add-catalog-service",
+      "source_needle": "_post_bot('/add-catalog-service')",
+      "line": 1312,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/addon-requests/create",
+      "adapter_id": "staff_http_client__addon-requests_create",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/addon-requests/create",
+      "source_needle": "_post_bot('/addon-requests/create')",
+      "line": 1112,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/booking-create-from-plan",
+      "adapter_id": "staff_http_client__booking-create-from-plan",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/booking-create-from-plan",
+      "source_needle": "_post_bot('/booking-create-from-plan')",
+      "line": 612,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/booking-guests/{dyn}/create-payment-link",
+      "adapter_id": "staff_http_client__booking-guests_dyn_create-payment-link",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/booking-guests/{dyn}/create-payment-link",
+      "source_needle": "_post_bot('/booking-guests/{dyn}/create-payment-link')",
+      "line": 639,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/bookings/{dyn}/guest-packages",
+      "adapter_id": "staff_http_client__bookings_dyn_guest-packages",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/bookings/{dyn}/guest-packages",
+      "source_needle": "_post_bot('/bookings/{dyn}/guest-packages')",
+      "line": 1203,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/bookings/update-contact",
+      "adapter_id": "staff_http_client__bookings_update-contact",
+      "effect": "mutation",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/bookings/update-contact",
+      "source_needle": "_post_bot('/bookings/update-contact')",
+      "line": 1039,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/conversation/needs-human",
+      "adapter_id": "staff_http_client__conversation_needs-human",
+      "effect": "mutation",
+      "category": "handoff",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo",
+        "sunset"
+      ],
+      "allowed_locations": [
+        "wolfhouse",
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/conversation/needs-human",
+      "source_needle": "_post_bot('/conversation/needs-human')",
+      "line": 1084,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/payments/{dyn}/create-stripe-link",
+      "adapter_id": "staff_http_client__payments_dyn_create-stripe-link",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/payments/{dyn}/create-stripe-link",
+      "source_needle": "_post_bot('/payments/{dyn}/create-stripe-link')",
+      "line": 660,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/payments/create-balance-link",
+      "adapter_id": "staff_http_client__payments_create-balance-link",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/payments/create-balance-link",
+      "source_needle": "_post_bot('/payments/create-balance-link')",
+      "line": 819,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/booking-create",
+      "adapter_id": "staff_http_client__sunset_booking-create",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/sunset/booking-create",
+      "source_needle": "_post_bot('/sunset/booking-create')",
+      "line": 2197,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/payment-link",
+      "adapter_id": "staff_http_client__sunset_payment-link",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/sunset/payment-link",
+      "source_needle": "_post_bot('/sunset/payment-link')",
+      "line": 2245,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/waiver-link",
+      "adapter_id": "staff_http_client__sunset_waiver-link",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/sunset/waiver-link",
+      "source_needle": "_post_bot('/sunset/waiver-link')",
+      "line": 2339,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/transfers/save",
+      "adapter_id": "staff_http_client__transfers_save",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/transfers/save",
+      "source_needle": "_post_bot('/transfers/save')",
+      "line": 499,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/wolfhouse_whatsapp_mirror.py|urlopen|/staff/bot/whatsapp-thread-mirror",
+      "adapter_id": "staff_http_client__staff_bot_whatsapp-thread-mirror",
+      "effect": "mutation",
+      "category": "mirror",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo",
+        "sunset"
+      ],
+      "allowed_locations": [
+        "wolfhouse",
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py",
+      "symbol": "urlopen",
+      "fingerprint": "/staff/bot/whatsapp-thread-mirror",
+      "source_needle": "mirror urlopen",
+      "line": 267,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "stripe_sdk|scripts/lib/staff-bot-v2-routes.js|checkout.sessions.create|create",
+      "adapter_id": "stripe_sdk__create",
+      "effect": "mutation",
+      "category": "booking_payment",
+      "primitive_kind": "stripe_sdk",
+      "allowed_tenants": [
+        "wolfhouse-somo",
+        "sunset"
+      ],
+      "allowed_locations": [
+        "wolfhouse",
+        "sunset"
+      ],
+      "path": "scripts/lib/staff-bot-v2-routes.js",
+      "symbol": "checkout.sessions.create",
+      "fingerprint": "create",
+      "source_needle": "stripe.checkout.sessions.create",
+      "line": 803,
+      "acquisition_point": "stripe_sdk",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
     }
   ],
-  "caveat_tools_that_look_like_reads_but_mutate": [
-    "get_sunset_payment_status \u2192 sunset_payment_status_reconcile_write",
-    "get_sunset_waiver_link \u2192 sunset_waiver_ensure_write"
-  ],
-  "aspirational_suppressions_not_central_boundary": [
-    "docker/hermes-staging/wolfhouse/simulate_core.py allow_writes=false",
-    "BOT_BOOKING_ENABLED default-deny on booking-create-from-plan",
-    "STRIPE_LINKS_ENABLED gate on create-stripe-link",
-    "WHATSAPP_DRY_RUN on Staff luna-whatsapp-provider only",
-    "guest_send_guard.suppress_guest_whatsapp_text_send (dispersed; luna-role scoped)",
-    "pause_gate.whatsapp_send_blocked"
-  ],
-  "excluded_not_active_hermes_guest_turn": [
-    "Staff CRM bulk outreach",
-    "ASN cron WhatsApp",
-    "legacy Staff Meta dual-ingress webhook",
-    "Stripe webhook tryAutoSendBookingConfirmation (separate ingress)",
-    "POST /staff/bot/booking-dry-run (no Hermes tool registration)"
+  "read_dispatch_adapters": [
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/availability-check",
+      "adapter_id": "staff_http_client__availability-check",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/availability-check",
+      "source_needle": "_post_bot('/availability-check')",
+      "line": 315,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/booking-guests/payment-status",
+      "adapter_id": "staff_http_client__booking-guests_payment-status",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/booking-guests/payment-status",
+      "source_needle": "_post_bot('/booking-guests/payment-status')",
+      "line": 631,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/booking-preview",
+      "adapter_id": "staff_http_client__booking-preview",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/booking-preview",
+      "source_needle": "_post_bot('/booking-preview')",
+      "line": 351,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/bookings/by-phone",
+      "adapter_id": "staff_http_client__bookings_by-phone",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/bookings/by-phone",
+      "source_needle": "_post_bot('/bookings/by-phone')",
+      "line": 1022,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/catalog-service-lookup",
+      "adapter_id": "staff_http_client__catalog-service-lookup",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/catalog-service-lookup",
+      "source_needle": "_post_bot('/catalog-service-lookup')",
+      "line": 1277,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/house-info",
+      "adapter_id": "staff_http_client__house-info",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/house-info",
+      "source_needle": "_post_bot('/house-info')",
+      "line": 1360,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/owner-insights",
+      "adapter_id": "staff_http_client__owner-insights",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/owner-insights",
+      "source_needle": "_post_bot('/owner-insights')",
+      "line": 1344,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/package-price-preview",
+      "adapter_id": "staff_http_client__package-price-preview",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/package-price-preview",
+      "source_needle": "_post_bot('/package-price-preview')",
+      "line": 872,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/payments/status",
+      "adapter_id": "staff_http_client__payments_status",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/payments/status",
+      "source_needle": "_post_bot('/payments/status')",
+      "line": 738,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/catalog",
+      "adapter_id": "staff_http_client__sunset_catalog",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/sunset/catalog",
+      "source_needle": "_post_bot('/sunset/catalog')",
+      "line": 1581,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/full-day-addon",
+      "adapter_id": "staff_http_client__sunset_full-day-addon",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/sunset/full-day-addon",
+      "source_needle": "_post_bot('/sunset/full-day-addon')",
+      "line": 1429,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/joinable-courses",
+      "adapter_id": "staff_http_client__sunset_joinable-courses",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/sunset/joinable-courses",
+      "source_needle": "_post_bot('/sunset/joinable-courses')",
+      "line": 1523,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/lesson-availability",
+      "adapter_id": "staff_http_client__sunset_lesson-availability",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/sunset/lesson-availability",
+      "source_needle": "_post_bot('/sunset/lesson-availability')",
+      "line": 1488,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/offering-quote",
+      "adapter_id": "staff_http_client__sunset_offering-quote",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/sunset/offering-quote",
+      "source_needle": "_post_bot('/sunset/offering-quote')",
+      "line": 1632,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/payment-status",
+      "adapter_id": "staff_http_client__sunset_payment-status",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/sunset/payment-status",
+      "source_needle": "_post_bot('/sunset/payment-status')",
+      "line": 2297,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/private-lesson",
+      "adapter_id": "staff_http_client__sunset_private-lesson",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/sunset/private-lesson",
+      "source_needle": "_post_bot('/sunset/private-lesson')",
+      "line": 1455,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/rental-price",
+      "adapter_id": "staff_http_client__sunset_rental-price",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "sunset"
+      ],
+      "allowed_locations": [
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/sunset/rental-price",
+      "source_needle": "_post_bot('/sunset/rental-price')",
+      "line": 1395,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/surf-report",
+      "adapter_id": "staff_http_client__surf-report",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo"
+      ],
+      "allowed_locations": [
+        "wolfhouse"
+      ],
+      "path": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "symbol": "_post_bot",
+      "fingerprint": "/surf-report",
+      "source_needle": "_post_bot('/surf-report')",
+      "line": 999,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    },
+    {
+      "site_key": "staff_http_client|docker/hermes-staging/wolfhouse/pause_gate.py|urlopen|/staff/bot/check-guest-automation-gate",
+      "adapter_id": "staff_http_client__staff_bot_check-guest-automation-gate",
+      "effect": "read_dispatch",
+      "category": "direct",
+      "primitive_kind": "staff_http_client",
+      "allowed_tenants": [
+        "wolfhouse-somo",
+        "sunset"
+      ],
+      "allowed_locations": [
+        "wolfhouse",
+        "sunset"
+      ],
+      "path": "docker/hermes-staging/wolfhouse/pause_gate.py",
+      "symbol": "urlopen",
+      "fingerprint": "/staff/bot/check-guest-automation-gate",
+      "source_needle": "pause_gate urlopen",
+      "line": 181,
+      "acquisition_point": "staff_http_client",
+      "reachability": "ast_discovered_over_explicit_production_import_graph"
+    }
   ]
 }

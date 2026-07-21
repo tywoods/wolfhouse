@@ -10,7 +10,7 @@
   "live_mutation": false,
   "this_slice_deploys": false,
   "this_slice_implements_runtime": false,
-  "title": "Audit-only central capability boundary freeze \u2014 inventory + decideCapability before acquisition",
+  "title": "Audit-only central capability boundary freeze — inventory + decideCapability before acquisition",
   "design_fixture": "fixtures/radar-operations/slice16ae-capability-boundary-freeze.json",
   "inventory_fixture": "fixtures/radar-operations/slice16ae-adapter-inventory.json",
   "builds_on": {
@@ -34,13 +34,13 @@
     "denies_every_staff_db_stripe_mutation": true,
     "permits_real_read_dispatch": true,
     "inventory_independently_pinned": true,
-    "identity_rule_id": "ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION",
-    "completeness_method": "source_derived_exact_set_comparison",
+    "identity_rule_id": "PHYSICAL_SITE_AST_DISCOVERY_OVER_EXPLICIT_PRODUCTION_IMPORT_GRAPH",
+    "completeness_method": "ast_discovered_site_policy_exact_set_comparison",
     "frozen_specification": "fixtures/radar-operations/slice16ae-frozen-capability-ids.json",
-    "whatsapp_send_count": 4,
-    "mutation_count": 21,
-    "read_dispatch_count": 18,
-    "total_count": 43,
+    "whatsapp_send_count": 3,
+    "mutation_count": 23,
+    "read_dispatch_count": 19,
+    "total_count": 45,
     "dry_run_implementable_today": false,
     "runtime_wired": false,
     "g01_verdict": "partial",
@@ -50,10 +50,17 @@
     "later_owner_module": "docker/hermes-staging/wolfhouse/capability_boundary.py",
     "later_owner_tests": "docker/hermes-staging/wolfhouse/test_capability_boundary.py",
     "exact_location_binding": true,
-    "immutable_tenant_location_adapter_context": true,
     "canonical_turn_id_required": true,
     "per_turn_boundary_object": true,
-    "fulfills_16u_candidate": "16V_candidate_central_capability_boundary_audit_freeze"
+    "fulfills_16u_candidate": "16V_candidate_central_capability_boundary_audit_freeze",
+    "site_policy": "fixtures/radar-operations/slice16ae-site-policy.json",
+    "immutable_tenant_location_scope": true,
+    "fresh_opaque_single_use_site_grant": true,
+    "discovery_method": "ast_over_explicit_production_import_graph",
+    "discovery_consumes_adapter_ids": false,
+    "python_sites": 39,
+    "javascript_sites": 6,
+    "total_sites": 45
   },
   "forbidden_claim_tokens": [
     "runtime wired",
@@ -89,13 +96,13 @@
     "16AF wire decide_capability runtime owner + tests (no deploy/evidence/trace)",
     "After runtime boundary: Hermes trace_id mint + X-Request-Id",
     "Hard-disabled G01_CORRELATION_DRY_RUN",
-    "Live G01-A Meta\u2192Hermes\u2192Staff read-only correlation evidence freeze",
+    "Live G01-A Meta→Hermes→Staff read-only correlation evidence freeze",
     "Production scope (forbidden)"
   ],
   "final_controlled_drill": {
     "id": "16AE_DRILL_capability_boundary_audit_freeze",
     "status": "audit_only_boundary_frozen",
-    "pass_rule": "Independent source enumeration of registrations+acquisition sites compared bidirectionally to separate frozen specification (4/21/18=43); decideCapability inventory-lookup + exact tenant/location + pinned effect + non-empty turn_id + one immutable per-turn tenant/location/adapter boundary; RED-rejects missing/extra/duplicate/bypass/context-tamper/unclassified/acquisition-omission/missing-turn/cross-decision-drift; verifier does not import implementation expected-set constants; runtime paths unchanged; proven=0"
+    "pass_rule": "AST physical-site discovery (Python ast + Node Acorn) over explicit production import graph reconciled to site policy and frozen site keys (3/23/19=45); decideCapability site-key lookup + immutable per-turn tenant/location scope + fresh opaque single-use site grant; RED-rejects unmatched/stale/parse/dynamic/exclusion imports + grant reuse/drift + real source-mutation fixtures; discovery does not consume adapter IDs; runtime paths unchanged; proven=0"
   },
   "artifacts": [
     "fixtures/radar-operations/slice16ae-adapter-inventory.json",
@@ -107,7 +114,11 @@
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
     "fixtures/radar-operations/gate-matrix.json",
     "fixtures/radar-operations/contract.json",
-    "fixtures/radar-operations/findings.md"
+    "fixtures/radar-operations/findings.md",
+    "fixtures/radar-operations/slice16ae-site-policy.json",
+    "scripts/lib/radar-slice16ae-physical-site-discovery.js",
+    "scripts/lib/radar-slice16ae-scan-python-sites.py",
+    "fixtures/radar-operations/slice16ae-red-source"
   ],
   "gates": [
     "npm run verify:radar-slice16ae-g01-capability-boundary-freeze",

@@ -16,19 +16,21 @@ Freeze the **central capability boundary** required by 16U before any G01-A dry-
 - **Permit** genuine read dispatch
 - **Deny** every WhatsApp send and every Staff/DB/Stripe mutation
 - Decision must occur **before** Meta Graph / Staff HTTP / DB pool / Stripe SDK / queue / session-store acquisition
-- Inventory lookup by adapter ID; exact allowed-tenant **and** allowed-location binding; effect/class from pinned entry (caller spoof ignored); non-empty canonical `turn_id`; one immutable frozen per-turn **boundary object** binding **tenant+location+adapter** (rejects missing/mismatched repeated context)
+- Inventory lookup by structural `site_key`; exact allowed-tenant **and** allowed-location binding; effect/class from pinned entry (caller spoof ignored); non-empty canonical `turn_id`; immutable per-turn **tenant+location scope** plus fresh opaque **single-use site grant** (multiple legitimate sites per turn OK; grant reuse/site/effect/context drift denies)
 - Unknown, missing, cross-tenant, cross-location, missing-turn, bypass, context-tamper, or cross-decision drift paths **deny**
 
-**Identity rule** `ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION`: one adapter per registered active Hermes tool primary staff route **or** unique external acquisition site; producer/path duplicates that converge before acquisition collapse. Completeness = **source_derived_exact_set_comparison** (independently enumerate capability IDs from actual registrations + acquisition sites, then bidirectional exact-set equality vs a **separate frozen specification** — not a self-reported `complete` flag and not circular expected-set constants).
+**Identity rule** `PHYSICAL_SITE_AST_DISCOVERY_OVER_EXPLICIT_PRODUCTION_IMPORT_GRAPH`: AST-based physical-site discovery over an explicit production import graph (Python ast; Node Acorn) using primitive kinds and structural site keys. Policy maps discovered site keys to effects; discovery must not consume adapter IDs. Fail closed on unmatched discovered/stale policy sites, parse/unresolved dynamic imports/calls, and production imports into exclusions. Completeness = **ast_discovered_site_policy_exact_set_comparison** (bidirectional exact-set equality vs a separate frozen specification).
 
-Source-derived exact-set inventory (active Hermes guest turns, Wolfhouse + Sunset):
+AST-discovered physical-site inventory (active Hermes guest turns, Wolfhouse + Sunset):
 
 | Class | Count |
 |-------|------:|
-| WhatsApp send | 4 |
-| Staff/DB/Stripe mutation | 21 |
-| Read dispatch (permitted) | 18 |
-| **Total** | **43** |
+| WhatsApp send | 3 |
+| Staff/DB/Stripe mutation | 23 |
+| Read dispatch (permitted) | 19 |
+| **Total** | **45** |
+
+**Scanner counts:** python_sites=39, javascript_sites=6, total_sites=45 (by_primitive: {"meta_graph_http_client":2,"staff_http_client":33,"db_pool_client":4,"stripe_sdk":1,"in_process_queue":3,"hermes_session_store":2}).
 
 Includes previously omitted Sunset reads (`full-day-addon`, `private-lesson`, `joinable-courses`) and pause-gate automation check; classifies Sunset write-on-read tools (`payment-status` reconcile, `waiver-link` ensure) as mutations; removes unreachable `booking-dry-run`; collapses Graph/provider producer duplicates.
 
@@ -41,10 +43,13 @@ Includes previously omitted Sunset reads (`full-day-addon`, `private-lesson`, `j
 | Path | Role |
 |------|------|
 | `fixtures/radar-operations/slice16ae-adapter-inventory.json` | Source-derived send/mutation/read inventory |
-| `fixtures/radar-operations/slice16ae-frozen-capability-ids.json` | Separate frozen capability-ID specification |
+| `fixtures/radar-operations/slice16ae-frozen-capability-ids.json` | Separate frozen structural site-key specification |
+| `fixtures/radar-operations/slice16ae-site-policy.json` | Policy map: discovered site key → effect |
+| `scripts/lib/radar-slice16ae-physical-site-discovery.js` | AST discovery (Acorn + Python orchestrator) |
+| `scripts/lib/radar-slice16ae-scan-python-sites.py` | Python ast physical-site scanner |
 | `fixtures/radar-operations/slice16ae-capability-boundary-freeze.json` | Boundary + later owner freeze |
 | `fixtures/radar-operations/slice16ae-expected-contract.json` | Frozen 16AE contract |
-| `scripts/lib/radar-slice16ae-g01-capability-boundary-freeze.js` | Locks + decideCapability classifiers |
+| `scripts/lib/radar-slice16ae-g01-capability-boundary-freeze.js` | Locks + decideCapability site-grant classifiers |
 | `scripts/verify-radar-slice16ae-g01-capability-boundary-freeze.js` | Offline RED/GREEN verifier |
 | `npm run verify:radar-slice16ae-g01-capability-boundary-freeze` | Gate |
 

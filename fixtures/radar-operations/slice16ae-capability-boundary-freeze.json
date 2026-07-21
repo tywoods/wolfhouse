@@ -23,9 +23,9 @@
   "inventory_fixture": "fixtures/radar-operations/slice16ae-adapter-inventory.json",
   "frozen_capability_ids_fixture": "fixtures/radar-operations/slice16ae-frozen-capability-ids.json",
   "identity_rule": {
-    "id": "ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION",
-    "completeness_method": "source_derived_exact_set_comparison",
-    "exact": "One adapter_id per registered active Hermes tool primary staff route or unique external acquisition site; collapse producer/path duplicates that converge before acquisition; completeness is bidirectional exact-set equality between independently enumerated source IDs and a separate frozen specification (not circular expected-set constants)"
+    "id": "PHYSICAL_SITE_AST_DISCOVERY_OVER_EXPLICIT_PRODUCTION_IMPORT_GRAPH",
+    "completeness_method": "ast_discovered_site_policy_exact_set_comparison",
+    "exact": "Discover physical acquisition sites via AST (Python ast; Node Acorn) over an explicit production import graph using primitive kinds and structural site keys. Policy maps discovered site keys to effects; discovery must not consume adapter IDs. Fail closed on unmatched discovered / stale policy sites, parse / unresolved dynamic imports/calls, and production imports into exclusions. Completeness = bidirectional exact-set equality between reconciled discovery site keys and a separate frozen specification."
   },
   "preserved_16u_provenance": {
     "live_whatsapp_upstream": "localhost:8092 hermes-sunset-luna",
@@ -81,21 +81,44 @@
       "cross_location",
       "circular_expected_set_derivation",
       "missing_turn",
-      "cross_decision_context_drift"
+      "cross_decision_context_drift",
+      "predefined_acquisition_classifiers",
+      "discovery_consuming_adapter_ids",
+      "site_grant_reuse"
     ],
     "denies_every_whatsapp_send": true,
     "denies_every_staff_db_stripe_mutation": true,
     "permits_real_read_dispatch": true,
-    "note": "Shape freeze only \u2014 decideCapability is not wired into runtime in 16AE",
+    "note": "Shape freeze only — decideCapability is not wired into runtime in 16AE",
     "exact_location_binding": true,
-    "immutable_tenant_location_adapter_context": true,
+    "immutable_tenant_location_adapter_context": false,
     "canonical_turn_id_required": true,
     "per_turn_boundary_object": true,
     "context_tamper_denies": true,
     "missing_location_denies": true,
     "cross_location_denies": true,
     "missing_turn_denies": true,
-    "cross_decision_context_drift_denies": true
+    "cross_decision_context_drift_denies": true,
+    "immutable_tenant_location_scope": true,
+    "fresh_opaque_single_use_site_grant": true,
+    "multiple_sites_per_turn_allowed": true,
+    "site_grant_reuse_denies": true,
+    "site_grant_site_drift_denies": true,
+    "site_grant_effect_drift_denies": true,
+    "site_grant_context_drift_denies": true,
+    "discovery_method": "ast_over_explicit_production_import_graph",
+    "discovery_languages": [
+      "python_ast",
+      "node_acorn"
+    ],
+    "discovery_consumes_adapter_ids": false,
+    "fail_closed_on": [
+      "unmatched_discovered_site",
+      "stale_policy_site",
+      "parse_error",
+      "unresolved_dynamic_import_or_call",
+      "production_import_into_exclusion"
+    ]
   },
   "dry_run_status": {
     "name": "G01_CORRELATION_DRY_RUN",
@@ -150,7 +173,7 @@
     "16AF capability boundary runtime apply (owner modules above)",
     "Hermes trace_id mint + X-Request-Id on _post_bot",
     "Hard-disabled G01_CORRELATION_DRY_RUN after boundary runtime exists",
-    "Live G01-A Meta\u2192Hermes\u2192Staff read-only correlation evidence freeze",
+    "Live G01-A Meta→Hermes→Staff read-only correlation evidence freeze",
     "G01-B remains tenant/payment/booking/session metadata only"
   ],
   "explicitly_not_claimed": [
@@ -174,5 +197,48 @@
     "missing_turn_accepted",
     "cross_decision_context_drift_accepted"
   ],
-  "fulfills_16u_next_slice_candidate": "16V_candidate_central_capability_boundary_audit_freeze"
+  "fulfills_16u_next_slice_candidate": "16V_candidate_central_capability_boundary_audit_freeze",
+  "site_policy_fixture": "fixtures/radar-operations/slice16ae-site-policy.json",
+  "forbid": [
+    "dispersed_env_checks_as_sole_control",
+    "incomplete_adapter_inventories",
+    "self_reported_completeness_flags",
+    "post_acquisition_denial",
+    "mutable_capability_state",
+    "tenant_confusion",
+    "capability_bypass",
+    "caller_effect_spoofing",
+    "trace_deploy_live_overclaim",
+    "context_tamper",
+    "tenant_location_mismatch",
+    "missing_location",
+    "cross_location",
+    "circular_expected_set_derivation",
+    "missing_turn",
+    "cross_decision_context_drift",
+    "predefined_acquisition_classifiers",
+    "discovery_consuming_adapter_ids",
+    "site_grant_reuse"
+  ],
+  "scanner_counts": {
+    "python_sites": 39,
+    "javascript_sites": 6,
+    "total_sites": 45,
+    "by_primitive": {
+      "meta_graph_http_client": 2,
+      "staff_http_client": 33,
+      "db_pool_client": 4,
+      "stripe_sdk": 1,
+      "in_process_queue": 3,
+      "hermes_session_store": 2
+    },
+    "python_scanned_files": 7,
+    "javascript_scanned_files": 6
+  },
+  "inventory_counts": {
+    "whatsapp_send": 3,
+    "mutation": 23,
+    "read_dispatch": 19,
+    "total": 45
+  }
 }

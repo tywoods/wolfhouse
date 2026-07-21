@@ -1017,10 +1017,10 @@ ok('F174 contract selected_16ae matches',
   && contract.selected_16ae.outcome_id === '16AE_g01_capability_boundary_freeze'
   && contract.capability_boundary_design === 'frozen_via_16AE'
   && contract.selected_16ae.inventory_counts
-  && contract.selected_16ae.inventory_counts.whatsapp_send === 4
-  && contract.selected_16ae.inventory_counts.mutation === 21
-  && contract.selected_16ae.inventory_counts.read_dispatch === 18
-  && contract.selected_16ae.inventory_counts.total === 43
+  && contract.selected_16ae.inventory_counts.whatsapp_send === 3
+  && contract.selected_16ae.inventory_counts.mutation === 23
+  && contract.selected_16ae.inventory_counts.read_dispatch === 19
+  && contract.selected_16ae.inventory_counts.total === 45
   && contract.selected_16ae.dry_run_implementable_today === false);
 ok('F175 16AE inventory + design fixtures present',
   pathExists('fixtures/radar-operations/slice16ae-adapter-inventory.json')
@@ -1032,10 +1032,10 @@ ok('F176 16AE verifier present',
   && pathExists('scripts/verify-radar-slice16ae-g01-capability-boundary-freeze.js'));
 ok('F177 16AE inventory counts frozen on selection',
   sel16ae.inventory_counts
-  && sel16ae.inventory_counts.whatsapp_send === 4
-  && sel16ae.inventory_counts.mutation === 21
-  && sel16ae.inventory_counts.read_dispatch === 18
-  && sel16ae.inventory_counts.total === 43);
+  && sel16ae.inventory_counts.whatsapp_send === 3
+  && sel16ae.inventory_counts.mutation === 23
+  && sel16ae.inventory_counts.read_dispatch === 19
+  && sel16ae.inventory_counts.total === 45);
 ok('F178 16AE enforcement owner specified not created',
   sel16ae.enforcement_owner
   && /capability_boundary\.py/.test(String(sel16ae.enforcement_owner.primary_module || ''))
@@ -1061,7 +1061,7 @@ ok('F181 16U + 16AD selections retained alongside 16AE tip',
 ok('F182 doc mentions 16AE inventory counts + decideCapability + not activatable; proven=0',
   /16AE/.test(doc)
   && /decideCapability|capability boundary/i.test(doc)
-  && /\b4\b/.test(doc) && /\b21\b/.test(doc) && /\b18\b/.test(doc) && /\b43\b/.test(doc)
+  && /\b3\b/.test(doc) && /\b23\b/.test(doc) && /\b19\b/.test(doc) && /\b45\b/.test(doc)
   && /not implementable|not activatable|runtime apply/i.test(doc)
   && /proven.*0/i.test(doc));
 

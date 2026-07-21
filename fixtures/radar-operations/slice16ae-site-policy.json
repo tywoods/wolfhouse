@@ -1,0 +1,332 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AE",
+  "outcome_id": "16AE_g01_capability_boundary_freeze",
+  "master_basis": "0a2fb08486b835dd45a4fc904e3dd152702bea6f",
+  "branch": "radar/slice-16ae-g01-capability-boundary-freeze",
+  "note": "Maps AST-discovered structural site keys to effects. Discovery does not consume adapter IDs.",
+  "discovery_consumes_adapter_ids": false,
+  "sites": {
+    "db_pool_client|scripts/lib/luna-guest-handoff-persist.js|markConversationNeedsHumanByPhone|handoff_persist": {
+      "effect": "mutation",
+      "primitive_kind": "db_pool_client",
+      "file": "scripts/lib/luna-guest-handoff-persist.js",
+      "fingerprint": "handoff_persist",
+      "callee": "markConversationNeedsHumanByPhone"
+    },
+    "db_pool_client|scripts/lib/luna-hermes-whatsapp-thread-mirror.js|mirrorHermesWhatsAppThreadMessage|mirror_write": {
+      "effect": "mutation",
+      "primitive_kind": "db_pool_client",
+      "file": "scripts/lib/luna-hermes-whatsapp-thread-mirror.js",
+      "fingerprint": "mirror_write",
+      "callee": "mirrorHermesWhatsAppThreadMessage"
+    },
+    "db_pool_client|scripts/lib/stripe-payment-reconcile.js|reconcilePendingStripePaymentsForBooking|reconcile_write": {
+      "effect": "mutation",
+      "primitive_kind": "db_pool_client",
+      "file": "scripts/lib/stripe-payment-reconcile.js",
+      "fingerprint": "reconcile_write",
+      "callee": "reconcilePendingStripePaymentsForBooking"
+    },
+    "db_pool_client|scripts/lib/sunset-waiver-booking.js|ensureWaiverForBookingSoft|waiver_ensure": {
+      "effect": "mutation",
+      "primitive_kind": "db_pool_client",
+      "file": "scripts/lib/sunset-waiver-booking.js",
+      "fingerprint": "waiver_ensure",
+      "callee": "ensureWaiverForBookingSoft"
+    },
+    "hermes_session_store|docker/hermes-staging/wolfhouse_guest_fresh_start.py|register_fresh_start_route|reset": {
+      "effect": "mutation",
+      "primitive_kind": "hermes_session_store",
+      "file": "docker/hermes-staging/wolfhouse_guest_fresh_start.py",
+      "fingerprint": "reset",
+      "callee": "register_fresh_start_route"
+    },
+    "hermes_session_store|docker/hermes-staging/wolfhouse/explicit_human_handoff.py|mark_local_automation_blocked|block": {
+      "effect": "mutation",
+      "primitive_kind": "hermes_session_store",
+      "file": "docker/hermes-staging/wolfhouse/explicit_human_handoff.py",
+      "fingerprint": "block",
+      "callee": "mark_local_automation_blocked"
+    },
+    "in_process_queue|docker/hermes-staging/wolfhouse_whatsapp_mirror.py|enqueue|queue": {
+      "effect": "mutation",
+      "primitive_kind": "in_process_queue",
+      "file": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py",
+      "fingerprint": "queue",
+      "callee": "enqueue"
+    },
+    "in_process_queue|docker/hermes-staging/wolfhouse_whatsapp_mirror.py|MirrorQueue|class": {
+      "effect": "mutation",
+      "primitive_kind": "in_process_queue",
+      "file": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py",
+      "fingerprint": "class",
+      "callee": "MirrorQueue"
+    },
+    "in_process_queue|docker/hermes-staging/wolfhouse/whatsapp_burst_coalesce.py|BurstCoalescer|class": {
+      "effect": "whatsapp_send",
+      "primitive_kind": "in_process_queue",
+      "file": "docker/hermes-staging/wolfhouse/whatsapp_burst_coalesce.py",
+      "fingerprint": "class",
+      "callee": "BurstCoalescer"
+    },
+    "meta_graph_http_client|docker/hermes-staging/apply_gateway_patches.py|_patched_whatsapp_cloud_send|send": {
+      "effect": "whatsapp_send",
+      "primitive_kind": "meta_graph_http_client",
+      "file": "docker/hermes-staging/apply_gateway_patches.py",
+      "fingerprint": "send",
+      "callee": "_patched_whatsapp_cloud_send"
+    },
+    "meta_graph_http_client|scripts/lib/luna-whatsapp-provider.js|sendLunaWhatsAppMessage|send": {
+      "effect": "whatsapp_send",
+      "primitive_kind": "meta_graph_http_client",
+      "file": "scripts/lib/luna-whatsapp-provider.js",
+      "fingerprint": "send",
+      "callee": "sendLunaWhatsAppMessage"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/add-catalog-service": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/add-catalog-service",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/addon-requests/create": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/addon-requests/create",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/availability-check": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/availability-check",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/booking-create-from-plan": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/booking-create-from-plan",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/booking-guests/{dyn}/create-payment-link": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/booking-guests/{dyn}/create-payment-link",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/booking-guests/payment-status": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/booking-guests/payment-status",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/booking-preview": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/booking-preview",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/bookings/{dyn}/guest-packages": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/bookings/{dyn}/guest-packages",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/bookings/by-phone": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/bookings/by-phone",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/bookings/update-contact": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/bookings/update-contact",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/catalog-service-lookup": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/catalog-service-lookup",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/conversation/needs-human": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/conversation/needs-human",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/house-info": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/house-info",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/owner-insights": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/owner-insights",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/package-price-preview": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/package-price-preview",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/payments/{dyn}/create-stripe-link": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/payments/{dyn}/create-stripe-link",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/payments/create-balance-link": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/payments/create-balance-link",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/payments/status": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/payments/status",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/booking-create": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/sunset/booking-create",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/catalog": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/sunset/catalog",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/full-day-addon": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/sunset/full-day-addon",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/joinable-courses": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/sunset/joinable-courses",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/lesson-availability": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/sunset/lesson-availability",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/offering-quote": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/sunset/offering-quote",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/payment-link": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/sunset/payment-link",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/payment-status": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/sunset/payment-status",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/private-lesson": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/sunset/private-lesson",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/rental-price": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/sunset/rental-price",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/sunset/waiver-link": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/sunset/waiver-link",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/surf-report": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/surf-report",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py|_post_bot|/transfers/save": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "fingerprint": "/transfers/save",
+      "callee": "_post_bot"
+    },
+    "staff_http_client|docker/hermes-staging/wolfhouse_whatsapp_mirror.py|urlopen|/staff/bot/whatsapp-thread-mirror": {
+      "effect": "mutation",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py",
+      "fingerprint": "/staff/bot/whatsapp-thread-mirror",
+      "callee": "urlopen"
+    },
+    "staff_http_client|docker/hermes-staging/wolfhouse/pause_gate.py|urlopen|/staff/bot/check-guest-automation-gate": {
+      "effect": "read_dispatch",
+      "primitive_kind": "staff_http_client",
+      "file": "docker/hermes-staging/wolfhouse/pause_gate.py",
+      "fingerprint": "/staff/bot/check-guest-automation-gate",
+      "callee": "urlopen"
+    },
+    "stripe_sdk|scripts/lib/staff-bot-v2-routes.js|checkout.sessions.create|create": {
+      "effect": "mutation",
+      "primitive_kind": "stripe_sdk",
+      "file": "scripts/lib/staff-bot-v2-routes.js",
+      "fingerprint": "create",
+      "callee": "checkout.sessions.create"
+    }
+  },
+  "counts": {
+    "whatsapp_send": 3,
+    "mutation": 23,
+    "read_dispatch": 19,
+    "total": 45
+  }
+}
