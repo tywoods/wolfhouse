@@ -34,8 +34,14 @@
     "release_once_on": ["finish", "close", "error", "abort"],
     "queued_disconnect_cancels": true,
     "queued_promotion_resumes_once": true,
+    "queued_preflight_transport_dead_cancels": true,
+    "queued_pre_run_transport_dead_cancels": true,
+    "queued_once_listeners_detach_to_baseline": true,
+    "late_event_cannot_cancel_promoted_token": true,
     "sync_async_throw_cleanup": true,
     "shutdown_closes_controller": true,
+    "shutdown_begin_via_readiness_lifecycle": true,
+    "shutdown_not_server_close_event": true,
     "post_side_effect_never_503_shed": true
   },
   "public_503": {

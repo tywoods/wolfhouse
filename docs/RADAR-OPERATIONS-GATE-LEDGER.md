@@ -18,7 +18,8 @@ Integrate the reviewed **16AK** tenant-safe admission controller into Staff API 
 | Placement | `createStaffQueryApiHttpServer` after `resolveTrustedIngressBinding(...).tenant_slug`, before router body/DB/tool side effects |
 | Routes | 16AK **eligible-route allowlist** only; `/healthz` `/readyz` `/` + unknown routes **excluded** |
 | Tenant identity | **only** trusted ingress `tenant_slug` — never request header/query/body spoof |
-| Lifecycle | release **exactly once** on finish/close/error/abort; queued disconnect cancels; queued promotion resumes handler **exactly once**; sync/async throws clean up; shutdown `close()`s controller |
+| Lifecycle | release **exactly once** on finish/close/error/abort; queued disconnect cancels; queued promotion resumes handler **exactly once**; transport-dead cancel before queue and before promoted run; named once listeners detach to baseline; late events cannot cancel promoted tokens; sync/async throws clean up; `admissionBoundary.close()` at readiness-lifecycle shutdown **BEGIN** (before `server.close`, not server `close` event) |
+
 | Reject | public **503** + `Retry-After` only for pre-side-effect overload; post-side-effect never 503-shed; body bounded/non-sensitive |
 | Proof | `16AL_INTEGRATION_staff_api_admission_wire_source` **`integration_source_proven`** (fake req/res + source locks) |
 | Flag enable / live shed | **not claimed** — flag remains OFF |
@@ -32,7 +33,7 @@ Integrate the reviewed **16AK** tenant-safe admission controller into Staff API 
 
 ## Truthful disposition (16AL)
 
-**Proves (integration source):** Staff API HTTP-boundary wire of the 16AK controller behind fail-closed flag default OFF, with deterministic fake req/res coverage for OFF-adjacent exclusions, saturation/no-side-effect-before-admit, per-tenant isolation, spoof rejection, queued disconnect cancel, queued promotion resume-once, throw cleanup, release-once, post-side-effect non-shed, shutdown close, and bounded public 503.
+**Proves (integration source):** Staff API HTTP-boundary wire of the 16AK controller behind fail-closed flag default OFF, with deterministic fake req/res coverage for OFF-adjacent exclusions, saturation/no-side-effect-before-admit, per-tenant isolation, spoof rejection, queued disconnect cancel, queued promotion resume-once, transport-dead pre-queue/pre-run cancel, listener baseline after promote/finish and abort/close races, throw cleanup, release-once, post-side-effect non-shed, readiness-lifecycle shutdown-BEGIN admission close (not server close event), and bounded public 503.
 
 **Does not prove:** flag enabled; live 503 shed under load; load soak; autoscaling; capacity SLO live; claiming backpressure live/proven; production; raising G06 to `proven`.
 

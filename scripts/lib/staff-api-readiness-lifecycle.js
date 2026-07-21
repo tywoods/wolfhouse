@@ -26,6 +26,13 @@ const {
 const DEFAULT_POOL_CLOSE_TIMEOUT_MS = 10_000;
 const DEFAULT_SERVER_CLOSE_TIMEOUT_MS = 30_000;
 
+/**
+ * Shared with staff-api-admission-boundary (Symbol.for). Invoked once at
+ * shutdown BEGIN — before pool/server.close waits for open connections.
+ */
+const ON_SHUTDOWN_BEGIN_HOOK = Symbol.for('wh.staffApi.readiness.onShutdownBegin');
+
+
 /** Bounded, non-sensitive failure taxonomy for shutdown aggregation. */
 const FAILURE_CLASSES = Object.freeze([
   'pool_close_rejected',
@@ -176,6 +183,7 @@ function detachOwnedSignalListeners() {
  *   }) => void,
  *   poolCloseTimeoutMs?: number,
  *   serverCloseTimeoutMs?: number,
+ *   onShutdownBegin?: () => void,
  * }} [deps]
  * @returns {Promise<void>}
  */
@@ -200,6 +208,11 @@ function runStaffApiReadinessShutdown(server, signal, deps = {}) {
 
   /** Guards against duplicate completion records if terminate throws / re-enters. */
   let completionRecordEmitted = false;
+
+  // Shutdown BEGIN: cancel admission queues / other begin hooks BEFORE
+  // server.close waits on open connections (avoids circular drain delay).
+  // Concurrent signals share shutdownPromise above — this runs exactly once.
+  invokeShutdownBeginHooks(server || boundServer, deps);
 
   shutdownPromise = (async () => {
     let poolResult = 'ok';
@@ -246,6 +259,22 @@ function runStaffApiReadinessShutdown(server, signal, deps = {}) {
   })();
 
   return shutdownPromise;
+}
+
+/**
+ * Invoke optional deps.onShutdownBegin and server[ON_SHUTDOWN_BEGIN_HOOK].
+ * Synchronous, best-effort, must not throw out of shutdown start.
+ * @param {import('http').Server | null | undefined} server
+ * @param {{ onShutdownBegin?: () => void }} deps
+ */
+function invokeShutdownBeginHooks(server, deps) {
+  if (deps && typeof deps.onShutdownBegin === 'function') {
+    try { deps.onShutdownBegin(); } catch { /* begin hooks are best-effort */ }
+  }
+  const hook = server && server[ON_SHUTDOWN_BEGIN_HOOK];
+  if (typeof hook === 'function') {
+    try { hook(); } catch { /* begin hooks are best-effort */ }
+  }
 }
 
 /**
@@ -319,6 +348,7 @@ module.exports = {
   FAILURE_CLASSES,
   DEFAULT_POOL_CLOSE_TIMEOUT_MS,
   DEFAULT_SERVER_CLOSE_TIMEOUT_MS,
+  ON_SHUTDOWN_BEGIN_HOOK,
   _triggerStaffApiReadinessShutdownForTests,
   _resetStaffApiReadinessLifecycleForTests,
   _getStaffApiReadinessLifecycleStateForTests,
@@ -326,4 +356,5 @@ module.exports = {
   _boundedServerCloseForTests: boundedServerClose,
   _invokePoolCloseForTests: invokePoolClose,
   _classifyShutdownFailuresForTests: classifyShutdownFailures,
+  _invokeShutdownBeginHooksForTests: invokeShutdownBeginHooks,
 };

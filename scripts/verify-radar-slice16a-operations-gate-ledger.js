@@ -132,7 +132,8 @@ function secretFree(text, label) {
 
 function runtimePathsUnchanged() {
   // Tip freeze: database/, Hermes, correlation/completion helpers, staging Bicep,
-  // 16H/16B modules untouched. 16AL may wire scripts/staff-query-api.js only.
+  // 16H/16B modules untouched. 16AL may wire scripts/staff-query-api.js and
+  // scripts/lib/staff-api-readiness-lifecycle.js (shutdown BEGIN hook only).
   const paths = [
     'database/',
     'docker/hermes-staging/',
@@ -186,10 +187,11 @@ function currentBranch() {
 }
 
 function staffApiRuntimeDiffVsMaster() {
-  // 16AL owns a bounded wire in staff-query-api.js; other runtime libs stay frozen.
+  // 16AL owns a bounded Staff API admission wire in staff-query-api.js and a
+  // shutdown-BEGIN hook in staff-api-readiness-lifecycle.js. Other runtime
+  // libs (pool close, completion log, stripe webhook) stay frozen.
   const paths = [
     'scripts/lib/staff-api-readiness.js',
-    'scripts/lib/staff-api-readiness-lifecycle.js',
     'scripts/lib/staff-api-readiness-shutdown-completion-log.js',
     'scripts/lib/stripe-webhook-public-errors.js',
     'scripts/lib/stripe-webhook-event-claim.js',
@@ -514,7 +516,7 @@ const g08CitesPublicErrors = g08
   && g08.source_evidence.some((ev) =>
     ev.path === 'scripts/lib/stripe-webhook-public-errors.js'
     || ev.path === 'scripts/staff-query-api.js');
-ok('F50 must_not forbids live mutation; readiness/webhook runtime libs unchanged vs tip basis; bicep unchanged; G08 still cites public-errors',
+ok('F50 must_not forbids live mutation; pool/webhook runtime libs unchanged vs tip basis; bicep unchanged; G08 still cites public-errors',
   !hasStaleSourceForbid
   && hasLiveDeployedForbid
   && g08CitesPublicErrors

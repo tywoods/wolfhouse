@@ -55,8 +55,11 @@ function currentBranch() {
 }
 
 function runtimePathsUnchanged() {
-  // 16AL owns a bounded Staff API admission wire; exclude that path on later tips.
-  const paths = locks.MUST_NOT_MUTATE.filter((p) => p !== 'scripts/staff-query-api.js');
+  // 16AL owns a bounded Staff API admission wire + readiness shutdown-BEGIN hook;
+  // exclude those paths on later tips.
+  const paths = locks.MUST_NOT_MUTATE.filter((p) =>
+    p !== 'scripts/staff-query-api.js'
+    && p !== 'scripts/lib/staff-api-readiness-lifecycle.js');
   try {
     const out = execSync(
       `git diff --name-only ${locks.MASTER_BASIS} -- ${paths.join(' ')}`,

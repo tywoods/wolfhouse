@@ -84,11 +84,15 @@ const INTEGRATION_SOURCE_PROOF = Object.freeze({
     + 'tenant_slug and before router body/DB/tool side effects; eligible-route '
     + 'allowlist only; health/ready/unknown excluded; release-once on '
     + 'finish/close/error/abort; queued disconnect cancels; queued promotion '
-    + 'resumes handler exactly once; sync/async throws clean up; shutdown '
-    + 'closes controller; post-side-effect never 503-shed; public 503 '
-    + 'body/Retry-After bounded/non-sensitive; malformed flag rejected; OFF '
-    + 'exact behavior-preserving; deterministic fake req/res integration tests; '
-    + 'flag not enabled; no deploy/live load; score unchanged; G06 remains partial',
+    + 'resumes handler exactly once; transport-dead cancel before queue and '
+    + 'before promoted run; named once listeners detach to baseline; late '
+    + 'events cannot cancel promoted tokens; sync/async throws clean up; '
+    + 'admissionBoundary.close at readiness-lifecycle shutdown BEGIN before '
+    + 'server.close (not server close event); post-side-effect never 503-shed; '
+    + 'public 503 body/Retry-After bounded/non-sensitive; malformed flag '
+    + 'rejected; OFF exact behavior-preserving; deterministic fake req/res '
+    + 'integration tests; flag not enabled; no deploy/live load; score '
+    + 'unchanged; G06 remains partial',
 });
 
 const FINAL_CONTROLLED_DRILL = INTEGRATION_SOURCE_PROOF;
@@ -100,6 +104,7 @@ const OWNED_RELS = Object.freeze([
   LOCKS_REL,
   VERIFY_REL,
   'scripts/staff-query-api.js',
+  'scripts/lib/staff-api-readiness-lifecycle.js',
   'docs/RADAR-OPERATIONS-GATE-LEDGER.md',
   'fixtures/radar-operations/gate-matrix.json',
   'fixtures/radar-operations/contract.json',

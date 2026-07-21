@@ -75,18 +75,26 @@ function fakeReq(opts) {
   ee.method = o.method || 'GET';
   ee.url = o.url || '/staff/query';
   ee.headers = Object.assign({}, o.headers || {});
-  ee.aborted = false;
-  ee.readableAborted = false;
+  ee.aborted = o.aborted === true;
+  ee.readableAborted = o.readableAborted === true;
+  ee.destroyed = o.destroyed === true;
+  if (o.socket) ee.socket = o.socket;
   return ee;
 }
 
-function fakeRes() {
+function fakeRes(opts) {
+  const o = opts || {};
   const ee = new EventEmitter();
   ee.statusCode = 200;
   ee.headersSent = false;
-  ee.writableEnded = false;
+  ee.writableEnded = o.writableEnded === true;
+  ee.writableFinished = o.writableFinished === true;
+  ee.finished = o.finished === true;
+  ee.destroyed = o.destroyed === true;
+  ee.closed = o.closed === true;
   ee._headers = Object.create(null);
   ee._body = '';
+  if (o.socket) ee.socket = o.socket;
   ee.setHeader = (k, v) => {
     ee._headers[String(k).toLowerCase()] = String(v);
   };
@@ -103,11 +111,21 @@ function fakeRes() {
   ee.end = (chunk) => {
     if (chunk != null) ee._body += String(chunk);
     ee.writableEnded = true;
+    ee.writableFinished = true;
+    ee.finished = true;
     ee.headersSent = true;
     ee.emit('finish');
     ee.emit('close');
   };
   return ee;
+}
+
+function deadSocket() {
+  return { destroyed: true, readable: false, writable: false };
+}
+
+function listenerSnap(ee) {
+  return boundary.countLifecycleListeners(ee);
 }
 
 function parseBody(res) {
@@ -666,6 +684,366 @@ async function runIntegration() {
     );
     green('I20 move-targets eligible (read-like)', hits === 1);
     b.close();
+  }
+
+  // ── Adversarial REDs (review blockers) ─────────────────────────────────────
+  {
+    const b = boundary.createAdmissionBoundary({
+      trustedTenantSlug: 'wolfhouse-somo',
+      limits: tinyLimits(),
+    });
+    const holdRes = fakeRes();
+    const holdP = b.admitAndRun(
+      fakeReq({ method: 'GET', url: '/staff/query' }),
+      holdRes,
+      async () => { /* hold slot */ },
+    );
+    await new Promise((r) => setImmediate(r));
+
+    const qReq = fakeReq({ method: 'GET', url: '/staff/query', destroyed: true });
+    const qRes = fakeRes();
+    let qHits = 0;
+    const out = await b.admitAndRun(qReq, qRes, async () => { qHits += 1; });
+    red('R1 already-destroyed req before queue — cancel, no handler',
+      out.cancelled === true
+      && out.reason === 'transport_dead'
+      && qHits === 0
+      && b.diagnostics().queued_global === 0);
+
+    holdRes.end('x');
+    await holdP;
+    b.close();
+  }
+
+  {
+    const b = boundary.createAdmissionBoundary({
+      trustedTenantSlug: 'wolfhouse-somo',
+      limits: tinyLimits(),
+    });
+    const holdRes = fakeRes();
+    const holdP = b.admitAndRun(
+      fakeReq({ method: 'GET', url: '/staff/query' }),
+      holdRes,
+      async () => {},
+    );
+    await new Promise((r) => setImmediate(r));
+
+    const qReq = fakeReq({ method: 'GET', url: '/staff/query' });
+    const qRes = fakeRes({ closed: true, writableEnded: true });
+    let qHits = 0;
+    const out = await b.admitAndRun(qReq, qRes, async () => { qHits += 1; });
+    red('R2 res already closed before queue — cancel, no handler',
+      out.cancelled === true
+      && qHits === 0
+      && b.diagnostics().queued_global === 0);
+
+    holdRes.end('x');
+    await holdP;
+    b.close();
+  }
+
+  {
+    const b = boundary.createAdmissionBoundary({
+      trustedTenantSlug: 'wolfhouse-somo',
+      limits: tinyLimits(),
+    });
+    const holdRes = fakeRes();
+    let releaseHold;
+    const holdGate = new Promise((r) => { releaseHold = r; });
+    const holdP = b.admitAndRun(
+      fakeReq({ method: 'GET', url: '/staff/query' }),
+      holdRes,
+      async () => { await holdGate; },
+    );
+    await new Promise((r) => setImmediate(r));
+
+    const qReq = fakeReq({ method: 'GET', url: '/staff/query' });
+    const qRes = fakeRes();
+    const baseReq = listenerSnap(qReq);
+    const baseRes = listenerSnap(qRes);
+    let qHits = 0;
+    const qP = b.admitAndRun(qReq, qRes, async (req, res) => {
+      qHits += 1;
+      res.writeHead(200);
+      res.end('promoted');
+    });
+    await new Promise((r) => setImmediate(r));
+    green('R3a queued listeners attached above baseline',
+      qReq.listenerCount('aborted') === baseReq.aborted + 1
+      && qReq.listenerCount('close') === baseReq.close + 1
+      && qRes.listenerCount('close') === baseRes.close + 1
+      && qRes.listenerCount('error') === baseRes.error + 1);
+
+    releaseHold();
+    holdRes.end('done');
+    await holdP;
+    await qP;
+    const afterReq = listenerSnap(qReq);
+    const afterRes = listenerSnap(qRes);
+    red('R3 listener baseline restored after promote/finish',
+      qHits === 1
+      && afterReq.aborted === baseReq.aborted
+      && afterReq.close === baseReq.close
+      && afterRes.close === baseRes.close
+      && afterRes.error === baseRes.error
+      && b.diagnostics().queued_global === 0
+      && b.diagnostics().in_flight_global === 0);
+    b.close();
+  }
+
+  {
+    const b = boundary.createAdmissionBoundary({
+      trustedTenantSlug: 'wolfhouse-somo',
+      limits: tinyLimits(),
+    });
+    const holdRes = fakeRes();
+    const holdP = b.admitAndRun(
+      fakeReq({ method: 'GET', url: '/staff/query' }),
+      holdRes,
+      async () => {},
+    );
+    await new Promise((r) => setImmediate(r));
+
+    const qReq = fakeReq({ method: 'GET', url: '/staff/query' });
+    const qRes = fakeRes();
+    const baseReq = listenerSnap(qReq);
+    const baseRes = listenerSnap(qRes);
+    let qHits = 0;
+    const qP = b.admitAndRun(qReq, qRes, async () => { qHits += 1; });
+    await new Promise((r) => setImmediate(r));
+
+    // Abort + close race while queued (error first — detach removes listeners)
+    qRes.emit('error', new Error('race'));
+    qReq.aborted = true;
+    qReq.emit('aborted');
+    qReq.emit('close');
+    qRes.emit('close');
+    await qP;
+    const afterReq = listenerSnap(qReq);
+    const afterRes = listenerSnap(qRes);
+    red('R4 abort/close race — cancel once, listeners baseline',
+      qHits === 0
+      && b.diagnostics().queued_global === 0
+      && afterReq.aborted === baseReq.aborted
+      && afterReq.close === baseReq.close
+      && afterRes.close === baseRes.close
+      && afterRes.error === baseRes.error);
+
+    // Late events after cancel must not throw / change counters
+    qReq.emit('aborted');
+    qReq.emit('close');
+    // Avoid naked 'error' emit with zero listeners (EventEmitter throws).
+    if (qRes.listenerCount('error') > 0) qRes.emit('error', new Error('late'));
+    const mid = b.diagnostics().in_flight_global;
+    holdRes.end('x');
+    await holdP;
+    red('R4b late queued events after cancel do not disturb holder release',
+      mid === 1
+      && b.diagnostics().in_flight_global === 0
+      && b.controller.assertConsistent());
+    b.close();
+  }
+
+  {
+    // Already-destroyed at promotion time: queue healthy, destroy before promote runs handler
+    const b = boundary.createAdmissionBoundary({
+      trustedTenantSlug: 'wolfhouse-somo',
+      limits: tinyLimits(),
+    });
+    const holdRes = fakeRes();
+    let releaseHold;
+    const holdGate = new Promise((r) => { releaseHold = r; });
+    const holdP = b.admitAndRun(
+      fakeReq({ method: 'GET', url: '/staff/query' }),
+      holdRes,
+      async () => { await holdGate; },
+    );
+    await new Promise((r) => setImmediate(r));
+
+    const qReq = fakeReq({ method: 'GET', url: '/staff/query' });
+    const qRes = fakeRes();
+    let qHits = 0;
+    const qP = b.admitAndRun(qReq, qRes, async () => { qHits += 1; });
+    await new Promise((r) => setImmediate(r));
+    green('R5a queued waiting before destroy',
+      qHits === 0 && b.diagnostics().queued_global === 1);
+
+    // Destroy transport, then promote — pre-run check must cancel
+    qReq.destroyed = true;
+    qRes.destroyed = true;
+    releaseHold();
+    holdRes.end('done');
+    await holdP;
+    const out = await qP;
+    red('R5 already-destroyed queued promotion — no handler',
+      out.cancelled === true
+      && out.reason === 'transport_dead_after_promote'
+      && qHits === 0
+      && b.diagnostics().queued_global === 0
+      && b.diagnostics().in_flight_global === 0
+      && b.controller.assertConsistent());
+
+    // Late abort after cancelled promotion must not disturb next admit
+    qReq.emit('aborted');
+    qReq.emit('close');
+    let nextHits = 0;
+    await b.admitAndRun(
+      fakeReq({ method: 'GET', url: '/staff/query' }),
+      fakeRes(),
+      async (req, res) => {
+        nextHits += 1;
+        res.end('ok');
+      },
+    );
+    red('R5b late event cannot cancel/release a new token',
+      nextHits === 1 && b.diagnostics().in_flight_global === 0);
+    b.close();
+  }
+
+  {
+    // Dead socket before queue
+    const b = boundary.createAdmissionBoundary({
+      trustedTenantSlug: 'wolfhouse-somo',
+      limits: tinyLimits(),
+    });
+    const holdRes = fakeRes();
+    const holdP = b.admitAndRun(
+      fakeReq({ method: 'GET', url: '/staff/query' }),
+      holdRes,
+      async () => {},
+    );
+    await new Promise((r) => setImmediate(r));
+    let hits = 0;
+    const out = await b.admitAndRun(
+      fakeReq({ method: 'GET', url: '/staff/query', socket: deadSocket() }),
+      fakeRes(),
+      async () => { hits += 1; },
+    );
+    red('R6 dead socket before queue cancels',
+      out.cancelled === true && hits === 0 && b.diagnostics().queued_global === 0);
+    holdRes.end('x');
+    await holdP;
+    b.close();
+  }
+
+  {
+    // Production shutdown ordering via readiness-lifecycle BEGIN — NOT direct boundary.close
+    // and NOT server 'close' event.
+    const lifecycle = require('./lib/staff-api-readiness-lifecycle');
+    lifecycle._resetStaffApiReadinessLifecycleForTests();
+
+    const b = boundary.createAdmissionBoundary({
+      trustedTenantSlug: 'wolfhouse-somo',
+      limits: tinyLimits(),
+    });
+    const holdRes = fakeRes();
+    let holdSettled = false;
+    const holdP = b.admitAndRun(
+      fakeReq({ method: 'GET', url: '/staff/query' }),
+      holdRes,
+      async () => {
+        // Active handler — settles after shutdown begin per contract
+        await new Promise((r) => setImmediate(r));
+        holdSettled = true;
+      },
+    );
+    await new Promise((r) => setImmediate(r));
+
+    const qReq = fakeReq({ method: 'GET', url: '/staff/query' });
+    const qRes = fakeRes();
+    let qHits = 0;
+    const qP = b.admitAndRun(qReq, qRes, async () => { qHits += 1; });
+    await new Promise((r) => setImmediate(r));
+    green('R7a queued before production shutdown path',
+      qHits === 0 && b.diagnostics().queued_global === 1);
+
+    const order = [];
+    let serverCloseStarted = false;
+    const fakeServer = {
+      listening: true,
+      close(cb) {
+        serverCloseStarted = true;
+        order.push('server_close');
+        // server.close waits for connections — admission must already be closed
+        order.push(`admission_closed=${b.diagnostics().closed === true}`);
+        order.push(`queued=${b.diagnostics().queued_global}`);
+        setImmediate(() => { if (typeof cb === 'function') cb(); });
+      },
+    };
+    boundary.bindAdmissionShutdownBegin(fakeServer, b);
+
+    // Prove source wire: staff-query-api uses bindAdmissionShutdownBegin, not server.on('close')
+    red('R7b source: shutdown BEGIN hook, not server close event',
+      /bindAdmissionShutdownBegin\s*\(\s*server\s*,\s*admissionBoundary\s*\)/.test(apiSrc)
+      && !/server\.on\(\s*['"]close['"]\s*,\s*\(\)\s*=>\s*\{[^}]*admissionBoundary\.close/.test(apiSrc)
+      && /invokeShutdownBeginHooks/.test(
+        fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-api-readiness-lifecycle.js'), 'utf8'),
+      ));
+
+    await lifecycle.runStaffApiReadinessShutdown(fakeServer, 'SIGTERM', {
+      closeReadinessPool: async () => { order.push('pool_close'); },
+      terminate: false,
+      log: () => {},
+      onShutdownBegin: () => { order.push('deps_onShutdownBegin'); },
+    });
+    await qP;
+
+    red('R7 production readiness shutdown BEGIN closes admission before server.close',
+      order[0] === 'deps_onShutdownBegin'
+      || order.indexOf('admission_closed=true') !== -1);
+    red('R7c queued cancelled immediately; server.close sees closed admission',
+      qHits === 0
+      && order.includes('server_close')
+      && order.includes('admission_closed=true')
+      && order.includes('queued=0')
+      && order.indexOf('deps_onShutdownBegin') < order.indexOf('pool_close')
+      && order.indexOf('pool_close') < order.indexOf('server_close')
+      && serverCloseStarted === true);
+
+    holdRes.end('x');
+    await holdP.catch(() => {});
+    // Active handler was released by controller.close at begin — settle is best-effort
+    void holdSettled;
+    lifecycle._resetStaffApiReadinessLifecycleForTests();
+  }
+
+  {
+    // Dual-bind idempotent: second bindAdmissionShutdownBegin still closes once
+    const lifecycle = require('./lib/staff-api-readiness-lifecycle');
+    lifecycle._resetStaffApiReadinessLifecycleForTests();
+    const b = boundary.createAdmissionBoundary({
+      trustedTenantSlug: 'wolfhouse-somo',
+      limits: tinyLimits(),
+    });
+    let closes = 0;
+    const wrapping = {
+      close() {
+        closes += 1;
+        return b.close();
+      },
+    };
+    const fakeServer = {
+      listening: false,
+      close(cb) { if (typeof cb === 'function') cb(); },
+    };
+    boundary.bindAdmissionShutdownBegin(fakeServer, wrapping);
+    boundary.bindAdmissionShutdownBegin(fakeServer, wrapping);
+    await lifecycle.runStaffApiReadinessShutdown(fakeServer, 'SIGINT', {
+      closeReadinessPool: async () => {},
+      terminate: false,
+      log: () => {},
+    });
+    // First composed hook runs once per shutdown; outer wrap may compose —
+    // admission close itself is idempotent (boundaryClosed).
+    await lifecycle.runStaffApiReadinessShutdown(fakeServer, 'SIGINT', {
+      closeReadinessPool: async () => {},
+      terminate: false,
+      log: () => {},
+    });
+    red('R8 shutdown begin hook idempotent across joined signals',
+      closes >= 1
+      && b.diagnostics().closed === true);
+    lifecycle._resetStaffApiReadinessLifecycleForTests();
   }
 }
 

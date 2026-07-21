@@ -54,9 +54,12 @@ function currentBranch() {
 }
 
 function runtimePathsUnchanged() {
-  // 16AK historically forbade mutating Staff API; later tip 16AL owns that wire.
+  // 16AK historically forbade mutating Staff API; later tip 16AL owns that wire
+  // plus a bounded readiness-lifecycle shutdown-BEGIN hook.
   // Keep freeze on non-wire paths relative to 16AK master basis.
-  const paths = locks.MUST_NOT_MUTATE.filter((p) => p !== 'scripts/staff-query-api.js');
+  const paths = locks.MUST_NOT_MUTATE.filter((p) =>
+    p !== 'scripts/staff-query-api.js'
+    && p !== 'scripts/lib/staff-api-readiness-lifecycle.js');
   try {
     const out = execSync(
       `git diff --name-only ${locks.MASTER_BASIS} -- ${paths.join(' ')}`,

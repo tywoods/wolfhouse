@@ -94,6 +94,7 @@ const {
 const {
   resolveAdmissionControlEnabled,
   createAdmissionBoundary,
+  bindAdmissionShutdownBegin,
 } = require('./lib/staff-api-admission-boundary');
 
 /** FORTRESS 15J3 offline listener harness — inject PG/session/ACL boundaries only when dual-gated. */
@@ -46895,10 +46896,10 @@ function createStaffQueryApiHttpServer(options) {
       }
     }, { ingressBinding });
   });
+  // RADAR 16AL: close admission at readiness shutdown BEGIN (before server.close
+  // waits on connections) — not on the server 'close' event (circular drain).
   if (admissionBoundary) {
-    server.on('close', () => {
-      try { admissionBoundary.close(); } catch (_) { /* ignore */ }
-    });
+    bindAdmissionShutdownBegin(server, admissionBoundary);
   }
   return server;
 }

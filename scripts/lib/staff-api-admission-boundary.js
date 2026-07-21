@@ -35,6 +35,13 @@ const PUBLIC_503_BODY = Object.freeze({
 const ADMISSION_REQ_KEY = '__staffApiAdmission';
 
 /**
+ * Shared with staff-api-readiness-lifecycle: invoked once at shutdown BEGIN
+ * (before pool/server.close waits for connections). Symbol.for so factory and
+ * lifecycle agree without a hard require cycle.
+ */
+const ON_SHUTDOWN_BEGIN_HOOK = Symbol.for('wh.staffApi.readiness.onShutdownBegin');
+
+/**
  * Fail-closed flag parse. Unset/empty → OFF (behavior-preserving).
  * Exact ON/OFF tokens only; any other value is malformed.
  * @param {unknown} raw
@@ -149,6 +156,76 @@ function getAdmissionState(req) {
 }
 
 /**
+ * True when the HTTP transport is already dead / unusable for a queued or
+ * about-to-run handler. Conservative: any positive dead signal wins.
+ * @param {import('http').IncomingMessage|null|undefined} req
+ * @param {import('http').ServerResponse|null|undefined} res
+ */
+function isTransportDead(req, res) {
+  try {
+    if (req) {
+      if (req.aborted === true) return true;
+      if (req.readableAborted === true) return true;
+      if (req.destroyed === true) return true;
+    }
+    if (res) {
+      if (res.destroyed === true) return true;
+      if (res.writableEnded === true) return true;
+      if (res.writableFinished === true) return true;
+      if (res.finished === true) return true;
+      if (res.closed === true) return true;
+    }
+    const sock = (req && (req.socket || req.connection))
+      || (res && (res.socket || res.connection))
+      || null;
+    if (sock) {
+      if (sock.destroyed === true) return true;
+      if (sock.readable === false && sock.writable === false) return true;
+      // Half-closed peer that can no longer accept writes.
+      if (sock.writable === false && sock.readableEnded === true) return true;
+    }
+  } catch (_) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Bind admissionBoundary.close() to the readiness-lifecycle shutdown BEGIN hook
+ * on an http.Server. Idempotent compose with any prior hook. No-op when args missing.
+ * @param {import('http').Server|null|undefined} server
+ * @param {{ close: () => unknown }|null|undefined} admissionBoundary
+ */
+function bindAdmissionShutdownBegin(server, admissionBoundary) {
+  if (!server || !admissionBoundary || typeof admissionBoundary.close !== 'function') {
+    return false;
+  }
+  let ran = false;
+  const prev = server[ON_SHUTDOWN_BEGIN_HOOK];
+  server[ON_SHUTDOWN_BEGIN_HOOK] = function staffApiAdmissionOnShutdownBegin() {
+    if (typeof prev === 'function') {
+      try { prev(); } catch (_) { /* prior hook best-effort */ }
+    }
+    if (ran) return;
+    ran = true;
+    try { admissionBoundary.close(); } catch (_) { /* ignore */ }
+  };
+  return true;
+}
+
+function countLifecycleListeners(ee) {
+  if (!ee || typeof ee.listenerCount !== 'function') {
+    return { aborted: 0, close: 0, error: 0, finish: 0 };
+  }
+  return {
+    aborted: ee.listenerCount('aborted'),
+    close: ee.listenerCount('close'),
+    error: ee.listenerCount('error'),
+    finish: ee.listenerCount('finish'),
+  };
+}
+
+/**
  * Mark durable/webhook side effects started for the active admission token.
  * Safe no-op when admission is OFF or request is excluded.
  * @param {import('http').IncomingMessage} req
@@ -192,16 +269,23 @@ function createAdmissionBoundary(options) {
   const trustedTenantSlug = opt.trustedTenantSlug;
   const sendJSON = typeof opt.sendJSON === 'function' ? opt.sendJSON : null;
 
-  /** @type {Map<string, { done: boolean, resolve: (v: object|null) => void }>} */
+  /** @type {Map<string, { done: boolean, phase: string, detach: (() => void)|null, resolve: (v: object|null) => void }>} */
   const waiters = new Map();
   let boundaryClosed = false;
 
   function notifyPromoted(promoted) {
     if (!promoted || !promoted.ok || !promoted.token_id) return;
     const w = waiters.get(promoted.token_id);
-    if (!w || w.done) return;
+    if (!w || w.done || w.phase !== 'queued') return;
+    // Promotion settles the queued waiter; detach BEFORE resolve so a late
+    // abort/close cannot cancel the now-admitted token.
+    w.phase = 'promoted';
     w.done = true;
     waiters.delete(promoted.token_id);
+    if (typeof w.detach === 'function') {
+      try { w.detach(); } catch (_) { /* ignore */ }
+      w.detach = null;
+    }
     w.resolve(promoted);
   }
 
@@ -240,14 +324,14 @@ function createAdmissionBoundary(options) {
     state._detach = detach;
 
     try {
-      if (res && typeof res.on === 'function') {
-        res.on('finish', onFinish);
-        res.on('close', onClose);
-        res.on('error', onResError);
+      if (res && typeof res.once === 'function') {
+        res.once('finish', onFinish);
+        res.once('close', onClose);
+        res.once('error', onResError);
       }
-      if (req && typeof req.on === 'function') {
-        req.on('aborted', onAborted);
-        req.on('error', onReqError);
+      if (req && typeof req.once === 'function') {
+        req.once('aborted', onAborted);
+        req.once('error', onReqError);
       }
     } catch (_) {
       // Attachment failure must not alter handler semantics beyond missing release —
@@ -267,60 +351,131 @@ function createAdmissionBoundary(options) {
     return state;
   }
 
-  function cancelQueued(tokenId, req, res, reason) {
+  /**
+   * Cancel a still-queued token. Safe no-op when waiter already left queued phase
+   * (promoted / cancelled) so a late event cannot release a promoted token.
+   * When no waiter is registered yet (pre-wait cancel), abort only if
+   * `allowWithoutWaiter` is true — never blind-abort after promotion.
+   */
+  function cancelQueued(tokenId, req, res, reason, allowWithoutWaiter) {
     const w = waiters.get(tokenId);
-    if (w && !w.done) {
+    if (w) {
+      if (w.done || w.phase !== 'queued') return null;
+      w.phase = 'cancelled';
       w.done = true;
       waiters.delete(tokenId);
+      if (typeof w.detach === 'function') {
+        try { w.detach(); } catch (_) { /* ignore */ }
+        w.detach = null;
+      }
       w.resolve(null);
+    } else if (!allowWithoutWaiter) {
+      // Late event after waiter was removed (promoted/cancelled) — do not abort.
+      return null;
     }
     const rel = controller.abort(tokenId);
     if (rel && rel.ok) notifyPromoted(rel.promoted);
-    // No handler ran — if response still open and not client-abort, optional silent.
     void reason;
     void req;
     void res;
     return rel;
   }
 
+  /**
+   * Wait until a queued token is promoted. Named once listeners + one idempotent
+   * detach; late events after promotion/cancel must not touch the token.
+   */
   function waitForPromotion(tokenId, req, res) {
     return new Promise((resolve) => {
-      if (boundaryClosed) {
-        cancelQueued(tokenId, req, res, 'shutdown');
-        writePublic503(res, { retryAfterSeconds: controller.limits.retry_after_seconds, sendJSON });
+      if (boundaryClosed || isTransportDead(req, res)) {
+        cancelQueued(
+          tokenId,
+          req,
+          res,
+          boundaryClosed ? 'shutdown' : 'pre_queue_dead',
+          true,
+        );
+        if (boundaryClosed && res && !res.writableEnded && !res.headersSent) {
+          writePublic503(res, {
+            retryAfterSeconds: controller.limits.retry_after_seconds,
+            sendJSON,
+          });
+        }
         resolve(null);
         return;
       }
 
       const entry = {
         done: false,
+        phase: 'queued',
+        detach: null,
         resolve: (v) => resolve(v),
       };
       waiters.set(tokenId, entry);
 
-      function onAbort() {
-        if (entry.done) return;
-        cancelQueued(tokenId, req, res, 'disconnect');
+      let detached = false;
+      function detachQueuedLifecycle() {
+        if (detached) return;
+        detached = true;
+        try { if (req && req.removeListener) req.removeListener('aborted', onReqAborted); } catch (_) {}
+        try { if (req && req.removeListener) req.removeListener('close', onReqClose); } catch (_) {}
+        try { if (res && res.removeListener) res.removeListener('close', onResClose); } catch (_) {}
+        try { if (res && res.removeListener) res.removeListener('error', onResError); } catch (_) {}
+      }
+      entry.detach = detachQueuedLifecycle;
+
+      function cancelFromQueue(reason) {
+        // Phase gate: promotion/cancel already settled → ignore late events.
+        if (entry.done || entry.phase !== 'queued') return;
+        cancelQueued(tokenId, req, res, reason);
       }
 
+      function onReqAborted() { cancelFromQueue('req_aborted'); }
+      function onReqClose() { cancelFromQueue('req_close'); }
+      function onResClose() {
+        // Premature res close while queued (not a clean writableEnded finish).
+        if (entry.done || entry.phase !== 'queued') return;
+        if (res && res.writableEnded === true) return;
+        cancelFromQueue('res_close');
+      }
+      function onResError() { cancelFromQueue('res_error'); }
+
       try {
-        if (req && typeof req.on === 'function') {
-          req.on('aborted', onAbort);
-          req.on('close', onAbort);
+        if (req && typeof req.once === 'function') {
+          req.once('aborted', onReqAborted);
+          req.once('close', onReqClose);
         }
-        if (res && typeof res.on === 'function') {
-          res.on('close', () => {
-            if (entry.done) return;
-            if (res.writableEnded) return;
-            onAbort();
-          });
+        if (res && typeof res.once === 'function') {
+          res.once('close', onResClose);
+          res.once('error', onResError);
         }
       } catch (_) { /* ignore */ }
 
-      if (req && (req.aborted === true || req.readableAborted === true)) {
-        onAbort();
+      // Re-check after attach — race with already-dead transport.
+      if (boundaryClosed || isTransportDead(req, res)) {
+        cancelFromQueue(boundaryClosed ? 'shutdown' : 'pre_queue_dead_race');
       }
     });
+  }
+
+  /**
+   * Release a just-promoted token without running the handler (transport died
+   * between promote and router execution).
+   */
+  function dropPromotedWithoutHandler(tokenId, reason) {
+    const w = waiters.get(tokenId);
+    if (w && !w.done) {
+      w.phase = 'cancelled';
+      w.done = true;
+      waiters.delete(tokenId);
+      if (typeof w.detach === 'function') {
+        try { w.detach(); } catch (_) { /* ignore */ }
+        w.detach = null;
+      }
+    }
+    const rel = controller.release(tokenId, reason || 'pre_run_dead');
+    if (rel && rel.ok) notifyPromoted(rel.promoted);
+    return rel;
   }
 
   async function runWithToken(req, res, handler, tokenId) {
@@ -402,11 +557,31 @@ function createAdmissionBoundary(options) {
     }
 
     if (decision.decision === DECISIONS.ADMITTED) {
+      if (isTransportDead(req, res)) {
+        dropPromotedWithoutHandler(decision.token_id, 'admit_pre_run_dead');
+        return {
+          decision: decision.decision,
+          ran_handler: false,
+          cancelled: true,
+          reason: 'transport_dead',
+        };
+      }
       await runWithToken(req, res, handler, decision.token_id);
       return { decision: decision.decision, ran_handler: true, token_id: decision.token_id };
     }
 
     if (decision.decision === DECISIONS.QUEUED) {
+      // Fail/cancel before entering the wait queue when transport already dead.
+      if (isTransportDead(req, res)) {
+        cancelQueued(decision.token_id, req, res, 'pre_queue_dead', true);
+        return {
+          decision: DECISIONS.QUEUED,
+          ran_handler: false,
+          cancelled: true,
+          reason: 'transport_dead',
+        };
+      }
+
       const promoted = await waitForPromotion(decision.token_id, req, res);
       if (!promoted) {
         // Disconnect cancel or shutdown — do not run handler.
@@ -418,6 +593,19 @@ function createAdmissionBoundary(options) {
         }
         return { decision: DECISIONS.QUEUED, ran_handler: false, cancelled: true };
       }
+
+      // Immediately before promoted router execution — re-check transport.
+      if (isTransportDead(req, res)) {
+        dropPromotedWithoutHandler(decision.token_id, 'promote_pre_run_dead');
+        return {
+          decision: DECISIONS.QUEUED,
+          ran_handler: false,
+          cancelled: true,
+          reason: 'transport_dead_after_promote',
+          was_queued: true,
+        };
+      }
+
       await runWithToken(req, res, handler, decision.token_id);
       return {
         decision: DECISIONS.ADMITTED,
@@ -433,16 +621,23 @@ function createAdmissionBoundary(options) {
   }
 
   function close() {
+    if (boundaryClosed) {
+      return controller.close();
+    }
     boundaryClosed = true;
     const pending = Array.from(waiters.keys());
     for (let i = 0; i < pending.length; i += 1) {
       const id = pending[i];
       const w = waiters.get(id);
-      if (w && !w.done) {
-        w.done = true;
-        waiters.delete(id);
-        w.resolve(null);
+      if (!w || w.done || w.phase !== 'queued') continue;
+      w.phase = 'cancelled';
+      w.done = true;
+      waiters.delete(id);
+      if (typeof w.detach === 'function') {
+        try { w.detach(); } catch (_) { /* ignore */ }
+        w.detach = null;
       }
+      w.resolve(null);
     }
     waiters.clear();
     return controller.close();
@@ -465,6 +660,7 @@ module.exports = {
   FLAG_ON,
   PUBLIC_503_BODY,
   ADMISSION_REQ_KEY,
+  ON_SHUTDOWN_BEGIN_HOOK,
   LIMITS,
   DECISIONS,
   HTTP_REJECT,
@@ -478,4 +674,7 @@ module.exports = {
   markStaffApiAdmissionSideEffectStarted,
   tryStaffApiAdmissionRejectWith503,
   getAdmissionState,
+  isTransportDead,
+  bindAdmissionShutdownBegin,
+  countLifecycleListeners,
 };
