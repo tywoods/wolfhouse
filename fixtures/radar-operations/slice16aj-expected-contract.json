@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AJ",
+  "outcome_id": "16AJ_g06_slo_error_budget_source",
+  "gate_ids": ["G06_scaling_capacity"],
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "0994989a3d5d14daa98797fac55083b0c2ea809c",
+  "branch": "radar/slice-16aj-g06-slo-error-budget-source",
+  "live_deploy": false,
+  "live_mutation": false,
+  "live_network": false,
+  "this_slice_deploys": false,
+  "this_slice_implements_runtime": false,
+  "audit_only": true,
+  "title": "G06 capacity SLO / error-budget source contract — availability-only ACA Requests Sum SLI + pure calculator; latency percentile blocked; future alert/drill acceptance only",
+  "design_fixture": "fixtures/radar-operations/slice16aj-g06-slo-error-budget-contract.json",
+  "builds_on": [
+    "16AI_g06_live_load_evidence",
+    "16AH_g06_live_load_correction",
+    "16AG_g06_bounded_load_harness",
+    "16AF_g06_capacity_alert_live_evidence",
+    "16L_staff_api_capacity_pressure_alerts",
+    "16H_staff_api_metric_alerts"
+  ],
+  "does_not_implement": "live_deploy_alert_fire_notification_load_soak_autoscaling_slo_proven_backpressure_production_full_g06_scale_mutation",
+  "informed_by_existing": {
+    "availability_metric": "Microsoft.App/containerApps Requests Total (Sum of request counts) statusCodeCategory (16H 5xx alerts use same metric surface)",
+    "alert_cadence": "16L/16AF capacity PT5M eval / PT15M window; 16H Requests 5xx PT1M/PT5M; SLO eval grain aligned to PT5M",
+    "16ai_conservative_readyz": "live_proven profile proves bounded /readyz 2xx+latency observability exists; does NOT become SLO proof"
+  },
+  "sli": {
+    "name": "staging_staff_api_readiness_capacity_availability",
+    "scope": "staging_only",
+    "kind": "availability_only",
+    "availability_target": 0.99,
+    "slo_window": "PT7D_exact_rolling",
+    "slo_window_ms": 604800000,
+    "sample_step": "PT5M",
+    "sample_step_ms": 300000,
+    "min_sample_coverage": 0.5,
+    "min_requests": 100,
+    "coverage_reference": "PT7D",
+    "burn_windows_distinct_from_slo_span": true,
+    "baseline_max_skew": "one_PT5M_grain",
+    "availability_formula": "requests_2xx_delta / requests_total_delta",
+    "latency_percentile_sli": {
+      "status": "blocked",
+      "reason": "pending_joint_request_telemetry_instrumentation",
+      "not_part_of_this_slo": true
+    },
+    "combined_formula": "forbidden_disjoint_marginals",
+    "combined_error_budget": "forbidden"
+  },
+  "error_budget": {
+    "kind": "availability_only",
+    "budget_fraction": 0.01,
+    "burn_rate_formula": "bad_rate / budget_fraction",
+    "budget_consumed_formula": "burn_rate * (eval_window_ms / slo_window_ms)",
+    "combined_error_budget": "forbidden",
+    "multi_window_burns": [
+      { "id": "page_fast", "severity": "page", "short_ms": 300000, "long_ms": 3600000, "burn_threshold": 14.4 },
+      { "id": "page_slow", "severity": "page", "short_ms": 1800000, "long_ms": 21600000, "burn_threshold": 6 },
+      { "id": "ticket_fast", "severity": "ticket", "short_ms": 7200000, "long_ms": 86400000, "burn_threshold": 3 },
+      { "id": "ticket_slow", "severity": "ticket", "short_ms": 21600000, "long_ms": 259200000, "burn_threshold": 1 }
+    ]
+  },
+  "fail_closed_states": [
+    "missing_samples",
+    "counter_reset",
+    "out_of_order",
+    "zero_traffic_insufficient_coverage",
+    "insufficient_sample_coverage",
+    "insufficient_requests",
+    "invalid_input",
+    "irregular_or_gapped_grain",
+    "stale_baseline",
+    "window_span_mismatch",
+    "unsafe_integer",
+    "latency_sli_blocked",
+    "combined_claim_forbidden",
+    "contract_drift"
+  ],
+  "future_alert_acceptance": {
+    "id": "16AJ_ALERT_multi_window_burn_acceptance",
+    "status": "defined_not_executed"
+  },
+  "future_drill_acceptance": {
+    "id": "16AJ_DRILL_error_budget_burn_acceptance",
+    "status": "defined_not_executed"
+  },
+  "forbidden_claim_tokens": [
+    "capacity SLO proven",
+    "error budget proven",
+    "SLO proven",
+    "production",
+    "full G06",
+    "full_G06_proven",
+    "G06 proven",
+    "backpressure proven",
+    "autoscaling proven",
+    "load soak proven",
+    "alert fired",
+    "notification delivered",
+    "p99 <= 500ms",
+    "combined SLO proven"
+  ],
+  "must_not_claim_as_proven": [
+    "capacity_slo_proven",
+    "error_budget_proven",
+    "live_burn_alert_deployed",
+    "live_burn_alert_fired",
+    "notification_delivery",
+    "load_soak_proof",
+    "autoscaling",
+    "backpressure",
+    "production",
+    "full_G06_proven",
+    "any_gate_verdict_proven",
+    "scale_mutation_by_this_slice",
+    "deploy_by_this_slice",
+    "16AI_latency_as_slo_proof",
+    "aca_duration_histogram",
+    "latency_percentile_sli",
+    "p99_le_500ms",
+    "combined_min_intersection_slo",
+    "combined_error_budget"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "16AJ source-defines availability-only staging readiness SLO/error-budget contract + calculator only; latency percentile SLI blocked; G06 remains partial because live burn proof, soak, alert fire/notification, autoscaling, and backpressure remain open; score unchanged"
+  },
+  "still_open": [
+    "Live burn-alert deploy / fire / notification (future acceptance only)",
+    "Live error-budget burn drill (future acceptance only)",
+    "Load soak / sustained capacity proof (not claimed)",
+    "Autoscaling rules (rules=null; not claimed)",
+    "Capacity SLO / error budget live proof (source defined; not proven)",
+    "Latency percentile SLI (blocked pending joint request telemetry/instrumentation)",
+    "Backpressure (not claimed)",
+    "Production scope (forbidden)",
+    "Raising G06 verdict to proven"
+  ],
+  "final_controlled_drill": {
+    "id": "16AJ_OFFLINE_slo_error_budget_source_contract",
+    "status": "offline_source_proven",
+    "pass_rule": "Pure dependency-free availability-only calculator + deterministic RED/GREEN verifier prove exact PT7D availability boundaries, locked normative constants (reject contract drift), error-budget reporting numerics, exact BigInt cross-multiplication burn thresholds via locked pair APIs (below never / eq+above fire), baseline-within-grain burn slicing, locked burn-pair ids only (no availabilityBurnLeg / burnRateMeetsThresholdExact / burnFromBadRate export; no caller target/window/SLO-window/threshold-rational injection), and fail-closed missing/reset/out-of-order/zero-traffic/sparse/stale-baseline/span-mismatch/unsafe-integer/NaN/latency-blocked/combined-forbidden/contract-drift/overclaim paths; latency percentile SLI recorded blocked; future alert/drill acceptance defined_not_executed only; G06 remains partial; proven count remains 0; no live/deploy/scale mutation"
+  },
+  "artifacts": [
+    "fixtures/radar-operations/slice16aj-g06-slo-error-budget-contract.json",
+    "fixtures/radar-operations/slice16aj-expected-contract.json",
+    "scripts/lib/radar-g06-slo-error-budget.js",
+    "scripts/lib/radar-slice16aj-g06-slo-error-budget.js",
+    "scripts/verify-radar-slice16aj-g06-slo-error-budget.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16aj-g06-slo-error-budget",
+    "npm run verify:radar-slice16ai-g06-live-load-evidence",
+    "npm run verify:radar-slice16ah-g06-live-load-correction",
+    "npm run verify:radar-slice16ag-g06-bounded-load-harness",
+    "npm run verify:radar-slice16af-g06-capacity-alert-live-evidence",
+    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 0994989a3d5d14daa98797fac55083b0c2ea809c..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "docker/hermes-sunset/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-readiness.js",
+      "scripts/lib/staff-api-readiness-lifecycle.js",
+      "scripts/lib/staff-api-readiness-shutdown-completion-log.js",
+      "scripts/lib/radar-g06-bounded-load-harness.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16AJ is source/text-only availability-only SLO contract + pure calculator; no Staff API/Bicep/alert deploy/live/scale mutation"
+  }
+}

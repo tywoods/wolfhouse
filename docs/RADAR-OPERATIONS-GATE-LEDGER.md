@@ -1,14 +1,50 @@
-# RADAR Slice 16AI — Operations gate ledger (G06 conservative /readyz live-load evidence)
+# RADAR Slice 16AJ — Operations gate ledger (G06 capacity SLO / error-budget source)
 
-**Status:** evidence-only (no deploy / scale mutation by this tip; G06 remains partial)
-**Master basis:** `d04b633390bdcacfe3a04eed4796bba4184e29f8`
-**Branch:** `radar/slice-16ai-g06-live-load-evidence`
+**Status:** source/text-only (no deploy / live / scale mutation by this tip; G06 remains partial)
+**Master basis:** `0994989a3d5d14daa98797fac55083b0c2ea809c`
+**Branch:** `radar/slice-16aj-g06-slo-error-budget-source`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16AH pinnedLookup correction + 16AG bounded load harness + 16AF capacity-alert live deploy + 16L capacity-pressure source
-**This slice does not deploy / does not mutate scale:** evidence reconciliation of an already-executed controlled drill + Sunset MTD ActualCost guard only
+**Builds on:** 16AI conservative `/readyz` live evidence + 16AH/16AG harness + 16AF/16L capacity alerts + 16H Requests metric surface
+**This slice does not deploy / does not execute live / does not mutate scale:** SLO/error-budget source contract + pure calculator + offline verifier only; future burn-alert/drill acceptance `defined_not_executed`
 
-## Outcome (16AI)
+## Outcome (16AJ)
+
+Define a finite **staging readiness** capacity SLO / error-budget **source** contract (no live proof invented):
+
+| Contract | Locked value |
+|----------|----------------|
+| Metric surface (inspected) | ACA `Requests` **Total** (= Sum of request counts) split by `statusCodeCategory` (16H) — implementable availability-only |
+| Latency percentile SLI | **blocked** pending joint request telemetry/instrumentation — **not part of this SLO**; no ACA duration histogram / p99≤500ms |
+| Combined / intersection | **forbidden** (disjoint marginals cannot claim min/intersection or combined error budget) |
+| Alert cadence (inspected) | 16L/16AF capacity PT5M/PT15M; 16H 5xx PT1M/PT5M; SLO eval grain **PT5M** |
+| Availability SLI | `2xx_delta / total_delta`; target **99.0%** |
+| Window / coverage | exact rolling **PT7D** span; coverage against **PT7D**; step **PT5M**; min coverage **0.5**; min requests **100** |
+| Short burn windows | distinct from PT7D — coverage/span use declared burn window; baseline within one PT5M grain; reject gaps/stale |
+| Error budget | availability-only fraction **0.01**; burn = `bad_rate / 0.01`; consumed = `burn * (window / PT7D)` |
+| Multi-window burns | page_fast 5m+1h@**14.4**; page_slow 30m+6h@**6**; ticket_fast 2h+1d@**3**; ticket_slow 6h+3d@**1** (AND) |
+| Fail-closed | missing / reset / out-of-order / zero-traffic / sparse / span mismatch / stale baseline / irregular grain / unsafe integer / NaN / latency-blocked / combined-forbidden |
+| Calculator | pure dependency-free `radar-g06-slo-error-budget.js` |
+| Future alert/drill | `16AJ_ALERT_*` + `16AJ_DRILL_*` **`defined_not_executed`** only |
+| `final_controlled_drill` | **`offline_source_proven`** — source contract only |
+
+### Claim ownership (16AJ locked)
+
+| Observation | Proves | Does not prove |
+|-------------|--------|----------------|
+| Availability-only SLI/error-budget source contract + calculator + offline RED/GREEN | Exact math/boundaries + fail-closed states exist in source | Live SLO compliance; burn alert deploy/fire; notification; latency percentile SLO |
+| Future alert/drill acceptance locked | Parameters ready for a later approved slice | That alert/drill ran; production; raising G06 |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
+
+## Truthful disposition (16AJ)
+
+**Proves (source):** Finite staging readiness **availability-only** SLO/error-budget contract with pure calculator and deterministic RED/GREEN covering exact PT7D boundaries, burn baseline grain, counter resets, sparse samples, and overclaims; latency percentile SLI recorded **blocked**; future burn-alert/drill acceptance defined only.
+
+**Does not prove:** live SLO compliance; burn alert deploy/fire/notification; load soak; autoscaling; backpressure; production; raising G06 to `proven`. Does **not** reuse 16AI drill latency as SLO proof. Does **not** claim ACA duration histograms, p99≤500ms, or combined min/intersection.
+
+**SLO/error-budget source gap closed (availability-only); live burn/SLO proof remains open; G06 remains partial.**
+
+## Outcome (16AI — retained)
 
 Reconcile the successful controlled dual-staging `/readyz` bounded-load drill @ `2026-07-21T16:50:16Z` for profile `16AG_DRILL_dual_staging_readyz_bounded_load`, claiming **only** what committed secret-free raw fixtures prove (`slice16ai-raw-drill` + `slice16ai-raw-cost-before/after`; ephemeral `/tmp` and `tmp/` excluded):
 
@@ -37,9 +73,9 @@ Reconcile the successful controlled dual-staging `/readyz` bounded-load drill @ 
 
 **Proves (evidence):** Conservative dual-staging `/readyz` bounded-load profile `live_proven` with exact metrics from committed raw drill + Sunset MTD ActualCost identical before/after from committed raw cost JSON (SHA-256 provenance locked).
 
-**Does not prove:** pre/post `/readyz` readiness; after-query 429/retry; load soak; capacity alert firing/notification; autoscaling; capacity SLO/error budget; backpressure; production; raising G06 to `proven`.
+**Does not prove:** pre/post `/readyz` readiness; after-query 429/retry; load soak; capacity alert firing/notification; autoscaling; capacity SLO/error budget live proof; backpressure; production; raising G06 to `proven`.
 
-**Conservative readiness profile closed as `live_proven`; soak/fire/autoscale/SLO/backpressure remain open; G06 remains partial.**
+**Conservative readiness profile closed as `live_proven`; soak/fire/autoscale/SLO-live/backpressure remain open; G06 remains partial.**
 
 ## Outcome (16AH — retained)
 
@@ -189,7 +225,7 @@ Serving-revision `/readyz=503` `{status:not-ready}` on isolated fail revisions; 
 
 ### 16AG_g06_bounded_load_harness
 
-Bounded staging `/readyz` load harness — **this tip**. Closes only G06 load-harness **source** gap. Live load/soak execution, alert fire/notification, autoscaling, SLO/error budget, backpressure remain open. Future drill defined_not_executed. G06 stays partial.
+Bounded staging `/readyz` load harness — retained under 16AJ tip. Closes only G06 load-harness **source** gap. Live load/soak execution, alert fire/notification, autoscaling, SLO/error budget live proof, backpressure remain open. Future drill defined_not_executed. G06 stays partial.
 
 ### 16AF_g06_capacity_alert_live_evidence
 
@@ -276,7 +312,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | `scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js` | Strict RED/GREEN verifier |
 
 
-## G06 semantics (truthful after 16AI)
+## G06 semantics (truthful after 16AJ)
 
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
@@ -288,12 +324,23 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | Future load drill profile (16AG lock) | `defined_not_executed_16AG` | 16AG source lock retained |
 | Post-16AG live load attempt | `attempted_not_proof_16AH` | 60/60 error-before-HTTP; retained |
 | Conservative dual-staging `/readyz` bounded-load | `live_proven_16AI` | 60/60 2xx both; peak2; exact latency/wall; cost before=after; raw SHA-256 bound; no pre/post or 429 claim |
+| Capacity SLO / error budget **source** | `source_defined_16AJ` | finite staging SLI + calculator + offline verifier; future alert/drill `defined_not_executed` |
+| Capacity SLO / error budget **live** | `open` / `not claimed` | 16AJ does not claim live compliance |
 | Alert fire / notification delivery | `open` / `not claimed` | |
 | Load soak / sustained capacity | `open` / `not claimed` | 16AI does not claim soak |
 | Autoscaling | `open` / `not claimed` | rules=null |
-| Capacity SLO / error budget | `open` / `not claimed` | |
 | Backpressure | `open` / `not claimed` | |
 | Production | `open` / forbidden | intentionally untouched |
+
+## Slice 16AJ artifacts
+
+| Path | Role |
+|------|------|
+| `fixtures/radar-operations/slice16aj-g06-slo-error-budget-contract.json` | Frozen SLI/error-budget source contract |
+| `fixtures/radar-operations/slice16aj-expected-contract.json` | Contract |
+| `scripts/lib/radar-g06-slo-error-budget.js` | Pure dependency-free calculator |
+| `scripts/lib/radar-slice16aj-g06-slo-error-budget.js` | Locks |
+| `scripts/verify-radar-slice16aj-g06-slo-error-budget.js` | Strict RED/GREEN verifier |
 
 ## Slice 16AI artifacts
 
@@ -339,7 +386,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 1. Capacity alert firing / notification delivery — **not claimed**
 2. Load soak / sustained capacity — **not claimed** (16AI `live_proven` is conservative `/readyz` bounded profile only; 16AH prior attempt remains `attempted_not_proof`; 16AG profile lock remains `defined_not_executed`)
 3. Autoscaling (rules=null) — **not claimed**
-4. Capacity SLO / error budget — **not claimed**
+4. Capacity SLO / error budget **live** proof — **not claimed** (16AJ source contract only; burn alert/drill `defined_not_executed`)
 5. Backpressure — **not claimed**
 6. Absolute/continuous zero downtime / between-sample / sub-second interruption — **not claimed**
 7. Cold-start availability — **not claimed** (WH warmup timeouts remain real)

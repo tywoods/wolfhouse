@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AJ",
+  "outcome_id": "16AJ_g06_slo_error_budget_source",
+  "gate_id": "G06_scaling_capacity",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "0994989a3d5d14daa98797fac55083b0c2ea809c",
+  "branch": "radar/slice-16aj-g06-slo-error-budget-source",
+  "title": "Finite staging readiness availability-only SLO / error-budget source contract",
+  "live_deploy": false,
+  "live_mutation": false,
+  "live_network": false,
+  "azure_scope": {
+    "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resource_groups": ["wh-staging-rg", "luna-sunset-staging-rg"],
+    "note": "Staging-only scope lock; production forbidden"
+  },
+  "metric_surface_inspected": {
+    "availability": {
+      "namespace": "Microsoft.App/containerApps",
+      "metric": "Requests",
+      "aggregation": "Total",
+      "aggregation_semantics": "sum_of_request_counts",
+      "dimension": "statusCodeCategory",
+      "good_value": "2xx",
+      "known_values": ["2xx", "3xx", "4xx", "5xx"],
+      "prior_use": "16H tenant Requests 5xx alerts (statusCodeCategory=5xx >=3 PT5M/PT1M)",
+      "implementable": true
+    },
+    "latency_percentile_sli": {
+      "status": "blocked",
+      "reason": "pending_joint_request_telemetry_instrumentation",
+      "not_part_of_this_slo": true,
+      "aca_duration_histogram": "nonexistent_not_relied_upon",
+      "p99_objective_ms": null,
+      "combined_with_availability": "forbidden_disjoint_marginals",
+      "not_claimed_from_16ai": "16AI WH/Sunset p50/p95/p99 values prove drill observability only — not SLO compliance"
+    },
+    "alert_cadence_inspected": {
+      "capacity_pressure": "Average >80 Sev2 PT5M eval / PT15M window (16L source + 16AF live deploy)",
+      "requests_5xx": "Total >=3 statusCodeCategory=5xx PT5M/PT1M (16H)",
+      "slo_eval_grain": "PT5M aligned to capacity evaluation frequency"
+    }
+  },
+  "sli_contract": {
+    "name": "staging_staff_api_readiness_capacity_availability",
+    "scope": "staging_only",
+    "kind": "availability_only",
+    "availability_target": 0.99,
+    "slo_window_ms": 604800000,
+    "slo_window_label": "PT7D_exact_rolling",
+    "sample_step_ms": 300000,
+    "sample_step_label": "PT5M",
+    "min_sample_coverage": 0.5,
+    "min_requests": 100,
+    "coverage_reference": "PT7D",
+    "burn_windows_distinct_from_slo_span": true,
+    "baseline_max_skew": "one_PT5M_grain",
+    "availability_formula": "requests_2xx_delta / requests_total_delta",
+    "error_budget_fraction": 0.01,
+    "latency_percentile_sli": "blocked_not_part_of_this_slo",
+    "combined_formula": "forbidden_disjoint_marginals",
+    "combined_error_budget": "forbidden"
+  },
+  "multi_window_burns": [
+    {
+      "id": "page_fast",
+      "severity": "page",
+      "short_ms": 300000,
+      "long_ms": 3600000,
+      "burn_threshold": 14.4,
+      "fire_rule": "short AND long burn_rate >= threshold",
+      "coverage_reference": "declared_burn_window_not_PT7D"
+    },
+    {
+      "id": "page_slow",
+      "severity": "page",
+      "short_ms": 1800000,
+      "long_ms": 21600000,
+      "burn_threshold": 6,
+      "fire_rule": "short AND long burn_rate >= threshold",
+      "coverage_reference": "declared_burn_window_not_PT7D"
+    },
+    {
+      "id": "ticket_fast",
+      "severity": "ticket",
+      "short_ms": 7200000,
+      "long_ms": 86400000,
+      "burn_threshold": 3,
+      "fire_rule": "short AND long burn_rate >= threshold",
+      "coverage_reference": "declared_burn_window_not_PT7D"
+    },
+    {
+      "id": "ticket_slow",
+      "severity": "ticket",
+      "short_ms": 21600000,
+      "long_ms": 259200000,
+      "burn_threshold": 1,
+      "fire_rule": "short AND long burn_rate >= threshold",
+      "coverage_reference": "declared_burn_window_not_PT7D"
+    }
+  ],
+  "fail_closed_states": {
+    "missing_samples": "null/undefined counters or <2 samples",
+    "counter_reset": "requests_total or requests_2xx decreases between ordered samples",
+    "out_of_order": "sample t_ms not strictly increasing",
+    "zero_traffic_insufficient_coverage": "request delta is zero — never claim SLO met",
+    "insufficient_sample_coverage": "present/expected slots < min_sample_coverage (PT7D for readiness; declared burn window for burns)",
+    "insufficient_requests": "request delta < min_requests",
+    "invalid_input": "non-finite or out-of-range options",
+    "irregular_or_gapped_grain": "consecutive sample deltas != PT5M",
+    "stale_baseline": "baseline more than one PT5M grain before window start",
+    "window_span_mismatch": "computed delta interval does not match declared window (exact PT7D for readiness)",
+    "unsafe_integer": "counters/timestamps not nonnegative Number.isSafeInteger; overflow rejected",
+    "latency_sli_blocked": "any latency histogram/p99/average binding rejected",
+    "combined_claim_forbidden": "combined min/intersection or disjoint-marginals joint claim rejected",
+    "contract_drift": "normative option override not exactly locked (availability_target 0.99, sample_step_ms PT5M, slo_window_ms PT7D, coverage/min-requests constants)"
+  },
+  "future_acceptance_only": {
+    "alert": {
+      "id": "16AJ_ALERT_multi_window_burn_acceptance",
+      "status": "defined_not_executed"
+    },
+    "drill": {
+      "id": "16AJ_DRILL_error_budget_burn_acceptance",
+      "status": "defined_not_executed"
+    }
+  },
+  "g06_disposition": {
+    "verdict": "partial",
+    "slo_source": "source_defined_via_16AJ",
+    "slo_live_proof": "open",
+    "score": { "proven": 0, "partial": 9, "absent": 0 }
+  },
+  "explicitly_not_claimed": [
+    "capacity_slo_proven",
+    "error_budget_proven",
+    "live_burn_alert_deployed",
+    "live_burn_alert_fired",
+    "notification_delivery",
+    "load_soak_proof",
+    "autoscaling",
+    "backpressure",
+    "production",
+    "full_G06_proven",
+    "16AI_latency_as_slo_proof",
+    "aca_duration_histogram",
+    "latency_percentile_sli",
+    "p99_le_500ms",
+    "combined_min_intersection_slo",
+    "combined_error_budget"
+  ]
+}

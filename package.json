@@ -686,7 +686,8 @@
     "verify:radar-slice16af-g06-capacity-alert-live-evidence": "node scripts/verify-radar-slice16af-g06-capacity-alert-live-evidence.js",
     "verify:radar-slice16ag-g06-bounded-load-harness": "node scripts/verify-radar-slice16ag-g06-bounded-load-harness.js",
     "verify:radar-slice16ah-g06-live-load-correction": "node scripts/verify-radar-slice16ah-g06-live-load-correction.js",
-    "verify:radar-slice16ai-g06-live-load-evidence": "node scripts/verify-radar-slice16ai-g06-live-load-evidence.js"
+    "verify:radar-slice16ai-g06-live-load-evidence": "node scripts/verify-radar-slice16ai-g06-live-load-evidence.js",
+    "verify:radar-slice16aj-g06-slo-error-budget": "node scripts/verify-radar-slice16aj-g06-slo-error-budget.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
