@@ -13,21 +13,35 @@
   "this_slice_deploys": false,
   "title": "Reconcile successful controlled dual-staging /readyz bounded-load drill — conservative readiness live_proven only; G06 partial",
   "evidence_fixture": "fixtures/radar-operations/slice16ai-g06-live-load-evidence.json",
+  "raw_artifacts": [
+    "fixtures/radar-operations/slice16ai-raw-drill.json",
+    "fixtures/radar-operations/slice16ai-raw-cost-before.json",
+    "fixtures/radar-operations/slice16ai-raw-cost-after.json"
+  ],
+  "raw_artifact_sha256": {
+    "fixtures/radar-operations/slice16ai-raw-drill.json": "5851251501bbaddd82dfc02d8e7ff3b022e3e72a474858e3c234e68936cc9ed0",
+    "fixtures/radar-operations/slice16ai-raw-cost-before.json": "f24282056dacd2ffd063cf40e29e48503518543fbe442f195d594def712e0173",
+    "fixtures/radar-operations/slice16ai-raw-cost-after.json": "30453489e76f617fe6bfa86bbdb38d88806355c9c87c52d0bbea994d17b365e7"
+  },
+  "excluded_ephemeral_paths": [
+    "/tmp/radar-16ai-live-drill.json",
+    "tmp/foundation-slice9/"
+  ],
   "builds_on": [
     "16AH_g06_live_load_correction",
     "16AG_g06_bounded_load_harness",
     "16AF_g06_capacity_alert_live_evidence",
     "16L_staff_api_capacity_pressure_alerts"
   ],
-  "does_not_implement": "load_soak_alert_fire_notification_autoscaling_slo_backpressure_production_full_g06_deploy_scale_mutation",
+  "does_not_implement": "load_soak_alert_fire_notification_autoscaling_slo_backpressure_production_full_g06_deploy_scale_mutation_pre_post_readyz_429_retry",
   "allowed_targets": [
     "https://staff-staging.lunafrontdesk.com/readyz",
     "https://sunset-staging.lunafrontdesk.com/readyz"
   ],
   "provenance": {
-    "source_type": "operator_controlled_16AG_profile_live_drill_plus_sunset_mtd_actualcost_guard",
+    "source_type": "committed_raw_16AG_profile_live_drill_plus_sunset_mtd_actualcost_before_after",
     "independent_verify_utc": "2026-07-21T16:50:16Z",
-    "non_recoverability": "A single conservative bounded /readyz drill cannot prove soak/sustained capacity, alert firing, notification delivery, autoscaling actuation, SLO/error-budget consumption, or backpressure. Do not invent soak success, fire instances, scale mutations, or raising G06 to proven."
+    "non_recoverability": "A single conservative bounded /readyz drill cannot prove soak/sustained capacity, alert firing, notification delivery, autoscaling actuation, SLO/error-budget consumption, or backpressure. Do not invent soak success, fire instances, scale mutations, pre/post readiness absent from raw drill, 429/retry absent from durable transcript, or raising G06 to proven."
   },
   "required_observed": {
     "profile_id": "16AG_DRILL_dual_staging_readyz_bounded_load",
@@ -49,7 +63,6 @@
     "sunset_p99_ms": 40,
     "sunset_max_ms": 40,
     "sunset_wall_ms": 879,
-    "pre_post_readyz": "ready",
     "response_bodies_collected": false,
     "redirects_followed": false,
     "headers_sent": false,
@@ -59,7 +72,9 @@
     "active_requests_remaining": 0,
     "sunset_mtd_actualcost_usd": 18.2443795483871,
     "cost_before_after_identical": true,
-    "after_query_initial_429_then_successful_retry": true
+    "raw_drill_sha256": "5851251501bbaddd82dfc02d8e7ff3b022e3e72a474858e3c234e68936cc9ed0",
+    "raw_cost_before_sha256": "f24282056dacd2ffd063cf40e29e48503518543fbe442f195d594def712e0173",
+    "raw_cost_after_sha256": "30453489e76f617fe6bfa86bbdb38d88806355c9c87c52d0bbea994d17b365e7"
   },
   "forbidden_claim_tokens": [
     "load soak proven",
@@ -76,9 +91,15 @@
     "full_G06_proven",
     "G06 proven",
     "minReplicas mutated",
-    "maxReplicas mutated"
+    "maxReplicas mutated",
+    "pre/post /readyz ready",
+    "pre_post_readyz_ready",
+    "initial after-query 429",
+    "429 then successful retry"
   ],
   "must_not_claim_as_proven": [
+    "pre_post_readyz_ready",
+    "after_query_initial_429_then_successful_retry",
     "load_soak_proof",
     "capacity_alert_firing",
     "notification_delivery",
@@ -95,7 +116,7 @@
     "proven": 0,
     "partial": 9,
     "absent": 0,
-    "note": "16AI live-proves only the conservative dual-staging /readyz bounded profile; G06 remains partial because soak, alert fire/notification, autoscaling, SLO/error budget, and backpressure remain open; score unchanged"
+    "note": "16AI live-proves only the conservative dual-staging /readyz bounded profile as proven by committed raw drill + cost before/after fixtures; G06 remains partial because soak, alert fire/notification, autoscaling, SLO/error budget, and backpressure remain open; score unchanged; pre/post readiness and 429/retry omitted"
   },
   "still_open": [
     "Load soak / sustained capacity proof (not claimed)",
@@ -109,11 +130,14 @@
   "final_controlled_drill": {
     "id": "16AG_DRILL_dual_staging_readyz_bounded_load",
     "status": "live_proven",
-    "pass_rule": "Class operator-controlled drill @ 2026-07-21T16:50:16Z for profile 16AG_DRILL_dual_staging_readyz_bounded_load against exact two staging /readyz allowlist targets: each 60/60 2xx; peak_in_flight=2; zero timeout/error/non-2xx; WH p50/p95/p99/max 30/32/44/44ms wall 954; Sunset 28/29/40/40ms wall 879; pre/post /readyz ready; response bodies/redirects/headers/auth/body false; DNS pinned; active remaining 0. Sunset MTD ActualCost before/after identical 18.2443795483871 USD with initial after-query 429 then successful retry disclosed. final_controlled_drill status live_proven for this conservative readiness profile only — not soak, alert fire/notification, autoscale, SLO/error budget, backpressure, production, or full G06. G06 remains partial; proven count remains 0."
+    "pass_rule": "Class operator-controlled drill @ 2026-07-21T16:50:16Z for profile 16AG_DRILL_dual_staging_readyz_bounded_load against exact two staging /readyz allowlist targets, proven only by committed raw fixtures (slice16ai-raw-drill/cost-before/cost-after) with locked SHA-256: each 60/60 2xx; peak_in_flight=2; zero timeout/error/non-2xx; WH p50/p95/p99/max 30/32/44/44ms wall 954; Sunset 28/29/40/40ms wall 879; response bodies/redirects/headers/auth/body false; DNS pinned; active remaining 0. Sunset MTD ActualCost before/after identical 18.2443795483871 USD from raw cost JSON. Does not claim pre/post /readyz readiness (absent from raw drill) or after-query 429/retry (no durable transcript). final_controlled_drill status live_proven for this conservative readiness profile only — not soak, alert fire/notification, autoscale, SLO/error budget, backpressure, production, or full G06. G06 remains partial; proven count remains 0. Ephemeral /tmp and tmp/ paths excluded."
   },
   "artifacts": [
     "fixtures/radar-operations/slice16ai-g06-live-load-evidence.json",
     "fixtures/radar-operations/slice16ai-expected-contract.json",
+    "fixtures/radar-operations/slice16ai-raw-drill.json",
+    "fixtures/radar-operations/slice16ai-raw-cost-before.json",
+    "fixtures/radar-operations/slice16ai-raw-cost-after.json",
     "scripts/lib/radar-slice16ai-g06-live-load-evidence.js",
     "scripts/verify-radar-slice16ai-g06-live-load-evidence.js",
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -144,6 +168,6 @@
       "infra/azure/staging-cost-budgets/",
       "scripts/lib/radar-g06-bounded-load-harness.js"
     ],
-    "note": "16AI is evidence-only reconciliation of an already-executed controlled drill + cost guard; no harness mutation, deploy, or scale mutation"
+    "note": "16AI is evidence-only reconciliation of an already-executed controlled drill + cost guard bound to committed raw fixtures; no harness mutation, deploy, or scale mutation; tmp paths excluded"
   }
 }

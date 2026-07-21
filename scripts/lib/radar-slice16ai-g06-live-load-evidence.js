@@ -5,11 +5,14 @@
  *
  * Evidence-only reconciliation of the successful controlled dual-staging
  * /readyz bounded-load drill @ master d04b6333 (profile
- * 16AG_DRILL_dual_staging_readyz_bounded_load). Records final_controlled_drill
- * live_proven for this conservative readiness profile only. Does not claim
- * soak, alert firing/notification, autoscaling, SLO/error budget,
- * backpressure, production, or full G06. G06 remains partial; score unchanged.
- * No deploy / scale mutation by this tip.
+ * 16AG_DRILL_dual_staging_readyz_bounded_load). Claims are bound only to
+ * committed secret-free raw fixtures (slice16ai-raw-*) via SHA-256; ephemeral
+ * /tmp and tmp/ paths are excluded. Does not claim pre/post /readyz readiness
+ * (absent from raw drill) or after-query 429/retry (no durable transcript).
+ * Records final_controlled_drill live_proven for this conservative readiness
+ * profile only. Does not claim soak, alert firing/notification, autoscaling,
+ * SLO/error budget, backpressure, production, or full G06. G06 remains
+ * partial; score unchanged. No deploy / scale mutation by this tip.
  */
 
 const path = require('path');
@@ -25,6 +28,21 @@ const BRANCH = 'radar/slice-16ai-g06-live-load-evidence';
 
 const EVIDENCE_REL = 'fixtures/radar-operations/slice16ai-g06-live-load-evidence.json';
 const CONTRACT_REL = 'fixtures/radar-operations/slice16ai-expected-contract.json';
+const RAW_DRILL_REL = 'fixtures/radar-operations/slice16ai-raw-drill.json';
+const RAW_COST_BEFORE_REL = 'fixtures/radar-operations/slice16ai-raw-cost-before.json';
+const RAW_COST_AFTER_REL = 'fixtures/radar-operations/slice16ai-raw-cost-after.json';
+
+const RAW_DRILL_SHA256 =
+  '5851251501bbaddd82dfc02d8e7ff3b022e3e72a474858e3c234e68936cc9ed0';
+const RAW_COST_BEFORE_SHA256 =
+  'f24282056dacd2ffd063cf40e29e48503518543fbe442f195d594def712e0173';
+const RAW_COST_AFTER_SHA256 =
+  '30453489e76f617fe6bfa86bbdb38d88806355c9c87c52d0bbea994d17b365e7';
+
+const EXCLUDED_EPHEMERAL_PATHS = Object.freeze([
+  '/tmp/radar-16ai-live-drill.json',
+  'tmp/foundation-slice9/',
+]);
 
 const WH_READYZ_URL = harness.WH_READYZ_URL;
 const SUNSET_READYZ_URL = harness.SUNSET_READYZ_URL;
@@ -88,33 +106,37 @@ const COST_PERIOD = Object.freeze({
   label: 'month-to-date',
 });
 
-const SOURCE_TYPE = 'operator_controlled_16AG_profile_live_drill_plus_sunset_mtd_actualcost_guard';
+const SOURCE_TYPE =
+  'committed_raw_16AG_profile_live_drill_plus_sunset_mtd_actualcost_before_after';
 const SOURCE_REF = `16AG_DRILL_dual_staging_readyz_bounded_load_${INDEPENDENT_VERIFY_UTC}`;
 const OBSERVED_AT_SEMANTICS = 'drill_executed_at_truncated_to_second_utc';
 
 const FINAL_CONTROLLED_DRILL_STATUS = 'live_proven';
 
 const PROVENANCE_LIMITATIONS =
-  'Records the operator-controlled successful dual-staging /readyz bounded-load '
-  + `drill output @ ${INDEPENDENT_VERIFY_UTC} for profile ${PROFILE_ID} against the `
-  + 'exact two staging allowlist targets (each 60/60 2xx; concurrency peak 2; zero '
-  + 'timeout/error/non-2xx; WH p50/p95/p99/max 30/32/44/44ms wall 954; Sunset '
-  + '28/29/40/40ms wall 879; response bodies/redirects/headers/auth/body false; DNS '
-  + 'pinned; active remaining 0; pre/post /readyz ready). Records Sunset RG MTD '
-  + `ActualCost before/after identical ${COST_AMOUNT} ${COST_CURRENCY}, disclosing `
-  + 'initial after-query HTTP 429 then successful retry. Proves only this '
+  'Records only what committed secret-free raw fixtures prove for the operator-'
+  + `controlled dual-staging /readyz bounded-load drill @ ${INDEPENDENT_VERIFY_UTC} `
+  + `(profile ${PROFILE_ID}): exact two staging allowlist targets; each 60/60 2xx; `
+  + 'concurrency peak 2; zero timeout/error/non-2xx; WH p50/p95/p99/max 30/32/44/44ms '
+  + 'wall 954; Sunset 28/29/40/40ms wall 879; response bodies/redirects/headers/auth/'
+  + 'body false; DNS pinned; active remaining 0. Records Sunset RG MTD ActualCost '
+  + `before/after identical ${COST_AMOUNT} ${COST_CURRENCY} from raw before/after `
+  + 'cost JSON. Does not claim pre/post /readyz readiness (absent from raw drill) '
+  + 'or after-query HTTP 429/retry (no durable transcript). Proves only this '
   + 'conservative readiness profile. Does not prove soak, alert firing/notification, '
-  + 'autoscaling, SLO/error budget, backpressure, production, or full G06.';
+  + 'autoscaling, SLO/error budget, backpressure, production, or full G06. Ephemeral '
+  + '/tmp and tmp/ source paths are excluded from the tip.';
 
 const NON_RECOVERABILITY =
   'A single conservative bounded /readyz drill cannot prove soak/sustained capacity, '
   + 'alert firing, notification delivery, autoscaling actuation, SLO/error-budget '
   + 'consumption, or backpressure. Do not invent soak success, fire instances, scale '
-  + 'mutations, or raising G06 to proven.';
+  + 'mutations, pre/post readiness absent from raw drill, 429/retry absent from durable '
+  + 'transcript, or raising G06 to proven.';
 
 const CLAIM_OWNERSHIP = Object.freeze({
   conservative_dual_staging_readyz_bounded_load: Object.freeze({
-    owner_class: 'operator_controlled_drill_output_locked',
+    owner_class: 'committed_raw_drill_output_locked',
     observation:
       'both_staging_readyz_60_of_60_2xx_peak_concurrency_2_zero_timeout_error_non2xx',
     proves: [
@@ -125,12 +147,12 @@ const CLAIM_OWNERSHIP = Object.freeze({
       'zero_timeout_error_non2xx',
       'wh_latency_p50_30_p95_32_p99_44_max_44_wall_954',
       'sunset_latency_p50_28_p95_29_p99_40_max_40_wall_879',
-      'pre_post_readyz_ready',
       'response_bodies_redirects_headers_auth_body_false',
       'dns_pinned_active_remaining_zero',
       'final_controlled_drill_live_proven_conservative_readyz_only',
     ],
     does_not_prove: [
+      'pre_post_readyz_ready',
       'load_soak_proof',
       'capacity_alert_firing',
       'notification_delivery',
@@ -141,26 +163,31 @@ const CLAIM_OWNERSHIP = Object.freeze({
       'full_G06_proven',
     ],
     limitation:
-      'Conservative readiness-profile success only; soak/fire/autoscale/SLO/backpressure open',
+      'Conservative readiness-profile success only as proven by raw drill JSON; '
+      + 'pre/post readiness absent; soak/fire/autoscale/SLO/backpressure open',
   }),
   sunset_mtd_actual_cost_guard: Object.freeze({
-    owner_class: 'azure_cost_management_actualcost_readonly',
-    observation: 'sunset_mtd_actualcost_before_after_identical_with_initial_after_429_retry',
+    owner_class: 'committed_raw_azure_cost_before_after_readonly',
+    observation: 'sunset_mtd_actualcost_before_after_identical',
     proves: [
       'sunset_mtd_actualcost_before_equals_after',
       'amount_18_2443795483871_USD',
-      'initial_after_query_429_then_successful_retry_disclosed',
     ],
     does_not_prove: [
+      'after_query_initial_429_then_successful_retry',
       'budget_anomaly_detection',
       'production_cost_proof',
       'full_G06_proven',
     ],
-    limitation: 'Sunset staging RG MTD ActualCost guard only; identical before/after',
+    limitation:
+      'Sunset staging RG MTD ActualCost guard only from raw before/after JSON; '
+      + 'identical before/after; no 429/retry claim',
   }),
 });
 
 const EXPLICITLY_NOT_CLAIMED = Object.freeze([
+  'pre_post_readyz_ready',
+  'after_query_initial_429_then_successful_retry',
   'load_soak_proof',
   'capacity_alert_firing',
   'notification_delivery',
@@ -179,17 +206,29 @@ const CLAIMS_ALLOWED = Object.freeze([
   'conservative_dual_staging_readyz_bounded_load_live_proven',
   'exact_two_staging_readyz_60_of_60_2xx_peak2_zero_errors',
   'exact_wh_sunset_latency_wall_metrics',
-  'pre_post_readyz_ready',
   'response_bodies_redirects_headers_auth_body_false_dns_pinned_active_zero',
   'sunset_mtd_actualcost_identical_before_after',
-  'after_query_initial_429_then_successful_retry_disclosed',
+  'durable_raw_artifact_sha256_provenance',
   'g06_remains_partial_score_unchanged',
   'soak_fire_autoscale_slo_backpressure_production_not_claimed',
+]);
+
+const OMITTED_CLAIM_TOKENS = Object.freeze([
+  'pre_post_readyz',
+  'pre/post',
+  'after_query_initial_429',
+  '429 then',
+  '429-retry',
+  '429_retry',
+  'successful retry',
 ]);
 
 const OWNED_RELS = Object.freeze([
   EVIDENCE_REL,
   CONTRACT_REL,
+  RAW_DRILL_REL,
+  RAW_COST_BEFORE_REL,
+  RAW_COST_AFTER_REL,
   'scripts/lib/radar-slice16ai-g06-live-load-evidence.js',
   'scripts/verify-radar-slice16ai-g06-live-load-evidence.js',
   'docs/RADAR-OPERATIONS-GATE-LEDGER.md',
@@ -216,7 +255,9 @@ const REQUIRED_RED = Object.freeze([
   'wrong_concurrency_peak_rejected',
   'timeout_or_error_drift_rejected',
   'cost_amount_drift_rejected',
-  'cost_429_disclosure_removed_rejected',
+  'raw_artifact_hash_drift_rejected',
+  'omitted_pre_post_readyz_claim_reappears_rejected',
+  'omitted_429_retry_claim_reappears_rejected',
   'soak_overclaim_rejected',
   'firing_overclaim_rejected',
   'autoscaling_overclaim_rejected',
@@ -229,9 +270,10 @@ const REQUIRED_RED = Object.freeze([
 const REQUIRED_GREEN = Object.freeze([
   'exact_two_targets_60_of_60_2xx',
   'exact_latency_and_wall',
-  'pre_post_readyz_ready',
   'transport_hygiene_dns_pinned_active_zero',
-  'sunset_cost_identical_with_429_retry_disclosed',
+  'sunset_cost_identical_before_after',
+  'raw_artifacts_sha256_match',
+  'evidence_values_match_raw_artifacts',
   'final_controlled_drill_live_proven_conservative_only',
   'g06_remains_partial',
   'score_not_inflated',
@@ -250,6 +292,13 @@ module.exports = {
   BRANCH,
   EVIDENCE_REL,
   CONTRACT_REL,
+  RAW_DRILL_REL,
+  RAW_COST_BEFORE_REL,
+  RAW_COST_AFTER_REL,
+  RAW_DRILL_SHA256,
+  RAW_COST_BEFORE_SHA256,
+  RAW_COST_AFTER_SHA256,
+  EXCLUDED_EPHEMERAL_PATHS,
   WH_READYZ_URL,
   SUNSET_READYZ_URL,
   ALLOWED_TARGETS,
@@ -277,6 +326,7 @@ module.exports = {
   CLAIM_OWNERSHIP,
   EXPLICITLY_NOT_CLAIMED,
   CLAIMS_ALLOWED,
+  OMITTED_CLAIM_TOKENS,
   OWNED_RELS,
   MUST_NOT_MUTATE,
   REQUIRED_RED,

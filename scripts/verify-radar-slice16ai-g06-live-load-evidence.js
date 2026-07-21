@@ -6,10 +6,13 @@
  * Offline gate: bounded evidence reconciliation of the successful controlled
  * dual-staging /readyz bounded-load drill + Sunset MTD ActualCost guard.
  *
- * Rejects metric/status/count/latency/cost/scope/overclaim drift and lock_hash
- * mismatch. Records final_controlled_drill live_proven for the conservative
- * readiness profile only. G06 remains partial. No Azure mutation / live network
- * by this verifier.
+ * Claims are bound only to committed secret-free raw fixtures (slice16ai-raw-*)
+ * via SHA-256 of exact file bytes. Rejects metric/status/count/latency/cost/
+ * scope/overclaim drift, raw artifact/hash drift, reappearance of omitted
+ * pre/post-readyz or 429/retry claims, and lock_hash mismatch.
+ * Records final_controlled_drill live_proven for the conservative readiness
+ * profile only. G06 remains partial. No Azure mutation / live network by this
+ * verifier.
  */
 
 const fs = require('fs');
@@ -49,6 +52,10 @@ function green(id, cond, detail) {
 
 function readText(rel) {
   return fs.readFileSync(path.join(ROOT, rel), 'utf8');
+}
+
+function readBytes(rel) {
+  return fs.readFileSync(path.join(ROOT, rel));
 }
 
 function readJson(rel) {
@@ -93,6 +100,10 @@ function evidenceHashPayload(ev) {
 
 function computeEvidenceLockHash(ev) {
   return crypto.createHash('sha256').update(stableStringify(evidenceHashPayload(ev))).digest('hex');
+}
+
+function sha256Bytes(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
 function deepEqual(a, b) {
@@ -210,8 +221,8 @@ function validateDrillFacts(ev) {
   if (root.drill_executed_at !== locks.DRILL_EXECUTED_AT) errors.push('executed_at');
   if (root.observed_at !== locks.INDEPENDENT_VERIFY_UTC) errors.push('observed_at');
   if (root.master_sha !== locks.MASTER_BASIS) errors.push('master_sha');
-  if (root.pre_post_readyz?.wolfhouse !== 'ready' || root.pre_post_readyz?.sunset !== 'ready') {
-    errors.push('pre_post_readyz');
+  if (Object.prototype.hasOwnProperty.call(root, 'pre_post_readyz')) {
+    errors.push('pre_post_readyz_must_be_absent');
   }
   const wh = targetRowOk(root.wolfhouse, locks.WH_READYZ_URL, locks.WH_LATENCY, locks.WH_WALL_MS);
   const sun = targetRowOk(
@@ -238,9 +249,188 @@ function validateCostFacts(ev) {
   if (c.identical !== true) errors.push('identical');
   if (c.captured_before_at !== locks.COST_BEFORE_AT) errors.push('before_at');
   if (c.captured_after_at !== locks.COST_AFTER_AT) errors.push('after_at');
-  if (c.after_query_initial_429_then_successful_retry !== true) errors.push('429_flag');
-  if (c.after_query_initial_status !== 429) errors.push('429_status');
-  if (c.after_query_retry_status !== 'success') errors.push('retry_status');
+  if (Object.prototype.hasOwnProperty.call(c, 'after_query_initial_429_then_successful_retry')) {
+    errors.push('429_flag_must_be_absent');
+  }
+  if (Object.prototype.hasOwnProperty.call(c, 'after_query_initial_status')) {
+    errors.push('429_status_must_be_absent');
+  }
+  if (Object.prototype.hasOwnProperty.call(c, 'after_query_retry_status')) {
+    errors.push('retry_status_must_be_absent');
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function validateRawArtifactHashes(ev) {
+  const errors = [];
+  const expected = [
+    [locks.RAW_DRILL_REL, locks.RAW_DRILL_SHA256, 'raw_drill'],
+    [locks.RAW_COST_BEFORE_REL, locks.RAW_COST_BEFORE_SHA256, 'raw_cost_before'],
+    [locks.RAW_COST_AFTER_REL, locks.RAW_COST_AFTER_SHA256, 'raw_cost_after'],
+  ];
+  const prov = ev && ev.durable_raw_artifact_provenance;
+  if (!prov || !Array.isArray(prov.artifacts) || prov.artifacts.length !== 3) {
+    return { ok: false, errors: ['provenance artifacts missing'] };
+  }
+  for (const [rel, expectSha, id] of expected) {
+    if (!fs.existsSync(path.join(ROOT, rel))) {
+      errors.push(`missing ${rel}`);
+      continue;
+    }
+    const got = sha256Bytes(readBytes(rel));
+    if (got !== expectSha) errors.push(`${id} file hash ${got} != ${expectSha}`);
+    const row = prov.artifacts.find((a) => a.id === id);
+    if (!row) {
+      errors.push(`provenance missing ${id}`);
+      continue;
+    }
+    if (row.path !== rel) errors.push(`${id} path`);
+    if (row.sha256 !== expectSha) errors.push(`${id} provenance sha`);
+  }
+  if (!deepEqual(prov.excluded_ephemeral_paths, [...locks.EXCLUDED_EPHEMERAL_PATHS])) {
+    errors.push('excluded_ephemeral_paths');
+  }
+  const drill = drillRoot(ev);
+  const cost = costRoot(ev);
+  if (!drill || drill.raw_artifact_sha256 !== locks.RAW_DRILL_SHA256) {
+    errors.push('drill.raw_artifact_sha256');
+  }
+  if (!cost
+    || cost.raw_before_sha256 !== locks.RAW_COST_BEFORE_SHA256
+    || cost.raw_after_sha256 !== locks.RAW_COST_AFTER_SHA256) {
+    errors.push('cost raw sha fields');
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function validateEvidenceMatchesRaw(ev) {
+  const errors = [];
+  const rawDrill = readJson(locks.RAW_DRILL_REL);
+  const rawBefore = readJson(locks.RAW_COST_BEFORE_REL);
+  const rawAfter = readJson(locks.RAW_COST_AFTER_REL);
+  const root = drillRoot(ev);
+  const cost = costRoot(ev);
+  if (!root || !cost) return { ok: false, errors: ['missing roots'] };
+
+  const whRaw = rawDrill.results.find((r) => r.target === locks.WH_READYZ_URL);
+  const sunRaw = rawDrill.results.find((r) => r.target === locks.SUNSET_READYZ_URL);
+  if (!whRaw || !sunRaw) return { ok: false, errors: ['raw targets missing'] };
+
+  const strip = (row) => ({
+    target: row.target,
+    method: row.method,
+    profile: row.profile,
+    started: row.started,
+    completed: row.completed,
+    peak_in_flight: row.peak_in_flight,
+    wall_ms: row.wall_ms,
+    stop_reason: row.stop_reason,
+    status_counts: row.status_counts,
+    error_code_classes: row.error_code_classes,
+    latency: row.latency,
+    response_bodies_collected: row.response_bodies_collected,
+    redirects_followed: row.redirects_followed,
+    headers_sent: row.headers_sent,
+    auth_sent: row.auth_sent,
+    body_sent: row.body_sent,
+    dns_pinned: row.dns_pinned,
+    active_requests_remaining: row.active_requests_remaining,
+  });
+
+  if (!deepEqual(strip(root.wolfhouse), strip(whRaw))) errors.push('wh mismatch vs raw');
+  if (!deepEqual(strip(root.sunset), strip(sunRaw))) errors.push('sunset mismatch vs raw');
+  if (root.drill_executed_at !== rawDrill.executed_at) errors.push('executed_at');
+  if (root.drill_id !== rawDrill.drill_id) errors.push('drill_id');
+  if (root.master_sha !== rawDrill.master_sha) errors.push('master_sha');
+
+  if (cost.amount_before !== rawBefore.amount) errors.push('amount_before');
+  if (cost.amount_after !== rawAfter.amount) errors.push('amount_after');
+  if (cost.captured_before_at !== rawBefore.capturedAt) errors.push('captured_before');
+  if (cost.captured_after_at !== rawAfter.capturedAt) errors.push('captured_after');
+  if (cost.scope !== rawBefore.scope || cost.scope !== rawAfter.scope) errors.push('scope');
+  if (Object.prototype.hasOwnProperty.call(rawDrill, 'pre_post_readyz')) {
+    errors.push('raw_drill unexpectedly has pre_post_readyz');
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function omittedClaimsAbsent(ev, sliceContract, matrix, doc, findings) {
+  const errors = [];
+  const blobs = [
+    JSON.stringify(ev),
+    JSON.stringify(sliceContract),
+    JSON.stringify(matrix.slice_16ai_selection || {}),
+    // 16AI-owned doc/findings sections: full docs may mention 16AH pre/post attempt
+  ];
+  for (const token of [
+    'pre_post_readyz_ready',
+    'after_query_initial_429_then_successful_retry',
+    'after_query_initial_status',
+    'after_query_retry_status',
+  ]) {
+    if (ev.claims_allowed && ev.claims_allowed.includes(token)) {
+      errors.push(`claims_allowed has ${token}`);
+    }
+    if (!(ev.explicitly_not_claimed || []).includes(token)
+      && (token === 'pre_post_readyz_ready'
+        || token === 'after_query_initial_429_then_successful_retry')) {
+      errors.push(`explicitly_not_claimed missing ${token}`);
+    }
+  }
+  if (drillRoot(ev) && Object.prototype.hasOwnProperty.call(drillRoot(ev), 'pre_post_readyz')) {
+    errors.push('evidence.pre_post_readyz present');
+  }
+  if (costRoot(ev)
+    && Object.prototype.hasOwnProperty.call(
+      costRoot(ev),
+      'after_query_initial_429_then_successful_retry',
+    )) {
+    errors.push('evidence.429 flag present');
+  }
+  if (sliceContract.required_observed
+    && Object.prototype.hasOwnProperty.call(sliceContract.required_observed, 'pre_post_readyz')) {
+    errors.push('contract.required_observed.pre_post_readyz');
+  }
+  if (sliceContract.required_observed
+    && Object.prototype.hasOwnProperty.call(
+      sliceContract.required_observed,
+      'after_query_initial_429_then_successful_retry',
+    )) {
+    errors.push('contract.required_observed.429');
+  }
+  // 16AI outcome/table claims in docs/findings must not affirmatively assert omitted facts.
+  // Negation phrasing ("does not claim", "explicitly omitted", "does not prove") is allowed.
+  const aiDocHit = /## Outcome \(16AI\)[\s\S]*?(?=## Outcome \(16AH)/.exec(doc);
+  const aiFindingsHit = /## Slice 16AI[\s\S]*?(?=## Slice 16AH)/.exec(findings);
+  const aiOwned = `${aiDocHit ? aiDocHit[0] : ''}\n${aiFindingsHit ? aiFindingsHit[0] : ''}`;
+  const affirmativePrePost = /(?:^|\n)\s*(?:\|)?\s*Pre\/post[^\n]*\|\s*ready\b/i.test(aiOwned)
+    || /pre\/post\s+`?\/readyz`?\s+\*\*ready\*\*/i.test(aiOwned)
+    || /pre\/post\s+`?\/readyz`?\s+ready(?!ness)/i.test(
+      aiOwned.replace(/does\s+not\s+(?:\*\*)?claim[\s\S]{0,80}pre\/post/gi, '')
+        .replace(/does not prove:[\s\S]*?(?=\n\n|\n\*\*)/gi, '')
+        .replace(/explicitly omitted[^\n]*/gi, '')
+        .replace(/explicitly does \*\*not\*\* claim[^\n]*/gi, ''),
+    );
+  const affirmative429 = /initial after-query\s+\*\*429\*\*/i.test(aiOwned)
+    || /429 then successful retry disclosed/i.test(aiOwned)
+    || (/before=after[^\n]*429/i.test(aiOwned) && !/omitted|not claim|does not prove/i.test(aiOwned));
+  if (affirmativePrePost) errors.push('16AI docs claim pre/post ready');
+  if (affirmative429) errors.push('16AI docs claim 429');
+  const selNote = JSON.stringify(matrix.slice_16ai_selection || {});
+  if (/pre\/post \/readyz ready(?!ness)/i.test(selNote)
+    && !/explicitly not claimed|omitted/i.test(selNote)) {
+    errors.push('matrix 16AI selection claims pre/post ready');
+  }
+  if (/429 then successful retry disclosed|initial after-query 429/i.test(selNote)) {
+    errors.push('matrix 16AI selection claims 429');
+  }
+  for (const b of blobs) {
+    if (/"pre_post_readyz"\s*:/.test(b)) errors.push('pre_post_readyz key in locked blob');
+    if (/after_query_initial_429_then_successful_retry/.test(b)
+      && !/does_not_prove|explicitly_not_claimed|must_not_claim|OMITTED|not claim|omitted/.test(b)) {
+      // allow only as negative claim tokens
+    }
+  }
   return { ok: errors.length === 0, errors };
 }
 
@@ -264,6 +454,14 @@ function validateGateMatrix(matrix) {
     if (g06.progress_class !== 'partial_live_proven') errors.push('G06 progress_class wrong');
     if (!/16AI|conservative.?readyz|bounded.?load/i.test(String(g06.rationale || ''))) {
       errors.push('G06 rationale missing 16AI facts');
+    }
+    if (/16AI reconciles[\s\S]*initial after-query 429 then successful retry disclosed/.test(
+      String(g06.rationale || ''),
+    )) {
+      errors.push('G06 rationale still claims 16AI 429');
+    }
+    if (/16AI reconciles[\s\S]*pre\/post \/readyz ready;/.test(String(g06.rationale || ''))) {
+      errors.push('G06 rationale still claims 16AI pre/post ready');
     }
     if (!Array.isArray(g06.gaps) || !g06.gaps.some((g) => /soak|fir|notification/i.test(String(g)))) {
       errors.push('G06 gaps must retain soak/firing/notification open');
@@ -388,10 +586,6 @@ function runVerifier() {
       && root.sunset.wall_ms === locks.SUNSET_WALL_MS);
   }
 
-  green('pre_post_readyz_ready',
-    drillRoot(evidence).pre_post_readyz.wolfhouse === 'ready'
-    && drillRoot(evidence).pre_post_readyz.sunset === 'ready');
-
   green('transport_hygiene_dns_pinned_active_zero',
     hygieneOk(drillRoot(evidence).wolfhouse)
     && hygieneOk(drillRoot(evidence).sunset)
@@ -400,18 +594,38 @@ function runVerifier() {
 
   {
     const c = validateCostFacts(evidence);
-    green('sunset_cost_identical_with_429_retry_disclosed', c.ok, c.errors.join(' | '));
+    green('sunset_cost_identical_before_after', c.ok, c.errors.join(' | '));
   }
 
-  green('final_controlled_drill_live_proven_conservative_only',
-    sliceContract.final_controlled_drill.id === locks.PROFILE_ID
-    && sliceContract.final_controlled_drill.status === 'live_proven'
-    && matrix.slice_16ai_selection.final_controlled_drill.status === 'live_proven'
-    && /conservative/i.test(String(sliceContract.final_controlled_drill.pass_rule || ''))
-    && /not soak|soak.*open|soak \(not claimed\)/i.test(
-      `${sliceContract.final_controlled_drill.pass_rule}\n${(sliceContract.still_open || []).join('\n')}`,
-    )
-    && !/\bload\s+soak\s+proven\b/i.test(sliceContract.final_controlled_drill.pass_rule));
+  {
+    const h = validateRawArtifactHashes(evidence);
+    green('raw_artifacts_sha256_match', h.ok, h.errors.join(' | '));
+  }
+
+  {
+    const m = validateEvidenceMatchesRaw(evidence);
+    green('evidence_values_match_raw_artifacts', m.ok, m.errors.join(' | '));
+  }
+
+  {
+    const passRule = String(sliceContract.final_controlled_drill.pass_rule || '');
+    const passRuleWithoutOmittedNegations = passRule
+      .replace(/Does not claim pre\/post \/readyz readiness \(absent from raw drill\)/gi, '')
+      .replace(/or after-query 429\/retry \(no durable transcript\)/gi, '');
+    green('final_controlled_drill_live_proven_conservative_only',
+      sliceContract.final_controlled_drill.id === locks.PROFILE_ID
+      && sliceContract.final_controlled_drill.status === 'live_proven'
+      && matrix.slice_16ai_selection.final_controlled_drill.status === 'live_proven'
+      && /conservative/i.test(passRule)
+      && /not soak|soak.*open|soak \(not claimed\)/i.test(
+        `${passRule}\n${(sliceContract.still_open || []).join('\n')}`,
+      )
+      && !/\bload\s+soak\s+proven\b/i.test(passRule)
+      && /Does not claim pre\/post \/readyz readiness/i.test(passRule)
+      && /Does not claim[\s\S]*429\/retry/i.test(passRule)
+      && !/pre\/post \/readyz ready/i.test(passRuleWithoutOmittedNegations)
+      && !/\b429\b/.test(passRuleWithoutOmittedNegations));
+  }
 
   {
     const g06 = matrix.gates.find((g) => g.id === locks.GATE_ID);
@@ -501,6 +715,22 @@ function runVerifier() {
     && sliceContract.progress_class === 'partial_live_proven_evidence_only'
     && matrix.slice_16ai_selection.progress_class === 'partial_live_proven_evidence_only');
 
+  {
+    const o = omittedClaimsAbsent(evidence, sliceContract, matrix, doc, findings);
+    ok('C16 omitted pre/post and 429 claims stay absent', o.ok, o.errors.join(' | '));
+  }
+
+  ok('C17 raw fixtures exist and are not tmp paths',
+    fs.existsSync(path.join(ROOT, locks.RAW_DRILL_REL))
+    && fs.existsSync(path.join(ROOT, locks.RAW_COST_BEFORE_REL))
+    && fs.existsSync(path.join(ROOT, locks.RAW_COST_AFTER_REL))
+    && !locks.RAW_DRILL_REL.startsWith('tmp/')
+    && !locks.RAW_COST_BEFORE_REL.startsWith('/tmp/')
+    && deepEqual(
+      evidence.durable_raw_artifact_provenance.excluded_ephemeral_paths,
+      [...locks.EXCLUDED_EPHEMERAL_PATHS],
+    ));
+
   // --- RED battery ---
   {
     const bad = deepClone(evidence);
@@ -544,9 +774,34 @@ function runVerifier() {
   }
   {
     const bad = deepClone(evidence);
-    bad.observed_facts.sunset_mtd_actual_cost_guard.after_query_initial_429_then_successful_retry = false;
-    delete bad.observed_facts.sunset_mtd_actual_cost_guard.after_query_initial_status;
-    red('cost_429_disclosure_removed_rejected',
+    bad.durable_raw_artifact_provenance.artifacts[0].sha256 = '0'.repeat(64);
+    bad.observed_facts.controlled_dual_staging_readyz_bounded_load.raw_artifact_sha256 = '0'.repeat(64);
+    red('raw_artifact_hash_drift_rejected',
+      !validateEvidenceExact(bad).ok || !validateRawArtifactHashes(bad).ok);
+  }
+  {
+    const bad = deepClone(evidence);
+    bad.observed_facts.controlled_dual_staging_readyz_bounded_load.pre_post_readyz = {
+      wolfhouse: 'ready',
+      sunset: 'ready',
+    };
+    bad.claims_allowed.push('pre_post_readyz_ready');
+    bad.explicitly_not_claimed = bad.explicitly_not_claimed.filter((x) => x !== 'pre_post_readyz_ready');
+    bad.disposition.proves.push('pre_post_readyz_ready');
+    red('omitted_pre_post_readyz_claim_reappears_rejected',
+      !validateEvidenceExact(bad).ok || !validateDrillFacts(bad).ok);
+  }
+  {
+    const bad = deepClone(evidence);
+    bad.observed_facts.sunset_mtd_actual_cost_guard.after_query_initial_429_then_successful_retry = true;
+    bad.observed_facts.sunset_mtd_actual_cost_guard.after_query_initial_status = 429;
+    bad.observed_facts.sunset_mtd_actual_cost_guard.after_query_retry_status = 'success';
+    bad.claims_allowed.push('after_query_initial_429_then_successful_retry_disclosed');
+    bad.explicitly_not_claimed = bad.explicitly_not_claimed.filter(
+      (x) => x !== 'after_query_initial_429_then_successful_retry',
+    );
+    bad.disposition.proves.push('after_query_initial_429_then_successful_retry');
+    red('omitted_429_retry_claim_reappears_rejected',
       !validateEvidenceExact(bad).ok || !validateCostFacts(bad).ok);
   }
   {

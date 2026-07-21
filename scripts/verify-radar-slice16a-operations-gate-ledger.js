@@ -1152,6 +1152,9 @@ ok('F192 contract selected_16ai matches',
 ok('F193 16AI fixtures + verifier present',
   pathExists('fixtures/radar-operations/slice16ai-g06-live-load-evidence.json')
   && pathExists('fixtures/radar-operations/slice16ai-expected-contract.json')
+  && pathExists('fixtures/radar-operations/slice16ai-raw-drill.json')
+  && pathExists('fixtures/radar-operations/slice16ai-raw-cost-before.json')
+  && pathExists('fixtures/radar-operations/slice16ai-raw-cost-after.json')
   && pathExists('scripts/lib/radar-slice16ai-g06-live-load-evidence.js')
   && pathExists('scripts/verify-radar-slice16ai-g06-live-load-evidence.js'));
 ok('F194 16AI does not claim soak / fire / autoscale / SLO / backpressure / production / full G06',

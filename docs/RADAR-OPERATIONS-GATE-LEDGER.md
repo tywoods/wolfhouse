@@ -10,7 +10,7 @@
 
 ## Outcome (16AI)
 
-Reconcile the successful controlled dual-staging `/readyz` bounded-load drill @ `2026-07-21T16:50:16Z` for profile `16AG_DRILL_dual_staging_readyz_bounded_load`:
+Reconcile the successful controlled dual-staging `/readyz` bounded-load drill @ `2026-07-21T16:50:16Z` for profile `16AG_DRILL_dual_staging_readyz_bounded_load`, claiming **only** what committed secret-free raw fixtures prove (`slice16ai-raw-drill` + `slice16ai-raw-cost-before/after`; ephemeral `/tmp` and `tmp/` excluded):
 
 | Fact | Locked value |
 |------|----------------|
@@ -19,24 +19,25 @@ Reconcile the successful controlled dual-staging `/readyz` bounded-load drill @ 
 | Errors | zero timeout / error / non-2xx |
 | WH latency / wall | p50/p95/p99/max 30/32/44/44ms; wall 954ms |
 | Sunset latency / wall | p50/p95/p99/max 28/29/40/40ms; wall 879ms |
-| Pre/post `/readyz` | ready both tenants |
 | Transport hygiene | response bodies/redirects/headers/auth/body false; DNS pinned; active remaining 0 |
-| Sunset MTD ActualCost | before=after **18.2443795483871 USD**; initial after-query **429** then successful retry disclosed |
+| Sunset MTD ActualCost | before=after **18.2443795483871 USD** (raw before/after JSON only) |
+| Raw artifact SHA-256 | drill `58512515…`; cost-before `f2428205…`; cost-after `30453489…` |
+| Explicitly omitted | pre/post `/readyz` readiness (absent from raw drill); after-query 429/retry (no durable transcript) |
 | `final_controlled_drill` | **`live_proven`** — conservative readiness profile only |
 
 ### Claim ownership (16AI locked)
 
 | Observation | Proves | Does not prove |
 |-------------|--------|----------------|
-| Conservative dual-staging `/readyz` bounded-load drill | Profile success with exact counts/latency/hygiene | Soak / sustained capacity |
-| Sunset MTD ActualCost identical + 429 retry disclosed | Cost guard unchanged across drill | Budget anomaly / production cost |
+| Conservative dual-staging `/readyz` bounded-load drill (raw drill JSON) | Profile success with exact counts/latency/hygiene | Pre/post readiness; soak / sustained capacity |
+| Sunset MTD ActualCost identical before/after (raw cost JSON) | Cost guard unchanged across drill | 429/retry; budget anomaly / production cost |
 | G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
 
 ## Truthful disposition (16AI)
 
-**Proves (evidence):** Conservative dual-staging `/readyz` bounded-load profile `live_proven` with exact metrics + Sunset MTD ActualCost identical before/after (429-then-retry disclosed).
+**Proves (evidence):** Conservative dual-staging `/readyz` bounded-load profile `live_proven` with exact metrics from committed raw drill + Sunset MTD ActualCost identical before/after from committed raw cost JSON (SHA-256 provenance locked).
 
-**Does not prove:** load soak; capacity alert firing/notification; autoscaling; capacity SLO/error budget; backpressure; production; raising G06 to `proven`.
+**Does not prove:** pre/post `/readyz` readiness; after-query 429/retry; load soak; capacity alert firing/notification; autoscaling; capacity SLO/error budget; backpressure; production; raising G06 to `proven`.
 
 **Conservative readiness profile closed as `live_proven`; soak/fire/autoscale/SLO/backpressure remain open; G06 remains partial.**
 
@@ -286,7 +287,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | pinnedLookup Happy Eyeballs `all=true` | `source_corrected_16AH` | validated pinned address array callback contract |
 | Future load drill profile (16AG lock) | `defined_not_executed_16AG` | 16AG source lock retained |
 | Post-16AG live load attempt | `attempted_not_proof_16AH` | 60/60 error-before-HTTP; retained |
-| Conservative dual-staging `/readyz` bounded-load | `live_proven_16AI` | 60/60 2xx both; peak2; exact latency/wall; cost guard |
+| Conservative dual-staging `/readyz` bounded-load | `live_proven_16AI` | 60/60 2xx both; peak2; exact latency/wall; cost before=after; raw SHA-256 bound; no pre/post or 429 claim |
 | Alert fire / notification delivery | `open` / `not claimed` | |
 | Load soak / sustained capacity | `open` / `not claimed` | 16AI does not claim soak |
 | Autoscaling | `open` / `not claimed` | rules=null |
@@ -298,7 +299,10 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 
 | Path | Role |
 |------|------|
-| `fixtures/radar-operations/slice16ai-g06-live-load-evidence.json` | Locked evidence + lock_hash |
+| `fixtures/radar-operations/slice16ai-raw-drill.json` | Secret-free durable raw drill JSON (SHA-256 locked) |
+| `fixtures/radar-operations/slice16ai-raw-cost-before.json` | Secret-free durable Sunset MTD ActualCost before |
+| `fixtures/radar-operations/slice16ai-raw-cost-after.json` | Secret-free durable Sunset MTD ActualCost after |
+| `fixtures/radar-operations/slice16ai-g06-live-load-evidence.json` | Locked evidence + lock_hash + raw provenance |
 | `fixtures/radar-operations/slice16ai-expected-contract.json` | Contract |
 | `scripts/lib/radar-slice16ai-g06-live-load-evidence.js` | Locks |
 | `scripts/verify-radar-slice16ai-g06-live-load-evidence.js` | Strict RED/GREEN verifier |
