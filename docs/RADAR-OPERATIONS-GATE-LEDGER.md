@@ -1,14 +1,46 @@
-# RADAR Slice 16AH — Operations gate ledger (G06 pinnedLookup live-load correction)
+# RADAR Slice 16AI — Operations gate ledger (G06 conservative /readyz live-load evidence)
 
-**Status:** source-only (no live network / deploy / scale mutation by this tip; G06 remains partial)
-**Master basis:** `6c24e9456bd42c7fa1b051bb1308aae8f632b293`
-**Branch:** `radar/slice-16ah-g06-live-load-correction`
+**Status:** evidence-only (no deploy / scale mutation by this tip; G06 remains partial)
+**Master basis:** `d04b633390bdcacfe3a04eed4796bba4184e29f8`
+**Branch:** `radar/slice-16ai-g06-live-load-evidence`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16AG bounded load harness source + 16AF capacity-alert live deploy + 16L capacity-pressure source
-**This slice does not deploy / does not hit staging:** offline production-shaped RED/GREEN only; prior live attempt recorded as `attempted_not_proof`
+**Builds on:** 16AH pinnedLookup correction + 16AG bounded load harness + 16AF capacity-alert live deploy + 16L capacity-pressure source
+**This slice does not deploy / does not mutate scale:** evidence reconciliation of an already-executed controlled drill + Sunset MTD ActualCost guard only
 
-## Outcome (16AH)
+## Outcome (16AI)
+
+Reconcile the successful controlled dual-staging `/readyz` bounded-load drill @ `2026-07-21T16:50:16Z` for profile `16AG_DRILL_dual_staging_readyz_bounded_load`:
+
+| Fact | Locked value |
+|------|----------------|
+| Targets | exact two staging `/readyz` allowlist URLs |
+| Counts | each target 60/60 2xx; peak_in_flight=2 |
+| Errors | zero timeout / error / non-2xx |
+| WH latency / wall | p50/p95/p99/max 30/32/44/44ms; wall 954ms |
+| Sunset latency / wall | p50/p95/p99/max 28/29/40/40ms; wall 879ms |
+| Pre/post `/readyz` | ready both tenants |
+| Transport hygiene | response bodies/redirects/headers/auth/body false; DNS pinned; active remaining 0 |
+| Sunset MTD ActualCost | before=after **18.2443795483871 USD**; initial after-query **429** then successful retry disclosed |
+| `final_controlled_drill` | **`live_proven`** — conservative readiness profile only |
+
+### Claim ownership (16AI locked)
+
+| Observation | Proves | Does not prove |
+|-------------|--------|----------------|
+| Conservative dual-staging `/readyz` bounded-load drill | Profile success with exact counts/latency/hygiene | Soak / sustained capacity |
+| Sunset MTD ActualCost identical + 429 retry disclosed | Cost guard unchanged across drill | Budget anomaly / production cost |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
+
+## Truthful disposition (16AI)
+
+**Proves (evidence):** Conservative dual-staging `/readyz` bounded-load profile `live_proven` with exact metrics + Sunset MTD ActualCost identical before/after (429-then-retry disclosed).
+
+**Does not prove:** load soak; capacity alert firing/notification; autoscaling; capacity SLO/error budget; backpressure; production; raising G06 to `proven`.
+
+**Conservative readiness profile closed as `live_proven`; soak/fire/autoscale/SLO/backpressure remain open; G06 remains partial.**
+
+## Outcome (16AH — retained)
 
 Correct the G06 bounded load harness so `pinnedLookup` honors Node’s `dns.lookup` callback contract when `options.all===true` (Happy Eyeballs / `autoSelectFamily`):
 
@@ -34,13 +66,13 @@ A controlled attempt of profile `16AG_DRILL_dual_staging_readyz_bounded_load` ag
 | Live attempt `attempted_not_proof` | Cautious record of failed pre-HTTP attempt | Load success; raising G06 verdict |
 | G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
 
-## Truthful disposition (16AH)
+## Truthful disposition (16AH — retained)
 
 **Proves (source):** Corrected `pinnedLookup` Node callback contract for `all=true` with fail-closed public-address validation and offline production-shaped real-TLS proof; safe error-code class aggregation; prior live attempt classified `attempted_not_proof`.
 
-**Does not prove:** live load/soak success; capacity alert firing/notification; autoscaling; capacity SLO/error budget; backpressure; production; raising G06 to `proven`.
+**Does not prove (16AH alone):** live load/soak success (later conservative profile success is owned by 16AI); capacity alert firing/notification; autoscaling; capacity SLO/error budget; backpressure; production; raising G06 to `proven`.
 
-**Pinned-lookup source gap closed; live load/soak success remains open; G06 remains partial.**
+**Pinned-lookup source gap closed; 16AH live attempt remains `attempted_not_proof`; G06 remains partial.**
 
 ## Outcome (16AG — retained)
 
@@ -243,7 +275,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | `scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js` | Strict RED/GREEN verifier |
 
 
-## G06 semantics (truthful after 16AH)
+## G06 semantics (truthful after 16AI)
 
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
@@ -252,14 +284,24 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | Current scale truth | `live_recorded_16AF` | WH min0/max1/rules null; Sunset min1/max1/rules null; g02503r |
 | Bounded `/readyz` load harness | `source_closed_16AG` | hard-locked two staging URLs; offline fake-server verifier |
 | pinnedLookup Happy Eyeballs `all=true` | `source_corrected_16AH` | validated pinned address array callback contract |
-| Future load drill profile | `defined_not_executed_16AG` | conservative concurrency/duration/request budget |
-| Post-16AG live load attempt | `attempted_not_proof_16AH` | 60/60 error-before-HTTP; direct `/readyz` stayed ready; not load success |
+| Future load drill profile (16AG lock) | `defined_not_executed_16AG` | 16AG source lock retained |
+| Post-16AG live load attempt | `attempted_not_proof_16AH` | 60/60 error-before-HTTP; retained |
+| Conservative dual-staging `/readyz` bounded-load | `live_proven_16AI` | 60/60 2xx both; peak2; exact latency/wall; cost guard |
 | Alert fire / notification delivery | `open` / `not claimed` | |
-| Live load / soak success proof | `open` / `not claimed` | prior attempt `attempted_not_proof` only |
+| Load soak / sustained capacity | `open` / `not claimed` | 16AI does not claim soak |
 | Autoscaling | `open` / `not claimed` | rules=null |
 | Capacity SLO / error budget | `open` / `not claimed` | |
 | Backpressure | `open` / `not claimed` | |
 | Production | `open` / forbidden | intentionally untouched |
+
+## Slice 16AI artifacts
+
+| Path | Role |
+|------|------|
+| `fixtures/radar-operations/slice16ai-g06-live-load-evidence.json` | Locked evidence + lock_hash |
+| `fixtures/radar-operations/slice16ai-expected-contract.json` | Contract |
+| `scripts/lib/radar-slice16ai-g06-live-load-evidence.js` | Locks |
+| `scripts/verify-radar-slice16ai-g06-live-load-evidence.js` | Strict RED/GREEN verifier |
 
 ## Slice 16AH artifacts
 
@@ -291,7 +333,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 ## Still open
 
 1. Capacity alert firing / notification delivery — **not claimed**
-2. Live dual-staging `/readyz` load/soak **success** proof — prior attempt **`attempted_not_proof`** (16AH); profile lock **defined_not_executed** (16AG) — **not claimed**
+2. Load soak / sustained capacity — **not claimed** (16AI `live_proven` is conservative `/readyz` bounded profile only; 16AH prior attempt remains `attempted_not_proof`; 16AG profile lock remains `defined_not_executed`)
 3. Autoscaling (rules=null) — **not claimed**
 4. Capacity SLO / error budget — **not claimed**
 5. Backpressure — **not claimed**
