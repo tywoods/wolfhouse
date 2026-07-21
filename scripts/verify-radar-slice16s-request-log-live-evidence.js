@@ -339,7 +339,7 @@ function validateGateMatrix(matrix) {
     return { ok: false, errors: ['matrix missing'] };
   }
   // Tip may advance (e.g. RADAR-16U); 16S selection + evidence remain authoritative here.
-  const tipOk = matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16U' || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || matrix.slice === 'RADAR-16AA';
+  const tipOk = matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16U' || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB');
   if (!tipOk) errors.push(`slice=${matrix.slice}`);
   const branchOk = matrix.branch === locks.BRANCH
     || matrix.branch === 'radar/slice-16u-correlation-design-freeze'
@@ -555,7 +555,7 @@ ok('C3 16S contract branch frozen (tip may advance to 16U/16W/16X)',
   && (currentBranch() === locks.BRANCH
     || currentBranch() === 'radar/slice-16u-correlation-design-freeze'
     || currentBranch() === 'radar/slice-16w-readiness-shutdown-lifecycle'
-    || currentBranch() === 'radar/slice-16x-g02-live-evidence' || currentBranch() === 'radar/slice-16y-shutdown-completion-log' || currentBranch() === 'radar/slice-16z-g02-live-sigterm-evidence' || currentBranch() === 'radar/slice-16aa-g02-live-sigint-evidence'),
+    || currentBranch() === 'radar/slice-16x-g02-live-evidence' || currentBranch() === 'radar/slice-16y-shutdown-completion-log' || currentBranch() === 'radar/slice-16z-g02-live-sigterm-evidence' || currentBranch() === 'radar/slice-16aa-g02-live-sigint-evidence' || currentBranch() === 'radar/slice-16ab-g02-readyz503-evidence'),
   currentBranch());
 
 {
@@ -569,13 +569,13 @@ ok('C5 explicitly_not_claimed complete',
   && evidence.explicitly_not_claimed.length === locks.EXPLICITLY_NOT_CLAIMED.length);
 
 ok('C6 top-level contract retains selected_16s (tip may be 16U/16W/16X)',
-  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16U' || topContract.slice === 'RADAR-16W' || topContract.slice === 'RADAR-16X' || topContract.slice === 'RADAR-16Y' || topContract.slice === 'RADAR-16Z' || topContract.slice === 'RADAR-16AA')
+  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16U' || topContract.slice === 'RADAR-16W' || topContract.slice === 'RADAR-16X' || topContract.slice === 'RADAR-16Y' || topContract.slice === 'RADAR-16Z' || (topContract.slice === 'RADAR-16AA' || topContract.slice === 'RADAR-16AB'))
   && topContract.selected_16s
   && topContract.selected_16s.outcome_id === locks.OUTCOME_ID
   && topContract.selected_16s.progress_class === locks.PROGRESS_CLASS);
 
 ok('C7 gate-matrix retains slice_16s_selection (tip may be 16U/16W/16X)',
-  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16U' || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || matrix.slice === 'RADAR-16AA')
+  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16U' || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB'))
   && matrix.slice_16s_selection
   && matrix.slice_16s_selection.outcome_id === locks.OUTCOME_ID
   && matrix.live_mutation === false);
@@ -588,7 +588,7 @@ ok('C7 gate-matrix retains slice_16s_selection (tip may be 16U/16W/16X)',
 
 const rt = runtimePathsUnchanged();
 ok('C9 zero runtime mutation vs master basis (waived when tip is 16W/16X ledger tip)',
-  rt.ok || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || matrix.slice === 'RADAR-16AA', rt.detail);
+  rt.ok || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB'), rt.detail);
 
 const blob = [JSON.stringify(evidence), JSON.stringify(contract), JSON.stringify(matrix),
   JSON.stringify(topContract), doc, findings].join('\n');
