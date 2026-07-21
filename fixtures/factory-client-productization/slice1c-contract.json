@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "slice": "FACTORY-1C",
+  "outcome_id": "1C_deterministic_disabled_dry_run_generator",
+  "branch": "factory/slice-1c-dry-run-generator",
+  "master_basis": "ce89a43ee1e2367a832255fec5ee4aefbfb4d2d8",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "title": "FACTORY Slice 1C — deterministic disabled dry-run onboarding generator",
+  "status": "dry_run_generator_delivered",
+  "mode": "dry-run",
+  "apply_path": false,
+  "archetypes": ["surf_house", "surf_school_shop"],
+  "cli": "scripts/onboard-client.js",
+  "library": "scripts/lib/factory-slice1c-dry-run-generator.js",
+  "verifier": "scripts/verify-factory-slice1c-dry-run-generator.js",
+  "completion_evidence": "1C_deterministic_disabled_dry_run_generator",
+  "completion_requires": "verify:factory-slice1c-dry-run-generator",
+  "evidence_classes": {
+    "required_current_stage": [
+      "pure_dry_run_generator_library_and_cli",
+      "byte_deterministic_canonical_sorted_json_preview",
+      "template_immutability_no_archetype_mutation",
+      "exact_output_set_manifest_and_hashes",
+      "no_side_effects_outside_explicit_output_dir_or_stdout",
+      "adversarial_rejection_of_secrets_live_targets_collisions_enablement"
+    ],
+    "out_of_scope_current_stage": [
+      "apply_path",
+      "registry_edits",
+      "config_clients_writes",
+      "runtime_loading",
+      "iac_mutation",
+      "db_mutation",
+      "deploy",
+      "secret_materialization",
+      "live_network_calls",
+      "third_tenant_live_or_prod_onboarding"
+    ]
+  },
+  "gates_npm": [
+    "npm run verify:factory-slice1c-dry-run-generator",
+    "npm run verify:factory-slice1b-archetype-templates",
+    "npm run verify:factory-slice1a-acceptance-contract",
+    "node scripts/verify-multiclient-isolation.js",
+    "node scripts/verify-no-client-hardcoding.js",
+    "node scripts/verify-tenant-resolution.js",
+    "node scripts/verify-meta-whatsapp-tenant-shadow.js",
+    "git diff --check"
+  ],
+  "findings": "fixtures/factory-client-productization/slice1c-findings.md",
+  "doc": "docs/FACTORY-CLIENT-PRODUCTIZATION.md",
+  "substitution_fixtures": [
+    "fixtures/factory-client-productization/slice1c-substitutions-surf_house.json",
+    "fixtures/factory-client-productization/slice1c-substitutions-surf_school_shop.json"
+  ]
+}

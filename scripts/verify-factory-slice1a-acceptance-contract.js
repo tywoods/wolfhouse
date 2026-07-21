@@ -228,18 +228,26 @@ ok('retained master RED deep-equal locks',
 
 const stageIds = contract.finite_stages.map((s) => s.id);
 ok('exactly five stages 1A–1E', deepEqual(stageIds, ['1A', '1B', '1C', '1D', '1E']));
-ok('1A/1B complete; later stages deferred',
+ok('1A/1B/1C complete; later stages deferred',
   contract.finite_stages[0].id === '1A'
   && contract.finite_stages[0].status === 'complete'
   && contract.finite_stages[1].id === '1B'
   && contract.finite_stages[1].status === 'complete'
-  && contract.finite_stages.slice(2).every((s) => s.status === 'deferred_future_stage'));
+  && contract.finite_stages[2].id === '1C'
+  && contract.finite_stages[2].status === 'complete'
+  && contract.finite_stages.slice(3).every((s) => s.status === 'deferred_future_stage'));
 ok('1A forbids productization surfaces', deepEqual(contract.finite_stages[0].forbids, expected.finite_stages[0].forbids));
 ok('1B completion_requires independent verifier',
   contract.finite_stages[1].completion_requires === 'verify:factory-slice1b-archetype-templates');
+ok('1C completion_requires independent verifier',
+  contract.finite_stages[2].completion_requires === 'verify:factory-slice1c-dry-run-generator');
 ok('archetype gate ledger evidence is 1B templates',
   contract.gates[0].current_stage_evidence === '1B_static_disabled_archetype_templates'
   && contract.gates[1].current_stage_evidence === '1B_static_disabled_archetype_templates');
+ok('1C safety gate ledger evidence is dry-run generator',
+  contract.gates[2].current_stage_evidence === '1C_deterministic_disabled_dry_run_generator'
+  && contract.gates[3].current_stage_evidence === '1C_deterministic_disabled_dry_run_generator'
+  && contract.gates[4].current_stage_evidence === '1C_deterministic_disabled_dry_run_generator');
 
 const gateIds = contract.gates.map((g) => g.id);
 ok('nine gates present', gateIds.length === 9);
@@ -978,6 +986,53 @@ if (process.env.FACTORY_1A_SKIP_NESTED_1B === '1') {
   );
   red('R_1B_complete_without_independent_validator',
     badErrs.includes('1b_complete_without_independent_validator'));
+}
+
+// ── 1C ledger gate (independent validator) ──────────────────────────────────
+console.log('\n── 1C ledger gate (independent validator) ──');
+let slice1cVerifierPassed = false;
+if (process.env.FACTORY_1A_SKIP_NESTED_1C === '1') {
+  // Called from the 1C verifier after its own core/RED suite already passed.
+  slice1cVerifierPassed = true;
+  ok('nested from 1C — skip re-entry into 1C verifier', true);
+} else {
+  const r = spawnSync('npm', ['run', 'verify:factory-slice1c-dry-run-generator'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, FACTORY_1C_LEDGER_PROBE: '1' },
+    timeout: 300000,
+    shell: true,
+  });
+  slice1cVerifierPassed = r.status === 0;
+  ok('independent 1C validator exit 0',
+    slice1cVerifierPassed,
+    r.status !== 0 ? (r.stderr || r.stdout || '').slice(-600) : '');
+}
+
+{
+  const ledgerErrs = locks.validate1cLedgerClaim(
+    contract.finite_stages[2],
+    contract.gates,
+    slice1cVerifierPassed,
+  );
+  ok('1C ledger complete only if independent validator passes',
+    ledgerErrs.length === 0,
+    ledgerErrs.join(','));
+}
+
+{
+  const badErrs = locks.validate1cLedgerClaim(
+    {
+      id: '1C',
+      status: 'complete',
+      completion_evidence: '1C_deterministic_disabled_dry_run_generator',
+      completion_requires: 'verify:factory-slice1c-dry-run-generator',
+    },
+    contract.gates,
+    false,
+  );
+  red('R_1C_complete_without_independent_validator',
+    badErrs.includes('1c_complete_without_independent_validator'));
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────────

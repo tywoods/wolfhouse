@@ -697,7 +697,8 @@
     "verify:radar-slice16am-g06-backpressure-deploy-evidence": "node scripts/verify-radar-slice16am-g06-backpressure-deploy-evidence.js",
     "verify:radar-slice16an-g06-wolfhouse-ingress-binding": "node scripts/verify-radar-slice16an-g06-wolfhouse-ingress-binding.js",
     "verify:radar-slice16ao-g06-backpressure-activation-evidence": "node scripts/verify-radar-slice16ao-g06-backpressure-activation-evidence.js",
-    "verify:radar-slice16ap-finite-closeout": "node scripts/verify-radar-slice16ap-finite-closeout.js"
+    "verify:radar-slice16ap-finite-closeout": "node scripts/verify-radar-slice16ap-finite-closeout.js",
+    "verify:factory-slice1c-dry-run-generator": "node scripts/verify-factory-slice1c-dry-run-generator.js"
   },
   "dependencies": {
     "acorn": "8.14.1",
