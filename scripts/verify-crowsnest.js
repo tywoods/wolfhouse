@@ -214,7 +214,7 @@ ok('Communications placeholder has no send/recipient controls', (() => {
 })());
 ok('Communications does not invent counts', !hasInventedMetricNumber(communicationsHtml));
 
-ok('product doc labels Slice 1 as local candidate not deployed', /Slice 1/i.test(productDoc) && /local candidate|not live/i.test(productDoc));
+ok('product doc labels Slice 1 as merged and deployed', /Slice 1/i.test(productDoc) && /merged and deployed/i.test(productDoc) && /14a7e3f7f656dd8a7dc11b528b8a645d3feb1210/.test(productDoc) && /crowsnest-internal--0000010/.test(productDoc) && /#128|PR #128|pull\/128/i.test(productDoc) && /cb11e/.test(productDoc) && /wh-staging-staff-api--0000520/.test(productDoc) && !/local candidate/i.test(productDoc));
 
 const crowsnestLibSrc = [pageSrc, clientsSrc, onboardingSrc, read(AUTH_PATH) || ''].join('\n');
 ok('no fetch/axios/http outbound in crowsnest lib', !/\bfetch\s*\(|require\(['"]axios|require\(['"]node-fetch|https?\.request\s*\(|https?\.get\s*\(/.test(crowsnestLibSrc));
