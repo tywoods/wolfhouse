@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AK",
+  "title": "Staff API request topology classification (inspected; source contract)",
+  "master_basis": "9fa3626326c0e2bc21f2d37905967d6ff47b7520",
+  "source_of_truth": "scripts/staff-query-api.js router + required libs \u2014 not guessed",
+  "request_entry": {
+    "factory": "createStaffQueryApiHttpServer",
+    "order": [
+      "resolveTrustedIngressBinding(options.ingressBinding | DEFAULT_CLIENT_SLUG)",
+      "http.createServer",
+      "runWithRequestCorrelation(ALS)",
+      "attachStaffApiRequestCompletion",
+      "router(req,res)"
+    ],
+    "evidence": "scripts/staff-query-api.js L46850-46877"
+  },
+  "existing_admission_or_backpressure": {
+    "present": false,
+    "note": "No in-flight semaphore, admission queue, or fail-fast 503 Retry-After shed found in Staff API runtime libs"
+  },
+  "trusted_tenant_identity": {
+    "accepted": [
+      "construction-time ingressBinding.tenant_slug",
+      "process.env.DEFAULT_CLIENT_SLUG via resolveTrustedIngressBinding",
+      "bot principal LUNA_BOT_CLIENT_SLUG / DEFAULT_CLIENT_SLUG",
+      "STRIPE_WEBHOOK_CLIENT_SLUG / DEFAULT_CLIENT_SLUG",
+      "staff session DB client membership"
+    ],
+    "rejected_for_admission_keying": [
+      "request headers client / client_slug / tenant_slug",
+      "query ?client= / ?tenant_slug=",
+      "body client_slug aliases without principal bind (15F conflict fail-closed for bot)"
+    ],
+    "evidence": [
+      "scripts/lib/staff-api-request-correlation.js#resolveTrustedIngressBinding",
+      "scripts/staff-query-api.js createStaffQueryApiHttpServer comment: Trusted tenant slug from construction-time ingress binding only (never request headers/query)"
+    ]
+  },
+  "families": {
+    "health_probe": {
+      "admission": "exclude",
+      "side_effect": "none",
+      "idempotency": "n/a_liveness_readiness",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/healthz",
+          "evidence": "scripts/lib/staff-api-healthz.js + router L46824-46826",
+          "notes": "DB-independent public liveness"
+        },
+        {
+          "method": "GET",
+          "path": "/",
+          "evidence": "router L46824-46826 (alias) and early L45073",
+          "notes": "healthz alias in late router; early / may differ for public landing \u2014 admission excludes both"
+        },
+        {
+          "method": "GET",
+          "path": "/readyz",
+          "evidence": "scripts/lib/staff-api-readiness.js + router L46816-46822",
+          "notes": "Dedicated max-1 readiness pool; must stay independent of admission saturation"
+        }
+      ]
+    },
+    "webhook_side_effect": {
+      "admission": "admit_pre_side_effect_only",
+      "side_effect": "durable_or_provider",
+      "idempotency": "stripe_event_id_claim_16M_meta_ingress",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/staff/stripe/webhook",
+          "evidence": "router L45482-45487 \u2192 handleStripeWebhook; stripe-webhook-event-claim.js",
+          "notes": "BEGIN \u2192 claimStripeWebhookEvent \u2192 mutate \u2192 COMMIT; post-claim must not 503-shed"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/meta/whatsapp/webhook",
+          "evidence": "router L45491-45498",
+          "notes": "POST ingress mutate path; GET verify challenge is read_idempotent"
+        }
+      ]
+    },
+    "webhook_verify_read": {
+      "admission": "admit",
+      "side_effect": "none",
+      "idempotency": "idempotent_get",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/staff/meta/whatsapp/webhook",
+          "evidence": "router L45491-45493 handleMetaWhatsAppWebhookGet",
+          "notes": "Meta verify challenge"
+        }
+      ]
+    },
+    "write_side_effect_examples": {
+      "admission": "admit_pre_side_effect_only",
+      "side_effect": "durable_db_and_or_stripe",
+      "idempotency": "non_idempotent_unless_handler_says_otherwise",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/staff/bookings/cancel",
+          "evidence": "router L45301 \u2192 handleBookingCancel (BEGIN/COMMIT)",
+          "notes": "durable booking cancel"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/bookings/edit",
+          "evidence": "router L45267 \u2192 handleBookingEditWrite",
+          "notes": "durable edit write"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/bookings/move",
+          "evidence": "router L45410 \u2192 handleBookingMoveWrite",
+          "notes": "durable bed move"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/bookings/record-cash-payment",
+          "evidence": "router L45356 \u2192 handleBookingRecordCashPayment",
+          "notes": "durable payment record"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/bookings/generate-payment-link",
+          "evidence": "router L45367 \u2192 handleBookingGeneratePaymentLink",
+          "notes": "Stripe session create + DB"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/manual-bookings/create",
+          "evidence": "router L45459 \u2192 handleManualBookingCreate",
+          "notes": "durable booking create"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/bot/bookings/create",
+          "evidence": "router L46136",
+          "notes": "bot durable booking create"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/bot/bookings/cancel",
+          "evidence": "router L46147",
+          "notes": "bot durable cancel"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/bot/sunset/booking-create",
+          "evidence": "router L45649",
+          "notes": "Sunset bot create"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/inbox/send-reply",
+          "evidence": "router L45152",
+          "notes": "WhatsApp send side effect"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/auth/login",
+          "evidence": "router L45083 \u2192 handleLogin",
+          "notes": "session insert side effect"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/customers/bulk-delete",
+          "evidence": "router L46629",
+          "notes": "durable delete"
+        }
+      ]
+    },
+    "read_like_non_durable_examples": {
+      "admission": "admit",
+      "side_effect": "transient_begin_rollback_or_select_only",
+      "idempotency": "safe_to_retry_if_rolled_back",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/staff/manual-bookings/preview",
+          "evidence": "router L45213 \u2192 handleManualBookingPreview",
+          "notes": "preview; may use txn rollback patterns"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/bookings/move-preview",
+          "evidence": "router L45234",
+          "notes": "preview"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/bookings/edit-preview",
+          "evidence": "router L45256",
+          "notes": "preview"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/bot/booking-dry-run",
+          "evidence": "router L45731",
+          "notes": "dry-run"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/bot/availability-check",
+          "evidence": "router L45937",
+          "notes": "availability check"
+        },
+        {
+          "method": "POST",
+          "path": "/staff/schedule/bookings/quote",
+          "evidence": "router L46523",
+          "notes": "quote"
+        }
+      ]
+    },
+    "read_idempotent_examples": {
+      "admission": "admit",
+      "side_effect": "none",
+      "idempotency": "idempotent_get",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/staff/bookings/service-catalog",
+          "evidence": "router L45338 method===GET",
+          "notes": "SELECT catalog"
+        },
+        {
+          "method": "GET",
+          "path": "/staff/query",
+          "evidence": "router L46759 \u2192 handleQuery",
+          "notes": "read-only staff query"
+        },
+        {
+          "method": "GET",
+          "path": "/staff/intents",
+          "evidence": "router L46753",
+          "notes": "intent list"
+        },
+        {
+          "method": "GET",
+          "path": "/staff/conversations",
+          "evidence": "router L46784",
+          "notes": "inbox list"
+        },
+        {
+          "method": "GET",
+          "path": "/staff/auth/session",
+          "evidence": "router L45101",
+          "notes": "session read"
+        },
+        {
+          "method": "GET",
+          "path": "/staff/bot/payments/status",
+          "evidence": "router L45988",
+          "notes": "payment status read"
+        },
+        {
+          "method": "GET",
+          "path": "/staff/schedule/day",
+          "evidence": "router L46493 method===GET",
+          "notes": "schedule day read"
+        }
+      ]
+    }
+  },
+  "classification_rules_for_library": {
+    "health_probe": "pathname in [/healthz,/readyz,/] \u2192 admission exclude",
+    "webhook_side_effect": "POST /staff/stripe/webhook or POST /staff/meta/whatsapp/webhook",
+    "read_idempotent": "GET/HEAD (non-excluded), including Meta webhook GET verify",
+    "read_like_non_durable": "non-GET path matching preview/dry-run/quote/availability/lookup/catalog/status suffixes",
+    "write_side_effect": "POST/PUT/PATCH/DELETE otherwise"
+  },
+  "router_pathname_literal_count_inspected": 159,
+  "note": "Fixture lists evidenced exemplars per family; library classifyRoute applies deterministic rules above to all paths. Full 159 literal paths were enumerated from router if-chain \u2014 not inventing endpoints."
+}

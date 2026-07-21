@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AK",
+  "outcome_id": "16AK_g06_backpressure_source",
+  "gate_id": "G06_scaling_capacity",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "9fa3626326c0e2bc21f2d37905967d6ff47b7520",
+  "branch": "radar/slice-16ak-g06-backpressure-source",
+  "title": "Tenant-safe Staff API admission-control / backpressure source contract",
+  "live_deploy": false,
+  "live_mutation": false,
+  "live_network": false,
+  "runtime_wired": false,
+  "azure_scope": {
+    "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resource_groups": ["wh-staging-rg", "luna-sunset-staging-rg"],
+    "note": "Staging-only scope lock; production forbidden"
+  },
+  "topology_inspected": {
+    "entry": "scripts/staff-query-api.js#createStaffQueryApiHttpServer → runWithRequestCorrelation → attachStaffApiRequestCompletion → router",
+    "router": "scripts/staff-query-api.js#router (~L45049)",
+    "healthz": "scripts/lib/staff-api-healthz.js via pathname /healthz|/| (L46824-46826)",
+    "readyz": "scripts/lib/staff-api-readiness.js via pathname /readyz (L46816-46822); dedicated max-1 readiness pool",
+    "trusted_tenant": "resolveTrustedIngressBinding (DEFAULT_CLIENT_SLUG / construction-time); never request headers/query",
+    "existing_backpressure": "none — no in-flight semaphore, admission queue, or 503 Retry-After shed in Staff API runtime",
+    "transactional_patterns": [
+      "POST /staff/stripe/webhook → handleStripeWebhook BEGIN → claimStripeWebhookEvent → mutate → COMMIT (16M)",
+      "Booking write handlers with BEGIN/COMMIT (edit/cancel/move/cash/payment-link)",
+      "Preview handlers may BEGIN/ROLLBACK (non-durable)"
+    ]
+  },
+  "limits": {
+    "max_in_flight_global": 8,
+    "max_queued_global": 16,
+    "max_in_flight_per_tenant": 4,
+    "max_queued_per_tenant": 8,
+    "retry_after_seconds": 1,
+    "max_diag_events": 32,
+    "max_tenant_keys_tracked": 64
+  },
+  "http_reject": {
+    "status": 503,
+    "retry_after_header": "Retry-After",
+    "only_before_side_effects": true
+  },
+  "route_classes": [
+    "health_probe",
+    "read_idempotent",
+    "read_like_non_durable",
+    "write_side_effect",
+    "webhook_side_effect"
+  ],
+  "exclusions": {
+    "health_readiness": ["/healthz", "/readyz", "/"],
+    "in_progress_transactional": "markSideEffectStarted → tryRejectWith503 forbidden",
+    "readiness_independence": true
+  },
+  "trusted_tenant_only": true,
+  "per_tenant_isolation": true,
+  "fairness": "round_robin_promote_across_waiting_tenants",
+  "cleanup": ["release", "abort", "timeout"],
+  "no_double_release": true,
+  "bounded_diagnostics": true,
+  "future_integration_drill": {
+    "id": "16AK_INTEGRATION_staff_api_admission_wire",
+    "status": "defined_not_executed"
+  },
+  "offline_source_contract": {
+    "id": "16AK_OFFLINE_admission_control_source_contract",
+    "status": "offline_source_proven"
+  },
+  "g06_disposition": {
+    "verdict": "partial",
+    "backpressure_source": "source_defined_via_16AK",
+    "backpressure_runtime_proof": "open",
+    "score": { "proven": 0, "partial": 9, "absent": 0 }
+  },
+  "explicitly_not_claimed": [
+    "backpressure_proven",
+    "admission_control_runtime_wired",
+    "live_503_shed_observed",
+    "load_soak_proof",
+    "autoscaling",
+    "capacity_slo_proven",
+    "production",
+    "full_G06_proven"
+  ]
+}

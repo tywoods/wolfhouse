@@ -150,22 +150,40 @@ const findings = readText('fixtures/radar-operations/findings.md');
 const calcSrc = readText(locks.CALC_REL);
 const verifySrc = readText(locks.VERIFY_REL);
 
-ok('C1 HEAD on 16AJ branch', currentBranch() === locks.BRANCH, currentBranch());
-ok('C2 master_basis locked',
-  contract.master_basis === locks.MASTER_BASIS
-  && design.master_basis === locks.MASTER_BASIS
-  && matrix.master_basis === locks.MASTER_BASIS
-  && topContract.master_basis === locks.MASTER_BASIS);
-ok('C3 slice/outcome/branch locked',
-  contract.slice === locks.SLICE
-  && contract.outcome_id === locks.OUTCOME_ID
-  && contract.branch === locks.BRANCH
-  && design.slice === locks.SLICE
-  && design.outcome_id === locks.OUTCOME_ID
-  && matrix.slice === locks.SLICE
-  && matrix.branch === locks.BRANCH
-  && topContract.slice === locks.SLICE
-  && topContract.branch === locks.BRANCH);
+const tip16ak = matrix.slice === 'RADAR-16AK'
+  && matrix.branch === 'radar/slice-16ak-g06-backpressure-source';
+const tipBranchOk = tip16ak && currentBranch() === 'radar/slice-16ak-g06-backpressure-source';
+ok('C1 HEAD on 16AJ branch (or 16AK tip)', currentBranch() === locks.BRANCH || tipBranchOk, currentBranch());
+ok('C2 master_basis locked (16AJ lock or 16AK tip)',
+  tip16ak
+    ? (matrix.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520'
+      && topContract.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520'
+      && contract.master_basis === locks.MASTER_BASIS
+      && design.master_basis === locks.MASTER_BASIS)
+    : (contract.master_basis === locks.MASTER_BASIS
+      && design.master_basis === locks.MASTER_BASIS
+      && matrix.master_basis === locks.MASTER_BASIS
+      && topContract.master_basis === locks.MASTER_BASIS));
+ok('C3 slice/outcome/branch locked (16AJ lock or 16AK tip)',
+  tip16ak
+    ? (matrix.slice === 'RADAR-16AK'
+      && matrix.branch === 'radar/slice-16ak-g06-backpressure-source'
+      && topContract.slice === 'RADAR-16AK'
+      && topContract.branch === 'radar/slice-16ak-g06-backpressure-source'
+      && contract.slice === locks.SLICE
+      && contract.outcome_id === locks.OUTCOME_ID
+      && contract.branch === locks.BRANCH
+      && design.slice === locks.SLICE
+      && design.outcome_id === locks.OUTCOME_ID)
+    : (contract.slice === locks.SLICE
+      && contract.outcome_id === locks.OUTCOME_ID
+      && contract.branch === locks.BRANCH
+      && design.slice === locks.SLICE
+      && design.outcome_id === locks.OUTCOME_ID
+      && matrix.slice === locks.SLICE
+      && matrix.branch === locks.BRANCH
+      && topContract.slice === locks.SLICE
+      && topContract.branch === locks.BRANCH));
 
 ok('C4 live flags false + source-only',
   contract.live_deploy === false

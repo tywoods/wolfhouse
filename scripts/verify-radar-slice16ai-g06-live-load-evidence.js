@@ -440,10 +440,14 @@ function validateGateMatrix(matrix) {
   const tip16aj = matrix.slice === 'RADAR-16AJ'
     && matrix.branch === 'radar/slice-16aj-g06-slo-error-budget-source'
     && matrix.master_basis === '0994989a3d5d14daa98797fac55083b0c2ea809c';
+  const tip16ak = matrix.slice === 'RADAR-16AK'
+    && matrix.branch === 'radar/slice-16ak-g06-backpressure-source'
+    && matrix.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520';
   const tipOk = (matrix.slice === locks.SLICE
     && matrix.branch === locks.BRANCH
     && matrix.master_basis === locks.MASTER_BASIS)
-    || tip16aj;
+    || tip16aj
+    || tip16ak;
   if (!tipOk) {
     errors.push(`slice=${matrix.slice}`);
     errors.push(`branch=${matrix.branch}`);
@@ -540,14 +544,19 @@ function runVerifier() {
   const findings = readText('fixtures/radar-operations/findings.md');
 
   const tip16aj = matrix.slice === 'RADAR-16AJ';
-  const tipBranchOk = tip16aj && currentBranch() === 'radar/slice-16aj-g06-slo-error-budget-source';
-  const tipBasisOk = tip16aj
+  const tip16ak = matrix.slice === 'RADAR-16AK';
+  const tipBranchOk = (tip16aj && currentBranch() === 'radar/slice-16aj-g06-slo-error-budget-source')
+    || (tip16ak && currentBranch() === 'radar/slice-16ak-g06-backpressure-source');
+  const tipBasisOk = (tip16aj
     && matrix.master_basis === '0994989a3d5d14daa98797fac55083b0c2ea809c'
-    && topContract.master_basis === '0994989a3d5d14daa98797fac55083b0c2ea809c';
-  ok('C1 HEAD on 16AI branch (or 16AJ tip)',
+    && topContract.master_basis === '0994989a3d5d14daa98797fac55083b0c2ea809c')
+    || (tip16ak
+    && matrix.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520'
+    && topContract.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520');
+  ok('C1 HEAD on 16AI branch (or 16AJ/16AK tip)',
     currentBranch() === locks.BRANCH || tipBranchOk, currentBranch());
   ok('C2 evidence master_basis locked', evidence.master_basis === locks.MASTER_BASIS);
-  ok('C3 slice/outcome/branch locked (16AI lock or 16AJ tip)',
+  ok('C3 slice/outcome/branch locked (16AI lock or 16AJ/16AK tip)',
     (evidence.slice === locks.SLICE
       && evidence.outcome_id === locks.OUTCOME_ID
       && evidence.branch === locks.BRANCH
@@ -563,6 +572,16 @@ function runVerifier() {
       && matrix.branch === 'radar/slice-16aj-g06-slo-error-budget-source'
       && topContract.slice === 'RADAR-16AJ'
       && topContract.branch === 'radar/slice-16aj-g06-slo-error-budget-source'
+      && evidence.slice === locks.SLICE
+      && evidence.branch === locks.BRANCH
+      && sliceContract.slice === locks.SLICE
+      && sliceContract.branch === locks.BRANCH)
+    || (tip16ak
+      && tipBasisOk
+      && matrix.slice === 'RADAR-16AK'
+      && matrix.branch === 'radar/slice-16ak-g06-backpressure-source'
+      && topContract.slice === 'RADAR-16AK'
+      && topContract.branch === 'radar/slice-16ak-g06-backpressure-source'
       && evidence.slice === locks.SLICE
       && evidence.branch === locks.BRANCH
       && sliceContract.slice === locks.SLICE

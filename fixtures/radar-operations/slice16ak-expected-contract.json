@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AK",
+  "outcome_id": "16AK_g06_backpressure_source",
+  "gate_ids": ["G06_scaling_capacity"],
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "9fa3626326c0e2bc21f2d37905967d6ff47b7520",
+  "branch": "radar/slice-16ak-g06-backpressure-source",
+  "live_deploy": false,
+  "live_mutation": false,
+  "live_network": false,
+  "this_slice_deploys": false,
+  "this_slice_implements_runtime": false,
+  "audit_only": true,
+  "title": "G06 backpressure / admission-control source contract — tenant-safe pure state machine + topology classification; integration defined_not_executed",
+  "design_fixture": "fixtures/radar-operations/slice16ak-g06-backpressure-contract.json",
+  "topology_fixture": "fixtures/radar-operations/slice16ak-staff-api-topology.json",
+  "builds_on": [
+    "16AJ_g06_slo_error_budget_source",
+    "16AI_g06_live_load_evidence",
+    "16AH_g06_live_load_correction",
+    "16AG_g06_bounded_load_harness",
+    "16AF_g06_capacity_alert_live_evidence",
+    "16L_staff_api_capacity_pressure_alerts",
+    "16M_stripe_event_claim",
+    "16J_staff_request_correlation",
+    "16K_staff_api_healthz",
+    "16I_staff_api_readiness"
+  ],
+  "does_not_implement": "live_deploy_runtime_wire_load_soak_autoscaling_backpressure_proven_slo_proven_production_full_g06_scale_mutation",
+  "limits": {
+    "max_in_flight_global": 8,
+    "max_queued_global": 16,
+    "max_in_flight_per_tenant": 4,
+    "max_queued_per_tenant": 8,
+    "retry_after_seconds": 1,
+    "max_diag_events": 32,
+    "max_tenant_keys_tracked": 64
+  },
+  "http_reject": {
+    "status": 503,
+    "retry_after_header": "Retry-After",
+    "only_before_side_effects": true
+  },
+  "final_controlled_drill": {
+    "id": "16AK_INTEGRATION_staff_api_admission_wire",
+    "status": "defined_not_executed",
+    "pass_rule": "After approved future slice: wire admission at createStaffQueryApiHttpServer with trusted ingress tenant only; exclude health/ready; markSideEffectStarted before durable work; 503+Retry-After only pre-side-effect; does not claim production/soak/autoscale/G06 proven"
+  },
+  "offline_source_contract": {
+    "id": "16AK_OFFLINE_admission_control_source_contract",
+    "status": "offline_source_proven",
+    "pass_rule": "Pure dependency-free admission controller + deterministic RED/GREEN verifier prove exact locked limits, topology-informed classification, burst/queue overflow, fairness, spoofed/missing tenant, timeout/abort/races, no double release, counter underflow/overflow, reentrancy, post-side-effect rejection forbidden, cross-tenant isolation, readiness independence, bounded diagnostics; integration defined_not_executed; G06 partial; score unchanged; no runtime wire"
+  },
+  "forbidden_claim_tokens": [
+    "backpressure proven",
+    "admission control proven",
+    "G06 proven",
+    "full G06",
+    "full_G06_proven",
+    "production",
+    "SLO proven",
+    "capacity SLO proven",
+    "autoscaling proven",
+    "load soak proven",
+    "wired into runtime",
+    "live shed proven"
+  ],
+  "must_not_claim_as_proven": [
+    "backpressure_proven",
+    "admission_control_runtime_wired",
+    "live_503_shed_observed",
+    "load_soak_proof",
+    "autoscaling",
+    "capacity_slo_proven",
+    "error_budget_proven",
+    "production",
+    "full_G06_proven",
+    "any_gate_verdict_proven",
+    "scale_mutation_by_this_slice",
+    "deploy_by_this_slice",
+    "staff_api_runtime_mutation"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "16AK source-defines tenant-safe admission/backpressure contract + pure library only; integration drill defined_not_executed; G06 remains partial because runtime wire, live 503 shed, soak, fire/notification, autoscaling, and SLO live remain open; score unchanged"
+  },
+  "still_open": [
+    "Staff API admission runtime wire / live 503 shed (integration defined_not_executed)",
+    "Load soak / sustained capacity proof (not claimed)",
+    "Autoscaling rules (rules=null; not claimed)",
+    "Capacity SLO / error budget live proof (16AJ source; not proven)",
+    "Capacity alert fire / notification (not claimed)",
+    "Backpressure runtime/live proof (source defined; not proven)",
+    "Production scope (forbidden)",
+    "Raising G06 verdict to proven"
+  ],
+  "artifacts": [
+    "fixtures/radar-operations/slice16ak-g06-backpressure-contract.json",
+    "fixtures/radar-operations/slice16ak-expected-contract.json",
+    "fixtures/radar-operations/slice16ak-staff-api-topology.json",
+    "scripts/lib/radar-g06-admission-control.js",
+    "scripts/lib/radar-slice16ak-g06-backpressure.js",
+    "scripts/verify-radar-slice16ak-g06-backpressure.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16ak-g06-backpressure",
+    "npm run verify:radar-slice16aj-g06-slo-error-budget",
+    "npm run verify:radar-slice16ai-g06-live-load-evidence",
+    "npm run verify:radar-slice16ah-g06-live-load-correction",
+    "npm run verify:radar-slice16ag-g06-bounded-load-harness",
+    "npm run verify:radar-slice16af-g06-capacity-alert-live-evidence",
+    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 9fa3626326c0e2bc21f2d37905967d6ff47b7520..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "docker/hermes-sunset/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-readiness.js",
+      "scripts/lib/staff-api-readiness-lifecycle.js",
+      "scripts/lib/staff-api-readiness-shutdown-completion-log.js",
+      "scripts/lib/staff-api-request-correlation.js",
+      "scripts/lib/staff-api-healthz.js",
+      "scripts/lib/stripe-webhook-event-claim.js",
+      "scripts/lib/radar-g06-bounded-load-harness.js",
+      "scripts/lib/radar-g06-slo-error-budget.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16AK is source/text-only admission/backpressure contract + pure library; no Staff API/Bicep/alert deploy/live/scale/runtime wire"
+  }
+}

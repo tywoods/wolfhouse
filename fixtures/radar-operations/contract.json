@@ -1,16 +1,22 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16AJ",
-  "outcome_id": "16AJ_g06_slo_error_budget_source",
-  "master_basis": "0994989a3d5d14daa98797fac55083b0c2ea809c",
-  "branch": "radar/slice-16aj-g06-slo-error-budget-source",
+  "slice": "RADAR-16AK",
+  "outcome_id": "16AK_g06_backpressure_source",
+  "master_basis": "9fa3626326c0e2bc21f2d37905967d6ff47b7520",
+  "branch": "radar/slice-16ak-g06-backpressure-source",
   "audit_only": true,
   "live_mutation": false,
-  "title": "G06 capacity SLO/error-budget source contract \u2014 availability-only (16AJ source-defined; latency blocked; live burn/soak/fire/autoscale/backpressure open; G06 partial)",
+  "title": "G06 backpressure/admission-control source contract (16AK source-defined; runtime wire/live shed open; G06 partial)",
   "progress_class": "source_partial_progress_only",
-  "does_not_implement": "live_deploy_alert_fire_notification_load_soak_autoscaling_slo_proven_backpressure_production_full_g06_scale_mutation",
+  "does_not_implement": "live_deploy_runtime_wire_load_soak_autoscaling_backpressure_proven_slo_proven_production_full_g06_scale_mutation",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
+    "fixtures/radar-operations/slice16ak-g06-backpressure-contract.json",
+    "fixtures/radar-operations/slice16ak-expected-contract.json",
+    "fixtures/radar-operations/slice16ak-staff-api-topology.json",
+    "scripts/lib/radar-g06-admission-control.js",
+    "scripts/lib/radar-slice16ak-g06-backpressure.js",
+    "scripts/verify-radar-slice16ak-g06-backpressure.js",
     "fixtures/radar-operations/slice16af-g06-capacity-alert-live-evidence.json",
     "fixtures/radar-operations/slice16af-expected-contract.json",
     "scripts/lib/radar-slice16af-g06-capacity-alert-live-evidence.js",
@@ -168,16 +174,19 @@
       "scripts/lib/staff-api-readiness-lifecycle.js",
       "scripts/lib/staff-api-readiness-shutdown-completion-log.js",
       "scripts/lib/staff-api-request-correlation.js",
-      "scripts/lib/staff-api-request-completion-log.js",
-      "scripts/lib/stripe-webhook-public-errors.js",
+      "scripts/lib/staff-api-healthz.js",
+      "scripts/lib/stripe-webhook-event-claim.js",
+      "scripts/lib/radar-g06-bounded-load-harness.js",
+      "scripts/lib/radar-g06-slo-error-budget.js",
       "infra/azure/staging/main.bicep",
       "infra/azure/sunset-staging/main.bicep",
       "infra/azure/staging-staff-api-metric-alerts/",
       "infra/azure/staging-cost-budgets/"
     ],
-    "note": "16AJ source-only SLO contract + calculator; no Staff API/Bicep/alert deploy/live/scale mutation; 16AI live evidence retained"
+    "note": "16AK source-only admission/backpressure contract + pure library; no Staff API/Bicep/alert deploy/live/scale/runtime wire; prior G06 evidence retained"
   },
   "gates": [
+    "npm run verify:radar-slice16ak-g06-backpressure",
     "npm run verify:radar-slice16aj-g06-slo-error-budget",
     "npm run verify:radar-slice16ai-g06-live-load-evidence",
     "npm run verify:radar-slice16ah-g06-live-load-correction",
@@ -196,7 +205,7 @@
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 0994989a3d5d14daa98797fac55083b0c2ea809c..HEAD"
+    "git diff --check 9fa3626326c0e2bc21f2d37905967d6ff47b7520..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -632,5 +641,39 @@
   },
   "g06_slo_source": "source_defined_via_16AJ",
   "g06_slo": "open",
-  "slo_live_proof": "open"
+  "slo_live_proof": "open",
+  "g06_backpressure_source": "source_defined_via_16AK",
+  "g06_backpressure": "open",
+  "selected_16ak": {
+    "outcome_id": "16AK_g06_backpressure_source",
+    "gate_id": "G06_scaling_capacity",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_runtime_wire_load_soak_autoscaling_backpressure_proven_slo_proven_production_full_g06_scale_mutation",
+    "builds_on": [
+      "16AJ_g06_slo_error_budget_source",
+      "16AI_g06_live_load_evidence",
+      "16AH_g06_live_load_correction",
+      "16AG_g06_bounded_load_harness",
+      "16AF_g06_capacity_alert_live_evidence",
+      "16L_staff_api_capacity_pressure_alerts",
+      "16M_stripe_event_claim",
+      "16J_staff_request_correlation",
+      "16K_staff_api_healthz",
+      "16I_staff_api_readiness"
+    ],
+    "g06_verdict": "partial",
+    "g06_backpressure_source": "source_defined_via_16AK",
+    "g06_backpressure": "open",
+    "g06_slo_source": "source_defined_via_16AJ",
+    "g06_slo": "open",
+    "g06_conservative_readyz_bounded_load": "live_proven_via_16AI",
+    "g06_load_soak": "open",
+    "final_controlled_drill_status": "defined_not_executed",
+    "offline_source_contract_status": "offline_source_proven",
+    "g06_capacity_alert_deploy": "live_proven_via_16AF",
+    "g06_capacity_alert_fire": "open",
+    "g06_autoscaling": "open",
+    "g06_production": "open",
+    "future_integration_acceptance": "defined_not_executed"
+  }
 }
