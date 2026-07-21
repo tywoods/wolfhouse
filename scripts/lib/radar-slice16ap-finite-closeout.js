@@ -1,17 +1,27 @@
 'use strict';
 
 /**
- * radar-slice16ap-finite-closeout — RADAR Slice 16AP locks.
+ * radar-slice16ap-finite-closeout — RADAR Slice 16AP sole production validation
+ * module (docs/fixtures/verifier only).
  *
- * Finite milestone closeout (docs/fixtures/verifier only). Freezes score 0/9/0,
- * exact evidence classes for G01–G09, staging-readiness current-stage exit,
- * objective reopen triggers, unconditional break-glass, and FACTORY handoff.
- * Canonical freeze lives HERE (immutable source contract) — not derived from
- * the mutable evidence fixture. Does NOT raise any formal gate to proven,
- * erase gaps, claim production, or authorize endless discretionary RADAR slices.
+ * Freezes score 0/9/0, exact evidence classes for G01–G09, staging-readiness
+ * current-stage exit, objective reopen triggers, unconditional break-glass,
+ * and FACTORY handoff. Canonical freeze + validateCloseout live HERE — not
+ * derived from the mutable evidence fixture and not duplicated in the
+ * executable verifier.
+ *
+ * Threat boundary (honest): module.exports is recursively deep-frozen with
+ * non-writable/non-configurable descriptors so post-require assignment /
+ * redefinition of exported locks or validateCloseout cannot alter validation.
+ * This does NOT defend against require.cache replacement, rewriting this file
+ * before load, or other process-level code injection.
+ *
+ * Does NOT raise any formal gate to proven, erase gaps, claim production, or
+ * authorize endless discretionary RADAR slices.
  */
 
 const path = require('path');
+const crypto = require('crypto');
 
 const MASTER_BASIS = '66e34a5833ff3bcc7f297108f594b4fc58a0eccc';
 const SLICE = 'RADAR-16AP';
@@ -526,6 +536,14 @@ const REQUIRED_RED = Object.freeze([
   'endless_slice_without_reopen_rejected',
   'lock_hash_mismatch_rejected',
   'g06_open_subcontrol_flip_rejected',
+  'systematic_gate_row_field_mutations_rejected',
+  'systematic_gate_array_item_mutations_rejected',
+  'systematic_residual_risk_field_mutations_rejected',
+  'systematic_reopen_trigger_field_mutations_rejected',
+  'systematic_factory_handoff_field_mutations_rejected',
+  'systematic_break_glass_field_mutations_rejected',
+  'fixture_monkeypatch_rejected',
+  'export_monkeypatch_validation_unaffected',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -542,6 +560,11 @@ const REQUIRED_GREEN = Object.freeze([
   'package_script_registered',
   '16ao_activation_retained',
   'no_doc_overclaim',
+  'export_object_frozen',
+  'export_descriptors_immutable',
+  'nested_locks_frozen',
+  'export_mutation_attempts_fail',
+  'validator_imported_identity',
 ]);
 
 /** Ordered multi-item array fields deep-compared per gate against canonical freeze. */
@@ -552,7 +575,317 @@ const GATE_ARRAY_FIELDS = Object.freeze([
   'retained_gaps',
 ]);
 
-module.exports = {
+const GATE_SCALAR_FIELDS = Object.freeze([
+  'id',
+  'formal_verdict',
+  'evidence_class',
+  'deferred_owner',
+]);
+
+const RISK_FIELDS = Object.freeze([
+  'id',
+  'severity',
+  'description',
+  'owner',
+  'status',
+]);
+
+const TRIGGER_FIELDS = Object.freeze([
+  'id',
+  'description',
+  'threshold',
+  'applicability',
+]);
+
+const HANDOFF_FIELDS = Object.freeze([
+  'id',
+  'required',
+  'blocked_without_reopen',
+  'break_glass_override',
+]);
+
+const BREAK_GLASS_SCALAR_FIELDS = Object.freeze([
+  'id',
+  'principle',
+  'never_delays_or_prohibits',
+  'work_may_start',
+  'evidence_and_reopen_bookkeeping',
+  'discretionary_successor_work',
+  'severity_applicability',
+]);
+
+const BREAK_GLASS_CATEGORY_FIELDS = Object.freeze([
+  'id',
+  'description',
+]);
+
+const MODULE_REL = 'scripts/lib/radar-slice16ap-finite-closeout.js';
+const VALIDATOR_EXPORT = 'validateCloseout';
+
+const THREAT_BOUNDARY = Object.freeze({
+  protected:
+    'post_require_assignment_and_redefinition_of_exported_locks_and_validateCloseout',
+  not_claimed: Object.freeze([
+    'require_cache_replacement',
+    'module_source_rewrite_before_load',
+    'process_level_code_injection',
+    'arbitrary_runtime_memory_patching_beyond_module_exports',
+  ]),
+  summary:
+    'Export immutability only: deep-frozen non-writable/non-configurable module.exports. Not a defense against require.cache/code injection.',
+});
+
+function deepFreeze(value, seen) {
+  const visited = seen || new WeakSet();
+  if (value === null || typeof value !== 'object') return value;
+  if (visited.has(value)) return value;
+  visited.add(value);
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      deepFreeze(value[i], visited);
+    }
+  } else {
+    for (const key of Object.keys(value)) {
+      deepFreeze(value[key], visited);
+    }
+  }
+  return Object.freeze(value);
+}
+
+function stableStringify(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',')}}`;
+}
+
+function deepEqual(a, b) {
+  return stableStringify(a) === stableStringify(b);
+}
+
+function deepClone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function thaw(frozen) {
+  return deepClone(frozen);
+}
+
+function computeLockHash(evidence) {
+  const clone = deepClone(evidence);
+  delete clone.lock_hash;
+  return crypto.createHash('sha256').update(stableStringify(clone)).digest('hex');
+}
+
+function rootJoin(...parts) {
+  return path.join(__dirname, '..', '..', ...parts);
+}
+
+/**
+ * Sole production validation path. Closes over private deep-frozen canonical
+ * constants — never reads mutable exported properties, never trusts
+ * caller-provided locks.
+ */
+function validateCloseout(evidence) {
+  const errors = [];
+
+  if (!evidence || typeof evidence !== 'object') {
+    return { ok: false, errors: Object.freeze(['evidence missing']) };
+  }
+
+  const gotHash = evidence.lock_hash;
+  if (!/^[0-9a-f]{64}$/.test(String(gotHash || ''))) {
+    errors.push('lock_hash: must be 64-char lowercase hex');
+  } else {
+    const recomputed = computeLockHash(evidence);
+    if (gotHash !== recomputed) {
+      errors.push(`lock_hash: mismatch got=${gotHash} expected=${recomputed}`);
+    }
+  }
+
+  if (evidence.slice !== SLICE) errors.push('slice');
+  if (evidence.outcome_id !== OUTCOME_ID) errors.push('outcome_id');
+  if (evidence.branch !== BRANCH) errors.push('branch');
+  if (evidence.master_basis !== MASTER_BASIS) errors.push('master_basis');
+  if (evidence.progress_class !== PROGRESS_CLASS) errors.push('progress_class');
+  if (evidence.audit_only !== true) errors.push('audit_only');
+  if (evidence.live_mutation !== false) errors.push('live_mutation');
+  if (evidence.this_slice_deploys !== false) errors.push('this_slice_deploys');
+
+  if (!deepEqual(evidence.frozen_score, FROZEN_SCORE)) {
+    errors.push('frozen_score');
+  }
+
+  const expectedGates = GATE_EVIDENCE_FREEZE;
+  const gotGates = evidence.gate_evidence_freeze;
+  if (!Array.isArray(gotGates) || gotGates.length !== expectedGates.length) {
+    errors.push('gate_evidence_freeze.length');
+  } else {
+    for (let i = 0; i < expectedGates.length; i += 1) {
+      const exp = expectedGates[i];
+      const got = gotGates[i];
+      if (got.id !== exp.id) errors.push(`gate[${i}].id`);
+      if (got.formal_verdict !== exp.formal_verdict) errors.push(`gate[${i}].formal_verdict`);
+      if (got.evidence_class !== exp.evidence_class) errors.push(`gate[${i}].evidence_class`);
+      if (got.deferred_owner !== exp.deferred_owner) errors.push(`gate[${i}].deferred_owner`);
+      for (const field of GATE_ARRAY_FIELDS) {
+        if (!deepEqual(got[field], exp[field])) {
+          errors.push(`gate[${i}].${field}`);
+        }
+      }
+      if (exp.g06_subcontrol_freeze) {
+        if (!deepEqual(got.g06_subcontrol_freeze, exp.g06_subcontrol_freeze)) {
+          errors.push(`gate[${i}].g06_subcontrol_freeze`);
+        }
+      } else if (got.g06_subcontrol_freeze !== undefined) {
+        errors.push(`gate[${i}].unexpected_g06_subcontrol_freeze`);
+      }
+      if (!deepEqual(got, exp)) {
+        errors.push(`gate[${i}].row`);
+      }
+    }
+  }
+
+  if (!deepEqual(evidence.staging_readiness_exit, STAGING_READINESS_EXIT)) {
+    errors.push('staging_readiness_exit');
+  }
+
+  const expectedRisks = RESIDUAL_RISKS;
+  if (!deepEqual(evidence.residual_risks, expectedRisks)) {
+    errors.push('residual_risks');
+  } else if (!Array.isArray(evidence.residual_risks) || evidence.residual_risks.length !== 10) {
+    errors.push('residual_risks.length');
+  } else {
+    for (let i = 0; i < expectedRisks.length; i += 1) {
+      const r = evidence.residual_risks[i];
+      const e = expectedRisks[i];
+      if (r.id !== e.id) errors.push(`residual_risks[${i}].id`);
+      if (r.severity !== e.severity) errors.push(`residual_risks[${i}].severity`);
+      if (r.owner !== e.owner) errors.push(`residual_risks[${i}].owner`);
+      if (r.description !== e.description) errors.push(`residual_risks[${i}].description`);
+      if (r.status !== e.status) errors.push(`residual_risks[${i}].status`);
+    }
+  }
+
+  const expectedTriggers = REOPEN_TRIGGERS;
+  if (!deepEqual(evidence.reopen_triggers, expectedTriggers)) {
+    errors.push('reopen_triggers');
+  } else {
+    for (let i = 0; i < expectedTriggers.length; i += 1) {
+      const t = evidence.reopen_triggers[i];
+      const e = expectedTriggers[i];
+      if (!t.id || !t.description || !t.threshold || !t.applicability) {
+        errors.push(`reopen_triggers[${i}].incomplete`);
+      }
+      if (t.id !== e.id) errors.push(`reopen_triggers[${i}].id`);
+      if (t.description !== e.description) errors.push(`reopen_triggers[${i}].description`);
+      if (t.threshold !== e.threshold) errors.push(`reopen_triggers[${i}].threshold`);
+      if (t.applicability !== e.applicability) errors.push(`reopen_triggers[${i}].applicability`);
+    }
+  }
+
+  if (!deepEqual(evidence.factory_handoff_gate, FACTORY_HANDOFF_GATE)) {
+    errors.push('factory_handoff_gate');
+  }
+
+  if (!deepEqual(evidence.break_glass, BREAK_GLASS)) {
+    errors.push('break_glass');
+  }
+
+  if (!deepEqual(evidence.explicitly_not_claimed, EXPLICITLY_NOT_CLAIMED)) {
+    errors.push('explicitly_not_claimed');
+  }
+
+  if (!deepEqual(evidence.gate_ids_touched, GATE_IDS)) {
+    errors.push('gate_ids_touched');
+  }
+
+  if (Array.isArray(evidence.reopen_triggers)) {
+    for (const t of evidence.reopen_triggers) {
+      if (t && t.threshold === 'never') {
+        errors.push('reopen_trigger_impossible_threshold');
+      }
+      if (t && t.applicability === 'never_applies') {
+        errors.push('reopen_trigger_impossible_applicability');
+      }
+      if (t && Array.isArray(t.requires_trigger_ids)) {
+        if (t.requires_trigger_ids.includes(t.id)) {
+          errors.push('reopen_trigger_circular');
+        }
+        for (const otherId of t.requires_trigger_ids) {
+          const other = evidence.reopen_triggers.find((x) => x && x.id === otherId);
+          if (
+            other
+            && Array.isArray(other.requires_trigger_ids)
+            && other.requires_trigger_ids.includes(t.id)
+          ) {
+            errors.push('reopen_trigger_circular');
+          }
+        }
+      }
+      if (t && t.requires_break_glass_gating === true) {
+        errors.push('reopen_trigger_gates_break_glass');
+      }
+    }
+  }
+
+  if (evidence.break_glass) {
+    if (evidence.break_glass.never_delays_or_prohibits !== true) {
+      errors.push('break_glass.never_delays_or_prohibits');
+    }
+    if (evidence.break_glass.work_may_start !== 'immediately') {
+      errors.push('break_glass.work_may_start');
+    }
+    if (evidence.break_glass.discretionary_successor_work !== 'remains_reopen_trigger_gated') {
+      errors.push('break_glass.discretionary_successor_work');
+    }
+    if (!Array.isArray(evidence.break_glass.categories) || evidence.break_glass.categories.length !== 5) {
+      errors.push('break_glass.categories');
+    }
+  } else {
+    errors.push('break_glass.missing');
+  }
+
+  return { ok: errors.length === 0, errors: Object.freeze(errors.slice()) };
+}
+
+// Ensure every nested lock is recursively frozen before export.
+deepFreeze(FROZEN_SCORE);
+deepFreeze(GATE_EVIDENCE_FREEZE);
+deepFreeze(STAGING_READINESS_EXIT);
+deepFreeze(REOPEN_TRIGGERS);
+deepFreeze(BREAK_GLASS);
+deepFreeze(FACTORY_HANDOFF_GATE);
+deepFreeze(RESIDUAL_RISKS);
+deepFreeze(EXPLICITLY_NOT_CLAIMED);
+deepFreeze(MUST_NOT_MUTATE);
+deepFreeze(OWNED_RELS);
+deepFreeze(REQUIRED_RED);
+deepFreeze(REQUIRED_GREEN);
+deepFreeze(GATE_ARRAY_FIELDS);
+deepFreeze(GATE_SCALAR_FIELDS);
+deepFreeze(RISK_FIELDS);
+deepFreeze(TRIGGER_FIELDS);
+deepFreeze(HANDOFF_FIELDS);
+deepFreeze(BREAK_GLASS_SCALAR_FIELDS);
+deepFreeze(BREAK_GLASS_CATEGORY_FIELDS);
+deepFreeze(GATE_IDS);
+deepFreeze(THREAT_BOUNDARY);
+
+function buildFrozenExports(bag) {
+  const out = {};
+  for (const key of Object.keys(bag)) {
+    Object.defineProperty(out, key, {
+      value: bag[key],
+      writable: false,
+      enumerable: true,
+      configurable: false,
+    });
+  }
+  return Object.freeze(out);
+}
+
+module.exports = buildFrozenExports({
   MASTER_BASIS,
   SLICE,
   OUTCOME_ID,
@@ -561,6 +894,8 @@ module.exports = {
   BRANCH,
   EVIDENCE_REL,
   CONTRACT_REL,
+  MODULE_REL,
+  VALIDATOR_EXPORT,
   FROZEN_SCORE,
   GATE_EVIDENCE_FREEZE,
   STAGING_READINESS_EXIT,
@@ -574,7 +909,19 @@ module.exports = {
   REQUIRED_RED,
   REQUIRED_GREEN,
   GATE_ARRAY_FIELDS,
-  rootJoin(...parts) {
-    return path.join(__dirname, '..', '..', ...parts);
-  },
-};
+  GATE_SCALAR_FIELDS,
+  RISK_FIELDS,
+  TRIGGER_FIELDS,
+  HANDOFF_FIELDS,
+  BREAK_GLASS_SCALAR_FIELDS,
+  BREAK_GLASS_CATEGORY_FIELDS,
+  THREAT_BOUNDARY,
+  validateCloseout,
+  computeLockHash,
+  stableStringify,
+  deepEqual,
+  deepClone,
+  thaw,
+  deepFreeze,
+  rootJoin,
+});

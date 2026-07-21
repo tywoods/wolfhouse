@@ -85,7 +85,8 @@ Hand off only when: score frozen 0/9/0; all nine formal gates partial; evidence 
 
 | Observation | Proves | Does not prove |
 |-------------|--------|----------------|
-| Closeout freeze + verifier | Score/evidence-class freeze; staging-readiness current-stage exit; objective reopen/FACTORY locks; unconditional break-glass | Any formal gate raised to proven; production ready; full_G06_proven; gap erasure; gating break-glass behind reopen |
+| Closeout freeze + verifier | Score/evidence-class freeze; staging-readiness current-stage exit; objective reopen/FACTORY locks; unconditional break-glass; sole production `validateCloseout` closed over private deep-frozen locks via immutable `module.exports` | Any formal gate raised to proven; production ready; full_G06_proven; gap erasure; gating break-glass behind reopen |
+| Export immutability | Post-require assignment/redefinition of exported locks/`validateCloseout` cannot alter validation (deep-frozen non-writable/non-configurable descriptors) | Defense against `require.cache` replacement, rewriting the module before load, or other process-level code injection |
 | Retained prior slices | Prior source/staging-live claims unchanged | New live/production proof by this tip |
 
 **Score frozen 0/9/0; formal gates remain partial; current-stage complete only under staging-readiness exit.**

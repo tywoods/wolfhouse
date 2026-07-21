@@ -3,22 +3,30 @@
 /**
  * verify:radar-slice16ap-finite-closeout — RADAR Slice 16AP
  *
- * Deterministic offline closeout gate. Canonical freeze expectations are
- * encoded in scripts/lib/radar-slice16ap-finite-closeout.js (immutable source
- * contract) — never treated as oracle-from-mutable-evidence. Deep-compares
- * every frozen per-gate field, residual risks, reopen triggers, FACTORY
- * handoff, and unconditional break-glass. REDs recompute lock_hash and invoke
- * the same production validation path.
+ * Deterministic offline closeout gate. Canonical freeze + production
+ * validateCloseout live solely in scripts/lib/radar-slice16ap-finite-closeout.js.
+ * This executable imports and invokes that exported validator for committed
+ * GREEN evidence and every RED — no duplicate/local validator.
+ *
+ * Threat boundary (honest): asserts module.exports immutability only. Does not
+ * claim defense against require.cache replacement or process-level injection.
  *
  * Exit 0 on pass, nonzero on failure.
  */
 
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const { execSync } = require('child_process');
 
-const locks = require('./lib/radar-slice16ap-finite-closeout');
+const locksPath = path.join(__dirname, 'lib', 'radar-slice16ap-finite-closeout.js');
+const locks = require(locksPath);
+const {
+  validateCloseout,
+  computeLockHash,
+  deepEqual,
+  deepClone,
+  thaw,
+} = locks;
 
 const ROOT = path.join(__dirname, '..');
 
@@ -63,205 +71,6 @@ function currentBranch() {
   } catch (_) {
     return 'HEAD';
   }
-}
-
-function stableStringify(value) {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  const keys = Object.keys(value).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',')}}`;
-}
-
-function deepEqual(a, b) {
-  return stableStringify(a) === stableStringify(b);
-}
-
-function deepClone(v) {
-  return JSON.parse(JSON.stringify(v));
-}
-
-function computeLockHash(ev) {
-  const clone = deepClone(ev);
-  delete clone.lock_hash;
-  return crypto.createHash('sha256').update(stableStringify(clone)).digest('hex');
-}
-
-function thaw(frozen) {
-  return deepClone(frozen);
-}
-
-/**
- * Production validation path — REDs and GREENS both use this.
- * Canonical expected freeze comes from locks module (source contract), NOT from
- * reading the evidence fixture as its own oracle.
- */
-function validateCloseout(evidence) {
-  const errors = [];
-
-  if (!evidence || typeof evidence !== 'object') {
-    return { ok: false, errors: ['evidence missing'] };
-  }
-
-  const gotHash = evidence.lock_hash;
-  if (!/^[0-9a-f]{64}$/.test(String(gotHash || ''))) {
-    errors.push('lock_hash: must be 64-char lowercase hex');
-  } else {
-    const recomputed = computeLockHash(evidence);
-    if (gotHash !== recomputed) {
-      errors.push(`lock_hash: mismatch got=${gotHash} expected=${recomputed}`);
-    }
-  }
-
-  if (evidence.slice !== locks.SLICE) errors.push('slice');
-  if (evidence.outcome_id !== locks.OUTCOME_ID) errors.push('outcome_id');
-  if (evidence.branch !== locks.BRANCH) errors.push('branch');
-  if (evidence.master_basis !== locks.MASTER_BASIS) errors.push('master_basis');
-  if (evidence.progress_class !== locks.PROGRESS_CLASS) errors.push('progress_class');
-  if (evidence.audit_only !== true) errors.push('audit_only');
-  if (evidence.live_mutation !== false) errors.push('live_mutation');
-  if (evidence.this_slice_deploys !== false) errors.push('this_slice_deploys');
-
-  if (!deepEqual(evidence.frozen_score, thaw(locks.FROZEN_SCORE))) {
-    errors.push('frozen_score');
-  }
-
-  // Exact ordered deep-compare every per-gate frozen field vs canonical locks.
-  const expectedGates = thaw(locks.GATE_EVIDENCE_FREEZE);
-  const gotGates = evidence.gate_evidence_freeze;
-  if (!Array.isArray(gotGates) || gotGates.length !== expectedGates.length) {
-    errors.push('gate_evidence_freeze.length');
-  } else {
-    for (let i = 0; i < expectedGates.length; i += 1) {
-      const exp = expectedGates[i];
-      const got = gotGates[i];
-      if (got.id !== exp.id) errors.push(`gate[${i}].id`);
-      if (got.formal_verdict !== exp.formal_verdict) errors.push(`gate[${i}].formal_verdict`);
-      if (got.evidence_class !== exp.evidence_class) errors.push(`gate[${i}].evidence_class`);
-      if (got.deferred_owner !== exp.deferred_owner) errors.push(`gate[${i}].deferred_owner`);
-      for (const field of locks.GATE_ARRAY_FIELDS) {
-        if (!deepEqual(got[field], exp[field])) {
-          errors.push(`gate[${i}].${field}`);
-        }
-      }
-      if (exp.g06_subcontrol_freeze) {
-        if (!deepEqual(got.g06_subcontrol_freeze, exp.g06_subcontrol_freeze)) {
-          errors.push(`gate[${i}].g06_subcontrol_freeze`);
-        }
-      } else if (got.g06_subcontrol_freeze !== undefined) {
-        errors.push(`gate[${i}].unexpected_g06_subcontrol_freeze`);
-      }
-      // Whole-row deep compare (covers any future locked field).
-      if (!deepEqual(got, exp)) {
-        errors.push(`gate[${i}].row`);
-      }
-    }
-  }
-
-  if (!deepEqual(evidence.staging_readiness_exit, thaw(locks.STAGING_READINESS_EXIT))) {
-    errors.push('staging_readiness_exit');
-  }
-
-  // Exact deep-compare all residual risks (10): id/severity/owner/description/status.
-  const expectedRisks = thaw(locks.RESIDUAL_RISKS);
-  if (!deepEqual(evidence.residual_risks, expectedRisks)) {
-    errors.push('residual_risks');
-  } else if (!Array.isArray(evidence.residual_risks) || evidence.residual_risks.length !== 10) {
-    errors.push('residual_risks.length');
-  } else {
-    for (let i = 0; i < expectedRisks.length; i += 1) {
-      const r = evidence.residual_risks[i];
-      const e = expectedRisks[i];
-      if (r.id !== e.id) errors.push(`residual_risks[${i}].id`);
-      if (r.severity !== e.severity) errors.push(`residual_risks[${i}].severity`);
-      if (r.owner !== e.owner) errors.push(`residual_risks[${i}].owner`);
-      if (r.description !== e.description) errors.push(`residual_risks[${i}].description`);
-      if (r.status !== e.status) errors.push(`residual_risks[${i}].status`);
-    }
-  }
-
-  // Exact deep-compare reopen triggers (IDs + descriptions + thresholds + applicability).
-  const expectedTriggers = thaw(locks.REOPEN_TRIGGERS);
-  if (!deepEqual(evidence.reopen_triggers, expectedTriggers)) {
-    errors.push('reopen_triggers');
-  } else {
-    for (let i = 0; i < expectedTriggers.length; i += 1) {
-      const t = evidence.reopen_triggers[i];
-      const e = expectedTriggers[i];
-      if (!t.id || !t.description || !t.threshold || !t.applicability) {
-        errors.push(`reopen_triggers[${i}].incomplete`);
-      }
-      if (t.id !== e.id) errors.push(`reopen_triggers[${i}].id`);
-      if (t.description !== e.description) errors.push(`reopen_triggers[${i}].description`);
-      if (t.threshold !== e.threshold) errors.push(`reopen_triggers[${i}].threshold`);
-      if (t.applicability !== e.applicability) errors.push(`reopen_triggers[${i}].applicability`);
-    }
-  }
-
-  if (!deepEqual(evidence.factory_handoff_gate, thaw(locks.FACTORY_HANDOFF_GATE))) {
-    errors.push('factory_handoff_gate');
-  }
-
-  if (!deepEqual(evidence.break_glass, thaw(locks.BREAK_GLASS))) {
-    errors.push('break_glass');
-  }
-
-  if (!deepEqual(evidence.explicitly_not_claimed, thaw(locks.EXPLICITLY_NOT_CLAIMED))) {
-    errors.push('explicitly_not_claimed');
-  }
-
-  if (!deepEqual(evidence.gate_ids_touched, thaw(locks.GATE_IDS))) {
-    errors.push('gate_ids_touched');
-  }
-
-  // Reject circular / impossible reopen-trigger weakenings even if hash recomputed.
-  if (Array.isArray(evidence.reopen_triggers)) {
-    for (const t of evidence.reopen_triggers) {
-      if (t && t.threshold === 'never' ) {
-        errors.push('reopen_trigger_impossible_threshold');
-      }
-      if (t && t.applicability === 'never_applies') {
-        errors.push('reopen_trigger_impossible_applicability');
-      }
-      if (t && Array.isArray(t.requires_trigger_ids)) {
-        if (t.requires_trigger_ids.includes(t.id)) {
-          errors.push('reopen_trigger_circular');
-        }
-        // Circular chain: A requires B requires A
-        for (const otherId of t.requires_trigger_ids) {
-          const other = evidence.reopen_triggers.find((x) => x && x.id === otherId);
-          if (
-            other
-            && Array.isArray(other.requires_trigger_ids)
-            && other.requires_trigger_ids.includes(t.id)
-          ) {
-            errors.push('reopen_trigger_circular');
-          }
-        }
-      }
-      if (t && t.requires_break_glass_gating === true) {
-        errors.push('reopen_trigger_gates_break_glass');
-      }
-    }
-  }
-
-  if (evidence.break_glass) {
-    if (evidence.break_glass.never_delays_or_prohibits !== true) {
-      errors.push('break_glass.never_delays_or_prohibits');
-    }
-    if (evidence.break_glass.work_may_start !== 'immediately') {
-      errors.push('break_glass.work_may_start');
-    }
-    if (evidence.break_glass.discretionary_successor_work !== 'remains_reopen_trigger_gated') {
-      errors.push('break_glass.discretionary_successor_work');
-    }
-    if (!Array.isArray(evidence.break_glass.categories) || evidence.break_glass.categories.length !== 5) {
-      errors.push('break_glass.categories');
-    }
-  } else {
-    errors.push('break_glass.missing');
-  }
-
-  return { ok: errors.length === 0, errors };
 }
 
 function overclaimHits(text) {
@@ -309,6 +118,50 @@ function mutateAndValidate(mutator) {
   return validateCloseout(bad);
 }
 
+function everyDescriptorImmutable(obj) {
+  const names = Object.getOwnPropertyNames(obj);
+  for (const name of names) {
+    const d = Object.getOwnPropertyDescriptor(obj, name);
+    if (!d || d.writable !== false || d.configurable !== false) return false;
+  }
+  return names.length > 0;
+}
+
+function allNestedFrozen(value, seen) {
+  const visited = seen || new WeakSet();
+  if (value === null || typeof value !== 'object') return true;
+  if (visited.has(value)) return true;
+  visited.add(value);
+  if (!Object.isFrozen(value)) return false;
+  if (Array.isArray(value)) {
+    return value.every((item) => allNestedFrozen(item, visited));
+  }
+  return Object.keys(value).every((k) => allNestedFrozen(value[k], visited));
+}
+
+function tryAssign(obj, key, value) {
+  try {
+    obj[key] = value;
+    return { threw: false, current: obj[key] };
+  } catch (err) {
+    return { threw: true, current: obj[key], error: err };
+  }
+}
+
+function tryDefine(obj, key, value) {
+  try {
+    Object.defineProperty(obj, key, {
+      value,
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
+    return { threw: false, current: obj[key] };
+  } catch (err) {
+    return { threw: true, current: obj[key], error: err };
+  }
+}
+
 console.log('RADAR 16AP finite milestone closeout — offline verifier\n');
 
 ok('C0 locks identity',
@@ -320,7 +173,13 @@ ok('C0 locks identity',
   && locks.BREAK_GLASS.id === '16AP_unconditional_break_glass'
   && locks.RESIDUAL_RISKS.length === 10
   && locks.REOPEN_TRIGGERS.length === 5
-  && locks.REOPEN_TRIGGERS.every((t) => t.id && t.description && t.threshold && t.applicability));
+  && locks.REOPEN_TRIGGERS.every((t) => t.id && t.description && t.threshold && t.applicability)
+  && typeof locks.validateCloseout === 'function'
+  && locks.VALIDATOR_EXPORT === 'validateCloseout'
+  && locks.MODULE_REL === 'scripts/lib/radar-slice16ap-finite-closeout.js'
+  && locks.THREAT_BOUNDARY
+  && /require\.cache|code injection/i.test(locks.THREAT_BOUNDARY.summary)
+  && locks.THREAT_BOUNDARY.not_claimed.includes('require_cache_replacement'));
 
 const evidence = readJson(locks.EVIDENCE_REL);
 const sliceContract = readJson(locks.CONTRACT_REL);
@@ -388,11 +247,12 @@ ok('C6 expected-contract encodes canonical freeze (not evidence-as-oracle)',
   && deepEqual(sliceContract.factory_handoff_gate, thaw(locks.FACTORY_HANDOFF_GATE))
   && deepEqual(sliceContract.gate_evidence_freeze, thaw(locks.GATE_EVIDENCE_FREEZE))
   && sliceContract.canonical_freeze_source
-    === 'scripts/lib/radar-slice16ap-finite-closeout.js');
+    === 'scripts/lib/radar-slice16ap-finite-closeout.js'
+  && sliceContract.production_validator === 'validateCloseout'
+  && sliceContract.threat_boundary
+  && /require\.cache|code injection/i.test(String(sliceContract.threat_boundary.summary || '')));
 
 ok('C7 canonical locks independent of mutable evidence file bytes',
-  // Prove oracle is locks module: mutate a copy of locks-derived expectation
-  // would fail validation even if someone later rewrote evidence to match.
   !deepEqual(thaw(locks.RESIDUAL_RISKS), [])
   && locks.BREAK_GLASS.categories.length === 5
   && locks.GATE_EVIDENCE_FREEZE.every((g) => g.formal_verdict === 'partial')
@@ -400,6 +260,66 @@ ok('C7 canonical locks independent of mutable evidence file bytes',
   && Object.isFrozen(locks.REOPEN_TRIGGERS)
   && Object.isFrozen(locks.RESIDUAL_RISKS)
   && Object.isFrozen(locks.GATE_EVIDENCE_FREEZE));
+
+ok('C8 no local duplicate validateCloseout in verifier source',
+  (() => {
+    const src = fs.readFileSync(__filename, 'utf8');
+    // Must import/destructure exported validator; must not declare a local function.
+    const hasImport = /validateCloseout/.test(src)
+      && /require\(locksPath\)|require\(['"].*radar-slice16ap-finite-closeout/.test(src);
+    const hasLocalFn = /function\s+validateCloseout\s*\(/.test(src);
+    return hasImport && !hasLocalFn;
+  })());
+
+// ── Export immutability assertions ──────────────────────────────────────────
+green('export_object_frozen', Object.isFrozen(locks));
+
+green('export_descriptors_immutable', everyDescriptorImmutable(locks));
+
+green('nested_locks_frozen',
+  allNestedFrozen(locks.FROZEN_SCORE)
+  && allNestedFrozen(locks.GATE_EVIDENCE_FREEZE)
+  && allNestedFrozen(locks.STAGING_READINESS_EXIT)
+  && allNestedFrozen(locks.REOPEN_TRIGGERS)
+  && allNestedFrozen(locks.BREAK_GLASS)
+  && allNestedFrozen(locks.FACTORY_HANDOFF_GATE)
+  && allNestedFrozen(locks.RESIDUAL_RISKS)
+  && allNestedFrozen(locks.EXPLICITLY_NOT_CLAIMED)
+  && allNestedFrozen(locks.REQUIRED_RED)
+  && allNestedFrozen(locks.REQUIRED_GREEN)
+  && allNestedFrozen(locks.THREAT_BOUNDARY));
+
+{
+  const beforeScore = locks.FROZEN_SCORE;
+  const beforeValidator = locks.validateCloseout;
+  const assignTop = tryAssign(locks, 'FROZEN_SCORE', { proven: 9, partial: 0, absent: 0, total: 9 });
+  const defineTop = tryDefine(locks, 'validateCloseout', () => ({ ok: true, errors: [] }));
+  const assignNested = tryAssign(locks.FROZEN_SCORE, 'proven', 9);
+  const assignRisk = tryAssign(locks.RESIDUAL_RISKS[0], 'severity', 'mutated');
+  const assignTrigger = tryAssign(locks.REOPEN_TRIGGERS[0], 'threshold', 'never');
+  const assignBg = tryAssign(locks.BREAK_GLASS, 'never_delays_or_prohibits', false);
+  green('export_mutation_attempts_fail',
+    locks.FROZEN_SCORE === beforeScore
+    && locks.validateCloseout === beforeValidator
+    && locks.FROZEN_SCORE.proven === 0
+    && locks.RESIDUAL_RISKS[0].severity === 'high'
+    && locks.REOPEN_TRIGGERS[0].threshold !== 'never'
+    && locks.BREAK_GLASS.never_delays_or_prohibits === true
+    && (assignTop.threw || assignTop.current === beforeScore)
+    && (defineTop.threw || defineTop.current === beforeValidator)
+    && (assignNested.threw || assignNested.current === 0)
+    && (assignRisk.threw || assignRisk.current === 'high')
+    && (assignTrigger.threw || assignTrigger.current !== 'never')
+    && (assignBg.threw || assignBg.current === true));
+}
+
+green('validator_imported_identity',
+  typeof validateCloseout === 'function'
+  && validateCloseout === locks.validateCloseout
+  && path.normalize(locksPath).endsWith(path.normalize(locks.MODULE_REL.replace(/^scripts\//, '')))
+  && fs.existsSync(locksPath)
+  && /function validateCloseout|validateCloseout\(evidence\)/.test(fs.readFileSync(locksPath, 'utf8'))
+  && !/function\s+validateCloseout\s*\(/.test(fs.readFileSync(__filename, 'utf8')));
 
 // ── GREENS ──────────────────────────────────────────────────────────────────
 green('score_frozen_0_9_0',
@@ -500,10 +420,11 @@ green('no_doc_overclaim',
   && overclaimHits(findings).length === 0
   && /16AP/i.test(doc)
   && /16AP/i.test(findings)
-  && /0\/9\/0|proven=0.*partial=9.*absent=0/i.test(doc),
+  && /0\/9\/0|proven=0.*partial=9.*absent=0/i.test(doc)
+  && /require\.cache|export immutability|module\.exports/i.test(doc),
   overclaimHits(doc + findings).join(' | '));
 
-// ── REDS (same production validation path after recomputed lock_hash) ───────
+// ── REDS (same imported production validation path after recomputed lock_hash)
 {
   const v = mutateAndValidate((bad) => {
     bad.frozen_score.proven = 1;
@@ -518,7 +439,6 @@ green('no_doc_overclaim',
   red('score_inflation_partial_drift_rejected', !v.ok);
 }
 {
-  // Delete one item from each multi-item evidence/gap array type.
   const v = mutateAndValidate((bad) => {
     const g01 = findGate(bad, 'G01_correlation_structured_logs');
     g01.source_proven.pop();
@@ -591,7 +511,6 @@ green('no_doc_overclaim',
 }
 {
   const v = mutateAndValidate((bad) => {
-    // Circular weakening: production_launch requires incident requires production_launch.
     const a = bad.reopen_triggers.find((t) => t.id === 'production_launch');
     const b = bad.reopen_triggers.find((t) => t.id === 'incident');
     a.requires_trigger_ids = ['incident'];
@@ -601,7 +520,6 @@ green('no_doc_overclaim',
 }
 {
   const v = mutateAndValidate((bad) => {
-    // Impossible weakening: threshold never / applicability never_applies.
     const t = bad.reopen_triggers.find((x) => x.id === 'traffic_or_cost_threshold');
     t.threshold = 'never';
     t.applicability = 'never_applies';
@@ -662,6 +580,194 @@ green('no_doc_overclaim',
   red('g06_open_subcontrol_flip_rejected', !v.ok);
 }
 
+// ── Systematic looped REDs (same imported validator + recomputed lock_hash) ─
+{
+  let allOk = true;
+  let count = 0;
+  for (let gi = 0; gi < locks.GATE_EVIDENCE_FREEZE.length; gi += 1) {
+    for (const field of locks.GATE_SCALAR_FIELDS) {
+      const v = mutateAndValidate((bad) => {
+        const row = bad.gate_evidence_freeze[gi];
+        if (field === 'formal_verdict') row[field] = 'proven';
+        else if (field === 'evidence_class') row[field] = 'MUTATED_CLASS';
+        else if (field === 'deferred_owner') row[field] = 'MUTATED_OWNER';
+        else row[field] = `MUTATED_${field}`;
+      });
+      count += 1;
+      if (v.ok) allOk = false;
+    }
+    // Whole-row replacement
+    {
+      const v = mutateAndValidate((bad) => {
+        bad.gate_evidence_freeze[gi] = {
+          id: bad.gate_evidence_freeze[gi].id,
+          formal_verdict: 'proven',
+          evidence_class: 'erased',
+          source_proven: [],
+          staging_live_partial: [],
+          production_only_unknowns: [],
+          retained_gaps: [],
+          deferred_owner: 'erased',
+        };
+      });
+      count += 1;
+      if (v.ok) allOk = false;
+    }
+  }
+  red('systematic_gate_row_field_mutations_rejected', allOk && count >= 9 * (locks.GATE_SCALAR_FIELDS.length + 1),
+    `count=${count}`);
+}
+
+{
+  let allOk = true;
+  let count = 0;
+  for (let gi = 0; gi < locks.GATE_EVIDENCE_FREEZE.length; gi += 1) {
+    const exp = locks.GATE_EVIDENCE_FREEZE[gi];
+    for (const field of locks.GATE_ARRAY_FIELDS) {
+      const arr = exp[field] || [];
+      for (let ai = 0; ai < arr.length; ai += 1) {
+        const v = mutateAndValidate((bad) => {
+          bad.gate_evidence_freeze[gi][field][ai] = `MUTATED_${field}_${ai}`;
+        });
+        count += 1;
+        if (v.ok) allOk = false;
+      }
+      // Deletion of last item when present
+      if (arr.length > 0) {
+        const v = mutateAndValidate((bad) => {
+          bad.gate_evidence_freeze[gi][field].pop();
+        });
+        count += 1;
+        if (v.ok) allOk = false;
+      }
+    }
+  }
+  red('systematic_gate_array_item_mutations_rejected', allOk && count > 0, `count=${count}`);
+}
+
+{
+  let allOk = true;
+  let count = 0;
+  for (let ri = 0; ri < locks.RESIDUAL_RISKS.length; ri += 1) {
+    for (const field of locks.RISK_FIELDS) {
+      const v = mutateAndValidate((bad) => {
+        if (field === 'severity') bad.residual_risks[ri][field] = 'mutated_sev';
+        else if (field === 'status') bad.residual_risks[ri][field] = 'closed_erased';
+        else bad.residual_risks[ri][field] = `MUTATED_${field}`;
+      });
+      count += 1;
+      if (v.ok) allOk = false;
+    }
+  }
+  red('systematic_residual_risk_field_mutations_rejected',
+    allOk && count === locks.RESIDUAL_RISKS.length * locks.RISK_FIELDS.length,
+    `count=${count}`);
+}
+
+{
+  let allOk = true;
+  let count = 0;
+  for (let ti = 0; ti < locks.REOPEN_TRIGGERS.length; ti += 1) {
+    for (const field of locks.TRIGGER_FIELDS) {
+      const v = mutateAndValidate((bad) => {
+        bad.reopen_triggers[ti][field] = field === 'threshold' ? 'never' : `MUTATED_${field}`;
+      });
+      count += 1;
+      if (v.ok) allOk = false;
+    }
+  }
+  red('systematic_reopen_trigger_field_mutations_rejected',
+    allOk && count === locks.REOPEN_TRIGGERS.length * locks.TRIGGER_FIELDS.length,
+    `count=${count}`);
+}
+
+{
+  let allOk = true;
+  let count = 0;
+  for (const field of locks.HANDOFF_FIELDS) {
+    const v = mutateAndValidate((bad) => {
+      if (field === 'required' || field === 'blocked_without_reopen') {
+        bad.factory_handoff_gate[field] = [];
+      } else if (field === 'break_glass_override') {
+        bad.factory_handoff_gate[field] = 'weakened';
+      } else {
+        bad.factory_handoff_gate[field] = `MUTATED_${field}`;
+      }
+    });
+    count += 1;
+    if (v.ok) allOk = false;
+  }
+  red('systematic_factory_handoff_field_mutations_rejected',
+    allOk && count === locks.HANDOFF_FIELDS.length,
+    `count=${count}`);
+}
+
+{
+  let allOk = true;
+  let count = 0;
+  for (const field of locks.BREAK_GLASS_SCALAR_FIELDS) {
+    const v = mutateAndValidate((bad) => {
+      if (field === 'never_delays_or_prohibits') bad.break_glass[field] = false;
+      else if (field === 'work_may_start') bad.break_glass[field] = 'after_approval';
+      else bad.break_glass[field] = `MUTATED_${field}`;
+    });
+    count += 1;
+    if (v.ok) allOk = false;
+  }
+  for (let ci = 0; ci < locks.BREAK_GLASS.categories.length; ci += 1) {
+    for (const field of locks.BREAK_GLASS_CATEGORY_FIELDS) {
+      const v = mutateAndValidate((bad) => {
+        bad.break_glass.categories[ci][field] = `MUTATED_${field}`;
+      });
+      count += 1;
+      if (v.ok) allOk = false;
+    }
+  }
+  // Category deletion per category
+  for (let ci = 0; ci < locks.BREAK_GLASS.categories.length; ci += 1) {
+    const catId = locks.BREAK_GLASS.categories[ci].id;
+    const v = mutateAndValidate((bad) => {
+      bad.break_glass.categories = bad.break_glass.categories.filter((c) => c.id !== catId);
+    });
+    count += 1;
+    if (v.ok) allOk = false;
+  }
+  red('systematic_break_glass_field_mutations_rejected', allOk && count > 0, `count=${count}`);
+}
+
+{
+  // Fixture monkeypatch: mutate evidence object in memory (as if fixture rewritten)
+  // then recompute hash — imported validator must still reject vs private locks.
+  const patched = deepClone(evidence);
+  patched.frozen_score.proven = 9;
+  patched.frozen_score.partial = 0;
+  patched.lock_hash = computeLockHash(patched);
+  const v = validateCloseout(patched);
+  red('fixture_monkeypatch_rejected', !v.ok && v.errors.includes('frozen_score'));
+}
+
+{
+  // Export monkeypatch attempts must not alter validation outcome for GREEN evidence.
+  const before = validateCloseout(evidence);
+  tryAssign(locks, 'FROZEN_SCORE', { proven: 9, partial: 0, absent: 0, total: 9 });
+  tryAssign(locks, 'GATE_EVIDENCE_FREEZE', []);
+  tryAssign(locks, 'RESIDUAL_RISKS', []);
+  tryAssign(locks, 'BREAK_GLASS', { id: 'weakened' });
+  tryDefine(locks, 'validateCloseout', () => ({ ok: false, errors: ['hijacked'] }));
+  tryAssign(locks.FROZEN_SCORE, 'proven', 9);
+  const after = validateCloseout(evidence);
+  const stillRejectsInflation = !mutateAndValidate((bad) => {
+    bad.frozen_score.proven = 1;
+    bad.frozen_score.partial = 8;
+  }).ok;
+  red('export_monkeypatch_validation_unaffected',
+    before.ok
+    && after.ok
+    && stillRejectsInflation
+    && locks.validateCloseout === validateCloseout
+    && locks.FROZEN_SCORE.proven === 0);
+}
+
 for (const id of locks.REQUIRED_RED) {
   ok(`REQUIRED_RED has ${id}`, redResults.some((r) => r.id === id && r.ok));
 }
@@ -669,10 +775,10 @@ for (const id of locks.REQUIRED_GREEN) {
   ok(`REQUIRED_GREEN has ${id}`, greenResults.some((r) => r.id === id && r.ok));
 }
 
-ok('C8 matrix gates retain gaps (no erasure)',
+ok('C9 matrix gates retain gaps (no erasure)',
   matrix.gates.every((g) => Array.isArray(g.gaps) && g.gaps.length > 0));
 
-ok('C9 retained 16AO/16AN/16AM selections present',
+ok('C10 retained 16AO/16AN/16AM selections present',
   matrix.slice_16ao_selection
   && matrix.slice_16an_selection
   && matrix.slice_16am_selection

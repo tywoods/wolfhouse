@@ -22,6 +22,17 @@
   "title": "Finite RADAR milestone closeout — freeze 0/9/0; staging-readiness current-stage complete; formal gates remain partial; unconditional break-glass",
   "evidence_fixture": "fixtures/radar-operations/slice16ap-finite-closeout.json",
   "canonical_freeze_source": "scripts/lib/radar-slice16ap-finite-closeout.js",
+  "production_validator": "validateCloseout",
+  "threat_boundary": {
+    "protected": "post_require_assignment_and_redefinition_of_exported_locks_and_validateCloseout",
+    "not_claimed": [
+      "require_cache_replacement",
+      "module_source_rewrite_before_load",
+      "process_level_code_injection",
+      "arbitrary_runtime_memory_patching_beyond_module_exports"
+    ],
+    "summary": "Export immutability only: deep-frozen non-writable/non-configurable module.exports. Not a defense against require.cache/code injection."
+  },
   "builds_on": [
     "16AO_g06_backpressure_activation_evidence",
     "16AN_g06_wolfhouse_ingress_binding",
