@@ -141,13 +141,17 @@ const INTEGRATION_SOURCE_PROOF = Object.freeze({
   id: '16AN_SOURCE_dedicated_ingress_tenant_slug',
   status: 'source_deploy_config_proven',
   pass_rule:
-    'resolveTrustedIngressBinding prefers STAFF_API_INGRESS_TENANT_SLUG, '
-    + 'falls back to DEFAULT_CLIENT_SLUG, conflict fail-closed; Wolfhouse '
-    + 'staging Bicep sets STAFF_API_INGRESS_TENANT_SLUG=wolfhouse-somo without '
-    + 'DEFAULT_CLIENT_SLUG; Sunset sets STAFF_API_INGRESS_TENANT_SLUG=sunset '
-    + 'matching DEFAULT_CLIENT_SLUG; REDs cover missing/conflict/spoof and OFF '
-    + 'parity; failed canary/rollback recorded as identity fail-closed (not '
-    + 'overload shed); no live deploy/mutation by this tip; G06 remains partial',
+    'resolveTrustedIngressBinding prefers own STAFF_API_INGRESS_TENANT_SLUG '
+    + '(primitive string + slug-valid; present-but-malformed fail-closed, never '
+    + 'String()-coerced fallthrough to DEFAULT); only when dedicated is truly '
+    + 'absent may strict DEFAULT_CLIENT_SLUG compat fallback apply; conflict '
+    + 'fail-closed on normalized mismatch; Wolfhouse staging Bicep sets '
+    + 'STAFF_API_INGRESS_TENANT_SLUG=wolfhouse-somo without DEFAULT_CLIENT_SLUG; '
+    + 'Sunset sets STAFF_API_INGRESS_TENANT_SLUG=sunset matching DEFAULT; REDs '
+    + 'cover missing/conflict/spoof/OFF parity plus blank/non-string/NUL/'
+    + 'inherited/nullish/getter/hostile-coercion; failed canary/rollback '
+    + 'recorded as identity fail-closed (not overload shed); no live '
+    + 'deploy/mutation by this tip; G06 remains partial',
 });
 
 const FINAL_CONTROLLED_DRILL = INTEGRATION_SOURCE_PROOF;
@@ -193,6 +197,22 @@ const REQUIRED_RED = Object.freeze([
   'overload_shed_overclaim_rejected',
   'full_g06_overclaim_rejected',
   'default_alone_as_wolfhouse_fix_rejected',
+  // Strict dedicated-env fail-closed (no String() fallthrough) — reviewer REDs
+  'blank_dedicated_no_default_fallthrough',
+  'whitespace_dedicated_no_default_fallthrough',
+  'non_string_number_dedicated_fail_closed',
+  'non_string_object_array_boxed_dedicated_fail_closed',
+  'nul_control_dedicated_fail_closed',
+  'oversize_dedicated_fail_closed',
+  'unicode_invalid_dedicated_fail_closed',
+  'inherited_prototype_dedicated_absent_fallback',
+  'undefined_null_present_dedicated_fail_closed',
+  'getter_throwing_dedicated_fail_closed',
+  'hostile_coercion_dedicated_fail_closed',
+  'malformed_present_default_fail_closed',
+  'valid_exact_match_both_envs',
+  'absent_dedicated_valid_default_fallback',
+  'no_secret_raw_value_leakage_in_reason',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -206,6 +226,7 @@ const REQUIRED_GREEN = Object.freeze([
   'g06_remains_partial',
   'score_not_inflated',
   '16am_deploy_flag_off_retained',
+  'explicit_construction_binding_precedence',
 ]);
 
 module.exports = {

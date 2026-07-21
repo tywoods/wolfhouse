@@ -320,6 +320,224 @@ async function main() {
     && locks.SAFETY_ASSESSMENT.dedicated_STAFF_API_INGRESS_TENANT_SLUG.preferred === true
     && design.safety_assessment.DEFAULT_CLIENT_SLUG_alone_on_wolfhouse.chosen === false);
 
+  // ── Strict dedicated-env fail-closed (no String() fallthrough) ─────────────
+
+  function failClosedNoFallback(env, expectedReason) {
+    const r = corr.resolveTrustedIngressBinding(null, env);
+    const dump = JSON.stringify(r);
+    return r.present === false
+      && r.tenant_slug === null
+      && r.source == null
+      && r.conflict === false
+      && r.reason === expectedReason
+      && !/secret|wolfhouse-somo|sunset|toString|valueOf/i.test(String(r.reason || ''))
+      && typeof r.reason === 'string'
+      && r.reason.length > 0
+      && r.reason.length <= 64
+      && !dump.includes('secret-tenant-leak')
+      && dump.indexOf('toString') === -1;
+  }
+
+  red('blank_dedicated_no_default_fallthrough', failClosedNoFallback({
+    [locks.INGRESS_ENV]: '',
+    [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+  }, corr.INGRESS_ENV_REASONS.BLANK));
+
+  red('whitespace_dedicated_no_default_fallthrough', failClosedNoFallback({
+    [locks.INGRESS_ENV]: '   \t  ',
+    [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+  }, corr.INGRESS_ENV_REASONS.CONTROL_CHAR) // tab is control; also covers whitespace-only
+    || failClosedNoFallback({
+      [locks.INGRESS_ENV]: '     ',
+      [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+    }, corr.INGRESS_ENV_REASONS.BLANK));
+
+  red('non_string_number_dedicated_fail_closed', failClosedNoFallback({
+    [locks.INGRESS_ENV]: 123,
+    [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+  }, corr.INGRESS_ENV_REASONS.NON_STRING));
+
+  red('non_string_object_array_boxed_dedicated_fail_closed', (() => {
+    const objectOk = failClosedNoFallback({
+      [locks.INGRESS_ENV]: { slug: locks.WH_INGRESS_SLUG },
+      [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+    }, corr.INGRESS_ENV_REASONS.NON_STRING);
+    const arrayOk = failClosedNoFallback({
+      [locks.INGRESS_ENV]: [locks.WH_INGRESS_SLUG],
+      [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+    }, corr.INGRESS_ENV_REASONS.NON_STRING);
+    const boxedOk = failClosedNoFallback({
+      [locks.INGRESS_ENV]: Object(locks.SUNSET_INGRESS_SLUG),
+      [locks.DEFAULT_ENV]: locks.WH_INGRESS_SLUG,
+    }, corr.INGRESS_ENV_REASONS.NON_STRING);
+    return objectOk && arrayOk && boxedOk;
+  })());
+
+  red('nul_control_dedicated_fail_closed', (() => {
+    const nulOk = failClosedNoFallback({
+      [locks.INGRESS_ENV]: `sunset\u0000x`,
+      [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+    }, corr.INGRESS_ENV_REASONS.CONTROL_CHAR);
+    const belOk = failClosedNoFallback({
+      [locks.INGRESS_ENV]: 'sun\u0007set',
+      [locks.DEFAULT_ENV]: locks.WH_INGRESS_SLUG,
+    }, corr.INGRESS_ENV_REASONS.CONTROL_CHAR);
+    return nulOk && belOk;
+  })());
+
+  red('oversize_dedicated_fail_closed', failClosedNoFallback({
+    [locks.INGRESS_ENV]: `a${'b'.repeat(64)}`,
+    [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+  }, corr.INGRESS_ENV_REASONS.OVERSIZE));
+
+  red('unicode_invalid_dedicated_fail_closed', (() => {
+    const uniOk = failClosedNoFallback({
+      [locks.INGRESS_ENV]: 'café-slug',
+      [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+    }, corr.INGRESS_ENV_REASONS.INVALID_SLUG);
+    const caseInvalidOk = failClosedNoFallback({
+      [locks.INGRESS_ENV]: 'Bad Slug!',
+      [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+    }, corr.INGRESS_ENV_REASONS.INVALID_SLUG);
+    return uniOk && caseInvalidOk;
+  })());
+
+  red('inherited_prototype_dedicated_absent_fallback', (() => {
+    const proto = { [locks.INGRESS_ENV]: locks.WH_INGRESS_SLUG };
+    const env = Object.create(proto);
+    env[locks.DEFAULT_ENV] = locks.SUNSET_INGRESS_SLUG;
+    const r = corr.resolveTrustedIngressBinding(null, env);
+    return corr.envHasOwnProperty(env, locks.INGRESS_ENV) === false
+      && r.present === true
+      && r.tenant_slug === locks.SUNSET_INGRESS_SLUG
+      && r.source === locks.DEFAULT_ENV
+      && r.conflict === false
+      && r.reason === null;
+  })());
+
+  red('undefined_null_present_dedicated_fail_closed', (() => {
+    const undefEnv = { [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG };
+    Object.defineProperty(undefEnv, locks.INGRESS_ENV, {
+      value: undefined,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    const nullEnv = {
+      [locks.INGRESS_ENV]: null,
+      [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+    };
+    return failClosedNoFallback(undefEnv, corr.INGRESS_ENV_REASONS.NULLISH)
+      && failClosedNoFallback(nullEnv, corr.INGRESS_ENV_REASONS.NULLISH);
+  })());
+
+  red('getter_throwing_dedicated_fail_closed', (() => {
+    const env = { [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG };
+    Object.defineProperty(env, locks.INGRESS_ENV, {
+      enumerable: true,
+      configurable: true,
+      get() {
+        throw new Error('secret-tenant-leak boom');
+      },
+    });
+    return failClosedNoFallback(env, corr.INGRESS_ENV_REASONS.READ_THREW);
+  })());
+
+  red('hostile_coercion_dedicated_fail_closed', (() => {
+    const hostile = {
+      toString() { return locks.SUNSET_INGRESS_SLUG; },
+      valueOf() { return locks.SUNSET_INGRESS_SLUG; },
+      [Symbol.toPrimitive]() { return locks.SUNSET_INGRESS_SLUG; },
+    };
+    const r = corr.resolveTrustedIngressBinding(null, {
+      [locks.INGRESS_ENV]: hostile,
+      [locks.DEFAULT_ENV]: locks.WH_INGRESS_SLUG,
+    });
+    return r.present === false
+      && r.tenant_slug === null
+      && r.source == null
+      && r.reason === corr.INGRESS_ENV_REASONS.NON_STRING
+      && r.conflict === false;
+  })());
+
+  red('malformed_present_default_fail_closed', (() => {
+    // Dedicated absent: malformed own DEFAULT fails closed (no accept).
+    const alone = failClosedNoFallback({
+      [locks.DEFAULT_ENV]: '   ',
+    }, corr.INGRESS_ENV_REASONS.BLANK);
+    const nonString = failClosedNoFallback({
+      [locks.DEFAULT_ENV]: 99,
+    }, corr.INGRESS_ENV_REASONS.NON_STRING);
+    // Dedicated valid + malformed present DEFAULT also fails closed.
+    const withDedicated = failClosedNoFallback({
+      [locks.INGRESS_ENV]: locks.WH_INGRESS_SLUG,
+      [locks.DEFAULT_ENV]: '',
+    }, corr.INGRESS_ENV_REASONS.DEFAULT_INVALID);
+    return alone && nonString && withDedicated;
+  })());
+
+  red('valid_exact_match_both_envs', (() => {
+    const r = corr.resolveTrustedIngressBinding(null, {
+      [locks.INGRESS_ENV]: `  ${locks.SUNSET_INGRESS_SLUG}  `,
+      [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+    });
+    return r.present === true
+      && r.tenant_slug === locks.SUNSET_INGRESS_SLUG
+      && r.source === locks.INGRESS_ENV
+      && r.conflict === false
+      && r.reason === null;
+  })());
+
+  red('absent_dedicated_valid_default_fallback', (() => {
+    const r = corr.resolveTrustedIngressBinding(null, {
+      [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+    });
+    return r.present === true
+      && r.tenant_slug === locks.SUNSET_INGRESS_SLUG
+      && r.source === locks.DEFAULT_ENV
+      && r.conflict === false
+      && r.reason === null;
+  })());
+
+  red('no_secret_raw_value_leakage_in_reason', (() => {
+    const secret = 'secret-tenant-leak-SHOULD-NOT-APPEAR';
+    const cases = [
+      { [locks.INGRESS_ENV]: `  ${secret}!!  `, [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG },
+      { [locks.INGRESS_ENV]: `${secret}\u0000`, [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG },
+      { [locks.INGRESS_ENV]: '', [locks.DEFAULT_ENV]: secret },
+      { [locks.INGRESS_ENV]: Object(secret), [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG },
+      { [locks.INGRESS_ENV]: 42, [locks.DEFAULT_ENV]: `${secret}!!` },
+      { [locks.DEFAULT_ENV]: `bad ${secret}` },
+      { [locks.DEFAULT_ENV]: `${secret}\u0007` },
+    ];
+    return cases.every((env) => {
+      const r = corr.resolveTrustedIngressBinding(null, env);
+      const dump = JSON.stringify(r);
+      return r.present === false
+        && r.tenant_slug === null
+        && dump.indexOf(secret) === -1
+        && dump.indexOf('SHOULD-NOT-APPEAR') === -1
+        && typeof r.reason === 'string'
+        && r.reason.length <= 64
+        && !/secret|SHOULD-NOT/i.test(r.reason);
+    });
+  })());
+
+  // Explicit construction binding still wins over env.
+  green('explicit_construction_binding_precedence', (() => {
+    const r = corr.resolveTrustedIngressBinding(
+      { tenant_slug: locks.WH_INGRESS_SLUG },
+      {
+        [locks.INGRESS_ENV]: locks.SUNSET_INGRESS_SLUG,
+        [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+      },
+    );
+    return r.present === true
+      && r.tenant_slug === locks.WH_INGRESS_SLUG
+      && r.source === 'explicit'
+      && r.conflict === false;
+  })());
+
   green('wolfhouse_bicep_wires_ingress_slug',
     /STAFF_API_INGRESS_TENANT_SLUG/.test(whBicep)
     && /wolfhouse-somo/.test(whBicep)

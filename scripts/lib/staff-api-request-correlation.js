@@ -193,13 +193,116 @@ function validateTrustedIngressBinding(binding) {
 const STAFF_API_INGRESS_TENANT_SLUG_ENV = 'STAFF_API_INGRESS_TENANT_SLUG';
 const DEFAULT_CLIENT_SLUG_ENV = 'DEFAULT_CLIENT_SLUG';
 
+/** Bounded non-sensitive reason codes for env ingress binding (never echo raw values). */
+const INGRESS_ENV_REASONS = Object.freeze({
+  ABSENT: 'absent',
+  READ_THREW: 'read_threw',
+  NULLISH: 'nullish',
+  NON_STRING: 'non_string',
+  BLANK: 'blank',
+  CONTROL_CHAR: 'control_char',
+  OVERSIZE: 'oversize',
+  INVALID_SLUG: 'invalid_slug',
+  CONFLICT: 'conflict',
+  DEFAULT_INVALID: 'default_invalid',
+  EXPLICIT_INVALID: 'explicit_invalid',
+});
+
+/**
+ * Own-property presence only — inherited/prototype keys are absent.
+ * Does not coerce values.
+ * @param {unknown} env
+ * @param {string} key
+ * @returns {boolean}
+ */
+function envHasOwnProperty(env, key) {
+  return env != null
+    && (typeof env === 'object' || typeof env === 'function')
+    && Object.prototype.hasOwnProperty.call(env, key);
+}
+
+/**
+ * Read an own env property without String coercion.
+ * Inherited keys → absent. Getter throw → present + read_threw.
+ * @param {unknown} env
+ * @param {string} key
+ * @returns {{ present: boolean, value: unknown, read_error: string|null }}
+ */
+function readOwnEnvProperty(env, key) {
+  if (!envHasOwnProperty(env, key)) {
+    return { present: false, value: undefined, read_error: null };
+  }
+  try {
+    return { present: true, value: env[key], read_error: null };
+  } catch (_) {
+    return { present: true, value: undefined, read_error: INGRESS_ENV_REASONS.READ_THREW };
+  }
+}
+
+/**
+ * Classify a present env slug candidate. Primitive string only — no String().
+ * Blank/whitespace, non-string (number/object/array/boxed), NUL/control,
+ * oversize, Unicode/pattern-invalid → fail with bounded reason (no raw echo).
+ * @param {unknown} raw
+ * @param {string|null} readError
+ * @returns {{ ok: boolean, slug: string|null, reason: string|null }}
+ */
+function classifyPresentEnvSlug(raw, readError) {
+  if (readError) {
+    return { ok: false, slug: null, reason: INGRESS_ENV_REASONS.READ_THREW };
+  }
+  if (raw === undefined || raw === null) {
+    return { ok: false, slug: null, reason: INGRESS_ENV_REASONS.NULLISH };
+  }
+  // Reject boxed String / Number / Object / Array — typeof alone, never String(raw).
+  if (typeof raw !== 'string') {
+    return { ok: false, slug: null, reason: INGRESS_ENV_REASONS.NON_STRING };
+  }
+  for (let i = 0; i < raw.length; i += 1) {
+    const code = raw.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) {
+      return { ok: false, slug: null, reason: INGRESS_ENV_REASONS.CONTROL_CHAR };
+    }
+  }
+  const slug = sanitizeTenantSlug(raw);
+  if (slug) {
+    return { ok: true, slug, reason: null };
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { ok: false, slug: null, reason: INGRESS_ENV_REASONS.BLANK };
+  }
+  if (trimmed.length > 64) {
+    return { ok: false, slug: null, reason: INGRESS_ENV_REASONS.OVERSIZE };
+  }
+  return { ok: false, slug: null, reason: INGRESS_ENV_REASONS.INVALID_SLUG };
+}
+
+/**
+ * @param {string} reason
+ * @param {boolean} [conflict]
+ * @returns {{ tenant_slug: null, present: false, source: null, conflict: boolean, reason: string }}
+ */
+function absentIngressBinding(reason, conflict) {
+  return Object.freeze({
+    tenant_slug: null,
+    present: false,
+    source: null,
+    conflict: conflict === true,
+    reason,
+  });
+}
+
 /**
  * Resolve trusted ingress binding from explicit options or process env.
  * Priority (deployment ingress binding only — never request input):
- *   1. STAFF_API_INGRESS_TENANT_SLUG (dedicated, preferred)
- *   2. DEFAULT_CLIENT_SLUG nonempty compat fallback
- *   3. Both set and conflicting → fail closed (tenant_slug null)
- *   4. Neither set → absent
+ *   1. Explicit construction binding (options.ingressBinding) — unchanged precedence
+ *   2. Own STAFF_API_INGRESS_TENANT_SLUG: must be primitive string + slug-valid;
+ *      present-but-malformed → fail closed (never fall through to DEFAULT)
+ *   3. Only when dedicated is truly absent: own DEFAULT_CLIENT_SLUG compat
+ *      fallback (same strict primitive-string rules; malformed → fail closed)
+ *   4. Both own+valid and normalized unequal → conflict fail-closed
+ *   5. Neither own → absent
  * @param {unknown} [explicit]
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {{
@@ -207,53 +310,67 @@ const DEFAULT_CLIENT_SLUG_ENV = 'DEFAULT_CLIENT_SLUG';
  *   present: boolean,
  *   source?: string|null,
  *   conflict?: boolean,
+ *   reason?: string|null,
  * }}
  */
 function resolveTrustedIngressBinding(explicit, env = process.env) {
   if (explicit && typeof explicit === 'object' && !Array.isArray(explicit)) {
-    return validateTrustedIngressBinding(explicit);
-  }
-  const src = env || {};
-  const dedicatedRaw = src[STAFF_API_INGRESS_TENANT_SLUG_ENV];
-  const defaultRaw = src[DEFAULT_CLIENT_SLUG_ENV];
-  const dedicated = dedicatedRaw != null ? String(dedicatedRaw).trim() : '';
-  const fallback = defaultRaw != null ? String(defaultRaw).trim() : '';
-
-  if (dedicated && fallback && dedicated !== fallback) {
-    return Object.freeze({
-      tenant_slug: null,
-      present: false,
-      source: null,
-      conflict: true,
-    });
-  }
-
-  if (dedicated) {
-    const binding = validateTrustedIngressBinding({ tenant_slug: dedicated });
+    const binding = validateTrustedIngressBinding(explicit);
     return Object.freeze({
       tenant_slug: binding.tenant_slug,
       present: binding.present,
-      source: binding.present ? STAFF_API_INGRESS_TENANT_SLUG_ENV : null,
+      source: binding.present ? 'explicit' : null,
       conflict: false,
+      reason: binding.present ? null : INGRESS_ENV_REASONS.EXPLICIT_INVALID,
     });
   }
 
-  if (fallback) {
-    const binding = validateTrustedIngressBinding({ tenant_slug: fallback });
+  const src = env && (typeof env === 'object' || typeof env === 'function') ? env : {};
+  const dedicatedRead = readOwnEnvProperty(src, STAFF_API_INGRESS_TENANT_SLUG_ENV);
+  const defaultRead = readOwnEnvProperty(src, DEFAULT_CLIENT_SLUG_ENV);
+
+  if (dedicatedRead.present) {
+    const dedicated = classifyPresentEnvSlug(dedicatedRead.value, dedicatedRead.read_error);
+    if (!dedicated.ok) {
+      // Present dedicated is authoritative: never fall through to DEFAULT_CLIENT_SLUG.
+      return absentIngressBinding(dedicated.reason);
+    }
+
+    if (defaultRead.present) {
+      const fallback = classifyPresentEnvSlug(defaultRead.value, defaultRead.read_error);
+      if (!fallback.ok) {
+        return absentIngressBinding(INGRESS_ENV_REASONS.DEFAULT_INVALID);
+      }
+      if (dedicated.slug !== fallback.slug) {
+        return absentIngressBinding(INGRESS_ENV_REASONS.CONFLICT, true);
+      }
+    }
+
     return Object.freeze({
-      tenant_slug: binding.tenant_slug,
-      present: binding.present,
-      source: binding.present ? DEFAULT_CLIENT_SLUG_ENV : null,
+      tenant_slug: dedicated.slug,
+      present: true,
+      source: STAFF_API_INGRESS_TENANT_SLUG_ENV,
       conflict: false,
+      reason: null,
     });
   }
 
-  return Object.freeze({
-    tenant_slug: null,
-    present: false,
-    source: null,
-    conflict: false,
-  });
+  // Dedicated truly absent (not own) — strict DEFAULT_CLIENT_SLUG compatibility fallback.
+  if (defaultRead.present) {
+    const fallback = classifyPresentEnvSlug(defaultRead.value, defaultRead.read_error);
+    if (!fallback.ok) {
+      return absentIngressBinding(fallback.reason);
+    }
+    return Object.freeze({
+      tenant_slug: fallback.slug,
+      present: true,
+      source: DEFAULT_CLIENT_SLUG_ENV,
+      conflict: false,
+      reason: null,
+    });
+  }
+
+  return absentIngressBinding(INGRESS_ENV_REASONS.ABSENT);
 }
 
 /**
@@ -350,6 +467,7 @@ module.exports = {
   UUID_V4_RE,
   STAFF_API_INGRESS_TENANT_SLUG_ENV,
   DEFAULT_CLIENT_SLUG_ENV,
+  INGRESS_ENV_REASONS,
   generateRequestId,
   acceptOrGenerateRequestId,
   pathnameOnly,
@@ -357,6 +475,9 @@ module.exports = {
   sanitizeTenantSlug,
   validateTrustedIngressBinding,
   resolveTrustedIngressBinding,
+  envHasOwnProperty,
+  readOwnEnvProperty,
+  classifyPresentEnvSlug,
   getRequestContext,
   requestId,
   setResponseCorrelationHeader,
