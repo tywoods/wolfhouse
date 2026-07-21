@@ -1,0 +1,489 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16X",
+  "outcome_id": "16X_g02_lifecycle_deploy_traffic_shed_live_evidence",
+  "gate_ids_touched": [
+    "G02_readiness_dependencies"
+  ],
+  "master_basis": "2dcda08008fe951565560cefafe37f1a78b0791a",
+  "branch": "radar/slice-16x-g02-live-evidence",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "progress_class": "partial_live_proven_evidence_only",
+  "title": "Reconcile dual-staging G02 lifecycle deploy + dependency-failure traffic-shed drill (bounded; no overclaims)",
+  "image_sha_short": "2dcda08",
+  "image_sha_full": "2dcda08008fe951565560cefafe37f1a78b0791a",
+  "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "independent_azure_verify_utc": "2026-07-21T10:33:28Z",
+  "observed_facts": {
+    "builds": {
+      "wolfhouse_digest": "sha256:536828373f2deaf5da638bdd4650cdcc2d9d97d4352aa9a6cac718c7f9d4054b",
+      "sunset_digest": "sha256:3c7022173cc931b2701b0a9adcbf0b092fe933281e81538d886028e53ec40a05",
+      "image_sha_full": "2dcda08008fe951565560cefafe37f1a78b0791a"
+    },
+    "wolfhouse": {
+      "app": "wh-staging-staff-api",
+      "resource_group": "wh-staging-rg",
+      "public_host": "staff-staging.lunafrontdesk.com",
+      "image": "whstagingacr.azurecr.io/wh-staff-api:2dcda08008fe951565560cefafe37f1a78b0791a",
+      "digest": "sha256:536828373f2deaf5da638bdd4650cdcc2d9d97d4352aa9a6cac718c7f9d4054b",
+      "base_revision": "wh-staging-staff-api--0000518",
+      "base_revision_suffix": "0000518",
+      "fail_revision": "wh-staging-staff-api--g02fail",
+      "restore_revision": "wh-staging-staff-api--g02restore",
+      "restored_secret_ref": "wolfhouse-database-url",
+      "timeline": {
+        "acr_tag_created_utc": "2026-07-21T10:05:58.4740201Z",
+        "base_revision_created_utc": "2026-07-21T10:06:41+00:00",
+        "fail_write_started_utc": "2026-07-21T10:18:30.5777877Z",
+        "fail_revision_created_utc": "2026-07-21T10:18:42+00:00",
+        "restore_write_started_utc": "2026-07-21T10:21:57.3085439Z",
+        "restore_revision_created_utc": "2026-07-21T10:22:08+00:00",
+        "deactivate_attempt_utc": "2026-07-21T10:22:48.6671Z",
+        "deactivate_result": "RevisionAlreadyInRequestedState"
+      },
+      "fail_env": {
+        "WOLFHOUSE_DATABASE_URL": {
+          "kind": "literal_unreachable_dsn_redacted",
+          "host_redacted": "127.0.0.1",
+          "secretRef": null
+        }
+      },
+      "fail_scale_min_replicas": 1,
+      "observation": {
+        "duration_seconds": 90,
+        "cadence_seconds": 5,
+        "sample_count": 19,
+        "samples": [
+          {
+            "t_offset_s": 0,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 5,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 10,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 15,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 20,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 25,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 30,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 35,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 40,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 45,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 50,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 55,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 60,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 65,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 70,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 75,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 80,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 85,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 90,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          }
+        ]
+      },
+      "final_state": {
+        "latest_revision": "wh-staging-staff-api--g02restore",
+        "latest_ready_revision": "wh-staging-staff-api--g02restore",
+        "health_state": "Healthy",
+        "traffic_latest_percent": 100,
+        "fail_revision_active": false,
+        "database_secret_ref": "wolfhouse-database-url",
+        "public_healthz": 200,
+        "public_readyz": 200,
+        "probes": [
+          {
+            "type": "Liveness",
+            "path": "/healthz",
+            "port": 3036
+          },
+          {
+            "type": "Readiness",
+            "path": "/readyz",
+            "port": 3036
+          },
+          {
+            "type": "Startup",
+            "path": "/healthz",
+            "port": 3036
+          }
+        ]
+      }
+    },
+    "sunset": {
+      "app": "luna-sunset-staging-staff-api",
+      "resource_group": "luna-sunset-staging-rg",
+      "public_host": "sunset-staging.lunafrontdesk.com",
+      "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:2dcda08008fe951565560cefafe37f1a78b0791a",
+      "digest": "sha256:3c7022173cc931b2701b0a9adcbf0b092fe933281e81538d886028e53ec40a05",
+      "base_revision": "luna-sunset-staging-staff-api--0000278",
+      "base_revision_suffix": "0000278",
+      "fail_revision": "luna-sunset-staging-staff-api--g02fail",
+      "restore_revision": "luna-sunset-staging-staff-api--g02restore",
+      "restored_secret_ref": "sunset-database-url",
+      "timeline": {
+        "acr_tag_created_utc": "2026-07-21T10:05:57.6261589Z",
+        "base_revision_created_utc": "2026-07-21T10:16:05+00:00",
+        "fail_write_started_utc": "2026-07-21T10:23:17.2513218Z",
+        "fail_revision_created_utc": "2026-07-21T10:23:26+00:00",
+        "restore_write_started_utc": "2026-07-21T10:26:47.6169176Z",
+        "restore_revision_created_utc": "2026-07-21T10:26:56+00:00",
+        "deactivate_attempt_utc": "2026-07-21T10:27:34.3463529Z",
+        "deactivate_result": "RevisionAlreadyInRequestedState"
+      },
+      "fail_env": {
+        "WOLFHOUSE_DATABASE_URL": {
+          "kind": "literal_unreachable_dsn_redacted",
+          "host_redacted": "127.0.0.1",
+          "secretRef": null
+        }
+      },
+      "fail_scale_min_replicas": 1,
+      "observation": {
+        "duration_seconds": 90,
+        "cadence_seconds": 5,
+        "sample_count": 19,
+        "samples": [
+          {
+            "t_offset_s": 0,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 5,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 10,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 15,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 20,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 25,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 30,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 35,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 40,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 45,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 50,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 55,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 60,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 65,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 70,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 75,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 80,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 85,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          },
+          {
+            "t_offset_s": 90,
+            "fail_running_state": "Activating",
+            "fail_was_latest_ready": false,
+            "public_healthz": 200,
+            "public_readyz": 200
+          }
+        ]
+      },
+      "final_state": {
+        "latest_revision": "luna-sunset-staging-staff-api--g02restore",
+        "latest_ready_revision": "luna-sunset-staging-staff-api--g02restore",
+        "health_state": "Healthy",
+        "traffic_latest_percent": 100,
+        "fail_revision_active": false,
+        "database_secret_ref": "sunset-database-url",
+        "public_healthz": 200,
+        "public_readyz": 200,
+        "probes": [
+          {
+            "type": "Liveness",
+            "path": "/healthz",
+            "port": 3036
+          },
+          {
+            "type": "Readiness",
+            "path": "/readyz",
+            "port": 3036
+          },
+          {
+            "type": "Startup",
+            "path": "/healthz",
+            "port": 3036
+          }
+        ]
+      }
+    }
+  },
+  "claims_allowed": [
+    "exact_sha_2dcda08_images_digests_both_tenants",
+    "base_revisions_wh_0000518_sunset_0000278_healthy_deploy",
+    "g02fail_min1_literal_unreachable_dsn_stayed_activating_90s_never_latest_ready",
+    "prior_revision_public_healthz_readyz_200_every_5s_observation",
+    "exact_sha_g02restore_secretRef_healthy_latestReady_100pct_traffic",
+    "failed_revision_deactivated_inactive",
+    "final_public_healthz_readyz_200_both_tenants",
+    "no_production_scope"
+  ],
+  "explicitly_not_claimed": [
+    "sigterm_sigint_closeReadinessPool_live_lifecycle_behavior",
+    "organic_metric_alert_firing",
+    "human_inbox_receipt",
+    "production",
+    "full_G02_proven",
+    "serving_revision_readyz_503_body_path",
+    "any_gate_verdict_proven"
+  ],
+  "disposition": {
+    "proves": [
+      "dual_staging_lifecycle_image_deploy_exact_sha_2dcda08",
+      "controlled_dependency_failure_traffic_shed_g02fail_activating_never_latest_ready",
+      "public_healthz_readyz_200_continuity_on_prior_revision",
+      "exact_sha_g02restore_secretRef_healthy_100pct_latest_traffic",
+      "failed_revision_deactivated"
+    ],
+    "does_not_prove": [
+      "sigterm_sigint_closeReadinessPool_live_lifecycle_behavior",
+      "organic_metric_alert_firing",
+      "human_inbox_receipt",
+      "production",
+      "full_G02_proven",
+      "serving_revision_readyz_503_body_path",
+      "any_gate_verdict_proven"
+    ],
+    "g02_verdict": "partial",
+    "g02_progress_class": "partial_live_proven"
+  },
+  "gate_progress_updates": {
+    "G02_readiness_dependencies": {
+      "progress_class": "partial_live_proven",
+      "verdict": "partial",
+      "live_proven": [
+        "lifecycle_wired_image_2dcda08_deployed_wh_0000518_sunset_0000278",
+        "controlled_dependency_failure_traffic_shed_g02fail_activating_90s_never_latest_ready",
+        "prior_revision_public_healthz_readyz_200_continuity",
+        "g02restore_exact_sha_secretRef_healthy_latestReady_100pct",
+        "failed_revision_deactivated"
+      ],
+      "still_open": [
+        "sigterm_sigint_closeReadinessPool_live_lifecycle_behavior",
+        "serving_revision_readyz_503_body_path",
+        "organic_metric_alert_firing",
+        "production"
+      ]
+    }
+  },
+  "gates_unchanged": [
+    "G01_correlation_structured_logs",
+    "G03_actionable_tenant_aware_alerts",
+    "G04_webhook_payment_worker_backlog",
+    "G05_retry_replay_safety",
+    "G06_scaling_capacity",
+    "G07_rollback_incident_runbooks",
+    "G08_retention_privacy",
+    "G09_cost_controls"
+  ],
+  "lock_hash": "fdfc01b1f8433afe55490d2f72c071c1bfef6bbf55bcfd5759a90c7051098b68"
+}

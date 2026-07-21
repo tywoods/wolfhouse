@@ -376,8 +376,13 @@ const allowedBranches = new Set([
   'radar/slice-16m-stripe-event-claim',
   'radar/slice-16o-stripe-webhook-error-minimization',
   'radar/slice-16p-live-drill-evidence',
+  'radar/slice-16r-request-completion-log',
+  'radar/slice-16s-request-log-live-evidence',
+  'radar/slice-16u-correlation-design-freeze',
+  'radar/slice-16w-readiness-shutdown-lifecycle',
+  'radar/slice-16x-g02-live-evidence',
 ]);
-ok('C4 branch pin (16L or successor 16M/16O/16P)', allowedBranches.has(headBranch), headBranch);
+ok('C4 branch pin (16L or successor tip)', allowedBranches.has(headBranch), headBranch);
 
 const h16Diff = execSync(`git diff --name-only ${MASTER} -- ${H16_DIR}`, {
   cwd: ROOT, encoding: 'utf8',

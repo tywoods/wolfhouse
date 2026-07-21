@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16W",
-  "title": "RADAR operations gate ledger (16W G02 readiness shutdown lifecycle; G02 partial — dependency-failure drill open)",
-  "master_basis": "d904481de6ef8e7ad65d84241577796cbb5ad1c4",
-  "branch": "radar/slice-16w-readiness-shutdown-lifecycle",
-  "audit_only": false,
+  "slice": "RADAR-16X",
+  "title": "RADAR operations gate ledger (16X G02 lifecycle deploy + traffic-shed drill evidence; G02 partial — SIGTERM live open)",
+  "master_basis": "2dcda08008fe951565560cefafe37f1a78b0791a",
+  "branch": "radar/slice-16x-g02-live-evidence",
+  "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
   "verdicts_allowed": [
@@ -144,7 +144,7 @@
       "name": "Readiness / dependencies",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P records operator-observed live proof that after 16O image SHA 594247f deploy (Wolfhouse rev 0000514, Sunset 0000274) and after rollback/rollforward (WH 0000515→0000516, Sunset 0000275→0000276), health/readiness passed on both tenants with final image 594247f. 16W wires closeReadinessPool into Staff API SIGTERM/SIGINT graceful shutdown (shared Wolfhouse/Sunset runtime source). Partial/live-proven for healthy path only — controlled dependency-failure traffic-shed drill remains open. Does not claim dependency failure or live lifecycle deploy.",
+      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P healthy-path live @ 594247f retained. 16W wires closeReadinessPool into SIGTERM/SIGINT shutdown (source). 16X records dual-staging exact-SHA 2dcda08 lifecycle deploy (WH digest sha256:53682837… rev base 0000518; Sunset digest sha256:3c702217… base 0000278) plus controlled g02fail Activating ≥90s @ 5s never latestReady with prior public /healthz=200 /readyz=200 continuity, then exact-SHA g02restore secretRef Healthy/latestReady/100% traffic and fail deactivated. Partial/live-proven for deploy + Activating traffic-shed — does not claim SIGTERM live lifecycle, serving-revision /readyz=503, organic alerts, production, or full G02 proven.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-readiness.js",
@@ -217,12 +217,17 @@
         {
           "ref": "fixtures/radar-operations/slice16p-live-drill-evidence.json#observed_facts.16o_deploy+rollback_rollforward",
           "note": "Operator-observed health/ready after 16O deploy + rollback/rollforward; final image 594247f"
+        },
+        {
+          "ref": "fixtures/radar-operations/slice16x-g02-live-evidence.json#observed_facts",
+          "note": "16X: exact-SHA 2dcda08 deploy + g02fail Activating traffic-shed + g02restore secretRef; independent Azure verify 2026-07-21T10:33:28Z"
         }
       ],
       "gaps": [
-        "Controlled readiness failure drill (traffic shed without restart loops) not executed",
-        "Live deploy of lifecycle-wired Staff API image to Wolfhouse and Sunset staging not executed by 16W",
-        "Dependency-failure path not claimed by 16P"
+        "SIGTERM/SIGINT closeReadinessPool live lifecycle behavior on deployed revision not proven",
+        "Serving-revision /readyz=503 body path not exercised (failed revision never became ready to serve)",
+        "Organic metric alert firing not claimed",
+        "Production scope forbidden"
       ],
       "progress_class": "partial_live_proven"
     },
@@ -871,8 +876,8 @@
         "Freeze evidence JSON secret-free"
       ],
       "pass_rule": "Readiness removes traffic without restart loops; liveness stays up; recovery restores traffic",
-      "status": "partial_live_proven_healthy_path_via_16P",
-      "note": "Healthy health/ready observed; dependency-failure drill still open"
+      "status": "live_proven_via_16X_activating_traffic_shed",
+      "note": "16X: g02fail Activating never latestReady + prior public health/ready 200 continuity + g02restore; serving /readyz=503 path still open; SIGTERM live open"
     }
   },
   "slice_16j_selection": {
@@ -1364,8 +1369,52 @@
     ],
     "final_controlled_drill": {
       "id": "16I_DRILL_readiness_failure_traffic_shed",
-      "status": "open",
-      "pass_rule": "With Postgres unreachable, /readyz=503 and ACA readiness removes traffic; /healthz stays 200; recovery restores traffic — 16W closes lifecycle source only"
+      "status": "live_proven_via_16X_activating_traffic_shed",
+      "pass_rule": "With Postgres unreachable, Activating revision never latestReady; prior /healthz+/readyz stay 200; recovery restores secretRef/latestReady — 16W closed lifecycle source; 16X closed drill+deploy live; SIGTERM live still open"
+    }
+  },
+  "slice_16x_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16X_g02_lifecycle_deploy_traffic_shed_live_evidence",
+    "gate_id": "G02_readiness_dependencies",
+    "progress_class": "partial_live_proven_evidence_only",
+    "does_not_implement": "sigterm_live_lifecycle_organic_alerts_production_full_g02_serving_readyz_503",
+    "title": "Reconcile dual-staging G02 lifecycle deploy + dependency-failure traffic-shed drill — evidence only",
+    "why_smallest": "G02 deploy + traffic-shed drill completed live; narrowest ownership is lock-hashed evidence + independent verifier without further mutation.",
+    "builds_on": [
+      "16I_staff_api_readiness_dependencies",
+      "16W_readiness_shutdown_lifecycle",
+      "16P_live_drill_evidence_reconciliation"
+    ],
+    "supersedes": [],
+    "owner_files": [
+      "fixtures/radar-operations/slice16x-g02-live-evidence.json",
+      "fixtures/radar-operations/slice16x-expected-contract.json",
+      "scripts/lib/radar-slice16x-g02-live-evidence.js",
+      "scripts/verify-radar-slice16x-g02-live-evidence.js"
+    ],
+    "out_of_scope_for_16x": [
+      "Live Azure mutation by this slice",
+      "SIGTERM/SIGINT live lifecycle proof",
+      "Serving-revision /readyz=503 body path",
+      "Organic metric alert firing",
+      "Production RGs",
+      "Raising G02 verdict to proven"
+    ],
+    "acceptance_criteria": [
+      "Exact SHA 2dcda08 image digests match ACR for Wolfhouse and Sunset",
+      "Base healthy revisions WH 0000518 and Sunset 0000278 recorded",
+      "g02fail min=1 unreachable DSN stayed Activating ≥90s @ 5s never latestReady",
+      "Prior revision public /healthz=200 and /readyz=200 on every observation",
+      "g02restore exact SHA secretRef Healthy/latestReady/100% traffic; fail inactive",
+      "Verifier RED-rejects wrong SHA/digest/revision, secret values, missing 90s observations, fail becoming ready, non-200 continuity, active fail, wrong secretRef, overclaims",
+      "G02 remains partial; proven count remains 0"
+    ],
+    "final_controlled_drill": {
+      "id": "16I_DRILL_readiness_failure_traffic_shed",
+      "status": "live_proven_via_16X_activating_traffic_shed",
+      "pass_rule": "Bounded evidence + independent Azure read-only reconcile; G02 partial; no overclaims"
     }
   }
 }

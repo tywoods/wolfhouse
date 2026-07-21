@@ -573,10 +573,15 @@ async function main() {
       'radar/slice-16m-stripe-event-claim',
       'radar/slice-16o-stripe-webhook-error-minimization',
       'radar/slice-16p-live-drill-evidence',
+      'radar/slice-16r-request-completion-log',
+      'radar/slice-16s-request-log-live-evidence',
+      'radar/slice-16u-correlation-design-freeze',
+      'radar/slice-16w-readiness-shutdown-lifecycle',
+      'radar/slice-16x-g02-live-evidence',
     ]);
-    ok('C11 HEAD on 16K branch or successor 16L/16M/16O/16P', allowed.has(branch), branch);
+    ok('C11 HEAD on 16K branch or successor tip', allowed.has(branch), branch);
   } catch (err) {
-    ok('C11 HEAD on 16K branch or successor 16L/16M/16O/16P', false, String(err && err.message));
+    ok('C11 HEAD on 16K branch or successor tip', false, String(err && err.message));
   }
 
   console.log(`\nResult: ${pass} passed, ${fail} failed`);
