@@ -173,16 +173,17 @@ function spawnNode(scriptPath, timeoutMs, sendSignal) {
 
 function writeChildHarness(opts) {
   const harnessPath = path.join(__dirname, `_tmp-16w-child-${Date.now()}-${Math.random().toString(36).slice(2)}.js`);
+  const poolDelayMs = opts.poolDelayMs ?? 20;
   const poolScript = opts.poolScript || `
     let endCalls = 0;
     readiness._setReadinessPoolForTests({
       connect: () => Promise.resolve({ query: async () => ({ rows: [{ '?column?': 1 }] }), release() {} }),
-      async end() { endCalls += 1; await new Promise((r) => setTimeout(r, 20)); },
+      async end() { endCalls += 1; await new Promise((r) => setTimeout(r, ${poolDelayMs})); },
       get totalCount() { return 0; }, get idleCount() { return 0; }, get waitingCount() { return 0; },
     });
   `;
   const extraSignals = opts.extraSignals
-    ? `setTimeout(() => { process.kill(process.pid, '${opts.extraSignals}'); }, 60);`
+    ? `setTimeout(() => { process.kill(process.pid, '${opts.extraSignals}'); }, ${opts.extraSignalDelayMs ?? 60});`
     : '';
 
   fs.writeFileSync(harnessPath, `'use strict';
@@ -195,8 +196,8 @@ ${poolScript}
 const server = http.createServer();
 server.listen(0, '127.0.0.1', () => {
   lifecycle.attachStaffApiReadinessLifecycle(server, {
-    poolCloseTimeoutMs: 200,
-    serverCloseTimeoutMs: 200,
+    poolCloseTimeoutMs: 5000,
+    serverCloseTimeoutMs: 5000,
     terminate: (signal) => {
       console.log(JSON.stringify({ type: 'terminate', signal, endCalls }));
       process.exit(signal === 'SIGINT' ? 130 : 143);
@@ -207,6 +208,30 @@ server.listen(0, '127.0.0.1', () => {
 });
 `);
   return harnessPath;
+}
+
+async function runChildSameSignalDuringCleanupTest(sendSignal, expectCode) {
+  const harness = writeChildHarness({
+    extraSignals: sendSignal,
+    extraSignalDelayMs: 60,
+    poolDelayMs: 200,
+  });
+  try {
+    const result = await spawnNode(harness, 8000, sendSignal);
+    const lines = result.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const terminate = lines.find((l) => l.type === 'terminate');
+    return {
+      result,
+      terminate,
+      endCalls: terminate ? terminate.endCalls : null,
+      ok: result.code === expectCode
+        && terminate
+        && terminate.signal === sendSignal
+        && terminate.endCalls === 1,
+    };
+  } finally {
+    fs.unlinkSync(harness);
+  }
 }
 
 async function runChildSignalTest(sendSignal, expectCode) {
@@ -252,6 +277,10 @@ ok('C2 lifecycle module present with locked shutdown order',
   && /runStaffApiReadinessShutdown/.test(lifecycleSrc)
   && /closeReadinessPool/.test(lifecycleSrc)
   && /defaultTerminate/.test(lifecycleSrc)
+  && /process\.on\('SIGTERM'/.test(lifecycleSrc)
+  && /process\.on\('SIGINT'/.test(lifecycleSrc)
+  && !/process\.once\('SIGTERM'/.test(lifecycleSrc)
+  && !/process\.once\('SIGINT'/.test(lifecycleSrc)
   && /\.unref\(\)/.test(lifecycleSrc)
   && !/\bclosePgPool\b/.test(lifecycleSrc)
   && !/(^|[^\*\/])\bprocess\.exit\s*\(\s*0\s*\)/.test(lifecycleSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, ''))
@@ -323,6 +352,20 @@ ok('C7 npm script registered',
     red('sigint_propagates_original_signal_child',
       sigintChild.ok,
       JSON.stringify(sigintChild));
+  }
+
+  {
+    const sigtermSame = await runChildSameSignalDuringCleanupTest('SIGTERM', 143);
+    red('child_process_sigterm_same_signal_during_cleanup',
+      sigtermSame.ok,
+      JSON.stringify(sigtermSame));
+  }
+
+  {
+    const sigintSame = await runChildSameSignalDuringCleanupTest('SIGINT', 130);
+    red('child_process_sigint_same_signal_during_cleanup',
+      sigintSame.ok,
+      JSON.stringify(sigintSame));
   }
 
   {
@@ -513,6 +556,112 @@ ok('C7 npm script registered',
       terminate: () => {},
     });
     red('bounded_shutdown_completes', Date.now() - started < 500, `elapsed=${Date.now() - started}`);
+  });
+
+  await withLifecycleModule(async (lifecycle, readiness) => {
+    const { pool, shared } = createTrackedReadinessPool();
+    readiness._setReadinessPoolForTests(pool);
+    const { server } = createOrderTrackingServer();
+    const beforeAttach = {
+      SIGTERM: countProcessListeners('SIGTERM'),
+      SIGINT: countProcessListeners('SIGINT'),
+    };
+    lifecycle.attachStaffApiReadinessLifecycle(server, { terminate: false });
+    const afterAttach = {
+      SIGTERM: countProcessListeners('SIGTERM'),
+      SIGINT: countProcessListeners('SIGINT'),
+    };
+    red('listener_count_after_attach',
+      afterAttach.SIGTERM === beforeAttach.SIGTERM + 1
+      && afterAttach.SIGINT === beforeAttach.SIGINT + 1,
+      JSON.stringify({ beforeAttach, afterAttach }));
+  });
+
+  await withLifecycleModule(async (lifecycle, readiness) => {
+    const { pool, shared } = createTrackedReadinessPool(200);
+    readiness._setReadinessPoolForTests(pool);
+    const { server } = createOrderTrackingServer();
+    const beforeAttach = {
+      SIGTERM: countProcessListeners('SIGTERM'),
+      SIGINT: countProcessListeners('SIGINT'),
+    };
+    lifecycle.attachStaffApiReadinessLifecycle(server, { terminate: false });
+    const shutdown = lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', {
+      terminate: false,
+    });
+    void lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { terminate: false });
+    void lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGINT', { terminate: false });
+    const duringRedelivery = {
+      SIGTERM: countProcessListeners('SIGTERM'),
+      SIGINT: countProcessListeners('SIGINT'),
+    };
+    await shutdown;
+    red('listener_count_stable_during_same_signal_redelivery',
+      shared.endCalls === 1
+      && duringRedelivery.SIGTERM === beforeAttach.SIGTERM + 1
+      && duringRedelivery.SIGINT === beforeAttach.SIGINT + 1,
+      JSON.stringify({ endCalls: shared.endCalls, beforeAttach, duringRedelivery }));
+  });
+
+  await withLifecycleModule(async (lifecycle, readiness) => {
+    const { pool } = createTrackedReadinessPool();
+    readiness._setReadinessPoolForTests(pool);
+    const { server } = createOrderTrackingServer();
+    const beforeAttach = {
+      SIGTERM: countProcessListeners('SIGTERM'),
+      SIGINT: countProcessListeners('SIGINT'),
+    };
+    lifecycle.attachStaffApiReadinessLifecycle(server, { terminate: false });
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { terminate: false });
+    const afterCleanup = {
+      SIGTERM: countProcessListeners('SIGTERM'),
+      SIGINT: countProcessListeners('SIGINT'),
+    };
+    red('listener_count_zero_after_cleanup',
+      afterCleanup.SIGTERM === beforeAttach.SIGTERM
+      && afterCleanup.SIGINT === beforeAttach.SIGINT,
+      JSON.stringify({ beforeAttach, afterCleanup }));
+  });
+
+  await withLifecycleModule(async (lifecycle, readiness) => {
+    const { pool } = createTrackedReadinessPool();
+    readiness._setReadinessPoolForTests(pool);
+    const { server } = createOrderTrackingServer();
+    const baseline = {
+      SIGTERM: countProcessListeners('SIGTERM'),
+      SIGINT: countProcessListeners('SIGINT'),
+    };
+    lifecycle.attachStaffApiReadinessLifecycle(server, { terminate: false });
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { terminate: false });
+    lifecycle._resetStaffApiReadinessLifecycleForTests();
+    readiness._resetReadinessPoolStateForTests();
+    const afterReuse = {
+      SIGTERM: countProcessListeners('SIGTERM'),
+      SIGINT: countProcessListeners('SIGINT'),
+    };
+    red('module_reuse_no_listener_leak',
+      afterReuse.SIGTERM === baseline.SIGTERM
+      && afterReuse.SIGINT === baseline.SIGINT,
+      JSON.stringify({ baseline, afterReuse }));
+  });
+
+  await withLifecycleModule(async (lifecycle, readiness) => {
+    const { pool, shared } = createTrackedReadinessPool(200);
+    readiness._setReadinessPoolForTests(pool);
+    const { server } = createOrderTrackingServer();
+    let terminateSignal = null;
+    const shutdown = lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', {
+      terminate: (sig) => { terminateSignal = sig; },
+    });
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGINT', { terminate: false });
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { terminate: false });
+    await shutdown;
+    const state = lifecycle._getStaffApiReadinessLifecycleStateForTests();
+    red('original_shutdown_signal_preserved_under_mixed_redelivery',
+      shared.endCalls === 1
+      && state.shutdownSignal === 'SIGTERM'
+      && terminateSignal === 'SIGTERM',
+      JSON.stringify({ endCalls: shared.endCalls, shutdownSignal: state.shutdownSignal, terminateSignal }));
   });
 
   await withLifecycleModule(async (lifecycle, readiness) => {

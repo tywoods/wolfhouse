@@ -18,7 +18,8 @@
     "signals": ["SIGTERM", "SIGINT"],
     "closeReadinessPool": "wired_idempotent_once",
     "closePgPool_composition": "forbidden",
-    "listener_install": "cli_main_once_not_on_factory_reuse",
+    "listener_install": "cli_main_once_persistent_not_once_not_on_factory_reuse",
+    "same_signal_during_cleanup": "join_shared_promise_no_native_early_termination",
     "shutdown_order": [
       "close_readiness_pool",
       "server_close",

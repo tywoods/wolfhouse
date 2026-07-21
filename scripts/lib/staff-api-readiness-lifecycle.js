@@ -6,7 +6,8 @@
  * Contract:
  * - SIGTERM + SIGINT trigger idempotent shutdown exactly once (concurrent calls share one promise).
  * - Order: bounded closeReadinessPool → bounded server.close → terminate(original signal).
- * - Listeners install once on CLI main only; factory reuse must not add listeners.
+ * - Persistent owned listeners install once on CLI main only; factory reuse must not add listeners.
+ * - Handlers guard on shared shutdown promise; repeated/mixed signals join without changing shutdownSignal.
  * - After cleanup: remove owned listeners, re-signal via injectable terminate(signal) — no zero exit hack.
  * - Pool/server phases use explicit unref'd timers; server close always attempted after pool phase.
  * - Logs only bounded non-sensitive failure_classes when shutdown steps fail.
@@ -219,8 +220,8 @@ function attachStaffApiReadinessLifecycle(server, opts = {}) {
     void runStaffApiReadinessShutdown(boundServer, 'SIGINT', opts);
   };
 
-  process.once('SIGTERM', sigtermHandler);
-  process.once('SIGINT', sigintHandler);
+  process.on('SIGTERM', sigtermHandler);
+  process.on('SIGINT', sigintHandler);
 
   return { installed: true };
 }
