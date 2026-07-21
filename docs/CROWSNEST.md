@@ -50,9 +50,9 @@ Later, operators may also:
 
 The current UI is only a safe shell. The AI Usage Panel has not been implemented yet.
 
-### Local Slice 1 candidate (not live)
+### Slice 1 (merged and deployed)
 
-**Local candidate only** — four-section protected navigation (`/` Spyglass default, `/clients`, `/billing`, `/communications`; compatibility aliases `/crowsnest` and `/crowsnest/ui` still render Spyglass). Honest read-only Spyglass shell from in-memory static client data; Billing/Communications placeholders stay **not connected**. This Slice 1 work is a **local candidate** and is **not** the VERIFIED CURRENT LIVE BASELINE above.
+**Slice 1 is merged and deployed** — PR [#128](https://github.com/wolfhouse-somo/WH/pull/128); master/image SHA `14a7e3f7f656dd8a7dc11b528b8a645d3feb1210`; ACR build `cb11e`; active healthy revision `crowsnest-internal--0000010` at **100% traffic**. Protected routes: `/` (Spyglass default), `/clients`, `/billing`, `/communications` (aliases `/crowsnest` and `/crowsnest/ui` still render Spyglass). Honest read-only Spyglass shell from in-memory static client data; Billing/Communications placeholders stay **not connected**. No live writes or integrations. Staff API remained `wh-staging-staff-api--0000520` (untouched).
 
 ### History (pre-login-portal live shell)
 
