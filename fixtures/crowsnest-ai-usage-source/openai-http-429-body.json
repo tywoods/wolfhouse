@@ -1,0 +1,8 @@
+{
+  "error": {
+    "message": "SECRET_SHOULD_NOT_LEAK Rate limit for sk-EXAMPLEFAKESECRETVALUE0001 guest@example.test",
+    "type": "rate_limit_exceeded",
+    "param": null,
+    "code": "rate_limit_exceeded"
+  }
+}

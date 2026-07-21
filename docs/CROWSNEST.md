@@ -50,6 +50,10 @@ Later, operators may also:
 
 The current UI is only a safe shell. The AI Usage Panel has not been implemented yet.
 
+### Slice 4 (source observer only — not activated)
+
+Offline **AI usage source instrumentation**: optional per-call `onUsageObservation` on `callLunaAiJsonChat` (default no-op) plus pure dual-identity helper that adapts technical snapshots via the Slice 3 adapter into an injected in-memory callback. Audit result: **none qualifies** as a live first source. See [`docs/crowsnest/AI-USAGE-SOURCE.md`](crowsnest/AI-USAGE-SOURCE.md) and `npm run verify:crowsnest-ai-usage-source`. No production caller wiring, no storage, no UI panel.
+
 ### Slice 3 (adapter only — not integrated)
 
 Offline **AI usage adapter**: maps native OpenAI / Anthropic technical usage fields into validated `crowsnest.ai_usage.v1` events with explicit trusted `client_slug` / `tenant_id`. Pure module + synthetic fixtures + `npm run verify:crowsnest-ai-usage-adapter`. See [`docs/crowsnest/AI-USAGE-ADAPTER.md`](crowsnest/AI-USAGE-ADAPTER.md). No storage, no provider runtime/call-site wiring, no UI panel.
@@ -143,4 +147,5 @@ npm run verify:crowsnest
 npm run verify:crowsnest-auth
 npm run verify:crowsnest-ai-usage-contract
 npm run verify:crowsnest-ai-usage-adapter
+npm run verify:crowsnest-ai-usage-source
 ```

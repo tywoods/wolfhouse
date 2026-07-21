@@ -1,0 +1,14 @@
+{
+  "model": "gpt-example-mini",
+  "choices": [
+    {
+      "message": {
+        "content": "partial usage must become unavailable"
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 5
+  }
+}

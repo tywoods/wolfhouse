@@ -316,8 +316,170 @@ function buildLunaAiHttpError(providerLabel, status, cfg, callLabel, errText) {
   return err;
 }
 
+function isPlainObject(value) {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * Safe own-data-property reader. Never walks the prototype chain and never
+ * invokes accessors.
+ */
+function readOwnDataProperty(obj, key) {
+  if (obj == null || (typeof obj !== 'object' && typeof obj !== 'function')) {
+    return { found: false };
+  }
+  const desc = Object.getOwnPropertyDescriptor(obj, key);
+  if (!desc) {
+    return { found: false };
+  }
+  if ('get' in desc || 'set' in desc) {
+    return { found: true, accessor: true };
+  }
+  return { found: true, accessor: false, value: desc.value };
+}
+
+const OPENAI_USAGE_KEYS = Object.freeze(['prompt_tokens', 'completion_tokens', 'total_tokens']);
+const ANTHROPIC_USAGE_KEYS = Object.freeze(['input_tokens', 'output_tokens']);
+
+function isSafeNonNegInt(value) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function copyNativeUsageOwnData(provider, usage) {
+  if (!isPlainObject(usage)) return null;
+  const keys = provider === 'openai'
+    ? OPENAI_USAGE_KEYS
+    : provider === 'anthropic'
+      ? ANTHROPIC_USAGE_KEYS
+      : null;
+  if (!keys) return null;
+  const out = {};
+  let any = false;
+  for (const key of keys) {
+    const read = readOwnDataProperty(usage, key);
+    if (!read.found || read.accessor) continue;
+    if (!isSafeNonNegInt(read.value)) continue;
+    out[key] = read.value;
+    any = true;
+  }
+  return any ? out : null;
+}
+
+function opaqueHttpErrorCode(status) {
+  if (typeof status === 'number' && Number.isSafeInteger(status) && status >= 100 && status <= 599) {
+    return `http_${status}`;
+  }
+  return 'http_error';
+}
+
+function measureLatencyMs(startedAt, nowMs) {
+  if (typeof startedAt !== 'number' || !Number.isFinite(startedAt)) return 0;
+  let end;
+  try {
+    end = nowMs();
+  } catch (_) {
+    return 0;
+  }
+  const ms = end - startedAt;
+  if (!Number.isFinite(ms) || ms < 0) return 0;
+  return Math.min(Math.floor(ms), Number.MAX_SAFE_INTEGER);
+}
+
+/**
+ * Isolate a callback return value that may be a Promise/thenable without awaiting
+ * it and without letting hostile `then` accessors escape.
+ */
+function isolateCallbackResult(result) {
+  if (result == null) return;
+  const t = typeof result;
+  if (t !== 'object' && t !== 'function') return;
+  try {
+    Promise.resolve(result).then(undefined, () => {});
+  } catch (_) {
+    /* hostile then / sync adoption failure */
+  }
+}
+
+/**
+ * Notify optional observer. When observer is omitted, buildSnapshot is never
+ * called (no clock / snapshot / getPrototypeOf side effects). Snapshot build +
+ * observer invoke + async rejection handling are all inside this boundary.
+ *
+ * @param {Function|null|undefined} observer
+ * @param {() => object} buildSnapshot
+ */
+function safeNotifyUsageObservation(observer, buildSnapshot) {
+  if (typeof observer !== 'function') return;
+  try {
+    const snapshot = typeof buildSnapshot === 'function' ? buildSnapshot() : buildSnapshot;
+    const result = observer(snapshot);
+    isolateCallbackResult(result);
+  } catch (_) {
+    /* observer / snapshot errors isolated — never alter AI return/throw */
+  }
+}
+
+function buildUsageSuccessSnapshot({
+  provider,
+  requestModel,
+  response,
+  latencyMs,
+  callLabel,
+}) {
+  const snapshot = {
+    provider,
+    request_model: requestModel,
+    status: 'succeeded',
+    latency_ms: latencyMs,
+    call_label: callLabel,
+  };
+  if (isPlainObject(response)) {
+    const modelRead = readOwnDataProperty(response, 'model');
+    if (modelRead.found && !modelRead.accessor && typeof modelRead.value === 'string') {
+      snapshot.response_model = modelRead.value;
+    }
+    const usageRead = readOwnDataProperty(response, 'usage');
+    if (usageRead.found && !usageRead.accessor && isPlainObject(usageRead.value)) {
+      const usage = copyNativeUsageOwnData(provider, usageRead.value);
+      if (usage) snapshot.usage = usage;
+    }
+  }
+  return snapshot;
+}
+
+function buildUsageFailureSnapshot({
+  provider,
+  requestModel,
+  latencyMs,
+  callLabel,
+  errorCode,
+}) {
+  return {
+    provider,
+    request_model: requestModel,
+    status: 'failed',
+    latency_ms: latencyMs,
+    call_label: callLabel,
+    error_code: errorCode,
+  };
+}
+
 /**
  * Call configured provider; returns assistant text or null when disabled.
+ *
+ * Optional per-call `onUsageObservation` receives a closed technical-only
+ * snapshot (never prompts/content/raw errors). Default is no-op. When omitted,
+ * no snapshot is built and injected `nowMs` is unused. Observer exceptions and
+ * returned thenable/Promise rejections are isolated (not awaited) and cannot
+ * change return/throw behavior.
+ *
+ * Optional `nowMs` injects a deterministic clock for latency_ms when an
+ * observer is present. Start-clock failures are isolated; end-clock failures
+ * fall back to latency_ms 0.
  *
  * @param {{
  *   system: string,
@@ -328,6 +490,8 @@ function buildLunaAiHttpError(providerLabel, status, cfg, callLabel, errText) {
  *   jsonObject?: boolean,
  *   fetchImpl?: typeof fetch,
  *   call_label?: string,
+ *   onUsageObservation?: (snapshot: object) => void,
+ *   nowMs?: () => number,
  * }} opts
  * @returns {Promise<string|null>}
  */
@@ -363,6 +527,18 @@ async function callLunaAiJsonChat(opts = {}) {
   // Optional per-call model override (e.g. a stronger model for owner NL->SQL)
   // without changing the runtime-wide LUNA_AI_MODEL. Falls back to the configured model.
   const model = opts.model ? String(opts.model).trim() : cfg.model;
+  const onUsageObservation = typeof opts.onUsageObservation === 'function'
+    ? opts.onUsageObservation
+    : null;
+  const nowMs = typeof opts.nowMs === 'function' ? opts.nowMs : () => Date.now();
+  let startedAt = null;
+  if (onUsageObservation) {
+    try {
+      startedAt = nowMs();
+    } catch (_) {
+      startedAt = null;
+    }
+  }
 
   if (provider === 'openai') {
     const body = {
@@ -376,45 +552,130 @@ async function callLunaAiJsonChat(opts = {}) {
     if (opts.jsonObject) {
       body.response_format = { type: 'json_object' };
     }
-    const res = await fetchImpl(OPENAI_CHAT_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
+
+    let res;
+    try {
+      res = await fetchImpl(OPENAI_CHAT_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (netErr) {
+      safeNotifyUsageObservation(onUsageObservation, () => buildUsageFailureSnapshot({
+        provider: 'openai',
+        requestModel: model,
+        latencyMs: measureLatencyMs(startedAt, nowMs),
+        callLabel,
+        errorCode: 'provider_network_error',
+      }));
+      throw netErr;
+    }
+
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw buildLunaAiHttpError('OpenAI', res.status, cfg, callLabel, errText);
+      const err = buildLunaAiHttpError('OpenAI', res.status, cfg, callLabel, errText);
+      safeNotifyUsageObservation(onUsageObservation, () => buildUsageFailureSnapshot({
+        provider: 'openai',
+        requestModel: model,
+        latencyMs: measureLatencyMs(startedAt, nowMs),
+        callLabel,
+        errorCode: opaqueHttpErrorCode(res.status),
+      }));
+      throw err;
     }
-    const data = await res.json();
+
+    let data;
+    try {
+      data = await res.json();
+    } catch (parseErr) {
+      safeNotifyUsageObservation(onUsageObservation, () => buildUsageFailureSnapshot({
+        provider: 'openai',
+        requestModel: model,
+        latencyMs: measureLatencyMs(startedAt, nowMs),
+        callLabel,
+        errorCode: 'provider_response_error',
+      }));
+      throw parseErr;
+    }
+
     const content = data?.choices?.[0]?.message?.content;
+    safeNotifyUsageObservation(onUsageObservation, () => buildUsageSuccessSnapshot({
+      provider: 'openai',
+      requestModel: model,
+      response: data,
+      latencyMs: measureLatencyMs(startedAt, nowMs),
+      callLabel,
+    }));
     return content != null ? String(content) : '';
   }
 
   if (provider === 'anthropic') {
-    const res = await fetchImpl(ANTHROPIC_MESSAGES_URL, {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        ...(includeTemperature ? { temperature } : {}),
-        system,
-        messages: [{ role: 'user', content: user }],
-      }),
-    });
+    let res;
+    try {
+      res = await fetchImpl(ANTHROPIC_MESSAGES_URL, {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          ...(includeTemperature ? { temperature } : {}),
+          system,
+          messages: [{ role: 'user', content: user }],
+        }),
+      });
+    } catch (netErr) {
+      safeNotifyUsageObservation(onUsageObservation, () => buildUsageFailureSnapshot({
+        provider: 'anthropic',
+        requestModel: model,
+        latencyMs: measureLatencyMs(startedAt, nowMs),
+        callLabel,
+        errorCode: 'provider_network_error',
+      }));
+      throw netErr;
+    }
+
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw buildLunaAiHttpError('Anthropic', res.status, cfg, callLabel, errText);
+      const err = buildLunaAiHttpError('Anthropic', res.status, cfg, callLabel, errText);
+      safeNotifyUsageObservation(onUsageObservation, () => buildUsageFailureSnapshot({
+        provider: 'anthropic',
+        requestModel: model,
+        latencyMs: measureLatencyMs(startedAt, nowMs),
+        callLabel,
+        errorCode: opaqueHttpErrorCode(res.status),
+      }));
+      throw err;
     }
-    const data = await res.json();
+
+    let data;
+    try {
+      data = await res.json();
+    } catch (parseErr) {
+      safeNotifyUsageObservation(onUsageObservation, () => buildUsageFailureSnapshot({
+        provider: 'anthropic',
+        requestModel: model,
+        latencyMs: measureLatencyMs(startedAt, nowMs),
+        callLabel,
+        errorCode: 'provider_response_error',
+      }));
+      throw parseErr;
+    }
+
     const block = (data?.content || []).find((b) => b.type === 'text');
+    safeNotifyUsageObservation(onUsageObservation, () => buildUsageSuccessSnapshot({
+      provider: 'anthropic',
+      requestModel: model,
+      response: data,
+      latencyMs: measureLatencyMs(startedAt, nowMs),
+      callLabel,
+    }));
     return block && block.text != null ? String(block.text) : '';
   }
 

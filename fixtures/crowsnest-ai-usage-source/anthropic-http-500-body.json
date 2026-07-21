@@ -1,0 +1,6 @@
+{
+  "error": {
+    "type": "api_error",
+    "message": "SECRET_SHOULD_NOT_LEAK internal failure for +15550100 Bearer EXAMPLETOKENVALUE01"
+  }
+}
