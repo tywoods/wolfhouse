@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AO",
+  "outcome_id": "16AO_g06_backpressure_activation_evidence",
+  "gate_ids": [
+    "G06_scaling_capacity"
+  ],
+  "progress_class": "partial_live_proven_evidence_only",
+  "master_basis": "9da228436c21bf7777cee553c91877a7e62a4092",
+  "branch": "radar/slice-16ao-g06-backpressure-activation-evidence",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "title": "Reconcile corrected dual-staging admission activation of 16AN image \u2014 evidence only; auth-rejection 403 not overload shed; G06 partial",
+  "evidence_fixture": "fixtures/radar-operations/slice16ao-g06-backpressure-activation-evidence.json",
+  "raw_artifacts": [
+    "fixtures/radar-operations/slice16ao-raw-sunset-corrected.json",
+    "fixtures/radar-operations/slice16ao-raw-wh-deploy-off.json",
+    "fixtures/radar-operations/slice16ao-raw-wh-enable-corrected.json",
+    "fixtures/radar-operations/slice16ao-raw-wh-failed-canary.json",
+    "fixtures/radar-operations/slice16ao-raw-wh-rollback.json",
+    "fixtures/radar-operations/slice16ao-raw-cost-before.json",
+    "fixtures/radar-operations/slice16ao-raw-cost-after.json",
+    "fixtures/radar-operations/slice16ao-raw-acr-digest.json",
+    "fixtures/radar-operations/slice16ao-raw-operator-attested.json"
+  ],
+  "raw_artifact_sha256": {
+    "fixtures/radar-operations/slice16ao-raw-sunset-corrected.json": "4fd9006692b19fad4845ee4103c941601437dbd37deab99ac6fd5ef9fbb54752",
+    "fixtures/radar-operations/slice16ao-raw-wh-deploy-off.json": "698b5146216f64966d76bd835666f29e4572de3686a58c6675322e639f6ec2fe",
+    "fixtures/radar-operations/slice16ao-raw-wh-enable-corrected.json": "dffed5e3de1869bc42268222b5e9791a3375aa0204d8446eca48cea5b39cfbf6",
+    "fixtures/radar-operations/slice16ao-raw-wh-failed-canary.json": "48e85d247b2f0059f5771b0b210b5ff60efbc1b02ed1bdf473f093156c5ad3bc",
+    "fixtures/radar-operations/slice16ao-raw-wh-rollback.json": "c765da76128068d1e5fcb6337fa564a22db10693365ff046c1c4d73a9b03c01d",
+    "fixtures/radar-operations/slice16ao-raw-cost-before.json": "a68d223c6637f9fc432a0ed211e56beb3f23324ff58b18bcc554f44c5926d74e",
+    "fixtures/radar-operations/slice16ao-raw-cost-after.json": "16107d84b351f0f8839f1b2bc7e23f296036a3206af129c95c42ca23d4535d03",
+    "fixtures/radar-operations/slice16ao-raw-acr-digest.json": "720859f8f36de940efc9141fdf8768d65b4014c19023b2ef08e185c0522df834",
+    "fixtures/radar-operations/slice16ao-raw-operator-attested.json": "00490beaf94b95d6b3f854cbe2ee507c2660cfda68e269935cd81cff7aa3f9ff"
+  },
+  "excluded_ephemeral_paths": [
+    "/tmp/16an-sunset-deploy.json",
+    "/tmp/16an-wh-deploy-off.json",
+    "/tmp/16an-wh-enable-corrected.json",
+    "/tmp/16an-wh-enable.json",
+    "/tmp/16an-wh-rollback.json",
+    "/tmp/16an-sunset-enable.json",
+    "tmp/foundation-slice9/"
+  ],
+  "builds_on": [
+    "16AN_g06_wolfhouse_ingress_binding",
+    "16AM_g06_backpressure_deploy_evidence",
+    "16AL_g06_backpressure_wire",
+    "16AK_g06_backpressure_source"
+  ],
+  "does_not_implement": "queue_overflow_503_overload_shedding_fairness_load_soak_autoscaling_slo_live_backpressure_proven_production_full_g06_scale_mutation",
+  "provenance": {
+    "source_type": "committed_sanitized_update_readback_operator_attested_probe_env_acr_cost",
+    "independent_verify_utc": "2026-07-21T20:46:01Z",
+    "non_recoverability": "Invalid-signature 403 probes and healthy admission activation cannot prove queue overflow/503 overload shedding, fairness under contention, load soak, autoscaling, capacity SLO/error-budget live compliance, alert fire, backpressure proven, production, or raising G06 to proven. Do not invent overload shed from auth-rejection 403s, and do not treat mid-update traffic readbacks as final cutover without operator attestation."
+  },
+  "required_observed": {
+    "master_sha": "9da228436c21bf7777cee553c91877a7e62a4092",
+    "acr_build_run_id": "cb11g",
+    "digest": "sha256:46ebd0a8ab4dd7c9a6ac92d4003c1f0fbaf9d664f8c35c1ae1810becc3a7b655",
+    "image_tag": "9da228436c21bf7777cee553c91877a7e62a4092",
+    "wh_image": "whstagingacr.azurecr.io/wh-staff-api:9da228436c21bf7777cee553c91877a7e62a4092",
+    "sunset_image": "whstagingacr.azurecr.io/luna-sunset-staff-api:9da228436c21bf7777cee553c91877a7e62a4092",
+    "sunset_revision": "luna-sunset-staging-staff-api--0000282",
+    "wh_deploy_off_revision": "wh-staging-staff-api--0000524",
+    "wh_activation_revision": "wh-staging-staff-api--0000525",
+    "both_flags_currently_true": true,
+    "probes_invalid_signature_expected_403": true,
+    "probes_do_not_prove_overload_shed": true,
+    "historical_failed_canary_identity_fail_closed": true,
+    "sunset_mtd_actualcost_usd": 18.5705435806452,
+    "cost_delta": 0.0,
+    "cost_disclosure": "covers_build_deploy_elapsed_mtd_not_causal_feature_cost",
+    "independent_verify_utc": "2026-07-21T20:46:01Z"
+  },
+  "forbidden_claim_tokens": [
+    "backpressure proven",
+    "backpressure live",
+    "admission control proven",
+    "live shed proven",
+    "overload shed proven",
+    "load soak proven",
+    "autoscaling proven",
+    "capacity SLO proven",
+    "error budget proven",
+    "production",
+    "full G06",
+    "full_G06_proven",
+    "G06 proven"
+  ],
+  "must_not_claim_as_proven": [
+    "queue_overflow_503_overload_shedding",
+    "live_503_overload_shed",
+    "fairness",
+    "backpressure_proven",
+    "backpressure_live_proven",
+    "load_soak_proof",
+    "capacity_alert_firing",
+    "notification_delivery",
+    "autoscaling",
+    "capacity_slo_error_budget_live",
+    "production",
+    "full_G06_proven",
+    "any_gate_verdict_proven",
+    "min_max_replica_mutation",
+    "causal_feature_cost"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "G06 corrected dual-staging admission activation gap closed via 16AO evidence; G06 remains partial because overload-shed/fairness/soak/fire/autoscale/SLO-live/backpressure-proven/production remain open"
+  },
+  "still_open": [
+    "Queue overflow / 503 overload shedding (not claimed; 403 probes are auth-rejection only)",
+    "Fairness under contention (not claimed)",
+    "Load / soak proof (not claimed)",
+    "Capacity alert firing / notification (not claimed)",
+    "Autoscaling (not claimed)",
+    "Capacity SLO / error budget live (not claimed)",
+    "Backpressure live/proven (not claimed; flag-on activation \u2260 overload shed)",
+    "Production scope (forbidden)",
+    "Raising G06 verdict to proven"
+  ],
+  "final_controlled_drill": {
+    "id": "16AO_EVIDENCE_corrected_dual_staging_admission_activation",
+    "status": "live_proven",
+    "pass_rule": "Committed sanitized update/operator-attested/acr/cost fixtures prove exact digest/tag/revisions/env-name presence + operator-attested flag/ingress/ready/403 probes; REDs reject digest/tag/revision/overload-shed/overclaim drift; G06 score unchanged 0/9/0"
+  },
+  "g06_verdict": "partial",
+  "flag_enabled": true,
+  "g06_backpressure": "open",
+  "g06_backpressure_wire_source": "integration_source_proven_via_16AL",
+  "g06_backpressure_deploy_flag_off": "live_proven_via_16AM",
+  "g06_ingress_binding_source": "source_deploy_config_proven_via_16AN",
+  "g06_admission_activation": "live_proven_via_16AO",
+  "score": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0
+  }
+}

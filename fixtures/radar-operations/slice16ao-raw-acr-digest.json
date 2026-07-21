@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "acr_build_digest_operator_fact",
+  "registry": "whstagingacr",
+  "run_id": "cb11g",
+  "run_id_note": "ACR build cb11g succeeded for corrected 16AN ingress-binding image @ master 9da22843 (operator fact)",
+  "image_tag": "9da228436c21bf7777cee553c91877a7e62a4092",
+  "digest": "sha256:46ebd0a8ab4dd7c9a6ac92d4003c1f0fbaf9d664f8c35c1ae1810becc3a7b655",
+  "repositories": [
+    {
+      "repository": "wh-staff-api",
+      "tag": "9da228436c21bf7777cee553c91877a7e62a4092",
+      "digest": "sha256:46ebd0a8ab4dd7c9a6ac92d4003c1f0fbaf9d664f8c35c1ae1810becc3a7b655"
+    },
+    {
+      "repository": "luna-sunset-staff-api",
+      "tag": "9da228436c21bf7777cee553c91877a7e62a4092",
+      "digest": "sha256:46ebd0a8ab4dd7c9a6ac92d4003c1f0fbaf9d664f8c35c1ae1810becc3a7b655"
+    }
+  ],
+  "master_sha": "9da228436c21bf7777cee553c91877a7e62a4092"
+}

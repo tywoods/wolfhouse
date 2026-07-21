@@ -693,7 +693,8 @@
     "verify:radar-slice16ak-g06-backpressure": "node scripts/verify-radar-slice16ak-g06-backpressure.js",
     "verify:radar-slice16al-g06-backpressure-wire": "node scripts/verify-radar-slice16al-g06-backpressure-wire.js",
     "verify:radar-slice16am-g06-backpressure-deploy-evidence": "node scripts/verify-radar-slice16am-g06-backpressure-deploy-evidence.js",
-    "verify:radar-slice16an-g06-wolfhouse-ingress-binding": "node scripts/verify-radar-slice16an-g06-wolfhouse-ingress-binding.js"
+    "verify:radar-slice16an-g06-wolfhouse-ingress-binding": "node scripts/verify-radar-slice16an-g06-wolfhouse-ingress-binding.js",
+    "verify:radar-slice16ao-g06-backpressure-activation-evidence": "node scripts/verify-radar-slice16ao-g06-backpressure-activation-evidence.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

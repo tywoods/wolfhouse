@@ -1,0 +1,343 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AO",
+  "outcome_id": "16AO_g06_backpressure_activation_evidence",
+  "gate_ids_touched": [
+    "G06_scaling_capacity"
+  ],
+  "master_basis": "9da228436c21bf7777cee553c91877a7e62a4092",
+  "branch": "radar/slice-16ao-g06-backpressure-activation-evidence",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "progress_class": "partial_live_proven_evidence_only",
+  "title": "Reconcile corrected dual-staging admission activation of 16AN image @ master 9da22843 — activation/auth-rejection evidence only; not overload shed; G06 partial",
+  "independent_verify_utc": "2026-07-21T20:46:01Z",
+  "provenance_limitations": "Records only what committed secret-free raw fixtures plus clearly labeled operator-attested facts prove for corrected dual-staging admission activation of the 16AN ingress-binding image @ master 9da228436c21bf7777cee553c91877a7e62a4092: ACR build cb11g; digest sha256:46ebd0a8ab4dd7c9a6ac92d4003c1f0fbaf9d664f8c35c1ae1810becc3a7b655; Sunset corrected revision luna-sunset-staging-staff-api--0000282 with STAFF_API_INGRESS_TENANT_SLUG=sunset and admission true; Wolfhouse corrected image first as wh-staging-staff-api--0000524 admission false + ingress wolfhouse-somo; then activation wh-staging-staff-api--0000525 admission true + ingress; invalid-signature webhook probes 80/80 expected 403 (Sunset pre, WH-off pre, WH-on post) prove accepted identity/auth-rejection path and healthy activation only; historical failed canary WH --0000522 80/80 503 was identity fail-closed not overload shed (rolled to --0000523). Azure update readbacks omit env values and may show mid-cutover traffic/latestReady behind latestRevisionName — env values, final 100% traffic/ready convergence, and probe counts are operator-attested. Sunset MTD ActualCost before/after 18.5705435806452 USD (delta 0.0); covers build/deploy/elapsed MTD not causal feature cost. G06 remains partial score 0/9/0; queue-overflow/503 overload shed, fairness, soak, autoscale, SLO, alerts, production, full G06 open. Ephemeral /tmp and tmp/ paths excluded.",
+  "non_recoverability": "Invalid-signature 403 probes and healthy admission activation cannot prove queue overflow/503 overload shedding, fairness under contention, load soak, autoscaling, capacity SLO/error-budget live compliance, alert fire, backpressure proven, production, or raising G06 to proven. Do not invent overload shed from auth-rejection 403s, and do not treat mid-update traffic readbacks as final cutover without operator attestation.",
+  "durable_raw_artifact_provenance": {
+    "note": "Claims bound to committed secret-free raw fixtures via SHA-256 of exact file bytes; ephemeral /tmp and tmp/ paths excluded. Operator-attested artifact is labeled and does not pretend to be raw HTTP.",
+    "excluded_ephemeral_paths": [
+      "/tmp/16an-sunset-deploy.json",
+      "/tmp/16an-wh-deploy-off.json",
+      "/tmp/16an-wh-enable-corrected.json",
+      "/tmp/16an-wh-enable.json",
+      "/tmp/16an-wh-rollback.json",
+      "/tmp/16an-sunset-enable.json",
+      "tmp/foundation-slice9/"
+    ],
+    "artifacts": [
+      {
+        "id": "raw_sunset_corrected",
+        "path": "fixtures/radar-operations/slice16ao-raw-sunset-corrected.json",
+        "sha256": "4fd9006692b19fad4845ee4103c941601437dbd37deab99ac6fd5ef9fbb54752",
+        "proves": "Sunset image/tag/latestRevisionName_0000282/env_name_presence",
+        "does_not_prove": "env_values_or_final_traffic_cutover_beyond_update_readback"
+      },
+      {
+        "id": "raw_wh_deploy_off",
+        "path": "fixtures/radar-operations/slice16ao-raw-wh-deploy-off.json",
+        "sha256": "698b5146216f64966d76bd835666f29e4572de3686a58c6675322e639f6ec2fe",
+        "proves": "WH image/tag/latestRevisionName_0000524/env_name_presence",
+        "does_not_prove": "env_values_or_final_traffic_cutover_beyond_update_readback"
+      },
+      {
+        "id": "raw_wh_enable_corrected",
+        "path": "fixtures/radar-operations/slice16ao-raw-wh-enable-corrected.json",
+        "sha256": "dffed5e3de1869bc42268222b5e9791a3375aa0204d8446eca48cea5b39cfbf6",
+        "proves": "WH image/tag/latestRevisionName_0000525/env_name_presence",
+        "does_not_prove": "env_values_or_final_traffic_cutover_beyond_update_readback"
+      },
+      {
+        "id": "raw_wh_failed_canary",
+        "path": "fixtures/radar-operations/slice16ao-raw-wh-failed-canary.json",
+        "sha256": "48e85d247b2f0059f5771b0b210b5ff60efbc1b02ed1bdf473f093156c5ad3bc",
+        "proves": "historical_WH_0000522_old_image_admission_env_name_presence",
+        "does_not_prove": "overload_shed"
+      },
+      {
+        "id": "raw_wh_rollback",
+        "path": "fixtures/radar-operations/slice16ao-raw-wh-rollback.json",
+        "sha256": "c765da76128068d1e5fcb6337fa564a22db10693365ff046c1c4d73a9b03c01d",
+        "proves": "historical_WH_0000523_rollback_revision_identity",
+        "does_not_prove": "overload_shed"
+      },
+      {
+        "id": "raw_cost_before",
+        "path": "fixtures/radar-operations/slice16ao-raw-cost-before.json",
+        "sha256": "a68d223c6637f9fc432a0ed211e56beb3f23324ff58b18bcc554f44c5926d74e",
+        "proves": "Sunset_MTD_ActualCost_before",
+        "does_not_prove": "causal_feature_cost"
+      },
+      {
+        "id": "raw_cost_after",
+        "path": "fixtures/radar-operations/slice16ao-raw-cost-after.json",
+        "sha256": "16107d84b351f0f8839f1b2bc7e23f296036a3206af129c95c42ca23d4535d03",
+        "proves": "Sunset_MTD_ActualCost_after",
+        "does_not_prove": "causal_feature_cost"
+      },
+      {
+        "id": "raw_acr_digest",
+        "path": "fixtures/radar-operations/slice16ao-raw-acr-digest.json",
+        "sha256": "720859f8f36de940efc9141fdf8768d65b4014c19023b2ef08e185c0522df834",
+        "proves": "ACR_cb11g_digest_and_full_sha_tag_both_repos",
+        "does_not_prove": "overload_shed"
+      },
+      {
+        "id": "raw_operator_attested",
+        "path": "fixtures/radar-operations/slice16ao-raw-operator-attested.json",
+        "sha256": "00490beaf94b95d6b3f854cbe2ee507c2660cfda68e269935cd81cff7aa3f9ff",
+        "proves": "operator_attested_env_values_final_ready_traffic_and_403_probes",
+        "does_not_prove": "queue_overflow_503_overload_shedding"
+      }
+    ]
+  },
+  "claim_ownership": {
+    "corrected_dual_staging_admission_activation": {
+      "owner_class": "committed_sanitized_update_readback_plus_operator_attested_probe_env_acr_cost",
+      "observation": "sunset_0000282_wh_0000524_off_then_0000525_on_exact_image_ingress_bound_flags_true_probes_403",
+      "proves": [
+        "acr_build_cb11g_digest_and_full_sha_tag",
+        "sunset_corrected_revision_0000282_image_exact",
+        "wh_corrected_deploy_off_0000524_then_activation_0000525_image_exact",
+        "STAFF_API_INGRESS_TENANT_SLUG_and_ADMISSION_env_names_present_in_raw",
+        "operator_attested_env_values_and_both_flags_true",
+        "invalid_signature_probes_80_80_expected_403_auth_rejection_path",
+        "historical_failed_canary_identity_fail_closed_not_overload_shed",
+        "healthy_activation_only"
+      ],
+      "does_not_prove": [
+        "queue_overflow_503_overload_shedding",
+        "fairness",
+        "load_soak_proof",
+        "autoscaling",
+        "capacity_slo_error_budget_live",
+        "capacity_alert_firing",
+        "backpressure_proven",
+        "production",
+        "full_G06_proven"
+      ],
+      "limitation": "403 invalid-signature probes prove accepted identity/auth-rejection path and healthy activation only; not overload shed. Update readbacks may show traffic/latestReady still on prior revision."
+    },
+    "sunset_mtd_actual_cost_guard": {
+      "owner_class": "committed_raw_azure_cost_before_after_readonly",
+      "observation": "sunset_mtd_actualcost_before_after_identical_with_delta_disclosed",
+      "proves": [
+        "sunset_mtd_actualcost_before_equals_after",
+        "amount_18.5705435806452_USD",
+        "delta_0.0",
+        "covers_build_deploy_elapsed_mtd_not_causal_feature_cost"
+      ],
+      "does_not_prove": [
+        "causal_feature_cost",
+        "production_cost_proof",
+        "full_G06_proven"
+      ],
+      "limitation": "Sunset staging RG MTD ActualCost guard only; delta disclosed; not causal attribution to admission feature."
+    }
+  },
+  "observed_facts": {
+    "historical_failed_canary_identity_fail_closed": {
+      "source_type": "operator_attested_plus_sanitized_update_readbacks",
+      "classification": "identity_fail_closed_not_overload_shed",
+      "wolfhouse_revision_on_fail": "wh-staging-staff-api--0000522",
+      "wolfhouse_image_tag_on_fail": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+      "invalid_signature_webhook_probes_on_fail": "80/80 returned 503",
+      "readyz_on_fail": 200,
+      "rollback_revision": "wh-staging-staff-api--0000523",
+      "rollback_flag": false,
+      "probe_after_rollback": 403,
+      "raw_failed_canary_path": "fixtures/radar-operations/slice16ao-raw-wh-failed-canary.json",
+      "raw_failed_canary_sha256": "48e85d247b2f0059f5771b0b210b5ff60efbc1b02ed1bdf473f093156c5ad3bc",
+      "raw_rollback_path": "fixtures/radar-operations/slice16ao-raw-wh-rollback.json",
+      "raw_rollback_sha256": "c765da76128068d1e5fcb6337fa564a22db10693365ff046c1c4d73a9b03c01d",
+      "operator_attested_path": "fixtures/radar-operations/slice16ao-raw-operator-attested.json",
+      "operator_attested_sha256": "00490beaf94b95d6b3f854cbe2ee507c2660cfda68e269935cd81cff7aa3f9ff"
+    },
+    "corrected_dual_staging_admission_activation": {
+      "source_type": "committed_sanitized_update_readback_operator_attested_probe_env_acr",
+      "source_ref": "16AO_corrected_activation_2026-07-21T20:46:01Z",
+      "observed_at": "2026-07-21T20:46:01Z",
+      "master_sha": "9da228436c21bf7777cee553c91877a7e62a4092",
+      "acr_build_run_id": "cb11g",
+      "digest": "sha256:46ebd0a8ab4dd7c9a6ac92d4003c1f0fbaf9d664f8c35c1ae1810becc3a7b655",
+      "image_tag": "9da228436c21bf7777cee553c91877a7e62a4092",
+      "sunset": {
+        "app": "luna-sunset-staging-staff-api",
+        "resource_group": "luna-sunset-staging-rg",
+        "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:9da228436c21bf7777cee553c91877a7e62a4092",
+        "image_tag": "9da228436c21bf7777cee553c91877a7e62a4092",
+        "revision": "luna-sunset-staging-staff-api--0000282",
+        "latestRevisionName": "luna-sunset-staging-staff-api--0000282",
+        "latestReadyRevisionName_at_update_readback": "luna-sunset-staging-staff-api--0000281",
+        "traffic_at_update_readback_revision": "luna-sunset-staging-staff-api--0000281",
+        "STAFF_API_ADMISSION_CONTROL_present": true,
+        "STAFF_API_INGRESS_TENANT_SLUG_present": true,
+        "DEFAULT_CLIENT_SLUG_present": true,
+        "operator_attested_STAFF_API_ADMISSION_CONTROL": true,
+        "operator_attested_STAFF_API_INGRESS_TENANT_SLUG": "sunset",
+        "operator_attested_traffic_percent": 100,
+        "operator_attested_ready": true,
+        "operator_attested_pre_probe_invalid_signature": "80/80 expected 403",
+        "raw_update_path": "fixtures/radar-operations/slice16ao-raw-sunset-corrected.json",
+        "raw_update_sha256": "4fd9006692b19fad4845ee4103c941601437dbd37deab99ac6fd5ef9fbb54752",
+        "note": "latestRevisionName locked as 0000282; update readback still showed latestReady/traffic on 0000281 — final ready/100% traffic operator-attested"
+      },
+      "wolfhouse_deploy_off": {
+        "app": "wh-staging-staff-api",
+        "resource_group": "wh-staging-rg",
+        "image": "whstagingacr.azurecr.io/wh-staff-api:9da228436c21bf7777cee553c91877a7e62a4092",
+        "image_tag": "9da228436c21bf7777cee553c91877a7e62a4092",
+        "revision": "wh-staging-staff-api--0000524",
+        "latestRevisionName": "wh-staging-staff-api--0000524",
+        "latestReadyRevisionName_at_update_readback": "wh-staging-staff-api--0000523",
+        "traffic_at_update_readback_revision": "wh-staging-staff-api--0000523",
+        "STAFF_API_ADMISSION_CONTROL_present": true,
+        "STAFF_API_INGRESS_TENANT_SLUG_present": true,
+        "DEFAULT_CLIENT_SLUG_present": false,
+        "operator_attested_STAFF_API_ADMISSION_CONTROL": false,
+        "operator_attested_STAFF_API_INGRESS_TENANT_SLUG": "wolfhouse-somo",
+        "operator_attested_pre_probe_invalid_signature": "80/80 expected 403",
+        "raw_update_path": "fixtures/radar-operations/slice16ao-raw-wh-deploy-off.json",
+        "raw_update_sha256": "698b5146216f64966d76bd835666f29e4572de3686a58c6675322e639f6ec2fe"
+      },
+      "wolfhouse_activation": {
+        "app": "wh-staging-staff-api",
+        "resource_group": "wh-staging-rg",
+        "image": "whstagingacr.azurecr.io/wh-staff-api:9da228436c21bf7777cee553c91877a7e62a4092",
+        "image_tag": "9da228436c21bf7777cee553c91877a7e62a4092",
+        "revision": "wh-staging-staff-api--0000525",
+        "latestRevisionName": "wh-staging-staff-api--0000525",
+        "latestReadyRevisionName_at_update_readback": "wh-staging-staff-api--0000524",
+        "traffic_at_update_readback_revision": "wh-staging-staff-api--0000524",
+        "STAFF_API_ADMISSION_CONTROL_present": true,
+        "STAFF_API_INGRESS_TENANT_SLUG_present": true,
+        "DEFAULT_CLIENT_SLUG_present": false,
+        "operator_attested_STAFF_API_ADMISSION_CONTROL": true,
+        "operator_attested_STAFF_API_INGRESS_TENANT_SLUG": "wolfhouse-somo",
+        "operator_attested_traffic_percent": 100,
+        "operator_attested_ready_before": true,
+        "operator_attested_ready_after": true,
+        "operator_attested_invalid_signature_webhook_probes": "80/80 expected 403",
+        "raw_update_path": "fixtures/radar-operations/slice16ao-raw-wh-enable-corrected.json",
+        "raw_update_sha256": "dffed5e3de1869bc42268222b5e9791a3375aa0204d8446eca48cea5b39cfbf6",
+        "note": "latestRevisionName locked as 0000525; update readback still showed latestReady/traffic on 0000524 — final ready/100% traffic operator-attested"
+      },
+      "admission_flag": {
+        "env": "STAFF_API_ADMISSION_CONTROL",
+        "both_currently_true": true,
+        "controller_enabled_both": true,
+        "live_overload_shed_claimed": false,
+        "probes_prove_only": [
+          "accepted_ingress_identity",
+          "auth_rejection_path_403",
+          "healthy_activation"
+        ]
+      },
+      "raw_acr_digest_path": "fixtures/radar-operations/slice16ao-raw-acr-digest.json",
+      "raw_acr_digest_sha256": "720859f8f36de940efc9141fdf8768d65b4014c19023b2ef08e185c0522df834",
+      "raw_operator_attested_path": "fixtures/radar-operations/slice16ao-raw-operator-attested.json",
+      "raw_operator_attested_sha256": "00490beaf94b95d6b3f854cbe2ee507c2660cfda68e269935cd81cff7aa3f9ff"
+    },
+    "sunset_mtd_actual_cost_guard": {
+      "type": "ActualCost",
+      "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+      "period": {
+        "from": "2026-07-01",
+        "to": "2026-07-21",
+        "label": "month-to-date"
+      },
+      "currency": "USD",
+      "amount_before": 18.5705435806452,
+      "amount_after": 18.5705435806452,
+      "delta": 0,
+      "identical": true,
+      "disclosure": "covers_build_deploy_elapsed_mtd_not_causal_feature_cost",
+      "captured_before_at": "2026-07-21T20:42:29.998Z",
+      "captured_after_at": "2026-07-21T20:46:01.423Z",
+      "raw_before_path": "fixtures/radar-operations/slice16ao-raw-cost-before.json",
+      "raw_before_sha256": "a68d223c6637f9fc432a0ed211e56beb3f23324ff58b18bcc554f44c5926d74e",
+      "raw_after_path": "fixtures/radar-operations/slice16ao-raw-cost-after.json",
+      "raw_after_sha256": "16107d84b351f0f8839f1b2bc7e23f296036a3206af129c95c42ca23d4535d03"
+    }
+  },
+  "claims_allowed": [
+    "corrected_dual_staging_admission_activation_live_proven",
+    "acr_build_cb11g_digest_and_full_sha_tag_both_repos",
+    "sunset_revision_0000282_wh_0000524_off_then_0000525_on_exact_image",
+    "ingress_slug_and_admission_flag_operator_attested_both_true",
+    "invalid_signature_probes_80_80_expected_403_auth_rejection_not_overload_shed",
+    "historical_failed_canary_identity_fail_closed_recorded",
+    "sunset_mtd_actualcost_identical_delta_disclosed",
+    "durable_raw_artifact_sha256_provenance",
+    "g06_remains_partial_score_unchanged_0_9_0",
+    "overload_shed_fairness_soak_autoscale_slo_alerts_production_open"
+  ],
+  "explicitly_not_claimed": [
+    "queue_overflow_503_overload_shedding",
+    "live_503_overload_shed",
+    "fairness",
+    "backpressure_proven",
+    "backpressure_live_proven",
+    "load_soak_proof",
+    "capacity_alert_firing",
+    "notification_delivery",
+    "autoscaling",
+    "capacity_slo_error_budget_live",
+    "production",
+    "full_G06_proven",
+    "any_gate_verdict_proven",
+    "min_max_replica_mutation",
+    "causal_feature_cost"
+  ],
+  "disposition": {
+    "proves": [
+      "corrected_dual_staging_admission_activation_live_proven",
+      "acr_cb11g_digest_and_full_sha_tag_both_repos",
+      "invalid_signature_403_auth_rejection_path_and_healthy_activation",
+      "historical_failed_canary_identity_fail_closed_not_overload_shed",
+      "sunset_mtd_actualcost_identical_delta_disclosed",
+      "g06_remains_partial_score_unchanged_0_9_0"
+    ],
+    "does_not_prove": [
+      "queue_overflow_503_overload_shedding",
+      "fairness",
+      "load_soak_proof",
+      "autoscaling",
+      "capacity_slo_error_budget_live",
+      "capacity_alert_firing",
+      "backpressure_proven",
+      "production",
+      "full_G06_proven"
+    ],
+    "g06_verdict": "partial",
+    "final_controlled_drill_status": "live_proven",
+    "final_controlled_drill_id": "16AO_EVIDENCE_corrected_dual_staging_admission_activation"
+  },
+  "gate_progress_updates": {
+    "G06_scaling_capacity": {
+      "verdict": "partial",
+      "progress_class": "partial_live_proven",
+      "live_proven": [
+        "16al_dual_staging_deploy_flag_off_via_16AM",
+        "corrected_dual_staging_admission_activation_via_16AO"
+      ],
+      "source_proven": [
+        "16an_ingress_binding_source",
+        "16al_backpressure_wire_source",
+        "16ak_backpressure_source"
+      ],
+      "still_open": [
+        "queue_overflow_503_overload_shedding",
+        "fairness",
+        "load_soak_proof",
+        "capacity_alert_firing",
+        "autoscaling",
+        "capacity_slo_error_budget_live",
+        "backpressure",
+        "production"
+      ]
+    }
+  },
+  "lock_hash": "20cb445671db88ff2f2dc502a17c1ab1b5f5bad629c31c82d9852cd7d1d692d9"
+}

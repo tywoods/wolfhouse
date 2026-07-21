@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "operator_attested_activation_probe_and_env_facts",
+  "note": "Not raw HTTP captures. Azure update readbacks omit env values and may show mid-cutover traffic. These operator-attested facts bind activation health + invalid-signature auth-rejection probes only.",
+  "does_not_prove": [
+    "queue_overflow_503_overload_shedding",
+    "fairness",
+    "load_soak",
+    "autoscaling",
+    "capacity_slo",
+    "alert_fire",
+    "production",
+    "full_G06",
+    "backpressure_proven"
+  ],
+  "historical_failed_canary": {
+    "classification": "identity_fail_closed_not_overload_shed",
+    "wolfhouse": {
+      "image_tag": "905ff9ff57a75d0b3defc15a16078b47e94e930f",
+      "revision_on_fail": "wh-staging-staff-api--0000522",
+      "STAFF_API_ADMISSION_CONTROL": true,
+      "STAFF_API_INGRESS_TENANT_SLUG": null,
+      "DEFAULT_CLIENT_SLUG": null,
+      "invalid_signature_webhook_probes": "80/80 returned 503",
+      "readyz": 200,
+      "rollback": {
+        "STAFF_API_ADMISSION_CONTROL": false,
+        "revision": "wh-staging-staff-api--0000523",
+        "probe_after_rollback": 403
+      }
+    }
+  },
+  "corrected_activation": {
+    "sunset": {
+      "revision": "luna-sunset-staging-staff-api--0000282",
+      "image_tag": "9da228436c21bf7777cee553c91877a7e62a4092",
+      "STAFF_API_INGRESS_TENANT_SLUG": "sunset",
+      "STAFF_API_ADMISSION_CONTROL": true,
+      "traffic_percent": 100,
+      "ready": true,
+      "pre_probe_invalid_signature": "80/80 expected 403"
+    },
+    "wolfhouse_deploy_off": {
+      "revision": "wh-staging-staff-api--0000524",
+      "image_tag": "9da228436c21bf7777cee553c91877a7e62a4092",
+      "STAFF_API_INGRESS_TENANT_SLUG": "wolfhouse-somo",
+      "STAFF_API_ADMISSION_CONTROL": false,
+      "pre_probe_invalid_signature": "80/80 expected 403"
+    },
+    "wolfhouse_activation": {
+      "revision": "wh-staging-staff-api--0000525",
+      "image_tag": "9da228436c21bf7777cee553c91877a7e62a4092",
+      "STAFF_API_INGRESS_TENANT_SLUG": "wolfhouse-somo",
+      "STAFF_API_ADMISSION_CONTROL": true,
+      "traffic_percent": 100,
+      "ready_before": true,
+      "ready_after": true,
+      "invalid_signature_webhook_probes": "80/80 expected 403"
+    },
+    "both_flags_currently_true": true,
+    "probes_prove_only": [
+      "accepted_ingress_identity",
+      "auth_rejection_path_403",
+      "healthy_activation"
+    ]
+  },
+  "independent_verify_utc": "2026-07-21T20:46:01Z"
+}

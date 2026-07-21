@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "azure_cost_management_actualcost_readonly",
+  "type": "ActualCost",
+  "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+  "period": {
+    "from": "2026-07-01",
+    "to": "2026-07-21",
+    "label": "month-to-date"
+  },
+  "amount": 18.5705435806452,
+  "currency": "USD",
+  "capturedAt": "2026-07-21T20:42:29.998Z",
+  "phase": "before"
+}
