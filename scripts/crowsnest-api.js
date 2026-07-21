@@ -296,6 +296,14 @@ function handleHealthz(req, res, method) {
   });
 }
 
+function resolveProtectedUiView(pathname) {
+  if (pathname === '/clients') return 'clients';
+  if (pathname === '/billing') return 'billing';
+  if (pathname === '/communications') return 'communications';
+  // `/`, `/crowsnest`, `/crowsnest/ui` → Spyglass
+  return 'spyglass';
+}
+
 function handleProtectedUi(req, res, method, pathname) {
   if (method !== 'GET' && method !== 'HEAD') {
     return sendMethodNotAllowed(res, 'GET, HEAD');
@@ -306,8 +314,9 @@ function handleProtectedUi(req, res, method, pathname) {
   if (method === 'HEAD') {
     return sendNoContentLike(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
   }
+  const view = resolveProtectedUiView(pathname);
   const cspNonce = createBrowserCspNonce();
-  return sendHTML(res, 200, renderCrowsnestPage({ cspNonce }), { 'Cache-Control': 'no-store' }, cspNonce);
+  return sendHTML(res, 200, renderCrowsnestPage({ cspNonce, view: view }), { 'Cache-Control': 'no-store' }, cspNonce);
 }
 
 async function router(req, res) {
@@ -337,7 +346,14 @@ async function router(req, res) {
     return handleAsset(req, res, method);
   }
 
-  if (pathname === '/' || pathname === '/crowsnest' || pathname === '/crowsnest/ui') {
+  if (
+    pathname === '/'
+    || pathname === '/crowsnest'
+    || pathname === '/crowsnest/ui'
+    || pathname === '/clients'
+    || pathname === '/billing'
+    || pathname === '/communications'
+  ) {
     return handleProtectedUi(req, res, method, pathname);
   }
 

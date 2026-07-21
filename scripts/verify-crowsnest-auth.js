@@ -906,6 +906,117 @@ async function main() {
     },
   ]);
 
+  await runScenario('I Slice 1 four-section protected routes', BASE_PORT + 8, {
+    CROWSNEST_AUTH_REQUIRED: 'true',
+    CROWSNEST_AUTH_USERNAME: 'admin',
+    CROWSNEST_AUTH_PASSWORD: 'admin',
+  }, [
+    async (port) => {
+      const protectedPaths = ['/', '/clients', '/billing', '/communications', '/crowsnest', '/crowsnest/ui'];
+      for (const urlPath of protectedPaths) {
+        const unauth = await request(port, urlPath);
+        ok(
+          `unauthenticated GET ${urlPath} redirects to /login`,
+          unauth.statusCode === 302 && String(unauth.headers.location || '') === '/login',
+        );
+        ok(
+          `unauthenticated GET ${urlPath} has no Basic challenge`,
+          !String(unauth.headers['www-authenticate'] || '').includes('Basic'),
+        );
+        for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+          await assertMethodRejected(port, urlPath, method, undefined, 'GET, HEAD');
+        }
+      }
+    },
+    async (port) => {
+      const login = await request(port, '/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'username=admin&password=admin',
+      });
+      const cookie = extractCookiePair(login.headers['set-cookie']);
+      ok('Slice 1 login sets session cookie', /crowsnest_session=/.test(cookie));
+
+      function countAriaCurrent(html) {
+        return (String(html || '').match(/aria-current=["']page["']/gi) || []).length;
+      }
+
+      function hasInventedMetricNumber(html) {
+        const text = String(html || '');
+        if (/\$\s*\d|\d+\s*(?:USD|EUR|€)|€\s*\d/i.test(text)) return true;
+        if (/\b(?:tokens?|requests?|messages?)\s*[:=]?\s*\d+/i.test(text)) return true;
+        if (/\bAI\b[^<]{0,40}\b\d{2,}/i.test(text)) return true;
+        if (/\b(?:cost|spend|invoice|balance)\b[^<]{0,40}\b\d+/i.test(text)) return true;
+        return false;
+      }
+
+      const routeMatrix = [
+        { path: '/', label: 'Spyglass', expectSpyglass: true, activeHref: '/' },
+        { path: '/crowsnest', label: 'alias /crowsnest', expectSpyglass: true, activeHref: '/' },
+        { path: '/crowsnest/ui', label: 'alias /crowsnest/ui', expectSpyglass: true, activeHref: '/' },
+        { path: '/clients', label: 'Clients', expectClients: true, activeHref: '/clients' },
+        { path: '/billing', label: 'Billing', expectBilling: true, activeHref: '/billing' },
+        { path: '/communications', label: 'Communications', expectComms: true, activeHref: '/communications' },
+      ];
+
+      for (const route of routeMatrix) {
+        const head = await request(port, route.path, { method: 'HEAD', headers: { Cookie: cookie } });
+        ok(`HEAD ${route.path} => 200`, head.statusCode === 200);
+        ok(`HEAD ${route.path} no-store`, /no-store/i.test(String(head.headers['cache-control'] || '')));
+
+        const res = await request(port, route.path, { headers: { Cookie: cookie } });
+        ok(`GET ${route.path} => 200`, res.statusCode === 200);
+        ok(`GET ${route.path} no-store`, /no-store/i.test(String(res.headers['cache-control'] || '')));
+        assertBrowserSecurityHeaders(`GET ${route.path}`, res, { expectCsp: true });
+        ok(`GET ${route.path} nav Spyglass href`, /href=["']\/["']/.test(res.body));
+        ok(`GET ${route.path} nav Clients href`, /href=["']\/clients["']/.test(res.body));
+        ok(`GET ${route.path} nav Billing href`, /href=["']\/billing["']/.test(res.body));
+        ok(`GET ${route.path} nav Communications href`, /href=["']\/communications["']/.test(res.body));
+        ok(`GET ${route.path} has exactly one aria-current`, countAriaCurrent(res.body) === 1);
+        const activeRe = new RegExp(
+          `<a\\b[^>]*\\bhref=["']${route.activeHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*aria-current=["']page["']|<a\\b[^>]*aria-current=["']page["'][^>]*\\bhref=["']${route.activeHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`,
+          'i',
+        );
+        ok(`GET ${route.path} aria-current on ${route.activeHref}`, activeRe.test(res.body));
+        ok(`GET ${route.path} keeps logout`, /action=["']\/logout["']/i.test(res.body));
+
+        if (route.expectSpyglass) {
+          ok(`${route.label} renders Spyglass`, /Spyglass/i.test(res.body) && /<h1[^>]*>[\s\S]*Spyglass/i.test(res.body));
+          ok(`${route.label} omits client cards`, !res.body.includes('Wolfhouse Somo'));
+          ok(`${route.label} omits onboarding`, !res.body.includes('New client onboarding'));
+          ok(`${route.label} has honest unavailable states`, /n\/a|not connected|unavailable|no data/i.test(res.body));
+          ok(`${route.label} invents no AI/cost/billing numbers`, !hasInventedMetricNumber(res.body));
+          ok(`${route.label} read-only language`, /read-only|no live writes|no writes/i.test(res.body));
+        }
+        if (route.expectClients) {
+          ok('Clients route keeps Wolfhouse card', res.body.includes('Wolfhouse Somo'));
+          ok('Clients route keeps Sunset Somo card', res.body.includes('Sunset Somo'));
+          ok('Clients route keeps Sunset Sardinero card', res.body.includes('Sunset Sardinero'));
+          ok('Clients route keeps onboarding', res.body.includes('New client onboarding'));
+          ok('Clients route keeps templates', /surf house template/i.test(res.body) && /surf school template/i.test(res.body));
+          ok('Clients route keeps disabled create', res.body.includes('Create client') && /disabled|aria-disabled/.test(res.body));
+        }
+        if (route.expectBilling) {
+          ok('Billing placeholder heading', /Billing/i.test(res.body));
+          ok('Billing not connected copy', /not connected|not available|no data source|unavailable/i.test(res.body));
+          ok('Billing invents no amounts', !hasInventedMetricNumber(res.body));
+          ok('Billing has no mutation form', !/<form\b/i.test(res.body.replace(/<form[^>]+action=["']\/logout["'][\s\S]*?<\/form>/i, '')));
+        }
+        if (route.expectComms) {
+          ok('Communications placeholder heading', /Communications/i.test(res.body));
+          ok('Communications not connected copy', /not connected|not available|no data source|unavailable/i.test(res.body));
+          ok('Communications invents no counts', !hasInventedMetricNumber(res.body));
+          ok('Communications has no send controls', !/send message|recipient/i.test(res.body));
+        }
+      }
+
+      const unknown = await request(port, '/nope-slice1', { headers: { Cookie: cookie } });
+      ok('unknown route => 404 JSON', unknown.statusCode === 404 && /application\/json/i.test(String(unknown.headers['content-type'] || '')));
+      ok('unknown route body is not found', /not found/i.test(unknown.body) && !unknown.body.includes('<!DOCTYPE html>'));
+      assertBrowserSecurityHeaders('unknown route 404', unknown);
+    },
+  ]);
+
   console.log(`\n── verify:crowsnest-auth: ${pass} passed, ${fail} failed ──`);
   if (fail === 0) {
     console.log('verify:crowsnest-auth — ALL CHECKS PASSED');
