@@ -619,12 +619,12 @@ ok('C5 explicitly_not_claimed complete',
   && evidence.explicitly_not_claimed.length === locks.EXPLICITLY_NOT_CLAIMED.length);
 
 ok('C6 top-level contract owns 16P (tip may advance to 16W/16X)',
-  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16W' || topContract.slice === 'RADAR-16X' || topContract.slice === 'RADAR-16Y' || topContract.slice === 'RADAR-16Z' || (topContract.slice === 'RADAR-16AA' || topContract.slice === 'RADAR-16AB'))
+  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16W' || topContract.slice === 'RADAR-16X' || topContract.slice === 'RADAR-16Y' || topContract.slice === 'RADAR-16Z' || (topContract.slice === 'RADAR-16AA' || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC' || topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AE'))
   && topContract.selected_16p
   && topContract.selected_16p.outcome_id === locks.OUTCOME_ID);
 
 ok('C7 gate-matrix owns 16P (tip may advance to 16W/16X)',
-  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB'))
+  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC' || matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AE'))
   && matrix.slice_16p_selection
   && matrix.slice_16p_selection.outcome_id === locks.OUTCOME_ID
   && matrix.live_mutation === false);
@@ -637,7 +637,7 @@ ok('C7 gate-matrix owns 16P (tip may advance to 16W/16X)',
 
 const rt = runtimePathsUnchanged();
 ok('C11 zero runtime mutation vs master basis (waived when tip is 16W/16X ledger tip)',
-  rt.ok || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB'), rt.detail);
+  rt.ok || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC' || matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AE'), rt.detail);
 
 const blob = [JSON.stringify(evidence), JSON.stringify(contract), JSON.stringify(matrix),
   JSON.stringify(topContract), doc, findings].join('\n');

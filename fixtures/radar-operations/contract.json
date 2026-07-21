@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16AD",
-  "outcome_id": "16AD_g02_sampled_restart_continuity_evidence",
-  "master_basis": "137b14a0b3efc689ba749340a97ab4e9bc220edc",
-  "branch": "radar/slice-16ad-g02-sampled-restart-continuity-evidence",
+  "slice": "RADAR-16AE",
+  "outcome_id": "16AE_g01_capability_boundary_freeze",
+  "master_basis": "0a2fb08486b835dd45a4fc904e3dd152702bea6f",
+  "branch": "radar/slice-16ae-g01-capability-boundary-freeze",
   "audit_only": true,
   "live_mutation": false,
-  "title": "G02 sampled revision-restart continuity evidence (partial/live-proven; absolute zero-downtime/production open)",
-  "progress_class": "partial_live_proven_evidence_only",
-  "does_not_implement": "absolute_continuous_zero_downtime_between_samples_sub_second_cold_start_production_full_g02",
+  "title": "G01 central capability boundary freeze (audit-only; inventory 4/21/18; dry-run not implementable; 16AD G02 sampled continuity retained; proven=0)",
+  "progress_class": "audit_only_capability_boundary_freeze",
+  "does_not_implement": "runtime_decideCapability_wiring_dry_run_switch_trace_x_request_id_live_g01a_drill_any_gate_proven",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -100,7 +100,12 @@
     "fixtures/radar-operations/slice16ad-g02-sampled-restart-continuity-evidence.json",
     "fixtures/radar-operations/slice16ad-expected-contract.json",
     "scripts/lib/radar-slice16ad-g02-sampled-restart-continuity-evidence.js",
-    "scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js"
+    "scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js",
+    "fixtures/radar-operations/slice16ae-adapter-inventory.json",
+    "fixtures/radar-operations/slice16ae-capability-boundary-freeze.json",
+    "fixtures/radar-operations/slice16ae-expected-contract.json",
+    "scripts/lib/radar-slice16ae-g01-capability-boundary-freeze.js",
+    "scripts/verify-radar-slice16ae-g01-capability-boundary-freeze.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -158,6 +163,7 @@
     "note": "16Z evidence-only; no runtime mutation vs master 95dc3634; Azure/ACR/LAW read-only verification only"
   },
   "gates": [
+    "npm run verify:radar-slice16ae-g01-capability-boundary-freeze",
     "npm run verify:radar-slice16ad-g02-sampled-restart-continuity-evidence",
     "npm run verify:radar-slice16ac-organic-restart-alert-evidence",
     "npm run verify:radar-slice16ab-g02-readyz503-evidence",
@@ -171,7 +177,7 @@
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 137b14a0b3efc689ba749340a97ab4e9bc220edc..HEAD"
+    "git diff --check 0a2fb08486b835dd45a4fc904e3dd152702bea6f..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -481,5 +487,30 @@
     "g02_sigterm_live": "live_proven_via_16Z",
     "g02_absolute_zero_downtime": "open",
     "g02_production": "open"
+  },
+  "capability_boundary_design": "frozen_via_16AE",
+  "selected_16ae": {
+    "outcome_id": "16AE_g01_capability_boundary_freeze",
+    "gate_id": "G01_correlation_structured_logs",
+    "progress_class": "audit_only_capability_boundary_freeze",
+    "does_not_implement": "runtime_decideCapability_wiring_dry_run_switch_trace_x_request_id_live_g01a_drill_any_gate_proven",
+    "dry_run_implementable_today": false,
+    "inventory_counts": {
+      "whatsapp_send": 4,
+      "mutation": 21,
+      "read_dispatch": 18,
+      "total": 43
+    },
+    "central_decision_point": "decideCapability",
+    "enforcement_owner": "docker/hermes-staging/wolfhouse/capability_boundary.py::decide_capability",
+    "next_slice": "16AF_candidate_capability_boundary_runtime_apply",
+    "fulfills_16u_candidate": "16V_candidate_central_capability_boundary_audit_freeze",
+    "builds_on": [
+      "16U_correlation_design_freeze",
+      "16S_request_completion_log_live_evidence",
+      "16R_staff_api_request_completion_log",
+      "16J_staff_api_request_correlation"
+    ],
+    "g01_verdict": "partial"
   }
 }

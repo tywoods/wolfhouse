@@ -330,9 +330,12 @@ function validateEvidenceCore(ev) {
 
 function validateGateMatrix(matrix) {
   const errors = [];
-  if (matrix.slice !== locks.SLICE) errors.push('matrix.slice');
-  if (matrix.branch !== locks.BRANCH) errors.push('matrix.branch');
-  if (matrix.master_basis !== locks.MASTER_BASIS) errors.push('matrix.master');
+  const tip16ae = matrix.slice === 'RADAR-16AE';
+  if (matrix.slice !== locks.SLICE && !tip16ae) errors.push('matrix.slice');
+  if (matrix.slice === locks.SLICE) {
+    if (matrix.branch !== locks.BRANCH) errors.push('matrix.branch');
+    if (matrix.master_basis !== locks.MASTER_BASIS) errors.push('matrix.master');
+  }
   const g02 = (matrix.gates || []).find((g) => g.id === 'G02_readiness_dependencies');
   if (!g02 || g02.verdict !== 'partial') errors.push('g02 verdict');
   if (!/16AD|sampled.?restart|concurrent.?sampled/i.test(String(g02.rationale || ''))) {
@@ -400,7 +403,10 @@ function runVerifier() {
     && contract.live_deploy === false
     && contract.this_slice_deploys === false);
 
-  ok('C3 HEAD on 16AD branch', currentBranch() === locks.BRANCH, currentBranch());
+  ok('C3 HEAD on 16AD branch or successor tip 16AE',
+    currentBranch() === locks.BRANCH
+    || currentBranch() === 'radar/slice-16ae-g01-capability-boundary-freeze',
+    currentBranch());
 
   {
     const v = validateEvidenceCore(evidence);
@@ -430,11 +436,11 @@ function runVerifier() {
 
   {
     const mv = validateGateMatrix(matrix);
-    ok('C7 matrix tip=16AD G02 partial with 16AD live evidence', mv.ok, mv.errors.join(' | '));
+    ok('C7 matrix tip=16AD-or-16AE G02 partial with 16AD selection retained', mv.ok, mv.errors.join(' | '));
   }
 
   ok('C8 top contract selected_16ad + prior selections retained',
-    topContract.slice === locks.SLICE
+    (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AE')
     && topContract.selected_16ad
     && topContract.selected_16ad.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16ad.g02_sampled_restart_continuity === 'live_proven_via_16AD'

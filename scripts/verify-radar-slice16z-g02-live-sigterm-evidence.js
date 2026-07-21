@@ -993,7 +993,7 @@ function runVerifier() {
   }
 
   ok('C11 top contract selected_16z + G02 SIGTERM live_proven_via_16Z (tip may be 16AA)',
-    (topContract.slice === locks.SLICE || (topContract.slice === 'RADAR-16AA' || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC' || topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AD'))
+    (topContract.slice === locks.SLICE || (topContract.slice === 'RADAR-16AA' || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC' || topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AE' || topContract.slice === 'RADAR-16AC' || topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AE' || topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AE'))
     && topContract.selected_16z
     && topContract.selected_16z.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16z.g02_sigterm_live === 'live_proven_via_16Z'
@@ -1024,7 +1024,7 @@ function runVerifier() {
   {
     const rt = runtimePathsUnchanged();
     ok('C14 runtime paths unchanged vs master (waived when tip is 16AA evidence)',
-      rt.ok || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC' || matrix.slice === 'RADAR-16AD'), rt.detail);
+      rt.ok || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC' || matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AE' || matrix.slice === 'RADAR-16AC' || matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AE'), rt.detail);
   }
 
   {

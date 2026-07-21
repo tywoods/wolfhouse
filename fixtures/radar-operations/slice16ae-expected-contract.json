@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AE",
+  "outcome_id": "16AE_g01_capability_boundary_freeze",
+  "gate_id": "G01_correlation_structured_logs",
+  "progress_class": "audit_only_capability_boundary_freeze",
+  "master_basis": "0a2fb08486b835dd45a4fc904e3dd152702bea6f",
+  "branch": "radar/slice-16ae-g01-capability-boundary-freeze",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "this_slice_implements_runtime": false,
+  "title": "Audit-only central capability boundary freeze \u2014 inventory + decideCapability before acquisition",
+  "design_fixture": "fixtures/radar-operations/slice16ae-capability-boundary-freeze.json",
+  "inventory_fixture": "fixtures/radar-operations/slice16ae-adapter-inventory.json",
+  "builds_on": {
+    "outcome_ids": [
+      "16U_correlation_design_freeze",
+      "16S_request_completion_log_live_evidence",
+      "16R_staff_api_request_completion_log",
+      "16J_staff_api_request_correlation"
+    ],
+    "gate_id": "G01_correlation_structured_logs"
+  },
+  "required_design_facts": {
+    "central_decision_point": "decideCapability",
+    "decision_before_acquisition": true,
+    "unknown_adapters_deny": true,
+    "inventory_lookup_required": true,
+    "effect_from_pinned_entry": true,
+    "exact_tenant_binding": true,
+    "immutable_per_turn_decision": true,
+    "denies_every_whatsapp_send": true,
+    "denies_every_staff_db_stripe_mutation": true,
+    "permits_real_read_dispatch": true,
+    "inventory_independently_pinned": true,
+    "identity_rule_id": "ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION",
+    "completeness_method": "source_derived_exact_set_comparison",
+    "whatsapp_send_count": 4,
+    "mutation_count": 21,
+    "read_dispatch_count": 18,
+    "total_count": 43,
+    "dry_run_implementable_today": false,
+    "runtime_wired": false,
+    "g01_verdict": "partial",
+    "preserved_16u_burst_provenance": "ordered_immutable_source_wamid_set_no_invented_parent",
+    "preserved_16u_g01b": "tenant_payment_booking_session_metadata_only",
+    "next_slice": "16AF_candidate_capability_boundary_runtime_apply",
+    "later_owner_module": "docker/hermes-staging/wolfhouse/capability_boundary.py",
+    "later_owner_tests": "docker/hermes-staging/wolfhouse/test_capability_boundary.py",
+    "exact_location_binding": true,
+    "immutable_tenant_location_adapter_context": true,
+    "fulfills_16u_candidate": "16V_candidate_central_capability_boundary_audit_freeze"
+  },
+  "forbidden_claim_tokens": [
+    "runtime wired",
+    "dry-run implementable",
+    "gate verdict proven",
+    "live drill executed",
+    "post-acquisition denial ok",
+    "dispersed env checks sole control",
+    "mutable capability state",
+    "tenant confused",
+    "trace implemented",
+    "deployed",
+    "self-reported complete",
+    "context tamper ok",
+    "location unbound",
+    "tenant location mismatch"
+  ],
+  "must_not_claim_as_proven": [
+    "capability_boundary_wired_at_runtime",
+    "dry_run_implementable_today",
+    "live_correlation_drill_executed",
+    "any_gate_verdict_proven",
+    "hermes_x_request_id_propagation_implemented",
+    "G01_full_proven"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "G01 remains partial; 16AE audit-freezes capability boundary + inventory; 16U provenance retained; 16AD G02 sampled continuity retained; dry-run still blocked on runtime apply; G01-A live open; proven=0"
+  },
+  "still_open": [
+    "16AF wire decide_capability runtime owner + tests (no deploy/evidence/trace)",
+    "After runtime boundary: Hermes trace_id mint + X-Request-Id",
+    "Hard-disabled G01_CORRELATION_DRY_RUN",
+    "Live G01-A Meta\u2192Hermes\u2192Staff read-only correlation evidence freeze",
+    "Production scope (forbidden)"
+  ],
+  "final_controlled_drill": {
+    "id": "16AE_DRILL_capability_boundary_audit_freeze",
+    "status": "audit_only_boundary_frozen",
+    "pass_rule": "Source-derived exact-set inventory (4/21/18=43); decideCapability inventory-lookup + exact tenant/location + pinned effect + immutable per-turn tenant/location/adapter context; RED-rejects missing/extra/duplicate/bypass/context-tamper; runtime paths unchanged; proven=0"
+  },
+  "artifacts": [
+    "fixtures/radar-operations/slice16ae-adapter-inventory.json",
+    "fixtures/radar-operations/slice16ae-capability-boundary-freeze.json",
+    "fixtures/radar-operations/slice16ae-expected-contract.json",
+    "scripts/lib/radar-slice16ae-g01-capability-boundary-freeze.js",
+    "scripts/verify-radar-slice16ae-g01-capability-boundary-freeze.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16ae-g01-capability-boundary-freeze",
+    "npm run verify:radar-slice16u-correlation-design-freeze",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16s-request-log-live-evidence",
+    "npm run verify:radar-slice16ad-g02-sampled-restart-continuity-evidence",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 0a2fb08486b835dd45a4fc904e3dd152702bea6f..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "docker/hermes-sunset/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-request-correlation.js",
+      "scripts/lib/staff-api-request-completion-log.js",
+      "scripts/lib/stripe-webhook-public-errors.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16AE is audit-only; no Hermes/Staff/DB/IaC runtime mutation; later owner modules are specified but not created"
+  }
+}

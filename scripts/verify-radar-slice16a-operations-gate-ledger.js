@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '137b14a0b3efc689ba749340a97ab4e9bc220edc';
+const MASTER_BASIS = '0a2fb08486b835dd45a4fc904e3dd152702bea6f';
+const BRANCH_16AE = 'radar/slice-16ae-g01-capability-boundary-freeze';
 const BRANCH_16AD = 'radar/slice-16ad-g02-sampled-restart-continuity-evidence';
 const BRANCH_16AC = 'radar/slice-16ac-organic-restart-alert-evidence';
 const BRANCH_16AB = 'radar/slice-16ab-g02-readyz503-evidence';
@@ -192,6 +193,7 @@ function staffApiRuntimeDiffVsMaster() {
     return [];
   }
 }
+
 
 console.log('verify:radar-slice16a-operations-gate-ledger — RADAR Slice 16A\n');
 
@@ -369,6 +371,7 @@ const sec = secretFree(blob, 'fixtures+doc');
 ok('F32 secret-free fixtures and doc', sec.ok, sec.detail);
 
 ok('F33 doc mentions selected 16U id', /16U_correlation_design_freeze/.test(doc));
+ok('F33j doc mentions selected 16AE id', /16AE_g01_capability_boundary_freeze|16AE/.test(doc));
 ok('F33b doc retains 16S id', /16S_request_completion_log_live_evidence/.test(doc));
 ok('F33c doc retains 16P id', /16P_live_drill_evidence_reconciliation|16P/.test(doc));
 ok('F33d doc retains 16O id', /16O_stripe_webhook_error_minimization|16O/.test(doc));
@@ -380,7 +383,7 @@ ok('F33i doc mentions 16AA live SIGINT evidence', /16AA|live.?sigint/i.test(doc)
 ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /partial.*9/i.test(doc) && /absent.*0/i.test(doc));
 ok('F35 findings lists G01/G02/G03/G05/G06/G08/G09 partial',
   /G01/.test(findings) && /G02/.test(findings) && /G03/.test(findings) && /G05/.test(findings) && /G06/.test(findings) && /G08/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
-  && /16O/.test(findings) && /16P/.test(findings) && /16S/.test(findings) && /16U/.test(findings) && /16W/.test(findings) && /16X/.test(findings) && /16Y/.test(findings) && /16Z/.test(findings) && /16AA/.test(findings));
+  && /16O/.test(findings) && /16P/.test(findings) && /16S/.test(findings) && /16U/.test(findings) && /16W/.test(findings) && /16X/.test(findings) && /16Y/.test(findings) && /16Z/.test(findings) && /16AA/.test(findings) && /16AD/.test(findings) && /16AE/.test(findings));
 
 ok('F36 healthz source cite present', pathExists('scripts/staff-query-api.js'));
 ok('F37 capture cost script present (read-only helper)',
@@ -389,7 +392,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 runtime paths unchanged vs master basis (16AB evidence-only; no runtime mutation)',
+ok('F39 runtime paths unchanged vs master basis (16AE audit-only; no runtime mutation)',
   rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
@@ -446,14 +449,15 @@ const slice16aaContract = readJson(path.join(FIXTURE_DIR, 'slice16aa-expected-co
 const slice16abContract = readJson(path.join(FIXTURE_DIR, 'slice16ab-expected-contract.json'));
 const slice16acContract = readJson(path.join(FIXTURE_DIR, 'slice16ac-expected-contract.json'));
 const slice16adContract = readJson(path.join(FIXTURE_DIR, 'slice16ad-expected-contract.json'));
+const slice16aeContract = readJson(path.join(FIXTURE_DIR, 'slice16ae-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16AD contract + HEAD',
-  matrix.branch === BRANCH_16AD
-  && contract.branch === BRANCH_16AD
-  && slice16adContract.branch === BRANCH_16AD
-  && headBranch === BRANCH_16AD,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16ad=${slice16adContract.branch} head=${headBranch}`);
-ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC contracts retain their own branch pins',
+ok('F48 gate-matrix branch pin equals 16AE contract + HEAD',
+  matrix.branch === BRANCH_16AE
+  && contract.branch === BRANCH_16AE
+  && slice16aeContract.branch === BRANCH_16AE
+  && headBranch === BRANCH_16AE,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16ae=${slice16aeContract.branch} head=${headBranch}`);
+ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC/16AD contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
   && slice16rContract.branch === BRANCH_16R
@@ -465,7 +469,8 @@ ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC contracts ret
   && slice16zContract.branch === BRANCH_16Z
   && slice16aaContract.branch === BRANCH_16AA
   && slice16abContract.branch === BRANCH_16AB
-  && slice16acContract.branch === BRANCH_16AC);
+  && slice16acContract.branch === BRANCH_16AC
+  && slice16adContract.branch === BRANCH_16AD);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -488,7 +493,7 @@ const g08CitesPublicErrors = g08
   && g08.source_evidence.some((ev) =>
     ev.path === 'scripts/lib/stripe-webhook-public-errors.js'
     || ev.path === 'scripts/staff-query-api.js');
-ok('F50 must_not forbids live mutation; 16AA evidence-only zero runtime diff; bicep unchanged; G08 still cites public-errors',
+ok('F50 must_not forbids live mutation; 16AE audit-only zero runtime diff; bicep unchanged; G08 still cites public-errors',
   !hasStaleSourceForbid
   && hasLiveDeployedForbid
   && g08CitesPublicErrors
@@ -501,11 +506,12 @@ ok('F50 must_not forbids live mutation; 16AA evidence-only zero runtime diff; bi
   && matrix.audit_only === true,
   `runtimeDiff=${runtimeDiff.join(',') || '(none)'} bicepDiff=${bicepDiff.join(',') || '(none)'} stale=${hasStaleSourceForbid}`);
 
-ok('F51 G01 partial_live_proven via 16S + 16U design freeze (G01-A live open)',
+ok('F51 G01 partial_live_proven via 16S + 16U provenance + 16AE boundary freeze (G01-A live open)',
   g01 && g01.verdict === 'partial'
   && g01.progress_class === 'partial_live_proven'
   && /16S|1bf9695|ContainerAppConsoleLogs_CL/i.test(g01.rationale)
-  && /16U|design freeze|G01-A/i.test(g01.rationale)
+  && /16U|provenance|design freeze/i.test(g01.rationale)
+  && /16AE|capability boundary|decideCapability/i.test(g01.rationale)
   && Array.isArray(g01.gaps) && g01.gaps.length === 1
   && /G01-A|Meta.*Hermes|correlation/i.test(g01.gaps[0]));
 ok('F52 correlation lib present', pathExists('scripts/lib/staff-api-request-correlation.js'));
@@ -998,6 +1004,65 @@ ok('F172 doc mentions 16AD + warmup disclosure + sampling-resolution claim; G02 
   && /sampling resolution|not absolute|not claim.*absolute/i.test(doc)
   && /G02.*partial|partial.*G02/i.test(doc)
   && !/\bG02\s+proven\b/i.test(doc));
+
+
+const sel16ae = matrix.slice_16ae_selection;
+ok('F173 exactly one 16AE selection',
+  sel16ae && sel16ae.selected === true
+  && sel16ae.outcome_id === '16AE_g01_capability_boundary_freeze'
+  && sel16ae.gate_id === 'G01_correlation_structured_logs'
+  && sel16ae.progress_class === 'audit_only_capability_boundary_freeze');
+ok('F174 contract selected_16ae matches',
+  contract.selected_16ae
+  && contract.selected_16ae.outcome_id === '16AE_g01_capability_boundary_freeze'
+  && contract.capability_boundary_design === 'frozen_via_16AE'
+  && contract.selected_16ae.inventory_counts
+  && contract.selected_16ae.inventory_counts.whatsapp_send === 4
+  && contract.selected_16ae.inventory_counts.mutation === 21
+  && contract.selected_16ae.inventory_counts.read_dispatch === 18
+  && contract.selected_16ae.inventory_counts.total === 43
+  && contract.selected_16ae.dry_run_implementable_today === false);
+ok('F175 16AE inventory + design fixtures present',
+  pathExists('fixtures/radar-operations/slice16ae-adapter-inventory.json')
+  && pathExists('fixtures/radar-operations/slice16ae-capability-boundary-freeze.json')
+  && pathExists('fixtures/radar-operations/slice16ae-expected-contract.json'));
+ok('F176 16AE verifier present',
+  pathExists('scripts/lib/radar-slice16ae-g01-capability-boundary-freeze.js')
+  && pathExists('scripts/verify-radar-slice16ae-g01-capability-boundary-freeze.js'));
+ok('F177 16AE inventory counts frozen on selection',
+  sel16ae.inventory_counts
+  && sel16ae.inventory_counts.whatsapp_send === 4
+  && sel16ae.inventory_counts.mutation === 21
+  && sel16ae.inventory_counts.read_dispatch === 18
+  && sel16ae.inventory_counts.total === 43);
+ok('F178 16AE enforcement owner specified not created',
+  sel16ae.enforcement_owner
+  && /capability_boundary\.py/.test(String(sel16ae.enforcement_owner.primary_module || ''))
+  && sel16ae.enforcement_owner.status === 'specified_not_created'
+  && !pathExists('docker/hermes-staging/wolfhouse/capability_boundary.py')
+  && !pathExists('scripts/lib/g01-capability-boundary.js'));
+ok('F179 16AE final controlled drill present',
+  sel16ae.final_controlled_drill
+  && sel16ae.final_controlled_drill.id === '16AE_DRILL_capability_boundary_audit_freeze');
+ok('F180 16AE does not implement runtime/live/dry-run activatable',
+  /runtime|decideCapability|live|any_gate_proven|dry_run/i.test(String(sel16ae.does_not_implement || ''))
+  && sel16ae.dry_run_implementable_today === false);
+ok('F181 16U + 16AD selections retained alongside 16AE tip',
+  sel16u && sel16u.selected === true
+  && sel16u.outcome_id === '16U_correlation_design_freeze'
+  && contract.selected_16u
+  && contract.selected_16u.outcome_id === '16U_correlation_design_freeze'
+  && contract.correlation_drill_design === 'frozen_via_16U'
+  && sel16ad && sel16ad.selected === true
+  && sel16ad.outcome_id === '16AD_g02_sampled_restart_continuity_evidence'
+  && contract.selected_16ad
+  && contract.selected_16ad.g02_verdict === 'partial');
+ok('F182 doc mentions 16AE inventory counts + decideCapability + not activatable; proven=0',
+  /16AE/.test(doc)
+  && /decideCapability|capability boundary/i.test(doc)
+  && /\b4\b/.test(doc) && /\b21\b/.test(doc) && /\b18\b/.test(doc) && /\b43\b/.test(doc)
+  && /not implementable|not activatable|runtime apply/i.test(doc)
+  && /proven.*0/i.test(doc));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

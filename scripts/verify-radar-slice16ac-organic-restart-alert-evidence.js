@@ -261,7 +261,7 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  const tip16ad = matrix.slice === 'RADAR-16AD';
+  const tip16ad = matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AE';
   if (matrix.slice !== locks.SLICE && !tip16ad) errors.push(`slice=${matrix.slice}`);
   if (matrix.branch !== locks.BRANCH && !(tip16ad && matrix.branch === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence')) {
     errors.push(`branch=${matrix.branch}`);
@@ -422,7 +422,7 @@ function runVerifier() {
     && topContract.selected_16ac.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16ac.g02_organic_restart_alert === 'live_proven_via_16AC'
     && topContract.selected_16ac.g03_organic_restart_alert === 'live_proven_via_16AC'
-    && (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AD')
+    && (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AE')
     && topContract.selected_16ac.g02_verdict === 'partial'
     && topContract.selected_16ac.g03_verdict === 'partial'
     && (topContract.slice === locks.SLICE
