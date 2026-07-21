@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '95dc3634ac6aaa6de495d22f5f5d8cd0a955df97';
+const MASTER_BASIS = 'fd333b22c984bad1abe387da456b6fbf87396c13';
+const BRANCH_16AA = 'radar/slice-16aa-g02-live-sigint-evidence';
 const BRANCH_16Z = 'radar/slice-16z-g02-live-sigterm-evidence';
 const BRANCH_16Y = 'radar/slice-16y-shutdown-completion-log';
 const BRANCH_16X = 'radar/slice-16x-g02-live-evidence';
@@ -204,7 +205,7 @@ const doc = readText(DOC_PATH);
 const findings = readText(FINDINGS_PATH);
 
 ok('F6 matrix schema_version=1', matrix.schema_version === 1);
-ok('F7 no live mutation (16Z evidence-only; audit_only=true)', matrix.audit_only === true && matrix.live_mutation === false);
+ok('F7 no live mutation (16AA evidence-only; audit_only=true)', matrix.audit_only === true && matrix.live_mutation === false);
 ok('F8 master_basis pinned', matrix.master_basis === MASTER_BASIS);
 ok('F9 contract master_basis pinned', contract.master_basis === MASTER_BASIS);
 ok('F10 classification policy fail-closed',
@@ -365,10 +366,11 @@ ok('F33e doc mentions 16X evidence', /16X|g02.?live.?evidence/i.test(doc));
 ok('F33f doc retains 16W lifecycle', /16W|closeReadinessPool/i.test(doc));
 ok('F33g doc mentions 16Y shutdown completion', /16Y|shutdown.?completion/i.test(doc));
 ok('F33h doc mentions 16Z live SIGTERM evidence', /16Z|live.?sigterm/i.test(doc));
+ok('F33i doc mentions 16AA live SIGINT evidence', /16AA|live.?sigint/i.test(doc));
 ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /partial.*9/i.test(doc) && /absent.*0/i.test(doc));
 ok('F35 findings lists G01/G02/G03/G05/G06/G08/G09 partial',
   /G01/.test(findings) && /G02/.test(findings) && /G03/.test(findings) && /G05/.test(findings) && /G06/.test(findings) && /G08/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
-  && /16O/.test(findings) && /16P/.test(findings) && /16S/.test(findings) && /16U/.test(findings) && /16W/.test(findings) && /16X/.test(findings) && /16Y/.test(findings) && /16Z/.test(findings));
+  && /16O/.test(findings) && /16P/.test(findings) && /16S/.test(findings) && /16U/.test(findings) && /16W/.test(findings) && /16X/.test(findings) && /16Y/.test(findings) && /16Z/.test(findings) && /16AA/.test(findings));
 
 ok('F36 healthz source cite present', pathExists('scripts/staff-query-api.js'));
 ok('F37 capture cost script present (read-only helper)',
@@ -377,7 +379,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 runtime paths unchanged vs master basis (16Z evidence-only; no runtime mutation)',
+ok('F39 runtime paths unchanged vs master basis (16AA evidence-only; no runtime mutation)',
   rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
@@ -393,19 +395,21 @@ ok('F44 contract gates pin range diff --check',
   && contract.gates.some((g) => g === `git diff --check ${MASTER_BASIS}..HEAD`));
 
 const g02 = matrix.gates.find((g) => g.id === 'G02_readiness_dependencies');
-ok('F45 G02 partial_live_proven via 16Z SIGTERM live + 16X traffic-shed + 16Y source (SIGINT/readyz=503 open)',
+ok('F45 G02 partial_live_proven via 16AA SIGINT + 16Z SIGTERM + 16X traffic-shed + 16Y source (readyz=503/zero-downtime open)',
   g02 && g02.verdict === 'partial'
   && g02.progress_class === 'partial_live_proven'
-  && /readyz|health\/ready|health.ready|traffic.?shed|g02fail|2dcda08|16X|16Z|SIGTERM/i.test(g02.rationale)
+  && /readyz|health\/ready|health.ready|traffic.?shed|g02fail|2dcda08|16X|16Z|16AA|SIGTERM|SIGINT/i.test(g02.rationale)
   && (/16I/.test(g02.rationale) || /16P/.test(g02.rationale) || /16W/.test(g02.rationale))
   && /16X|g02fail|traffic.?shed/i.test(g02.rationale)
   && /16Y|shutdown.?completion/i.test(g02.rationale)
   && /16Z|sigterm|LAW/i.test(g02.rationale)
+  && /16AA|sigint/i.test(g02.rationale)
   && Array.isArray(g02.gaps)
   && !g02.gaps.some((g) => /closeReadinessPool not yet wired/i.test(String(g)))
   && !g02.gaps.some((g) => /dependency.failure.*not executed|traffic.shed.*not executed/i.test(String(g)))
   && !g02.gaps.some((g) => /SIGTERM.*not proven/i.test(String(g)) && !/SIGINT/i.test(String(g)))
-  && g02.gaps.some((g) => /SIGINT|readyz.?503|zero.?downtime/i.test(String(g))));
+  && !g02.gaps.some((g) => /SIGINT\s+.*not proven|SIGINT.*live.*not proven/i.test(String(g)))
+  && g02.gaps.some((g) => /readyz.?503|zero.?downtime/i.test(String(g))));
 ok('F46 readiness lib present', pathExists('scripts/lib/staff-api-readiness.js'));
 ok('F47 16I verifier script present',
   pathExists('scripts/verify-radar-slice16i-staff-api-readiness.js'));
@@ -419,14 +423,15 @@ const slice16wContract = readJson(path.join(FIXTURE_DIR, 'slice16w-expected-cont
 const slice16xContract = readJson(path.join(FIXTURE_DIR, 'slice16x-expected-contract.json'));
 const slice16yContract = readJson(path.join(FIXTURE_DIR, 'slice16y-expected-contract.json'));
 const slice16zContract = readJson(path.join(FIXTURE_DIR, 'slice16z-expected-contract.json'));
+const slice16aaContract = readJson(path.join(FIXTURE_DIR, 'slice16aa-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16Z contract + HEAD',
-  matrix.branch === BRANCH_16Z
-  && contract.branch === BRANCH_16Z
-  && slice16zContract.branch === BRANCH_16Z
-  && headBranch === BRANCH_16Z,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16z=${slice16zContract.branch} head=${headBranch}`);
-ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y contracts retain their own branch pins',
+ok('F48 gate-matrix branch pin equals 16AA contract + HEAD',
+  matrix.branch === BRANCH_16AA
+  && contract.branch === BRANCH_16AA
+  && slice16aaContract.branch === BRANCH_16AA
+  && headBranch === BRANCH_16AA,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16aa=${slice16aaContract.branch} head=${headBranch}`);
+ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
   && slice16rContract.branch === BRANCH_16R
@@ -434,7 +439,8 @@ ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y contracts retain their own branc
   && slice16uContract.branch === BRANCH_16U
   && slice16wContract.branch === BRANCH_16W
   && slice16xContract.branch === BRANCH_16X
-  && slice16yContract.branch === BRANCH_16Y);
+  && slice16yContract.branch === BRANCH_16Y
+  && slice16zContract.branch === BRANCH_16Z);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -457,7 +463,7 @@ const g08CitesPublicErrors = g08
   && g08.source_evidence.some((ev) =>
     ev.path === 'scripts/lib/stripe-webhook-public-errors.js'
     || ev.path === 'scripts/staff-query-api.js');
-ok('F50 must_not forbids live mutation; 16Z evidence-only zero runtime diff; bicep unchanged; G08 still cites public-errors',
+ok('F50 must_not forbids live mutation; 16AA evidence-only zero runtime diff; bicep unchanged; G08 still cites public-errors',
   !hasStaleSourceForbid
   && hasLiveDeployedForbid
   && g08CitesPublicErrors
@@ -765,6 +771,7 @@ ok('F131 contract selected_16x matches',
   && contract.selected_16x.g02_dependency_failure_drill === 'live_proven_via_16X'
   && contract.selected_16x.g02_lifecycle_deploy === 'live_proven_via_16X'
   && contract.selected_16x.g02_sigterm_live === 'live_proven_via_16Z'
+  && contract.selected_16x.g02_sigint_live === 'live_proven_via_16AA'
   && contract.selected_16x.g02_verdict === 'partial');
 ok('F132 16X fixtures + verifier present',
   pathExists('fixtures/radar-operations/slice16x-g02-live-evidence.json')
@@ -790,6 +797,7 @@ ok('F137 contract selected_16y matches (SIGTERM live closed via 16Z)',
   && contract.selected_16y.outcome_id === '16Y_readiness_shutdown_completion_log'
   && contract.selected_16y.g02_shutdown_completion_log === 'closed_via_16Y'
   && contract.selected_16y.g02_sigterm_live === 'live_proven_via_16Z'
+  && contract.selected_16y.g02_sigint_live === 'live_proven_via_16AA'
   && contract.selected_16y.g02_verdict === 'partial');
 ok('F138 16Y fixtures + verifier present',
   pathExists('fixtures/radar-operations/slice16y-expected-contract.json')
@@ -817,6 +825,7 @@ ok('F143 contract selected_16z matches',
   contract.selected_16z
   && contract.selected_16z.outcome_id === '16Z_g02_live_sigterm_lifecycle_evidence'
   && contract.selected_16z.g02_sigterm_live === 'live_proven_via_16Z'
+  && contract.selected_16z.g02_sigint_live === 'live_proven_via_16AA'
   && contract.selected_16z.g02_verdict === 'partial');
 ok('F144 16Z fixtures + verifier present',
   pathExists('fixtures/radar-operations/slice16z-expected-contract.json')
@@ -828,10 +837,45 @@ ok('F145 16Z final controlled drill live_proven',
   && /live_proven_via_16Z/i.test(String(sel16z.final_controlled_drill.status)));
 ok('F146 16Z does not claim SIGINT/readyz=503/zero-downtime/production/full G02',
   /sigint|readyz_503|zero_downtime|production|full_g02/i.test(String(sel16z.does_not_implement || '')));
-ok('F147 doc mentions 16Z + G02 partial; SIGINT or zero-downtime still open',
+ok('F147 doc mentions 16Z + G02 partial; readyz=503 or zero-downtime still open',
   /16Z|live.?sigterm/i.test(doc)
   && /G02.*partial|partial.*G02/i.test(doc)
-  && /SIGINT|zero.?downtime|readyz.?503/i.test(doc));
+  && /zero.?downtime|readyz.?503/i.test(doc));
+
+ok('F148 contract selected_16z retains SIGTERM and gains SIGINT via 16AA',
+  contract.selected_16z
+  && contract.selected_16z.outcome_id === '16Z_g02_live_sigterm_lifecycle_evidence'
+  && contract.selected_16z.g02_sigterm_live === 'live_proven_via_16Z'
+  && contract.selected_16z.g02_sigint_live === 'live_proven_via_16AA'
+  && contract.selected_16z.g02_verdict === 'partial');
+
+const sel16aa = matrix.slice_16aa_selection;
+ok('F149 exactly one 16AA selection',
+  sel16aa && sel16aa.selected === true
+  && sel16aa.outcome_id === '16AA_g02_live_sigint_lifecycle_evidence'
+  && sel16aa.gate_id === 'G02_readiness_dependencies'
+  && sel16aa.progress_class === 'partial_live_proven_evidence_only');
+ok('F150 contract selected_16aa matches',
+  contract.selected_16aa
+  && contract.selected_16aa.outcome_id === '16AA_g02_live_sigint_lifecycle_evidence'
+  && contract.selected_16aa.g02_sigint_live === 'live_proven_via_16AA'
+  && contract.selected_16aa.g02_sigterm_live === 'live_proven_via_16Z'
+  && contract.selected_16aa.g02_verdict === 'partial');
+ok('F151 16AA fixtures + verifier present',
+  pathExists('fixtures/radar-operations/slice16aa-expected-contract.json')
+  && pathExists('fixtures/radar-operations/slice16aa-g02-live-sigint-evidence.json')
+  && pathExists('scripts/lib/radar-slice16aa-g02-live-sigint-evidence.js')
+  && pathExists('scripts/verify-radar-slice16aa-g02-live-sigint-evidence.js'));
+ok('F152 16AA final controlled drill live_proven',
+  sel16aa.final_controlled_drill
+  && /live_proven_via_16AA/i.test(String(sel16aa.final_controlled_drill.status)));
+ok('F153 16AA does not claim readyz=503/zero-downtime/production/full G02',
+  /readyz_503|zero_downtime|production|full_g02/i.test(String(sel16aa.does_not_implement || '')));
+ok('F154 doc mentions 16AA + G02 partial; readyz=503 or zero-downtime still open',
+  /16AA|live.?sigint/i.test(doc)
+  && /G02.*partial|partial.*G02/i.test(doc)
+  && /zero.?downtime|readyz.?503/i.test(doc)
+  && /exit\s*137|ClusterExecFailure|kill -INT/i.test(doc));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

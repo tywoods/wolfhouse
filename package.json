@@ -677,7 +677,8 @@
     "verify:booking-hold-expiry-cli-shutdown": "node scripts/verify-booking-hold-expiry-cli-shutdown.js",
     "verify:waterbottle-expired-hold-payment-truth": "node scripts/verify-waterbottle-expired-hold-payment-truth.js",
     "verify:waterbottle-locked-payment-pg": "node scripts/verify-waterbottle-locked-payment-pg.js",
-    "verify:owner-metadata-accessor-guard": "node scripts/verify-owner-metadata-accessor-guard.js"
+    "verify:owner-metadata-accessor-guard": "node scripts/verify-owner-metadata-accessor-guard.js",
+    "verify:radar-slice16aa-g02-live-sigint-evidence": "node scripts/verify-radar-slice16aa-g02-live-sigint-evidence.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

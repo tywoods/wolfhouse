@@ -784,7 +784,7 @@ server.listen(0, '127.0.0.1', () => {
   green('g02_remains_partial',
     g02 && g02.verdict === 'partial'
     && matrix
-    && (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16Z')
+    && (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16Z' || matrix.slice === 'RADAR-16AA')
     && !/\bG02\b[^\n.]{0,40}\b(is|as|fully)\s+proven\b/i.test(doc)
     && !/\bproven\b[^\n.]{0,20}\bG02\b/i.test(doc)
     && /G02 remains partial|G02 verdict stays `?partial`?/i.test(doc));
