@@ -129,29 +129,47 @@ green('pins',
   && design.this_slice_executes_live === false
   && design.live_mutation === false);
 
+green('identity_rule_frozen',
+  design.identity_rule
+  && design.identity_rule.id === locks.IDENTITY_RULE.id
+  && design.identity_rule.completeness_method === locks.IDENTITY_RULE.completeness_method
+  && inventory.identity_rule_id === locks.IDENTITY_RULE.id
+  && inventory.completeness_method === locks.IDENTITY_RULE.completeness_method
+  && contract.required_design_facts.identity_rule_id === locks.IDENTITY_RULE.id
+  && contract.required_design_facts.completeness_method
+    === locks.IDENTITY_RULE.completeness_method);
+
 green('contract_pins',
   contract.slice === locks.SLICE
   && contract.outcome_id === locks.OUTCOME_ID
   && contract.progress_class === locks.PROGRESS_CLASS
   && contract.this_slice_implements_runtime === false
-  && contract.required_design_facts.whatsapp_send_count === 18
-  && contract.required_design_facts.mutation_count === 23
-  && contract.required_design_facts.read_dispatch_count === 15);
+  && contract.required_design_facts.whatsapp_send_count === locks.EXPECTED_COUNTS.whatsapp_send
+  && contract.required_design_facts.mutation_count === locks.EXPECTED_COUNTS.mutation
+  && contract.required_design_facts.read_dispatch_count === locks.EXPECTED_COUNTS.read_dispatch
+  && contract.required_design_facts.total_count === locks.EXPECTED_COUNTS.total);
 
 green('inventory_pins',
   inventory.slice === locks.SLICE
   && inventory.independently_pinned === true
-  && inventory.complete === true
-  && inventory.counts.whatsapp_send === 18
-  && inventory.counts.mutation === 23
-  && inventory.counts.read_dispatch === 15
-  && inventory.counts.total === 56
-  && inventory.whatsapp_send_adapters.length === 18
-  && inventory.mutation_adapters.length === 23
-  && inventory.read_dispatch_adapters.length === 15);
+  && inventory.completeness_method === locks.IDENTITY_RULE.completeness_method
+  && inventory.complete !== true
+  && inventory.counts.whatsapp_send === locks.EXPECTED_COUNTS.whatsapp_send
+  && inventory.counts.mutation === locks.EXPECTED_COUNTS.mutation
+  && inventory.counts.read_dispatch === locks.EXPECTED_COUNTS.read_dispatch
+  && inventory.counts.total === locks.EXPECTED_COUNTS.total
+  && inventory.whatsapp_send_adapters.length === locks.EXPECTED_COUNTS.whatsapp_send
+  && inventory.mutation_adapters.length === locks.EXPECTED_COUNTS.mutation
+  && inventory.read_dispatch_adapters.length === locks.EXPECTED_COUNTS.read_dispatch);
 
-const invClass = locks.classifyInventoryDocument(inventory);
+const invClass = locks.classifyInventoryDocument(inventory, ROOT);
 green('inventory_classifier_accepts', invClass.ok === true, JSON.stringify(invClass));
+
+const exact = locks.compareInventoryExactSet(inventory, ROOT);
+green('source_derived_exact_set', exact.ok === true, JSON.stringify(exact));
+
+const derived = locks.deriveExpectedAdapterIdsFromSource(ROOT);
+green('source_derivation_ok', derived.ok === true, (derived.errors || []).slice(0, 6).join(' | '));
 
 const needleMiss = needlesPresent(inventory);
 green('inventory_source_needles_present', needleMiss.length === 0, needleMiss.slice(0, 8).join(' | '));
@@ -160,6 +178,10 @@ green('central_decision_point_frozen',
   design.central_capability_boundary.decision_point === locks.DECISION_POINT
   && design.central_capability_boundary.decision_before_acquisition === true
   && design.central_capability_boundary.unknown_adapters_deny === true
+  && design.central_capability_boundary.inventory_lookup_required === true
+  && design.central_capability_boundary.effect_from_pinned_entry === true
+  && design.central_capability_boundary.exact_tenant_binding === true
+  && design.central_capability_boundary.immutable_per_turn_decision === true
   && design.central_capability_boundary.denies_every_whatsapp_send === true
   && design.central_capability_boundary.denies_every_staff_db_stripe_mutation === true
   && design.central_capability_boundary.permits_real_read_dispatch === true
@@ -173,6 +195,10 @@ green('design_freeze_classifier_accepts',
     permits_real_read_dispatch: true,
     unknown_adapters_deny: true,
     decision_before_acquisition: true,
+    inventory_lookup_required: true,
+    effect_from_pinned_entry: true,
+    exact_tenant_binding: true,
+    immutable_per_turn_decision: true,
     this_slice_implements_runtime: false,
     dry_run_implementable_today: false,
   }).ok === true);
@@ -181,31 +207,40 @@ green('decide_permits_read',
   (() => {
     const r = locks.decideCapability({
       adapter_id: 'hermes_post_bot_availability_check',
-      effect: 'read_dispatch',
-      inventory_class: 'read_dispatch',
+      tenant: locks.TENANT_WOLFHOUSE,
+      turn_id: 'turn-read-1',
+      effect: 'mutation', // spoof ignored
       acquisition_already_held: false,
-    });
-    return r.ok && r.decision === 'permit';
+    }, inventory);
+    return r.ok && r.decision === 'permit' && r.effect === 'read_dispatch'
+      && r.adapter_id === 'hermes_post_bot_availability_check'
+      && r.tenant === locks.TENANT_WOLFHOUSE
+      && r.turn_id === 'turn-read-1'
+      && Object.isFrozen(r);
   })());
 
 green('decide_denies_whatsapp_send',
   (() => {
     const r = locks.decideCapability({
-      adapter_id: 'hermes_whatsapp_cloud_text_send',
-      effect: 'whatsapp_send',
+      adapter_id: 'hermes_whatsapp_cloud_graph_send',
+      tenant: locks.TENANT_SUNSET,
+      turn_id: 'turn-send-1',
+      effect: 'read_dispatch',
       acquisition_already_held: false,
-    });
-    return r.ok && r.decision === 'deny';
+    }, inventory);
+    return r.ok && r.decision === 'deny' && r.effect === 'whatsapp_send' && Object.isFrozen(r);
   })());
 
 green('decide_denies_mutation',
   (() => {
     const r = locks.decideCapability({
       adapter_id: 'hermes_post_bot_booking_create_from_plan',
-      effect: 'mutation',
+      tenant: locks.TENANT_WOLFHOUSE,
+      turn_id: 'turn-mut-1',
+      effect: 'read_dispatch',
       acquisition_already_held: false,
-    });
-    return r.ok && r.decision === 'deny';
+    }, inventory);
+    return r.ok && r.decision === 'deny' && r.effect === 'mutation' && Object.isFrozen(r);
   })());
 
 green('later_owner_specified_not_created',
@@ -249,61 +284,131 @@ green('required_categories_covered',
   && locks.REQUIRED_MUTATION_CATEGORIES.every((c) =>
     inventory.mutation_adapters.some((a) => a.category === c)));
 
+green('demonstrated_reads_present',
+  locks.DEMONSTRATED_OMISSION_IDS.every((id) =>
+    inventory.read_dispatch_adapters.some((a) => a.adapter_id === id)));
+
+green('demonstrated_extra_absent',
+  !inventory.read_dispatch_adapters.some((a) => a.adapter_id === 'staff_bot_booking_dry_run')
+  && locks.DEMONSTRATED_EXTRA_IDS.every((id) =>
+    ![...inventory.whatsapp_send_adapters, ...inventory.mutation_adapters, ...inventory.read_dispatch_adapters]
+      .some((a) => a.adapter_id === id)));
+
 // --- RED ---
 red('reject_omission',
   locks.classifyInventoryDocument({
     ...inventory,
     omits_known_reachable_adapter: true,
-  }).ok === false);
+  }, ROOT).ok === false);
 
-red('reject_incomplete_inventory_flag',
-  locks.classifyInventoryDocument({
-    independently_pinned: true,
-    complete: false,
-    whatsapp_send_adapters: inventory.whatsapp_send_adapters,
-    mutation_adapters: inventory.mutation_adapters,
-    read_dispatch_adapters: inventory.read_dispatch_adapters,
-  }).ok === false);
+red('reject_self_reported_complete_flag',
+  locks.compareInventoryExactSet({
+    ...inventory,
+    complete: true,
+    completeness_method: 'self_reported',
+  }, ROOT).ok === false);
+
+red('reject_demonstrated_omission',
+  (() => {
+    const truncated = {
+      ...inventory,
+      read_dispatch_adapters: inventory.read_dispatch_adapters.filter(
+        (a) => a.adapter_id !== 'hermes_post_bot_sunset_full_day_addon',
+      ),
+      counts: {
+        ...inventory.counts,
+        read_dispatch: inventory.counts.read_dispatch - 1,
+        total: inventory.counts.total - 1,
+      },
+    };
+    return locks.compareInventoryExactSet(truncated, ROOT).ok === false;
+  })());
+
+red('reject_demonstrated_extra_booking_dry_run',
+  (() => {
+    const withExtra = {
+      ...inventory,
+      read_dispatch_adapters: [
+        ...inventory.read_dispatch_adapters,
+        {
+          adapter_id: 'staff_bot_booking_dry_run',
+          effect: 'read_dispatch',
+          category: 'direct',
+          allowed_tenants: [locks.TENANT_WOLFHOUSE],
+          path: 'scripts/staff-query-api.js',
+          symbol: 'booking-dry-run',
+          source_needle: 'booking-dry-run',
+          acquisition_point: 'db_pool_client',
+        },
+      ],
+    };
+    return locks.compareInventoryExactSet(withExtra, ROOT).ok === false;
+  })());
+
+red('reject_collapsed_duplicate_present',
+  (() => {
+    const withDup = {
+      ...inventory,
+      whatsapp_send_adapters: [
+        ...inventory.whatsapp_send_adapters,
+        {
+          adapter_id: 'hermes_whatsapp_cloud_media_send',
+          effect: 'whatsapp_send',
+          category: 'direct',
+          allowed_tenants: [locks.TENANT_WOLFHOUSE, locks.TENANT_SUNSET],
+          path: 'docker/hermes-staging/apply_gateway_patches.py',
+          symbol: 'media',
+          source_needle: 'async def _patched_whatsapp_cloud_send',
+          acquisition_point: 'meta_graph_http_client',
+        },
+      ],
+    };
+    return locks.compareInventoryExactSet(withDup, ROOT).ok === false;
+  })());
 
 red('reject_duplicate_adapter_ids',
   locks.classifyInventoryDocument({
     independently_pinned: true,
-    complete: true,
+    identity_rule_id: locks.IDENTITY_RULE.id,
+    completeness_method: locks.IDENTITY_RULE.completeness_method,
     whatsapp_send_adapters: [
       inventory.whatsapp_send_adapters[0],
       { ...inventory.whatsapp_send_adapters[0] },
     ],
     mutation_adapters: inventory.mutation_adapters,
     read_dispatch_adapters: inventory.read_dispatch_adapters,
-  }).ok === false);
+  }, ROOT).ok === false);
 
 red('reject_dispersed_env_checks',
   locks.decideCapability({
-    adapter_id: 'x',
-    effect: 'whatsapp_send',
+    adapter_id: 'hermes_whatsapp_cloud_graph_send',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
     dispersed_env_checks_as_sole_control: true,
-  }).ok === false
+  }, inventory).ok === false
   && locks.classifyCapabilityBoundaryFreeze({
     dispersed_env_checks_as_sole_control: true,
   }).ok === false
   && locks.classifyInventoryDocument({
     ...inventory,
     dispersed_env_checks_as_sole_control: true,
-  }).ok === false);
+  }, ROOT).ok === false);
 
 red('reject_bypass',
   locks.decideCapability({
-    adapter_id: 'hermes_whatsapp_cloud_text_send',
-    effect: 'whatsapp_send',
+    adapter_id: 'hermes_whatsapp_cloud_graph_send',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
     bypass_central_decision: true,
-  }).ok === false);
+  }, inventory).ok === false);
 
 red('reject_post_acquisition_denial',
   locks.decideCapability({
-    adapter_id: 'hermes_whatsapp_cloud_text_send',
-    effect: 'whatsapp_send',
+    adapter_id: 'hermes_whatsapp_cloud_graph_send',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
     acquisition_already_held: true,
-  }).ok === false
+  }, inventory).ok === false
   && locks.classifyCapabilityBoundaryFreeze({
     post_acquisition_denial: true,
     central_decision_point: locks.DECISION_POINT,
@@ -312,56 +417,140 @@ red('reject_post_acquisition_denial',
     permits_real_read_dispatch: true,
     unknown_adapters_deny: true,
     decision_before_acquisition: true,
+    inventory_lookup_required: true,
+    effect_from_pinned_entry: true,
+    exact_tenant_binding: true,
+    immutable_per_turn_decision: true,
   }).ok === false);
 
 red('reject_mutable_capability_state',
   locks.decideCapability({
-    adapter_id: 'hermes_whatsapp_cloud_text_send',
-    effect: 'whatsapp_send',
+    adapter_id: 'hermes_whatsapp_cloud_graph_send',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
     mutable_capability_state: true,
-  }).ok === false);
+  }, inventory).ok === false);
+
+red('reject_arbitrary_read_id',
+  locks.decideCapability({
+    adapter_id: 'arbitrary_not_in_inventory_read',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
+    effect: 'read_dispatch',
+  }, inventory).ok === false
+  && locks.decideCapability({
+    adapter_id: 'arbitrary_not_in_inventory_read',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
+    effect: 'read_dispatch',
+  }, inventory).code === 'unknown_adapter_denied');
+
+red('reject_missing_tenant',
+  locks.decideCapability({
+    adapter_id: 'hermes_post_bot_availability_check',
+    turn_id: 't',
+  }, inventory).ok === false
+  && locks.decideCapability({
+    adapter_id: 'hermes_post_bot_availability_check',
+    turn_id: 't',
+  }, inventory).code === 'missing_tenant_denied');
+
+red('reject_wrong_tenant',
+  locks.decideCapability({
+    adapter_id: 'hermes_post_bot_availability_check',
+    tenant: locks.TENANT_SUNSET,
+    turn_id: 't',
+  }, inventory).ok === false
+  && locks.decideCapability({
+    adapter_id: 'hermes_post_bot_sunset_rental_price',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
+  }, inventory).code === 'cross_tenant_denied');
+
+red('reject_caller_effect_spoofing',
+  (() => {
+    const r = locks.decideCapability({
+      adapter_id: 'hermes_post_bot_booking_create_from_plan',
+      tenant: locks.TENANT_WOLFHOUSE,
+      turn_id: 't',
+      effect: 'read_dispatch',
+      inventory_class: 'read_dispatch',
+    }, inventory);
+    return r.ok === true
+      && r.decision === 'deny'
+      && r.effect === 'mutation'
+      && r.caller_effect_ignored === 'read_dispatch';
+  })());
+
+red('reject_post_decision_mutation',
+  (() => {
+    const r = locks.decideCapability({
+      adapter_id: 'hermes_post_bot_availability_check',
+      tenant: locks.TENANT_WOLFHOUSE,
+      turn_id: 'turn-frozen',
+    }, inventory);
+    if (!Object.isFrozen(r)) return false;
+    let threw = false;
+    try {
+      r.decision = 'deny';
+      r.effect = 'mutation';
+      r.tenant = locks.TENANT_SUNSET;
+    } catch (_) {
+      threw = true;
+    }
+    return (threw || r.decision === 'permit')
+      && r.decision === 'permit'
+      && r.effect === 'read_dispatch'
+      && r.tenant === locks.TENANT_WOLFHOUSE
+      && r.turn_id === 'turn-frozen';
+  })());
 
 red('reject_tenant_confusion',
   locks.decideCapability({
-    adapter_id: 'hermes_whatsapp_cloud_text_send',
-    effect: 'whatsapp_send',
+    adapter_id: 'hermes_whatsapp_cloud_graph_send',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
     tenant_confusion: true,
-  }).ok === false);
+  }, inventory).ok === false);
 
 red('reject_unknown_adapter',
   locks.decideCapability({
     adapter_id: '',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
     effect: 'unknown',
-  }).ok === false
+  }, inventory).ok === false
   && locks.decideCapability({
     effect: 'read_dispatch',
-  }).decision !== 'permit');
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
+  }, inventory).decision !== 'permit');
 
 red('reject_trace_deploy_live_overclaim',
   locks.decideCapability({
     adapter_id: 'hermes_post_bot_availability_check',
-    effect: 'read_dispatch',
-    inventory_class: 'read_dispatch',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
     claims_trace_implemented: true,
-  }).ok === false
+  }, inventory).ok === false
   && locks.decideCapability({
     adapter_id: 'hermes_post_bot_availability_check',
-    effect: 'read_dispatch',
-    inventory_class: 'read_dispatch',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
     claims_deploy: true,
-  }).ok === false
+  }, inventory).ok === false
   && locks.decideCapability({
     adapter_id: 'hermes_post_bot_availability_check',
-    effect: 'read_dispatch',
-    inventory_class: 'read_dispatch',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
     claims_live_evidence: true,
-  }).ok === false
+  }, inventory).ok === false
   && locks.decideCapability({
     adapter_id: 'hermes_post_bot_availability_check',
-    effect: 'read_dispatch',
-    inventory_class: 'read_dispatch',
+    tenant: locks.TENANT_WOLFHOUSE,
+    turn_id: 't',
     claims_runtime_wired: true,
-  }).ok === false);
+  }, inventory).ok === false);
 
 red('reject_runtime_implemented_claim',
   locks.classifyCapabilityBoundaryFreeze({
@@ -372,6 +561,10 @@ red('reject_runtime_implemented_claim',
     permits_real_read_dispatch: true,
     unknown_adapters_deny: true,
     decision_before_acquisition: true,
+    inventory_lookup_required: true,
+    effect_from_pinned_entry: true,
+    exact_tenant_binding: true,
+    immutable_per_turn_decision: true,
   }).ok === false);
 
 red('reject_dry_run_implementable_today',
@@ -383,16 +576,21 @@ red('reject_dry_run_implementable_today',
     permits_real_read_dispatch: true,
     unknown_adapters_deny: true,
     decision_before_acquisition: true,
+    inventory_lookup_required: true,
+    effect_from_pinned_entry: true,
+    exact_tenant_binding: true,
+    immutable_per_turn_decision: true,
   }).ok === false);
 
 red('reject_missing_send_category',
   locks.classifyInventoryDocument({
     independently_pinned: true,
-    complete: true,
+    identity_rule_id: locks.IDENTITY_RULE.id,
+    completeness_method: locks.IDENTITY_RULE.completeness_method,
     whatsapp_send_adapters: inventory.whatsapp_send_adapters.filter((a) => a.category !== 'queued'),
     mutation_adapters: inventory.mutation_adapters,
     read_dispatch_adapters: inventory.read_dispatch_adapters,
-  }).ok === false);
+  }, ROOT).ok === false);
 
 // --- Ledger / matrix ---
 green('matrix_tip_16v',
@@ -417,20 +615,29 @@ green('matrix_16v_selection',
   matrix.slice_16v_selection
   && matrix.slice_16v_selection.selected === true
   && matrix.slice_16v_selection.outcome_id === locks.OUTCOME_ID
-  && matrix.slice_16v_selection.progress_class === locks.PROGRESS_CLASS);
+  && matrix.slice_16v_selection.progress_class === locks.PROGRESS_CLASS
+  && matrix.slice_16v_selection.inventory_counts
+  && matrix.slice_16v_selection.inventory_counts.whatsapp_send === locks.EXPECTED_COUNTS.whatsapp_send
+  && matrix.slice_16v_selection.inventory_counts.mutation === locks.EXPECTED_COUNTS.mutation
+  && matrix.slice_16v_selection.inventory_counts.read_dispatch === locks.EXPECTED_COUNTS.read_dispatch
+  && matrix.slice_16v_selection.inventory_counts.total === locks.EXPECTED_COUNTS.total);
 
 green('ops_contract_16v',
   opsContract.slice === locks.SLICE
   && opsContract.selected_16v
   && opsContract.selected_16v.outcome_id === locks.OUTCOME_ID
+  && opsContract.selected_16v.inventory_counts
+  && opsContract.selected_16v.inventory_counts.total === locks.EXPECTED_COUNTS.total
   && opsContract.selected_16u
   && opsContract.selected_16u.outcome_id === '16U_correlation_design_freeze');
 
 green('ledger_mentions_16v',
   /16V_central_capability_boundary_audit_freeze|16V/.test(ledger)
   && /decideCapability|capability boundary/i.test(ledger)
-  && /18/.test(ledger)
-  && /23/.test(ledger)
+  && /source_derived_exact_set|identity rule|ADAPTER_IDENTITY/i.test(ledger)
+  && new RegExp(String(locks.EXPECTED_COUNTS.whatsapp_send)).test(ledger)
+  && new RegExp(String(locks.EXPECTED_COUNTS.mutation)).test(ledger)
+  && new RegExp(String(locks.EXPECTED_COUNTS.read_dispatch)).test(ledger)
   && /16U/.test(ledger)
   && /partial/i.test(ledger)
   && /not implement|runtime apply|not wired/i.test(ledger));
@@ -438,7 +645,7 @@ green('ledger_mentions_16v',
 green('findings_mentions_16v',
   /16V/.test(findings)
   && /capability boundary/i.test(findings)
-  && /decideCapability|adapter inventory/i.test(findings)
+  && /decideCapability|adapter inventory|exact-set|identity/i.test(findings)
   && /16U/.test(findings));
 
 green('branch_pin', currentBranch() === locks.BRANCH, currentBranch());
@@ -460,12 +667,20 @@ green('package_script',
 
 const requiredRed = [
   'reject_omission',
-  'reject_incomplete_inventory_flag',
+  'reject_self_reported_complete_flag',
+  'reject_demonstrated_omission',
+  'reject_demonstrated_extra_booking_dry_run',
+  'reject_collapsed_duplicate_present',
   'reject_duplicate_adapter_ids',
   'reject_dispersed_env_checks',
   'reject_bypass',
   'reject_post_acquisition_denial',
   'reject_mutable_capability_state',
+  'reject_arbitrary_read_id',
+  'reject_missing_tenant',
+  'reject_wrong_tenant',
+  'reject_caller_effect_spoofing',
+  'reject_post_decision_mutation',
   'reject_tenant_confusion',
   'reject_unknown_adapter',
   'reject_trace_deploy_live_overclaim',
@@ -476,9 +691,12 @@ const requiredRed = [
 const requiredGreen = [
   'fixtures_present',
   'pins',
+  'identity_rule_frozen',
   'contract_pins',
   'inventory_pins',
   'inventory_classifier_accepts',
+  'source_derived_exact_set',
+  'source_derivation_ok',
   'inventory_source_needles_present',
   'central_decision_point_frozen',
   'design_freeze_classifier_accepts',
@@ -490,6 +708,8 @@ const requiredGreen = [
   'next_slice_runtime_apply',
   'preserved_16u_provenance',
   'required_categories_covered',
+  'demonstrated_reads_present',
+  'demonstrated_extra_absent',
   'matrix_tip_16v',
   'matrix_g01_partial_preserved',
   'matrix_16v_selection',

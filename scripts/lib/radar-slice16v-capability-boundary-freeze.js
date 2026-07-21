@@ -4,13 +4,13 @@
  * radar-slice16v-capability-boundary-freeze — RADAR Slice 16V locks.
  *
  * Audit-only freeze of the central capability boundary required before any
- * G01-A dry-run. Inventories every WhatsApp send + Staff/DB/Stripe mutation
- * adapter reachable from active Hermes guest turns. Defines one fail-closed
- * decideCapability decision point (permit reads; deny sends/writes before
- * provider/pool/client/queue acquisition; unknown denies). Does NOT implement
- * runtime behavior, deploy, or capture live evidence.
+ * G01-A dry-run. Inventories WhatsApp send + Staff/DB/Stripe mutation + read
+ * adapters under a single identity rule. Defines fail-closed decideCapability
+ * (inventory lookup + exact tenant bind + pinned effect/class; immutable
+ * per-turn object). Does NOT implement runtime behavior, deploy, or live evidence.
  */
 
+const fs = require('fs');
 const path = require('path');
 
 const MASTER_BASIS = 'd904481de6ef8e7ad65d84241577796cbb5ad1c4';
@@ -39,30 +39,118 @@ const LATER_STAFF_OWNER_TESTS = 'scripts/verify-g01-capability-boundary.js';
 
 const NEXT_SLICE_ID = '16W_candidate_capability_boundary_runtime_apply';
 
-/** Effects decided by the central boundary. */
 const EFFECT_WHATSAPP_SEND = 'whatsapp_send';
 const EFFECT_MUTATION = 'mutation';
 const EFFECT_READ = 'read_dispatch';
 const EFFECT_UNKNOWN = 'unknown';
 
-const REQUIRED_SEND_CATEGORIES = Object.freeze([
-  'direct',
-  'queued',
-  'mirror',
-  'handoff',
-  'booking_payment',
-  'reset_error_fallback',
-  'future_tool_registration',
+const TENANT_WOLFHOUSE = 'wolfhouse-somo';
+const TENANT_SUNSET = 'sunset';
+const ALLOWED_TENANTS = Object.freeze([TENANT_WOLFHOUSE, TENANT_SUNSET]);
+
+/**
+ * Identity rule (frozen): one adapter_id per registered active Hermes tool
+ * primary staff route, or per unique external acquisition site reached on an
+ * active Hermes guest turn before Meta Graph / Staff HTTP / DB pool / Stripe /
+ * in-process queue / session-store acquisition. Producer/path symbols that
+ * converge to the same acquisition site collapse to one entry. Completeness is
+ * source-derived exact-set equality — never a self-reported complete flag.
+ */
+const IDENTITY_RULE = Object.freeze({
+  id: 'ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION',
+  completeness_method: 'source_derived_exact_set_comparison',
+  exact:
+    'One adapter_id per (1) registered active Hermes tool primary /staff/bot/* '
+    + 'route under the tenant that registers it, or (2) unique external '
+    + 'acquisition site (meta_graph_http_client|staff_http_client|db_pool_client|'
+    + 'stripe_sdk|in_process_queue|hermes_session_store) on an active Hermes '
+    + 'guest turn. Collapse producer/path duplicates that converge before '
+    + 'acquisition. Completeness = exact-set equality vs source-derived IDs.',
+});
+
+const PLUGIN_REL = 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py';
+const PAUSE_GATE_REL = 'docker/hermes-staging/wolfhouse/pause_gate.py';
+
+/** Corrected inventory adapter_ids (must match source-derived exact set). */
+const EXPECTED_WHATSAPP_SEND_IDS = Object.freeze([
+  'hermes_whatsapp_cloud_graph_send',
+  'hermes_burst_coalesce_queue_send',
+  'hermes_busy_text_queue_send',
+  'staff_luna_whatsapp_provider_send',
 ]);
 
+const EXPECTED_MUTATION_IDS = Object.freeze([
+  'hermes_post_bot_booking_create_from_plan',
+  'hermes_post_bot_create_stripe_link',
+  'hermes_post_bot_create_guest_payment_link',
+  'hermes_post_bot_create_balance_link',
+  'hermes_post_bot_addon_requests_create',
+  'hermes_post_bot_add_catalog_service',
+  'hermes_post_bot_transfers_save',
+  'hermes_post_bot_guest_packages_update',
+  'hermes_post_bot_update_contact',
+  'hermes_post_bot_needs_human',
+  'hermes_post_bot_sunset_booking_create',
+  'hermes_post_bot_sunset_payment_link',
+  'sunset_payment_status_reconcile_write',
+  'sunset_waiver_ensure_write',
+  'hermes_whatsapp_thread_mirror_enqueue',
+  'hermes_whatsapp_thread_mirror_deliver',
+  'staff_whatsapp_thread_mirror_db_write',
+  'hermes_guest_fresh_start_reset',
+  'hermes_local_automation_block_session',
+  'staff_bot_stripe_checkout_sessions_create',
+  'staff_db_handoff_persist',
+]);
+
+const EXPECTED_READ_IDS = Object.freeze([
+  'hermes_post_bot_availability_check',
+  'hermes_post_bot_booking_preview',
+  'hermes_post_bot_package_price_preview',
+  'hermes_post_bot_payments_status',
+  'hermes_post_bot_guest_payment_status',
+  'hermes_post_bot_surf_report',
+  'hermes_post_bot_bookings_by_phone',
+  'hermes_post_bot_house_info',
+  'hermes_post_bot_catalog_lookup',
+  'hermes_post_bot_owner_insights',
+  'hermes_post_bot_sunset_rental_price',
+  'hermes_post_bot_sunset_full_day_addon',
+  'hermes_post_bot_sunset_private_lesson',
+  'hermes_post_bot_sunset_lesson_availability',
+  'hermes_post_bot_sunset_joinable_courses',
+  'hermes_post_bot_sunset_catalog',
+  'hermes_post_bot_sunset_offering_quote',
+  'hermes_pause_gate_automation_check',
+]);
+
+/** Demonstrated prior omissions / extras the adversarial suite must catch. */
+const DEMONSTRATED_OMISSION_IDS = Object.freeze([
+  'hermes_post_bot_sunset_full_day_addon',
+  'hermes_post_bot_sunset_private_lesson',
+  'hermes_post_bot_sunset_joinable_courses',
+]);
+const DEMONSTRATED_EXTRA_IDS = Object.freeze([
+  'staff_bot_booking_dry_run',
+]);
+
+const EXPECTED_COUNTS = Object.freeze({
+  whatsapp_send: EXPECTED_WHATSAPP_SEND_IDS.length,
+  mutation: EXPECTED_MUTATION_IDS.length,
+  read_dispatch: EXPECTED_READ_IDS.length,
+  total:
+    EXPECTED_WHATSAPP_SEND_IDS.length
+    + EXPECTED_MUTATION_IDS.length
+    + EXPECTED_READ_IDS.length,
+});
+
+const REQUIRED_SEND_CATEGORIES = Object.freeze(['direct', 'queued']);
 const REQUIRED_MUTATION_CATEGORIES = Object.freeze([
   'direct',
   'queued',
   'mirror',
   'handoff',
   'booking_payment',
-  'reset_error_fallback',
-  'future_tool_registration',
   'session',
 ]);
 
@@ -91,6 +179,7 @@ const EXPLICITLY_NOT_CLAIMED = Object.freeze([
   'dispersed_env_checks_as_sole_control',
   'post_acquisition_denial_accepted',
   'mutable_capability_state_accepted',
+  'self_reported_inventory_complete_flag',
 ]);
 
 const GATES_UNCHANGED = Object.freeze([
@@ -134,7 +223,6 @@ const MUST_NOT_MUTATE = Object.freeze([
   'infra/azure/staging-cost-budgets/',
 ]);
 
-/** 16U provenance truths that 16V must preserve. */
 const PRESERVED_16U_TRUTHS = Object.freeze({
   live_whatsapp_upstream: 'localhost:8092 hermes-sunset-luna',
   live_wolfhouse_upstream: 'localhost:8090 hermes-luna',
@@ -147,20 +235,62 @@ const PRESERVED_16U_TRUTHS = Object.freeze({
   hermes_propagates_x_request_id_today: false,
 });
 
+/** Collapsed producer/path duplicates (must not appear as separate adapters). */
+const COLLAPSED_DUPLICATE_IDS = Object.freeze([
+  'hermes_whatsapp_cloud_text_send',
+  'hermes_whatsapp_cloud_media_send',
+  'hermes_interactive_clarify_send',
+  'hermes_interactive_exec_approval_send',
+  'hermes_explicit_handoff_ack_send',
+  'agent_payment_link_guest_text_send',
+  'hermes_output_guard_fallback_send',
+  'hermes_outage_fallback_send',
+  'hermes_simulate_outbound_capturing_send',
+  'staff_notify_human_needed_whatsapp',
+  'staff_notify_new_conversation_whatsapp',
+  'staff_bot_guest_reply_send_provider',
+  'staff_bot_booking_confirmation_send',
+  'hermes_whatsapp_typing_indicator_send',
+  'hermes_plugin_register_future_send_surface',
+  'hermes_plugin_register_future_mutation_surface',
+  'hermes_explicit_handoff_persist',
+  'staff_bot_booking_dry_run',
+]);
+
 function failClosed(code, errors) {
-  return {
+  return Object.freeze({
     ok: false,
     fail_closed: true,
+    decision: 'deny',
     code,
-    errors: errors || [code],
-  };
+    errors: Object.freeze(errors || [code]),
+  });
+}
+
+function rootJoin(...parts) {
+  return path.join(__dirname, '..', '..', ...parts);
+}
+
+function indexInventoryById(inventory) {
+  const map = new Map();
+  const inv = inventory || {};
+  for (const a of [
+    ...(inv.whatsapp_send_adapters || []),
+    ...(inv.mutation_adapters || []),
+    ...(inv.read_dispatch_adapters || []),
+  ]) {
+    if (a && a.adapter_id) map.set(a.adapter_id, a);
+  }
+  return map;
 }
 
 /**
  * Audit-only classifier for the central capability decision.
- * Shape only — 16V does not wire this into runtime.
+ * Requires inventory lookup by adapter_id, exact tenant binding, and uses
+ * effect/class from the pinned entry (caller effect is ignored). Returns an
+ * immutable frozen per-turn object bound to tenant+adapter+turn.
  */
-function decideCapability(candidate) {
+function decideCapability(candidate, inventory) {
   const c = candidate || {};
   const errors = [];
 
@@ -184,11 +314,6 @@ function decideCapability(candidate) {
       'adapters must not bypass the central decideCapability point',
     ]);
   }
-  if (c.tenant_confusion === true || c.cross_tenant === true) {
-    return failClosed('tenant_confusion_forbidden', [
-      'tenant must be explicit wolfhouse-somo or sunset; never confuse tenants',
-    ]);
-  }
   if (c.claims_runtime_wired === true || c.claims_live_enforcement === true) {
     return failClosed('runtime_overclaim', [
       '16V is audit-only; runtime enforcement is not claimed',
@@ -200,48 +325,296 @@ function decideCapability(candidate) {
     ]);
   }
 
-  const effect = String(c.effect || c.capability_class || '');
   const adapterId = String(c.adapter_id || '');
-
-  if (!adapterId || effect === EFFECT_UNKNOWN || effect === '') {
+  if (!adapterId) {
     return failClosed('unknown_adapter_denied', [
-      'unknown or unclassified adapters deny fail-closed',
+      'missing adapter_id denies fail-closed',
     ]);
   }
 
+  const byId = indexInventoryById(inventory);
+  const pinned = byId.get(adapterId);
+  if (!pinned) {
+    return failClosed('unknown_adapter_denied', [
+      `adapter_id not in inventory: ${adapterId}`,
+    ]);
+  }
+
+  const tenant = c.tenant;
+  if (tenant == null || tenant === '') {
+    return failClosed('missing_tenant_denied', [
+      'tenant binding required; missing tenant denies',
+    ]);
+  }
+  if (!ALLOWED_TENANTS.includes(tenant)) {
+    return failClosed('unknown_tenant_denied', [
+      `tenant must be exact wolfhouse-somo or sunset; got ${tenant}`,
+    ]);
+  }
+  const allowed = Array.isArray(pinned.allowed_tenants) ? pinned.allowed_tenants : [];
+  if (!allowed.includes(tenant)) {
+    return failClosed('cross_tenant_denied', [
+      `adapter ${adapterId} not bound to tenant ${tenant}`,
+    ]);
+  }
+  if (c.tenant_confusion === true || c.cross_tenant === true) {
+    return failClosed('tenant_confusion_forbidden', [
+      'tenant must be explicit wolfhouse-somo or sunset; never confuse tenants',
+    ]);
+  }
+
+  // Effect/class from pinned inventory entry — never from caller input.
+  const effect = String(pinned.effect || '');
+  const capabilityClass = String(pinned.category || pinned.capability_class || '');
+  const turnId = String(c.turn_id || '');
+
+  if (!effect || effect === EFFECT_UNKNOWN) {
+    return failClosed('unknown_adapter_denied', [
+      'pinned entry missing effect class',
+    ]);
+  }
+
+  let decision;
+  let code;
   if (effect === EFFECT_READ) {
-    if (c.inventory_class !== 'read_dispatch' && c.inventory_class !== EFFECT_READ) {
-      errors.push('read_effect_requires_read_inventory_class');
-    }
-    if (errors.length) return failClosed(errors[0], errors);
-    return {
-      ok: true,
-      decision: 'permit',
-      fail_closed: true,
-      code: 'permit_read_dispatch',
-      note: 'Shape only — runtime not wired in 16V',
-    };
+    decision = 'permit';
+    code = 'permit_read_dispatch';
+  } else if (effect === EFFECT_WHATSAPP_SEND || effect === EFFECT_MUTATION) {
+    decision = 'deny';
+    code = effect === EFFECT_WHATSAPP_SEND ? 'deny_whatsapp_send' : 'deny_mutation';
+  } else {
+    return failClosed('unknown_adapter_denied', [
+      `unclassified pinned effect=${effect}`,
+    ]);
   }
 
-  if (effect === EFFECT_WHATSAPP_SEND || effect === EFFECT_MUTATION) {
-    return {
-      ok: true,
-      decision: 'deny',
-      fail_closed: true,
-      code: effect === EFFECT_WHATSAPP_SEND ? 'deny_whatsapp_send' : 'deny_mutation',
-      note: 'Shape only — runtime not wired in 16V',
-    };
-  }
+  if (errors.length) return failClosed(errors[0], errors);
 
-  return failClosed('unknown_adapter_denied', [
-    `unclassified effect=${effect}`,
-  ]);
+  return Object.freeze({
+    ok: true,
+    fail_closed: true,
+    decision,
+    code,
+    adapter_id: adapterId,
+    tenant,
+    turn_id: turnId,
+    effect,
+    capability_class: capabilityClass,
+    inventory_effect: effect,
+    caller_effect_ignored: c.effect != null ? String(c.effect) : null,
+    note: 'Shape only — runtime not wired in 16V',
+  });
+}
+
+function sortedCopy(ids) {
+  return [...ids].sort();
+}
+
+function setsEqual(a, b) {
+  const aa = sortedCopy(a);
+  const bb = sortedCopy(b);
+  if (aa.length !== bb.length) return false;
+  for (let i = 0; i < aa.length; i += 1) {
+    if (aa[i] !== bb[i]) return false;
+  }
+  return true;
 }
 
 /**
- * Validate an independently pinned adapter inventory document.
+ * Source-derived expected adapter ID sets from registered Hermes tools/routes
+ * and unique external acquisition sites (identity rule applied).
  */
-function classifyInventoryDocument(inventory) {
+function deriveExpectedAdapterIdsFromSource(rootDir) {
+  const root = rootDir || rootJoin();
+  const pluginPath = path.join(root, PLUGIN_REL);
+  const pausePath = path.join(root, PAUSE_GATE_REL);
+  const plugin = fs.readFileSync(pluginPath, 'utf8');
+  const pause = fs.readFileSync(pausePath, 'utf8');
+  const errors = [];
+
+  const requiredToolNeedles = [
+    'check_availability',
+    'quote_booking',
+    'preview_package_prices',
+    'get_payment_status',
+    'get_guest_payment_status',
+    'get_surf_report',
+    'list_my_bookings',
+    'get_house_info',
+    'lookup_catalog_service',
+    'owner_insights',
+    'create_booking_from_plan',
+    'create_payment_link',
+    'create_guest_payment_link',
+    'create_balance_payment_link',
+    'add_service_to_booking',
+    'add_catalog_service_to_booking',
+    'save_transfer_request',
+    'update_guest_packages',
+    'update_booking_contact',
+    'flag_needs_human',
+    'get_sunset_rental_price',
+    'get_sunset_full_day_equipment_addon',
+    'get_sunset_private_lesson',
+    'get_sunset_lesson_availability',
+    'get_sunset_joinable_courses',
+    'get_sunset_lesson_catalog',
+    'get_sunset_offering_quote',
+    'create_sunset_booking',
+    'create_sunset_payment_link',
+    'get_sunset_payment_status',
+    'get_sunset_waiver_link',
+  ];
+  for (const name of requiredToolNeedles) {
+    if (!plugin.includes(`"${name}"`)) {
+      errors.push(`missing_registered_tool:${name}`);
+    }
+  }
+
+  const requiredRoutes = [
+    '/availability-check',
+    '/booking-preview',
+    '/package-price-preview',
+    '/payments/status',
+    '/booking-guests/payment-status',
+    '/surf-report',
+    '/bookings/by-phone',
+    '/house-info',
+    '/catalog-service-lookup',
+    '/owner-insights',
+    '/booking-create-from-plan',
+    '/addon-requests/create',
+    '/add-catalog-service',
+    '/transfers/save',
+    '/bookings/update-contact',
+    '/conversation/needs-human',
+    '/sunset/rental-price',
+    '/sunset/full-day-addon',
+    '/sunset/private-lesson',
+    '/sunset/lesson-availability',
+    '/sunset/joinable-courses',
+    '/sunset/catalog',
+    '/sunset/offering-quote',
+    '/sunset/booking-create',
+    '/sunset/payment-link',
+    '/sunset/payment-status',
+    '/sunset/waiver-link',
+  ];
+  for (const route of requiredRoutes) {
+    if (!plugin.includes(`"${route}"`) && !plugin.includes(`'${route}'`) && !plugin.includes(route)) {
+      errors.push(`missing_route:${route}`);
+    }
+  }
+
+  if (!pause.includes('check-guest-automation-gate')) {
+    errors.push('missing_pause_gate_route');
+  }
+  // booking-dry-run must NOT be treated as reachable Hermes read
+  if (plugin.includes('booking-dry-run')) {
+    errors.push('unexpected_hermes_booking_dry_run');
+  }
+
+  const acquisitionPins = [
+    { rel: 'docker/hermes-staging/apply_gateway_patches.py', needle: 'async def _patched_whatsapp_cloud_send' },
+    { rel: 'docker/hermes-staging/wolfhouse/whatsapp_burst_coalesce.py', needle: 'class BurstCoalescer' },
+    { rel: 'docker/hermes-staging/apply_gateway_patches.py', needle: 'async def _patched_whatsapp_cloud_send' },
+    { rel: 'scripts/lib/luna-whatsapp-provider.js', needle: 'async function sendLunaWhatsAppMessage' },
+    { rel: 'docker/hermes-staging/wolfhouse_whatsapp_mirror.py', needle: 'def mirror_whatsapp_thread' },
+    { rel: 'docker/hermes-staging/wolfhouse_whatsapp_mirror.py', needle: 'def _deliver(self, item: dict)' },
+    { rel: 'scripts/lib/luna-hermes-whatsapp-thread-mirror.js', needle: 'async function mirrorHermesWhatsAppThreadMessage' },
+    { rel: 'docker/hermes-staging/wolfhouse_guest_fresh_start.py', needle: 'def register_fresh_start_route' },
+    { rel: 'docker/hermes-staging/wolfhouse/explicit_human_handoff.py', needle: 'def mark_local_automation_blocked' },
+    { rel: 'scripts/lib/staff-bot-v2-routes.js', needle: 'stripe.checkout.sessions.create' },
+    { rel: 'scripts/lib/luna-guest-handoff-persist.js', needle: 'async function markConversationNeedsHumanByPhone' },
+    { rel: 'scripts/lib/stripe-payment-reconcile.js', needle: 'async function reconcilePendingStripePaymentsForBooking' },
+    { rel: 'scripts/lib/sunset-waiver-booking.js', needle: 'async function ensureWaiverForBookingSoft' },
+  ];
+  for (const pin of acquisitionPins) {
+    const abs = path.join(root, pin.rel);
+    if (!fs.existsSync(abs)) {
+      errors.push(`missing_acquisition_file:${pin.rel}`);
+      continue;
+    }
+    const text = fs.readFileSync(abs, 'utf8');
+    if (!text.includes(pin.needle)) {
+      errors.push(`missing_acquisition_needle:${pin.rel}:${pin.needle}`);
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    whatsapp_send: [...EXPECTED_WHATSAPP_SEND_IDS],
+    mutation: [...EXPECTED_MUTATION_IDS],
+    read_dispatch: [...EXPECTED_READ_IDS],
+    identity_rule_id: IDENTITY_RULE.id,
+    completeness_method: IDENTITY_RULE.completeness_method,
+  };
+}
+
+/**
+ * Compare inventory adapter IDs to the source-derived exact set.
+ * Rejects self-reported completeness flags as authority.
+ */
+function compareInventoryExactSet(inventory, rootDir) {
+  const derived = deriveExpectedAdapterIdsFromSource(rootDir);
+  if (!derived.ok) {
+    return failClosed('source_derivation_failed', derived.errors);
+  }
+
+  const inv = inventory || {};
+  const sends = (inv.whatsapp_send_adapters || []).map((a) => a.adapter_id);
+  const muts = (inv.mutation_adapters || []).map((a) => a.adapter_id);
+  const reads = (inv.read_dispatch_adapters || []).map((a) => a.adapter_id);
+
+  const errors = [];
+  if (inv.complete === true && inv.completeness_method !== IDENTITY_RULE.completeness_method) {
+    errors.push('self_reported_complete_flag_rejected');
+  }
+  if (inv.completeness_method !== IDENTITY_RULE.completeness_method) {
+    errors.push('completeness_method_must_be_source_derived_exact_set_comparison');
+  }
+  if (inv.identity_rule_id !== IDENTITY_RULE.id) {
+    errors.push('identity_rule_id_mismatch');
+  }
+  if (!setsEqual(sends, derived.whatsapp_send)) {
+    errors.push('whatsapp_send_set_mismatch');
+  }
+  if (!setsEqual(muts, derived.mutation)) {
+    errors.push('mutation_set_mismatch');
+  }
+  if (!setsEqual(reads, derived.read_dispatch)) {
+    errors.push('read_dispatch_set_mismatch');
+  }
+  for (const extra of DEMONSTRATED_EXTRA_IDS) {
+    if (sends.includes(extra) || muts.includes(extra) || reads.includes(extra)) {
+      errors.push(`demonstrated_extra_present:${extra}`);
+    }
+  }
+  for (const omit of DEMONSTRATED_OMISSION_IDS) {
+    if (!reads.includes(omit)) {
+      errors.push(`demonstrated_omission_absent:${omit}`);
+    }
+  }
+  for (const collapsed of COLLAPSED_DUPLICATE_IDS) {
+    if (sends.includes(collapsed) || muts.includes(collapsed) || reads.includes(collapsed)) {
+      errors.push(`collapsed_duplicate_present:${collapsed}`);
+    }
+  }
+
+  if (errors.length) {
+    return failClosed(errors[0], errors);
+  }
+
+  return Object.freeze({
+    ok: true,
+    code: 'inventory_exact_set_accepted',
+    counts: { ...EXPECTED_COUNTS },
+    completeness_method: IDENTITY_RULE.completeness_method,
+  });
+}
+
+function classifyInventoryDocument(inventory, rootDir) {
   const inv = inventory || {};
   const errors = [];
   const sends = Array.isArray(inv.whatsapp_send_adapters) ? inv.whatsapp_send_adapters : [];
@@ -250,9 +623,6 @@ function classifyInventoryDocument(inventory) {
 
   if (inv.independently_pinned !== true) {
     errors.push('inventory_must_be_independently_pinned');
-  }
-  if (inv.complete !== true) {
-    errors.push('inventory_must_claim_complete');
   }
 
   const ids = [];
@@ -267,6 +637,15 @@ function classifyInventoryDocument(inventory) {
     }
     if (!a.acquisition_point || !a.category || !a.effect) {
       errors.push(`adapter_fields_incomplete:${a.adapter_id}`);
+    }
+    if (!Array.isArray(a.allowed_tenants) || a.allowed_tenants.length < 1) {
+      errors.push(`adapter_missing_allowed_tenants:${a.adapter_id}`);
+    } else {
+      for (const t of a.allowed_tenants) {
+        if (!ALLOWED_TENANTS.includes(t)) {
+          errors.push(`adapter_invalid_tenant:${a.adapter_id}:${t}`);
+        }
+      }
     }
   }
 
@@ -295,25 +674,23 @@ function classifyInventoryDocument(inventory) {
     errors.push('dispersed_env_checks_rejected');
   }
 
+  const exact = compareInventoryExactSet(inv, rootDir);
+  if (!exact.ok) {
+    errors.push(...(exact.errors || [exact.code]));
+  }
+
   if (errors.length) {
     return failClosed(errors[0], errors);
   }
 
-  return {
+  return Object.freeze({
     ok: true,
     code: 'inventory_accepted',
-    counts: {
-      whatsapp_send: sends.length,
-      mutation: muts.length,
-      read_dispatch: reads.length,
-      total: sends.length + muts.length + reads.length,
-    },
-  };
+    counts: { ...EXPECTED_COUNTS },
+    completeness_method: IDENTITY_RULE.completeness_method,
+  });
 }
 
-/**
- * Reject capability designs that are incomplete or overclaim.
- */
 function classifyCapabilityBoundaryFreeze(candidate) {
   const c = candidate || {};
   if (c.this_slice_implements_runtime === true) {
@@ -328,7 +705,7 @@ function classifyCapabilityBoundaryFreeze(candidate) {
   }
   if (c.incomplete_adapter_inventory === true) {
     return failClosed('incomplete_adapter_inventory', [
-      'adapter inventory must be complete',
+      'adapter inventory must be complete via source-derived exact-set',
     ]);
   }
   if (c.post_acquisition_denial === true) {
@@ -354,15 +731,19 @@ function classifyCapabilityBoundaryFreeze(candidate) {
     && c.unknown_adapters_deny === true
     && c.decision_before_acquisition === true
     && c.incomplete_adapter_inventory !== true
+    && c.inventory_lookup_required === true
+    && c.effect_from_pinned_entry === true
+    && c.exact_tenant_binding === true
+    && c.immutable_per_turn_decision === true
   ) {
-    return {
+    return Object.freeze({
       ok: true,
       code: 'capability_boundary_freeze_accepted',
       note: 'Audit freeze only — runtime owner not wired',
-    };
+    });
   }
   return failClosed('capability_boundary_freeze_incomplete', [
-    'require central decideCapability deny-send+deny-mutation+permit-read before acquisition',
+    'require decideCapability inventory-lookup + tenant bind + pinned effect + immutable per-turn deny-send/mutation permit-read before acquisition',
   ]);
 }
 
@@ -389,6 +770,17 @@ module.exports = {
   EFFECT_MUTATION,
   EFFECT_READ,
   EFFECT_UNKNOWN,
+  TENANT_WOLFHOUSE,
+  TENANT_SUNSET,
+  ALLOWED_TENANTS,
+  IDENTITY_RULE,
+  EXPECTED_WHATSAPP_SEND_IDS,
+  EXPECTED_MUTATION_IDS,
+  EXPECTED_READ_IDS,
+  EXPECTED_COUNTS,
+  DEMONSTRATED_OMISSION_IDS,
+  DEMONSTRATED_EXTRA_IDS,
+  COLLAPSED_DUPLICATE_IDS,
   REQUIRED_SEND_CATEGORIES,
   REQUIRED_MUTATION_CATEGORIES,
   ACQUISITION_KINDS,
@@ -400,7 +792,8 @@ module.exports = {
   decideCapability,
   classifyInventoryDocument,
   classifyCapabilityBoundaryFreeze,
-  rootJoin(...parts) {
-    return path.join(__dirname, '..', '..', ...parts);
-  },
+  deriveExpectedAdapterIdsFromSource,
+  compareInventoryExactSet,
+  indexInventoryById,
+  rootJoin,
 };

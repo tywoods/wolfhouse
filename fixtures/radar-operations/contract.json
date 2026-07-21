@@ -286,10 +286,10 @@
     "does_not_implement": "runtime_decideCapability_wiring_dry_run_switch_trace_x_request_id_live_g01a_drill_any_gate_proven",
     "dry_run_implementable_today": false,
     "inventory_counts": {
-      "whatsapp_send": 18,
-      "mutation": 23,
-      "read_dispatch": 15,
-      "total": 56
+      "whatsapp_send": 4,
+      "mutation": 21,
+      "read_dispatch": 18,
+      "total": 43
     },
     "central_decision_point": "decideCapability",
     "enforcement_owner": "docker/hermes-staging/wolfhouse/capability_boundary.py::decide_capability",

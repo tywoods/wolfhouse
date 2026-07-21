@@ -26,14 +26,20 @@
     "central_decision_point": "decideCapability",
     "decision_before_acquisition": true,
     "unknown_adapters_deny": true,
+    "inventory_lookup_required": true,
+    "effect_from_pinned_entry": true,
+    "exact_tenant_binding": true,
+    "immutable_per_turn_decision": true,
     "denies_every_whatsapp_send": true,
     "denies_every_staff_db_stripe_mutation": true,
     "permits_real_read_dispatch": true,
     "inventory_independently_pinned": true,
-    "inventory_complete": true,
-    "whatsapp_send_count": 18,
-    "mutation_count": 23,
-    "read_dispatch_count": 15,
+    "identity_rule_id": "ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION",
+    "completeness_method": "source_derived_exact_set_comparison",
+    "whatsapp_send_count": 4,
+    "mutation_count": 21,
+    "read_dispatch_count": 18,
+    "total_count": 43,
     "dry_run_implementable_today": false,
     "runtime_wired": false,
     "g01_verdict": "partial",
@@ -53,7 +59,8 @@
     "mutable capability state",
     "tenant confused",
     "trace implemented",
-    "deployed"
+    "deployed",
+    "self-reported complete"
   ],
   "must_not_claim_as_proven": [
     "capability_boundary_wired_at_runtime",
@@ -79,7 +86,7 @@
   "final_controlled_drill": {
     "id": "16V_DRILL_capability_boundary_audit_freeze",
     "status": "audit_only_boundary_frozen",
-    "pass_rule": "Pinned inventory complete; decideCapability permits reads and denies sends/mutations before acquisition; verifier RED-rejects omissions, duplicates, dispersed env checks, bypasses, post-acquisition denial, mutable state, tenant confusion, and trace/deploy/live overclaims; runtime paths unchanged; proven=0"
+    "pass_rule": "Source-derived exact-set inventory (4/21/18); decideCapability inventory-lookup + exact tenant + pinned effect + immutable per-turn; RED-rejects demonstrated omissions/extras, arbitrary read ID, missing/wrong tenant, caller effect spoofing, post-decision mutation; runtime paths unchanged; proven=0"
   },
   "artifacts": [
     "fixtures/radar-operations/slice16v-adapter-inventory.json",

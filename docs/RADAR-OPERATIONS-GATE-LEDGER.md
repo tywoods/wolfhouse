@@ -15,18 +15,21 @@ Freeze the **central capability boundary** required before any G01-A dry-run:
 - **Permit** genuine read dispatch
 - **Deny** every WhatsApp send and every Staff/DB/Stripe mutation
 - Decision must occur **before** Meta Graph / Staff HTTP / DB pool / Stripe SDK / queue / session-store acquisition
-- Unknown or unclassified adapters **deny**
+- Inventory lookup by adapter ID; exact allowed-tenant binding; effect/class from pinned entry (caller spoof ignored); immutable frozen per-turn object bound to tenant+adapter+turn
+- Unknown, missing, or cross-tenant adapter IDs **deny**
 
-Independently pinned adapter inventory (complete for active Hermes guest turns):
+**Identity rule** `ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION`: one adapter per registered active Hermes tool primary staff route **or** unique external acquisition site; producer/path duplicates that converge before acquisition collapse. Completeness = **source_derived_exact_set_comparison** (not a self-reported `complete` flag).
+
+Source-derived exact-set inventory (active Hermes guest turns):
 
 | Class | Count |
 |-------|------:|
-| WhatsApp send | 18 |
-| Staff/DB/Stripe mutation | 23 |
-| Read dispatch (permitted) | 15 |
-| **Total** | **56** |
+| WhatsApp send | 4 |
+| Staff/DB/Stripe mutation | 21 |
+| Read dispatch (permitted) | 18 |
+| **Total** | **43** |
 
-Categories covered for sends and mutations: direct, queued, mirror, handoff, booking/payment, reset/error/fallback, future tool-registration (+ session for mutations).
+Includes previously omitted Sunset reads (`full-day-addon`, `private-lesson`, `joinable-courses`) and pause-gate automation check; removes unreachable `booking-dry-run`; collapses Graph/provider producer duplicates.
 
 **16U provenance retained:** live Caddy `/whatsapp/*`→`:8092` (`hermes-sunset-luna`), `/wolfhouse/*`→`:8090` (`hermes-luna`); tracked Caddy **stale** evidence, not authority; single-message `wamid` / coalesced ordered immutable **source-wamid** set (no invented parent); G01-A=`meta_hermes_staff_correlated_read_path`; G01-B=`tenant/payment/booking/session` metadata only (no inbound trace/wamid); genuine Stripe Checkout **cannot be exercised without mutation**; Hermes still omits `X-Request-Id`; independent same-ID probes are not E2E.
 
@@ -36,7 +39,7 @@ Categories covered for sends and mutations: direct, queued, mirror, handoff, boo
 
 | Path | Role |
 |------|------|
-| `fixtures/radar-operations/slice16v-adapter-inventory.json` | Independently pinned send/mutation/read inventory |
+| `fixtures/radar-operations/slice16v-adapter-inventory.json` | Source-derived send/mutation/read inventory |
 | `fixtures/radar-operations/slice16v-capability-boundary-freeze.json` | Boundary + later owner freeze |
 | `fixtures/radar-operations/slice16v-expected-contract.json` | Frozen 16V contract |
 | `scripts/lib/radar-slice16v-capability-boundary-freeze.js` | Locks + decideCapability classifiers |

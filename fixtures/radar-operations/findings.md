@@ -15,7 +15,7 @@
 
 ## Critical gaps (still open — explicitly not claimed by 16V)
 
-1. **Capability boundary runtime apply (16W)** — `decideCapability` shape + 55-adapter inventory frozen; owner modules not wired.
+1. **Capability boundary runtime apply (16W)** — `decideCapability` shape + source-derived 43-adapter exact-set inventory frozen; owner modules not wired.
 2. **G01-A live Meta → Hermes → Staff correlated read path** — design frozen (16U); Hermes does not send `X-Request-Id` today.
 3. **Hard-disabled `G01_CORRELATION_DRY_RUN`** — reserved (`RADAR-16U-CORRELATION-DRY-RUN`); **not implementable yet** (blocked on runtime boundary apply).
 4. **Genuine Stripe on inbound ALS** — **not provable without mutation**; G01-B is tenant/payment/booking/session metadata only (16U retained).
@@ -41,7 +41,7 @@
 
 ## Slice 16V
 
-`16V_central_capability_boundary_audit_freeze` — audit-only. Inventories **18** WhatsApp send + **23** Staff/DB/Stripe mutation + **15** read-dispatch adapters reachable from active Hermes guest turns (direct/queued/mirror/handoff/booking-payment/reset-error-fallback/future-tool-registration/session). Freezes one fail-closed `decideCapability` point that permits genuine read dispatch and denies all sends/writes **before** provider/pool/client/queue acquisition; unknown adapters deny. Specifies later owners (`capability_boundary.py` / `g01-capability-boundary.js`) and tests separately from deploy/evidence — **not created** in 16V. Verifier RED-rejects omissions, duplicates, dispersed env checks, bypasses, post-acquisition denial, mutable capability state, tenant confusion, and trace/deploy/live overclaims. Preserves all 16U provenance truth and G01 partial. Does not implement runtime or execute live.
+`16V_central_capability_boundary_audit_freeze` — audit-only. Identity rule `ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION` with **source_derived_exact_set_comparison**. Inventories **4** WhatsApp send + **21** Staff/DB/Stripe mutation + **18** read-dispatch adapters (total **43**) from registered Hermes tools/routes and unique external acquisition sites; collapses producer/path duplicates that converge before acquisition; adds Sunset full-day-addon / private-lesson / joinable-courses reads; removes unreachable booking-dry-run. Freezes fail-closed `decideCapability` that looks up inventory by adapter ID, binds exact allowed tenant, takes effect/class from the pinned entry, and returns an immutable frozen per-turn object; unknown/missing/cross-tenant deny. Verifier RED-rejects demonstrated omissions/extras, arbitrary read ID, missing/wrong tenant, caller effect spoofing, and post-decision mutation. Preserves all 16U provenance truth and G01 partial. Does not implement runtime or execute live.
 
 ## Prior slices (retained)
 

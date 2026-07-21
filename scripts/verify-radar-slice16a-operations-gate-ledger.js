@@ -718,10 +718,10 @@ ok('F127 16V verifier present',
   && pathExists('scripts/verify-radar-slice16v-capability-boundary-freeze.js'));
 ok('F128 16V inventory counts frozen',
   sel16v.inventory_counts
-  && sel16v.inventory_counts.whatsapp_send === 18
-  && sel16v.inventory_counts.mutation === 23
-  && sel16v.inventory_counts.read_dispatch === 15
-  && sel16v.inventory_counts.total === 56);
+  && sel16v.inventory_counts.whatsapp_send === 4
+  && sel16v.inventory_counts.mutation === 21
+  && sel16v.inventory_counts.read_dispatch === 18
+  && sel16v.inventory_counts.total === 43);
 ok('F129 16V enforcement owner specified not created',
   sel16v.enforcement_owner
   && /capability_boundary\.py/.test(String(sel16v.enforcement_owner.primary_module || ''))

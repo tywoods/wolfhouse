@@ -21,6 +21,11 @@
   },
   "title": "Audit-only freeze of the central capability boundary required before any G01-A dry-run",
   "inventory_fixture": "fixtures/radar-operations/slice16v-adapter-inventory.json",
+  "identity_rule": {
+    "id": "ADAPTER_IDENTITY_REGISTERED_TOOL_ROUTE_OR_UNIQUE_EXTERNAL_ACQUISITION",
+    "completeness_method": "source_derived_exact_set_comparison",
+    "exact": "One adapter_id per registered active Hermes tool primary staff route or unique external acquisition site; collapse producer/path duplicates that converge before acquisition; completeness is exact-set equality vs source derivation"
+  },
   "preserved_16u_provenance": {
     "live_whatsapp_upstream": "localhost:8092 hermes-sunset-luna",
     "live_wolfhouse_upstream": "localhost:8090 hermes-luna",
@@ -37,6 +42,10 @@
     "decision_point": "decideCapability",
     "kind": "fail_closed_central_decision",
     "decision_before_acquisition": true,
+    "inventory_lookup_required": true,
+    "effect_from_pinned_entry": true,
+    "exact_tenant_binding": true,
+    "immutable_per_turn_decision": true,
     "acquisition_forbidden_before_decision": [
       "meta_graph_http_client",
       "staff_http_client",
@@ -51,13 +60,17 @@
       "every_staff_db_stripe_mutation"
     ],
     "unknown_adapters_deny": true,
+    "missing_tenant_denies": true,
+    "cross_tenant_denies": true,
     "forbid": [
       "dispersed_env_checks_as_sole_control",
       "incomplete_adapter_inventories",
+      "self_reported_completeness_flags",
       "post_acquisition_denial",
       "mutable_capability_state",
       "tenant_confusion",
       "capability_bypass",
+      "caller_effect_spoofing",
       "trace_deploy_live_overclaim"
     ],
     "denies_every_whatsapp_send": true,
@@ -136,6 +149,7 @@
     "production",
     "dispersed_env_checks_as_sole_control",
     "post_acquisition_denial_accepted",
-    "mutable_capability_state_accepted"
+    "mutable_capability_state_accepted",
+    "self_reported_inventory_complete_flag"
   ]
 }
