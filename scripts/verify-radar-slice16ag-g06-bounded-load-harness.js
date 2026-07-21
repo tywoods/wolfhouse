@@ -750,12 +750,12 @@ async function runVerifier() {
     green('iana_global_orchidv2_2001:20::/28',
       harness.isGloballyRoutableIp('2001:20::1') === true);
 
-    // IPv4-mapped: evaluate embedded IPv4 (registry lists ::ffff:0:0/96 as False).
+    // IPv4-mapped addresses follow the IANA ::ffff:0:0/96 non-global row.
     red('iana_v6_mapped_embedded_private',
       harness.isGloballyRoutableIp('::ffff:10.0.0.1') === false
       && harness.isGloballyRoutableIp('::ffff:192.0.2.1') === false);
-    green('iana_v6_mapped_embedded_public',
-      harness.isGloballyRoutableIp('::ffff:8.8.8.8') === true);
+    red('iana_v6_mapped_embedded_public_still_nonglobal',
+      harness.isGloballyRoutableIp('::ffff:8.8.8.8') === false);
 
     for (const entry of harness.IANA_IPV4_SPECIAL_PURPOSE) {
       const sample = harness.sampleAddressForIanaEntry(entry);
@@ -769,7 +769,6 @@ async function runVerifier() {
     }
 
     for (const entry of harness.IANA_IPV6_SPECIAL_PURPOSE) {
-      if (entry.specialHandling === 'ipv4_mapped_embedded') continue;
       const sample = harness.sampleAddressForIanaEntry(entry);
       const got = harness.isGloballyRoutableIp(sample);
       const id = entry.globallyReachable

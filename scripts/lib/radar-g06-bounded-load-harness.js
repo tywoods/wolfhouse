@@ -540,28 +540,11 @@ function sampleAddressForIanaEntry(entry) {
   return formatIpv6Hextets(entry.baseHextets);
 }
 
-function extractIpv4MappedEmbedded(raw, hextets) {
-  const dotted = String(raw).match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)
-    || String(raw).match(/^0:0:0:0:0:ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-  if (dotted) return dotted[1];
-  if (hextets
-    && hextets[0] === 0 && hextets[1] === 0 && hextets[2] === 0 && hextets[3] === 0
-    && hextets[4] === 0 && hextets[5] === 0xffff) {
-    return [
-      (hextets[6] >> 8) & 0xff,
-      hextets[6] & 0xff,
-      (hextets[7] >> 8) & 0xff,
-      hextets[7] & 0xff,
-    ].join('.');
-  }
-  return null;
-}
-
 /**
  * Fail-closed globally-routable unicast check for IPv4 and IPv6.
  * Uses the complete IANA special-purpose tables with explicit globallyReachable
  * flags (longest prefix match). Multicast (outside IANA special registries) and
- * non-2000::/3 IPv6 are rejected. IPv4-mapped IPv6 evaluates the embedded IPv4.
+ * non-2000::/3 IPv6 are rejected. IPv4-mapped IPv6 follows its IANA row.
  * Default deny: unknown/malformed → false.
  */
 function isGloballyRoutableIp(address) {
@@ -582,9 +565,6 @@ function isGloballyRoutableIp(address) {
     const h = parseIpv6Hextets(raw);
     if (!h) return false;
 
-    // IPv4-mapped ::ffff:0:0/96 — evaluate embedded IPv4 (registry False alone is insufficient).
-    const embedded = extractIpv4MappedEmbedded(raw, h);
-    if (embedded) return isGloballyRoutableIp(embedded);
 
     // Multicast ff00::/8 — not in IANA special-purpose registry — fail closed.
     if ((h[0] & 0xff00) === 0xff00) return false;

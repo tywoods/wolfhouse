@@ -63,11 +63,12 @@ function ianaCaseId(family, entry) {
 
 const IANA_TABLE_RED = Object.freeze([
   'iana_v6_mapped_embedded_private',
+  'iana_v6_mapped_embedded_public_still_nonglobal',
   ...harness.IANA_IPV4_SPECIAL_PURPOSE
     .filter((e) => !e.globallyReachable)
     .map((e) => ianaCaseId('v4', e)),
   ...harness.IANA_IPV6_SPECIAL_PURPOSE
-    .filter((e) => !e.globallyReachable && e.specialHandling !== 'ipv4_mapped_embedded')
+    .filter((e) => !e.globallyReachable)
     .map((e) => ianaCaseId('v6', e)),
 ]);
 
@@ -80,7 +81,6 @@ const IANA_TABLE_GREEN = Object.freeze([
   'iana_global_exception_192.0.0.9/32',
   'iana_global_exception_192.0.0.10/32',
   'iana_global_orchidv2_2001:20::/28',
-  'iana_v6_mapped_embedded_public',
   ...harness.IANA_IPV4_SPECIAL_PURPOSE
     .filter((e) => e.globallyReachable)
     .map((e) => ianaCaseId('v4', e)),
