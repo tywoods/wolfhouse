@@ -52,6 +52,98 @@ const SHUTDOWN_BEGIN_REGISTRY = Symbol.for('wh.staffApi.admission.shutdownBeginR
 const SHUTDOWN_BEGIN_DISPATCHER = Symbol.for('wh.staffApi.admission.shutdownBeginDispatcher');
 
 /**
+ * Module-private fired sentinel keyed by server object identity.
+ * WeakSet is the ONLY durable fired signal — registry/dispatcher/hook symbols
+ * are deleted after snapshot and must not be reinstalled on post-fire binds.
+ */
+const shutdownBeginFiredServers = new WeakSet();
+
+/** Documented bind result when server already fired (or is mid-fire). */
+const BIND_SHUTDOWN_ALREADY_FIRED = Object.freeze({
+  ok: true,
+  bound: false,
+  already_fired: true,
+});
+
+/** Documented bind result when boundary was registered on a live dispatcher. */
+const BIND_SHUTDOWN_BOUND = Object.freeze({
+  ok: true,
+  bound: true,
+  already_fired: false,
+});
+
+/** Documented bind result for missing/invalid args (no install, no close). */
+const BIND_SHUTDOWN_NOOP = Object.freeze({
+  ok: true,
+  bound: false,
+  already_fired: false,
+  reason: 'invalid_args',
+});
+
+/**
+ * Attach rejection handlers to a thenable so a later rejection cannot become
+ * an unhandledRejection. Absorbs thenable getter / .then call adversaries.
+ * @param {unknown} value
+ */
+function absorbThenableRejection(value) {
+  if (value == null) return;
+  const t = typeof value;
+  if (t !== 'object' && t !== 'function') return;
+  let then;
+  try {
+    then = value.then;
+  } catch (_) {
+    return;
+  }
+  if (typeof then !== 'function') return;
+  try {
+    then.call(value, function noopFulfilled() {}, function noopRejected() {});
+  } catch (_) {
+    // .then call adversary — absorbed
+  }
+}
+
+/**
+ * Safely invoke a callable (prior hook). Sync throws absorbed; returned
+ * thenables get rejection handlers. One failure must not skip siblings.
+ * @param {unknown} fn
+ */
+function safeInvokeCallable(fn) {
+  if (typeof fn !== 'function') return;
+  let result;
+  try {
+    result = fn();
+  } catch (_) {
+    return;
+  }
+  absorbThenableRejection(result);
+}
+
+/**
+ * Safely invoke owner.close(). Catches close getter/call adversaries, sync
+ * throws, and attaches rejection handlers to any returned thenable. Retains
+ * no lasting strong reference beyond the call stack.
+ * @param {{ close?: unknown }|null|undefined} owner
+ */
+function safeCloseOwner(owner) {
+  if (!owner) return;
+  let close;
+  try {
+    close = owner.close;
+  } catch (_) {
+    return;
+  }
+  if (typeof close !== 'function') return;
+  let result;
+  try {
+    result = close.call(owner);
+  } catch (_) {
+    return;
+  }
+  absorbThenableRejection(result);
+}
+
+/**
  * Fail-closed flag parse. Unset/empty → OFF (behavior-preserving).
  * Exact ON/OFF tokens only; any other value is malformed.
  * @param {unknown} raw
@@ -207,17 +299,30 @@ function isTransportDead(req, res) {
  * - Binding the same boundary twice is a no-op (Set.add).
  * - One shutdown calls each bound close exactly once; prior hook exactly once.
  * - Does not create wrapper chains — dispatcher identity is stable.
- * - First dispatcher invocation: atomically mark fired, snapshot/clear owners,
- *   run prior + closes, then detach/delete registry/dispatcher/hook symbols.
- * - Repeated invocation is harmless (closure fired + symbols absent).
+ * - First dispatcher invocation: mark server in module-private WeakSet BEFORE
+ *   snapshot/cleanup; snapshot/clear owners; detach/delete registry/dispatcher/
+ *   hook symbols; safely invoke prior + every owner independently (sync throws
+ *   absorbed; thenable rejections handled; getter/call adversaries caught).
+ * - WeakSet is the only durable fired sentinel. Post-fire / reentrant binds
+ *   must NOT reinstall registry/dispatcher/hook — they immediately safe-close
+ *   the boundary once, return BIND_SHUTDOWN_ALREADY_FIRED, and retain no strong
+ *   boundary reference.
+ * - Repeated dispatcher invocation is harmless (WeakSet membership).
  * - No-op when args missing. OFF callers must not register (factory skips).
  *
  * @param {import('http').Server|null|undefined} server
  * @param {{ close: () => unknown }|null|undefined} admissionBoundary
+ * @returns {typeof BIND_SHUTDOWN_BOUND | typeof BIND_SHUTDOWN_ALREADY_FIRED | typeof BIND_SHUTDOWN_NOOP}
  */
 function bindAdmissionShutdownBegin(server, admissionBoundary) {
   if (!server || !admissionBoundary || typeof admissionBoundary.close !== 'function') {
-    return false;
+    return BIND_SHUTDOWN_NOOP;
+  }
+
+  // During or after fire: never reinstall symbol state; close immediately once.
+  if (shutdownBeginFiredServers.has(server)) {
+    safeCloseOwner(admissionBoundary);
+    return BIND_SHUTDOWN_ALREADY_FIRED;
   }
 
   let registry = server[SHUTDOWN_BEGIN_REGISTRY];
@@ -230,20 +335,20 @@ function bindAdmissionShutdownBegin(server, admissionBoundary) {
       ? existing
       : null;
 
-    /** @type {{ owners: Set<object>, prior: Function|null, fired: boolean }} */
+    /** @type {{ owners: Set<object>, prior: Function|null }} */
     registry = {
       owners: new Set(),
       prior,
-      fired: false,
     };
     server[SHUTDOWN_BEGIN_REGISTRY] = registry;
 
     dispatcher = function staffApiAdmissionShutdownBeginDispatcher() {
-      // Closure + registry.fired: repeated invoke cannot rerun closes/prior.
-      if (!registry || registry.fired) {
+      // WeakSet is the only sentinel — repeated invoke cannot rerun closes/prior.
+      if (shutdownBeginFiredServers.has(server)) {
         return;
       }
-      registry.fired = true;
+      // Mark fired BEFORE snapshot/cleanup so reentrant binds see already-fired.
+      shutdownBeginFiredServers.add(server);
 
       const priorHook = registry.prior;
       const ownersSnap = Array.from(registry.owners);
@@ -263,14 +368,10 @@ function bindAdmissionShutdownBegin(server, admissionBoundary) {
         }
       }
 
-      if (typeof priorHook === 'function') {
-        try { priorHook(); } catch (_) { /* prior hook best-effort */ }
-      }
+      // Independent safe invokes — one failure cannot skip others.
+      safeInvokeCallable(priorHook);
       for (let i = 0; i < ownersSnap.length; i += 1) {
-        const owner = ownersSnap[i];
-        if (owner && typeof owner.close === 'function') {
-          try { owner.close(); } catch (_) { /* ignore */ }
-        }
+        safeCloseOwner(ownersSnap[i]);
       }
     };
 
@@ -278,13 +379,14 @@ function bindAdmissionShutdownBegin(server, admissionBoundary) {
     server[ON_SHUTDOWN_BEGIN_HOOK] = dispatcher;
   }
 
-  // Already fired (held registry after partial teardown) — do not re-add owners.
-  if (registry.fired) {
-    return false;
+  // Re-check after install race: fire may have begun on another path.
+  if (shutdownBeginFiredServers.has(server)) {
+    safeCloseOwner(admissionBoundary);
+    return BIND_SHUTDOWN_ALREADY_FIRED;
   }
 
   registry.owners.add(admissionBoundary);
-  return true;
+  return BIND_SHUTDOWN_BOUND;
 }
 
 function countLifecycleListeners(ee) {
@@ -737,6 +839,9 @@ module.exports = {
   ON_SHUTDOWN_BEGIN_HOOK,
   SHUTDOWN_BEGIN_REGISTRY,
   SHUTDOWN_BEGIN_DISPATCHER,
+  BIND_SHUTDOWN_ALREADY_FIRED,
+  BIND_SHUTDOWN_BOUND,
+  BIND_SHUTDOWN_NOOP,
   LIMITS,
   DECISIONS,
   HTTP_REJECT,

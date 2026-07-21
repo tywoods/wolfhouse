@@ -1170,6 +1170,241 @@ async function runIntegration() {
         && /admissionEnabled\s*\?\s*createAdmissionBoundary/.test(apiSrc));
     }
 
+    // R8i — rebind inside close => rebound owner closes during same call / no registry
+    {
+      const fakeServer = {
+        listening: false,
+        close(cb) { if (typeof cb === 'function') cb(); },
+      };
+      let primaryCloses = 0;
+      let reboundCloses = 0;
+      let rebindResult = null;
+      const rebound = {
+        close() { reboundCloses += 1; },
+      };
+      const primary = {
+        close() {
+          primaryCloses += 1;
+          rebindResult = boundary.bindAdmissionShutdownBegin(fakeServer, rebound);
+        },
+      };
+      boundary.bindAdmissionShutdownBegin(fakeServer, primary);
+      lifecycle._invokeShutdownBeginHooksForTests(fakeServer, {});
+      red('R8i rebind inside close => rebound owner closes during same call / no registry',
+        primaryCloses === 1
+        && reboundCloses === 1
+        && rebindResult
+        && rebindResult.already_fired === true
+        && rebindResult.bound === false
+        && rebindResult === boundary.BIND_SHUTDOWN_ALREADY_FIRED
+        && !(REG in fakeServer)
+        && !(DISP in fakeServer)
+        && !(HOOK in fakeServer));
+    }
+
+    // R8j — post-fire bind => immediate close / no state
+    {
+      const fakeServer = {
+        listening: false,
+        close(cb) { if (typeof cb === 'function') cb(); },
+      };
+      let earlyCloses = 0;
+      boundary.bindAdmissionShutdownBegin(fakeServer, {
+        close() { earlyCloses += 1; },
+      });
+      lifecycle._invokeShutdownBeginHooksForTests(fakeServer, {});
+      red('R8j0 symbols absent after fire (WeakSet-only sentinel)',
+        earlyCloses === 1
+        && !(REG in fakeServer)
+        && !(DISP in fakeServer)
+        && !(HOOK in fakeServer));
+
+      let lateCloses = 0;
+      const late = { close() { lateCloses += 1; } };
+      const lateResult = boundary.bindAdmissionShutdownBegin(fakeServer, late);
+      red('R8j post-fire bind => immediate close / no state',
+        lateCloses === 1
+        && lateResult === boundary.BIND_SHUTDOWN_ALREADY_FIRED
+        && lateResult.already_fired === true
+        && !(REG in fakeServer)
+        && !(DISP in fakeServer)
+        && !(HOOK in fakeServer)
+        && fakeServer[REG] === undefined
+        && fakeServer[DISP] === undefined
+        && fakeServer[HOOK] === undefined);
+    }
+
+    // R8k — async prior + async close reject => zero unhandledRejection; all owners attempted
+    {
+      let unhandled = 0;
+      const onUnhandled = () => { unhandled += 1; };
+      process.on('unhandledRejection', onUnhandled);
+
+      const fakeServer = {
+        listening: false,
+        close(cb) { if (typeof cb === 'function') cb(); },
+      };
+      let priorCalls = 0;
+      let closes1 = 0;
+      let closes2 = 0;
+      fakeServer[HOOK] = function priorAsyncReject() {
+        priorCalls += 1;
+        return Promise.reject(new Error('prior_async_reject'));
+      };
+      boundary.bindAdmissionShutdownBegin(fakeServer, {
+        close() {
+          closes1 += 1;
+          return Promise.reject(new Error('owner1_async_reject'));
+        },
+      });
+      boundary.bindAdmissionShutdownBegin(fakeServer, {
+        close() {
+          closes2 += 1;
+          return Promise.reject(new Error('owner2_async_reject'));
+        },
+      });
+      lifecycle._invokeShutdownBeginHooksForTests(fakeServer, {});
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      process.removeListener('unhandledRejection', onUnhandled);
+      red('R8k async prior/close reject => zero unhandledRejection; all owners attempted',
+        priorCalls === 1
+        && closes1 === 1
+        && closes2 === 1
+        && unhandled === 0
+        && !(REG in fakeServer)
+        && !(HOOK in fakeServer));
+    }
+
+    // R8l — malicious thenables (then getter / then call / close getter adversaries)
+    {
+      let unhandled = 0;
+      const onUnhandled = () => { unhandled += 1; };
+      process.on('unhandledRejection', onUnhandled);
+
+      const fakeServer = {
+        listening: false,
+        close(cb) { if (typeof cb === 'function') cb(); },
+      };
+      let priorCalls = 0;
+      let closesGood = 0;
+      let closesThenGetter = 0;
+      let closesThenCall = 0;
+
+      fakeServer[HOOK] = function priorMaliciousThen() {
+        priorCalls += 1;
+        return {
+          get then() {
+            throw new Error('prior_then_getter');
+          },
+        };
+      };
+
+      const thenGetterOwner = {
+        close() {
+          closesThenGetter += 1;
+          return {
+            get then() {
+              throw new Error('close_then_getter');
+            },
+          };
+        },
+      };
+      const thenCallOwner = {
+        close() {
+          closesThenCall += 1;
+          return {
+            then() {
+              throw new Error('close_then_call');
+            },
+          };
+        },
+      };
+      // Bind with a real close, then rearm as throwing getter before fire.
+      const closeGetterOwner = {
+        close() { /* placeholder for bind typeof-check */ },
+      };
+      const goodOwner = {
+        close() { closesGood += 1; },
+      };
+
+      boundary.bindAdmissionShutdownBegin(fakeServer, thenGetterOwner);
+      boundary.bindAdmissionShutdownBegin(fakeServer, thenCallOwner);
+      boundary.bindAdmissionShutdownBegin(fakeServer, closeGetterOwner);
+      boundary.bindAdmissionShutdownBegin(fakeServer, goodOwner);
+      Object.defineProperty(closeGetterOwner, 'close', {
+        configurable: true,
+        get() { throw new Error('close_getter'); },
+      });
+      lifecycle._invokeShutdownBeginHooksForTests(fakeServer, {});
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      process.removeListener('unhandledRejection', onUnhandled);
+
+      red('R8l malicious thenables / close getter — all attempted, zero unhandledRejection',
+        priorCalls === 1
+        && closesThenGetter === 1
+        && closesThenCall === 1
+        && closesGood === 1
+        && unhandled === 0
+        && !(REG in fakeServer));
+    }
+
+    // R8m — sync throw from prior and one owner — siblings still run
+    {
+      const fakeServer = {
+        listening: false,
+        close(cb) { if (typeof cb === 'function') cb(); },
+      };
+      let priorCalls = 0;
+      let closes1 = 0;
+      let closes2 = 0;
+      fakeServer[HOOK] = function priorSyncThrow() {
+        priorCalls += 1;
+        throw new Error('prior_sync_throw');
+      };
+      boundary.bindAdmissionShutdownBegin(fakeServer, {
+        close() {
+          closes1 += 1;
+          throw new Error('owner1_sync_throw');
+        },
+      });
+      boundary.bindAdmissionShutdownBegin(fakeServer, {
+        close() { closes2 += 1; },
+      });
+      let threw = false;
+      try {
+        lifecycle._invokeShutdownBeginHooksForTests(fakeServer, {});
+      } catch (_) {
+        threw = true;
+      }
+      red('R8m sync throw — prior+owner1 throw; owner2 still closed; dispatch does not throw',
+        threw === false
+        && priorCalls === 1
+        && closes1 === 1
+        && closes2 === 1
+        && !(REG in fakeServer)
+        && !(DISP in fakeServer)
+        && !(HOOK in fakeServer));
+    }
+
+    // R8n — source: WeakSet-only fired sentinel (no registry.fired boolean)
+    {
+      const boundarySrc = fs.readFileSync(
+        path.join(ROOT, 'scripts/lib/staff-api-admission-boundary.js'),
+        'utf8',
+      );
+      red('R8n WeakSet is the only fired sentinel',
+        /shutdownBeginFiredServers\s*=\s*new WeakSet/.test(boundarySrc)
+        && /shutdownBeginFiredServers\.add\(server\)/.test(boundarySrc)
+        && /shutdownBeginFiredServers\.has\(server\)/.test(boundarySrc)
+        && !/registry\.fired\s*=\s*true/.test(boundarySrc)
+        && !/\bfired:\s*false\b/.test(boundarySrc)
+        && /BIND_SHUTDOWN_ALREADY_FIRED/.test(boundarySrc)
+        && /absorbThenableRejection/.test(boundarySrc)
+        && /safeCloseOwner/.test(boundarySrc));
+    }
+
     lifecycle._resetStaffApiReadinessLifecycleForTests();
   }
 }
