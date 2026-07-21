@@ -338,14 +338,18 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  // Tip may advance (e.g. RADAR-16U); 16S selection + evidence remain authoritative here.
-  const tipOk = matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16U';
+  // Tip may advance (e.g. RADAR-16U / RADAR-16V); 16S selection + evidence remain authoritative here.
+  const tipOk = matrix.slice === locks.SLICE
+    || matrix.slice === 'RADAR-16U'
+    || matrix.slice === 'RADAR-16V';
   if (!tipOk) errors.push(`slice=${matrix.slice}`);
   const branchOk = matrix.branch === locks.BRANCH
-    || matrix.branch === 'radar/slice-16u-correlation-design-freeze';
+    || matrix.branch === 'radar/slice-16u-correlation-design-freeze'
+    || matrix.branch === 'radar/slice-16v-capability-boundary-freeze';
   if (!branchOk) errors.push(`branch=${matrix.branch}`);
   const basisOk = matrix.master_basis === locks.MASTER_BASIS
-    || matrix.master_basis === '87121456db90a9f80ff8b3679596bc49c235cbfc';
+    || matrix.master_basis === '87121456db90a9f80ff8b3679596bc49c235cbfc'
+    || matrix.master_basis === 'd904481de6ef8e7ad65d84241577796cbb5ad1c4';
   if (!basisOk) errors.push('master_basis mismatch');
   if (matrix.live_mutation !== false) errors.push('live_mutation not false');
 
@@ -549,7 +553,8 @@ ok('C2 contract slice/branch/master',
 ok('C3 16S contract branch frozen (tip may advance to 16U)',
   contract.branch === locks.BRANCH
   && (currentBranch() === locks.BRANCH
-    || currentBranch() === 'radar/slice-16u-correlation-design-freeze'),
+    || currentBranch() === 'radar/slice-16u-correlation-design-freeze'
+    || currentBranch() === 'radar/slice-16v-capability-boundary-freeze'),
   currentBranch());
 
 {
@@ -562,14 +567,18 @@ ok('C5 explicitly_not_claimed complete',
   && locks.EXPLICITLY_NOT_CLAIMED.every((k) => evidence.explicitly_not_claimed.includes(k))
   && evidence.explicitly_not_claimed.length === locks.EXPLICITLY_NOT_CLAIMED.length);
 
-ok('C6 top-level contract retains selected_16s (tip may be 16U)',
-  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16U')
+ok('C6 top-level contract retains selected_16s (tip may be 16U/16V)',
+  (topContract.slice === locks.SLICE
+    || topContract.slice === 'RADAR-16U'
+    || topContract.slice === 'RADAR-16V')
   && topContract.selected_16s
   && topContract.selected_16s.outcome_id === locks.OUTCOME_ID
   && topContract.selected_16s.progress_class === locks.PROGRESS_CLASS);
 
-ok('C7 gate-matrix retains slice_16s_selection (tip may be 16U)',
-  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16U')
+ok('C7 gate-matrix retains slice_16s_selection (tip may be 16U/16V)',
+  (matrix.slice === locks.SLICE
+    || matrix.slice === 'RADAR-16U'
+    || matrix.slice === 'RADAR-16V')
   && matrix.slice_16s_selection
   && matrix.slice_16s_selection.outcome_id === locks.OUTCOME_ID
   && matrix.live_mutation === false);

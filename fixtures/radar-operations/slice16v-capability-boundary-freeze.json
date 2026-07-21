@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16V",
+  "outcome_id": "16V_central_capability_boundary_audit_freeze",
+  "gate_id": "G01_correlation_structured_logs",
+  "progress_class": "audit_only_capability_boundary_freeze",
+  "master_basis": "d904481de6ef8e7ad65d84241577796cbb5ad1c4",
+  "branch": "radar/slice-16v-capability-boundary-freeze",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "this_slice_implements_runtime": false,
+  "this_slice_executes_live": false,
+  "builds_on": {
+    "outcome_ids": [
+      "16U_correlation_design_freeze",
+      "16S_request_completion_log_live_evidence",
+      "16R_staff_api_request_completion_log",
+      "16J_staff_api_request_correlation"
+    ]
+  },
+  "title": "Audit-only freeze of the central capability boundary required before any G01-A dry-run",
+  "inventory_fixture": "fixtures/radar-operations/slice16v-adapter-inventory.json",
+  "preserved_16u_provenance": {
+    "live_whatsapp_upstream": "localhost:8092 hermes-sunset-luna",
+    "live_wolfhouse_upstream": "localhost:8090 hermes-luna",
+    "tracked_caddy_reference": "stale_evidence_not_authority",
+    "g01a_boundary": "meta_hermes_staff_correlated_read_path",
+    "g01b_boundary": "stripe_business_id_join_not_inbound_als",
+    "g01b_correlation_today": "tenant_payment_booking_session_metadata_only",
+    "burst_provenance": "ordered_immutable_source_wamid_set_no_invented_parent",
+    "inbound_trace_wamid_propagation_today": false,
+    "hermes_propagates_x_request_id_today": false,
+    "g01_verdict": "partial"
+  },
+  "central_capability_boundary": {
+    "decision_point": "decideCapability",
+    "kind": "fail_closed_central_decision",
+    "decision_before_acquisition": true,
+    "acquisition_forbidden_before_decision": [
+      "meta_graph_http_client",
+      "staff_http_client",
+      "db_pool_client",
+      "stripe_sdk",
+      "in_process_queue",
+      "hermes_session_store"
+    ],
+    "must_permit": ["real_read_dispatch"],
+    "must_deny": [
+      "every_whatsapp_send",
+      "every_staff_db_stripe_mutation"
+    ],
+    "unknown_adapters_deny": true,
+    "forbid": [
+      "dispersed_env_checks_as_sole_control",
+      "incomplete_adapter_inventories",
+      "post_acquisition_denial",
+      "mutable_capability_state",
+      "tenant_confusion",
+      "capability_bypass",
+      "trace_deploy_live_overclaim"
+    ],
+    "denies_every_whatsapp_send": true,
+    "denies_every_staff_db_stripe_mutation": true,
+    "permits_real_read_dispatch": true,
+    "note": "Shape freeze only — decideCapability is not wired into runtime in 16V"
+  },
+  "dry_run_status": {
+    "name": "G01_CORRELATION_DRY_RUN",
+    "default": "hard_disabled",
+    "implementable_today": false,
+    "audit_boundary_frozen": true,
+    "blocked_on": "capability_boundary_runtime_apply",
+    "reserved_confirmation_phrase": "RADAR-16U-CORRELATION-DRY-RUN",
+    "note": "16V freezes the boundary design + inventory; runtime apply of decideCapability is still required before dry-run"
+  },
+  "later_implementation_owner": {
+    "separate_from_deployment_evidence": true,
+    "primary": {
+      "module": "docker/hermes-staging/wolfhouse/capability_boundary.py",
+      "symbol": "decide_capability",
+      "tests": "docker/hermes-staging/wolfhouse/test_capability_boundary.py",
+      "hooks": [
+        "before WhatsAppCloudAdapter meta graph client use",
+        "before wolfhouse_staff_api._post_bot urllib acquisition for mutating paths",
+        "before MirrorQueue enqueue and guest-fresh-start session wipe"
+      ]
+    },
+    "staff_defense_in_depth": {
+      "module": "scripts/lib/g01-capability-boundary.js",
+      "symbol": "decideCapability",
+      "tests": "scripts/verify-g01-capability-boundary.js",
+      "hooks": [
+        "before db pool checkout on mutating /staff/bot/* routes",
+        "before stripe.checkout.sessions.create on bot payment paths",
+        "before sendLunaWhatsAppMessage provider Graph acquisition"
+      ]
+    },
+    "does_not_include": [
+      "deploy",
+      "live_evidence",
+      "trace_id_mint",
+      "x_request_id_propagation",
+      "activating_G01_CORRELATION_DRY_RUN"
+    ]
+  },
+  "smallest_implementation_slice_after_freeze": {
+    "id": "16W_candidate_capability_boundary_runtime_apply",
+    "scope": "Wire decide_capability / decideCapability at the frozen hooks using the pinned inventory; still no deploy/live evidence",
+    "does_not": [
+      "deploy",
+      "evidence_capture",
+      "live_g01a_drill",
+      "claim_dry_run_default_on"
+    ]
+  },
+  "still_open_after_16v": [
+    "16W capability boundary runtime apply (owner modules above)",
+    "Hermes trace_id mint + X-Request-Id on _post_bot",
+    "Hard-disabled G01_CORRELATION_DRY_RUN after boundary runtime exists",
+    "Live G01-A Meta→Hermes→Staff read-only correlation evidence freeze",
+    "G01-B remains tenant/payment/booking/session metadata only"
+  ],
+  "explicitly_not_claimed": [
+    "runtime_behavior_change",
+    "capability_boundary_wired_at_runtime",
+    "dry_run_implementable_today",
+    "live_correlation_drill_executed",
+    "any_gate_verdict_proven",
+    "g02_g09_score_changes",
+    "hermes_x_request_id_propagation_implemented",
+    "trace_implementation",
+    "deploy",
+    "evidence_capture",
+    "live_drill",
+    "production",
+    "dispersed_env_checks_as_sole_control",
+    "post_acquisition_denial_accepted",
+    "mutable_capability_state_accepted"
+  ]
+}

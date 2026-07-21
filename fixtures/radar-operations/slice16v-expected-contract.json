@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16V",
+  "outcome_id": "16V_central_capability_boundary_audit_freeze",
+  "gate_id": "G01_correlation_structured_logs",
+  "progress_class": "audit_only_capability_boundary_freeze",
+  "master_basis": "d904481de6ef8e7ad65d84241577796cbb5ad1c4",
+  "branch": "radar/slice-16v-capability-boundary-freeze",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "this_slice_implements_runtime": false,
+  "title": "Audit-only central capability boundary freeze — inventory + decideCapability before acquisition",
+  "design_fixture": "fixtures/radar-operations/slice16v-capability-boundary-freeze.json",
+  "inventory_fixture": "fixtures/radar-operations/slice16v-adapter-inventory.json",
+  "builds_on": {
+    "outcome_ids": [
+      "16U_correlation_design_freeze",
+      "16S_request_completion_log_live_evidence",
+      "16R_staff_api_request_completion_log",
+      "16J_staff_api_request_correlation"
+    ],
+    "gate_id": "G01_correlation_structured_logs"
+  },
+  "required_design_facts": {
+    "central_decision_point": "decideCapability",
+    "decision_before_acquisition": true,
+    "unknown_adapters_deny": true,
+    "denies_every_whatsapp_send": true,
+    "denies_every_staff_db_stripe_mutation": true,
+    "permits_real_read_dispatch": true,
+    "inventory_independently_pinned": true,
+    "inventory_complete": true,
+    "whatsapp_send_count": 18,
+    "mutation_count": 21,
+    "read_dispatch_count": 16,
+    "dry_run_implementable_today": false,
+    "runtime_wired": false,
+    "g01_verdict": "partial",
+    "preserved_16u_burst_provenance": "ordered_immutable_source_wamid_set_no_invented_parent",
+    "preserved_16u_g01b": "tenant_payment_booking_session_metadata_only",
+    "next_slice": "16W_candidate_capability_boundary_runtime_apply",
+    "later_owner_module": "docker/hermes-staging/wolfhouse/capability_boundary.py",
+    "later_owner_tests": "docker/hermes-staging/wolfhouse/test_capability_boundary.py"
+  },
+  "forbidden_claim_tokens": [
+    "runtime wired",
+    "dry-run implementable",
+    "gate verdict proven",
+    "live drill executed",
+    "post-acquisition denial ok",
+    "dispersed env checks sole control",
+    "mutable capability state",
+    "tenant confused",
+    "trace implemented",
+    "deployed"
+  ],
+  "must_not_claim_as_proven": [
+    "capability_boundary_wired_at_runtime",
+    "dry_run_implementable_today",
+    "live_correlation_drill_executed",
+    "any_gate_verdict_proven",
+    "hermes_x_request_id_propagation_implemented",
+    "G01_full_proven"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "G01 remains partial; 16V audit-freezes capability boundary + inventory; 16U provenance retained; dry-run still blocked on runtime apply; G01-A live open"
+  },
+  "still_open": [
+    "16W wire decide_capability runtime owner + tests (no deploy/evidence)",
+    "After runtime boundary: Hermes trace_id mint + X-Request-Id",
+    "Hard-disabled G01_CORRELATION_DRY_RUN",
+    "Live G01-A Meta→Hermes→Staff read-only correlation evidence freeze",
+    "Production scope (forbidden)"
+  ],
+  "final_controlled_drill": {
+    "id": "16V_DRILL_capability_boundary_audit_freeze",
+    "status": "audit_only_boundary_frozen",
+    "pass_rule": "Pinned inventory complete; decideCapability permits reads and denies sends/mutations before acquisition; verifier RED-rejects omissions, duplicates, dispersed env checks, bypasses, post-acquisition denial, mutable state, tenant confusion, and trace/deploy/live overclaims; runtime paths unchanged; proven=0"
+  },
+  "artifacts": [
+    "fixtures/radar-operations/slice16v-adapter-inventory.json",
+    "fixtures/radar-operations/slice16v-capability-boundary-freeze.json",
+    "fixtures/radar-operations/slice16v-expected-contract.json",
+    "scripts/lib/radar-slice16v-capability-boundary-freeze.js",
+    "scripts/verify-radar-slice16v-capability-boundary-freeze.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16v-capability-boundary-freeze",
+    "npm run verify:radar-slice16u-correlation-design-freeze",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16s-request-log-live-evidence",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check d904481de6ef8e7ad65d84241577796cbb5ad1c4..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "docker/hermes-sunset/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-request-correlation.js",
+      "scripts/lib/staff-api-request-completion-log.js",
+      "scripts/lib/stripe-webhook-public-errors.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16V is audit-only; no Hermes/Staff/DB/IaC runtime mutation; later owner modules are specified but not created"
+  }
+}

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16U",
-  "title": "RADAR operations gate ledger (16U G01 correlation design freeze corrected; G01 partial — G01-A live open)",
-  "master_basis": "87121456db90a9f80ff8b3679596bc49c235cbfc",
-  "branch": "radar/slice-16u-correlation-design-freeze",
+  "slice": "RADAR-16V",
+  "title": "RADAR operations gate ledger (16V central capability boundary freeze; G01 partial — G01-A live open)",
+  "master_basis": "d904481de6ef8e7ad65d84241577796cbb5ad1c4",
+  "branch": "radar/slice-16v-capability-boundary-freeze",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -31,7 +31,7 @@
       "name": "Correlation / structured logs",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16J Staff HTTP correlation (ALS). 16R allowlisted staff_api_request_completion. 16S live-proven dual-staging LAW delivery/search/retention @ SHA 1bf9695 (WH 0000517 / Sunset 0000277). 16U audit-only design freeze: live Lunabox Caddy /whatsapp/*→:8092 hermes-sunset-luna and /wolfhouse/*→:8090 hermes-luna (tracked Caddy reference is stale evidence, not authority); Hermes _post_bot omits X-Request-Id today; provenance=single wamid or ordered immutable source-wamid set (no invented burst parent); genuine Stripe Checkout cannot be exercised without mutation so G01-A=Meta→Hermes→Staff non-mutating correlated path and G01-B=tenant/payment/booking/session metadata only (no inbound trace/wamid today); dry-run not implementable yet (blocked on central capability boundary); independent same-ID probes rejected as E2E. Live G01-A drill remains open. Verdict stays partial.",
+      "rationale": "16J Staff HTTP correlation (ALS). 16R allowlisted staff_api_request_completion. 16S live-proven dual-staging LAW delivery/search/retention @ SHA 1bf9695 (WH 0000517 / Sunset 0000277). 16U provenance retained: live Lunabox Caddy /whatsapp/*→:8092 hermes-sunset-luna and /wolfhouse/*→:8090 hermes-luna; single wamid or ordered immutable source-wamid set; G01-B metadata-only. 16V audit-only capability boundary freeze: independently pinned inventory (18 WhatsApp send + 21 Staff/DB/Stripe mutation + 16 read dispatch); central decideCapability permits reads and denies all sends/writes before provider/pool/client/queue acquisition; unknown adapters deny; dry-run still not implementable (blocked on capability_boundary_runtime_apply). Live G01-A drill remains open. Verdict stays partial.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-request-correlation.js",
@@ -114,6 +114,28 @@
             "FORBIDDEN_AS_E2E_EVIDENCE"
           ],
           "note": "Rejects independent same-ID probes as E2E evidence"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16v-adapter-inventory.json",
+          "lines": "1-120",
+          "symbols": [],
+          "note": "16V independently pinned send/mutation/read inventory (18/21/16)"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16v-capability-boundary-freeze.json",
+          "lines": "1-120",
+          "symbols": [],
+          "note": "16V decideCapability freeze + later owner; runtime not wired"
+        },
+        {
+          "path": "scripts/lib/radar-slice16v-capability-boundary-freeze.js",
+          "lines": "1-120",
+          "symbols": [
+            "decideCapability",
+            "classifyInventoryDocument",
+            "classifyCapabilityBoundaryFreeze"
+          ],
+          "note": "Fail-closed capability classifiers; audit-only"
         }
       ],
       "live_evidence": [
@@ -135,7 +157,7 @@
         }
       ],
       "gaps": [
-        "G01-A live Meta→Hermes→Staff correlated read path open (central capability boundary then Hermes X-Request-Id; dry-run not implementable yet; independent same-ID probes are not E2E)"
+        "G01-A live Meta→Hermes→Staff correlated read path open (16V boundary audit-frozen; runtime apply then Hermes X-Request-Id; dry-run not implementable yet; independent same-ID probes are not E2E)"
       ],
       "progress_class": "partial_live_proven"
     },
@@ -1311,6 +1333,67 @@
       "id": "16U_DRILL_design_freeze_reject_independent_probes",
       "status": "audit_only_design_frozen",
       "pass_rule": "Fixtures + classifiers reject independent probes and correction REDs; proven=0; no runtime mutation"
+    }
+  },
+  "slice_16v_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16V_central_capability_boundary_audit_freeze",
+    "gate_id": "G01_correlation_structured_logs",
+    "progress_class": "audit_only_capability_boundary_freeze",
+    "does_not_implement": "runtime_decideCapability_wiring_dry_run_switch_trace_x_request_id_live_g01a_drill_any_gate_proven",
+    "title": "Audit-only freeze of central capability boundary + complete adapter inventory",
+    "why_smallest": "Inventory every Hermes-guest WhatsApp send and Staff/DB/Stripe mutation; freeze one fail-closed decideCapability before acquisition — prerequisite before dry-run runtime.",
+    "builds_on": [
+      "16U_correlation_design_freeze",
+      "16S_request_completion_log_live_evidence",
+      "16R_staff_api_request_completion_log",
+      "16J_staff_api_request_correlation"
+    ],
+    "supersedes": [],
+    "next_slice": "16W_candidate_capability_boundary_runtime_apply",
+    "inventory_counts": {
+      "whatsapp_send": 18,
+      "mutation": 21,
+      "read_dispatch": 16,
+      "total": 55
+    },
+    "enforcement_owner": {
+      "primary_module": "docker/hermes-staging/wolfhouse/capability_boundary.py",
+      "primary_symbol": "decide_capability",
+      "primary_tests": "docker/hermes-staging/wolfhouse/test_capability_boundary.py",
+      "staff_module": "scripts/lib/g01-capability-boundary.js",
+      "staff_symbol": "decideCapability",
+      "staff_tests": "scripts/verify-g01-capability-boundary.js",
+      "status": "specified_not_created"
+    },
+    "owner_files": [
+      "fixtures/radar-operations/slice16v-adapter-inventory.json",
+      "fixtures/radar-operations/slice16v-capability-boundary-freeze.json",
+      "fixtures/radar-operations/slice16v-expected-contract.json",
+      "scripts/lib/radar-slice16v-capability-boundary-freeze.js",
+      "scripts/verify-radar-slice16v-capability-boundary-freeze.js"
+    ],
+    "out_of_scope_for_16v": [
+      "Runtime Hermes/Staff wiring of decideCapability",
+      "Creating later owner modules",
+      "Dry-run activation",
+      "Trace / X-Request-Id",
+      "Deploy",
+      "Live evidence",
+      "Any gate verdict proven"
+    ],
+    "acceptance_criteria": [
+      "Independently pinned inventory covers send/mutation/read with required categories; counts 18/21/16",
+      "Central decideCapability permits reads and denies sends/mutations before acquisition; unknown denies",
+      "Verifier RED-rejects omissions, duplicates, dispersed env checks, bypasses, post-acquisition denial, mutable state, tenant confusion, trace/deploy/live overclaims",
+      "Later owner + tests specified separately from deploy/evidence; modules not created",
+      "16U provenance + G01 partial preserved; runtime paths unchanged vs master d904481"
+    ],
+    "final_controlled_drill": {
+      "id": "16V_DRILL_capability_boundary_audit_freeze",
+      "status": "audit_only_boundary_frozen",
+      "pass_rule": "Inventory + decideCapability classifiers green; REDs reject bypass/overclaim; proven=0; no runtime mutation"
     }
   }
 }

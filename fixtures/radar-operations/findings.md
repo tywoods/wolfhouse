@@ -1,8 +1,8 @@
-# RADAR findings (16A freeze + 16B–16S partials + 16U correlation design freeze)
+# RADAR findings (16A freeze + 16B–16S partials + 16U provenance + 16V capability boundary freeze)
 
-**Master basis (16U):** `87121456db90a9f80ff8b3679596bc49c235cbfc`
+**Master basis (16V):** `d904481de6ef8e7ad65d84241577796cbb5ad1c4`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
-**16U progress class:** `audit_only_design_freeze` (no runtime; no live).
+**16V progress class:** `audit_only_capability_boundary_freeze` (no runtime; no live).
 
 ## Verdict rollup
 
@@ -13,23 +13,23 @@
 | absent | 0 |
 | **total** | **9** |
 
-## Critical gaps (still open — explicitly not claimed by 16U)
+## Critical gaps (still open — explicitly not claimed by 16V)
 
-1. **G01-A live Meta → Hermes → Staff correlated read path** — design frozen; Hermes does not send `X-Request-Id` today; end-to-end G01-A evidence remains open.
-2. **Central capability boundary (16V)** — audit/freeze deny WhatsApp send + Staff/DB/Stripe mutation while permitting real read dispatch; prerequisite before dry-run.
-3. **Hard-disabled `G01_CORRELATION_DRY_RUN`** — reserved (`RADAR-16U-CORRELATION-DRY-RUN`); **not implementable yet**.
-4. **Genuine Stripe on inbound ALS** — **not provable without mutation**; G01-B is tenant/payment/booking/session metadata only (no inbound trace/wamid today).
-5. **Independent same-ID probes are not E2E** — `/healthz` + Stripe pre-verify sharing a UUID must not close G01.
+1. **Capability boundary runtime apply (16W)** — `decideCapability` shape + 55-adapter inventory frozen; owner modules not wired.
+2. **G01-A live Meta → Hermes → Staff correlated read path** — design frozen (16U); Hermes does not send `X-Request-Id` today.
+3. **Hard-disabled `G01_CORRELATION_DRY_RUN`** — reserved (`RADAR-16U-CORRELATION-DRY-RUN`); **not implementable yet** (blocked on runtime boundary apply).
+4. **Genuine Stripe on inbound ALS** — **not provable without mutation**; G01-B is tenant/payment/booking/session metadata only (16U retained).
+5. **Independent same-ID probes are not E2E** — retained from 16U.
 6. Concurrent isolation / abort-error LAW outcomes.
 7. Human inbox receipt / organic metric alert firing.
 8. Dependency-failure readiness drill / real-PG contention.
 9. Production — forbidden.
 
-## Gate progress after 16U (truthful)
+## Gate progress after 16V (truthful)
 
 | Gate | progress_class | Notes |
 |------|----------------|-------|
-| G01 | partial_live_proven + 16U design freeze | 16S LAW retained; G01-A live open |
+| G01 | partial_live_proven + 16U provenance + 16V boundary freeze | 16S LAW retained; G01-A live open |
 | G02 | partial_live_proven | via 16P |
 | G03 | partial_live_proven | via 16P AG test |
 | G04 | partial | backlog open |
@@ -39,16 +39,16 @@
 | G08 | partial_live_proven | via 16P/16O webhook error minimization |
 | G09 | partial_live_proven | via 16P AG test |
 
-## Slice 16U
+## Slice 16V
 
-`16U_correlation_design_freeze` — audit-only. Freezes **live** Lunabox Caddy authority: `/whatsapp/*` → `:8092` (`hermes-sunset-luna`), `/wolfhouse/*` → `:8090` (`hermes-luna`); tracked Caddy reference is stale evidence, not authority. Documents `_post_bot` header gap (no `X-Request-Id`). Defines provenance: single-message `wamid`; coalesced Sunset burst = ordered immutable source-wamid set (no invented single parent). Redefines G01-A (Meta→Hermes→Staff non-mutating) vs G01-B (tenant/payment/booking/session metadata only; no inbound trace/wamid). Dry-run **not implementable yet** — next slice is central capability boundary audit/freeze (no trace/deploy/evidence). Verifier RED-rejects stale Caddy authority, invented burst parent, dispersed suppression lists, incomplete mutation-adapter inventories, trace/wamid payment overclaims, and independent same-ID probes. Does not implement runtime or execute live. Replaces deferred independent multi-ingress same-ID harness concept. Does not claim human inbox, organic metric fire, or production. G01 partial/runtime unchanged.
+`16V_central_capability_boundary_audit_freeze` — audit-only. Inventories **18** WhatsApp send + **21** Staff/DB/Stripe mutation + **16** read-dispatch adapters reachable from active Hermes guest turns (direct/queued/mirror/handoff/booking-payment/reset-error-fallback/future-tool-registration/session). Freezes one fail-closed `decideCapability` point that permits genuine read dispatch and denies all sends/writes **before** provider/pool/client/queue acquisition; unknown adapters deny. Specifies later owners (`capability_boundary.py` / `g01-capability-boundary.js`) and tests separately from deploy/evidence — **not created** in 16V. Verifier RED-rejects omissions, duplicates, dispersed env checks, bypasses, post-acquisition denial, mutable capability state, tenant confusion, and trace/deploy/live overclaims. Preserves all 16U provenance truth and G01 partial. Does not implement runtime or execute live.
 
 ## Prior slices (retained)
 
+- **16U** correlation design freeze (live Caddy `/whatsapp/*`→`:8092`, `/wolfhouse/*`→`:8090`; tracked Caddy stale; provenance; G01-B metadata-only; dry-run **not implementable** yet; phrase `RADAR-16U-CORRELATION-DRY-RUN`) — retained
 - **16S** completion-log LAW delivery/search/retention @ SHA `1bf9695` (WH `0000517` / Sunset `0000277`) — retained; Meta→Hermes E2E still open as G01-A
-- **16R** / **16J** — retained
-- **16P** / **16O** / **16M** / **16L** / **16K** / **16I** / **16H** / **16B** — retained
+- **16R** / **16J** / **16P** / **16O** / **16M** / **16L** / **16K** / **16I** / **16H** / **16B** — retained
 
 ## Zero-mutation (this slice)
 
-No deploy/live/runtime mutation vs master `87121456`. Fixtures + ledger only. Still open: G01-A live evidence (not claimed).
+No deploy/live/runtime mutation vs master `d904481`. Fixtures + ledger only. Still open: capability runtime apply and G01-A live evidence (not claimed).

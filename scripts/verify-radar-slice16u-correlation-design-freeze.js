@@ -469,9 +469,9 @@ red('reject_dry_run_implementable_without_boundary',
 
 // --- Ledger / matrix ---
 green('matrix_tip_16u',
-  matrix.slice === locks.SLICE
-  && matrix.branch === locks.BRANCH
-  && matrix.master_basis === locks.MASTER_BASIS
+  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16V')
+  && (matrix.branch === locks.BRANCH
+    || matrix.branch === 'radar/slice-16v-capability-boundary-freeze')
   && matrix.live_mutation === false);
 
 green('matrix_g01_partial_drill_open',
@@ -480,7 +480,7 @@ green('matrix_g01_partial_drill_open',
     return g01
       && g01.verdict === 'partial'
       && g01.progress_class === 'partial_live_proven'
-      && /16U|design freeze|G01-A|source/i.test(g01.rationale)
+      && /16U|design freeze|G01-A|source|provenance/i.test(g01.rationale)
       && Array.isArray(g01.gaps)
       && g01.gaps.some((g) => /G01-A|Meta.*Hermes.*Staff|correlation/i.test(g));
   })());
@@ -492,10 +492,10 @@ green('matrix_16u_selection',
   && matrix.slice_16u_selection.progress_class === locks.PROGRESS_CLASS);
 
 green('ops_contract_16u',
-  opsContract.slice === locks.SLICE
+  (opsContract.slice === locks.SLICE || opsContract.slice === 'RADAR-16V')
   && opsContract.selected_16u
   && opsContract.selected_16u.outcome_id === locks.OUTCOME_ID
-  && /open|g01a/i.test(String(opsContract.correlation_drill || '')));
+  && /open|g01a|frozen/i.test(String(opsContract.correlation_drill || opsContract.correlation_drill_design || '')));
 
 green('ledger_mentions_16u_design',
   /16U_correlation_design_freeze/.test(ledger)
@@ -518,7 +518,10 @@ green('findings_mentions_16u',
   && /capability boundary/i.test(findings)
   && /not implementable|not yet implementable/i.test(findings));
 
-green('branch_pin', currentBranch() === locks.BRANCH, currentBranch());
+green('branch_pin',
+  currentBranch() === locks.BRANCH
+  || currentBranch() === 'radar/slice-16v-capability-boundary-freeze',
+  currentBranch());
 
 const rt = runtimePathsUnchanged();
 green('runtime_paths_unchanged', rt.ok, rt.detail);

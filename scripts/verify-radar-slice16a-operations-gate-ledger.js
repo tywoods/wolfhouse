@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '87121456db90a9f80ff8b3679596bc49c235cbfc';
+const MASTER_BASIS = 'd904481de6ef8e7ad65d84241577796cbb5ad1c4';
+const BRANCH_16V = 'radar/slice-16v-capability-boundary-freeze';
 const BRANCH_16U = 'radar/slice-16u-correlation-design-freeze';
 const BRANCH_16S = 'radar/slice-16s-request-log-live-evidence';
 const BRANCH_16P = 'radar/slice-16p-live-drill-evidence';
@@ -351,13 +352,14 @@ const sec = secretFree(blob, 'fixtures+doc');
 ok('F32 secret-free fixtures and doc', sec.ok, sec.detail);
 
 ok('F33 doc mentions selected 16U id', /16U_correlation_design_freeze/.test(doc));
+ok('F33e doc mentions selected 16V id', /16V_central_capability_boundary_audit_freeze|16V/.test(doc));
 ok('F33b doc retains 16S id', /16S_request_completion_log_live_evidence/.test(doc));
 ok('F33c doc retains 16P id', /16P_live_drill_evidence_reconciliation|16P/.test(doc));
 ok('F33d doc retains 16O id', /16O_stripe_webhook_error_minimization|16O/.test(doc));
 ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /partial.*9/i.test(doc) && /absent.*0/i.test(doc));
 ok('F35 findings lists G01/G02/G03/G05/G06/G08/G09 partial',
   /G01/.test(findings) && /G02/.test(findings) && /G03/.test(findings) && /G05/.test(findings) && /G06/.test(findings) && /G08/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
-  && /16O/.test(findings) && /16P/.test(findings) && /16S/.test(findings) && /16U/.test(findings));
+  && /16O/.test(findings) && /16P/.test(findings) && /16S/.test(findings) && /16U/.test(findings) && /16V/.test(findings));
 
 ok('F36 healthz source cite present', pathExists('scripts/staff-query-api.js'));
 ok('F37 capture cost script present (read-only helper)',
@@ -366,7 +368,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 zero-mutation: database/Hermes/StaffAPI/Bicep/16H/16B unchanged vs master basis (16U audit-only)', rt.ok, rt.detail);
+ok('F39 zero-mutation: database/Hermes/StaffAPI/Bicep/16H/16B unchanged vs master basis (16V audit-only)', rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
   matrix.final_controlled_drill_16a
@@ -395,18 +397,20 @@ const slice16oContract = readJson(path.join(FIXTURE_DIR, 'slice16o-expected-cont
 const slice16rContract = readJson(path.join(FIXTURE_DIR, 'slice16r-expected-contract.json'));
 const slice16sContract = readJson(path.join(FIXTURE_DIR, 'slice16s-expected-contract.json'));
 const slice16uContract = readJson(path.join(FIXTURE_DIR, 'slice16u-expected-contract.json'));
+const slice16vContract = readJson(path.join(FIXTURE_DIR, 'slice16v-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16U contract + HEAD',
-  matrix.branch === BRANCH_16U
-  && contract.branch === BRANCH_16U
-  && slice16uContract.branch === BRANCH_16U
-  && headBranch === BRANCH_16U,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16u=${slice16uContract.branch} head=${headBranch}`);
-ok('F48b frozen 16O/16P/16R/16S contracts retain their own branch pins',
+ok('F48 gate-matrix branch pin equals 16V contract + HEAD',
+  matrix.branch === BRANCH_16V
+  && contract.branch === BRANCH_16V
+  && slice16vContract.branch === BRANCH_16V
+  && headBranch === BRANCH_16V,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16v=${slice16vContract.branch} head=${headBranch}`);
+ok('F48b frozen 16O/16P/16R/16S/16U contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
   && slice16rContract.branch === BRANCH_16R
-  && slice16sContract.branch === BRANCH_16S);
+  && slice16sContract.branch === BRANCH_16S
+  && slice16uContract.branch === BRANCH_16U);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -429,7 +433,7 @@ const g08CitesPublicErrors = g08
   && g08.source_evidence.some((ev) =>
     ev.path === 'scripts/lib/stripe-webhook-public-errors.js'
     || ev.path === 'scripts/staff-query-api.js');
-ok('F50 must_not forbids live mutation; 16U leaves Staff API/Bicep unchanged; G08 still cites public-errors',
+ok('F50 must_not forbids live mutation; 16V leaves Staff API/Bicep unchanged; G08 still cites public-errors',
   !hasStaleSourceForbid
   && hasLiveDeployedForbid
   && g08CitesPublicErrors
@@ -439,11 +443,12 @@ ok('F50 must_not forbids live mutation; 16U leaves Staff API/Bicep unchanged; G0
   && matrix.live_mutation === false,
   `runtimeDiff=${runtimeDiff.join(',') || '(none)'} bicepDiff=${bicepDiff.join(',') || '(none)'} stale=${hasStaleSourceForbid}`);
 
-ok('F51 G01 partial_live_proven via 16S + 16U design freeze (G01-A live open)',
+ok('F51 G01 partial_live_proven via 16S + 16U provenance + 16V boundary freeze (G01-A live open)',
   g01 && g01.verdict === 'partial'
   && g01.progress_class === 'partial_live_proven'
   && /16S|1bf9695|ContainerAppConsoleLogs_CL/i.test(g01.rationale)
-  && /16U|design freeze|G01-A/i.test(g01.rationale)
+  && /16U|provenance|design freeze/i.test(g01.rationale)
+  && /16V|capability boundary|decideCapability/i.test(g01.rationale)
   && Array.isArray(g01.gaps) && g01.gaps.length === 1
   && /G01-A|Meta.*Hermes|correlation/i.test(g01.gaps[0]));
 ok('F52 correlation lib present', pathExists('scripts/lib/staff-api-request-correlation.js'));
@@ -693,6 +698,47 @@ ok('F122 doc states Stripe cannot without mutation',
 ok('F123 no 16T harness on this tip',
   !pathExists('scripts/run-radar-slice16t-e2e-correlation-drill.js')
   && !pathExists('scripts/lib/radar-slice16t-e2e-correlation-drill.js'));
+
+const sel16v = matrix.slice_16v_selection;
+ok('F124 exactly one 16V selection',
+  sel16v && sel16v.selected === true
+  && sel16v.outcome_id === '16V_central_capability_boundary_audit_freeze'
+  && sel16v.gate_id === 'G01_correlation_structured_logs'
+  && sel16v.progress_class === 'audit_only_capability_boundary_freeze');
+ok('F125 contract selected_16v matches',
+  contract.selected_16v
+  && contract.selected_16v.outcome_id === '16V_central_capability_boundary_audit_freeze'
+  && contract.capability_boundary_design === 'frozen_via_16V');
+ok('F126 16V inventory + design fixtures present',
+  pathExists('fixtures/radar-operations/slice16v-adapter-inventory.json')
+  && pathExists('fixtures/radar-operations/slice16v-capability-boundary-freeze.json')
+  && pathExists('fixtures/radar-operations/slice16v-expected-contract.json'));
+ok('F127 16V verifier present',
+  pathExists('scripts/lib/radar-slice16v-capability-boundary-freeze.js')
+  && pathExists('scripts/verify-radar-slice16v-capability-boundary-freeze.js'));
+ok('F128 16V inventory counts frozen',
+  sel16v.inventory_counts
+  && sel16v.inventory_counts.whatsapp_send === 18
+  && sel16v.inventory_counts.mutation === 21
+  && sel16v.inventory_counts.read_dispatch === 16
+  && sel16v.inventory_counts.total === 55);
+ok('F129 16V enforcement owner specified not created',
+  sel16v.enforcement_owner
+  && /capability_boundary\.py/.test(String(sel16v.enforcement_owner.primary_module || ''))
+  && sel16v.enforcement_owner.status === 'specified_not_created'
+  && !pathExists('docker/hermes-staging/wolfhouse/capability_boundary.py')
+  && !pathExists('scripts/lib/g01-capability-boundary.js'));
+ok('F130 16V final controlled drill present',
+  sel16v.final_controlled_drill
+  && sel16v.final_controlled_drill.id === '16V_DRILL_capability_boundary_audit_freeze');
+ok('F131 16V does not implement runtime/live',
+  /runtime|decideCapability|live|any_gate_proven/i.test(String(sel16v.does_not_implement || '')));
+ok('F132 16U selection retained alongside 16V tip',
+  sel16u && sel16u.selected === true
+  && sel16u.outcome_id === '16U_correlation_design_freeze'
+  && contract.selected_16u
+  && contract.selected_16u.outcome_id === '16U_correlation_design_freeze'
+  && contract.correlation_drill_design === 'frozen_via_16U');
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
