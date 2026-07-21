@@ -584,6 +584,120 @@ console.log('\n── Adversarial REDs ──');
     || align.includes('placeholder_drift:PACKAGE_CODES'));
 }
 
+// ── Nested value-semantics REDs (twelve reviewer mutations) ─────────────────
+{
+  const bad = clone(house);
+  const season = Object.keys(bad.pricing.packages[0].seasonal_prices)[0];
+  bad.pricing.packages[0].seasonal_prices[season].weekly_per_person_cents = {
+    _note: 'notes-only map pretending to be money',
+  };
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R27_notes_only_money_scalar_rejected',
+    errs.some((e) => /pricing_seasonal_prices_not_numeric_scalar/.test(e)));
+}
+
+{
+  const bad = clone(house);
+  bad.pricing.seasons = [
+    { code: '{{SEASON_A}}', month_numbers: [7, 8], priority: 0 },
+    { code: '{{SEASON_B}}', month_numbers: [8], priority: 0 },
+  ];
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R28_season_month_overlap_without_unique_priority_rejected',
+    errs.some((e) => /pricing_season_month_overlap_without_unique_priority:8/.test(e)));
+}
+
+{
+  const bad = clone(house);
+  bad.pricing.seasons[0].month_numbers = [1, 1, 2];
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R29_duplicate_month_within_season_rejected',
+    errs.some((e) => /pricing_month_numbers_duplicate_in_season/.test(e)));
+}
+
+{
+  const bad = clone(house);
+  bad.pricing.seasons[0].month_numbers = [0, 13];
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R30_month_out_of_range_rejected',
+    errs.filter((e) => /pricing_month_numbers_not_numeric/.test(e)).length >= 2);
+}
+
+{
+  const bad = clone(house);
+  bad.pricing.add_ons.wetsuit_rental.pricing_unit = 'per_week';
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R31_unsupported_pricing_unit_rejected',
+    errs.some((e) => /pricing_add_on_unsupported_pricing_unit:wetsuit_rental:per_week/.test(e)));
+}
+
+{
+  const bad = clone(house);
+  bad.pricing.payment_options = ['deposit', 'crypto'];
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R32_unsupported_payment_option_rejected',
+    errs.some((e) => /pricing_payment_option_unsupported:crypto/.test(e)));
+}
+
+{
+  const bad = clone(house);
+  bad.pricing.rounding.method = 'bankers_round';
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R33_unrecognized_rounding_method_rejected',
+    errs.some((e) => /pricing_rounding_method_unrecognized:bankers_round/.test(e)));
+}
+
+{
+  const bad = clone(house);
+  bad.pricing.hold.expiry_minutes = { _note: 'about an hour' };
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R34_hold_expiry_object_rejected',
+    errs.includes('pricing_hold_expiry_minutes_not_numeric_scalar'));
+}
+
+{
+  const bad = clone(house);
+  bad.pricing.room_supplements.shared.per_person_per_night_cents = {
+    _note: 'no supplement',
+  };
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R35_room_supplement_object_rejected',
+    errs.some((e) => /pricing_room_supplement_not_numeric_scalar:shared/.test(e)));
+}
+
+{
+  const bad = clone(school);
+  const first = Object.keys(bad.baseline.catalog.rentals.offerings)[0];
+  const win = bad.baseline.catalog.rentals.windows[0];
+  bad.baseline.catalog.rentals.offerings[first].prices_eur[win] = {
+    _note: 'ask staff',
+  };
+  const errs = locks.validateBaselineTemplate(bad.baseline, 'surf_school_shop');
+  red('R36_sunset_price_notes_only_rejected',
+    errs.some((e) => /rental_prices_eur_not_usable_scalar/.test(e)));
+}
+
+{
+  const bad = clone(school);
+  bad.baseline.catalog.lessons.scheduling.common_slot_times = [
+    { label: 'morning' },
+    'eleven-ish',
+  ];
+  const errs = locks.validateBaselineTemplate(bad.baseline, 'surf_school_shop');
+  red('R37_slot_time_non_scalar_rejected',
+    errs.some((e) => /lessons_scheduling_slot_time_not_normalized_scalar/.test(e)));
+}
+
+{
+  const bad = clone(school);
+  bad.baseline.catalog.lessons.scheduling.arrive_before_class_minutes = {
+    _note: 'twenty minutes',
+  };
+  const errs = locks.validateBaselineTemplate(bad.baseline, 'surf_school_shop');
+  red('R38_arrive_before_object_rejected',
+    errs.includes('lessons_scheduling_arrive_before_not_numeric_scalar'));
+}
+
 // ── Tip scope ───────────────────────────────────────────────────────────────
 console.log('\n── Tip scope ──');
 {

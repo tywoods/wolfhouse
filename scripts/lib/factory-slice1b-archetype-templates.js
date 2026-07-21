@@ -8,7 +8,11 @@
  *
  * Pricing shape for surf_house is derived from wolfhouse-quote-calculator
  * reads of wolfhouse-somo.pricing.json (add_ons, deposits.tiers,
- * room_supplements, rounding, hold, numeric month_numbers).
+ * room_supplements, numeric month_numbers + priority). rounding/hold are
+ * recognized companion metadata (canonical file parity) — not calculator reads.
+ *
+ * Consumer-facing scalars must be exact runtime types or strict {{TOKEN}}
+ * placeholders — never objects / notes-only maps.
  */
 
 const fs = require('fs');
@@ -59,6 +63,28 @@ const PRESERVED_REFERENCE_BLOBS = Object.freeze({
 });
 
 const PLACEHOLDER_RE = /^\{\{[A-Z0-9_]+\}\}$/;
+/** Normalized slot times: HH:MM or HH:MM-HH:MM (24h). */
+const SLOT_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d(?:-([01]\d|2[0-3]):[0-5]\d)?$/;
+
+/** Calculator-handled add-on pricing units (+ per_lesson on lesson codes). */
+const SUPPORTED_PRICING_UNITS = Object.freeze([
+  'per_day',
+  'per_class',
+  'per_meal',
+  'per_lesson',
+]);
+
+/** Calculator-echoed payment_options values. */
+const SUPPORTED_PAYMENT_OPTIONS = Object.freeze([
+  'deposit',
+  'full',
+  'pay_on_arrival',
+]);
+
+/** Recognized rounding.method values (metadata; not calculator-consumed). */
+const RECOGNIZED_ROUNDING_METHODS = Object.freeze([
+  'ceil_to_nearest_5_eur',
+]);
 
 /** Calculator-required add_on keys (wolfhouse-quote-calculator.js). */
 const REQUIRED_ADD_ON_KEYS = Object.freeze([
@@ -72,6 +98,16 @@ const REQUIRED_ADD_ON_KEYS = Object.freeze([
   'yoga_class',
   'meal',
   'meals',
+]);
+
+/**
+ * Compatibility field_mappings must declare consumption_class so FACTORY-only
+ * generator fields are not mislabeled as legacy-consumed.
+ */
+const COMPAT_CONSUMPTION_CLASSES = Object.freeze([
+  'legacy_consumed',
+  'factory_generator_only',
+  'mixed',
 ]);
 
 /**
@@ -384,6 +420,39 @@ function isPlaceholderString(value) {
   return typeof value === 'string' && PLACEHOLDER_RE.test(value);
 }
 
+/**
+ * Consumer-facing scalar: exact runtime type OR strict {{TOKEN}} placeholder.
+ * Objects / notes-only maps are never valid.
+ */
+function isNumberOrTypedPlaceholder(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return true;
+  return isPlaceholderString(value);
+}
+
+function isIntegerMonthOrTypedPlaceholder(value) {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 12) {
+    return true;
+  }
+  return isPlaceholderString(value);
+}
+
+function isNormalizedSlotTimeOrTypedPlaceholder(value) {
+  if (isPlaceholderString(value)) return true;
+  return typeof value === 'string' && SLOT_TIME_RE.test(value);
+}
+
+function isObjectOrNotesOnlyMap(value) {
+  return value !== null && typeof value === 'object';
+}
+
+function requireNumberOrTypedPlaceholder(value, errorCode, errors) {
+  if (isObjectOrNotesOnlyMap(value) || !isNumberOrTypedPlaceholder(value)) {
+    errors.push(errorCode);
+    return false;
+  }
+  return true;
+}
+
 function pathBasename(p) {
   const parts = String(p).split('/');
   return parts[parts.length - 1];
@@ -498,6 +567,53 @@ function validateCompatibility(compat, archetypeId) {
   if (features.inventory_model !== lock.inventory_model) {
     errors.push('compat_features_inventory_model_mismatch');
   }
+  // features.* are FACTORY generator guidance — portal derives tabs from vertical.
+  if (features.consumption_class !== 'factory_generator_only') {
+    errors.push('compat_features_must_be_factory_generator_only');
+  }
+  if (Array.isArray(features.legacy_consumers) && features.legacy_consumers.length > 0) {
+    errors.push('compat_features_false_legacy_consumers');
+  }
+
+  const mappingKeys = ['pricing', 'services', 'schedule', 'profile', 'features'];
+  if (archetypeId === 'surf_school_shop') mappingKeys.push('locations');
+  if (archetypeId === 'surf_house') mappingKeys.push('inventory');
+  for (const key of mappingKeys) {
+    const mapping = getPath(compat, `field_mappings.${key}`);
+    if (!mapping || typeof mapping !== 'object') {
+      errors.push(`compat_mapping_missing:${key}`);
+      continue;
+    }
+    if (!COMPAT_CONSUMPTION_CLASSES.includes(mapping.consumption_class)) {
+      errors.push(`compat_consumption_class_missing:${key}`);
+    }
+  }
+
+  const pricingMap = getPath(compat, 'field_mappings.pricing') || {};
+  if (Array.isArray(pricingMap.calculator_consumed_fields)
+    && (pricingMap.calculator_consumed_fields.includes('rounding')
+      || pricingMap.calculator_consumed_fields.includes('hold'))) {
+    errors.push('compat_false_claim_calculator_reads_rounding_or_hold');
+  }
+  if (archetypeId === 'surf_house') {
+    const metaNotCalc = pricingMap.companion_metadata_not_calculator_consumed;
+    if (!Array.isArray(metaNotCalc)
+      || !metaNotCalc.includes('rounding')
+      || !metaNotCalc.includes('hold')) {
+      errors.push('compat_rounding_hold_must_be_marked_non_calculator');
+    }
+  }
+
+  if (archetypeId === 'surf_school_shop') {
+    const locs = getPath(compat, 'field_mappings.locations') || {};
+    if (locs.consumption_class !== 'factory_generator_only') {
+      errors.push('compat_locations_must_be_factory_generator_only');
+    }
+    if (Array.isArray(locs.legacy_consumers) && locs.legacy_consumers.length > 0) {
+      errors.push('compat_locations_false_legacy_consumers');
+    }
+  }
+
   const schedule = getPath(compat, 'field_mappings.schedule');
   if (!schedule || typeof schedule !== 'object' || !schedule.baseline_path) {
     errors.push('compat_schedule_mapping_missing');
@@ -613,10 +729,18 @@ function validateSurfSchoolShopBaselineDeep(baseline) {
       if (!off.prices_eur || typeof off.prices_eur !== 'object'
         || Object.keys(off.prices_eur).length < 1) {
         errors.push(`rental_prices_eur_missing:${code}`);
-      } else if (Array.isArray(windows)) {
-        for (const w of windows) {
-          if (!(w in off.prices_eur)) {
-            errors.push(`rental_prices_eur_window_missing:${code}.${w}`);
+      } else {
+        if (Array.isArray(windows)) {
+          for (const w of windows) {
+            if (!(w in off.prices_eur)) {
+              errors.push(`rental_prices_eur_window_missing:${code}.${w}`);
+            }
+          }
+        }
+        for (const [unitKey, amount] of Object.entries(off.prices_eur)) {
+          if (unitKey.startsWith('_')) continue;
+          if (isObjectOrNotesOnlyMap(amount) || !isNumberOrTypedPlaceholder(amount)) {
+            errors.push(`rental_prices_eur_not_usable_scalar:${code}.${unitKey}`);
           }
         }
       }
@@ -634,12 +758,30 @@ function validateSurfSchoolShopBaselineDeep(baseline) {
       if (!off.prices_eur || typeof off.prices_eur !== 'object'
         || Object.keys(off.prices_eur).length < 1) {
         errors.push(`lesson_prices_eur_missing:${code}`);
+      } else {
+        for (const [unitKey, amount] of Object.entries(off.prices_eur)) {
+          if (unitKey.startsWith('_')) continue;
+          if (isObjectOrNotesOnlyMap(amount) || !isNumberOrTypedPlaceholder(amount)) {
+            errors.push(`lesson_prices_eur_not_usable_scalar:${code}.${unitKey}`);
+          }
+        }
       }
     }
   }
   const slots = getPath(baseline, 'catalog.lessons.scheduling.common_slot_times');
   if (!Array.isArray(slots) || slots.length < 1) {
     errors.push('lessons_scheduling_common_slot_times_missing');
+  } else {
+    for (let i = 0; i < slots.length; i += 1) {
+      const slot = slots[i];
+      if (isObjectOrNotesOnlyMap(slot) || !isNormalizedSlotTimeOrTypedPlaceholder(slot)) {
+        errors.push(`lessons_scheduling_slot_time_not_normalized_scalar:${i}`);
+      }
+    }
+  }
+  const arriveBefore = getPath(baseline, 'catalog.lessons.scheduling.arrive_before_class_minutes');
+  if (isObjectOrNotesOnlyMap(arriveBefore) || !isNumberOrTypedPlaceholder(arriveBefore)) {
+    errors.push('lessons_scheduling_arrive_before_not_numeric_scalar');
   }
   if (getPath(baseline, 'catalog.lessons.scheduling.bot_assigns_slot') === undefined) {
     errors.push('lessons_scheduling_bot_assigns_slot_missing');
@@ -702,10 +844,59 @@ function validateMonthNumbers(season, index) {
     errors.push(`pricing_month_numbers_missing:${index}`);
     return errors;
   }
+  const seenInSeason = new Set();
   for (let i = 0; i < months.length; i += 1) {
     const m = months[i];
-    if (typeof m !== 'number' || !Number.isInteger(m) || m < 1 || m > 12) {
+    if (!isIntegerMonthOrTypedPlaceholder(m)) {
       errors.push(`pricing_month_numbers_not_numeric:${index}.${i}`);
+      continue;
+    }
+    if (typeof m === 'number') {
+      if (seenInSeason.has(m)) {
+        errors.push(`pricing_month_numbers_duplicate_in_season:${index}.${m}`);
+      }
+      seenInSeason.add(m);
+    }
+  }
+  return errors;
+}
+
+/**
+ * Deterministic season coverage: no month overlap across seasons, OR every
+ * overlapping season group has unique numeric priorities (consumed by findSeason).
+ */
+function validateSeasonOverlapOrUniquePriority(seasons) {
+  const errors = [];
+  if (!Array.isArray(seasons)) return errors;
+  const monthOwners = new Map();
+  for (let i = 0; i < seasons.length; i += 1) {
+    const season = seasons[i];
+    if (!season || typeof season !== 'object') continue;
+    const months = Array.isArray(season.month_numbers) ? season.month_numbers : [];
+    const priority = Object.prototype.hasOwnProperty.call(season, 'priority')
+      ? season.priority
+      : 0;
+    if (Object.prototype.hasOwnProperty.call(season, 'priority')
+      && !isNumberOrTypedPlaceholder(priority)) {
+      errors.push(`pricing_season_priority_not_numeric:${i}`);
+    }
+    for (const m of months) {
+      if (typeof m !== 'number') continue;
+      if (!monthOwners.has(m)) monthOwners.set(m, []);
+      monthOwners.get(m).push({
+        index: i,
+        code: season.code || String(i),
+        priority,
+      });
+    }
+  }
+  for (const [month, owners] of monthOwners.entries()) {
+    if (owners.length < 2) continue;
+    const priorities = owners.map((o) => o.priority);
+    const allNumeric = priorities.every((p) => typeof p === 'number' && Number.isFinite(p));
+    const unique = allNumeric && new Set(priorities).size === priorities.length;
+    if (!unique) {
+      errors.push(`pricing_season_month_overlap_without_unique_priority:${month}`);
     }
   }
   return errors;
@@ -748,6 +939,7 @@ function validatePricingTemplate(pricing) {
     errors.push(...validateMonthNumbers(season, i));
     if (season.bookable !== false) bookableSeasonCodes.push(season.code);
   }
+  errors.push(...validateSeasonOverlapOrUniquePriority(pricing.seasons || []));
 
   for (let i = 0; i < (pricing.packages || []).length; i += 1) {
     const pkg = pricing.packages[i];
@@ -764,6 +956,26 @@ function validatePricingTemplate(pricing) {
       const row = pkg.seasonal_prices[code];
       if (!row || typeof row !== 'object' || !('weekly_per_person_cents' in row)) {
         errors.push(`pricing_seasonal_prices_missing_season:${pkg.code || i}.${code}`);
+        continue;
+      }
+      const cents = row.weekly_per_person_cents;
+      if (isObjectOrNotesOnlyMap(cents) || !isNumberOrTypedPlaceholder(cents)) {
+        errors.push(`pricing_seasonal_prices_not_numeric_scalar:${pkg.code || i}.${code}`);
+      }
+    }
+  }
+
+  const supplements = pricing.room_supplements;
+  if (supplements && typeof supplements === 'object') {
+    for (const roomType of ['shared', 'double', 'private']) {
+      const row = supplements[roomType];
+      if (!row || typeof row !== 'object') continue;
+      for (const key of Object.keys(row)) {
+        if (key.startsWith('_') || key === 'pricing_status') continue;
+        if (!/cents$/.test(key)) continue;
+        if (isObjectOrNotesOnlyMap(row[key]) || !isNumberOrTypedPlaceholder(row[key])) {
+          errors.push(`pricing_room_supplement_not_numeric_scalar:${roomType}.${key}`);
+        }
       }
     }
   }
@@ -777,27 +989,102 @@ function validatePricingTemplate(pricing) {
         errors.push(`pricing_add_on_missing:${key}`);
         continue;
       }
+      const unit = addOns[key].pricing_unit;
+      if (!SUPPORTED_PRICING_UNITS.includes(unit)) {
+        errors.push(`pricing_add_on_unsupported_pricing_unit:${key}:${unit}`);
+      }
       if (key === 'surf_lesson_multi') {
         if (!('price_cents_each' in addOns[key])) {
           errors.push('pricing_surf_lesson_multi_price_cents_each_missing');
+        } else {
+          requireNumberOrTypedPlaceholder(
+            addOns[key].price_cents_each,
+            'pricing_surf_lesson_multi_price_cents_each_not_numeric_scalar',
+            errors,
+          );
         }
         if (addOns[key].pricing_model === 'tiered_by_quantity' || Array.isArray(addOns[key].tiers)) {
           errors.push('pricing_invented_lesson_tiers');
         }
       } else if (!('price_cents' in addOns[key])) {
         errors.push(`pricing_add_on_price_cents_missing:${key}`);
+      } else {
+        requireNumberOrTypedPlaceholder(
+          addOns[key].price_cents,
+          `pricing_add_on_price_cents_not_numeric_scalar:${key}`,
+          errors,
+        );
       }
     }
   }
 
   if (!Array.isArray(pricing.payment_options) || pricing.payment_options.length < 1) {
     errors.push('pricing_payment_options_missing');
+  } else {
+    for (const opt of pricing.payment_options) {
+      if (!SUPPORTED_PAYMENT_OPTIONS.includes(opt)) {
+        errors.push(`pricing_payment_option_unsupported:${opt}`);
+      }
+    }
   }
-  if (typeof getPath(pricing, 'rounding.nearest_cents') !== 'number') {
+
+  const roundingMethod = getPath(pricing, 'rounding.method');
+  if (!RECOGNIZED_ROUNDING_METHODS.includes(roundingMethod)) {
+    errors.push(`pricing_rounding_method_unrecognized:${roundingMethod}`);
+  }
+  const nearest = getPath(pricing, 'rounding.nearest_cents');
+  if (typeof nearest !== 'number' || !Number.isFinite(nearest)) {
     errors.push('pricing_rounding_nearest_cents_not_number');
   }
 
+  const holdExpiry = getPath(pricing, 'hold.expiry_minutes');
+  if (isObjectOrNotesOnlyMap(holdExpiry) || !isNumberOrTypedPlaceholder(holdExpiry)) {
+    errors.push('pricing_hold_expiry_minutes_not_numeric_scalar');
+  }
+
+  for (const tier of ['standard_package', 'custom_or_short_stay']) {
+    const amount = getPath(pricing, `deposits.tiers.${tier}.amount_cents`);
+    requireNumberOrTypedPlaceholder(
+      amount,
+      `pricing_deposit_amount_not_numeric_scalar:${tier}`,
+      errors,
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(pricing.deposits || {}, 'default_cents')) {
+    requireNumberOrTypedPlaceholder(
+      pricing.deposits.default_cents,
+      'pricing_deposit_default_not_numeric_scalar',
+      errors,
+    );
+  }
+
+  // Must not claim calculator consumes rounding/hold.
+  const metaNotes = getPath(pricing, '_meta.notes');
+  const purpose = String(getPath(pricing, '_meta.purpose') || '');
+  const metaBlob = [
+    purpose,
+    ...(Array.isArray(metaNotes) ? metaNotes : []),
+  ].join('\n');
+  if (claimsCalculatorConsumesRoundingOrHold(metaBlob)) {
+    errors.push('pricing_meta_false_claim_calculator_uses_rounding_or_hold');
+  }
+
   return errors;
+}
+
+function claimsCalculatorConsumesRoundingOrHold(text) {
+  const s = String(text || '');
+  // Explicit denial / companion-metadata framing is truthful.
+  if (/not (?:read by|calculator-consumed)|companion metadata[^\n]*not[^\n]*calculator/i.test(s)
+    || /rounding\/hold are recognized companion metadata/i.test(s)
+    || /rounding and hold are recognized companion metadata/i.test(s)) {
+    return false;
+  }
+  // Old false claim patterns: listing rounding/hold among calculator-accessed fields.
+  if (/calculator-accessed fields:[^\n]*\b(?:rounding|hold)\b/i.test(s)) return true;
+  if (/calculator reads[^\n]*\b(?:rounding|hold)\b/i.test(s)) return true;
+  if (/derived from[^\n]*calculator[^\n]*\b(?:rounding|hold)\b/i.test(s)) return true;
+  return false;
 }
 
 function validatePlaceholderAlignment(bundle) {
@@ -1043,6 +1330,10 @@ deepFreeze(EXISTING_REGRESSION_GATES);
 deepFreeze(FORBIDDEN_PRODUCTIZATION_PATHS);
 deepFreeze(REQUIRED_ADD_ON_KEYS);
 deepFreeze(INVENTED_PRICING_KEYS);
+deepFreeze(SUPPORTED_PRICING_UNITS);
+deepFreeze(SUPPORTED_PAYMENT_OPTIONS);
+deepFreeze(RECOGNIZED_ROUNDING_METHODS);
+deepFreeze(COMPAT_CONSUMPTION_CLASSES);
 
 module.exports = Object.freeze({
   SLICE,
@@ -1069,11 +1360,20 @@ module.exports = Object.freeze({
   ENABLEMENT_FALSE_PATHS,
   SEND_MODE_ALLOWED,
   PLACEHOLDER_RE,
+  SLOT_TIME_RE,
+  SUPPORTED_PRICING_UNITS,
+  SUPPORTED_PAYMENT_OPTIONS,
+  RECOGNIZED_ROUNDING_METHODS,
+  COMPAT_CONSUMPTION_CLASSES,
   thaw,
   deepEqual,
   getPath,
   hasPath,
   isPlaceholderString,
+  isNumberOrTypedPlaceholder,
+  isIntegerMonthOrTypedPlaceholder,
+  isNormalizedSlotTimeOrTypedPlaceholder,
+  isObjectOrNotesOnlyMap,
   walkStrings,
   collectPlaceholders,
   scanForbiddenContent,
@@ -1083,6 +1383,7 @@ module.exports = Object.freeze({
   validateCompatibility,
   validateBaselineTemplate,
   validatePricingTemplate,
+  validateSeasonOverlapOrUniquePriority,
   validatePlaceholderAlignment,
   validateCrossFileReferences,
   validateTenantLocationIsolation,

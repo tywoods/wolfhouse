@@ -14,9 +14,11 @@ Slice **1B** delivers exactly two disabled-by-default archetype templates derive
 | `surf_house` | wolfhouse / wolfhouse-somo | `lodging_surf_house` | `bed-calendar` | single primary placeholder |
 | `surf_school_shop` | sunset / sunset-somo+sunset-sardinero | `surf_school_rentals` | `portal-home` | multi-location placeholders (≥2) |
 
-`surf_house` pricing companion is derived from actual `wolfhouse-quote-calculator` reads: `add_ons`, `deposits.tiers`, `room_supplements`, `rounding`, `hold`, numeric `month_numbers`, and `packages[].seasonal_prices`. Invented `addons` / `deposit` shapes are rejected.
+`surf_house` pricing companion is derived from actual `wolfhouse-quote-calculator` reads: `add_ons`, `deposits.tiers`, `room_supplements`, numeric `month_numbers` + `priority`, `packages[].seasonal_prices`, `payment_options`. **`rounding` / `hold` are recognized companion metadata** (canonical-file parity) — **not** calculator-consumed. Invented `addons` / `deposit` shapes are rejected.
 
-Required pricing / services / schedule / profile / features fields come from the 1A physical-site inventory category `pricing_services_schedule_profile_consumers` and the actual baseline consumers. Compatibility JSON maps those fields to consumer paths without runtime wiring. Deep validation covers package seasonal matrices, Sunset offering `prices_eur`, schedule/profile/features fields, unique location IDs, and exact baseline↔compatibility placeholder references.
+Consumer-facing scalars must be exact runtime types or strict `{{TOKEN}}` placeholders — never objects/notes-only maps. Season months are unique numeric 1–12 with deterministic no-overlap (or unique priorities for overlaps). Add-on `pricing_unit` and `payment_options` are allowlisted. Sunset `prices_eur` entries and `common_slot_times` are usable numeric/normalized scalars (or typed placeholders).
+
+Compatibility JSON declares `consumption_class` per mapping: legacy-consumed vs FACTORY-only generator fields. `features.*` and baseline `locations` are factory_generator_only (portal derives tabs from `_meta.vertical`; registry `clients.json` owns live location reads).
 
 ## Safety defaults
 
@@ -33,7 +35,7 @@ Required pricing / services / schedule / profile / features fields come from the
 npm run verify:factory-slice1b-archetype-templates
 ```
 
-Adversarial REDs cover secret-shaped values, live hostnames, Meta IDs, Azure IDs, missing required fields, default-enable flips, copied live client/location ids, location-placeholder collision, DB credential URLs, live send modes, seasonal_prices/prices_eur/schedule deletions, duplicated location IDs, baseline↔compat placeholder drift, invented addons/deposit/lesson-tier shapes, working-tree reference mutation, coordinated lock/compat drift, extra archetype files, and package cross-ref drift.
+Adversarial REDs cover secret-shaped values, live hostnames, Meta IDs, Azure IDs, missing required fields, default-enable flips, copied live client/location ids, location-placeholder collision, DB credential URLs, live send modes, seasonal_prices/prices_eur/schedule deletions, duplicated location IDs, baseline↔compat placeholder drift, invented addons/deposit/lesson-tier shapes, working-tree reference mutation, coordinated lock/compat drift, extra archetype files, package cross-ref drift, and twelve nested-value mutations (notes-only money, season overlap without unique priority, duplicate/out-of-range months, unsupported pricing_unit/payment_option, unrecognized rounding, object hold/supplement/duration, unusable Sunset prices, non-normalized slot times).
 
 File-set GREEN enumerates actual archetype directories/JSON files on disk (not lock length alone).
 

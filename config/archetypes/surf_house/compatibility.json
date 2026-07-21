@@ -14,19 +14,33 @@
     "pricing": {
       "baseline_path": "packages",
       "companion_file": "pricing.template.json",
-      "consumers": [
+      "consumption_class": "mixed",
+      "calculator_consumed_fields": [
+        "seasons",
+        "packages",
+        "room_supplements",
+        "add_ons",
+        "deposits",
+        "payment_options",
+        "currency",
+        "client_slug"
+      ],
+      "companion_metadata_not_calculator_consumed": ["rounding", "hold"],
+      "legacy_consumers": [
         "scripts/lib/wolfhouse-quote-calculator.js",
         "scripts/lib/luna-booking-addons-policy.js",
         "scripts/lib/luna-booking-reactive-services-policy.js",
         "scripts/lib/guest-addon-combo-rebalance-db.js",
         "scripts/lib/luna-guest-booking-dry-run.js",
         "scripts/staff-query-api.js"
-      ]
+      ],
+      "note": "rounding/hold are recognized companion metadata for canonical-file parity; wolfhouse-quote-calculator does not read them."
     },
     "services": {
       "baseline_path": "service_addons.service_catalog",
       "bundles_path": "service_addons.bundles",
-      "consumers": [
+      "consumption_class": "legacy_consumed",
+      "legacy_consumers": [
         "scripts/lib/luna-booking-addons-policy.js",
         "scripts/lib/luna-booking-reactive-services-policy.js",
         "scripts/lib/luna-front-desk-catalog-service.js"
@@ -35,7 +49,8 @@
     "schedule": {
       "baseline_path": "service_addons.lesson_scheduling",
       "operations_path": "operations",
-      "consumers": [
+      "consumption_class": "legacy_consumed",
+      "legacy_consumers": [
         "scripts/lib/tenant-business-config.js",
         "scripts/lib/staff-portal-clients.js"
       ]
@@ -43,7 +58,8 @@
     "profile": {
       "baseline_path": "persona",
       "meta_path": "_meta",
-      "consumers": [
+      "consumption_class": "legacy_consumed",
+      "legacy_consumers": [
         "scripts/lib/staff-portal-clients.js",
         "scripts/lib/tenant-business-config.js"
       ]
@@ -52,13 +68,14 @@
       "portal_default_tab": "bed-calendar",
       "inventory_model": "lodging_rooms_beds",
       "hidden_tabs": [],
-      "consumers": [
-        "scripts/lib/staff-portal-clients.js"
-      ]
+      "consumption_class": "factory_generator_only",
+      "legacy_consumers": [],
+      "note": "staff-portal-clients derives default_tab/hidden_tabs from _meta.vertical (surf vs lodging), not features.portal_default_tab / features.inventory_model / features.hidden_tabs. These fields are FACTORY generator guidance only."
     },
     "inventory": {
       "baseline_path": "rooming.rooms",
-      "consumers": [
+      "consumption_class": "legacy_consumed",
+      "legacy_consumers": [
         "scripts/lib/staff-portal-clients.js"
       ]
     }

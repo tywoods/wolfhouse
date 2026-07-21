@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "purpose": "FACTORY 1B surf_house pricing companion template derived from wolfhouse-quote-calculator reads of wolfhouse-somo.pricing.json. Placeholders only — not live prices.",
+    "purpose": "FACTORY 1B surf_house pricing companion template. Shape mirrors wolfhouse-quote-calculator reads (add_ons, deposits.tiers, room_supplements, seasons.month_numbers+priority, packages.seasonal_prices, payment_options). rounding/hold are recognized companion metadata for canonical-file parity — not calculator-consumed. Placeholders only — not live prices.",
     "client_slug": "{{CLIENT_SLUG}}",
     "config_version": "1B.0",
     "status": "archetype_template",
@@ -8,8 +8,10 @@
     "slice": "FACTORY-1B",
     "derived_from_consumer": "scripts/lib/wolfhouse-quote-calculator.js",
     "notes": [
-      "Shape mirrors calculator-accessed fields: seasons.month_numbers (numeric), packages.seasonal_prices, room_supplements, add_ons, deposits.tiers, rounding, hold, payment_options.",
-      "month_numbers are numeric (1–12) so findSeason().includes(month) remains consumer-compatible; values here are unverified seed placeholders.",
+      "Calculator-accessed fields: seasons.month_numbers (numeric 1–12), seasons.priority, packages.seasonal_prices.weekly_per_person_cents, room_supplements, add_ons, deposits.tiers, payment_options.",
+      "rounding and hold are recognized companion metadata (canonical wolfhouse-somo.pricing.json parity) — not read by wolfhouse-quote-calculator today.",
+      "month_numbers are unique numeric 1–12 with deterministic no-overlap, or explicit unique priority for overlaps (findSeason).",
+      "Consumer-facing scalars are numbers or strict {{TOKEN}} placeholders — never objects/notes-only maps.",
       "Do not invent top-level addons or deposit keys — calculator reads add_ons and deposits.tiers."
     ]
   },

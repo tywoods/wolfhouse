@@ -14,19 +14,22 @@
     "pricing": {
       "baseline_path": "catalog.rentals.offerings",
       "lessons_path": "catalog.lessons.offerings",
-      "consumers": [
+      "consumption_class": "legacy_consumed",
+      "legacy_consumers": [
         "scripts/lib/tenant-business-config.js",
         "scripts/lib/sunset-rental-price-lookup.js",
         "scripts/lib/sunset-course-lesson-price-lookup.js",
         "scripts/lib/sunset-group-lesson-quote.js",
         "scripts/lib/sunset-admin-price-resolve.js",
         "scripts/lib/sunset-admin-price-sync.js"
-      ]
+      ],
+      "note": "tenant-business-config.flattenOfferingPrices requires prices_eur values to be numbers at runtime; templates allow number or strict {{TOKEN}} placeholders."
     },
     "services": {
       "baseline_path": "catalog",
       "service_addons_path": "service_addons",
-      "consumers": [
+      "consumption_class": "legacy_consumed",
+      "legacy_consumers": [
         "scripts/lib/sunset-catalog-tool-executor.js",
         "scripts/lib/luna-front-desk-catalog-service.js",
         "scripts/lib/sunset-luna-school-context.js"
@@ -35,16 +38,19 @@
     "schedule": {
       "baseline_path": "catalog.lessons.scheduling",
       "service_addons_path": "service_addons.lesson_scheduling",
-      "consumers": [
+      "consumption_class": "legacy_consumed",
+      "legacy_consumers": [
         "scripts/lib/tenant-business-config.js",
         "scripts/lib/sunset-schedule-booking-drawer.js",
         "scripts/lib/sunset-schedule-booking-writes.js"
-      ]
+      ],
+      "note": "common_slot_times must be normalized HH:MM or HH:MM-HH:MM scalars (or typed placeholders)."
     },
     "profile": {
       "baseline_path": "persona",
       "meta_path": "_meta",
-      "consumers": [
+      "consumption_class": "legacy_consumed",
+      "legacy_consumers": [
         "scripts/lib/staff-portal-clients.js",
         "scripts/lib/tenant-business-config.js"
       ]
@@ -53,17 +59,16 @@
       "portal_default_tab": "portal-home",
       "inventory_model": "lessons_capacity_plus_rentals_unlimited",
       "hidden_tabs": ["bed-calendar", "tour-operator"],
-      "consumers": [
-        "scripts/lib/staff-portal-clients.js"
-      ]
+      "consumption_class": "factory_generator_only",
+      "legacy_consumers": [],
+      "note": "staff-portal-clients derives default_tab/hidden_tabs from _meta.vertical, not features.*. FACTORY generator guidance only."
     },
     "locations": {
       "baseline_path": "locations",
-      "consumers": [
-        "scripts/lib/sunset-admin-location-store.js",
-        "scripts/lib/tenant-business-config.js",
-        "scripts/lib/staff-portal-clients.js"
-      ]
+      "consumption_class": "factory_generator_only",
+      "legacy_consumers": [],
+      "emits_to": "config/clients/clients.json locations[]",
+      "note": "Registry clients.json locations are legacy-consumed by client-channel-resolver / multiclient isolation. baseline.locations is FACTORY schema for generator emission — not read by sunset-admin-location-store (own store) or staff-portal-clients portal profile."
     }
   },
   "consumer_categories": [
