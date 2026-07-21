@@ -18,7 +18,7 @@ const {
   createCrowsnestSession,
   destroyCrowsnestSession,
   getCrowsnestAllowedUsers,
-  getCrowsnestBasicAuthConfig,
+  getCrowsnestAuthAccounts,
   getCrowsnestLoginBodyLimit,
   isCrowsnestAuthEnabled,
   isCrowsnestLoginAccepted,
@@ -315,7 +315,7 @@ async function router(req, res) {
   const pathname = getRequestPath(req);
   const method = getRequestMethod(req);
   const authEnabled = isCrowsnestAuthEnabled();
-  const authConfig = getCrowsnestBasicAuthConfig();
+  const authConfig = getCrowsnestAuthAccounts();
 
   if (authEnabled && !authConfig.configured && pathname !== '/healthz') {
     return sendCrowsnestAuthMisconfigured(res);

@@ -69,35 +69,59 @@ npm run crowsnest:start
 curl http://127.0.0.1:3040/healthz
 ```
 
-### Auth (temporary local credentials)
+### Auth (operator accounts)
 
 Live and local browser access (when auth is enabled) use the branded login portal. Legacy Basic Auth remains accepted for compatibility. **`GET /healthz` is always public** and never includes credentials. Live operator credential distribution is out of scope for this doc.
+
+Preferred configuration is **two independent operator accounts** (Earthling + Monshies). Do not put defaults in production.
 
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `CROWSNEST_AUTH_REQUIRED` | `false` | Set `true` to require login for normal browser UI access |
-| `CROWSNEST_AUTH_USERNAME` | `admin` (non-production only) | Replace before real use; live Azure binds secret ref `cn-auth-user` (value never in docs) |
-| `CROWSNEST_AUTH_PASSWORD` | `admin` (non-production only) | Replace before real use; live Azure binds secret ref `cn-auth-pass` (value never in docs) |
+| `CROWSNEST_AUTH_EARTHLING_USERNAME` | _(none)_ | Earthling operator username; Azure secret ref `cn-auth-user` (value never in docs). **Not deployed as multi-account yet** — mapping documented for cutover. |
+| `CROWSNEST_AUTH_EARTHLING_PASSWORD` | _(none)_ | Earthling operator password; Azure secret ref `cn-auth-pass` (value never in docs). **Not deployed as multi-account yet.** |
+| `CROWSNEST_AUTH_MONSHIES_USERNAME` | _(none)_ | Monshies operator username; Azure secret ref `cn-monshies-user` (value never in docs). **Not deployed yet.** |
+| `CROWSNEST_AUTH_MONSHIES_PASSWORD` | _(none)_ | Monshies operator password; Azure secret ref `cn-monshies-pass` (value never in docs). **Not deployed yet.** |
+| `CROWSNEST_AUTH_USERNAME` | `admin` (non-production only) | **Legacy single-account fallback only** when none of the four multi-account variables are present. Never combined with multi-account mode. |
+| `CROWSNEST_AUTH_PASSWORD` | `admin` (non-production only) | Legacy single-account fallback password (same isolation rules as username). |
 | `CROWSNEST_ALLOWED_USERS` | `Monshies,Earthling` | Informational allow-list in `/healthz` only |
+
+Multi-account rules:
+
+- If **any** of the four `CROWSNEST_AUTH_EARTHLING_*` / `CROWSNEST_AUTH_MONSHIES_*` variables are present, multi-account mode is selected and legacy `CROWSNEST_AUTH_USERNAME` / `CROWSNEST_AUTH_PASSWORD` are ignored.
+- Both complete account pairs are required. Missing, blank, or **duplicate** usernames → auth misconfigured (`503` when auth is required). Passwords may not be blank.
+- Non-production `admin`/`admin` remains only when neither multi-account nor legacy variables are present.
 
 When `CROWSNEST_AUTH_REQUIRED=true`:
 
 - `GET /login` shows the branded login form
-- Valid credentials on `POST /login` → `302` to `/` with an `HttpOnly`, `SameSite=Strict` session cookie (`Secure` in production)
+- Valid credentials for **either** operator on `POST /login` → `302` to `/` with an independent opaque `HttpOnly`, `SameSite=Strict` session cookie (`Secure` in production)
 - Invalid credentials → the same login page with a generic error and no credential leak
-- `POST /logout` clears the session cookie and returns to `/login`
+- `POST /logout` clears **that** session cookie/token only and returns to `/login`
 - Unauthenticated browser access to protected UI routes redirects to `/login`
-- Auth required but credentials empty/missing in production → `503` (`Crowsnest auth is not configured`)
-- Legacy Basic Auth requests are still accepted on the protected UI routes for compatibility
+- Auth required but credentials empty/missing/invalidly configured → `503` (`Crowsnest auth is not configured`)
+- Legacy Basic Auth requests are still accepted on the protected UI routes for compatibility (either configured operator)
 
-Local auth-enabled smoke:
+Local auth-enabled smoke (multi-account):
+
+```bash
+CROWSNEST_AUTH_REQUIRED=true \
+CROWSNEST_AUTH_EARTHLING_USERNAME=earthling \
+CROWSNEST_AUTH_EARTHLING_PASSWORD=earth-secret \
+CROWSNEST_AUTH_MONSHIES_USERNAME=monshies \
+CROWSNEST_AUTH_MONSHIES_PASSWORD=mon-secret \
+npm run crowsnest:start
+curl -i http://127.0.0.1:3040/                      # 302 -> /login
+curl -i http://127.0.0.1:3040/login                 # branded form
+curl -i -u earthling:earth-secret http://127.0.0.1:3040/crowsnest/ui  # 200
+curl -i -u monshies:mon-secret http://127.0.0.1:3040/crowsnest/ui     # 200
+curl http://127.0.0.1:3040/healthz                  # 200, auth_enabled:true, no password
+```
+
+Legacy single-account smoke (fallback only):
 
 ```bash
 CROWSNEST_AUTH_REQUIRED=true CROWSNEST_AUTH_USERNAME=admin CROWSNEST_AUTH_PASSWORD=admin npm run crowsnest:start
-curl -i http://127.0.0.1:3040/                      # 302 -> /login
-curl -i http://127.0.0.1:3040/login                 # branded form
-curl -i -u admin:admin http://127.0.0.1:3040/crowsnest/ui  # 200 (legacy compatibility)
-curl http://127.0.0.1:3040/healthz                  # 200, auth_enabled:true, no password
 ```
 
 Verify:

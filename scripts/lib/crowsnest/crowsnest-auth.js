@@ -35,34 +35,115 @@ function getCrowsnestAllowedUsers() {
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
-function getCrowsnestBasicAuthConfig() {
-  const usernameRaw = process.env.CROWSNEST_AUTH_USERNAME;
-  const passwordRaw = process.env.CROWSNEST_AUTH_PASSWORD;
+const MULTI_ACCOUNT_ENV_KEYS = [
+  'CROWSNEST_AUTH_EARTHLING_USERNAME',
+  'CROWSNEST_AUTH_EARTHLING_PASSWORD',
+  'CROWSNEST_AUTH_MONSHIES_USERNAME',
+  'CROWSNEST_AUTH_MONSHIES_PASSWORD',
+];
+
+function readEnvRaw(name) {
+  return process.env[name];
+}
+
+function isMultiAccountEnvPresent() {
+  for (const key of MULTI_ACCOUNT_ENV_KEYS) {
+    if (readEnvRaw(key) !== undefined) return true;
+  }
+  return false;
+}
+
+function trimCredential(value) {
+  return String(value || '').trim();
+}
+
+/**
+ * Resolve configured operator accounts.
+ * Multi-account mode wins whenever any of the four multi-account env vars are present
+ * (never combined with legacy CROWSNEST_AUTH_USERNAME / CROWSNEST_AUTH_PASSWORD).
+ */
+function getCrowsnestAuthAccounts() {
+  if (isMultiAccountEnvPresent()) {
+    const earthlingUsername = trimCredential(readEnvRaw('CROWSNEST_AUTH_EARTHLING_USERNAME'));
+    const earthlingPassword = trimCredential(readEnvRaw('CROWSNEST_AUTH_EARTHLING_PASSWORD'));
+    const monshiesUsername = trimCredential(readEnvRaw('CROWSNEST_AUTH_MONSHIES_USERNAME'));
+    const monshiesPassword = trimCredential(readEnvRaw('CROWSNEST_AUTH_MONSHIES_PASSWORD'));
+
+    const earthlingUserPresent = readEnvRaw('CROWSNEST_AUTH_EARTHLING_USERNAME') !== undefined;
+    const earthlingPassPresent = readEnvRaw('CROWSNEST_AUTH_EARTHLING_PASSWORD') !== undefined;
+    const monshiesUserPresent = readEnvRaw('CROWSNEST_AUTH_MONSHIES_USERNAME') !== undefined;
+    const monshiesPassPresent = readEnvRaw('CROWSNEST_AUTH_MONSHIES_PASSWORD') !== undefined;
+
+    const complete =
+      earthlingUserPresent
+      && earthlingPassPresent
+      && monshiesUserPresent
+      && monshiesPassPresent
+      && earthlingUsername
+      && earthlingPassword
+      && monshiesUsername
+      && monshiesPassword
+      && earthlingUsername !== monshiesUsername;
+
+    if (!complete) {
+      return { configured: false, mode: 'multi', accounts: [] };
+    }
+
+    return {
+      configured: true,
+      mode: 'multi',
+      accounts: [
+        { id: 'earthling', username: earthlingUsername, password: earthlingPassword },
+        { id: 'monshies', username: monshiesUsername, password: monshiesPassword },
+      ],
+    };
+  }
+
+  const usernameRaw = readEnvRaw('CROWSNEST_AUTH_USERNAME');
+  const passwordRaw = readEnvRaw('CROWSNEST_AUTH_PASSWORD');
   const hasUsername = usernameRaw !== undefined;
   const hasPassword = passwordRaw !== undefined;
 
-  if (hasUsername && !String(usernameRaw).trim()) {
-    return { configured: false };
-  }
-  if (hasPassword && !String(passwordRaw).trim()) {
-    return { configured: false };
-  }
-
-  if (!hasUsername || !hasPassword) {
-    if (process.env.NODE_ENV === 'production') {
-      return { configured: false };
+  if (hasUsername || hasPassword) {
+    const username = trimCredential(usernameRaw);
+    const password = trimCredential(passwordRaw);
+    if (!hasUsername || !hasPassword || !username || !password) {
+      return { configured: false, mode: 'legacy', accounts: [] };
     }
     return {
       configured: true,
-      username: DEFAULT_USERNAME,
-      password: DEFAULT_PASSWORD,
+      mode: 'legacy',
+      accounts: [{ id: 'legacy', username, password }],
     };
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    return { configured: false, mode: 'default', accounts: [] };
   }
 
   return {
     configured: true,
-    username: String(usernameRaw).trim(),
-    password: String(passwordRaw).trim(),
+    mode: 'default',
+    accounts: [{ id: 'default', username: DEFAULT_USERNAME, password: DEFAULT_PASSWORD }],
+  };
+}
+
+/** @deprecated prefer getCrowsnestAuthAccounts — kept for existing callers/tests */
+function getCrowsnestBasicAuthConfig() {
+  const accountsConfig = getCrowsnestAuthAccounts();
+  if (!accountsConfig.configured) {
+    return { configured: false };
+  }
+  if (accountsConfig.accounts.length === 1) {
+    return {
+      configured: true,
+      username: accountsConfig.accounts[0].username,
+      password: accountsConfig.accounts[0].password,
+    };
+  }
+  return {
+    configured: true,
+    accounts: accountsConfig.accounts.slice(),
   };
 }
 
@@ -111,18 +192,41 @@ function timingSafeEqualString(a, b) {
   return crypto.timingSafeEqual(digestA, digestB);
 }
 
+function credentialsMatchConfiguredAccount(username, password, account) {
+  const usernameMatches = timingSafeEqualString(username, account.username);
+  const passwordMatches = timingSafeEqualString(password, account.password);
+  return usernameMatches && passwordMatches;
+}
+
+/**
+ * Constant-work credential check across every configured account.
+ * Always evaluates username + password digests for each account (no short-circuit skip).
+ */
+function credentialsMatchAnyConfiguredAccount(username, password) {
+  const accountsConfig = getCrowsnestAuthAccounts();
+  if (!accountsConfig.configured) return false;
+  let matched = false;
+  for (let i = 0; i < accountsConfig.accounts.length; i += 1) {
+    const accountMatched = credentialsMatchConfiguredAccount(
+      username,
+      password,
+      accountsConfig.accounts[i],
+    );
+    matched = matched || accountMatched;
+  }
+  return matched;
+}
+
 function isCrowsnestRequestAuthorized(req) {
   if (!isCrowsnestAuthEnabled()) return true;
 
-  const config = getCrowsnestBasicAuthConfig();
-  if (!config.configured) return false;
+  const accountsConfig = getCrowsnestAuthAccounts();
+  if (!accountsConfig.configured) return false;
 
   const creds = parseBasicAuthHeader(req);
   if (!creds) return false;
 
-  const usernameMatches = timingSafeEqualString(creds.username, config.username);
-  const passwordMatches = timingSafeEqualString(creds.password, config.password);
-  return usernameMatches && passwordMatches;
+  return credentialsMatchAnyConfiguredAccount(creds.username, creds.password);
 }
 
 function isCrowsnestSessionAuthorized(req) {
@@ -187,11 +291,7 @@ function buildCrowsnestClearedSessionCookie(options = {}) {
 }
 
 function isCrowsnestLoginAccepted(username, password) {
-  const config = getCrowsnestBasicAuthConfig();
-  if (!config.configured) return false;
-  const usernameMatches = timingSafeEqualString(username, config.username);
-  const passwordMatches = timingSafeEqualString(password, config.password);
-  return usernameMatches && passwordMatches;
+  return credentialsMatchAnyConfiguredAccount(username, password);
 }
 
 function getCrowsnestLoginBodyLimit() {
@@ -231,6 +331,7 @@ module.exports = {
   destroyCrowsnestSession,
   getAllowedCrowsnestUsers,
   getCrowsnestAllowedUsers,
+  getCrowsnestAuthAccounts,
   getCrowsnestBasicAuthConfig,
   getCrowsnestLoginBodyLimit,
   isCrowsnestAuthEnabled,
