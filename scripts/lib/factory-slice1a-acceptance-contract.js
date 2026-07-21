@@ -22,13 +22,15 @@ function deepFreeze(value) {
 const SLICE = 'FACTORY-1A';
 const BRANCH = 'factory/slice-1a-contract';
 const MASTER_BASIS = '0ef5958ed8b81ca04b196062505bf4be7a403221';
+/** Frozen tip that delivered 1A onto master; later stages must not widen this tip scope check. */
+const SLICE_TIP_SHA = '86f4cb9daaefdecab75ad02a2e755e2e7503216d';
 const OUTCOME_ID = '1A_source_only_acceptance_contract';
 
 const FINITE_STAGES = Object.freeze([
   Object.freeze({
     id: '1A',
     title: 'Source-only acceptance contract',
-    status: 'in_scope_current',
+    status: 'complete',
     allows: Object.freeze([
       'docs',
       'fixtures',
@@ -52,8 +54,9 @@ const FINITE_STAGES = Object.freeze([
   Object.freeze({
     id: '1B',
     title: 'Archetype schema and disabled-by-default templates',
-    status: 'deferred_future_stage',
+    status: 'complete',
     depends_on: '1A',
+    completion_evidence: '1B_static_disabled_archetype_templates',
   }),
   Object.freeze({
     id: '1C',
@@ -103,7 +106,7 @@ const GATES = Object.freeze([
     requirement:
       'Productization must emit a surf_house client whose reference shape matches Wolfhouse lodging_surf_house (single primary location, bed/room inventory, portal default bed-calendar).',
     proof_stage: '1B+',
-    current_stage_evidence: 'inventory_and_contract_freeze_only',
+    current_stage_evidence: '1B_static_disabled_archetype_templates',
   }),
   Object.freeze({
     id: 'G_ARCHETYPE_SURF_SCHOOL_SHOP',
@@ -111,7 +114,7 @@ const GATES = Object.freeze([
     requirement:
       'Productization must emit a surf_school_shop client whose reference shape matches Sunset surf_school_rentals (multi-location, lessons+rentals catalog, portal default portal-home).',
     proof_stage: '1B+',
-    current_stage_evidence: 'inventory_and_contract_freeze_only',
+    current_stage_evidence: '1B_static_disabled_archetype_templates',
   }),
   Object.freeze({
     id: 'G_DISABLED_BY_DEFAULT_GENERATION',
@@ -366,6 +369,7 @@ module.exports = Object.freeze({
   SLICE,
   BRANCH,
   MASTER_BASIS,
+  SLICE_TIP_SHA,
   OUTCOME_ID,
   FINITE_STAGES,
   ARCHETYPES,

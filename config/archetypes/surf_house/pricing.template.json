@@ -1,0 +1,108 @@
+{
+  "_meta": {
+    "purpose": "FACTORY 1B surf_house pricing companion template derived from Wolfhouse pricing consumer shape. Placeholders only. Values in cents placeholders — not live prices.",
+    "client_slug": "{{CLIENT_SLUG}}",
+    "config_version": "1B.0",
+    "status": "archetype_template",
+    "pricing_status": "unverified_seed",
+    "slice": "FACTORY-1B"
+  },
+  "client_slug": "{{CLIENT_SLUG}}",
+  "config_version": "1B.0",
+  "currency": "{{CURRENCY}}",
+  "seasons": [
+    {
+      "code": "{{SEASON_SHOULDER}}",
+      "month_numbers": ["{{MONTH_NUM_1}}", "{{MONTH_NUM_2}}"],
+      "priority": 0
+    },
+    {
+      "code": "{{SEASON_HIGH}}",
+      "month_numbers": ["{{MONTH_NUM_3}}"],
+      "priority": 0
+    },
+    {
+      "code": "{{SEASON_PEAK}}",
+      "month_numbers": ["{{MONTH_NUM_4}}"],
+      "priority": 10
+    },
+    {
+      "code": "closed",
+      "month_numbers": ["{{CLOSED_MONTH_NUM_1}}", "{{CLOSED_MONTH_NUM_2}}"],
+      "bookable": false
+    }
+  ],
+  "packages": [
+    {
+      "code": "{{PACKAGE_CODE_1}}",
+      "name": "{{PACKAGE_NAME_1}}",
+      "price_scope": "per_person_per_week",
+      "base_room_type": "shared",
+      "inclusions": ["{{INCLUSION_1}}"],
+      "seasonal_prices": {
+        "{{SEASON_SHOULDER}}": { "weekly_per_person_cents": "{{PRICE_CENTS_PLACEHOLDER}}" },
+        "{{SEASON_HIGH}}": { "weekly_per_person_cents": "{{PRICE_CENTS_PLACEHOLDER}}" },
+        "{{SEASON_PEAK}}": { "weekly_per_person_cents": "{{PRICE_CENTS_PLACEHOLDER}}" }
+      },
+      "pricing_status": "unverified_seed"
+    },
+    {
+      "code": "{{PACKAGE_CODE_2}}",
+      "name": "{{PACKAGE_NAME_2}}",
+      "price_scope": "per_person_per_week",
+      "base_room_type": "shared",
+      "inclusions": ["{{INCLUSION_1}}", "{{INCLUSION_2}}"],
+      "seasonal_prices": {
+        "{{SEASON_SHOULDER}}": { "weekly_per_person_cents": "{{PRICE_CENTS_PLACEHOLDER}}" },
+        "{{SEASON_HIGH}}": { "weekly_per_person_cents": "{{PRICE_CENTS_PLACEHOLDER}}" },
+        "{{SEASON_PEAK}}": { "weekly_per_person_cents": "{{PRICE_CENTS_PLACEHOLDER}}" }
+      },
+      "pricing_status": "unverified_seed"
+    },
+    {
+      "code": "{{PACKAGE_CODE_3}}",
+      "name": "{{PACKAGE_NAME_3}}",
+      "price_scope": "per_person_per_week",
+      "base_room_type": "shared",
+      "inclusions": ["{{INCLUSION_1}}", "{{INCLUSION_2}}", "{{INCLUSION_3}}"],
+      "seasonal_prices": {
+        "{{SEASON_SHOULDER}}": { "weekly_per_person_cents": "{{PRICE_CENTS_PLACEHOLDER}}" },
+        "{{SEASON_HIGH}}": { "weekly_per_person_cents": "{{PRICE_CENTS_PLACEHOLDER}}" },
+        "{{SEASON_PEAK}}": { "weekly_per_person_cents": "{{PRICE_CENTS_PLACEHOLDER}}" }
+      },
+      "pricing_status": "unverified_seed"
+    }
+  ],
+  "addons": {
+    "{{SERVICE_WETSUIT}}": {
+      "pricing_unit": "per_day",
+      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
+      "pricing_status": "unverified_seed"
+    },
+    "{{SERVICE_BOARD}}": {
+      "pricing_unit": "per_day",
+      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
+      "pricing_status": "unverified_seed"
+    },
+    "{{SERVICE_LESSON}}": {
+      "pricing_unit": "per_lesson",
+      "pricing_model": "tiered_by_quantity",
+      "tiers": [
+        { "min_qty": 1, "max_qty": 1, "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}" },
+        { "min_qty": 2, "max_qty": null, "price_cents_each": "{{PRICE_CENTS_PLACEHOLDER}}" }
+      ],
+      "pricing_status": "unverified_seed"
+    }
+  },
+  "deposit": {
+    "type": "tiered_by_booking_type",
+    "scope": "per_booking",
+    "currency": "{{CURRENCY}}",
+    "tiers": {
+      "standard_package": { "amount_cents": "{{DEPOSIT_STANDARD_CENTS}}" },
+      "custom_or_short_stay": { "amount_cents": "{{DEPOSIT_SHORT_CENTS}}" }
+    },
+    "default_cents": "{{DEPOSIT_DEFAULT_CENTS}}",
+    "pricing_status": "unverified_seed"
+  }
+}

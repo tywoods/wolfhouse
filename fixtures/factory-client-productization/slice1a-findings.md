@@ -47,11 +47,11 @@ Adversarial temporary-source REDs prove discovery catches split-string `path.res
 
 ## Nine gates (frozen; proof deferred per `proof_stage`)
 
-| ID | Proof stage | 1A evidence |
-|----|-------------|-------------|
-| `G_ARCHETYPE_SURF_HOUSE` | 1B+ | inventory + contract freeze |
-| `G_ARCHETYPE_SURF_SCHOOL_SHOP` | 1B+ | inventory + contract freeze |
-| `G_DISABLED_BY_DEFAULT_GENERATION` | 1C+ | gate text only |
+| ID | Proof stage | Ledger evidence |
+|----|-------------|-----------------|
+| `G_ARCHETYPE_SURF_HOUSE` | 1B+ | **1B complete** — `config/archetypes/surf_house/` static disabled templates (`1B_static_disabled_archetype_templates`) |
+| `G_ARCHETYPE_SURF_SCHOOL_SHOP` | 1B+ | **1B complete** — `config/archetypes/surf_school_shop/` static disabled templates (`1B_static_disabled_archetype_templates`) |
+| `G_DISABLED_BY_DEFAULT_GENERATION` | 1C+ | gate text only (1B templates already `live_enabled=false` / channels off; generator proof deferred) |
 | `G_SECRET_REJECTION` | 1C+ | gate text only |
 | `G_NO_LIVE_TARGET_COPYING` | 1C+ | gate text only |
 | `G_TENANT_LOCATION_ISOLATION` | 1D+ | existing multiclient verifiers retained |
@@ -80,4 +80,4 @@ Allowed stage IDs: **1A, 1B, 1C, 1D, 1E** only. Extra stages, gate renames, or t
 
 ## Closeout
 
-1A is complete when `npm run verify:factory-slice1a-acceptance-contract` passes and existing multiclient/config regressions remain green. Productization work starts at **1B** under this frozen contract — no gate/scope drift.
+1A is complete when `npm run verify:factory-slice1a-acceptance-contract` passes and existing multiclient/config regressions remain green. **1B is complete** under this ledger: static disabled archetype templates live at `config/archetypes/{surf_house,surf_school_shop}/` and are gated by `npm run verify:factory-slice1b-archetype-templates`. Productization continues at **1C** (deterministic generator) — no gate/scope drift.

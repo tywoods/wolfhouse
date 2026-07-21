@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "slice": "FACTORY-1B",
+  "archetype_id": "surf_school_shop",
+  "label": "Surf school + shop",
+  "reference_client_slug": "sunset",
+  "reference_location_ids": ["sunset-somo", "sunset-sardinero"],
+  "reference_baseline": "config/clients/sunset.baseline.json",
+  "legacy_vertical": "surf_school_rentals",
+  "live_enabled": false,
+  "files": [
+    "archetype.manifest.json",
+    "baseline.template.json",
+    "secrets.example.template.json",
+    "compatibility.json"
+  ],
+  "compatibility_file": "compatibility.json",
+  "notes": [
+    "Static reviewed template only. Placeholders must be filled by a later generator slice (1C).",
+    "Multi-location school+shop shape. Does not load at runtime. Does not create a client instance."
+  ]
+}

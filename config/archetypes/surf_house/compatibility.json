@@ -1,0 +1,79 @@
+{
+  "archetype_id": "surf_house",
+  "reference_client_slug": "wolfhouse",
+  "reference_location_ids": ["wolfhouse-somo"],
+  "legacy_vertical": "lodging_surf_house",
+  "portal_default_tab": "bed-calendar",
+  "registry_shape": {
+    "client_slug_placeholder": "{{CLIENT_SLUG}}",
+    "live_enabled": false,
+    "location_id_placeholders": ["{{LOCATION_ID}}"],
+    "location_cardinality": "single_primary"
+  },
+  "field_mappings": {
+    "pricing": {
+      "baseline_path": "packages",
+      "companion_file": "pricing.template.json",
+      "consumers": [
+        "scripts/lib/wolfhouse-quote-calculator.js",
+        "scripts/lib/luna-booking-addons-policy.js",
+        "scripts/lib/luna-booking-reactive-services-policy.js",
+        "scripts/lib/guest-addon-combo-rebalance-db.js",
+        "scripts/lib/luna-guest-booking-dry-run.js",
+        "scripts/staff-query-api.js"
+      ]
+    },
+    "services": {
+      "baseline_path": "service_addons.service_catalog",
+      "bundles_path": "service_addons.bundles",
+      "consumers": [
+        "scripts/lib/luna-booking-addons-policy.js",
+        "scripts/lib/luna-booking-reactive-services-policy.js",
+        "scripts/lib/luna-front-desk-catalog-service.js"
+      ]
+    },
+    "schedule": {
+      "baseline_path": "service_addons.lesson_scheduling",
+      "operations_path": "operations",
+      "consumers": [
+        "scripts/lib/tenant-business-config.js",
+        "scripts/lib/staff-portal-clients.js"
+      ]
+    },
+    "profile": {
+      "baseline_path": "persona",
+      "meta_path": "_meta",
+      "consumers": [
+        "scripts/lib/staff-portal-clients.js",
+        "scripts/lib/tenant-business-config.js"
+      ]
+    },
+    "features": {
+      "portal_default_tab": "bed-calendar",
+      "inventory_model": "lodging_rooms_beds",
+      "hidden_tabs": [],
+      "consumers": [
+        "scripts/lib/staff-portal-clients.js"
+      ]
+    },
+    "inventory": {
+      "baseline_path": "rooming.rooms",
+      "consumers": [
+        "scripts/lib/staff-portal-clients.js"
+      ]
+    }
+  },
+  "consumer_categories": [
+    "pricing_services_schedule_profile_consumers",
+    "physical_site_keys",
+    "registries"
+  ],
+  "legacy_compatibility": {
+    "loads_via_existing_baseline_without_factory_migration": true,
+    "factory_templates_are_not_runtime_loaded": true,
+    "reference_pair_bytes_must_remain_unchanged": [
+      "config/clients/wolfhouse-somo.baseline.json",
+      "config/clients/wolfhouse-somo.pricing.json"
+    ]
+  }
+}
