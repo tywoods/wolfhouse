@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '9da228436c21bf7777cee553c91877a7e62a4092';
+const MASTER_BASIS = '66e34a5833ff3bcc7f297108f594b4fc58a0eccc';
+const MASTER_BASIS_16AP = '66e34a5833ff3bcc7f297108f594b4fc58a0eccc';
 const MASTER_BASIS_16AO = '9da228436c21bf7777cee553c91877a7e62a4092';
 const MASTER_BASIS_16AN = '63ba28fe4149609db8277e7ebb8a80e5f1d18945';
 const MASTER_BASIS_16AM = '905ff9ff57a75d0b3defc15a16078b47e94e930f';
@@ -41,6 +42,7 @@ const MASTER_BASIS_16AL = '502d762f897432c67bb8b17a8a49bfab01a0787d';
 const BRANCH_16AM = 'radar/slice-16am-g06-backpressure-deploy-evidence';
 const BRANCH_16AN = 'radar/slice-16an-g06-wolfhouse-ingress-binding';
 const BRANCH_16AO = 'radar/slice-16ao-g06-backpressure-activation-evidence';
+const BRANCH_16AP = 'radar/slice-16ap-finite-closeout';
 const BRANCH_16AD = 'radar/slice-16ad-g02-sampled-restart-continuity-evidence';
 const BRANCH_16AC = 'radar/slice-16ac-organic-restart-alert-evidence';
 const BRANCH_16AB = 'radar/slice-16ab-g02-readyz503-evidence';
@@ -420,7 +422,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 runtime paths unchanged vs master basis (16AO evidence-only; freeze paths clean vs 9da22843)',
+ok('F39 runtime paths unchanged vs master basis (16AP closeout docs/fixtures/verifier only; freeze paths clean vs 66e34a58)',
   rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
@@ -488,11 +490,13 @@ const slice16alContract = readJson(path.join(FIXTURE_DIR, 'slice16al-expected-co
 const slice16amContract = readJson(path.join(FIXTURE_DIR, 'slice16am-expected-contract.json'));
 const slice16anContract = readJson(path.join(FIXTURE_DIR, 'slice16an-expected-contract.json'));
 const slice16aoContract = readJson(path.join(FIXTURE_DIR, 'slice16ao-expected-contract.json'));
-ok('F48 gate-matrix branch pin equals 16AO tip contract + HEAD (16AN/16AM/16AL/16AK/16AJ/16AI/16AH/16AG locks retained)',
-  matrix.branch === BRANCH_16AO
-  && contract.branch === BRANCH_16AO
+const slice16apContract = readJson(path.join(FIXTURE_DIR, 'slice16ap-expected-contract.json'));
+ok('F48 gate-matrix branch pin equals 16AP tip contract + HEAD (16AO/16AN/16AM/16AL locks retained)',
+  matrix.branch === BRANCH_16AP
+  && contract.branch === BRANCH_16AP
+  && slice16apContract.branch === BRANCH_16AP
+  && headBranch === BRANCH_16AP
   && slice16aoContract.branch === BRANCH_16AO
-  && headBranch === BRANCH_16AO
   && slice16anContract.branch === BRANCH_16AN
   && slice16amContract.branch === BRANCH_16AM
   && slice16alContract.branch === BRANCH_16AL
@@ -501,7 +505,7 @@ ok('F48 gate-matrix branch pin equals 16AO tip contract + HEAD (16AN/16AM/16AL/1
   && slice16aiContract.branch === BRANCH_16AI
   && slice16ahContract.branch === BRANCH_16AH
   && slice16agContract.branch === BRANCH_16AG,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16ao=${slice16aoContract.branch} slice16an=${slice16anContract.branch} head=${headBranch}`);
+  `matrix=${matrix.branch} contract=${contract.branch} slice16ap=${slice16apContract.branch} slice16ao=${slice16aoContract.branch} head=${headBranch}`);
 ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC/16AD/16AF contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
@@ -1476,12 +1480,63 @@ ok('F224 16AO does not claim overload shed / backpressure proven / production / 
   && /auth-rejection|expected 403|not overload/i.test(doc)
   && /18\.5705435806452/.test(doc)
   && MASTER_BASIS_16AO === '9da228436c21bf7777cee553c91877a7e62a4092');
-ok('F225 score unchanged after 16AO (proven=0 partial=9 absent=0)',
+ok('F225 score unchanged after 16AO (proven=0 partial=9 absent=0; 16AO contract basis retained)',
   contract.expected_verdict_counts.proven === 0
   && contract.expected_verdict_counts.partial === 9
   && contract.expected_verdict_counts.absent === 0
-  && slice16aoContract.master_basis === MASTER_BASIS_16AO
-  && matrix.master_basis === MASTER_BASIS_16AO);
+  && slice16aoContract.master_basis === MASTER_BASIS_16AO);
+
+const sel16ap = matrix.slice_16ap_selection;
+ok('F226 exactly one 16AP selection',
+  sel16ap && sel16ap.selected === true
+  && sel16ap.outcome_id === '16AP_finite_milestone_closeout'
+  && sel16ap.progress_class === 'finite_milestone_closeout_staging_readiness_only'
+  && sel16ap.staging_readiness_exit_status === 'complete_under_bounded_staging_readiness_exit'
+  && sel16ap.formal_gates_status === 'all_nine_remain_partial'
+  && sel16ap.frozen_score
+  && sel16ap.frozen_score.proven === 0
+  && sel16ap.frozen_score.partial === 9
+  && sel16ap.frozen_score.absent === 0
+  && sel16ap.g06_backpressure === 'open');
+ok('F227 contract selected_16ap matches',
+  contract.selected_16ap
+  && contract.selected_16ap.outcome_id === '16AP_finite_milestone_closeout'
+  && contract.selected_16ap.formal_gates_status === 'all_nine_remain_partial'
+  && contract.selected_16ap.staging_readiness_exit_status === 'complete_under_bounded_staging_readiness_exit'
+  && contract.radar_current_stage === 'complete_under_bounded_staging_readiness_exit'
+  && contract.formal_gates_status === 'all_nine_remain_partial'
+  && Array.isArray(contract.reopen_triggers)
+  && contract.reopen_triggers.includes('production_launch')
+  && contract.reopen_triggers.includes('third_tenant_factory')
+  && contract.factory_handoff_gate === '16AP_FACTORY_handoff_gate'
+  && contract.g06_admission_activation === 'live_proven_via_16AO'
+  && contract.g06_backpressure === 'open');
+ok('F228 16AP fixtures + verifier present',
+  pathExists('fixtures/radar-operations/slice16ap-finite-closeout.json')
+  && pathExists('fixtures/radar-operations/slice16ap-expected-contract.json')
+  && pathExists('scripts/lib/radar-slice16ap-finite-closeout.js')
+  && pathExists('scripts/verify-radar-slice16ap-finite-closeout.js'));
+ok('F229 16AP does not claim gate proven / production ready / full G06 / gap erasure',
+  /runtime_iac_live_mutation|gate_proven|production_ready|full_g06|gap_erasure|endless_radar/i.test(
+    String(sel16ap.does_not_implement || ''))
+  && docLacksBareOverclaim(doc, [/\bG06\s+proven\b/i, /\bfull\s+G06\b/i, /\bproduction\s+ready\b/i, /\ball\s+gates\s+proven\b/i])
+  && /16AP/i.test(doc)
+  && /16AP/i.test(findings)
+  && /staging-readiness|staging readiness/i.test(doc)
+  && /reopen/i.test(doc)
+  && /FACTORY handoff|factory_handoff/i.test(doc)
+  && /deferred owner|residual risk/i.test(doc)
+  && MASTER_BASIS_16AP === '66e34a5833ff3bcc7f297108f594b4fc58a0eccc');
+ok('F230 score frozen after 16AP (proven=0 partial=9 absent=0)',
+  contract.expected_verdict_counts.proven === 0
+  && contract.expected_verdict_counts.partial === 9
+  && contract.expected_verdict_counts.absent === 0
+  && slice16apContract.master_basis === MASTER_BASIS_16AP
+  && matrix.master_basis === MASTER_BASIS_16AP
+  && matrix.verdict_counts.proven === 0
+  && matrix.verdict_counts.partial === 9
+  && matrix.verdict_counts.absent === 0
+  && (matrix.gates || []).every((g) => g.verdict === 'partial'));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

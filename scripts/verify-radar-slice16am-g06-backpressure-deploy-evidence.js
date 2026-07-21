@@ -333,10 +333,11 @@ const doc = readText('docs/RADAR-OPERATIONS-GATE-LEDGER.md');
 const findings = readText('fixtures/radar-operations/findings.md');
 const pkg = readJson('package.json');
 
-ok('C1 HEAD on 16AM branch (or later 16AN/16AO tip retaining 16AM)',
+ok('C1 HEAD on 16AM branch (or later 16AN/16AO/16AP tip retaining 16AM)',
   currentBranch() === locks.BRANCH
   || currentBranch() === 'radar/slice-16an-g06-wolfhouse-ingress-binding'
-  || currentBranch() === 'radar/slice-16ao-g06-backpressure-activation-evidence',
+  || currentBranch() === 'radar/slice-16ao-g06-backpressure-activation-evidence'
+  || currentBranch() === 'radar/slice-16ap-finite-closeout',
   currentBranch());
 ok('C2 evidence master_basis locked', evidence.master_basis === locks.MASTER_BASIS);
 ok('C3 slice/outcome/branch locked',
@@ -449,8 +450,8 @@ green('16al_wire_source_retained',
   && topContract.g06_backpressure === 'open');
 
 ok('C7 tip matrix/contract 16AM (or later 16AN/16AO tip) + selected_16am',
-  (matrix.slice === 'RADAR-16AM' || matrix.slice === 'RADAR-16AN' || matrix.slice === 'RADAR-16AO')
-  && (topContract.slice === 'RADAR-16AM' || topContract.slice === 'RADAR-16AN' || topContract.slice === 'RADAR-16AO')
+  (matrix.slice === 'RADAR-16AM' || matrix.slice === 'RADAR-16AN' || matrix.slice === 'RADAR-16AO' || matrix.slice === 'RADAR-16AP')
+  && (topContract.slice === 'RADAR-16AM' || topContract.slice === 'RADAR-16AN' || topContract.slice === 'RADAR-16AO' || topContract.slice === 'RADAR-16AP')
   && matrix.slice_16am_selection
   && matrix.slice_16am_selection.outcome_id === locks.OUTCOME_ID
   && topContract.selected_16am
@@ -472,6 +473,13 @@ ok('C7 tip matrix/contract 16AM (or later 16AN/16AO tip) + selected_16am',
       && topContract.branch === 'radar/slice-16ao-g06-backpressure-activation-evidence'
       && topContract.g06_admission_activation === 'live_proven_via_16AO'
       && topContract.g06_ingress_binding_source === 'source_deploy_config_proven_via_16AN')
+    || (matrix.slice === 'RADAR-16AP'
+      && matrix.branch === 'radar/slice-16ap-finite-closeout'
+      && topContract.branch === 'radar/slice-16ap-finite-closeout'
+      && topContract.g06_admission_activation === 'live_proven_via_16AO'
+      && topContract.g06_ingress_binding_source === 'source_deploy_config_proven_via_16AN'
+      && topContract.selected_16ap
+      && topContract.selected_16ap.outcome_id === '16AP_finite_milestone_closeout')
   ));
 
 ok('C8 doc/findings mention 16AM without overclaim',
