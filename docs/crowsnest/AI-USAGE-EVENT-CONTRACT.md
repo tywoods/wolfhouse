@@ -65,7 +65,7 @@ Independent discovery found **no** existing Crowsnest usage store or production 
 
 ## Next slice
 
-Adapt provider result into this event shape **without persisting**, and only after a trusted tenant-context design exists for emitters. Storage / Spyglass UI remain later work.
+**Slice 3 (adapter)** adapts provider results into this event shape **without persisting** — see [`AI-USAGE-ADAPTER.md`](AI-USAGE-ADAPTER.md). Storage / Spyglass UI / runtime wiring remain later work.
 
 ## Verify
 

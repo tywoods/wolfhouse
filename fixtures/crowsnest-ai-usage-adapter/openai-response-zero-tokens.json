@@ -1,0 +1,15 @@
+{
+  "model": "gpt-example-mini",
+  "choices": [
+    {
+      "message": {
+        "content": "empty usage path must not copy this"
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  }
+}

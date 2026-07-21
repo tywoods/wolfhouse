@@ -15,8 +15,11 @@ const CLIENTS_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-c
 const ONBOARDING_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-onboarding.js');
 const AUTH_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-auth.js');
 const AI_USAGE_CONTRACT_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-ai-usage-contract.js');
+const AI_USAGE_ADAPTER_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-ai-usage-adapter.js');
 const AI_USAGE_DOC_PATH = path.join(ROOT, 'docs', 'crowsnest', 'AI-USAGE-EVENT-CONTRACT.md');
+const AI_USAGE_ADAPTER_DOC_PATH = path.join(ROOT, 'docs', 'crowsnest', 'AI-USAGE-ADAPTER.md');
 const AI_USAGE_VERIFY_PATH = path.join(ROOT, 'scripts', 'verify-crowsnest-ai-usage-contract.js');
+const AI_USAGE_ADAPTER_VERIFY_PATH = path.join(ROOT, 'scripts', 'verify-crowsnest-ai-usage-adapter.js');
 const DOC_PRODUCT = path.join(ROOT, 'docs', 'CROWSNEST.md');
 const DOC_PLAN = path.join(ROOT, 'docs', 'CROWSNEST-LOCATION-PLAN.md');
 const DOC_DEPLOY = path.join(ROOT, 'docs', 'CROWSNEST-DEPLOY-PLAN.md');
@@ -63,8 +66,11 @@ ok('scripts/lib/crowsnest/crowsnest-clients.js exists', fs.existsSync(CLIENTS_PA
 ok('scripts/lib/crowsnest/crowsnest-onboarding.js exists', fs.existsSync(ONBOARDING_PATH));
 ok('scripts/lib/crowsnest/crowsnest-auth.js exists', fs.existsSync(AUTH_PATH));
 ok('scripts/lib/crowsnest/crowsnest-ai-usage-contract.js exists', fs.existsSync(AI_USAGE_CONTRACT_PATH));
+ok('scripts/lib/crowsnest/crowsnest-ai-usage-adapter.js exists', fs.existsSync(AI_USAGE_ADAPTER_PATH));
 ok('docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md exists', fs.existsSync(AI_USAGE_DOC_PATH));
+ok('docs/crowsnest/AI-USAGE-ADAPTER.md exists', fs.existsSync(AI_USAGE_ADAPTER_DOC_PATH));
 ok('scripts/verify-crowsnest-ai-usage-contract.js exists', fs.existsSync(AI_USAGE_VERIFY_PATH));
+ok('scripts/verify-crowsnest-ai-usage-adapter.js exists', fs.existsSync(AI_USAGE_ADAPTER_VERIFY_PATH));
 
 const apiSrc = read(API_PATH) || '';
 const pageSrc = read(PAGE_PATH) || '';
@@ -353,6 +359,7 @@ ok('package.json has crowsnest:start', pkg && pkg.scripts && typeof pkg.scripts[
 ok('package.json has verify:crowsnest', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest'] === 'string');
 ok('package.json has verify:crowsnest-auth', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-auth'] === 'string');
 ok('package.json has verify:crowsnest-ai-usage-contract', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-contract'] === 'string');
+ok('package.json has verify:crowsnest-ai-usage-adapter', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-adapter'] === 'string');
 
 console.log(`\n── verify:crowsnest: ${pass} passed, ${fail} failed ──`);
 if (fail === 0) {
