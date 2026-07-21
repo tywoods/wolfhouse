@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AN",
+  "outcome_id": "16AN_g06_wolfhouse_ingress_binding",
+  "gate_ids_touched": ["G06_scaling_capacity"],
+  "master_basis": "63ba28fe4149609db8277e7ebb8a80e5f1d18945",
+  "branch": "radar/slice-16an-g06-wolfhouse-ingress-binding",
+  "audit_only": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "progress_class": "source_deploy_config_partial_progress_only",
+  "title": "Dedicated STAFF_API_INGRESS_TENANT_SLUG for admission identity; Wolfhouse/Sunset staging IaC wired; failed canary recorded honestly as identity fail-closed",
+  "diagnosis": {
+    "observation": "Sunset DEFAULT_CLIENT_SLUG=sunset + flag true → --0000281; 80/80 invalid-signature probes 403; ready 200. Wolfhouse no DEFAULT_CLIENT_SLUG + flag true → --0000522; 80/80 probes 503; ready 200. Operator rolled Wolfhouse flag false → --0000523; probe 403. Sunset remains true.",
+    "root_cause": "resolveTrustedIngressBinding used only DEFAULT_CLIENT_SLUG, so Wolfhouse admission failed closed on missing identity (REJECTED_MISSING_TENANT → public 503 without Retry-After overload shape).",
+    "not_overload_shed": true,
+    "classification": "identity_fail_closed_not_overload_shed"
+  },
+  "safety_assessment": {
+    "DEFAULT_CLIENT_SLUG_alone_on_wolfhouse": {
+      "would_fix_admission": true,
+      "unrelated_semantic_risk": true,
+      "chosen": false,
+      "note": "DEFAULT_CLIENT_SLUG also drives portal deploy-default, payment short-link fallback, bot-principal compat, Stripe webhook compat."
+    },
+    "chosen_correction": {
+      "env": "STAFF_API_INGRESS_TENANT_SLUG",
+      "fallback": "DEFAULT_CLIENT_SLUG",
+      "conflict": "fail_closed",
+      "wolfhouse": "wolfhouse-somo (DEFAULT unset)",
+      "sunset": "sunset (matches DEFAULT=sunset)"
+    }
+  },
+  "integration_source_proof": {
+    "id": "16AN_SOURCE_dedicated_ingress_tenant_slug",
+    "status": "source_deploy_config_proven",
+    "pass_rule": "resolveTrustedIngressBinding prefers STAFF_API_INGRESS_TENANT_SLUG, falls back to DEFAULT_CLIENT_SLUG, conflict fail-closed; Wolfhouse staging Bicep sets STAFF_API_INGRESS_TENANT_SLUG=wolfhouse-somo without DEFAULT_CLIENT_SLUG; Sunset sets STAFF_API_INGRESS_TENANT_SLUG=sunset matching DEFAULT_CLIENT_SLUG; REDs cover missing/conflict/spoof and OFF parity; failed canary/rollback recorded as identity fail-closed (not overload shed); no live deploy/mutation by this tip; G06 remains partial"
+  },
+  "failed_canary_rollback": {
+    "id": "16AN_OBSERVED_wolfhouse_admission_activation_fail_closed",
+    "status": "operator_observed_failed_canary_rolled_back",
+    "classification": "identity_fail_closed_not_overload_shed",
+    "sunset": {
+      "DEFAULT_CLIENT_SLUG": "sunset",
+      "flag": true,
+      "revision": "luna-sunset-staging-staff-api--0000281",
+      "probes": "80/80 invalid-signature → 403",
+      "readyz": 200,
+      "flag_after": true
+    },
+    "wolfhouse": {
+      "DEFAULT_CLIENT_SLUG": null,
+      "flag_on_fail": true,
+      "revision_on_fail": "wh-staging-staff-api--0000522",
+      "probes_on_fail": "80/80 → 503",
+      "readyz": 200,
+      "rollback_flag": false,
+      "revision_after_rollback": "wh-staging-staff-api--0000523",
+      "probe_after_rollback": 403
+    }
+  },
+  "owner_files": [
+    "scripts/lib/staff-api-request-correlation.js",
+    "scripts/staff-query-api.js",
+    "infra/azure/staging/main.bicep",
+    "infra/azure/sunset-staging/main.bicep",
+    "infra/.env.example",
+    "scripts/lib/radar-slice16an-g06-wolfhouse-ingress-binding.js",
+    "scripts/verify-radar-slice16an-g06-wolfhouse-ingress-binding.js",
+    "fixtures/radar-operations/slice16an-expected-contract.json",
+    "fixtures/radar-operations/slice16an-g06-wolfhouse-ingress-binding-contract.json"
+  ],
+  "claim_ownership": {
+    "dedicated_ingress_tenant_source": {
+      "proves": [
+        "STAFF_API_INGRESS_TENANT_SLUG preferred over DEFAULT_CLIENT_SLUG",
+        "conflict fail-closed",
+        "Wolfhouse/Sunset staging IaC wired explicitly",
+        "REDs for missing/conflict/spoof/OFF parity",
+        "failed canary recorded as identity fail-closed not overload"
+      ],
+      "does_not_prove": [
+        "live deploy by this tip",
+        "flag enable by this tip",
+        "live overload shed",
+        "backpressure proven",
+        "raising G06 to proven"
+      ]
+    }
+  },
+  "score": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0
+  },
+  "g06_verdict": "partial"
+}

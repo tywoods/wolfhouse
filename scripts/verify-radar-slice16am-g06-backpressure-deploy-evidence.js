@@ -333,7 +333,10 @@ const doc = readText('docs/RADAR-OPERATIONS-GATE-LEDGER.md');
 const findings = readText('fixtures/radar-operations/findings.md');
 const pkg = readJson('package.json');
 
-ok('C1 HEAD on 16AM branch', currentBranch() === locks.BRANCH, currentBranch());
+ok('C1 HEAD on 16AM branch (or later 16AN tip retaining 16AM)',
+  currentBranch() === locks.BRANCH
+  || currentBranch() === 'radar/slice-16an-g06-wolfhouse-ingress-binding',
+  currentBranch());
 ok('C2 evidence master_basis locked', evidence.master_basis === locks.MASTER_BASIS);
 ok('C3 slice/outcome/branch locked',
   evidence.slice === locks.SLICE
@@ -444,19 +447,26 @@ green('16al_wire_source_retained',
   && topContract.selected_16al.outcome_id === '16AL_g06_backpressure_wire'
   && topContract.g06_backpressure === 'open');
 
-ok('C7 tip matrix/contract 16AM + selected_16am',
-  matrix.slice === 'RADAR-16AM'
-  && matrix.branch === locks.BRANCH
-  && matrix.master_basis === locks.MASTER_BASIS
-  && topContract.slice === 'RADAR-16AM'
-  && topContract.branch === locks.BRANCH
-  && topContract.master_basis === locks.MASTER_BASIS
+ok('C7 tip matrix/contract 16AM (or later 16AN tip) + selected_16am',
+  (matrix.slice === 'RADAR-16AM' || matrix.slice === 'RADAR-16AN')
+  && (topContract.slice === 'RADAR-16AM' || topContract.slice === 'RADAR-16AN')
   && matrix.slice_16am_selection
   && matrix.slice_16am_selection.outcome_id === locks.OUTCOME_ID
   && topContract.selected_16am
   && topContract.selected_16am.outcome_id === locks.OUTCOME_ID
   && topContract.g06_backpressure_deploy_flag_off === 'live_proven_via_16AM'
-  && topContract.selected_16am.flag_enabled === false);
+  && topContract.selected_16am.flag_enabled === false
+  && (
+    (matrix.slice === 'RADAR-16AM'
+      && matrix.branch === locks.BRANCH
+      && matrix.master_basis === locks.MASTER_BASIS
+      && topContract.branch === locks.BRANCH
+      && topContract.master_basis === locks.MASTER_BASIS)
+    || (matrix.slice === 'RADAR-16AN'
+      && matrix.branch === 'radar/slice-16an-g06-wolfhouse-ingress-binding'
+      && topContract.branch === 'radar/slice-16an-g06-wolfhouse-ingress-binding'
+      && topContract.g06_ingress_binding_source === 'source_deploy_config_proven_via_16AN')
+  ));
 
 ok('C8 doc/findings mention 16AM without overclaim',
   /16AM/i.test(doc)

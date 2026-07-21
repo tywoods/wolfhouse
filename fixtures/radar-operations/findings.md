@@ -1,8 +1,9 @@
-# RADAR findings (16A freeze + 16B–16Z partials + 16AA–16AD G02 + 16AF–16AM G06)
+# RADAR findings (16A freeze + 16B–16Z partials + 16AA–16AD G02 + 16AF–16AN G06)
 
-**Master basis (16AM):** `905ff9ff57a75d0b3defc15a16078b47e94e930f`
+**Master basis (16AN):** `63ba28fe4149609db8277e7ebb8a80e5f1d18945`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
-**16AM progress class:** `partial_live_proven_evidence_only` (dual-staging **deploy** of 16AL Staff API image with `STAFF_API_ADMISSION_CONTROL` **OFF/unset**; ACR cb11f + digest/tag locked; WH revision `0000521`; Sunset latestReady `g02503r` name unchanged while image changed; both `/readyz` ready; Sunset MTD ActualCost identical **18.4680092365591 USD**; does **not** claim flag enable, live shed, raising backpressure/G06 verdicts; G06 remains partial).
+**16AN progress class:** `source_deploy_config_partial_progress_only` (dedicated `STAFF_API_INGRESS_TENANT_SLUG` + Wolfhouse/Sunset staging IaC; failed WH canary recorded as **identity fail-closed** not overload shed; no live deploy by this tip; G06 remains partial).
+**16AM progress class (retained):** `partial_live_proven_evidence_only` (dual-staging **deploy** of 16AL Staff API image with `STAFF_API_ADMISSION_CONTROL` **OFF/unset**; ACR cb11f + digest/tag locked; WH revision `0000521`; Sunset latestReady `g02503r` name unchanged while image changed; both `/readyz` ready; Sunset MTD ActualCost identical **18.4680092365591 USD**; does **not** claim flag enable, live shed, raising backpressure/G06 verdicts; G06 remains partial).
 **16AL progress class (retained):** `integration_source_partial_progress_only` (Staff API admission-control **wire** behind flag default **OFF**; deterministic fake req/res integration source proof).
 **16AK progress class (retained):** `source_partial_progress_only` (tenant-safe admission/backpressure source contract + pure state machine + offline RED/GREEN).
 ## Verdict rollup
@@ -14,7 +15,7 @@
 | absent | 0 |
 | **total** | **9** |
 
-## Critical gaps (still open — explicitly not claimed by 16AM)
+## Critical gaps (still open — explicitly not claimed by 16AN)
 
 1. **G01-A live Meta → Hermes → Staff correlated read path** — design frozen (16U); live open.
 2. **Central capability boundary** — prerequisite before dry-run.
@@ -23,15 +24,15 @@
 5. Autoscaling (rules=null) — **not claimed**.
 6. Capacity SLO / error budget **live** proof — **not claimed** (16AJ defines availability-only source contract + calculator only; burn alert/drill acceptance `defined_not_executed`).
 7. Latency percentile SLI — **blocked** pending joint request telemetry/instrumentation (not part of 16AJ SLO; no ACA duration histogram / p99≤500ms / combined intersection).
-8. Backpressure **runtime/live** — **not claimed** (16AK source + 16AL wire source + **16AM deploy with flag OFF/unset**; flag not enabled; no live 503 shed proof).
-9. Admission flag enable / controller activation — **not claimed** (16AM proves deploy-with-flag-OFF only).
+8. Backpressure **runtime/live** — **not claimed** (16AK source + 16AL wire source + **16AM deploy with flag OFF/unset** + **16AN ingress-identity source**; flag not re-enabled on Wolfhouse after rollback; no live overload 503 shed proof).
+9. Admission flag enable / controller activation — **not claimed** (operator canary failed on Wolfhouse for missing ingress identity; 16AN ships source/IaC only; live re-activation open).
 10. Absolute/continuous zero downtime / cold-start — **not claimed** (16AD sampling-resolution only).
 11. Human inbox receipt — **not claimed** (organic restart fire closed via 16AC).
 12. Requests 5xx alert firing — **not claimed**.
 13. Production — forbidden.
 14. Raising any gate verdict to `proven`.
 
-## Gate progress after 16AM (truthful)
+## Gate progress after 16AN (truthful)
 
 | Gate | progress_class | Notes |
 |------|----------------|-------|
@@ -40,10 +41,14 @@
 | G03 | partial_live_proven | **16AC** organic restart fire/resolve + **16P** AG test; human inbox open |
 | G04 | partial | backlog open |
 | G05 | source_partial | 16M event-id claim |
-| G06 | partial_live_proven + 16AM deploy flag-OFF + 16AL wire source + 16AK backpressure source + 16AJ SLO source | **16AM** dual-staging 16AL **deploy** with admission flag OFF/unset (digest/tag/WH `0000521`/Sunset latestReady `g02503r` unchanged name/readyz/cost); **16AL** wire source; **16AK** source; **16AJ** SLO source; **16AI** conservative `/readyz` load `live_proven`; **16AF** capacity-alert deploy live; activation/shed/soak/fire/autoscale/SLO **live** open |
+| G06 | partial_live_proven + 16AN ingress identity source + 16AM deploy flag-OFF + 16AL wire source + 16AK backpressure source + 16AJ SLO source | **16AN** dedicated `STAFF_API_INGRESS_TENANT_SLUG` + WH/Sunset IaC; failed WH canary `--0000522` 503 classified identity fail-closed (rollback `--0000523`); **16AM** dual-staging 16AL **deploy** with admission flag OFF/unset; activation/overload-shed/soak/fire/autoscale/SLO **live** open |
 | G07 | partial_live_proven | via 16P rollback |
 | G08 | partial_live_proven | via 16P/16O webhook error minimization |
 | G09 | partial_live_proven | via 16P AG test |
+
+## Slice 16AN
+
+`16AN_g06_wolfhouse_ingress_binding` — diagnose operator-observed Wolfhouse admission activation failure: Sunset (`DEFAULT_CLIENT_SLUG=sunset`, flag true, `--0000281`) returned expected **403** on 80/80 invalid-signature probes with ready **200**; Wolfhouse (no `DEFAULT_CLIENT_SLUG`, flag true, `--0000522`) returned **503** on 80/80 same probes with ready **200**; operator rolled Wolfhouse flag false (`--0000523`, probe **403**); Sunset remains true. Root cause: `resolveTrustedIngressBinding` used only `DEFAULT_CLIENT_SLUG` → missing identity → **identity fail-closed** (not overload shed). Safety: setting Wolfhouse `DEFAULT_CLIENT_SLUG=wolfhouse-somo` alone rejected (unrelated portal/payment/bot/Stripe semantic risk). Ships dedicated immutable **`STAFF_API_INGRESS_TENANT_SLUG`** preferred over `DEFAULT_CLIENT_SLUG` with conflict fail-closed; Wolfhouse Bicep `=wolfhouse-somo` without `DEFAULT_CLIENT_SLUG`; Sunset Bicep `=sunset` matching existing default; REDs for missing/conflict/spoof/OFF parity. **Does not** live-deploy, enable the flag, claim overload shed, or raise G06. Score unchanged (proven=0 / partial=9 / absent=0). G06 remains **partial**.
 
 ## Slice 16AM
 

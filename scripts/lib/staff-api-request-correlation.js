@@ -186,18 +186,73 @@ function validateTrustedIngressBinding(binding) {
 }
 
 /**
+ * Dedicated immutable Staff API ingress-tenant env (RADAR 16AN).
+ * Prefer this over DEFAULT_CLIENT_SLUG so admission identity does not silently
+ * alter unrelated portal / payment / bot / Stripe route defaults.
+ */
+const STAFF_API_INGRESS_TENANT_SLUG_ENV = 'STAFF_API_INGRESS_TENANT_SLUG';
+const DEFAULT_CLIENT_SLUG_ENV = 'DEFAULT_CLIENT_SLUG';
+
+/**
  * Resolve trusted ingress binding from explicit options or process env.
- * Uses DEFAULT_CLIENT_SLUG only (deployment ingress binding) — never request input.
+ * Priority (deployment ingress binding only — never request input):
+ *   1. STAFF_API_INGRESS_TENANT_SLUG (dedicated, preferred)
+ *   2. DEFAULT_CLIENT_SLUG nonempty compat fallback
+ *   3. Both set and conflicting → fail closed (tenant_slug null)
+ *   4. Neither set → absent
  * @param {unknown} [explicit]
  * @param {NodeJS.ProcessEnv} [env]
- * @returns {{ tenant_slug: string|null, present: boolean }}
+ * @returns {{
+ *   tenant_slug: string|null,
+ *   present: boolean,
+ *   source?: string|null,
+ *   conflict?: boolean,
+ * }}
  */
 function resolveTrustedIngressBinding(explicit, env = process.env) {
   if (explicit && typeof explicit === 'object' && !Array.isArray(explicit)) {
     return validateTrustedIngressBinding(explicit);
   }
-  return validateTrustedIngressBinding({
-    tenant_slug: env && env.DEFAULT_CLIENT_SLUG,
+  const src = env || {};
+  const dedicatedRaw = src[STAFF_API_INGRESS_TENANT_SLUG_ENV];
+  const defaultRaw = src[DEFAULT_CLIENT_SLUG_ENV];
+  const dedicated = dedicatedRaw != null ? String(dedicatedRaw).trim() : '';
+  const fallback = defaultRaw != null ? String(defaultRaw).trim() : '';
+
+  if (dedicated && fallback && dedicated !== fallback) {
+    return Object.freeze({
+      tenant_slug: null,
+      present: false,
+      source: null,
+      conflict: true,
+    });
+  }
+
+  if (dedicated) {
+    const binding = validateTrustedIngressBinding({ tenant_slug: dedicated });
+    return Object.freeze({
+      tenant_slug: binding.tenant_slug,
+      present: binding.present,
+      source: binding.present ? STAFF_API_INGRESS_TENANT_SLUG_ENV : null,
+      conflict: false,
+    });
+  }
+
+  if (fallback) {
+    const binding = validateTrustedIngressBinding({ tenant_slug: fallback });
+    return Object.freeze({
+      tenant_slug: binding.tenant_slug,
+      present: binding.present,
+      source: binding.present ? DEFAULT_CLIENT_SLUG_ENV : null,
+      conflict: false,
+    });
+  }
+
+  return Object.freeze({
+    tenant_slug: null,
+    present: false,
+    source: null,
+    conflict: false,
   });
 }
 
@@ -293,6 +348,8 @@ module.exports = {
   CORRELATION_HEADER,
   CORRELATION_HEADER_CANON,
   UUID_V4_RE,
+  STAFF_API_INGRESS_TENANT_SLUG_ENV,
+  DEFAULT_CLIENT_SLUG_ENV,
   generateRequestId,
   acceptOrGenerateRequestId,
   pathnameOnly,

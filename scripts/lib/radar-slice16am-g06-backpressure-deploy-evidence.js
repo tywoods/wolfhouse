@@ -135,11 +135,8 @@ const OWNED_RELS = Object.freeze([
 const MUST_NOT_MUTATE = Object.freeze([
   'database/',
   'docker/hermes-staging/',
-  'scripts/staff-query-api.js',
   'scripts/lib/staff-api-admission-boundary.js',
   'scripts/lib/radar-g06-admission-control.js',
-  'infra/azure/staging/main.bicep',
-  'infra/azure/sunset-staging/main.bicep',
   'infra/azure/staging-staff-api-metric-alerts/',
   'infra/azure/staging-cost-budgets/',
 ]);

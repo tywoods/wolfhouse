@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AN",
+  "outcome_id": "16AN_g06_wolfhouse_ingress_binding",
+  "gate_ids": ["G06_scaling_capacity"],
+  "progress_class": "source_deploy_config_partial_progress_only",
+  "master_basis": "63ba28fe4149609db8277e7ebb8a80e5f1d18945",
+  "branch": "radar/slice-16an-g06-wolfhouse-ingress-binding",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "this_slice_enables_flag": false,
+  "title": "G06 Wolfhouse admission ingress identity — dedicated STAFF_API_INGRESS_TENANT_SLUG with DEFAULT_CLIENT_SLUG fallback; failed canary recorded as identity fail-closed (not overload shed); G06 partial",
+  "design_fixture": "fixtures/radar-operations/slice16an-g06-wolfhouse-ingress-binding-contract.json",
+  "builds_on": [
+    "16AM_g06_backpressure_deploy_evidence",
+    "16AL_g06_backpressure_wire",
+    "16AK_g06_backpressure_source",
+    "16J_staff_request_correlation"
+  ],
+  "ingress_tenant": {
+    "dedicated_env": "STAFF_API_INGRESS_TENANT_SLUG",
+    "compat_fallback_env": "DEFAULT_CLIENT_SLUG",
+    "conflict": "fail_closed",
+    "wolfhouse_staging": {
+      "STAFF_API_INGRESS_TENANT_SLUG": "wolfhouse-somo",
+      "DEFAULT_CLIENT_SLUG": null
+    },
+    "sunset_staging": {
+      "STAFF_API_INGRESS_TENANT_SLUG": "sunset",
+      "DEFAULT_CLIENT_SLUG": "sunset"
+    }
+  },
+  "failed_canary_rollback": {
+    "id": "16AN_OBSERVED_wolfhouse_admission_activation_fail_closed",
+    "status": "operator_observed_failed_canary_rolled_back",
+    "classification": "identity_fail_closed_not_overload_shed",
+    "wolfhouse_revision_on_fail": "wh-staging-staff-api--0000522",
+    "wolfhouse_revision_after_rollback": "wh-staging-staff-api--0000523",
+    "sunset_revision": "luna-sunset-staging-staff-api--0000281",
+    "sunset_flag_remains": true
+  },
+  "final_controlled_drill": {
+    "id": "16AN_SOURCE_dedicated_ingress_tenant_slug",
+    "status": "source_deploy_config_proven",
+    "pass_rule": "See slice16an-g06-wolfhouse-ingress-binding-contract.json integration_source_proof"
+  },
+  "g06_verdict": "partial",
+  "g06_backpressure_source": "source_defined_via_16AK",
+  "g06_backpressure_wire_source": "integration_source_proven_via_16AL",
+  "g06_backpressure_deploy_flag_off": "live_proven_via_16AM",
+  "g06_ingress_binding_source": "source_deploy_config_proven_via_16AN",
+  "g06_backpressure": "open",
+  "g06_backpressure_live": "open",
+  "score": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0
+  },
+  "explicitly_not_claimed": [
+    "live_deploy_by_this_slice",
+    "live_mutation_by_this_slice",
+    "flag_enabled_by_this_slice",
+    "live_503_overload_shed",
+    "backpressure_proven",
+    "backpressure_live",
+    "load_soak_proof",
+    "autoscaling",
+    "capacity_slo_proven",
+    "production",
+    "full_G06_proven",
+    "setting_DEFAULT_CLIENT_SLUG_alone_on_wolfhouse"
+  ]
+}
