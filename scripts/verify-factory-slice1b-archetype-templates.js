@@ -7,6 +7,9 @@
  * config/archetypes/. Exact schemas, cross-file refs, tenant/location
  * isolation, and adversarial secret/live-target/missing-field/default-enable
  * REDs. No network, no DB, no generator, no runtime loading, no deploy.
+ *
+ * Reference-byte checks use working-tree hash-object vs pinned master blobs
+ * (never HEAD:path). Archetype file sets are enumerated from disk.
  */
 
 const fs = require('fs');
@@ -66,17 +69,6 @@ function tipPathsAllowed(changedPaths) {
     if (!okPath) bad.push(p);
   }
   return { ok: bad.length === 0, bad };
-}
-
-function gitBlobSha(rel) {
-  try {
-    return execSync(`git rev-parse HEAD:${rel}`, {
-      cwd: ROOT,
-      encoding: 'utf8',
-    }).trim();
-  } catch (err) {
-    return `__missing__:${err && err.message}`;
-  }
 }
 
 function loadArchetypeBundle(archetypeId) {
@@ -209,10 +201,17 @@ ok('no client instance baselines under archetypes', (() => {
   return hit.length === 0;
 })());
 
-// ── Preserve Wolfhouse/Sunset reference bytes ───────────────────────────────
-console.log('\n── Preserve reference pair bytes ──');
-for (const [rel, sha] of Object.entries(locks.PRESERVED_REFERENCE_BLOBS)) {
-  ok(`unchanged blob ${rel}`, gitBlobSha(rel) === sha, `got ${gitBlobSha(rel)}`);
+// ── Preserve Wolfhouse/Sunset reference bytes (working-tree vs master) ───────
+console.log('\n── Preserve reference pair bytes (working-tree vs master) ──');
+{
+  const errs = locks.validateReferenceBytesAgainstMaster(ROOT);
+  ok('working-tree reference bytes match master blobs',
+    errs.length === 0,
+    errs.slice(0, 6).join(','));
+  for (const [rel, sha] of Object.entries(locks.PRESERVED_REFERENCE_BLOBS)) {
+    const wt = locks.workingTreeBlobShaSafe(ROOT, rel);
+    ok(`wt hash-object ${rel}`, wt === sha, `got ${wt}`);
+  }
 }
 
 // ── Schema / cross-file / isolation GREEN ───────────────────────────────────
@@ -228,7 +227,7 @@ const school = loadArchetypeBundle('surf_school_shop');
     ...locks.validatePricingTemplate(house.pricing),
     ...locks.validateCrossFileReferences({ ...house, archetypeId: 'surf_house' }),
   ];
-  green('G1_surf_house_schema_valid', e.length === 0, e.slice(0, 8).join(','));
+  green('G1_surf_house_schema_valid', e.length === 0, e.slice(0, 12).join(','));
 }
 {
   const e = [
@@ -237,7 +236,7 @@ const school = loadArchetypeBundle('surf_school_shop');
     ...locks.validateBaselineTemplate(school.baseline, 'surf_school_shop'),
     ...locks.validateCrossFileReferences({ ...school, archetypeId: 'surf_school_shop' }),
   ];
-  green('G2_surf_school_shop_schema_valid', e.length === 0, e.slice(0, 8).join(','));
+  green('G2_surf_school_shop_schema_valid', e.length === 0, e.slice(0, 12).join(','));
 }
 
 green('G3_tenant_location_isolation',
@@ -261,20 +260,36 @@ green('G5_all_enablement_off',
   locks.validateEnablementOff(house.baseline, 'surf_house').length === 0
   && locks.validateEnablementOff(school.baseline, 'surf_school_shop').length === 0);
 
-green('G6_exact_archetype_file_set',
-  locks.deepEqual(
-    Object.keys(locks.ARCHETYPE_FILES).sort(),
-    ['surf_house', 'surf_school_shop'],
-  )
-  && locks.ARCHETYPE_FILES.surf_house.length === 5
-  && locks.ARCHETYPE_FILES.surf_school_shop.length === 4);
+{
+  const enumErrs = locks.validateArchetypeFileSets(ROOT);
+  const enumerated = locks.enumerateArchetypeFileSets(ROOT);
+  green('G6_exact_archetype_file_set',
+    enumErrs.length === 0
+    && locks.deepEqual(enumerated.dirs, ['surf_house', 'surf_school_shop'])
+    && locks.deepEqual(enumerated.files.surf_house, [...locks.ARCHETYPE_FILES.surf_house].sort())
+    && locks.deepEqual(
+      enumerated.files.surf_school_shop,
+      [...locks.ARCHETYPE_FILES.surf_school_shop].sort(),
+    ),
+    enumErrs.slice(0, 4).join(','));
+}
+
+green('G7_pricing_quote_calculator_shape',
+  locks.validatePricingTemplate(house.pricing).length === 0
+  && house.pricing
+  && !Object.prototype.hasOwnProperty.call(house.pricing, 'addons')
+  && !Object.prototype.hasOwnProperty.call(house.pricing, 'deposit')
+  && !!house.pricing.add_ons
+  && !!house.pricing.deposits
+  && !!house.pricing.room_supplements
+  && !!house.pricing.rounding
+  && !!house.pricing.hold);
 
 // ── Adversarial REDs ────────────────────────────────────────────────────────
 console.log('\n── Adversarial REDs ──');
 
 {
   const bad = clone(house);
-  // Assemble without a literal sk_live_… token so push protection is not tripped.
   bad.baseline.secrets.stripe_embedded = ['sk', 'live', '51FakeLiveSecretValue0001'].join('_');
   const tmp = writeTempBundle({ surf_house: bad, surf_school_shop: school });
   try {
@@ -365,7 +380,6 @@ console.log('\n── Adversarial REDs ──');
 {
   const badHouse = clone(house);
   const badSchool = clone(school);
-  // Force a location-token collision across archetypes.
   badSchool.compatibility.registry_shape.location_id_placeholders = [
     '{{LOCATION_ID}}',
     '{{LOCATION_ID_X}}',
@@ -402,6 +416,174 @@ console.log('\n── Adversarial REDs ──');
     errs.some((e) => /confirmation_send_mode_not_gated/.test(e)));
 }
 
+{
+  const bad = clone(house);
+  for (const pkg of bad.pricing.packages) delete pkg.seasonal_prices;
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R13_seasonal_prices_deletion_rejected',
+    errs.some((e) => /pricing_seasonal_prices_missing/.test(e)));
+}
+
+{
+  const bad = clone(school);
+  const first = Object.keys(bad.baseline.catalog.rentals.offerings)[0];
+  delete bad.baseline.catalog.rentals.offerings[first].prices_eur;
+  const errs = locks.validateBaselineTemplate(bad.baseline, 'surf_school_shop');
+  red('R14_rental_prices_eur_deletion_rejected',
+    errs.some((e) => /rental_prices_eur_missing/.test(e)));
+}
+
+{
+  const bad = clone(school);
+  delete bad.baseline.catalog.lessons.scheduling.common_slot_times;
+  const errs = locks.validateBaselineTemplate(bad.baseline, 'surf_school_shop');
+  red('R15_schedule_field_deletion_rejected',
+    errs.some((e) => (
+      /lessons_scheduling_common_slot_times_missing/.test(e)
+      || /baseline:catalog\.lessons\.scheduling\.common_slot_times/.test(e)
+    )));
+}
+
+{
+  const bad = clone(school);
+  bad.baseline.locations = [
+    { location_id: '{{LOCATION_ID_1}}', display_name: 'a' },
+    { location_id: '{{LOCATION_ID_1}}', display_name: 'b' },
+  ];
+  const errs = locks.validateBaselineTemplate(bad.baseline, 'surf_school_shop');
+  red('R16_duplicate_location_ids_rejected',
+    errs.includes('surf_school_shop_location_id_duplicate'));
+}
+
+{
+  const bad = clone(school);
+  bad.compatibility.registry_shape.location_id_placeholders = [
+    '{{LOCATION_ID_1}}',
+    '{{LOCATION_ID_DRIFT}}',
+  ];
+  const errs = locks.validatePlaceholderAlignment({
+    ...bad,
+    archetypeId: 'surf_school_shop',
+    pricing: null,
+  });
+  red('R17_baseline_compat_location_placeholder_drift_rejected',
+    errs.includes('placeholder_drift:LOCATION_IDS'));
+}
+
+{
+  const bad = clone(house);
+  bad.pricing.addons = bad.pricing.add_ons;
+  delete bad.pricing.add_ons;
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R18_invented_addons_key_rejected',
+    errs.some((e) => e === 'pricing_invented_key:addons' || e === 'pricing_add_ons_missing'));
+}
+
+{
+  const bad = clone(house);
+  bad.pricing.deposit = {
+    type: 'tiered_by_booking_type',
+    tiers: bad.pricing.deposits.tiers,
+  };
+  delete bad.pricing.deposits;
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R19_invented_deposit_shape_rejected',
+    errs.some((e) => (
+      e === 'pricing_invented_key:deposit'
+      || /pricing:deposits/.test(e)
+    )));
+}
+
+{
+  const rel = 'config/clients/wolfhouse-somo.pricing.json';
+  const abs = path.join(ROOT, rel);
+  const original = fs.readFileSync(abs);
+  try {
+    fs.writeFileSync(abs, Buffer.concat([original, Buffer.from('\n')]));
+    const errs = locks.validateReferenceBytesAgainstMaster(ROOT);
+    red('R20_reference_worktree_mutation_rejected',
+      errs.some((e) => /reference_worktree_blob_drift:config\/clients\/wolfhouse-somo\.pricing\.json/.test(e)));
+  } finally {
+    fs.writeFileSync(abs, original);
+  }
+}
+
+{
+  const bad = clone(house);
+  bad.compatibility.reference_location_ids = ['wolfhouse-somo', 'invented-extra'];
+  const errs = locks.validatePlaceholderAlignment({
+    ...bad,
+    archetypeId: 'surf_house',
+  });
+  const compatErrs = locks.validateCompatibility(bad.compatibility, 'surf_house');
+  red('R21_coordinated_lock_compat_drift_rejected',
+    errs.includes('coordinated_lock_compat_drift:reference_location_ids')
+    || compatErrs.includes('compat_reference_locations_mismatch'));
+}
+
+{
+  const tmp = writeTempBundle({ surf_house: house, surf_school_shop: school });
+  try {
+    fs.writeFileSync(
+      path.join(tmp, 'config/archetypes/surf_house/extra.json'),
+      JSON.stringify({ extra: true }),
+    );
+    const errs = locks.validateArchetypeFileSets(tmp);
+    red('R22_extra_archetype_file_rejected',
+      errs.some((e) => /file_set_mismatch:surf_house/.test(e)));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+{
+  const bad = clone(house);
+  bad.pricing.packages[0].code = '{{PACKAGE_CODE_X}}';
+  const errs = locks.validatePlaceholderAlignment({
+    ...bad,
+    archetypeId: 'surf_house',
+  });
+  red('R23_package_code_cross_ref_drift_rejected',
+    errs.includes('placeholder_drift:PACKAGE_CODES'));
+}
+
+{
+  const bad = clone(house);
+  bad.pricing.add_ons.surf_lesson_multi = {
+    code: 'surf_lesson_multi',
+    pricing_unit: 'per_lesson',
+    pricing_model: 'tiered_by_quantity',
+    tiers: [{ min_qty: 2, price_cents_each: '{{PRICE_CENTS_PLACEHOLDER}}' }],
+  };
+  const errs = locks.validatePricingTemplate(bad.pricing);
+  red('R24_invented_lesson_tiers_rejected',
+    errs.includes('pricing_invented_lesson_tiers')
+    || errs.includes('pricing_surf_lesson_multi_price_cents_each_missing'));
+}
+
+{
+  const bad = clone(school);
+  const first = Object.keys(bad.baseline.catalog.lessons.offerings)[0];
+  delete bad.baseline.catalog.lessons.offerings[first].prices_eur;
+  const errs = locks.validateBaselineTemplate(bad.baseline, 'surf_school_shop');
+  red('R25_lesson_prices_eur_deletion_rejected',
+    errs.some((e) => /lesson_prices_eur_missing/.test(e)));
+}
+
+{
+  const bad = clone(house);
+  bad.baseline.packages.known_packages = ['{{PACKAGE_CODE_1}}'];
+  // leave prices matrix with three packages → missing/alignment failure on deep validate
+  const errs = locks.validateBaselineTemplate(bad.baseline, 'surf_house');
+  const align = locks.validatePlaceholderAlignment({
+    ...bad,
+    archetypeId: 'surf_house',
+  });
+  red('R26_package_matrix_cross_ref_drift_rejected',
+    errs.some((e) => /surf_house_prices_missing_package/.test(e))
+    || align.includes('placeholder_drift:PACKAGE_CODES'));
+}
+
 // ── Tip scope ───────────────────────────────────────────────────────────────
 console.log('\n── Tip scope ──');
 {
@@ -414,7 +596,6 @@ console.log('\n── Tip scope ──');
   } catch (err) {
     changed = [`__git_diff_failed__:${err && err.message}`];
   }
-  // Untracked new files in this worktree also count for local validation.
   try {
     const untracked = execSync('git ls-files --others --exclude-standard', {
       cwd: ROOT,
@@ -422,7 +603,6 @@ console.log('\n── Tip scope ──');
     }).trim().split('\n').filter(Boolean);
     changed = Array.from(new Set(changed.concat(untracked)));
   } catch (_) { /* ignore */ }
-  // Ignore unrelated tmp/ scratch noise.
   changed = changed.filter((p) => !p.startsWith('tmp/'));
   const scope = tipPathsAllowed(changed);
   ok('tip paths within locked prefixes', scope.ok, scope.bad.slice(0, 12).join(','));
@@ -457,11 +637,15 @@ for (const rel of hardScripts) {
   ok(`${rel} exit 0`, r.status === 0, r.status !== 0 ? (r.stderr || r.stdout || '').slice(-400) : '');
 }
 
-{
+// Nested 1A: skip when this verifier is itself probing for the 1A ledger gate
+// (avoids recursion). FACTORY_1B_LEDGER_PROBE=1 is set by the 1A verifier.
+if (process.env.FACTORY_1B_LEDGER_PROBE === '1') {
+  ok('ledger probe skips nested 1A (independent core already validated)', true);
+} else {
   const r = spawnSync('npm', ['run', 'verify:factory-slice1a-acceptance-contract'], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: process.env,
+    env: { ...process.env, FACTORY_1A_SKIP_NESTED_1B: '1' },
     timeout: 180000,
     shell: true,
   });

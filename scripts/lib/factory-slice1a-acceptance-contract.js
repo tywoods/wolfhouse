@@ -57,6 +57,7 @@ const FINITE_STAGES = Object.freeze([
     status: 'complete',
     depends_on: '1A',
     completion_evidence: '1B_static_disabled_archetype_templates',
+    completion_requires: 'verify:factory-slice1b-archetype-templates',
   }),
   Object.freeze({
     id: '1C',
@@ -363,6 +364,38 @@ function validateFactory1aContract(candidate) {
   return { ok: errors.length === 0, errors };
 }
 
+/**
+ * 1B ledger may claim complete only when the independent 1B verifier passed.
+ * Gates G_ARCHETYPE_* must carry matching 1B evidence in that case.
+ */
+function validate1bLedgerClaim(stage1b, gates, slice1bVerifierPassed) {
+  const errors = [];
+  if (!stage1b || stage1b.id !== '1B') {
+    errors.push('1b_stage_missing');
+    return errors;
+  }
+  if (stage1b.status === 'complete') {
+    if (!slice1bVerifierPassed) {
+      errors.push('1b_complete_without_independent_validator');
+    }
+    if (stage1b.completion_evidence !== '1B_static_disabled_archetype_templates') {
+      errors.push('1b_complete_evidence_mismatch');
+    }
+    if (stage1b.completion_requires !== 'verify:factory-slice1b-archetype-templates') {
+      errors.push('1b_complete_requires_mismatch');
+    }
+    const g0 = gates && gates[0];
+    const g1 = gates && gates[1];
+    if (!g0 || g0.current_stage_evidence !== '1B_static_disabled_archetype_templates') {
+      errors.push('1b_gate_surf_house_evidence_mismatch');
+    }
+    if (!g1 || g1.current_stage_evidence !== '1B_static_disabled_archetype_templates') {
+      errors.push('1b_gate_surf_school_shop_evidence_mismatch');
+    }
+  }
+  return errors;
+}
+
 deepFreeze(CONTRACT);
 
 module.exports = Object.freeze({
@@ -387,4 +420,5 @@ module.exports = Object.freeze({
   thaw,
   deepEqual,
   validateFactory1aContract,
+  validate1bLedgerClaim,
 });

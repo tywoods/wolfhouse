@@ -37,7 +37,8 @@
       "title": "Archetype schema and disabled-by-default templates",
       "status": "complete",
       "depends_on": "1A",
-      "completion_evidence": "1B_static_disabled_archetype_templates"
+      "completion_evidence": "1B_static_disabled_archetype_templates",
+      "completion_requires": "verify:factory-slice1b-archetype-templates"
     },
     {
       "id": "1C",

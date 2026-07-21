@@ -1,11 +1,17 @@
 {
   "_meta": {
-    "purpose": "FACTORY 1B surf_house pricing companion template derived from Wolfhouse pricing consumer shape. Placeholders only. Values in cents placeholders — not live prices.",
+    "purpose": "FACTORY 1B surf_house pricing companion template derived from wolfhouse-quote-calculator reads of wolfhouse-somo.pricing.json. Placeholders only — not live prices.",
     "client_slug": "{{CLIENT_SLUG}}",
     "config_version": "1B.0",
     "status": "archetype_template",
     "pricing_status": "unverified_seed",
-    "slice": "FACTORY-1B"
+    "slice": "FACTORY-1B",
+    "derived_from_consumer": "scripts/lib/wolfhouse-quote-calculator.js",
+    "notes": [
+      "Shape mirrors calculator-accessed fields: seasons.month_numbers (numeric), packages.seasonal_prices, room_supplements, add_ons, deposits.tiers, rounding, hold, payment_options.",
+      "month_numbers are numeric (1–12) so findSeason().includes(month) remains consumer-compatible; values here are unverified seed placeholders.",
+      "Do not invent top-level addons or deposit keys — calculator reads add_ons and deposits.tiers."
+    ]
   },
   "client_slug": "{{CLIENT_SLUG}}",
   "config_version": "1B.0",
@@ -13,22 +19,22 @@
   "seasons": [
     {
       "code": "{{SEASON_SHOULDER}}",
-      "month_numbers": ["{{MONTH_NUM_1}}", "{{MONTH_NUM_2}}"],
+      "month_numbers": [1, 2],
       "priority": 0
     },
     {
       "code": "{{SEASON_HIGH}}",
-      "month_numbers": ["{{MONTH_NUM_3}}"],
+      "month_numbers": [3],
       "priority": 0
     },
     {
       "code": "{{SEASON_PEAK}}",
-      "month_numbers": ["{{MONTH_NUM_4}}"],
+      "month_numbers": [4],
       "priority": 10
     },
     {
       "code": "closed",
-      "month_numbers": ["{{CLOSED_MONTH_NUM_1}}", "{{CLOSED_MONTH_NUM_2}}"],
+      "month_numbers": [5, 6],
       "bookable": false
     }
   ],
@@ -73,36 +79,114 @@
       "pricing_status": "unverified_seed"
     }
   ],
-  "addons": {
-    "{{SERVICE_WETSUIT}}": {
-      "pricing_unit": "per_day",
-      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
-      "pricing_status": "unverified_seed"
+  "room_supplements": {
+    "shared": {
+      "per_person_per_night_cents": "{{ROOM_SUPPLEMENT_SHARED_CENTS}}"
     },
-    "{{SERVICE_BOARD}}": {
-      "pricing_unit": "per_day",
-      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
-      "pricing_status": "unverified_seed"
+    "double": {
+      "per_room_per_night_cents": "{{ROOM_SUPPLEMENT_DOUBLE_CENTS}}",
+      "per_person_per_night_cents": "{{ROOM_SUPPLEMENT_DOUBLE_PERSON_CENTS}}"
     },
-    "{{SERVICE_LESSON}}": {
-      "pricing_unit": "per_lesson",
-      "pricing_model": "tiered_by_quantity",
-      "tiers": [
-        { "min_qty": 1, "max_qty": 1, "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}" },
-        { "min_qty": 2, "max_qty": null, "price_cents_each": "{{PRICE_CENTS_PLACEHOLDER}}" }
-      ],
-      "pricing_status": "unverified_seed"
+    "private": {
+      "per_room_per_night_cents": "{{ROOM_SUPPLEMENT_PRIVATE_CENTS}}",
+      "per_person_per_night_cents": "{{ROOM_SUPPLEMENT_PRIVATE_PERSON_CENTS}}"
     }
   },
-  "deposit": {
-    "type": "tiered_by_booking_type",
+  "rounding": {
+    "method": "ceil_to_nearest_5_eur",
+    "nearest_cents": 500,
+    "seven_night_rule": "For stays of exactly 7 nights, use the flat weekly_per_person_cents directly — no proration needed.",
+    "formula_to_use": "{{PRORATION_FORMULA_PLACEHOLDER}}"
+  },
+  "deposits": {
+    "rule_type": "tiered_by_booking_type",
     "scope": "per_booking",
-    "currency": "{{CURRENCY}}",
     "tiers": {
-      "standard_package": { "amount_cents": "{{DEPOSIT_STANDARD_CENTS}}" },
-      "custom_or_short_stay": { "amount_cents": "{{DEPOSIT_SHORT_CENTS}}" }
+      "standard_package": {
+        "amount_cents": "{{DEPOSIT_STANDARD_CENTS}}"
+      },
+      "custom_or_short_stay": {
+        "amount_cents": "{{DEPOSIT_SHORT_CENTS}}"
+      }
     },
-    "default_cents": "{{DEPOSIT_DEFAULT_CENTS}}",
-    "pricing_status": "unverified_seed"
+    "default_cents": "{{DEPOSIT_DEFAULT_CENTS}}"
+  },
+  "hold": {
+    "expiry_minutes": "{{HOLD_EXPIRY_MINUTES}}",
+    "status": "unverified_seed"
+  },
+  "payment_options": ["deposit", "full", "pay_on_arrival"],
+  "add_ons": {
+    "wetsuit_rental": {
+      "code": "wetsuit_rental",
+      "name": "{{ADDON_WETSUIT_NAME}}",
+      "pricing_unit": "per_day",
+      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
+      "pricing_status": "unverified_seed"
+    },
+    "soft_top_rental": {
+      "code": "soft_top_rental",
+      "name": "{{ADDON_SOFT_TOP_NAME}}",
+      "pricing_unit": "per_day",
+      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
+      "pricing_status": "unverified_seed"
+    },
+    "hard_board_rental": {
+      "code": "hard_board_rental",
+      "name": "{{ADDON_HARD_BOARD_NAME}}",
+      "pricing_unit": "per_day",
+      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
+      "pricing_status": "unverified_seed"
+    },
+    "wetsuit_soft_top_combo": {
+      "code": "wetsuit_soft_top_combo",
+      "name": "{{ADDON_WETSUIT_SOFT_COMBO_NAME}}",
+      "pricing_unit": "per_day",
+      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
+      "pricing_status": "unverified_seed"
+    },
+    "wetsuit_hard_board_combo": {
+      "code": "wetsuit_hard_board_combo",
+      "name": "{{ADDON_WETSUIT_HARD_COMBO_NAME}}",
+      "pricing_unit": "per_day",
+      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
+      "pricing_status": "unverified_seed"
+    },
+    "surf_lesson_single": {
+      "code": "surf_lesson_single",
+      "name": "{{ADDON_LESSON_SINGLE_NAME}}",
+      "pricing_unit": "per_lesson",
+      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
+      "pricing_status": "unverified_seed"
+    },
+    "surf_lesson_multi": {
+      "code": "surf_lesson_multi",
+      "name": "{{ADDON_LESSON_MULTI_NAME}}",
+      "pricing_unit": "per_lesson",
+      "price_cents_each": "{{PRICE_CENTS_PLACEHOLDER}}",
+      "pricing_status": "unverified_seed"
+    },
+    "yoga_class": {
+      "code": "yoga_class",
+      "name": "{{ADDON_YOGA_NAME}}",
+      "pricing_unit": "per_class",
+      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
+      "pricing_status": "unverified_seed",
+      "on_site": true
+    },
+    "meal": {
+      "code": "meal",
+      "name": "{{ADDON_MEAL_NAME}}",
+      "pricing_unit": "per_meal",
+      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
+      "pricing_status": "unverified_seed"
+    },
+    "meals": {
+      "code": "meals",
+      "name": "{{ADDON_MEALS_NAME}}",
+      "pricing_unit": "per_meal",
+      "price_cents": "{{PRICE_CENTS_PLACEHOLDER}}",
+      "pricing_status": "unverified_seed"
+    }
   }
 }

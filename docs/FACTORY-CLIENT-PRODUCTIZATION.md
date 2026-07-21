@@ -83,7 +83,7 @@ Canonical freeze: `fixtures/factory-client-productization/slice1a-inventory.json
 
 **Required for 1A:** inventory + gate/stage freeze + independent completeness verifier + docs/fixtures/verifier delivery (plus the single locked `package.json` script registration).
 
-**Required for 1B:** exactly two static archetype template trees; placeholders only; all enablement off; independent schema/cross-ref/isolation verifier with adversarial REDs; 1A ledger evidence update for archetype gates.
+**Required for 1B:** exactly two static archetype template trees; placeholders only; all enablement off; independent schema/cross-ref/isolation verifier with adversarial REDs (including pricing shape from `wolfhouse-quote-calculator` reads: `add_ons`, `deposits.tiers`, `room_supplements`, `rounding`, `hold`, numeric `month_numbers`); working-tree reference bytes vs master blobs; 1A ledger evidence update for archetype gates **only when** the independent 1B validator passes.
 
 **Out of scope for 1A–1E current-stage evidence:** third-tenant **live/prod** onboarding beyond the Wolfhouse + Sunset staging pair.
 

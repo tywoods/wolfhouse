@@ -5,7 +5,15 @@
  *
  * Static templates only under config/archetypes/. No generator, no client
  * instance materialization, no runtime loading, no IaC/DB/deploy/live calls.
+ *
+ * Pricing shape for surf_house is derived from wolfhouse-quote-calculator
+ * reads of wolfhouse-somo.pricing.json (add_ons, deposits.tiers,
+ * room_supplements, rounding, hold, numeric month_numbers).
  */
+
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
 
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -40,7 +48,7 @@ const ARCHETYPE_FILES = Object.freeze({
   ]),
 });
 
-/** Exact blob SHAs of reference baselines that must remain byte-identical. */
+/** Exact blob SHAs of reference baselines that must remain byte-identical on master. */
 const PRESERVED_REFERENCE_BLOBS = Object.freeze({
   'config/clients/wolfhouse-somo.baseline.json':
     '82b4856d88ed647a6e74cb1bafa44f4140e30606',
@@ -51,6 +59,20 @@ const PRESERVED_REFERENCE_BLOBS = Object.freeze({
 });
 
 const PLACEHOLDER_RE = /^\{\{[A-Z0-9_]+\}\}$/;
+
+/** Calculator-required add_on keys (wolfhouse-quote-calculator.js). */
+const REQUIRED_ADD_ON_KEYS = Object.freeze([
+  'wetsuit_rental',
+  'soft_top_rental',
+  'hard_board_rental',
+  'wetsuit_soft_top_combo',
+  'wetsuit_hard_board_combo',
+  'surf_lesson_single',
+  'surf_lesson_multi',
+  'yoga_class',
+  'meal',
+  'meals',
+]);
 
 /**
  * Required JSON pointer-like paths (dot notation) that must exist on each
@@ -80,11 +102,15 @@ const REQUIRED_BASELINE_PATHS = Object.freeze({
     'service_addons.bundles',
     'service_addons.lesson_scheduling.enabled',
     'service_addons.lesson_scheduling.daily_slots',
+    'service_addons.lesson_scheduling.bot_assigns_slot',
+    'service_addons.lesson_scheduling.bot_collects_request_then_staff_schedule',
     'rooming.rooms',
     'rooming.rooming_auto_assign_allowed',
     'payment.payment_link_auto_allowed',
     'payment.deposit_rule.type',
     'payment.deposit_rule.default_eur',
+    'payment.deposit_rule.tiers.standard_package.amount_eur',
+    'payment.deposit_rule.tiers.custom_or_short_stay.amount_eur',
     'confirmation.confirmation_send_mode',
     'confirmation.confirmation_requires_payment_truth',
     'operations.check_in_time',
@@ -116,6 +142,8 @@ const REQUIRED_BASELINE_PATHS = Object.freeze({
     'catalog.lessons.offerings',
     'catalog.lessons.scheduling.common_slot_times',
     'catalog.lessons.scheduling.bot_assigns_slot',
+    'catalog.lessons.scheduling.bot_collects_request_then_staff_schedule',
+    'catalog.lessons.scheduling.arrive_before_class_minutes',
     'catalog.accommodation.inventory_model',
     'catalog.accommodation.offerings',
     'service_addons.lesson_scheduling.enabled',
@@ -135,15 +163,30 @@ const REQUIRED_BASELINE_PATHS = Object.freeze({
   ]),
 });
 
+/** Quote-calculator-derived pricing paths (not invented addons/deposit). */
 const REQUIRED_PRICING_PATHS = Object.freeze([
   '_meta.client_slug',
   'client_slug',
   'currency',
   'seasons',
   'packages',
-  'addons',
-  'deposit',
+  'room_supplements',
+  'room_supplements.shared.per_person_per_night_cents',
+  'room_supplements.double.per_room_per_night_cents',
+  'room_supplements.private.per_room_per_night_cents',
+  'rounding.method',
+  'rounding.nearest_cents',
+  'hold.expiry_minutes',
+  'payment_options',
+  'add_ons',
+  'add_ons.surf_lesson_single.price_cents',
+  'add_ons.surf_lesson_multi.price_cents_each',
+  'deposits',
+  'deposits.tiers.standard_package.amount_cents',
+  'deposits.tiers.custom_or_short_stay.amount_cents',
 ]);
+
+const INVENTED_PRICING_KEYS = Object.freeze(['addons', 'deposit']);
 
 const REQUIRED_MANIFEST_PATHS = Object.freeze([
   'schema_version',
@@ -167,6 +210,11 @@ const REQUIRED_COMPATIBILITY_PATHS = Object.freeze([
   'portal_default_tab',
   'registry_shape',
   'field_mappings',
+  'field_mappings.pricing',
+  'field_mappings.services',
+  'field_mappings.schedule',
+  'field_mappings.profile',
+  'field_mappings.features',
   'consumer_categories',
 ]);
 
@@ -336,23 +384,34 @@ function isPlaceholderString(value) {
   return typeof value === 'string' && PLACEHOLDER_RE.test(value);
 }
 
+function pathBasename(p) {
+  const parts = String(p).split('/');
+  return parts[parts.length - 1];
+}
+
 function walkStrings(value, visit, trail) {
-  const path = trail || [];
+  const pathParts = trail || [];
   if (typeof value === 'string') {
-    visit(value, path.join('.'));
+    visit(value, pathParts.join('.'));
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach((v, i) => walkStrings(v, visit, path.concat(String(i))));
+    value.forEach((v, i) => walkStrings(v, visit, pathParts.concat(String(i))));
     return;
   }
   if (value && typeof value === 'object') {
     for (const key of Object.keys(value)) {
-      // Skip documentation/note keys for placeholder-shape enforcement,
-      // but still scan them for forbidden secret/live patterns separately.
-      walkStrings(value[key], visit, path.concat(key));
+      walkStrings(value[key], visit, pathParts.concat(key));
     }
   }
+}
+
+function collectPlaceholders(value, into) {
+  const set = into || new Set();
+  walkStrings(value, (s) => {
+    if (isPlaceholderString(s)) set.add(s);
+  });
+  return set;
 }
 
 function scanForbiddenContent(text) {
@@ -432,6 +491,21 @@ function validateCompatibility(compat, archetypeId) {
   if (compat.portal_default_tab !== lock.portal_default_tab) {
     errors.push('compat_portal_default_tab_mismatch');
   }
+  const features = getPath(compat, 'field_mappings.features') || {};
+  if (features.portal_default_tab !== lock.portal_default_tab) {
+    errors.push('compat_features_portal_default_tab_mismatch');
+  }
+  if (features.inventory_model !== lock.inventory_model) {
+    errors.push('compat_features_inventory_model_mismatch');
+  }
+  const schedule = getPath(compat, 'field_mappings.schedule');
+  if (!schedule || typeof schedule !== 'object' || !schedule.baseline_path) {
+    errors.push('compat_schedule_mapping_missing');
+  }
+  const profile = getPath(compat, 'field_mappings.profile');
+  if (!profile || typeof profile !== 'object' || !profile.baseline_path) {
+    errors.push('compat_profile_mapping_missing');
+  }
   const reg = compat.registry_shape || {};
   if (reg.live_enabled !== false) errors.push('compat_registry_live_enabled_not_false');
   if (lock.location_cardinality === 'single_primary') {
@@ -443,6 +517,141 @@ function validateCompatibility(compat, archetypeId) {
     if (!Array.isArray(reg.location_id_placeholders) || reg.location_id_placeholders.length < 2) {
       errors.push('compat_multi_location_cardinality');
     }
+  }
+  return errors;
+}
+
+function validateSurfHouseBaselineDeep(baseline) {
+  const errors = [];
+  const known = getPath(baseline, 'packages.known_packages');
+  if (!Array.isArray(known) || known.length < 1) errors.push('surf_house_packages_missing');
+  const seasons = getPath(baseline, 'packages.seasons');
+  const prices = getPath(baseline, 'packages.prices_per_person_base_nights_shared');
+  const inclusions = getPath(baseline, 'packages.inclusions');
+  if (!seasons || typeof seasons !== 'object') errors.push('surf_house_seasons_missing');
+  if (!prices || typeof prices !== 'object') errors.push('surf_house_seasonal_prices_matrix_missing');
+  if (seasons && prices) {
+    for (const season of Object.keys(seasons)) {
+      if (!prices[season] || typeof prices[season] !== 'object') {
+        errors.push(`surf_house_prices_missing_season:${season}`);
+      } else if (Array.isArray(known)) {
+        for (const pkg of known) {
+          if (!(pkg in prices[season])) {
+            errors.push(`surf_house_prices_missing_package:${season}.${pkg}`);
+          }
+        }
+      }
+    }
+  }
+  if (Array.isArray(known) && inclusions && typeof inclusions === 'object') {
+    for (const pkg of known) {
+      if (!Array.isArray(inclusions[pkg])) errors.push(`surf_house_inclusions_missing:${pkg}`);
+    }
+  }
+  const slots = getPath(baseline, 'service_addons.lesson_scheduling.daily_slots');
+  if (!Array.isArray(slots) || slots.length < 1) {
+    errors.push('surf_house_schedule_daily_slots_missing');
+  } else {
+    for (const slot of slots) {
+      if (!slot || typeof slot !== 'object') {
+        errors.push('surf_house_schedule_slot_invalid');
+        break;
+      }
+      if (!('group' in slot) || !('transport_time' in slot) || !('lesson_window' in slot)) {
+        errors.push('surf_house_schedule_slot_fields_missing');
+        break;
+      }
+    }
+  }
+  const rooms = getPath(baseline, 'rooming.rooms');
+  if (!rooms || typeof rooms !== 'object' || Array.isArray(rooms) || Object.keys(rooms).length < 1) {
+    errors.push('surf_house_rooms_missing');
+  } else {
+    for (const [roomId, room] of Object.entries(rooms)) {
+      if (!isPlaceholderString(roomId)) errors.push(`surf_house_room_id_not_placeholder:${roomId}`);
+      if (!room || !('capacity' in room) || !('type' in room)) {
+        errors.push(`surf_house_room_fields_missing:${roomId}`);
+      }
+    }
+  }
+  return errors;
+}
+
+function validateSurfSchoolShopBaselineDeep(baseline) {
+  const errors = [];
+  const locs = getPath(baseline, 'locations');
+  if (!Array.isArray(locs) || locs.length < 2) errors.push('surf_school_shop_locations_lt_2');
+  const seen = new Set();
+  for (const loc of locs || []) {
+    if (!loc || !isPlaceholderString(loc.location_id)) {
+      errors.push('surf_school_shop_location_id_not_placeholder');
+      break;
+    }
+    if (loc.location_id === 'sunset-somo' || loc.location_id === 'sunset-sardinero') {
+      errors.push('surf_school_shop_location_copied_live_target');
+      break;
+    }
+    if (seen.has(loc.location_id)) {
+      errors.push('surf_school_shop_location_id_duplicate');
+      break;
+    }
+    seen.add(loc.location_id);
+    if (!loc.display_name) errors.push('surf_school_shop_location_display_name_missing');
+  }
+  const windows = getPath(baseline, 'catalog.rentals.windows');
+  const rentals = getPath(baseline, 'catalog.rentals.offerings');
+  if (!Array.isArray(windows) || windows.length < 1) errors.push('rentals_windows_missing');
+  if (!rentals || typeof rentals !== 'object') {
+    errors.push('rentals_offerings_missing');
+  } else {
+    for (const [code, off] of Object.entries(rentals)) {
+      if (!off || typeof off !== 'object') {
+        errors.push(`rental_offering_invalid:${code}`);
+        continue;
+      }
+      if (!off.label) errors.push(`rental_label_missing:${code}`);
+      if (!off.prices_eur || typeof off.prices_eur !== 'object'
+        || Object.keys(off.prices_eur).length < 1) {
+        errors.push(`rental_prices_eur_missing:${code}`);
+      } else if (Array.isArray(windows)) {
+        for (const w of windows) {
+          if (!(w in off.prices_eur)) {
+            errors.push(`rental_prices_eur_window_missing:${code}.${w}`);
+          }
+        }
+      }
+    }
+  }
+  const lessons = getPath(baseline, 'catalog.lessons.offerings');
+  if (!lessons || typeof lessons !== 'object') {
+    errors.push('lessons_offerings_missing');
+  } else {
+    for (const [code, off] of Object.entries(lessons)) {
+      if (!off || typeof off !== 'object') {
+        errors.push(`lesson_offering_invalid:${code}`);
+        continue;
+      }
+      if (!off.prices_eur || typeof off.prices_eur !== 'object'
+        || Object.keys(off.prices_eur).length < 1) {
+        errors.push(`lesson_prices_eur_missing:${code}`);
+      }
+    }
+  }
+  const slots = getPath(baseline, 'catalog.lessons.scheduling.common_slot_times');
+  if (!Array.isArray(slots) || slots.length < 1) {
+    errors.push('lessons_scheduling_common_slot_times_missing');
+  }
+  if (getPath(baseline, 'catalog.lessons.scheduling.bot_assigns_slot') === undefined) {
+    errors.push('lessons_scheduling_bot_assigns_slot_missing');
+  }
+  if (getPath(baseline, 'features.portal_default_tab') === undefined) {
+    errors.push('features_portal_default_tab_missing');
+  }
+  if (getPath(baseline, 'features.inventory_model') === undefined) {
+    errors.push('features_inventory_model_missing');
+  }
+  if (!getPath(baseline, 'persona.assistant_name') || !getPath(baseline, 'persona.brand_name')) {
+    errors.push('profile_persona_fields_missing');
   }
   return errors;
 }
@@ -465,7 +674,6 @@ function validateBaselineTemplate(baseline, archetypeId) {
   }
   if (baseline.live_enabled !== false) errors.push('baseline_live_enabled_not_false');
 
-  // Instance identity must be placeholders — never copied live slugs.
   const slug = getPath(baseline, '_meta.client_slug');
   if (!isPlaceholderString(slug)) errors.push('baseline_client_slug_not_placeholder');
   if (slug === 'wolfhouse' || slug === 'sunset' || slug === 'wolfhouse-somo') {
@@ -473,34 +681,12 @@ function validateBaselineTemplate(baseline, archetypeId) {
   }
 
   if (archetypeId === 'surf_house') {
-    const rooms = getPath(baseline, 'rooming.rooms');
-    if (!rooms || typeof rooms !== 'object' || Array.isArray(rooms) || Object.keys(rooms).length < 1) {
-      errors.push('surf_house_rooms_missing');
-    }
-    const known = getPath(baseline, 'packages.known_packages');
-    if (!Array.isArray(known) || known.length < 1) errors.push('surf_house_packages_missing');
+    errors.push(...validateSurfHouseBaselineDeep(baseline));
   }
-
   if (archetypeId === 'surf_school_shop') {
-    const locs = getPath(baseline, 'locations');
-    if (!Array.isArray(locs) || locs.length < 2) errors.push('surf_school_shop_locations_lt_2');
-    for (const loc of locs || []) {
-      if (!loc || !isPlaceholderString(loc.location_id)) {
-        errors.push('surf_school_shop_location_id_not_placeholder');
-        break;
-      }
-      if (loc.location_id === 'sunset-somo' || loc.location_id === 'sunset-sardinero') {
-        errors.push('surf_school_shop_location_copied_live_target');
-        break;
-      }
-    }
-    const rentals = getPath(baseline, 'catalog.rentals.offerings');
-    const lessons = getPath(baseline, 'catalog.lessons.offerings');
-    if (!rentals || typeof rentals !== 'object') errors.push('rentals_offerings_missing');
-    if (!lessons || typeof lessons !== 'object') errors.push('lessons_offerings_missing');
+    errors.push(...validateSurfSchoolShopBaselineDeep(baseline));
   }
 
-  // Secret refs only — never embedded secret values.
   const phoneRef = getPath(baseline, 'handoff.handoff_whatsapp_target.phone_ref');
   if (typeof phoneRef !== 'string' || !phoneRef.startsWith('secret:')) {
     errors.push('handoff_phone_ref_must_be_secret_ref');
@@ -509,20 +695,168 @@ function validateBaselineTemplate(baseline, archetypeId) {
   return errors;
 }
 
+function validateMonthNumbers(season, index) {
+  const errors = [];
+  const months = season && season.month_numbers;
+  if (!Array.isArray(months) || months.length < 1) {
+    errors.push(`pricing_month_numbers_missing:${index}`);
+    return errors;
+  }
+  for (let i = 0; i < months.length; i += 1) {
+    const m = months[i];
+    if (typeof m !== 'number' || !Number.isInteger(m) || m < 1 || m > 12) {
+      errors.push(`pricing_month_numbers_not_numeric:${index}.${i}`);
+    }
+  }
+  return errors;
+}
+
 function validatePricingTemplate(pricing) {
   const errors = [];
+  if (!pricing || typeof pricing !== 'object') {
+    errors.push('pricing_missing');
+    return errors;
+  }
   errors.push(...validateRequiredPaths(pricing, REQUIRED_PRICING_PATHS, 'pricing'));
+
+  for (const invented of INVENTED_PRICING_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(pricing, invented)) {
+      errors.push(`pricing_invented_key:${invented}`);
+    }
+  }
+
   const slug = getPath(pricing, 'client_slug');
   const metaSlug = getPath(pricing, '_meta.client_slug');
   if (!isPlaceholderString(slug)) errors.push('pricing_client_slug_not_placeholder');
   if (!isPlaceholderString(metaSlug)) errors.push('pricing_meta_client_slug_not_placeholder');
   if (slug !== metaSlug) errors.push('pricing_client_slug_cross_mismatch');
+
   if (!Array.isArray(pricing.packages) || pricing.packages.length < 1) {
     errors.push('pricing_packages_empty');
   }
   if (!Array.isArray(pricing.seasons) || pricing.seasons.length < 1) {
     errors.push('pricing_seasons_empty');
   }
+
+  const bookableSeasonCodes = [];
+  for (let i = 0; i < (pricing.seasons || []).length; i += 1) {
+    const season = pricing.seasons[i];
+    if (!season || typeof season !== 'object' || !season.code) {
+      errors.push(`pricing_season_invalid:${i}`);
+      continue;
+    }
+    errors.push(...validateMonthNumbers(season, i));
+    if (season.bookable !== false) bookableSeasonCodes.push(season.code);
+  }
+
+  for (let i = 0; i < (pricing.packages || []).length; i += 1) {
+    const pkg = pricing.packages[i];
+    if (!pkg || typeof pkg !== 'object') {
+      errors.push(`pricing_package_invalid:${i}`);
+      continue;
+    }
+    if (!pkg.code) errors.push(`pricing_package_code_missing:${i}`);
+    if (!pkg.seasonal_prices || typeof pkg.seasonal_prices !== 'object') {
+      errors.push(`pricing_seasonal_prices_missing:${pkg.code || i}`);
+      continue;
+    }
+    for (const code of bookableSeasonCodes) {
+      const row = pkg.seasonal_prices[code];
+      if (!row || typeof row !== 'object' || !('weekly_per_person_cents' in row)) {
+        errors.push(`pricing_seasonal_prices_missing_season:${pkg.code || i}.${code}`);
+      }
+    }
+  }
+
+  const addOns = pricing.add_ons;
+  if (!addOns || typeof addOns !== 'object' || Array.isArray(addOns)) {
+    errors.push('pricing_add_ons_missing');
+  } else {
+    for (const key of REQUIRED_ADD_ON_KEYS) {
+      if (!addOns[key] || typeof addOns[key] !== 'object') {
+        errors.push(`pricing_add_on_missing:${key}`);
+        continue;
+      }
+      if (key === 'surf_lesson_multi') {
+        if (!('price_cents_each' in addOns[key])) {
+          errors.push('pricing_surf_lesson_multi_price_cents_each_missing');
+        }
+        if (addOns[key].pricing_model === 'tiered_by_quantity' || Array.isArray(addOns[key].tiers)) {
+          errors.push('pricing_invented_lesson_tiers');
+        }
+      } else if (!('price_cents' in addOns[key])) {
+        errors.push(`pricing_add_on_price_cents_missing:${key}`);
+      }
+    }
+  }
+
+  if (!Array.isArray(pricing.payment_options) || pricing.payment_options.length < 1) {
+    errors.push('pricing_payment_options_missing');
+  }
+  if (typeof getPath(pricing, 'rounding.nearest_cents') !== 'number') {
+    errors.push('pricing_rounding_nearest_cents_not_number');
+  }
+
+  return errors;
+}
+
+function validatePlaceholderAlignment(bundle) {
+  const errors = [];
+  const { baseline, pricing, compatibility, archetypeId } = bundle;
+  const lock = ARCHETYPE_LOCKS[archetypeId];
+  const baselineSlug = getPath(baseline, '_meta.client_slug');
+  const compatSlug = getPath(compatibility, 'registry_shape.client_slug_placeholder');
+  if (baselineSlug !== compatSlug) {
+    errors.push('placeholder_drift:CLIENT_SLUG');
+  }
+  if (getPath(baseline, 'features.portal_default_tab')
+    !== getPath(compatibility, 'field_mappings.features.portal_default_tab')) {
+    errors.push('placeholder_drift:features.portal_default_tab');
+  }
+  if (getPath(baseline, 'features.inventory_model')
+    !== getPath(compatibility, 'field_mappings.features.inventory_model')) {
+    errors.push('placeholder_drift:features.inventory_model');
+  }
+  if (getPath(compatibility, 'field_mappings.features.portal_default_tab') !== lock.portal_default_tab) {
+    errors.push('coordinated_lock_compat_drift:portal_default_tab');
+  }
+  if (getPath(compatibility, 'field_mappings.features.inventory_model') !== lock.inventory_model) {
+    errors.push('coordinated_lock_compat_drift:inventory_model');
+  }
+  if (!deepEqual(
+    getPath(compatibility, 'reference_location_ids'),
+    thaw(lock.reference_location_ids),
+  )) {
+    errors.push('coordinated_lock_compat_drift:reference_location_ids');
+  }
+
+  if (archetypeId === 'surf_house' && pricing) {
+    if (getPath(pricing, 'client_slug') !== baselineSlug) {
+      errors.push('placeholder_drift:pricing.client_slug');
+    }
+    const known = getPath(baseline, 'packages.known_packages') || [];
+    const pricingCodes = (pricing.packages || []).map((p) => p && p.code);
+    if (!deepEqual([...known].sort(), [...pricingCodes].sort())) {
+      errors.push('placeholder_drift:PACKAGE_CODES');
+    }
+    const baselineSeasons = Object.keys(getPath(baseline, 'packages.seasons') || {}).sort();
+    const pricingSeasons = (pricing.seasons || [])
+      .filter((s) => s && s.bookable !== false)
+      .map((s) => s.code)
+      .sort();
+    if (!deepEqual(baselineSeasons, pricingSeasons)) {
+      errors.push('placeholder_drift:SEASON_CODES');
+    }
+  }
+
+  if (archetypeId === 'surf_school_shop') {
+    const locs = (getPath(baseline, 'locations') || []).map((l) => l && l.location_id);
+    const compatLocs = getPath(compatibility, 'registry_shape.location_id_placeholders') || [];
+    if (!deepEqual([...locs].sort(), [...compatLocs].sort())) {
+      errors.push('placeholder_drift:LOCATION_IDS');
+    }
+  }
+
   return errors;
 }
 
@@ -530,16 +864,10 @@ function validateCrossFileReferences(bundle) {
   const errors = [];
   const { manifest, baseline, pricing, secretsExample, compatibility, archetypeId } = bundle;
   const expectedFiles = thaw(ARCHETYPE_FILES[archetypeId]);
-  const listed = (manifest.files || []).map((f) => (
-    f.startsWith('config/') ? f : `${ARCHETYPE_ROOT}/${archetypeId}/${f}`
-  ));
   for (const f of expectedFiles) {
-    if (!listed.includes(f) && !listed.includes(pathBasename(f))) {
-      // allow basename listing
-      const base = pathBasename(f);
-      if (!(manifest.files || []).includes(base) && !(manifest.files || []).includes(f)) {
-        errors.push(`manifest_missing_file:${base}`);
-      }
+    const base = pathBasename(f);
+    if (!(manifest.files || []).includes(base) && !(manifest.files || []).includes(f)) {
+      errors.push(`manifest_missing_file:${base}`);
     }
   }
   if (manifest.compatibility_file !== 'compatibility.json'
@@ -578,12 +906,8 @@ function validateCrossFileReferences(bundle) {
   if (archetypeId === 'surf_school_shop' && pricing) {
     errors.push('surf_school_shop_must_not_ship_pricing_template');
   }
+  errors.push(...validatePlaceholderAlignment(bundle));
   return errors;
-}
-
-function pathBasename(p) {
-  const parts = String(p).split('/');
-  return parts[parts.length - 1];
 }
 
 function validateTenantLocationIsolation(surfHouse, surfSchoolShop) {
@@ -596,7 +920,6 @@ function validateTenantLocationIsolation(surfHouse, surfSchoolShop) {
   if (set.size !== aLocs.length + bLocs.length) {
     errors.push('archetype_location_placeholders_collide');
   }
-  // Templates must not claim ownership of live reference location ids.
   for (const id of [...aLocs, ...bLocs]) {
     if (id === 'wolfhouse-somo' || id === 'sunset-somo' || id === 'sunset-sardinero') {
       errors.push(`location_placeholder_is_live_id:${id}`);
@@ -605,14 +928,106 @@ function validateTenantLocationIsolation(surfHouse, surfSchoolShop) {
       errors.push(`location_placeholder_not_token:${id}`);
     }
   }
-  // Registry client slug placeholders must be tokens (may share the same token
-  // name across archetypes; generator assigns unique values later).
   const aSlug = surfHouse.compatibility.registry_shape
     && surfHouse.compatibility.registry_shape.client_slug_placeholder;
   const bSlug = surfSchoolShop.compatibility.registry_shape
     && surfSchoolShop.compatibility.registry_shape.client_slug_placeholder;
   if (!isPlaceholderString(aSlug) || !isPlaceholderString(bSlug)) {
     errors.push('client_slug_placeholder_not_token');
+  }
+  return errors;
+}
+
+/**
+ * Enumerate actual archetype directories and JSON file sets on disk.
+ * Returns { dirs: string[], files: { [archetypeId]: string[] } }.
+ */
+function enumerateArchetypeFileSets(repoRoot) {
+  const root = path.join(repoRoot, ARCHETYPE_ROOT);
+  if (!fs.existsSync(root)) {
+    return { dirs: [], files: {} };
+  }
+  const dirs = fs.readdirSync(root)
+    .filter((name) => fs.statSync(path.join(root, name)).isDirectory())
+    .sort();
+  const files = {};
+  for (const id of dirs) {
+    const dir = path.join(root, id);
+    files[id] = fs.readdirSync(dir)
+      .filter((n) => n.endsWith('.json'))
+      .sort()
+      .map((n) => `${ARCHETYPE_ROOT}/${id}/${n}`);
+  }
+  return { dirs, files };
+}
+
+function validateArchetypeFileSets(repoRoot) {
+  const errors = [];
+  const { dirs, files } = enumerateArchetypeFileSets(repoRoot);
+  const expectedDirs = [...ARCHETYPE_IDS].sort();
+  if (!deepEqual(dirs, expectedDirs)) {
+    errors.push(`archetype_dir_set_mismatch:got=${dirs.join(',')}`);
+  }
+  for (const id of ARCHETYPE_IDS) {
+    const expected = [...ARCHETYPE_FILES[id]].sort();
+    const got = (files[id] || []).slice().sort();
+    if (!deepEqual(got, expected)) {
+      errors.push(`file_set_mismatch:${id}:got=${got.join('|')}:want=${expected.join('|')}`);
+    }
+  }
+  return errors;
+}
+
+/** Working-tree blob SHA via git hash-object (not HEAD:path). */
+function workingTreeBlobShaSafe(repoRoot, rel) {
+  const abs = path.join(repoRoot, rel);
+  if (!fs.existsSync(abs)) return `__missing_file__:${rel}`;
+  try {
+    return execSync(`git hash-object -- ${rel}`, {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    }).trim();
+  } catch (err) {
+    return `__hash_failed__:${err && err.message}`;
+  }
+}
+
+/** Resolve blob SHA from a git ref (prefer master / MASTER_BASIS — never HEAD tip alone). */
+function refBlobSha(repoRoot, gitRef, rel) {
+  try {
+    return execSync(`git rev-parse ${gitRef}:${rel}`, {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    }).trim();
+  } catch (err) {
+    return `__missing__:${err && err.message}`;
+  }
+}
+
+/**
+ * Verify working-tree reference bytes match pinned master blobs.
+ * Compares hash-object(working tree) against PRESERVED_REFERENCE_BLOBS and
+ * against MASTER_BASIS / origin/master (not HEAD).
+ */
+function validateReferenceBytesAgainstMaster(repoRoot) {
+  const errors = [];
+  for (const [rel, pinned] of Object.entries(PRESERVED_REFERENCE_BLOBS)) {
+    const wt = workingTreeBlobShaSafe(repoRoot, rel);
+    if (wt !== pinned) {
+      errors.push(`reference_worktree_blob_drift:${rel}:got=${wt}:want=${pinned}`);
+    }
+    const masterBasis = refBlobSha(repoRoot, MASTER_BASIS, rel);
+    if (masterBasis !== pinned) {
+      errors.push(`reference_master_basis_blob_drift:${rel}:got=${masterBasis}:want=${pinned}`);
+    }
+    // Prefer origin/master when present; fall back to master.
+    let masterTip = refBlobSha(repoRoot, 'origin/master', rel);
+    if (String(masterTip).startsWith('__missing__')) {
+      masterTip = refBlobSha(repoRoot, 'master', rel);
+    }
+    if (!String(masterTip).startsWith('__missing__') && masterTip !== pinned) {
+      errors.push(`reference_master_tip_blob_drift:${rel}:got=${masterTip}:want=${pinned}`);
+    }
   }
   return errors;
 }
@@ -626,6 +1041,8 @@ deepFreeze(ENABLEMENT_FALSE_PATHS);
 deepFreeze(ALLOWED_TIP_PATH_PREFIXES);
 deepFreeze(EXISTING_REGRESSION_GATES);
 deepFreeze(FORBIDDEN_PRODUCTIZATION_PATHS);
+deepFreeze(REQUIRED_ADD_ON_KEYS);
+deepFreeze(INVENTED_PRICING_KEYS);
 
 module.exports = Object.freeze({
   SLICE,
@@ -639,6 +1056,8 @@ module.exports = Object.freeze({
   PRESERVED_REFERENCE_BLOBS,
   REQUIRED_BASELINE_PATHS,
   REQUIRED_PRICING_PATHS,
+  REQUIRED_ADD_ON_KEYS,
+  INVENTED_PRICING_KEYS,
   REQUIRED_MANIFEST_PATHS,
   REQUIRED_COMPATIBILITY_PATHS,
   FORBIDDEN_PRODUCTIZATION_PATHS,
@@ -656,6 +1075,7 @@ module.exports = Object.freeze({
   hasPath,
   isPlaceholderString,
   walkStrings,
+  collectPlaceholders,
   scanForbiddenContent,
   validateEnablementOff,
   validateRequiredPaths,
@@ -663,6 +1083,12 @@ module.exports = Object.freeze({
   validateCompatibility,
   validateBaselineTemplate,
   validatePricingTemplate,
+  validatePlaceholderAlignment,
   validateCrossFileReferences,
   validateTenantLocationIsolation,
+  enumerateArchetypeFileSets,
+  validateArchetypeFileSets,
+  workingTreeBlobShaSafe,
+  refBlobSha,
+  validateReferenceBytesAgainstMaster,
 });

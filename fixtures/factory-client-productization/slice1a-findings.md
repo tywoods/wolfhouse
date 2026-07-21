@@ -80,4 +80,4 @@ Allowed stage IDs: **1A, 1B, 1C, 1D, 1E** only. Extra stages, gate renames, or t
 
 ## Closeout
 
-1A is complete when `npm run verify:factory-slice1a-acceptance-contract` passes and existing multiclient/config regressions remain green. **1B is complete** under this ledger: static disabled archetype templates live at `config/archetypes/{surf_house,surf_school_shop}/` and are gated by `npm run verify:factory-slice1b-archetype-templates`. Productization continues at **1C** (deterministic generator) — no gate/scope drift.
+1A is complete when `npm run verify:factory-slice1a-acceptance-contract` passes and existing multiclient/config regressions remain green. **1B is complete** under this ledger only when the independent validator `npm run verify:factory-slice1b-archetype-templates` passes (`completion_requires`); static disabled archetype templates live at `config/archetypes/{surf_house,surf_school_shop}/`. Productization continues at **1C** (deterministic generator) — no gate/scope drift.
