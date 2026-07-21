@@ -185,6 +185,7 @@ function writeChildHarness(opts) {
   const extraSignals = opts.extraSignals
     ? `setTimeout(() => { process.kill(process.pid, '${opts.extraSignals}'); }, ${opts.extraSignalDelayMs ?? 60});`
     : '';
+  const lifecycleOpts = opts.lifecycleOpts || '';
 
   fs.writeFileSync(harnessPath, `'use strict';
 const http = require('http');
@@ -202,12 +203,65 @@ server.listen(0, '127.0.0.1', () => {
       console.log(JSON.stringify({ type: 'terminate', signal, endCalls }));
       process.exit(signal === 'SIGINT' ? 130 : 143);
     },
+    ${lifecycleOpts}
   });
   console.log(JSON.stringify({ type: 'ready' }));
   ${extraSignals}
 });
 `);
   return harnessPath;
+}
+
+async function runDirectExceptionProbe(lifecycle, probe) {
+  const tracker = createOrderTrackingServer();
+  const logs = [];
+  let terminateCalls = 0;
+  let terminateSignal = null;
+  let unhandled = 0;
+  const onUnhandled = () => { unhandled += 1; };
+  process.on('unhandledRejection', onUnhandled);
+  const beforeAttach = {
+    SIGTERM: countProcessListeners('SIGTERM'),
+    SIGINT: countProcessListeners('SIGINT'),
+  };
+  lifecycle.attachStaffApiReadinessLifecycle(tracker.server, { terminate: false });
+  const duringAttach = {
+    SIGTERM: countProcessListeners('SIGTERM'),
+    SIGINT: countProcessListeners('SIGINT'),
+  };
+  let rejected = false;
+  try {
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(tracker.server, probe.signal, {
+      ...probe.deps,
+      log: (rec) => {
+        if (typeof probe.deps.log === 'function') probe.deps.log(rec);
+        logs.push(rec);
+      },
+      terminate: (sig) => {
+        terminateCalls += 1;
+        terminateSignal = sig;
+      },
+    });
+  } catch {
+    rejected = true;
+  }
+  const afterCleanup = {
+    SIGTERM: countProcessListeners('SIGTERM'),
+    SIGINT: countProcessListeners('SIGINT'),
+  };
+  process.removeListener('unhandledRejection', onUnhandled);
+  const serverCloseStarts = tracker.events.filter((e) => e.step === 'server_close_start').length;
+  return {
+    rejected,
+    unhandled,
+    logs,
+    terminateCalls,
+    terminateSignal,
+    serverCloseStarts,
+    beforeAttach,
+    duringAttach,
+    afterCleanup,
+  };
 }
 
 async function runChildSameSignalDuringCleanupTest(sendSignal, expectCode) {
@@ -282,6 +336,8 @@ ok('C2 lifecycle module present with locked shutdown order',
   && !/process\.once\('SIGTERM'/.test(lifecycleSrc)
   && !/process\.once\('SIGINT'/.test(lifecycleSrc)
   && /\.unref\(\)/.test(lifecycleSrc)
+  && /\} finally \{/.test(lifecycleSrc)
+  && /pool_close_throw/.test(lifecycleSrc)
   && !/\bclosePgPool\b/.test(lifecycleSrc)
   && !/(^|[^\*\/])\bprocess\.exit\s*\(\s*0\s*\)/.test(lifecycleSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, ''))
   && JSON.stringify(contract.lifecycle.shutdown_order) === JSON.stringify(locks.SHUTDOWN_ORDER));
@@ -500,6 +556,97 @@ ok('C7 npm script registered',
       logs[0].failure_classes.includes('server_close_throw'),
       JSON.stringify(logs));
   });
+
+  await withLifecycleModule(async (lifecycle) => {
+    const probe = await runDirectExceptionProbe(lifecycle, {
+      signal: 'SIGTERM',
+      deps: {
+        closeReadinessPool: () => { throw new Error('sync pool boom'); },
+        poolCloseTimeoutMs: 50,
+        serverCloseTimeoutMs: 50,
+      },
+    });
+    red('pool_close_throwing_bounded',
+      probe.rejected === false
+      && probe.unhandled === 0
+      && probe.logs.length === 1
+      && probe.logs[0].failure_classes.includes('pool_close_throw')
+      && probe.serverCloseStarts === 1
+      && probe.terminateCalls === 1
+      && probe.terminateSignal === 'SIGTERM'
+      && probe.duringAttach.SIGTERM === probe.beforeAttach.SIGTERM + 1
+      && probe.duringAttach.SIGINT === probe.beforeAttach.SIGINT + 1
+      && probe.afterCleanup.SIGTERM === probe.beforeAttach.SIGTERM
+      && probe.afterCleanup.SIGINT === probe.beforeAttach.SIGINT,
+      JSON.stringify(probe));
+  });
+
+  await withLifecycleModule(async (lifecycle) => {
+    const probe = await runDirectExceptionProbe(lifecycle, {
+      signal: 'SIGINT',
+      deps: {
+        closeReadinessPool: () => Promise.reject(new Error('pool fail')),
+        poolCloseTimeoutMs: 50,
+        serverCloseTimeoutMs: 50,
+        log: () => { throw new Error('logger boom'); },
+      },
+    });
+    red('shutdown_logger_throw_bounded',
+      probe.rejected === false
+      && probe.unhandled === 0
+      && probe.logs.length === 0
+      && probe.serverCloseStarts === 1
+      && probe.terminateCalls === 1
+      && probe.terminateSignal === 'SIGINT'
+      && probe.afterCleanup.SIGTERM === probe.beforeAttach.SIGTERM
+      && probe.afterCleanup.SIGINT === probe.beforeAttach.SIGINT,
+      JSON.stringify(probe));
+  });
+
+  {
+    const harness = writeChildHarness({
+      lifecycleOpts: `closeReadinessPool: () => { throw new Error('sync pool child'); },`,
+    });
+    try {
+      const result = await spawnNode(harness, 8000, 'SIGTERM');
+      const terminate = result.stdout.trim().split('\n')
+        .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+        .find((l) => l && l.type === 'terminate');
+      red('child_process_pool_close_throwing_bounded',
+        result.code === 143
+        && terminate
+        && terminate.signal === 'SIGTERM'
+        && terminate.endCalls === 0
+        && !/sync pool child|logger boom|Error:/i.test(result.stderr),
+        JSON.stringify({ code: result.code, terminate, stderr: result.stderr.slice(0, 200) }));
+    } finally {
+      fs.unlinkSync(harness);
+    }
+  }
+
+  {
+    const harness = writeChildHarness({
+      lifecycleOpts: `
+    closeReadinessPool: () => Promise.reject(new Error('pool child fail')),
+    log: () => { throw new Error('logger child boom'); },
+      `,
+    });
+    try {
+      const result = await spawnNode(harness, 8000, 'SIGINT');
+      const terminate = result.stdout.trim().split('\n')
+        .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+        .find((l) => l && l.type === 'terminate');
+      red('child_process_shutdown_logger_throw_bounded',
+        result.code === 130
+        && terminate
+        && terminate.signal === 'SIGINT'
+        && terminate.endCalls === 0
+        && !/pool child fail|logger child boom|Error:/i.test(result.stderr),
+        JSON.stringify({ code: result.code, terminate, stderr: result.stderr.slice(0, 200) }));
+    } finally {
+      fs.unlinkSync(harness);
+    }
+  }
 
   await withLifecycleModule(async (lifecycle) => {
     const logs = [];
@@ -763,9 +910,10 @@ ok('C7 npm script registered',
     /if \(require\.main === module\)[\s\S]{0,500}attachStaffApiReadinessLifecycle\(server\)/.test(apiSrc));
 
   green('shutdown_order_preserved',
-    /await boundedAwait\(closePool\(\)/.test(lifecycleSrc)
-    && lifecycleSrc.indexOf('boundedAwait(closePool()') < lifecycleSrc.indexOf('await boundedServerClose')
-    && lifecycleSrc.indexOf('await boundedServerClose') < lifecycleSrc.indexOf('terminateFn(shutdownSignal)')
+    /invokePoolClose\(closePool\)/.test(lifecycleSrc)
+    && lifecycleSrc.indexOf('boundedAwait(poolPromise') < lifecycleSrc.indexOf('await boundedServerClose')
+    && lifecycleSrc.indexOf('await boundedServerClose') < lifecycleSrc.indexOf('finally')
+    && lifecycleSrc.indexOf('detachOwnedSignalListeners()') < lifecycleSrc.indexOf('terminateFn(shutdownSignal)')
     && JSON.stringify(locks.SHUTDOWN_ORDER) === JSON.stringify([
       'close_readiness_pool',
       'server_close',
@@ -783,8 +931,15 @@ ok('C7 npm script registered',
 
   green('failure_classification_bounded',
     /FAILURE_CLASSES/.test(lifecycleSrc)
+    && /pool_close_throw/.test(lifecycleSrc)
     && /failure_classes/.test(lifecycleSrc)
     && !/err\.message|stack/i.test(lifecycleSrc.match(/logFn\([\s\S]*?\)/)?.[0] || ''));
+
+  green('exception_cleanup_finally_terminates',
+    /\} finally \{/.test(lifecycleSrc)
+    && /detachOwnedSignalListeners\(\)/.test(lifecycleSrc)
+    && lifecycleSrc.indexOf('detachOwnedSignalListeners()') < lifecycleSrc.indexOf('terminateFn(shutdownSignal)')
+    && /try\s*\{[\s\S]*logFn\([\s\S]*\}\s*catch/.test(lifecycleSrc));
 
   await withLifecycleModule(async (lifecycle) => {
     const first = lifecycle.attachStaffApiReadinessLifecycle(null, { terminate: false });

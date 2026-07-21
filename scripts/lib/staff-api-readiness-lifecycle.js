@@ -22,6 +22,7 @@ const DEFAULT_SERVER_CLOSE_TIMEOUT_MS = 30_000;
 /** Bounded, non-sensitive failure taxonomy for shutdown aggregation. */
 const FAILURE_CLASSES = Object.freeze([
   'pool_close_rejected',
+  'pool_close_throw',
   'pool_close_timeout',
   'server_close_rejected',
   'server_close_throw',
@@ -110,7 +111,7 @@ function boundedServerClose(server, timeoutMs) {
 }
 
 /**
- * @param {'ok' | 'rejected' | 'timeout'} poolResult
+ * @param {'ok' | 'rejected' | 'timeout' | 'throw'} poolResult
  * @param {'ok' | 'rejected' | 'throw' | 'timeout' | 'already_closed'} serverResult
  * @returns {string[]}
  */
@@ -118,12 +119,26 @@ function classifyShutdownFailures(poolResult, serverResult) {
   /** @type {string[]} */
   const failures = [];
   if (poolResult === 'rejected') failures.push('pool_close_rejected');
+  if (poolResult === 'throw') failures.push('pool_close_throw');
   if (poolResult === 'timeout') failures.push('pool_close_timeout');
   if (serverResult === 'rejected') failures.push('server_close_rejected');
   if (serverResult === 'throw') failures.push('server_close_throw');
   if (serverResult === 'timeout') failures.push('server_close_timeout');
   if (serverResult === 'already_closed') failures.push('server_close_already_closed');
   return failures.filter((f) => FAILURE_CLASSES.includes(f));
+}
+
+/**
+ * Invoke pool close; synchronous throws are classified without rejecting shutdown.
+ * @param {() => Promise<void>} closePool
+ * @returns {Promise<void> | null} null when closePool throws synchronously
+ */
+function invokePoolClose(closePool) {
+  try {
+    return closePool();
+  } catch {
+    return null;
+  }
 }
 
 function detachOwnedSignalListeners() {
@@ -168,26 +183,41 @@ function runStaffApiReadinessShutdown(server, signal, deps = {}) {
   const serverTimeout = deps.serverCloseTimeoutMs ?? DEFAULT_SERVER_CLOSE_TIMEOUT_MS;
 
   shutdownPromise = (async () => {
-    const poolResult = await boundedAwait(closePool(), poolTimeout);
-
-    const target = server || boundServer;
+    let poolResult = 'ok';
     let serverResult = 'ok';
-    if (target && typeof target.close === 'function') {
-      serverResult = await boundedServerClose(target, serverTimeout);
-    }
+    try {
+      const poolPromise = invokePoolClose(closePool);
+      if (poolPromise === null) {
+        poolResult = 'throw';
+      } else {
+        poolResult = await boundedAwait(poolPromise, poolTimeout);
+      }
 
-    const failureClasses = classifyShutdownFailures(poolResult, serverResult);
-    if (failureClasses.length > 0) {
-      logFn({
-        event: 'staff_api_readiness_shutdown',
-        failure_classes: failureClasses,
-      });
-    }
+      const target = server || boundServer;
+      if (target && typeof target.close === 'function') {
+        serverResult = await boundedServerClose(target, serverTimeout);
+      }
 
-    detachOwnedSignalListeners();
-
-    if (terminateFn && shutdownSignal) {
-      terminateFn(shutdownSignal);
+      const failureClasses = classifyShutdownFailures(poolResult, serverResult);
+      if (failureClasses.length > 0) {
+        try {
+          logFn({
+            event: 'staff_api_readiness_shutdown',
+            failure_classes: failureClasses,
+          });
+        } catch {
+          // logging is best-effort; must not block detach/terminate
+        }
+      }
+    } finally {
+      detachOwnedSignalListeners();
+      if (terminateFn && shutdownSignal) {
+        try {
+          terminateFn(shutdownSignal);
+        } catch {
+          // termination attempted once; injected failures must not block cleanup
+        }
+      }
     }
   })();
 
@@ -263,5 +293,6 @@ module.exports = {
   _getStaffApiReadinessLifecycleStateForTests,
   _boundedAwaitForTests: boundedAwait,
   _boundedServerCloseForTests: boundedServerClose,
+  _invokePoolCloseForTests: invokePoolClose,
   _classifyShutdownFailuresForTests: classifyShutdownFailures,
 };
