@@ -197,6 +197,7 @@ const DEFAULT_CLIENT_SLUG_ENV = 'DEFAULT_CLIENT_SLUG';
 const INGRESS_ENV_REASONS = Object.freeze({
   ABSENT: 'absent',
   READ_THREW: 'read_threw',
+  ENV_INSPECTION_FAILED: 'env_inspection_failed',
   NULLISH: 'nullish',
   NON_STRING: 'non_string',
   BLANK: 'blank',
@@ -209,34 +210,82 @@ const INGRESS_ENV_REASONS = Object.freeze({
 });
 
 /**
+ * Internal bounded enum for safe own-env inspection outcomes.
+ * Never carries exception.message, raw env values, or free-form strings.
+ */
+const ENV_INSPECT = Object.freeze({
+  ABSENT: 0,
+  PRESENT: 1,
+  FAILED: 2,
+});
+
+/**
+ * Single safe inspector for own-property presence + value read.
+ * Catches getOwnPropertyDescriptor / hasOwn / getter / revoked-Proxy failures.
+ * Does not enumerate env (no ownKeys / Object.keys / for-in).
+ * Does not coerce via then / valueOf / toString / String().
+ * On any trap or read failure returns FAILED with no exception payload.
+ * @param {unknown} env
+ * @param {string} key
+ * @returns {{ status: 0|1|2, value?: unknown }}
+ */
+function inspectOwnEnvProperty(env, key) {
+  if (env == null || (typeof env !== 'object' && typeof env !== 'function')) {
+    return Object.freeze({ status: ENV_INSPECT.ABSENT });
+  }
+  try {
+    const desc = Object.getOwnPropertyDescriptor(env, key);
+    if (!desc) {
+      return Object.freeze({ status: ENV_INSPECT.ABSENT });
+    }
+    let value;
+    // Data descriptor: take .value without invoking [[Get]].
+    // Accessor: call getter only; never await thenables or coerce.
+    if (Object.prototype.hasOwnProperty.call(desc, 'value')) {
+      value = desc.value;
+    } else if (typeof desc.get === 'function') {
+      value = desc.get.call(env);
+    } else {
+      value = undefined;
+    }
+    return Object.freeze({ status: ENV_INSPECT.PRESENT, value });
+  } catch (_) {
+    // Bound enum only — never exception.message / string / raw values.
+    return Object.freeze({ status: ENV_INSPECT.FAILED });
+  }
+}
+
+/**
  * Own-property presence only — inherited/prototype keys are absent.
- * Does not coerce values.
+ * Inspection failure → false (never throws).
  * @param {unknown} env
  * @param {string} key
  * @returns {boolean}
  */
 function envHasOwnProperty(env, key) {
-  return env != null
-    && (typeof env === 'object' || typeof env === 'function')
-    && Object.prototype.hasOwnProperty.call(env, key);
+  return inspectOwnEnvProperty(env, key).status === ENV_INSPECT.PRESENT;
 }
 
 /**
  * Read an own env property without String coercion.
- * Inherited keys → absent. Getter throw → present + read_threw.
+ * Inherited keys → absent. Inspection/getter failure → read_error env_inspection_failed.
  * @param {unknown} env
  * @param {string} key
  * @returns {{ present: boolean, value: unknown, read_error: string|null }}
  */
 function readOwnEnvProperty(env, key) {
-  if (!envHasOwnProperty(env, key)) {
+  const insp = inspectOwnEnvProperty(env, key);
+  if (insp.status === ENV_INSPECT.ABSENT) {
     return { present: false, value: undefined, read_error: null };
   }
-  try {
-    return { present: true, value: env[key], read_error: null };
-  } catch (_) {
-    return { present: true, value: undefined, read_error: INGRESS_ENV_REASONS.READ_THREW };
+  if (insp.status === ENV_INSPECT.FAILED) {
+    return {
+      present: false,
+      value: undefined,
+      read_error: INGRESS_ENV_REASONS.ENV_INSPECTION_FAILED,
+    };
   }
+  return { present: true, value: insp.value, read_error: null };
 }
 
 /**
@@ -249,12 +298,19 @@ function readOwnEnvProperty(env, key) {
  */
 function classifyPresentEnvSlug(raw, readError) {
   if (readError) {
-    return { ok: false, slug: null, reason: INGRESS_ENV_REASONS.READ_THREW };
+    return {
+      ok: false,
+      slug: null,
+      reason: readError === INGRESS_ENV_REASONS.ENV_INSPECTION_FAILED
+        ? INGRESS_ENV_REASONS.ENV_INSPECTION_FAILED
+        : INGRESS_ENV_REASONS.READ_THREW,
+    };
   }
   if (raw === undefined || raw === null) {
     return { ok: false, slug: null, reason: INGRESS_ENV_REASONS.NULLISH };
   }
   // Reject boxed String / Number / Object / Array — typeof alone, never String(raw).
+  // Thenables / valueOf hosts stay NON_STRING (no coercion).
   if (typeof raw !== 'string') {
     return { ok: false, slug: null, reason: INGRESS_ENV_REASONS.NON_STRING };
   }
@@ -294,15 +350,38 @@ function absentIngressBinding(reason, conflict) {
 }
 
 /**
+ * Apply a classified own-env slug inspection into binding resolution.
+ * FAILED → env_inspection_failed (never partial accept).
+ * @param {{ status: 0|1|2, value?: unknown }} insp
+ * @returns {{ kind: 'absent' } | { kind: 'failed' } | { kind: 'ok', slug: string } | { kind: 'invalid', reason: string }}
+ */
+function bindingFromEnvInspect(insp) {
+  if (insp.status === ENV_INSPECT.FAILED) {
+    return { kind: 'failed' };
+  }
+  if (insp.status === ENV_INSPECT.ABSENT) {
+    return { kind: 'absent' };
+  }
+  const classified = classifyPresentEnvSlug(insp.value, null);
+  if (!classified.ok) {
+    return { kind: 'invalid', reason: classified.reason };
+  }
+  return { kind: 'ok', slug: classified.slug };
+}
+
+/**
  * Resolve trusted ingress binding from explicit options or process env.
  * Priority (deployment ingress binding only — never request input):
- *   1. Explicit construction binding (options.ingressBinding) — unchanged precedence
+ *   1. Explicit construction binding (options.ingressBinding) — returns without
+ *      touching env (hostile/revoked Proxy safe)
  *   2. Own STAFF_API_INGRESS_TENANT_SLUG: must be primitive string + slug-valid;
  *      present-but-malformed → fail closed (never fall through to DEFAULT)
  *   3. Only when dedicated is truly absent: own DEFAULT_CLIENT_SLUG compat
  *      fallback (same strict primitive-string rules; malformed → fail closed)
  *   4. Both own+valid and normalized unequal → conflict fail-closed
  *   5. Neither own → absent
+ *   Any own-property inspection failure (dedicated or DEFAULT, including valid
+ *   dedicated + hostile DEFAULT presence check) → absent + env_inspection_failed
  * @param {unknown} [explicit]
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {{
@@ -314,6 +393,7 @@ function absentIngressBinding(reason, conflict) {
  * }}
  */
 function resolveTrustedIngressBinding(explicit, env = process.env) {
+  // Explicit construction binding wins and must not touch env at all.
   if (explicit && typeof explicit === 'object' && !Array.isArray(explicit)) {
     const binding = validateTrustedIngressBinding(explicit);
     return Object.freeze({
@@ -325,52 +405,66 @@ function resolveTrustedIngressBinding(explicit, env = process.env) {
     });
   }
 
-  const src = env && (typeof env === 'object' || typeof env === 'function') ? env : {};
-  const dedicatedRead = readOwnEnvProperty(src, STAFF_API_INGRESS_TENANT_SLUG_ENV);
-  const defaultRead = readOwnEnvProperty(src, DEFAULT_CLIENT_SLUG_ENV);
-
-  if (dedicatedRead.present) {
-    const dedicated = classifyPresentEnvSlug(dedicatedRead.value, dedicatedRead.read_error);
-    if (!dedicated.ok) {
+  try {
+    const src = env && (typeof env === 'object' || typeof env === 'function') ? env : {};
+    const dedicated = bindingFromEnvInspect(
+      inspectOwnEnvProperty(src, STAFF_API_INGRESS_TENANT_SLUG_ENV),
+    );
+    if (dedicated.kind === 'failed') {
+      return absentIngressBinding(INGRESS_ENV_REASONS.ENV_INSPECTION_FAILED);
+    }
+    if (dedicated.kind === 'invalid') {
       // Present dedicated is authoritative: never fall through to DEFAULT_CLIENT_SLUG.
       return absentIngressBinding(dedicated.reason);
     }
 
-    if (defaultRead.present) {
-      const fallback = classifyPresentEnvSlug(defaultRead.value, defaultRead.read_error);
-      if (!fallback.ok) {
+    if (dedicated.kind === 'ok') {
+      const fallback = bindingFromEnvInspect(
+        inspectOwnEnvProperty(src, DEFAULT_CLIENT_SLUG_ENV),
+      );
+      // Hostile/failed DEFAULT presence check must not partially accept dedicated.
+      if (fallback.kind === 'failed') {
+        return absentIngressBinding(INGRESS_ENV_REASONS.ENV_INSPECTION_FAILED);
+      }
+      if (fallback.kind === 'invalid') {
         return absentIngressBinding(INGRESS_ENV_REASONS.DEFAULT_INVALID);
       }
-      if (dedicated.slug !== fallback.slug) {
+      if (fallback.kind === 'ok' && dedicated.slug !== fallback.slug) {
         return absentIngressBinding(INGRESS_ENV_REASONS.CONFLICT, true);
       }
+      return Object.freeze({
+        tenant_slug: dedicated.slug,
+        present: true,
+        source: STAFF_API_INGRESS_TENANT_SLUG_ENV,
+        conflict: false,
+        reason: null,
+      });
     }
 
-    return Object.freeze({
-      tenant_slug: dedicated.slug,
-      present: true,
-      source: STAFF_API_INGRESS_TENANT_SLUG_ENV,
-      conflict: false,
-      reason: null,
-    });
-  }
-
-  // Dedicated truly absent (not own) — strict DEFAULT_CLIENT_SLUG compatibility fallback.
-  if (defaultRead.present) {
-    const fallback = classifyPresentEnvSlug(defaultRead.value, defaultRead.read_error);
-    if (!fallback.ok) {
+    // Dedicated truly absent (not own) — strict DEFAULT_CLIENT_SLUG compatibility fallback.
+    const fallback = bindingFromEnvInspect(
+      inspectOwnEnvProperty(src, DEFAULT_CLIENT_SLUG_ENV),
+    );
+    if (fallback.kind === 'failed') {
+      return absentIngressBinding(INGRESS_ENV_REASONS.ENV_INSPECTION_FAILED);
+    }
+    if (fallback.kind === 'invalid') {
       return absentIngressBinding(fallback.reason);
     }
-    return Object.freeze({
-      tenant_slug: fallback.slug,
-      present: true,
-      source: DEFAULT_CLIENT_SLUG_ENV,
-      conflict: false,
-      reason: null,
-    });
-  }
+    if (fallback.kind === 'ok') {
+      return Object.freeze({
+        tenant_slug: fallback.slug,
+        present: true,
+        source: DEFAULT_CLIENT_SLUG_ENV,
+        conflict: false,
+        reason: null,
+      });
+    }
 
-  return absentIngressBinding(INGRESS_ENV_REASONS.ABSENT);
+    return absentIngressBinding(INGRESS_ENV_REASONS.ABSENT);
+  } catch (_) {
+    return absentIngressBinding(INGRESS_ENV_REASONS.ENV_INSPECTION_FAILED);
+  }
 }
 
 /**
@@ -468,6 +562,7 @@ module.exports = {
   STAFF_API_INGRESS_TENANT_SLUG_ENV,
   DEFAULT_CLIENT_SLUG_ENV,
   INGRESS_ENV_REASONS,
+  ENV_INSPECT,
   generateRequestId,
   acceptOrGenerateRequestId,
   pathnameOnly,
@@ -475,6 +570,7 @@ module.exports = {
   sanitizeTenantSlug,
   validateTrustedIngressBinding,
   resolveTrustedIngressBinding,
+  inspectOwnEnvProperty,
   envHasOwnProperty,
   readOwnEnvProperty,
   classifyPresentEnvSlug,

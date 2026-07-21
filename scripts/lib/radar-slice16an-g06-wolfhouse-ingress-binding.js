@@ -145,13 +145,17 @@ const INTEGRATION_SOURCE_PROOF = Object.freeze({
     + '(primitive string + slug-valid; present-but-malformed fail-closed, never '
     + 'String()-coerced fallthrough to DEFAULT); only when dedicated is truly '
     + 'absent may strict DEFAULT_CLIENT_SLUG compat fallback apply; conflict '
-    + 'fail-closed on normalized mismatch; Wolfhouse staging Bicep sets '
+    + 'fail-closed on normalized mismatch; safe own-env inspector catches '
+    + 'getOwnPropertyDescriptor/hasOwn/getter/revoked-Proxy failures and maps '
+    + 'to env_inspection_failed (never throw/partial-accept/raw echo); explicit '
+    + 'binding returns without touching env; Wolfhouse staging Bicep sets '
     + 'STAFF_API_INGRESS_TENANT_SLUG=wolfhouse-somo without DEFAULT_CLIENT_SLUG; '
     + 'Sunset sets STAFF_API_INGRESS_TENANT_SLUG=sunset matching DEFAULT; REDs '
     + 'cover missing/conflict/spoof/OFF parity plus blank/non-string/NUL/'
-    + 'inherited/nullish/getter/hostile-coercion; failed canary/rollback '
-    + 'recorded as identity fail-closed (not overload shed); no live '
-    + 'deploy/mutation by this tip; G06 remains partial',
+    + 'inherited/nullish/getter/hostile-coercion/Proxy-SECRET_RAW/revoked/'
+    + 'hostile-DEFAULT; failed canary/rollback recorded as identity fail-closed '
+    + '(not overload shed); no live deploy/mutation by this tip; G06 remains '
+    + 'partial',
 });
 
 const FINAL_CONTROLLED_DRILL = INTEGRATION_SOURCE_PROOF;
@@ -213,6 +217,12 @@ const REQUIRED_RED = Object.freeze([
   'valid_exact_match_both_envs',
   'absent_dedicated_valid_default_fallback',
   'no_secret_raw_value_leakage_in_reason',
+  // Hostile / revoked Proxy env inspection fail-closed
+  'trap_throws_secret_raw_fail_closed',
+  'revoked_proxy_fail_closed',
+  'valid_dedicated_hostile_default_presence_fail_closed',
+  'hostile_dedicated_getter_fail_closed',
+  'explicit_binding_revoked_env',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([

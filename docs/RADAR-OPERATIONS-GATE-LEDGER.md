@@ -20,7 +20,7 @@ Diagnose and safely correct the live Wolfhouse admission activation failure obse
 | Classification | **identity fail-closed** (`REJECTED_MISSING_TENANT` → public 503 **without** overload `Retry-After`) — **not** live overload shedding |
 | Root cause | `resolveTrustedIngressBinding` used only `DEFAULT_CLIENT_SLUG` |
 | Safety | setting Wolfhouse `DEFAULT_CLIENT_SLUG=wolfhouse-somo` alone **would** fix admission but has unrelated semantic risk (portal / payment short-link / bot / Stripe defaults) — **rejected** |
-| Correction | dedicated immutable `STAFF_API_INGRESS_TENANT_SLUG` preferred; own-property presence (no `String()` coercion); present-but-malformed dedicated **fail-closed** (never fall through to `DEFAULT_CLIENT_SLUG`); absent-only strict `DEFAULT_CLIENT_SLUG` compat fallback; conflict fail-closed on normalized mismatch |
+| Correction | dedicated immutable `STAFF_API_INGRESS_TENANT_SLUG` preferred; own-property presence (no `String()` coercion); present-but-malformed dedicated **fail-closed** (never fall through to `DEFAULT_CLIENT_SLUG`); absent-only strict `DEFAULT_CLIENT_SLUG` compat fallback; conflict fail-closed on normalized mismatch; safe env inspector maps Proxy/getter/revoked inspection failures to `env_inspection_failed` (never throw/partial-accept/raw echo); explicit binding skips env |
 | Wolfhouse IaC | `STAFF_API_INGRESS_TENANT_SLUG=wolfhouse-somo`; **leave** `DEFAULT_CLIENT_SLUG` unset |
 | Sunset IaC | `STAFF_API_INGRESS_TENANT_SLUG=sunset` matching existing `DEFAULT_CLIENT_SLUG=sunset` |
 | Proof | `16AN_SOURCE_dedicated_ingress_tenant_slug` **`source_deploy_config_proven`** (offline RED/GREEN + IaC locks) |
@@ -36,7 +36,7 @@ Diagnose and safely correct the live Wolfhouse admission activation failure obse
 
 ## Truthful disposition (16AN)
 
-**Proves (source/deploy-config):** Dedicated `STAFF_API_INGRESS_TENANT_SLUG` with strict own-property presence (primitive string + slug-valid; present-but-malformed fail-closed, no `String()` fallthrough), backwards-compatible `DEFAULT_CLIENT_SLUG` fallback only when dedicated is truly absent, and conflict fail-closed; Wolfhouse/Sunset staging Bicep wired explicitly; REDs for missing/conflict/spoof/OFF parity plus blank/non-string/NUL/inherited/nullish/getter/hostile-coercion; failed Wolfhouse canary recorded as identity fail-closed (not overload shed).
+**Proves (source/deploy-config):** Dedicated `STAFF_API_INGRESS_TENANT_SLUG` with strict own-property presence (primitive string + slug-valid; present-but-malformed fail-closed, no `String()` fallthrough), backwards-compatible `DEFAULT_CLIENT_SLUG` fallback only when dedicated is truly absent, and conflict fail-closed; safe own-env inspector fail-closed on hostile/revoked Proxy traps (`env_inspection_failed`); Wolfhouse/Sunset staging Bicep wired explicitly; REDs for missing/conflict/spoof/OFF parity plus blank/non-string/NUL/inherited/nullish/getter/hostile-coercion/Proxy-SECRET_RAW/revoked/hostile-DEFAULT; failed Wolfhouse canary recorded as identity fail-closed (not overload shed).
 
 **Does not prove:** live deploy by this tip; flag enable; live overload 503 shed; load soak; backpressure proven; production; raising G06 to `proven`.
 

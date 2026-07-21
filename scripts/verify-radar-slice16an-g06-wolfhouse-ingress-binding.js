@@ -440,7 +440,7 @@ async function main() {
         throw new Error('secret-tenant-leak boom');
       },
     });
-    return failClosedNoFallback(env, corr.INGRESS_ENV_REASONS.READ_THREW);
+    return failClosedNoFallback(env, corr.INGRESS_ENV_REASONS.ENV_INSPECTION_FAILED);
   })());
 
   red('hostile_coercion_dedicated_fail_closed', (() => {
@@ -521,6 +521,140 @@ async function main() {
         && r.reason.length <= 64
         && !/secret|SHOULD-NOT/i.test(r.reason);
     });
+  })());
+
+  // ── Hostile / revoked Proxy env inspection (never throw / never raw echo) ─
+
+  const SECRET_RAW = 'SECRET_RAW';
+
+  function assertSafeFailClosed(resolveFn) {
+    let threw = false;
+    let r;
+    try {
+      r = resolveFn();
+    } catch (_) {
+      threw = true;
+      r = null;
+    }
+    const dump = r == null ? '' : JSON.stringify(r);
+    return threw === false
+      && r != null
+      && r.present === false
+      && r.tenant_slug === null
+      && r.source == null
+      && r.conflict === false
+      && r.reason === corr.INGRESS_ENV_REASONS.ENV_INSPECTION_FAILED
+      && typeof r.reason === 'string'
+      && r.reason.length > 0
+      && r.reason.length <= 64
+      && dump.indexOf(SECRET_RAW) === -1
+      && !/SECRET_RAW|secret-tenant-leak/i.test(dump)
+      && !/SECRET_RAW|secret-tenant-leak/i.test(String(r.reason || ''));
+  }
+
+  function hostileSecretProxy(target) {
+    return new Proxy(target || {}, {
+      getOwnPropertyDescriptor(t, prop) {
+        throw new Error(SECRET_RAW);
+      },
+      get() {
+        throw new Error(SECRET_RAW);
+      },
+      has() {
+        throw new Error(SECRET_RAW);
+      },
+      ownKeys() {
+        throw new Error(SECRET_RAW);
+      },
+    });
+  }
+
+  red('trap_throws_secret_raw_fail_closed', assertSafeFailClosed(() => (
+    corr.resolveTrustedIngressBinding(null, hostileSecretProxy({}))
+  )));
+
+  red('revoked_proxy_fail_closed', (() => {
+    const target = {
+      [locks.INGRESS_ENV]: locks.WH_INGRESS_SLUG,
+      [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG,
+    };
+    const { proxy, revoke } = Proxy.revocable(target, {});
+    revoke();
+    return assertSafeFailClosed(() => corr.resolveTrustedIngressBinding(null, proxy));
+  })());
+
+  red('valid_dedicated_hostile_default_presence_fail_closed', (() => {
+    const base = { [locks.INGRESS_ENV]: locks.WH_INGRESS_SLUG };
+    const env = new Proxy(base, {
+      getOwnPropertyDescriptor(t, prop) {
+        if (prop === locks.DEFAULT_ENV) {
+          throw new Error(SECRET_RAW);
+        }
+        return Reflect.getOwnPropertyDescriptor(t, prop);
+      },
+      get(t, prop, recv) {
+        if (prop === locks.DEFAULT_ENV) {
+          throw new Error(SECRET_RAW);
+        }
+        return Reflect.get(t, prop, recv);
+      },
+      has(t, prop) {
+        if (prop === locks.DEFAULT_ENV) {
+          throw new Error(SECRET_RAW);
+        }
+        return Reflect.has(t, prop);
+      },
+      ownKeys() {
+        throw new Error(SECRET_RAW);
+      },
+    });
+    // Valid dedicated must not be partially accepted when DEFAULT presence inspect fails.
+    return assertSafeFailClosed(() => corr.resolveTrustedIngressBinding(null, env))
+      && corr.resolveTrustedIngressBinding(null, env).tenant_slug !== locks.WH_INGRESS_SLUG;
+  })());
+
+  red('hostile_dedicated_getter_fail_closed', (() => {
+    const env = { [locks.DEFAULT_ENV]: locks.SUNSET_INGRESS_SLUG };
+    Object.defineProperty(env, locks.INGRESS_ENV, {
+      enumerable: true,
+      configurable: true,
+      get() {
+        throw new Error(SECRET_RAW);
+      },
+    });
+    return assertSafeFailClosed(() => corr.resolveTrustedIngressBinding(null, env));
+  })());
+
+  red('explicit_binding_revoked_env', (() => {
+    const { proxy, revoke } = Proxy.revocable({
+      [locks.INGRESS_ENV]: locks.SUNSET_INGRESS_SLUG,
+    }, {
+      getOwnPropertyDescriptor() { throw new Error(SECRET_RAW); },
+      get() { throw new Error(SECRET_RAW); },
+      has() { throw new Error(SECRET_RAW); },
+      ownKeys() { throw new Error(SECRET_RAW); },
+    });
+    revoke();
+    let threw = false;
+    let r;
+    try {
+      r = corr.resolveTrustedIngressBinding(
+        { tenant_slug: locks.WH_INGRESS_SLUG },
+        proxy,
+      );
+    } catch (_) {
+      threw = true;
+      r = null;
+    }
+    const dump = r == null ? '' : JSON.stringify(r);
+    return threw === false
+      && r != null
+      && r.present === true
+      && r.tenant_slug === locks.WH_INGRESS_SLUG
+      && r.source === 'explicit'
+      && r.conflict === false
+      && r.reason === null
+      && dump.indexOf(SECRET_RAW) === -1;
   })());
 
   // Explicit construction binding still wins over env.
