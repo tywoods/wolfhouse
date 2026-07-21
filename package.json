@@ -688,7 +688,8 @@
     "verify:radar-slice16ah-g06-live-load-correction": "node scripts/verify-radar-slice16ah-g06-live-load-correction.js",
     "verify:radar-slice16ai-g06-live-load-evidence": "node scripts/verify-radar-slice16ai-g06-live-load-evidence.js",
     "verify:radar-slice16aj-g06-slo-error-budget": "node scripts/verify-radar-slice16aj-g06-slo-error-budget.js",
-    "verify:radar-slice16ak-g06-backpressure": "node scripts/verify-radar-slice16ak-g06-backpressure.js"
+    "verify:radar-slice16ak-g06-backpressure": "node scripts/verify-radar-slice16ak-g06-backpressure.js",
+    "verify:radar-slice16al-g06-backpressure-wire": "node scripts/verify-radar-slice16al-g06-backpressure-wire.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

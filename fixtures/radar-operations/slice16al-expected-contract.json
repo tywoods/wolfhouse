@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AL",
+  "outcome_id": "16AL_g06_backpressure_wire",
+  "gate_ids": ["G06_scaling_capacity"],
+  "progress_class": "integration_source_partial_progress_only",
+  "master_basis": "502d762f897432c67bb8b17a8a49bfab01a0787d",
+  "branch": "radar/slice-16al-g06-backpressure-wire",
+  "live_deploy": false,
+  "live_mutation": false,
+  "live_network": false,
+  "flag_enabled": false,
+  "this_slice_deploys": false,
+  "this_slice_enables_flag": false,
+  "title": "G06 admission-control Staff API wire behind STAFF_API_ADMISSION_CONTROL default OFF — integration source proof only",
+  "design_fixture": "fixtures/radar-operations/slice16al-g06-backpressure-wire-contract.json",
+  "builds_on": [
+    "16AK_g06_backpressure_source",
+    "16AJ_g06_slo_error_budget_source",
+    "16AI_g06_live_load_evidence",
+    "16AH_g06_live_load_correction",
+    "16AG_g06_bounded_load_harness",
+    "16AF_g06_capacity_alert_live_evidence",
+    "16J_staff_request_correlation",
+    "16R_staff_request_completion_log",
+    "16K_staff_api_healthz",
+    "16I_staff_api_readiness"
+  ],
+  "final_controlled_drill": {
+    "id": "16AL_INTEGRATION_staff_api_admission_wire_source",
+    "status": "integration_source_proven",
+    "pass_rule": "See slice16al-g06-backpressure-wire-contract.json integration_source_proof"
+  },
+  "g06_verdict": "partial",
+  "g06_backpressure_source": "source_defined_via_16AK",
+  "g06_backpressure_wire_source": "integration_source_proven_via_16AL",
+  "g06_backpressure": "open",
+  "g06_backpressure_live": "open",
+  "score": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0
+  },
+  "explicitly_not_claimed": [
+    "backpressure_proven",
+    "backpressure_live",
+    "live_503_shed_observed",
+    "load_soak_proof",
+    "autoscaling",
+    "capacity_slo_proven",
+    "production",
+    "full_G06_proven",
+    "flag_enabled_in_staging"
+  ]
+}

@@ -1,12 +1,42 @@
-# RADAR Slice 16AK — Operations gate ledger (G06 backpressure / admission-control source)
+# RADAR Slice 16AL — Operations gate ledger (G06 admission-control Staff API wire)
 
-**Status:** source/text-only (no deploy / live / scale / runtime wire by this tip; G06 remains partial)
-**Master basis:** `9fa3626326c0e2bc21f2d37905967d6ff47b7520`
-**Branch:** `radar/slice-16ak-g06-backpressure-source`
+**Status:** integration source proof only (flag default OFF; no deploy / live load / flag enable by this tip; G06 remains partial)
+**Master basis:** `502d762f897432c67bb8b17a8a49bfab01a0787d`
+**Branch:** `radar/slice-16al-g06-backpressure-wire`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16AJ SLO/error-budget source + 16AI/16AH/16AG/16AF/16L capacity path + 16M Stripe claim + 16J/16K/16I correlation/health/ready
-**This slice does not deploy / does not execute live / does not mutate scale / does not wire Staff API runtime:** admission/backpressure source contract + pure library + offline verifier only; Staff API integration drill `defined_not_executed`
+**Builds on:** 16AK admission/backpressure source + 16AJ SLO source + 16AI/16AH/16AG/16AF/16L capacity path + 16J/16R/16K/16I correlation/completion/health/ready
+**This slice does not deploy / does not enable the flag / does not execute live load / does not mutate scale:** Staff API wire behind `STAFF_API_ADMISSION_CONTROL` default OFF + deterministic fake req/res integration tests only
+
+## Outcome (16AL)
+
+Integrate the reviewed **16AK** tenant-safe admission controller into Staff API behind a fail-closed deployment flag:
+
+| Contract | Locked value |
+|----------|----------------|
+| Flag | `STAFF_API_ADMISSION_CONTROL` — fail-closed parse; default **OFF**; malformed rejected; OFF exact behavior-preserving |
+| Placement | `createStaffQueryApiHttpServer` after `resolveTrustedIngressBinding(...).tenant_slug`, before router body/DB/tool side effects |
+| Routes | 16AK **eligible-route allowlist** only; `/healthz` `/readyz` `/` + unknown routes **excluded** |
+| Tenant identity | **only** trusted ingress `tenant_slug` — never request header/query/body spoof |
+| Lifecycle | release **exactly once** on finish/close/error/abort; queued disconnect cancels; queued promotion resumes handler **exactly once**; sync/async throws clean up; shutdown `close()`s controller |
+| Reject | public **503** + `Retry-After` only for pre-side-effect overload; post-side-effect never 503-shed; body bounded/non-sensitive |
+| Proof | `16AL_INTEGRATION_staff_api_admission_wire_source` **`integration_source_proven`** (fake req/res + source locks) |
+| Flag enable / live shed | **not claimed** — flag remains OFF |
+
+### Claim ownership (16AL locked)
+
+| Observation | Proves | Does not prove |
+|-------------|--------|----------------|
+| Flagged Staff API wire + deterministic integration tests | Source-proven boundary behaviors with flag OFF default | Flag enabled in staging; live 503 shed; soak; production; raising G06 |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
+
+## Truthful disposition (16AL)
+
+**Proves (integration source):** Staff API HTTP-boundary wire of the 16AK controller behind fail-closed flag default OFF, with deterministic fake req/res coverage for OFF-adjacent exclusions, saturation/no-side-effect-before-admit, per-tenant isolation, spoof rejection, queued disconnect cancel, queued promotion resume-once, throw cleanup, release-once, post-side-effect non-shed, shutdown close, and bounded public 503.
+
+**Does not prove:** flag enabled; live 503 shed under load; load soak; autoscaling; capacity SLO live; claiming backpressure live/proven; production; raising G06 to `proven`.
+
+**Admission wire source gap closed; live/flag-on proof remains open; G06 remains partial.**
 
 ## Outcome (16AK)
 
@@ -348,7 +378,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | `scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js` | Strict RED/GREEN verifier |
 
 
-## G06 semantics (truthful after 16AK)
+## G06 semantics (truthful after 16AL)
 
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
@@ -365,9 +395,21 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | Alert fire / notification delivery | `open` / `not claimed` | |
 | Load soak / sustained capacity | `open` / `not claimed` | 16AI does not claim soak |
 | Autoscaling | `open` / `not claimed` | rules=null |
-| Backpressure / admission **source** | `source_defined_16AK` | topology-informed contract + pure controller + offline verifier; integration `defined_not_executed` |
-| Backpressure / admission **runtime/live** | `open` / `not claimed` | 16AK does not wire Staff API or claim live shed |
+| Backpressure / admission **source** | `source_defined_16AK` | topology-informed contract + pure controller + offline verifier |
+| Backpressure / admission **wire source** | `integration_source_proven_16AL` | Staff API wire behind flag default OFF; fake req/res integration tests |
+| Backpressure / admission **runtime/live** | `open` / `not claimed` | flag not enabled; no live 503 shed claimed |
 | Production | `open` / forbidden | intentionally untouched |
+
+## Slice 16AL artifacts
+
+| Path | Role |
+|------|------|
+| `fixtures/radar-operations/slice16al-g06-backpressure-wire-contract.json` | Frozen wire contract (flag_enabled=false) |
+| `fixtures/radar-operations/slice16al-expected-contract.json` | Contract |
+| `scripts/lib/staff-api-admission-boundary.js` | HTTP-boundary wire + flag parse |
+| `scripts/lib/radar-slice16al-g06-backpressure-wire.js` | Locks |
+| `scripts/verify-radar-slice16al-g06-backpressure-wire.js` | Strict RED/GREEN + fake req/res integration |
+| `scripts/staff-query-api.js` | Optional admitAndRun in createStaffQueryApiHttpServer |
 
 ## Slice 16AK artifacts
 
@@ -435,7 +477,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 2. Load soak / sustained capacity — **not claimed** (16AI `live_proven` is conservative `/readyz` bounded profile only; 16AH prior attempt remains `attempted_not_proof`; 16AG profile lock remains `defined_not_executed`)
 3. Autoscaling (rules=null) — **not claimed**
 4. Capacity SLO / error budget **live** proof — **not claimed** (16AJ source contract only; burn alert/drill `defined_not_executed`)
-5. Backpressure **runtime/live** proof — **not claimed** (16AK source contract + library only; integration `defined_not_executed`)
+5. Backpressure **runtime/live** proof — **not claimed** (16AK source + 16AL wire source behind flag default OFF; flag not enabled)
 6. Absolute/continuous zero downtime / between-sample / sub-second interruption — **not claimed**
 7. Cold-start availability — **not claimed** (WH warmup timeouts remain real)
 8. G01-A live Meta→Hermes→Staff correlated read path

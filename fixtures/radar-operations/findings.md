@@ -1,14 +1,9 @@
-# RADAR findings (16A freeze + 16B–16Z partials + 16AA–16AD G02 + 16AF–16AK G06)
+# RADAR findings (16A freeze + 16B–16Z partials + 16AA–16AD G02 + 16AF–16AL G06)
 
-**Master basis (16AK):** `9fa3626326c0e2bc21f2d37905967d6ff47b7520`
+**Master basis (16AL):** `502d762f897432c67bb8b17a8a49bfab01a0787d`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
-**16AK progress class:** `source_partial_progress_only` (tenant-safe admission/backpressure source contract + pure state machine + offline RED/GREEN from inspected Staff API topology; Staff API integration `defined_not_executed` only — not runtime-wired; G06 remains partial).
-**16AJ progress class (retained):** `source_partial_progress_only` (availability-only finite staging readiness SLO/error-budget source contract + pure calculator + offline RED/GREEN; latency percentile SLI blocked; future burn-alert/drill acceptance `defined_not_executed` only — not live SLO proof; G06 remains partial).
-**16AI progress class (retained):** `partial_live_proven_evidence_only` (successful controlled dual-staging `/readyz` bounded-load drill reconciled; `final_controlled_drill` = `live_proven` for this conservative readiness profile only — not soak; G06 remains partial).
-**16AH progress class (retained):** `source_partial_progress_only` (pinnedLookup Happy Eyeballs `all=true` callback-contract correction + fail-closed pin validation + offline real-TLS production-shaped RED; post-16AG live attempt recorded as `attempted_not_proof`).
-**16AG progress class (retained):** `source_partial_progress_only` (bounded staging `/readyz` load harness + offline verifier; future drill profile `defined_not_executed`).
-**16AF progress class (retained):** `partial_live_proven_evidence_only` (four capacity-pressure alerts deployed Enabled + scale truth recorded).
-
+**16AL progress class:** `integration_source_partial_progress_only` (Staff API admission-control **wire** behind `STAFF_API_ADMISSION_CONTROL` default **OFF**; deterministic fake req/res integration source proof; flag **not** enabled; no deploy/live load; does **not** claim backpressure live/proven/full G06; G06 remains partial).
+**16AK progress class (retained):** `source_partial_progress_only` (tenant-safe admission/backpressure source contract + pure state machine + offline RED/GREEN; Staff API integration was `defined_not_executed` at 16AK tip — wire ownership is 16AL).
 ## Verdict rollup
 
 | Verdict | Count |
@@ -27,14 +22,14 @@
 5. Autoscaling (rules=null) — **not claimed**.
 6. Capacity SLO / error budget **live** proof — **not claimed** (16AJ defines availability-only source contract + calculator only; burn alert/drill acceptance `defined_not_executed`).
 7. Latency percentile SLI — **blocked** pending joint request telemetry/instrumentation (not part of 16AJ SLO; no ACA duration histogram / p99≤500ms / combined intersection).
-8. Backpressure **runtime/live** — **not claimed** (16AK defines source contract + library only; integration `defined_not_executed`).
+8. Backpressure **runtime/live** — **not claimed** (16AK source + 16AL wire **source** behind flag default OFF; flag not enabled; no live 503 shed proof).
 9. Absolute/continuous zero downtime / cold-start — **not claimed** (16AD sampling-resolution only).
 10. Human inbox receipt — **not claimed** (organic restart fire closed via 16AC).
 11. Requests 5xx alert firing — **not claimed**.
 12. Production — forbidden.
 13. Raising any gate verdict to `proven`.
 
-## Gate progress after 16AK (truthful)
+## Gate progress after 16AL (truthful)
 
 | Gate | progress_class | Notes |
 |------|----------------|-------|
@@ -43,14 +38,18 @@
 | G03 | partial_live_proven | **16AC** organic restart fire/resolve + **16P** AG test; human inbox open |
 | G04 | partial | backlog open |
 | G05 | source_partial | 16M event-id claim |
-| G06 | partial_live_proven + 16AK backpressure source + 16AJ SLO source | **16AK** admission/backpressure **source** contract + library; **16AJ** SLO/error-budget **source**; **16AI** conservative dual-staging `/readyz` bounded-load `live_proven`; prior 16AH `attempted_not_proof` retained; **16AG** harness source; **16AF** capacity-alert deploy live; **16L** source retained; runtime wire/live shed, soak, firing/notification, autoscaling, SLO **live** proof open |
+| G06 | partial_live_proven + 16AL wire source + 16AK backpressure source + 16AJ SLO source | **16AL** Staff API admission **wire** behind flag default OFF (integration source only); **16AK** admission/backpressure **source** contract + library; **16AJ** SLO/error-budget **source**; **16AI** conservative dual-staging `/readyz` bounded-load `live_proven`; prior 16AH `attempted_not_proof` retained; **16AG** harness source; **16AF** capacity-alert deploy live; **16L** source retained; flag-on live shed, soak, firing/notification, autoscaling, SLO **live** proof open |
 | G07 | partial_live_proven | via 16P rollback |
 | G08 | partial_live_proven | via 16P/16O webhook error minimization |
 | G09 | partial_live_proven | via 16P AG test |
 
+## Slice 16AL
+
+`16AL_g06_backpressure_wire` — integrate the reviewed **16AK** admission controller into Staff API `createStaffQueryApiHttpServer` behind fail-closed deployment flag **`STAFF_API_ADMISSION_CONTROL` default OFF**. Placement: after `resolveTrustedIngressBinding(...).tenant_slug`, before router body/DB/tool side effects; **eligible-route allowlist only**; `/healthz` `/readyz` `/` and unknown routes **excluded**. Response lifecycle releases **exactly once** on finish/close/error/abort; queued disconnect cancels; queued promotion resumes handler exactly once; sync/async throws clean up; shutdown closes controller; post-side-effect work is never 503-shed; public 503 body/Retry-After bounded/non-sensitive. Flag parsing rejects malformed values; OFF is exact behavior-preserving. Ships `staff-api-admission-boundary.js` + deterministic fake req/res integration tests. **Does not** enable the flag, deploy, run live load, or claim backpressure live/proven/full G06. Score unchanged (proven=0 / partial=9 / absent=0). G06 remains **partial**.
+
 ## Slice 16AK
 
-`16AK_g06_backpressure_source` — text/source-only tenant-safe Staff API **admission-control / backpressure** contract informed by inspected `staff-query-api.js` request topology (entry order, `/healthz`/`/readyz` exclusions, Stripe/Meta webhooks, write vs preview vs GET families). Trusted admission tenant source is **only** `resolveTrustedIngressBinding(...).tenant_slug` — never request spoof. Reviewed **eligible-route allowlist** (unknown default-exclude fail-closed; **no** suffix heuristic; **no** all-router-literal coverage claim); classifies `POST /staff/bookings/move-targets` as read-like and `POST /staff/test/reset-luna-phone` as write. Locks ceilings (in-flight global **8** / queue **16**; per-tenant **4**/**8**; Retry-After **1**s; tombstones **128**). Fail-fast **503** only for **pre-side-effect overload**; post-side-effect rejection is internal continue/fail-closed with **no** http_status/Retry-After/retryable metadata. Per-tenant isolation + round-robin; idle empty tenant buckets/rr keys evicted; terminal tokens deleted via tombstone ring; `close()` rejects queued pre-side-effect work and settles state; diagnostics are aggregate/opaque only (no tenant slugs). Ships pure dependency-free state machine + deterministic RED/GREEN (incl. real induced reentrancy, large churn, 65th historical tenant). Staff API integration drill **`defined_not_executed`** only — **not wired into runtime**; **sync-throw integration ownership explicitly not claimed**. Does **not** deploy, execute live/load/soak, mutate scale, or claim production scope, backpressure proven, autoscaling, or raise G06.
+`16AK_g06_backpressure_source` — text/source-only tenant-safe Staff API **admission-control / backpressure** contract informed by inspected `staff-query-api.js` request topology (entry order, `/healthz`/`/readyz` exclusions, Stripe/Meta webhooks, write vs preview vs GET families). Trusted admission tenant source is **only** `resolveTrustedIngressBinding(...).tenant_slug` — never request spoof. Reviewed **eligible-route allowlist** (unknown default-exclude fail-closed; **no** suffix heuristic; **no** all-router-literal coverage claim); classifies `POST /staff/bookings/move-targets` as read-like and `POST /staff/test/reset-luna-phone` as write. Locks ceilings (in-flight global **8** / queue **16**; per-tenant **4**/**8**; Retry-After **1**s; tombstones **128**). Fail-fast **503** only for **pre-side-effect overload**; post-side-effect rejection is internal continue/fail-closed with **no** http_status/Retry-After/retryable metadata. Per-tenant isolation + round-robin; idle empty tenant buckets/rr keys evicted; terminal tokens deleted via tombstone ring; `close()` rejects queued pre-side-effect work and settles state; diagnostics are aggregate/opaque only (no tenant slugs). Ships pure dependency-free state machine + deterministic RED/GREEN (incl. real induced reentrancy, large churn, 65th historical tenant). Staff API integration drill was **`defined_not_executed`** at the 16AK tip (wire ownership deferred to **16AL**). **Sync-throw integration ownership was explicitly not claimed by 16AK**. Does **not** deploy, execute live/load/soak, mutate scale, or claim production scope, backpressure proven, autoscaling, or raise G06.
 
 ## Slice 16AJ
 
