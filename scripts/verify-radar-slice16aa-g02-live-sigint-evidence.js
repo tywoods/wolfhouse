@@ -530,9 +530,9 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  const tip16ab = matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || (matrix.slice === 'RADAR-16AF' || matrix.slice === 'RADAR-16AG'));
-  const tip16ac = matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || (matrix.slice === 'RADAR-16AF' || matrix.slice === 'RADAR-16AG'));
-  const tip16ad = (matrix.slice === 'RADAR-16AD' || (matrix.slice === 'RADAR-16AF' || matrix.slice === 'RADAR-16AG'));
+  const tip16ab = matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || (matrix.slice === 'RADAR-16AF' || (matrix.slice === 'RADAR-16AG' || matrix.slice === 'RADAR-16AH')));
+  const tip16ac = matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || (matrix.slice === 'RADAR-16AF' || (matrix.slice === 'RADAR-16AG' || matrix.slice === 'RADAR-16AH')));
+  const tip16ad = (matrix.slice === 'RADAR-16AD' || (matrix.slice === 'RADAR-16AF' || (matrix.slice === 'RADAR-16AG' || matrix.slice === 'RADAR-16AH')));
   if (matrix.slice !== locks.SLICE && !tip16ab && !tip16ac) {
     errors.push(`slice=${matrix.slice}`);
   }
@@ -1026,7 +1026,7 @@ function runVerifier() {
   }
 
   ok('C11 top contract selected_16aa + G02 SIGINT live_proven_via_16AA (tip may be 16AB/16AC)',
-    (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC' || (topContract.slice === 'RADAR-16AD' || (topContract.slice === 'RADAR-16AF' || topContract.slice === 'RADAR-16AG')))
+    (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC' || (topContract.slice === 'RADAR-16AD' || (topContract.slice === 'RADAR-16AF' || (topContract.slice === 'RADAR-16AG' || topContract.slice === 'RADAR-16AH'))))
     && topContract.selected_16aa
     && topContract.selected_16aa.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16aa.g02_sigint_live === 'live_proven_via_16AA'

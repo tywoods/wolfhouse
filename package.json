@@ -684,7 +684,8 @@
     "verify:radar-slice16ac-organic-restart-alert-evidence": "node scripts/verify-radar-slice16ac-organic-restart-alert-evidence.js",
     "verify:radar-slice16ad-g02-sampled-restart-continuity-evidence": "node scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js",
     "verify:radar-slice16af-g06-capacity-alert-live-evidence": "node scripts/verify-radar-slice16af-g06-capacity-alert-live-evidence.js",
-    "verify:radar-slice16ag-g06-bounded-load-harness": "node scripts/verify-radar-slice16ag-g06-bounded-load-harness.js"
+    "verify:radar-slice16ag-g06-bounded-load-harness": "node scripts/verify-radar-slice16ag-g06-bounded-load-harness.js",
+    "verify:radar-slice16ah-g06-live-load-correction": "node scripts/verify-radar-slice16ah-g06-live-load-correction.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

@@ -21,9 +21,11 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '7a283b70d38a4906e6279d82a49c0f6dd2a4994e';
+const MASTER_BASIS = '6c24e9456bd42c7fa1b051bb1308aae8f632b293';
+const MASTER_BASIS_16AG = '7a283b70d38a4906e6279d82a49c0f6dd2a4994e';
 const BRANCH_16AF = 'radar/slice-16af-g06-capacity-alert-live-evidence';
 const BRANCH_16AG = 'radar/slice-16ag-g06-bounded-load-harness';
+const BRANCH_16AH = 'radar/slice-16ah-g06-live-load-correction';
 const BRANCH_16AD = 'radar/slice-16ad-g02-sampled-restart-continuity-evidence';
 const BRANCH_16AC = 'radar/slice-16ac-organic-restart-alert-evidence';
 const BRANCH_16AB = 'radar/slice-16ab-g02-readyz503-evidence';
@@ -451,12 +453,14 @@ const slice16adContract = readJson(path.join(FIXTURE_DIR, 'slice16ad-expected-co
 const headBranch = currentBranch();
 const slice16afContract = readJson(path.join(FIXTURE_DIR, 'slice16af-expected-contract.json'));
 const slice16agContract = readJson(path.join(FIXTURE_DIR, 'slice16ag-expected-contract.json'));
-ok('F48 gate-matrix branch pin equals 16AG contract + HEAD',
-  matrix.branch === BRANCH_16AG
-  && contract.branch === BRANCH_16AG
-  && slice16agContract.branch === BRANCH_16AG
-  && headBranch === BRANCH_16AG,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16ag=${slice16agContract.branch} head=${headBranch}`);
+const slice16ahContract = readJson(path.join(FIXTURE_DIR, 'slice16ah-expected-contract.json'));
+ok('F48 gate-matrix branch pin equals 16AH tip contract + HEAD (16AG lock retained)',
+  matrix.branch === BRANCH_16AH
+  && contract.branch === BRANCH_16AH
+  && slice16ahContract.branch === BRANCH_16AH
+  && headBranch === BRANCH_16AH
+  && slice16agContract.branch === BRANCH_16AG,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16ah=${slice16ahContract.branch} slice16ag=${slice16agContract.branch} head=${headBranch}`);
 ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC/16AD/16AF contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
@@ -573,7 +577,7 @@ ok('F67 G06 partial_live_proven via 16AF capacity deploy + 16L source (+ 16AG ha
   g06 && g06.verdict === 'partial'
   && g06.progress_class === 'partial_live_proven'
   && /16AF/.test(g06.rationale)
-  && /16AG/.test(g06.rationale)
+  && /16AG|16AH/.test(g06.rationale)
   && /16L/.test(g06.rationale)
   && /CpuPercentage/i.test(g06.rationale)
   && /MemoryPercentage/i.test(g06.rationale)
@@ -1078,11 +1082,45 @@ ok('F183 16AG does not claim live load/soak/SLO/backpressure/autoscale/fire/prod
     String(sel16ag.does_not_implement || '')));
 ok('F184 doc mentions 16AG + bounded load harness + defined_not_executed + G06 partial',
   /16AG|bounded.?load.?harness/i.test(doc)
-  && /defined.?not.?executed|not executed/i.test(doc)
+  && /defined.?not.?executed|not executed|attempted_not_proof/i.test(doc)
   && /G06.*partial|partial.*G06/i.test(doc)
   && !/\bG06\s+proven\b/i.test(doc)
   && !/\bload\s+soak\s+proven\b/i.test(doc));
 ok('F185 score unchanged after 16AG (proven=0 partial=9 absent=0)',
+  contract.expected_verdict_counts.proven === 0
+  && contract.expected_verdict_counts.partial === 9
+  && contract.expected_verdict_counts.absent === 0);
+
+
+const sel16ah = matrix.slice_16ah_selection;
+ok('F186 exactly one 16AH selection',
+  sel16ah && sel16ah.selected === true
+  && sel16ah.outcome_id === '16AH_g06_live_load_correction'
+  && sel16ah.gate_id === 'G06_scaling_capacity'
+  && sel16ah.progress_class === 'source_partial_progress_only'
+  && sel16ah.live_load_attempt
+  && sel16ah.live_load_attempt.status === 'attempted_not_proof');
+ok('F187 contract selected_16ah matches',
+  contract.selected_16ah
+  && contract.selected_16ah.outcome_id === '16AH_g06_live_load_correction'
+  && contract.selected_16ah.g06_load_proof === 'open'
+  && contract.selected_16ah.live_load_attempt_status === 'attempted_not_proof'
+  && contract.selected_16ah.pinned_lookup_all_true === 'corrected'
+  && contract.selected_16ah.g06_verdict === 'partial');
+ok('F188 16AH fixtures + verifier present',
+  pathExists('fixtures/radar-operations/slice16ah-expected-contract.json')
+  && pathExists('scripts/lib/radar-slice16ah-g06-live-load-correction.js')
+  && pathExists('scripts/verify-radar-slice16ah-g06-live-load-correction.js')
+  && pathExists('scripts/lib/radar-g06-bounded-load-harness.js'));
+ok('F189 16AH does not claim live load success / G06 proven',
+  /live_load|soak|autoscale|slo|backpressure|fire|notification|production|full_g06/i.test(
+    String(sel16ah.does_not_implement || ''))
+  && !/\bG06\s+proven\b/i.test(doc)
+  && !/\bload\s+soak\s+proven\b/i.test(doc)
+  && /attempted_not_proof/i.test(doc)
+  && /attempted_not_proof/i.test(findings)
+  && /16AH|pinned.?lookup|all=true/i.test(doc));
+ok('F190 score unchanged after 16AH (proven=0 partial=9 absent=0)',
   contract.expected_verdict_counts.proven === 0
   && contract.expected_verdict_counts.partial === 9
   && contract.expected_verdict_counts.absent === 0);

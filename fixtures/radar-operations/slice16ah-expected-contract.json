@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AH",
+  "outcome_id": "16AH_g06_live_load_correction",
+  "gate_ids": [
+    "G06_scaling_capacity"
+  ],
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "6c24e9456bd42c7fa1b051bb1308aae8f632b293",
+  "branch": "radar/slice-16ah-g06-live-load-correction",
+  "live_deploy": false,
+  "live_mutation": false,
+  "live_network": false,
+  "this_slice_deploys": false,
+  "title": "G06 load-harness correction — pinnedLookup all=true Node callback contract; live attempt attempted_not_proof",
+  "builds_on": [
+    "16AG_g06_bounded_load_harness",
+    "16AF_g06_capacity_alert_live_evidence",
+    "16L_staff_api_capacity_pressure_alerts"
+  ],
+  "does_not_implement": "live_load_soak_success_autoscaling_slo_backpressure_alert_fire_notification_production_full_g06_deploy_scale_mutation",
+  "root_cause_class": "pinned_lookup_scalar_under_options_all_true",
+  "allowed_targets": [
+    "https://staff-staging.lunafrontdesk.com/readyz",
+    "https://sunset-staging.lunafrontdesk.com/readyz"
+  ],
+  "correction": {
+    "pinned_lookup_all_true": "callback(err, addresses[]) with validated pinned {address,family} entries",
+    "pinned_lookup_all_false": "callback(err, address, family) scalar retained",
+    "family_filter": "exact pins only; miss → RADAR_LOAD_DNS_PIN_MISS",
+    "pin_validation": "every pin through assertPublicDnsAddresses before selection; null/malformed → RADAR_LOAD_DNS_ADDRESS; invalid/mismatched family → RADAR_LOAD_DNS_FAMILY; empty → RADAR_LOAD_DNS; no coercion/TypeError",
+    "production_shaped_proof": "real local TLS server + real https.request/net.connect lookup; ephemeral self-signed cert at runtime; OpenSSL required or fail-closed; allowlisted SNI/hostname preserved",
+    "safe_error_code_classes": "uppercase identifier codes only; no messages/hosts/bodies"
+  },
+  "post_16ag_live_load_attempt": {
+    "profile_id": "16AG_DRILL_dual_staging_readyz_bounded_load",
+    "status": "attempted_not_proof",
+    "targets_class": "exact_two_staging_readyz_allowlist",
+    "outcome_class": "both_targets_60_of_60_error_before_http",
+    "direct_readyz_pre_post_class": "ready",
+    "root_cause_class": "pinned_lookup_scalar_under_options_all_true",
+    "does_not_prove": [
+      "load_soak_success",
+      "live_load_proof",
+      "g06_proven",
+      "capacity_slo",
+      "backpressure",
+      "autoscaling"
+    ]
+  },
+  "future_drill_profile": {
+    "id": "16AG_DRILL_dual_staging_readyz_bounded_load",
+    "status": "defined_not_executed",
+    "note": "16AG profile lock retained; post-hoc live attempt recorded separately as attempted_not_proof"
+  },
+  "forbidden_claim_tokens": [
+    "load soak proven",
+    "live load executed successfully",
+    "live load proof",
+    "capacity SLO proven",
+    "error budget proven",
+    "backpressure proven",
+    "autoscaling proven",
+    "full G06",
+    "full_G06_proven",
+    "G06 proven",
+    "production",
+    "minReplicas mutated",
+    "maxReplicas mutated"
+  ],
+  "must_not_claim_as_proven": [
+    "load_soak_proof",
+    "live_staging_load_success",
+    "live_load_proof",
+    "capacity_alert_firing",
+    "notification_delivery",
+    "autoscaling",
+    "capacity_slo_error_budget",
+    "backpressure",
+    "production",
+    "full_G06_proven",
+    "any_gate_verdict_proven",
+    "scale_mutation_by_this_slice",
+    "deploy_by_this_slice"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "16AH corrects pinnedLookup Happy Eyeballs contract + records attempted_not_proof live attempt; G06 remains partial; load/soak live proof, alert fire/notification, autoscaling, SLO/error budget, and backpressure remain open; score unchanged"
+  },
+  "still_open": [
+    "Live dual-staging /readyz load/soak success proof (prior attempt attempted_not_proof only)",
+    "Capacity alert firing / notification delivery (not claimed)",
+    "Autoscaling rules (rules=null; not claimed)",
+    "Capacity SLO / error budget (not claimed)",
+    "Backpressure (not claimed)",
+    "Production scope (forbidden)",
+    "Raising G06 verdict to proven"
+  ],
+  "final_controlled_drill": {
+    "id": "16AH_OFFLINE_pinned_lookup_all_true_correction",
+    "status": "offline_source_proven",
+    "pass_rule": "Offline fail-closed production-shaped RED proves scalar lookup under options.all=true fails before TLS/HTTP with safe error-code class only (no messages/hosts/bodies) via real local TLS + real Node https.request/net.connect. Pin inputs fail closed through assertPublicDnsAddresses (null/malformed address, invalid/mismatched family, empty pins, family miss) with stable safe codes and no coercion/TypeError. GREEN proves corrected pinnedLookup returns validated pinned address array for all=true, retains scalar for all=false, honors family filter/exact pins, and production-shaped transport reaches local TLS while preserving allowlisted SNI/hostname (ephemeral self-signed cert; OpenSSL required or fail-closed). Post-16AG live attempt locked as attempted_not_proof. No live network/deploy/scale. G06 remains partial; proven count remains 0."
+  },
+  "artifacts": [
+    "scripts/lib/radar-g06-bounded-load-harness.js",
+    "scripts/lib/radar-slice16ah-g06-live-load-correction.js",
+    "scripts/verify-radar-slice16ah-g06-live-load-correction.js",
+    "fixtures/radar-operations/slice16ah-expected-contract.json",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16ah-g06-live-load-correction",
+    "npm run verify:radar-slice16ag-g06-bounded-load-harness",
+    "npm run verify:radar-slice16af-g06-capacity-alert-live-evidence",
+    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 6c24e9456bd42c7fa1b051bb1308aae8f632b293..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "scripts/staff-query-api.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16AH is source-only harness correction + offline verifier; no Staff API runtime, Bicep, or live staging mutation; no live load re-execution"
+  }
+}

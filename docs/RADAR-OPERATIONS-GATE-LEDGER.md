@@ -1,14 +1,48 @@
-# RADAR Slice 16AG — Operations gate ledger (G06 bounded load harness source)
+# RADAR Slice 16AH — Operations gate ledger (G06 pinnedLookup live-load correction)
 
 **Status:** source-only (no live network / deploy / scale mutation by this tip; G06 remains partial)
-**Master basis:** `7a283b70d38a4906e6279d82a49c0f6dd2a4994e`
-**Branch:** `radar/slice-16ag-g06-bounded-load-harness`
+**Master basis:** `6c24e9456bd42c7fa1b051bb1308aae8f632b293`
+**Branch:** `radar/slice-16ah-g06-live-load-correction`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16AF capacity-alert live deploy + 16L capacity-pressure source
-**This slice does not deploy / does not hit staging:** offline fake-server verifier only; future drill defined_not_executed
+**Builds on:** 16AG bounded load harness source + 16AF capacity-alert live deploy + 16L capacity-pressure source
+**This slice does not deploy / does not hit staging:** offline production-shaped RED/GREEN only; prior live attempt recorded as `attempted_not_proof`
 
-## Outcome (16AG)
+## Outcome (16AH)
+
+Correct the G06 bounded load harness so `pinnedLookup` honors Node’s `dns.lookup` callback contract when `options.all===true` (Happy Eyeballs / `autoSelectFamily`):
+
+| Contract | Behavior |
+|----------|----------|
+| `all=true` | `callback(err, addresses[])` with validated pinned `{address,family}` entries |
+| `all=false` | scalar `callback(err, address, family)` retained |
+| family filter | exact pins only; miss → `RADAR_LOAD_DNS_PIN_MISS` |
+| pin validation | every pin through `assertPublicDnsAddresses` before selection (`RADAR_LOAD_DNS` / `_ADDRESS` / `_FAMILY` / `_PRIVATE`; no coercion/TypeError) |
+| diagnostics | safe error-code classes only (no messages/hosts/bodies) |
+
+Offline production-shaped RED proves scalar replies under `all=true` fail **before TLS/HTTP** with `ERR_INVALID_IP_ADDRESS` via real local TLS + real Node `https.request`/`net.connect` lookup (ephemeral self-signed cert at test runtime; OpenSSL required or fail-closed). GREEN proves the corrected array contract reaches that local TLS endpoint while preserving allowlisted SNI/hostname.
+
+### Post-16AG live attempt (cautious)
+
+A controlled attempt of profile `16AG_DRILL_dual_staging_readyz_bounded_load` against both exact staging `/readyz` allowlist targets yielded **60/60 error-before-HTTP** while direct pre/post `/readyz` stayed ready. Root-cause class: `pinned_lookup_scalar_under_options_all_true`. Status locked as **`attempted_not_proof`** — **not** load/soak success.
+
+### Claim ownership (16AH locked)
+
+| Observation | Proves | Does not prove |
+|-------------|--------|----------------|
+| pinnedLookup `all=true` array contract + offline RED/GREEN | Happy Eyeballs callback bug corrected in source | Live staging load/soak success |
+| Live attempt `attempted_not_proof` | Cautious record of failed pre-HTTP attempt | Load success; raising G06 verdict |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
+
+## Truthful disposition (16AH)
+
+**Proves (source):** Corrected `pinnedLookup` Node callback contract for `all=true` with fail-closed public-address validation and offline production-shaped real-TLS proof; safe error-code class aggregation; prior live attempt classified `attempted_not_proof`.
+
+**Does not prove:** live load/soak success; capacity alert firing/notification; autoscaling; capacity SLO/error budget; backpressure; production; raising G06 to `proven`.
+
+**Pinned-lookup source gap closed; live load/soak success remains open; G06 remains partial.**
+
+## Outcome (16AG — retained)
 
 Land a dependency-free bounded Node load harness for G06 hard-locked to the two exact staging Staff API `/readyz` URLs:
 
@@ -176,7 +210,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 
 - **16O** — Stripe webhook error minimization (G08 partial).
 - **G05** — 16M Stripe webhook event-id claim (source partial; live drill open).
-- **G06** — **16AG** source-closes bounded load harness; **16AF** live-proves capacity-alert deploy; **16L** source retained; live load/soak, alert fire/notification, autoscaling, SLO/backpressure open (G06 remains partial).
+- **G06** — **16AH** corrects pinnedLookup Happy Eyeballs `all=true` contract and records prior live attempt as `attempted_not_proof`; **16AG** source-closes bounded load harness; **16AF** live-proves capacity-alert deploy; **16L** source retained; live load/soak success, alert fire/notification, autoscaling, SLO/backpressure open (G06 remains partial).
 - **G08** — 16O/16P webhook error minimization + privacy drill partial; abrupt/retention/search open.
 
 ## G02 semantics (truthful after 16AD)
@@ -209,7 +243,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | `scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js` | Strict RED/GREEN verifier |
 
 
-## G06 semantics (truthful after 16AG)
+## G06 semantics (truthful after 16AH)
 
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
@@ -217,13 +251,24 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | Capacity-pressure alert live deploy | `live_proven_16AF` | four alerts Enabled Sev2 PT5M/PT15M exact scopes/AGs |
 | Current scale truth | `live_recorded_16AF` | WH min0/max1/rules null; Sunset min1/max1/rules null; g02503r |
 | Bounded `/readyz` load harness | `source_closed_16AG` | hard-locked two staging URLs; offline fake-server verifier |
+| pinnedLookup Happy Eyeballs `all=true` | `source_corrected_16AH` | validated pinned address array callback contract |
 | Future load drill profile | `defined_not_executed_16AG` | conservative concurrency/duration/request budget |
+| Post-16AG live load attempt | `attempted_not_proof_16AH` | 60/60 error-before-HTTP; direct `/readyz` stayed ready; not load success |
 | Alert fire / notification delivery | `open` / `not claimed` | |
-| Live load / soak execution | `open` / `not claimed` | profile defined only |
+| Live load / soak success proof | `open` / `not claimed` | prior attempt `attempted_not_proof` only |
 | Autoscaling | `open` / `not claimed` | rules=null |
 | Capacity SLO / error budget | `open` / `not claimed` | |
 | Backpressure | `open` / `not claimed` | |
 | Production | `open` / forbidden | intentionally untouched |
+
+## Slice 16AH artifacts
+
+| Path | Role |
+|------|------|
+| `scripts/lib/radar-g06-bounded-load-harness.js` | Harness + pinnedLookup correction + safe error-code classes |
+| `scripts/lib/radar-slice16ah-g06-live-load-correction.js` | Locks |
+| `scripts/verify-radar-slice16ah-g06-live-load-correction.js` | Offline production-shaped RED/GREEN verifier |
+| `fixtures/radar-operations/slice16ah-expected-contract.json` | Contract |
 
 ## Slice 16AG artifacts
 
@@ -246,7 +291,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 ## Still open
 
 1. Capacity alert firing / notification delivery — **not claimed**
-2. Live dual-staging `/readyz` load/soak execution — profile **defined_not_executed** by 16AG — **not claimed**
+2. Live dual-staging `/readyz` load/soak **success** proof — prior attempt **`attempted_not_proof`** (16AH); profile lock **defined_not_executed** (16AG) — **not claimed**
 3. Autoscaling (rules=null) — **not claimed**
 4. Capacity SLO / error budget — **not claimed**
 5. Backpressure — **not claimed**

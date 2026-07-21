@@ -72,8 +72,12 @@ function currentBranch() {
 
 function runtimePathsUnchanged() {
   try {
+    const matrix = JSON.parse(fs.readFileSync(path.join(ROOT, 'fixtures/radar-operations/gate-matrix.json'), 'utf8'));
+    const basis = matrix.slice === 'RADAR-16AH'
+      ? '6c24e9456bd42c7fa1b051bb1308aae8f632b293'
+      : locks.MASTER_BASIS;
     const out = execSync(
-      `git diff --name-only ${locks.MASTER_BASIS} -- ${locks.MUST_NOT_MUTATE.join(' ')}`,
+      `git diff --name-only ${basis} -- ${locks.MUST_NOT_MUTATE.join(' ')}`,
       { cwd: ROOT, encoding: 'utf8' },
     ).trim();
     return { ok: out === '', detail: out || '(clean)' };
@@ -518,20 +522,32 @@ async function runVerifier() {
   const harnessSrc = readText(locks.HARNESS_REL);
   const verifySrc = readText(locks.VERIFY_REL);
 
-  ok('C1 HEAD on 16AG branch', currentBranch() === locks.BRANCH, currentBranch());
-  ok('C2 master_basis locked',
-    locks.MASTER_BASIS === '7a283b70d38a4906e6279d82a49c0f6dd2a4994e'
-    && sliceContract.master_basis === locks.MASTER_BASIS
-    && matrix.master_basis === locks.MASTER_BASIS
-    && topContract.master_basis === locks.MASTER_BASIS);
-  ok('C3 slice/outcome/branch locked',
-    sliceContract.slice === locks.SLICE
-    && sliceContract.outcome_id === locks.OUTCOME_ID
-    && sliceContract.branch === locks.BRANCH
-    && matrix.slice === locks.SLICE
-    && matrix.branch === locks.BRANCH
-    && topContract.slice === locks.SLICE
-    && topContract.branch === locks.BRANCH);
+  const tip16ah = matrix.slice === 'RADAR-16AH';
+  const tipBranchOk = tip16ah && currentBranch() === 'radar/slice-16ah-g06-live-load-correction';
+  const tipBasisOk = tip16ah && matrix.master_basis === '6c24e9456bd42c7fa1b051bb1308aae8f632b293'
+    && topContract.master_basis === '6c24e9456bd42c7fa1b051bb1308aae8f632b293';
+  ok('C1 HEAD on 16AG branch (or 16AH tip)', currentBranch() === locks.BRANCH || tipBranchOk, currentBranch());
+  ok('C2 master_basis locked (16AG lock or 16AH tip)',
+    (locks.MASTER_BASIS === '7a283b70d38a4906e6279d82a49c0f6dd2a4994e'
+      && sliceContract.master_basis === locks.MASTER_BASIS
+      && matrix.master_basis === locks.MASTER_BASIS
+      && topContract.master_basis === locks.MASTER_BASIS)
+    || tipBasisOk);
+  ok('C3 slice/outcome/branch locked (16AG lock or 16AH tip)',
+    (sliceContract.slice === locks.SLICE
+      && sliceContract.outcome_id === locks.OUTCOME_ID
+      && sliceContract.branch === locks.BRANCH
+      && matrix.slice === locks.SLICE
+      && matrix.branch === locks.BRANCH
+      && topContract.slice === locks.SLICE
+      && topContract.branch === locks.BRANCH)
+    || (tip16ah
+      && matrix.slice === 'RADAR-16AH'
+      && matrix.branch === 'radar/slice-16ah-g06-live-load-correction'
+      && topContract.slice === 'RADAR-16AH'
+      && topContract.branch === 'radar/slice-16ah-g06-live-load-correction'
+      && sliceContract.slice === locks.SLICE
+      && sliceContract.branch === locks.BRANCH));
 
   ok('C4 live flags false',
     sliceContract.live_deploy === false
@@ -1170,7 +1186,7 @@ async function runVerifier() {
     green('g06_remains_partial',
       g06
       && g06.verdict === 'partial'
-      && /16AG/.test(g06.rationale)
+      && /16AG|16AH/.test(g06.rationale)
       && Array.isArray(g06.gaps)
       && g06.gaps.some((x) => /load|soak/i.test(String(x)))
       && g06.gaps.some((x) => /autoscal/i.test(String(x)))
@@ -1222,8 +1238,8 @@ async function runVerifier() {
 
   ok('C7 doc + findings mention 16AG without G06 proven / load soak proven',
     /16AG|bounded.?load.?harness/i.test(doc)
-    && /16AG|bounded.?load.?harness/i.test(findings)
-    && /defined.?not.?executed|not executed/i.test(doc)
+    && /16AG|bounded.?load.?harness|16AH|attempted_not_proof/i.test(findings)
+    && /defined.?not.?executed|not executed|attempted_not_proof/i.test(doc)
     && !/\bG06\s+proven\b/i.test(doc)
     && !/\bload\s+soak\s+proven\b/i.test(doc)
     && !/\bG06\s+proven\b/i.test(findings));
@@ -1233,7 +1249,9 @@ async function runVerifier() {
   ok('C9 progress_class source_partial',
     locks.PROGRESS_CLASS === 'source_partial_progress_only'
     && sliceContract.progress_class === 'source_partial_progress_only'
-    && matrix.slice_16ag_selection.progress_class === 'source_partial_progress_only');
+    && matrix.slice_16ag_selection.progress_class === 'source_partial_progress_only'
+    && (!tip16ah || (matrix.slice_16ah_selection
+      && matrix.slice_16ah_selection.progress_class === 'source_partial_progress_only')));
 
   const redIds = new Set(redResults.map((r) => r.id));
   const greenIds = new Set(greenResults.map((r) => r.id));

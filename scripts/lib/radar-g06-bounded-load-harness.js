@@ -16,9 +16,19 @@
  * premature-close/trickle paths. Latency is measured with monotonic time;
  * transport-supplied latency values are ignored.
  *
- * Live drill is NOT executed by RADAR 16AG — FUTURE_DRILL_PROFILE is defined
- * only. Offline verifiers must use runBoundedLoadOffline with OFFLINE_SEAL
- * after fail-closing real http/https/net/DNS.
+ * Live drill profile FUTURE_DRILL_PROFILE remains defined_not_executed as the
+ * 16AG source lock. A post-16AG controlled attempt is recorded separately as
+ * attempted_not_proof (not load success). Offline verifiers must use
+ * runBoundedLoadOffline with OFFLINE_SEAL after fail-closing real
+ * http/https/net/DNS.
+ *
+ * pinnedLookup must honor Node's dns.lookup callback contract: when
+ * options.all===true (Happy Eyeballs / autoSelectFamily), callback receives
+ * (err, addresses[]) — never a scalar address. Scalar replies make
+ * net.connect fail with ERR_INVALID_IP_ADDRESS before any HTTP/TLS exchange.
+ * Every pin is fail-closed through assertPublicDnsAddresses before selection
+ * (null/malformed address, invalid/mismatched family, empty pins → stable
+ * safe codes; no String/Number coercion / TypeError).
  */
 
 const https = require('https');
@@ -65,6 +75,32 @@ const FUTURE_DRILL_PROFILE = Object.freeze({
     + 'deploy, alter scaling, or claim SLO/backpressure/load-soak proof.',
 });
 
+/**
+ * Post-16AG controlled live attempt against the exact allowlisted staging
+ * /readyz targets. Cautious classification only — not load/soak proof.
+ * No hostnames, messages, or response bodies recorded here.
+ */
+const POST_16AG_LIVE_LOAD_ATTEMPT = Object.freeze({
+  profile_id: '16AG_DRILL_dual_staging_readyz_bounded_load',
+  status: 'attempted_not_proof',
+  targets_class: 'exact_two_staging_readyz_allowlist',
+  outcome_class: 'both_targets_60_of_60_error_before_http',
+  direct_readyz_pre_post_class: 'ready',
+  root_cause_class: 'pinned_lookup_scalar_under_options_all_true',
+  does_not_prove: Object.freeze([
+    'load_soak_success',
+    'live_load_proof',
+    'g06_proven',
+    'capacity_slo',
+    'backpressure',
+    'autoscaling',
+  ]),
+  note:
+    'Controlled attempt exposed all-error before HTTP while direct /readyz stayed '
+    + 'ready; root cause class is Happy Eyeballs all=true scalar pinnedLookup. '
+    + 'Recorded as attempted_not_proof — not load success.',
+});
+
 const STATUS_CLASSES = Object.freeze([
   '2xx',
   '3xx',
@@ -74,6 +110,9 @@ const STATUS_CLASSES = Object.freeze([
   'error',
   'other',
 ]);
+
+/** Safe diagnostic error-code classes (codes only; never messages/hosts/bodies). */
+const SAFE_ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 /** Opaque seal required for offline verifier request/DNS injection. */
 const OFFLINE_SEAL = Symbol('RADAR_G06_OFFLINE_SEAL');
@@ -250,6 +289,19 @@ function emptyStatusCounts() {
   const out = {};
   for (const k of STATUS_CLASSES) out[k] = 0;
   return out;
+}
+
+/**
+ * Map a transport/Node error code to a safe diagnostic class.
+ * Accepts only uppercase identifier codes; never retains messages/hosts/bodies.
+ */
+function safeErrorCodeClass(codeOrErr) {
+  const raw = codeOrErr && typeof codeOrErr === 'object'
+    ? codeOrErr.code
+    : codeOrErr;
+  const code = raw == null ? '' : String(raw);
+  if (!SAFE_ERROR_CODE_PATTERN.test(code)) return 'UNCLASSIFIED';
+  return code;
 }
 
 function parseIpv4(ip) {
@@ -585,6 +637,15 @@ function isPublicIp(address) {
   return isGloballyRoutableIp(address);
 }
 
+/**
+ * Fail-closed public-address validator used by DNS pin + pinnedLookup.
+ * No String()/Number() coercion of null/malformed inputs (avoids TypeError and
+ * silent family defaults). Stable safe codes only:
+ *   RADAR_LOAD_DNS          — empty list
+ *   RADAR_LOAD_DNS_ADDRESS  — null/non-string/malformed address
+ *   RADAR_LOAD_DNS_FAMILY   — invalid or net.isIP-mismatched family
+ *   RADAR_LOAD_DNS_PRIVATE  — not globally routable
+ */
 function assertPublicDnsAddresses(addresses) {
   const list = Array.isArray(addresses) ? addresses : [];
   if (!list.length) {
@@ -592,17 +653,75 @@ function assertPublicDnsAddresses(addresses) {
   }
   const publicOnes = [];
   for (const entry of list) {
-    const address = typeof entry === 'string' ? entry : (entry && entry.address);
-    const family = typeof entry === 'object' && entry && entry.family
-      ? entry.family
-      : (String(address).includes(':') ? 6 : 4);
-    if (!isGloballyRoutableIp(address)) {
+    let address = null;
+    let familyHint = null;
+
+    if (typeof entry === 'string') {
+      address = entry;
+    } else if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      if (typeof entry.address !== 'string') {
+        failClosed(
+          'RADAR_LOAD_DNS_ADDRESS',
+          'fail_closed: DNS address null or malformed',
+        );
+      }
+      address = entry.address;
+      if (Object.prototype.hasOwnProperty.call(entry, 'family') && entry.family != null) {
+        familyHint = entry.family;
+      }
+    } else {
       failClosed(
-        'RADAR_LOAD_DNS_PRIVATE',
-        `fail_closed: DNS resolved to non-globally-routable address: ${String(address)}`,
+        'RADAR_LOAD_DNS_ADDRESS',
+        'fail_closed: DNS address null or malformed',
       );
     }
-    publicOnes.push(Object.freeze({ address: String(address), family: Number(family) || 4 }));
+
+    if (typeof address !== 'string') {
+      failClosed(
+        'RADAR_LOAD_DNS_ADDRESS',
+        'fail_closed: DNS address null or malformed',
+      );
+    }
+    const trimmed = address.trim();
+    if (!trimmed) {
+      failClosed(
+        'RADAR_LOAD_DNS_ADDRESS',
+        'fail_closed: DNS address null or malformed',
+      );
+    }
+    const detected = net.isIP(trimmed);
+    if (detected !== 4 && detected !== 6) {
+      failClosed(
+        'RADAR_LOAD_DNS_ADDRESS',
+        'fail_closed: DNS address null or malformed',
+      );
+    }
+
+    let family = detected;
+    if (familyHint != null) {
+      // Exact 4|6 only — no Number("4") / truthy coercion.
+      if (familyHint !== 4 && familyHint !== 6) {
+        failClosed(
+          'RADAR_LOAD_DNS_FAMILY',
+          'fail_closed: DNS family invalid or mismatched',
+        );
+      }
+      if (familyHint !== detected) {
+        failClosed(
+          'RADAR_LOAD_DNS_FAMILY',
+          'fail_closed: DNS family invalid or mismatched',
+        );
+      }
+      family = familyHint;
+    }
+
+    if (!isGloballyRoutableIp(trimmed)) {
+      failClosed(
+        'RADAR_LOAD_DNS_PRIVATE',
+        `fail_closed: DNS resolved to non-globally-routable address: ${trimmed}`,
+      );
+    }
+    publicOnes.push(Object.freeze({ address: trimmed, family }));
   }
   return Object.freeze(publicOnes);
 }
@@ -684,7 +803,10 @@ async function pinValidatedPublicDns(hostname, lookupFn, runDeadlineNs, abortRea
 }
 
 function pinnedLookup(pinned) {
-  const primary = pinned[0];
+  // Every pin fails closed through the same public-address validator before
+  // selection — no String()/Number() coercion, no TypeError on null/malformed.
+  const frozenPins = assertPublicDnsAddresses(pinned);
+
   return function lookup(_hostname, options, callback) {
     let cb = callback;
     let opts = options;
@@ -692,8 +814,40 @@ function pinnedLookup(pinned) {
       cb = options;
       opts = {};
     }
-    const family = (opts && opts.family) || primary.family;
-    const match = pinned.find((p) => p.family === family) || primary;
+    if (typeof cb !== 'function') {
+      failClosed('RADAR_LOAD_DNS', 'fail_closed: pinnedLookup requires a callback');
+    }
+
+    const wantAll = !!(opts && opts.all);
+    // Family filter: only exact numeric 4|6; other values mean "no filter"
+    // (Node treats non-4/6 similarly). Do not coerce strings like "4".
+    const familyRaw = opts && opts.family;
+    const familyFilter = (familyRaw === 4 || familyRaw === 6) ? familyRaw : 0;
+
+    let list = frozenPins;
+    if (familyFilter) {
+      list = frozenPins.filter((p) => p.family === familyFilter);
+    }
+    if (!list.length) {
+      const err = Object.assign(new Error('fail_closed: no pinned address for requested family'), {
+        code: 'RADAR_LOAD_DNS_PIN_MISS',
+      });
+      process.nextTick(() => cb(err));
+      return;
+    }
+
+    // Node dns.lookup contract:
+    //   all=true  → callback(err, addresses[]) where each entry is {address, family}
+    //   all=false → callback(err, address, family) scalar form
+    // Happy Eyeballs (autoSelectFamily) uses all=true; scalar replies yield
+    // ERR_INVALID_IP_ADDRESS before any HTTP exchange.
+    if (wantAll) {
+      const addresses = list.map((p) => ({ address: p.address, family: p.family }));
+      process.nextTick(() => cb(null, addresses));
+      return;
+    }
+
+    const match = list[0];
     process.nextTick(() => cb(null, match.address, match.family));
   };
 }
@@ -812,7 +966,7 @@ function fixedHttpsGet(deps) {
             kind: 'error',
             status_code: null,
             redirected: false,
-            error_code: err && err.code ? String(err.code) : 'RESPONSE_ERROR',
+            error_code: safeErrorCodeClass(err && err.code ? err.code : 'RESPONSE_ERROR'),
           });
         });
         res.on('close', () => {
@@ -842,7 +996,7 @@ function fixedHttpsGet(deps) {
         kind: 'error',
         status_code: null,
         redirected: false,
-        error_code: err && err.code ? String(err.code) : 'REQUEST_CREATE',
+        error_code: safeErrorCodeClass(err && err.code ? err.code : 'REQUEST_CREATE'),
       });
       return;
     }
@@ -863,7 +1017,7 @@ function fixedHttpsGet(deps) {
         kind: 'error',
         status_code: null,
         redirected: false,
-        error_code: err && err.code ? String(err.code) : 'ERROR',
+        error_code: safeErrorCodeClass(err && err.code ? err.code : 'ERROR'),
       });
     });
 
@@ -902,6 +1056,7 @@ async function runBoundedLoadCore(options, runtime) {
   // Whole-run monotonic deadline starts BEFORE DNS so resolution is raced
   // against the remaining budget; missing/late DNS cannot start requests.
   const status_counts = emptyStatusCounts();
+  const error_code_classes = Object.create(null);
   const latencies = [];
   let started = 0;
   let completed = 0;
@@ -943,6 +1098,10 @@ async function runBoundedLoadCore(options, runtime) {
     completed += 1;
     const cls = statusClassFor(outcome);
     status_counts[cls] += 1;
+    if (outcome && outcome.error_code) {
+      const safe = safeErrorCodeClass(outcome.error_code);
+      error_code_classes[safe] = (error_code_classes[safe] || 0) + 1;
+    }
     // Always measure latency internally with monotonic time; ignore any
     // transport-supplied latency_ms (including adversarial offline values).
     const ignored = outcome && typeof outcome === 'object' ? outcome.latency_ms : undefined;
@@ -983,7 +1142,7 @@ async function runBoundedLoadCore(options, runtime) {
           kind: 'error',
           status_code: null,
           redirected: false,
-          error_code: err && err.code ? String(err.code) : 'THROW',
+          error_code: safeErrorCodeClass(err && err.code ? err.code : 'THROW'),
         };
       }
       inFlight -= 1;
@@ -1026,6 +1185,7 @@ async function runBoundedLoadCore(options, runtime) {
     wall_ms: msBetween(wallStartNs, monoNowNs()),
     stop_reason: stopReason,
     status_counts: Object.freeze({ ...status_counts }),
+    error_code_classes: Object.freeze({ ...error_code_classes }),
     latency,
     response_bodies_collected: false,
     redirects_followed: false,
@@ -1087,6 +1247,7 @@ module.exports = {
   ALLOWED_TARGETS,
   HARNESS_BOUNDS,
   FUTURE_DRILL_PROFILE,
+  POST_16AG_LIVE_LOAD_ATTEMPT,
   STATUS_CLASSES,
   OFFLINE_SEAL,
   IANA_IPV4_SPECIAL_PURPOSE,
@@ -1097,6 +1258,7 @@ module.exports = {
   statusClassFor,
   percentileNearestRank,
   summarizeLatencies,
+  safeErrorCodeClass,
   isGloballyRoutableIp,
   isPublicIp,
   matchIpv4SpecialPurpose,
@@ -1104,6 +1266,7 @@ module.exports = {
   sampleAddressForIanaEntry,
   assertPublicDnsAddresses,
   pinValidatedPublicDns,
+  pinnedLookup,
   runBoundedLoad,
   runBoundedLoadOffline,
 };
