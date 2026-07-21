@@ -261,12 +261,12 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  const tip16ad = matrix.slice === 'RADAR-16AD';
+  const tip16ad = (matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AF');
   if (matrix.slice !== locks.SLICE && !tip16ad) errors.push(`slice=${matrix.slice}`);
-  if (matrix.branch !== locks.BRANCH && !(tip16ad && matrix.branch === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence')) {
+  if (matrix.branch !== locks.BRANCH && !(tip16ad && (matrix.branch === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence' || matrix.branch === 'radar/slice-16af-g06-capacity-alert-live-evidence'))) {
     errors.push(`branch=${matrix.branch}`);
   }
-  if (matrix.master_basis !== locks.MASTER_BASIS && !(tip16ad && matrix.master_basis === '137b14a0b3efc689ba749340a97ab4e9bc220edc')) {
+  if (matrix.master_basis !== locks.MASTER_BASIS && !(tip16ad && (matrix.master_basis === '137b14a0b3efc689ba749340a97ab4e9bc220edc' || matrix.master_basis === '0a2fb08486b835dd45a4fc904e3dd152702bea6f'))) {
     errors.push('master_basis mismatch');
   }
   if (matrix.live_mutation !== false) errors.push('live_mutation not false');
@@ -356,7 +356,8 @@ function runVerifier() {
 
   ok('C1 HEAD on 16AC branch (tip may advance to 16AD)',
     currentBranch() === locks.BRANCH
-    || currentBranch() === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence',
+    || currentBranch() === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence'
+    || currentBranch() === 'radar/slice-16af-g06-capacity-alert-live-evidence',
     currentBranch());
   ok('C2 evidence master_basis locked', evidence.master_basis === locks.MASTER_BASIS);
   ok('C3 slice/outcome/branch locked',
@@ -422,12 +423,12 @@ function runVerifier() {
     && topContract.selected_16ac.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16ac.g02_organic_restart_alert === 'live_proven_via_16AC'
     && topContract.selected_16ac.g03_organic_restart_alert === 'live_proven_via_16AC'
-    && (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AD')
+    && (topContract.slice === locks.SLICE || (topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AF'))
     && topContract.selected_16ac.g02_verdict === 'partial'
     && topContract.selected_16ac.g03_verdict === 'partial'
     && (topContract.slice === locks.SLICE
       ? (topContract.branch === locks.BRANCH)
-      : (topContract.branch === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence')));
+      : ((topContract.branch === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence' || topContract.branch === 'radar/slice-16af-g06-capacity-alert-live-evidence'))));
 
   ok('C12 doc mentions 16AC + organic restart + inbox open + G02/G03 partial',
     /16AC|organic.?restart/i.test(doc)

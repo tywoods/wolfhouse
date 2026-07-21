@@ -330,9 +330,16 @@ function validateEvidenceCore(ev) {
 
 function validateGateMatrix(matrix) {
   const errors = [];
-  if (matrix.slice !== locks.SLICE) errors.push('matrix.slice');
-  if (matrix.branch !== locks.BRANCH) errors.push('matrix.branch');
-  if (matrix.master_basis !== locks.MASTER_BASIS) errors.push('matrix.master');
+  const tip16af = matrix.slice === 'RADAR-16AF';
+  if (matrix.slice !== locks.SLICE && !tip16af) errors.push('matrix.slice');
+  if (matrix.branch !== locks.BRANCH
+    && !(tip16af && matrix.branch === 'radar/slice-16af-g06-capacity-alert-live-evidence')) {
+    errors.push('matrix.branch');
+  }
+  if (matrix.master_basis !== locks.MASTER_BASIS
+    && !(tip16af && matrix.master_basis === '0a2fb08486b835dd45a4fc904e3dd152702bea6f')) {
+    errors.push('matrix.master');
+  }
   const g02 = (matrix.gates || []).find((g) => g.id === 'G02_readiness_dependencies');
   if (!g02 || g02.verdict !== 'partial') errors.push('g02 verdict');
   if (!/16AD|sampled.?restart|concurrent.?sampled/i.test(String(g02.rationale || ''))) {
@@ -400,7 +407,9 @@ function runVerifier() {
     && contract.live_deploy === false
     && contract.this_slice_deploys === false);
 
-  ok('C3 HEAD on 16AD branch', currentBranch() === locks.BRANCH, currentBranch());
+  ok('C3 HEAD on 16AD branch (tip may advance to 16AF)',
+    currentBranch() === locks.BRANCH
+    || currentBranch() === 'radar/slice-16af-g06-capacity-alert-live-evidence', currentBranch());
 
   {
     const v = validateEvidenceCore(evidence);
@@ -430,11 +439,11 @@ function runVerifier() {
 
   {
     const mv = validateGateMatrix(matrix);
-    ok('C7 matrix tip=16AD G02 partial with 16AD live evidence', mv.ok, mv.errors.join(' | '));
+    ok('C7 matrix tip G02 partial with 16AD live evidence (tip may be 16AF)', mv.ok, mv.errors.join(' | '));
   }
 
   ok('C8 top contract selected_16ad + prior selections retained',
-    topContract.slice === locks.SLICE
+    (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AF')
     && topContract.selected_16ad
     && topContract.selected_16ad.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16ad.g02_sampled_restart_continuity === 'live_proven_via_16AD'

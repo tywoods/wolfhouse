@@ -381,8 +381,13 @@ const allowedBranches = new Set([
   'radar/slice-16u-correlation-design-freeze',
   'radar/slice-16w-readiness-shutdown-lifecycle',
   'radar/slice-16x-g02-live-evidence',
-      'radar/slice-16y-shutdown-completion-log', 'radar/slice-16z-g02-live-sigterm-evidence',
-      'radar/slice-16z-g02-live-sigterm-evidence',
+  'radar/slice-16y-shutdown-completion-log',
+  'radar/slice-16z-g02-live-sigterm-evidence',
+  'radar/slice-16aa-g02-live-sigint-evidence',
+  'radar/slice-16ab-g02-readyz503-evidence',
+  'radar/slice-16ac-organic-restart-alert-evidence',
+  'radar/slice-16ad-g02-sampled-restart-continuity-evidence',
+  'radar/slice-16af-g06-capacity-alert-live-evidence',
 ]);
 ok('C4 branch pin (16L or successor tip)', allowedBranches.has(headBranch), headBranch);
 

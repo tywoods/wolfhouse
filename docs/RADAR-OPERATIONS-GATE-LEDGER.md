@@ -1,14 +1,41 @@
-# RADAR Slice 16AD — Operations gate ledger (G02 sampled restart continuity evidence)
+# RADAR Slice 16AF — Operations gate ledger (G06 capacity alert live deploy evidence)
 
-**Status:** evidence-only reconciliation (zero deploy / live mutation by this slice; G02 remains partial)
-**Master basis:** `137b14a0b3efc689ba749340a97ab4e9bc220edc`
-**Branch:** `radar/slice-16ad-g02-sampled-restart-continuity-evidence`
+**Status:** evidence-only reconciliation (zero deploy / live mutation by this slice; G06 remains partial)
+**Master basis:** `0a2fb08486b835dd45a4fc904e3dd152702bea6f`
+**Branch:** `radar/slice-16af-g06-capacity-alert-live-evidence`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16I readiness + 16W/16Y lifecycle + 16X traffic-shed + 16Z SIGTERM + 16AA SIGINT + 16AB `/readyz=503` + 16AC organic restart alerts
-**This slice does not deploy:** Azure/LAW/public **read-only** verification only
+**Builds on:** 16L capacity-pressure source alerts + 16B ops AGs + 16H metric-alert pattern; tip after 16AD sampled continuity
+**This slice does not deploy:** Azure **read-only** verification only
 
-## Outcome (16AD)
+## Outcome (16AF)
+
+Reconcile live dual-staging readback of the four deployed Staff API capacity-pressure metric alerts and current scale truth @ `2026-07-21T14:30:07Z`:
+
+| Tenant | Alerts (Enabled Sev2) | Criterion | Scale truth |
+|--------|----------------------|-----------|-------------|
+| Wolfhouse `wh-staging-staff-api` | `wolfhouse-staff-api-cpu-pressure` (CpuPercentage) + `wolfhouse-staff-api-memory-pressure` (MemoryPercentage) | Average >80; PT5M eval / PT15M window; scoped to app; AG `wh-staging-ops-budget-ag` | minReplicas=0 maxReplicas=1 rules=null; latest=latestReady `wh-staging-staff-api--g02503r`; Single / 100% |
+| Sunset `luna-sunset-staging-staff-api` | `sunset-staff-api-cpu-pressure` + `sunset-staff-api-memory-pressure` | same | minReplicas=1 maxReplicas=1 rules=null; latest=latestReady `luna-sunset-staging-staff-api--g02503r`; Single / 100% |
+
+Action groups enabled; receiver name `ops-email` status Enabled; **address intentionally not recorded**; notification/inbox delivery **unproven**.
+
+### Claim ownership (16AF locked)
+
+| Observation | Proves | Does not prove |
+|-------------|--------|----------------|
+| Four capacity alerts Enabled with exact metric/threshold/window/scope/AG | Alert **deployment** gap closed | Alert firing; notification delivery; human inbox |
+| Scale truth min/max/rules null + latest=latestReady g02503r | Current bounds/revision identity | Autoscaling; load-driven scale-out; replica mutation by this slice |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven`; load/soak; SLO/error budget; backpressure; production |
+
+## Truthful disposition (16AF)
+
+**Proves (live):** Four capacity-pressure alerts deployed Enabled Sev2 Average >80 PT5M/PT15M on exact Staff API app scopes wired to tenant ops AGs; current scale truth WH min0/max1/rules null and Sunset min1/max1/rules null with latest=latestReady g02503r.
+
+**Does not prove:** capacity alert firing/notification; load/soak; autoscaling; capacity SLO/error budget; backpressure; production; raising G06 to `proven`.
+
+**Alert-deployment gap closed; G06 remains partial** (firing/notification, load/soak, autoscaling, SLO/error budget, backpressure open).
+
+## Outcome (16AD — retained)
 
 Reconcile the completed dual-staging **concurrent sampled revision-restart continuity drill** with mandatory provenance split:
 
@@ -61,9 +88,14 @@ Serving-revision `/readyz=503` `{status:not-ready}` on isolated fail revisions; 
 
 ## Retained slices (not overclaimed)
 
+
+### 16AF_g06_capacity_alert_live_evidence
+
+Capacity-alert deploy + scale-truth evidence — **this tip**. Closes only G06 alert-deployment gap. Firing/notification, load/soak, autoscaling, SLO/error budget, backpressure remain open. G06 stays partial.
+
 ### 16AD_g02_sampled_restart_continuity_evidence
 
-Concurrent sampled revision-restart continuity — **this tip**. Sampling-resolution claim after WH warmup exclusion only. G02 stays partial.
+Concurrent sampled revision-restart continuity — retained under 16AF tip. Sampling-resolution claim after WH warmup exclusion only. G02 stays partial.
 
 ### 16AC_organic_restart_alert_evidence
 
@@ -109,7 +141,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 
 - **16O** — Stripe webhook error minimization (G08 partial).
 - **G05** — 16M Stripe webhook event-id claim (source partial; live drill open).
-- **G06** — 16L Staff API capacity-pressure alerts (source partial; alert fire open).
+- **G06** — **16AF** live-proves capacity-alert deploy; **16L** source retained; alert fire/notification, load/soak, autoscaling, SLO/backpressure open (G06 remains partial).
 - **G08** — 16O/16P webhook error minimization + privacy drill partial; abrupt/retention/search open.
 
 ## G02 semantics (truthful after 16AD)
@@ -141,13 +173,42 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | `scripts/lib/radar-slice16ad-g02-sampled-restart-continuity-evidence.js` | Locks |
 | `scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js` | Strict RED/GREEN verifier |
 
+
+## G06 semantics (truthful after 16AF)
+
+| Sub-control | Status | Notes |
+|-------------|--------|-------|
+| Capacity-pressure alert IaC (16L) | `source_closed_16L` | CpuPercentage + MemoryPercentage Average >80 |
+| Capacity-pressure alert live deploy | `live_proven_16AF` | four alerts Enabled Sev2 PT5M/PT15M exact scopes/AGs |
+| Current scale truth | `live_recorded_16AF` | WH min0/max1/rules null; Sunset min1/max1/rules null; g02503r |
+| Alert fire / notification delivery | `open` / `not claimed` | |
+| Load / soak | `open` / `not claimed` | |
+| Autoscaling | `open` / `not claimed` | rules=null |
+| Capacity SLO / error budget | `open` / `not claimed` | |
+| Backpressure | `open` / `not claimed` | |
+| Production | `open` / forbidden | intentionally untouched |
+
+## Slice 16AF artifacts
+
+| Path | Role |
+|------|------|
+| `fixtures/radar-operations/slice16af-g06-capacity-alert-live-evidence.json` | Locked evidence + lock_hash |
+| `fixtures/radar-operations/slice16af-expected-contract.json` | Contract |
+| `scripts/lib/radar-slice16af-g06-capacity-alert-live-evidence.js` | Locks |
+| `scripts/verify-radar-slice16af-g06-capacity-alert-live-evidence.js` | Strict RED/GREEN verifier |
+
 ## Still open
 
-1. Absolute/continuous zero downtime / between-sample / sub-second interruption — **not claimed**
-2. Cold-start availability — **not claimed** (WH warmup timeouts remain real)
-3. G01-A live Meta→Hermes→Staff correlated read path
-4. Human inbox receipt — **not claimed**
-5. Unique causality beyond platform alert fields — **not claimed**
-6. Requests 5xx alert firing — **not claimed**
-7. Production — forbidden
-8. Raising any gate verdict to `proven`
+1. Capacity alert firing / notification delivery — **not claimed**
+2. Load / soak — **not claimed**
+3. Autoscaling (rules=null) — **not claimed**
+4. Capacity SLO / error budget — **not claimed**
+5. Backpressure — **not claimed**
+6. Absolute/continuous zero downtime / between-sample / sub-second interruption — **not claimed**
+7. Cold-start availability — **not claimed** (WH warmup timeouts remain real)
+8. G01-A live Meta→Hermes→Staff correlated read path
+9. Human inbox receipt — **not claimed**
+10. Unique causality beyond platform alert fields — **not claimed**
+11. Requests 5xx alert firing — **not claimed**
+12. Production — forbidden
+13. Raising any gate verdict to `proven`

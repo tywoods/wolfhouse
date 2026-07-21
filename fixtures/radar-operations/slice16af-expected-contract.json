@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AF",
+  "outcome_id": "16AF_g06_capacity_alert_live_evidence",
+  "gate_ids": [
+    "G06_scaling_capacity"
+  ],
+  "progress_class": "partial_live_proven_evidence_only",
+  "master_basis": "0a2fb08486b835dd45a4fc904e3dd152702bea6f",
+  "branch": "radar/slice-16af-g06-capacity-alert-live-evidence",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "title": "Reconcile live dual-staging Staff API capacity-pressure alerts + scale truth — G06 partial/live-proven deploy gap only",
+  "evidence_fixture": "fixtures/radar-operations/slice16af-g06-capacity-alert-live-evidence.json",
+  "builds_on": [
+    "16L_staff_api_capacity_pressure_alerts",
+    "16B_staging_cost_budgets",
+    "16H_staff_api_metric_alerts",
+    "16AD_g02_sampled_restart_continuity_evidence"
+  ],
+  "provenance": {
+    "source_type": "azure_monitor_metric_alert_action_group_containerapp_scale_readonly_independently_reverified",
+    "independent_azure_verify_utc": "2026-07-21T14:30:07Z",
+    "non_recoverability": "Azure read-only APIs cannot prove alert firing, notification delivery, human inbox receipt, load/soak behavior, autoscaling actuation, SLO/error-budget consumption, or backpressure. Do not invent fired instances, email addresses, scale-rule mutations, or raising G06 to proven.",
+    "claim_ownership": {
+      "deployed_capacity_pressure_alerts": {
+        "owner_class": "azure_monitor_readonly_independently_reverified",
+        "observation": "four_capacity_alerts_enabled_sev2_average_gt_80_pt5m_pt15m_exact_scopes_ags",
+        "proves": [
+          "capacity_alerts_deployed_enabled_both_tenants_cpu_and_memory",
+          "exact_metric_CpuPercentage_MemoryPercentage",
+          "Average_GreaterThan_80_Sev2_PT5M_eval_PT15M_window",
+          "exact_app_scopes_and_tenant_ops_action_group_ids",
+          "action_groups_enabled_ops_email_receiver_Enabled"
+        ],
+        "does_not_prove": [
+          "capacity_alert_firing",
+          "notification_delivery",
+          "human_inbox_receipt",
+          "load_soak_proof",
+          "autoscaling",
+          "capacity_slo_error_budget",
+          "backpressure",
+          "production",
+          "full_G06_proven"
+        ],
+        "limitation": "Deployed enabled rule definitions + AG receiver name/status only; fire/notification remain open"
+      },
+      "current_scale_truth": {
+        "owner_class": "azure_containerapp_readonly_independently_reverified",
+        "observation": "wh_min0_max1_rules_null_sunset_min1_max1_rules_null_latest_equals_latestReady_g02503r",
+        "proves": [
+          "wolfhouse_minReplicas_0_maxReplicas_1_rules_null",
+          "sunset_minReplicas_1_maxReplicas_1_rules_null",
+          "latest_equals_latestReady_g02503r_both_tenants",
+          "active_revisions_mode_Single_traffic_100"
+        ],
+        "does_not_prove": [
+          "autoscaling_rules_present",
+          "scale_mutation_by_this_slice",
+          "load_driven_scale_out",
+          "production"
+        ],
+        "limitation": "Current scale bounds/rules/revision identity only; no autoscaling or load proof"
+      }
+    }
+  },
+  "required_observed": {
+    "wolfhouse_cpu_rule": "wolfhouse-staff-api-cpu-pressure",
+    "wolfhouse_memory_rule": "wolfhouse-staff-api-memory-pressure",
+    "sunset_cpu_rule": "sunset-staff-api-cpu-pressure",
+    "sunset_memory_rule": "sunset-staff-api-memory-pressure",
+    "wolfhouse_app": "wh-staging-staff-api",
+    "sunset_app": "luna-sunset-staging-staff-api",
+    "severity": 2,
+    "severity_label": "Sev2",
+    "enabled": true,
+    "time_aggregation": "Average",
+    "operator": "GreaterThan",
+    "threshold": 80,
+    "evaluation_frequency": "PT5M",
+    "window_size": "PT15M",
+    "metric_namespace": "Microsoft.App/containerApps",
+    "criterion_type": "StaticThresholdCriterion",
+    "receiver_name": "ops-email",
+    "receiver_status": "Enabled",
+    "email_address_recorded": false,
+    "wh_minReplicas": 0,
+    "wh_maxReplicas": 1,
+    "wh_rules": null,
+    "sunset_minReplicas": 1,
+    "sunset_maxReplicas": 1,
+    "sunset_rules": null,
+    "wh_revision": "wh-staging-staff-api--g02503r",
+    "sunset_revision": "luna-sunset-staging-staff-api--g02503r",
+    "latest_equals_latestReady": true,
+    "independent_azure_verify_utc": "2026-07-21T14:30:07Z"
+  },
+  "forbidden_claim_tokens": [
+    "capacity alert fired",
+    "alert firing proven",
+    "notification delivered",
+    "human inbox receipt proven",
+    "inbox delivered",
+    "email address",
+    "autoscaling proven",
+    "load soak proven",
+    "capacity SLO proven",
+    "error budget proven",
+    "backpressure proven",
+    "production",
+    "full G06",
+    "full_G06_proven",
+    "G06 proven",
+    "minReplicas mutated",
+    "maxReplicas mutated"
+  ],
+  "must_not_claim_as_proven": [
+    "capacity_alert_firing",
+    "notification_delivery",
+    "human_inbox_receipt",
+    "receiver_email_address_disclosure",
+    "load_soak_proof",
+    "autoscaling",
+    "capacity_slo_error_budget",
+    "backpressure",
+    "production",
+    "full_G06_proven",
+    "any_gate_verdict_proven",
+    "scale_mutation_by_this_slice",
+    "min_max_replica_mutation"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "G06 capacity-alert deployment gap closed via 16AF live readback; G06 remains partial because firing/notification, load/soak, autoscaling, SLO/error budget, and backpressure remain open"
+  },
+  "still_open": [
+    "Capacity alert firing / notification delivery (not claimed)",
+    "Load / soak proof (not claimed)",
+    "Autoscaling rules (rules=null; not claimed)",
+    "Capacity SLO / error budget (not claimed)",
+    "Backpressure (not claimed)",
+    "Production scope (forbidden)",
+    "Raising G06 verdict to proven"
+  ],
+  "final_controlled_drill": {
+    "id": "16L_DRILL_capacity_pressure_alert_deploy_readback",
+    "status": "live_proven_via_16AF_capacity_alerts_deployed_enabled_scale_truth_recorded",
+    "pass_rule": "Class Azure-readonly @ 2026-07-21T14:30:07Z: four capacity alerts Enabled Sev2 Average>80 PT5M/PT15M scoped to exact WH/Sunset Staff API apps wired to tenant ops AGs (ops-email Enabled, address not recorded). Scale truth WH min0/max1/rules null; Sunset min1/max1/rules null; latest=latestReady g02503r both. Verifier rejects scope/metric/threshold/action/scale drift and fire/notification/load/autoscale/SLO/backpressure/production/full-G06 overclaims. Deploy gap closed; G06 remains partial."
+  },
+  "artifacts": [
+    "fixtures/radar-operations/slice16af-g06-capacity-alert-live-evidence.json",
+    "fixtures/radar-operations/slice16af-expected-contract.json",
+    "scripts/lib/radar-slice16af-g06-capacity-alert-live-evidence.js",
+    "scripts/verify-radar-slice16af-g06-capacity-alert-live-evidence.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16af-g06-capacity-alert-live-evidence",
+    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
+    "npm run verify:radar-slice16ad-g02-sampled-restart-continuity-evidence",
+    "npm run verify:radar-slice16ac-organic-restart-alert-evidence",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 0a2fb08486b835dd45a4fc904e3dd152702bea6f..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "scripts/staff-query-api.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16AF is evidence reconciliation only; Azure read-only metric alert / action group / containerapp GET; no deploy or mutation"
+  }
+}
