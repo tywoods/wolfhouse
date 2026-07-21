@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16AH",
-  "title": "RADAR operations gate ledger (16AH pinnedLookup all=true correction; G06 partial — live load/soak/fire/autoscale/SLO/backpressure open; prior live attempt attempted_not_proof)",
-  "master_basis": "6c24e9456bd42c7fa1b051bb1308aae8f632b293",
-  "branch": "radar/slice-16ah-g06-live-load-correction",
+  "slice": "RADAR-16AI",
+  "title": "RADAR operations gate ledger (16AI conservative dual-staging /readyz bounded-load live_proven; G06 partial — soak/fire/autoscale/SLO/backpressure open)",
+  "master_basis": "d04b633390bdcacfe3a04eed4796bba4184e29f8",
+  "branch": "radar/slice-16ai-g06-live-load-evidence",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -444,7 +444,7 @@
       "name": "Scaling / capacity",
       "verdict": "partial",
       "severity": "medium",
-      "rationale": "16L source-only capacity-pressure alerts remain in Bicep. 16AF live-proves dual-staging deploy readback @ 2026-07-21T14:30:07Z: four Staff API capacity alerts Enabled Sev2 Average>80 PT5M eval/PT15M window (CpuPercentage + MemoryPercentage per tenant) scoped to exact WH/Sunset Staff API apps wired to tenant ops AGs (ops-email Enabled; address not recorded). Current scale truth recorded: WH minReplicas=0 maxReplicas=1 rules=null; Sunset minReplicas=1 maxReplicas=1 rules=null; latest=latestReady g02503r both tenants. 16AG adds a dependency-free bounded Node load harness hard-locked to the two exact staging /readyz URLs with offline fake-server RED/GREEN verifier; future drill profile defined_not_executed. 16AH corrects pinnedLookup to honor Node dns.lookup callback contract when options.all=true (Happy Eyeballs): return validated pinned address array (retain scalar for all=false; family filter/exact pins). Offline production-shaped RED proves scalar replies fail before HTTP with safe error-code classes only. A controlled post-16AG live attempt against both exact staging /readyz targets yielded 60/60 error-class while direct pre/post /readyz stayed ready — recorded cautiously as attempted_not_proof (root_cause_class=pinned_lookup_scalar_under_options_all_true); NOT load/soak success. G06 remains partial: live load/soak success proof, alert firing/notification, autoscaling, SLO/error budget, and backpressure remain open.",
+      "rationale": "16L source-only capacity-pressure alerts remain in Bicep. 16AF live-proves dual-staging deploy readback @ 2026-07-21T14:30:07Z: four Staff API capacity alerts Enabled Sev2 Average>80 PT5M eval/PT15M window (CpuPercentage + MemoryPercentage per tenant) scoped to exact WH/Sunset Staff API apps wired to tenant ops AGs (ops-email Enabled; address not recorded). Current scale truth recorded: WH minReplicas=0 maxReplicas=1 rules=null; Sunset minReplicas=1 maxReplicas=1 rules=null; latest=latestReady g02503r both tenants. 16AG adds a dependency-free bounded Node load harness hard-locked to the two exact staging /readyz URLs with offline fake-server RED/GREEN verifier; future drill profile defined_not_executed as the 16AG source lock. 16AH corrects pinnedLookup to honor Node dns.lookup callback contract when options.all=true (Happy Eyeballs): return validated pinned address array (retain scalar for all=false; family filter/exact pins). Offline production-shaped RED proves scalar replies fail before HTTP with safe error-code classes only. A controlled post-16AG live attempt against both exact staging /readyz targets yielded 60/60 error-class while direct pre/post /readyz stayed ready — recorded cautiously as attempted_not_proof (root_cause_class=pinned_lookup_scalar_under_options_all_true). 16AI reconciles the successful controlled re-run @ 2026-07-21T16:50:16Z of profile 16AG_DRILL_dual_staging_readyz_bounded_load against the exact two staging /readyz targets, claiming only what committed secret-free raw fixtures prove (slice16ai-raw-drill + slice16ai-raw-cost-before/after; SHA-256 locked; ephemeral /tmp and tmp/ excluded): each 60/60 2xx; peak_in_flight=2; zero timeout/error/non-2xx; WH p50/p95/p99/max 30/32/44/44ms wall 954; Sunset 28/29/40/40ms wall 879; response bodies/redirects/headers/auth/body false; DNS pinned; active remaining 0; Sunset MTD ActualCost before/after identical 18.2443795483871 USD. Explicitly does not claim pre/post /readyz readiness (absent from raw drill) or after-query 429/retry (no durable transcript). final_controlled_drill status live_proven for this conservative readiness profile only. G06 remains partial: load soak, alert firing/notification, autoscaling, SLO/error budget, and backpressure remain open.",
       "source_evidence": [
         {
           "path": "infra/azure/staging/main.bicep",
@@ -523,6 +523,36 @@
           "lines": "1-40",
           "symbols": [],
           "note": "Frozen 16AG harness + future-drill-defined-not-executed contract"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16ai-g06-live-load-evidence.json",
+          "lines": "1-120",
+          "symbols": [],
+          "note": "16AI lock-hashed conservative dual-staging /readyz bounded-load live evidence + Sunset MTD ActualCost guard"
+        },
+        {
+          "path": "scripts/verify-radar-slice16ai-g06-live-load-evidence.js",
+          "lines": "1-40",
+          "symbols": [],
+          "note": "Offline RED/GREEN conservative readiness live-load evidence assertions"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16ai-raw-drill.json",
+          "lines": "1-102",
+          "symbols": [],
+          "note": "16AI secret-free durable raw drill JSON (SHA-256 locked)"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16ai-raw-cost-before.json",
+          "lines": "1-13",
+          "symbols": [],
+          "note": "16AI secret-free durable Sunset MTD ActualCost before"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16ai-raw-cost-after.json",
+          "lines": "1-13",
+          "symbols": [],
+          "note": "16AI secret-free durable Sunset MTD ActualCost after"
         }
       ],
       "live_evidence": [
@@ -533,12 +563,16 @@
         {
           "ref": "live-inventory.json#container_apps",
           "note": "Frozen 16A inventory scale bounds still match (WH min0/max1; Sunset min1/max1; rules null); revision identity locked in 16AF evidence"
+        },
+        {
+          "ref": "fixtures/radar-operations/slice16ai-g06-live-load-evidence.json",
+          "note": "16AI @ 2026-07-21T16:50:16Z: conservative dual-staging /readyz bounded-load 60/60 2xx both targets; peak2; zero timeout/error/non2xx; exact latency/wall; transport hygiene; Sunset MTD ActualCost identical before/after; claims bound to committed raw fixtures via SHA-256; pre/post readiness and 429/retry omitted"
         }
       ],
       "gaps": [
+        "No load soak / sustained capacity proof (16AI live-proves only the conservative dual-staging /readyz bounded profile; soak remains open)",
         "No proven capacity-alert fire / notification delivery",
-        "No live dual-staging /readyz load/soak success proof (16AH records prior attempt as attempted_not_proof only; 16AG harness source + profile defined_not_executed retained)",
-        "No autoscaling rules (rules=null live; not added by 16AF/16AG)",
+        "No autoscaling rules (rules=null live; not added by 16AF/16AG/16AH/16AI)",
         "No capacity SLO / error budget / backpressure proof",
         "Production scope forbidden"
       ],
@@ -1969,6 +2003,71 @@
     "g06_verdict": "partial",
     "g06_load_harness_source": "source_closed_via_16AG",
     "g06_load_proof": "open",
+    "g06_pinned_lookup_all_true": "corrected_via_16AH",
+    "g06_capacity_alert_deploy": "live_proven_via_16AF",
+    "g06_capacity_alert_fire": "open",
+    "g06_autoscaling": "open",
+    "g06_slo": "open",
+    "g06_backpressure": "open"
+  },
+  "slice_16ai_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16AI_g06_live_load_evidence",
+    "gate_id": "G06_scaling_capacity",
+    "progress_class": "partial_live_proven_evidence_only",
+    "does_not_implement": "load_soak_alert_fire_notification_autoscaling_slo_backpressure_production_full_g06_deploy_scale_mutation",
+    "title": "Reconcile successful controlled dual-staging /readyz bounded-load drill — conservative readiness live_proven only",
+    "why_smallest": "After 16AH correction, a controlled re-run of the exact 16AG profile succeeded; narrowest ownership is evidence-only reconciliation of that conservative readiness profile without claiming soak/fire/autoscale/SLO/backpressure or raising G06.",
+    "builds_on": [
+      "16AH_g06_live_load_correction",
+      "16AG_g06_bounded_load_harness",
+      "16AF_g06_capacity_alert_live_evidence",
+      "16L_staff_api_capacity_pressure_alerts"
+    ],
+    "supersedes": [],
+    "owner_files": [
+      "fixtures/radar-operations/slice16ai-g06-live-load-evidence.json",
+      "fixtures/radar-operations/slice16ai-expected-contract.json",
+      "fixtures/radar-operations/slice16ai-raw-drill.json",
+      "fixtures/radar-operations/slice16ai-raw-cost-before.json",
+      "fixtures/radar-operations/slice16ai-raw-cost-after.json",
+      "scripts/lib/radar-slice16ai-g06-live-load-evidence.js",
+      "scripts/verify-radar-slice16ai-g06-live-load-evidence.js"
+    ],
+    "out_of_scope_for_16ai": [
+      "Load soak / sustained capacity",
+      "Capacity alert firing",
+      "Notification / human inbox delivery",
+      "Autoscaling rules / replica mutation",
+      "Capacity SLO / error budget",
+      "Backpressure",
+      "Production RGs",
+      "Harness / Staff API runtime mutation",
+      "Raising G06 verdict to proven"
+    ],
+    "acceptance_criteria": [
+      "Exact two staging /readyz targets each 60/60 2xx",
+      "peak_in_flight=2; zero timeout/error/non-2xx",
+      "Exact WH/Sunset latency + wall metrics",
+      "transport hygiene false; DNS pinned; active 0",
+      "Sunset MTD ActualCost before/after identical 18.2443795483871 USD from raw cost JSON",
+      "Committed slice16ai-raw-* fixtures with locked SHA-256 provenance; ephemeral /tmp and tmp/ excluded",
+      "pre/post /readyz readiness and after-query 429/retry explicitly not claimed",
+      "final_controlled_drill status live_proven for conservative readiness profile only",
+      "Verifier rejects metric/status/count/latency/cost/scope/overclaim/raw-hash drift + omitted-claim reappearance + lock_hash mismatch",
+      "G06 remains partial; proven count remains 0"
+    ],
+    "final_controlled_drill": {
+      "id": "16AG_DRILL_dual_staging_readyz_bounded_load",
+      "status": "live_proven",
+      "pass_rule": "See slice16ai-expected-contract.json final_controlled_drill.pass_rule"
+    },
+    "g06_verdict": "partial",
+    "g06_conservative_readyz_bounded_load": "live_proven_via_16AI",
+    "g06_load_soak": "open",
+    "g06_load_proof": "open",
+    "g06_load_harness_source": "source_closed_via_16AG",
     "g06_pinned_lookup_all_true": "corrected_via_16AH",
     "g06_capacity_alert_deploy": "live_proven_via_16AF",
     "g06_capacity_alert_fire": "open",

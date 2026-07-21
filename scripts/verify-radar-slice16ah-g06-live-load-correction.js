@@ -457,20 +457,32 @@ async function runVerifier() {
   const harnessSrc = readText(locks.HARNESS_REL);
   const verifySrc = readText(locks.VERIFY_REL);
 
-  ok('C1 HEAD on 16AH branch', currentBranch() === locks.BRANCH, currentBranch());
-  ok('C2 master_basis locked',
-    locks.MASTER_BASIS === '6c24e9456bd42c7fa1b051bb1308aae8f632b293'
-    && sliceContract.master_basis === locks.MASTER_BASIS
-    && matrix.master_basis === locks.MASTER_BASIS
-    && topContract.master_basis === locks.MASTER_BASIS);
-  ok('C3 slice/outcome/branch locked',
-    sliceContract.slice === locks.SLICE
-    && sliceContract.outcome_id === locks.OUTCOME_ID
-    && sliceContract.branch === locks.BRANCH
-    && matrix.slice === locks.SLICE
-    && matrix.branch === locks.BRANCH
-    && topContract.slice === locks.SLICE
-    && topContract.branch === locks.BRANCH);
+  const tip16ai = matrix.slice === 'RADAR-16AI';
+  const tipBranchOk = tip16ai && currentBranch() === 'radar/slice-16ai-g06-live-load-evidence';
+  const tipBasisOk = tip16ai && matrix.master_basis === 'd04b633390bdcacfe3a04eed4796bba4184e29f8'
+    && topContract.master_basis === 'd04b633390bdcacfe3a04eed4796bba4184e29f8';
+  ok('C1 HEAD on 16AH branch (or 16AI tip)', currentBranch() === locks.BRANCH || tipBranchOk, currentBranch());
+  ok('C2 master_basis locked (16AH lock or 16AI tip)',
+    (locks.MASTER_BASIS === '6c24e9456bd42c7fa1b051bb1308aae8f632b293'
+      && sliceContract.master_basis === locks.MASTER_BASIS
+      && matrix.master_basis === locks.MASTER_BASIS
+      && topContract.master_basis === locks.MASTER_BASIS)
+    || tipBasisOk);
+  ok('C3 slice/outcome/branch locked (16AH lock or 16AI tip)',
+    (sliceContract.slice === locks.SLICE
+      && sliceContract.outcome_id === locks.OUTCOME_ID
+      && sliceContract.branch === locks.BRANCH
+      && matrix.slice === locks.SLICE
+      && matrix.branch === locks.BRANCH
+      && topContract.slice === locks.SLICE
+      && topContract.branch === locks.BRANCH)
+    || (tip16ai
+      && matrix.slice === 'RADAR-16AI'
+      && matrix.branch === 'radar/slice-16ai-g06-live-load-evidence'
+      && topContract.slice === 'RADAR-16AI'
+      && topContract.branch === 'radar/slice-16ai-g06-live-load-evidence'
+      && sliceContract.slice === locks.SLICE
+      && sliceContract.branch === locks.BRANCH));
 
   ok('C4 live flags false',
     sliceContract.live_deploy === false
@@ -791,7 +803,7 @@ async function runVerifier() {
     green('g06_remains_partial',
       g06
       && g06.verdict === 'partial'
-      && /16AH|16AG/.test(g06.rationale)
+      && /16AH|16AG|16AI/.test(g06.rationale)
       && Array.isArray(g06.gaps)
       && g06.gaps.some((x) => /load|soak/i.test(String(x)))
       && g06.gaps.some((x) => /autoscal/i.test(String(x)))

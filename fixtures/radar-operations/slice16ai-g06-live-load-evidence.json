@@ -1,0 +1,337 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AI",
+  "outcome_id": "16AI_g06_live_load_evidence",
+  "gate_ids_touched": [
+    "G06_scaling_capacity"
+  ],
+  "master_basis": "d04b633390bdcacfe3a04eed4796bba4184e29f8",
+  "branch": "radar/slice-16ai-g06-live-load-evidence",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "progress_class": "partial_live_proven_evidence_only",
+  "title": "Reconcile successful controlled dual-staging /readyz bounded-load drill — conservative readiness live_proven only; G06 partial",
+  "independent_verify_utc": "2026-07-21T16:50:16Z",
+  "provenance_limitations": "Records only what committed secret-free raw fixtures prove for the operator-controlled dual-staging /readyz bounded-load drill @ 2026-07-21T16:50:16Z (profile 16AG_DRILL_dual_staging_readyz_bounded_load): exact two staging allowlist targets; each 60/60 2xx; concurrency peak 2; zero timeout/error/non-2xx; WH p50/p95/p99/max 30/32/44/44ms wall 954; Sunset 28/29/40/40ms wall 879; response bodies/redirects/headers/auth/body false; DNS pinned; active remaining 0. Records Sunset RG MTD ActualCost before/after identical 18.2443795483871 USD from raw before/after cost JSON. Does not claim pre/post /readyz readiness (absent from raw drill) or after-query HTTP 429/retry (no durable transcript). Proves only this conservative readiness profile. Does not prove soak, alert firing/notification, autoscaling, SLO/error budget, backpressure, production, or full G06. Ephemeral /tmp and tmp/ source paths are excluded from the tip.",
+  "non_recoverability": "A single conservative bounded /readyz drill cannot prove soak/sustained capacity, alert firing, notification delivery, autoscaling actuation, SLO/error-budget consumption, or backpressure. Do not invent soak success, fire instances, scale mutations, pre/post readiness absent from raw drill, 429/retry absent from durable transcript, or raising G06 to proven.",
+  "durable_raw_artifact_provenance": {
+    "note": "Claims are bound only to committed secret-free raw fixtures via SHA-256 of exact file bytes; ephemeral /tmp and tmp/ paths are excluded from the tip.",
+    "excluded_ephemeral_paths": [
+      "/tmp/radar-16ai-live-drill.json",
+      "tmp/foundation-slice9/"
+    ],
+    "artifacts": [
+      {
+        "id": "raw_drill",
+        "path": "fixtures/radar-operations/slice16ai-raw-drill.json",
+        "sha256": "5851251501bbaddd82dfc02d8e7ff3b022e3e72a474858e3c234e68936cc9ed0",
+        "proves": "drill metrics/status/latency/transport hygiene only",
+        "does_not_prove": "pre_post_readyz_ready"
+      },
+      {
+        "id": "raw_cost_before",
+        "path": "fixtures/radar-operations/slice16ai-raw-cost-before.json",
+        "sha256": "f24282056dacd2ffd063cf40e29e48503518543fbe442f195d594def712e0173",
+        "proves": "Sunset MTD ActualCost before amount/timestamps",
+        "does_not_prove": "after_query_initial_429_then_successful_retry"
+      },
+      {
+        "id": "raw_cost_after",
+        "path": "fixtures/radar-operations/slice16ai-raw-cost-after.json",
+        "sha256": "30453489e76f617fe6bfa86bbdb38d88806355c9c87c52d0bbea994d17b365e7",
+        "proves": "Sunset MTD ActualCost after amount/timestamps",
+        "does_not_prove": "after_query_initial_429_then_successful_retry"
+      }
+    ]
+  },
+  "claim_ownership": {
+    "conservative_dual_staging_readyz_bounded_load": {
+      "owner_class": "committed_raw_drill_output_locked",
+      "observation": "both_staging_readyz_60_of_60_2xx_peak_concurrency_2_zero_timeout_error_non2xx",
+      "proves": [
+        "exact_two_staging_readyz_targets",
+        "profile_16AG_DRILL_dual_staging_readyz_bounded_load_executed",
+        "each_target_60_of_60_2xx",
+        "peak_in_flight_2",
+        "zero_timeout_error_non2xx",
+        "wh_latency_p50_30_p95_32_p99_44_max_44_wall_954",
+        "sunset_latency_p50_28_p95_29_p99_40_max_40_wall_879",
+        "response_bodies_redirects_headers_auth_body_false",
+        "dns_pinned_active_remaining_zero",
+        "final_controlled_drill_live_proven_conservative_readyz_only"
+      ],
+      "does_not_prove": [
+        "pre_post_readyz_ready",
+        "load_soak_proof",
+        "capacity_alert_firing",
+        "notification_delivery",
+        "autoscaling",
+        "capacity_slo_error_budget",
+        "backpressure",
+        "production",
+        "full_G06_proven"
+      ],
+      "limitation": "Conservative readiness-profile success only as proven by raw drill JSON; pre/post readiness absent; soak/fire/autoscale/SLO/backpressure open"
+    },
+    "sunset_mtd_actual_cost_guard": {
+      "owner_class": "committed_raw_azure_cost_before_after_readonly",
+      "observation": "sunset_mtd_actualcost_before_after_identical",
+      "proves": [
+        "sunset_mtd_actualcost_before_equals_after",
+        "amount_18_2443795483871_USD"
+      ],
+      "does_not_prove": [
+        "after_query_initial_429_then_successful_retry",
+        "budget_anomaly_detection",
+        "production_cost_proof",
+        "full_G06_proven"
+      ],
+      "limitation": "Sunset staging RG MTD ActualCost guard only from raw before/after JSON; identical before/after; no 429/retry claim"
+    }
+  },
+  "observed_facts": {
+    "controlled_dual_staging_readyz_bounded_load": {
+      "source_type": "committed_raw_16AG_profile_live_drill_plus_sunset_mtd_actualcost_before_after",
+      "source_ref": "16AG_DRILL_dual_staging_readyz_bounded_load_2026-07-21T16:50:16Z",
+      "observed_at": "2026-07-21T16:50:16Z",
+      "observed_at_semantics": "drill_executed_at_truncated_to_second_utc",
+      "profile_id": "16AG_DRILL_dual_staging_readyz_bounded_load",
+      "drill_executed_at": "2026-07-21T16:50:16.377Z",
+      "drill_schema_version": 1,
+      "drill_id": "16AG_DRILL_dual_staging_readyz_bounded_load",
+      "master_sha": "d04b633390bdcacfe3a04eed4796bba4184e29f8",
+      "raw_artifact_path": "fixtures/radar-operations/slice16ai-raw-drill.json",
+      "raw_artifact_sha256": "5851251501bbaddd82dfc02d8e7ff3b022e3e72a474858e3c234e68936cc9ed0",
+      "covers": [
+        "exact_two_staging_readyz_targets",
+        "each_target_60_of_60_2xx",
+        "peak_in_flight_2",
+        "zero_timeout_error_non2xx",
+        "exact_latency_wall_metrics",
+        "transport_hygiene_false_bodies_redirects_headers_auth_body",
+        "dns_pinned_active_remaining_zero",
+        "final_controlled_drill_live_proven_conservative_readyz_only"
+      ],
+      "explicitly_not_covered": [
+        "pre_post_readyz_ready",
+        "load_soak_proof",
+        "capacity_alert_firing",
+        "notification_delivery",
+        "autoscaling",
+        "capacity_slo_error_budget",
+        "backpressure",
+        "production",
+        "full_G06_proven",
+        "any_gate_verdict_proven",
+        "scale_mutation_by_this_slice",
+        "deploy_by_this_slice",
+        "min_max_replica_mutation"
+      ],
+      "wolfhouse": {
+        "target": "https://staff-staging.lunafrontdesk.com/readyz",
+        "method": "GET",
+        "profile": {
+          "concurrency": 2,
+          "max_duration_ms": 30000,
+          "max_requests": 60,
+          "request_timeout_ms": 4000,
+          "method": "GET",
+          "headers": null,
+          "body": null,
+          "auth": null,
+          "follow_redirects": false,
+          "max_redirects": 0,
+          "tls_required": true,
+          "collect_response_bodies": false
+        },
+        "started": 60,
+        "completed": 60,
+        "peak_in_flight": 2,
+        "wall_ms": 954,
+        "stop_reason": "max_requests",
+        "status_counts": {
+          "2xx": 60,
+          "3xx": 0,
+          "4xx": 0,
+          "5xx": 0,
+          "timeout": 0,
+          "error": 0,
+          "other": 0
+        },
+        "error_code_classes": {},
+        "latency": {
+          "count": 60,
+          "p50_ms": 30,
+          "p95_ms": 32,
+          "p99_ms": 44,
+          "max_ms": 44
+        },
+        "response_bodies_collected": false,
+        "redirects_followed": false,
+        "headers_sent": false,
+        "auth_sent": false,
+        "body_sent": false,
+        "dns_pinned": true,
+        "active_requests_remaining": 0
+      },
+      "sunset": {
+        "target": "https://sunset-staging.lunafrontdesk.com/readyz",
+        "method": "GET",
+        "profile": {
+          "concurrency": 2,
+          "max_duration_ms": 30000,
+          "max_requests": 60,
+          "request_timeout_ms": 4000,
+          "method": "GET",
+          "headers": null,
+          "body": null,
+          "auth": null,
+          "follow_redirects": false,
+          "max_redirects": 0,
+          "tls_required": true,
+          "collect_response_bodies": false
+        },
+        "started": 60,
+        "completed": 60,
+        "peak_in_flight": 2,
+        "wall_ms": 879,
+        "stop_reason": "max_requests",
+        "status_counts": {
+          "2xx": 60,
+          "3xx": 0,
+          "4xx": 0,
+          "5xx": 0,
+          "timeout": 0,
+          "error": 0,
+          "other": 0
+        },
+        "error_code_classes": {},
+        "latency": {
+          "count": 60,
+          "p50_ms": 28,
+          "p95_ms": 29,
+          "p99_ms": 40,
+          "max_ms": 40
+        },
+        "response_bodies_collected": false,
+        "redirects_followed": false,
+        "headers_sent": false,
+        "auth_sent": false,
+        "body_sent": false,
+        "dns_pinned": true,
+        "active_requests_remaining": 0
+      }
+    },
+    "sunset_mtd_actual_cost_guard": {
+      "type": "ActualCost",
+      "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+      "period": {
+        "from": "2026-07-01",
+        "to": "2026-07-21",
+        "label": "month-to-date"
+      },
+      "currency": "USD",
+      "amount_before": 18.2443795483871,
+      "amount_after": 18.2443795483871,
+      "identical": true,
+      "captured_before_at": "2026-07-21T16:50:14.044Z",
+      "captured_after_at": "2026-07-21T16:51:05.849Z",
+      "raw_before_path": "fixtures/radar-operations/slice16ai-raw-cost-before.json",
+      "raw_before_sha256": "f24282056dacd2ffd063cf40e29e48503518543fbe442f195d594def712e0173",
+      "raw_after_path": "fixtures/radar-operations/slice16ai-raw-cost-after.json",
+      "raw_after_sha256": "30453489e76f617fe6bfa86bbdb38d88806355c9c87c52d0bbea994d17b365e7"
+    }
+  },
+  "claims_allowed": [
+    "conservative_dual_staging_readyz_bounded_load_live_proven",
+    "exact_two_staging_readyz_60_of_60_2xx_peak2_zero_errors",
+    "exact_wh_sunset_latency_wall_metrics",
+    "response_bodies_redirects_headers_auth_body_false_dns_pinned_active_zero",
+    "sunset_mtd_actualcost_identical_before_after",
+    "durable_raw_artifact_sha256_provenance",
+    "g06_remains_partial_score_unchanged",
+    "soak_fire_autoscale_slo_backpressure_production_not_claimed"
+  ],
+  "explicitly_not_claimed": [
+    "pre_post_readyz_ready",
+    "after_query_initial_429_then_successful_retry",
+    "load_soak_proof",
+    "capacity_alert_firing",
+    "notification_delivery",
+    "autoscaling",
+    "capacity_slo_error_budget",
+    "backpressure",
+    "production",
+    "full_G06_proven",
+    "any_gate_verdict_proven",
+    "scale_mutation_by_this_slice",
+    "deploy_by_this_slice",
+    "min_max_replica_mutation"
+  ],
+  "disposition": {
+    "proves": [
+      "conservative_dual_staging_readyz_bounded_load_live_proven",
+      "exact_two_staging_readyz_60_of_60_2xx_peak2_zero_timeout_error_non2xx",
+      "exact_wh_sunset_latency_wall_metrics",
+      "transport_hygiene_dns_pinned_active_zero",
+      "sunset_mtd_actualcost_identical_before_after",
+      "durable_raw_artifact_sha256_provenance",
+      "prior_16AH_attempted_not_proof_retained",
+      "prior_16AG_harness_source_retained",
+      "prior_16AF_capacity_alert_deploy_retained"
+    ],
+    "does_not_prove": [
+      "pre_post_readyz_ready",
+      "after_query_initial_429_then_successful_retry",
+      "load_soak_proof",
+      "capacity_alert_firing",
+      "notification_delivery",
+      "autoscaling",
+      "capacity_slo_error_budget",
+      "backpressure",
+      "production",
+      "full_G06_proven",
+      "any_gate_verdict_proven",
+      "scale_mutation_by_this_slice",
+      "deploy_by_this_slice",
+      "min_max_replica_mutation"
+    ],
+    "g06_verdict": "partial",
+    "g06_progress_class": "partial_live_proven",
+    "final_controlled_drill_status": "live_proven"
+  },
+  "gate_progress_updates": {
+    "G06_scaling_capacity": {
+      "progress_class": "partial_live_proven",
+      "verdict": "partial",
+      "live_proven": [
+        "conservative_dual_staging_readyz_bounded_load_via_16AI",
+        "capacity_pressure_alerts_deployed_enabled_via_16AF",
+        "prior_16L_capacity_alert_source_iac",
+        "prior_16AG_harness_source",
+        "prior_16AH_pinned_lookup_correction"
+      ],
+      "still_open": [
+        "load_soak_proof",
+        "capacity_alert_firing",
+        "notification_delivery",
+        "autoscaling",
+        "capacity_slo_error_budget",
+        "backpressure",
+        "production"
+      ]
+    }
+  },
+  "gates_unchanged": [
+    "G01_correlation_structured_logs",
+    "G02_readiness_dependencies",
+    "G03_actionable_tenant_aware_alerts",
+    "G04_webhook_payment_worker_backlog",
+    "G05_retry_replay_safety",
+    "G07_rollback_incident_runbooks",
+    "G08_retention_privacy",
+    "G09_cost_controls"
+  ],
+  "lock_hash": "6a5bf1b386c59ea34cf1bb8071e10cdff9c55db29900599d401cab547e978ada"
+}

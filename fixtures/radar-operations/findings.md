@@ -1,8 +1,9 @@
-# RADAR findings (16A freeze + 16B–16Z partials + 16AA–16AD G02 + 16AF/16AG/16AH G06)
+# RADAR findings (16A freeze + 16B–16Z partials + 16AA–16AD G02 + 16AF/16AG/16AH/16AI G06)
 
-**Master basis (16AH):** `6c24e9456bd42c7fa1b051bb1308aae8f632b293`
+**Master basis (16AI):** `d04b633390bdcacfe3a04eed4796bba4184e29f8`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
-**16AH progress class:** `source_partial_progress_only` (pinnedLookup Happy Eyeballs `all=true` callback-contract correction + fail-closed pin validation + offline real-TLS production-shaped RED; post-16AG live attempt recorded as `attempted_not_proof` — not load success; G06 remains partial).
+**16AI progress class:** `partial_live_proven_evidence_only` (successful controlled dual-staging `/readyz` bounded-load drill reconciled; `final_controlled_drill` = `live_proven` for this conservative readiness profile only — not soak; G06 remains partial).
+**16AH progress class (retained):** `source_partial_progress_only` (pinnedLookup Happy Eyeballs `all=true` callback-contract correction + fail-closed pin validation + offline real-TLS production-shaped RED; post-16AG live attempt recorded as `attempted_not_proof`).
 **16AG progress class (retained):** `source_partial_progress_only` (bounded staging `/readyz` load harness + offline verifier; future drill profile `defined_not_executed`).
 **16AF progress class (retained):** `partial_live_proven_evidence_only` (four capacity-pressure alerts deployed Enabled + scale truth recorded).
 
@@ -15,12 +16,12 @@
 | absent | 0 |
 | **total** | **9** |
 
-## Critical gaps (still open — explicitly not claimed by 16AH)
+## Critical gaps (still open — explicitly not claimed by 16AI)
 
 1. **G01-A live Meta → Hermes → Staff correlated read path** — design frozen (16U); live open.
 2. **Central capability boundary** — prerequisite before dry-run.
 3. Capacity alert firing / notification delivery — **not claimed**.
-4. Live load / soak **success** proof — **not claimed** (prior controlled attempt = `attempted_not_proof` only).
+4. Load soak / sustained capacity — **not claimed** (16AI proves only the conservative `/readyz` bounded profile).
 5. Autoscaling (rules=null) — **not claimed**.
 6. Capacity SLO / error budget / backpressure — **not claimed**.
 7. Absolute/continuous zero downtime / cold-start — **not claimed** (16AD sampling-resolution only).
@@ -29,7 +30,7 @@
 10. Production — forbidden.
 11. Raising any gate verdict to `proven`.
 
-## Gate progress after 16AH (truthful)
+## Gate progress after 16AI (truthful)
 
 | Gate | progress_class | Notes |
 |------|----------------|-------|
@@ -38,22 +39,26 @@
 | G03 | partial_live_proven | **16AC** organic restart fire/resolve + **16P** AG test; human inbox open |
 | G04 | partial | backlog open |
 | G05 | source_partial | 16M event-id claim |
-| G06 | partial_live_proven + 16AG source + 16AH correction | **16AH** pinnedLookup `all=true` fix; prior live attempt `attempted_not_proof`; **16AG** harness source; **16AF** capacity-alert deploy live; **16L** source retained; live load/soak success, firing/notification, autoscaling, SLO/backpressure open |
+| G06 | partial_live_proven + 16AI conservative `/readyz` | **16AI** conservative dual-staging `/readyz` bounded-load `live_proven`; prior 16AH `attempted_not_proof` retained; **16AG** harness source; **16AF** capacity-alert deploy live; **16L** source retained; soak, firing/notification, autoscaling, SLO/backpressure open |
 | G07 | partial_live_proven | via 16P rollback |
 | G08 | partial_live_proven | via 16P/16O webhook error minimization |
 | G09 | partial_live_proven | via 16P AG test |
 
+## Slice 16AI
+
+`16AI_g06_live_load_evidence` — reconciles the operator-controlled successful re-run @ `2026-07-21T16:50:16Z` of profile `16AG_DRILL_dual_staging_readyz_bounded_load` against the exact two staging `/readyz` allowlist targets, claiming **only** what committed secret-free raw fixtures prove (`slice16ai-raw-drill` + `slice16ai-raw-cost-before/after`; ephemeral `/tmp` and `tmp/` excluded; SHA-256 provenance locked): each **60/60 2xx**; concurrency peak **2**; zero timeout/error/non-2xx; WH p50/p95/p99/max **30/32/44/44ms** wall **954**; Sunset **28/29/40/40ms** wall **879**; response bodies/redirects/headers/auth/body **false**; DNS pinned; active remaining **0**. Sunset RG MTD ActualCost before/after identical **18.2443795483871 USD**. Explicitly does **not** claim pre/post `/readyz` readiness (absent from raw drill) or after-query 429/retry (no durable transcript). Records `final_controlled_drill` status **`live_proven`** for this **conservative readiness profile only**. Does **not** claim soak, alert fire/notification, autoscaling, SLO/error budget, backpressure, production, or raising G06 to `proven`. G06 remains **partial**; score unchanged (proven=0 / partial=9 / absent=0).
+
 ## Slice 16AH
 
-`16AH_g06_live_load_correction` — corrects `pinnedLookup` so Node Happy Eyeballs (`options.all=true`) receives a validated pinned `{address,family}[]` (scalar retained for `all=false`; family filter + exact pins retained; every pin fail-closed through `assertPublicDnsAddresses` — null/malformed → `RADAR_LOAD_DNS_ADDRESS`, invalid/mismatched family → `RADAR_LOAD_DNS_FAMILY`, empty → `RADAR_LOAD_DNS`, family miss → `RADAR_LOAD_DNS_PIN_MISS`; no coercion/TypeError). Offline production-shaped RED proves scalar replies fail before TLS/HTTP via real local TLS + real `https.request`/`net.connect` (ephemeral self-signed cert; OpenSSL required or fail-closed; allowlisted SNI preserved) with safe error-code classes only. Records the controlled post-16AG dual-staging `/readyz` attempt (60/60 error-before-HTTP while direct pre/post `/readyz` stayed ready) as **`attempted_not_proof`** — **not** load/soak success. Does **not** claim live load success, alert fire/notification, autoscaling, SLO/error budget, backpressure, production, or raising G06 to `proven`. G06 remains **partial**; score unchanged (proven=0 / partial=9 / absent=0).
+`16AH_g06_live_load_correction` — corrects `pinnedLookup` so Node Happy Eyeballs (`options.all=true`) receives a validated pinned `{address,family}[]` (scalar retained for `all=false`; family filter + exact pins retained; every pin fail-closed through `assertPublicDnsAddresses`). Offline production-shaped RED proves scalar replies fail before TLS/HTTP. Records the controlled post-16AG dual-staging `/readyz` attempt (60/60 error-before-HTTP while direct pre/post `/readyz` stayed ready) as **`attempted_not_proof`**. Retained under 16AI tip. G06 remains **partial**.
 
 ## Slice 16AG
 
-`16AG_g06_bounded_load_harness` — dependency-free bounded Node load harness hard-locked to `https://staff-staging.lunafrontdesk.com/readyz` and `https://sunset-staging.lunafrontdesk.com/readyz` (GET only; no headers/body/auth; no redirects; TLS required; fail-closed other targets; harness-owned run+request deadlines starting before DNS with DNS raced against remaining budget; abort/destroy + settle paths; unexported fixed HTTPS transport; fail-closed globally-routable DNS pin via IANA special-purpose IPv4/IPv6 tables with explicit globallyReachable flags + exact pinned address; monotonic latency; aggregate counts + p50/p95/p99/max + timeout/error/status classes; no response bodies). Offline fail-closed (http/https/net/DNS sealed) RED/GREEN verifier covers bounds/concurrency/redirects/target-escape/latency/non-2xx plus hanging/trickle/abort/close/deadline-cleanup/DNS-private/IANA-special-purpose-table/hanging-late-DNS/header-body-auth/transport-escape. Future drill `16AG_DRILL_dual_staging_readyz_bounded_load` profile remains **defined_not_executed** as the 16AG source lock; post-hoc live attempt is owned by 16AH as `attempted_not_proof`. Does **not** claim live load/soak success, alert fire/notification, autoscaling, SLO/error budget, backpressure, production, or raising G06 to `proven`. G06 remains **partial**; score unchanged (proven=0 / partial=9 / absent=0).
+`16AG_g06_bounded_load_harness` — dependency-free bounded Node load harness hard-locked to the two exact staging Staff API `/readyz` URLs with offline fail-closed RED/GREEN verifier. Future drill profile remains **`defined_not_executed`** as the 16AG source lock; live success ownership is 16AI. Retained under 16AI tip. G06 remains **partial**.
 
 ## Slice 16AF
 
-`16AF_g06_capacity_alert_live_evidence` — reconciles Azure-readonly dual-staging readback @ `2026-07-21T14:30:07Z` of four capacity-pressure alerts (CPU+Memory per tenant) Enabled Sev2 Average >80 PT5M/PT15M exact app scopes + tenant ops AGs, plus scale truth WH min0/max1/rules null; Sunset min1/max1/rules null; latest=latestReady g02503r. **Closes only** the G06 alert-deployment gap. Retained under 16AH tip. Does **not** claim firing/notification, load/soak, autoscaling, SLO/error budget, backpressure, production, or raising G06 to `proven`. G06 remains **partial**.
+`16AF_g06_capacity_alert_live_evidence` — reconciles Azure-readonly dual-staging readback of four capacity-pressure alerts + scale truth. Retained under 16AI tip. G06 remains **partial**.
 
 ## Slice 16AD
 

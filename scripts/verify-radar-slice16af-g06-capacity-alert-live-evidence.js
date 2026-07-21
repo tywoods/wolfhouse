@@ -247,14 +247,14 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  const tip16ag = (matrix.slice === 'RADAR-16AG' || matrix.slice === 'RADAR-16AH');
+  const tip16ag = (matrix.slice === 'RADAR-16AG' || matrix.slice === 'RADAR-16AH' || matrix.slice === 'RADAR-16AI');
   if (matrix.slice !== locks.SLICE && !tip16ag) errors.push(`slice=${matrix.slice}`);
   if (matrix.branch !== locks.BRANCH
-    && !(tip16ag && (matrix.branch === 'radar/slice-16ag-g06-bounded-load-harness' || matrix.branch === 'radar/slice-16ah-g06-live-load-correction'))) {
+    && !(tip16ag && (matrix.branch === 'radar/slice-16ag-g06-bounded-load-harness' || matrix.branch === 'radar/slice-16ah-g06-live-load-correction' || matrix.branch === 'radar/slice-16ai-g06-live-load-evidence'))) {
     errors.push(`branch=${matrix.branch}`);
   }
   if (matrix.master_basis !== locks.MASTER_BASIS
-    && !(tip16ag && (matrix.master_basis === '7a283b70d38a4906e6279d82a49c0f6dd2a4994e' || matrix.master_basis === '6c24e9456bd42c7fa1b051bb1308aae8f632b293'))) {
+    && !(tip16ag && (matrix.master_basis === '7a283b70d38a4906e6279d82a49c0f6dd2a4994e' || matrix.master_basis === '6c24e9456bd42c7fa1b051bb1308aae8f632b293' || matrix.master_basis === 'd04b633390bdcacfe3a04eed4796bba4184e29f8'))) {
     errors.push('master_basis mismatch');
   }
   if (matrix.live_mutation !== false) errors.push('live_mutation not false');
@@ -329,10 +329,11 @@ function runVerifier() {
   const doc = readText('docs/RADAR-OPERATIONS-GATE-LEDGER.md');
   const findings = readText('fixtures/radar-operations/findings.md');
 
-  ok('C1 HEAD on 16AF branch (tip may advance to 16AG/16AH)',
+  ok('C1 HEAD on 16AF branch (tip may advance to 16AG/16AH/16AI)',
     currentBranch() === locks.BRANCH
     || currentBranch() === 'radar/slice-16ag-g06-bounded-load-harness'
-    || currentBranch() === 'radar/slice-16ah-g06-live-load-correction',
+    || currentBranch() === 'radar/slice-16ah-g06-live-load-correction'
+    || currentBranch() === 'radar/slice-16ai-g06-live-load-evidence',
     currentBranch());
   ok('C2 evidence master_basis locked', evidence.master_basis === locks.MASTER_BASIS);
   ok('C3 slice/outcome/branch locked',
@@ -400,10 +401,11 @@ function runVerifier() {
     topContract.selected_16af
     && topContract.selected_16af.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16af.g06_capacity_alert_deploy === 'live_proven_via_16AF'
-    && (topContract.slice === locks.SLICE || (topContract.slice === 'RADAR-16AG' || topContract.slice === 'RADAR-16AH'))
+    && (topContract.slice === locks.SLICE || (topContract.slice === 'RADAR-16AG' || topContract.slice === 'RADAR-16AH' || topContract.slice === 'RADAR-16AI'))
     && (topContract.branch === locks.BRANCH
       || topContract.branch === 'radar/slice-16ag-g06-bounded-load-harness'
-      || topContract.branch === 'radar/slice-16ah-g06-live-load-correction')
+      || topContract.branch === 'radar/slice-16ah-g06-live-load-correction'
+      || topContract.branch === 'radar/slice-16ai-g06-live-load-evidence')
     && topContract.selected_16af.g06_verdict === 'partial'
     && /live_proven_via_16AF/i.test(String(topContract.capacity_live_deploy || ''))
     && /open/i.test(String(topContract.capacity_alert_fire || ''))
