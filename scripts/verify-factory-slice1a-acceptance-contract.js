@@ -31,6 +31,8 @@ const {
   buildAdversarialTemporarySource,
   plantComputedWrapperImport,
   plantUnresolvedDynamicPath,
+  plantAmbiguousPortalClientsDirJoin,
+  plantUnrelatedFsOutsideReachableGraph,
   normalizeVerifierScriptPath,
   extractVerifierPathsFromScript,
   assertAcornPin,
@@ -601,6 +603,39 @@ red('R6_live_mutation_claim', (() => {
       && (bad.discovery_errors || []).some((e) => (
         /computed_dynamic_require|ambiguous_filesystem_path/.test(e)
       )));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-portal-clients-dir-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantAmbiguousPortalClientsDirJoin(tmp);
+    const bad = discoverAll({ root: tmp });
+    red('R17_reachable_portal_CLIENTS_DIR_join_fail_closed',
+      bad.discovery_ok === false
+      && (bad.discovery_errors || []).some((e) => (
+        /ambiguous_filesystem_path:scripts\/lib\/adversarial-client-wrapper\.js/.test(e)
+      )));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-unrelated-fs-noise-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantUnrelatedFsOutsideReachableGraph(tmp);
+    const okDisc = discoverAll({ root: tmp });
+    red('R18_unrelated_fs_outside_reachable_graph_is_noise',
+      okDisc.discovery_ok === true
+      && !(okDisc.reachable_config_loader_graph || []).includes(
+        'scripts/lib/adversarial-unrelated-fs-noise.js',
+      )
+      && !(okDisc.discovery_errors || []).some((e) => /adversarial-unrelated-fs-noise/.test(e)));
   } finally {
     rimraf(tmp);
   }

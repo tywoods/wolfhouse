@@ -289,6 +289,93 @@ function touchesConfigClients(foldedPath, root) {
   return /(^|\/)config\/clients(\/|$)/.test(n);
 }
 
+/**
+ * Structural (non-fold) classification: does an unfoldable path expression
+ * still name CLIENTS_DIR / config/clients construction?
+ * Used to fail closed on reachable wrappers like
+ * path.join(portal.CLIENTS_DIR, dynamicName) without treating unrelated FS
+ * noise as a coverage failure.
+ */
+function pathExprStructurallyTouchesClients(node, fileAst, depth) {
+  if (!node || (depth || 0) > 24) return false;
+
+  let hit = false;
+  const seenIds = new Set();
+
+  function consider(n, d) {
+    if (!n || hit || d > 24) return;
+    if (n.type === 'Identifier') {
+      if (n.name === 'CLIENTS_DIR') {
+        hit = true;
+        return;
+      }
+      if (seenIds.has(n.name) || !fileAst) return;
+      seenIds.add(n.name);
+      walkAst(fileAst, (decl) => {
+        if (hit) return;
+        if (decl.type === 'VariableDeclarator'
+          && decl.id && decl.id.type === 'Identifier'
+          && decl.id.name === n.name
+          && decl.init) {
+          consider(decl.init, d + 1);
+        }
+        if (decl.type === 'AssignmentExpression'
+          && decl.operator === '='
+          && decl.left.type === 'Identifier'
+          && decl.left.name === n.name) {
+          consider(decl.right, d + 1);
+        }
+      });
+      return;
+    }
+    if (n.type === 'MemberExpression' && !n.computed
+      && n.property && n.property.type === 'Identifier'
+      && n.property.name === 'CLIENTS_DIR') {
+      hit = true;
+      return;
+    }
+    if (n.type === 'Literal' && typeof n.value === 'string') {
+      if (/(^|\/)config\/clients(\/|$)/.test(normalizePosix(n.value))) hit = true;
+      return;
+    }
+    if (n.type === 'TemplateLiteral') {
+      for (const q of n.quasis || []) {
+        const cooked = (q.value && q.value.cooked) || '';
+        if (/(^|\/)config\/clients(\/|$)/.test(normalizePosix(cooked))) hit = true;
+      }
+      for (const e of n.expressions || []) consider(e, d + 1);
+      return;
+    }
+    if (n.type === 'BinaryExpression') {
+      consider(n.left, d + 1);
+      consider(n.right, d + 1);
+      return;
+    }
+    if (n.type === 'CallExpression') {
+      const isJoin = n.callee
+        && n.callee.type === 'MemberExpression'
+        && n.callee.property
+        && n.callee.property.type === 'Identifier'
+        && (n.callee.property.name === 'join' || n.callee.property.name === 'resolve');
+      const cname = calleeName(n.callee);
+      const joinLike = isJoin || cname === 'path.join' || cname === 'path.resolve';
+      if (joinLike) {
+        let sawConfig = false;
+        let sawClients = false;
+        for (const a of n.arguments || []) {
+          if (a && a.type === 'Literal' && a.value === 'config') sawConfig = true;
+          if (a && a.type === 'Literal' && a.value === 'clients') sawClients = true;
+          consider(a, d + 1);
+        }
+        if (sawConfig && sawClients) hit = true;
+      }
+    }
+  }
+
+  consider(node, depth || 0);
+  return hit;
+}
+
 function fsKindFromCallee(cname) {
   if (/readdir/i.test(cname)) return 'fs_readdir';
   if (/exists|access|stat|lstat/i.test(cname)) return 'fs_exists';
@@ -1030,9 +1117,6 @@ function discoverPhysicalConfigSites(root) {
       }
       if (node.__factory1a_ambiguous_fs) {
         const line = node.loc && node.loc.start ? node.loc.start.line : '?';
-        // Pure reverse-importer wrappers (loader_import only) — FS coverage not claimed.
-        if (!hasFsSite && !isSeed) return;
-
         const arg0 = node.arguments && node.arguments[0];
         let envSourced = !!(arg0 && nodeMentionsProcessEnv(arg0));
         if (!envSourced && arg0 && arg0.type === 'Identifier') {
@@ -1084,7 +1168,17 @@ function discoverPhysicalConfigSites(root) {
           );
           return;
         }
-        errors.push(`ambiguous_filesystem_path:${r}:${line}`);
+
+        // Replace the prior `!hasFsSite && !isSeed` silent escape with a structural
+        // fail-closed rule: unresolved CLIENTS_DIR / config/clients path expressions
+        // in the reachable graph always reject, even on non-seed wrappers that have
+        // no other recognized FS site. Unrelated unfoldable FS stays noise.
+        const structuralClients = pathExprStructurallyTouchesClients(arg0, ast, 0);
+        if (structuralClients || isSeed) {
+          errors.push(`ambiguous_filesystem_path:${r}:${line}`);
+          return;
+        }
+        // Unrelated FS noise inside a reachable importer — classified, not a failure.
       }
 
       if (node.type === 'CallExpression' && calleeName(node.callee) === 'require') {
@@ -1308,16 +1402,10 @@ module.exports = { loadSplit };
   // Aliased wrapper via static require of loader.
   write('scripts/lib/adversarial-client-wrapper.js', `'use strict';
 const portal = require('./staff-portal-clients');
-const path = require('path');
-const fs = require('fs');
 function loadViaAlias(slug) {
   return portal.loadBaselineJson(slug);
 }
-function loadDynamic(slug) {
-  const p = path.join(portal.CLIENTS_DIR, \`\${slug}.baseline.json\`);
-  return JSON.parse(fs.readFileSync(p, 'utf8'));
-}
-module.exports = { loadViaAlias, loadDynamic };
+module.exports = { loadViaAlias };
 `);
 
   write('scripts/staff-query-api.js', `'use strict';
@@ -1436,6 +1524,42 @@ module.exports._adversarialPortal = require(adversarialWrapperPath());
 `, 'utf8');
 }
 
+/**
+ * Plant a reachable non-seed wrapper that reads via
+ * path.join(portal.CLIENTS_DIR, dynamicName) — must fail discovery closed.
+ */
+function plantAmbiguousPortalClientsDirJoin(tmpRoot) {
+  const wrapper = path.join(tmpRoot, 'scripts/lib/adversarial-client-wrapper.js');
+  const prev = fs.readFileSync(wrapper, 'utf8');
+  fs.writeFileSync(wrapper, `${prev}
+const path = require('path');
+const fs = require('fs');
+function loadViaPortalClientsDir(dynamicName) {
+  const p = path.join(portal.CLIENTS_DIR, dynamicName);
+  return JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+module.exports.loadViaPortalClientsDir = loadViaPortalClientsDir;
+`, 'utf8');
+}
+
+/**
+ * Plant an unrelated filesystem call outside the reachable config-loader graph.
+ * Must remain noise (discovery_ok stays true when planted alone on a clean tree).
+ */
+function plantUnrelatedFsOutsideReachableGraph(tmpRoot) {
+  const noise = path.join(tmpRoot, 'scripts/lib/adversarial-unrelated-fs-noise.js');
+  fs.mkdirSync(path.dirname(noise), { recursive: true });
+  fs.writeFileSync(noise, `'use strict';
+const fs = require('fs');
+const path = require('path');
+// Not imported by any config-loader / direct site — outside reachable graph.
+function readTempNoise(name) {
+  return fs.readFileSync(path.join('/tmp', name), 'utf8');
+}
+module.exports = { readTempNoise };
+`, 'utf8');
+}
+
 module.exports = {
   ROOT: DEFAULT_ROOT,
   INVENTORY_CATEGORIES,
@@ -1457,7 +1581,10 @@ module.exports = {
   buildAdversarialTemporarySource,
   plantComputedWrapperImport,
   plantUnresolvedDynamicPath,
+  plantAmbiguousPortalClientsDirJoin,
+  plantUnrelatedFsOutsideReachableGraph,
   normalizeVerifierScriptPath,
   extractVerifierPathsFromScript,
   assertAcornPin,
+  pathExprStructurallyTouchesClients,
 };

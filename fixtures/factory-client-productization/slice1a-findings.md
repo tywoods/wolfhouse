@@ -43,7 +43,7 @@ Categories covered bidirectionally (discovery ↔ fixture):
 
 Independent `site_policy.physical_site_keys` must match discovered keys bidirectionally.
 
-Adversarial temporary-source REDs prove discovery catches split-string `path.resolve`, aliased wrappers, `./` verifier registration, stale/missing site policy, coordinated fixture edits, and fail-closed computed/dynamic import or unresolved dynamic path cases. Required consumers include `scripts/staff-query-api.js` and `scripts/check-i18n-guest-copy.js`.
+Adversarial temporary-source REDs prove discovery catches split-string `path.resolve`, aliased wrappers, `./` verifier registration, stale/missing site policy, coordinated fixture edits, fail-closed computed/dynamic import or unresolved dynamic path cases, and reachable non-seed `path.join(portal.CLIENTS_DIR, dynamicName)` ambiguous FS (with unrelated out-of-graph FS remaining noise). Required consumers include `scripts/staff-query-api.js` and `scripts/check-i18n-guest-copy.js`.
 
 ## Nine gates (frozen; proof deferred per `proof_stage`)
 
