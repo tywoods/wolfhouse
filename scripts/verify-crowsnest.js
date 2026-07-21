@@ -160,10 +160,13 @@ ok('healthz JSON does not embed auth password', !/auth_password|CROWSNEST_AUTH_P
 ok('page renderer does not embed auth credentials', !/CROWSNEST_AUTH_PASSWORD|DEFAULT_PASSWORD/.test(pageSrc));
 ok('product doc mentions login portal', /login portal|sign in|private portal/i.test(productDoc));
 ok('product doc mentions legacy Basic Auth compatibility', /Basic Auth|basic auth|legacy Basic/i.test(productDoc));
-ok('product doc distinguishes live baseline from login-portal release', /VERIFIED CURRENT LIVE BASELINE/i.test(productDoc) && /EXPECTED AFTER THIS LOGIN-PORTAL RELEASE/i.test(productDoc));
-ok('product doc keeps live health stage as skeleton', /stage:\s*skeleton/i.test(productDoc));
+ok('product doc labels verified current live baseline', /VERIFIED CURRENT LIVE BASELINE/i.test(productDoc));
+ok('product doc keeps live health stage as portal', /stage:\s*portal/i.test(productDoc));
+ok('product doc records login portal as live', /Login portal \(live\)|Browser access \(live\)/i.test(productDoc) && /redirect.*\/login/i.test(productDoc));
+ok('product doc keeps pre-portal shell as history only', /History \(pre-login-portal/i.test(productDoc) && /stage:\s*skeleton/i.test(productDoc));
 ok('deploy plan mentions CROWSNEST_AUTH_USERNAME', /CROWSNEST_AUTH_USERNAME/.test(deployDoc));
 ok('deploy plan mentions CROWSNEST_AUTH_PASSWORD', /CROWSNEST_AUTH_PASSWORD/.test(deployDoc));
+ok('deploy plan records Azure auth secret refs', /cn-auth-user/.test(deployDoc) && /cn-auth-pass/.test(deployDoc));
 
 const writeRouteRe = /\.(post|put|patch|delete)\(|\/(create|update|delete|save|write|submit)\b/i;
 ok('no business/data write routes in crowsnest-api', !writeRouteRe.test(apiSrc));
@@ -181,9 +184,9 @@ ok('product doc mentions skeleton / no live writes', /skeleton|no live writes|no
 ok('plan doc mentions crowsnest.lunafrontdesk.com', /crowsnest\.lunafrontdesk\.com/i.test(planDoc));
 ok('location doc records live standalone Azure deployment', /live|deployed/i.test(planDoc) && /crowsnest-internal/.test(planDoc));
 ok('location doc labels verified current live baseline', /VERIFIED CURRENT LIVE BASELINE/i.test(planDoc));
-ok('location doc keeps verified live stage skeleton', /stage:\s*skeleton/i.test(planDoc) && /Verified live/i.test(planDoc));
-ok('location doc does not claim login portal is currently live', !/Live safety\s*\|\s*Login portal enabled/i.test(planDoc));
-ok('location doc labels expected login-portal release', /EXPECTED AFTER THIS LOGIN-PORTAL RELEASE/i.test(planDoc) && /stage:\s*portal/i.test(planDoc) && /\/login/.test(planDoc));
+ok('location doc keeps verified live stage portal', /stage:\s*portal/i.test(planDoc) && /Verified live/i.test(planDoc));
+ok('location doc records login portal as live safety', /Live safety\s*\|\s*Branded login portal enabled/i.test(planDoc) && /\/login/.test(planDoc));
+ok('location doc keeps pre-portal shell as history only', /History \(pre-login-portal/i.test(planDoc) && /stage:\s*skeleton/i.test(planDoc));
 ok('docs/CROWSNEST-DEPLOY-PLAN.md exists', fs.existsSync(DOC_DEPLOY));
 ok('deploy plan mentions separate Container App', /separate.*Container App/i.test(deployDoc));
 ok('deploy plan mentions crowsnest-internal', /crowsnest-internal/.test(deployDoc));
@@ -192,10 +195,12 @@ ok('deploy runbook records completed domain separation from wh-staging-staff-api
 ok('deploy plan staff-staging remains untouched', /staff-staging.*untouched|remains.*wh-staging-staff-api|Must not change/i.test(deployDoc));
 ok('deploy plan has rollback plan', /rollback/i.test(deployDoc));
 ok('deploy runbook identifies the live baseline', /VERIFIED CURRENT LIVE BASELINE|live baseline|currently deployed|status:\s*live/i.test(deployDoc));
-ok('deploy plan verified live auth is Basic Auth challenge', /Basic Auth challenge/i.test(deployDoc) && /stage:\s*skeleton/i.test(deployDoc));
-ok('deploy plan does not claim live /login redirect yet', !/Verified on[\s\S]*redirected[\s\S]*\/login/i.test(deployDoc));
-ok('deploy plan labels expected login-portal release', /EXPECTED AFTER THIS LOGIN-PORTAL RELEASE/i.test(deployDoc));
-ok('deploy plan expected release includes /login redirect and stage portal', /redirect(?:s|ed)? to `?\/login`?/i.test(deployDoc) && /stage:\s*portal/i.test(deployDoc) && /legacy Basic/i.test(deployDoc));
+ok('deploy plan verified live auth redirects to /login', /Verified on[\s\S]*redirected[\s\S]*\/login/i.test(deployDoc) && /stage:\s*portal/i.test(deployDoc) && /legacy Basic/i.test(deployDoc));
+ok('deploy plan keeps pre-portal Basic Auth challenge as history', /History \(pre-login-portal/i.test(deployDoc) && /Basic Auth challenge/i.test(deployDoc) && /stage:\s*skeleton/i.test(deployDoc));
+ok('deploy plan records live revision and image SHA', /crowsnest-internal--0000007/.test(deployDoc) && /d8b52b452aa0535d242ac5fcf31077f62068ce4e/.test(deployDoc));
+ok('deploy plan records Staff API unchanged at verified revision', /wh-staging-staff-api--0000520/.test(deployDoc) && /458ed255e8a06b7b0557718031e57f4d7064fa62/.test(deployDoc));
+ok('deploy plan keeps credential distribution out of scope', /credential distribution is out of scope/i.test(deployDoc));
+ok('deploy plan does not assert credentials delivered to humans', !/humans (?:have )?(?:received|been issued) (?:live )?credentials|credentials were (?:sent|issued|delivered) to/i.test(deployDoc));
 
 const dockerSrc = read(DOCKERFILE_PATH) || '';
 ok('Dockerfile.crowsnest exists', fs.existsSync(DOCKERFILE_PATH));
