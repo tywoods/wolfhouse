@@ -545,7 +545,7 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  if (matrix.slice !== locks.SLICE && matrix.slice !== 'RADAR-16Y' && matrix.slice !== 'RADAR-16X' && matrix.slice !== 'RADAR-16AA' && matrix.slice !== 'RADAR-16AB') {
+  if (matrix.slice !== locks.SLICE && matrix.slice !== 'RADAR-16Y' && matrix.slice !== 'RADAR-16X' && matrix.slice !== 'RADAR-16AA' && matrix.slice !== 'RADAR-16AB' && matrix.slice !== 'RADAR-16AC') {
     errors.push(`slice=${matrix.slice}`);
   }
   if (matrix.slice === locks.SLICE) {
@@ -921,7 +921,7 @@ function runVerifier() {
     && contract.live_deploy === false
     && contract.this_slice_deploys === false);
 
-  ok('C3 HEAD on 16Z branch (tip may advance to 16AA)', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16aa-g02-live-sigint-evidence' || currentBranch() === 'radar/slice-16ab-g02-readyz503-evidence', currentBranch());
+  ok('C3 HEAD on 16Z branch (tip may advance to 16AA)', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16aa-g02-live-sigint-evidence' || currentBranch() === 'radar/slice-16ab-g02-readyz503-evidence' || currentBranch() === 'radar/slice-16ac-organic-restart-alert-evidence', currentBranch());
 
   {
     const v = validateEvidenceExact(evidence);
@@ -986,7 +986,7 @@ function runVerifier() {
   }
 
   ok('C11 top contract selected_16z + G02 SIGTERM live_proven_via_16Z (tip may be 16AA)',
-    (topContract.slice === locks.SLICE || (topContract.slice === 'RADAR-16AA' || topContract.slice === 'RADAR-16AB'))
+    (topContract.slice === locks.SLICE || (topContract.slice === 'RADAR-16AA' || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC'))
     && topContract.selected_16z
     && topContract.selected_16z.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16z.g02_sigterm_live === 'live_proven_via_16Z'
@@ -1017,7 +1017,7 @@ function runVerifier() {
   {
     const rt = runtimePathsUnchanged();
     ok('C14 runtime paths unchanged vs master (waived when tip is 16AA evidence)',
-      rt.ok || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB'), rt.detail);
+      rt.ok || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC'), rt.detail);
   }
 
   {

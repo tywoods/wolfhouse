@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = 'c43b4a14d14d5618d99e0e969b4f39784a526722';
+const MASTER_BASIS = '72d8faf74df27a714482ebdefb8f88870d080306';
+const BRANCH_16AC = 'radar/slice-16ac-organic-restart-alert-evidence';
 const BRANCH_16AB = 'radar/slice-16ab-g02-readyz503-evidence';
 const BRANCH_16AA = 'radar/slice-16aa-g02-live-sigint-evidence';
 const BRANCH_16Z = 'radar/slice-16z-g02-live-sigterm-evidence';
@@ -245,9 +246,16 @@ ok('F17 contract expected counts match',
 
 const g03 = matrix.gates.find((g) => g.id === 'G03_actionable_tenant_aware_alerts');
 const g09 = matrix.gates.find((g) => g.id === 'G09_cost_controls');
-ok('F18 G03 partial critical (partial_live_proven via 16P AG test API)',
+ok('F18 G03 partial critical (partial_live_proven via 16AC organic restart + 16P AG test API)',
   g03 && g03.verdict === 'partial' && g03.severity === 'critical'
-  && g03.progress_class === 'partial_live_proven');
+  && g03.progress_class === 'partial_live_proven'
+  && /16AC|organic.?restart|restart.?count/i.test(String(g03.rationale || ''))
+  && Array.isArray(g03.gaps)
+  && g03.gaps.some((g) => /human.?inbox|inbox.?receipt/i.test(String(g)))
+  && !g03.gaps.some((g) => (
+    /organic.?metric.?alert.?firing.?not.?claimed/i.test(String(g))
+    && !/inbox|human/i.test(String(g))
+  )));
 ok('F19 G09 partial high (partial_live_proven AG test API; anomaly absent)',
   g09 && g09.verdict === 'partial' && g09.severity === 'high'
   && g09.progress_class === 'partial_live_proven'
@@ -396,23 +404,28 @@ ok('F44 contract gates pin range diff --check',
   && contract.gates.some((g) => g === `git diff --check ${MASTER_BASIS}..HEAD`));
 
 const g02 = matrix.gates.find((g) => g.id === 'G02_readiness_dependencies');
-ok('F45 G02 partial_live_proven via 16AB readyz=503 + 16AA SIGINT + 16Z SIGTERM + 16X traffic-shed + 16Y source (zero-downtime/organic/production open)',
+ok('F45 G02 partial_live_proven via 16AC organic restart + 16AB readyz=503 + 16AA SIGINT + 16Z SIGTERM + 16X traffic-shed + 16Y source (zero-downtime/production open)',
   g02 && g02.verdict === 'partial'
   && g02.progress_class === 'partial_live_proven'
-  && /readyz|health\/ready|health.ready|traffic.?shed|g02fail|2dcda08|16X|16Z|16AA|16AB|SIGTERM|SIGINT/i.test(g02.rationale)
+  && /readyz|health\/ready|health.ready|traffic.?shed|g02fail|2dcda08|16X|16Z|16AA|16AB|16AC|SIGTERM|SIGINT|organic.?restart|restart.?count/i.test(g02.rationale)
   && (/16I/.test(g02.rationale) || /16P/.test(g02.rationale) || /16W/.test(g02.rationale))
   && /16X|g02fail|traffic.?shed/i.test(g02.rationale)
   && /16Y|shutdown.?completion/i.test(g02.rationale)
   && /16Z|sigterm|LAW/i.test(g02.rationale)
   && /16AA|sigint/i.test(g02.rationale)
   && /16AB|readyz.?503|g02503/i.test(g02.rationale)
+  && /16AC|organic.?restart|restart.?count/i.test(g02.rationale)
   && Array.isArray(g02.gaps)
   && !g02.gaps.some((g) => /closeReadinessPool not yet wired/i.test(String(g)))
   && !g02.gaps.some((g) => /dependency.failure.*not executed|traffic.shed.*not executed/i.test(String(g)))
   && !g02.gaps.some((g) => /SIGTERM.*not proven/i.test(String(g)) && !/SIGINT/i.test(String(g)))
   && !g02.gaps.some((g) => /SIGINT\s+.*not proven|SIGINT.*live.*not proven/i.test(String(g)))
   && !g02.gaps.some((g) => /serving.?revision.?\/?readyz.?=?503.*not exercised|readyz.?503 body path not exercised/i.test(String(g)))
-  && g02.gaps.some((g) => /zero.?downtime|organic|production/i.test(String(g))));
+  && !g02.gaps.some((g) => (
+    /organic.?metric.?alert.?firing.?not.?claimed|organic.?restart.?alert/i.test(String(g))
+    && /not claimed/i.test(String(g))
+  ))
+  && g02.gaps.some((g) => /zero.?downtime|production/i.test(String(g))));
 ok('F46 readiness lib present', pathExists('scripts/lib/staff-api-readiness.js'));
 ok('F47 16I verifier script present',
   pathExists('scripts/verify-radar-slice16i-staff-api-readiness.js'));
@@ -428,14 +441,15 @@ const slice16yContract = readJson(path.join(FIXTURE_DIR, 'slice16y-expected-cont
 const slice16zContract = readJson(path.join(FIXTURE_DIR, 'slice16z-expected-contract.json'));
 const slice16aaContract = readJson(path.join(FIXTURE_DIR, 'slice16aa-expected-contract.json'));
 const slice16abContract = readJson(path.join(FIXTURE_DIR, 'slice16ab-expected-contract.json'));
+const slice16acContract = readJson(path.join(FIXTURE_DIR, 'slice16ac-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16AB contract + HEAD',
-  matrix.branch === BRANCH_16AB
-  && contract.branch === BRANCH_16AB
-  && slice16abContract.branch === BRANCH_16AB
-  && headBranch === BRANCH_16AB,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16ab=${slice16abContract.branch} head=${headBranch}`);
-ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA contracts retain their own branch pins',
+ok('F48 gate-matrix branch pin equals 16AC contract + HEAD',
+  matrix.branch === BRANCH_16AC
+  && contract.branch === BRANCH_16AC
+  && slice16acContract.branch === BRANCH_16AC
+  && headBranch === BRANCH_16AC,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16ac=${slice16acContract.branch} head=${headBranch}`);
+ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
   && slice16rContract.branch === BRANCH_16R
@@ -445,7 +459,8 @@ ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA contracts retain their 
   && slice16xContract.branch === BRANCH_16X
   && slice16yContract.branch === BRANCH_16Y
   && slice16zContract.branch === BRANCH_16Z
-  && slice16aaContract.branch === BRANCH_16AA);
+  && slice16aaContract.branch === BRANCH_16AA
+  && slice16abContract.branch === BRANCH_16AB);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -911,6 +926,43 @@ ok('F160 doc mentions 16AB + readyz=503 + unavailable_in_command_transcript; G02
   && /unavailable_in_command_transcript/i.test(doc)
   && /cannot recreate|not Azure-reconstructible/i.test(doc)
   && /zero.?downtime/i.test(doc));
+
+const sel16ac = matrix.slice_16ac_selection;
+ok('F161 exactly one 16AC selection',
+  sel16ac && sel16ac.selected === true
+  && sel16ac.outcome_id === '16AC_organic_restart_alert_evidence'
+  && sel16ac.progress_class === 'partial_live_proven_evidence_only'
+  && Array.isArray(sel16ac.gate_ids)
+  && sel16ac.gate_ids.includes('G02_readiness_dependencies')
+  && sel16ac.gate_ids.includes('G03_actionable_tenant_aware_alerts'));
+ok('F162 contract selected_16ac matches',
+  contract.selected_16ac
+  && contract.selected_16ac.outcome_id === '16AC_organic_restart_alert_evidence'
+  && contract.selected_16ac.g02_organic_restart_alert === 'live_proven_via_16AC'
+  && contract.selected_16ac.g03_organic_restart_alert === 'live_proven_via_16AC'
+  && contract.selected_16ac.g02_verdict === 'partial'
+  && contract.selected_16ac.g03_verdict === 'partial'
+  && contract.selected_16ac.g03_human_inbox_receipt === 'open');
+ok('F163 16AC fixtures + verifier present',
+  pathExists('fixtures/radar-operations/slice16ac-expected-contract.json')
+  && pathExists('fixtures/radar-operations/slice16ac-organic-restart-alert-evidence.json')
+  && pathExists('scripts/lib/radar-slice16ac-organic-restart-alert-evidence.js')
+  && pathExists('scripts/verify-radar-slice16ac-organic-restart-alert-evidence.js'));
+ok('F164 16AC final controlled drill live_proven',
+  sel16ac.final_controlled_drill
+  && /live_proven_via_16AC/i.test(String(sel16ac.final_controlled_drill.status)));
+ok('F165 16AC does not claim inbox/unique-causality/5xx/zero-downtime/production/full gates',
+  /inbox|unique_causality|5xx|zero_downtime|production|full_g02|full_g03/i.test(
+    String(sel16ac.does_not_implement || ''),
+  ));
+ok('F166 doc mentions 16AC + organic restart + inbox open + G02/G03 partial',
+  /16AC|organic.?restart/i.test(doc)
+  && /G02.*partial|partial.*G02/i.test(doc)
+  && /G03.*partial|partial.*G03/i.test(doc)
+  && /inbox/i.test(doc)
+  && /isSuppressed|unsuppressed/i.test(doc)
+  && !/\bG02\s+proven\b/i.test(doc)
+  && !/\bG03\s+proven\b/i.test(doc));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

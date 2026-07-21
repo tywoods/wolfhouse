@@ -530,15 +530,17 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  const tip16ab = matrix.slice === 'RADAR-16AB';
-  if (matrix.slice !== locks.SLICE && !tip16ab) {
+  const tip16ab = matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC';
+  const tip16ac = matrix.slice === 'RADAR-16AC';
+  if (matrix.slice !== locks.SLICE && !tip16ab && !tip16ac) {
     errors.push(`slice=${matrix.slice}`);
   }
-  if (matrix.branch !== locks.BRANCH && matrix.branch !== 'radar/slice-16ab-g02-readyz503-evidence') {
+  if (matrix.branch !== locks.BRANCH && matrix.branch !== 'radar/slice-16ab-g02-readyz503-evidence' && matrix.branch !== 'radar/slice-16ac-organic-restart-alert-evidence') {
     errors.push(`branch=${matrix.branch}`);
   }
   if (matrix.master_basis !== locks.MASTER_BASIS
-    && matrix.master_basis !== 'c43b4a14d14d5618d99e0e969b4f39784a526722') {
+    && matrix.master_basis !== 'c43b4a14d14d5618d99e0e969b4f39784a526722'
+    && matrix.master_basis !== '72d8faf74df27a714482ebdefb8f88870d080306') {
     errors.push('master_basis mismatch');
   }
   if (matrix.live_mutation !== false) errors.push('live_mutation not false');
@@ -556,7 +558,7 @@ function validateGateMatrix(matrix) {
       errors.push('G02 rationale missing 16AA/SIGINT/LAW facts');
     }
     // Tip 16AB may summarize prior SIGINT without repeating exit-137 ownership text.
-    if (!tip16ab) {
+    if (!tip16ab && !tip16ac) {
       if (!/transport\/process-termination disconnect/i.test(String(g02.rationale || ''))) {
         errors.push('G02 rationale missing exit137 transport/process-termination disconnect semantics');
       }
@@ -967,9 +969,10 @@ function runVerifier() {
     && contract.live_deploy === false
     && contract.this_slice_deploys === false);
 
-  ok('C3 HEAD on 16AA branch (tip may advance to 16AB)',
+  ok('C3 HEAD on 16AA branch (tip may advance to 16AB/16AC)',
     currentBranch() === locks.BRANCH
-    || currentBranch() === 'radar/slice-16ab-g02-readyz503-evidence',
+    || currentBranch() === 'radar/slice-16ab-g02-readyz503-evidence'
+    || currentBranch() === 'radar/slice-16ac-organic-restart-alert-evidence',
     currentBranch());
 
   {
@@ -1018,8 +1021,8 @@ function runVerifier() {
     ok('C10 matrix validation (counts + G02 partial_live_proven)', mv.ok, mv.errors.join(' | '));
   }
 
-  ok('C11 top contract selected_16aa + G02 SIGINT live_proven_via_16AA (tip may be 16AB)',
-    (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AB')
+  ok('C11 top contract selected_16aa + G02 SIGINT live_proven_via_16AA (tip may be 16AB/16AC)',
+    (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC')
     && topContract.selected_16aa
     && topContract.selected_16aa.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16aa.g02_sigint_live === 'live_proven_via_16AA'

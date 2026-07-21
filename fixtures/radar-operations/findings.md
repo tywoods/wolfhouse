@@ -1,8 +1,8 @@
-# RADAR findings (16A freeze + 16B–16Z partials + 16AA SIGINT + 16AB serving /readyz=503 evidence)
+# RADAR findings (16A freeze + 16B–16Z partials + 16AA SIGINT + 16AB serving /readyz=503 + 16AC organic restart alerts)
 
-**Master basis (16AB):** `c43b4a14d14d5618d99e0e969b4f39784a526722`
+**Master basis (16AC):** `72d8faf74df27a714482ebdefb8f88870d080306`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
-**16AB progress class:** `partial_live_proven_evidence_only` (serving `/readyz=503` body path; G02 remains partial — zero-downtime / organic alerts / production open).
+**16AC progress class:** `partial_live_proven_evidence_only` (organic RestartCount alerts fired/resolved/unsuppressed both staging apps; G02/G03 remain partial — inbox / zero-downtime / production open).
 
 ## Verdict rollup
 
@@ -13,29 +13,35 @@
 | absent | 0 |
 | **total** | **9** |
 
-## Critical gaps (still open — explicitly not claimed by 16AB)
+## Critical gaps (still open — explicitly not claimed by 16AC)
 
 1. **G01-A live Meta → Hermes → Staff correlated read path** — design frozen (16U); live open.
 2. **Central capability boundary (16V)** — prerequisite before dry-run.
 3. **Hard-disabled `G01_CORRELATION_DRY_RUN`** — not implementable yet.
 4. Zero downtime during restart / concurrent sampled continuity — **not claimed**.
-5. Human inbox receipt / organic metric alert firing.
-6. Production — forbidden.
-7. Raising any gate verdict to `proven`.
+5. Human inbox receipt — **not claimed** (organic restart fire closed via 16AC).
+6. Unique causality beyond platform alert fields — **not claimed**.
+7. Requests 5xx alert firing — **not claimed**.
+8. Production — forbidden.
+9. Raising any gate verdict to `proven`.
 
-## Gate progress after 16AB (truthful)
+## Gate progress after 16AC (truthful)
 
 | Gate | progress_class | Notes |
 |------|----------------|-------|
 | G01 | partial_live_proven + 16U design freeze | 16S LAW retained; G01-A live open |
-| G02 | partial_live_proven | **16AB** serving `/readyz=503` body path; **16AA** SIGINT; **16Z** SIGTERM; **16X** traffic-shed; **16Y** completion source; zero-downtime / organic alerts / production open |
-| G03 | partial_live_proven | via 16P AG test |
+| G02 | partial_live_proven | **16AC** organic restart alerts; **16AB** `/readyz=503`; **16AA** SIGINT; **16Z** SIGTERM; **16X** traffic-shed; zero-downtime / production open |
+| G03 | partial_live_proven | **16AC** organic restart fire/resolve + **16P** AG test; human inbox open |
 | G04 | partial | backlog open |
 | G05 | source_partial | 16M event-id claim |
 | G06 | source_partial | 16L capacity-pressure |
 | G07 | partial_live_proven | via 16P rollback |
 | G08 | partial_live_proven | via 16P/16O webhook error minimization |
 | G09 | partial_live_proven | via 16P AG test |
+
+## Slice 16AC
+
+`16AC_organic_restart_alert_evidence` — reconciles independently discovered organic Azure Monitor restart alerts temporally associated with completed 16AA SIGINT drills. WH `wolfhouse-staff-api-restart-count` / `wh-staging-staff-api` Metric Sev2 Platform Resolved start `2026-07-21T12:11:40.2497189Z` resolved `12:17:59.4591399Z` `isSuppressed=false`; Sunset `sunset-staff-api-restart-count` / `luna-sunset-staging-staff-api` start `12:12:51.2774974Z` resolved `12:19:32.3682899Z` unsuppressed. Rules enabled `RestartCount` Total GreaterThan 0 PT1M/PT5M scoped to exact apps + ops-budget AGs; AGs enabled receiver `ops-email` status Enabled (address not recorded). Chronology follows 16AA LAW SIGINT WH `12:08:28.6734879Z` / Sunset `12:09:25.9915987Z` as cautious temporal association only. Costs locked WH `69.3920793568176` / Sunset `18.1452292043011` unchanged; no resources created. **Does not prove** inbox receipt, unique causality, 5xx fire, production, zero downtime, or raising G02/G03 to `proven`. G02 organic restart gap closed but G02 partial; G03 organic firing closed but inbox open and G03 partial.
 
 ## Slice 16AB
 
