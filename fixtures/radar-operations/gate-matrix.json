@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16X",
-  "title": "RADAR operations gate ledger (16X G02 lifecycle deploy + traffic-shed drill evidence; G02 partial — SIGTERM live open)",
-  "master_basis": "2dcda08008fe951565560cefafe37f1a78b0791a",
-  "branch": "radar/slice-16x-g02-live-evidence",
-  "audit_only": true,
+  "slice": "RADAR-16Y",
+  "title": "RADAR operations gate ledger (16Y readiness-shutdown completion log source; G02 partial — SIGTERM live open)",
+  "master_basis": "798a5f26e9aa0376e2993b7d590fc818dfa171f7",
+  "branch": "radar/slice-16y-shutdown-completion-log",
+  "audit_only": false,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
   "verdicts_allowed": [
@@ -144,7 +144,7 @@
       "name": "Readiness / dependencies",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P healthy-path live @ 594247f retained. 16W wires closeReadinessPool into SIGTERM/SIGINT shutdown (source). 16X records dual-staging exact-SHA 2dcda08 lifecycle deploy with provenance split: (A) operator-transcript g02fail Activating ≥90s @ 5s never latestReady + prior public /healthz=200 /readyz=200 continuity (not Azure-reconstructible); (B) independently reverified digests/revisions/secretRef/probes/traffic/public-current (WH sha256:53682837… base 0000518; Sunset sha256:3c702217… base 0000278; g02restore Healthy/latestReady/100%). Partial/live-proven for deploy + Activating traffic-shed — does not claim SIGTERM live lifecycle, serving-revision /readyz=503, organic alerts, production, or full G02 proven.",
+      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P healthy-path live @ 594247f retained. 16W wires closeReadinessPool into SIGTERM/SIGINT shutdown (source). 16X records dual-staging exact-SHA 2dcda08 lifecycle deploy with provenance split: (A) operator-transcript g02fail Activating ≥90s @ 5s never latestReady + prior public /healthz=200 /readyz=200 continuity (not Azure-reconstructible); (B) independently reverified digests/revisions/secretRef/probes/traffic/public-current (WH sha256:53682837… base 0000518; Sunset sha256:3c702217… base 0000278; g02restore Healthy/latestReady/100%). 16Y adds one bounded non-sensitive staff_api_readiness_shutdown_completion JSON record per readiness shutdown (source observability enabling truthful live SIGTERM proof after deploy/drill). Partial/live-proven for deploy + Activating traffic-shed; source-partial for shutdown completion log — does not claim SIGTERM live lifecycle, serving-revision /readyz=503, organic alerts, production, or full G02 proven.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-readiness.js",
@@ -163,9 +163,21 @@
           "symbols": [
             "attachStaffApiReadinessLifecycle",
             "runStaffApiReadinessShutdown",
-            "closeReadinessPool"
+            "closeReadinessPool",
+            "buildShutdownCompletionRecord"
           ],
-          "note": "16W: SIGTERM/SIGINT idempotent shutdown closes readiness pool before server.close; CLI main only"
+          "note": "16W: SIGTERM/SIGINT idempotent shutdown closes readiness pool before server.close; 16Y: emits one completion record after pool/server results before detach; CLI main only"
+        },
+        {
+          "path": "scripts/lib/staff-api-readiness-shutdown-completion-log.js",
+          "lines": "1-120",
+          "symbols": [
+            "buildShutdownCompletionRecord",
+            "emitStaffApiReadinessShutdownCompleted",
+            "defaultShutdownCompletionLogger",
+            "assertSafeShutdownCompletionRecord"
+          ],
+          "note": "16Y: bounded non-sensitive shutdown completion record; one stdout JSON line default; no PID/secrets/URLs/errors/timing"
         },
         {
           "path": "scripts/staff-query-api.js",
@@ -224,7 +236,7 @@
         }
       ],
       "gaps": [
-        "SIGTERM/SIGINT closeReadinessPool live lifecycle behavior on deployed revision not proven",
+        "SIGTERM/SIGINT closeReadinessPool live lifecycle behavior on deployed revision not proven (16Y completion log enables truthful proof after deploy/drill)",
         "Serving-revision /readyz=503 body path not exercised (failed revision never became ready to serve)",
         "Organic metric alert firing not claimed",
         "Production scope forbidden"
@@ -1416,6 +1428,53 @@
       "id": "16I_DRILL_readiness_failure_traffic_shed",
       "status": "live_proven_via_16X_activating_traffic_shed",
       "pass_rule": "Class-A transcript Activating shed + class-B Azure reverify; G02 partial; no overclaims; historical samples not Azure-derived"
+    }
+  },
+  "slice_16y_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16Y_readiness_shutdown_completion_log",
+    "gate_id": "G02_readiness_dependencies",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "readyz_sql_change_readyz_body_change_probes_deploy_secrets_db_production_sigterm_live_lifecycle_drill_full_g02",
+    "title": "Bounded Staff API readiness-shutdown completion record — source observability only",
+    "why_smallest": "G02 still lacks truthful live SIGTERM lifecycle proof; narrowest ownership is one bounded completion JSON record per readiness shutdown so a future drill can prove live behavior without widening readiness/probes/SQL.",
+    "builds_on": [
+      "16W_readiness_shutdown_lifecycle",
+      "16X_g02_lifecycle_deploy_traffic_shed_live_evidence"
+    ],
+    "supersedes": [],
+    "owner_files": [
+      "scripts/lib/staff-api-readiness-shutdown-completion-log.js",
+      "scripts/lib/staff-api-readiness-lifecycle.js",
+      "scripts/lib/radar-slice16y-shutdown-completion-log.js",
+      "scripts/verify-radar-slice16y-shutdown-completion-log.js",
+      "fixtures/radar-operations/slice16y-expected-contract.json"
+    ],
+    "out_of_scope_for_16y": [
+      "Readiness SQL / /readyz response contract changes",
+      "ACA probe IaC changes",
+      "Live deploy / restart",
+      "Production RGs",
+      "closePgPool composition",
+      "Live SIGTERM lifecycle drill evidence",
+      "Raising G02 verdict to proven"
+    ],
+    "acceptance_criteria": [
+      "Every readiness shutdown emits exactly one allowlisted completion record",
+      "Record fields only: event, original_signal, pool_close_result, server_close_result, failure_classes, completion=true",
+      "Emission after bounded pool/server results and before detach/native re-signal",
+      "Default logger emits exactly one JSON line to stdout; injected logger supported and non-throwing",
+      "Same/repeated/mixed signals emit exactly one record; logger/terminate throw cannot duplicate or block cleanup",
+      "Real-child SIGTERM/SIGINT success and pool/server failure classifications proven offline",
+      "Strict secret/token/PID/URL/error/timing rejection",
+      "16W semantics, readyz SQL/body/probes, shared tenant runtime, and G02 partial preserved",
+      "Live SIGTERM evidence remains open until deployment/drill"
+    ],
+    "final_controlled_drill": {
+      "id": "16Y_DRILL_live_sigterm_completion_log_evidence",
+      "status": "open",
+      "pass_rule": "After deploy of 16Y-wired image, live SIGTERM/SIGINT produces exactly one searchable completion record with allowlisted fields only — not claimed by this source slice"
     }
   }
 }

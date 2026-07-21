@@ -381,6 +381,7 @@ const allowedBranches = new Set([
   'radar/slice-16u-correlation-design-freeze',
   'radar/slice-16w-readiness-shutdown-lifecycle',
   'radar/slice-16x-g02-live-evidence',
+      'radar/slice-16y-shutdown-completion-log',
 ]);
 ok('C4 branch pin (16L or successor tip)', allowedBranches.has(headBranch), headBranch);
 

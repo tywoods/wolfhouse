@@ -10,11 +10,18 @@
  * - Handlers guard on shared shutdown promise; repeated/mixed signals join without changing shutdownSignal.
  * - After cleanup: remove owned listeners, re-signal via injectable terminate(signal) — no zero exit hack.
  * - Pool/server phases use explicit unref'd timers; server close always attempted after pool phase.
- * - Logs only bounded non-sensitive failure_classes when shutdown steps fail.
+ * - Always emits one bounded 16Y completion record (event/original_signal/
+ *   pool_close_result/server_close_result/failure_classes/completion) after
+ *   pool+server results and before detach/native re-signal.
+ * - Default logger: one JSON line to stdout; injected log remains supported.
  * - Does NOT touch application pg pool (forbidden composition with pg-connect close).
  */
 
 const { closeReadinessPool } = require('./staff-api-readiness');
+const {
+  buildShutdownCompletionRecord,
+  defaultShutdownCompletionLogger,
+} = require('./staff-api-readiness-shutdown-completion-log');
 
 const DEFAULT_POOL_CLOSE_TIMEOUT_MS = 10_000;
 const DEFAULT_SERVER_CLOSE_TIMEOUT_MS = 30_000;
@@ -159,7 +166,14 @@ function detachOwnedSignalListeners() {
  * @param {{
  *   closeReadinessPool?: () => Promise<void>,
  *   terminate?: ((signal: string) => void) | false,
- *   log?: (record: { event: string, failure_classes: string[] }) => void,
+ *   log?: (record: {
+ *     event: string,
+ *     original_signal: string,
+ *     pool_close_result: string,
+ *     server_close_result: string,
+ *     failure_classes: string[],
+ *     completion: true,
+ *   }) => void,
  *   poolCloseTimeoutMs?: number,
  *   serverCloseTimeoutMs?: number,
  * }} [deps]
@@ -178,9 +192,14 @@ function runStaffApiReadinessShutdown(server, signal, deps = {}) {
   const terminateFn = deps.terminate === false
     ? null
     : (typeof deps.terminate === 'function' ? deps.terminate : defaultTerminate);
-  const logFn = typeof deps.log === 'function' ? deps.log : () => {};
+  const logFn = typeof deps.log === 'function'
+    ? deps.log
+    : defaultShutdownCompletionLogger;
   const poolTimeout = deps.poolCloseTimeoutMs ?? DEFAULT_POOL_CLOSE_TIMEOUT_MS;
   const serverTimeout = deps.serverCloseTimeoutMs ?? DEFAULT_SERVER_CLOSE_TIMEOUT_MS;
+
+  /** Guards against duplicate completion records if terminate throws / re-enters. */
+  let completionRecordEmitted = false;
 
   shutdownPromise = (async () => {
     let poolResult = 'ok';
@@ -199,12 +218,17 @@ function runStaffApiReadinessShutdown(server, signal, deps = {}) {
       }
 
       const failureClasses = classifyShutdownFailures(poolResult, serverResult);
-      if (failureClasses.length > 0) {
+      // RADAR 16Y: always emit one bounded completion record before detach/terminate.
+      if (!completionRecordEmitted) {
+        completionRecordEmitted = true;
         try {
-          logFn({
-            event: 'staff_api_readiness_shutdown',
+          const record = buildShutdownCompletionRecord({
+            original_signal: shutdownSignal,
+            pool_close_result: poolResult,
+            server_close_result: serverResult,
             failure_classes: failureClasses,
           });
+          if (record) logFn(record);
         } catch {
           // logging is best-effort; must not block detach/terminate
         }
@@ -230,7 +254,14 @@ function runStaffApiReadinessShutdown(server, signal, deps = {}) {
  * @param {{
  *   closeReadinessPool?: () => Promise<void>,
  *   terminate?: ((signal: string) => void) | false,
- *   log?: (record: { event: string, failure_classes: string[] }) => void,
+ *   log?: (record: {
+ *     event: string,
+ *     original_signal: string,
+ *     pool_close_result: string,
+ *     server_close_result: string,
+ *     failure_classes: string[],
+ *     completion: true,
+ *   }) => void,
  *   poolCloseTimeoutMs?: number,
  *   serverCloseTimeoutMs?: number,
  * }} [opts]
