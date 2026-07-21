@@ -6,17 +6,25 @@ Product overview: [`CROWSNEST.md`](CROWSNEST.md)
 
 ---
 
-## Current state
+## VERIFIED CURRENT LIVE BASELINE
 
-| Topic | Today |
+| Topic | Today (live) |
 |-------|--------|
 | Domain | `crowsnest.lunafrontdesk.com` serves the standalone Crowsnest app |
 | App | Azure Container App `crowsnest-internal` in `wh-staging-rg` |
 | Image | `whstagingacr.azurecr.io/crowsnest:<git-sha>` |
 | Runtime | `scripts/crowsnest-api.js` on port 3040; separate from `staff-query-api.js` |
-| Live safety | Basic Auth enabled; `/healthz` public; `writes_enabled: false` |
+| Live safety | Auth enabled via legacy Basic Auth; `/healthz` public; `stage: skeleton`; `writes_enabled: false` |
 
-Verified live on 2026-07-21: the app reported `service: crowsnest`, `stage: skeleton`, `auth_enabled: true`, and `writes_enabled: false`.
+Verified live on 2026-07-21: the app reported `service: crowsnest`, `stage: skeleton`, `auth_enabled: true`, and `writes_enabled: false`. The uncommitted login-portal work is not yet deployed.
+
+## EXPECTED AFTER THIS LOGIN-PORTAL RELEASE
+
+After an approved login-portal image is promoted (not before):
+
+- Unauthenticated browser UI redirects to `/login` (branded session portal).
+- Legacy Basic Auth remains accepted for compatibility.
+- `/healthz` reports `stage: portal` with `writes_enabled: false`.
 
 ---
 

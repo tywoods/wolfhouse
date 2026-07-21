@@ -6,9 +6,11 @@ Product: [`CROWSNEST.md`](CROWSNEST.md) · Location: [`CROWSNEST-LOCATION-PLAN.m
 
 Crowsnest is the private Ship operator portal for **Monshies** and **Earthling**. It must remain separate from tenant staff portals and guest systems.
 
-## Current deployed baseline
+## VERIFIED CURRENT LIVE BASELINE
 
-| Topic | Current value |
+Standalone Crowsnest is deployed. The uncommitted login-portal work in this branch is **not** live until an approved release.
+
+| Topic | Current live value |
 |---|---|
 | Code entry | `scripts/crowsnest-api.js` |
 | Modules | `scripts/lib/crowsnest/` |
@@ -21,14 +23,27 @@ Crowsnest is the private Ship operator portal for **Monshies** and **Earthling**
 | Public hostname | `crowsnest.lunafrontdesk.com` |
 | Authentication | HTTP Basic Auth required on UI routes |
 | Health route | Public `GET /healthz` |
+| Health stage | `stage: skeleton` |
 | Data writes | Disabled (`writes_enabled: false`) |
 
 Verified on 2026-07-21:
 
 - Azure provisioning state was `Succeeded`.
 - The public hostname returned a Basic Auth challenge for `/`.
-- `/healthz` returned `service: crowsnest`, `auth_enabled: true`, and `writes_enabled: false`.
+- `/healthz` returned `service: crowsnest`, `stage: skeleton`, `auth_enabled: true`, and `writes_enabled: false`.
 - The ACR repository `crowsnest` was readable.
+
+## EXPECTED AFTER THIS LOGIN-PORTAL RELEASE
+
+These are **post-release** expectations for the approved login-portal image only. They are not evidence that the portal is already live.
+
+| Topic | Expected after release |
+|---|---|
+| Browser UI auth | Unauthenticated `/` (and other protected UI routes) redirect to `/login` instead of a browser Basic challenge |
+| Login portal | Branded session portal (`GET /login`, `POST /login` cookie, `POST /logout`) |
+| Legacy Basic Auth | Still accepted on protected UI routes for compatibility |
+| Health stage | `stage: portal` |
+| Writes | Remain `writes_enabled: false` unless a later write slice is explicitly approved |
 
 ## Isolation contract
 
@@ -113,11 +128,13 @@ curl -sS -o /dev/null -w "%{http_code}\n" https://crowsnest.lunafrontdesk.com/
 curl -fsS https://staff-staging.lunafrontdesk.com/healthz
 ```
 
-Expected:
+Expected **after this login-portal release**:
 
-- Crowsnest health is `200`, reports `service: crowsnest`, and keeps writes disabled unless a later write slice was explicitly approved.
-- Unauthenticated Crowsnest UI returns `401` with `WWW-Authenticate: Basic realm="Crowsnest"`.
+- Crowsnest health is `200`, reports `service: crowsnest`, `stage: portal`, and keeps writes disabled unless a later write slice was explicitly approved.
+- Unauthenticated Crowsnest UI redirects to `/login` instead of emitting a browser Basic challenge; legacy Basic Auth still works when supplied.
 - Staff staging still reports the Wolfhouse Staff API service, not Crowsnest.
+
+Until that release is approved and deployed, the live checks above still match **VERIFIED CURRENT LIVE BASELINE** (`stage: skeleton`, Basic Auth challenge on `/`).
 
 ## Rollback
 
@@ -125,7 +142,7 @@ If a new Crowsnest revision fails:
 
 1. Route traffic back to the last known-good `crowsnest-internal` revision.
 2. Verify the Container App FQDN and public hostname.
-3. Confirm the Basic Auth challenge and `/healthz` invariants.
+3. Confirm auth and `/healthz` invariants for the revision in use (live baseline: Basic Auth + `stage: skeleton`; login-portal release: `/login` redirect/portal + `stage: portal`).
 4. Leave `wh-staging-staff-api`, Sunset, production, DNS, and tenant services unchanged.
 5. Record the failed image SHA and failure evidence before attempting another release.
 
@@ -137,7 +154,7 @@ These are not blockers for AI Usage Panel product work:
 
 - whether to move Crowsnest into a future `luna-internal-rg`;
 - whether to use a dedicated Container Apps environment;
-- whether to replace Basic Auth with a stronger Ship identity system;
+- whether to replace Basic Auth (and, after the login-portal release, the branded portal plus legacy Basic compatibility) with a stronger Ship identity system;
 - external DNS-provider ownership and access.
 
 Each requires a separate plan and approval. DNS control is not currently visible through Azure DNS in this subscription.

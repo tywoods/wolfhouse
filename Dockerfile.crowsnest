@@ -11,6 +11,7 @@ RUN npm ci --omit=dev
 
 COPY scripts ./scripts
 COPY docs/CROWSNEST.md docs/CROWSNEST-LOCATION-PLAN.md docs/CROWSNEST-DEPLOY-PLAN.md ./docs/
+COPY public/crowsnest ./public/crowsnest
 
 EXPOSE 3040
 

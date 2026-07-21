@@ -30,7 +30,11 @@ Later, operators may also:
 2. Fill in new client information
 3. Create the new client/tenant setup from the portal (gated slices; no blind writes)
 
-## Live baseline
+## Live baseline vs login-portal release
+
+**VERIFIED CURRENT LIVE BASELINE** (deployed standalone app): `https://crowsnest.lunafrontdesk.com` on `crowsnest-internal`; auth enabled via legacy Basic Auth; `/healthz` reports `service: crowsnest`, `stage: skeleton`, `auth_enabled: true`, `writes_enabled: false`. See [`CROWSNEST-LOCATION-PLAN.md`](CROWSNEST-LOCATION-PLAN.md) and [`CROWSNEST-DEPLOY-PLAN.md`](CROWSNEST-DEPLOY-PLAN.md).
+
+**EXPECTED AFTER THIS LOGIN-PORTAL RELEASE** (in-repo; not yet deployed): branded session portal, browser redirect to `/login`, legacy Basic compatibility, `/healthz` `stage: portal`.
 
 | Item | Status |
 |------|--------|
@@ -39,10 +43,13 @@ Later, operators may also:
 | Public URL | `https://crowsnest.lunafrontdesk.com` |
 | Static placeholder UI | Skeleton + read-only **Clients** overview + **New client onboarding** form mockup |
 | Onboarding mockup | Draft form only — surf house / surf school templates; all fields and buttons disabled; no submit |
-| `GET /healthz` | `service: crowsnest`, `writes_enabled: false`, `auth_enabled` reflects env |
-| Basic Auth (UI) | Optional gate on `/`, `/crowsnest`, `/crowsnest/ui` when `CROWSNEST_AUTH_REQUIRED=true`; `/healthz` stays public |
+| `GET /healthz` (live) | `service: crowsnest`, `stage: skeleton`, `writes_enabled: false`, `auth_enabled: true` |
+| `GET /healthz` (after login-portal release) | Same invariants with `stage: portal` |
+| Login portal (after release / local) | `GET /login` renders the branded operator sign-in page; `POST /login` issues an in-memory session cookie; `POST /logout` clears it |
+| Browser access (after release / local) | Unauthenticated UI requests to `/`, `/crowsnest`, and `/crowsnest/ui` redirect to `/login`; legacy Basic Auth still works if supplied |
+| Asset route (after release / local) | `/crowsnest/assets/logo.png` serves the bundled logo as `image/png` with long-lived cache headers |
 | Writes / DB / Stripe / WhatsApp | **None** |
-| Deploy / Azure / domain | Live on the standalone app; see [`CROWSNEST-LOCATION-PLAN.md`](CROWSNEST-LOCATION-PLAN.md) |
+| Deploy / Azure / domain | Live standalone app; login portal not promoted yet — see location/deploy plans |
 
 The current UI is only a safe shell. The AI Usage Panel has not been implemented yet.
 
@@ -63,27 +70,32 @@ curl http://127.0.0.1:3040/healthz
 
 ### Auth (temporary local credentials)
 
-HTTP Basic Auth gates UI routes only when enabled. **`GET /healthz` is always public** and never includes credentials.
+Local and post-release browser access uses the login portal when enabled. **Live** still uses Basic Auth until the login-portal image is promoted. **`GET /healthz` is always public** and never includes credentials.
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `CROWSNEST_AUTH_REQUIRED` | `false` | Set `true` to require Basic Auth on UI routes |
+| `CROWSNEST_AUTH_REQUIRED` | `false` | Set `true` to require login for normal browser UI access |
 | `CROWSNEST_AUTH_USERNAME` | `admin` (non-production only) | Replace before real use |
 | `CROWSNEST_AUTH_PASSWORD` | `admin` (non-production only) | Replace before real use |
 | `CROWSNEST_ALLOWED_USERS` | `Monshies,Earthling` | Informational allow-list in `/healthz` only |
 
 When `CROWSNEST_AUTH_REQUIRED=true`:
 
-- Valid credentials → `200` on UI routes
-- Missing/wrong credentials → `401` with `WWW-Authenticate: Basic realm="Crowsnest"`
+- `GET /login` shows the branded login form
+- Valid credentials on `POST /login` → `302` to `/` with an `HttpOnly`, `SameSite=Strict` session cookie
+- Invalid credentials → the same login page with a generic error and no credential leak
+- `POST /logout` clears the session cookie and returns to `/login`
+- Unauthenticated browser access to protected UI routes redirects to `/login`
 - Auth required but credentials empty/missing in production → `503` (`Crowsnest auth is not configured`)
+- Legacy Basic Auth requests are still accepted on the protected UI routes for compatibility
 
 Local auth-enabled smoke:
 
 ```bash
 CROWSNEST_AUTH_REQUIRED=true CROWSNEST_AUTH_USERNAME=admin CROWSNEST_AUTH_PASSWORD=admin npm run crowsnest:start
-curl -i http://127.0.0.1:3040/crowsnest/ui          # 401
-curl -i -u admin:admin http://127.0.0.1:3040/crowsnest/ui  # 200
+curl -i http://127.0.0.1:3040/                      # 302 -> /login
+curl -i http://127.0.0.1:3040/login                 # branded form
+curl -i -u admin:admin http://127.0.0.1:3040/crowsnest/ui  # 200 (legacy compatibility)
 curl http://127.0.0.1:3040/healthz                  # 200, auth_enabled:true, no password
 ```
 

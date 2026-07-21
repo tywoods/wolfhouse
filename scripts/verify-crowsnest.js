@@ -17,6 +17,7 @@ const DOC_PRODUCT = path.join(ROOT, 'docs', 'CROWSNEST.md');
 const DOC_PLAN = path.join(ROOT, 'docs', 'CROWSNEST-LOCATION-PLAN.md');
 const DOC_DEPLOY = path.join(ROOT, 'docs', 'CROWSNEST-DEPLOY-PLAN.md');
 const DOCKERFILE_PATH = path.join(ROOT, 'Dockerfile.crowsnest');
+const LOGO_PATH = path.join(ROOT, 'public', 'crowsnest', 'logo.png');
 const PKG_PATH = path.join(ROOT, 'package.json');
 
 let pass = 0;
@@ -38,6 +39,14 @@ function read(file) {
   } catch {
     return null;
   }
+}
+
+function between(src, startMarker, endMarker) {
+  const start = src.indexOf(startMarker);
+  if (start < 0) return '';
+  const end = src.indexOf(endMarker, start + startMarker.length);
+  if (end < 0) return '';
+  return src.slice(start, end);
 }
 
 console.log('verify:crowsnest — Crowsnest skeleton gate\n');
@@ -65,6 +74,12 @@ const productDoc = read(DOC_PRODUCT) || '';
 const planDoc = read(DOC_PLAN) || '';
 const deployDoc = read(DOC_DEPLOY) || '';
 const pkgRaw = read(PKG_PATH) || '';
+const loginBody = between(apiSrc, 'async function handleLogin(req, res, method) {', 'async function handleLogout(req, res, method) {');
+const logoutBody = between(apiSrc, 'async function handleLogout(req, res, method) {', 'function handleAsset(req, res, method) {');
+const assetBody = between(apiSrc, 'function handleAsset(req, res, method) {', 'function handleHealthz(req, res, method) {');
+const healthzBody = between(apiSrc, 'function handleHealthz(req, res, method) {', 'function handleProtectedUi(req, res, method, pathname) {');
+const protectedUiBody = between(apiSrc, 'function handleProtectedUi(req, res, method, pathname) {', 'async function router(req, res) {');
+const routerBody = between(apiSrc, 'async function router(req, res) {', 'const server = http.createServer');
 
 ok('renderCrowsnestPage exported', /function renderCrowsnestPage|renderCrowsnestPage\s*\(/.test(pageSrc));
 ok('getCrowsnestClients exported', /function getCrowsnestClients|getCrowsnestClients\s*\(/.test(clientsSrc));
@@ -118,31 +133,40 @@ ok('no fetch/axios/http outbound in crowsnest lib', !/\bfetch\s*\(|require\(['"]
 ok('/healthz route present', apiSrc.includes("pathname === '/healthz'"));
 ok('healthz returns service crowsnest', apiSrc.includes("service: 'crowsnest'"));
 ok('writes_enabled false in healthz', apiSrc.includes('writes_enabled: false'));
+ok('healthz rejects non-GET/HEAD', healthzBody.includes("method !== 'GET' && method !== 'HEAD'") && healthzBody.includes("sendMethodNotAllowed(res, 'GET, HEAD')"));
+ok('protected UI rejects non-GET/HEAD', protectedUiBody.includes("method !== 'GET' && method !== 'HEAD'") && protectedUiBody.includes("sendMethodNotAllowed(res, 'GET, HEAD')"));
+ok('asset rejects non-GET/HEAD', assetBody.includes("method !== 'GET' && method !== 'HEAD'") && assetBody.includes("sendMethodNotAllowed(res, 'GET, HEAD')"));
+ok('login allows GET/HEAD/POST only', loginBody.includes("method !== 'POST'") && loginBody.includes("sendMethodNotAllowed(res, 'GET, HEAD, POST')"));
+ok('logout allows POST only', logoutBody.includes("method !== 'POST'") && logoutBody.includes("sendMethodNotAllowed(res, 'POST')"));
+ok('router fallback stays GET/HEAD only', routerBody.includes("method !== 'GET' && method !== 'HEAD'") && routerBody.includes("sendMethodNotAllowed(res, 'GET, HEAD')"));
+ok('only /login advertises POST in Allow header', (apiSrc.match(/sendMethodNotAllowed\(res, 'GET, HEAD, POST'\)/g) || []).length === 1);
 
 ok('CROWSNEST_AUTH_USERNAME env referenced', /CROWSNEST_AUTH_USERNAME/.test(authSrc));
 ok('CROWSNEST_AUTH_PASSWORD env referenced', /CROWSNEST_AUTH_PASSWORD/.test(authSrc));
 ok('Basic auth parsing helper exists', /function parseBasicAuthHeader|parseBasicAuthHeader\s*\(/.test(authSrc));
 ok('isCrowsnestRequestAuthorized helper exists', /function isCrowsnestRequestAuthorized|isCrowsnestRequestAuthorized\s*\(/.test(authSrc));
+ok('login session helper exists', /createCrowsnestSession|buildCrowsnestSessionCookie|isCrowsnestSessionAuthorized/.test(authSrc));
 ok('sendCrowsnestAuthRequired helper exists', /function sendCrowsnestAuthRequired|sendCrowsnestAuthRequired\s*\(/.test(authSrc));
 ok('sendCrowsnestAuthMisconfigured helper exists', /function sendCrowsnestAuthMisconfigured|sendCrowsnestAuthMisconfigured\s*\(/.test(authSrc));
-ok('/healthz remains ungated (no gateCrowsnestUi in healthz handler)', (() => {
-  const parts = apiSrc.split("pathname === '/healthz'");
-  if (parts.length < 2) return false;
-  const afterHealth = parts[1].split("pathname === '/'")[0];
-  return !afterHealth.includes('gateCrowsnestUi');
-})());
-ok('UI routes call auth gate', apiSrc.includes('gateCrowsnestUi(req, res)'));
-ok('401 auth required path exists', apiSrc.includes('sendCrowsnestAuthRequired'));
-ok('WWW-Authenticate Basic realm=Crowsnest', /Basic realm="Crowsnest"/.test(authSrc));
+ok('/healthz route remains public', apiSrc.includes("pathname === '/healthz'") && apiSrc.includes("service: 'crowsnest'") && apiSrc.includes('writes_enabled: false'));
+ok('UI routes call browser auth guard', apiSrc.includes('isBrowserUiAuthorized(req)'));
+ok('login route exists', apiSrc.includes("pathname === '/login'"));
+ok('logout route exists', apiSrc.includes("pathname === '/logout'"));
+ok('asset route exists', apiSrc.includes("pathname === ASSET_ROUTE") || apiSrc.includes("/crowsnest/assets/logo.png"));
+ok('login page renderer exists', /renderCrowsnestLoginPage/.test(pageSrc));
+ok('logo asset copied into repo', fs.existsSync(LOGO_PATH));
 ok('auth misconfigured 503 path exists', apiSrc.includes('sendCrowsnestAuthMisconfigured'));
 ok('healthz JSON does not embed auth password', !/auth_password|CROWSNEST_AUTH_PASSWORD/.test(apiSrc.split("pathname === '/healthz'")[1] || ''));
 ok('page renderer does not embed auth credentials', !/CROWSNEST_AUTH_PASSWORD|DEFAULT_PASSWORD/.test(pageSrc));
-ok('product doc mentions Basic Auth', /Basic Auth|basic auth/i.test(productDoc));
+ok('product doc mentions login portal', /login portal|sign in|private portal/i.test(productDoc));
+ok('product doc mentions legacy Basic Auth compatibility', /Basic Auth|basic auth|legacy Basic/i.test(productDoc));
+ok('product doc distinguishes live baseline from login-portal release', /VERIFIED CURRENT LIVE BASELINE/i.test(productDoc) && /EXPECTED AFTER THIS LOGIN-PORTAL RELEASE/i.test(productDoc));
+ok('product doc keeps live health stage as skeleton', /stage:\s*skeleton/i.test(productDoc));
 ok('deploy plan mentions CROWSNEST_AUTH_USERNAME', /CROWSNEST_AUTH_USERNAME/.test(deployDoc));
 ok('deploy plan mentions CROWSNEST_AUTH_PASSWORD', /CROWSNEST_AUTH_PASSWORD/.test(deployDoc));
 
-const writeRouteRe = /\.(post|put|patch|delete)\(|method\s*===\s*['"]POST|method\s*===\s*['"]PUT|method\s*===\s*['"]DELETE|method\s*===\s*['"]PATCH/i;
-ok('no POST/PUT/DELETE write routes in crowsnest-api', !writeRouteRe.test(apiSrc));
+const writeRouteRe = /\.(post|put|patch|delete)\(|\/(create|update|delete|save|write|submit)\b/i;
+ok('no business/data write routes in crowsnest-api', !writeRouteRe.test(apiSrc));
 ok('no database / pg imports in crowsnest-api', !/require\(['"].*pg|postgres|WOLFHOUSE_DATABASE/i.test(apiSrc));
 ok('no staff-query-api import', !/require\(['"].*staff-query-api/.test(apiSrc));
 
@@ -156,6 +180,10 @@ ok('product doc mentions surf school template', /surf school/i.test(productDoc))
 ok('product doc mentions skeleton / no live writes', /skeleton|no live writes|no writes/i.test(productDoc));
 ok('plan doc mentions crowsnest.lunafrontdesk.com', /crowsnest\.lunafrontdesk\.com/i.test(planDoc));
 ok('location doc records live standalone Azure deployment', /live|deployed/i.test(planDoc) && /crowsnest-internal/.test(planDoc));
+ok('location doc labels verified current live baseline', /VERIFIED CURRENT LIVE BASELINE/i.test(planDoc));
+ok('location doc keeps verified live stage skeleton', /stage:\s*skeleton/i.test(planDoc) && /Verified live/i.test(planDoc));
+ok('location doc does not claim login portal is currently live', !/Live safety\s*\|\s*Login portal enabled/i.test(planDoc));
+ok('location doc labels expected login-portal release', /EXPECTED AFTER THIS LOGIN-PORTAL RELEASE/i.test(planDoc) && /stage:\s*portal/i.test(planDoc) && /\/login/.test(planDoc));
 ok('docs/CROWSNEST-DEPLOY-PLAN.md exists', fs.existsSync(DOC_DEPLOY));
 ok('deploy plan mentions separate Container App', /separate.*Container App/i.test(deployDoc));
 ok('deploy plan mentions crowsnest-internal', /crowsnest-internal/.test(deployDoc));
@@ -163,7 +191,11 @@ ok('deploy plan mentions Dockerfile.crowsnest', /Dockerfile\.crowsnest/.test(dep
 ok('deploy runbook records completed domain separation from wh-staging-staff-api', /wh-staging-staff-api/.test(deployDoc) && /separate|detached|migrat/i.test(deployDoc));
 ok('deploy plan staff-staging remains untouched', /staff-staging.*untouched|remains.*wh-staging-staff-api|Must not change/i.test(deployDoc));
 ok('deploy plan has rollback plan', /rollback/i.test(deployDoc));
-ok('deploy runbook identifies the live baseline', /live baseline|currently deployed|status:\s*live/i.test(deployDoc));
+ok('deploy runbook identifies the live baseline', /VERIFIED CURRENT LIVE BASELINE|live baseline|currently deployed|status:\s*live/i.test(deployDoc));
+ok('deploy plan verified live auth is Basic Auth challenge', /Basic Auth challenge/i.test(deployDoc) && /stage:\s*skeleton/i.test(deployDoc));
+ok('deploy plan does not claim live /login redirect yet', !/Verified on[\s\S]*redirected[\s\S]*\/login/i.test(deployDoc));
+ok('deploy plan labels expected login-portal release', /EXPECTED AFTER THIS LOGIN-PORTAL RELEASE/i.test(deployDoc));
+ok('deploy plan expected release includes /login redirect and stage portal', /redirect(?:s|ed)? to `?\/login`?/i.test(deployDoc) && /stage:\s*portal/i.test(deployDoc) && /legacy Basic/i.test(deployDoc));
 
 const dockerSrc = read(DOCKERFILE_PATH) || '';
 ok('Dockerfile.crowsnest exists', fs.existsSync(DOCKERFILE_PATH));
@@ -177,6 +209,8 @@ ok('Dockerfile does not reference STRIPE', !/STRIPE/i.test(dockerSrc));
 ok('Dockerfile does not reference WHATSAPP', !/WHATSAPP/i.test(dockerSrc));
 ok('Dockerfile does not reference Azure CLI commands', !/\baz (containerapp|acr build)/.test(dockerSrc));
 ok('deploy plan mentions Dockerfile.crowsnest', /Dockerfile\.crowsnest/.test(deployDoc));
+ok('Dockerfile copies public/crowsnest', /COPY public\/crowsnest/.test(dockerSrc));
+ok('Dockerfile includes bundled logo', fs.existsSync(LOGO_PATH));
 
 let pkg = null;
 try {
