@@ -680,7 +680,8 @@
     "verify:owner-metadata-accessor-guard": "node scripts/verify-owner-metadata-accessor-guard.js",
     "verify:radar-slice16aa-g02-live-sigint-evidence": "node scripts/verify-radar-slice16aa-g02-live-sigint-evidence.js",
     "verify:radar-slice16ab-g02-readyz503-evidence": "node scripts/verify-radar-slice16ab-g02-readyz503-evidence.js",
-    "verify:radar-slice16ac-organic-restart-alert-evidence": "node scripts/verify-radar-slice16ac-organic-restart-alert-evidence.js"
+    "verify:radar-slice16ac-organic-restart-alert-evidence": "node scripts/verify-radar-slice16ac-organic-restart-alert-evidence.js",
+    "verify:radar-slice16ad-g02-sampled-restart-continuity-evidence": "node scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
