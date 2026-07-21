@@ -15631,6 +15631,9 @@ function buildUiHtml(port, portalDeployClient) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Luna Front Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..600&display=swap">
 <script>window.PORTAL_DEFAULT_CLIENT=${JSON.stringify(portalDefaultClient)};</script>
 ${getStaffPortalThemeEarlyScript()}
 <style>
@@ -17877,19 +17880,18 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
    paperback colors/paper/spacing/borders were removed so the rest returns to the
    original look. Still scoped under .book-ui and gated by STAFF_PORTAL_BOOK_UI
    (set =false to drop the serif too and fully restore the prior look). ===== */
-.book-ui{--bk-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+/* Font overhaul (slice 1: Booking Calendar + drawer) — match lunafrontdesk.com:
+   Playfair Display for headline titles; Helvetica Neue for body, buttons & UI copy. */
+.book-ui{--bk-serif:'Playfair Display',Georgia,'Times New Roman',serif;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif}
+.book-ui input,.book-ui select,.book-ui textarea,.book-ui button{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif}
+/* Genuine headline titles → Playfair. UI labels, tabs, table/room headers and data
+   labels intentionally fall back to Helvetica Neue to match the site's clean UI. */
 .book-ui .toolbar h2,
 .book-ui .bc-detail-title,
-.book-ui .bc-block-label,
 .book-ui .bk-form-section-title,
 .book-ui .bc-sel-title,
 .book-ui .bc-drawer-card-title,
-.book-ui .bc-drawer-card-subtitle,
 .book-ui .ctx-section h3,
-.book-ui .kv .k,
-.book-ui .bc-grid thead th.bc-bed-head,
-.book-ui .bc-room-hdr,
-.book-ui .bc-drawer-tab,
 .book-ui .bk-quote-section-title{font-family:var(--bk-serif)}
 /* ===== END book-ui ===== */
 </style>

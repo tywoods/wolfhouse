@@ -55,17 +55,17 @@ fi
 
 if [ "$HERMES_ROLE" = "seadog" ]; then
   # Seadog is a light Discord chat persona (no guest booking tools). Runs on
-  # openai-codex/gpt-5.5 — the same provider as the orchestrator (Skipper) and the
-  # active_provider in the shared auth store. The Anthropic OAuth subscription path
-  # was tried (to use Claude credits) but Anthropic now rejects Hermes' agent turns
-  # as third-party usage: "Third-party apps now draw from your extra usage... add
-  # more at claude.ai/settings/usage" (HTTP 400), and Hermes auto-suppressed the
-  # anthropic source. The token still works for raw API calls, but not via Hermes.
+  # openai-codex/gpt-5.6-sol — same provider family as Skipper (orchestrator).
+  # The Anthropic OAuth subscription path was tried (to use Claude credits) but
+  # Anthropic now rejects Hermes' agent turns as third-party usage: "Third-party
+  # apps now draw from your extra usage... add more at claude.ai/settings/usage"
+  # (HTTP 400), and Hermes auto-suppressed the anthropic source. The token still
+  # works for raw API calls, but not via Hermes.
   # To move seadog back onto Claude: top up extra usage at claude.ai/settings/usage,
   # then set provider: anthropic + a claude model here.
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: gpt-5.6-terra
+  default: gpt-5.6-sol
   provider: openai-codex
 agent:
   reasoning_effort: low
