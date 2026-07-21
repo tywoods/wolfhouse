@@ -1,32 +1,39 @@
-# RADAR Slice 16S — Operations gate ledger (request-completion delivery/search/retention evidence)
+# RADAR Slice 16U — Operations gate ledger (G01 correlation design freeze)
 
-**Status:** partial/live-proven evidence only (zero deploy / live mutation by this slice; E2E correlation drill remains open)
-**Master basis:** `1bf9695264250680c41c3e7f82baba97300001a0`
-**Branch:** `radar/slice-16s-request-log-live-evidence`
+**Status:** audit-only design freeze (zero runtime change / live calls; G01 remains partial)
+**Master basis:** `87121456db90a9f80ff8b3679596bc49c235cbfc`
+**Branch:** `radar/slice-16u-correlation-design-freeze`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16R `16R_staff_api_request_completion_log` + 16J correlation
+**Builds on:** 16S live completion evidence + 16J/16R correlation
+**Replaces deferred:** independent same-ID multi-ingress probe harness concept (not causal E2E)
 
 ## Outcome
 
-Record **operator-observed dual-staging 16R delivery / search / retention evidence** into a redacted, lock-hashed fixture. Exact Staff API image SHA `1bf9695264250680c41c3e7f82baba97300001a0` on Wolfhouse revision `wh-staging-staff-api--0000517` and Sunset revision `luna-sunset-staging-staff-api--0000277` (latest=latestReady; public `/healthz` 200). ACA env `logsDestination=log-analytics`. LAW workspaces `wh-staging-logs` (customerId `43ae26dd-4a82-4a91-b744-5e1f94a2ae8f`, retention 30) and `luna-sunset-staging-logs` (customerId `552489bf-8e57-48df-8413-6e775caaa7d0`, retention 30). Independently queried `ContainerAppConsoleLogs_CL` by supplied request IDs yields exactly one bounded `staff_api_request_completion` each (`route=/healthz`, `status_code=200`, `status_class=2xx`, `duration_ms=5`, `outcome=completed`) at `2026-07-20T23:32:38.0049767Z` (WH `aaaaaaaa-bbbb-4ccc-8ddd-16a000000001`) and `2026-07-20T23:32:54.8551295Z` (Sunset `aaaaaaaa-bbbb-4ccc-8ddd-16a000000002`, tenant `sunset`). **Do not deploy.** G01 upgrades to `partial_live_proven` but remains verdict `partial` because the end-to-end Meta → Hermes → Staff API → Stripe correlation drill is still open. G02–G09 scores unchanged. Matrix proven-count remains 0.
+Freeze an **authoritative active staging call graph** and a **genuine non-mutating G01 correlation drill design**. Active Meta ingress is Hermes on Lunabox (`https://lunabox.lunafrontdesk.com/whatsapp/webhook` → `hermes-luna:8090` for Wolfhouse; Sunset `hermes-sunset-luna:8092`). Staff Meta dual-ingress and Stripe webhook are **not** on the active inbound path. Hermes `_post_bot` does **not** send `X-Request-Id` today. Genuine Stripe Checkout create **cannot be exercised without mutation**; therefore G01 E2E is redefined:
+
+- **G01-A (provable target):** Meta → Hermes → Staff `/staff/bot/*` with one immutable `trace_id` + `parent_event_id=wamid` on a non-mutating read path.
+- **G01-B (business join only):** Stripe Checkout create ↔ webhook via metadata/business IDs — not the same inbound ALS.
+
+Independent same-ID probes (`/healthz` + Stripe pre-verify sharing a UUID) are **rejected as E2E evidence**. Design specifies hard-disabled `G01_CORRELATION_DRY_RUN` (confirmation `RADAR-16U-CORRELATION-DRY-RUN` for later apply). **This slice does not implement runtime, execute live, or deploy.** G01 verdict stays `partial`. G02–G09 unchanged. Proven count remains 0.
 
 ## Artifacts
 
 | Path | Role |
 |------|------|
-| `fixtures/radar-operations/slice16s-request-log-live-evidence.json` | Redacted canonical evidence + lock_hash |
-| `fixtures/radar-operations/slice16s-expected-contract.json` | Frozen 16S contract |
-| `scripts/lib/radar-slice16s-request-log-live-evidence.js` | Slice locks |
-| `scripts/verify-radar-slice16s-request-log-live-evidence.js` | Offline RED/GREEN verifier |
-| `npm run verify:radar-slice16s-request-log-live-evidence` | Gate |
+| `fixtures/radar-operations/slice16u-call-graph.json` | Authoritative active-path call graph |
+| `fixtures/radar-operations/slice16u-correlation-design-freeze.json` | Design freeze (instrumentation, dry-run, evidence schema) |
+| `fixtures/radar-operations/slice16u-expected-contract.json` | Frozen 16U contract |
+| `scripts/lib/radar-slice16u-correlation-design-freeze.js` | Locks + evidence classifier |
+| `scripts/verify-radar-slice16u-correlation-design-freeze.js` | Offline RED/GREEN verifier |
+| `npm run verify:radar-slice16u-correlation-design-freeze` | Gate |
 
 ## Verdict counts
 
 | Verdict | Count | Meaning |
 |---------|------:|---------|
-| `proven` | 0 | Control fully evidenced end-to-end (incl. E2E drill) — not met |
-| `partial` | 9 | Some code and/or live evidence; gaps remain |
+| `proven` | 0 | Full E2E close — not met |
+| `partial` | 9 | Code and/or live evidence; gaps remain |
 | `absent` | 0 | No safe control evidenced |
 | **total** | **9** | Matrix gates |
 
@@ -34,57 +41,48 @@ Record **operator-observed dual-staging 16R delivery / search / retention eviden
 
 | ID | Gate | Verdict |
 |----|------|---------|
-| G01 | Correlation / structured logs | `partial` (`partial_live_proven` via 16S; E2E drill open) |
-| G02 | Readiness / dependencies | `partial` (16I + 16P healthy path) |
-| G03 | Actionable tenant-aware alerts | `partial` (16H + 16P AG test) |
-| G04 | Webhook / payment / worker backlog | `partial` |
-| G05 | Retry / replay safety | `partial` (16M source still partial) |
-| G06 | Scaling / capacity | `partial` (16L source still partial) |
-| G07 | Rollback / incident runbooks | `partial` (16P rollforward) |
-| G08 | Retention / privacy | `partial` (16K/16O + 16P) |
-| G09 | Cost controls | `partial` (16B + 16P AG test) |
+| G01 | Correlation / structured logs | `partial` (16S live-proven delivery/search/retention; **16U design freeze**; G01-A live open) |
+| G02–G09 | (unchanged) | `partial` as prior |
 
 ## G01 semantics (truthful)
 
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
 | Request correlation (header + ALS) | `partial` | 16J source |
-| Request-completion log (source) | `partial` | 16R finish/close/error exactly-once |
-| Live deploy (exact SHA) | `live_proven` | WH `0000517` / Sunset `0000277` @ `1bf9695` |
-| Azure stdout / LAW delivery | `live_proven` | `ContainerAppConsoleLogs_CL` |
-| Searchable query | `live_proven` | by supplied request ID; match_count=1 |
-| Retention policy | `live_proven` | LAW retention 30 both workspaces |
-| Controlled E2E correlation drill | `open` | Meta → Hermes → Staff → Stripe **not claimed** |
+| Request-completion log | `partial` | 16R + 16S live LAW |
+| Live deploy / LAW delivery/search/retention | `live_proven` | via 16S @ `1bf9695` |
+| Correlation drill **design** | `audit_frozen` | 16U G01-A/B + dry-run design |
+| Correlation drill **live G01-A** | `open` | Needs Hermes `X-Request-Id` propagate + dry-run suppress |
+| Stripe as inbound ALS hop | `not_provable` | Cannot exercise genuine Stripe without mutation |
 
-## Slice 16S progress
+## Slice 16U progress
 
-**ID:** `16S_request_completion_log_live_evidence`
+**ID:** `16U_correlation_design_freeze`
 **Gate:** `G01_correlation_structured_logs`
-**Progress class:** `partial_live_proven_evidence_only`
-**Does not implement:** E2E Meta→Hermes→Staff→Stripe drill, concurrent isolation, abort/error LAW outcomes, any gate verdict=proven, G02–G09 score changes, deploy by this slice
+**Progress class:** `audit_only_design_freeze`
+**Does not implement:** runtime instrumentation, dry-run switch, live drill, any gate proven, G02–G09 changes
 
-### Still open (explicit remaining item before a full G01 close)
+### Still open (smallest follow-on)
 
-- End-to-end Meta → Hermes → Staff API → Stripe correlation drill
+1. Hermes mint `trace_id` + send `X-Request-Id` on `_post_bot`
+2. Hard-disabled `G01_CORRELATION_DRY_RUN` WhatsApp-send suppress
+3. Live G01-A read-only evidence freeze
 
 ### Explicitly not claimed
 
-- Concurrent isolation proof in LAW
-- Abort/error completion outcomes searchable in LAW
+- Independent same-ID probes as E2E
+- Stripe Checkout without mutation
+- Single ALS spanning Meta → Stripe webhook
+- Live drill executed / any gate `proven`
 - Human inbox receipt / organic metric alert firing / production
-- Raising any gate verdict to `proven`
 
 ## Prior partial progress retained
 
-- **16R** source completion logging (schema/emission) — retained; live follow-on is 16S
-- **16P** live-drill evidence reconciliation — partial/live-proven on selected gates
-- **16O** `16O_stripe_webhook_error_minimization` on G08 — webhook error body minimization retained
-- **16M** `16M_stripe_webhook_event_id_claim` on G05 — source-partial event-id claim retained
-- **16L** `16L_staff_api_capacity_pressure_alerts` on G06 — source-partial capacity-pressure alerts retained
-- **16K** `16K_staff_api_healthz_minimization` on G08
-- **16J** `16J_staff_api_request_correlation` on G01 — source-partial correlation
-- **16I** / **16H** / **16B** — prior partials retained
+- **16S** `16S_request_completion_log_live_evidence` dual-staging completion-log delivery/search/retention @ SHA `1bf9695` — retained (`partial_live_proven`)
+- **16R** / **16J** correlation + completion source — retained
+- **16P** / **16O** G08 webhook error minimization — retained
+- **16M** G05 event-id claim / **16L** G06 capacity-pressure / **16K** / **16I** / **16H** / **16B** — retained
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16S. Database, Hermes staging, Staff API runtime, completion-log helper, staging Bicep, and metric-alert/budget modules must remain unchanged vs master basis `1bf9695`. Evidence fixtures + ledger/matrix only.
+No deploy/restart/DB/secret/guest/payment/production mutation. No live HTTP. Database, Hermes, Staff API runtime, correlation/completion helpers, and staging IaC unchanged vs master `87121456`. Audit fixtures + ledger/matrix/findings/contract only. End-to-end G01-A live evidence remains open (not claimed).

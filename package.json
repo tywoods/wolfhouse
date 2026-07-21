@@ -464,6 +464,7 @@
     "verify:radar-slice16p-live-drill-evidence": "node scripts/verify-radar-slice16p-live-drill-evidence.js",
     "verify:radar-slice16r-staff-request-completion-log": "node scripts/verify-radar-slice16r-staff-request-completion-log.js",
     "verify:radar-slice16s-request-log-live-evidence": "node scripts/verify-radar-slice16s-request-log-live-evidence.js",
+    "verify:radar-slice16u-correlation-design-freeze": "node scripts/verify-radar-slice16u-correlation-design-freeze.js",
     "verify:staff-tenant-scope": "node scripts/verify-staff-tenant-scope.js",
     "verify:staff-whatsapp-notifications": "node scripts/verify-staff-whatsapp-notifications.js",
     "verify:staff-automated-notification-ui": "node scripts/verify-staff-automated-notification-ui.js",

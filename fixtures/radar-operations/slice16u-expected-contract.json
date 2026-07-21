@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16U",
+  "outcome_id": "16U_correlation_design_freeze",
+  "gate_id": "G01_correlation_structured_logs",
+  "progress_class": "audit_only_design_freeze",
+  "master_basis": "87121456db90a9f80ff8b3679596bc49c235cbfc",
+  "branch": "radar/slice-16u-correlation-design-freeze",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "this_slice_implements_runtime": false,
+  "title": "Audit-only design freeze for genuine non-mutating G01 correlation drill — replaces deferred independent same-ID probe concept",
+  "design_fixture": "fixtures/radar-operations/slice16u-correlation-design-freeze.json",
+  "call_graph_fixture": "fixtures/radar-operations/slice16u-call-graph.json",
+  "builds_on": {
+    "outcome_ids": [
+      "16J_staff_api_request_correlation",
+      "16R_staff_api_request_completion_log",
+      "16S_request_completion_log_live_evidence"
+    ],
+    "gate_id": "G01_correlation_structured_logs"
+  },
+  "required_design_facts": {
+    "active_wolfhouse_ingress": "https://lunabox.lunafrontdesk.com/whatsapp/webhook",
+    "hermes_propagates_x_request_id_today": false,
+    "staff_meta_dual_ingress_on_active_path": false,
+    "stripe_webhook_on_active_inbound_path": false,
+    "stripe_checkout_without_mutation": false,
+    "g01a_boundary": "meta_hermes_staff_correlated_read_path",
+    "g01b_boundary": "stripe_business_id_join_not_inbound_als",
+    "dry_run_default": "hard_disabled"
+  },
+  "forbidden_claim_tokens": [
+    "independent same-id probe is e2e",
+    "stripe without mutation",
+    "runtime changed",
+    "gate verdict proven",
+    "live drill executed",
+    "single als meta to stripe webhook"
+  ],
+  "must_not_claim_as_proven": [
+    "live_correlation_drill_executed",
+    "any_gate_verdict_proven",
+    "hermes_x_request_id_propagation_implemented",
+    "stripe_checkout_without_mutation",
+    "independent_same_id_probes_as_e2e",
+    "G01_full_proven"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "G01 remains partial; 16U is audit-only design freeze; 16S live-proven delivery/search/retention retained; live G01-A drill still open"
+  },
+  "still_open": [
+    "Implement Hermes trace_id mint + X-Request-Id propagation (smallest follow-on)",
+    "Hard-disabled G01_CORRELATION_DRY_RUN send suppress",
+    "Live G01-A Meta→Hermes→Staff read-only correlation evidence freeze",
+    "G01-B Stripe business-ID join (mutating; optional later)",
+    "Concurrent isolation / abort-error LAW outcomes",
+    "Production scope (forbidden)"
+  ],
+  "final_controlled_drill": {
+    "id": "16U_DRILL_design_freeze_reject_independent_probes",
+    "status": "audit_only_design_frozen",
+    "pass_rule": "Fixtures freeze authoritative call graph + dry-run design + G01-A/B redefinition; verifier rejects independent same-ID probes as E2E; runtime paths unchanged; proven=0"
+  },
+  "artifacts": [
+    "fixtures/radar-operations/slice16u-call-graph.json",
+    "fixtures/radar-operations/slice16u-correlation-design-freeze.json",
+    "fixtures/radar-operations/slice16u-expected-contract.json",
+    "scripts/lib/radar-slice16u-correlation-design-freeze.js",
+    "scripts/verify-radar-slice16u-correlation-design-freeze.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16u-correlation-design-freeze",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16s-request-log-live-evidence",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 87121456db90a9f80ff8b3679596bc49c235cbfc..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "docker/hermes-sunset/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-request-correlation.js",
+      "scripts/lib/staff-api-request-completion-log.js",
+      "scripts/lib/stripe-webhook-public-errors.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16U is audit-only; no harness runtime, no live calls, no Staff/Hermes/DB/IaC mutation"
+  }
+}

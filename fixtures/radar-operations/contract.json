@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16S",
-  "outcome_id": "16S_request_completion_log_live_evidence",
-  "master_basis": "1bf9695264250680c41c3e7f82baba97300001a0",
-  "branch": "radar/slice-16s-request-log-live-evidence",
+  "slice": "RADAR-16U",
+  "outcome_id": "16U_correlation_design_freeze",
+  "master_basis": "87121456db90a9f80ff8b3679596bc49c235cbfc",
+  "branch": "radar/slice-16u-correlation-design-freeze",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Dual-staging 16R completion-log delivery/search/retention evidence — G01 partial_live_proven",
-  "progress_class": "partial_live_proven_evidence_only",
-  "does_not_implement": "e2e_meta_hermes_staff_stripe_drill_concurrent_isolation_abort_error_law_any_gate_proven",
+  "title": "Audit-only G01 correlation design freeze — G01-A/B redefined; independent same-ID probes rejected",
+  "progress_class": "audit_only_design_freeze",
+  "does_not_implement": "runtime_instrumentation_dry_run_switch_live_g01a_drill_any_gate_proven",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -63,7 +63,12 @@
     "fixtures/radar-operations/slice16s-request-log-live-evidence.json",
     "fixtures/radar-operations/slice16s-expected-contract.json",
     "scripts/lib/radar-slice16s-request-log-live-evidence.js",
-    "scripts/verify-radar-slice16s-request-log-live-evidence.js"
+    "scripts/verify-radar-slice16s-request-log-live-evidence.js",
+    "fixtures/radar-operations/slice16u-call-graph.json",
+    "fixtures/radar-operations/slice16u-correlation-design-freeze.json",
+    "fixtures/radar-operations/slice16u-expected-contract.json",
+    "scripts/lib/radar-slice16u-correlation-design-freeze.js",
+    "scripts/verify-radar-slice16u-correlation-design-freeze.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -105,7 +110,9 @@
     "runtime_paths_unchanged": [
       "database/",
       "docker/hermes-staging/",
+      "docker/hermes-sunset/",
       "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-request-correlation.js",
       "scripts/lib/staff-api-request-completion-log.js",
       "scripts/lib/stripe-webhook-public-errors.js",
       "infra/azure/staging/main.bicep",
@@ -113,16 +120,16 @@
       "infra/azure/staging-staff-api-metric-alerts/",
       "infra/azure/staging-cost-budgets/"
     ],
-    "note": "16S evidence-only; no runtime mutation; records prior operator 16R live delivery/search/retention"
+    "note": "16U audit-only design freeze; no runtime mutation"
   },
   "gates": [
+    "npm run verify:radar-slice16u-correlation-design-freeze",
     "npm run verify:radar-slice16s-request-log-live-evidence",
-    "npm run verify:radar-slice16r-staff-request-completion-log",
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 1bf9695264250680c41c3e7f82baba97300001a0..HEAD"
+    "git diff --check 87121456db90a9f80ff8b3679596bc49c235cbfc..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -169,7 +176,7 @@
   "correlation_delivery_proof": "live_proven_via_16S",
   "correlation_search_proof": "live_proven_via_16S",
   "correlation_retention": "live_proven_via_16S_retention_30",
-  "correlation_drill": "open_e2e_meta_hermes_staff_stripe",
+  "correlation_drill": "open_g01a_meta_hermes_staff",
   "selected_16k": {
     "outcome_id": "16K_staff_api_healthz_minimization",
     "gate_id": "G08_retention_privacy",
@@ -253,5 +260,18 @@
     "progress_class": "partial_live_proven_evidence_only",
     "does_not_implement": "e2e_meta_hermes_staff_stripe_drill_concurrent_isolation_abort_error_law_any_gate_proven",
     "builds_on": "16R_staff_api_request_completion_log"
+  },
+  "correlation_drill_design": "frozen_via_16U",
+  "correlation_stripe_inbound_als": "not_provable_without_mutation",
+  "selected_16u": {
+    "outcome_id": "16U_correlation_design_freeze",
+    "gate_id": "G01_correlation_structured_logs",
+    "progress_class": "audit_only_design_freeze",
+    "does_not_implement": "runtime_instrumentation_dry_run_switch_live_g01a_drill_any_gate_proven",
+    "builds_on": [
+      "16J_staff_api_request_correlation",
+      "16R_staff_api_request_completion_log",
+      "16S_request_completion_log_live_evidence"
+    ]
   }
 }

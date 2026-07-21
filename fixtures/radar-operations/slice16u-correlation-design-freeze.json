@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16U",
+  "outcome_id": "16U_correlation_design_freeze",
+  "gate_id": "G01_correlation_structured_logs",
+  "progress_class": "audit_only_design_freeze",
+  "master_basis": "87121456db90a9f80ff8b3679596bc49c235cbfc",
+  "branch": "radar/slice-16u-correlation-design-freeze",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "this_slice_implements_runtime": false,
+  "this_slice_executes_live": false,
+  "replaces_deferred": "16T_independent_same_id_probe_harness_concept",
+  "title": "Audit-only design freeze for genuine non-mutating G01 correlation drill",
+  "call_graph_fixture": "fixtures/radar-operations/slice16u-call-graph.json",
+  "g01_boundary_redefinition": {
+    "g01a_provable_target": {
+      "id": "meta_hermes_staff_correlated_read_path",
+      "chain": "Meta-shaped admit → Hermes gateway turn → ≥1 Staff /staff/bot/* call with same immutable trace_id",
+      "parent_event_id": "Meta wamid (immutable)",
+      "trace_id": "UUIDv4 minted once per logical guest turn at Hermes admit",
+      "mutation": "none — read tools and/or write gates off",
+      "stripe_on_chain": false
+    },
+    "g01b_business_join_only": {
+      "id": "stripe_business_id_join_not_inbound_als",
+      "chain": "Checkout create Staff request ↔ later Stripe webhook request via payment_id / session_id / metadata.trace_id",
+      "same_http_als_as_meta": false,
+      "requires_mutation": true,
+      "note": "Genuine Stripe Checkout Session create always mutates Stripe + typically payments row; webhook is a separate ingress"
+    },
+    "not_provable_as_single_inbound_als": "Meta admit through Stripe webhook without regeneration — physically different HTTP clients"
+  },
+  "stripe_truth": {
+    "checkout_create_without_mutation": false,
+    "webhook_on_meta_inbound_path": false,
+    "honest_statement": "Genuine Stripe invocation cannot be exercised without mutation. G01 E2E must not claim Stripe as a fourth hop of the inbound ALS; redefine Stripe as G01-B business-ID join after a mutating create."
+  },
+  "minimum_instrumentation": {
+    "points": [
+      {
+        "id": "hermes_meta_admit_mint_trace_id",
+        "where": "Hermes WhatsApp webhook admit (first parse of inbound message / burst first wamid)",
+        "action": "Mint immutable UUIDv4 trace_id once per logical turn; bind to turn context"
+      },
+      {
+        "id": "hermes_bind_parent_event_id_wamid",
+        "where": "Same admit",
+        "action": "Bind parent_event_id = Meta messages[].id (wamid); for burst retain source_wamids children"
+      },
+      {
+        "id": "hermes_post_bot_send_x_request_id",
+        "where": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py _post_bot",
+        "action": "Send X-Request-Id: <trace_id> on every Staff bot POST (and mirror) for the turn"
+      },
+      {
+        "id": "staff_als_accept_same_trace_id",
+        "where": "scripts/lib/staff-api-request-correlation.js acceptOrGenerateRequestId",
+        "action": "Already accepts strict UUIDv4 — no schema change required if Hermes sends canonical id"
+      },
+      {
+        "id": "staff_completion_log_emit_trace_id",
+        "where": "scripts/lib/staff-api-request-completion-log.js",
+        "action": "Existing request_id field becomes the searchable trace_id in LAW"
+      },
+      {
+        "id": "optional_stripe_metadata_copy_on_mutating_create_only",
+        "where": "Checkout Session create bot routes",
+        "action": "Copy trace_id + parent_event_id into Stripe metadata + payments metadata for G01-B join only"
+      }
+    ],
+    "not_required_for_g01a": [
+      "Staff Meta dual-ingress instrumentation",
+      "Independent /healthz probe",
+      "Stripe pre-verify unsigned probe",
+      "Single ALS spanning Meta to Stripe webhook"
+    ]
+  },
+  "hard_disabled_dry_run_mode": {
+    "name": "G01_CORRELATION_DRY_RUN",
+    "default": "hard_disabled",
+    "purpose": "Exercise real Hermes→Staff internal dispatch while suppressing every WhatsApp send, booking/hold/payment/database write, and Stripe operation",
+    "activation_authority": {
+      "required_all": [
+        "Explicit operator env G01_CORRELATION_DRY_RUN=1 on Hermes runtime only",
+        "Explicit operator env BOT_BOOKING_ENABLED=false and STRIPE_LINKS_ENABLED=false on Staff API (or equivalent fail-closed write gates)",
+        "Staging subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 only",
+        "Tenant wolfhouse-somo or sunset only — never production hosts",
+        "Confirmation phrase RADAR-16U-CORRELATION-DRY-RUN for any follow-on live apply slice"
+      ],
+      "forbidden": [
+        "Default-on",
+        "Production RGs or hosts",
+        "sk_live_ Stripe keys",
+        "Signed live guest send while dry-run claims active"
+      ]
+    },
+    "suppressions": [
+      "WhatsApp Cloud outbound send (Hermes send path no-op / capture-only)",
+      "booking-create / hold / guest_message_events write paths",
+      "payment row creates and Stripe checkout.sessions.create",
+      "open-demo live write gates",
+      "conversation reset / test phone mutation helpers"
+    ],
+    "still_exercised": [
+      "Hermes Meta-shaped webhook admit + gateway turn",
+      "Burst coalesce (Sunset)",
+      "_post_bot to Staff with X-Request-Id once instrumentation lands",
+      "Staff ALS + completion log on read routes (availability-check, booking-preview, sunset quote/catalog)",
+      "simulate-guest-turn allow_writes=false as offline/staging rehearsal path"
+    ],
+    "existing_building_blocks": [
+      "docker/hermes-staging/wolfhouse/simulate_core.py allow_writes=false",
+      "BOT_BOOKING_ENABLED default-deny on booking-create-from-plan",
+      "STRIPE_LINKS_ENABLED gate on create-stripe-link",
+      "POST /staff/bot/booking-dry-run and booking-preview read paths"
+    ],
+    "not_existing_today": [
+      "Hard-disabled WhatsApp send suppress switch named G01_CORRELATION_DRY_RUN",
+      "Hermes X-Request-Id propagation",
+      "stripe_links_dry_run synthetic checkout without Stripe SDK call"
+    ],
+    "fail_closed": [
+      "If dry-run env unset → normal staging behavior (no silent dry-run)",
+      "If any write or Stripe create is attempted while dry-run claimed → refuse and mark drill failed",
+      "If trace_id regenerated at Staff (Hermes omitted header) → fail closed for G01-A",
+      "If evidence is only independent same-ID probes → reject as non-E2E"
+    ],
+    "tenant_isolation": {
+      "wolfhouse": "LUNA_CLIENT_SLUG=wolfhouse-somo; Staff DEFAULT/client binding wolfhouse-somo; staff-staging host",
+      "sunset": "LUNA_CLIENT_SLUG=sunset; STRIPE_WEBHOOK_CLIENT_SLUG=sunset; sunset-staging host; location via SUNSET_INGRESS_LOCATION_ID"
+    },
+    "test_mode_locks": {
+      "stripe_mode": "test",
+      "forbidden_stripe_prefixes": ["sk_live_"],
+      "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+      "resource_groups": ["wh-staging-rg", "luna-sunset-staging-rg"]
+    },
+    "cleanup": {
+      "policy": "Dry-run creates no bookings/holds/payments/guest messages — cleanup is no-op if fail-closed held",
+      "if_mutation_leaked": "Stop drill; mark fail-closed; operator cleanup via existing staging reset tools outside 16U; do not auto-delete in design freeze"
+    }
+  },
+  "evidence_schema_design": {
+    "g01a_record_keys_allowlist": [
+      "event",
+      "trace_id",
+      "parent_event_id",
+      "tenant_slug",
+      "component",
+      "route",
+      "method",
+      "status_code",
+      "outcome",
+      "mutation",
+      "causal_parent_component"
+    ],
+    "forbidden_evidence_keys": [
+      "authorization",
+      "token",
+      "body",
+      "phone",
+      "email",
+      "guest",
+      "stripe_signature",
+      "raw_url",
+      "message_text"
+    ],
+    "rejected_as_e2e": [
+      "independent_same_id_healthz_probe",
+      "independent_same_id_stripe_preverify_probe",
+      "independent_same_id_staff_meta_unsigned_probe",
+      "parallel_unrelated_http_calls_sharing_uuid",
+      "deferred_16t_style_multi_ingress_same_id_harness"
+    ],
+    "pass_rule_g01a": "One immutable trace_id minted at Hermes admit equals Staff ALS request_id on ≥1 real /staff/bot/* hop; parent_event_id=wamid; mutation=false; WhatsApp send suppressed; searchable completion in LAW"
+  },
+  "smallest_implementation_slice_after_freeze": {
+    "id": "16V_candidate_hermes_trace_propagate_read_only",
+    "steps": [
+      "Hermes mint trace_id + bind wamid; _post_bot send X-Request-Id",
+      "Hard-disabled G01_CORRELATION_DRY_RUN send suppress + write gates",
+      "Offline + staging read-only drill evidence freeze for G01-A only",
+      "Do not claim Stripe Checkout or webhook as inbound ALS"
+    ]
+  },
+  "explicitly_not_claimed": [
+    "live_correlation_drill_executed",
+    "any_gate_verdict_proven",
+    "g02_g09_score_changes",
+    "runtime_behavior_change",
+    "hermes_x_request_id_propagation_implemented",
+    "stripe_checkout_without_mutation",
+    "single_als_spanning_meta_to_stripe_webhook",
+    "production",
+    "independent_same_id_probes_as_e2e"
+  ]
+}

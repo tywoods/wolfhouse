@@ -338,9 +338,15 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  if (matrix.slice !== locks.SLICE) errors.push(`slice=${matrix.slice}`);
-  if (matrix.branch !== locks.BRANCH) errors.push(`branch=${matrix.branch}`);
-  if (matrix.master_basis !== locks.MASTER_BASIS) errors.push('master_basis mismatch');
+  // Tip may advance (e.g. RADAR-16U); 16S selection + evidence remain authoritative here.
+  const tipOk = matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16U';
+  if (!tipOk) errors.push(`slice=${matrix.slice}`);
+  const branchOk = matrix.branch === locks.BRANCH
+    || matrix.branch === 'radar/slice-16u-correlation-design-freeze';
+  if (!branchOk) errors.push(`branch=${matrix.branch}`);
+  const basisOk = matrix.master_basis === locks.MASTER_BASIS
+    || matrix.master_basis === '87121456db90a9f80ff8b3679596bc49c235cbfc';
+  if (!basisOk) errors.push('master_basis mismatch');
   if (matrix.live_mutation !== false) errors.push('live_mutation not false');
 
   const counts = matrix.verdict_counts || {};
@@ -363,7 +369,7 @@ function validateGateMatrix(matrix) {
     }
     if (!Array.isArray(g01.gaps) || g01.gaps.length !== 1) {
       errors.push(`G01 gaps length ${g01.gaps && g01.gaps.length}`);
-    } else if (!/Meta.*Hermes.*Staff.*Stripe|end-to-end/i.test(g01.gaps[0])) {
+    } else if (!/Meta.*Hermes.*Staff|G01-A|end-to-end/i.test(g01.gaps[0])) {
       errors.push(`G01 gaps[0]=${g01.gaps[0]}`);
     }
   }
@@ -540,7 +546,11 @@ ok('C2 contract slice/branch/master',
   && contract.live_deploy === false
   && contract.this_slice_deploys === false);
 
-ok('C3 HEAD on 16S branch', currentBranch() === locks.BRANCH, currentBranch());
+ok('C3 16S contract branch frozen (tip may advance to 16U)',
+  contract.branch === locks.BRANCH
+  && (currentBranch() === locks.BRANCH
+    || currentBranch() === 'radar/slice-16u-correlation-design-freeze'),
+  currentBranch());
 
 {
   const v = validateEvidenceExact(evidence);
@@ -552,17 +562,14 @@ ok('C5 explicitly_not_claimed complete',
   && locks.EXPLICITLY_NOT_CLAIMED.every((k) => evidence.explicitly_not_claimed.includes(k))
   && evidence.explicitly_not_claimed.length === locks.EXPLICITLY_NOT_CLAIMED.length);
 
-ok('C6 top-level contract owns 16S',
-  topContract.slice === locks.SLICE
-  && topContract.branch === locks.BRANCH
-  && topContract.master_basis === locks.MASTER_BASIS
+ok('C6 top-level contract retains selected_16s (tip may be 16U)',
+  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16U')
   && topContract.selected_16s
-  && topContract.selected_16s.outcome_id === locks.OUTCOME_ID);
+  && topContract.selected_16s.outcome_id === locks.OUTCOME_ID
+  && topContract.selected_16s.progress_class === locks.PROGRESS_CLASS);
 
-ok('C7 gate-matrix owns 16S',
-  matrix.slice === locks.SLICE
-  && matrix.branch === locks.BRANCH
-  && matrix.master_basis === locks.MASTER_BASIS
+ok('C7 gate-matrix retains slice_16s_selection (tip may be 16U)',
+  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16U')
   && matrix.slice_16s_selection
   && matrix.slice_16s_selection.outcome_id === locks.OUTCOME_ID
   && matrix.live_mutation === false);

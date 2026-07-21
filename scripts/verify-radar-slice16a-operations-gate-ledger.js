@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '1bf9695264250680c41c3e7f82baba97300001a0';
+const MASTER_BASIS = '87121456db90a9f80ff8b3679596bc49c235cbfc';
+const BRANCH_16U = 'radar/slice-16u-correlation-design-freeze';
 const BRANCH_16S = 'radar/slice-16s-request-log-live-evidence';
 const BRANCH_16P = 'radar/slice-16p-live-drill-evidence';
 const BRANCH_16O = 'radar/slice-16o-stripe-webhook-error-minimization';
@@ -109,13 +110,14 @@ function secretFree(text, label) {
 }
 
 function runtimePathsUnchanged() {
-  // 16S is evidence-only; 16A freeze requires database/, Hermes, Staff API runtime,
-  // completion-log helper, staging Bicep, 16H metric-alert module, and 16B budgets
-  // untouched vs master.
+  // 16U is audit-only; freeze requires database/, Hermes, Staff API runtime,
+  // correlation/completion helpers, staging Bicep, 16H/16B modules untouched.
   const paths = [
     'database/',
     'docker/hermes-staging/',
+    'docker/hermes-sunset/',
     'scripts/staff-query-api.js',
+    'scripts/lib/staff-api-request-correlation.js',
     'scripts/lib/staff-api-request-completion-log.js',
     'scripts/lib/stripe-webhook-public-errors.js',
     'infra/azure/staging/main.bicep',
@@ -348,13 +350,14 @@ const blob = [
 const sec = secretFree(blob, 'fixtures+doc');
 ok('F32 secret-free fixtures and doc', sec.ok, sec.detail);
 
-ok('F33 doc mentions selected 16S id', /16S_request_completion_log_live_evidence/.test(doc));
-ok('F33b doc retains 16P id', /16P_live_drill_evidence_reconciliation|16P/.test(doc));
-ok('F33c doc retains 16O id', /16O_stripe_webhook_error_minimization|16O/.test(doc));
+ok('F33 doc mentions selected 16U id', /16U_correlation_design_freeze/.test(doc));
+ok('F33b doc retains 16S id', /16S_request_completion_log_live_evidence/.test(doc));
+ok('F33c doc retains 16P id', /16P_live_drill_evidence_reconciliation|16P/.test(doc));
+ok('F33d doc retains 16O id', /16O_stripe_webhook_error_minimization|16O/.test(doc));
 ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /partial.*9/i.test(doc) && /absent.*0/i.test(doc));
 ok('F35 findings lists G01/G02/G03/G05/G06/G08/G09 partial',
   /G01/.test(findings) && /G02/.test(findings) && /G03/.test(findings) && /G05/.test(findings) && /G06/.test(findings) && /G08/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
-  && /16O/.test(findings) && /16P/.test(findings) && /16S/.test(findings));
+  && /16O/.test(findings) && /16P/.test(findings) && /16S/.test(findings) && /16U/.test(findings));
 
 ok('F36 healthz source cite present', pathExists('scripts/staff-query-api.js'));
 ok('F37 capture cost script present (read-only helper)',
@@ -363,7 +366,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 zero-mutation: database/Hermes/StaffAPI/Bicep/16H/16B unchanged vs master basis (16S evidence-only)', rt.ok, rt.detail);
+ok('F39 zero-mutation: database/Hermes/StaffAPI/Bicep/16H/16B unchanged vs master basis (16U audit-only)', rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
   matrix.final_controlled_drill_16a
@@ -391,17 +394,19 @@ const slice16pContract = readJson(path.join(FIXTURE_DIR, 'slice16p-expected-cont
 const slice16oContract = readJson(path.join(FIXTURE_DIR, 'slice16o-expected-contract.json'));
 const slice16rContract = readJson(path.join(FIXTURE_DIR, 'slice16r-expected-contract.json'));
 const slice16sContract = readJson(path.join(FIXTURE_DIR, 'slice16s-expected-contract.json'));
+const slice16uContract = readJson(path.join(FIXTURE_DIR, 'slice16u-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16S contract + HEAD',
-  matrix.branch === BRANCH_16S
-  && contract.branch === BRANCH_16S
-  && slice16sContract.branch === BRANCH_16S
-  && headBranch === BRANCH_16S,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16s=${slice16sContract.branch} head=${headBranch}`);
-ok('F48b frozen 16O/16P/16R contracts retain their own branch pins',
+ok('F48 gate-matrix branch pin equals 16U contract + HEAD',
+  matrix.branch === BRANCH_16U
+  && contract.branch === BRANCH_16U
+  && slice16uContract.branch === BRANCH_16U
+  && headBranch === BRANCH_16U,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16u=${slice16uContract.branch} head=${headBranch}`);
+ok('F48b frozen 16O/16P/16R/16S contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
-  && slice16rContract.branch === BRANCH_16R);
+  && slice16rContract.branch === BRANCH_16R
+  && slice16sContract.branch === BRANCH_16S);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -424,7 +429,7 @@ const g08CitesPublicErrors = g08
   && g08.source_evidence.some((ev) =>
     ev.path === 'scripts/lib/stripe-webhook-public-errors.js'
     || ev.path === 'scripts/staff-query-api.js');
-ok('F50 must_not forbids live mutation; 16S leaves Staff API/Bicep unchanged; G08 still cites public-errors',
+ok('F50 must_not forbids live mutation; 16U leaves Staff API/Bicep unchanged; G08 still cites public-errors',
   !hasStaleSourceForbid
   && hasLiveDeployedForbid
   && g08CitesPublicErrors
@@ -434,12 +439,13 @@ ok('F50 must_not forbids live mutation; 16S leaves Staff API/Bicep unchanged; G0
   && matrix.live_mutation === false,
   `runtimeDiff=${runtimeDiff.join(',') || '(none)'} bicepDiff=${bicepDiff.join(',') || '(none)'} stale=${hasStaleSourceForbid}`);
 
-ok('F51 G01 partial_live_proven via 16S (16J/16R source retained; E2E drill open)',
+ok('F51 G01 partial_live_proven via 16S + 16U design freeze (G01-A live open)',
   g01 && g01.verdict === 'partial'
   && g01.progress_class === 'partial_live_proven'
   && /16S|1bf9695|ContainerAppConsoleLogs_CL/i.test(g01.rationale)
+  && /16U|design freeze|G01-A/i.test(g01.rationale)
   && Array.isArray(g01.gaps) && g01.gaps.length === 1
-  && /Meta.*Hermes|end-to-end/i.test(g01.gaps[0]));
+  && /G01-A|Meta.*Hermes|correlation/i.test(g01.gaps[0]));
 ok('F52 correlation lib present', pathExists('scripts/lib/staff-api-request-correlation.js'));
 ok('F53 16J verifier script present',
   pathExists('scripts/verify-radar-slice16j-staff-request-correlation.js'));
@@ -650,11 +656,43 @@ ok('F111 16S acceptance criteria finite (>=4)',
   Array.isArray(sel16s.acceptance_criteria) && sel16s.acceptance_criteria.length >= 4);
 ok('F112 16S explicitly does not claim E2E/proven/G02-G09 changes',
   /e2e|meta_hermes|any_gate_proven|concurrent|abort/i.test(String(sel16s.does_not_implement || '')));
-ok('F113 correlation delivery/search/retention live via 16S; E2E drill open',
+ok('F113 correlation delivery/search/retention live via 16S; G01-A drill open',
   contract.correlation_delivery_proof === 'live_proven_via_16S'
   && contract.correlation_search_proof === 'live_proven_via_16S'
   && /live_proven_via_16S/.test(String(contract.correlation_retention || ''))
-  && /open/.test(String(contract.correlation_drill || '')));
+  && /open|g01a/i.test(String(contract.correlation_drill || '')));
+
+const sel16u = matrix.slice_16u_selection;
+ok('F114 exactly one 16U selection',
+  sel16u && sel16u.selected === true
+  && sel16u.outcome_id === '16U_correlation_design_freeze'
+  && sel16u.gate_id === 'G01_correlation_structured_logs'
+  && sel16u.progress_class === 'audit_only_design_freeze');
+ok('F115 contract selected_16u matches',
+  contract.selected_16u
+  && contract.selected_16u.outcome_id === '16U_correlation_design_freeze'
+  && contract.correlation_drill_design === 'frozen_via_16U');
+ok('F116 16U call graph + design fixtures present',
+  pathExists('fixtures/radar-operations/slice16u-call-graph.json')
+  && pathExists('fixtures/radar-operations/slice16u-correlation-design-freeze.json')
+  && pathExists('fixtures/radar-operations/slice16u-expected-contract.json'));
+ok('F117 16U verifier present',
+  pathExists('scripts/lib/radar-slice16u-correlation-design-freeze.js')
+  && pathExists('scripts/verify-radar-slice16u-correlation-design-freeze.js'));
+ok('F118 16U final controlled drill present',
+  sel16u.final_controlled_drill
+  && sel16u.final_controlled_drill.id === '16U_DRILL_design_freeze_reject_independent_probes');
+ok('F119 16U acceptance criteria finite (>=4)',
+  Array.isArray(sel16u.acceptance_criteria) && sel16u.acceptance_criteria.length >= 4);
+ok('F120 16U does not implement runtime/live',
+  /runtime|live|any_gate_proven/i.test(String(sel16u.does_not_implement || '')));
+ok('F121 doc rejects independent same-ID probes as E2E',
+  /independent same-id|same-ID probe/i.test(doc));
+ok('F122 doc states Stripe cannot without mutation',
+  /cannot be exercised without mutation/i.test(doc));
+ok('F123 no 16T harness on this tip',
+  !pathExists('scripts/run-radar-slice16t-e2e-correlation-drill.js')
+  && !pathExists('scripts/lib/radar-slice16t-e2e-correlation-drill.js'));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
