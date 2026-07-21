@@ -1,0 +1,22 @@
+{
+  "schema_version": "crowsnest.ai_usage.v1",
+  "event_id": "evt_fixture_bad_arith_001",
+  "occurred_at": "2026-07-21T12:22:00.000Z",
+  "client_slug": "example-client",
+  "tenant_id": "tenant_example_zeta",
+  "source_service": "example-front-desk",
+  "operation": "chat.completion",
+  "provider": "openai",
+  "model": "gpt-example-mini",
+  "status": "succeeded",
+  "tokens": {
+    "availability": "measured",
+    "input_tokens": 10,
+    "output_tokens": 5,
+    "total_tokens": 99
+  },
+  "latency_ms": 10,
+  "cost": {
+    "state": "unavailable"
+  }
+}
