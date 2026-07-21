@@ -15,6 +15,11 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
+function renderStyleTag(css, nonce) {
+  const nonceAttr = nonce ? ` nonce="${escapeHtml(nonce)}"` : '';
+  return `<style${nonceAttr}>\n${css}\n  </style>`;
+}
+
 function statusPillModifier(status) {
   const key = String(status || '').trim().toLowerCase();
   if (key === 'linked' || key === 'active' || key === 'live') return 'pill--success';
@@ -157,6 +162,33 @@ a:focus-visible,button:focus-visible{outline:none;box-shadow:var(--focus)}
   flex-wrap:wrap;
   margin-bottom:10px;
 }
+.page-header-top{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+  flex-wrap:wrap;
+}
+.logout-form{
+  margin-left:auto;
+}
+.logout-button{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:40px;
+  padding:0 14px;
+  border-radius:var(--radius-sm);
+  border:1px solid rgba(155,69,69,.22);
+  background:linear-gradient(180deg,#F6E7E7 0%,#EFD8D8 100%);
+  color:#7B3030;
+  font-size:14px;
+  font-weight:800;
+  cursor:pointer;
+  box-shadow:var(--shadow-soft);
+  white-space:nowrap;
+}
+.logout-button:hover{background:linear-gradient(180deg,#F4E0E0 0%,#E8CCCC 100%)}
 .ops-badge{
   display:inline-flex;
   align-items:center;
@@ -393,7 +425,158 @@ h2.section{
 .safety strong{color:#4F3910}
 `;
 
-function renderCrowsnestPage() {
+const CROWSNEST_LOGIN_CSS = `
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --sand:#F4EFE6;
+  --sand-deep:#E9E0D2;
+  --surface:#FFFCF7;
+  --surface-raised:#FFFFFF;
+  --navy:#1E2A36;
+  --charcoal:#2C3948;
+  --text-2:#4F5D6B;
+  --text-3:#6E7C89;
+  --sea:#4A7C94;
+  --sea-soft:#D8E8F0;
+  --sea-link:#2F6F8F;
+  --border:#E2D8CA;
+  --border-soft:#EDE6DB;
+  --shadow:0 16px 40px rgba(30,42,54,.09);
+  --shadow-soft:0 2px 10px rgba(30,42,54,.05);
+  --radius:18px;
+  --radius-sm:12px;
+  --radius-pill:999px;
+  --focus:0 0 0 3px rgba(74,124,148,.28);
+}
+html{font-size:16px}
+body{
+  min-height:100vh;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  color:var(--charcoal);
+  background:
+    radial-gradient(circle at 14% 0%,rgba(201,123,90,.08),transparent 32%),
+    radial-gradient(circle at 88% 8%,rgba(74,124,148,.10),transparent 30%),
+    linear-gradient(180deg,var(--sand) 0%,#F7F2EA 42%,var(--sand-deep) 100%);
+  line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--sea-link);text-decoration:none}
+a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow:var(--focus)}
+.login-shell{
+  min-height:100vh;
+  display:grid;
+  place-items:center;
+  padding:20px 16px;
+}
+@media(min-width:720px){
+  .login-shell{padding:32px 24px}
+}
+.login-card{
+  width:min(100%, 560px);
+  background:linear-gradient(135deg,rgba(255,252,247,.98),rgba(255,255,255,.92));
+  border:1px solid var(--border-soft);
+  border-radius:calc(var(--radius) + 2px);
+  box-shadow:var(--shadow);
+  padding:22px 18px 20px;
+}
+@media(min-width:720px){
+  .login-card{padding:28px 28px 26px}
+}
+.login-logo{
+  display:block;
+  width:min(100%, 460px);
+  height:auto;
+  margin:0 0 18px;
+}
+.login-kicker{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  margin-bottom:10px;
+  padding:5px 10px;
+  border-radius:var(--radius-pill);
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--sea);
+  background:var(--sea-soft);
+  border:1px solid rgba(74,124,148,.18);
+}
+.login-title{
+  margin:0 0 8px;
+  font-size:clamp(1.65rem,4vw,2.1rem);
+  font-weight:800;
+  letter-spacing:-.03em;
+  color:var(--navy);
+  line-height:1.1;
+}
+.login-copy{
+  margin:0 0 18px;
+  color:var(--text-2);
+  font-size:15px;
+  max-width:54ch;
+}
+.login-error{
+  margin:0 0 14px;
+  padding:12px 14px;
+  border-radius:var(--radius-sm);
+  background:#F4DEDE;
+  border:1px solid rgba(155,69,69,.18);
+  color:#7B3030;
+  font-size:14px;
+}
+.login-form{display:grid;gap:14px}
+.field{display:grid;gap:6px}
+.field-label{
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  color:var(--text-3);
+}
+.field-input{
+  width:100%;
+  padding:12px 14px;
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  background:#FFFDF9;
+  color:var(--charcoal);
+  font-size:15px;
+}
+.field-input::placeholder{color:#9CA7B0}
+.login-button{
+  min-height:46px;
+  padding:0 16px;
+  border:1px solid rgba(74,124,148,.28);
+  border-radius:var(--radius-sm);
+  background:linear-gradient(180deg,#4F8199 0%,#3F6F86 100%);
+  color:#FFFFFF;
+  font-size:15px;
+  font-weight:800;
+  cursor:pointer;
+  box-shadow:var(--shadow-soft);
+}
+.login-footer{
+  margin-top:14px;
+  font-size:12px;
+  color:var(--text-3);
+}
+.sr-only{
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;
+  border:0;
+}
+`;
+
+function renderCrowsnestPage(options = {}) {
+  const nonce = options.cspNonce ? String(options.cspNonce) : '';
   const clients = getCrowsnestClients();
   const templates = getCrowsnestTemplates();
   const clientCards = clients.map(renderClientCard).join('\n      ');
@@ -409,15 +592,18 @@ function renderCrowsnestPage() {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Crowsnest — Luna Front Desk</title>
-  <style>
-${CROWSNEST_CSS}
-  </style>
+  ${renderStyleTag(CROWSNEST_CSS, nonce)}
 </head>
 <body>
   <div class="wrap">
     <header class="page-header">
-      <div class="eyebrow-row">
-        <span class="ops-badge"><span class="ops-badge-dot" aria-hidden="true"></span>Internal Ops</span>
+      <div class="page-header-top">
+        <div class="eyebrow-row">
+          <span class="ops-badge"><span class="ops-badge-dot" aria-hidden="true"></span>Internal Ops</span>
+        </div>
+        <form class="logout-form" method="post" action="/logout">
+          <button class="logout-button" type="submit" aria-label="Sign out of Crowsnest">Sign out</button>
+        </form>
       </div>
       <h1 class="page-title">Crowsnest</h1>
       <p class="sub">Internal Luna Front Desk control portal</p>
@@ -450,6 +636,47 @@ ${CROWSNEST_CSS}
 </html>`;
 }
 
+function renderCrowsnestLoginPage(options = {}) {
+  const nonce = options.cspNonce ? String(options.cspNonce) : '';
+  const errorHtml = options.invalidCredentials
+    ? '<p class="login-error" role="alert">Invalid credentials. Try again.</p>'
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Crowsnest sign in</title>
+  ${renderStyleTag(CROWSNEST_LOGIN_CSS, nonce)}
+</head>
+<body>
+  <main class="login-shell">
+    <section class="login-card" aria-labelledby="login-title">
+      <img class="login-logo" src="/crowsnest/assets/logo.png" alt="Crowsnest" width="2172" height="724">
+      <p class="login-kicker">Private operator portal</p>
+      <h1 class="login-title" id="login-title">Sign in to Crowsnest</h1>
+      <p class="login-copy">This private portal is for Monshies and Earthling. Use your operator credentials to continue.</p>
+      ${errorHtml}
+      <form class="login-form" method="post" action="/login" accept-charset="utf-8">
+        <div class="field">
+          <label class="field-label" for="username">Username</label>
+          <input class="field-input" id="username" name="username" type="text" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label class="field-label" for="password">Password</label>
+          <input class="field-input" id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="login-button" type="submit">Sign in</button>
+      </form>
+      <p class="login-footer">Private access only. No browser Basic Auth prompt.</p>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
 module.exports = {
   renderCrowsnestPage,
+  renderCrowsnestLoginPage,
 };
