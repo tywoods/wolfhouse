@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '72d8faf74df27a714482ebdefb8f88870d080306';
+const MASTER_BASIS = '137b14a0b3efc689ba749340a97ab4e9bc220edc';
+const BRANCH_16AD = 'radar/slice-16ad-g02-sampled-restart-continuity-evidence';
 const BRANCH_16AC = 'radar/slice-16ac-organic-restart-alert-evidence';
 const BRANCH_16AB = 'radar/slice-16ab-g02-readyz503-evidence';
 const BRANCH_16AA = 'radar/slice-16aa-g02-live-sigint-evidence';
@@ -404,10 +405,10 @@ ok('F44 contract gates pin range diff --check',
   && contract.gates.some((g) => g === `git diff --check ${MASTER_BASIS}..HEAD`));
 
 const g02 = matrix.gates.find((g) => g.id === 'G02_readiness_dependencies');
-ok('F45 G02 partial_live_proven via 16AC organic restart + 16AB readyz=503 + 16AA SIGINT + 16Z SIGTERM + 16X traffic-shed + 16Y source (zero-downtime/production open)',
+ok('F45 G02 partial_live_proven via 16AD sampled continuity + 16AC organic restart + 16AB readyz=503 + 16AA SIGINT + 16Z SIGTERM + 16X traffic-shed + 16Y source (absolute zero-downtime/production open)',
   g02 && g02.verdict === 'partial'
   && g02.progress_class === 'partial_live_proven'
-  && /readyz|health\/ready|health.ready|traffic.?shed|g02fail|2dcda08|16X|16Z|16AA|16AB|16AC|SIGTERM|SIGINT|organic.?restart|restart.?count/i.test(g02.rationale)
+  && /readyz|health\/ready|health.ready|traffic.?shed|g02fail|2dcda08|16X|16Z|16AA|16AB|16AC|16AD|SIGTERM|SIGINT|organic.?restart|restart.?count|sampled/i.test(g02.rationale)
   && (/16I/.test(g02.rationale) || /16P/.test(g02.rationale) || /16W/.test(g02.rationale))
   && /16X|g02fail|traffic.?shed/i.test(g02.rationale)
   && /16Y|shutdown.?completion/i.test(g02.rationale)
@@ -415,6 +416,7 @@ ok('F45 G02 partial_live_proven via 16AC organic restart + 16AB readyz=503 + 16A
   && /16AA|sigint/i.test(g02.rationale)
   && /16AB|readyz.?503|g02503/i.test(g02.rationale)
   && /16AC|organic.?restart|restart.?count/i.test(g02.rationale)
+  && /16AD|sampled.?restart|concurrent.?sampled/i.test(g02.rationale)
   && Array.isArray(g02.gaps)
   && !g02.gaps.some((g) => /closeReadinessPool not yet wired/i.test(String(g)))
   && !g02.gaps.some((g) => /dependency.failure.*not executed|traffic.shed.*not executed/i.test(String(g)))
@@ -425,7 +427,8 @@ ok('F45 G02 partial_live_proven via 16AC organic restart + 16AB readyz=503 + 16A
     /organic.?metric.?alert.?firing.?not.?claimed|organic.?restart.?alert/i.test(String(g))
     && /not claimed/i.test(String(g))
   ))
-  && g02.gaps.some((g) => /zero.?downtime|production/i.test(String(g))));
+  && !g02.gaps.some((g) => /^Zero downtime during restart \/ concurrent sampled continuity not claimed$/i.test(String(g)))
+  && g02.gaps.some((g) => /absolute|continuous|zero.?downtime|production|cold.?start/i.test(String(g))));
 ok('F46 readiness lib present', pathExists('scripts/lib/staff-api-readiness.js'));
 ok('F47 16I verifier script present',
   pathExists('scripts/verify-radar-slice16i-staff-api-readiness.js'));
@@ -442,14 +445,15 @@ const slice16zContract = readJson(path.join(FIXTURE_DIR, 'slice16z-expected-cont
 const slice16aaContract = readJson(path.join(FIXTURE_DIR, 'slice16aa-expected-contract.json'));
 const slice16abContract = readJson(path.join(FIXTURE_DIR, 'slice16ab-expected-contract.json'));
 const slice16acContract = readJson(path.join(FIXTURE_DIR, 'slice16ac-expected-contract.json'));
+const slice16adContract = readJson(path.join(FIXTURE_DIR, 'slice16ad-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16AC contract + HEAD',
-  matrix.branch === BRANCH_16AC
-  && contract.branch === BRANCH_16AC
-  && slice16acContract.branch === BRANCH_16AC
-  && headBranch === BRANCH_16AC,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16ac=${slice16acContract.branch} head=${headBranch}`);
-ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB contracts retain their own branch pins',
+ok('F48 gate-matrix branch pin equals 16AD contract + HEAD',
+  matrix.branch === BRANCH_16AD
+  && contract.branch === BRANCH_16AD
+  && slice16adContract.branch === BRANCH_16AD
+  && headBranch === BRANCH_16AD,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16ad=${slice16adContract.branch} head=${headBranch}`);
+ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
   && slice16rContract.branch === BRANCH_16R
@@ -460,7 +464,8 @@ ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB contracts retain t
   && slice16yContract.branch === BRANCH_16Y
   && slice16zContract.branch === BRANCH_16Z
   && slice16aaContract.branch === BRANCH_16AA
-  && slice16abContract.branch === BRANCH_16AB);
+  && slice16abContract.branch === BRANCH_16AB
+  && slice16acContract.branch === BRANCH_16AC);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -963,6 +968,36 @@ ok('F166 doc mentions 16AC + organic restart + inbox open + G02/G03 partial',
   && /isSuppressed|unsuppressed/i.test(doc)
   && !/\bG02\s+proven\b/i.test(doc)
   && !/\bG03\s+proven\b/i.test(doc));
+
+const sel16ad = matrix.slice_16ad_selection;
+ok('F167 exactly one 16AD selection',
+  sel16ad && sel16ad.selected === true
+  && sel16ad.outcome_id === '16AD_g02_sampled_restart_continuity_evidence'
+  && sel16ad.gate_id === 'G02_readiness_dependencies'
+  && sel16ad.progress_class === 'partial_live_proven_evidence_only');
+ok('F168 contract selected_16ad matches',
+  contract.selected_16ad
+  && contract.selected_16ad.outcome_id === '16AD_g02_sampled_restart_continuity_evidence'
+  && contract.selected_16ad.g02_sampled_restart_continuity === 'live_proven_via_16AD'
+  && contract.selected_16ad.g02_verdict === 'partial'
+  && contract.selected_16ad.g02_absolute_zero_downtime === 'open'
+  && contract.selected_16ad.g02_production === 'open');
+ok('F169 16AD fixtures + verifier present',
+  pathExists('fixtures/radar-operations/slice16ad-expected-contract.json')
+  && pathExists('fixtures/radar-operations/slice16ad-g02-sampled-restart-continuity-evidence.json')
+  && pathExists('scripts/lib/radar-slice16ad-g02-sampled-restart-continuity-evidence.js')
+  && pathExists('scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js'));
+ok('F170 16AD final controlled drill live_proven',
+  sel16ad.final_controlled_drill
+  && /live_proven_via_16AD/i.test(String(sel16ad.final_controlled_drill.status)));
+ok('F171 16AD does not claim absolute zero-downtime/cold-start/all-91/production/full G02',
+  /absolute|cold_start|production|full_g02|between_sample/i.test(String(sel16ad.does_not_implement || '')));
+ok('F172 doc mentions 16AD + warmup disclosure + sampling-resolution claim; G02 partial',
+  /16AD|sampled.?restart|concurrent.?sampled/i.test(doc)
+  && /warmup|0\.\.2|samples 0..2/i.test(doc)
+  && /sampling resolution|not absolute|not claim.*absolute/i.test(doc)
+  && /G02.*partial|partial.*G02/i.test(doc)
+  && !/\bG02\s+proven\b/i.test(doc));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

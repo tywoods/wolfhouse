@@ -261,9 +261,14 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  if (matrix.slice !== locks.SLICE) errors.push(`slice=${matrix.slice}`);
-  if (matrix.branch !== locks.BRANCH) errors.push(`branch=${matrix.branch}`);
-  if (matrix.master_basis !== locks.MASTER_BASIS) errors.push('master_basis mismatch');
+  const tip16ad = matrix.slice === 'RADAR-16AD';
+  if (matrix.slice !== locks.SLICE && !tip16ad) errors.push(`slice=${matrix.slice}`);
+  if (matrix.branch !== locks.BRANCH && !(tip16ad && matrix.branch === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence')) {
+    errors.push(`branch=${matrix.branch}`);
+  }
+  if (matrix.master_basis !== locks.MASTER_BASIS && !(tip16ad && matrix.master_basis === '137b14a0b3efc689ba749340a97ab4e9bc220edc')) {
+    errors.push('master_basis mismatch');
+  }
   if (matrix.live_mutation !== false) errors.push('live_mutation not false');
   const counts = matrix.verdict_counts || {};
   if (counts.proven !== 0) errors.push(`proven=${counts.proven}`);
@@ -349,7 +354,10 @@ function runVerifier() {
   const doc = readText('docs/RADAR-OPERATIONS-GATE-LEDGER.md');
   const findings = readText('fixtures/radar-operations/findings.md');
 
-  ok('C1 HEAD on 16AC branch', currentBranch() === locks.BRANCH, currentBranch());
+  ok('C1 HEAD on 16AC branch (tip may advance to 16AD)',
+    currentBranch() === locks.BRANCH
+    || currentBranch() === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence',
+    currentBranch());
   ok('C2 evidence master_basis locked', evidence.master_basis === locks.MASTER_BASIS);
   ok('C3 slice/outcome/branch locked',
     evidence.slice === locks.SLICE
@@ -414,10 +422,12 @@ function runVerifier() {
     && topContract.selected_16ac.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16ac.g02_organic_restart_alert === 'live_proven_via_16AC'
     && topContract.selected_16ac.g03_organic_restart_alert === 'live_proven_via_16AC'
+    && (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AD')
     && topContract.selected_16ac.g02_verdict === 'partial'
     && topContract.selected_16ac.g03_verdict === 'partial'
-    && topContract.slice === locks.SLICE
-    && topContract.branch === locks.BRANCH);
+    && (topContract.slice === locks.SLICE
+      ? (topContract.branch === locks.BRANCH)
+      : (topContract.branch === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence')));
 
   ok('C12 doc mentions 16AC + organic restart + inbox open + G02/G03 partial',
     /16AC|organic.?restart/i.test(doc)

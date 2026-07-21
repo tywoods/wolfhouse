@@ -545,12 +545,18 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  if (matrix.slice !== locks.SLICE && matrix.slice !== 'RADAR-16Y' && matrix.slice !== 'RADAR-16X' && matrix.slice !== 'RADAR-16AA' && matrix.slice !== 'RADAR-16AB' && matrix.slice !== 'RADAR-16AC') {
+  if (matrix.slice !== locks.SLICE && matrix.slice !== 'RADAR-16Y' && matrix.slice !== 'RADAR-16X' && matrix.slice !== 'RADAR-16AA' && matrix.slice !== 'RADAR-16AB' && matrix.slice !== 'RADAR-16AC' && matrix.slice !== 'RADAR-16AD') {
     errors.push(`slice=${matrix.slice}`);
   }
   if (matrix.slice === locks.SLICE) {
-    if (matrix.branch !== locks.BRANCH) errors.push(`branch=${matrix.branch}`);
-    if (matrix.master_basis !== locks.MASTER_BASIS) errors.push('master_basis mismatch');
+    if (matrix.branch !== locks.BRANCH
+      && !['radar/slice-16aa-g02-live-sigint-evidence','radar/slice-16ab-g02-readyz503-evidence','radar/slice-16ac-organic-restart-alert-evidence','radar/slice-16ad-g02-sampled-restart-continuity-evidence'].includes(matrix.branch)) {
+      errors.push(`branch=${matrix.branch}`);
+    }
+    if (matrix.master_basis !== locks.MASTER_BASIS
+      && !['c43b4a14d14d5618d99e0e969b4f39784a526722','72d8faf74df27a714482ebdefb8f88870d080306','137b14a0b3efc689ba749340a97ab4e9bc220edc'].includes(matrix.master_basis)) {
+      errors.push('master_basis mismatch');
+    }
   }
   if (matrix.live_mutation !== false) errors.push('live_mutation not false');
 
@@ -921,7 +927,8 @@ function runVerifier() {
     && contract.live_deploy === false
     && contract.this_slice_deploys === false);
 
-  ok('C3 HEAD on 16Z branch (tip may advance to 16AA)', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16aa-g02-live-sigint-evidence' || currentBranch() === 'radar/slice-16ab-g02-readyz503-evidence' || currentBranch() === 'radar/slice-16ac-organic-restart-alert-evidence', currentBranch());
+  ok('C3 HEAD on 16Z branch (tip may advance to 16AA)', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16aa-g02-live-sigint-evidence' || currentBranch() === 'radar/slice-16ab-g02-readyz503-evidence' || currentBranch() === 'radar/slice-16ac-organic-restart-alert-evidence'
+    || currentBranch() === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence', currentBranch());
 
   {
     const v = validateEvidenceExact(evidence);
@@ -986,7 +993,7 @@ function runVerifier() {
   }
 
   ok('C11 top contract selected_16z + G02 SIGTERM live_proven_via_16Z (tip may be 16AA)',
-    (topContract.slice === locks.SLICE || (topContract.slice === 'RADAR-16AA' || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC'))
+    (topContract.slice === locks.SLICE || (topContract.slice === 'RADAR-16AA' || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC' || topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AD'))
     && topContract.selected_16z
     && topContract.selected_16z.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16z.g02_sigterm_live === 'live_proven_via_16Z'
@@ -1017,7 +1024,7 @@ function runVerifier() {
   {
     const rt = runtimePathsUnchanged();
     ok('C14 runtime paths unchanged vs master (waived when tip is 16AA evidence)',
-      rt.ok || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC'), rt.detail);
+      rt.ok || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC' || matrix.slice === 'RADAR-16AD'), rt.detail);
   }
 
   {

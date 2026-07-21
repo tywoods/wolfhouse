@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AD",
+  "outcome_id": "16AD_g02_sampled_restart_continuity_evidence",
+  "gate_id": "G02_readiness_dependencies",
+  "progress_class": "partial_live_proven_evidence_only",
+  "master_basis": "137b14a0b3efc689ba749340a97ab4e9bc220edc",
+  "branch": "radar/slice-16ad-g02-sampled-restart-continuity-evidence",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "title": "Reconcile dual-staging concurrent sampled revision-restart continuity — partial/live-proven only",
+  "evidence_fixture": "fixtures/radar-operations/slice16ad-g02-sampled-restart-continuity-evidence.json",
+  "builds_on": [
+    "16I_staff_api_readiness_dependencies",
+    "16W_readiness_shutdown_lifecycle",
+    "16X_g02_lifecycle_deploy_traffic_shed_live_evidence",
+    "16Y_readiness_shutdown_completion_log",
+    "16Z_g02_live_sigterm_lifecycle_evidence",
+    "16AA_g02_live_sigint_lifecycle_evidence",
+    "16AB_g02_serving_readyz_503_body_path_evidence",
+    "16AC_organic_restart_alert_evidence"
+  ],
+  "provenance": {
+    "class_a": "operator_drill_transcript_contemporaneous_observation",
+    "class_b": "azure_law_public_readonly_independently_reverified",
+    "independent_azure_verify_utc": "2026-07-21T13:29:32Z",
+    "claim_semantics": "no_observed_public_interruption_at_this_sampling_resolution_during_declared_restart_command_windows_after_wh_warmup_exclusion",
+    "non_recoverability": "Azure/LAW/public read-only APIs cannot recreate historical public poll sample arrays or operator restart command windows; LAW completions do not reconstruct the concurrent public poll stream."
+  },
+  "required_observed": {
+    "wolfhouse_poll_window": "2026-07-21T13:21:11Z/2026-07-21T13:23:17Z",
+    "wolfhouse_warmup_timeout_indices": [0, 1, 2],
+    "wolfhouse_claim_samples": "3..90 all health=200 ready=200",
+    "wolfhouse_restart_window": "2026-07-21T13:21:47Z/2026-07-21T13:21:50Z",
+    "wolfhouse_restart_samples": "8@47 9@48 10@49 11@50 both 200",
+    "wolfhouse_law_time": "2026-07-21T13:22:29.3669823Z",
+    "wolfhouse_law_revision": "wh-staging-staff-api--g02503r",
+    "wolfhouse_law_replica": "wh-staging-staff-api--g02503r-9764596b8-mgfw2",
+    "sunset_poll_window": "2026-07-21T13:23:39Z/2026-07-21T13:25:18Z",
+    "sunset_samples": "0..90 all both 200",
+    "sunset_restart_window": "2026-07-21T13:23:54Z/2026-07-21T13:23:58Z",
+    "sunset_restart_samples": "14@54 15@56 16@57 17@58 both 200",
+    "sunset_law_time": "2026-07-21T13:24:29.7970752Z",
+    "sunset_law_revision": "luna-sunset-staging-staff-api--g02503r",
+    "sunset_law_replica": "luna-sunset-staging-staff-api--g02503r-f4d4b7875-dw7cx",
+    "completion_payload": "SIGTERM pool/server ok failures=[] completion=true",
+    "current_mode": "Single/latest/latestReady/100% both"
+  },
+  "forbidden_claim_tokens": [
+    "absolute zero downtime",
+    "continuous zero downtime",
+    "between samples proven",
+    "no sub-second interruption",
+    "all 91 WH passed",
+    "all 91 samples passed",
+    "cold-start availability proven",
+    "production",
+    "full G02",
+    "full_G02_proven",
+    "G02 proven",
+    "warmup hidden",
+    "fabricated azure samples"
+  ],
+  "must_not_claim_as_proven": [
+    "absolute_zero_downtime",
+    "continuous_zero_downtime",
+    "between_sample_proof",
+    "no_sub_second_interruption",
+    "cold_start_availability",
+    "all_91_wh_samples_passed",
+    "warmup_timeouts_as_restart_window_failures",
+    "hidden_wh_warmup_failures",
+    "fabricated_azure_derived_historical_poll_samples",
+    "production",
+    "full_G02_proven",
+    "any_gate_verdict_proven"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "Concurrent sampled restart continuity gap closed at sampling resolution after warmup; G02 remains partial (production/acceptance policy; absolute zero downtime not claimed)"
+  },
+  "still_open": [
+    "Absolute/continuous zero downtime / between-sample / sub-second interruption (not claimed)",
+    "Cold-start availability (WH warmup timeouts remain real; not claimed)",
+    "Production scope (forbidden)",
+    "Raising G02 verdict to proven"
+  ],
+  "final_controlled_drill": {
+    "id": "16AD_DRILL_sampled_revision_restart_continuity",
+    "status": "live_proven_via_16AD_sampled_restart_continuity_after_warmup",
+    "pass_rule": "Class A: WH poll 0..90 @ 13:21:11Z–13:23:17Z with samples 0..2 timeout disclosed/excluded (scale-from-zero warmup); samples 3..90 both 200; restart window 13:21:47Z–13:21:50Z samples 8..11 both 200. Sunset poll 0..90 @ 13:23:39Z–13:25:18Z all both 200; restart 13:23:54Z–13:23:58Z samples 14..17 both 200. Class B @ 2026-07-21T13:29:32Z: LAW SIGTERM completions WH 13:22:29.3669823Z replica …-mgfw2 / Sunset 13:24:29.7970752Z replica …-dw7cx allowlisted payload; both apps Single/latest/latestReady/100%; public current healthz/readyz 200. Claim only no observed public interruption at this sampling resolution during declared restart windows after warmup — not absolute/continuous zero downtime, not between-sample proof, not cold-start, not production, not full G02. Verifier rejects hidden WH warmup failures, treating warmup as restart failures, claiming all 91 WH passed, wrong sample/window/status, wrong LAW timestamp/payload, fabricated Azure samples, absolute downtime claim, production/full G02. G02 concurrent sampled continuity gap closed; G02 remains partial."
+  },
+  "artifacts": [
+    "fixtures/radar-operations/slice16ad-g02-sampled-restart-continuity-evidence.json",
+    "fixtures/radar-operations/slice16ad-expected-contract.json",
+    "scripts/lib/radar-slice16ad-g02-sampled-restart-continuity-evidence.js",
+    "scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16ad-g02-sampled-restart-continuity-evidence",
+    "npm run verify:radar-slice16ac-organic-restart-alert-evidence",
+    "npm run verify:radar-slice16ab-g02-readyz503-evidence",
+    "npm run verify:radar-slice16aa-g02-live-sigint-evidence",
+    "npm run verify:radar-slice16z-g02-live-sigterm-evidence",
+    "npm run verify:radar-slice16y-shutdown-completion-log",
+    "npm run verify:radar-slice16x-g02-live-evidence",
+    "npm run verify:radar-slice16w-readiness-shutdown-lifecycle",
+    "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 137b14a0b3efc689ba749340a97ab4e9bc220edc..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-readiness.js",
+      "scripts/lib/staff-api-readiness-lifecycle.js",
+      "scripts/lib/staff-api-readiness-shutdown-completion-log.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "database/",
+      "docker/hermes-staging/"
+    ]
+  }
+}
