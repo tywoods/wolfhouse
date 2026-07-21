@@ -1,6 +1,6 @@
 # Crowsnest — location and infrastructure plan
 
-**Status:** PLAN + skeleton in repo only — **no deploy, no Azure changes, no DNS move yet.**
+**Status:** LIVE BASELINE — the standalone Crowsnest app and custom domain are deployed. This document records the current boundary; it is not authority to change production, Sunset, Staff API, DNS, or tenant systems.
 
 Product overview: [`CROWSNEST.md`](CROWSNEST.md)
 
@@ -10,20 +10,22 @@ Product overview: [`CROWSNEST.md`](CROWSNEST.md)
 
 | Topic | Today |
 |-------|--------|
-| Domain | `crowsnest.lunafrontdesk.com` is an **alias / custom domain on Wolfhouse staff-staging** (`wh-staging-staff-api`) |
-| App | Same Staff API container and codebase path as Wolfhouse staging portal |
-| Isolation | **None** — Crowsnest hostname does not yet mean a separate app |
+| Domain | `crowsnest.lunafrontdesk.com` serves the standalone Crowsnest app |
+| App | Azure Container App `crowsnest-internal` in `wh-staging-rg` |
+| Image | `whstagingacr.azurecr.io/crowsnest:<git-sha>` |
+| Runtime | `scripts/crowsnest-api.js` on port 3040; separate from `staff-query-api.js` |
+| Live safety | Basic Auth enabled; `/healthz` public; `writes_enabled: false` |
 
-This is acceptable for early operator access but is **not** the long-term architecture.
+Verified live on 2026-07-21: the app reported `service: crowsnest`, `stage: skeleton`, `auth_enabled: true`, and `writes_enabled: false`.
 
 ---
 
-## Desired state
+## Required boundary
 
 | Topic | Target |
 |-------|--------|
-| App | **Separate** Crowsnest HTTP server (`scripts/crowsnest-api.js`) |
-| Domain | `crowsnest.lunafrontdesk.com` → **dedicated** Crowsnest Container App (later) |
+| App | Keep the **separate** Crowsnest HTTP server (`scripts/crowsnest-api.js`) |
+| Domain | Keep `crowsnest.lunafrontdesk.com` on `crowsnest-internal` |
 | Auth | Separate internal auth/env — Monshies and Earthling only at first |
 | Data | No tenant DB writes until explicit gated slices |
 
@@ -43,30 +45,28 @@ This is acceptable for early operator access but is **not** the long-term archit
 
 ---
 
-## Future Azure target (proposed — not created)
+## Current Azure placement
 
 | Resource | Proposed name |
 |----------|---------------|
-| Resource group | `luna-crowsnest-staging-rg` (or shared ops RG — TBD) |
-| Container Apps environment | `luna-crowsnest-staging-env` |
-| Container App | `luna-crowsnest-staging-api` |
-| Image repo | `crowsnest-api` or shared ops image — **TBD at deploy slice** |
-| Key Vault | `luna-crowsnest-staging-kv` |
-| Managed identity | `luna-crowsnest-staging-identity` |
-| Custom domain | `crowsnest.lunafrontdesk.com` moved from `wh-staging-staff-api` → Crowsnest app |
+| Resource group | `wh-staging-rg` |
+| Container App | `crowsnest-internal` |
+| Image repo | `whstagingacr.azurecr.io/crowsnest` |
+| Target port | `3040` |
+| Custom domain | `crowsnest.lunafrontdesk.com` |
 
-**Out of scope for this document:** creating any of the above. Operator approval required per slice.
+Moving to a dedicated internal resource group/environment can be considered later, but is not required for product work and must be handled as a separate infrastructure slice.
 
 ---
 
-## Domain migration (later)
+## Domain safety
 
-1. Deploy Crowsnest Container App with `/healthz` green.
-2. Bind `crowsnest.lunafrontdesk.com` to Crowsnest app (remove from Wolfhouse staff-staging).
-3. Confirm Staff API / Wolfhouse staging still serves `staff-staging.lunafrontdesk.com` only.
-4. No Sunset or production hostname changes in Crowsnest slices unless explicitly planned.
+1. Do not detach or rebind `crowsnest.lunafrontdesk.com` during normal feature work.
+2. Confirm `/healthz` on the default Container App FQDN before any future image promotion.
+3. Keep `staff-staging.lunafrontdesk.com` on the Wolfhouse Staff API and untouched by Crowsnest changes.
+4. Do not change Sunset or production hostnames in Crowsnest slices.
 
-**This plan does not move DNS or edit Azure.**
+DNS is not managed in the visible Azure DNS zones, so external DNS-provider access must be verified before any DNS change is proposed.
 
 ---
 
@@ -89,21 +89,19 @@ This is acceptable for early operator access but is **not** the long-term archit
 - [x] `scripts/verify-crowsnest.js`
 - [x] `npm run crowsnest:start` / `npm run verify:crowsnest`
 
-## Next slices (not this task)
+## Next product slices
 
-- Enforce auth (`CROWSNEST_AUTH_REQUIRED`, allowed users)
-- Read-only client registry view (from `config/clients/clients.json`)
-- Template picker UI (surf house / surf school) — still no writes
-- Gated client-creation writes with approval packet
-- Azure deploy + domain cutover
+- Build the read-only AI Usage Panel shell as the first real module.
+- Define the usage-event contract and approved read-only source.
+- Add focused offline verification before wiring any live data.
+- Keep client onboarding and the old `surf_house` archetype deferred until Skipper's shared redesign is stable.
 
 ---
 
 ## Explicit non-goals (this phase)
 
-- Deploy to Azure
-- Change Azure resources
-- Move `crowsnest.lunafrontdesk.com`
+- Redeploy or change Azure resources as part of ordinary feature coding
+- Move or rebind `crowsnest.lunafrontdesk.com`
 - Modify `staff-staging` routing or domain config
 - Touch Sunset or production
 - Real client-creation from frontend

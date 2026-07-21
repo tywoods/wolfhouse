@@ -155,15 +155,15 @@ ok('product doc mentions surf house template', /surf house/i.test(productDoc));
 ok('product doc mentions surf school template', /surf school/i.test(productDoc));
 ok('product doc mentions skeleton / no live writes', /skeleton|no live writes|no writes/i.test(productDoc));
 ok('plan doc mentions crowsnest.lunafrontdesk.com', /crowsnest\.lunafrontdesk\.com/i.test(planDoc));
-ok('plan doc mentions no deploy / no Azure changes yet', /no deploy|no Azure|not.*deploy/i.test(planDoc));
+ok('location doc records live standalone Azure deployment', /live|deployed/i.test(planDoc) && /crowsnest-internal/.test(planDoc));
 ok('docs/CROWSNEST-DEPLOY-PLAN.md exists', fs.existsSync(DOC_DEPLOY));
 ok('deploy plan mentions separate Container App', /separate.*Container App/i.test(deployDoc));
 ok('deploy plan mentions crowsnest-internal', /crowsnest-internal/.test(deployDoc));
 ok('deploy plan mentions Dockerfile.crowsnest', /Dockerfile\.crowsnest/.test(deployDoc));
-ok('deploy plan mentions domain move from wh-staging-staff-api', /wh-staging-staff-api/.test(deployDoc) && /domain|detach|move/i.test(deployDoc));
+ok('deploy runbook records completed domain separation from wh-staging-staff-api', /wh-staging-staff-api/.test(deployDoc) && /separate|detached|migrat/i.test(deployDoc));
 ok('deploy plan staff-staging remains untouched', /staff-staging.*untouched|remains.*wh-staging-staff-api|Must not change/i.test(deployDoc));
 ok('deploy plan has rollback plan', /rollback/i.test(deployDoc));
-ok('deploy plan is planning only / DO NOT RUN YET', /DO NOT RUN YET|PLANNING ONLY|planning only/i.test(deployDoc));
+ok('deploy runbook identifies the live baseline', /live baseline|currently deployed|status:\s*live/i.test(deployDoc));
 
 const dockerSrc = read(DOCKERFILE_PATH) || '';
 ok('Dockerfile.crowsnest exists', fs.existsSync(DOCKERFILE_PATH));
