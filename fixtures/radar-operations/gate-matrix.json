@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16S",
-  "title": "RADAR operations gate ledger (16S dual-staging request-completion delivery/search/retention evidence; G01 partial_live_proven)",
-  "master_basis": "1bf9695264250680c41c3e7f82baba97300001a0",
-  "branch": "radar/slice-16s-request-log-live-evidence",
+  "slice": "RADAR-16U",
+  "title": "RADAR operations gate ledger (16U G01 correlation design freeze corrected; G01 partial — G01-A live open)",
+  "master_basis": "87121456db90a9f80ff8b3679596bc49c235cbfc",
+  "branch": "radar/slice-16u-correlation-design-freeze",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -31,7 +31,7 @@
       "name": "Correlation / structured logs",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16J adds Staff API HTTP-boundary request correlation (AsyncLocalStorage). 16R extends 16J with exactly one allowlisted staff_api_request_completion record per real HTTP request. 16S records operator-observed dual-staging live proof on exact SHA 1bf9695264250680c41c3e7f82baba97300001a0: Wolfhouse revision wh-staging-staff-api--0000517 (request aaaaaaaa-bbbb-4ccc-8ddd-16a000000001) and Sunset luna-sunset-staging-staff-api--0000277 tenant sunset (request aaaaaaaa-bbbb-4ccc-8ddd-16a000000002); both latest=latestReady and public /healthz 200; ACA env logsDestination=log-analytics; LAW workspaces wh-staging-logs (customerId 43ae26dd-4a82-4a91-b744-5e1f94a2ae8f, retention 30) and luna-sunset-staging-logs (customerId 552489bf-8e57-48df-8413-6e775caaa7d0, retention 30); independently queried ContainerAppConsoleLogs_CL by supplied request ID yields exactly one bounded completion line each (route /healthz status 200 2xx duration_ms 5 outcome completed) at 2026-07-20T23:32:38.0049767Z and 2026-07-20T23:32:54.8551295Z. Partial/live-proven for deploy+delivery+search+retention only — end-to-end Meta → Hermes → Staff API → Stripe correlation drill remains open. Verdict stays partial; not a full end-to-end close.",
+      "rationale": "16J Staff HTTP correlation (ALS). 16R allowlisted staff_api_request_completion. 16S live-proven dual-staging LAW delivery/search/retention @ SHA 1bf9695 (WH 0000517 / Sunset 0000277). 16U audit-only design freeze: live Lunabox Caddy /whatsapp/*→:8092 hermes-sunset-luna and /wolfhouse/*→:8090 hermes-luna (tracked Caddy reference is stale evidence, not authority); Hermes _post_bot omits X-Request-Id today; provenance=single wamid or ordered immutable source-wamid set (no invented burst parent); genuine Stripe Checkout cannot be exercised without mutation so G01-A=Meta→Hermes→Staff non-mutating correlated path and G01-B=tenant/payment/booking/session metadata only (no inbound trace/wamid today); dry-run not implementable yet (blocked on central capability boundary); independent same-ID probes rejected as E2E. Live G01-A drill remains open. Verdict stays partial.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-request-correlation.js",
@@ -93,6 +93,27 @@
           "lines": "1-120",
           "symbols": [],
           "note": "16S redacted dual-staging delivery/search/retention evidence (lock-hashed)"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16u-call-graph.json",
+          "lines": "1-80",
+          "symbols": [],
+          "note": "16U authoritative active-path call graph"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16u-correlation-design-freeze.json",
+          "lines": "1-120",
+          "symbols": [],
+          "note": "16U design freeze G01-A/B + live Caddy + provenance; dry-run not implementable yet"
+        },
+        {
+          "path": "scripts/lib/radar-slice16u-correlation-design-freeze.js",
+          "lines": "1-120",
+          "symbols": [
+            "classifyEvidenceClaim",
+            "FORBIDDEN_AS_E2E_EVIDENCE"
+          ],
+          "note": "Rejects independent same-ID probes as E2E evidence"
         }
       ],
       "live_evidence": [
@@ -114,7 +135,7 @@
         }
       ],
       "gaps": [
-        "End-to-end Meta → Hermes → Staff API → Stripe correlation drill open"
+        "G01-A live Meta→Hermes→Staff correlated read path open (central capability boundary then Hermes X-Request-Id; dry-run not implementable yet; independent same-ID probes are not E2E)"
       ],
       "progress_class": "partial_live_proven"
     },
@@ -1240,6 +1261,56 @@
       "id": "16S_DRILL_completion_log_delivery_search_retention",
       "status": "partial_delivery_search_retention_proven",
       "pass_rule": "Dual-staging exact-SHA searchable allowlisted completions in ContainerAppConsoleLogs_CL with retention 30; G01 remains partial until E2E drill; proven=0"
+    }
+  },
+  "slice_16u_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16U_correlation_design_freeze",
+    "gate_id": "G01_correlation_structured_logs",
+    "progress_class": "audit_only_design_freeze",
+    "does_not_implement": "runtime_instrumentation_dry_run_switch_live_g01a_drill_any_gate_proven",
+    "title": "Audit-only design freeze for genuine non-mutating G01 correlation drill",
+    "why_smallest": "Replace deferred independent same-ID probe concept with truthful live Caddy call graph + provenance + honest G01-A/B before any runtime change.",
+    "builds_on": [
+      "16J_staff_api_request_correlation",
+      "16R_staff_api_request_completion_log",
+      "16S_request_completion_log_live_evidence"
+    ],
+    "supersedes": [],
+    "replaces_deferred": "independent_same_id_multi_ingress_probe_harness_concept",
+    "next_slice": "16V_candidate_central_capability_boundary_audit_freeze",
+    "owner_files": [
+      "fixtures/radar-operations/slice16u-call-graph.json",
+      "fixtures/radar-operations/slice16u-correlation-design-freeze.json",
+      "fixtures/radar-operations/slice16u-expected-contract.json",
+      "scripts/lib/radar-slice16u-correlation-design-freeze.js",
+      "scripts/verify-radar-slice16u-correlation-design-freeze.js"
+    ],
+    "out_of_scope_for_16u": [
+      "Runtime Hermes/Staff changes",
+      "Live drill execution",
+      "Deploy",
+      "Claiming Stripe without mutation",
+      "Claiming dry-run implementable",
+      "Tracked Caddy as live authority",
+      "Invented burst parent",
+      "Inbound trace/wamid payment join as current",
+      "Independent same-ID probes as E2E",
+      "Any gate verdict proven"
+    ],
+    "acceptance_criteria": [
+      "Call graph freezes live Caddy /whatsapp→8092 and /wolfhouse→8090; tracked Caddy is stale not authority",
+      "Provenance: single wamid or ordered immutable source-wamid set; no invented burst parent",
+      "Design states Stripe Checkout cannot be exercised without mutation; G01-B is metadata-only today",
+      "Dry-run not implementable yet; next slice is central capability boundary audit/freeze",
+      "Verifier RED-rejects stale Caddy authority, invented burst parent, dispersed suppressions, incomplete mutation inventories, trace/wamid payment overclaims, and independent same-ID probes",
+      "G01 remains partial; runtime paths unchanged vs master 87121456"
+    ],
+    "final_controlled_drill": {
+      "id": "16U_DRILL_design_freeze_reject_independent_probes",
+      "status": "audit_only_design_frozen",
+      "pass_rule": "Fixtures + classifiers reject independent probes and correction REDs; proven=0; no runtime mutation"
     }
   }
 }

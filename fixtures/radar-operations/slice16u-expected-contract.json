@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16U",
+  "outcome_id": "16U_correlation_design_freeze",
+  "gate_id": "G01_correlation_structured_logs",
+  "progress_class": "audit_only_design_freeze",
+  "master_basis": "87121456db90a9f80ff8b3679596bc49c235cbfc",
+  "branch": "radar/slice-16u-correlation-design-freeze",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "this_slice_implements_runtime": false,
+  "title": "Audit-only design freeze for genuine non-mutating G01 correlation drill — replaces deferred independent same-ID probe concept",
+  "design_fixture": "fixtures/radar-operations/slice16u-correlation-design-freeze.json",
+  "call_graph_fixture": "fixtures/radar-operations/slice16u-call-graph.json",
+  "builds_on": {
+    "outcome_ids": [
+      "16J_staff_api_request_correlation",
+      "16R_staff_api_request_completion_log",
+      "16S_request_completion_log_live_evidence"
+    ],
+    "gate_id": "G01_correlation_structured_logs"
+  },
+  "required_design_facts": {
+    "live_whatsapp_upstream": "localhost:8092 hermes-sunset-luna",
+    "live_wolfhouse_upstream": "localhost:8090 hermes-luna",
+    "tracked_caddy_reference": "stale_evidence_not_authority",
+    "hermes_propagates_x_request_id_today": false,
+    "staff_meta_dual_ingress_on_active_path": false,
+    "stripe_webhook_on_active_inbound_path": false,
+    "stripe_checkout_without_mutation": false,
+    "g01a_boundary": "meta_hermes_staff_correlated_read_path",
+    "g01b_boundary": "stripe_business_id_join_not_inbound_als",
+    "g01b_correlation_today": "tenant_payment_booking_session_metadata_only",
+    "inbound_trace_wamid_propagation_today": false,
+    "dry_run_implementable_today": false,
+    "dry_run_default": "hard_disabled",
+    "burst_provenance": "ordered_immutable_source_wamid_set_no_invented_parent",
+    "next_slice": "16V_candidate_central_capability_boundary_audit_freeze"
+  },
+  "forbidden_claim_tokens": [
+    "independent same-id probe is e2e",
+    "stripe without mutation",
+    "runtime changed",
+    "gate verdict proven",
+    "live drill executed",
+    "single als meta to stripe webhook",
+    "dry-run implementable",
+    "tracked caddy is live authority",
+    "invented burst parent",
+    "inbound trace wamid payment join current"
+  ],
+  "must_not_claim_as_proven": [
+    "live_correlation_drill_executed",
+    "any_gate_verdict_proven",
+    "hermes_x_request_id_propagation_implemented",
+    "stripe_checkout_without_mutation",
+    "independent_same_id_probes_as_e2e",
+    "dry_run_implementable_today",
+    "inbound_trace_wamid_payment_propagation_today",
+    "G01_full_proven"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "G01 remains partial; 16U is audit-only design freeze; 16S live-proven delivery/search/retention retained; live G01-A drill still open; dry-run not implementable yet"
+  },
+  "still_open": [
+    "16V audit/freeze central capability boundary (deny WhatsApp send + Staff/DB/Stripe mutation; permit real read dispatch)",
+    "After 16V: Hermes trace_id mint + X-Request-Id propagation",
+    "After capability boundary: hard-disabled G01_CORRELATION_DRY_RUN",
+    "Live G01-A Meta→Hermes→Staff read-only correlation evidence freeze",
+    "G01-B remains tenant/payment/booking/session metadata only until inbound trace/wamid exists",
+    "Concurrent isolation / abort-error LAW outcomes",
+    "Production scope (forbidden)"
+  ],
+  "final_controlled_drill": {
+    "id": "16U_DRILL_design_freeze_reject_independent_probes",
+    "status": "audit_only_design_frozen",
+    "pass_rule": "Fixtures freeze live Caddy authority + provenance + G01-A/B honesty; dry-run not implementable; verifier RED-rejects stale Caddy authority, invented burst parent, dispersed suppressions, incomplete mutation inventories, trace/wamid payment overclaims, and independent same-ID probes; runtime paths unchanged; proven=0"
+  },
+  "artifacts": [
+    "fixtures/radar-operations/slice16u-call-graph.json",
+    "fixtures/radar-operations/slice16u-correlation-design-freeze.json",
+    "fixtures/radar-operations/slice16u-expected-contract.json",
+    "scripts/lib/radar-slice16u-correlation-design-freeze.js",
+    "scripts/verify-radar-slice16u-correlation-design-freeze.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16u-correlation-design-freeze",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16s-request-log-live-evidence",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 87121456db90a9f80ff8b3679596bc49c235cbfc..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "docker/hermes-sunset/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-request-correlation.js",
+      "scripts/lib/staff-api-request-completion-log.js",
+      "scripts/lib/stripe-webhook-public-errors.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16U is audit-only; no harness runtime, no live calls, no Staff/Hermes/DB/IaC mutation"
+  }
+}

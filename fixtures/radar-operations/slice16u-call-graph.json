@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16U",
+  "outcome_id": "16U_correlation_design_freeze",
+  "master_basis": "87121456db90a9f80ff8b3679596bc49c235cbfc",
+  "branch": "radar/slice-16u-correlation-design-freeze",
+  "audit_only": true,
+  "live_mutation": false,
+  "title": "Authoritative live staging Meta→Hermes→Staff call graph (Stripe not on inbound ALS)",
+  "architecture_truth": "Stripe Checkout create is an optional mutating tool hop; Stripe webhook is a separate ingress. Independent same-ID probes across /healthz and Stripe pre-verify are not E2E evidence. Tracked Caddy reference is stale evidence, not live routing authority.",
+  "live_caddy_authority": {
+    "status": "captured_live_staging_truth",
+    "host": "lunabox.lunafrontdesk.com",
+    "authority": "live_lunabox_caddy_not_tracked_git_reference",
+    "routes": [
+      {
+        "path_prefix": "/whatsapp/*",
+        "upstream": "localhost:8092",
+        "container": "hermes-sunset-luna",
+        "hermes_role": "sunset-luna",
+        "client_slug": "sunset",
+        "notes": "Live Meta WhatsApp Cloud webhook surface on Lunabox"
+      },
+      {
+        "path_prefix": "/wolfhouse/*",
+        "upstream": "localhost:8090",
+        "container": "hermes-luna",
+        "hermes_role": "luna",
+        "client_slug": "wolfhouse-somo",
+        "notes": "Wolfhouse Luna control/session routes (not the live /whatsapp Meta surface)"
+      }
+    ],
+    "tracked_caddy_reference": {
+      "path": "docker/hermes-staging/lunabox-caddyfile.reference",
+      "also": "scripts/_lunabox-caddyfile",
+      "status": "stale_evidence_not_authority",
+      "stale_claim": "reverse_proxy /whatsapp/* and /wolfhouse/* both to localhost:8090",
+      "forbid": "treating_tracked_caddy_reference_as_live_ingress_authority"
+    }
+  },
+  "active_ingress": {
+    "sunset": {
+      "meta_callback_url": "https://lunabox.lunafrontdesk.com/whatsapp/webhook",
+      "receiver": "live Caddy /whatsapp/* → localhost:8092 → hermes-sunset-luna",
+      "container": "hermes-sunset-luna",
+      "hermes_role": "sunset-luna",
+      "client_slug": "sunset",
+      "staff_base_url_env": "WOLFHOUSE_STAFF_API_BASE_URL (expected sunset-staging.lunafrontdesk.com)",
+      "staff_app": "luna-sunset-staging-staff-api",
+      "resource_group": "luna-sunset-staging-rg",
+      "burst_coalesce": true,
+      "authority": "live_caddy_authority.routes[/whatsapp/*]",
+      "citations": [
+        "fixtures/radar-operations/slice16u-call-graph.json#live_caddy_authority",
+        "docker/hermes-sunset/docker-compose.vm.yml:1-29"
+      ]
+    },
+    "wolfhouse": {
+      "meta_callback_url_on_shared_whatsapp_path": false,
+      "control_path_prefix": "/wolfhouse/*",
+      "receiver": "live Caddy /wolfhouse/* → localhost:8090 → hermes-luna",
+      "container": "hermes-luna",
+      "hermes_role": "luna",
+      "client_slug": "wolfhouse-somo",
+      "staff_base_url": "https://staff-staging.lunafrontdesk.com",
+      "staff_app": "wh-staging-staff-api",
+      "resource_group": "wh-staging-rg",
+      "burst_coalesce": false,
+      "authority": "live_caddy_authority.routes[/wolfhouse/*]",
+      "stale_rejected_claim": "https://lunabox.lunafrontdesk.com/whatsapp/webhook → hermes-luna:8090 (tracked Caddy; not live)",
+      "citations": [
+        "fixtures/radar-operations/slice16u-call-graph.json#live_caddy_authority",
+        "docker/hermes-staging/docker-compose.vm.yml:23-42"
+      ]
+    }
+  },
+  "message_provenance": {
+    "single_message": {
+      "parent_event_id": "messages[].id (wamid)",
+      "source_wamid_set": null
+    },
+    "coalesced_sunset_burst": {
+      "parent_event_id": null,
+      "forbid_invented_single_parent": true,
+      "source_wamid_set": "ordered_immutable_whatsapp_burst_source_wamids",
+      "runtime_field": "meta.whatsapp_burst_source_wamids",
+      "citation": "docker/hermes-staging/wolfhouse/whatsapp_burst_coalesce.py"
+    }
+  },
+  "sequential_hops": [
+    {
+      "id": "H1_meta_post",
+      "component": "Meta Cloud signed POST",
+      "carries_today": { "x_request_id": false, "wamid": true, "booking_id": false },
+      "on_active_path": true
+    },
+    {
+      "id": "H2_caddy_live",
+      "component": "Live Lunabox Caddy path split",
+      "authority": "live_caddy_authority",
+      "routes_today": {
+        "/whatsapp/*": "localhost:8092 hermes-sunset-luna",
+        "/wolfhouse/*": "localhost:8090 hermes-luna"
+      },
+      "tracked_reference_status": "stale_evidence_not_authority",
+      "carries_today": { "x_request_id": "passthrough_only", "wamid": "body_passthrough" },
+      "on_active_path": true
+    },
+    {
+      "id": "H3_hermes_webhook",
+      "component": "Hermes WhatsApp Cloud webhook admit + gateway turn",
+      "carries_today": { "x_request_id": false, "wamid": true, "booking_id": false },
+      "on_active_path": true,
+      "gap": "Does not mint or propagate Staff UUIDv4 trace_id today"
+    },
+    {
+      "id": "H4_burst_coalesce",
+      "component": "whatsapp_burst_coalesce (Sunset ON; Wolfhouse OFF)",
+      "file": "docker/hermes-staging/wolfhouse/whatsapp_burst_coalesce.py",
+      "carries_today": {
+        "x_request_id": false,
+        "wamid": "ordered_immutable_source_wamid_set",
+        "invented_single_parent": false
+      },
+      "on_active_path": "sunset_only",
+      "provenance_rule": "burst uses ordered immutable source-wamid set; no invented single parent_event_id"
+    },
+    {
+      "id": "H5_hermes_staff_plugin",
+      "component": "wolfhouse_staff_api._post_bot",
+      "file": "docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+      "lines": "155-246",
+      "headers_today": ["Content-Type", "X-Luna-Bot-Token"],
+      "carries_today": { "x_request_id": false },
+      "on_active_path": true,
+      "gap": "Omits X-Request-Id — Staff generates a new request_id per tool call"
+    },
+    {
+      "id": "H6_staff_als",
+      "component": "Staff API runWithRequestCorrelation + attachStaffApiRequestCompletion",
+      "files": [
+        "scripts/lib/staff-api-request-correlation.js",
+        "scripts/lib/staff-api-request-completion-log.js",
+        "scripts/staff-query-api.js"
+      ],
+      "carries_today": { "x_request_id": "accept_or_generate_per_http_request" },
+      "on_active_path": true
+    },
+    {
+      "id": "H7_staff_bot_routes",
+      "component": "POST /staff/bot/* handlers (read and write)",
+      "on_active_path": true,
+      "read_examples": [
+        "/staff/bot/availability-check",
+        "/staff/bot/booking-preview",
+        "/staff/bot/package-price-preview",
+        "/staff/bot/sunset/* read routes"
+      ],
+      "write_examples": [
+        "/staff/bot/booking-create-from-plan",
+        "/staff/bot/payments/:id/create-stripe-link",
+        "/staff/bot/sunset/booking-create",
+        "/staff/bot/sunset/payment-link"
+      ]
+    },
+    {
+      "id": "H8_hermes_whatsapp_send",
+      "component": "Hermes WhatsApp Cloud outbound reply",
+      "on_active_path": true,
+      "mutation": "guest_message_send"
+    },
+    {
+      "id": "H9_optional_stripe_checkout_create",
+      "component": "Stripe Checkout Session create via bot payment-link tools",
+      "on_active_path": "optional_mutating_tool_hop_only",
+      "mutation": true,
+      "note": "Not required for every turn; cannot be exercised without Stripe+DB mutation"
+    },
+    {
+      "id": "H10_stripe_webhook",
+      "component": "POST /staff/stripe/webhook",
+      "on_active_path": false,
+      "reason": "Separate Stripe→Staff ingress; payment truth only; new HTTP request_id"
+    }
+  ],
+  "not_on_active_inbound_path": [
+    {
+      "id": "staff_meta_dual_ingress",
+      "path": "/staff/meta/whatsapp/webhook",
+      "status": "legacy_dormant_for_live_meta",
+      "citation": "docs/N8N-DECOMMISSION-PHASE-3A-RETIRED-CALLERS.md:14"
+    },
+    {
+      "id": "n8n_cloud",
+      "status": "retired_staging_meta_caller"
+    },
+    {
+      "id": "aca_wh_staging_hermes",
+      "status": "legacy_must_not_be_meta_target_after_lunabox_cutover"
+    },
+    {
+      "id": "hermes_wolfhouse_luna_8091",
+      "status": "prep_only_must_not_receive_live_meta"
+    },
+    {
+      "id": "open_demo_staff_routes",
+      "path": "/staff/bot/open-demo-whatsapp-inbound-dry-run",
+      "status": "parallel_demo_not_hermes_meta_path"
+    },
+    {
+      "id": "stripe_webhook",
+      "path": "/staff/stripe/webhook",
+      "status": "separate_ingress"
+    },
+    {
+      "id": "staff_portal_create_stripe_link",
+      "path": "/staff/payments/:id/create-stripe-link",
+      "status": "staff_ui_not_meta_inbound"
+    },
+    {
+      "id": "tracked_caddy_as_live_authority",
+      "path": "docker/hermes-staging/lunabox-caddyfile.reference",
+      "status": "stale_evidence_not_authority"
+    }
+  ],
+  "correlation_gap_today": {
+    "hermes_propagates_x_request_id": false,
+    "staff_accepts_uuid_v4_header": true,
+    "inbound_trace_wamid_to_payment_propagation": false,
+    "result": "N Staff request_ids per Hermes turn; no single inbound ALS across Meta→Hermes→Staff today; G01-B has tenant/payment/booking/session metadata only"
+  },
+  "g01b_correlation_today": {
+    "kind": "tenant_payment_booking_session_metadata_only",
+    "join_keys_today": [
+      "client_slug",
+      "payment_id",
+      "booking_id",
+      "stripe_checkout_session_id"
+    ],
+    "inbound_trace_id_propagation": false,
+    "inbound_wamid_propagation": false,
+    "forbid_overclaim": "trace_or_wamid_payment_join_as_current"
+  }
+}
