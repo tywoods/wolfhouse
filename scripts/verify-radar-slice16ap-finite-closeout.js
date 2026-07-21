@@ -20,6 +20,17 @@ const { execSync } = require('child_process');
 
 const locksPath = path.join(__dirname, 'lib', 'radar-slice16ap-finite-closeout.js');
 const locks = require(locksPath);
+const tipHelperPath = path.join(__dirname, 'lib', 'radar-16ap-locked-candidate-tip.js');
+const tipHelper = require(tipHelperPath);
+const {
+  tipAccepts16ap,
+  tipContainsCandidate,
+  currentBranch,
+  currentHeadSha,
+  makeSyntheticDescendantOfCandidate,
+  makeUnrelatedOrphanCommit,
+  MERGE_SHA,
+} = tipHelper;
 const {
   validateCloseout,
   computeLockHash,
@@ -63,69 +74,6 @@ function readJson(rel) {
 
 function readText(rel) {
   return fs.readFileSync(path.join(ROOT, rel), 'utf8');
-}
-
-function currentBranch() {
-  try {
-    return execSync('git rev-parse --abbrev-ref HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
-  } catch (_) {
-    return 'HEAD';
-  }
-}
-
-function currentHeadSha() {
-  try {
-    return execSync('git rev-parse HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
-  } catch (_) {
-    return '';
-  }
-}
-
-/** True when tipSha is the locked candidate or any descendant containing it as ancestor. */
-function tipContainsCandidate(tipSha) {
-  const tip = String(tipSha || '').trim();
-  if (!/^[0-9a-f]{7,40}$/i.test(tip)) return false;
-  try {
-    execSync(
-      `git merge-base --is-ancestor ${locks.CANDIDATE_SHA} ${tip}`,
-      { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'ignore', 'ignore'] },
-    );
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
-/**
- * C1 tip acceptance: original 16AP branch name, or any tip (incl. detached HEAD)
- * that contains the exact locked PR #137 candidate as ancestor. Unrelated tips
- * lacking the candidate are rejected even when detached.
- */
-function tipAccepts16ap(tipSha, branchName) {
-  if (String(branchName || '') === locks.BRANCH) return true;
-  return tipContainsCandidate(tipSha);
-}
-
-function makeSyntheticDescendantOfCandidate() {
-  const tree = execSync(
-    `git rev-parse ${locks.CANDIDATE_SHA}^{tree}`,
-    { cwd: ROOT, encoding: 'utf8' },
-  ).trim();
-  return execSync(
-    `git commit-tree ${tree} -p ${locks.CANDIDATE_SHA} -m "16ap-synth-descendant-proof"`,
-    { cwd: ROOT, encoding: 'utf8' },
-  ).trim();
-}
-
-function makeUnrelatedOrphanCommit() {
-  const tree = execSync(
-    `git rev-parse ${locks.MASTER_BASIS}^{tree}`,
-    { cwd: ROOT, encoding: 'utf8' },
-  ).trim();
-  return execSync(
-    `git commit-tree ${tree} -m "16ap-unrelated-orphan-proof"`,
-    { cwd: ROOT, encoding: 'utf8' },
-  ).trim();
 }
 
 function overclaimHits(text) {
@@ -246,10 +194,16 @@ const findings = readText('fixtures/radar-operations/findings.md');
 const pkg = readJson('package.json');
 
 {
-  const branch = currentBranch();
-  const head = currentHeadSha();
-  ok('C1 HEAD on 16AP branch or candidate-descendant tip',
-    tipAccepts16ap(head, branch),
+  const branch = currentBranch(ROOT);
+  const head = currentHeadSha(ROOT);
+  ok('C1 HEAD tip contains locked 16AP candidate (ancestry-only; branch informational)',
+    tipAccepts16ap(head, branch, ROOT)
+    && tipHelper.CANDIDATE_SHA === locks.CANDIDATE_SHA
+    && tipHelper.BRANCH === locks.BRANCH
+    && tipHelper.MASTER_BASIS === locks.MASTER_BASIS
+    && fs.existsSync(tipHelperPath)
+    && !/===\s*locks\.BRANCH\)\s*return\s*true/.test(fs.readFileSync(__filename, 'utf8'))
+    && !/===\s*BRANCH\)\s*return\s*true/.test(fs.readFileSync(tipHelperPath, 'utf8')),
     `branch=${branch} head=${head}`);
 }
 
@@ -382,24 +336,26 @@ green('validator_imported_identity',
   && !/function\s+validateCloseout\s*\(/.test(fs.readFileSync(__filename, 'utf8')));
 
 {
-  // GREEN: current HEAD (branch or detached master-descendant) + synthetic child of candidate.
-  const head = currentHeadSha();
-  const branch = currentBranch();
+  // GREEN: candidate, merge tip, current descendant, synthetic descendant — all via ancestry.
+  const head = currentHeadSha(ROOT);
+  const branch = currentBranch(ROOT);
   let synthOk = false;
   let synthSha = '';
   try {
-    synthSha = makeSyntheticDescendantOfCandidate();
-    synthOk = tipAccepts16ap(synthSha, 'HEAD') === true
-      && tipContainsCandidate(synthSha) === true;
+    synthSha = makeSyntheticDescendantOfCandidate(ROOT);
+    synthOk = tipAccepts16ap(synthSha, 'HEAD', ROOT) === true
+      && tipContainsCandidate(synthSha, ROOT) === true;
   } catch (err) {
     synthOk = false;
     synthSha = String(err && err.message);
   }
   green('candidate_descendant_or_master_accepted',
-    tipAccepts16ap(head, branch) === true
-    && tipContainsCandidate(locks.CANDIDATE_SHA) === true
-    && tipContainsCandidate(head) === true
-    && tipAccepts16ap(locks.CANDIDATE_SHA, 'HEAD') === true
+    tipAccepts16ap(locks.CANDIDATE_SHA, 'HEAD', ROOT) === true
+    && tipAccepts16ap(MERGE_SHA, 'HEAD', ROOT) === true
+    && tipAccepts16ap(head, branch, ROOT) === true
+    && tipContainsCandidate(locks.CANDIDATE_SHA, ROOT) === true
+    && tipContainsCandidate(MERGE_SHA, ROOT) === true
+    && tipContainsCandidate(head, ROOT) === true
     && synthOk,
     `branch=${branch} head=${head} synth=${synthSha}`);
 }
@@ -852,23 +808,44 @@ green('no_doc_overclaim',
 }
 
 {
-  // RED: unrelated tips (pre-candidate master basis + synthetic orphan) must be
-  // rejected when not on the original 16AP branch name — even if "detached".
+  // RED: pre-candidate / unrelated / orphan / invalid-ref tips reject (ancestry-only).
   let orphanSha = '';
   let orphanOk = false;
   try {
-    orphanSha = makeUnrelatedOrphanCommit();
-    orphanOk = tipContainsCandidate(orphanSha) === false
-      && tipAccepts16ap(orphanSha, 'HEAD') === false;
+    orphanSha = makeUnrelatedOrphanCommit(ROOT);
+    orphanOk = tipContainsCandidate(orphanSha, ROOT) === false
+      && tipAccepts16ap(orphanSha, 'HEAD', ROOT) === false;
   } catch (err) {
     orphanOk = false;
     orphanSha = String(err && err.message);
   }
   red('unrelated_detached_commit_rejected',
-    tipContainsCandidate(locks.MASTER_BASIS) === false
-    && tipAccepts16ap(locks.MASTER_BASIS, 'HEAD') === false
-    && tipAccepts16ap(locks.MASTER_BASIS, 'radar/unrelated-branch') === false
-    && tipAccepts16ap(locks.CANDIDATE_SHA, 'HEAD') === true
+    tipContainsCandidate(locks.MASTER_BASIS, ROOT) === false
+    && tipAccepts16ap(locks.MASTER_BASIS, 'HEAD', ROOT) === false
+    && tipAccepts16ap(locks.MASTER_BASIS, 'radar/unrelated-branch', ROOT) === false
+    && tipAccepts16ap('not-a-git-ref', 'HEAD', ROOT) === false
+    && tipAccepts16ap('ffffffffffffffffffffffffffffffffffffffff', 'HEAD', ROOT) === false
+    && tipAccepts16ap(locks.CANDIDATE_SHA, 'HEAD', ROOT) === true
+    && orphanOk,
+    `orphan=${orphanSha}`);
+}
+
+{
+  // RED: spoofed locked branch name never bypasses ancestry (pre-candidate + orphan).
+  let orphanSha = '';
+  let orphanOk = false;
+  try {
+    orphanSha = makeUnrelatedOrphanCommit(ROOT);
+    orphanOk = tipAccepts16ap(orphanSha, locks.BRANCH, ROOT) === false;
+  } catch (err) {
+    orphanOk = false;
+    orphanSha = String(err && err.message);
+  }
+  red('spoofed_locked_branch_name_rejected',
+    tipAccepts16ap(locks.MASTER_BASIS, locks.BRANCH, ROOT) === false
+    && tipAccepts16ap(locks.MASTER_BASIS, tipHelper.BRANCH, ROOT) === false
+    && tipAccepts16ap('not-a-git-ref', locks.BRANCH, ROOT) === false
+    && tipAccepts16ap(locks.CANDIDATE_SHA, locks.BRANCH, ROOT) === true
     && orphanOk,
     `orphan=${orphanSha}`);
 }

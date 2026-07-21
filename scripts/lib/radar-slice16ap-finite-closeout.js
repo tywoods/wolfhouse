@@ -24,7 +24,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const MASTER_BASIS = '66e34a5833ff3bcc7f297108f594b4fc58a0eccc';
-/** Exact PR #137 merge candidate tip; C1 accepts branch or any descendant containing this as ancestor. */
+/** Exact PR #137 merge candidate tip; every accepted tip must contain this as ancestor. */
 const CANDIDATE_SHA = '7870a9fb818bbd94d33b291c8782851276e2715e';
 const SLICE = 'RADAR-16AP';
 const OUTCOME_ID = '16AP_finite_milestone_closeout';
@@ -547,6 +547,7 @@ const REQUIRED_RED = Object.freeze([
   'fixture_monkeypatch_rejected',
   'export_monkeypatch_validation_unaffected',
   'unrelated_detached_commit_rejected',
+  'spoofed_locked_branch_name_rejected',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
