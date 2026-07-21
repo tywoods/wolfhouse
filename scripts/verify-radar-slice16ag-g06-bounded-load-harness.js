@@ -8,8 +8,9 @@
  * HTTPS transport via runBoundedLoadOffline(OFFLINE_SEAL) against a local fake
  * server. Proves allowlist, bounds, concurrency, redirects, latency (monotonic,
  * transport latency ignored), timeout/error/non-2xx, hanging/trickle/abort/
- * close settle, deadline cleanup, DNS private reject, header/body/auth not
- * sent, and caller transport escape reject. Does NOT execute live staging
+ * close settle, deadline cleanup, DNS private/special-range reject,
+ * hanging/late DNS settle (no request start), header/body/auth not sent, and
+ * caller transport escape reject. Does NOT execute live staging
  * network calls, deploy, or scale mutation.
  */
 
@@ -464,8 +465,9 @@ function makeOfflineHttpsRequest(fakeOrigin, behavior, capture) {
 function publicDnsLookup(hostname, options, callback) {
   let cb = callback;
   if (typeof options === 'function') cb = options;
-  // Fixture public address (TEST-NET-1) — never a live resolve.
-  process.nextTick(() => cb(null, [{ address: '192.0.2.10', family: 4 }]));
+  // Fixture globally-routable address — never a live resolve; offline HTTPS
+  // talks to the local fake origin and ignores the pinned IP for connect.
+  process.nextTick(() => cb(null, [{ address: '8.8.8.8', family: 4 }]));
 }
 
 function privateDnsLookup(hostname, options, callback) {
@@ -478,6 +480,20 @@ function loopbackDnsLookup(hostname, options, callback) {
   let cb = callback;
   if (typeof options === 'function') cb = options;
   process.nextTick(() => cb(null, [{ address: '127.0.0.1', family: 4 }]));
+}
+
+function hangingDnsLookup(_hostname, _options, _callback) {
+  // Missing callback: must settle via remaining run-budget DNS race.
+}
+
+function makeLateDnsLookup(delayMs, address) {
+  return function lateDnsLookup(hostname, options, callback) {
+    let cb = callback;
+    if (typeof options === 'function') cb = options;
+    setTimeout(() => {
+      cb(null, [{ address: address || '8.8.8.8', family: 4 }]);
+    }, delayMs);
+  };
 }
 
 async function runOffline(target, profile, fakeOrigin, behavior, capture) {
@@ -537,6 +553,9 @@ async function runVerifier() {
     && /fixedHttpsGet/.test(harnessSrc)
     && /hrtime\.bigint/.test(harnessSrc)
     && /pinValidatedPublicDns/.test(harnessSrc)
+    && /isGloballyRoutableIp/.test(harnessSrc)
+    && /RADAR_LOAD_DNS_DEADLINE/.test(harnessSrc)
+    && /wallStartNs/.test(harnessSrc)
     && !/opts\.transport\s*=/.test(harnessSrc)
     && !/_defaultHttpsTransport/.test(harnessSrc));
 
@@ -654,13 +673,34 @@ async function runVerifier() {
     red('transport_escape_rejected', t.ok, t.detail);
   }
 
-  // DNS / private address
+  // DNS / private + special ranges (fail-closed globally-routable)
   red('dns_private_address_rejected',
     expectThrow(() => harness.assertPublicDnsAddresses([{ address: '10.1.2.3', family: 4 }]), 'RADAR_LOAD').ok
     && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '127.0.0.1', family: 4 }]), 'RADAR_LOAD').ok
     && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '192.168.0.1', family: 4 }]), 'RADAR_LOAD').ok
-    && harness.isPublicIp('192.0.2.10') === true
-    && harness.isPublicIp('10.0.0.1') === false);
+    && harness.isGloballyRoutableIp('8.8.8.8') === true
+    && harness.isGloballyRoutableIp('10.0.0.1') === false
+    && harness.isPublicIp('8.8.8.8') === true);
+
+  red('dns_special_ranges_rejected',
+    harness.isGloballyRoutableIp('192.0.2.10') === false // documentation TEST-NET-1
+    && harness.isGloballyRoutableIp('198.51.100.1') === false // TEST-NET-2
+    && harness.isGloballyRoutableIp('203.0.113.5') === false // TEST-NET-3
+    && harness.isGloballyRoutableIp('198.18.0.1') === false // benchmark
+    && harness.isGloballyRoutableIp('240.0.0.1') === false // reserved
+    && harness.isGloballyRoutableIp('224.0.0.1') === false // multicast
+    && harness.isGloballyRoutableIp('169.254.1.1') === false // link-local
+    && harness.isGloballyRoutableIp('0.0.0.0') === false // unspecified
+    && harness.isGloballyRoutableIp('::1') === false
+    && harness.isGloballyRoutableIp('::') === false
+    && harness.isGloballyRoutableIp('fe80::1') === false
+    && harness.isGloballyRoutableIp('fc00::1') === false
+    && harness.isGloballyRoutableIp('ff02::1') === false
+    && harness.isGloballyRoutableIp('2001:db8::1') === false
+    && harness.isGloballyRoutableIp('2001:4860:4860::8888') === true
+    && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '192.0.2.1', family: 4 }]), 'RADAR_LOAD').ok
+    && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '2001:db8::1', family: 6 }]), 'RADAR_LOAD').ok
+    && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '198.18.1.1', family: 4 }]), 'RADAR_LOAD').ok);
 
   // Install fail-closed seals BEFORE any offline load runs.
   installNetworkFailClosed();
@@ -972,6 +1012,69 @@ async function runVerifier() {
         'RADAR_LOAD_DNS',
       );
       ok('C_DNS private/loopback offline lookup rejected', t.ok && t2.ok, `${t.detail}|${t2.detail}`);
+    }
+
+    // Hanging DNS: missing callback must settle against remaining run budget;
+    // no httpsRequest may start afterward.
+    {
+      const capture = { calls: [] };
+      const t0 = Date.now();
+      const t = await expectThrowAsync(
+        () => harness.runBoundedLoadOffline(
+          {
+            target: locks.WH_READYZ_URL,
+            profile: {
+              concurrency: 1,
+              max_duration_ms: 1000,
+              max_requests: 10,
+              request_timeout_ms: 500,
+            },
+          },
+          {
+            seal: harness.OFFLINE_SEAL,
+            httpsRequest: makeOfflineHttpsRequest('http://127.0.0.1:9', { mode: 'hang' }, capture),
+            dnsLookup: hangingDnsLookup,
+          },
+        ),
+        'RADAR_LOAD_DNS_DEADLINE',
+      );
+      const elapsed = Date.now() - t0;
+      red('hanging_dns_deadline_settles',
+        t.ok
+        && capture.calls.length === 0
+        && elapsed >= 900
+        && elapsed < 4000,
+        `${t.detail}|calls=${capture.calls.length}|elapsed=${elapsed}`);
+    }
+
+    // Late DNS callback after deadline: ignore callback; no request starts.
+    {
+      const capture = { calls: [] };
+      const lateLookup = makeLateDnsLookup(2000, '8.8.8.8');
+      const t = await expectThrowAsync(
+        () => harness.runBoundedLoadOffline(
+          {
+            target: locks.SUNSET_READYZ_URL,
+            profile: {
+              concurrency: 1,
+              max_duration_ms: 1000,
+              max_requests: 10,
+              request_timeout_ms: 500,
+            },
+          },
+          {
+            seal: harness.OFFLINE_SEAL,
+            httpsRequest: makeOfflineHttpsRequest('http://127.0.0.1:9', { mode: 'ok' }, capture),
+            dnsLookup: lateLookup,
+          },
+        ),
+        'RADAR_LOAD_DNS_DEADLINE',
+      );
+      // Allow late callback to fire after rejection; still no request.
+      await new Promise((r) => setTimeout(r, 1500));
+      red('late_dns_callback_no_request',
+        t.ok && capture.calls.length === 0,
+        `${t.detail}|calls=${capture.calls.length}`);
     }
 
     green('future_drill_defined_not_executed',

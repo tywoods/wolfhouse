@@ -7,7 +7,8 @@
  * locked to the two exact staging Staff API /readyz URLs. Offline RED/GREEN
  * verifier (fail-closed http/https/net/DNS) proves bounds/concurrency/
  * redirects/target-escape/latency/non-2xx plus hanging/trickle/abort/close/
- * deadline cleanup/DNS-private/header-body-auth/transport-escape. Future
+ * deadline cleanup/DNS-private/special-ranges/hanging-late-DNS/
+ * header-body-auth/transport-escape. Future
  * drill profile defined but NOT executed. No live network, deploy, scale
  * mutation, SLO, or backpressure claims.
  */
@@ -77,6 +78,9 @@ const REQUIRED_RED = Object.freeze([
   'abort_error_close_paths_settle',
   'deadline_cleanup_destroys_actives',
   'dns_private_address_rejected',
+  'dns_special_ranges_rejected',
+  'hanging_dns_deadline_settles',
+  'late_dns_callback_no_request',
   'header_body_auth_not_sent',
   'transport_escape_rejected',
 ]);

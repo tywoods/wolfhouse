@@ -6,9 +6,11 @@
  * Hard-locked to the two exact staging Staff API /readyz URLs.
  * GET only; no headers/body/auth; no redirects; TLS required; fail-closed on
  * any other target. Production runBoundedLoad uses an unexported fixed HTTPS
- * transport only (no caller transport escape), pins validated public DNS
- * before requests, owns one absolute run deadline + per-request deadline,
- * aborts/destroys actives on deadline, and settles end/aborted/error/
+ * transport only (no caller transport escape). Owns one absolute monotonic
+ * run deadline started before DNS, races/aborts DNS against the remaining
+ * budget (missing/late callbacks settle; no request starts afterward), then
+ * pins fail-closed globally-routable DNS results for exact-address lookup.
+ * Per-request deadlines abort/destroy actives and settle end/aborted/error/
  * premature-close/trickle paths. Latency is measured with monotonic time;
  * transport-supplied latency values are ignored.
  *
@@ -19,6 +21,7 @@
 
 const https = require('https');
 const dns = require('dns');
+const net = require('net');
 const { URL } = require('url');
 
 const WH_READYZ_URL = 'https://staff-staging.lunafrontdesk.com/readyz';
@@ -260,35 +263,146 @@ function parseIpv4(ip) {
   return nums;
 }
 
+function ipv4ToInt(parts) {
+  return ((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+}
+
+function ipv4InCidr(parts, baseA, baseB, baseC, baseD, prefixLen) {
+  const ip = ipv4ToInt(parts);
+  const base = ipv4ToInt([baseA, baseB, baseC, baseD]);
+  const mask = prefixLen === 0 ? 0 : ((0xffffffff << (32 - prefixLen)) >>> 0);
+  return (ip & mask) === (base & mask);
+}
+
 /**
- * True only for globally routable unicast addresses (fail-closed otherwise).
- * Rejects loopback, RFC1918, link-local, CGNAT, unspecified, multicast, and
- * IPv6 ULA/link-local/loopback/mapped-private.
+ * Expand IPv6 to eight 16-bit hextets (fail-closed on malformed input).
  */
-function isPublicIp(address) {
+function parseIpv6Hextets(raw) {
+  let s = String(raw || '').trim().toLowerCase();
+  if (!s || net.isIP(s) !== 6) return null;
+  const zone = s.indexOf('%');
+  if (zone >= 0) s = s.slice(0, zone);
+
+  // IPv4-mapped / dotted-quad tail → convert last 32 bits to two hextets.
+  if (s.includes('.')) {
+    const lastColon = s.lastIndexOf(':');
+    if (lastColon < 0) return null;
+    const v4 = parseIpv4(s.slice(lastColon + 1));
+    if (!v4) return null;
+    const hi = (v4[0] << 8) | v4[1];
+    const lo = (v4[2] << 8) | v4[3];
+    s = `${s.slice(0, lastColon)}:${hi.toString(16)}:${lo.toString(16)}`;
+  }
+
+  const sides = s.split('::');
+  if (sides.length > 2) return null;
+  let parts;
+  if (sides.length === 1) {
+    parts = sides[0].split(':');
+    if (parts.length !== 8) return null;
+  } else {
+    const left = sides[0] ? sides[0].split(':') : [];
+    const right = sides[1] ? sides[1].split(':') : [];
+    const fill = 8 - (left.length + right.length);
+    if (fill < 0) return null;
+    parts = left.concat(new Array(fill).fill('0'), right);
+  }
+  if (parts.length !== 8) return null;
+  const hextets = [];
+  for (const h of parts) {
+    if (!/^[0-9a-f]{1,4}$/.test(h)) return null;
+    hextets.push(parseInt(h, 16));
+  }
+  return hextets;
+}
+
+/**
+ * Fail-closed globally-routable unicast check for IPv4 and IPv6.
+ * Rejects documentation, benchmark, reserved, multicast, link-local, private,
+ * loopback, unspecified, and CGNAT / IPv4-mapped non-routable embeddings.
+ * Default deny: unknown/malformed → false.
+ */
+function isGloballyRoutableIp(address) {
   const raw = String(address || '').trim().toLowerCase();
   if (!raw) return false;
-
-  if (raw.includes(':')) {
-    if (raw === '::' || raw === '::1') return false;
-    if (raw.startsWith('fe80:') || raw.startsWith('fc') || raw.startsWith('fd')) return false;
-    const v4mapped = raw.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (v4mapped) return isPublicIp(v4mapped[1]);
-    // Other IPv6: accept only if it does not look like local/special; keep narrow.
-    if (raw.startsWith('ff')) return false; // multicast
+  const kind = net.isIP(raw);
+  if (kind === 4) {
+    const n = parseIpv4(raw);
+    if (!n) return false;
+    // unspecified / this-network
+    if (ipv4InCidr(n, 0, 0, 0, 0, 8)) return false;
+    // loopback
+    if (ipv4InCidr(n, 127, 0, 0, 0, 8)) return false;
+    // RFC1918 private
+    if (ipv4InCidr(n, 10, 0, 0, 0, 8)) return false;
+    if (ipv4InCidr(n, 172, 16, 0, 0, 12)) return false;
+    if (ipv4InCidr(n, 192, 168, 0, 0, 16)) return false;
+    // CGNAT / shared address space
+    if (ipv4InCidr(n, 100, 64, 0, 0, 10)) return false;
+    // link-local
+    if (ipv4InCidr(n, 169, 254, 0, 0, 16)) return false;
+    // IETF protocol assignments / reserved specials
+    if (ipv4InCidr(n, 192, 0, 0, 0, 24)) return false;
+    // documentation TEST-NET-1/2/3
+    if (ipv4InCidr(n, 192, 0, 2, 0, 24)) return false;
+    if (ipv4InCidr(n, 198, 51, 100, 0, 24)) return false;
+    if (ipv4InCidr(n, 203, 0, 113, 0, 24)) return false;
+    // benchmarking
+    if (ipv4InCidr(n, 198, 18, 0, 0, 15)) return false;
+    // multicast
+    if (ipv4InCidr(n, 224, 0, 0, 0, 4)) return false;
+    // reserved / Class E
+    if (ipv4InCidr(n, 240, 0, 0, 0, 4)) return false;
     return true;
   }
 
-  const n = parseIpv4(raw);
-  if (!n) return false;
-  const [a, b] = n;
-  if (a === 0 || a === 10 || a === 127) return false;
-  if (a === 169 && b === 254) return false;
-  if (a === 172 && b >= 16 && b <= 31) return false;
-  if (a === 192 && b === 168) return false;
-  if (a === 100 && b >= 64 && b <= 127) return false; // CGNAT
-  if (a >= 224) return false; // multicast / reserved
-  return true;
+  if (kind === 6) {
+    // IPv4-mapped ::ffff:a.b.c.d — require embedded IPv4 to be globally routable.
+    const v4mapped = raw.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)
+      || raw.match(/^0:0:0:0:0:ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+    if (v4mapped) return isGloballyRoutableIp(v4mapped[1]);
+
+    const h = parseIpv6Hextets(raw);
+    if (!h) return false;
+    // unspecified ::
+    if (h.every((x) => x === 0)) return false;
+    // loopback ::1
+    if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0
+      && h[4] === 0 && h[5] === 0 && h[6] === 0 && h[7] === 1) {
+      return false;
+    }
+    // multicast ff00::/8
+    if ((h[0] & 0xff00) === 0xff00) return false;
+    // link-local fe80::/10
+    if ((h[0] & 0xffc0) === 0xfe80) return false;
+    // unique-local fc00::/7
+    if ((h[0] & 0xfe00) === 0xfc00) return false;
+    // documentation 2001:db8::/32
+    if (h[0] === 0x2001 && h[1] === 0x0db8) return false;
+    // discard-only 100::/64
+    if (h[0] === 0x0100 && h[1] === 0 && h[2] === 0 && h[3] === 0) return false;
+    // IPv4-mapped hextet form ::ffff:0:0/96
+    if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0
+      && h[4] === 0 && h[5] === 0xffff) {
+      const embedded = [
+        (h[6] >> 8) & 0xff,
+        h[6] & 0xff,
+        (h[7] >> 8) & 0xff,
+        h[7] & 0xff,
+      ];
+      return isGloballyRoutableIp(embedded.join('.'));
+    }
+    // Fail-closed: only accept global unicast 2000::/3.
+    if ((h[0] & 0xe000) !== 0x2000) return false;
+    return true;
+  }
+
+  return false;
+}
+
+/** @deprecated alias — prefer isGloballyRoutableIp (same fail-closed semantics). */
+function isPublicIp(address) {
+  return isGloballyRoutableIp(address);
 }
 
 function assertPublicDnsAddresses(addresses) {
@@ -302,10 +416,10 @@ function assertPublicDnsAddresses(addresses) {
     const family = typeof entry === 'object' && entry && entry.family
       ? entry.family
       : (String(address).includes(':') ? 6 : 4);
-    if (!isPublicIp(address)) {
+    if (!isGloballyRoutableIp(address)) {
       failClosed(
         'RADAR_LOAD_DNS_PRIVATE',
-        `fail_closed: DNS resolved to non-public address: ${String(address)}`,
+        `fail_closed: DNS resolved to non-globally-routable address: ${String(address)}`,
       );
     }
     publicOnes.push(Object.freeze({ address: String(address), family: Number(family) || 4 }));
@@ -313,32 +427,79 @@ function assertPublicDnsAddresses(addresses) {
   return Object.freeze(publicOnes);
 }
 
-function dnsLookupPromise(lookupFn, hostname) {
-  return new Promise((resolve, reject) => {
-    lookupFn(hostname, { all: true }, (err, addresses) => {
-      if (err) return reject(err);
-      if (Array.isArray(addresses)) return resolve(addresses);
-      // Node may return (address, family) when all:false; normalize.
-      resolve([{ address: addresses, family: 4 }]);
-    });
-  });
-}
-
 /**
- * Resolve hostname and pin validated public DNS results before any request.
- * Unexported for production; offline may inject lookupFn via sealed path.
+ * Resolve hostname raced against remaining run budget, then pin validated
+ * globally-routable DNS results before any request. A missing or late DNS
+ * callback settles via RADAR_LOAD_DNS_DEADLINE and must not start requests.
  */
-async function pinValidatedPublicDns(hostname, lookupFn) {
+async function pinValidatedPublicDns(hostname, lookupFn, runDeadlineNs, abortReasonRef) {
   const lookup = typeof lookupFn === 'function' ? lookupFn : dns.lookup;
+  const now = monoNowNs();
+  const remainingMs = Math.max(0, msBetween(now, runDeadlineNs));
+  if (remainingMs <= 0 || (abortReasonRef && abortReasonRef.reason)) {
+    failClosed(
+      'RADAR_LOAD_DNS_DEADLINE',
+      'fail_closed: run deadline exhausted before/during DNS; no request started',
+    );
+  }
+
   let addresses;
   try {
-    addresses = await dnsLookupPromise(lookup, hostname);
+    addresses = await new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        if (abortReasonRef) abortReasonRef.reason = abortReasonRef.reason || 'max_duration';
+        reject(Object.assign(new Error('dns_deadline'), { code: 'RADAR_LOAD_DNS_DEADLINE' }));
+      }, remainingMs);
+      // Keep the event loop alive so a missing DNS callback still settles.
+
+      try {
+        lookup(hostname, { all: true }, (err, addrs) => {
+          if (settled) {
+            // Late callback after deadline/abort — ignore; do not resolve or start work.
+            return;
+          }
+          settled = true;
+          clearTimeout(timer);
+          if (err) return reject(err);
+          if (Array.isArray(addrs)) return resolve(addrs);
+          resolve([{ address: addrs, family: 4 }]);
+        });
+      } catch (err) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      }
+    });
   } catch (err) {
+    if (err && err.code === 'RADAR_LOAD_DNS_DEADLINE') {
+      failClosed(
+        'RADAR_LOAD_DNS_DEADLINE',
+        'fail_closed: DNS resolution exceeded remaining run budget; no request started',
+      );
+    }
     failClosed(
       'RADAR_LOAD_DNS',
       `fail_closed: DNS lookup failed: ${err && err.code ? err.code : String(err && err.message)}`,
     );
   }
+
+  if (abortReasonRef && abortReasonRef.reason) {
+    failClosed(
+      'RADAR_LOAD_DNS_DEADLINE',
+      'fail_closed: run deadline hit during DNS; no request started',
+    );
+  }
+  if (monoNowNs() >= runDeadlineNs) {
+    failClosed(
+      'RADAR_LOAD_DNS_DEADLINE',
+      'fail_closed: run deadline exhausted after DNS; no request started',
+    );
+  }
+
   return assertPublicDnsAddresses(addresses);
 }
 
@@ -558,8 +719,8 @@ async function runBoundedLoadCore(options, runtime) {
     failClosed('RADAR_LOAD_TRANSPORT', 'fail_closed: fixed HTTPS transport missing');
   }
 
-  const pinned = await pinValidatedPublicDns(parsed.hostname, dnsLookup);
-
+  // Whole-run monotonic deadline starts BEFORE DNS so resolution is raced
+  // against the remaining budget; missing/late DNS cannot start requests.
   const status_counts = emptyStatusCounts();
   const latencies = [];
   let started = 0;
@@ -581,6 +742,22 @@ async function runBoundedLoadCore(options, runtime) {
       } catch (_) { /* ignore */ }
     }
   }, profile.max_duration_ms);
+
+  let pinned;
+  try {
+    pinned = await pinValidatedPublicDns(
+      parsed.hostname,
+      dnsLookup,
+      runDeadlineNs,
+      abortReasonRef,
+    );
+  } catch (err) {
+    if (runTimer) {
+      clearTimeout(runTimer);
+      runTimer = null;
+    }
+    throw err;
+  }
 
   function record(outcome, reqStartNs) {
     completed += 1;
@@ -738,6 +915,7 @@ module.exports = {
   statusClassFor,
   percentileNearestRank,
   summarizeLatencies,
+  isGloballyRoutableIp,
   isPublicIp,
   assertPublicDnsAddresses,
   pinValidatedPublicDns,
