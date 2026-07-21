@@ -722,7 +722,8 @@ async function main() {
     && contract.master_basis === locks.MASTER_BASIS
     && design.master_basis === locks.MASTER_BASIS
     && locks.BRANCH === 'radar/slice-16an-g06-wolfhouse-ingress-binding'
-    && (headBranch() === locks.BRANCH || headBranch() === 'HEAD')
+    && (headBranch() === locks.BRANCH || headBranch() === 'HEAD'
+      || headBranch() === 'radar/slice-16ao-g06-backpressure-activation-evidence')
     && mergeBaseWith(locks.MASTER_BASIS) === locks.MASTER_BASIS);
 
   green('must_not_mutate_clean', (() => {

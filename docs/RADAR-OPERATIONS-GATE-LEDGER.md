@@ -1,14 +1,51 @@
-# RADAR Slice 16AN — Operations gate ledger (G06 Wolfhouse ingress binding correction)
+# RADAR Slice 16AO — Operations gate ledger (G06 corrected dual-staging admission activation evidence)
 
-**Status:** source + staging deploy-config correction for Wolfhouse admission identity fail-closed (no live deploy/mutation by this tip; G06 remains partial)
-**Master basis:** `63ba28fe4149609db8277e7ebb8a80e5f1d18945`
-**Branch:** `radar/slice-16an-g06-wolfhouse-ingress-binding`
+**Status:** evidence-only corrected dual-staging admission activation of 16AN image @ master `9da22843` (auth-rejection 403 / healthy activation only; **not** overload shed; G06 remains partial)
+**Master basis:** `9da228436c21bf7777cee553c91877a7e62a4092`
+**Branch:** `radar/slice-16ao-g06-backpressure-activation-evidence`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16AM deploy-flag-OFF evidence + 16AL admission wire + 16AK backpressure source + 16J trusted ingress
-**This tip does not deploy / does not enable the flag / does not claim live overload shed:** source + IaC only; failed canary recorded honestly
+**Builds on:** 16AN ingress-binding source + 16AM deploy-flag-OFF evidence + 16AL admission wire + 16AK backpressure source
+**This tip does not mutate runtime/IaC/live:** evidence sanitize/hash/commit only; operator already performed corrected activation
 
-## Outcome (16AN)
+## Outcome (16AO)
+
+Reconcile corrected dual-staging Staff API admission activation after 16AN ingress-identity fix:
+
+| Fact | Locked value |
+|------|----------------|
+| Historical failed canary | Wolfhouse old image flag true `--0000522`: 80/80 invalid-signature webhook **503**; readiness **200**; rolled flag false `--0000523` → probe **403**. **Identity fail-closed**, NOT overload shed |
+| Corrected build | ACR **cb11g**; exact SHA `9da228436c21bf7777cee553c91877a7e62a4092`; digest `sha256:46ebd0a8ab4dd7c9a6ac92d4003c1f0fbaf9d664f8c35c1ae1810becc3a7b655` |
+| Sunset | corrected image revision `--0000282`; `STAFF_API_INGRESS_TENANT_SLUG=sunset`; admission **true**; 100% traffic; ready |
+| Wolfhouse deploy-off | first `--0000524`; admission **false** + ingress `wolfhouse-somo` |
+| Pre-probes | Sunset and WH-off each 80/80 invalid-signature **expected 403** |
+| Wolfhouse activation | converged `--0000525`; exact image; admission **true** + ingress `wolfhouse-somo`; 100% traffic; ready before/after; 80/80 invalid-signature **expected 403** |
+| Probe meaning | proves accepted identity / auth-rejection path and healthy activation **only** — does **not** prove queue overflow/503 overload shedding, fairness, soak, autoscale, SLO, alerts, production, or full_G06 |
+| Flags now | both `STAFF_API_ADMISSION_CONTROL` **true** |
+| Cost | Sunset MTD ActualCost before/after **18.5705435806452 USD**; delta **0**; covers build/deploy/elapsed MTD **not** causal feature cost |
+| Proof | `16AO_EVIDENCE_corrected_dual_staging_admission_activation` **`live_proven`** (activation/auth-rejection only) |
+| Score | proven=0 / partial=9 / absent=0 — **unchanged** |
+
+### Claim ownership (16AO locked)
+
+| Observation | Proves | Does not prove |
+|-------------|--------|----------------|
+| Corrected dual-staging activation + 403 probes | Exact digest/tag/revisions + operator-attested ingress/flag/ready/403 auth-rejection path from committed fixtures | Queue overflow / 503 overload shed / fairness / soak / fire / autoscale / SLO live / backpressure_proven / raising G06 verdict |
+| Historical failed canary record | Honest identity fail-closed (not overload shed) on `--0000522`/`--0000523` | That this tip performed the live canary |
+| Cost before/after + delta 0 | Sunset MTD ActualCost guard with disclosure | Causal feature cost attribution |
+| G06 stays partial | Score preserved (0/9/0) | Raising G06 verdict to proven |
+
+## Truthful disposition (16AO)
+
+**Proves (evidence):** Corrected dual-staging admission activation of the 16AN image at exact SHA/digest with ingress-bound flags true, invalid-signature probes returning expected 403 (auth-rejection / healthy activation), historical failed canary recorded as identity fail-closed, and Sunset MTD ActualCost unchanged (delta 0; MTD build/deploy/elapsed disclosure).
+
+**Does not prove:** queue overflow / 503 overload shedding; fairness; load soak; alert fire/notification; autoscaling; capacity SLO live; backpressure live/proven; production; raising G06 verdict to proven.
+
+**Corrected admission activation gap closed; overload-shed/fairness/soak/fire/autoscale/SLO-live/backpressure-proven remain open; G06 remains partial.**
+
+## Outcome (16AN — retained)
+
+## Outcome (16AN — retained)
 
 Diagnose and safely correct the live Wolfhouse admission activation failure observed after 16AL flag-on canary:
 
@@ -32,7 +69,7 @@ Diagnose and safely correct the live Wolfhouse admission activation failure obse
 |-------------|--------|----------------|
 | Dedicated ingress env + IaC + REDs | Source/deploy-config fix for missing Wolfhouse admission identity; conflict fail-closed; OFF parity | Does not prove live deploy, flag enable, live overload shed, or raising G06 |
 | Failed canary/rollback record | Honest operator observation: WH 503 was identity fail-closed; Sunset stayed healthy | That this tip performed the live canary or rollback |
-| G06 stays partial | Score preserved (0/9/0) | Raising G06 to `proven` |
+| G06 stays partial | Score preserved (0/9/0) | Raising G06 verdict to proven |
 
 ## Truthful disposition (16AN)
 
@@ -40,7 +77,7 @@ Diagnose and safely correct the live Wolfhouse admission activation failure obse
 
 **Does not prove:** live deploy by this tip; flag enable; live overload 503 shed; load soak; backpressure proven; production; raising G06 to `proven`.
 
-**Ingress-identity source gap closed; live re-activation remains open; G06 remains partial.**
+**Ingress-identity source gap closed (16AN); live re-activation later evidenced by 16AO; G06 remains partial.**
 
 ## Outcome (16AM — retained)
 
@@ -65,13 +102,13 @@ Reconcile operator dual-staging Staff API deploy of **16AL** @ master `905ff9ff`
 |-------------|--------|----------------|
 | Dual-staging 16AL image deploy + flag absent | Exact digest/tag/WH revision/Sunset latestReady/readyz/cost from committed raw fixtures | Flag enable / controller activation / live 503 shed / soak / fire / autoscale / SLO live / raising backpressure or G06 verdicts — **not claimed** |
 | Sunset latestReady name unchanged while image changed | Readback honesty for g02503r | New Sunset revision identity beyond latestReady readback |
-| G06 stays partial | Score preserved (0/9/0) | Raising G06 to `proven` |
+| G06 stays partial | Score preserved (0/9/0) | Raising G06 verdict to proven |
 
 ## Truthful disposition (16AM)
 
 **Proves (evidence):** Dual-staging Staff API deploy of the 16AL image at exact SHA/digest with admission flag OFF/unset, both `/readyz` ready, and Sunset MTD ActualCost unchanged; Sunset latestReady revision **name** remains `g02503r` while image tag changed.
 
-**Does not prove:** flag enabled; admission activation; live 503 shed; load soak; alert fire/notification; autoscaling; capacity SLO live; backpressure live/proven; production; raising G06 to `proven`.
+**Does not prove:** flag enabled; admission activation; live 503 shed; load soak; alert fire/notification; autoscaling; capacity SLO live; backpressure live/proven; production; raising G06 verdict to proven.
 
 **16AL deploy-with-flag-OFF gap closed; activation/shed/soak/fire/autoscale/SLO-live remain open; G06 remains partial.**
 
@@ -96,13 +133,13 @@ Integrate the reviewed **16AK** tenant-safe admission controller into Staff API 
 | Observation | Proves | Does not prove |
 |-------------|--------|----------------|
 | Flagged Staff API wire + deterministic integration tests | Source-proven boundary behaviors with flag OFF default | Flag enabled in staging; live 503 shed; soak; production; raising G06 |
-| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 verdict to proven |
 
 ## Truthful disposition (16AL)
 
 **Proves (integration source):** Staff API HTTP-boundary wire of the 16AK controller behind fail-closed flag default OFF, with deterministic fake req/res coverage for OFF-adjacent exclusions, saturation/no-side-effect-before-admit, per-tenant isolation, spoof rejection, queued disconnect cancel, queued promotion resume-once, transport-dead pre-queue/pre-run cancel, listener baseline after promote/finish and abort/close races, throw cleanup, release-once, post-side-effect non-shed, readiness-lifecycle shutdown-BEGIN admission close via Set-deduped registry/dispatcher with WeakSet fired sentinel (not server close event; close===1; prior once; no wrapper chains; post-fire/reentrant bind immediate safe-close; thenable-safe independent invokes), and bounded public 503.
 
-**Does not prove:** flag enabled; live 503 shed under load; load soak; autoscaling; capacity SLO live; claiming backpressure live/proven; production; raising G06 to `proven`.
+**Does not prove:** flag enabled; live 503 shed under load; load soak; autoscaling; capacity SLO live; claiming backpressure live/proven; production; raising G06 verdict to proven.
 
 **Admission wire source gap closed; live/flag-on proof remains open; G06 remains partial.**
 
@@ -132,7 +169,7 @@ Define the smallest **tenant-safe admission controller** for future Staff API in
 |-------------|--------|----------------|
 | Topology-informed admission/backpressure source contract + pure state machine + offline RED/GREEN | Exact limits/allowlist/fail-closed behaviors exist in source | Runtime wire; live 503 shed; soak; production; sync-throw integration ownership |
 | Integration drill locked | Parameters ready for a later approved wire slice | That wire ran; claiming backpressure is proven; raising G06; sync-throw ownership |
-| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 verdict to proven |
 
 ## Truthful disposition (16AK)
 
@@ -168,7 +205,7 @@ Define a finite **staging readiness** capacity SLO / error-budget **source** con
 |-------------|--------|----------------|
 | Availability-only SLI/error-budget source contract + calculator + offline RED/GREEN | Exact math/boundaries + fail-closed states exist in source | Live SLO compliance; burn alert deploy/fire; notification; latency percentile SLO |
 | Future alert/drill acceptance locked | Parameters ready for a later approved slice | That alert/drill ran; production; raising G06 |
-| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 verdict to proven |
 
 ## Truthful disposition (16AJ)
 
@@ -201,7 +238,7 @@ Reconcile the successful controlled dual-staging `/readyz` bounded-load drill @ 
 |-------------|--------|----------------|
 | Conservative dual-staging `/readyz` bounded-load drill (raw drill JSON) | Profile success with exact counts/latency/hygiene | Pre/post readiness; soak / sustained capacity |
 | Sunset MTD ActualCost identical before/after (raw cost JSON) | Cost guard unchanged across drill | 429/retry; budget anomaly / production cost |
-| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 verdict to proven |
 
 ## Truthful disposition (16AI)
 
@@ -235,7 +272,7 @@ A controlled attempt of profile `16AG_DRILL_dual_staging_readyz_bounded_load` ag
 |-------------|--------|----------------|
 | pinnedLookup `all=true` array contract + offline RED/GREEN | Happy Eyeballs callback bug corrected in source | Live staging load/soak success |
 | Live attempt `attempted_not_proof` | Cautious record of failed pre-HTTP attempt | Load success; raising G06 verdict |
-| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 verdict to proven |
 
 ## Truthful disposition (16AH — retained)
 
@@ -266,7 +303,7 @@ Conservative future drill profile `16AG_DRILL_dual_staging_readyz_bounded_load` 
 |-------------|--------|----------------|
 | Harness source + offline verifier | Bounded allowlisted `/readyz` load tooling exists with fail-closed escapes | Live staging load/soak execution |
 | Future drill profile locked | Conservative parameters ready for a later approved drill | That drill ran; SLO; backpressure; autoscaling |
-| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 verdict to proven |
 
 ## Truthful disposition (16AG)
 
@@ -293,7 +330,7 @@ Action groups enabled; receiver name `ops-email` status Enabled; **address inten
 |-------------|--------|----------------|
 | Four capacity alerts Enabled with exact metric/threshold/window/scope/AG | Alert **deployment** gap closed | Alert firing; notification delivery; human inbox |
 | Scale truth min/max/rules null + latest=latestReady g02503r | Current bounds/revision identity | Autoscaling; load-driven scale-out; replica mutation by this slice |
-| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven`; load/soak; SLO/error budget; backpressure; production |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 verdict to proven; load/soak; SLO/error budget; backpressure; production |
 
 ## Truthful disposition (16AF)
 

@@ -333,9 +333,10 @@ const doc = readText('docs/RADAR-OPERATIONS-GATE-LEDGER.md');
 const findings = readText('fixtures/radar-operations/findings.md');
 const pkg = readJson('package.json');
 
-ok('C1 HEAD on 16AM branch (or later 16AN tip retaining 16AM)',
+ok('C1 HEAD on 16AM branch (or later 16AN/16AO tip retaining 16AM)',
   currentBranch() === locks.BRANCH
-  || currentBranch() === 'radar/slice-16an-g06-wolfhouse-ingress-binding',
+  || currentBranch() === 'radar/slice-16an-g06-wolfhouse-ingress-binding'
+  || currentBranch() === 'radar/slice-16ao-g06-backpressure-activation-evidence',
   currentBranch());
 ok('C2 evidence master_basis locked', evidence.master_basis === locks.MASTER_BASIS);
 ok('C3 slice/outcome/branch locked',
@@ -447,9 +448,9 @@ green('16al_wire_source_retained',
   && topContract.selected_16al.outcome_id === '16AL_g06_backpressure_wire'
   && topContract.g06_backpressure === 'open');
 
-ok('C7 tip matrix/contract 16AM (or later 16AN tip) + selected_16am',
-  (matrix.slice === 'RADAR-16AM' || matrix.slice === 'RADAR-16AN')
-  && (topContract.slice === 'RADAR-16AM' || topContract.slice === 'RADAR-16AN')
+ok('C7 tip matrix/contract 16AM (or later 16AN/16AO tip) + selected_16am',
+  (matrix.slice === 'RADAR-16AM' || matrix.slice === 'RADAR-16AN' || matrix.slice === 'RADAR-16AO')
+  && (topContract.slice === 'RADAR-16AM' || topContract.slice === 'RADAR-16AN' || topContract.slice === 'RADAR-16AO')
   && matrix.slice_16am_selection
   && matrix.slice_16am_selection.outcome_id === locks.OUTCOME_ID
   && topContract.selected_16am
@@ -465,6 +466,11 @@ ok('C7 tip matrix/contract 16AM (or later 16AN tip) + selected_16am',
     || (matrix.slice === 'RADAR-16AN'
       && matrix.branch === 'radar/slice-16an-g06-wolfhouse-ingress-binding'
       && topContract.branch === 'radar/slice-16an-g06-wolfhouse-ingress-binding'
+      && topContract.g06_ingress_binding_source === 'source_deploy_config_proven_via_16AN')
+    || (matrix.slice === 'RADAR-16AO'
+      && matrix.branch === 'radar/slice-16ao-g06-backpressure-activation-evidence'
+      && topContract.branch === 'radar/slice-16ao-g06-backpressure-activation-evidence'
+      && topContract.g06_admission_activation === 'live_proven_via_16AO'
       && topContract.g06_ingress_binding_source === 'source_deploy_config_proven_via_16AN')
   ));
 

@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "sanitized_containerapp_update_readback",
+  "tenant": "wolfhouse",
+  "name": "wh-staging-staff-api",
+  "resourceGroup": "wh-staging-rg",
+  "type": "Microsoft.App/containerApps",
+  "location": "North Europe",
+  "systemData": {
+    "lastModifiedAt": "2026-07-21T20:43:50.6802797",
+    "lastModifiedByType": "User"
+  },
+  "properties": {
+    "provisioningState": "Succeeded",
+    "runningStatus": "Running",
+    "latestRevisionName": "wh-staging-staff-api--0000524",
+    "latestReadyRevisionName": "wh-staging-staff-api--0000523",
+    "configuration": {
+      "activeRevisionsMode": "Single",
+      "ingress": {
+        "fqdn": "wh-staging-staff-api.braveplant-5c685569.northeurope.azurecontainerapps.io",
+        "traffic": [
+          {
+            "revisionName": "wh-staging-staff-api--0000523",
+            "weight": 100
+          }
+        ]
+      },
+      "secret_names_only": [
+        "acr-password",
+        "aerodatabox-api-key",
+        "aviationstack-api-key",
+        "luna-bot-internal-token",
+        "meta-app-secret",
+        "meta-whatsapp-phone-id",
+        "meta-whatsapp-token",
+        "meta-whatsapp-verify-token",
+        "openai-api-key",
+        "staff-session-secret",
+        "stormglass-api-key",
+        "stripe-secret-key",
+        "stripe-webhook-secret",
+        "whstagingacrazurecrio-whstagingacr",
+        "wolfhouse-database-url"
+      ]
+    },
+    "template": {
+      "containers": [
+        {
+          "name": "staff-api",
+          "image": "whstagingacr.azurecr.io/wh-staff-api:9da228436c21bf7777cee553c91877a7e62a4092",
+          "env_names": [
+            "AERODATABOX_API_KEY",
+            "AVIATIONSTACK_API_KEY",
+            "BOOKING_EDIT_WRITE_ENABLED",
+            "BOOKING_MOVE_WRITE_ENABLED",
+            "BOT_ADDON_REQUESTS_ENABLED",
+            "BOT_BOOKING_ENABLED",
+            "BOT_PAUSE_CONTROLS_ENABLED",
+            "CUSTOMER_OUTREACH_WHATSAPP_ENABLED",
+            "LUNA_AI_MODEL",
+            "LUNA_AI_PROVIDER",
+            "LUNA_AUTO_SEND_ENABLED",
+            "LUNA_BOT_INTERNAL_TOKEN",
+            "LUNA_CONVERSATION_BRAIN_ENABLED",
+            "LUNA_CONVERSATION_BRAIN_LLM_ENABLED",
+            "LUNA_CONVERSATION_BRAIN_MODEL",
+            "LUNA_CONVERSATION_BRAIN_REASONING_EFFORT",
+            "LUNA_CONVERSATION_BRAIN_TIMEOUT_MS",
+            "LUNA_GUEST_ADD_GUEST_PAID_ENABLED",
+            "LUNA_GUEST_AGENT_BRAIN_ENABLED",
+            "LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED",
+            "LUNA_GUEST_CAMI_REPLY_AUTHOR_MODEL",
+            "LUNA_GUEST_CAMI_REPLY_AUTHOR_TEMPERATURE",
+            "LUNA_GUEST_CAMI_REPLY_AUTHOR_TIMEOUT_MS",
+            "LUNA_GUEST_COMPOSER_BYPASS_ENABLED",
+            "LUNA_GUEST_FRONTDESK_PLANNER_ACTIVE",
+            "LUNA_GUEST_FRONTDESK_PLANNER_ENABLED",
+            "LUNA_GUEST_FRONTDESK_PLANNER_TIMEOUT_MS",
+            "LUNA_GUEST_GPT_TOOL_PLANNER_ACTIVE",
+            "LUNA_GUEST_GPT_TOOL_PLANNER_ENABLED",
+            "LUNA_GUEST_GPT_WRITE_TOOLS_ACTIVE",
+            "LUNA_GUEST_GPT_WRITE_TOOLS_ENABLED",
+            "LUNA_GUEST_SERVICE_PAY_NOW_ENABLED",
+            "LUNA_GUEST_UNIFIED_PLANNER_MODE",
+            "LUNA_OPEN_PHONE_TESTING",
+            "LUNA_OPEN_PHONE_TESTING_BYPASS_STAFF_ROUTING",
+            "LUNA_WHATSAPP_TYPING_INDICATOR_ENABLED",
+            "MANUAL_BOOKING_ENABLED",
+            "META_APP_SECRET",
+            "META_WEBHOOK_SKIP_VERIFY",
+            "META_WHATSAPP_VERIFY_TOKEN",
+            "NODE_ENV",
+            "OPENAI_API_KEY",
+            "OPEN_DEMO_BOOKING_WRITES_ENABLED",
+            "OPEN_DEMO_STRIPE_TEST_LINKS_ENABLED",
+            "OPEN_DEMO_WHATSAPP_ENABLED",
+            "OPEN_DEMO_WHATSAPP_LIVE_REPLIES_ENABLED",
+            "OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID",
+            "OWNER_INSIGHT_AGENT_ENABLED",
+            "OWNER_INSIGHT_AGENT_MODEL",
+            "PUBLIC_PAYMENT_BASE_URL",
+            "STAFF_ACTIONS_ENABLED",
+            "STAFF_API_ADMISSION_CONTROL",
+            "STAFF_API_INGRESS_TENANT_SLUG",
+            "STAFF_AUTH_HTTPS",
+            "STAFF_AUTH_REQUIRED",
+            "STAFF_PORTAL_LOCALES",
+            "STAFF_QUERY_API_HOST",
+            "STAFF_QUERY_API_PORT",
+            "STAFF_SESSION_COOKIE_NAME",
+            "STAFF_SESSION_SECRET",
+            "STAFF_SESSION_TTL_HOURS",
+            "STORMGLASS_API_KEY",
+            "STRIPE_CANCEL_URL",
+            "STRIPE_CHECKOUT_CANCEL_URL",
+            "STRIPE_CHECKOUT_PUBLIC_BASE_URL",
+            "STRIPE_CHECKOUT_SUCCESS_URL",
+            "STRIPE_LINKS_ENABLED",
+            "STRIPE_SECRET_KEY",
+            "STRIPE_SUCCESS_URL",
+            "STRIPE_WEBHOOK_SECRET",
+            "STRIPE_WEBHOOK_SKIP_VERIFY",
+            "SUNSET_ADMIN_WRITES_ENABLED",
+            "WHATSAPP_CLOUD_ACCESS_TOKEN",
+            "WHATSAPP_DRY_RUN",
+            "WHATSAPP_PHONE_NUMBER_ID",
+            "WOLFHOUSE_DATABASE_URL"
+          ],
+          "STAFF_API_ADMISSION_CONTROL_present": true,
+          "STAFF_API_INGRESS_TENANT_SLUG_present": true,
+          "DEFAULT_CLIENT_SLUG_present": false,
+          "env_values_absent_in_raw_readback": true
+        }
+      ]
+    }
+  },
+  "sanitization": {
+    "removed": [
+      "identity.userAssignedIdentities.*.clientId/principalId",
+      "configuration.secrets.keyVaultUrl/identity",
+      "configuration.registries.passwordSecretRef",
+      "env values and secretRef targets",
+      "customDomainVerificationId",
+      "outboundIpAddresses",
+      "eventStreamEndpoint"
+    ],
+    "retained": [
+      "image",
+      "latestRevisionName",
+      "latestReadyRevisionName",
+      "traffic revisionName/weight",
+      "env_names",
+      "presence flags for admission/ingress/default envs",
+      "secret_names_only"
+    ],
+    "note": "Azure update/show readback omitted env values; presence of env names only is raw-backed. Env values and final traffic cutover beyond update readback are operator-attested elsewhere."
+  }
+}
