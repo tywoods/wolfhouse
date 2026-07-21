@@ -4,10 +4,16 @@
  * verify:radar-slice16x-g02-live-evidence — RADAR Slice 16X
  *
  * Offline gate: bounded G02 lifecycle-deploy + dependency-failure traffic-shed
- * evidence reconciliation. Rejects wrong SHA/digest/revision, secret values,
- * missing 90s observations, failed revision becoming ready, non-200 public
- * continuity, active failed revision, wrong restored secretRef, overclaims.
- * No Azure mutation. Optional read-only Azure was performed outside this gate.
+ * evidence reconciliation with mandatory provenance split:
+ *   (A) operator-observed drill transcript contemporaneous facts
+ *   (B) later independently recoverable Azure read-only facts
+ *
+ * Rejects wrong SHA/digest/revision, secret values, missing 90s observations,
+ * failed revision becoming ready, non-200 public continuity, active failed
+ * revision, wrong restored secretRef, overclaims, historical arrays labelled
+ * Azure-derived, missing transcript attribution, fabricated current
+ * verification of historical samples, and live-timeout rewrites of A.
+ * No Azure mutation.
  */
 
 const fs = require('fs');
@@ -112,7 +118,57 @@ function computeEvidenceLockHash(ev) {
   return crypto.createHash('sha256').update(stableStringify(evidenceHashPayload(ev))).digest('hex');
 }
 
-function tenantExpected(kind) {
+function buildObservationBlock(kind) {
+  const isWh = kind === 'wolfhouse';
+  const window = isWh ? locks.WH_OBSERVATION_WINDOW : locks.SUNSET_OBSERVATION_WINDOW;
+  const samples = isWh ? locks.WH_OBSERVATION_SAMPLES : locks.SUNSET_OBSERVATION_SAMPLES;
+  return {
+    source_type: locks.SOURCE_TYPE_A,
+    source_ref: locks.SOURCE_REF_A,
+    observed_at_semantics: locks.OBSERVED_AT_SEMANTICS_A,
+    observation_window: {
+      start_utc: window.start_utc,
+      end_utc: window.end_utc,
+      duration_seconds: window.duration_seconds,
+      cadence_seconds: window.cadence_seconds,
+      derivation: window.derivation,
+    },
+    duration_seconds: locks.OBS_DURATION_S,
+    cadence_seconds: locks.OBS_CADENCE_S,
+    sample_count: locks.OBS_SAMPLE_COUNT,
+    samples: samples.map((s) => ({ ...s })),
+    public_continuity: {
+      source_type: locks.SOURCE_TYPE_A,
+      source_ref: locks.SOURCE_REF_A,
+      observed_at_semantics: locks.OBSERVED_AT_SEMANTICS_A,
+      public_healthz: 200,
+      public_readyz: 200,
+      note: 'Every sample public_healthz/public_readyz is transcript-derived contemporaneous observation; not Azure-reconstructible',
+    },
+  };
+}
+
+function buildClassATenant(kind) {
+  const isWh = kind === 'wolfhouse';
+  return {
+    app: isWh ? locks.WH_APP : locks.SUNSET_APP,
+    fail_revision: isWh ? locks.WH_FAIL_REV : locks.SUNSET_FAIL_REV,
+    prior_serving_revision: isWh ? locks.WH_BASE_REV : locks.SUNSET_BASE_REV,
+    fail_env: {
+      WOLFHOUSE_DATABASE_URL: {
+        kind: 'literal_unreachable_dsn_redacted',
+        host_redacted: '127.0.0.1',
+        secretRef: null,
+        source_type: locks.SOURCE_TYPE_A,
+        source_ref: locks.SOURCE_REF_A,
+      },
+    },
+    fail_scale_min_replicas: 1,
+    observation: buildObservationBlock(kind),
+  };
+}
+
+function buildClassBTenant(kind) {
   const isWh = kind === 'wolfhouse';
   const tl = isWh ? locks.WH_TIMELINE : locks.SUNSET_TIMELINE;
   return {
@@ -126,22 +182,21 @@ function tenantExpected(kind) {
     fail_revision: isWh ? locks.WH_FAIL_REV : locks.SUNSET_FAIL_REV,
     restore_revision: isWh ? locks.WH_RESTORE_REV : locks.SUNSET_RESTORE_REV,
     restored_secret_ref: isWh ? locks.WH_SECRET_REF : locks.SUNSET_SECRET_REF,
-    timeline: { ...tl },
-    fail_env: {
-      WOLFHOUSE_DATABASE_URL: {
-        kind: 'literal_unreachable_dsn_redacted',
-        host_redacted: '127.0.0.1',
-        secretRef: null,
-      },
-    },
-    fail_scale_min_replicas: 1,
-    observation: {
-      duration_seconds: locks.OBS_DURATION_S,
-      cadence_seconds: locks.OBS_CADENCE_S,
-      sample_count: locks.OBS_SAMPLE_COUNT,
-      samples: locks.OBSERVATION_SAMPLES.map((s) => ({ ...s })),
+    source_type: locks.SOURCE_TYPE_B,
+    source_ref: locks.SOURCE_REF_B,
+    observed_at: locks.INDEPENDENT_VERIFY_UTC,
+    observed_at_semantics: locks.OBSERVED_AT_SEMANTICS_B,
+    timeline: {
+      ...tl,
+      source_type: locks.SOURCE_TYPE_B,
+      source_ref: locks.SOURCE_REF_B,
+      observed_at: locks.INDEPENDENT_VERIFY_UTC,
     },
     final_state: {
+      source_type: locks.SOURCE_TYPE_B,
+      source_ref: locks.SOURCE_REF_B,
+      observed_at: locks.INDEPENDENT_VERIFY_UTC,
+      observed_at_semantics: locks.OBSERVED_AT_SEMANTICS_B,
       latest_revision: isWh ? locks.WH_RESTORE_REV : locks.SUNSET_RESTORE_REV,
       latest_ready_revision: isWh ? locks.WH_RESTORE_REV : locks.SUNSET_RESTORE_REV,
       health_state: 'Healthy',
@@ -150,6 +205,8 @@ function tenantExpected(kind) {
       database_secret_ref: isWh ? locks.WH_SECRET_REF : locks.SUNSET_SECRET_REF,
       public_healthz: 200,
       public_readyz: 200,
+      public_current_note:
+        'public_healthz/public_readyz here are independently reverified current values at observed_at — not a recreation of class-A historical samples',
       probes: locks.PROBE_SUMMARY.map((p) => ({ ...p })),
     },
   };
@@ -172,14 +229,46 @@ function buildExpectedEvidence() {
     image_sha_full: locks.IMAGE_SHA_FULL,
     subscription_id: locks.SUBSCRIPTION_ID,
     independent_azure_verify_utc: locks.INDEPENDENT_VERIFY_UTC,
+    provenance_limitations: locks.PROVENANCE_LIMITATIONS,
+    non_recoverability: locks.NON_RECOVERABILITY,
     observed_facts: {
-      builds: {
-        wolfhouse_digest: locks.WH_DIGEST,
-        sunset_digest: locks.SUNSET_DIGEST,
-        image_sha_full: locks.IMAGE_SHA_FULL,
+      A_operator_observed_drill_transcript: {
+        source_type: locks.SOURCE_TYPE_A,
+        source_ref: locks.SOURCE_REF_A,
+        observed_at_semantics: locks.OBSERVED_AT_SEMANTICS_A,
+        covers: [
+          'fail_observation_samples_0_90s_5s',
+          'public_healthz_readyz_continuity_during_fail',
+          'fail_env_literal_unreachable_dsn_intent',
+          'fail_scale_min_replicas',
+        ],
+        wolfhouse: buildClassATenant('wolfhouse'),
+        sunset: buildClassATenant('sunset'),
       },
-      wolfhouse: tenantExpected('wolfhouse'),
-      sunset: tenantExpected('sunset'),
+      B_independently_recoverable_azure_readonly: {
+        source_type: locks.SOURCE_TYPE_B,
+        source_ref: locks.SOURCE_REF_B,
+        observed_at: locks.INDEPENDENT_VERIFY_UTC,
+        observed_at_semantics: locks.OBSERVED_AT_SEMANTICS_B,
+        covers: [
+          'acr_digests',
+          'images_and_base_restore_revisions',
+          'revision_create_timelines',
+          'final_revision_ready_health_traffic_secretRef',
+          'probes',
+          'public_current_healthz_readyz',
+        ],
+        builds: {
+          source_type: locks.SOURCE_TYPE_B,
+          source_ref: locks.SOURCE_REF_B,
+          observed_at: locks.INDEPENDENT_VERIFY_UTC,
+          wolfhouse_digest: locks.WH_DIGEST,
+          sunset_digest: locks.SUNSET_DIGEST,
+          image_sha_full: locks.IMAGE_SHA_FULL,
+        },
+        wolfhouse: buildClassBTenant('wolfhouse'),
+        sunset: buildClassBTenant('sunset'),
+      },
     },
     claims_allowed: [...locks.CLAIMS_ALLOWED],
     explicitly_not_claimed: [...locks.EXPLICITLY_NOT_CLAIMED],
@@ -314,6 +403,59 @@ function validateEvidenceExact(ev) {
   return { ok: errors.length === 0, errors };
 }
 
+function validateProvenanceSplit(ev) {
+  const errors = [];
+  const facts = ev && ev.observed_facts;
+  if (!facts || typeof facts !== 'object') {
+    return { ok: false, errors: ['observed_facts missing'] };
+  }
+  if (!facts.A_operator_observed_drill_transcript) {
+    errors.push('missing A_operator_observed_drill_transcript');
+  }
+  if (!facts.B_independently_recoverable_azure_readonly) {
+    errors.push('missing B_independently_recoverable_azure_readonly');
+  }
+  if (!ev.provenance_limitations || typeof ev.provenance_limitations !== 'string') {
+    errors.push('missing provenance_limitations');
+  }
+  if (!ev.non_recoverability || typeof ev.non_recoverability !== 'string') {
+    errors.push('missing non_recoverability');
+  }
+  if (!/cannot recreate|not Azure-reconstructible|cannot.*replay/i.test(String(ev.non_recoverability || ''))) {
+    errors.push('non_recoverability must deny Azure recreation of historical samples');
+  }
+
+  const a = facts.A_operator_observed_drill_transcript;
+  const b = facts.B_independently_recoverable_azure_readonly;
+  if (a) {
+    if (a.source_type !== locks.SOURCE_TYPE_A) errors.push('A source_type wrong');
+    if (a.source_ref !== locks.SOURCE_REF_A) errors.push('A source_ref wrong');
+    if (a.observed_at_semantics !== locks.OBSERVED_AT_SEMANTICS_A) {
+      errors.push('A observed_at_semantics wrong');
+    }
+  }
+  if (b) {
+    if (b.source_type !== locks.SOURCE_TYPE_B) errors.push('B source_type wrong');
+    if (b.source_ref !== locks.SOURCE_REF_B) errors.push('B source_ref wrong');
+    if (b.observed_at !== locks.INDEPENDENT_VERIFY_UTC) errors.push('B observed_at wrong');
+    if (b.observed_at_semantics !== locks.OBSERVED_AT_SEMANTICS_B) {
+      errors.push('B observed_at_semantics wrong');
+    }
+  }
+
+  // Historical sample arrays must not live under B or carry Azure source_type.
+  if (b && (b.wolfhouse || b.sunset)) {
+    for (const tenant of ['wolfhouse', 'sunset']) {
+      const t = b[tenant];
+      if (t && t.observation && Array.isArray(t.observation.samples)) {
+        errors.push(`B.${tenant}.observation.samples must not exist (historical arrays are class A only)`);
+      }
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
 function validateGateMatrix(matrix) {
   const errors = [];
   if (!matrix || typeof matrix !== 'object') {
@@ -357,9 +499,33 @@ function validateGateMatrix(matrix) {
   return { ok: errors.length === 0, errors };
 }
 
+function classATenant(ev, kind) {
+  return ev.observed_facts
+    && ev.observed_facts.A_operator_observed_drill_transcript
+    && ev.observed_facts.A_operator_observed_drill_transcript[kind];
+}
+
+function classBTenant(ev, kind) {
+  return ev.observed_facts
+    && ev.observed_facts.B_independently_recoverable_azure_readonly
+    && ev.observed_facts.B_independently_recoverable_azure_readonly[kind];
+}
+
 function observationOk(tenant) {
   const obs = tenant && tenant.observation;
   if (!obs) return { ok: false, detail: 'missing observation' };
+  if (obs.source_type !== locks.SOURCE_TYPE_A) {
+    return { ok: false, detail: `observation source_type=${obs.source_type}` };
+  }
+  if (obs.source_ref !== locks.SOURCE_REF_A) {
+    return { ok: false, detail: 'observation missing transcript source_ref' };
+  }
+  if (!obs.observation_window
+    || !obs.observation_window.start_utc
+    || !obs.observation_window.end_utc
+    || !obs.observation_window.derivation) {
+    return { ok: false, detail: 'missing observation_window' };
+  }
   if (obs.duration_seconds < locks.OBS_DURATION_S) {
     return { ok: false, detail: `duration ${obs.duration_seconds}` };
   }
@@ -373,13 +539,47 @@ function observationOk(tenant) {
     return { ok: false, detail: 'sample_count mismatch' };
   }
   for (const s of obs.samples) {
+    if (s.source_type !== locks.SOURCE_TYPE_A) {
+      return { ok: false, detail: `sample source_type=${s.source_type}` };
+    }
+    if (s.source_ref !== locks.SOURCE_REF_A) {
+      return { ok: false, detail: 'sample missing transcript source_ref' };
+    }
     if (s.fail_running_state !== 'Activating') return { ok: false, detail: 'not Activating' };
     if (s.fail_was_latest_ready !== false) return { ok: false, detail: 'became latestReady' };
     if (s.public_healthz !== 200 || s.public_readyz !== 200) {
       return { ok: false, detail: 'non-200 continuity' };
     }
   }
+  if (!obs.public_continuity
+    || obs.public_continuity.source_type !== locks.SOURCE_TYPE_A
+    || obs.public_continuity.public_healthz !== 200
+    || obs.public_continuity.public_readyz !== 200) {
+    return { ok: false, detail: 'public_continuity not transcript-attributed 200' };
+  }
   return { ok: true };
+}
+
+function samplesHaveAzureDerivedLabel(tenant) {
+  const obs = tenant && tenant.observation;
+  if (!obs || !Array.isArray(obs.samples)) return false;
+  return obs.samples.some((s) => {
+    const st = String(s.source_type || '');
+    return /azure|independently_reverified|readonly/i.test(st)
+      && !/transcript|operator_drill/i.test(st);
+  }) || /azure|independently_reverified/i.test(String(obs.source_type || ''))
+    && !/transcript|operator_drill/i.test(String(obs.source_type || ''));
+}
+
+function samplesClaimFabricatedCurrentVerify(tenant) {
+  const obs = tenant && tenant.observation;
+  if (!obs || !Array.isArray(obs.samples)) return false;
+  return obs.samples.some((s) => (
+    Object.prototype.hasOwnProperty.call(s, 'independently_reverified_at')
+    || Object.prototype.hasOwnProperty.call(s, 'current_verify_utc')
+    || Object.prototype.hasOwnProperty.call(s, 'azure_replay_utc')
+    || s.source_type === locks.SOURCE_TYPE_B
+  )) || obs.source_type === locks.SOURCE_TYPE_B;
 }
 
 function fieldLevelOverclaim(text) {
@@ -397,14 +597,10 @@ function fieldLevelOverclaim(text) {
   for (const re of forbidden) {
     if (re.test(text)) hits.push(String(re));
   }
-  // Allow explicit denial phrases containing these tokens.
-  const denialOk = /explicitly_not_claimed|does_not_prove|does not prove|not claimed|still_open|forbidden/i;
-  if (hits.length && denialOk.test(text) && !/\bG02\s+proven\b/i.test(text) && !/\bverdict\s*[:=]\s*proven\b/i.test(text)) {
-    // still reject absolute proven claims even inside mixed docs
-  }
   return hits;
 }
 
+function runVerifier() {
 console.log('RADAR 16X G02 live evidence — offline verifier\n');
 
 const evidence = readJson(locks.EVIDENCE_REL);
@@ -454,27 +650,39 @@ ok('C6 disposition keeps G02 partial',
   ));
 
 {
-  const whObs = observationOk(evidence.observed_facts.wolfhouse);
-  const suObs = observationOk(evidence.observed_facts.sunset);
-  ok('C7 90s/5s observation series both tenants', whObs.ok && suObs.ok, `${whObs.detail}|${suObs.detail}`);
+  const whObs = observationOk(classATenant(evidence, 'wolfhouse'));
+  const suObs = observationOk(classATenant(evidence, 'sunset'));
+  ok('C7 90s/5s observation series both tenants (class A transcript)', whObs.ok && suObs.ok, `${whObs.detail}|${suObs.detail}`);
 }
 
-ok('C8 digests + SHA + base revisions locked',
-  evidence.observed_facts.builds.wolfhouse_digest === locks.WH_DIGEST
-  && evidence.observed_facts.builds.sunset_digest === locks.SUNSET_DIGEST
-  && evidence.image_sha_full === locks.IMAGE_SHA_FULL
-  && evidence.observed_facts.wolfhouse.base_revision_suffix === locks.WH_BASE_SUFFIX
-  && evidence.observed_facts.sunset.base_revision_suffix === locks.SUNSET_BASE_SUFFIX);
+{
+  const b = evidence.observed_facts.B_independently_recoverable_azure_readonly;
+  ok('C8 digests + SHA + base revisions locked (class B)',
+    b.builds.wolfhouse_digest === locks.WH_DIGEST
+    && b.builds.sunset_digest === locks.SUNSET_DIGEST
+    && evidence.image_sha_full === locks.IMAGE_SHA_FULL
+    && b.wolfhouse.base_revision_suffix === locks.WH_BASE_SUFFIX
+    && b.sunset.base_revision_suffix === locks.SUNSET_BASE_SUFFIX
+    && b.builds.source_type === locks.SOURCE_TYPE_B
+    && b.builds.observed_at === locks.INDEPENDENT_VERIFY_UTC);
+}
 
-ok('C9 final secretRef + inactive fail + 100% traffic',
-  evidence.observed_facts.wolfhouse.final_state.database_secret_ref === locks.WH_SECRET_REF
-  && evidence.observed_facts.sunset.final_state.database_secret_ref === locks.SUNSET_SECRET_REF
-  && evidence.observed_facts.wolfhouse.final_state.fail_revision_active === false
-  && evidence.observed_facts.sunset.final_state.fail_revision_active === false
-  && evidence.observed_facts.wolfhouse.final_state.traffic_latest_percent === 100
-  && evidence.observed_facts.sunset.final_state.traffic_latest_percent === 100
-  && evidence.observed_facts.wolfhouse.final_state.latest_ready_revision === locks.WH_RESTORE_REV
-  && evidence.observed_facts.sunset.final_state.latest_ready_revision === locks.SUNSET_RESTORE_REV);
+{
+  const wh = classBTenant(evidence, 'wolfhouse');
+  const su = classBTenant(evidence, 'sunset');
+  ok('C9 final secretRef + inactive fail + 100% traffic (class B)',
+    wh.final_state.database_secret_ref === locks.WH_SECRET_REF
+    && su.final_state.database_secret_ref === locks.SUNSET_SECRET_REF
+    && wh.final_state.fail_revision_active === false
+    && su.final_state.fail_revision_active === false
+    && wh.final_state.traffic_latest_percent === 100
+    && su.final_state.traffic_latest_percent === 100
+    && wh.final_state.latest_ready_revision === locks.WH_RESTORE_REV
+    && su.final_state.latest_ready_revision === locks.SUNSET_RESTORE_REV
+    && wh.final_state.source_type === locks.SOURCE_TYPE_B
+    && wh.final_state.observed_at === locks.INDEPENDENT_VERIFY_UTC
+    && su.final_state.observed_at === locks.INDEPENDENT_VERIFY_UTC);
+}
 
 {
   const mv = validateGateMatrix(matrix);
@@ -490,11 +698,13 @@ ok('C11 top contract selected_16x + G02 drill live_proven',
   && topContract.selected_16w
   && topContract.selected_16w.g02_lifecycle_source === 'closed_via_16W');
 
-ok('C12 doc mentions 16X + G02 partial + traffic shed',
+ok('C12 doc mentions 16X + G02 partial + traffic shed + provenance split',
   /16X|g02.?live.?evidence/i.test(doc)
   && /partial/i.test(doc)
   && /traffic.?shed|g02fail|Activating/i.test(doc)
   && /SIGTERM|lifecycle.?live/i.test(doc)
+  && /transcript|provenance|class A|operator-observed/i.test(doc)
+  && /independently|class B|Azure read-only/i.test(doc)
   && !/\bG02\s+proven\b/i.test(doc));
 
 ok('C13 findings mention 16X drill without proven overclaim',
@@ -524,6 +734,11 @@ ok('C13 findings mention 16X drill without proven overclaim',
       === 'node scripts/verify-radar-slice16x-g02-live-evidence.js');
 }
 
+{
+  const pv = validateProvenanceSplit(evidence);
+  ok('C17 provenance split A/B + limitations + non-recoverability', pv.ok, pv.errors.join(' | '));
+}
+
 green('claims_and_disposition_locked',
   locks.CLAIMS_ALLOWED.every((c) => evidence.claims_allowed.includes(c))
   && evidence.disposition.proves.length >= 5
@@ -531,12 +746,12 @@ green('claims_and_disposition_locked',
   && evidence.disposition.does_not_prove.includes('full_G02_proven'));
 
 green('fail_env_redacted_not_secretRef',
-  evidence.observed_facts.wolfhouse.fail_env.WOLFHOUSE_DATABASE_URL.secretRef === null
-  && evidence.observed_facts.sunset.fail_env.WOLFHOUSE_DATABASE_URL.secretRef === null
-  && evidence.observed_facts.wolfhouse.fail_env.WOLFHOUSE_DATABASE_URL.host_redacted === '127.0.0.1'
-  && evidence.observed_facts.sunset.fail_env.WOLFHOUSE_DATABASE_URL.host_redacted === '127.0.0.1'
-  && evidence.observed_facts.wolfhouse.fail_scale_min_replicas === 1
-  && evidence.observed_facts.sunset.fail_scale_min_replicas === 1);
+  classATenant(evidence, 'wolfhouse').fail_env.WOLFHOUSE_DATABASE_URL.secretRef === null
+  && classATenant(evidence, 'sunset').fail_env.WOLFHOUSE_DATABASE_URL.secretRef === null
+  && classATenant(evidence, 'wolfhouse').fail_env.WOLFHOUSE_DATABASE_URL.host_redacted === '127.0.0.1'
+  && classATenant(evidence, 'sunset').fail_env.WOLFHOUSE_DATABASE_URL.host_redacted === '127.0.0.1'
+  && classATenant(evidence, 'wolfhouse').fail_scale_min_replicas === 1
+  && classATenant(evidence, 'sunset').fail_scale_min_replicas === 1);
 
 green('timeline_fail_to_restore_ge_90s', (() => {
   const whFail = Date.parse(locks.WH_TIMELINE.fail_revision_created_utc);
@@ -544,6 +759,26 @@ green('timeline_fail_to_restore_ge_90s', (() => {
   const suFail = Date.parse(locks.SUNSET_TIMELINE.fail_revision_created_utc);
   const suRestore = Date.parse(locks.SUNSET_TIMELINE.restore_revision_created_utc);
   return (whRestore - whFail) >= 90000 && (suRestore - suFail) >= 90000;
+})());
+
+green('class_b_final_and_probes_reverified_at_utc',
+  classBTenant(evidence, 'wolfhouse').final_state.observed_at === locks.INDEPENDENT_VERIFY_UTC
+  && classBTenant(evidence, 'sunset').final_state.observed_at === locks.INDEPENDENT_VERIFY_UTC
+  && classBTenant(evidence, 'wolfhouse').final_state.probes.length === 3
+  && classBTenant(evidence, 'sunset').final_state.probes.length === 3);
+
+green('live_timeout_does_not_rewrite_historical_200', (() => {
+  const after = locks.mergeLiveProbeWithoutRewritingHistorical(evidence, {
+    attempted_at_utc: '2026-07-21T99:00:00Z',
+    result: 'timeout',
+  });
+  const rewritten = locks.historicalSamplesRewrittenByLiveProbe(evidence, after);
+  const still200 = classATenant(after, 'wolfhouse').observation.samples.every(
+    (s) => s.public_healthz === 200 && s.public_readyz === 200,
+  ) && classATenant(after, 'sunset').observation.samples.every(
+    (s) => s.public_healthz === 200 && s.public_readyz === 200,
+  );
+  return !rewritten && still200;
 })());
 
 // --- RED battery ---
@@ -554,28 +789,30 @@ green('timeline_fail_to_restore_ge_90s', (() => {
 }
 {
   const bad = deepClone(evidence);
-  bad.observed_facts.builds.wolfhouse_digest = 'sha256:0000000000000000000000000000000000000000000000000000000000000000';
+  bad.observed_facts.B_independently_recoverable_azure_readonly.builds.wolfhouse_digest =
+    'sha256:0000000000000000000000000000000000000000000000000000000000000000';
   red('wrong_wh_digest_rejected', !validateEvidenceExact(bad).ok);
 }
 {
   const bad = deepClone(evidence);
-  bad.observed_facts.builds.sunset_digest = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';
+  bad.observed_facts.B_independently_recoverable_azure_readonly.builds.sunset_digest =
+    'sha256:1111111111111111111111111111111111111111111111111111111111111111';
   red('wrong_sunset_digest_rejected', !validateEvidenceExact(bad).ok);
 }
 {
   const bad = deepClone(evidence);
-  bad.observed_facts.wolfhouse.base_revision_suffix = '0000517';
+  bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse.base_revision_suffix = '0000517';
   red('wrong_wh_revision_rejected', !validateEvidenceExact(bad).ok);
 }
 {
   const bad = deepClone(evidence);
-  bad.observed_facts.sunset.base_revision_suffix = '0000277';
+  bad.observed_facts.B_independently_recoverable_azure_readonly.sunset.base_revision_suffix = '0000277';
   red('wrong_sunset_revision_rejected', !validateEvidenceExact(bad).ok);
 }
 {
   const bad = deepClone(evidence);
   const fakeDsn = ['postgres', 'ql://', 'user:', 'hunter2@', '127.0.0.1:5432/db'].join('');
-  bad.observed_facts.wolfhouse.fail_env.WOLFHOUSE_DATABASE_URL = {
+  bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.fail_env.WOLFHOUSE_DATABASE_URL = {
     kind: 'secret_value',
     value: fakeDsn,
     secretRef: null,
@@ -586,36 +823,39 @@ green('timeline_fail_to_restore_ge_90s', (() => {
 }
 {
   const bad = deepClone(evidence);
-  bad.observed_facts.wolfhouse.observation.samples = bad.observed_facts.wolfhouse.observation.samples.slice(0, 5);
-  bad.observed_facts.wolfhouse.observation.sample_count = 5;
-  bad.observed_facts.wolfhouse.observation.duration_seconds = 20;
-  red('missing_90s_observations_rejected', !validateEvidenceExact(bad).ok || !observationOk(bad.observed_facts.wolfhouse).ok);
+  const aWh = bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse;
+  aWh.observation.samples = aWh.observation.samples.slice(0, 5);
+  aWh.observation.sample_count = 5;
+  aWh.observation.duration_seconds = 20;
+  red('missing_90s_observations_rejected', !validateEvidenceExact(bad).ok || !observationOk(aWh).ok);
 }
 {
   const bad = deepClone(evidence);
-  for (const s of bad.observed_facts.wolfhouse.observation.samples) {
+  for (const s of bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.observation.samples) {
     s.fail_was_latest_ready = true;
     s.fail_running_state = 'RunningAtMaxScale';
   }
-  red('failed_revision_became_ready_rejected', !observationOk(bad.observed_facts.wolfhouse).ok);
+  red('failed_revision_became_ready_rejected',
+    !observationOk(bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse).ok);
 }
 {
   const bad = deepClone(evidence);
-  for (const s of bad.observed_facts.sunset.observation.samples) {
+  for (const s of bad.observed_facts.A_operator_observed_drill_transcript.sunset.observation.samples) {
     s.public_healthz = 503;
     s.public_readyz = 503;
   }
-  red('non_200_public_continuity_rejected', !observationOk(bad.observed_facts.sunset).ok);
+  red('non_200_public_continuity_rejected',
+    !observationOk(bad.observed_facts.A_operator_observed_drill_transcript.sunset).ok);
 }
 {
   const bad = deepClone(evidence);
-  bad.observed_facts.wolfhouse.final_state.fail_revision_active = true;
+  bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse.final_state.fail_revision_active = true;
   red('active_failed_revision_rejected', !validateEvidenceExact(bad).ok);
 }
 {
   const bad = deepClone(evidence);
-  bad.observed_facts.wolfhouse.final_state.database_secret_ref = 'wrong-secret';
-  bad.observed_facts.sunset.final_state.database_secret_ref = 'wolfhouse-database-url';
+  bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse.final_state.database_secret_ref = 'wrong-secret';
+  bad.observed_facts.B_independently_recoverable_azure_readonly.sunset.final_state.database_secret_ref = 'wolfhouse-database-url';
   red('wrong_restored_secretRef_rejected', !validateEvidenceExact(bad).ok);
 }
 {
@@ -644,6 +884,70 @@ green('timeline_fail_to_restore_ge_90s', (() => {
   const hits = fieldLevelOverclaim(badDoc);
   red('doc_overclaim_tokens_rejected', hits.length > 0, hits.join(','));
 }
+{
+  const bad = deepClone(evidence);
+  delete bad.observed_facts.A_operator_observed_drill_transcript;
+  delete bad.provenance_limitations;
+  delete bad.non_recoverability;
+  const pv = validateProvenanceSplit(bad);
+  red('missing_provenance_split_rejected', !pv.ok);
+}
+{
+  const bad = deepClone(evidence);
+  const aWh = bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse;
+  aWh.observation.source_type = locks.SOURCE_TYPE_B;
+  for (const s of aWh.observation.samples) {
+    s.source_type = locks.SOURCE_TYPE_B;
+    s.source_ref = locks.SOURCE_REF_B;
+  }
+  red('historical_arrays_azure_derived_label_rejected',
+    samplesHaveAzureDerivedLabel(aWh)
+    || !observationOk(aWh).ok
+    || !validateProvenanceSplit(bad).ok);
+}
+{
+  const bad = deepClone(evidence);
+  const aWh = bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse;
+  delete aWh.observation.source_ref;
+  for (const s of aWh.observation.samples) {
+    delete s.source_ref;
+    delete s.source_type;
+  }
+  red('missing_transcript_attribution_rejected', !observationOk(aWh).ok);
+}
+{
+  const bad = deepClone(evidence);
+  const aWh = bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse;
+  for (const s of aWh.observation.samples) {
+    s.current_verify_utc = locks.INDEPENDENT_VERIFY_UTC;
+    s.source_type = locks.SOURCE_TYPE_B;
+  }
+  // Also place historical samples under B (fabricated Azure recreation).
+  bad.observed_facts.B_independently_recoverable_azure_readonly.wolfhouse.observation = {
+    source_type: locks.SOURCE_TYPE_B,
+    samples: aWh.observation.samples,
+  };
+  red('fabricated_current_verification_of_historical_samples_rejected',
+    samplesClaimFabricatedCurrentVerify(aWh)
+    || !validateProvenanceSplit(bad).ok);
+}
+{
+  const bad = deepClone(evidence);
+  // Simulate a buggy merge that rewrites historical 200s from a live timeout.
+  const after = locks.mergeLiveProbeWithoutRewritingHistorical(bad, {
+    attempted_at_utc: '2026-07-21T12:00:00Z',
+    result: 'timeout',
+  });
+  // Force a bad rewrite as the RED subject.
+  for (const s of after.observed_facts.A_operator_observed_drill_transcript.wolfhouse.observation.samples) {
+    s.public_healthz = null;
+    s.public_readyz = null;
+    s.note = 'cleared because live probe timed out';
+  }
+  red('live_timeout_rewrite_of_historical_200_rejected',
+    locks.historicalSamplesRewrittenByLiveProbe(evidence, after)
+    || !observationOk(after.observed_facts.A_operator_observed_drill_transcript.wolfhouse).ok);
+}
 
 const REQUIRED_RED = [
   'wrong_sha_rejected',
@@ -661,11 +965,18 @@ const REQUIRED_RED = [
   'lock_hash_tamper_rejected',
   'matrix_g02_proven_rejected',
   'doc_overclaim_tokens_rejected',
+  'missing_provenance_split_rejected',
+  'historical_arrays_azure_derived_label_rejected',
+  'missing_transcript_attribution_rejected',
+  'fabricated_current_verification_of_historical_samples_rejected',
+  'live_timeout_rewrite_of_historical_200_rejected',
 ];
 const REQUIRED_GREEN = [
   'claims_and_disposition_locked',
   'fail_env_redacted_not_secretRef',
   'timeline_fail_to_restore_ge_90s',
+  'class_b_final_and_probes_reverified_at_utc',
+  'live_timeout_does_not_rewrite_historical_200',
 ];
 
 const redMissing = REQUIRED_RED.filter((id) => !redResults.some((r) => r.id === id && r.ok));
@@ -678,3 +989,17 @@ console.log(`RED ${redResults.filter((r) => r.ok).length}/${REQUIRED_RED.length}
   + `GREEN ${greenResults.filter((r) => r.ok).length}/${REQUIRED_GREEN.length}`);
 if (fail > 0) process.exit(1);
 console.log('RADAR 16X G02 live evidence (partial/live-proven): PASS');
+}
+
+module.exports = {
+  buildExpectedEvidence,
+  computeEvidenceLockHash,
+  validateEvidenceExact,
+  validateProvenanceSplit,
+  observationOk,
+  runVerifier,
+};
+
+if (require.main === module) {
+  runVerifier();
+}

@@ -39,7 +39,7 @@
 
 ## Slice 16X
 
-`16X_g02_lifecycle_deploy_traffic_shed_live_evidence` — reconciles dual-staging exact-SHA `2dcda08` deploy (WH digest `sha256:53682837…`, Sunset `sha256:3c702217…`; base revs WH `--0000518`, Sunset `--0000278`) and controlled `g02fail` Activating ≥90s @ 5s never latestReady with prior public `/healthz=200` `/readyz=200`, then exact-SHA `g02restore` secretRef Healthy/latestReady/100% traffic and fail deactivated. **Does not claim** SIGTERM live lifecycle, organic alerts, production, serving `/readyz=503`, or closing G02 as fully proven. G02 stays **partial**.
+`16X_g02_lifecycle_deploy_traffic_shed_live_evidence` — reconciles dual-staging exact-SHA `2dcda08` deploy with explicit provenance split: **(A)** operator-transcript contemporaneous `g02fail` Activating ≥90s @ 5s never latestReady + prior public `/healthz=200` `/readyz=200` (not Azure-reconstructible); **(B)** independently reverified digests/revisions/secretRef/probes/traffic/public-current @ `2026-07-21T10:33:28Z` (WH digest `sha256:53682837…` base `--0000518`; Sunset `sha256:3c702217…` base `--0000278`; `g02restore` Healthy/latestReady/100%). **Does not claim** SIGTERM live lifecycle, organic alerts, production, serving `/readyz=503`, or closing G02 as fully proven. G02 stays **partial**.
 
 ## Slice 16W (retained)
 

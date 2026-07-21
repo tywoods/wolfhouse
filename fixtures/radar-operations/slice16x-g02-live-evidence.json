@@ -16,404 +16,660 @@
   "image_sha_full": "2dcda08008fe951565560cefafe37f1a78b0791a",
   "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
   "independent_azure_verify_utc": "2026-07-21T10:33:28Z",
+  "provenance_limitations": "Class A historical 0..90s/5s samples and public continuity values are operator-observed contemporaneous transcript facts. Class B digests/final revision/probes/secretRef/traffic/public-current are independently reverified Azure/public read-only facts at independent_azure_verify_utc. Do not treat A as Azure-reconstructible, and do not treat a later live probe timeout or status as authority to rewrite A.",
+  "non_recoverability": "Azure read-only APIs cannot recreate or replay the historical Activating sample arrays or contemporaneous public /healthz|/readyz=200 continuity series; those values exist only in the operator drill command transcript (plus observation-window bounds derived from fail_revision_created_utc + transcript duration/offsets).",
   "observed_facts": {
-    "builds": {
-      "wolfhouse_digest": "sha256:536828373f2deaf5da638bdd4650cdcc2d9d97d4352aa9a6cac718c7f9d4054b",
-      "sunset_digest": "sha256:3c7022173cc931b2701b0a9adcbf0b092fe933281e81538d886028e53ec40a05",
-      "image_sha_full": "2dcda08008fe951565560cefafe37f1a78b0791a"
-    },
-    "wolfhouse": {
-      "app": "wh-staging-staff-api",
-      "resource_group": "wh-staging-rg",
-      "public_host": "staff-staging.lunafrontdesk.com",
-      "image": "whstagingacr.azurecr.io/wh-staff-api:2dcda08008fe951565560cefafe37f1a78b0791a",
-      "digest": "sha256:536828373f2deaf5da638bdd4650cdcc2d9d97d4352aa9a6cac718c7f9d4054b",
-      "base_revision": "wh-staging-staff-api--0000518",
-      "base_revision_suffix": "0000518",
-      "fail_revision": "wh-staging-staff-api--g02fail",
-      "restore_revision": "wh-staging-staff-api--g02restore",
-      "restored_secret_ref": "wolfhouse-database-url",
-      "timeline": {
-        "acr_tag_created_utc": "2026-07-21T10:05:58.4740201Z",
-        "base_revision_created_utc": "2026-07-21T10:06:41+00:00",
-        "fail_write_started_utc": "2026-07-21T10:18:30.5777877Z",
-        "fail_revision_created_utc": "2026-07-21T10:18:42+00:00",
-        "restore_write_started_utc": "2026-07-21T10:21:57.3085439Z",
-        "restore_revision_created_utc": "2026-07-21T10:22:08+00:00",
-        "deactivate_attempt_utc": "2026-07-21T10:22:48.6671Z",
-        "deactivate_result": "RevisionAlreadyInRequestedState"
-      },
-      "fail_env": {
-        "WOLFHOUSE_DATABASE_URL": {
-          "kind": "literal_unreachable_dsn_redacted",
-          "host_redacted": "127.0.0.1",
-          "secretRef": null
+    "A_operator_observed_drill_transcript": {
+      "source_type": "operator_drill_transcript_contemporaneous_observation",
+      "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+      "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only",
+      "covers": [
+        "fail_observation_samples_0_90s_5s",
+        "public_healthz_readyz_continuity_during_fail",
+        "fail_env_literal_unreachable_dsn_intent",
+        "fail_scale_min_replicas"
+      ],
+      "wolfhouse": {
+        "app": "wh-staging-staff-api",
+        "fail_revision": "wh-staging-staff-api--g02fail",
+        "prior_serving_revision": "wh-staging-staff-api--0000518",
+        "fail_env": {
+          "WOLFHOUSE_DATABASE_URL": {
+            "kind": "literal_unreachable_dsn_redacted",
+            "host_redacted": "127.0.0.1",
+            "secretRef": null,
+            "source_type": "operator_drill_transcript_contemporaneous_observation",
+            "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21"
+          }
+        },
+        "fail_scale_min_replicas": 1,
+        "observation": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+          "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only",
+          "observation_window": {
+            "start_utc": "2026-07-21T10:18:42+00:00",
+            "end_utc": "2026-07-21T10:20:12+00:00",
+            "duration_seconds": 90,
+            "cadence_seconds": 5,
+            "derivation": "start_utc = fail_revision_created_utc (Azure revision create, also in class-B timeline); end_utc = start_utc + 90s from operator command transcript duration; absolute_observed_at_utc per sample = start_utc + t_offset_s from transcript cadence only — not Azure-reconstructible"
+          },
+          "duration_seconds": 90,
+          "cadence_seconds": 5,
+          "sample_count": 19,
+          "samples": [
+            {
+              "t_offset_s": 0,
+              "absolute_observed_at_utc": "2026-07-21T10:18:42+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 5,
+              "absolute_observed_at_utc": "2026-07-21T10:18:47+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 10,
+              "absolute_observed_at_utc": "2026-07-21T10:18:52+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 15,
+              "absolute_observed_at_utc": "2026-07-21T10:18:57+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 20,
+              "absolute_observed_at_utc": "2026-07-21T10:19:02+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 25,
+              "absolute_observed_at_utc": "2026-07-21T10:19:07+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 30,
+              "absolute_observed_at_utc": "2026-07-21T10:19:12+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 35,
+              "absolute_observed_at_utc": "2026-07-21T10:19:17+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 40,
+              "absolute_observed_at_utc": "2026-07-21T10:19:22+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 45,
+              "absolute_observed_at_utc": "2026-07-21T10:19:27+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 50,
+              "absolute_observed_at_utc": "2026-07-21T10:19:32+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 55,
+              "absolute_observed_at_utc": "2026-07-21T10:19:37+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 60,
+              "absolute_observed_at_utc": "2026-07-21T10:19:42+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 65,
+              "absolute_observed_at_utc": "2026-07-21T10:19:47+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 70,
+              "absolute_observed_at_utc": "2026-07-21T10:19:52+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 75,
+              "absolute_observed_at_utc": "2026-07-21T10:19:57+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 80,
+              "absolute_observed_at_utc": "2026-07-21T10:20:02+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 85,
+              "absolute_observed_at_utc": "2026-07-21T10:20:07+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 90,
+              "absolute_observed_at_utc": "2026-07-21T10:20:12+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            }
+          ],
+          "public_continuity": {
+            "source_type": "operator_drill_transcript_contemporaneous_observation",
+            "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+            "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only",
+            "public_healthz": 200,
+            "public_readyz": 200,
+            "note": "Every sample public_healthz/public_readyz is transcript-derived contemporaneous observation; not Azure-reconstructible"
+          }
         }
       },
-      "fail_scale_min_replicas": 1,
-      "observation": {
-        "duration_seconds": 90,
-        "cadence_seconds": 5,
-        "sample_count": 19,
-        "samples": [
-          {
-            "t_offset_s": 0,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 5,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 10,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 15,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 20,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 25,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 30,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 35,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 40,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 45,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 50,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 55,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 60,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 65,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 70,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 75,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 80,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 85,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 90,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
+      "sunset": {
+        "app": "luna-sunset-staging-staff-api",
+        "fail_revision": "luna-sunset-staging-staff-api--g02fail",
+        "prior_serving_revision": "luna-sunset-staging-staff-api--0000278",
+        "fail_env": {
+          "WOLFHOUSE_DATABASE_URL": {
+            "kind": "literal_unreachable_dsn_redacted",
+            "host_redacted": "127.0.0.1",
+            "secretRef": null,
+            "source_type": "operator_drill_transcript_contemporaneous_observation",
+            "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21"
           }
-        ]
-      },
-      "final_state": {
-        "latest_revision": "wh-staging-staff-api--g02restore",
-        "latest_ready_revision": "wh-staging-staff-api--g02restore",
-        "health_state": "Healthy",
-        "traffic_latest_percent": 100,
-        "fail_revision_active": false,
-        "database_secret_ref": "wolfhouse-database-url",
-        "public_healthz": 200,
-        "public_readyz": 200,
-        "probes": [
-          {
-            "type": "Liveness",
-            "path": "/healthz",
-            "port": 3036
+        },
+        "fail_scale_min_replicas": 1,
+        "observation": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+          "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only",
+          "observation_window": {
+            "start_utc": "2026-07-21T10:23:26+00:00",
+            "end_utc": "2026-07-21T10:24:56+00:00",
+            "duration_seconds": 90,
+            "cadence_seconds": 5,
+            "derivation": "start_utc = fail_revision_created_utc (Azure revision create, also in class-B timeline); end_utc = start_utc + 90s from operator command transcript duration; absolute_observed_at_utc per sample = start_utc + t_offset_s from transcript cadence only — not Azure-reconstructible"
           },
-          {
-            "type": "Readiness",
-            "path": "/readyz",
-            "port": 3036
-          },
-          {
-            "type": "Startup",
-            "path": "/healthz",
-            "port": 3036
+          "duration_seconds": 90,
+          "cadence_seconds": 5,
+          "sample_count": 19,
+          "samples": [
+            {
+              "t_offset_s": 0,
+              "absolute_observed_at_utc": "2026-07-21T10:23:26+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 5,
+              "absolute_observed_at_utc": "2026-07-21T10:23:31+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 10,
+              "absolute_observed_at_utc": "2026-07-21T10:23:36+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 15,
+              "absolute_observed_at_utc": "2026-07-21T10:23:41+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 20,
+              "absolute_observed_at_utc": "2026-07-21T10:23:46+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 25,
+              "absolute_observed_at_utc": "2026-07-21T10:23:51+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 30,
+              "absolute_observed_at_utc": "2026-07-21T10:23:56+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 35,
+              "absolute_observed_at_utc": "2026-07-21T10:24:01+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 40,
+              "absolute_observed_at_utc": "2026-07-21T10:24:06+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 45,
+              "absolute_observed_at_utc": "2026-07-21T10:24:11+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 50,
+              "absolute_observed_at_utc": "2026-07-21T10:24:16+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 55,
+              "absolute_observed_at_utc": "2026-07-21T10:24:21+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 60,
+              "absolute_observed_at_utc": "2026-07-21T10:24:26+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 65,
+              "absolute_observed_at_utc": "2026-07-21T10:24:31+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 70,
+              "absolute_observed_at_utc": "2026-07-21T10:24:36+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 75,
+              "absolute_observed_at_utc": "2026-07-21T10:24:41+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 80,
+              "absolute_observed_at_utc": "2026-07-21T10:24:46+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 85,
+              "absolute_observed_at_utc": "2026-07-21T10:24:51+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            },
+            {
+              "t_offset_s": 90,
+              "absolute_observed_at_utc": "2026-07-21T10:24:56+00:00",
+              "fail_running_state": "Activating",
+              "fail_was_latest_ready": false,
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only"
+            }
+          ],
+          "public_continuity": {
+            "source_type": "operator_drill_transcript_contemporaneous_observation",
+            "source_ref": "operator_g02_traffic_shed_command_transcript_2026-07-21",
+            "observed_at_semantics": "contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only",
+            "public_healthz": 200,
+            "public_readyz": 200,
+            "note": "Every sample public_healthz/public_readyz is transcript-derived contemporaneous observation; not Azure-reconstructible"
           }
-        ]
+        }
       }
     },
-    "sunset": {
-      "app": "luna-sunset-staging-staff-api",
-      "resource_group": "luna-sunset-staging-rg",
-      "public_host": "sunset-staging.lunafrontdesk.com",
-      "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:2dcda08008fe951565560cefafe37f1a78b0791a",
-      "digest": "sha256:3c7022173cc931b2701b0a9adcbf0b092fe933281e81538d886028e53ec40a05",
-      "base_revision": "luna-sunset-staging-staff-api--0000278",
-      "base_revision_suffix": "0000278",
-      "fail_revision": "luna-sunset-staging-staff-api--g02fail",
-      "restore_revision": "luna-sunset-staging-staff-api--g02restore",
-      "restored_secret_ref": "sunset-database-url",
-      "timeline": {
-        "acr_tag_created_utc": "2026-07-21T10:05:57.6261589Z",
-        "base_revision_created_utc": "2026-07-21T10:16:05+00:00",
-        "fail_write_started_utc": "2026-07-21T10:23:17.2513218Z",
-        "fail_revision_created_utc": "2026-07-21T10:23:26+00:00",
-        "restore_write_started_utc": "2026-07-21T10:26:47.6169176Z",
-        "restore_revision_created_utc": "2026-07-21T10:26:56+00:00",
-        "deactivate_attempt_utc": "2026-07-21T10:27:34.3463529Z",
-        "deactivate_result": "RevisionAlreadyInRequestedState"
+    "B_independently_recoverable_azure_readonly": {
+      "source_type": "azure_readonly_independently_reverified",
+      "source_ref": "az_containerapp_acr_revision_show_public_curl_readonly_2026-07-21T10:33:28Z",
+      "observed_at": "2026-07-21T10:33:28Z",
+      "observed_at_semantics": "independently_reverified_at_recorded_utc",
+      "covers": [
+        "acr_digests",
+        "images_and_base_restore_revisions",
+        "revision_create_timelines",
+        "final_revision_ready_health_traffic_secretRef",
+        "probes",
+        "public_current_healthz_readyz"
+      ],
+      "builds": {
+        "source_type": "azure_readonly_independently_reverified",
+        "source_ref": "az_containerapp_acr_revision_show_public_curl_readonly_2026-07-21T10:33:28Z",
+        "observed_at": "2026-07-21T10:33:28Z",
+        "wolfhouse_digest": "sha256:536828373f2deaf5da638bdd4650cdcc2d9d97d4352aa9a6cac718c7f9d4054b",
+        "sunset_digest": "sha256:3c7022173cc931b2701b0a9adcbf0b092fe933281e81538d886028e53ec40a05",
+        "image_sha_full": "2dcda08008fe951565560cefafe37f1a78b0791a"
       },
-      "fail_env": {
-        "WOLFHOUSE_DATABASE_URL": {
-          "kind": "literal_unreachable_dsn_redacted",
-          "host_redacted": "127.0.0.1",
-          "secretRef": null
+      "wolfhouse": {
+        "app": "wh-staging-staff-api",
+        "resource_group": "wh-staging-rg",
+        "public_host": "staff-staging.lunafrontdesk.com",
+        "image": "whstagingacr.azurecr.io/wh-staff-api:2dcda08008fe951565560cefafe37f1a78b0791a",
+        "digest": "sha256:536828373f2deaf5da638bdd4650cdcc2d9d97d4352aa9a6cac718c7f9d4054b",
+        "base_revision": "wh-staging-staff-api--0000518",
+        "base_revision_suffix": "0000518",
+        "fail_revision": "wh-staging-staff-api--g02fail",
+        "restore_revision": "wh-staging-staff-api--g02restore",
+        "restored_secret_ref": "wolfhouse-database-url",
+        "source_type": "azure_readonly_independently_reverified",
+        "source_ref": "az_containerapp_acr_revision_show_public_curl_readonly_2026-07-21T10:33:28Z",
+        "observed_at": "2026-07-21T10:33:28Z",
+        "observed_at_semantics": "independently_reverified_at_recorded_utc",
+        "timeline": {
+          "acr_tag_created_utc": "2026-07-21T10:05:58.4740201Z",
+          "base_revision_created_utc": "2026-07-21T10:06:41+00:00",
+          "fail_write_started_utc": "2026-07-21T10:18:30.5777877Z",
+          "fail_revision_created_utc": "2026-07-21T10:18:42+00:00",
+          "restore_write_started_utc": "2026-07-21T10:21:57.3085439Z",
+          "restore_revision_created_utc": "2026-07-21T10:22:08+00:00",
+          "deactivate_attempt_utc": "2026-07-21T10:22:48.6671Z",
+          "deactivate_result": "RevisionAlreadyInRequestedState",
+          "source_type": "azure_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_revision_show_public_curl_readonly_2026-07-21T10:33:28Z",
+          "observed_at": "2026-07-21T10:33:28Z"
+        },
+        "final_state": {
+          "source_type": "azure_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_revision_show_public_curl_readonly_2026-07-21T10:33:28Z",
+          "observed_at": "2026-07-21T10:33:28Z",
+          "observed_at_semantics": "independently_reverified_at_recorded_utc",
+          "latest_revision": "wh-staging-staff-api--g02restore",
+          "latest_ready_revision": "wh-staging-staff-api--g02restore",
+          "health_state": "Healthy",
+          "traffic_latest_percent": 100,
+          "fail_revision_active": false,
+          "database_secret_ref": "wolfhouse-database-url",
+          "public_healthz": 200,
+          "public_readyz": 200,
+          "public_current_note": "public_healthz/public_readyz here are independently reverified current values at observed_at — not a recreation of class-A historical samples",
+          "probes": [
+            {
+              "type": "Liveness",
+              "path": "/healthz",
+              "port": 3036
+            },
+            {
+              "type": "Readiness",
+              "path": "/readyz",
+              "port": 3036
+            },
+            {
+              "type": "Startup",
+              "path": "/healthz",
+              "port": 3036
+            }
+          ]
         }
       },
-      "fail_scale_min_replicas": 1,
-      "observation": {
-        "duration_seconds": 90,
-        "cadence_seconds": 5,
-        "sample_count": 19,
-        "samples": [
-          {
-            "t_offset_s": 0,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 5,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 10,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 15,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 20,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 25,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 30,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 35,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 40,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 45,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 50,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 55,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 60,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 65,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 70,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 75,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 80,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 85,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          },
-          {
-            "t_offset_s": 90,
-            "fail_running_state": "Activating",
-            "fail_was_latest_ready": false,
-            "public_healthz": 200,
-            "public_readyz": 200
-          }
-        ]
-      },
-      "final_state": {
-        "latest_revision": "luna-sunset-staging-staff-api--g02restore",
-        "latest_ready_revision": "luna-sunset-staging-staff-api--g02restore",
-        "health_state": "Healthy",
-        "traffic_latest_percent": 100,
-        "fail_revision_active": false,
-        "database_secret_ref": "sunset-database-url",
-        "public_healthz": 200,
-        "public_readyz": 200,
-        "probes": [
-          {
-            "type": "Liveness",
-            "path": "/healthz",
-            "port": 3036
-          },
-          {
-            "type": "Readiness",
-            "path": "/readyz",
-            "port": 3036
-          },
-          {
-            "type": "Startup",
-            "path": "/healthz",
-            "port": 3036
-          }
-        ]
+      "sunset": {
+        "app": "luna-sunset-staging-staff-api",
+        "resource_group": "luna-sunset-staging-rg",
+        "public_host": "sunset-staging.lunafrontdesk.com",
+        "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:2dcda08008fe951565560cefafe37f1a78b0791a",
+        "digest": "sha256:3c7022173cc931b2701b0a9adcbf0b092fe933281e81538d886028e53ec40a05",
+        "base_revision": "luna-sunset-staging-staff-api--0000278",
+        "base_revision_suffix": "0000278",
+        "fail_revision": "luna-sunset-staging-staff-api--g02fail",
+        "restore_revision": "luna-sunset-staging-staff-api--g02restore",
+        "restored_secret_ref": "sunset-database-url",
+        "source_type": "azure_readonly_independently_reverified",
+        "source_ref": "az_containerapp_acr_revision_show_public_curl_readonly_2026-07-21T10:33:28Z",
+        "observed_at": "2026-07-21T10:33:28Z",
+        "observed_at_semantics": "independently_reverified_at_recorded_utc",
+        "timeline": {
+          "acr_tag_created_utc": "2026-07-21T10:05:57.6261589Z",
+          "base_revision_created_utc": "2026-07-21T10:16:05+00:00",
+          "fail_write_started_utc": "2026-07-21T10:23:17.2513218Z",
+          "fail_revision_created_utc": "2026-07-21T10:23:26+00:00",
+          "restore_write_started_utc": "2026-07-21T10:26:47.6169176Z",
+          "restore_revision_created_utc": "2026-07-21T10:26:56+00:00",
+          "deactivate_attempt_utc": "2026-07-21T10:27:34.3463529Z",
+          "deactivate_result": "RevisionAlreadyInRequestedState",
+          "source_type": "azure_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_revision_show_public_curl_readonly_2026-07-21T10:33:28Z",
+          "observed_at": "2026-07-21T10:33:28Z"
+        },
+        "final_state": {
+          "source_type": "azure_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_revision_show_public_curl_readonly_2026-07-21T10:33:28Z",
+          "observed_at": "2026-07-21T10:33:28Z",
+          "observed_at_semantics": "independently_reverified_at_recorded_utc",
+          "latest_revision": "luna-sunset-staging-staff-api--g02restore",
+          "latest_ready_revision": "luna-sunset-staging-staff-api--g02restore",
+          "health_state": "Healthy",
+          "traffic_latest_percent": 100,
+          "fail_revision_active": false,
+          "database_secret_ref": "sunset-database-url",
+          "public_healthz": 200,
+          "public_readyz": 200,
+          "public_current_note": "public_healthz/public_readyz here are independently reverified current values at observed_at — not a recreation of class-A historical samples",
+          "probes": [
+            {
+              "type": "Liveness",
+              "path": "/healthz",
+              "port": 3036
+            },
+            {
+              "type": "Readiness",
+              "path": "/readyz",
+              "port": 3036
+            },
+            {
+              "type": "Startup",
+              "path": "/healthz",
+              "port": 3036
+            }
+          ]
+        }
       }
     }
   },
@@ -485,5 +741,5 @@
     "G08_retention_privacy",
     "G09_cost_controls"
   ],
-  "lock_hash": "fdfc01b1f8433afe55490d2f72c071c1bfef6bbf55bcfd5759a90c7051098b68"
+  "lock_hash": "b45e393d0ffb69df199f1d02c625115d672c1f7c670ff1f0918901978e336bc3"
 }

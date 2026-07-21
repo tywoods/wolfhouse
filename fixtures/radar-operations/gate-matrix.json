@@ -144,7 +144,7 @@
       "name": "Readiness / dependencies",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P healthy-path live @ 594247f retained. 16W wires closeReadinessPool into SIGTERM/SIGINT shutdown (source). 16X records dual-staging exact-SHA 2dcda08 lifecycle deploy (WH digest sha256:53682837… rev base 0000518; Sunset digest sha256:3c702217… base 0000278) plus controlled g02fail Activating ≥90s @ 5s never latestReady with prior public /healthz=200 /readyz=200 continuity, then exact-SHA g02restore secretRef Healthy/latestReady/100% traffic and fail deactivated. Partial/live-proven for deploy + Activating traffic-shed — does not claim SIGTERM live lifecycle, serving-revision /readyz=503, organic alerts, production, or full G02 proven.",
+      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P healthy-path live @ 594247f retained. 16W wires closeReadinessPool into SIGTERM/SIGINT shutdown (source). 16X records dual-staging exact-SHA 2dcda08 lifecycle deploy with provenance split: (A) operator-transcript g02fail Activating ≥90s @ 5s never latestReady + prior public /healthz=200 /readyz=200 continuity (not Azure-reconstructible); (B) independently reverified digests/revisions/secretRef/probes/traffic/public-current (WH sha256:53682837… base 0000518; Sunset sha256:3c702217… base 0000278; g02restore Healthy/latestReady/100%). Partial/live-proven for deploy + Activating traffic-shed — does not claim SIGTERM live lifecycle, serving-revision /readyz=503, organic alerts, production, or full G02 proven.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-readiness.js",
@@ -220,7 +220,7 @@
         },
         {
           "ref": "fixtures/radar-operations/slice16x-g02-live-evidence.json#observed_facts",
-          "note": "16X: exact-SHA 2dcda08 deploy + g02fail Activating traffic-shed + g02restore secretRef; independent Azure verify 2026-07-21T10:33:28Z"
+          "note": "16X: (A) transcript Activating traffic-shed samples; (B) Azure/public reverify digests/restore/secretRef/probes @ 2026-07-21T10:33:28Z; Azure cannot recreate historical samples"
         }
       ],
       "gaps": [
@@ -1403,18 +1403,19 @@
       "Raising G02 verdict to proven"
     ],
     "acceptance_criteria": [
-      "Exact SHA 2dcda08 image digests match ACR for Wolfhouse and Sunset",
-      "Base healthy revisions WH 0000518 and Sunset 0000278 recorded",
-      "g02fail min=1 unreachable DSN stayed Activating ≥90s @ 5s never latestReady",
-      "Prior revision public /healthz=200 and /readyz=200 on every observation",
-      "g02restore exact SHA secretRef Healthy/latestReady/100% traffic; fail inactive",
-      "Verifier RED-rejects wrong SHA/digest/revision, secret values, missing 90s observations, fail becoming ready, non-200 continuity, active fail, wrong secretRef, overclaims",
+      "Provenance split: (A) operator-transcript contemporaneous samples vs (B) Azure read-only independently reverified facts",
+      "Exact SHA 2dcda08 image digests match ACR for Wolfhouse and Sunset (class B)",
+      "Base healthy revisions WH 0000518 and Sunset 0000278 recorded (class B)",
+      "g02fail min=1 unreachable DSN stayed Activating ≥90s @ 5s never latestReady (class A transcript)",
+      "Prior revision public /healthz=200 and /readyz=200 on every observation (class A; not Azure-reconstructible)",
+      "g02restore exact SHA secretRef Healthy/latestReady/100% traffic; fail inactive (class B @ verify UTC)",
+      "Verifier requires A/B split; RED-rejects Azure-labelled historical arrays, missing transcript attribution, fabricated current verification of historical samples, live-timeout rewrite of historical 200s, wrong SHA/digest/revision, secrets, overclaims",
       "G02 remains partial; proven count remains 0"
     ],
     "final_controlled_drill": {
       "id": "16I_DRILL_readiness_failure_traffic_shed",
       "status": "live_proven_via_16X_activating_traffic_shed",
-      "pass_rule": "Bounded evidence + independent Azure read-only reconcile; G02 partial; no overclaims"
+      "pass_rule": "Class-A transcript Activating shed + class-B Azure reverify; G02 partial; no overclaims; historical samples not Azure-derived"
     }
   }
 }

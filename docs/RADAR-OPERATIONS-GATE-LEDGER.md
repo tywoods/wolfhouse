@@ -6,25 +6,31 @@
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
 **Builds on:** 16I readiness + 16W lifecycle source + 16P healthy-path live evidence
-**This slice does not deploy:** evidence reconciliation + independent Azure read-only verify only
+**This slice does not deploy:** evidence reconciliation only (no live mutation)
+
+## Provenance split (mandatory)
+
+| Class | `source_type` | What it covers | Recoverability |
+|-------|---------------|----------------|----------------|
+| **(A)** | `operator_drill_transcript_contemporaneous_observation` | 0..90s/5s Activating samples; public `/healthz`+`/readyz` continuity during fail; fail env intent; min replicas | **Not** Azure-reconstructible. Observation window start/end = `fail_revision_created_utc` + transcript duration/offsets only |
+| **(B)** | `azure_readonly_independently_reverified` | ACR digests; images; base/restore revisions; timelines; final ready/health/traffic/secretRef; probes; public-**current** | Independently reverified at `2026-07-21T10:33:28Z` |
+
+**Non-recoverability:** Azure read-only APIs cannot recreate or replay historical sample arrays or contemporaneous public continuity; a later live probe timeout must not rewrite class-A historical 200s.
 
 ## Outcome (16X)
 
-Record **operator-completed dual-staging G02 lifecycle deploy + controlled dependency-failure traffic-shed drill** into a redacted, lock-hashed fixture, reconciled against **independent Azure read-only** queries:
+Record **operator-completed dual-staging G02 lifecycle deploy + controlled dependency-failure traffic-shed drill** into a redacted, lock-hashed fixture with explicit **(A)/(B)** provenance:
 
-| Fact | Wolfhouse | Sunset |
-|------|-----------|--------|
-| Image SHA | `2dcda08008fe951565560cefafe37f1a78b0791a` | same |
-| ACR digest | `sha256:536828373f2deaf5da638bdd4650cdcc2d9d97d4352aa9a6cac718c7f9d4054b` | `sha256:3c7022173cc931b2701b0a9adcbf0b092fe933281e81538d886028e53ec40a05` |
-| Base healthy rev | `--0000518` | `--0000278` |
-| Fail rev | `--g02fail` (min=1, literal unreachable DSN host `127.0.0.1`) | same pattern |
-| Fail behavior | Activating ≥90s @ 5s cadence; never `latestReady` | same |
-| Public continuity | prior rev `/healthz=200` + `/readyz=200` every sample | same |
-| Restore | `--g02restore` exact SHA; secretRef restored; Healthy / latestReady / 100% traffic | same |
-| Final secretRef | `wolfhouse-database-url` | `sunset-database-url` |
-| Fail final | inactive (`RevisionAlreadyInRequestedState` on deactivate retry) | same |
+| Fact | Class | Wolfhouse | Sunset |
+|------|-------|-----------|--------|
+| Image SHA / ACR digest | B | `2dcda08` / `sha256:53682837…` | same SHA / `sha256:3c702217…` |
+| Base healthy rev | B | `--0000518` | `--0000278` |
+| Fail rev + unreachable DSN intent | A (+ name in B) | `--g02fail` min=1 host `127.0.0.1` | same pattern |
+| Fail Activating ≥90s @ 5s never latestReady | A | window `10:18:42`→`10:20:12`Z | `10:23:26`→`10:24:56`Z |
+| Public continuity during fail | A | prior `/healthz=200` + `/readyz=200` every sample | same |
+| Restore / secretRef / traffic / probes / public-current | B | `--g02restore`; `wolfhouse-database-url`; 100%; probes present; public 200 @ verify UTC | `--g02restore`; `sunset-database-url`; same |
 
-Independent verify UTC: `2026-07-21T10:33:28Z` (public health/ready still 200 both tenants; probes Liveness/Readiness/Startup present).
+Independent Azure verify UTC (class B): `2026-07-21T10:33:28Z`.
 
 ## Truthful disposition
 

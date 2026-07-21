@@ -11,6 +11,26 @@
   "this_slice_deploys": false,
   "title": "Reconcile dual-staging G02 lifecycle deploy + dependency-failure traffic-shed drill — partial/live-proven only",
   "evidence_fixture": "fixtures/radar-operations/slice16x-g02-live-evidence.json",
+  "provenance_split": {
+    "A": "operator_drill_transcript_contemporaneous_observation",
+    "B": "azure_readonly_independently_reverified",
+    "A_covers": [
+      "fail_observation_samples_0_90s_5s",
+      "public_healthz_readyz_continuity_during_fail",
+      "fail_env_literal_unreachable_dsn_intent",
+      "fail_scale_min_replicas"
+    ],
+    "B_covers": [
+      "acr_digests",
+      "images_and_base_restore_revisions",
+      "revision_create_timelines",
+      "final_revision_ready_health_traffic_secretRef",
+      "probes",
+      "public_current_healthz_readyz"
+    ],
+    "non_recoverability": "Azure cannot recreate historical 0..90s/5s sample arrays or contemporaneous public continuity; those are transcript-derived only",
+    "independent_azure_verify_utc": "2026-07-21T10:33:28Z"
+  },
   "required_observed": {
     "image_sha_full": "2dcda08008fe951565560cefafe37f1a78b0791a",
     "wolfhouse_digest": "sha256:536828373f2deaf5da638bdd4650cdcc2d9d97d4352aa9a6cac718c7f9d4054b",
@@ -72,7 +92,7 @@
   "final_controlled_drill": {
     "id": "16I_DRILL_readiness_failure_traffic_shed",
     "status": "live_proven_via_16X_activating_traffic_shed",
-    "pass_rule": "Bounded evidence matches Azure-verified digests/revisions/secretRefs; g02fail Activating ≥90s never latestReady; prior public /healthz+/readyz=200 every 5s; g02restore Healthy/latestReady/100% with restored secretRef; fail inactive; G02 stays partial; no overclaims"
+    "pass_rule": "Class-A transcript: g02fail Activating ≥90s @ 5s never latestReady with prior public /healthz+/readyz=200 continuity (not Azure-reconstructible). Class-B Azure read-only at 2026-07-21T10:33:28Z: digests/revisions/secretRefs/probes/traffic/public-current. Verifier requires A/B split; rejects Azure-labelled historical arrays, missing transcript attribution, fabricated current verification of historical samples, and live-timeout rewrites of historical 200s. G02 stays partial; no overclaims"
   },
   "artifacts": [
     "fixtures/radar-operations/slice16x-g02-live-evidence.json",
@@ -106,6 +126,6 @@
       "infra/azure/staging-staff-api-metric-alerts/",
       "infra/azure/staging-cost-budgets/"
     ],
-    "note": "16X is evidence reconciliation only; records prior operator live drill + independent Azure read-only verify; does not deploy or mutate runtime"
+    "note": "16X is evidence reconciliation only; records (A) operator drill transcript contemporaneous facts + (B) independent Azure read-only reverify; does not deploy or mutate runtime; Azure cannot recreate historical samples"
   }
 }

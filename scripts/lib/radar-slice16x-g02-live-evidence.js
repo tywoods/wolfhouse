@@ -5,7 +5,11 @@
  *
  * Evidence-only reconciliation of dual-staging G02 lifecycle deploy +
  * controlled dependency-failure traffic-shed drill @ master 2dcda08.
- * This slice does not deploy or mutate live Azure beyond read-only verify.
+ * This slice does not deploy or mutate live Azure.
+ *
+ * Provenance split (mandatory):
+ *   (A) operator-observed drill transcript contemporaneous facts
+ *   (B) later independently recoverable Azure read-only facts
  *
  * Proves: exact-SHA deploy + Activating traffic shed + restore/secretRef.
  * Does not prove: SIGTERM lifecycle behavior, organic alerts, production, full G02.
@@ -54,23 +58,30 @@ const OBS_DURATION_S = 90;
 const OBS_CADENCE_S = 5;
 const OBS_SAMPLE_COUNT = Math.floor(OBS_DURATION_S / OBS_CADENCE_S) + 1; // 19
 
-function buildUniformObservationSamples() {
-  const samples = [];
-  for (let i = 0; i < OBS_SAMPLE_COUNT; i += 1) {
-    samples.push({
-      t_offset_s: i * OBS_CADENCE_S,
-      fail_running_state: 'Activating',
-      fail_was_latest_ready: false,
-      public_healthz: 200,
-      public_readyz: 200,
-    });
-  }
-  return samples;
-}
+/** (A) transcript-derived contemporaneous observation. */
+const SOURCE_TYPE_A = 'operator_drill_transcript_contemporaneous_observation';
+const SOURCE_REF_A = 'operator_g02_traffic_shed_command_transcript_2026-07-21';
+const OBSERVED_AT_SEMANTICS_A =
+  'contemporaneous_during_fail_window_from_revision_create_plus_transcript_offsets_only';
 
-const OBSERVATION_SAMPLES = Object.freeze(buildUniformObservationSamples());
+/** (B) independently recoverable Azure read-only / public current. */
+const SOURCE_TYPE_B = 'azure_readonly_independently_reverified';
+const SOURCE_REF_B =
+  'az_containerapp_acr_revision_show_public_curl_readonly_2026-07-21T10:33:28Z';
+const OBSERVED_AT_SEMANTICS_B = 'independently_reverified_at_recorded_utc';
 
-/** Azure activity-log / revision create timestamps (UTC). */
+const INDEPENDENT_VERIFY_UTC = '2026-07-21T10:33:28Z';
+
+const PROVENANCE_LIMITATIONS =
+  'Class A historical 0..90s/5s samples and public continuity values are operator-observed contemporaneous transcript facts. '
+  + 'Class B digests/final revision/probes/secretRef/traffic/public-current are independently reverified Azure/public read-only facts at independent_azure_verify_utc. '
+  + 'Do not treat A as Azure-reconstructible, and do not treat a later live probe timeout or status as authority to rewrite A.';
+
+const NON_RECOVERABILITY =
+  'Azure read-only APIs cannot recreate or replay the historical Activating sample arrays or contemporaneous public /healthz|/readyz=200 continuity series; '
+  + 'those values exist only in the operator drill command transcript (plus observation-window bounds derived from fail_revision_created_utc + transcript duration/offsets).';
+
+/** Azure activity-log / revision create timestamps (UTC) — class B recoverable. */
 const WH_TIMELINE = Object.freeze({
   acr_tag_created_utc: '2026-07-21T10:05:58.4740201Z',
   base_revision_created_utc: '2026-07-21T10:06:41+00:00',
@@ -93,7 +104,65 @@ const SUNSET_TIMELINE = Object.freeze({
   deactivate_result: 'RevisionAlreadyInRequestedState',
 });
 
-const INDEPENDENT_VERIFY_UTC = '2026-07-21T10:33:28Z';
+const OBS_WINDOW_DERIVATION =
+  'start_utc = fail_revision_created_utc (Azure revision create, also in class-B timeline); '
+  + 'end_utc = start_utc + 90s from operator command transcript duration; '
+  + 'absolute_observed_at_utc per sample = start_utc + t_offset_s from transcript cadence only — not Azure-reconstructible';
+
+function addSecondsToUtc(utc, seconds) {
+  const ms = Date.parse(utc);
+  if (!Number.isFinite(ms)) throw new Error(`bad utc: ${utc}`);
+  // Preserve +00:00 style when input used it; else ISO Z.
+  const iso = new Date(ms + seconds * 1000).toISOString();
+  if (String(utc).includes('+00:00') || String(utc).endsWith('+00:00')) {
+    return iso.replace(/\.\d{3}Z$/, '+00:00').replace(/Z$/, '+00:00');
+  }
+  return iso;
+}
+
+function observationWindowForFailCreated(failCreatedUtc) {
+  return Object.freeze({
+    start_utc: failCreatedUtc,
+    end_utc: addSecondsToUtc(failCreatedUtc, OBS_DURATION_S),
+    duration_seconds: OBS_DURATION_S,
+    cadence_seconds: OBS_CADENCE_S,
+    derivation: OBS_WINDOW_DERIVATION,
+  });
+}
+
+const WH_OBSERVATION_WINDOW = observationWindowForFailCreated(WH_TIMELINE.fail_revision_created_utc);
+const SUNSET_OBSERVATION_WINDOW = observationWindowForFailCreated(
+  SUNSET_TIMELINE.fail_revision_created_utc,
+);
+
+function buildUniformObservationSamples(failCreatedUtc) {
+  const samples = [];
+  for (let i = 0; i < OBS_SAMPLE_COUNT; i += 1) {
+    const tOffset = i * OBS_CADENCE_S;
+    samples.push({
+      t_offset_s: tOffset,
+      absolute_observed_at_utc: addSecondsToUtc(failCreatedUtc, tOffset),
+      fail_running_state: 'Activating',
+      fail_was_latest_ready: false,
+      public_healthz: 200,
+      public_readyz: 200,
+      source_type: SOURCE_TYPE_A,
+      source_ref: SOURCE_REF_A,
+      observed_at_semantics: OBSERVED_AT_SEMANTICS_A,
+    });
+  }
+  return samples;
+}
+
+const WH_OBSERVATION_SAMPLES = Object.freeze(
+  buildUniformObservationSamples(WH_TIMELINE.fail_revision_created_utc),
+);
+const SUNSET_OBSERVATION_SAMPLES = Object.freeze(
+  buildUniformObservationSamples(SUNSET_TIMELINE.fail_revision_created_utc),
+);
+
+/** @deprecated use WH_/SUNSET_OBSERVATION_SAMPLES — kept for cadence shape checks */
+const OBSERVATION_SAMPLES = WH_OBSERVATION_SAMPLES;
 
 const PROBE_SUMMARY = Object.freeze([
   { type: 'Liveness', path: '/healthz', port: 3036 },
@@ -145,6 +214,34 @@ const MUST_NOT_MUTATE = Object.freeze([
   'infra/azure/staging-cost-budgets/',
 ]);
 
+/**
+ * If a later live probe times out / fails, historical class-A continuity
+ * values must remain unchanged (never rewrite transcript 200s from current).
+ */
+function mergeLiveProbeWithoutRewritingHistorical(evidence, liveProbeResult) {
+  const out = JSON.parse(JSON.stringify(evidence));
+  const b = out.observed_facts
+    && out.observed_facts.B_independently_recoverable_azure_readonly;
+  if (b && liveProbeResult && typeof liveProbeResult === 'object') {
+    b.live_probe_attempt = {
+      attempted_at_utc: liveProbeResult.attempted_at_utc || null,
+      result: liveProbeResult.result || 'unknown',
+      note: 'Live probe result must not rewrite class-A historical samples',
+    };
+    // Intentionally do not touch A samples / public continuity.
+  }
+  return out;
+}
+
+function historicalSamplesRewrittenByLiveProbe(before, after) {
+  const aBefore = before.observed_facts
+    && before.observed_facts.A_operator_observed_drill_transcript;
+  const aAfter = after.observed_facts
+    && after.observed_facts.A_operator_observed_drill_transcript;
+  if (!aBefore || !aAfter) return true;
+  return JSON.stringify(aBefore) !== JSON.stringify(aAfter);
+}
+
 module.exports = {
   MASTER_BASIS,
   SLICE,
@@ -181,15 +278,32 @@ module.exports = {
   OBS_CADENCE_S,
   OBS_SAMPLE_COUNT,
   OBSERVATION_SAMPLES,
+  WH_OBSERVATION_SAMPLES,
+  SUNSET_OBSERVATION_SAMPLES,
+  WH_OBSERVATION_WINDOW,
+  SUNSET_OBSERVATION_WINDOW,
   WH_TIMELINE,
   SUNSET_TIMELINE,
   INDEPENDENT_VERIFY_UTC,
+  SOURCE_TYPE_A,
+  SOURCE_REF_A,
+  OBSERVED_AT_SEMANTICS_A,
+  SOURCE_TYPE_B,
+  SOURCE_REF_B,
+  OBSERVED_AT_SEMANTICS_B,
+  PROVENANCE_LIMITATIONS,
+  NON_RECOVERABILITY,
+  OBS_WINDOW_DERIVATION,
   PROBE_SUMMARY,
   EXPLICITLY_NOT_CLAIMED,
   CLAIMS_ALLOWED,
   OWNED_RELS,
   MUST_NOT_MUTATE,
   buildUniformObservationSamples,
+  observationWindowForFailCreated,
+  addSecondsToUtc,
+  mergeLiveProbeWithoutRewritingHistorical,
+  historicalSamplesRewrittenByLiveProbe,
   rootJoin(...parts) {
     return path.join(__dirname, '..', '..', ...parts);
   },
