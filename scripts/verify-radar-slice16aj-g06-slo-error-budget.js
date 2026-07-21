@@ -185,14 +185,21 @@ ok('C6 availability-only SLI locks match calculator',
   && typeof calc.latencySuccessRatioFromHistogram !== 'function'
   && typeof calc.validateLatencyHistogram !== 'function');
 
-ok('C7 multi-window burns locked (4 pairs)',
+ok('C7 multi-window burns locked (4 pairs + exact rationals)',
   calc.MULTI_WINDOW_BURNS.length === 4
   && contract.error_budget.multi_window_burns.length === 4
   && design.multi_window_burns.length === 4
   && calc.MULTI_WINDOW_BURNS[0].id === 'page_fast'
   && calc.MULTI_WINDOW_BURNS[0].burn_threshold === 14.4
+  && calc.MULTI_WINDOW_BURNS[0].burn_threshold_rational.num === 144
+  && calc.MULTI_WINDOW_BURNS[0].burn_threshold_rational.den === 10
   && calc.MULTI_WINDOW_BURNS[3].id === 'ticket_slow'
-  && calc.MULTI_WINDOW_BURNS[3].burn_threshold === 1);
+  && calc.MULTI_WINDOW_BURNS[3].burn_threshold === 1
+  && calc.MULTI_WINDOW_BURNS[3].burn_threshold_rational.num === 1
+  && calc.MULTI_WINDOW_BURNS[3].burn_threshold_rational.den === 1
+  && !/\bburn_rate\s*\+\s*1e-12\s*>=/.test(calcSrc)
+  && /burnRateMeetsThresholdExact/.test(calcSrc)
+  && /CONTRACT_DRIFT/.test(calcSrc));
 
 ok('C8 future acceptance defined_not_executed only',
   locks.FUTURE_ALERT_ACCEPTANCE.status === 'defined_not_executed'
@@ -207,13 +214,17 @@ ok('C8 future acceptance defined_not_executed only',
   const b = calc.exactBoundaryCases();
   const meet = calc.availabilitySliFromDeltas(b.meet_counts.total, b.meet_counts.good);
   const miss = calc.availabilitySliFromDeltas(b.miss_counts.total, b.miss_counts.good);
+  const meetExact = calc.availabilityMeetsTargetExact(b.meet_counts.good, b.meet_counts.total);
+  const missExact = calc.availabilityMeetsTargetExact(b.miss_counts.good, b.miss_counts.total);
   green('availability_boundary_99_of_100_meets',
-    meet.ok && nearlyEqual(meet.sli, 0.99) && meet.sli + 1e-12 >= calc.AVAILABILITY_TARGET);
+    meet.ok && nearlyEqual(meet.sli, 0.99)
+    && meetExact.ok && meetExact.meets === true);
   green('availability_boundary_98_of_100_misses',
-    miss.ok && nearlyEqual(miss.sli, 0.98) && miss.sli + 1e-12 < calc.AVAILABILITY_TARGET);
+    miss.ok && nearlyEqual(miss.sli, 0.98)
+    && missExact.ok && missExact.meets === false);
 }
 
-// --- GREEN: exact unit burn and 14.4x burn ---
+// --- GREEN: exact unit burn and 14.4x burn (reporting numerics) ---
 {
   const b = calc.exactBoundaryCases();
   const unit = calc.burnFromBadRate(
@@ -235,17 +246,46 @@ ok('C8 future acceptance defined_not_executed only',
     && nearlyEqual(fast.budget_consumed_fraction, 14.4 * ((60 * 60 * 1000) / calc.SLO_WINDOW_MS)));
 }
 
+// --- GREEN: exact equality / just-above / strictly-below across all four thresholds ---
+{
+  const b = calc.exactBoundaryCases();
+  let allOk = true;
+  let detail = '';
+  for (let i = 0; i < b.burn_boundaries.length; i += 1) {
+    const row = b.burn_boundaries[i];
+    const below = calc.burnRateMeetsThresholdExact(
+      row.bad_below,
+      row.total,
+      row.burn_threshold_rational,
+    );
+    const eq = calc.burnRateMeetsThresholdExact(
+      row.bad_eq,
+      row.total,
+      row.burn_threshold_rational,
+    );
+    const above = calc.burnRateMeetsThresholdExact(
+      row.bad_above,
+      row.total,
+      row.burn_threshold_rational,
+    );
+    if (!(below.ok && below.meets === false
+      && eq.ok && eq.meets === true
+      && above.ok && above.meets === true)) {
+      allOk = false;
+      detail = `${row.id} below=${below.meets} eq=${eq.meets} above=${above.meets}`;
+      break;
+    }
+  }
+  green('burn_threshold_exact_below_eq_above_all_four', allOk, detail);
+}
+
 // --- GREEN: exact PT7D readiness window healthy ---
 {
   const samples = buildExactPt7dSeries({
     per_step_total: 1,
     per_step_2xx: 1,
   });
-  const r = calc.evaluateReadinessWindow({
-    samples,
-    min_requests: 100,
-    min_sample_coverage: 0.5,
-  });
+  const r = calc.evaluateReadinessWindow({ samples });
   green('readiness_window_exact_pt7d_healthy',
     r.ok && r.meets_availability === true && r.sli_kind === 'availability_only'
     && r.window_ms === calc.SLO_WINDOW_MS
@@ -263,10 +303,7 @@ ok('C8 future acceptance defined_not_executed only',
     per_step_total: 2,
     per_step_2xx: 2,
   });
-  const all = calc.evaluateAllBurnPairs(samples, {
-    burn_min_sample_coverage: 0.05,
-    burn_min_requests: 1,
-  });
+  const all = calc.evaluateAllBurnPairs(samples);
   green('multi_window_burn_quiet_on_healthy',
     all.ok && all.any_page_would_fire === false && all.any_ticket_would_fire === false
     && all.alert_status === 'defined_not_executed'
@@ -283,10 +320,7 @@ ok('C8 future acceptance defined_not_executed only',
     per_step_2xx: 8,
   });
   const pair = calc.MULTI_WINDOW_BURNS[0];
-  const r = calc.evaluateBurnPair(samples, pair, {
-    burn_min_sample_coverage: 0.05,
-    burn_min_requests: 1,
-  });
+  const r = calc.evaluateBurnPair(samples, pair);
   green('page_fast_would_fire_on_20pct_bad',
     r.ok && r.would_fire === true
     && r.short.exceeds_threshold === true
@@ -350,11 +384,7 @@ ok('C8 future acceptance defined_not_executed only',
 // --- RED: 5-minute fragment (not exact PT7D) ---
 {
   const samples = buildSeries({ steps: 1, per_step_total: 200, per_step_2xx: 200 });
-  const r = calc.evaluateReadinessWindow({
-    samples,
-    min_sample_coverage: 0.5,
-    min_requests: 100,
-  });
+  const r = calc.evaluateReadinessWindow({ samples });
   red('five_minute_fragment_not_exact_pt7d',
     r.ok === false && r.fail_closed === true
     && r.code === calc.FAIL_CODES.WINDOW_SPAN_MISMATCH,
@@ -381,14 +411,94 @@ ok('C8 future acceptance defined_not_executed only',
   // Force a tiny nonzero delta below min by patching last counters
   samples[samples.length - 1].requests_total = 50;
   samples[samples.length - 1].requests_2xx = 50;
-  const r = calc.evaluateReadinessWindow({
-    samples,
-    min_requests: 100,
-    min_sample_coverage: 0.5,
-  });
+  const r = calc.evaluateReadinessWindow({ samples });
   red('insufficient_requests',
     r.ok === false && r.fail_closed === true
     && r.code === calc.FAIL_CODES.INSUFFICIENT_REQUESTS);
+}
+
+// --- RED: contract drift — PT10M sample_step_ms override ---
+{
+  const samples = buildExactPt7dSeries({ per_step_total: 1, per_step_2xx: 1 });
+  const r = calc.evaluateReadinessWindow({
+    samples,
+    sample_step_ms: 10 * 60 * 1000, // PT10M
+  });
+  red('pt10m_sample_step_override_rejected',
+    r.ok === false && r.fail_closed === true
+    && r.code === calc.FAIL_CODES.CONTRACT_DRIFT,
+    r.ok ? 'unexpected ok' : r.code);
+}
+
+// --- RED: contract drift — 0.98 availability_target override ---
+{
+  const samples = buildExactPt7dSeries({ per_step_total: 1, per_step_2xx: 1 });
+  const r = calc.evaluateReadinessWindow({
+    samples,
+    availability_target: 0.98,
+  });
+  red('availability_target_0_98_override_rejected',
+    r.ok === false && r.fail_closed === true
+    && r.code === calc.FAIL_CODES.CONTRACT_DRIFT,
+    r.ok ? 'unexpected ok' : r.code);
+}
+
+// --- RED: reviewer sub-threshold safe-integer — float+eps would fire; exact must not ---
+{
+  const b = calc.exactBoundaryCases();
+  const row = b.reviewer_sub_threshold_safe_integer;
+  const exact = calc.burnRateMeetsThresholdExact(
+    row.bad,
+    row.total,
+    row.burn_threshold_rational,
+  );
+  const floatBurn = (row.bad / row.total) / 0.01;
+  const floatEpsWouldFire = floatBurn + 1e-12 >= row.burn_threshold;
+  red('reviewer_sub_threshold_safe_integer_no_fire',
+    Number.isSafeInteger(row.total)
+    && Number.isSafeInteger(row.bad)
+    && exact.ok
+    && exact.meets === false
+    && exact.meets === row.exact_must_fire
+    && floatEpsWouldFire === true
+    && floatEpsWouldFire === row.float_eps_would_fire,
+    exact.ok
+      ? `meets=${exact.meets} floatBurn=${floatBurn} floatEps=${floatEpsWouldFire}`
+      : (exact.errors || []).join(' | '));
+}
+
+// --- RED: exact equality fires and just-below does not (all four; adversarial assert) ---
+{
+  const b = calc.exactBoundaryCases();
+  let allOk = true;
+  let detail = '';
+  for (let i = 0; i < b.burn_boundaries.length; i += 1) {
+    const row = b.burn_boundaries[i];
+    const below = calc.burnRateMeetsThresholdExact(
+      row.bad_below,
+      row.total,
+      row.burn_threshold_rational,
+    );
+    const eq = calc.burnRateMeetsThresholdExact(
+      row.bad_eq,
+      row.total,
+      row.burn_threshold_rational,
+    );
+    const above = calc.burnRateMeetsThresholdExact(
+      row.bad_above,
+      row.total,
+      row.burn_threshold_rational,
+    );
+    // RED: below must never fire; eq and above must fire
+    if (!(below.ok && below.meets === false
+      && eq.ok && eq.meets === true
+      && above.ok && above.meets === true)) {
+      allOk = false;
+      detail = `${row.id} below=${below.meets} eq=${eq.meets} above=${above.meets}`;
+      break;
+    }
+  }
+  red('burn_threshold_boundaries_below_never_eq_and_above_fire', allOk, detail);
 }
 
 // --- RED: reviewer [400,1000] — histogram API deleted / latency blocked ---

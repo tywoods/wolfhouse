@@ -22,11 +22,21 @@ const SAMPLE_STEP_MS = 5 * 60 * 1000;
 /** Availability target: 99.0% good events over the finite PT7D window. */
 const AVAILABILITY_TARGET = 0.99;
 
+/** Exact rational form of AVAILABILITY_TARGET (99/100). */
+const AVAILABILITY_TARGET_RATIONAL = Object.freeze({ num: 99, den: 100 });
+
+/** Error-budget fraction 1 - 0.99 = 0.01 = 1/100. */
+const ERROR_BUDGET_FRACTION = 0.01;
+const ERROR_BUDGET_RATIONAL = Object.freeze({ num: 1, den: 100 });
+
 /** Minimum fraction of expected PT5M slots for the reference window. */
 const MIN_SAMPLE_COVERAGE = 0.5;
 
-/** Minimum request count in a window before SLO math is admissible. */
+/** Minimum request count in a readiness window before SLO math is admissible. */
 const MIN_REQUESTS = 100;
+
+/** Minimum request count in a burn leg (locked; not caller-overridable). */
+const BURN_MIN_REQUESTS = 1;
 
 /**
  * Latency percentile SLI — blocked; not part of this availability SLO.
@@ -42,39 +52,63 @@ const LATENCY_PERCENTILE_SLI = Object.freeze({
 });
 
 /**
+ * Exact decimal-rational burn thresholds. Numeric burn_threshold retained for
+ * reporting only; fire decisions use burn_threshold_rational via BigInt
+ * cross-multiplication (never float epsilon).
+ * 14.4 = 144/10; 6 = 6/1; 3 = 3/1; 1 = 1/1.
+ */
+function freezeBurnPair(pair) {
+  return Object.freeze({
+    id: pair.id,
+    severity: pair.severity,
+    short_ms: pair.short_ms,
+    long_ms: pair.long_ms,
+    burn_threshold: pair.burn_threshold,
+    burn_threshold_rational: Object.freeze({
+      num: pair.burn_threshold_rational.num,
+      den: pair.burn_threshold_rational.den,
+    }),
+  });
+}
+
+/**
  * Multi-window burn pairs (SRE-style). Alert acceptance requires BOTH short
  * and long windows at/above burn_threshold. Short burn windows are distinct
  * from the PT7D SLO span — coverage/span checks use the declared burn window.
  * Defined for future alert wiring only — not deployed by this module.
  */
 const MULTI_WINDOW_BURNS = Object.freeze([
-  Object.freeze({
+  freezeBurnPair({
     id: 'page_fast',
     severity: 'page',
     short_ms: 5 * 60 * 1000,
     long_ms: 60 * 60 * 1000,
     burn_threshold: 14.4,
+    burn_threshold_rational: { num: 144, den: 10 },
   }),
-  Object.freeze({
+  freezeBurnPair({
     id: 'page_slow',
     severity: 'page',
     short_ms: 30 * 60 * 1000,
     long_ms: 6 * 60 * 60 * 1000,
     burn_threshold: 6,
+    burn_threshold_rational: { num: 6, den: 1 },
   }),
-  Object.freeze({
+  freezeBurnPair({
     id: 'ticket_fast',
     severity: 'ticket',
     short_ms: 2 * 60 * 60 * 1000,
     long_ms: 24 * 60 * 60 * 1000,
     burn_threshold: 3,
+    burn_threshold_rational: { num: 3, den: 1 },
   }),
-  Object.freeze({
+  freezeBurnPair({
     id: 'ticket_slow',
     severity: 'ticket',
     short_ms: 6 * 60 * 60 * 1000,
     long_ms: 3 * 24 * 60 * 60 * 1000,
     burn_threshold: 1,
+    burn_threshold_rational: { num: 1, den: 1 },
   }),
 ]);
 
@@ -92,6 +126,7 @@ const FAIL_CODES = Object.freeze({
   UNSAFE_INTEGER: 'unsafe_integer',
   LATENCY_SLI_BLOCKED: 'latency_sli_blocked',
   COMBINED_CLAIM_FORBIDDEN: 'combined_claim_forbidden',
+  CONTRACT_DRIFT: 'contract_drift',
 });
 
 function failClosed(code, errors, extra) {
@@ -148,6 +183,83 @@ function assertFiniteArithmetic(name, n) {
     return failClosed(FAIL_CODES.INVALID_INPUT, [`${name} arithmetic not finite`]);
   }
   return null;
+}
+
+/**
+ * Public evaluation options are locked to normative contract constants.
+ * Callers may omit a key or pass the exact locked value; any other value is
+ * contract drift. Only sample series data is variable.
+ */
+function rejectContractDrift(name, provided, locked) {
+  if (provided == null) return null;
+  if (provided === locked) return null;
+  return failClosed(FAIL_CODES.CONTRACT_DRIFT, [
+    `${name} contract drift: only locked value ${locked} allowed; got ${provided}`,
+  ], { option: name, locked, provided });
+}
+
+/**
+ * Exact availability meet: good/total >= 99/100
+ * ↔ good * 100 >= total * 99 (safe BigInt cross-multiplication).
+ */
+function availabilityMeetsTargetExact(good, total) {
+  const gBad = assertSafeNonNegInt('good', good);
+  if (gBad) return gBad;
+  const tBad = assertSafeNonNegInt('total', total);
+  if (tBad) return tBad;
+  if (total === 0) {
+    return failClosed(FAIL_CODES.ZERO_TRAFFIC, ['zero total for availability meet']);
+  }
+  if (good > total) {
+    return failClosed(FAIL_CODES.INVALID_INPUT, ['good > total']);
+  }
+  const lhs = BigInt(good) * BigInt(AVAILABILITY_TARGET_RATIONAL.den);
+  const rhs = BigInt(total) * BigInt(AVAILABILITY_TARGET_RATIONAL.num);
+  return { ok: true, meets: lhs >= rhs };
+}
+
+/**
+ * Exact burn-rate threshold decision from request counts.
+ * burn = (bad/total) / (budget_num/budget_den) = bad * budget_den / (total * budget_num)
+ * burn >= thr_num/thr_den
+ * ↔ bad * budget_den * thr_den >= total * budget_num * thr_num
+ *
+ * Numeric burn_rate is not used for the decision (reporting only).
+ */
+function burnRateMeetsThresholdExact(bad, total, thresholdRational) {
+  const bBad = assertSafeNonNegInt('bad', bad);
+  if (bBad) return bBad;
+  const tBad = assertSafeNonNegInt('total', total);
+  if (tBad) return tBad;
+  if (total === 0) {
+    return failClosed(FAIL_CODES.ZERO_TRAFFIC, ['zero total for burn threshold']);
+  }
+  if (bad > total) {
+    return failClosed(FAIL_CODES.INVALID_INPUT, ['bad > total']);
+  }
+  if (!thresholdRational
+    || !Number.isSafeInteger(thresholdRational.num)
+    || !Number.isSafeInteger(thresholdRational.den)
+    || thresholdRational.num < 0
+    || thresholdRational.den <= 0) {
+    return failClosed(FAIL_CODES.INVALID_INPUT, ['thresholdRational invalid']);
+  }
+  const lhs = BigInt(bad)
+    * BigInt(ERROR_BUDGET_RATIONAL.den)
+    * BigInt(thresholdRational.den);
+  const rhs = BigInt(total)
+    * BigInt(ERROR_BUDGET_RATIONAL.num)
+    * BigInt(thresholdRational.num);
+  return {
+    ok: true,
+    meets: lhs >= rhs,
+    bad,
+    total,
+    threshold_rational: {
+      num: thresholdRational.num,
+      den: thresholdRational.den,
+    },
+  };
 }
 
 /**
@@ -544,43 +656,41 @@ function sliceSamplesForWindow(samples, windowMs, stepMs) {
 /**
  * Evaluate staging readiness availability SLI over an exact rolling PT7D
  * counter series. Coverage is measured against PT7D expected slots.
+ * Normative constants are locked — only `samples` is variable.
  */
 function evaluateReadinessWindow(input) {
   const cfg = input || {};
   const blocked = rejectLatencyOrCombinedOptions(cfg);
   if (blocked) return blocked;
 
-  const target = cfg.availability_target == null
-    ? AVAILABILITY_TARGET
-    : cfg.availability_target;
-  const tBad = assertFiniteInRange('availability_target', target, Number.EPSILON, 1 - Number.EPSILON);
-  if (tBad) return tBad;
+  const driftTarget = rejectContractDrift(
+    'availability_target',
+    cfg.availability_target,
+    AVAILABILITY_TARGET,
+  );
+  if (driftTarget) return driftTarget;
 
-  const sloWindowMs = cfg.slo_window_ms == null ? SLO_WINDOW_MS : cfg.slo_window_ms;
-  const swBad = assertFiniteInRange('slo_window_ms', sloWindowMs, 1, Number.MAX_SAFE_INTEGER);
-  if (swBad) return swBad;
-  if (!Number.isSafeInteger(sloWindowMs)) {
-    return failClosed(FAIL_CODES.UNSAFE_INTEGER, ['slo_window_ms unsafe']);
-  }
-  if (sloWindowMs !== SLO_WINDOW_MS) {
-    return failClosed(FAIL_CODES.WINDOW_SPAN_MISMATCH, [
-      `readiness SLO requires exact PT7D (${SLO_WINDOW_MS}ms); got ${sloWindowMs}`,
-    ]);
-  }
+  const driftSlo = rejectContractDrift('slo_window_ms', cfg.slo_window_ms, SLO_WINDOW_MS);
+  if (driftSlo) return driftSlo;
 
-  const stepMs = cfg.sample_step_ms == null ? SAMPLE_STEP_MS : cfg.sample_step_ms;
-  const stBad = assertFiniteInRange('sample_step_ms', stepMs, 1, Number.MAX_SAFE_INTEGER);
-  if (stBad) return stBad;
+  const driftStep = rejectContractDrift('sample_step_ms', cfg.sample_step_ms, SAMPLE_STEP_MS);
+  if (driftStep) return driftStep;
 
-  const minCoverage = cfg.min_sample_coverage == null
-    ? MIN_SAMPLE_COVERAGE
-    : cfg.min_sample_coverage;
-  const mcBad = assertFiniteInRange('min_sample_coverage', minCoverage, 0, 1);
-  if (mcBad) return mcBad;
+  const driftCov = rejectContractDrift(
+    'min_sample_coverage',
+    cfg.min_sample_coverage,
+    MIN_SAMPLE_COVERAGE,
+  );
+  if (driftCov) return driftCov;
 
-  const minRequests = cfg.min_requests == null ? MIN_REQUESTS : cfg.min_requests;
-  const mrBad = assertSafeNonNegInt('min_requests', minRequests);
-  if (mrBad) return mrBad;
+  const driftReq = rejectContractDrift('min_requests', cfg.min_requests, MIN_REQUESTS);
+  if (driftReq) return driftReq;
+
+  const target = AVAILABILITY_TARGET;
+  const sloWindowMs = SLO_WINDOW_MS;
+  const stepMs = SAMPLE_STEP_MS;
+  const minCoverage = MIN_SAMPLE_COVERAGE;
+  const minRequests = MIN_REQUESTS;
 
   const samples = cfg.samples;
   const series = validateCounterSeries(samples, stepMs);
@@ -610,7 +720,9 @@ function evaluateReadinessWindow(input) {
   const avail = availabilitySliFromDeltas(d.requests_total_delta, d.requests_2xx_delta);
   if (!avail.ok) return avail;
 
-  const availabilityOk = avail.sli + 1e-12 >= target;
+  const meet = availabilityMeetsTargetExact(avail.good, avail.total);
+  if (!meet.ok) return meet;
+  const availabilityOk = meet.meets;
   const badRate = 1 - avail.sli;
   const burn = burnFromBadRate(badRate, target, d.window_ms, sloWindowMs);
   if (!burn.ok) return burn;
@@ -634,27 +746,52 @@ function evaluateReadinessWindow(input) {
 /**
  * Availability-only burn leg. Coverage/span use the declared burn window
  * (short windows are not measured against PT7D).
+ * Normative constants are locked — only `samples` / window pair are variable.
  */
-function availabilityBurnLeg(samples, windowMs, pairThreshold, opts) {
+function availabilityBurnLeg(samples, windowMs, pairThresholdRational, opts) {
   const o = opts || {};
   const blocked = rejectLatencyOrCombinedOptions(o);
   if (blocked) return blocked;
 
-  const target = o.availability_target == null ? AVAILABILITY_TARGET : o.availability_target;
-  const tBad = assertFiniteInRange('availability_target', target, Number.EPSILON, 1 - Number.EPSILON);
-  if (tBad) return tBad;
+  const driftTarget = rejectContractDrift(
+    'availability_target',
+    o.availability_target,
+    AVAILABILITY_TARGET,
+  );
+  if (driftTarget) return driftTarget;
 
-  const sloWindowMs = o.slo_window_ms == null ? SLO_WINDOW_MS : o.slo_window_ms;
-  const stepMs = o.sample_step_ms == null ? SAMPLE_STEP_MS : o.sample_step_ms;
-  const minCoverage = o.burn_min_sample_coverage == null
-    ? MIN_SAMPLE_COVERAGE
-    : o.burn_min_sample_coverage;
-  const minRequests = o.burn_min_requests == null ? 1 : o.burn_min_requests;
+  const driftSlo = rejectContractDrift('slo_window_ms', o.slo_window_ms, SLO_WINDOW_MS);
+  if (driftSlo) return driftSlo;
 
-  const thrBad = assertFiniteInRange('pairThreshold', pairThreshold, 0, Number.MAX_SAFE_INTEGER);
-  if (thrBad) return thrBad;
-  const mrBad = assertSafeNonNegInt('burn_min_requests', minRequests);
-  if (mrBad) return mrBad;
+  const driftStep = rejectContractDrift('sample_step_ms', o.sample_step_ms, SAMPLE_STEP_MS);
+  if (driftStep) return driftStep;
+
+  const driftCov = rejectContractDrift(
+    'burn_min_sample_coverage',
+    o.burn_min_sample_coverage,
+    MIN_SAMPLE_COVERAGE,
+  );
+  if (driftCov) return driftCov;
+
+  const driftReq = rejectContractDrift(
+    'burn_min_requests',
+    o.burn_min_requests,
+    BURN_MIN_REQUESTS,
+  );
+  if (driftReq) return driftReq;
+
+  const target = AVAILABILITY_TARGET;
+  const sloWindowMs = SLO_WINDOW_MS;
+  const stepMs = SAMPLE_STEP_MS;
+  const minCoverage = MIN_SAMPLE_COVERAGE;
+  const minRequests = BURN_MIN_REQUESTS;
+
+  const thrRational = pairThresholdRational && typeof pairThresholdRational === 'object'
+    ? pairThresholdRational
+    : null;
+  if (!thrRational) {
+    return failClosed(FAIL_CODES.INVALID_INPUT, ['burn threshold rational required']);
+  }
 
   const sliced = sliceSamplesForWindow(samples, windowMs, stepMs);
   if (!sliced.ok) return sliced;
@@ -681,18 +818,25 @@ function availabilityBurnLeg(samples, windowMs, pairThreshold, opts) {
   const b = burnFromBadRate(1 - avail.sli, target, windowMs, sloWindowMs);
   if (!b.ok) return b;
 
+  const thr = burnRateMeetsThresholdExact(
+    avail.bad,
+    avail.total,
+    thrRational,
+  );
+  if (!thr.ok) return thr;
+
   return {
     ok: true,
     window_ms: windowMs,
     computed_delta_ms: sliced.computed_delta_ms,
     availability_sli: avail.sli,
     bad_rate: 1 - avail.sli,
-    burn_rate: b.burn_rate,
+    burn_rate: b.burn_rate, // reporting only
     budget_consumed_fraction: b.budget_consumed_fraction,
     coverage: cov.coverage,
     coverage_reference_window_ms: windowMs,
     requests: d.requests_total_delta,
-    exceeds_threshold: b.burn_rate + 1e-12 >= pairThreshold,
+    exceeds_threshold: thr.meets,
   };
 }
 
@@ -703,7 +847,8 @@ function availabilityBurnLeg(samples, windowMs, pairThreshold, opts) {
  */
 function evaluateBurnPair(samples, pair, opts) {
   if (!pair || !isFiniteNumber(pair.short_ms) || !isFiniteNumber(pair.long_ms)
-    || !isFiniteNumber(pair.burn_threshold)) {
+    || !isFiniteNumber(pair.burn_threshold)
+    || !pair.burn_threshold_rational) {
     return failClosed(FAIL_CODES.INVALID_INPUT, ['burn pair invalid']);
   }
   if (!Number.isSafeInteger(pair.short_ms) || !Number.isSafeInteger(pair.long_ms)) {
@@ -713,9 +858,19 @@ function evaluateBurnPair(samples, pair, opts) {
     return failClosed(FAIL_CODES.MISSING_SAMPLES, ['burn samples missing']);
   }
 
-  const short = availabilityBurnLeg(samples, pair.short_ms, pair.burn_threshold, opts);
+  const short = availabilityBurnLeg(
+    samples,
+    pair.short_ms,
+    pair.burn_threshold_rational,
+    opts,
+  );
   if (!short.ok) return short;
-  const long = availabilityBurnLeg(samples, pair.long_ms, pair.burn_threshold, opts);
+  const long = availabilityBurnLeg(
+    samples,
+    pair.long_ms,
+    pair.burn_threshold_rational,
+    opts,
+  );
   if (!long.ok) return long;
 
   const wouldFire = short.exceeds_threshold && long.exceeds_threshold;
@@ -725,6 +880,7 @@ function evaluateBurnPair(samples, pair, opts) {
     id: pair.id,
     severity: pair.severity,
     burn_threshold: pair.burn_threshold,
+    burn_threshold_rational: pair.burn_threshold_rational,
     short,
     long,
     would_fire: wouldFire,
@@ -758,8 +914,27 @@ function evaluateAllBurnPairs(samples, opts) {
  * Exact boundary helpers for verifier RED/GREEN.
  */
 function exactBoundaryCases() {
+  // Count-derived equality cases: burn = bad*100/total == thr_num/thr_den
+  // ↔ bad * 100 * den == total * num. Choose total = 100 * den.
+  const burnBoundaries = Object.freeze(MULTI_WINDOW_BURNS.map((pair) => {
+    const { num, den } = pair.burn_threshold_rational;
+    const total = 100 * den;
+    const badEq = (total * num) / (100 * den);
+    return Object.freeze({
+      id: pair.id,
+      burn_threshold: pair.burn_threshold,
+      burn_threshold_rational: pair.burn_threshold_rational,
+      total,
+      bad_below: badEq - 1,
+      bad_eq: badEq,
+      bad_above: badEq + 1,
+    });
+  }));
+
   return Object.freeze({
     availability_target: AVAILABILITY_TARGET,
+    availability_target_rational: AVAILABILITY_TARGET_RATIONAL,
+    error_budget_rational: ERROR_BUDGET_RATIONAL,
     // Exactly at target: 99 good of 100 → sli=0.99 meets; 98/100 misses.
     meet_counts: Object.freeze({ total: 100, good: 99 }),
     miss_counts: Object.freeze({ total: 100, good: 98 }),
@@ -771,6 +946,16 @@ function exactBoundaryCases() {
     fast_burn_expected: 14.4,
     slo_window_ms: SLO_WINDOW_MS,
     sample_step_ms: SAMPLE_STEP_MS,
+    burn_boundaries: burnBoundaries,
+    // Reviewer sub-threshold safe-integer: float+eps would fire; exact must not.
+    reviewer_sub_threshold_safe_integer: Object.freeze({
+      total: 9007199254740991,
+      bad: 1297036692682702,
+      burn_threshold: 14.4,
+      burn_threshold_rational: Object.freeze({ num: 144, den: 10 }),
+      float_eps_would_fire: true,
+      exact_must_fire: false,
+    }),
     // Reviewer histogram non-example: no exact 500ms bucket in [400,1000].
     rejected_histogram_le_ms: Object.freeze([400, 1000]),
     latency_percentile_sli: LATENCY_PERCENTILE_SLI,
@@ -781,14 +966,21 @@ module.exports = {
   SLO_WINDOW_MS,
   SAMPLE_STEP_MS,
   AVAILABILITY_TARGET,
+  AVAILABILITY_TARGET_RATIONAL,
+  ERROR_BUDGET_FRACTION,
+  ERROR_BUDGET_RATIONAL,
   MIN_SAMPLE_COVERAGE,
   MIN_REQUESTS,
+  BURN_MIN_REQUESTS,
   LATENCY_PERCENTILE_SLI,
   MULTI_WINDOW_BURNS,
   FAIL_CODES,
   failClosed,
+  rejectContractDrift,
   rejectLatencyOrCombinedOptions,
   rejectCombinedFromDisjointMarginals,
+  availabilityMeetsTargetExact,
+  burnRateMeetsThresholdExact,
   errorBudgetFraction,
   burnFromBadRate,
   validateCounterSeries,

@@ -122,6 +122,7 @@ const FAIL_CLOSED_STATES = Object.freeze([
   calc.FAIL_CODES.UNSAFE_INTEGER,
   calc.FAIL_CODES.LATENCY_SLI_BLOCKED,
   calc.FAIL_CODES.COMBINED_CLAIM_FORBIDDEN,
+  calc.FAIL_CODES.CONTRACT_DRIFT,
 ]);
 
 const FUTURE_ALERT_ACCEPTANCE = Object.freeze({
@@ -225,13 +226,15 @@ const FINAL_CONTROLLED_DRILL = Object.freeze({
   status: 'offline_source_proven',
   pass_rule:
     'Pure dependency-free availability-only calculator + deterministic RED/GREEN '
-    + 'verifier prove exact PT7D availability boundaries, error-budget and '
-    + 'multi-window burn math, baseline-within-grain burn slicing, and fail-closed '
+    + 'verifier prove exact PT7D availability boundaries, locked normative constants '
+    + '(reject contract drift), error-budget reporting numerics, exact BigInt '
+    + 'cross-multiplication burn thresholds (below never / eq+above fire), '
+    + 'baseline-within-grain burn slicing, and fail-closed '
     + 'missing/reset/out-of-order/zero-traffic/sparse/stale-baseline/span-mismatch/'
-    + 'unsafe-integer/NaN/latency-blocked/combined-forbidden/overclaim paths; latency '
-    + 'percentile SLI recorded blocked; future alert/drill acceptance defined_not_'
-    + 'executed only; G06 remains partial; proven count remains 0; no live/deploy/'
-    + 'scale mutation',
+    + 'unsafe-integer/NaN/latency-blocked/combined-forbidden/contract-drift/overclaim '
+    + 'paths; latency percentile SLI recorded blocked; future alert/drill acceptance '
+    + 'defined_not_executed only; G06 remains partial; proven count remains 0; no '
+    + 'live/deploy/scale mutation',
 });
 
 module.exports = {

@@ -113,7 +113,8 @@
     "window_span_mismatch": "computed delta interval does not match declared window (exact PT7D for readiness)",
     "unsafe_integer": "counters/timestamps not nonnegative Number.isSafeInteger; overflow rejected",
     "latency_sli_blocked": "any latency histogram/p99/average binding rejected",
-    "combined_claim_forbidden": "combined min/intersection or disjoint-marginals joint claim rejected"
+    "combined_claim_forbidden": "combined min/intersection or disjoint-marginals joint claim rejected",
+    "contract_drift": "normative option override not exactly locked (availability_target 0.99, sample_step_ms PT5M, slo_window_ms PT7D, coverage/min-requests constants)"
   },
   "future_acceptance_only": {
     "alert": {

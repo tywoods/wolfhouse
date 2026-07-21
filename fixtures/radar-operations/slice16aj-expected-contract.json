@@ -77,7 +77,8 @@
     "window_span_mismatch",
     "unsafe_integer",
     "latency_sli_blocked",
-    "combined_claim_forbidden"
+    "combined_claim_forbidden",
+    "contract_drift"
   ],
   "future_alert_acceptance": {
     "id": "16AJ_ALERT_multi_window_burn_acceptance",
@@ -144,7 +145,7 @@
   "final_controlled_drill": {
     "id": "16AJ_OFFLINE_slo_error_budget_source_contract",
     "status": "offline_source_proven",
-    "pass_rule": "Pure dependency-free availability-only calculator + deterministic RED/GREEN verifier prove exact PT7D availability boundaries, error-budget and multi-window burn math, baseline-within-grain burn slicing, and fail-closed missing/reset/out-of-order/zero-traffic/sparse/stale-baseline/span-mismatch/unsafe-integer/NaN/latency-blocked/combined-forbidden/overclaim paths; latency percentile SLI recorded blocked; future alert/drill acceptance defined_not_executed only; G06 remains partial; proven count remains 0; no live/deploy/scale mutation"
+    "pass_rule": "Pure dependency-free availability-only calculator + deterministic RED/GREEN verifier prove exact PT7D availability boundaries, locked normative constants (reject contract drift), error-budget reporting numerics, exact BigInt cross-multiplication burn thresholds (below never / eq+above fire), baseline-within-grain burn slicing, and fail-closed missing/reset/out-of-order/zero-traffic/sparse/stale-baseline/span-mismatch/unsafe-integer/NaN/latency-blocked/combined-forbidden/contract-drift/overclaim paths; latency percentile SLI recorded blocked; future alert/drill acceptance defined_not_executed only; G06 remains partial; proven count remains 0; no live/deploy/scale mutation"
   },
   "artifacts": [
     "fixtures/radar-operations/slice16aj-g06-slo-error-budget-contract.json",
