@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '137b14a0b3efc689ba749340a97ab4e9bc220edc';
+const MASTER_BASIS = '0a2fb08486b835dd45a4fc904e3dd152702bea6f';
+const BRANCH_16AF = 'radar/slice-16af-g06-capacity-alert-live-evidence';
 const BRANCH_16AD = 'radar/slice-16ad-g02-sampled-restart-continuity-evidence';
 const BRANCH_16AC = 'radar/slice-16ac-organic-restart-alert-evidence';
 const BRANCH_16AB = 'radar/slice-16ab-g02-readyz503-evidence';
@@ -447,13 +448,14 @@ const slice16abContract = readJson(path.join(FIXTURE_DIR, 'slice16ab-expected-co
 const slice16acContract = readJson(path.join(FIXTURE_DIR, 'slice16ac-expected-contract.json'));
 const slice16adContract = readJson(path.join(FIXTURE_DIR, 'slice16ad-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16AD contract + HEAD',
-  matrix.branch === BRANCH_16AD
-  && contract.branch === BRANCH_16AD
-  && slice16adContract.branch === BRANCH_16AD
-  && headBranch === BRANCH_16AD,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16ad=${slice16adContract.branch} head=${headBranch}`);
-ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC contracts retain their own branch pins',
+const slice16afContract = readJson(path.join(FIXTURE_DIR, 'slice16af-expected-contract.json'));
+ok('F48 gate-matrix branch pin equals 16AF contract + HEAD',
+  matrix.branch === BRANCH_16AF
+  && contract.branch === BRANCH_16AF
+  && slice16afContract.branch === BRANCH_16AF
+  && headBranch === BRANCH_16AF,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16af=${slice16afContract.branch} head=${headBranch}`);
+ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC/16AD contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
   && slice16rContract.branch === BRANCH_16R
@@ -465,7 +467,8 @@ ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC contracts ret
   && slice16zContract.branch === BRANCH_16Z
   && slice16aaContract.branch === BRANCH_16AA
   && slice16abContract.branch === BRANCH_16AB
-  && slice16acContract.branch === BRANCH_16AC);
+  && slice16acContract.branch === BRANCH_16AC
+  && slice16adContract.branch === BRANCH_16AD);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -563,12 +566,19 @@ ok('F66 16K retention still open; deploy partial via 16P',
   && /open/i.test(String(contract.healthz_log_retention || '')));
 
 const g06 = matrix.gates.find((g) => g.id === 'G06_scaling_capacity');
-ok('F67 G06 partial source-partial via 16L',
+ok('F67 G06 partial_live_proven via 16AF capacity deploy + 16L source',
   g06 && g06.verdict === 'partial'
-  && g06.progress_class === 'source_partial_progress_only'
+  && g06.progress_class === 'partial_live_proven'
+  && /16AF/.test(g06.rationale)
   && /16L/.test(g06.rationale)
   && /CpuPercentage/i.test(g06.rationale)
-  && /MemoryPercentage/i.test(g06.rationale));
+  && /MemoryPercentage/i.test(g06.rationale)
+  && Array.isArray(g06.gaps)
+  && !g06.gaps.some((g) => /Capacity-pressure alerts not deployed/i.test(String(g)))
+  && g06.gaps.some((g) => /fir|notification/i.test(String(g)))
+  && g06.gaps.some((g) => /load|soak/i.test(String(g)))
+  && g06.gaps.some((g) => /autoscal/i.test(String(g)))
+  && g06.gaps.some((g) => /SLO|error.?budget|backpressure/i.test(String(g))));
 ok('F68 16L verifier script present',
   pathExists('scripts/verify-radar-slice16l-staff-api-capacity-alerts.js'));
 ok('F69 capacity plan + contract fixtures present',
@@ -590,12 +600,14 @@ ok('F72 16L final controlled drill present',
   && sel16l.final_controlled_drill.id === '16L_DRILL_capacity_pressure_alert_fire');
 ok('F73 16L acceptance criteria finite (>=4)',
   Array.isArray(sel16l.acceptance_criteria) && sel16l.acceptance_criteria.length >= 4);
-ok('F74 16L leaves deploy/load/SLO/backpressure open',
+ok('F74 16L source leaves fire/load/SLO/backpressure open; deploy closed via 16AF',
   /live_deploy/.test(String(sel16l.does_not_implement || ''))
   && /backpressure/i.test(String(sel16l.does_not_implement || ''))
-  && /open/i.test(String(contract.capacity_live_deploy || ''))
+  && /live_proven_via_16AF/i.test(String(contract.capacity_live_deploy || ''))
+  && /open/i.test(String(contract.capacity_alert_fire || ''))
   && /open/i.test(String(contract.capacity_backpressure || ''))
-  && /open/i.test(String(contract.capacity_slo || '')));
+  && /open/i.test(String(contract.capacity_slo || ''))
+  && /open/i.test(String(contract.capacity_load_proof || '')));
 ok('F75 doc mentions G06 capacity-pressure',
   /G06/.test(doc) && /capacity-pressure|CpuPercentage/i.test(doc));
 
@@ -692,9 +704,11 @@ ok('F103 G07 partial_live_proven via 16P rollback/rollforward',
     return g07 && g07.verdict === 'partial' && g07.progress_class === 'partial_live_proven'
       && /0000515|0000516|rollforward|594247f/i.test(g07.rationale);
   })());
-ok('F104 G05/G06 remain not partial_live_proven',
-  matrix.gates.filter((g) => ['G05_retry_replay_safety', 'G06_scaling_capacity'].includes(g.id))
-    .every((g) => g.progress_class !== 'partial_live_proven'));
+ok('F104 G05 remains not partial_live_proven; G06 is partial_live_proven via 16AF',
+  matrix.gates.filter((g) => g.id === 'G05_retry_replay_safety')
+    .every((g) => g.progress_class !== 'partial_live_proven')
+  && matrix.gates.filter((g) => g.id === 'G06_scaling_capacity')
+    .every((g) => g.progress_class === 'partial_live_proven'));
 ok('F105 doc forbids overclaims',
   /human inbox/i.test(doc) && /organic metric|end-to-end/i.test(doc) && /not claim/i.test(doc));
 
@@ -998,6 +1012,39 @@ ok('F172 doc mentions 16AD + warmup disclosure + sampling-resolution claim; G02 
   && /sampling resolution|not absolute|not claim.*absolute/i.test(doc)
   && /G02.*partial|partial.*G02/i.test(doc)
   && !/\bG02\s+proven\b/i.test(doc));
+
+
+const sel16af = matrix.slice_16af_selection;
+ok('F173 exactly one 16AF selection',
+  sel16af && sel16af.selected === true
+  && sel16af.outcome_id === '16AF_g06_capacity_alert_live_evidence'
+  && sel16af.gate_id === 'G06_scaling_capacity'
+  && sel16af.progress_class === 'partial_live_proven_evidence_only');
+ok('F174 contract selected_16af matches',
+  contract.selected_16af
+  && contract.selected_16af.outcome_id === '16AF_g06_capacity_alert_live_evidence'
+  && contract.selected_16af.g06_capacity_alert_deploy === 'live_proven_via_16AF'
+  && contract.selected_16af.g06_verdict === 'partial'
+  && contract.selected_16af.g06_capacity_alert_fire === 'open'
+  && contract.selected_16af.g06_autoscaling === 'open'
+  && contract.selected_16af.g06_backpressure === 'open');
+ok('F175 16AF fixtures + verifier present',
+  pathExists('fixtures/radar-operations/slice16af-expected-contract.json')
+  && pathExists('fixtures/radar-operations/slice16af-g06-capacity-alert-live-evidence.json')
+  && pathExists('scripts/lib/radar-slice16af-g06-capacity-alert-live-evidence.js')
+  && pathExists('scripts/verify-radar-slice16af-g06-capacity-alert-live-evidence.js'));
+ok('F176 16AF final controlled drill live_proven deploy readback',
+  sel16af.final_controlled_drill
+  && /live_proven_via_16AF/i.test(String(sel16af.final_controlled_drill.status)));
+ok('F177 16AF does not claim fire/notification/load/autoscale/SLO/backpressure/production/full G06',
+  /fire|notification|load|autoscale|slo|backpressure|production|full_g06/i.test(
+    String(sel16af.does_not_implement || '')));
+ok('F178 doc mentions 16AF + capacity deploy + G06 partial + open firing/autoscale',
+  /16AF|capacity.?alert.?live/i.test(doc)
+  && /G06.*partial|partial.*G06/i.test(doc)
+  && /fir|notification/i.test(doc)
+  && /autoscal|load|soak|SLO|backpressure/i.test(doc)
+  && !/\bG06\s+proven\b/i.test(doc));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

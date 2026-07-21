@@ -1,16 +1,20 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16AD",
-  "outcome_id": "16AD_g02_sampled_restart_continuity_evidence",
-  "master_basis": "137b14a0b3efc689ba749340a97ab4e9bc220edc",
-  "branch": "radar/slice-16ad-g02-sampled-restart-continuity-evidence",
+  "slice": "RADAR-16AF",
+  "outcome_id": "16AF_g06_capacity_alert_live_evidence",
+  "master_basis": "0a2fb08486b835dd45a4fc904e3dd152702bea6f",
+  "branch": "radar/slice-16af-g06-capacity-alert-live-evidence",
   "audit_only": true,
   "live_mutation": false,
-  "title": "G02 sampled revision-restart continuity evidence (partial/live-proven; absolute zero-downtime/production open)",
+  "title": "G06 capacity-pressure alert live deploy evidence (partial/live-proven; fire/load/autoscale/SLO/backpressure open)",
   "progress_class": "partial_live_proven_evidence_only",
-  "does_not_implement": "absolute_continuous_zero_downtime_between_samples_sub_second_cold_start_production_full_g02",
+  "does_not_implement": "capacity_alert_fire_notification_load_soak_autoscaling_slo_backpressure_production_full_g06",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
+    "fixtures/radar-operations/slice16af-g06-capacity-alert-live-evidence.json",
+    "fixtures/radar-operations/slice16af-expected-contract.json",
+    "scripts/lib/radar-slice16af-g06-capacity-alert-live-evidence.js",
+    "scripts/verify-radar-slice16af-g06-capacity-alert-live-evidence.js",
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
     "fixtures/radar-operations/gate-matrix.json",
     "fixtures/radar-operations/live-inventory.json",
@@ -158,6 +162,7 @@
     "note": "16Z evidence-only; no runtime mutation vs master 95dc3634; Azure/ACR/LAW read-only verification only"
   },
   "gates": [
+    "npm run verify:radar-slice16af-g06-capacity-alert-live-evidence",
     "npm run verify:radar-slice16ad-g02-sampled-restart-continuity-evidence",
     "npm run verify:radar-slice16ac-organic-restart-alert-evidence",
     "npm run verify:radar-slice16ab-g02-readyz503-evidence",
@@ -171,7 +176,7 @@
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 137b14a0b3efc689ba749340a97ab4e9bc220edc..HEAD"
+    "git diff --check 0a2fb08486b835dd45a4fc904e3dd152702bea6f..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -258,7 +263,7 @@
       "actionGroupResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/actionGroups/luna-sunset-staging-ops-budget-ag"
     }
   },
-  "capacity_live_deploy": "open",
+  "capacity_live_deploy": "live_proven_via_16AF",
   "capacity_alert_fire": "open",
   "capacity_load_proof": "open",
   "capacity_slo": "open",
@@ -481,5 +486,25 @@
     "g02_sigterm_live": "live_proven_via_16Z",
     "g02_absolute_zero_downtime": "open",
     "g02_production": "open"
+  },
+  "selected_16af": {
+    "outcome_id": "16AF_g06_capacity_alert_live_evidence",
+    "gate_id": "G06_scaling_capacity",
+    "progress_class": "partial_live_proven_evidence_only",
+    "does_not_implement": "capacity_alert_fire_notification_load_soak_autoscaling_slo_backpressure_production_full_g06",
+    "builds_on": [
+      "16L_staff_api_capacity_pressure_alerts",
+      "16B_staging_cost_budgets",
+      "16H_staff_api_metric_alerts",
+      "16AD_g02_sampled_restart_continuity_evidence"
+    ],
+    "g06_verdict": "partial",
+    "g06_capacity_alert_deploy": "live_proven_via_16AF",
+    "g06_capacity_alert_fire": "open",
+    "g06_load_proof": "open",
+    "g06_autoscaling": "open",
+    "g06_slo": "open",
+    "g06_backpressure": "open",
+    "g06_production": "open"
   }
 }

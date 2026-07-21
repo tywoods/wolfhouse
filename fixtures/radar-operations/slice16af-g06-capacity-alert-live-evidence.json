@@ -1,0 +1,334 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AF",
+  "outcome_id": "16AF_g06_capacity_alert_live_evidence",
+  "gate_ids_touched": [
+    "G06_scaling_capacity"
+  ],
+  "master_basis": "0a2fb08486b835dd45a4fc904e3dd152702bea6f",
+  "branch": "radar/slice-16af-g06-capacity-alert-live-evidence",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "progress_class": "partial_live_proven_evidence_only",
+  "title": "Reconcile live dual-staging Staff API capacity-pressure metric alerts + scale truth (bounded; no overclaims)",
+  "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "independent_azure_verify_utc": "2026-07-21T14:30:07Z",
+  "provenance_limitations": "Independently recovered Azure Monitor metric-alert rule definitions, action-group enabled/receiver-name/status fields, and Container App scale/revision/traffic fields via read-only Azure calls at 2026-07-21T14:30:07Z. Proves the four capacity-pressure alerts are deployed Enabled Sev2 Average>80 PT5M/PT15M on exact Staff API app scopes wired to tenant ops action groups, and records current scale truth (WH minReplicas=0 maxReplicas=1 rules=null; Sunset minReplicas=1 maxReplicas=1 rules=null; latest=latestReady g02503r both tenants). Does not prove alert firing, notification/inbox delivery, load/soak, autoscaling, SLO/error budget, backpressure, production, or full G06. Receiver email addresses intentionally not recorded.",
+  "non_recoverability": "Azure read-only APIs cannot prove alert firing, notification delivery, human inbox receipt, load/soak behavior, autoscaling actuation, SLO/error-budget consumption, or backpressure. Do not invent fired instances, email addresses, scale-rule mutations, or raising G06 to proven.",
+  "claim_ownership": {
+    "deployed_capacity_pressure_alerts": {
+      "owner_class": "azure_monitor_readonly_independently_reverified",
+      "observation": "four_capacity_alerts_enabled_sev2_average_gt_80_pt5m_pt15m_exact_scopes_ags",
+      "proves": [
+        "capacity_alerts_deployed_enabled_both_tenants_cpu_and_memory",
+        "exact_metric_CpuPercentage_MemoryPercentage",
+        "Average_GreaterThan_80_Sev2_PT5M_eval_PT15M_window",
+        "exact_app_scopes_and_tenant_ops_action_group_ids",
+        "action_groups_enabled_ops_email_receiver_Enabled"
+      ],
+      "does_not_prove": [
+        "capacity_alert_firing",
+        "notification_delivery",
+        "human_inbox_receipt",
+        "load_soak_proof",
+        "autoscaling",
+        "capacity_slo_error_budget",
+        "backpressure",
+        "production",
+        "full_G06_proven"
+      ],
+      "limitation": "Deployed enabled rule definitions + AG receiver name/status only; fire/notification remain open"
+    },
+    "current_scale_truth": {
+      "owner_class": "azure_containerapp_readonly_independently_reverified",
+      "observation": "wh_min0_max1_rules_null_sunset_min1_max1_rules_null_latest_equals_latestReady_g02503r",
+      "proves": [
+        "wolfhouse_minReplicas_0_maxReplicas_1_rules_null",
+        "sunset_minReplicas_1_maxReplicas_1_rules_null",
+        "latest_equals_latestReady_g02503r_both_tenants",
+        "active_revisions_mode_Single_traffic_100"
+      ],
+      "does_not_prove": [
+        "autoscaling_rules_present",
+        "scale_mutation_by_this_slice",
+        "load_driven_scale_out",
+        "production"
+      ],
+      "limitation": "Current scale bounds/rules/revision identity only; no autoscaling or load proof"
+    }
+  },
+  "observed_facts": {
+    "azure_monitor_containerapp_readonly_independently_reverified": {
+      "source_type": "azure_monitor_metric_alert_action_group_containerapp_scale_readonly_independently_reverified",
+      "source_ref": "az_monitor_metric_alert_ag_containerapp_scale_readonly_2026-07-21T14:30:07Z",
+      "observed_at": "2026-07-21T14:30:07Z",
+      "observed_at_semantics": "independently_reverified_at_recorded_utc",
+      "covers": [
+        "four_capacity_alerts_deployed_enabled",
+        "exact_metric_threshold_window_scope_ag",
+        "action_groups_enabled_ops_email_Enabled",
+        "current_scale_truth_min_max_rules_null",
+        "latest_equals_latestReady_g02503r"
+      ],
+      "explicitly_not_covered": [
+        "capacity_alert_firing",
+        "notification_delivery",
+        "human_inbox_receipt",
+        "receiver_email_address_disclosure",
+        "load_soak_proof",
+        "autoscaling",
+        "capacity_slo_error_budget",
+        "backpressure",
+        "production",
+        "full_G06_proven",
+        "any_gate_verdict_proven",
+        "scale_mutation_by_this_slice",
+        "min_max_replica_mutation"
+      ],
+      "wolfhouse": {
+        "source_type": "azure_monitor_metric_alert_action_group_containerapp_scale_readonly_independently_reverified",
+        "source_ref": "az_monitor_metric_alert_ag_containerapp_scale_readonly_2026-07-21T14:30:07Z",
+        "observed_at": "2026-07-21T14:30:07Z",
+        "resource_group": "wh-staging-rg",
+        "app": "wh-staging-staff-api",
+        "capacity_alerts": {
+          "cpu": {
+            "name": "wolfhouse-staff-api-cpu-pressure",
+            "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/metricAlerts/wolfhouse-staff-api-cpu-pressure",
+            "enabled": true,
+            "severity": 2,
+            "severity_label": "Sev2",
+            "evaluation_frequency": "PT5M",
+            "window_size": "PT15M",
+            "metric_name": "CpuPercentage",
+            "metric_namespace": "Microsoft.App/containerApps",
+            "time_aggregation": "Average",
+            "operator": "GreaterThan",
+            "threshold": 80,
+            "criterion_type": "StaticThresholdCriterion",
+            "scope_app": "wh-staging-staff-api",
+            "scope_resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api",
+            "action_group_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/actionGroups/wh-staging-ops-budget-ag",
+            "note": "Enabled Sev2 Average >80; PT5M eval; PT15M window; exact Staff API app scope; tenant ops AG"
+          },
+          "memory": {
+            "name": "wolfhouse-staff-api-memory-pressure",
+            "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/metricAlerts/wolfhouse-staff-api-memory-pressure",
+            "enabled": true,
+            "severity": 2,
+            "severity_label": "Sev2",
+            "evaluation_frequency": "PT5M",
+            "window_size": "PT15M",
+            "metric_name": "MemoryPercentage",
+            "metric_namespace": "Microsoft.App/containerApps",
+            "time_aggregation": "Average",
+            "operator": "GreaterThan",
+            "threshold": 80,
+            "criterion_type": "StaticThresholdCriterion",
+            "scope_app": "wh-staging-staff-api",
+            "scope_resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api",
+            "action_group_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/actionGroups/wh-staging-ops-budget-ag",
+            "note": "Enabled Sev2 Average >80; PT5M eval; PT15M window; exact Staff API app scope; tenant ops AG"
+          }
+        },
+        "action_group": {
+          "name": "wh-staging-ops-budget-ag",
+          "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/actionGroups/wh-staging-ops-budget-ag",
+          "enabled": true,
+          "email_receiver": {
+            "name": "ops-email",
+            "status": "Enabled",
+            "email_address_recorded": false
+          },
+          "note": "Action group enabled; receiver name ops-email status Enabled; address intentionally not recorded; inbox/notification delivery unproven"
+        },
+        "scale": {
+          "minReplicas": 0,
+          "maxReplicas": 1,
+          "rules": null,
+          "active_revisions_mode": "Single",
+          "latest_revision_name": "wh-staging-staff-api--g02503r",
+          "latest_ready_revision_name": "wh-staging-staff-api--g02503r",
+          "latest_equals_latestReady": true,
+          "traffic": [
+            {
+              "revisionName": "wh-staging-staff-api--g02503r",
+              "weight": 100
+            }
+          ],
+          "note": "Current scale truth only; rules=null (no autoscaling); unchanged by this evidence capture"
+        }
+      },
+      "sunset": {
+        "source_type": "azure_monitor_metric_alert_action_group_containerapp_scale_readonly_independently_reverified",
+        "source_ref": "az_monitor_metric_alert_ag_containerapp_scale_readonly_2026-07-21T14:30:07Z",
+        "observed_at": "2026-07-21T14:30:07Z",
+        "resource_group": "luna-sunset-staging-rg",
+        "app": "luna-sunset-staging-staff-api",
+        "capacity_alerts": {
+          "cpu": {
+            "name": "sunset-staff-api-cpu-pressure",
+            "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/metricAlerts/sunset-staff-api-cpu-pressure",
+            "enabled": true,
+            "severity": 2,
+            "severity_label": "Sev2",
+            "evaluation_frequency": "PT5M",
+            "window_size": "PT15M",
+            "metric_name": "CpuPercentage",
+            "metric_namespace": "Microsoft.App/containerApps",
+            "time_aggregation": "Average",
+            "operator": "GreaterThan",
+            "threshold": 80,
+            "criterion_type": "StaticThresholdCriterion",
+            "scope_app": "luna-sunset-staging-staff-api",
+            "scope_resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api",
+            "action_group_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/actionGroups/luna-sunset-staging-ops-budget-ag",
+            "note": "Enabled Sev2 Average >80; PT5M eval; PT15M window; exact Staff API app scope; tenant ops AG"
+          },
+          "memory": {
+            "name": "sunset-staff-api-memory-pressure",
+            "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/metricAlerts/sunset-staff-api-memory-pressure",
+            "enabled": true,
+            "severity": 2,
+            "severity_label": "Sev2",
+            "evaluation_frequency": "PT5M",
+            "window_size": "PT15M",
+            "metric_name": "MemoryPercentage",
+            "metric_namespace": "Microsoft.App/containerApps",
+            "time_aggregation": "Average",
+            "operator": "GreaterThan",
+            "threshold": 80,
+            "criterion_type": "StaticThresholdCriterion",
+            "scope_app": "luna-sunset-staging-staff-api",
+            "scope_resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api",
+            "action_group_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/actionGroups/luna-sunset-staging-ops-budget-ag",
+            "note": "Enabled Sev2 Average >80; PT5M eval; PT15M window; exact Staff API app scope; tenant ops AG"
+          }
+        },
+        "action_group": {
+          "name": "luna-sunset-staging-ops-budget-ag",
+          "resource_id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/actionGroups/luna-sunset-staging-ops-budget-ag",
+          "enabled": true,
+          "email_receiver": {
+            "name": "ops-email",
+            "status": "Enabled",
+            "email_address_recorded": false
+          },
+          "note": "Action group enabled; receiver name ops-email status Enabled; address intentionally not recorded; inbox/notification delivery unproven"
+        },
+        "scale": {
+          "minReplicas": 1,
+          "maxReplicas": 1,
+          "rules": null,
+          "active_revisions_mode": "Single",
+          "latest_revision_name": "luna-sunset-staging-staff-api--g02503r",
+          "latest_ready_revision_name": "luna-sunset-staging-staff-api--g02503r",
+          "latest_equals_latestReady": true,
+          "traffic": [
+            {
+              "revisionName": "luna-sunset-staging-staff-api--g02503r",
+              "weight": 100
+            }
+          ],
+          "note": "Current scale truth only; rules=null (no autoscaling); unchanged by this evidence capture"
+        }
+      },
+      "capacity_alert_inventory": {
+        "count": 4,
+        "names": [
+          "wolfhouse-staff-api-cpu-pressure",
+          "wolfhouse-staff-api-memory-pressure",
+          "sunset-staff-api-cpu-pressure",
+          "sunset-staff-api-memory-pressure"
+        ],
+        "note": "Exactly four capacity-pressure alerts reconciled; 16H 5xx/restart alerts exist live but are out of ownership for this G06 deploy gap close"
+      }
+    }
+  },
+  "claims_allowed": [
+    "four_capacity_alerts_deployed_enabled_sev2_average_gt_80",
+    "exact_cpu_memory_per_tenant_pt5m_pt15m",
+    "exact_app_scopes_and_tenant_ops_ags",
+    "action_groups_enabled_ops_email_Enabled_no_address",
+    "wh_scale_min0_max1_rules_null",
+    "sunset_scale_min1_max1_rules_null",
+    "latest_equals_latestReady_g02503r_both",
+    "g06_alert_deployment_gap_closed_g06_remains_partial",
+    "no_fire_notification_load_autoscale_slo_backpressure_claim",
+    "no_production_scope",
+    "no_live_mutation_this_slice"
+  ],
+  "explicitly_not_claimed": [
+    "capacity_alert_firing",
+    "notification_delivery",
+    "human_inbox_receipt",
+    "receiver_email_address_disclosure",
+    "load_soak_proof",
+    "autoscaling",
+    "capacity_slo_error_budget",
+    "backpressure",
+    "production",
+    "full_G06_proven",
+    "any_gate_verdict_proven",
+    "scale_mutation_by_this_slice",
+    "min_max_replica_mutation"
+  ],
+  "disposition": {
+    "proves": [
+      "four_capacity_pressure_alerts_deployed_enabled_both_tenants",
+      "exact_CpuPercentage_MemoryPercentage_Average_gt_80_Sev2_PT5M_PT15M",
+      "exact_app_scopes_and_tenant_ops_action_groups",
+      "current_scale_truth_wh_min0_max1_rules_null_sunset_min1_max1_rules_null",
+      "latest_equals_latestReady_g02503r_both_tenants",
+      "prior_16L_source_capacity_alert_contract_retained"
+    ],
+    "does_not_prove": [
+      "capacity_alert_firing",
+      "notification_delivery",
+      "human_inbox_receipt",
+      "receiver_email_address_disclosure",
+      "load_soak_proof",
+      "autoscaling",
+      "capacity_slo_error_budget",
+      "backpressure",
+      "production",
+      "full_G06_proven",
+      "any_gate_verdict_proven",
+      "scale_mutation_by_this_slice",
+      "min_max_replica_mutation"
+    ],
+    "g06_verdict": "partial",
+    "g06_progress_class": "partial_live_proven"
+  },
+  "gate_progress_updates": {
+    "G06_scaling_capacity": {
+      "progress_class": "partial_live_proven",
+      "verdict": "partial",
+      "live_proven": [
+        "capacity_pressure_alerts_deployed_enabled_via_16AF",
+        "prior_16L_capacity_alert_source_iac"
+      ],
+      "still_open": [
+        "capacity_alert_firing",
+        "notification_delivery",
+        "load_soak_proof",
+        "autoscaling",
+        "capacity_slo_error_budget",
+        "backpressure",
+        "production"
+      ]
+    }
+  },
+  "gates_unchanged": [
+    "G01_correlation_structured_logs",
+    "G02_readiness_dependencies",
+    "G03_actionable_tenant_aware_alerts",
+    "G04_webhook_payment_worker_backlog",
+    "G05_retry_replay_safety",
+    "G07_rollback_incident_runbooks",
+    "G08_retention_privacy",
+    "G09_cost_controls"
+  ],
+  "lock_hash": "2932a0e18f416578ac113ee66abc73cb4dce9c615bc35e2e771ffc9f1bacbb56"
+}

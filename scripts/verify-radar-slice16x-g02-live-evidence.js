@@ -629,7 +629,8 @@ ok('C2 contract slice/branch/master',
   && contract.this_slice_deploys === false);
 
 ok('C3 HEAD on 16X branch (tip may advance to 16Y/16Z/16AA)', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16y-shutdown-completion-log' || currentBranch() === 'radar/slice-16z-g02-live-sigterm-evidence' || currentBranch() === 'radar/slice-16aa-g02-live-sigint-evidence' || currentBranch() === 'radar/slice-16ab-g02-readyz503-evidence' || currentBranch() === 'radar/slice-16ac-organic-restart-alert-evidence'
-    || currentBranch() === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence', currentBranch());
+    || currentBranch() === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence'
+    || currentBranch() === 'radar/slice-16af-g06-capacity-alert-live-evidence', currentBranch());
 
 {
   const v = validateEvidenceExact(evidence);
@@ -691,7 +692,7 @@ ok('C6 disposition keeps G02 partial',
 }
 
 ok('C11 top contract selected_16x + G02 drill live_proven (tip may advance to 16Y)',
-  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16Y' || topContract.slice === 'RADAR-16Z' || (topContract.slice === 'RADAR-16AA' || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC' || topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AD'))
+  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16Y' || topContract.slice === 'RADAR-16Z' || (topContract.slice === 'RADAR-16AA' || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC' || (topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AF') || (topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AF')))
   && topContract.selected_16x
   && topContract.selected_16x.outcome_id === locks.OUTCOME_ID
   && topContract.selected_16x.g02_dependency_failure_drill === 'live_proven_via_16X'
@@ -717,7 +718,7 @@ ok('C13 findings mention 16X drill without proven overclaim',
 {
   const rt = runtimePathsUnchanged();
   ok('C14 runtime paths unchanged vs master (waived when tip is 16Y source observability)',
-    rt.ok || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC' || matrix.slice === 'RADAR-16AD'), rt.detail);
+    rt.ok || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || (matrix.slice === 'RADAR-16AA' || matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AF')), rt.detail);
 }
 
 {
