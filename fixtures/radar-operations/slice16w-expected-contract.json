@@ -23,7 +23,14 @@
       "close_readiness_pool",
       "server_close",
       "process_exit"
-    ]
+    ],
+    "terminate_seam": "injectable_default_process_kill_original_signal",
+    "bounded_phases_ms": {
+      "pool_close": 10000,
+      "server_close": 30000,
+      "timers_unref": true
+    },
+    "failure_classification": "bounded_non_sensitive_enum_only"
   },
   "tenant_scope": {
     "wolfhouse_staging_image": "shared_staff_api_runtime",

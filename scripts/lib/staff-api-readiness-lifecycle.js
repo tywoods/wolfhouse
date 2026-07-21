@@ -4,13 +4,29 @@
  * Staff API readiness lifecycle (RADAR 16W) — graceful shutdown for /readyz pool only.
  *
  * Contract:
- * - SIGTERM + SIGINT trigger idempotent shutdown exactly once.
- * - Order: await closeReadinessPool() → await server.close() → optional process.exit.
+ * - SIGTERM + SIGINT trigger idempotent shutdown exactly once (concurrent calls share one promise).
+ * - Order: bounded closeReadinessPool → bounded server.close → terminate(original signal).
  * - Listeners install once on CLI main only; factory reuse must not add listeners.
+ * - After cleanup: remove owned listeners, re-signal via injectable terminate(signal) — no zero exit hack.
+ * - Pool/server phases use explicit unref'd timers; server close always attempted after pool phase.
+ * - Logs only bounded non-sensitive failure_classes when shutdown steps fail.
  * - Does NOT touch application pg pool (forbidden composition with pg-connect close).
  */
 
 const { closeReadinessPool } = require('./staff-api-readiness');
+
+const DEFAULT_POOL_CLOSE_TIMEOUT_MS = 10_000;
+const DEFAULT_SERVER_CLOSE_TIMEOUT_MS = 30_000;
+
+/** Bounded, non-sensitive failure taxonomy for shutdown aggregation. */
+const FAILURE_CLASSES = Object.freeze([
+  'pool_close_rejected',
+  'pool_close_timeout',
+  'server_close_rejected',
+  'server_close_throw',
+  'server_close_timeout',
+  'server_close_already_closed',
+]);
 
 /** @type {import('http').Server | null} */
 let boundServer = null;
@@ -18,47 +34,159 @@ let listenersInstalled = false;
 let shutdownStarted = false;
 /** @type {Promise<void> | null} */
 let shutdownPromise = null;
+/** @type {string | null} */
+let shutdownSignal = null;
+/** @type {((...args: unknown[]) => void) | null} */
+let sigtermHandler = null;
+/** @type {((...args: unknown[]) => void) | null} */
+let sigintHandler = null;
+
+/**
+ * Default terminate preserves native signal semantics after owned handlers are removed.
+ * @param {string} signal
+ */
+function defaultTerminate(signal) {
+  process.kill(process.pid, signal);
+}
+
+/**
+ * @param {Promise<unknown>} promise
+ * @param {number} timeoutMs
+ * @returns {Promise<'ok' | 'rejected' | 'timeout'>}
+ */
+function boundedAwait(promise, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => finish('timeout'), timeoutMs);
+    timer.unref();
+
+    Promise.resolve(promise).then(
+      () => finish('ok'),
+      () => finish('rejected'),
+    );
+  });
+}
+
+/**
+ * @param {import('http').Server} server
+ * @param {number} timeoutMs
+ * @returns {Promise<'ok' | 'rejected' | 'throw' | 'timeout' | 'already_closed'>}
+ */
+function boundedServerClose(server, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => finish('timeout'), timeoutMs);
+    timer.unref();
+
+    try {
+      if (!server.listening) {
+        finish('already_closed');
+        return;
+      }
+
+      server.close((err) => {
+        if (err) finish('rejected');
+        else finish('ok');
+      });
+    } catch {
+      finish('throw');
+    }
+  });
+}
+
+/**
+ * @param {'ok' | 'rejected' | 'timeout'} poolResult
+ * @param {'ok' | 'rejected' | 'throw' | 'timeout' | 'already_closed'} serverResult
+ * @returns {string[]}
+ */
+function classifyShutdownFailures(poolResult, serverResult) {
+  /** @type {string[]} */
+  const failures = [];
+  if (poolResult === 'rejected') failures.push('pool_close_rejected');
+  if (poolResult === 'timeout') failures.push('pool_close_timeout');
+  if (serverResult === 'rejected') failures.push('server_close_rejected');
+  if (serverResult === 'throw') failures.push('server_close_throw');
+  if (serverResult === 'timeout') failures.push('server_close_timeout');
+  if (serverResult === 'already_closed') failures.push('server_close_already_closed');
+  return failures.filter((f) => FAILURE_CLASSES.includes(f));
+}
+
+function detachOwnedSignalListeners() {
+  if (sigtermHandler) {
+    process.removeListener('SIGTERM', sigtermHandler);
+    sigtermHandler = null;
+  }
+  if (sigintHandler) {
+    process.removeListener('SIGINT', sigintHandler);
+    sigintHandler = null;
+  }
+  listenersInstalled = false;
+}
 
 /**
  * @param {import('http').Server | null | undefined} server
+ * @param {string} signal
  * @param {{
  *   closeReadinessPool?: () => Promise<void>,
- *   exit?: ((code?: number) => never) | false,
- *   exitCodeForSignal?: (signal: string) => number,
+ *   terminate?: ((signal: string) => void) | false,
+ *   log?: (record: { event: string, failure_classes: string[] }) => void,
+ *   poolCloseTimeoutMs?: number,
+ *   serverCloseTimeoutMs?: number,
  * }} [deps]
  * @returns {Promise<void>}
  */
-async function runStaffApiReadinessShutdown(server, deps = {}) {
-  if (shutdownStarted) {
-    return shutdownPromise || Promise.resolve();
+function runStaffApiReadinessShutdown(server, signal, deps = {}) {
+  if (shutdownPromise) {
+    return shutdownPromise;
   }
   shutdownStarted = true;
+  shutdownSignal = signal;
 
   const closePool = typeof deps.closeReadinessPool === 'function'
     ? deps.closeReadinessPool
     : closeReadinessPool;
-  const exitFn = deps.exit === false
+  const terminateFn = deps.terminate === false
     ? null
-    : (typeof deps.exit === 'function' ? deps.exit : process.exit.bind(process));
-  const exitCodeForSignal = typeof deps.exitCodeForSignal === 'function'
-    ? deps.exitCodeForSignal
-    : (signal) => (signal === 'SIGINT' ? 130 : 0);
+    : (typeof deps.terminate === 'function' ? deps.terminate : defaultTerminate);
+  const logFn = typeof deps.log === 'function' ? deps.log : () => {};
+  const poolTimeout = deps.poolCloseTimeoutMs ?? DEFAULT_POOL_CLOSE_TIMEOUT_MS;
+  const serverTimeout = deps.serverCloseTimeoutMs ?? DEFAULT_SERVER_CLOSE_TIMEOUT_MS;
 
   shutdownPromise = (async () => {
-    await closePool();
+    const poolResult = await boundedAwait(closePool(), poolTimeout);
 
     const target = server || boundServer;
+    let serverResult = 'ok';
     if (target && typeof target.close === 'function') {
-      await new Promise((resolve, reject) => {
-        target.close((err) => {
-          if (err) reject(err);
-          else resolve();
-        });
+      serverResult = await boundedServerClose(target, serverTimeout);
+    }
+
+    const failureClasses = classifyShutdownFailures(poolResult, serverResult);
+    if (failureClasses.length > 0) {
+      logFn({
+        event: 'staff_api_readiness_shutdown',
+        failure_classes: failureClasses,
       });
     }
 
-    if (exitFn) {
-      exitFn(exitCodeForSignal('SIGTERM'));
+    detachOwnedSignalListeners();
+
+    if (terminateFn && shutdownSignal) {
+      terminateFn(shutdownSignal);
     }
   })();
 
@@ -70,8 +198,10 @@ async function runStaffApiReadinessShutdown(server, deps = {}) {
  * @param {import('http').Server | null | undefined} server
  * @param {{
  *   closeReadinessPool?: () => Promise<void>,
- *   exit?: ((code?: number) => never) | false,
- *   exitCodeForSignal?: (signal: string) => number,
+ *   terminate?: ((signal: string) => void) | false,
+ *   log?: (record: { event: string, failure_classes: string[] }) => void,
+ *   poolCloseTimeoutMs?: number,
+ *   serverCloseTimeoutMs?: number,
  * }} [opts]
  * @returns {{ installed: boolean, alreadyInstalled?: boolean }}
  */
@@ -82,39 +212,30 @@ function attachStaffApiReadinessLifecycle(server, opts = {}) {
   listenersInstalled = true;
   boundServer = server || null;
 
-  const onSignal = (signal) => {
-    void runStaffApiReadinessShutdown(boundServer, {
-      ...opts,
-      exitCodeForSignal: opts.exitCodeForSignal
-        || ((sig) => (sig === 'SIGINT' ? 130 : 0)),
-    }).catch(() => {
-      const exitFn = opts.exit === false
-        ? null
-        : (typeof opts.exit === 'function' ? opts.exit : process.exit.bind(process));
-      if (exitFn) exitFn(1);
-    });
+  sigtermHandler = () => {
+    void runStaffApiReadinessShutdown(boundServer, 'SIGTERM', opts);
+  };
+  sigintHandler = () => {
+    void runStaffApiReadinessShutdown(boundServer, 'SIGINT', opts);
   };
 
-  process.once('SIGTERM', () => onSignal('SIGTERM'));
-  process.once('SIGINT', () => onSignal('SIGINT'));
+  process.once('SIGTERM', sigtermHandler);
+  process.once('SIGINT', sigintHandler);
 
   return { installed: true };
 }
 
 /** Test seam: trigger shutdown without emitting OS signals. */
 function _triggerStaffApiReadinessShutdownForTests(server, signal, opts = {}) {
-  return runStaffApiReadinessShutdown(server || boundServer, {
-    ...opts,
-    exitCodeForSignal: opts.exitCodeForSignal
-      || ((sig) => (sig === 'SIGINT' ? 130 : 0)),
-  });
+  return runStaffApiReadinessShutdown(server || boundServer, signal, opts);
 }
 
 function _resetStaffApiReadinessLifecycleForTests() {
+  detachOwnedSignalListeners();
   boundServer = null;
-  listenersInstalled = false;
   shutdownStarted = false;
   shutdownPromise = null;
+  shutdownSignal = null;
 }
 
 function _getStaffApiReadinessLifecycleStateForTests() {
@@ -123,13 +244,23 @@ function _getStaffApiReadinessLifecycleStateForTests() {
     listenersInstalled,
     shutdownStarted,
     shutdownPromise,
+    shutdownSignal,
+    sigtermHandler,
+    sigintHandler,
   };
 }
 
 module.exports = {
   attachStaffApiReadinessLifecycle,
   runStaffApiReadinessShutdown,
+  defaultTerminate,
+  FAILURE_CLASSES,
+  DEFAULT_POOL_CLOSE_TIMEOUT_MS,
+  DEFAULT_SERVER_CLOSE_TIMEOUT_MS,
   _triggerStaffApiReadinessShutdownForTests,
   _resetStaffApiReadinessLifecycleForTests,
   _getStaffApiReadinessLifecycleStateForTests,
+  _boundedAwaitForTests: boundedAwait,
+  _boundedServerCloseForTests: boundedServerClose,
+  _classifyShutdownFailuresForTests: classifyShutdownFailures,
 };

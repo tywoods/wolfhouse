@@ -4,12 +4,14 @@
  * verify:radar-slice16w-readiness-shutdown-lifecycle — RADAR Slice 16W
  *
  * Offline RED/GREEN gate: closeReadinessPool wired into Staff API graceful shutdown.
- * No live deploy, no probe/SQL/readyz contract changes, no secrets.
+ * Proves SIGINT/SIGTERM propagation, bounded pool/server close, failure classification,
+ * and child-process termination semantics. No live deploy, no probe/SQL/readyz changes.
  */
 
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const { spawn } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const locks = require('./lib/radar-slice16w-readiness-shutdown-lifecycle');
@@ -58,13 +60,6 @@ function countProcessListeners(event) {
   return process.listenerCount(event);
 }
 
-function listen(server) {
-  return new Promise((resolve, reject) => {
-    server.listen(0, '127.0.0.1', () => resolve(server.address().port));
-    server.on('error', reject);
-  });
-}
-
 function closeServer(server) {
   return new Promise((resolve) => {
     if (!server || !server.listening) return resolve();
@@ -89,7 +84,7 @@ function clearStaffApiCache() {
   delete require.cache[require.resolve('./lib/staff-api-readiness-lifecycle')];
 }
 
-function createTrackedReadinessPool() {
+function createTrackedReadinessPool(delayMs = 25) {
   const shared = { endCalls: 0, endFinishedAt: null };
   const pool = {
     connect() {
@@ -100,7 +95,7 @@ function createTrackedReadinessPool() {
     },
     async end() {
       shared.endCalls += 1;
-      await new Promise((r) => setTimeout(r, 25));
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
       shared.endFinishedAt = Date.now();
     },
     get totalCount() { return 0; },
@@ -110,20 +105,21 @@ function createTrackedReadinessPool() {
   return { pool, shared };
 }
 
-function createOrderTrackingServer() {
+function createOrderTrackingServer(overrides = {}) {
   const events = [];
+  const base = {
+    listening: true,
+    close(cb) {
+      events.push({ step: 'server_close_start', at: Date.now() });
+      setImmediate(() => {
+        events.push({ step: 'server_close_done', at: Date.now() });
+        if (typeof cb === 'function') cb();
+      });
+    },
+  };
   return {
     events,
-    server: {
-      listening: true,
-      close(cb) {
-        events.push({ step: 'server_close_start', at: Date.now() });
-        setImmediate(() => {
-          events.push({ step: 'server_close_done', at: Date.now() });
-          if (typeof cb === 'function') cb();
-        });
-      },
-    },
+    server: { ...base, ...overrides },
   };
 }
 
@@ -139,6 +135,97 @@ async function withLifecycleModule(fn) {
     lifecycle._resetStaffApiReadinessLifecycleForTests();
     readiness._resetReadinessPoolStateForTests();
     clearStaffApiCache();
+  }
+}
+
+function spawnNode(scriptPath, timeoutMs, sendSignal) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [scriptPath], {
+      cwd: ROOT,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let ready = false;
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve({ code: -1, stdout, stderr: `${stderr}\nTIMEOUT`, signals: [] });
+    }, timeoutMs);
+
+    child.stdout.on('data', (d) => {
+      const chunk = d.toString();
+      stdout += chunk;
+      if (!ready && stdout.includes('{"type":"ready"}')) {
+        ready = true;
+        if (sendSignal) {
+          setTimeout(() => child.kill(sendSignal), 30);
+        }
+      }
+    });
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    child.on('close', (code, sig) => {
+      clearTimeout(timer);
+      resolve({ code, signal: sig, stdout, stderr });
+    });
+  });
+}
+
+function writeChildHarness(opts) {
+  const harnessPath = path.join(__dirname, `_tmp-16w-child-${Date.now()}-${Math.random().toString(36).slice(2)}.js`);
+  const poolScript = opts.poolScript || `
+    let endCalls = 0;
+    readiness._setReadinessPoolForTests({
+      connect: () => Promise.resolve({ query: async () => ({ rows: [{ '?column?': 1 }] }), release() {} }),
+      async end() { endCalls += 1; await new Promise((r) => setTimeout(r, 20)); },
+      get totalCount() { return 0; }, get idleCount() { return 0; }, get waitingCount() { return 0; },
+    });
+  `;
+  const extraSignals = opts.extraSignals
+    ? `setTimeout(() => { process.kill(process.pid, '${opts.extraSignals}'); }, 60);`
+    : '';
+
+  fs.writeFileSync(harnessPath, `'use strict';
+const http = require('http');
+const lifecycle = require('./lib/staff-api-readiness-lifecycle');
+const readiness = require('./lib/staff-api-readiness');
+readiness._resetReadinessPoolStateForTests();
+lifecycle._resetStaffApiReadinessLifecycleForTests();
+${poolScript}
+const server = http.createServer();
+server.listen(0, '127.0.0.1', () => {
+  lifecycle.attachStaffApiReadinessLifecycle(server, {
+    poolCloseTimeoutMs: 200,
+    serverCloseTimeoutMs: 200,
+    terminate: (signal) => {
+      console.log(JSON.stringify({ type: 'terminate', signal, endCalls }));
+      process.exit(signal === 'SIGINT' ? 130 : 143);
+    },
+  });
+  console.log(JSON.stringify({ type: 'ready' }));
+  ${extraSignals}
+});
+`);
+  return harnessPath;
+}
+
+async function runChildSignalTest(sendSignal, expectCode) {
+  const harness = writeChildHarness({ extraSignals: null });
+  try {
+    const result = await spawnNode(harness, 8000, sendSignal);
+    const lines = result.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const terminate = lines.find((l) => l.type === 'terminate');
+    return {
+      result,
+      terminate,
+      endCalls: terminate ? terminate.endCalls : null,
+      ok: result.code === expectCode
+        && terminate
+        && terminate.signal === sendSignal
+        && terminate.endCalls === 1,
+    };
+  } finally {
+    fs.unlinkSync(harness);
   }
 }
 
@@ -164,7 +251,10 @@ ok('C2 lifecycle module present with locked shutdown order',
   /attachStaffApiReadinessLifecycle/.test(lifecycleSrc)
   && /runStaffApiReadinessShutdown/.test(lifecycleSrc)
   && /closeReadinessPool/.test(lifecycleSrc)
+  && /defaultTerminate/.test(lifecycleSrc)
+  && /\.unref\(\)/.test(lifecycleSrc)
   && !/\bclosePgPool\b/.test(lifecycleSrc)
+  && !/(^|[^\*\/])\bprocess\.exit\s*\(\s*0\s*\)/.test(lifecycleSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, ''))
   && JSON.stringify(contract.lifecycle.shutdown_order) === JSON.stringify(locks.SHUTDOWN_ORDER));
 
 ok('C3 staff-query-api wires lifecycle on CLI main only',
@@ -206,28 +296,66 @@ ok('C7 npm script registered',
     const { pool, shared } = createTrackedReadinessPool();
     readiness._setReadinessPoolForTests(pool);
     const { server } = createOrderTrackingServer();
-    lifecycle.attachStaffApiReadinessLifecycle(server, { exit: false });
-    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { exit: false });
+    lifecycle.attachStaffApiReadinessLifecycle(server, { terminate: false });
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { terminate: false });
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { terminate: false });
     red('sigterm_closes_pool_once', shared.endCalls === 1, `endCalls=${shared.endCalls}`);
-    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { exit: false });
-    ok('sigterm_idempotent_second_call', shared.endCalls === 1, `endCalls=${shared.endCalls}`);
   });
 
   await withLifecycleModule(async (lifecycle, readiness) => {
     const { pool, shared } = createTrackedReadinessPool();
     readiness._setReadinessPoolForTests(pool);
     const { server } = createOrderTrackingServer();
-    lifecycle.attachStaffApiReadinessLifecycle(server, { exit: false });
-    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGINT', { exit: false });
+    lifecycle.attachStaffApiReadinessLifecycle(server, { terminate: false });
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGINT', { terminate: false });
     red('sigint_closes_pool_once', shared.endCalls === 1, `endCalls=${shared.endCalls}`);
   });
+
+  {
+    const sigtermChild = await runChildSignalTest('SIGTERM', 143);
+    red('sigterm_propagates_original_signal_child',
+      sigtermChild.ok,
+      JSON.stringify(sigtermChild));
+  }
+
+  {
+    const sigintChild = await runChildSignalTest('SIGINT', 130);
+    red('sigint_propagates_original_signal_child',
+      sigintChild.ok,
+      JSON.stringify(sigintChild));
+  }
+
+  {
+    const harness = writeChildHarness({
+      extraSignals: 'SIGINT',
+      poolScript: `
+    let endCalls = 0;
+    readiness._setReadinessPoolForTests({
+      connect: () => Promise.resolve({ query: async () => ({ rows: [{ '?column?': 1 }] }), release() {} }),
+      async end() { endCalls += 1; },
+      get totalCount() { return 0; }, get idleCount() { return 0; }, get waitingCount() { return 0; },
+    });
+      `,
+    });
+    try {
+      const result = await spawnNode(harness, 8000, 'SIGTERM');
+      const terminate = result.stdout.trim().split('\n')
+        .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+        .find((l) => l && l.type === 'terminate');
+      red('child_process_cleanup_once_under_repeated_signals',
+        terminate && terminate.endCalls === 1 && terminate.signal === 'SIGTERM',
+        JSON.stringify({ terminate, code: result.code }));
+    } finally {
+      fs.unlinkSync(harness);
+    }
+  }
 
   await withLifecycleModule(async (lifecycle, readiness) => {
     const { pool, shared } = createTrackedReadinessPool();
     readiness._setReadinessPoolForTests(pool);
     const tracker = createOrderTrackingServer();
-    lifecycle.attachStaffApiReadinessLifecycle(tracker.server, { exit: false });
-    await lifecycle._triggerStaffApiReadinessShutdownForTests(tracker.server, 'SIGTERM', { exit: false });
+    lifecycle.attachStaffApiReadinessLifecycle(tracker.server, { terminate: false });
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(tracker.server, 'SIGTERM', { terminate: false });
     const poolDone = shared.endFinishedAt;
     const serverStart = tracker.events.find((e) => e.step === 'server_close_start');
     red('pool_close_awaited_before_server_close',
@@ -242,29 +370,191 @@ ok('C7 npm script registered',
     const { pool, shared } = createTrackedReadinessPool();
     readiness._setReadinessPoolForTests(pool);
     const { server } = createOrderTrackingServer();
-    let exitAt = null;
-    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', {
-      exit: () => { exitAt = Date.now(); },
+    let terminateAt = null;
+    let terminateSignal = null;
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGINT', {
+      terminate: (sig) => {
+        terminateSignal = sig;
+        terminateAt = Date.now();
+      },
     });
-    red('pool_close_awaited_before_exit',
+    red('pool_close_awaited_before_terminate',
       shared.endCalls === 1
       && shared.endFinishedAt != null
-      && exitAt != null
-      && shared.endFinishedAt <= exitAt,
-      JSON.stringify({ endFinishedAt: shared.endFinishedAt, exitAt }));
+      && terminateAt != null
+      && terminateSignal === 'SIGINT'
+      && shared.endFinishedAt <= terminateAt,
+      JSON.stringify({ endFinishedAt: shared.endFinishedAt, terminateAt, terminateSignal }));
+  });
+
+  await withLifecycleModule(async (lifecycle) => {
+    const tracker = createOrderTrackingServer();
+    const logs = [];
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(tracker.server, 'SIGTERM', {
+      closeReadinessPool: () => Promise.reject(new Error('pool boom')),
+      poolCloseTimeoutMs: 50,
+      serverCloseTimeoutMs: 50,
+      log: (rec) => logs.push(rec),
+      terminate: () => {},
+    });
+    const serverCloseStarted = tracker.events.some((e) => e.step === 'server_close_start');
+    red('pool_close_rejected_bounded',
+      logs.length === 1
+      && logs[0].failure_classes.includes('pool_close_rejected')
+      && serverCloseStarted,
+      JSON.stringify({ logs, serverCloseStarted }));
+  });
+
+  await withLifecycleModule(async (lifecycle) => {
+    const tracker = createOrderTrackingServer();
+    const logs = [];
+    const started = Date.now();
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(tracker.server, 'SIGTERM', {
+      closeReadinessPool: () => new Promise(() => {}),
+      poolCloseTimeoutMs: 40,
+      serverCloseTimeoutMs: 50,
+      log: (rec) => logs.push(rec),
+      terminate: () => {},
+    });
+    const elapsed = Date.now() - started;
+    red('pool_close_never_settles_bounded',
+      elapsed < 500
+      && logs[0].failure_classes.includes('pool_close_timeout')
+      && tracker.events.some((e) => e.step === 'server_close_start'),
+      JSON.stringify({ elapsed, logs, events: tracker.events }));
+  });
+
+  await withLifecycleModule(async (lifecycle) => {
+    const logs = [];
+    const server = {
+      listening: true,
+      close(cb) { if (typeof cb === 'function') cb(new Error('close failed')); },
+    };
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', {
+      closeReadinessPool: async () => {},
+      serverCloseTimeoutMs: 50,
+      log: (rec) => logs.push(rec),
+      terminate: () => {},
+    });
+    red('server_close_rejected_bounded',
+      logs[0].failure_classes.includes('server_close_rejected'),
+      JSON.stringify(logs));
+  });
+
+  await withLifecycleModule(async (lifecycle) => {
+    const logs = [];
+    const server = {
+      listening: true,
+      close() { throw new Error('sync throw'); },
+    };
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', {
+      closeReadinessPool: async () => {},
+      serverCloseTimeoutMs: 50,
+      log: (rec) => logs.push(rec),
+      terminate: () => {},
+    });
+    red('server_close_throwing_bounded',
+      logs[0].failure_classes.includes('server_close_throw'),
+      JSON.stringify(logs));
+  });
+
+  await withLifecycleModule(async (lifecycle) => {
+    const logs = [];
+    const server = { listening: true, close() {} };
+    const started = Date.now();
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', {
+      closeReadinessPool: async () => {},
+      serverCloseTimeoutMs: 40,
+      log: (rec) => logs.push(rec),
+      terminate: () => {},
+    });
+    red('server_close_callback_never_bounded',
+      Date.now() - started < 500
+      && logs[0].failure_classes.includes('server_close_timeout'),
+      JSON.stringify({ elapsed: Date.now() - started, logs }));
+  });
+
+  await withLifecycleModule(async (lifecycle) => {
+    const logs = [];
+    const server = { listening: false, close(cb) { if (cb) cb(new Error('nope')); } };
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', {
+      closeReadinessPool: async () => {},
+      serverCloseTimeoutMs: 50,
+      log: (rec) => logs.push(rec),
+      terminate: () => {},
+    });
+    red('server_close_already_closed_bounded',
+      logs[0].failure_classes.includes('server_close_already_closed'),
+      JSON.stringify(logs));
+  });
+
+  await withLifecycleModule(async (lifecycle) => {
+    const tracker = createOrderTrackingServer();
+    const logs = [];
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(tracker.server, 'SIGTERM', {
+      closeReadinessPool: () => Promise.reject(new Error('pool fail')),
+      poolCloseTimeoutMs: 50,
+      serverCloseTimeoutMs: 50,
+      log: (rec) => logs.push(rec),
+      terminate: () => {},
+    });
+    red('server_close_after_pool_failure',
+      logs[0].failure_classes.includes('pool_close_rejected')
+      && tracker.events.some((e) => e.step === 'server_close_start'),
+      JSON.stringify({ logs, events: tracker.events }));
+  });
+
+  await withLifecycleModule(async (lifecycle) => {
+    const started = Date.now();
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(null, 'SIGTERM', {
+      closeReadinessPool: () => new Promise(() => {}),
+      poolCloseTimeoutMs: 30,
+      serverCloseTimeoutMs: 30,
+      terminate: () => {},
+    });
+    red('bounded_shutdown_completes', Date.now() - started < 500, `elapsed=${Date.now() - started}`);
   });
 
   await withLifecycleModule(async (lifecycle, readiness) => {
     const { pool, shared } = createTrackedReadinessPool();
     readiness._setReadinessPoolForTests(pool);
     const { server } = createOrderTrackingServer();
-    lifecycle.attachStaffApiReadinessLifecycle(server, { exit: false });
+    lifecycle.attachStaffApiReadinessLifecycle(server, { terminate: false });
     await Promise.all([
-      lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { exit: false }),
-      lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGINT', { exit: false }),
-      lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { exit: false }),
+      lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { terminate: false }),
+      lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGINT', { terminate: false }),
+      lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { terminate: false }),
     ]);
     red('concurrent_signals_idempotent', shared.endCalls === 1, `endCalls=${shared.endCalls}`);
+  });
+
+  await withLifecycleModule(async (lifecycle, readiness) => {
+    const { pool, shared } = createTrackedReadinessPool();
+    readiness._setReadinessPoolForTests(pool);
+    const { server } = createOrderTrackingServer();
+    const p1 = lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', { terminate: false });
+    const p2 = lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGINT', { terminate: false });
+    await Promise.all([p1, p2]);
+    red('concurrent_calls_share_promise', p1 === p2 && shared.endCalls === 1,
+      JSON.stringify({ same: p1 === p2, endCalls: shared.endCalls }));
+  });
+
+  await withLifecycleModule(async (lifecycle, readiness) => {
+    const { pool } = createTrackedReadinessPool();
+    readiness._setReadinessPoolForTests(pool);
+    const { server } = createOrderTrackingServer();
+    lifecycle.attachStaffApiReadinessLifecycle(server, { terminate: false });
+    const before = countProcessListeners('SIGTERM') + countProcessListeners('SIGINT');
+    let listenersAtTerminate = null;
+    await lifecycle._triggerStaffApiReadinessShutdownForTests(server, 'SIGTERM', {
+      terminate: () => {
+        listenersAtTerminate = countProcessListeners('SIGTERM') + countProcessListeners('SIGINT');
+      },
+    });
+    red('listeners_removed_before_terminate',
+      before > 0
+      && listenersAtTerminate === before - 2,
+      JSON.stringify({ before, listenersAtTerminate }));
   });
 
   {
@@ -277,8 +567,6 @@ ok('C7 npm script registered',
       STAFF_API_FORTRESS_OFFLINE_LISTENER: process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER,
     };
     applyMinimalStaffApiEnv();
-    process.env.STAFF_AUTH_ALLOW_OPEN = 'true';
-    process.env.LUNA_BOT_INTERNAL_TOKEN = 'radar16w-offline-token-32chars-minimum';
     clearStaffApiCache();
     const api = require('./staff-query-api');
     const servers = [];
@@ -310,6 +598,9 @@ ok('C7 npm script registered',
   red('no_close_pg_pool_composition',
     !/\bclosePgPool\b/.test(apiSrc) && !/\bclosePgPool\b/.test(lifecycleSrc));
 
+  red('no_process_exit_zero',
+    !/(^|[^\*\/])\bprocess\.exit\s*\(\s*0\s*\)/.test(lifecycleSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')));
+
   red('readyz_contract_unchanged',
     readinessMod.READINESS_SQL === 'SELECT 1'
     && /pathname === READYZ_PATH/.test(apiSrc)
@@ -323,17 +614,32 @@ ok('C7 npm script registered',
     /if \(require\.main === module\)[\s\S]{0,500}attachStaffApiReadinessLifecycle\(server\)/.test(apiSrc));
 
   green('shutdown_order_preserved',
-    /await closePool\(\)/.test(lifecycleSrc)
-    && lifecycleSrc.indexOf('await closePool()') < lifecycleSrc.indexOf('target.close')
+    /await boundedAwait\(closePool\(\)/.test(lifecycleSrc)
+    && lifecycleSrc.indexOf('boundedAwait(closePool()') < lifecycleSrc.indexOf('await boundedServerClose')
+    && lifecycleSrc.indexOf('await boundedServerClose') < lifecycleSrc.indexOf('terminateFn(shutdownSignal)')
     && JSON.stringify(locks.SHUTDOWN_ORDER) === JSON.stringify([
       'close_readiness_pool',
       'server_close',
       'process_exit',
     ]));
 
-  await withLifecycleModule(async (lifecycle, readiness) => {
-    const first = lifecycle.attachStaffApiReadinessLifecycle(null, { exit: false });
-    const second = lifecycle.attachStaffApiReadinessLifecycle(null, { exit: false });
+  green('terminate_seam_present',
+    /function defaultTerminate/.test(lifecycleSrc)
+    && /process\.kill\(process\.pid,\s*signal\)/.test(lifecycleSrc)
+    && /terminateFn\(shutdownSignal\)/.test(lifecycleSrc));
+
+  green('bounded_timers_unref',
+    /\.unref\(\)/.test(lifecycleSrc)
+    && lifecycleSrc.includes('timer.unref()'));
+
+  green('failure_classification_bounded',
+    /FAILURE_CLASSES/.test(lifecycleSrc)
+    && /failure_classes/.test(lifecycleSrc)
+    && !/err\.message|stack/i.test(lifecycleSrc.match(/logFn\([\s\S]*?\)/)?.[0] || ''));
+
+  await withLifecycleModule(async (lifecycle) => {
+    const first = lifecycle.attachStaffApiReadinessLifecycle(null, { terminate: false });
+    const second = lifecycle.attachStaffApiReadinessLifecycle(null, { terminate: false });
     const before = countProcessListeners('SIGTERM') + countProcessListeners('SIGINT');
     green('duplicate_attach_rejected',
       first.installed === true
@@ -357,10 +663,10 @@ ok('C7 npm script registered',
   {
     let poolAwaited = false;
     const { server } = createOrderTrackingServer();
-    await withLifecycleModule(async (lifecycle, readiness) => {
-      await lifecycle.runStaffApiReadinessShutdown(server, {
+    await withLifecycleModule(async (lifecycle) => {
+      await lifecycle.runStaffApiReadinessShutdown(server, 'SIGTERM', {
         closeReadinessPool: async () => { poolAwaited = true; },
-        exit: false,
+        terminate: false,
       });
     });
     green('adversarial_missing_pool_await_fails', poolAwaited === true);
