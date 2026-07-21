@@ -91,6 +91,11 @@ const {
   HEALTHZ_PATH,
   handleStaffApiHealthz,
 } = require('./lib/staff-api-healthz');
+const {
+  resolveAdmissionControlEnabled,
+  createAdmissionBoundary,
+  bindAdmissionShutdownBegin,
+} = require('./lib/staff-api-admission-boundary');
 
 /** FORTRESS 15J3 offline listener harness — inject PG/session/ACL boundaries only when dual-gated. */
 let __fortress15j3OfflineSeams = null;
@@ -46845,6 +46850,9 @@ function setStaffQueryApiRequestHandlerForOfflineTest(handler) {
  * @param {{
  *   ingressBinding?: { tenant_slug?: unknown, tenantSlug?: unknown, client_slug?: unknown, clientSlug?: unknown },
  *   completionLogger?: ((record: object) => void) | null,
+ *   admissionControl?: unknown,
+ *   admissionLimits?: object,
+ *   env?: NodeJS.ProcessEnv,
  * }} [options]
  */
 function createStaffQueryApiHttpServer(options) {
@@ -46854,11 +46862,20 @@ function createStaffQueryApiHttpServer(options) {
   // RADAR 16R — extend 16J context with exactly-one finish/close/error/aborted
   // completion record (no duplicate correlation middleware; listeners removed on
   // settle — no growth). Client abort wins over destroyed/!writableEnded.
+  // RADAR 16AL — optional 16AK admission behind STAFF_API_ADMISSION_CONTROL (default OFF).
   const ingressBinding = resolveTrustedIngressBinding(options && options.ingressBinding);
   const completionLogger = options && typeof options.completionLogger === 'function'
     ? options.completionLogger
     : null;
-  return http.createServer((req, res) => {
+  const admissionEnabled = resolveAdmissionControlEnabled(options);
+  const admissionBoundary = admissionEnabled
+    ? createAdmissionBoundary({
+      trustedTenantSlug: ingressBinding.tenant_slug,
+      limits: options && options.admissionLimits,
+      sendJSON,
+    })
+    : null;
+  const server = http.createServer((req, res) => {
     void runWithRequestCorrelation(req, res, async () => {
       attachStaffApiRequestCompletion(req, res, {
         startedAtMs: Date.now(),
@@ -46868,13 +46885,23 @@ function createStaffQueryApiHttpServer(options) {
       });
       try {
         const handler = __staffQueryApiRequestHandlerOverride || router;
-        await handler(req, res);
+        if (admissionBoundary) {
+          await admissionBoundary.admitAndRun(req, res, handler);
+        } else {
+          await handler(req, res);
+        }
       } catch (err) {
         // Do not expose stack trace to client
         sendJSON(res, 500, { success: false, error: 'internal server error' });
       }
     }, { ingressBinding });
   });
+  // RADAR 16AL: close admission at readiness shutdown BEGIN (before server.close
+  // waits on connections) — not on the server 'close' event (circular drain).
+  if (admissionBoundary) {
+    bindAdmissionShutdownBegin(server, admissionBoundary);
+  }
+  return server;
 }
 
 function shouldEagerCreateStaffQueryApiServer() {

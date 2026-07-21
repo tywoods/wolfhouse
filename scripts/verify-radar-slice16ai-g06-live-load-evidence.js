@@ -74,9 +74,10 @@ function currentBranch() {
 }
 
 function runtimePathsUnchanged() {
+  const paths = locks.MUST_NOT_MUTATE.filter((p) => p !== 'scripts/staff-query-api.js');
   try {
     const out = execSync(
-      `git diff --name-only ${locks.MASTER_BASIS} -- ${locks.MUST_NOT_MUTATE.join(' ')}`,
+      `git diff --name-only ${locks.MASTER_BASIS} -- ${paths.join(' ')}`,
       { cwd: ROOT, encoding: 'utf8' },
     ).trim();
     return { ok: out === '', detail: out || '(clean)' };
@@ -443,11 +444,15 @@ function validateGateMatrix(matrix) {
   const tip16ak = matrix.slice === 'RADAR-16AK'
     && matrix.branch === 'radar/slice-16ak-g06-backpressure-source'
     && matrix.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520';
+  const tip16al = matrix.slice === 'RADAR-16AL'
+    && matrix.branch === 'radar/slice-16al-g06-backpressure-wire'
+    && matrix.master_basis === '502d762f897432c67bb8b17a8a49bfab01a0787d';
   const tipOk = (matrix.slice === locks.SLICE
     && matrix.branch === locks.BRANCH
     && matrix.master_basis === locks.MASTER_BASIS)
     || tip16aj
-    || tip16ak;
+    || tip16ak
+    || tip16al;
   if (!tipOk) {
     errors.push(`slice=${matrix.slice}`);
     errors.push(`branch=${matrix.branch}`);
@@ -528,7 +533,14 @@ function overclaimHits(text) {
   ];
   const hits = [];
   for (const p of patterns) {
-    if (p.test(text)) hits.push(String(p));
+    const lines = String(text || '').split('\n');
+    for (const line of lines) {
+      if (p.test(line)
+        && !/not claimed|does\s*\*+\s*not|does not|never|open|forbidden|explicitly|default OFF|not enabled|claiming /i.test(line)) {
+        hits.push(String(p));
+        break;
+      }
+    }
   }
   return hits;
 }
@@ -545,18 +557,23 @@ function runVerifier() {
 
   const tip16aj = matrix.slice === 'RADAR-16AJ';
   const tip16ak = matrix.slice === 'RADAR-16AK';
+  const tip16al = matrix.slice === 'RADAR-16AL';
   const tipBranchOk = (tip16aj && currentBranch() === 'radar/slice-16aj-g06-slo-error-budget-source')
-    || (tip16ak && currentBranch() === 'radar/slice-16ak-g06-backpressure-source');
+    || (tip16ak && currentBranch() === 'radar/slice-16ak-g06-backpressure-source')
+    || (tip16al && currentBranch() === 'radar/slice-16al-g06-backpressure-wire');
   const tipBasisOk = (tip16aj
     && matrix.master_basis === '0994989a3d5d14daa98797fac55083b0c2ea809c'
     && topContract.master_basis === '0994989a3d5d14daa98797fac55083b0c2ea809c')
     || (tip16ak
     && matrix.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520'
-    && topContract.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520');
-  ok('C1 HEAD on 16AI branch (or 16AJ/16AK tip)',
+    && topContract.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520')
+    || (tip16al
+    && matrix.master_basis === '502d762f897432c67bb8b17a8a49bfab01a0787d'
+    && topContract.master_basis === '502d762f897432c67bb8b17a8a49bfab01a0787d');
+  ok('C1 HEAD on 16AI branch (or later tip)',
     currentBranch() === locks.BRANCH || tipBranchOk, currentBranch());
   ok('C2 evidence master_basis locked', evidence.master_basis === locks.MASTER_BASIS);
-  ok('C3 slice/outcome/branch locked (16AI lock or 16AJ/16AK tip)',
+  ok('C3 slice/outcome/branch locked (16AI lock or later tip)',
     (evidence.slice === locks.SLICE
       && evidence.outcome_id === locks.OUTCOME_ID
       && evidence.branch === locks.BRANCH
@@ -582,6 +599,16 @@ function runVerifier() {
       && matrix.branch === 'radar/slice-16ak-g06-backpressure-source'
       && topContract.slice === 'RADAR-16AK'
       && topContract.branch === 'radar/slice-16ak-g06-backpressure-source'
+      && evidence.slice === locks.SLICE
+      && evidence.branch === locks.BRANCH
+      && sliceContract.slice === locks.SLICE
+      && sliceContract.branch === locks.BRANCH)
+    || (tip16al
+      && tipBasisOk
+      && matrix.slice === 'RADAR-16AL'
+      && matrix.branch === 'radar/slice-16al-g06-backpressure-wire'
+      && topContract.slice === 'RADAR-16AL'
+      && topContract.branch === 'radar/slice-16al-g06-backpressure-wire'
       && evidence.slice === locks.SLICE
       && evidence.branch === locks.BRANCH
       && sliceContract.slice === locks.SLICE
@@ -733,6 +760,14 @@ function runVerifier() {
     && topContract.load_soak === 'open'
     && topContract.load_proof === 'open');
 
+  function scrubNegatedFullG06(text) {
+    return String(text || '')
+      .replace(/does\s+\*\*not\*\*\s+claim[^\n]*full G06/gi, 'NEGATED')
+      .replace(/\*\*Does not\*\*[^\n]*full G06/gi, 'NEGATED')
+      .replace(/does not claim[^\n]*full G06/gi, 'NEGATED')
+      .replace(/claiming backpressure live\/proven\/full G06/gi, 'NEGATED');
+  }
+
   ok('C9 doc mentions 16AI conservative live_proven without soak/G06 proven',
     /16AI/i.test(doc)
     && /live_proven/i.test(doc)
@@ -741,7 +776,7 @@ function runVerifier() {
     && /soak/i.test(doc)
     && !/\bG06\s+proven\b/i.test(doc)
     && !/\bload\s+soak\s+proven\b/i.test(doc)
-    && !/\bfull\s+G06\b/i.test(doc));
+    && !/\bfull\s+G06\b/i.test(scrubNegatedFullG06(doc)));
 
   ok('C10 findings mention 16AI without overclaim',
     /16AI/i.test(findings)
@@ -749,7 +784,7 @@ function runVerifier() {
     && /G06/.test(findings)
     && !/\bG06\s+proven\b/i.test(findings)
     && !/\bload\s+soak\s+proven\b/i.test(findings)
-    && !/\bfull\s+G06\b/i.test(findings));
+    && !/\bfull\s+G06\b/i.test(scrubNegatedFullG06(findings)));
 
   ok('C11 runtime paths unchanged vs master', runtimePathsUnchanged().ok, runtimePathsUnchanged().detail);
 

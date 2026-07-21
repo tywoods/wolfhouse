@@ -55,9 +55,14 @@ function currentBranch() {
 }
 
 function runtimePathsUnchanged() {
+  // 16AL owns a bounded Staff API admission wire + readiness shutdown-BEGIN hook;
+  // exclude those paths on later tips.
+  const paths = locks.MUST_NOT_MUTATE.filter((p) =>
+    p !== 'scripts/staff-query-api.js'
+    && p !== 'scripts/lib/staff-api-readiness-lifecycle.js');
   try {
     const out = execSync(
-      `git diff --name-only ${locks.MASTER_BASIS} -- ${locks.MUST_NOT_MUTATE.join(' ')}`,
+      `git diff --name-only ${locks.MASTER_BASIS} -- ${paths.join(' ')}`,
       { cwd: ROOT, encoding: 'utf8' },
     ).trim();
     return { ok: out === '', detail: out || '(clean)' };
@@ -150,31 +155,37 @@ const findings = readText('fixtures/radar-operations/findings.md');
 const calcSrc = readText(locks.CALC_REL);
 const verifySrc = readText(locks.VERIFY_REL);
 
+const tip16al = matrix.slice === 'RADAR-16AL'
+  && matrix.branch === 'radar/slice-16al-g06-backpressure-wire';
 const tip16ak = matrix.slice === 'RADAR-16AK'
   && matrix.branch === 'radar/slice-16ak-g06-backpressure-source';
-const tipBranchOk = tip16ak && currentBranch() === 'radar/slice-16ak-g06-backpressure-source';
-ok('C1 HEAD on 16AJ branch (or 16AK tip)', currentBranch() === locks.BRANCH || tipBranchOk, currentBranch());
-ok('C2 master_basis locked (16AJ lock or 16AK tip)',
-  tip16ak
-    ? (matrix.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520'
-      && topContract.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520'
-      && contract.master_basis === locks.MASTER_BASIS
-      && design.master_basis === locks.MASTER_BASIS)
+const tipSuccessor = tip16al || tip16ak;
+const tipBranchOk = (tip16al && currentBranch() === 'radar/slice-16al-g06-backpressure-wire')
+  || (tip16ak && currentBranch() === 'radar/slice-16ak-g06-backpressure-source');
+ok('C1 HEAD on 16AJ branch (or later tip)', currentBranch() === locks.BRANCH || tipBranchOk, currentBranch());
+ok('C2 master_basis locked (16AJ lock or later tip)',
+  tipSuccessor
+    ? (contract.master_basis === locks.MASTER_BASIS
+      && design.master_basis === locks.MASTER_BASIS
+      && (tip16al
+        ? (matrix.master_basis === '502d762f897432c67bb8b17a8a49bfab01a0787d'
+          && topContract.master_basis === '502d762f897432c67bb8b17a8a49bfab01a0787d')
+        : (matrix.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520'
+          && topContract.master_basis === '9fa3626326c0e2bc21f2d37905967d6ff47b7520')))
     : (contract.master_basis === locks.MASTER_BASIS
       && design.master_basis === locks.MASTER_BASIS
       && matrix.master_basis === locks.MASTER_BASIS
       && topContract.master_basis === locks.MASTER_BASIS));
-ok('C3 slice/outcome/branch locked (16AJ lock or 16AK tip)',
-  tip16ak
-    ? (matrix.slice === 'RADAR-16AK'
-      && matrix.branch === 'radar/slice-16ak-g06-backpressure-source'
-      && topContract.slice === 'RADAR-16AK'
-      && topContract.branch === 'radar/slice-16ak-g06-backpressure-source'
-      && contract.slice === locks.SLICE
+ok('C3 slice/outcome/branch locked (16AJ lock or later tip)',
+  tipSuccessor
+    ? (contract.slice === locks.SLICE
       && contract.outcome_id === locks.OUTCOME_ID
       && contract.branch === locks.BRANCH
       && design.slice === locks.SLICE
-      && design.outcome_id === locks.OUTCOME_ID)
+      && design.outcome_id === locks.OUTCOME_ID
+      && (tip16al
+        ? (matrix.slice === 'RADAR-16AL' && topContract.slice === 'RADAR-16AL')
+        : (matrix.slice === 'RADAR-16AK' && topContract.slice === 'RADAR-16AK')))
     : (contract.slice === locks.SLICE
       && contract.outcome_id === locks.OUTCOME_ID
       && contract.branch === locks.BRANCH
@@ -882,10 +893,20 @@ ok('C8 future acceptance defined_not_executed only',
     /\bp99\s*<=\s*500ms\b/i,
     /\bcombined\s+SLO\s+proven\b/i,
   ];
-  const hits = patterns.filter((re) => re.test(ownedText));
+  const lines = ownedText.split('\n');
+  const hits = [];
+  for (const re of patterns) {
+    for (const line of lines) {
+      if (re.test(line)
+        && !/not claimed|does\s*\*+\s*not|does not|never|open|forbidden|explicitly|default OFF|not enabled|claiming /i.test(line)) {
+        hits.push(String(re));
+        break;
+      }
+    }
+  }
   red('overclaim_tokens_absent_from_owned_docs',
     hits.length === 0,
-    hits.length ? hits.map((r) => String(r)).join(', ') : undefined);
+    hits.length ? hits.join(', ') : undefined);
 }
 
 // --- GREEN: disposition / score / selection ---

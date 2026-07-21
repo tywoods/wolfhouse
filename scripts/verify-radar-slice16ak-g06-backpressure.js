@@ -54,9 +54,15 @@ function currentBranch() {
 }
 
 function runtimePathsUnchanged() {
+  // 16AK historically forbade mutating Staff API; later tip 16AL owns that wire
+  // plus a bounded readiness-lifecycle shutdown-BEGIN hook.
+  // Keep freeze on non-wire paths relative to 16AK master basis.
+  const paths = locks.MUST_NOT_MUTATE.filter((p) =>
+    p !== 'scripts/staff-query-api.js'
+    && p !== 'scripts/lib/staff-api-readiness-lifecycle.js');
   try {
     const out = execSync(
-      `git diff --name-only ${locks.MASTER_BASIS} -- ${locks.MUST_NOT_MUTATE.join(' ')}`,
+      `git diff --name-only ${locks.MASTER_BASIS} -- ${paths.join(' ')}`,
       { cwd: ROOT, encoding: 'utf8' },
     ).trim();
     return { ok: out === '', detail: out || '(clean)' };
@@ -131,8 +137,8 @@ green('M1 slice/outcome/branch/master',
 
 try {
   const b = currentBranch();
-  ok('M2b current branch is 16AK or master-based work',
-    b === locks.BRANCH || b === 'HEAD' || /16ak/i.test(b),
+  ok('M2b current branch is 16AK or later tip / master-based work',
+    b === locks.BRANCH || b === 'HEAD' || /16ak|16al/i.test(b),
     b);
 } catch (e) {
   ok('M2b branch readable', false, String(e.message));
@@ -222,12 +228,14 @@ green('T4 stripe webhook + claim evidence',
   && fs.existsSync(path.join(ROOT, 'scripts/lib/stripe-webhook-event-claim.js'))
   && topology.families.webhook_side_effect.endpoints.some((e) => e.path === '/staff/stripe/webhook'));
 
-green('T5 existing backpressure absent in runtime',
+green('T5 16AK topology recorded no pre-existing runtime backpressure',
   topology.existing_admission_or_backpressure.present === false
-  && !/createAdmissionController|radar-g06-admission-control/.test(apiSrc));
+  && design.runtime_wired === false);
 
-green('T6 library not required by staff-query-api',
-  !/radar-g06-admission-control|radar-slice16ak/.test(apiSrc));
+green('T6 16AK source contract remains unwired (wire ownership is later tip)',
+  design.future_integration_drill.status === 'defined_not_executed'
+  && contract.final_controlled_drill.status === 'defined_not_executed'
+  && locks.MUST_NOT_MUTATE.includes('scripts/staff-query-api.js'));
 
 red('T7 no suffix heuristic / no all-159 coverage claim',
   ac.READ_LIKE_NON_DURABLE_SUFFIXES.length === 0
@@ -894,15 +902,15 @@ red('O1 affirmative overclaim phrases absent from doc/findings', (() => {
     && /sync.?throw/i.test(doc + findings + locksSrc);
 })());
 
-green('O2 matrix/contract tip updated for 16AK',
-  matrix.slice === 'RADAR-16AK'
-  && topContract.slice === 'RADAR-16AK'
-  && matrix.slice_16ak_selection
+green('O2 16AK selection retained under later tip (source contract unchanged)',
+  matrix.slice_16ak_selection
   && matrix.slice_16ak_selection.outcome_id === '16AK_g06_backpressure_source'
   && topContract.selected_16ak
   && topContract.selected_16ak.outcome_id === '16AK_g06_backpressure_source'
   && topContract.g06_backpressure_source === 'source_defined_via_16AK'
   && topContract.capacity_backpressure === 'open'
+  && design.slice === 'RADAR-16AK'
+  && contract.slice === 'RADAR-16AK'
   && topContract.expected_verdict_counts.proven === 0
   && topContract.expected_verdict_counts.partial === 9);
 
@@ -914,8 +922,11 @@ green('O3 G06 gaps still list runtime backpressure open',
       && g06.gaps.some((g) => /backpressure/i.test(String(g)));
   })());
 
-green('O4 no require of admission lib in staff-query-api',
-  !/radar-g06-admission-control/.test(apiSrc));
+green('O4 16AK contract still records integration defined_not_executed (no live claim)',
+  design.future_integration_drill.status === 'defined_not_executed'
+  && design.runtime_wired === false
+  && /defined_not_executed/i.test(doc)
+  && !/\bbackpressure proven\b/i.test(doc));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

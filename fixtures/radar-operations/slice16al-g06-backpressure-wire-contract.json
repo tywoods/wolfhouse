@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AL",
+  "outcome_id": "16AL_g06_backpressure_wire",
+  "gate_id": "G06_scaling_capacity",
+  "progress_class": "integration_source_partial_progress_only",
+  "master_basis": "502d762f897432c67bb8b17a8a49bfab01a0787d",
+  "branch": "radar/slice-16al-g06-backpressure-wire",
+  "title": "Staff API admission-control wire behind fail-closed flag default OFF",
+  "live_deploy": false,
+  "live_mutation": false,
+  "live_network": false,
+  "flag_enabled": false,
+  "flag_env": "STAFF_API_ADMISSION_CONTROL",
+  "flag_default": "OFF",
+  "runtime_wired_source": true,
+  "azure_scope": {
+    "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resource_groups": [
+      "wh-staging-rg",
+      "luna-sunset-staging-rg"
+    ],
+    "note": "Staging-only scope lock; production forbidden; flag not enabled"
+  },
+  "wire": {
+    "boundary": "scripts/lib/staff-api-admission-boundary.js",
+    "factory": "scripts/staff-query-api.js#createStaffQueryApiHttpServer",
+    "placement": "after resolveTrustedIngressBinding.tenant_slug; before router body/DB/tool side effects",
+    "trusted_tenant_only": "resolveTrustedIngressBinding(...).tenant_slug",
+    "eligible_routes": "16AK ELIGIBLE_ROUTES allowlist only",
+    "exclusions": ["/healthz", "/readyz", "/", "unknown_routes_default_exclude"]
+  },
+  "lifecycle": {
+    "release_once_on": ["finish", "close", "error", "abort"],
+    "queued_disconnect_cancels": true,
+    "queued_promotion_resumes_once": true,
+    "queued_preflight_transport_dead_cancels": true,
+    "queued_pre_run_transport_dead_cancels": true,
+    "queued_once_listeners_detach_to_baseline": true,
+    "late_event_cannot_cancel_promoted_token": true,
+    "sync_async_throw_cleanup": true,
+    "shutdown_closes_controller": true,
+    "shutdown_begin_via_readiness_lifecycle": true,
+    "shutdown_not_server_close_event": true,
+    "shutdown_begin_set_deduped_registry_dispatcher": true,
+    "shutdown_begin_close_exactly_once": true,
+    "shutdown_begin_prior_hook_exactly_once": true,
+    "shutdown_begin_no_wrapper_chains": true,
+    "shutdown_begin_symbols_cleared_after_fire": true,
+    "shutdown_begin_weakset_fired_sentinel": true,
+    "shutdown_begin_mark_fired_before_snapshot": true,
+    "shutdown_begin_post_fire_bind_immediate_close": true,
+    "shutdown_begin_reentrant_bind_immediate_close": true,
+    "shutdown_begin_safe_invoke_thenables": true,
+    "shutdown_begin_off_registers_nothing": true,
+    "post_side_effect_never_503_shed": true
+  },
+  "public_503": {
+    "body": { "success": false, "error": "service unavailable" },
+    "retry_after_header": "Retry-After",
+    "bounded_non_sensitive": true
+  },
+  "integration_source_proof": {
+    "id": "16AL_INTEGRATION_staff_api_admission_wire_source",
+    "status": "integration_source_proven"
+  },
+  "g06_disposition": {
+    "verdict": "partial",
+    "backpressure_source": "source_defined_via_16AK",
+    "backpressure_wire_source": "integration_source_proven_via_16AL",
+    "backpressure_runtime_live_proof": "open",
+    "flag_enabled": false,
+    "score": {
+      "proven": 0,
+      "partial": 9,
+      "absent": 0
+    }
+  },
+  "explicitly_not_claimed": [
+    "backpressure_proven",
+    "backpressure_live",
+    "live_503_shed_observed",
+    "load_soak_proof",
+    "autoscaling",
+    "capacity_slo_proven",
+    "production",
+    "full_G06_proven",
+    "flag_enabled_in_staging"
+  ]
+}

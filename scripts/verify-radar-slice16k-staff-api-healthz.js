@@ -580,6 +580,17 @@ async function main() {
       'radar/slice-16x-g02-live-evidence',
       'radar/slice-16y-shutdown-completion-log', 'radar/slice-16z-g02-live-sigterm-evidence',
       'radar/slice-16z-g02-live-sigterm-evidence',
+      'radar/slice-16aa-g02-live-sigint-evidence',
+      'radar/slice-16ab-g02-readyz503-evidence',
+      'radar/slice-16ac-organic-restart-alert-evidence',
+      'radar/slice-16ad-g02-sampled-restart-continuity-evidence',
+      'radar/slice-16af-g06-capacity-alert-live-evidence',
+      'radar/slice-16ag-g06-bounded-load-harness',
+      'radar/slice-16ah-g06-live-load-correction',
+      'radar/slice-16ai-g06-live-load-evidence',
+      'radar/slice-16aj-g06-slo-error-budget-source',
+      'radar/slice-16ak-g06-backpressure-source',
+      'radar/slice-16al-g06-backpressure-wire',
     ]);
     ok('C11 HEAD on 16K branch or successor tip', allowed.has(branch), branch);
   } catch (err) {

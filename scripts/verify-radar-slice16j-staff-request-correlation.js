@@ -252,7 +252,7 @@ function extractCreateServerCatchSemantic(apiSrc) {
   const marker = 'function createStaffQueryApiHttpServer';
   const idx = apiSrc.indexOf(marker);
   if (idx < 0) return null;
-  const slice = apiSrc.slice(idx, idx + 1600);
+  const slice = apiSrc.slice(idx, idx + 3200);
   const m = slice.match(
     /\}\s*catch\s*\(\s*err\s*\)\s*\{[\s\S]*?^\s*\}/m,
   );

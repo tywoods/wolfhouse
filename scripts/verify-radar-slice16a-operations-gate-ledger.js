@@ -21,7 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '9fa3626326c0e2bc21f2d37905967d6ff47b7520';
+const MASTER_BASIS = '502d762f897432c67bb8b17a8a49bfab01a0787d';
+const MASTER_BASIS_16AK = '9fa3626326c0e2bc21f2d37905967d6ff47b7520';
 const MASTER_BASIS_16AJ = '0994989a3d5d14daa98797fac55083b0c2ea809c';
 const MASTER_BASIS_16AI = 'd04b633390bdcacfe3a04eed4796bba4184e29f8';
 const MASTER_BASIS_16AH = '6c24e9456bd42c7fa1b051bb1308aae8f632b293';
@@ -32,6 +33,8 @@ const BRANCH_16AH = 'radar/slice-16ah-g06-live-load-correction';
 const BRANCH_16AI = 'radar/slice-16ai-g06-live-load-evidence';
 const BRANCH_16AJ = 'radar/slice-16aj-g06-slo-error-budget-source';
 const BRANCH_16AK = 'radar/slice-16ak-g06-backpressure-source';
+const BRANCH_16AL = 'radar/slice-16al-g06-backpressure-wire';
+const MASTER_BASIS_16AL = '502d762f897432c67bb8b17a8a49bfab01a0787d';
 const BRANCH_16AD = 'radar/slice-16ad-g02-sampled-restart-continuity-evidence';
 const BRANCH_16AC = 'radar/slice-16ac-organic-restart-alert-evidence';
 const BRANCH_16AB = 'radar/slice-16ab-g02-readyz503-evidence';
@@ -128,13 +131,13 @@ function secretFree(text, label) {
 }
 
 function runtimePathsUnchanged() {
-  // 16U is audit-only; freeze requires database/, Hermes, Staff API runtime,
-  // correlation/completion helpers, staging Bicep, 16H/16B modules untouched.
+  // Tip freeze: database/, Hermes, correlation/completion helpers, staging Bicep,
+  // 16H/16B modules untouched. 16AL may wire scripts/staff-query-api.js and
+  // scripts/lib/staff-api-readiness-lifecycle.js (shutdown BEGIN hook only).
   const paths = [
     'database/',
     'docker/hermes-staging/',
     'docker/hermes-sunset/',
-    'scripts/staff-query-api.js',
     'scripts/lib/staff-api-request-correlation.js',
     'scripts/lib/staff-api-request-completion-log.js',
     'scripts/lib/stripe-webhook-public-errors.js',
@@ -184,10 +187,11 @@ function currentBranch() {
 }
 
 function staffApiRuntimeDiffVsMaster() {
+  // 16AL owns a bounded Staff API admission wire in staff-query-api.js and a
+  // shutdown-BEGIN hook in staff-api-readiness-lifecycle.js. Other runtime
+  // libs (pool close, completion log, stripe webhook) stay frozen.
   const paths = [
-    'scripts/staff-query-api.js',
     'scripts/lib/staff-api-readiness.js',
-    'scripts/lib/staff-api-readiness-lifecycle.js',
     'scripts/lib/staff-api-readiness-shutdown-completion-log.js',
     'scripts/lib/stripe-webhook-public-errors.js',
     'scripts/lib/stripe-webhook-event-claim.js',
@@ -399,7 +403,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 runtime paths unchanged vs master basis (16AB evidence-only; no runtime mutation)',
+ok('F39 runtime paths unchanged vs master basis (16AL may wire staff-query-api only; other freeze paths clean)',
   rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
@@ -463,16 +467,18 @@ const slice16ahContract = readJson(path.join(FIXTURE_DIR, 'slice16ah-expected-co
 const slice16aiContract = readJson(path.join(FIXTURE_DIR, 'slice16ai-expected-contract.json'));
 const slice16ajContract = readJson(path.join(FIXTURE_DIR, 'slice16aj-expected-contract.json'));
 const slice16akContract = readJson(path.join(FIXTURE_DIR, 'slice16ak-expected-contract.json'));
-ok('F48 gate-matrix branch pin equals 16AK tip contract + HEAD (16AJ/16AI/16AH/16AG locks retained)',
-  matrix.branch === BRANCH_16AK
-  && contract.branch === BRANCH_16AK
+const slice16alContract = readJson(path.join(FIXTURE_DIR, 'slice16al-expected-contract.json'));
+ok('F48 gate-matrix branch pin equals 16AL tip contract + HEAD (16AK/16AJ/16AI/16AH/16AG locks retained)',
+  matrix.branch === BRANCH_16AL
+  && contract.branch === BRANCH_16AL
+  && slice16alContract.branch === BRANCH_16AL
+  && headBranch === BRANCH_16AL
   && slice16akContract.branch === BRANCH_16AK
-  && headBranch === BRANCH_16AK
   && slice16ajContract.branch === BRANCH_16AJ
   && slice16aiContract.branch === BRANCH_16AI
   && slice16ahContract.branch === BRANCH_16AH
   && slice16agContract.branch === BRANCH_16AG,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16ak=${slice16akContract.branch} slice16aj=${slice16ajContract.branch} slice16ai=${slice16aiContract.branch} head=${headBranch}`);
+  `matrix=${matrix.branch} contract=${contract.branch} slice16al=${slice16alContract.branch} slice16ak=${slice16akContract.branch} head=${headBranch}`);
 ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC/16AD/16AF contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
@@ -510,7 +516,7 @@ const g08CitesPublicErrors = g08
   && g08.source_evidence.some((ev) =>
     ev.path === 'scripts/lib/stripe-webhook-public-errors.js'
     || ev.path === 'scripts/staff-query-api.js');
-ok('F50 must_not forbids live mutation; 16AA evidence-only zero runtime diff; bicep unchanged; G08 still cites public-errors',
+ok('F50 must_not forbids live mutation; pool/webhook runtime libs unchanged vs tip basis; bicep unchanged; G08 still cites public-errors',
   !hasStaleSourceForbid
   && hasLiveDeployedForbid
   && g08CitesPublicErrors
@@ -1222,7 +1228,7 @@ ok('F200 score unchanged after 16AJ (proven=0 partial=9 absent=0)',
   && MASTER_BASIS_16AJ === '0994989a3d5d14daa98797fac55083b0c2ea809c');
 
 const sel16ak = matrix.slice_16ak_selection;
-ok('F201 exactly one 16AK selection',
+ok('F201 exactly one 16AK selection (retained)',
   sel16ak && sel16ak.selected === true
   && sel16ak.outcome_id === '16AK_g06_backpressure_source'
   && sel16ak.gate_id === 'G06_scaling_capacity'
@@ -1231,7 +1237,7 @@ ok('F201 exactly one 16AK selection',
   && sel16ak.final_controlled_drill.status === 'defined_not_executed'
   && sel16ak.g06_backpressure_source === 'source_defined_via_16AK'
   && sel16ak.g06_backpressure === 'open');
-ok('F202 contract selected_16ak matches',
+ok('F202 contract selected_16ak retained',
   contract.selected_16ak
   && contract.selected_16ak.outcome_id === '16AK_g06_backpressure_source'
   && contract.selected_16ak.g06_backpressure_source === 'source_defined_via_16AK'
@@ -1247,7 +1253,7 @@ ok('F203 16AK fixtures + verifier present',
   && pathExists('scripts/lib/radar-g06-admission-control.js')
   && pathExists('scripts/lib/radar-slice16ak-g06-backpressure.js')
   && pathExists('scripts/verify-radar-slice16ak-g06-backpressure.js'));
-ok('F204 16AK does not claim backpressure proven / runtime wire / soak / autoscale / production / full G06',
+ok('F204 16AK does not claim backpressure proven / soak / autoscale / production / full G06',
   /live_deploy|runtime_wire|soak|autoscale|backpressure_proven|production|full_g06/i.test(
     String(sel16ak.does_not_implement || ''))
   && !/\bbackpressure\s+proven\b/i.test(doc)
@@ -1256,11 +1262,56 @@ ok('F204 16AK does not claim backpressure proven / runtime wire / soak / autosca
   && /16AK|admission|backpressure/i.test(doc)
   && /16AK/i.test(findings)
   && /defined_not_executed/i.test(doc));
-ok('F205 score unchanged after 16AK (proven=0 partial=9 absent=0)',
+ok('F205 score unchanged after 16AK retention (proven=0 partial=9 absent=0)',
   contract.expected_verdict_counts.proven === 0
   && contract.expected_verdict_counts.partial === 9
   && contract.expected_verdict_counts.absent === 0
-  && MASTER_BASIS === '9fa3626326c0e2bc21f2d37905967d6ff47b7520');
+  && MASTER_BASIS_16AK === '9fa3626326c0e2bc21f2d37905967d6ff47b7520');
+
+const sel16al = matrix.slice_16al_selection;
+ok('F206 exactly one 16AL selection',
+  sel16al && sel16al.selected === true
+  && sel16al.outcome_id === '16AL_g06_backpressure_wire'
+  && sel16al.gate_id === 'G06_scaling_capacity'
+  && sel16al.progress_class === 'integration_source_partial_progress_only'
+  && sel16al.flag_enabled === false
+  && sel16al.final_controlled_drill
+  && sel16al.final_controlled_drill.status === 'integration_source_proven'
+  && sel16al.g06_backpressure_wire_source === 'integration_source_proven_via_16AL'
+  && sel16al.g06_backpressure === 'open');
+ok('F207 contract selected_16al matches',
+  contract.selected_16al
+  && contract.selected_16al.outcome_id === '16AL_g06_backpressure_wire'
+  && contract.selected_16al.g06_backpressure_wire_source === 'integration_source_proven_via_16AL'
+  && contract.selected_16al.g06_backpressure === 'open'
+  && contract.selected_16al.flag_enabled === false
+  && contract.selected_16al.final_controlled_drill_status === 'integration_source_proven'
+  && contract.selected_16al.g06_verdict === 'partial'
+  && contract.g06_backpressure_wire_source === 'integration_source_proven_via_16AL'
+  && contract.g06_backpressure === 'open'
+  && contract.capacity_backpressure === 'open');
+ok('F208 16AL fixtures + verifier + boundary present',
+  pathExists('fixtures/radar-operations/slice16al-g06-backpressure-wire-contract.json')
+  && pathExists('fixtures/radar-operations/slice16al-expected-contract.json')
+  && pathExists('scripts/lib/staff-api-admission-boundary.js')
+  && pathExists('scripts/lib/radar-slice16al-g06-backpressure-wire.js')
+  && pathExists('scripts/verify-radar-slice16al-g06-backpressure-wire.js'));
+ok('F209 16AL does not claim backpressure live/proven / flag enabled / soak / production / full G06',
+  /live_deploy|flag_enable|soak|autoscale|backpressure_proven|production|full_g06/i.test(
+    String(sel16al.does_not_implement || ''))
+  && !/\bbackpressure\s+proven\b/i.test(doc.replace(/claiming backpressure live\/proven/gi, ''))
+  && !/\bG06\s+proven\b/i.test(doc)
+  && !/\bfull\s+G06\b/i.test(doc)
+  && /16AL/i.test(doc)
+  && /16AL/i.test(findings)
+  && /default OFF|flag.*OFF|not enabled/i.test(doc)
+  && /Does not prove/i.test(doc)
+  && MASTER_BASIS_16AL === '502d762f897432c67bb8b17a8a49bfab01a0787d');
+ok('F210 score unchanged after 16AL (proven=0 partial=9 absent=0)',
+  contract.expected_verdict_counts.proven === 0
+  && contract.expected_verdict_counts.partial === 9
+  && contract.expected_verdict_counts.absent === 0
+  && slice16alContract.master_basis === MASTER_BASIS_16AL);
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
