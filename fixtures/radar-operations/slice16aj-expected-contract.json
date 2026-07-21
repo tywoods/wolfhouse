@@ -12,7 +12,7 @@
   "this_slice_deploys": false,
   "this_slice_implements_runtime": false,
   "audit_only": true,
-  "title": "G06 capacity SLO / error-budget source contract — finite staging readiness SLI + pure calculator; future alert/drill acceptance only",
+  "title": "G06 capacity SLO / error-budget source contract — availability-only ACA Requests Sum SLI + pure calculator; latency percentile blocked; future alert/drill acceptance only",
   "design_fixture": "fixtures/radar-operations/slice16aj-g06-slo-error-budget-contract.json",
   "builds_on": [
     "16AI_g06_live_load_evidence",
@@ -24,31 +24,39 @@
   ],
   "does_not_implement": "live_deploy_alert_fire_notification_load_soak_autoscaling_slo_proven_backpressure_production_full_g06_scale_mutation",
   "informed_by_existing": {
-    "availability_metric": "Microsoft.App/containerApps Requests Total statusCodeCategory (16H 5xx alerts use same metric surface)",
+    "availability_metric": "Microsoft.App/containerApps Requests Total (Sum of request counts) statusCodeCategory (16H 5xx alerts use same metric surface)",
     "alert_cadence": "16L/16AF capacity PT5M eval / PT15M window; 16H Requests 5xx PT1M/PT5M; SLO eval grain aligned to PT5M",
     "16ai_conservative_readyz": "live_proven profile proves bounded /readyz 2xx+latency observability exists; does NOT become SLO proof"
   },
   "sli": {
-    "name": "staging_staff_api_readiness_capacity",
+    "name": "staging_staff_api_readiness_capacity_availability",
     "scope": "staging_only",
+    "kind": "availability_only",
     "availability_target": 0.99,
-    "latency_objective_ms": 500,
-    "latency_success_fraction": 0.99,
-    "combined_target": 0.99,
-    "slo_window": "PT7D_finite_staging",
+    "slo_window": "PT7D_exact_rolling",
     "slo_window_ms": 604800000,
     "sample_step": "PT5M",
     "sample_step_ms": 300000,
     "min_sample_coverage": 0.5,
     "min_requests": 100,
+    "coverage_reference": "PT7D",
+    "burn_windows_distinct_from_slo_span": true,
+    "baseline_max_skew": "one_PT5M_grain",
     "availability_formula": "requests_2xx_delta / requests_total_delta",
-    "latency_formula": "histogram_count(le >= objective_ms) / histogram_total",
-    "combined_formula": "min(availability_sli, latency_success_ratio)"
+    "latency_percentile_sli": {
+      "status": "blocked",
+      "reason": "pending_joint_request_telemetry_instrumentation",
+      "not_part_of_this_slo": true
+    },
+    "combined_formula": "forbidden_disjoint_marginals",
+    "combined_error_budget": "forbidden"
   },
   "error_budget": {
+    "kind": "availability_only",
     "budget_fraction": 0.01,
     "burn_rate_formula": "bad_rate / budget_fraction",
     "budget_consumed_formula": "burn_rate * (eval_window_ms / slo_window_ms)",
+    "combined_error_budget": "forbidden",
     "multi_window_burns": [
       { "id": "page_fast", "severity": "page", "short_ms": 300000, "long_ms": 3600000, "burn_threshold": 14.4 },
       { "id": "page_slow", "severity": "page", "short_ms": 1800000, "long_ms": 21600000, "burn_threshold": 6 },
@@ -63,8 +71,13 @@
     "zero_traffic_insufficient_coverage",
     "insufficient_sample_coverage",
     "insufficient_requests",
-    "percentile_misuse",
-    "invalid_histogram"
+    "invalid_input",
+    "irregular_or_gapped_grain",
+    "stale_baseline",
+    "window_span_mismatch",
+    "unsafe_integer",
+    "latency_sli_blocked",
+    "combined_claim_forbidden"
   ],
   "future_alert_acceptance": {
     "id": "16AJ_ALERT_multi_window_burn_acceptance",
@@ -86,7 +99,9 @@
     "autoscaling proven",
     "load soak proven",
     "alert fired",
-    "notification delivered"
+    "notification delivered",
+    "p99 <= 500ms",
+    "combined SLO proven"
   ],
   "must_not_claim_as_proven": [
     "capacity_slo_proven",
@@ -102,13 +117,18 @@
     "any_gate_verdict_proven",
     "scale_mutation_by_this_slice",
     "deploy_by_this_slice",
-    "16AI_latency_as_slo_proof"
+    "16AI_latency_as_slo_proof",
+    "aca_duration_histogram",
+    "latency_percentile_sli",
+    "p99_le_500ms",
+    "combined_min_intersection_slo",
+    "combined_error_budget"
   ],
   "verdict_policy": {
     "proven": 0,
     "partial": 9,
     "absent": 0,
-    "note": "16AJ source-defines staging readiness SLO/error-budget contract + calculator only; G06 remains partial because live burn proof, soak, alert fire/notification, autoscaling, and backpressure remain open; score unchanged"
+    "note": "16AJ source-defines availability-only staging readiness SLO/error-budget contract + calculator only; latency percentile SLI blocked; G06 remains partial because live burn proof, soak, alert fire/notification, autoscaling, and backpressure remain open; score unchanged"
   },
   "still_open": [
     "Live burn-alert deploy / fire / notification (future acceptance only)",
@@ -116,6 +136,7 @@
     "Load soak / sustained capacity proof (not claimed)",
     "Autoscaling rules (rules=null; not claimed)",
     "Capacity SLO / error budget live proof (source defined; not proven)",
+    "Latency percentile SLI (blocked pending joint request telemetry/instrumentation)",
     "Backpressure (not claimed)",
     "Production scope (forbidden)",
     "Raising G06 verdict to proven"
@@ -123,7 +144,7 @@
   "final_controlled_drill": {
     "id": "16AJ_OFFLINE_slo_error_budget_source_contract",
     "status": "offline_source_proven",
-    "pass_rule": "Pure dependency-free calculator + deterministic RED/GREEN verifier prove exact availability/latency/combined boundaries, error-budget and multi-window burn math, and fail-closed missing/reset/out-of-order/zero-traffic/sparse/percentile-misuse/overclaim paths; future alert/drill acceptance defined_not_executed only; G06 remains partial; proven count remains 0; no live/deploy/scale mutation"
+    "pass_rule": "Pure dependency-free availability-only calculator + deterministic RED/GREEN verifier prove exact PT7D availability boundaries, error-budget and multi-window burn math, baseline-within-grain burn slicing, and fail-closed missing/reset/out-of-order/zero-traffic/sparse/stale-baseline/span-mismatch/unsafe-integer/NaN/latency-blocked/combined-forbidden/overclaim paths; latency percentile SLI recorded blocked; future alert/drill acceptance defined_not_executed only; G06 remains partial; proven count remains 0; no live/deploy/scale mutation"
   },
   "artifacts": [
     "fixtures/radar-operations/slice16aj-g06-slo-error-budget-contract.json",
@@ -164,6 +185,6 @@
       "infra/azure/staging-staff-api-metric-alerts/",
       "infra/azure/staging-cost-budgets/"
     ],
-    "note": "16AJ is source/text-only SLO contract + pure calculator; no Staff API/Bicep/alert deploy/live/scale mutation"
+    "note": "16AJ is source/text-only availability-only SLO contract + pure calculator; no Staff API/Bicep/alert deploy/live/scale mutation"
   }
 }

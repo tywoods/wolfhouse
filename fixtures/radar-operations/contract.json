@@ -6,7 +6,7 @@
   "branch": "radar/slice-16aj-g06-slo-error-budget-source",
   "audit_only": true,
   "live_mutation": false,
-  "title": "G06 capacity SLO/error-budget source contract (16AJ source-defined; live burn/soak/fire/autoscale/backpressure open; G06 partial)",
+  "title": "G06 capacity SLO/error-budget source contract \u2014 availability-only (16AJ source-defined; latency blocked; live burn/soak/fire/autoscale/backpressure open; G06 partial)",
   "progress_class": "source_partial_progress_only",
   "does_not_implement": "live_deploy_alert_fire_notification_load_soak_autoscaling_slo_proven_backpressure_production_full_g06_scale_mutation",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",

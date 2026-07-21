@@ -14,15 +14,16 @@ Define a finite **staging readiness** capacity SLO / error-budget **source** con
 
 | Contract | Locked value |
 |----------|----------------|
-| Metric surface (inspected) | ACA `Requests` Total + `statusCodeCategory` (16H); latency via cumulative histogram buckets (future `RequestsDuration`/drill binding — not scraped here) |
+| Metric surface (inspected) | ACA `Requests` **Total** (= Sum of request counts) split by `statusCodeCategory` (16H) — implementable availability-only |
+| Latency percentile SLI | **blocked** pending joint request telemetry/instrumentation — **not part of this SLO**; no ACA duration histogram / p99≤500ms |
+| Combined / intersection | **forbidden** (disjoint marginals cannot claim min/intersection or combined error budget) |
 | Alert cadence (inspected) | 16L/16AF capacity PT5M/PT15M; 16H 5xx PT1M/PT5M; SLO eval grain **PT5M** |
 | Availability SLI | `2xx_delta / total_delta`; target **99.0%** |
-| Latency objective | histogram fraction ≤ **500ms**; success fraction **99.0%** |
-| Combined | `min(availability, latency)`; target **99.0%** |
-| Window / coverage | finite **PT7D**; step **PT5M**; min coverage **0.5**; min requests **100** |
-| Error budget | fraction **0.01**; burn = `bad_rate / 0.01`; consumed = `burn * (window / PT7D)` |
+| Window / coverage | exact rolling **PT7D** span; coverage against **PT7D**; step **PT5M**; min coverage **0.5**; min requests **100** |
+| Short burn windows | distinct from PT7D — coverage/span use declared burn window; baseline within one PT5M grain; reject gaps/stale |
+| Error budget | availability-only fraction **0.01**; burn = `bad_rate / 0.01`; consumed = `burn * (window / PT7D)` |
 | Multi-window burns | page_fast 5m+1h@**14.4**; page_slow 30m+6h@**6**; ticket_fast 2h+1d@**3**; ticket_slow 6h+3d@**1** (AND) |
-| Fail-closed | missing / reset / out-of-order / zero-traffic / sparse / insufficient requests / percentile misuse / invalid histogram |
+| Fail-closed | missing / reset / out-of-order / zero-traffic / sparse / span mismatch / stale baseline / irregular grain / unsafe integer / NaN / latency-blocked / combined-forbidden |
 | Calculator | pure dependency-free `radar-g06-slo-error-budget.js` |
 | Future alert/drill | `16AJ_ALERT_*` + `16AJ_DRILL_*` **`defined_not_executed`** only |
 | `final_controlled_drill` | **`offline_source_proven`** — source contract only |
@@ -31,17 +32,17 @@ Define a finite **staging readiness** capacity SLO / error-budget **source** con
 
 | Observation | Proves | Does not prove |
 |-------------|--------|----------------|
-| SLI/error-budget source contract + calculator + offline RED/GREEN | Exact math/boundaries + fail-closed states exist in source | Live SLO compliance; burn alert deploy/fire; notification |
+| Availability-only SLI/error-budget source contract + calculator + offline RED/GREEN | Exact math/boundaries + fail-closed states exist in source | Live SLO compliance; burn alert deploy/fire; notification; latency percentile SLO |
 | Future alert/drill acceptance locked | Parameters ready for a later approved slice | That alert/drill ran; production; raising G06 |
 | G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
 
 ## Truthful disposition (16AJ)
 
-**Proves (source):** Finite staging readiness SLO/error-budget contract with pure calculator and deterministic RED/GREEN covering exact boundaries, counter resets, sparse samples, percentile misuse, and overclaims; future burn-alert/drill acceptance defined only.
+**Proves (source):** Finite staging readiness **availability-only** SLO/error-budget contract with pure calculator and deterministic RED/GREEN covering exact PT7D boundaries, burn baseline grain, counter resets, sparse samples, and overclaims; latency percentile SLI recorded **blocked**; future burn-alert/drill acceptance defined only.
 
-**Does not prove:** live SLO compliance; burn alert deploy/fire/notification; load soak; autoscaling; backpressure; production; raising G06 to `proven`. Does **not** reuse 16AI drill latency as SLO proof.
+**Does not prove:** live SLO compliance; burn alert deploy/fire/notification; load soak; autoscaling; backpressure; production; raising G06 to `proven`. Does **not** reuse 16AI drill latency as SLO proof. Does **not** claim ACA duration histograms, p99≤500ms, or combined min/intersection.
 
-**SLO/error-budget source gap closed; live burn/SLO proof remains open; G06 remains partial.**
+**SLO/error-budget source gap closed (availability-only); live burn/SLO proof remains open; G06 remains partial.**
 
 ## Outcome (16AI — retained)
 

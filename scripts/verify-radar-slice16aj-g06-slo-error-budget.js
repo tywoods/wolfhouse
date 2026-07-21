@@ -4,8 +4,8 @@
  * verify:radar-slice16aj-g06-slo-error-budget — RADAR Slice 16AJ
  *
  * Offline RED/GREEN for G06 capacity SLO / error-budget source contract.
- * Exact boundaries, counter resets, sparse samples, percentile misuse,
- * overclaims. No network / live / deploy.
+ * Availability-only ACA Requests Sum SLI; exact PT7D; burn baseline grain;
+ * reviewer RED examples. No network / live / deploy.
  */
 
 const fs = require('fs');
@@ -85,7 +85,7 @@ function nearlyEqual(a, b, eps) {
   return Math.abs(a - b) <= e;
 }
 
-/** Build PT5M cumulative counter series with constant rate and a window hist. */
+/** Build regular PT5M cumulative counter series (no latency fields). */
 function buildSeries(opts) {
   const o = opts || {};
   const steps = o.steps == null ? 24 : o.steps;
@@ -93,10 +93,6 @@ function buildSeries(opts) {
   const start = o.start_t_ms == null ? 1_000_000 : o.start_t_ms;
   const perStepTotal = o.per_step_total == null ? 10 : o.per_step_total;
   const perStep2xx = o.per_step_2xx == null ? perStepTotal : o.per_step_2xx;
-  const objectiveMs = o.latency_objective_ms == null
-    ? calc.LATENCY_OBJECTIVE_MS
-    : o.latency_objective_ms;
-  const slowFraction = o.slow_fraction == null ? 0 : o.slow_fraction;
 
   const samples = [];
   let total = 0;
@@ -112,15 +108,13 @@ function buildSeries(opts) {
       ok2xx += perStep2xx;
     }
   }
-  const windowTotal = total;
-  const slow = Math.round(windowTotal * slowFraction);
-  const fast = windowTotal - slow;
-  const hist = {
-    le_ms: [objectiveMs, objectiveMs * 2, objectiveMs * 10],
-    counts: [fast, windowTotal, windowTotal],
-  };
-  samples[samples.length - 1].latency_histogram = hist;
   return samples;
+}
+
+function buildExactPt7dSeries(opts) {
+  const o = opts || {};
+  const steps = calc.SLO_WINDOW_MS / calc.SAMPLE_STEP_MS;
+  return buildSeries(Object.assign({}, o, { steps }));
 }
 
 console.log('RADAR 16AJ G06 SLO / error-budget source — offline verifier\n');
@@ -170,17 +164,26 @@ ok('C5 calculator has no I/O / network deps',
   && !/fetch\(/.test(calcSrc)
   && !/az\s/.test(calcSrc));
 
-ok('C6 SLI locks match calculator constants',
-  locks.SLI_LOCK.availability.target === calc.AVAILABILITY_TARGET
-  && locks.SLI_LOCK.latency.objective_ms === calc.LATENCY_OBJECTIVE_MS
-  && locks.SLI_LOCK.latency.success_fraction === calc.LATENCY_SUCCESS_FRACTION
-  && locks.SLI_LOCK.combined.target === calc.COMBINED_TARGET
+ok('C6 availability-only SLI locks match calculator',
+  locks.SLI_LOCK.kind === 'availability_only'
+  && locks.SLI_LOCK.availability.target === calc.AVAILABILITY_TARGET
+  && locks.SLI_LOCK.availability.aggregation === 'Total'
+  && locks.SLI_LOCK.availability.aggregation_semantics === 'sum_of_request_counts'
+  && locks.SLI_LOCK.availability.good_dimension.name === 'statusCodeCategory'
+  && locks.SLI_LOCK.latency_percentile_sli.status === 'blocked'
+  && locks.SLI_LOCK.combined.status === 'forbidden'
   && locks.SLI_LOCK.window.slo_window_ms === calc.SLO_WINDOW_MS
   && locks.SLI_LOCK.window.sample_step_ms === calc.SAMPLE_STEP_MS
   && locks.SLI_LOCK.window.min_sample_coverage === calc.MIN_SAMPLE_COVERAGE
   && locks.SLI_LOCK.window.min_requests === calc.MIN_REQUESTS
   && contract.sli.availability_target === calc.AVAILABILITY_TARGET
-  && design.sli_contract.availability_target === calc.AVAILABILITY_TARGET);
+  && contract.sli.kind === 'availability_only'
+  && design.sli_contract.availability_target === calc.AVAILABILITY_TARGET
+  && design.sli_contract.kind === 'availability_only'
+  && !Object.prototype.hasOwnProperty.call(calc, 'LATENCY_OBJECTIVE_MS')
+  && !Object.prototype.hasOwnProperty.call(calc, 'COMBINED_TARGET')
+  && typeof calc.latencySuccessRatioFromHistogram !== 'function'
+  && typeof calc.validateLatencyHistogram !== 'function');
 
 ok('C7 multi-window burns locked (4 pairs)',
   calc.MULTI_WINDOW_BURNS.length === 4
@@ -232,49 +235,33 @@ ok('C8 future acceptance defined_not_executed only',
     && nearlyEqual(fast.budget_consumed_fraction, 14.4 * ((60 * 60 * 1000) / calc.SLO_WINDOW_MS)));
 }
 
-// --- GREEN: latency histogram at exact objective boundary ---
+// --- GREEN: exact PT7D readiness window healthy ---
 {
-  const histMeet = { le_ms: [500, 1000], counts: [99, 100] };
-  const histMiss = { le_ms: [500, 1000], counts: [98, 100] };
-  const meet = calc.latencySuccessRatioFromHistogram(histMeet, 500, 100);
-  const miss = calc.latencySuccessRatioFromHistogram(histMiss, 500, 100);
-  green('latency_histogram_99_of_100_at_500ms_meets',
-    meet.ok && nearlyEqual(meet.ratio, 0.99)
-    && meet.ratio + 1e-12 >= calc.LATENCY_SUCCESS_FRACTION);
-  green('latency_histogram_98_of_100_at_500ms_misses',
-    miss.ok && nearlyEqual(miss.ratio, 0.98)
-    && miss.ratio + 1e-12 < calc.LATENCY_SUCCESS_FRACTION);
-}
-
-// --- GREEN: full readiness window healthy ---
-{
-  const samples = buildSeries({
-    steps: 36,
-    per_step_total: 5,
-    per_step_2xx: 5,
-    slow_fraction: 0,
+  const samples = buildExactPt7dSeries({
+    per_step_total: 1,
+    per_step_2xx: 1,
   });
-  // 36*5=180 requests over 36*5min — enough coverage + min requests
   const r = calc.evaluateReadinessWindow({
     samples,
     min_requests: 100,
     min_sample_coverage: 0.5,
   });
-  green('readiness_window_healthy_combined',
-    r.ok && r.meets_combined === true && r.meets_availability === true
-    && r.meets_latency === true && nearlyEqual(r.combined_sli, 1),
-    r.ok ? JSON.stringify({ sli: r.combined_sli }) : (r.errors || []).join(' | '));
+  green('readiness_window_exact_pt7d_healthy',
+    r.ok && r.meets_availability === true && r.sli_kind === 'availability_only'
+    && r.window_ms === calc.SLO_WINDOW_MS
+    && r.coverage_reference_window_ms === calc.SLO_WINDOW_MS
+    && r.latency_percentile_sli.status === 'blocked'
+    && nearlyEqual(r.availability.sli, 1),
+    r.ok ? JSON.stringify({ sli: r.availability.sli, cov: r.coverage }) : (r.errors || []).join(' | '));
 }
 
 // --- GREEN: multi-window burn all quiet on healthy series ---
 {
-  // Need >= 3d of samples for ticket_slow long window (3d)
   const steps = Math.ceil((3 * 24 * 60 * 60 * 1000) / calc.SAMPLE_STEP_MS) + 2;
   const samples = buildSeries({
     steps,
     per_step_total: 2,
     per_step_2xx: 2,
-    slow_fraction: 0,
   });
   const all = calc.evaluateAllBurnPairs(samples, {
     burn_min_sample_coverage: 0.05,
@@ -290,12 +277,10 @@ ok('C8 future acceptance defined_not_executed only',
 // --- GREEN: sustained high bad rate fires page_fast (both legs) ---
 {
   const steps = Math.ceil((3 * 24 * 60 * 60 * 1000) / calc.SAMPLE_STEP_MS) + 2;
-  // 20% bad → burn = 0.20/0.01 = 20x > 14.4
   const samples = buildSeries({
     steps,
     per_step_total: 10,
     per_step_2xx: 8,
-    slow_fraction: 0,
   });
   const pair = calc.MULTI_WINDOW_BURNS[0];
   const r = calc.evaluateBurnPair(samples, pair, {
@@ -306,6 +291,8 @@ ok('C8 future acceptance defined_not_executed only',
     r.ok && r.would_fire === true
     && r.short.exceeds_threshold === true
     && r.long.exceeds_threshold === true
+    && r.short.coverage_reference_window_ms === pair.short_ms
+    && r.long.coverage_reference_window_ms === pair.long_ms
     && r.alert_status === 'defined_not_executed',
     r.ok ? `short=${r.short.burn_rate} long=${r.long.burn_rate}` : (r.errors || []).join(' | '));
 }
@@ -318,8 +305,8 @@ ok('C8 future acceptance defined_not_executed only',
 }
 {
   const r = calc.deltasFromCounterSamples([
-    { t_ms: 1, requests_total: 1, requests_2xx: 1 },
-    { t_ms: 2, requests_total: null, requests_2xx: 1 },
+    { t_ms: 0, requests_total: 1, requests_2xx: 1 },
+    { t_ms: calc.SAMPLE_STEP_MS, requests_total: null, requests_2xx: 1 },
   ]);
   red('missing_counter_fields',
     r.ok === false && r.fail_closed === true && r.code === calc.FAIL_CODES.MISSING_SAMPLES);
@@ -328,8 +315,8 @@ ok('C8 future acceptance defined_not_executed only',
 // --- RED: counter reset ---
 {
   const r = calc.deltasFromCounterSamples([
-    { t_ms: 1, requests_total: 100, requests_2xx: 99 },
-    { t_ms: 2, requests_total: 50, requests_2xx: 49 },
+    { t_ms: 0, requests_total: 100, requests_2xx: 99 },
+    { t_ms: calc.SAMPLE_STEP_MS, requests_total: 50, requests_2xx: 49 },
   ]);
   red('counter_reset',
     r.ok === false && r.fail_closed === true && r.code === calc.FAIL_CODES.COUNTER_RESET);
@@ -346,8 +333,8 @@ ok('C8 future acceptance defined_not_executed only',
 }
 {
   const r = calc.deltasFromCounterSamples([
-    { t_ms: 20, requests_total: 1, requests_2xx: 1 },
-    { t_ms: 10, requests_total: 2, requests_2xx: 2 },
+    { t_ms: calc.SAMPLE_STEP_MS * 2, requests_total: 1, requests_2xx: 1 },
+    { t_ms: calc.SAMPLE_STEP_MS, requests_total: 2, requests_2xx: 2 },
   ]);
   red('out_of_order_decreasing_ts',
     r.ok === false && r.fail_closed === true && r.code === calc.FAIL_CODES.OUT_OF_ORDER);
@@ -360,77 +347,161 @@ ok('C8 future acceptance defined_not_executed only',
     r.ok === false && r.fail_closed === true && r.code === calc.FAIL_CODES.ZERO_TRAFFIC);
 }
 
-// --- RED: sparse / insufficient coverage ---
+// --- RED: 5-minute fragment (not exact PT7D) ---
 {
-  // 2 samples spanning 7d with PT5M step → expected huge, coverage tiny
-  const samples = [
-    {
-      t_ms: 0,
-      requests_total: 0,
-      requests_2xx: 0,
-    },
-    {
-      t_ms: calc.SLO_WINDOW_MS,
-      requests_total: 200,
-      requests_2xx: 200,
-      latency_histogram: { le_ms: [500, 1000], counts: [200, 200] },
-    },
-  ];
+  const samples = buildSeries({ steps: 1, per_step_total: 200, per_step_2xx: 200 });
   const r = calc.evaluateReadinessWindow({
     samples,
     min_sample_coverage: 0.5,
     min_requests: 100,
   });
-  red('sparse_insufficient_coverage',
+  red('five_minute_fragment_not_exact_pt7d',
     r.ok === false && r.fail_closed === true
-    && r.code === calc.FAIL_CODES.INSUFFICIENT_COVERAGE,
+    && r.code === calc.FAIL_CODES.WINDOW_SPAN_MISMATCH,
     r.ok ? 'unexpected ok' : r.code);
 }
 
-// --- RED: insufficient requests ---
+// --- RED: sparse / insufficient coverage against PT7D ---
 {
-  const samples = buildSeries({
-    steps: 12,
-    per_step_total: 2,
-    per_step_2xx: 2,
+  // Build exact PT7D span but with only endpoints → irregular grain fails first;
+  // use coverage helper directly with NaN-safe path via sparse sample_count.
+  const cov = calc.sampleCoverage(2, calc.SLO_WINDOW_MS, calc.SAMPLE_STEP_MS, 0.5);
+  red('sparse_insufficient_coverage_against_pt7d',
+    cov.ok === false && cov.fail_closed === true
+    && cov.code === calc.FAIL_CODES.INSUFFICIENT_COVERAGE,
+    cov.ok ? 'unexpected ok' : cov.code);
+}
+
+// --- RED: insufficient requests on exact PT7D ---
+{
+  const samples = buildExactPt7dSeries({
+    per_step_total: 0,
+    per_step_2xx: 0,
   });
-  // 24 requests < 100
+  // Force a tiny nonzero delta below min by patching last counters
+  samples[samples.length - 1].requests_total = 50;
+  samples[samples.length - 1].requests_2xx = 50;
   const r = calc.evaluateReadinessWindow({
     samples,
     min_requests: 100,
-    min_sample_coverage: 0.05,
+    min_sample_coverage: 0.5,
   });
   red('insufficient_requests',
     r.ok === false && r.fail_closed === true
     && r.code === calc.FAIL_CODES.INSUFFICIENT_REQUESTS);
 }
 
-// --- RED: percentile misuse ---
+// --- RED: reviewer [400,1000] — histogram API deleted / latency blocked ---
 {
-  const avg = calc.latencySuccessRatioFromHistogram({ average_ms: 40 }, 500, 100);
-  red('percentile_misuse_average_ms',
-    avg.ok === false && avg.fail_closed === true
-    && avg.code === calc.FAIL_CODES.PERCENTILE_MISUSE);
-  const p99 = calc.latencySuccessRatioFromHistogram({ p99_ms: 44 }, 500, 100);
-  red('percentile_misuse_scalar_p99',
-    p99.ok === false && p99.fail_closed === true
-    && p99.code === calc.FAIL_CODES.PERCENTILE_MISUSE);
+  const b = calc.exactBoundaryCases();
+  red('histogram_api_deleted_no_exact_bucket_400_1000',
+    typeof calc.latencySuccessRatioFromHistogram !== 'function'
+    && typeof calc.validateLatencyHistogram !== 'function'
+    && Array.isArray(b.rejected_histogram_le_ms)
+    && b.rejected_histogram_le_ms[0] === 400
+    && b.rejected_histogram_le_ms[1] === 1000
+    && !b.rejected_histogram_le_ms.includes(500)
+    && calc.LATENCY_PERCENTILE_SLI.status === 'blocked'
+    && calc.LATENCY_PERCENTILE_SLI.not_part_of_this_slo === true
+    && calc.LATENCY_PERCENTILE_SLI.aca_duration_histogram === 'nonexistent_not_relied_upon');
+}
+{
+  const samples = buildExactPt7dSeries({ per_step_total: 1, per_step_2xx: 1 });
+  const r = calc.evaluateReadinessWindow({
+    samples,
+    latency_histogram: { le_ms: [400, 1000], counts: [99, 100] },
+    latency_objective_ms: 500,
+  });
+  red('latency_histogram_binding_blocked',
+    r.ok === false && r.fail_closed === true
+    && r.code === calc.FAIL_CODES.LATENCY_SLI_BLOCKED);
 }
 
-// --- RED: invalid / non-cumulative histogram ---
+// --- RED: disjoint marginals — no combined claim ---
 {
-  const r = calc.validateLatencyHistogram({
-    le_ms: [100, 200],
-    counts: [50, 40],
-  }, 50);
-  red('invalid_histogram_non_cumulative',
+  const r = calc.rejectCombinedFromDisjointMarginals(0.99, 0.99, 0.99);
+  red('disjoint_marginals_no_combined_claim',
     r.ok === false && r.fail_closed === true
-    && r.code === calc.FAIL_CODES.INVALID_HISTOGRAM);
+    && r.code === calc.FAIL_CODES.COMBINED_CLAIM_FORBIDDEN);
+}
+{
+  const samples = buildExactPt7dSeries({ per_step_total: 1, per_step_2xx: 1 });
+  const r = calc.evaluateReadinessWindow({
+    samples,
+    combined_target: 0.99,
+  });
+  red('combined_target_option_forbidden',
+    r.ok === false && r.fail_closed === true
+    && r.code === calc.FAIL_CODES.COMBINED_CLAIM_FORBIDDEN);
+}
+
+// --- RED: 55-minute stale baseline ---
+{
+  const step = calc.SAMPLE_STEP_MS;
+  const windowMs = 60 * 60 * 1000; // 1h burn window
+  const end = 10_000_000;
+  const startT = end - windowMs;
+  const staleSkew = 55 * 60 * 1000;
+  // One stale prior (55m early) + regular in-window samples missing startT.
+  const staleSeries = [];
+  staleSeries.push({
+    t_ms: startT - staleSkew,
+    requests_total: 0,
+    requests_2xx: 0,
+  });
+  let sTot = 100;
+  let sOk = 80;
+  for (let tt = startT + step; tt <= end; tt += step) {
+    staleSeries.push({ t_ms: tt, requests_total: sTot, requests_2xx: sOk });
+    sTot += 10;
+    sOk += 8;
+  }
+  const sliced = calc.sliceSamplesForWindow(staleSeries, windowMs, step);
+  red('fifty_five_minute_stale_baseline',
+    sliced.ok === false && sliced.fail_closed === true
+    && sliced.code === calc.FAIL_CODES.STALE_BASELINE,
+    sliced.ok ? 'unexpected ok' : sliced.code);
+}
+
+// --- RED: MAX_SAFE overflow ---
+{
+  const r = calc.deltasFromCounterSamples([
+    { t_ms: 0, requests_total: Number.MAX_SAFE_INTEGER, requests_2xx: 1 },
+    {
+      t_ms: calc.SAMPLE_STEP_MS,
+      requests_total: Number.MAX_SAFE_INTEGER + 1,
+      requests_2xx: 2,
+    },
+  ]);
+  red('max_safe_integer_overflow',
+    r.ok === false && r.fail_closed === true
+    && (r.code === calc.FAIL_CODES.UNSAFE_INTEGER
+      || r.code === calc.FAIL_CODES.INVALID_INPUT),
+    r.ok ? 'unexpected ok' : r.code);
+}
+{
+  const r = calc.availabilitySliFromDeltas(Number.MAX_SAFE_INTEGER + 1, 1);
+  red('max_safe_delta_rejected',
+    r.ok === false && r.fail_closed === true
+    && r.code === calc.FAIL_CODES.UNSAFE_INTEGER);
+}
+
+// --- RED: NaN coverage ---
+{
+  const cov = calc.sampleCoverage(10, NaN, calc.SAMPLE_STEP_MS, 0.5);
+  red('nan_coverage_rejected',
+    cov.ok === false && cov.fail_closed === true
+    && cov.code === calc.FAIL_CODES.INVALID_INPUT);
+}
+{
+  const cov = calc.sampleCoverage(10, calc.SLO_WINDOW_MS, NaN, 0.5);
+  red('nan_step_coverage_rejected',
+    cov.ok === false && cov.fail_closed === true
+    && cov.code === calc.FAIL_CODES.INVALID_INPUT);
 }
 
 // --- RED: overclaim tokens in owned docs ---
 {
-  // Scan prose only — exclude forbidden_claim_tokens inventories that list the phrases.
   const ownedText = [doc, findings].join('\n')
     .replace(/Does\s+\*\*not\*\*[^\n]*/gi, '')
     .replace(/does\s+not\s+[^\n]*/gi, '')
@@ -452,11 +523,13 @@ ok('C8 future acceptance defined_not_executed only',
     /\bload\s+soak\s+proven\b/i,
     /\balert\s+fired\b/i,
     /\bnotification\s+delivered\b/i,
+    /\bp99\s*<=\s*500ms\b/i,
+    /\bcombined\s+SLO\s+proven\b/i,
   ];
   const hits = patterns.filter((re) => re.test(ownedText));
   red('overclaim_tokens_absent_from_owned_docs',
     hits.length === 0,
-    hits.length ? hits.map((r) => String(r)).join(', ') : ownedText.match(/SLO proven|G06 proven|full G06|alert fired/i)?.[0]);
+    hits.length ? hits.map((r) => String(r)).join(', ') : undefined);
 }
 
 // --- GREEN: disposition / score / selection ---
@@ -500,7 +573,9 @@ green('doc_findings_mention_16aj_without_slo_proven',
   /16AJ/i.test(doc)
   && /16AJ/i.test(findings)
   && /source/i.test(doc)
+  && /availability-only|availability only/i.test(doc)
   && /G06.*partial|partial.*G06/i.test(doc)
+  && /blocked/i.test(doc)
   && !/\bG06\s+proven\b/i.test(doc)
   && !/\bcapacity\s+SLO\s+proven\b/i.test(doc)
   && !/\bSLO\s+proven\b/i.test(doc)
@@ -544,6 +619,7 @@ green('informed_by_existing_metrics_not_invented_live',
   /Requests/i.test(JSON.stringify(design.metric_surface_inspected))
   && /statusCodeCategory/i.test(JSON.stringify(design.metric_surface_inspected))
   && /PT5M/i.test(JSON.stringify(design.metric_surface_inspected))
+  && /blocked/i.test(JSON.stringify(design.metric_surface_inspected.latency_percentile_sli))
   && /16AI/i.test(JSON.stringify(contract.informed_by_existing))
   && /does NOT become SLO proof|not SLO/i.test(JSON.stringify(design.metric_surface_inspected))
   && contract.final_controlled_drill.status === 'offline_source_proven');

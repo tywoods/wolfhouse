@@ -4,8 +4,13 @@
  * radar-slice16aj-g06-slo-error-budget — RADAR Slice 16AJ locks.
  *
  * Text/source-only G06 capacity SLO / error-budget contract + pure calculator.
- * Defines finite staging readiness SLI, windows, coverage, targets, burn math,
- * and fail-closed states. Future alert/drill acceptance only.
+ * Availability-only staging readiness SLI from ACA Requests Sum (Azure Monitor
+ * Total aggregation) split by statusCodeCategory. Exact rolling PT7D span,
+ * PT5M grain, error-budget + multi-window burn math, fail-closed states.
+ *
+ * Latency percentile SLI is explicitly blocked pending joint request
+ * telemetry/instrumentation — not part of this SLO. No ACA duration histogram,
+ * p99<=500ms, combined min/intersection, or combined error budget.
  *
  * Does NOT deploy alerts, execute live, mutate scale, claim production / SLO
  * proven / backpressure / autoscale / full G06, or change the score.
@@ -36,20 +41,15 @@ const RESOURCE_GROUPS = Object.freeze([
   'luna-sunset-staging-rg',
 ]);
 
-/** Existing Azure Container Apps metric surface (already used by 16H). */
+/** Implementable Azure Container Apps metric surface (already used by 16H). */
 const METRIC_NAMESPACE = 'Microsoft.App/containerApps';
 const AVAILABILITY_METRIC = 'Requests';
+/** Azure Monitor aggregation name for Sum of request counts. */
 const AVAILABILITY_AGGREGATION = 'Total';
+const AVAILABILITY_AGGREGATION_SEMANTICS = 'sum_of_request_counts';
 const STATUS_DIMENSION = 'statusCodeCategory';
 const STATUS_GOOD = '2xx';
 const STATUS_KNOWN = Object.freeze(['2xx', '3xx', '4xx', '5xx']);
-
-/**
- * Latency histogram input contract. Future binding may use RequestsDuration
- * histogram or drill bucket series; calculator accepts cumulative le_ms/counts
- * only (no live scrape in this slice).
- */
-const LATENCY_INPUT_KIND = 'cumulative_latency_histogram_buckets_ms';
 
 /** Alert cadence already evidenced (not re-proven here). */
 const EXISTING_ALERT_CADENCE = Object.freeze({
@@ -65,12 +65,14 @@ const EXISTING_ALERT_CADENCE = Object.freeze({
 });
 
 const SLI_LOCK = Object.freeze({
-  name: 'staging_staff_api_readiness_capacity',
+  name: 'staging_staff_api_readiness_capacity_availability',
   scope: 'staging_only',
+  kind: 'availability_only',
   availability: Object.freeze({
     metric_namespace: METRIC_NAMESPACE,
     metric_name: AVAILABILITY_METRIC,
     aggregation: AVAILABILITY_AGGREGATION,
+    aggregation_semantics: AVAILABILITY_AGGREGATION_SEMANTICS,
     good_dimension: Object.freeze({
       name: STATUS_DIMENSION,
       value: STATUS_GOOD,
@@ -79,31 +81,31 @@ const SLI_LOCK = Object.freeze({
     formula: 'requests_2xx_delta / requests_total_delta',
     target: calc.AVAILABILITY_TARGET,
   }),
-  latency: Object.freeze({
-    input_kind: LATENCY_INPUT_KIND,
-    objective_ms: calc.LATENCY_OBJECTIVE_MS,
-    success_fraction: calc.LATENCY_SUCCESS_FRACTION,
-    formula: 'histogram_count(le >= objective_ms) / histogram_total',
-  }),
+  latency_percentile_sli: calc.LATENCY_PERCENTILE_SLI,
   combined: Object.freeze({
-    formula: 'min(availability_sli, latency_success_ratio)',
-    target: calc.COMBINED_TARGET,
+    status: 'forbidden',
+    reason: 'disjoint_marginals_cannot_claim_intersection',
   }),
   window: Object.freeze({
     slo_window_ms: calc.SLO_WINDOW_MS,
-    slo_window_label: 'PT7D_finite_staging',
+    slo_window_label: 'PT7D_exact_rolling',
     sample_step_ms: calc.SAMPLE_STEP_MS,
     sample_step_label: 'PT5M',
     min_sample_coverage: calc.MIN_SAMPLE_COVERAGE,
     min_requests: calc.MIN_REQUESTS,
+    coverage_reference: 'PT7D',
+    burn_windows_distinct_from_slo_span: true,
+    baseline_max_skew: 'one_PT5M_grain',
   }),
 });
 
 const ERROR_BUDGET_LOCK = Object.freeze({
-  budget_fraction: 1 - calc.COMBINED_TARGET,
+  kind: 'availability_only',
+  budget_fraction: 1 - calc.AVAILABILITY_TARGET,
   burn_rate_formula: 'bad_rate / budget_fraction',
   budget_consumed_formula: 'burn_rate * (eval_window_ms / slo_window_ms)',
   multi_window_burns: calc.MULTI_WINDOW_BURNS,
+  combined_error_budget: 'forbidden',
 });
 
 const FAIL_CLOSED_STATES = Object.freeze([
@@ -113,8 +115,13 @@ const FAIL_CLOSED_STATES = Object.freeze([
   calc.FAIL_CODES.ZERO_TRAFFIC,
   calc.FAIL_CODES.INSUFFICIENT_COVERAGE,
   calc.FAIL_CODES.INSUFFICIENT_REQUESTS,
-  calc.FAIL_CODES.PERCENTILE_MISUSE,
-  calc.FAIL_CODES.INVALID_HISTOGRAM,
+  calc.FAIL_CODES.INVALID_INPUT,
+  calc.FAIL_CODES.IRREGULAR_GRAIN,
+  calc.FAIL_CODES.STALE_BASELINE,
+  calc.FAIL_CODES.WINDOW_SPAN_MISMATCH,
+  calc.FAIL_CODES.UNSAFE_INTEGER,
+  calc.FAIL_CODES.LATENCY_SLI_BLOCKED,
+  calc.FAIL_CODES.COMBINED_CLAIM_FORBIDDEN,
 ]);
 
 const FUTURE_ALERT_ACCEPTANCE = Object.freeze({
@@ -133,7 +140,7 @@ const FUTURE_DRILL_ACCEPTANCE = Object.freeze({
   status: 'defined_not_executed',
   pass_rule:
     'After approved controlled staging drill (future slice): synthetic or organic '
-    + 'counter/histogram series drive calculator burn pairs to would_fire for at least '
+    + 'Requests counter series drive calculator burn pairs to would_fire for at least '
     + 'one page pair and one ticket pair with fail-closed states exercised; does not '
     + 'claim production, SLO proven, autoscale, backpressure, or full G06',
 });
@@ -162,6 +169,11 @@ const EXPLICITLY_NOT_CLAIMED = Object.freeze([
   'scale_mutation_by_this_slice',
   'deploy_by_this_slice',
   '16AI_latency_as_slo_proof',
+  'aca_duration_histogram',
+  'latency_percentile_sli',
+  'p99_le_500ms',
+  'combined_min_intersection_slo',
+  'combined_error_budget',
 ]);
 
 const FORBIDDEN_CLAIM_TOKENS = Object.freeze([
@@ -177,6 +189,8 @@ const FORBIDDEN_CLAIM_TOKENS = Object.freeze([
   'load soak proven',
   'alert fired',
   'notification delivered',
+  'p99 <= 500ms',
+  'combined SLO proven',
 ]);
 
 const OWNED_RELS = Object.freeze([
@@ -210,10 +224,12 @@ const FINAL_CONTROLLED_DRILL = Object.freeze({
   id: '16AJ_OFFLINE_slo_error_budget_source_contract',
   status: 'offline_source_proven',
   pass_rule:
-    'Pure dependency-free calculator + deterministic RED/GREEN verifier prove exact '
-    + 'availability/latency/combined boundaries, error-budget and multi-window burn '
-    + 'math, and fail-closed missing/reset/out-of-order/zero-traffic/sparse/'
-    + 'percentile-misuse/overclaim paths; future alert/drill acceptance defined_not_'
+    'Pure dependency-free availability-only calculator + deterministic RED/GREEN '
+    + 'verifier prove exact PT7D availability boundaries, error-budget and '
+    + 'multi-window burn math, baseline-within-grain burn slicing, and fail-closed '
+    + 'missing/reset/out-of-order/zero-traffic/sparse/stale-baseline/span-mismatch/'
+    + 'unsafe-integer/NaN/latency-blocked/combined-forbidden/overclaim paths; latency '
+    + 'percentile SLI recorded blocked; future alert/drill acceptance defined_not_'
     + 'executed only; G06 remains partial; proven count remains 0; no live/deploy/'
     + 'scale mutation',
 });
@@ -236,10 +252,10 @@ module.exports = {
   METRIC_NAMESPACE,
   AVAILABILITY_METRIC,
   AVAILABILITY_AGGREGATION,
+  AVAILABILITY_AGGREGATION_SEMANTICS,
   STATUS_DIMENSION,
   STATUS_GOOD,
   STATUS_KNOWN,
-  LATENCY_INPUT_KIND,
   EXISTING_ALERT_CADENCE,
   SLI_LOCK,
   ERROR_BUDGET_LOCK,

@@ -2,7 +2,7 @@
 
 **Master basis (16AJ):** `0994989a3d5d14daa98797fac55083b0c2ea809c`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
-**16AJ progress class:** `source_partial_progress_only` (finite staging readiness SLO/error-budget source contract + pure calculator + offline RED/GREEN; future burn-alert/drill acceptance `defined_not_executed` only — not live SLO proof; G06 remains partial).
+**16AJ progress class:** `source_partial_progress_only` (availability-only finite staging readiness SLO/error-budget source contract + pure calculator + offline RED/GREEN; latency percentile SLI blocked; future burn-alert/drill acceptance `defined_not_executed` only — not live SLO proof; G06 remains partial).
 **16AI progress class (retained):** `partial_live_proven_evidence_only` (successful controlled dual-staging `/readyz` bounded-load drill reconciled; `final_controlled_drill` = `live_proven` for this conservative readiness profile only — not soak; G06 remains partial).
 **16AH progress class (retained):** `source_partial_progress_only` (pinnedLookup Happy Eyeballs `all=true` callback-contract correction + fail-closed pin validation + offline real-TLS production-shaped RED; post-16AG live attempt recorded as `attempted_not_proof`).
 **16AG progress class (retained):** `source_partial_progress_only` (bounded staging `/readyz` load harness + offline verifier; future drill profile `defined_not_executed`).
@@ -24,13 +24,14 @@
 3. Capacity alert firing / notification delivery — **not claimed**.
 4. Load soak / sustained capacity — **not claimed** (16AI proves only the conservative `/readyz` bounded profile).
 5. Autoscaling (rules=null) — **not claimed**.
-6. Capacity SLO / error budget **live** proof — **not claimed** (16AJ defines source contract + calculator only; burn alert/drill acceptance `defined_not_executed`).
-7. Backpressure — **not claimed**.
-8. Absolute/continuous zero downtime / cold-start — **not claimed** (16AD sampling-resolution only).
-9. Human inbox receipt — **not claimed** (organic restart fire closed via 16AC).
-10. Requests 5xx alert firing — **not claimed**.
-11. Production — forbidden.
-12. Raising any gate verdict to `proven`.
+6. Capacity SLO / error budget **live** proof — **not claimed** (16AJ defines availability-only source contract + calculator only; burn alert/drill acceptance `defined_not_executed`).
+7. Latency percentile SLI — **blocked** pending joint request telemetry/instrumentation (not part of 16AJ SLO; no ACA duration histogram / p99≤500ms / combined intersection).
+8. Backpressure — **not claimed**.
+9. Absolute/continuous zero downtime / cold-start — **not claimed** (16AD sampling-resolution only).
+10. Human inbox receipt — **not claimed** (organic restart fire closed via 16AC).
+11. Requests 5xx alert firing — **not claimed**.
+12. Production — forbidden.
+13. Raising any gate verdict to `proven`.
 
 ## Gate progress after 16AJ (truthful)
 
@@ -48,7 +49,7 @@
 
 ## Slice 16AJ
 
-`16AJ_g06_slo_error_budget_source` — text/source-only finite staging readiness SLO/error-budget contract informed by existing Azure Container Apps `Requests`/`statusCodeCategory` metric surface (16H), PT5M/PT15M capacity-alert cadence (16L/16AF), and 16AI conservative `/readyz` observability (not reused as SLO proof). Locks: availability target **99%** (2xx/total), latency objective **500ms** at **99%** histogram success fraction, combined **min(availability, latency)** target **99%**, finite **PT7D** window, **PT5M** grain, min coverage **0.5**, min requests **100**, error-budget fraction **0.01**, multi-window burns **14.4 / 6 / 3 / 1** with AND fire rule, fail-closed missing/reset/out-of-order/zero-traffic/sparse/percentile-misuse. Ships pure dependency-free calculator + deterministic RED/GREEN verifier. Future burn-alert/drill acceptance **`defined_not_executed`** only. Does **not** deploy alerts, execute live, mutate scale, or claim production scope, live SLO compliance, backpressure, or autoscaling. G06 remains **partial**; score unchanged (proven=0 / partial=9 / absent=0).
+`16AJ_g06_slo_error_budget_source` — text/source-only **availability-only** staging readiness SLO/error-budget contract informed by existing Azure Container Apps `Requests` Total (Sum of request counts) / `statusCodeCategory` metric surface (16H), PT5M/PT15M capacity-alert cadence (16L/16AF), and 16AI conservative `/readyz` observability (not reused as SLO proof). Locks: availability target **99%** (2xx/total); **exact rolling PT7D** span with coverage against PT7D; **PT5M** grain; min coverage **0.5**; min requests **100**; error-budget fraction **0.01**; multi-window burns **14.4 / 6 / 3 / 1** with AND fire rule and baseline-within-one-grain slicing; latency percentile SLI **blocked** pending joint request telemetry (not part of this SLO); combined min/intersection and combined error budget **forbidden**. Ships pure dependency-free calculator + deterministic RED/GREEN verifier. Future burn-alert/drill acceptance **`defined_not_executed`** only. Does **not** deploy alerts, execute live, mutate scale, or claim production scope, live SLO compliance, backpressure, autoscaling, soak, ACA duration histograms, p99≤500ms, or raise G06.
 
 ## Slice 16AI
 

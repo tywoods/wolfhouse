@@ -6,7 +6,7 @@
   "progress_class": "source_partial_progress_only",
   "master_basis": "0994989a3d5d14daa98797fac55083b0c2ea809c",
   "branch": "radar/slice-16aj-g06-slo-error-budget-source",
-  "title": "Finite staging readiness SLO / error-budget source contract",
+  "title": "Finite staging readiness availability-only SLO / error-budget source contract",
   "live_deploy": false,
   "live_mutation": false,
   "live_network": false,
@@ -20,14 +20,20 @@
       "namespace": "Microsoft.App/containerApps",
       "metric": "Requests",
       "aggregation": "Total",
+      "aggregation_semantics": "sum_of_request_counts",
       "dimension": "statusCodeCategory",
       "good_value": "2xx",
       "known_values": ["2xx", "3xx", "4xx", "5xx"],
-      "prior_use": "16H tenant Requests 5xx alerts (statusCodeCategory=5xx >=3 PT5M/PT1M)"
+      "prior_use": "16H tenant Requests 5xx alerts (statusCodeCategory=5xx >=3 PT5M/PT1M)",
+      "implementable": true
     },
-    "latency_histogram": {
-      "input_kind": "cumulative_latency_histogram_buckets_ms",
-      "binding_note": "Calculator accepts le_ms[] + cumulative counts[]; future binding may use RequestsDuration histogram or drill buckets. This slice does not scrape live metrics.",
+    "latency_percentile_sli": {
+      "status": "blocked",
+      "reason": "pending_joint_request_telemetry_instrumentation",
+      "not_part_of_this_slo": true,
+      "aca_duration_histogram": "nonexistent_not_relied_upon",
+      "p99_objective_ms": null,
+      "combined_with_availability": "forbidden_disjoint_marginals",
       "not_claimed_from_16ai": "16AI WH/Sunset p50/p95/p99 values prove drill observability only — not SLO compliance"
     },
     "alert_cadence_inspected": {
@@ -37,22 +43,24 @@
     }
   },
   "sli_contract": {
-    "name": "staging_staff_api_readiness_capacity",
+    "name": "staging_staff_api_readiness_capacity_availability",
     "scope": "staging_only",
+    "kind": "availability_only",
     "availability_target": 0.99,
-    "latency_objective_ms": 500,
-    "latency_success_fraction": 0.99,
-    "combined_target": 0.99,
     "slo_window_ms": 604800000,
-    "slo_window_label": "PT7D_finite_staging",
+    "slo_window_label": "PT7D_exact_rolling",
     "sample_step_ms": 300000,
     "sample_step_label": "PT5M",
     "min_sample_coverage": 0.5,
     "min_requests": 100,
+    "coverage_reference": "PT7D",
+    "burn_windows_distinct_from_slo_span": true,
+    "baseline_max_skew": "one_PT5M_grain",
     "availability_formula": "requests_2xx_delta / requests_total_delta",
-    "latency_formula": "histogram_count(le >= objective_ms) / histogram_total",
-    "combined_formula": "min(availability_sli, latency_success_ratio)",
-    "error_budget_fraction": 0.01
+    "error_budget_fraction": 0.01,
+    "latency_percentile_sli": "blocked_not_part_of_this_slo",
+    "combined_formula": "forbidden_disjoint_marginals",
+    "combined_error_budget": "forbidden"
   },
   "multi_window_burns": [
     {
@@ -61,7 +69,8 @@
       "short_ms": 300000,
       "long_ms": 3600000,
       "burn_threshold": 14.4,
-      "fire_rule": "short AND long burn_rate >= threshold"
+      "fire_rule": "short AND long burn_rate >= threshold",
+      "coverage_reference": "declared_burn_window_not_PT7D"
     },
     {
       "id": "page_slow",
@@ -69,7 +78,8 @@
       "short_ms": 1800000,
       "long_ms": 21600000,
       "burn_threshold": 6,
-      "fire_rule": "short AND long burn_rate >= threshold"
+      "fire_rule": "short AND long burn_rate >= threshold",
+      "coverage_reference": "declared_burn_window_not_PT7D"
     },
     {
       "id": "ticket_fast",
@@ -77,7 +87,8 @@
       "short_ms": 7200000,
       "long_ms": 86400000,
       "burn_threshold": 3,
-      "fire_rule": "short AND long burn_rate >= threshold"
+      "fire_rule": "short AND long burn_rate >= threshold",
+      "coverage_reference": "declared_burn_window_not_PT7D"
     },
     {
       "id": "ticket_slow",
@@ -85,18 +96,24 @@
       "short_ms": 21600000,
       "long_ms": 259200000,
       "burn_threshold": 1,
-      "fire_rule": "short AND long burn_rate >= threshold"
+      "fire_rule": "short AND long burn_rate >= threshold",
+      "coverage_reference": "declared_burn_window_not_PT7D"
     }
   ],
   "fail_closed_states": {
-    "missing_samples": "null/undefined counters, <2 samples, or missing latency histogram",
+    "missing_samples": "null/undefined counters or <2 samples",
     "counter_reset": "requests_total or requests_2xx decreases between ordered samples",
     "out_of_order": "sample t_ms not strictly increasing",
-    "zero_traffic_insufficient_coverage": "request delta or histogram total is zero — never claim SLO met",
-    "insufficient_sample_coverage": "present/expected PT5M slots < min_sample_coverage",
+    "zero_traffic_insufficient_coverage": "request delta is zero — never claim SLO met",
+    "insufficient_sample_coverage": "present/expected slots < min_sample_coverage (PT7D for readiness; declared burn window for burns)",
     "insufficient_requests": "request delta < min_requests",
-    "percentile_misuse": "average_ms or scalar p99_ms without cumulative histogram",
-    "invalid_histogram": "non-cumulative, mismatched lengths, or final count != total"
+    "invalid_input": "non-finite or out-of-range options",
+    "irregular_or_gapped_grain": "consecutive sample deltas != PT5M",
+    "stale_baseline": "baseline more than one PT5M grain before window start",
+    "window_span_mismatch": "computed delta interval does not match declared window (exact PT7D for readiness)",
+    "unsafe_integer": "counters/timestamps not nonnegative Number.isSafeInteger; overflow rejected",
+    "latency_sli_blocked": "any latency histogram/p99/average binding rejected",
+    "combined_claim_forbidden": "combined min/intersection or disjoint-marginals joint claim rejected"
   },
   "future_acceptance_only": {
     "alert": {
@@ -125,6 +142,11 @@
     "backpressure",
     "production",
     "full_G06_proven",
-    "16AI_latency_as_slo_proof"
+    "16AI_latency_as_slo_proof",
+    "aca_duration_histogram",
+    "latency_percentile_sli",
+    "p99_le_500ms",
+    "combined_min_intersection_slo",
+    "combined_error_budget"
   ]
 }
