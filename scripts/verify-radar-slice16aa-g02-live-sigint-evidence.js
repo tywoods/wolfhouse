@@ -11,10 +11,13 @@
  * Rejects wrong SHA/digest/revision/replica/LAW timestamps, duplicate/missing
  * completion, non-ok pool/server, non-SIGINT signal, secret fields,
  * missing exact command provenance, treating exit 137 as application failure,
- * claimed concurrent restart continuity, unbounded/revision-lifetime
- * exactly-one LAW cardinality, missing other-record disclosure,
- * drill records outside declared windows, interior-overlapping windows,
- * other records relabelled as drill completions, and G02 proven overclaims.
+ * claiming exit 137 proves application/Node native exit status, shell code,
+ * signal encoding, or ACA restart reason, claimed concurrent restart continuity,
+ * unbounded/revision-lifetime exactly-one LAW cardinality, missing other-record
+ * disclosure, drill records outside declared windows, interior-overlapping
+ * windows, other records relabelled as drill completions, and G02 proven
+ * overclaims. Exit 137 is transport/process-termination disconnect only; LAW
+ * (not 137) owns SIGINT + pool/server cleanup evidence.
  * No Azure mutation.
  */
 
@@ -177,10 +180,13 @@ function buildClassATenant(kind) {
       disconnect: {
         class: locks.EXEC_DISCONNECT_CLASS,
         exit_code: locks.EXEC_EXIT_CODE,
+        semantics: locks.EXEC_DISCONNECT_SEMANTICS,
         treated_as_application_failure: false,
-        note: 'Exec session disconnected after PID 1 termination; ClusterExecFailure exit 137 is expected process-termination disconnect, not application failure',
+        proves: locks.EXEC_DISCONNECT_PROVES,
+        does_not_prove: [...locks.EXEC_DISCONNECT_DOES_NOT_PROVE],
+        note: locks.EXEC_DISCONNECT_NOTE,
       },
-      note: 'Operator az containerapp exec into exact target replica then kill -INT 1; transcript-derived only, not Azure-reconstructible',
+      note: 'Operator az containerapp exec into exact target replica then kill -INT 1; ClusterExecFailure exit 137 is az containerapp exec transport/process-termination disconnect only (not app/Node native exit, shell code, signal encoding, or ACA restart reason); transcript-derived only, not Azure-reconstructible',
     },
     post_drill_recovery: {
       source_type: locks.SOURCE_TYPE_A,
@@ -292,6 +298,7 @@ function buildExpectedEvidence() {
     law_cardinality_reverify_utc: locks.LAW_CARDINALITY_REVERIFY_UTC,
     provenance_limitations: locks.PROVENANCE_LIMITATIONS,
     non_recoverability: locks.NON_RECOVERABILITY,
+    claim_ownership: JSON.parse(JSON.stringify(locks.CLAIM_OWNERSHIP)),
     observed_facts: {
       A_operator_observed_drill_transcript: {
         source_type: locks.SOURCE_TYPE_A,
@@ -300,7 +307,7 @@ function buildExpectedEvidence() {
         covers: [
           'operator_az_containerapp_exec_kill_int_1',
           'exact_replica_targets',
-          'cluster_exec_failure_exit_137_disconnect',
+          'cluster_exec_failure_exit_137_transport_process_termination_disconnect',
           'post_drill_public_readyz_200',
         ],
         explicitly_not_covered: [
@@ -308,6 +315,11 @@ function buildExpectedEvidence() {
           'zero_downtime_during_restart',
           'serving_revision_readyz_503_body_path',
           'exit_137_as_application_failure',
+          'exit_137_proves_application_native_exit_status',
+          'exit_137_proves_node_process_exit_status',
+          'exit_137_proves_shell_exit_code',
+          'exit_137_proves_signal_encoding',
+          'exit_137_proves_aca_restart_reason',
         ],
         wolfhouse: buildClassATenant('wolfhouse'),
         sunset: buildClassATenant('sunset'),
@@ -345,10 +357,11 @@ function buildExpectedEvidence() {
       proves: [
         'dual_staging_sigint_cleanup_telemetry_law_exactly_one_each_in_declared_drill_query_window',
         'allowlisted_completion_sigint_pool_ok_server_ok_empty_failures',
+        'law_not_exit_137_owns_sigint_pool_server_cleanup_evidence',
         'post_drill_recovery_readyz_200_both_tenants',
         'exact_sha_95dc363_digests_revisions_replicas_healthy_serving',
         'other_revision_lifetime_records_disclosed_revision_lifetime_not_one',
-        'exit_137_expected_exec_disconnect_not_app_failure',
+        'exit_137_az_exec_transport_disconnect_only_not_app_exit_or_aca_reason',
       ],
       does_not_prove: [...locks.EXPLICITLY_NOT_CLAIMED],
       g02_verdict: 'partial',
@@ -487,6 +500,14 @@ function validateProvenanceSplit(ev) {
   if (!/cannot recreate|not Azure-reconstructible|cannot.*replay/i.test(String(ev.non_recoverability || ''))) {
     errors.push('non_recoverability must deny Azure recreation of historical facts');
   }
+  if (!/transport\/process-termination disconnect/i.test(String(ev.provenance_limitations || ''))) {
+    errors.push('provenance_limitations must state exit 137 is transport/process-termination disconnect only');
+  }
+  if (!/Independent LAW allowlisted record/i.test(String(ev.provenance_limitations || ''))) {
+    errors.push('provenance_limitations must assign SIGINT cleanup evidence to LAW not 137');
+  }
+  const co = claimOwnershipOk(ev);
+  if (!co.ok) errors.push(`claim_ownership: ${co.detail}`);
   const a = facts.A_operator_observed_drill_transcript;
   const b = facts.B_independently_recoverable_azure_readonly;
   if (a) {
@@ -527,6 +548,12 @@ function validateGateMatrix(matrix) {
     if (g02.progress_class !== 'partial_live_proven') errors.push('G02 progress_class wrong');
     if (!/16AA|SIGINT|LAW/i.test(String(g02.rationale || ''))) {
       errors.push('G02 rationale missing 16AA/SIGINT/LAW facts');
+    }
+    if (!/transport\/process-termination disconnect/i.test(String(g02.rationale || ''))) {
+      errors.push('G02 rationale missing exit137 transport/process-termination disconnect semantics');
+    }
+    if (!/not 137|Independent LAW allowlisted record/i.test(String(g02.rationale || ''))) {
+      errors.push('G02 rationale missing LAW-not-137 SIGINT cleanup ownership');
     }
     if (!/drill.?query.?window|bounded.?drill|query.?window|12:08:00/i.test(String(g02.rationale || ''))) {
       errors.push('G02 rationale missing bounded drill query window cardinality');
@@ -630,8 +657,25 @@ function commandProvenanceOk(tenant, expectedReplica, expectedRevision) {
     return { ok: false, detail: 'disconnect class' };
   }
   if (d.exit_code !== locks.EXEC_EXIT_CODE) return { ok: false, detail: `exit_code=${d.exit_code}` };
+  if (d.semantics !== locks.EXEC_DISCONNECT_SEMANTICS) {
+    return { ok: false, detail: 'disconnect semantics' };
+  }
+  if (d.proves !== locks.EXEC_DISCONNECT_PROVES) {
+    return { ok: false, detail: 'disconnect proves' };
+  }
+  if (!Array.isArray(d.does_not_prove)
+    || d.does_not_prove.length !== locks.EXEC_DISCONNECT_DOES_NOT_PROVE.length
+    || locks.EXEC_DISCONNECT_DOES_NOT_PROVE.some((k) => !d.does_not_prove.includes(k))) {
+    return { ok: false, detail: 'disconnect does_not_prove incomplete' };
+  }
   if (d.treated_as_application_failure !== false) {
     return { ok: false, detail: 'exit 137 treated as application failure' };
+  }
+  if (d.note !== locks.EXEC_DISCONNECT_NOTE) {
+    return { ok: false, detail: 'disconnect note mismatch' };
+  }
+  if (exit137OverclaimText(d.note) || exit137OverclaimText(exec.note || '')) {
+    return { ok: false, detail: 'exit 137 overclaim text in disconnect/exec note' };
   }
   const recovery = tenant.post_drill_recovery;
   if (!recovery || recovery.public_readyz !== 200) {
@@ -748,8 +792,104 @@ function lawCardinalityContractOk(ev) {
   }
   if (!ev.explicitly_not_claimed.includes('revision_lifetime_exactly_one_sigint_completion')
     || !ev.explicitly_not_claimed.includes('unbounded_law_cardinality_exactly_one')
-    || !ev.explicitly_not_claimed.includes('exit_137_as_application_failure')) {
+    || !ev.explicitly_not_claimed.includes('exit_137_as_application_failure')
+    || !ev.explicitly_not_claimed.includes('exit_137_proves_application_native_exit_status')
+    || !ev.explicitly_not_claimed.includes('exit_137_proves_node_process_exit_status')
+    || !ev.explicitly_not_claimed.includes('exit_137_proves_shell_exit_code')
+    || !ev.explicitly_not_claimed.includes('exit_137_proves_signal_encoding')
+    || !ev.explicitly_not_claimed.includes('exit_137_proves_aca_restart_reason')) {
     return { ok: false, detail: 'missing cardinality/exit137 exclusions' };
+  }
+  return { ok: true };
+}
+
+function exit137OverclaimText(text) {
+  const s = String(text || '');
+  const patterns = [
+    /exit\s*137\s+(proves|is\s+proof\s+of|means|equals|encodes)\s+(the\s+)?(application|app|node|native)\s+(exit|status|code)/i,
+    /exit\s*137\s+(proves|is\s+proof\s+of).{0,80}(native\s+exit|signal\s+encoding|shell\s+(exit\s+)?code|aca\s+restart\s+reason|node\s+(process\s+)?(exit|status))/i,
+    /exit\s*137\s+(is|was|equals|constitutes)\s+(an?\s+)?(application|app)\s+failure\b/i,
+    /exit\s*137\s+(proves|is\s+proof\s+of).{0,60}(native\s+signal\s+exit|signal\s+exit\s+semantics)/i,
+    /ClusterExecFailure.{0,40}exit\s*137.{0,60}(proves|is\s+proof\s+of).{0,40}(restart\s+reason|native\s+exit|shell\s+code|node\s+status|application\s+exit)/i,
+    /treating\s+ClusterExecFailure\s+exit\s*137\s+as\s+application\s+failure\s+is\s+correct/i,
+  ];
+  return patterns.some((re) => re.test(s));
+}
+
+function claimOwnershipOk(ev) {
+  const co = ev && ev.claim_ownership;
+  if (!co || typeof co !== 'object') return { ok: false, detail: 'missing claim_ownership' };
+  const expected = locks.CLAIM_OWNERSHIP;
+  const e137 = co.exit_137_cluster_exec_failure;
+  const law = co.law_allowlisted_sigint_completion;
+  if (!e137 || !law) return { ok: false, detail: 'claim_ownership keys' };
+  if (e137.owner_class !== expected.exit_137_cluster_exec_failure.owner_class) {
+    return { ok: false, detail: 'exit137 owner_class' };
+  }
+  if (e137.proves !== expected.exit_137_cluster_exec_failure.proves) {
+    return { ok: false, detail: 'exit137 proves' };
+  }
+  if (e137.semantics !== expected.exit_137_cluster_exec_failure.semantics) {
+    return { ok: false, detail: 'exit137 semantics' };
+  }
+  if (!Array.isArray(e137.does_not_prove)
+    || expected.exit_137_cluster_exec_failure.does_not_prove.some((k) => !e137.does_not_prove.includes(k))) {
+    return { ok: false, detail: 'exit137 does_not_prove' };
+  }
+  if (law.owner_class !== expected.law_allowlisted_sigint_completion.owner_class) {
+    return { ok: false, detail: 'law owner_class' };
+  }
+  if (law.does_not_derive_from !== 'exit_137') {
+    return { ok: false, detail: 'law must not derive from exit_137' };
+  }
+  if (!Array.isArray(law.proves)
+    || !law.proves.includes('lifecycle_received_original_signal_SIGINT')
+    || !law.proves.includes('pool_close_result_ok')
+    || !law.proves.includes('server_close_result_ok')) {
+    return { ok: false, detail: 'law proves incomplete' };
+  }
+  if (exit137OverclaimText(e137.limitation) || exit137OverclaimText(law.limitation)) {
+    return { ok: false, detail: 'claim_ownership overclaim text' };
+  }
+  if (!/transport\/process-termination disconnect/i.test(String(e137.limitation || ''))) {
+    return { ok: false, detail: 'exit137 limitation missing transport wording' };
+  }
+  if (!/not\s+137|not ClusterExecFailure exit 137/i.test(String(law.limitation || ''))) {
+    return { ok: false, detail: 'law limitation must say not 137' };
+  }
+  return { ok: true };
+}
+
+function exit137ProvenanceOk(ev) {
+  const co = claimOwnershipOk(ev);
+  if (!co.ok) return co;
+  if (!/transport\/process-termination disconnect/i.test(String(ev.provenance_limitations || ''))) {
+    return { ok: false, detail: 'provenance_limitations missing transport wording' };
+  }
+  if (!/not proof of the application or Node process exact native exit status/i.test(
+    String(ev.provenance_limitations || ''),
+  )) {
+    return { ok: false, detail: 'provenance_limitations missing native-exit exclusion' };
+  }
+  if (!/Independent LAW allowlisted record/i.test(String(ev.provenance_limitations || ''))) {
+    return { ok: false, detail: 'provenance_limitations missing LAW ownership' };
+  }
+  for (const kind of ['wolfhouse', 'sunset']) {
+    const cmd = commandProvenanceOk(
+      classATenant(ev, kind),
+      kind === 'wolfhouse' ? locks.WH_REPLICA : locks.SUNSET_REPLICA,
+      kind === 'wolfhouse' ? locks.WH_REVISION : locks.SUNSET_REVISION,
+    );
+    if (!cmd.ok) return { ok: false, detail: `${kind} ${cmd.detail}` };
+  }
+  if (!ev.claims_allowed.includes('exit_137_az_exec_transport_disconnect_only_not_app_exit_or_aca_reason')
+    || !ev.claims_allowed.includes('law_not_exit_137_owns_sigint_pool_server_cleanup_evidence')) {
+    return { ok: false, detail: 'missing exit137/LAW claim ownership tokens' };
+  }
+  if (ev.claims_allowed.includes('exit_137_proves_aca_restart_reason')
+    || ev.claims_allowed.includes('exit_137_proves_application_native_exit_status')
+    || ev.disposition.proves.includes('exit_137_proves_node_process_exit_status')) {
+    return { ok: false, detail: 'forbidden exit137 prove claims present' };
   }
   return { ok: true };
 }
@@ -845,8 +985,13 @@ function runVerifier() {
   {
     const whCmd = commandProvenanceOk(classATenant(evidence, 'wolfhouse'), locks.WH_REPLICA, locks.WH_REVISION);
     const suCmd = commandProvenanceOk(classATenant(evidence, 'sunset'), locks.SUNSET_REPLICA, locks.SUNSET_REVISION);
-    ok('C7 exact command provenance + replicas + exit137 not app failure',
+    ok('C7 exact command provenance + replicas + exit137 transport-only',
       whCmd.ok && suCmd.ok, `${whCmd.detail || ''} | ${suCmd.detail || ''}`);
+  }
+
+  {
+    const e137 = exit137ProvenanceOk(evidence);
+    ok('C7b exit137 claim ownership + LAW-not-137 SIGINT cleanup ownership', e137.ok, e137.detail);
   }
 
   {
@@ -881,14 +1026,20 @@ function runVerifier() {
     && /12:08:00|drill.?query.?window|bounded/i.test(doc)
     && /other|revision.?lifetime|11:16:20/i.test(doc)
     && /exit\s*137|ClusterExecFailure/i.test(doc)
-    && !/\bG02\s+proven\b/i.test(doc));
+    && /transport\/process-termination disconnect/i.test(doc)
+    && /not proof of.{0,80}(native exit|Node process|shell code|signal encoding|ACA restart reason)/i.test(doc)
+    && /Independent LAW allowlisted record|LAW allowlisted record.{0,40}not 137/i.test(doc)
+    && !/\bG02\s+proven\b/i.test(doc)
+    && !exit137OverclaimText(doc));
 
   ok('C13 findings mention 16AA without proven overclaim',
     /16AA/.test(findings)
     && /SIGINT|sigint/i.test(findings)
     && /partial/i.test(findings)
     && /12:08:00|drill.?query.?window|cardinality/i.test(findings)
-    && !/\bG02\s+proven\b/i.test(findings));
+    && /transport\/process-termination disconnect|transport.?disconnect/i.test(findings)
+    && !/\bG02\s+proven\b/i.test(findings)
+    && !exit137OverclaimText(findings));
 
   {
     const rt = runtimePathsUnchanged();
@@ -922,7 +1073,14 @@ function runVerifier() {
     && evidence.disposition.does_not_prove.includes('production')
     && evidence.disposition.does_not_prove.includes('full_G02_proven')
     && evidence.disposition.does_not_prove.includes('concurrent_restart_continuity')
-    && evidence.disposition.does_not_prove.includes('exit_137_as_application_failure'));
+    && evidence.disposition.does_not_prove.includes('exit_137_as_application_failure')
+    && evidence.disposition.does_not_prove.includes('exit_137_proves_application_native_exit_status')
+    && evidence.disposition.does_not_prove.includes('exit_137_proves_node_process_exit_status')
+    && evidence.disposition.does_not_prove.includes('exit_137_proves_shell_exit_code')
+    && evidence.disposition.does_not_prove.includes('exit_137_proves_signal_encoding')
+    && evidence.disposition.does_not_prove.includes('exit_137_proves_aca_restart_reason')
+    && evidence.disposition.proves.includes('law_not_exit_137_owns_sigint_pool_server_cleanup_evidence')
+    && evidence.disposition.proves.includes('exit_137_az_exec_transport_disconnect_only_not_app_exit_or_aca_reason'));
 
   green('law_completions_exact_both_tenants',
     lawCardinalityContractOk(evidence).ok
@@ -1030,6 +1188,63 @@ function runVerifier() {
   }
   {
     const bad = deepClone(evidence);
+    bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.operator_sigint_exec.disconnect
+      .note = 'ClusterExecFailure exit 137 proves application exit code/status 137';
+    bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.operator_sigint_exec.disconnect
+      .proves = 'application_native_exit_status';
+    red('exit137_proves_app_exit_status_rejected',
+      !validateEvidenceExact(bad).ok
+      || !commandProvenanceOk(classATenant(bad, 'wolfhouse'), locks.WH_REPLICA, locks.WH_REVISION).ok
+      || exit137OverclaimText(
+        bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.operator_sigint_exec.disconnect.note,
+      )
+      || !exit137ProvenanceOk(bad).ok);
+  }
+  {
+    const bad = deepClone(evidence);
+    bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.operator_sigint_exec.disconnect
+      .note = 'exit 137 proves native signal exit semantics for SIGINT';
+    bad.claim_ownership.exit_137_cluster_exec_failure.does_not_prove =
+      bad.claim_ownership.exit_137_cluster_exec_failure.does_not_prove
+        .filter((x) => x !== 'signal_encoding');
+    red('exit137_proves_native_signal_exit_rejected',
+      !validateEvidenceExact(bad).ok
+      || exit137OverclaimText(
+        bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.operator_sigint_exec.disconnect.note,
+      )
+      || !claimOwnershipOk(bad).ok);
+  }
+  {
+    const bad = deepClone(evidence);
+    bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.operator_sigint_exec.disconnect
+      .note = 'exit 137 proves Node process exit status';
+    bad.disposition.proves.push('exit_137_proves_node_process_exit_status');
+    bad.explicitly_not_claimed = bad.explicitly_not_claimed
+      .filter((x) => x !== 'exit_137_proves_node_process_exit_status');
+    red('exit137_proves_node_status_rejected',
+      !validateEvidenceExact(bad).ok
+      || exit137OverclaimText(
+        bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.operator_sigint_exec.disconnect.note,
+      )
+      || !exit137ProvenanceOk(bad).ok
+      || !lawCardinalityContractOk(bad).ok);
+  }
+  {
+    const bad = deepClone(evidence);
+    bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.operator_sigint_exec.disconnect
+      .note = 'ClusterExecFailure exit 137 proves ACA restart reason';
+    bad.claims_allowed = [...bad.claims_allowed, 'exit_137_proves_aca_restart_reason'];
+    bad.claim_ownership.exit_137_cluster_exec_failure.proves = 'aca_restart_reason';
+    red('exit137_proves_aca_restart_reason_rejected',
+      !validateEvidenceExact(bad).ok
+      || exit137OverclaimText(
+        bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.operator_sigint_exec.disconnect.note,
+      )
+      || !exit137ProvenanceOk(bad).ok
+      || !claimOwnershipOk(bad).ok);
+  }
+  {
+    const bad = deepClone(evidence);
     bad.observed_facts.A_operator_observed_drill_transcript.covers.push('concurrent_restart_continuity');
     bad.observed_facts.A_operator_observed_drill_transcript.explicitly_not_covered =
       bad.observed_facts.A_operator_observed_drill_transcript.explicitly_not_covered
@@ -1086,6 +1301,10 @@ function runVerifier() {
     'unbounded_cardinality_rejected',
     'missing_command_provenance_rejected',
     'exit137_as_app_failure_rejected',
+    'exit137_proves_app_exit_status_rejected',
+    'exit137_proves_native_signal_exit_rejected',
+    'exit137_proves_node_status_rejected',
+    'exit137_proves_aca_restart_reason_rejected',
     'concurrent_continuity_claim_rejected',
     'secret_fields_rejected',
     'overclaim_g02_proven_rejected',

@@ -14,16 +14,23 @@ Reconcile the completed dual-staging **live SIGINT lifecycle drill** with mandat
 
 | Class | Source | Covers |
 |-------|--------|--------|
-| **A** | Operator drill transcript (contemporaneous) | `az containerapp exec` into exact replicas WH `wh-staging-staff-api--0000519-7f6f87fbcc-fbqwq` / Sunset `luna-sunset-staging-staff-api--0000279-dbb57db7-zzx8n`; command `kill -INT 1`; ClusterExecFailure **exit 137** disconnect (expected after process termination — **not** application failure); post-drill public `/readyz=200` both |
-| **B** | Independently reverified Azure/ACR @ `2026-07-21T12:10:51Z`; LAW cardinality reverify @ `2026-07-21T12:11:18Z` | Digests WH `sha256:a9677f75…` rev `--0000519` / Sunset `sha256:8a0b1647…` rev `--0000279` on image SHA `95dc363`; **bounded inclusive drill query windows** — WH `12:08:00Z→12:09:00Z` exactly one completion `12:08:28.6734879Z`; Sunset `12:09:00Z→12:10:00Z` exactly one `12:09:25.9915987Z`; allowlisted JSON SIGINT/pool ok/server ok/`failures []`/`completion true`; other revision-lifetime records disclosed (WH SIGTERM `11:16:20.3631884Z`, `11:24:48.5525367Z`, `11:47:54.2072273Z`, `12:00:48.8352797Z`; Sunset SIGTERM `11:18:04.1610218Z`) — revision-lifetime count **not** one and may grow; probes; public-current healthz/readyz 200 |
+| **A** | Operator drill transcript (contemporaneous) | `az containerapp exec` into exact replicas WH `wh-staging-staff-api--0000519-7f6f87fbcc-fbqwq` / Sunset `luna-sunset-staging-staff-api--0000279-dbb57db7-zzx8n`; command `kill -INT 1`; ClusterExecFailure **exit 137** = **az containerapp exec transport/process-termination disconnect only** (not an application failure; not proof of application or Node process exact native exit status, shell code, signal encoding, or ACA restart reason); post-drill public `/readyz=200` both |
+| **B** | Independently reverified Azure/ACR @ `2026-07-21T12:10:51Z`; LAW cardinality reverify @ `2026-07-21T12:11:18Z` | Digests WH `sha256:a9677f75…` rev `--0000519` / Sunset `sha256:8a0b1647…` rev `--0000279` on image SHA `95dc363`; **bounded inclusive drill query windows** — WH `12:08:00Z→12:09:00Z` exactly one completion `12:08:28.6734879Z`; Sunset `12:09:00Z→12:10:00Z` exactly one `12:09:25.9915987Z`; allowlisted JSON SIGINT/pool ok/server ok/`failures []`/`completion true`; **Independent LAW allowlisted record — not 137 — is evidence the lifecycle received original_signal SIGINT and completed pool/server cleanup**; other revision-lifetime records disclosed (WH SIGTERM `11:16:20.3631884Z`, `11:24:48.5525367Z`, `11:47:54.2072273Z`, `12:00:48.8352797Z`; Sunset SIGTERM `11:18:04.1610218Z`) — revision-lifetime count **not** one and may grow; probes; public-current healthz/readyz 200 |
 
-**Explicitly not covered by A:** concurrent restart continuity; zero downtime during restart; treating exit 137 as application failure.
+**Explicitly not covered by A:** concurrent restart continuity; zero downtime during restart; treating exit 137 as application failure; any overclaim that exit 137 encodes application/Node native exit status, shell code, signal encoding, or ACA restart reason.
+
+### Exit-137 claim ownership (locked)
+
+| Observation | Owner | Proves | Does not prove |
+|-------------|-------|--------|----------------|
+| ClusterExecFailure exit 137 | Class A transcript | az containerapp exec transport/process-termination disconnect only | application failure; application/Node exact native exit status; shell code; signal encoding; ACA restart reason |
+| Allowlisted LAW SIGINT completion | Class B LAW | `original_signal=SIGINT` + pool/server cleanup in declared drill windows | anything derived from exit 137 |
 
 ## Truthful disposition
 
-**Proves (live):** SIGINT cleanup telemetry delivered to LAW (**exactly one** allowlisted completion **in each declared drill query window**) + post-drill recovery `/readyz=200` both staging tenants on exact image SHA `95dc363`.
+**Proves (live):** SIGINT cleanup telemetry delivered to LAW (**exactly one** allowlisted completion **in each declared drill query window**; LAW — not exit 137 — owns this claim) + post-drill recovery `/readyz=200` both staging tenants on exact image SHA `95dc363` + exit 137 as transport/process-termination disconnect observation only.
 
-**Does not prove:** serving-revision `/readyz=503`; zero downtime during restart / concurrent restart continuity; organic metric alerts; human inbox; production; **full G02**; unqualified revision-lifetime exactly-one LAW cardinality.
+**Does not prove:** serving-revision `/readyz=503`; zero downtime during restart / concurrent restart continuity; organic metric alerts; human inbox; production; **full G02**; unqualified revision-lifetime exactly-one LAW cardinality; application/Node native exit status, shell code, signal encoding, or ACA restart reason from exit 137.
 
 **G02 verdict stays `partial`.** 16Z SIGTERM, 16X traffic-shed, and 16Y completion-log source retained.
 

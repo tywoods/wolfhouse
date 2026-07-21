@@ -6,19 +6,29 @@
  * Evidence-only reconciliation of completed dual-staging live SIGINT lifecycle
  * drill @ master fd333b22. No live mutation. Provenance split:
  *   (A) operator-observed drill transcript contemporaneous facts
- *       (az containerapp exec → kill -INT 1; ClusterExecFailure exit 137;
- *        post-drill public /readyz=200)
+ *       (az containerapp exec → kill -INT 1; ClusterExecFailure exit 137
+ *        transport/process-termination disconnect only; post-drill /readyz=200)
  *   (B) independently recoverable Azure/ACR/LAW read-only facts
  *
  * LAW cardinality is locked to exactly one allowlisted SIGINT completion in each
  * declared bounded inclusive drill query window — not revision-lifetime
  * exactly-one (both tenants have other revision-lifetime records disclosed).
  *
- * Proves: live SIGINT cleanup telemetry in drill windows + post-drill recovery.
+ * Claim ownership (exit 137 vs LAW):
+ *   - ClusterExecFailure exit 137 is ONLY az containerapp exec
+ *     transport/process-termination disconnect evidence.
+ *   - Exit 137 is not an application failure and is not proof of application or
+ *     Node process exact native exit status, shell code, signal encoding, or
+ *     ACA restart reason.
+ *   - The independent LAW allowlisted record — not 137 — is evidence the
+ *     lifecycle received original_signal SIGINT and completed pool/server cleanup.
+ *
+ * Proves: live SIGINT cleanup telemetry in drill windows (via LAW) + post-drill
+ * recovery + exit-137 transport disconnect observation.
  * Does not prove: serving /readyz=503, zero-downtime during restart,
  * concurrent restart continuity, organic alerts, production, full G02,
- * unqualified revision-lifetime exactly-one LAW cardinality.
- * Exit 137 is expected exec disconnect after process termination — not app failure.
+ * unqualified revision-lifetime exactly-one LAW cardinality, or any native
+ * exit/signal/ACA-restart semantics from exit 137.
  */
 
 const path = require('path');
@@ -108,6 +118,23 @@ const EXEC_COMMAND_ARGV = Object.freeze(['kill', '-INT', '1']);
 const EXEC_DISCONNECT_CLASS =
   'cluster_exec_failure_exit_137_expected_after_process_termination';
 const EXEC_EXIT_CODE = 137;
+const EXEC_DISCONNECT_SEMANTICS =
+  'az_containerapp_exec_transport_process_termination_disconnect_only';
+const EXEC_DISCONNECT_PROVES =
+  'az_containerapp_exec_transport_process_termination_disconnect';
+const EXEC_DISCONNECT_DOES_NOT_PROVE = Object.freeze([
+  'application_failure',
+  'application_or_node_process_exact_native_exit_status',
+  'shell_exit_code',
+  'signal_encoding',
+  'aca_restart_reason',
+]);
+const EXEC_DISCONNECT_NOTE =
+  'ClusterExecFailure exit 137 is only az containerapp exec transport/process-termination '
+  + 'disconnect evidence; it is not an application failure and not proof of the application '
+  + 'or Node process exact native exit status, shell code, signal encoding, or ACA restart reason. '
+  + 'Independent LAW allowlisted record — not 137 — evidences original_signal SIGINT and '
+  + 'pool/server cleanup completion.';
 
 /** (A) transcript-derived contemporaneous observation. */
 const SOURCE_TYPE_A = 'operator_drill_transcript_contemporaneous_observation';
@@ -197,22 +224,60 @@ const SUNSET_REVISION_LIFETIME_COUNT_AT_REVIEW = 2; // 1 other + 1 drill; not a 
 
 const PROVENANCE_LIMITATIONS =
   'Class A operator az containerapp exec kill -INT 1 command, exact replica targets, '
-  + 'ClusterExecFailure exit 137 disconnect, and post-drill public /readyz=200 are operator-observed '
-  + 'contemporaneous transcript facts. Class B digests/revisions/replicas/probes/public-current are '
-  + 'independently reverified Azure/ACR/public read-only facts at independent_azure_verify_utc; '
-  + 'LAW drill-window cardinality + other revision-lifetime record disclosure are independently '
-  + 'reverified at law_cardinality_reverify_utc via bounded inclusive query windows (adjacent endpoints allowed). '
+  + 'ClusterExecFailure exit 137 (az containerapp exec transport/process-termination disconnect only), '
+  + 'and post-drill public /readyz=200 are operator-observed contemporaneous transcript facts. '
+  + 'Class B digests/revisions/replicas/probes/public-current are independently reverified '
+  + 'Azure/ACR/public read-only facts at independent_azure_verify_utc; LAW drill-window cardinality + '
+  + 'other revision-lifetime record disclosure are independently reverified at '
+  + 'law_cardinality_reverify_utc via bounded inclusive query windows (adjacent endpoints allowed). '
   + 'Unqualified revision-lifetime exactly-one is false (both tenants have other records; counts may grow). '
-  + 'Exit 137 is expected exec disconnect after process termination — not application failure. '
-  + 'Do not treat A as Azure-reconstructible, and do not treat current public probes as authority to '
-  + 'rewrite A historical facts or claim concurrent restart continuity / zero-downtime-during-restart.';
+  + 'ClusterExecFailure exit 137 is only az containerapp exec transport/process-termination disconnect '
+  + 'evidence; it is not an application failure and not proof of the application or Node process exact '
+  + 'native exit status, shell code, signal encoding, or ACA restart reason. The independent LAW '
+  + 'allowlisted record — not 137 — is evidence the lifecycle received original_signal SIGINT and '
+  + 'completed pool/server cleanup. Do not treat A as Azure-reconstructible, and do not treat current '
+  + 'public probes as authority to rewrite A historical facts or claim concurrent restart continuity / '
+  + 'zero-downtime-during-restart.';
 
 const NON_RECOVERABILITY =
   'Azure/ACR/LAW read-only APIs cannot recreate or replay the historical operator exec command, '
-  + 'replica targeting, ClusterExecFailure exit 137 disconnect observation, or post-drill /readyz sample; '
-  + 'those values exist only in the operator drill command transcript. Current public probes and LAW '
-  + 'queries verify present state / stored completion rows only. LAW cardinality claims require declared '
-  + 'bounded query windows; revision-lifetime counts are not frozen and must not be claimed as cardinality.';
+  + 'replica targeting, ClusterExecFailure exit 137 transport/process-termination disconnect observation, '
+  + 'or post-drill /readyz sample; those values exist only in the operator drill command transcript. '
+  + 'Current public probes and LAW queries verify present state / stored completion rows only. '
+  + 'Exit 137 cannot be reconstructed into application/Node native exit status, shell code, signal '
+  + 'encoding, or ACA restart reason. LAW cardinality claims require declared bounded query windows; '
+  + 'revision-lifetime counts are not frozen and must not be claimed as cardinality.';
+
+/** Exact claim ownership: what exit 137 owns vs what LAW owns. */
+const CLAIM_OWNERSHIP = Object.freeze({
+  exit_137_cluster_exec_failure: Object.freeze({
+    owner_class: 'A_operator_observed_drill_transcript',
+    observation: 'ClusterExecFailure_exit_137',
+    proves: EXEC_DISCONNECT_PROVES,
+    semantics: EXEC_DISCONNECT_SEMANTICS,
+    does_not_prove: EXEC_DISCONNECT_DOES_NOT_PROVE,
+    limitation:
+      'ClusterExecFailure exit 137 is only az containerapp exec transport/process-termination '
+      + 'disconnect evidence; not application failure; not proof of application or Node process '
+      + 'exact native exit status, shell code, signal encoding, or ACA restart reason',
+  }),
+  law_allowlisted_sigint_completion: Object.freeze({
+    owner_class: 'B_independently_recoverable_azure_readonly',
+    observation: 'allowlisted_staff_api_readiness_shutdown_completion',
+    proves: Object.freeze([
+      'lifecycle_received_original_signal_SIGINT',
+      'pool_close_result_ok',
+      'server_close_result_ok',
+      'failure_classes_empty',
+      'completion_true',
+      'exactly_one_in_declared_bounded_drill_query_window',
+    ]),
+    does_not_derive_from: 'exit_137',
+    limitation:
+      'Independent LAW allowlisted record — not ClusterExecFailure exit 137 — is evidence the '
+      + 'lifecycle received original_signal SIGINT and completed pool/server cleanup',
+  }),
+});
 
 const WH_TIMELINE_B = Object.freeze({
   acr_tag_created_utc: '2026-07-21T11:11:54.3612271Z',
@@ -242,20 +307,26 @@ const EXPLICITLY_NOT_CLAIMED = Object.freeze([
   'revision_lifetime_exactly_one_sigint_completion',
   'unbounded_law_cardinality_exactly_one',
   'exit_137_as_application_failure',
+  'exit_137_proves_application_native_exit_status',
+  'exit_137_proves_node_process_exit_status',
+  'exit_137_proves_shell_exit_code',
+  'exit_137_proves_signal_encoding',
+  'exit_137_proves_aca_restart_reason',
 ]);
 
 const CLAIMS_ALLOWED = Object.freeze([
   'exact_sha_95dc363_images_digests_both_tenants',
   'revisions_wh_0000519_sunset_0000279_healthy_serving',
   'exact_replicas_wh_fbqwq_sunset_zzx8n',
-  'operator_az_exec_kill_int_1_both_tenants_with_exit_137_disconnect',
+  'operator_az_exec_kill_int_1_both_tenants_with_exit_137_transport_disconnect',
   'law_exactly_one_sigint_completion_each_tenant_in_declared_drill_query_window',
   'allowlisted_completion_json_sigint_pool_ok_server_ok_failures_empty_completion_true',
+  'law_not_exit_137_owns_sigint_pool_server_cleanup_evidence',
   'post_drill_public_readyz_200_both_tenants',
   'public_current_healthz_readyz_200_both_tenants',
   'no_production_scope',
   'other_revision_lifetime_records_disclosed_not_drill_completions',
-  'exit_137_expected_exec_disconnect_not_app_failure',
+  'exit_137_az_exec_transport_disconnect_only_not_app_exit_or_aca_reason',
 ]);
 
 const OWNED_RELS = Object.freeze([
@@ -347,6 +418,11 @@ module.exports = {
   EXEC_COMMAND_ARGV,
   EXEC_DISCONNECT_CLASS,
   EXEC_EXIT_CODE,
+  EXEC_DISCONNECT_SEMANTICS,
+  EXEC_DISCONNECT_PROVES,
+  EXEC_DISCONNECT_DOES_NOT_PROVE,
+  EXEC_DISCONNECT_NOTE,
+  CLAIM_OWNERSHIP,
   SOURCE_TYPE_A,
   SOURCE_REF_A,
   OBSERVED_AT_SEMANTICS_A,

@@ -17,8 +17,38 @@
   "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
   "independent_azure_verify_utc": "2026-07-21T12:10:51Z",
   "law_cardinality_reverify_utc": "2026-07-21T12:11:18Z",
-  "provenance_limitations": "Class A operator az containerapp exec kill -INT 1 command, exact replica targets, ClusterExecFailure exit 137 disconnect, and post-drill public /readyz=200 are operator-observed contemporaneous transcript facts. Class B digests/revisions/replicas/probes/public-current are independently reverified Azure/ACR/public read-only facts at independent_azure_verify_utc; LAW drill-window cardinality + other revision-lifetime record disclosure are independently reverified at law_cardinality_reverify_utc via bounded inclusive query windows (adjacent endpoints allowed). Unqualified revision-lifetime exactly-one is false (both tenants have other records; counts may grow). Exit 137 is expected exec disconnect after process termination — not application failure. Do not treat A as Azure-reconstructible, and do not treat current public probes as authority to rewrite A historical facts or claim concurrent restart continuity / zero-downtime-during-restart.",
-  "non_recoverability": "Azure/ACR/LAW read-only APIs cannot recreate or replay the historical operator exec command, replica targeting, ClusterExecFailure exit 137 disconnect observation, or post-drill /readyz sample; those values exist only in the operator drill command transcript. Current public probes and LAW queries verify present state / stored completion rows only. LAW cardinality claims require declared bounded query windows; revision-lifetime counts are not frozen and must not be claimed as cardinality.",
+  "provenance_limitations": "Class A operator az containerapp exec kill -INT 1 command, exact replica targets, ClusterExecFailure exit 137 (az containerapp exec transport/process-termination disconnect only), and post-drill public /readyz=200 are operator-observed contemporaneous transcript facts. Class B digests/revisions/replicas/probes/public-current are independently reverified Azure/ACR/public read-only facts at independent_azure_verify_utc; LAW drill-window cardinality + other revision-lifetime record disclosure are independently reverified at law_cardinality_reverify_utc via bounded inclusive query windows (adjacent endpoints allowed). Unqualified revision-lifetime exactly-one is false (both tenants have other records; counts may grow). ClusterExecFailure exit 137 is only az containerapp exec transport/process-termination disconnect evidence; it is not an application failure and not proof of the application or Node process exact native exit status, shell code, signal encoding, or ACA restart reason. The independent LAW allowlisted record — not 137 — is evidence the lifecycle received original_signal SIGINT and completed pool/server cleanup. Do not treat A as Azure-reconstructible, and do not treat current public probes as authority to rewrite A historical facts or claim concurrent restart continuity / zero-downtime-during-restart.",
+  "non_recoverability": "Azure/ACR/LAW read-only APIs cannot recreate or replay the historical operator exec command, replica targeting, ClusterExecFailure exit 137 transport/process-termination disconnect observation, or post-drill /readyz sample; those values exist only in the operator drill command transcript. Current public probes and LAW queries verify present state / stored completion rows only. Exit 137 cannot be reconstructed into application/Node native exit status, shell code, signal encoding, or ACA restart reason. LAW cardinality claims require declared bounded query windows; revision-lifetime counts are not frozen and must not be claimed as cardinality.",
+  "claim_ownership": {
+    "exit_137_cluster_exec_failure": {
+      "owner_class": "A_operator_observed_drill_transcript",
+      "observation": "ClusterExecFailure_exit_137",
+      "proves": "az_containerapp_exec_transport_process_termination_disconnect",
+      "semantics": "az_containerapp_exec_transport_process_termination_disconnect_only",
+      "does_not_prove": [
+        "application_failure",
+        "application_or_node_process_exact_native_exit_status",
+        "shell_exit_code",
+        "signal_encoding",
+        "aca_restart_reason"
+      ],
+      "limitation": "ClusterExecFailure exit 137 is only az containerapp exec transport/process-termination disconnect evidence; not application failure; not proof of application or Node process exact native exit status, shell code, signal encoding, or ACA restart reason"
+    },
+    "law_allowlisted_sigint_completion": {
+      "owner_class": "B_independently_recoverable_azure_readonly",
+      "observation": "allowlisted_staff_api_readiness_shutdown_completion",
+      "proves": [
+        "lifecycle_received_original_signal_SIGINT",
+        "pool_close_result_ok",
+        "server_close_result_ok",
+        "failure_classes_empty",
+        "completion_true",
+        "exactly_one_in_declared_bounded_drill_query_window"
+      ],
+      "does_not_derive_from": "exit_137",
+      "limitation": "Independent LAW allowlisted record — not ClusterExecFailure exit 137 — is evidence the lifecycle received original_signal SIGINT and completed pool/server cleanup"
+    }
+  },
   "observed_facts": {
     "A_operator_observed_drill_transcript": {
       "source_type": "operator_drill_transcript_contemporaneous_observation",
@@ -27,14 +57,19 @@
       "covers": [
         "operator_az_containerapp_exec_kill_int_1",
         "exact_replica_targets",
-        "cluster_exec_failure_exit_137_disconnect",
+        "cluster_exec_failure_exit_137_transport_process_termination_disconnect",
         "post_drill_public_readyz_200"
       ],
       "explicitly_not_covered": [
         "concurrent_restart_continuity",
         "zero_downtime_during_restart",
         "serving_revision_readyz_503_body_path",
-        "exit_137_as_application_failure"
+        "exit_137_as_application_failure",
+        "exit_137_proves_application_native_exit_status",
+        "exit_137_proves_node_process_exit_status",
+        "exit_137_proves_shell_exit_code",
+        "exit_137_proves_signal_encoding",
+        "exit_137_proves_aca_restart_reason"
       ],
       "wolfhouse": {
         "app": "wh-staging-staff-api",
@@ -56,10 +91,19 @@
           "disconnect": {
             "class": "cluster_exec_failure_exit_137_expected_after_process_termination",
             "exit_code": 137,
+            "semantics": "az_containerapp_exec_transport_process_termination_disconnect_only",
             "treated_as_application_failure": false,
-            "note": "Exec session disconnected after PID 1 termination; ClusterExecFailure exit 137 is expected process-termination disconnect, not application failure"
+            "proves": "az_containerapp_exec_transport_process_termination_disconnect",
+            "does_not_prove": [
+              "application_failure",
+              "application_or_node_process_exact_native_exit_status",
+              "shell_exit_code",
+              "signal_encoding",
+              "aca_restart_reason"
+            ],
+            "note": "ClusterExecFailure exit 137 is only az containerapp exec transport/process-termination disconnect evidence; it is not an application failure and not proof of the application or Node process exact native exit status, shell code, signal encoding, or ACA restart reason. Independent LAW allowlisted record — not 137 — evidences original_signal SIGINT and pool/server cleanup completion."
           },
-          "note": "Operator az containerapp exec into exact target replica then kill -INT 1; transcript-derived only, not Azure-reconstructible"
+          "note": "Operator az containerapp exec into exact target replica then kill -INT 1; ClusterExecFailure exit 137 is az containerapp exec transport/process-termination disconnect only (not app/Node native exit, shell code, signal encoding, or ACA restart reason); transcript-derived only, not Azure-reconstructible"
         },
         "post_drill_recovery": {
           "source_type": "operator_drill_transcript_contemporaneous_observation",
@@ -90,10 +134,19 @@
           "disconnect": {
             "class": "cluster_exec_failure_exit_137_expected_after_process_termination",
             "exit_code": 137,
+            "semantics": "az_containerapp_exec_transport_process_termination_disconnect_only",
             "treated_as_application_failure": false,
-            "note": "Exec session disconnected after PID 1 termination; ClusterExecFailure exit 137 is expected process-termination disconnect, not application failure"
+            "proves": "az_containerapp_exec_transport_process_termination_disconnect",
+            "does_not_prove": [
+              "application_failure",
+              "application_or_node_process_exact_native_exit_status",
+              "shell_exit_code",
+              "signal_encoding",
+              "aca_restart_reason"
+            ],
+            "note": "ClusterExecFailure exit 137 is only az containerapp exec transport/process-termination disconnect evidence; it is not an application failure and not proof of the application or Node process exact native exit status, shell code, signal encoding, or ACA restart reason. Independent LAW allowlisted record — not 137 — evidences original_signal SIGINT and pool/server cleanup completion."
           },
-          "note": "Operator az containerapp exec into exact target replica then kill -INT 1; transcript-derived only, not Azure-reconstructible"
+          "note": "Operator az containerapp exec into exact target replica then kill -INT 1; ClusterExecFailure exit 137 is az containerapp exec transport/process-termination disconnect only (not app/Node native exit, shell code, signal encoding, or ACA restart reason); transcript-derived only, not Azure-reconstructible"
         },
         "post_drill_recovery": {
           "source_type": "operator_drill_transcript_contemporaneous_observation",
@@ -403,14 +456,15 @@
     "exact_sha_95dc363_images_digests_both_tenants",
     "revisions_wh_0000519_sunset_0000279_healthy_serving",
     "exact_replicas_wh_fbqwq_sunset_zzx8n",
-    "operator_az_exec_kill_int_1_both_tenants_with_exit_137_disconnect",
+    "operator_az_exec_kill_int_1_both_tenants_with_exit_137_transport_disconnect",
     "law_exactly_one_sigint_completion_each_tenant_in_declared_drill_query_window",
     "allowlisted_completion_json_sigint_pool_ok_server_ok_failures_empty_completion_true",
+    "law_not_exit_137_owns_sigint_pool_server_cleanup_evidence",
     "post_drill_public_readyz_200_both_tenants",
     "public_current_healthz_readyz_200_both_tenants",
     "no_production_scope",
     "other_revision_lifetime_records_disclosed_not_drill_completions",
-    "exit_137_expected_exec_disconnect_not_app_failure"
+    "exit_137_az_exec_transport_disconnect_only_not_app_exit_or_aca_reason"
   ],
   "explicitly_not_claimed": [
     "serving_revision_readyz_503_body_path",
@@ -423,16 +477,22 @@
     "any_gate_verdict_proven",
     "revision_lifetime_exactly_one_sigint_completion",
     "unbounded_law_cardinality_exactly_one",
-    "exit_137_as_application_failure"
+    "exit_137_as_application_failure",
+    "exit_137_proves_application_native_exit_status",
+    "exit_137_proves_node_process_exit_status",
+    "exit_137_proves_shell_exit_code",
+    "exit_137_proves_signal_encoding",
+    "exit_137_proves_aca_restart_reason"
   ],
   "disposition": {
     "proves": [
       "dual_staging_sigint_cleanup_telemetry_law_exactly_one_each_in_declared_drill_query_window",
       "allowlisted_completion_sigint_pool_ok_server_ok_empty_failures",
+      "law_not_exit_137_owns_sigint_pool_server_cleanup_evidence",
       "post_drill_recovery_readyz_200_both_tenants",
       "exact_sha_95dc363_digests_revisions_replicas_healthy_serving",
       "other_revision_lifetime_records_disclosed_revision_lifetime_not_one",
-      "exit_137_expected_exec_disconnect_not_app_failure"
+      "exit_137_az_exec_transport_disconnect_only_not_app_exit_or_aca_reason"
     ],
     "does_not_prove": [
       "serving_revision_readyz_503_body_path",
@@ -445,7 +505,12 @@
       "any_gate_verdict_proven",
       "revision_lifetime_exactly_one_sigint_completion",
       "unbounded_law_cardinality_exactly_one",
-      "exit_137_as_application_failure"
+      "exit_137_as_application_failure",
+      "exit_137_proves_application_native_exit_status",
+      "exit_137_proves_node_process_exit_status",
+      "exit_137_proves_shell_exit_code",
+      "exit_137_proves_signal_encoding",
+      "exit_137_proves_aca_restart_reason"
     ],
     "g02_verdict": "partial",
     "g02_progress_class": "partial_live_proven"
@@ -480,5 +545,5 @@
     "G08_retention_privacy",
     "G09_cost_controls"
   ],
-  "lock_hash": "59c1b149a603df41a9b75eb46fa03540d73e47b7b0a013fb40722ee95fe5dac6"
+  "lock_hash": "c07e6d2b7ac77be01726fa3ce66e9cf62885267849dd4c9a60c331671d65a19d"
 }
