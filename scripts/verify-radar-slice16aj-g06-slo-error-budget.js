@@ -117,6 +117,28 @@ function buildExactPt7dSeries(opts) {
   return buildSeries(Object.assign({}, o, { steps }));
 }
 
+/**
+ * Build a regular PT5M series spanning a locked burn pair's long window, with
+ * all request delta concentrated in the final grain so both short and long
+ * legs observe the exact (total, bad) counts. Used to exercise private BigInt
+ * burn decisions exclusively through evaluateBurnPair.
+ */
+function buildBurnCountSeries(pair, total, bad) {
+  const step = calc.SAMPLE_STEP_MS;
+  const steps = pair.long_ms / step;
+  const start = 1_000_000;
+  const good = total - bad;
+  const samples = [];
+  for (let i = 0; i <= steps; i += 1) {
+    samples.push({
+      t_ms: start + i * step,
+      requests_total: i === steps ? total : 0,
+      requests_2xx: i === steps ? good : 0,
+    });
+  }
+  return samples;
+}
+
 console.log('RADAR 16AJ G06 SLO / error-budget source — offline verifier\n');
 
 const design = readJson(locks.DESIGN_REL);
@@ -224,55 +246,71 @@ ok('C8 future acceptance defined_not_executed only',
     && missExact.ok && missExact.meets === false);
 }
 
-// --- GREEN: exact unit burn and 14.4x burn (reporting numerics) ---
+// --- GREEN: exact unit burn and 14.4x burn via locked public evaluators ---
 {
   const b = calc.exactBoundaryCases();
-  const unit = calc.burnFromBadRate(
-    b.unit_burn_bad_rate,
-    calc.AVAILABILITY_TARGET,
-    calc.SLO_WINDOW_MS,
-    calc.SLO_WINDOW_MS,
-  );
-  const fast = calc.burnFromBadRate(
-    b.fast_burn_bad_rate,
-    calc.AVAILABILITY_TARGET,
-    60 * 60 * 1000,
-    calc.SLO_WINDOW_MS,
-  );
+  // Unit burn (bad_rate 0.01 → burn=1) through locked readiness eval (PT7D).
+  const unitSamples = buildExactPt7dSeries({
+    per_step_total: 100,
+    per_step_2xx: 99,
+  });
+  const unit = calc.evaluateReadinessWindow({ samples: unitSamples });
+  // 14.4x burn through locked page_fast long leg (1h window).
+  const pageFast = calc.MULTI_WINDOW_BURNS[0];
+  const fastSamples = buildSeries({
+    steps: pageFast.long_ms / calc.SAMPLE_STEP_MS,
+    per_step_total: 1000,
+    per_step_2xx: 856, // bad_rate 0.144
+  });
+  const fast = calc.evaluateBurnPair(fastSamples, 'page_fast');
   green('error_budget_unit_burn_exact',
-    unit.ok && nearlyEqual(unit.burn_rate, 1) && nearlyEqual(unit.budget, 0.01));
+    unit.ok && nearlyEqual(unit.burn.burn_rate, b.unit_burn_expected)
+    && nearlyEqual(unit.burn.budget, calc.ERROR_BUDGET_FRACTION)
+    && nearlyEqual(unit.availability.sli, 0.99),
+    unit.ok ? `burn=${unit.burn.burn_rate}` : (unit.errors || []).join(' | '));
   green('error_budget_fast_burn_14_4_exact',
-    fast.ok && nearlyEqual(fast.burn_rate, 14.4)
-    && nearlyEqual(fast.budget_consumed_fraction, 14.4 * ((60 * 60 * 1000) / calc.SLO_WINDOW_MS)));
+    fast.ok
+    && nearlyEqual(fast.long.burn_rate, b.fast_burn_expected)
+    && nearlyEqual(
+      fast.long.budget_consumed_fraction,
+      b.fast_burn_expected * (pageFast.long_ms / calc.SLO_WINDOW_MS),
+    )
+    && nearlyEqual(fast.short.burn_rate, b.fast_burn_expected),
+    fast.ok
+      ? `long_burn=${fast.long.burn_rate} consumed=${fast.long.budget_consumed_fraction}`
+      : (fast.errors || []).join(' | '));
 }
 
-// --- GREEN: exact equality / just-above / strictly-below across all four thresholds ---
+// --- GREEN: exact equality / just-above / strictly-below via locked pair ids ---
 {
   const b = calc.exactBoundaryCases();
   let allOk = true;
   let detail = '';
   for (let i = 0; i < b.burn_boundaries.length; i += 1) {
     const row = b.burn_boundaries[i];
-    const below = calc.burnRateMeetsThresholdExact(
-      row.bad_below,
-      row.total,
-      row.burn_threshold_rational,
+    const pair = calc.MULTI_WINDOW_BURNS.find((p) => p.id === row.id);
+    const belowR = calc.evaluateBurnPair(
+      buildBurnCountSeries(pair, row.total, row.bad_below),
+      row.id,
     );
-    const eq = calc.burnRateMeetsThresholdExact(
-      row.bad_eq,
-      row.total,
-      row.burn_threshold_rational,
+    const eqR = calc.evaluateBurnPair(
+      buildBurnCountSeries(pair, row.total, row.bad_eq),
+      row.id,
     );
-    const above = calc.burnRateMeetsThresholdExact(
-      row.bad_above,
-      row.total,
-      row.burn_threshold_rational,
+    const aboveR = calc.evaluateBurnPair(
+      buildBurnCountSeries(pair, row.total, row.bad_above),
+      row.id,
     );
-    if (!(below.ok && below.meets === false
-      && eq.ok && eq.meets === true
-      && above.ok && above.meets === true)) {
+    if (!(belowR.ok && belowR.short.exceeds_threshold === false
+      && belowR.long.exceeds_threshold === false
+      && eqR.ok && eqR.short.exceeds_threshold === true
+      && eqR.long.exceeds_threshold === true
+      && aboveR.ok && aboveR.short.exceeds_threshold === true
+      && aboveR.long.exceeds_threshold === true)) {
       allOk = false;
-      detail = `${row.id} below=${below.meets} eq=${eq.meets} above=${above.meets}`;
+      detail = `${row.id} below=${belowR.ok && belowR.short.exceeds_threshold}`
+        + ` eq=${eqR.ok && eqR.short.exceeds_threshold}`
+        + ` above=${aboveR.ok && aboveR.short.exceeds_threshold}`;
       break;
     }
   }
@@ -388,17 +426,73 @@ ok('C8 future acceptance defined_not_executed only',
     && typeof calc.evaluateBurnPair === 'function');
 }
 
-// --- RED: no alternate export accepts caller burn windows/thresholds ---
+// --- RED: exact burn helpers unexported (no caller target/window/threshold path) ---
 {
-  const exportNames = Object.keys(calc);
-  const burnEvalExports = exportNames.filter((k) => /burn|Burn/i.test(k)
-    && typeof calc[k] === 'function');
-  // Allowed burn-eval surface: id-locked pair + all-locked-pairs only.
-  // Pure math helpers (burnFromBadRate, burnRateMeetsThresholdExact) are not
-  // pair-eval paths and do not accept MULTI_WINDOW_BURNS window injection.
-  const allowedBurnEval = new Set(['evaluateBurnPair', 'evaluateAllLockedBurnPairs']);
-  const unexpected = burnEvalExports.filter((k) => !allowedBurnEval.has(k)
-    && !/^(burnFromBadRate|burnRateMeetsThresholdExact)$/.test(k));
+  red('burn_exact_helpers_unexported',
+    typeof calc.burnRateMeetsThresholdExact !== 'function'
+    && typeof calc.burnFromBadRate !== 'function'
+    && typeof calc.errorBudgetFraction !== 'function'
+    && !Object.prototype.hasOwnProperty.call(calc, 'burnRateMeetsThresholdExact')
+    && !Object.prototype.hasOwnProperty.call(calc, 'burnFromBadRate')
+    && !Object.prototype.hasOwnProperty.call(calc, 'errorBudgetFraction'));
+}
+
+// --- RED: exhaustive production export audit — no free target/window/SLO/threshold ---
+{
+  const exportNames = Object.keys(calc).sort();
+  const bannedExactHelpers = [
+    'burnRateMeetsThresholdExact',
+    'burnFromBadRate',
+    'errorBudgetFraction',
+    'availabilityBurnLeg',
+    'evaluateAllBurnPairs',
+  ];
+  const bannedPresent = bannedExactHelpers.filter((k) => exportNames.includes(k));
+
+  // Exhaustive production function allowlist. Locked readiness + burn-pair
+  // evaluators are the only evaluation surface; utilities do not accept free
+  // caller target / SLO-window / threshold-rational for burn decisions.
+  const allowedFns = new Set([
+    'failClosed',
+    'rejectContractDrift',
+    'rejectLatencyOrCombinedOptions',
+    'rejectCombinedFromDisjointMarginals',
+    'availabilityMeetsTargetExact',
+    'validateCounterSeries',
+    'deltasFromCounterSamples',
+    'sampleCoverage',
+    'availabilitySliFromDeltas',
+    'evaluateReadinessWindow',
+    'sliceSamplesForWindow',
+    'evaluateBurnPair',
+    'evaluateAllLockedBurnPairs',
+    'exactBoundaryCases',
+  ]);
+  const fnExports = exportNames.filter((k) => typeof calc[k] === 'function');
+  const unexpectedFns = fnExports.filter((k) => !allowedFns.has(k));
+  const lockedEvalSurface = [
+    'evaluateReadinessWindow',
+    'evaluateBurnPair',
+    'evaluateAllLockedBurnPairs',
+  ];
+  const lockedPresent = lockedEvalSurface.every((k) => typeof calc[k] === 'function');
+
+  // No exported function signature accepts free caller target / windowMs+burn /
+  // sloWindowMs / thresholdRational (private exact-math surface).
+  const bannedSigRe = /\b(badRate|thresholdRational|pairThresholdRational|sloWindowMs)\b/;
+  const freeParamFns = fnExports.filter((k) => {
+    const src = Function.prototype.toString.call(calc[k]);
+    const brace = src.indexOf('{');
+    const sig = brace === -1 ? src : src.slice(0, brace);
+    if (bannedSigRe.test(sig)) return true;
+    // errorBudgetFraction(target) / burnFromBadRate(..., target, ...)
+    if (/\btarget\b/.test(sig) && !/^function rejectContractDrift/.test(sig)
+      && k !== 'rejectContractDrift') {
+      return true;
+    }
+    return false;
+  });
+
   const samples = buildSeries({ steps: 20, per_step_total: 5, per_step_2xx: 4 });
   const idOnlyOk = calc.evaluateBurnPair(samples, 'page_fast');
   const objectRejected = calc.evaluateBurnPair(samples, {
@@ -408,15 +502,52 @@ ok('C8 future acceptance defined_not_executed only',
     burn_threshold: 0,
     burn_threshold_rational: { num: 0, den: 1 },
   });
+  const targetInject = calc.evaluateBurnPair(samples, 'page_fast', {
+    availability_target: 0.5,
+  });
+  const sloWindowInject = calc.evaluateBurnPair(samples, 'page_fast', {
+    slo_window_ms: 60 * 60 * 1000,
+  });
+  const windowInject = calc.evaluateBurnPair(samples, 'page_fast', {
+    window_ms: 50 * 60 * 1000,
+  });
+  const thrInject = calc.evaluateBurnPair(samples, 'page_fast', {
+    burn_threshold_rational: { num: 0, den: 1 },
+  });
+  const readinessTargetInject = calc.evaluateReadinessWindow({
+    samples: buildExactPt7dSeries({ per_step_total: 1, per_step_2xx: 1 }),
+    availability_target: 0.5,
+  });
+  const readinessSloInject = calc.evaluateReadinessWindow({
+    samples: buildExactPt7dSeries({ per_step_total: 1, per_step_2xx: 1 }),
+    slo_window_ms: 60 * 60 * 1000,
+  });
+
   red('no_alternate_burn_export_accepts_caller_windows_thresholds',
-    unexpected.length === 0
+    bannedPresent.length === 0
+    && unexpectedFns.length === 0
+    && freeParamFns.length === 0
+    && lockedPresent
     && idOnlyOk.ok === true
     && objectRejected.ok === false
     && objectRejected.fail_closed === true
-    && typeof calc.availabilityBurnLeg !== 'function',
-    unexpected.length
-      ? `unexpected exports: ${unexpected.join(',')}`
-      : (objectRejected.ok ? 'object accepted' : undefined));
+    && targetInject.ok === false && targetInject.fail_closed === true
+    && sloWindowInject.ok === false && sloWindowInject.fail_closed === true
+    && windowInject.ok === false && windowInject.fail_closed === true
+    && thrInject.ok === false && thrInject.fail_closed === true
+    && readinessTargetInject.ok === false && readinessTargetInject.fail_closed === true
+    && readinessSloInject.ok === false && readinessSloInject.fail_closed === true
+    && typeof calc.availabilityBurnLeg !== 'function'
+    && typeof calc.burnRateMeetsThresholdExact !== 'function'
+    && typeof calc.burnFromBadRate !== 'function'
+    && typeof calc.errorBudgetFraction !== 'function',
+    bannedPresent.length
+      ? `banned exports: ${bannedPresent.join(',')}`
+      : (unexpectedFns.length
+        ? `unexpected fns: ${unexpectedFns.join(',')}`
+        : (freeParamFns.length
+          ? `free-param fns: ${freeParamFns.join(',')}`
+          : (objectRejected.ok ? 'object accepted' : undefined))));
 }
 
 // --- RED: missing samples ---
@@ -535,54 +666,63 @@ ok('C8 future acceptance defined_not_executed only',
 {
   const b = calc.exactBoundaryCases();
   const row = b.reviewer_sub_threshold_safe_integer;
-  const exact = calc.burnRateMeetsThresholdExact(
-    row.bad,
-    row.total,
-    row.burn_threshold_rational,
+  const pageFast = calc.MULTI_WINDOW_BURNS.find((p) => p.id === 'page_fast');
+  const r = calc.evaluateBurnPair(
+    buildBurnCountSeries(pageFast, row.total, row.bad),
+    'page_fast',
   );
   const floatBurn = (row.bad / row.total) / 0.01;
   const floatEpsWouldFire = floatBurn + 1e-12 >= row.burn_threshold;
   red('reviewer_sub_threshold_safe_integer_no_fire',
     Number.isSafeInteger(row.total)
     && Number.isSafeInteger(row.bad)
-    && exact.ok
-    && exact.meets === false
-    && exact.meets === row.exact_must_fire
+    && r.ok
+    && r.short.exceeds_threshold === false
+    && r.long.exceeds_threshold === false
+    && r.would_fire === false
+    && r.short.exceeds_threshold === row.exact_must_fire
     && floatEpsWouldFire === true
-    && floatEpsWouldFire === row.float_eps_would_fire,
-    exact.ok
-      ? `meets=${exact.meets} floatBurn=${floatBurn} floatEps=${floatEpsWouldFire}`
-      : (exact.errors || []).join(' | '));
+    && floatEpsWouldFire === row.float_eps_would_fire
+    && typeof calc.burnRateMeetsThresholdExact !== 'function',
+    r.ok
+      ? `exceeds=${r.short.exceeds_threshold} floatBurn=${floatBurn} floatEps=${floatEpsWouldFire}`
+      : (r.errors || []).join(' | '));
 }
 
-// --- RED: exact equality fires and just-below does not (all four; adversarial assert) ---
+// --- RED: exact equality fires and just-below does not (all four; via locked pairs) ---
 {
   const b = calc.exactBoundaryCases();
   let allOk = true;
   let detail = '';
   for (let i = 0; i < b.burn_boundaries.length; i += 1) {
     const row = b.burn_boundaries[i];
-    const below = calc.burnRateMeetsThresholdExact(
-      row.bad_below,
-      row.total,
-      row.burn_threshold_rational,
+    const pair = calc.MULTI_WINDOW_BURNS.find((p) => p.id === row.id);
+    const below = calc.evaluateBurnPair(
+      buildBurnCountSeries(pair, row.total, row.bad_below),
+      row.id,
     );
-    const eq = calc.burnRateMeetsThresholdExact(
-      row.bad_eq,
-      row.total,
-      row.burn_threshold_rational,
+    const eq = calc.evaluateBurnPair(
+      buildBurnCountSeries(pair, row.total, row.bad_eq),
+      row.id,
     );
-    const above = calc.burnRateMeetsThresholdExact(
-      row.bad_above,
-      row.total,
-      row.burn_threshold_rational,
+    const above = calc.evaluateBurnPair(
+      buildBurnCountSeries(pair, row.total, row.bad_above),
+      row.id,
     );
-    // RED: below must never fire; eq and above must fire
-    if (!(below.ok && below.meets === false
-      && eq.ok && eq.meets === true
-      && above.ok && above.meets === true)) {
+    // RED: below must never fire; eq and above must fire (both legs)
+    if (!(below.ok && below.short.exceeds_threshold === false
+      && below.long.exceeds_threshold === false
+      && below.would_fire === false
+      && eq.ok && eq.short.exceeds_threshold === true
+      && eq.long.exceeds_threshold === true
+      && eq.would_fire === true
+      && above.ok && above.short.exceeds_threshold === true
+      && above.long.exceeds_threshold === true
+      && above.would_fire === true)) {
       allOk = false;
-      detail = `${row.id} below=${below.meets} eq=${eq.meets} above=${above.meets}`;
+      detail = `${row.id} below=${below.ok && below.would_fire}`
+        + ` eq=${eq.ok && eq.would_fire}`
+        + ` above=${above.ok && above.would_fire}`;
       break;
     }
   }

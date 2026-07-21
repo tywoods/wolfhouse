@@ -1019,6 +1019,17 @@ function exactBoundaryCases() {
   });
 }
 
+/**
+ * Production public surface: locked readiness evaluation + locked burn-pair
+ * id / all-pairs evaluators (plus contract constants / fail-closed helpers /
+ * series utilities). Exact burn math helpers are intentionally private:
+ *   - burnRateMeetsThresholdExact (threshold rational)
+ *   - burnFromBadRate (target / window / SLO-window)
+ *   - errorBudgetFraction (caller target)
+ *   - availabilityBurnLeg (window / threshold)
+ * Tests exercise private exact math only via locked public scenarios
+ * (evaluateBurnPair / evaluateAllLockedBurnPairs / evaluateReadinessWindow).
+ */
 module.exports = {
   SLO_WINDOW_MS,
   SAMPLE_STEP_MS,
@@ -1037,9 +1048,9 @@ module.exports = {
   rejectLatencyOrCombinedOptions,
   rejectCombinedFromDisjointMarginals,
   availabilityMeetsTargetExact,
-  burnRateMeetsThresholdExact,
-  errorBudgetFraction,
-  burnFromBadRate,
+  // burnRateMeetsThresholdExact / burnFromBadRate / errorBudgetFraction
+  // intentionally unexported — no public path for caller target / window /
+  // SLO-window / threshold-rational injection.
   validateCounterSeries,
   deltasFromCounterSamples,
   sampleCoverage,

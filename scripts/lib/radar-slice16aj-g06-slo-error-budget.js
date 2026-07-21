@@ -228,14 +228,15 @@ const FINAL_CONTROLLED_DRILL = Object.freeze({
     'Pure dependency-free availability-only calculator + deterministic RED/GREEN '
     + 'verifier prove exact PT7D availability boundaries, locked normative constants '
     + '(reject contract drift), error-budget reporting numerics, exact BigInt '
-    + 'cross-multiplication burn thresholds (below never / eq+above fire), '
-    + 'baseline-within-grain burn slicing, locked burn-pair ids only (no '
-    + 'availabilityBurnLeg export / no caller window-threshold injection), and fail-closed '
-    + 'missing/reset/out-of-order/zero-traffic/sparse/stale-baseline/span-mismatch/'
-    + 'unsafe-integer/NaN/latency-blocked/combined-forbidden/contract-drift/overclaim '
-    + 'paths; latency percentile SLI recorded blocked; future alert/drill acceptance '
-    + 'defined_not_executed only; G06 remains partial; proven count remains 0; no '
-    + 'live/deploy/scale mutation',
+    + 'cross-multiplication burn thresholds via locked pair APIs (below never / '
+    + 'eq+above fire), baseline-within-grain burn slicing, locked burn-pair ids only '
+    + '(no availabilityBurnLeg / burnRateMeetsThresholdExact / burnFromBadRate '
+    + 'export; no caller target/window/SLO-window/threshold-rational injection), and '
+    + 'fail-closed missing/reset/out-of-order/zero-traffic/sparse/stale-baseline/'
+    + 'span-mismatch/unsafe-integer/NaN/latency-blocked/combined-forbidden/'
+    + 'contract-drift/overclaim paths; latency percentile SLI recorded blocked; '
+    + 'future alert/drill acceptance defined_not_executed only; G06 remains partial; '
+    + 'proven count remains 0; no live/deploy/scale mutation',
 });
 
 module.exports = {
