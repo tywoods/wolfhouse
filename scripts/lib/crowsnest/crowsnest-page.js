@@ -486,7 +486,8 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
   display:block;
   width:min(100%, 460px);
   height:auto;
-  margin:0 0 18px;
+  margin-inline:auto;
+  margin-bottom:18px;
 }
 .login-kicker{
   display:inline-flex;
@@ -656,7 +657,6 @@ function renderCrowsnestLoginPage(options = {}) {
       <img class="login-logo" src="/crowsnest/assets/logo.png" alt="Crowsnest" width="2172" height="724">
       <p class="login-kicker">Private operator portal</p>
       <h1 class="login-title" id="login-title">Sign in to Crowsnest</h1>
-      <p class="login-copy">This private portal is for Monshies and Earthling. Use your operator credentials to continue.</p>
       ${errorHtml}
       <form class="login-form" method="post" action="/login" accept-charset="utf-8">
         <div class="field">

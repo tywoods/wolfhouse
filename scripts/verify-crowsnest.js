@@ -4,6 +4,7 @@
  * Static verifier for Crowsnest skeleton — no network, no DB.
  */
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -19,6 +20,8 @@ const DOC_DEPLOY = path.join(ROOT, 'docs', 'CROWSNEST-DEPLOY-PLAN.md');
 const DOCKERFILE_PATH = path.join(ROOT, 'Dockerfile.crowsnest');
 const LOGO_PATH = path.join(ROOT, 'public', 'crowsnest', 'logo.png');
 const PKG_PATH = path.join(ROOT, 'package.json');
+const EXPECTED_LOGO_SHA256 = '7ace8b7e584e0848da3ca248d90988ab71c288f895961f03ec4aa6ee6367ad24';
+const REMOVED_LOGIN_COPY = 'This private portal is for Monshies and Earthling. Use your operator credentials to continue.';
 
 let pass = 0;
 let fail = 0;
@@ -155,6 +158,19 @@ ok('logout route exists', apiSrc.includes("pathname === '/logout'"));
 ok('asset route exists', apiSrc.includes("pathname === ASSET_ROUTE") || apiSrc.includes("/crowsnest/assets/logo.png"));
 ok('login page renderer exists', /renderCrowsnestLoginPage/.test(pageSrc));
 ok('logo asset copied into repo', fs.existsSync(LOGO_PATH));
+ok('login logo SHA-256 matches transparent replacement', (() => {
+  try {
+    return crypto.createHash('sha256').update(fs.readFileSync(LOGO_PATH)).digest('hex') === EXPECTED_LOGO_SHA256;
+  } catch {
+    return false;
+  }
+})());
+ok('login page omits removed Monshies/Earthling sentence', !pageSrc.includes(REMOVED_LOGIN_COPY));
+ok('login logo CSS uses display:block', /\.login-logo\s*\{[^}]*display\s*:\s*block\b/.test(pageSrc));
+ok('login logo CSS uses margin-inline:auto', /\.login-logo\s*\{[^}]*margin-inline\s*:\s*auto\b/.test(pageSrc));
+ok('login logo CSS uses responsive width', /\.login-logo\s*\{[^}]*width\s*:\s*min\s*\(/.test(pageSrc));
+ok('login logo CSS uses height:auto', /\.login-logo\s*\{[^}]*height\s*:\s*auto\b/.test(pageSrc));
+ok('login logo CSS avoids opaque black background', !/\.login-logo\s*\{[^}]*background(?:-color)?\s*:\s*(?:#000(?:000)?|black|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))\b/i.test(pageSrc));
 ok('auth misconfigured 503 path exists', apiSrc.includes('sendCrowsnestAuthMisconfigured'));
 ok('healthz JSON does not embed auth password', !/auth_password|CROWSNEST_AUTH_PASSWORD/.test(apiSrc.split("pathname === '/healthz'")[1] || ''));
 ok('page renderer does not embed auth credentials', !/CROWSNEST_AUTH_PASSWORD|DEFAULT_PASSWORD/.test(pageSrc));
