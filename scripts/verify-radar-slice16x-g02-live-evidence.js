@@ -461,7 +461,7 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  if (matrix.slice !== locks.SLICE && matrix.slice !== 'RADAR-16W' && matrix.slice !== 'RADAR-16Y' && matrix.slice !== 'RADAR-16Z') {
+  if (matrix.slice !== locks.SLICE && matrix.slice !== 'RADAR-16W' && matrix.slice !== 'RADAR-16Y' && matrix.slice !== 'RADAR-16Z' && matrix.slice !== 'RADAR-16AA') {
     errors.push(`slice=${matrix.slice}`);
   }
   if (matrix.slice === locks.SLICE) {
@@ -628,7 +628,7 @@ ok('C2 contract slice/branch/master',
   && contract.live_deploy === false
   && contract.this_slice_deploys === false);
 
-ok('C3 HEAD on 16X branch (tip may advance to 16Y)', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16y-shutdown-completion-log' || currentBranch() === 'radar/slice-16z-g02-live-sigterm-evidence', currentBranch());
+ok('C3 HEAD on 16X branch (tip may advance to 16Y/16Z/16AA)', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16y-shutdown-completion-log' || currentBranch() === 'radar/slice-16z-g02-live-sigterm-evidence' || currentBranch() === 'radar/slice-16aa-g02-live-sigint-evidence', currentBranch());
 
 {
   const v = validateEvidenceExact(evidence);
@@ -690,7 +690,7 @@ ok('C6 disposition keeps G02 partial',
 }
 
 ok('C11 top contract selected_16x + G02 drill live_proven (tip may advance to 16Y)',
-  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16Y' || topContract.slice === 'RADAR-16Z')
+  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16Y' || topContract.slice === 'RADAR-16Z' || topContract.slice === 'RADAR-16AA')
   && topContract.selected_16x
   && topContract.selected_16x.outcome_id === locks.OUTCOME_ID
   && topContract.selected_16x.g02_dependency_failure_drill === 'live_proven_via_16X'
@@ -716,7 +716,7 @@ ok('C13 findings mention 16X drill without proven overclaim',
 {
   const rt = runtimePathsUnchanged();
   ok('C14 runtime paths unchanged vs master (waived when tip is 16Y source observability)',
-    rt.ok || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z', rt.detail);
+    rt.ok || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || matrix.slice === 'RADAR-16AA', rt.detail);
 }
 
 {

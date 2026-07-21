@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16Z",
-  "title": "RADAR operations gate ledger (16Z G02 live SIGTERM lifecycle evidence; G02 partial — SIGINT/readyz=503/zero-downtime-during-restart open)",
-  "master_basis": "95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
-  "branch": "radar/slice-16z-g02-live-sigterm-evidence",
+  "slice": "RADAR-16AA",
+  "title": "RADAR operations gate ledger (16AA G02 live SIGINT lifecycle evidence; G02 partial — readyz=503/zero-downtime-during-restart open)",
+  "master_basis": "fd333b22c984bad1abe387da456b6fbf87396c13",
+  "branch": "radar/slice-16aa-g02-live-sigint-evidence",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -144,7 +144,7 @@
       "name": "Readiness / dependencies",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P healthy-path live @ 594247f retained. 16W wires closeReadinessPool into SIGTERM/SIGINT shutdown (source). 16X records dual-staging exact-SHA 2dcda08 lifecycle deploy with provenance split (A transcript Activating traffic-shed; B Azure reverify). 16Y adds one bounded staff_api_readiness_shutdown_completion JSON record per readiness shutdown (source). 16Z reconciles completed dual-staging live SIGTERM drill with provenance split: (A) operator restart windows + post-restart 31× /healthz=200 /readyz=200 ~2s (not concurrent restart continuity; not Azure-reconstructible); (B) independently reverified digests/revisions/probes/public-current @ 2026-07-21T11:42:38Z plus LAW cardinality reverify @ 2026-07-21T11:59:43Z with locked non-overlapping bounded drill query windows — WH 11:15:18Z–11:17:18Z exactly one allowlisted SIGTERM @ 11:16:20.3631884Z (sha256:a9677f75… 0000519); Sunset 11:17:30Z–11:19:30Z exactly one @ 11:18:04.1610218Z (sha256:8a0b1647… 0000279); pool ok, server ok, failures [], completion true. WH later lifecycle records disclosed 11:24:48.5525367Z and 11:47:54.2072273Z — revision-lifetime count is not one and may continue growing due to scaling/restarts; claim limited to exactly one in each declared drill query window. Partial/live-proven for SIGTERM cleanup telemetry + post-restart recovery + prior traffic-shed — does not claim SIGINT live, serving-revision /readyz=503, zero downtime during restart, organic alerts, production, unqualified revision-lifetime exactly-one, or full G02 proven.",
+      "rationale": "16I source adds Staff API /readyz + ACA probes. 16P healthy-path live @ 594247f retained. 16W wires closeReadinessPool into SIGTERM/SIGINT shutdown (source). 16X records dual-staging exact-SHA 2dcda08 lifecycle deploy with provenance split (A transcript Activating traffic-shed; B Azure reverify). 16Y adds one bounded staff_api_readiness_shutdown_completion JSON record per readiness shutdown (source). 16Z reconciles completed dual-staging live SIGTERM drill with provenance split and bounded drill-window LAW cardinality (retained). 16AA reconciles completed dual-staging live SIGINT drill with provenance split: (A) operator az containerapp exec into exact replicas wh-staging-staff-api--0000519-7f6f87fbcc-fbqwq / luna-sunset-staging-staff-api--0000279-dbb57db7-zzx8n + kill -INT 1 + ClusterExecFailure exit 137 (az containerapp exec transport/process-termination disconnect only; not application failure; not proof of application/Node native exit status, shell code, signal encoding, or ACA restart reason; Independent LAW allowlisted record — not 137 — evidences original_signal SIGINT and pool/server cleanup) + post-drill public /readyz=200 (not concurrent restart continuity; not Azure-reconstructible); (B) independently reverified digests/revisions/replicas/probes/public-current @ 2026-07-21T12:10:51Z plus LAW cardinality reverify @ 2026-07-21T12:11:18Z with locked bounded inclusive drill query windows — WH 12:08:00Z–12:09:00Z exactly one allowlisted SIGINT @ 12:08:28.6734879Z (sha256:a9677f75… 0000519); Sunset 12:09:00Z–12:10:00Z exactly one @ 12:09:25.9915987Z (sha256:8a0b1647… 0000279); pool ok, server ok, failures [], completion true. Other revision-lifetime records disclosed (WH SIGTERM 11:16:20.3631884Z, 11:24:48.5525367Z, 11:47:54.2072273Z, 12:00:48.8352797Z; Sunset SIGTERM 11:18:04.1610218Z) — revision-lifetime count is not one and may continue growing due to scaling/restarts; claim limited to exactly one in each declared drill query window. Partial/live-proven for SIGINT cleanup telemetry + post-drill recovery + prior SIGTERM/traffic-shed — does not claim serving-revision /readyz=503, zero downtime during restart, organic alerts, production, unqualified revision-lifetime exactly-one, or full G02 proven.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-readiness.js",
@@ -237,12 +237,15 @@
         {
           "ref": "fixtures/radar-operations/slice16z-g02-live-sigterm-evidence.json#observed_facts",
           "note": "16Z: (A) transcript restart + post-restart samples; (B) Azure/ACR digests/revisions @ 2026-07-21T11:42:38Z; LAW bounded drill query windows + later-record disclosure @ 2026-07-21T11:59:43Z; Azure cannot recreate historical samples"
+        },
+        {
+          "ref": "fixtures/radar-operations/slice16aa-g02-live-sigint-evidence.json#observed_facts",
+          "note": "16AA: (A) transcript az exec kill -INT 1 + exit 137 transport/process-termination disconnect only + post-drill readyz=200; LAW (not 137) owns SIGINT cleanup; (B) Azure/ACR digests/revisions/replicas @ 2026-07-21T12:10:51Z; LAW SIGINT cardinality @ 2026-07-21T12:11:18Z in bounded windows with other-record disclosure"
         }
       ],
       "gaps": [
-        "SIGINT closeReadinessPool live lifecycle behavior on deployed revision not proven",
         "Serving-revision /readyz=503 body path not exercised (failed revision never became ready to serve)",
-        "Zero downtime during restart / concurrent restart continuity not claimed (16Z samples are post-restart recovery only)",
+        "Zero downtime during restart / concurrent restart continuity not claimed (16AA post-drill /readyz only; 16Z samples are post-restart recovery only)",
         "Organic metric alert firing not claimed",
         "Production scope forbidden"
       ],
@@ -1433,7 +1436,8 @@
       "id": "16I_DRILL_readiness_failure_traffic_shed",
       "status": "live_proven_via_16X_activating_traffic_shed",
       "pass_rule": "Class-A transcript Activating shed + class-B Azure reverify; G02 partial; no overclaims; historical samples not Azure-derived"
-    }
+    },
+    "g02_sigint_live": "live_proven_via_16AA"
   },
   "slice_16y_selection": {
     "selected": true,
@@ -1480,7 +1484,8 @@
       "id": "16Y_DRILL_live_sigterm_completion_log_evidence",
       "status": "live_proven_via_16Z_sigterm_law_and_post_restart_recovery",
       "pass_rule": "16Z: LAW exactly one allowlisted SIGTERM completion each tenant in declared drill query windows + post-restart recovery samples; SIGINT live still open; G02 partial"
-    }
+    },
+    "g02_sigint_live": "live_proven_via_16AA"
   },
   "slice_16z_selection": {
     "selected": true,
@@ -1524,6 +1529,57 @@
       "id": "16Y_DRILL_live_sigterm_completion_log_evidence",
       "status": "live_proven_via_16Z_sigterm_law_and_post_restart_recovery",
       "pass_rule": "Class-A transcript post-restart samples + class-B LAW SIGTERM completions in declared drill query windows with later-record disclosure; G02 partial; no overclaims; historical samples not Azure-derived"
-    }
+    },
+    "g02_sigint_live": "live_proven_via_16AA"
+  },
+  "slice_16aa_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16AA_g02_live_sigint_lifecycle_evidence",
+    "gate_id": "G02_readiness_dependencies",
+    "progress_class": "partial_live_proven_evidence_only",
+    "does_not_implement": "serving_readyz_503_zero_downtime_during_restart_organic_alerts_production_full_g02",
+    "title": "Reconcile dual-staging live SIGINT lifecycle drill evidence — partial/live-proven only",
+    "why_smallest": "G02 lacked live SIGINT cleanup telemetry proof after 16Z SIGTERM; narrowest ownership is evidence-only reconciliation of completed dual-staging kill -INT 1 exec drill with A/B provenance split.",
+    "builds_on": [
+      "16W_readiness_shutdown_lifecycle",
+      "16X_g02_lifecycle_deploy_traffic_shed_live_evidence",
+      "16Y_readiness_shutdown_completion_log",
+      "16Z_g02_live_sigterm_lifecycle_evidence"
+    ],
+    "supersedes": [],
+    "owner_files": [
+      "fixtures/radar-operations/slice16aa-g02-live-sigint-evidence.json",
+      "fixtures/radar-operations/slice16aa-expected-contract.json",
+      "scripts/lib/radar-slice16aa-g02-live-sigint-evidence.js",
+      "scripts/verify-radar-slice16aa-g02-live-sigint-evidence.js"
+    ],
+    "out_of_scope_for_16aa": [
+      "Serving-revision /readyz=503 body path",
+      "Zero downtime during restart / concurrent restart continuity",
+      "Organic metric alert firing",
+      "Production RGs",
+      "Runtime source mutation",
+      "Raising G02 verdict to proven",
+      "Unqualified revision-lifetime exactly-one LAW cardinality",
+      "Treating ClusterExecFailure exit 137 as application failure",
+      "Treating ClusterExecFailure exit 137 as proof of application/Node native exit status",
+      "Treating ClusterExecFailure exit 137 as proof of shell code, signal encoding, or ACA restart reason"
+    ],
+    "acceptance_criteria": [
+      "Exact SHA 95dc363 images/digests/revisions/replicas both tenants locked (class B)",
+      "LAW exactly one allowlisted SIGINT completion each tenant inside locked bounded inclusive drill query windows with exact timestamps (class B); other revision-lifetime records disclosed; revision-lifetime not claimed as one",
+      "Operator az containerapp exec + kill -INT 1 + exit 137 transport/process-termination disconnect only (not app failure; not native exit/shell/signal/ACA-restart proof) + post-drill /readyz=200 both tenants (class A transcript); LAW allowlisted record — not 137 — owns SIGINT pool/server cleanup evidence (class B)",
+      "Verifier requires A/B split + claim_ownership; rejects wrong replica/revision/times/signal/outcomes, unbounded/revision-lifetime exactly-one, missing exact command provenance, treating exit137 as app failure, claiming exit137 proves app/Node native exit/shell code/signal encoding/ACA restart reason, claimed concurrent continuity, secret fields, overclaims",
+      "G02 remains partial; proven count remains 0"
+    ],
+    "final_controlled_drill": {
+      "id": "16Y_DRILL_live_sigint_completion_log_evidence",
+      "status": "live_proven_via_16AA_sigint_law_and_post_drill_recovery",
+      "pass_rule": "See slice16aa-expected-contract.json final_controlled_drill.pass_rule"
+    },
+    "g02_verdict": "partial",
+    "g02_sigint_live": "live_proven_via_16AA",
+    "g02_sigterm_live": "live_proven_via_16Z"
   }
 }

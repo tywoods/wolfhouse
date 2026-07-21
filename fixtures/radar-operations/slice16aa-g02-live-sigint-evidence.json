@@ -1,0 +1,549 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AA",
+  "outcome_id": "16AA_g02_live_sigint_lifecycle_evidence",
+  "gate_ids_touched": [
+    "G02_readiness_dependencies"
+  ],
+  "master_basis": "fd333b22c984bad1abe387da456b6fbf87396c13",
+  "branch": "radar/slice-16aa-g02-live-sigint-evidence",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "progress_class": "partial_live_proven_evidence_only",
+  "title": "Reconcile dual-staging live SIGINT lifecycle drill evidence (bounded; no overclaims)",
+  "image_sha_short": "95dc363",
+  "image_sha_full": "95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+  "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "independent_azure_verify_utc": "2026-07-21T12:10:51Z",
+  "law_cardinality_reverify_utc": "2026-07-21T12:11:18Z",
+  "provenance_limitations": "Class A operator az containerapp exec kill -INT 1 command, exact replica targets, ClusterExecFailure exit 137 (az containerapp exec transport/process-termination disconnect only), and post-drill public /readyz=200 are operator-observed contemporaneous transcript facts. Class B digests/revisions/replicas/probes/public-current are independently reverified Azure/ACR/public read-only facts at independent_azure_verify_utc; LAW drill-window cardinality + other revision-lifetime record disclosure are independently reverified at law_cardinality_reverify_utc via bounded inclusive query windows (adjacent endpoints allowed). Unqualified revision-lifetime exactly-one is false (both tenants have other records; counts may grow). ClusterExecFailure exit 137 is only az containerapp exec transport/process-termination disconnect evidence; it is not an application failure and not proof of the application or Node process exact native exit status, shell code, signal encoding, or ACA restart reason. The independent LAW allowlisted record — not 137 — is evidence the lifecycle received original_signal SIGINT and completed pool/server cleanup. Do not treat A as Azure-reconstructible, and do not treat current public probes as authority to rewrite A historical facts or claim concurrent restart continuity / zero-downtime-during-restart.",
+  "non_recoverability": "Azure/ACR/LAW read-only APIs cannot recreate or replay the historical operator exec command, replica targeting, ClusterExecFailure exit 137 transport/process-termination disconnect observation, or post-drill /readyz sample; those values exist only in the operator drill command transcript. Current public probes and LAW queries verify present state / stored completion rows only. Exit 137 cannot be reconstructed into application/Node native exit status, shell code, signal encoding, or ACA restart reason. LAW cardinality claims require declared bounded query windows; revision-lifetime counts are not frozen and must not be claimed as cardinality.",
+  "claim_ownership": {
+    "exit_137_cluster_exec_failure": {
+      "owner_class": "A_operator_observed_drill_transcript",
+      "observation": "ClusterExecFailure_exit_137",
+      "proves": "az_containerapp_exec_transport_process_termination_disconnect",
+      "semantics": "az_containerapp_exec_transport_process_termination_disconnect_only",
+      "does_not_prove": [
+        "application_failure",
+        "application_or_node_process_exact_native_exit_status",
+        "shell_exit_code",
+        "signal_encoding",
+        "aca_restart_reason"
+      ],
+      "limitation": "ClusterExecFailure exit 137 is only az containerapp exec transport/process-termination disconnect evidence; not application failure; not proof of application or Node process exact native exit status, shell code, signal encoding, or ACA restart reason"
+    },
+    "law_allowlisted_sigint_completion": {
+      "owner_class": "B_independently_recoverable_azure_readonly",
+      "observation": "allowlisted_staff_api_readiness_shutdown_completion",
+      "proves": [
+        "lifecycle_received_original_signal_SIGINT",
+        "pool_close_result_ok",
+        "server_close_result_ok",
+        "failure_classes_empty",
+        "completion_true",
+        "exactly_one_in_declared_bounded_drill_query_window"
+      ],
+      "does_not_derive_from": "exit_137",
+      "limitation": "Independent LAW allowlisted record — not ClusterExecFailure exit 137 — is evidence the lifecycle received original_signal SIGINT and completed pool/server cleanup"
+    }
+  },
+  "observed_facts": {
+    "A_operator_observed_drill_transcript": {
+      "source_type": "operator_drill_transcript_contemporaneous_observation",
+      "source_ref": "operator_g02_live_sigint_lifecycle_command_transcript_2026-07-21",
+      "observed_at_semantics": "contemporaneous_operator_exec_kill_int_and_post_drill_readyz_not_azure_reconstructible",
+      "covers": [
+        "operator_az_containerapp_exec_kill_int_1",
+        "exact_replica_targets",
+        "cluster_exec_failure_exit_137_transport_process_termination_disconnect",
+        "post_drill_public_readyz_200"
+      ],
+      "explicitly_not_covered": [
+        "concurrent_restart_continuity",
+        "zero_downtime_during_restart",
+        "serving_revision_readyz_503_body_path",
+        "exit_137_as_application_failure",
+        "exit_137_proves_application_native_exit_status",
+        "exit_137_proves_node_process_exit_status",
+        "exit_137_proves_shell_exit_code",
+        "exit_137_proves_signal_encoding",
+        "exit_137_proves_aca_restart_reason"
+      ],
+      "wolfhouse": {
+        "app": "wh-staging-staff-api",
+        "revision": "wh-staging-staff-api--0000519",
+        "replica": "wh-staging-staff-api--0000519-7f6f87fbcc-fbqwq",
+        "operator_sigint_exec": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_live_sigint_lifecycle_command_transcript_2026-07-21",
+          "observed_at_semantics": "contemporaneous_operator_exec_kill_int_and_post_drill_readyz_not_azure_reconstructible",
+          "method": "az_containerapp_exec",
+          "revision": "wh-staging-staff-api--0000519",
+          "replica": "wh-staging-staff-api--0000519-7f6f87fbcc-fbqwq",
+          "command": "kill -INT 1",
+          "command_argv": [
+            "kill",
+            "-INT",
+            "1"
+          ],
+          "disconnect": {
+            "class": "cluster_exec_failure_exit_137_expected_after_process_termination",
+            "exit_code": 137,
+            "semantics": "az_containerapp_exec_transport_process_termination_disconnect_only",
+            "treated_as_application_failure": false,
+            "proves": "az_containerapp_exec_transport_process_termination_disconnect",
+            "does_not_prove": [
+              "application_failure",
+              "application_or_node_process_exact_native_exit_status",
+              "shell_exit_code",
+              "signal_encoding",
+              "aca_restart_reason"
+            ],
+            "note": "ClusterExecFailure exit 137 is only az containerapp exec transport/process-termination disconnect evidence; it is not an application failure and not proof of the application or Node process exact native exit status, shell code, signal encoding, or ACA restart reason. Independent LAW allowlisted record — not 137 — evidences original_signal SIGINT and pool/server cleanup completion."
+          },
+          "note": "Operator az containerapp exec into exact target replica then kill -INT 1; ClusterExecFailure exit 137 is az containerapp exec transport/process-termination disconnect only (not app/Node native exit, shell code, signal encoding, or ACA restart reason); transcript-derived only, not Azure-reconstructible"
+        },
+        "post_drill_recovery": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_live_sigint_lifecycle_command_transcript_2026-07-21",
+          "observed_at_semantics": "contemporaneous_operator_exec_kill_int_and_post_drill_readyz_not_azure_reconstructible",
+          "public_readyz": 200,
+          "semantics": "post_drill_recovery_not_concurrent_restart_continuity",
+          "note": "Post-drill public /readyz=200 only — explicitly not concurrent restart continuity or zero-downtime-during-restart proof; not Azure-reconstructible"
+        }
+      },
+      "sunset": {
+        "app": "luna-sunset-staging-staff-api",
+        "revision": "luna-sunset-staging-staff-api--0000279",
+        "replica": "luna-sunset-staging-staff-api--0000279-dbb57db7-zzx8n",
+        "operator_sigint_exec": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_live_sigint_lifecycle_command_transcript_2026-07-21",
+          "observed_at_semantics": "contemporaneous_operator_exec_kill_int_and_post_drill_readyz_not_azure_reconstructible",
+          "method": "az_containerapp_exec",
+          "revision": "luna-sunset-staging-staff-api--0000279",
+          "replica": "luna-sunset-staging-staff-api--0000279-dbb57db7-zzx8n",
+          "command": "kill -INT 1",
+          "command_argv": [
+            "kill",
+            "-INT",
+            "1"
+          ],
+          "disconnect": {
+            "class": "cluster_exec_failure_exit_137_expected_after_process_termination",
+            "exit_code": 137,
+            "semantics": "az_containerapp_exec_transport_process_termination_disconnect_only",
+            "treated_as_application_failure": false,
+            "proves": "az_containerapp_exec_transport_process_termination_disconnect",
+            "does_not_prove": [
+              "application_failure",
+              "application_or_node_process_exact_native_exit_status",
+              "shell_exit_code",
+              "signal_encoding",
+              "aca_restart_reason"
+            ],
+            "note": "ClusterExecFailure exit 137 is only az containerapp exec transport/process-termination disconnect evidence; it is not an application failure and not proof of the application or Node process exact native exit status, shell code, signal encoding, or ACA restart reason. Independent LAW allowlisted record — not 137 — evidences original_signal SIGINT and pool/server cleanup completion."
+          },
+          "note": "Operator az containerapp exec into exact target replica then kill -INT 1; ClusterExecFailure exit 137 is az containerapp exec transport/process-termination disconnect only (not app/Node native exit, shell code, signal encoding, or ACA restart reason); transcript-derived only, not Azure-reconstructible"
+        },
+        "post_drill_recovery": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_live_sigint_lifecycle_command_transcript_2026-07-21",
+          "observed_at_semantics": "contemporaneous_operator_exec_kill_int_and_post_drill_readyz_not_azure_reconstructible",
+          "public_readyz": 200,
+          "semantics": "post_drill_recovery_not_concurrent_restart_continuity",
+          "note": "Post-drill public /readyz=200 only — explicitly not concurrent restart continuity or zero-downtime-during-restart proof; not Azure-reconstructible"
+        }
+      }
+    },
+    "B_independently_recoverable_azure_readonly": {
+      "source_type": "azure_acr_law_readonly_independently_reverified",
+      "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T12:10:51Z",
+      "observed_at": "2026-07-21T12:10:51Z",
+      "observed_at_semantics": "independently_reverified_at_recorded_utc",
+      "covers": [
+        "acr_digests",
+        "images_and_serving_revisions",
+        "current_replicas",
+        "revision_create_timelines",
+        "law_shutdown_completion_exactly_one_each_in_declared_drill_query_window",
+        "law_revision_lifetime_other_records_disclosed",
+        "probes",
+        "public_current_healthz_readyz"
+      ],
+      "builds": {
+        "source_type": "azure_acr_law_readonly_independently_reverified",
+        "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T12:10:51Z",
+        "observed_at": "2026-07-21T12:10:51Z",
+        "wolfhouse_digest": "sha256:a9677f75a7d17be9b6ae75b60bc026d462df971cc164496344c29b8c57aee6de",
+        "sunset_digest": "sha256:8a0b1647ba246bb548d437fcc37e3e4f600181ca1d04dc1eb73e3f4a69d51c10",
+        "image_sha_full": "95dc3634ac6aaa6de495d22f5f5d8cd0a955df97"
+      },
+      "wolfhouse": {
+        "app": "wh-staging-staff-api",
+        "resource_group": "wh-staging-rg",
+        "public_host": "staff-staging.lunafrontdesk.com",
+        "image": "whstagingacr.azurecr.io/wh-staff-api:95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+        "digest": "sha256:a9677f75a7d17be9b6ae75b60bc026d462df971cc164496344c29b8c57aee6de",
+        "revision": "wh-staging-staff-api--0000519",
+        "revision_suffix": "0000519",
+        "replica": "wh-staging-staff-api--0000519-7f6f87fbcc-fbqwq",
+        "source_type": "azure_acr_law_readonly_independently_reverified",
+        "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T12:10:51Z",
+        "observed_at": "2026-07-21T12:10:51Z",
+        "observed_at_semantics": "independently_reverified_at_recorded_utc",
+        "timeline": {
+          "acr_tag_created_utc": "2026-07-21T11:11:54.3612271Z",
+          "revision_created_utc": "2026-07-21T11:12:46+00:00",
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T12:10:51Z",
+          "observed_at": "2026-07-21T12:10:51Z"
+        },
+        "law_workspace": {
+          "customer_id": "43ae26dd-4a82-4a91-b744-5e1f94a2ae8f",
+          "workspace_name": "wh-staging-logs",
+          "retention_days": 30,
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T12:10:51Z",
+          "observed_at": "2026-07-21T12:10:51Z"
+        },
+        "law_completion": {
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T12:11:18Z",
+          "observed_at": "2026-07-21T12:11:18Z",
+          "table": "ContainerAppConsoleLogs_CL",
+          "cardinality_semantics": "exactly_one_in_declared_bounded_drill_query_window_not_revision_lifetime",
+          "query_window": {
+            "start_utc": "2026-07-21T12:08:00Z",
+            "end_utc": "2026-07-21T12:09:00Z",
+            "start_inclusive": true,
+            "end_inclusive": true,
+            "semantics": "bounded_inclusive_drill_query_window_adjacent_endpoints_allowed",
+            "derivation": "WH drill LAW query window = 2026-07-21T12:08:00Z through 2026-07-21T12:09:00Z (inclusive); abuts Sunset window at 12:09:00Z endpoint (interiors non-overlapping); cardinality claim is exactly one target-revision allowlisted SIGINT completion in this window only",
+            "source_type": "azure_acr_law_readonly_independently_reverified",
+            "source_ref": "az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T12:11:18Z",
+            "observed_at": "2026-07-21T12:11:18Z"
+          },
+          "match_count": 1,
+          "TimeGenerated": "2026-07-21T12:08:28.6734879Z",
+          "revision": "wh-staging-staff-api--0000519",
+          "record": {
+            "event": "staff_api_readiness_shutdown_completion",
+            "original_signal": "SIGINT",
+            "pool_close_result": "ok",
+            "server_close_result": "ok",
+            "failure_classes": [],
+            "completion": true
+          }
+        },
+        "law_revision_lifetime_disclosure": {
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T12:11:18Z",
+          "observed_at": "2026-07-21T12:11:18Z",
+          "unqualified_exactly_one_per_revision": false,
+          "revision_lifetime_count_is_one": false,
+          "may_continue_growing_due_to_scaling_restarts": true,
+          "known_revision_lifetime_count_at_review": 5,
+          "claim_limited_to": "exactly_one_in_declared_drill_query_window",
+          "known_other_records_at_review": [
+            {
+              "TimeGenerated": "2026-07-21T11:16:20.3631884Z",
+              "class": "revision_lifetime_record_not_16aa_drill_completion",
+              "revision": "wh-staging-staff-api--0000519",
+              "record": {
+                "event": "staff_api_readiness_shutdown_completion",
+                "original_signal": "SIGTERM",
+                "pool_close_result": "ok",
+                "server_close_result": "ok",
+                "failure_classes": [],
+                "completion": true
+              }
+            },
+            {
+              "TimeGenerated": "2026-07-21T11:24:48.5525367Z",
+              "class": "revision_lifetime_record_not_16aa_drill_completion",
+              "revision": "wh-staging-staff-api--0000519",
+              "record": {
+                "event": "staff_api_readiness_shutdown_completion",
+                "original_signal": "SIGTERM",
+                "pool_close_result": "ok",
+                "server_close_result": "ok",
+                "failure_classes": [],
+                "completion": true
+              }
+            },
+            {
+              "TimeGenerated": "2026-07-21T11:47:54.2072273Z",
+              "class": "revision_lifetime_record_not_16aa_drill_completion",
+              "revision": "wh-staging-staff-api--0000519",
+              "record": {
+                "event": "staff_api_readiness_shutdown_completion",
+                "original_signal": "SIGTERM",
+                "pool_close_result": "ok",
+                "server_close_result": "ok",
+                "failure_classes": [],
+                "completion": true
+              }
+            },
+            {
+              "TimeGenerated": "2026-07-21T12:00:48.8352797Z",
+              "class": "revision_lifetime_record_not_16aa_drill_completion",
+              "revision": "wh-staging-staff-api--0000519",
+              "record": {
+                "event": "staff_api_readiness_shutdown_completion",
+                "original_signal": "SIGTERM",
+                "pool_close_result": "ok",
+                "server_close_result": "ok",
+                "failure_classes": [],
+                "completion": true
+              }
+            }
+          ],
+          "note": "WH target revision has other valid shutdown completions outside the SIGINT drill window (prior SIGTERM lifecycle events). Revision-lifetime count is not one and may continue growing. 16AA claims exactly one only inside the declared WH drill query window; disclosed count is review-time snapshot only."
+        },
+        "final_state": {
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T12:10:51Z",
+          "observed_at": "2026-07-21T12:10:51Z",
+          "observed_at_semantics": "independently_reverified_at_recorded_utc",
+          "latest_revision": "wh-staging-staff-api--0000519",
+          "latest_ready_revision": "wh-staging-staff-api--0000519",
+          "health_state": "Healthy",
+          "running_state": "RunningAtMaxScale",
+          "traffic_latest_percent": 100,
+          "public_healthz": 200,
+          "public_readyz": 200,
+          "public_current_note": "public_healthz/public_readyz here are independently reverified current values at observed_at — not a recreation of class-A post-drill /readyz observation",
+          "probes": [
+            {
+              "type": "Liveness",
+              "path": "/healthz",
+              "port": 3036
+            },
+            {
+              "type": "Readiness",
+              "path": "/readyz",
+              "port": 3036
+            },
+            {
+              "type": "Startup",
+              "path": "/healthz",
+              "port": 3036
+            }
+          ]
+        }
+      },
+      "sunset": {
+        "app": "luna-sunset-staging-staff-api",
+        "resource_group": "luna-sunset-staging-rg",
+        "public_host": "sunset-staging.lunafrontdesk.com",
+        "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+        "digest": "sha256:8a0b1647ba246bb548d437fcc37e3e4f600181ca1d04dc1eb73e3f4a69d51c10",
+        "revision": "luna-sunset-staging-staff-api--0000279",
+        "revision_suffix": "0000279",
+        "replica": "luna-sunset-staging-staff-api--0000279-dbb57db7-zzx8n",
+        "source_type": "azure_acr_law_readonly_independently_reverified",
+        "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T12:10:51Z",
+        "observed_at": "2026-07-21T12:10:51Z",
+        "observed_at_semantics": "independently_reverified_at_recorded_utc",
+        "timeline": {
+          "acr_tag_created_utc": "2026-07-21T11:12:04.3397072Z",
+          "revision_created_utc": "2026-07-21T11:13:51+00:00",
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T12:10:51Z",
+          "observed_at": "2026-07-21T12:10:51Z"
+        },
+        "law_workspace": {
+          "customer_id": "552489bf-8e57-48df-8413-6e775caaa7d0",
+          "workspace_name": "luna-sunset-staging-logs",
+          "retention_days": 30,
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T12:10:51Z",
+          "observed_at": "2026-07-21T12:10:51Z"
+        },
+        "law_completion": {
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T12:11:18Z",
+          "observed_at": "2026-07-21T12:11:18Z",
+          "table": "ContainerAppConsoleLogs_CL",
+          "cardinality_semantics": "exactly_one_in_declared_bounded_drill_query_window_not_revision_lifetime",
+          "query_window": {
+            "start_utc": "2026-07-21T12:09:00Z",
+            "end_utc": "2026-07-21T12:10:00Z",
+            "start_inclusive": true,
+            "end_inclusive": true,
+            "semantics": "bounded_inclusive_drill_query_window_adjacent_endpoints_allowed",
+            "derivation": "Sunset drill LAW query window = 2026-07-21T12:09:00Z through 2026-07-21T12:10:00Z (inclusive); abuts WH window at 12:09:00Z endpoint (interiors non-overlapping); cardinality claim is exactly one target-revision allowlisted SIGINT completion in this window only",
+            "source_type": "azure_acr_law_readonly_independently_reverified",
+            "source_ref": "az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T12:11:18Z",
+            "observed_at": "2026-07-21T12:11:18Z"
+          },
+          "match_count": 1,
+          "TimeGenerated": "2026-07-21T12:09:25.9915987Z",
+          "revision": "luna-sunset-staging-staff-api--0000279",
+          "record": {
+            "event": "staff_api_readiness_shutdown_completion",
+            "original_signal": "SIGINT",
+            "pool_close_result": "ok",
+            "server_close_result": "ok",
+            "failure_classes": [],
+            "completion": true
+          }
+        },
+        "law_revision_lifetime_disclosure": {
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_monitor_log_analytics_query_readonly_bounded_drill_windows_2026-07-21T12:11:18Z",
+          "observed_at": "2026-07-21T12:11:18Z",
+          "unqualified_exactly_one_per_revision": false,
+          "revision_lifetime_count_is_one": false,
+          "may_continue_growing_due_to_scaling_restarts": true,
+          "known_revision_lifetime_count_at_review": 2,
+          "claim_limited_to": "exactly_one_in_declared_drill_query_window",
+          "known_other_records_at_review": [
+            {
+              "TimeGenerated": "2026-07-21T11:18:04.1610218Z",
+              "class": "revision_lifetime_record_not_16aa_drill_completion",
+              "revision": "luna-sunset-staging-staff-api--0000279",
+              "record": {
+                "event": "staff_api_readiness_shutdown_completion",
+                "original_signal": "SIGTERM",
+                "pool_close_result": "ok",
+                "server_close_result": "ok",
+                "failure_classes": [],
+                "completion": true
+              }
+            }
+          ],
+          "note": "Sunset target revision has other valid shutdown completions outside the SIGINT drill window (prior SIGTERM). Revision-lifetime exactly-one is still not claimed as a durable invariant (may grow via scaling/restarts). 16AA claims exactly one only inside the declared Sunset drill query window; disclosed count is review-time snapshot only."
+        },
+        "final_state": {
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T12:10:51Z",
+          "observed_at": "2026-07-21T12:10:51Z",
+          "observed_at_semantics": "independently_reverified_at_recorded_utc",
+          "latest_revision": "luna-sunset-staging-staff-api--0000279",
+          "latest_ready_revision": "luna-sunset-staging-staff-api--0000279",
+          "health_state": "Healthy",
+          "running_state": "RunningAtMaxScale",
+          "traffic_latest_percent": 100,
+          "public_healthz": 200,
+          "public_readyz": 200,
+          "public_current_note": "public_healthz/public_readyz here are independently reverified current values at observed_at — not a recreation of class-A post-drill /readyz observation",
+          "probes": [
+            {
+              "type": "Liveness",
+              "path": "/healthz",
+              "port": 3036
+            },
+            {
+              "type": "Readiness",
+              "path": "/readyz",
+              "port": 3036
+            },
+            {
+              "type": "Startup",
+              "path": "/healthz",
+              "port": 3036
+            }
+          ]
+        }
+      }
+    }
+  },
+  "claims_allowed": [
+    "exact_sha_95dc363_images_digests_both_tenants",
+    "revisions_wh_0000519_sunset_0000279_healthy_serving",
+    "exact_replicas_wh_fbqwq_sunset_zzx8n",
+    "operator_az_exec_kill_int_1_both_tenants_with_exit_137_transport_disconnect",
+    "law_exactly_one_sigint_completion_each_tenant_in_declared_drill_query_window",
+    "allowlisted_completion_json_sigint_pool_ok_server_ok_failures_empty_completion_true",
+    "law_not_exit_137_owns_sigint_pool_server_cleanup_evidence",
+    "post_drill_public_readyz_200_both_tenants",
+    "public_current_healthz_readyz_200_both_tenants",
+    "no_production_scope",
+    "other_revision_lifetime_records_disclosed_not_drill_completions",
+    "exit_137_az_exec_transport_disconnect_only_not_app_exit_or_aca_reason"
+  ],
+  "explicitly_not_claimed": [
+    "serving_revision_readyz_503_body_path",
+    "zero_downtime_during_restart",
+    "concurrent_restart_continuity",
+    "organic_metric_alert_firing",
+    "human_inbox_receipt",
+    "production",
+    "full_G02_proven",
+    "any_gate_verdict_proven",
+    "revision_lifetime_exactly_one_sigint_completion",
+    "unbounded_law_cardinality_exactly_one",
+    "exit_137_as_application_failure",
+    "exit_137_proves_application_native_exit_status",
+    "exit_137_proves_node_process_exit_status",
+    "exit_137_proves_shell_exit_code",
+    "exit_137_proves_signal_encoding",
+    "exit_137_proves_aca_restart_reason"
+  ],
+  "disposition": {
+    "proves": [
+      "dual_staging_sigint_cleanup_telemetry_law_exactly_one_each_in_declared_drill_query_window",
+      "allowlisted_completion_sigint_pool_ok_server_ok_empty_failures",
+      "law_not_exit_137_owns_sigint_pool_server_cleanup_evidence",
+      "post_drill_recovery_readyz_200_both_tenants",
+      "exact_sha_95dc363_digests_revisions_replicas_healthy_serving",
+      "other_revision_lifetime_records_disclosed_revision_lifetime_not_one",
+      "exit_137_az_exec_transport_disconnect_only_not_app_exit_or_aca_reason"
+    ],
+    "does_not_prove": [
+      "serving_revision_readyz_503_body_path",
+      "zero_downtime_during_restart",
+      "concurrent_restart_continuity",
+      "organic_metric_alert_firing",
+      "human_inbox_receipt",
+      "production",
+      "full_G02_proven",
+      "any_gate_verdict_proven",
+      "revision_lifetime_exactly_one_sigint_completion",
+      "unbounded_law_cardinality_exactly_one",
+      "exit_137_as_application_failure",
+      "exit_137_proves_application_native_exit_status",
+      "exit_137_proves_node_process_exit_status",
+      "exit_137_proves_shell_exit_code",
+      "exit_137_proves_signal_encoding",
+      "exit_137_proves_aca_restart_reason"
+    ],
+    "g02_verdict": "partial",
+    "g02_progress_class": "partial_live_proven"
+  },
+  "gate_progress_updates": {
+    "G02_readiness_dependencies": {
+      "progress_class": "partial_live_proven",
+      "verdict": "partial",
+      "live_proven": [
+        "lifecycle_wired_image_95dc363_deployed_wh_0000519_sunset_0000279",
+        "live_sigint_completion_law_exactly_one_each_tenant_in_declared_drill_query_window",
+        "post_drill_recovery_readyz_200",
+        "prior_16Z_sigterm_law_retained",
+        "prior_16X_traffic_shed_retained",
+        "prior_16Y_completion_log_source_retained"
+      ],
+      "still_open": [
+        "serving_revision_readyz_503_body_path",
+        "zero_downtime_during_restart",
+        "organic_metric_alert_firing",
+        "production"
+      ]
+    }
+  },
+  "gates_unchanged": [
+    "G01_correlation_structured_logs",
+    "G03_actionable_tenant_aware_alerts",
+    "G04_webhook_payment_worker_backlog",
+    "G05_retry_replay_safety",
+    "G06_scaling_capacity",
+    "G07_rollback_incident_runbooks",
+    "G08_retention_privacy",
+    "G09_cost_controls"
+  ],
+  "lock_hash": "c07e6d2b7ac77be01726fa3ce66e9cf62885267849dd4c9a60c331671d65a19d"
+}

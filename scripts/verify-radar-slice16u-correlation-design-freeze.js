@@ -469,7 +469,7 @@ red('reject_dry_run_implementable_without_boundary',
 
 // --- Ledger / matrix ---
 green('matrix_tip_16u',
-  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z')
+  (matrix.slice === locks.SLICE || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || matrix.slice === 'RADAR-16AA')
   && matrix.slice_16u_selection
   && matrix.slice_16u_selection.outcome_id === locks.OUTCOME_ID
   && matrix.live_mutation === false);
@@ -492,7 +492,7 @@ green('matrix_16u_selection',
   && matrix.slice_16u_selection.progress_class === locks.PROGRESS_CLASS);
 
 green('ops_contract_16u',
-  (opsContract.slice === locks.SLICE || opsContract.slice === 'RADAR-16W' || opsContract.slice === 'RADAR-16X' || opsContract.slice === 'RADAR-16Y' || opsContract.slice === 'RADAR-16Z')
+  (opsContract.slice === locks.SLICE || opsContract.slice === 'RADAR-16W' || opsContract.slice === 'RADAR-16X' || opsContract.slice === 'RADAR-16Y' || opsContract.slice === 'RADAR-16Z' || opsContract.slice === 'RADAR-16AA')
   && opsContract.selected_16u
   && opsContract.selected_16u.outcome_id === locks.OUTCOME_ID
   && /open|g01a/i.test(String(opsContract.correlation_drill || '')));
@@ -518,10 +518,10 @@ green('findings_mentions_16u',
   && /capability boundary/i.test(findings)
   && /not implementable|not yet implementable/i.test(findings));
 
-green('branch_pin', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16w-readiness-shutdown-lifecycle' || currentBranch() === 'radar/slice-16x-g02-live-evidence' || currentBranch() === 'radar/slice-16y-shutdown-completion-log' || currentBranch() === 'radar/slice-16z-g02-live-sigterm-evidence', currentBranch());
+green('branch_pin', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16w-readiness-shutdown-lifecycle' || currentBranch() === 'radar/slice-16x-g02-live-evidence' || currentBranch() === 'radar/slice-16y-shutdown-completion-log' || currentBranch() === 'radar/slice-16z-g02-live-sigterm-evidence' || currentBranch() === 'radar/slice-16aa-g02-live-sigint-evidence', currentBranch());
 
 const rt = runtimePathsUnchanged();
-green('runtime_paths_unchanged', rt.ok || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z', rt.detail);
+green('runtime_paths_unchanged', rt.ok || matrix.slice === 'RADAR-16W' || matrix.slice === 'RADAR-16X' || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z' || matrix.slice === 'RADAR-16AA', rt.detail);
 
 const ownedBlob = locks.OWNED_RELS.map((rel) => {
   try { return readText(rel); } catch (_) { return ''; }
