@@ -1,0 +1,987 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16Z",
+  "outcome_id": "16Z_g02_live_sigterm_lifecycle_evidence",
+  "gate_ids_touched": [
+    "G02_readiness_dependencies"
+  ],
+  "master_basis": "95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+  "branch": "radar/slice-16z-g02-live-sigterm-evidence",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "progress_class": "partial_live_proven_evidence_only",
+  "title": "Reconcile dual-staging live SIGTERM lifecycle drill evidence (bounded; no overclaims)",
+  "image_sha_short": "95dc363",
+  "image_sha_full": "95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+  "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "independent_azure_verify_utc": "2026-07-21T11:42:38Z",
+  "provenance_limitations": "Class A operator restart windows and post-restart healthz/readyz sample arrays are operator-observed contemporaneous transcript facts. Class B digests/revisions/LAW completion records/probes/public-current are independently reverified Azure/ACR/LAW/public read-only facts at independent_azure_verify_utc. Do not treat A as Azure-reconstructible, and do not treat current public probes as authority to rewrite A historical samples or claim concurrent restart continuity.",
+  "non_recoverability": "Azure/ACR/LAW read-only APIs cannot recreate or replay the historical post-restart healthz/readyz sample arrays or operator restart command windows; those values exist only in the operator drill command transcript. Current public probes and LAW queries verify present state / stored completion rows only.",
+  "observed_facts": {
+    "A_operator_observed_drill_transcript": {
+      "source_type": "operator_drill_transcript_contemporaneous_observation",
+      "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+      "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+      "covers": [
+        "operator_restart_windows",
+        "post_restart_healthz_readyz_samples_31_approx_2s"
+      ],
+      "explicitly_not_covered": [
+        "concurrent_restart_continuity",
+        "zero_downtime_during_restart"
+      ],
+      "wolfhouse": {
+        "app": "wh-staging-staff-api",
+        "revision": "wh-staging-staff-api--0000519",
+        "operator_restart": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+          "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+          "started_utc": "2026-07-21T11:15:18Z",
+          "ended_utc": "2026-07-21T11:15:21Z",
+          "note": "Operator-initiated container restart window from drill transcript; not Azure-reconstructible as contemporaneous continuity"
+        },
+        "post_restart_observation": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+          "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+          "observation_window": {
+            "start_utc": "2026-07-21T11:15:22Z",
+            "end_utc": "2026-07-21T11:16:25Z",
+            "duration_seconds": 63,
+            "cadence_seconds": 2,
+            "sample_count": 31,
+            "sample_span_seconds": 60,
+            "last_sample_utc": "2026-07-21T11:16:22Z",
+            "semantics": "post_restart_recovery_samples_not_concurrent_restart_continuity",
+            "derivation": "start_utc/end_utc = operator-stated post-restart sampling period after WH restart ended 11:15:21Z; 31 samples at ~2s cadence (offsets 0..60 → last_sample 11:16:22Z); window end 11:16:25Z is period close — transcript-derived only, not Azure-reconstructible"
+          },
+          "duration_seconds": 63,
+          "cadence_seconds": 2,
+          "sample_count": 31,
+          "sample_span_seconds": 60,
+          "samples": [
+            {
+              "t_offset_s": 0,
+              "absolute_observed_at_utc": "2026-07-21T11:15:22Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 2,
+              "absolute_observed_at_utc": "2026-07-21T11:15:24Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 4,
+              "absolute_observed_at_utc": "2026-07-21T11:15:26Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 6,
+              "absolute_observed_at_utc": "2026-07-21T11:15:28Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 8,
+              "absolute_observed_at_utc": "2026-07-21T11:15:30Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 10,
+              "absolute_observed_at_utc": "2026-07-21T11:15:32Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 12,
+              "absolute_observed_at_utc": "2026-07-21T11:15:34Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 14,
+              "absolute_observed_at_utc": "2026-07-21T11:15:36Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 16,
+              "absolute_observed_at_utc": "2026-07-21T11:15:38Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 18,
+              "absolute_observed_at_utc": "2026-07-21T11:15:40Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 20,
+              "absolute_observed_at_utc": "2026-07-21T11:15:42Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 22,
+              "absolute_observed_at_utc": "2026-07-21T11:15:44Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 24,
+              "absolute_observed_at_utc": "2026-07-21T11:15:46Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 26,
+              "absolute_observed_at_utc": "2026-07-21T11:15:48Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 28,
+              "absolute_observed_at_utc": "2026-07-21T11:15:50Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 30,
+              "absolute_observed_at_utc": "2026-07-21T11:15:52Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 32,
+              "absolute_observed_at_utc": "2026-07-21T11:15:54Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 34,
+              "absolute_observed_at_utc": "2026-07-21T11:15:56Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 36,
+              "absolute_observed_at_utc": "2026-07-21T11:15:58Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 38,
+              "absolute_observed_at_utc": "2026-07-21T11:16:00Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 40,
+              "absolute_observed_at_utc": "2026-07-21T11:16:02Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 42,
+              "absolute_observed_at_utc": "2026-07-21T11:16:04Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 44,
+              "absolute_observed_at_utc": "2026-07-21T11:16:06Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 46,
+              "absolute_observed_at_utc": "2026-07-21T11:16:08Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 48,
+              "absolute_observed_at_utc": "2026-07-21T11:16:10Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 50,
+              "absolute_observed_at_utc": "2026-07-21T11:16:12Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 52,
+              "absolute_observed_at_utc": "2026-07-21T11:16:14Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 54,
+              "absolute_observed_at_utc": "2026-07-21T11:16:16Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 56,
+              "absolute_observed_at_utc": "2026-07-21T11:16:18Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 58,
+              "absolute_observed_at_utc": "2026-07-21T11:16:20Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 60,
+              "absolute_observed_at_utc": "2026-07-21T11:16:22Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            }
+          ],
+          "public_recovery": {
+            "source_type": "operator_drill_transcript_contemporaneous_observation",
+            "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+            "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+            "public_healthz": 200,
+            "public_readyz": 200,
+            "note": "Post-restart recovery samples only — explicitly not concurrent restart continuity or zero-downtime-during-restart proof"
+          }
+        }
+      },
+      "sunset": {
+        "app": "luna-sunset-staging-staff-api",
+        "revision": "luna-sunset-staging-staff-api--0000279",
+        "operator_restart": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+          "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+          "started_utc": "2026-07-21T11:17:30Z",
+          "ended_utc": "2026-07-21T11:17:33Z",
+          "note": "Operator-initiated container restart window from drill transcript; not Azure-reconstructible as contemporaneous continuity"
+        },
+        "post_restart_observation": {
+          "source_type": "operator_drill_transcript_contemporaneous_observation",
+          "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+          "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+          "observation_window": {
+            "start_utc": "2026-07-21T11:17:35Z",
+            "end_utc": "2026-07-21T11:18:38Z",
+            "duration_seconds": 63,
+            "cadence_seconds": 2,
+            "sample_count": 31,
+            "sample_span_seconds": 60,
+            "last_sample_utc": "2026-07-21T11:18:35Z",
+            "semantics": "post_restart_recovery_samples_not_concurrent_restart_continuity",
+            "derivation": "start_utc/end_utc = operator-stated post-restart sampling period after Sunset restart ended 11:17:33Z; 31 samples at ~2s cadence (offsets 0..60 → last_sample 11:18:35Z); window end 11:18:38Z is period close — transcript-derived only, not Azure-reconstructible"
+          },
+          "duration_seconds": 63,
+          "cadence_seconds": 2,
+          "sample_count": 31,
+          "sample_span_seconds": 60,
+          "samples": [
+            {
+              "t_offset_s": 0,
+              "absolute_observed_at_utc": "2026-07-21T11:17:35Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 2,
+              "absolute_observed_at_utc": "2026-07-21T11:17:37Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 4,
+              "absolute_observed_at_utc": "2026-07-21T11:17:39Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 6,
+              "absolute_observed_at_utc": "2026-07-21T11:17:41Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 8,
+              "absolute_observed_at_utc": "2026-07-21T11:17:43Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 10,
+              "absolute_observed_at_utc": "2026-07-21T11:17:45Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 12,
+              "absolute_observed_at_utc": "2026-07-21T11:17:47Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 14,
+              "absolute_observed_at_utc": "2026-07-21T11:17:49Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 16,
+              "absolute_observed_at_utc": "2026-07-21T11:17:51Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 18,
+              "absolute_observed_at_utc": "2026-07-21T11:17:53Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 20,
+              "absolute_observed_at_utc": "2026-07-21T11:17:55Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 22,
+              "absolute_observed_at_utc": "2026-07-21T11:17:57Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 24,
+              "absolute_observed_at_utc": "2026-07-21T11:17:59Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 26,
+              "absolute_observed_at_utc": "2026-07-21T11:18:01Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 28,
+              "absolute_observed_at_utc": "2026-07-21T11:18:03Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 30,
+              "absolute_observed_at_utc": "2026-07-21T11:18:05Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 32,
+              "absolute_observed_at_utc": "2026-07-21T11:18:07Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 34,
+              "absolute_observed_at_utc": "2026-07-21T11:18:09Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 36,
+              "absolute_observed_at_utc": "2026-07-21T11:18:11Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 38,
+              "absolute_observed_at_utc": "2026-07-21T11:18:13Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 40,
+              "absolute_observed_at_utc": "2026-07-21T11:18:15Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 42,
+              "absolute_observed_at_utc": "2026-07-21T11:18:17Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 44,
+              "absolute_observed_at_utc": "2026-07-21T11:18:19Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 46,
+              "absolute_observed_at_utc": "2026-07-21T11:18:21Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 48,
+              "absolute_observed_at_utc": "2026-07-21T11:18:23Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 50,
+              "absolute_observed_at_utc": "2026-07-21T11:18:25Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 52,
+              "absolute_observed_at_utc": "2026-07-21T11:18:27Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 54,
+              "absolute_observed_at_utc": "2026-07-21T11:18:29Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 56,
+              "absolute_observed_at_utc": "2026-07-21T11:18:31Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 58,
+              "absolute_observed_at_utc": "2026-07-21T11:18:33Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            },
+            {
+              "t_offset_s": 60,
+              "absolute_observed_at_utc": "2026-07-21T11:18:35Z",
+              "public_healthz": 200,
+              "public_readyz": 200,
+              "source_type": "operator_drill_transcript_contemporaneous_observation",
+              "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+              "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+              "sample_class": "post_restart_recovery_not_concurrent_restart_continuity"
+            }
+          ],
+          "public_recovery": {
+            "source_type": "operator_drill_transcript_contemporaneous_observation",
+            "source_ref": "operator_g02_live_sigterm_lifecycle_command_transcript_2026-07-21",
+            "observed_at_semantics": "contemporaneous_operator_restart_and_post_restart_samples_not_azure_reconstructible",
+            "public_healthz": 200,
+            "public_readyz": 200,
+            "note": "Post-restart recovery samples only — explicitly not concurrent restart continuity or zero-downtime-during-restart proof"
+          }
+        }
+      }
+    },
+    "B_independently_recoverable_azure_readonly": {
+      "source_type": "azure_acr_law_readonly_independently_reverified",
+      "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
+      "observed_at": "2026-07-21T11:42:38Z",
+      "observed_at_semantics": "independently_reverified_at_recorded_utc",
+      "covers": [
+        "acr_digests",
+        "images_and_serving_revisions",
+        "revision_create_timelines",
+        "law_shutdown_completion_exactly_one_each",
+        "probes",
+        "public_current_healthz_readyz"
+      ],
+      "builds": {
+        "source_type": "azure_acr_law_readonly_independently_reverified",
+        "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
+        "observed_at": "2026-07-21T11:42:38Z",
+        "wolfhouse_digest": "sha256:a9677f75a7d17be9b6ae75b60bc026d462df971cc164496344c29b8c57aee6de",
+        "sunset_digest": "sha256:8a0b1647ba246bb548d437fcc37e3e4f600181ca1d04dc1eb73e3f4a69d51c10",
+        "image_sha_full": "95dc3634ac6aaa6de495d22f5f5d8cd0a955df97"
+      },
+      "wolfhouse": {
+        "app": "wh-staging-staff-api",
+        "resource_group": "wh-staging-rg",
+        "public_host": "staff-staging.lunafrontdesk.com",
+        "image": "whstagingacr.azurecr.io/wh-staff-api:95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+        "digest": "sha256:a9677f75a7d17be9b6ae75b60bc026d462df971cc164496344c29b8c57aee6de",
+        "revision": "wh-staging-staff-api--0000519",
+        "revision_suffix": "0000519",
+        "source_type": "azure_acr_law_readonly_independently_reverified",
+        "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
+        "observed_at": "2026-07-21T11:42:38Z",
+        "observed_at_semantics": "independently_reverified_at_recorded_utc",
+        "timeline": {
+          "acr_tag_created_utc": "2026-07-21T11:11:54.3612271Z",
+          "revision_created_utc": "2026-07-21T11:12:46+00:00",
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
+          "observed_at": "2026-07-21T11:42:38Z"
+        },
+        "law_workspace": {
+          "customer_id": "43ae26dd-4a82-4a91-b744-5e1f94a2ae8f",
+          "workspace_name": "wh-staging-logs",
+          "retention_days": 30,
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
+          "observed_at": "2026-07-21T11:42:38Z"
+        },
+        "law_completion": {
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
+          "observed_at": "2026-07-21T11:42:38Z",
+          "table": "ContainerAppConsoleLogs_CL",
+          "match_count": 1,
+          "TimeGenerated": "2026-07-21T11:16:20.3631884Z",
+          "revision": "wh-staging-staff-api--0000519",
+          "record": {
+            "event": "staff_api_readiness_shutdown_completion",
+            "original_signal": "SIGTERM",
+            "pool_close_result": "ok",
+            "server_close_result": "ok",
+            "failure_classes": [],
+            "completion": true
+          }
+        },
+        "final_state": {
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
+          "observed_at": "2026-07-21T11:42:38Z",
+          "observed_at_semantics": "independently_reverified_at_recorded_utc",
+          "latest_revision": "wh-staging-staff-api--0000519",
+          "latest_ready_revision": "wh-staging-staff-api--0000519",
+          "health_state": "Healthy",
+          "running_state": "RunningAtMaxScale",
+          "traffic_latest_percent": 100,
+          "public_healthz": 200,
+          "public_readyz": 200,
+          "public_current_note": "public_healthz/public_readyz here are independently reverified current values at observed_at — not a recreation of class-A historical post-restart samples",
+          "probes": [
+            {
+              "type": "Liveness",
+              "path": "/healthz",
+              "port": 3036
+            },
+            {
+              "type": "Readiness",
+              "path": "/readyz",
+              "port": 3036
+            },
+            {
+              "type": "Startup",
+              "path": "/healthz",
+              "port": 3036
+            }
+          ]
+        }
+      },
+      "sunset": {
+        "app": "luna-sunset-staging-staff-api",
+        "resource_group": "luna-sunset-staging-rg",
+        "public_host": "sunset-staging.lunafrontdesk.com",
+        "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+        "digest": "sha256:8a0b1647ba246bb548d437fcc37e3e4f600181ca1d04dc1eb73e3f4a69d51c10",
+        "revision": "luna-sunset-staging-staff-api--0000279",
+        "revision_suffix": "0000279",
+        "source_type": "azure_acr_law_readonly_independently_reverified",
+        "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
+        "observed_at": "2026-07-21T11:42:38Z",
+        "observed_at_semantics": "independently_reverified_at_recorded_utc",
+        "timeline": {
+          "acr_tag_created_utc": "2026-07-21T11:12:04.3397072Z",
+          "revision_created_utc": "2026-07-21T11:13:51+00:00",
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
+          "observed_at": "2026-07-21T11:42:38Z"
+        },
+        "law_workspace": {
+          "customer_id": "552489bf-8e57-48df-8413-6e775caaa7d0",
+          "workspace_name": "luna-sunset-staging-logs",
+          "retention_days": 30,
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
+          "observed_at": "2026-07-21T11:42:38Z"
+        },
+        "law_completion": {
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
+          "observed_at": "2026-07-21T11:42:38Z",
+          "table": "ContainerAppConsoleLogs_CL",
+          "match_count": 1,
+          "TimeGenerated": "2026-07-21T11:18:04.1610218Z",
+          "revision": "luna-sunset-staging-staff-api--0000279",
+          "record": {
+            "event": "staff_api_readiness_shutdown_completion",
+            "original_signal": "SIGTERM",
+            "pool_close_result": "ok",
+            "server_close_result": "ok",
+            "failure_classes": [],
+            "completion": true
+          }
+        },
+        "final_state": {
+          "source_type": "azure_acr_law_readonly_independently_reverified",
+          "source_ref": "az_containerapp_acr_law_query_public_curl_readonly_2026-07-21T11:42:38Z",
+          "observed_at": "2026-07-21T11:42:38Z",
+          "observed_at_semantics": "independently_reverified_at_recorded_utc",
+          "latest_revision": "luna-sunset-staging-staff-api--0000279",
+          "latest_ready_revision": "luna-sunset-staging-staff-api--0000279",
+          "health_state": "Healthy",
+          "running_state": "RunningAtMaxScale",
+          "traffic_latest_percent": 100,
+          "public_healthz": 200,
+          "public_readyz": 200,
+          "public_current_note": "public_healthz/public_readyz here are independently reverified current values at observed_at — not a recreation of class-A historical post-restart samples",
+          "probes": [
+            {
+              "type": "Liveness",
+              "path": "/healthz",
+              "port": 3036
+            },
+            {
+              "type": "Readiness",
+              "path": "/readyz",
+              "port": 3036
+            },
+            {
+              "type": "Startup",
+              "path": "/healthz",
+              "port": 3036
+            }
+          ]
+        }
+      }
+    }
+  },
+  "claims_allowed": [
+    "exact_sha_95dc363_images_digests_both_tenants",
+    "revisions_wh_0000519_sunset_0000279_healthy_serving",
+    "operator_restart_wh_111518_111521_sunset_111730_111733",
+    "law_exactly_one_sigterm_completion_each_tenant",
+    "allowlisted_completion_json_sigterm_pool_ok_server_ok_failures_empty_completion_true",
+    "post_restart_31_healthz_readyz_200_pairs_approx_2s_both_tenants",
+    "public_current_healthz_readyz_200_both_tenants",
+    "no_production_scope"
+  ],
+  "explicitly_not_claimed": [
+    "sigint_live_lifecycle",
+    "serving_revision_readyz_503_body_path",
+    "zero_downtime_during_restart",
+    "concurrent_restart_continuity",
+    "organic_metric_alert_firing",
+    "human_inbox_receipt",
+    "production",
+    "full_G02_proven",
+    "any_gate_verdict_proven"
+  ],
+  "disposition": {
+    "proves": [
+      "dual_staging_sigterm_cleanup_telemetry_law_exactly_one_each",
+      "allowlisted_completion_sigterm_pool_ok_server_ok_empty_failures",
+      "post_restart_recovery_healthz_readyz_200_both_tenants",
+      "exact_sha_95dc363_digests_revisions_healthy_serving"
+    ],
+    "does_not_prove": [
+      "sigint_live_lifecycle",
+      "serving_revision_readyz_503_body_path",
+      "zero_downtime_during_restart",
+      "concurrent_restart_continuity",
+      "organic_metric_alert_firing",
+      "human_inbox_receipt",
+      "production",
+      "full_G02_proven",
+      "any_gate_verdict_proven"
+    ],
+    "g02_verdict": "partial",
+    "g02_progress_class": "partial_live_proven"
+  },
+  "gate_progress_updates": {
+    "G02_readiness_dependencies": {
+      "progress_class": "partial_live_proven",
+      "verdict": "partial",
+      "live_proven": [
+        "lifecycle_wired_image_95dc363_deployed_wh_0000519_sunset_0000279",
+        "live_sigterm_completion_law_exactly_one_each_tenant",
+        "post_restart_recovery_31x_healthz_readyz_200",
+        "prior_16X_traffic_shed_retained",
+        "prior_16Y_completion_log_source_retained"
+      ],
+      "still_open": [
+        "sigint_live_lifecycle",
+        "serving_revision_readyz_503_body_path",
+        "zero_downtime_during_restart",
+        "organic_metric_alert_firing",
+        "production"
+      ]
+    }
+  },
+  "gates_unchanged": [
+    "G01_correlation_structured_logs",
+    "G03_actionable_tenant_aware_alerts",
+    "G04_webhook_payment_worker_backlog",
+    "G05_retry_replay_safety",
+    "G06_scaling_capacity",
+    "G07_rollback_incident_runbooks",
+    "G08_retention_privacy",
+    "G09_cost_controls"
+  ],
+  "lock_hash": "554cda0da94863ece766c58f75bf26338202b82ca0383f5f769cab041ae5d53f"
+}

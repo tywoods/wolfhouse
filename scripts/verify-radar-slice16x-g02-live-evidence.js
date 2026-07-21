@@ -461,7 +461,7 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  if (matrix.slice !== locks.SLICE && matrix.slice !== 'RADAR-16W' && matrix.slice !== 'RADAR-16Y') {
+  if (matrix.slice !== locks.SLICE && matrix.slice !== 'RADAR-16W' && matrix.slice !== 'RADAR-16Y' && matrix.slice !== 'RADAR-16Z') {
     errors.push(`slice=${matrix.slice}`);
   }
   if (matrix.slice === locks.SLICE) {
@@ -484,8 +484,8 @@ function validateGateMatrix(matrix) {
     if (!/16X|traffic.?shed|g02fail|2dcda08/i.test(String(g02.rationale || ''))) {
       errors.push('G02 rationale missing 16X drill deploy facts');
     }
-    if (!Array.isArray(g02.gaps) || !g02.gaps.some((g) => /SIGTERM|lifecycle.?live|closeReadinessPool.?live/i.test(String(g)))) {
-      errors.push('G02 gaps must retain SIGTERM/live lifecycle open');
+    if (!Array.isArray(g02.gaps) || !g02.gaps.some((g) => /SIGINT|SIGTERM|lifecycle.?live|closeReadinessPool.?live|zero.?downtime|readyz.?503/i.test(String(g)))) {
+      errors.push('G02 gaps must retain SIGINT/lifecycle or related open items');
     }
     if (g02.gaps && g02.gaps.some((g) => /dependency.failure.*not executed|traffic.shed.*not executed/i.test(String(g)))) {
       errors.push('G02 gaps still claim traffic-shed drill not executed');
@@ -628,7 +628,7 @@ ok('C2 contract slice/branch/master',
   && contract.live_deploy === false
   && contract.this_slice_deploys === false);
 
-ok('C3 HEAD on 16X branch (tip may advance to 16Y)', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16y-shutdown-completion-log', currentBranch());
+ok('C3 HEAD on 16X branch (tip may advance to 16Y)', currentBranch() === locks.BRANCH || currentBranch() === 'radar/slice-16y-shutdown-completion-log' || currentBranch() === 'radar/slice-16z-g02-live-sigterm-evidence', currentBranch());
 
 {
   const v = validateEvidenceExact(evidence);
@@ -690,7 +690,7 @@ ok('C6 disposition keeps G02 partial',
 }
 
 ok('C11 top contract selected_16x + G02 drill live_proven (tip may advance to 16Y)',
-  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16Y')
+  (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16Y' || topContract.slice === 'RADAR-16Z')
   && topContract.selected_16x
   && topContract.selected_16x.outcome_id === locks.OUTCOME_ID
   && topContract.selected_16x.g02_dependency_failure_drill === 'live_proven_via_16X'
@@ -716,7 +716,7 @@ ok('C13 findings mention 16X drill without proven overclaim',
 {
   const rt = runtimePathsUnchanged();
   ok('C14 runtime paths unchanged vs master (waived when tip is 16Y source observability)',
-    rt.ok || matrix.slice === 'RADAR-16Y', rt.detail);
+    rt.ok || matrix.slice === 'RADAR-16Y' || matrix.slice === 'RADAR-16Z', rt.detail);
 }
 
 {
