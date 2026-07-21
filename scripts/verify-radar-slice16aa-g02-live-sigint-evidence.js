@@ -530,9 +530,9 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  const tip16ab = matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AF');
-  const tip16ac = matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AF');
-  const tip16ad = (matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AF');
+  const tip16ab = matrix.slice === 'RADAR-16AB' || matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || (matrix.slice === 'RADAR-16AF' || matrix.slice === 'RADAR-16AG'));
+  const tip16ac = matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || (matrix.slice === 'RADAR-16AF' || matrix.slice === 'RADAR-16AG'));
+  const tip16ad = (matrix.slice === 'RADAR-16AD' || (matrix.slice === 'RADAR-16AF' || matrix.slice === 'RADAR-16AG'));
   if (matrix.slice !== locks.SLICE && !tip16ab && !tip16ac) {
     errors.push(`slice=${matrix.slice}`);
   }
@@ -976,7 +976,7 @@ function runVerifier() {
     || currentBranch() === 'radar/slice-16ab-g02-readyz503-evidence'
     || currentBranch() === 'radar/slice-16ac-organic-restart-alert-evidence'
     || currentBranch() === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence'
-    || currentBranch() === 'radar/slice-16af-g06-capacity-alert-live-evidence',
+    || currentBranch() === 'radar/slice-16af-g06-capacity-alert-live-evidence' || currentBranch() === 'radar/slice-16ag-g06-bounded-load-harness',
     currentBranch());
 
   {
@@ -1026,7 +1026,7 @@ function runVerifier() {
   }
 
   ok('C11 top contract selected_16aa + G02 SIGINT live_proven_via_16AA (tip may be 16AB/16AC)',
-    (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC' || (topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AF'))
+    (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AB' || topContract.slice === 'RADAR-16AC' || (topContract.slice === 'RADAR-16AD' || (topContract.slice === 'RADAR-16AF' || topContract.slice === 'RADAR-16AG')))
     && topContract.selected_16aa
     && topContract.selected_16aa.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16aa.g02_sigint_live === 'live_proven_via_16AA'

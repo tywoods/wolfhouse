@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16AG",
+  "outcome_id": "16AG_g06_bounded_load_harness",
+  "gate_ids": [
+    "G06_scaling_capacity"
+  ],
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "7a283b70d38a4906e6279d82a49c0f6dd2a4994e",
+  "branch": "radar/slice-16ag-g06-bounded-load-harness",
+  "live_deploy": false,
+  "live_mutation": false,
+  "live_network": false,
+  "this_slice_deploys": false,
+  "title": "G06 bounded staging /readyz load harness — source-only; future drill defined not executed",
+  "builds_on": [
+    "16AF_g06_capacity_alert_live_evidence",
+    "16L_staff_api_capacity_pressure_alerts"
+  ],
+  "does_not_implement": "live_load_soak_execution_autoscaling_slo_backpressure_alert_fire_notification_production_full_g06_deploy_scale_mutation",
+  "allowed_targets": [
+    "https://staff-staging.lunafrontdesk.com/readyz",
+    "https://sunset-staging.lunafrontdesk.com/readyz"
+  ],
+  "harness_contract": {
+    "method": "GET",
+    "headers": null,
+    "body": null,
+    "auth": null,
+    "follow_redirects": false,
+    "max_redirects": 0,
+    "tls_required": true,
+    "collect_response_bodies": false,
+    "fail_closed_other_targets": true,
+    "emit": [
+      "started",
+      "completed",
+      "peak_in_flight",
+      "status_counts",
+      "latency.p50_ms",
+      "latency.p95_ms",
+      "latency.p99_ms",
+      "latency.max_ms"
+    ],
+    "status_classes": [
+      "2xx",
+      "3xx",
+      "4xx",
+      "5xx",
+      "timeout",
+      "error",
+      "other"
+    ]
+  },
+  "harness_bounds": {
+    "MAX_CONCURRENCY": 4,
+    "MAX_DURATION_MS": 60000,
+    "MAX_REQUESTS": 120,
+    "MAX_REQUEST_TIMEOUT_MS": 10000,
+    "MIN_REQUEST_TIMEOUT_MS": 500,
+    "MIN_CONCURRENCY": 1,
+    "MIN_DURATION_MS": 1000,
+    "MIN_REQUESTS": 1
+  },
+  "future_drill_profile": {
+    "id": "16AG_DRILL_dual_staging_readyz_bounded_load",
+    "status": "defined_not_executed",
+    "concurrency": 2,
+    "max_duration_ms": 30000,
+    "max_requests": 60,
+    "request_timeout_ms": 4000,
+    "targets": [
+      "https://staff-staging.lunafrontdesk.com/readyz",
+      "https://sunset-staging.lunafrontdesk.com/readyz"
+    ]
+  },
+  "forbidden_claim_tokens": [
+    "load soak proven",
+    "live load executed",
+    "capacity SLO proven",
+    "error budget proven",
+    "backpressure proven",
+    "autoscaling proven",
+    "full G06",
+    "full_G06_proven",
+    "G06 proven",
+    "production",
+    "minReplicas mutated",
+    "maxReplicas mutated"
+  ],
+  "must_not_claim_as_proven": [
+    "load_soak_proof",
+    "live_staging_load_execution",
+    "capacity_alert_firing",
+    "notification_delivery",
+    "autoscaling",
+    "capacity_slo_error_budget",
+    "backpressure",
+    "production",
+    "full_G06_proven",
+    "any_gate_verdict_proven",
+    "scale_mutation_by_this_slice",
+    "deploy_by_this_slice"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "16AG lands bounded load harness source + offline verifier only; G06 remains partial; load/soak live proof, alert fire/notification, autoscaling, SLO/error budget, and backpressure remain open; score unchanged"
+  },
+  "still_open": [
+    "Live dual-staging /readyz load/soak execution (profile defined, not executed)",
+    "Capacity alert firing / notification delivery (not claimed)",
+    "Autoscaling rules (rules=null; not claimed)",
+    "Capacity SLO / error budget (not claimed)",
+    "Backpressure (not claimed)",
+    "Production scope (forbidden)",
+    "Raising G06 verdict to proven"
+  ],
+  "final_controlled_drill": {
+    "id": "16AG_DRILL_dual_staging_readyz_bounded_load",
+    "status": "defined_not_executed",
+    "pass_rule": "Offline fake-server RED/GREEN proves allowlist fail-closed, bounds, concurrency peak, no redirects, latency percentiles, and timeout/error/non-2xx accounting without response bodies. Future drill profile locked. No live network/deploy/scale. G06 remains partial; proven count remains 0."
+  },
+  "artifacts": [
+    "scripts/lib/radar-g06-bounded-load-harness.js",
+    "scripts/lib/radar-slice16ag-g06-bounded-load-harness.js",
+    "scripts/verify-radar-slice16ag-g06-bounded-load-harness.js",
+    "fixtures/radar-operations/slice16ag-expected-contract.json",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16ag-g06-bounded-load-harness",
+    "npm run verify:radar-slice16af-g06-capacity-alert-live-evidence",
+    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 7a283b70d38a4906e6279d82a49c0f6dd2a4994e..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "scripts/staff-query-api.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16AG is source-only harness + offline verifier; no Staff API runtime, Bicep, or live staging mutation; future drill not executed"
+  }
+}

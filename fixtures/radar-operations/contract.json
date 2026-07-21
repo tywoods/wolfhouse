@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16AF",
-  "outcome_id": "16AF_g06_capacity_alert_live_evidence",
-  "master_basis": "0a2fb08486b835dd45a4fc904e3dd152702bea6f",
-  "branch": "radar/slice-16af-g06-capacity-alert-live-evidence",
+  "slice": "RADAR-16AG",
+  "outcome_id": "16AG_g06_bounded_load_harness",
+  "master_basis": "7a283b70d38a4906e6279d82a49c0f6dd2a4994e",
+  "branch": "radar/slice-16ag-g06-bounded-load-harness",
   "audit_only": true,
   "live_mutation": false,
-  "title": "G06 capacity-pressure alert live deploy evidence (partial/live-proven; fire/load/autoscale/SLO/backpressure open)",
-  "progress_class": "partial_live_proven_evidence_only",
-  "does_not_implement": "capacity_alert_fire_notification_load_soak_autoscaling_slo_backpressure_production_full_g06",
+  "title": "G06 bounded staging /readyz load harness (source-partial; future drill defined_not_executed; live load/soak/SLO/backpressure open)",
+  "progress_class": "source_partial_progress_only",
+  "does_not_implement": "live_load_soak_execution_autoscaling_slo_backpressure_alert_fire_notification_production_full_g06_deploy_scale_mutation",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
     "fixtures/radar-operations/slice16af-g06-capacity-alert-live-evidence.json",
@@ -104,7 +104,11 @@
     "fixtures/radar-operations/slice16ad-g02-sampled-restart-continuity-evidence.json",
     "fixtures/radar-operations/slice16ad-expected-contract.json",
     "scripts/lib/radar-slice16ad-g02-sampled-restart-continuity-evidence.js",
-    "scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js"
+    "scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js",
+    "scripts/lib/radar-g06-bounded-load-harness.js",
+    "scripts/lib/radar-slice16ag-g06-bounded-load-harness.js",
+    "scripts/verify-radar-slice16ag-g06-bounded-load-harness.js",
+    "fixtures/radar-operations/slice16ag-expected-contract.json"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -159,9 +163,10 @@
       "infra/azure/staging-staff-api-metric-alerts/",
       "infra/azure/staging-cost-budgets/"
     ],
-    "note": "16Z evidence-only; no runtime mutation vs master 95dc3634; Azure/ACR/LAW read-only verification only"
+    "note": "16AG source-only harness; no Staff API/Bicep/live mutation; future drill not executed"
   },
   "gates": [
+    "npm run verify:radar-slice16ag-g06-bounded-load-harness",
     "npm run verify:radar-slice16af-g06-capacity-alert-live-evidence",
     "npm run verify:radar-slice16ad-g02-sampled-restart-continuity-evidence",
     "npm run verify:radar-slice16ac-organic-restart-alert-evidence",
@@ -176,7 +181,7 @@
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 0a2fb08486b835dd45a4fc904e3dd152702bea6f..HEAD"
+    "git diff --check 7a283b70d38a4906e6279d82a49c0f6dd2a4994e..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -506,5 +511,26 @@
     "g06_slo": "open",
     "g06_backpressure": "open",
     "g06_production": "open"
-  }
+  },
+  "selected_16ag": {
+    "outcome_id": "16AG_g06_bounded_load_harness",
+    "gate_id": "G06_scaling_capacity",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_load_soak_execution_autoscaling_slo_backpressure_alert_fire_notification_production_full_g06_deploy_scale_mutation",
+    "builds_on": [
+      "16AF_g06_capacity_alert_live_evidence",
+      "16L_staff_api_capacity_pressure_alerts"
+    ],
+    "g06_verdict": "partial",
+    "g06_load_harness_source": "source_closed_via_16AG",
+    "g06_load_proof": "open",
+    "g06_capacity_alert_deploy": "live_proven_via_16AF",
+    "g06_capacity_alert_fire": "open",
+    "g06_autoscaling": "open",
+    "g06_slo": "open",
+    "g06_backpressure": "open",
+    "g06_production": "open"
+  },
+  "load_harness_source": "source_closed_via_16AG",
+  "load_proof": "open"
 }
