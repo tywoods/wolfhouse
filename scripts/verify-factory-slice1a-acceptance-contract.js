@@ -33,6 +33,12 @@ const {
   plantUnresolvedDynamicPath,
   plantAmbiguousPortalClientsDirJoin,
   plantUnrelatedFsOutsideReachableGraph,
+  plantComputedMemberFsPath,
+  plantAliasedDestructuringFsPath,
+  plantDynamicTemplateFsPath,
+  plantAliasedTemplateFsPath,
+  plantResolvedUnrelatedFsInGraph,
+  plantOutsideGraphDynamicFsNoise,
   normalizeVerifierScriptPath,
   extractVerifierPathsFromScript,
   assertAcornPin,
@@ -283,7 +289,11 @@ ok('inventory categories match lock list', deepEqual(inventory.categories, INVEN
 ok('threat boundary stated explicitly',
   discovered.threat_boundary
   && discovered.threat_boundary.id === THREAT_BOUNDARY.id
-  && /outside the FACTORY 1A static threat boundary/i.test(discovered.threat_boundary.statement));
+  && inventory.threat_boundary
+  && inventory.threat_boundary.id === THREAT_BOUNDARY.id
+  && inventory.threat_boundary.statement === discovered.threat_boundary.statement
+  && /value\+complete|fully constant-folded/i.test(discovered.threat_boundary.statement)
+  && /no CLIENTS_DIR/i.test(discovered.threat_boundary.statement));
 ok('locked exclusions are not the expected inventory',
   Array.isArray(discovered.locked_exclusions.path_substrings)
   && !deepEqual(discovered.locked_exclusions.path_substrings, discovered.pricing_services_schedule_profile_consumers)
@@ -636,6 +646,104 @@ red('R6_live_mutation_claim', (() => {
         'scripts/lib/adversarial-unrelated-fs-noise.js',
       )
       && !(okDisc.discovery_errors || []).some((e) => /adversarial-unrelated-fs-noise/.test(e)));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-computed-member-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantComputedMemberFsPath(tmp);
+    const bad = discoverAll({ root: tmp });
+    red('R19_computed_member_fs_path_fail_closed',
+      bad.discovery_ok === false
+      && (bad.discovery_errors || []).some((e) => (
+        /ambiguous_filesystem_path:scripts\/lib\/adversarial-client-wrapper\.js/.test(e)
+      )));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-aliased-destructure-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantAliasedDestructuringFsPath(tmp);
+    const bad = discoverAll({ root: tmp });
+    red('R20_aliased_destructuring_fs_path_fail_closed',
+      bad.discovery_ok === false
+      && (bad.discovery_errors || []).some((e) => (
+        /ambiguous_filesystem_path:scripts\/lib\/adversarial-client-wrapper\.js/.test(e)
+      )));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-dyn-template-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantDynamicTemplateFsPath(tmp);
+    const bad = discoverAll({ root: tmp });
+    red('R21_dynamic_template_fs_path_fail_closed',
+      bad.discovery_ok === false
+      && (bad.discovery_errors || []).some((e) => (
+        /ambiguous_filesystem_path:scripts\/lib\/adversarial-client-wrapper\.js/.test(e)
+      )));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-aliased-template-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantAliasedTemplateFsPath(tmp);
+    const bad = discoverAll({ root: tmp });
+    red('R22_aliased_template_fs_path_fail_closed',
+      bad.discovery_ok === false
+      && (bad.discovery_errors || []).some((e) => (
+        /ambiguous_filesystem_path:scripts\/lib\/adversarial-client-wrapper\.js/.test(e)
+      )));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-resolved-unrelated-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantResolvedUnrelatedFsInGraph(tmp);
+    const okDisc = discoverAll({ root: tmp });
+    red('R23_fully_resolved_unrelated_in_graph_allowed',
+      okDisc.discovery_ok === true
+      && (okDisc.reachable_config_loader_graph || []).includes(
+        'scripts/lib/adversarial-client-wrapper.js',
+      )
+      && !(okDisc.discovery_errors || []).some((e) => /adversarial-client-wrapper/.test(e)));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-outside-dyn-noise-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantOutsideGraphDynamicFsNoise(tmp);
+    const okDisc = discoverAll({ root: tmp });
+    red('R24_outside_graph_dynamic_fs_noise_ignored',
+      okDisc.discovery_ok === true
+      && !(okDisc.reachable_config_loader_graph || []).includes(
+        'scripts/lib/adversarial-outside-graph-dyn-fs.js',
+      )
+      && !(okDisc.discovery_errors || []).some((e) => /adversarial-outside-graph-dyn-fs/.test(e)));
   } finally {
     rimraf(tmp);
   }

@@ -14,7 +14,7 @@ FACTORY client productization is fenced to **five finite stages (1A–1E)**. Sli
 
 ## Threat boundary
 
-Arbitrary runtime path or import computation that cannot be constant-folded is **outside** the FACTORY 1A static threat boundary. When such computation appears in the reachable config-loader graph, discovery **fails closed** (or records an explicit outside-boundary rejection) rather than claiming regex-style coverage.
+Every filesystem primitive inside the reachable config-loader acquisition graph must constant-fold to `{ value, complete }` or discovery **fails closed**. Dynamic template interpolation, computed members, unresolved alias/destructuring, and unknown segments are **incomplete**. Fully resolved non-config paths classify unrelated; incomplete in-graph paths reject. No `CLIENTS_DIR` textual/taint heuristic and no silent unresolved call. Filesystem calls outside the reachable graph are ignored.
 
 ## Reference pair (discovered)
 
@@ -43,7 +43,7 @@ Categories covered bidirectionally (discovery ↔ fixture):
 
 Independent `site_policy.physical_site_keys` must match discovered keys bidirectionally.
 
-Adversarial temporary-source REDs prove discovery catches split-string `path.resolve`, aliased wrappers, `./` verifier registration, stale/missing site policy, coordinated fixture edits, fail-closed computed/dynamic import or unresolved dynamic path cases, and reachable non-seed `path.join(portal.CLIENTS_DIR, dynamicName)` ambiguous FS (with unrelated out-of-graph FS remaining noise). Required consumers include `scripts/staff-query-api.js` and `scripts/check-i18n-guest-copy.js`.
+Adversarial temporary-source REDs prove discovery catches split-string `path.resolve`, aliased wrappers, `./` verifier registration, stale/missing site policy, coordinated fixture edits, fail-closed computed/dynamic import or unresolved dynamic path cases, reachable non-seed `path.join(portal.CLIENTS_DIR, dynamicName)` incomplete FS, computed-member / aliased-destructuring / dynamic-template / aliased-template FS incompleteness, fully resolved unrelated in-graph FS allowed, and outside-graph dynamic FS noise ignored. Required consumers include `scripts/staff-query-api.js` and `scripts/check-i18n-guest-copy.js`.
 
 ## Nine gates (frozen; proof deferred per `proof_stage`)
 

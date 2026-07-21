@@ -4,7 +4,7 @@
   "outcome_id": "1A_source_only_acceptance_contract",
   "completeness_method": "source_derived_registration_read_site_inventory",
   "discovery_engine": "pinned_acorn_estree_physical_site_plus_local_import_graph",
-  "completeness_claim_narrowing": "Consumer completeness uses pinned Acorn ESTree physical-site discovery plus a local import graph (constant-fold safe string/template/binary/path.join/path.resolve; resolve require/import aliases and local wrappers). Physical site keys are inventoried independently of fixture site_policy, then compared with exact bidirectional set equality. Locked exclusions filter justified noise only and are never the expected inventory. Arbitrary runtime path/import computation outside the static threat boundary is rejected (recorded), not claimed as coverage.",
+  "completeness_claim_narrowing": "Consumer completeness uses pinned Acorn ESTree physical-site discovery plus a local import graph (constant-fold safe string/template/binary/path.join/path.resolve returning value+complete; resolve require/import aliases and local wrappers). Physical site keys are inventoried independently of fixture site_policy, then compared with exact bidirectional set equality. Locked exclusions filter justified noise only and are never the expected inventory. Incomplete FS paths in the acquisition graph fail closed; fully resolved non-config paths classify unrelated; outside-graph FS is ignored.",
   "reference_pair": {
     "wolfhouse": {
       "client_slug": "wolfhouse",
@@ -291,7 +291,7 @@
   },
   "threat_boundary": {
     "id": "static_constant_fold_config_loader_graph",
-    "statement": "Arbitrary runtime path or import computation that cannot be constant-folded is outside the FACTORY 1A static threat boundary. Presence of such computation in the reachable config-loader graph fails closed; discovery does not claim regex-style coverage of unfoldable sites."
+    "statement": "Every filesystem primitive inside the reachable config-loader acquisition graph must have a fully constant-folded path (fold returns value+complete) or discovery fails closed. Dynamic template interpolation, computed members, unresolved alias/destructuring, and unknown segments are incomplete. Fully resolved non-config paths classify unrelated; incomplete in-graph paths reject. No CLIENTS_DIR textual/taint heuristic and no silent unresolved call. Filesystem calls outside the reachable graph are ignored."
   },
   "acorn_pin": {
     "name": "acorn",

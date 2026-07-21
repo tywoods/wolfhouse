@@ -8,10 +8,13 @@
  * / binary / path.join / path.resolve expressions are constant-folded; require
  * and import aliases plus local loader wrappers are resolved.
  *
- * Threat boundary (explicit): arbitrary runtime path/import computation that
- * cannot be constant-folded is outside the static analysis boundary. When such
- * computation appears in the reachable config-loader graph, discovery fails
- * closed rather than claiming coverage.
+ * Threat boundary (explicit): every filesystem primitive inside the reachable
+ * config-loader acquisition graph must constant-fold to { value, complete } or
+ * discovery fails closed. Dynamic template interpolation, computed members,
+ * unresolved alias/destructuring, and unknown segments are incomplete. Fully
+ * resolved non-config paths classify unrelated; incomplete in-graph paths reject.
+ * No CLIENTS_DIR textual/taint heuristic; no silent unresolved call. Filesystem
+ * calls outside the reachable graph are ignored.
  *
  * Fixture inventories must match discovery bidirectionally. Locked exclusions
  * filter justified noise only — they are never the expected inventory.
@@ -105,10 +108,13 @@ const FS_METHOD_NAMES = new Set([
 const THREAT_BOUNDARY = Object.freeze({
   id: 'static_constant_fold_config_loader_graph',
   statement:
-    'Arbitrary runtime path or import computation that cannot be constant-folded '
-    + 'is outside the FACTORY 1A static threat boundary. Presence of such '
-    + 'computation in the reachable config-loader graph fails closed; discovery '
-    + 'does not claim regex-style coverage of unfoldable sites.',
+    'Every filesystem primitive inside the reachable config-loader acquisition '
+    + 'graph must have a fully constant-folded path (fold returns value+complete) '
+    + 'or discovery fails closed. Dynamic template interpolation, computed members, '
+    + 'unresolved alias/destructuring, and unknown segments are incomplete. Fully '
+    + 'resolved non-config paths classify unrelated; incomplete in-graph paths '
+    + 'reject. No CLIENTS_DIR textual/taint heuristic and no silent unresolved call. '
+    + 'Filesystem calls outside the reachable graph are ignored.',
 });
 
 function assertAcornPin() {
@@ -289,93 +295,6 @@ function touchesConfigClients(foldedPath, root) {
   return /(^|\/)config\/clients(\/|$)/.test(n);
 }
 
-/**
- * Structural (non-fold) classification: does an unfoldable path expression
- * still name CLIENTS_DIR / config/clients construction?
- * Used to fail closed on reachable wrappers like
- * path.join(portal.CLIENTS_DIR, dynamicName) without treating unrelated FS
- * noise as a coverage failure.
- */
-function pathExprStructurallyTouchesClients(node, fileAst, depth) {
-  if (!node || (depth || 0) > 24) return false;
-
-  let hit = false;
-  const seenIds = new Set();
-
-  function consider(n, d) {
-    if (!n || hit || d > 24) return;
-    if (n.type === 'Identifier') {
-      if (n.name === 'CLIENTS_DIR') {
-        hit = true;
-        return;
-      }
-      if (seenIds.has(n.name) || !fileAst) return;
-      seenIds.add(n.name);
-      walkAst(fileAst, (decl) => {
-        if (hit) return;
-        if (decl.type === 'VariableDeclarator'
-          && decl.id && decl.id.type === 'Identifier'
-          && decl.id.name === n.name
-          && decl.init) {
-          consider(decl.init, d + 1);
-        }
-        if (decl.type === 'AssignmentExpression'
-          && decl.operator === '='
-          && decl.left.type === 'Identifier'
-          && decl.left.name === n.name) {
-          consider(decl.right, d + 1);
-        }
-      });
-      return;
-    }
-    if (n.type === 'MemberExpression' && !n.computed
-      && n.property && n.property.type === 'Identifier'
-      && n.property.name === 'CLIENTS_DIR') {
-      hit = true;
-      return;
-    }
-    if (n.type === 'Literal' && typeof n.value === 'string') {
-      if (/(^|\/)config\/clients(\/|$)/.test(normalizePosix(n.value))) hit = true;
-      return;
-    }
-    if (n.type === 'TemplateLiteral') {
-      for (const q of n.quasis || []) {
-        const cooked = (q.value && q.value.cooked) || '';
-        if (/(^|\/)config\/clients(\/|$)/.test(normalizePosix(cooked))) hit = true;
-      }
-      for (const e of n.expressions || []) consider(e, d + 1);
-      return;
-    }
-    if (n.type === 'BinaryExpression') {
-      consider(n.left, d + 1);
-      consider(n.right, d + 1);
-      return;
-    }
-    if (n.type === 'CallExpression') {
-      const isJoin = n.callee
-        && n.callee.type === 'MemberExpression'
-        && n.callee.property
-        && n.callee.property.type === 'Identifier'
-        && (n.callee.property.name === 'join' || n.callee.property.name === 'resolve');
-      const cname = calleeName(n.callee);
-      const joinLike = isJoin || cname === 'path.join' || cname === 'path.resolve';
-      if (joinLike) {
-        let sawConfig = false;
-        let sawClients = false;
-        for (const a of n.arguments || []) {
-          if (a && a.type === 'Literal' && a.value === 'config') sawConfig = true;
-          if (a && a.type === 'Literal' && a.value === 'clients') sawClients = true;
-          consider(a, d + 1);
-        }
-        if (sawConfig && sawClients) hit = true;
-      }
-    }
-  }
-
-  consider(node, depth || 0);
-  return hit;
-}
-
 function fsKindFromCallee(cname) {
   if (/readdir/i.test(cname)) return 'fs_readdir';
   if (/exists|access|stat|lstat/i.test(cname)) return 'fs_exists';
@@ -385,7 +304,12 @@ function fsKindFromCallee(cname) {
 
 /**
  * Constant-fold safe string / template / binary+ / path.join / path.resolve /
- * Identifier bindings. Returns { value, dyn } or null when unfoldable.
+ * Identifier bindings.
+ *
+ * Returns { value, complete } or null when unfoldable.
+ * complete=true only when every segment fully resolves; dynamic template
+ * interpolation, computed members, unresolved alias/destructuring, or unknown
+ * segments yield complete=false (value may still carry {dyn} placeholders).
  */
 function createFolder(fileAbs, root) {
   const fileRel = rel(root, fileAbs);
@@ -393,55 +317,68 @@ function createFolder(fileAbs, root) {
   const env = new Map();
   const pathAliases = new Set(['path']);
   const fsAliases = new Set(['fs']);
+  /** Bare identifiers aliased to path.join / path.resolve via destructuring. */
+  const pathFnAliases = new Map(); // localName -> 'path.join' | 'path.resolve'
 
   function fold(node, depth) {
     if (!node || depth > 48) return null;
     if (node.type === 'Literal') {
-      if (typeof node.value === 'string') return { value: node.value, dyn: false };
+      if (typeof node.value === 'string') return { value: node.value, complete: true };
       if (typeof node.value === 'number' || typeof node.value === 'boolean') {
-        return { value: String(node.value), dyn: false };
+        return { value: String(node.value), complete: true };
       }
       return null;
     }
     if (node.type === 'TemplateLiteral') {
       let out = '';
-      let dyn = false;
+      let complete = true;
       for (let i = 0; i < node.quasis.length; i += 1) {
         out += (node.quasis[i].value && node.quasis[i].value.cooked) || '';
         if (i < node.expressions.length) {
           const inner = fold(node.expressions[i], depth + 1);
-          if (inner && typeof inner.value === 'string') {
+          if (inner && typeof inner.value === 'string' && inner.complete) {
             out += inner.value;
-            dyn = dyn || inner.dyn;
+          } else if (inner && typeof inner.value === 'string') {
+            out += inner.value;
+            complete = false;
           } else {
+            // Dynamic template interpolation — incomplete.
             out += '{dyn}';
-            dyn = true;
+            complete = false;
           }
         }
       }
-      return { value: out, dyn };
+      return { value: out, complete };
     }
     if (node.type === 'BinaryExpression' && node.operator === '+') {
       const left = fold(node.left, depth + 1);
       const right = fold(node.right, depth + 1);
       if (left && right && typeof left.value === 'string' && typeof right.value === 'string') {
-        return { value: left.value + right.value, dyn: !!(left.dyn || right.dyn) };
+        return {
+          value: left.value + right.value,
+          complete: !!(left.complete && right.complete),
+        };
       }
       return null;
     }
     if (node.type === 'Identifier') {
-      if (node.name === '__dirname') return { value: dirnameAbs, dyn: false };
-      if (node.name === '__filename') return { value: fileAbs, dyn: false };
+      if (node.name === '__dirname') return { value: dirnameAbs, complete: true };
+      if (node.name === '__filename') return { value: fileAbs, complete: true };
       if (env.has(node.name)) return env.get(node.name);
+      // Unknown segment / unresolved alias.
       return null;
     }
-    if (node.type === 'MemberExpression'
-      && !node.computed
-      && node.object.type === 'Identifier'
-      && pathAliases.has(node.object.name)
-      && node.property.type === 'Identifier'
-      && node.property.name === 'sep') {
-      return { value: path.sep, dyn: false };
+    if (node.type === 'MemberExpression') {
+      // Computed member — incomplete (no silent unresolved).
+      if (node.computed) return null;
+      if (node.object.type === 'Identifier'
+        && pathAliases.has(node.object.name)
+        && node.property.type === 'Identifier'
+        && node.property.name === 'sep') {
+        return { value: path.sep, complete: true };
+      }
+      // Unresolved member (e.g. portal.CLIENTS_DIR) — incomplete.
+      return null;
     }
     if (node.type === 'LogicalExpression' && (node.operator === '||' || node.operator === '??')) {
       const left = fold(node.left, depth + 1);
@@ -449,27 +386,30 @@ function createFolder(fileAbs, root) {
       // Prefer a foldable default (common options.path || DEFAULT_PATH pattern).
       if (right && typeof right.value === 'string') {
         if (left && typeof left.value === 'string') {
-          return { value: left.value, dyn: true };
+          return { value: left.value, complete: false };
         }
-        return { value: right.value, dyn: true };
+        return { value: right.value, complete: false };
       }
-      if (left && typeof left.value === 'string') return { value: left.value, dyn: true };
+      if (left && typeof left.value === 'string') return { value: left.value, complete: false };
       return null;
     }
     if (node.type === 'ConditionalExpression') {
       const cons = fold(node.consequent, depth + 1);
       const alt = fold(node.alternate, depth + 1);
       if (cons && alt && cons.value === alt.value) {
-        return { value: cons.value, dyn: !!(cons.dyn || alt.dyn) };
+        return {
+          value: cons.value,
+          complete: !!(cons.complete && alt.complete),
+        };
       }
       if (cons && typeof cons.value === 'string' && touchesConfigClients(cons.value, root)) {
-        return { value: cons.value, dyn: true };
+        return { value: cons.value, complete: false };
       }
       if (alt && typeof alt.value === 'string' && touchesConfigClients(alt.value, root)) {
-        return { value: alt.value, dyn: true };
+        return { value: alt.value, complete: false };
       }
-      if (cons && typeof cons.value === 'string') return { value: cons.value, dyn: true };
-      if (alt && typeof alt.value === 'string') return { value: alt.value, dyn: true };
+      if (cons && typeof cons.value === 'string') return { value: cons.value, complete: false };
+      if (alt && typeof alt.value === 'string') return { value: alt.value, complete: false };
       return null;
     }
     if (node.type === 'CallExpression') {
@@ -484,7 +424,10 @@ function createFolder(fileAbs, root) {
             || (node.callee.type === 'MemberExpression'
               && node.callee.property.type === 'Identifier'
               && node.callee.property.name === 'dirname')) {
-            return { value: path.dirname(inner.value.replace('{dyn}', '_dyn_')).replace(/_dyn_/g, '{dyn}'), dyn: inner.dyn || inner.value.includes('{dyn}') };
+            return {
+              value: path.dirname(inner.value.replace('{dyn}', '_dyn_')).replace(/_dyn_/g, '{dyn}'),
+              complete: !!(inner.complete && !inner.value.includes('{dyn}')),
+            };
           }
           return inner;
         }
@@ -499,13 +442,15 @@ function createFolder(fileAbs, root) {
         if (inner && typeof inner.value === 'string') {
           return {
             value: path.dirname(inner.value.replace('{dyn}', '_dyn_')).replace(/_dyn_/g, '{dyn}'),
-            dyn: inner.dyn || inner.value.includes('{dyn}'),
+            complete: !!(inner.complete && !inner.value.includes('{dyn}')),
           };
         }
       }
       let joinLike = null;
       if (name === 'path.join' || name === 'path.resolve') joinLike = name;
-      else if (node.callee.type === 'MemberExpression'
+      else if (node.callee.type === 'Identifier' && pathFnAliases.has(node.callee.name)) {
+        joinLike = pathFnAliases.get(node.callee.name);
+      } else if (node.callee.type === 'MemberExpression'
         && node.callee.object.type === 'Identifier'
         && pathAliases.has(node.callee.object.name)
         && node.callee.property.type === 'Identifier') {
@@ -515,17 +460,17 @@ function createFolder(fileAbs, root) {
       if (joinLike) {
         const rawArgs = node.arguments || [];
         const parts = [];
-        let dyn = false;
+        let complete = true;
         let anyConcrete = false;
         for (const a of rawArgs) {
           const folded = fold(a, depth + 1);
           if (folded && typeof folded.value === 'string') {
             parts.push(folded.value);
-            dyn = dyn || folded.dyn;
+            complete = complete && folded.complete;
             if (folded.value !== '{dyn}') anyConcrete = true;
           } else {
             parts.push('{dyn}');
-            dyn = true;
+            complete = false;
           }
         }
         if (!parts.length || !anyConcrete) return null;
@@ -539,7 +484,8 @@ function createFolder(fileAbs, root) {
         } catch {
           return null;
         }
-        return { value: joined.split(PH).join('{dyn}'), dyn };
+        const value = joined.split(PH).join('{dyn}');
+        return { value, complete: complete && !value.includes('{dyn}') };
       }
     }
     return null;
@@ -578,13 +524,19 @@ function createFolder(fileAbs, root) {
             }
             if (req && (req.value === 'path' || req.value === 'node:path')) {
               for (const prop of node.id.properties || []) {
-                if (prop.type === 'Property' && prop.key && prop.key.type === 'Identifier') {
-                  pathAliases.add(prop.value && prop.value.type === 'Identifier'
-                    ? prop.value.name
-                    : prop.key.name);
+                if (prop.type !== 'Property' || !prop.key || prop.key.type !== 'Identifier') {
+                  continue;
                 }
+                const local = prop.value && prop.value.type === 'Identifier'
+                  ? prop.value.name
+                  : prop.key.name;
+                if (prop.key.name === 'join') pathFnAliases.set(local, 'path.join');
+                else if (prop.key.name === 'resolve') pathFnAliases.set(local, 'path.resolve');
+                else pathAliases.add(local);
               }
             }
+            // Destructuring from a local require (e.g. { CLIENTS_DIR: cd } = require(...))
+            // is intentionally not constant-folded — unresolved alias/destructuring is incomplete.
           }
         }
         if (node.type === 'AssignmentExpression'
@@ -604,9 +556,14 @@ function createFolder(fileAbs, root) {
     if (FS_METHOD_NAMES.has(name)) return `fs.${name}`;
     if (node.callee.type === 'MemberExpression') {
       const obj = node.callee.object;
-      const prop = node.callee.computed
-        ? null
-        : (node.callee.property && node.callee.property.name);
+      // Computed member fs[dyn](...) — incomplete callee; still surface as fs call.
+      if (node.callee.computed) {
+        if (obj.type === 'Identifier' && (fsAliases.has(obj.name) || obj.name === 'fs')) {
+          return 'fs.{dyn}';
+        }
+        return name;
+      }
+      const prop = node.callee.property && node.callee.property.name;
       if (!prop || !FS_METHOD_NAMES.has(prop)) {
         // fs.promises.readFile
         if (obj && obj.type === 'MemberExpression'
@@ -938,7 +895,7 @@ function discoverPhysicalConfigSites(root) {
       if (node.type === 'CallExpression' && calleeName(node.callee) === 'require') {
         const arg = node.arguments && node.arguments[0];
         const folded = folder.fold(arg, 0);
-        if (!folded) {
+        if (!folded || !folded.complete) {
           // Record potential dynamic require; fail-closed only if reachable.
           node.__factory1a_dynamic_require = true;
           return;
@@ -965,7 +922,7 @@ function discoverPhysicalConfigSites(root) {
       }
       if (node.type === 'ImportExpression') {
         const folded = folder.fold(node.source, 0);
-        if (!folded) {
+        if (!folded || !folded.complete) {
           node.__factory1a_dynamic_import = true;
           return;
         }
@@ -991,7 +948,8 @@ function discoverPhysicalConfigSites(root) {
       // Loader require / import
       if (node.type === 'CallExpression' && calleeName(node.callee) === 'require') {
         const folded = folder.fold(node.arguments && node.arguments[0], 0);
-        if (folded && (folded.value.startsWith('.') || folded.value.startsWith('/'))) {
+        if (folded && folded.complete
+          && (folded.value.startsWith('.') || folded.value.startsWith('/'))) {
           const resolved = resolveLocalRequire(abs, folded.value, root);
           if (resolved && resolved.rel && isLoaderRel(resolved.rel)) {
             const key = siteKey('loader_import', r, 'require', resolved.rel);
@@ -1012,7 +970,7 @@ function discoverPhysicalConfigSites(root) {
         }
       }
 
-      // Filesystem acquisition
+      // Filesystem acquisition — every FS primitive must classify via constant-fold.
       if (node.type === 'CallExpression') {
         const cname = folder.resolveFsCallee(node);
         const isFs = cname.startsWith('fs.')
@@ -1020,11 +978,31 @@ function discoverPhysicalConfigSites(root) {
           || /^fs\.promises\./.test(cname);
         if (!isFs) return;
         if (cname === 'fs.promises') return;
+        // Computed member callee (fs[dyn]) — incomplete path/callee, fail closed in-graph.
+        if (cname === 'fs.{dyn}') {
+          node.__factory1a_ambiguous_fs = true;
+          return;
+        }
 
         const arg0 = node.arguments && node.arguments[0];
         const folded = folder.fold(arg0, 0);
         if (!folded) {
+          // Unresolved / unfoldable — no silent escape.
           node.__factory1a_ambiguous_fs = true;
+          return;
+        }
+        if (!folded.complete) {
+          // Incomplete fold: inventory when the partial value still names config/clients
+          // (parameterized leaf under a folded prefix); otherwise fail closed in-graph.
+          if (touchesConfigClients(folded.value, root)) {
+            const fp = toRepoRelPath(root, folded.value) || normalizePosix(folded.value);
+            const kind = fsKindFromCallee(cname);
+            const key = siteKey(kind, r, cname, fp);
+            addSite(key, { site_key: key, file: r });
+            directSiteFiles.add(r);
+          } else {
+            node.__factory1a_ambiguous_fs = true;
+          }
           return;
         }
         if (touchesConfigClients(folded.value, root)) {
@@ -1034,6 +1012,7 @@ function discoverPhysicalConfigSites(root) {
           addSite(key, { site_key: key, file: r });
           directSiteFiles.add(r);
         }
+        // Fully resolved non-config path — unrelated; allowed (not inventoried).
       }
     });
   }
@@ -1085,7 +1064,7 @@ function discoverPhysicalConfigSites(root) {
     return hit;
   }
 
-  function fileHasFsClientsSite(fileRel) {
+  function fileHasInventoriedFsSite(fileRel) {
     for (const key of sitesByKey.keys()) {
       const parts = key.split('|');
       if (parts[1] === fileRel && String(parts[0] || '').startsWith('fs_')) return true;
@@ -1094,6 +1073,12 @@ function discoverPhysicalConfigSites(root) {
   }
 
   // Fail closed inside reachable graph.
+  // Acquisition graph = direct sites + seeds. Reverse-importer cone is included in
+  // `reachable` for dynamic require/import checks; FS path completeness is enforced
+  // on the acquisition graph only (pure reverse-importer FS noise stays ignored).
+  const acquisitionGraph = new Set(directSiteFiles);
+  for (const seed of LOADER_SEED_RELS) acquisitionGraph.add(seed);
+
   for (const r of reachable) {
     if (parseFailed.has(r)) {
       errors.push(`reachable_parse_failure:${r}`);
@@ -1102,8 +1087,8 @@ function discoverPhysicalConfigSites(root) {
     const info = parsed.get(r);
     if (!info) continue;
     const { ast, abs, folder } = info;
-    const hasFsSite = fileHasFsClientsSite(r);
-    const isSeed = LOADER_SEED_RELS.includes(r);
+    const inAcquisitionGraph = acquisitionGraph.has(r);
+    const hasInventoriedFs = fileHasInventoriedFsSite(r);
 
     walkAst(ast, (node) => {
       if (node.__factory1a_dynamic_require) {
@@ -1139,7 +1124,6 @@ function discoverPhysicalConfigSites(root) {
               && n.id && n.id.type === 'Identifier'
               && n.init
               && nodeMentionsProcessEnv(n.init)) {
-              // If filePath = trimStr(env.X) and env bound to process.env — detect MemberExpression on that id
               if (arg0.type === 'Identifier') {
                 walkAst(ast, (n2) => {
                   if (n2.type === 'VariableDeclarator'
@@ -1160,30 +1144,27 @@ function discoverPhysicalConfigSites(root) {
           });
         }
 
-        // Runtime indirection (obj.prop / unknown) when structural clients FS sites
-        // already exist in-file: outside static threat boundary — reject coverage claim.
-        if (envSourced || hasFsSite) {
+        // Residual unfoldable FS alongside inventoried config sites, or env-sourced
+        // paths: explicit outside-boundary rejection (do not claim coverage).
+        if (envSourced || hasInventoriedFs) {
           threatBoundaryRejections.push(
             `outside_static_threat_boundary:ambiguous_or_env_fs:${r}:${line}`,
           );
           return;
         }
 
-        // Replace the prior `!hasFsSite && !isSeed` silent escape with a structural
-        // fail-closed rule: unresolved CLIENTS_DIR / config/clients path expressions
-        // in the reachable graph always reject, even on non-seed wrappers that have
-        // no other recognized FS site. Unrelated unfoldable FS stays noise.
-        const structuralClients = pathExprStructurallyTouchesClients(arg0, ast, 0);
-        if (structuralClients || isSeed) {
-          errors.push(`ambiguous_filesystem_path:${r}:${line}`);
-          return;
-        }
-        // Unrelated FS noise inside a reachable importer — classified, not a failure.
+        // FS completeness invariant on the acquisition graph (seeds + direct
+        // FS/loader sites). No CLIENTS_DIR textual/taint heuristic; no silent escape.
+        // Incomplete / unresolved FS paths fail closed. Pure reverse-importer cone
+        // members are outside this FS acquisition graph (noise ignored).
+        if (!inAcquisitionGraph) return;
+
+        errors.push(`ambiguous_filesystem_path:${r}:${line}`);
       }
 
       if (node.type === 'CallExpression' && calleeName(node.callee) === 'require') {
         const folded = folder.fold(node.arguments && node.arguments[0], 0);
-        if (!folded) return;
+        if (!folded || !folded.complete) return;
         if (folded.value.startsWith('.') || folded.value.startsWith('/')) {
           const resolved = resolveLocalRequire(abs, folded.value, root);
           if (resolved && resolved.missing) {
@@ -1526,7 +1507,8 @@ module.exports._adversarialPortal = require(adversarialWrapperPath());
 
 /**
  * Plant a reachable non-seed wrapper that reads via
- * path.join(portal.CLIENTS_DIR, dynamicName) — must fail discovery closed.
+ * path.join(portal.CLIENTS_DIR, dynamicName) — must fail discovery closed
+ * (incomplete fold: unresolved member + unknown segment).
  */
 function plantAmbiguousPortalClientsDirJoin(tmpRoot) {
   const wrapper = path.join(tmpRoot, 'scripts/lib/adversarial-client-wrapper.js');
@@ -1560,6 +1542,95 @@ module.exports = { readTempNoise };
 `, 'utf8');
 }
 
+/** RED: computed member path segment inside acquisition-graph FS call. */
+function plantComputedMemberFsPath(tmpRoot) {
+  const wrapper = path.join(tmpRoot, 'scripts/lib/adversarial-client-wrapper.js');
+  const prev = fs.readFileSync(wrapper, 'utf8');
+  fs.writeFileSync(wrapper, `${prev}
+const fs = require('fs');
+const path = require('path');
+function loadViaComputedMember(parts) {
+  const p = path.join(__dirname, parts[0], 'clients', 'x.json');
+  return fs.readFileSync(p, 'utf8');
+}
+module.exports.loadViaComputedMember = loadViaComputedMember;
+`, 'utf8');
+}
+
+/** RED: aliased destructuring of CLIENTS_DIR that does not constant-fold. */
+function plantAliasedDestructuringFsPath(tmpRoot) {
+  const wrapper = path.join(tmpRoot, 'scripts/lib/adversarial-client-wrapper.js');
+  const prev = fs.readFileSync(wrapper, 'utf8');
+  fs.writeFileSync(wrapper, `${prev}
+const path = require('path');
+const fs = require('fs');
+const { CLIENTS_DIR: clientsDir } = require('./staff-portal-clients');
+function loadViaAliasedDestructure(name) {
+  return fs.readFileSync(path.join(clientsDir, name), 'utf8');
+}
+module.exports.loadViaAliasedDestructure = loadViaAliasedDestructure;
+`, 'utf8');
+}
+
+/** RED: dynamic template used as the FS path argument. */
+function plantDynamicTemplateFsPath(tmpRoot) {
+  const wrapper = path.join(tmpRoot, 'scripts/lib/adversarial-client-wrapper.js');
+  const prev = fs.readFileSync(wrapper, 'utf8');
+  fs.writeFileSync(wrapper, `${prev}
+const fs = require('fs');
+function loadViaDynamicTemplate(name) {
+  return fs.readFileSync(\`\${name}.json\`, 'utf8');
+}
+module.exports.loadViaDynamicTemplate = loadViaDynamicTemplate;
+`, 'utf8');
+}
+
+/** RED: template whose base is an unresolved alias (portal.CLIENTS_DIR). */
+function plantAliasedTemplateFsPath(tmpRoot) {
+  const wrapper = path.join(tmpRoot, 'scripts/lib/adversarial-client-wrapper.js');
+  const prev = fs.readFileSync(wrapper, 'utf8');
+  fs.writeFileSync(wrapper, `${prev}
+const fs = require('fs');
+function loadViaAliasedTemplate(name) {
+  const root = portal.CLIENTS_DIR;
+  return fs.readFileSync(\`\${root}/\${name}\`, 'utf8');
+}
+module.exports.loadViaAliasedTemplate = loadViaAliasedTemplate;
+`, 'utf8');
+}
+
+/**
+ * GREEN/RED: fully resolved non-config FS path inside the acquisition graph —
+ * must classify unrelated and keep discovery_ok.
+ */
+function plantResolvedUnrelatedFsInGraph(tmpRoot) {
+  const wrapper = path.join(tmpRoot, 'scripts/lib/adversarial-client-wrapper.js');
+  const prev = fs.readFileSync(wrapper, 'utf8');
+  fs.writeFileSync(wrapper, `${prev}
+const fs = require('fs');
+const path = require('path');
+function readLocalNotes() {
+  return fs.readFileSync(path.join(__dirname, 'local-notes.txt'), 'utf8');
+}
+module.exports.readLocalNotes = readLocalNotes;
+`, 'utf8');
+}
+
+/**
+ * RED: dynamic FS path planted outside the reachable graph — must stay ignored.
+ */
+function plantOutsideGraphDynamicFsNoise(tmpRoot) {
+  const noise = path.join(tmpRoot, 'scripts/lib/adversarial-outside-graph-dyn-fs.js');
+  fs.mkdirSync(path.dirname(noise), { recursive: true });
+  fs.writeFileSync(noise, `'use strict';
+const fs = require('fs');
+function readDyn(name) {
+  return fs.readFileSync(\`/tmp/\${name}\`, 'utf8');
+}
+module.exports = { readDyn };
+`, 'utf8');
+}
+
 module.exports = {
   ROOT: DEFAULT_ROOT,
   INVENTORY_CATEGORIES,
@@ -1583,8 +1654,13 @@ module.exports = {
   plantUnresolvedDynamicPath,
   plantAmbiguousPortalClientsDirJoin,
   plantUnrelatedFsOutsideReachableGraph,
+  plantComputedMemberFsPath,
+  plantAliasedDestructuringFsPath,
+  plantDynamicTemplateFsPath,
+  plantAliasedTemplateFsPath,
+  plantResolvedUnrelatedFsInGraph,
+  plantOutsideGraphDynamicFsNoise,
   normalizeVerifierScriptPath,
   extractVerifierPathsFromScript,
   assertAcornPin,
-  pathExprStructurallyTouchesClients,
 };
