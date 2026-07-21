@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16Z",
+  "outcome_id": "16Z_g02_live_sigterm_lifecycle_evidence",
+  "gate_id": "G02_readiness_dependencies",
+  "progress_class": "partial_live_proven_evidence_only",
+  "master_basis": "95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+  "branch": "radar/slice-16z-g02-live-sigterm-evidence",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "title": "Reconcile dual-staging live SIGTERM lifecycle drill — partial/live-proven only",
+  "evidence_fixture": "fixtures/radar-operations/slice16z-g02-live-sigterm-evidence.json",
+  "builds_on": [
+    "16W_readiness_shutdown_lifecycle",
+    "16X_g02_lifecycle_deploy_traffic_shed_live_evidence",
+    "16Y_readiness_shutdown_completion_log"
+  ],
+  "provenance_split": {
+    "A": "operator_drill_transcript_contemporaneous_observation",
+    "B": "azure_acr_law_readonly_independently_reverified",
+    "A_covers": [
+      "operator_restart_windows",
+      "post_restart_healthz_readyz_samples_31_approx_2s"
+    ],
+    "A_explicitly_not_covered": [
+      "concurrent_restart_continuity",
+      "zero_downtime_during_restart"
+    ],
+    "B_covers": [
+      "acr_digests",
+      "images_and_serving_revisions",
+      "revision_create_timelines",
+      "law_shutdown_completion_exactly_one_each_in_declared_drill_query_window",
+      "law_revision_lifetime_later_records_disclosed",
+      "probes",
+      "public_current_healthz_readyz"
+    ],
+    "non_recoverability": "Azure/ACR/LAW read-only APIs cannot recreate or replay the historical post-restart healthz/readyz sample arrays or operator restart command windows; those values exist only in the operator drill command transcript. Current public probes and LAW queries verify present state / stored completion rows only. LAW cardinality claims require declared bounded query windows; revision-lifetime counts are not frozen at one.",
+    "independent_azure_verify_utc": "2026-07-21T11:42:38Z",
+    "law_cardinality_reverify_utc": "2026-07-21T11:59:43Z"
+  },
+  "required_observed": {
+    "image_sha_full": "95dc3634ac6aaa6de495d22f5f5d8cd0a955df97",
+    "wolfhouse_digest": "sha256:a9677f75a7d17be9b6ae75b60bc026d462df971cc164496344c29b8c57aee6de",
+    "sunset_digest": "sha256:8a0b1647ba246bb548d437fcc37e3e4f600181ca1d04dc1eb73e3f4a69d51c10",
+    "wolfhouse_revision_suffix": "0000519",
+    "sunset_revision_suffix": "0000279",
+    "wolfhouse_restart_started_utc": "2026-07-21T11:15:18Z",
+    "wolfhouse_restart_ended_utc": "2026-07-21T11:15:21Z",
+    "sunset_restart_started_utc": "2026-07-21T11:17:30Z",
+    "sunset_restart_ended_utc": "2026-07-21T11:17:33Z",
+    "wolfhouse_law_time": "2026-07-21T11:16:20.3631884Z",
+    "sunset_law_time": "2026-07-21T11:18:04.1610218Z",
+    "law_match_count": 1,
+    "original_signal": "SIGTERM",
+    "pool_close_result": "ok",
+    "server_close_result": "ok",
+    "failure_classes": [],
+    "completion": true,
+    "observation_sample_count": 31,
+    "observation_cadence_seconds": 2,
+    "public_healthz": 200,
+    "public_readyz": 200,
+    "law_cardinality_semantics": "exactly_one_in_declared_bounded_drill_query_window_not_revision_lifetime",
+    "wolfhouse_law_query_window_start_utc": "2026-07-21T11:15:18Z",
+    "wolfhouse_law_query_window_end_utc": "2026-07-21T11:17:18Z",
+    "sunset_law_query_window_start_utc": "2026-07-21T11:17:30Z",
+    "sunset_law_query_window_end_utc": "2026-07-21T11:19:30Z",
+    "wolfhouse_later_law_times": [
+      "2026-07-21T11:24:48.5525367Z",
+      "2026-07-21T11:47:54.2072273Z"
+    ],
+    "wolfhouse_revision_lifetime_count_at_review": 3,
+    "revision_lifetime_exactly_one": false
+  },
+  "forbidden_claim_tokens": [
+    "SIGINT live",
+    "sigint_live",
+    "zero downtime during restart",
+    "concurrent restart continuity",
+    "organic metric alert",
+    "organic_metric_alert_firing",
+    "human inbox",
+    "production",
+    "full G02",
+    "full_G02_proven",
+    "any_gate_verdict_proven",
+    "G02 proven",
+    "verdict proven",
+    "revision lifetime exactly one",
+    "unbounded LAW cardinality",
+    "exactly one per revision unqualified"
+  ],
+  "must_not_claim_as_proven": [
+    "sigint_live_lifecycle",
+    "serving_revision_readyz_503_body_path",
+    "zero_downtime_during_restart",
+    "concurrent_restart_continuity",
+    "organic_metric_alert_firing",
+    "human_inbox_receipt",
+    "production",
+    "full_G02_proven",
+    "any_gate_verdict_proven",
+    "revision_lifetime_exactly_one_sigterm_completion",
+    "unbounded_law_cardinality_exactly_one"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "G02 remains partial; SIGTERM cleanup telemetry + post-restart recovery live-proven; SIGINT live, serving /readyz=503, zero-downtime-during-restart still open"
+  },
+  "still_open": [
+    "SIGINT closeReadinessPool live lifecycle behavior on deployed revision",
+    "Serving-revision /readyz=503 body path",
+    "Zero downtime during restart / concurrent restart continuity (not claimed; samples are post-restart only)",
+    "Organic metric alert firing",
+    "Human inbox receipt",
+    "Production scope (forbidden)",
+    "Raising G02 verdict to proven"
+  ],
+  "final_controlled_drill": {
+    "id": "16Y_DRILL_live_sigterm_completion_log_evidence",
+    "status": "live_proven_via_16Z_sigterm_law_and_post_restart_recovery",
+    "pass_rule": "Class-A transcript: operator restart windows + 31 post-restart /healthz+/readyz=200 pairs @ ~2s (not concurrent continuity; not Azure-reconstructible). Class-B Azure/ACR/LAW read-only: digests/revisions/probes/public-current @ 2026-07-21T11:42:38Z; LAW cardinality reverify @ 2026-07-21T11:59:43Z with locked non-overlapping drill query windows (WH 11:15:18Z–11:17:18Z → exactly one allowlisted SIGTERM @ 11:16:20.3631884Z; Sunset 11:17:30Z–11:19:30Z → exactly one allowlisted SIGTERM @ 11:18:04.1610218Z); WH later records disclosed (11:24:48.5525367Z, 11:47:54.2072273Z); revision-lifetime count is not one and may grow; claim limited to exactly one in each declared drill window. Verifier rejects unbounded/revision-lifetime exactly-one, missing later disclosure, drill record outside window, overlapping windows, later records relabelled as drill completions, wrong SHA/digest/revision/timestamps, duplicate/missing completion, non-ok outcomes, extra/secret fields, claimed concurrent continuity, historical arrays Azure-derived, overclaims. G02 stays partial"
+  },
+  "artifacts": [
+    "fixtures/radar-operations/slice16z-g02-live-sigterm-evidence.json",
+    "fixtures/radar-operations/slice16z-expected-contract.json",
+    "scripts/lib/radar-slice16z-g02-live-sigterm-evidence.js",
+    "scripts/verify-radar-slice16z-g02-live-sigterm-evidence.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16z-g02-live-sigterm-evidence",
+    "npm run verify:radar-slice16y-shutdown-completion-log",
+    "npm run verify:radar-slice16x-g02-live-evidence",
+    "npm run verify:radar-slice16w-readiness-shutdown-lifecycle",
+    "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 95dc3634ac6aaa6de495d22f5f5d8cd0a955df97..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-readiness.js",
+      "scripts/lib/staff-api-readiness-lifecycle.js",
+      "scripts/lib/staff-api-readiness-shutdown-completion-log.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16Z is evidence reconciliation only; records (A) operator drill transcript contemporaneous facts + (B) independent Azure/ACR/LAW read-only reverify with bounded drill-window LAW cardinality + later-record disclosure; does not deploy or mutate runtime; current checks cannot recreate historical samples"
+  }
+}
