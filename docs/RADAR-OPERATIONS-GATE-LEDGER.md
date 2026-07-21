@@ -65,6 +65,14 @@ RADAR closeout **must never delay or prohibit** urgent incident containment/reco
 
 Locked categories (`16AP_unconditional_break_glass`): `urgent_incident_containment_recovery`, `credential_compromise_response`, `vulnerability_security_remediation`, `legal_compliance_action`, `availability_data_integrity_safety_fix`.
 
+### Post-stabilization bookkeeping — break-glass verifier remediation (not a discretionary slice)
+
+**Category:** `availability_data_integrity_safety_fix` (unconditional break-glass; work may start immediately; bookkeeping follows after stabilization).
+
+**Fact:** PR #137 merged locked candidate `7870a9fb818bbd94d33b291c8782851276e2715e` into master `b9feab2438e3d42817487ce97d87df7e36f7f18e`. Running `npm run verify:radar-slice16ap-finite-closeout` on detached `origin/master` produced **110 pass / 1 fail** solely because C1 required `git rev-parse --abbrev-ref HEAD === radar/slice-16ap-finite-closeout` and detached CI reports `HEAD`. Substantive freeze/validation passed; the shipped verifier was unusable on detached CI/master.
+
+**Remediation (docs/verifier only):** C1 accepts the original 16AP branch name **or** any tip that contains the exact locked candidate as ancestor (incl. detached master / synthetic descendants). Unrelated detached commits/branches lacking the candidate remain rejected. Canonical `selected_16ap` / contract / score **0/9/0** / evidence-class / gap freezes are unchanged. This is **not** a discretionary RADAR implementation slice and does **not** change scores, evidence, or gaps.
+
 ### Objective reopen triggers (discretionary successor work only)
 
 Exact IDs + descriptions + thresholds + applicability are locked (not count-only). Additional discretionary RADAR implementation slices (or score/claim changes) require **one** of:

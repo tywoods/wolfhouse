@@ -24,6 +24,8 @@ const path = require('path');
 const crypto = require('crypto');
 
 const MASTER_BASIS = '66e34a5833ff3bcc7f297108f594b4fc58a0eccc';
+/** Exact PR #137 merge candidate tip; C1 accepts branch or any descendant containing this as ancestor. */
+const CANDIDATE_SHA = '7870a9fb818bbd94d33b291c8782851276e2715e';
 const SLICE = 'RADAR-16AP';
 const OUTCOME_ID = '16AP_finite_milestone_closeout';
 const GATE_IDS = Object.freeze([
@@ -544,6 +546,7 @@ const REQUIRED_RED = Object.freeze([
   'systematic_break_glass_field_mutations_rejected',
   'fixture_monkeypatch_rejected',
   'export_monkeypatch_validation_unaffected',
+  'unrelated_detached_commit_rejected',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -565,6 +568,7 @@ const REQUIRED_GREEN = Object.freeze([
   'nested_locks_frozen',
   'export_mutation_attempts_fail',
   'validator_imported_identity',
+  'candidate_descendant_or_master_accepted',
 ]);
 
 /** Ordered multi-item array fields deep-compared per gate against canonical freeze. */
@@ -887,6 +891,7 @@ function buildFrozenExports(bag) {
 
 module.exports = buildFrozenExports({
   MASTER_BASIS,
+  CANDIDATE_SHA,
   SLICE,
   OUTCOME_ID,
   GATE_IDS,
