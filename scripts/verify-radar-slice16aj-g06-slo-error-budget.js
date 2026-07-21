@@ -303,7 +303,7 @@ ok('C8 future acceptance defined_not_executed only',
     per_step_total: 2,
     per_step_2xx: 2,
   });
-  const all = calc.evaluateAllBurnPairs(samples);
+  const all = calc.evaluateAllLockedBurnPairs(samples);
   green('multi_window_burn_quiet_on_healthy',
     all.ok && all.any_page_would_fire === false && all.any_ticket_would_fire === false
     && all.alert_status === 'defined_not_executed'
@@ -320,15 +320,103 @@ ok('C8 future acceptance defined_not_executed only',
     per_step_2xx: 8,
   });
   const pair = calc.MULTI_WINDOW_BURNS[0];
-  const r = calc.evaluateBurnPair(samples, pair);
+  const r = calc.evaluateBurnPair(samples, 'page_fast');
   green('page_fast_would_fire_on_20pct_bad',
     r.ok && r.would_fire === true
+    && r.id === 'page_fast'
     && r.short.exceeds_threshold === true
     && r.long.exceeds_threshold === true
     && r.short.coverage_reference_window_ms === pair.short_ms
     && r.long.coverage_reference_window_ms === pair.long_ms
     && r.alert_status === 'defined_not_executed',
     r.ok ? `short=${r.short.burn_rate} long=${r.long.burn_rate}` : (r.errors || []).join(' | '));
+}
+
+// --- RED: alternate public path — 50m + 0/1 custom pair object injection ---
+{
+  const steps = Math.ceil((60 * 60 * 1000) / calc.SAMPLE_STEP_MS) + 2;
+  const samples = buildSeries({
+    steps,
+    per_step_total: 10,
+    per_step_2xx: 8,
+  });
+  const custom50m01 = {
+    id: 'custom_50m',
+    severity: 'page',
+    short_ms: 50 * 60 * 1000,
+    long_ms: 60 * 60 * 1000,
+    burn_threshold: 0,
+    burn_threshold_rational: { num: 0, den: 1 },
+  };
+  const viaObject = calc.evaluateBurnPair(samples, custom50m01);
+  const viaOptsWindow = calc.evaluateBurnPair(samples, 'page_fast', {
+    short_ms: 50 * 60 * 1000,
+    burn_threshold_rational: { num: 0, den: 1 },
+  });
+  const viaAllOpts = calc.evaluateAllLockedBurnPairs(samples, {
+    long_ms: 50 * 60 * 1000,
+    burn_threshold: 0,
+  });
+  const unknownId = calc.evaluateBurnPair(samples, 'not_a_locked_pair');
+  red('custom_50m_0_1_pair_object_injection_rejected',
+    viaObject.ok === false && viaObject.fail_closed === true
+    && viaObject.code === calc.FAIL_CODES.INVALID_INPUT
+    && /object|injection|locked string id/i.test((viaObject.errors || []).join(' ')),
+    viaObject.ok ? 'unexpected ok' : (viaObject.errors || []).join(' | '));
+  red('burn_opts_window_threshold_injection_rejected',
+    viaOptsWindow.ok === false && viaOptsWindow.fail_closed === true
+    && viaOptsWindow.code === calc.FAIL_CODES.INVALID_INPUT
+    && viaAllOpts.ok === false && viaAllOpts.fail_closed === true
+    && viaAllOpts.code === calc.FAIL_CODES.INVALID_INPUT,
+    viaOptsWindow.ok || viaAllOpts.ok
+      ? 'unexpected ok'
+      : `${viaOptsWindow.code}/${viaAllOpts.code}`);
+  red('unknown_burn_pair_id_rejected',
+    unknownId.ok === false && unknownId.fail_closed === true
+    && unknownId.code === calc.FAIL_CODES.INVALID_INPUT
+    && /unknown burn pair id/i.test((unknownId.errors || []).join(' ')),
+    unknownId.ok ? 'unexpected ok' : (unknownId.errors || []).join(' | '));
+}
+
+// --- RED: direct availabilityBurnLeg access unexported (no alternate path) ---
+{
+  red('availability_burn_leg_unexported_no_direct_access',
+    typeof calc.availabilityBurnLeg !== 'function'
+    && !Object.prototype.hasOwnProperty.call(calc, 'availabilityBurnLeg')
+    && typeof calc.evaluateAllBurnPairs !== 'function'
+    && typeof calc.evaluateAllLockedBurnPairs === 'function'
+    && typeof calc.evaluateBurnPair === 'function');
+}
+
+// --- RED: no alternate export accepts caller burn windows/thresholds ---
+{
+  const exportNames = Object.keys(calc);
+  const burnEvalExports = exportNames.filter((k) => /burn|Burn/i.test(k)
+    && typeof calc[k] === 'function');
+  // Allowed burn-eval surface: id-locked pair + all-locked-pairs only.
+  // Pure math helpers (burnFromBadRate, burnRateMeetsThresholdExact) are not
+  // pair-eval paths and do not accept MULTI_WINDOW_BURNS window injection.
+  const allowedBurnEval = new Set(['evaluateBurnPair', 'evaluateAllLockedBurnPairs']);
+  const unexpected = burnEvalExports.filter((k) => !allowedBurnEval.has(k)
+    && !/^(burnFromBadRate|burnRateMeetsThresholdExact)$/.test(k));
+  const samples = buildSeries({ steps: 20, per_step_total: 5, per_step_2xx: 4 });
+  const idOnlyOk = calc.evaluateBurnPair(samples, 'page_fast');
+  const objectRejected = calc.evaluateBurnPair(samples, {
+    id: 'page_fast',
+    short_ms: 50 * 60 * 1000,
+    long_ms: 60 * 60 * 1000,
+    burn_threshold: 0,
+    burn_threshold_rational: { num: 0, den: 1 },
+  });
+  red('no_alternate_burn_export_accepts_caller_windows_thresholds',
+    unexpected.length === 0
+    && idOnlyOk.ok === true
+    && objectRejected.ok === false
+    && objectRejected.fail_closed === true
+    && typeof calc.availabilityBurnLeg !== 'function',
+    unexpected.length
+      ? `unexpected exports: ${unexpected.join(',')}`
+      : (objectRejected.ok ? 'object accepted' : undefined));
 }
 
 // --- RED: missing samples ---

@@ -561,10 +561,11 @@
             "evaluateReadinessWindow",
             "burnFromBadRate",
             "evaluateBurnPair",
+            "evaluateAllLockedBurnPairs",
             "MULTI_WINDOW_BURNS",
             "FAIL_CODES"
           ],
-          "note": "16AJ pure dependency-free SLO/error-budget calculator"
+          "note": "16AJ pure dependency-free SLO/error-budget calculator; burn eval id-locked only"
         },
         {
           "path": "scripts/verify-radar-slice16aj-g06-slo-error-budget.js",

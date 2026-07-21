@@ -744,9 +744,58 @@ function evaluateReadinessWindow(input) {
 }
 
 /**
- * Availability-only burn leg. Coverage/span use the declared burn window
- * (short windows are not measured against PT7D).
- * Normative constants are locked — only `samples` / window pair are variable.
+ * Reject caller attempts to inject burn windows / thresholds via opts.
+ * Windows and thresholds are locked exclusively in MULTI_WINDOW_BURNS.
+ */
+function rejectBurnWindowThresholdInjection(o) {
+  if (!o || typeof o !== 'object') return null;
+  const banned = [
+    'short_ms',
+    'long_ms',
+    'window_ms',
+    'burn_threshold',
+    'burn_threshold_rational',
+    'pair_threshold_rational',
+    'threshold',
+    'pair',
+  ];
+  for (let i = 0; i < banned.length; i += 1) {
+    const k = banned[i];
+    if (Object.prototype.hasOwnProperty.call(o, k) && o[k] != null) {
+      return failClosed(FAIL_CODES.INVALID_INPUT, [
+        `burn ${k} injection rejected; windows/thresholds locked in MULTI_WINDOW_BURNS`,
+      ], { option: k });
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve an immutable exact MULTI_WINDOW_BURNS entry by locked string id.
+ * Rejects non-string ids (objects / injected pair shapes) and unknown ids.
+ */
+function resolveLockedBurnPair(pairId) {
+  if (typeof pairId !== 'string') {
+    return failClosed(FAIL_CODES.INVALID_INPUT, [
+      'burn pair must be locked string id from MULTI_WINDOW_BURNS; '
+      + 'object/window/threshold injection rejected',
+    ]);
+  }
+  for (let i = 0; i < MULTI_WINDOW_BURNS.length; i += 1) {
+    if (MULTI_WINDOW_BURNS[i].id === pairId) {
+      return { ok: true, pair: MULTI_WINDOW_BURNS[i] };
+    }
+  }
+  return failClosed(FAIL_CODES.INVALID_INPUT, [
+    `unknown burn pair id: ${pairId}`,
+  ], { pair_id: pairId });
+}
+
+/**
+ * Availability-only burn leg (private). Coverage/span use the declared burn
+ * window (short windows are not measured against PT7D). Windows and
+ * thresholds come only from locked MULTI_WINDOW_BURNS entries — never from
+ * callers. Not exported (no alternate public path).
  */
 function availabilityBurnLeg(samples, windowMs, pairThresholdRational, opts) {
   const o = opts || {};
@@ -841,19 +890,21 @@ function availabilityBurnLeg(samples, windowMs, pairThresholdRational, opts) {
 }
 
 /**
- * Evaluate one burn window pair against sample series.
- * Returns fail-closed if either leg cannot be computed.
+ * Evaluate one locked burn window pair against sample series.
+ * Public API accepts only a locked string pair id; windows and thresholds
+ * are resolved immutably from MULTI_WINDOW_BURNS (no object/window/threshold
+ * injection). Returns fail-closed if either leg cannot be computed.
  * Alert firing is acceptance-only (defined_not_executed) — never live proof.
  */
-function evaluateBurnPair(samples, pair, opts) {
-  if (!pair || !isFiniteNumber(pair.short_ms) || !isFiniteNumber(pair.long_ms)
-    || !isFiniteNumber(pair.burn_threshold)
-    || !pair.burn_threshold_rational) {
-    return failClosed(FAIL_CODES.INVALID_INPUT, ['burn pair invalid']);
-  }
-  if (!Number.isSafeInteger(pair.short_ms) || !Number.isSafeInteger(pair.long_ms)) {
-    return failClosed(FAIL_CODES.UNSAFE_INTEGER, ['burn pair windows unsafe']);
-  }
+function evaluateBurnPair(samples, pairId, opts) {
+  const o = opts || {};
+  const injected = rejectBurnWindowThresholdInjection(o);
+  if (injected) return injected;
+
+  const resolved = resolveLockedBurnPair(pairId);
+  if (!resolved.ok) return resolved;
+  const pair = resolved.pair;
+
   if (!Array.isArray(samples) || samples.length < 2) {
     return failClosed(FAIL_CODES.MISSING_SAMPLES, ['burn samples missing']);
   }
@@ -862,14 +913,14 @@ function evaluateBurnPair(samples, pair, opts) {
     samples,
     pair.short_ms,
     pair.burn_threshold_rational,
-    opts,
+    o,
   );
   if (!short.ok) return short;
   const long = availabilityBurnLeg(
     samples,
     pair.long_ms,
     pair.burn_threshold_rational,
-    opts,
+    o,
   );
   if (!long.ok) return long;
 
@@ -890,11 +941,17 @@ function evaluateBurnPair(samples, pair, opts) {
 
 /**
  * Evaluate all locked multi-window burn pairs.
+ * Only `samples` (and optional locked normative opts) are variable —
+ * no caller windows/thresholds.
  */
-function evaluateAllBurnPairs(samples, opts) {
+function evaluateAllLockedBurnPairs(samples, opts) {
+  const o = opts || {};
+  const injected = rejectBurnWindowThresholdInjection(o);
+  if (injected) return injected;
+
   const results = [];
   for (let i = 0; i < MULTI_WINDOW_BURNS.length; i += 1) {
-    const r = evaluateBurnPair(samples, MULTI_WINDOW_BURNS[i], opts);
+    const r = evaluateBurnPair(samples, MULTI_WINDOW_BURNS[i].id, o);
     if (!r.ok) {
       return failClosed(r.code, r.errors, { failed_pair: MULTI_WINDOW_BURNS[i].id, leg: r });
     }
@@ -989,8 +1046,9 @@ module.exports = {
   availabilitySliFromDeltas,
   evaluateReadinessWindow,
   sliceSamplesForWindow,
-  availabilityBurnLeg,
+  // availabilityBurnLeg intentionally unexported — no alternate public path
+  // for caller window/threshold injection.
   evaluateBurnPair,
-  evaluateAllBurnPairs,
+  evaluateAllLockedBurnPairs,
   exactBoundaryCases,
 };
