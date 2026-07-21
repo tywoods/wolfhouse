@@ -3,7 +3,7 @@
   "slice": "FACTORY-1A",
   "outcome_id": "1A_source_only_acceptance_contract",
   "completeness_method": "source_derived_registration_read_site_inventory",
-  "completeness_claim_narrowing": "Inventory categories are derived by scripts/lib/factory-slice1a-inventory-discovery.js from real config/clients registration files and scripts/lib read/require sites. Fixture must match discovery bidirectionally. Does not claim full-repo AST exhaustiveness outside scripts/lib + config/clients + listed overlays/verifiers.",
+  "completeness_claim_narrowing": "Inventory categories are source-derived by scripts/lib/factory-slice1a-inventory-discovery.js across config/clients, scripts (including staff-query-api direct/dynamic reads and check-i18n personality enumeration), infra/docker overlays, and package.json verifier registrations. Fixture must match discovery with exact bidirectional set equality. Locked exclusions filter justified noise only and are never the expected inventory.",
   "reference_pair": {
     "wolfhouse": {
       "client_slug": "wolfhouse",
@@ -67,18 +67,24 @@
     "config/clients/staff-portal-access.sunset-staging.json"
   ],
   "feature_flag_symbols": [
-    "live_enabled",
-    "DEFAULT_CLIENT_SLUG",
-    "STAFF_API_INGRESS_TENANT_SLUG",
-    "STRIPE_WEBHOOK_CLIENT_SLUG",
-    "LUNA_BOT_CLIENT_SLUG",
     "CLIENT_CHANNEL_ROUTING_FILE",
+    "DEFAULT_CLIENT_SLUG",
+    "LUNA_BOT_CLIENT_SLUG",
+    "STAFF_API_ADMISSION_CONTROL",
+    "STAFF_API_INGRESS_TENANT_SLUG",
+    "STAFF_PORTAL_DEV_TABS",
+    "STRIPE_WEBHOOK_CLIENT_SLUG",
+    "SUNSET_ADMIN_CLIENT",
     "SUNSET_ADMIN_DB_READ_ENABLED",
     "SUNSET_ADMIN_JSON_OVERLAY",
-    "STAFF_PORTAL_DEV_TABS",
-    "STAFF_API_ADMISSION_CONTROL"
+    "SUNSET_ADMIN_WRITES_ENABLED",
+    "live_enabled"
   ],
   "pricing_services_schedule_profile_consumers": [
+    "scripts/backfill-sunset-admin-config.js",
+    "scripts/backfill-sunset-admin-location-config.js",
+    "scripts/check-i18n-guest-copy.js",
+    "scripts/fixtures/sunset-admin-verify-server.js",
     "scripts/lib/client-channel-resolver.js",
     "scripts/lib/guest-addon-combo-rebalance-db.js",
     "scripts/lib/guest-addon-pricing.js",
@@ -126,33 +132,58 @@
     "scripts/lib/sunset-waiver-model.js",
     "scripts/lib/tenant-admin-writes.js",
     "scripts/lib/tenant-business-config.js",
-    "scripts/lib/wolfhouse-quote-calculator.js"
+    "scripts/lib/wolfhouse-quote-calculator.js",
+    "scripts/plan-wolfhouse-prod-infra.js",
+    "scripts/staff-query-api.js"
   ],
   "deployment_overlays": [
-    "infra/azure/staging/main.bicep",
-    "infra/azure/sunset-staging/main.bicep",
-    "infra/docker-compose.local.yml",
-    "infra/.env.example",
-    "docker/hermes-staging/docker-compose.vm.yml",
+    "config/clients/channel-routing.sample.json",
+    "config/clients/channel-routing.staging.example.json",
     "config/clients/staff-portal-access.json",
     "config/clients/staff-portal-access.sunset-staging.json",
-    "config/clients/channel-routing.staging.example.json"
+    "docker/hermes-staging/docker-compose.vm.yml",
+    "docker/hermes-sunset/docker-compose.vm.yml",
+    "infra/.env.example",
+    "infra/azure/staging/main.bicep",
+    "infra/azure/sunset-staging/main.bicep",
+    "infra/docker-compose.local.yml"
   ],
   "existing_verifiers": [
+    "scripts/verify-meta-whatsapp-tenant-shadow.js",
     "scripts/verify-multiclient-isolation.js",
     "scripts/verify-no-client-hardcoding.js",
-    "scripts/verify-tenant-resolution.js",
-    "scripts/verify-meta-whatsapp-tenant-shadow.js",
     "scripts/verify-staff-tenant-scope.js",
-    "scripts/verify-tenant-business-config.js",
     "scripts/verify-sunset-portal-slice1.js",
+    "scripts/verify-tenant-business-config.js",
+    "scripts/verify-tenant-resolution.js",
     "scripts/verify-wolfhouse-live-readiness-static.js"
   ],
+  "locked_exclusions": {
+    "path_substrings": [
+      "factory-slice1a-"
+    ],
+    "verifier_path_prefixes": [
+      "scripts/verify-radar-",
+      "scripts/verify-fortress-",
+      "scripts/verify-foundation-"
+    ],
+    "feature_flag_path_prefixes": [
+      "scripts/verify-radar-",
+      "scripts/verify-fortress-",
+      "scripts/verify-foundation-",
+      "scripts/lib/radar-",
+      "scripts/lib/fortress-",
+      "scripts/lib/foundation-",
+      "fixtures/",
+      "docs/"
+    ]
+  },
   "notes": {
     "archetype_map": {
       "surf_house": "wolfhouse / lodging_surf_house / wolfhouse-somo",
       "surf_school_shop": "sunset / surf_school_rentals / sunset-somo+sunset-sardinero"
     },
+    "acquisition_coverage": "Consumers include fs/path dynamic reads, direct filenames, directory enumeration, and loader imports/aliases/wrappers; staff-query-api and check-i18n are required sites.",
     "non_reference_registry_samples": "Additional clients.json sample rows remain inventory-only while live_enabled=false; third-tenant live/prod onboarding remains out of scope and triggers RADAR third_tenant_factory reopen."
   }
 }

@@ -7,13 +7,15 @@
  * no deploy, no generator/templates/runtime/IaC mutation in this slice.
  *
  * Completeness: derives registration/read-site inventory from real paths via
- * factory-slice1a-inventory-discovery.js and requires bidirectional coverage
- * against the fixture (rejects incomplete and stale candidate lists).
+ * factory-slice1a-inventory-discovery.js and requires exact bidirectional
+ * coverage against the fixture (rejects incomplete and stale candidate lists).
+ * Locked exclusions filter justified noise only — never the expected inventory.
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawnSync, execSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const FIXTURE_DIR = path.join(ROOT, 'fixtures', 'factory-client-productization');
@@ -26,6 +28,7 @@ const locks = require('./lib/factory-slice1a-acceptance-contract');
 const {
   discoverAll,
   compareInventoryCompleteness,
+  buildAdversarialTemporarySource,
   INVENTORY_CATEGORIES,
 } = require('./lib/factory-slice1a-inventory-discovery');
 
@@ -69,6 +72,78 @@ function deepEqual(a, b) {
   return locks.deepEqual(a, b);
 }
 
+function rimraf(dir) {
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function tipPathsAllowed(changedPaths) {
+  const prefixes = locks.ALLOWED_TIP_PATH_PREFIXES;
+  const bad = [];
+  for (const p of changedPaths) {
+    const okPath = prefixes.some((pref) => (
+      pref.endsWith('/') ? p.startsWith(pref) || p === pref.slice(0, -1) : p === pref
+    ));
+    if (!okPath) bad.push(p);
+  }
+  return { ok: bad.length === 0, bad };
+}
+
+function packageJsonScriptDeltaOnlyAllowedKey() {
+  let diff;
+  try {
+    diff = execSync(
+      `git diff ${locks.MASTER_BASIS} -- package.json`,
+      { cwd: ROOT, encoding: 'utf8' },
+    );
+  } catch (err) {
+    return { ok: false, detail: String(err && err.message) };
+  }
+  if (!diff.trim()) {
+    // Tip may already include the key on master; still require the locked key present.
+    const pkg = readJson(path.join(ROOT, 'package.json'));
+    const val = pkg.scripts && pkg.scripts[locks.PACKAGE_JSON_ALLOWED_SCRIPT_KEY];
+    return {
+      ok: val === locks.PACKAGE_JSON_ALLOWED_SCRIPT_VALUE,
+      detail: val === locks.PACKAGE_JSON_ALLOWED_SCRIPT_VALUE
+        ? 'no package.json delta vs master; locked key present'
+        : 'locked script key missing/mismatched with no delta',
+    };
+  }
+  const addedKeys = [];
+  const removedKeys = [];
+  const otherHunkNoise = [];
+  for (const line of diff.split('\n')) {
+    if (!/^[+-]/.test(line) || /^[+-]{3}/.test(line)) continue;
+    if (/^[+-]\s*"verify:[^"]+"\s*:/.test(line)) {
+      const m = line.match(/^[+-]\s*"([^"]+)"\s*:/);
+      if (m) {
+        if (line.startsWith('+')) addedKeys.push(m[1]);
+        else removedKeys.push(m[1]);
+      }
+      continue;
+    }
+    // Allow JSON structural whitespace / commas adjacent to the script line.
+    if (/^[+-]\s*[\[\]{},]?\s*$/.test(line)) continue;
+    if (/^[+-]\s*$/.test(line)) continue;
+    otherHunkNoise.push(line.slice(0, 120));
+  }
+  const onlyAllowedAdd = addedKeys.length === 1
+    && addedKeys[0] === locks.PACKAGE_JSON_ALLOWED_SCRIPT_KEY
+    && removedKeys.length === 0;
+  const pkg = readJson(path.join(ROOT, 'package.json'));
+  const val = pkg.scripts && pkg.scripts[locks.PACKAGE_JSON_ALLOWED_SCRIPT_KEY];
+  const valueOk = val === locks.PACKAGE_JSON_ALLOWED_SCRIPT_VALUE;
+  return {
+    ok: onlyAllowedAdd && valueOk && otherHunkNoise.length === 0,
+    detail: JSON.stringify({
+      addedKeys,
+      removedKeys,
+      valueOk,
+      otherHunkNoise: otherHunkNoise.slice(0, 5),
+    }),
+  };
+}
+
 console.log('verify:factory-slice1a-acceptance-contract — FACTORY 1A\n');
 
 // ── Artifacts present ───────────────────────────────────────────────────────
@@ -98,6 +173,7 @@ const validation = locks.validateFactory1aContract({
   gates: contract.gates,
   evidence_classes: contract.evidence_classes,
   scope_fence: contract.scope_fence,
+  tip_scope: contract.tip_scope,
   existing_regression_gates: contract.existing_regression_gates,
   existing_regression_retained_master_red: contract.existing_regression_retained_master_red,
 });
@@ -114,6 +190,7 @@ ok('archetypes deep-equal locks', deepEqual(contract.archetypes, expected.archet
 ok('gates deep-equal locks', deepEqual(contract.gates, expected.gates));
 ok('evidence_classes deep-equal locks', deepEqual(contract.evidence_classes, expected.evidence_classes));
 ok('scope_fence deep-equal locks', deepEqual(contract.scope_fence, expected.scope_fence));
+ok('tip_scope deep-equal locks', deepEqual(contract.tip_scope, expected.tip_scope));
 ok('existing regression gates deep-equal locks',
   deepEqual(contract.existing_regression_gates, expected.existing_regression_gates));
 ok('retained master RED deep-equal locks',
@@ -150,9 +227,24 @@ ok('doc names FACTORY and 1A–1E', /FACTORY/i.test(doc) && /1A/.test(doc) && /1
 ok('doc names both archetypes', /surf_house/.test(doc) && /surf_school_shop/.test(doc));
 ok('doc separates third-tenant live/prod', /third.tenant/i.test(doc) && /third_tenant_factory/.test(doc));
 ok('doc forbids templates/generator/runtime in 1A', /forbids/i.test(doc) && /templates/i.test(doc) && /generator/i.test(doc));
+ok('doc states package.json single-script scope', /package\.json/i.test(doc) && /verify:factory-slice1a-acceptance-contract/.test(doc));
 ok('findings cite completeness method', /source_derived_registration_read_site_inventory/.test(findings));
 ok('findings cite master basis', findings.includes(locks.MASTER_BASIS));
 ok('findings list nine gates', /G_MILESTONE_CLOSEOUT/.test(findings) && /G_SECRET_REJECTION/.test(findings));
+ok('findings mention staff-query-api and check-i18n',
+  /staff-query-api/.test(findings) && /check-i18n/.test(findings));
+ok('no trailing whitespace in doc/findings', (() => {
+  for (const [label, text] of [['doc', doc], ['findings', findings]]) {
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i += 1) {
+      if (/[ \t]+$/.test(lines[i])) {
+        console.log(`    trailing ws in ${label} line ${i + 1}`);
+        return false;
+      }
+    }
+  }
+  return true;
+})());
 
 // ── Source-derived inventory completeness ───────────────────────────────────
 console.log('\n── Source-derived inventory completeness ──');
@@ -160,6 +252,10 @@ const discovered = discoverAll();
 ok('discovery completeness method', discovered.completeness_method === locks.COMPLETENESS_METHOD);
 ok('inventory fixture method matches', inventory.completeness_method === locks.COMPLETENESS_METHOD);
 ok('inventory categories match lock list', deepEqual(inventory.categories, INVENTORY_CATEGORIES.slice()));
+ok('locked exclusions are not the expected inventory',
+  Array.isArray(discovered.locked_exclusions.path_substrings)
+  && !deepEqual(discovered.locked_exclusions.path_substrings, discovered.pricing_services_schedule_profile_consumers)
+  && discovered.locked_exclusions.verifier_path_prefixes.every((p) => !discovered.existing_verifiers.some((v) => v.startsWith(p))));
 
 const completeness = compareInventoryCompleteness(inventory, discovered);
 ok('inventory bidirectional completeness', completeness.ok, completeness.errors.join(','));
@@ -167,10 +263,10 @@ if (!completeness.ok) {
   for (const cat of INVENTORY_CATEGORIES) {
     const d = completeness.details[cat];
     if (d.missing_in_fixture.length) {
-      console.log(`    missing_in_fixture[${cat}]:`, d.missing_in_fixture.slice(0, 12));
+      console.log(`    missing_in_fixture[${cat}]:`, d.missing_in_fixture.slice(0, 20));
     }
     if (d.stale_in_fixture.length) {
-      console.log(`    stale_in_fixture[${cat}]:`, d.stale_in_fixture.slice(0, 12));
+      console.log(`    stale_in_fixture[${cat}]:`, d.stale_in_fixture.slice(0, 20));
     }
   }
 }
@@ -190,7 +286,10 @@ ok('clients.json among registries', discovered.registries.includes('config/clien
 ok('wolfhouse + sunset baselines inventoried',
   discovered.client_config_files.includes('config/clients/wolfhouse-somo.baseline.json')
   && discovered.client_config_files.includes('config/clients/sunset.baseline.json'));
-ok('primary consumers include portal + tenant-business + channel resolver',
+ok('staff-query-api and check-i18n among consumers',
+  discovered.pricing_services_schedule_profile_consumers.includes('scripts/staff-query-api.js')
+  && discovered.pricing_services_schedule_profile_consumers.includes('scripts/check-i18n-guest-copy.js'));
+ok('primary loaders include portal + tenant-business + channel resolver',
   discovered.pricing_services_schedule_profile_consumers.includes('scripts/lib/staff-portal-clients.js')
   && discovered.pricing_services_schedule_profile_consumers.includes('scripts/lib/tenant-business-config.js')
   && discovered.pricing_services_schedule_profile_consumers.includes('scripts/lib/client-channel-resolver.js'));
@@ -241,6 +340,111 @@ red('R6_live_mutation_claim', (() => {
   return locks.validateFactory1aContract(bad).ok === false;
 })());
 
+// Temporary-source REDs: aliased/wrapped/dynamic consumers + new registry/overlay/verifier/flag sites.
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-adv-'));
+  let advDiscovered = null;
+  let expectedNew = null;
+  try {
+    const built = buildAdversarialTemporarySource(tmp);
+    expectedNew = built.expected_new;
+    advDiscovered = discoverAll({ root: built.root });
+
+    red('R7_temp_source_aliased_wrapped_dynamic_consumer', (() => {
+      const hasAlias = advDiscovered.pricing_services_schedule_profile_consumers.includes(
+        'scripts/lib/adversarial-client-wrapper.js',
+      );
+      const hasStaffApi = advDiscovered.pricing_services_schedule_profile_consumers.includes(
+        'scripts/staff-query-api.js',
+      );
+      const hasI18n = advDiscovered.pricing_services_schedule_profile_consumers.includes(
+        'scripts/check-i18n-guest-copy.js',
+      );
+      const incomplete = JSON.parse(JSON.stringify({
+        client_config_files: advDiscovered.client_config_files,
+        registries: advDiscovered.registries,
+        feature_flag_symbols: advDiscovered.feature_flag_symbols,
+        pricing_services_schedule_profile_consumers:
+          advDiscovered.pricing_services_schedule_profile_consumers.filter(
+            (p) => p !== 'scripts/lib/adversarial-client-wrapper.js'
+              && p !== 'scripts/staff-query-api.js'
+              && p !== 'scripts/check-i18n-guest-copy.js',
+          ),
+        deployment_overlays: advDiscovered.deployment_overlays,
+        existing_verifiers: advDiscovered.existing_verifiers,
+      }));
+      const cmp = compareInventoryCompleteness(incomplete, advDiscovered);
+      return hasAlias && hasStaffApi && hasI18n && cmp.ok === false
+        && cmp.details.pricing_services_schedule_profile_consumers.missing_in_fixture.length >= 3;
+    })());
+
+    red('R8_temp_source_new_registry_absent_from_fixture', (() => {
+      const present = expectedNew.registries.every((p) => advDiscovered.registries.includes(p));
+      const incomplete = JSON.parse(JSON.stringify({
+        client_config_files: advDiscovered.client_config_files,
+        registries: advDiscovered.registries.filter((p) => !expectedNew.registries.includes(p)),
+        feature_flag_symbols: advDiscovered.feature_flag_symbols,
+        pricing_services_schedule_profile_consumers: advDiscovered.pricing_services_schedule_profile_consumers,
+        deployment_overlays: advDiscovered.deployment_overlays,
+        existing_verifiers: advDiscovered.existing_verifiers,
+      }));
+      const cmp = compareInventoryCompleteness(incomplete, advDiscovered);
+      return present && cmp.ok === false
+        && expectedNew.registries.every((p) => cmp.details.registries.missing_in_fixture.includes(p));
+    })());
+
+    red('R9_temp_source_new_overlay_absent_from_fixture', (() => {
+      const overlay = 'infra/azure/adversarial-staging/main.bicep';
+      const present = advDiscovered.deployment_overlays.includes(overlay);
+      const incomplete = JSON.parse(JSON.stringify({
+        client_config_files: advDiscovered.client_config_files,
+        registries: advDiscovered.registries,
+        feature_flag_symbols: advDiscovered.feature_flag_symbols,
+        pricing_services_schedule_profile_consumers: advDiscovered.pricing_services_schedule_profile_consumers,
+        deployment_overlays: advDiscovered.deployment_overlays.filter((p) => p !== overlay),
+        existing_verifiers: advDiscovered.existing_verifiers,
+      }));
+      const cmp = compareInventoryCompleteness(incomplete, advDiscovered);
+      return present && cmp.ok === false
+        && cmp.details.deployment_overlays.missing_in_fixture.includes(overlay);
+    })());
+
+    red('R10_temp_source_new_verifier_registration_absent_from_fixture', (() => {
+      const v = 'scripts/verify-adversarial-factory-client.js';
+      const present = advDiscovered.existing_verifiers.includes(v);
+      const incomplete = JSON.parse(JSON.stringify({
+        client_config_files: advDiscovered.client_config_files,
+        registries: advDiscovered.registries,
+        feature_flag_symbols: advDiscovered.feature_flag_symbols,
+        pricing_services_schedule_profile_consumers: advDiscovered.pricing_services_schedule_profile_consumers,
+        deployment_overlays: advDiscovered.deployment_overlays,
+        existing_verifiers: advDiscovered.existing_verifiers.filter((p) => p !== v),
+      }));
+      const cmp = compareInventoryCompleteness(incomplete, advDiscovered);
+      return present && cmp.ok === false
+        && cmp.details.existing_verifiers.missing_in_fixture.includes(v);
+    })());
+
+    red('R11_temp_source_new_flag_site_absent_from_fixture', (() => {
+      const flag = 'STAFF_API_ADMISSION_CONTROL';
+      const present = advDiscovered.feature_flag_symbols.includes(flag);
+      const incomplete = JSON.parse(JSON.stringify({
+        client_config_files: advDiscovered.client_config_files,
+        registries: advDiscovered.registries,
+        feature_flag_symbols: advDiscovered.feature_flag_symbols.filter((s) => s !== flag),
+        pricing_services_schedule_profile_consumers: advDiscovered.pricing_services_schedule_profile_consumers,
+        deployment_overlays: advDiscovered.deployment_overlays,
+        existing_verifiers: advDiscovered.existing_verifiers,
+      }));
+      const cmp = compareInventoryCompleteness(incomplete, advDiscovered);
+      return present && cmp.ok === false
+        && cmp.details.feature_flag_symbols.missing_in_fixture.includes(flag);
+    })());
+  } finally {
+    rimraf(tmp);
+  }
+}
+
 green('G1_canonical_contract_validates', locks.validateFactory1aContract(expected).ok === true);
 
 green('G2_fresh_discovery_matches_fixture', compareInventoryCompleteness(inventory, discoverAll()).ok === true);
@@ -258,8 +462,8 @@ green('G5_1A_forbids_generator_templates_runtime', expected.finite_stages[0].for
   && expected.finite_stages[0].forbids.includes('runtime')
   && expected.finite_stages[0].forbids.includes('live_calls'));
 
-// ── No productization surfaces introduced by this slice tip ─────────────────
-console.log('\n── Slice tip scope (no productization surfaces) ──');
+// ── Slice tip scope (truthful package.json + no productization surfaces) ────
+console.log('\n── Slice tip scope (docs/fixtures/verifier + locked package.json script) ──');
 const forbiddenNewPaths = [
   'scripts/lib/factory-client-generator.js',
   'scripts/generate-client-config.js',
@@ -268,6 +472,23 @@ const forbiddenNewPaths = [
 ];
 ok('no generator/template productization files added',
   forbiddenNewPaths.every((p) => !fs.existsSync(path.join(ROOT, p))));
+
+{
+  let changed = [];
+  try {
+    changed = execSync(`git diff --name-only ${locks.MASTER_BASIS}`, {
+      cwd: ROOT,
+      encoding: 'utf8',
+    }).trim().split('\n').filter(Boolean);
+  } catch (err) {
+    changed = [`__git_diff_failed__:${err && err.message}`];
+  }
+  const scope = tipPathsAllowed(changed);
+  ok('tip paths within locked prefixes', scope.ok, scope.bad.slice(0, 12).join(','));
+
+  const pkgDelta = packageJsonScriptDeltaOnlyAllowedKey();
+  ok('package.json delta is only locked verifier script registration', pkgDelta.ok, pkgDelta.detail);
+}
 
 // ── Existing regressions ────────────────────────────────────────────────────
 console.log('\n── Existing multiclient/config regressions (hard) ──');

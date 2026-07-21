@@ -18,7 +18,8 @@
         "independent_verifier",
         "inventory_freeze",
         "gate_freeze",
-        "stage_fence"
+        "stage_fence",
+        "package_json_verifier_script_registration"
       ],
       "forbids": [
         "templates",
@@ -185,6 +186,18 @@
     "reject_extra_stages": true,
     "reject_renaming_gates": true,
     "reject_raising_third_tenant_live_as_current_evidence": true
+  },
+  "tip_scope": {
+    "allowed_path_prefixes": [
+      "docs/FACTORY-CLIENT-PRODUCTIZATION.md",
+      "fixtures/factory-client-productization/",
+      "scripts/lib/factory-slice1a-acceptance-contract.js",
+      "scripts/lib/factory-slice1a-inventory-discovery.js",
+      "scripts/verify-factory-slice1a-acceptance-contract.js",
+      "package.json"
+    ],
+    "package_json_allowed_script_key": "verify:factory-slice1a-acceptance-contract",
+    "package_json_allowed_script_value": "node scripts/verify-factory-slice1a-acceptance-contract.js"
   },
   "existing_regression_gates": [
     "node scripts/verify-multiclient-isolation.js",

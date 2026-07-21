@@ -1,13 +1,16 @@
 # FACTORY Slice 1A findings
 
-**Progress class:** `source_only_acceptance_contract_freeze`  
-**Master basis:** `0ef5958ed8b81ca04b196062505bf4be7a403221`  
-**Branch:** `factory/slice-1a-contract`  
-**Delivery:** docs / fixtures / independent verifier only — **not** templates, generator, runtime, IaC, DB, deploy, secrets, or live calls.
+**Progress class:** `source_only_acceptance_contract_freeze`
+
+**Master basis:** `0ef5958ed8b81ca04b196062505bf4be7a403221`
+
+**Branch:** `factory/slice-1a-contract`
+
+**Delivery:** docs / fixtures / independent verifier only — **not** templates, generator, runtime, IaC, DB, deploy, secrets, or live calls. `package.json` may change only for the locked script key `verify:factory-slice1a-acceptance-contract`.
 
 ## Verdict
 
-FACTORY client productization is fenced to **five finite stages (1A–1E)**. Slice **1A** freezes the acceptance contract, inventories real Wolfhouse/Sunset registration and read sites, and locks nine gates. Completeness is **source-derived** by `scripts/lib/factory-slice1a-inventory-discovery.js` (not a candidate-authored orphan list). Third-tenant live/prod work stays **out of scope** and triggers RADAR reopen `third_tenant_factory`.
+FACTORY client productization is fenced to **five finite stages (1A–1E)**. Slice **1A** freezes the acceptance contract, inventories real Wolfhouse/Sunset registration and read sites, and locks nine gates. Completeness is **source-derived** by `scripts/lib/factory-slice1a-inventory-discovery.js` (exact bidirectional set equality; locked exclusions are justified noise filters only). Third-tenant live/prod work stays **out of scope** and triggers RADAR reopen `third_tenant_factory`.
 
 ## Reference pair (discovered)
 
@@ -25,11 +28,13 @@ Additional `clients.json` sample rows (beyond Wolfhouse + Sunset) remain invento
 Categories covered bidirectionally (discovery ↔ fixture):
 
 1. `client_config_files` — all `config/clients/*.json`
-2. `registries` — `clients.json`, staff-portal-access (+ sunset-staging), channel-routing samples
-3. `feature_flag_symbols` — `live_enabled`, tenant slug envs, Sunset admin flags, portal/admission flags
-4. `pricing_services_schedule_profile_consumers` — `scripts/lib` modules that read baselines/registries or resolve tenant/portal/channel config for those domains
-5. `deployment_overlays` — Wolfhouse/Sunset staging Bicep, compose, env example, portal access overlays, channel-routing staging example
-6. `existing_verifiers` — multiclient pack + tenant-business-config + portal/readiness static checks
+2. `registries` — registry-class files under `config/clients/` plus source-referenced registry basenames
+3. `feature_flag_symbols` — `live_enabled` and classifier-matched env flag reads across scripts/infra/docker/config
+4. `pricing_services_schedule_profile_consumers` — config/clients acquisition sites (fs/path dynamic reads, direct filenames, directory enumeration, loader imports/aliases/wrappers), including `scripts/staff-query-api.js` and `scripts/check-i18n-guest-copy.js`
+5. `deployment_overlays` — tenant staging Bicep entrypoints, compose/env overlays, access/routing overlay JSON
+6. `existing_verifiers` — package.json multiclient/tenant gate registrations plus portal-slice1 / live-readiness static verifiers
+
+Adversarial temporary-source REDs prove discovery catches aliased/wrapped/dynamic consumers and newly added registry, overlay, verifier, and flag sites absent from fixtures.
 
 ## Nine gates (frozen; proof deferred per `proof_stage`)
 
@@ -51,7 +56,7 @@ Allowed stage IDs: **1A, 1B, 1C, 1D, 1E** only. Extra stages, gate renames, or t
 
 ## Required current-stage evidence vs out of scope
 
-**Required now:** source inventory, finite stage fence, nine-gate freeze, independent completeness verifier, docs/fixtures/verifier delivery.
+**Required now:** source inventory, finite stage fence, nine-gate freeze, independent completeness verifier, docs/fixtures/verifier delivery, locked `package.json` script registration.
 
 **Out of scope (1A):** templates, generator, runtime productization, IaC/DB/deploy mutation, secret materialization, live network calls, third-tenant live/prod onboarding.
 
