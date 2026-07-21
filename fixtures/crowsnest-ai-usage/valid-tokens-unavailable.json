@@ -1,0 +1,19 @@
+{
+  "schema_version": "crowsnest.ai_usage.v1",
+  "event_id": "evt_fixture_tokens_na_001",
+  "occurred_at": "2026-07-21T12:10:00.000Z",
+  "client_slug": "example-client",
+  "tenant_id": "tenant_example_gamma",
+  "source_service": "example-front-desk",
+  "operation": "chat.completion",
+  "provider": "openai",
+  "model": "gpt-example-mini",
+  "status": "succeeded",
+  "tokens": {
+    "availability": "unavailable"
+  },
+  "latency_ms": 90,
+  "cost": {
+    "state": "unavailable"
+  }
+}

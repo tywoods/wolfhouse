@@ -1,0 +1,24 @@
+{
+  "schema_version": "crowsnest.ai_usage.v1",
+  "event_id": "evt_fixture_anthropic_001",
+  "occurred_at": "2026-07-21T12:05:00.000Z",
+  "client_slug": "example-client",
+  "tenant_id": "tenant_example_beta",
+  "source_service": "example-orchestrator",
+  "operation": "messages.create",
+  "provider": "anthropic",
+  "model": "claude-example-haiku",
+  "status": "succeeded",
+  "tokens": {
+    "availability": "measured",
+    "input_tokens": 100,
+    "output_tokens": 25,
+    "total_tokens": 125
+  },
+  "latency_ms": 512,
+  "cost": {
+    "state": "estimated",
+    "amount_micros": 3400,
+    "currency": "USD"
+  }
+}

@@ -50,6 +50,10 @@ Later, operators may also:
 
 The current UI is only a safe shell. The AI Usage Panel has not been implemented yet.
 
+### Slice 2 (contract only — not integrated)
+
+Offline **AI usage event contract** (`crowsnest.ai_usage.v1`): pure validator, sanitized fixtures, and `npm run verify:crowsnest-ai-usage-contract`. See [`docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md`](crowsnest/AI-USAGE-EVENT-CONTRACT.md). No storage, provider wiring, or UI panel in this slice.
+
 ### Slice 1 (merged and deployed)
 
 **Slice 1 is merged and deployed** — PR [#128](https://github.com/wolfhouse-somo/WH/pull/128); master/image SHA `14a7e3f7f656dd8a7dc11b528b8a645d3feb1210`; ACR build `cb11e`; active healthy revision `crowsnest-internal--0000010` at **100% traffic**. Protected routes: `/` (Spyglass default), `/clients`, `/billing`, `/communications` (aliases `/crowsnest` and `/crowsnest/ui` still render Spyglass). Honest read-only Spyglass shell from in-memory static client data; Billing/Communications placeholders stay **not connected**. No live writes or integrations. Staff API remained `wh-staging-staff-api--0000520` (untouched).
@@ -133,4 +137,5 @@ Verify:
 ```bash
 npm run verify:crowsnest
 npm run verify:crowsnest-auth
+npm run verify:crowsnest-ai-usage-contract
 ```

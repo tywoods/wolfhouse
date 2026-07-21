@@ -1,0 +1,22 @@
+{
+  "schema_version": "crowsnest.ai_usage.v1",
+  "event_id": "evt_fixture_bad_cal_001",
+  "occurred_at": "2026-02-30T12:00:00.000Z",
+  "client_slug": "example-client",
+  "tenant_id": "tenant_example_alpha",
+  "source_service": "example-front-desk",
+  "operation": "chat.completion",
+  "provider": "openai",
+  "model": "gpt-example-mini",
+  "status": "succeeded",
+  "tokens": {
+    "availability": "measured",
+    "input_tokens": 1,
+    "output_tokens": 1,
+    "total_tokens": 2
+  },
+  "latency_ms": 10,
+  "cost": {
+    "state": "unavailable"
+  }
+}
