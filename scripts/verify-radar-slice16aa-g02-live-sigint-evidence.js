@@ -1203,6 +1203,18 @@ function runVerifier() {
   {
     const bad = deepClone(evidence);
     bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.operator_sigint_exec.disconnect
+      .note = 'ClusterExecFailure exit 137 proves the application shell exit code was exactly 137';
+    bad.claim_ownership.exit_137_cluster_exec_failure.proves = 'application_shell_exit_code_137';
+    red('exit137_proves_shell_exit_code_rejected',
+      !validateEvidenceExact(bad).ok
+      || exit137OverclaimText(
+        bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.operator_sigint_exec.disconnect.note,
+      )
+      || !claimOwnershipOk(bad).ok);
+  }
+  {
+    const bad = deepClone(evidence);
+    bad.observed_facts.A_operator_observed_drill_transcript.wolfhouse.operator_sigint_exec.disconnect
       .note = 'exit 137 proves native signal exit semantics for SIGINT';
     bad.claim_ownership.exit_137_cluster_exec_failure.does_not_prove =
       bad.claim_ownership.exit_137_cluster_exec_failure.does_not_prove
@@ -1302,6 +1314,7 @@ function runVerifier() {
     'missing_command_provenance_rejected',
     'exit137_as_app_failure_rejected',
     'exit137_proves_app_exit_status_rejected',
+    'exit137_proves_shell_exit_code_rejected',
     'exit137_proves_native_signal_exit_rejected',
     'exit137_proves_node_status_rejected',
     'exit137_proves_aca_restart_reason_rejected',
