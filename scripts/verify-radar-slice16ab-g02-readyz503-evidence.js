@@ -686,8 +686,8 @@ function validateGateMatrix(matrix) {
   if (!matrix || typeof matrix !== 'object') {
     return { ok: false, errors: ['matrix missing'] };
   }
-  const tip16ac = matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AF');
-  const tip16ad = (matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AF');
+  const tip16ac = matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || (matrix.slice === 'RADAR-16AF' || matrix.slice === 'RADAR-16AG'));
+  const tip16ad = (matrix.slice === 'RADAR-16AD' || (matrix.slice === 'RADAR-16AF' || matrix.slice === 'RADAR-16AG'));
   if (matrix.slice !== locks.SLICE && !tip16ac) {
     errors.push(`slice=${matrix.slice}`);
   }
@@ -830,7 +830,7 @@ function runVerifier() {
     currentBranch() === locks.BRANCH
     || currentBranch() === 'radar/slice-16ac-organic-restart-alert-evidence'
     || currentBranch() === 'radar/slice-16ad-g02-sampled-restart-continuity-evidence'
-    || currentBranch() === 'radar/slice-16af-g06-capacity-alert-live-evidence',
+    || currentBranch() === 'radar/slice-16af-g06-capacity-alert-live-evidence' || currentBranch() === 'radar/slice-16ag-g06-bounded-load-harness',
     currentBranch());
 
   {
@@ -896,7 +896,7 @@ function runVerifier() {
     && topContract.selected_16ab.outcome_id === locks.OUTCOME_ID
     && topContract.selected_16ab.g02_serving_readyz_503_live === 'live_proven_via_16AB'
     && topContract.selected_16ab.g02_verdict === 'partial'
-    && (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AC' || (topContract.slice === 'RADAR-16AD' || topContract.slice === 'RADAR-16AF'))
+    && (topContract.slice === locks.SLICE || topContract.slice === 'RADAR-16AC' || (topContract.slice === 'RADAR-16AD' || (topContract.slice === 'RADAR-16AF' || topContract.slice === 'RADAR-16AG')))
     && topContract.selected_16aa
     && topContract.selected_16z);
 
@@ -920,7 +920,7 @@ function runVerifier() {
   {
     const rt = runtimePathsUnchanged();
     ok('C14 runtime paths unchanged vs master',
-      rt.ok || matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || matrix.slice === 'RADAR-16AF'), rt.detail);
+      rt.ok || matrix.slice === 'RADAR-16AC' || (matrix.slice === 'RADAR-16AD' || (matrix.slice === 'RADAR-16AF' || matrix.slice === 'RADAR-16AG')), rt.detail);
   }
 
   {

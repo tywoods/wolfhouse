@@ -21,8 +21,9 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '0a2fb08486b835dd45a4fc904e3dd152702bea6f';
+const MASTER_BASIS = '7a283b70d38a4906e6279d82a49c0f6dd2a4994e';
 const BRANCH_16AF = 'radar/slice-16af-g06-capacity-alert-live-evidence';
+const BRANCH_16AG = 'radar/slice-16ag-g06-bounded-load-harness';
 const BRANCH_16AD = 'radar/slice-16ad-g02-sampled-restart-continuity-evidence';
 const BRANCH_16AC = 'radar/slice-16ac-organic-restart-alert-evidence';
 const BRANCH_16AB = 'radar/slice-16ab-g02-readyz503-evidence';
@@ -449,13 +450,14 @@ const slice16acContract = readJson(path.join(FIXTURE_DIR, 'slice16ac-expected-co
 const slice16adContract = readJson(path.join(FIXTURE_DIR, 'slice16ad-expected-contract.json'));
 const headBranch = currentBranch();
 const slice16afContract = readJson(path.join(FIXTURE_DIR, 'slice16af-expected-contract.json'));
-ok('F48 gate-matrix branch pin equals 16AF contract + HEAD',
-  matrix.branch === BRANCH_16AF
-  && contract.branch === BRANCH_16AF
-  && slice16afContract.branch === BRANCH_16AF
-  && headBranch === BRANCH_16AF,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16af=${slice16afContract.branch} head=${headBranch}`);
-ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC/16AD contracts retain their own branch pins',
+const slice16agContract = readJson(path.join(FIXTURE_DIR, 'slice16ag-expected-contract.json'));
+ok('F48 gate-matrix branch pin equals 16AG contract + HEAD',
+  matrix.branch === BRANCH_16AG
+  && contract.branch === BRANCH_16AG
+  && slice16agContract.branch === BRANCH_16AG
+  && headBranch === BRANCH_16AG,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16ag=${slice16agContract.branch} head=${headBranch}`);
+ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC/16AD/16AF contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
   && slice16rContract.branch === BRANCH_16R
@@ -468,7 +470,8 @@ ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC/16AD contract
   && slice16aaContract.branch === BRANCH_16AA
   && slice16abContract.branch === BRANCH_16AB
   && slice16acContract.branch === BRANCH_16AC
-  && slice16adContract.branch === BRANCH_16AD);
+  && slice16adContract.branch === BRANCH_16AD
+  && slice16afContract.branch === BRANCH_16AF);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -566,10 +569,11 @@ ok('F66 16K retention still open; deploy partial via 16P',
   && /open/i.test(String(contract.healthz_log_retention || '')));
 
 const g06 = matrix.gates.find((g) => g.id === 'G06_scaling_capacity');
-ok('F67 G06 partial_live_proven via 16AF capacity deploy + 16L source',
+ok('F67 G06 partial_live_proven via 16AF capacity deploy + 16L source (+ 16AG harness source)',
   g06 && g06.verdict === 'partial'
   && g06.progress_class === 'partial_live_proven'
   && /16AF/.test(g06.rationale)
+  && /16AG/.test(g06.rationale)
   && /16L/.test(g06.rationale)
   && /CpuPercentage/i.test(g06.rationale)
   && /MemoryPercentage/i.test(g06.rationale)
@@ -1045,6 +1049,43 @@ ok('F178 doc mentions 16AF + capacity deploy + G06 partial + open firing/autosca
   && /fir|notification/i.test(doc)
   && /autoscal|load|soak|SLO|backpressure/i.test(doc)
   && !/\bG06\s+proven\b/i.test(doc));
+
+
+const sel16ag = matrix.slice_16ag_selection;
+ok('F179 exactly one 16AG selection',
+  sel16ag && sel16ag.selected === true
+  && sel16ag.outcome_id === '16AG_g06_bounded_load_harness'
+  && sel16ag.gate_id === 'G06_scaling_capacity'
+  && sel16ag.progress_class === 'source_partial_progress_only');
+ok('F180 contract selected_16ag matches',
+  contract.selected_16ag
+  && contract.selected_16ag.outcome_id === '16AG_g06_bounded_load_harness'
+  && contract.selected_16ag.g06_load_harness_source === 'source_closed_via_16AG'
+  && contract.selected_16ag.g06_load_proof === 'open'
+  && contract.selected_16ag.g06_verdict === 'partial'
+  && contract.selected_16ag.g06_autoscaling === 'open'
+  && contract.selected_16ag.g06_backpressure === 'open');
+ok('F181 16AG fixtures + harness + verifier present',
+  pathExists('fixtures/radar-operations/slice16ag-expected-contract.json')
+  && pathExists('scripts/lib/radar-g06-bounded-load-harness.js')
+  && pathExists('scripts/lib/radar-slice16ag-g06-bounded-load-harness.js')
+  && pathExists('scripts/verify-radar-slice16ag-g06-bounded-load-harness.js'));
+ok('F182 16AG final controlled drill defined_not_executed',
+  sel16ag.final_controlled_drill
+  && sel16ag.final_controlled_drill.status === 'defined_not_executed');
+ok('F183 16AG does not claim live load/soak/SLO/backpressure/autoscale/fire/production/full G06',
+  /live_load|soak|autoscale|slo|backpressure|fire|notification|production|full_g06/i.test(
+    String(sel16ag.does_not_implement || '')));
+ok('F184 doc mentions 16AG + bounded load harness + defined_not_executed + G06 partial',
+  /16AG|bounded.?load.?harness/i.test(doc)
+  && /defined.?not.?executed|not executed/i.test(doc)
+  && /G06.*partial|partial.*G06/i.test(doc)
+  && !/\bG06\s+proven\b/i.test(doc)
+  && !/\bload\s+soak\s+proven\b/i.test(doc));
+ok('F185 score unchanged after 16AG (proven=0 partial=9 absent=0)',
+  contract.expected_verdict_counts.proven === 0
+  && contract.expected_verdict_counts.partial === 9
+  && contract.expected_verdict_counts.absent === 0);
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

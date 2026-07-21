@@ -1,14 +1,45 @@
-# RADAR Slice 16AF — Operations gate ledger (G06 capacity alert live deploy evidence)
+# RADAR Slice 16AG — Operations gate ledger (G06 bounded load harness source)
 
-**Status:** evidence-only reconciliation (zero deploy / live mutation by this slice; G06 remains partial)
-**Master basis:** `0a2fb08486b835dd45a4fc904e3dd152702bea6f`
-**Branch:** `radar/slice-16af-g06-capacity-alert-live-evidence`
+**Status:** source-only (no live network / deploy / scale mutation by this tip; G06 remains partial)
+**Master basis:** `7a283b70d38a4906e6279d82a49c0f6dd2a4994e`
+**Branch:** `radar/slice-16ag-g06-bounded-load-harness`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
-**Builds on:** 16L capacity-pressure source alerts + 16B ops AGs + 16H metric-alert pattern; tip after 16AD sampled continuity
-**This slice does not deploy:** Azure **read-only** verification only
+**Builds on:** 16AF capacity-alert live deploy + 16L capacity-pressure source
+**This slice does not deploy / does not hit staging:** offline fake-server verifier only; future drill defined_not_executed
 
-## Outcome (16AF)
+## Outcome (16AG)
+
+Land a dependency-free bounded Node load harness for G06 hard-locked to the two exact staging Staff API `/readyz` URLs:
+
+| Target | Role |
+|--------|------|
+| `https://staff-staging.lunafrontdesk.com/readyz` | Wolfhouse staging readiness |
+| `https://sunset-staging.lunafrontdesk.com/readyz` | Sunset staging readiness |
+
+Contract: GET only; no headers/body/auth; no redirects; TLS required; fail-closed on any other target; max duration/concurrency/request budget; **harness-owned absolute run deadline + per-request deadline** (deadline starts before DNS; DNS raced/aborted against remaining budget so missing/late callbacks settle with no request start; abort/destroy actives; settle end/aborted/error/premature-close/trickle); **unexported fixed HTTPS transport** (no caller transport escape); **fail-closed globally-routable DNS pin** (exact pinned address; IANA special-purpose IPv4/IPv6 prefix tables with explicit `globallyReachable` flags + longest-match; permit only globally reachable classifications / ordinary public unicast; rejects multicast and non-global specials including 192.88.99.0/24, 2001:2::/48, 2001:10::/28 while allowing globally reachable 192.0.0.9/32, 192.0.0.10/32, 2001:20::/28); **monotonic internal latency** (transport latency ignored); aggregate counts + p50/p95/p99/max + timeout/error/status classes; **no response bodies**.
+
+Offline fail-closed (http/https/net/DNS sealed) RED/GREEN verifier covers bounds, concurrency, redirects, target escape, latency percentiles, non-2xx, hanging/trickle/abort/close settle, deadline cleanup, DNS private/IANA-special-purpose table-driven reject/allow, hanging/late DNS settle, header/body/auth not sent, and transport escape.
+
+Conservative future drill profile `16AG_DRILL_dual_staging_readyz_bounded_load` is **defined_not_executed** (concurrency=2, max_duration_ms=30000, max_requests=60, request_timeout_ms=4000).
+
+### Claim ownership (16AG locked)
+
+| Observation | Proves | Does not prove |
+|-------------|--------|----------------|
+| Harness source + offline verifier | Bounded allowlisted `/readyz` load tooling exists with fail-closed escapes | Live staging load/soak execution |
+| Future drill profile locked | Conservative parameters ready for a later approved drill | That drill ran; SLO; backpressure; autoscaling |
+| G06 stays partial | Score preserved (proven=0 / partial=9 / absent=0) | Raising G06 to `proven` |
+
+## Truthful disposition (16AG)
+
+**Proves (source):** Dependency-free bounded `/readyz` load harness hard-locked to the two staging URLs with offline fake-server accounting proof; future drill profile defined.
+
+**Does not prove:** live load/soak; capacity alert firing/notification; autoscaling; capacity SLO/error budget; backpressure; production; raising G06 to `proven`.
+
+**Load-harness source gap closed; live load/soak remains open; G06 remains partial.**
+
+## Outcome (16AF — retained)
 
 Reconcile live dual-staging readback of the four deployed Staff API capacity-pressure metric alerts and current scale truth @ `2026-07-21T14:30:07Z`:
 
@@ -89,9 +120,13 @@ Serving-revision `/readyz=503` `{status:not-ready}` on isolated fail revisions; 
 ## Retained slices (not overclaimed)
 
 
+### 16AG_g06_bounded_load_harness
+
+Bounded staging `/readyz` load harness — **this tip**. Closes only G06 load-harness **source** gap. Live load/soak execution, alert fire/notification, autoscaling, SLO/error budget, backpressure remain open. Future drill defined_not_executed. G06 stays partial.
+
 ### 16AF_g06_capacity_alert_live_evidence
 
-Capacity-alert deploy + scale-truth evidence — **this tip**. Closes only G06 alert-deployment gap. Firing/notification, load/soak, autoscaling, SLO/error budget, backpressure remain open. G06 stays partial.
+Capacity-alert deploy + scale-truth evidence — retained under 16AG tip. Closes only G06 alert-deployment gap. Firing/notification, load/soak, autoscaling, SLO/error budget, backpressure remain open. G06 stays partial.
 
 ### 16AD_g02_sampled_restart_continuity_evidence
 
@@ -141,7 +176,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 
 - **16O** — Stripe webhook error minimization (G08 partial).
 - **G05** — 16M Stripe webhook event-id claim (source partial; live drill open).
-- **G06** — **16AF** live-proves capacity-alert deploy; **16L** source retained; alert fire/notification, load/soak, autoscaling, SLO/backpressure open (G06 remains partial).
+- **G06** — **16AG** source-closes bounded load harness; **16AF** live-proves capacity-alert deploy; **16L** source retained; live load/soak, alert fire/notification, autoscaling, SLO/backpressure open (G06 remains partial).
 - **G08** — 16O/16P webhook error minimization + privacy drill partial; abrupt/retention/search open.
 
 ## G02 semantics (truthful after 16AD)
@@ -174,19 +209,30 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 | `scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js` | Strict RED/GREEN verifier |
 
 
-## G06 semantics (truthful after 16AF)
+## G06 semantics (truthful after 16AG)
 
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
 | Capacity-pressure alert IaC (16L) | `source_closed_16L` | CpuPercentage + MemoryPercentage Average >80 |
 | Capacity-pressure alert live deploy | `live_proven_16AF` | four alerts Enabled Sev2 PT5M/PT15M exact scopes/AGs |
 | Current scale truth | `live_recorded_16AF` | WH min0/max1/rules null; Sunset min1/max1/rules null; g02503r |
+| Bounded `/readyz` load harness | `source_closed_16AG` | hard-locked two staging URLs; offline fake-server verifier |
+| Future load drill profile | `defined_not_executed_16AG` | conservative concurrency/duration/request budget |
 | Alert fire / notification delivery | `open` / `not claimed` | |
-| Load / soak | `open` / `not claimed` | |
+| Live load / soak execution | `open` / `not claimed` | profile defined only |
 | Autoscaling | `open` / `not claimed` | rules=null |
 | Capacity SLO / error budget | `open` / `not claimed` | |
 | Backpressure | `open` / `not claimed` | |
 | Production | `open` / forbidden | intentionally untouched |
+
+## Slice 16AG artifacts
+
+| Path | Role |
+|------|------|
+| `scripts/lib/radar-g06-bounded-load-harness.js` | Dependency-free harness |
+| `scripts/lib/radar-slice16ag-g06-bounded-load-harness.js` | Locks |
+| `scripts/verify-radar-slice16ag-g06-bounded-load-harness.js` | Offline fake-server RED/GREEN verifier |
+| `fixtures/radar-operations/slice16ag-expected-contract.json` | Contract |
 
 ## Slice 16AF artifacts
 
@@ -200,7 +246,7 @@ Bounded operator-observed facts @ image **594247f** — retained. **Does not cla
 ## Still open
 
 1. Capacity alert firing / notification delivery — **not claimed**
-2. Load / soak — **not claimed**
+2. Live dual-staging `/readyz` load/soak execution — profile **defined_not_executed** by 16AG — **not claimed**
 3. Autoscaling (rules=null) — **not claimed**
 4. Capacity SLO / error budget — **not claimed**
 5. Backpressure — **not claimed**
