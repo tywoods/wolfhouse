@@ -10,11 +10,12 @@
  *
  * Threat boundary (explicit): every filesystem primitive inside the reachable
  * config-loader acquisition graph must constant-fold to { value, complete } or
- * discovery fails closed. Dynamic template interpolation, computed members,
- * unresolved alias/destructuring, and unknown segments are incomplete. Fully
- * resolved non-config paths classify unrelated; incomplete in-graph paths reject.
- * No CLIENTS_DIR textual/taint heuristic; no silent unresolved call. Filesystem
- * calls outside the reachable graph are ignored.
+ * discovery fails closed — incomplete/unfoldable paths emit
+ * ambiguous_filesystem_path before any partial-value or config/clients prefix
+ * inspection. Only complete folds may classify config versus unrelated. Dynamic
+ * template interpolation, computed members, unresolved alias/destructuring, and
+ * unknown segments are incomplete. No CLIENTS_DIR textual/taint heuristic; no
+ * silent unresolved call. Filesystem calls outside the reachable graph are ignored.
  *
  * Fixture inventories must match discovery bidirectionally. Locked exclusions
  * filter justified noise only — they are never the expected inventory.
@@ -110,11 +111,13 @@ const THREAT_BOUNDARY = Object.freeze({
   statement:
     'Every filesystem primitive inside the reachable config-loader acquisition '
     + 'graph must have a fully constant-folded path (fold returns value+complete) '
-    + 'or discovery fails closed. Dynamic template interpolation, computed members, '
-    + 'unresolved alias/destructuring, and unknown segments are incomplete. Fully '
-    + 'resolved non-config paths classify unrelated; incomplete in-graph paths '
-    + 'reject. No CLIENTS_DIR textual/taint heuristic and no silent unresolved call. '
-    + 'Filesystem calls outside the reachable graph are ignored.',
+    + 'or discovery fails closed. Incomplete or unfoldable paths emit '
+    + 'ambiguous_filesystem_path before any partial-value or config/clients prefix '
+    + 'inspection; only complete folds may classify config versus unrelated. '
+    + 'Dynamic template interpolation, computed members, unresolved '
+    + 'alias/destructuring, and unknown segments are incomplete. No CLIENTS_DIR '
+    + 'textual/taint heuristic and no silent unresolved call. Filesystem calls '
+    + 'outside the reachable graph are ignored.',
 });
 
 function assertAcornPin() {
@@ -986,23 +989,10 @@ function discoverPhysicalConfigSites(root) {
 
         const arg0 = node.arguments && node.arguments[0];
         const folded = folder.fold(arg0, 0);
-        if (!folded) {
-          // Unresolved / unfoldable — no silent escape.
+        // Strict order: incomplete/unfoldable fails closed before any partial-value
+        // or config/clients prefix inspection. Only complete folds may classify.
+        if (!folded || folded.complete !== true) {
           node.__factory1a_ambiguous_fs = true;
-          return;
-        }
-        if (!folded.complete) {
-          // Incomplete fold: inventory when the partial value still names config/clients
-          // (parameterized leaf under a folded prefix); otherwise fail closed in-graph.
-          if (touchesConfigClients(folded.value, root)) {
-            const fp = toRepoRelPath(root, folded.value) || normalizePosix(folded.value);
-            const kind = fsKindFromCallee(cname);
-            const key = siteKey(kind, r, cname, fp);
-            addSite(key, { site_key: key, file: r });
-            directSiteFiles.add(r);
-          } else {
-            node.__factory1a_ambiguous_fs = true;
-          }
           return;
         }
         if (touchesConfigClients(folded.value, root)) {
@@ -1188,6 +1178,14 @@ function discoverPhysicalConfigSites(root) {
     const parts = key.split('|');
     if (parts[1]) consumers.add(parts[1]);
   }
+  // Loader seeds are always config-loader consumers even when their residual FS
+  // paths are incomplete (those reject via ambiguous_filesystem_path / threat
+  // boundary — they must not be classified as config sites from partial folds).
+  for (const seed of LOADER_SEED_RELS) {
+    if (parsed.has(seed) || fs.existsSync(path.join(root, seed))) {
+      consumers.add(seed);
+    }
+  }
 
   const uniqErrors = [...new Set(errors)].sort();
   const uniqThreat = [...new Set(threatBoundaryRejections)].sort();
@@ -1347,10 +1345,16 @@ function buildAdversarialTemporarySource(tmpRoot) {
 const fs = require('fs');
 const path = require('path');
 const CLIENTS_DIR = path.join(__dirname, '..', '..', 'config', 'clients');
+function listClientFiles() {
+  return fs.readdirSync(CLIENTS_DIR);
+}
+function loadAccessJson() {
+  return JSON.parse(fs.readFileSync(path.join(CLIENTS_DIR, 'staff-portal-access.json'), 'utf8'));
+}
 function loadBaselineJson(slug) {
   return JSON.parse(fs.readFileSync(path.join(CLIENTS_DIR, slug + '.baseline.json'), 'utf8'));
 }
-module.exports = { loadBaselineJson, CLIENTS_DIR };
+module.exports = { loadBaselineJson, loadAccessJson, listClientFiles, CLIENTS_DIR };
 `);
 
   write('scripts/lib/tenant-business-config.js', `'use strict';
@@ -1392,12 +1396,18 @@ module.exports = { loadViaAlias };
   write('scripts/staff-query-api.js', `'use strict';
 const path = require('path');
 const fs = require('fs');
+const portal = require('./lib/staff-portal-clients');
 function readClientBaseline(clientSlug) {
-  const cfgPath = path.join(__dirname, '..', 'config', 'clients', \`\${clientSlug}.baseline.json\`);
-  return JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  return portal.loadBaselineJson(clientSlug);
+}
+function readPricing() {
+  return JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'config', 'clients', 'wolfhouse-somo.pricing.json'),
+    'utf8',
+  ));
 }
 const INGRESS = process.env.STAFF_API_INGRESS_TENANT_SLUG;
-module.exports = { readClientBaseline, INGRESS };
+module.exports = { readClientBaseline, readPricing, INGRESS };
 `);
 
   write('scripts/check-i18n-guest-copy.js', `'use strict';
@@ -1631,6 +1641,87 @@ module.exports = { readDyn };
 `, 'utf8');
 }
 
+/**
+ * RED: path.join(__dirname, '..', 'config', 'clients', dynamicName) on a
+ * reachable wrapper — incomplete fold must fail before config/clients classify.
+ */
+function plantJoinDirnameConfigClientsDynamic(tmpRoot) {
+  const wrapper = path.join(tmpRoot, 'scripts/lib/adversarial-client-wrapper.js');
+  const prev = fs.readFileSync(wrapper, 'utf8');
+  fs.writeFileSync(wrapper, `${prev}
+const path = require('path');
+const fs = require('fs');
+function loadViaJoinDirnameConfigClients(dynamicName) {
+  const p = path.join(__dirname, '..', 'config', 'clients', dynamicName);
+  return JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+module.exports.loadViaJoinDirnameConfigClients = loadViaJoinDirnameConfigClients;
+`, 'utf8');
+}
+
+/** RED: binary-concat nested wrapper under config/clients + dynamic leaf. */
+function plantBinaryConfigClientsDynamic(tmpRoot) {
+  const wrapper = path.join(tmpRoot, 'scripts/lib/adversarial-client-wrapper.js');
+  const prev = fs.readFileSync(wrapper, 'utf8');
+  fs.writeFileSync(wrapper, `${prev}
+const fs = require('fs');
+function loadViaBinaryConfigClients(dynamicName) {
+  const p = __dirname + '/../config/clients/' + dynamicName;
+  return JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+module.exports.loadViaBinaryConfigClients = loadViaBinaryConfigClients;
+`, 'utf8');
+}
+
+/** RED: spread-arg path.join nested wrapper with dynamic leaf. */
+function plantSpreadConfigClientsDynamic(tmpRoot) {
+  const wrapper = path.join(tmpRoot, 'scripts/lib/adversarial-client-wrapper.js');
+  const prev = fs.readFileSync(wrapper, 'utf8');
+  fs.writeFileSync(wrapper, `${prev}
+const path = require('path');
+const fs = require('fs');
+function loadViaSpreadConfigClients(dynamicName) {
+  const parts = [__dirname, '..', 'config', 'clients', dynamicName];
+  const p = path.join(...parts);
+  return JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+module.exports.loadViaSpreadConfigClients = loadViaSpreadConfigClients;
+`, 'utf8');
+}
+
+/** RED: call-wrapped path builder nested under config/clients + dynamic leaf. */
+function plantCallWrappedConfigClientsDynamic(tmpRoot) {
+  const wrapper = path.join(tmpRoot, 'scripts/lib/adversarial-client-wrapper.js');
+  const prev = fs.readFileSync(wrapper, 'utf8');
+  fs.writeFileSync(wrapper, `${prev}
+const path = require('path');
+const fs = require('fs');
+function buildClientsPath(dynamicName) {
+  return path.join(__dirname, '..', 'config', 'clients', dynamicName);
+}
+function loadViaCallWrappedConfigClients(dynamicName) {
+  return JSON.parse(fs.readFileSync(buildClientsPath(dynamicName), 'utf8'));
+}
+module.exports.loadViaCallWrappedConfigClients = loadViaCallWrappedConfigClients;
+`, 'utf8');
+}
+
+/** RED: conditional nested wrapper selecting a dynamic config/clients leaf. */
+function plantConditionalConfigClientsDynamic(tmpRoot) {
+  const wrapper = path.join(tmpRoot, 'scripts/lib/adversarial-client-wrapper.js');
+  const prev = fs.readFileSync(wrapper, 'utf8');
+  fs.writeFileSync(wrapper, `${prev}
+const path = require('path');
+const fs = require('fs');
+function loadViaConditionalConfigClients(flag, dynamicName) {
+  const leaf = flag ? dynamicName : ('other-' + dynamicName);
+  const p = path.join(__dirname, '..', 'config', 'clients', leaf);
+  return JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+module.exports.loadViaConditionalConfigClients = loadViaConditionalConfigClients;
+`, 'utf8');
+}
+
 module.exports = {
   ROOT: DEFAULT_ROOT,
   INVENTORY_CATEGORIES,
@@ -1660,6 +1751,11 @@ module.exports = {
   plantAliasedTemplateFsPath,
   plantResolvedUnrelatedFsInGraph,
   plantOutsideGraphDynamicFsNoise,
+  plantJoinDirnameConfigClientsDynamic,
+  plantBinaryConfigClientsDynamic,
+  plantSpreadConfigClientsDynamic,
+  plantCallWrappedConfigClientsDynamic,
+  plantConditionalConfigClientsDynamic,
   normalizeVerifierScriptPath,
   extractVerifierPathsFromScript,
   assertAcornPin,

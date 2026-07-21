@@ -39,6 +39,11 @@ const {
   plantAliasedTemplateFsPath,
   plantResolvedUnrelatedFsInGraph,
   plantOutsideGraphDynamicFsNoise,
+  plantJoinDirnameConfigClientsDynamic,
+  plantBinaryConfigClientsDynamic,
+  plantSpreadConfigClientsDynamic,
+  plantCallWrappedConfigClientsDynamic,
+  plantConditionalConfigClientsDynamic,
   normalizeVerifierScriptPath,
   extractVerifierPathsFromScript,
   assertAcornPin,
@@ -293,6 +298,7 @@ ok('threat boundary stated explicitly',
   && inventory.threat_boundary.id === THREAT_BOUNDARY.id
   && inventory.threat_boundary.statement === discovered.threat_boundary.statement
   && /value\+complete|fully constant-folded/i.test(discovered.threat_boundary.statement)
+  && /before any partial-value|only complete folds may classify/i.test(discovered.threat_boundary.statement)
   && /no CLIENTS_DIR/i.test(discovered.threat_boundary.statement));
 ok('locked exclusions are not the expected inventory',
   Array.isArray(discovered.locked_exclusions.path_substrings)
@@ -744,6 +750,86 @@ red('R6_live_mutation_claim', (() => {
         'scripts/lib/adversarial-outside-graph-dyn-fs.js',
       )
       && !(okDisc.discovery_errors || []).some((e) => /adversarial-outside-graph-dyn-fs/.test(e)));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-join-dirname-dyn-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantJoinDirnameConfigClientsDynamic(tmp);
+    const bad = discoverAll({ root: tmp });
+    red('R25_join_dirname_config_clients_dynamic_fail_closed',
+      bad.discovery_ok === false
+      && (bad.discovery_errors || []).some((e) => (
+        /ambiguous_filesystem_path:scripts\/lib\/adversarial-client-wrapper\.js/.test(e)
+      )));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-binary-dyn-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantBinaryConfigClientsDynamic(tmp);
+    const bad = discoverAll({ root: tmp });
+    red('R26_binary_config_clients_dynamic_fail_closed',
+      bad.discovery_ok === false
+      && (bad.discovery_errors || []).some((e) => (
+        /ambiguous_filesystem_path:scripts\/lib\/adversarial-client-wrapper\.js/.test(e)
+      )));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-spread-dyn-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantSpreadConfigClientsDynamic(tmp);
+    const bad = discoverAll({ root: tmp });
+    red('R27_spread_config_clients_dynamic_fail_closed',
+      bad.discovery_ok === false
+      && (bad.discovery_errors || []).some((e) => (
+        /ambiguous_filesystem_path:scripts\/lib\/adversarial-client-wrapper\.js/.test(e)
+      )));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-call-wrapped-dyn-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantCallWrappedConfigClientsDynamic(tmp);
+    const bad = discoverAll({ root: tmp });
+    red('R28_call_wrapped_config_clients_dynamic_fail_closed',
+      bad.discovery_ok === false
+      && (bad.discovery_errors || []).some((e) => (
+        /ambiguous_filesystem_path:scripts\/lib\/adversarial-client-wrapper\.js/.test(e)
+      )));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-conditional-dyn-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantConditionalConfigClientsDynamic(tmp);
+    const bad = discoverAll({ root: tmp });
+    red('R29_conditional_config_clients_dynamic_fail_closed',
+      bad.discovery_ok === false
+      && (bad.discovery_errors || []).some((e) => (
+        /ambiguous_filesystem_path:scripts\/lib\/adversarial-client-wrapper\.js/.test(e)
+      )));
   } finally {
     rimraf(tmp);
   }

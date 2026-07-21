@@ -58,7 +58,7 @@ Completeness method: **`source_derived_registration_read_site_inventory`**.
 
 Discovery engine: pinned **Acorn ESTree** physical-site discovery plus local import graph (`scripts/lib/factory-slice1a-inventory-discovery.js`). Safe string/template/binary/`path.join`/`path.resolve` expressions are constant-folded; require/import aliases and local loader wrappers are resolved. Physical site keys are inventoried independently of fixture `site_policy`, then compared with **exact bidirectional set equality**. Locked exclusions filter justified noise only; they are never the expected inventory.
 
-**Threat boundary:** every filesystem primitive inside the reachable config-loader acquisition graph must constant-fold to `{ value, complete }` or discovery fails closed. Dynamic template interpolation, computed members, unresolved alias/destructuring, and unknown segments are incomplete. Fully resolved non-config paths classify unrelated; incomplete in-graph paths reject. No `CLIENTS_DIR` textual/taint heuristic; filesystem calls outside the reachable graph are ignored.
+**Threat boundary:** every filesystem primitive inside the reachable config-loader acquisition graph must constant-fold to `{ value, complete }` or discovery fails closed. Incomplete or unfoldable paths emit `ambiguous_filesystem_path` before any partial-value or `config/clients` prefix inspection; only complete folds may classify config versus unrelated. Dynamic template interpolation, computed members, unresolved alias/destructuring, and unknown segments are incomplete. No `CLIENTS_DIR` textual/taint heuristic; filesystem calls outside the reachable graph are ignored.
 
 Categories:
 
