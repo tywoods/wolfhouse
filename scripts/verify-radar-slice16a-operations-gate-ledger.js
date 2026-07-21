@@ -20,6 +20,18 @@ const LIVE_PATH = path.join(FIXTURE_DIR, 'live-inventory.json');
 const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
+const tipHelper = require('./lib/radar-16ap-locked-candidate-tip');
+const {
+  tipAccepts16ap,
+  tipContainsCandidate,
+  currentHeadSha,
+  makeSyntheticDescendantOfCandidate,
+  makeUnrelatedOrphanCommit,
+  CANDIDATE_SHA: TIP_CANDIDATE_SHA,
+  MERGE_SHA: TIP_MERGE_SHA,
+  BRANCH: TIP_BRANCH,
+  MASTER_BASIS: TIP_MASTER_BASIS,
+} = tipHelper;
 
 const MASTER_BASIS = '66e34a5833ff3bcc7f297108f594b4fc58a0eccc';
 const MASTER_BASIS_16AP = '66e34a5833ff3bcc7f297108f594b4fc58a0eccc';
@@ -480,6 +492,7 @@ const slice16abContract = readJson(path.join(FIXTURE_DIR, 'slice16ab-expected-co
 const slice16acContract = readJson(path.join(FIXTURE_DIR, 'slice16ac-expected-contract.json'));
 const slice16adContract = readJson(path.join(FIXTURE_DIR, 'slice16ad-expected-contract.json'));
 const headBranch = currentBranch();
+const headSha = currentHeadSha(ROOT);
 const slice16afContract = readJson(path.join(FIXTURE_DIR, 'slice16af-expected-contract.json'));
 const slice16agContract = readJson(path.join(FIXTURE_DIR, 'slice16ag-expected-contract.json'));
 const slice16ahContract = readJson(path.join(FIXTURE_DIR, 'slice16ah-expected-contract.json'));
@@ -491,11 +504,15 @@ const slice16amContract = readJson(path.join(FIXTURE_DIR, 'slice16am-expected-co
 const slice16anContract = readJson(path.join(FIXTURE_DIR, 'slice16an-expected-contract.json'));
 const slice16aoContract = readJson(path.join(FIXTURE_DIR, 'slice16ao-expected-contract.json'));
 const slice16apContract = readJson(path.join(FIXTURE_DIR, 'slice16ap-expected-contract.json'));
-ok('F48 gate-matrix branch pin equals 16AP tip contract + HEAD (16AO/16AN/16AM/16AL locks retained)',
+ok('F48 gate-matrix/contract/selected_16ap pins exact 16AP; HEAD tip ancestry-only (16AO/16AN/16AM/16AL locks retained)',
   matrix.branch === BRANCH_16AP
   && contract.branch === BRANCH_16AP
   && slice16apContract.branch === BRANCH_16AP
-  && headBranch === BRANCH_16AP
+  && TIP_BRANCH === BRANCH_16AP
+  && TIP_CANDIDATE_SHA === '7870a9fb818bbd94d33b291c8782851276e2715e'
+  && tipAccepts16ap(headSha, headBranch, ROOT) === true
+  && tipContainsCandidate(headSha, ROOT) === true
+  && !/headBranch\s*===\s*BRANCH_16AP/.test(fs.readFileSync(__filename, 'utf8'))
   && slice16aoContract.branch === BRANCH_16AO
   && slice16anContract.branch === BRANCH_16AN
   && slice16amContract.branch === BRANCH_16AM
@@ -505,7 +522,33 @@ ok('F48 gate-matrix branch pin equals 16AP tip contract + HEAD (16AO/16AN/16AM/1
   && slice16aiContract.branch === BRANCH_16AI
   && slice16ahContract.branch === BRANCH_16AH
   && slice16agContract.branch === BRANCH_16AG,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16ap=${slice16apContract.branch} slice16ao=${slice16aoContract.branch} head=${headBranch}`);
+  `matrix=${matrix.branch} contract=${contract.branch} slice16ap=${slice16apContract.branch} slice16ao=${slice16aoContract.branch} headBranch=${headBranch} head=${headSha}`);
+{
+  let synthSha = '';
+  let orphanSha = '';
+  let matrixOk = false;
+  try {
+    synthSha = makeSyntheticDescendantOfCandidate(ROOT);
+    orphanSha = makeUnrelatedOrphanCommit(ROOT);
+    matrixOk = tipAccepts16ap(TIP_CANDIDATE_SHA, 'HEAD', ROOT) === true
+      && tipAccepts16ap(TIP_MERGE_SHA, 'HEAD', ROOT) === true
+      && tipAccepts16ap(headSha, headBranch, ROOT) === true
+      && tipAccepts16ap(synthSha, 'HEAD', ROOT) === true
+      && tipAccepts16ap(TIP_MASTER_BASIS, 'HEAD', ROOT) === false
+      && tipAccepts16ap(TIP_MASTER_BASIS, BRANCH_16AP, ROOT) === false
+      && tipAccepts16ap(orphanSha, 'HEAD', ROOT) === false
+      && tipAccepts16ap(orphanSha, BRANCH_16AP, ROOT) === false
+      && tipAccepts16ap('not-a-git-ref', BRANCH_16AP, ROOT) === false
+      && tipAccepts16ap('ffffffffffffffffffffffffffffffffffffffff', 'HEAD', ROOT) === false
+      && tipAccepts16ap(TIP_CANDIDATE_SHA, BRANCH_16AP, ROOT) === true;
+  } catch (err) {
+    matrixOk = false;
+    synthSha = String(err && err.message);
+  }
+  ok('F48c shared tip helper accepts candidate/merge/current/synth; rejects pre-candidate/orphan/invalid/spoofed-branch',
+    matrixOk,
+    `synth=${synthSha} orphan=${orphanSha}`);
+}
 ok('F48b frozen 16O/16P/16R/16S/16U/16W/16X/16Y/16Z/16AA/16AB/16AC/16AD/16AF contracts retain their own branch pins',
   slice16oContract.branch === BRANCH_16O
   && slice16pContract.branch === BRANCH_16P
