@@ -65,14 +65,20 @@ const pageSrc = read(PAGE_PATH) || '';
 const clientsSrc = read(CLIENTS_PATH) || '';
 const onboardingSrc = read(ONBOARDING_PATH) || '';
 const authSrc = read(AUTH_PATH) || '';
-const uiHtml = (() => {
+function renderPageHtml(options) {
   try {
     const { renderCrowsnestPage } = require(PAGE_PATH);
-    return typeof renderCrowsnestPage === 'function' ? renderCrowsnestPage() : '';
+    return typeof renderCrowsnestPage === 'function' ? renderCrowsnestPage(options) : '';
   } catch {
     return '';
   }
-})();
+}
+
+const uiHtml = renderPageHtml(); // default = Spyglass
+const clientsHtml = renderPageHtml({ view: 'clients' });
+const billingHtml = renderPageHtml({ view: 'billing' });
+const communicationsHtml = renderPageHtml({ view: 'communications' });
+const spyglassAliasHtml = renderPageHtml({ view: 'spyglass' });
 const productDoc = read(DOC_PRODUCT) || '';
 const planDoc = read(DOC_PLAN) || '';
 const deployDoc = read(DOC_DEPLOY) || '';
@@ -84,6 +90,26 @@ const healthzBody = between(apiSrc, 'function handleHealthz(req, res, method) {'
 const protectedUiBody = between(apiSrc, 'function handleProtectedUi(req, res, method, pathname) {', 'async function router(req, res) {');
 const routerBody = between(apiSrc, 'async function router(req, res) {', 'const server = http.createServer');
 
+function countAriaCurrent(html) {
+  return (String(html || '').match(/aria-current=["']page["']/gi) || []).length;
+}
+
+function navHrefPresent(html, href) {
+  const re = new RegExp(`<a\\b[^>]*\\bhref=["']${href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>`, 'i');
+  return re.test(String(html || ''));
+}
+
+function hasInventedMetricNumber(html) {
+  // Reject invented AI/cost/billing amounts (currency, token counts, usage totals).
+  // Allowed: static client/env counts derived from in-memory client array.
+  const text = String(html || '');
+  if (/\$\s*\d|\d+\s*(?:USD|EUR|€)|€\s*\d/i.test(text)) return true;
+  if (/\b(?:tokens?|requests?|messages?)\s*[:=]?\s*\d+/i.test(text)) return true;
+  if (/\bAI\b[^<]{0,40}\b\d{2,}/i.test(text)) return true;
+  if (/\b(?:cost|spend|invoice|balance)\b[^<]{0,40}\b\d+/i.test(text)) return true;
+  return false;
+}
+
 ok('renderCrowsnestPage exported', /function renderCrowsnestPage|renderCrowsnestPage\s*\(/.test(pageSrc));
 ok('getCrowsnestClients exported', /function getCrowsnestClients|getCrowsnestClients\s*\(/.test(clientsSrc));
 ok('getCrowsnestOnboardingTemplates exported', /function getCrowsnestOnboardingTemplates|getCrowsnestOnboardingTemplates\s*\(/.test(onboardingSrc));
@@ -91,45 +117,104 @@ ok('getCrowsnestOnboardingChecklist exported', /function getCrowsnestOnboardingC
 ok('crowsnest-page requires crowsnest-clients', pageSrc.includes("require('./crowsnest-clients')"));
 ok('crowsnest-page requires crowsnest-onboarding', pageSrc.includes("require('./crowsnest-onboarding')"));
 ok('crowsnest-api requires crowsnest-page', apiSrc.includes("require('./lib/crowsnest/crowsnest-page')"));
-ok('UI Clients section exists', uiHtml.includes('>Clients<') || uiHtml.includes('section">Clients'));
-ok('UI Wolfhouse Somo card', uiHtml.includes('Wolfhouse Somo'));
-ok('UI Sunset Somo card', uiHtml.includes('Sunset Somo'));
-ok('UI Sunset Sardinero card', uiHtml.includes('Sunset Sardinero'));
-ok('UI surf house template text', /surf house template/i.test(uiHtml));
-ok('UI surf school template text', /surf school template/i.test(uiHtml));
-ok('UI Add new client disabled/coming soon', uiHtml.includes('Add new client') && /Coming soon|disabled|aria-disabled/.test(uiHtml));
-ok('UI safety copy read-only/no writes', /read-only|no client creation|no writes/i.test(uiHtml));
-ok('UI environment/status rows render', uiHtml.includes('env-row') && uiHtml.includes('Environments / status'));
-ok('UI Wolfhouse staff-staging link', uiHtml.includes('https://staff-staging.lunafrontdesk.com'));
-ok('UI Wolfhouse production link', uiHtml.includes('https://wolfhouse.lunafrontdesk.com'));
-ok('UI Sunset staging link', uiHtml.includes('https://sunset-staging.lunafrontdesk.com'));
-ok('UI Luna WhatsApp placeholder', uiHtml.includes('Luna WhatsApp') && /Coming soon|coming_soon/i.test(uiHtml));
-ok('UI Stripe placeholder', uiHtml.includes('Stripe'));
-ok('UI Database placeholder', uiHtml.includes('Database'));
-ok('UI static placeholders / no live health checks copy', /static placeholders only|no live health checks/i.test(uiHtml));
-ok('UI New client onboarding section', uiHtml.includes('New client onboarding'));
-ok('UI onboarding draft/no client creation copy', /draft form only|no client creation/i.test(uiHtml));
-ok('UI Surf house template option', uiHtml.includes('Surf house'));
-ok('UI Surf school template option', uiHtml.includes('Surf school'));
-ok('UI client name field', uiHtml.includes('Client name') && uiHtml.includes('Example Surf House'));
-ok('UI client slug field', uiHtml.includes('Client slug') && uiHtml.includes('example-surf-house'));
-ok('UI primary location field', uiHtml.includes('Primary location') && uiHtml.includes('Somo, Spain'));
-ok('UI contact email field', uiHtml.includes('Contact email') && uiHtml.includes('hello@example.com'));
-ok('UI WhatsApp number field', uiHtml.includes('WhatsApp number'));
-ok('UI staff portal domain field', uiHtml.includes('Staff portal domain'));
-ok('UI staging domain field', uiHtml.includes('Staging domain'));
-ok('UI notes field', uiHtml.includes('Notes') && /Internal setup notes/i.test(uiHtml));
-ok('UI Preview setup button disabled', uiHtml.includes('Preview setup') && /disabled|aria-disabled/.test(uiHtml));
-ok('UI Create client button disabled', uiHtml.includes('Create client') && /disabled|aria-disabled/.test(uiHtml));
-ok('UI checklist tenant record', /Create tenant record/i.test(uiHtml));
-ok('UI checklist database/schema', /database\/schema|Create database/i.test(uiHtml));
-ok('UI checklist Staff API', /Staff API/i.test(uiHtml));
-ok('UI checklist Luna identity', /Luna identity/i.test(uiHtml));
-ok('UI checklist WhatsApp', /Configure WhatsApp/i.test(uiHtml));
-ok('UI checklist Stripe', /Configure Stripe/i.test(uiHtml));
-ok('UI checklist DNS/domain', /DNS\/domain/i.test(uiHtml));
-ok('UI checklist smoke tests', /smoke tests/i.test(uiHtml));
-ok('UI onboarding form safe action', /action="#"/.test(uiHtml) && !/<form[^>]+action=["']https?:/i.test(uiHtml));
+
+// ── Slice 1: four-section nav + Spyglass default ────────────────────────────
+ok('router protects /clients', routerBody.includes("pathname === '/clients'"));
+ok('router protects /billing', routerBody.includes("pathname === '/billing'"));
+ok('router protects /communications', routerBody.includes("pathname === '/communications'"));
+ok('router keeps Spyglass aliases /crowsnest and /crowsnest/ui', routerBody.includes("pathname === '/crowsnest'") && routerBody.includes("pathname === '/crowsnest/ui'"));
+ok('router keeps root / as Spyglass', routerBody.includes("pathname === '/'"));
+ok('handleProtectedUi passes view/route into page renderer', /renderCrowsnestPage\s*\(\s*\{[\s\S]*view\s*:/.test(protectedUiBody) || /renderCrowsnestPage\s*\(\s*\{[\s\S]*route\s*:/.test(protectedUiBody));
+ok('unknown path still returns 404 JSON', routerBody.includes("sendJSON(res, 404") && /not found/.test(routerBody));
+
+ok('default render is Spyglass heading', /Spyglass/i.test(uiHtml) && /<h1[^>]*>[\s\S]*Spyglass/i.test(uiHtml));
+ok('default Spyglass does not render client cards', !uiHtml.includes('Wolfhouse Somo') && !uiHtml.includes('Sunset Somo') && !uiHtml.includes('Sunset Sardinero'));
+ok('default Spyglass does not render onboarding form', !uiHtml.includes('New client onboarding'));
+ok('spyglass view matches default', /Spyglass/i.test(spyglassAliasHtml) && !spyglassAliasHtml.includes('Wolfhouse Somo'));
+ok('Spyglass shows honest AI/usage unavailable state', /n\/a|not connected|unavailable|no data/i.test(uiHtml) && /AI|usage/i.test(uiHtml));
+ok('Spyglass shows honest billing unavailable state', /n\/a|not connected|unavailable|no data/i.test(uiHtml) && /billing/i.test(uiHtml));
+ok('Spyglass shows honest communications unavailable state', /n\/a|not connected|unavailable|no data/i.test(uiHtml) && /communications/i.test(uiHtml));
+ok('Spyglass does not invent AI/cost/billing numbers', !hasInventedMetricNumber(uiHtml));
+ok('Spyglass includes read-only / no-live-writes language', /read-only|no live writes|no writes/i.test(uiHtml));
+ok('Spyglass may show static client count from in-memory data', /\b3\b/.test(uiHtml) && /client/i.test(uiHtml));
+
+function assertSharedNav(label, html, activeHref) {
+  ok(`${label} nav has Spyglass link`, navHrefPresent(html, '/'));
+  ok(`${label} nav has Clients link`, navHrefPresent(html, '/clients'));
+  ok(`${label} nav has Billing link`, navHrefPresent(html, '/billing'));
+  ok(`${label} nav has Communications link`, navHrefPresent(html, '/communications'));
+  ok(`${label} nav labels present`, /Spyglass/i.test(html) && />Clients</.test(html) && /Billing/i.test(html) && /Communications/i.test(html));
+  ok(`${label} has exactly one aria-current=page`, countAriaCurrent(html) === 1);
+  const activeRe = new RegExp(`<a\\b[^>]*\\bhref=["']${activeHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*aria-current=["']page["']|<a\\b[^>]*aria-current=["']page["'][^>]*\\bhref=["']${activeHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`, 'i');
+  ok(`${label} aria-current on active href ${activeHref}`, activeRe.test(html));
+  ok(`${label} keeps logout`, /action=["']\/logout["']/i.test(html) && /Sign out/i.test(html));
+  ok(`${label} nav is mobile-safe wrap/scroll`, /\bnav\b[\s\S]*overflow-x\s*:\s*auto|\bnav\b[\s\S]*flex-wrap\s*:\s*wrap|top-nav[\s\S]*overflow-x\s*:\s*auto|top-nav[\s\S]*flex-wrap\s*:\s*wrap/i.test(pageSrc + html));
+}
+
+assertSharedNav('Spyglass', uiHtml, '/');
+assertSharedNav('Clients', clientsHtml, '/clients');
+assertSharedNav('Billing', billingHtml, '/billing');
+assertSharedNav('Communications', communicationsHtml, '/communications');
+
+ok('unknown view does not produce arbitrary content', (() => {
+  const weird = renderPageHtml({ view: '"><script>alert(1)</script>' });
+  return !weird.includes('<script>alert(1)</script>') && /Spyglass|not found|Crowsnest/i.test(weird);
+})());
+
+ok('UI Clients section exists', clientsHtml.includes('>Clients<') || clientsHtml.includes('section">Clients'));
+ok('UI Wolfhouse Somo card', clientsHtml.includes('Wolfhouse Somo'));
+ok('UI Sunset Somo card', clientsHtml.includes('Sunset Somo'));
+ok('UI Sunset Sardinero card', clientsHtml.includes('Sunset Sardinero'));
+ok('UI surf house template text', /surf house template/i.test(clientsHtml));
+ok('UI surf school template text', /surf school template/i.test(clientsHtml));
+ok('UI Add new client disabled/coming soon', clientsHtml.includes('Add new client') && /Coming soon|disabled|aria-disabled/.test(clientsHtml));
+ok('UI safety copy read-only/no writes', /read-only|no client creation|no writes/i.test(clientsHtml));
+ok('UI environment/status rows render', clientsHtml.includes('env-row') && clientsHtml.includes('Environments / status'));
+ok('UI Wolfhouse staff-staging link', clientsHtml.includes('https://staff-staging.lunafrontdesk.com'));
+ok('UI Wolfhouse production link', clientsHtml.includes('https://wolfhouse.lunafrontdesk.com'));
+ok('UI Sunset staging link', clientsHtml.includes('https://sunset-staging.lunafrontdesk.com'));
+ok('UI Luna WhatsApp placeholder', clientsHtml.includes('Luna WhatsApp') && /Coming soon|coming_soon/i.test(clientsHtml));
+ok('UI Stripe placeholder', clientsHtml.includes('Stripe'));
+ok('UI Database placeholder', clientsHtml.includes('Database'));
+ok('UI static placeholders / no live health checks copy', /static placeholders only|no live health checks/i.test(clientsHtml));
+ok('UI New client onboarding section', clientsHtml.includes('New client onboarding'));
+ok('UI onboarding draft/no client creation copy', /draft form only|no client creation/i.test(clientsHtml));
+ok('UI Surf house template option', clientsHtml.includes('Surf house'));
+ok('UI Surf school template option', clientsHtml.includes('Surf school'));
+ok('UI client name field', clientsHtml.includes('Client name') && clientsHtml.includes('Example Surf House'));
+ok('UI client slug field', clientsHtml.includes('Client slug') && clientsHtml.includes('example-surf-house'));
+ok('UI primary location field', clientsHtml.includes('Primary location') && clientsHtml.includes('Somo, Spain'));
+ok('UI contact email field', clientsHtml.includes('Contact email') && clientsHtml.includes('hello@example.com'));
+ok('UI WhatsApp number field', clientsHtml.includes('WhatsApp number'));
+ok('UI staff portal domain field', clientsHtml.includes('Staff portal domain'));
+ok('UI staging domain field', clientsHtml.includes('Staging domain'));
+ok('UI notes field', clientsHtml.includes('Notes') && /Internal setup notes/i.test(clientsHtml));
+ok('UI Preview setup button disabled', clientsHtml.includes('Preview setup') && /disabled|aria-disabled/.test(clientsHtml));
+ok('UI Create client button disabled', clientsHtml.includes('Create client') && /disabled|aria-disabled/.test(clientsHtml));
+ok('UI checklist tenant record', /Create tenant record/i.test(clientsHtml));
+ok('UI checklist database/schema', /database\/schema|Create database/i.test(clientsHtml));
+ok('UI checklist Staff API', /Staff API/i.test(clientsHtml));
+ok('UI checklist Luna identity', /Luna identity/i.test(clientsHtml));
+ok('UI checklist WhatsApp', /Configure WhatsApp/i.test(clientsHtml));
+ok('UI checklist Stripe', /Configure Stripe/i.test(clientsHtml));
+ok('UI checklist DNS/domain', /DNS\/domain/i.test(clientsHtml));
+ok('UI checklist smoke tests', /smoke tests/i.test(clientsHtml));
+ok('UI onboarding form safe action', /action="#"/.test(clientsHtml) && !/<form[^>]+action=["']https?:/i.test(clientsHtml));
+
+ok('Billing placeholder says not connected', /not connected|not available|no data source|unavailable/i.test(billingHtml) && /Billing/i.test(billingHtml));
+ok('Billing placeholder has no forms or mutations', (() => {
+  const withoutLogout = billingHtml.replace(/<form[^>]+action=["']\/logout["'][\s\S]*?<\/form>/i, '');
+  return !/<form\b/i.test(withoutLogout) && !/type=["']submit["']/i.test(withoutLogout);
+})());
+ok('Billing does not invent amounts', !hasInventedMetricNumber(billingHtml));
+ok('Communications placeholder says not connected', /not connected|not available|no data source|unavailable/i.test(communicationsHtml) && /Communications/i.test(communicationsHtml));
+ok('Communications placeholder has no send/recipient controls', (() => {
+  const withoutLogout = communicationsHtml.replace(/<form[^>]+action=["']\/logout["'][\s\S]*?<\/form>/i, '');
+  return !/send message|recipient|compose/i.test(communicationsHtml) && !/<form\b/i.test(withoutLogout);
+})());
+ok('Communications does not invent counts', !hasInventedMetricNumber(communicationsHtml));
+
+ok('product doc labels Slice 1 as local candidate not deployed', /Slice 1/i.test(productDoc) && /local candidate|not live/i.test(productDoc));
 
 const crowsnestLibSrc = [pageSrc, clientsSrc, onboardingSrc, read(AUTH_PATH) || ''].join('\n');
 ok('no fetch/axios/http outbound in crowsnest lib', !/\bfetch\s*\(|require\(['"]axios|require\(['"]node-fetch|https?\.request\s*\(|https?\.get\s*\(/.test(crowsnestLibSrc));

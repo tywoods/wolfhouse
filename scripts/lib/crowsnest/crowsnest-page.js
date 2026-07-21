@@ -189,6 +189,73 @@ a:focus-visible,button:focus-visible{outline:none;box-shadow:var(--focus)}
   white-space:nowrap;
 }
 .logout-button:hover{background:linear-gradient(180deg,#F4E0E0 0%,#E8CCCC 100%)}
+.top-nav{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+  margin:14px 0 4px;
+  padding-bottom:2px;
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+}
+.top-nav-link{
+  display:inline-flex;
+  align-items:center;
+  min-height:36px;
+  padding:0 12px;
+  border-radius:var(--radius-pill);
+  border:1px solid transparent;
+  color:var(--text-2);
+  font-size:13px;
+  font-weight:700;
+  white-space:nowrap;
+  background:transparent;
+}
+.top-nav-link:hover{color:var(--navy);background:rgba(74,124,148,.08)}
+.top-nav-link.is-active{
+  color:var(--navy);
+  background:var(--sea-soft);
+  border-color:rgba(74,124,148,.22);
+}
+.overview-grid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:12px;
+}
+@media(min-width:720px){
+  .overview-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+}
+.overview-card h2{
+  margin:0 0 8px;
+  font-size:13px;
+  font-weight:800;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  color:var(--text-3);
+}
+.overview-value{
+  font-size:1.6rem;
+  font-weight:800;
+  color:var(--navy);
+  letter-spacing:-.02em;
+  line-height:1.1;
+}
+.overview-value--muted{
+  font-size:1.05rem;
+  font-weight:700;
+  color:var(--text-3);
+}
+.overview-note{
+  margin-top:8px;
+  font-size:12px;
+  color:var(--text-3);
+  line-height:1.45;
+}
+.placeholder-shell{
+  padding:18px;
+}
+.placeholder-shell p{margin:0 0 10px;color:var(--text-2);font-size:15px;max-width:60ch}
 .ops-badge{
   display:inline-flex;
   align-items:center;
@@ -576,41 +643,97 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
 }
 `;
 
-function renderCrowsnestPage(options = {}) {
-  const nonce = options.cspNonce ? String(options.cspNonce) : '';
-  const clients = getCrowsnestClients();
-  const templates = getCrowsnestTemplates();
+const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications']);
+
+const CROWSNEST_NAV_ITEMS = [
+  { view: 'spyglass', href: '/', label: 'Spyglass' },
+  { view: 'clients', href: '/clients', label: 'Clients' },
+  { view: 'billing', href: '/billing', label: 'Billing' },
+  { view: 'communications', href: '/communications', label: 'Communications' },
+];
+
+function normalizeCrowsnestView(raw) {
+  const key = String(raw == null ? 'spyglass' : raw).trim().toLowerCase();
+  return CROWSNEST_VIEWS.has(key) ? key : 'spyglass';
+}
+
+function renderCrowsnestNav(activeView) {
+  const view = normalizeCrowsnestView(activeView);
+  const links = CROWSNEST_NAV_ITEMS.map((item) => {
+    const current = item.view === view;
+    const aria = current ? ' aria-current="page"' : '';
+    const cls = current ? 'top-nav-link is-active' : 'top-nav-link';
+    return `<a class="${cls}" href="${escapeHtml(item.href)}"${aria}>${escapeHtml(item.label)}</a>`;
+  }).join('\n        ');
+  return `<nav class="top-nav" aria-label="Crowsnest sections">
+        ${links}
+      </nav>`;
+}
+
+function countStaticEnvironmentStats(clients) {
+  let linkedEnvironments = 0;
+  let staticEnvironments = 0;
+  for (const client of clients) {
+    for (const env of client.environments || []) {
+      if (env && env.state === 'linked') linkedEnvironments += 1;
+      else staticEnvironments += 1;
+    }
+  }
+  return {
+    clientCount: clients.length,
+    linkedEnvironments,
+    staticEnvironments,
+  };
+}
+
+function renderSpyglassMain(clients) {
+  const stats = countStaticEnvironmentStats(clients);
+  return `<section id="spyglass" aria-labelledby="spyglass-title">
+      <p class="section-note">Overview from in-memory static placeholders only — no live health checks, telemetry, or billing feeds.</p>
+      <div class="overview-grid">
+        <article class="card overview-card">
+          <h2>Clients</h2>
+          <p class="overview-value">${escapeHtml(String(stats.clientCount))}</p>
+          <p class="overview-note">Counted from the static client array.</p>
+        </article>
+        <article class="card overview-card">
+          <h2>Linked environments</h2>
+          <p class="overview-value">${escapeHtml(String(stats.linkedEnvironments))}</p>
+          <p class="overview-note">Environments marked linked in static data.</p>
+        </article>
+        <article class="card overview-card">
+          <h2>Static / coming soon</h2>
+          <p class="overview-value">${escapeHtml(String(stats.staticEnvironments))}</p>
+          <p class="overview-note">Placeholder environment rows (not live-checked).</p>
+        </article>
+        <article class="card overview-card">
+          <h2>AI usage</h2>
+          <p class="overview-value overview-value--muted">n/a — not connected</p>
+          <p class="overview-note">No AI usage data source in this slice.</p>
+        </article>
+        <article class="card overview-card">
+          <h2>Billing</h2>
+          <p class="overview-value overview-value--muted">n/a — not connected</p>
+          <p class="overview-note">No billing amounts or invoices are available yet.</p>
+        </article>
+        <article class="card overview-card">
+          <h2>Communications</h2>
+          <p class="overview-value overview-value--muted">n/a — not connected</p>
+          <p class="overview-note">No communications feed or send path is connected.</p>
+        </article>
+      </div>
+      <div class="safety"><strong>Safety:</strong> Read-only Spyglass shell. No live writes, no invented AI/cost/billing numbers, and no production actions are enabled.</div>
+    </section>`;
+}
+
+function renderClientsMain(clients, templates) {
   const clientCards = clients.map(renderClientCard).join('\n      ');
   const templateCards = templates.map((t) => `<article class="card template-card">
         <h2>${escapeHtml(t.label)}</h2>
         <div class="template-status">${renderStatusPill(t.status)}</div>
       </article>`).join('\n      ');
   const onboardingSection = renderCrowsnestOnboardingSection();
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Crowsnest — Luna Front Desk</title>
-  ${renderStyleTag(CROWSNEST_CSS, nonce)}
-</head>
-<body>
-  <div class="wrap">
-    <header class="page-header">
-      <div class="page-header-top">
-        <div class="eyebrow-row">
-          <span class="ops-badge"><span class="ops-badge-dot" aria-hidden="true"></span>Internal Ops</span>
-        </div>
-        <form class="logout-form" method="post" action="/logout">
-          <button class="logout-button" type="submit" aria-label="Sign out of Crowsnest">Sign out</button>
-        </form>
-      </div>
-      <h1 class="page-title">Crowsnest</h1>
-      <p class="sub">Internal Luna Front Desk control portal</p>
-    </header>
-
-    <section id="clients">
+  return `<section id="clients">
       <h2 class="section">Clients</h2>
       <p class="section-note">Static placeholders only — no live health checks yet.</p>
       <div class="cards">
@@ -631,7 +754,79 @@ function renderCrowsnestPage(options = {}) {
       </div>
     </section>
 
-    <div class="safety"><strong>Safety:</strong> Read-only skeleton. No client creation, tenant writes, WhatsApp, Stripe, or production actions are enabled.</div>
+    <div class="safety"><strong>Safety:</strong> Read-only skeleton. No client creation, tenant writes, WhatsApp, Stripe, or production actions are enabled.</div>`;
+}
+
+function renderBillingMain() {
+  return `<section id="billing" class="card placeholder-shell" aria-labelledby="billing-title">
+      <p>Billing data sources are <strong>not connected</strong> yet.</p>
+      <p>No invoices, balances, payment mutations, or fake amounts are shown in this slice.</p>
+      <div class="safety"><strong>Safety:</strong> Read-only placeholder. No billing writes or live network calls.</div>
+    </section>`;
+}
+
+function renderCommunicationsMain() {
+  return `<section id="communications" class="card placeholder-shell" aria-labelledby="communications-title">
+      <p>Communications data sources and actions are <strong>not connected</strong> yet.</p>
+      <p>No send controls, address pickers, or invented message counts are available in this slice.</p>
+      <div class="safety"><strong>Safety:</strong> Read-only placeholder. No outbound messaging or live network calls.</div>
+    </section>`;
+}
+
+function renderViewMain(view, clients, templates) {
+  if (view === 'clients') return renderClientsMain(clients, templates);
+  if (view === 'billing') return renderBillingMain();
+  if (view === 'communications') return renderCommunicationsMain();
+  return renderSpyglassMain(clients);
+}
+
+function viewPageTitle(view) {
+  if (view === 'clients') return 'Clients';
+  if (view === 'billing') return 'Billing';
+  if (view === 'communications') return 'Communications';
+  return 'Spyglass';
+}
+
+function viewSubtitle(view) {
+  if (view === 'clients') return 'Static client cards, templates, and onboarding mockup';
+  if (view === 'billing') return 'Billing sources are not connected yet';
+  if (view === 'communications') return 'Communications sources are not connected yet';
+  return 'Internal Luna Front Desk overview dashboard';
+}
+
+function renderCrowsnestPage(options = {}) {
+  const nonce = options.cspNonce ? String(options.cspNonce) : '';
+  const view = normalizeCrowsnestView(options.view != null ? options.view : options.route);
+  const clients = getCrowsnestClients();
+  const templates = getCrowsnestTemplates();
+  const title = viewPageTitle(view);
+  const main = renderViewMain(view, clients, templates);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>${escapeHtml(title)} — Crowsnest</title>
+  ${renderStyleTag(CROWSNEST_CSS, nonce)}
+</head>
+<body>
+  <div class="wrap">
+    <header class="page-header">
+      <div class="page-header-top">
+        <div class="eyebrow-row">
+          <span class="ops-badge"><span class="ops-badge-dot" aria-hidden="true"></span>Internal Ops</span>
+        </div>
+        <form class="logout-form" method="post" action="/logout">
+          <button class="logout-button" type="submit" aria-label="Sign out of Crowsnest">Sign out</button>
+        </form>
+      </div>
+      ${renderCrowsnestNav(view)}
+      <h1 class="page-title" id="${escapeHtml(view)}-title">${escapeHtml(title)}</h1>
+      <p class="sub">${escapeHtml(viewSubtitle(view))}</p>
+    </header>
+
+    ${main}
   </div>
 </body>
 </html>`;

@@ -50,6 +50,10 @@ Later, operators may also:
 
 The current UI is only a safe shell. The AI Usage Panel has not been implemented yet.
 
+### Local Slice 1 candidate (not live)
+
+**Local candidate only** — four-section protected navigation (`/` Spyglass default, `/clients`, `/billing`, `/communications`; compatibility aliases `/crowsnest` and `/crowsnest/ui` still render Spyglass). Honest read-only Spyglass shell from in-memory static client data; Billing/Communications placeholders stay **not connected**. This Slice 1 work is a **local candidate** and is **not** the VERIFIED CURRENT LIVE BASELINE above.
+
 ### History (pre-login-portal live shell)
 
 Before the login-portal image was promoted, the public hostname used a browser Basic Auth challenge on `/` and `/healthz` reported `stage: skeleton`. That shell is **historical only** and is no longer the live baseline.
