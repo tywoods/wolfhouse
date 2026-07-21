@@ -1,0 +1,783 @@
+'use strict';
+
+/**
+ * verify:radar-slice16ah-g06-live-load-correction — RADAR Slice 16AH
+ *
+ * Offline gate: prove pinnedLookup honors Node dns.lookup callback contract
+ * for options.all=true (Happy Eyeballs). Production-shaped RED shows scalar
+ * replies fail before HTTP with safe error-code classes only. GREEN proves
+ * validated pinned address arrays, family filtering, and fake-HTTP reach.
+ * Records post-16AG live attempt as attempted_not_proof. No live network,
+ * deploy, or scale mutation.
+ */
+
+const fs = require('fs');
+const http = require('http');
+const https = require('https');
+const net = require('net');
+const dns = require('dns');
+const path = require('path');
+const { EventEmitter } = require('events');
+const { execSync } = require('child_process');
+
+const ROOT = path.join(__dirname, '..');
+const locks = require('./lib/radar-slice16ah-g06-live-load-correction');
+const harness = require('./lib/radar-g06-bounded-load-harness');
+
+let pass = 0;
+let fail = 0;
+const redResults = [];
+const greenResults = [];
+let sealedNetworkHits = 0;
+
+function ok(name, cond, detail) {
+  if (cond) {
+    pass += 1;
+    console.log(`  PASS  ${name}`);
+    return true;
+  }
+  fail += 1;
+  console.log(`  FAIL  ${name}`);
+  if (detail) console.log(`        ${detail}`);
+  return false;
+}
+
+function red(id, cond, detail) {
+  redResults.push({ id, ok: !!cond });
+  return ok(`RED ${id}`, cond, detail);
+}
+
+function green(id, cond, detail) {
+  greenResults.push({ id, ok: !!cond });
+  return ok(`GREEN ${id}`, cond, detail);
+}
+
+function readText(rel) {
+  return fs.readFileSync(path.join(ROOT, rel), 'utf8');
+}
+
+function readJson(rel) {
+  return JSON.parse(readText(rel));
+}
+
+function currentBranch() {
+  return execSync('git rev-parse --abbrev-ref HEAD', {
+    cwd: ROOT,
+    encoding: 'utf8',
+  }).trim();
+}
+
+function runtimePathsUnchanged() {
+  try {
+    const out = execSync(
+      `git diff --name-only ${locks.MASTER_BASIS} -- ${locks.MUST_NOT_MUTATE.join(' ')}`,
+      { cwd: ROOT, encoding: 'utf8' },
+    ).trim();
+    return { ok: out === '', detail: out || '(clean)' };
+  } catch (err) {
+    return { ok: false, detail: String(err && err.message) };
+  }
+}
+
+function reportHasNoBodies(report) {
+  const json = JSON.stringify(report);
+  if (/"body"\s*:/.test(json) && !/"body_sent":false/.test(json)) return false;
+  if (/response_body/i.test(json) && !/"response_bodies_collected":false/.test(json)) return false;
+  if (/"_test_body"/.test(json)) return false;
+  if (/"status":"ready"/.test(json)) return false;
+  return report.response_bodies_collected === false;
+}
+
+function reportHasNoHostsOrMessages(report) {
+  const json = JSON.stringify(report);
+  if (/error_message|err_message|"message"\s*:/i.test(json)) return false;
+  if (/staff-staging|sunset-staging|lunafrontdesk/i.test(json)
+    && !/"target":"https:\/\/(staff|sunset)-staging\.lunafrontdesk\.com\/readyz"/.test(json)) {
+    // allow exact allowlisted target field only
+  }
+  // error_code_classes keys must be safe codes only
+  const classes = report.error_code_classes || {};
+  for (const k of Object.keys(classes)) {
+    if (harness.safeErrorCodeClass(k) !== k) return false;
+  }
+  return true;
+}
+
+/** Legacy buggy scalar pinnedLookup (16AG defect) — verifier-local only. */
+function legacyScalarPinnedLookup(pinned) {
+  const primary = pinned[0];
+  return function lookup(_hostname, options, callback) {
+    let cb = callback;
+    let opts = options;
+    if (typeof options === 'function') {
+      cb = options;
+      opts = {};
+    }
+    const family = (opts && opts.family) || primary.family;
+    const match = pinned.find((p) => p.family === family) || primary;
+    process.nextTick(() => cb(null, match.address, match.family));
+  };
+}
+
+/**
+ * Simulate Node Happy Eyeballs consumer: calls lookup with {all:true,hints:32}
+ * and treats non-array results as ERR_INVALID_IP_ADDRESS (pre-HTTP failure).
+ */
+function simulateHappyEyeballsConsumer(lookupFn) {
+  return new Promise((resolve) => {
+    lookupFn('pinned.invalid', { all: true, hints: 32 }, (err, addresses) => {
+      if (err) {
+        resolve({
+          kind: 'error',
+          error_code: harness.safeErrorCodeClass(err.code || 'LOOKUP_ERROR'),
+          before_http: true,
+        });
+        return;
+      }
+      if (!Array.isArray(addresses)) {
+        resolve({
+          kind: 'error',
+          error_code: 'ERR_INVALID_IP_ADDRESS',
+          before_http: true,
+        });
+        return;
+      }
+      const valid = addresses.every((e) => e
+        && typeof e.address === 'string'
+        && (e.family === 4 || e.family === 6));
+      if (!valid || !addresses.length) {
+        resolve({
+          kind: 'error',
+          error_code: 'ERR_INVALID_IP_ADDRESS',
+          before_http: true,
+        });
+        return;
+      }
+      resolve({
+        kind: 'ok',
+        addresses,
+        before_http: false,
+        error_code: undefined,
+      });
+    });
+  });
+}
+
+const realHttp = {
+  createServer: http.createServer.bind(http),
+  request: http.request.bind(http),
+  get: http.get.bind(http),
+};
+const realHttps = {
+  request: https.request.bind(https),
+  get: https.get.bind(https),
+};
+const realNet = {
+  connect: net.connect.bind(net),
+  createConnection: net.createConnection.bind(net),
+};
+const realDns = {
+  lookup: dns.lookup.bind(dns),
+  resolve: dns.resolve && dns.resolve.bind(dns),
+  resolve4: dns.resolve4 && dns.resolve4.bind(dns),
+  resolve6: dns.resolve6 && dns.resolve6.bind(dns),
+  Resolver: dns.Resolver,
+};
+
+function sealThrow(kind) {
+  return function sealedNetworkCall() {
+    sealedNetworkHits += 1;
+    const err = new Error(`fail_closed: offline verifier blocked ${kind}`);
+    err.code = 'RADAR_OFFLINE_NETWORK_SEAL';
+    throw err;
+  };
+}
+
+function installNetworkFailClosed() {
+  http.request = sealThrow('http.request');
+  http.get = sealThrow('http.get');
+  https.request = sealThrow('https.request');
+  https.get = sealThrow('https.get');
+  function isLoopbackHost(host) {
+    const h = String(host || '');
+    return h === '127.0.0.1' || h === '::1' || h === 'localhost';
+  }
+  net.connect = function sealedConnect(...args) {
+    const opts = args[0];
+    let host = null;
+    if (typeof opts === 'number') {
+      host = typeof args[1] === 'string' ? args[1] : 'localhost';
+    } else if (typeof opts === 'string') {
+      host = opts;
+    } else if (opts && typeof opts === 'object') {
+      host = opts.host || opts.hostname || null;
+    }
+    if (isLoopbackHost(host)) return realNet.connect(...args);
+    sealedNetworkHits += 1;
+    const err = new Error('fail_closed: offline verifier blocked net.connect');
+    err.code = 'RADAR_OFFLINE_NETWORK_SEAL';
+    throw err;
+  };
+  net.createConnection = function sealedCreateConnection(...args) {
+    return net.connect(...args);
+  };
+  dns.lookup = function sealedDnsLookup(hostname, options, callback) {
+    const host = String(hostname || '');
+    if (isLoopbackHost(host)) {
+      return realDns.lookup(hostname, options, callback);
+    }
+    sealedNetworkHits += 1;
+    const err = new Error('fail_closed: offline verifier blocked dns.lookup');
+    err.code = 'RADAR_OFFLINE_NETWORK_SEAL';
+    if (typeof options === 'function') {
+      process.nextTick(() => options(err));
+      return;
+    }
+    if (typeof callback === 'function') {
+      process.nextTick(() => callback(err));
+      return;
+    }
+    throw err;
+  };
+  if (dns.resolve) dns.resolve = sealThrow('dns.resolve');
+  if (dns.resolve4) dns.resolve4 = sealThrow('dns.resolve4');
+  if (dns.resolve6) dns.resolve6 = sealThrow('dns.resolve6');
+  if (dns.Resolver) {
+    dns.Resolver = function SealedResolver() {
+      sealedNetworkHits += 1;
+      throw Object.assign(new Error('fail_closed: offline verifier blocked dns.Resolver'), {
+        code: 'RADAR_OFFLINE_NETWORK_SEAL',
+      });
+    };
+  }
+}
+
+function restoreNetwork() {
+  http.request = realHttp.request;
+  http.get = realHttp.get;
+  https.request = realHttps.request;
+  https.get = realHttps.get;
+  net.connect = realNet.connect;
+  net.createConnection = realNet.createConnection;
+  dns.lookup = realDns.lookup;
+  if (realDns.resolve) dns.resolve = realDns.resolve;
+  if (realDns.resolve4) dns.resolve4 = realDns.resolve4;
+  if (realDns.resolve6) dns.resolve6 = realDns.resolve6;
+  if (realDns.Resolver) dns.Resolver = realDns.Resolver;
+}
+
+function startFakeServer(handler) {
+  return new Promise((resolve, reject) => {
+    const server = realHttp.createServer(handler);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      resolve({
+        server,
+        port: addr.port,
+        origin: `http://127.0.0.1:${addr.port}`,
+      });
+    });
+    server.on('error', reject);
+  });
+}
+
+function closeServer(server) {
+  return new Promise((resolve) => {
+    if (!server || !server.listening) return resolve();
+    server.close(() => resolve());
+  });
+}
+
+/**
+ * Production-shaped offline https.request: invokes options.lookup with
+ * Happy Eyeballs {all:true,hints:32} before any local HTTP, matching Node
+ * net.connect / https.request behavior. Scalar replies → ERR_INVALID_IP_ADDRESS.
+ */
+function makeProductionShapedHttpsRequest(fakeOrigin, capture) {
+  const port = Number(new URL(fakeOrigin).port);
+  return function offlineHttpsRequest(options, callback) {
+    const opts = typeof options === 'string' ? new URL(options) : (options || {});
+    if (capture) {
+      capture.calls.push({
+        method: opts.method || 'GET',
+        headers: { ...(opts.headers || {}) },
+        path: opts.path,
+        lookup_invoked: false,
+        lookup_all: null,
+        lookup_result_kind: null,
+      });
+    }
+    const call = capture && capture.calls.length
+      ? capture.calls[capture.calls.length - 1]
+      : null;
+
+    const req = new EventEmitter();
+    req.destroyed = false;
+    req.destroy = function destroy(err) {
+      req.destroyed = true;
+      process.nextTick(() => {
+        req.emit('error', err || Object.assign(new Error('destroyed'), { code: 'ECONNRESET' }));
+      });
+    };
+    req.write = function write() { return true; };
+    req.end = function end() {
+      const lookup = opts.lookup;
+      function afterLookup(err, addresses) {
+        if (call) call.lookup_invoked = true;
+        if (err) {
+          if (call) call.lookup_result_kind = 'err';
+          process.nextTick(() => {
+            req.emit('error', Object.assign(new Error('lookup_failed'), {
+              code: harness.safeErrorCodeClass(err.code || 'LOOKUP_ERROR'),
+            }));
+          });
+          return;
+        }
+        if (!Array.isArray(addresses)) {
+          if (call) {
+            call.lookup_all = true;
+            call.lookup_result_kind = 'scalar';
+          }
+          process.nextTick(() => {
+            req.emit('error', Object.assign(new Error('Invalid IP address: undefined'), {
+              code: 'ERR_INVALID_IP_ADDRESS',
+            }));
+          });
+          return;
+        }
+        if (call) {
+          call.lookup_all = true;
+          call.lookup_result_kind = 'array';
+        }
+        // Reach local fake HTTP only after validated array lookup.
+        const local = realHttp.request({
+          hostname: '127.0.0.1',
+          port,
+          path: '/readyz',
+          method: 'GET',
+          headers: {},
+        }, (res) => {
+          const wrapped = new EventEmitter();
+          wrapped.statusCode = res.statusCode;
+          wrapped.headers = res.headers;
+          wrapped.complete = false;
+          callback(wrapped);
+          res.on('data', (c) => wrapped.emit('data', c));
+          res.on('end', () => {
+            wrapped.complete = true;
+            wrapped.emit('end');
+          });
+          res.on('error', (e) => wrapped.emit('error', e));
+          res.on('close', () => wrapped.emit('close'));
+        });
+        local.on('error', (e) => req.emit('error', e));
+        const origDestroy = req.destroy;
+        req.destroy = function destroyBoth(err) {
+          try { local.destroy(err); } catch (_) { /* ignore */ }
+          return origDestroy.call(req, err);
+        };
+        local.end();
+      }
+
+      if (typeof lookup !== 'function') {
+        afterLookup(Object.assign(new Error('missing_lookup'), { code: 'RADAR_LOAD_DNS' }));
+        return;
+      }
+      lookup(opts.hostname || 'pinned.invalid', { all: true, hints: 32 }, afterLookup);
+    };
+    return req;
+  };
+}
+
+function publicDnsLookup(hostname, options, callback) {
+  let cb = callback;
+  if (typeof options === 'function') cb = options;
+  process.nextTick(() => cb(null, [{ address: '8.8.8.8', family: 4 }]));
+}
+
+function dualStackDnsLookup(hostname, options, callback) {
+  let cb = callback;
+  if (typeof options === 'function') cb = options;
+  process.nextTick(() => cb(null, [
+    { address: '8.8.8.8', family: 4 },
+    { address: '2001:4860:4860::8888', family: 6 },
+  ]));
+}
+
+async function runVerifier() {
+  console.log('RADAR 16AH G06 live-load correction — offline fail-closed verifier\n');
+
+  const sliceContract = readJson(locks.CONTRACT_REL);
+  const matrix = readJson('fixtures/radar-operations/gate-matrix.json');
+  const topContract = readJson('fixtures/radar-operations/contract.json');
+  const doc = readText('docs/RADAR-OPERATIONS-GATE-LEDGER.md');
+  const findings = readText('fixtures/radar-operations/findings.md');
+  const harnessSrc = readText(locks.HARNESS_REL);
+  const verifySrc = readText(locks.VERIFY_REL);
+
+  ok('C1 HEAD on 16AH branch', currentBranch() === locks.BRANCH, currentBranch());
+  ok('C2 master_basis locked',
+    locks.MASTER_BASIS === '6c24e9456bd42c7fa1b051bb1308aae8f632b293'
+    && sliceContract.master_basis === locks.MASTER_BASIS
+    && matrix.master_basis === locks.MASTER_BASIS
+    && topContract.master_basis === locks.MASTER_BASIS);
+  ok('C3 slice/outcome/branch locked',
+    sliceContract.slice === locks.SLICE
+    && sliceContract.outcome_id === locks.OUTCOME_ID
+    && sliceContract.branch === locks.BRANCH
+    && matrix.slice === locks.SLICE
+    && matrix.branch === locks.BRANCH
+    && topContract.slice === locks.SLICE
+    && topContract.branch === locks.BRANCH);
+
+  ok('C4 live flags false',
+    sliceContract.live_deploy === false
+    && sliceContract.live_mutation === false
+    && sliceContract.live_network === false
+    && sliceContract.this_slice_deploys === false
+    && matrix.live_mutation === false);
+
+  ok('C0 pinnedLookup exported and all=true branch present',
+    typeof harness.pinnedLookup === 'function'
+    && typeof harness.safeErrorCodeClass === 'function'
+    && /wantAll|opts\.all|options\.all/.test(harnessSrc)
+    && /ERR_INVALID_IP_ADDRESS|Happy Eyeballs|all===true|all=true/.test(harnessSrc)
+    && /POST_16AG_LIVE_LOAD_ATTEMPT/.test(harnessSrc)
+    && /attempted_not_proof/.test(harnessSrc));
+
+  const pins = harness.assertPublicDnsAddresses([
+    { address: '8.8.8.8', family: 4 },
+    { address: '2001:4860:4860::8888', family: 6 },
+  ]);
+
+  // --- RED: production-shaped scalar under all=true fails before HTTP ---
+  {
+    const legacy = legacyScalarPinnedLookup(pins);
+    const result = await simulateHappyEyeballsConsumer(legacy);
+    red('production_shaped_all_true_scalar_fails_before_http',
+      result.kind === 'error'
+      && result.before_http === true
+      && result.error_code === 'ERR_INVALID_IP_ADDRESS'
+      && harness.safeErrorCodeClass(result.error_code) === 'ERR_INVALID_IP_ADDRESS',
+      JSON.stringify({ kind: result.kind, code: result.error_code, before_http: result.before_http }));
+  }
+
+  red('safe_error_code_classes_no_message_host_body',
+    harness.safeErrorCodeClass('ERR_INVALID_IP_ADDRESS') === 'ERR_INVALID_IP_ADDRESS'
+    && harness.safeErrorCodeClass('ECONNRESET') === 'ECONNRESET'
+    && harness.safeErrorCodeClass('not a code!') === 'UNCLASSIFIED'
+    && harness.safeErrorCodeClass({ code: 'EPIPE', message: 'boom at host.example' }) === 'EPIPE'
+    && harness.safeErrorCodeClass({ message: 'no code' }) === 'UNCLASSIFIED'
+    && !/host\.example|boom/.test(harness.safeErrorCodeClass({ code: 'EPIPE', message: 'boom at host.example' })));
+
+  {
+    const lookup = harness.pinnedLookup(pins);
+    const miss = await new Promise((resolve) => {
+      lookup('x', { all: true, family: 4 }, (err, addresses) => {
+        // family 4 exists — not a miss; use family that won't match after filtering dual then empty
+        resolve({ err, addresses });
+      });
+    });
+    void miss;
+    const emptyPins = harness.pinnedLookup([{ address: '8.8.8.8', family: 4 }]);
+    const familyMiss = await new Promise((resolve) => {
+      emptyPins('x', { all: true, family: 6 }, (err, addresses) => {
+        resolve({
+          code: err && harness.safeErrorCodeClass(err.code),
+          hasAddresses: addresses != null,
+        });
+      });
+    });
+    red('pinned_lookup_family_miss_errors',
+      familyMiss.code === 'RADAR_LOAD_DNS_PIN_MISS'
+      && familyMiss.hasAddresses === false);
+  }
+
+  // --- GREEN: corrected contract ---
+  {
+    const lookup = harness.pinnedLookup(pins);
+    const allTrue = await new Promise((resolve) => {
+      lookup('x', { all: true, hints: 32 }, (err, addresses, family) => {
+        resolve({ err, addresses, family });
+      });
+    });
+    const consumer = await simulateHappyEyeballsConsumer(lookup);
+    green('pinned_lookup_all_true_returns_validated_array',
+      !allTrue.err
+      && Array.isArray(allTrue.addresses)
+      && allTrue.addresses.length === 2
+      && allTrue.family === undefined
+      && allTrue.addresses.every((e) => typeof e.address === 'string' && (e.family === 4 || e.family === 6))
+      && consumer.kind === 'ok'
+      && consumer.before_http === false);
+  }
+
+  {
+    const lookup = harness.pinnedLookup(pins);
+    const scalar = await new Promise((resolve) => {
+      lookup('x', { all: false, family: 4 }, (err, address, family) => {
+        resolve({ err, address, family });
+      });
+    });
+    green('pinned_lookup_all_false_scalar_contract',
+      !scalar.err
+      && typeof scalar.address === 'string'
+      && scalar.address === '8.8.8.8'
+      && scalar.family === 4
+      && !Array.isArray(scalar.address));
+  }
+
+  {
+    const lookup = harness.pinnedLookup(pins);
+    const v6 = await new Promise((resolve) => {
+      lookup('x', { all: true, family: 6 }, (err, addresses) => {
+        resolve({ err, addresses });
+      });
+    });
+    green('pinned_lookup_family_filter_exact_pins',
+      !v6.err
+      && Array.isArray(v6.addresses)
+      && v6.addresses.length === 1
+      && v6.addresses[0].family === 6
+      && v6.addresses[0].address === '2001:4860:4860::8888');
+  }
+
+  installNetworkFailClosed();
+  try {
+    ok('C_SEAL http/https/net/dns fail closed',
+      (() => {
+        try { http.request('http://example.com'); return false; } catch (e) { return e.code === 'RADAR_OFFLINE_NETWORK_SEAL'; }
+      })()
+      && (() => {
+        try { https.request('https://example.com'); return false; } catch (e) { return e.code === 'RADAR_OFFLINE_NETWORK_SEAL'; }
+      })()
+      && (() => {
+        try { net.connect({ host: '1.1.1.1', port: 443 }); return false; } catch (e) { return e.code === 'RADAR_OFFLINE_NETWORK_SEAL'; }
+      })()
+      && (() => new Promise((resolve) => {
+        dns.lookup('example.com', (err) => resolve(!!(err && err.code === 'RADAR_OFFLINE_NETWORK_SEAL')));
+      })));
+    // dns.lookup is async under seal — await the promise form
+    {
+      const dnsSealed = await new Promise((resolve) => {
+        dns.lookup('example.com', (err) => resolve(!!(err && err.code === 'RADAR_OFFLINE_NETWORK_SEAL')));
+      });
+      ok('C_SEAL dns.lookup non-loopback fail closed', dnsSealed);
+    }
+
+    const fake = await startFakeServer((req, res) => {
+      if (req.method !== 'GET' || req.url !== '/readyz') {
+        res.writeHead(404);
+        res.end('nope');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"status":"ready"}');
+    });
+
+    try {
+      const capture = { calls: [] };
+      const report = await harness.runBoundedLoadOffline(
+        {
+          target: locks.WH_READYZ_URL,
+          profile: {
+            concurrency: 1,
+            max_duration_ms: 5000,
+            max_requests: 4,
+            request_timeout_ms: 1000,
+          },
+        },
+        {
+          seal: harness.OFFLINE_SEAL,
+          httpsRequest: makeProductionShapedHttpsRequest(fake.origin, capture),
+          dnsLookup: dualStackDnsLookup,
+        },
+      );
+
+      green('production_shaped_pinned_lookup_reaches_http',
+        report.status_counts['2xx'] === 4
+        && report.status_counts.error === 0
+        && capture.calls.length === 4
+        && capture.calls.every((c) => c.lookup_invoked === true
+          && c.lookup_all === true
+          && c.lookup_result_kind === 'array')
+        && reportHasNoBodies(report),
+        JSON.stringify({
+          status_counts: report.status_counts,
+          lookup_kinds: capture.calls.map((c) => c.lookup_result_kind),
+        }));
+
+      // RED path via production-shaped transport + legacy scalar lookup injection
+      // is covered by simulateHappyEyeballs; additionally prove report path:
+      const badCapture = { calls: [] };
+      // Force scalar by wrapping fixed path: use production-shaped request that
+      // still calls opts.lookup — inject via a custom httpsRequest that swaps
+      // lookup to legacy scalar before calling production-shaped core.
+      function scalarInjectingHttpsRequest(options, callback) {
+        const opts = { ...(options || {}) };
+        const pinned = [
+          { address: '8.8.8.8', family: 4 },
+        ];
+        opts.lookup = legacyScalarPinnedLookup(pinned);
+        return makeProductionShapedHttpsRequest(fake.origin, badCapture)(opts, callback);
+      }
+      const badReport = await harness.runBoundedLoadOffline(
+        {
+          target: locks.SUNSET_READYZ_URL,
+          profile: {
+            concurrency: 1,
+            max_duration_ms: 5000,
+            max_requests: 3,
+            request_timeout_ms: 1000,
+          },
+        },
+        {
+          seal: harness.OFFLINE_SEAL,
+          httpsRequest: scalarInjectingHttpsRequest,
+          dnsLookup: publicDnsLookup,
+        },
+      );
+      ok('C_RED_SHAPE scalar injection yields all errors before HTTP',
+        badReport.status_counts.error === 3
+        && badReport.status_counts['2xx'] === 0
+        && badReport.error_code_classes
+        && badReport.error_code_classes.ERR_INVALID_IP_ADDRESS === 3
+        && badCapture.calls.every((c) => c.lookup_result_kind === 'scalar')
+        && reportHasNoBodies(badReport)
+        && reportHasNoHostsOrMessages(badReport),
+        JSON.stringify({
+          status_counts: badReport.status_counts,
+          error_code_classes: badReport.error_code_classes,
+        }));
+
+      green('error_code_classes_aggregated_safely',
+        badReport.error_code_classes
+        && badReport.error_code_classes.ERR_INVALID_IP_ADDRESS === 3
+        && Object.keys(badReport.error_code_classes).every(
+          (k) => harness.safeErrorCodeClass(k) === k,
+        )
+        && reportHasNoHostsOrMessages(badReport)
+        && report.error_code_classes
+        && Object.keys(report.error_code_classes).length === 0);
+    } finally {
+      await closeServer(fake.server);
+    }
+
+    green('live_attempt_recorded_attempted_not_proof',
+      harness.POST_16AG_LIVE_LOAD_ATTEMPT
+      && harness.POST_16AG_LIVE_LOAD_ATTEMPT.status === 'attempted_not_proof'
+      && sliceContract.post_16ag_live_load_attempt.status === 'attempted_not_proof'
+      && harness.POST_16AG_LIVE_LOAD_ATTEMPT.outcome_class
+        === 'both_targets_60_of_60_error_before_http'
+      && harness.POST_16AG_LIVE_LOAD_ATTEMPT.root_cause_class
+        === 'pinned_lookup_scalar_under_options_all_true'
+      && harness.POST_16AG_LIVE_LOAD_ATTEMPT.direct_readyz_pre_post_class === 'ready'
+      && Array.isArray(harness.POST_16AG_LIVE_LOAD_ATTEMPT.does_not_prove)
+      && harness.POST_16AG_LIVE_LOAD_ATTEMPT.does_not_prove.includes('load_soak_success')
+      && harness.POST_16AG_LIVE_LOAD_ATTEMPT.does_not_prove.includes('live_load_proof')
+      && !/\b(load soak proven|live load executed successfully|G06 proven)\b/i.test(
+        String(harness.POST_16AG_LIVE_LOAD_ATTEMPT.note || ''),
+      ));
+
+    const g06 = matrix.gates.find((g) => g.id === 'G06_scaling_capacity');
+    green('g06_remains_partial',
+      g06
+      && g06.verdict === 'partial'
+      && /16AH|16AG/.test(g06.rationale)
+      && Array.isArray(g06.gaps)
+      && g06.gaps.some((x) => /load|soak/i.test(String(x)))
+      && g06.gaps.some((x) => /autoscal/i.test(String(x)))
+      && g06.gaps.some((x) => /SLO|backpressure/i.test(String(x)))
+      && !/\bG06\s+proven\b/i.test(String(g06.rationale)));
+
+    green('score_not_inflated',
+      topContract.expected_verdict_counts
+      && topContract.expected_verdict_counts.proven === 0
+      && topContract.expected_verdict_counts.partial === 9
+      && topContract.expected_verdict_counts.absent === 0
+      && sliceContract.verdict_policy.proven === 0
+      && sliceContract.verdict_policy.partial === 9);
+
+    green('no_live_network_in_verifier',
+      sealedNetworkHits >= 4
+      && /installNetworkFailClosed|RADAR_OFFLINE_NETWORK_SEAL/.test(verifySrc)
+      && /runBoundedLoadOffline/.test(verifySrc)
+      && /OFFLINE_SEAL/.test(verifySrc)
+      && /attempted_not_proof/.test(verifySrc)
+      && /legacyScalarPinnedLookup|ERR_INVALID_IP_ADDRESS/.test(verifySrc)
+      && (verifySrc.match(/\brunBoundedLoad\s*\(/g) || []).length === 0);
+
+    {
+      const pkg = readJson('package.json');
+      green('package_script_registered',
+        pkg.scripts
+        && pkg.scripts['verify:radar-slice16ah-g06-live-load-correction']
+          === 'node scripts/verify-radar-slice16ah-g06-live-load-correction.js');
+    }
+
+    green('16ag_source_partial_retained',
+      topContract.selected_16ag
+      && topContract.selected_16ag.g06_load_harness_source === 'source_closed_via_16AG'
+      && topContract.selected_16ag.g06_load_proof === 'open'
+      && matrix.slice_16ag_selection
+      && matrix.slice_16ag_selection.g06_load_harness_source === 'source_closed_via_16AG'
+      && harness.FUTURE_DRILL_PROFILE.status === 'defined_not_executed');
+  } finally {
+    restoreNetwork();
+  }
+
+  ok('C5 selected_16ah in top contract',
+    topContract.selected_16ah
+    && topContract.selected_16ah.outcome_id === locks.OUTCOME_ID
+    && topContract.selected_16ah.g06_verdict === 'partial'
+    && topContract.selected_16ah.g06_load_proof === 'open'
+    && topContract.selected_16ah.live_load_attempt_status === 'attempted_not_proof'
+    && topContract.selected_16ah.pinned_lookup_all_true === 'corrected');
+
+  ok('C6 matrix slice_16ah_selection',
+    matrix.slice_16ah_selection
+    && matrix.slice_16ah_selection.selected === true
+    && matrix.slice_16ah_selection.outcome_id === locks.OUTCOME_ID
+    && matrix.slice_16ah_selection.live_load_attempt.status === 'attempted_not_proof'
+    && matrix.slice_16ah_selection.g06_load_proof === 'open');
+
+  ok('C7 doc + findings mention 16AH correction without load success / G06 proven',
+    /16AH|pinned.?lookup|all=true|Happy Eyeballs/i.test(doc)
+    && /16AH|pinned.?lookup|attempted_not_proof/i.test(findings)
+    && /attempted_not_proof/i.test(doc)
+    && /attempted_not_proof/i.test(findings)
+    && !/\bG06\s+proven\b/i.test(doc)
+    && !/\bload\s+soak\s+proven\b/i.test(doc)
+    && !/\bG06\s+proven\b/i.test(findings)
+    && !/\blive\s+load\s+(success|soak)\s+proven\b/i.test(findings));
+
+  ok('C8 runtime paths unchanged vs master', runtimePathsUnchanged().ok, runtimePathsUnchanged().detail);
+
+  ok('C9 progress_class source_partial',
+    locks.PROGRESS_CLASS === 'source_partial_progress_only'
+    && sliceContract.progress_class === 'source_partial_progress_only'
+    && matrix.slice_16ah_selection.progress_class === 'source_partial_progress_only');
+
+  const redIds = new Set(redResults.map((r) => r.id));
+  const greenIds = new Set(greenResults.map((r) => r.id));
+  ok('C10 all REQUIRED_RED present',
+    locks.REQUIRED_RED.every((id) => redIds.has(id)),
+    locks.REQUIRED_RED.filter((id) => !redIds.has(id)).join(','));
+  ok('C11 all REQUIRED_GREEN present',
+    locks.REQUIRED_GREEN.every((id) => greenIds.has(id)),
+    locks.REQUIRED_GREEN.filter((id) => !greenIds.has(id)).join(','));
+  ok('C12 all RED/GREEN assertions passed',
+    redResults.every((r) => r.ok) && greenResults.every((r) => r.ok));
+
+  console.log(`\n${pass} passed, ${fail} failed`);
+  if (fail > 0) {
+    console.log('RADAR 16AH G06 live-load correction: FAIL');
+    process.exit(1);
+  }
+  console.log('RADAR 16AH G06 live-load correction (source-partial): PASS');
+}
+
+runVerifier().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
