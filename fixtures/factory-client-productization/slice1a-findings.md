@@ -6,11 +6,15 @@
 
 **Branch:** `factory/slice-1a-contract`
 
-**Delivery:** docs / fixtures / independent verifier only — **not** templates, generator, runtime, IaC, DB, deploy, secrets, or live calls. `package.json` may change only for the locked script key `verify:factory-slice1a-acceptance-contract`.
+**Delivery:** docs / fixtures / independent verifier only — **not** templates, generator, runtime, IaC, DB, deploy, secrets, or live calls. `package.json` may change only for the locked script key `verify:factory-slice1a-acceptance-contract` plus the pinned `acorn@8.14.1` dependency (diff-validated with `package-lock.json`).
 
 ## Verdict
 
-FACTORY client productization is fenced to **five finite stages (1A–1E)**. Slice **1A** freezes the acceptance contract, inventories real Wolfhouse/Sunset registration and read sites, and locks nine gates. Completeness is **source-derived** by `scripts/lib/factory-slice1a-inventory-discovery.js` (exact bidirectional set equality; locked exclusions are justified noise filters only). Third-tenant live/prod work stays **out of scope** and triggers RADAR reopen `third_tenant_factory`.
+FACTORY client productization is fenced to **five finite stages (1A–1E)**. Slice **1A** freezes the acceptance contract, inventories real Wolfhouse/Sunset registration and read sites, and locks nine gates. Completeness method remains `source_derived_registration_read_site_inventory`, implemented by pinned **Acorn ESTree physical-site discovery** plus a local import graph (`scripts/lib/factory-slice1a-inventory-discovery.js`). Physical site keys are inventoried independently of fixture `site_policy`, then compared with exact bidirectional set equality. Locked exclusions are justified noise filters only. Third-tenant live/prod work stays **out of scope** and triggers RADAR reopen `third_tenant_factory`.
+
+## Threat boundary
+
+Arbitrary runtime path or import computation that cannot be constant-folded is **outside** the FACTORY 1A static threat boundary. When such computation appears in the reachable config-loader graph, discovery **fails closed** (or records an explicit outside-boundary rejection) rather than claiming regex-style coverage.
 
 ## Reference pair (discovered)
 
@@ -25,16 +29,21 @@ Additional `clients.json` sample rows (beyond Wolfhouse + Sunset) remain invento
 
 `completeness_method = source_derived_registration_read_site_inventory`
 
+`discovery_engine = pinned_acorn_estree_physical_site_plus_local_import_graph`
+
 Categories covered bidirectionally (discovery ↔ fixture):
 
 1. `client_config_files` — all `config/clients/*.json`
 2. `registries` — registry-class files under `config/clients/` plus source-referenced registry basenames
 3. `feature_flag_symbols` — `live_enabled` and classifier-matched env flag reads across scripts/infra/docker/config
-4. `pricing_services_schedule_profile_consumers` — config/clients acquisition sites (fs/path dynamic reads, direct filenames, directory enumeration, loader imports/aliases/wrappers), including `scripts/staff-query-api.js` and `scripts/check-i18n-guest-copy.js`
-5. `deployment_overlays` — tenant staging Bicep entrypoints, compose/env overlays, access/routing overlay JSON
-6. `existing_verifiers` — package.json multiclient/tenant gate registrations plus portal-slice1 / live-readiness static verifiers
+4. `pricing_services_schedule_profile_consumers` — files owning structural physical sites (FS + loader imports)
+5. `physical_site_keys` — Acorn-derived structural site keys (`fs_*` / `loader_import`)
+6. `deployment_overlays` — tenant staging Bicep entrypoints, compose/env overlays, access/routing overlay JSON
+7. `existing_verifiers` — package.json multiclient/tenant gate registrations (normalizes `scripts/...` and `./scripts/...`) plus portal-slice1 / live-readiness static verifiers
 
-Adversarial temporary-source REDs prove discovery catches aliased/wrapped/dynamic consumers and newly added registry, overlay, verifier, and flag sites absent from fixtures.
+Independent `site_policy.physical_site_keys` must match discovered keys bidirectionally.
+
+Adversarial temporary-source REDs prove discovery catches split-string `path.resolve`, aliased wrappers, `./` verifier registration, stale/missing site policy, coordinated fixture edits, and fail-closed computed/dynamic import or unresolved dynamic path cases. Required consumers include `scripts/staff-query-api.js` and `scripts/check-i18n-guest-copy.js`.
 
 ## Nine gates (frozen; proof deferred per `proof_stage`)
 
@@ -56,7 +65,7 @@ Allowed stage IDs: **1A, 1B, 1C, 1D, 1E** only. Extra stages, gate renames, or t
 
 ## Required current-stage evidence vs out of scope
 
-**Required now:** source inventory, finite stage fence, nine-gate freeze, independent completeness verifier, docs/fixtures/verifier delivery, locked `package.json` script registration.
+**Required now:** source inventory, finite stage fence, nine-gate freeze, independent completeness verifier, docs/fixtures/verifier delivery, locked `package.json` script registration + Acorn pin.
 
 **Out of scope (1A):** templates, generator, runtime productization, IaC/DB/deploy mutation, secret materialization, live network calls, third-tenant live/prod onboarding.
 
@@ -66,7 +75,7 @@ Allowed stage IDs: **1A, 1B, 1C, 1D, 1E** only. Extra stages, gate renames, or t
 
 | Observation | Proves | Does not prove |
 |-------------|--------|----------------|
-| 1A contract + discovery verifier | Gate/stage fence; inventory completeness vs real read sites; Wolfhouse/Sunset reference pair | Generator correctness; live isolation of a new tenant; production readiness |
+| 1A contract + Acorn discovery verifier | Gate/stage fence; inventory completeness vs structural read sites; Wolfhouse/Sunset reference pair | Generator correctness; live isolation of a new tenant; production readiness |
 | Existing hard multiclient subset | isolation / no-hardcoding / tenant-resolution / meta-shadow still green | Full `npm run verify:multiclient` (staff-tenant-scope H3) or tenant-business-config DB-prices merge — pre-existing master REDs retained |
 
 ## Closeout

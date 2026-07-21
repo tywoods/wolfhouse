@@ -210,7 +210,7 @@ const SCOPE_FENCE = Object.freeze({
 
 const COMPLETENESS_METHOD = 'source_derived_registration_read_site_inventory';
 
-/** Tip path scope: docs/fixtures/verifier-support only, plus one locked package.json script key. */
+/** Tip path scope: docs/fixtures/verifier-support only, plus locked package.json script + Acorn pin. */
 const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'docs/FACTORY-CLIENT-PRODUCTIZATION.md',
   'fixtures/factory-client-productization/',
@@ -218,11 +218,18 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'scripts/lib/factory-slice1a-inventory-discovery.js',
   'scripts/verify-factory-slice1a-acceptance-contract.js',
   'package.json',
+  'package-lock.json',
 ]);
 
 const PACKAGE_JSON_ALLOWED_SCRIPT_KEY = 'verify:factory-slice1a-acceptance-contract';
 const PACKAGE_JSON_ALLOWED_SCRIPT_VALUE =
   'node scripts/verify-factory-slice1a-acceptance-contract.js';
+
+/** Exact Acorn pin required for ESTree physical-site discovery. */
+const PACKAGE_JSON_ALLOWED_ACORN_PIN = Object.freeze({
+  name: 'acorn',
+  version: '8.14.1',
+});
 
 const EXISTING_REGRESSION_GATES = Object.freeze([
   'node scripts/verify-multiclient-isolation.js',
@@ -261,6 +268,7 @@ const CONTRACT = deepFreeze({
     allowed_path_prefixes: ALLOWED_TIP_PATH_PREFIXES,
     package_json_allowed_script_key: PACKAGE_JSON_ALLOWED_SCRIPT_KEY,
     package_json_allowed_script_value: PACKAGE_JSON_ALLOWED_SCRIPT_VALUE,
+    package_json_allowed_acorn_pin: PACKAGE_JSON_ALLOWED_ACORN_PIN,
   }),
   existing_regression_gates: EXISTING_REGRESSION_GATES,
   existing_regression_retained_master_red: EXISTING_REGRESSION_RETAINED_MASTER_RED,
@@ -368,6 +376,7 @@ module.exports = Object.freeze({
   ALLOWED_TIP_PATH_PREFIXES,
   PACKAGE_JSON_ALLOWED_SCRIPT_KEY,
   PACKAGE_JSON_ALLOWED_SCRIPT_VALUE,
+  PACKAGE_JSON_ALLOWED_ACORN_PIN,
   EXISTING_REGRESSION_GATES,
   EXISTING_REGRESSION_RETAINED_MASTER_RED,
   CONTRACT,

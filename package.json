@@ -699,6 +699,7 @@
     "verify:radar-slice16ap-finite-closeout": "node scripts/verify-radar-slice16ap-finite-closeout.js"
   },
   "dependencies": {
+    "acorn": "8.14.1",
     "dotenv": "^16.4.5",
     "pg": "^8.13.1",
     "stripe": "^22.2.0"

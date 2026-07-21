@@ -194,10 +194,15 @@
       "scripts/lib/factory-slice1a-acceptance-contract.js",
       "scripts/lib/factory-slice1a-inventory-discovery.js",
       "scripts/verify-factory-slice1a-acceptance-contract.js",
-      "package.json"
+      "package.json",
+      "package-lock.json"
     ],
     "package_json_allowed_script_key": "verify:factory-slice1a-acceptance-contract",
-    "package_json_allowed_script_value": "node scripts/verify-factory-slice1a-acceptance-contract.js"
+    "package_json_allowed_script_value": "node scripts/verify-factory-slice1a-acceptance-contract.js",
+    "package_json_allowed_acorn_pin": {
+      "name": "acorn",
+      "version": "8.14.1"
+    }
   },
   "existing_regression_gates": [
     "node scripts/verify-multiclient-isolation.js",

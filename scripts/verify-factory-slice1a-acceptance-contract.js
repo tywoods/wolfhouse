@@ -29,7 +29,14 @@ const {
   discoverAll,
   compareInventoryCompleteness,
   buildAdversarialTemporarySource,
+  plantComputedWrapperImport,
+  plantUnresolvedDynamicPath,
+  normalizeVerifierScriptPath,
+  extractVerifierPathsFromScript,
+  assertAcornPin,
   INVENTORY_CATEGORIES,
+  THREAT_BOUNDARY,
+  ACORN_PIN,
 } = require('./lib/factory-slice1a-inventory-discovery');
 
 let pass = 0;
@@ -88,7 +95,7 @@ function tipPathsAllowed(changedPaths) {
   return { ok: bad.length === 0, bad };
 }
 
-function packageJsonScriptDeltaOnlyAllowedKey() {
+function packageJsonDeltaOnlyAllowedPins() {
   let diff;
   try {
     diff = execSync(
@@ -98,48 +105,58 @@ function packageJsonScriptDeltaOnlyAllowedKey() {
   } catch (err) {
     return { ok: false, detail: String(err && err.message) };
   }
+  const pkg = readJson(path.join(ROOT, 'package.json'));
+  const val = pkg.scripts && pkg.scripts[locks.PACKAGE_JSON_ALLOWED_SCRIPT_KEY];
+  const acornVer = (pkg.dependencies && pkg.dependencies.acorn)
+    || (pkg.devDependencies && pkg.devDependencies.acorn);
+  const acornOk = acornVer === locks.PACKAGE_JSON_ALLOWED_ACORN_PIN.version;
+  const scriptOk = val === locks.PACKAGE_JSON_ALLOWED_SCRIPT_VALUE;
   if (!diff.trim()) {
-    // Tip may already include the key on master; still require the locked key present.
-    const pkg = readJson(path.join(ROOT, 'package.json'));
-    const val = pkg.scripts && pkg.scripts[locks.PACKAGE_JSON_ALLOWED_SCRIPT_KEY];
     return {
-      ok: val === locks.PACKAGE_JSON_ALLOWED_SCRIPT_VALUE,
-      detail: val === locks.PACKAGE_JSON_ALLOWED_SCRIPT_VALUE
-        ? 'no package.json delta vs master; locked key present'
-        : 'locked script key missing/mismatched with no delta',
+      ok: scriptOk && acornOk,
+      detail: JSON.stringify({ scriptOk, acornOk, acornVer, note: 'no package.json delta vs master' }),
     };
   }
-  const addedKeys = [];
-  const removedKeys = [];
+  const addedScriptKeys = [];
+  const removedScriptKeys = [];
   const otherHunkNoise = [];
+  let acornAdd = false;
+  let acornRemove = false;
   for (const line of diff.split('\n')) {
     if (!/^[+-]/.test(line) || /^[+-]{3}/.test(line)) continue;
     if (/^[+-]\s*"verify:[^"]+"\s*:/.test(line)) {
       const m = line.match(/^[+-]\s*"([^"]+)"\s*:/);
       if (m) {
-        if (line.startsWith('+')) addedKeys.push(m[1]);
-        else removedKeys.push(m[1]);
+        if (line.startsWith('+')) addedScriptKeys.push(m[1]);
+        else removedScriptKeys.push(m[1]);
       }
       continue;
     }
-    // Allow JSON structural whitespace / commas adjacent to the script line.
+    if (/^[+-]\s*"acorn"\s*:/.test(line)) {
+      if (line.startsWith('+')) acornAdd = true;
+      else acornRemove = true;
+      continue;
+    }
+    // dependencies / devDependencies structural lines around the pin
+    if (/^[+-]\s*"(dependencies|devDependencies)"\s*:\s*\{?\s*$/.test(line)) continue;
     if (/^[+-]\s*[\[\]{},]?\s*$/.test(line)) continue;
     if (/^[+-]\s*$/.test(line)) continue;
     otherHunkNoise.push(line.slice(0, 120));
   }
-  const onlyAllowedAdd = addedKeys.length === 1
-    && addedKeys[0] === locks.PACKAGE_JSON_ALLOWED_SCRIPT_KEY
-    && removedKeys.length === 0;
-  const pkg = readJson(path.join(ROOT, 'package.json'));
-  const val = pkg.scripts && pkg.scripts[locks.PACKAGE_JSON_ALLOWED_SCRIPT_KEY];
-  const valueOk = val === locks.PACKAGE_JSON_ALLOWED_SCRIPT_VALUE;
+  const scriptAddOk = addedScriptKeys.length === 1
+    && addedScriptKeys[0] === locks.PACKAGE_JSON_ALLOWED_SCRIPT_KEY
+    && removedScriptKeys.length === 0;
+  const acornDeltaOk = acornAdd && !acornRemove;
   return {
-    ok: onlyAllowedAdd && valueOk && otherHunkNoise.length === 0,
+    ok: scriptAddOk && acornDeltaOk && scriptOk && acornOk && otherHunkNoise.length === 0,
     detail: JSON.stringify({
-      addedKeys,
-      removedKeys,
-      valueOk,
-      otherHunkNoise: otherHunkNoise.slice(0, 5),
+      addedScriptKeys,
+      removedScriptKeys,
+      acornAdd,
+      acornRemove,
+      scriptOk,
+      acornOk,
+      otherHunkNoise: otherHunkNoise.slice(0, 8),
     }),
   };
 }
@@ -227,8 +244,11 @@ ok('doc names FACTORY and 1A–1E', /FACTORY/i.test(doc) && /1A/.test(doc) && /1
 ok('doc names both archetypes', /surf_house/.test(doc) && /surf_school_shop/.test(doc));
 ok('doc separates third-tenant live/prod', /third.tenant/i.test(doc) && /third_tenant_factory/.test(doc));
 ok('doc forbids templates/generator/runtime in 1A', /forbids/i.test(doc) && /templates/i.test(doc) && /generator/i.test(doc));
-ok('doc states package.json single-script scope', /package\.json/i.test(doc) && /verify:factory-slice1a-acceptance-contract/.test(doc));
+ok('doc states package.json script + acorn pin scope',
+  /package\.json/i.test(doc) && /verify:factory-slice1a-acceptance-contract/.test(doc) && /acorn/i.test(doc));
 ok('findings cite completeness method', /source_derived_registration_read_site_inventory/.test(findings));
+ok('findings cite Acorn physical-site discovery', /Acorn/i.test(findings) && /physical-site/i.test(findings));
+ok('findings cite threat boundary', /threat boundary/i.test(findings));
 ok('findings cite master basis', findings.includes(locks.MASTER_BASIS));
 ok('findings list nine gates', /G_MILESTONE_CLOSEOUT/.test(findings) && /G_SECRET_REJECTION/.test(findings));
 ok('findings mention staff-query-api and check-i18n',
@@ -247,11 +267,21 @@ ok('no trailing whitespace in doc/findings', (() => {
 })());
 
 // ── Source-derived inventory completeness ───────────────────────────────────
-console.log('\n── Source-derived inventory completeness ──');
+console.log('\n── Source-derived inventory completeness (Acorn physical sites) ──');
+assertAcornPin();
+ok('acorn pin locked', ACORN_PIN.version === locks.PACKAGE_JSON_ALLOWED_ACORN_PIN.version);
+
 const discovered = discoverAll();
+ok('discovery_ok fail-closed clean', discovered.discovery_ok === true, (discovered.discovery_errors || []).join(','));
 ok('discovery completeness method', discovered.completeness_method === locks.COMPLETENESS_METHOD);
+ok('discovery engine is pinned Acorn ESTree',
+  discovered.discovery_engine === 'pinned_acorn_estree_physical_site_plus_local_import_graph');
 ok('inventory fixture method matches', inventory.completeness_method === locks.COMPLETENESS_METHOD);
 ok('inventory categories match lock list', deepEqual(inventory.categories, INVENTORY_CATEGORIES.slice()));
+ok('threat boundary stated explicitly',
+  discovered.threat_boundary
+  && discovered.threat_boundary.id === THREAT_BOUNDARY.id
+  && /outside the FACTORY 1A static threat boundary/i.test(discovered.threat_boundary.statement));
 ok('locked exclusions are not the expected inventory',
   Array.isArray(discovered.locked_exclusions.path_substrings)
   && !deepEqual(discovered.locked_exclusions.path_substrings, discovered.pricing_services_schedule_profile_consumers)
@@ -262,14 +292,24 @@ ok('inventory bidirectional completeness', completeness.ok, completeness.errors.
 if (!completeness.ok) {
   for (const cat of INVENTORY_CATEGORIES) {
     const d = completeness.details[cat];
-    if (d.missing_in_fixture.length) {
+    if (d && d.missing_in_fixture && d.missing_in_fixture.length) {
       console.log(`    missing_in_fixture[${cat}]:`, d.missing_in_fixture.slice(0, 20));
     }
-    if (d.stale_in_fixture.length) {
+    if (d && d.stale_in_fixture && d.stale_in_fixture.length) {
       console.log(`    stale_in_fixture[${cat}]:`, d.stale_in_fixture.slice(0, 20));
     }
   }
+  if (completeness.details.site_policy) {
+    console.log('    site_policy:', completeness.details.site_policy);
+  }
 }
+
+ok('site_policy present and independent',
+  inventory.site_policy
+  && Array.isArray(inventory.site_policy.physical_site_keys)
+  && Array.isArray(inventory.physical_site_keys));
+ok('physical_site_keys match site_policy exactly',
+  deepEqual(inventory.physical_site_keys.slice().sort(), inventory.site_policy.physical_site_keys.slice().sort()));
 
 ok('reference pair wolfhouse present', discovered.reference_pair.wolfhouse
   && discovered.reference_pair.wolfhouse.client_slug === 'wolfhouse'
@@ -298,6 +338,10 @@ ok('deployment overlays include both staging bicep',
   && discovered.deployment_overlays.includes('infra/azure/sunset-staging/main.bicep'));
 ok('existing multiclient verifier present',
   discovered.existing_verifiers.includes('scripts/verify-multiclient-isolation.js'));
+ok('./scripts verifier path normalizes',
+  normalizeVerifierScriptPath('./scripts/verify-multiclient-isolation.js')
+    === 'scripts/verify-multiclient-isolation.js'
+  && extractVerifierPathsFromScript('node ./scripts/verify-foo.js').includes('scripts/verify-foo.js'));
 
 // ── RED / GREEN adversarial ─────────────────────────────────────────────────
 console.log('\n── Adversarial RED/GREEN ──');
@@ -340,7 +384,7 @@ red('R6_live_mutation_claim', (() => {
   return locks.validateFactory1aContract(bad).ok === false;
 })());
 
-// Temporary-source REDs: aliased/wrapped/dynamic consumers + new registry/overlay/verifier/flag sites.
+// Temporary-source REDs: Acorn physical sites + fail-closed dynamics + policy.
 {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-adv-'));
   let advDiscovered = null;
@@ -370,8 +414,10 @@ red('R6_live_mutation_claim', (() => {
               && p !== 'scripts/staff-query-api.js'
               && p !== 'scripts/check-i18n-guest-copy.js',
           ),
+        physical_site_keys: advDiscovered.physical_site_keys,
         deployment_overlays: advDiscovered.deployment_overlays,
         existing_verifiers: advDiscovered.existing_verifiers,
+        site_policy: { physical_site_keys: advDiscovered.physical_site_keys.slice() },
       }));
       const cmp = compareInventoryCompleteness(incomplete, advDiscovered);
       return hasAlias && hasStaffApi && hasI18n && cmp.ok === false
@@ -385,8 +431,10 @@ red('R6_live_mutation_claim', (() => {
         registries: advDiscovered.registries.filter((p) => !expectedNew.registries.includes(p)),
         feature_flag_symbols: advDiscovered.feature_flag_symbols,
         pricing_services_schedule_profile_consumers: advDiscovered.pricing_services_schedule_profile_consumers,
+        physical_site_keys: advDiscovered.physical_site_keys,
         deployment_overlays: advDiscovered.deployment_overlays,
         existing_verifiers: advDiscovered.existing_verifiers,
+        site_policy: { physical_site_keys: advDiscovered.physical_site_keys.slice() },
       }));
       const cmp = compareInventoryCompleteness(incomplete, advDiscovered);
       return present && cmp.ok === false
@@ -401,27 +449,38 @@ red('R6_live_mutation_claim', (() => {
         registries: advDiscovered.registries,
         feature_flag_symbols: advDiscovered.feature_flag_symbols,
         pricing_services_schedule_profile_consumers: advDiscovered.pricing_services_schedule_profile_consumers,
+        physical_site_keys: advDiscovered.physical_site_keys,
         deployment_overlays: advDiscovered.deployment_overlays.filter((p) => p !== overlay),
         existing_verifiers: advDiscovered.existing_verifiers,
+        site_policy: { physical_site_keys: advDiscovered.physical_site_keys.slice() },
       }));
       const cmp = compareInventoryCompleteness(incomplete, advDiscovered);
       return present && cmp.ok === false
         && cmp.details.deployment_overlays.missing_in_fixture.includes(overlay);
     })());
 
-    red('R10_temp_source_new_verifier_registration_absent_from_fixture', (() => {
+    red('R10_temp_source_dotslash_verifier_registration', (() => {
       const v = 'scripts/verify-adversarial-factory-client.js';
       const present = advDiscovered.existing_verifiers.includes(v);
+      // package.json used ./scripts/... — normalization must still discover it.
+      const pkg = JSON.parse(fs.readFileSync(path.join(built.root, 'package.json'), 'utf8'));
+      const script = pkg.scripts['verify:multiclient'];
+      const normalized = extractVerifierPathsFromScript(script);
       const incomplete = JSON.parse(JSON.stringify({
         client_config_files: advDiscovered.client_config_files,
         registries: advDiscovered.registries,
         feature_flag_symbols: advDiscovered.feature_flag_symbols,
         pricing_services_schedule_profile_consumers: advDiscovered.pricing_services_schedule_profile_consumers,
+        physical_site_keys: advDiscovered.physical_site_keys,
         deployment_overlays: advDiscovered.deployment_overlays,
         existing_verifiers: advDiscovered.existing_verifiers.filter((p) => p !== v),
+        site_policy: { physical_site_keys: advDiscovered.physical_site_keys.slice() },
       }));
       const cmp = compareInventoryCompleteness(incomplete, advDiscovered);
-      return present && cmp.ok === false
+      return present
+        && normalized.includes(v)
+        && script.includes('./scripts/')
+        && cmp.ok === false
         && cmp.details.existing_verifiers.missing_in_fixture.includes(v);
     })());
 
@@ -433,13 +492,115 @@ red('R6_live_mutation_claim', (() => {
         registries: advDiscovered.registries,
         feature_flag_symbols: advDiscovered.feature_flag_symbols.filter((s) => s !== flag),
         pricing_services_schedule_profile_consumers: advDiscovered.pricing_services_schedule_profile_consumers,
+        physical_site_keys: advDiscovered.physical_site_keys,
         deployment_overlays: advDiscovered.deployment_overlays,
         existing_verifiers: advDiscovered.existing_verifiers,
+        site_policy: { physical_site_keys: advDiscovered.physical_site_keys.slice() },
       }));
       const cmp = compareInventoryCompleteness(incomplete, advDiscovered);
       return present && cmp.ok === false
         && cmp.details.feature_flag_symbols.missing_in_fixture.includes(flag);
     })());
+
+    red('R12_split_string_path_resolve_site', (() => {
+      const consumer = 'scripts/lib/adversarial-split-resolve.js';
+      const present = advDiscovered.pricing_services_schedule_profile_consumers.includes(consumer);
+      const siteHit = (advDiscovered.physical_site_keys || []).some((k) => k.includes(consumer)
+        && /config\/clients/.test(k));
+      const incomplete = JSON.parse(JSON.stringify({
+        client_config_files: advDiscovered.client_config_files,
+        registries: advDiscovered.registries,
+        feature_flag_symbols: advDiscovered.feature_flag_symbols,
+        pricing_services_schedule_profile_consumers:
+          advDiscovered.pricing_services_schedule_profile_consumers.filter((p) => p !== consumer),
+        physical_site_keys: (advDiscovered.physical_site_keys || []).filter((k) => !k.includes(consumer)),
+        deployment_overlays: advDiscovered.deployment_overlays,
+        existing_verifiers: advDiscovered.existing_verifiers,
+        site_policy: {
+          physical_site_keys: (advDiscovered.physical_site_keys || []).filter((k) => !k.includes(consumer)),
+        },
+      }));
+      const cmp = compareInventoryCompleteness(incomplete, advDiscovered);
+      return present && siteHit && cmp.ok === false;
+    })());
+
+    red('R13_stale_missing_site_policy', (() => {
+      const stalePolicy = {
+        client_config_files: advDiscovered.client_config_files,
+        registries: advDiscovered.registries,
+        feature_flag_symbols: advDiscovered.feature_flag_symbols,
+        pricing_services_schedule_profile_consumers: advDiscovered.pricing_services_schedule_profile_consumers,
+        physical_site_keys: advDiscovered.physical_site_keys,
+        deployment_overlays: advDiscovered.deployment_overlays,
+        existing_verifiers: advDiscovered.existing_verifiers,
+        site_policy: {
+          physical_site_keys: (advDiscovered.physical_site_keys || []).slice(1).concat([
+            'fs_read|scripts/lib/DOES_NOT_EXIST.js|fs.readFileSync|config/clients/x.json',
+          ]),
+        },
+      };
+      const missingPolicy = {
+        ...stalePolicy,
+        site_policy: undefined,
+      };
+      const cmpStale = compareInventoryCompleteness(stalePolicy, advDiscovered);
+      const cmpMissing = compareInventoryCompleteness(missingPolicy, advDiscovered);
+      return cmpStale.ok === false
+        && cmpStale.errors.includes('stale_site_policy')
+        && cmpMissing.ok === false
+        && cmpMissing.errors.includes('missing_site_policy');
+    })());
+
+    red('R14_coordinated_fixture_edit_without_site_policy', (() => {
+      // Coordinated edit: consumers list updated to match discovery, but site_policy left stale.
+      const coordinated = {
+        client_config_files: advDiscovered.client_config_files,
+        registries: advDiscovered.registries,
+        feature_flag_symbols: advDiscovered.feature_flag_symbols,
+        pricing_services_schedule_profile_consumers: advDiscovered.pricing_services_schedule_profile_consumers.slice(),
+        physical_site_keys: advDiscovered.physical_site_keys.slice(),
+        deployment_overlays: advDiscovered.deployment_overlays,
+        existing_verifiers: advDiscovered.existing_verifiers,
+        site_policy: {
+          physical_site_keys: (advDiscovered.physical_site_keys || []).filter((k) => !/adversarial-split-resolve/.test(k)),
+        },
+      };
+      const cmp = compareInventoryCompleteness(coordinated, advDiscovered);
+      return cmp.ok === false
+        && (cmp.errors.includes('incomplete_site_policy') || cmp.errors.includes('stale_site_policy')
+          || (cmp.details.site_policy && cmp.details.site_policy.missing_in_policy.length > 0));
+    })());
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+// Fail-closed REDs on computed wrapper import + unresolved dynamic path/import.
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-failclosed-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantComputedWrapperImport(tmp);
+    const bad = discoverAll({ root: tmp });
+    red('R15_computed_wrapper_import_fail_closed',
+      bad.discovery_ok === false
+      && (bad.discovery_errors || []).some((e) => /computed_dynamic_require/.test(e)));
+  } finally {
+    rimraf(tmp);
+  }
+}
+
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1a-dynpath-'));
+  try {
+    buildAdversarialTemporarySource(tmp);
+    plantUnresolvedDynamicPath(tmp);
+    const bad = discoverAll({ root: tmp });
+    red('R16_unresolved_dynamic_path_or_import_fail_closed',
+      bad.discovery_ok === false
+      && (bad.discovery_errors || []).some((e) => (
+        /computed_dynamic_require|ambiguous_filesystem_path/.test(e)
+      )));
   } finally {
     rimraf(tmp);
   }
@@ -486,8 +647,8 @@ ok('no generator/template productization files added',
   const scope = tipPathsAllowed(changed);
   ok('tip paths within locked prefixes', scope.ok, scope.bad.slice(0, 12).join(','));
 
-  const pkgDelta = packageJsonScriptDeltaOnlyAllowedKey();
-  ok('package.json delta is only locked verifier script registration', pkgDelta.ok, pkgDelta.detail);
+  const pkgDelta = packageJsonDeltaOnlyAllowedPins();
+  ok('package.json delta is only locked verifier script + acorn pin', pkgDelta.ok, pkgDelta.detail);
 }
 
 // ── Existing regressions ────────────────────────────────────────────────────

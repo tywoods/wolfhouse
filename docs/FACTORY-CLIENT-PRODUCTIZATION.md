@@ -29,7 +29,7 @@ Freeze a **finite, source-only acceptance contract** before any client-productiz
 
 **Reject:** extra stages, renamed gates, or claiming third-tenant live/prod as current-stage evidence.
 
-**Tip scope:** docs, fixtures, and verifier-support only. `package.json` may change solely for the locked script key `verify:factory-slice1a-acceptance-contract` (diff-validated).
+**Tip scope:** docs, fixtures, and verifier-support only. `package.json` may change for the locked script key `verify:factory-slice1a-acceptance-contract` and the pinned `acorn@8.14.1` dependency (diff-validated; `package-lock.json` allowed for the pin).
 
 ## Archetypes
 
@@ -56,14 +56,19 @@ Crowsnest mock templates (`surf_house` / `surf_school`) are UI reference only un
 
 Completeness method: **`source_derived_registration_read_site_inventory`**.
 
-The independent verifier **discovers** registration/read sites from the tree and requires the fixture inventory to match with **exact bidirectional set equality**. Locked exclusions filter justified noise only; they are never the expected inventory. Categories:
+Discovery engine: pinned **Acorn ESTree** physical-site discovery plus local import graph (`scripts/lib/factory-slice1a-inventory-discovery.js`). Safe string/template/binary/`path.join`/`path.resolve` expressions are constant-folded; require/import aliases and local loader wrappers are resolved. Physical site keys are inventoried independently of fixture `site_policy`, then compared with **exact bidirectional set equality**. Locked exclusions filter justified noise only; they are never the expected inventory.
+
+**Threat boundary:** arbitrary runtime path/import computation that cannot be constant-folded is outside the static analysis boundary — discovery fails closed or records an explicit rejection rather than claiming coverage.
+
+Categories:
 
 - Client config files under `config/clients/`
 - Registries (`clients.json`, staff-portal-access, channel-routing maps)
 - Feature/env flag symbols read in source (`live_enabled`, tenant slug envs, Sunset admin / portal / admission flags)
-- Config/clients acquisition sites (fs/path dynamic reads, direct filenames, directory enumeration, loader imports/aliases/wrappers) including `scripts/staff-query-api.js` and `scripts/check-i18n-guest-copy.js`
+- Config/clients acquisition consumers derived from structural physical sites (FS + loader imports), including `scripts/staff-query-api.js` and `scripts/check-i18n-guest-copy.js`
+- Physical site keys (`fs_*` / `loader_import`) + independent `site_policy`
 - Deployment overlays (Wolfhouse + Sunset staging Bicep entrypoints, compose, env example, access/routing overlays)
-- Existing verifier registrations/files (multiclient gate pack + tenant-business-config + portal/readiness static)
+- Existing verifier registrations/files (package.json paths normalize `scripts/...` and `./scripts/...`)
 
 Canonical freeze: `fixtures/factory-client-productization/slice1a-inventory.json`.
 
