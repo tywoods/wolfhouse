@@ -7,7 +7,7 @@
  * locked to the two exact staging Staff API /readyz URLs. Offline RED/GREEN
  * verifier (fail-closed http/https/net/DNS) proves bounds/concurrency/
  * redirects/target-escape/latency/non-2xx plus hanging/trickle/abort/close/
- * deadline cleanup/DNS-private/special-ranges/hanging-late-DNS/
+ * deadline cleanup/DNS-private/IANA-special-purpose/hanging-late-DNS/
  * header-body-auth/transport-escape. Future
  * drill profile defined but NOT executed. No live network, deploy, scale
  * mutation, SLO, or backpressure claims.
@@ -56,6 +56,39 @@ const MUST_NOT_MUTATE = Object.freeze([
   'infra/azure/staging-cost-budgets/',
 ]);
 
+function ianaCaseId(family, entry) {
+  const flag = entry.globallyReachable ? 'global' : 'nonglobal';
+  return `iana_${family}_${flag}_${entry.prefix}`;
+}
+
+const IANA_TABLE_RED = Object.freeze([
+  'iana_v6_mapped_embedded_private',
+  ...harness.IANA_IPV4_SPECIAL_PURPOSE
+    .filter((e) => !e.globallyReachable)
+    .map((e) => ianaCaseId('v4', e)),
+  ...harness.IANA_IPV6_SPECIAL_PURPOSE
+    .filter((e) => !e.globallyReachable && e.specialHandling !== 'ipv4_mapped_embedded')
+    .map((e) => ianaCaseId('v6', e)),
+]);
+
+const IANA_TABLE_GREEN = Object.freeze([
+  'iana_ordinary_public_8.8.8.8',
+  'iana_ordinary_public_1.1.1.1',
+  'iana_ordinary_public_9.9.9.9',
+  'iana_ordinary_public_2001:4860:4860::8888',
+  'iana_ordinary_public_2606:4700:4700::1111',
+  'iana_global_exception_192.0.0.9/32',
+  'iana_global_exception_192.0.0.10/32',
+  'iana_global_orchidv2_2001:20::/28',
+  'iana_v6_mapped_embedded_public',
+  ...harness.IANA_IPV4_SPECIAL_PURPOSE
+    .filter((e) => e.globallyReachable)
+    .map((e) => ianaCaseId('v4', e)),
+  ...harness.IANA_IPV6_SPECIAL_PURPOSE
+    .filter((e) => e.globallyReachable)
+    .map((e) => ianaCaseId('v6', e)),
+]);
+
 const REQUIRED_RED = Object.freeze([
   'target_escape_rejected',
   'http_target_rejected',
@@ -83,6 +116,7 @@ const REQUIRED_RED = Object.freeze([
   'late_dns_callback_no_request',
   'header_body_auth_not_sent',
   'transport_escape_rejected',
+  ...IANA_TABLE_RED,
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -100,6 +134,7 @@ const REQUIRED_GREEN = Object.freeze([
   'score_not_inflated',
   'no_live_network_in_verifier',
   'package_script_registered',
+  ...IANA_TABLE_GREEN,
 ]);
 
 const EXPLICITLY_NOT_CLAIMED = Object.freeze([

@@ -8,7 +8,7 @@
  * HTTPS transport via runBoundedLoadOffline(OFFLINE_SEAL) against a local fake
  * server. Proves allowlist, bounds, concurrency, redirects, latency (monotonic,
  * transport latency ignored), timeout/error/non-2xx, hanging/trickle/abort/
- * close settle, deadline cleanup, DNS private/special-range reject,
+ * close settle, deadline cleanup, DNS private/IANA-special-purpose reject,
  * hanging/late DNS settle (no request start), header/body/auth not sent, and
  * caller transport escape reject. Does NOT execute live staging
  * network calls, deploy, or scale mutation.
@@ -554,10 +554,29 @@ async function runVerifier() {
     && /hrtime\.bigint/.test(harnessSrc)
     && /pinValidatedPublicDns/.test(harnessSrc)
     && /isGloballyRoutableIp/.test(harnessSrc)
+    && /IANA_IPV4_SPECIAL_PURPOSE/.test(harnessSrc)
+    && /IANA_IPV6_SPECIAL_PURPOSE/.test(harnessSrc)
+    && /globallyReachable/.test(harnessSrc)
     && /RADAR_LOAD_DNS_DEADLINE/.test(harnessSrc)
     && /wallStartNs/.test(harnessSrc)
     && !/opts\.transport\s*=/.test(harnessSrc)
     && !/_defaultHttpsTransport/.test(harnessSrc));
+
+  ok('C0b IANA special-purpose tables present and complete',
+    Array.isArray(harness.IANA_IPV4_SPECIAL_PURPOSE)
+    && harness.IANA_IPV4_SPECIAL_PURPOSE.length >= 26
+    && Array.isArray(harness.IANA_IPV6_SPECIAL_PURPOSE)
+    && harness.IANA_IPV6_SPECIAL_PURPOSE.length >= 25
+    && harness.IANA_IPV4_SPECIAL_PURPOSE.every((e) => typeof e.globallyReachable === 'boolean'
+      && typeof e.prefix === 'string' && typeof e.prefixLen === 'number')
+    && harness.IANA_IPV6_SPECIAL_PURPOSE.every((e) => typeof e.globallyReachable === 'boolean'
+      && typeof e.prefix === 'string' && typeof e.prefixLen === 'number')
+    && harness.IANA_IPV4_SPECIAL_PURPOSE.some((e) => e.prefix === '192.88.99.0/24' && e.globallyReachable === false)
+    && harness.IANA_IPV4_SPECIAL_PURPOSE.some((e) => e.prefix === '192.0.0.9/32' && e.globallyReachable === true)
+    && harness.IANA_IPV4_SPECIAL_PURPOSE.some((e) => e.prefix === '192.0.0.10/32' && e.globallyReachable === true)
+    && harness.IANA_IPV6_SPECIAL_PURPOSE.some((e) => e.prefix === '2001:2::/48' && e.globallyReachable === false)
+    && harness.IANA_IPV6_SPECIAL_PURPOSE.some((e) => e.prefix === '2001:10::/28' && e.globallyReachable === false)
+    && harness.IANA_IPV6_SPECIAL_PURPOSE.some((e) => e.prefix === '2001:20::/28' && e.globallyReachable === true));
 
   // --- RED: fail-closed target / profile escapes ---
   red('target_escape_rejected',
@@ -673,7 +692,7 @@ async function runVerifier() {
     red('transport_escape_rejected', t.ok, t.detail);
   }
 
-  // DNS / private + special ranges (fail-closed globally-routable)
+  // DNS / private + IANA special-purpose (fail-closed globally-routable)
   red('dns_private_address_rejected',
     expectThrow(() => harness.assertPublicDnsAddresses([{ address: '10.1.2.3', family: 4 }]), 'RADAR_LOAD').ok
     && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '127.0.0.1', family: 4 }]), 'RADAR_LOAD').ok
@@ -688,9 +707,12 @@ async function runVerifier() {
     && harness.isGloballyRoutableIp('203.0.113.5') === false // TEST-NET-3
     && harness.isGloballyRoutableIp('198.18.0.1') === false // benchmark
     && harness.isGloballyRoutableIp('240.0.0.1') === false // reserved
-    && harness.isGloballyRoutableIp('224.0.0.1') === false // multicast
+    && harness.isGloballyRoutableIp('224.0.0.1') === false // multicast (outside IANA table)
     && harness.isGloballyRoutableIp('169.254.1.1') === false // link-local
     && harness.isGloballyRoutableIp('0.0.0.0') === false // unspecified
+    && harness.isGloballyRoutableIp('192.88.99.1') === false // deprecated 6to4 relay anycast
+    && harness.isGloballyRoutableIp('2001:2::1') === false // benchmarking
+    && harness.isGloballyRoutableIp('2001:10::1') === false // deprecated ORCHID
     && harness.isGloballyRoutableIp('::1') === false
     && harness.isGloballyRoutableIp('::') === false
     && harness.isGloballyRoutableIp('fe80::1') === false
@@ -700,7 +722,64 @@ async function runVerifier() {
     && harness.isGloballyRoutableIp('2001:4860:4860::8888') === true
     && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '192.0.2.1', family: 4 }]), 'RADAR_LOAD').ok
     && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '2001:db8::1', family: 6 }]), 'RADAR_LOAD').ok
-    && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '198.18.1.1', family: 4 }]), 'RADAR_LOAD').ok);
+    && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '198.18.1.1', family: 4 }]), 'RADAR_LOAD').ok
+    && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '192.88.99.1', family: 4 }]), 'RADAR_LOAD').ok
+    && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '2001:2::1', family: 6 }]), 'RADAR_LOAD').ok
+    && expectThrow(() => harness.assertPublicDnsAddresses([{ address: '2001:10::1', family: 6 }]), 'RADAR_LOAD').ok);
+
+  // Table-driven RED/GREEN across every IANA special-purpose prefix + ordinary public controls.
+  {
+    const ordinaryPublic = [
+      '8.8.8.8',
+      '1.1.1.1',
+      '9.9.9.9',
+      '2001:4860:4860::8888',
+      '2606:4700:4700::1111',
+    ];
+    for (const ip of ordinaryPublic) {
+      green(`iana_ordinary_public_${ip}`, harness.isGloballyRoutableIp(ip) === true, ip);
+    }
+
+    // Globally-reachable exceptions inside otherwise non-global 192.0.0.0/24.
+    green('iana_global_exception_192.0.0.9/32',
+      harness.isGloballyRoutableIp('192.0.0.9') === true
+      && !expectThrow(() => harness.assertPublicDnsAddresses([{ address: '192.0.0.9', family: 4 }]), 'RADAR_LOAD').ok);
+    green('iana_global_exception_192.0.0.10/32',
+      harness.isGloballyRoutableIp('192.0.0.10') === true
+      && !expectThrow(() => harness.assertPublicDnsAddresses([{ address: '192.0.0.10', family: 4 }]), 'RADAR_LOAD').ok);
+    green('iana_global_orchidv2_2001:20::/28',
+      harness.isGloballyRoutableIp('2001:20::1') === true);
+
+    // IPv4-mapped: evaluate embedded IPv4 (registry lists ::ffff:0:0/96 as False).
+    red('iana_v6_mapped_embedded_private',
+      harness.isGloballyRoutableIp('::ffff:10.0.0.1') === false
+      && harness.isGloballyRoutableIp('::ffff:192.0.2.1') === false);
+    green('iana_v6_mapped_embedded_public',
+      harness.isGloballyRoutableIp('::ffff:8.8.8.8') === true);
+
+    for (const entry of harness.IANA_IPV4_SPECIAL_PURPOSE) {
+      const sample = harness.sampleAddressForIanaEntry(entry);
+      const got = harness.isGloballyRoutableIp(sample);
+      const id = entry.globallyReachable
+        ? `iana_v4_global_${entry.prefix}`
+        : `iana_v4_nonglobal_${entry.prefix}`;
+      const cond = got === entry.globallyReachable;
+      if (entry.globallyReachable) green(id, cond, `${sample} → ${got}`);
+      else red(id, cond, `${sample} → ${got}`);
+    }
+
+    for (const entry of harness.IANA_IPV6_SPECIAL_PURPOSE) {
+      if (entry.specialHandling === 'ipv4_mapped_embedded') continue;
+      const sample = harness.sampleAddressForIanaEntry(entry);
+      const got = harness.isGloballyRoutableIp(sample);
+      const id = entry.globallyReachable
+        ? `iana_v6_global_${entry.prefix}`
+        : `iana_v6_nonglobal_${entry.prefix}`;
+      const cond = got === entry.globallyReachable;
+      if (entry.globallyReachable) green(id, cond, `${sample} → ${got}`);
+      else red(id, cond, `${sample} → ${got}`);
+    }
+  }
 
   // Install fail-closed seals BEFORE any offline load runs.
   installNetworkFailClosed();

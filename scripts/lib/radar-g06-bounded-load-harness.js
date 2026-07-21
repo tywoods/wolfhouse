@@ -9,7 +9,9 @@
  * transport only (no caller transport escape). Owns one absolute monotonic
  * run deadline started before DNS, races/aborts DNS against the remaining
  * budget (missing/late callbacks settle; no request starts afterward), then
- * pins fail-closed globally-routable DNS results for exact-address lookup.
+ * pins fail-closed globally-routable DNS results (IANA special-purpose
+ * prefix tables with explicit globallyReachable flags; longest-match;
+ * ordinary public unicast allowed only when not denied) for exact-address lookup.
  * Per-request deadlines abort/destroy actives and settle end/aborted/error/
  * premature-close/trickle paths. Latency is measured with monotonic time;
  * transport-supplied latency values are ignored.
@@ -267,10 +269,21 @@ function ipv4ToInt(parts) {
   return ((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
 }
 
+function intToIpv4(n) {
+  const x = n >>> 0;
+  return `${(x >>> 24) & 0xff}.${(x >>> 16) & 0xff}.${(x >>> 8) & 0xff}.${x & 0xff}`;
+}
+
+function ipv4Mask(prefixLen) {
+  if (prefixLen <= 0) return 0;
+  if (prefixLen >= 32) return 0xffffffff;
+  return ((0xffffffff << (32 - prefixLen)) >>> 0);
+}
+
 function ipv4InCidr(parts, baseA, baseB, baseC, baseD, prefixLen) {
   const ip = ipv4ToInt(parts);
   const base = ipv4ToInt([baseA, baseB, baseC, baseD]);
-  const mask = prefixLen === 0 ? 0 : ((0xffffffff << (32 - prefixLen)) >>> 0);
+  const mask = ipv4Mask(prefixLen);
   return (ip & mask) === (base & mask);
 }
 
@@ -316,10 +329,239 @@ function parseIpv6Hextets(raw) {
   return hextets;
 }
 
+function formatIpv6Hextets(hextets) {
+  return hextets.map((h) => h.toString(16)).join(':');
+}
+
+function ipv6PrefixMatch(hextets, baseHextets, prefixLen) {
+  let bitsLeft = prefixLen;
+  for (let i = 0; i < 8 && bitsLeft > 0; i += 1) {
+    const take = Math.min(16, bitsLeft);
+    const shift = 16 - take;
+    const mask = take === 16 ? 0xffff : ((0xffff << shift) & 0xffff);
+    if ((hextets[i] & mask) !== (baseHextets[i] & mask)) return false;
+    bitsLeft -= take;
+  }
+  return true;
+}
+
+/**
+ * Parse IANA "Globally Reachable" cell. Empty / N/A / missing → false (fail-closed).
+ */
+function parseIanaGloballyReachable(raw) {
+  const s = String(raw == null ? '' : raw).trim().toLowerCase();
+  if (s === 'true') return true;
+  return false;
+}
+
+/**
+ * IANA IPv4 Special-Purpose Address Registry (RFC 6890 / iana-ipv4-special-registry).
+ * globallyReachable mirrors the IANA column; empty/N/A → false (fail-closed).
+ * Longest prefix match wins (e.g. 192.0.0.9/32 over 192.0.0.0/24).
+ */
+const IANA_IPV4_SPECIAL_PURPOSE_RAW = Object.freeze([
+  { prefix: '0.0.0.0/8', name: 'This network', globallyReachable: false },
+  { prefix: '0.0.0.0/32', name: 'This host on this network', globallyReachable: false },
+  { prefix: '10.0.0.0/8', name: 'Private-Use', globallyReachable: false },
+  { prefix: '100.64.0.0/10', name: 'Shared Address Space', globallyReachable: false },
+  { prefix: '127.0.0.0/8', name: 'Loopback', globallyReachable: false },
+  { prefix: '169.254.0.0/16', name: 'Link Local', globallyReachable: false },
+  { prefix: '172.16.0.0/12', name: 'Private-Use', globallyReachable: false },
+  { prefix: '192.0.0.0/24', name: 'IETF Protocol Assignments', globallyReachable: false },
+  { prefix: '192.0.0.0/29', name: 'IPv4 Service Continuity Prefix', globallyReachable: false },
+  { prefix: '192.0.0.8/32', name: 'IPv4 dummy address', globallyReachable: false },
+  { prefix: '192.0.0.9/32', name: 'Port Control Protocol Anycast', globallyReachable: true },
+  { prefix: '192.0.0.10/32', name: 'Traversal Using Relays around NAT Anycast', globallyReachable: true },
+  { prefix: '192.0.0.170/32', name: 'NAT64/DNS64 Discovery', globallyReachable: false },
+  { prefix: '192.0.0.171/32', name: 'NAT64/DNS64 Discovery', globallyReachable: false },
+  { prefix: '192.0.2.0/24', name: 'Documentation (TEST-NET-1)', globallyReachable: false },
+  { prefix: '192.31.196.0/24', name: 'AS112-v4', globallyReachable: true },
+  { prefix: '192.52.193.0/24', name: 'AMT', globallyReachable: true },
+  { prefix: '192.88.99.0/24', name: 'Deprecated (6to4 Relay Anycast)', globallyReachable: false },
+  { prefix: '192.88.99.2/32', name: '6a44-relay anycast address', globallyReachable: false },
+  { prefix: '192.168.0.0/16', name: 'Private-Use', globallyReachable: false },
+  { prefix: '192.175.48.0/24', name: 'Direct Delegation AS112 Service', globallyReachable: true },
+  { prefix: '198.18.0.0/15', name: 'Benchmarking', globallyReachable: false },
+  { prefix: '198.51.100.0/24', name: 'Documentation (TEST-NET-2)', globallyReachable: false },
+  { prefix: '203.0.113.0/24', name: 'Documentation (TEST-NET-3)', globallyReachable: false },
+  { prefix: '240.0.0.0/4', name: 'Reserved', globallyReachable: false },
+  { prefix: '255.255.255.255/32', name: 'Limited Broadcast', globallyReachable: false },
+]);
+
+/**
+ * IANA IPv6 Special-Purpose Address Registry (RFC 6890 / iana-ipv6-special-registry).
+ * globallyReachable mirrors the IANA column; empty/N/A → false (fail-closed).
+ * ::ffff:0:0/96 is listed False but evaluated via embedded IPv4 (specialHandling).
+ */
+const IANA_IPV6_SPECIAL_PURPOSE_RAW = Object.freeze([
+  { prefix: '::1/128', name: 'Loopback Address', globallyReachable: false },
+  { prefix: '::/128', name: 'Unspecified Address', globallyReachable: false },
+  {
+    prefix: '::ffff:0:0/96',
+    name: 'IPv4-mapped Address',
+    globallyReachable: false,
+    specialHandling: 'ipv4_mapped_embedded',
+  },
+  { prefix: '64:ff9b::/96', name: 'IPv4-IPv6 Translat.', globallyReachable: true },
+  { prefix: '64:ff9b:1::/48', name: 'IPv4-IPv6 Translat.', globallyReachable: false },
+  { prefix: '100::/64', name: 'Discard-Only Address Block', globallyReachable: false },
+  { prefix: '100:0:0:1::/64', name: 'Dummy IPv6 Prefix', globallyReachable: false },
+  { prefix: '2001::/23', name: 'IETF Protocol Assignments', globallyReachable: false },
+  { prefix: '2001::/32', name: 'TEREDO', globallyReachable: false }, // IANA N/A → fail-closed
+  { prefix: '2001:1::1/128', name: 'Port Control Protocol Anycast', globallyReachable: true },
+  { prefix: '2001:1::2/128', name: 'Traversal Using Relays around NAT Anycast', globallyReachable: true },
+  { prefix: '2001:1::3/128', name: 'DNS-SD Service Registration Protocol Anycast', globallyReachable: true },
+  { prefix: '2001:2::/48', name: 'Benchmarking', globallyReachable: false },
+  { prefix: '2001:3::/32', name: 'AMT', globallyReachable: true },
+  { prefix: '2001:4:112::/48', name: 'AS112-v6', globallyReachable: true },
+  { prefix: '2001:10::/28', name: 'Deprecated (previously ORCHID)', globallyReachable: false },
+  { prefix: '2001:20::/28', name: 'ORCHIDv2', globallyReachable: true },
+  { prefix: '2001:30::/28', name: 'Drone Remote ID Protocol Entity Tags (DETs) Prefix', globallyReachable: true },
+  { prefix: '2001:db8::/32', name: 'Documentation', globallyReachable: false },
+  { prefix: '2002::/16', name: '6to4', globallyReachable: false }, // IANA N/A → fail-closed
+  { prefix: '2620:4f:8000::/48', name: 'Direct Delegation AS112 Service', globallyReachable: true },
+  { prefix: '3fff::/20', name: 'Documentation', globallyReachable: false },
+  { prefix: '5f00::/16', name: 'Segment Routing (SRv6) SIDs', globallyReachable: false },
+  { prefix: 'fc00::/7', name: 'Unique-Local', globallyReachable: false },
+  { prefix: 'fe80::/10', name: 'Link-Local Unicast', globallyReachable: false },
+]);
+
+function compileIpv4SpecialEntry(raw) {
+  const [addr, lenStr] = String(raw.prefix).split('/');
+  const parts = parseIpv4(addr);
+  const prefixLen = Number(lenStr);
+  if (!parts || !Number.isInteger(prefixLen) || prefixLen < 0 || prefixLen > 32) {
+    throw new Error(`invalid IANA IPv4 special prefix: ${raw.prefix}`);
+  }
+  return Object.freeze({
+    family: 4,
+    prefix: raw.prefix,
+    name: raw.name,
+    globallyReachable: parseIanaGloballyReachable(raw.globallyReachable),
+    prefixLen,
+    baseInt: ipv4ToInt(parts) & ipv4Mask(prefixLen),
+    specialHandling: raw.specialHandling || null,
+  });
+}
+
+function compileIpv6SpecialEntry(raw) {
+  const [addr, lenStr] = String(raw.prefix).split('/');
+  const hextets = parseIpv6Hextets(addr);
+  const prefixLen = Number(lenStr);
+  if (!hextets || !Number.isInteger(prefixLen) || prefixLen < 0 || prefixLen > 128) {
+    throw new Error(`invalid IANA IPv6 special prefix: ${raw.prefix}`);
+  }
+  // Zero host bits beyond prefixLen for a stable network base.
+  const base = hextets.slice();
+  let bitsLeft = prefixLen;
+  for (let i = 0; i < 8; i += 1) {
+    if (bitsLeft >= 16) {
+      bitsLeft -= 16;
+      continue;
+    }
+    if (bitsLeft > 0) {
+      const mask = (0xffff << (16 - bitsLeft)) & 0xffff;
+      base[i] &= mask;
+      bitsLeft = 0;
+    } else {
+      base[i] = 0;
+    }
+  }
+  return Object.freeze({
+    family: 6,
+    prefix: raw.prefix,
+    name: raw.name,
+    globallyReachable: parseIanaGloballyReachable(raw.globallyReachable),
+    prefixLen,
+    baseHextets: Object.freeze(base),
+    specialHandling: raw.specialHandling || null,
+  });
+}
+
+const IANA_IPV4_SPECIAL_PURPOSE = Object.freeze(
+  IANA_IPV4_SPECIAL_PURPOSE_RAW.map(compileIpv4SpecialEntry)
+    .sort((a, b) => b.prefixLen - a.prefixLen || a.prefix.localeCompare(b.prefix)),
+);
+
+const IANA_IPV6_SPECIAL_PURPOSE = Object.freeze(
+  IANA_IPV6_SPECIAL_PURPOSE_RAW.map(compileIpv6SpecialEntry)
+    .sort((a, b) => b.prefixLen - a.prefixLen || a.prefix.localeCompare(b.prefix)),
+);
+
+function matchIpv4SpecialPurpose(parts) {
+  const ip = ipv4ToInt(parts);
+  for (const entry of IANA_IPV4_SPECIAL_PURPOSE) {
+    if ((ip & ipv4Mask(entry.prefixLen)) === entry.baseInt) return entry;
+  }
+  return null;
+}
+
+function matchIpv6SpecialPurpose(hextets) {
+  for (const entry of IANA_IPV6_SPECIAL_PURPOSE) {
+    if (ipv6PrefixMatch(hextets, entry.baseHextets, entry.prefixLen)) return entry;
+  }
+  return null;
+}
+
+/**
+ * Representative address that longest-matches `entry` (avoids more-specific children).
+ * Used by table-driven RED/GREEN coverage.
+ */
+function sampleAddressForIanaEntry(entry) {
+  if (entry.family === 4) {
+    const hostBits = 32 - entry.prefixLen;
+    const span = hostBits >= 32 ? 0xffffffff : ((1 << hostBits) >>> 0);
+    const limit = Math.min(span === 0 ? 1 : span, 65536);
+    for (let i = 0; i < limit; i += 1) {
+      const candidate = (entry.baseInt + i) >>> 0;
+      if ((candidate & ipv4Mask(entry.prefixLen)) !== entry.baseInt) break;
+      const parts = parseIpv4(intToIpv4(candidate));
+      const hit = matchIpv4SpecialPurpose(parts);
+      if (hit && hit.prefix === entry.prefix) return intToIpv4(candidate);
+    }
+    return intToIpv4(entry.baseInt);
+  }
+
+  // IPv6: walk low host bits.
+  const hostBits = 128 - entry.prefixLen;
+  const limit = Math.min(hostBits === 0 ? 1 : (hostBits >= 16 ? 65536 : (1 << hostBits)), 65536);
+  for (let i = 0; i < limit; i += 1) {
+    const candidate = entry.baseHextets.slice();
+    let rem = i;
+    for (let h = 7; h >= 0 && rem > 0; h -= 1) {
+      const add = rem & 0xffff;
+      candidate[h] = (candidate[h] + add) & 0xffff;
+      rem = rem >>> 16;
+    }
+    if (!ipv6PrefixMatch(candidate, entry.baseHextets, entry.prefixLen)) break;
+    const hit = matchIpv6SpecialPurpose(candidate);
+    if (hit && hit.prefix === entry.prefix) return formatIpv6Hextets(candidate);
+  }
+  return formatIpv6Hextets(entry.baseHextets);
+}
+
+function extractIpv4MappedEmbedded(raw, hextets) {
+  const dotted = String(raw).match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)
+    || String(raw).match(/^0:0:0:0:0:ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (dotted) return dotted[1];
+  if (hextets
+    && hextets[0] === 0 && hextets[1] === 0 && hextets[2] === 0 && hextets[3] === 0
+    && hextets[4] === 0 && hextets[5] === 0xffff) {
+    return [
+      (hextets[6] >> 8) & 0xff,
+      hextets[6] & 0xff,
+      (hextets[7] >> 8) & 0xff,
+      hextets[7] & 0xff,
+    ].join('.');
+  }
+  return null;
+}
+
 /**
  * Fail-closed globally-routable unicast check for IPv4 and IPv6.
- * Rejects documentation, benchmark, reserved, multicast, link-local, private,
- * loopback, unspecified, and CGNAT / IPv4-mapped non-routable embeddings.
+ * Uses the complete IANA special-purpose tables with explicit globallyReachable
+ * flags (longest prefix match). Multicast (outside IANA special registries) and
+ * non-2000::/3 IPv6 are rejected. IPv4-mapped IPv6 evaluates the embedded IPv4.
  * Default deny: unknown/malformed → false.
  */
 function isGloballyRoutableIp(address) {
@@ -329,70 +571,28 @@ function isGloballyRoutableIp(address) {
   if (kind === 4) {
     const n = parseIpv4(raw);
     if (!n) return false;
-    // unspecified / this-network
-    if (ipv4InCidr(n, 0, 0, 0, 0, 8)) return false;
-    // loopback
-    if (ipv4InCidr(n, 127, 0, 0, 0, 8)) return false;
-    // RFC1918 private
-    if (ipv4InCidr(n, 10, 0, 0, 0, 8)) return false;
-    if (ipv4InCidr(n, 172, 16, 0, 0, 12)) return false;
-    if (ipv4InCidr(n, 192, 168, 0, 0, 16)) return false;
-    // CGNAT / shared address space
-    if (ipv4InCidr(n, 100, 64, 0, 0, 10)) return false;
-    // link-local
-    if (ipv4InCidr(n, 169, 254, 0, 0, 16)) return false;
-    // IETF protocol assignments / reserved specials
-    if (ipv4InCidr(n, 192, 0, 0, 0, 24)) return false;
-    // documentation TEST-NET-1/2/3
-    if (ipv4InCidr(n, 192, 0, 2, 0, 24)) return false;
-    if (ipv4InCidr(n, 198, 51, 100, 0, 24)) return false;
-    if (ipv4InCidr(n, 203, 0, 113, 0, 24)) return false;
-    // benchmarking
-    if (ipv4InCidr(n, 198, 18, 0, 0, 15)) return false;
-    // multicast
+    // Multicast is not in the IANA special-purpose registry — fail closed.
     if (ipv4InCidr(n, 224, 0, 0, 0, 4)) return false;
-    // reserved / Class E
-    if (ipv4InCidr(n, 240, 0, 0, 0, 4)) return false;
-    return true;
+    const hit = matchIpv4SpecialPurpose(n);
+    if (hit) return hit.globallyReachable === true;
+    return true; // ordinary public unicast
   }
 
   if (kind === 6) {
-    // IPv4-mapped ::ffff:a.b.c.d — require embedded IPv4 to be globally routable.
-    const v4mapped = raw.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)
-      || raw.match(/^0:0:0:0:0:ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-    if (v4mapped) return isGloballyRoutableIp(v4mapped[1]);
-
     const h = parseIpv6Hextets(raw);
     if (!h) return false;
-    // unspecified ::
-    if (h.every((x) => x === 0)) return false;
-    // loopback ::1
-    if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0
-      && h[4] === 0 && h[5] === 0 && h[6] === 0 && h[7] === 1) {
-      return false;
-    }
-    // multicast ff00::/8
+
+    // IPv4-mapped ::ffff:0:0/96 — evaluate embedded IPv4 (registry False alone is insufficient).
+    const embedded = extractIpv4MappedEmbedded(raw, h);
+    if (embedded) return isGloballyRoutableIp(embedded);
+
+    // Multicast ff00::/8 — not in IANA special-purpose registry — fail closed.
     if ((h[0] & 0xff00) === 0xff00) return false;
-    // link-local fe80::/10
-    if ((h[0] & 0xffc0) === 0xfe80) return false;
-    // unique-local fc00::/7
-    if ((h[0] & 0xfe00) === 0xfc00) return false;
-    // documentation 2001:db8::/32
-    if (h[0] === 0x2001 && h[1] === 0x0db8) return false;
-    // discard-only 100::/64
-    if (h[0] === 0x0100 && h[1] === 0 && h[2] === 0 && h[3] === 0) return false;
-    // IPv4-mapped hextet form ::ffff:0:0/96
-    if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0
-      && h[4] === 0 && h[5] === 0xffff) {
-      const embedded = [
-        (h[6] >> 8) & 0xff,
-        h[6] & 0xff,
-        (h[7] >> 8) & 0xff,
-        h[7] & 0xff,
-      ];
-      return isGloballyRoutableIp(embedded.join('.'));
-    }
-    // Fail-closed: only accept global unicast 2000::/3.
+
+    const hit = matchIpv6SpecialPurpose(h);
+    if (hit) return hit.globallyReachable === true;
+
+    // Fail-closed: only accept global unicast 2000::/3 when not special-purpose.
     if ((h[0] & 0xe000) !== 0x2000) return false;
     return true;
   }
@@ -909,6 +1109,8 @@ module.exports = {
   FUTURE_DRILL_PROFILE,
   STATUS_CLASSES,
   OFFLINE_SEAL,
+  IANA_IPV4_SPECIAL_PURPOSE,
+  IANA_IPV6_SPECIAL_PURPOSE,
   assertAllowedTarget,
   clampProfile,
   validateProfileOnly,
@@ -917,6 +1119,9 @@ module.exports = {
   summarizeLatencies,
   isGloballyRoutableIp,
   isPublicIp,
+  matchIpv4SpecialPurpose,
+  matchIpv6SpecialPurpose,
+  sampleAddressForIanaEntry,
   assertPublicDnsAddresses,
   pinValidatedPublicDns,
   runBoundedLoad,
