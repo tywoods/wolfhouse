@@ -1,10 +1,10 @@
-# MESSI Slice 1I findings — finite evidence-integration ledger/audit closeout
+# MESSI Slice 1J findings — FOUNDATION Docker-gate ledger wiring
 
-**Status:** finite MESSI evidence-integration ledger/audit workstream complete on `G_MESSI_MILESTONE_CLOSEOUT` (formal milestone gate remains absent)
-**Master basis:** `977afcc28a0424706e9c81665a529d1eb30fa00a`
-**Branch:** `messi/slice-1i-finite-closeout`
-**Outcome:** `1I_finite_evidence_integration_ledger_audit_closeout`
-**Progress class:** `finite_messi_evidence_integration_ledger_audit_closeout`
+**Status:** FOUNDATION 1J Docker-gate complete wired on `G_FOUNDATION_PARENT` (parent remains partial)
+**Master basis:** `029cb799c917e46d6a82b4862bddc1adc34f7735`
+**Branch:** `messi/slice-1j-foundation-docker-wiring`
+**Outcome:** `1J_foundation_docker_gate_ledger_wiring`
+**Progress class:** `foundation_docker_gate_ledger_wiring_only`
 
 ## Definition
 
@@ -13,12 +13,13 @@ It does not replace parent workstreams. It inventories their canonical closeout/
 binds exact file hashes, runs retained offline gates, and classifies MESSI gates as
 `complete` / `partial` / `absent` with explicit missing proof.
 
-Slice **1I** changes only `G_MESSI_MILESTONE_CLOSEOUT`: it records that the finite MESSI
-evidence-integration ledger/audit workstream is complete and that all four reviewed
-parent dispositions plus the cross-parent gap manifest are reviewed, while keeping the
-formal milestone gate **absent** because four parents remain partial and cross-parent
-operated/production proof is absent. Finite ledger closeout is **not** MESSI complete.
-No certificate architecture / runtime / live changes.
+Slice **1J** changes only `G_FOUNDATION_PARENT`: it consumes the merged
+`verify:foundation-slice1j-docker-gate-complete` gate, binds reviewed 1J candidate
+`c7a3cd0f` + merge `4621353f` + 44-migration evidence correction `029cb799`
+protected blobs, exposes FOUNDATION score **3/0/5**, and removes **only**
+`docker_fresh_db_replacement_proof` from the parent missing list while keeping
+the parent **partial** and production readiness **absent**. Docker completion is
+**never** marked complete from labels. No certificate architecture / runtime / live changes.
 
 ## Completion policy
 
@@ -37,11 +38,13 @@ Classification requires:
 |-------:|--------:|-------:|------:|
 | 0 | 4 | 2 | 6 |
 
+FOUNDATION disposition score exposed on `G_FOUNDATION_PARENT`: **3/0/5**.
+
 ## Gate classifications
 
 | Gate | Verdict | Notes |
 |------|---------|-------|
-| `G_FOUNDATION_PARENT` | partial | 1B finite closeout wired + staging complete exposed; Docker/prod/restore/operated missing |
+| `G_FOUNDATION_PARENT` | partial | 1J Docker gate wired; score 3/0/5; docker removed; prod/restore/operated missing |
 | `G_FORTRESS_PARENT` | partial | 1D finite audit wired + audit complete exposed; matrix 3/4 gaps; live KV/deploy; drills; operated |
 | `G_RADAR_PARENT` | partial | 16AP finite closeout wired + staging-readiness complete exposed; **formal score frozen 0/9/0** |
 | `G_FACTORY_PARENT` | partial | 1E finite offline closeout wired + offline dry-run complete exposed; live/prod/apply/secrets still missing |
@@ -59,33 +62,34 @@ Classification requires:
 
 Finite staging/offline/audit closeouts are **not** production readiness.
 The cross-parent gap manifest is **not** cross-parent integration proof.
-Finite MESSI evidence-integration ledger/audit closeout is **not** MESSI complete.
+Docker-gate complete is **not** FOUNDATION parent complete.
 
-## What 1I proves / does not prove
+## What 1J proves / does not prove
 
-**Proves:** finite evidence-integration ledger/audit workstream complete on
-`G_MESSI_MILESTONE_CLOSEOUT`; all four reviewed parent dispositions plus the
-cross-parent gap manifest are inventoried as reviewed; formal milestone stays
-**absent**; five unrelated gate objects (serialization-identical to base `977afcc2`);
-MESSI score remains 0/4/2; RADAR formal 0/9/0 preserved; `production_ready` /
-`messi_complete` false.
+**Proves:** FOUNDATION 1J Docker-gate consumed on `G_FOUNDATION_PARENT`; exact
+candidate/merge/evidence-correction protected blobs bound; FOUNDATION score
+**3/0/5** exposed; docker removed from missing proof only; five unrelated gate
+objects serialization-identical to base `029cb799`; MESSI score remains 0/4/2;
+RADAR formal 0/9/0 preserved; `production_ready` / `messi_complete` false.
 
-**Does not prove:** MESSI complete, production ready, genuine end-to-end cross-parent
-operated/production integration, composed live staging beyond parent silos, raising any
-RADAR formal gate, or promoting finite ledger closeout into MESSI complete.
+**Does not prove:** FOUNDATION parent complete, production schema readiness,
+live restore drill, operated readiness, MESSI complete, raising any RADAR formal
+gate, or promoting Docker completion into FOUNDATION parent complete.
 
 ## Parent SHA provenance
 
 | Parent | Canonical tip | Candidate |
 |--------|---------------|-----------|
-| FOUNDATION | `98202775a57e64597e0e606a6e58933bb8ba7250` (1B merge) | `4a550b44bb7669a860557f0ec211260d7b76250c` (same tree) |
+| FOUNDATION | `4621353f16fc00783ae87b9391ca2c6578decd44` (1J merge) | `c7a3cd0f9b305a6609433f4fd7e663ebfff364d3` |
 | FORTRESS | `ff285598ac2cfec980e8316e772924a9c79a6a7e` (1D merge) | `fa2c5d71ad6c662b4c4f60b08ede409064acf2fe` |
 | RADAR | `7e56a99a2d69e13bf1a764090e4033195e189641` | `7870a9fb818bbd94d33b291c8782851276e2715e` |
 | FACTORY | `14facf5d54be8767cf9aca4d69a880f28ea3dc2e` | identity |
 
-## Hostile coverage (1I additions)
+Evidence correction (Docker proof protected blobs): `029cb799c917e46d6a82b4862bddc1adc34f7735`.
+
+## Hostile coverage (1J additions)
 
 | RED id | Intent |
 |--------|--------|
-| `finite_ledger_closeout_as_MESSI_complete` | Finite ledger/audit flag must never raise milestone above absent or flip `messi_complete` / `production_ready` |
-| `missing_reviewed_disposition` | Dropping any reviewed disposition (parent or cross-parent gap) fails closed |
+| `1j_retained_gate_skipped` | FOUNDATION score 3/0/5 / docker removal requires real 1J retained gate exit 0 |
+| `docker_completion_promoted_to_FOUNDATION_parent_complete` | Docker complete must never raise `G_FOUNDATION_PARENT` above partial |

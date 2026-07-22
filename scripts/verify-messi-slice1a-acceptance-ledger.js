@@ -1,12 +1,12 @@
 'use strict';
 
 /**
- * verify:messi-slice1a-acceptance-ledger — MESSI acceptance ledger (1A + 1I)
+ * verify:messi-slice1a-acceptance-ledger — MESSI acceptance ledger (1A + 1J)
  *
  * Read-only deterministic acceptance ledger verifier. Canonical classifier +
  * parent bindings live in scripts/lib/messi-slice1a-acceptance-ledger.js.
- * Slice 1I records finite evidence-integration ledger/audit closeout on
- * G_MESSI_MILESTONE_CLOSEOUT while keeping that gate absent.
+ * Slice 1J wires FOUNDATION 1J Docker-gate complete into G_FOUNDATION_PARENT
+ * while keeping that parent partial.
  * Runs retained offline parent gates only — no deploy/DB/cloud/network/live product
  * mutation.
  *
@@ -66,7 +66,7 @@ function noTrailingWhitespace(text) {
   return !String(text).split('\n').some((line) => /[ \t]+$/.test(line));
 }
 
-console.log('verify:messi-slice1a-acceptance-ledger — MESSI ledger (1I finite closeout)\n');
+console.log('verify:messi-slice1a-acceptance-ledger — MESSI ledger (1J FOUNDATION Docker wiring)\n');
 
 // ── Artifacts ───────────────────────────────────────────────────────────────
 console.log('── Artifacts ──');
@@ -84,7 +84,7 @@ const doc = readText(locks.ARTIFACT_RELS.doc);
 const lockSrc = readText(locks.ARTIFACT_RELS.lock_module);
 const verifierSrc = readText(locks.ARTIFACT_RELS.verifier);
 
-ok('contract slice MESSI-1I', contract.slice === locks.SLICE && locks.SLICE === 'MESSI-1I');
+ok('contract slice MESSI-1J', contract.slice === locks.SLICE && locks.SLICE === 'MESSI-1J');
 ok('contract outcome', contract.outcome_id === locks.OUTCOME_ID);
 ok('contract master basis', contract.master_basis === locks.MASTER_BASIS);
 ok('contract messi_complete false', contract.messi_complete === false);
@@ -99,14 +99,25 @@ ok('findings forbid label completion',
 ok('doc/findings distinguish finite vs production',
   /Finite staging\/offline\/audit closeouts are \*\*not\*\* production readiness/i.test(findings)
   || /Finite staging\/offline closeouts are \*\*not\*\* production readiness/i.test(findings)
-  || /distinguish.*finite.*production/i.test(doc));
+  || /distinguish.*finite.*production/i.test(doc)
+  || /Docker-gate complete is \*\*not\*\* FOUNDATION parent complete/i.test(findings));
 ok('findings have no trailing whitespace', noTrailingWhitespace(findings));
 ok('doc has no trailing whitespace', noTrailingWhitespace(doc));
-ok('1B merge/candidate bound',
-  locks.FOUNDATION_1B_MERGE_TIP === '98202775a57e64597e0e606a6e58933bb8ba7250'
-  && locks.PARENTS.FOUNDATION.canonical_tip === locks.FOUNDATION_1B_MERGE_TIP
-  && locks.PARENTS.FOUNDATION.candidate_sha === locks.FOUNDATION_1B_CANDIDATE_SHA
-  && locks.sameGitTree(ROOT, locks.FOUNDATION_1B_CANDIDATE_SHA, locks.FOUNDATION_1B_MERGE_TIP));
+ok('1J candidate/merge/evidence-correction bound',
+  locks.FOUNDATION_1J_CANDIDATE_SHA === 'c7a3cd0f9b305a6609433f4fd7e663ebfff364d3'
+  && locks.FOUNDATION_1J_MERGE_TIP === '4621353f16fc00783ae87b9391ca2c6578decd44'
+  && locks.FOUNDATION_1J_EVIDENCE_CORRECTION_SHA
+    === '029cb799c917e46d6a82b4862bddc1adc34f7735'
+  && locks.PARENTS.FOUNDATION.canonical_tip === locks.FOUNDATION_1J_MERGE_TIP
+  && locks.PARENTS.FOUNDATION.candidate_sha === locks.FOUNDATION_1J_CANDIDATE_SHA
+  && locks.PARENTS.FOUNDATION.evidence_correction_sha
+    === locks.FOUNDATION_1J_EVIDENCE_CORRECTION_SHA
+  && locks.assertCandidateFitsTip(
+    ROOT,
+    locks.FOUNDATION_1J_CANDIDATE_SHA,
+    locks.FOUNDATION_1J_MERGE_TIP,
+    locks.PARENTS.FOUNDATION.provenance_bound_files,
+  ).ok);
 ok('1D candidate/merge bound',
   locks.FORTRESS_1D_CANDIDATE_SHA === 'fa2c5d71ad6c662b4c4f60b08ede409064acf2fe'
   && locks.FORTRESS_1D_MERGE_TIP === 'ff285598ac2cfec980e8316e772924a9c79a6a7e'
@@ -139,7 +150,9 @@ console.log('\n── Package script ──');
       && pkg.scripts[locks.PACKAGE_JSON_1H_SCRIPT_KEY]
       === locks.PACKAGE_JSON_1H_SCRIPT_VALUE
       && pkg.scripts[locks.PACKAGE_JSON_1I_SCRIPT_KEY]
-      === locks.PACKAGE_JSON_1I_SCRIPT_VALUE,
+      === locks.PACKAGE_JSON_1I_SCRIPT_VALUE
+      && pkg.scripts[locks.PACKAGE_JSON_1J_SCRIPT_KEY]
+      === locks.PACKAGE_JSON_1J_SCRIPT_VALUE,
   );
 }
 
@@ -261,14 +274,18 @@ green('foundation_finite_staging_exposed', (() => {
     && g.verdict === 'partial'
     && g.finite_staging_workstream_complete === true
     && g.finite_closeout_analog === 'verify:messi-slice1b-foundation-closeout'
+    && g.docker_gate_analog === locks.FOUNDATION_1J_NPM
+    && locks.deepEqual(g.foundation_score, locks.FOUNDATION_1J_FROZEN_SCORE)
     && Array.isArray(g.missing_proof)
-    && g.missing_proof.includes('docker_fresh_db_replacement_proof')
+    && !g.missing_proof.includes('docker_fresh_db_replacement_proof')
     && g.missing_proof.includes('production_schema_readiness')
     && g.missing_proof.includes('live_restore_drill')
     && g.missing_proof.includes('operated_readiness')
     && ledgerG
     && ledgerG.finite_staging_workstream_complete === true
-    && ledgerG.verdict === 'partial';
+    && ledgerG.verdict === 'partial'
+    && locks.deepEqual(ledgerG.foundation_score, locks.FOUNDATION_1J_FROZEN_SCORE)
+    && !ledgerG.missing_proof.includes('docker_fresh_db_replacement_proof');
 })());
 green('fortress_finite_audit_exposed', (() => {
   const g = classification.gates.find((x) => x.id === 'G_FORTRESS_PARENT');
@@ -392,12 +409,19 @@ green('unrelated_gates_byte_identical_to_base', (() => {
     && locks.BASE_UNRELATED_GATE_OBJECTS.length === 5
     && locks.BASE_UNRELATED_GATE_OBJECTS.every((exp) => {
       const got = (ledger.gates || []).find((x) => x.id === exp.id);
-      return got
-        && !Object.prototype.hasOwnProperty.call(got, 'reviewed_dispositions')
+      if (!got) return false;
+      // MESSI closeout is unrelated post-1J and retains reviewed_dispositions + finite flag.
+      if (exp.id === 'G_MESSI_MILESTONE_CLOSEOUT') {
+        return Object.prototype.hasOwnProperty.call(got, 'reviewed_dispositions')
+          && Object.prototype.hasOwnProperty.call(got, locks.MESSI_CLOSEOUT_FINITE_FLAG)
+          && locks.deepEqual(locks.ledgerGateObject(got), locks.deepClone(exp));
+      }
+      return !Object.prototype.hasOwnProperty.call(got, 'reviewed_dispositions')
         && !Object.prototype.hasOwnProperty.call(got, locks.MESSI_CLOSEOUT_FINITE_FLAG)
         && locks.deepEqual(locks.ledgerGateObject(got), locks.deepClone(exp));
     })
-    && !(locks.UNRELATED_GATE_IDS.includes('G_MESSI_MILESTONE_CLOSEOUT'))
+    && locks.UNRELATED_GATE_IDS.includes('G_MESSI_MILESTONE_CLOSEOUT')
+    && !locks.UNRELATED_GATE_IDS.includes('G_FOUNDATION_PARENT')
     && locks.UNRELATED_GATE_IDS.includes('G_CROSS_PARENT_INTEGRATION')
     && locks.UNRELATED_GATE_IDS.includes('G_FACTORY_PARENT')
     && (ledger.gates || []).find((x) => x.id === 'G_FOUNDATION_PARENT')
@@ -462,6 +486,7 @@ red('obsolete_authorization_green_name_absent', (() => {
 console.log('\n── Recursion fence ──');
 {
   const parentVerifiers = [
+    'scripts/verify-foundation-slice1j-docker-gate-complete.js',
     'scripts/verify-messi-slice1b-foundation-closeout.js',
     'scripts/verify-messi-slice1d-fortress-closeout.js',
     'scripts/verify-radar-slice16ap-finite-closeout.js',
@@ -470,7 +495,7 @@ console.log('\n── Recursion fence ──');
   for (const rel of parentVerifiers) {
     const src = readText(rel);
     ok(`${rel} does not spawn MESSI ledger verifier`,
-      !/verify-messi-slice1a-acceptance-ledger\.js|verify:messi-slice1c-foundation-wiring|verify:messi-slice1e-fortress-wiring|verify:messi-slice1f-radar-wiring|verify:messi-slice1g-factory-wiring|verify:messi-slice1h-cross-parent-gap|verify:messi-slice1i-finite-closeout/.test(src));
+      !/verify-messi-slice1a-acceptance-ledger\.js|verify:messi-slice1c-foundation-wiring|verify:messi-slice1e-fortress-wiring|verify:messi-slice1f-radar-wiring|verify:messi-slice1g-factory-wiring|verify:messi-slice1h-cross-parent-gap|verify:messi-slice1i-finite-closeout|verify:messi-slice1j-foundation-docker-wiring/.test(src));
   }
 }
 
@@ -725,8 +750,7 @@ red('stale_or_repinned_1b_provenance', (() => {
 red('hidden_missing_proofs', (() => {
   const badLedger = locks.thaw(ledger);
   const g = badLedger.gates.find((x) => x.id === 'G_FOUNDATION_PARENT');
-  g.missing_proof = g.missing_proof.filter((m) => m !== 'docker_fresh_db_replacement_proof'
-    && m !== 'operated_readiness');
+  g.missing_proof = g.missing_proof.filter((m) => m !== 'operated_readiness');
   const v = locks.validateLedgerFixture(badLedger, classification);
   // Classifier itself must still surface the required missing proofs.
   const c = locks.classifyMessiGates({
@@ -738,7 +762,7 @@ red('hidden_missing_proofs', (() => {
   const cg = c.gates.find((x) => x.id === 'G_FOUNDATION_PARENT');
   return v.ok === false
     && v.errors.some((e) => e.includes('gate_missing_proof_mismatch:G_FOUNDATION_PARENT'))
-    && cg.missing_proof.includes('docker_fresh_db_replacement_proof')
+    && !cg.missing_proof.includes('docker_fresh_db_replacement_proof')
     && cg.missing_proof.includes('production_schema_readiness')
     && cg.missing_proof.includes('live_restore_drill')
     && cg.missing_proof.includes('operated_readiness');
@@ -792,7 +816,7 @@ red('unrelated_gate_identity', (() => {
       'G_CROSS_PARENT_INTEGRATION',
       'G_FACTORY_PARENT',
       'G_FORTRESS_PARENT',
-      'G_FOUNDATION_PARENT',
+      'G_MESSI_MILESTONE_CLOSEOUT',
       'G_RADAR_PARENT',
     ])
     && v.ok === false
@@ -986,6 +1010,63 @@ red('missing_reviewed_disposition', (() => {
     && (
       v.errors.includes('reviewed_dispositions_mismatch:G_MESSI_MILESTONE_CLOSEOUT')
       || v.errors.includes('missing_reviewed_disposition:RADAR')
+    );
+})());
+
+red('1j_retained_gate_skipped', (() => {
+  // Skipping/failing the real 1J retained gate must fail closed — no score 3/0/5
+  // and docker must not be treated as removed under a skipped gate.
+  const skipped = locks.classifyMessiGates({
+    hashBindingOk: true,
+    gateResults: {
+      ...gateResults,
+      FOUNDATION: [{
+        id: 'foundation_1j_docker_gate_complete',
+        script: 'scripts/verify-foundation-slice1j-docker-gate-complete.js',
+        status: 1,
+        ok: false,
+        elapsed_ms: 1,
+      }],
+    },
+    radarFormalScore: radarScore,
+    fortressMatrixCounts: matrixCounts,
+  });
+  const fg = skipped.gates.find((x) => x.id === 'G_FOUNDATION_PARENT');
+  return skipped.ok === false
+    && skipped.errors.includes('1j_retained_gate_skipped')
+    && fg.verdict === 'absent'
+    && !locks.deepEqual(fg.foundation_score, locks.FOUNDATION_1J_FROZEN_SCORE)
+    && fg.missing_proof.includes('retained_gate_exit_nonzero_or_missing');
+})());
+
+red('docker_completion_promoted_to_FOUNDATION_parent_complete', (() => {
+  // Docker-gate complete must never raise G_FOUNDATION_PARENT above partial.
+  const badLedger = locks.thaw(ledger);
+  const g = badLedger.gates.find((x) => x.id === 'G_FOUNDATION_PARENT');
+  g.verdict = 'complete';
+  g.missing_proof = [];
+  g.foundation_score = { ...locks.FOUNDATION_1J_FROZEN_SCORE };
+  badLedger.production_ready = true;
+  badLedger.score = { proven: 1, partial: 3, absent: 2, total: 6 };
+  const v = locks.validateLedgerFixture(badLedger, classification);
+  const forged = locks.classifyMessiGates({
+    hashBindingOk: true,
+    gateResults,
+    radarFormalScore: radarScore,
+    fortressMatrixCounts: matrixCounts,
+  });
+  const fg = forged.gates.find((x) => x.id === 'G_FOUNDATION_PARENT');
+  return v.ok === false
+    && fg.verdict === 'partial'
+    && locks.deepEqual(fg.foundation_score, locks.FOUNDATION_1J_FROZEN_SCORE)
+    && forged.production_ready === false
+    && (
+      v.errors.includes('false_production_ready')
+      || v.errors.includes('gate_verdict_mismatch:G_FOUNDATION_PARENT')
+      || v.errors.includes('downgraded_or_false_complete:G_FOUNDATION_PARENT')
+      || v.errors.includes('score_mismatch')
+      || forged.errors.includes('docker_completion_promoted_to_FOUNDATION_parent_complete')
+      || forged.errors.includes('foundation_complete_without_production_proofs')
     );
 })());
 
