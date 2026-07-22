@@ -7,10 +7,10 @@
   "enablement_forced_false": true,
   "files": [
     {
-      "bytes": 9913,
+      "bytes": 9879,
       "kind": "baseline",
       "relative_path": "preview/fixture-school.baseline.json",
-      "sha256": "97d51b41d73c9bb08e8aeab61d7f1caa1d81bff45631c5fb34a299a29091e651"
+      "sha256": "4266d9612fea4f535a72e395c139e322b185f445a0f3ea8f9a0a6d30c2bbd783"
     },
     {
       "bytes": 318,

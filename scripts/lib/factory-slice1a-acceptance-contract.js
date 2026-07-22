@@ -70,8 +70,10 @@ const FINITE_STAGES = Object.freeze([
   Object.freeze({
     id: '1D',
     title: 'Tenant/location isolation and legacy-compatibility wiring proofs',
-    status: 'deferred_future_stage',
+    status: 'complete',
     depends_on: '1C',
+    completion_evidence: '1D_integration_isolation_legacy_compat_proof',
+    completion_requires: 'verify:factory-slice1d-integration-proof',
   }),
   Object.freeze({
     id: '1E',
@@ -149,7 +151,7 @@ const GATES = Object.freeze([
     requirement:
       'New clients get unique client_slug; locations get globally unique location_id owned by exactly one client; no cross-tenant secret/DB/runtime sharing in live model (per docs/MULTICLIENT-ARCHITECTURE.md).',
     proof_stage: '1D+',
-    current_stage_evidence: 'existing_multiclient_verifiers_retained',
+    current_stage_evidence: '1D_integration_isolation_legacy_compat_proof',
   }),
   Object.freeze({
     id: 'G_LEGACY_COMPATIBILITY',
@@ -157,7 +159,7 @@ const GATES = Object.freeze([
     requirement:
       'Wolfhouse lodging_surf_house and Sunset surf_school_rentals continue to load via existing baseline/portal/resolver paths without requiring FACTORY migration in 1A–1E.',
     proof_stage: '1D+',
-    current_stage_evidence: 'inventory_maps_legacy_verticals',
+    current_stage_evidence: '1D_integration_isolation_legacy_compat_proof',
   }),
   Object.freeze({
     id: 'G_DRY_RUN_PROOF',
@@ -435,6 +437,39 @@ function validate1cLedgerClaim(stage1c, gates, slice1cVerifierPassed) {
   return errors;
 }
 
+/**
+ * 1D ledger may claim complete only when the independent 1D verifier passed.
+ * Gates G_TENANT_LOCATION_ISOLATION / G_LEGACY_COMPATIBILITY must carry 1D evidence.
+ */
+function validate1dLedgerClaim(stage1d, gates, slice1dVerifierPassed) {
+  const errors = [];
+  if (!stage1d || stage1d.id !== '1D') {
+    errors.push('1d_stage_missing');
+    return errors;
+  }
+  const evidence = '1D_integration_isolation_legacy_compat_proof';
+  const requires = 'verify:factory-slice1d-integration-proof';
+  if (stage1d.status === 'complete') {
+    if (!slice1dVerifierPassed) {
+      errors.push('1d_complete_without_independent_validator');
+    }
+    if (stage1d.completion_evidence !== evidence) {
+      errors.push('1d_complete_evidence_mismatch');
+    }
+    if (stage1d.completion_requires !== requires) {
+      errors.push('1d_complete_requires_mismatch');
+    }
+    const byId = new Map((gates || []).map((g) => [g.id, g]));
+    for (const gateId of ['G_TENANT_LOCATION_ISOLATION', 'G_LEGACY_COMPATIBILITY']) {
+      const g = byId.get(gateId);
+      if (!g || g.current_stage_evidence !== evidence) {
+        errors.push(`1d_gate_evidence_mismatch:${gateId}`);
+      }
+    }
+  }
+  return errors;
+}
+
 deepFreeze(CONTRACT);
 
 module.exports = Object.freeze({
@@ -461,4 +496,5 @@ module.exports = Object.freeze({
   validateFactory1aContract,
   validate1bLedgerClaim,
   validate1cLedgerClaim,
+  validate1dLedgerClaim,
 });

@@ -774,21 +774,18 @@ for (const rel of hardScripts) {
   ok(`${rel} exit 0`, r.status === 0, r.status !== 0 ? (r.stderr || r.stdout || '').slice(-400) : '');
 }
 
-// Nested 1A: skip when this verifier is itself probing for the 1A ledger gate
-// (avoids recursion). FACTORY_1B_LEDGER_PROBE=1 is set by the 1A verifier.
-if (process.env.FACTORY_1B_LEDGER_PROBE === '1') {
-  ok('ledger probe skips nested 1A (independent core already validated)', true);
-} else {
-  const r = spawnSync('npm', ['run', 'verify:factory-slice1a-acceptance-contract'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: { ...process.env, FACTORY_1A_SKIP_NESTED_1B: '1' },
-    timeout: 180000,
-    shell: true,
-  });
-  ok('verify:factory-slice1a-acceptance-contract exit 0',
-    r.status === 0,
-    r.status !== 0 ? (r.stderr || r.stdout || '').slice(-500) : '');
+// Structural recursion break: 1B never invokes 1A. 1A may invoke full 1B.
+// No FACTORY_* env value may skip checks or force PASS.
+console.log('\n── Nested factory recursion fence ──');
+{
+  const src = readText(path.join(ROOT, 'scripts', 'verify-factory-slice1b-archetype-templates.js'));
+  red('no_nested_1a_invocation',
+    !/npm['"\s,]*run['"\s,]*verify:factory-slice1a/.test(src)
+    && !/spawnSync\([^)]*verify-factory-slice1a/.test(src)
+    && !/runNpm\(['"]verify:factory-slice1a/.test(src));
+  red('no_factory_skip_or_probe_env_bypasses',
+    !/process\.env\.FACTORY_\w*(SKIP|PROBE)/.test(src)
+    && !/FACTORY_1[ABCD]_(SKIP|LEDGER_PROBE|SKIP_NESTED|SKIP_LEGACY)/.test(src));
 }
 
 console.log(`\n── factory-slice1b: ${pass} passed, ${fail} failed ──`);

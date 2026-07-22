@@ -40,6 +40,8 @@ Golden rendered-byte fixtures under `fixtures/factory-client-productization/slic
 - Secret / live-target shaped values rejected on input and output (reuses 1B forbidden patterns)
 - All enablement forced false (`live_enabled`, deployment, channels, payment auto-link, lesson scheduling); confirmation send mode stays in `{dry_run, staff_approval}`
 - Templates under `config/archetypes/` remain immutable (generator reads only)
+- **Typed substitution:** whole-token `{{TOKEN}}` preserves `number` / `boolean` / `null` / `string`; embedded tokens stringify; CLI/`loadSubstitutionsFile` reject object/array values
+- **Safe-integer boundary:** under the IEEE-754 JSON-number contract, finite decimals are allowed; every integer-valued number is rejected unless `Number.isSafeInteger(value)` with deterministic `substitution_value_unsafe_integer:<key>` (covers `±(MAX_SAFE_INTEGER+1)`, huge-exponent integers, and JSON.parse-rounded `9007199254740993`); `±MAX_SAFE_INTEGER` pass unchanged; numeric strings remain strings; money/duration fields cannot receive unsafe integers
 - **Substituted-key safety:** substituted objects use null prototypes; reserved keys `__proto__`, `prototype`, and `constructor` (exact + ASCII case variants) are rejected at every depth before assignment whether literal or placeholder-derived; duplicate/collision checks re-run after substitution; cross-references validate against enumerable own keys only
 
 ## Verification

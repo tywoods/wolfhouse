@@ -99,7 +99,7 @@
     "check_in_time": "16:00",
     "check_out_time": "11:00",
     "housekeeping": {
-      "cleaning_buffer_minutes": "60",
+      "cleaning_buffer_minutes": 60,
       "cleaning_scope": "standard",
       "no_next_guest_rule": "buffer_required"
     }
@@ -112,23 +112,23 @@
     ],
     "currency": "EUR",
     "inclusions": {
-      "full_board": [
-        "bed",
-        "breakfast",
-        "lesson"
+      "malibu": [
+        "bed"
       ],
-      "surf_plus": [
+      "uluwatu": [
         "bed",
         "breakfast"
       ],
-      "surf_week": [
-        "bed"
+      "waimea": [
+        "bed",
+        "breakfast",
+        "lesson"
       ]
     },
     "known_packages": [
-      "surf_week",
-      "surf_plus",
-      "full_board"
+      "malibu",
+      "uluwatu",
+      "waimea"
     ],
     "non_7_night_pricing": {
       "addons_billed_separately": true,
@@ -138,25 +138,25 @@
     "price_basis": "per_person",
     "prices_per_person_base_nights_shared": {
       "high": {
-        "full_board": "10",
-        "surf_plus": "10",
-        "surf_week": "10"
+        "malibu": 10,
+        "uluwatu": 10,
+        "waimea": 10
       },
       "peak": {
-        "full_board": "10",
-        "surf_plus": "10",
-        "surf_week": "10"
+        "malibu": 10,
+        "uluwatu": 10,
+        "waimea": 10
       },
       "shoulder": {
-        "full_board": "10",
-        "surf_plus": "10",
-        "surf_week": "10"
+        "malibu": 10,
+        "uluwatu": 10,
+        "waimea": 10
       }
     },
     "pricing_status": "unverified_seed",
     "room_type_pricing": {
       "double": {
-        "modifier_eur_per_night_per_person": "15"
+        "modifier_eur_per_night_per_person": 15
       },
       "shared": {
         "modifier_eur": 0
@@ -183,22 +183,22 @@
       "cash"
     ],
     "deposit_rule": {
-      "default_eur": "50",
+      "default_eur": 50,
       "pricing_status": "unverified_seed",
       "scope": "per_booking",
       "tiers": {
         "custom_or_short_stay": {
           "_match": "custom-built package OR shorter stay",
-          "amount_eur": "50"
+          "amount_eur": 50
         },
         "standard_package": {
           "_match": "named package at standard terms",
-          "amount_eur": "100"
+          "amount_eur": 100
         }
       },
       "type": "tiered_by_booking_type"
     },
-    "hold_expiry_minutes": "60",
+    "hold_expiry_minutes": 60,
     "payment_claim_behavior": "check_stripe_payment_events_not_llm",
     "payment_link_auto_allowed": false,
     "payment_link_options": [
@@ -233,12 +233,12 @@
     "rooming_uses_rooms_table": true,
     "rooms": {
       "room-a": {
-        "capacity": "4",
+        "capacity": 4,
         "guest_assignable": true,
         "type": "shared"
       },
       "room-b": {
-        "capacity": "2",
+        "capacity": 2,
         "guest_assignable": true,
         "type": "double"
       }
@@ -264,7 +264,7 @@
           "wetsuit_rental",
           "board_rental"
         ],
-        "price_eur": "10",
+        "price_eur": 10,
         "pricing_status": "unverified_seed",
         "pricing_unit": "per_day"
       }
@@ -291,7 +291,7 @@
     "service_catalog": {
       "board_rental": {
         "fulfillment": "onsite_redeem",
-        "price_eur": "10",
+        "price_eur": 10,
         "pricing_status": "unverified_seed",
         "pricing_unit": "per_day"
       },
@@ -304,18 +304,18 @@
           {
             "max_qty": 1,
             "min_qty": 1,
-            "price_eur": "10"
+            "price_eur": 10
           },
           {
             "max_qty": null,
             "min_qty": 2,
-            "price_eur_each": "10"
+            "price_eur_each": 10
           }
         ]
       },
       "wetsuit_rental": {
         "fulfillment": "onsite_redeem",
-        "price_eur": "10",
+        "price_eur": 10,
         "pricing_status": "unverified_seed",
         "pricing_unit": "per_day"
       }

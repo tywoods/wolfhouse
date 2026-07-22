@@ -855,6 +855,289 @@ console.log('\n── Reserved substituted-key safety REDs ──');
   red('object_prototype_unpolluted_after_reserved_reds', protoUnchanged());
 }
 
+// ── Typed whole-token substitution REDs ─────────────────────────────────────
+console.log('\n── Typed whole-token substitution REDs ──');
+{
+  const unresolved = new Set();
+  const outNum = gen.substituteTree('{{PRICE}}', { PRICE: 1000 }, unresolved, null, []);
+  red('whole_token_preserves_number', outNum === 1000 && typeof outNum === 'number');
+
+  unresolved.clear();
+  const outBool = gen.substituteTree('{{FLAG}}', { FLAG: false }, unresolved, null, []);
+  red('whole_token_preserves_boolean', outBool === false && typeof outBool === 'boolean');
+
+  unresolved.clear();
+  const outNull = gen.substituteTree('{{OPT}}', { OPT: null }, unresolved, null, []);
+  red('whole_token_preserves_null', outNull === null);
+
+  unresolved.clear();
+  const outStr = gen.substituteTree('{{NAME}}', { NAME: 'fixture' }, unresolved, null, []);
+  red('whole_token_preserves_string', outStr === 'fixture' && typeof outStr === 'string');
+
+  unresolved.clear();
+  const embedded = gen.substituteTree('prefix-{{PRICE}}-suffix', { PRICE: 1000 }, unresolved, null, []);
+  red('embedded_token_stringifies_number',
+    embedded === 'prefix-1000-suffix' && typeof embedded === 'string');
+
+  unresolved.clear();
+  const embeddedBool = gen.substituteTree('x-{{FLAG}}-y', { FLAG: true }, unresolved, null, []);
+  red('embedded_token_stringifies_boolean',
+    embeddedBool === 'x-true-y' && typeof embeddedBool === 'string');
+
+  const badObj = gen.normalizeSubstitutionsMap({ CLIENT_SLUG: { nested: true } });
+  red('rejects_object_substitution_values',
+    badObj.ok === false
+    && badObj.errors.some((e) => e.includes('substitution_value_type_invalid:CLIENT_SLUG:object')));
+
+  const badArr = gen.normalizeSubstitutionsMap({ CLIENT_SLUG: ['a'] });
+  red('rejects_array_substitution_values',
+    badArr.ok === false
+    && badArr.errors.some((e) => e.includes('substitution_value_type_invalid:CLIENT_SLUG:array')));
+
+  // Fixture + golden typed prices (Sunset flatten consumer requires numbers).
+  const schoolSubs = loadSubs('surf_school_shop');
+  red('school_fixture_price_eur_is_number',
+    typeof schoolSubs.PRICE_EUR_PLACEHOLDER === 'number'
+    && schoolSubs.PRICE_EUR_PLACEHOLDER > 0);
+  const houseSubs = loadSubs('surf_house');
+  red('house_fixture_price_cents_is_number',
+    typeof houseSubs.PRICE_CENTS_PLACEHOLDER === 'number'
+    && houseSubs.PRICE_CENTS_PLACEHOLDER > 0);
+
+  const schoolGolden = readJson(path.join(
+    FIXTURE_DIR,
+    'slice1c-golden',
+    'surf_school_shop',
+    'preview',
+    'fixture-school.baseline.json',
+  ));
+  const lessonPrice = schoolGolden.catalog.lessons.offerings.group_adult.prices_eur.single_lesson;
+  red('school_golden_lesson_price_is_nonzero_number',
+    typeof lessonPrice === 'number' && lessonPrice > 0);
+
+  const houseGoldenPricing = readJson(path.join(
+    FIXTURE_DIR,
+    'slice1c-golden',
+    'surf_house',
+    'preview',
+    'fixture-house.pricing.json',
+  ));
+  const weekly = houseGoldenPricing.packages[0].seasonal_prices.peak.weekly_per_person_cents;
+  red('house_golden_weekly_cents_is_nonzero_number',
+    typeof weekly === 'number' && weekly > 0);
+
+  // loadSubstitutionsFile preserves types from disk.
+  const loaded = gen.loadSubstitutionsFile(
+    path.join(FIXTURE_DIR, 'slice1c-substitutions-surf_house.json'),
+  );
+  red('loadSubstitutionsFile_preserves_typed_scalars',
+    loaded.ok
+    && typeof loaded.substitutions.PRICE_CENTS_PLACEHOLDER === 'number'
+    && typeof loaded.substitutions.CLIENT_SLUG === 'string');
+
+  // Safe-integer boundary: reject integer-valued JSON numbers outside
+  // ±MAX_SAFE_INTEGER; retain finite decimals under IEEE-754 contract.
+  const maxSafe = Number.MAX_SAFE_INTEGER;
+  const unsafePos = maxSafe + 1;
+  const unsafeNeg = -(maxSafe + 1);
+  const hugeExp = 1e21;
+  // Literal 9007199254740993 is already IEEE-754-rounded in JS source.
+  const roundedLiteral = 9007199254740993;
+
+  function rejectsUnsafeInteger(result, token) {
+    return result.ok === false
+      && result.errors.some((e) => e === `substitution_value_unsafe_integer:${token}`);
+  }
+
+  red('normalize_rejects_max_safe_integer_plus_one',
+    rejectsUnsafeInteger(
+      gen.normalizeSubstitutionsMap({ PRICE_CENTS_PLACEHOLDER: unsafePos }),
+      'PRICE_CENTS_PLACEHOLDER',
+    ));
+  red('normalize_rejects_neg_max_safe_integer_minus_one',
+    rejectsUnsafeInteger(
+      gen.normalizeSubstitutionsMap({ PRICE_CENTS_PLACEHOLDER: unsafeNeg }),
+      'PRICE_CENTS_PLACEHOLDER',
+    ));
+  red('normalize_rejects_huge_exponent_integer',
+    rejectsUnsafeInteger(
+      gen.normalizeSubstitutionsMap({ HOLD_EXPIRY_MINUTES: hugeExp }),
+      'HOLD_EXPIRY_MINUTES',
+    ));
+  red('normalize_rejects_rounded_9007199254740993',
+    rejectsUnsafeInteger(
+      gen.normalizeSubstitutionsMap({ PRICE_EUR_PLACEHOLDER: roundedLiteral }),
+      'PRICE_EUR_PLACEHOLDER',
+    )
+    && roundedLiteral === unsafePos
+    && Number.isInteger(roundedLiteral)
+    && !Number.isSafeInteger(roundedLiteral));
+
+  const passMax = gen.normalizeSubstitutionsMap({
+    PRICE_CENTS_PLACEHOLDER: maxSafe,
+    HOLD_EXPIRY_MINUTES: -maxSafe,
+    PRICE_EUR_PLACEHOLDER: 10.5,
+  });
+  red('normalize_passes_max_safe_integer_bounds_unchanged',
+    passMax.ok
+    && passMax.substitutions.PRICE_CENTS_PLACEHOLDER === maxSafe
+    && passMax.substitutions.HOLD_EXPIRY_MINUTES === -maxSafe
+    && Object.is(passMax.substitutions.PRICE_CENTS_PLACEHOLDER, maxSafe)
+    && Object.is(passMax.substitutions.HOLD_EXPIRY_MINUTES, -maxSafe));
+  red('normalize_retains_finite_decimal_under_ieee754',
+    passMax.ok
+    && passMax.substitutions.PRICE_EUR_PLACEHOLDER === 10.5
+    && typeof passMax.substitutions.PRICE_EUR_PLACEHOLDER === 'number'
+    && !Number.isInteger(passMax.substitutions.PRICE_EUR_PLACEHOLDER));
+
+  const numericString = gen.normalizeSubstitutionsMap({
+    PRICE_CENTS_PLACEHOLDER: '9007199254740993',
+    HOLD_EXPIRY_MINUTES: String(unsafePos),
+  });
+  red('normalize_numeric_strings_remain_strings',
+    numericString.ok
+    && numericString.substitutions.PRICE_CENTS_PLACEHOLDER === '9007199254740993'
+    && typeof numericString.substitutions.PRICE_CENTS_PLACEHOLDER === 'string'
+    && numericString.substitutions.HOLD_EXPIRY_MINUTES === String(unsafePos)
+    && typeof numericString.substitutions.HOLD_EXPIRY_MINUTES === 'string');
+
+  // Money / duration fields cannot receive unsafe integers via library generate.
+  expectFail('money_field_rejects_unsafe_integer', {
+    repoRoot: ROOT,
+    archetype: 'surf_house',
+    mode: gen.MODE_DRY_RUN,
+    substitutions: { ...baseHouse, PRICE_CENTS_PLACEHOLDER: unsafePos },
+  }, (e) => e.includes('substitution_value_unsafe_integer:PRICE_CENTS_PLACEHOLDER'));
+
+  expectFail('duration_field_rejects_unsafe_integer', {
+    repoRoot: ROOT,
+    archetype: 'surf_house',
+    mode: gen.MODE_DRY_RUN,
+    substitutions: { ...baseHouse, HOLD_EXPIRY_MINUTES: hugeExp },
+  }, (e) => e.includes('substitution_value_unsafe_integer:HOLD_EXPIRY_MINUTES'));
+
+  expectFail('money_eur_rejects_rounded_9007199254740993', {
+    repoRoot: ROOT,
+    archetype: 'surf_house',
+    mode: gen.MODE_DRY_RUN,
+    substitutions: { ...baseHouse, PRICE_EUR_PLACEHOLDER: roundedLiteral },
+  }, (e) => e.includes('substitution_value_unsafe_integer:PRICE_EUR_PLACEHOLDER'));
+
+  // loadSubstitutionsFile REDs (JSON.parse rounding + huge exponents on disk).
+  const loadProbe = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-safeint-load-'));
+  function writeLoadCase(name, body) {
+    const p = path.join(loadProbe, name);
+    fs.writeFileSync(p, body, 'utf8');
+    return p;
+  }
+  const loadPlusOne = gen.loadSubstitutionsFile(writeLoadCase(
+    'plus-one.json',
+    `{"PRICE_CENTS_PLACEHOLDER": ${String(unsafePos)}}`,
+  ));
+  red('loadSubstitutionsFile_rejects_max_safe_integer_plus_one',
+    rejectsUnsafeInteger(loadPlusOne, 'PRICE_CENTS_PLACEHOLDER'));
+
+  const loadNeg = gen.loadSubstitutionsFile(writeLoadCase(
+    'neg-one.json',
+    `{"PRICE_CENTS_PLACEHOLDER": ${String(unsafeNeg)}}`,
+  ));
+  red('loadSubstitutionsFile_rejects_neg_max_safe_integer_minus_one',
+    rejectsUnsafeInteger(loadNeg, 'PRICE_CENTS_PLACEHOLDER'));
+
+  const loadHuge = gen.loadSubstitutionsFile(writeLoadCase(
+    'huge-exp.json',
+    '{"HOLD_EXPIRY_MINUTES": 1e21}',
+  ));
+  red('loadSubstitutionsFile_rejects_huge_exponent_integer',
+    rejectsUnsafeInteger(loadHuge, 'HOLD_EXPIRY_MINUTES'));
+
+  const loadRounded = gen.loadSubstitutionsFile(writeLoadCase(
+    'rounded.json',
+    '{"PRICE_EUR_PLACEHOLDER": 9007199254740993}',
+  ));
+  red('loadSubstitutionsFile_rejects_rounded_9007199254740993',
+    rejectsUnsafeInteger(loadRounded, 'PRICE_EUR_PLACEHOLDER')
+    // JSON.parse already rounded the literal before normalize sees it.
+    && Number.isInteger(JSON.parse('9007199254740993'))
+    && !Number.isSafeInteger(JSON.parse('9007199254740993')));
+
+  const loadBounds = gen.loadSubstitutionsFile(writeLoadCase(
+    'bounds.json',
+    JSON.stringify({
+      PRICE_CENTS_PLACEHOLDER: maxSafe,
+      HOLD_EXPIRY_MINUTES: -maxSafe,
+      PRICE_EUR_PLACEHOLDER: 12.75,
+      NOTE: '9007199254740993',
+    }),
+  ));
+  red('loadSubstitutionsFile_passes_max_safe_bounds_and_decimal',
+    loadBounds.ok
+    && loadBounds.substitutions.PRICE_CENTS_PLACEHOLDER === maxSafe
+    && loadBounds.substitutions.HOLD_EXPIRY_MINUTES === -maxSafe
+    && loadBounds.substitutions.PRICE_EUR_PLACEHOLDER === 12.75
+    && loadBounds.substitutions.NOTE === '9007199254740993'
+    && typeof loadBounds.substitutions.NOTE === 'string');
+
+  // CLI REDs: unsafe integers fail closed before generate; money/duration named.
+  function cliWithSubsJson(name, jsonBody) {
+    const p = writeLoadCase(name, jsonBody);
+    return spawnSync(process.execPath, [
+      CLI_PATH,
+      '--archetype', 'surf_house',
+      '--substitutions', p,
+    ], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
+  }
+  function cliRejectsUnsafe(r, token) {
+    const text = `${r.stderr || ''}${r.stdout || ''}`;
+    return r.status !== 0
+      && text.includes(`substitution_value_unsafe_integer:${token}`);
+  }
+
+  const cliPlus = cliWithSubsJson(
+    'cli-plus-one.json',
+    JSON.stringify({ ...baseHouse, PRICE_CENTS_PLACEHOLDER: unsafePos }),
+  );
+  red('cli_rejects_max_safe_integer_plus_one',
+    cliRejectsUnsafe(cliPlus, 'PRICE_CENTS_PLACEHOLDER'));
+
+  const cliNeg = cliWithSubsJson(
+    'cli-neg-one.json',
+    JSON.stringify({ ...baseHouse, DEPOSIT_DEFAULT_CENTS: unsafeNeg }),
+  );
+  red('cli_rejects_neg_max_safe_integer_minus_one',
+    cliRejectsUnsafe(cliNeg, 'DEPOSIT_DEFAULT_CENTS'));
+
+  const cliHuge = cliWithSubsJson(
+    'cli-huge.json',
+    // Write exponent form so JSON.parse yields a huge integer-valued number.
+    `${JSON.stringify({ ...baseHouse, HOLD_EXPIRY_MINUTES: 0 }).replace(
+      '"HOLD_EXPIRY_MINUTES":0',
+      '"HOLD_EXPIRY_MINUTES":1e21',
+    )}`,
+  );
+  red('cli_rejects_huge_exponent_integer',
+    cliRejectsUnsafe(cliHuge, 'HOLD_EXPIRY_MINUTES'));
+
+  const cliRoundedBody = JSON.stringify({ ...baseHouse, PRICE_EUR_PLACEHOLDER: 0 })
+    .replace('"PRICE_EUR_PLACEHOLDER":0', '"PRICE_EUR_PLACEHOLDER":9007199254740993');
+  const cliRounded = cliWithSubsJson('cli-rounded.json', cliRoundedBody);
+  red('cli_rejects_rounded_9007199254740993',
+    cliRejectsUnsafe(cliRounded, 'PRICE_EUR_PLACEHOLDER'));
+
+  const cliBounds = cliWithSubsJson(
+    'cli-bounds.json',
+    JSON.stringify({
+      ...baseHouse,
+      PRICE_CENTS_PLACEHOLDER: maxSafe,
+      HOLD_EXPIRY_MINUTES: -maxSafe,
+      PRICE_EUR_PLACEHOLDER: 9.25,
+    }),
+  );
+  red('cli_passes_max_safe_integer_bounds_unchanged',
+    cliBounds.status === 0
+    && /"disk_materialization_supported": false/.test(cliBounds.stdout || ''));
+}
+
 // Tip scope (diff vs master basis when available)
 console.log('\n── Tip scope ──');
 {
@@ -912,39 +1195,29 @@ for (const rel of hardScripts) {
   ok(`${rel} exit 0`, r.status === 0, r.status !== 0 ? (r.stderr || r.stdout || '').slice(-400) : '');
 }
 
-// Nested 1B (templates still green). When probing from 1A, skip re-entry loops.
-if (process.env.FACTORY_1C_LEDGER_PROBE === '1') {
-  ok('ledger probe skips nested 1A/1B re-entry', true);
-} else {
+// Structural recursion break: 1C may invoke 1B, but never 1A.
+// No FACTORY_* env value may skip checks or force PASS.
+console.log('\n── Nested prior factory gates ──');
+{
+  const verifierSrc = readText(path.join(ROOT, 'scripts', 'verify-factory-slice1c-dry-run-generator.js'));
+  red('no_nested_1a_invocation',
+    !/npm['"\s,]*run['"\s,]*verify:factory-slice1a/.test(verifierSrc)
+    && !/spawnSync\([^)]*verify-factory-slice1a/.test(verifierSrc)
+    && !/runNpm\(['"]verify:factory-slice1a/.test(verifierSrc));
+  red('no_factory_skip_or_probe_env_bypasses',
+    !/process\.env\.FACTORY_\w*(SKIP|PROBE)/.test(verifierSrc)
+    && !/FACTORY_1[ABCD]_(SKIP|LEDGER_PROBE|SKIP_NESTED|SKIP_LEGACY)/.test(verifierSrc));
+
   const r1b = spawnSync('npm', ['run', 'verify:factory-slice1b-archetype-templates'], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: {
-      ...process.env,
-      FACTORY_1B_LEDGER_PROBE: '1',
-      FACTORY_1A_SKIP_NESTED_1C: '1',
-    },
+    env: process.env,
     timeout: 300000,
     shell: true,
   });
   ok('verify:factory-slice1b-archetype-templates exit 0',
     r1b.status === 0,
     r1b.status !== 0 ? (r1b.stderr || r1b.stdout || '').slice(-500) : '');
-
-  const r1a = spawnSync('npm', ['run', 'verify:factory-slice1a-acceptance-contract'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      FACTORY_1A_SKIP_NESTED_1B: '1',
-      FACTORY_1A_SKIP_NESTED_1C: '1',
-    },
-    timeout: 300000,
-    shell: true,
-  });
-  ok('verify:factory-slice1a-acceptance-contract exit 0',
-    r1a.status === 0,
-    r1a.status !== 0 ? (r1a.stderr || r1a.stdout || '').slice(-500) : '');
 }
 
 {

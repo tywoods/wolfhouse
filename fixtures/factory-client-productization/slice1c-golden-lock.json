@@ -1,13 +1,8 @@
 {
   "schema_version": 1,
-  "slice": "FACTORY-1C",
-  "outcome_id": "1C_deterministic_disabled_dry_run_generator",
-  "master_basis": "ce89a43ee1e2367a832255fec5ee4aefbfb4d2d8",
-  "note": "Independently locked rendered-byte golden fixtures. Verifier compares generator bytes to these files/hashes without importing generator expectation helpers.",
+  "note": "Independently authored golden rendered bytes for FACTORY 1C (typed whole-token substitution correction). Verifier compares generator output to these fixtures without importing generator expectation helpers.",
   "archetypes": {
     "surf_house": {
-      "client_slug": "fixture-house",
-      "substitutions_fixture": "fixtures/factory-client-productization/slice1c-substitutions-surf_house.json",
       "golden_dir": "fixtures/factory-client-productization/slice1c-golden/surf_house",
       "output_set": [
         "dry-run-manifest.json",
@@ -18,30 +13,28 @@
       ],
       "files": {
         "dry-run-manifest.json": {
-          "sha256": "5ae20835296aa64c90b1b4373e484b9cd9f7e4a24f2b7d3f24aabf0ece8e370e",
-          "bytes": 3780
+          "sha256": "e5f98c92852c90e9ff0cc830d2fe3a560729d75aaf11bdd43b20e72cc126a3f6",
+          "kind": "manifest"
         },
         "preview/fixture-house.baseline.json": {
-          "sha256": "b86d83fecab3e0c82ead060eb817378012d7e773713ac88fbfa2bd8c1f51517b",
-          "bytes": 9340
+          "sha256": "ec66435b442ec8b1f805252cca8d273202d1c689dee8cf9f50362903a1cb0097",
+          "kind": "baseline"
         },
         "preview/fixture-house.pricing.json": {
-          "sha256": "ab31d2fc125e89ee40fc468a26d15513e3cbed6eb2b2a16a121d9de835847051",
-          "bytes": 6474
+          "sha256": "4f1203c8016683964f264b7eecae9dbd060286703f016d7fafa1f6ddf75d8807",
+          "kind": "pricing"
         },
         "preview/fixture-house.registry-entry.json": {
           "sha256": "f82aa0718b99cc97e66aedb9f09ddf5f1936725fba529fca69f818dff25dedac",
-          "bytes": 228
+          "kind": "registry_entry"
         },
         "preview/fixture-house.secrets.example.json": {
           "sha256": "3be8435001cf080e0b45e0cdd11a1da4acf93080e89116b5039b45cbd7056285",
-          "bytes": 628
+          "kind": "secrets_example"
         }
       }
     },
     "surf_school_shop": {
-      "client_slug": "fixture-school",
-      "substitutions_fixture": "fixtures/factory-client-productization/slice1c-substitutions-surf_school_shop.json",
       "golden_dir": "fixtures/factory-client-productization/slice1c-golden/surf_school_shop",
       "output_set": [
         "dry-run-manifest.json",
@@ -51,20 +44,20 @@
       ],
       "files": {
         "dry-run-manifest.json": {
-          "sha256": "425a0e82867b92cad5376fbcd63a65adb0db35cd252e5629816891d00cebdcb1",
-          "bytes": 2724
+          "sha256": "7b3a8f3e340dae3cbe5472e4c7d51728631822e55445988ddb850843bdf3f540",
+          "kind": "manifest"
         },
         "preview/fixture-school.baseline.json": {
-          "sha256": "97d51b41d73c9bb08e8aeab61d7f1caa1d81bff45631c5fb34a299a29091e651",
-          "bytes": 9913
+          "sha256": "4266d9612fea4f535a72e395c139e322b185f445a0f3ea8f9a0a6d30c2bbd783",
+          "kind": "baseline"
         },
         "preview/fixture-school.registry-entry.json": {
           "sha256": "a23902e9ea6d853865054b53f0c7aff601de343ab88ce310d13ea28be28df694",
-          "bytes": 318
+          "kind": "registry_entry"
         },
         "preview/fixture-school.secrets.example.json": {
           "sha256": "a99d8e9e7b540d7010158e8ca3799c69a6d2a4abf97a2b91be65141d763fda2c",
-          "bytes": 680
+          "kind": "secrets_example"
         }
       }
     }
