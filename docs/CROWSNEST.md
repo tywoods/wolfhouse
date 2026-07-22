@@ -58,6 +58,10 @@ Offline **AI usage adapter**: maps native OpenAI / Anthropic technical usage fie
 
 Offline **AI usage event contract** (`crowsnest.ai_usage.v1`): pure validator, sanitized fixtures, and `npm run verify:crowsnest-ai-usage-contract`. See [`docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md`](crowsnest/AI-USAGE-EVENT-CONTRACT.md). No storage, provider wiring, or UI panel in this slice.
 
+### Luna Sales Chapter 8 (Google Maps discovery dry-run shell)
+
+Provider-specific **Google Maps discovery adapter shell** behind the Chapter 7 contract: dry-run / local fixtures only. Authenticated operators use `/sales/discovery` Maps dry-run search (Northern Spain scope), preview normalized candidates with exact place ID + search-area provenance and dedup preview, then **explicitly import** one candidate (audited). UI states **sample / dry-run data only**. No live Google Maps HTTP, API key, Google SDK, or scraping; no auto-create; no new discovery migration. See [`docs/crowsnest/SALES-MAPS-DISCOVERY.md`](crowsnest/SALES-MAPS-DISCOVERY.md). Verify with `npm run verify:crowsnest-sales-maps-discovery`.
+
 ### Luna Sales Chapter 7 (discovery source contract)
 
 Provider-neutral **discovery source contract** (`crowsnest.sales.discovery.v1`) with a **manual-source adapter only**. Authenticated operators open `/sales/discovery` to enter one proposed prospect (business name/website/location/category/source reference), preview normalization + deduplication (domain, then name/location fingerprint), and optionally **explicitly import** (audited `discovery_proposal_imported`). Preview only — no prospect has been created until import. No Google Maps, Apollo, web search, or external API; no auto-create; no new discovery migration. See [`docs/crowsnest/SALES-DISCOVERY-SOURCE.md`](crowsnest/SALES-DISCOVERY-SOURCE.md). Verify with `npm run verify:crowsnest-sales-discovery-contract`.

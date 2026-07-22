@@ -211,7 +211,7 @@ function structuralChecks() {
   ok('router allowlists evidence path', /\/sales\/prospects\/.+\/evidence|matchSalesEvidencePath/.test(apiSrc));
   ok('detail page has manual evidence form', /evidence/i.test(pageSrc) && /source_label|source_url|confidence/i.test(pageSrc));
   ok('page escapes evidence fields', /escapeHtml/.test(pageSrc));
-  ok('no HubSpot/Apollo/Maps/live AI claim in sales evidence', !/require\(['"][^'"]*(hubspot|apollo|googleapis|maps)/i.test(salesSrc));
+  ok('no HubSpot/Apollo/Google SDK require in sales evidence', !/require\(['"][^'"]*(hubspot|apollo|googleapis)/i.test(salesSrc));
   ok(
     'does not claim live AI research ran',
     !/live AI research ran|live crawl completed|automated AI qualification completed/i.test(pageSrc),

@@ -235,7 +235,7 @@ function structuralChecks() {
     !/live AI research ran|automated AI qualification completed|hidden_score|lead_score\s*[:=]|AI score:\s*\d/i.test(pageSrc)
       && !/sync to hubspot|push to apollo|outreach send completed/i.test(pageSrc),
   );
-  ok('no HubSpot/Apollo/Maps/live AI require in sales', !/require\(['"][^'"]*(hubspot|apollo|googleapis|maps)/i.test(salesSrc));
+  ok('no HubSpot/Apollo/Google SDK require in sales', !/require\(['"][^'"]*(hubspot|apollo|googleapis)/i.test(salesSrc));
   ok('migration 044 exists (qualification assessments)', fs.existsSync(MIGRATION_044_PATH));
   ok(
     'migration 044 creates qualification_assessments',
