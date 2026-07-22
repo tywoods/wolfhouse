@@ -40,8 +40,11 @@ const PIN_MODULE_REL = 'scripts/lib/breakglass-redesign-candidate-sha.js';
  * anchor commit can activate the SHA without co-tampering certified blobs.
  */
 const REDESIGN_PATHS = Object.freeze([
+  'docs/MESSI-ACCEPTANCE-LEDGER.md',
   'fixtures/messi-acceptance/slice1a-contract.json',
+  'fixtures/messi-acceptance/slice1a-findings.md',
   'fixtures/messi-acceptance/slice1a-ledger.json',
+  'package.json',
   'scripts/lib/factory-slice1b-archetype-templates.js',
   'scripts/lib/factory-slice1e-finite-closeout.js',
   'scripts/lib/messi-slice1a-acceptance-ledger.js',
