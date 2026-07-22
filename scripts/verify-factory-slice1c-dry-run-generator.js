@@ -213,12 +213,27 @@ ok('golden lock schema + both archetypes',
     'expected /usr/bin/mv --no-copy --no-clobber argument-array spawn');
   red('lib_documents_sole_local_subprocess',
     /sole local subprocess/i.test(libSrc));
+  red('lib_post_spawn_ownership_inspect',
+    libSrc.includes('assessPublishOwnershipState')
+    && /After EVERY spawn outcome/i.test(libSrc)
+    && libSrc.includes('ownFinal')
+    && libSrc.includes('ownStaging'));
+  red('lib_post_hook_exact_byte_reverify',
+    libSrc.includes('verifyAnchoredExactOutputBytes')
+    && /re-read fd-anchored exact output set/i.test(libSrc));
   ok('contract locks gnu mv no-replace publish',
     contract.output_safety
     && contract.output_safety.gnu_mv_no_replace_publish === true
     && contract.output_safety.node_rename_not_used_for_publish === true
     && contract.output_safety.sole_local_subprocess_gnu_mv === true
     && contract.output_safety.linux_gnu_disk_mode_boundary === true);
+  ok('contract locks post-spawn ownership + byte reverify',
+    contract.output_safety
+    && contract.output_safety.publish_post_spawn_ownership_inspect_all_outcomes === true
+    && contract.output_safety.publish_owned_final_removed_on_bad_spawn === true
+    && contract.output_safety.publish_source_present_preserves_external_final === true
+    && contract.output_safety.publish_impossible_state_no_unowned_delete === true
+    && contract.output_safety.publish_post_hook_exact_output_byte_hash_reverify === true);
 }
 
 // ── Package script lock ─────────────────────────────────────────────────────
@@ -916,6 +931,187 @@ console.log('\n── Output-safety REDs ──');
       (w.errors || []).join(','));
     const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
     red('publish_nonzero_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+  }
+
+  // Real move then mocked signal: ownership sees owned final → remove it and fail.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-real-signal-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      spawnPublish: ({ file, args, spawnOpts }) => {
+        spawnSync(file, args, spawnOpts); // real move completes
+        return { status: null, signal: 'SIGTERM', error: undefined };
+      },
+    });
+    red('publish_real_move_then_signal_fail_closed',
+      !w.ok && w.errors.includes('gnu_mv_publish_signal:SIGTERM'),
+      (w.errors || []).join(','));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('publish_real_move_then_signal_owned_final_removed', !fs.existsSync(finalDir));
+    red('publish_real_move_then_signal_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+  }
+
+  // Real move then mocked nonzero: owned final removed.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-real-nonzero-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      spawnPublish: ({ file, args, spawnOpts }) => {
+        spawnSync(file, args, spawnOpts);
+        return { status: 1, signal: null, error: undefined };
+      },
+    });
+    red('publish_real_move_then_nonzero_fail_closed',
+      !w.ok && w.errors.includes('gnu_mv_publish_nonzero:1'),
+      (w.errors || []).join(','));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('publish_real_move_then_nonzero_owned_final_removed', !fs.existsSync(finalDir));
+    red('publish_real_move_then_nonzero_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+  }
+
+  // Real move then mocked spawn error: owned final removed.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-real-error-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      spawnPublish: ({ file, args, spawnOpts }) => {
+        spawnSync(file, args, spawnOpts);
+        return { error: Object.assign(new Error('eio'), { code: 'EIO' }) };
+      },
+    });
+    red('publish_real_move_then_error_fail_closed',
+      !w.ok && w.errors.some((e) => String(e).startsWith('gnu_mv_publish_spawn_error:')),
+      (w.errors || []).join(','));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('publish_real_move_then_error_owned_final_removed', !fs.existsSync(finalDir));
+    red('publish_real_move_then_error_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+  }
+
+  // Bad spawn with source still present + external final: clean staging, preserve final.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-signal-ext-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      beforeRenameAttempt: ({ finalAbs }) => {
+        fs.mkdirSync(finalAbs);
+        fs.writeFileSync(path.join(finalAbs, 'external.txt'), 'keep-me');
+      },
+      spawnPublish: () => ({ status: null, signal: 'SIGKILL', error: undefined }),
+    });
+    red('publish_signal_external_final_fail_closed',
+      !w.ok && w.errors.includes('gnu_mv_publish_signal:SIGKILL'),
+      (w.errors || []).join(','));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('publish_signal_external_final_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+    red('publish_signal_external_final_preserved',
+      fs.existsSync(path.join(finalDir, 'external.txt'))
+      && fs.readFileSync(path.join(finalDir, 'external.txt'), 'utf8') === 'keep-me'
+      && !fs.existsSync(path.join(finalDir, 'dry-run-manifest.json')));
+  }
+
+  // Post-hook tamper: modify file bytes → fail + owned final removed.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-tamper-mod-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      afterAtomicRename: ({ finalAbs }) => {
+        fs.writeFileSync(`${finalAbs}/dry-run-manifest.json`, '{"tampered":true}\n');
+      },
+    });
+    red('post_publish_tamper_modify_fail_closed',
+      !w.ok && w.errors.some((e) => String(e).startsWith('gnu_mv_publish_content_mismatch:')),
+      (w.errors || []).join(','));
+    red('post_publish_tamper_modify_owned_final_removed', !fs.existsSync(finalDir));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('post_publish_tamper_modify_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+  }
+
+  // Post-hook tamper: delete a required file → fail + owned final removed.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-tamper-del-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      afterAtomicRename: ({ finalAbs }) => {
+        fs.unlinkSync(`${finalAbs}/dry-run-manifest.json`);
+      },
+    });
+    red('post_publish_tamper_delete_fail_closed',
+      !w.ok && w.errors.some((e) => String(e).startsWith('gnu_mv_publish_content_missing:')),
+      (w.errors || []).join(','));
+    red('post_publish_tamper_delete_owned_final_removed', !fs.existsSync(finalDir));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('post_publish_tamper_delete_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+  }
+
+  // Post-hook tamper: add unexpected file → fail + owned final removed.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-tamper-add-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      afterAtomicRename: ({ finalAbs }) => {
+        fs.writeFileSync(`${finalAbs}/extra-evil.txt`, 'nope');
+      },
+    });
+    red('post_publish_tamper_add_fail_closed',
+      !w.ok && w.errors.some((e) => String(e).startsWith('gnu_mv_publish_unexpected_path:')),
+      (w.errors || []).join(','));
+    red('post_publish_tamper_add_owned_final_removed', !fs.existsSync(finalDir));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('post_publish_tamper_add_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+  }
+
+  // Post-hook tamper: replace a file with a symlink → fail + owned final removed.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-tamper-sym-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const decoy = path.join(base, 'decoy-manifest.json');
+    fs.writeFileSync(decoy, '{"decoy":true}\n');
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      afterAtomicRename: ({ finalAbs }) => {
+        fs.unlinkSync(`${finalAbs}/dry-run-manifest.json`);
+        fs.symlinkSync(decoy, `${finalAbs}/dry-run-manifest.json`);
+      },
+    });
+    red('post_publish_tamper_symlink_fail_closed',
+      !w.ok && w.errors.some((e) => String(e).startsWith('gnu_mv_publish_content_is_symlink:')),
+      (w.errors || []).join(','));
+    red('post_publish_tamper_symlink_owned_final_removed', !fs.existsSync(finalDir));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('post_publish_tamper_symlink_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+    red('post_publish_tamper_symlink_decoy_untouched',
+      fs.existsSync(decoy) && fs.readFileSync(decoy, 'utf8') === '{"decoy":true}\n');
   }
 
   // Ambiguous state: exit 0 but source still present (no-clobber skip / lied success).

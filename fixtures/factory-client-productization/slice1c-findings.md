@@ -29,9 +29,11 @@ Golden rendered-byte fixtures under `fixtures/factory-client-productization/slic
 - Private sibling `.factory-1c-staging-*` directory; exclusive file flags
 - **Linux/GNU disk-mode boundary — sole local subprocess:** publish staging→final only via `/usr/bin/mv --no-copy --no-clobber -T` spawned with an argument array (no shell), `/proc/<pid>/fd/<fd>`-anchored paths (child cannot resolve the parent's `/proc/self/fd`), and closed/discarded stdio. Fail closed if that exact executable or those options are unavailable. Node directory rename is **not** used for publish (it can replace an empty final directory)
 - Success requires source absent, final present, and final directory inode + file content matching the staged manifest; any source remaining (including `--no-clobber` skip of a preexisting empty/nonempty final) or ambiguous spawn state is failure with fd-anchored cleanup
+- After every mv spawn outcome (ok / error / signal / nonzero), inspect fd-anchored staging/final vs the captured staged inode and track ownership explicitly before returning: source gone + final same inode ⇒ generator owns final (remove that final on bad spawn); source present ⇒ remove staging only and preserve any external final; impossible/mismatched state fails closed without deleting unowned paths
+- After post-publish hooks and parent identity checks, immediately re-read the fd-anchored exact output set and verify every byte/hash against the precomputed preview/manifest before success; tampering fails and the owned final is removed
 - Fail closed if final appears before publish; clean staging/final via fd anchor on every error; preexisting empty final left untouched with no preview
 - Never traverse caller-controlled descendants; reject relativePath traversal / nested symlink attacks
-- Swap/race coverage in verifier REDs (empty/nonempty/symlink final injection, parent-rename + replacement directory, post-publish parent swap cleanup, tool failure, signal/nonzero/ambiguous publish state, argument-injection spawn contract)
+- Swap/race coverage in verifier REDs (empty/nonempty/symlink final injection, parent-rename + replacement directory, post-publish parent swap cleanup, tool failure, signal/nonzero/ambiguous publish state, real-move-then-mocked signal/nonzero/error ownership cleanup, post-hook file add/delete/modify/symlink tamper + cleanup, argument-injection spawn contract)
 - Still no apply path, network, DB, cloud, or runtime loading
 
 ## Safety (generation)

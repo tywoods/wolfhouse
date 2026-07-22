@@ -15,9 +15,18 @@
  * shell), `/proc/<pid>/fd/<fd>`-anchored publish paths (in-process ops keep
  * `/proc/self/fd/<fd>`), and closed/discarded stdio. Node `fs.rename` is not
  * used for publish — it can replace an empty final directory. Unavailable
- * exact executable/options fail closed. Does not apply,
- * write registries, touch config/clients, load runtime, open DB/cloud/network,
- * or materialize secrets. stdout emission is zero-write.
+ * exact executable/options fail closed.
+ *
+ * After every mv spawn outcome (ok / error / signal / nonzero), inspect
+ * fd-anchored staging/final against the captured staged inode and track
+ * ownership explicitly before returning: source gone + final same inode means
+ * the generator owns final (remove it on bad spawn); source present means
+ * remove staging only and preserve any external final; impossible/mismatched
+ * state fails closed without deleting unowned paths. After post-publish hooks
+ * and parent identity checks, re-read the fd-anchored exact output set and
+ * verify every byte/hash against the precomputed preview before success.
+ * Does not apply, write registries, touch config/clients, load runtime, open
+ * DB/cloud/network, or materialize secrets. stdout emission is zero-write.
  */
 
 const fs = require('fs');
@@ -1043,46 +1052,202 @@ function spawnGnuMvNoReplacePublish(stagingPath, finalPath, options) {
 }
 
 /**
- * After a zero-exit publish attempt: require source absent, final present,
- * final directory inode identical to the staged directory, and on-disk bytes
- * matching the staged manifest. Any source remaining (including GNU
- * `--no-clobber` skip of a preexisting empty/nonempty final) is failure.
+ * After any mv spawn outcome: classify fd-anchored staging/final vs the
+ * captured staged directory inode. Never deletes — caller applies ownership
+ * flags and cleanup.
+ *
+ * - owned_final: source gone + final is the staged directory inode
+ * - source_present: our staging still present; any final is external (preserve)
+ * - impossible: mismatched/unrecoverable; do not delete unowned paths
  */
-function assessNoReplacePublishSuccess(stagingPath, finalPath, stagedIdentity, stagedFiles) {
-  let sourcePresent;
+function assessPublishOwnershipState(stagingPath, finalPath, stagedIdentity) {
+  let sourcePresent = false;
+  let sourceStat = null;
   try {
-    sourcePresent = pathExistsLstat(stagingPath);
+    sourceStat = fs.lstatSync(stagingPath);
+    sourcePresent = true;
   } catch (err) {
-    return { ok: false, error: `gnu_mv_publish_source_lstat_failed:${err && err.code}` };
-  }
-  if (sourcePresent) {
-    return { ok: false, error: 'gnu_mv_publish_source_remaining' };
+    if (!err || err.code !== 'ENOENT') {
+      return {
+        ok: false,
+        classification: 'impossible',
+        error: `gnu_mv_publish_source_lstat_failed:${err && err.code}`,
+        ownFinal: false,
+        ownStaging: false,
+      };
+    }
   }
 
-  let finalStat;
+  let finalPresent = false;
+  let finalStat = null;
   try {
     finalStat = fs.lstatSync(finalPath);
+    finalPresent = true;
   } catch (err) {
-    if (err && err.code === 'ENOENT') {
-      return { ok: false, error: 'gnu_mv_publish_final_missing' };
+    if (!err || err.code !== 'ENOENT') {
+      return {
+        ok: false,
+        classification: 'impossible',
+        error: `gnu_mv_publish_final_lstat_failed:${err && err.code}`,
+        ownFinal: false,
+        ownStaging: false,
+      };
     }
-    return { ok: false, error: `gnu_mv_publish_final_lstat_failed:${err && err.code}` };
-  }
-  if (finalStat.isSymbolicLink()) {
-    return { ok: false, error: 'gnu_mv_publish_final_is_symlink' };
-  }
-  if (!finalStat.isDirectory()) {
-    return { ok: false, error: 'gnu_mv_publish_final_not_directory' };
-  }
-  if (!sameDevIno(finalStat.dev, finalStat.ino, stagedIdentity.dev, stagedIdentity.ino)) {
-    return { ok: false, error: 'gnu_mv_publish_inode_mismatch' };
   }
 
+  if (sourcePresent) {
+    if (sourceStat.isSymbolicLink() || !sourceStat.isDirectory()) {
+      return {
+        ok: false,
+        classification: 'impossible',
+        error: 'gnu_mv_publish_staging_not_directory',
+        ownFinal: false,
+        ownStaging: false,
+      };
+    }
+    if (!sameDevIno(sourceStat.dev, sourceStat.ino, stagedIdentity.dev, stagedIdentity.ino)) {
+      return {
+        ok: false,
+        classification: 'impossible',
+        error: 'gnu_mv_publish_staging_inode_mismatch',
+        ownFinal: false,
+        ownStaging: false,
+      };
+    }
+    // Our staging remains; final (if any) is not ours — preserve it.
+    return {
+      ok: true,
+      classification: 'source_present',
+      error: 'gnu_mv_publish_source_remaining',
+      ownFinal: false,
+      ownStaging: true,
+      externalFinal: finalPresent,
+    };
+  }
+
+  // Source gone.
+  if (!finalPresent) {
+    return {
+      ok: false,
+      classification: 'impossible',
+      error: 'gnu_mv_publish_source_and_final_missing',
+      ownFinal: false,
+      ownStaging: false,
+    };
+  }
+  if (finalStat.isSymbolicLink()) {
+    return {
+      ok: false,
+      classification: 'impossible',
+      error: 'gnu_mv_publish_final_is_symlink',
+      ownFinal: false,
+      ownStaging: false,
+    };
+  }
+  if (!finalStat.isDirectory()) {
+    return {
+      ok: false,
+      classification: 'impossible',
+      error: 'gnu_mv_publish_final_not_directory',
+      ownFinal: false,
+      ownStaging: false,
+    };
+  }
+  if (!sameDevIno(finalStat.dev, finalStat.ino, stagedIdentity.dev, stagedIdentity.ino)) {
+    // Source gone but final is someone else's — do not claim ownership.
+    return {
+      ok: false,
+      classification: 'impossible',
+      error: 'gnu_mv_publish_inode_mismatch',
+      ownFinal: false,
+      ownStaging: false,
+    };
+  }
+  return {
+    ok: true,
+    classification: 'owned_final',
+    ownFinal: true,
+    ownStaging: false,
+    finalDev: finalStat.dev,
+    finalIno: finalStat.ino,
+  };
+}
+
+/**
+ * List relative file paths under an fd-anchored directory without path.resolve
+ * (resolve would collapse /proc/self/fd/<fd>/.. and break the anchor).
+ */
+function listRelativeFilesUnderAnchoredDir(dirPath) {
+  const out = [];
+  const walk = (rel) => {
+    const abs = rel ? `${dirPath}/${rel}` : dirPath;
+    const entries = fs.readdirSync(abs, { withFileTypes: true });
+    for (const ent of entries) {
+      const childRel = rel ? `${rel}/${ent.name}` : ent.name;
+      const childAbs = `${dirPath}/${childRel}`;
+      const st = fs.lstatSync(childAbs);
+      if (st.isSymbolicLink()) {
+        out.push({ relativePath: childRel, kind: 'symlink' });
+        continue;
+      }
+      if (st.isDirectory()) {
+        walk(childRel);
+        continue;
+      }
+      if (st.isFile()) {
+        out.push({ relativePath: childRel, kind: 'file' });
+        continue;
+      }
+      out.push({ relativePath: childRel, kind: 'other' });
+    }
+  };
+  walk('');
+  return out;
+}
+
+/**
+ * Re-read the fd-anchored exact output set and verify every byte/hash against
+ * the precomputed preview/manifest. Rejects extras, missing paths, symlinks,
+ * and hash/byte mismatches.
+ */
+function verifyAnchoredExactOutputBytes(finalPath, stagedFiles) {
+  const expected = new Map();
   for (const file of stagedFiles) {
+    if (!file || typeof file.relativePath !== 'string') {
+      return { ok: false, error: 'gnu_mv_publish_content_path_invalid' };
+    }
     const rel = file.relativePath.split(/[\\/]/).join('/');
+    expected.set(rel, file);
+  }
+
+  let listed;
+  try {
+    listed = listRelativeFilesUnderAnchoredDir(finalPath);
+  } catch (err) {
+    return { ok: false, error: `gnu_mv_publish_final_readdir_failed:${err && err.code}` };
+  }
+
+  const seen = new Set();
+  for (const ent of listed) {
+    if (ent.kind === 'symlink') {
+      return { ok: false, error: `gnu_mv_publish_content_is_symlink:${ent.relativePath}` };
+    }
+    if (ent.kind !== 'file') {
+      return { ok: false, error: `gnu_mv_publish_content_not_file:${ent.relativePath}` };
+    }
+    if (!expected.has(ent.relativePath)) {
+      return { ok: false, error: `gnu_mv_publish_unexpected_path:${ent.relativePath}` };
+    }
+    seen.add(ent.relativePath);
+  }
+
+  for (const [rel, file] of expected) {
+    if (!seen.has(rel)) {
+      return { ok: false, error: `gnu_mv_publish_content_missing:${rel}:ENOENT` };
+    }
     const abs = `${finalPath}/${rel}`;
     if (!abs.startsWith(`${finalPath}/`)) {
-      return { ok: false, error: `gnu_mv_publish_content_path_escape:${file.relativePath}` };
+      return { ok: false, error: `gnu_mv_publish_content_path_escape:${rel}` };
     }
     let bytes;
     try {
@@ -1090,14 +1255,40 @@ function assessNoReplacePublishSuccess(stagingPath, finalPath, stagedIdentity, s
     } catch (err) {
       return {
         ok: false,
-        error: `gnu_mv_publish_content_missing:${file.relativePath}:${err && err.code}`,
+        error: `gnu_mv_publish_content_missing:${rel}:${err && err.code}`,
       };
     }
     if (sha256Hex(bytes) !== file.sha256) {
-      return { ok: false, error: `gnu_mv_publish_content_mismatch:${file.relativePath}` };
+      return { ok: false, error: `gnu_mv_publish_content_mismatch:${rel}` };
+    }
+    if (typeof file.content === 'string' || Buffer.isBuffer(file.content)) {
+      const expectedBuf = Buffer.isBuffer(file.content)
+        ? file.content
+        : Buffer.from(file.content, 'utf8');
+      if (!bytes.equals(expectedBuf)) {
+        return { ok: false, error: `gnu_mv_publish_content_mismatch:${rel}` };
+      }
     }
   }
-  return { ok: true, finalDev: finalStat.dev, finalIno: finalStat.ino };
+  return { ok: true };
+}
+
+/**
+ * Zero-exit publish success helper: owned final (source absent, same inode) plus
+ * exact output-set byte/hash match. Any source remaining (including GNU
+ * `--no-clobber` skip of a preexisting empty/nonempty final) is failure.
+ */
+function assessNoReplacePublishSuccess(stagingPath, finalPath, stagedIdentity, stagedFiles) {
+  const ownership = assessPublishOwnershipState(stagingPath, finalPath, stagedIdentity);
+  if (ownership.classification !== 'owned_final') {
+    return {
+      ok: false,
+      error: ownership.error || 'gnu_mv_publish_ambiguous_state',
+    };
+  }
+  const bytes = verifyAnchoredExactOutputBytes(finalPath, stagedFiles);
+  if (!bytes.ok) return bytes;
+  return { ok: true, finalDev: ownership.finalDev, finalIno: ownership.finalIno };
 }
 
 /**
@@ -1217,9 +1408,12 @@ function exclusiveWriteFile(absPath, content) {
  * Never overwrites (Node rename is not used — it can replace an empty final).
  * Linux/GNU disk mode publishes with the sole local subprocess
  * `/usr/bin/mv --no-copy --no-clobber -T` (argument array, fd-anchored paths,
- * closed stdio). Cleans staging/final via fd anchor on every error. Does not
- * traverse caller-controlled descendants. Fail closed if fd anchoring / procfs
- * / exact GNU mv options are unavailable.
+ * closed stdio). After every spawn outcome, inspect fd-anchored staging/final
+ * vs staged inode and track ownership explicitly before cleanup/return. After
+ * post-publish hooks and parent identity checks, re-verify the exact output
+ * set byte-for-byte against the precomputed preview. Cleans owned staging/final
+ * via fd anchor on every error; never deletes unowned paths. Fail closed if fd
+ * anchoring / procfs / exact GNU mv options are unavailable.
  */
 function writeDryRunPreview(result, options) {
   if (!result || !result.ok) {
@@ -1418,36 +1612,36 @@ function writeDryRunPreview(result, options) {
   // Atomic no-replace publish: never use Node rename APIs (empty final would be replaced).
   // Child mv sees /proc/<pid>/fd/<fd>/… (not /proc/self/fd).
   const spawned = spawnGnuMvNoReplacePublish(stagingPublishPath, finalPublishPath, options);
+
+  // After EVERY spawn outcome (ok/error/signal/nonzero): inspect ownership before return.
+  const ownership = assessPublishOwnershipState(stagingPath, finalAnchored, stagedIdentity);
+  if (ownership.ownFinal) {
+    finalOwned = true;
+    stagingCreated = false;
+  } else if (ownership.ownStaging) {
+    finalOwned = false;
+    // stagingCreated stays true — cleanup removes staging only; external final preserved.
+  } else {
+    // Impossible/mismatched: do not delete unowned paths.
+    finalOwned = false;
+    stagingCreated = false;
+  }
+
   if (!spawned.ok) {
-    return fail([spawned.error]);
-  }
-
-  const assessed = assessNoReplacePublishSuccess(
-    stagingPath,
-    finalAnchored,
-    stagedIdentity,
-    result.files,
-  );
-  if (!assessed.ok) {
-    // Source remaining ⇒ preexisting final was not replaced; do not claim ownership.
-    // If source is gone, we published — mark owned so fd cleanup removes our tree.
-    if (assessed.error !== 'gnu_mv_publish_source_remaining') {
-      try {
-        if (!pathExistsLstat(stagingPath) && pathExistsLstat(finalAnchored)) {
-          finalOwned = true;
-          stagingCreated = false;
-        }
-      } catch (_) {
-        // fall through to fail + best-effort cleanup
-      }
+    // Bad spawn: owned final is removed by fail(); source_present cleans staging only.
+    const errors = [spawned.error];
+    if (ownership.classification === 'impossible' && ownership.error) {
+      errors.push(ownership.error);
     }
-    return fail([assessed.error]);
+    return fail(errors);
   }
 
-  stagingCreated = false;
-  finalOwned = true;
+  // Spawn reported success — require owned final (source gone + same inode).
+  if (ownership.classification !== 'owned_final') {
+    return fail([ownership.error || 'gnu_mv_publish_ambiguous_state']);
+  }
 
-  // Test hook: post-publish swap / parent rename before identity re-check.
+  // Test hook: post-publish swap / parent rename / content tamper before identity re-check.
   if (options && typeof options.afterAtomicRename === 'function') {
     try {
       options.afterAtomicRename({
@@ -1479,10 +1673,21 @@ function writeDryRunPreview(result, options) {
       return fail(['output_dir_final_not_directory']);
     }
     if (!sameDevIno(st.dev, st.ino, stagedIdentity.dev, stagedIdentity.ino)) {
+      // No longer our inode — drop ownership so cleanup does not delete the stranger.
+      finalOwned = false;
       return fail(['gnu_mv_publish_inode_mismatch']);
     }
   } catch (err) {
     return fail([`output_dir_final_lstat_failed:${err && err.code}`]);
+  }
+
+  // Immediately re-read fd-anchored exact output set; every byte/hash must match
+  // the precomputed preview/manifest before success. Tampering fails + removes owned final.
+  {
+    const bytesCheck = verifyAnchoredExactOutputBytes(finalAnchored, result.files);
+    if (!bytesCheck.ok) {
+      return fail([bytesCheck.error]);
+    }
   }
 
   closeParent();
@@ -1739,5 +1944,7 @@ module.exports = Object.freeze({
   cleanupStagingDir,
   assertGnuMvNoReplacePublishAvailable,
   spawnGnuMvNoReplacePublish,
+  assessPublishOwnershipState,
+  verifyAnchoredExactOutputBytes,
   assessNoReplacePublishSuccess,
 });
