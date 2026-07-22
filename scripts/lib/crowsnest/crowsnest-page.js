@@ -840,7 +840,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
 }
 `;
 
-const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail', 'sales_review', 'sales_crm_preview', 'sales_outreach_draft', 'sales_discovery']);
+const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail', 'sales_review', 'sales_crm_preview', 'sales_outreach_draft', 'sales_discovery', 'sales_analytics']);
 
 const CROWSNEST_NAV_ITEMS = [
   { view: 'spyglass', href: '/', label: 'Spyglass' },
@@ -856,7 +856,7 @@ function normalizeCrowsnestView(raw) {
 }
 
 function navActiveView(view) {
-  return (view === 'sales_detail' || view === 'sales_review' || view === 'sales_crm_preview' || view === 'sales_outreach_draft' || view === 'sales_discovery') ? 'sales' : view;
+  return (view === 'sales_detail' || view === 'sales_review' || view === 'sales_crm_preview' || view === 'sales_outreach_draft' || view === 'sales_discovery' || view === 'sales_analytics') ? 'sales' : view;
 }
 
 function renderCrowsnestNav(activeView) {
@@ -1209,13 +1209,141 @@ function renderSalesReviewMain(options = {}) {
   const filter = options.reviewQueueFilter || 'all';
   return `<section id="sales-review" aria-labelledby="sales-review-title">
       <p class="section-note">Operating review queue from persisted Sales records only. Operators decide qualification and next steps. No CRM writes, no outreach delivery, and no provider discovery in this chapter.</p>
-      <p><a href="/sales">← Back to Sales intake</a></p>
+      <p><a href="/sales">← Back to Sales intake</a> · <a href="/sales/analytics">Sales analytics</a></p>
       <h2 class="section">Filter</h2>
       ${renderReviewQueueFilterForm(filter)}
       <h2 class="section">Queue</h2>
       <p class="section-note">Buckets: Ready for review (has evidence, no current qualification), Needs more research, Qualified, Not qualified, and Ready for CRM review. Ordered newest actionable first.</p>
       ${renderReviewQueueItems(items)}
       <div class="safety"><strong>Safety:</strong> Read-only review queue over durable Sales data when configured; local/test may use in-memory fallback. Authenticated operators decide. No CRM writes, no outreach delivery, no Maps/Apollo/live AI discovery in this chapter.</div>
+    </section>`;
+}
+
+function renderAnalyticsKpi(label, value, sub) {
+  const subHtml = sub
+    ? `<span class="kpi-sub">${escapeHtml(sub)}</span>`
+    : '';
+  return `<div class="kpi">
+        <span class="kpi-label">${escapeHtml(label)}</span>
+        <span class="kpi-value">${escapeHtml(String(value))}</span>
+        ${subHtml}
+      </div>`;
+}
+
+function renderAnalyticsQualificationTiles(qualification = {}) {
+  const q = qualification || {};
+  return `<div class="metric-tiles" aria-label="Qualification states">
+        <div class="metric-tile">
+          <span class="metric-tile-label">Qualified</span>
+          <span class="metric-tile-value">${escapeHtml(String(Number(q.qualified) || 0))}</span>
+        </div>
+        <div class="metric-tile">
+          <span class="metric-tile-label">Not qualified</span>
+          <span class="metric-tile-value">${escapeHtml(String(Number(q.not_qualified) || 0))}</span>
+        </div>
+        <div class="metric-tile">
+          <span class="metric-tile-label">Needs more research</span>
+          <span class="metric-tile-value">${escapeHtml(String(Number(q.needs_more_research) || 0))}</span>
+        </div>
+        <div class="metric-tile">
+          <span class="metric-tile-label">Unassessed</span>
+          <span class="metric-tile-value">${escapeHtml(String(Number(q.unassessed) || 0))}</span>
+        </div>
+      </div>`;
+}
+
+function renderAnalyticsRecentActivity(items) {
+  if (!items.length) {
+    return '<p class="section-note">No recent audit activity yet.</p>';
+  }
+  const rows = items.map((item) => {
+    const prospectId = item.prospect_id ? String(item.prospect_id) : '';
+    const name = String(item.canonical_name || '').trim();
+    const prospectBit = prospectId
+      ? (name
+        ? `<a href="/sales/prospects/${escapeHtml(prospectId)}">${escapeHtml(name)}</a>`
+        : `<a href="/sales/prospects/${escapeHtml(prospectId)}"><code>${escapeHtml(prospectId)}</code></a>`)
+      : 'n/a';
+    return `<li>
+        <strong>${escapeHtml(item.action || '')}</strong>
+        · actor=${escapeHtml(item.actor || 'unknown')}
+        · at=<code>${escapeHtml(item.at || '')}</code>
+        · prospect=${prospectBit}
+      </li>`;
+  }).join('\n        ');
+  return `<ul class="audit-list" aria-label="Recent Sales activity">
+        ${rows}
+      </ul>`;
+}
+
+function renderAnalyticsDataQualityAlerts(alerts) {
+  if (!alerts.length) {
+    return '<p class="section-note">No data-quality alerts right now.</p>';
+  }
+  const rows = alerts.map((alert) => {
+    const prospectId = alert.prospect_id ? String(alert.prospect_id) : '';
+    const name = String(alert.canonical_name || '').trim() || prospectId || 'Prospect';
+    const link = prospectId
+      ? `<a href="/sales/prospects/${escapeHtml(prospectId)}">${escapeHtml(name)}</a>`
+      : escapeHtml(name);
+    return `<li>
+        <strong>${escapeHtml(alert.code || 'alert')}</strong>
+        · ${link}
+        · ${escapeHtml(alert.message || '')}
+      </li>`;
+  }).join('\n        ');
+  return `<ul class="review-queue-list" aria-label="Data-quality alerts">
+        ${rows}
+      </ul>`;
+}
+
+function renderSalesAnalyticsMain(options = {}) {
+  const counts = options.analyticsCounts || {
+    prospects: 0,
+    evidence_records: 0,
+    crm_ready: 0,
+    drafts_present: 0,
+    contacts: 0,
+    qualification: {
+      qualified: 0,
+      not_qualified: 0,
+      needs_more_research: 0,
+      unassessed: 0,
+    },
+  };
+  const recent = Array.isArray(options.analyticsRecentActivity) ? options.analyticsRecentActivity : [];
+  const alerts = Array.isArray(options.analyticsDataQualityAlerts) ? options.analyticsDataQualityAlerts : [];
+  const disclaimer = options.analyticsDisclaimer
+    || 'Read-only monitoring from persisted Sales records. Informational data-quality alerts only — operators decide. No AI/agent scores, no external calls, no writes, no automatic actions.';
+
+  return `<section id="sales-analytics" aria-labelledby="sales-analytics-title">
+      <p class="section-note">${escapeHtml(disclaimer)}</p>
+      <p><a href="/sales">← Back to Sales intake</a> · <a href="/sales/review">Sales review queue</a></p>
+
+      <h2 class="section">Pipeline counts</h2>
+      <div class="kpi-strip" aria-label="Pipeline counts">
+        ${renderAnalyticsKpi('Prospects', counts.prospects || 0)}
+        ${renderAnalyticsKpi('Evidence', counts.evidence_records || 0, 'research records')}
+        ${renderAnalyticsKpi('CRM-ready', counts.crm_ready || 0)}
+        ${renderAnalyticsKpi('Drafts', counts.drafts_present || 0, 'prospects with a draft')}
+        ${renderAnalyticsKpi('Contacts', counts.contacts || 0, 'contact candidates')}
+      </div>
+
+      <article class="panel">
+        <div class="panel-head">
+          <h3 class="panel-title">Qualification states</h3>
+        </div>
+        ${renderAnalyticsQualificationTiles(counts.qualification)}
+      </article>
+
+      <h2 class="section">Recent activity</h2>
+      ${renderAnalyticsRecentActivity(recent)}
+
+      <h2 class="section">Data-quality alerts</h2>
+      <p class="section-note">Informational only — operators decide; nothing is auto-fixed.</p>
+      ${renderAnalyticsDataQualityAlerts(alerts)}
+
+      <div class="safety"><strong>Safety:</strong> Read-only analytics over durable Sales data when configured; local/test may use in-memory fallback. Authenticated operators monitor truthful counts and alerts. No AI/agent scores, no CRM writes, no outreach delivery, no external discovery calls, and no automatic actions in this chapter.</div>
     </section>`;
 }
 
@@ -1226,7 +1354,7 @@ function renderSalesMain(options = {}) {
     : '';
   return `<section id="sales" aria-labelledby="sales-title">
       <p class="section-note">Manual intake — durable Sales store when configured; local/test may use in-memory fallback. No HubSpot, Maps, Apollo, live AI research, or outreach sending.</p>
-      <p><a href="/sales/review">Open Sales review queue</a> · <a href="/sales/discovery">Manual discovery preview</a></p>
+      <p><a href="/sales/review">Open Sales review queue</a> · <a href="/sales/analytics">Sales analytics</a> · <a href="/sales/discovery">Manual discovery preview</a></p>
       <h2 class="section">Prospects</h2>
       ${renderProspectListItems(prospects)}
 
@@ -2073,6 +2201,7 @@ function renderViewMain(view, clients, templates, options = {}) {
   if (view === 'sales') return renderSalesMain(options);
   if (view === 'sales_detail') return renderSalesDetailMain(options);
   if (view === 'sales_review') return renderSalesReviewMain(options);
+  if (view === 'sales_analytics') return renderSalesAnalyticsMain(options);
   if (view === 'sales_crm_preview') return renderSalesCrmPreviewMain(options);
   if (view === 'sales_outreach_draft') return renderSalesOutreachDraftMain(options);
   if (view === 'sales_discovery') return renderSalesDiscoveryMain(options);
@@ -2084,6 +2213,7 @@ function viewPageTitle(view) {
   if (view === 'billing') return 'Billing';
   if (view === 'communications') return 'Communications';
   if (view === 'sales_review') return 'Sales review queue';
+  if (view === 'sales_analytics') return 'Sales analytics';
   if (view === 'sales_crm_preview') return 'CRM sync preview';
   if (view === 'sales_outreach_draft') return 'Outreach draft';
   if (view === 'sales_discovery') return 'Sales discovery';
@@ -2098,6 +2228,7 @@ function viewSubtitle(view) {
   if (view === 'sales') return 'Manual prospect intake, fixture research, and Admin review';
   if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, manual contacts, qualification, CRM preview, outreach draft, and Admin decision';
   if (view === 'sales_review') return 'Sales review queue — operating buckets for operator decisions';
+  if (view === 'sales_analytics') return 'Sales analytics — truthful pipeline counts, recent activity, and data-quality alerts';
   if (view === 'sales_crm_preview') return 'Provider-neutral CRM sync preview — no record sent';
   if (view === 'sales_outreach_draft') return 'Internal outreach draft workspace — draft only, no message sent';
   if (view === 'sales_discovery') return 'Manual + Maps dry-run discovery — sample data only; no prospect auto-created';
@@ -2132,7 +2263,7 @@ function renderCrowsnestPage(options = {}) {
         </form>
       </div>
       ${renderCrowsnestNav(view)}
-      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : (view === 'sales_outreach_draft' ? 'sales-outreach-draft' : (view === 'sales_discovery' ? 'sales-discovery' : view)))))}-title">${escapeHtml(title)}</h1>
+      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_analytics' ? 'sales-analytics' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : (view === 'sales_outreach_draft' ? 'sales-outreach-draft' : (view === 'sales_discovery' ? 'sales-discovery' : view))))))}-title">${escapeHtml(title)}</h1>
       <p class="sub">${escapeHtml(viewSubtitle(view))}</p>
     </header>
 
