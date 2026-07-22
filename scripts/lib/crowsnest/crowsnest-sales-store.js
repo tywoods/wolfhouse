@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Crowsnest Luna Sales durable store (Chapters 1–4: durable prospects, evidence, qualification, review queue).
+ * Crowsnest Luna Sales durable store (Chapters 1–5: durable prospects, evidence,
+ * qualification, review queue, CRM review readiness / preview support).
  *
  * Owns config validation, repository adapters (memory / postgres / fail-closed),
  * and a bounded pg pool lifecycle. Never reads WOLFHOUSE_DATABASE_URL.
@@ -117,6 +118,8 @@ function createMemorySalesRepository() {
   const researchByProspect = new Map();
   /** @type {Map<string, object[]>} */
   const qualificationsByProspect = new Map();
+  /** @type {Map<string, object[]>} */
+  const crmReviewMarksByProspect = new Map();
   const auditEvents = [];
 
   function researchListFor(id) {
@@ -128,6 +131,13 @@ function createMemorySalesRepository() {
 
   function qualificationListFor(id) {
     const list = qualificationsByProspect.get(String(id || '')) || [];
+    return list
+      .map((row) => cloneJson(row))
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  }
+
+  function crmReviewMarkListFor(id) {
+    const list = crmReviewMarksByProspect.get(String(id || '')) || [];
     return list
       .map((row) => cloneJson(row))
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
@@ -155,6 +165,14 @@ function createMemorySalesRepository() {
       list.push(row);
       qualificationsByProspect.set(key, list);
       return { ok: true, assessment: cloneJson(row) };
+    },
+    async saveCrmReviewMark(mark) {
+      const row = cloneJson(mark);
+      const key = String(row.prospect_id);
+      const list = crmReviewMarksByProspect.get(key) || [];
+      list.push(row);
+      crmReviewMarksByProspect.set(key, list);
+      return { ok: true, mark: cloneJson(row) };
     },
     async appendAuditEvent(event) {
       const row = cloneJson(event);
@@ -198,17 +216,27 @@ function createMemorySalesRepository() {
       const list = qualificationListFor(id);
       return list.length ? list[0] : null;
     },
+    async listCrmReviewMarksForProspect(id) {
+      return crmReviewMarkListFor(id);
+    },
+    async getLatestCrmReviewMark(id) {
+      const list = crmReviewMarkListFor(id);
+      return list.length ? list[0] : null;
+    },
     async listReviewQueueSummaries() {
       const rows = [];
       for (const prospect of prospects.values()) {
         const research = researchListFor(prospect.id);
         const quals = qualificationListFor(prospect.id);
+        const crmMarks = crmReviewMarkListFor(prospect.id);
         const latestQual = quals.length ? quals[0] : null;
+        const latestCrmMark = crmMarks.length ? crmMarks[0] : null;
         const timestamps = [
           prospect.created_at,
           prospect.updated_at,
           ...research.map((row) => row.created_at),
           ...quals.map((row) => row.created_at),
+          ...crmMarks.map((row) => row.created_at),
         ];
         let mostRecent = '';
         for (const value of timestamps) {
@@ -224,6 +252,8 @@ function createMemorySalesRepository() {
           evidence_count: research.length,
           latest_qualification_decision: latestQual ? latestQual.decision : null,
           latest_qualification_at: latestQual ? latestQual.created_at : null,
+          crm_ready: Boolean(latestCrmMark),
+          latest_crm_review_mark_at: latestCrmMark ? latestCrmMark.created_at : null,
           most_recent_activity: mostRecent || String(prospect.updated_at || prospect.created_at || ''),
         });
       }
@@ -243,6 +273,7 @@ function createMemorySalesRepository() {
       prospects.clear();
       researchByProspect.clear();
       qualificationsByProspect.clear();
+      crmReviewMarksByProspect.clear();
       auditEvents.length = 0;
     },
   };
@@ -257,6 +288,7 @@ function createFailClosedSalesRepository(config = {}) {
     createProspectRecord: reject,
     saveResearchJob: reject,
     saveQualificationAssessment: reject,
+    saveCrmReviewMark: reject,
     appendAuditEvent: reject,
     updateProspectDecision: reject,
     async getProspect() {
@@ -275,6 +307,12 @@ function createFailClosedSalesRepository(config = {}) {
       return [];
     },
     async getLatestQualification() {
+      return null;
+    },
+    async listCrmReviewMarksForProspect() {
+      return [];
+    },
+    async getLatestCrmReviewMark() {
       return null;
     },
     async listReviewQueueSummaries() {
@@ -342,6 +380,17 @@ function mapQualificationRow(row) {
     decision: row.decision,
     rationale: row.rationale || '',
     evidence_ids: evidenceIds,
+    reviewer_id: row.reviewer_id || 'Admin',
+    created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+  };
+}
+
+function mapCrmReviewMarkRow(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    prospect_id: String(row.prospect_id),
+    qualification_assessment_id: String(row.qualification_assessment_id),
     reviewer_id: row.reviewer_id || 'Admin',
     created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
   };
@@ -454,6 +503,21 @@ function createPgSalesRepository(options = {}) {
     );
   }
 
+  async function insertCrmReviewMark(txQuery, mark) {
+    await txQuery(
+      `INSERT INTO luna_sales.crm_review_marks (
+          id, prospect_id, qualification_assessment_id, reviewer_id, created_at
+        ) VALUES ($1, $2, $3, $4, $5::timestamptz)`,
+      [
+        mark.id,
+        mark.prospect_id,
+        mark.qualification_assessment_id,
+        mark.reviewer_id || 'Admin',
+        mark.created_at,
+      ],
+    );
+  }
+
   return {
     backend: 'postgres',
     async createProspectBundle({ prospect, research, auditEvents = [] } = {}) {
@@ -490,6 +554,14 @@ function createPgSalesRepository(options = {}) {
       try {
         await insertQualification(queryFn, assessment);
         return { ok: true, assessment: cloneJson(assessment) };
+      } catch {
+        return salesUnavailableResult();
+      }
+    },
+    async saveCrmReviewMark(mark) {
+      try {
+        await insertCrmReviewMark(queryFn, mark);
+        return { ok: true, mark: cloneJson(mark) };
       } catch {
         return salesUnavailableResult();
       }
@@ -615,6 +687,35 @@ function createPgSalesRepository(options = {}) {
         throw new SalesStoreUnavailableError();
       }
     },
+    async listCrmReviewMarksForProspect(id) {
+      try {
+        const result = await queryFn(
+          `SELECT id, prospect_id, qualification_assessment_id, reviewer_id, created_at
+           FROM luna_sales.crm_review_marks
+           WHERE prospect_id = $1
+           ORDER BY created_at DESC`,
+          [id],
+        );
+        return (result.rows || []).map(mapCrmReviewMarkRow);
+      } catch {
+        throw new SalesStoreUnavailableError();
+      }
+    },
+    async getLatestCrmReviewMark(id) {
+      try {
+        const result = await queryFn(
+          `SELECT id, prospect_id, qualification_assessment_id, reviewer_id, created_at
+           FROM luna_sales.crm_review_marks
+           WHERE prospect_id = $1
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [id],
+        );
+        return mapCrmReviewMarkRow(result.rows && result.rows[0]);
+      } catch {
+        throw new SalesStoreUnavailableError();
+      }
+    },
     async listReviewQueueSummaries() {
       try {
         const result = await queryFn(
@@ -643,6 +744,13 @@ function createPgSalesRepository(options = {}) {
                ORDER BY q.created_at DESC
                LIMIT 1
              ) AS latest_qualification_at,
+             (
+               SELECT m.created_at
+               FROM luna_sales.crm_review_marks m
+               WHERE m.prospect_id = p.id
+               ORDER BY m.created_at DESC
+               LIMIT 1
+             ) AS latest_crm_review_mark_at,
              GREATEST(
                p.created_at,
                p.updated_at,
@@ -652,6 +760,10 @@ function createPgSalesRepository(options = {}) {
                ),
                COALESCE(
                  (SELECT MAX(q.created_at) FROM luna_sales.qualification_assessments q WHERE q.prospect_id = p.id),
+                 p.created_at
+               ),
+               COALESCE(
+                 (SELECT MAX(m.created_at) FROM luna_sales.crm_review_marks m WHERE m.prospect_id = p.id),
                  p.created_at
                )
              ) AS most_recent_activity
@@ -670,6 +782,12 @@ function createPgSalesRepository(options = {}) {
             : (row.latest_qualification_at instanceof Date
               ? row.latest_qualification_at.toISOString()
               : String(row.latest_qualification_at)),
+          crm_ready: Boolean(row.latest_crm_review_mark_at),
+          latest_crm_review_mark_at: row.latest_crm_review_mark_at == null
+            ? null
+            : (row.latest_crm_review_mark_at instanceof Date
+              ? row.latest_crm_review_mark_at.toISOString()
+              : String(row.latest_crm_review_mark_at)),
           most_recent_activity: row.most_recent_activity instanceof Date
             ? row.most_recent_activity.toISOString()
             : String(row.most_recent_activity || ''),

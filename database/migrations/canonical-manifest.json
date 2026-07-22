@@ -458,6 +458,15 @@
       "rationale": "Luna Sales Chapter 3: luna_sales.qualification_assessments for operator-controlled qualification policy with explicit evidence references."
     },
     {
+      "id": "045_luna_sales_crm_review",
+      "filename": "045_luna_sales_crm_review.sql",
+      "sha256": "df4b5ab8c7df4bb4cb88e093d61fff11822f51f73cf7ad424bdb5b451f6392f4",
+      "order": 43,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Luna Sales Chapter 5: luna_sales.crm_review_marks for manual CRM review readiness linked to qualified assessments (preview-only; no CRM writes)."
+    },
+    {
       "id": "022_sunset_location_id_PROPOSED",
       "filename": "022_sunset_location_id_PROPOSED.sql",
       "sha256": "5854d06527c2f2f1cd6e209b9a87759db3d72396a0ee9b9c58a834ff18f8448f",

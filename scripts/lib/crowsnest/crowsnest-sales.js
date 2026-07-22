@@ -1,11 +1,15 @@
 'use strict';
 
 /**
- * Crowsnest Luna Sales — prospects, fixture research, manual evidence, qualification, decisions, audit.
+ * Crowsnest Luna Sales — prospects, fixture research, manual evidence, qualification,
+ * CRM sync preview (provider-neutral), CRM review readiness, decisions, audit.
  *
  * Persistence goes through crowsnest-sales-store (dedicated CROWSNEST_SALES_DATABASE_URL).
  * In-memory fallback is explicit for non-production/test when the durable DSN is absent.
  * Production without the dedicated DSN fails closed on Sales mutations.
+ *
+ * Chapter 5 builds a CRM sync *preview* and manual "ready for CRM review" mark only —
+ * no CRM provider SDK/HTTP/env keys, no automatic writes, no outreach.
  */
 
 const {
@@ -35,6 +39,11 @@ const QUALIFICATION_BOUNDS = {
   rationaleMax: 2000,
   maxEvidenceRefs: 40,
 };
+
+/** Accepted future CRM Company mapping (provider-neutral domain terms). */
+const CRM_PREVIEW_LIFECYCLE_STAGE = 'Lead';
+const CRM_PREVIEW_STATUS_PROPERTY = 'Luna Sales Status';
+const CRM_PREVIEW_STATUS_VALUE = 'Qualified Prospect';
 
 /** @type {ReturnType<typeof createMemorySalesRepository> | null} */
 let repository = null;
@@ -472,6 +481,7 @@ const REVIEW_QUEUE_FILTERS = new Set([
   'needs_more_research',
   'qualified',
   'not_qualified',
+  'crm_ready',
 ]);
 
 const ACTIONABLE_REVIEW_BUCKETS = new Set(['ready_for_review', 'needs_more_research']);
@@ -482,9 +492,16 @@ function normalizeReviewQueueFilter(raw) {
   return REVIEW_QUEUE_FILTERS.has(value) ? value : 'all';
 }
 
+function isCrmReadyFlag(summary = {}) {
+  if (summary.crm_ready === true || summary.has_crm_review_mark === true) return true;
+  if (summary.latest_crm_review_mark_at) return true;
+  if (summary.latestCrmReviewMark && summary.latestCrmReviewMark.id) return true;
+  return false;
+}
+
 /**
- * Truthful operating bucket from persisted evidence + latest qualification only.
- * No invented scores or AI priority.
+ * Truthful operating bucket from persisted evidence + latest qualification +
+ * CRM review readiness. No invented scores or AI priority.
  */
 function assignReviewBucket(summary = {}) {
   const decision = String(
@@ -498,11 +515,259 @@ function assignReviewBucket(summary = {}) {
       : (Array.isArray(summary.researchJobs) ? summary.researchJobs.length : 0),
   ) || 0;
 
+  if (isCrmReadyFlag(summary) && decision === 'qualified') return 'crm_ready';
   if (decision === 'qualified') return 'qualified';
   if (decision === 'not_qualified') return 'not_qualified';
   if (decision === 'needs_more_research') return 'needs_more_research';
   if (evidenceCount > 0) return 'ready_for_review';
   return null;
+}
+
+function extractCompanyDomain(websiteUrl) {
+  const raw = String(websiteUrl || '').trim();
+  if (!raw) return '';
+  try {
+    const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const hostname = new URL(withProtocol).hostname || '';
+    return hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function normalizeCrmContactCandidates(contacts) {
+  if (!Array.isArray(contacts)) return [];
+  return contacts
+    .map((contact) => {
+      if (!contact || typeof contact !== 'object') return null;
+      const email = String(contact.email || '').trim();
+      const fullName = String(
+        contact.full_name != null ? contact.full_name : (contact.fullName || ''),
+      ).trim();
+      const role = String(contact.role || contact.title || '').trim();
+      if (!email && !fullName) return null;
+      return {
+        full_name: fullName,
+        email,
+        role,
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Provider-neutral CRM sync preview for a currently qualified prospect.
+ * Maps to one Company + zero-or-more Contacts; accepted future mapping uses
+ * lifecycle Lead and Company property Luna Sales Status = Qualified Prospect.
+ * Explicitly no Deal. Preview only — nothing is sent.
+ */
+function buildCrmSyncPreview(input = {}) {
+  const prospect = input.prospect || null;
+  const qualification = input.qualification
+    || input.latestQualification
+    || input.latest_qualification
+    || null;
+  const contacts = normalizeCrmContactCandidates(input.contacts);
+
+  if (!prospect || !prospect.id) {
+    return { ok: false, error: 'Prospect is required for CRM preview.', status: 400 };
+  }
+  if (!qualification || !qualification.id) {
+    return {
+      ok: false,
+      error: 'A current qualification assessment is required for CRM preview.',
+      status: 400,
+    };
+  }
+  const decision = String(qualification.decision || '').trim().toLowerCase();
+  if (decision !== 'qualified') {
+    return {
+      ok: false,
+      error: 'CRM preview requires the prospect’s latest qualification to be qualified.',
+      status: 400,
+    };
+  }
+
+  const websiteUrl = String(prospect.website_url || '').trim();
+  const companyName = String(prospect.canonical_name || '').trim() || websiteUrl || String(prospect.id);
+  const domain = extractCompanyDomain(websiteUrl);
+
+  return {
+    ok: true,
+    preview: {
+      preview_only: true,
+      record_sent: false,
+      disclaimer: 'Preview only — no CRM record has been sent.',
+      company: {
+        name: companyName,
+        website_url: websiteUrl,
+        domain,
+        lifecycle_stage: CRM_PREVIEW_LIFECYCLE_STAGE,
+        properties: {
+          [CRM_PREVIEW_STATUS_PROPERTY]: CRM_PREVIEW_STATUS_VALUE,
+        },
+      },
+      contacts,
+      deal: null,
+      traceability: {
+        prospect_id: String(prospect.id),
+        qualification_assessment_id: String(qualification.id),
+        decision: 'qualified',
+        rationale: String(qualification.rationale || ''),
+        evidence_ids: Array.isArray(qualification.evidence_ids)
+          ? qualification.evidence_ids.map((id) => String(id))
+          : [],
+        qualification_reviewer_id: String(qualification.reviewer_id || ''),
+        qualification_created_at: qualification.created_at
+          ? String(qualification.created_at)
+          : '',
+      },
+    },
+  };
+}
+
+async function getCrmSyncPreview(prospectId, options = {}) {
+  try {
+    const repo = await getRepository();
+    if (repo.backend === 'fail_closed') {
+      if (typeof repo.getLatestQualification === 'function') {
+        const closed = await repo.getLatestQualification(prospectId);
+        if (closed && closed.ok === false) return closed;
+      }
+      return {
+        ok: false,
+        status: 503,
+        code: 'sales_store_misconfigured',
+        error: 'Crowsnest Sales durable store is not configured.',
+      };
+    }
+
+    const prospect = await repo.getProspect(prospectId);
+    if (!prospect) {
+      return { ok: false, error: 'Prospect not found.', status: 404 };
+    }
+
+    const qualification = typeof repo.getLatestQualification === 'function'
+      ? await repo.getLatestQualification(prospect.id)
+      : null;
+    const built = buildCrmSyncPreview({
+      prospect,
+      qualification,
+      contacts: options.contacts,
+    });
+    if (!built.ok) return built;
+
+    const latestMark = typeof repo.getLatestCrmReviewMark === 'function'
+      ? await repo.getLatestCrmReviewMark(prospect.id)
+      : null;
+
+    return {
+      ok: true,
+      prospect,
+      qualification,
+      latestCrmReviewMark: latestMark || null,
+      preview: built.preview,
+    };
+  } catch (err) {
+    if (isSalesStoreUnavailableError(err)) {
+      return salesUnavailableResult();
+    }
+    throw err;
+  }
+}
+
+async function listCrmReviewMarksForProspect(id) {
+  const repo = await getRepository();
+  if (typeof repo.listCrmReviewMarksForProspect === 'function') {
+    return repo.listCrmReviewMarksForProspect(id);
+  }
+  return [];
+}
+
+async function getLatestCrmReviewMark(id) {
+  const repo = await getRepository();
+  if (typeof repo.getLatestCrmReviewMark === 'function') {
+    return repo.getLatestCrmReviewMark(id);
+  }
+  const list = await listCrmReviewMarksForProspect(id);
+  return list.length ? list[0] : null;
+}
+
+async function markReadyForCrmReview(prospectId, actor = 'Admin') {
+  try {
+    const repo = await getRepository();
+    if (repo.backend === 'fail_closed') {
+      return typeof repo.saveCrmReviewMark === 'function'
+        ? repo.saveCrmReviewMark({})
+        : {
+          ok: false,
+          status: 503,
+          code: 'sales_store_misconfigured',
+          error: 'Crowsnest Sales durable store is not configured.',
+        };
+    }
+
+    const prospect = await repo.getProspect(prospectId);
+    if (!prospect) {
+      return { ok: false, error: 'Prospect not found.', status: 404 };
+    }
+
+    const qualification = typeof repo.getLatestQualification === 'function'
+      ? await repo.getLatestQualification(prospect.id)
+      : null;
+    if (!qualification || String(qualification.decision || '').trim().toLowerCase() !== 'qualified') {
+      return {
+        ok: false,
+        error: 'Mark ready for CRM review requires the prospect’s latest qualification to be qualified.',
+        status: 400,
+      };
+    }
+
+    const mark = {
+      id: newSalesUuid(),
+      prospect_id: prospect.id,
+      qualification_assessment_id: qualification.id,
+      reviewer_id: String(actor || 'Admin'),
+      created_at: nowIso(),
+    };
+
+    const saved = await repo.saveCrmReviewMark(mark);
+    if (saved && saved.ok === false) {
+      return saved;
+    }
+
+    const audit = await appendAudit({
+      actor: String(actor || 'Admin'),
+      action: 'crm_review_ready_marked',
+      entity_type: 'crm_review',
+      entity_id: mark.id,
+      detail: {
+        prospect_id: prospect.id,
+        qualification_assessment_id: qualification.id,
+        decision: qualification.decision,
+        rationale: qualification.rationale,
+        evidence_ids: Array.isArray(qualification.evidence_ids)
+          ? qualification.evidence_ids.map((id) => String(id))
+          : [],
+        reviewer_id: String(actor || 'Admin'),
+      },
+    });
+    if (audit && audit.ok === false) {
+      return audit;
+    }
+
+    return {
+      ok: true,
+      mark: (saved && saved.mark) || mark,
+      qualification,
+      audit,
+    };
+  } catch (err) {
+    if (isSalesStoreUnavailableError(err)) {
+      return salesUnavailableResult();
+    }
+    throw err;
+  }
 }
 
 function isActionableReviewBucket(bucket) {
@@ -550,9 +815,12 @@ function buildReviewQueueItem(summary = {}) {
   const latestDecision = summary.latest_qualification_decision != null
     ? summary.latest_qualification_decision
     : null;
+  const crmReady = isCrmReadyFlag(summary);
   const bucket = assignReviewBucket({
     evidence_count: evidenceCount,
     latest_qualification_decision: latestDecision,
+    crm_ready: crmReady,
+    latest_crm_review_mark_at: summary.latest_crm_review_mark_at || null,
   });
   if (!bucket) return null;
 
@@ -564,6 +832,7 @@ function buildReviewQueueItem(summary = {}) {
       summary.created_at,
       summary.updated_at,
       summary.latest_qualification_at,
+      summary.latest_crm_review_mark_at,
     ]);
 
   return {
@@ -576,6 +845,12 @@ function buildReviewQueueItem(summary = {}) {
       ? (summary.latest_qualification_at instanceof Date
         ? summary.latest_qualification_at.toISOString()
         : String(summary.latest_qualification_at))
+      : null,
+    crm_ready: crmReady,
+    latest_crm_review_mark_at: summary.latest_crm_review_mark_at
+      ? (summary.latest_crm_review_mark_at instanceof Date
+        ? summary.latest_crm_review_mark_at.toISOString()
+        : String(summary.latest_crm_review_mark_at))
       : null,
     most_recent_activity: mostRecentActivity,
     bucket,
@@ -610,6 +885,9 @@ async function listReviewQueue(options = {}) {
         const latestQual = typeof repo.getLatestQualification === 'function'
           ? await repo.getLatestQualification(prospect.id)
           : null;
+        const latestCrmMark = typeof repo.getLatestCrmReviewMark === 'function'
+          ? await repo.getLatestCrmReviewMark(prospect.id)
+          : null;
         summaries.push({
           id: prospect.id,
           canonical_name: prospect.canonical_name,
@@ -619,11 +897,14 @@ async function listReviewQueue(options = {}) {
           evidence_count: (research || []).length,
           latest_qualification_decision: latestQual ? latestQual.decision : null,
           latest_qualification_at: latestQual ? latestQual.created_at : null,
+          crm_ready: Boolean(latestCrmMark),
+          latest_crm_review_mark_at: latestCrmMark ? latestCrmMark.created_at : null,
           most_recent_activity: maxIsoTimestamp([
             prospect.created_at,
             prospect.updated_at,
             ...((research || []).map((row) => row.created_at)),
             latestQual && latestQual.created_at,
+            latestCrmMark && latestCrmMark.created_at,
           ]),
         });
       }
@@ -895,25 +1176,34 @@ module.exports = {
   ALLOWED_EVIDENCE_CONFIDENCE,
   ALLOWED_QUALIFICATION_DECISIONS,
   ACTIONABLE_REVIEW_BUCKETS,
+  CRM_PREVIEW_LIFECYCLE_STAGE,
+  CRM_PREVIEW_STATUS_PROPERTY,
+  CRM_PREVIEW_STATUS_VALUE,
   EVIDENCE_BOUNDS,
   QUALIFICATION_BOUNDS,
   REVIEW_QUEUE_FILTERS,
   appendAudit,
   assignReviewBucket,
+  buildCrmSyncPreview,
   compareReviewQueueItems,
   createProspect,
   decideProspect,
+  extractCompanyDomain,
   filterReviewQueueItems,
+  getCrmSyncPreview,
+  getLatestCrmReviewMark,
   getLatestQualification,
   getProspect,
   getResearchForProspect,
   getSalesStoreMode,
   isActionableReviewBucket,
   listAuditEvents,
+  listCrmReviewMarksForProspect,
   listProspects,
   listQualificationsForProspect,
   listResearchForProspect,
   listReviewQueue,
+  markReadyForCrmReview,
   normalizeReviewQueueFilter,
   recordManualEvidence,
   recordQualification,
