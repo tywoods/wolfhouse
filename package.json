@@ -288,6 +288,8 @@
     "verify:sunset-staging-iac-secret-scan": "node scripts/verify-sunset-staging-iac-secret-scan.js",
     "verify:sunset-staging-iac-diff-check": "node scripts/verify-sunset-staging-iac-diff-check.js",
     "verify:migration-integrity": "node scripts/verify-migration-integrity.js",
+    "verify:staging-ledger-recovery": "node scripts/verify-staging-ledger-recovery.js",
+    "staging-ledger-recovery:plan": "node scripts/run-staging-ledger-recovery.js",
     "migrate:canonical": "node scripts/run-canonical-migrations.js",
     "prove:canonical-migrations-fresh-db": "node scripts/prove-canonical-migrations-fresh-db.js",
     "generate:sunset-expected-schema-contract": "node scripts/generate-sunset-expected-schema-contract.js",
