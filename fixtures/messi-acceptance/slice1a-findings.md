@@ -1,10 +1,10 @@
-# MESSI Slice 1E findings — FORTRESS 1D ledger wiring
+# MESSI Slice 1F findings — RADAR 16AP ledger wiring
 
-**Status:** FORTRESS 1D finite audit closeout wired into canonical acceptance ledger + verifier
-**Master basis:** `28ba003acc57bd732df17d799a95a4d99f69f2f9`
-**Branch:** `messi/slice-1e-fortress-wiring`
-**Outcome:** `1E_fortress_finite_closeout_ledger_wiring`
-**Progress class:** `fortress_finite_closeout_ledger_wiring_only`
+**Status:** RADAR 16AP finite staging-readiness closeout wired into canonical acceptance ledger + verifier
+**Master basis:** `f0a4c696131e3897691e25c053c1583a3545393b`
+**Branch:** `messi/slice-1f-radar-wiring`
+**Outcome:** `1F_radar_finite_closeout_ledger_wiring`
+**Progress class:** `radar_finite_closeout_ledger_wiring_only`
 
 ## Definition
 
@@ -13,14 +13,13 @@ It does not replace parent workstreams. It inventories their canonical closeout/
 binds exact file hashes, runs retained offline gates, and classifies MESSI gates as
 `complete` / `partial` / `absent` with explicit missing proof.
 
-Slice **1E** binds the reviewed FORTRESS 1D finite audit closeout (merge tip
-`ff285598ac2cfec980e8316e772924a9c79a6a7e`, candidate
-`fa2c5d71ad6c662b4c4f60b08ede409064acf2fe`, path-filtered squash via provenance-bound
-blobs) through Git-anchored reviewed-candidate blob certificates and executes
-`verify:messi-slice1d-fortress-closeout`. Finite audit/source workstream completion is
-exposed; `G_FORTRESS_PARENT` stays **partial** while matrix 3 unproven / 4 vulnerable,
-live KV/deploy activation, production tenant/security proof, drills, and operated
-readiness remain missing.
+Slice **1F** binds the reviewed RADAR 16AP finite closeout (canonical tip
+`7e56a99a2d69e13bf1a764090e4033195e189641`, candidate
+`7870a9fb818bbd94d33b291c8782851276e2715e`) through existing Git-anchored
+reviewed-candidate blob certificates and executes `verify:radar-slice16ap-finite-closeout`.
+Finite staging-readiness workstream completion is exposed; `G_RADAR_PARENT` stays
+**partial** while formal score remains **0/9/0** and every retained live/production
+gap stays listed. No new certificate architecture.
 
 ## Completion policy
 
@@ -45,7 +44,7 @@ Classification requires:
 |------|---------|-------|
 | `G_FOUNDATION_PARENT` | partial | 1B finite closeout wired + staging complete exposed; Docker/prod/restore/operated missing |
 | `G_FORTRESS_PARENT` | partial | 1D finite audit wired + audit complete exposed; matrix 3/4 gaps; live KV/deploy; drills; operated |
-| `G_RADAR_PARENT` | partial | 16AP passes; **formal score frozen 0 proven / 9 partial / 0 absent** |
+| `G_RADAR_PARENT` | partial | 16AP finite closeout wired + staging-readiness complete exposed; **formal score frozen 0/9/0** |
 | `G_FACTORY_PARENT` | partial | 1E finite offline closeout passes; live/prod third-tenant still missing |
 | `G_CROSS_PARENT_INTEGRATION` | absent | No committed cross-parent integration proof |
 | `G_MESSI_MILESTONE_CLOSEOUT` | absent | MESSI not complete |
@@ -60,20 +59,20 @@ Classification requires:
 | FACTORY | finite_offline_dry_run_packaging_closeout | absent |
 
 Finite staging/offline/audit closeouts are **not** production readiness.
-Finite FORTRESS audit completion is **not** FORTRESS security readiness.
+Finite RADAR staging-readiness completion is **not** RADAR formal/production complete.
 
-## What 1E proves / does not prove
+## What 1F proves / does not prove
 
-**Proves:** FORTRESS 1D candidate `fa2c5d71` + merge `ff285598` provenance + tip blobs bound;
-real 1D gate executed; finite audit/source workstream completion exposed on
-`G_FORTRESS_PARENT` only; honest MESSI score remains 0/4/2; five unrelated gate objects
-byte-identical to base `28ba003a` (including FOUNDATION finite staging + MESSI closeout
-workstream_class); RADAR formal 0/9/0 preserved; `production_ready` / `messi_complete` false.
+**Proves:** RADAR 16AP candidate `7870a9fb` + tip `7e56a99a` provenance + durable evidence
+refs reused; real 16AP gate executed; finite staging-readiness workstream completion exposed on
+`G_RADAR_PARENT` only; honest MESSI score remains 0/4/2; five unrelated gate objects
+byte-identical to base `f0a4c696` (including FOUNDATION finite staging, FORTRESS finite audit,
+and MESSI closeout workstream_class); RADAR formal 0/9/0 preserved; `production_ready` /
+`messi_complete` false.
 
-**Does not prove:** MESSI complete, production ready, FORTRESS security readiness, matrix
-unproven/vulnerable cleared, live KV/deploy activation, production tenant boundary proof,
-security drills, operated readiness, cross-parent integration, raising any RADAR formal gate,
-live/prod FACTORY third tenant.
+**Does not prove:** MESSI complete, production ready, raising any RADAR formal gate from
+partial, closing production-only unknowns, full G06 proven, FORTRESS security readiness,
+cross-parent integration, live/prod FACTORY third tenant.
 
 ## Parent SHA provenance
 
@@ -84,12 +83,11 @@ live/prod FACTORY third tenant.
 | RADAR | `7e56a99a2d69e13bf1a764090e4033195e189641` | `7870a9fb818bbd94d33b291c8782851276e2715e` |
 | FACTORY | `14facf5d54be8767cf9aca4d69a880f28ea3dc2e` | identity |
 
-Hostile REDs cover treating finite audit as security/production completion, exact
-unrelated-gate identity drift vs base `28ba003a`, stale/re-pinned 1D provenance, hidden
-FORTRESS missing proofs, plus retained 1A/1C hostiles. Tip scope uses Git-anchored blob
-certificates only — no path allowlists or base-to-HEAD scope logic.
+Hostile REDs cover exact unrelated-gate identity drift vs base `f0a4c696` and treating
+finite staging-readiness closeout as RADAR complete, plus retained 1A/1C/1E hostiles.
+Tip scope reuses existing redesign + squash-proof certificates — no new cert architecture.
 
 ## Out of scope
 
 Product/runtime/template behavior, deploy, DB, cloud, network live action, production access,
-new FORTRESS closeout artifacts beyond ledger wiring.
+new RADAR closeout artifacts beyond ledger wiring, new certificate architecture.

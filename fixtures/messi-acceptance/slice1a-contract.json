@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "slice": "MESSI-1E",
-  "outcome_id": "1E_fortress_finite_closeout_ledger_wiring",
-  "branch": "messi/slice-1e-fortress-wiring",
-  "master_basis": "28ba003acc57bd732df17d799a95a4d99f69f2f9",
-  "progress_class": "fortress_finite_closeout_ledger_wiring_only",
-  "title": "MESSI Slice 1E — wire FORTRESS 1D finite audit closeout into acceptance ledger",
+  "slice": "MESSI-1F",
+  "outcome_id": "1F_radar_finite_closeout_ledger_wiring",
+  "branch": "messi/slice-1f-radar-wiring",
+  "master_basis": "f0a4c696131e3897691e25c053c1583a3545393b",
+  "progress_class": "radar_finite_closeout_ledger_wiring_only",
+  "title": "MESSI Slice 1F — wire RADAR 16AP finite closeout into acceptance ledger",
   "live_mutation": false,
   "runtime_behavior_changed": false,
   "messi_definition": "MESSI is the integration gate above FOUNDATION, FORTRESS, RADAR, and FACTORY.",
@@ -129,9 +129,7 @@
       "provenance_bound_files": [
         "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
         "fixtures/radar-operations/slice16ap-finite-closeout.json",
-        "fixtures/radar-operations/slice16ap-expected-contract.json",
-        "scripts/lib/radar-slice16ap-finite-closeout.js",
-        "scripts/verify-radar-slice16ap-finite-closeout.js"
+        "fixtures/radar-operations/slice16ap-expected-contract.json"
       ],
       "missing_proof_for_complete": [
         "formal_gates_raised_from_partial_to_proven",
@@ -212,9 +210,7 @@
       "provenance_bound_files": [
         "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
         "fixtures/radar-operations/slice16ap-finite-closeout.json",
-        "fixtures/radar-operations/slice16ap-expected-contract.json",
-        "scripts/lib/radar-slice16ap-finite-closeout.js",
-        "scripts/verify-radar-slice16ap-finite-closeout.js"
+        "fixtures/radar-operations/slice16ap-expected-contract.json"
       ]
     },
     "FACTORY": {

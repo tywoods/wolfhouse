@@ -1,9 +1,9 @@
-# MESSI — Acceptance ledger (Slice 1E)
+# MESSI — Acceptance ledger (Slice 1F)
 
-**Status:** Slice **1E delivered** — FORTRESS 1D finite audit closeout wired into the canonical ledger.
-**Master basis:** `28ba003acc57bd732df17d799a95a4d99f69f2f9`
-**Branch:** `messi/slice-1e-fortress-wiring`
-**Outcome:** `1E_fortress_finite_closeout_ledger_wiring`
+**Status:** Slice **1F delivered** — RADAR 16AP finite staging-readiness closeout wired into the canonical ledger.
+**Master basis:** `f0a4c696131e3897691e25c053c1583a3545393b`
+**Branch:** `messi/slice-1f-radar-wiring`
+**Outcome:** `1F_radar_finite_closeout_ledger_wiring`
 
 **Owner artifacts:**
 `docs/MESSI-ACCEPTANCE-LEDGER.md` · `fixtures/messi-acceptance/` · `scripts/lib/messi-slice1a-acceptance-ledger.js` · `scripts/verify-messi-slice1a-acceptance-ledger.js`
@@ -30,12 +30,11 @@ The canonical acceptance ledger:
 6. Preserves RADAR formal truth **proven=0 / partial=9 / absent=0**
 7. Distinguishes finite staging/offline/audit workstream closeouts from production readiness
 
-Slice **1E** integrates the reviewed FORTRESS 1D finite audit closeout: bind candidate
-`fa2c5d71` + merge tip `ff285598` evidence through Git-anchored reviewed-candidate blob
-certificates, execute `verify:messi-slice1d-fortress-closeout`, expose finite audit/source
-workstream completion, and keep `G_FORTRESS_PARENT` **partial** while matrix 3 unproven /
-4 vulnerable, live KV/deploy activation, production tenant/security proof, drills, and
-operated readiness remain missing.
+Slice **1F** integrates the reviewed RADAR 16AP finite closeout: reuse candidate
+`7870a9fb` + tip `7e56a99a` provenance and durable evidence refs, execute
+`verify:radar-slice16ap-finite-closeout`, expose finite staging-readiness workstream
+completion, and keep `G_RADAR_PARENT` **partial** while formal score remains 0/9/0 and
+every retained live/production gap stays listed. No new certificate architecture.
 
 ## Parent SHA provenance (hard)
 
@@ -55,13 +54,13 @@ Verifier enforces: exact tip identity (reject stale-but-valid ancestors), candid
 Do **not** mark a parent milestone complete from labels, summaries, or self-authored booleans.
 The sole classifier lives in `scripts/lib/messi-slice1a-acceptance-ledger.js` (`classifyMessiGates`).
 
-Finite audit-workstream completion for FORTRESS is exposed as
-`finite_audit_workstream_complete=true` on `G_FORTRESS_PARENT` when the 1D gate passes.
+Finite staging-readiness workstream completion for RADAR is exposed as
+`finite_staging_readiness_workstream_complete=true` on `G_RADAR_PARENT` when the 16AP gate passes.
 That flag does **not** raise the parent verdict to complete, does **not** set
-`production_ready` / `messi_complete`, and is **not** FORTRESS security readiness.
-It is **FORTRESS-only** — the five unrelated gate objects (`G_FOUNDATION_PARENT`,
-`G_RADAR_PARENT`, `G_FACTORY_PARENT`, `G_CROSS_PARENT_INTEGRATION`,
-`G_MESSI_MILESTONE_CLOSEOUT`) remain byte-identical to master basis `28ba003a`.
+`production_ready` / `messi_complete`, and does **not** raise RADAR formal gates.
+It is **RADAR-only** — the five unrelated gate objects (`G_FOUNDATION_PARENT`,
+`G_FORTRESS_PARENT`, `G_FACTORY_PARENT`, `G_CROSS_PARENT_INTEGRATION`,
+`G_MESSI_MILESTONE_CLOSEOUT`) remain byte-identical to master basis `f0a4c696`.
 
 ## Frozen MESSI score (unchanged)
 
@@ -86,7 +85,7 @@ MESSI is **not** complete. Production readiness is **absent**. RADAR formal rema
 |----|---------|-------------------------|
 | `G_FOUNDATION_PARENT` | partial | Docker fresh-db; production schema; live restore/drill; operated readiness |
 | `G_FORTRESS_PARENT` | partial | matrix 3 unproven / 4 vulnerable; live KV/deploy; production security; drills; operated |
-| `G_RADAR_PARENT` | partial | formal gates remain 0/9/0; production unknowns |
+| `G_RADAR_PARENT` | partial | formal gates remain 0/9/0; production unknowns; full G06 / production_ready forbidden by 16AP |
 | `G_FACTORY_PARENT` | partial | live/prod third tenant; apply path; RADAR reopen clearance |
 | `G_CROSS_PARENT_INTEGRATION` | absent | committed cross-parent integration proof |
 | `G_MESSI_MILESTONE_CLOSEOUT` | absent | all parent gates complete + production readiness |
@@ -96,13 +95,13 @@ MESSI is **not** complete. Production readiness is **absent**. RADAR formal rema
 ```bash
 npm run verify:messi-slice1a-acceptance-ledger
 # alias:
-npm run verify:messi-slice1e-fortress-wiring
+npm run verify:messi-slice1f-radar-wiring
 ```
 
 Offline only. Spawns parent retained verifiers; does not deploy, mutate DB/cloud, or access production.
 
-## Scope fence (1E)
+## Scope fence (1F)
 
-**Allows:** docs, fixtures, verifier, parent inventory, hash binding, parent tip/candidate SHA provenance, retained offline gate execution, deterministic classification, package.json script registration, Git-anchored reviewed-candidate blob certificates.
+**Allows:** docs, fixtures, verifier, parent inventory, hash binding, parent tip/candidate SHA provenance, retained offline gate execution, deterministic classification, package.json script registration, reuse of Git-anchored reviewed-candidate blob certificates / squash-proof supersession.
 
-**Forbids:** product/runtime/template behavior, deploy, DB/cloud mutation, network live action, production access, raising RADAR formal gates, moving unrelated parent/MESSI gates, labeling finite audit closeout as security/production completion, path allowlists / base-to-HEAD tip scope, self-authored score/parent completion.
+**Forbids:** product/runtime/template behavior, deploy, DB/cloud mutation, network live action, production access, raising RADAR formal gates, moving unrelated parent/MESSI gates, labeling finite staging-readiness closeout as RADAR complete / production completion, new certificate architecture, path allowlists / base-to-HEAD tip scope, self-authored score/parent completion.
