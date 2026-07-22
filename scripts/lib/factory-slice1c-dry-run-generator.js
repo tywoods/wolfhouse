@@ -5,10 +5,17 @@
  *
  * Pure library: reads reviewed 1B templates under config/archetypes/, applies
  * substitutions, validates safety constraints, and returns canonical preview
- * bytes + manifest/hashes. Optional materialization writes via private sibling
- * staging + atomic rename into a nonexistent final directory (exclusive
- * creates; parent chain lstat/realpath safety; Linux parent-directory fd
- * anchor via O_DIRECTORY|O_NOFOLLOW + /proc/self/fd/<fd>). Does not apply,
+ * bytes + manifest/hashes. Optional disk materialization writes via private
+ * sibling staging + atomic no-replace publish into a nonexistent final
+ * directory (exclusive creates; parent chain lstat/realpath safety; Linux
+ * parent-directory fd anchor via O_DIRECTORY|O_NOFOLLOW + /proc/self/fd/<fd>).
+ *
+ * Disk-mode publish boundary (Linux/GNU only): the sole local subprocess is
+ * `/usr/bin/mv --no-copy --no-clobber -T` spawned with an argument array (no
+ * shell), `/proc/<pid>/fd/<fd>`-anchored publish paths (in-process ops keep
+ * `/proc/self/fd/<fd>`), and closed/discarded stdio. Node `fs.rename` is not
+ * used for publish — it can replace an empty final directory. Unavailable
+ * exact executable/options fail closed. Does not apply,
  * write registries, touch config/clients, load runtime, open DB/cloud/network,
  * or materialize secrets. stdout emission is zero-write.
  */
@@ -16,8 +23,14 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { spawnSync } = require('child_process');
 
 const slice1b = require('./factory-slice1b-archetype-templates');
+
+/** Sole disk-mode publish executable (Linux/GNU coreutils). */
+const GNU_MV_PATH = '/usr/bin/mv';
+/** Fixed no-replace publish flags; never shell-interpolated. */
+const GNU_MV_PUBLISH_ARGS = Object.freeze(['--no-copy', '--no-clobber', '-T']);
 
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -868,6 +881,225 @@ function cleanupStagingDir(stagingPath) {
   }
 }
 
+function pathExistsLstat(absPath) {
+  try {
+    fs.lstatSync(absPath);
+    return true;
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return false;
+    throw err;
+  }
+}
+
+/**
+ * Linux/GNU only: require exact `/usr/bin/mv` with `--no-copy`, `--no-clobber`,
+ * and `-T` / `--no-target-directory`. Fail closed otherwise. Probe is not the
+ * publish spawn (stdio must be readable here to inspect help/version).
+ */
+function assertGnuMvNoReplacePublishAvailable() {
+  if (process.platform !== 'linux') {
+    return { ok: false, error: 'gnu_mv_publish_unsupported_platform' };
+  }
+  let st;
+  try {
+    st = fs.lstatSync(GNU_MV_PATH);
+  } catch (err) {
+    return { ok: false, error: `gnu_mv_executable_unavailable:${err && err.code}` };
+  }
+  if (st.isSymbolicLink() || !st.isFile()) {
+    return { ok: false, error: 'gnu_mv_executable_not_regular_file' };
+  }
+  try {
+    fs.accessSync(GNU_MV_PATH, fs.constants.X_OK);
+  } catch (err) {
+    return { ok: false, error: `gnu_mv_executable_not_executable:${err && err.code}` };
+  }
+
+  const version = spawnSync(GNU_MV_PATH, ['--version'], {
+    shell: false,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  if (version.error) {
+    return { ok: false, error: `gnu_mv_version_probe_failed:${version.error.code || 'spawn'}` };
+  }
+  const versionText = `${version.stdout || ''}\n${version.stderr || ''}`;
+  if (!/GNU\s+coreutils/i.test(versionText)) {
+    return { ok: false, error: 'gnu_mv_not_gnu_coreutils' };
+  }
+
+  const help = spawnSync(GNU_MV_PATH, ['--help'], {
+    shell: false,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  if (help.error) {
+    return { ok: false, error: `gnu_mv_help_probe_failed:${help.error.code || 'spawn'}` };
+  }
+  const helpText = `${help.stdout || ''}\n${help.stderr || ''}`;
+  if (!helpText.includes('--no-copy')) {
+    return { ok: false, error: 'gnu_mv_required_options_unavailable:--no-copy' };
+  }
+  if (!helpText.includes('--no-clobber')) {
+    return { ok: false, error: 'gnu_mv_required_options_unavailable:--no-clobber' };
+  }
+  if (!helpText.includes('--no-target-directory') && !/\s-T[,\s]/.test(helpText)) {
+    return { ok: false, error: 'gnu_mv_required_options_unavailable:-T' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Sole local subprocess for disk-mode publish: argument-array spawn of
+ * `/usr/bin/mv --no-copy --no-clobber -T` with closed/discarded stdio and no
+ * shell. Publish argv paths must be `/proc/<pid>/fd/<fd>/…` so the child can
+ * resolve the parent's open directory ( `/proc/self/fd` is process-local).
+ */
+function isProcFdAnchoredPath(absPath) {
+  return typeof absPath === 'string'
+    && (/^\/proc\/self\/fd\/\d+\//.test(absPath)
+      || /^\/proc\/\d+\/fd\/\d+\//.test(absPath));
+}
+
+function spawnGnuMvNoReplacePublish(stagingPath, finalPath, options) {
+  const avail = assertGnuMvNoReplacePublishAvailable();
+  if (!avail.ok) return { ok: false, error: avail.error };
+
+  if (!isProcFdAnchoredPath(stagingPath)) {
+    return { ok: false, error: 'gnu_mv_publish_staging_not_fd_anchored' };
+  }
+  if (!isProcFdAnchoredPath(finalPath)) {
+    return { ok: false, error: 'gnu_mv_publish_final_not_fd_anchored' };
+  }
+
+  const args = [...GNU_MV_PUBLISH_ARGS, stagingPath, finalPath];
+  const spawnOpts = Object.freeze({
+    shell: false,
+    stdio: Object.freeze(['ignore', 'ignore', 'ignore']),
+    windowsHide: true,
+  });
+  if (spawnOpts.shell !== false) {
+    return { ok: false, error: 'gnu_mv_publish_shell_refused' };
+  }
+
+  if (options && typeof options.observePublishSpawn === 'function') {
+    options.observePublishSpawn({
+      file: GNU_MV_PATH,
+      args: [...args],
+      spawnOpts: {
+        shell: spawnOpts.shell,
+        stdio: [...spawnOpts.stdio],
+        windowsHide: spawnOpts.windowsHide,
+      },
+    });
+  }
+
+  let result;
+  if (options && typeof options.spawnPublish === 'function') {
+    result = options.spawnPublish({
+      file: GNU_MV_PATH,
+      args: [...args],
+      spawnOpts: {
+        shell: spawnOpts.shell,
+        stdio: [...spawnOpts.stdio],
+        windowsHide: spawnOpts.windowsHide,
+      },
+    });
+  } else {
+    result = spawnSync(GNU_MV_PATH, args, {
+      shell: false,
+      stdio: ['ignore', 'ignore', 'ignore'],
+      windowsHide: true,
+    });
+  }
+
+  if (!result || typeof result !== 'object') {
+    return { ok: false, error: 'gnu_mv_publish_spawn_invalid_result' };
+  }
+  if (result.error) {
+    return {
+      ok: false,
+      error: `gnu_mv_publish_spawn_error:${result.error.code || result.error.message || 'spawn'}`,
+      result,
+    };
+  }
+  if (result.signal) {
+    return {
+      ok: false,
+      error: `gnu_mv_publish_signal:${result.signal}`,
+      result,
+    };
+  }
+  if (result.status !== 0) {
+    return {
+      ok: false,
+      error: `gnu_mv_publish_nonzero:${result.status}`,
+      result,
+    };
+  }
+  return { ok: true, result };
+}
+
+/**
+ * After a zero-exit publish attempt: require source absent, final present,
+ * final directory inode identical to the staged directory, and on-disk bytes
+ * matching the staged manifest. Any source remaining (including GNU
+ * `--no-clobber` skip of a preexisting empty/nonempty final) is failure.
+ */
+function assessNoReplacePublishSuccess(stagingPath, finalPath, stagedIdentity, stagedFiles) {
+  let sourcePresent;
+  try {
+    sourcePresent = pathExistsLstat(stagingPath);
+  } catch (err) {
+    return { ok: false, error: `gnu_mv_publish_source_lstat_failed:${err && err.code}` };
+  }
+  if (sourcePresent) {
+    return { ok: false, error: 'gnu_mv_publish_source_remaining' };
+  }
+
+  let finalStat;
+  try {
+    finalStat = fs.lstatSync(finalPath);
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      return { ok: false, error: 'gnu_mv_publish_final_missing' };
+    }
+    return { ok: false, error: `gnu_mv_publish_final_lstat_failed:${err && err.code}` };
+  }
+  if (finalStat.isSymbolicLink()) {
+    return { ok: false, error: 'gnu_mv_publish_final_is_symlink' };
+  }
+  if (!finalStat.isDirectory()) {
+    return { ok: false, error: 'gnu_mv_publish_final_not_directory' };
+  }
+  if (!sameDevIno(finalStat.dev, finalStat.ino, stagedIdentity.dev, stagedIdentity.ino)) {
+    return { ok: false, error: 'gnu_mv_publish_inode_mismatch' };
+  }
+
+  for (const file of stagedFiles) {
+    const rel = file.relativePath.split(/[\\/]/).join('/');
+    const abs = `${finalPath}/${rel}`;
+    if (!abs.startsWith(`${finalPath}/`)) {
+      return { ok: false, error: `gnu_mv_publish_content_path_escape:${file.relativePath}` };
+    }
+    let bytes;
+    try {
+      bytes = fs.readFileSync(abs);
+    } catch (err) {
+      return {
+        ok: false,
+        error: `gnu_mv_publish_content_missing:${file.relativePath}:${err && err.code}`,
+      };
+    }
+    if (sha256Hex(bytes) !== file.sha256) {
+      return { ok: false, error: `gnu_mv_publish_content_mismatch:${file.relativePath}` };
+    }
+  }
+  return { ok: true, finalDev: finalStat.dev, finalIno: finalStat.ino };
+}
+
 /**
  * Linux-only: require /proc/self/fd and O_DIRECTORY|O_NOFOLLOW. Fail closed otherwise.
  */
@@ -979,12 +1211,15 @@ function exclusiveWriteFile(absPath, content) {
 }
 
 /**
- * Materialize dry-run preview via private sibling staging + atomic rename,
- * anchored to an open parent directory fd so cleanup never depends on the
- * caller pathname (parent-rename race). Final directory must not exist.
- * Never overwrites. No apply semantics. Cleans staging/final via fd anchor on
- * every error. Does not traverse caller-controlled descendants. Fail closed if
- * fd anchoring / procfs is unavailable.
+ * Materialize dry-run preview via private sibling staging + atomic no-replace
+ * publish, anchored to an open parent directory fd so cleanup never depends on
+ * the caller pathname (parent-rename race). Final directory must not exist.
+ * Never overwrites (Node rename is not used — it can replace an empty final).
+ * Linux/GNU disk mode publishes with the sole local subprocess
+ * `/usr/bin/mv --no-copy --no-clobber -T` (argument array, fd-anchored paths,
+ * closed stdio). Cleans staging/final via fd anchor on every error. Does not
+ * traverse caller-controlled descendants. Fail closed if fd anchoring / procfs
+ * / exact GNU mv options are unavailable.
  */
 function writeDryRunPreview(result, options) {
   if (!result || !result.ok) {
@@ -1006,6 +1241,9 @@ function writeDryRunPreview(result, options) {
 
   let parentFd = opened.fd;
   const anchorBase = opened.anchorBase;
+  // Child processes cannot resolve the parent's /proc/self/fd/<fd>; publish argv
+  // must use /proc/<pid>/fd/<fd> while in-process Node ops keep /proc/self/fd.
+  const publishAnchorBase = `/proc/${process.pid}/fd/${parentFd}`;
   const parentDev = opened.dev;
   const parentIno = opened.ino;
   const finalName = safety.finalName;
@@ -1013,8 +1251,11 @@ function writeDryRunPreview(result, options) {
   // Paths under /proc/self/fd/<fd> stay bound to the open directory inode.
   const stagingPath = `${anchorBase}/${stagingName}`;
   const finalAnchored = `${anchorBase}/${finalName}`;
+  const stagingPublishPath = `${publishAnchorBase}/${stagingName}`;
+  const finalPublishPath = `${publishAnchorBase}/${finalName}`;
   let stagingCreated = false;
   let finalOwned = false;
+  let stagedIdentity = null;
 
   const closeParent = () => {
     closeFdQuiet(parentFd);
@@ -1052,6 +1293,7 @@ function writeDryRunPreview(result, options) {
     if (st.isSymbolicLink() || !st.isDirectory()) {
       return fail(['staging_not_real_directory']);
     }
+    stagedIdentity = { dev: st.dev, ino: st.ino };
   } catch (err) {
     return fail([`staging_lstat_failed:${err && err.code}`]);
   }
@@ -1094,6 +1336,20 @@ function writeDryRunPreview(result, options) {
     });
   }
 
+  // Refresh staged directory identity after writes (same inode expected).
+  try {
+    const st = fs.lstatSync(stagingPath);
+    if (st.isSymbolicLink() || !st.isDirectory()) {
+      return fail(['staging_not_real_directory']);
+    }
+    if (!sameDevIno(st.dev, st.ino, stagedIdentity.dev, stagedIdentity.ino)) {
+      return fail(['staging_identity_changed']);
+    }
+    stagedIdentity = { dev: st.dev, ino: st.ino };
+  } catch (err) {
+    return fail([`staging_lstat_failed:${err && err.code}`]);
+  }
+
   // Test hook: allow injecting a race (final appears / parent rename) before checks.
   if (options && typeof options.beforeAtomicRename === 'function') {
     try {
@@ -1117,7 +1373,7 @@ function writeDryRunPreview(result, options) {
     if (!id.ok) return fail([id.error]);
   }
 
-  // Fail closed if final appeared (symlink or any node) before rename — via fd anchor.
+  // Fail closed if final appeared (symlink or any node) before publish — via fd anchor.
   try {
     const st = fs.lstatSync(finalAnchored);
     if (st.isSymbolicLink()) {
@@ -1126,7 +1382,7 @@ function writeDryRunPreview(result, options) {
     return fail(['output_dir_appeared']);
   } catch (err) {
     if (!err || err.code !== 'ENOENT') {
-      return fail([`output_dir_pre_rename_lstat_failed:${err && err.code}`]);
+      return fail([`output_dir_pre_publish_lstat_failed:${err && err.code}`]);
     }
   }
 
@@ -1143,7 +1399,7 @@ function writeDryRunPreview(result, options) {
     return fail([`output_dir_parent_fd_fstat_failed:${err && err.code}`]);
   }
 
-  // Test hook: inject immediately before rename (e.g. force EEXIST).
+  // Test hook: inject immediately before publish (e.g. empty/nonempty final race).
   if (options && typeof options.beforeRenameAttempt === 'function') {
     try {
       options.beforeRenameAttempt({
@@ -1159,15 +1415,39 @@ function writeDryRunPreview(result, options) {
     }
   }
 
-  try {
-    fs.renameSync(stagingPath, finalAnchored);
-    stagingCreated = false;
-    finalOwned = true;
-  } catch (err) {
-    return fail([`atomic_rename_failed:${err && err.code}`]);
+  // Atomic no-replace publish: never use Node rename APIs (empty final would be replaced).
+  // Child mv sees /proc/<pid>/fd/<fd>/… (not /proc/self/fd).
+  const spawned = spawnGnuMvNoReplacePublish(stagingPublishPath, finalPublishPath, options);
+  if (!spawned.ok) {
+    return fail([spawned.error]);
   }
 
-  // Test hook: post-rename swap / parent rename before identity re-check.
+  const assessed = assessNoReplacePublishSuccess(
+    stagingPath,
+    finalAnchored,
+    stagedIdentity,
+    result.files,
+  );
+  if (!assessed.ok) {
+    // Source remaining ⇒ preexisting final was not replaced; do not claim ownership.
+    // If source is gone, we published — mark owned so fd cleanup removes our tree.
+    if (assessed.error !== 'gnu_mv_publish_source_remaining') {
+      try {
+        if (!pathExistsLstat(stagingPath) && pathExistsLstat(finalAnchored)) {
+          finalOwned = true;
+          stagingCreated = false;
+        }
+      } catch (_) {
+        // fall through to fail + best-effort cleanup
+      }
+    }
+    return fail([assessed.error]);
+  }
+
+  stagingCreated = false;
+  finalOwned = true;
+
+  // Test hook: post-publish swap / parent rename before identity re-check.
   if (options && typeof options.afterAtomicRename === 'function') {
     try {
       options.afterAtomicRename({
@@ -1183,13 +1463,13 @@ function writeDryRunPreview(result, options) {
     }
   }
 
-  // After rename: pathname must still be the same directory; else remove final via fd.
+  // After publish: pathname must still be the same directory; else remove final via fd.
   {
     const id = parentPathnameMatchesIdentity(safety.parentAbs, parentDev, parentIno);
     if (!id.ok) return fail([id.error]);
   }
 
-  // Post-rename: final must be a real directory (not a symlink) — via fd anchor.
+  // Post-publish: final must still be a real directory (not a symlink) — via fd anchor.
   try {
     const st = fs.lstatSync(finalAnchored);
     if (st.isSymbolicLink()) {
@@ -1197,6 +1477,9 @@ function writeDryRunPreview(result, options) {
     }
     if (!st.isDirectory()) {
       return fail(['output_dir_final_not_directory']);
+    }
+    if (!sameDevIno(st.dev, st.ino, stagedIdentity.dev, stagedIdentity.ino)) {
+      return fail(['gnu_mv_publish_inode_mismatch']);
     }
   } catch (err) {
     return fail([`output_dir_final_lstat_failed:${err && err.code}`]);
@@ -1209,6 +1492,7 @@ function writeDryRunPreview(result, options) {
     written,
     outputDir: safety.projectedFinal,
     stagingCleaned: true,
+    publishMethod: 'gnu_mv_no_replace',
   };
 }
 
@@ -1431,6 +1715,8 @@ module.exports = Object.freeze({
   PACKAGE_JSON_ALLOWED_SCRIPT_VALUE,
   EXISTING_REGRESSION_GATES,
   FORBIDDEN_CONTENT_PATTERNS,
+  GNU_MV_PATH,
+  GNU_MV_PUBLISH_ARGS,
   thaw,
   deepEqual,
   sha256Hex,
@@ -1451,4 +1737,7 @@ module.exports = Object.freeze({
   validate1cLedgerClaim,
   buildFixtureSubstitutions,
   cleanupStagingDir,
+  assertGnuMvNoReplacePublishAvailable,
+  spawnGnuMvNoReplacePublish,
+  assessNoReplacePublishSuccess,
 });

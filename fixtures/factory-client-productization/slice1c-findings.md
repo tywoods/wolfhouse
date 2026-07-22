@@ -14,7 +14,7 @@ Slice **1C** adds a deterministic disabled-by-default dry-run onboarding generat
 | `surf_house` | baseline, pricing, secrets.example, registry-entry, dry-run-manifest |
 | `surf_school_shop` | baseline, secrets.example, registry-entry, dry-run-manifest |
 
-Default and only mode is `dry-run`. `--apply` and any non-dry-run mode are rejected. Preview bytes are canonical key-sorted JSON with SHA-256 hashes. Materialization uses a private sibling staging directory + atomic rename into a nonexistent final output directory (exclusive file creates), anchored to an open parent directory fd so parent-rename races cannot divert cleanup; `--stdout` is zero-write.
+Default and only mode is `dry-run`. `--apply` and any non-dry-run mode are rejected. Preview bytes are canonical key-sorted JSON with SHA-256 hashes. Materialization uses a private sibling staging directory + atomic **no-replace** publish into a nonexistent final output directory (exclusive file creates), anchored to an open parent directory fd so parent-rename races cannot divert cleanup; `--stdout` is zero-write.
 
 ## Independent output truth
 
@@ -25,11 +25,14 @@ Golden rendered-byte fixtures under `fixtures/factory-client-productization/slic
 - Final output directory must not exist (lstat; symlinked final rejected)
 - Existing parent/ancestor chain is lstat-checked non-symlink and realpath-validated outside forbidden roots (`config/clients`, `config/archetypes`, `database`, `infra`, `.git`, repo root)
 - Materialization anchors to an open parent directory fd (`O_DIRECTORY|O_NOFOLLOW`) with fstat dev/ino; on Linux staging/final use `/proc/self/fd/<fd>` so cleanup never depends on the caller pathname
-- Before and after atomic rename, the requested parent pathname must still resolve to the same dev/ino; mismatch fails closed and removes staging/final via the fd anchor; fd closed on every path; unavailable fd/procfs fails closed
-- Private sibling `.factory-1c-staging-*` directory; exclusive file flags; atomic rename staging → final
-- Fail closed if final appears before rename; clean staging/final via fd anchor on every error
+- Before and after publish, the requested parent pathname must still resolve to the same dev/ino; mismatch fails closed and removes staging/final via the fd anchor; fd closed on every path; unavailable fd/procfs fails closed
+- Private sibling `.factory-1c-staging-*` directory; exclusive file flags
+- **Linux/GNU disk-mode boundary — sole local subprocess:** publish staging→final only via `/usr/bin/mv --no-copy --no-clobber -T` spawned with an argument array (no shell), `/proc/<pid>/fd/<fd>`-anchored paths (child cannot resolve the parent's `/proc/self/fd`), and closed/discarded stdio. Fail closed if that exact executable or those options are unavailable. Node directory rename is **not** used for publish (it can replace an empty final directory)
+- Success requires source absent, final present, and final directory inode + file content matching the staged manifest; any source remaining (including `--no-clobber` skip of a preexisting empty/nonempty final) or ambiguous spawn state is failure with fd-anchored cleanup
+- Fail closed if final appears before publish; clean staging/final via fd anchor on every error; preexisting empty final left untouched with no preview
 - Never traverse caller-controlled descendants; reject relativePath traversal / nested symlink attacks
-- Swap/race coverage in verifier REDs (final mkdir/symlink injection, parent-rename + replacement directory, post-rename parent swap cleanup, rename-error staging cleanup)
+- Swap/race coverage in verifier REDs (empty/nonempty/symlink final injection, parent-rename + replacement directory, post-publish parent swap cleanup, tool failure, signal/nonzero/ambiguous publish state, argument-injection spawn contract)
+- Still no apply path, network, DB, cloud, or runtime loading
 
 ## Safety (generation)
 
@@ -47,7 +50,7 @@ Golden rendered-byte fixtures under `fixtures/factory-client-productization/slic
 npm run verify:factory-slice1c-dry-run-generator
 ```
 
-Independent verifier proves golden-byte truth, byte-determinism, template immutability, atomic materialization safety (parent fd anchor / procfs), stdout zero-write, and adversarial REDs for secrets, live hosts, Meta/Azure IDs, existing conflicts, symlink/race/swap/parent-rename, apply, unsafe output roots, and enablement flips.
+Independent verifier proves golden-byte truth, byte-determinism, template immutability, atomic no-replace materialization safety (parent fd anchor / procfs / GNU mv), stdout zero-write, and adversarial REDs for secrets, live hosts, Meta/Azure IDs, existing conflicts, symlink/race/swap/parent-rename/publish-tool, apply, unsafe output roots, and enablement flips.
 
 ## Ledger
 

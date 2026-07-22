@@ -69,14 +69,22 @@
     "parent_fd_anchor_o_directory_o_nofollow": true,
     "parent_fd_fstat_dev_ino": true,
     "linux_proc_self_fd_anchored_staging_final": true,
-    "parent_pathname_dev_ino_recheck_before_after_rename": true,
+    "parent_pathname_dev_ino_recheck_before_after_publish": true,
     "fail_closed_parent_identity_mismatch_cleanup_via_fd": true,
     "fail_closed_if_fd_or_procfs_unavailable": true,
-    "private_sibling_staging_atomic_rename": true,
+    "private_sibling_staging": true,
+    "gnu_mv_no_replace_publish": true,
+    "node_rename_not_used_for_publish": true,
+    "sole_local_subprocess_gnu_mv": true,
+    "linux_gnu_disk_mode_boundary": true,
+    "publish_argv_array_no_shell_closed_stdio": true,
+    "publish_success_requires_source_absent_final_present_inode_content_match": true,
     "exclusive_file_creates": true,
     "fail_closed_if_final_appears": true,
+    "fail_closed_empty_final_preexisting_untouched": true,
     "clean_staging_on_error": true,
     "never_traverse_caller_controlled_descendants": true,
-    "stdout_zero_write": true
+    "stdout_zero_write": true,
+    "no_apply_network_db_cloud_runtime": true
   }
 }

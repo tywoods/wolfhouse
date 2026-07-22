@@ -6,10 +6,11 @@
  * Independent verifier for the deterministic disabled dry-run onboarding
  * generator. Proves byte-determinism against independently locked golden
  * rendered-byte fixtures (without importing generator expectation helpers),
- * template immutability, atomic staging materialization safety, no side
+ * template immutability, atomic no-replace staging materialization safety, no side
  * effects outside explicit output dir, stdout zero-write, and adversarial
  * rejection. No apply, no registry edits, no config/clients writes, no
- * runtime/DB/cloud/network.
+ * runtime/DB/cloud/network. Disk publish is Linux/GNU `/usr/bin/mv
+ * --no-copy --no-clobber -T` only (sole local subprocess).
  */
 
 const fs = require('fs');
@@ -170,8 +171,17 @@ ok('runtime_behavior_changed false', contract.runtime_behavior_changed === false
 ok('findings cite master basis', findings.includes(gen.MASTER_BASIS));
 ok('findings cite dry-run / no apply', /dry-run/i.test(findings) && /not.*apply/i.test(findings));
 ok('findings cite output safety / golden',
-  /atomic|staging|lstat|symlink|fd|proc/i.test(findings)
+  /atomic|staging|lstat|symlink|fd|proc|no-clobber|no-replace|\/usr\/bin\/mv/i.test(findings)
   && /golden/i.test(findings));
+ok('findings cite sole local subprocess + Linux\/GNU boundary',
+  /sole local subprocess/i.test(findings)
+  && /Linux\/GNU/i.test(findings)
+  && findings.includes('/usr/bin/mv')
+  && findings.includes('--no-clobber'));
+ok('doc cites GNU mv no-replace publish',
+  doc.includes('/usr/bin/mv')
+  && doc.includes('--no-clobber')
+  && /Linux\/GNU/i.test(doc));
 ok('doc names 1C generator', /1C/.test(doc) && /generator/i.test(doc));
 ok('golden lock schema + both archetypes',
   goldenLock.schema_version === 1
@@ -186,6 +196,29 @@ ok('golden lock schema + both archetypes',
     !/\bgen\.expectedOutputPathSet\b/.test(verifierSrc)
     && !/\bgen\.previewRelativePaths\b/.test(verifierSrc)
     && !/\bgen\.buildFixtureSubstitutions\b/.test(verifierSrc));
+}
+
+// Source fence: disk publish must not use Node rename (empty-final replace surface).
+{
+  const libSrc = readText(LIB_PATH);
+  red('lib_publish_does_not_use_fs_rename',
+    !/\bfs\.renameSync\s*\(/.test(libSrc) && !/\bfs\.rename\s*\(/.test(libSrc),
+    'fs.rename*(...) must not appear in 1C library publish path');
+  red('lib_publish_uses_gnu_mv_no_replace',
+    libSrc.includes(gen.GNU_MV_PATH)
+    && libSrc.includes('--no-copy')
+    && libSrc.includes('--no-clobber')
+    && /spawnSync\s*\(\s*GNU_MV_PATH/.test(libSrc)
+    && /shell:\s*false/.test(libSrc),
+    'expected /usr/bin/mv --no-copy --no-clobber argument-array spawn');
+  red('lib_documents_sole_local_subprocess',
+    /sole local subprocess/i.test(libSrc));
+  ok('contract locks gnu mv no-replace publish',
+    contract.output_safety
+    && contract.output_safety.gnu_mv_no_replace_publish === true
+    && contract.output_safety.node_rename_not_used_for_publish === true
+    && contract.output_safety.sole_local_subprocess_gnu_mv === true
+    && contract.output_safety.linux_gnu_disk_mode_boundary === true);
 }
 
 // ── Package script lock ─────────────────────────────────────────────────────
@@ -672,7 +705,7 @@ console.log('\n── Output-safety REDs ──');
   }
 
   function dirHasFactory1cTree(dirAbs) {
-    if (!dirAbs || !fs.existsSync(dirAbs)) return false;
+    if (!dirAbs || !fs.existsSync(dirAbs)) return [];
     const found = [];
     const walk = (d) => {
       let entries;
@@ -729,7 +762,7 @@ console.log('\n── Output-safety REDs ──');
       `repl=${listFactory1cArtifacts(parent).join(',')} orig=${listFactory1cArtifacts(renamedParent).join(',')}`);
   }
 
-  // Post-check: after successful rename, parent pathname swapped → fail closed + fd cleanup.
+  // Post-check: after successful publish, parent pathname swapped → fail closed + fd cleanup.
   {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-post-swap-'));
     const parent = path.join(base, 'validated-parent');
@@ -744,21 +777,46 @@ console.log('\n── Output-safety REDs ──');
         fs.mkdirSync(parentPathname);
       },
     });
-    red('post_rename_parent_swap_fail_closed',
+    red('post_publish_parent_swap_fail_closed',
       !w.ok && w.errors.includes('parent_pathname_identity_mismatch'),
       (w.errors || []).join(','));
     const underReplacement = dirHasFactory1cTree(parent);
     const underOriginal = dirHasFactory1cTree(renamedParent);
-    red('post_rename_swap_cleanup_no_artifacts_replacement',
+    red('post_publish_swap_cleanup_no_artifacts_replacement',
       underReplacement.length === 0, underReplacement.join(','));
-    red('post_rename_swap_cleanup_no_artifacts_original',
+    red('post_publish_swap_cleanup_no_artifacts_original',
       underOriginal.length === 0, underOriginal.join(','));
   }
 
-  // Rename-error: non-empty final injected after pre-checks → atomic rename fails;
-  // staging cleaned via fd; attacker final must not gain our preview.
+  // RED: empty final appears immediately before publish — Node rename would replace it;
+  // GNU --no-clobber must leave it untouched with no preview published.
   {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-rename-err-'));
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-empty-final-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      beforeRenameAttempt: ({ finalAbs }) => {
+        fs.mkdirSync(finalAbs); // empty preexisting final
+      },
+    });
+    red('empty_final_race_fail_closed',
+      !w.ok && w.errors.includes('gnu_mv_publish_source_remaining'),
+      (w.errors || []).join(','));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('empty_final_race_staging_cleaned_via_fd', stagingLeft.length === 0, stagingLeft.join(','));
+    const emptyUntouched = fs.existsSync(finalDir)
+      && fs.readdirSync(finalDir).length === 0
+      && !fs.existsSync(path.join(finalDir, 'dry-run-manifest.json'))
+      && !fs.existsSync(path.join(finalDir, 'preview'));
+    red('empty_final_race_untouched_no_preview', emptyUntouched);
+  }
+
+  // Nonempty final injected after pre-checks → no-clobber leaves source; fail closed.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-nonempty-final-'));
     const parent = path.join(base, 'parent');
     fs.mkdirSync(parent);
     const finalDir = path.join(parent, 'final');
@@ -770,14 +828,154 @@ console.log('\n── Output-safety REDs ──');
         fs.writeFileSync(path.join(finalAbs, 'blocker.txt'), 'nope');
       },
     });
-    red('rename_error_fail_closed',
-      !w.ok && w.errors.some((e) => String(e).startsWith('atomic_rename_failed:')),
+    red('nonempty_final_race_fail_closed',
+      !w.ok && w.errors.includes('gnu_mv_publish_source_remaining'),
       (w.errors || []).join(','));
     const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('rename_error_staging_cleaned_via_fd', stagingLeft.length === 0, stagingLeft.join(','));
+    red('nonempty_final_race_staging_cleaned_via_fd', stagingLeft.length === 0, stagingLeft.join(','));
     const blockerIntact = fs.existsSync(path.join(finalDir, 'blocker.txt'))
       && !fs.existsSync(path.join(finalDir, 'dry-run-manifest.json'));
-    red('rename_error_did_not_publish_preview', blockerIntact);
+    red('nonempty_final_race_did_not_publish_preview', blockerIntact);
+  }
+
+  // Symlink final injected after pre-checks → no-clobber; fail closed; symlink preserved.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-symlink-race-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const decoy = path.join(base, 'decoy');
+    fs.mkdirSync(decoy);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      beforeRenameAttempt: ({ finalAbs }) => {
+        fs.symlinkSync(decoy, finalAbs);
+      },
+    });
+    red('symlink_final_publish_race_fail_closed',
+      !w.ok && w.errors.includes('gnu_mv_publish_source_remaining'),
+      (w.errors || []).join(','));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('symlink_final_publish_race_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+    red('symlink_final_publish_race_symlink_preserved',
+      fs.lstatSync(finalDir).isSymbolicLink()
+      && !fs.existsSync(path.join(decoy, 'dry-run-manifest.json')));
+  }
+
+  // Tool failure / spawn error path.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-tool-fail-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      spawnPublish: () => ({ error: Object.assign(new Error('enoent'), { code: 'ENOENT' }) }),
+    });
+    red('publish_tool_failure_fail_closed',
+      !w.ok && w.errors.some((e) => String(e).startsWith('gnu_mv_publish_spawn_error:')),
+      (w.errors || []).join(','));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('publish_tool_failure_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+    red('publish_tool_failure_no_final', !fs.existsSync(finalDir));
+  }
+
+  // Signal termination during publish.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-signal-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      spawnPublish: () => ({ status: null, signal: 'SIGTERM', error: undefined }),
+    });
+    red('publish_signal_fail_closed',
+      !w.ok && w.errors.includes('gnu_mv_publish_signal:SIGTERM'),
+      (w.errors || []).join(','));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('publish_signal_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+  }
+
+  // Nonzero exit.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-nonzero-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      spawnPublish: () => ({ status: 1, signal: null, error: undefined }),
+    });
+    red('publish_nonzero_fail_closed',
+      !w.ok && w.errors.includes('gnu_mv_publish_nonzero:1'),
+      (w.errors || []).join(','));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('publish_nonzero_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+  }
+
+  // Ambiguous state: exit 0 but source still present (no-clobber skip / lied success).
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-ambiguous-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      spawnPublish: () => ({ status: 0, signal: null, error: undefined }), // no-op
+    });
+    red('publish_ambiguous_source_remaining_fail_closed',
+      !w.ok && w.errors.includes('gnu_mv_publish_source_remaining'),
+      (w.errors || []).join(','));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('publish_ambiguous_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
+    red('publish_ambiguous_no_final_published', !fs.existsSync(finalDir));
+  }
+
+  // Argument-injection / spawn contract: fixed executable+flags, no shell, closed stdio,
+  // fd-anchored paths only; metacharacters in leaf names stay literal argv elements.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-argv-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    // No path separators — those would change dirname — but shell metacharacters remain.
+    const evilName = 'final; id; echo PWNED$(whoami)`id`';
+    const finalDir = path.join(parent, evilName);
+    let observed = null;
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      observePublishSpawn: (obs) => { observed = obs; },
+    });
+    red('publish_argv_injection_path_succeeds_literally', w.ok, (w.errors || []).join(','));
+    red('publish_argv_exact_executable',
+      observed && observed.file === gen.GNU_MV_PATH, observed && observed.file);
+    red('publish_argv_exact_flags_prefix',
+      observed
+      && gen.deepEqual(observed.args.slice(0, gen.GNU_MV_PUBLISH_ARGS.length), [...gen.GNU_MV_PUBLISH_ARGS]),
+      observed && JSON.stringify(observed.args));
+    red('publish_argv_no_shell',
+      observed && observed.spawnOpts.shell === false);
+    red('publish_argv_stdio_closed',
+      observed
+      && gen.deepEqual(observed.spawnOpts.stdio, ['ignore', 'ignore', 'ignore']));
+    red('publish_argv_paths_fd_anchored',
+      observed
+      && observed.args.length === gen.GNU_MV_PUBLISH_ARGS.length + 2
+      && observed.args.every((a, i) => (
+        i < gen.GNU_MV_PUBLISH_ARGS.length
+        || /^\/proc\/\d+\/fd\/\d+\//.test(String(a))
+      )));
+    red('publish_argv_leaf_metacharacters_literal',
+      observed && observed.args[observed.args.length - 1].endsWith(`/${evilName}`));
+    red('publish_argv_no_shell_side_effects_in_parent',
+      !fs.existsSync(path.join(parent, 'PWNED'))
+      && fs.readdirSync(parent).filter((n) => n !== evilName).length === 0);
   }
 }
 
