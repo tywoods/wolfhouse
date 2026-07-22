@@ -35,6 +35,8 @@ const {
   findDuplicateScanFingerprints,
 } = require('./lib/staff-tenant-scope-hotspot');
 
+const { LOCK_OWNED_PAYMENT_SQL } = require('./lib/stripe-webhook-event-claim');
+
 const REPO_ROOT = path.join(__dirname, '..');
 const STAFF_API_PATH = path.join(__dirname, 'staff-query-api.js');
 const MANUAL_BOOKING_PAYMENT_PATH = path.join(__dirname, 'lib', 'staff-manual-booking-payment.js');
@@ -42,6 +44,15 @@ const ACCOMMODATION_BOOKING_CREATE_PATH = path.join(__dirname, 'lib', 'luna-fron
 const PAYMENT_LINK_SERVICE_PATH = path.join(__dirname, 'lib', 'luna-front-desk-payment-link-service.js');
 const SUNSET_ACCESS_PATH = path.join(REPO_ROOT, 'config', 'clients', 'staff-portal-access.sunset-staging.json');
 const REGISTRY_PATH = path.join(__dirname, 'fixtures', 'staff-tenant-scope-debt-registry.json');
+
+/** Post-16M H3: addon webhook binds clientId into owned-payment lock; lock SQL is tenanted; pre-16M COUNT gone. */
+function assertAddonWebhookOwnedPaymentTenantScope(staffApiSrc, lockOwnedPaymentSql) {
+  const addonPassesClientId = /payment_kind === 'addon_service'[\s\S]*?lockOwnedPaymentForAddonEventClaim\(pg, \{[\s\S]*?clientId: pm\.client_id/.test(staffApiSrc);
+  const lockSqlTenanted = /AND client_id = \$2::uuid/.test(lockOwnedPaymentSql)
+    && /\bFOR UPDATE\b/.test(lockOwnedPaymentSql);
+  const bannedCountAbsent = !/SELECT COUNT\(\*\)::int AS n FROM booking_service_records/.test(staffApiSrc);
+  return addonPassesClientId && lockSqlTenanted && bannedCountAbsent;
+}
 
 const DEBT_SHOW_MAX = 40;
 const TOP_LIVE_FIX_MAX = 10;
@@ -328,12 +339,27 @@ ok('H1 staff add-service idempotency SELECT filters by client_slug',
   /handleBookingAddService[\s\S]*FROM booking_service_records[\s\S]*AND client_slug = \$4[\s\S]*idempotency_key/.test(staffApiSource));
 ok('H2 staff add-service INSERT sets client_slug',
   /INSERT INTO booking_service_records[\s\S]*client_slug, booking_id[\s\S]*\$1, \$2::uuid/.test(staffApiSource));
-ok('H3 stripe webhook addon idempotent COUNT filters by client_slug',
-  /addon_service[\s\S]*SELECT COUNT\(\*\)::int AS n FROM booking_service_records[\s\S]*AND client_slug = \$2/.test(staffApiSource));
+ok('H3 stripe webhook addon owned-payment lock is tenant-scoped (post-16M)',
+  assertAddonWebhookOwnedPaymentTenantScope(staffApiSource, LOCK_OWNED_PAYMENT_SQL));
 ok('H4 stripe webhook addon service record UPDATE filters by client_slug',
   /UPDATE booking_service_records[\s\S]*AND client_slug = \$4[\s\S]*payment_status IS DISTINCT FROM 'paid'/.test(staffApiSource));
 ok('H5 stripe webhook addon linked SELECT filters by client_slug',
   /FROM booking_service_records[\s\S]*WHERE payment_id = \$1[\s\S]*AND client_slug = \$2/.test(staffApiSource));
+
+{
+  const brokenClientIdProp = staffApiSource.replace(
+    /(lockOwnedPaymentForAddonEventClaim\(pg, \{[\s\S]*?paymentId: pm\.payment_id,\s*)clientId: pm\.client_id,?\s*/,
+    '$1',
+  );
+  ok('H3s1 fails when addon clientId propagation removed',
+    assertAddonWebhookOwnedPaymentTenantScope(staffApiSource, LOCK_OWNED_PAYMENT_SQL)
+      && !assertAddonWebhookOwnedPaymentTenantScope(brokenClientIdProp, LOCK_OWNED_PAYMENT_SQL));
+
+  const brokenLockPredicate = LOCK_OWNED_PAYMENT_SQL.replace(/AND client_id = \$2::uuid/, '');
+  ok('H3s2 fails when owned-payment client_id predicate removed',
+    assertAddonWebhookOwnedPaymentTenantScope(staffApiSource, LOCK_OWNED_PAYMENT_SQL)
+      && !assertAddonWebhookOwnedPaymentTenantScope(staffApiSource, brokenLockPredicate));
+}
 
 runRegistrySelfTests();
 
