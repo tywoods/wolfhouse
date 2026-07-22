@@ -3,27 +3,27 @@
   "kind": "foundation-docker-fresh-db-replacement-evidence-v1",
   "gate": "G_DOCKER_FRESH_DB_REPLACEMENT",
   "outcome_id": "lunabox_disposable_docker_compared",
-  "candidate_sha": "6524df68e9f04364fc1f5e58d845c2aa6b344670",
+  "candidate_sha": "4621353f16fc00783ae87b9391ca2c6578decd44",
   "host": "lunabox",
   "ok": true,
   "backend": "docker",
   "postgres_major": 15,
   "phase": "compared",
-  "forwardCount": 43,
+  "forwardCount": 44,
   "cycles": [
     {
       "index": 1,
-      "appliedCount": 43,
+      "appliedCount": 44,
       "schema_fingerprint": "f0f54df09712ef93ea267f5bd35c4567b4b81acb37da025242b1ec85ba0e9496",
-      "schema_migrations_hash": "f26b8ecfcca7609628948db8226ca420ad6815984d7135cd3871683ef2acae4b",
+      "schema_migrations_hash": "8df9c24f07a29891bb4cd2d67796b1d163f7c1b3576b090a00c3d0145347f02e",
       "cleanup": true,
       "cleanup_code": "cleanup_verified"
     },
     {
       "index": 2,
-      "appliedCount": 43,
+      "appliedCount": 44,
       "schema_fingerprint": "f0f54df09712ef93ea267f5bd35c4567b4b81acb37da025242b1ec85ba0e9496",
-      "schema_migrations_hash": "f26b8ecfcca7609628948db8226ca420ad6815984d7135cd3871683ef2acae4b",
+      "schema_migrations_hash": "8df9c24f07a29891bb4cd2d67796b1d163f7c1b3576b090a00c3d0145347f02e",
       "cleanup": true,
       "cleanup_code": "cleanup_verified"
     }
@@ -32,17 +32,17 @@
   "schema_migrations_equal": true,
   "schema_fingerprint_equal": true,
   "cleanup_ok": true,
-  "raw_evidence_sha256": "7208e815a017b095cca5ce19bc3df8815d6c9fcd888db83997a4a37f4c0b2efa",
+  "raw_evidence_sha256": "df988d93655ae0f31358f377bcbc349c4eacfa0689251945ac6d690a0a216df9",
   "bindings": {
     "proof_script": "scripts/prove-foundation-docker-fresh-db-replacement.js",
     "proof_script_sha256": "05a1d94d8ab766573dc9f4b59f49b36f926ee14a1590485ca3edf935db65a541",
     "harness": "scripts/lib/disposable-postgres-harness.js",
     "harness_sha256": "f5ca4dd9eb8344cb9e84c72f02da1cf83d0c4db8296b152349d1a1fc5a3537a1",
     "canonical_manifest": "database/migrations/canonical-manifest.json",
-    "canonical_manifest_file_sha256": "d73d6ecd0a836029ef4f90459d9c22912101958b9e64c0c8021280e8d99eab60",
-    "canonical_manifest_hash": "37e64d804b9e88d6f84cd40e138c9a839b012eaa90219838d7894bcba4d677d8",
+    "canonical_manifest_file_sha256": "e6aeb09d8780016202683a82baf9ce43371c2618fd57d1c1b947a7b6cd38622c",
+    "canonical_manifest_hash": "0c0b80a2b188bb8ffa69ac187d746f0db671979ac723ffa5ffa9a9f4aeabc36e",
     "checksum_mode": "canonical_lf_v1",
-    "forwardCount": 43
+    "forwardCount": 44
   },
   "classification_unchanged": {
     "foundation_1b_docker_gate": "absent",
@@ -56,5 +56,5 @@
     "certificate_architecture",
     "live_restore_drill"
   ],
-  "lock_hash": "c2b5d2af6e4eb93876e18aa2c0587478e6fa45d0c6ea60591795274ea1255e48"
+  "lock_hash": "5e52011f941d61a0aade66ea159c33bcf86927823526e8b430e48e403579b0b5"
 }
