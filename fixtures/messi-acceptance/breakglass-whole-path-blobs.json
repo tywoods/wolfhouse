@@ -1,6 +1,6 @@
 {
   "id": "breakglass-whole-path",
-  "candidate_sha": "",
+  "candidate_sha": "14ef46c4485a6bee50ac4916d5ddf9ee4fa188db",
   "correction_candidate_bound": "53c1abcfb67edb491c5100de571260c60813aec4",
   "master_basis": "38f1a719fa3287af43737b2fca7f9b4d4f71383a",
   "paths": [
@@ -18,5 +18,5 @@
     "scripts/verify-messi-slice1b-foundation-closeout.js",
     "scripts/verify-messi-slice1d-fortress-closeout.js"
   ],
-  "note": "Metadata mirror of scripts/lib/breakglass-redesign-candidate-sha.js only. No blobs — Git candidate is the trust root."
+  "note": "Metadata mirror of scripts/lib/breakglass-redesign-candidate-sha.js only. No blobs \u2014 Git candidate is the trust root."
 }
