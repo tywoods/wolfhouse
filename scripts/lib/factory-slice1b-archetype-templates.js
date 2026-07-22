@@ -305,6 +305,10 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'scripts/verify-factory-slice1d-integration-proof.js',
   'scripts/verify-factory-slice1e-finite-closeout.js',
   'scripts/onboard-client.js',
+  'scripts/lib/messi-slice1a-acceptance-ledger.js',
+  'scripts/verify-messi-slice1a-acceptance-ledger.js',
+  'docs/MESSI-ACCEPTANCE-LEDGER.md',
+  'fixtures/messi-acceptance/',
   'package.json',
   'package-lock.json',
 ]);

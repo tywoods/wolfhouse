@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "slice": "MESSI-1A",
+  "outcome_id": "1A_messi_acceptance_ledger",
+  "branch": "messi/slice-1a-acceptance-ledger",
+  "master_basis": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
+  "progress_class": "acceptance_ledger_inventory_and_verifier_only",
+  "title": "MESSI Slice 1A — read-only acceptance ledger + verifier",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "messi_definition": "MESSI is the integration gate above FOUNDATION, FORTRESS, RADAR, and FACTORY.",
+  "completion_policy": "Parent milestones are never marked complete from labels, summaries, or self-authored booleans. Classification requires inventory + exact hash binding + real retained gate execution + explicit missing proof.",
+  "gate_ids": [
+    "G_FOUNDATION_PARENT",
+    "G_FORTRESS_PARENT",
+    "G_RADAR_PARENT",
+    "G_FACTORY_PARENT",
+    "G_CROSS_PARENT_INTEGRATION",
+    "G_MESSI_MILESTONE_CLOSEOUT"
+  ],
+  "frozen_messi_score": {
+    "proven": 0,
+    "partial": 4,
+    "absent": 2,
+    "total": 6
+  },
+  "radar_formal_score": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "total": 9
+  },
+  "fortress_matrix_counts": {
+    "proven_fail_closed": 5,
+    "proven_isolated_by_runtime": 3,
+    "unproven": 3,
+    "vulnerable": 4,
+    "total": 15
+  },
+  "parents": [
+    {
+      "id": "FOUNDATION",
+      "tip_slice": "FOUNDATION-14AE",
+      "outcome_id": "canonical_runner_noop_live_ok",
+      "master_basis": "21371079ac5a331d47e7ed5f79351fceeeceefa6",
+      "workstream_class": "tip_retained_staging_schema_noop",
+      "finite_closeout_analog": null,
+      "production_readiness": "absent",
+      "npm_script": "verify:sunset-schema-slice14ae",
+      "evidence": [
+        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json",
+        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json",
+        "fixtures/sunset-schema-observer/slice14ae-findings.md"
+      ],
+      "docs": [],
+      "verifier_script": "scripts/verify-sunset-schema-slice14ae.js",
+      "missing_proof_for_complete": [
+        "finite_milestone_closeout_disposition_analogous_to_16AP_or_1E",
+        "docker_fresh_db_replacement_proof",
+        "production_schema_readiness",
+        "claim_zero_remaining_drift_forbidden_by_14AE"
+      ]
+    },
+    {
+      "id": "FORTRESS",
+      "tip_slice": "FORTRESS-15L",
+      "outcome_id": "15L_meta_signature_fail_closed",
+      "master_basis": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
+      "workstream_class": "tip_retained_security_remediation_plus_audit_matrix",
+      "finite_closeout_analog": null,
+      "production_readiness": "absent",
+      "npm_script": "verify:fortress-slice15l-meta-signature-fail-closed",
+      "evidence": [
+        "fixtures/fortress-tenant-identity/boundary-matrix.json",
+        "fixtures/fortress-tenant-identity/attack-cases.json",
+        "fixtures/fortress-tenant-identity/slice15l-contract.json",
+        "fixtures/fortress-tenant-identity/slice15l-evidence.json",
+        "fixtures/fortress-tenant-identity/slice15l-findings.md"
+      ],
+      "docs": [
+        "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
+      ],
+      "verifier_script": "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js",
+      "missing_proof_for_complete": [
+        "finite_milestone_closeout_disposition",
+        "matrix_unproven_cleared_to_proven_fail_closed",
+        "matrix_vulnerable_remediated",
+        "15L_live_kv_secret_creation_and_staff_api_deploy_activation",
+        "B02_meta_live_client_slug_authority_activation",
+        "production_tenant_boundary_proof"
+      ]
+    },
+    {
+      "id": "RADAR",
+      "tip_slice": "RADAR-16AP",
+      "outcome_id": "16AP_finite_milestone_closeout",
+      "master_basis": "66e34a5833ff3bcc7f297108f594b4fc58a0eccc",
+      "workstream_class": "finite_milestone_closeout_staging_readiness_only",
+      "finite_closeout_analog": "verify:radar-slice16ap-finite-closeout",
+      "production_readiness": "absent",
+      "npm_script": "verify:radar-slice16ap-finite-closeout",
+      "evidence": [
+        "fixtures/radar-operations/slice16ap-finite-closeout.json",
+        "fixtures/radar-operations/slice16ap-expected-contract.json"
+      ],
+      "docs": [
+        "docs/RADAR-OPERATIONS-GATE-LEDGER.md"
+      ],
+      "verifier_script": "scripts/verify-radar-slice16ap-finite-closeout.js",
+      "missing_proof_for_complete": [
+        "formal_gates_raised_from_partial_to_proven",
+        "production_only_unknowns_closed",
+        "full_G06_proven_forbidden_by_16AP",
+        "production_ready_claim_forbidden_by_16AP"
+      ]
+    },
+    {
+      "id": "FACTORY",
+      "tip_slice": "FACTORY-1E",
+      "outcome_id": "1E_dry_run_proof_packaging_milestone_closeout",
+      "master_basis": "e8452d178ad8f4b6aadc8b59b2d3032634952471",
+      "workstream_class": "finite_offline_dry_run_packaging_closeout",
+      "finite_closeout_analog": "verify:factory-slice1e-finite-closeout",
+      "production_readiness": "absent",
+      "npm_script": "verify:factory-slice1e-finite-closeout",
+      "evidence": [
+        "fixtures/factory-client-productization/slice1e-contract.json",
+        "fixtures/factory-client-productization/slice1e-findings.md",
+        "fixtures/factory-client-productization/slice1e-operator-handoff.md",
+        "fixtures/factory-client-productization/slice1e-artifact-lock.json",
+        "fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json",
+        "scripts/lib/factory-slice1b-archetype-templates.js",
+        "scripts/lib/factory-slice1c-dry-run-generator.js",
+        "scripts/lib/factory-slice1d-integration-proof.js",
+        "scripts/lib/factory-slice1e-finite-closeout.js"
+      ],
+      "docs": [
+        "docs/FACTORY-CLIENT-PRODUCTIZATION.md"
+      ],
+      "verifier_script": "scripts/verify-factory-slice1e-finite-closeout.js",
+      "missing_proof_for_complete": [
+        "third_tenant_live_or_prod_onboarding",
+        "apply_or_disk_materialization",
+        "RADAR_reopen_third_tenant_factory_clearance",
+        "production_client_productization_readiness"
+      ]
+    }
+  ],
+  "retained_npm_scripts": [
+    "verify:sunset-schema-slice14ae",
+    "verify:fortress-slice15l-meta-signature-fail-closed",
+    "verify:radar-slice16ap-finite-closeout",
+    "verify:factory-slice1e-finite-closeout"
+  ],
+  "bound_file_count": 29,
+  "completion_requires": "verify:messi-slice1a-acceptance-ledger",
+  "library": "scripts/lib/messi-slice1a-acceptance-ledger.js",
+  "verifier": "scripts/verify-messi-slice1a-acceptance-ledger.js",
+  "scope_fence": {
+    "allowed": [
+      "docs",
+      "fixtures",
+      "independent_verifier",
+      "parent_inventory",
+      "exact_hash_binding",
+      "retained_offline_gate_execution",
+      "deterministic_classification",
+      "package_json_verifier_script_registration"
+    ],
+    "forbids": [
+      "product_runtime_template_behavior",
+      "deploy",
+      "db_mutation",
+      "cloud_mutation",
+      "network_live_action",
+      "production_access",
+      "raising_radar_formal_gates",
+      "self_authored_parent_completion_booleans",
+      "label_or_summary_completion"
+    ]
+  },
+  "factory_forward_compat_tip_allowlist": true,
+  "messi_complete": false,
+  "production_ready": false,
+  "gates_npm": [
+    "npm run verify:messi-slice1a-acceptance-ledger"
+  ]
+}
