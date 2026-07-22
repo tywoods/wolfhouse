@@ -43,6 +43,8 @@
       "tip_slice": "FOUNDATION-14AE",
       "outcome_id": "canonical_runner_noop_live_ok",
       "master_basis": "21371079ac5a331d47e7ed5f79351fceeeceefa6",
+      "canonical_tip": "32b44930685450cb27ac519d052332be7b18150d",
+      "candidate_sha": "32b44930685450cb27ac519d052332be7b18150d",
       "workstream_class": "tip_retained_staging_schema_noop",
       "finite_closeout_analog": null,
       "production_readiness": "absent",
@@ -54,6 +56,12 @@
       ],
       "docs": [],
       "verifier_script": "scripts/verify-sunset-schema-slice14ae.js",
+      "provenance_bound_files": [
+        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json",
+        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json",
+        "fixtures/sunset-schema-observer/slice14ae-findings.md",
+        "scripts/verify-sunset-schema-slice14ae.js"
+      ],
       "missing_proof_for_complete": [
         "finite_milestone_closeout_disposition_analogous_to_16AP_or_1E",
         "docker_fresh_db_replacement_proof",
@@ -66,6 +74,8 @@
       "tip_slice": "FORTRESS-15L",
       "outcome_id": "15L_meta_signature_fail_closed",
       "master_basis": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
+      "canonical_tip": "28a30a688baa637e1bcb549d9b585cb5917942d1",
+      "candidate_sha": "28a30a688baa637e1bcb549d9b585cb5917942d1",
       "workstream_class": "tip_retained_security_remediation_plus_audit_matrix",
       "finite_closeout_analog": null,
       "production_readiness": "absent",
@@ -81,6 +91,17 @@
         "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
       ],
       "verifier_script": "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js",
+      "provenance_bound_files": [
+        "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md",
+        "fixtures/fortress-tenant-identity/boundary-matrix.json",
+        "fixtures/fortress-tenant-identity/attack-cases.json",
+        "fixtures/fortress-tenant-identity/slice15l-contract.json",
+        "fixtures/fortress-tenant-identity/slice15l-evidence.json",
+        "fixtures/fortress-tenant-identity/slice15l-findings.md",
+        "scripts/lib/fortress-tenant-identity-boundary.js",
+        "scripts/verify-fortress-tenant-identity-boundary-matrix.js",
+        "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js"
+      ],
       "missing_proof_for_complete": [
         "finite_milestone_closeout_disposition",
         "matrix_unproven_cleared_to_proven_fail_closed",
@@ -95,6 +116,8 @@
       "tip_slice": "RADAR-16AP",
       "outcome_id": "16AP_finite_milestone_closeout",
       "master_basis": "66e34a5833ff3bcc7f297108f594b4fc58a0eccc",
+      "canonical_tip": "7e56a99a2d69e13bf1a764090e4033195e189641",
+      "candidate_sha": "7870a9fb818bbd94d33b291c8782851276e2715e",
       "workstream_class": "finite_milestone_closeout_staging_readiness_only",
       "finite_closeout_analog": "verify:radar-slice16ap-finite-closeout",
       "production_readiness": "absent",
@@ -107,6 +130,13 @@
         "docs/RADAR-OPERATIONS-GATE-LEDGER.md"
       ],
       "verifier_script": "scripts/verify-radar-slice16ap-finite-closeout.js",
+      "provenance_bound_files": [
+        "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+        "fixtures/radar-operations/slice16ap-finite-closeout.json",
+        "fixtures/radar-operations/slice16ap-expected-contract.json",
+        "scripts/lib/radar-slice16ap-finite-closeout.js",
+        "scripts/verify-radar-slice16ap-finite-closeout.js"
+      ],
       "missing_proof_for_complete": [
         "formal_gates_raised_from_partial_to_proven",
         "production_only_unknowns_closed",
@@ -119,6 +149,8 @@
       "tip_slice": "FACTORY-1E",
       "outcome_id": "1E_dry_run_proof_packaging_milestone_closeout",
       "master_basis": "e8452d178ad8f4b6aadc8b59b2d3032634952471",
+      "canonical_tip": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
+      "candidate_sha": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
       "workstream_class": "finite_offline_dry_run_packaging_closeout",
       "finite_closeout_analog": "verify:factory-slice1e-finite-closeout",
       "production_readiness": "absent",
@@ -138,6 +170,14 @@
         "docs/FACTORY-CLIENT-PRODUCTIZATION.md"
       ],
       "verifier_script": "scripts/verify-factory-slice1e-finite-closeout.js",
+      "provenance_bound_files": [
+        "docs/FACTORY-CLIENT-PRODUCTIZATION.md",
+        "fixtures/factory-client-productization/slice1e-contract.json",
+        "fixtures/factory-client-productization/slice1e-findings.md",
+        "fixtures/factory-client-productization/slice1e-operator-handoff.md",
+        "fixtures/factory-client-productization/slice1e-artifact-lock.json",
+        "fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json"
+      ],
       "missing_proof_for_complete": [
         "third_tenant_live_or_prod_onboarding",
         "apply_or_disk_materialization",
@@ -145,6 +185,67 @@
         "production_client_productization_readiness"
       ]
     }
+  ],
+  "parent_sha_provenance": {
+    "FOUNDATION": {
+      "canonical_tip": "32b44930685450cb27ac519d052332be7b18150d",
+      "candidate_sha": "32b44930685450cb27ac519d052332be7b18150d",
+      "master_basis": "21371079ac5a331d47e7ed5f79351fceeeceefa6",
+      "provenance_bound_files": [
+        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json",
+        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json",
+        "fixtures/sunset-schema-observer/slice14ae-findings.md",
+        "scripts/verify-sunset-schema-slice14ae.js"
+      ]
+    },
+    "FORTRESS": {
+      "canonical_tip": "28a30a688baa637e1bcb549d9b585cb5917942d1",
+      "candidate_sha": "28a30a688baa637e1bcb549d9b585cb5917942d1",
+      "master_basis": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
+      "provenance_bound_files": [
+        "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md",
+        "fixtures/fortress-tenant-identity/boundary-matrix.json",
+        "fixtures/fortress-tenant-identity/attack-cases.json",
+        "fixtures/fortress-tenant-identity/slice15l-contract.json",
+        "fixtures/fortress-tenant-identity/slice15l-evidence.json",
+        "fixtures/fortress-tenant-identity/slice15l-findings.md",
+        "scripts/lib/fortress-tenant-identity-boundary.js",
+        "scripts/verify-fortress-tenant-identity-boundary-matrix.js",
+        "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js"
+      ]
+    },
+    "RADAR": {
+      "canonical_tip": "7e56a99a2d69e13bf1a764090e4033195e189641",
+      "candidate_sha": "7870a9fb818bbd94d33b291c8782851276e2715e",
+      "master_basis": "66e34a5833ff3bcc7f297108f594b4fc58a0eccc",
+      "provenance_bound_files": [
+        "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+        "fixtures/radar-operations/slice16ap-finite-closeout.json",
+        "fixtures/radar-operations/slice16ap-expected-contract.json",
+        "scripts/lib/radar-slice16ap-finite-closeout.js",
+        "scripts/verify-radar-slice16ap-finite-closeout.js"
+      ]
+    },
+    "FACTORY": {
+      "canonical_tip": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
+      "candidate_sha": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
+      "master_basis": "e8452d178ad8f4b6aadc8b59b2d3032634952471",
+      "provenance_bound_files": [
+        "docs/FACTORY-CLIENT-PRODUCTIZATION.md",
+        "fixtures/factory-client-productization/slice1e-contract.json",
+        "fixtures/factory-client-productization/slice1e-findings.md",
+        "fixtures/factory-client-productization/slice1e-operator-handoff.md",
+        "fixtures/factory-client-productization/slice1e-artifact-lock.json",
+        "fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json"
+      ]
+    }
+  },
+  "tip_scope_forward_compat_rels": [
+    "scripts/lib/factory-slice1b-archetype-templates.js",
+    "scripts/lib/factory-slice1c-dry-run-generator.js",
+    "scripts/lib/factory-slice1d-integration-proof.js",
+    "scripts/lib/factory-slice1e-finite-closeout.js",
+    "scripts/verify-factory-slice1e-finite-closeout.js"
   ],
   "retained_npm_scripts": [
     "verify:sunset-schema-slice14ae",
@@ -163,6 +264,7 @@
       "independent_verifier",
       "parent_inventory",
       "exact_hash_binding",
+      "parent_sha_provenance",
       "retained_offline_gate_execution",
       "deterministic_classification",
       "package_json_verifier_script_registration"
@@ -180,6 +282,7 @@
     ]
   },
   "factory_forward_compat_tip_allowlist": true,
+  "parent_sha_provenance_enforced": true,
   "messi_complete": false,
   "production_ready": false,
   "gates_npm": [

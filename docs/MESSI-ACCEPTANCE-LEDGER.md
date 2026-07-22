@@ -23,10 +23,24 @@ Slice 1A freezes a deterministic, repository-evidence-only acceptance ledger tha
 
 1. Inventories each parent's canonical closeout / evidence / verifier
 2. Binds exact committed file paths + sha256 hashes
-3. Runs each parent's real retained offline gate(s)
-4. Classifies every MESSI gate `complete` / `partial` / `absent` with explicit missing proof
-5. Preserves RADAR formal truth **proven=0 / partial=9 / absent=0**
-6. Distinguishes finite staging/offline workstream closeouts from production readiness
+3. Binds each parent's **canonical tip** + **candidate SHA** and cryptographically verifies tip blobs + ancestry
+4. Runs each parent's real retained offline gate(s)
+5. Classifies every MESSI gate `complete` / `partial` / `absent` with explicit missing proof
+6. Preserves RADAR formal truth **proven=0 / partial=9 / absent=0**
+7. Distinguishes finite staging/offline workstream closeouts from production readiness
+
+## Parent SHA provenance (hard)
+
+Parent tip/candidate SHAs are **not** declarative-only. The lock + ledger bind:
+
+| Parent | Canonical tip | Candidate SHA |
+|--------|---------------|---------------|
+| FOUNDATION | `32b44930685450cb27ac519d052332be7b18150d` | same (identity) |
+| FORTRESS | `28a30a688baa637e1bcb549d9b585cb5917942d1` | same (identity) |
+| RADAR | `7e56a99a2d69e13bf1a764090e4033195e189641` | `7870a9fb818bbd94d33b291c8782851276e2715e` |
+| FACTORY | `14facf5d54be8767cf9aca4d69a880f28ea3dc2e` | same (identity) |
+
+Verifier enforces: exact tip identity (reject stale-but-valid ancestors), candidate ⊂ tip ⊂ MESSI base/tip, tip-blob sha256 == bound hashes == working tree for `provenance_bound_files`, missing refs fail closed. FACTORY tip-scope allowlist mutations are disclosed separately and are **not** parent-tip provenance.
 
 ## Completion policy (hard)
 
@@ -43,12 +57,12 @@ MESSI is **not** complete. Production readiness is **absent**.
 
 ## Parent inventory (canonical)
 
-| Parent | Tip | Retained npm gate(s) | Workstream class | Production |
-|--------|-----|----------------------|------------------|------------|
-| FOUNDATION | 14AE | `verify:sunset-schema-slice14ae` | tip_retained_staging_schema_noop | absent |
-| FORTRESS | 15A+15L | `verify:fortress-tenant-identity-boundary-matrix` + `verify:fortress-slice15l-meta-signature-fail-closed` | tip_retained_security_remediation_plus_audit_matrix | absent |
-| RADAR | 16AP | `verify:radar-slice16ap-finite-closeout` | finite_milestone_closeout_staging_readiness_only | absent |
-| FACTORY | 1E | `verify:factory-slice1e-finite-closeout` | finite_offline_dry_run_packaging_closeout | absent |
+| Parent | Tip | Candidate | Retained npm gate(s) | Workstream class | Production |
+|--------|-----|-----------|----------------------|------------------|------------|
+| FOUNDATION | 14AE @ `32b44930` | identity | `verify:sunset-schema-slice14ae` | tip_retained_staging_schema_noop | absent |
+| FORTRESS | 15A+15L @ `28a30a68` | identity | `verify:fortress-tenant-identity-boundary-matrix` + `verify:fortress-slice15l-meta-signature-fail-closed` | tip_retained_security_remediation_plus_audit_matrix | absent |
+| RADAR | 16AP tip `7e56a99a` | `7870a9fb` | `verify:radar-slice16ap-finite-closeout` | finite_milestone_closeout_staging_readiness_only | absent |
+| FACTORY | 1E @ `14facf5d` | identity | `verify:factory-slice1e-finite-closeout` | finite_offline_dry_run_packaging_closeout | absent |
 
 ## MESSI gates
 
@@ -71,7 +85,7 @@ Offline only. Spawns parent retained verifiers; does not deploy, mutate DB/cloud
 
 ## Scope fence (1A)
 
-**Allows:** docs, fixtures, verifier, parent inventory, hash binding, retained offline gate execution, deterministic classification, package.json script registration.
+**Allows:** docs, fixtures, verifier, parent inventory, hash binding, parent tip/candidate SHA provenance, retained offline gate execution, deterministic classification, package.json script registration.
 
 **Forbids:** product/runtime/template behavior, deploy, DB/cloud mutation, network live action, production access, raising RADAR formal gates, label/summary/self-authored parent completion.
 

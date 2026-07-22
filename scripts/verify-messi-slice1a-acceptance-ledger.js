@@ -138,8 +138,12 @@ console.log('\n── Parent inventory ──');
     ok(`${id} verifier exists`, pathExists(p.verifier_script));
     ok(`${id} production_readiness absent`, p.production_readiness === 'absent');
     ok(`${id} has missing_proof_for_complete`, p.missing_proof_for_complete.length > 0);
-    const ancestor = locks.assertShaAncestor(ROOT, p.master_basis);
-    ok(`${id} master_basis is ancestor of HEAD`, ancestor.ok, ancestor.detail);
+    ok(`${id} canonical_tip bound`, /^[0-9a-f]{40}$/.test(p.canonical_tip));
+    ok(`${id} candidate_sha bound`, /^[0-9a-f]{40}$/.test(p.candidate_sha));
+    const ancestor = locks.assertShaAncestor(ROOT, p.canonical_tip, locks.MASTER_BASIS);
+    ok(`${id} canonical_tip is ancestor of MESSI base`, ancestor.ok, ancestor.detail);
+    const candAnc = locks.assertShaAncestor(ROOT, p.candidate_sha, p.canonical_tip);
+    ok(`${id} candidate_sha is ancestor of canonical_tip`, candAnc.ok, candAnc.detail);
   }
   green('parent_inventory_bound', true);
 }
@@ -152,6 +156,25 @@ ok('all bound files present + hashes match', hashBinding.ok,
 ok('ledger bound_file_hashes match lock',
   locks.deepEqual(ledger.bound_file_hashes, locks.BOUND_FILE_HASHES));
 green('exact_hashes_match', hashBinding.ok);
+
+// ── Parent SHA provenance (cryptographic) ───────────────────────────────────
+console.log('\n── Parent SHA provenance ──');
+const provenance = locks.verifyParentShaProvenance(ROOT);
+ok('parent SHA provenance ok', provenance.ok, provenance.errors.slice(0, 8).join(' | '));
+ok('ledger parent_sha_provenance bound', !!ledger.parent_sha_provenance);
+for (const id of Object.keys(locks.PARENTS)) {
+  const p = locks.PARENTS[id];
+  const row = ledger.parent_sha_provenance && ledger.parent_sha_provenance[id];
+  ok(`${id} ledger canonical_tip`, row && row.canonical_tip === p.canonical_tip);
+  ok(`${id} ledger candidate_sha`, row && row.candidate_sha === p.candidate_sha);
+  const ledgerParent = (ledger.parents || []).find((x) => x.id === id);
+  ok(`${id} parents[].canonical_tip`, ledgerParent && ledgerParent.canonical_tip === p.canonical_tip);
+  ok(`${id} parents[].candidate_sha`, ledgerParent && ledgerParent.candidate_sha === p.candidate_sha);
+  const contractParent = (contract.parents || []).find((x) => x.id === id);
+  ok(`${id} contract canonical_tip`, contractParent && contractParent.canonical_tip === p.canonical_tip);
+  ok(`${id} contract candidate_sha`, contractParent && contractParent.candidate_sha === p.candidate_sha);
+}
+green('parent_sha_provenance_enforced', provenance.ok);
 
 // ── RADAR formal truth + FORTRESS matrix counts ─────────────────────────────
 console.log('\n── Parent frozen facts ──');
@@ -296,9 +319,92 @@ red('self_referential_parent_expectation', (() => {
 })());
 
 red('stale_master_basis_sha', (() => {
-  const orphan = '0000000000000000000000000000000000000001';
-  const r = locks.assertShaAncestor(ROOT, orphan);
+  // Real valid ancestor of FOUNDATION tip (master_basis), not a nonexistent hash.
+  const stale = locks.PARENTS.FOUNDATION.master_basis;
+  const tip = locks.PARENTS.FOUNDATION.canonical_tip;
+  ok('stale_master_basis fixture is real ancestor',
+    locks.isGitAncestor(ROOT, stale, tip) && stale !== tip);
+  const r = locks.assertShaAncestor(ROOT, '0000000000000000000000000000000000000001');
   return r.ok === false;
+})());
+
+red('stale_but_valid_ancestor_tip', (() => {
+  // RADAR candidate is a real ancestor of the locked tip — must still be rejected
+  // as a substitute canonical_tip.
+  const staleTip = locks.PARENTS.RADAR.candidate_sha;
+  const lockedTip = locks.PARENTS.RADAR.canonical_tip;
+  ok('radar candidate is real strict ancestor of tip',
+    locks.isGitAncestor(ROOT, staleTip, lockedTip) && staleTip !== lockedTip);
+  const r = locks.verifyParentShaProvenance(ROOT, {
+    claimedParents: {
+      RADAR: { canonical_tip: staleTip },
+    },
+    skipWorkingTreeCheck: true,
+  });
+  return r.ok === false
+    && r.errors.some((e) => e.includes('stale_or_wrong_canonical_tip'));
+})());
+
+red('repinned_current_tree_hashes', (() => {
+  // Claim stale RADAR tip while keeping current-tree (locked tip) hashes.
+  const staleTip = locks.PARENTS.RADAR.candidate_sha;
+  const r = locks.verifyParentShaProvenance(ROOT, {
+    claimedParents: {
+      RADAR: {
+        canonical_tip: staleTip,
+        bound_hashes: { ...locks.BOUND_FILE_HASHES },
+      },
+    },
+    skipWorkingTreeCheck: true,
+  });
+  return r.ok === false
+    && r.errors.some((e) => e.includes('repinned_or_tip_blob_mismatch')
+      || e.includes('stale_or_wrong_canonical_tip'));
+})());
+
+red('mismatched_candidate_tip_pair', (() => {
+  // MESSI base is a descendant of RADAR tip — not a valid candidate for that tip.
+  const badCandidate = locks.MASTER_BASIS;
+  const r = locks.verifyParentShaProvenance(ROOT, {
+    claimedParents: {
+      RADAR: {
+        canonical_tip: locks.PARENTS.RADAR.canonical_tip,
+        candidate_sha: badCandidate,
+      },
+    },
+    skipWorkingTreeCheck: true,
+  });
+  return r.ok === false
+    && (
+      r.errors.some((e) => e.includes('mismatched_candidate_tip_pair'))
+      || r.errors.some((e) => e.includes('stale_or_wrong_candidate_sha'))
+    );
+})());
+
+red('missing_parent_ref', (() => {
+  const r = locks.verifyParentShaProvenance(ROOT, {
+    claimedParents: {
+      FOUNDATION: {
+        canonical_tip: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        candidate_sha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      },
+    },
+    skipWorkingTreeCheck: true,
+  });
+  return r.ok === false
+    && r.errors.some((e) => e.includes('missing_ref:canonical_tip'));
+})());
+
+red('altered_allowed_parent_file', (() => {
+  const rel = 'fixtures/radar-operations/slice16ap-finite-closeout.json';
+  const good = locks.BOUND_FILE_HASHES[rel];
+  const r = locks.verifyParentShaProvenance(ROOT, {
+    workingTreeHashes: {
+      [rel]: locks.sha256Text(`${good}-tampered`),
+    },
+  });
+  return r.ok === false
+    && r.errors.some((e) => e.includes(`altered_parent_file:${rel}`));
 })());
 
 red('stale_bound_file_hash', (() => {

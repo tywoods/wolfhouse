@@ -20,8 +20,9 @@ Classification requires:
 
 1. Parent inventory of canonical evidence/docs/verifier
 2. Exact sha256 binding of committed files
-3. Real retained gate execution (exit 0)
-4. Deterministic classifier output with explicit `missing_proof`
+3. Cryptographic parent tip/candidate SHA provenance (tip blobs + ancestry)
+4. Real retained gate execution (exit 0)
+5. Deterministic classifier output with explicit `missing_proof`
 
 ## Ledger score (frozen)
 
@@ -53,9 +54,20 @@ Finite staging/offline closeouts are **not** production readiness.
 
 ## What 1A proves / does not prove
 
-**Proves:** deterministic parent inventory, hash binding, retained offline gate execution, honest MESSI score 0/4/2, RADAR formal 0/9/0 preserved.
+**Proves:** deterministic parent inventory, hash binding, cryptographic parent tip/candidate provenance, retained offline gate execution, honest MESSI score 0/4/2, RADAR formal 0/9/0 preserved.
 
 **Does not prove:** MESSI complete, production ready, cross-parent integration, raising any RADAR formal gate, clearing FORTRESS matrix gaps, FOUNDATION finite closeout analog, live/prod FACTORY third tenant.
+
+## Parent SHA provenance
+
+| Parent | Canonical tip | Candidate |
+|--------|---------------|-----------|
+| FOUNDATION | `32b44930685450cb27ac519d052332be7b18150d` | identity |
+| FORTRESS | `28a30a688baa637e1bcb549d9b585cb5917942d1` | identity |
+| RADAR | `7e56a99a2d69e13bf1a764090e4033195e189641` | `7870a9fb818bbd94d33b291c8782851276e2715e` |
+| FACTORY | `14facf5d54be8767cf9aca4d69a880f28ea3dc2e` | identity |
+
+Hostile REDs cover stale-but-valid ancestors (real SHAs), repinned current-tree hashes, mismatched candidate/tip pairs, missing refs, and altered parent files.
 
 ## Out of scope
 

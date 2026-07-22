@@ -121,6 +121,7 @@ const SCOPE_FENCE = Object.freeze({
     'independent_verifier',
     'parent_inventory',
     'exact_hash_binding',
+    'parent_sha_provenance',
     'retained_offline_gate_execution',
     'deterministic_classification',
     'package_json_verifier_script_registration',
@@ -142,6 +143,17 @@ const SCOPE_FENCE = Object.freeze({
  * Canonical parent inventory. completion_boolean is intentionally omitted —
  * classifiers derive verdicts; fixtures must not ship parent_complete flags.
  */
+/**
+ * Parent SHA provenance (cryptographic — not declarative-only):
+ * - canonical_tip + candidate_sha are bound into lock + ledger
+ * - provenance_bound_files blobs at canonical_tip must equal BOUND_FILE_HASHES
+ * - each canonical_tip must be an ancestor of MESSI MASTER_BASIS
+ * - candidate_sha must be an ancestor of canonical_tip (identity OK when equal)
+ *
+ * FACTORY tip-scope forward-compat allowlist edits are intentionally excluded
+ * from provenance_bound_files (see TIP_SCOPE_FORWARD_COMPAT_RELS) — they are
+ * MESSI tip mutations, not parent-tip evidence.
+ */
 const PARENTS = Object.freeze({
   FOUNDATION: Object.freeze({
     id: 'FOUNDATION',
@@ -149,6 +161,8 @@ const PARENTS = Object.freeze({
     tip_slice: 'FOUNDATION-14AE',
     outcome_id: 'canonical_runner_noop_live_ok',
     master_basis: '21371079ac5a331d47e7ed5f79351fceeeceefa6',
+    canonical_tip: '32b44930685450cb27ac519d052332be7b18150d',
+    candidate_sha: '32b44930685450cb27ac519d052332be7b18150d',
     tip_sha_on_master: '32b44930685450cb27ac519d052332be7b18150d',
     workstream_class: 'tip_retained_staging_schema_noop',
     finite_closeout_analog: null,
@@ -158,6 +172,12 @@ const PARENTS = Object.freeze({
       'fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json',
       'fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json',
       'fixtures/sunset-schema-observer/slice14ae-findings.md',
+    ]),
+    provenance_bound_files: Object.freeze([
+      'fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json',
+      'fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json',
+      'fixtures/sunset-schema-observer/slice14ae-findings.md',
+      'scripts/verify-sunset-schema-slice14ae.js',
     ]),
     verifier_script: 'scripts/verify-sunset-schema-slice14ae.js',
     npm_script: 'verify:sunset-schema-slice14ae',
@@ -183,6 +203,8 @@ const PARENTS = Object.freeze({
     audit_slice: 'FORTRESS-15A',
     outcome_id: '15L_meta_signature_fail_closed',
     master_basis: 'f703f3e07d3cd9214c661f169c23c7d5d5370709',
+    canonical_tip: '28a30a688baa637e1bcb549d9b585cb5917942d1',
+    candidate_sha: '28a30a688baa637e1bcb549d9b585cb5917942d1',
     tip_sha_on_master: '28a30a688baa637e1bcb549d9b585cb5917942d1',
     audit_master_basis: '32b44930685450cb27ac519d052332be7b18150d',
     workstream_class: 'tip_retained_security_remediation_plus_audit_matrix',
@@ -197,6 +219,17 @@ const PARENTS = Object.freeze({
       'fixtures/fortress-tenant-identity/slice15l-contract.json',
       'fixtures/fortress-tenant-identity/slice15l-evidence.json',
       'fixtures/fortress-tenant-identity/slice15l-findings.md',
+    ]),
+    provenance_bound_files: Object.freeze([
+      'docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md',
+      'fixtures/fortress-tenant-identity/boundary-matrix.json',
+      'fixtures/fortress-tenant-identity/attack-cases.json',
+      'fixtures/fortress-tenant-identity/slice15l-contract.json',
+      'fixtures/fortress-tenant-identity/slice15l-evidence.json',
+      'fixtures/fortress-tenant-identity/slice15l-findings.md',
+      'scripts/lib/fortress-tenant-identity-boundary.js',
+      'scripts/verify-fortress-tenant-identity-boundary-matrix.js',
+      'scripts/verify-fortress-slice15l-meta-signature-fail-closed.js',
     ]),
     verifier_script: 'scripts/verify-fortress-slice15l-meta-signature-fail-closed.js',
     audit_verifier_script: 'scripts/verify-fortress-tenant-identity-boundary-matrix.js',
@@ -231,7 +264,10 @@ const PARENTS = Object.freeze({
     tip_slice: 'RADAR-16AP',
     outcome_id: '16AP_finite_milestone_closeout',
     master_basis: '66e34a5833ff3bcc7f297108f594b4fc58a0eccc',
+    // Reviewed PR candidate; bound artifact tip is post-correction master tip.
     candidate_sha: '7870a9fb818bbd94d33b291c8782851276e2715e',
+    canonical_tip: '7e56a99a2d69e13bf1a764090e4033195e189641',
+    tip_sha_on_master: '7e56a99a2d69e13bf1a764090e4033195e189641',
     workstream_class: 'finite_milestone_closeout_staging_readiness_only',
     finite_closeout_analog: 'verify:radar-slice16ap-finite-closeout',
     production_readiness: 'absent',
@@ -242,6 +278,13 @@ const PARENTS = Object.freeze({
     evidence: Object.freeze([
       'fixtures/radar-operations/slice16ap-finite-closeout.json',
       'fixtures/radar-operations/slice16ap-expected-contract.json',
+    ]),
+    provenance_bound_files: Object.freeze([
+      'docs/RADAR-OPERATIONS-GATE-LEDGER.md',
+      'fixtures/radar-operations/slice16ap-finite-closeout.json',
+      'fixtures/radar-operations/slice16ap-expected-contract.json',
+      'scripts/lib/radar-slice16ap-finite-closeout.js',
+      'scripts/verify-radar-slice16ap-finite-closeout.js',
     ]),
     lock_module: 'scripts/lib/radar-slice16ap-finite-closeout.js',
     verifier_script: 'scripts/verify-radar-slice16ap-finite-closeout.js',
@@ -267,6 +310,8 @@ const PARENTS = Object.freeze({
     tip_slice: 'FACTORY-1E',
     outcome_id: '1E_dry_run_proof_packaging_milestone_closeout',
     master_basis: 'e8452d178ad8f4b6aadc8b59b2d3032634952471',
+    canonical_tip: '14facf5d54be8767cf9aca4d69a880f28ea3dc2e',
+    candidate_sha: '14facf5d54be8767cf9aca4d69a880f28ea3dc2e',
     tip_sha_on_master: '14facf5d54be8767cf9aca4d69a880f28ea3dc2e',
     workstream_class: 'finite_offline_dry_run_packaging_closeout',
     finite_closeout_analog: 'verify:factory-slice1e-finite-closeout',
@@ -284,6 +329,15 @@ const PARENTS = Object.freeze({
       'scripts/lib/factory-slice1c-dry-run-generator.js',
       'scripts/lib/factory-slice1d-integration-proof.js',
       'scripts/lib/factory-slice1e-finite-closeout.js',
+    ]),
+    // Tip-blob provenance excludes MESSI forward-compat allowlist mutations.
+    provenance_bound_files: Object.freeze([
+      'docs/FACTORY-CLIENT-PRODUCTIZATION.md',
+      'fixtures/factory-client-productization/slice1e-contract.json',
+      'fixtures/factory-client-productization/slice1e-findings.md',
+      'fixtures/factory-client-productization/slice1e-operator-handoff.md',
+      'fixtures/factory-client-productization/slice1e-artifact-lock.json',
+      'fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json',
     ]),
     lock_module: 'scripts/lib/factory-slice1e-finite-closeout.js',
     verifier_script: 'scripts/verify-factory-slice1e-finite-closeout.js',
@@ -304,6 +358,15 @@ const PARENTS = Object.freeze({
     ]),
   }),
 });
+
+/** MESSI tip-scope only — current-tree hash bound, NOT parent-tip blob provenance. */
+const TIP_SCOPE_FORWARD_COMPAT_RELS = Object.freeze([
+  'scripts/lib/factory-slice1b-archetype-templates.js',
+  'scripts/lib/factory-slice1c-dry-run-generator.js',
+  'scripts/lib/factory-slice1d-integration-proof.js',
+  'scripts/lib/factory-slice1e-finite-closeout.js',
+  'scripts/verify-factory-slice1e-finite-closeout.js',
+]);
 
 const MESSI_GATES = Object.freeze([
   Object.freeze({
@@ -453,17 +516,202 @@ function recomputeBoundHashes(root) {
   return { hashes: out, errors, ok: errors.length === 0 };
 }
 
-function assertShaAncestor(root, sha) {
+function resolveCommitSha(root, sha) {
+  const raw = String(sha || '').trim();
+  if (!/^[0-9a-f]{7,40}$/i.test(raw)) return null;
   try {
-    execSync(`git merge-base --is-ancestor ${sha} HEAD`, {
+    return execSync(`git rev-parse --verify ${raw}^{commit}`, {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+  } catch (_) {
+    return null;
+  }
+}
+
+function isGitAncestor(root, ancestor, descendant) {
+  try {
+    execSync(`git merge-base --is-ancestor ${ancestor} ${descendant}`, {
       cwd: root,
       stdio: ['ignore', 'ignore', 'pipe'],
       encoding: 'utf8',
     });
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, detail: String(err && err.stderr || err.message || err) };
+    return true;
+  } catch (_) {
+    return false;
   }
+}
+
+function assertShaAncestor(root, sha, descendant) {
+  const tip = descendant || 'HEAD';
+  const resolved = resolveCommitSha(root, sha);
+  if (!resolved) return { ok: false, detail: `missing_ref:${sha}` };
+  if (!isGitAncestor(root, resolved, tip)) {
+    return { ok: false, detail: `not_ancestor:${resolved}:${tip}` };
+  }
+  return { ok: true, sha: resolved };
+}
+
+function gitBlobSha256AtCommit(root, commitSha, rel) {
+  const r = spawnSync('git', ['show', `${commitSha}:${rel}`], {
+    cwd: root,
+    encoding: 'buffer',
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  if (r.status !== 0) {
+    return {
+      ok: false,
+      detail: String(r.stderr || r.stdout || 'git show failed'),
+    };
+  }
+  return {
+    ok: true,
+    sha256: crypto.createHash('sha256').update(Buffer.from(r.stdout)).digest('hex'),
+  };
+}
+
+/**
+ * Cryptographic parent SHA provenance.
+ *
+ * opts.claimedParents: optional forged claim map
+ *   { [parentId]: { canonical_tip?, candidate_sha?, bound_hashes? } }
+ * compared against locked PARENTS + BOUND_FILE_HASHES.
+ *
+ * opts.workingTreeHashes: optional rel->sha256 map (else read filesystem)
+ * opts.skipWorkingTreeCheck: skip wt alteration checks
+ */
+function verifyParentShaProvenance(root, opts) {
+  const options = opts || {};
+  const claimedParents = options.claimedParents || {};
+  const errors = [];
+  const perParent = {};
+
+  for (const parentId of Object.keys(PARENTS)) {
+    const locked = PARENTS[parentId];
+    const claim = claimedParents[parentId] || {};
+    const claimTip = claim.canonical_tip || locked.canonical_tip;
+    const claimCandidate = claim.candidate_sha || locked.candidate_sha;
+    const claimHashes = claim.bound_hashes || BOUND_FILE_HASHES;
+    const parentErrors = [];
+
+    const lockedTipSha = resolveCommitSha(root, locked.canonical_tip);
+    const lockedCandidateSha = resolveCommitSha(root, locked.candidate_sha);
+    if (!lockedTipSha) parentErrors.push(`missing_ref:locked_canonical_tip:${locked.canonical_tip}`);
+    if (!lockedCandidateSha) {
+      parentErrors.push(`missing_ref:locked_candidate_sha:${locked.candidate_sha}`);
+    }
+
+    const tipSha = resolveCommitSha(root, claimTip);
+    if (!tipSha) {
+      parentErrors.push(`missing_ref:canonical_tip:${claimTip}`);
+    }
+
+    const candidateSha = resolveCommitSha(root, claimCandidate);
+    if (!candidateSha) {
+      parentErrors.push(`missing_ref:candidate_sha:${claimCandidate}`);
+    }
+
+    // Exact tip identity — reject stale-but-valid ancestors of the locked tip.
+    if (tipSha && lockedTipSha && tipSha !== lockedTipSha) {
+      parentErrors.push(`stale_or_wrong_canonical_tip:claimed=${tipSha}:locked=${lockedTipSha}`);
+    }
+    if (candidateSha && lockedCandidateSha && candidateSha !== lockedCandidateSha) {
+      parentErrors.push(
+        `stale_or_wrong_candidate_sha:claimed=${candidateSha}:locked=${lockedCandidateSha}`,
+      );
+    }
+
+    if (tipSha && !isGitAncestor(root, tipSha, MASTER_BASIS)) {
+      parentErrors.push(`canonical_tip_not_ancestor_of_messi_base:${tipSha}`);
+    }
+    if (tipSha && !isGitAncestor(root, tipSha, 'HEAD')) {
+      parentErrors.push(`canonical_tip_not_ancestor_of_messi_tip:${tipSha}`);
+    }
+
+    if (tipSha && candidateSha && !isGitAncestor(root, candidateSha, tipSha)) {
+      parentErrors.push(`mismatched_candidate_tip_pair:${candidateSha}:${tipSha}`);
+    }
+    // Also enforce locked pair relationship independently of forged claims.
+    if (
+      lockedTipSha
+      && lockedCandidateSha
+      && !isGitAncestor(root, lockedCandidateSha, lockedTipSha)
+    ) {
+      parentErrors.push(
+        `locked_mismatched_candidate_tip_pair:${lockedCandidateSha}:${lockedTipSha}`,
+      );
+    }
+
+    const tipForBlobs = tipSha || lockedTipSha;
+    if (tipForBlobs) {
+      for (const rel of locked.provenance_bound_files) {
+        const expectedLocked = BOUND_FILE_HASHES[rel];
+        const expectedClaim = claimHashes[rel];
+        if (!expectedLocked) {
+          parentErrors.push(`missing_bound_hash_entry:${rel}`);
+          continue;
+        }
+        const tipBlob = gitBlobSha256AtCommit(root, tipForBlobs, rel);
+        if (!tipBlob.ok) {
+          parentErrors.push(`missing_blob_at_tip:${rel}`);
+          continue;
+        }
+        // Claimed hashes must match the blob at the claimed tip (detects
+        // repinned current-tree hashes under a stale tip claim).
+        if (expectedClaim && tipBlob.sha256 !== expectedClaim) {
+          parentErrors.push(
+            `repinned_or_tip_blob_mismatch:${rel}:tip=${tipBlob.sha256}:claimed_hash=${expectedClaim}`,
+          );
+        }
+        // Locked hashes must match the blob at the locked tip.
+        if (lockedTipSha) {
+          const lockedBlob = gitBlobSha256AtCommit(root, lockedTipSha, rel);
+          if (!lockedBlob.ok) {
+            parentErrors.push(`missing_blob_at_locked_tip:${rel}`);
+          } else if (lockedBlob.sha256 !== expectedLocked) {
+            parentErrors.push(
+              `locked_tip_blob_mismatch:${rel}:got=${lockedBlob.sha256}:expected=${expectedLocked}`,
+            );
+          }
+        }
+        if (!options.skipWorkingTreeCheck) {
+          let wtHash = null;
+          if (options.workingTreeHashes && options.workingTreeHashes[rel]) {
+            wtHash = options.workingTreeHashes[rel];
+          } else {
+            const abs = rootJoin(root, rel);
+            if (!fs.existsSync(abs)) {
+              parentErrors.push(`missing_working_tree_file:${rel}`);
+              continue;
+            }
+            wtHash = sha256File(abs);
+          }
+          if (wtHash !== expectedLocked) {
+            parentErrors.push(`altered_parent_file:${rel}:wt=${wtHash}:expected=${expectedLocked}`);
+          }
+        }
+      }
+    }
+
+    for (const rel of TIP_SCOPE_FORWARD_COMPAT_RELS) {
+      if (locked.provenance_bound_files.includes(rel)) {
+        parentErrors.push(`tip_scope_file_claimed_as_provenance:${rel}`);
+      }
+    }
+
+    perParent[parentId] = {
+      canonical_tip: tipSha,
+      candidate_sha: candidateSha,
+      locked_canonical_tip: lockedTipSha,
+      locked_candidate_sha: lockedCandidateSha,
+      errors: parentErrors,
+      ok: parentErrors.length === 0,
+    };
+    for (const e of parentErrors) errors.push(`${parentId}:${e}`);
+  }
+
+  return { ok: errors.length === 0, errors, perParent };
 }
 
 function runRetainedGate(root, gate, timeoutMs) {
@@ -684,6 +932,8 @@ function buildExpectedLedgerSkeleton() {
         tip_slice: p.tip_slice,
         outcome_id: p.outcome_id,
         master_basis: p.master_basis,
+        canonical_tip: p.canonical_tip,
+        candidate_sha: p.candidate_sha,
         workstream_class: p.workstream_class,
         finite_closeout_analog: p.finite_closeout_analog,
         production_readiness: p.production_readiness,
@@ -691,10 +941,22 @@ function buildExpectedLedgerSkeleton() {
         evidence: [...p.evidence],
         docs: [...(p.docs || [])],
         verifier_script: p.verifier_script,
+        provenance_bound_files: [...p.provenance_bound_files],
         missing_proof_for_complete: [...p.missing_proof_for_complete],
       };
     }),
     bound_file_hashes: { ...BOUND_FILE_HASHES },
+    tip_scope_forward_compat_rels: [...TIP_SCOPE_FORWARD_COMPAT_RELS],
+    parent_sha_provenance: Object.keys(PARENTS).reduce((acc, id) => {
+      const p = PARENTS[id];
+      acc[id] = {
+        canonical_tip: p.canonical_tip,
+        candidate_sha: p.candidate_sha,
+        master_basis: p.master_basis,
+        provenance_bound_files: [...p.provenance_bound_files],
+      };
+      return acc;
+    }, {}),
     gate_ids: [...GATE_IDS],
     frozen_messi_score: { ...FROZEN_MESSI_SCORE },
     radar_formal_score: { ...RADAR_FORMAL_SCORE },
@@ -715,6 +977,34 @@ function validateLedgerFixture(ledger, classification) {
   if (!deepEqual(ledger.frozen_messi_score, FROZEN_MESSI_SCORE)) errors.push('frozen_messi_score');
   if (!deepEqual(ledger.radar_formal_score, RADAR_FORMAL_SCORE)) errors.push('radar_formal_score');
   if (!deepEqual(ledger.bound_file_hashes, BOUND_FILE_HASHES)) errors.push('bound_file_hashes');
+  if (!deepEqual(ledger.tip_scope_forward_compat_rels, [...TIP_SCOPE_FORWARD_COMPAT_RELS])) {
+    errors.push('tip_scope_forward_compat_rels');
+  }
+  if (!ledger.parent_sha_provenance) {
+    errors.push('parent_sha_provenance_missing');
+  } else {
+    for (const id of Object.keys(PARENTS)) {
+      const got = ledger.parent_sha_provenance[id];
+      const exp = PARENTS[id];
+      if (!got) {
+        errors.push(`parent_sha_provenance_missing:${id}`);
+        continue;
+      }
+      if (got.canonical_tip !== exp.canonical_tip) errors.push(`parent_canonical_tip:${id}`);
+      if (got.candidate_sha !== exp.candidate_sha) errors.push(`parent_candidate_sha:${id}`);
+      if (!deepEqual(got.provenance_bound_files, [...exp.provenance_bound_files])) {
+        errors.push(`parent_provenance_bound_files:${id}`);
+      }
+    }
+  }
+  if (Array.isArray(ledger.parents)) {
+    for (const p of ledger.parents) {
+      const exp = PARENTS[p.id];
+      if (!exp) continue;
+      if (p.canonical_tip !== exp.canonical_tip) errors.push(`ledger_parent_canonical_tip:${p.id}`);
+      if (p.candidate_sha !== exp.candidate_sha) errors.push(`ledger_parent_candidate_sha:${p.id}`);
+    }
+  }
   if (ledger.parent_complete || ledger.parents_complete) errors.push('self_authored_parent_complete_boolean');
   if (Array.isArray(ledger.parents)) {
     for (const p of ledger.parents) {
@@ -750,6 +1040,11 @@ const REQUIRED_RED = Object.freeze([
   'tampered_bound_hash',
   'self_referential_parent_expectation',
   'stale_master_basis_sha',
+  'stale_but_valid_ancestor_tip',
+  'repinned_current_tree_hashes',
+  'mismatched_candidate_tip_pair',
+  'missing_parent_ref',
+  'altered_allowed_parent_file',
   'stale_bound_file_hash',
   'downgraded_partial_to_complete',
   'radar_formal_score_raised',
@@ -759,6 +1054,7 @@ const REQUIRED_RED = Object.freeze([
 const REQUIRED_GREEN = Object.freeze([
   'parent_inventory_bound',
   'exact_hashes_match',
+  'parent_sha_provenance_enforced',
   'retained_gates_executed',
   'classification_matches_ledger',
   'radar_formal_0_9_0_preserved',
@@ -770,6 +1066,7 @@ const REQUIRED_GREEN = Object.freeze([
 deepFreeze(PARENTS);
 deepFreeze(MESSI_GATES);
 deepFreeze(BOUND_FILE_HASHES);
+deepFreeze(TIP_SCOPE_FORWARD_COMPAT_RELS);
 deepFreeze(SCOPE_FENCE);
 deepFreeze(ARTIFACT_RELS);
 deepFreeze(FROZEN_MESSI_SCORE);
@@ -799,6 +1096,7 @@ module.exports = deepFreeze({
   PARENTS,
   MESSI_GATES,
   BOUND_FILE_HASHES,
+  TIP_SCOPE_FORWARD_COMPAT_RELS,
   ARTIFACT_RELS,
   SELF_REF_FORBIDDEN_PREFIXES,
   REQUIRED_RED,
@@ -812,7 +1110,11 @@ module.exports = deepFreeze({
   sha256Text,
   listBoundRels,
   recomputeBoundHashes,
+  resolveCommitSha,
+  isGitAncestor,
   assertShaAncestor,
+  gitBlobSha256AtCommit,
+  verifyParentShaProvenance,
   runRetainedGate,
   runAllRetainedGates,
   parentGatesAllPass,
