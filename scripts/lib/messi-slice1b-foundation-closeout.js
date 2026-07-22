@@ -125,6 +125,11 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'scripts/lib/factory-slice1d-integration-proof.js',
   'scripts/lib/factory-slice1e-finite-closeout.js',
   'scripts/verify-factory-slice1e-finite-closeout.js',
+  // Forward-compat tip-allowlist for MESSI 1D FORTRESS closeout (paths only).
+  'docs/FORTRESS-FINITE-CLOSEOUT.md',
+  'fixtures/fortress-closeout/',
+  'scripts/lib/messi-slice1d-fortress-closeout.js',
+  'scripts/verify-messi-slice1d-fortress-closeout.js',
   'package.json',
   'package-lock.json',
 ]);

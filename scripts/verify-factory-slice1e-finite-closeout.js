@@ -538,7 +538,7 @@ console.log('\n── Tip scope ──');
     ], { cwd: ROOT, encoding: 'utf8' }).stdout || '';
     const suspicious = genDiff.split('\n').filter((line) => (
       /^\+[^+]/.test(line)
-      && !/ALLOWED_TIP_PATH_PREFIXES|factory-slice1[de]|verify-factory-slice1[de]|messi-slice1[ab]|MESSI-ACCEPTANCE|FOUNDATION|fixtures\/messi-acceptance|fixtures\/foundation-closeout|Forward-compat tip-allowlist/.test(line)
+      && !/ALLOWED_TIP_PATH_PREFIXES|factory-slice1[de]|verify-factory-slice1[de]|messi-slice1[a-d]|MESSI-ACCEPTANCE|FOUNDATION|FORTRESS|fixtures\/messi-acceptance|fixtures\/foundation-closeout|fixtures\/fortress-closeout|Forward-compat tip-allowlist/.test(line)
       && !/^\+\s*$/.test(line)
       && !/^\+\s*['"]scripts\//.test(line)
       && !/^\+\s*['"]docs\//.test(line)

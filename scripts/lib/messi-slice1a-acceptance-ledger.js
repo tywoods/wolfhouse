@@ -226,6 +226,11 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'fixtures/foundation-closeout/',
   'scripts/lib/messi-slice1b-foundation-closeout.js',
   'scripts/verify-messi-slice1b-foundation-closeout.js',
+  // Forward-compat tip-allowlist for MESSI 1D FORTRESS closeout (paths only).
+  'docs/FORTRESS-FINITE-CLOSEOUT.md',
+  'fixtures/fortress-closeout/',
+  'scripts/lib/messi-slice1d-fortress-closeout.js',
+  'scripts/verify-messi-slice1d-fortress-closeout.js',
   'package.json',
 ]);
 
@@ -550,7 +555,7 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/foundation-closeout/findings.md':
     '8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439',
   'scripts/lib/messi-slice1b-foundation-closeout.js':
-    '19f0014f8cc43f4fa0f647530f70980554342afdc2b055376be23c7093d4ff3a',
+    '6e727ca7423445990f42f0aff3f13bd5b6aa92c6e5177eef8b2ea53a76dc68d9',
   'scripts/verify-messi-slice1b-foundation-closeout.js':
     '919ae1262366ff054aa751c94c1a086f1edd98a29753b01c294148e69fde9283',
   'docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md':
@@ -594,15 +599,15 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json':
     '1204d0f32729f2e5f258908e84ea0735bdb5bb3ab1b1c360751691a233ef99cd',
   'scripts/lib/factory-slice1b-archetype-templates.js':
-    '402c74f44a7a524bf61d313967ba0d5bd573d93d656fbb9dfcda24ff89136b00',
+    '96f79c00c66abbb2bdb973ef1beb248c561a2604b01a27498c15593fb397a873',
   'scripts/lib/factory-slice1c-dry-run-generator.js':
-    '5972a60b467ee6e797301c52faae48805ef0e216e6d3594c9351c3bec9b27315',
+    'c6864be5c9770c8b05915ca8d892a1a4f5768e012afb32a458f4ad6a3f6be879',
   'scripts/lib/factory-slice1d-integration-proof.js':
-    'e480c616703dd7ad56726ee7120f801e8811e80b6e92960e908a492ad91f2d58',
+    '0db5a8d0aedf9418ef58dc1d842a558059c5c58d5f85a3465d92aeec159da8d8',
   'scripts/lib/factory-slice1e-finite-closeout.js':
-    '00d694fb46785f5c7c17e2d06be2d64bc55d77530b3fccd0057e432a6d755433',
+    '7311dcc579608d041e809476671c9110072de5f115186e91ac68b6bfe9520a91',
   'scripts/verify-factory-slice1e-finite-closeout.js':
-    '5f2751ffaf1fbe0fa59ef2ac50cd828c60238af0f13e299589f0fce8a0202989',
+    '76db5ab78b845f59a65c4950ce26e6a5b1e2970ede3dc25adf7080e0b66a2a08',
 });
 
 const ARTIFACT_RELS = Object.freeze({

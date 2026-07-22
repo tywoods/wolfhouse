@@ -1,0 +1,363 @@
+{
+  "schema_version": 1,
+  "slice": "MESSI-1D",
+  "outcome_id": "1D_fortress_finite_audit_workstream_closeout",
+  "branch": "messi/slice-1d-fortress-closeout",
+  "master_basis": "949be24936c3056b19904904f98feccab5caf883",
+  "progress_class": "finite_fortress_audit_workstream_closeout_only",
+  "workstream_class": "finite_fortress_audit_workstream_closeout",
+  "completion_evidence": "1D_fortress_finite_audit_workstream_closeout",
+  "completion_requires": "verify:messi-slice1d-fortress-closeout",
+  "audit_only": true,
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "messi_ledger_updated": false,
+  "this_slice_deploys": false,
+  "production_ready": false,
+  "messi_complete": false,
+  "fortress_security_production_ready": false,
+  "title": "Finite FORTRESS audit workstream closeout — 15A matrix + 15L source proven offline; 3 unproven / 4 vulnerable retained; live KV/deploy activation, production tenant/payment/network/secret proof, drills, operated readiness, and FORTRESS security/production readiness remain absent; MESSI ledger not updated",
+  "fortress_tip": {
+    "canonical_tip": "28a30a688baa637e1bcb549d9b585cb5917942d1",
+    "candidate_sha": "28a30a688baa637e1bcb549d9b585cb5917942d1",
+    "master_basis": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
+    "tip_slice": "FORTRESS-15L",
+    "audit_slice": "FORTRESS-15A",
+    "audit_tip": "8ed81111b9a67a656dee0b7dbd5a46ab91ca125c",
+    "audit_master_basis": "32b44930685450cb27ac519d052332be7b18150d",
+    "outcome_id": "15L_meta_signature_fail_closed",
+    "npm_script_15a": "verify:fortress-tenant-identity-boundary-matrix",
+    "npm_script_15l": "verify:fortress-slice15l-meta-signature-fail-closed",
+    "verifier_script_15a": "scripts/verify-fortress-tenant-identity-boundary-matrix.js",
+    "verifier_script_15l": "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js"
+  },
+  "fortress_tip_bound_hashes": {
+    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md": "ec8fe4e611d086651842f287610a13495ef34df174e801e0bdc8e35d45bfccf9",
+    "fixtures/fortress-tenant-identity/boundary-matrix.json": "7503c290cca697af916edd9d570eb4973a88f0c3dc349042a2392fc220aede1d",
+    "fixtures/fortress-tenant-identity/attack-cases.json": "6f73fb951e49d45ed264a1383dc6e65224937da29d91ea6dafd0cd50430fc5bc",
+    "fixtures/fortress-tenant-identity/slice15l-contract.json": "0f12fa1a35d0a9e087fece87b6211760f33d7c8f3ea5ffd31581ba314045005d",
+    "fixtures/fortress-tenant-identity/slice15l-evidence.json": "d52c801dde68cc74ff59685543a7ba1927118d1a140b7971f2422db021a88cd3",
+    "fixtures/fortress-tenant-identity/slice15l-findings.md": "c6f63bb9b9d407d0095c3c44e5aa9f1c21b6271156d80c078be946ce0dbafbfd",
+    "scripts/lib/fortress-tenant-identity-boundary.js": "42bf5c258f93a6acc31011e15ef160157d51942f3cd5a5a7a89b022206c28e9d",
+    "scripts/verify-fortress-tenant-identity-boundary-matrix.js": "ed60a75f5693e8f2d205f1ddcd286d3ad120252b2eb47037a6e480d4c803f274",
+    "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js": "5c6296df732e1ad7f34c4190dccb59fb4947f9be9cb307175813535cacc75c4e"
+  },
+  "fortress_15a_matrix_bound_hashes": {
+    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md": "ec8fe4e611d086651842f287610a13495ef34df174e801e0bdc8e35d45bfccf9",
+    "fixtures/fortress-tenant-identity/boundary-matrix.json": "7503c290cca697af916edd9d570eb4973a88f0c3dc349042a2392fc220aede1d",
+    "fixtures/fortress-tenant-identity/attack-cases.json": "6f73fb951e49d45ed264a1383dc6e65224937da29d91ea6dafd0cd50430fc5bc",
+    "scripts/lib/fortress-tenant-identity-boundary.js": "42bf5c258f93a6acc31011e15ef160157d51942f3cd5a5a7a89b022206c28e9d"
+  },
+  "fortress_matrix_counts": {
+    "proven_fail_closed": 5,
+    "proven_isolated_by_runtime": 3,
+    "unproven": 3,
+    "vulnerable": 4,
+    "total": 15
+  },
+  "matrix_unproven_ids": [
+    "B01_meta_whatsapp_signature_ingress",
+    "B14_stripe_locked_payment_identity",
+    "B15_booking_hold_payment_callbacks"
+  ],
+  "matrix_vulnerable_ids": [
+    "B02_meta_normalize_live_client_slug",
+    "B06_staff_bot_auth_principal",
+    "B07_staff_bot_body_client_slug",
+    "B13_stripe_webhook_payment_lookup"
+  ],
+  "frozen_score": {
+    "proven": 3,
+    "partial": 0,
+    "absent": 8,
+    "total": 11
+  },
+  "gate_ids": [
+    "G_15A_MATRIX_AUDIT",
+    "G_15L_SIGNATURE_SOURCE",
+    "G_MATRIX_UNPROVEN_CLEARED",
+    "G_MATRIX_VULNERABLE_REMEDIATED",
+    "G_15L_LIVE_KV_DEPLOY_ACTIVATION",
+    "G_PRODUCTION_TENANT_BOUNDARY_PROOF",
+    "G_SECURITY_DRILLS",
+    "G_OPERATED_READINESS",
+    "G_FORTRESS_FINITE_AUDIT_WORKSTREAM",
+    "G_FORTRESS_SECURITY_PRODUCTION_READINESS",
+    "G_MESSI_MILESTONE"
+  ],
+  "gates": [
+    {
+      "id": "G_15A_MATRIX_AUDIT",
+      "verdict": "complete",
+      "evidence_class": "tip_retained_matrix_audit",
+      "title": "FORTRESS 15A tenant-identity boundary matrix audit",
+      "source_proven": [
+        "FORTRESS_15A_matrix_offline_gate",
+        "locked_matrix_counts_5_3_3_4",
+        "exact_tip_blob_hash_binding_at_28a30a68",
+        "matrix_content_identical_at_8ed81111"
+      ],
+      "staging_complete": [
+        "boundary_matrix_audit_disposition_frozen",
+        "unproven_and_vulnerable_counts_preserved"
+      ],
+      "production_only_unknowns": [],
+      "retained_gaps": [
+        "matrix_unproven_not_cleared",
+        "matrix_vulnerable_not_remediated",
+        "audit_is_not_security_readiness"
+      ],
+      "missing_proof": []
+    },
+    {
+      "id": "G_15L_SIGNATURE_SOURCE",
+      "verdict": "complete",
+      "evidence_class": "tip_retained_signature_source_fail_closed",
+      "title": "FORTRESS 15L Meta signature fail-closed source evidence",
+      "source_proven": [
+        "FORTRESS_15L_offline_gate",
+        "source_and_iac_fail_closed_at_28a30a68",
+        "exact_15L_tip_blob_hash_binding"
+      ],
+      "staging_complete": [
+        "offline_signature_fail_closed_source_proven"
+      ],
+      "production_only_unknowns": [],
+      "retained_gaps": [
+        "source_is_not_live_kv_or_deploy_activation",
+        "B01_matrix_row_remains_unproven_historically"
+      ],
+      "missing_proof": []
+    },
+    {
+      "id": "G_MATRIX_UNPROVEN_CLEARED",
+      "verdict": "absent",
+      "evidence_class": "explicit_unknown",
+      "title": "Matrix unproven controls cleared to proven_fail_closed",
+      "source_proven": [],
+      "staging_complete": [],
+      "production_only_unknowns": [
+        "matrix_unproven_cleared_to_proven_fail_closed"
+      ],
+      "retained_gaps": [
+        "three_unproven_controls_remain",
+        "B01_meta_whatsapp_signature_ingress",
+        "B14_stripe_locked_payment_identity",
+        "B15_booking_hold_payment_callbacks"
+      ],
+      "missing_proof": [
+        "matrix_unproven_cleared_to_proven_fail_closed"
+      ]
+    },
+    {
+      "id": "G_MATRIX_VULNERABLE_REMEDIATED",
+      "verdict": "absent",
+      "evidence_class": "explicit_unknown",
+      "title": "Matrix vulnerable controls remediated",
+      "source_proven": [],
+      "staging_complete": [],
+      "production_only_unknowns": [
+        "matrix_vulnerable_remediated"
+      ],
+      "retained_gaps": [
+        "four_vulnerable_controls_remain",
+        "B02_meta_normalize_live_client_slug",
+        "B06_staff_bot_auth_principal",
+        "B07_staff_bot_body_client_slug",
+        "B13_stripe_webhook_payment_lookup"
+      ],
+      "missing_proof": [
+        "matrix_vulnerable_remediated"
+      ]
+    },
+    {
+      "id": "G_15L_LIVE_KV_DEPLOY_ACTIVATION",
+      "verdict": "absent",
+      "evidence_class": "explicit_unknown",
+      "title": "15L live Key Vault secret creation + Staff API deploy activation",
+      "source_proven": [],
+      "staging_complete": [],
+      "production_only_unknowns": [
+        "15L_live_kv_secret_creation_and_staff_api_deploy_activation",
+        "B02_meta_live_client_slug_authority_activation"
+      ],
+      "retained_gaps": [
+        "source_and_iac_are_not_activation",
+        "no_live_kv_or_deploy_in_this_slice"
+      ],
+      "missing_proof": [
+        "15L_live_kv_secret_creation_and_staff_api_deploy_activation"
+      ]
+    },
+    {
+      "id": "G_PRODUCTION_TENANT_BOUNDARY_PROOF",
+      "verdict": "absent",
+      "evidence_class": "explicit_unknown",
+      "title": "Production tenant isolation / payment / network / secret proof",
+      "source_proven": [],
+      "staging_complete": [],
+      "production_only_unknowns": [
+        "production_tenant_isolation_proof",
+        "production_payment_boundary_proof",
+        "production_network_boundary_proof",
+        "production_secret_mount_proof"
+      ],
+      "retained_gaps": [
+        "offline_audit_is_not_production_tenant_boundary_proof"
+      ],
+      "missing_proof": [
+        "production_tenant_boundary_proof"
+      ]
+    },
+    {
+      "id": "G_SECURITY_DRILLS",
+      "verdict": "absent",
+      "evidence_class": "explicit_unknown",
+      "title": "Security / incident drills",
+      "source_proven": [],
+      "staging_complete": [],
+      "production_only_unknowns": [
+        "security_drills",
+        "incident_response_drill"
+      ],
+      "retained_gaps": [
+        "no_committed_security_drill_evidence"
+      ],
+      "missing_proof": [
+        "security_drills"
+      ]
+    },
+    {
+      "id": "G_OPERATED_READINESS",
+      "verdict": "absent",
+      "evidence_class": "explicit_unknown",
+      "title": "Operated readiness (runbooks / on-call operated state)",
+      "source_proven": [],
+      "staging_complete": [],
+      "production_only_unknowns": [
+        "operated_readiness",
+        "production_operated_runbooks"
+      ],
+      "retained_gaps": [
+        "operated_readiness_not_proven_by_offline_audit"
+      ],
+      "missing_proof": [
+        "operated_readiness"
+      ]
+    },
+    {
+      "id": "G_FORTRESS_FINITE_AUDIT_WORKSTREAM",
+      "verdict": "complete",
+      "evidence_class": "finite_workstream_closeout_disposition",
+      "title": "Finite FORTRESS audit workstream closeout",
+      "source_proven": [
+        "independent_1D_validateCloseout",
+        "retained_15A_and_15L_offline_gates_exit_0",
+        "exact_git_tip_provenance"
+      ],
+      "staging_complete": [
+        "finite_fortress_audit_workstream_closed"
+      ],
+      "production_only_unknowns": [
+        "matrix_unproven_cleared_to_proven_fail_closed",
+        "matrix_vulnerable_remediated",
+        "15L_live_kv_secret_creation_and_staff_api_deploy_activation",
+        "production_tenant_boundary_proof",
+        "security_drills",
+        "operated_readiness"
+      ],
+      "retained_gaps": [
+        "fortress_security_and_production_readiness_remain_open",
+        "MESSI_ledger_not_updated_by_this_slice"
+      ],
+      "missing_proof": []
+    },
+    {
+      "id": "G_FORTRESS_SECURITY_PRODUCTION_READINESS",
+      "verdict": "absent",
+      "evidence_class": "explicit_unknown",
+      "title": "FORTRESS security / production readiness (aggregate)",
+      "source_proven": [],
+      "staging_complete": [],
+      "production_only_unknowns": [
+        "matrix_unproven_cleared_to_proven_fail_closed",
+        "matrix_vulnerable_remediated",
+        "15L_live_kv_secret_creation_and_staff_api_deploy_activation",
+        "production_tenant_boundary_proof",
+        "security_drills",
+        "operated_readiness"
+      ],
+      "retained_gaps": [
+        "finite_audit_closeout_is_not_fortress_security_or_production_readiness"
+      ],
+      "missing_proof": [
+        "fortress_security_production_readiness_proven"
+      ]
+    },
+    {
+      "id": "G_MESSI_MILESTONE",
+      "verdict": "absent",
+      "evidence_class": "explicit_unknown",
+      "title": "MESSI milestone closeout",
+      "source_proven": [],
+      "staging_complete": [],
+      "production_only_unknowns": [
+        "messi_parent_gates_complete",
+        "cross_parent_integration",
+        "production_readiness_proven"
+      ],
+      "retained_gaps": [
+        "1D_does_not_update_MESSI_ledger",
+        "1D_closes_FORTRESS_finite_audit_workstream_only"
+      ],
+      "missing_proof": [
+        "messi_milestone_closeout"
+      ]
+    }
+  ],
+  "proves": [
+    "finite_FORTRESS_audit_workstream_closed",
+    "exact_git_provenance_for_15A_matrix_and_15L_signature_tip_blobs",
+    "retained_15A_and_15L_offline_gates_executed",
+    "matrix_counts_frozen_with_3_unproven_and_4_vulnerable",
+    "deterministic_complete_partial_absent_classification",
+    "activation_production_drills_operated_unknowns_remain_absent",
+    "MESSI_ledger_untouched_by_1D_disposition"
+  ],
+  "does_not_prove": [
+    "matrix_unproven_cleared",
+    "matrix_vulnerable_remediated",
+    "15L_live_kv_secret_creation_and_staff_api_deploy_activation",
+    "production_tenant_isolation_payment_network_secret_proof",
+    "security_drills",
+    "operated_readiness",
+    "FORTRESS_security_production_readiness",
+    "MESSI_complete",
+    "MESSI_ledger_G_FORTRESS_PARENT_complete",
+    "runtime_security_deploy_behavior_change"
+  ],
+  "scope_fence": {
+    "allowed": [
+      "docs",
+      "fixtures",
+      "library_lock_module",
+      "independent_verifier",
+      "package_json_script_registration",
+      "messi_1a_1b_factory_tip_allowlist_forward_compat_paths_only"
+    ],
+    "forbids": [
+      "messi_ledger_semantic_update",
+      "runtime_behavior_change",
+      "security_config_change",
+      "deploy_behavior_change",
+      "db_mutation",
+      "cloud_mutation",
+      "network_live_action",
+      "production_access",
+      "relabeling_source_as_activation",
+      "hiding_vulnerable_or_unproven_controls",
+      "self_authored_completion_booleans"
+    ]
+  },
+  "lock_hash": "97fdd3f820b655f5728029843dd2398464ee5363f85b74211b1c80db89bb6613"
+}
