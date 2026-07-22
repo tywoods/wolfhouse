@@ -23,10 +23,12 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
 const blobCerts = require('./reviewed-candidate-blob-certificates');
+const { commitTree } = require('./git-identity-commit-tree');
 
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -533,10 +535,7 @@ function makeSyntheticDescendantOfMaster(root) {
     cwd: root,
     encoding: 'utf8',
   }).trim();
-  return execSync(
-    `git commit-tree ${tree} -p ${MASTER_BASIS} -m "messi1b-synth-descendant-proof"`,
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+  return commitTree(root, tree, [MASTER_BASIS], 'messi1b-synth-descendant-proof');
 }
 
 function makeSyntheticDescendantOfLanding(root) {
@@ -547,10 +546,7 @@ function makeSyntheticDescendantOfLanding(root) {
   }).trim();
   const landing = resolveCommitSha(root, LANDING_TIP);
   const parent = landing || LANDING_TIP;
-  return execSync(
-    `git commit-tree ${tree} -p ${parent} -m "messi1b-synth-landing-descendant-proof"`,
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+  return commitTree(root, tree, [parent], 'messi1b-synth-landing-descendant-proof');
 }
 
 function makeUnrelatedOrphanCommit(root) {
@@ -558,10 +554,7 @@ function makeUnrelatedOrphanCommit(root) {
     cwd: root,
     encoding: 'utf8',
   }).trim();
-  return execSync(
-    `git commit-tree ${tree} -m "messi1b-unrelated-orphan-proof"`,
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+  return commitTree(root, tree, [], 'messi1b-unrelated-orphan-proof');
 }
 
 function resolveTipSha(root, tipSha) {
@@ -575,12 +568,16 @@ function reviewedBlobCertificateConfig() {
     slice_cert_id: 'messi-1b-reviewed',
     master_basis: MASTER_BASIS,
     reviewed_candidate: REVIEWED_CANDIDATE,
+    allow_path_range_inference: true,
     correction_candidate: CORRECTION_CANDIDATE_53C1,
     correction_cert_id: 'breakglass-53c1abcf',
     correction_basis: 'ff285598ac2cfec980e8316e772924a9c79a6a7e',
     redesign_cert_id: redesignPin.REDESIGN_CERT_ID,
     redesign_candidate_sha: redesignPin.REDESIGN_CANDIDATE_SHA,
     redesign_paths: redesignPin.REDESIGN_PATHS,
+    squash_proof_cert_id: redesignPin.SQUASH_PROOF_CERT_ID,
+    squash_proof_candidate_sha: redesignPin.SQUASH_PROOF_CANDIDATE_SHA,
+    squash_proof_paths: redesignPin.SQUASH_PROOF_PATHS,
   };
 }
 
@@ -733,13 +730,79 @@ function runRetainedFoundationGate(root, timeoutMs) {
   delete env.MESSI_1B_SKIP_FOUNDATION_GATE;
   delete env.FOUNDATION_SKIP_VERIFY;
   delete env.SUNSET_SCHEMA_SKIP_VERIFY;
-  const r = spawnSync(process.execPath, [scriptAbs], {
-    cwd: root,
+
+  const head = currentHeadSha(root);
+  const landing = resolveCommitSha(root, LANDING_TIP);
+  const runAtLanding = Boolean(
+    landing
+    && head
+    && head !== landing
+    && isGitAncestor(root, landing, head),
+  );
+
+  let cwd = root;
+  let worktreePath = null;
+  if (runAtLanding) {
+    // Later master commits (unrelated migrations/scripts) must not break the
+    // retained 14AE gate when 1B is nested on detached master. Prove the gate
+    // against the locked 1B landing tip tree while preserving tip evidence.
+    worktreePath = fs.mkdtempSync(path.join(os.tmpdir(), 'messi1b-14ae-'));
+    try {
+      execSync(`git worktree add --detach ${worktreePath} ${landing}`, {
+        cwd: root,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      cwd = worktreePath;
+    } catch (err) {
+      try {
+        fs.rmSync(worktreePath, { recursive: true, force: true });
+      } catch (_) {
+        // ignore
+      }
+      return {
+        id: 'foundation_14ae_offline',
+        script: FOUNDATION_VERIFIER_SCRIPT,
+        npm: FOUNDATION_NPM_GATE,
+        status: 1,
+        ok: false,
+        elapsed_ms: Date.now() - started,
+        stderr_tail: `landing_worktree_failed:${String(err && err.message)}`.slice(-500),
+      };
+    }
+  }
+
+  const r = spawnSync(process.execPath, [path.join('scripts', 'verify-sunset-schema-slice14ae.js')], {
+    cwd,
     encoding: 'utf8',
     timeout: timeoutMs || 900000,
-    env: { ...env, MESSI_NESTED_GATE: '1' },
+    env: {
+      ...env,
+      MESSI_NESTED_GATE: '1',
+      // Worktrees lack node_modules; resolve deps from the invoking repo root.
+      NODE_PATH: [path.join(root, 'node_modules'), env.NODE_PATH || '']
+        .filter(Boolean)
+        .join(path.delimiter),
+    },
     maxBuffer: 16 * 1024 * 1024,
   });
+
+  if (worktreePath) {
+    try {
+      execSync(`git worktree remove --force ${worktreePath}`, {
+        cwd: root,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (_) {
+      try {
+        fs.rmSync(worktreePath, { recursive: true, force: true });
+      } catch (__) {
+        // ignore
+      }
+    }
+  }
+
   return {
     id: 'foundation_14ae_offline',
     script: FOUNDATION_VERIFIER_SCRIPT,

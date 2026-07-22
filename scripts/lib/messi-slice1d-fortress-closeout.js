@@ -29,6 +29,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
 const blobCerts = require('./reviewed-candidate-blob-certificates');
+const { commitTree } = require('./git-identity-commit-tree');
 
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -658,10 +659,7 @@ function makeSyntheticDescendantOfMaster(root) {
     cwd: root,
     encoding: 'utf8',
   }).trim();
-  return execSync(
-    `git commit-tree ${tree} -p ${MASTER_BASIS} -m "messi1d-synth-descendant-proof"`,
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+  return commitTree(root, tree, [MASTER_BASIS], 'messi1d-synth-descendant-proof');
 }
 
 function makeSyntheticDescendantOfLanding(root) {
@@ -672,10 +670,7 @@ function makeSyntheticDescendantOfLanding(root) {
   }).trim();
   const landing = resolveCommitSha(root, LANDING_TIP);
   const parent = landing || LANDING_TIP;
-  return execSync(
-    `git commit-tree ${tree} -p ${parent} -m "messi1d-synth-landing-descendant-proof"`,
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+  return commitTree(root, tree, [parent], 'messi1d-synth-landing-descendant-proof');
 }
 
 function makeUnrelatedOrphanCommit(root) {
@@ -683,10 +678,7 @@ function makeUnrelatedOrphanCommit(root) {
     cwd: root,
     encoding: 'utf8',
   }).trim();
-  return execSync(
-    `git commit-tree ${tree} -m "messi1d-unrelated-orphan-proof"`,
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+  return commitTree(root, tree, [], 'messi1d-unrelated-orphan-proof');
 }
 
 function resolveTipSha(root, tipSha) {
@@ -700,12 +692,16 @@ function reviewedBlobCertificateConfig() {
     slice_cert_id: 'messi-1d-reviewed',
     master_basis: MASTER_BASIS,
     reviewed_candidate: REVIEWED_CANDIDATE,
+    allow_path_range_inference: true,
     correction_candidate: CORRECTION_CANDIDATE_53C1,
     correction_cert_id: 'breakglass-53c1abcf',
     correction_basis: 'ff285598ac2cfec980e8316e772924a9c79a6a7e',
     redesign_cert_id: redesignPin.REDESIGN_CERT_ID,
     redesign_candidate_sha: redesignPin.REDESIGN_CANDIDATE_SHA,
     redesign_paths: redesignPin.REDESIGN_PATHS,
+    squash_proof_cert_id: redesignPin.SQUASH_PROOF_CERT_ID,
+    squash_proof_candidate_sha: redesignPin.SQUASH_PROOF_CANDIDATE_SHA,
+    squash_proof_paths: redesignPin.SQUASH_PROOF_PATHS,
   };
 }
 

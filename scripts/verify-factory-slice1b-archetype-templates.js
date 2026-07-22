@@ -718,12 +718,16 @@ console.log('\n── Tip scope ──');
       slice_cert_id: 'factory-1b-reviewed',
       master_basis: locks.MASTER_BASIS,
       reviewed_candidate: '6910c4179677b1a33cb9e0863e90e6d5dab58935',
+      allow_path_range_inference: true,
       correction_candidate: '53c1abcfb67edb491c5100de571260c60813aec4',
       correction_cert_id: 'breakglass-53c1abcf',
       correction_basis: 'ff285598ac2cfec980e8316e772924a9c79a6a7e',
       redesign_cert_id: blobCerts.redesignPin.REDESIGN_CERT_ID,
       redesign_candidate_sha: blobCerts.redesignPin.REDESIGN_CANDIDATE_SHA,
       redesign_paths: blobCerts.redesignPin.REDESIGN_PATHS,
+      squash_proof_cert_id: blobCerts.redesignPin.SQUASH_PROOF_CERT_ID,
+      squash_proof_candidate_sha: blobCerts.redesignPin.SQUASH_PROOF_CANDIDATE_SHA,
+      squash_proof_paths: blobCerts.redesignPin.SQUASH_PROOF_PATHS,
     };
   }
 

@@ -79,8 +79,11 @@ function overclaimHits(text) {
 
 function runtimePathsUnchanged() {
   try {
+    // Compare slice master basis vs locked landing tip only. Later unrelated
+    // master commits (and later MESSI ledger supersession) must not fail this
+    // green when the gate is re-run nested on detached master.
     const out = execSync(
-      `git diff --name-only ${locks.MASTER_BASIS} -- ${locks.MUST_NOT_MUTATE.join(' ')}`,
+      `git diff --name-only ${locks.MASTER_BASIS} ${locks.LANDING_TIP} -- ${locks.MUST_NOT_MUTATE.join(' ')}`,
       { cwd: ROOT, encoding: 'utf8' },
     ).trim();
     return { ok: out === '', detail: out || '(clean)' };

@@ -100,8 +100,10 @@ function overclaimHits(text) {
 
 function runtimePathsUnchanged() {
   try {
+    // Compare 16AP master basis vs merge tip only. Later unrelated master
+    // commits must not fail this green when re-run nested on detached master.
     const out = execSync(
-      `git diff --name-only ${locks.MASTER_BASIS} -- ${locks.MUST_NOT_MUTATE.join(' ')}`,
+      `git diff --name-only ${locks.MASTER_BASIS} ${MERGE_SHA} -- ${locks.MUST_NOT_MUTATE.join(' ')}`,
       { cwd: ROOT, encoding: 'utf8' },
     ).trim();
     return { ok: out === '', detail: out || '(clean)' };
