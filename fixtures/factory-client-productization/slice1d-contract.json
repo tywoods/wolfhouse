@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "slice": "FACTORY-1D",
+  "outcome_id": "1D_integration_isolation_legacy_compat_proof",
+  "branch": "factory/slice-1d-integration-proof",
+  "master_basis": "210b3643793ad5569dc466977b8fe4421c22ef92",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "title": "FACTORY Slice 1D — integration isolation + legacy-compatibility proofs",
+  "status": "integration_proof_delivered",
+  "apply_path": false,
+  "disk_materialization_supported": false,
+  "generator_behavior_changed": false,
+  "template_behavior_changed": false,
+  "archetypes": ["surf_house", "surf_school_shop"],
+  "library": "scripts/lib/factory-slice1d-integration-proof.js",
+  "verifier": "scripts/verify-factory-slice1d-integration-proof.js",
+  "reviewed_generator": "scripts/lib/factory-slice1c-dry-run-generator.js",
+  "reviewed_cli": "scripts/onboard-client.js",
+  "completion_evidence": "1D_integration_isolation_legacy_compat_proof",
+  "completion_requires": "verify:factory-slice1d-integration-proof",
+  "evidence_classes": {
+    "required_current_stage": [
+      "independent_fresh_process_portability_matrix",
+      "byte_identical_canonical_envelopes_and_golden_hashes",
+      "verifier_owned_temp_consumer_validation",
+      "cross_tenant_location_substitution_isolation",
+      "no_wolfhouse_sunset_live_identity_or_secrets",
+      "disabled_enablement_preserved",
+      "reference_blobs_unchanged",
+      "no_process_env_module_cache_leakage",
+      "legacy_luna_multiclient_gates_plus_retained_red_classification"
+    ],
+    "out_of_scope_current_stage": [
+      "product_runtime_template_generator_behavior_changes",
+      "apply_path",
+      "safe_disk_materialization",
+      "registry_edits",
+      "config_clients_writes",
+      "runtime_registration",
+      "client_creation",
+      "iac_mutation",
+      "db_mutation",
+      "deploy",
+      "secret_materialization",
+      "live_network_calls",
+      "third_tenant_live_or_prod_onboarding"
+    ]
+  },
+  "portability_matrix": {
+    "fresh_processes": true,
+    "cwd_perturbations": true,
+    "tz_perturbations": true,
+    "locale_perturbations": true,
+    "irrelevant_env_perturbations": true,
+    "byte_identical_stdout_envelopes": true,
+    "golden_hash_lock": "fixtures/factory-client-productization/slice1c-golden-lock.json"
+  },
+  "consumer_validation": {
+    "verifier_owned_temp_fixtures_only": true,
+    "never_generator_disk_writes": true,
+    "never_runtime_registration": true,
+    "surfaces": [
+      "baseline",
+      "pricing",
+      "catalog",
+      "schedule",
+      "profile",
+      "features"
+    ],
+    "pure_consumers": [
+      "scripts/lib/wolfhouse-quote-calculator.js",
+      "scripts/lib/guest-addon-pricing.js",
+      "scripts/lib/tenant-business-config.js",
+      "scripts/lib/staff-portal-clients.js"
+    ]
+  },
+  "gates_npm": [
+    "npm run verify:factory-slice1d-integration-proof",
+    "npm run verify:factory-slice1c-dry-run-generator",
+    "npm run verify:factory-slice1b-archetype-templates",
+    "npm run verify:factory-slice1a-acceptance-contract",
+    "npm run verify:luna-all",
+    "npm run verify:multiclient",
+    "git diff --check"
+  ],
+  "findings": "fixtures/factory-client-productization/slice1d-findings.md",
+  "doc": "docs/FACTORY-CLIENT-PRODUCTIZATION.md",
+  "existing_regression_retained_master_red": [
+    {
+      "gate": "node scripts/verify-staff-tenant-scope.js",
+      "retained_failure": "H3 stripe webhook addon idempotent COUNT filters by client_slug"
+    },
+    {
+      "gate": "node scripts/verify-tenant-business-config.js",
+      "retained_failure": "DB prices used (async DB overlay merges baseline prices; length>1)"
+    }
+  ]
+}

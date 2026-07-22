@@ -51,8 +51,10 @@
     {
       "id": "1D",
       "title": "Tenant/location isolation and legacy-compatibility wiring proofs",
-      "status": "deferred_future_stage",
-      "depends_on": "1C"
+      "status": "complete",
+      "depends_on": "1C",
+      "completion_evidence": "1D_integration_isolation_legacy_compat_proof",
+      "completion_requires": "verify:factory-slice1d-integration-proof"
     },
     {
       "id": "1E",
@@ -127,14 +129,14 @@
       "title": "Tenant and location isolation",
       "requirement": "New clients get unique client_slug; locations get globally unique location_id owned by exactly one client; no cross-tenant secret/DB/runtime sharing in live model (per docs/MULTICLIENT-ARCHITECTURE.md).",
       "proof_stage": "1D+",
-      "current_stage_evidence": "existing_multiclient_verifiers_retained"
+      "current_stage_evidence": "1D_integration_isolation_legacy_compat_proof"
     },
     {
       "id": "G_LEGACY_COMPATIBILITY",
       "title": "Legacy compatibility",
       "requirement": "Wolfhouse lodging_surf_house and Sunset surf_school_rentals continue to load via existing baseline/portal/resolver paths without requiring FACTORY migration in 1A–1E.",
       "proof_stage": "1D+",
-      "current_stage_evidence": "inventory_maps_legacy_verticals"
+      "current_stage_evidence": "1D_integration_isolation_legacy_compat_proof"
     },
     {
       "id": "G_DRY_RUN_PROOF",

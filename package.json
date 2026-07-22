@@ -698,7 +698,8 @@
     "verify:radar-slice16an-g06-wolfhouse-ingress-binding": "node scripts/verify-radar-slice16an-g06-wolfhouse-ingress-binding.js",
     "verify:radar-slice16ao-g06-backpressure-activation-evidence": "node scripts/verify-radar-slice16ao-g06-backpressure-activation-evidence.js",
     "verify:radar-slice16ap-finite-closeout": "node scripts/verify-radar-slice16ap-finite-closeout.js",
-    "verify:factory-slice1c-dry-run-generator": "node scripts/verify-factory-slice1c-dry-run-generator.js"
+    "verify:factory-slice1c-dry-run-generator": "node scripts/verify-factory-slice1c-dry-run-generator.js",
+    "verify:factory-slice1d-integration-proof": "node scripts/verify-factory-slice1d-integration-proof.js"
   },
   "dependencies": {
     "acorn": "8.14.1",
