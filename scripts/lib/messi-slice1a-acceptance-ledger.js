@@ -4,18 +4,21 @@
  * messi-slice1a-acceptance-ledger — MESSI sole production classifier and
  * parent-binding locks (docs/fixtures/verifier only).
  *
- * Slice 1C wires the reviewed FOUNDATION 1B finite closeout into this
- * canonical ledger: bind 1B merge/candidate provenance + blobs, execute
- * verify:messi-slice1b-foundation-closeout, expose finite staging-workstream
- * completion on G_FOUNDATION_PARENT only, and keep that parent partial while
- * Docker fresh-db, production schema, live restore/drill, and operated-
- * readiness remain missing. Ledger semantic changes are FOUNDATION-confined:
- * the five unrelated gate objects stay byte-identical to master basis
- * 98202775 (including G_MESSI_MILESTONE_CLOSEOUT.workstream_class). Frozen
- * score 0/4/2 and false production/MESSI completion are preserved.
+ * Slice 1E wires the reviewed FORTRESS 1D finite audit closeout into this
+ * canonical ledger: bind exact 1D candidate fa2c5d71 + merge tip ff285598
+ * evidence through Git-anchored reviewed-candidate blob certificates, execute
+ * verify:messi-slice1d-fortress-closeout, expose finite audit/source
+ * workstream completion on G_FORTRESS_PARENT only, and keep that parent
+ * partial while matrix 3 unproven / 4 vulnerable, live KV/deploy activation,
+ * production tenant/security proof, drills, and operated readiness remain
+ * missing. Ledger semantic changes are FORTRESS-confined: the five unrelated
+ * gate objects stay byte-identical to master basis 28ba003a (including
+ * G_FOUNDATION_PARENT.finite_staging_workstream_complete and
+ * G_MESSI_MILESTONE_CLOSEOUT.workstream_class). Frozen score 0/4/2, RADAR
+ * formal 0/9/0, and false production/MESSI completion are preserved.
  *
  * Post-merge tip scope: immutable reviewed-candidate blob certificates at HEAD.
- * Never infer 1A/1C scope from MASTER_BASIS..HEAD path allowlists (concurrent
+ * Never infer 1A/1E scope from MASTER_BASIS..HEAD path allowlists (concurrent
  * unrelated master commits after the squash — e.g. #147 — are irrelevant).
  *
  * Parent milestones are never marked complete from labels, summaries, or
@@ -69,31 +72,37 @@ function sha256Text(text) {
   return crypto.createHash('sha256').update(String(text), 'utf8').digest('hex');
 }
 
-const SLICE = 'MESSI-1C';
-const BRANCH = 'messi/slice-1c-foundation-wiring';
-const OUTCOME_ID = '1C_foundation_finite_closeout_ledger_wiring';
-/** MESSI 1B merge tip on master — this slice starts from that SHA. */
-const MASTER_BASIS = '98202775a57e64597e0e606a6e58933bb8ba7250';
+const SLICE = 'MESSI-1E';
+const BRANCH = 'messi/slice-1e-fortress-wiring';
+const OUTCOME_ID = '1E_fortress_finite_closeout_ledger_wiring';
+/** Master tip this slice starts from (#151 blob-certificate anchor). */
+const MASTER_BASIS = '28ba003acc57bd732df17d799a95a4d99f69f2f9';
 /**
- * Exact reviewed 1C candidate (pre-squash tip of messi/slice-1c-foundation-wiring).
- * Tip scope binds to MASTER_BASIS..REVIEWED_CANDIDATE — never base-to-HEAD
- * (concurrent #147 landed after squash merge #146).
+ * Exact reviewed 1E candidate (pre-squash tip of messi/slice-1e-fortress-wiring).
+ * Tip scope binds via immutable reviewed-candidate blob certificates — never
+ * MASTER_BASIS..HEAD path allowlists. Placeholder equals MASTER_BASIS until
+ * content commit; content+anchor bootstrap sets the real candidate SHA.
  */
-const REVIEWED_CANDIDATE = '3cbf4ca1d933585758b87346a7de16bf957e13d8';
-/** Squash-merge tip on master for 1C wiring (PR #146). Historical — not a tip-scope gate. */
-const LANDING_TIP = '949be24936c3056b19904904f98feccab5caf883';
+const REVIEWED_CANDIDATE = '6e12a3a506f45a69314f1da3a2eb1164c5488b38';
+/** Pre-merge reviewed tip (updated with REVIEWED_CANDIDATE on content bootstrap). */
+const LANDING_TIP = '6e12a3a506f45a69314f1da3a2eb1164c5488b38';
 /** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
 const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
 /** Git-anchored whole-path redesign pin (never frozen_only / fixture trust root). */
 const redesignPin = require('./breakglass-redesign-candidate-sha');
-const PROGRESS_CLASS = 'foundation_finite_closeout_ledger_wiring_only';
-/** Preserved from base 98202775 — not overwritten by 1C progress_class. */
+const PROGRESS_CLASS = 'fortress_finite_closeout_ledger_wiring_only';
+/** Preserved from base 28ba003a / 98202775 — not overwritten by 1E progress_class. */
 const MESSI_CLOSEOUT_WORKSTREAM_CLASS = 'acceptance_ledger_inventory_and_verifier_only';
 
-/** Reviewed FOUNDATION 1B squash candidate (same tree as MASTER_BASIS merge). */
-const FOUNDATION_1B_MERGE_TIP = MASTER_BASIS;
+/** Reviewed FOUNDATION 1B squash candidate (same tree as 1B merge tip). */
+const FOUNDATION_1B_MERGE_TIP = '98202775a57e64597e0e606a6e58933bb8ba7250';
 const FOUNDATION_1B_CANDIDATE_SHA = '4a550b44bb7669a860557f0ec211260d7b76250c';
 const FOUNDATION_1B_MASTER_BASIS = '6106c27c54e25a8e4ba5ba00178d20be0c3e55f5';
+
+/** Reviewed FORTRESS 1D candidate + squash-merge tip on master (PR #148). */
+const FORTRESS_1D_MERGE_TIP = 'ff285598ac2cfec980e8316e772924a9c79a6a7e';
+const FORTRESS_1D_CANDIDATE_SHA = 'fa2c5d71ad6c662b4c4f60b08ede409064acf2fe';
+const FORTRESS_1D_MASTER_BASIS = '949be24936c3056b19904904f98feccab5caf883';
 
 const GATE_IDS = Object.freeze([
   'G_FOUNDATION_PARENT',
@@ -104,9 +113,9 @@ const GATE_IDS = Object.freeze([
   'G_MESSI_MILESTONE_CLOSEOUT',
 ]);
 
-/** Non-FOUNDATION gates — must remain byte-identical to base 98202775 ledger. */
+/** Non-FORTRESS gates — must remain byte-identical to master basis 28ba003a ledger. */
 const UNRELATED_GATE_IDS = Object.freeze([
-  'G_FORTRESS_PARENT',
+  'G_FOUNDATION_PARENT',
   'G_RADAR_PARENT',
   'G_FACTORY_PARENT',
   'G_CROSS_PARENT_INTEGRATION',
@@ -115,23 +124,22 @@ const UNRELATED_GATE_IDS = Object.freeze([
 
 /**
  * Exact unrelated gate objects from fixtures/messi-acceptance/slice1a-ledger.json
- * at master basis 98202775 (pre-1C). Semantic ledger confinement proof target.
+ * at master basis 28ba003a (pre-1E). Semantic ledger confinement proof target.
  */
 const BASE_UNRELATED_GATE_OBJECTS = Object.freeze([
   Object.freeze({
-    id: 'G_FORTRESS_PARENT',
+    id: 'G_FOUNDATION_PARENT',
     verdict: 'partial',
-    parent: 'FORTRESS',
-    workstream_class: 'tip_retained_security_remediation_plus_audit_matrix',
+    parent: 'FOUNDATION',
+    workstream_class: 'finite_staging_schema_migration_recovery_closeout',
     production_readiness: 'absent',
-    finite_closeout_analog: null,
+    finite_closeout_analog: 'verify:messi-slice1b-foundation-closeout',
+    finite_staging_workstream_complete: true,
     missing_proof: Object.freeze([
-      'finite_milestone_closeout_disposition',
-      'matrix_unproven_cleared_to_proven_fail_closed',
-      'matrix_vulnerable_remediated',
-      '15L_live_kv_secret_creation_and_staff_api_deploy_activation',
-      'B02_meta_live_client_slug_authority_activation',
-      'production_tenant_boundary_proof',
+      'docker_fresh_db_replacement_proof',
+      'production_schema_readiness',
+      'live_restore_drill',
+      'operated_readiness',
     ]),
   }),
   Object.freeze({
@@ -221,6 +229,9 @@ const PACKAGE_JSON_ALLOWED_SCRIPT_VALUE =
   'node scripts/verify-messi-slice1a-acceptance-ledger.js';
 const PACKAGE_JSON_1C_SCRIPT_KEY = 'verify:messi-slice1c-foundation-wiring';
 const PACKAGE_JSON_1C_SCRIPT_VALUE =
+  'node scripts/verify-messi-slice1a-acceptance-ledger.js';
+const PACKAGE_JSON_1E_SCRIPT_KEY = 'verify:messi-slice1e-fortress-wiring';
+const PACKAGE_JSON_1E_SCRIPT_VALUE =
   'node scripts/verify-messi-slice1a-acceptance-ledger.js';
 
 const SCOPE_FENCE = Object.freeze({
@@ -314,62 +325,52 @@ const PARENTS = Object.freeze({
   FORTRESS: Object.freeze({
     id: 'FORTRESS',
     title: 'Tenant identity / confused-deputy boundary workstream',
-    tip_slice: 'FORTRESS-15L',
+    tip_slice: 'MESSI-1D',
     audit_slice: 'FORTRESS-15A',
-    outcome_id: '15L_meta_signature_fail_closed',
-    master_basis: 'f703f3e07d3cd9214c661f169c23c7d5d5370709',
-    canonical_tip: '28a30a688baa637e1bcb549d9b585cb5917942d1',
-    candidate_sha: '28a30a688baa637e1bcb549d9b585cb5917942d1',
-    tip_sha_on_master: '28a30a688baa637e1bcb549d9b585cb5917942d1',
-    audit_master_basis: '32b44930685450cb27ac519d052332be7b18150d',
-    workstream_class: 'tip_retained_security_remediation_plus_audit_matrix',
-    finite_closeout_analog: null,
+    outcome_id: '1D_fortress_finite_audit_workstream_closeout',
+    master_basis: FORTRESS_1D_MASTER_BASIS,
+    // Squash-merge on master (1D PR #148). Candidate is the reviewed branch tip;
+    // concurrent #147 means whole trees differ — provenance_bound_files blobs match.
+    canonical_tip: FORTRESS_1D_MERGE_TIP,
+    candidate_sha: FORTRESS_1D_CANDIDATE_SHA,
+    tip_sha_on_master: FORTRESS_1D_MERGE_TIP,
+    workstream_class: 'finite_fortress_audit_workstream_closeout',
+    finite_closeout_analog: 'verify:messi-slice1d-fortress-closeout',
     production_readiness: 'absent',
     docs: Object.freeze([
-      'docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md',
+      'docs/FORTRESS-FINITE-CLOSEOUT.md',
     ]),
     evidence: Object.freeze([
-      'fixtures/fortress-tenant-identity/boundary-matrix.json',
-      'fixtures/fortress-tenant-identity/attack-cases.json',
-      'fixtures/fortress-tenant-identity/slice15l-contract.json',
-      'fixtures/fortress-tenant-identity/slice15l-evidence.json',
-      'fixtures/fortress-tenant-identity/slice15l-findings.md',
+      'fixtures/fortress-closeout/finite-closeout.json',
+      'fixtures/fortress-closeout/contract.json',
+      'fixtures/fortress-closeout/findings.md',
     ]),
     provenance_bound_files: Object.freeze([
-      'docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md',
-      'fixtures/fortress-tenant-identity/boundary-matrix.json',
-      'fixtures/fortress-tenant-identity/attack-cases.json',
-      'fixtures/fortress-tenant-identity/slice15l-contract.json',
-      'fixtures/fortress-tenant-identity/slice15l-evidence.json',
-      'fixtures/fortress-tenant-identity/slice15l-findings.md',
-      'scripts/lib/fortress-tenant-identity-boundary.js',
-      'scripts/verify-fortress-tenant-identity-boundary-matrix.js',
-      'scripts/verify-fortress-slice15l-meta-signature-fail-closed.js',
+      'docs/FORTRESS-FINITE-CLOSEOUT.md',
+      'fixtures/fortress-closeout/finite-closeout.json',
+      'fixtures/fortress-closeout/contract.json',
+      'fixtures/fortress-closeout/findings.md',
     ]),
-    verifier_script: 'scripts/verify-fortress-slice15l-meta-signature-fail-closed.js',
-    audit_verifier_script: 'scripts/verify-fortress-tenant-identity-boundary-matrix.js',
-    npm_script: 'verify:fortress-slice15l-meta-signature-fail-closed',
+    lock_module: 'scripts/lib/messi-slice1d-fortress-closeout.js',
+    verifier_script: 'scripts/verify-messi-slice1d-fortress-closeout.js',
+    npm_script: 'verify:messi-slice1d-fortress-closeout',
     retained_gates: Object.freeze([
       Object.freeze({
-        id: 'fortress_15a_matrix',
+        id: 'fortress_1d_finite_closeout',
         kind: 'node',
-        script: 'scripts/verify-fortress-tenant-identity-boundary-matrix.js',
-        npm: 'verify:fortress-tenant-identity-boundary-matrix',
-      }),
-      Object.freeze({
-        id: 'fortress_15l_signature',
-        kind: 'node',
-        script: 'scripts/verify-fortress-slice15l-meta-signature-fail-closed.js',
-        npm: 'verify:fortress-slice15l-meta-signature-fail-closed',
+        script: 'scripts/verify-messi-slice1d-fortress-closeout.js',
+        npm: 'verify:messi-slice1d-fortress-closeout',
       }),
     ]),
+    // Finite audit closeout is wired; parent stays incomplete without these.
     missing_proof_for_complete: Object.freeze([
-      'finite_milestone_closeout_disposition',
       'matrix_unproven_cleared_to_proven_fail_closed',
       'matrix_vulnerable_remediated',
       '15L_live_kv_secret_creation_and_staff_api_deploy_activation',
       'B02_meta_live_client_slug_authority_activation',
       'production_tenant_boundary_proof',
+      'security_drills',
+      'operated_readiness',
     ]),
     locked_matrix_counts: FORTRESS_MATRIX_VERDICT_COUNTS,
   }),
@@ -487,7 +488,7 @@ const MESSI_GATES = Object.freeze([
     parent: 'FORTRESS',
     title: 'FORTRESS parent evidence binding + retained gates',
     requirement:
-      'Inventory FORTRESS 15A matrix + 15L tip evidence/verifiers, bind hashes, run both retained offline gates, preserve matrix unproven/vulnerable counts, classify with explicit missing proof.',
+      'Inventory FORTRESS 1D finite audit closeout, bind exact 1D candidate fa2c5d71 + merge tip ff285598 evidence blobs, run verify:messi-slice1d-fortress-closeout, expose finite audit/source workstream completion, and keep parent partial while matrix 3 unproven / 4 vulnerable, live KV/deploy, production tenant/security proof, drills, and operated readiness remain missing. Do not mark complete from labels or treat finite audit as security readiness.',
   }),
   Object.freeze({
     id: 'G_RADAR_PARENT',
@@ -530,27 +531,21 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/foundation-closeout/findings.md':
     '8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439',
   'scripts/lib/messi-slice1b-foundation-closeout.js':
-    'd67d1978fd63d3ca3bb2706d6b344dd91e619d76cf150c6ab1378a735b1ea23a',
+    '2ccbf15695d6549a600ce6b9a5a8ee9c4799d74cfc7df91410a9b79c42c75f97',
   'scripts/verify-messi-slice1b-foundation-closeout.js':
-    '253d2b9a35e307bb73fd339a5badb586473988282854ff4452fd90542c508091',
-  'docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md':
-    'ec8fe4e611d086651842f287610a13495ef34df174e801e0bdc8e35d45bfccf9',
-  'fixtures/fortress-tenant-identity/boundary-matrix.json':
-    '7503c290cca697af916edd9d570eb4973a88f0c3dc349042a2392fc220aede1d',
-  'fixtures/fortress-tenant-identity/attack-cases.json':
-    '6f73fb951e49d45ed264a1383dc6e65224937da29d91ea6dafd0cd50430fc5bc',
-  'fixtures/fortress-tenant-identity/slice15l-contract.json':
-    '0f12fa1a35d0a9e087fece87b6211760f33d7c8f3ea5ffd31581ba314045005d',
-  'fixtures/fortress-tenant-identity/slice15l-evidence.json':
-    'd52c801dde68cc74ff59685543a7ba1927118d1a140b7971f2422db021a88cd3',
-  'fixtures/fortress-tenant-identity/slice15l-findings.md':
-    'c6f63bb9b9d407d0095c3c44e5aa9f1c21b6271156d80c078be946ce0dbafbfd',
-  'scripts/lib/fortress-tenant-identity-boundary.js':
-    '42bf5c258f93a6acc31011e15ef160157d51942f3cd5a5a7a89b022206c28e9d',
-  'scripts/verify-fortress-tenant-identity-boundary-matrix.js':
-    'ed60a75f5693e8f2d205f1ddcd286d3ad120252b2eb47037a6e480d4c803f274',
-  'scripts/verify-fortress-slice15l-meta-signature-fail-closed.js':
-    '5c6296df732e1ad7f34c4190dccb59fb4947f9be9cb307175813535cacc75c4e',
+    'e66fda5c1f756c00674063f07f7aec9207efc39b20dda425d305c20a0a03f01b',
+  'docs/FORTRESS-FINITE-CLOSEOUT.md':
+    'e5eea1639d80a11bd6c16782db88c8da388bbd5dd8b655ef5b7014b3ee59a0ab',
+  'fixtures/fortress-closeout/finite-closeout.json':
+    '8e65993bac48effd75ab016f50c7f15500b47faa9517972dd599670181f5bad5',
+  'fixtures/fortress-closeout/contract.json':
+    '8801c4a5a198231ccd5c29b1e28b3bd0194a8a06fcd9ac7ee18cef5f652800e7',
+  'fixtures/fortress-closeout/findings.md':
+    '5b57d89556f490697d72ae75348e468692a4c1df6a01434f3bb3c881ecb8da1b',
+  'scripts/lib/messi-slice1d-fortress-closeout.js':
+    '842ed65c402d285468cab716dc25f3ffda50e216b1f66eb58275760ad292a59e',
+  'scripts/verify-messi-slice1d-fortress-closeout.js':
+    'e97e9b4040254615e81ee6841fbc53a07ab9f5da78d2e7232bc4c5b7bf0435a3',
   'docs/RADAR-OPERATIONS-GATE-LEDGER.md':
     'c3aac5ad4a083868a3350a5ca099447faed0f016f3ee92570997e2533747e5d9',
   'fixtures/radar-operations/slice16ap-finite-closeout.json':
@@ -582,7 +577,7 @@ const BOUND_FILE_HASHES = Object.freeze({
   'scripts/lib/factory-slice1e-finite-closeout.js':
     '6016f1b42190aca2d4466162aaf747a05b2ccf33b30f67bef6af9052741ba3f7',
   'scripts/verify-factory-slice1e-finite-closeout.js':
-    '045c07f246e32ee767d1743bce7912c513d61817a87efbb7239db3a6d4002098',
+    '9ff8d5085849fe95ea821a71e1e196496335c7cd2f6edcba9c13fd56e19ac1bd',
 });
 
 const ARTIFACT_RELS = Object.freeze({
@@ -673,13 +668,29 @@ function sameGitTree(root, shaA, shaB) {
 }
 
 /**
- * Candidate must be ancestor of tip, identical to tip, or same-tree (squash).
+ * Candidate must be ancestor of tip, identical to tip, same-tree (clean squash),
+ * or path-filtered blob-identical on provenance_bound_files (concurrent-merge
+ * squash where unrelated paths diverge — e.g. #147 between 1D candidate and tip).
  */
-function candidateFitsTip(root, candidateSha, tipSha) {
+function sameBoundBlobsAtCommits(root, shaA, shaB, paths) {
+  if (!Array.isArray(paths) || paths.length === 0) return false;
+  for (const rel of paths) {
+    const a = gitBlobSha256AtCommit(root, shaA, rel);
+    const b = gitBlobSha256AtCommit(root, shaB, rel);
+    if (!a.ok || !b.ok || a.sha256 !== b.sha256) return false;
+  }
+  return true;
+}
+
+function candidateFitsTip(root, candidateSha, tipSha, boundPaths) {
   if (!candidateSha || !tipSha) return false;
   if (candidateSha === tipSha) return true;
   if (isGitAncestor(root, candidateSha, tipSha)) return true;
-  return sameGitTree(root, candidateSha, tipSha);
+  if (sameGitTree(root, candidateSha, tipSha)) return true;
+  if (Array.isArray(boundPaths) && boundPaths.length > 0) {
+    return sameBoundBlobsAtCommits(root, candidateSha, tipSha, boundPaths);
+  }
+  return false;
 }
 
 function assertShaAncestor(root, sha, descendant) {
@@ -692,12 +703,12 @@ function assertShaAncestor(root, sha, descendant) {
   return { ok: true, sha: resolved };
 }
 
-function assertCandidateFitsTip(root, candidate, tip) {
+function assertCandidateFitsTip(root, candidate, tip, boundPaths) {
   const cand = resolveCommitSha(root, candidate);
   const tipSha = resolveCommitSha(root, tip);
   if (!cand) return { ok: false, detail: `missing_ref:candidate:${candidate}` };
   if (!tipSha) return { ok: false, detail: `missing_ref:tip:${tip}` };
-  if (!candidateFitsTip(root, cand, tipSha)) {
+  if (!candidateFitsTip(root, cand, tipSha, boundPaths)) {
     return { ok: false, detail: `candidate_not_fit_tip:${cand}:${tipSha}` };
   }
   return { ok: true, candidate: cand, tip: tipSha };
@@ -740,7 +751,7 @@ function resolveTipSha(root, tipSha) {
 
 function reviewedBlobCertificateConfig() {
   return {
-    slice_cert_id: 'messi-1a-reviewed',
+    slice_cert_id: 'messi-1e-reviewed',
     master_basis: MASTER_BASIS,
     reviewed_candidate: REVIEWED_CANDIDATE,
     correction_candidate: CORRECTION_CANDIDATE_53C1,
@@ -901,14 +912,24 @@ function verifyParentShaProvenance(root, opts) {
       parentErrors.push(`canonical_tip_not_ancestor_of_messi_tip:${tipSha}`);
     }
 
-    if (tipSha && candidateSha && !candidateFitsTip(root, candidateSha, tipSha)) {
+    if (tipSha && candidateSha && !candidateFitsTip(
+      root,
+      candidateSha,
+      tipSha,
+      locked.provenance_bound_files,
+    )) {
       parentErrors.push(`mismatched_candidate_tip_pair:${candidateSha}:${tipSha}`);
     }
     // Also enforce locked pair relationship independently of forged claims.
     if (
       lockedTipSha
       && lockedCandidateSha
-      && !candidateFitsTip(root, lockedCandidateSha, lockedTipSha)
+      && !candidateFitsTip(
+        root,
+        lockedCandidateSha,
+        lockedTipSha,
+        locked.provenance_bound_files,
+      )
     ) {
       parentErrors.push(
         `locked_mismatched_candidate_tip_pair:${lockedCandidateSha}:${lockedTipSha}`,
@@ -1008,8 +1029,9 @@ function runAllRetainedGates(root) {
   for (const parentId of Object.keys(PARENTS)) {
     const parent = PARENTS[parentId];
     results[parentId] = parent.retained_gates.map((g) => {
-      // FOUNDATION 1B nests 14AE; FACTORY nests 1A–1D — allow long offline runs.
-      const timeout = (parentId === 'FACTORY' || parentId === 'FOUNDATION')
+      // FOUNDATION 1B nests 14AE; FORTRESS 1D nests 15A+15L; FACTORY nests 1A–1D.
+      const timeout = (parentId === 'FACTORY' || parentId === 'FOUNDATION'
+        || parentId === 'FORTRESS')
         ? 1200000
         : 180000;
       return runRetainedGate(root, g, timeout);
@@ -1075,11 +1097,12 @@ function classifyMessiGates(opts) {
       if (!gatesPass) missing.unshift('retained_gate_exit_nonzero_or_missing');
       if (!hashBindingOk) missing.unshift('exact_file_hash_binding_failed');
     } else {
-      // Retained gates pass + hashes bind, but production unknowns / missing
-      // finite-closeout (FORTRESS) or formal partials (RADAR) or offline-only
-      // closeout (FACTORY) or FOUNDATION production/Docker/restore/operated
-      // unknowns keep MESSI parent gates partial. Finite staging closeout for
-      // FOUNDATION is exposed separately — never as parent complete.
+      // Retained gates pass + hashes bind, but production unknowns / matrix
+      // gaps (FORTRESS) or formal partials (RADAR) or offline-only closeout
+      // (FACTORY) or FOUNDATION production/Docker/restore/operated unknowns
+      // keep MESSI parent gates partial. Finite staging (FOUNDATION) and
+      // finite audit (FORTRESS) completion are exposed separately — never as
+      // parent complete or security/production readiness.
       verdict = 'partial';
     }
     const gate = {
@@ -1103,6 +1126,14 @@ function classifyMessiGates(opts) {
       gate.finite_staging_workstream_complete = parent.workstream_class
           === 'finite_staging_schema_migration_recovery_closeout'
         && parent.finite_closeout_analog === 'verify:messi-slice1b-foundation-closeout'
+        && hashBindingOk
+        && gatesPass;
+    }
+    // Finite audit/source completion is FORTRESS-only — never security readiness.
+    if (parentId === 'FORTRESS') {
+      gate.finite_audit_workstream_complete = parent.workstream_class
+          === 'finite_fortress_audit_workstream_closeout'
+        && parent.finite_closeout_analog === 'verify:messi-slice1d-fortress-closeout'
         && hashBindingOk
         && gatesPass;
     }
@@ -1162,6 +1193,32 @@ function classifyMessiGates(opts) {
     }
     if (foundationGate.verdict === 'complete') {
       errors.push('foundation_complete_without_production_proofs');
+    }
+  }
+
+  // Hard contract: FORTRESS parent never complete / never security-ready from finite audit.
+  const fortressGate = gates.find((g) => g.id === 'G_FORTRESS_PARENT');
+  if (fortressGate) {
+    const requiredMissing = [
+      'matrix_unproven_cleared_to_proven_fail_closed',
+      'matrix_vulnerable_remediated',
+      '15L_live_kv_secret_creation_and_staff_api_deploy_activation',
+      'B02_meta_live_client_slug_authority_activation',
+      'production_tenant_boundary_proof',
+      'security_drills',
+      'operated_readiness',
+    ];
+    for (const m of requiredMissing) {
+      if (!fortressGate.missing_proof.includes(m)) {
+        errors.push(`fortress_hidden_missing_proof:${m}`);
+      }
+    }
+    if (fortressGate.verdict === 'complete') {
+      errors.push('fortress_complete_without_security_production_proofs');
+    }
+    if (fortressGate.finite_audit_workstream_complete === true
+      && fortressGate.production_readiness !== 'absent') {
+      errors.push('finite_audit_as_security_or_production_readiness');
     }
   }
 
@@ -1268,7 +1325,8 @@ function buildExpectedLedgerSkeleton() {
 
 /**
  * Ledger/classifier semantic gate object (strips retained_gate_results).
- * finite_staging_workstream_complete is included only when present (FOUNDATION).
+ * finite_staging_workstream_complete / finite_audit_workstream_complete are
+ * included only when present (FOUNDATION / FORTRESS respectively).
  */
 function ledgerGateObject(g) {
   if (!g || typeof g !== 'object') return null;
@@ -1279,11 +1337,14 @@ function ledgerGateObject(g) {
     workstream_class: g.workstream_class,
     production_readiness: g.production_readiness,
     finite_closeout_analog: g.finite_closeout_analog,
-    missing_proof: Array.isArray(g.missing_proof) ? [...g.missing_proof] : g.missing_proof,
   };
   if (Object.prototype.hasOwnProperty.call(g, 'finite_staging_workstream_complete')) {
     out.finite_staging_workstream_complete = g.finite_staging_workstream_complete;
   }
+  if (Object.prototype.hasOwnProperty.call(g, 'finite_audit_workstream_complete')) {
+    out.finite_audit_workstream_complete = g.finite_audit_workstream_complete;
+  }
+  out.missing_proof = Array.isArray(g.missing_proof) ? [...g.missing_proof] : g.missing_proof;
   return out;
 }
 
@@ -1297,8 +1358,8 @@ function unrelatedGatesMatchBase(gates) {
       errors.push(`unrelated_gate_missing:${exp.id}`);
       continue;
     }
-    if (Object.prototype.hasOwnProperty.call(got, 'finite_staging_workstream_complete')) {
-      errors.push(`finite_staging_on_unrelated_gate:${exp.id}`);
+    if (Object.prototype.hasOwnProperty.call(got, 'finite_audit_workstream_complete')) {
+      errors.push(`finite_audit_on_unrelated_gate:${exp.id}`);
     }
     if (!deepEqual(ledgerGateObject(got), deepClone(exp))) {
       errors.push(`unrelated_gate_drift:${exp.id}`);
@@ -1372,14 +1433,25 @@ function validateLedgerFixture(ledger, classification) {
         && got.finite_staging_workstream_complete !== g.finite_staging_workstream_complete) {
         errors.push(`finite_staging_workstream_complete_mismatch:${g.id}`);
       }
+      if (Object.prototype.hasOwnProperty.call(g, 'finite_audit_workstream_complete')
+        && got.finite_audit_workstream_complete !== g.finite_audit_workstream_complete) {
+        errors.push(`finite_audit_workstream_complete_mismatch:${g.id}`);
+      }
     }
-    // FOUNDATION-only finite staging flag; unrelated gates must match base 98202775.
+    // FOUNDATION finite staging must remain exposed; FORTRESS finite audit must be exposed.
     const foundationGot = byId.G_FOUNDATION_PARENT;
     if (foundationGot
       && foundationGot.finite_staging_workstream_complete !== true
       && classification.gates.find((x) => x.id === 'G_FOUNDATION_PARENT')
         ?.finite_staging_workstream_complete === true) {
       errors.push('foundation_finite_staging_missing_in_ledger');
+    }
+    const fortressGot = byId.G_FORTRESS_PARENT;
+    if (fortressGot
+      && fortressGot.finite_audit_workstream_complete !== true
+      && classification.gates.find((x) => x.id === 'G_FORTRESS_PARENT')
+        ?.finite_audit_workstream_complete === true) {
+      errors.push('fortress_finite_audit_missing_in_ledger');
     }
     const unrelatedLedger = unrelatedGatesMatchBase(ledger.gates || []);
     for (const e of unrelatedLedger.errors) errors.push(e);
@@ -1411,6 +1483,11 @@ const REQUIRED_RED = Object.freeze([
   'hidden_missing_proofs',
   'self_authored_score_change',
   'unrelated_gate_semantic_drift',
+  // MESSI 1E — FORTRESS finite audit wiring hostiles
+  'finite_as_security_overclaim',
+  'unrelated_gate_identity',
+  'stale_or_repinned_1d_provenance',
+  'hidden_fortress_missing_proofs',
   'concurrent_merge_topology',
   'altered_candidate_scope',
   'altered_certificate_scope',
@@ -1423,6 +1500,7 @@ const REQUIRED_RED = Object.freeze([
   'fixture_metadata_tamper',
   'redesign_ref_tamper',
   'redesign_hash_tamper',
+  'obsolete_authorization_green_name_absent',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -1434,10 +1512,11 @@ const REQUIRED_GREEN = Object.freeze([
   'radar_formal_0_9_0_preserved',
   'finite_vs_production_distinguished',
   'foundation_finite_staging_exposed',
+  'fortress_finite_audit_exposed',
   'unrelated_gates_byte_identical_to_base',
   'messi_not_complete',
   'package_script_registered',
-  'reviewed_candidate_scope_authorized',
+  'candidate_certificate_paths_git_bound',
   'blob_certificates_match_current_tree',
 ]);
 
@@ -1470,6 +1549,9 @@ module.exports = deepFreeze({
   FOUNDATION_1B_MERGE_TIP,
   FOUNDATION_1B_CANDIDATE_SHA,
   FOUNDATION_1B_MASTER_BASIS,
+  FORTRESS_1D_MERGE_TIP,
+  FORTRESS_1D_CANDIDATE_SHA,
+  FORTRESS_1D_MASTER_BASIS,
   GATE_IDS,
   UNRELATED_GATE_IDS,
   BASE_UNRELATED_GATE_OBJECTS,
@@ -1481,6 +1563,8 @@ module.exports = deepFreeze({
   PACKAGE_JSON_ALLOWED_SCRIPT_VALUE,
   PACKAGE_JSON_1C_SCRIPT_KEY,
   PACKAGE_JSON_1C_SCRIPT_VALUE,
+  PACKAGE_JSON_1E_SCRIPT_KEY,
+  PACKAGE_JSON_1E_SCRIPT_VALUE,
   SCOPE_FENCE,
   PARENTS,
   MESSI_GATES,
@@ -1501,6 +1585,7 @@ module.exports = deepFreeze({
   resolveCommitSha,
   isGitAncestor,
   sameGitTree,
+  sameBoundBlobsAtCommits,
   candidateFitsTip,
   assertShaAncestor,
   assertCandidateFitsTip,

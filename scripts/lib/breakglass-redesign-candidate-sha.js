@@ -24,7 +24,7 @@ function deepFreeze(value) {
 }
 
 /** Empty during bootstrap content commit; set by the separate anchor commit. */
-const REDESIGN_CANDIDATE_SHA = '6c98b64d5b098a76c41336fbaab19f6c7f6a1161';
+const REDESIGN_CANDIDATE_SHA = '20f96aead39fbf0854452ec77f855965df3c0ac0';
 
 const REDESIGN_CERT_ID = 'breakglass-whole-path';
 const CORRECTION_CANDIDATE_BOUND = '53c1abcfb67edb491c5100de571260c60813aec4';
@@ -40,8 +40,11 @@ const PIN_MODULE_REL = 'scripts/lib/breakglass-redesign-candidate-sha.js';
  * anchor commit can activate the SHA without co-tampering certified blobs.
  */
 const REDESIGN_PATHS = Object.freeze([
+  'docs/MESSI-ACCEPTANCE-LEDGER.md',
   'fixtures/messi-acceptance/slice1a-contract.json',
+  'fixtures/messi-acceptance/slice1a-findings.md',
   'fixtures/messi-acceptance/slice1a-ledger.json',
+  'package.json',
   'scripts/lib/factory-slice1b-archetype-templates.js',
   'scripts/lib/factory-slice1e-finite-closeout.js',
   'scripts/lib/messi-slice1a-acceptance-ledger.js',

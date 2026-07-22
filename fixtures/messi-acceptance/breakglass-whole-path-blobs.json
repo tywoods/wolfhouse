@@ -1,11 +1,14 @@
 {
   "id": "breakglass-whole-path",
-  "candidate_sha": "6c98b64d5b098a76c41336fbaab19f6c7f6a1161",
+  "candidate_sha": "20f96aead39fbf0854452ec77f855965df3c0ac0",
   "correction_candidate_bound": "53c1abcfb67edb491c5100de571260c60813aec4",
   "master_basis": "38f1a719fa3287af43737b2fca7f9b4d4f71383a",
   "paths": [
+    "docs/MESSI-ACCEPTANCE-LEDGER.md",
     "fixtures/messi-acceptance/slice1a-contract.json",
+    "fixtures/messi-acceptance/slice1a-findings.md",
     "fixtures/messi-acceptance/slice1a-ledger.json",
+    "package.json",
     "scripts/lib/factory-slice1b-archetype-templates.js",
     "scripts/lib/factory-slice1e-finite-closeout.js",
     "scripts/lib/messi-slice1a-acceptance-ledger.js",
@@ -18,5 +21,5 @@
     "scripts/verify-messi-slice1b-foundation-closeout.js",
     "scripts/verify-messi-slice1d-fortress-closeout.js"
   ],
-  "note": "Metadata mirror of scripts/lib/breakglass-redesign-candidate-sha.js only. No blobs \u2014 Git candidate is the trust root."
+  "note": "Metadata mirror of scripts/lib/breakglass-redesign-candidate-sha.js only. No blobs — Git candidate is the trust root."
 }

@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "slice": "MESSI-1C",
-  "outcome_id": "1C_foundation_finite_closeout_ledger_wiring",
-  "branch": "messi/slice-1c-foundation-wiring",
-  "master_basis": "98202775a57e64597e0e606a6e58933bb8ba7250",
-  "progress_class": "foundation_finite_closeout_ledger_wiring_only",
+  "slice": "MESSI-1E",
+  "outcome_id": "1E_fortress_finite_closeout_ledger_wiring",
+  "branch": "messi/slice-1e-fortress-wiring",
+  "master_basis": "28ba003acc57bd732df17d799a95a4d99f69f2f9",
+  "progress_class": "fortress_finite_closeout_ledger_wiring_only",
   "live_mutation": false,
   "runtime_behavior_changed": false,
   "messi_definition": "MESSI is the integration gate above FOUNDATION, FORTRESS, RADAR, and FACTORY.",
@@ -45,44 +45,38 @@
     },
     {
       "id": "FORTRESS",
-      "tip_slice": "FORTRESS-15L",
-      "outcome_id": "15L_meta_signature_fail_closed",
-      "master_basis": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
-      "canonical_tip": "28a30a688baa637e1bcb549d9b585cb5917942d1",
-      "candidate_sha": "28a30a688baa637e1bcb549d9b585cb5917942d1",
-      "workstream_class": "tip_retained_security_remediation_plus_audit_matrix",
-      "finite_closeout_analog": null,
+      "tip_slice": "MESSI-1D",
+      "outcome_id": "1D_fortress_finite_audit_workstream_closeout",
+      "master_basis": "949be24936c3056b19904904f98feccab5caf883",
+      "canonical_tip": "ff285598ac2cfec980e8316e772924a9c79a6a7e",
+      "candidate_sha": "fa2c5d71ad6c662b4c4f60b08ede409064acf2fe",
+      "workstream_class": "finite_fortress_audit_workstream_closeout",
+      "finite_closeout_analog": "verify:messi-slice1d-fortress-closeout",
       "production_readiness": "absent",
-      "npm_script": "verify:fortress-slice15l-meta-signature-fail-closed",
+      "npm_script": "verify:messi-slice1d-fortress-closeout",
       "evidence": [
-        "fixtures/fortress-tenant-identity/boundary-matrix.json",
-        "fixtures/fortress-tenant-identity/attack-cases.json",
-        "fixtures/fortress-tenant-identity/slice15l-contract.json",
-        "fixtures/fortress-tenant-identity/slice15l-evidence.json",
-        "fixtures/fortress-tenant-identity/slice15l-findings.md"
+        "fixtures/fortress-closeout/finite-closeout.json",
+        "fixtures/fortress-closeout/contract.json",
+        "fixtures/fortress-closeout/findings.md"
       ],
       "docs": [
-        "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
+        "docs/FORTRESS-FINITE-CLOSEOUT.md"
       ],
-      "verifier_script": "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js",
+      "verifier_script": "scripts/verify-messi-slice1d-fortress-closeout.js",
       "provenance_bound_files": [
-        "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md",
-        "fixtures/fortress-tenant-identity/boundary-matrix.json",
-        "fixtures/fortress-tenant-identity/attack-cases.json",
-        "fixtures/fortress-tenant-identity/slice15l-contract.json",
-        "fixtures/fortress-tenant-identity/slice15l-evidence.json",
-        "fixtures/fortress-tenant-identity/slice15l-findings.md",
-        "scripts/lib/fortress-tenant-identity-boundary.js",
-        "scripts/verify-fortress-tenant-identity-boundary-matrix.js",
-        "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js"
+        "docs/FORTRESS-FINITE-CLOSEOUT.md",
+        "fixtures/fortress-closeout/finite-closeout.json",
+        "fixtures/fortress-closeout/contract.json",
+        "fixtures/fortress-closeout/findings.md"
       ],
       "missing_proof_for_complete": [
-        "finite_milestone_closeout_disposition",
         "matrix_unproven_cleared_to_proven_fail_closed",
         "matrix_vulnerable_remediated",
         "15L_live_kv_secret_creation_and_staff_api_deploy_activation",
         "B02_meta_live_client_slug_authority_activation",
-        "production_tenant_boundary_proof"
+        "production_tenant_boundary_proof",
+        "security_drills",
+        "operated_readiness"
       ]
     },
     {
@@ -165,17 +159,14 @@
     "fixtures/foundation-closeout/finite-closeout.json": "3411701e798e863e7d3d1583963336f0d19fe740823f07280060230a500a9e52",
     "fixtures/foundation-closeout/contract.json": "3e2d2520e4c497b7ec17b76669cc29703b3c1eb7a890125b007dd805a5503e40",
     "fixtures/foundation-closeout/findings.md": "8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439",
-    "scripts/lib/messi-slice1b-foundation-closeout.js": "d67d1978fd63d3ca3bb2706d6b344dd91e619d76cf150c6ab1378a735b1ea23a",
-    "scripts/verify-messi-slice1b-foundation-closeout.js": "253d2b9a35e307bb73fd339a5badb586473988282854ff4452fd90542c508091",
-    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md": "ec8fe4e611d086651842f287610a13495ef34df174e801e0bdc8e35d45bfccf9",
-    "fixtures/fortress-tenant-identity/boundary-matrix.json": "7503c290cca697af916edd9d570eb4973a88f0c3dc349042a2392fc220aede1d",
-    "fixtures/fortress-tenant-identity/attack-cases.json": "6f73fb951e49d45ed264a1383dc6e65224937da29d91ea6dafd0cd50430fc5bc",
-    "fixtures/fortress-tenant-identity/slice15l-contract.json": "0f12fa1a35d0a9e087fece87b6211760f33d7c8f3ea5ffd31581ba314045005d",
-    "fixtures/fortress-tenant-identity/slice15l-evidence.json": "d52c801dde68cc74ff59685543a7ba1927118d1a140b7971f2422db021a88cd3",
-    "fixtures/fortress-tenant-identity/slice15l-findings.md": "c6f63bb9b9d407d0095c3c44e5aa9f1c21b6271156d80c078be946ce0dbafbfd",
-    "scripts/lib/fortress-tenant-identity-boundary.js": "42bf5c258f93a6acc31011e15ef160157d51942f3cd5a5a7a89b022206c28e9d",
-    "scripts/verify-fortress-tenant-identity-boundary-matrix.js": "ed60a75f5693e8f2d205f1ddcd286d3ad120252b2eb47037a6e480d4c803f274",
-    "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js": "5c6296df732e1ad7f34c4190dccb59fb4947f9be9cb307175813535cacc75c4e",
+    "scripts/lib/messi-slice1b-foundation-closeout.js": "2ccbf15695d6549a600ce6b9a5a8ee9c4799d74cfc7df91410a9b79c42c75f97",
+    "scripts/verify-messi-slice1b-foundation-closeout.js": "e66fda5c1f756c00674063f07f7aec9207efc39b20dda425d305c20a0a03f01b",
+    "docs/FORTRESS-FINITE-CLOSEOUT.md": "e5eea1639d80a11bd6c16782db88c8da388bbd5dd8b655ef5b7014b3ee59a0ab",
+    "fixtures/fortress-closeout/finite-closeout.json": "8e65993bac48effd75ab016f50c7f15500b47faa9517972dd599670181f5bad5",
+    "fixtures/fortress-closeout/contract.json": "8801c4a5a198231ccd5c29b1e28b3bd0194a8a06fcd9ac7ee18cef5f652800e7",
+    "fixtures/fortress-closeout/findings.md": "5b57d89556f490697d72ae75348e468692a4c1df6a01434f3bb3c881ecb8da1b",
+    "scripts/lib/messi-slice1d-fortress-closeout.js": "842ed65c402d285468cab716dc25f3ffda50e216b1f66eb58275760ad292a59e",
+    "scripts/verify-messi-slice1d-fortress-closeout.js": "e97e9b4040254615e81ee6841fbc53a07ab9f5da78d2e7232bc4c5b7bf0435a3",
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md": "c3aac5ad4a083868a3350a5ca099447faed0f016f3ee92570997e2533747e5d9",
     "fixtures/radar-operations/slice16ap-finite-closeout.json": "158e3418cc573852780766cc78dafdfa427a3e9a27e0a14e3036266bde91ece2",
     "fixtures/radar-operations/slice16ap-expected-contract.json": "ad856cfe50b1eb8f6a535bdc137ec4a23daa6d89d8bcd0b2a4b90103a95f8621",
@@ -191,7 +182,7 @@
     "scripts/lib/factory-slice1c-dry-run-generator.js": "c6864be5c9770c8b05915ca8d892a1a4f5768e012afb32a458f4ad6a3f6be879",
     "scripts/lib/factory-slice1d-integration-proof.js": "0db5a8d0aedf9418ef58dc1d842a558059c5c58d5f85a3465d92aeec159da8d8",
     "scripts/lib/factory-slice1e-finite-closeout.js": "6016f1b42190aca2d4466162aaf747a05b2ccf33b30f67bef6af9052741ba3f7",
-    "scripts/verify-factory-slice1e-finite-closeout.js": "045c07f246e32ee767d1743bce7912c513d61817a87efbb7239db3a6d4002098"
+    "scripts/verify-factory-slice1e-finite-closeout.js": "9ff8d5085849fe95ea821a71e1e196496335c7cd2f6edcba9c13fd56e19ac1bd"
   },
   "parent_sha_provenance": {
     "FOUNDATION": {
@@ -206,19 +197,14 @@
       ]
     },
     "FORTRESS": {
-      "canonical_tip": "28a30a688baa637e1bcb549d9b585cb5917942d1",
-      "candidate_sha": "28a30a688baa637e1bcb549d9b585cb5917942d1",
-      "master_basis": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
+      "canonical_tip": "ff285598ac2cfec980e8316e772924a9c79a6a7e",
+      "candidate_sha": "fa2c5d71ad6c662b4c4f60b08ede409064acf2fe",
+      "master_basis": "949be24936c3056b19904904f98feccab5caf883",
       "provenance_bound_files": [
-        "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md",
-        "fixtures/fortress-tenant-identity/boundary-matrix.json",
-        "fixtures/fortress-tenant-identity/attack-cases.json",
-        "fixtures/fortress-tenant-identity/slice15l-contract.json",
-        "fixtures/fortress-tenant-identity/slice15l-evidence.json",
-        "fixtures/fortress-tenant-identity/slice15l-findings.md",
-        "scripts/lib/fortress-tenant-identity-boundary.js",
-        "scripts/verify-fortress-tenant-identity-boundary-matrix.js",
-        "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js"
+        "docs/FORTRESS-FINITE-CLOSEOUT.md",
+        "fixtures/fortress-closeout/finite-closeout.json",
+        "fixtures/fortress-closeout/contract.json",
+        "fixtures/fortress-closeout/findings.md"
       ]
     },
     "RADAR": {
@@ -302,16 +288,18 @@
       "id": "G_FORTRESS_PARENT",
       "verdict": "partial",
       "parent": "FORTRESS",
-      "workstream_class": "tip_retained_security_remediation_plus_audit_matrix",
+      "workstream_class": "finite_fortress_audit_workstream_closeout",
       "production_readiness": "absent",
-      "finite_closeout_analog": null,
+      "finite_closeout_analog": "verify:messi-slice1d-fortress-closeout",
+      "finite_audit_workstream_complete": true,
       "missing_proof": [
-        "finite_milestone_closeout_disposition",
         "matrix_unproven_cleared_to_proven_fail_closed",
         "matrix_vulnerable_remediated",
         "15L_live_kv_secret_creation_and_staff_api_deploy_activation",
         "B02_meta_live_client_slug_authority_activation",
-        "production_tenant_boundary_proof"
+        "production_tenant_boundary_proof",
+        "security_drills",
+        "operated_readiness"
       ]
     },
     {

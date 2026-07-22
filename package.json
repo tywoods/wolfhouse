@@ -706,7 +706,8 @@
     "verify:messi-slice1a-acceptance-ledger": "node scripts/verify-messi-slice1a-acceptance-ledger.js",
     "verify:messi-slice1b-foundation-closeout": "node scripts/verify-messi-slice1b-foundation-closeout.js",
     "verify:messi-slice1c-foundation-wiring": "node scripts/verify-messi-slice1a-acceptance-ledger.js",
-    "verify:messi-slice1d-fortress-closeout": "node scripts/verify-messi-slice1d-fortress-closeout.js"
+    "verify:messi-slice1d-fortress-closeout": "node scripts/verify-messi-slice1d-fortress-closeout.js",
+    "verify:messi-slice1e-fortress-wiring": "node scripts/verify-messi-slice1a-acceptance-ledger.js"
   },
   "dependencies": {
     "acorn": "8.14.1",
