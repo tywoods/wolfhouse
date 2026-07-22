@@ -168,6 +168,7 @@ function buildCertificateFromFrozenBlobs(root, spec) {
   const cert = deepFreeze({
     id,
     candidate_sha: candidateSha || String(spec.candidate_sha || ''),
+    frozen_only: true,
     supersedes,
     paths: Object.freeze(paths),
     blobs: deepFreeze(blobs),
