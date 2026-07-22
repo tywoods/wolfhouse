@@ -21,11 +21,12 @@ const redesignPin = require('./breakglass-redesign-candidate-sha');
  * excluded (they are content-addressed and ride along master trees).
  */
 const REQUIRED_EVIDENCE_COMMITS = Object.freeze([
-  // 1E reviewed + redesign content + correction + landing (landing is on master)
+  // 1E reviewed + redesign content + correction + landing + squash-proof content
   redesignPin.SQUASH_PROOF_REVIEWED_CANDIDATE,
   redesignPin.REDESIGN_CANDIDATE_SHA,
   redesignPin.CORRECTION_CANDIDATE_BOUND,
   redesignPin.SQUASH_PROOF_LANDING_TIP,
+  redesignPin.SQUASH_PROOF_CANDIDATE_SHA,
   // MESSI 1B / 1D reviewed candidates
   '4a550b44bb7669a860557f0ec211260d7b76250c',
   'fa2c5d71ad6c662b4c4f60b08ede409064acf2fe',
