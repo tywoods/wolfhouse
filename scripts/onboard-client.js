@@ -2,18 +2,18 @@
 'use strict';
 
 /**
- * FACTORY Slice 1C — onboard-client CLI (dry-run preview only).
+ * FACTORY Slice 1C — onboard-client CLI (stdout / in-memory dry-run only).
  *
- * Default and only supported mode: dry-run. No apply path, no registry edits,
- * no config/clients writes, no runtime/DB/cloud/secrets/deploy/network.
+ * Default and only emission path: one canonical JSON envelope on stdout.
+ * Zero filesystem writes. Safe disk materialization is unsupported.
  *
  * Usage:
  *   node scripts/onboard-client.js \
  *     --archetype surf_house \
  *     --substitutions fixtures/.../subs.json \
- *     --output-dir /tmp/factory-1c-preview
+ *     [--stdout]
  *
- *   node scripts/onboard-client.js ... --stdout
+ * Rejects: --output-dir, --apply, and all materialization / write flags.
  */
 
 const fs = require('fs');
@@ -22,18 +22,32 @@ const gen = require('./lib/factory-slice1c-dry-run-generator');
 
 const ROOT = path.join(__dirname, '..');
 
+const REJECTED_DISK_FLAGS = Object.freeze([
+  '--output-dir',
+  '--write',
+  '--materialize',
+  '--publish',
+  '--dest',
+  '--out',
+  '--outdir',
+  '--out-dir',
+]);
+
 function printHelp() {
-  process.stdout.write(`FACTORY onboard-client — dry-run preview only
+  process.stdout.write(`FACTORY onboard-client — stdout dry-run preview only (zero writes)
 
 Usage:
-  node scripts/onboard-client.js --archetype <id> --substitutions <file.json> \\
-    (--output-dir <dir> | --stdout) [--mode dry-run]
+  node scripts/onboard-client.js --archetype <id> --substitutions <file.json> [--stdout] [--mode dry-run]
 
 Archetypes: ${gen.ARCHETYPE_IDS.join(', ')}
 Mode: ${gen.MODE_DRY_RUN} (only)
+Emission: stdout JSON envelope (default; --stdout optional)
 
-Rejects: apply, registry writes, config/clients writes, overwrite, secrets,
-live-target shaped inputs, path traversal, existing tenant/location conflicts.
+Rejects: --output-dir, --apply, materialization/write flags, registry writes,
+config/clients writes, secrets, live-target shaped inputs, path traversal,
+existing tenant/location conflicts.
+
+Safe disk materialization is unsupported in 1C.
 `);
 }
 
@@ -41,21 +55,31 @@ function parseArgs(argv) {
   const out = {
     archetype: null,
     substitutionsPath: null,
-    outputDir: null,
     stdout: false,
     mode: gen.MODE_DRY_RUN,
     help: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a === '--help' || a === '-h') out.help = true;
-    else if (a === '--stdout') out.stdout = true;
-    else if (a === '--archetype') out.archetype = argv[++i];
-    else if (a === '--substitutions') out.substitutionsPath = argv[++i];
-    else if (a === '--output-dir') out.outputDir = argv[++i];
-    else if (a === '--mode') out.mode = argv[++i];
-    else if (a === '--apply') {
+    if (a === '--help' || a === '-h') {
+      out.help = true;
+    } else if (a === '--stdout') {
+      out.stdout = true;
+    } else if (a === '--archetype') {
+      out.archetype = argv[++i];
+    } else if (a === '--substitutions') {
+      out.substitutionsPath = argv[++i];
+    } else if (a === '--mode') {
+      out.mode = argv[++i];
+    } else if (a === '--apply' || a.startsWith('--apply=')) {
       return { error: 'apply_path_forbidden' };
+    } else if (
+      REJECTED_DISK_FLAGS.includes(a)
+      || a.startsWith('--output-dir=')
+      || REJECTED_DISK_FLAGS.some((f) => a.startsWith(`${f}=`))
+    ) {
+      const flag = REJECTED_DISK_FLAGS.find((f) => a === f || a.startsWith(`${f}=`)) || a;
+      return { error: `disk_materialization_unsupported:${flag}` };
     } else {
       return { error: `unknown_arg:${a}` };
     }
@@ -78,8 +102,7 @@ function main() {
   }
   if (!args.archetype) fail(['archetype_required']);
   if (!args.substitutionsPath) fail(['substitutions_required']);
-  if (!args.stdout && !args.outputDir) fail(['output_dir_or_stdout_required']);
-  if (args.stdout && args.outputDir) fail(['stdout_and_output_dir_mutually_exclusive']);
+  // stdout is default; --stdout is accepted as an explicit no-op affirmation.
 
   let substitutions;
   try {
@@ -99,28 +122,9 @@ function main() {
   });
   if (!result.ok) fail(result.errors);
 
-  if (args.stdout) {
-    const emitted = gen.emitStdout(result);
-    if (!emitted.ok) fail(emitted.errors);
-    process.stdout.write(emitted.stdout);
-    return;
-  }
-
-  const written = gen.writeDryRunPreview(result, {
-    repoRoot: ROOT,
-    outputDir: args.outputDir,
-  });
-  if (!written.ok) fail(written.errors);
-
-  process.stdout.write(gen.sortedStringify({
-    ok: true,
-    mode: gen.MODE_DRY_RUN,
-    output_dir: written.outputDir,
-    files: written.written.map((w) => ({
-      relative_path: w.relativePath,
-      sha256: w.sha256,
-    })),
-  }));
+  const emitted = gen.emitStdout(result);
+  if (!emitted.ok) fail(emitted.errors);
+  process.stdout.write(emitted.stdout);
 }
 
 main();

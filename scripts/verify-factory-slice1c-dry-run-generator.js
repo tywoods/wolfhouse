@@ -6,11 +6,10 @@
  * Independent verifier for the deterministic disabled dry-run onboarding
  * generator. Proves byte-determinism against independently locked golden
  * rendered-byte fixtures (without importing generator expectation helpers),
- * template immutability, atomic no-replace staging materialization safety, no side
- * effects outside explicit output dir, stdout zero-write, and adversarial
- * rejection. No apply, no registry edits, no config/clients writes, no
- * runtime/DB/cloud/network. Disk publish is Linux/GNU `/usr/bin/mv
- * --no-copy --no-clobber -T` only (sole local subprocess).
+ * template immutability, stdout-only zero-write emission, and adversarial
+ * rejection. No apply, no disk materialization, no registry edits, no
+ * config/clients writes, no runtime/DB/cloud/network. Safe disk
+ * materialization is unsupported (not deferred proof).
  */
 
 const fs = require('fs');
@@ -141,6 +140,35 @@ function loadIndependentGolden(archetype, goldenLock) {
   return { entry, lockedSet, diskFiles, goldenDir };
 }
 
+/** Install write-side fs traps; returns { hits, restore }. */
+function installFsWriteTraps() {
+  const hits = [];
+  // Intentionally omit open/openSync: Node readFileSync may route through the
+  // JS openSync binding when monkey-patched. Static REDs already forbid open*.
+  const names = [
+    'writeFileSync', 'writeFile', 'appendFileSync', 'appendFile',
+    'mkdirSync', 'mkdir', 'renameSync', 'rename', 'rmSync', 'rm',
+    'unlinkSync', 'unlink', 'rmdirSync', 'rmdir', 'symlinkSync', 'symlink',
+    'linkSync', 'link', 'copyFileSync', 'copyFile', 'truncateSync', 'truncate',
+    'createWriteStream', 'chmodSync', 'chownSync',
+  ];
+  const originals = {};
+  for (const name of names) {
+    if (typeof fs[name] !== 'function') continue;
+    originals[name] = fs[name];
+    fs[name] = function trapped(...args) {
+      hits.push({ name, args: args.map((a) => (typeof a === 'string' ? a : typeof a)) });
+      return originals[name].apply(this, args);
+    };
+  }
+  return {
+    hits,
+    restore() {
+      for (const [name, fn] of Object.entries(originals)) fs[name] = fn;
+    },
+  };
+}
+
 console.log('verify:factory-slice1c-dry-run-generator — FACTORY 1C\n');
 
 // ── Artifacts ───────────────────────────────────────────────────────────────
@@ -159,6 +187,8 @@ const contract = readJson(CONTRACT_PATH);
 const findings = readText(FINDINGS_PATH);
 const doc = readText(DOC_PATH);
 const goldenLock = readJson(GOLDEN_LOCK_PATH);
+const libSrc = readText(LIB_PATH);
+const cliSrc = readText(CLI_PATH);
 
 ok('contract slice FACTORY-1C', contract.slice === gen.SLICE);
 ok('contract outcome locked', contract.outcome_id === gen.OUTCOME_ID);
@@ -170,19 +200,25 @@ ok('live_mutation false', contract.live_mutation === false);
 ok('runtime_behavior_changed false', contract.runtime_behavior_changed === false);
 ok('findings cite master basis', findings.includes(gen.MASTER_BASIS));
 ok('findings cite dry-run / no apply', /dry-run/i.test(findings) && /not.*apply/i.test(findings));
-ok('findings cite output safety / golden',
-  /atomic|staging|lstat|symlink|fd|proc|no-clobber|no-replace|\/usr\/bin\/mv/i.test(findings)
+ok('findings cite zero-write / stdout / unsupported disk',
+  /zero-write|stdout/i.test(findings)
+  && /unsupported/i.test(findings)
+  && /disk materialization/i.test(findings)
   && /golden/i.test(findings));
-ok('findings cite sole local subprocess + Linux\/GNU boundary',
-  /sole local subprocess/i.test(findings)
-  && /Linux\/GNU/i.test(findings)
-  && findings.includes('/usr/bin/mv')
-  && findings.includes('--no-clobber'));
-ok('doc cites GNU mv no-replace publish',
-  doc.includes('/usr/bin/mv')
-  && doc.includes('--no-clobber')
-  && /Linux\/GNU/i.test(doc));
+ok('findings do not claim disk publish complete',
+  !/\/usr\/bin\/mv/.test(findings)
+  && !/atomic no-replace publish/i.test(findings)
+  && /unsupported/i.test(findings)
+  && /zero-write/i.test(findings));
 ok('doc names 1C generator', /1C/.test(doc) && /generator/i.test(doc));
+ok('doc cites stdout zero-write + unsupported disk materialization',
+  /stdout/i.test(doc)
+  && /zero-write|zero writes/i.test(doc)
+  && /disk materialization.*unsupported|unsupported.*disk materialization/i.test(doc));
+ok('doc does not claim GNU mv / procfs publish',
+  !doc.includes('/usr/bin/mv')
+  && !/proc\/self\/fd/i.test(doc)
+  && !/\bgnu\s+mv\b/i.test(doc));
 ok('golden lock schema + both archetypes',
   goldenLock.schema_version === 1
   && goldenLock.archetypes
@@ -198,42 +234,79 @@ ok('golden lock schema + both archetypes',
     && !/\bgen\.buildFixtureSubstitutions\b/.test(verifierSrc));
 }
 
-// Source fence: disk publish must not use Node rename (empty-final replace surface).
+// Source fence: library/CLI have no disk-publication surface.
+console.log('\n── Static zero-write / no-publish fences ──');
 {
-  const libSrc = readText(LIB_PATH);
-  red('lib_publish_does_not_use_fs_rename',
-    !/\bfs\.renameSync\s*\(/.test(libSrc) && !/\bfs\.rename\s*\(/.test(libSrc),
-    'fs.rename*(...) must not appear in 1C library publish path');
-  red('lib_publish_uses_gnu_mv_no_replace',
-    libSrc.includes(gen.GNU_MV_PATH)
-    && libSrc.includes('--no-copy')
-    && libSrc.includes('--no-clobber')
-    && /spawnSync\s*\(\s*GNU_MV_PATH/.test(libSrc)
-    && /shell:\s*false/.test(libSrc),
-    'expected /usr/bin/mv --no-copy --no-clobber argument-array spawn');
-  red('lib_documents_sole_local_subprocess',
-    /sole local subprocess/i.test(libSrc));
-  red('lib_post_spawn_ownership_inspect',
-    libSrc.includes('assessPublishOwnershipState')
-    && /After EVERY spawn outcome/i.test(libSrc)
-    && libSrc.includes('ownFinal')
-    && libSrc.includes('ownStaging'));
-  red('lib_post_hook_exact_byte_reverify',
-    libSrc.includes('verifyAnchoredExactOutputBytes')
-    && /re-read fd-anchored exact output set/i.test(libSrc));
-  ok('contract locks gnu mv no-replace publish',
+  red('lib_no_child_process',
+    !/require\s*\(\s*['"]child_process['"]\s*\)/.test(libSrc)
+    && !/\bspawnSync\b/.test(libSrc)
+    && !/\bexecFileSync\b/.test(libSrc)
+    && !/\bexecSync\b/.test(libSrc)
+    && !/\bexecFile\b/.test(libSrc)
+    && !/\bspawn\s*\(/.test(libSrc)
+    && !/\b(?:child_process|cp)\.exec\s*\(/.test(libSrc));
+  red('lib_no_gnu_mv',
+    !libSrc.includes('/usr/bin/mv')
+    && !/\bGNU_MV\b/.test(libSrc)
+    && !/--no-clobber|--no-copy/.test(libSrc));
+  red('lib_no_procfs_fd_hooks',
+    !/\/proc\/self\/fd/.test(libSrc)
+    && !/\/proc\/\$\{/.test(libSrc)
+    && !/O_DIRECTORY|O_NOFOLLOW/.test(libSrc)
+    && !/\bparent_fd\b|\banchorBase\b/.test(libSrc));
+  red('lib_no_fs_write_apis',
+    !/\bfs\.writeFile(Sync)?\s*\(/.test(libSrc)
+    && !/\bfs\.appendFile(Sync)?\s*\(/.test(libSrc)
+    && !/\bfs\.mkdir(Sync)?\s*\(/.test(libSrc)
+    && !/\bfs\.rename(Sync)?\s*\(/.test(libSrc)
+    && !/\bfs\.rm(Sync)?\s*\(/.test(libSrc)
+    && !/\bfs\.unlink(Sync)?\s*\(/.test(libSrc)
+    && !/\bfs\.rmdir(Sync)?\s*\(/.test(libSrc)
+    && !/\bfs\.symlink(Sync)?\s*\(/.test(libSrc)
+    && !/\bfs\.copyFile(Sync)?\s*\(/.test(libSrc)
+    && !/\bfs\.createWriteStream\s*\(/.test(libSrc)
+    && !/\bfs\.open(Sync)?\s*\(/.test(libSrc)
+    && !/\bfs\.promises\.(writeFile|mkdir|rename|rm|unlink)/.test(libSrc));
+  red('lib_no_writeDryRunPreview_export',
+    !/\bfunction writeDryRunPreview\b/.test(libSrc)
+    && !/\bwriteDryRunPreview\s*,/.test(libSrc)
+    && !/\bwriteDryRunPreview\s*:/.test(libSrc)
+    && typeof gen.writeDryRunPreview !== 'function');
+  red('lib_no_output_dir_materialization_api',
+    !/\bvalidateOutputMaterializationTarget\b/.test(libSrc)
+    && !/\bisSafeOutputDirectory\b/.test(libSrc)
+    && !/\bspawnGnuMvNoReplacePublish\b/.test(libSrc)
+    && !/\bcleanupStagingDir\b/.test(libSrc)
+    && typeof gen.validateOutputMaterializationTarget !== 'function'
+    && typeof gen.isSafeOutputDirectory !== 'function');
+  red('cli_no_output_dir_path',
+    !/--output-dir <dir>/.test(cliSrc)
+    && !/writeDryRunPreview/.test(cliSrc)
+    && /disk_materialization_unsupported/.test(cliSrc)
+    && /apply_path_forbidden/.test(cliSrc));
+  ok('contract locks stdout zero-write + disk unsupported',
     contract.output_safety
-    && contract.output_safety.gnu_mv_no_replace_publish === true
-    && contract.output_safety.node_rename_not_used_for_publish === true
-    && contract.output_safety.sole_local_subprocess_gnu_mv === true
-    && contract.output_safety.linux_gnu_disk_mode_boundary === true);
-  ok('contract locks post-spawn ownership + byte reverify',
-    contract.output_safety
-    && contract.output_safety.publish_post_spawn_ownership_inspect_all_outcomes === true
-    && contract.output_safety.publish_owned_final_removed_on_bad_spawn === true
-    && contract.output_safety.publish_source_present_preserves_external_final === true
-    && contract.output_safety.publish_impossible_state_no_unowned_delete === true
-    && contract.output_safety.publish_post_hook_exact_output_byte_hash_reverify === true);
+    && contract.output_safety.stdout_zero_write === true
+    && contract.output_safety.disk_materialization_supported === false
+    && contract.output_safety.safe_disk_materialization === 'unsupported'
+    && contract.output_safety.no_fs_write_apis === true
+    && contract.output_safety.no_child_process === true
+    && contract.output_safety.no_procfs_fd_hooks === true
+    && contract.output_safety.no_gnu_mv_publish === true
+    && contract.output_safety.no_output_dir_flag === true
+    && contract.output_safety.no_apply_path === true);
+  ok('contract evidence classes omit atomic disk staging',
+    Array.isArray(contract.evidence_classes.required_current_stage)
+    && !contract.evidence_classes.required_current_stage.includes(
+      'atomic_staging_materialization_output_safety',
+    )
+    && contract.evidence_classes.required_current_stage.includes('stdout_zero_write')
+    && contract.evidence_classes.required_current_stage.includes(
+      'disk_materialization_unsupported',
+    )
+    && contract.evidence_classes.out_of_scope_current_stage.includes(
+      'safe_disk_materialization',
+    ));
 }
 
 // ── Package script lock ─────────────────────────────────────────────────────
@@ -243,7 +316,7 @@ ok('package.json registers 1C verifier script',
   pkg.scripts
   && pkg.scripts[gen.PACKAGE_JSON_ALLOWED_SCRIPT_KEY] === gen.PACKAGE_JSON_ALLOWED_SCRIPT_VALUE);
 
-// ── GREEN: independent golden truth + byte-determinism + materialization ───
+// ── GREEN: independent golden truth + byte-determinism (in-memory only) ─────
 console.log('\n── GREEN generation + independent golden truth ──');
 const beforeTemplates = archetypeTemplateSnapshot();
 const beforeClients = clientsTreeSnapshot();
@@ -259,18 +332,32 @@ for (const archetype of gen.ARCHETYPE_IDS) {
     continue;
   }
 
-  const r1 = gen.generateDryRunPreview({
-    repoRoot: ROOT,
-    archetype,
-    mode: gen.MODE_DRY_RUN,
-    substitutions: subs,
-  });
-  const r2 = gen.generateDryRunPreview({
-    repoRoot: ROOT,
-    archetype,
-    mode: gen.MODE_DRY_RUN,
-    substitutions: JSON.parse(JSON.stringify(subs)),
-  });
+  const traps = installFsWriteTraps();
+  let r1;
+  let r2;
+  let emitted;
+  try {
+    r1 = gen.generateDryRunPreview({
+      repoRoot: ROOT,
+      archetype,
+      mode: gen.MODE_DRY_RUN,
+      substitutions: subs,
+    });
+    r2 = gen.generateDryRunPreview({
+      repoRoot: ROOT,
+      archetype,
+      mode: gen.MODE_DRY_RUN,
+      substitutions: JSON.parse(JSON.stringify(subs)),
+    });
+    emitted = r1.ok ? gen.emitStdout(r1) : { ok: false, errors: r1.errors };
+  } finally {
+    traps.restore();
+  }
+
+  red(`${archetype}_runtime_no_fs_write_side_effects`,
+    traps.hits.length === 0,
+    traps.hits.slice(0, 5).map((h) => h.name).join(','));
+
   green(`${archetype}_generate_ok`, r1.ok && r2.ok, (r1.errors || []).join(','));
   if (!r1.ok || !r2.ok) continue;
 
@@ -315,23 +402,37 @@ for (const archetype of gen.ARCHETYPE_IDS) {
     });
   green(`${archetype}_enablement_false`, enablementOk);
 
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), `factory1c-${archetype}-parent-`));
-  const finalDir = path.join(parent, 'final-out');
-  const written = gen.writeDryRunPreview(r1, { repoRoot: ROOT, outputDir: finalDir });
-  green(`${archetype}_atomic_write_ok`, written.ok, (written.errors || []).join(','));
-  if (written.ok) {
-    const onDisk = listFilesRecursive(finalDir)
-      .map((abs) => path.relative(finalDir, abs).split(path.sep).join('/'))
-      .sort();
-    green(`${archetype}_disk_matches_golden_output_set`,
-      gen.deepEqual(onDisk, golden.lockedSet));
-    // Staging siblings must not remain.
-    const leftovers = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    green(`${archetype}_staging_cleaned_after_success`, leftovers.length === 0, leftovers.join(','));
-
-    const overwrite = gen.writeDryRunPreview(r1, { repoRoot: ROOT, outputDir: finalDir });
-    red(`${archetype}_final_must_not_exist_on_rewrite`,
-      !overwrite.ok && overwrite.errors.includes('output_dir_must_not_exist'));
+  green(`${archetype}_emitStdout_ok`, emitted.ok && typeof emitted.stdout === 'string');
+  if (emitted.ok) {
+    let envelope;
+    try {
+      envelope = JSON.parse(emitted.stdout);
+    } catch (err) {
+      envelope = null;
+      green(`${archetype}_stdout_envelope_json`, false, err.message);
+    }
+    if (envelope) {
+      green(`${archetype}_stdout_envelope_canonical`,
+        envelope.ok === true
+        && envelope.mode === gen.MODE_DRY_RUN
+        && envelope.disk_materialization === false
+        && envelope.disk_materialization_supported === false
+        && envelope.writes === false
+        && envelope.manifest
+        && Array.isArray(envelope.files));
+      const envPaths = envelope.files.map((f) => f.relativePath).sort();
+      green(`${archetype}_stdout_envelope_exact_files`,
+        gen.deepEqual(envPaths, golden.lockedSet));
+      let envBytes = true;
+      for (const f of envelope.files) {
+        const g = golden.diskFiles[f.relativePath];
+        if (!g || f.content !== g.text || f.sha256 !== g.hash) {
+          envBytes = false;
+          break;
+        }
+      }
+      green(`${archetype}_stdout_envelope_bytes_match_golden`, envBytes);
+    }
   }
 }
 
@@ -340,32 +441,8 @@ const afterClients = clientsTreeSnapshot();
 green('template_immutability', gen.deepEqual(beforeTemplates, afterTemplates));
 green('no_config_clients_side_effects', gen.deepEqual(beforeClients, afterClients));
 
-// ── CLI dry-run + stdout zero-write ─────────────────────────────────────────
+// ── CLI stdout-only + rejection of disk/apply flags ─────────────────────────
 console.log('\n── CLI ──');
-{
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-cli-parent-'));
-  const out = path.join(parent, 'cli-out');
-  const r = spawnSync(process.execPath, [
-    CLI_PATH,
-    '--archetype', 'surf_house',
-    '--substitutions', path.join(FIXTURE_DIR, 'slice1c-substitutions-surf_house.json'),
-    '--output-dir', out,
-  ], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
-  green('cli_dry_run_exit_0', r.status === 0, (r.stderr || r.stdout || '').slice(-400));
-  if (r.status === 0) {
-    green('cli_wrote_manifest', fs.existsSync(path.join(out, 'dry-run-manifest.json')));
-  }
-  const apply = spawnSync(process.execPath, [
-    CLI_PATH,
-    '--apply',
-    '--archetype', 'surf_house',
-    '--substitutions', path.join(FIXTURE_DIR, 'slice1c-substitutions-surf_house.json'),
-    '--output-dir', path.join(parent, 'apply-out'),
-  ], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
-  red('cli_apply_rejected', apply.status !== 0
-    && /apply_path_forbidden/.test(`${apply.stderr || ''}${apply.stdout || ''}`));
-}
-
 {
   const probe = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-stdout-probe-'));
   const before = new Set(listFilesRecursive(probe).map((p) => path.relative(probe, p)));
@@ -374,27 +451,61 @@ console.log('\n── CLI ──');
     CLI_PATH,
     '--archetype', 'surf_house',
     '--substitutions', path.join(FIXTURE_DIR, 'slice1c-substitutions-surf_house.json'),
-    '--stdout',
   ], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
-  green('cli_stdout_exit_0', r.status === 0, (r.stderr || '').slice(-300));
-  green('cli_stdout_emits_json', r.status === 0 && /dry-run-manifest|fixture-house/.test(r.stdout || ''));
+  green('cli_default_stdout_exit_0', r.status === 0, (r.stderr || '').slice(-300));
+  green('cli_default_stdout_emits_json_envelope',
+    r.status === 0
+    && /"disk_materialization_supported": false/.test(r.stdout || '')
+    && /dry-run-manifest|fixture-house/.test(r.stdout || ''));
   const after = new Set(listFilesRecursive(probe).map((p) => path.relative(probe, p)));
   const cwdAfter = new Set(fs.readdirSync(ROOT));
   red('stdout_zero_write_probe_dir',
     [...after].every((p) => before.has(p)) && before.size === after.size);
   red('stdout_zero_write_repo_cwd',
     [...cwdAfter].every((p) => cwdBefore.has(p)) && cwdBefore.size === cwdAfter.size);
-  // Library emitStdout also creates no files.
-  const subs = loadSubs('surf_house');
-  const preview = gen.generateDryRunPreview({
-    repoRoot: ROOT,
-    archetype: 'surf_house',
-    mode: gen.MODE_DRY_RUN,
-    substitutions: subs,
-  });
-  const emitted = gen.emitStdout(preview);
-  green('emitStdout_ok', emitted.ok && typeof emitted.stdout === 'string');
-  void probe;
+
+  const explicit = spawnSync(process.execPath, [
+    CLI_PATH,
+    '--archetype', 'surf_house',
+    '--substitutions', path.join(FIXTURE_DIR, 'slice1c-substitutions-surf_house.json'),
+    '--stdout',
+  ], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
+  green('cli_explicit_stdout_exit_0', explicit.status === 0, (explicit.stderr || '').slice(-200));
+
+  const outDir = spawnSync(process.execPath, [
+    CLI_PATH,
+    '--archetype', 'surf_house',
+    '--substitutions', path.join(FIXTURE_DIR, 'slice1c-substitutions-surf_house.json'),
+    '--output-dir', path.join(probe, 'should-not-exist'),
+  ], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
+  red('cli_output_dir_rejected',
+    outDir.status !== 0
+    && /disk_materialization_unsupported:--output-dir/.test(`${outDir.stderr || ''}${outDir.stdout || ''}`));
+  red('cli_output_dir_created_nothing',
+    !fs.existsSync(path.join(probe, 'should-not-exist')));
+
+  const apply = spawnSync(process.execPath, [
+    CLI_PATH,
+    '--apply',
+    '--archetype', 'surf_house',
+    '--substitutions', path.join(FIXTURE_DIR, 'slice1c-substitutions-surf_house.json'),
+  ], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
+  red('cli_apply_rejected', apply.status !== 0
+    && /apply_path_forbidden/.test(`${apply.stderr || ''}${apply.stdout || ''}`));
+
+  for (const flag of ['--write', '--materialize', '--publish', '--out', '--outdir']) {
+    const bad = spawnSync(process.execPath, [
+      CLI_PATH,
+      flag, path.join(probe, 'x'),
+      '--archetype', 'surf_house',
+      '--substitutions', path.join(FIXTURE_DIR, 'slice1c-substitutions-surf_house.json'),
+    ], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
+    red(`cli_rejects_${flag.replace(/^--/, '')}`,
+      bad.status !== 0
+      && new RegExp(`disk_materialization_unsupported:${flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(
+        `${bad.stderr || ''}${bad.stdout || ''}`,
+      ));
+  }
 }
 
 // ── Adversarial REDs ────────────────────────────────────────────────────────
@@ -524,656 +635,6 @@ expectFail('postgres_url_input', {
     VOICE_SUMMARY: 'postgres://user:pass@db.example/db',
   },
 }, (e) => e.some((x) => x.includes('postgres_url')));
-
-{
-  const unsafe = gen.validateOutputMaterializationTarget(
-    ROOT,
-    path.join(ROOT, 'config', 'clients', 'evil-out'),
-  );
-  red('unsafe_output_config_clients', !unsafe.ok
-    && /forbidden_root:config\/clients/.test(unsafe.error));
-}
-{
-  const unsafe = gen.validateOutputMaterializationTarget(
-    ROOT,
-    path.join(ROOT, 'config', 'archetypes', 'evil'),
-  );
-  red('unsafe_output_archetypes', !unsafe.ok
-    && /forbidden_root:config\/archetypes/.test(unsafe.error));
-}
-{
-  const unsafe = gen.validateOutputMaterializationTarget(ROOT, ROOT);
-  red('unsafe_output_repo_root', !unsafe.ok && (
-    unsafe.error === 'output_dir_cannot_be_repo_root'
-    || unsafe.error === 'output_dir_must_not_exist'
-  ));
-}
-
-// Output-safety REDs: symlinks, nested attacks, race/swap, staging cleanup
-console.log('\n── Output-safety REDs ──');
-{
-  const preview = gen.generateDryRunPreview({
-    repoRoot: ROOT,
-    archetype: 'surf_house',
-    mode: gen.MODE_DRY_RUN,
-    substitutions: baseHouse,
-  });
-  ok('preview ok for output-safety suite', preview.ok, (preview.errors || []).join(','));
-
-  // Symlinked parent
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-sym-parent-'));
-    const realParent = path.join(base, 'real-parent');
-    const linkParent = path.join(base, 'link-parent');
-    fs.mkdirSync(realParent);
-    fs.symlinkSync(realParent, linkParent);
-    const target = path.join(linkParent, 'final');
-    const v = gen.validateOutputMaterializationTarget(ROOT, target);
-    red('reject_symlinked_parent', !v.ok && /parent_symlink|ancestor_symlink/.test(v.error),
-      v.error);
-    const w = gen.writeDryRunPreview(preview, { repoRoot: ROOT, outputDir: target });
-    red('write_rejects_symlinked_parent', !w.ok
-      && w.errors.some((e) => /parent_symlink|ancestor_symlink/.test(e)));
-  }
-
-  // Symlinked nested ancestor (parent is real; grandparent is symlink into forbidden)
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-sym-nested-'));
-    const decoy = path.join(base, 'decoy');
-    fs.mkdirSync(decoy);
-    const linkAsAncestor = path.join(base, 'via-link');
-    const forbidden = path.join(ROOT, 'config', 'clients');
-    fs.symlinkSync(forbidden, linkAsAncestor);
-    // Cannot create real directory under a symlink path that already is the symlink.
-    // Instead: parent chain includes a symlink component via path.resolve through link.
-    const nestedParent = path.join(linkAsAncestor, 'nested-parent');
-    // mkdir through symlink would create inside config/clients — refuse to do that.
-    // Validate a projected path whose parentAbs lstat is the symlink itself:
-    const v = gen.validateOutputMaterializationTarget(
-      ROOT,
-      path.join(linkAsAncestor, 'evil-final'),
-    );
-    red('reject_symlinked_nested_ancestor_as_parent',
-      !v.ok && (/parent_symlink|ancestor_symlink|forbidden_root/.test(v.error)),
-      v.error);
-    void decoy;
-    void nestedParent;
-  }
-
-  // Symlinked output root (final exists as symlink)
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-sym-final-'));
-    const realDir = path.join(base, 'real');
-    fs.mkdirSync(realDir);
-    const linkFinal = path.join(base, 'final-link');
-    fs.symlinkSync(realDir, linkFinal);
-    const v = gen.validateOutputMaterializationTarget(ROOT, linkFinal);
-    red('reject_symlinked_output_root',
-      !v.ok && (v.error === 'output_dir_symlink' || v.error === 'output_dir_must_not_exist'),
-      v.error);
-  }
-
-  // Nested path-escape attack via relativePath (never traverse caller-controlled)
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-escape-'));
-    const finalDir = path.join(base, 'final');
-    const poisoned = {
-      ok: true,
-      errors: [],
-      files: [
-        {
-          kind: 'baseline',
-          relativePath: '../escape.json',
-          content: '{"evil":true}\n',
-          sha256: sha256Hex('{"evil":true}\n'),
-        },
-      ],
-      manifest: {},
-    };
-    const w = gen.writeDryRunPreview(poisoned, { repoRoot: ROOT, outputDir: finalDir });
-    red('reject_relative_path_traversal_nested',
-      !w.ok && w.errors.some((e) => e.startsWith('write_path_traversal:')),
-      (w.errors || []).join(','));
-    red('staging_cleaned_after_traversal_reject',
-      !fs.existsSync(finalDir)
-      && fs.readdirSync(base).filter((n) => n.startsWith('.factory-1c-staging-')).length === 0);
-  }
-
-  // Race: final appears between staging write and atomic rename
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-race-'));
-    const finalDir = path.join(base, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      beforeAtomicRename: ({ finalAbs }) => {
-        fs.mkdirSync(finalAbs);
-        fs.writeFileSync(path.join(finalAbs, 'hijack.txt'), 'race');
-      },
-    });
-    red('race_final_appeared_fail_closed',
-      !w.ok && w.errors.includes('output_dir_appeared'),
-      (w.errors || []).join(','));
-    // Staging must be cleaned; hijack dir may remain (attacker-created) — we must not
-    // have renamed staging over it.
-    const stagingLeft = fs.readdirSync(base).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('race_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-    const hijackIntact = fs.existsSync(path.join(finalDir, 'hijack.txt'))
-      && !fs.existsSync(path.join(finalDir, 'dry-run-manifest.json'));
-    red('race_did_not_clobber_appeared_final', hijackIntact);
-  }
-
-  // Race: final appears as symlink before rename
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-race-sym-'));
-    const finalDir = path.join(base, 'final');
-    const decoy = path.join(base, 'decoy-target');
-    fs.mkdirSync(decoy);
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      beforeAtomicRename: ({ finalAbs }) => {
-        fs.symlinkSync(decoy, finalAbs);
-      },
-    });
-    red('race_symlink_final_fail_closed',
-      !w.ok && w.errors.some((e) => e === 'output_dir_appeared_symlink' || e === 'output_dir_appeared'),
-      (w.errors || []).join(','));
-    const stagingLeft = fs.readdirSync(base).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('race_symlink_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-  }
-
-  // Forbidden root via symlink parent pointing at config/clients
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-forbid-link-'));
-    const linkParent = path.join(base, 'link-to-clients');
-    fs.symlinkSync(path.join(ROOT, 'config', 'clients'), linkParent);
-    const target = path.join(linkParent, 'evil-out');
-    const v = gen.validateOutputMaterializationTarget(ROOT, target);
-    red('reject_symlink_parent_into_forbidden',
-      !v.ok && (/parent_symlink|ancestor_symlink|forbidden_root/.test(v.error)),
-      v.error);
-  }
-
-  // Missing parent
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-missing-parent-'));
-    const target = path.join(base, 'nope', 'final');
-    const v = gen.validateOutputMaterializationTarget(ROOT, target);
-    red('reject_missing_parent', !v.ok && v.error === 'output_dir_parent_missing', v.error);
-  }
-
-  function listFactory1cArtifacts(dirAbs) {
-    if (!dirAbs || !fs.existsSync(dirAbs)) return [];
-    let names;
-    try {
-      names = fs.readdirSync(dirAbs);
-    } catch (_) {
-      return [];
-    }
-    return names.filter((n) => (
-      n.startsWith('.factory-1c-staging-')
-      || n === 'final'
-      || n === 'dry-run-manifest.json'
-      || n === 'preview'
-    ));
-  }
-
-  function dirHasFactory1cTree(dirAbs) {
-    if (!dirAbs || !fs.existsSync(dirAbs)) return [];
-    const found = [];
-    const walk = (d) => {
-      let entries;
-      try {
-        entries = fs.readdirSync(d, { withFileTypes: true });
-      } catch (_) {
-        return;
-      }
-      for (const ent of entries) {
-        if (ent.name.startsWith('.factory-1c-staging-')
-          || ent.name === 'dry-run-manifest.json') {
-          found.push(path.join(d, ent.name));
-        }
-        if (ent.isDirectory() && !ent.name.startsWith('.factory-1c-staging-')) {
-          walk(path.join(d, ent.name));
-        }
-      }
-    };
-    walk(dirAbs);
-    return found;
-  }
-
-  // RED: rename validated parent + replace with ordinary directory at same pathname.
-  // Prove fail-closed and no staging/final under either original or replacement parent.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-parent-rename-'));
-    const parent = path.join(base, 'validated-parent');
-    const renamedParent = path.join(base, 'validated-parent.renamed-away');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      beforeAtomicRename: ({ parentPathname }) => {
-        fs.renameSync(parentPathname, renamedParent);
-        fs.mkdirSync(parentPathname); // replacement ordinary directory
-      },
-    });
-    red('parent_rename_race_fail_closed',
-      !w.ok && w.errors.some((e) => (
-        e === 'parent_pathname_identity_mismatch'
-        || e === 'parent_pathname_missing'
-      )),
-      (w.errors || []).join(','));
-    const underReplacement = dirHasFactory1cTree(parent);
-    const underOriginal = dirHasFactory1cTree(renamedParent);
-    red('parent_rename_no_artifacts_under_replacement',
-      underReplacement.length === 0, underReplacement.join(','));
-    red('parent_rename_no_artifacts_under_original',
-      underOriginal.length === 0, underOriginal.join(','));
-    red('parent_rename_no_staging_or_final_either_parent',
-      listFactory1cArtifacts(parent).length === 0
-      && listFactory1cArtifacts(renamedParent).length === 0,
-      `repl=${listFactory1cArtifacts(parent).join(',')} orig=${listFactory1cArtifacts(renamedParent).join(',')}`);
-  }
-
-  // Post-check: after successful publish, parent pathname swapped → fail closed + fd cleanup.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-post-swap-'));
-    const parent = path.join(base, 'validated-parent');
-    const renamedParent = path.join(base, 'validated-parent.post-renamed');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      afterAtomicRename: ({ parentPathname }) => {
-        fs.renameSync(parentPathname, renamedParent);
-        fs.mkdirSync(parentPathname);
-      },
-    });
-    red('post_publish_parent_swap_fail_closed',
-      !w.ok && w.errors.includes('parent_pathname_identity_mismatch'),
-      (w.errors || []).join(','));
-    const underReplacement = dirHasFactory1cTree(parent);
-    const underOriginal = dirHasFactory1cTree(renamedParent);
-    red('post_publish_swap_cleanup_no_artifacts_replacement',
-      underReplacement.length === 0, underReplacement.join(','));
-    red('post_publish_swap_cleanup_no_artifacts_original',
-      underOriginal.length === 0, underOriginal.join(','));
-  }
-
-  // RED: empty final appears immediately before publish — Node rename would replace it;
-  // GNU --no-clobber must leave it untouched with no preview published.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-empty-final-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      beforeRenameAttempt: ({ finalAbs }) => {
-        fs.mkdirSync(finalAbs); // empty preexisting final
-      },
-    });
-    red('empty_final_race_fail_closed',
-      !w.ok && w.errors.includes('gnu_mv_publish_source_remaining'),
-      (w.errors || []).join(','));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('empty_final_race_staging_cleaned_via_fd', stagingLeft.length === 0, stagingLeft.join(','));
-    const emptyUntouched = fs.existsSync(finalDir)
-      && fs.readdirSync(finalDir).length === 0
-      && !fs.existsSync(path.join(finalDir, 'dry-run-manifest.json'))
-      && !fs.existsSync(path.join(finalDir, 'preview'));
-    red('empty_final_race_untouched_no_preview', emptyUntouched);
-  }
-
-  // Nonempty final injected after pre-checks → no-clobber leaves source; fail closed.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-nonempty-final-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      beforeRenameAttempt: ({ finalAbs }) => {
-        fs.mkdirSync(finalAbs);
-        fs.writeFileSync(path.join(finalAbs, 'blocker.txt'), 'nope');
-      },
-    });
-    red('nonempty_final_race_fail_closed',
-      !w.ok && w.errors.includes('gnu_mv_publish_source_remaining'),
-      (w.errors || []).join(','));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('nonempty_final_race_staging_cleaned_via_fd', stagingLeft.length === 0, stagingLeft.join(','));
-    const blockerIntact = fs.existsSync(path.join(finalDir, 'blocker.txt'))
-      && !fs.existsSync(path.join(finalDir, 'dry-run-manifest.json'));
-    red('nonempty_final_race_did_not_publish_preview', blockerIntact);
-  }
-
-  // Symlink final injected after pre-checks → no-clobber; fail closed; symlink preserved.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-symlink-race-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const decoy = path.join(base, 'decoy');
-    fs.mkdirSync(decoy);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      beforeRenameAttempt: ({ finalAbs }) => {
-        fs.symlinkSync(decoy, finalAbs);
-      },
-    });
-    red('symlink_final_publish_race_fail_closed',
-      !w.ok && w.errors.includes('gnu_mv_publish_source_remaining'),
-      (w.errors || []).join(','));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('symlink_final_publish_race_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-    red('symlink_final_publish_race_symlink_preserved',
-      fs.lstatSync(finalDir).isSymbolicLink()
-      && !fs.existsSync(path.join(decoy, 'dry-run-manifest.json')));
-  }
-
-  // Tool failure / spawn error path.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-tool-fail-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      spawnPublish: () => ({ error: Object.assign(new Error('enoent'), { code: 'ENOENT' }) }),
-    });
-    red('publish_tool_failure_fail_closed',
-      !w.ok && w.errors.some((e) => String(e).startsWith('gnu_mv_publish_spawn_error:')),
-      (w.errors || []).join(','));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('publish_tool_failure_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-    red('publish_tool_failure_no_final', !fs.existsSync(finalDir));
-  }
-
-  // Signal termination during publish.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-signal-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      spawnPublish: () => ({ status: null, signal: 'SIGTERM', error: undefined }),
-    });
-    red('publish_signal_fail_closed',
-      !w.ok && w.errors.includes('gnu_mv_publish_signal:SIGTERM'),
-      (w.errors || []).join(','));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('publish_signal_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-  }
-
-  // Nonzero exit.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-nonzero-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      spawnPublish: () => ({ status: 1, signal: null, error: undefined }),
-    });
-    red('publish_nonzero_fail_closed',
-      !w.ok && w.errors.includes('gnu_mv_publish_nonzero:1'),
-      (w.errors || []).join(','));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('publish_nonzero_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-  }
-
-  // Real move then mocked signal: ownership sees owned final → remove it and fail.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-real-signal-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      spawnPublish: ({ file, args, spawnOpts }) => {
-        spawnSync(file, args, spawnOpts); // real move completes
-        return { status: null, signal: 'SIGTERM', error: undefined };
-      },
-    });
-    red('publish_real_move_then_signal_fail_closed',
-      !w.ok && w.errors.includes('gnu_mv_publish_signal:SIGTERM'),
-      (w.errors || []).join(','));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('publish_real_move_then_signal_owned_final_removed', !fs.existsSync(finalDir));
-    red('publish_real_move_then_signal_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-  }
-
-  // Real move then mocked nonzero: owned final removed.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-real-nonzero-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      spawnPublish: ({ file, args, spawnOpts }) => {
-        spawnSync(file, args, spawnOpts);
-        return { status: 1, signal: null, error: undefined };
-      },
-    });
-    red('publish_real_move_then_nonzero_fail_closed',
-      !w.ok && w.errors.includes('gnu_mv_publish_nonzero:1'),
-      (w.errors || []).join(','));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('publish_real_move_then_nonzero_owned_final_removed', !fs.existsSync(finalDir));
-    red('publish_real_move_then_nonzero_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-  }
-
-  // Real move then mocked spawn error: owned final removed.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-real-error-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      spawnPublish: ({ file, args, spawnOpts }) => {
-        spawnSync(file, args, spawnOpts);
-        return { error: Object.assign(new Error('eio'), { code: 'EIO' }) };
-      },
-    });
-    red('publish_real_move_then_error_fail_closed',
-      !w.ok && w.errors.some((e) => String(e).startsWith('gnu_mv_publish_spawn_error:')),
-      (w.errors || []).join(','));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('publish_real_move_then_error_owned_final_removed', !fs.existsSync(finalDir));
-    red('publish_real_move_then_error_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-  }
-
-  // Bad spawn with source still present + external final: clean staging, preserve final.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-signal-ext-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      beforeRenameAttempt: ({ finalAbs }) => {
-        fs.mkdirSync(finalAbs);
-        fs.writeFileSync(path.join(finalAbs, 'external.txt'), 'keep-me');
-      },
-      spawnPublish: () => ({ status: null, signal: 'SIGKILL', error: undefined }),
-    });
-    red('publish_signal_external_final_fail_closed',
-      !w.ok && w.errors.includes('gnu_mv_publish_signal:SIGKILL'),
-      (w.errors || []).join(','));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('publish_signal_external_final_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-    red('publish_signal_external_final_preserved',
-      fs.existsSync(path.join(finalDir, 'external.txt'))
-      && fs.readFileSync(path.join(finalDir, 'external.txt'), 'utf8') === 'keep-me'
-      && !fs.existsSync(path.join(finalDir, 'dry-run-manifest.json')));
-  }
-
-  // Post-hook tamper: modify file bytes → fail + owned final removed.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-tamper-mod-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      afterAtomicRename: ({ finalAbs }) => {
-        fs.writeFileSync(`${finalAbs}/dry-run-manifest.json`, '{"tampered":true}\n');
-      },
-    });
-    red('post_publish_tamper_modify_fail_closed',
-      !w.ok && w.errors.some((e) => String(e).startsWith('gnu_mv_publish_content_mismatch:')),
-      (w.errors || []).join(','));
-    red('post_publish_tamper_modify_owned_final_removed', !fs.existsSync(finalDir));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('post_publish_tamper_modify_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-  }
-
-  // Post-hook tamper: delete a required file → fail + owned final removed.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-tamper-del-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      afterAtomicRename: ({ finalAbs }) => {
-        fs.unlinkSync(`${finalAbs}/dry-run-manifest.json`);
-      },
-    });
-    red('post_publish_tamper_delete_fail_closed',
-      !w.ok && w.errors.some((e) => String(e).startsWith('gnu_mv_publish_content_missing:')),
-      (w.errors || []).join(','));
-    red('post_publish_tamper_delete_owned_final_removed', !fs.existsSync(finalDir));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('post_publish_tamper_delete_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-  }
-
-  // Post-hook tamper: add unexpected file → fail + owned final removed.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-tamper-add-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      afterAtomicRename: ({ finalAbs }) => {
-        fs.writeFileSync(`${finalAbs}/extra-evil.txt`, 'nope');
-      },
-    });
-    red('post_publish_tamper_add_fail_closed',
-      !w.ok && w.errors.some((e) => String(e).startsWith('gnu_mv_publish_unexpected_path:')),
-      (w.errors || []).join(','));
-    red('post_publish_tamper_add_owned_final_removed', !fs.existsSync(finalDir));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('post_publish_tamper_add_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-  }
-
-  // Post-hook tamper: replace a file with a symlink → fail + owned final removed.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-tamper-sym-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const decoy = path.join(base, 'decoy-manifest.json');
-    fs.writeFileSync(decoy, '{"decoy":true}\n');
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      afterAtomicRename: ({ finalAbs }) => {
-        fs.unlinkSync(`${finalAbs}/dry-run-manifest.json`);
-        fs.symlinkSync(decoy, `${finalAbs}/dry-run-manifest.json`);
-      },
-    });
-    red('post_publish_tamper_symlink_fail_closed',
-      !w.ok && w.errors.some((e) => String(e).startsWith('gnu_mv_publish_content_is_symlink:')),
-      (w.errors || []).join(','));
-    red('post_publish_tamper_symlink_owned_final_removed', !fs.existsSync(finalDir));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('post_publish_tamper_symlink_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-    red('post_publish_tamper_symlink_decoy_untouched',
-      fs.existsSync(decoy) && fs.readFileSync(decoy, 'utf8') === '{"decoy":true}\n');
-  }
-
-  // Ambiguous state: exit 0 but source still present (no-clobber skip / lied success).
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-ambiguous-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    const finalDir = path.join(parent, 'final');
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      spawnPublish: () => ({ status: 0, signal: null, error: undefined }), // no-op
-    });
-    red('publish_ambiguous_source_remaining_fail_closed',
-      !w.ok && w.errors.includes('gnu_mv_publish_source_remaining'),
-      (w.errors || []).join(','));
-    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
-    red('publish_ambiguous_staging_cleaned', stagingLeft.length === 0, stagingLeft.join(','));
-    red('publish_ambiguous_no_final_published', !fs.existsSync(finalDir));
-  }
-
-  // Argument-injection / spawn contract: fixed executable+flags, no shell, closed stdio,
-  // fd-anchored paths only; metacharacters in leaf names stay literal argv elements.
-  {
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-argv-'));
-    const parent = path.join(base, 'parent');
-    fs.mkdirSync(parent);
-    // No path separators — those would change dirname — but shell metacharacters remain.
-    const evilName = 'final; id; echo PWNED$(whoami)`id`';
-    const finalDir = path.join(parent, evilName);
-    let observed = null;
-    const w = gen.writeDryRunPreview(preview, {
-      repoRoot: ROOT,
-      outputDir: finalDir,
-      observePublishSpawn: (obs) => { observed = obs; },
-    });
-    red('publish_argv_injection_path_succeeds_literally', w.ok, (w.errors || []).join(','));
-    red('publish_argv_exact_executable',
-      observed && observed.file === gen.GNU_MV_PATH, observed && observed.file);
-    red('publish_argv_exact_flags_prefix',
-      observed
-      && gen.deepEqual(observed.args.slice(0, gen.GNU_MV_PUBLISH_ARGS.length), [...gen.GNU_MV_PUBLISH_ARGS]),
-      observed && JSON.stringify(observed.args));
-    red('publish_argv_no_shell',
-      observed && observed.spawnOpts.shell === false);
-    red('publish_argv_stdio_closed',
-      observed
-      && gen.deepEqual(observed.spawnOpts.stdio, ['ignore', 'ignore', 'ignore']));
-    red('publish_argv_paths_fd_anchored',
-      observed
-      && observed.args.length === gen.GNU_MV_PUBLISH_ARGS.length + 2
-      && observed.args.every((a, i) => (
-        i < gen.GNU_MV_PUBLISH_ARGS.length
-        || /^\/proc\/\d+\/fd\/\d+\//.test(String(a))
-      )));
-    red('publish_argv_leaf_metacharacters_literal',
-      observed && observed.args[observed.args.length - 1].endsWith(`/${evilName}`));
-    red('publish_argv_no_shell_side_effects_in_parent',
-      !fs.existsSync(path.join(parent, 'PWNED'))
-      && fs.readdirSync(parent).filter((n) => n !== evilName).length === 0);
-  }
-}
 
 // Tip scope (diff vs master basis when available)
 console.log('\n── Tip scope ──');

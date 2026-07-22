@@ -31,7 +31,7 @@ Freeze a **finite, source-only acceptance contract** before any client-productiz
 
 **1B forbids:** generator, client instance materialization, runtime loading, IaC, DB, deploy, live calls.
 
-**1C forbids:** apply path, registry edits, `config/clients` writes, runtime loading, IaC, DB, deploy, secret materialization, live network calls.
+**1C forbids:** apply path, disk materialization / `--output-dir`, registry edits, `config/clients` writes, runtime loading, IaC, DB, deploy, secret materialization, live network calls. Safe disk materialization is **unsupported** (not deferred proof).
 
 **Reject:** extra stages, renamed gates, or claiming third-tenant live/prod as current-stage evidence.
 
@@ -90,15 +90,15 @@ Canonical freeze: `fixtures/factory-client-productization/slice1a-inventory.json
 node scripts/onboard-client.js \
   --archetype surf_house \
   --substitutions fixtures/factory-client-productization/slice1c-substitutions-surf_house.json \
-  --output-dir /tmp/factory-1c-preview
+  [--stdout]
 ```
 
 - Mode: `dry-run` only (`--apply` rejected)
-- Emits canonical sorted JSON preview + `dry-run-manifest.json` (hashes) to an explicit safe output directory or `--stdout` (stdout is zero-write)
-- Materialization: nonexistent final dir; parent chain lstat non-symlink + realpath outside forbidden roots; open parent fd (`O_DIRECTORY|O_NOFOLLOW`) with fstat dev/ino; Linux `/proc/self/fd/<fd>`-anchored in-process staging/final; pathname identity re-check before/after publish; private sibling staging; exclusive creates; **Linux/GNU disk-mode sole local subprocess** `/usr/bin/mv --no-copy --no-clobber -T` (argument-array spawn, no shell, closed stdio, `/proc/<pid>/fd/<fd>` argv anchors) for atomic no-replace publish — Node rename is not used (empty final replace surface); after every spawn outcome inspect fd-anchored staging/final vs staged inode and track ownership (owned final removed on bad spawn; source present cleans staging only and preserves external final; impossible state deletes nothing unowned); success requires source absent + final present + inode match, then post-hook exact output-set byte/hash re-verify against the precomputed preview; fail closed if final appears, parent identity mismatches, spawn signal/nonzero/ambiguous, tampering, or exact mv/options unavailable; staging/final cleaned via fd anchor on error; still no apply/network/DB/cloud/runtime
+- Emission: **stdout only** (default; `--stdout` optional) — one canonical JSON envelope with exact preview files + manifest (hashes). **Zero writes.**
+- **Safe disk materialization is unsupported** — `--output-dir` and all materialization/write flags reject. No `writeDryRunPreview`, no mv publish subprocess, no fd/procfs hooks, and no filesystem publish path. Generation gates are satisfied by zero-write in-memory preview, not by disk publication.
 - Independent golden rendered-byte fixtures (`slice1c-golden/`, `slice1c-golden-lock.json`) lock output set + hashes; verifier compares generator bytes to fixtures without importing generator expectation helpers
-- Never overwrites; refuses output under `config/clients`, `config/archetypes`, or the repo root; rejects symlinked parent/final and nested path attacks
 - Validates slugs, required substitutions, unresolved placeholders, path traversal/collisions, existing tenant/location conflicts, secret/live-target shaped values, and all enablement false
+- Still no apply/network/DB/cloud/runtime
 
 ## Current-stage evidence vs third-tenant live/prod
 
@@ -106,7 +106,7 @@ node scripts/onboard-client.js \
 
 **Required for 1B:** exactly two static archetype template trees; placeholders only; all enablement off; independent schema/cross-ref/isolation verifier with adversarial REDs; working-tree reference bytes vs master blobs; 1A ledger evidence update for archetype gates **only when** the independent 1B validator passes.
 
-**Required for 1C:** pure dry-run library + CLI; byte-determinism; template immutability; exact output set; no side effects outside explicit output/stdout; adversarial rejection; 1A ledger evidence update for generation/safety gates **only when** the independent 1C validator passes.
+**Required for 1C:** pure dry-run library + CLI; byte-determinism; template immutability; exact output set; stdout zero-write; disk materialization unsupported (static/runtime REDs); adversarial rejection; 1A ledger evidence update for generation/safety gates **only when** the independent 1C verifier passes.
 
 **Out of scope for 1A–1E current-stage evidence:** third-tenant **live/prod** onboarding beyond the Wolfhouse + Sunset staging pair.
 
@@ -128,4 +128,4 @@ Hard regressions spawned by the verifiers: multiclient-isolation, no-client-hard
 
 ## What 1C does not authorize
 
-Apply/materialize client instances into `config/clients/` or registries, runtime loading of generated previews, mutating IaC/DB, deploying, materializing secrets, live network calls, raising RADAR gates, or treating a third live tenant as FACTORY closeout evidence.
+Apply or safely materialize preview bytes to disk, write client instances into `config/clients/` or registries, runtime loading of generated previews, mutating IaC/DB, deploying, materializing secrets, live network calls, raising RADAR gates, or treating a third live tenant as FACTORY closeout evidence.
