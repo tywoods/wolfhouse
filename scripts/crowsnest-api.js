@@ -37,6 +37,8 @@ const {
   listProspects,
   listQualificationsForProspect,
   listResearchForProspect,
+  listReviewQueue,
+  normalizeReviewQueueFilter,
   recordManualEvidence,
   recordQualification,
 } = require('./lib/crowsnest/crowsnest-sales');
@@ -171,6 +173,32 @@ function isSalesUnavailableFailure(value) {
   return isSalesUnavailableResult(value) || isSalesStoreUnavailableError(value);
 }
 
+function isSalesStoreFailure(value) {
+  if (isSalesUnavailableFailure(value)) return true;
+  return Boolean(
+    value
+      && value.ok === false
+      && value.status === 503
+      && (value.code === 'sales_store_misconfigured' || value.code === 'sales_unavailable'),
+  );
+}
+
+function sendSalesStoreFailure(res, result) {
+  if (isSalesUnavailableFailure(result) || (result && result.code === 'sales_unavailable')) {
+    return sendSalesUnavailable(res);
+  }
+  return sendJSON(
+    res,
+    503,
+    {
+      success: false,
+      code: (result && result.code) || 'sales_store_misconfigured',
+      error: (result && result.error) || 'Crowsnest Sales durable store is not configured.',
+    },
+    { 'Cache-Control': 'no-store' },
+  );
+}
+
 function getRequestMethod(req) {
   return (req.method || 'GET').toUpperCase();
 }
@@ -178,6 +206,11 @@ function getRequestMethod(req) {
 function getRequestPath(req) {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   return url.pathname;
+}
+
+function getRequestSearchParams(req) {
+  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  return url.searchParams;
 }
 
 function isBrowserUiAuthorized(req) {
@@ -439,6 +472,44 @@ async function handleProtectedUi(req, res, method, pathname) {
       pageOptions.prospects = await listProspects();
     }
     return sendHTML(res, 200, renderCrowsnestPage(pageOptions), { 'Cache-Control': 'no-store' }, cspNonce);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+}
+
+async function handleSalesReviewQueue(req, res, method) {
+  if (method !== 'GET' && method !== 'HEAD') {
+    return sendMethodNotAllowed(res, 'GET, HEAD');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  if (method === 'HEAD') {
+    return sendNoContentLike(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  }
+
+  const state = normalizeReviewQueueFilter(getRequestSearchParams(req).get('state'));
+  try {
+    const queue = await listReviewQueue({ state });
+    if (isSalesStoreFailure(queue)) {
+      return sendSalesStoreFailure(res, queue);
+    }
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      200,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_review',
+        reviewQueueFilter: (queue && queue.filter) || state,
+        reviewQueueItems: (queue && queue.items) || [],
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
   } catch (err) {
     if (isSalesUnavailableFailure(err)) {
       return sendSalesUnavailable(res);
@@ -933,6 +1004,10 @@ async function router(req, res) {
 
   if (pathname === '/sales/prospects') {
     return handleSalesCreateProspect(req, res, method);
+  }
+
+  if (pathname === '/sales/review') {
+    return handleSalesReviewQueue(req, res, method);
   }
 
   const decisionProspectId = matchSalesDecisionPath(pathname);
