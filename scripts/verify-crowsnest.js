@@ -178,7 +178,10 @@ ok('router protects /sales', routerBody.includes("pathname === '/sales'"));
 ok('router allowlists Sales create mutation', /\/sales\/prospects/.test(routerBody));
 ok('crowsnest-sales module exists', fs.existsSync(path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-sales.js')));
 ok('api requires crowsnest-sales', apiSrc.includes("require('./lib/crowsnest/crowsnest-sales')"));
-ok('page requires crowsnest-sales', pageSrc.includes("require('./crowsnest-sales')"));
+ok(
+  'page no longer couples directly to sales store reads',
+  !pageSrc.includes("require('./crowsnest-sales')"),
+);
 
 ok('unknown view does not produce arbitrary content', (() => {
   const weird = renderPageHtml({ view: '"><script>alert(1)</script>' });
@@ -382,6 +385,7 @@ ok('package.json has verify:crowsnest-auth', pkg && pkg.scripts && typeof pkg.sc
 ok('package.json has verify:crowsnest-ai-usage-contract', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-contract'] === 'string');
 ok('package.json has verify:crowsnest-ai-usage-adapter', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-adapter'] === 'string');
 ok('package.json has verify:crowsnest-sales', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-sales'] === 'string');
+ok('package.json has verify:crowsnest-sales-durable', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-sales-durable'] === 'string');
 
 console.log(`\n── verify:crowsnest: ${pass} passed, ${fail} failed ──`);
 if (fail === 0) {
