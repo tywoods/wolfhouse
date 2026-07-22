@@ -83,9 +83,9 @@ const MASTER_BASIS = '28ba003acc57bd732df17d799a95a4d99f69f2f9';
  * MASTER_BASIS..HEAD path allowlists. Placeholder equals MASTER_BASIS until
  * content commit; content+anchor bootstrap sets the real candidate SHA.
  */
-const REVIEWED_CANDIDATE = '28ba003acc57bd732df17d799a95a4d99f69f2f9';
+const REVIEWED_CANDIDATE = '6e12a3a506f45a69314f1da3a2eb1164c5488b38';
 /** Pre-merge reviewed tip (updated with REVIEWED_CANDIDATE on content bootstrap). */
-const LANDING_TIP = '28ba003acc57bd732df17d799a95a4d99f69f2f9';
+const LANDING_TIP = '6e12a3a506f45a69314f1da3a2eb1164c5488b38';
 /** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
 const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
 /** Git-anchored whole-path redesign pin (never frozen_only / fixture trust root). */
