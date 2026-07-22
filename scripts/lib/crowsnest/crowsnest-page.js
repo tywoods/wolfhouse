@@ -9,6 +9,11 @@ const path = require('path');
 
 const { getCrowsnestClients, getCrowsnestTemplates } = require('./crowsnest-clients');
 const { renderCrowsnestOnboardingSection } = require('./crowsnest-onboarding');
+const {
+  getResearchForProspect,
+  listAuditEvents,
+  listProspects,
+} = require('./crowsnest-sales');
 
 const SUNSET_LOGIN_CSS = fs.readFileSync(
   path.join(__dirname, '..', '..', '..', 'config', 'staff-portal', 'staff-login-page.css'),
@@ -270,6 +275,67 @@ a:focus-visible,button:focus-visible{outline:none;box-shadow:var(--focus)}
   padding:18px;
 }
 .placeholder-shell p{margin:0 0 10px;color:var(--text-2);font-size:15px;max-width:60ch}
+.sales-form .form-row{margin-bottom:12px}
+.sales-form label{
+  display:block;
+  margin:0 0 6px;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--text-3);
+}
+.sales-form input,.sales-form textarea,.sales-form select{
+  width:100%;
+  box-sizing:border-box;
+  min-height:40px;
+  padding:8px 12px;
+  border:1px solid rgba(30,42,54,.16);
+  border-radius:10px;
+  background:#fff;
+  color:var(--navy);
+  font:inherit;
+}
+.sales-form textarea{min-height:88px;resize:vertical}
+.sales-error{
+  margin:0 0 12px;
+  padding:10px 12px;
+  border-radius:10px;
+  background:#FEF1EC;
+  border:1px solid #F2C4AC;
+  color:#9B4020;
+  font-size:13px;
+}
+.btn-primary{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:40px;
+  padding:0 16px;
+  border:0;
+  border-radius:var(--radius-pill);
+  background:linear-gradient(180deg,#4A7C94 0%,#3A657A 100%);
+  color:#fff;
+  font-size:14px;
+  font-weight:800;
+  cursor:pointer;
+  box-shadow:var(--shadow-soft);
+}
+.btn-primary:hover{filter:brightness(1.05)}
+.prospect-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.prospect-list a{color:var(--sea);font-weight:700;text-decoration:none}
+.prospect-list a:hover{text-decoration:underline}
+.audit-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.audit-list li{
+  padding:10px 12px;
+  border:1px solid rgba(30,42,54,.1);
+  border-radius:10px;
+  background:#fff;
+  font-size:13px;
+  color:var(--text-2);
+}
+.fact-list{margin:0;padding-left:18px;color:var(--text-2);font-size:14px}
+.decision-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
 .ops-badge{
   display:inline-flex;
   align-items:center;
@@ -657,13 +723,14 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
 }
 `;
 
-const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications']);
+const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail']);
 
 const CROWSNEST_NAV_ITEMS = [
   { view: 'spyglass', href: '/', label: 'Spyglass' },
   { view: 'clients', href: '/clients', label: 'Clients' },
   { view: 'billing', href: '/billing', label: 'Billing' },
   { view: 'communications', href: '/communications', label: 'Communications' },
+  { view: 'sales', href: '/sales', label: 'Sales' },
 ];
 
 function normalizeCrowsnestView(raw) {
@@ -671,8 +738,12 @@ function normalizeCrowsnestView(raw) {
   return CROWSNEST_VIEWS.has(key) ? key : 'spyglass';
 }
 
+function navActiveView(view) {
+  return view === 'sales_detail' ? 'sales' : view;
+}
+
 function renderCrowsnestNav(activeView) {
-  const view = normalizeCrowsnestView(activeView);
+  const view = navActiveView(normalizeCrowsnestView(activeView));
   const links = CROWSNEST_NAV_ITEMS.map((item) => {
     const current = item.view === view;
     const aria = current ? ' aria-current="page"' : '';
@@ -787,10 +858,159 @@ function renderCommunicationsMain() {
     </section>`;
 }
 
-function renderViewMain(view, clients, templates) {
+function renderProspectListItems(prospects) {
+  if (!prospects.length) {
+    return '<p class="section-note">No prospects yet. Add a website or business name below.</p>';
+  }
+  const items = prospects.map((p) => {
+    const label = p.canonical_name || p.website_url || p.id;
+    return `<li class="card">
+        <a href="/sales/prospects/${escapeHtml(p.id)}">${escapeHtml(label)}</a>
+        <div class="overview-note">Status: <code>${escapeHtml(p.lifecycle_status)}</code></div>
+      </li>`;
+  }).join('\n      ');
+  return `<ul class="prospect-list">${items}</ul>`;
+}
+
+function renderSalesMain(options = {}) {
+  const prospects = listProspects();
+  const errorHtml = options.intakeError
+    ? `<p class="sales-error" role="alert">${escapeHtml(options.intakeError)}</p>`
+    : '';
+  return `<section id="sales" aria-labelledby="sales-title">
+      <p class="section-note">Manual intake only — in-memory prospects with fixture research. No HubSpot, Maps, Apollo, live AI research, or outreach sending.</p>
+      <h2 class="section">Prospects</h2>
+      ${renderProspectListItems(prospects)}
+
+      <h2 class="section">Manual intake</h2>
+      <article class="card">
+        <p class="section-note">Provide a business website <strong>or</strong> a business name (Northern Spain pilot).</p>
+        ${errorHtml}
+        <form class="sales-form" method="post" action="/sales/prospects" accept-charset="utf-8">
+          <div class="form-row">
+            <label for="website_url">Business website</label>
+            <input id="website_url" name="website_url" type="url" placeholder="https://example-surf-house.example" value="${escapeHtml(options.intakeWebsiteUrl || '')}">
+          </div>
+          <div class="form-row">
+            <label for="business_name">Business name</label>
+            <input id="business_name" name="business_name" type="text" placeholder="Somo Surf House" value="${escapeHtml(options.intakeBusinessName || '')}">
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Create prospect</button>
+          </div>
+        </form>
+      </article>
+      <div class="safety"><strong>Safety:</strong> In-memory Sales Slice 1. Authenticated Crowsnest operators can record decisions. No CRM writes and no outreach delivery.</div>
+    </section>`;
+}
+
+function renderAuditList(events) {
+  if (!events.length) {
+    return '<p class="section-note">No audit events yet.</p>';
+  }
+  const items = events.map((event) => {
+    const detail = event.detail || {};
+    const bits = [
+      `<strong>${escapeHtml(event.action)}</strong>`,
+      `actor=${escapeHtml(event.actor || 'unknown')}`,
+      event.at ? `at=${escapeHtml(event.at)}` : '',
+      detail.decision ? `decision=${escapeHtml(detail.decision)}` : '',
+      detail.reason ? `reason=${escapeHtml(detail.reason)}` : '',
+      detail.reviewer_id ? `reviewer=${escapeHtml(detail.reviewer_id)}` : '',
+    ].filter(Boolean);
+    return `<li>${bits.join(' · ')}</li>`;
+  }).join('\n        ');
+  return `<ul class="audit-list" aria-label="Append-only audit trail">
+        ${items}
+      </ul>`;
+}
+
+function renderSalesDetailMain(options = {}) {
+  const prospect = options.prospect || null;
+  if (!prospect) {
+    return `<section id="sales-detail" class="card placeholder-shell">
+      <p>Prospect not found.</p>
+      <p><a href="/sales">Back to Sales</a></p>
+    </section>`;
+  }
+  const research = options.research || getResearchForProspect(prospect.id);
+  const audit = options.auditEvents || listAuditEvents(prospect.id);
+  const errorHtml = options.decisionError
+    ? `<p class="sales-error" role="alert">${escapeHtml(options.decisionError)}</p>`
+    : '';
+  const facts = (research && research.facts) || [];
+  const factItems = facts.map((fact) => (
+    `<li><strong>${escapeHtml(fact.type)}:</strong> ${escapeHtml(fact.value)} <em>(citation: ${escapeHtml(fact.citation)})</em></li>`
+  )).join('\n          ');
+  const limitations = ((research && research.limitations) || []).map((line) => (
+    `<li>${escapeHtml(line)}</li>`
+  )).join('\n          ');
+  const lastDecision = prospect.last_decision
+    ? `<p>Last Admin decision: <code>${escapeHtml(prospect.last_decision.decision)}</code> — ${escapeHtml(prospect.last_decision.reason)} (reviewer: ${escapeHtml(prospect.last_decision.reviewer_id)})</p>`
+    : '<p>No Admin decision recorded yet.</p>';
+
+  return `<section id="sales-detail" aria-labelledby="sales-detail-title">
+      <p><a href="/sales">← Back to Sales</a></p>
+      <article class="card">
+        <h2>Review detail</h2>
+        <p><strong>Business name:</strong> ${escapeHtml(prospect.canonical_name || 'n/a')}</p>
+        <p><strong>Website:</strong> ${escapeHtml(prospect.website_url || 'n/a')}</p>
+        <p><strong>Lifecycle status:</strong> <code>${escapeHtml(prospect.lifecycle_status)}</code></p>
+        ${lastDecision}
+      </article>
+
+      <article class="card">
+        <h2>Fixture research</h2>
+        <p class="section-note">${escapeHtml((research && research.job_label) || 'Manual / fixture research job')}</p>
+        <p>${escapeHtml((research && research.summary) || 'No research snapshot.')}</p>
+        <p><strong>Research status:</strong> <code>${escapeHtml((research && research.status) || 'n/a')}</code> · source=<code>${escapeHtml((research && research.source) || 'fixture')}</code></p>
+        <h3>Evidence / facts</h3>
+        <ul class="fact-list">
+          ${factItems || '<li>No facts</li>'}
+        </ul>
+        <h3>Limitations</h3>
+        <ul class="fact-list">
+          ${limitations || '<li>None listed</li>'}
+        </ul>
+      </article>
+
+      <article class="card">
+        <h2>Admin status decision</h2>
+        <p class="section-note">Any authenticated Crowsnest operator may record approve, reject, or needs_research in this MVP. No HubSpot sync and no outreach send in this slice.</p>
+        ${errorHtml}
+        <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/decision" accept-charset="utf-8">
+          <div class="form-row">
+            <label for="decision">Decision</label>
+            <select id="decision" name="decision" required>
+              <option value="approved">Approve</option>
+              <option value="rejected">Reject</option>
+              <option value="needs_research">Needs research</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="reason">Reason</label>
+            <textarea id="reason" name="reason" required placeholder="Why this decision?"></textarea>
+          </div>
+          <div class="decision-actions">
+            <button class="btn-primary" type="submit">Record Admin decision</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="card">
+        <h2>Append-only audit trail</h2>
+        ${renderAuditList(audit)}
+      </article>
+      <div class="safety"><strong>Safety:</strong> In-memory decisions only. No CRM writes, no outreach delivery, no live provider calls.</div>
+    </section>`;
+}
+
+function renderViewMain(view, clients, templates, options = {}) {
   if (view === 'clients') return renderClientsMain(clients, templates);
   if (view === 'billing') return renderBillingMain();
   if (view === 'communications') return renderCommunicationsMain();
+  if (view === 'sales') return renderSalesMain(options);
+  if (view === 'sales_detail') return renderSalesDetailMain(options);
   return renderSpyglassMain(clients);
 }
 
@@ -798,6 +1018,7 @@ function viewPageTitle(view) {
   if (view === 'clients') return 'Clients';
   if (view === 'billing') return 'Billing';
   if (view === 'communications') return 'Communications';
+  if (view === 'sales' || view === 'sales_detail') return 'Sales';
   return 'Spyglass';
 }
 
@@ -805,6 +1026,8 @@ function viewSubtitle(view) {
   if (view === 'clients') return 'Static client cards, templates, and onboarding mockup';
   if (view === 'billing') return 'Billing sources are not connected yet';
   if (view === 'communications') return 'Communications sources are not connected yet';
+  if (view === 'sales') return 'Manual prospect intake, fixture research, and Admin review';
+  if (view === 'sales_detail') return 'Prospect review detail, fixture research, and Admin decision';
   return 'Internal Luna Front Desk overview dashboard';
 }
 
@@ -814,7 +1037,7 @@ function renderCrowsnestPage(options = {}) {
   const clients = getCrowsnestClients();
   const templates = getCrowsnestTemplates();
   const title = viewPageTitle(view);
-  const main = renderViewMain(view, clients, templates);
+  const main = renderViewMain(view, clients, templates, options);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -836,7 +1059,7 @@ function renderCrowsnestPage(options = {}) {
         </form>
       </div>
       ${renderCrowsnestNav(view)}
-      <h1 class="page-title" id="${escapeHtml(view)}-title">${escapeHtml(title)}</h1>
+      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : view)}-title">${escapeHtml(title)}</h1>
       <p class="sub">${escapeHtml(viewSubtitle(view))}</p>
     </header>
 
