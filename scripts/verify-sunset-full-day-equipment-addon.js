@@ -66,20 +66,29 @@ assert('isFullDayEquipmentAddon false for surfboard',
 
 // ── 2. Normalize + validation (eligibility, subset, qty) ─────────────────────
 console.log('\n[2] Normalize + validate');
+// Frozen refDate keeps fixture ISOs future-stable (same pattern as date-boundary verifier).
+const REF = new Date('2026-07-13T12:00:00Z');
 const okBody = {
   guest_name: 'Ana', payment_status: 'unpaid', service_dates: ['2026-07-20', '2026-07-21'],
-  components: { course: { quantity: 3, course_id: 'c1' }, full_day_equipment_extension: { enabled: true, dates: { '2026-07-20': 3, '2026-07-21': 2 } } },
+  components: { course: { quantity: 3, course_id: 'c1', tier_key: '1_week' }, full_day_equipment_extension: { enabled: true, dates: { '2026-07-20': 3, '2026-07-21': 2 } } },
 };
-const okV = validateScheduleBookingBody(okBody);
+const okV = validateScheduleBookingBody(okBody, { refDate: REF });
 assert('valid combo passes', okV.ok === true, okV.error);
 assert('addon dates preserved', okV.ok && JSON.stringify(okV.value.components.full_day_equipment_extension.dates) === JSON.stringify({ '2026-07-20': 3, '2026-07-21': 2 }));
 
 const badDate = JSON.parse(JSON.stringify(okBody));
 badDate.components.full_day_equipment_extension.dates = { '2026-08-01': 1 };
-assert('ineligible add-on date rejected', validateScheduleBookingBody(badDate).ok === false);
+assert('ineligible add-on date rejected', validateScheduleBookingBody(badDate, { refDate: REF }).ok === false);
 
 const addonAlone = { guest_name: 'X', payment_status: 'unpaid', service_dates: ['2026-07-20'], components: { full_day_equipment_extension: { enabled: true, dates: { '2026-07-20': 1 } } } };
-assert('add-on alone rejected', validateScheduleBookingBody(addonAlone).ok === false);
+assert('add-on alone rejected', validateScheduleBookingBody(addonAlone, { refDate: REF }).ok === false);
+
+// Wall-clock past date (no freeze): real explicit_past_date rejection must still fire.
+const realPast = validateScheduleBookingBody({
+  guest_name: 'Ana', payment_status: 'unpaid', service_dates: ['2020-01-01'],
+  components: { course: { quantity: 1, course_id: 'c1', tier_key: '1_week' }, full_day_equipment_extension: { enabled: true, dates: { '2020-01-01': 1 } } },
+});
+assert('explicit past date rejected', realPast.ok === false && realPast.error === 'explicit_past_date', JSON.stringify(realPast));
 
 const badQty = normalizeFullDayEquipmentAddon({ enabled: true, dates: { '2026-07-20': 0 } });
 assert('quantity 0 rejected', badQty.ok === false);
