@@ -13,6 +13,9 @@
  * no CRM provider SDK/HTTP/env keys, no automatic writes.
  * Chapter 6 adds manual internal outreach drafts only — no SMTP/WhatsApp/LinkedIn/HubSpot
  * send, no webhooks, no auto-generation.
+ * Chapter 7 adds a provider-neutral discovery source contract + manual adapter only —
+ * validation/dedup preview and explicit operator import; no Maps/Apollo/web search,
+ * no auto-create prospects.
  */
 
 const {
@@ -23,6 +26,11 @@ const {
   resolveSalesStoreConfig,
   salesUnavailableResult,
 } = require('./crowsnest-sales-store');
+const {
+  PREVIEW_DISCLAIMER: DISCOVERY_PREVIEW_DISCLAIMER,
+  previewDiscoveryDeduplication,
+} = require('./crowsnest-sales-discovery-contract');
+const { adaptManualDiscoveryProposal } = require('./crowsnest-sales-discovery-manual');
 
 const ALLOWED_DECISIONS = new Set(['approved', 'rejected', 'needs_research']);
 const ALLOWED_QUALIFICATION_DECISIONS = new Set(['qualified', 'not_qualified', 'needs_more_research']);
@@ -1448,6 +1456,132 @@ function getSalesStoreMode() {
   return resolveSalesStoreConfig(process.env);
 }
 
+/**
+ * Preview one manual discovery proposal: normalize, quality signals, dedup.
+ * Never creates a prospect.
+ */
+async function previewManualDiscovery(input = {}) {
+  const adapted = adaptManualDiscoveryProposal(input);
+  if (!adapted.ok) {
+    return {
+      ok: false,
+      error: (adapted.errors && adapted.errors[0]) || 'Invalid discovery proposal.',
+      errors: adapted.errors || [],
+      preview_only: true,
+      prospect_created: false,
+      auto_created: false,
+      status: 400,
+    };
+  }
+
+  let existing = [];
+  try {
+    const listed = await listProspects();
+    existing = Array.isArray(listed) ? listed : [];
+  } catch (err) {
+    if (isSalesStoreUnavailableError(err)) {
+      return salesUnavailableResult();
+    }
+    throw err;
+  }
+
+  const dedup = previewDiscoveryDeduplication({
+    proposal: adapted.proposal,
+    existingProspects: existing,
+  });
+  if (!dedup.ok) {
+    return {
+      ok: false,
+      error: (dedup.errors && dedup.errors[0]) || 'Dedup preview failed.',
+      errors: dedup.errors || [],
+      preview_only: true,
+      prospect_created: false,
+      auto_created: false,
+      status: 400,
+    };
+  }
+
+  return {
+    ok: true,
+    preview_only: true,
+    prospect_created: false,
+    auto_created: false,
+    disclaimer: DISCOVERY_PREVIEW_DISCLAIMER,
+    schema_version: adapted.schema_version,
+    proposal: adapted.proposal,
+    provenance: adapted.provenance,
+    quality: adapted.quality,
+    dedup,
+  };
+}
+
+/**
+ * Explicit operator import of one manual discovery proposal.
+ * Creates a durable prospect via createProspect — never auto-runs from search.
+ */
+async function importManualDiscoveryProposal(input = {}, actor = 'Admin') {
+  const adapted = adaptManualDiscoveryProposal(input);
+  if (!adapted.ok) {
+    return {
+      ok: false,
+      error: (adapted.errors && adapted.errors[0]) || 'Invalid discovery proposal.',
+      errors: adapted.errors || [],
+      prospect_created: false,
+      auto_created: false,
+      status: 400,
+    };
+  }
+
+  const created = await createProspect(
+    {
+      business_name: adapted.proposal.business_name,
+      website_url: adapted.proposal.website_url,
+    },
+    actor,
+  );
+  if (!created || created.ok === false) {
+    return {
+      ...(created || { ok: false, error: 'Unable to create prospect.' }),
+      prospect_created: false,
+      auto_created: false,
+    };
+  }
+
+  const audit = await appendAudit({
+    actor: String(actor || 'Admin'),
+    action: 'discovery_proposal_imported',
+    entity_type: 'prospect',
+    entity_id: created.prospect.id,
+    detail: {
+      prospect_id: created.prospect.id,
+      source_name: adapted.provenance.source_name,
+      source_reference: adapted.proposal.source_reference,
+      location: adapted.proposal.location,
+      category: adapted.proposal.category,
+      source_note: adapted.proposal.source_reference.request_reference,
+      schema_version: adapted.schema_version,
+      auto_created: false,
+    },
+  });
+  if (audit && audit.ok === false) {
+    return {
+      ...audit,
+      prospect_created: false,
+      auto_created: false,
+    };
+  }
+
+  return {
+    ok: true,
+    prospect: created.prospect,
+    research: created.research,
+    proposal: adapted.proposal,
+    provenance: adapted.provenance,
+    prospect_created: true,
+    auto_created: false,
+  };
+}
+
 module.exports = {
   ALLOWED_DECISIONS,
   ALLOWED_EVIDENCE_CONFIDENCE,
@@ -1457,6 +1591,7 @@ module.exports = {
   CRM_PREVIEW_LIFECYCLE_STAGE,
   CRM_PREVIEW_STATUS_PROPERTY,
   CRM_PREVIEW_STATUS_VALUE,
+  DISCOVERY_PREVIEW_DISCLAIMER,
   EVIDENCE_BOUNDS,
   OUTREACH_DRAFT_BOUNDS,
   OUTREACH_DRAFT_DISCLAIMER,
@@ -1478,6 +1613,7 @@ module.exports = {
   getProspect,
   getResearchForProspect,
   getSalesStoreMode,
+  importManualDiscoveryProposal,
   isActionableReviewBucket,
   listAuditEvents,
   listCrmReviewMarksForProspect,
@@ -1488,6 +1624,7 @@ module.exports = {
   listReviewQueue,
   markReadyForCrmReview,
   normalizeReviewQueueFilter,
+  previewManualDiscovery,
   recordManualEvidence,
   recordQualification,
   resetSalesStore,

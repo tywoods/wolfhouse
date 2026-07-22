@@ -840,7 +840,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
 }
 `;
 
-const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail', 'sales_review', 'sales_crm_preview', 'sales_outreach_draft']);
+const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail', 'sales_review', 'sales_crm_preview', 'sales_outreach_draft', 'sales_discovery']);
 
 const CROWSNEST_NAV_ITEMS = [
   { view: 'spyglass', href: '/', label: 'Spyglass' },
@@ -856,7 +856,7 @@ function normalizeCrowsnestView(raw) {
 }
 
 function navActiveView(view) {
-  return (view === 'sales_detail' || view === 'sales_review' || view === 'sales_crm_preview' || view === 'sales_outreach_draft') ? 'sales' : view;
+  return (view === 'sales_detail' || view === 'sales_review' || view === 'sales_crm_preview' || view === 'sales_outreach_draft' || view === 'sales_discovery') ? 'sales' : view;
 }
 
 function renderCrowsnestNav(activeView) {
@@ -1226,7 +1226,7 @@ function renderSalesMain(options = {}) {
     : '';
   return `<section id="sales" aria-labelledby="sales-title">
       <p class="section-note">Manual intake — durable Sales store when configured; local/test may use in-memory fallback. No HubSpot, Maps, Apollo, live AI research, or outreach sending.</p>
-      <p><a href="/sales/review">Open Sales review queue</a></p>
+      <p><a href="/sales/review">Open Sales review queue</a> · <a href="/sales/discovery">Manual discovery preview</a></p>
       <h2 class="section">Prospects</h2>
       ${renderProspectListItems(prospects)}
 
@@ -1270,6 +1270,8 @@ function renderAuditList(events) {
         ? `qualification=${escapeHtml(detail.qualification_assessment_id)}`
         : '',
       detail.source_label ? `source=${escapeHtml(detail.source_label)}` : '',
+      detail.source_note ? `source_note=${escapeHtml(detail.source_note)}` : '',
+      detail.source_name ? `discovery_source=${escapeHtml(detail.source_name)}` : '',
       detail.confidence ? `confidence=${escapeHtml(detail.confidence)}` : '',
       Array.isArray(detail.evidence_ids) && detail.evidence_ids.length
         ? `evidence_refs=${escapeHtml(detail.evidence_ids.join(','))}`
@@ -1800,6 +1802,115 @@ function renderSalesOutreachDraftMain(options = {}) {
     </section>`;
 }
 
+function renderDiscoveryDedupMatches(matches) {
+  if (!Array.isArray(matches) || matches.length === 0) {
+    return '<p class="section-note">No duplicate matches against existing prospects.</p>';
+  }
+  const items = matches.map((match) => {
+    const label = escapeHtml(match.canonical_name || match.prospect_id || 'prospect');
+    const reason = escapeHtml(match.reason || match.match_type || 'match');
+    const website = match.website_url ? ` · ${escapeHtml(match.website_url)}` : '';
+    const href = match.prospect_id ? `/sales/prospects/${encodeURIComponent(match.prospect_id)}` : '';
+    const link = href
+      ? `<a href="${escapeHtml(href)}">${label}</a>`
+      : label;
+    return `<li>${link} · match=${reason}${website}</li>`;
+  }).join('\n        ');
+  return `<ul class="fact-list" aria-label="Discovery dedup matches">
+        ${items}
+      </ul>`;
+}
+
+function renderDiscoveryPreviewPanel(options = {}) {
+  const preview = options.discoveryPreview || null;
+  if (!preview) return '';
+  const proposal = preview.proposal || {};
+  const location = proposal.location || {};
+  const sourceRef = proposal.source_reference || {};
+  const quality = preview.quality || {};
+  const dedup = preview.dedup || {};
+  const formValues = options.discoveryForm || {};
+  const importFields = [
+    ['business_name', formValues.business_name || proposal.business_name || ''],
+    ['website_url', formValues.website_url || proposal.website_url || ''],
+    ['city', formValues.city || location.city || ''],
+    ['country_code', formValues.country_code || location.country_code || ''],
+    ['category', formValues.category || proposal.category || ''],
+    ['source_note', formValues.source_note || sourceRef.request_reference || ''],
+  ].map(([name, value]) => (
+    `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`
+  )).join('\n          ');
+
+  return `<article class="card" id="discovery-preview-result">
+        <h2>Normalized proposal preview</h2>
+        <p class="section-note"><strong>${escapeHtml(preview.disclaimer || 'Preview only — no prospect has been created.')}</strong></p>
+        <ul class="fact-list" aria-label="Normalized proposed prospect">
+          <li><strong>Business name:</strong> ${escapeHtml(proposal.business_name || '—')}</li>
+          <li><strong>Website:</strong> ${escapeHtml(proposal.website_url || '—')}</li>
+          <li><strong>Location:</strong> ${escapeHtml([location.city, location.country_code].filter(Boolean).join(', ') || '—')}</li>
+          <li><strong>Category:</strong> ${escapeHtml(proposal.category || '—')}</li>
+          <li><strong>Source reference:</strong> ${escapeHtml(sourceRef.source_name || 'manual')} · ${escapeHtml(sourceRef.request_reference || 'operator-entry')}</li>
+          <li><strong>Completeness:</strong> ${escapeHtml((quality.completeness) || '—')}</li>
+        </ul>
+        <h2>Deduplication preview</h2>
+        ${renderDiscoveryDedupMatches(dedup.matches)}
+        <form class="sales-form" method="post" action="/sales/discovery/import" accept-charset="utf-8">
+          ${importFields}
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Import as prospect (explicit)</button>
+          </div>
+        </form>
+        <p class="section-note">Import is an explicit operator action. Discovery never auto-creates prospects.</p>
+      </article>`;
+}
+
+function renderSalesDiscoveryMain(options = {}) {
+  const form = options.discoveryForm || {};
+  const errorHtml = options.discoveryError
+    ? `<p class="sales-error" role="alert">${escapeHtml(options.discoveryError)}</p>`
+    : '';
+  return `<section id="sales-discovery" aria-labelledby="sales-discovery-title">
+      <p class="section-note">Chapter 7 discovery source contract — manual adapter only. Enter one proposed prospect, preview normalization and deduplication, then optionally import. Preview only — no prospect has been created until you explicitly import.</p>
+      <p><a href="/sales">← Back to Sales intake</a></p>
+      <article class="card">
+        <h2>Manual discovery proposal</h2>
+        <p class="section-note">Provider-neutral fields for a future lead-discovery source. No Google Maps, Apollo, web search, or external API calls in this chapter.</p>
+        ${errorHtml}
+        <form class="sales-form" method="post" action="/sales/discovery/preview" accept-charset="utf-8">
+          <div class="form-row">
+            <label for="discovery_business_name">Business name</label>
+            <input id="discovery_business_name" name="business_name" type="text" placeholder="Somo Surf House" value="${escapeHtml(form.business_name || '')}">
+          </div>
+          <div class="form-row">
+            <label for="discovery_website_url">Website</label>
+            <input id="discovery_website_url" name="website_url" type="url" placeholder="https://example-surf-house.example" value="${escapeHtml(form.website_url || '')}">
+          </div>
+          <div class="form-row">
+            <label for="discovery_city">Location city</label>
+            <input id="discovery_city" name="city" type="text" placeholder="Somo" value="${escapeHtml(form.city || '')}">
+          </div>
+          <div class="form-row">
+            <label for="discovery_country_code">Location country code</label>
+            <input id="discovery_country_code" name="country_code" type="text" placeholder="ES" value="${escapeHtml(form.country_code || '')}">
+          </div>
+          <div class="form-row">
+            <label for="discovery_category">Category</label>
+            <input id="discovery_category" name="category" type="text" placeholder="surf_hostel" value="${escapeHtml(form.category || '')}">
+          </div>
+          <div class="form-row">
+            <label for="discovery_source_note">Source reference note</label>
+            <input id="discovery_source_note" name="source_note" type="text" placeholder="operator typed from brochure" value="${escapeHtml(form.source_note || '')}">
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Preview proposal</button>
+          </div>
+        </form>
+      </article>
+      ${renderDiscoveryPreviewPanel(options)}
+      <div class="safety"><strong>Safety:</strong> Manual discovery contract only. No Maps, Apollo, web search, or external discovery. Preview does not create prospects. Explicit import is operator-triggered and audited.</div>
+    </section>`;
+}
+
 function renderViewMain(view, clients, templates, options = {}) {
   if (view === 'clients') return renderClientsMain(clients, templates);
   if (view === 'billing') return renderBillingMain();
@@ -1809,6 +1920,7 @@ function renderViewMain(view, clients, templates, options = {}) {
   if (view === 'sales_review') return renderSalesReviewMain(options);
   if (view === 'sales_crm_preview') return renderSalesCrmPreviewMain(options);
   if (view === 'sales_outreach_draft') return renderSalesOutreachDraftMain(options);
+  if (view === 'sales_discovery') return renderSalesDiscoveryMain(options);
   return renderSpyglassMain(clients);
 }
 
@@ -1819,6 +1931,7 @@ function viewPageTitle(view) {
   if (view === 'sales_review') return 'Sales review queue';
   if (view === 'sales_crm_preview') return 'CRM sync preview';
   if (view === 'sales_outreach_draft') return 'Outreach draft';
+  if (view === 'sales_discovery') return 'Sales discovery';
   if (view === 'sales' || view === 'sales_detail') return 'Sales';
   return 'Spyglass';
 }
@@ -1832,6 +1945,7 @@ function viewSubtitle(view) {
   if (view === 'sales_review') return 'Sales review queue — operating buckets for operator decisions';
   if (view === 'sales_crm_preview') return 'Provider-neutral CRM sync preview — no record sent';
   if (view === 'sales_outreach_draft') return 'Internal outreach draft workspace — draft only, no message sent';
+  if (view === 'sales_discovery') return 'Manual discovery proposal preview — no prospect auto-created';
   return 'Internal Luna Front Desk overview dashboard';
 }
 
@@ -1863,7 +1977,7 @@ function renderCrowsnestPage(options = {}) {
         </form>
       </div>
       ${renderCrowsnestNav(view)}
-      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : (view === 'sales_outreach_draft' ? 'sales-outreach-draft' : view))))}-title">${escapeHtml(title)}</h1>
+      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : (view === 'sales_outreach_draft' ? 'sales-outreach-draft' : (view === 'sales_discovery' ? 'sales-discovery' : view)))))}-title">${escapeHtml(title)}</h1>
       <p class="sub">${escapeHtml(viewSubtitle(view))}</p>
     </header>
 

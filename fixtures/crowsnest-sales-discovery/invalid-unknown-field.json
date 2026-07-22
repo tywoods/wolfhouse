@@ -1,0 +1,5 @@
+{
+  "business_name": "Unknown Field Hostel",
+  "website_url": "https://unknown-field.example",
+  "extra_provider_blob": { "maps_place_id": "should-not-leak" }
+}

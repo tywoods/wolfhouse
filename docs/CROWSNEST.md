@@ -58,6 +58,10 @@ Offline **AI usage adapter**: maps native OpenAI / Anthropic technical usage fie
 
 Offline **AI usage event contract** (`crowsnest.ai_usage.v1`): pure validator, sanitized fixtures, and `npm run verify:crowsnest-ai-usage-contract`. See [`docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md`](crowsnest/AI-USAGE-EVENT-CONTRACT.md). No storage, provider wiring, or UI panel in this slice.
 
+### Luna Sales Chapter 7 (discovery source contract)
+
+Provider-neutral **discovery source contract** (`crowsnest.sales.discovery.v1`) with a **manual-source adapter only**. Authenticated operators open `/sales/discovery` to enter one proposed prospect (business name/website/location/category/source reference), preview normalization + deduplication (domain, then name/location fingerprint), and optionally **explicitly import** (audited `discovery_proposal_imported`). Preview only — no prospect has been created until import. No Google Maps, Apollo, web search, or external API; no auto-create; no new discovery migration. See [`docs/crowsnest/SALES-DISCOVERY-SOURCE.md`](crowsnest/SALES-DISCOVERY-SOURCE.md). Verify with `npm run verify:crowsnest-sales-discovery-contract`.
+
 ### Luna Sales Chapter 6 (outreach drafts)
 
 Protected **outreach draft workspace** for CRM-ready prospects: authenticated operators open `/sales/prospects/:id/outreach-draft` (linked from prospect detail when CRM-ready) to manually create/edit a single current draft (subject, body, channel `email`/`linkedin`/`other`, next-step note). Copy states **draft only — no message has been sent**. Saves append revisions + audit `outreach_draft_saved`. Detail and review queue show truthful **draft ready** / **draft present** indicators (not delivery status). No SMTP, WhatsApp, LinkedIn, HubSpot API, send endpoint, webhooks, or AI generation. Migration `046_luna_sales_outreach_drafts.sql`. See [`docs/crowsnest/SALES-OUTREACH-DRAFTS.md`](crowsnest/SALES-OUTREACH-DRAFTS.md). Verify with `npm run verify:crowsnest-sales-outreach-drafts`.
