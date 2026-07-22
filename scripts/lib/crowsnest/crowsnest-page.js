@@ -1864,17 +1864,71 @@ function renderDiscoveryPreviewPanel(options = {}) {
       </article>`;
 }
 
+function renderMapsDiscoveryCandidateCards(preview) {
+  const candidates = preview && Array.isArray(preview.candidates) ? preview.candidates : [];
+  if (!candidates.length) {
+    return `<p class="section-note">No in-scope dry-run candidates matched. Northern Spain sample fixtures only — not live Google Maps.</p>`;
+  }
+  return candidates.map((entry, index) => {
+    const proposal = entry.proposal || {};
+    const location = proposal.location || {};
+    const sourceRef = proposal.source_reference || {};
+    const dedup = entry.dedup || {};
+    const matchCount = Array.isArray(dedup.matches) ? dedup.matches.length : 0;
+    return `<article class="card" id="maps-candidate-${index}">
+        <h3>${escapeHtml(proposal.business_name || 'Candidate')}</h3>
+        <ul class="fact-list" aria-label="Maps dry-run candidate">
+          <li><strong>Website:</strong> ${escapeHtml(proposal.website_url || '—')}</li>
+          <li><strong>Location:</strong> ${escapeHtml([location.city, location.country_code].filter(Boolean).join(', ') || '—')}</li>
+          <li><strong>Category:</strong> ${escapeHtml(proposal.category || '—')}</li>
+          <li><strong>Place ID:</strong> ${escapeHtml(entry.place_id || sourceRef.external_id || '—')}</li>
+          <li><strong>Search area:</strong> ${escapeHtml(entry.search_area || sourceRef.request_reference || '—')}</li>
+          <li><strong>Source:</strong> ${escapeHtml(sourceRef.source_name || 'google_maps_dry_run')}</li>
+          <li><strong>Dedup matches:</strong> ${escapeHtml(String(matchCount))}</li>
+        </ul>
+        ${renderDiscoveryDedupMatches(dedup.matches)}
+        <form class="sales-form" method="post" action="/sales/discovery/maps/import" accept-charset="utf-8">
+          <input type="hidden" name="place_id" value="${escapeHtml(entry.place_id || sourceRef.external_id || '')}">
+          <input type="hidden" name="search_area" value="${escapeHtml(entry.search_area || sourceRef.request_reference || '')}">
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Import candidate (explicit)</button>
+          </div>
+        </form>
+      </article>`;
+  }).join('\n      ');
+}
+
+function renderMapsDiscoveryPreviewPanel(options = {}) {
+  const preview = options.mapsDiscoveryPreview || null;
+  if (!preview) return '';
+  return `<article class="card" id="maps-discovery-preview-result">
+        <h2>Maps dry-run candidates</h2>
+        <p class="section-note"><strong>${escapeHtml(preview.disclaimer || 'Sample / dry-run data only — not live Google Maps results.')}</strong></p>
+        <ul class="fact-list" aria-label="Maps dry-run search summary">
+          <li><strong>Search area:</strong> ${escapeHtml(preview.search_area || '—')}</li>
+          <li><strong>Discarded out of Northern Spain scope:</strong> ${escapeHtml(String(preview.discarded_out_of_scope_count == null ? 0 : preview.discarded_out_of_scope_count))}</li>
+          <li><strong>Candidates:</strong> ${escapeHtml(String(Array.isArray(preview.candidates) ? preview.candidates.length : 0))}</li>
+        </ul>
+        <p class="section-note">Preview only — no prospect has been created. Import is an explicit operator action per candidate.</p>
+      </article>
+      ${renderMapsDiscoveryCandidateCards(preview)}`;
+}
+
 function renderSalesDiscoveryMain(options = {}) {
   const form = options.discoveryForm || {};
+  const mapsForm = options.mapsDiscoveryForm || {};
   const errorHtml = options.discoveryError
     ? `<p class="sales-error" role="alert">${escapeHtml(options.discoveryError)}</p>`
     : '';
+  const mapsErrorHtml = options.mapsDiscoveryError
+    ? `<p class="sales-error" role="alert">${escapeHtml(options.mapsDiscoveryError)}</p>`
+    : '';
   return `<section id="sales-discovery" aria-labelledby="sales-discovery-title">
-      <p class="section-note">Chapter 7 discovery source contract — manual adapter only. Enter one proposed prospect, preview normalization and deduplication, then optionally import. Preview only — no prospect has been created until you explicitly import.</p>
+      <p class="section-note">Discovery source contract — manual adapter plus Google Maps <strong>dry-run</strong> fixture shell. Preview normalization and deduplication, then optionally import. Preview only — no prospect has been created until you explicitly import.</p>
       <p><a href="/sales">← Back to Sales intake</a></p>
       <article class="card">
         <h2>Manual discovery proposal</h2>
-        <p class="section-note">Provider-neutral fields for a future lead-discovery source. No Google Maps, Apollo, web search, or external API calls in this chapter.</p>
+        <p class="section-note">Provider-neutral fields. No live Google Maps, Apollo, web search, or external API calls.</p>
         ${errorHtml}
         <form class="sales-form" method="post" action="/sales/discovery/preview" accept-charset="utf-8">
           <div class="form-row">
@@ -1907,7 +1961,42 @@ function renderSalesDiscoveryMain(options = {}) {
         </form>
       </article>
       ${renderDiscoveryPreviewPanel(options)}
-      <div class="safety"><strong>Safety:</strong> Manual discovery contract only. No Maps, Apollo, web search, or external discovery. Preview does not create prospects. Explicit import is operator-triggered and audited.</div>
+      <div class="sample-banner" role="status">
+        <span class="sample-dot" aria-hidden="true"></span>
+        <div>
+          <strong>Sample / dry-run data only</strong>
+          <p>Google Maps discovery uses local test fixtures. No live HTTP, API key, Google SDK, or scraping.</p>
+        </div>
+      </div>
+      <article class="card" id="maps-discovery-dry-run">
+        <h2>Google Maps discovery (dry-run)</h2>
+        <p class="section-note">Northern Spain scope enforced. Search returns sample place candidates with exact place ID and search area provenance. Dedup uses the existing discovery preview. No prospect is created until you explicitly import one candidate.</p>
+        ${mapsErrorHtml}
+        <form class="sales-form" method="post" action="/sales/discovery/maps/preview" accept-charset="utf-8">
+          <div class="form-row">
+            <label for="maps_discovery_city">City (Northern Spain)</label>
+            <input id="maps_discovery_city" name="city" type="text" placeholder="Somo" value="${escapeHtml(mapsForm.city || '')}">
+          </div>
+          <div class="form-row">
+            <label for="maps_discovery_country_code">Country code</label>
+            <input id="maps_discovery_country_code" name="country_code" type="text" placeholder="ES" value="${escapeHtml(mapsForm.country_code || 'ES')}">
+          </div>
+          <div class="form-row">
+            <label for="maps_discovery_category">Category</label>
+            <input id="maps_discovery_category" name="category" type="text" placeholder="lodging" value="${escapeHtml(mapsForm.category || '')}">
+          </div>
+          <div class="form-row">
+            <label for="maps_discovery_query">Query</label>
+            <input id="maps_discovery_query" name="query" type="text" placeholder="surf" value="${escapeHtml(mapsForm.query || '')}">
+          </div>
+          <input type="hidden" name="market" value="northern_spain">
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Preview dry-run Maps candidates</button>
+          </div>
+        </form>
+      </article>
+      ${renderMapsDiscoveryPreviewPanel(options)}
+      <div class="safety"><strong>Safety:</strong> Manual discovery plus Maps dry-run fixture shell only. No live Maps, Apollo, web search, or external discovery HTTP. Preview does not create prospects. Explicit import is operator-triggered and audited. Visible Maps results are sample / dry-run data only.</div>
     </section>`;
 }
 
@@ -1945,7 +2034,7 @@ function viewSubtitle(view) {
   if (view === 'sales_review') return 'Sales review queue — operating buckets for operator decisions';
   if (view === 'sales_crm_preview') return 'Provider-neutral CRM sync preview — no record sent';
   if (view === 'sales_outreach_draft') return 'Internal outreach draft workspace — draft only, no message sent';
-  if (view === 'sales_discovery') return 'Manual discovery proposal preview — no prospect auto-created';
+  if (view === 'sales_discovery') return 'Manual + Maps dry-run discovery — sample data only; no prospect auto-created';
   return 'Internal Luna Front Desk overview dashboard';
 }
 

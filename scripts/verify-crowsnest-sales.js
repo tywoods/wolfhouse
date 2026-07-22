@@ -187,7 +187,7 @@ function structuralChecks() {
   ok('sales module exports createProspect', /createProspect|createCrowsnestProspect/.test(salesSrc));
   ok('sales module exports decideProspect', /decideProspect|recordProspectDecision|decideCrowsnestProspect/.test(salesSrc));
   ok('sales module exports audit helpers', /listAudit|getAudit|appendAudit|auditEvents/.test(salesSrc));
-  ok('no HubSpot/Apollo/Maps live adapters in sales', !/require\(['"][^'"]*(hubspot|apollo|googleapis|maps)/i.test(salesSrc));
+  ok('no HubSpot/Apollo/Google SDK live adapters in sales', !/require\(['"][^'"]*(hubspot|apollo|googleapis)/i.test(salesSrc));
   ok(
     'sales domain does not import pg or WOLFHOUSE_DATABASE_URL',
     !/require\(['"]pg['"]\)/.test(salesSrc) && !/WOLFHOUSE_DATABASE_URL/.test(salesSrc),

@@ -220,7 +220,7 @@ function structuralChecks() {
     'no invented score / HubSpot / outreach / discovery claims on queue page',
     !/lead_score\s*[:=]|AI score:\s*\d|priority score\s*[:=]|sync to hubspot completed|push to apollo|outreach send completed|Maps discovery ran|Apollo enrichment completed/i.test(pageSrc),
   );
-  ok('no HubSpot/Apollo/Maps/live AI require in sales', !/require\(['"][^'"]*(hubspot|apollo|googleapis|maps)/i.test(salesSrc));
+  ok('no HubSpot/Apollo/Google SDK require in sales', !/require\(['"][^'"]*(hubspot|apollo|googleapis)/i.test(salesSrc));
   ok('review queue doc exists', fs.existsSync(DOC_PATH));
   ok(
     'review queue doc forbids HubSpot / outreach / external discovery claims',

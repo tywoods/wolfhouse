@@ -1,0 +1,83 @@
+{
+  "fixture_label": "sample dry-run Maps-like places only — not live Google data",
+  "places": [
+    {
+      "place_id": "ChIJfixture0001SomoSurfHouse",
+      "name": "Somo Surf House",
+      "website": "https://www.somo-surf.example/stay",
+      "vicinity": "Somo",
+      "formatted_address": "Calle Principal, Somo, Cantabria, Spain",
+      "address_components": {
+        "city": "Somo",
+        "country_code": "ES"
+      },
+      "types": ["lodging", "point_of_interest", "establishment"],
+      "business_status": "OPERATIONAL"
+    },
+    {
+      "place_id": "ChIJfixture0002SantanderHostel",
+      "name": "Santander Bay Hostel",
+      "website": "https://santander-bay.example",
+      "vicinity": "Santander",
+      "formatted_address": "Paseo Marítimo, Santander, Cantabria, Spain",
+      "address_components": {
+        "city": "Santander",
+        "country_code": "ES"
+      },
+      "types": ["lodging", "hostel"],
+      "business_status": "OPERATIONAL"
+    },
+    {
+      "place_id": "ChIJfixture0003ZarautzSurf",
+      "name": "Zarautz Surf Lodge",
+      "website": "https://zarautz-surf.example",
+      "vicinity": "Zarautz",
+      "formatted_address": "Nafarroa Kalea, Zarautz, Gipuzkoa, Spain",
+      "address_components": {
+        "city": "Zarautz",
+        "country_code": "ES"
+      },
+      "types": ["lodging", "surf_hostel"],
+      "business_status": "OPERATIONAL"
+    },
+    {
+      "place_id": "ChIJfixture0004GijonInn",
+      "name": "Gijon Coastal Inn",
+      "website": "",
+      "vicinity": "Gijon",
+      "formatted_address": "Calle Corrida, Gijón, Asturias, Spain",
+      "address_components": {
+        "city": "Gijon",
+        "country_code": "ES"
+      },
+      "types": ["lodging"],
+      "business_status": "OPERATIONAL"
+    },
+    {
+      "place_id": "ChIJfixture9999MadridOutOfScope",
+      "name": "Madrid Central Hostel",
+      "website": "https://madrid-central.example",
+      "vicinity": "Madrid",
+      "formatted_address": "Calle Mayor, Madrid, Spain",
+      "address_components": {
+        "city": "Madrid",
+        "country_code": "ES"
+      },
+      "types": ["lodging"],
+      "business_status": "OPERATIONAL"
+    },
+    {
+      "place_id": "ChIJfixture9998BarcelonaOutOfScope",
+      "name": "Barcelona Beach Hostel",
+      "website": "https://bcn-beach.example",
+      "vicinity": "Barcelona",
+      "formatted_address": "Barceloneta, Barcelona, Spain",
+      "address_components": {
+        "city": "Barcelona",
+        "country_code": "ES"
+      },
+      "types": ["lodging"],
+      "business_status": "OPERATIONAL"
+    }
+  ]
+}

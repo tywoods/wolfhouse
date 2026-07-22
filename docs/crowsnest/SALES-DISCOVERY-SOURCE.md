@@ -54,3 +54,5 @@ npm run verify:crowsnest-sales
 ## Out of scope
 
 Live Maps/Apollo/web-search adapters, discovery_runs / discovery_candidates schema, Azure/Docker/infra, auth/role changes, CRM writes, outreach send, AI generation, recovery/ledger changes, commit/push from this worktree.
+
+Chapter 8 adds a **dry-run / fixture-only** Google Maps adapter shell (`docs/crowsnest/SALES-MAPS-DISCOVERY.md`) — still no live Maps HTTP.

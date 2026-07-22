@@ -14,8 +14,10 @@
  * Chapter 6 adds manual internal outreach drafts only — no SMTP/WhatsApp/LinkedIn/HubSpot
  * send, no webhooks, no auto-generation.
  * Chapter 7 adds a provider-neutral discovery source contract + manual adapter only —
- * validation/dedup preview and explicit operator import; no Maps/Apollo/web search,
+ * validation/dedup preview and explicit operator import; no live Maps/Apollo/web search,
  * no auto-create prospects.
+ * Chapter 8 adds a Google Maps discovery *dry-run* adapter shell (local fixtures only) —
+ * no real HTTP, API key, Google SDK, or scraping; operators inspect/import explicitly.
  */
 
 const {
@@ -31,6 +33,11 @@ const {
   previewDiscoveryDeduplication,
 } = require('./crowsnest-sales-discovery-contract');
 const { adaptManualDiscoveryProposal } = require('./crowsnest-sales-discovery-manual');
+const {
+  UI_SAMPLE_DISCLAIMER: MAPS_SAMPLE_DISCLAIMER,
+  resolveMapsFixtureCandidate,
+  search: searchMapsDryRun,
+} = require('./crowsnest-sales-discovery-maps');
 
 const ALLOWED_DECISIONS = new Set(['approved', 'rejected', 'needs_research']);
 const ALLOWED_QUALIFICATION_DECISIONS = new Set(['qualified', 'not_qualified', 'needs_more_research']);
@@ -1582,6 +1589,173 @@ async function importManualDiscoveryProposal(input = {}, actor = 'Admin') {
   };
 }
 
+/**
+ * Preview Maps dry-run search candidates with per-candidate dedup.
+ * Never creates prospects. Sample / dry-run data only.
+ */
+async function previewMapsDiscoverySearch(input = {}) {
+  const searched = searchMapsDryRun({
+    city: input.city,
+    country_code: input.country_code != null ? input.country_code : input.countryCode,
+    category: input.category,
+    query: input.query,
+    market: input.market || 'northern_spain',
+    search_area: input.search_area != null ? input.search_area : input.searchArea,
+  });
+  if (!searched.ok) {
+    return {
+      ok: false,
+      error: (searched.errors && searched.errors[0]) || 'Invalid Maps dry-run search.',
+      errors: searched.errors || [],
+      preview_only: true,
+      dry_run: true,
+      sample_data: true,
+      prospect_created: false,
+      auto_created: false,
+      candidates: [],
+      disclaimer: MAPS_SAMPLE_DISCLAIMER,
+      status: 400,
+    };
+  }
+
+  let existing = [];
+  try {
+    const listed = await listProspects();
+    existing = Array.isArray(listed) ? listed : [];
+  } catch (err) {
+    if (isSalesStoreUnavailableError(err)) {
+      return salesUnavailableResult();
+    }
+    throw err;
+  }
+
+  const candidates = [];
+  for (const entry of searched.candidates || []) {
+    const dedup = previewDiscoveryDeduplication({
+      proposal: entry.proposal,
+      existingProspects: existing,
+    });
+    candidates.push({
+      ...entry,
+      dedup: dedup && dedup.ok
+        ? dedup
+        : {
+          ok: false,
+          preview_only: true,
+          prospect_created: false,
+          matches: [],
+          errors: (dedup && dedup.errors) || ['dedup_preview_failed'],
+          disclaimer: DISCOVERY_PREVIEW_DISCLAIMER,
+        },
+    });
+  }
+
+  return {
+    ok: true,
+    preview_only: true,
+    dry_run: true,
+    sample_data: true,
+    prospect_created: false,
+    auto_created: false,
+    disclaimer: MAPS_SAMPLE_DISCLAIMER,
+    schema_version: searched.schema_version,
+    source_name: searched.source_name,
+    search_area: searched.search_area,
+    criteria: searched.criteria,
+    discarded_out_of_scope_count: searched.discarded_out_of_scope_count,
+    candidates,
+    rate_controls: searched.rate_controls,
+  };
+}
+
+/**
+ * Explicit operator import of one Maps dry-run fixture candidate (by place_id).
+ * Re-resolves from fixture so provenance/place ID stay exact. Never auto-creates from search.
+ */
+async function importMapsDiscoveryCandidate(input = {}, actor = 'Admin') {
+  const placeId = String(
+    input.place_id != null ? input.place_id : (input.placeId || ''),
+  ).trim();
+  const searchArea = String(
+    input.search_area != null ? input.search_area : (input.searchArea || ''),
+  ).trim();
+
+  const adapted = resolveMapsFixtureCandidate(placeId, { search_area: searchArea });
+  if (!adapted.ok) {
+    return {
+      ok: false,
+      error: (adapted.errors && adapted.errors[0]) || 'Invalid Maps dry-run candidate.',
+      errors: adapted.errors || [],
+      dry_run: true,
+      sample_data: true,
+      prospect_created: false,
+      auto_created: false,
+      status: 400,
+    };
+  }
+
+  const created = await createProspect(
+    {
+      business_name: adapted.proposal.business_name,
+      website_url: adapted.proposal.website_url,
+    },
+    actor,
+  );
+  if (!created || created.ok === false) {
+    return {
+      ...(created || { ok: false, error: 'Unable to create prospect.' }),
+      dry_run: true,
+      sample_data: true,
+      prospect_created: false,
+      auto_created: false,
+    };
+  }
+
+  const audit = await appendAudit({
+    actor: String(actor || 'Admin'),
+    action: 'discovery_proposal_imported',
+    entity_type: 'prospect',
+    entity_id: created.prospect.id,
+    detail: {
+      prospect_id: created.prospect.id,
+      source_name: adapted.provenance.source_name,
+      source_reference: adapted.proposal.source_reference,
+      place_id: adapted.place_id,
+      search_area: adapted.search_area,
+      location: adapted.proposal.location,
+      category: adapted.proposal.category,
+      schema_version: adapted.schema_version,
+      dry_run: true,
+      sample_data: true,
+      auto_created: false,
+    },
+  });
+  if (audit && audit.ok === false) {
+    return {
+      ...audit,
+      dry_run: true,
+      sample_data: true,
+      prospect_created: false,
+      auto_created: false,
+    };
+  }
+
+  return {
+    ok: true,
+    prospect: created.prospect,
+    research: created.research,
+    proposal: adapted.proposal,
+    provenance: adapted.provenance,
+    place_id: adapted.place_id,
+    search_area: adapted.search_area,
+    dry_run: true,
+    sample_data: true,
+    prospect_created: true,
+    auto_created: false,
+    disclaimer: MAPS_SAMPLE_DISCLAIMER,
+  };
+}
+
 module.exports = {
   ALLOWED_DECISIONS,
   ALLOWED_EVIDENCE_CONFIDENCE,
@@ -1614,6 +1788,7 @@ module.exports = {
   getResearchForProspect,
   getSalesStoreMode,
   importManualDiscoveryProposal,
+  importMapsDiscoveryCandidate,
   isActionableReviewBucket,
   listAuditEvents,
   listCrmReviewMarksForProspect,
@@ -1625,6 +1800,7 @@ module.exports = {
   markReadyForCrmReview,
   normalizeReviewQueueFilter,
   previewManualDiscovery,
+  previewMapsDiscoverySearch,
   recordManualEvidence,
   recordQualification,
   resetSalesStore,

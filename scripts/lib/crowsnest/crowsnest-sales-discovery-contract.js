@@ -3,9 +3,11 @@
 /**
  * Crowsnest Luna Sales — Discovery Source Contract (Chapter 7).
  *
- * Provider-neutral domain shapes for a future lead-discovery source.
- * Manual adapter lives in crowsnest-sales-discovery-manual.js.
- * No Maps / Apollo / web search / external HTTP. No auto-create prospects.
+ * Provider-neutral domain shapes for lead-discovery sources.
+ * Manual adapter: crowsnest-sales-discovery-manual.js.
+ * Maps dry-run adapter shell (Chapter 8): crowsnest-sales-discovery-maps.js
+ * (fixture-only; still no live Maps HTTP / API key / SDK).
+ * No Apollo / web search / external HTTP. No auto-create prospects.
  *
  * @typedef {object} DiscoveryCriteria
  * @property {string} [market]
@@ -68,7 +70,8 @@ const KNOWN_SOURCE_REFERENCE_KEYS = Object.freeze([
 
 /**
  * Rate / operator-safety controls for discovery adapters.
- * Live provider throttling is Chapter 8+; these are contract constants.
+ * Manual adapter caps (Chapter 7). Maps dry-run uses MAPS_DISCOVERY_RATE_CONTROLS
+ * in crowsnest-sales-discovery-maps.js. Live provider search remains forbidden.
  */
 const DISCOVERY_RATE_CONTROLS = Object.freeze({
   max_proposals_per_adapt: 1,
@@ -380,7 +383,7 @@ module.exports = {
   DISCOVERY_RATE_CONTROLS,
   DISCOVERY_QUALITY_CONTROLS,
   PREVIEW_DISCLAIMER,
-  // Interface names retained for docs / future Maps adapter (Chapter 8).
+  // Interface names retained for docs / Maps dry-run adapter (Chapter 8).
   LeadSourceAdapter: 'LeadSourceAdapter',
   DiscoverySourceAdapter: 'DiscoverySourceAdapter',
   assessProposalQuality,

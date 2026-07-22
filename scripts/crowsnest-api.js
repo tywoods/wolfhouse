@@ -38,6 +38,7 @@ const {
   getProspect,
   getResearchForProspect,
   importManualDiscoveryProposal,
+  importMapsDiscoveryCandidate,
   listAuditEvents,
   listProspects,
   listQualificationsForProspect,
@@ -46,6 +47,7 @@ const {
   markReadyForCrmReview,
   normalizeReviewQueueFilter,
   previewManualDiscovery,
+  previewMapsDiscoverySearch,
   recordManualEvidence,
   recordQualification,
   saveOutreachDraft,
@@ -296,6 +298,10 @@ function parseSalesFormBody(body) {
     country_code: String(params.get('country_code') || ''),
     category: String(params.get('category') || ''),
     source_note: String(params.get('source_note') || ''),
+    query: String(params.get('query') || ''),
+    market: String(params.get('market') || ''),
+    search_area: String(params.get('search_area') || ''),
+    place_id: String(params.get('place_id') || ''),
   };
 }
 
@@ -361,6 +367,18 @@ function discoveryFormFromParsed(form) {
   };
 }
 
+function mapsDiscoveryFormFromParsed(form) {
+  return {
+    city: form.city || '',
+    country_code: form.country_code || 'ES',
+    category: form.category || '',
+    query: form.query || '',
+    market: form.market || 'northern_spain',
+    search_area: form.search_area || '',
+    place_id: form.place_id || '',
+  };
+}
+
 async function handleSalesDiscoveryPage(req, res, method) {
   if (method !== 'GET' && method !== 'HEAD') {
     return sendMethodNotAllowed(res, 'GET, HEAD');
@@ -379,6 +397,7 @@ async function handleSalesDiscoveryPage(req, res, method) {
       cspNonce,
       view: 'sales_discovery',
       discoveryForm: {},
+      mapsDiscoveryForm: {},
     }),
     { 'Cache-Control': 'no-store' },
     cspNonce,
@@ -517,6 +536,146 @@ async function handleSalesDiscoveryImport(req, res, method) {
     return renderDiscovery(result.status || 400, {
       discoveryError: result.error || 'Unable to import discovery proposal.',
       discoveryForm: form,
+    });
+  }
+
+  return sendRedirect(res, `/sales/prospects/${result.prospect.id}`, { 'Cache-Control': 'no-store' });
+}
+
+async function handleSalesMapsDiscoveryPreview(req, res, method) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+
+  const renderDiscovery = async (status, extras = {}) => {
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      status,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_discovery',
+        discoveryForm: {},
+        ...extras,
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  };
+
+  if (!hasLoginFormContentType(req)) {
+    return renderDiscovery(400, {
+      mapsDiscoveryError: 'Provide a Northern Spain city or search query for the dry-run fixture search.',
+      mapsDiscoveryForm: {},
+    });
+  }
+
+  let body;
+  try {
+    body = await readLimitedBody(req, getCrowsnestLoginBodyLimit());
+  } catch (err) {
+    if (err && err.message === 'body too large') {
+      return sendPayloadTooLarge(res);
+    }
+    return renderDiscovery(400, {
+      mapsDiscoveryError: 'Provide a Northern Spain city or search query for the dry-run fixture search.',
+      mapsDiscoveryForm: {},
+    });
+  }
+
+  const form = mapsDiscoveryFormFromParsed(parseSalesFormBody(body));
+  let result;
+  try {
+    result = await previewMapsDiscoverySearch(form);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+
+  if (!result.ok) {
+    if (isSalesUnavailableFailure(result)) {
+      return sendSalesUnavailable(res);
+    }
+    return renderDiscovery(result.status || 400, {
+      mapsDiscoveryError: result.error || 'Invalid Maps dry-run search.',
+      mapsDiscoveryForm: form,
+    });
+  }
+
+  return renderDiscovery(200, {
+    mapsDiscoveryForm: form,
+    mapsDiscoveryPreview: result,
+  });
+}
+
+async function handleSalesMapsDiscoveryImport(req, res, method) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+
+  const renderDiscovery = async (status, extras = {}) => {
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      status,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_discovery',
+        discoveryForm: {},
+        ...extras,
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  };
+
+  if (!hasLoginFormContentType(req)) {
+    return renderDiscovery(400, {
+      mapsDiscoveryError: 'Select a dry-run Maps candidate to import explicitly.',
+      mapsDiscoveryForm: {},
+    });
+  }
+
+  let body;
+  try {
+    body = await readLimitedBody(req, getCrowsnestLoginBodyLimit());
+  } catch (err) {
+    if (err && err.message === 'body too large') {
+      return sendPayloadTooLarge(res);
+    }
+    return renderDiscovery(400, {
+      mapsDiscoveryError: 'Select a dry-run Maps candidate to import explicitly.',
+      mapsDiscoveryForm: {},
+    });
+  }
+
+  const form = mapsDiscoveryFormFromParsed(parseSalesFormBody(body));
+  const actor = resolveOperatorActor(req);
+  let result;
+  try {
+    result = await importMapsDiscoveryCandidate(form, actor);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+
+  if (!result.ok) {
+    if (isSalesUnavailableFailure(result)) {
+      return sendSalesUnavailable(res);
+    }
+    return renderDiscovery(result.status || 400, {
+      mapsDiscoveryError: result.error || 'Unable to import Maps dry-run candidate.',
+      mapsDiscoveryForm: form,
     });
   }
 
@@ -1525,6 +1684,14 @@ async function router(req, res) {
 
   if (pathname === '/sales/discovery/import') {
     return handleSalesDiscoveryImport(req, res, method);
+  }
+
+  if (pathname === '/sales/discovery/maps/preview') {
+    return handleSalesMapsDiscoveryPreview(req, res, method);
+  }
+
+  if (pathname === '/sales/discovery/maps/import') {
+    return handleSalesMapsDiscoveryImport(req, res, method);
   }
 
   const decisionProspectId = matchSalesDecisionPath(pathname);
