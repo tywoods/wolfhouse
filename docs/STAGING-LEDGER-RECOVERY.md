@@ -1,8 +1,8 @@
 # Staging ledger recovery (plan + one-time apply)
 
-**Status:** plan/certification contract (PR #158) plus a **narrowly-scoped, one-time executable apply mode** for the locked sole-042 staging case. Apply is staging-only, fail-closed, and exercised only through an **injected DB-client seam** in verification — this repository path does **not** retrieve secrets or open a live database during `verify:staging-ledger-recovery`.
+**Status:** plan/certification contract (PR #158) plus a **narrowly-scoped, one-time executable apply mode** for the locked sole-042 staging case. Apply is Wolfhouse Staff staging-only, fail-closed, and exercised only through an **injected DB-client seam** in verification — this repository path does **not** retrieve secrets or open a live database during `verify:staging-ledger-recovery`.
 
-**Problem:** Sunset staging `schema_migration_ledger` can contain **only** `042_luna_sales_schema` (forward order 40) while the canonical manifest still has older forward migrations. Canonical `reconcileLedger` correctly fails closed with `ledger_partial_history`. That failure is intentional and must **not** be weakened.
+**Problem:** Wolfhouse Staff staging (`wolfhouse_staging` on `wh-staging-rg`) `schema_migration_ledger` can contain **only** `042_luna_sales_schema` (forward order 40) while the canonical manifest still has older forward migrations. Canonical `reconcileLedger` correctly fails closed with `ledger_partial_history`. That failure is intentional and must **not** be weakened.
 
 **Goal:** certify a contiguous baseline from immutable structural evidence, then (when explicitly approved) insert **exactly** the 39 missing historical ledger rows as `verified_structural_baseline` inside one transaction + advisory lock, preserving the existing 042 row unchanged.
 
@@ -12,7 +12,7 @@
 |------|-------------|
 | No invented historical provenance | Recovery inserts use `verified_structural_baseline` only after per-migration structural assertions |
 | Never label recovery rows `executed_by_canonical_runner` | Certifier + apply refuse that apply_kind on recovery inserts |
-| Staging only | Exact host/database/subscription/RG lock; production targets refused |
+| Wolfhouse Staff staging only | Exact host/database/subscription/RG lock (`wh-staging-pg-app` / `wolfhouse_staging` / `wh-staging-rg`); production and other environments refused |
 | Dry-run default | `--plan-only` for certification; apply requires `--apply-ledger-recovery` |
 | No secrets / DSN printing | Forbidden argv + secret scan on public output; no Key Vault/IMDS retrieval in this module |
 | No generic arbitrary SQL | Assertions must not embed `sql` / `query` / `arbitrarySql`; apply SQL is allowlisted |
@@ -29,13 +29,28 @@
 - Forward entry **043** remains unapplied / pending for the canonical runner after recovery
 - Repeated apply against a non-sole-042 ledger is refused
 
+## Locked target (exact)
+
+| Field | Value |
+|-------|-------|
+| environment | `staging` |
+| subscriptionId | `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9` |
+| resourceGroup | `wh-staging-rg` |
+| postgresServer | `wh-staging-pg-app` |
+| postgresHost | `wh-staging-pg-app.postgres.database.azure.com` |
+| database | `wolfhouse_staging` |
+| port / sslmode | `5432` / `verify-full` |
+| applicationName | `wh-staging-ledger-recovery` |
+
+This is the Azure PostgreSQL host/database from the Staff API staging DSN. Any other resource group, server, host, or database name is refused.
+
 ## Evidence artifact
 
 Kind: `staging-ledger-recovery-evidence-v1`
 
 Required content:
 
-1. **Target identity** — locked Sunset staging fields (`environment=staging`, host, database, subscription, RG, server, port)
+1. **Target identity** — locked Wolfhouse Staff staging fields (`environment=staging`, host, database, subscription, RG, server, port)
 2. **Manifest binding** — `checksumMode=canonical_lf_v1`, `manifestHash`, `forwardCount`
 3. **`evidenceDigest`** — canonical digest of the immutable payload
 4. **Observed ledger** — sole-042 row + `diagnosisCode=ledger_partial_history`
@@ -53,7 +68,7 @@ Example sealed fixture (offline placeholders, **not** live proof collection):
 
 The example fixture is for offline contract tests only. Before any real apply invocation, an operator must:
 
-1. Collect **real** staging catalog/structural assertions for every historical migration (orders 1..39) against Sunset staging
+1. Collect **real** staging catalog/structural assertions for every historical migration (orders 1..39) against Wolfhouse Staff staging (`wolfhouse_staging`)
 2. Seal those assertions into an immutable `staging-ledger-recovery-evidence-v1` artifact with a matching `evidenceDigest`
 3. Confirm the live ledger is still exactly the sole-042 partial shape
 4. Confirm manifest hash / forward checksums still match
@@ -64,16 +79,16 @@ Do **not** treat the repo example evidence as live proof.
 ## Operator dry-run (plan)
 
 ```bash
-SUNSET_STAGING_LEDGER_RECOVERY=1 \
-SUNSET_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN=APPROVE-STAGING-LEDGER-RECOVERY-V1 \
+WOLFHOUSE_STAGING_LEDGER_RECOVERY=1 \
+WOLFHOUSE_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN=APPROVE-STAGING-LEDGER-RECOVERY-V1 \
 npm run staging-ledger-recovery:plan -- \
   --plan-only \
   --approve-staging-ledger-recovery \
   --evidence fixtures/staging-ledger-recovery/staging-ledger-recovery-evidence.example.json \
   --subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 \
-  --resource-group luna-sunset-staging-rg \
-  --postgres-server luna-sunset-staging-pg-app \
-  --database sunset_staging
+  --resource-group wh-staging-rg \
+  --postgres-server wh-staging-pg-app \
+  --database wolfhouse_staging
 ```
 
 Success means: **contiguous baseline certified in dry-run**. It does **not** mean the staging ledger was rewritten.
@@ -83,7 +98,7 @@ Success means: **contiguous baseline certified in dry-run**. It does **not** mea
 `STAGING_LEDGER_RECOVERY_MUTATION_ENABLED === true` (capability), but apply still fail-closed:
 
 - Requires `--apply-ledger-recovery` (mutually exclusive with `--plan-only`)
-- Requires approval flag + `SUNSET_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN`
+- Requires approval flag + `WOLFHOUSE_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN`
 - Requires sealed evidence (digest, target lock, manifest checksum, sole-042 shape, structural assertions)
 - Executes inside **one** DB transaction with `pg_advisory_xact_lock` (WH / MIG1)
 - Inserts only the 39 missing rows as `verified_structural_baseline`
@@ -95,19 +110,19 @@ Success means: **contiguous baseline certified in dry-run**. It does **not** mea
 
 ### DB-client seam (no secret retrieval here)
 
-Apply requires an **injected** `dbClient` / `Client` seam (used by the verifier with a scripted fake client). This module does **not** call managed identity, IMDS, or Key Vault. Operators who later perform a real staging apply must supply a client already bound to the locked staging target after collecting real structural evidence.
+Apply requires an **injected** `dbClient` / `Client` seam (used by the verifier with a scripted fake client). This module does **not** call managed identity, IMDS, or Key Vault. Operators who later perform a real staging apply must supply a client already bound to the locked Wolfhouse Staff staging target after collecting real structural evidence.
 
 ```bash
-SUNSET_STAGING_LEDGER_RECOVERY=1 \
-SUNSET_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN=APPROVE-STAGING-LEDGER-RECOVERY-V1 \
+WOLFHOUSE_STAGING_LEDGER_RECOVERY=1 \
+WOLFHOUSE_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN=APPROVE-STAGING-LEDGER-RECOVERY-V1 \
 npm run staging-ledger-recovery:apply -- \
   --apply-ledger-recovery \
   --approve-staging-ledger-recovery \
   --evidence /path/to/real-sealed-staging-evidence.json \
   --subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 \
-  --resource-group luna-sunset-staging-rg \
-  --postgres-server luna-sunset-staging-pg-app \
-  --database sunset_staging
+  --resource-group wh-staging-rg \
+  --postgres-server wh-staging-pg-app \
+  --database wolfhouse_staging
 ```
 
 Without an injected client, CLI apply exits fail-closed with `db_client_required` (it will not invent a DSN or fetch secrets).

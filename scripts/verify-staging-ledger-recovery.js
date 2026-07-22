@@ -233,6 +233,28 @@ async function main() {
     pass('red-target_mismatch', ok, JSON.stringify((gate.errors || []).slice(0, 2)));
   }
   {
+    // Wrong-environment staging identity must fail closed (never accept non-Wolfhouse target).
+    const ev = deepClone(goodEvidence);
+    ev.target = {
+      ...RECOVERY_TARGET,
+      resourceGroup: 'luna-sunset-staging-rg',
+      postgresServer: 'luna-sunset-staging-pg-app',
+      postgresHost: 'luna-sunset-staging-pg-app.postgres.database.azure.com',
+      database: 'sunset_staging',
+    };
+    delete ev.evidenceDigest;
+    const sealed = sealEvidence(ev);
+    const gate = validateEvidenceArtifact(sealed);
+    const ok = gate.ok === false
+      && gate.errors.some((e) =>
+        e.code === 'target_database_mismatch'
+        || e.code === 'target_host_mismatch'
+        || e.code === 'target_resource_group_mismatch'
+        || e.code === 'target_server_mismatch'
+        || e.code === 'target_mismatch');
+    pass('red-non-wolfhouse-staging-target-refused', ok, JSON.stringify((gate.errors || []).slice(0, 3)));
+  }
+  {
     const ev = deepClone(goodEvidence);
     ev.observedLedger = {
       diagnosisCode: KNOWN_PARTIAL_SCENARIO.diagnosisCode,
@@ -555,13 +577,19 @@ async function main() {
       && fs.existsSync(CLI_PATH)
       && /ledger_partial_history/.test(doc)
       && /executed_by_canonical_runner/.test(doc)
-      && /verified_structural_baseline/.test(doc);
+      && /verified_structural_baseline/.test(doc)
+      && /wolfhouse_staging/.test(doc)
+      && /wh-staging-rg/.test(doc)
+      && /wh-staging-pg-app/.test(doc)
+      && !/sunset_staging/.test(doc)
+      && !/luna-sunset-staging/.test(doc)
+      && !/SUNSET_STAGING_LEDGER/.test(doc);
     greenCases.push({ name: 'docs_and_contract_present', ok });
     pass('green-docs_and_contract_present', ok);
   }
   {
     const doc = fs.readFileSync(DOC_PATH, 'utf8');
-    const ok = /real staging structural evidence/i.test(doc)
+    const ok = /real staging structural evidence|real wolfhouse_staging structural evidence/i.test(doc)
       && /operator/i.test(doc)
       && /--apply-ledger-recovery/.test(doc)
       && /injected|db.client|client seam/i.test(doc);
@@ -729,6 +757,36 @@ async function main() {
   pass('green-canonical-manifest-integrity-untouched', integrity.ok);
 
   const libSrc = fs.readFileSync(LIB_PATH, 'utf8');
+  const cliSrc = fs.readFileSync(CLI_PATH, 'utf8');
+  const contractJson = fs.readFileSync(CONTRACT_PATH, 'utf8');
+  const evidenceJson = fs.readFileSync(EVIDENCE_PATH, 'utf8');
+  const evidenceTarget = JSON.parse(evidenceJson).target || {};
+
+  pass(
+    'green-wolfhouse-staging-target-locked',
+    RECOVERY_TARGET.database === 'wolfhouse_staging'
+      && RECOVERY_TARGET.resourceGroup === 'wh-staging-rg'
+      && RECOVERY_TARGET.postgresServer === 'wh-staging-pg-app'
+      && RECOVERY_TARGET.postgresHost === 'wh-staging-pg-app.postgres.database.azure.com'
+      && APPLY_LOCKS.database === 'wolfhouse_staging'
+      && APPLY_LOCKS.postgresHost === RECOVERY_TARGET.postgresHost
+      && ENV_RECOVERY === 'WOLFHOUSE_STAGING_LEDGER_RECOVERY'
+      && ENV_APPROVAL_TOKEN === 'WOLFHOUSE_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN'
+      && evidenceTarget.database === 'wolfhouse_staging'
+      && evidenceTarget.resourceGroup === 'wh-staging-rg'
+      && evidenceTarget.postgresHost === RECOVERY_TARGET.postgresHost,
+  );
+
+  pass(
+    'green-no-sunset-staging-target-identity',
+    !/sunset_staging|luna-sunset-staging|SUNSET_STAGING_LEDGER/.test(libSrc)
+      && !/sunset_staging|luna-sunset-staging|SUNSET_STAGING_LEDGER/.test(cliSrc)
+      && !/"database":\s*"sunset_staging"/.test(contractJson)
+      && !/"resourceGroup":\s*"luna-sunset-staging-rg"/.test(contractJson)
+      && !/"database":\s*"sunset_staging"/.test(evidenceJson)
+      && !/"resourceGroup":\s*"luna-sunset-staging-rg"/.test(evidenceJson),
+  );
+
   pass(
     'green-no-secret-retrieval-in-apply',
     !/loadProtectedAdminCredentialsViaManagedIdentity/.test(libSrc)
