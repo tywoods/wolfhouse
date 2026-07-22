@@ -1170,9 +1170,13 @@ function renderAuditList(events) {
       event.at ? `at=${escapeHtml(event.at)}` : '',
       detail.decision ? `decision=${escapeHtml(detail.decision)}` : '',
       detail.reason ? `reason=${escapeHtml(detail.reason)}` : '',
+      detail.rationale ? `rationale=${escapeHtml(detail.rationale)}` : '',
       detail.reviewer_id ? `reviewer=${escapeHtml(detail.reviewer_id)}` : '',
       detail.source_label ? `source=${escapeHtml(detail.source_label)}` : '',
       detail.confidence ? `confidence=${escapeHtml(detail.confidence)}` : '',
+      Array.isArray(detail.evidence_ids) && detail.evidence_ids.length
+        ? `evidence_refs=${escapeHtml(detail.evidence_ids.join(','))}`
+        : '',
     ].filter(Boolean);
     return `<li>${bits.join(' · ')}</li>`;
   }).join('\n        ');
@@ -1218,6 +1222,73 @@ function renderManualEvidenceEntries(entries) {
   }).join('\n      ');
 }
 
+function renderEvidenceRefOptions(researchJobs, selectedIds) {
+  const jobs = Array.isArray(researchJobs) ? researchJobs : [];
+  if (!jobs.length) {
+    return '<p class="section-note">No research evidence on this prospect yet. Record manual evidence first.</p>';
+  }
+  const selected = new Set((Array.isArray(selectedIds) ? selectedIds : []).map(String));
+  return jobs.map((job) => {
+    const label = job.job_label || job.summary || job.source || job.id;
+    const checked = selected.has(String(job.id)) ? ' checked' : '';
+    return `<label class="evidence-ref-option">
+          <input type="checkbox" name="evidence_ids" value="${escapeHtml(job.id)}"${checked}>
+          <span><code>${escapeHtml(job.source || '')}</code> — ${escapeHtml(label)}
+            <em>(${escapeHtml(job.created_at || '')})</em></span>
+        </label>`;
+  }).join('\n        ');
+}
+
+function renderQualificationEvidenceLinks(assessment, researchJobs) {
+  const ids = Array.isArray(assessment && assessment.evidence_ids) ? assessment.evidence_ids : [];
+  if (!ids.length) {
+    return '<p class="section-note">No evidence references.</p>';
+  }
+  const byId = new Map((researchJobs || []).map((job) => [String(job.id), job]));
+  const items = ids.map((id) => {
+    const job = byId.get(String(id));
+    if (!job) {
+      return `<li><code>${escapeHtml(String(id))}</code></li>`;
+    }
+    const label = job.job_label || job.summary || job.source || job.id;
+    return `<li><code>${escapeHtml(job.source || '')}</code> — ${escapeHtml(label)} · <code>${escapeHtml(job.id)}</code></li>`;
+  }).join('\n          ');
+  return `<ul class="fact-list" aria-label="Qualification evidence references">
+          ${items}
+        </ul>`;
+}
+
+function renderQualificationHistory(assessments, researchJobs) {
+  const list = Array.isArray(assessments) ? assessments : [];
+  if (!list.length) {
+    return '<p class="section-note">No qualification assessments yet.</p>';
+  }
+  return list.map((assessment) => (
+    `<article class="qualification-entry">
+        <p><strong>Decision:</strong> <code>${escapeHtml(assessment.decision || '')}</code>
+          · <code>${escapeHtml(assessment.created_at || '')}</code>
+          · reviewer=<code>${escapeHtml(assessment.reviewer_id || '')}</code></p>
+        <p>${escapeHtml(assessment.rationale || '')}</p>
+        <h3>Evidence references</h3>
+        ${renderQualificationEvidenceLinks(assessment, researchJobs)}
+      </article>`
+  )).join('\n      ');
+}
+
+function renderLatestQualification(assessment, researchJobs) {
+  if (!assessment) {
+    return '<p class="section-note">No qualification assessment recorded yet.</p>';
+  }
+  return `<div class="latest-qualification">
+        <p><strong>Latest qualification:</strong> <code>${escapeHtml(assessment.decision || '')}</code>
+          · reviewer=<code>${escapeHtml(assessment.reviewer_id || '')}</code>
+          · <code>${escapeHtml(assessment.created_at || '')}</code></p>
+        <p>${escapeHtml(assessment.rationale || '')}</p>
+        <h3>Evidence links</h3>
+        ${renderQualificationEvidenceLinks(assessment, researchJobs)}
+      </div>`;
+}
+
 function renderSalesDetailMain(options = {}) {
   const prospect = options.prospect || null;
   if (!prospect) {
@@ -1241,11 +1312,22 @@ function renderSalesDetailMain(options = {}) {
   const evidenceErrorHtml = options.evidenceError
     ? `<p class="sales-error" role="alert">${escapeHtml(options.evidenceError)}</p>`
     : '';
+  const qualificationErrorHtml = options.qualificationError
+    ? `<p class="sales-error" role="alert">${escapeHtml(options.qualificationError)}</p>`
+    : '';
   const facts = (fixtureResearch && fixtureResearch.facts) || [];
   const limitations = (fixtureResearch && fixtureResearch.limitations) || [];
   const lastDecision = prospect.last_decision
     ? `<p>Last Admin decision: <code>${escapeHtml(prospect.last_decision.decision)}</code> — ${escapeHtml(prospect.last_decision.reason)} (reviewer: ${escapeHtml(prospect.last_decision.reviewer_id)})</p>`
     : '<p>No Admin decision recorded yet.</p>';
+  const qualificationAssessments = Array.isArray(options.qualificationAssessments)
+    ? options.qualificationAssessments
+    : [];
+  const latestQualification = options.latestQualification
+    || (qualificationAssessments.length ? qualificationAssessments[0] : null);
+  const selectedEvidenceIds = Array.isArray(options.qualificationEvidenceIds)
+    ? options.qualificationEvidenceIds
+    : [];
 
   return `<section id="sales-detail" aria-labelledby="sales-detail-title">
       <p><a href="/sales">← Back to Sales</a></p>
@@ -1314,6 +1396,37 @@ function renderSalesDetailMain(options = {}) {
       </article>
 
       <article class="card">
+        <h2>Qualification assessment</h2>
+        <p class="section-note">Operator-controlled qualification policy only. Transparent decisions with cited evidence — never automatic AI scoring, never a numeric lead score, never HubSpot sync, external research, or outreach in this chapter.</p>
+        ${renderLatestQualification(latestQualification, researchJobs)}
+        ${qualificationErrorHtml}
+        <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/qualification" accept-charset="utf-8">
+          <div class="form-row">
+            <label for="qualification_decision">Qualification decision</label>
+            <select id="qualification_decision" name="qualification_decision" required>
+              <option value="qualified"${options.qualificationDecision === 'qualified' ? ' selected' : ''}>Qualified</option>
+              <option value="not_qualified"${options.qualificationDecision === 'not_qualified' ? ' selected' : ''}>Not qualified</option>
+              <option value="needs_more_research"${!options.qualificationDecision || options.qualificationDecision === 'needs_more_research' ? ' selected' : ''}>Needs more research</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="rationale">Rationale</label>
+            <textarea id="rationale" name="rationale" required maxlength="2000" placeholder="Why this qualification decision?">${escapeHtml(options.qualificationRationale || '')}</textarea>
+          </div>
+          <fieldset class="form-row">
+            <legend>Evidence references</legend>
+            <p class="section-note">Select evidence already on this prospect (fixture and/or manual).</p>
+            ${renderEvidenceRefOptions(researchJobs, selectedEvidenceIds)}
+          </fieldset>
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Record qualification</button>
+          </div>
+        </form>
+        <h3>Qualification history (newest first)</h3>
+        ${renderQualificationHistory(qualificationAssessments, researchJobs)}
+      </article>
+
+      <article class="card">
         <h2>Admin status decision</h2>
         <p class="section-note">Any authenticated Crowsnest operator may record approve, reject, or needs_research in this MVP. No HubSpot sync and no outreach send in this slice.</p>
         ${decisionErrorHtml}
@@ -1340,7 +1453,7 @@ function renderSalesDetailMain(options = {}) {
         <h2>Append-only audit trail</h2>
         ${renderAuditList(audit)}
       </article>
-      <div class="safety"><strong>Safety:</strong> Durable Sales decisions and manual evidence when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no live provider calls.</div>
+      <div class="safety"><strong>Safety:</strong> Durable Sales decisions, manual evidence, and operator qualification when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no live provider calls, and no automatic AI scoring.</div>
     </section>`;
 }
 
@@ -1366,7 +1479,7 @@ function viewSubtitle(view) {
   if (view === 'billing') return 'Billing sources are not connected yet';
   if (view === 'communications') return 'Communications sources are not connected yet';
   if (view === 'sales') return 'Manual prospect intake, fixture research, and Admin review';
-  if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, and Admin decision';
+  if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, qualification, and Admin decision';
   return 'Internal Luna Front Desk overview dashboard';
 }
 

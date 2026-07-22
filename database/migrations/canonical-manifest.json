@@ -449,6 +449,15 @@
       "rationale": "Luna Sales Chapter 2: extend luna_sales.research_jobs with source_url + confidence for manual research evidence workspace."
     },
     {
+      "id": "044_luna_sales_qualification",
+      "filename": "044_luna_sales_qualification.sql",
+      "sha256": "24d6b1cc658fdd81502b294752f794ec80507fe083477c65ddcf9f5e099c0c33",
+      "order": 42,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Luna Sales Chapter 3: luna_sales.qualification_assessments for operator-controlled qualification policy with explicit evidence references."
+    },
+    {
       "id": "022_sunset_location_id_PROPOSED",
       "filename": "022_sunset_location_id_PROPOSED.sql",
       "sha256": "5854d06527c2f2f1cd6e209b9a87759db3d72396a0ee9b9c58a834ff18f8448f",

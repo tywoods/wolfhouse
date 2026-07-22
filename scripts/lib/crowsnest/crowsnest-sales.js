@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Crowsnest Luna Sales — prospects, fixture research, manual evidence, decisions, audit.
+ * Crowsnest Luna Sales — prospects, fixture research, manual evidence, qualification, decisions, audit.
  *
  * Persistence goes through crowsnest-sales-store (dedicated CROWSNEST_SALES_DATABASE_URL).
  * In-memory fallback is explicit for non-production/test when the durable DSN is absent.
@@ -18,6 +18,7 @@ const {
 } = require('./crowsnest-sales-store');
 
 const ALLOWED_DECISIONS = new Set(['approved', 'rejected', 'needs_research']);
+const ALLOWED_QUALIFICATION_DECISIONS = new Set(['qualified', 'not_qualified', 'needs_more_research']);
 const ALLOWED_EVIDENCE_CONFIDENCE = new Set(['low', 'medium', 'high']);
 
 const EVIDENCE_BOUNDS = {
@@ -28,6 +29,11 @@ const EVIDENCE_BOUNDS = {
   limitationsMax: 4000,
   maxLines: 40,
   maxLineLength: 500,
+};
+
+const QUALIFICATION_BOUNDS = {
+  rationaleMax: 2000,
+  maxEvidenceRefs: 40,
 };
 
 /** @type {ReturnType<typeof createMemorySalesRepository> | null} */
@@ -223,6 +229,79 @@ function validateManualEvidence(input = {}) {
     factual_notes: notes.lines,
     limitations: limits.lines,
     confidence,
+  };
+}
+
+function normalizeEvidenceIdList(raw) {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) {
+    return raw.map((id) => String(id || '').trim()).filter(Boolean);
+  }
+  const text = String(raw || '').trim();
+  if (!text) return [];
+  if (text.includes(',')) {
+    return text.split(',').map((part) => part.trim()).filter(Boolean);
+  }
+  return [text];
+}
+
+function validateQualification(input = {}, availableEvidenceIds = []) {
+  const decision = String(
+    input.qualification_decision != null ? input.qualification_decision : (input.decision || ''),
+  ).trim().toLowerCase();
+  const rationale = String(input.rationale || '').trim();
+  const evidenceIds = normalizeEvidenceIdList(
+    input.evidence_ids != null ? input.evidence_ids : input.evidenceIds,
+  );
+  const available = new Set(
+    (Array.isArray(availableEvidenceIds) ? availableEvidenceIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  );
+
+  if (!ALLOWED_QUALIFICATION_DECISIONS.has(decision)) {
+    return {
+      ok: false,
+      error: 'Qualification decision must be qualified, not_qualified, or needs_more_research.',
+    };
+  }
+  if (!rationale) {
+    return { ok: false, error: 'A rationale is required for qualification assessments.' };
+  }
+  if (rationale.length > QUALIFICATION_BOUNDS.rationaleMax) {
+    return {
+      ok: false,
+      error: `Rationale must be at most ${QUALIFICATION_BOUNDS.rationaleMax} characters.`,
+    };
+  }
+  if (!evidenceIds.length) {
+    return { ok: false, error: 'Select at least one evidence reference already on this prospect.' };
+  }
+  if (evidenceIds.length > QUALIFICATION_BOUNDS.maxEvidenceRefs) {
+    return {
+      ok: false,
+      error: `Select at most ${QUALIFICATION_BOUNDS.maxEvidenceRefs} evidence references.`,
+    };
+  }
+  const unique = [];
+  const seen = new Set();
+  for (const id of evidenceIds) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (!available.has(id)) {
+      return {
+        ok: false,
+        error: 'Evidence references must belong to this prospect.',
+      };
+    }
+    unique.push(id);
+  }
+
+  return {
+    ok: true,
+    decision,
+    rationale,
+    evidence_ids: unique,
   };
 }
 
@@ -471,6 +550,90 @@ async function recordManualEvidence(prospectId, input = {}, actor = 'Admin') {
   }
 }
 
+async function listQualificationsForProspect(id) {
+  const repo = await getRepository();
+  if (typeof repo.listQualificationsForProspect === 'function') {
+    return repo.listQualificationsForProspect(id);
+  }
+  return [];
+}
+
+async function getLatestQualification(id) {
+  const repo = await getRepository();
+  if (typeof repo.getLatestQualification === 'function') {
+    return repo.getLatestQualification(id);
+  }
+  const list = await listQualificationsForProspect(id);
+  return list.length ? list[0] : null;
+}
+
+async function recordQualification(prospectId, input = {}, actor = 'Admin') {
+  try {
+    const repo = await getRepository();
+    if (repo.backend === 'fail_closed') {
+      return repo.saveQualificationAssessment({});
+    }
+
+    const prospect = await repo.getProspect(prospectId);
+    if (!prospect) {
+      return { ok: false, error: 'Prospect not found.', status: 404 };
+    }
+
+    const researchJobs = typeof repo.listResearchForProspect === 'function'
+      ? await repo.listResearchForProspect(prospect.id)
+      : [];
+    const availableIds = (researchJobs || []).map((job) => String(job.id));
+
+    const validation = validateQualification(input, availableIds);
+    if (!validation.ok) {
+      return { ok: false, error: validation.error, status: 400 };
+    }
+
+    const assessment = {
+      id: newSalesUuid(),
+      prospect_id: prospect.id,
+      decision: validation.decision,
+      rationale: validation.rationale,
+      evidence_ids: validation.evidence_ids,
+      reviewer_id: String(actor || 'Admin'),
+      created_at: nowIso(),
+    };
+
+    const saved = await repo.saveQualificationAssessment(assessment);
+    if (saved && saved.ok === false) {
+      return saved;
+    }
+
+    const audit = await appendAudit({
+      actor: String(actor || 'Admin'),
+      action: 'qualification_assessed',
+      entity_type: 'qualification',
+      entity_id: assessment.id,
+      detail: {
+        prospect_id: prospect.id,
+        decision: assessment.decision,
+        rationale: assessment.rationale,
+        evidence_ids: assessment.evidence_ids,
+        reviewer_id: String(actor || 'Admin'),
+      },
+    });
+    if (audit && audit.ok === false) {
+      return audit;
+    }
+
+    return {
+      ok: true,
+      assessment: (saved && saved.assessment) || assessment,
+      audit,
+    };
+  } catch (err) {
+    if (isSalesStoreUnavailableError(err)) {
+      return salesUnavailableResult();
+    }
+    throw err;
+  }
+}
+
 async function decideProspect(id, input = {}, actor = 'Admin') {
   const prospect = await getProspect(id);
   if (!prospect) {
@@ -543,19 +706,25 @@ function getSalesStoreMode() {
 module.exports = {
   ALLOWED_DECISIONS,
   ALLOWED_EVIDENCE_CONFIDENCE,
+  ALLOWED_QUALIFICATION_DECISIONS,
   EVIDENCE_BOUNDS,
+  QUALIFICATION_BOUNDS,
   appendAudit,
   createProspect,
   decideProspect,
+  getLatestQualification,
   getProspect,
   getResearchForProspect,
   getSalesStoreMode,
   listAuditEvents,
   listProspects,
+  listQualificationsForProspect,
   listResearchForProspect,
   recordManualEvidence,
+  recordQualification,
   resetSalesStore,
   validateManualEvidence,
   validateManualIntake,
+  validateQualification,
   _setSalesRepositoryForTests,
 };

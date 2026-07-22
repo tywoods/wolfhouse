@@ -58,6 +58,10 @@ Offline **AI usage adapter**: maps native OpenAI / Anthropic technical usage fie
 
 Offline **AI usage event contract** (`crowsnest.ai_usage.v1`): pure validator, sanitized fixtures, and `npm run verify:crowsnest-ai-usage-contract`. See [`docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md`](crowsnest/AI-USAGE-EVENT-CONTRACT.md). No storage, provider wiring, or UI panel in this slice.
 
+### Luna Sales Chapter 3 (qualification policy)
+
+On the existing prospect detail page, authenticated operators can record a **transparent qualification assessment** (`qualified` / `not_qualified` / `needs_more_research`) with a short rationale and explicit references to evidence already on the prospect. The detail page shows the latest assessment, evidence links, assessment history, and append-only audit (`qualification_assessed`). No hidden score, automatic AI scoring, HubSpot sync, external research, or outreach. Migration `044_luna_sales_qualification.sql`. See [`docs/crowsnest/SALES-QUALIFICATION-POLICY.md`](crowsnest/SALES-QUALIFICATION-POLICY.md). Verify with `npm run verify:crowsnest-sales-qualification`.
+
 ### Luna Sales Chapter 2 (research evidence workspace)
 
 On the existing prospect detail page, authenticated operators can record **dated manual research evidence** (source label/URL, summary, factual notes, limitations, confidence). Fixture research is preserved; evidence is prospect-scoped in `luna_sales.research_jobs`, listed newest-first, XSS-escaped in the UI, and append-audited as `research_evidence_recorded`. Extends Chapter 1 via migration `043_luna_sales_research_evidence.sql` (`source_url`, `confidence`). Does **not** claim live AI or external research providers. See [`docs/crowsnest/SALES-RESEARCH-EVIDENCE.md`](crowsnest/SALES-RESEARCH-EVIDENCE.md). Verify with `npm run verify:crowsnest-sales-research`.
