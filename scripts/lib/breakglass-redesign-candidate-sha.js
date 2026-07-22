@@ -47,9 +47,9 @@ const SQUASH_PROOF_CERT_ID = 'breakglass-1e-squash-proof';
 /**
  * Empty during content bootstrap; anchor commit sets this to the content SHA
  * so tip blobs for SQUASH_PROOF_PATHS bind without ancestry trust.
- * 1F/1G/1H reuse this existing squash-proof cert (no new certificate architecture).
+ * 1F/1G/1H/1I reuse this existing squash-proof cert (no new certificate architecture).
  */
-const SQUASH_PROOF_CANDIDATE_SHA = 'a3b81b1048f8efd86d6246701712815161958343';
+const SQUASH_PROOF_CANDIDATE_SHA = '';
 
 const ANCHOR_FIXTURE_REL =
   'fixtures/messi-acceptance/breakglass-whole-path-blobs.json';

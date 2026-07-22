@@ -715,7 +715,8 @@
     "verify:messi-slice1f-radar-wiring": "node scripts/verify-messi-slice1a-acceptance-ledger.js",
     "verify:messi-slice1g-factory-wiring": "node scripts/verify-messi-slice1a-acceptance-ledger.js",
     "verify:evidence-durable-refs": "node scripts/verify-evidence-durable-refs.js",
-    "verify:messi-slice1h-cross-parent-gap": "node scripts/verify-messi-slice1a-acceptance-ledger.js"
+    "verify:messi-slice1h-cross-parent-gap": "node scripts/verify-messi-slice1a-acceptance-ledger.js",
+    "verify:messi-slice1i-finite-closeout": "node scripts/verify-messi-slice1a-acceptance-ledger.js"
   },
   "dependencies": {
     "acorn": "8.14.1",

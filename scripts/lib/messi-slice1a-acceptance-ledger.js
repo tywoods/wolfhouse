@@ -4,24 +4,25 @@
  * messi-slice1a-acceptance-ledger — MESSI sole production classifier and
  * parent-binding locks (docs/fixtures/verifier only).
  *
- * Slice 1H narrows G_CROSS_PARENT_INTEGRATION only: bind a deterministic gap
- * manifest proving the four reviewed parent dispositions (FOUNDATION 1B,
- * FORTRESS 1D, RADAR 16AP, FACTORY 1E) are wired and mutually consistent, while
- * keeping that gate ABSENT because no genuine end-to-end cross-parent
- * operated/production integration proof exists. The five unrelated gate objects
- * (four parents + G_MESSI_MILESTONE_CLOSEOUT) stay serialization-identical to
- * master basis aa955cff. Frozen score 0/4/2, RADAR formal 0/9/0, and false
- * production/MESSI completion are preserved. No certificate architecture /
- * runtime / live changes — reuse redesign + squash-proof as-is.
+ * Slice 1I narrows G_MESSI_MILESTONE_CLOSEOUT only: record that the finite MESSI
+ * evidence-integration ledger/audit workstream is complete and that all four
+ * reviewed parent dispositions plus the cross-parent gap manifest are reviewed,
+ * while keeping the formal milestone gate ABSENT because four parents remain
+ * partial and cross-parent operated/production proof is absent. The five
+ * unrelated gate objects (four parents + G_CROSS_PARENT_INTEGRATION) stay
+ * serialization-identical to master basis 977afcc2. Frozen score 0/4/2, RADAR
+ * formal 0/9/0, and false production/MESSI completion are preserved. No
+ * certificate architecture / runtime / live changes — reuse redesign +
+ * squash-proof as-is.
  *
  * Post-merge tip scope: immutable reviewed-candidate blob certificates at HEAD.
- * Never infer 1A/1H scope from MASTER_BASIS..HEAD path allowlists (concurrent
+ * Never infer 1A/1I scope from MASTER_BASIS..HEAD path allowlists (concurrent
  * unrelated master commits after the squash — e.g. #147 — are irrelevant).
  *
  * Parent milestones are never marked complete from labels, summaries, or
  * self-authored booleans — only from inventory + exact hash binding + real
  * retained gate execution + deterministic classification with explicit missing
- * proof.
+ * proof. Finite ledger/audit closeout is never MESSI complete.
  *
  * Threat boundary (honest): module.exports is recursively deep-frozen. This
  * does NOT defend against require.cache replacement or rewriting this file
@@ -70,11 +71,11 @@ function sha256Text(text) {
   return crypto.createHash('sha256').update(String(text), 'utf8').digest('hex');
 }
 
-const SLICE = 'MESSI-1H';
-const BRANCH = 'messi/slice-1h-cross-parent-gap';
-const OUTCOME_ID = '1H_cross_parent_disposition_gap_manifest';
-/** Master tip this slice starts from (#161 FACTORY wiring tip). */
-const MASTER_BASIS = 'aa955cffa859c922b924b039f8e1f9e45adfadfd';
+const SLICE = 'MESSI-1I';
+const BRANCH = 'messi/slice-1i-finite-closeout';
+const OUTCOME_ID = '1I_finite_evidence_integration_ledger_audit_closeout';
+/** Master tip this slice starts from (#162 cross-parent gap tip). */
+const MASTER_BASIS = '977afcc28a0424706e9c81665a529d1eb30fa00a';
 /** Git-anchored whole-path redesign pin (never frozen_only / fixture trust root). */
 const redesignPin = require('./breakglass-redesign-candidate-sha');
 /**
@@ -90,9 +91,13 @@ const LANDING_TIP = redesignPin.SQUASH_PROOF_LANDING_TIP
   || 'c61bc9feba412de8e24cd14b5907bd62b65abd13';
 /** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
 const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
-const PROGRESS_CLASS = 'cross_parent_disposition_gap_manifest_only';
-/** Preserved from base aa955cff / 98202775 — not overwritten by 1H progress_class. */
-const MESSI_CLOSEOUT_WORKSTREAM_CLASS = 'acceptance_ledger_inventory_and_verifier_only';
+const PROGRESS_CLASS = 'finite_messi_evidence_integration_ledger_audit_closeout';
+/** 1I finite evidence-integration ledger/audit closeout — formal gate stays absent. */
+const MESSI_CLOSEOUT_WORKSTREAM_CLASS =
+  'finite_messi_evidence_integration_ledger_audit_closeout';
+const MESSI_CLOSEOUT_FINITE_FLAG =
+  'finite_evidence_integration_ledger_audit_workstream_complete';
+const MESSI_CLOSEOUT_ANALOG = 'verify:messi-slice1i-finite-closeout';
 /** Cross-parent gate workstream — gap manifest only; never integration proof. */
 const CROSS_PARENT_WORKSTREAM_CLASS = 'cross_parent_disposition_gap_manifest_only';
 
@@ -125,20 +130,20 @@ const GATE_IDS = Object.freeze([
   'G_MESSI_MILESTONE_CLOSEOUT',
 ]);
 
-/** Non-CROSS gates — must remain byte-identical to master basis aa955cff ledger. */
+/** Non-MESSI-closeout gates — must remain byte-identical to master basis 977afcc2 ledger. */
 const UNRELATED_GATE_IDS = Object.freeze([
   'G_FOUNDATION_PARENT',
   'G_FORTRESS_PARENT',
   'G_RADAR_PARENT',
   'G_FACTORY_PARENT',
-  'G_MESSI_MILESTONE_CLOSEOUT',
+  'G_CROSS_PARENT_INTEGRATION',
 ]);
 
 /**
- * Exact unrelated gate objects from fixtures/messi-acceptance/slice1a-ledger.json
- * at master basis aa955cff (pre-1H). Semantic ledger confinement proof target.
+ * Exact unrelated parent gate objects from fixtures/messi-acceptance/slice1a-ledger.json
+ * at master basis 977afcc2 (pre-1I). CROSS row is appended after CROSS_PARENT_GAP_MANIFEST.
  */
-const BASE_UNRELATED_GATE_OBJECTS = Object.freeze([
+const BASE_UNRELATED_PARENT_GATE_OBJECTS = Object.freeze([
   Object.freeze({
     id: 'G_FOUNDATION_PARENT',
     verdict: 'partial',
@@ -202,20 +207,6 @@ const BASE_UNRELATED_GATE_OBJECTS = Object.freeze([
       'production_client_productization_readiness',
     ]),
   }),
-  Object.freeze({
-    id: 'G_MESSI_MILESTONE_CLOSEOUT',
-    verdict: 'absent',
-    parent: null,
-    workstream_class: MESSI_CLOSEOUT_WORKSTREAM_CLASS,
-    production_readiness: 'absent',
-    finite_closeout_analog: null,
-    missing_proof: Object.freeze([
-      'all_parent_messi_gates_complete',
-      'cross_parent_integration_complete',
-      'production_readiness_proven',
-      'radar_formal_gates_no_longer_partial',
-    ]),
-  }),
 ]);
 
 const VERDICTS = Object.freeze(['complete', 'partial', 'absent']);
@@ -261,6 +252,9 @@ const PACKAGE_JSON_1G_SCRIPT_VALUE =
 const PACKAGE_JSON_1H_SCRIPT_KEY = 'verify:messi-slice1h-cross-parent-gap';
 const PACKAGE_JSON_1H_SCRIPT_VALUE =
   'node scripts/verify-messi-slice1a-acceptance-ledger.js';
+const PACKAGE_JSON_1I_SCRIPT_KEY = 'verify:messi-slice1i-finite-closeout';
+const PACKAGE_JSON_1I_SCRIPT_VALUE =
+  'node scripts/verify-messi-slice1a-acceptance-ledger.js';
 
 const SCOPE_FENCE = Object.freeze({
   allowed: Object.freeze([
@@ -274,6 +268,7 @@ const SCOPE_FENCE = Object.freeze({
     'deterministic_classification',
     'package_json_verifier_script_registration',
     'cross_parent_disposition_gap_manifest',
+    'finite_messi_evidence_integration_ledger_audit_closeout',
   ]),
   forbids: Object.freeze([
     'product_runtime_template_behavior',
@@ -286,6 +281,7 @@ const SCOPE_FENCE = Object.freeze({
     'self_authored_parent_completion_booleans',
     'label_or_summary_completion',
     'gap_manifest_as_cross_parent_integration_proof',
+    'finite_ledger_closeout_as_MESSI_complete',
   ]),
 });
 
@@ -548,7 +544,7 @@ const MESSI_GATES = Object.freeze([
     parent: null,
     title: 'MESSI milestone closeout',
     requirement:
-      'MESSI closes only when all parent MESSI gates are complete with production-grade proof. Slice 1A freezes the ledger; MESSI remains absent.',
+      'MESSI closes only when all parent MESSI gates are complete with production-grade proof. Slice 1I records finite evidence-integration ledger/audit workstream completion and reviewed dispositions (four parents + cross-parent gap manifest) while keeping this gate absent — finite ledger closeout is not MESSI complete / production readiness.',
   }),
 ]);
 
@@ -625,6 +621,58 @@ const CROSS_PARENT_MISSING_PROOF = Object.freeze([
   'composed_foundation_fortress_radar_factory_production_evidence',
   'end_to_end_live_staging_integration_beyond_parent_silos',
   'operated_cross_parent_production_integration',
+]);
+
+/**
+ * Exact unrelated gate objects from basis 977afcc2 (four parents + CROSS with
+ * gap manifest). G_MESSI_MILESTONE_CLOSEOUT is the 1I-changed gate.
+ */
+const BASE_UNRELATED_GATE_OBJECTS = Object.freeze([
+  ...BASE_UNRELATED_PARENT_GATE_OBJECTS,
+  Object.freeze({
+    id: 'G_CROSS_PARENT_INTEGRATION',
+    verdict: 'absent',
+    parent: null,
+    workstream_class: CROSS_PARENT_WORKSTREAM_CLASS,
+    production_readiness: 'absent',
+    finite_closeout_analog: null,
+    gap_manifest: CROSS_PARENT_GAP_MANIFEST,
+    missing_proof: CROSS_PARENT_MISSING_PROOF,
+  }),
+]);
+
+/**
+ * Reviewed dispositions recorded on G_MESSI_MILESTONE_CLOSEOUT for finite
+ * ledger/audit closeout. Four parent dispositions + cross-parent gap manifest.
+ * Presence is not MESSI complete / production readiness.
+ */
+const MESSI_REVIEWED_DISPOSITIONS = Object.freeze([
+  ...CROSS_PARENT_GAP_MANIFEST.parent_dispositions.map((d) => Object.freeze({
+    disposition_id: d.parent,
+    gate_id: d.gate_id,
+    verdict: d.verdict,
+    workstream_class: d.workstream_class,
+    production_readiness: d.production_readiness,
+    finite_closeout_analog: d.finite_closeout_analog,
+    finite_flag: d.finite_flag,
+    finite_flag_value: d.finite_flag_value,
+  })),
+  Object.freeze({
+    disposition_id: 'CROSS_PARENT_GAP_MANIFEST',
+    gate_id: 'G_CROSS_PARENT_INTEGRATION',
+    verdict: 'absent',
+    workstream_class: CROSS_PARENT_WORKSTREAM_CLASS,
+    production_readiness: 'absent',
+    integration_proof: false,
+    gap_manifest_bound: true,
+  }),
+]);
+
+const MESSI_CLOSEOUT_MISSING_PROOF = Object.freeze([
+  'all_parent_messi_gates_complete',
+  'cross_parent_integration_complete',
+  'production_readiness_proven',
+  'radar_formal_gates_no_longer_partial',
 ]);
 
 /** Exact sha256 pins for parent-bound committed files (recomputed by verifier). */
@@ -1257,6 +1305,88 @@ function buildCrossParentIntegrationGate(parentGates) {
 }
 
 /**
+ * Validate locked reviewed-disposition inventory on G_MESSI_MILESTONE_CLOSEOUT.
+ * Does not raise that gate above absent / does not set messi_complete.
+ */
+function validateMessiReviewedDispositions(dispositions, gatesById) {
+  const errors = [];
+  const rows = Array.isArray(dispositions) ? dispositions : [];
+  if (rows.length !== MESSI_REVIEWED_DISPOSITIONS.length) {
+    errors.push('reviewed_dispositions_count');
+  }
+  const seen = new Set();
+  for (const exp of MESSI_REVIEWED_DISPOSITIONS) {
+    const row = rows.find((r) => r && r.disposition_id === exp.disposition_id);
+    if (!row) {
+      errors.push(`missing_reviewed_disposition:${exp.disposition_id}`);
+      continue;
+    }
+    seen.add(exp.disposition_id);
+    if (!deepEqual(row, deepClone(exp))) {
+      errors.push(`reviewed_disposition_drift:${exp.disposition_id}`);
+    }
+    const live = gatesById && gatesById[exp.gate_id];
+    if (!live) {
+      errors.push(`missing_reviewed_disposition_live:${exp.disposition_id}`);
+      continue;
+    }
+    if (live.verdict !== exp.verdict) {
+      errors.push(`reviewed_disposition_verdict_mismatch:${exp.disposition_id}`);
+    }
+    if (live.workstream_class !== exp.workstream_class) {
+      errors.push(`reviewed_disposition_workstream_mismatch:${exp.disposition_id}`);
+    }
+    if (live.production_readiness !== exp.production_readiness) {
+      errors.push(`reviewed_disposition_production_mismatch:${exp.disposition_id}`);
+    }
+    if (exp.disposition_id === 'CROSS_PARENT_GAP_MANIFEST') {
+      if (!live.gap_manifest) {
+        errors.push('missing_reviewed_disposition:CROSS_PARENT_GAP_MANIFEST');
+      } else if (live.gap_manifest.integration_proof === true
+        || exp.integration_proof !== false) {
+        errors.push('reviewed_disposition_integration_proof_claimed');
+      }
+    } else if (exp.finite_flag) {
+      if (live.finite_closeout_analog !== exp.finite_closeout_analog) {
+        errors.push(`reviewed_disposition_analog_mismatch:${exp.disposition_id}`);
+      }
+      if (live[exp.finite_flag] !== exp.finite_flag_value) {
+        errors.push(`reviewed_disposition_finite_flag_mismatch:${exp.disposition_id}`);
+      }
+    }
+  }
+  for (const exp of MESSI_REVIEWED_DISPOSITIONS) {
+    if (!seen.has(exp.disposition_id)
+      && !errors.some((e) => e === `missing_reviewed_disposition:${exp.disposition_id}`)) {
+      errors.push(`missing_reviewed_disposition:${exp.disposition_id}`);
+    }
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function buildMessiMilestoneCloseoutGate(parentAndCrossGates) {
+  const byId = {};
+  for (const g of parentAndCrossGates || []) byId[g.id] = g;
+  const reviewed = deepClone(MESSI_REVIEWED_DISPOSITIONS);
+  const reviewedCheck = validateMessiReviewedDispositions(reviewed, byId);
+  return {
+    gate: {
+      id: 'G_MESSI_MILESTONE_CLOSEOUT',
+      verdict: 'absent',
+      parent: null,
+      workstream_class: MESSI_CLOSEOUT_WORKSTREAM_CLASS,
+      production_readiness: 'absent',
+      finite_closeout_analog: MESSI_CLOSEOUT_ANALOG,
+      [MESSI_CLOSEOUT_FINITE_FLAG]: true,
+      reviewed_dispositions: reviewed,
+      retained_gate_results: [],
+      missing_proof: [...MESSI_CLOSEOUT_MISSING_PROOF],
+    },
+    reviewedCheck,
+  };
+}
+
+/**
  * Sole production classifier. Never trusts ledger-authored parent_complete
  * booleans. Verdicts require hash binding + retained gate exit 0 + honesty
  * about finite vs production.
@@ -1366,22 +1496,9 @@ function classifyMessiGates(opts) {
   for (const e of crossBuilt.manifestCheck.errors) errors.push(e);
   gates.push(crossBuilt.gate);
 
-  gates.push({
-    id: 'G_MESSI_MILESTONE_CLOSEOUT',
-    verdict: 'absent',
-    parent: null,
-    // Preserve base 98202775 workstream_class — not 1C/1H progress_class.
-    workstream_class: MESSI_CLOSEOUT_WORKSTREAM_CLASS,
-    production_readiness: 'absent',
-    finite_closeout_analog: null,
-    retained_gate_results: [],
-    missing_proof: Object.freeze([
-      'all_parent_messi_gates_complete',
-      'cross_parent_integration_complete',
-      'production_readiness_proven',
-      'radar_formal_gates_no_longer_partial',
-    ]),
-  });
+  const messiBuilt = buildMessiMilestoneCloseoutGate(gates);
+  for (const e of messiBuilt.reviewedCheck.errors) errors.push(e);
+  gates.push(messiBuilt.gate);
 
   // Hard contract: FOUNDATION parent never complete without production proofs.
   const foundationGate = gates.find((g) => g.id === 'G_FOUNDATION_PARENT');
@@ -1504,6 +1621,39 @@ function classifyMessiGates(opts) {
     }
   }
 
+  // Hard contract: finite ledger/audit closeout never promotes MESSI milestone.
+  const messiGate = gates.find((g) => g.id === 'G_MESSI_MILESTONE_CLOSEOUT');
+  if (messiGate) {
+    if (messiGate.verdict !== 'absent') {
+      errors.push('finite_ledger_closeout_as_MESSI_complete');
+    }
+    if (messiGate.workstream_class !== MESSI_CLOSEOUT_WORKSTREAM_CLASS) {
+      errors.push('messi_closeout_workstream_class_drift');
+    }
+    if (messiGate.production_readiness !== 'absent') {
+      errors.push('finite_ledger_closeout_as_MESSI_complete');
+    }
+    if (messiGate[MESSI_CLOSEOUT_FINITE_FLAG] !== true) {
+      errors.push('messi_finite_ledger_audit_flag_missing');
+    }
+    if (messiGate.finite_closeout_analog !== MESSI_CLOSEOUT_ANALOG) {
+      errors.push('messi_closeout_analog_drift');
+    }
+    if (!messiGate.reviewed_dispositions) {
+      errors.push('reviewed_dispositions_missing');
+    } else {
+      const byId = {};
+      for (const g of gates) byId[g.id] = g;
+      const rc = validateMessiReviewedDispositions(messiGate.reviewed_dispositions, byId);
+      for (const e of rc.errors) errors.push(e);
+    }
+    for (const m of MESSI_CLOSEOUT_MISSING_PROOF) {
+      if (!messiGate.missing_proof.includes(m)) {
+        errors.push(`messi_closeout_hidden_missing_proof:${m}`);
+      }
+    }
+  }
+
   const score = {
     proven: gates.filter((g) => g.verdict === 'complete').length,
     partial: gates.filter((g) => g.verdict === 'partial').length,
@@ -1612,6 +1762,8 @@ function buildExpectedLedgerSkeleton() {
  * finite_offline_dry_run_workstream_complete are included only when present
  * (FOUNDATION / FORTRESS / RADAR / FACTORY respectively).
  * gap_manifest is included only on G_CROSS_PARENT_INTEGRATION.
+ * finite_evidence_integration_ledger_audit_workstream_complete +
+ * reviewed_dispositions are included only on G_MESSI_MILESTONE_CLOSEOUT.
  */
 function ledgerGateObject(g) {
   if (!g || typeof g !== 'object') return null;
@@ -1635,8 +1787,14 @@ function ledgerGateObject(g) {
   if (Object.prototype.hasOwnProperty.call(g, 'finite_offline_dry_run_workstream_complete')) {
     out.finite_offline_dry_run_workstream_complete = g.finite_offline_dry_run_workstream_complete;
   }
+  if (Object.prototype.hasOwnProperty.call(g, MESSI_CLOSEOUT_FINITE_FLAG)) {
+    out[MESSI_CLOSEOUT_FINITE_FLAG] = g[MESSI_CLOSEOUT_FINITE_FLAG];
+  }
   if (Object.prototype.hasOwnProperty.call(g, 'gap_manifest')) {
     out.gap_manifest = deepClone(g.gap_manifest);
+  }
+  if (Object.prototype.hasOwnProperty.call(g, 'reviewed_dispositions')) {
+    out.reviewed_dispositions = deepClone(g.reviewed_dispositions);
   }
   out.missing_proof = Array.isArray(g.missing_proof) ? [...g.missing_proof] : g.missing_proof;
   return out;
@@ -1652,8 +1810,15 @@ function unrelatedGatesMatchBase(gates) {
       errors.push(`unrelated_gate_missing:${exp.id}`);
       continue;
     }
-    if (Object.prototype.hasOwnProperty.call(got, 'gap_manifest')) {
+    if (Object.prototype.hasOwnProperty.call(got, 'gap_manifest')
+      && !Object.prototype.hasOwnProperty.call(exp, 'gap_manifest')) {
       errors.push(`gap_manifest_on_unrelated_gate:${exp.id}`);
+    }
+    if (Object.prototype.hasOwnProperty.call(got, 'reviewed_dispositions')) {
+      errors.push(`reviewed_dispositions_on_unrelated_gate:${exp.id}`);
+    }
+    if (Object.prototype.hasOwnProperty.call(got, MESSI_CLOSEOUT_FINITE_FLAG)) {
+      errors.push(`messi_finite_flag_on_unrelated_gate:${exp.id}`);
     }
     if (!deepEqual(ledgerGateObject(got), deepClone(exp))) {
       errors.push(`unrelated_gate_drift:${exp.id}`);
@@ -1747,6 +1912,16 @@ function validateLedgerFixture(ledger, classification) {
           errors.push(`gap_manifest_mismatch:${g.id}`);
         }
       }
+      if (Object.prototype.hasOwnProperty.call(g, MESSI_CLOSEOUT_FINITE_FLAG)
+        && got[MESSI_CLOSEOUT_FINITE_FLAG] !== g[MESSI_CLOSEOUT_FINITE_FLAG]) {
+        errors.push(`${MESSI_CLOSEOUT_FINITE_FLAG}_mismatch:${g.id}`);
+      }
+      if (Object.prototype.hasOwnProperty.call(g, 'reviewed_dispositions')) {
+        if (!Object.prototype.hasOwnProperty.call(got, 'reviewed_dispositions')
+          || !deepEqual(got.reviewed_dispositions, g.reviewed_dispositions)) {
+          errors.push(`reviewed_dispositions_mismatch:${g.id}`);
+        }
+      }
     }
     // FOUNDATION finite staging must remain exposed; FORTRESS finite audit must
     // remain exposed; RADAR finite staging-readiness must remain exposed;
@@ -1792,6 +1967,21 @@ function validateLedgerFixture(ledger, classification) {
         }
       } else {
         errors.push('gap_manifest_missing');
+      }
+    }
+    const messiGot = byId.G_MESSI_MILESTONE_CLOSEOUT;
+    if (messiGot) {
+      if (messiGot.verdict !== 'absent') {
+        errors.push('finite_ledger_closeout_as_MESSI_complete');
+      }
+      if (messiGot[MESSI_CLOSEOUT_FINITE_FLAG] !== true) {
+        errors.push('messi_finite_ledger_audit_flag_missing');
+      }
+      if (messiGot.reviewed_dispositions) {
+        const rc = validateMessiReviewedDispositions(messiGot.reviewed_dispositions, byId);
+        for (const e of rc.errors) errors.push(e);
+      } else {
+        errors.push('reviewed_dispositions_missing');
       }
     }
     const unrelatedLedger = unrelatedGatesMatchBase(ledger.gates || []);
@@ -1849,6 +2039,9 @@ const REQUIRED_RED = Object.freeze([
   // MESSI 1H — cross-parent disposition gap-manifest hostiles (only two new)
   'missing_parent_disposition',
   'gap_manifest_promoted_to_integration_proof',
+  // MESSI 1I — finite evidence-integration ledger/audit closeout hostiles (only two new)
+  'finite_ledger_closeout_as_MESSI_complete',
+  'missing_reviewed_disposition',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -1864,6 +2057,7 @@ const REQUIRED_GREEN = Object.freeze([
   'radar_finite_staging_readiness_exposed',
   'factory_finite_offline_dry_run_exposed',
   'cross_parent_gap_manifest_absent_gate',
+  'messi_finite_ledger_audit_closeout_absent_gate',
   'unrelated_gates_byte_identical_to_base',
   'messi_not_complete',
   'package_script_registered',
@@ -1884,7 +2078,10 @@ deepFreeze(REQUIRED_RED);
 deepFreeze(REQUIRED_GREEN);
 deepFreeze(GATE_IDS);
 deepFreeze(UNRELATED_GATE_IDS);
+deepFreeze(BASE_UNRELATED_PARENT_GATE_OBJECTS);
 deepFreeze(BASE_UNRELATED_GATE_OBJECTS);
+deepFreeze(MESSI_REVIEWED_DISPOSITIONS);
+deepFreeze(MESSI_CLOSEOUT_MISSING_PROOF);
 
 module.exports = deepFreeze({
   SLICE,
@@ -1897,6 +2094,8 @@ module.exports = deepFreeze({
   redesignPin,
   PROGRESS_CLASS,
   MESSI_CLOSEOUT_WORKSTREAM_CLASS,
+  MESSI_CLOSEOUT_FINITE_FLAG,
+  MESSI_CLOSEOUT_ANALOG,
   FOUNDATION_1B_MERGE_TIP,
   FOUNDATION_1B_CANDIDATE_SHA,
   FOUNDATION_1B_MASTER_BASIS,
@@ -1922,6 +2121,8 @@ module.exports = deepFreeze({
   PACKAGE_JSON_1G_SCRIPT_VALUE,
   PACKAGE_JSON_1H_SCRIPT_KEY,
   PACKAGE_JSON_1H_SCRIPT_VALUE,
+  PACKAGE_JSON_1I_SCRIPT_KEY,
+  PACKAGE_JSON_1I_SCRIPT_VALUE,
   SCOPE_FENCE,
   PARENTS,
   MESSI_GATES,
@@ -1939,6 +2140,8 @@ module.exports = deepFreeze({
   CROSS_PARENT_WORKSTREAM_CLASS,
   CROSS_PARENT_GAP_MANIFEST,
   CROSS_PARENT_MISSING_PROOF,
+  MESSI_REVIEWED_DISPOSITIONS,
+  MESSI_CLOSEOUT_MISSING_PROOF,
   deepFreeze,
   deepClone,
   deepEqual,
@@ -1974,6 +2177,8 @@ module.exports = deepFreeze({
   classifyMessiGates,
   validateCrossParentGapManifest,
   buildCrossParentIntegrationGate,
+  validateMessiReviewedDispositions,
+  buildMessiMilestoneCloseoutGate,
   readFortressMatrixCounts,
   readRadarFormalScore,
   buildExpectedLedgerSkeleton,

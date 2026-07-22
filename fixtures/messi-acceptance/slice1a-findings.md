@@ -1,10 +1,10 @@
-# MESSI Slice 1H findings — cross-parent disposition gap manifest
+# MESSI Slice 1I findings — finite evidence-integration ledger/audit closeout
 
-**Status:** deterministic cross-parent disposition gap manifest bound on `G_CROSS_PARENT_INTEGRATION` (gate remains absent)
-**Master basis:** `aa955cffa859c922b924b039f8e1f9e45adfadfd`
-**Branch:** `messi/slice-1h-cross-parent-gap`
-**Outcome:** `1H_cross_parent_disposition_gap_manifest`
-**Progress class:** `cross_parent_disposition_gap_manifest_only`
+**Status:** finite MESSI evidence-integration ledger/audit workstream complete on `G_MESSI_MILESTONE_CLOSEOUT` (formal milestone gate remains absent)
+**Master basis:** `977afcc28a0424706e9c81665a529d1eb30fa00a`
+**Branch:** `messi/slice-1i-finite-closeout`
+**Outcome:** `1I_finite_evidence_integration_ledger_audit_closeout`
+**Progress class:** `finite_messi_evidence_integration_ledger_audit_closeout`
 
 ## Definition
 
@@ -13,11 +13,11 @@ It does not replace parent workstreams. It inventories their canonical closeout/
 binds exact file hashes, runs retained offline gates, and classifies MESSI gates as
 `complete` / `partial` / `absent` with explicit missing proof.
 
-Slice **1H** changes only `G_CROSS_PARENT_INTEGRATION`: it binds a deterministic gap
-manifest proving the four reviewed parent dispositions (FOUNDATION 1B, FORTRESS 1D,
-RADAR 16AP, FACTORY 1E) are wired and mutually consistent, while keeping the gate
-**absent** because no genuine end-to-end cross-parent operated/production integration
-proof exists. A gap manifest is **not** integration proof.
+Slice **1I** changes only `G_MESSI_MILESTONE_CLOSEOUT`: it records that the finite MESSI
+evidence-integration ledger/audit workstream is complete and that all four reviewed
+parent dispositions plus the cross-parent gap manifest are reviewed, while keeping the
+formal milestone gate **absent** because four parents remain partial and cross-parent
+operated/production proof is absent. Finite ledger closeout is **not** MESSI complete.
 No certificate architecture / runtime / live changes.
 
 ## Completion policy
@@ -46,7 +46,7 @@ Classification requires:
 | `G_RADAR_PARENT` | partial | 16AP finite closeout wired + staging-readiness complete exposed; **formal score frozen 0/9/0** |
 | `G_FACTORY_PARENT` | partial | 1E finite offline closeout wired + offline dry-run complete exposed; live/prod/apply/secrets still missing |
 | `G_CROSS_PARENT_INTEGRATION` | absent | Gap manifest proves four dispositions wired+consistent; **not** e2e operated/production integration |
-| `G_MESSI_MILESTONE_CLOSEOUT` | absent | MESSI not complete |
+| `G_MESSI_MILESTONE_CLOSEOUT` | absent | Finite ledger/audit complete + reviewed dispositions; **not** MESSI complete / production ready |
 
 ## Finite vs production
 
@@ -59,18 +59,20 @@ Classification requires:
 
 Finite staging/offline/audit closeouts are **not** production readiness.
 The cross-parent gap manifest is **not** cross-parent integration proof.
+Finite MESSI evidence-integration ledger/audit closeout is **not** MESSI complete.
 
-## What 1H proves / does not prove
+## What 1I proves / does not prove
 
-**Proves:** deterministic gap manifest inventories all four reviewed parent dispositions
-as wired and mutually consistent (partial + production_readiness absent + finite flags);
-`G_CROSS_PARENT_INTEGRATION` stays **absent**; five unrelated gate objects
-(serialization-identical to base `aa955cff`); MESSI score remains 0/4/2;
-RADAR formal 0/9/0 preserved; `production_ready` / `messi_complete` false.
+**Proves:** finite evidence-integration ledger/audit workstream complete on
+`G_MESSI_MILESTONE_CLOSEOUT`; all four reviewed parent dispositions plus the
+cross-parent gap manifest are inventoried as reviewed; formal milestone stays
+**absent**; five unrelated gate objects (serialization-identical to base `977afcc2`);
+MESSI score remains 0/4/2; RADAR formal 0/9/0 preserved; `production_ready` /
+`messi_complete` false.
 
 **Does not prove:** MESSI complete, production ready, genuine end-to-end cross-parent
 operated/production integration, composed live staging beyond parent silos, raising any
-RADAR formal gate, or promoting the gap manifest into integration proof.
+RADAR formal gate, or promoting finite ledger closeout into MESSI complete.
 
 ## Parent SHA provenance
 
@@ -81,11 +83,9 @@ RADAR formal gate, or promoting the gap manifest into integration proof.
 | RADAR | `7e56a99a2d69e13bf1a764090e4033195e189641` | `7870a9fb818bbd94d33b291c8782851276e2715e` |
 | FACTORY | `14facf5d54be8767cf9aca4d69a880f28ea3dc2e` | identity |
 
-Hostile REDs cover missing parent disposition rows in the gap manifest and promoting the
-gap manifest to integration proof, plus retained 1A/1C/1E/1F/1G hostiles. Tip scope reuses
-existing redesign + squash-proof certificates — no new certificate architecture.
+## Hostile coverage (1I additions)
 
-## Out of scope
-
-Product/runtime/template behavior, deploy, DB, cloud, network live action, production access,
-certificate architecture changes, treating the gap manifest as operated/production integration.
+| RED id | Intent |
+|--------|--------|
+| `finite_ledger_closeout_as_MESSI_complete` | Finite ledger/audit flag must never raise milestone above absent or flip `messi_complete` / `production_ready` |
+| `missing_reviewed_disposition` | Dropping any reviewed disposition (parent or cross-parent gap) fails closed |

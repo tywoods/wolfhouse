@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "slice": "MESSI-1H",
-  "outcome_id": "1H_cross_parent_disposition_gap_manifest",
-  "branch": "messi/slice-1h-cross-parent-gap",
-  "master_basis": "aa955cffa859c922b924b039f8e1f9e45adfadfd",
-  "progress_class": "cross_parent_disposition_gap_manifest_only",
-  "title": "MESSI Slice 1H — cross-parent disposition gap manifest (absent integration)",
+  "slice": "MESSI-1I",
+  "outcome_id": "1I_finite_evidence_integration_ledger_audit_closeout",
+  "branch": "messi/slice-1i-finite-closeout",
+  "master_basis": "977afcc28a0424706e9c81665a529d1eb30fa00a",
+  "progress_class": "finite_messi_evidence_integration_ledger_audit_closeout",
+  "title": "MESSI Slice 1I — finite evidence-integration ledger/audit closeout (absent formal milestone)",
   "live_mutation": false,
   "runtime_behavior_changed": false,
   "messi_definition": "MESSI is the integration gate above FOUNDATION, FORTRESS, RADAR, and FACTORY.",
@@ -180,53 +180,6 @@
       ]
     }
   ],
-  "parent_sha_provenance": {
-    "FOUNDATION": {
-      "canonical_tip": "98202775a57e64597e0e606a6e58933bb8ba7250",
-      "candidate_sha": "4a550b44bb7669a860557f0ec211260d7b76250c",
-      "master_basis": "6106c27c54e25a8e4ba5ba00178d20be0c3e55f5",
-      "provenance_bound_files": [
-        "docs/FOUNDATION-FINITE-CLOSEOUT.md",
-        "fixtures/foundation-closeout/finite-closeout.json",
-        "fixtures/foundation-closeout/contract.json",
-        "fixtures/foundation-closeout/findings.md"
-      ]
-    },
-    "FORTRESS": {
-      "canonical_tip": "ff285598ac2cfec980e8316e772924a9c79a6a7e",
-      "candidate_sha": "fa2c5d71ad6c662b4c4f60b08ede409064acf2fe",
-      "master_basis": "949be24936c3056b19904904f98feccab5caf883",
-      "provenance_bound_files": [
-        "docs/FORTRESS-FINITE-CLOSEOUT.md",
-        "fixtures/fortress-closeout/finite-closeout.json",
-        "fixtures/fortress-closeout/contract.json",
-        "fixtures/fortress-closeout/findings.md"
-      ]
-    },
-    "RADAR": {
-      "canonical_tip": "7e56a99a2d69e13bf1a764090e4033195e189641",
-      "candidate_sha": "7870a9fb818bbd94d33b291c8782851276e2715e",
-      "master_basis": "66e34a5833ff3bcc7f297108f594b4fc58a0eccc",
-      "provenance_bound_files": [
-        "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
-        "fixtures/radar-operations/slice16ap-finite-closeout.json",
-        "fixtures/radar-operations/slice16ap-expected-contract.json"
-      ]
-    },
-    "FACTORY": {
-      "canonical_tip": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
-      "candidate_sha": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
-      "master_basis": "e8452d178ad8f4b6aadc8b59b2d3032634952471",
-      "provenance_bound_files": [
-        "docs/FACTORY-CLIENT-PRODUCTIZATION.md",
-        "fixtures/factory-client-productization/slice1e-contract.json",
-        "fixtures/factory-client-productization/slice1e-findings.md",
-        "fixtures/factory-client-productization/slice1e-operator-handoff.md",
-        "fixtures/factory-client-productization/slice1e-artifact-lock.json",
-        "fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json"
-      ]
-    }
-  },
   "messi_complete": false,
   "production_ready": false
 }

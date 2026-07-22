@@ -1,9 +1,9 @@
-# MESSI — Acceptance ledger (Slice 1H)
+# MESSI — Acceptance ledger (Slice 1I)
 
-**Status:** Slice **1H delivered** — cross-parent disposition gap manifest on `G_CROSS_PARENT_INTEGRATION` (gate remains absent).
-**Master basis:** `aa955cffa859c922b924b039f8e1f9e45adfadfd`
-**Branch:** `messi/slice-1h-cross-parent-gap`
-**Outcome:** `1H_cross_parent_disposition_gap_manifest`
+**Status:** Slice **1I delivered** — finite evidence-integration ledger/audit closeout on `G_MESSI_MILESTONE_CLOSEOUT` (formal milestone gate remains absent).
+**Master basis:** `977afcc28a0424706e9c81665a529d1eb30fa00a`
+**Branch:** `messi/slice-1i-finite-closeout`
+**Outcome:** `1I_finite_evidence_integration_ledger_audit_closeout`
 
 **Owner artifacts:**
 `docs/MESSI-ACCEPTANCE-LEDGER.md` · `fixtures/messi-acceptance/` · `scripts/lib/messi-slice1a-acceptance-ledger.js` · `scripts/verify-messi-slice1a-acceptance-ledger.js`
@@ -30,10 +30,11 @@ The canonical acceptance ledger:
 6. Preserves RADAR formal truth **proven=0 / partial=9 / absent=0**
 7. Distinguishes finite staging/offline/audit workstream closeouts from production readiness
 
-Slice **1H** narrows `G_CROSS_PARENT_INTEGRATION` only: bind a deterministic disposition
-gap manifest proving the four reviewed parent dispositions are wired and mutually
-consistent, while keeping that gate **absent** — no genuine end-to-end cross-parent
-operated/production integration proof exists. A gap manifest is not integration proof.
+Slice **1I** narrows `G_MESSI_MILESTONE_CLOSEOUT` only: record that the finite MESSI
+evidence-integration ledger/audit workstream is complete and that all four reviewed
+parent dispositions plus the cross-parent gap manifest are reviewed, while keeping
+the formal milestone gate **absent** — four parents remain partial and cross-parent
+operated/production proof is absent. Finite ledger closeout is **not** MESSI complete.
 No certificate architecture / runtime / live changes.
 
 ## Parent SHA provenance (hard)
@@ -54,12 +55,12 @@ Verifier enforces: exact tip identity (reject stale-but-valid ancestors), candid
 Do **not** mark a parent milestone complete from labels, summaries, or self-authored booleans.
 The sole classifier lives in `scripts/lib/messi-slice1a-acceptance-ledger.js` (`classifyMessiGates`).
 
-The cross-parent gap manifest on `G_CROSS_PARENT_INTEGRATION` proves disposition wiring
-consistency only. It does **not** raise that gate above absent, does **not** set
-`production_ready` / `messi_complete`, and is **not** operated/production integration proof.
-The five unrelated gate objects (`G_FOUNDATION_PARENT`, `G_FORTRESS_PARENT`,
-`G_RADAR_PARENT`, `G_FACTORY_PARENT`, `G_MESSI_MILESTONE_CLOSEOUT`) remain
-serialization-identical to master basis `aa955cff`.
+The finite evidence-integration ledger/audit closeout on `G_MESSI_MILESTONE_CLOSEOUT`
+records reviewed dispositions only. It does **not** raise that gate above absent, does
+**not** set `production_ready` / `messi_complete`, and is **not** production-grade MESSI
+closeout. The five unrelated gate objects (`G_FOUNDATION_PARENT`, `G_FORTRESS_PARENT`,
+`G_RADAR_PARENT`, `G_FACTORY_PARENT`, `G_CROSS_PARENT_INTEGRATION`) remain
+serialization-identical to master basis `977afcc2`.
 
 ## Frozen MESSI score (unchanged)
 
@@ -87,20 +88,20 @@ MESSI is **not** complete. Production readiness is **absent**. RADAR formal rema
 | `G_RADAR_PARENT` | partial | formal gates remain 0/9/0; production unknowns; full G06 / production_ready forbidden by 16AP |
 | `G_FACTORY_PARENT` | partial | live/prod third tenant; apply path; RADAR reopen clearance; production readiness |
 | `G_CROSS_PARENT_INTEGRATION` | absent | gap manifest present; e2e operated/production cross-parent integration still missing |
-| `G_MESSI_MILESTONE_CLOSEOUT` | absent | all parent gates complete + production readiness |
+| `G_MESSI_MILESTONE_CLOSEOUT` | absent | finite ledger/audit complete + reviewed dispositions; formal MESSI still open |
 
 ## Verify
 
 ```bash
 npm run verify:messi-slice1a-acceptance-ledger
 # alias:
-npm run verify:messi-slice1h-cross-parent-gap
+npm run verify:messi-slice1i-finite-closeout
 ```
 
 Offline only. Spawns parent retained verifiers; does not deploy, mutate DB/cloud, or access production.
 
-## Scope fence (1H)
+## Scope fence (1I)
 
-**Allows:** docs, fixtures, verifier, parent inventory, hash binding, parent tip/candidate SHA provenance, retained offline gate execution, deterministic classification, package.json script registration, cross-parent disposition gap manifest, reuse of existing Git-anchored reviewed-candidate blob certificates / squash-proof (no new certificate architecture).
+**Allows:** docs, fixtures, verifier, parent inventory, hash binding, parent tip/candidate SHA provenance, retained offline gate execution, deterministic classification, package.json script registration, finite MESSI evidence-integration ledger/audit closeout on `G_MESSI_MILESTONE_CLOSEOUT`, reuse of existing Git-anchored reviewed-candidate blob certificates / squash-proof (no new certificate architecture).
 
-**Forbids:** product/runtime/template behavior, deploy, DB/cloud mutation, network live action, production access, raising RADAR formal gates, moving unrelated parent/MESSI gates, promoting the gap manifest to cross-parent integration proof, certificate architecture changes, path allowlists / base-to-HEAD tip scope, self-authored score/parent completion.
+**Forbids:** product/runtime/template behavior, deploy, DB/cloud mutation, network live action, production access, raising RADAR formal gates, moving unrelated parent/CROSS gates, treating finite ledger closeout as MESSI complete, certificate architecture changes, path allowlists / base-to-HEAD tip scope, self-authored score/parent completion.
