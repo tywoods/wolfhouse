@@ -24,8 +24,16 @@ const {
   isCrowsnestLoginAccepted,
   isCrowsnestRequestAuthorized,
   isCrowsnestSessionAuthorized,
+  parseBasicAuthHeader,
   sendCrowsnestAuthMisconfigured,
 } = require('./lib/crowsnest/crowsnest-auth');
+const {
+  createProspect,
+  decideProspect,
+  getProspect,
+  getResearchForProspect,
+  listAuditEvents,
+} = require('./lib/crowsnest/crowsnest-sales');
 
 const PORT = Number(process.env.CROWSNEST_PORT) || 3040;
 const HOST = process.env.CROWSNEST_HOST || '0.0.0.0';
@@ -194,12 +202,40 @@ function parseFormBody(body) {
   };
 }
 
+function parseSalesFormBody(body) {
+  const params = new URLSearchParams(String(body || ''));
+  return {
+    website_url: String(params.get('website_url') || ''),
+    business_name: String(params.get('business_name') || ''),
+    decision: String(params.get('decision') || ''),
+    reason: String(params.get('reason') || ''),
+  };
+}
+
 function getSessionCookieHeader(token) {
   return buildCrowsnestSessionCookie(token, { secure: isProduction() });
 }
 
 function getClearedSessionCookieHeader() {
   return buildCrowsnestClearedSessionCookie({ secure: isProduction() });
+}
+
+function resolveOperatorActor(req) {
+  const basic = parseBasicAuthHeader(req && req.headers && req.headers.authorization);
+  if (basic && basic.username) return String(basic.username);
+  // Session usernames are not exported from auth; MVP Admin label is enough for Slice 1 audit.
+  if (isCrowsnestSessionAuthorized(req)) return 'Admin';
+  return 'Admin';
+}
+
+function matchSalesProspectDetailPath(pathname) {
+  const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)$/.exec(String(pathname || ''));
+  return match ? match[1] : null;
+}
+
+function matchSalesDecisionPath(pathname) {
+  const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)\/decision$/.exec(String(pathname || ''));
+  return match ? match[1] : null;
 }
 
 async function handleLogin(req, res, method) {
@@ -310,6 +346,7 @@ function resolveProtectedUiView(pathname) {
   if (pathname === '/clients') return 'clients';
   if (pathname === '/billing') return 'billing';
   if (pathname === '/communications') return 'communications';
+  if (pathname === '/sales') return 'sales';
   // `/`, `/crowsnest`, `/crowsnest/ui` → Spyglass
   return 'spyglass';
 }
@@ -327,6 +364,197 @@ function handleProtectedUi(req, res, method, pathname) {
   const view = resolveProtectedUiView(pathname);
   const cspNonce = createBrowserCspNonce();
   return sendHTML(res, 200, renderCrowsnestPage({ cspNonce, view: view }), { 'Cache-Control': 'no-store' }, cspNonce);
+}
+
+function handleSalesProspectDetail(req, res, method, prospectId) {
+  if (method !== 'GET' && method !== 'HEAD') {
+    return sendMethodNotAllowed(res, 'GET, HEAD');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  if (method === 'HEAD') {
+    return sendNoContentLike(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  }
+  const prospect = getProspect(prospectId);
+  const cspNonce = createBrowserCspNonce();
+  if (!prospect) {
+    return sendHTML(
+      res,
+      404,
+      renderCrowsnestPage({ cspNonce, view: 'sales_detail', prospect: null }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+  return sendHTML(
+    res,
+    200,
+    renderCrowsnestPage({
+      cspNonce,
+      view: 'sales_detail',
+      prospect,
+      research: getResearchForProspect(prospectId),
+      auditEvents: listAuditEvents(prospectId),
+    }),
+    { 'Cache-Control': 'no-store' },
+    cspNonce,
+  );
+}
+
+async function handleSalesCreateProspect(req, res, method) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  if (!hasLoginFormContentType(req)) {
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      400,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales',
+        intakeError: 'Provide a business website or a business name.',
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+
+  let body;
+  try {
+    body = await readLimitedBody(req, getCrowsnestLoginBodyLimit());
+  } catch (err) {
+    if (err && err.message === 'body too large') {
+      return sendPayloadTooLarge(res);
+    }
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      400,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales',
+        intakeError: 'Provide a business website or a business name.',
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+
+  const form = parseSalesFormBody(body);
+  const actor = resolveOperatorActor(req);
+  const result = createProspect({
+    website_url: form.website_url,
+    business_name: form.business_name,
+  }, actor);
+
+  if (!result.ok) {
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      400,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales',
+        intakeError: result.error,
+        intakeWebsiteUrl: form.website_url,
+        intakeBusinessName: form.business_name,
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+
+  return sendRedirect(res, `/sales/prospects/${result.prospect.id}`, { 'Cache-Control': 'no-store' });
+}
+
+async function handleSalesDecision(req, res, method, prospectId) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  const detailPath = `/sales/prospects/${prospectId}`;
+  if (!hasLoginFormContentType(req)) {
+    const prospect = getProspect(prospectId);
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      400,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_detail',
+        prospect,
+        research: getResearchForProspect(prospectId),
+        auditEvents: listAuditEvents(prospectId),
+        decisionError: 'A reason is required for Admin decisions.',
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+
+  let body;
+  try {
+    body = await readLimitedBody(req, getCrowsnestLoginBodyLimit());
+  } catch (err) {
+    if (err && err.message === 'body too large') {
+      return sendPayloadTooLarge(res);
+    }
+    const prospect = getProspect(prospectId);
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      400,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_detail',
+        prospect,
+        research: getResearchForProspect(prospectId),
+        auditEvents: listAuditEvents(prospectId),
+        decisionError: 'A reason is required for Admin decisions.',
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+
+  const form = parseSalesFormBody(body);
+  const actor = resolveOperatorActor(req);
+  const result = decideProspect(prospectId, {
+    decision: form.decision,
+    reason: form.reason,
+  }, actor);
+
+  if (!result.ok) {
+    const status = result.status || 400;
+    if (status === 404) {
+      return sendJSON(res, 404, { success: false, error: 'not found' });
+    }
+    const prospect = getProspect(prospectId);
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      status,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_detail',
+        prospect,
+        research: getResearchForProspect(prospectId),
+        auditEvents: listAuditEvents(prospectId),
+        decisionError: result.error,
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+
+  return sendRedirect(res, detailPath, { 'Cache-Control': 'no-store' });
 }
 
 async function router(req, res) {
@@ -356,6 +584,20 @@ async function router(req, res) {
     return handleAsset(req, res, method, pathname);
   }
 
+  if (pathname === '/sales/prospects') {
+    return handleSalesCreateProspect(req, res, method);
+  }
+
+  const decisionProspectId = matchSalesDecisionPath(pathname);
+  if (decisionProspectId) {
+    return handleSalesDecision(req, res, method, decisionProspectId);
+  }
+
+  const detailProspectId = matchSalesProspectDetailPath(pathname);
+  if (detailProspectId) {
+    return handleSalesProspectDetail(req, res, method, detailProspectId);
+  }
+
   if (
     pathname === '/'
     || pathname === '/crowsnest'
@@ -363,6 +605,7 @@ async function router(req, res) {
     || pathname === '/clients'
     || pathname === '/billing'
     || pathname === '/communications'
+    || pathname === '/sales'
   ) {
     return handleProtectedUi(req, res, method, pathname);
   }

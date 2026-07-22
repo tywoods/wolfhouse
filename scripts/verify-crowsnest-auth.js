@@ -918,7 +918,7 @@ async function main() {
     CROWSNEST_AUTH_PASSWORD: 'admin',
   }, [
     async (port) => {
-      const protectedPaths = ['/', '/clients', '/billing', '/communications', '/crowsnest', '/crowsnest/ui'];
+      const protectedPaths = ['/', '/clients', '/billing', '/communications', '/sales', '/crowsnest', '/crowsnest/ui'];
       for (const urlPath of protectedPaths) {
         const unauth = await request(port, urlPath);
         ok(
@@ -963,6 +963,7 @@ async function main() {
         { path: '/clients', label: 'Clients', expectClients: true, activeHref: '/clients' },
         { path: '/billing', label: 'Billing', expectBilling: true, activeHref: '/billing' },
         { path: '/communications', label: 'Communications', expectComms: true, activeHref: '/communications' },
+        { path: '/sales', label: 'Sales', expectSales: true, activeHref: '/sales' },
       ];
 
       for (const route of routeMatrix) {
@@ -978,6 +979,7 @@ async function main() {
         ok(`GET ${route.path} nav Clients href`, /href=["']\/clients["']/.test(res.body));
         ok(`GET ${route.path} nav Billing href`, /href=["']\/billing["']/.test(res.body));
         ok(`GET ${route.path} nav Communications href`, /href=["']\/communications["']/.test(res.body));
+        ok(`GET ${route.path} nav Sales href`, /href=["']\/sales["']/.test(res.body));
         ok(`GET ${route.path} has exactly one aria-current`, countAriaCurrent(res.body) === 1);
         const activeRe = new RegExp(
           `<a\\b[^>]*\\bhref=["']${route.activeHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*aria-current=["']page["']|<a\\b[^>]*aria-current=["']page["'][^>]*\\bhref=["']${route.activeHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`,
@@ -1013,6 +1015,11 @@ async function main() {
           ok('Communications not connected copy', /not connected|not available|no data source|unavailable/i.test(res.body));
           ok('Communications invents no counts', !hasInventedMetricNumber(res.body));
           ok('Communications has no send controls', !/send message|recipient/i.test(res.body));
+        }
+        if (route.expectSales) {
+          ok('Sales route heading', /<h1[^>]*>[\s\S]*Sales/i.test(res.body));
+          ok('Sales route has intake form', /action=["']\/sales\/prospects["']/i.test(res.body));
+          ok('Sales route mentions fixture/manual research', /fixture|manual/i.test(res.body) && /research/i.test(res.body));
         }
       }
 

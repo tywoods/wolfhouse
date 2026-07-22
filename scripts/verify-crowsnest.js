@@ -13,6 +13,7 @@ const API_PATH = path.join(ROOT, 'scripts', 'crowsnest-api.js');
 const PAGE_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-page.js');
 const CLIENTS_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-clients.js');
 const ONBOARDING_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-onboarding.js');
+const SALES_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-sales.js');
 const AUTH_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-auth.js');
 const AI_USAGE_CONTRACT_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-ai-usage-contract.js');
 const AI_USAGE_ADAPTER_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-ai-usage-adapter.js');
@@ -65,6 +66,7 @@ ok('scripts/lib/crowsnest/crowsnest-page.js exists', fs.existsSync(PAGE_PATH));
 ok('scripts/lib/crowsnest/crowsnest-clients.js exists', fs.existsSync(CLIENTS_PATH));
 ok('scripts/lib/crowsnest/crowsnest-onboarding.js exists', fs.existsSync(ONBOARDING_PATH));
 ok('scripts/lib/crowsnest/crowsnest-auth.js exists', fs.existsSync(AUTH_PATH));
+ok('scripts/lib/crowsnest/crowsnest-sales.js exists', fs.existsSync(SALES_PATH));
 ok('scripts/lib/crowsnest/crowsnest-ai-usage-contract.js exists', fs.existsSync(AI_USAGE_CONTRACT_PATH));
 ok('scripts/lib/crowsnest/crowsnest-ai-usage-adapter.js exists', fs.existsSync(AI_USAGE_ADAPTER_PATH));
 ok('docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md exists', fs.existsSync(AI_USAGE_DOC_PATH));
@@ -155,7 +157,8 @@ function assertSharedNav(label, html, activeHref) {
   ok(`${label} nav has Clients link`, navHrefPresent(html, '/clients'));
   ok(`${label} nav has Billing link`, navHrefPresent(html, '/billing'));
   ok(`${label} nav has Communications link`, navHrefPresent(html, '/communications'));
-  ok(`${label} nav labels present`, /Spyglass/i.test(html) && />Clients</.test(html) && /Billing/i.test(html) && /Communications/i.test(html));
+  ok(`${label} nav has Sales link`, navHrefPresent(html, '/sales'));
+  ok(`${label} nav labels present`, /Spyglass/i.test(html) && />Clients</.test(html) && /Billing/i.test(html) && /Communications/i.test(html) && />Sales</.test(html));
   ok(`${label} has exactly one aria-current=page`, countAriaCurrent(html) === 1);
   const activeRe = new RegExp(`<a\\b[^>]*\\bhref=["']${activeHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*aria-current=["']page["']|<a\\b[^>]*aria-current=["']page["'][^>]*\\bhref=["']${activeHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`, 'i');
   ok(`${label} aria-current on active href ${activeHref}`, activeRe.test(html));
@@ -167,6 +170,15 @@ assertSharedNav('Spyglass', uiHtml, '/');
 assertSharedNav('Clients', clientsHtml, '/clients');
 assertSharedNav('Billing', billingHtml, '/billing');
 assertSharedNav('Communications', communicationsHtml, '/communications');
+const salesHtml = renderPageHtml({ view: 'sales' });
+assertSharedNav('Sales', salesHtml, '/sales');
+ok('Sales view renders Sales heading', /<h1[^>]*>[\s\S]*Sales/i.test(salesHtml));
+ok('Sales view shows manual intake', /website|business.?name/i.test(salesHtml) && /<form\b[^>]*action=["']\/sales\/prospects["']/i.test(salesHtml));
+ok('router protects /sales', routerBody.includes("pathname === '/sales'"));
+ok('router allowlists Sales create mutation', /\/sales\/prospects/.test(routerBody));
+ok('crowsnest-sales module exists', fs.existsSync(path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-sales.js')));
+ok('api requires crowsnest-sales', apiSrc.includes("require('./lib/crowsnest/crowsnest-sales')"));
+ok('page requires crowsnest-sales', pageSrc.includes("require('./crowsnest-sales')"));
 
 ok('unknown view does not produce arbitrary content', (() => {
   const weird = renderPageHtml({ view: '"><script>alert(1)</script>' });
@@ -228,7 +240,7 @@ ok('Communications does not invent counts', !hasInventedMetricNumber(communicati
 
 ok('product doc labels Slice 1 as merged and deployed', /Slice 1/i.test(productDoc) && /merged and deployed/i.test(productDoc) && /14a7e3f7f656dd8a7dc11b528b8a645d3feb1210/.test(productDoc) && /crowsnest-internal--0000010/.test(productDoc) && /#128|PR #128|pull\/128/i.test(productDoc) && /cb11e/.test(productDoc) && /wh-staging-staff-api--0000520/.test(productDoc) && !/local candidate/i.test(productDoc));
 
-const crowsnestLibSrc = [pageSrc, clientsSrc, onboardingSrc, read(AUTH_PATH) || ''].join('\n');
+const crowsnestLibSrc = [pageSrc, clientsSrc, onboardingSrc, read(AUTH_PATH) || '', read(SALES_PATH) || ''].join('\n');
 ok('no fetch/axios/http outbound in crowsnest lib', !/\bfetch\s*\(|require\(['"]axios|require\(['"]node-fetch|https?\.request\s*\(|https?\.get\s*\(/.test(crowsnestLibSrc));
 ok('/healthz route present', apiSrc.includes("pathname === '/healthz'"));
 ok('healthz returns service crowsnest', apiSrc.includes("service: 'crowsnest'"));
@@ -294,7 +306,16 @@ ok('product doc mentions Monshies multi-account env', /CROWSNEST_AUTH_MONSHIES_U
 ok('product doc records live Azure Earthling/Monshies secret mapping', /cn-auth-user/.test(productDoc) && /cn-monshies-user/.test(productDoc) && /Earthling/.test(productDoc) && /Monshies/.test(productDoc) && !/not deployed/i.test(productDoc));
 
 const writeRouteRe = /\.(post|put|patch|delete)\(|\/(create|update|delete|save|write|submit)\b/i;
-ok('no business/data write routes in crowsnest-api', !writeRouteRe.test(apiSrc));
+const apiWithoutSalesMutations = apiSrc
+  .replace(/async function handleSalesCreateProspect[\s\S]*?(?=async function handleSalesDecision)/, '')
+  .replace(/async function handleSalesDecision[\s\S]*?(?=async function router)/, '')
+  .replace(/if \(pathname === '\/sales\/prospects'\)[\s\S]*?return handleSalesCreateProspect[\s\S]*?\n/, '')
+  .replace(/const decisionProspectId[\s\S]*?return handleSalesDecision[\s\S]*?\n\s*\}/, '')
+  .replace(/\/sales\/prospects/g, '');
+ok('no non-Sales business/data write routes in crowsnest-api', !writeRouteRe.test(apiWithoutSalesMutations));
+ok('Sales mutations are narrowly allowlisted', /handleSalesCreateProspect/.test(apiSrc) && /handleSalesDecision/.test(apiSrc));
+ok('Sales create allows POST only', /async function handleSalesCreateProspect[\s\S]*?sendMethodNotAllowed\(res, 'POST'\)/.test(apiSrc));
+ok('Sales decision allows POST only', /async function handleSalesDecision[\s\S]*?sendMethodNotAllowed\(res, 'POST'\)/.test(apiSrc));
 ok('no database / pg imports in crowsnest-api', !/require\(['"].*pg|postgres|WOLFHOUSE_DATABASE/i.test(apiSrc));
 ok('no staff-query-api import', !/require\(['"].*staff-query-api/.test(apiSrc));
 
@@ -360,6 +381,7 @@ ok('package.json has verify:crowsnest', pkg && pkg.scripts && typeof pkg.scripts
 ok('package.json has verify:crowsnest-auth', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-auth'] === 'string');
 ok('package.json has verify:crowsnest-ai-usage-contract', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-contract'] === 'string');
 ok('package.json has verify:crowsnest-ai-usage-adapter', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-adapter'] === 'string');
+ok('package.json has verify:crowsnest-sales', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-sales'] === 'string');
 
 console.log(`\n── verify:crowsnest: ${pass} passed, ${fail} failed ──`);
 if (fail === 0) {
