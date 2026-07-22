@@ -91,7 +91,7 @@ Canonical freeze: `fixtures/factory-client-productization/slice1a-inventory.json
 
 ## Dry-run generator (1C)
 
-Stdout-only dry-run CLI (`scripts/onboard-client.js`) + library. Whole-token `{{TOKEN}}` substitution preserves typed fixture scalars (`number` / `boolean` / `null` / `string`); embedded tokens stringify. `loadSubstitutionsFile` / `normalizeSubstitutionsMap` reject objects/arrays. Independently authored goldens under `fixtures/factory-client-productization/slice1c-golden/`.
+Stdout-only dry-run CLI (`scripts/onboard-client.js`) + library. Whole-token `{{TOKEN}}` substitution preserves typed fixture scalars (`number` / `boolean` / `null` / `string`); embedded tokens stringify. `loadSubstitutionsFile` / `normalizeSubstitutionsMap` reject objects/arrays and every integer-valued number unless `Number.isSafeInteger(value)` (deterministic `substitution_value_unsafe_integer:<key>`; finite decimals remain under the IEEE-754 JSON-number contract). Independently authored goldens under `fixtures/factory-client-productization/slice1c-golden/`.
 
 ```bash
 node scripts/onboard-client.js \

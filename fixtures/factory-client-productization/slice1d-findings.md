@@ -18,7 +18,7 @@ Emission remains stdout / in-memory only. The verifier never asks the generator 
 
 ## 1C correction exposed by 1D
 
-Prior 1C goldens/fixtures supplied digit strings for consumer-facing scalars. Whole-token substitution now preserves typed fixture values (`number` / `boolean` / `null` / `string`); embedded tokens remain strings. CLI/`loadSubstitutionsFile` validates scalars safely (rejects objects/arrays). Independently authored 1C goldens/locks were regenerated; Sunset numeric prices flatten nonzero.
+Prior 1C goldens/fixtures supplied digit strings for consumer-facing scalars. Whole-token substitution now preserves typed fixture values (`number` / `boolean` / `null` / `string`); embedded tokens remain strings. CLI/`loadSubstitutionsFile` validates scalars safely (rejects objects/arrays). **Safe-integer boundary:** integer-valued JSON numbers must satisfy `Number.isSafeInteger` (`substitution_value_unsafe_integer:<key>`); finite decimals remain allowed under the IEEE-754 JSON-number contract; money/duration fields cannot receive unsafe integers. Independently authored 1C goldens/locks were regenerated; Sunset numeric prices flatten nonzero.
 
 ## Independent integration truth
 

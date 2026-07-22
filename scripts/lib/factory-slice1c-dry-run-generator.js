@@ -254,11 +254,35 @@ function collectPlaceholders(node, options = {}) {
  * Allowed substitution scalars: string | number | boolean | null.
  * Objects/arrays/undefined are rejected by validateSubstitutionSafety /
  * normalizeSubstitutionsMap — never silently coerced.
+ *
+ * JSON-number contract (IEEE-754): finite decimals are allowed; every
+ * integer-valued number must additionally satisfy Number.isSafeInteger so
+ * money/duration/count tokens cannot silently lose precision past
+ * ±Number.MAX_SAFE_INTEGER (JSON.parse already rounds literals like
+ * 9007199254740993 → 9007199254740992).
  */
 function isAllowedSubstitutionScalar(value) {
   if (value === null) return true;
   const t = typeof value;
   return t === 'string' || t === 'number' || t === 'boolean';
+}
+
+/**
+ * Reject integer-valued numbers outside the safe-integer range.
+ * Finite non-integers (decimals) remain allowed under the IEEE-754
+ * JSON-number contract. Deterministic error names the substitution key.
+ */
+function rejectUnsafeIntegerSubstitution(token, value, errors) {
+  if (typeof value !== 'number') return false;
+  if (!Number.isFinite(value)) {
+    errors.push(`substitution_value_non_finite:${token}`);
+    return true;
+  }
+  if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+    errors.push(`substitution_value_unsafe_integer:${token}`);
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -289,7 +313,8 @@ function substituteString(str, substitutions, unresolved) {
 
 /**
  * Normalize a substitutions map: strip optional {{ }} wrappers on keys,
- * reject disallowed value types. Returns { ok, substitutions, errors }.
+ * reject disallowed value types and unsafe integer-valued numbers.
+ * Returns { ok, substitutions, errors }.
  */
 function normalizeSubstitutionsMap(substitutionsIn) {
   const errors = [];
@@ -308,8 +333,7 @@ function normalizeSubstitutionsMap(substitutionsIn) {
       errors.push(`substitution_value_type_invalid:${token}:${kind}`);
       continue;
     }
-    if (typeof v === 'number' && !Number.isFinite(v)) {
-      errors.push(`substitution_value_non_finite:${token}`);
+    if (rejectUnsafeIntegerSubstitution(token, v, errors)) {
       continue;
     }
     substitutions[token] = v;
@@ -623,8 +647,7 @@ function validateSubstitutionSafety(substitutions, errors) {
       errors.push(`substitution_value_type_invalid:${token}:${kind}`);
       continue;
     }
-    if (typeof raw === 'number' && !Number.isFinite(raw)) {
-      errors.push(`substitution_value_non_finite:${token}`);
+    if (rejectUnsafeIntegerSubstitution(token, raw, errors)) {
       continue;
     }
     // null is an allowed typed scalar (whole-token preserves null).

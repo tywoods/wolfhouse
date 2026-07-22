@@ -12,7 +12,20 @@
   "disk_materialization_supported": false,
   "generator_behavior_changed": true,
   "template_behavior_changed": false,
-  "scope_note": "1C typed whole-token substitution correction + 1D integration isolation proof. Templates unchanged.",
+  "scope_note": "1C typed whole-token substitution correction (incl. safe-integer JSON-number boundary) + 1D integration isolation proof. Templates unchanged.",
+  "safe_integer_boundary": {
+    "integer_valued_requires_Number_isSafeInteger": true,
+    "finite_decimals_allowed_ieee754": true,
+    "reject_error": "substitution_value_unsafe_integer:<key>",
+    "covers": [
+      "plus_minus_max_safe_integer_plus_one",
+      "huge_exponent_integers",
+      "json_parse_rounded_9007199254740993",
+      "money_and_duration_fields"
+    ],
+    "max_safe_integer_bounds_pass_unchanged": true,
+    "numeric_strings_remain_strings": true
+  },
   "archetypes": ["surf_house", "surf_school_shop"],
   "library": "scripts/lib/factory-slice1d-integration-proof.js",
   "verifier": "scripts/verify-factory-slice1d-integration-proof.js",
