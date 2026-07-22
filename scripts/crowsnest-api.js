@@ -37,6 +37,7 @@ const {
   getOutreachDraftWorkspace,
   getProspect,
   getResearchForProspect,
+  importManualDiscoveryProposal,
   listAuditEvents,
   listProspects,
   listQualificationsForProspect,
@@ -44,6 +45,7 @@ const {
   listReviewQueue,
   markReadyForCrmReview,
   normalizeReviewQueueFilter,
+  previewManualDiscovery,
   recordManualEvidence,
   recordQualification,
   saveOutreachDraft,
@@ -290,6 +292,10 @@ function parseSalesFormBody(body) {
     body: String(params.get('body') || ''),
     channel: String(params.get('channel') || ''),
     next_step_note: String(params.get('next_step_note') || ''),
+    city: String(params.get('city') || ''),
+    country_code: String(params.get('country_code') || ''),
+    category: String(params.get('category') || ''),
+    source_note: String(params.get('source_note') || ''),
   };
 }
 
@@ -342,6 +348,179 @@ function matchSalesCrmReadyPath(pathname) {
 function matchSalesOutreachDraftPath(pathname) {
   const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)\/outreach-draft$/.exec(String(pathname || ''));
   return match ? match[1] : null;
+}
+
+function discoveryFormFromParsed(form) {
+  return {
+    business_name: form.business_name || '',
+    website_url: form.website_url || '',
+    city: form.city || '',
+    country_code: form.country_code || '',
+    category: form.category || '',
+    source_note: form.source_note || '',
+  };
+}
+
+async function handleSalesDiscoveryPage(req, res, method) {
+  if (method !== 'GET' && method !== 'HEAD') {
+    return sendMethodNotAllowed(res, 'GET, HEAD');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  if (method === 'HEAD') {
+    return sendNoContentLike(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  }
+  const cspNonce = createBrowserCspNonce();
+  return sendHTML(
+    res,
+    200,
+    renderCrowsnestPage({
+      cspNonce,
+      view: 'sales_discovery',
+      discoveryForm: {},
+    }),
+    { 'Cache-Control': 'no-store' },
+    cspNonce,
+  );
+}
+
+async function handleSalesDiscoveryPreview(req, res, method) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+
+  const renderDiscovery = async (status, extras = {}) => {
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      status,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_discovery',
+        ...extras,
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  };
+
+  if (!hasLoginFormContentType(req)) {
+    return renderDiscovery(400, {
+      discoveryError: 'Provide a business website or a business name.',
+      discoveryForm: {},
+    });
+  }
+
+  let body;
+  try {
+    body = await readLimitedBody(req, getCrowsnestLoginBodyLimit());
+  } catch (err) {
+    if (err && err.message === 'body too large') {
+      return sendPayloadTooLarge(res);
+    }
+    return renderDiscovery(400, {
+      discoveryError: 'Provide a business website or a business name.',
+      discoveryForm: {},
+    });
+  }
+
+  const form = discoveryFormFromParsed(parseSalesFormBody(body));
+  let result;
+  try {
+    result = await previewManualDiscovery(form);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+
+  if (!result.ok) {
+    if (isSalesUnavailableFailure(result)) {
+      return sendSalesUnavailable(res);
+    }
+    return renderDiscovery(result.status || 400, {
+      discoveryError: result.error || 'Invalid discovery proposal.',
+      discoveryForm: form,
+    });
+  }
+
+  return renderDiscovery(200, {
+    discoveryForm: form,
+    discoveryPreview: result,
+  });
+}
+
+async function handleSalesDiscoveryImport(req, res, method) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+
+  const renderDiscovery = async (status, extras = {}) => {
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      status,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_discovery',
+        ...extras,
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  };
+
+  if (!hasLoginFormContentType(req)) {
+    return renderDiscovery(400, {
+      discoveryError: 'Provide a business website or a business name.',
+      discoveryForm: {},
+    });
+  }
+
+  let body;
+  try {
+    body = await readLimitedBody(req, getCrowsnestLoginBodyLimit());
+  } catch (err) {
+    if (err && err.message === 'body too large') {
+      return sendPayloadTooLarge(res);
+    }
+    return renderDiscovery(400, {
+      discoveryError: 'Provide a business website or a business name.',
+      discoveryForm: {},
+    });
+  }
+
+  const form = discoveryFormFromParsed(parseSalesFormBody(body));
+  const actor = resolveOperatorActor(req);
+  let result;
+  try {
+    result = await importManualDiscoveryProposal(form, actor);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+
+  if (!result.ok) {
+    if (isSalesUnavailableFailure(result)) {
+      return sendSalesUnavailable(res);
+    }
+    return renderDiscovery(result.status || 400, {
+      discoveryError: result.error || 'Unable to import discovery proposal.',
+      discoveryForm: form,
+    });
+  }
+
+  return sendRedirect(res, `/sales/prospects/${result.prospect.id}`, { 'Cache-Control': 'no-store' });
 }
 
 async function loadSalesDetailPageOptions(prospectId, extra = {}) {
@@ -1334,6 +1513,18 @@ async function router(req, res) {
 
   if (pathname === '/sales/review') {
     return handleSalesReviewQueue(req, res, method);
+  }
+
+  if (pathname === '/sales/discovery') {
+    return handleSalesDiscoveryPage(req, res, method);
+  }
+
+  if (pathname === '/sales/discovery/preview') {
+    return handleSalesDiscoveryPreview(req, res, method);
+  }
+
+  if (pathname === '/sales/discovery/import') {
+    return handleSalesDiscoveryImport(req, res, method);
   }
 
   const decisionProspectId = matchSalesDecisionPath(pathname);
