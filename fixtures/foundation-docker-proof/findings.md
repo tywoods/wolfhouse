@@ -1,7 +1,7 @@
 # FOUNDATION Docker fresh-db replacement — compact Lunabox evidence
 
-**Status:** evidence package only (offline verifier).  
-**Candidate:** `1f89bbfe1c62b150926feabe00ff687001b014ca`  
+**Status:** evidence package only (offline verifier).
+**Candidate:** `1f89bbfe1c62b150926feabe00ff687001b014ca`
 **Gate:** `G_DOCKER_FRESH_DB_REPLACEMENT` — **not reclassified** (FOUNDATION 1B still `absent`).
 
 ## Observed (Lunabox disposable Docker)
