@@ -111,6 +111,12 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'scripts/lib/factory-slice1d-integration-proof.js',
   'scripts/lib/factory-slice1e-finite-closeout.js',
   'scripts/verify-factory-slice1e-finite-closeout.js',
+  // Forward-compat tip-allowlist for MESSI 1B FOUNDATION closeout (paths only;
+  // no 1A ledger semantics / classification / parent inventory changes).
+  'docs/FOUNDATION-FINITE-CLOSEOUT.md',
+  'fixtures/foundation-closeout/',
+  'scripts/lib/messi-slice1b-foundation-closeout.js',
+  'scripts/verify-messi-slice1b-foundation-closeout.js',
   'package.json',
 ]);
 
@@ -464,15 +470,15 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json':
     '1204d0f32729f2e5f258908e84ea0735bdb5bb3ab1b1c360751691a233ef99cd',
   'scripts/lib/factory-slice1b-archetype-templates.js':
-    '2d0e993d2e46f32914979fc50082cfb6b166852cc1db9d977f161d768aeb9413',
+    '402c74f44a7a524bf61d313967ba0d5bd573d93d656fbb9dfcda24ff89136b00',
   'scripts/lib/factory-slice1c-dry-run-generator.js':
-    '00b9c044998f72888de136a234adc9419586ac438b4e4feb246cf046cb7e6aba',
+    '5972a60b467ee6e797301c52faae48805ef0e216e6d3594c9351c3bec9b27315',
   'scripts/lib/factory-slice1d-integration-proof.js':
-    '7bbe71fcb2eb00a5ce7ee8756fa2d49afae5cf73e5bf2a4c15e99f5e36034852',
+    'e480c616703dd7ad56726ee7120f801e8811e80b6e92960e908a492ad91f2d58',
   'scripts/lib/factory-slice1e-finite-closeout.js':
-    '4179ad5123e6a75104e126c83c36b442049f0119d2d5bc235795322f4d311e56',
+    '00d694fb46785f5c7c17e2d06be2d64bc55d77530b3fccd0057e432a6d755433',
   'scripts/verify-factory-slice1e-finite-closeout.js':
-    '3d0acb8b5f7f0275b506a519461baaebe0f06ce82988069df4a062cdab112991',
+    '5f2751ffaf1fbe0fa59ef2ac50cd828c60238af0f13e299589f0fce8a0202989',
 });
 
 const ARTIFACT_RELS = Object.freeze({

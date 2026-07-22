@@ -58,6 +58,11 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'scripts/verify-messi-slice1a-acceptance-ledger.js',
   'docs/MESSI-ACCEPTANCE-LEDGER.md',
   'fixtures/messi-acceptance/',
+  // Forward-compat tip-allowlist for MESSI 1B FOUNDATION closeout (paths only).
+  'docs/FOUNDATION-FINITE-CLOSEOUT.md',
+  'fixtures/foundation-closeout/',
+  'scripts/lib/messi-slice1b-foundation-closeout.js',
+  'scripts/verify-messi-slice1b-foundation-closeout.js',
   'package.json',
   'package-lock.json',
 ]);
