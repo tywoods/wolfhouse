@@ -12,7 +12,8 @@
  * Does not write committed evidence or edit MESSI/FOUNDATION ledgers.
  *
  * Offline self-tests (`--offline`): exercise fail-closed, distinct-volume,
- * cleanup, and mismatch seams without Docker.
+ * verified cleanup (missing/throwing/failed/still-present), startup-after-run
+ * failure, and mismatch seams without Docker.
  */
 
 const { execFileSync } = require('child_process');
@@ -29,6 +30,7 @@ const { runCanonicalMigrations } = require('./run-canonical-migrations');
 const {
   startDisposablePostgresHarness,
   dockerAvailable: harnessDockerAvailable,
+  cleanupDockerResources,
 } = require('./lib/disposable-postgres-harness');
 
 const KIND = 'foundation-docker-fresh-db-replacement';
@@ -87,13 +89,13 @@ async function defaultWaitForReady(connection, attempts) {
       return;
     } catch (e) {
       last = e;
-      try {
-        await client.end();
-      } catch (_) {
-        /* ignore */
-      }
-      await new Promise((r) => setTimeout(r, 500));
     }
+    try {
+      await client.end();
+    } catch (_) {
+      /* ignore */
+    }
+    await new Promise((r) => setTimeout(r, 500));
   }
   throw last || new Error('postgres never became ready');
 }
@@ -150,6 +152,59 @@ function buildEvidence(partial) {
 }
 
 /**
+ * Invoke cleanup and classify outcome. cleanup=true only on verified success.
+ * @returns {{ ok: boolean, code?: string, message?: string, detail?: object }}
+ */
+function invokeVerifiedCleanup(cleanup) {
+  if (typeof cleanup !== 'function') {
+    return { ok: false, code: 'cleanup_missing' };
+  }
+  try {
+    const result = cleanup();
+    if (result == null) {
+      // Void return is not verified success for this gate.
+      return { ok: false, code: 'cleanup_unverified' };
+    }
+    if (result && result.ok === false) {
+      return { ok: false, code: 'cleanup_failed', detail: result };
+    }
+    if (
+      result
+      && (result.containerRemoved === false || result.volumeRemoved === false)
+    ) {
+      return {
+        ok: false,
+        code: 'cleanup_resources_still_present',
+        detail: result,
+      };
+    }
+    if (
+      result
+      && result.ok === true
+      && result.containerRemoved === true
+      && result.volumeRemoved === true
+    ) {
+      return { ok: true, code: 'cleanup_verified' };
+    }
+    return { ok: false, code: 'cleanup_unverified', detail: result };
+  } catch (e) {
+    const message = String(e && e.message ? e.message : e).slice(0, 800);
+    const code = e && e.code === 'docker_cleanup_resources_still_present'
+      ? 'cleanup_resources_still_present'
+      : (e && e.code === 'docker_cleanup_rm_failed'
+        ? 'cleanup_failed'
+        : 'cleanup_threw');
+    return {
+      ok: false,
+      code,
+      message,
+      containerRemoved: e && e.containerRemoved,
+      volumeRemoved: e && e.volumeRemoved,
+    };
+  }
+}
+
+/**
  * @param {object} [deps] Injectable seams for offline proof without Docker.
  * @returns {Promise<object>}
  */
@@ -192,27 +247,30 @@ async function proveFoundationDockerFreshDbReplacement(deps) {
 
   for (let index = 1; index <= 2; index += 1) {
     let cleanup = null;
-    let cleanupCalled = false;
+    let cleanupOutcome = null;
     const callCleanup = () => {
-      if (cleanupCalled) return;
-      cleanupCalled = true;
-      if (typeof cleanup === 'function') cleanup();
+      if (cleanupOutcome) return cleanupOutcome;
+      cleanupOutcome = invokeVerifiedCleanup(cleanup);
+      return cleanupOutcome;
     };
     const cycle = {
       index,
       volume: null,
+      container: null,
       database: null,
       appliedCount: 0,
       schema_migrations: null,
       schema_fingerprint: null,
       cleanup: false,
+      cleanup_code: null,
     };
     try {
       const harness = await startHarness();
       cleanup = harness && harness.cleanup;
       if (!harness || harness.backend !== 'docker') {
         callCleanup();
-        cycle.cleanup = cleanupCalled;
+        cycle.cleanup = Boolean(cleanupOutcome && cleanupOutcome.ok);
+        cycle.cleanup_code = cleanupOutcome && cleanupOutcome.code;
         cycles.push(cycle);
         return buildEvidence({
           ok: false,
@@ -229,6 +287,7 @@ async function proveFoundationDockerFreshDbReplacement(deps) {
         || resolveVolumeName(harness.admin)
         || null;
       cycle.volume = volume;
+      cycle.container = harness.container || null;
 
       await waitForReady(harness.admin, d.waitAttempts);
       const suffix = randomSuffix();
@@ -244,9 +303,9 @@ async function proveFoundationDockerFreshDbReplacement(deps) {
           code: 'migration_apply_failed',
           detail: (applied && applied.errors) || null,
         });
-        cycle.appliedCount = (applied && applied.applied && applied.applied.length) || 0;
         callCleanup();
-        cycle.cleanup = cleanupCalled;
+        cycle.cleanup = Boolean(cleanupOutcome && cleanupOutcome.ok);
+        cycle.cleanup_code = cleanupOutcome && cleanupOutcome.code;
         cycles.push(cycle);
         return buildEvidence({
           ok: false,
@@ -265,7 +324,8 @@ async function proveFoundationDockerFreshDbReplacement(deps) {
           actual: cycle.appliedCount,
         });
         callCleanup();
-        cycle.cleanup = cleanupCalled;
+        cycle.cleanup = Boolean(cleanupOutcome && cleanupOutcome.ok);
+        cycle.cleanup_code = cleanupOutcome && cleanupOutcome.code;
         cycles.push(cycle);
         return buildEvidence({
           ok: false,
@@ -286,7 +346,8 @@ async function proveFoundationDockerFreshDbReplacement(deps) {
         message: String(e && e.message ? e.message : e).slice(0, 800),
       });
       callCleanup();
-      cycle.cleanup = cleanupCalled;
+      cycle.cleanup = Boolean(cleanupOutcome && cleanupOutcome.ok);
+      cycle.cleanup_code = cleanupOutcome && cleanupOutcome.code;
       cycles.push(cycle);
       return buildEvidence({
         ok: false,
@@ -297,7 +358,16 @@ async function proveFoundationDockerFreshDbReplacement(deps) {
       });
     } finally {
       callCleanup();
-      cycle.cleanup = cleanupCalled;
+      cycle.cleanup = Boolean(cleanupOutcome && cleanupOutcome.ok);
+      cycle.cleanup_code = cleanupOutcome && cleanupOutcome.code;
+      if (cleanupOutcome && cleanupOutcome.ok !== true) {
+        errors.push({
+          cycle: index,
+          code: cleanupOutcome.code || 'cleanup_failed',
+          message: cleanupOutcome.message || null,
+          detail: cleanupOutcome.detail || null,
+        });
+      }
     }
     cycles.push(cycle);
   }
@@ -316,11 +386,13 @@ async function proveFoundationDockerFreshDbReplacement(deps) {
   const fpB = cycles[1] && cycles[1].schema_fingerprint;
   const schemaFingerprintEqual = Boolean(fpA && fpB && fpA === fpB);
   const bothCleaned = cycles.every((c) => c.cleanup === true);
+  const cleanupErrors = errors.filter((e) => String(e.code || '').startsWith('cleanup_'));
 
   const ok = volumesDistinct
     && schemaMigrationsEqual
     && schemaFingerprintEqual
     && bothCleaned
+    && cleanupErrors.length === 0
     && errors.length === 0;
 
   return buildEvidence({
@@ -330,11 +402,13 @@ async function proveFoundationDockerFreshDbReplacement(deps) {
     cycles: cycles.map((c) => ({
       index: c.index,
       volume: c.volume,
+      container: c.container,
       database: c.database,
       appliedCount: c.appliedCount,
       schema_migrations: c.schema_migrations,
       schema_fingerprint: c.schema_fingerprint,
       cleanup: c.cleanup,
+      cleanup_code: c.cleanup_code,
     })),
     volumes_distinct: volumesDistinct,
     schema_migrations_equal: schemaMigrationsEqual,
@@ -373,6 +447,10 @@ function mockSnapshot(fingerprint, migrationIds) {
   };
 }
 
+function verifiedCleanupResult() {
+  return { ok: true, containerRemoved: true, volumeRemoved: true };
+}
+
 function mockHarnessFactory(opts) {
   const options = opts || {};
   let n = 0;
@@ -381,7 +459,10 @@ function mockHarnessFactory(opts) {
     const volume = typeof options.volumeFor === 'function'
       ? options.volumeFor(n)
       : (options.volume || `vol-${n}`);
-    return {
+    const container = typeof options.containerFor === 'function'
+      ? options.containerFor(n)
+      : (options.container || `ctr-${n}`);
+    const harness = {
       backend: options.backend || 'docker',
       admin: {
         host: '127.0.0.1',
@@ -391,11 +472,35 @@ function mockHarnessFactory(opts) {
         database: 'postgres',
       },
       volume,
-      cleanup: () => {
-        if (typeof options.onCleanup === 'function') options.onCleanup(volume, n);
-      },
+      container,
     };
+    if (options.omitCleanup) {
+      // intentionally no cleanup
+    } else if (typeof options.cleanup === 'function') {
+      harness.cleanup = options.cleanup;
+    } else {
+      harness.cleanup = () => {
+        if (typeof options.onCleanup === 'function') options.onCleanup(volume, n);
+        if (options.cleanupResult !== undefined) return options.cleanupResult;
+        return verifiedCleanupResult();
+      };
+    }
+    return harness;
   };
+}
+
+function baseCycleDeps(extra) {
+  return Object.assign({
+    dockerAvailable: () => true,
+    loadForwardPlan: () => mockForwardPlan(['001']),
+    randomSuffix: () => 'zzzz',
+    waitForReady: async () => {},
+    createDatabase: async () => {},
+    runMigrations: async () => ({
+      ok: true, applied: ['001'], skipped: [], pending: [], errors: [],
+    }),
+    snapshotState: async () => mockSnapshot('fp-ok', ['001']),
+  }, extra || {});
 }
 
 async function runOfflineSelfTests() {
@@ -448,15 +553,7 @@ async function runOfflineSelfTests() {
   {
     let starts = 0;
     const ev = await proveFoundationDockerFreshDbReplacement({
-      dockerAvailable: () => true,
-      loadForwardPlan: () => mockForwardPlan(['001']),
-      randomSuffix: () => 'aaaa',
-      waitForReady: async () => {},
-      createDatabase: async () => {},
-      runMigrations: async () => ({
-        ok: true, applied: ['001'], skipped: [], pending: [], errors: [],
-      }),
-      snapshotState: async () => mockSnapshot('fp-identical', ['001']),
+      ...baseCycleDeps({ randomSuffix: () => 'aaaa' }),
       startHarness: mockHarnessFactory({
         volume: 'wh-mig-vol-same',
         onCleanup: () => { starts += 1; },
@@ -472,19 +569,11 @@ async function runOfflineSelfTests() {
     });
   }
 
-  // 4) Cleanup always runs (success + mid-failure)
+  // 4) Cleanup always runs (success + mid-failure) with verified success
   {
     const cleanups = [];
     const evOk = await proveFoundationDockerFreshDbReplacement({
-      dockerAvailable: () => true,
-      loadForwardPlan: () => mockForwardPlan(['001']),
-      randomSuffix: () => 'bbbb',
-      waitForReady: async () => {},
-      createDatabase: async () => {},
-      runMigrations: async () => ({
-        ok: true, applied: ['001'], skipped: [], pending: [], errors: [],
-      }),
-      snapshotState: async () => mockSnapshot('fp-ok', ['001']),
+      ...baseCycleDeps({ randomSuffix: () => 'bbbb' }),
       startHarness: mockHarnessFactory({
         volumeFor: (n) => `vol-${n}`,
         onCleanup: (volume) => { cleanups.push(volume); },
@@ -522,14 +611,7 @@ async function runOfflineSelfTests() {
   {
     let snapN = 0;
     const ev = await proveFoundationDockerFreshDbReplacement({
-      dockerAvailable: () => true,
-      loadForwardPlan: () => mockForwardPlan(['001']),
-      randomSuffix: () => 'dddd',
-      waitForReady: async () => {},
-      createDatabase: async () => {},
-      runMigrations: async () => ({
-        ok: true, applied: ['001'], skipped: [], pending: [], errors: [],
-      }),
+      ...baseCycleDeps({ randomSuffix: () => 'dddd' }),
       snapshotState: async () => {
         snapN += 1;
         return mockSnapshot(snapN === 1 ? 'fp-a' : 'fp-b', ['001']);
@@ -551,15 +633,14 @@ async function runOfflineSelfTests() {
   {
     let starts = 0;
     const ev = await proveFoundationDockerFreshDbReplacement({
-      dockerAvailable: () => true,
-      loadForwardPlan: () => mockForwardPlan(['001', '002']),
-      randomSuffix: () => 'eeee',
-      waitForReady: async () => {},
-      createDatabase: async () => {},
-      runMigrations: async () => ({
-        ok: true, applied: ['001', '002'], skipped: [], pending: [], errors: [],
+      ...baseCycleDeps({
+        randomSuffix: () => 'eeee',
+        loadForwardPlan: () => mockForwardPlan(['001', '002']),
+        runMigrations: async () => ({
+          ok: true, applied: ['001', '002'], skipped: [], pending: [], errors: [],
+        }),
+        snapshotState: async () => mockSnapshot('fp-match', ['001', '002']),
       }),
-      snapshotState: async () => mockSnapshot('fp-match', ['001', '002']),
       startHarness: mockHarnessFactory({
         volumeFor: (n) => {
           starts += 1;
@@ -574,7 +655,194 @@ async function runOfflineSelfTests() {
         && ev.schema_migrations_equal === true
         && ev.schema_fingerprint_equal === true
         && ev.forwardCount === 2
-        && starts === 2,
+        && starts === 2
+        && ev.cycles.every((c) => c.cleanup === true
+          && c.cleanup_code === 'cleanup_verified'),
+    });
+  }
+
+  // 7) RED: missing cleanup fails the proof
+  {
+    const ev = await proveFoundationDockerFreshDbReplacement({
+      ...baseCycleDeps(),
+      startHarness: mockHarnessFactory({ omitCleanup: true, volumeFor: (n) => `vol-miss-${n}` }),
+    });
+    results.push({
+      name: 'red_cleanup_missing',
+      ok: ev.ok === false
+        && ev.cleanup_ok === false
+        && ev.cycles[0].cleanup === false
+        && ev.cycles[0].cleanup_code === 'cleanup_missing'
+        && Array.isArray(ev.errors)
+        && ev.errors.some((e) => e.code === 'cleanup_missing'),
+    });
+  }
+
+  // 8) RED: throwing cleanup fails the proof
+  {
+    const ev = await proveFoundationDockerFreshDbReplacement({
+      ...baseCycleDeps(),
+      startHarness: mockHarnessFactory({
+        volumeFor: (n) => `vol-throw-${n}`,
+        cleanup: () => {
+          throw new Error('injected cleanup throw');
+        },
+      }),
+    });
+    results.push({
+      name: 'red_cleanup_throwing',
+      ok: ev.ok === false
+        && ev.cleanup_ok === false
+        && ev.cycles[0].cleanup === false
+        && ev.cycles[0].cleanup_code === 'cleanup_threw'
+        && Array.isArray(ev.errors)
+        && ev.errors.some((e) => e.code === 'cleanup_threw'),
+    });
+  }
+
+  // 9) RED: failed cleanup (ok:false) fails the proof
+  {
+    const ev = await proveFoundationDockerFreshDbReplacement({
+      ...baseCycleDeps(),
+      startHarness: mockHarnessFactory({
+        volumeFor: (n) => `vol-failclean-${n}`,
+        cleanupResult: { ok: false, reason: 'rm_failed' },
+      }),
+    });
+    results.push({
+      name: 'red_cleanup_failed',
+      ok: ev.ok === false
+        && ev.cleanup_ok === false
+        && ev.cycles[0].cleanup === false
+        && ev.cycles[0].cleanup_code === 'cleanup_failed'
+        && Array.isArray(ev.errors)
+        && ev.errors.some((e) => e.code === 'cleanup_failed'),
+    });
+  }
+
+  // 10) RED: resource-still-present cleanup fails the proof
+  {
+    const ev = await proveFoundationDockerFreshDbReplacement({
+      ...baseCycleDeps(),
+      startHarness: mockHarnessFactory({
+        volumeFor: (n) => `vol-present-${n}`,
+        cleanupResult: {
+          ok: true,
+          containerRemoved: false,
+          volumeRemoved: false,
+        },
+      }),
+    });
+    results.push({
+      name: 'red_cleanup_resources_still_present',
+      ok: ev.ok === false
+        && ev.cleanup_ok === false
+        && ev.cycles[0].cleanup === false
+        && ev.cycles[0].cleanup_code === 'cleanup_resources_still_present'
+        && Array.isArray(ev.errors)
+        && ev.errors.some((e) => e.code === 'cleanup_resources_still_present'),
+    });
+  }
+
+  // 11) RED: startup-after-run failure cleans container+volume then fails closed
+  {
+    const calls = [];
+    const present = new Set();
+    const dockerFn = (args) => {
+      calls.push(args.slice());
+      const cmd = args[0];
+      if (cmd === 'run') {
+        // Name is args after --name
+        const nameIdx = args.indexOf('--name');
+        const volFlag = args.find((a) => a.includes(':/var/lib/postgresql/data'));
+        const container = nameIdx >= 0 ? args[nameIdx + 1] : null;
+        const volume = volFlag ? volFlag.split(':')[0] : null;
+        if (container) present.add(`c:${container}`);
+        if (volume) present.add(`v:${volume}`);
+        return 'cid-fake\n';
+      }
+      if (cmd === 'port') {
+        throw new Error('injected post-run port failure');
+      }
+      if (cmd === 'rm') {
+        const name = args[args.length - 1];
+        present.delete(`c:${name}`);
+        return '';
+      }
+      if (cmd === 'volume' && args[1] === 'rm') {
+        const name = args[args.length - 1];
+        present.delete(`v:${name}`);
+        return '';
+      }
+      if (cmd === 'ps') {
+        const filter = args.includes('--filter')
+          ? args[args.indexOf('--filter') + 1]
+          : '';
+        const m = /name=\^\/(.+)\$$/.exec(filter);
+        const name = m ? m[1] : null;
+        if (name && present.has(`c:${name}`)) return `${name}\n`;
+        return '';
+      }
+      if (cmd === 'volume' && args[1] === 'ls') {
+        return [...present]
+          .filter((x) => x.startsWith('v:'))
+          .map((x) => x.slice(2))
+          .join('\n') + '\n';
+      }
+      return '';
+    };
+
+    let threw = null;
+    try {
+      await startDisposablePostgresHarness({
+        dockerAvailable: () => true,
+        docker: dockerFn,
+      });
+    } catch (e) {
+      threw = e;
+    }
+
+    const ranRm = calls.some((a) => a[0] === 'rm');
+    const ranVolRm = calls.some((a) => a[0] === 'volume' && a[1] === 'rm');
+    const leftover = [...present];
+    results.push({
+      name: 'red_startup_after_run_failure_cleans',
+      ok: threw != null
+        && /injected post-run port failure/.test(String(threw.message || threw))
+        && ranRm
+        && ranVolRm
+        && leftover.length === 0,
+    });
+  }
+
+  // 12) Harness cleanupDockerResources: rm failure with resource still present throws
+  {
+    let rmAttempts = 0;
+    const dockerFn = (args) => {
+      if (args[0] === 'rm') {
+        rmAttempts += 1;
+        throw new Error('rm refused');
+      }
+      if (args[0] === 'volume' && args[1] === 'rm') {
+        throw new Error('volume rm refused');
+      }
+      if (args[0] === 'ps') return 'still-here\n';
+      if (args[0] === 'volume' && args[1] === 'ls') return 'still-vol\n';
+      return '';
+    };
+    let err = null;
+    try {
+      cleanupDockerResources(dockerFn, 'still-here', 'still-vol');
+    } catch (e) {
+      err = e;
+    }
+    results.push({
+      name: 'red_harness_cleanup_still_present',
+      ok: err != null
+        && err.code === 'docker_cleanup_resources_still_present'
+        && rmAttempts === 1
+        && err.containerRemoved === false
+        && err.volumeRemoved === false,
     });
   }
 
@@ -592,6 +860,7 @@ module.exports = {
   GATE,
   proveFoundationDockerFreshDbReplacement,
   runOfflineSelfTests,
+  invokeVerifiedCleanup,
   defaultSnapshotState,
   defaultResolveVolumeName,
   defaultLoadForwardPlan,
