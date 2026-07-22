@@ -24,10 +24,10 @@
   "target": {
     "environment": "staging",
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
-    "resourceGroup": "luna-sunset-staging-rg",
-    "postgresServer": "luna-sunset-staging-pg-app",
-    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
-    "database": "sunset_staging",
+    "resourceGroup": "wh-staging-rg",
+    "postgresServer": "wh-staging-pg-app",
+    "postgresHost": "wh-staging-pg-app.postgres.database.azure.com",
+    "database": "wolfhouse_staging",
     "port": 5432,
     "sslmode": "verify-full",
     "applicationName": "wh-staging-ledger-recovery"
@@ -40,15 +40,15 @@
       "MIG1"
     ],
     "applicationName": "wh-staging-ledger-recovery",
-    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
-    "database": "sunset_staging",
+    "postgresHost": "wh-staging-pg-app.postgres.database.azure.com",
+    "database": "wolfhouse_staging",
     "sslmode": "verify-full"
   },
   "authorizedApplySequenceLength": 50,
   "manifestHash": "f76df6f9287eb44499dd8ab1d186ebdfc51c24d6704cdda226b36b9366b134b5",
   "forwardCount": 41,
   "checksumMode": "canonical_lf_v1",
-  "approvalTokenEnv": "SUNSET_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN",
+  "approvalTokenEnv": "WOLFHOUSE_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN",
   "approvalFlag": "--approve-staging-ledger-recovery",
   "planOnlyFlag": "--plan-only",
   "applyFlag": "--apply-ledger-recovery",
@@ -90,5 +90,5 @@
     "apply_post_write_reconcile_ok",
     "apply_public_output_secret_free"
   ],
-  "generatedAt": "2026-07-22T14:23:03.175Z"
+  "generatedAt": "2026-07-22T14:28:19.744Z"
 }

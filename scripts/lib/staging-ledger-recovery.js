@@ -3,9 +3,10 @@
 /**
  * Staging ledger recovery — plan/certification + one-time executable apply.
  *
- * Context: Sunset staging schema_migration_ledger may contain only 042 while the
- * canonical forward chain has older migrations, so reconcileLedger correctly
- * fails closed with ledger_partial_history.
+ * Context: Wolfhouse Staff staging (`wolfhouse_staging` on `wh-staging-rg`)
+ * schema_migration_ledger may contain only 042 while the canonical forward
+ * chain has older migrations, so reconcileLedger correctly fails closed with
+ * ledger_partial_history.
  *
  * Plan mode certifies a contiguous baseline recovery ONLY after an immutable
  * evidence artifact supplies explicit structural assertions for every
@@ -18,7 +19,7 @@
  *
  * Hard rules:
  * - Dry-run / plan-only by default; apply requires explicit flag + approval
- * - Staging-only target lock; refuse production
+ * - Exact Wolfhouse Staff staging target lock; refuse production and other envs
  * - Never invent historical provenance
  * - Never print secrets/DSN; refuse arbitrary DSN/SQL argv
  * - Fail closed on weak/missing evidence, checksum/target mismatch,
@@ -47,8 +48,8 @@ const {
   reconcileLedger,
   sha256Buffer,
 } = require('./migration-integrity');
-const { hashCanonicalManifest, EXPECTED_HOST, EXPECTED_DATABASE } = require('./sunset-schema-observer');
-const { TARGETS, normalizeSql } = require('./phase-d-live-readonly-boundary');
+const { hashCanonicalManifest } = require('./sunset-schema-observer');
+const { normalizeSql } = require('./phase-d-live-readonly-boundary');
 const { scanSecretValues } = require('./sunset-staging-iac-drift');
 
 /** Capability enabled for the approved apply slice; still fail-closed via gates. */
@@ -58,8 +59,8 @@ const EVIDENCE_KIND = 'staging-ledger-recovery-evidence-v1';
 const SLICE_ID = 'staging-ledger-recovery-apply';
 const APPLICATION_NAME = 'wh-staging-ledger-recovery';
 
-const ENV_RECOVERY = 'SUNSET_STAGING_LEDGER_RECOVERY';
-const ENV_APPROVAL_TOKEN = 'SUNSET_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN';
+const ENV_RECOVERY = 'WOLFHOUSE_STAGING_LEDGER_RECOVERY';
+const ENV_APPROVAL_TOKEN = 'WOLFHOUSE_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN';
 const CLI_PLAN_ONLY = '--plan-only';
 const CLI_APPROVE = '--approve-staging-ledger-recovery';
 const CLI_EVIDENCE = '--evidence';
@@ -84,14 +85,15 @@ const KNOWN_PARTIAL_SCENARIO = Object.freeze({
 
 const RECOVERY_INSERT_COUNT = KNOWN_PARTIAL_SCENARIO.historicalOrderEnd;
 
+/** Exact Wolfhouse Staff staging Azure PostgreSQL target (Staff API staging DSN). */
 const RECOVERY_TARGET = Object.freeze({
   environment: 'staging',
-  subscriptionId: TARGETS.subscriptionId,
-  resourceGroup: TARGETS.resourceGroup,
-  postgresServer: TARGETS.postgresServer,
-  postgresHost: EXPECTED_HOST,
-  database: EXPECTED_DATABASE,
-  port: TARGETS.port,
+  subscriptionId: '6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9',
+  resourceGroup: 'wh-staging-rg',
+  postgresServer: 'wh-staging-pg-app',
+  postgresHost: 'wh-staging-pg-app.postgres.database.azure.com',
+  database: 'wolfhouse_staging',
+  port: 5432,
   sslmode: 'verify-full',
   applicationName: APPLICATION_NAME,
 });
@@ -99,10 +101,9 @@ const RECOVERY_TARGET = Object.freeze({
 const PRODUCTION_TARGET_PATTERNS = Object.freeze([
   /^prod$/i,
   /^production$/i,
-  /wolfhouse(?!-staging)/i,
+  /^wolfhouse$/i,
   /production/i,
 ]);
-
 const LOCK_TIMEOUT_MS = 5000;
 const STATEMENT_TIMEOUT_MS = 30000;
 const IDLE_IN_TRANSACTION_TIMEOUT_MS = 60000;
@@ -1783,10 +1784,10 @@ function buildFixtureEvidence(overrides) {
       requiredFlag: CLI_APPROVE,
     },
     notes: [
-      'One-time staging recovery evidence for sole-042 partial ledger',
+      'One-time Wolfhouse Staff staging recovery evidence for sole-042 partial ledger',
       'Does not invent historical runner provenance',
       'Apply records verified_structural_baseline only; never executed_by_canonical_runner',
-      'Offline fixture placeholders — operator must collect real staging structural evidence before apply',
+      'Offline fixture placeholders — operator must collect real wolfhouse_staging structural evidence before apply',
     ],
   };
 

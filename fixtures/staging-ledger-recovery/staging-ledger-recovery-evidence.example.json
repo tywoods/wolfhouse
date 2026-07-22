@@ -6,10 +6,10 @@
   "target": {
     "environment": "staging",
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
-    "resourceGroup": "luna-sunset-staging-rg",
-    "postgresServer": "luna-sunset-staging-pg-app",
-    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
-    "database": "sunset_staging",
+    "resourceGroup": "wh-staging-rg",
+    "postgresServer": "wh-staging-pg-app",
+    "postgresHost": "wh-staging-pg-app.postgres.database.azure.com",
+    "database": "wolfhouse_staging",
     "port": 5432,
     "sslmode": "verify-full",
     "applicationName": "wh-staging-ledger-recovery"
@@ -745,10 +745,10 @@
     "requiredFlag": "--approve-staging-ledger-recovery"
   },
   "notes": [
-    "One-time staging recovery evidence for sole-042 partial ledger",
+    "One-time Wolfhouse Staff staging recovery evidence for sole-042 partial ledger",
     "Does not invent historical runner provenance",
     "Apply records verified_structural_baseline only; never executed_by_canonical_runner",
-    "Offline fixture placeholders — operator must collect real staging structural evidence before apply"
+    "Offline fixture placeholders — operator must collect real wolfhouse_staging structural evidence before apply"
   ],
-  "evidenceDigest": "dcbbbb80c97f5e5de3d348ee3e9a514f75d936c2e7a448f55f5b6a6ebd156093"
+  "evidenceDigest": "9169ea2ee388d25d92878959cb30dfa586c53ca286668b72b9c7ede29842624f"
 }
