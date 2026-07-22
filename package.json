@@ -77,6 +77,7 @@
     "verify:crowsnest-sales-outreach-drafts": "node scripts/verify-crowsnest-sales-outreach-drafts.js",
     "verify:crowsnest-sales-discovery-contract": "node scripts/verify-crowsnest-sales-discovery-contract.js",
     "verify:crowsnest-sales-maps-discovery": "node scripts/verify-crowsnest-sales-maps-discovery.js",
+    "verify:crowsnest-sales-contact-enrichment": "node scripts/verify-crowsnest-sales-contact-enrichment.js",
     "verify:staff-auth-api": "node scripts/verify-staff-auth-api.js",
     "verify:staff-conversation-queries": "node scripts/verify-staff-conversation-queries.js",
     "verify:staff-conversation-api": "node scripts/verify-staff-conversation-api.js",

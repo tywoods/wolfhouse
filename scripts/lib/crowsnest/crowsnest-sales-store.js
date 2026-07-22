@@ -1,8 +1,9 @@
 'use strict';
 
 /**
- * Crowsnest Luna Sales durable store (Chapters 1–6: durable prospects, evidence,
- * qualification, review queue, CRM review readiness / preview support, outreach drafts).
+ * Crowsnest Luna Sales durable store (Chapters 1–6 + 9: durable prospects, evidence,
+ * qualification, review queue, CRM review readiness / preview support, outreach drafts,
+ * manual contact candidates).
  *
  * Owns config validation, repository adapters (memory / postgres / fail-closed),
  * and a bounded pg pool lifecycle. Never reads WOLFHOUSE_DATABASE_URL.
@@ -122,6 +123,8 @@ function createMemorySalesRepository() {
   const crmReviewMarksByProspect = new Map();
   /** @type {Map<string, object[]>} */
   const outreachDraftRevisionsByProspect = new Map();
+  /** @type {Map<string, object[]>} */
+  const contactCandidatesByProspect = new Map();
   const auditEvents = [];
 
   function researchListFor(id) {
@@ -154,6 +157,13 @@ function createMemorySalesRepository() {
         if (revDiff !== 0) return revDiff;
         return String(b.created_at || '').localeCompare(String(a.created_at || ''));
       });
+  }
+
+  function contactCandidateListFor(id) {
+    const list = contactCandidatesByProspect.get(String(id || '')) || [];
+    return list
+      .map((row) => cloneJson(row))
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   }
 
   return {
@@ -194,6 +204,14 @@ function createMemorySalesRepository() {
       list.push(row);
       outreachDraftRevisionsByProspect.set(key, list);
       return { ok: true, revision: cloneJson(row) };
+    },
+    async saveContactCandidate(contact) {
+      const row = cloneJson(contact);
+      const key = String(row.prospect_id);
+      const list = contactCandidatesByProspect.get(key) || [];
+      list.push(row);
+      contactCandidatesByProspect.set(key, list);
+      return { ok: true, contact: cloneJson(row) };
     },
     async appendAuditEvent(event) {
       const row = cloneJson(event);
@@ -261,6 +279,9 @@ function createMemorySalesRepository() {
       }
       return max + 1;
     },
+    async listContactCandidatesForProspect(id) {
+      return contactCandidateListFor(id);
+    },
     async listReviewQueueSummaries() {
       const rows = [];
       for (const prospect of prospects.values()) {
@@ -319,6 +340,7 @@ function createMemorySalesRepository() {
       qualificationsByProspect.clear();
       crmReviewMarksByProspect.clear();
       outreachDraftRevisionsByProspect.clear();
+      contactCandidatesByProspect.clear();
       auditEvents.length = 0;
     },
   };
@@ -335,6 +357,7 @@ function createFailClosedSalesRepository(config = {}) {
     saveQualificationAssessment: reject,
     saveCrmReviewMark: reject,
     saveOutreachDraftRevision: reject,
+    saveContactCandidate: reject,
     appendAuditEvent: reject,
     updateProspectDecision: reject,
     async getProspect() {
@@ -369,6 +392,9 @@ function createFailClosedSalesRepository(config = {}) {
     },
     async getNextOutreachDraftRevisionNumber() {
       return misconfiguredResult(message);
+    },
+    async listContactCandidatesForProspect() {
+      return [];
     },
     async listReviewQueueSummaries() {
       return misconfiguredResult(message);
@@ -465,6 +491,27 @@ function mapOutreachDraftRevisionRow(row) {
     created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
     message_sent: false,
     disclaimer: 'Draft only — no message has been sent.',
+  };
+}
+
+function mapContactCandidateRow(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    prospect_id: String(row.prospect_id),
+    full_name: row.full_name || '',
+    role: row.role || '',
+    email: row.email || '',
+    phone: row.phone || '',
+    linkedin_url: row.linkedin_url || '',
+    source: row.source || '',
+    confidence: row.confidence || '',
+    author_id: row.author_id || 'Admin',
+    created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+    disclaimer: 'Manual contact records only — no Apollo lookup, no auto-find, no CRM write, no message sent.',
+    external_lookup_used: false,
+    auto_found: false,
+    message_sent: false,
   };
 }
 
@@ -609,6 +656,27 @@ function createPgSalesRepository(options = {}) {
     );
   }
 
+  async function insertContactCandidate(txQuery, contact) {
+    await txQuery(
+      `INSERT INTO luna_sales.contact_candidates (
+          id, prospect_id, full_name, role, email, phone, linkedin_url, source, confidence, author_id, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz)`,
+      [
+        contact.id,
+        contact.prospect_id,
+        contact.full_name || '',
+        contact.role || '',
+        contact.email || '',
+        contact.phone || '',
+        contact.linkedin_url || '',
+        contact.source || '',
+        contact.confidence || '',
+        contact.author_id || 'Admin',
+        contact.created_at,
+      ],
+    );
+  }
+
   return {
     backend: 'postgres',
     async createProspectBundle({ prospect, research, auditEvents = [] } = {}) {
@@ -661,6 +729,14 @@ function createPgSalesRepository(options = {}) {
       try {
         await insertOutreachDraftRevision(queryFn, revision);
         return { ok: true, revision: cloneJson(revision) };
+      } catch {
+        return salesUnavailableResult();
+      }
+    },
+    async saveContactCandidate(contact) {
+      try {
+        await insertContactCandidate(queryFn, contact);
+        return { ok: true, contact: cloneJson(contact) };
       } catch {
         return salesUnavailableResult();
       }
@@ -856,6 +932,20 @@ function createPgSalesRepository(options = {}) {
           ? Number(result.rows[0].max)
           : 0;
         return (Number.isFinite(max) ? max : 0) + 1;
+      } catch {
+        throw new SalesStoreUnavailableError();
+      }
+    },
+    async listContactCandidatesForProspect(id) {
+      try {
+        const result = await queryFn(
+          `SELECT id, prospect_id, full_name, role, email, phone, linkedin_url, source, confidence, author_id, created_at
+           FROM luna_sales.contact_candidates
+           WHERE prospect_id = $1
+           ORDER BY created_at DESC`,
+          [id],
+        );
+        return (result.rows || []).map(mapContactCandidateRow);
       } catch {
         throw new SalesStoreUnavailableError();
       }
