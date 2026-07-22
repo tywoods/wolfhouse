@@ -1,11 +1,12 @@
 'use strict';
 
 /**
- * verify:messi-slice1a-acceptance-ledger — MESSI acceptance ledger (1A + 1G wiring)
+ * verify:messi-slice1a-acceptance-ledger — MESSI acceptance ledger (1A + 1H)
  *
  * Read-only deterministic acceptance ledger verifier. Canonical classifier +
  * parent bindings live in scripts/lib/messi-slice1a-acceptance-ledger.js.
- * Slice 1G wires FACTORY 1E finite offline dry-run closeout into the ledger.
+ * Slice 1H binds a cross-parent disposition gap manifest on
+ * G_CROSS_PARENT_INTEGRATION while keeping that gate absent.
  * Runs retained offline parent gates only — no deploy/DB/cloud/network/live product
  * mutation.
  *
@@ -65,7 +66,7 @@ function noTrailingWhitespace(text) {
   return !String(text).split('\n').some((line) => /[ \t]+$/.test(line));
 }
 
-console.log('verify:messi-slice1a-acceptance-ledger — MESSI ledger (1G FACTORY wiring)\n');
+console.log('verify:messi-slice1a-acceptance-ledger — MESSI ledger (1H cross-parent gap)\n');
 
 // ── Artifacts ───────────────────────────────────────────────────────────────
 console.log('── Artifacts ──');
@@ -83,7 +84,7 @@ const doc = readText(locks.ARTIFACT_RELS.doc);
 const lockSrc = readText(locks.ARTIFACT_RELS.lock_module);
 const verifierSrc = readText(locks.ARTIFACT_RELS.verifier);
 
-ok('contract slice MESSI-1G', contract.slice === locks.SLICE && locks.SLICE === 'MESSI-1G');
+ok('contract slice MESSI-1H', contract.slice === locks.SLICE && locks.SLICE === 'MESSI-1H');
 ok('contract outcome', contract.outcome_id === locks.OUTCOME_ID);
 ok('contract master basis', contract.master_basis === locks.MASTER_BASIS);
 ok('contract messi_complete false', contract.messi_complete === false);
@@ -134,7 +135,9 @@ console.log('\n── Package script ──');
       && pkg.scripts[locks.PACKAGE_JSON_1F_SCRIPT_KEY]
       === locks.PACKAGE_JSON_1F_SCRIPT_VALUE
       && pkg.scripts[locks.PACKAGE_JSON_1G_SCRIPT_KEY]
-      === locks.PACKAGE_JSON_1G_SCRIPT_VALUE,
+      === locks.PACKAGE_JSON_1G_SCRIPT_VALUE
+      && pkg.scripts[locks.PACKAGE_JSON_1H_SCRIPT_KEY]
+      === locks.PACKAGE_JSON_1H_SCRIPT_VALUE,
   );
 }
 
@@ -324,6 +327,29 @@ green('factory_finite_offline_dry_run_exposed', (() => {
     && !Object.prototype.hasOwnProperty.call(g, 'finite_audit_workstream_complete')
     && !Object.prototype.hasOwnProperty.call(g, 'finite_staging_readiness_workstream_complete');
 })());
+green('cross_parent_gap_manifest_absent_gate', (() => {
+  const g = classification.gates.find((x) => x.id === 'G_CROSS_PARENT_INTEGRATION');
+  const ledgerG = (ledger.gates || []).find((x) => x.id === 'G_CROSS_PARENT_INTEGRATION');
+  const byId = {};
+  for (const x of classification.gates) byId[x.id] = x;
+  const mc = locks.validateCrossParentGapManifest(
+    g && g.gap_manifest,
+    byId,
+  );
+  return g
+    && g.verdict === 'absent'
+    && g.workstream_class === locks.CROSS_PARENT_WORKSTREAM_CLASS
+    && g.production_readiness === 'absent'
+    && g.gap_manifest
+    && g.gap_manifest.integration_proof === false
+    && mc.ok
+    && locks.deepEqual(g.gap_manifest, locks.deepClone(locks.CROSS_PARENT_GAP_MANIFEST))
+    && Array.isArray(g.missing_proof)
+    && locks.CROSS_PARENT_MISSING_PROOF.every((m) => g.missing_proof.includes(m))
+    && ledgerG
+    && ledgerG.verdict === 'absent'
+    && locks.deepEqual(ledgerG.gap_manifest, g.gap_manifest);
+})());
 green('unrelated_gates_byte_identical_to_base', (() => {
   const ledgerMatch = locks.unrelatedGatesMatchBase(ledger.gates || []);
   const classMatch = locks.unrelatedGatesMatchBase(classification.gates);
@@ -334,19 +360,19 @@ green('unrelated_gates_byte_identical_to_base', (() => {
     && locks.BASE_UNRELATED_GATE_OBJECTS.every((exp) => {
       const got = (ledger.gates || []).find((x) => x.id === exp.id);
       return got
-        && !Object.prototype.hasOwnProperty.call(
-          got,
-          'finite_offline_dry_run_workstream_complete',
-        )
+        && !Object.prototype.hasOwnProperty.call(got, 'gap_manifest')
         && locks.deepEqual(locks.ledgerGateObject(got), locks.deepClone(exp));
     })
-    && !(locks.UNRELATED_GATE_IDS.includes('G_FACTORY_PARENT'))
+    && !(locks.UNRELATED_GATE_IDS.includes('G_CROSS_PARENT_INTEGRATION'))
+    && locks.UNRELATED_GATE_IDS.includes('G_FACTORY_PARENT')
     && (ledger.gates || []).find((x) => x.id === 'G_FOUNDATION_PARENT')
       ?.finite_staging_workstream_complete === true
     && (ledger.gates || []).find((x) => x.id === 'G_FORTRESS_PARENT')
       ?.finite_audit_workstream_complete === true
     && (ledger.gates || []).find((x) => x.id === 'G_RADAR_PARENT')
       ?.finite_staging_readiness_workstream_complete === true
+    && (ledger.gates || []).find((x) => x.id === 'G_FACTORY_PARENT')
+      ?.finite_offline_dry_run_workstream_complete === true
     && (ledger.gates || []).find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT')
       ?.workstream_class === locks.MESSI_CLOSEOUT_WORKSTREAM_CLASS
     && (ledger.gates || []).find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT')
@@ -407,7 +433,7 @@ console.log('\n── Recursion fence ──');
   for (const rel of parentVerifiers) {
     const src = readText(rel);
     ok(`${rel} does not spawn MESSI ledger verifier`,
-      !/verify-messi-slice1a-acceptance-ledger\.js|verify:messi-slice1c-foundation-wiring|verify:messi-slice1e-fortress-wiring|verify:messi-slice1f-radar-wiring|verify:messi-slice1g-factory-wiring/.test(src));
+      !/verify-messi-slice1a-acceptance-ledger\.js|verify:messi-slice1c-foundation-wiring|verify:messi-slice1e-fortress-wiring|verify:messi-slice1f-radar-wiring|verify:messi-slice1g-factory-wiring|verify:messi-slice1h-cross-parent-gap/.test(src));
   }
 }
 
@@ -694,10 +720,10 @@ red('self_authored_score_change', (() => {
 })());
 
 red('unrelated_gate_semantic_drift', (() => {
-  // Leak finite offline dry-run onto FORTRESS (unrelated) — must fail closed.
+  // Leak gap_manifest onto FORTRESS (unrelated) — must fail closed.
   const leak = locks.thaw(ledger);
   const fg = leak.gates.find((x) => x.id === 'G_FORTRESS_PARENT');
-  fg.finite_offline_dry_run_workstream_complete = true;
+  fg.gap_manifest = locks.deepClone(locks.CROSS_PARENT_GAP_MANIFEST);
   const vLeak = locks.validateLedgerFixture(leak, classification);
   // Mutate G_MESSI_MILESTONE_CLOSEOUT.workstream_class away from base.
   const drift = locks.thaw(ledger);
@@ -708,7 +734,7 @@ red('unrelated_gate_semantic_drift', (() => {
   const live = locks.unrelatedGatesMatchBase(ledger.gates || []);
   return live.ok === true
     && vLeak.ok === false
-    && vLeak.errors.some((e) => e === 'finite_offline_dry_run_on_unrelated_gate:G_FORTRESS_PARENT'
+    && vLeak.errors.some((e) => e === 'gap_manifest_on_unrelated_gate:G_FORTRESS_PARENT'
       || e === 'unrelated_gate_drift:G_FORTRESS_PARENT')
     && vDrift.ok === false
     && vDrift.errors.includes('unrelated_gate_drift:G_MESSI_MILESTONE_CLOSEOUT');
@@ -726,7 +752,7 @@ red('unrelated_gate_identity', (() => {
     && classified.ok === true
     && locks.UNRELATED_GATE_IDS.length === 5
     && locks.deepEqual([...locks.UNRELATED_GATE_IDS].sort(), [
-      'G_CROSS_PARENT_INTEGRATION',
+      'G_FACTORY_PARENT',
       'G_FORTRESS_PARENT',
       'G_FOUNDATION_PARENT',
       'G_MESSI_MILESTONE_CLOSEOUT',
@@ -807,6 +833,63 @@ red('finite_FACTORY_as_production_complete', (() => {
       || v.errors.includes('score_mismatch')
       || forged.errors.includes('factory_complete_from_finite_closeout')
       || forged.errors.includes('finite_offline_dry_run_as_production_readiness')
+    );
+})());
+
+red('missing_parent_disposition', (() => {
+  // Dropping any of the four reviewed parent dispositions from the gap
+  // manifest must fail closed — disposition inventory is incomplete.
+  const badManifest = locks.deepClone(locks.CROSS_PARENT_GAP_MANIFEST);
+  badManifest.parent_dispositions = badManifest.parent_dispositions
+    .filter((d) => d.parent !== 'RADAR');
+  const byId = {};
+  for (const g of classification.gates) byId[g.id] = g;
+  const mc = locks.validateCrossParentGapManifest(badManifest, byId);
+  const badLedger = locks.thaw(ledger);
+  const cg = badLedger.gates.find((x) => x.id === 'G_CROSS_PARENT_INTEGRATION');
+  cg.gap_manifest = badManifest;
+  const v = locks.validateLedgerFixture(badLedger, classification);
+  return mc.ok === false
+    && mc.errors.includes('missing_parent_disposition:RADAR')
+    && v.ok === false
+    && (
+      v.errors.includes('gap_manifest_mismatch:G_CROSS_PARENT_INTEGRATION')
+      || v.errors.includes('missing_parent_disposition:RADAR')
+    );
+})());
+
+red('gap_manifest_promoted_to_integration_proof', (() => {
+  // A present/consistent gap manifest must never raise CROSS above absent or
+  // claim integration_proof / production readiness.
+  const badLedger = locks.thaw(ledger);
+  const g = badLedger.gates.find((x) => x.id === 'G_CROSS_PARENT_INTEGRATION');
+  g.verdict = 'partial';
+  g.production_readiness = 'proven';
+  g.gap_manifest = locks.deepClone(locks.CROSS_PARENT_GAP_MANIFEST);
+  g.gap_manifest.integration_proof = true;
+  badLedger.production_ready = true;
+  badLedger.messi_complete = true;
+  badLedger.score = { proven: 0, partial: 5, absent: 1, total: 6 };
+  const v = locks.validateLedgerFixture(badLedger, classification);
+  const forged = locks.classifyMessiGates({
+    hashBindingOk: true,
+    gateResults,
+    radarFormalScore: radarScore,
+    fortressMatrixCounts: matrixCounts,
+  });
+  const cg = forged.gates.find((x) => x.id === 'G_CROSS_PARENT_INTEGRATION');
+  return v.ok === false
+    && cg.verdict === 'absent'
+    && cg.gap_manifest
+    && cg.gap_manifest.integration_proof === false
+    && forged.production_ready === false
+    && forged.messi_complete === false
+    && (
+      v.errors.includes('false_production_ready')
+      || v.errors.includes('false_messi_complete')
+      || v.errors.includes('gate_verdict_mismatch:G_CROSS_PARENT_INTEGRATION')
+      || v.errors.includes('score_mismatch')
+      || forged.errors.includes('gap_manifest_promoted_to_integration_proof')
     );
 })());
 

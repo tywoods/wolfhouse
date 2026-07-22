@@ -4,21 +4,18 @@
  * messi-slice1a-acceptance-ledger — MESSI sole production classifier and
  * parent-binding locks (docs/fixtures/verifier only).
  *
- * Slice 1G wires the reviewed FACTORY 1E finite offline closeout into this
- * canonical ledger: reuse exact 1E candidate/canonical tip 14facf5d provenance
- * and durable evidence refs, execute verify:factory-slice1e-finite-closeout,
- * expose finite offline dry-run workstream completion on G_FACTORY_PARENT
- * only, and keep that parent partial while production apply/materialization,
- * operated onboarding, secrets/live targets, and production readiness remain
- * absent. Ledger semantic changes are FACTORY-confined: the five unrelated
- * gate objects stay byte-identical to master basis 94be40ba (including
- * FOUNDATION finite staging, FORTRESS finite audit, RADAR finite
- * staging-readiness, and G_MESSI_MILESTONE_CLOSEOUT.workstream_class). Frozen
- * score 0/4/2, RADAR formal 0/9/0, and false production/MESSI completion are
- * preserved. No certificate changes — reuse redesign + squash-proof as-is.
+ * Slice 1H narrows G_CROSS_PARENT_INTEGRATION only: bind a deterministic gap
+ * manifest proving the four reviewed parent dispositions (FOUNDATION 1B,
+ * FORTRESS 1D, RADAR 16AP, FACTORY 1E) are wired and mutually consistent, while
+ * keeping that gate ABSENT because no genuine end-to-end cross-parent
+ * operated/production integration proof exists. The five unrelated gate objects
+ * (four parents + G_MESSI_MILESTONE_CLOSEOUT) stay serialization-identical to
+ * master basis aa955cff. Frozen score 0/4/2, RADAR formal 0/9/0, and false
+ * production/MESSI completion are preserved. No certificate architecture /
+ * runtime / live changes — reuse redesign + squash-proof as-is.
  *
  * Post-merge tip scope: immutable reviewed-candidate blob certificates at HEAD.
- * Never infer 1A/1G scope from MASTER_BASIS..HEAD path allowlists (concurrent
+ * Never infer 1A/1H scope from MASTER_BASIS..HEAD path allowlists (concurrent
  * unrelated master commits after the squash — e.g. #147 — are irrelevant).
  *
  * Parent milestones are never marked complete from labels, summaries, or
@@ -73,11 +70,11 @@ function sha256Text(text) {
   return crypto.createHash('sha256').update(String(text), 'utf8').digest('hex');
 }
 
-const SLICE = 'MESSI-1G';
-const BRANCH = 'messi/slice-1g-factory-wiring';
-const OUTCOME_ID = '1G_factory_finite_closeout_ledger_wiring';
-/** Master tip this slice starts from (#157 RADAR wiring tip). */
-const MASTER_BASIS = '94be40ba9ffc2a9c55030ebf50f711aaa6f6a594';
+const SLICE = 'MESSI-1H';
+const BRANCH = 'messi/slice-1h-cross-parent-gap';
+const OUTCOME_ID = '1H_cross_parent_disposition_gap_manifest';
+/** Master tip this slice starts from (#161 FACTORY wiring tip). */
+const MASTER_BASIS = 'aa955cffa859c922b924b039f8e1f9e45adfadfd';
 /** Git-anchored whole-path redesign pin (never frozen_only / fixture trust root). */
 const redesignPin = require('./breakglass-redesign-candidate-sha');
 /**
@@ -93,9 +90,11 @@ const LANDING_TIP = redesignPin.SQUASH_PROOF_LANDING_TIP
   || 'c61bc9feba412de8e24cd14b5907bd62b65abd13';
 /** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
 const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
-const PROGRESS_CLASS = 'factory_finite_closeout_ledger_wiring_only';
-/** Preserved from base 94be40ba / 98202775 — not overwritten by 1G progress_class. */
+const PROGRESS_CLASS = 'cross_parent_disposition_gap_manifest_only';
+/** Preserved from base aa955cff / 98202775 — not overwritten by 1H progress_class. */
 const MESSI_CLOSEOUT_WORKSTREAM_CLASS = 'acceptance_ledger_inventory_and_verifier_only';
+/** Cross-parent gate workstream — gap manifest only; never integration proof. */
+const CROSS_PARENT_WORKSTREAM_CLASS = 'cross_parent_disposition_gap_manifest_only';
 
 /** Reviewed RADAR 16AP candidate + canonical tip (unchanged durable provenance). */
 const RADAR_16AP_MERGE_TIP = '7e56a99a2d69e13bf1a764090e4033195e189641';
@@ -126,18 +125,18 @@ const GATE_IDS = Object.freeze([
   'G_MESSI_MILESTONE_CLOSEOUT',
 ]);
 
-/** Non-FACTORY gates — must remain byte-identical to master basis 94be40ba ledger. */
+/** Non-CROSS gates — must remain byte-identical to master basis aa955cff ledger. */
 const UNRELATED_GATE_IDS = Object.freeze([
   'G_FOUNDATION_PARENT',
   'G_FORTRESS_PARENT',
   'G_RADAR_PARENT',
-  'G_CROSS_PARENT_INTEGRATION',
+  'G_FACTORY_PARENT',
   'G_MESSI_MILESTONE_CLOSEOUT',
 ]);
 
 /**
  * Exact unrelated gate objects from fixtures/messi-acceptance/slice1a-ledger.json
- * at master basis 94be40ba (pre-1G). Semantic ledger confinement proof target.
+ * at master basis aa955cff (pre-1H). Semantic ledger confinement proof target.
  */
 const BASE_UNRELATED_GATE_OBJECTS = Object.freeze([
   Object.freeze({
@@ -189,16 +188,18 @@ const BASE_UNRELATED_GATE_OBJECTS = Object.freeze([
     ]),
   }),
   Object.freeze({
-    id: 'G_CROSS_PARENT_INTEGRATION',
-    verdict: 'absent',
-    parent: null,
-    workstream_class: 'none',
+    id: 'G_FACTORY_PARENT',
+    verdict: 'partial',
+    parent: 'FACTORY',
+    workstream_class: 'finite_offline_dry_run_packaging_closeout',
     production_readiness: 'absent',
-    finite_closeout_analog: null,
+    finite_closeout_analog: 'verify:factory-slice1e-finite-closeout',
+    finite_offline_dry_run_workstream_complete: true,
     missing_proof: Object.freeze([
-      'committed_cross_parent_integration_proof',
-      'composed_foundation_fortress_radar_factory_production_evidence',
-      'end_to_end_live_staging_integration_beyond_parent_silos',
+      'third_tenant_live_or_prod_onboarding',
+      'apply_or_disk_materialization',
+      'RADAR_reopen_third_tenant_factory_clearance',
+      'production_client_productization_readiness',
     ]),
   }),
   Object.freeze({
@@ -257,6 +258,9 @@ const PACKAGE_JSON_1F_SCRIPT_VALUE =
 const PACKAGE_JSON_1G_SCRIPT_KEY = 'verify:messi-slice1g-factory-wiring';
 const PACKAGE_JSON_1G_SCRIPT_VALUE =
   'node scripts/verify-messi-slice1a-acceptance-ledger.js';
+const PACKAGE_JSON_1H_SCRIPT_KEY = 'verify:messi-slice1h-cross-parent-gap';
+const PACKAGE_JSON_1H_SCRIPT_VALUE =
+  'node scripts/verify-messi-slice1a-acceptance-ledger.js';
 
 const SCOPE_FENCE = Object.freeze({
   allowed: Object.freeze([
@@ -269,6 +273,7 @@ const SCOPE_FENCE = Object.freeze({
     'retained_offline_gate_execution',
     'deterministic_classification',
     'package_json_verifier_script_registration',
+    'cross_parent_disposition_gap_manifest',
   ]),
   forbids: Object.freeze([
     'product_runtime_template_behavior',
@@ -280,6 +285,7 @@ const SCOPE_FENCE = Object.freeze({
     'raising_radar_formal_gates',
     'self_authored_parent_completion_booleans',
     'label_or_summary_completion',
+    'gap_manifest_as_cross_parent_integration_proof',
   ]),
 });
 
@@ -535,7 +541,7 @@ const MESSI_GATES = Object.freeze([
     parent: null,
     title: 'Cross-parent integration proof',
     requirement:
-      'Committed proof that FOUNDATION+FORTRESS+RADAR+FACTORY compose into an integrated production-ready system. Slice 1A inventories only — does not invent integration proof.',
+      'Committed proof that FOUNDATION+FORTRESS+RADAR+FACTORY compose into an integrated operated/production-ready system. Slice 1H binds a deterministic disposition gap manifest proving the four reviewed parent dispositions are wired and mutually consistent, but keeps this gate absent — a gap manifest is not end-to-end cross-parent integration proof.',
   }),
   Object.freeze({
     id: 'G_MESSI_MILESTONE_CLOSEOUT',
@@ -544,6 +550,81 @@ const MESSI_GATES = Object.freeze([
     requirement:
       'MESSI closes only when all parent MESSI gates are complete with production-grade proof. Slice 1A freezes the ledger; MESSI remains absent.',
   }),
+]);
+
+/**
+ * Deterministic gap manifest for G_CROSS_PARENT_INTEGRATION.
+ * Proves four reviewed parent dispositions are wired + mutually consistent.
+ * Explicitly NOT cross-parent operated/production integration proof.
+ */
+const CROSS_PARENT_GAP_MANIFEST = Object.freeze({
+  schema_version: 1,
+  purpose: 'cross_parent_disposition_gap_inventory',
+  integration_proof: false,
+  gate_verdict_required: 'absent',
+  parent_dispositions: Object.freeze([
+    Object.freeze({
+      parent: 'FOUNDATION',
+      gate_id: 'G_FOUNDATION_PARENT',
+      verdict: 'partial',
+      workstream_class: 'finite_staging_schema_migration_recovery_closeout',
+      production_readiness: 'absent',
+      finite_closeout_analog: 'verify:messi-slice1b-foundation-closeout',
+      finite_flag: 'finite_staging_workstream_complete',
+      finite_flag_value: true,
+    }),
+    Object.freeze({
+      parent: 'FORTRESS',
+      gate_id: 'G_FORTRESS_PARENT',
+      verdict: 'partial',
+      workstream_class: 'finite_fortress_audit_workstream_closeout',
+      production_readiness: 'absent',
+      finite_closeout_analog: 'verify:messi-slice1d-fortress-closeout',
+      finite_flag: 'finite_audit_workstream_complete',
+      finite_flag_value: true,
+    }),
+    Object.freeze({
+      parent: 'RADAR',
+      gate_id: 'G_RADAR_PARENT',
+      verdict: 'partial',
+      workstream_class: 'finite_milestone_closeout_staging_readiness_only',
+      production_readiness: 'absent',
+      finite_closeout_analog: 'verify:radar-slice16ap-finite-closeout',
+      finite_flag: 'finite_staging_readiness_workstream_complete',
+      finite_flag_value: true,
+    }),
+    Object.freeze({
+      parent: 'FACTORY',
+      gate_id: 'G_FACTORY_PARENT',
+      verdict: 'partial',
+      workstream_class: 'finite_offline_dry_run_packaging_closeout',
+      production_readiness: 'absent',
+      finite_closeout_analog: 'verify:factory-slice1e-finite-closeout',
+      finite_flag: 'finite_offline_dry_run_workstream_complete',
+      finite_flag_value: true,
+    }),
+  ]),
+  consistency_checks: Object.freeze([
+    'exactly_four_reviewed_parents',
+    'all_parent_verdicts_partial',
+    'all_production_readiness_absent',
+    'all_finite_workstream_flags_true',
+    'finite_closeout_analogs_match_parent_locks',
+    'workstream_classes_match_parent_locks',
+  ]),
+  remaining_integration_gaps: Object.freeze([
+    'committed_cross_parent_integration_proof',
+    'composed_foundation_fortress_radar_factory_production_evidence',
+    'end_to_end_live_staging_integration_beyond_parent_silos',
+    'operated_cross_parent_production_integration',
+  ]),
+});
+
+const CROSS_PARENT_MISSING_PROOF = Object.freeze([
+  'committed_cross_parent_integration_proof',
+  'composed_foundation_fortress_radar_factory_production_evidence',
+  'end_to_end_live_staging_integration_beyond_parent_silos',
+  'operated_cross_parent_production_integration',
 ]);
 
 /** Exact sha256 pins for parent-bound committed files (recomputed by verifier). */
@@ -1085,6 +1166,97 @@ function parentEvidenceSelfReferential(parent) {
 }
 
 /**
+ * Validate locked gap manifest shape + mutual consistency of the four reviewed
+ * parent dispositions. Does not raise G_CROSS_PARENT_INTEGRATION above absent.
+ */
+function validateCrossParentGapManifest(manifest, parentGatesById) {
+  const errors = [];
+  const m = manifest || {};
+  if (m.schema_version !== 1) errors.push('gap_manifest_schema_version');
+  if (m.purpose !== 'cross_parent_disposition_gap_inventory') {
+    errors.push('gap_manifest_purpose');
+  }
+  if (m.integration_proof !== false) errors.push('gap_manifest_integration_proof_claimed');
+  if (m.gate_verdict_required !== 'absent') {
+    errors.push('gap_manifest_gate_verdict_required');
+  }
+  const expectedParents = ['FOUNDATION', 'FORTRESS', 'RADAR', 'FACTORY'];
+  const rows = Array.isArray(m.parent_dispositions) ? m.parent_dispositions : [];
+  if (rows.length !== 4) errors.push('gap_manifest_parent_count');
+  const seen = new Set();
+  for (const exp of CROSS_PARENT_GAP_MANIFEST.parent_dispositions) {
+    const row = rows.find((r) => r && r.parent === exp.parent);
+    if (!row) {
+      errors.push(`missing_parent_disposition:${exp.parent}`);
+      continue;
+    }
+    seen.add(exp.parent);
+    if (!deepEqual(row, deepClone(exp))) {
+      errors.push(`parent_disposition_drift:${exp.parent}`);
+    }
+    const live = parentGatesById && parentGatesById[exp.gate_id];
+    if (!live) {
+      errors.push(`missing_parent_disposition_live:${exp.parent}`);
+      continue;
+    }
+    if (live.verdict !== exp.verdict) {
+      errors.push(`parent_disposition_verdict_mismatch:${exp.parent}`);
+    }
+    if (live.workstream_class !== exp.workstream_class) {
+      errors.push(`parent_disposition_workstream_mismatch:${exp.parent}`);
+    }
+    if (live.production_readiness !== exp.production_readiness) {
+      errors.push(`parent_disposition_production_mismatch:${exp.parent}`);
+    }
+    if (live.finite_closeout_analog !== exp.finite_closeout_analog) {
+      errors.push(`parent_disposition_analog_mismatch:${exp.parent}`);
+    }
+    if (live[exp.finite_flag] !== exp.finite_flag_value) {
+      errors.push(`parent_disposition_finite_flag_mismatch:${exp.parent}`);
+    }
+  }
+  for (const p of expectedParents) {
+    if (!seen.has(p) && !errors.some((e) => e === `missing_parent_disposition:${p}`)) {
+      errors.push(`missing_parent_disposition:${p}`);
+    }
+  }
+  if (!deepEqual(
+    [...(m.remaining_integration_gaps || [])],
+    [...CROSS_PARENT_GAP_MANIFEST.remaining_integration_gaps],
+  )) {
+    errors.push('gap_manifest_remaining_gaps_drift');
+  }
+  if (!deepEqual(
+    [...(m.consistency_checks || [])],
+    [...CROSS_PARENT_GAP_MANIFEST.consistency_checks],
+  )) {
+    errors.push('gap_manifest_consistency_checks_drift');
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function buildCrossParentIntegrationGate(parentGates) {
+  const byId = {};
+  for (const g of parentGates || []) byId[g.id] = g;
+  const manifest = deepClone(CROSS_PARENT_GAP_MANIFEST);
+  const manifestCheck = validateCrossParentGapManifest(manifest, byId);
+  return {
+    gate: {
+      id: 'G_CROSS_PARENT_INTEGRATION',
+      verdict: 'absent',
+      parent: null,
+      workstream_class: CROSS_PARENT_WORKSTREAM_CLASS,
+      production_readiness: 'absent',
+      finite_closeout_analog: null,
+      gap_manifest: manifest,
+      retained_gate_results: [],
+      missing_proof: [...CROSS_PARENT_MISSING_PROOF],
+    },
+    manifestCheck,
+  };
+}
+
+/**
  * Sole production classifier. Never trusts ledger-authored parent_complete
  * booleans. Verdicts require hash binding + retained gate exit 0 + honesty
  * about finite vs production.
@@ -1190,26 +1362,15 @@ function classifyMessiGates(opts) {
   pushParentGate('G_RADAR_PARENT', 'RADAR');
   pushParentGate('G_FACTORY_PARENT', 'FACTORY');
 
-  gates.push({
-    id: 'G_CROSS_PARENT_INTEGRATION',
-    verdict: 'absent',
-    parent: null,
-    workstream_class: 'none',
-    production_readiness: 'absent',
-    finite_closeout_analog: null,
-    retained_gate_results: [],
-    missing_proof: Object.freeze([
-      'committed_cross_parent_integration_proof',
-      'composed_foundation_fortress_radar_factory_production_evidence',
-      'end_to_end_live_staging_integration_beyond_parent_silos',
-    ]),
-  });
+  const crossBuilt = buildCrossParentIntegrationGate(gates);
+  for (const e of crossBuilt.manifestCheck.errors) errors.push(e);
+  gates.push(crossBuilt.gate);
 
   gates.push({
     id: 'G_MESSI_MILESTONE_CLOSEOUT',
     verdict: 'absent',
     parent: null,
-    // Preserve base 98202775 workstream_class — not 1C progress_class.
+    // Preserve base 98202775 workstream_class — not 1C/1H progress_class.
     workstream_class: MESSI_CLOSEOUT_WORKSTREAM_CLASS,
     production_readiness: 'absent',
     finite_closeout_analog: null,
@@ -1310,6 +1471,36 @@ function classifyMessiGates(opts) {
     if (factoryGate.finite_offline_dry_run_workstream_complete === true
       && factoryGate.production_readiness !== 'absent') {
       errors.push('finite_offline_dry_run_as_production_readiness');
+    }
+  }
+
+  // Hard contract: gap manifest never promotes G_CROSS_PARENT_INTEGRATION.
+  const crossGate = gates.find((g) => g.id === 'G_CROSS_PARENT_INTEGRATION');
+  if (crossGate) {
+    if (crossGate.verdict !== 'absent') {
+      errors.push('gap_manifest_promoted_to_integration_proof');
+    }
+    if (crossGate.workstream_class !== CROSS_PARENT_WORKSTREAM_CLASS) {
+      errors.push('cross_parent_workstream_class_drift');
+    }
+    if (crossGate.production_readiness !== 'absent') {
+      errors.push('cross_parent_production_readiness_claimed');
+    }
+    if (!crossGate.gap_manifest) {
+      errors.push('gap_manifest_missing');
+    } else {
+      const byId = {};
+      for (const g of gates) byId[g.id] = g;
+      const mc = validateCrossParentGapManifest(crossGate.gap_manifest, byId);
+      for (const e of mc.errors) errors.push(e);
+      if (crossGate.gap_manifest.integration_proof === true) {
+        errors.push('gap_manifest_promoted_to_integration_proof');
+      }
+    }
+    for (const m of CROSS_PARENT_MISSING_PROOF) {
+      if (!crossGate.missing_proof.includes(m)) {
+        errors.push(`cross_parent_hidden_missing_proof:${m}`);
+      }
     }
   }
 
@@ -1420,6 +1611,7 @@ function buildExpectedLedgerSkeleton() {
  * finite_staging_readiness_workstream_complete /
  * finite_offline_dry_run_workstream_complete are included only when present
  * (FOUNDATION / FORTRESS / RADAR / FACTORY respectively).
+ * gap_manifest is included only on G_CROSS_PARENT_INTEGRATION.
  */
 function ledgerGateObject(g) {
   if (!g || typeof g !== 'object') return null;
@@ -1443,6 +1635,9 @@ function ledgerGateObject(g) {
   if (Object.prototype.hasOwnProperty.call(g, 'finite_offline_dry_run_workstream_complete')) {
     out.finite_offline_dry_run_workstream_complete = g.finite_offline_dry_run_workstream_complete;
   }
+  if (Object.prototype.hasOwnProperty.call(g, 'gap_manifest')) {
+    out.gap_manifest = deepClone(g.gap_manifest);
+  }
   out.missing_proof = Array.isArray(g.missing_proof) ? [...g.missing_proof] : g.missing_proof;
   return out;
 }
@@ -1457,8 +1652,8 @@ function unrelatedGatesMatchBase(gates) {
       errors.push(`unrelated_gate_missing:${exp.id}`);
       continue;
     }
-    if (Object.prototype.hasOwnProperty.call(got, 'finite_offline_dry_run_workstream_complete')) {
-      errors.push(`finite_offline_dry_run_on_unrelated_gate:${exp.id}`);
+    if (Object.prototype.hasOwnProperty.call(got, 'gap_manifest')) {
+      errors.push(`gap_manifest_on_unrelated_gate:${exp.id}`);
     }
     if (!deepEqual(ledgerGateObject(got), deepClone(exp))) {
       errors.push(`unrelated_gate_drift:${exp.id}`);
@@ -1546,6 +1741,12 @@ function validateLedgerFixture(ledger, classification) {
           !== g.finite_offline_dry_run_workstream_complete) {
         errors.push(`finite_offline_dry_run_workstream_complete_mismatch:${g.id}`);
       }
+      if (Object.prototype.hasOwnProperty.call(g, 'gap_manifest')) {
+        if (!Object.prototype.hasOwnProperty.call(got, 'gap_manifest')
+          || !deepEqual(got.gap_manifest, g.gap_manifest)) {
+          errors.push(`gap_manifest_mismatch:${g.id}`);
+        }
+      }
     }
     // FOUNDATION finite staging must remain exposed; FORTRESS finite audit must
     // remain exposed; RADAR finite staging-readiness must remain exposed;
@@ -1577,6 +1778,21 @@ function validateLedgerFixture(ledger, classification) {
       && classification.gates.find((x) => x.id === 'G_FACTORY_PARENT')
         ?.finite_offline_dry_run_workstream_complete === true) {
       errors.push('factory_finite_offline_dry_run_missing_in_ledger');
+    }
+    const crossGot = byId.G_CROSS_PARENT_INTEGRATION;
+    if (crossGot) {
+      if (crossGot.verdict !== 'absent') {
+        errors.push('gap_manifest_promoted_to_integration_proof');
+      }
+      if (crossGot.gap_manifest) {
+        const mc = validateCrossParentGapManifest(crossGot.gap_manifest, byId);
+        for (const e of mc.errors) errors.push(e);
+        if (crossGot.gap_manifest.integration_proof === true) {
+          errors.push('gap_manifest_promoted_to_integration_proof');
+        }
+      } else {
+        errors.push('gap_manifest_missing');
+      }
     }
     const unrelatedLedger = unrelatedGatesMatchBase(ledger.gates || []);
     for (const e of unrelatedLedger.errors) errors.push(e);
@@ -1630,6 +1846,9 @@ const REQUIRED_RED = Object.freeze([
   'finite_closeout_as_RADAR_complete',
   // MESSI 1G — FACTORY finite offline dry-run wiring hostiles (only two new)
   'finite_FACTORY_as_production_complete',
+  // MESSI 1H — cross-parent disposition gap-manifest hostiles (only two new)
+  'missing_parent_disposition',
+  'gap_manifest_promoted_to_integration_proof',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -1644,6 +1863,7 @@ const REQUIRED_GREEN = Object.freeze([
   'fortress_finite_audit_exposed',
   'radar_finite_staging_readiness_exposed',
   'factory_finite_offline_dry_run_exposed',
+  'cross_parent_gap_manifest_absent_gate',
   'unrelated_gates_byte_identical_to_base',
   'messi_not_complete',
   'package_script_registered',
@@ -1700,6 +1920,8 @@ module.exports = deepFreeze({
   PACKAGE_JSON_1F_SCRIPT_VALUE,
   PACKAGE_JSON_1G_SCRIPT_KEY,
   PACKAGE_JSON_1G_SCRIPT_VALUE,
+  PACKAGE_JSON_1H_SCRIPT_KEY,
+  PACKAGE_JSON_1H_SCRIPT_VALUE,
   SCOPE_FENCE,
   PARENTS,
   MESSI_GATES,
@@ -1714,6 +1936,9 @@ module.exports = deepFreeze({
   FACTORY_1E_MERGE_TIP,
   FACTORY_1E_CANDIDATE_SHA,
   FACTORY_1E_MASTER_BASIS,
+  CROSS_PARENT_WORKSTREAM_CLASS,
+  CROSS_PARENT_GAP_MANIFEST,
+  CROSS_PARENT_MISSING_PROOF,
   deepFreeze,
   deepClone,
   deepEqual,
@@ -1747,6 +1972,8 @@ module.exports = deepFreeze({
   parentGatesAllPass,
   parentEvidenceSelfReferential,
   classifyMessiGates,
+  validateCrossParentGapManifest,
+  buildCrossParentIntegrationGate,
   readFortressMatrixCounts,
   readRadarFormalScore,
   buildExpectedLedgerSkeleton,
