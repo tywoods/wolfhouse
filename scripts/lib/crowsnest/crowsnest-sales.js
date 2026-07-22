@@ -18,6 +18,8 @@
  * no auto-create prospects.
  * Chapter 8 adds a Google Maps discovery *dry-run* adapter shell (local fixtures only) —
  * no real HTTP, API key, Google SDK, or scraping; operators inspect/import explicitly.
+ * Chapter 9 adds manual contact candidates only — no Apollo/other external enrichment,
+ * no auto-find, no CRM write, no outreach send.
  */
 
 const {
@@ -59,6 +61,7 @@ const QUALIFICATION_BOUNDS = {
 };
 
 const ALLOWED_OUTREACH_CHANNELS = new Set(['email', 'linkedin', 'other']);
+const ALLOWED_CONTACT_CONFIDENCE = new Set(['low', 'medium', 'high']);
 
 const OUTREACH_DRAFT_BOUNDS = {
   subjectMax: 500,
@@ -66,7 +69,17 @@ const OUTREACH_DRAFT_BOUNDS = {
   nextStepNoteMax: 2000,
 };
 
+const CONTACT_BOUNDS = {
+  fullNameMax: 200,
+  roleMax: 200,
+  emailMax: 320,
+  phoneMax: 40,
+  linkedinUrlMax: 2000,
+  sourceMax: 200,
+};
+
 const OUTREACH_DRAFT_DISCLAIMER = 'Draft only — no message has been sent.';
+const CONTACT_ENRICHMENT_DISCLAIMER = 'Manual contact records only — no Apollo lookup, no auto-find, no CRM write, no message sent.';
 
 /** Accepted future CRM Company mapping (provider-neutral domain terms). */
 const CRM_PREVIEW_LIFECYCLE_STAGE = 'Lead';
@@ -634,7 +647,7 @@ function normalizeCrmContactCandidates(contacts) {
       if (!contact || typeof contact !== 'object') return null;
       const email = String(contact.email || '').trim();
       const fullName = String(
-        contact.full_name != null ? contact.full_name : (contact.fullName || ''),
+        contact.full_name != null ? contact.full_name : (contact.fullName || contact.name || ''),
       ).trim();
       const role = String(contact.role || contact.title || '').trim();
       if (!email && !fullName) return null;
@@ -645,6 +658,119 @@ function normalizeCrmContactCandidates(contacts) {
       };
     })
     .filter(Boolean);
+}
+
+function normalizeOptionalHttpUrl(raw, fieldLabel) {
+  const value = String(raw || '').trim();
+  if (!value) return { ok: true, value: '' };
+  try {
+    const parsed = new URL(value.includes('://') ? value : `https://${value}`);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { ok: false, error: `${fieldLabel} must be an http(s) URL.` };
+    }
+    return { ok: true, value: parsed.toString().replace(/\/$/, '') };
+  } catch {
+    return { ok: false, error: `${fieldLabel} must be a valid URL.` };
+  }
+}
+
+function looksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+/**
+ * Validate a manually entered contact candidate (Chapter 9).
+ * Name, role, source, and confidence are required. Email / phone / LinkedIn are optional.
+ */
+function validateManualContact(input = {}) {
+  const fullName = String(
+    input.full_name != null ? input.full_name : (input.fullName || input.name || ''),
+  ).trim();
+  const role = String(input.role || input.title || '').trim();
+  const email = String(input.email || '').trim();
+  const phone = String(input.phone || '').trim();
+  const linkedinRaw = String(
+    input.linkedin_url != null ? input.linkedin_url : (input.linkedinUrl || input.linkedin || ''),
+  ).trim();
+  const source = String(
+    input.source != null ? input.source : (input.source_label || input.sourceLabel || ''),
+  ).trim();
+  const confidence = String(input.confidence || '').trim().toLowerCase();
+
+  if (!fullName) {
+    return { ok: false, error: 'Contact name is required.' };
+  }
+  if (fullName.length > CONTACT_BOUNDS.fullNameMax) {
+    return {
+      ok: false,
+      error: `Contact name must be at most ${CONTACT_BOUNDS.fullNameMax} characters.`,
+    };
+  }
+  if (!role) {
+    return { ok: false, error: 'Contact role is required.' };
+  }
+  if (role.length > CONTACT_BOUNDS.roleMax) {
+    return {
+      ok: false,
+      error: `Contact role must be at most ${CONTACT_BOUNDS.roleMax} characters.`,
+    };
+  }
+  if (!source) {
+    return { ok: false, error: 'Contact source is required.' };
+  }
+  if (source.length > CONTACT_BOUNDS.sourceMax) {
+    return {
+      ok: false,
+      error: `Contact source must be at most ${CONTACT_BOUNDS.sourceMax} characters.`,
+    };
+  }
+  if (!ALLOWED_CONTACT_CONFIDENCE.has(confidence)) {
+    return { ok: false, error: 'Confidence must be low, medium, or high.' };
+  }
+  if (email) {
+    if (email.length > CONTACT_BOUNDS.emailMax) {
+      return {
+        ok: false,
+        error: `Email must be at most ${CONTACT_BOUNDS.emailMax} characters.`,
+      };
+    }
+    if (!looksLikeEmail(email)) {
+      return { ok: false, error: 'Email must be a valid email address.' };
+    }
+  }
+  if (phone) {
+    if (phone.length > CONTACT_BOUNDS.phoneMax) {
+      return {
+        ok: false,
+        error: `Phone must be at most ${CONTACT_BOUNDS.phoneMax} characters.`,
+      };
+    }
+  }
+  const linkedin = normalizeOptionalHttpUrl(linkedinRaw, 'LinkedIn URL');
+  if (!linkedin.ok) return linkedin;
+  if (linkedin.value && linkedin.value.length > CONTACT_BOUNDS.linkedinUrlMax) {
+    return {
+      ok: false,
+      error: `LinkedIn URL must be at most ${CONTACT_BOUNDS.linkedinUrlMax} characters.`,
+    };
+  }
+
+  return {
+    ok: true,
+    contact: {
+      full_name: fullName,
+      role,
+      email,
+      phone,
+      linkedin_url: linkedin.value,
+      source,
+      confidence,
+      disclaimer: CONTACT_ENRICHMENT_DISCLAIMER,
+      external_lookup_used: false,
+      auto_found: false,
+      message_sent: false,
+    },
+  };
 }
 
 /**
@@ -742,10 +868,14 @@ async function getCrmSyncPreview(prospectId, options = {}) {
     const qualification = typeof repo.getLatestQualification === 'function'
       ? await repo.getLatestQualification(prospect.id)
       : null;
+    let contacts = options.contacts;
+    if (contacts == null && typeof repo.listContactCandidatesForProspect === 'function') {
+      contacts = await repo.listContactCandidatesForProspect(prospect.id);
+    }
     const built = buildCrmSyncPreview({
       prospect,
       qualification,
-      contacts: options.contacts,
+      contacts: contacts || [],
     });
     if (!built.ok) return built;
 
@@ -1310,6 +1440,101 @@ async function recordManualEvidence(prospectId, input = {}, actor = 'Admin') {
   }
 }
 
+async function listContactCandidatesForProspect(id) {
+  const repo = await getRepository();
+  if (typeof repo.listContactCandidatesForProspect === 'function') {
+    return repo.listContactCandidatesForProspect(id);
+  }
+  return [];
+}
+
+async function recordManualContact(prospectId, input = {}, actor = 'Admin') {
+  try {
+    const repo = await getRepository();
+    if (repo.backend === 'fail_closed') {
+      return typeof repo.saveContactCandidate === 'function'
+        ? repo.saveContactCandidate({})
+        : {
+          ok: false,
+          status: 503,
+          code: 'sales_store_misconfigured',
+          error: 'Crowsnest Sales durable store is not configured.',
+        };
+    }
+
+    const prospect = await repo.getProspect(prospectId);
+    if (!prospect) {
+      return { ok: false, error: 'Prospect not found.', status: 404 };
+    }
+
+    const validation = validateManualContact(input);
+    if (!validation.ok) {
+      return { ok: false, error: validation.error, status: 400 };
+    }
+
+    const contact = {
+      id: newSalesUuid(),
+      prospect_id: prospect.id,
+      full_name: validation.contact.full_name,
+      role: validation.contact.role,
+      email: validation.contact.email,
+      phone: validation.contact.phone,
+      linkedin_url: validation.contact.linkedin_url,
+      source: validation.contact.source,
+      confidence: validation.contact.confidence,
+      author_id: String(actor || 'Admin'),
+      created_at: nowIso(),
+      disclaimer: CONTACT_ENRICHMENT_DISCLAIMER,
+      external_lookup_used: false,
+      auto_found: false,
+      message_sent: false,
+    };
+
+    const saved = await repo.saveContactCandidate(contact);
+    if (saved && saved.ok === false) {
+      return saved;
+    }
+
+    const stored = (saved && saved.contact) || contact;
+
+    const audit = await appendAudit({
+      actor: String(actor || 'Admin'),
+      action: 'contact_candidate_recorded',
+      entity_type: 'contact_candidate',
+      entity_id: stored.id,
+      detail: {
+        prospect_id: prospect.id,
+        contact_id: stored.id,
+        full_name: stored.full_name,
+        role: stored.role,
+        email: stored.email,
+        phone: stored.phone,
+        linkedin_url: stored.linkedin_url,
+        source: stored.source,
+        confidence: stored.confidence,
+        author_id: stored.author_id,
+        external_lookup_used: false,
+        auto_found: false,
+        message_sent: false,
+      },
+    });
+    if (audit && audit.ok === false) {
+      return audit;
+    }
+
+    return {
+      ok: true,
+      contact: stored,
+      audit,
+    };
+  } catch (err) {
+    if (isSalesStoreUnavailableError(err)) {
+      return salesUnavailableResult();
+    }
+    throw err;
+  }
+}
+
 async function listQualificationsForProspect(id) {
   const repo = await getRepository();
   if (typeof repo.listQualificationsForProspect === 'function') {
@@ -1757,11 +1982,14 @@ async function importMapsDiscoveryCandidate(input = {}, actor = 'Admin') {
 }
 
 module.exports = {
+  ALLOWED_CONTACT_CONFIDENCE,
   ALLOWED_DECISIONS,
   ALLOWED_EVIDENCE_CONFIDENCE,
   ALLOWED_OUTREACH_CHANNELS,
   ALLOWED_QUALIFICATION_DECISIONS,
   ACTIONABLE_REVIEW_BUCKETS,
+  CONTACT_BOUNDS,
+  CONTACT_ENRICHMENT_DISCLAIMER,
   CRM_PREVIEW_LIFECYCLE_STAGE,
   CRM_PREVIEW_STATUS_PROPERTY,
   CRM_PREVIEW_STATUS_VALUE,
@@ -1791,6 +2019,7 @@ module.exports = {
   importMapsDiscoveryCandidate,
   isActionableReviewBucket,
   listAuditEvents,
+  listContactCandidatesForProspect,
   listCrmReviewMarksForProspect,
   listOutreachDraftRevisionsForProspect,
   listProspects,
@@ -1801,11 +2030,13 @@ module.exports = {
   normalizeReviewQueueFilter,
   previewManualDiscovery,
   previewMapsDiscoverySearch,
+  recordManualContact,
   recordManualEvidence,
   recordQualification,
   resetSalesStore,
   saveOutreachDraft,
   sortReviewQueueItems,
+  validateManualContact,
   validateManualEvidence,
   validateManualIntake,
   validateOutreachDraft,

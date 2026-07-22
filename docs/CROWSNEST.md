@@ -58,6 +58,10 @@ Offline **AI usage adapter**: maps native OpenAI / Anthropic technical usage fie
 
 Offline **AI usage event contract** (`crowsnest.ai_usage.v1`): pure validator, sanitized fixtures, and `npm run verify:crowsnest-ai-usage-contract`. See [`docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md`](crowsnest/AI-USAGE-EVENT-CONTRACT.md). No storage, provider wiring, or UI panel in this slice.
 
+### Luna Sales Chapter 9 (manual contact enrichment)
+
+Protected **manual contact candidates** on prospect detail: authenticated operators record name, role, optional email/phone/LinkedIn, source, and confidence via `POST /sales/prospects/:id/contacts`. Contacts are prospect-scoped, newest-first, XSS-escaped, and append-audited as `contact_candidate_recorded`. CRM preview includes stored contacts as Contacts (still preview only). Copy states **manual contact records only — no Apollo lookup, no auto-find, no CRM write, no message sent**. No Apollo/other external enrichment calls, no auto-find, no sending. Migration `047_luna_sales_contact_candidates.sql`. See [`docs/crowsnest/SALES-CONTACT-ENRICHMENT.md`](crowsnest/SALES-CONTACT-ENRICHMENT.md). Verify with `npm run verify:crowsnest-sales-contact-enrichment`.
+
 ### Luna Sales Chapter 8 (Google Maps discovery dry-run shell)
 
 Provider-specific **Google Maps discovery adapter shell** behind the Chapter 7 contract: dry-run / local fixtures only. Authenticated operators use `/sales/discovery` Maps dry-run search (Northern Spain scope), preview normalized candidates with exact place ID + search-area provenance and dedup preview, then **explicitly import** one candidate (audited). UI states **sample / dry-run data only**. No live Google Maps HTTP, API key, Google SDK, or scraping; no auto-create; no new discovery migration. See [`docs/crowsnest/SALES-MAPS-DISCOVERY.md`](crowsnest/SALES-MAPS-DISCOVERY.md). Verify with `npm run verify:crowsnest-sales-maps-discovery`.
@@ -179,6 +183,7 @@ npm run verify:crowsnest
 npm run verify:crowsnest-auth
 npm run verify:crowsnest-sales
 npm run verify:crowsnest-sales-durable
+npm run verify:crowsnest-sales-contact-enrichment
 npm run verify:crowsnest-ai-usage-contract
 npm run verify:crowsnest-ai-usage-adapter
 ```

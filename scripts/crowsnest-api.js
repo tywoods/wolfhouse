@@ -40,6 +40,7 @@ const {
   importManualDiscoveryProposal,
   importMapsDiscoveryCandidate,
   listAuditEvents,
+  listContactCandidatesForProspect,
   listProspects,
   listQualificationsForProspect,
   listResearchForProspect,
@@ -48,6 +49,7 @@ const {
   normalizeReviewQueueFilter,
   previewManualDiscovery,
   previewMapsDiscoverySearch,
+  recordManualContact,
   recordManualEvidence,
   recordQualification,
   saveOutreachDraft,
@@ -294,6 +296,12 @@ function parseSalesFormBody(body) {
     body: String(params.get('body') || ''),
     channel: String(params.get('channel') || ''),
     next_step_note: String(params.get('next_step_note') || ''),
+    full_name: String(params.get('full_name') || params.get('name') || ''),
+    role: String(params.get('role') || ''),
+    email: String(params.get('email') || ''),
+    phone: String(params.get('phone') || ''),
+    linkedin_url: String(params.get('linkedin_url') || ''),
+    source: String(params.get('source') || ''),
     city: String(params.get('city') || ''),
     country_code: String(params.get('country_code') || ''),
     category: String(params.get('category') || ''),
@@ -353,6 +361,11 @@ function matchSalesCrmReadyPath(pathname) {
 
 function matchSalesOutreachDraftPath(pathname) {
   const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)\/outreach-draft$/.exec(String(pathname || ''));
+  return match ? match[1] : null;
+}
+
+function matchSalesContactsPath(pathname) {
+  const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)\/contacts$/.exec(String(pathname || ''));
   return match ? match[1] : null;
 }
 
@@ -695,6 +708,7 @@ async function loadSalesDetailPageOptions(prospectId, extra = {}) {
   const latestQualification = await getLatestQualification(prospectId);
   const latestCrmReviewMark = await getLatestCrmReviewMark(prospectId);
   const currentOutreachDraft = await getCurrentOutreachDraft(prospectId);
+  const contactCandidates = await listContactCandidatesForProspect(prospectId);
   return {
     prospect,
     research,
@@ -703,6 +717,7 @@ async function loadSalesDetailPageOptions(prospectId, extra = {}) {
     latestQualification,
     latestCrmReviewMark,
     currentOutreachDraft,
+    contactCandidates,
     draftReady: Boolean(latestCrmReviewMark),
     draftPresent: Boolean(currentOutreachDraft),
     auditEvents: await listAuditEvents(prospectId),
@@ -1249,6 +1264,109 @@ async function handleSalesEvidence(req, res, method, prospectId) {
   return sendRedirect(res, detailPath, { 'Cache-Control': 'no-store' });
 }
 
+async function handleSalesContacts(req, res, method, prospectId) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  const detailPath = `/sales/prospects/${prospectId}`;
+
+  async function redisplay(status, error, form = {}) {
+    const pageOptions = await loadSalesDetailPageOptions(prospectId, {
+      contactError: error,
+      contactFullName: form.full_name || '',
+      contactRole: form.role || '',
+      contactEmail: form.email || '',
+      contactPhone: form.phone || '',
+      contactLinkedinUrl: form.linkedin_url || '',
+      contactSource: form.source || '',
+      contactConfidence: form.confidence || '',
+    });
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      status,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_detail',
+        ...pageOptions,
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+
+  if (!hasLoginFormContentType(req)) {
+    try {
+      return await redisplay(400, 'Contact name is required.');
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
+  }
+
+  let body;
+  try {
+    body = await readLimitedBody(req, getCrowsnestLoginBodyLimit());
+  } catch (err) {
+    if (err && err.message === 'body too large') {
+      return sendPayloadTooLarge(res);
+    }
+    try {
+      return await redisplay(400, 'Contact name is required.');
+    } catch (listErr) {
+      if (isSalesUnavailableFailure(listErr)) {
+        return sendSalesUnavailable(res);
+      }
+      throw listErr;
+    }
+  }
+
+  const form = parseSalesFormBody(body);
+  const actor = resolveOperatorActor(req);
+  let result;
+  try {
+    result = await recordManualContact(prospectId, {
+      full_name: form.full_name,
+      role: form.role,
+      email: form.email,
+      phone: form.phone,
+      linkedin_url: form.linkedin_url,
+      source: form.source,
+      confidence: form.confidence,
+    }, actor);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+
+  if (!result.ok) {
+    if (isSalesUnavailableFailure(result)) {
+      return sendSalesUnavailable(res);
+    }
+    const status = result.status || 400;
+    if (status === 404) {
+      return sendJSON(res, 404, { success: false, error: 'not found' });
+    }
+    try {
+      return await redisplay(status, result.error, form);
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
+  }
+
+  return sendRedirect(res, detailPath, { 'Cache-Control': 'no-store' });
+}
+
 async function handleSalesQualification(req, res, method, prospectId) {
   if (method !== 'POST') {
     return sendMethodNotAllowed(res, 'POST');
@@ -1702,6 +1820,11 @@ async function router(req, res) {
   const evidenceProspectId = matchSalesEvidencePath(pathname);
   if (evidenceProspectId) {
     return handleSalesEvidence(req, res, method, evidenceProspectId);
+  }
+
+  const contactsProspectId = matchSalesContactsPath(pathname);
+  if (contactsProspectId) {
+    return handleSalesContacts(req, res, method, contactsProspectId);
   }
 
   const qualificationProspectId = matchSalesQualificationPath(pathname);

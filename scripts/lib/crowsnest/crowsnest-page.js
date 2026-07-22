@@ -1321,6 +1321,24 @@ function renderManualEvidenceEntries(entries) {
   }).join('\n      ');
 }
 
+function renderContactCandidates(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  if (!list.length) {
+    return '<p class="section-note">No manual contacts recorded yet.</p>';
+  }
+  return list.map((entry) => `<article class="evidence-entry">
+        <p><strong>${escapeHtml(entry.full_name || 'Contact')}</strong>
+          · role=<code>${escapeHtml(entry.role || '')}</code>
+          · confidence=<code>${escapeHtml(entry.confidence || 'n/a')}</code>
+          · <code>${escapeHtml(entry.created_at || '')}</code></p>
+        <p>Email: <code>${escapeHtml(entry.email || 'n/a')}</code>
+          · Phone: <code>${escapeHtml(entry.phone || 'n/a')}</code></p>
+        <p>LinkedIn: <code>${escapeHtml(entry.linkedin_url || 'n/a')}</code></p>
+        <p>Source: <code>${escapeHtml(entry.source || '')}</code>
+          · author=<code>${escapeHtml(entry.author_id || '')}</code></p>
+      </article>`).join('\n      ');
+}
+
 function renderEvidenceRefOptions(researchJobs, selectedIds) {
   const jobs = Array.isArray(researchJobs) ? researchJobs : [];
   if (!jobs.length) {
@@ -1419,6 +1437,9 @@ function renderSalesDetailMain(options = {}) {
     : '';
   const outreachDraftErrorHtml = options.outreachDraftError
     ? `<p class="sales-error" role="alert">${escapeHtml(options.outreachDraftError)}</p>`
+    : '';
+  const contactErrorHtml = options.contactError
+    ? `<p class="sales-error" role="alert">${escapeHtml(options.contactError)}</p>`
     : '';
   const facts = (fixtureResearch && fixtureResearch.facts) || [];
   const limitations = (fixtureResearch && fixtureResearch.limitations) || [];
@@ -1529,6 +1550,51 @@ function renderSalesDetailMain(options = {}) {
       </article>
 
       <article class="card">
+        <h2>Manual contact enrichment</h2>
+        <p class="section-note">Manual contact records only — no Apollo lookup, no auto-find, no CRM write, no message sent. Name and role required; email, phone, and LinkedIn optional.</p>
+        ${contactErrorHtml}
+        <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/contacts" accept-charset="utf-8">
+          <div class="form-row">
+            <label for="full_name">Full name</label>
+            <input id="full_name" name="full_name" type="text" required maxlength="200" placeholder="Ada Owner" value="${escapeHtml(options.contactFullName || '')}">
+          </div>
+          <div class="form-row">
+            <label for="role">Role</label>
+            <input id="role" name="role" type="text" required maxlength="200" placeholder="Owner" value="${escapeHtml(options.contactRole || '')}">
+          </div>
+          <div class="form-row">
+            <label for="email">Email (optional)</label>
+            <input id="email" name="email" type="email" maxlength="320" placeholder="ada@example.com" value="${escapeHtml(options.contactEmail || '')}">
+          </div>
+          <div class="form-row">
+            <label for="phone">Phone (optional)</label>
+            <input id="phone" name="phone" type="text" maxlength="40" placeholder="+34 600 000 000" value="${escapeHtml(options.contactPhone || '')}">
+          </div>
+          <div class="form-row">
+            <label for="linkedin_url">LinkedIn URL (optional)</label>
+            <input id="linkedin_url" name="linkedin_url" type="url" maxlength="2000" placeholder="https://linkedin.com/in/ada-owner" value="${escapeHtml(options.contactLinkedinUrl || '')}">
+          </div>
+          <div class="form-row">
+            <label for="contact_source">Source</label>
+            <input id="contact_source" name="source" type="text" required maxlength="200" placeholder="Hostel website team page" value="${escapeHtml(options.contactSource || '')}">
+          </div>
+          <div class="form-row">
+            <label for="contact_confidence">Confidence</label>
+            <select id="contact_confidence" name="confidence" required>
+              <option value="low"${options.contactConfidence === 'low' ? ' selected' : ''}>Low</option>
+              <option value="medium"${!options.contactConfidence || options.contactConfidence === 'medium' ? ' selected' : ''}>Medium</option>
+              <option value="high"${options.contactConfidence === 'high' ? ' selected' : ''}>High</option>
+            </select>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Record manual contact</button>
+          </div>
+        </form>
+        <h3>Recorded contacts (newest first)</h3>
+        ${renderContactCandidates(options.contactCandidates)}
+      </article>
+
+      <article class="card">
         <h2>Qualification assessment</h2>
         <p class="section-note">Operator-controlled qualification policy only. Transparent decisions with cited evidence — never automatic AI scoring, never a numeric lead score, never HubSpot sync, external research, or outreach in this chapter.</p>
         ${renderLatestQualification(latestQualification, researchJobs)}
@@ -1602,7 +1668,7 @@ function renderSalesDetailMain(options = {}) {
         <h2>Append-only audit trail</h2>
         ${renderAuditList(audit)}
       </article>
-      <div class="safety"><strong>Safety:</strong> Durable Sales decisions, manual evidence, operator qualification, CRM preview/readiness, and internal outreach drafts when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no live provider calls, and no automatic AI scoring.</div>
+      <div class="safety"><strong>Safety:</strong> Durable Sales decisions, manual evidence, manual contacts, operator qualification, CRM preview/readiness, and internal outreach drafts when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no Apollo/auto-find, no live provider calls, and no automatic AI scoring.</div>
     </section>`;
 }
 
@@ -2030,7 +2096,7 @@ function viewSubtitle(view) {
   if (view === 'billing') return 'Billing sources are not connected yet';
   if (view === 'communications') return 'Communications sources are not connected yet';
   if (view === 'sales') return 'Manual prospect intake, fixture research, and Admin review';
-  if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, qualification, CRM preview, outreach draft, and Admin decision';
+  if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, manual contacts, qualification, CRM preview, outreach draft, and Admin decision';
   if (view === 'sales_review') return 'Sales review queue — operating buckets for operator decisions';
   if (view === 'sales_crm_preview') return 'Provider-neutral CRM sync preview — no record sent';
   if (view === 'sales_outreach_draft') return 'Internal outreach draft workspace — draft only, no message sent';
