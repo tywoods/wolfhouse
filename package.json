@@ -72,6 +72,7 @@
     "verify:crowsnest-sales-durable": "node scripts/verify-crowsnest-sales-durable.js",
     "verify:crowsnest-sales-research": "node scripts/verify-crowsnest-sales-research.js",
     "verify:crowsnest-sales-qualification": "node scripts/verify-crowsnest-sales-qualification.js",
+    "verify:crowsnest-sales-review-queue": "node scripts/verify-crowsnest-sales-review-queue.js",
     "verify:staff-auth-api": "node scripts/verify-staff-auth-api.js",
     "verify:staff-conversation-queries": "node scripts/verify-staff-conversation-queries.js",
     "verify:staff-conversation-api": "node scripts/verify-staff-conversation-api.js",

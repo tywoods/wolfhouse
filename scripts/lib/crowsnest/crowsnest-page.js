@@ -326,6 +326,12 @@ a:focus-visible,button:focus-visible{outline:none;box-shadow:var(--focus)}
 .prospect-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
 .prospect-list a{color:var(--sea);font-weight:700;text-decoration:none}
 .prospect-list a:hover{text-decoration:underline}
+.review-queue-list{display:grid;gap:12px;margin:0;padding:0;list-style:none}
+.review-queue-item{padding:14px 16px}
+.review-queue-meta{display:grid;gap:4px;margin-top:8px;color:var(--ink-muted);font-size:.92rem}
+.review-filter-form .form-row{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+.review-filter-form .form-actions{margin:0}
+.review-bucket-label{font-weight:700}
 .audit-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
 .audit-list li{
   padding:10px 12px;
@@ -834,7 +840,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
 }
 `;
 
-const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail']);
+const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail', 'sales_review']);
 
 const CROWSNEST_NAV_ITEMS = [
   { view: 'spyglass', href: '/', label: 'Spyglass' },
@@ -850,7 +856,7 @@ function normalizeCrowsnestView(raw) {
 }
 
 function navActiveView(view) {
-  return view === 'sales_detail' ? 'sales' : view;
+  return (view === 'sales_detail' || view === 'sales_review') ? 'sales' : view;
 }
 
 function renderCrowsnestNav(activeView) {
@@ -1126,6 +1132,87 @@ function renderProspectListItems(prospects) {
   return `<ul class="prospect-list">${items}</ul>`;
 }
 
+const REVIEW_BUCKET_LABELS = {
+  ready_for_review: 'Ready for review',
+  needs_more_research: 'Needs more research',
+  qualified: 'Qualified',
+  not_qualified: 'Not qualified',
+};
+
+function reviewBucketLabel(bucket) {
+  return REVIEW_BUCKET_LABELS[String(bucket || '')] || String(bucket || 'Unknown');
+}
+
+function renderReviewQueueFilterForm(currentFilter) {
+  const selected = String(currentFilter || 'all');
+  const options = [
+    ['all', 'All'],
+    ['actionable', 'Actionable'],
+    ['needs_more_research', 'Needs more research'],
+    ['qualified', 'Qualified'],
+    ['not_qualified', 'Not qualified'],
+  ].map(([value, label]) => {
+    const isSelected = selected === value ? ' selected' : '';
+    return `<option value="${escapeHtml(value)}"${isSelected}>${escapeHtml(label)}</option>`;
+  }).join('\n            ');
+  return `<form class="sales-form review-filter-form" method="get" action="/sales/review" accept-charset="utf-8">
+        <div class="form-row">
+          <div>
+            <label for="state">Filter by current state</label>
+            <select id="state" name="state">
+            ${options}
+            </select>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Apply filter</button>
+          </div>
+        </div>
+      </form>`;
+}
+
+function renderReviewQueueItems(items) {
+  if (!items.length) {
+    return '<p class="section-note">No prospects in this filter. Try another state, or add research and qualification on the Sales intake page.</p>';
+  }
+  const rows = items.map((item) => {
+    const name = item.canonical_name || item.website_url || item.id;
+    const website = item.website_url
+      ? `<div>Website: ${escapeHtml(item.website_url)}</div>`
+      : '';
+    const qual = item.latest_qualification_decision
+      ? `<code>${escapeHtml(item.latest_qualification_decision)}</code>`
+      : '<code>none</code>';
+    return `<li class="card review-queue-item">
+        <p><a href="/sales/prospects/${escapeHtml(item.id)}">${escapeHtml(name)}</a></p>
+        <div class="review-queue-meta">
+          <div><span class="review-bucket-label">${escapeHtml(reviewBucketLabel(item.bucket))}</span></div>
+          ${website}
+          <div>Latest qualification: ${qual}</div>
+          <div>Evidence count: <code>${escapeHtml(String(item.evidence_count == null ? 0 : item.evidence_count))}</code></div>
+          <div>Most recent activity: <code>${escapeHtml(item.most_recent_activity || '')}</code></div>
+        </div>
+      </li>`;
+  }).join('\n      ');
+  return `<ul class="review-queue-list" aria-label="Sales review queue">
+      ${rows}
+    </ul>`;
+}
+
+function renderSalesReviewMain(options = {}) {
+  const items = Array.isArray(options.reviewQueueItems) ? options.reviewQueueItems : [];
+  const filter = options.reviewQueueFilter || 'all';
+  return `<section id="sales-review" aria-labelledby="sales-review-title">
+      <p class="section-note">Operating review queue from persisted Sales records only. Operators decide qualification and next steps. No CRM writes, no outreach delivery, and no provider discovery in this chapter.</p>
+      <p><a href="/sales">← Back to Sales intake</a></p>
+      <h2 class="section">Filter</h2>
+      ${renderReviewQueueFilterForm(filter)}
+      <h2 class="section">Queue</h2>
+      <p class="section-note">Buckets: Ready for review (has evidence, no current qualification), Needs more research, Qualified, and Not qualified. Ordered newest actionable first.</p>
+      ${renderReviewQueueItems(items)}
+      <div class="safety"><strong>Safety:</strong> Read-only review queue over durable Sales data when configured; local/test may use in-memory fallback. Authenticated operators decide. No CRM writes, no outreach delivery, no Maps/Apollo/live AI discovery in this chapter.</div>
+    </section>`;
+}
+
 function renderSalesMain(options = {}) {
   const prospects = Array.isArray(options.prospects) ? options.prospects : [];
   const errorHtml = options.intakeError
@@ -1133,6 +1220,7 @@ function renderSalesMain(options = {}) {
     : '';
   return `<section id="sales" aria-labelledby="sales-title">
       <p class="section-note">Manual intake — durable Sales store when configured; local/test may use in-memory fallback. No HubSpot, Maps, Apollo, live AI research, or outreach sending.</p>
+      <p><a href="/sales/review">Open Sales review queue</a></p>
       <h2 class="section">Prospects</h2>
       ${renderProspectListItems(prospects)}
 
@@ -1154,7 +1242,7 @@ function renderSalesMain(options = {}) {
           </div>
         </form>
       </article>
-      <div class="safety"><strong>Safety:</strong> In-memory Sales Slice 1. Authenticated Crowsnest operators can record decisions. No CRM writes and no outreach delivery.</div>
+      <div class="safety"><strong>Safety:</strong> Durable Sales intake when the dedicated store is configured; local/test may use in-memory fallback. Authenticated Crowsnest operators can record decisions. No CRM writes and no outreach delivery.</div>
     </section>`;
 }
 
@@ -1463,6 +1551,7 @@ function renderViewMain(view, clients, templates, options = {}) {
   if (view === 'communications') return renderCommunicationsMain();
   if (view === 'sales') return renderSalesMain(options);
   if (view === 'sales_detail') return renderSalesDetailMain(options);
+  if (view === 'sales_review') return renderSalesReviewMain(options);
   return renderSpyglassMain(clients);
 }
 
@@ -1470,6 +1559,7 @@ function viewPageTitle(view) {
   if (view === 'clients') return 'Clients';
   if (view === 'billing') return 'Billing';
   if (view === 'communications') return 'Communications';
+  if (view === 'sales_review') return 'Sales review queue';
   if (view === 'sales' || view === 'sales_detail') return 'Sales';
   return 'Spyglass';
 }
@@ -1480,6 +1570,7 @@ function viewSubtitle(view) {
   if (view === 'communications') return 'Communications sources are not connected yet';
   if (view === 'sales') return 'Manual prospect intake, fixture research, and Admin review';
   if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, qualification, and Admin decision';
+  if (view === 'sales_review') return 'Sales review queue — operating buckets for operator decisions';
   return 'Internal Luna Front Desk overview dashboard';
 }
 
@@ -1511,7 +1602,7 @@ function renderCrowsnestPage(options = {}) {
         </form>
       </div>
       ${renderCrowsnestNav(view)}
-      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : view)}-title">${escapeHtml(title)}</h1>
+      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : view))}-title">${escapeHtml(title)}</h1>
       <p class="sub">${escapeHtml(viewSubtitle(view))}</p>
     </header>
 

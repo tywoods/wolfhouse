@@ -58,6 +58,10 @@ Offline **AI usage adapter**: maps native OpenAI / Anthropic technical usage fie
 
 Offline **AI usage event contract** (`crowsnest.ai_usage.v1`): pure validator, sanitized fixtures, and `npm run verify:crowsnest-ai-usage-contract`. See [`docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md`](crowsnest/AI-USAGE-EVENT-CONTRACT.md). No storage, provider wiring, or UI panel in this slice.
 
+### Luna Sales Chapter 4 (review queue and operations)
+
+Protected **Sales review queue** at `/sales/review` for authenticated operators. Lists persisted prospects in truthful buckets — Ready for review (evidence, no current qualification), Needs more research, Qualified, Not qualified — with business name, website when present, latest qualification, evidence count, most recent activity, and a safe detail link. Deterministic ordering (newest actionable first); no invented scores/AI priority. Server-side `?state=` filter (`all` / `actionable` / `needs_more_research` / `qualified` / `not_qualified`) with empty states and an honest note that operators decide. No HubSpot sync, outreach, or external discovery claims. Reuses durable store reads (bounded schema-qualified SQL only; no new migration). See [`docs/crowsnest/SALES-REVIEW-QUEUE.md`](crowsnest/SALES-REVIEW-QUEUE.md). Verify with `npm run verify:crowsnest-sales-review-queue`.
+
 ### Luna Sales Chapter 3 (qualification policy)
 
 On the existing prospect detail page, authenticated operators can record a **transparent qualification assessment** (`qualified` / `not_qualified` / `needs_more_research`) with a short rationale and explicit references to evidence already on the prospect. The detail page shows the latest assessment, evidence links, assessment history, and append-only audit (`qualification_assessed`). No hidden score, automatic AI scoring, HubSpot sync, external research, or outreach. Migration `044_luna_sales_qualification.sql`. See [`docs/crowsnest/SALES-QUALIFICATION-POLICY.md`](crowsnest/SALES-QUALIFICATION-POLICY.md). Verify with `npm run verify:crowsnest-sales-qualification`.

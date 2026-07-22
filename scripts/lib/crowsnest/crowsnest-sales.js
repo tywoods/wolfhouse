@@ -466,6 +466,193 @@ async function createProspect(input = {}, actor = 'Admin') {
   return { ok: true, prospect, research };
 }
 
+const REVIEW_QUEUE_FILTERS = new Set([
+  'all',
+  'actionable',
+  'needs_more_research',
+  'qualified',
+  'not_qualified',
+]);
+
+const ACTIONABLE_REVIEW_BUCKETS = new Set(['ready_for_review', 'needs_more_research']);
+
+function normalizeReviewQueueFilter(raw) {
+  const value = String(raw == null ? 'all' : raw).trim().toLowerCase();
+  if (!value) return 'all';
+  return REVIEW_QUEUE_FILTERS.has(value) ? value : 'all';
+}
+
+/**
+ * Truthful operating bucket from persisted evidence + latest qualification only.
+ * No invented scores or AI priority.
+ */
+function assignReviewBucket(summary = {}) {
+  const decision = String(
+    summary.latest_qualification_decision != null
+      ? summary.latest_qualification_decision
+      : (summary.latestQualification && summary.latestQualification.decision) || '',
+  ).trim().toLowerCase();
+  const evidenceCount = Number(
+    summary.evidence_count != null
+      ? summary.evidence_count
+      : (Array.isArray(summary.researchJobs) ? summary.researchJobs.length : 0),
+  ) || 0;
+
+  if (decision === 'qualified') return 'qualified';
+  if (decision === 'not_qualified') return 'not_qualified';
+  if (decision === 'needs_more_research') return 'needs_more_research';
+  if (evidenceCount > 0) return 'ready_for_review';
+  return null;
+}
+
+function isActionableReviewBucket(bucket) {
+  return ACTIONABLE_REVIEW_BUCKETS.has(String(bucket || ''));
+}
+
+function compareReviewQueueItems(a, b) {
+  const aActionable = isActionableReviewBucket(a && a.bucket) ? 0 : 1;
+  const bActionable = isActionableReviewBucket(b && b.bucket) ? 0 : 1;
+  if (aActionable !== bActionable) return aActionable - bActionable;
+
+  const aActivity = String((a && a.most_recent_activity) || '');
+  const bActivity = String((b && b.most_recent_activity) || '');
+  if (aActivity !== bActivity) return bActivity.localeCompare(aActivity);
+
+  return String((a && a.id) || '').localeCompare(String((b && b.id) || ''));
+}
+
+function sortReviewQueueItems(items) {
+  return (Array.isArray(items) ? items.slice() : []).sort(compareReviewQueueItems);
+}
+
+function filterReviewQueueItems(items, state) {
+  const filter = normalizeReviewQueueFilter(state);
+  const list = Array.isArray(items) ? items : [];
+  if (filter === 'all') return list.slice();
+  if (filter === 'actionable') {
+    return list.filter((item) => isActionableReviewBucket(item && item.bucket));
+  }
+  return list.filter((item) => String(item && item.bucket) === filter);
+}
+
+function maxIsoTimestamp(values) {
+  let best = '';
+  for (const value of values) {
+    const iso = value instanceof Date ? value.toISOString() : String(value || '').trim();
+    if (!iso) continue;
+    if (!best || iso > best) best = iso;
+  }
+  return best || nowIso();
+}
+
+function buildReviewQueueItem(summary = {}) {
+  const evidenceCount = Number(summary.evidence_count) || 0;
+  const latestDecision = summary.latest_qualification_decision != null
+    ? summary.latest_qualification_decision
+    : null;
+  const bucket = assignReviewBucket({
+    evidence_count: evidenceCount,
+    latest_qualification_decision: latestDecision,
+  });
+  if (!bucket) return null;
+
+  const mostRecentActivity = summary.most_recent_activity
+    ? (summary.most_recent_activity instanceof Date
+      ? summary.most_recent_activity.toISOString()
+      : String(summary.most_recent_activity))
+    : maxIsoTimestamp([
+      summary.created_at,
+      summary.updated_at,
+      summary.latest_qualification_at,
+    ]);
+
+  return {
+    id: String(summary.id),
+    canonical_name: summary.canonical_name || '',
+    website_url: summary.website_url || '',
+    evidence_count: evidenceCount,
+    latest_qualification_decision: latestDecision,
+    latest_qualification_at: summary.latest_qualification_at
+      ? (summary.latest_qualification_at instanceof Date
+        ? summary.latest_qualification_at.toISOString()
+        : String(summary.latest_qualification_at))
+      : null,
+    most_recent_activity: mostRecentActivity,
+    bucket,
+  };
+}
+
+async function listReviewQueue(options = {}) {
+  try {
+    const repo = await getRepository();
+    if (repo.backend === 'fail_closed') {
+      if (typeof repo.listReviewQueueSummaries === 'function') {
+        return repo.listReviewQueueSummaries();
+      }
+      return {
+        ok: false,
+        status: 503,
+        code: 'sales_store_misconfigured',
+        error: 'Crowsnest Sales durable store is not configured.',
+      };
+    }
+
+    let summaries;
+    if (typeof repo.listReviewQueueSummaries === 'function') {
+      summaries = await repo.listReviewQueueSummaries();
+    } else {
+      const prospects = await repo.listProspects();
+      summaries = [];
+      for (const prospect of prospects) {
+        const research = typeof repo.listResearchForProspect === 'function'
+          ? await repo.listResearchForProspect(prospect.id)
+          : [];
+        const latestQual = typeof repo.getLatestQualification === 'function'
+          ? await repo.getLatestQualification(prospect.id)
+          : null;
+        summaries.push({
+          id: prospect.id,
+          canonical_name: prospect.canonical_name,
+          website_url: prospect.website_url,
+          created_at: prospect.created_at,
+          updated_at: prospect.updated_at,
+          evidence_count: (research || []).length,
+          latest_qualification_decision: latestQual ? latestQual.decision : null,
+          latest_qualification_at: latestQual ? latestQual.created_at : null,
+          most_recent_activity: maxIsoTimestamp([
+            prospect.created_at,
+            prospect.updated_at,
+            ...((research || []).map((row) => row.created_at)),
+            latestQual && latestQual.created_at,
+          ]),
+        });
+      }
+    }
+
+    if (summaries && summaries.ok === false) {
+      return summaries;
+    }
+
+    const items = sortReviewQueueItems(
+      filterReviewQueueItems(
+        (summaries || []).map(buildReviewQueueItem).filter(Boolean),
+        options.state,
+      ),
+    );
+
+    return {
+      ok: true,
+      filter: normalizeReviewQueueFilter(options.state),
+      items,
+    };
+  } catch (err) {
+    if (isSalesStoreUnavailableError(err)) {
+      return salesUnavailableResult();
+    }
+    throw err;
+  }
+}
+
 async function listProspects() {
   const repo = await getRepository();
   return repo.listProspects();
@@ -707,22 +894,31 @@ module.exports = {
   ALLOWED_DECISIONS,
   ALLOWED_EVIDENCE_CONFIDENCE,
   ALLOWED_QUALIFICATION_DECISIONS,
+  ACTIONABLE_REVIEW_BUCKETS,
   EVIDENCE_BOUNDS,
   QUALIFICATION_BOUNDS,
+  REVIEW_QUEUE_FILTERS,
   appendAudit,
+  assignReviewBucket,
+  compareReviewQueueItems,
   createProspect,
   decideProspect,
+  filterReviewQueueItems,
   getLatestQualification,
   getProspect,
   getResearchForProspect,
   getSalesStoreMode,
+  isActionableReviewBucket,
   listAuditEvents,
   listProspects,
   listQualificationsForProspect,
   listResearchForProspect,
+  listReviewQueue,
+  normalizeReviewQueueFilter,
   recordManualEvidence,
   recordQualification,
   resetSalesStore,
+  sortReviewQueueItems,
   validateManualEvidence,
   validateManualIntake,
   validateQualification,

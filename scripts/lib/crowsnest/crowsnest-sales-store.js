@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Crowsnest Luna Sales durable store (Chapter 1 / Slice 1 + Chapter 2 evidence + Chapter 3 qualification).
+ * Crowsnest Luna Sales durable store (Chapters 1–4: durable prospects, evidence, qualification, review queue).
  *
  * Owns config validation, repository adapters (memory / postgres / fail-closed),
  * and a bounded pg pool lifecycle. Never reads WOLFHOUSE_DATABASE_URL.
@@ -198,6 +198,37 @@ function createMemorySalesRepository() {
       const list = qualificationListFor(id);
       return list.length ? list[0] : null;
     },
+    async listReviewQueueSummaries() {
+      const rows = [];
+      for (const prospect of prospects.values()) {
+        const research = researchListFor(prospect.id);
+        const quals = qualificationListFor(prospect.id);
+        const latestQual = quals.length ? quals[0] : null;
+        const timestamps = [
+          prospect.created_at,
+          prospect.updated_at,
+          ...research.map((row) => row.created_at),
+          ...quals.map((row) => row.created_at),
+        ];
+        let mostRecent = '';
+        for (const value of timestamps) {
+          const iso = String(value || '');
+          if (iso && (!mostRecent || iso > mostRecent)) mostRecent = iso;
+        }
+        rows.push({
+          id: String(prospect.id),
+          canonical_name: prospect.canonical_name || '',
+          website_url: prospect.website_url || '',
+          created_at: prospect.created_at,
+          updated_at: prospect.updated_at,
+          evidence_count: research.length,
+          latest_qualification_decision: latestQual ? latestQual.decision : null,
+          latest_qualification_at: latestQual ? latestQual.created_at : null,
+          most_recent_activity: mostRecent || String(prospect.updated_at || prospect.created_at || ''),
+        });
+      }
+      return rows;
+    },
     async listAuditEvents(prospectId) {
       const events = auditEvents.map((row) => cloneJson(row));
       if (!prospectId) return events;
@@ -245,6 +276,9 @@ function createFailClosedSalesRepository(config = {}) {
     },
     async getLatestQualification() {
       return null;
+    },
+    async listReviewQueueSummaries() {
+      return misconfiguredResult(message);
     },
     async listAuditEvents() {
       return [];
@@ -577,6 +611,69 @@ function createPgSalesRepository(options = {}) {
           [id],
         );
         return mapQualificationRow(result.rows && result.rows[0]);
+      } catch {
+        throw new SalesStoreUnavailableError();
+      }
+    },
+    async listReviewQueueSummaries() {
+      try {
+        const result = await queryFn(
+          `SELECT
+             p.id,
+             p.canonical_name,
+             p.website_url,
+             p.created_at,
+             p.updated_at,
+             (
+               SELECT COUNT(*)::int
+               FROM luna_sales.research_jobs r
+               WHERE r.prospect_id = p.id
+             ) AS evidence_count,
+             (
+               SELECT q.decision
+               FROM luna_sales.qualification_assessments q
+               WHERE q.prospect_id = p.id
+               ORDER BY q.created_at DESC
+               LIMIT 1
+             ) AS latest_qualification_decision,
+             (
+               SELECT q.created_at
+               FROM luna_sales.qualification_assessments q
+               WHERE q.prospect_id = p.id
+               ORDER BY q.created_at DESC
+               LIMIT 1
+             ) AS latest_qualification_at,
+             GREATEST(
+               p.created_at,
+               p.updated_at,
+               COALESCE(
+                 (SELECT MAX(r.created_at) FROM luna_sales.research_jobs r WHERE r.prospect_id = p.id),
+                 p.created_at
+               ),
+               COALESCE(
+                 (SELECT MAX(q.created_at) FROM luna_sales.qualification_assessments q WHERE q.prospect_id = p.id),
+                 p.created_at
+               )
+             ) AS most_recent_activity
+           FROM luna_sales.prospects p`,
+        );
+        return (result.rows || []).map((row) => ({
+          id: String(row.id),
+          canonical_name: row.canonical_name || '',
+          website_url: row.website_url || '',
+          created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at || ''),
+          updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at || ''),
+          evidence_count: Number(row.evidence_count) || 0,
+          latest_qualification_decision: row.latest_qualification_decision || null,
+          latest_qualification_at: row.latest_qualification_at == null
+            ? null
+            : (row.latest_qualification_at instanceof Date
+              ? row.latest_qualification_at.toISOString()
+              : String(row.latest_qualification_at)),
+          most_recent_activity: row.most_recent_activity instanceof Date
+            ? row.most_recent_activity.toISOString()
+            : String(row.most_recent_activity || ''),
+        }));
       } catch {
         throw new SalesStoreUnavailableError();
       }
