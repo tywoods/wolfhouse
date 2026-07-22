@@ -7,9 +7,10 @@
  * substitutions, validates safety constraints, and returns canonical preview
  * bytes + manifest/hashes. Optional materialization writes via private sibling
  * staging + atomic rename into a nonexistent final directory (exclusive
- * creates; parent chain lstat/realpath safety). Does not apply, write
- * registries, touch config/clients, load runtime, open DB/cloud/network, or
- * materialize secrets. stdout emission is zero-write.
+ * creates; parent chain lstat/realpath safety; Linux parent-directory fd
+ * anchor via O_DIRECTORY|O_NOFOLLOW + /proc/self/fd/<fd>). Does not apply,
+ * write registries, touch config/clients, load runtime, open DB/cloud/network,
+ * or materialize secrets. stdout emission is zero-write.
  */
 
 const fs = require('fs');
@@ -830,7 +831,10 @@ function validateOutputMaterializationTarget(repoRoot, outputDir) {
     finalAbs,
     parentAbs,
     parentReal,
+    parentDev: parentStat.dev,
+    parentIno: parentStat.ino,
     projectedFinal,
+    finalName: path.basename(finalAbs),
     repoReal,
   };
 }
@@ -842,6 +846,19 @@ function isSafeOutputDirectory(repoRoot, outputDir) {
   return { ok: true, resolved: v.projectedFinal };
 }
 
+function sameDevIno(aDev, aIno, bDev, bIno) {
+  return Number(aDev) === Number(bDev) && String(aIno) === String(bIno);
+}
+
+function closeFdQuiet(fd) {
+  if (fd == null || fd < 0) return;
+  try {
+    fs.closeSync(fd);
+  } catch (_) {
+    // ignore
+  }
+}
+
 function cleanupStagingDir(stagingPath) {
   if (!stagingPath) return;
   try {
@@ -849,6 +866,102 @@ function cleanupStagingDir(stagingPath) {
   } catch (_) {
     // Best-effort; callers still fail closed on the original error.
   }
+}
+
+/**
+ * Linux-only: require /proc/self/fd and O_DIRECTORY|O_NOFOLLOW. Fail closed otherwise.
+ */
+function assertParentFdAnchorAvailable() {
+  if (process.platform !== 'linux') {
+    return { ok: false, error: 'parent_fd_anchor_unsupported_platform' };
+  }
+  if (!fs.constants.O_DIRECTORY || !fs.constants.O_NOFOLLOW) {
+    return { ok: false, error: 'parent_fd_anchor_flags_unavailable' };
+  }
+  try {
+    fs.accessSync('/proc/self/fd', fs.constants.R_OK | fs.constants.X_OK);
+  } catch (err) {
+    return { ok: false, error: `parent_fd_procfs_unavailable:${err && err.code}` };
+  }
+  return { ok: true };
+}
+
+/**
+ * Open parent with O_DIRECTORY|O_NOFOLLOW, verify fstat matches expected identity,
+ * and prove /proc/self/fd/<fd> resolves to the same directory inode.
+ */
+function openAnchoredParentDirectory(parentAbs, expectedDev, expectedIno) {
+  const avail = assertParentFdAnchorAvailable();
+  if (!avail.ok) return avail;
+
+  let fd;
+  try {
+    fd = fs.openSync(
+      parentAbs,
+      fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW,
+    );
+  } catch (err) {
+    return { ok: false, error: `parent_fd_open_failed:${err && err.code}` };
+  }
+
+  let st;
+  try {
+    st = fs.fstatSync(fd);
+  } catch (err) {
+    closeFdQuiet(fd);
+    return { ok: false, error: `parent_fd_fstat_failed:${err && err.code}` };
+  }
+  if (!st.isDirectory()) {
+    closeFdQuiet(fd);
+    return { ok: false, error: 'parent_fd_not_directory' };
+  }
+  if (!sameDevIno(st.dev, st.ino, expectedDev, expectedIno)) {
+    closeFdQuiet(fd);
+    return { ok: false, error: 'parent_fd_identity_mismatch' };
+  }
+
+  const anchorBase = `/proc/self/fd/${fd}`;
+  try {
+    const pst = fs.statSync(anchorBase);
+    if (!pst.isDirectory()) {
+      closeFdQuiet(fd);
+      return { ok: false, error: 'parent_fd_procfs_not_directory' };
+    }
+    if (!sameDevIno(pst.dev, pst.ino, st.dev, st.ino)) {
+      closeFdQuiet(fd);
+      return { ok: false, error: 'parent_fd_procfs_identity_mismatch' };
+    }
+  } catch (err) {
+    closeFdQuiet(fd);
+    return { ok: false, error: `parent_fd_procfs_stat_failed:${err && err.code}` };
+  }
+
+  return { ok: true, fd, anchorBase, dev: st.dev, ino: st.ino };
+}
+
+/**
+ * Require the caller's parent pathname still names the anchored directory (dev/ino).
+ */
+function parentPathnameMatchesIdentity(parentAbs, expectedDev, expectedIno) {
+  let st;
+  try {
+    st = fs.lstatSync(parentAbs);
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      return { ok: false, error: 'parent_pathname_missing' };
+    }
+    return { ok: false, error: `parent_pathname_lstat_failed:${err && err.code}` };
+  }
+  if (st.isSymbolicLink()) {
+    return { ok: false, error: 'parent_pathname_became_symlink' };
+  }
+  if (!st.isDirectory()) {
+    return { ok: false, error: 'parent_pathname_not_directory' };
+  }
+  if (!sameDevIno(st.dev, st.ino, expectedDev, expectedIno)) {
+    return { ok: false, error: 'parent_pathname_identity_mismatch' };
+  }
+  return { ok: true };
 }
 
 function exclusiveWriteFile(absPath, content) {
@@ -866,9 +979,12 @@ function exclusiveWriteFile(absPath, content) {
 }
 
 /**
- * Materialize dry-run preview via private sibling staging + atomic rename.
- * Final directory must not exist. Never overwrites. No apply semantics.
- * Cleans staging on every error. Does not traverse caller-controlled descendants.
+ * Materialize dry-run preview via private sibling staging + atomic rename,
+ * anchored to an open parent directory fd so cleanup never depends on the
+ * caller pathname (parent-rename race). Final directory must not exist.
+ * Never overwrites. No apply semantics. Cleans staging/final via fd anchor on
+ * every error. Does not traverse caller-controlled descendants. Fail closed if
+ * fd anchoring / procfs is unavailable.
  */
 function writeDryRunPreview(result, options) {
   if (!result || !result.ok) {
@@ -879,12 +995,47 @@ function writeDryRunPreview(result, options) {
   const safety = validateOutputMaterializationTarget(repoRoot, outputDir);
   if (!safety.ok) return { ok: false, errors: [safety.error] };
 
+  const opened = openAnchoredParentDirectory(
+    safety.parentAbs,
+    safety.parentDev,
+    safety.parentIno,
+  );
+  if (!opened.ok) {
+    return { ok: false, errors: [opened.error] };
+  }
+
+  let parentFd = opened.fd;
+  const anchorBase = opened.anchorBase;
+  const parentDev = opened.dev;
+  const parentIno = opened.ino;
+  const finalName = safety.finalName;
   const stagingName = `.factory-1c-staging-${crypto.randomBytes(12).toString('hex')}`;
-  const stagingPath = path.join(safety.parentReal, stagingName);
+  // Paths under /proc/self/fd/<fd> stay bound to the open directory inode.
+  const stagingPath = `${anchorBase}/${stagingName}`;
+  const finalAnchored = `${anchorBase}/${finalName}`;
   let stagingCreated = false;
+  let finalOwned = false;
+
+  const closeParent = () => {
+    closeFdQuiet(parentFd);
+    parentFd = null;
+  };
+
+  const cleanupAnchored = () => {
+    // Never clean via caller pathname — parent may have been renamed/replaced.
+    if (finalOwned) {
+      cleanupStagingDir(finalAnchored);
+      finalOwned = false;
+    }
+    if (stagingCreated) {
+      cleanupStagingDir(stagingPath);
+      stagingCreated = false;
+    }
+  };
 
   const fail = (errors) => {
-    if (stagingCreated) cleanupStagingDir(stagingPath);
+    cleanupAnchored();
+    closeParent();
     return { ok: false, errors: Array.isArray(errors) ? errors : [errors] };
   };
 
@@ -892,7 +1043,7 @@ function writeDryRunPreview(result, options) {
     fs.mkdirSync(stagingPath, { recursive: false, mode: 0o700 });
     stagingCreated = true;
   } catch (err) {
-    return { ok: false, errors: [`staging_mkdir_failed:${err && err.code}`] };
+    return fail([`staging_mkdir_failed:${err && err.code}`]);
   }
 
   // Staging itself must be a real directory we own (not a symlink swap).
@@ -918,18 +1069,17 @@ function writeDryRunPreview(result, options) {
       return fail([`write_path_traversal:${file.relativePath}`]);
     }
 
-    const abs = path.join(stagingPath, file.relativePath);
-    const absResolved = path.resolve(abs);
-    if (
-      absResolved !== stagingPath
-      && !absResolved.startsWith(`${stagingPath}${path.sep}`)
-    ) {
+    // Join without path.resolve — resolve() would collapse /proc/self/fd/<fd>/..
+    // and break the fd anchor.
+    const abs = `${stagingPath}/${file.relativePath.split(/[\\/]/).join('/')}`;
+    if (!abs.startsWith(`${stagingPath}/`)) {
       return fail([`write_path_escape:${file.relativePath}`]);
     }
 
     try {
-      fs.mkdirSync(path.dirname(absResolved), { recursive: true, mode: 0o700 });
-      exclusiveWriteFile(absResolved, file.content);
+      const dirPart = abs.slice(0, abs.lastIndexOf('/'));
+      fs.mkdirSync(dirPart, { recursive: true, mode: 0o700 });
+      exclusiveWriteFile(abs, file.content);
     } catch (err) {
       if (err && err.code === 'EEXIST') {
         return fail([`overwrite_refused:${file.relativePath}`]);
@@ -944,22 +1094,32 @@ function writeDryRunPreview(result, options) {
     });
   }
 
-  // Test hook: allow injecting a race (final appears) before atomic rename.
+  // Test hook: allow injecting a race (final appears / parent rename) before checks.
   if (options && typeof options.beforeAtomicRename === 'function') {
     try {
       options.beforeAtomicRename({
-        finalAbs: safety.projectedFinal,
+        finalAbs: finalAnchored,
         stagingPath,
         parentReal: safety.parentReal,
+        parentAbs: safety.parentAbs,
+        parentPathname: safety.parentAbs,
+        projectedFinalPathname: safety.projectedFinal,
+        anchorBase,
       });
     } catch (err) {
       return fail([`before_atomic_rename_hook_failed:${err && err.message}`]);
     }
   }
 
-  // Fail closed if final appeared (symlink or any node) before rename.
+  // Requested parent pathname must still resolve to the anchored directory.
+  {
+    const id = parentPathnameMatchesIdentity(safety.parentAbs, parentDev, parentIno);
+    if (!id.ok) return fail([id.error]);
+  }
+
+  // Fail closed if final appeared (symlink or any node) before rename — via fd anchor.
   try {
-    const st = fs.lstatSync(safety.projectedFinal);
+    const st = fs.lstatSync(finalAnchored);
     if (st.isSymbolicLink()) {
       return fail(['output_dir_appeared_symlink']);
     }
@@ -970,40 +1130,79 @@ function writeDryRunPreview(result, options) {
     }
   }
 
-  // Parent must still be a non-symlink directory (swap/race).
+  // Parent fd must still name the same directory inode.
   try {
-    const st = fs.lstatSync(safety.parentReal);
-    if (st.isSymbolicLink()) {
-      return fail(['output_dir_parent_swapped_symlink']);
-    }
+    const st = fs.fstatSync(parentFd);
     if (!st.isDirectory()) {
-      return fail(['output_dir_parent_swapped_not_directory']);
+      return fail(['output_dir_parent_fd_not_directory']);
+    }
+    if (!sameDevIno(st.dev, st.ino, parentDev, parentIno)) {
+      return fail(['output_dir_parent_fd_identity_changed']);
     }
   } catch (err) {
-    return fail([`output_dir_parent_pre_rename_lstat_failed:${err && err.code}`]);
+    return fail([`output_dir_parent_fd_fstat_failed:${err && err.code}`]);
+  }
+
+  // Test hook: inject immediately before rename (e.g. force EEXIST).
+  if (options && typeof options.beforeRenameAttempt === 'function') {
+    try {
+      options.beforeRenameAttempt({
+        finalAbs: finalAnchored,
+        stagingPath,
+        parentAbs: safety.parentAbs,
+        parentPathname: safety.parentAbs,
+        projectedFinalPathname: safety.projectedFinal,
+        anchorBase,
+      });
+    } catch (err) {
+      return fail([`before_rename_attempt_hook_failed:${err && err.message}`]);
+    }
   }
 
   try {
-    fs.renameSync(stagingPath, safety.projectedFinal);
-    stagingCreated = false; // now owned as final
+    fs.renameSync(stagingPath, finalAnchored);
+    stagingCreated = false;
+    finalOwned = true;
   } catch (err) {
     return fail([`atomic_rename_failed:${err && err.code}`]);
   }
 
-  // Post-rename: final must be a real directory (not a symlink).
-  try {
-    const st = fs.lstatSync(safety.projectedFinal);
-    if (st.isSymbolicLink()) {
-      // Extremely hostile; leave as-is but fail closed for the caller.
-      return { ok: false, errors: ['output_dir_final_is_symlink'], written: [], outputDir: safety.projectedFinal };
+  // Test hook: post-rename swap / parent rename before identity re-check.
+  if (options && typeof options.afterAtomicRename === 'function') {
+    try {
+      options.afterAtomicRename({
+        finalAbs: finalAnchored,
+        stagingPath,
+        parentAbs: safety.parentAbs,
+        parentPathname: safety.parentAbs,
+        projectedFinalPathname: safety.projectedFinal,
+        anchorBase,
+      });
+    } catch (err) {
+      return fail([`after_atomic_rename_hook_failed:${err && err.message}`]);
     }
-    if (!st.isDirectory()) {
-      return { ok: false, errors: ['output_dir_final_not_directory'], written: [], outputDir: safety.projectedFinal };
-    }
-  } catch (err) {
-    return { ok: false, errors: [`output_dir_final_lstat_failed:${err && err.code}`], written: [] };
   }
 
+  // After rename: pathname must still be the same directory; else remove final via fd.
+  {
+    const id = parentPathnameMatchesIdentity(safety.parentAbs, parentDev, parentIno);
+    if (!id.ok) return fail([id.error]);
+  }
+
+  // Post-rename: final must be a real directory (not a symlink) — via fd anchor.
+  try {
+    const st = fs.lstatSync(finalAnchored);
+    if (st.isSymbolicLink()) {
+      return fail(['output_dir_final_is_symlink']);
+    }
+    if (!st.isDirectory()) {
+      return fail(['output_dir_final_not_directory']);
+    }
+  } catch (err) {
+    return fail([`output_dir_final_lstat_failed:${err && err.code}`]);
+  }
+
+  closeParent();
   return {
     ok: true,
     errors: [],

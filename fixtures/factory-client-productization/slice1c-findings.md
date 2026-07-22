@@ -14,7 +14,7 @@ Slice **1C** adds a deterministic disabled-by-default dry-run onboarding generat
 | `surf_house` | baseline, pricing, secrets.example, registry-entry, dry-run-manifest |
 | `surf_school_shop` | baseline, secrets.example, registry-entry, dry-run-manifest |
 
-Default and only mode is `dry-run`. `--apply` and any non-dry-run mode are rejected. Preview bytes are canonical key-sorted JSON with SHA-256 hashes. Materialization uses a private sibling staging directory + atomic rename into a nonexistent final output directory (exclusive file creates); `--stdout` is zero-write.
+Default and only mode is `dry-run`. `--apply` and any non-dry-run mode are rejected. Preview bytes are canonical key-sorted JSON with SHA-256 hashes. Materialization uses a private sibling staging directory + atomic rename into a nonexistent final output directory (exclusive file creates), anchored to an open parent directory fd so parent-rename races cannot divert cleanup; `--stdout` is zero-write.
 
 ## Independent output truth
 
@@ -24,10 +24,12 @@ Golden rendered-byte fixtures under `fixtures/factory-client-productization/slic
 
 - Final output directory must not exist (lstat; symlinked final rejected)
 - Existing parent/ancestor chain is lstat-checked non-symlink and realpath-validated outside forbidden roots (`config/clients`, `config/archetypes`, `database`, `infra`, `.git`, repo root)
+- Materialization anchors to an open parent directory fd (`O_DIRECTORY|O_NOFOLLOW`) with fstat dev/ino; on Linux staging/final use `/proc/self/fd/<fd>` so cleanup never depends on the caller pathname
+- Before and after atomic rename, the requested parent pathname must still resolve to the same dev/ino; mismatch fails closed and removes staging/final via the fd anchor; fd closed on every path; unavailable fd/procfs fails closed
 - Private sibling `.factory-1c-staging-*` directory; exclusive file flags; atomic rename staging → final
-- Fail closed if final appears before rename; clean staging on every error
+- Fail closed if final appears before rename; clean staging/final via fd anchor on every error
 - Never traverse caller-controlled descendants; reject relativePath traversal / nested symlink attacks
-- Swap/race coverage in verifier REDs (final mkdir/symlink injection before rename)
+- Swap/race coverage in verifier REDs (final mkdir/symlink injection, parent-rename + replacement directory, post-rename parent swap cleanup, rename-error staging cleanup)
 
 ## Safety (generation)
 
@@ -45,7 +47,7 @@ Golden rendered-byte fixtures under `fixtures/factory-client-productization/slic
 npm run verify:factory-slice1c-dry-run-generator
 ```
 
-Independent verifier proves golden-byte truth, byte-determinism, template immutability, atomic materialization safety, stdout zero-write, and adversarial REDs for secrets, live hosts, Meta/Azure IDs, existing conflicts, symlink/race/swap, apply, unsafe output roots, and enablement flips.
+Independent verifier proves golden-byte truth, byte-determinism, template immutability, atomic materialization safety (parent fd anchor / procfs), stdout zero-write, and adversarial REDs for secrets, live hosts, Meta/Azure IDs, existing conflicts, symlink/race/swap/parent-rename, apply, unsafe output roots, and enablement flips.
 
 ## Ledger
 

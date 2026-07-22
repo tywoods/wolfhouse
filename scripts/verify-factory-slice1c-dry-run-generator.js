@@ -170,7 +170,7 @@ ok('runtime_behavior_changed false', contract.runtime_behavior_changed === false
 ok('findings cite master basis', findings.includes(gen.MASTER_BASIS));
 ok('findings cite dry-run / no apply', /dry-run/i.test(findings) && /not.*apply/i.test(findings));
 ok('findings cite output safety / golden',
-  /atomic|staging|lstat|symlink/i.test(findings)
+  /atomic|staging|lstat|symlink|fd|proc/i.test(findings)
   && /golden/i.test(findings));
 ok('doc names 1C generator', /1C/.test(doc) && /generator/i.test(doc));
 ok('golden lock schema + both archetypes',
@@ -653,6 +653,131 @@ console.log('\n── Output-safety REDs ──');
     const target = path.join(base, 'nope', 'final');
     const v = gen.validateOutputMaterializationTarget(ROOT, target);
     red('reject_missing_parent', !v.ok && v.error === 'output_dir_parent_missing', v.error);
+  }
+
+  function listFactory1cArtifacts(dirAbs) {
+    if (!dirAbs || !fs.existsSync(dirAbs)) return [];
+    let names;
+    try {
+      names = fs.readdirSync(dirAbs);
+    } catch (_) {
+      return [];
+    }
+    return names.filter((n) => (
+      n.startsWith('.factory-1c-staging-')
+      || n === 'final'
+      || n === 'dry-run-manifest.json'
+      || n === 'preview'
+    ));
+  }
+
+  function dirHasFactory1cTree(dirAbs) {
+    if (!dirAbs || !fs.existsSync(dirAbs)) return false;
+    const found = [];
+    const walk = (d) => {
+      let entries;
+      try {
+        entries = fs.readdirSync(d, { withFileTypes: true });
+      } catch (_) {
+        return;
+      }
+      for (const ent of entries) {
+        if (ent.name.startsWith('.factory-1c-staging-')
+          || ent.name === 'dry-run-manifest.json') {
+          found.push(path.join(d, ent.name));
+        }
+        if (ent.isDirectory() && !ent.name.startsWith('.factory-1c-staging-')) {
+          walk(path.join(d, ent.name));
+        }
+      }
+    };
+    walk(dirAbs);
+    return found;
+  }
+
+  // RED: rename validated parent + replace with ordinary directory at same pathname.
+  // Prove fail-closed and no staging/final under either original or replacement parent.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-parent-rename-'));
+    const parent = path.join(base, 'validated-parent');
+    const renamedParent = path.join(base, 'validated-parent.renamed-away');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      beforeAtomicRename: ({ parentPathname }) => {
+        fs.renameSync(parentPathname, renamedParent);
+        fs.mkdirSync(parentPathname); // replacement ordinary directory
+      },
+    });
+    red('parent_rename_race_fail_closed',
+      !w.ok && w.errors.some((e) => (
+        e === 'parent_pathname_identity_mismatch'
+        || e === 'parent_pathname_missing'
+      )),
+      (w.errors || []).join(','));
+    const underReplacement = dirHasFactory1cTree(parent);
+    const underOriginal = dirHasFactory1cTree(renamedParent);
+    red('parent_rename_no_artifacts_under_replacement',
+      underReplacement.length === 0, underReplacement.join(','));
+    red('parent_rename_no_artifacts_under_original',
+      underOriginal.length === 0, underOriginal.join(','));
+    red('parent_rename_no_staging_or_final_either_parent',
+      listFactory1cArtifacts(parent).length === 0
+      && listFactory1cArtifacts(renamedParent).length === 0,
+      `repl=${listFactory1cArtifacts(parent).join(',')} orig=${listFactory1cArtifacts(renamedParent).join(',')}`);
+  }
+
+  // Post-check: after successful rename, parent pathname swapped → fail closed + fd cleanup.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-post-swap-'));
+    const parent = path.join(base, 'validated-parent');
+    const renamedParent = path.join(base, 'validated-parent.post-renamed');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      afterAtomicRename: ({ parentPathname }) => {
+        fs.renameSync(parentPathname, renamedParent);
+        fs.mkdirSync(parentPathname);
+      },
+    });
+    red('post_rename_parent_swap_fail_closed',
+      !w.ok && w.errors.includes('parent_pathname_identity_mismatch'),
+      (w.errors || []).join(','));
+    const underReplacement = dirHasFactory1cTree(parent);
+    const underOriginal = dirHasFactory1cTree(renamedParent);
+    red('post_rename_swap_cleanup_no_artifacts_replacement',
+      underReplacement.length === 0, underReplacement.join(','));
+    red('post_rename_swap_cleanup_no_artifacts_original',
+      underOriginal.length === 0, underOriginal.join(','));
+  }
+
+  // Rename-error: non-empty final injected after pre-checks → atomic rename fails;
+  // staging cleaned via fd; attacker final must not gain our preview.
+  {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1c-rename-err-'));
+    const parent = path.join(base, 'parent');
+    fs.mkdirSync(parent);
+    const finalDir = path.join(parent, 'final');
+    const w = gen.writeDryRunPreview(preview, {
+      repoRoot: ROOT,
+      outputDir: finalDir,
+      beforeRenameAttempt: ({ finalAbs }) => {
+        fs.mkdirSync(finalAbs);
+        fs.writeFileSync(path.join(finalAbs, 'blocker.txt'), 'nope');
+      },
+    });
+    red('rename_error_fail_closed',
+      !w.ok && w.errors.some((e) => String(e).startsWith('atomic_rename_failed:')),
+      (w.errors || []).join(','));
+    const stagingLeft = fs.readdirSync(parent).filter((n) => n.startsWith('.factory-1c-staging-'));
+    red('rename_error_staging_cleaned_via_fd', stagingLeft.length === 0, stagingLeft.join(','));
+    const blockerIntact = fs.existsSync(path.join(finalDir, 'blocker.txt'))
+      && !fs.existsSync(path.join(finalDir, 'dry-run-manifest.json'));
+    red('rename_error_did_not_publish_preview', blockerIntact);
   }
 }
 
