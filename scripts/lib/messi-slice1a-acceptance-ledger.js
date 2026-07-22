@@ -1337,7 +1337,6 @@ function ledgerGateObject(g) {
     workstream_class: g.workstream_class,
     production_readiness: g.production_readiness,
     finite_closeout_analog: g.finite_closeout_analog,
-    missing_proof: Array.isArray(g.missing_proof) ? [...g.missing_proof] : g.missing_proof,
   };
   if (Object.prototype.hasOwnProperty.call(g, 'finite_staging_workstream_complete')) {
     out.finite_staging_workstream_complete = g.finite_staging_workstream_complete;
@@ -1345,6 +1344,7 @@ function ledgerGateObject(g) {
   if (Object.prototype.hasOwnProperty.call(g, 'finite_audit_workstream_complete')) {
     out.finite_audit_workstream_complete = g.finite_audit_workstream_complete;
   }
+  out.missing_proof = Array.isArray(g.missing_proof) ? [...g.missing_proof] : g.missing_proof;
   return out;
 }
 
