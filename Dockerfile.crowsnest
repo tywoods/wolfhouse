@@ -10,8 +10,10 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY scripts ./scripts
+COPY config/staff-portal/staff-login-page.css ./config/staff-portal/staff-login-page.css
 COPY docs/CROWSNEST.md docs/CROWSNEST-LOCATION-PLAN.md docs/CROWSNEST-DEPLOY-PLAN.md ./docs/
 COPY public/crowsnest ./public/crowsnest
+COPY public/images/luna-login-bg.jpg ./public/images/luna-login-bg.jpg
 
 EXPOSE 3040
 

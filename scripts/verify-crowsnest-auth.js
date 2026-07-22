@@ -628,8 +628,14 @@ async function main() {
       const login = await request(port, '/login');
       ok('GET /login returns 200', login.statusCode === 200);
       ok('login page renders HTML', /text\/html/i.test(String(login.headers['content-type'] || '')) && login.body.includes('<form'));
-      ok('login page includes logo', login.body.includes('/crowsnest/assets/logo.png'));
-      ok('login page keeps operator badge', /Private operator portal/i.test(login.body));
+      ok('login page includes Crowsnest logo', login.body.includes('/crowsnest/assets/logo.png'));
+      ok('login page uses Sunset portal shell', login.body.includes('loginShell') && login.body.includes('loginStage') && login.body.includes('loginCard'));
+      ok('login page uses shared Sunset background', login.body.includes('/images/luna-login-bg.jpg'));
+      ok('login page removes company field', !/for="client"|name="client"|>Company</i.test(login.body));
+      ok('login page changes email to username', /for="username"[^>]*>Username</i.test(login.body) && /name="username"[^>]*type="text"/i.test(login.body));
+      ok('login page keeps password field', /for="password"[^>]*>Password</i.test(login.body) && /name="password"[^>]*type="password"/i.test(login.body));
+      ok('login page mirrors Sunset sign-in button treatment', login.body.includes('signInButton') && login.body.includes('signInButtonIcon'));
+      ok('login page mirrors Sunset footer branding', login.body.includes('loginFooterBrand') && login.body.includes('Guest care, always there.'));
       ok('login page omits removed Monshies/Earthling sentence', !login.body.includes(REMOVED_LOGIN_COPY));
       ok('login logo CSS is centered and responsive', loginLogoCssLooksCentered(login.body));
       ok('login markup keeps login-logo class', /class="login-logo"/.test(login.body));

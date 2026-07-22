@@ -1,11 +1,22 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 /**
  * Crowsnest static portal HTML (read-only skeleton — no writes, no API calls).
  */
 
 const { getCrowsnestClients, getCrowsnestTemplates } = require('./crowsnest-clients');
 const { renderCrowsnestOnboardingSection } = require('./crowsnest-onboarding');
+
+const SUNSET_LOGIN_CSS = fs.readFileSync(
+  path.join(__dirname, '..', '..', '..', 'config', 'staff-portal', 'staff-login-page.css'),
+  'utf8',
+) + `
+.login-logo{display:block;width:min(100%,320px);height:auto;margin-inline:auto;margin-bottom:14px}
+.login-error{margin:0 0 14px;padding:10px 13px;border-radius:10px;background:#FEF1EC;border:1px solid #F2C4AC;color:#9B4020;font-size:13px}
+`;
 
 function escapeHtml(text) {
   return String(text)
@@ -844,28 +855,46 @@ function renderCrowsnestLoginPage(options = {}) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Crowsnest sign in</title>
-  ${renderStyleTag(CROWSNEST_LOGIN_CSS, nonce)}
+  ${renderStyleTag(SUNSET_LOGIN_CSS, nonce)}
 </head>
 <body>
-  <main class="login-shell">
-    <section class="login-card" aria-labelledby="login-title">
-      <img class="login-logo" src="/crowsnest/assets/logo.png" alt="Crowsnest" width="2172" height="724">
-      <p class="login-kicker">Private operator portal</p>
-      <h1 class="login-title" id="login-title">Sign in to Crowsnest</h1>
-      ${errorHtml}
-      <form class="login-form" method="post" action="/login" accept-charset="utf-8">
-        <div class="field">
-          <label class="field-label" for="username">Username</label>
-          <input class="field-input" id="username" name="username" type="text" autocomplete="username" required>
+  <main class="loginShell">
+    <div class="loginStage">
+      <div class="loginBotanicalDecor" aria-hidden="true"></div>
+      <section class="loginCard" aria-labelledby="login-title">
+        <div class="loginLogoBlock">
+          <img class="login-logo" src="/crowsnest/assets/logo.png" alt="Crowsnest" width="2172" height="724">
+          <h1 class="loginTitle" id="login-title">Sign in to Crowsnest</h1>
+          <svg class="loginTitleWave" viewBox="0 0 56 10" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" d="M2 6c4-4 8-4 12 0s8 4 12 0 8-4 12 0 8 4 12 0"/></svg>
         </div>
-        <div class="field">
-          <label class="field-label" for="password">Password</label>
-          <input class="field-input" id="password" name="password" type="password" autocomplete="current-password" required>
-        </div>
-        <button class="login-button" type="submit">Sign in</button>
-      </form>
-      <p class="login-footer">Private access only. No browser Basic Auth prompt.</p>
-    </section>
+        ${errorHtml}
+        <form id="login-form" method="post" action="/login" accept-charset="utf-8" autocomplete="on">
+          <div class="field">
+            <label for="username">Username</label>
+            <div class="fieldInputWrap">
+              <svg class="fieldIcon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z"/></svg>
+              <input id="username" name="username" type="text" autocomplete="username" required>
+            </div>
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <div class="fieldInputWrap fieldInputWrap--password">
+              <svg class="fieldIcon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17 9h-1V7a4 4 0 1 0-8 0v2H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-3 0H10V7a2 2 0 1 1 4 0v2z"/></svg>
+              <input id="password" name="password" type="password" autocomplete="current-password" required>
+            </div>
+          </div>
+          <button class="signInButton" type="submit">
+            <svg class="signInButtonIcon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 12c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z"/></svg>
+            <span>Sign in</span>
+          </button>
+        </form>
+      </section>
+      <footer class="loginFooterBrand">
+        <div class="loginFooterBrandTitle">Luna Front Desk</div>
+        <svg class="loginFooterWave" viewBox="0 0 44 8" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" d="M2 5c3-3 6-3 9 0s6 3 9 0 6-3 9 0"/></svg>
+        <div class="loginFooterTagline">Guest care, always there.</div>
+      </footer>
+    </div>
   </main>
 </body>
 </html>`;
