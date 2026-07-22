@@ -15,6 +15,7 @@
  */
 
 const { execSync } = require('child_process');
+const { commitTree } = require('./git-identity-commit-tree');
 
 const CANDIDATE_SHA = '7870a9fb818bbd94d33b291c8782851276e2715e';
 const MERGE_SHA = 'b9feab2438e3d42817487ce97d87df7e36f7f18e';
@@ -83,10 +84,7 @@ function makeSyntheticDescendantOfCandidate(cwd) {
     `git rev-parse ${CANDIDATE_SHA}^{tree}`,
     { cwd: root, encoding: 'utf8' },
   ).trim();
-  return execSync(
-    `git commit-tree ${tree} -p ${CANDIDATE_SHA} -m "16ap-synth-descendant-proof"`,
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+  return commitTree(root, tree, [CANDIDATE_SHA], '16ap-synth-descendant-proof');
 }
 
 function makeUnrelatedOrphanCommit(cwd) {
@@ -95,10 +93,7 @@ function makeUnrelatedOrphanCommit(cwd) {
     `git rev-parse ${MASTER_BASIS}^{tree}`,
     { cwd: root, encoding: 'utf8' },
   ).trim();
-  return execSync(
-    `git commit-tree ${tree} -m "16ap-unrelated-orphan-proof"`,
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+  return commitTree(root, tree, [], '16ap-unrelated-orphan-proof');
 }
 
 module.exports = Object.freeze({

@@ -36,6 +36,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
 const blobCerts = require('./reviewed-candidate-blob-certificates');
+const { commitTree } = require('./git-identity-commit-tree');
 
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -533,7 +534,7 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/foundation-closeout/findings.md':
     '8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439',
   'scripts/lib/messi-slice1b-foundation-closeout.js':
-    '41fc28cd4482b3cbefa209a88e14364e67b9b47eb6146f3dcdeb47b83d0e8eea',
+    '4a1d5c368676c4d728b66f7c869a4e229b254edafac960bdf701d7e12b20d15b',
   'scripts/verify-messi-slice1b-foundation-closeout.js':
     '19d03e5e482ea4b8f8bb25c1bbb3e53ccae17a4b712ca6bdea631c559b2fbcac',
   'docs/FORTRESS-FINITE-CLOSEOUT.md':
@@ -545,7 +546,7 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/fortress-closeout/findings.md':
     '5b57d89556f490697d72ae75348e468692a4c1df6a01434f3bb3c881ecb8da1b',
   'scripts/lib/messi-slice1d-fortress-closeout.js':
-    '0ce0b79a8e124a84b3b08cbf3ecfdf4f7cd099061f4b9233ef729dfa72e68204',
+    'cd64f6bffc79f5d3ac5d607afd6f3d2d23b615288c7deecd2791f219b199f3d1',
   'scripts/verify-messi-slice1d-fortress-closeout.js':
     '7e6f65264984961d504c2e2881417eab361538f9b9ba66d10fa564588b2ca05e',
   'docs/RADAR-OPERATIONS-GATE-LEDGER.md':
@@ -833,10 +834,7 @@ function makeUnrelatedOrphanCommit(root) {
     cwd: root,
     encoding: 'utf8',
   }).trim();
-  return execSync(
-    `git commit-tree ${tree} -m "messi1a-unrelated-orphan-proof"`,
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+  return commitTree(root, tree, [], 'messi1a-unrelated-orphan-proof');
 }
 
 /**

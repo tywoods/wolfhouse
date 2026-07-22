@@ -29,6 +29,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
 const blobCerts = require('./reviewed-candidate-blob-certificates');
+const { commitTree } = require('./git-identity-commit-tree');
 
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -658,10 +659,7 @@ function makeSyntheticDescendantOfMaster(root) {
     cwd: root,
     encoding: 'utf8',
   }).trim();
-  return execSync(
-    `git commit-tree ${tree} -p ${MASTER_BASIS} -m "messi1d-synth-descendant-proof"`,
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+  return commitTree(root, tree, [MASTER_BASIS], 'messi1d-synth-descendant-proof');
 }
 
 function makeSyntheticDescendantOfLanding(root) {
@@ -672,10 +670,7 @@ function makeSyntheticDescendantOfLanding(root) {
   }).trim();
   const landing = resolveCommitSha(root, LANDING_TIP);
   const parent = landing || LANDING_TIP;
-  return execSync(
-    `git commit-tree ${tree} -p ${parent} -m "messi1d-synth-landing-descendant-proof"`,
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+  return commitTree(root, tree, [parent], 'messi1d-synth-landing-descendant-proof');
 }
 
 function makeUnrelatedOrphanCommit(root) {
@@ -683,10 +678,7 @@ function makeUnrelatedOrphanCommit(root) {
     cwd: root,
     encoding: 'utf8',
   }).trim();
-  return execSync(
-    `git commit-tree ${tree} -m "messi1d-unrelated-orphan-proof"`,
-    { cwd: root, encoding: 'utf8' },
-  ).trim();
+  return commitTree(root, tree, [], 'messi1d-unrelated-orphan-proof');
 }
 
 function resolveTipSha(root, tipSha) {
