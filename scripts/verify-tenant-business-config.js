@@ -14,6 +14,7 @@ const {
   DEFAULT_DAILY_CAP,
   SUNSET_ADMIN_CLIENT,
   isSunsetAdminDbReadEnabled,
+  mergeDbWithConfig,
   resolveTenantBusinessConfig,
   resolveTenantBusinessConfigAsync,
 } = require('./lib/tenant-business-config');
@@ -149,7 +150,77 @@ async function runAsyncChecks() {
     },
   });
   assert('DB data source is db', dbPayload.source === 'db');
-  assert('DB prices used', dbPayload.prices.length === 1 && dbPayload.prices[0].label === 'DB Group lesson');
+  // Addon-preserving overlay: DB rows replace matching offerings; baseline addon=true
+  // prices (e.g. full_day_equipment_extension) survive when absent from DB.
+  const dbGroupLesson = dbPayload.prices.find((p) => p.label === 'DB Group lesson');
+  const configAddon = dbPayload.prices.find((p) => p.offering_key === 'full_day_equipment_extension');
+  const baselineGroupDupes = dbPayload.prices.filter(
+    (p) => (p.offering_key === 'group_lesson_adult' || p.item_code === 'group_lesson_adult')
+      && p.label !== 'DB Group lesson',
+  );
+  assert('DB Group lesson present', Boolean(dbGroupLesson));
+  assert(
+    'full_day_equipment_extension preserved as config addon',
+    Boolean(configAddon)
+      && configAddon.addon === true
+      && configAddon.source === 'config',
+  );
+  assert(
+    'DB overlay merged prices length is 2',
+    dbPayload.prices.length === 2,
+    `length=${dbPayload.prices.length}`,
+  );
+  assert(
+    'DB Group lesson wins without duplicate baseline offering',
+    Boolean(dbGroupLesson)
+      && dbGroupLesson.source === 'db'
+      && baselineGroupDupes.length === 0,
+  );
+
+  // Hostile: DB row with __unit suffix must suppress the matching baseline addon
+  // (no duplicate), proving stripUnit matching — not replace-all, not blind concat.
+  const hostileMerge = mergeDbWithConfig(
+    {
+      source: 'config',
+      prices: [
+        {
+          offering_key: 'full_day_equipment_extension',
+          label: 'Baseline addon',
+          addon: true,
+          source: 'config',
+        },
+        {
+          offering_key: 'board_rental',
+          label: 'Baseline rental',
+          addon: false,
+          source: 'config',
+        },
+      ],
+      lesson_capacity: { default_daily_cap: 24, overrides: [] },
+      lesson_times: [],
+      change_history: [],
+    },
+    {
+      prices: [{
+        offering_key: 'full_day_equipment_extension__day',
+        label: 'DB addon wins',
+        source: 'db',
+      }],
+      lesson_capacity: { fromDb: false, default_daily_cap: 24, overrides: [] },
+      lesson_times: [],
+      change_history: [],
+    },
+  );
+  assert(
+    'hostile: DB unit-suffixed addon wins without baseline duplicate',
+    hostileMerge.prices.length === 1
+      && hostileMerge.prices[0].label === 'DB addon wins'
+      && hostileMerge.prices[0].source === 'db'
+      && !hostileMerge.prices.some((p) => p.label === 'Baseline addon')
+      && !hostileMerge.prices.some((p) => p.offering_key === 'board_rental'),
+    `prices=${JSON.stringify(hostileMerge.prices)}`,
+  );
+
   assert('DB capacity default 30', dbPayload.lesson_capacity.default_daily_cap === 30);
   assert('DB capacity override preserved', dbPayload.lesson_capacity.overrides.length === 1);
   assert('DB lesson times used', dbPayload.lesson_times.length === 1);
