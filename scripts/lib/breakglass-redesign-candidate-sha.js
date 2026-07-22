@@ -24,7 +24,7 @@ function deepFreeze(value) {
 }
 
 /** Empty during bootstrap content commit; set by the separate anchor commit. */
-const REDESIGN_CANDIDATE_SHA = '55d6ff446e660d9b8909e047a470c7a419257bb4';
+const REDESIGN_CANDIDATE_SHA = 'ccbe82ab25d083b9a33c44db942cd7fc2ac0ab36';
 
 const REDESIGN_CERT_ID = 'breakglass-whole-path';
 const CORRECTION_CANDIDATE_BOUND = '53c1abcfb67edb491c5100de571260c60813aec4';
