@@ -359,7 +359,7 @@ function main() {
       e.lock_hash = 'e'.repeat(64);
     }, { recomputeLockHash: false }));
     const staleNoop = validateEvidence(mutate(evidence, (e) => {
-      e.forwardCount = 41;
+      e.forwardCount = locks.FORWARD_COUNT;
       e.lock_hash = 'f'.repeat(64);
     }, { recomputeLockHash: false }));
     red(

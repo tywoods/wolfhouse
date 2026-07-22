@@ -4,10 +4,10 @@
   "slice": "foundation-docker-proof-evidence",
   "gate": "G_DOCKER_FRESH_DB_REPLACEMENT",
   "outcome_id": "lunabox_disposable_docker_compared",
-  "candidate_sha": "1f89bbfe1c62b150926feabe00ff687001b014ca",
-  "branch": "messi/foundation-docker-proof-spike",
+  "candidate_sha": "6524df68e9f04364fc1f5e58d845c2aa6b344670",
+  "branch": "master",
   "evidence_fixture": "fixtures/foundation-docker-proof/lunabox-disposable-compared-evidence.json",
-  "evidence_sha256": "0fed826d959f411c30793adc9df270529678ecb277f3b0849592b4a4d9cc1c66",
+  "evidence_sha256": "d93576b50633b5afeb5b6a2b8ad9ec71ef87491f569d148f0452ef3a9d52e5d8",
   "live_mutation": false,
   "live_rerun_required": false,
   "classification_changed": false,
@@ -17,16 +17,16 @@
     "backend": "docker",
     "postgres_major": 15,
     "phase": "compared",
-    "forwardCount": 41,
-    "appliedCount": 41,
+    "forwardCount": 43,
+    "appliedCount": 43,
     "schema_fingerprint": "f0f54df09712ef93ea267f5bd35c4567b4b81acb37da025242b1ec85ba0e9496",
-    "schema_migrations_hash": "aa473862a62d3a963934e654f5d21cf0e5c9f50f3f4ef652603c9dc9065de4d8",
+    "schema_migrations_hash": "f26b8ecfcca7609628948db8226ca420ad6815984d7135cd3871683ef2acae4b",
     "volumes_distinct": true,
     "schema_migrations_equal": true,
     "schema_fingerprint_equal": true,
     "cleanup_ok": true,
     "cleanup_code": "cleanup_verified",
-    "raw_evidence_sha256": "3ca4eecbd0fd9d6ff4186a0bd542d69aff36b4d52f279ec2f3cd61febeb9f13c"
+    "raw_evidence_sha256": "7208e815a017b095cca5ce19bc3df8815d6c9fcd888db83997a4a37f4c0b2efa"
   },
   "bindings": {
     "proof_script": "scripts/prove-foundation-docker-fresh-db-replacement.js",
@@ -34,10 +34,10 @@
     "harness": "scripts/lib/disposable-postgres-harness.js",
     "harness_sha256": "f5ca4dd9eb8344cb9e84c72f02da1cf83d0c4db8296b152349d1a1fc5a3537a1",
     "canonical_manifest": "database/migrations/canonical-manifest.json",
-    "canonical_manifest_file_sha256": "23124a699d1f828b03f3307fa6c92c1beaced7a2c32a78e03f9bbb3ca2d37419",
-    "canonical_manifest_hash": "f76df6f9287eb44499dd8ab1d186ebdfc51c24d6704cdda226b36b9366b134b5",
+    "canonical_manifest_file_sha256": "d73d6ecd0a836029ef4f90459d9c22912101958b9e64c0c8021280e8d99eab60",
+    "canonical_manifest_hash": "37e64d804b9e88d6f84cd40e138c9a839b012eaa90219838d7894bcba4d677d8",
     "checksum_mode": "canonical_lf_v1",
-    "forwardCount": 41
+    "forwardCount": 43
   },
   "required_red": [
     "forward_count_drift",
