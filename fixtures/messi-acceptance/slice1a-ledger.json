@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "slice": "MESSI-1H",
-  "outcome_id": "1H_cross_parent_disposition_gap_manifest",
-  "branch": "messi/slice-1h-cross-parent-gap",
-  "master_basis": "aa955cffa859c922b924b039f8e1f9e45adfadfd",
-  "progress_class": "cross_parent_disposition_gap_manifest_only",
+  "slice": "MESSI-1I",
+  "outcome_id": "1I_finite_evidence_integration_ledger_audit_closeout",
+  "branch": "messi/slice-1i-finite-closeout",
+  "master_basis": "977afcc28a0424706e9c81665a529d1eb30fa00a",
+  "progress_class": "finite_messi_evidence_integration_ledger_audit_closeout",
   "live_mutation": false,
   "runtime_behavior_changed": false,
   "messi_definition": "MESSI is the integration gate above FOUNDATION, FORTRESS, RADAR, and FACTORY.",
@@ -402,9 +402,61 @@
       "id": "G_MESSI_MILESTONE_CLOSEOUT",
       "verdict": "absent",
       "parent": null,
-      "workstream_class": "acceptance_ledger_inventory_and_verifier_only",
+      "workstream_class": "finite_messi_evidence_integration_ledger_audit_closeout",
       "production_readiness": "absent",
-      "finite_closeout_analog": null,
+      "finite_closeout_analog": "verify:messi-slice1i-finite-closeout",
+      "finite_evidence_integration_ledger_audit_workstream_complete": true,
+      "reviewed_dispositions": [
+        {
+          "disposition_id": "FOUNDATION",
+          "gate_id": "G_FOUNDATION_PARENT",
+          "verdict": "partial",
+          "workstream_class": "finite_staging_schema_migration_recovery_closeout",
+          "production_readiness": "absent",
+          "finite_closeout_analog": "verify:messi-slice1b-foundation-closeout",
+          "finite_flag": "finite_staging_workstream_complete",
+          "finite_flag_value": true
+        },
+        {
+          "disposition_id": "FORTRESS",
+          "gate_id": "G_FORTRESS_PARENT",
+          "verdict": "partial",
+          "workstream_class": "finite_fortress_audit_workstream_closeout",
+          "production_readiness": "absent",
+          "finite_closeout_analog": "verify:messi-slice1d-fortress-closeout",
+          "finite_flag": "finite_audit_workstream_complete",
+          "finite_flag_value": true
+        },
+        {
+          "disposition_id": "RADAR",
+          "gate_id": "G_RADAR_PARENT",
+          "verdict": "partial",
+          "workstream_class": "finite_milestone_closeout_staging_readiness_only",
+          "production_readiness": "absent",
+          "finite_closeout_analog": "verify:radar-slice16ap-finite-closeout",
+          "finite_flag": "finite_staging_readiness_workstream_complete",
+          "finite_flag_value": true
+        },
+        {
+          "disposition_id": "FACTORY",
+          "gate_id": "G_FACTORY_PARENT",
+          "verdict": "partial",
+          "workstream_class": "finite_offline_dry_run_packaging_closeout",
+          "production_readiness": "absent",
+          "finite_closeout_analog": "verify:factory-slice1e-finite-closeout",
+          "finite_flag": "finite_offline_dry_run_workstream_complete",
+          "finite_flag_value": true
+        },
+        {
+          "disposition_id": "CROSS_PARENT_GAP_MANIFEST",
+          "gate_id": "G_CROSS_PARENT_INTEGRATION",
+          "verdict": "absent",
+          "workstream_class": "cross_parent_disposition_gap_manifest_only",
+          "production_readiness": "absent",
+          "integration_proof": false,
+          "gap_manifest_bound": true
+        }
+      ],
       "missing_proof": [
         "all_parent_messi_gates_complete",
         "cross_parent_integration_complete",
