@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Crowsnest Luna Sales durable store (Chapters 1–5: durable prospects, evidence,
- * qualification, review queue, CRM review readiness / preview support).
+ * Crowsnest Luna Sales durable store (Chapters 1–6: durable prospects, evidence,
+ * qualification, review queue, CRM review readiness / preview support, outreach drafts).
  *
  * Owns config validation, repository adapters (memory / postgres / fail-closed),
  * and a bounded pg pool lifecycle. Never reads WOLFHOUSE_DATABASE_URL.
@@ -120,6 +120,8 @@ function createMemorySalesRepository() {
   const qualificationsByProspect = new Map();
   /** @type {Map<string, object[]>} */
   const crmReviewMarksByProspect = new Map();
+  /** @type {Map<string, object[]>} */
+  const outreachDraftRevisionsByProspect = new Map();
   const auditEvents = [];
 
   function researchListFor(id) {
@@ -141,6 +143,17 @@ function createMemorySalesRepository() {
     return list
       .map((row) => cloneJson(row))
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  }
+
+  function outreachDraftRevisionListFor(id) {
+    const list = outreachDraftRevisionsByProspect.get(String(id || '')) || [];
+    return list
+      .map((row) => cloneJson(row))
+      .sort((a, b) => {
+        const revDiff = Number(b.revision_number || 0) - Number(a.revision_number || 0);
+        if (revDiff !== 0) return revDiff;
+        return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+      });
   }
 
   return {
@@ -173,6 +186,14 @@ function createMemorySalesRepository() {
       list.push(row);
       crmReviewMarksByProspect.set(key, list);
       return { ok: true, mark: cloneJson(row) };
+    },
+    async saveOutreachDraftRevision(revision) {
+      const row = cloneJson(revision);
+      const key = String(row.prospect_id);
+      const list = outreachDraftRevisionsByProspect.get(key) || [];
+      list.push(row);
+      outreachDraftRevisionsByProspect.set(key, list);
+      return { ok: true, revision: cloneJson(row) };
     },
     async appendAuditEvent(event) {
       const row = cloneJson(event);
@@ -223,20 +244,40 @@ function createMemorySalesRepository() {
       const list = crmReviewMarkListFor(id);
       return list.length ? list[0] : null;
     },
+    async listOutreachDraftRevisionsForProspect(id) {
+      return outreachDraftRevisionListFor(id);
+    },
+    async getCurrentOutreachDraftRevision(id) {
+      const list = outreachDraftRevisionListFor(id);
+      return list.length ? list[0] : null;
+    },
+    async getNextOutreachDraftRevisionNumber(id) {
+      const list = outreachDraftRevisionListFor(id);
+      if (!list.length) return 1;
+      let max = 0;
+      for (const row of list) {
+        const n = Number(row.revision_number) || 0;
+        if (n > max) max = n;
+      }
+      return max + 1;
+    },
     async listReviewQueueSummaries() {
       const rows = [];
       for (const prospect of prospects.values()) {
         const research = researchListFor(prospect.id);
         const quals = qualificationListFor(prospect.id);
         const crmMarks = crmReviewMarkListFor(prospect.id);
+        const drafts = outreachDraftRevisionListFor(prospect.id);
         const latestQual = quals.length ? quals[0] : null;
         const latestCrmMark = crmMarks.length ? crmMarks[0] : null;
+        const latestDraft = drafts.length ? drafts[0] : null;
         const timestamps = [
           prospect.created_at,
           prospect.updated_at,
           ...research.map((row) => row.created_at),
           ...quals.map((row) => row.created_at),
           ...crmMarks.map((row) => row.created_at),
+          ...drafts.map((row) => row.created_at),
         ];
         let mostRecent = '';
         for (const value of timestamps) {
@@ -254,6 +295,9 @@ function createMemorySalesRepository() {
           latest_qualification_at: latestQual ? latestQual.created_at : null,
           crm_ready: Boolean(latestCrmMark),
           latest_crm_review_mark_at: latestCrmMark ? latestCrmMark.created_at : null,
+          draft_ready: Boolean(latestCrmMark),
+          draft_present: Boolean(latestDraft),
+          latest_outreach_draft_at: latestDraft ? latestDraft.created_at : null,
           most_recent_activity: mostRecent || String(prospect.updated_at || prospect.created_at || ''),
         });
       }
@@ -274,6 +318,7 @@ function createMemorySalesRepository() {
       researchByProspect.clear();
       qualificationsByProspect.clear();
       crmReviewMarksByProspect.clear();
+      outreachDraftRevisionsByProspect.clear();
       auditEvents.length = 0;
     },
   };
@@ -289,6 +334,7 @@ function createFailClosedSalesRepository(config = {}) {
     saveResearchJob: reject,
     saveQualificationAssessment: reject,
     saveCrmReviewMark: reject,
+    saveOutreachDraftRevision: reject,
     appendAuditEvent: reject,
     updateProspectDecision: reject,
     async getProspect() {
@@ -314,6 +360,15 @@ function createFailClosedSalesRepository(config = {}) {
     },
     async getLatestCrmReviewMark() {
       return null;
+    },
+    async listOutreachDraftRevisionsForProspect() {
+      return [];
+    },
+    async getCurrentOutreachDraftRevision() {
+      return null;
+    },
+    async getNextOutreachDraftRevisionNumber() {
+      return misconfiguredResult(message);
     },
     async listReviewQueueSummaries() {
       return misconfiguredResult(message);
@@ -393,6 +448,23 @@ function mapCrmReviewMarkRow(row) {
     qualification_assessment_id: String(row.qualification_assessment_id),
     reviewer_id: row.reviewer_id || 'Admin',
     created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+  };
+}
+
+function mapOutreachDraftRevisionRow(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    prospect_id: String(row.prospect_id),
+    revision_number: Number(row.revision_number) || 0,
+    subject: row.subject || '',
+    body: row.body || '',
+    channel: row.channel || '',
+    next_step_note: row.next_step_note || '',
+    author_id: row.author_id || 'Admin',
+    created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+    message_sent: false,
+    disclaimer: 'Draft only — no message has been sent.',
   };
 }
 
@@ -518,6 +590,25 @@ function createPgSalesRepository(options = {}) {
     );
   }
 
+  async function insertOutreachDraftRevision(txQuery, revision) {
+    await txQuery(
+      `INSERT INTO luna_sales.outreach_draft_revisions (
+          id, prospect_id, revision_number, subject, body, channel, next_step_note, author_id, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)`,
+      [
+        revision.id,
+        revision.prospect_id,
+        revision.revision_number,
+        revision.subject || '',
+        revision.body || '',
+        revision.channel,
+        revision.next_step_note || '',
+        revision.author_id || 'Admin',
+        revision.created_at,
+      ],
+    );
+  }
+
   return {
     backend: 'postgres',
     async createProspectBundle({ prospect, research, auditEvents = [] } = {}) {
@@ -562,6 +653,14 @@ function createPgSalesRepository(options = {}) {
       try {
         await insertCrmReviewMark(queryFn, mark);
         return { ok: true, mark: cloneJson(mark) };
+      } catch {
+        return salesUnavailableResult();
+      }
+    },
+    async saveOutreachDraftRevision(revision) {
+      try {
+        await insertOutreachDraftRevision(queryFn, revision);
+        return { ok: true, revision: cloneJson(revision) };
       } catch {
         return salesUnavailableResult();
       }
@@ -716,6 +815,51 @@ function createPgSalesRepository(options = {}) {
         throw new SalesStoreUnavailableError();
       }
     },
+    async listOutreachDraftRevisionsForProspect(id) {
+      try {
+        const result = await queryFn(
+          `SELECT id, prospect_id, revision_number, subject, body, channel, next_step_note, author_id, created_at
+           FROM luna_sales.outreach_draft_revisions
+           WHERE prospect_id = $1
+           ORDER BY revision_number DESC, created_at DESC`,
+          [id],
+        );
+        return (result.rows || []).map(mapOutreachDraftRevisionRow);
+      } catch {
+        throw new SalesStoreUnavailableError();
+      }
+    },
+    async getCurrentOutreachDraftRevision(id) {
+      try {
+        const result = await queryFn(
+          `SELECT id, prospect_id, revision_number, subject, body, channel, next_step_note, author_id, created_at
+           FROM luna_sales.outreach_draft_revisions
+           WHERE prospect_id = $1
+           ORDER BY revision_number DESC, created_at DESC
+           LIMIT 1`,
+          [id],
+        );
+        return mapOutreachDraftRevisionRow(result.rows && result.rows[0]);
+      } catch {
+        throw new SalesStoreUnavailableError();
+      }
+    },
+    async getNextOutreachDraftRevisionNumber(id) {
+      try {
+        const result = await queryFn(
+          `SELECT COALESCE(MAX(revision_number), 0)::int AS max
+           FROM luna_sales.outreach_draft_revisions
+           WHERE prospect_id = $1`,
+          [id],
+        );
+        const max = result.rows && result.rows[0] && result.rows[0].max != null
+          ? Number(result.rows[0].max)
+          : 0;
+        return (Number.isFinite(max) ? max : 0) + 1;
+      } catch {
+        throw new SalesStoreUnavailableError();
+      }
+    },
     async listReviewQueueSummaries() {
       try {
         const result = await queryFn(
@@ -751,6 +895,13 @@ function createPgSalesRepository(options = {}) {
                ORDER BY m.created_at DESC
                LIMIT 1
              ) AS latest_crm_review_mark_at,
+             (
+               SELECT d.created_at
+               FROM luna_sales.outreach_draft_revisions d
+               WHERE d.prospect_id = p.id
+               ORDER BY d.revision_number DESC, d.created_at DESC
+               LIMIT 1
+             ) AS latest_outreach_draft_at,
              GREATEST(
                p.created_at,
                p.updated_at,
@@ -764,6 +915,10 @@ function createPgSalesRepository(options = {}) {
                ),
                COALESCE(
                  (SELECT MAX(m.created_at) FROM luna_sales.crm_review_marks m WHERE m.prospect_id = p.id),
+                 p.created_at
+               ),
+               COALESCE(
+                 (SELECT MAX(d.created_at) FROM luna_sales.outreach_draft_revisions d WHERE d.prospect_id = p.id),
                  p.created_at
                )
              ) AS most_recent_activity
@@ -788,6 +943,13 @@ function createPgSalesRepository(options = {}) {
             : (row.latest_crm_review_mark_at instanceof Date
               ? row.latest_crm_review_mark_at.toISOString()
               : String(row.latest_crm_review_mark_at)),
+          draft_ready: Boolean(row.latest_crm_review_mark_at),
+          draft_present: Boolean(row.latest_outreach_draft_at),
+          latest_outreach_draft_at: row.latest_outreach_draft_at == null
+            ? null
+            : (row.latest_outreach_draft_at instanceof Date
+              ? row.latest_outreach_draft_at.toISOString()
+              : String(row.latest_outreach_draft_at)),
           most_recent_activity: row.most_recent_activity instanceof Date
             ? row.most_recent_activity.toISOString()
             : String(row.most_recent_activity || ''),

@@ -467,6 +467,15 @@
       "rationale": "Luna Sales Chapter 5: luna_sales.crm_review_marks for manual CRM review readiness linked to qualified assessments (preview-only; no CRM writes)."
     },
     {
+      "id": "046_luna_sales_outreach_drafts",
+      "filename": "046_luna_sales_outreach_drafts.sql",
+      "sha256": "57ce46ca9266889c7fafd74079b871f56b5b5fc295abb1cf341be52a52bca3a0",
+      "order": 44,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Luna Sales Chapter 6: luna_sales.outreach_draft_revisions for manual internal outreach drafts (append-only revisions; no send)."
+    },
+    {
       "id": "022_sunset_location_id_PROPOSED",
       "filename": "022_sunset_location_id_PROPOSED.sql",
       "sha256": "5854d06527c2f2f1cd6e209b9a87759db3d72396a0ee9b9c58a834ff18f8448f",
