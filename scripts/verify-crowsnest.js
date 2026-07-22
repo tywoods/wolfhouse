@@ -142,15 +142,17 @@ ok('handleProtectedUi passes view/route into page renderer', /renderCrowsnestPag
 ok('unknown path still returns 404 JSON', routerBody.includes("sendJSON(res, 404") && /not found/.test(routerBody));
 
 ok('default render is Spyglass heading', /Spyglass/i.test(uiHtml) && /<h1[^>]*>[\s\S]*Spyglass/i.test(uiHtml));
-ok('default Spyglass does not render client cards', !uiHtml.includes('Wolfhouse Somo') && !uiHtml.includes('Sunset Somo') && !uiHtml.includes('Sunset Sardinero'));
+// ── Iris: Spyglass is now a populated (sample-data) overview, not a counts shell ──
+ok('Iris Spyglass renders expandable client rows with names', uiHtml.includes('client-row') && uiHtml.includes('Wolfhouse Somo') && uiHtml.includes('Sunset Somo') && uiHtml.includes('Sunset Sardinero'));
 ok('default Spyglass does not render onboarding form', !uiHtml.includes('New client onboarding'));
-ok('spyglass view matches default', /Spyglass/i.test(spyglassAliasHtml) && !spyglassAliasHtml.includes('Wolfhouse Somo'));
-ok('Spyglass shows honest AI/usage unavailable state', /n\/a|not connected|unavailable|no data/i.test(uiHtml) && /AI|usage/i.test(uiHtml));
-ok('Spyglass shows honest billing unavailable state', /n\/a|not connected|unavailable|no data/i.test(uiHtml) && /billing/i.test(uiHtml));
-ok('Spyglass shows honest communications unavailable state', /n\/a|not connected|unavailable|no data/i.test(uiHtml) && /communications/i.test(uiHtml));
-ok('Spyglass does not invent AI/cost/billing numbers', !hasInventedMetricNumber(uiHtml));
+ok('spyglass alias matches default with client rows', /Spyglass/i.test(spyglassAliasHtml) && spyglassAliasHtml.includes('client-row'));
+ok('Iris Spyglass renders full-width AI usage panel', /ai-usage-panel/.test(uiHtml) && /AI usage/i.test(uiHtml));
+ok('Iris Spyglass clearly labels sample data', /sample data/i.test(uiHtml) && uiHtml.includes('sample-badge') && uiHtml.includes('sample-banner'));
+ok('Iris Spyglass states numbers are not live telemetry', /not live telemetry/i.test(uiHtml));
+// Numbers ARE now allowed on Spyglass, but only alongside explicit sample labeling (guarded above).
+ok('Iris Spyglass numbers appear only with sample labeling', !hasInventedMetricNumber(uiHtml) || /sample/i.test(uiHtml));
 ok('Spyglass includes read-only / no-live-writes language', /read-only|no live writes|no writes/i.test(uiHtml));
-ok('Spyglass may show static client count from in-memory data', /\b3\b/.test(uiHtml) && /client/i.test(uiHtml));
+ok('Spyglass shows static client count from in-memory data', /\b3\b/.test(uiHtml) && /client/i.test(uiHtml));
 
 function assertSharedNav(label, html, activeHref) {
   ok(`${label} nav has Spyglass link`, navHrefPresent(html, '/'));
