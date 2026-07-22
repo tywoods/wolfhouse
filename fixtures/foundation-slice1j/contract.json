@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "slice": "FOUNDATION-1J",
+  "outcome_id": "1J_docker_fresh_db_replacement_gate_complete",
+  "branch": "foundation/slice-1j-docker-gate-complete",
+  "master_basis": "f99c8bdc3106c3995b72aaff22e351337eb71590",
+  "progress_class": "one_gate_docker_fresh_db_replacement_classification",
+  "workstream_class": "finite_staging_schema_migration_recovery_closeout",
+  "completion_requires": "verify:foundation-slice1j-docker-gate-complete",
+  "production_validator": "validateDisposition",
+  "evidence_npm_gate": "verify:foundation-docker-fresh-db-replacement-evidence",
+  "live_mutation": false,
+  "live_rerun": false,
+  "certificate_architecture": false,
+  "messi_ledger_updated": false,
+  "this_slice_deploys": false,
+  "production_ready": false,
+  "messi_complete": false,
+  "frozen_score": {
+    "proven": 3,
+    "partial": 0,
+    "absent": 5,
+    "total": 8
+  },
+  "gate_ids": [
+    "G_STAGING_SCHEMA_MIGRATION_RECOVERY",
+    "G_DOCKER_FRESH_DB_REPLACEMENT",
+    "G_PRODUCTION_SCHEMA_READINESS",
+    "G_LIVE_RESTORE_DRILL",
+    "G_OPERATED_READINESS",
+    "G_FOUNDATION_FINITE_WORKSTREAM",
+    "G_PRODUCTION_READINESS",
+    "G_MESSI_MILESTONE"
+  ],
+  "parent_remaining_missing_proof": [
+    "production_schema_readiness",
+    "live_restore_drill",
+    "operated_readiness"
+  ],
+  "parent_production_readiness": "absent",
+  "parent_verdict": "partial",
+  "required_red": [
+    "evidence-gate-skipped",
+    "Docker-proof-promoted-to-production-readiness"
+  ],
+  "required_green": [
+    "score_frozen_3_0_5",
+    "docker_gate_complete",
+    "docker_removed_from_missing_proof_only",
+    "unknowns_remain_absent",
+    "evidence_gate_executed",
+    "foundation_1b_disposition_untouched",
+    "messi_ledger_untouched",
+    "package_script_registered",
+    "no_doc_overclaim",
+    "export_object_frozen",
+    "production_ready_false"
+  ],
+  "proves": [
+    "G_DOCKER_FRESH_DB_REPLACEMENT_complete_from_reviewed_evidence",
+    "FOUNDATION_score_3_0_5",
+    "docker_gate_removed_from_missing_proof_only",
+    "production_schema_restore_operated_MESSI_remain_absent",
+    "MESSI_ledger_untouched_by_1J_disposition",
+    "certificate_bound_1B_disposition_unchanged"
+  ],
+  "does_not_prove": [
+    "production_schema_readiness",
+    "live_restore_drill",
+    "operated_readiness",
+    "FOUNDATION_production_readiness",
+    "MESSI_complete",
+    "MESSI_1A_ledger_G_FOUNDATION_PARENT_complete",
+    "certificate_architecture",
+    "live_docker_rerun",
+    "runtime_migration_deploy_behavior_change"
+  ],
+  "scope_fence": {
+    "allowed": [
+      "docs",
+      "fixtures_foundation_slice1j",
+      "library_lock_module",
+      "independent_verifier",
+      "package_json_script_registration"
+    ],
+    "forbids": [
+      "messi_1a_ledger_semantic_update",
+      "certificate_bound_1b_blob_mutation",
+      "certificate_architecture",
+      "live_docker_rerun",
+      "runtime_behavior_change",
+      "migration_behavior_change",
+      "deploy_behavior_change",
+      "db_mutation",
+      "cloud_mutation",
+      "network_live_action",
+      "production_access",
+      "relabeling_production_unknowns_as_complete",
+      "self_authored_completion_booleans"
+    ]
+  }
+}
