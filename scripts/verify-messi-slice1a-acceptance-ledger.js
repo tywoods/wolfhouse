@@ -18,6 +18,7 @@ const { spawnSync, execSync } = require('child_process');
 
 const locksPath = path.join(__dirname, 'lib', 'messi-slice1a-acceptance-ledger.js');
 const locks = require(locksPath);
+const blobCerts = require('./lib/reviewed-candidate-blob-certificates');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -61,18 +62,6 @@ function pathExists(rel) {
 
 function noTrailingWhitespace(text) {
   return !String(text).split('\n').some((line) => /[ \t]+$/.test(line));
-}
-
-function tipPathsAllowed(changedPaths) {
-  const prefixes = locks.ALLOWED_TIP_PATH_PREFIXES;
-  const bad = [];
-  for (const p of changedPaths) {
-    const okPath = prefixes.some((pref) => (
-      pref.endsWith('/') ? p.startsWith(pref) || p === pref.slice(0, -1) : p === pref
-    ));
-    if (!okPath) bad.push(p);
-  }
-  return { ok: bad.length === 0, bad };
 }
 
 console.log('verify:messi-slice1a-acceptance-ledger — MESSI ledger (1C FOUNDATION wiring)\n');
@@ -278,35 +267,24 @@ for (const g of classification.gates) {
   ok(`${g.id} has explicit missing_proof`, Array.isArray(g.missing_proof) && g.missing_proof.length > 0);
 }
 
-// ── Tip scope (candidate/landing provenance — NOT base-to-HEAD) ─────────────
+// ── Tip scope (immutable reviewed-candidate blob certificates) ──────────────
 console.log('\n── Tip scope ──');
 {
-  const cand = locks.verifyReviewedCandidateScope(ROOT);
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  ok('locked certificate chain builds', built.ok, (built.errors || []).join('; '));
+
+  const tipVerify = locks.verifyReviewedBlobCertificatesAtTip(ROOT);
   green('reviewed_candidate_scope_authorized',
-    cand.ok && Array.isArray(cand.paths) && cand.paths.length > 0,
-    (cand.errors || []).concat(cand.unauthorized || []).slice(0, 20).join('; '));
+    tipVerify.ok && Object.keys(tipVerify.effective || {}).length > 0,
+    (tipVerify.errors || []).slice(0, 20).join('; '));
+  green('blob_certificates_match_current_tree',
+    tipVerify.ok,
+    (tipVerify.errors || []).slice(0, 20).join('; '));
 
-  const merged = locks.verifyMergedProvenance(ROOT);
-  green('merged_provenance_matches_reviewed_candidate',
-    merged.ok,
-    (merged.errors || []).slice(0, 20).join('; '));
-
-  const dirty = locks.verifyWorkingTreeDeltaScope(ROOT);
-  ok('working-tree delta only allowlisted messi ledger paths (break-glass; no base-to-HEAD)',
-    dirty.ok,
-    (dirty.errors || []).concat(dirty.unauthorized || []).slice(0, 20).join('; '));
-
-  const baseToHead = locks.listDiffPaths(
-    ROOT,
-    locks.MASTER_BASIS,
-    locks.currentHeadSha(ROOT),
-  ) || [];
-  const concurrentUnrelated = locks.unauthorizedTipPaths(baseToHead);
-  ok('concurrent post-landing master paths need no 1A file allowlist',
-    concurrentUnrelated.length > 0
-    && cand.ok
-    && tipPathsAllowed(cand.paths).ok,
-    `unrelated=${concurrentUnrelated.slice(0, 8).join(',')}`);
+  const head = locks.currentHeadSha(ROOT);
+  ok('tipAcceptsCertificates at HEAD (detached / wrong branch irrelevant)',
+    locks.tipAcceptsCertificates(ROOT, head, 'totally-wrong-branch-name'),
+    `head=${head}`);
 }
 
 // ── Structural: parents must not invoke MESSI (no recursion) ────────────────
@@ -630,61 +608,229 @@ red('unrelated_gate_semantic_drift', (() => {
 })());
 
 red('missing_reviewed_candidate_ref', (() => {
-  const r = locks.verifyReviewedCandidateScope(ROOT, {
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  if (!built.ok) return false;
+  const forged = locks.deepClone(built.certificates);
+  forged[0] = {
+    ...forged[0],
     candidate_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  };
+  const head = locks.currentHeadSha(ROOT);
+  const r = blobCerts.verifyReviewedBlobCertificates(ROOT, {
+    certificates: forged,
+    tip_sha: head,
   });
   return r.ok === false
     && r.errors.some((e) => e.includes('missing_ref:reviewed_candidate'));
 })());
 
-red('altered_candidate_scope', (() => {
-  // Synthetic commit with HEAD tree parented on MASTER_BASIS — includes
-  // concurrent #147 crowsnest paths (unauthorized for 1A/1C candidate).
-  let synth = '';
-  try {
-    const tree = execSync('git rev-parse HEAD^{tree}', {
-      cwd: ROOT,
-      encoding: 'utf8',
-    }).trim();
-    synth = execSync(
-      `git commit-tree ${tree} -p ${locks.MASTER_BASIS} -m "messi1a-altered-candidate-scope-probe"`,
-      { cwd: ROOT, encoding: 'utf8' },
-    ).trim();
-  } catch (_) {
-    return false;
-  }
-  const paths = locks.listDiffPaths(ROOT, locks.MASTER_BASIS, synth) || [];
-  const bad = locks.unauthorizedTipPaths(paths);
-  const identity = locks.verifyReviewedCandidateScope(ROOT, {
-    candidate_sha: synth,
+red('altered_certificate_scope', (() => {
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  if (!built.ok) return false;
+  const forged = locks.deepClone(built.certificates);
+  forged[0] = {
+    ...forged[0],
+    paths: [...forged[0].paths, 'hostile/extra-path.js'],
+    blobs: {
+      ...forged[0].blobs,
+      'hostile/extra-path.js': '0'.repeat(64),
+    },
+  };
+  const r = locks.verifyReviewedBlobCertificatesAtTip(ROOT, {
+    claimed_certificates: forged,
   });
-  return bad.length > 0
-    && identity.ok === false
+  return r.ok === false
+    && r.errors.some((e) => e.includes('altered_certificate_scope'));
+})());
+
+red('altered_candidate_scope', (() => {
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  if (!built.ok) return false;
+  const forged = locks.deepClone(built.certificates);
+  const rel = forged[0].paths[0];
+  forged[0] = {
+    ...forged[0],
+    blobs: {
+      ...forged[0].blobs,
+      [rel]: 'f'.repeat(64),
+    },
+  };
+  const r = locks.verifyReviewedBlobCertificatesAtTip(ROOT, {
+    claimed_certificates: forged,
+  });
+  return r.ok === false
     && (
-      identity.errors.some((e) => e.startsWith('altered_candidate_scope:'))
-      || identity.errors.some((e) => e.startsWith('stale_or_wrong_reviewed_candidate:'))
+      r.errors.some((e) => e.includes('altered_certificate_scope'))
+      || r.errors.some((e) => e.includes('certificate_blob_mismatch'))
     );
 })());
 
-red('concurrent_merge_topology', (() => {
-  // Concurrent #147 after 1C landing: base..HEAD has unauthorized paths, but
-  // exact reviewed candidate scope stays clean. Forging HEAD as candidate rejects.
-  const baseToHead = locks.listDiffPaths(
-    ROOT,
-    locks.MASTER_BASIS,
-    locks.currentHeadSha(ROOT),
-  ) || [];
-  const unrelated = locks.unauthorizedTipPaths(baseToHead);
-  const forged = locks.verifyReviewedCandidateScope(ROOT, {
-    candidate_sha: locks.currentHeadSha(ROOT),
+red('reordered_or_superseded_certificates', (() => {
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  if (!built.ok || built.certificates.length < 2) return false;
+  const forged = [built.certificates[1], built.certificates[0]];
+  const r = locks.verifyReviewedBlobCertificatesAtTip(ROOT, {
+    claimed_certificates: forged,
   });
-  const real = locks.verifyReviewedCandidateScope(ROOT);
-  return unrelated.length > 0
-    && real.ok === true
+  return r.ok === false
+    && r.errors.some((e) => e.includes('reordered_or_superseded_certificates'));
+})());
+
+red('changed_protected_blob', (() => {
+  const orphan = locks.makeUnrelatedOrphanCommit(ROOT);
+  const r = locks.verifyReviewedBlobCertificatesAtTip(ROOT, { tip_sha: orphan });
+  return r.ok === false
+    && r.errors.some((e) => e.includes('changed_protected_blob')
+      || e.includes('missing_protected_blob'));
+})());
+
+red('spoofed_locked_branch_name_rejected', (() => {
+  const orphan = locks.makeUnrelatedOrphanCommit(ROOT);
+  const head = locks.currentHeadSha(ROOT);
+  return locks.tipAcceptsCertificates(ROOT, orphan, locks.BRANCH) === false
+    && locks.tipAcceptsCertificates(ROOT, head, 'totally-wrong-branch-name') === true;
+})());
+
+red('multi_squash_unrelated_topology', (() => {
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  if (!built.ok) return false;
+  const candidateCerts = blobCerts.certificatesBeforeRedesign(built.certificates);
+  const topo = blobCerts.makeMultiSquashUnrelatedTopology(ROOT, candidateCerts);
+  const atTip = blobCerts.verifyReviewedBlobCertificates(ROOT, {
+    certificates: candidateCerts,
+    tip_sha: topo.tipSha,
+  });
+  const unrelatedBefore = blobCerts.verifyReviewedBlobCertificates(ROOT, {
+    certificates: candidateCerts,
+    tip_sha: topo.unrelatedBefore,
+  });
+  return atTip.ok === true
+    && unrelatedBefore.ok === false
+    && unrelatedBefore.errors.some((e) => e.includes('changed_protected_blob')
+      || e.includes('missing_protected_blob'));
+})());
+
+red('concurrent_merge_topology', (() => {
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  if (!built.ok) return false;
+  const head = locks.currentHeadSha(ROOT);
+  const candidateCerts = blobCerts.certificatesBeforeRedesign(built.certificates);
+  const real = locks.verifyReviewedBlobCertificatesAtTip(ROOT, { tip_sha: head });
+  const forged = locks.verifyReviewedBlobCertificatesAtTip(ROOT, {
+    tip_sha: locks.MASTER_BASIS,
+  });
+  const topo = blobCerts.makeMultiSquashUnrelatedTopology(ROOT, candidateCerts);
+  const topologyOk = blobCerts.verifyReviewedBlobCertificates(ROOT, {
+    certificates: candidateCerts,
+    tip_sha: topo.tipSha,
+  });
+  return real.ok === true
     && forged.ok === false
+    && topologyOk.ok === true
     && (
-      forged.errors.some((e) => e.startsWith('stale_or_wrong_reviewed_candidate:'))
-      || forged.errors.some((e) => e.startsWith('altered_candidate_scope:'))
+      forged.errors.some((e) => e.includes('changed_protected_blob'))
+      || forged.errors.some((e) => e.includes('missing_protected_blob'))
+    );
+})());
+
+
+red('source_fixture_co_tamper', (() => {
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  if (!built.ok) return false;
+  const redesign = built.certificates.find((c) => c.id === blobCerts.REDESIGN_CERT_ID);
+  if (!redesign || !redesign.paths.length) return false;
+  const rel = redesign.paths[0];
+  const forgedFixture = {
+    id: blobCerts.REDESIGN_CERT_ID,
+    candidate_sha: redesign.candidate_sha,
+    correction_candidate_bound: blobCerts.redesignPin.CORRECTION_CANDIDATE_BOUND,
+    master_basis: blobCerts.redesignPin.MASTER_BASIS_BOUND,
+    paths: [...redesign.paths],
+    blobs: { ...redesign.blobs, [rel]: 'f'.repeat(64) },
+  };
+  const meta = blobCerts.validateWholePathRedesignAnchorData(
+    blobCerts.redesignPin,
+    forgedFixture,
+    ROOT,
+  );
+  const forgedCerts = built.certificates.map((c) => {
+    if (c.id !== blobCerts.REDESIGN_CERT_ID) return c;
+    return {
+      ...c,
+      blobs: { ...c.blobs, [rel]: 'f'.repeat(64) },
+    };
+  });
+  const r = locks.verifyReviewedBlobCertificatesAtTip(ROOT, {
+    claimed_certificates: forgedCerts,
+    skip_anchor_validation: true,
+  });
+  return meta.ok === false
+    && meta.errors.some((e) => e.includes('fixture_blobs_forbidden'))
+    && r.ok === false
+    && (
+      r.errors.some((e) => e.includes('altered_certificate_scope'))
+      || r.errors.some((e) => e.includes('certificate_blob_mismatch'))
+    );
+})());
+
+red('fixture_metadata_tamper', (() => {
+  const forged = {
+    id: blobCerts.REDESIGN_CERT_ID,
+    candidate_sha: 'a'.repeat(40),
+    correction_candidate_bound: 'b'.repeat(40),
+    master_basis: 'c'.repeat(40),
+    paths: ['hostile/not-in-pin.js'],
+  };
+  const meta = blobCerts.validateWholePathRedesignAnchorData(
+    blobCerts.redesignPin,
+    forged,
+    ROOT,
+  );
+  return meta.ok === false
+    && meta.errors.some((e) => e.includes('fixture_metadata_'))
+    && meta.errors.some((e) => e.includes('candidate_sha_mismatch')
+      || e.includes('correction_ref_mismatch')
+      || e.includes('master_basis_mismatch')
+      || e.includes('paths_mismatch'));
+})());
+
+red('redesign_ref_tamper', (() => {
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  if (!built.ok) return false;
+  const redesign = built.certificates.find((c) => c.id === blobCerts.REDESIGN_CERT_ID);
+  if (!redesign) return false;
+  const forged = built.certificates.map((c) => {
+    if (c.id !== blobCerts.REDESIGN_CERT_ID) return c;
+    return { ...c, candidate_sha: 'dddddddddddddddddddddddddddddddddddddddd' };
+  });
+  const r = locks.verifyReviewedBlobCertificatesAtTip(ROOT, {
+    claimed_certificates: forged,
+  });
+  return r.ok === false
+    && r.errors.some((e) => e.includes('stale_or_wrong_reviewed_candidate')
+      || e.includes('missing_ref:reviewed_candidate'));
+})());
+
+red('redesign_hash_tamper', (() => {
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  if (!built.ok) return false;
+  const redesign = built.certificates.find((c) => c.id === blobCerts.REDESIGN_CERT_ID);
+  if (!redesign || !redesign.paths.length) return false;
+  const rel = redesign.paths[0];
+  const forged = built.certificates.map((c) => {
+    if (c.id !== blobCerts.REDESIGN_CERT_ID) return c;
+    return {
+      ...c,
+      blobs: { ...c.blobs, [rel]: 'e'.repeat(64) },
+    };
+  });
+  const r = locks.verifyReviewedBlobCertificatesAtTip(ROOT, {
+    claimed_certificates: forged,
+  });
+  return r.ok === false
+    && (
+      r.errors.some((e) => e.includes('altered_certificate_scope'))
+      || r.errors.some((e) => e.includes('certificate_blob_mismatch'))
     );
 })());
 

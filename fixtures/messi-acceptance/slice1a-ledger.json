@@ -165,8 +165,8 @@
     "fixtures/foundation-closeout/finite-closeout.json": "3411701e798e863e7d3d1583963336f0d19fe740823f07280060230a500a9e52",
     "fixtures/foundation-closeout/contract.json": "3e2d2520e4c497b7ec17b76669cc29703b3c1eb7a890125b007dd805a5503e40",
     "fixtures/foundation-closeout/findings.md": "8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439",
-    "scripts/lib/messi-slice1b-foundation-closeout.js": "63c12920a26064d12b95d08105b7185ab8ccbd5853ec5ca56cfa434588108772",
-    "scripts/verify-messi-slice1b-foundation-closeout.js": "31e730bbdcefe0b7434db7bf2a047696aff14c02182fcf9acc423234bb548ce6",
+    "scripts/lib/messi-slice1b-foundation-closeout.js": "d67d1978fd63d3ca3bb2706d6b344dd91e619d76cf150c6ab1378a735b1ea23a",
+    "scripts/verify-messi-slice1b-foundation-closeout.js": "253d2b9a35e307bb73fd339a5badb586473988282854ff4452fd90542c508091",
     "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md": "ec8fe4e611d086651842f287610a13495ef34df174e801e0bdc8e35d45bfccf9",
     "fixtures/fortress-tenant-identity/boundary-matrix.json": "7503c290cca697af916edd9d570eb4973a88f0c3dc349042a2392fc220aede1d",
     "fixtures/fortress-tenant-identity/attack-cases.json": "6f73fb951e49d45ed264a1383dc6e65224937da29d91ea6dafd0cd50430fc5bc",
@@ -187,22 +187,12 @@
     "fixtures/factory-client-productization/slice1e-operator-handoff.md": "845c9fb43c8aadee65dd54e3b403dd8e523810b4c84a6f4fcf20c28d6b4d3163",
     "fixtures/factory-client-productization/slice1e-artifact-lock.json": "fad80e4f02dce0c0e9047a31326220889555948c0eeaefc0536720b626ca2901",
     "fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json": "1204d0f32729f2e5f258908e84ea0735bdb5bb3ab1b1c360751691a233ef99cd",
-    "scripts/lib/factory-slice1b-archetype-templates.js": "96f79c00c66abbb2bdb973ef1beb248c561a2604b01a27498c15593fb397a873",
+    "scripts/lib/factory-slice1b-archetype-templates.js": "1e3683e9cbb9027f74d17390ce98c241a8bfbe09599b93e6bd83573bc237f624",
     "scripts/lib/factory-slice1c-dry-run-generator.js": "c6864be5c9770c8b05915ca8d892a1a4f5768e012afb32a458f4ad6a3f6be879",
     "scripts/lib/factory-slice1d-integration-proof.js": "0db5a8d0aedf9418ef58dc1d842a558059c5c58d5f85a3465d92aeec159da8d8",
-    "scripts/lib/factory-slice1e-finite-closeout.js": "7311dcc579608d041e809476671c9110072de5f115186e91ac68b6bfe9520a91",
-    "scripts/verify-factory-slice1e-finite-closeout.js": "76db5ab78b845f59a65c4950ce26e6a5b1e2970ede3dc25adf7080e0b66a2a08"
+    "scripts/lib/factory-slice1e-finite-closeout.js": "6016f1b42190aca2d4466162aaf747a05b2ccf33b30f67bef6af9052741ba3f7",
+    "scripts/verify-factory-slice1e-finite-closeout.js": "045c07f246e32ee767d1743bce7912c513d61817a87efbb7239db3a6d4002098"
   },
-  "tip_scope_forward_compat_rels": [
-    "scripts/lib/factory-slice1b-archetype-templates.js",
-    "scripts/lib/factory-slice1c-dry-run-generator.js",
-    "scripts/lib/factory-slice1d-integration-proof.js",
-    "scripts/lib/factory-slice1e-finite-closeout.js",
-    "scripts/verify-factory-slice1b-archetype-templates.js",
-    "scripts/verify-factory-slice1e-finite-closeout.js",
-    "scripts/lib/messi-slice1b-foundation-closeout.js",
-    "scripts/verify-messi-slice1b-foundation-closeout.js"
-  ],
   "parent_sha_provenance": {
     "FOUNDATION": {
       "canonical_tip": "98202775a57e64597e0e606a6e58933bb8ba7250",

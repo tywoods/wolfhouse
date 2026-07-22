@@ -17,11 +17,13 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
-const { spawnSync } = require('child_process');
+const { spawnSync, execSync } = require('child_process');
 
 const slice1e = require('./lib/factory-slice1e-finite-closeout');
 const slice1a = require('./lib/factory-slice1a-acceptance-contract');
 const slice1b = require('./lib/factory-slice1b-archetype-templates');
+const blobCerts = require('./lib/reviewed-candidate-blob-certificates');
+const redesignPin = require('./lib/breakglass-redesign-candidate-sha');
 
 const ROOT = path.join(__dirname, '..');
 const FIXTURE_DIR = path.join(ROOT, 'fixtures', 'factory-client-productization');
@@ -76,18 +78,6 @@ function readBuf(p) {
 
 function sha256Hex(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
-}
-
-function tipPathsAllowed(changedPaths) {
-  const prefixes = slice1e.ALLOWED_TIP_PATH_PREFIXES;
-  const bad = [];
-  for (const p of changedPaths) {
-    const okPath = prefixes.some((pref) => (
-      pref.endsWith('/') ? p.startsWith(pref) || p === pref.slice(0, -1) : p === pref
-    ));
-    if (!okPath) bad.push(p);
-  }
-  return { ok: bad.length === 0, bad };
 }
 
 function clientsTreeSnapshot() {
@@ -497,58 +487,212 @@ green('archetype_templates_immutable_during_1e', slice1e.deepEqual(beforeTemplat
 }
 
 // ── Tip scope ───────────────────────────────────────────────────────────────
-console.log('\n── Tip scope ──');
+console.log('\n── Tip scope (immutable reviewed-candidate blob certificates) ──');
 {
-  let changed = [];
-  try {
-    changed = spawnSync('git', ['diff', '--name-only', slice1e.MASTER_BASIS], {
-      cwd: ROOT,
-      encoding: 'utf8',
-    }).stdout.trim().split('\n').filter(Boolean);
-  } catch (_) {
-    changed = [];
+  function factory1eCertificateConfig() {
+    return {
+      slice_cert_id: 'factory-1e-reviewed',
+      master_basis: slice1e.MASTER_BASIS,
+      reviewed_candidate: slice1e.REVIEWED_CANDIDATE,
+      correction_candidate: '53c1abcfb67edb491c5100de571260c60813aec4',
+      correction_cert_id: 'breakglass-53c1abcf',
+      correction_basis: 'ff285598ac2cfec980e8316e772924a9c79a6a7e',
+      redesign_cert_id: redesignPin.REDESIGN_CERT_ID,
+      redesign_candidate_sha: redesignPin.REDESIGN_CANDIDATE_SHA,
+      redesign_paths: redesignPin.REDESIGN_PATHS,
+    };
   }
-  const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  }).stdout.trim().split('\n').filter(Boolean);
-  const factoryTouched = [...new Set([...changed, ...untracked])].filter((p) => (
-    p.startsWith('fixtures/factory-client-productization/')
-    || p.startsWith('scripts/lib/factory-slice1')
-    || p.startsWith('scripts/verify-factory-slice1')
-    || p === 'scripts/onboard-client.js'
-    || p === 'docs/FACTORY-CLIENT-PRODUCTIZATION.md'
-    || p === 'package.json'
-    || p.startsWith('config/archetypes/')
-    || p.startsWith('config/clients/')
-  ));
-  const tipCheck = tipPathsAllowed(factoryTouched);
-  ok('1E tip paths within allowlist', tipCheck.ok, tipCheck.bad.join(','));
-  red('no_archetype_template_edits_in_tip',
-    !factoryTouched.some((p) => p.startsWith('config/archetypes/')));
-  red('no_config_clients_edits_in_tip',
-    !factoryTouched.some((p) => p.startsWith('config/clients/')));
-  red('no_onboard_cli_edits_in_tip',
-    !factoryTouched.includes('scripts/onboard-client.js'));
-  // 1B/1C/1D lock modules may gain forward-compat tip allowlist entries for 1E
-  // paths only — not generator/CLI algorithm changes.
-  {
-    const genDiff = spawnSync('git', [
-      'diff', slice1e.MASTER_BASIS, '--', 'scripts/lib/factory-slice1c-dry-run-generator.js',
-    ], { cwd: ROOT, encoding: 'utf8' }).stdout || '';
-    const suspicious = genDiff.split('\n').filter((line) => (
-      /^\+[^+]/.test(line)
-      && !/ALLOWED_TIP_PATH_PREFIXES|factory-slice1[de]|verify-factory-slice1[de]|messi-slice1[a-d]|MESSI-ACCEPTANCE|FOUNDATION|FORTRESS|fixtures\/messi-acceptance|fixtures\/foundation-closeout|fixtures\/fortress-closeout|Forward-compat tip-allowlist/.test(line)
-      && !/^\+\s*$/.test(line)
-      && !/^\+\s*['"]scripts\//.test(line)
-      && !/^\+\s*['"]docs\//.test(line)
-      && !/^\+\s*\],?$/.test(line)
-    ));
-    red('1c_generator_diff_tip_allowlist_only',
-      !factoryTouched.includes('scripts/lib/factory-slice1c-dry-run-generator.js')
-      || suspicious.length === 0,
-      suspicious.slice(0, 8).join(' | '));
+
+  function buildFactory1eCertificates() {
+    return blobCerts.buildSupersedingCertificateChain(ROOT, factory1eCertificateConfig());
   }
+
+  function currentHeadSha() {
+    try {
+      return execSync('git rev-parse HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function resolveTipSha(tipSha) {
+    const raw = String(tipSha || '').trim();
+    if (!raw || raw === 'HEAD') return currentHeadSha() || null;
+    return blobCerts.resolveCommitSha(ROOT, raw);
+  }
+
+  function verifyFactory1eAtTip(opts) {
+    const options = opts || {};
+    const built = buildFactory1eCertificates();
+    if (!built.ok) {
+      return {
+        ok: false,
+        errors: built.errors,
+        certificates: [],
+        tipSha: null,
+        effective: {},
+        source: {},
+      };
+    }
+    const tip = resolveTipSha(options.tip_sha);
+    if (!tip) {
+      return {
+        ok: false,
+        errors: ['missing_ref:tip'],
+        certificates: built.certificates,
+        tipSha: null,
+        effective: {},
+        source: {},
+      };
+    }
+    return blobCerts.verifyReviewedBlobCertificates(ROOT, {
+      certificates: built.certificates,
+      claimed_certificates: options.claimed_certificates,
+      tip_sha: tip,
+      branch_name: options.branch_name,
+      skip_anchor_validation: options.skip_anchor_validation === true,
+    });
+  }
+
+  const built = buildFactory1eCertificates();
+  ok('locked certificate chain builds', built.ok, (built.errors || []).join('; '));
+
+  const tipVerify = verifyFactory1eAtTip();
+  const candidateCerts = blobCerts.certificatesBeforeRedesign(built.certificates);
+  const correctionTip = blobCerts.resolveCommitSha(
+    ROOT,
+    '53c1abcfb67edb491c5100de571260c60813aec4',
+  );
+  const candidateOnlyVerify = correctionTip
+    ? blobCerts.verifyReviewedBlobCertificates(ROOT, {
+      certificates: candidateCerts,
+      tip_sha: correctionTip,
+    })
+    : { ok: false, errors: ['missing_ref:correction_candidate'], effective: {} };
+  ok('candidate certificate subchain matches correction candidate',
+    built.ok && candidateOnlyVerify.ok,
+    (candidateOnlyVerify.errors || []).slice(0, 12).join('; '));
+
+  green('reviewed_candidate_scope_authorized',
+    tipVerify.ok && Object.keys(tipVerify.effective || {}).length > 0,
+    (tipVerify.errors || []).slice(0, 20).join('; '));
+  green('blob_certificates_match_current_tree',
+    tipVerify.ok,
+    (tipVerify.errors || []).slice(0, 20).join('; '));
+
+  const head = resolveTipSha('HEAD');
+  ok('tipAcceptsCertificates at HEAD (detached / wrong branch irrelevant)',
+    built.ok
+    && blobCerts.tipAcceptsCertificates(
+      ROOT,
+      built.certificates,
+      head,
+      'totally-wrong-branch-name',
+    ),
+    `head=${head}`);
+
+  red('no_archetype_template_edits_in_tip', (() => {
+    const eff = tipVerify.effective || {};
+    return !Object.keys(eff).some((p) => p.startsWith('config/archetypes/'));
+  })());
+  red('no_config_clients_edits_in_tip', (() => {
+    const eff = tipVerify.effective || {};
+    return !Object.keys(eff).some((p) => p.startsWith('config/clients/'));
+  })());
+  red('no_onboard_cli_edits_in_tip', (() => {
+    const eff = tipVerify.effective || {};
+    return !Object.prototype.hasOwnProperty.call(eff, 'scripts/onboard-client.js');
+  })());
+
+  red('concurrent_merge_topology', (() => {
+    if (!built.ok) return false;
+    const forged = verifyFactory1eAtTip({ tip_sha: slice1e.MASTER_BASIS });
+    const topo = blobCerts.makeMultiSquashUnrelatedTopology(ROOT, candidateCerts);
+    const topologyOk = blobCerts.verifyReviewedBlobCertificates(ROOT, {
+      certificates: candidateCerts,
+      tip_sha: topo.tipSha,
+    });
+    return forged.ok === false
+      && topologyOk.ok === true
+      && (
+        forged.errors.some((e) => e.includes('changed_protected_blob'))
+        || forged.errors.some((e) => e.includes('missing_protected_blob'))
+      );
+  })());
+
+  red('source_fixture_co_tamper', (() => {
+    if (!built.ok) return false;
+    const redesign = built.certificates.find((c) => c.id === blobCerts.REDESIGN_CERT_ID);
+    if (!redesign || !redesign.paths.length) return false;
+    const rel = redesign.paths[0];
+    const forgedFixture = {
+      id: blobCerts.REDESIGN_CERT_ID,
+      candidate_sha: redesign.candidate_sha,
+      correction_candidate_bound: redesignPin.CORRECTION_CANDIDATE_BOUND,
+      master_basis: redesignPin.MASTER_BASIS_BOUND,
+      paths: [...redesign.paths],
+      blobs: { ...redesign.blobs, [rel]: 'f'.repeat(64) },
+    };
+    const meta = blobCerts.validateWholePathRedesignAnchorData(
+      redesignPin,
+      forgedFixture,
+      ROOT,
+    );
+    const forgedCerts = built.certificates.map((c) => {
+      if (c.id !== blobCerts.REDESIGN_CERT_ID) return c;
+      return { ...c, blobs: { ...c.blobs, [rel]: 'f'.repeat(64) } };
+    });
+    const r = verifyFactory1eAtTip({
+      claimed_certificates: forgedCerts,
+      skip_anchor_validation: true,
+    });
+    return meta.ok === false
+      && meta.errors.some((e) => e.includes('fixture_blobs_forbidden'))
+      && r.ok === false;
+  })());
+
+  red('fixture_metadata_tamper', (() => {
+    const forged = {
+      id: blobCerts.REDESIGN_CERT_ID,
+      candidate_sha: 'a'.repeat(40),
+      correction_candidate_bound: 'b'.repeat(40),
+      master_basis: 'c'.repeat(40),
+      paths: ['hostile/not-in-pin.js'],
+    };
+    const meta = blobCerts.validateWholePathRedesignAnchorData(redesignPin, forged, ROOT);
+    return meta.ok === false && meta.errors.some((e) => e.includes('fixture_metadata_'));
+  })());
+
+  red('redesign_ref_tamper', (() => {
+    if (!built.ok) return false;
+    const redesign = built.certificates.find((c) => c.id === blobCerts.REDESIGN_CERT_ID);
+    if (!redesign) return false;
+    const forged = built.certificates.map((c) => {
+      if (c.id !== blobCerts.REDESIGN_CERT_ID) return c;
+      return { ...c, candidate_sha: 'dddddddddddddddddddddddddddddddddddddddd' };
+    });
+    const r = verifyFactory1eAtTip({ claimed_certificates: forged });
+    return r.ok === false
+      && r.errors.some((e) => e.includes('stale_or_wrong_reviewed_candidate')
+        || e.includes('missing_ref:reviewed_candidate'));
+  })());
+
+  red('redesign_hash_tamper', (() => {
+    if (!built.ok) return false;
+    const redesign = built.certificates.find((c) => c.id === blobCerts.REDESIGN_CERT_ID);
+    if (!redesign || !redesign.paths.length) return false;
+    const rel = redesign.paths[0];
+    const forged = built.certificates.map((c) => {
+      if (c.id !== blobCerts.REDESIGN_CERT_ID) return c;
+      return { ...c, blobs: { ...c.blobs, [rel]: 'e'.repeat(64) } };
+    });
+    const r = verifyFactory1eAtTip({ claimed_certificates: forged });
+    return r.ok === false
+      && (
+        r.errors.some((e) => e.includes('altered_certificate_scope'))
+        || r.errors.some((e) => e.includes('certificate_blob_mismatch'))
+      );
+  })());
 }
 
 // ── Source fences ───────────────────────────────────────────────────────────
@@ -565,6 +709,14 @@ console.log('\n── Source fences ──');
     verifierSrc.includes('${slice1e.MASTER_BASIS}...HEAD')
     && /diff', '--check', `\$\{slice1e\.MASTER_BASIS\}\.\.\.HEAD`/.test(verifierSrc)
     && !/ok\('git diff --check clean'/.test(verifierSrc));
+  red('no_tip_path_allowlist_in_1e',
+    !Object.prototype.hasOwnProperty.call(slice1e, 'ALLOWED_TIP_PATH_PREFIXES')
+    && typeof slice1e.REVIEWED_CANDIDATE === 'string'
+    && /^[0-9a-f]{40}$/i.test(slice1e.REVIEWED_CANDIDATE)
+    && !fs.readFileSync(path.join(ROOT, 'scripts/lib/factory-slice1e-finite-closeout.js'), 'utf8')
+      .includes('ALLOWED_TIP_PATH_PREFIXES')
+    && !fs.readFileSync(path.join(ROOT, 'scripts/lib/factory-slice1e-finite-closeout.js'), 'utf8')
+      .includes('TIP_SCOPE_FORWARD_COMPAT'));
 }
 
 // ── 1A ledger must claim 1E complete with evidence (structural) ─────────────

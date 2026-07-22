@@ -290,38 +290,6 @@ const FORBIDDEN_PRODUCTIZATION_PATHS = Object.freeze([
   'config/clients/_archetype-surf_school_shop.template.json',
 ]);
 
-const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
-  'config/archetypes/',
-  'docs/FACTORY-CLIENT-PRODUCTIZATION.md',
-  'fixtures/factory-client-productization/',
-  'scripts/lib/factory-slice1a-acceptance-contract.js',
-  'scripts/lib/factory-slice1b-archetype-templates.js',
-  'scripts/lib/factory-slice1c-dry-run-generator.js',
-  'scripts/lib/factory-slice1d-integration-proof.js',
-  'scripts/lib/factory-slice1e-finite-closeout.js',
-  'scripts/verify-factory-slice1a-acceptance-contract.js',
-  'scripts/verify-factory-slice1b-archetype-templates.js',
-  'scripts/verify-factory-slice1c-dry-run-generator.js',
-  'scripts/verify-factory-slice1d-integration-proof.js',
-  'scripts/verify-factory-slice1e-finite-closeout.js',
-  'scripts/onboard-client.js',
-  'scripts/lib/messi-slice1a-acceptance-ledger.js',
-  'scripts/verify-messi-slice1a-acceptance-ledger.js',
-  'docs/MESSI-ACCEPTANCE-LEDGER.md',
-  'fixtures/messi-acceptance/',
-  // Forward-compat tip-allowlist for MESSI 1B FOUNDATION closeout (paths only).
-  'docs/FOUNDATION-FINITE-CLOSEOUT.md',
-  'fixtures/foundation-closeout/',
-  'scripts/lib/messi-slice1b-foundation-closeout.js',
-  'scripts/verify-messi-slice1b-foundation-closeout.js',
-  // Forward-compat tip-allowlist for MESSI 1D FORTRESS closeout (paths only).
-  'docs/FORTRESS-FINITE-CLOSEOUT.md',
-  'fixtures/fortress-closeout/',
-  'scripts/lib/messi-slice1d-fortress-closeout.js',
-  'scripts/verify-messi-slice1d-fortress-closeout.js',
-  'package.json',
-  'package-lock.json',
-]);
 
 const PACKAGE_JSON_ALLOWED_SCRIPT_KEY = 'verify:factory-slice1b-archetype-templates';
 const PACKAGE_JSON_ALLOWED_SCRIPT_VALUE =
@@ -1372,7 +1340,6 @@ deepFreeze(ARCHETYPE_FILES);
 deepFreeze(PRESERVED_REFERENCE_BLOBS);
 deepFreeze(FORBIDDEN_CONTENT_PATTERNS);
 deepFreeze(ENABLEMENT_FALSE_PATHS);
-deepFreeze(ALLOWED_TIP_PATH_PREFIXES);
 deepFreeze(EXISTING_REGRESSION_GATES);
 deepFreeze(FORBIDDEN_PRODUCTIZATION_PATHS);
 deepFreeze(REQUIRED_ADD_ON_KEYS);
@@ -1399,7 +1366,6 @@ module.exports = Object.freeze({
   REQUIRED_MANIFEST_PATHS,
   REQUIRED_COMPATIBILITY_PATHS,
   FORBIDDEN_PRODUCTIZATION_PATHS,
-  ALLOWED_TIP_PATH_PREFIXES,
   PACKAGE_JSON_ALLOWED_SCRIPT_KEY,
   PACKAGE_JSON_ALLOWED_SCRIPT_VALUE,
   EXISTING_REGRESSION_GATES,

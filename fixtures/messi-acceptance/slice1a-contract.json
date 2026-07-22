@@ -188,15 +188,6 @@
       ]
     }
   ],
-  "tip_scope_forward_compat_rels": [
-    "scripts/lib/factory-slice1b-archetype-templates.js",
-    "scripts/lib/factory-slice1c-dry-run-generator.js",
-    "scripts/lib/factory-slice1d-integration-proof.js",
-    "scripts/lib/factory-slice1e-finite-closeout.js",
-    "scripts/verify-factory-slice1e-finite-closeout.js",
-    "scripts/lib/messi-slice1b-foundation-closeout.js",
-    "scripts/verify-messi-slice1b-foundation-closeout.js"
-  ],
   "parent_sha_provenance": {
     "FOUNDATION": {
       "canonical_tip": "98202775a57e64597e0e606a6e58933bb8ba7250",
