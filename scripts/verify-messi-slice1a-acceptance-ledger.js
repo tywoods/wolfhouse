@@ -1,12 +1,12 @@
 'use strict';
 
 /**
- * verify:messi-slice1a-acceptance-ledger — MESSI acceptance ledger (1A + 1E wiring)
+ * verify:messi-slice1a-acceptance-ledger — MESSI acceptance ledger (1A + 1F wiring)
  *
  * Read-only deterministic acceptance ledger verifier. Canonical classifier +
  * parent bindings live in scripts/lib/messi-slice1a-acceptance-ledger.js.
- * Slice 1E wires FORTRESS 1D finite audit closeout into the ledger. Runs
- * retained offline parent gates only — no deploy/DB/cloud/network/live product
+ * Slice 1F wires RADAR 16AP finite staging-readiness closeout into the ledger.
+ * Runs retained offline parent gates only — no deploy/DB/cloud/network/live product
  * mutation.
  *
  * Exit 0 on pass, nonzero on failure.
@@ -65,7 +65,7 @@ function noTrailingWhitespace(text) {
   return !String(text).split('\n').some((line) => /[ \t]+$/.test(line));
 }
 
-console.log('verify:messi-slice1a-acceptance-ledger — MESSI ledger (1E FORTRESS wiring)\n');
+console.log('verify:messi-slice1a-acceptance-ledger — MESSI ledger (1F RADAR wiring)\n');
 
 // ── Artifacts ───────────────────────────────────────────────────────────────
 console.log('── Artifacts ──');
@@ -83,7 +83,7 @@ const doc = readText(locks.ARTIFACT_RELS.doc);
 const lockSrc = readText(locks.ARTIFACT_RELS.lock_module);
 const verifierSrc = readText(locks.ARTIFACT_RELS.verifier);
 
-ok('contract slice MESSI-1E', contract.slice === locks.SLICE && locks.SLICE === 'MESSI-1E');
+ok('contract slice MESSI-1F', contract.slice === locks.SLICE && locks.SLICE === 'MESSI-1F');
 ok('contract outcome', contract.outcome_id === locks.OUTCOME_ID);
 ok('contract master basis', contract.master_basis === locks.MASTER_BASIS);
 ok('contract messi_complete false', contract.messi_complete === false);
@@ -130,7 +130,9 @@ console.log('\n── Package script ──');
       && pkg.scripts[locks.PACKAGE_JSON_1C_SCRIPT_KEY]
       === locks.PACKAGE_JSON_1C_SCRIPT_VALUE
       && pkg.scripts[locks.PACKAGE_JSON_1E_SCRIPT_KEY]
-      === locks.PACKAGE_JSON_1E_SCRIPT_VALUE,
+      === locks.PACKAGE_JSON_1E_SCRIPT_VALUE
+      && pkg.scripts[locks.PACKAGE_JSON_1F_SCRIPT_KEY]
+      === locks.PACKAGE_JSON_1F_SCRIPT_VALUE,
   );
 }
 
@@ -281,6 +283,25 @@ green('fortress_finite_audit_exposed', (() => {
     && ledgerG.verdict === 'partial'
     && !Object.prototype.hasOwnProperty.call(g, 'finite_staging_workstream_complete');
 })());
+green('radar_finite_staging_readiness_exposed', (() => {
+  const g = classification.gates.find((x) => x.id === 'G_RADAR_PARENT');
+  const ledgerG = (ledger.gates || []).find((x) => x.id === 'G_RADAR_PARENT');
+  return g
+    && g.verdict === 'partial'
+    && g.finite_staging_readiness_workstream_complete === true
+    && g.finite_closeout_analog === 'verify:radar-slice16ap-finite-closeout'
+    && g.workstream_class === 'finite_milestone_closeout_staging_readiness_only'
+    && Array.isArray(g.missing_proof)
+    && g.missing_proof.includes('formal_gates_raised_from_partial_to_proven')
+    && g.missing_proof.includes('production_only_unknowns_closed')
+    && g.missing_proof.includes('full_G06_proven_forbidden_by_16AP')
+    && g.missing_proof.includes('production_ready_claim_forbidden_by_16AP')
+    && ledgerG
+    && ledgerG.finite_staging_readiness_workstream_complete === true
+    && ledgerG.verdict === 'partial'
+    && !Object.prototype.hasOwnProperty.call(g, 'finite_staging_workstream_complete')
+    && !Object.prototype.hasOwnProperty.call(g, 'finite_audit_workstream_complete');
+})());
 green('unrelated_gates_byte_identical_to_base', (() => {
   const ledgerMatch = locks.unrelatedGatesMatchBase(ledger.gates || []);
   const classMatch = locks.unrelatedGatesMatchBase(classification.gates);
@@ -291,11 +312,17 @@ green('unrelated_gates_byte_identical_to_base', (() => {
     && locks.BASE_UNRELATED_GATE_OBJECTS.every((exp) => {
       const got = (ledger.gates || []).find((x) => x.id === exp.id);
       return got
-        && !Object.prototype.hasOwnProperty.call(got, 'finite_audit_workstream_complete')
+        && !Object.prototype.hasOwnProperty.call(
+          got,
+          'finite_staging_readiness_workstream_complete',
+        )
         && locks.deepEqual(locks.ledgerGateObject(got), locks.deepClone(exp));
     })
+    && !(locks.UNRELATED_GATE_IDS.includes('G_RADAR_PARENT'))
     && (ledger.gates || []).find((x) => x.id === 'G_FOUNDATION_PARENT')
       ?.finite_staging_workstream_complete === true
+    && (ledger.gates || []).find((x) => x.id === 'G_FORTRESS_PARENT')
+      ?.finite_audit_workstream_complete === true
     && (ledger.gates || []).find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT')
       ?.workstream_class === locks.MESSI_CLOSEOUT_WORKSTREAM_CLASS
     && (ledger.gates || []).find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT')
@@ -356,7 +383,7 @@ console.log('\n── Recursion fence ──');
   for (const rel of parentVerifiers) {
     const src = readText(rel);
     ok(`${rel} does not spawn MESSI ledger verifier`,
-      !/verify-messi-slice1a-acceptance-ledger\.js|verify:messi-slice1c-foundation-wiring|verify:messi-slice1e-fortress-wiring/.test(src));
+      !/verify-messi-slice1a-acceptance-ledger\.js|verify:messi-slice1c-foundation-wiring|verify:messi-slice1e-fortress-wiring|verify:messi-slice1f-radar-wiring/.test(src));
   }
 }
 
@@ -643,10 +670,10 @@ red('self_authored_score_change', (() => {
 })());
 
 red('unrelated_gate_semantic_drift', (() => {
-  // Leak finite_audit onto FOUNDATION (unrelated) — must fail closed.
+  // Leak finite staging-readiness onto FORTRESS (unrelated) — must fail closed.
   const leak = locks.thaw(ledger);
-  const fg = leak.gates.find((x) => x.id === 'G_FOUNDATION_PARENT');
-  fg.finite_audit_workstream_complete = false;
+  const fg = leak.gates.find((x) => x.id === 'G_FORTRESS_PARENT');
+  fg.finite_staging_readiness_workstream_complete = false;
   const vLeak = locks.validateLedgerFixture(leak, classification);
   // Mutate G_MESSI_MILESTONE_CLOSEOUT.workstream_class away from base.
   const drift = locks.thaw(ledger);
@@ -657,8 +684,8 @@ red('unrelated_gate_semantic_drift', (() => {
   const live = locks.unrelatedGatesMatchBase(ledger.gates || []);
   return live.ok === true
     && vLeak.ok === false
-    && vLeak.errors.some((e) => e === 'finite_audit_on_unrelated_gate:G_FOUNDATION_PARENT'
-      || e === 'unrelated_gate_drift:G_FOUNDATION_PARENT')
+    && vLeak.errors.some((e) => e === 'finite_staging_readiness_on_unrelated_gate:G_FORTRESS_PARENT'
+      || e === 'unrelated_gate_drift:G_FORTRESS_PARENT')
     && vDrift.ok === false
     && vDrift.errors.includes('unrelated_gate_drift:G_MESSI_MILESTONE_CLOSEOUT');
 })());
@@ -668,8 +695,8 @@ red('unrelated_gate_identity', (() => {
   const live = locks.unrelatedGatesMatchBase(ledger.gates || []);
   const classified = locks.unrelatedGatesMatchBase(classification.gates);
   const forged = locks.thaw(ledger);
-  const radar = forged.gates.find((x) => x.id === 'G_RADAR_PARENT');
-  radar.missing_proof = [...radar.missing_proof, 'hostile_extra_gap'];
+  const fortress = forged.gates.find((x) => x.id === 'G_FORTRESS_PARENT');
+  fortress.missing_proof = [...fortress.missing_proof, 'hostile_extra_gap'];
   const v = locks.validateLedgerFixture(forged, classification);
   return live.ok === true
     && classified.ok === true
@@ -678,11 +705,48 @@ red('unrelated_gate_identity', (() => {
       'G_CROSS_PARENT_INTEGRATION',
       'G_FACTORY_PARENT',
       'G_FOUNDATION_PARENT',
+      'G_FORTRESS_PARENT',
       'G_MESSI_MILESTONE_CLOSEOUT',
-      'G_RADAR_PARENT',
     ])
     && v.ok === false
-    && v.errors.includes('unrelated_gate_drift:G_RADAR_PARENT');
+    && v.errors.includes('unrelated_gate_drift:G_FORTRESS_PARENT');
+})());
+
+red('finite_closeout_as_RADAR_complete', (() => {
+  // Finite staging-readiness closeout must never raise G_RADAR_PARENT to
+  // complete, clear formal/production gaps, or flip production_ready.
+  const badLedger = locks.thaw(ledger);
+  const g = badLedger.gates.find((x) => x.id === 'G_RADAR_PARENT');
+  g.verdict = 'complete';
+  g.finite_staging_readiness_workstream_complete = true;
+  g.production_readiness = 'proven';
+  g.missing_proof = [];
+  badLedger.production_ready = true;
+  badLedger.messi_complete = true;
+  badLedger.score = { proven: 1, partial: 3, absent: 2, total: 6 };
+  const v = locks.validateLedgerFixture(badLedger, classification);
+  const forged = locks.classifyMessiGates({
+    hashBindingOk: true,
+    gateResults,
+    radarFormalScore: radarScore,
+    fortressMatrixCounts: matrixCounts,
+  });
+  const rg = forged.gates.find((x) => x.id === 'G_RADAR_PARENT');
+  return v.ok === false
+    && rg.verdict === 'partial'
+    && rg.finite_staging_readiness_workstream_complete === true
+    && rg.production_readiness === 'absent'
+    && forged.production_ready === false
+    && forged.messi_complete === false
+    && (
+      v.errors.includes('false_production_ready')
+      || v.errors.includes('false_messi_complete')
+      || v.errors.includes('gate_verdict_mismatch:G_RADAR_PARENT')
+      || v.errors.includes('downgraded_or_false_complete:G_RADAR_PARENT')
+      || v.errors.includes('score_mismatch')
+      || forged.errors.includes('radar_complete_from_finite_closeout')
+      || forged.errors.includes('finite_staging_readiness_as_production_readiness')
+    );
 })());
 
 red('finite_as_security_overclaim', (() => {

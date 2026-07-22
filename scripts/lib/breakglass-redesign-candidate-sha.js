@@ -47,8 +47,9 @@ const SQUASH_PROOF_CERT_ID = 'breakglass-1e-squash-proof';
 /**
  * Empty during content bootstrap; anchor commit sets this to the content SHA
  * so tip blobs for SQUASH_PROOF_PATHS bind without ancestry trust.
+ * 1F reuses this existing squash-proof cert (no new certificate architecture).
  */
-const SQUASH_PROOF_CANDIDATE_SHA = '3612086f2c8ae059e1a2cde936338176a060f055';
+const SQUASH_PROOF_CANDIDATE_SHA = '';
 
 const ANCHOR_FIXTURE_REL =
   'fixtures/messi-acceptance/breakglass-whole-path-blobs.json';
@@ -82,9 +83,13 @@ const REDESIGN_PATHS = Object.freeze([
 
 /**
  * Redesign-path files this squash-proof correction may supersede once the
- * content candidate SHA is anchored. Subset of REDESIGN_PATHS.
+ * content candidate SHA is anchored. Subset of REDESIGN_PATHS. Expanded for
+ * MESSI 1F ledger/doc/fixture wiring (reuse existing cert id — no new arch).
  */
 const SQUASH_PROOF_PATHS = Object.freeze([
+  'docs/MESSI-ACCEPTANCE-LEDGER.md',
+  'fixtures/messi-acceptance/slice1a-contract.json',
+  'fixtures/messi-acceptance/slice1a-findings.md',
   'fixtures/messi-acceptance/slice1a-ledger.json',
   'scripts/lib/messi-slice1a-acceptance-ledger.js',
   'scripts/lib/messi-slice1b-foundation-closeout.js',

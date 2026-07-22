@@ -5,7 +5,7 @@
   "master_basis": "38f1a719fa3287af43737b2fca7f9b4d4f71383a",
   "squash_proof_reviewed_candidate": "9a35afcc6b94fc4bf49a96b11654c6e8ec424bb1",
   "squash_proof_landing_tip": "c61bc9feba412de8e24cd14b5907bd62b65abd13",
-  "squash_proof_candidate_sha": "3612086f2c8ae059e1a2cde936338176a060f055",
+  "squash_proof_candidate_sha": "",
   "paths": [
     "docs/MESSI-ACCEPTANCE-LEDGER.md",
     "fixtures/messi-acceptance/slice1a-contract.json",
@@ -24,6 +24,9 @@
     "scripts/verify-messi-slice1d-fortress-closeout.js"
   ],
   "squash_proof_paths": [
+    "docs/MESSI-ACCEPTANCE-LEDGER.md",
+    "fixtures/messi-acceptance/slice1a-contract.json",
+    "fixtures/messi-acceptance/slice1a-findings.md",
     "fixtures/messi-acceptance/slice1a-ledger.json",
     "scripts/lib/messi-slice1a-acceptance-ledger.js",
     "scripts/lib/messi-slice1b-foundation-closeout.js",
@@ -35,5 +38,5 @@
     "scripts/verify-messi-slice1b-foundation-closeout.js",
     "scripts/verify-messi-slice1d-fortress-closeout.js"
   ],
-  "note": "Metadata mirror of scripts/lib/breakglass-redesign-candidate-sha.js only. No blobs — Git candidate is the trust root. package.json excluded from redesign paths (concurrent script drift). 1E binds 9a35afcc↔c61bc9fe via candidate-path blob equality."
+  "note": "Metadata mirror of scripts/lib/breakglass-redesign-candidate-sha.js only. No blobs — Git candidate is the trust root. package.json excluded from redesign paths (concurrent script drift). 1E binds 9a35afcc↔c61bc9fe via candidate-path blob equality. 1F reuses squash-proof supersession for ledger/doc wiring (no new cert architecture)."
 }
