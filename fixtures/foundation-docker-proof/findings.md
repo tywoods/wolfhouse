@@ -1,7 +1,7 @@
 # FOUNDATION Docker fresh-db replacement — compact Lunabox evidence
 
 **Status:** evidence package only (offline verifier).
-**Candidate:** `6524df68e9f04364fc1f5e58d845c2aa6b344670` (merged master)
+**Candidate:** `4621353f16fc00783ae87b9391ca2c6578decd44` (merged master)
 **Gate:** `G_DOCKER_FRESH_DB_REPLACEMENT` — **not reclassified** (FOUNDATION 1B still `absent`).
 
 ## Observed (Lunabox disposable Docker)
@@ -10,14 +10,14 @@
 |------|-------|
 | backend | docker Postgres 15 |
 | phase | compared |
-| forwardCount | 43 |
-| appliedCount (both cycles) | 43 |
+| forwardCount | 44 |
+| appliedCount (both cycles) | 44 |
 | schema fingerprint (both) | `f0f54df09712ef93ea267f5bd35c4567b4b81acb37da025242b1ec85ba0e9496` |
-| schema_migrations hash (both) | `f26b8ecfcca7609628948db8226ca420ad6815984d7135cd3871683ef2acae4b` |
+| schema_migrations hash (both) | `8df9c24f07a29891bb4cd2d67796b1d163f7c1b3576b090a00c3d0145347f02e` |
 | volumes distinct | true |
 | ledger/schema equality | true |
 | cleanup | both `cleanup_verified`; `cleanup_ok` true |
-| raw evidence sha256 | `7208e815a017b095cca5ce19bc3df8815d6c9fcd888db83997a4a37f4c0b2efa` |
+| raw evidence sha256 | `df988d93655ae0f31358f377bcbc349c4eacfa0689251945ac6d690a0a216df9` |
 
 Compact fixture omits full ledger rows; binds proof script, harness, and canonical
 manifest/checksums. No live rerun. No certificate architecture. MESSI untouched.
