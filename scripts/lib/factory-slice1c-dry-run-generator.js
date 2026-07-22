@@ -120,7 +120,6 @@ const PACKAGE_JSON_ALLOWED_SCRIPT_VALUE =
 
 const EXISTING_REGRESSION_GATES = Object.freeze([
   'npm run verify:factory-slice1b-archetype-templates',
-  'npm run verify:factory-slice1a-acceptance-contract',
   'node scripts/verify-multiclient-isolation.js',
   'node scripts/verify-no-client-hardcoding.js',
   'node scripts/verify-tenant-resolution.js',
@@ -251,6 +250,21 @@ function collectPlaceholders(node, options = {}) {
   return [...out].sort();
 }
 
+/**
+ * Allowed substitution scalars: string | number | boolean | null.
+ * Objects/arrays/undefined are rejected by validateSubstitutionSafety /
+ * normalizeSubstitutionsMap — never silently coerced.
+ */
+function isAllowedSubstitutionScalar(value) {
+  if (value === null) return true;
+  const t = typeof value;
+  return t === 'string' || t === 'number' || t === 'boolean';
+}
+
+/**
+ * Whole-token `{{TOKEN}}` preserves typed fixture values (number/boolean/null/string).
+ * Embedded tokens inside larger strings always stringify.
+ */
 function substituteString(str, substitutions, unresolved) {
   if (typeof str !== 'string') return str;
   const exact = PLACEHOLDER_RE.exec(str);
@@ -260,6 +274,7 @@ function substituteString(str, substitutions, unresolved) {
       unresolved.add(token);
       return str;
     }
+    // Preserve typed whole-token values — do not String() coerce.
     return substitutions[token];
   }
   return str.replace(new RegExp(EMBEDDED_PLACEHOLDER_RE.source, 'g'), (full, token) => {
@@ -267,8 +282,53 @@ function substituteString(str, substitutions, unresolved) {
       unresolved.add(token);
       return full;
     }
+    // Embedded tokens always remain strings in the surrounding text.
     return String(substitutions[token]);
   });
+}
+
+/**
+ * Normalize a substitutions map: strip optional {{ }} wrappers on keys,
+ * reject disallowed value types. Returns { ok, substitutions, errors }.
+ */
+function normalizeSubstitutionsMap(substitutionsIn) {
+  const errors = [];
+  const substitutions = emptyObject();
+  if (!substitutionsIn || typeof substitutionsIn !== 'object' || Array.isArray(substitutionsIn)) {
+    return { ok: false, substitutions, errors: ['substitutions_must_be_object'] };
+  }
+  for (const [k, v] of Object.entries(substitutionsIn)) {
+    const token = String(k).replace(/^\{\{/, '').replace(/\}\}$/, '');
+    if (v === undefined) {
+      errors.push(`substitution_value_undefined:${token}`);
+      continue;
+    }
+    if (!isAllowedSubstitutionScalar(v)) {
+      const kind = Array.isArray(v) ? 'array' : typeof v;
+      errors.push(`substitution_value_type_invalid:${token}:${kind}`);
+      continue;
+    }
+    if (typeof v === 'number' && !Number.isFinite(v)) {
+      errors.push(`substitution_value_non_finite:${token}`);
+      continue;
+    }
+    substitutions[token] = v;
+  }
+  return { ok: errors.length === 0, substitutions, errors };
+}
+
+/**
+ * Safe CLI/fixture loader: JSON.parse preserves types; normalize rejects
+ * objects/arrays/undefined so typed scalars reach substituteTree intact.
+ */
+function loadSubstitutionsFile(absPath) {
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(absPath, 'utf8'));
+  } catch (err) {
+    return { ok: false, substitutions: emptyObject(), errors: [`substitutions_unreadable:${err.message}`] };
+  }
+  return normalizeSubstitutionsMap(parsed);
 }
 
 function substituteTree(node, substitutions, unresolved, parentKey, errors) {
@@ -554,11 +614,21 @@ function validateSubstitutionSafety(substitutions, errors) {
       errors.push(`substitution_token_invalid:${token}`);
       continue;
     }
-    if (raw == null) {
-      errors.push(`substitution_value_null:${token}`);
+    if (raw === undefined) {
+      errors.push(`substitution_value_undefined:${token}`);
       continue;
     }
-    const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+    if (!isAllowedSubstitutionScalar(raw)) {
+      const kind = Array.isArray(raw) ? 'array' : typeof raw;
+      errors.push(`substitution_value_type_invalid:${token}:${kind}`);
+      continue;
+    }
+    if (typeof raw === 'number' && !Number.isFinite(raw)) {
+      errors.push(`substitution_value_non_finite:${token}`);
+      continue;
+    }
+    // null is an allowed typed scalar (whole-token preserves null).
+    const text = raw === null ? 'null' : (typeof raw === 'string' ? raw : JSON.stringify(raw));
     if (typeof raw === 'string' && UNSAFE_PATH_RE.test(raw) && /SLUG|LOCATION_ID|ROOM_ID|PACKAGE_CODE|SERVICE_|RENTAL_|LESSON_|BUNDLE_/.test(token)) {
       errors.push(`substitution_path_traversal:${token}`);
     }
@@ -678,11 +748,11 @@ function generateDryRunPreview(input) {
     return { ok: false, errors: ['apply_path_forbidden'] };
   }
 
-  const substitutions = emptyObject();
-  for (const [k, v] of Object.entries(substitutionsIn)) {
-    const token = String(k).replace(/^\{\{/, '').replace(/\}\}$/, '');
-    substitutions[token] = v;
+  const normalized = normalizeSubstitutionsMap(substitutionsIn);
+  if (!normalized.ok) {
+    return { ok: false, errors: normalized.errors };
   }
+  const substitutions = normalized.substitutions;
 
   validateSubstitutionSafety(substitutions, errors);
 
@@ -968,10 +1038,10 @@ function buildFixtureSubstitutions(archetype, clientSlug) {
     HANDOFF_EMAIL_ADDRESS: 'handoff@example.test',
     MASTER_ADMIN_NUMBER_E164: '+10000000001',
     STAFF_ADMIN_PASSWORD: 'fixture-not-a-real-secret',
-    HOLD_EXPIRY_MINUTES: '60',
-    DEPOSIT_DEFAULT_EUR: '50',
-    PRICE_EUR_PLACEHOLDER: '10',
-    PRICE_CENTS_PLACEHOLDER: '1000',
+    HOLD_EXPIRY_MINUTES: 60,
+    DEPOSIT_DEFAULT_EUR: 50,
+    PRICE_EUR_PLACEHOLDER: 10,
+    PRICE_CENTS_PLACEHOLDER: 1000,
     BALANCE_METHOD_1: 'card',
     BALANCE_METHOD_2: 'cash',
     NO_SHOW_POLICY: 'handoff',
@@ -981,12 +1051,12 @@ function buildFixtureSubstitutions(archetype, clientSlug) {
     Object.assign(base, {
       LOCATION_ID: `${clientSlug}-main`,
       LOCATION_NAME: `${clientSlug} main`,
-      PACKAGE_CODE_1: 'surf_week',
-      PACKAGE_CODE_2: 'surf_plus',
-      PACKAGE_CODE_3: 'full_board',
-      PACKAGE_NAME_1: 'Surf week',
-      PACKAGE_NAME_2: 'Surf plus',
-      PACKAGE_NAME_3: 'Full board',
+      PACKAGE_CODE_1: 'malibu',
+      PACKAGE_CODE_2: 'uluwatu',
+      PACKAGE_CODE_3: 'waimea',
+      PACKAGE_NAME_1: 'Malibu',
+      PACKAGE_NAME_2: 'Uluwatu',
+      PACKAGE_NAME_3: 'Waimea',
       INCLUSION_1: 'bed',
       INCLUSION_2: 'breakfast',
       INCLUSION_3: 'lesson',
@@ -999,7 +1069,7 @@ function buildFixtureSubstitutions(archetype, clientSlug) {
       MONTH_4: 'july',
       CLOSED_MONTH_1: 'november',
       CLOSED_MONTH_2: 'december',
-      DOUBLE_ROOM_MODIFIER_EUR: '15',
+      DOUBLE_ROOM_MODIFIER_EUR: 15,
       SERVICE_WETSUIT: 'wetsuit_rental',
       SERVICE_BOARD: 'board_rental',
       SERVICE_LESSON: 'surf_lesson',
@@ -1010,22 +1080,22 @@ function buildFixtureSubstitutions(archetype, clientSlug) {
       SLOT_2_WINDOW: '12:00-13:30',
       ROOM_ID_1: 'room-a',
       ROOM_ID_2: 'room-b',
-      ROOM_CAPACITY_1: '4',
-      ROOM_CAPACITY_2: '2',
+      ROOM_CAPACITY_1: 4,
+      ROOM_CAPACITY_2: 2,
       ROOM_TYPE_1: 'shared',
       ROOM_TYPE_2: 'double',
-      DEPOSIT_STANDARD_EUR: '100',
-      DEPOSIT_SHORT_EUR: '50',
-      DEPOSIT_STANDARD_CENTS: '10000',
-      DEPOSIT_SHORT_CENTS: '5000',
-      DEPOSIT_DEFAULT_CENTS: '5000',
+      DEPOSIT_STANDARD_EUR: 100,
+      DEPOSIT_SHORT_EUR: 50,
+      DEPOSIT_STANDARD_CENTS: 10000,
+      DEPOSIT_SHORT_CENTS: 5000,
+      DEPOSIT_DEFAULT_CENTS: 5000,
       PROPERTY_ADDRESS: '1 Example Street',
       MAPS_LINK: 'https://example.test/maps/fixture',
       GATE_CODE: '0000',
       CHECK_IN_TIME: '16:00',
       CHECK_OUT_TIME: '11:00',
       CLEANING_SCOPE: 'standard',
-      CLEANING_BUFFER_MINUTES: '60',
+      CLEANING_BUFFER_MINUTES: 60,
       NO_NEXT_GUEST_RULE: 'buffer_required',
       ADDON_WETSUIT_NAME: 'Wetsuit',
       ADDON_SOFT_TOP_NAME: 'Soft top',
@@ -1037,11 +1107,11 @@ function buildFixtureSubstitutions(archetype, clientSlug) {
       ADDON_YOGA_NAME: 'Yoga',
       ADDON_MEAL_NAME: 'Meal',
       ADDON_MEALS_NAME: 'Meals',
-      ROOM_SUPPLEMENT_SHARED_CENTS: '0',
-      ROOM_SUPPLEMENT_DOUBLE_CENTS: '1500',
-      ROOM_SUPPLEMENT_PRIVATE_CENTS: '2500',
-      ROOM_SUPPLEMENT_DOUBLE_PERSON_CENTS: '1500',
-      ROOM_SUPPLEMENT_PRIVATE_PERSON_CENTS: '2500',
+      ROOM_SUPPLEMENT_SHARED_CENTS: 0,
+      ROOM_SUPPLEMENT_DOUBLE_CENTS: 1500,
+      ROOM_SUPPLEMENT_PRIVATE_CENTS: 2500,
+      ROOM_SUPPLEMENT_DOUBLE_PERSON_CENTS: 1500,
+      ROOM_SUPPLEMENT_PRIVATE_PERSON_CENTS: 2500,
       PRORATION_FORMULA_PLACEHOLDER: 'round_up_5',
     });
   } else {
@@ -1061,7 +1131,7 @@ function buildFixtureSubstitutions(archetype, clientSlug) {
       RENTAL_BUNDLE_LABEL: 'Bundle',
       LESSON_SLOT_1: '09:00',
       LESSON_SLOT_2: '11:00',
-      ARRIVE_BEFORE_MINUTES: '15',
+      ARRIVE_BEFORE_MINUTES: 15,
       LESSON_GROUP_ADULT: 'group_adult',
       LESSON_GROUP_ADULT_LABEL: 'Group adult',
       LESSON_KIDS: 'kids',
@@ -1131,6 +1201,9 @@ module.exports = Object.freeze({
   substituteTree,
   validateSubstitutedKeySafety,
   validateSubstitutedCrossRefs,
+  isAllowedSubstitutionScalar,
+  normalizeSubstitutionsMap,
+  loadSubstitutionsFile,
   expectedOutputPathSet,
   previewRelativePaths,
   loadArchetypeTemplates,

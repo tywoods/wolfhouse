@@ -60,8 +60,8 @@
           "label": "Group adult",
           "price_basis": "per_seat_per_session",
           "prices_eur": {
-            "pack_per_surfer": "10",
-            "single_lesson": "10"
+            "pack_per_surfer": 10,
+            "single_lesson": 10
           },
           "pricing_status": "unverified_seed"
         },
@@ -70,7 +70,7 @@
           "label": "Kids",
           "price_basis": "per_seat_per_session",
           "prices_eur": {
-            "single_lesson": "10"
+            "single_lesson": 10
           },
           "pricing_status": "unverified_seed"
         },
@@ -79,7 +79,7 @@
           "label": "Private",
           "price_basis": "per_session",
           "prices_eur": {
-            "per_session": "10"
+            "per_session": 10
           },
           "pricing_status": "unverified_seed"
         }
@@ -87,7 +87,7 @@
       "price_basis": "per_seat_per_session",
       "safe_default": "no_lesson_seat_without_capacity_check_or_staff_schedule_confirmation",
       "scheduling": {
-        "arrive_before_class_minutes": "15",
+        "arrive_before_class_minutes": 15,
         "bot_assigns_slot": false,
         "bot_collects_request_then_staff_schedule": true,
         "common_slot_times": [
@@ -105,9 +105,9 @@
           "inventory_model": "unlimited",
           "label": "Board",
           "prices_eur": {
-            "2h": "10",
-            "full_day": "10",
-            "half_day": "10"
+            "2h": 10,
+            "full_day": 10,
+            "half_day": 10
           },
           "pricing_status": "unverified_seed"
         },
@@ -115,9 +115,9 @@
           "inventory_model": "unlimited",
           "label": "Bundle",
           "prices_eur": {
-            "2h": "10",
-            "full_day": "10",
-            "half_day": "10"
+            "2h": 10,
+            "full_day": 10,
+            "half_day": 10
           },
           "pricing_status": "unverified_seed"
         },
@@ -125,9 +125,9 @@
           "inventory_model": "unlimited",
           "label": "Wetsuit",
           "prices_eur": {
-            "2h": "10",
-            "full_day": "10",
-            "half_day": "10"
+            "2h": 10,
+            "full_day": 10,
+            "half_day": 10
           },
           "pricing_status": "unverified_seed"
         }
@@ -157,7 +157,7 @@
   "confirmation": {
     "confirmation_requires_payment_truth": true,
     "confirmation_send_mode": "dry_run",
-    "include_arrive_before_minutes": "15",
+    "include_arrive_before_minutes": 15,
     "include_meeting_point": true,
     "include_service_details": true,
     "safe_default": "keep_dry_run_until_real_send_gate_is_proven"
@@ -231,12 +231,12 @@
       "card"
     ],
     "deposit_rule": {
-      "default_eur": "50",
+      "default_eur": 50,
       "pricing_status": "unverified_seed",
       "scope": "per_booking",
       "type": "fixed"
     },
-    "hold_expiry_minutes": "60",
+    "hold_expiry_minutes": 60,
     "payment_claim_behavior": "check_stripe_payment_events_not_llm",
     "payment_link_auto_allowed": false,
     "payment_link_options": [

@@ -10,8 +10,9 @@
   "status": "integration_proof_delivered",
   "apply_path": false,
   "disk_materialization_supported": false,
-  "generator_behavior_changed": false,
+  "generator_behavior_changed": true,
   "template_behavior_changed": false,
+  "scope_note": "1C typed whole-token substitution correction + 1D integration isolation proof. Templates unchanged.",
   "archetypes": ["surf_house", "surf_school_shop"],
   "library": "scripts/lib/factory-slice1d-integration-proof.js",
   "verifier": "scripts/verify-factory-slice1d-integration-proof.js",
@@ -32,7 +33,7 @@
       "legacy_luna_multiclient_gates_plus_retained_red_classification"
     ],
     "out_of_scope_current_stage": [
-      "product_runtime_template_generator_behavior_changes",
+      "product_runtime_archetype_template_behavior_changes",
       "apply_path",
       "safe_disk_materialization",
       "registry_edits",
@@ -79,7 +80,6 @@
     "npm run verify:factory-slice1d-integration-proof",
     "npm run verify:factory-slice1c-dry-run-generator",
     "npm run verify:factory-slice1b-archetype-templates",
-    "npm run verify:factory-slice1a-acceptance-contract",
     "npm run verify:luna-all",
     "npm run verify:multiclient",
     "git diff --check"

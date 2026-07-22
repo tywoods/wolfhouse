@@ -105,14 +105,9 @@ function main() {
   // stdout is default; --stdout is accepted as an explicit no-op affirmation.
 
   let substitutions;
-  try {
-    substitutions = JSON.parse(fs.readFileSync(path.resolve(args.substitutionsPath), 'utf8'));
-  } catch (err) {
-    fail([`substitutions_unreadable:${err.message}`]);
-  }
-  if (!substitutions || typeof substitutions !== 'object' || Array.isArray(substitutions)) {
-    fail(['substitutions_must_be_object']);
-  }
+  const loaded = gen.loadSubstitutionsFile(path.resolve(args.substitutionsPath));
+  if (!loaded.ok) fail(loaded.errors);
+  substitutions = loaded.substitutions;
 
   const result = gen.generateDryRunPreview({
     repoRoot: ROOT,

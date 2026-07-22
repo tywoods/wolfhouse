@@ -19,63 +19,63 @@
     "hard_board_rental": {
       "code": "hard_board_rental",
       "name": "Hard board",
-      "price_cents": "1000",
+      "price_cents": 1000,
       "pricing_status": "unverified_seed",
       "pricing_unit": "per_day"
     },
     "meal": {
       "code": "meal",
       "name": "Meal",
-      "price_cents": "1000",
+      "price_cents": 1000,
       "pricing_status": "unverified_seed",
       "pricing_unit": "per_meal"
     },
     "meals": {
       "code": "meals",
       "name": "Meals",
-      "price_cents": "1000",
+      "price_cents": 1000,
       "pricing_status": "unverified_seed",
       "pricing_unit": "per_meal"
     },
     "soft_top_rental": {
       "code": "soft_top_rental",
       "name": "Soft top",
-      "price_cents": "1000",
+      "price_cents": 1000,
       "pricing_status": "unverified_seed",
       "pricing_unit": "per_day"
     },
     "surf_lesson_multi": {
       "code": "surf_lesson_multi",
       "name": "Multi lesson",
-      "price_cents_each": "1000",
+      "price_cents_each": 1000,
       "pricing_status": "unverified_seed",
       "pricing_unit": "per_lesson"
     },
     "surf_lesson_single": {
       "code": "surf_lesson_single",
       "name": "Single lesson",
-      "price_cents": "1000",
+      "price_cents": 1000,
       "pricing_status": "unverified_seed",
       "pricing_unit": "per_lesson"
     },
     "wetsuit_hard_board_combo": {
       "code": "wetsuit_hard_board_combo",
       "name": "Wetsuit + hard board",
-      "price_cents": "1000",
+      "price_cents": 1000,
       "pricing_status": "unverified_seed",
       "pricing_unit": "per_day"
     },
     "wetsuit_rental": {
       "code": "wetsuit_rental",
       "name": "Wetsuit",
-      "price_cents": "1000",
+      "price_cents": 1000,
       "pricing_status": "unverified_seed",
       "pricing_unit": "per_day"
     },
     "wetsuit_soft_top_combo": {
       "code": "wetsuit_soft_top_combo",
       "name": "Wetsuit + soft top",
-      "price_cents": "1000",
+      "price_cents": 1000,
       "pricing_status": "unverified_seed",
       "pricing_unit": "per_day"
     },
@@ -83,7 +83,7 @@
       "code": "yoga_class",
       "name": "Yoga",
       "on_site": true,
-      "price_cents": "1000",
+      "price_cents": 1000,
       "pricing_status": "unverified_seed",
       "pricing_unit": "per_class"
     }
@@ -92,86 +92,86 @@
   "config_version": "1B.0",
   "currency": "EUR",
   "deposits": {
-    "default_cents": "5000",
+    "default_cents": 5000,
     "rule_type": "tiered_by_booking_type",
     "scope": "per_booking",
     "tiers": {
       "custom_or_short_stay": {
-        "amount_cents": "5000"
+        "amount_cents": 5000
       },
       "standard_package": {
-        "amount_cents": "10000"
+        "amount_cents": 10000
       }
     }
   },
   "hold": {
-    "expiry_minutes": "60",
+    "expiry_minutes": 60,
     "status": "unverified_seed"
   },
   "packages": [
     {
       "base_room_type": "shared",
-      "code": "surf_week",
+      "code": "malibu",
       "inclusions": [
         "bed"
       ],
-      "name": "Surf week",
+      "name": "Malibu",
       "price_scope": "per_person_per_week",
       "pricing_status": "unverified_seed",
       "seasonal_prices": {
         "high": {
-          "weekly_per_person_cents": "1000"
+          "weekly_per_person_cents": 1000
         },
         "peak": {
-          "weekly_per_person_cents": "1000"
+          "weekly_per_person_cents": 1000
         },
         "shoulder": {
-          "weekly_per_person_cents": "1000"
+          "weekly_per_person_cents": 1000
         }
       }
     },
     {
       "base_room_type": "shared",
-      "code": "surf_plus",
+      "code": "uluwatu",
       "inclusions": [
         "bed",
         "breakfast"
       ],
-      "name": "Surf plus",
+      "name": "Uluwatu",
       "price_scope": "per_person_per_week",
       "pricing_status": "unverified_seed",
       "seasonal_prices": {
         "high": {
-          "weekly_per_person_cents": "1000"
+          "weekly_per_person_cents": 1000
         },
         "peak": {
-          "weekly_per_person_cents": "1000"
+          "weekly_per_person_cents": 1000
         },
         "shoulder": {
-          "weekly_per_person_cents": "1000"
+          "weekly_per_person_cents": 1000
         }
       }
     },
     {
       "base_room_type": "shared",
-      "code": "full_board",
+      "code": "waimea",
       "inclusions": [
         "bed",
         "breakfast",
         "lesson"
       ],
-      "name": "Full board",
+      "name": "Waimea",
       "price_scope": "per_person_per_week",
       "pricing_status": "unverified_seed",
       "seasonal_prices": {
         "high": {
-          "weekly_per_person_cents": "1000"
+          "weekly_per_person_cents": 1000
         },
         "peak": {
-          "weekly_per_person_cents": "1000"
+          "weekly_per_person_cents": 1000
         },
         "shoulder": {
-          "weekly_per_person_cents": "1000"
+          "weekly_per_person_cents": 1000
         }
       }
     }
@@ -183,15 +183,15 @@
   ],
   "room_supplements": {
     "double": {
-      "per_person_per_night_cents": "1500",
-      "per_room_per_night_cents": "1500"
+      "per_person_per_night_cents": 1500,
+      "per_room_per_night_cents": 1500
     },
     "private": {
-      "per_person_per_night_cents": "2500",
-      "per_room_per_night_cents": "2500"
+      "per_person_per_night_cents": 2500,
+      "per_room_per_night_cents": 2500
     },
     "shared": {
-      "per_person_per_night_cents": "0"
+      "per_person_per_night_cents": 0
     }
   },
   "rounding": {

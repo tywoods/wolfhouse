@@ -855,6 +855,87 @@ console.log('\n── Reserved substituted-key safety REDs ──');
   red('object_prototype_unpolluted_after_reserved_reds', protoUnchanged());
 }
 
+// ── Typed whole-token substitution REDs ─────────────────────────────────────
+console.log('\n── Typed whole-token substitution REDs ──');
+{
+  const unresolved = new Set();
+  const outNum = gen.substituteTree('{{PRICE}}', { PRICE: 1000 }, unresolved, null, []);
+  red('whole_token_preserves_number', outNum === 1000 && typeof outNum === 'number');
+
+  unresolved.clear();
+  const outBool = gen.substituteTree('{{FLAG}}', { FLAG: false }, unresolved, null, []);
+  red('whole_token_preserves_boolean', outBool === false && typeof outBool === 'boolean');
+
+  unresolved.clear();
+  const outNull = gen.substituteTree('{{OPT}}', { OPT: null }, unresolved, null, []);
+  red('whole_token_preserves_null', outNull === null);
+
+  unresolved.clear();
+  const outStr = gen.substituteTree('{{NAME}}', { NAME: 'fixture' }, unresolved, null, []);
+  red('whole_token_preserves_string', outStr === 'fixture' && typeof outStr === 'string');
+
+  unresolved.clear();
+  const embedded = gen.substituteTree('prefix-{{PRICE}}-suffix', { PRICE: 1000 }, unresolved, null, []);
+  red('embedded_token_stringifies_number',
+    embedded === 'prefix-1000-suffix' && typeof embedded === 'string');
+
+  unresolved.clear();
+  const embeddedBool = gen.substituteTree('x-{{FLAG}}-y', { FLAG: true }, unresolved, null, []);
+  red('embedded_token_stringifies_boolean',
+    embeddedBool === 'x-true-y' && typeof embeddedBool === 'string');
+
+  const badObj = gen.normalizeSubstitutionsMap({ CLIENT_SLUG: { nested: true } });
+  red('rejects_object_substitution_values',
+    badObj.ok === false
+    && badObj.errors.some((e) => e.includes('substitution_value_type_invalid:CLIENT_SLUG:object')));
+
+  const badArr = gen.normalizeSubstitutionsMap({ CLIENT_SLUG: ['a'] });
+  red('rejects_array_substitution_values',
+    badArr.ok === false
+    && badArr.errors.some((e) => e.includes('substitution_value_type_invalid:CLIENT_SLUG:array')));
+
+  // Fixture + golden typed prices (Sunset flatten consumer requires numbers).
+  const schoolSubs = loadSubs('surf_school_shop');
+  red('school_fixture_price_eur_is_number',
+    typeof schoolSubs.PRICE_EUR_PLACEHOLDER === 'number'
+    && schoolSubs.PRICE_EUR_PLACEHOLDER > 0);
+  const houseSubs = loadSubs('surf_house');
+  red('house_fixture_price_cents_is_number',
+    typeof houseSubs.PRICE_CENTS_PLACEHOLDER === 'number'
+    && houseSubs.PRICE_CENTS_PLACEHOLDER > 0);
+
+  const schoolGolden = readJson(path.join(
+    FIXTURE_DIR,
+    'slice1c-golden',
+    'surf_school_shop',
+    'preview',
+    'fixture-school.baseline.json',
+  ));
+  const lessonPrice = schoolGolden.catalog.lessons.offerings.group_adult.prices_eur.single_lesson;
+  red('school_golden_lesson_price_is_nonzero_number',
+    typeof lessonPrice === 'number' && lessonPrice > 0);
+
+  const houseGoldenPricing = readJson(path.join(
+    FIXTURE_DIR,
+    'slice1c-golden',
+    'surf_house',
+    'preview',
+    'fixture-house.pricing.json',
+  ));
+  const weekly = houseGoldenPricing.packages[0].seasonal_prices.peak.weekly_per_person_cents;
+  red('house_golden_weekly_cents_is_nonzero_number',
+    typeof weekly === 'number' && weekly > 0);
+
+  // loadSubstitutionsFile preserves types from disk.
+  const loaded = gen.loadSubstitutionsFile(
+    path.join(FIXTURE_DIR, 'slice1c-substitutions-surf_house.json'),
+  );
+  red('loadSubstitutionsFile_preserves_typed_scalars',
+    loaded.ok
+    && typeof loaded.substitutions.PRICE_CENTS_PLACEHOLDER === 'number'
+    && typeof loaded.substitutions.CLIENT_SLUG === 'string');
+}
+
 // Tip scope (diff vs master basis when available)
 console.log('\n── Tip scope ──');
 {
@@ -912,39 +993,29 @@ for (const rel of hardScripts) {
   ok(`${rel} exit 0`, r.status === 0, r.status !== 0 ? (r.stderr || r.stdout || '').slice(-400) : '');
 }
 
-// Nested 1B (templates still green). When probing from 1A, skip re-entry loops.
-if (process.env.FACTORY_1C_LEDGER_PROBE === '1') {
-  ok('ledger probe skips nested 1A/1B re-entry', true);
-} else {
+// Structural recursion break: 1C may invoke 1B, but never 1A.
+// No FACTORY_* env value may skip checks or force PASS.
+console.log('\n── Nested prior factory gates ──');
+{
+  const verifierSrc = readText(path.join(ROOT, 'scripts', 'verify-factory-slice1c-dry-run-generator.js'));
+  red('no_nested_1a_invocation',
+    !/npm['"\s,]*run['"\s,]*verify:factory-slice1a/.test(verifierSrc)
+    && !/spawnSync\([^)]*verify-factory-slice1a/.test(verifierSrc)
+    && !/runNpm\(['"]verify:factory-slice1a/.test(verifierSrc));
+  red('no_factory_skip_or_probe_env_bypasses',
+    !/process\.env\.FACTORY_\w*(SKIP|PROBE)/.test(verifierSrc)
+    && !/FACTORY_1[ABCD]_(SKIP|LEDGER_PROBE|SKIP_NESTED|SKIP_LEGACY)/.test(verifierSrc));
+
   const r1b = spawnSync('npm', ['run', 'verify:factory-slice1b-archetype-templates'], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: {
-      ...process.env,
-      FACTORY_1B_LEDGER_PROBE: '1',
-      FACTORY_1A_SKIP_NESTED_1C: '1',
-    },
+    env: process.env,
     timeout: 300000,
     shell: true,
   });
   ok('verify:factory-slice1b-archetype-templates exit 0',
     r1b.status === 0,
     r1b.status !== 0 ? (r1b.stderr || r1b.stdout || '').slice(-500) : '');
-
-  const r1a = spawnSync('npm', ['run', 'verify:factory-slice1a-acceptance-contract'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      FACTORY_1A_SKIP_NESTED_1B: '1',
-      FACTORY_1A_SKIP_NESTED_1C: '1',
-    },
-    timeout: 300000,
-    shell: true,
-  });
-  ok('verify:factory-slice1a-acceptance-contract exit 0',
-    r1a.status === 0,
-    r1a.status !== 0 ? (r1a.stderr || r1a.stdout || '').slice(-500) : '');
 }
 
 {

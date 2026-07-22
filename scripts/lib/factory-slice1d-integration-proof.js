@@ -3,11 +3,12 @@
 /**
  * FACTORY Slice 1D — integration evidence locks for the reviewed 1C generator.
  *
- * Docs/fixtures/independent verifier only. Does not change product, runtime,
- * archetype templates, or generator behavior. Proves portable byte-determinism,
- * consumer-shape compatibility via pure validators/calculators on verifier-owned
- * temp fixtures, tenant/location isolation, disabled enablement, reference-blob
- * immutability, and no process/env/module-cache leakage.
+ * Docs/fixtures/independent verifier + 1C typed-substitution compatibility
+ * correction. Proves portable byte-determinism, consumer-shape compatibility
+ * via pure validators/calculators on verifier-owned temp fixtures (byte-
+ * preserved generated JSON, no coercion/surrogates), tenant/location
+ * isolation, disabled enablement, reference-blob immutability, and no
+ * process/env/module-cache leakage.
  */
 
 function deepFreeze(value) {
@@ -32,9 +33,13 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'fixtures/factory-client-productization/',
   'scripts/lib/factory-slice1a-acceptance-contract.js',
   'scripts/lib/factory-slice1b-archetype-templates.js',
+  'scripts/lib/factory-slice1c-dry-run-generator.js',
   'scripts/lib/factory-slice1d-integration-proof.js',
   'scripts/verify-factory-slice1a-acceptance-contract.js',
+  'scripts/verify-factory-slice1b-archetype-templates.js',
+  'scripts/verify-factory-slice1c-dry-run-generator.js',
   'scripts/verify-factory-slice1d-integration-proof.js',
+  'scripts/onboard-client.js',
   'package.json',
   'package-lock.json',
 ]);
@@ -55,7 +60,6 @@ const FORBIDDEN_LIVE_IDENTITY = Object.freeze([
 const EXISTING_REGRESSION_GATES = Object.freeze([
   'npm run verify:factory-slice1c-dry-run-generator',
   'npm run verify:factory-slice1b-archetype-templates',
-  'npm run verify:factory-slice1a-acceptance-contract',
   'npm run verify:luna-all',
   'npm run verify:multiclient',
   'node scripts/verify-multiclient-isolation.js',
@@ -89,7 +93,7 @@ const EVIDENCE_CLASSES = Object.freeze({
     'legacy_luna_multiclient_gates_plus_retained_red_classification',
   ]),
   out_of_scope_current_stage: Object.freeze([
-    'product_runtime_template_generator_behavior_changes',
+    'product_runtime_archetype_template_behavior_changes',
     'apply_path',
     'safe_disk_materialization',
     'registry_edits',

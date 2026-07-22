@@ -952,16 +952,12 @@ for (const row of retained) {
 // ── 1B ledger gate (independent validator) ──────────────────────────────────
 console.log('\n── 1B ledger gate (independent validator) ──');
 let slice1bVerifierPassed = false;
-if (process.env.FACTORY_1A_SKIP_NESTED_1B === '1') {
-  // Called from the 1B verifier after its own core/RED suite already passed.
-  slice1bVerifierPassed = true;
-  ok('nested from 1B — skip re-entry into 1B verifier', true);
-} else {
+{
   const r = spawnSync('npm', ['run', 'verify:factory-slice1b-archetype-templates'], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: { ...process.env, FACTORY_1B_LEDGER_PROBE: '1' },
-    timeout: 180000,
+    env: process.env,
+    timeout: 300000,
     shell: true,
   });
   slice1bVerifierPassed = r.status === 0;
@@ -999,16 +995,12 @@ if (process.env.FACTORY_1A_SKIP_NESTED_1B === '1') {
 // ── 1C ledger gate (independent validator) ──────────────────────────────────
 console.log('\n── 1C ledger gate (independent validator) ──');
 let slice1cVerifierPassed = false;
-if (process.env.FACTORY_1A_SKIP_NESTED_1C === '1') {
-  // Called from the 1C verifier after its own core/RED suite already passed.
-  slice1cVerifierPassed = true;
-  ok('nested from 1C — skip re-entry into 1C verifier', true);
-} else {
+{
   const r = spawnSync('npm', ['run', 'verify:factory-slice1c-dry-run-generator'], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: { ...process.env, FACTORY_1C_LEDGER_PROBE: '1' },
-    timeout: 300000,
+    env: process.env,
+    timeout: 600000,
     shell: true,
   });
   slice1cVerifierPassed = r.status === 0;
@@ -1046,20 +1038,14 @@ if (process.env.FACTORY_1A_SKIP_NESTED_1C === '1') {
 // ── 1D ledger gate (independent validator) ──────────────────────────────────
 console.log('\n── 1D ledger gate (independent validator) ──');
 let slice1dVerifierPassed = false;
-if (process.env.FACTORY_1A_SKIP_NESTED_1D === '1') {
-  // Called from the 1D verifier after its own core/RED suite already passed.
-  slice1dVerifierPassed = true;
-  ok('nested from 1D — skip re-entry into 1D verifier', true);
-} else {
+{
+  // 1A may invoke full 1D (which itself invokes 1B/1C + every legacy gate).
+  // No FACTORY_* env may reduce checks.
   const r = spawnSync('npm', ['run', 'verify:factory-slice1d-integration-proof'], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: {
-      ...process.env,
-      FACTORY_1D_LEDGER_PROBE: '1',
-      FACTORY_1D_SKIP_LEGACY_GATES: '1',
-    },
-    timeout: 300000,
+    env: process.env,
+    timeout: 1800000,
     shell: true,
   });
   slice1dVerifierPassed = r.status === 0;
@@ -1092,6 +1078,27 @@ if (process.env.FACTORY_1A_SKIP_NESTED_1D === '1') {
   );
   red('R_1D_complete_without_independent_validator',
     badErrs.includes('1d_complete_without_independent_validator'));
+}
+
+// Source fence: no FACTORY_* skip/probe bypasses remain in factory verifiers.
+{
+  const factoryVerifiers = [
+    'scripts/verify-factory-slice1a-acceptance-contract.js',
+    'scripts/verify-factory-slice1b-archetype-templates.js',
+    'scripts/verify-factory-slice1c-dry-run-generator.js',
+    'scripts/verify-factory-slice1d-integration-proof.js',
+  ];
+  let bypassHits = [];
+  for (const rel of factoryVerifiers) {
+    const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    if (/process\.env\.FACTORY_\w*(SKIP|PROBE)/.test(src)
+      || /FACTORY_1[ABCD]_(SKIP|LEDGER_PROBE|SKIP_NESTED|SKIP_LEGACY)\s*[:=]/.test(src)) {
+      bypassHits.push(rel);
+    }
+  }
+  red('R_no_factory_skip_or_probe_env_bypasses',
+    bypassHits.length === 0,
+    bypassHits.join(','));
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────────

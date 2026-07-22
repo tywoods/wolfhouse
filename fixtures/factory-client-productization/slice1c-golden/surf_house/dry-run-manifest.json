@@ -7,16 +7,16 @@
   "enablement_forced_false": true,
   "files": [
     {
-      "bytes": 9340,
+      "bytes": 9251,
       "kind": "baseline",
       "relative_path": "preview/fixture-house.baseline.json",
-      "sha256": "b86d83fecab3e0c82ead060eb817378012d7e773713ac88fbfa2bd8c1f51517b"
+      "sha256": "ec66435b442ec8b1f805252cca8d273202d1c689dee8cf9f50362903a1cb0097"
     },
     {
-      "bytes": 6474,
+      "bytes": 6400,
       "kind": "pricing",
       "relative_path": "preview/fixture-house.pricing.json",
-      "sha256": "ab31d2fc125e89ee40fc468a26d15513e3cbed6eb2b2a16a121d9de835847051"
+      "sha256": "4f1203c8016683964f264b7eecae9dbd060286703f016d7fafa1f6ddf75d8807"
     },
     {
       "bytes": 228,
