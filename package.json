@@ -713,6 +713,7 @@
     "verify:messi-slice1d-fortress-closeout": "node scripts/verify-messi-slice1d-fortress-closeout.js",
     "verify:messi-slice1e-fortress-wiring": "node scripts/verify-messi-slice1a-acceptance-ledger.js",
     "verify:messi-slice1f-radar-wiring": "node scripts/verify-messi-slice1a-acceptance-ledger.js",
+    "verify:messi-slice1g-factory-wiring": "node scripts/verify-messi-slice1a-acceptance-ledger.js",
     "verify:evidence-durable-refs": "node scripts/verify-evidence-durable-refs.js"
   },
   "dependencies": {

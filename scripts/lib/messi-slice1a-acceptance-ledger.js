@@ -4,20 +4,21 @@
  * messi-slice1a-acceptance-ledger — MESSI sole production classifier and
  * parent-binding locks (docs/fixtures/verifier only).
  *
- * Slice 1F wires the reviewed RADAR 16AP finite closeout into this canonical
- * ledger: reuse exact 16AP candidate 7870a9fb + tip 7e56a99a provenance and
- * durable evidence refs, execute verify:radar-slice16ap-finite-closeout,
- * expose finite staging-readiness workstream completion on G_RADAR_PARENT
- * only, and keep that parent partial while formal gates remain 0/9/0 and
- * every retained live/production gap stays listed. Ledger semantic changes
- * are RADAR-confined: the five unrelated gate objects stay byte-identical to
- * master basis f0a4c696 (including FOUNDATION finite staging, FORTRESS finite
- * audit, and G_MESSI_MILESTONE_CLOSEOUT.workstream_class). Frozen score
- * 0/4/2, RADAR formal 0/9/0, and false production/MESSI completion are
- * preserved. No new certificate architecture — reuse redesign + squash-proof.
+ * Slice 1G wires the reviewed FACTORY 1E finite offline closeout into this
+ * canonical ledger: reuse exact 1E candidate/canonical tip 14facf5d provenance
+ * and durable evidence refs, execute verify:factory-slice1e-finite-closeout,
+ * expose finite offline dry-run workstream completion on G_FACTORY_PARENT
+ * only, and keep that parent partial while production apply/materialization,
+ * operated onboarding, secrets/live targets, and production readiness remain
+ * absent. Ledger semantic changes are FACTORY-confined: the five unrelated
+ * gate objects stay byte-identical to master basis 94be40ba (including
+ * FOUNDATION finite staging, FORTRESS finite audit, RADAR finite
+ * staging-readiness, and G_MESSI_MILESTONE_CLOSEOUT.workstream_class). Frozen
+ * score 0/4/2, RADAR formal 0/9/0, and false production/MESSI completion are
+ * preserved. No certificate changes — reuse redesign + squash-proof as-is.
  *
  * Post-merge tip scope: immutable reviewed-candidate blob certificates at HEAD.
- * Never infer 1A/1F scope from MASTER_BASIS..HEAD path allowlists (concurrent
+ * Never infer 1A/1G scope from MASTER_BASIS..HEAD path allowlists (concurrent
  * unrelated master commits after the squash — e.g. #147 — are irrelevant).
  *
  * Parent milestones are never marked complete from labels, summaries, or
@@ -72,11 +73,11 @@ function sha256Text(text) {
   return crypto.createHash('sha256').update(String(text), 'utf8').digest('hex');
 }
 
-const SLICE = 'MESSI-1F';
-const BRANCH = 'messi/slice-1f-radar-wiring';
-const OUTCOME_ID = '1F_radar_finite_closeout_ledger_wiring';
-/** Master tip this slice starts from (#156 squash-proof tip). */
-const MASTER_BASIS = 'f0a4c696131e3897691e25c053c1583a3545393b';
+const SLICE = 'MESSI-1G';
+const BRANCH = 'messi/slice-1g-factory-wiring';
+const OUTCOME_ID = '1G_factory_finite_closeout_ledger_wiring';
+/** Master tip this slice starts from (#157 RADAR wiring tip). */
+const MASTER_BASIS = '94be40ba9ffc2a9c55030ebf50f711aaa6f6a594';
 /** Git-anchored whole-path redesign pin (never frozen_only / fixture trust root). */
 const redesignPin = require('./breakglass-redesign-candidate-sha');
 /**
@@ -92,8 +93,8 @@ const LANDING_TIP = redesignPin.SQUASH_PROOF_LANDING_TIP
   || 'c61bc9feba412de8e24cd14b5907bd62b65abd13';
 /** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
 const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
-const PROGRESS_CLASS = 'radar_finite_closeout_ledger_wiring_only';
-/** Preserved from base f0a4c696 / 98202775 — not overwritten by 1F progress_class. */
+const PROGRESS_CLASS = 'factory_finite_closeout_ledger_wiring_only';
+/** Preserved from base 94be40ba / 98202775 — not overwritten by 1G progress_class. */
 const MESSI_CLOSEOUT_WORKSTREAM_CLASS = 'acceptance_ledger_inventory_and_verifier_only';
 
 /** Reviewed RADAR 16AP candidate + canonical tip (unchanged durable provenance). */
@@ -111,6 +112,11 @@ const FORTRESS_1D_MERGE_TIP = 'ff285598ac2cfec980e8316e772924a9c79a6a7e';
 const FORTRESS_1D_CANDIDATE_SHA = 'fa2c5d71ad6c662b4c4f60b08ede409064acf2fe';
 const FORTRESS_1D_MASTER_BASIS = '949be24936c3056b19904904f98feccab5caf883';
 
+/** Reviewed FACTORY 1E candidate + canonical tip (identity; unchanged durable provenance). */
+const FACTORY_1E_MERGE_TIP = '14facf5d54be8767cf9aca4d69a880f28ea3dc2e';
+const FACTORY_1E_CANDIDATE_SHA = '14facf5d54be8767cf9aca4d69a880f28ea3dc2e';
+const FACTORY_1E_MASTER_BASIS = 'e8452d178ad8f4b6aadc8b59b2d3032634952471';
+
 const GATE_IDS = Object.freeze([
   'G_FOUNDATION_PARENT',
   'G_FORTRESS_PARENT',
@@ -120,18 +126,18 @@ const GATE_IDS = Object.freeze([
   'G_MESSI_MILESTONE_CLOSEOUT',
 ]);
 
-/** Non-RADAR gates — must remain byte-identical to master basis f0a4c696 ledger. */
+/** Non-FACTORY gates — must remain byte-identical to master basis 94be40ba ledger. */
 const UNRELATED_GATE_IDS = Object.freeze([
   'G_FOUNDATION_PARENT',
   'G_FORTRESS_PARENT',
-  'G_FACTORY_PARENT',
+  'G_RADAR_PARENT',
   'G_CROSS_PARENT_INTEGRATION',
   'G_MESSI_MILESTONE_CLOSEOUT',
 ]);
 
 /**
  * Exact unrelated gate objects from fixtures/messi-acceptance/slice1a-ledger.json
- * at master basis f0a4c696 (pre-1F). Semantic ledger confinement proof target.
+ * at master basis 94be40ba (pre-1G). Semantic ledger confinement proof target.
  */
 const BASE_UNRELATED_GATE_OBJECTS = Object.freeze([
   Object.freeze({
@@ -168,17 +174,18 @@ const BASE_UNRELATED_GATE_OBJECTS = Object.freeze([
     ]),
   }),
   Object.freeze({
-    id: 'G_FACTORY_PARENT',
+    id: 'G_RADAR_PARENT',
     verdict: 'partial',
-    parent: 'FACTORY',
-    workstream_class: 'finite_offline_dry_run_packaging_closeout',
+    parent: 'RADAR',
+    workstream_class: 'finite_milestone_closeout_staging_readiness_only',
     production_readiness: 'absent',
-    finite_closeout_analog: 'verify:factory-slice1e-finite-closeout',
+    finite_closeout_analog: 'verify:radar-slice16ap-finite-closeout',
+    finite_staging_readiness_workstream_complete: true,
     missing_proof: Object.freeze([
-      'third_tenant_live_or_prod_onboarding',
-      'apply_or_disk_materialization',
-      'RADAR_reopen_third_tenant_factory_clearance',
-      'production_client_productization_readiness',
+      'formal_gates_raised_from_partial_to_proven',
+      'production_only_unknowns_closed',
+      'full_G06_proven_forbidden_by_16AP',
+      'production_ready_claim_forbidden_by_16AP',
     ]),
   }),
   Object.freeze({
@@ -246,6 +253,9 @@ const PACKAGE_JSON_1E_SCRIPT_VALUE =
   'node scripts/verify-messi-slice1a-acceptance-ledger.js';
 const PACKAGE_JSON_1F_SCRIPT_KEY = 'verify:messi-slice1f-radar-wiring';
 const PACKAGE_JSON_1F_SCRIPT_VALUE =
+  'node scripts/verify-messi-slice1a-acceptance-ledger.js';
+const PACKAGE_JSON_1G_SCRIPT_KEY = 'verify:messi-slice1g-factory-wiring';
+const PACKAGE_JSON_1G_SCRIPT_VALUE =
   'node scripts/verify-messi-slice1a-acceptance-ledger.js';
 
 const SCOPE_FENCE = Object.freeze({
@@ -440,10 +450,10 @@ const PARENTS = Object.freeze({
     title: 'Client productization offline dry-run workstream',
     tip_slice: 'FACTORY-1E',
     outcome_id: '1E_dry_run_proof_packaging_milestone_closeout',
-    master_basis: 'e8452d178ad8f4b6aadc8b59b2d3032634952471',
-    canonical_tip: '14facf5d54be8767cf9aca4d69a880f28ea3dc2e',
-    candidate_sha: '14facf5d54be8767cf9aca4d69a880f28ea3dc2e',
-    tip_sha_on_master: '14facf5d54be8767cf9aca4d69a880f28ea3dc2e',
+    master_basis: FACTORY_1E_MASTER_BASIS,
+    canonical_tip: FACTORY_1E_MERGE_TIP,
+    candidate_sha: FACTORY_1E_CANDIDATE_SHA,
+    tip_sha_on_master: FACTORY_1E_MERGE_TIP,
     workstream_class: 'finite_offline_dry_run_packaging_closeout',
     finite_closeout_analog: 'verify:factory-slice1e-finite-closeout',
     production_readiness: 'absent',
@@ -481,6 +491,7 @@ const PARENTS = Object.freeze({
         npm: 'verify:factory-slice1e-finite-closeout',
       }),
     ]),
+    // Finite offline dry-run closeout is wired; parent stays incomplete without these.
     missing_proof_for_complete: Object.freeze([
       'third_tenant_live_or_prod_onboarding',
       'apply_or_disk_materialization',
@@ -517,7 +528,7 @@ const MESSI_GATES = Object.freeze([
     parent: 'FACTORY',
     title: 'FACTORY parent evidence binding + retained closeout gate',
     requirement:
-      'Inventory FACTORY 1E finite offline closeout, bind hashes, run verify:factory-slice1e-finite-closeout, and treat offline closeout as distinct from live/prod readiness.',
+      'Inventory FACTORY 1E finite offline closeout, bind exact candidate/canonical tip 14facf5d evidence blobs, run verify:factory-slice1e-finite-closeout, expose finite offline dry-run workstream completion, and keep parent partial while production apply/materialization, operated onboarding, secrets/live targets, and production readiness remain absent. Do not mark complete from labels or treat finite offline dry-run closeout as FACTORY complete / production readiness.',
   }),
   Object.freeze({
     id: 'G_CROSS_PARENT_INTEGRATION',
@@ -1118,8 +1129,9 @@ function classifyMessiGates(opts) {
       // gaps (FORTRESS) or formal partials (RADAR) or offline-only closeout
       // (FACTORY) or FOUNDATION production/Docker/restore/operated unknowns
       // keep MESSI parent gates partial. Finite staging (FOUNDATION), finite
-      // audit (FORTRESS), and finite staging-readiness (RADAR) completion are
-      // exposed separately — never as parent complete or production readiness.
+      // audit (FORTRESS), finite staging-readiness (RADAR), and finite offline
+      // dry-run (FACTORY) completion are exposed separately — never as parent
+      // complete or production readiness.
       verdict = 'partial';
     }
     const gate = {
@@ -1159,6 +1171,14 @@ function classifyMessiGates(opts) {
       gate.finite_staging_readiness_workstream_complete = parent.workstream_class
           === 'finite_milestone_closeout_staging_readiness_only'
         && parent.finite_closeout_analog === 'verify:radar-slice16ap-finite-closeout'
+        && hashBindingOk
+        && gatesPass;
+    }
+    // Finite offline dry-run completion is FACTORY-only — never production complete.
+    if (parentId === 'FACTORY') {
+      gate.finite_offline_dry_run_workstream_complete = parent.workstream_class
+          === 'finite_offline_dry_run_packaging_closeout'
+        && parent.finite_closeout_analog === 'verify:factory-slice1e-finite-closeout'
         && hashBindingOk
         && gatesPass;
     }
@@ -1270,6 +1290,29 @@ function classifyMessiGates(opts) {
     }
   }
 
+  // Hard contract: FACTORY parent never complete from finite offline dry-run closeout.
+  const factoryGate = gates.find((g) => g.id === 'G_FACTORY_PARENT');
+  if (factoryGate) {
+    const requiredMissing = [
+      'third_tenant_live_or_prod_onboarding',
+      'apply_or_disk_materialization',
+      'RADAR_reopen_third_tenant_factory_clearance',
+      'production_client_productization_readiness',
+    ];
+    for (const m of requiredMissing) {
+      if (!factoryGate.missing_proof.includes(m)) {
+        errors.push(`factory_hidden_missing_proof:${m}`);
+      }
+    }
+    if (factoryGate.verdict === 'complete') {
+      errors.push('factory_complete_from_finite_closeout');
+    }
+    if (factoryGate.finite_offline_dry_run_workstream_complete === true
+      && factoryGate.production_readiness !== 'absent') {
+      errors.push('finite_offline_dry_run_as_production_readiness');
+    }
+  }
+
   const score = {
     proven: gates.filter((g) => g.verdict === 'complete').length,
     partial: gates.filter((g) => g.verdict === 'partial').length,
@@ -1374,8 +1417,9 @@ function buildExpectedLedgerSkeleton() {
 /**
  * Ledger/classifier semantic gate object (strips retained_gate_results).
  * finite_staging_workstream_complete / finite_audit_workstream_complete /
- * finite_staging_readiness_workstream_complete are included only when present
- * (FOUNDATION / FORTRESS / RADAR respectively).
+ * finite_staging_readiness_workstream_complete /
+ * finite_offline_dry_run_workstream_complete are included only when present
+ * (FOUNDATION / FORTRESS / RADAR / FACTORY respectively).
  */
 function ledgerGateObject(g) {
   if (!g || typeof g !== 'object') return null;
@@ -1396,6 +1440,9 @@ function ledgerGateObject(g) {
   if (Object.prototype.hasOwnProperty.call(g, 'finite_staging_readiness_workstream_complete')) {
     out.finite_staging_readiness_workstream_complete = g.finite_staging_readiness_workstream_complete;
   }
+  if (Object.prototype.hasOwnProperty.call(g, 'finite_offline_dry_run_workstream_complete')) {
+    out.finite_offline_dry_run_workstream_complete = g.finite_offline_dry_run_workstream_complete;
+  }
   out.missing_proof = Array.isArray(g.missing_proof) ? [...g.missing_proof] : g.missing_proof;
   return out;
 }
@@ -1410,8 +1457,8 @@ function unrelatedGatesMatchBase(gates) {
       errors.push(`unrelated_gate_missing:${exp.id}`);
       continue;
     }
-    if (Object.prototype.hasOwnProperty.call(got, 'finite_staging_readiness_workstream_complete')) {
-      errors.push(`finite_staging_readiness_on_unrelated_gate:${exp.id}`);
+    if (Object.prototype.hasOwnProperty.call(got, 'finite_offline_dry_run_workstream_complete')) {
+      errors.push(`finite_offline_dry_run_on_unrelated_gate:${exp.id}`);
     }
     if (!deepEqual(ledgerGateObject(got), deepClone(exp))) {
       errors.push(`unrelated_gate_drift:${exp.id}`);
@@ -1494,9 +1541,15 @@ function validateLedgerFixture(ledger, classification) {
           !== g.finite_staging_readiness_workstream_complete) {
         errors.push(`finite_staging_readiness_workstream_complete_mismatch:${g.id}`);
       }
+      if (Object.prototype.hasOwnProperty.call(g, 'finite_offline_dry_run_workstream_complete')
+        && got.finite_offline_dry_run_workstream_complete
+          !== g.finite_offline_dry_run_workstream_complete) {
+        errors.push(`finite_offline_dry_run_workstream_complete_mismatch:${g.id}`);
+      }
     }
     // FOUNDATION finite staging must remain exposed; FORTRESS finite audit must
-    // remain exposed; RADAR finite staging-readiness must be exposed.
+    // remain exposed; RADAR finite staging-readiness must remain exposed;
+    // FACTORY finite offline dry-run must be exposed.
     const foundationGot = byId.G_FOUNDATION_PARENT;
     if (foundationGot
       && foundationGot.finite_staging_workstream_complete !== true
@@ -1517,6 +1570,13 @@ function validateLedgerFixture(ledger, classification) {
       && classification.gates.find((x) => x.id === 'G_RADAR_PARENT')
         ?.finite_staging_readiness_workstream_complete === true) {
       errors.push('radar_finite_staging_readiness_missing_in_ledger');
+    }
+    const factoryGot = byId.G_FACTORY_PARENT;
+    if (factoryGot
+      && factoryGot.finite_offline_dry_run_workstream_complete !== true
+      && classification.gates.find((x) => x.id === 'G_FACTORY_PARENT')
+        ?.finite_offline_dry_run_workstream_complete === true) {
+      errors.push('factory_finite_offline_dry_run_missing_in_ledger');
     }
     const unrelatedLedger = unrelatedGatesMatchBase(ledger.gates || []);
     for (const e of unrelatedLedger.errors) errors.push(e);
@@ -1568,6 +1628,8 @@ const REQUIRED_RED = Object.freeze([
   'obsolete_authorization_green_name_absent',
   // MESSI 1F — RADAR finite staging-readiness wiring hostiles (only two new)
   'finite_closeout_as_RADAR_complete',
+  // MESSI 1G — FACTORY finite offline dry-run wiring hostiles (only two new)
+  'finite_FACTORY_as_production_complete',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -1581,6 +1643,7 @@ const REQUIRED_GREEN = Object.freeze([
   'foundation_finite_staging_exposed',
   'fortress_finite_audit_exposed',
   'radar_finite_staging_readiness_exposed',
+  'factory_finite_offline_dry_run_exposed',
   'unrelated_gates_byte_identical_to_base',
   'messi_not_complete',
   'package_script_registered',
@@ -1635,6 +1698,8 @@ module.exports = deepFreeze({
   PACKAGE_JSON_1E_SCRIPT_VALUE,
   PACKAGE_JSON_1F_SCRIPT_KEY,
   PACKAGE_JSON_1F_SCRIPT_VALUE,
+  PACKAGE_JSON_1G_SCRIPT_KEY,
+  PACKAGE_JSON_1G_SCRIPT_VALUE,
   SCOPE_FENCE,
   PARENTS,
   MESSI_GATES,
@@ -1646,6 +1711,9 @@ module.exports = deepFreeze({
   RADAR_16AP_MERGE_TIP,
   RADAR_16AP_CANDIDATE_SHA,
   RADAR_16AP_MASTER_BASIS,
+  FACTORY_1E_MERGE_TIP,
+  FACTORY_1E_CANDIDATE_SHA,
+  FACTORY_1E_MASTER_BASIS,
   deepFreeze,
   deepClone,
   deepEqual,
