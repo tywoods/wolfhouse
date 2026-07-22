@@ -147,10 +147,29 @@ function validateEvidence(ev) {
   return { ok: errors.length === 0, errors };
 }
 
-function mutate(ev, mutator) {
+function mutate(ev, mutator, { recomputeLockHash = false } = {}) {
   const copy = deepClone(ev);
   mutator(copy);
+  if (recomputeLockHash) {
+    copy.lock_hash = computeEvidenceLockHash(copy);
+  }
   return copy;
+}
+
+function redRejects(id, evidence, mutator, expectedError, { recomputeLockHash = true } = {}) {
+  const result = validateEvidence(mutate(evidence, mutator, { recomputeLockHash }));
+  const intendedOnly = result.ok === false
+    && result.errors.includes(expectedError)
+    && (
+      expectedError === 'lock_hash'
+        ? result.errors.length === 1
+        : !result.errors.includes('lock_hash')
+    );
+  return red(
+    id,
+    intendedOnly,
+    `expected=${expectedError} errors=${result.errors.join(',') || '(none)'}`,
+  );
 }
 
 function main() {
@@ -240,87 +259,119 @@ function main() {
   );
 
   // --- Hostile REDs ---
-  red(
+  // Targeted semantic mutations recompute lock_hash so each RED fails only on
+  // its intended guard. lock_hash_drift alone keeps a stale lock_hash.
+  redRejects(
     'forward_count_drift',
-    !validateEvidence(mutate(evidence, (e) => { e.forwardCount = 40; })).ok,
+    evidence,
+    (e) => { e.forwardCount = 40; },
+    'observed_facts',
   );
-  red(
+  redRejects(
     'applied_count_drift',
-    !validateEvidence(mutate(evidence, (e) => { e.cycles[0].appliedCount = 40; })).ok,
+    evidence,
+    (e) => { e.cycles[0].appliedCount = 40; },
+    'observed_facts',
   );
-  red(
+  redRejects(
     'schema_migrations_hash_drift',
-    !validateEvidence(mutate(evidence, (e) => {
+    evidence,
+    (e) => {
       e.cycles[0].schema_migrations_hash = '0'.repeat(64);
       e.cycles[1].schema_migrations_hash = '0'.repeat(64);
-    })).ok,
+    },
+    'observed_facts',
   );
-  red(
+  redRejects(
     'schema_fingerprint_drift',
-    !validateEvidence(mutate(evidence, (e) => {
+    evidence,
+    (e) => {
       e.cycles[0].schema_fingerprint = '1'.repeat(64);
       e.cycles[1].schema_fingerprint = '1'.repeat(64);
-    })).ok,
+    },
+    'observed_facts',
   );
-  red(
+  redRejects(
     'raw_evidence_hash_drift',
-    !validateEvidence(mutate(evidence, (e) => {
+    evidence,
+    (e) => {
       e.raw_evidence_sha256 = '2'.repeat(64);
-    })).ok,
+    },
+    'observed_facts',
   );
-  red(
+  redRejects(
     'equality_flag_drift',
-    !validateEvidence(mutate(evidence, (e) => {
+    evidence,
+    (e) => {
       e.volumes_distinct = false;
       e.schema_migrations_equal = false;
       e.schema_fingerprint_equal = false;
-    })).ok,
+    },
+    'observed_facts',
   );
-  red(
+  redRejects(
     'cleanup_drift',
-    !validateEvidence(mutate(evidence, (e) => {
+    evidence,
+    (e) => {
       e.cleanup_ok = false;
       e.cycles[0].cleanup = false;
       e.cycles[0].cleanup_code = 'cleanup_failed';
       e.cycles[1].cleanup = false;
       e.cycles[1].cleanup_code = 'cleanup_failed';
-    })).ok,
+    },
+    'observed_facts',
   );
-  red(
+  redRejects(
     'candidate_drift',
-    !validateEvidence(mutate(evidence, (e) => {
+    evidence,
+    (e) => {
       e.candidate_sha = 'deadbeef'.repeat(5);
-    })).ok,
+    },
+    'observed_facts',
   );
-  red(
+  redRejects(
     'proof_script_hash_drift',
-    !validateEvidence(mutate(evidence, (e) => {
+    evidence,
+    (e) => {
       e.bindings.proof_script_sha256 = 'a'.repeat(64);
-    })).ok,
+    },
+    'bindings',
   );
-  red(
+  redRejects(
     'harness_hash_drift',
-    !validateEvidence(mutate(evidence, (e) => {
+    evidence,
+    (e) => {
       e.bindings.harness_sha256 = 'b'.repeat(64);
-    })).ok,
+    },
+    'bindings',
   );
-  red(
+  redRejects(
     'manifest_hash_drift',
-    !validateEvidence(mutate(evidence, (e) => {
+    evidence,
+    (e) => {
       e.bindings.canonical_manifest_hash = 'c'.repeat(64);
       e.bindings.canonical_manifest_file_sha256 = 'd'.repeat(64);
-    })).ok,
+    },
+    'bindings',
   );
-  red(
-    'lock_hash_drift',
-    !validateEvidence(mutate(evidence, (e) => {
+  {
+    const onlyHash = validateEvidence(mutate(evidence, (e) => {
       e.lock_hash = 'e'.repeat(64);
-    })).ok
-      && validateEvidence(mutate(evidence, (e) => {
-        e.forwardCount = 41;
-        e.lock_hash = 'f'.repeat(64);
-      })).ok === false,
-  );
+    }, { recomputeLockHash: false }));
+    const staleNoop = validateEvidence(mutate(evidence, (e) => {
+      e.forwardCount = 41;
+      e.lock_hash = 'f'.repeat(64);
+    }, { recomputeLockHash: false }));
+    red(
+      'lock_hash_drift',
+      onlyHash.ok === false
+        && onlyHash.errors.length === 1
+        && onlyHash.errors[0] === 'lock_hash'
+        && staleNoop.ok === false
+        && staleNoop.errors.includes('lock_hash'),
+      `only=${onlyHash.errors.join(',')} stale=${staleNoop.errors.join(',')}`,
+    );
+  }
 
   const missingRed = locks.REQUIRED_RED.filter(
     (id) => !redResults.some((r) => r.id === id && r.ok),
