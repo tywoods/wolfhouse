@@ -29,19 +29,28 @@ const {
 
 const PORT = Number(process.env.CROWSNEST_PORT) || 3040;
 const HOST = process.env.CROWSNEST_HOST || '0.0.0.0';
-const ASSET_PATH = path.join(__dirname, '..', 'public', 'crowsnest', 'logo.png');
-const ASSET_ROUTE = '/crowsnest/assets/logo.png';
+const ASSETS = new Map([
+  ['/crowsnest/assets/logo.png', {
+    path: path.join(__dirname, '..', 'public', 'crowsnest', 'logo.png'),
+    contentType: 'image/png',
+  }],
+  ['/images/luna-login-bg.jpg', {
+    path: path.join(__dirname, '..', 'public', 'images', 'luna-login-bg.jpg'),
+    contentType: 'image/jpeg',
+  }],
+]);
 const BASE_BROWSER_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'X-Frame-Options': 'DENY',
 };
 
-let logoAsset = null;
-try {
-  logoAsset = fs.readFileSync(ASSET_PATH);
-} catch {
-  logoAsset = null;
+for (const asset of ASSETS.values()) {
+  try {
+    asset.buffer = fs.readFileSync(asset.path);
+  } catch {
+    asset.buffer = null;
+  }
 }
 
 function isProduction() {
@@ -90,9 +99,9 @@ function sendHTML(res, status, html, extraHeaders = {}, cspNonce = '') {
   res.end(html);
 }
 
-function sendImage(res, status, buffer, extraHeaders = {}) {
+function sendImage(res, status, buffer, contentType, extraHeaders = {}) {
   res.writeHead(status, {
-    'Content-Type': 'image/png',
+    'Content-Type': contentType,
     'Content-Length': buffer.length,
     'Cache-Control': 'public, max-age=31536000, immutable',
     ...extraHeaders,
@@ -262,21 +271,22 @@ async function handleLogout(req, res, method) {
   });
 }
 
-function handleAsset(req, res, method) {
+function handleAsset(req, res, method, pathname) {
   if (method !== 'GET' && method !== 'HEAD') {
     return sendMethodNotAllowed(res, 'GET, HEAD');
   }
-  if (!logoAsset) {
+  const asset = ASSETS.get(pathname);
+  if (!asset || !asset.buffer) {
     return sendJSON(res, 404, { success: false, error: 'not found' });
   }
   if (method === 'HEAD') {
     return sendNoContentLike(res, 200, {
-      'Content-Type': 'image/png',
-      'Content-Length': logoAsset.length,
+      'Content-Type': asset.contentType,
+      'Content-Length': asset.buffer.length,
       'Cache-Control': 'public, max-age=31536000, immutable',
     });
   }
-  return sendImage(res, 200, logoAsset);
+  return sendImage(res, 200, asset.buffer, asset.contentType);
 }
 
 function handleHealthz(req, res, method) {
@@ -342,8 +352,8 @@ async function router(req, res) {
     return handleLogout(req, res, method);
   }
 
-  if (pathname === ASSET_ROUTE) {
-    return handleAsset(req, res, method);
+  if (ASSETS.has(pathname)) {
+    return handleAsset(req, res, method, pathname);
   }
 
   if (
