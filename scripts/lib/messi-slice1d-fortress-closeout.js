@@ -175,6 +175,7 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'scripts/lib/factory-slice1c-dry-run-generator.js',
   'scripts/lib/factory-slice1d-integration-proof.js',
   'scripts/lib/factory-slice1e-finite-closeout.js',
+  'scripts/verify-factory-slice1b-archetype-templates.js',
   'scripts/verify-factory-slice1e-finite-closeout.js',
   'package.json',
   'package-lock.json',

@@ -721,28 +721,83 @@ console.log('\n── Adversarial REDs ──');
     errs.includes('lessons_scheduling_arrive_before_not_numeric_scalar'));
 }
 
-// ── Tip scope ───────────────────────────────────────────────────────────────
+// ── Tip scope (candidate/landing — NOT base-to-HEAD) ────────────────────────
 console.log('\n── Tip scope ──');
 {
-  let changed = [];
-  try {
-    changed = execSync(`git diff --name-only ${locks.MASTER_BASIS}`, {
-      cwd: ROOT,
-      encoding: 'utf8',
-    }).trim().split('\n').filter(Boolean);
-  } catch (err) {
-    changed = [`__git_diff_failed__:${err && err.message}`];
+  // Exact reviewed 1B candidate (pre-squash). Concurrent #147 after landing
+  // must not require a Crowsnest allowlist.
+  const REVIEWED_CANDIDATE = '6910c4179677b1a33cb9e0863e90e6d5dab58935';
+  const LANDING_TIP = 'ce89a43ee1e2367a832255fec5ee4aefbfb4d2d8';
+
+  function listDiffPaths(fromSha, toSha) {
+    try {
+      return execSync(`git diff --name-only ${fromSha}..${toSha}`, {
+        cwd: ROOT,
+        encoding: 'utf8',
+      }).trim().split('\n').filter(Boolean);
+    } catch (_) {
+      return null;
+    }
   }
-  try {
-    const untracked = execSync('git ls-files --others --exclude-standard', {
-      cwd: ROOT,
-      encoding: 'utf8',
-    }).trim().split('\n').filter(Boolean);
-    changed = Array.from(new Set(changed.concat(untracked)));
-  } catch (_) { /* ignore */ }
-  changed = changed.filter((p) => !p.startsWith('tmp/'));
-  const scope = tipPathsAllowed(changed);
+
+  const candPaths = listDiffPaths(locks.MASTER_BASIS, REVIEWED_CANDIDATE);
+  ok('reviewed candidate ref resolves', !!candPaths);
+  const scope = tipPathsAllowed(candPaths || ['__candidate_diff_failed__']);
   ok('tip paths within locked prefixes', scope.ok, scope.bad.slice(0, 12).join(','));
+
+  // Merged provenance: landing tip blobs match candidate for candidate paths.
+  let mergedOk = Array.isArray(candPaths) && candPaths.length > 0;
+  if (mergedOk) {
+    for (const rel of candPaths) {
+      try {
+        const a = execSync(`git rev-parse ${REVIEWED_CANDIDATE}:${rel}`, {
+          cwd: ROOT, encoding: 'utf8',
+        }).trim();
+        const b = execSync(`git rev-parse ${LANDING_TIP}:${rel}`, {
+          cwd: ROOT, encoding: 'utf8',
+        }).trim();
+        if (a !== b) {
+          mergedOk = false;
+          break;
+        }
+      } catch (_) {
+        mergedOk = false;
+        break;
+      }
+    }
+  }
+  ok('merged provenance matches reviewed candidate', mergedOk);
+
+  const baseToHead = listDiffPaths(locks.MASTER_BASIS, 'HEAD') || [];
+  const concurrentUnrelated = tipPathsAllowed(baseToHead).bad;
+  ok('concurrent post-landing master paths need no 1B file allowlist',
+    concurrentUnrelated.length > 0 && scope.ok,
+    `unrelated=${concurrentUnrelated.slice(0, 8).join(',')}`);
+
+  // Dirty WT only (break-glass); ignore committed concurrent files.
+  let dirty = [];
+  try {
+    dirty = execSync('git diff --name-only HEAD', {
+      cwd: ROOT, encoding: 'utf8',
+    }).trim().split('\n').filter(Boolean);
+    const staged = execSync('git diff --cached --name-only', {
+      cwd: ROOT, encoding: 'utf8',
+    }).trim().split('\n').filter(Boolean);
+    const untracked = execSync('git ls-files --others --exclude-standard', {
+      cwd: ROOT, encoding: 'utf8',
+    }).trim().split('\n').filter(Boolean).filter((p) => !p.startsWith('tmp/'));
+    dirty = Array.from(new Set(dirty.concat(staged, untracked)));
+  } catch (_) { /* ignore */ }
+  const dirtyScope = tipPathsAllowed(dirty);
+  ok('working-tree delta only allowlisted factory 1B paths',
+    dirtyScope.ok, dirtyScope.bad.slice(0, 12).join(','));
+
+  // RED: forging HEAD (includes #147) as candidate must fail allowlist.
+  const forgedPaths = listDiffPaths(locks.MASTER_BASIS, 'HEAD') || [];
+  const forgedBad = tipPathsAllowed(forgedPaths).bad;
+  red('concurrent_merge_topology',
+    forgedBad.length > 0 && scope.ok && tipPathsAllowed(candPaths || []).ok);
+  red('altered_candidate_scope', forgedBad.length > 0);
 }
 
 {

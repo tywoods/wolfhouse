@@ -14,6 +14,10 @@
  * 98202775 (including G_MESSI_MILESTONE_CLOSEOUT.workstream_class). Frozen
  * score 0/4/2 and false production/MESSI completion are preserved.
  *
+ * Post-merge tip scope: bind REVIEWED_CANDIDATE + LANDING_TIP provenance.
+ * Never infer 1A/1C scope from MASTER_BASIS..HEAD (concurrent unrelated master
+ * commits after the squash — e.g. #147 — must not require a file allowlist).
+ *
  * Parent milestones are never marked complete from labels, summaries, or
  * self-authored booleans — only from inventory + exact hash binding + real
  * retained gate execution + deterministic classification with explicit missing
@@ -69,6 +73,14 @@ const BRANCH = 'messi/slice-1c-foundation-wiring';
 const OUTCOME_ID = '1C_foundation_finite_closeout_ledger_wiring';
 /** MESSI 1B merge tip on master — this slice starts from that SHA. */
 const MASTER_BASIS = '98202775a57e64597e0e606a6e58933bb8ba7250';
+/**
+ * Exact reviewed 1C candidate (pre-squash tip of messi/slice-1c-foundation-wiring).
+ * Tip scope binds to MASTER_BASIS..REVIEWED_CANDIDATE — never base-to-HEAD
+ * (concurrent #147 landed after squash merge #146).
+ */
+const REVIEWED_CANDIDATE = '3cbf4ca1d933585758b87346a7de16bf957e13d8';
+/** Squash-merge tip on master for 1C wiring (PR #146). */
+const LANDING_TIP = '949be24936c3056b19904904f98feccab5caf883';
 const PROGRESS_CLASS = 'foundation_finite_closeout_ledger_wiring_only';
 /** Preserved from base 98202775 — not overwritten by 1C progress_class. */
 const MESSI_CLOSEOUT_WORKSTREAM_CLASS = 'acceptance_ledger_inventory_and_verifier_only';
@@ -217,6 +229,7 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'scripts/lib/factory-slice1c-dry-run-generator.js',
   'scripts/lib/factory-slice1d-integration-proof.js',
   'scripts/lib/factory-slice1e-finite-closeout.js',
+  'scripts/verify-factory-slice1b-archetype-templates.js',
   'scripts/verify-factory-slice1e-finite-closeout.js',
   // Forward-compat tip-allowlist for MESSI 1B FOUNDATION closeout (paths only).
   // 1B lock/verifier may receive tip-scope allowlist / nested-gate forward-compat
@@ -493,6 +506,7 @@ const TIP_SCOPE_FORWARD_COMPAT_RELS = Object.freeze([
   'scripts/lib/factory-slice1c-dry-run-generator.js',
   'scripts/lib/factory-slice1d-integration-proof.js',
   'scripts/lib/factory-slice1e-finite-closeout.js',
+  'scripts/verify-factory-slice1b-archetype-templates.js',
   'scripts/verify-factory-slice1e-finite-closeout.js',
   // 1B lock/verifier may gain tip-scope allowlist / nested-gate forward-compat.
   'scripts/lib/messi-slice1b-foundation-closeout.js',
@@ -555,9 +569,9 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/foundation-closeout/findings.md':
     '8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439',
   'scripts/lib/messi-slice1b-foundation-closeout.js':
-    '6e727ca7423445990f42f0aff3f13bd5b6aa92c6e5177eef8b2ea53a76dc68d9',
+    '63c12920a26064d12b95d08105b7185ab8ccbd5853ec5ca56cfa434588108772',
   'scripts/verify-messi-slice1b-foundation-closeout.js':
-    '919ae1262366ff054aa751c94c1a086f1edd98a29753b01c294148e69fde9283',
+    '31e730bbdcefe0b7434db7bf2a047696aff14c02182fcf9acc423234bb548ce6',
   'docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md':
     'ec8fe4e611d086651842f287610a13495ef34df174e801e0bdc8e35d45bfccf9',
   'fixtures/fortress-tenant-identity/boundary-matrix.json':
@@ -744,6 +758,212 @@ function gitBlobSha256AtCommit(root, commitSha, rel) {
     ok: true,
     sha256: crypto.createHash('sha256').update(Buffer.from(r.stdout)).digest('hex'),
   };
+}
+
+function currentHeadSha(root) {
+  try {
+    return execSync('git rev-parse HEAD', {
+      cwd: root,
+      encoding: 'utf8',
+    }).trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+function tipPathAllowed(rel) {
+  const p = String(rel || '');
+  return ALLOWED_TIP_PATH_PREFIXES.some((pref) => (
+    pref.endsWith('/')
+      ? p.startsWith(pref) || p === pref.slice(0, -1)
+      : p === pref
+  ));
+}
+
+function unauthorizedTipPaths(paths) {
+  return (paths || []).filter((p) => !tipPathAllowed(p));
+}
+
+function listDiffPaths(root, fromSha, toSha) {
+  try {
+    const out = execSync(`git diff --name-only ${fromSha}..${toSha}`, {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    if (!out) return [];
+    return out.split('\n').map((s) => s.trim()).filter(Boolean);
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Scope fence for the exact reviewed 1C candidate only. Unrelated commits that
+ * landed on master after LANDING_TIP (e.g. #147) need no file allowlist.
+ */
+function verifyReviewedCandidateScope(root, opts) {
+  const options = opts || {};
+  const claimCandidate = options.candidate_sha || REVIEWED_CANDIDATE;
+  const errors = [];
+
+  const lockedCandidate = resolveCommitSha(root, REVIEWED_CANDIDATE);
+  if (!lockedCandidate) {
+    errors.push(`missing_ref:locked_reviewed_candidate:${REVIEWED_CANDIDATE}`);
+  }
+
+  const candidateSha = resolveCommitSha(root, claimCandidate);
+  if (!candidateSha) {
+    errors.push(`missing_ref:reviewed_candidate:${claimCandidate}`);
+  }
+
+  if (candidateSha && lockedCandidate && candidateSha !== lockedCandidate) {
+    errors.push(
+      `stale_or_wrong_reviewed_candidate:claimed=${candidateSha}:locked=${lockedCandidate}`,
+    );
+  }
+
+  if (candidateSha) {
+    const basis = resolveCommitSha(root, MASTER_BASIS);
+    if (basis
+      && candidateSha !== basis
+      && !isGitAncestor(root, basis, candidateSha)) {
+      errors.push(`reviewed_candidate_not_descendant_of_master_basis:${candidateSha}`);
+    }
+
+    const paths = listDiffPaths(root, MASTER_BASIS, candidateSha);
+    if (paths === null) {
+      errors.push('candidate_diff_failed');
+      return { ok: false, errors, paths: [], candidateSha };
+    }
+    const bad = unauthorizedTipPaths(paths);
+    if (bad.length > 0) {
+      errors.push(`altered_candidate_scope:${bad.join(',')}`);
+    }
+    return {
+      ok: errors.length === 0,
+      errors,
+      paths,
+      unauthorized: bad,
+      candidateSha,
+    };
+  }
+
+  return { ok: false, errors, paths: [], candidateSha: null };
+}
+
+/**
+ * Merged provenance: LANDING_TIP (squash #146) carries the same blobs as
+ * REVIEWED_CANDIDATE for every path in the candidate scope.
+ */
+function verifyMergedProvenance(root, opts) {
+  const options = opts || {};
+  const claimLanding = options.landing_tip || LANDING_TIP;
+  const claimCandidate = options.candidate_sha || REVIEWED_CANDIDATE;
+  const errors = [];
+
+  const lockedLanding = resolveCommitSha(root, LANDING_TIP);
+  const lockedCandidate = resolveCommitSha(root, REVIEWED_CANDIDATE);
+  if (!lockedLanding) errors.push(`missing_ref:locked_landing_tip:${LANDING_TIP}`);
+  if (!lockedCandidate) {
+    errors.push(`missing_ref:locked_reviewed_candidate:${REVIEWED_CANDIDATE}`);
+  }
+
+  const landingSha = resolveCommitSha(root, claimLanding);
+  if (!landingSha) errors.push(`missing_ref:landing_tip:${claimLanding}`);
+  const candidateSha = resolveCommitSha(root, claimCandidate);
+  if (!candidateSha) errors.push(`missing_ref:reviewed_candidate:${claimCandidate}`);
+
+  if (landingSha && lockedLanding && landingSha !== lockedLanding) {
+    errors.push(
+      `stale_or_wrong_landing_tip:claimed=${landingSha}:locked=${lockedLanding}`,
+    );
+  }
+  if (candidateSha && lockedCandidate && candidateSha !== lockedCandidate) {
+    errors.push(
+      `stale_or_wrong_reviewed_candidate:claimed=${candidateSha}:locked=${lockedCandidate}`,
+    );
+  }
+
+  if (landingSha && candidateSha) {
+    const basis = resolveCommitSha(root, MASTER_BASIS);
+    if (basis
+      && landingSha !== basis
+      && !isGitAncestor(root, basis, landingSha)) {
+      errors.push(`landing_tip_not_descendant_of_master_basis:${landingSha}`);
+    }
+
+    const paths = listDiffPaths(root, MASTER_BASIS, candidateSha);
+    if (paths === null) {
+      errors.push('candidate_diff_failed');
+    } else {
+      for (const rel of paths) {
+        const a = gitBlobSha256AtCommit(root, candidateSha, rel);
+        const b = gitBlobSha256AtCommit(root, landingSha, rel);
+        if (!a.ok || !b.ok || a.sha256 !== b.sha256) {
+          errors.push(`merged_provenance_blob_mismatch:${rel}`);
+        }
+      }
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    landingSha,
+    candidateSha,
+  };
+}
+
+/**
+ * Dirty working-tree / untracked delta only. Does not re-scan
+ * MASTER_BASIS..HEAD concurrent files.
+ */
+function verifyWorkingTreeDeltaScope(root, opts) {
+  const options = opts || {};
+  const errors = [];
+  let paths = [];
+  try {
+    const out = execSync('git diff --name-only HEAD', {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    const staged = execSync('git diff --cached --name-only', {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    paths = [out, staged]
+      .filter(Boolean)
+      .join('\n')
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch (_) {
+    errors.push('working_tree_diff_failed');
+  }
+
+  const untracked = options.untracked_paths;
+  let extra = [];
+  if (Array.isArray(untracked)) {
+    extra = untracked;
+  } else {
+    try {
+      extra = execSync('git ls-files --others --exclude-standard', {
+        cwd: root,
+        encoding: 'utf8',
+      }).split('\n').map((s) => s.trim()).filter(Boolean)
+        .filter((p) => !p.startsWith('tmp/'));
+    } catch (_) {
+      errors.push('untracked_list_failed');
+    }
+  }
+
+  const all = [...new Set(paths.concat(extra))];
+  const bad = unauthorizedTipPaths(all);
+  if (bad.length > 0) errors.push(`working_tree_unauthorized:${bad.join(',')}`);
+  return { ok: errors.length === 0, errors, paths: all, unauthorized: bad };
 }
 
 /**
@@ -1323,6 +1543,9 @@ const REQUIRED_RED = Object.freeze([
   'hidden_missing_proofs',
   'self_authored_score_change',
   'unrelated_gate_semantic_drift',
+  'concurrent_merge_topology',
+  'altered_candidate_scope',
+  'missing_reviewed_candidate_ref',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -1337,6 +1560,8 @@ const REQUIRED_GREEN = Object.freeze([
   'unrelated_gates_byte_identical_to_base',
   'messi_not_complete',
   'package_script_registered',
+  'reviewed_candidate_scope_authorized',
+  'merged_provenance_matches_reviewed_candidate',
 ]);
 
 deepFreeze(PARENTS);
@@ -1361,6 +1586,8 @@ module.exports = deepFreeze({
   BRANCH,
   OUTCOME_ID,
   MASTER_BASIS,
+  REVIEWED_CANDIDATE,
+  LANDING_TIP,
   PROGRESS_CLASS,
   MESSI_CLOSEOUT_WORKSTREAM_CLASS,
   FOUNDATION_1B_MERGE_TIP,
@@ -1403,6 +1630,13 @@ module.exports = deepFreeze({
   assertShaAncestor,
   assertCandidateFitsTip,
   gitBlobSha256AtCommit,
+  currentHeadSha,
+  tipPathAllowed,
+  unauthorizedTipPaths,
+  listDiffPaths,
+  verifyReviewedCandidateScope,
+  verifyMergedProvenance,
+  verifyWorkingTreeDeltaScope,
   verifyParentShaProvenance,
   runRetainedGate,
   runAllRetainedGates,

@@ -346,28 +346,37 @@ green('export_object_frozen',
     classification.errors.join('; '));
 }
 
-// Tip scope vs master basis
+// Tip scope: exact reviewed candidate + landing provenance (NOT base-to-HEAD).
 console.log('\n── Tip scope ──');
 {
-  let changed = [];
-  try {
-    const out = execSync(`git diff --name-only ${locks.MASTER_BASIS}`, {
-      cwd: ROOT,
-      encoding: 'utf8',
-    });
-    changed = out.split('\n').map((s) => s.trim()).filter(Boolean);
-  } catch (err) {
-    ok('git diff vs master basis', false, String(err.message));
-  }
-  const untracked = execSync('git ls-files --others --exclude-standard', {
-    cwd: ROOT,
-    encoding: 'utf8',
-  }).split('\n').map((s) => s.trim()).filter(Boolean)
-    .filter((p) => !p.startsWith('tmp/'));
-  const all = [...new Set(changed.concat(untracked))];
-  const scope = tipPathsAllowed(all);
-  ok('tip paths only 1B closeout artifacts (+1A allowlist forward-compat + package.json)',
-    scope.ok, scope.bad.slice(0, 20).join(', '));
+  const cand = locks.verifyReviewedCandidateScope(ROOT);
+  green('reviewed_candidate_scope_authorized',
+    cand.ok && Array.isArray(cand.paths) && cand.paths.length > 0,
+    (cand.errors || []).concat(cand.unauthorized || []).slice(0, 20).join('; '));
+
+  const merged = locks.verifyMergedProvenance(ROOT);
+  green('merged_provenance_matches_reviewed_candidate',
+    merged.ok,
+    (merged.errors || []).slice(0, 20).join('; '));
+
+  const dirty = locks.verifyWorkingTreeDeltaScope(ROOT);
+  ok('working-tree delta only allowlisted 1B paths (break-glass; no base-to-HEAD)',
+    dirty.ok,
+    (dirty.errors || []).concat(dirty.unauthorized || []).slice(0, 20).join('; '));
+
+  // Explicit: base-to-HEAD may include unrelated concurrent files; that must
+  // not be treated as 1B tip scope.
+  const baseToHead = locks.listDiffPaths(
+    ROOT,
+    locks.MASTER_BASIS,
+    locks.currentHeadSha(ROOT),
+  ) || [];
+  const concurrentUnrelated = locks.unauthorizedTipPaths(baseToHead);
+  ok('concurrent post-landing master paths need no 1B file allowlist',
+    concurrentUnrelated.length > 0
+    && cand.ok
+    && tipPathsAllowed(cand.paths).ok,
+    `unrelated=${concurrentUnrelated.slice(0, 8).join(',')}`);
 }
 
 // Diff check
@@ -455,9 +464,80 @@ red('spoofed_locked_branch_name_rejected', (() => {
   const orphan = locks.makeUnrelatedOrphanCommit(ROOT);
   // Spoofed locked branch name must never bypass ancestry.
   const accepted = locks.tipAccepts1b(orphan, locks.BRANCH, ROOT);
-  const synth = locks.makeSyntheticDescendantOfMaster(ROOT);
+  const synth = locks.makeSyntheticDescendantOfLanding(ROOT);
   const synthOk = locks.tipAccepts1b(synth, 'totally-wrong-branch-name', ROOT);
   return accepted === false && synthOk === true;
+})());
+
+red('non_descendant_tip_rejected', (() => {
+  const masterOnly = locks.makeSyntheticDescendantOfMaster(ROOT);
+  const landingOk = locks.tipAccepts1b(
+    locks.makeSyntheticDescendantOfLanding(ROOT),
+    'wrong-branch',
+    ROOT,
+  );
+  return locks.tipAccepts1b(masterOnly, locks.BRANCH, ROOT) === false
+    && landingOk === true;
+})());
+
+red('missing_reviewed_candidate_ref', (() => {
+  const r = locks.verifyReviewedCandidateScope(ROOT, {
+    candidate_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  });
+  return r.ok === false
+    && r.errors.some((e) => e.includes('missing_ref:reviewed_candidate'));
+})());
+
+red('altered_candidate_scope', (() => {
+  // Synthetic commit with HEAD tree parented on MASTER_BASIS — diff includes
+  // concurrent #147 crowsnest paths (unauthorized for 1B candidate).
+  let synth = '';
+  try {
+    const tree = execSync('git rev-parse HEAD^{tree}', {
+      cwd: ROOT,
+      encoding: 'utf8',
+    }).trim();
+    synth = execSync(
+      `git commit-tree ${tree} -p ${locks.MASTER_BASIS} -m "messi1b-altered-candidate-scope-probe"`,
+      { cwd: ROOT, encoding: 'utf8' },
+    ).trim();
+  } catch (_) {
+    return false;
+  }
+  const paths = locks.listDiffPaths(ROOT, locks.MASTER_BASIS, synth) || [];
+  const bad = locks.unauthorizedTipPaths(paths);
+  const identity = locks.verifyReviewedCandidateScope(ROOT, {
+    candidate_sha: synth,
+  });
+  return bad.length > 0
+    && identity.ok === false
+    && (
+      identity.errors.some((e) => e.startsWith('altered_candidate_scope:'))
+      || identity.errors.some((e) => e.startsWith('stale_or_wrong_reviewed_candidate:'))
+    );
+})());
+
+red('concurrent_merge_topology', (() => {
+  // Concurrent #147 after 1B landing: base..HEAD has unauthorized paths, but
+  // exact reviewed candidate scope stays clean. Forging HEAD as the reviewed
+  // candidate must reject.
+  const baseToHead = locks.listDiffPaths(
+    ROOT,
+    locks.MASTER_BASIS,
+    locks.currentHeadSha(ROOT),
+  ) || [];
+  const unrelated = locks.unauthorizedTipPaths(baseToHead);
+  const forged = locks.verifyReviewedCandidateScope(ROOT, {
+    candidate_sha: locks.currentHeadSha(ROOT),
+  });
+  const real = locks.verifyReviewedCandidateScope(ROOT);
+  return unrelated.length > 0
+    && real.ok === true
+    && forged.ok === false
+    && (
+      forged.errors.some((e) => e.startsWith('stale_or_wrong_reviewed_candidate:'))
+      || forged.errors.some((e) => e.startsWith('altered_candidate_scope:'))
+    );
 })());
 
 red('score_inflation_rejected', (() => {
