@@ -1,11 +1,12 @@
 'use strict';
 
 /**
- * verify:messi-slice1a-acceptance-ledger — MESSI acceptance ledger (1A + 1G wiring)
+ * verify:messi-slice1a-acceptance-ledger — MESSI acceptance ledger (1A + 1H)
  *
  * Read-only deterministic acceptance ledger verifier. Canonical classifier +
  * parent bindings live in scripts/lib/messi-slice1a-acceptance-ledger.js.
- * Slice 1G wires FACTORY 1E finite offline dry-run closeout into the ledger.
+ * Slice 1H binds a cross-parent disposition gap manifest on
+ * G_CROSS_PARENT_INTEGRATION while keeping that gate absent.
  * Runs retained offline parent gates only — no deploy/DB/cloud/network/live product
  * mutation.
  *
@@ -65,7 +66,7 @@ function noTrailingWhitespace(text) {
   return !String(text).split('\n').some((line) => /[ \t]+$/.test(line));
 }
 
-console.log('verify:messi-slice1a-acceptance-ledger — MESSI ledger (1G FACTORY wiring)\n');
+console.log('verify:messi-slice1a-acceptance-ledger — MESSI ledger (1H cross-parent gap)\n');
 
 // ── Artifacts ───────────────────────────────────────────────────────────────
 console.log('── Artifacts ──');
@@ -83,7 +84,7 @@ const doc = readText(locks.ARTIFACT_RELS.doc);
 const lockSrc = readText(locks.ARTIFACT_RELS.lock_module);
 const verifierSrc = readText(locks.ARTIFACT_RELS.verifier);
 
-ok('contract slice MESSI-1G', contract.slice === locks.SLICE && locks.SLICE === 'MESSI-1G');
+ok('contract slice MESSI-1H', contract.slice === locks.SLICE && locks.SLICE === 'MESSI-1H');
 ok('contract outcome', contract.outcome_id === locks.OUTCOME_ID);
 ok('contract master basis', contract.master_basis === locks.MASTER_BASIS);
 ok('contract messi_complete false', contract.messi_complete === false);
