@@ -1,15 +1,16 @@
 {
   "kind": "staging-ledger-recovery-contract",
-  "slice": "staging-ledger-recovery",
+  "slice": "staging-ledger-recovery-apply",
   "secretFree": true,
-  "planOnly": true,
+  "planOnlyDefault": true,
   "dryRunDefault": true,
-  "containsLiveApplyCode": false,
-  "mutationEnabled": false,
-  "mutationMode": "disabled_until_later_approved_slice",
+  "containsLiveApplyCode": true,
+  "mutationEnabled": true,
+  "mutationMode": "one_time_sole_042_injected_client_apply",
   "allowsExecutedByCanonicalRunnerLabel": false,
   "acceptsArbitrarySql": false,
   "weakensCanonicalReconcile": false,
+  "requireOperatorStructuralEvidenceBeforeApply": true,
   "evidenceKind": "staging-ledger-recovery-evidence-v1",
   "knownPartialScenario": {
     "diagnosisCode": "ledger_partial_history",
@@ -19,6 +20,7 @@
     "historicalOrderEnd": 39,
     "recoveryTipOrder": 40
   },
+  "recoveryInsertCount": 39,
   "target": {
     "environment": "staging",
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
@@ -30,12 +32,26 @@
     "sslmode": "verify-full",
     "applicationName": "wh-staging-ledger-recovery"
   },
+  "applyLocks": {
+    "advisoryLockKey1": 1464336385,
+    "advisoryLockKey2": 1296647985,
+    "advisoryLockLabels": [
+      "WH",
+      "MIG1"
+    ],
+    "applicationName": "wh-staging-ledger-recovery",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full"
+  },
+  "authorizedApplySequenceLength": 50,
   "manifestHash": "f76df6f9287eb44499dd8ab1d186ebdfc51c24d6704cdda226b36b9366b134b5",
   "forwardCount": 41,
   "checksumMode": "canonical_lf_v1",
   "approvalTokenEnv": "SUNSET_STAGING_LEDGER_RECOVERY_APPROVAL_TOKEN",
   "approvalFlag": "--approve-staging-ledger-recovery",
   "planOnlyFlag": "--plan-only",
+  "applyFlag": "--apply-ledger-recovery",
   "requiredRed": [
     "default_path_disabled",
     "missing_approval_token",
@@ -50,18 +66,29 @@
     "executed_runner_label_refused",
     "arbitrary_sql_refused",
     "non_contiguous_baseline",
-    "mutation_disabled",
-    "forbidden_argv_dsn_sql"
+    "forbidden_argv_dsn_sql",
+    "apply_without_approval",
+    "apply_empty_ledger_refused",
+    "apply_other_ledger_shape_refused",
+    "apply_repeated_refused",
+    "apply_mid_insert_rollback",
+    "apply_without_db_client"
   ],
   "requiredGreen": [
-    "mutation_remains_disabled",
+    "mutation_capability_enabled",
     "canonical_reconcile_still_fails_partial_042",
     "fixture_evidence_certifies_contiguous_baseline",
     "projected_reconcile_ok",
     "never_labels_recovery_executed_runner",
     "dry_run_plan_public_output_secret_free",
     "cli_plan_only_success",
-    "docs_and_contract_present"
+    "docs_and_contract_present",
+    "docs_require_operator_structural_evidence",
+    "apply_fake_client_exact_sequence",
+    "apply_preserves_042",
+    "apply_39_structural_only",
+    "apply_post_write_reconcile_ok",
+    "apply_public_output_secret_free"
   ],
-  "generatedAt": "2026-07-22T14:10:01.167Z"
+  "generatedAt": "2026-07-22T14:23:03.175Z"
 }

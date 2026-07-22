@@ -1,29 +1,32 @@
 'use strict';
 
 /**
- * Staging ledger recovery — one-time plan/certification contract.
+ * Staging ledger recovery — plan/certification + one-time executable apply.
  *
  * Context: Sunset staging schema_migration_ledger may contain only 042 while the
  * canonical forward chain has older migrations, so reconcileLedger correctly
  * fails closed with ledger_partial_history.
  *
- * This slice owns repository tooling that can certify a contiguous baseline
- * recovery plan ONLY after an immutable evidence artifact supplies explicit
- * structural assertions for every applicable historical migration.
+ * Plan mode certifies a contiguous baseline recovery ONLY after an immutable
+ * evidence artifact supplies explicit structural assertions for every
+ * applicable historical migration (orders 1..39).
  *
- * Hard rules for this slice:
- * - Dry-run / plan-only by default
- * - Executable mutation mode remains DISABLED (later separately-approved slice)
- * - Never invent historical provenance
- * - Never label recovery rows executed_by_canonical_runner
- * - Never print secrets/DSN
- * - Never accept generic arbitrary SQL
+ * Apply mode (this slice) may write ONLY those 39 missing
+ * verified_structural_baseline rows inside one transaction + advisory lock,
+ * preserving the existing 042 row unchanged. It never labels recovery rows
+ * executed_by_canonical_runner and never weakens reconcileLedger.
+ *
+ * Hard rules:
+ * - Dry-run / plan-only by default; apply requires explicit flag + approval
  * - Staging-only target lock; refuse production
- * - Fail closed on partial/incomplete evidence, checksum/target mismatch,
- *   missing assertions/approval, or non-contiguous projected baseline
- *
- * Reuses migration-integrity terminology (apply_kind, checksumMode,
- * reconcileLedger, ledger_partial_history). Does not weaken reconciliation.
+ * - Never invent historical provenance
+ * - Never print secrets/DSN; refuse arbitrary DSN/SQL argv
+ * - Fail closed on weak/missing evidence, checksum/target mismatch,
+ *   empty/other ledger shapes, or repeated application
+ * - Roll back fully on any error
+ * - Live DB/secret retrieval is out of band: apply requires an injected
+ *   db-client seam (tests) or operator-provided client; this module does not
+ *   fetch Key Vault secrets
  */
 
 const fs = require('fs');
@@ -35,6 +38,9 @@ const {
   APPLY_KIND_VERIFIED_CURRENT_STATE_BASELINE,
   APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
   BASELINE_APPLY_KINDS,
+  LEDGER_SELECT_COLUMNS,
+  ADVISORY_LOCK_KEY1,
+  ADVISORY_LOCK_KEY2,
   loadManifest,
   forwardEntries,
   validateManifestIntegrity,
@@ -42,14 +48,14 @@ const {
   sha256Buffer,
 } = require('./migration-integrity');
 const { hashCanonicalManifest, EXPECTED_HOST, EXPECTED_DATABASE } = require('./sunset-schema-observer');
-const { TARGETS } = require('./phase-d-live-readonly-boundary');
+const { TARGETS, normalizeSql } = require('./phase-d-live-readonly-boundary');
 const { scanSecretValues } = require('./sunset-staging-iac-drift');
 
-/** Hard-disabled for this slice. A later approved slice must flip this explicitly. */
-const STAGING_LEDGER_RECOVERY_MUTATION_ENABLED = false;
+/** Capability enabled for the approved apply slice; still fail-closed via gates. */
+const STAGING_LEDGER_RECOVERY_MUTATION_ENABLED = true;
 
 const EVIDENCE_KIND = 'staging-ledger-recovery-evidence-v1';
-const SLICE_ID = 'staging-ledger-recovery';
+const SLICE_ID = 'staging-ledger-recovery-apply';
 const APPLICATION_NAME = 'wh-staging-ledger-recovery';
 
 const ENV_RECOVERY = 'SUNSET_STAGING_LEDGER_RECOVERY';
@@ -76,6 +82,8 @@ const KNOWN_PARTIAL_SCENARIO = Object.freeze({
   recoveryTipOrder: 40,
 });
 
+const RECOVERY_INSERT_COUNT = KNOWN_PARTIAL_SCENARIO.historicalOrderEnd;
+
 const RECOVERY_TARGET = Object.freeze({
   environment: 'staging',
   subscriptionId: TARGETS.subscriptionId,
@@ -95,8 +103,72 @@ const PRODUCTION_TARGET_PATTERNS = Object.freeze([
   /production/i,
 ]);
 
+const LOCK_TIMEOUT_MS = 5000;
+const STATEMENT_TIMEOUT_MS = 30000;
+const IDLE_IN_TRANSACTION_TIMEOUT_MS = 60000;
+
+const SET_LOCK_TIMEOUT_SQL = `SET LOCAL lock_timeout = '${LOCK_TIMEOUT_MS}ms'`;
+const SET_STATEMENT_TIMEOUT_SQL = `SET LOCAL statement_timeout = '${STATEMENT_TIMEOUT_MS}ms'`;
+const SET_IDLE_IN_TRANSACTION_TIMEOUT_SQL = `SET LOCAL idle_in_transaction_session_timeout = '${IDLE_IN_TRANSACTION_TIMEOUT_MS}ms'`;
+const ADVISORY_LOCK_SQL = 'SELECT pg_advisory_xact_lock($1, $2)';
+const LEDGER_TXN_TS_SQL = 'SELECT NOW() AS ledger_txn_ts';
+const LEDGER_COUNT_SQL = 'SELECT count(*)::int AS cnt FROM schema_migration_ledger';
+const LEDGER_SELECT_ALL_SQL = [
+  'SELECT',
+  `  ${LEDGER_SELECT_COLUMNS.join(', ')}`,
+  'FROM schema_migration_ledger',
+  'ORDER BY apply_order ASC',
+].join('\n');
+const LEDGER_INSERT_SQL = [
+  'INSERT INTO schema_migration_ledger (',
+  '  id, filename, checksum_sha256, apply_order,',
+  '  apply_kind, checksum_mode, evidence_ref, provenance_notes,',
+  '  applied_at, ledger_recorded_at',
+  ') VALUES (',
+  '  $1, $2, $3, $4,',
+  '  $5, $6, $7, $8,',
+  '  $9, $9',
+  ')',
+].join('\n');
+const LEDGER_KIND_COUNTS_SQL = [
+  'SELECT apply_kind, count(*)::int AS cnt',
+  'FROM schema_migration_ledger',
+  'GROUP BY apply_kind',
+  'ORDER BY apply_kind',
+].join('\n');
+
+const APPLY_LOCKS = Object.freeze({
+  advisoryLockKey1: ADVISORY_LOCK_KEY1,
+  advisoryLockKey2: ADVISORY_LOCK_KEY2,
+  advisoryLockLabels: Object.freeze(['WH', 'MIG1']),
+  applicationName: APPLICATION_NAME,
+  postgresHost: RECOVERY_TARGET.postgresHost,
+  database: RECOVERY_TARGET.database,
+  sslmode: RECOVERY_TARGET.sslmode,
+});
+
+function buildAuthorizedRecoveryApplySequence(insertCount) {
+  const n = Number(insertCount) || RECOVERY_INSERT_COUNT;
+  return Object.freeze([
+    'BEGIN',
+    'SET LOCAL lock_timeout',
+    'SET LOCAL statement_timeout',
+    'SET LOCAL idle_in_transaction_session_timeout',
+    'pg_advisory_xact_lock',
+    'assert_exact_sole_042',
+    'capture_ledger_txn_ts',
+    ...Array.from({ length: n }, () => 'insert_ledger_row'),
+    'verify_ledger_count',
+    'verify_ledger_rows',
+    'verify_ledger_kind_counts',
+    'COMMIT',
+  ]);
+}
+
+const AUTHORIZED_APPLY_SEQUENCE = buildAuthorizedRecoveryApplySequence(RECOVERY_INSERT_COUNT);
+const SUCCESS_PATH_QUERY_COUNT = AUTHORIZED_APPLY_SEQUENCE.length;
+
 const FORBIDDEN_ARGV_FLAGS = Object.freeze([
-  CLI_APPLY_MUTATION,
   '--apply',
   '--mutate',
   '--execute',
@@ -121,6 +193,7 @@ const ALLOWED_ARGV_FLAGS = Object.freeze([
   CLI_PLAN_ONLY,
   CLI_APPROVE,
   CLI_EVIDENCE,
+  CLI_APPLY_MUTATION,
   '--subscription',
   '--resource-group',
   '--postgres-server',
@@ -155,7 +228,37 @@ const SAFE_OUTPUT_KEYS = Object.freeze([
   'blocker',
   'reconcileOk',
   'applyKinds',
+  'insertedRowCount',
+  'preserved042',
+  'steps',
+  'authorizedSequence',
+  'rolledBack',
+  'committed',
+  'ledgerWritten',
+  'schemaMutation',
+  'dataMutation',
+  'executesMigrations',
+  'writesLedger',
+  'requestApply',
+  'clientsInstantiated',
+  'queryCalls',
+  'applicationName',
 ]);
+
+let applyQueryCallCount = 0;
+let applyClientInstantiateCount = 0;
+
+function resetRecoveryApplyCounters() {
+  applyQueryCallCount = 0;
+  applyClientInstantiateCount = 0;
+}
+
+function getRecoveryApplyCounters() {
+  return {
+    queryCalls: applyQueryCallCount,
+    clientsInstantiated: applyClientInstantiateCount,
+  };
+}
 
 const ALLOWED_RECOVERY_APPLY_KINDS = Object.freeze([
   APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
@@ -269,6 +372,8 @@ function evaluateRecoveryGates(opts) {
   const argv = options.argv || [];
   const errors = [];
   const { flags, values } = parseArgvFlags(argv);
+  const requestApply = flags.has(CLI_APPLY_MUTATION) || options.requestMutation === true;
+  const planOnly = flags.has(CLI_PLAN_ONLY);
 
   for (const f of flags) {
     if (FORBIDDEN_ARGV_FLAGS.includes(f)) {
@@ -285,10 +390,15 @@ function evaluateRecoveryGates(opts) {
     });
   }
 
-  if (!flags.has(CLI_PLAN_ONLY)) {
+  if (requestApply && planOnly) {
+    errors.push({
+      code: 'plan_apply_conflict',
+      message: `${CLI_PLAN_ONLY} and ${CLI_APPLY_MUTATION} are mutually exclusive`,
+    });
+  } else if (!requestApply && !planOnly) {
     errors.push({
       code: 'plan_only_required',
-      message: `${CLI_PLAN_ONLY} is required (dry-run default; mutation disabled)`,
+      message: `${CLI_PLAN_ONLY} is required for dry-run (or pass ${CLI_APPLY_MUTATION} for apply)`,
     });
   }
 
@@ -312,27 +422,34 @@ function evaluateRecoveryGates(opts) {
     });
   }
 
-  if (flags.has(CLI_APPLY_MUTATION) || options.requestMutation === true) {
+  if (requestApply && STAGING_LEDGER_RECOVERY_MUTATION_ENABLED !== true) {
     errors.push({
       code: 'mutation_disabled',
-      message: 'executable mutation mode is disabled in this slice',
+      message: 'executable mutation mode is disabled',
     });
   }
 
-  if (STAGING_LEDGER_RECOVERY_MUTATION_ENABLED !== false) {
+  if (typeof STAGING_LEDGER_RECOVERY_MUTATION_ENABLED !== 'boolean') {
     errors.push({
       code: 'mutation_flag_corrupt',
-      message: 'STAGING_LEDGER_RECOVERY_MUTATION_ENABLED must remain false in this slice',
+      message: 'STAGING_LEDGER_RECOVERY_MUTATION_ENABLED must be boolean',
     });
   }
 
   const evidencePath = values[CLI_EVIDENCE] || options.evidencePath || null;
+  if (!evidencePath && !options.evidence) {
+    errors.push({
+      code: 'evidence_path_required',
+      message: `${CLI_EVIDENCE} <path> is required`,
+    });
+  }
 
   return {
     ok: errors.length === 0,
     errors,
-    planOnly: true,
-    dryRun: true,
+    planOnly: !requestApply,
+    dryRun: !requestApply,
+    requestApply,
     mutationEnabled: STAGING_LEDGER_RECOVERY_MUTATION_ENABLED,
     evidencePath,
     code: errors.length ? (errors[0].code || 'gate_refused') : 'gates_ok',
@@ -782,7 +899,7 @@ function certifyContiguousBaseline(input) {
     applyKinds,
     target: { ...RECOVERY_TARGET },
     note: ok
-      ? 'Dry-run certification only. Mutation remains disabled until a later approved slice.'
+      ? 'Dry-run certification only. Apply requires --apply-ledger-recovery plus injected db client after real staging structural evidence.'
       : undefined,
   };
 }
@@ -793,6 +910,7 @@ function buildRecoveryPlan(input) {
     env: options.env,
     argv: options.argv,
     evidencePath: options.evidencePath,
+    evidence: options.evidence,
     requestMutation: options.requestMutation,
   };
   const gates = evaluateRecoveryGates(gateInput);
@@ -831,26 +949,742 @@ function buildRecoveryPlan(input) {
   };
 }
 
-/**
- * Executable mutation mode — hard-disabled in this slice.
- * Always refuses; does not connect to any database.
- */
-function executeRecoveryMutation() {
+function authorizeRecoveryApplySql(sql) {
+  const n = normalizeSql(sql);
+  const allowed = [
+    'BEGIN',
+    'COMMIT',
+    'ROLLBACK',
+    SET_LOCK_TIMEOUT_SQL,
+    SET_STATEMENT_TIMEOUT_SQL,
+    SET_IDLE_IN_TRANSACTION_TIMEOUT_SQL,
+    ADVISORY_LOCK_SQL,
+    LEDGER_TXN_TS_SQL,
+    LEDGER_COUNT_SQL,
+    LEDGER_SELECT_ALL_SQL,
+    LEDGER_INSERT_SQL,
+    LEDGER_KIND_COUNTS_SQL,
+  ];
+  for (const a of allowed) {
+    if (n === normalizeSql(a)) return a;
+  }
+  throw Object.assign(
+    new Error('unauthorized SQL rejected: only locked staging ledger recovery apply SQL permitted'),
+    { code: 'unauthorized_sql' },
+  );
+}
+
+function classifyRecoveryApplyStep(sql) {
+  const n = normalizeSql(sql);
+  if (n === normalizeSql('BEGIN')) return 'BEGIN';
+  if (n === normalizeSql('COMMIT')) return 'COMMIT';
+  if (n === normalizeSql('ROLLBACK')) return 'ROLLBACK';
+  if (n === normalizeSql(SET_LOCK_TIMEOUT_SQL)) return 'SET LOCAL lock_timeout';
+  if (n === normalizeSql(SET_STATEMENT_TIMEOUT_SQL)) return 'SET LOCAL statement_timeout';
+  if (n === normalizeSql(SET_IDLE_IN_TRANSACTION_TIMEOUT_SQL)) {
+    return 'SET LOCAL idle_in_transaction_session_timeout';
+  }
+  if (n === normalizeSql(ADVISORY_LOCK_SQL)) return 'pg_advisory_xact_lock';
+  if (n === normalizeSql(LEDGER_SELECT_ALL_SQL)) {
+    return 'assert_or_verify_ledger_rows';
+  }
+  if (n === normalizeSql(LEDGER_TXN_TS_SQL)) return 'capture_ledger_txn_ts';
+  if (n === normalizeSql(LEDGER_INSERT_SQL)) return 'insert_ledger_row';
+  if (n === normalizeSql(LEDGER_COUNT_SQL)) return 'verify_ledger_count';
+  if (n === normalizeSql(LEDGER_KIND_COUNTS_SQL)) return 'verify_ledger_kind_counts';
+  return 'unauthorized';
+}
+
+function snapshotLedgerRow(row) {
+  if (!row) return null;
   return {
-    ok: false,
-    code: 'mutation_disabled',
-    certified: false,
-    planOnly: true,
-    dryRun: true,
-    mutationEnabled: STAGING_LEDGER_RECOVERY_MUTATION_ENABLED,
-    liveMutation: false,
-    errors: [{
-      code: 'mutation_disabled',
-      message:
-        'staging ledger recovery mutation is disabled until a later separately-approved slice enables it',
-    }],
-    message: 'mutation_disabled',
+    id: String(row.id),
+    filename: String(row.filename || ''),
+    checksum_sha256: String(row.checksum_sha256 || ''),
+    apply_order: Number(row.apply_order),
+    apply_kind: String(row.apply_kind || ''),
+    checksum_mode: String(row.checksum_mode || ''),
+    evidence_ref: row.evidence_ref == null ? null : String(row.evidence_ref),
+    provenance_notes: row.provenance_notes == null ? null : String(row.provenance_notes),
+    applied_at: row.applied_at == null ? null : String(row.applied_at),
+    ledger_recorded_at: row.ledger_recorded_at == null ? null : String(row.ledger_recorded_at),
   };
+}
+
+function assertExactSole042Ledger(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw Object.assign(new Error('ledger is empty; sole-042 recovery refuses empty ledger'), {
+      code: 'empty_ledger_refused',
+    });
+  }
+  if (rows.length !== 1) {
+    throw Object.assign(
+      new Error('ledger is not the locked sole-042 shape (refusing empty/other/repeated apply)'),
+      { code: rows.length > 1 ? 'repeated_application_refused' : 'partial_ledger_refused' },
+    );
+  }
+  const row = rows[0];
+  if (String(row.id) !== KNOWN_PARTIAL_SCENARIO.soleRowId
+    || Number(row.apply_order) !== KNOWN_PARTIAL_SCENARIO.soleRowOrder) {
+    throw Object.assign(new Error('observed ledger is not the locked sole-042 partial scenario'), {
+      code: 'partial_ledger_refused',
+    });
+  }
+  return snapshotLedgerRow(row);
+}
+
+function assertPreserved042(pre, postRows) {
+  const post = (postRows || []).find((r) => String(r.id) === KNOWN_PARTIAL_SCENARIO.soleRowId);
+  if (!post) {
+    throw Object.assign(new Error('042 row missing after recovery apply'), {
+      code: 'preserved_042_missing',
+    });
+  }
+  const got = snapshotLedgerRow(post);
+  for (const key of Object.keys(pre)) {
+    if (String(got[key]) !== String(pre[key])) {
+      throw Object.assign(new Error(`042 row changed at ${key}`), {
+        code: 'preserved_042_mutated',
+        field: key,
+      });
+    }
+  }
+}
+
+function assertStructuralOnlyInserts(proposedInserts) {
+  for (const row of proposedInserts || []) {
+    if (row.apply_kind === APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER) {
+      throw Object.assign(new Error(`recovery must not label ${row.id} executed_by_canonical_runner`), {
+        code: 'executed_runner_label_refused',
+        id: row.id,
+      });
+    }
+    if (row.apply_kind !== APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE) {
+      throw Object.assign(
+        new Error(`recovery apply records only verified_structural_baseline (got ${row.apply_kind})`),
+        { code: 'apply_kind_refused', id: row.id },
+      );
+    }
+  }
+}
+
+function verifyPostWriteContiguous(selectedRows, proposedInserts, preserved042, forward) {
+  const expectedCount = proposedInserts.length + 1;
+  if (!Array.isArray(selectedRows) || selectedRows.length !== expectedCount) {
+    throw Object.assign(new Error('post-write ledger row count mismatch'), {
+      code: 'ledger_row_count_mismatch',
+      got: selectedRows ? selectedRows.length : 0,
+      expected: expectedCount,
+    });
+  }
+  assertPreserved042(preserved042, selectedRows);
+
+  const byOrder = selectedRows.slice().sort((a, b) => Number(a.apply_order) - Number(b.apply_order));
+  for (let i = 0; i < byOrder.length; i += 1) {
+    if (Number(byOrder[i].apply_order) !== i + 1) {
+      throw Object.assign(new Error(`post-write ledger gap at order ${i + 1}`), {
+        code: 'non_contiguous_baseline',
+      });
+    }
+  }
+
+  for (const want of proposedInserts) {
+    const got = byOrder.find((r) => String(r.id) === want.id);
+    if (!got
+      || got.filename !== want.filename
+      || got.checksum_sha256 !== want.checksum_sha256
+      || Number(got.apply_order) !== Number(want.apply_order)
+      || got.apply_kind !== APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE
+      || got.checksum_mode !== CHECKSUM_MODE_CANONICAL_LF_V1) {
+      throw Object.assign(new Error(`post-write mismatch for ${want.id}`), {
+        code: 'ledger_row_mismatch',
+        id: want.id,
+      });
+    }
+    if (got.apply_kind === APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER) {
+      throw Object.assign(new Error(`mislabel executed_by_canonical_runner on ${want.id}`), {
+        code: 'executed_runner_label_refused',
+        id: want.id,
+      });
+    }
+  }
+
+  const recon = reconcileLedger(forward, byOrder);
+  if (!recon.ok) {
+    throw Object.assign(new Error('post-write contiguous reconcileLedger failed'), {
+      code: recon.errors[0] ? recon.errors[0].code : 'projected_reconcile_failed',
+      reconcileErrors: recon.errors.slice(0, 5),
+    });
+  }
+}
+
+function verifyRecoveryKindCounts(rows, preservedApplyKind) {
+  const counts = {};
+  for (const r of rows || []) {
+    if (r.cnt != null && r.apply_kind != null) {
+      counts[r.apply_kind] = Number(r.cnt);
+    } else {
+      counts[r.apply_kind] = (counts[r.apply_kind] || 0) + 1;
+    }
+  }
+  if (counts[APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE] !== RECOVERY_INSERT_COUNT) {
+    throw Object.assign(new Error('structural baseline kind count mismatch'), {
+      code: 'ledger_kind_count_mismatch',
+      counts,
+    });
+  }
+  if (counts[APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER]
+    && preservedApplyKind !== APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER) {
+    throw Object.assign(new Error('unexpected executed_by_canonical_runner recovery labels'), {
+      code: 'executed_runner_label_refused',
+      counts,
+    });
+  }
+  const preservedCount = counts[preservedApplyKind] || 0;
+  if (preservedApplyKind === APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE) {
+    if (counts[APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE] !== RECOVERY_INSERT_COUNT + 1) {
+      throw Object.assign(new Error('kind counts mismatch with structural-preserved 042'), {
+        code: 'ledger_kind_count_mismatch',
+        counts,
+      });
+    }
+  } else if (preservedCount !== 1) {
+    throw Object.assign(new Error('preserved 042 apply_kind count mismatch'), {
+      code: 'ledger_kind_count_mismatch',
+      counts,
+    });
+  }
+}
+
+async function runAuthorizedRecoveryApplySequence(client, opts) {
+  const options = opts || {};
+  const proposedInserts = options.proposedInserts || [];
+  const forward = options.forward;
+  const expectedSequence = buildAuthorizedRecoveryApplySequence(proposedInserts.length);
+  const steps = [];
+  let began = false;
+  let committed = false;
+  let rolledBack = false;
+  let ledgerTxnTs = null;
+  let insertedRowCount = 0;
+  let preserved042 = null;
+
+  if (options.sql != null
+    || options.query != null
+    || options.host != null
+    || options.database != null
+    || options.dsn != null) {
+    throw Object.assign(new Error('caller-supplied SQL / host / database / DSN forbidden'), {
+      code: 'caller_supplied_query_forbidden',
+    });
+  }
+
+  assertStructuralOnlyInserts(proposedInserts);
+
+  async function q(sql, params) {
+    authorizeRecoveryApplySql(sql);
+    applyQueryCallCount += 1;
+    if (params === undefined) return client.query(sql);
+    return client.query(sql, params);
+  }
+
+  function pushStep(kind) {
+    steps.push(kind);
+  }
+
+  try {
+    await q('BEGIN');
+    began = true;
+    pushStep('BEGIN');
+
+    await q(SET_LOCK_TIMEOUT_SQL);
+    pushStep('SET LOCAL lock_timeout');
+
+    await q(SET_STATEMENT_TIMEOUT_SQL);
+    pushStep('SET LOCAL statement_timeout');
+
+    await q(SET_IDLE_IN_TRANSACTION_TIMEOUT_SQL);
+    pushStep('SET LOCAL idle_in_transaction_session_timeout');
+
+    await q(ADVISORY_LOCK_SQL, [ADVISORY_LOCK_KEY1, ADVISORY_LOCK_KEY2]);
+    pushStep('pg_advisory_xact_lock');
+
+    const preRes = await q(LEDGER_SELECT_ALL_SQL);
+    pushStep('assert_exact_sole_042');
+    preserved042 = assertExactSole042Ledger(preRes.rows);
+
+    const tsRes = await q(LEDGER_TXN_TS_SQL);
+    pushStep('capture_ledger_txn_ts');
+    ledgerTxnTs = (tsRes.rows && tsRes.rows[0] && tsRes.rows[0].ledger_txn_ts) || null;
+    if (!ledgerTxnTs) {
+      throw Object.assign(new Error('ledger_txn_ts capture failed'), {
+        code: 'ledger_txn_ts_missing',
+      });
+    }
+
+    for (const row of proposedInserts) {
+      await q(LEDGER_INSERT_SQL, [
+        row.id,
+        row.filename,
+        row.checksum_sha256,
+        row.apply_order,
+        APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
+        CHECKSUM_MODE_CANONICAL_LF_V1,
+        row.evidence_ref,
+        row.provenance_notes,
+        ledgerTxnTs,
+      ]);
+      pushStep('insert_ledger_row');
+      insertedRowCount += 1;
+    }
+
+    const countRes = await q(LEDGER_COUNT_SQL);
+    pushStep('verify_ledger_count');
+    const cnt = Number((countRes.rows && countRes.rows[0] && countRes.rows[0].cnt) || 0);
+    if (cnt !== proposedInserts.length + 1) {
+      throw Object.assign(new Error(`ledger count ${cnt} !== ${proposedInserts.length + 1}`), {
+        code: 'ledger_row_count_mismatch',
+      });
+    }
+
+    const selectRes = await q(LEDGER_SELECT_ALL_SQL);
+    pushStep('verify_ledger_rows');
+    verifyPostWriteContiguous(selectRes.rows, proposedInserts, preserved042, forward);
+
+    const kindRes = await q(LEDGER_KIND_COUNTS_SQL);
+    pushStep('verify_ledger_kind_counts');
+    verifyRecoveryKindCounts(kindRes.rows, preserved042.apply_kind);
+
+    await q('COMMIT');
+    committed = true;
+    pushStep('COMMIT');
+
+    if (JSON.stringify(steps) !== JSON.stringify(expectedSequence)) {
+      throw Object.assign(new Error('authorized sequence drift'), {
+        code: 'authorized_sequence_drift',
+      });
+    }
+
+    return {
+      ok: true,
+      code: 'staging_ledger_recovery_apply_ok',
+      steps: steps.slice(),
+      authorizedSequence: expectedSequence.slice(),
+      insertedRowCount,
+      preserved042: true,
+      ledgerTxnTs,
+      committed: true,
+      rolledBack: false,
+      liveMutation: true,
+      ledgerWritten: true,
+      writesLedger: true,
+      schemaMutation: 'ledger_only',
+      dataMutation: false,
+      executesMigrations: false,
+      mutationEnabled: STAGING_LEDGER_RECOVERY_MUTATION_ENABLED,
+      applicationName: APPLICATION_NAME,
+      reconcileOk: true,
+    };
+  } catch (e) {
+    if (began && !committed) {
+      try {
+        authorizeRecoveryApplySql('ROLLBACK');
+        applyQueryCallCount += 1;
+        await client.query('ROLLBACK');
+        rolledBack = true;
+        steps.push('ROLLBACK');
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    const safe = {
+      ok: false,
+      code: (e && e.code) || 'query_failed',
+      message: String((e && e.message) || 'recovery apply failed').slice(0, 400),
+      steps: steps.slice(),
+      rolledBack,
+      committed: false,
+      insertedRowCount,
+      preserved042: false,
+      liveMutation: false,
+      ledgerWritten: false,
+      writesLedger: false,
+      schemaMutation: false,
+      dataMutation: false,
+      executesMigrations: false,
+      mutationEnabled: STAGING_LEDGER_RECOVERY_MUTATION_ENABLED,
+    };
+    throw Object.assign(new Error(safe.message), { code: safe.code, result: safe });
+  }
+}
+
+function createScriptedRecoveryApplyFakeClient(script) {
+  const s = script || {};
+  const insertCount = Number(s.insertCount) || RECOVERY_INSERT_COUNT;
+  const expected = (s.expectedSteps || buildAuthorizedRecoveryApplySequence(insertCount)).slice();
+  const calls = [];
+  let stepIndex = 0;
+  let connected = false;
+  let ended = false;
+  const responses = s.responses || {};
+  let capturedTxnTs = responses.ledgerTxnTs || new Date('2026-07-22T12:00:00.000Z');
+  let inserted = 0;
+  const ledgerStore = [];
+  let selectPhase = 0;
+
+  const sole042 = responses.sole042 || {
+    id: KNOWN_PARTIAL_SCENARIO.soleRowId,
+    filename: KNOWN_PARTIAL_SCENARIO.soleRowFilename,
+    checksum_sha256: responses.sole042Checksum || 'd741bc9aaf385eef81b4864e5ec40b42f2bbc4e0ebfa59b65a16aa684c1c4e1e',
+    apply_order: KNOWN_PARTIAL_SCENARIO.soleRowOrder,
+    apply_kind: APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
+    checksum_mode: CHECKSUM_MODE_CANONICAL_LF_V1,
+    evidence_ref: 'observed:042',
+    provenance_notes: 'pre-existing sole ledger row; provenance preserved not invented',
+    ledger_recorded_at: '2026-07-21T00:00:00.000Z',
+    applied_at: '2026-07-21T00:00:00.000Z',
+  };
+
+  if (s.initialLedgerRows) {
+    for (const r of s.initialLedgerRows) ledgerStore.push({ ...r });
+  } else if (s.emptyLedger) {
+    /* leave empty */
+  } else {
+    ledgerStore.push({ ...sole042 });
+  }
+
+  function nextExpected() {
+    return expected[stepIndex] || null;
+  }
+
+  function mapKind(sql) {
+    const base = classifyRecoveryApplyStep(sql);
+    if (base === 'assert_or_verify_ledger_rows') {
+      selectPhase += 1;
+      return selectPhase === 1 ? 'assert_exact_sole_042' : 'verify_ledger_rows';
+    }
+    return base;
+  }
+
+  const client = {
+    calls,
+    ledgerStore,
+    async connect() {
+      calls.push({ method: 'connect' });
+      if (s.connectError) {
+        throw s.connectError instanceof Error
+          ? s.connectError
+          : Object.assign(new Error(String(s.connectError)), { code: 'connect_failed' });
+      }
+      connected = true;
+    },
+    async query(sql, params) {
+      calls.push({
+        method: 'query',
+        sql: String(sql),
+        params: params === undefined ? null : params,
+      });
+      if (!connected || ended) {
+        throw Object.assign(new Error('not connected'), { code: 'query_failed' });
+      }
+      const kind = mapKind(sql);
+      if (s.strictSequence !== false) {
+        const exp = nextExpected();
+        if (kind === 'ROLLBACK') {
+          if (exp === 'COMMIT') stepIndex += 1;
+        } else if (kind !== exp) {
+          throw Object.assign(
+            new Error(`wrong/reordered/extra SQL rejected: got ${kind}, expected ${exp}`),
+            { code: 'unauthorized_sql' },
+          );
+        } else {
+          stepIndex += 1;
+        }
+      }
+      if (s.queryErrorAt && s.queryErrorAt[kind]) {
+        const qe = s.queryErrorAt[kind];
+        throw qe instanceof Error
+          ? qe
+          : Object.assign(new Error(String(qe)), { code: typeof qe === 'object' && qe.code ? qe.code : 'query_failed' });
+      }
+      if (typeof s.queryErrorAtIndex === 'number' && calls.filter((c) => c.method === 'query').length === s.queryErrorAtIndex) {
+        throw Object.assign(new Error(String(s.queryErrorMessage || 'injected failure')), {
+          code: s.queryErrorCode || 'query_failed',
+        });
+      }
+
+      if (kind === 'BEGIN' || kind === 'COMMIT' || kind === 'ROLLBACK'
+        || kind === 'SET LOCAL lock_timeout'
+        || kind === 'SET LOCAL statement_timeout'
+        || kind === 'SET LOCAL idle_in_transaction_session_timeout'
+        || kind === 'pg_advisory_xact_lock') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (kind === 'assert_exact_sole_042') {
+        return { rows: ledgerStore.slice().sort((a, b) => a.apply_order - b.apply_order), rowCount: ledgerStore.length };
+      }
+
+      if (kind === 'capture_ledger_txn_ts') {
+        return { rows: [{ ledger_txn_ts: capturedTxnTs }], rowCount: 1 };
+      }
+
+      if (kind === 'insert_ledger_row') {
+        if (s.failAtInsertIndex != null && inserted === s.failAtInsertIndex) {
+          throw Object.assign(new Error('injected insert failure'), { code: 'query_failed' });
+        }
+        const row = {
+          id: params[0],
+          filename: params[1],
+          checksum_sha256: params[2],
+          apply_order: params[3],
+          apply_kind: params[4],
+          checksum_mode: params[5],
+          evidence_ref: params[6],
+          provenance_notes: params[7],
+          applied_at: params[8],
+          ledger_recorded_at: params[8],
+        };
+        ledgerStore.push(row);
+        inserted += 1;
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (kind === 'verify_ledger_count') {
+        return { rows: [{ cnt: ledgerStore.length }], rowCount: 1 };
+      }
+
+      if (kind === 'verify_ledger_rows') {
+        return {
+          rows: ledgerStore.slice().sort((a, b) => a.apply_order - b.apply_order),
+          rowCount: ledgerStore.length,
+        };
+      }
+
+      if (kind === 'verify_ledger_kind_counts') {
+        const counts = {};
+        for (const r of ledgerStore) {
+          counts[r.apply_kind] = (counts[r.apply_kind] || 0) + 1;
+        }
+        const rows = Object.entries(counts).map(([apply_kind, cnt]) => ({ apply_kind, cnt }));
+        return { rows, rowCount: rows.length };
+      }
+
+      throw Object.assign(new Error('unauthorized SQL rejected'), { code: 'unauthorized_sql' });
+    },
+    async end() {
+      calls.push({ method: 'end' });
+      ended = true;
+      connected = false;
+    },
+  };
+  return client;
+}
+
+function createScriptedRecoveryApplyFakeClientFactory(script) {
+  return function FakeRecoveryClient() {
+    return createScriptedRecoveryApplyFakeClient(script);
+  };
+}
+
+/**
+ * Executable one-time apply for the locked sole-042 partial ledger.
+ * Requires an injected db client / Client seam — does not retrieve secrets or
+ * open a live staging connection by itself.
+ */
+async function executeRecoveryMutation(input) {
+  const options = input || {};
+
+  if (options.dsn != null
+    || options.connectionString != null
+    || options.databaseUrl != null
+    || options.host != null
+    || options.database != null
+    || options.sql != null
+    || options.query != null) {
+    return publicResult({
+      ok: false,
+      code: 'caller_supplied_connect_forbidden',
+      certified: false,
+      planOnly: false,
+      dryRun: false,
+      mutationEnabled: STAGING_LEDGER_RECOVERY_MUTATION_ENABLED,
+      liveMutation: false,
+      ledgerWritten: false,
+      errors: [{
+        code: 'caller_supplied_connect_forbidden',
+        message: 'arbitrary DSN/host/database/SQL are refused',
+      }],
+    });
+  }
+
+  const gateInput = options.gates || {
+    env: options.env,
+    argv: options.argv,
+    evidencePath: options.evidencePath,
+    evidence: options.evidence,
+    requestMutation: options.requestMutation != null
+      ? options.requestMutation
+      : true,
+  };
+  // Ensure apply flag is represented for gate evaluation when requestMutation is used.
+  if (gateInput.requestMutation && Array.isArray(gateInput.argv)
+    && !gateInput.argv.includes(CLI_APPLY_MUTATION)
+    && !gateInput.argv.includes(CLI_PLAN_ONLY)) {
+    gateInput.argv = [...gateInput.argv, CLI_APPLY_MUTATION];
+  }
+
+  const gates = evaluateRecoveryGates(gateInput);
+  if (!gates.ok || !gates.requestApply) {
+    return publicResult({
+      ok: false,
+      code: gates.code || 'apply_gates_refused',
+      errors: gates.errors,
+      certified: false,
+      planOnly: gates.planOnly,
+      dryRun: gates.dryRun,
+      requestApply: gates.requestApply,
+      mutationEnabled: STAGING_LEDGER_RECOVERY_MUTATION_ENABLED,
+      liveMutation: false,
+      ledgerWritten: false,
+      clientsInstantiated: 0,
+    });
+  }
+
+  let evidence = options.evidence;
+  const evidencePath = gates.evidencePath || options.evidencePath;
+  if (!evidence && evidencePath) {
+    evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+  }
+
+  const certified = certifyContiguousBaseline({
+    evidence,
+    manifestPath: options.manifestPath,
+    manifestContext: options.manifestContext,
+    requireDigest: true,
+  });
+  if (!certified.ok) {
+    return publicResult({
+      ...certified,
+      planOnly: false,
+      dryRun: false,
+      requestApply: true,
+      liveMutation: false,
+      ledgerWritten: false,
+      mutationEnabled: STAGING_LEDGER_RECOVERY_MUTATION_ENABLED,
+      slice: SLICE_ID,
+    });
+  }
+
+  const proposedInserts = (certified.proposedInserts || []).map((r) => ({
+    ...r,
+    apply_kind: APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
+  }));
+  try {
+    assertStructuralOnlyInserts(proposedInserts);
+  } catch (e) {
+    return publicResult({
+      ok: false,
+      code: e.code || 'apply_kind_refused',
+      errors: [{ code: e.code || 'apply_kind_refused', message: e.message }],
+      certified: true,
+      liveMutation: false,
+      ledgerWritten: false,
+      mutationEnabled: STAGING_LEDGER_RECOVERY_MUTATION_ENABLED,
+      slice: SLICE_ID,
+    });
+  }
+
+  let client = options.dbClient || null;
+  let ownsClient = false;
+  if (!client && typeof options.Client === 'function') {
+    applyClientInstantiateCount += 1;
+    client = new options.Client();
+    ownsClient = true;
+  }
+  if (!client) {
+    return publicResult({
+      ok: false,
+      code: 'db_client_required',
+      certified: true,
+      planOnly: false,
+      dryRun: false,
+      requestApply: true,
+      mutationEnabled: STAGING_LEDGER_RECOVERY_MUTATION_ENABLED,
+      liveMutation: false,
+      ledgerWritten: false,
+      clientsInstantiated: 0,
+      errors: [{
+        code: 'db_client_required',
+        message:
+          'apply requires an injected db client seam; this slice does not retrieve DB secrets or open arbitrary DSNs',
+      }],
+      note: 'Operator must inject a locked-target client after collecting real staging structural evidence.',
+      slice: SLICE_ID,
+      evidenceDigest: certified.evidenceDigest,
+      proposedInsertCount: proposedInserts.length,
+    });
+  }
+
+  try {
+    if (typeof client.connect === 'function') {
+      await client.connect();
+    }
+    const queryBefore = applyQueryCallCount;
+    const sequence = await runAuthorizedRecoveryApplySequence(client, {
+      proposedInserts,
+      forward: (options.manifestContext && options.manifestContext.forward)
+        || loadLiveManifestContext(options.manifestPath).forward,
+    });
+    const out = {
+      ...certified,
+      ...sequence,
+      ok: true,
+      code: 'staging_ledger_recovery_apply_ok',
+      certified: true,
+      planOnly: false,
+      dryRun: false,
+      requestApply: true,
+      mutationEnabled: STAGING_LEDGER_RECOVERY_MUTATION_ENABLED,
+      slice: SLICE_ID,
+      queryCalls: applyQueryCallCount - queryBefore,
+      clientsInstantiated: ownsClient ? 1 : 0,
+      proposedInsertCount: proposedInserts.length,
+      applyKinds: { [APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE]: proposedInserts.length },
+      note: 'One-time staging ledger recovery apply committed via injected client seam (not live-invoked by verifier).',
+    };
+    return publicResult(out);
+  } catch (e) {
+    const nested = e && e.result ? e.result : null;
+    return publicResult({
+      ok: false,
+      code: (nested && nested.code) || e.code || 'query_failed',
+      message: (nested && nested.message) || String(e.message || 'apply failed'),
+      errors: [{
+        code: (nested && nested.code) || e.code || 'query_failed',
+        message: (nested && nested.message) || String(e.message || 'apply failed'),
+      }],
+      certified: true,
+      planOnly: false,
+      dryRun: false,
+      requestApply: true,
+      mutationEnabled: STAGING_LEDGER_RECOVERY_MUTATION_ENABLED,
+      liveMutation: false,
+      ledgerWritten: false,
+      rolledBack: nested ? nested.rolledBack : undefined,
+      steps: nested ? nested.steps : undefined,
+      insertedRowCount: nested ? nested.insertedRowCount : 0,
+      slice: SLICE_ID,
+    });
+  } finally {
+    if (ownsClient && client && typeof client.end === 'function') {
+      try {
+        await client.end();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  }
 }
 
 function publicResult(result) {
@@ -951,7 +1785,8 @@ function buildFixtureEvidence(overrides) {
     notes: [
       'One-time staging recovery evidence for sole-042 partial ledger',
       'Does not invent historical runner provenance',
-      'Mutation disabled in this slice',
+      'Apply records verified_structural_baseline only; never executed_by_canonical_runner',
+      'Offline fixture placeholders — operator must collect real staging structural evidence before apply',
     ],
   };
 
@@ -985,6 +1820,19 @@ function exactRecoveryPlanArgv(evidencePath) {
   return argv;
 }
 
+function exactRecoveryApplyArgv(evidencePath) {
+  const argv = [
+    CLI_APPLY_MUTATION,
+    CLI_APPROVE,
+    '--subscription', RECOVERY_TARGET.subscriptionId,
+    '--resource-group', RECOVERY_TARGET.resourceGroup,
+    '--postgres-server', RECOVERY_TARGET.postgresServer,
+    '--database', RECOVERY_TARGET.database,
+  ];
+  if (evidencePath) argv.push(CLI_EVIDENCE, evidencePath);
+  return argv;
+}
+
 function recoveryPlanEnv(extra) {
   return {
     [ENV_RECOVERY]: '1',
@@ -1007,7 +1855,11 @@ module.exports = {
   CLI_APPLY_MUTATION,
   APPROVAL_TOKEN,
   KNOWN_PARTIAL_SCENARIO,
+  RECOVERY_INSERT_COUNT,
   RECOVERY_TARGET,
+  APPLY_LOCKS,
+  AUTHORIZED_APPLY_SEQUENCE,
+  SUCCESS_PATH_QUERY_COUNT,
   FORBIDDEN_ARGV_FLAGS,
   ALLOWED_ARGV_FLAGS,
   SAFE_OUTPUT_KEYS,
@@ -1017,6 +1869,11 @@ module.exports = {
   APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
   BASELINE_APPLY_KINDS,
   CHECKSUM_MODE_CANONICAL_LF_V1,
+  ADVISORY_LOCK_KEY1,
+  ADVISORY_LOCK_KEY2,
+  LEDGER_INSERT_SQL,
+  LEDGER_SELECT_ALL_SQL,
+  ADVISORY_LOCK_SQL,
   stableStringify,
   digestEvidencePayload,
   digestProposedRows,
@@ -1030,10 +1887,17 @@ module.exports = {
   certifyContiguousBaseline,
   buildRecoveryPlan,
   executeRecoveryMutation,
+  runAuthorizedRecoveryApplySequence,
+  createScriptedRecoveryApplyFakeClient,
+  createScriptedRecoveryApplyFakeClientFactory,
+  buildAuthorizedRecoveryApplySequence,
+  resetRecoveryApplyCounters,
+  getRecoveryApplyCounters,
   publicResult,
   sealEvidence,
   buildFixtureEvidence,
   exactRecoveryPlanArgv,
+  exactRecoveryApplyArgv,
   recoveryPlanEnv,
   forwardEntries,
   reconcileLedger,
