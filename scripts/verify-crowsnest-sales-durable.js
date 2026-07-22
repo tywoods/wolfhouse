@@ -112,7 +112,7 @@ if (manifest) {
     const live = sha256CanonicalLfV1File(MIGRATION_PATH);
     ok('042 sha256 matches live file', entry.sha256 === live, `manifest=${entry.sha256} live=${live}`);
   }
-  ok('forward count includes 044 (42)', forwards.length === 42, `forward=${forwards.length}`);
+  ok('forward count includes 045 (43)', forwards.length === 43, `forward=${forwards.length}`);
 }
 
 let store = null;

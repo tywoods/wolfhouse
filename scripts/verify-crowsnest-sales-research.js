@@ -252,7 +252,7 @@ function structuralChecks() {
       ok('043 sha256 matches live file', entry.sha256 === live, `manifest=${entry.sha256} live=${live}`);
     }
     const forwards = forwardEntries(manifest);
-    ok('forward count includes 044 (42)', forwards.length === 42, `forward=${forwards.length}`);
+    ok('forward count includes 045 (43)', forwards.length === 43, `forward=${forwards.length}`);
   }
 
   ok('042 research_jobs retained as base table', fs.existsSync(MIGRATION_042_PATH) && /research_jobs/i.test(read(MIGRATION_042_PATH) || ''));

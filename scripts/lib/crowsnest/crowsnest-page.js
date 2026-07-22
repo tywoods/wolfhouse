@@ -840,7 +840,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
 }
 `;
 
-const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail', 'sales_review']);
+const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail', 'sales_review', 'sales_crm_preview']);
 
 const CROWSNEST_NAV_ITEMS = [
   { view: 'spyglass', href: '/', label: 'Spyglass' },
@@ -856,7 +856,7 @@ function normalizeCrowsnestView(raw) {
 }
 
 function navActiveView(view) {
-  return (view === 'sales_detail' || view === 'sales_review') ? 'sales' : view;
+  return (view === 'sales_detail' || view === 'sales_review' || view === 'sales_crm_preview') ? 'sales' : view;
 }
 
 function renderCrowsnestNav(activeView) {
@@ -1137,6 +1137,7 @@ const REVIEW_BUCKET_LABELS = {
   needs_more_research: 'Needs more research',
   qualified: 'Qualified',
   not_qualified: 'Not qualified',
+  crm_ready: 'Ready for CRM review',
 };
 
 function reviewBucketLabel(bucket) {
@@ -1151,6 +1152,7 @@ function renderReviewQueueFilterForm(currentFilter) {
     ['needs_more_research', 'Needs more research'],
     ['qualified', 'Qualified'],
     ['not_qualified', 'Not qualified'],
+    ['crm_ready', 'Ready for CRM review'],
   ].map(([value, label]) => {
     const isSelected = selected === value ? ' selected' : '';
     return `<option value="${escapeHtml(value)}"${isSelected}>${escapeHtml(label)}</option>`;
@@ -1207,7 +1209,7 @@ function renderSalesReviewMain(options = {}) {
       <h2 class="section">Filter</h2>
       ${renderReviewQueueFilterForm(filter)}
       <h2 class="section">Queue</h2>
-      <p class="section-note">Buckets: Ready for review (has evidence, no current qualification), Needs more research, Qualified, and Not qualified. Ordered newest actionable first.</p>
+      <p class="section-note">Buckets: Ready for review (has evidence, no current qualification), Needs more research, Qualified, Not qualified, and Ready for CRM review. Ordered newest actionable first.</p>
       ${renderReviewQueueItems(items)}
       <div class="safety"><strong>Safety:</strong> Read-only review queue over durable Sales data when configured; local/test may use in-memory fallback. Authenticated operators decide. No CRM writes, no outreach delivery, no Maps/Apollo/live AI discovery in this chapter.</div>
     </section>`;
@@ -1260,6 +1262,9 @@ function renderAuditList(events) {
       detail.reason ? `reason=${escapeHtml(detail.reason)}` : '',
       detail.rationale ? `rationale=${escapeHtml(detail.rationale)}` : '',
       detail.reviewer_id ? `reviewer=${escapeHtml(detail.reviewer_id)}` : '',
+      detail.qualification_assessment_id
+        ? `qualification=${escapeHtml(detail.qualification_assessment_id)}`
+        : '',
       detail.source_label ? `source=${escapeHtml(detail.source_label)}` : '',
       detail.confidence ? `confidence=${escapeHtml(detail.confidence)}` : '',
       Array.isArray(detail.evidence_ids) && detail.evidence_ids.length
@@ -1403,6 +1408,9 @@ function renderSalesDetailMain(options = {}) {
   const qualificationErrorHtml = options.qualificationError
     ? `<p class="sales-error" role="alert">${escapeHtml(options.qualificationError)}</p>`
     : '';
+  const crmReadyErrorHtml = options.crmReadyError
+    ? `<p class="sales-error" role="alert">${escapeHtml(options.crmReadyError)}</p>`
+    : '';
   const facts = (fixtureResearch && fixtureResearch.facts) || [];
   const limitations = (fixtureResearch && fixtureResearch.limitations) || [];
   const lastDecision = prospect.last_decision
@@ -1416,6 +1424,22 @@ function renderSalesDetailMain(options = {}) {
   const selectedEvidenceIds = Array.isArray(options.qualificationEvidenceIds)
     ? options.qualificationEvidenceIds
     : [];
+  const isCurrentlyQualified = latestQualification
+    && String(latestQualification.decision || '').toLowerCase() === 'qualified';
+  const latestCrmReviewMark = options.latestCrmReviewMark || null;
+  const crmReadyStatus = latestCrmReviewMark
+    ? `<p>Marked ready for CRM review at <code>${escapeHtml(latestCrmReviewMark.created_at || '')}</code>
+         by <code>${escapeHtml(latestCrmReviewMark.reviewer_id || '')}</code>
+         (qualification <code>${escapeHtml(latestCrmReviewMark.qualification_assessment_id || '')}</code>).</p>`
+    : '<p>Not marked ready for CRM review yet.</p>';
+  const crmActions = isCurrentlyQualified
+    ? `<p><a href="/sales/prospects/${escapeHtml(prospect.id)}/crm-preview">Open CRM sync preview</a></p>
+        <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/crm-ready" accept-charset="utf-8">
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Mark ready for CRM review</button>
+          </div>
+        </form>`
+    : '<p class="section-note">CRM preview and ready-for-review are available only when the latest qualification is <code>qualified</code>.</p>';
 
   return `<section id="sales-detail" aria-labelledby="sales-detail-title">
       <p><a href="/sales">← Back to Sales</a></p>
@@ -1515,6 +1539,14 @@ function renderSalesDetailMain(options = {}) {
       </article>
 
       <article class="card">
+        <h2>CRM sync preview</h2>
+        <p class="section-note">Provider-neutral preview of what would become one Company and zero-or-more Contacts under the accepted future mapping (lifecycle <code>Lead</code>, Company property <code>Luna Sales Status = Qualified Prospect</code>). Preview only — no CRM record has been sent. No Deal. No automatic writes.</p>
+        ${crmReadyErrorHtml}
+        ${crmReadyStatus}
+        ${crmActions}
+      </article>
+
+      <article class="card">
         <h2>Admin status decision</h2>
         <p class="section-note">Any authenticated Crowsnest operator may record approve, reject, or needs_research in this MVP. No HubSpot sync and no outreach send in this slice.</p>
         ${decisionErrorHtml}
@@ -1541,7 +1573,99 @@ function renderSalesDetailMain(options = {}) {
         <h2>Append-only audit trail</h2>
         ${renderAuditList(audit)}
       </article>
-      <div class="safety"><strong>Safety:</strong> Durable Sales decisions, manual evidence, and operator qualification when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no live provider calls, and no automatic AI scoring.</div>
+      <div class="safety"><strong>Safety:</strong> Durable Sales decisions, manual evidence, operator qualification, and CRM preview/readiness when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no live provider calls, and no automatic AI scoring.</div>
+    </section>`;
+}
+
+function renderCrmPreviewContacts(contacts) {
+  const list = Array.isArray(contacts) ? contacts : [];
+  if (!list.length) {
+    return '<p class="section-note">Contacts: none (zero Contacts in this preview).</p>';
+  }
+  const items = list.map((contact) => {
+    const name = escapeHtml(contact.full_name || 'n/a');
+    const email = escapeHtml(contact.email || 'n/a');
+    const role = escapeHtml(contact.role || 'n/a');
+    return `<li><strong>${name}</strong> · email=<code>${email}</code> · role=<code>${role}</code></li>`;
+  }).join('\n          ');
+  return `<ul class="fact-list" aria-label="CRM preview contacts">
+          ${items}
+        </ul>`;
+}
+
+function renderSalesCrmPreviewMain(options = {}) {
+  const prospect = options.prospect || null;
+  const preview = options.crmPreview || null;
+  if (!prospect || !preview) {
+    return `<section id="sales-crm-preview" class="card placeholder-shell">
+      <p>CRM preview is unavailable.</p>
+      <p><a href="/sales">Back to Sales</a></p>
+    </section>`;
+  }
+  const company = preview.company || {};
+  const properties = company.properties || {};
+  const propertyRows = Object.keys(properties).map((key) => (
+    `<li><strong>${escapeHtml(key)}:</strong> <code>${escapeHtml(String(properties[key]))}</code></li>`
+  )).join('\n          ') || '<li>None</li>';
+  const trace = preview.traceability || {};
+  const evidenceIds = Array.isArray(trace.evidence_ids) ? trace.evidence_ids : [];
+  const mark = options.latestCrmReviewMark || null;
+  const markHtml = mark
+    ? `<p>Ready for CRM review marked at <code>${escapeHtml(mark.created_at || '')}</code>
+         by <code>${escapeHtml(mark.reviewer_id || '')}</code>.</p>`
+    : '<p class="section-note">Not yet marked ready for CRM review.</p>';
+  const audit = Array.isArray(options.auditEvents) ? options.auditEvents : [];
+
+  return `<section id="sales-crm-preview" aria-labelledby="sales-crm-preview-title">
+      <p><a href="/sales/prospects/${escapeHtml(prospect.id)}">← Back to prospect detail</a></p>
+      <article class="card">
+        <h2>CRM sync preview</h2>
+        <p class="section-note"><strong>Preview only — no CRM record has been sent.</strong> This page shows the provider-neutral Company + Contacts mapping that would be used later. No Deal. No automatic CRM write.</p>
+        ${markHtml}
+        <p><strong>Business name:</strong> ${escapeHtml(prospect.canonical_name || 'n/a')}</p>
+        <p><strong>Website:</strong> ${escapeHtml(prospect.website_url || 'n/a')}</p>
+      </article>
+
+      <article class="card">
+        <h2>Company (1)</h2>
+        <p><strong>Name:</strong> ${escapeHtml(company.name || '')}</p>
+        <p><strong>Website:</strong> ${escapeHtml(company.website_url || 'n/a')}</p>
+        <p><strong>Domain:</strong> <code>${escapeHtml(company.domain || 'n/a')}</code></p>
+        <p><strong>Lifecycle stage:</strong> <code>${escapeHtml(company.lifecycle_stage || '')}</code></p>
+        <h3>Company properties</h3>
+        <ul class="fact-list">
+          ${propertyRows}
+        </ul>
+      </article>
+
+      <article class="card">
+        <h2>Contacts (${escapeHtml(String((preview.contacts || []).length))})</h2>
+        ${renderCrmPreviewContacts(preview.contacts)}
+      </article>
+
+      <article class="card">
+        <h2>Deal</h2>
+        <p class="section-note">No Deal — this preview does not create or propose a Deal.</p>
+      </article>
+
+      <article class="card">
+        <h2>Qualification evidence / reason traceability</h2>
+        <p>Decision: <code>${escapeHtml(trace.decision || '')}</code></p>
+        <p>Rationale: ${escapeHtml(trace.rationale || '')}</p>
+        <p>Qualification id: <code>${escapeHtml(trace.qualification_assessment_id || '')}</code></p>
+        <p>Evidence refs: <code>${escapeHtml(evidenceIds.join(',') || 'none')}</code></p>
+        <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/crm-ready" accept-charset="utf-8">
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Mark ready for CRM review</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="card">
+        <h2>Append-only audit trail</h2>
+        ${renderAuditList(audit)}
+      </article>
+      <div class="safety"><strong>Safety:</strong> Preview-only CRM mapping. No provider SDK/HTTP calls, no CRM writes, no outreach delivery.</div>
     </section>`;
 }
 
@@ -1552,6 +1676,7 @@ function renderViewMain(view, clients, templates, options = {}) {
   if (view === 'sales') return renderSalesMain(options);
   if (view === 'sales_detail') return renderSalesDetailMain(options);
   if (view === 'sales_review') return renderSalesReviewMain(options);
+  if (view === 'sales_crm_preview') return renderSalesCrmPreviewMain(options);
   return renderSpyglassMain(clients);
 }
 
@@ -1560,6 +1685,7 @@ function viewPageTitle(view) {
   if (view === 'billing') return 'Billing';
   if (view === 'communications') return 'Communications';
   if (view === 'sales_review') return 'Sales review queue';
+  if (view === 'sales_crm_preview') return 'CRM sync preview';
   if (view === 'sales' || view === 'sales_detail') return 'Sales';
   return 'Spyglass';
 }
@@ -1569,8 +1695,9 @@ function viewSubtitle(view) {
   if (view === 'billing') return 'Billing sources are not connected yet';
   if (view === 'communications') return 'Communications sources are not connected yet';
   if (view === 'sales') return 'Manual prospect intake, fixture research, and Admin review';
-  if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, qualification, and Admin decision';
+  if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, qualification, CRM preview, and Admin decision';
   if (view === 'sales_review') return 'Sales review queue — operating buckets for operator decisions';
+  if (view === 'sales_crm_preview') return 'Provider-neutral CRM sync preview — no record sent';
   return 'Internal Luna Front Desk overview dashboard';
 }
 
@@ -1602,7 +1729,7 @@ function renderCrowsnestPage(options = {}) {
         </form>
       </div>
       ${renderCrowsnestNav(view)}
-      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : view))}-title">${escapeHtml(title)}</h1>
+      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : view)))}-title">${escapeHtml(title)}</h1>
       <p class="sub">${escapeHtml(viewSubtitle(view))}</p>
     </header>
 

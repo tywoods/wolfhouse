@@ -30,6 +30,8 @@ const {
 const {
   createProspect,
   decideProspect,
+  getCrmSyncPreview,
+  getLatestCrmReviewMark,
   getLatestQualification,
   getProspect,
   getResearchForProspect,
@@ -38,6 +40,7 @@ const {
   listQualificationsForProspect,
   listResearchForProspect,
   listReviewQueue,
+  markReadyForCrmReview,
   normalizeReviewQueueFilter,
   recordManualEvidence,
   recordQualification,
@@ -319,6 +322,16 @@ function matchSalesQualificationPath(pathname) {
   return match ? match[1] : null;
 }
 
+function matchSalesCrmPreviewPath(pathname) {
+  const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)\/crm-preview$/.exec(String(pathname || ''));
+  return match ? match[1] : null;
+}
+
+function matchSalesCrmReadyPath(pathname) {
+  const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)\/crm-ready$/.exec(String(pathname || ''));
+  return match ? match[1] : null;
+}
+
 async function loadSalesDetailPageOptions(prospectId, extra = {}) {
   const prospect = await getProspect(prospectId);
   if (!prospect) {
@@ -330,12 +343,14 @@ async function loadSalesDetailPageOptions(prospectId, extra = {}) {
     || await getResearchForProspect(prospectId);
   const qualificationAssessments = await listQualificationsForProspect(prospectId);
   const latestQualification = await getLatestQualification(prospectId);
+  const latestCrmReviewMark = await getLatestCrmReviewMark(prospectId);
   return {
     prospect,
     research,
     researchJobs,
     qualificationAssessments,
     latestQualification,
+    latestCrmReviewMark,
     auditEvents: await listAuditEvents(prospectId),
     ...extra,
   };
@@ -975,6 +990,130 @@ async function handleSalesQualification(req, res, method, prospectId) {
   return sendRedirect(res, detailPath, { 'Cache-Control': 'no-store' });
 }
 
+async function handleSalesCrmPreview(req, res, method, prospectId) {
+  if (method !== 'GET' && method !== 'HEAD') {
+    return sendMethodNotAllowed(res, 'GET, HEAD');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  if (method === 'HEAD') {
+    return sendNoContentLike(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  }
+
+  try {
+    const result = await getCrmSyncPreview(prospectId);
+    if (isSalesStoreFailure(result)) {
+      return sendSalesStoreFailure(res, result);
+    }
+    if (!result.ok) {
+      const status = result.status || 400;
+      if (status === 404) {
+        return sendJSON(res, 404, { success: false, error: 'not found' });
+      }
+      const pageOptions = await loadSalesDetailPageOptions(prospectId, {
+        crmReadyError: result.error,
+      });
+      if (!pageOptions.prospect) {
+        return sendJSON(res, 404, { success: false, error: 'not found' });
+      }
+      const cspNonce = createBrowserCspNonce();
+      return sendHTML(
+        res,
+        status,
+        renderCrowsnestPage({
+          cspNonce,
+          view: 'sales_detail',
+          ...pageOptions,
+        }),
+        { 'Cache-Control': 'no-store' },
+        cspNonce,
+      );
+    }
+
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      200,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_crm_preview',
+        prospect: result.prospect,
+        qualification: result.qualification,
+        latestCrmReviewMark: result.latestCrmReviewMark,
+        crmPreview: result.preview,
+        auditEvents: await listAuditEvents(prospectId),
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+}
+
+async function handleSalesCrmReady(req, res, method, prospectId) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  const previewPath = `/sales/prospects/${prospectId}/crm-preview`;
+
+  async function redisplay(status, error) {
+    const pageOptions = await loadSalesDetailPageOptions(prospectId, {
+      crmReadyError: error,
+    });
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      status,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_detail',
+        ...pageOptions,
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+
+  const actor = resolveOperatorActor(req);
+  let result;
+  try {
+    result = await markReadyForCrmReview(prospectId, actor);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+
+  if (!result.ok) {
+    if (isSalesUnavailableFailure(result)) {
+      return sendSalesUnavailable(res);
+    }
+    const status = result.status || 400;
+    if (status === 404) {
+      return sendJSON(res, 404, { success: false, error: 'not found' });
+    }
+    try {
+      return await redisplay(status, result.error);
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
+  }
+
+  return sendRedirect(res, previewPath, { 'Cache-Control': 'no-store' });
+}
+
 async function router(req, res) {
   clearExpiredCrowsnestSessions();
   const pathname = getRequestPath(req);
@@ -1023,6 +1162,16 @@ async function router(req, res) {
   const qualificationProspectId = matchSalesQualificationPath(pathname);
   if (qualificationProspectId) {
     return handleSalesQualification(req, res, method, qualificationProspectId);
+  }
+
+  const crmPreviewProspectId = matchSalesCrmPreviewPath(pathname);
+  if (crmPreviewProspectId) {
+    return handleSalesCrmPreview(req, res, method, crmPreviewProspectId);
+  }
+
+  const crmReadyProspectId = matchSalesCrmReadyPath(pathname);
+  if (crmReadyProspectId) {
+    return handleSalesCrmReady(req, res, method, crmReadyProspectId);
   }
 
   const detailProspectId = matchSalesProspectDetailPath(pathname);

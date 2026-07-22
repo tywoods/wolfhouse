@@ -16,8 +16,8 @@ Chapters 1–3 shipped durable prospects, fixture/manual evidence, Admin lifecyc
    - **Not qualified** — latest qualification is `not_qualified`
 3. Each row shows business name, website when present, latest qualification state, evidence count, most recent activity, and a safe link to prospect detail.
 4. Ordering is deterministic: **newest actionable first** (ready / needs_more_research before settled buckets; then by most recent activity). No invented scores or AI priority.
-5. Server-side `GET` filter `?state=` supports `all` / `actionable` / `needs_more_research` / `qualified` / `not_qualified` (HTML form, no JavaScript required). Auth is preserved.
-6. Empty filters show an honest empty state. Copy states that **operators decide**; this chapter does not claim HubSpot sync, outreach, or external discovery.
+5. Server-side `GET` filter `?state=` supports `all` / `actionable` / `needs_more_research` / `qualified` / `not_qualified` / `crm_ready` (HTML form, no JavaScript required). Auth is preserved. (`crm_ready` is Chapter 5.)
+6. Empty filters show an honest empty state. Copy states that **operators decide**; this chapter does not claim HubSpot sync writes, outreach, or external discovery.
 
 ## Persistence / safety
 
