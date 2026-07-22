@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "kind": "foundation-docker-fresh-db-replacement-evidence-v1",
+  "gate": "G_DOCKER_FRESH_DB_REPLACEMENT",
+  "outcome_id": "lunabox_disposable_docker_compared",
+  "candidate_sha": "1f89bbfe1c62b150926feabe00ff687001b014ca",
+  "host": "lunabox",
+  "ok": true,
+  "backend": "docker",
+  "postgres_major": 15,
+  "phase": "compared",
+  "forwardCount": 41,
+  "cycles": [
+    {
+      "index": 1,
+      "appliedCount": 41,
+      "schema_fingerprint": "f0f54df09712ef93ea267f5bd35c4567b4b81acb37da025242b1ec85ba0e9496",
+      "schema_migrations_hash": "aa473862a62d3a963934e654f5d21cf0e5c9f50f3f4ef652603c9dc9065de4d8",
+      "cleanup": true,
+      "cleanup_code": "cleanup_verified"
+    },
+    {
+      "index": 2,
+      "appliedCount": 41,
+      "schema_fingerprint": "f0f54df09712ef93ea267f5bd35c4567b4b81acb37da025242b1ec85ba0e9496",
+      "schema_migrations_hash": "aa473862a62d3a963934e654f5d21cf0e5c9f50f3f4ef652603c9dc9065de4d8",
+      "cleanup": true,
+      "cleanup_code": "cleanup_verified"
+    }
+  ],
+  "volumes_distinct": true,
+  "schema_migrations_equal": true,
+  "schema_fingerprint_equal": true,
+  "cleanup_ok": true,
+  "raw_evidence_sha256": "3ca4eecbd0fd9d6ff4186a0bd542d69aff36b4d52f279ec2f3cd61febeb9f13c",
+  "bindings": {
+    "proof_script": "scripts/prove-foundation-docker-fresh-db-replacement.js",
+    "proof_script_sha256": "05a1d94d8ab766573dc9f4b59f49b36f926ee14a1590485ca3edf935db65a541",
+    "harness": "scripts/lib/disposable-postgres-harness.js",
+    "harness_sha256": "f5ca4dd9eb8344cb9e84c72f02da1cf83d0c4db8296b152349d1a1fc5a3537a1",
+    "canonical_manifest": "database/migrations/canonical-manifest.json",
+    "canonical_manifest_file_sha256": "23124a699d1f828b03f3307fa6c92c1beaced7a2c32a78e03f9bbb3ca2d37419",
+    "canonical_manifest_hash": "f76df6f9287eb44499dd8ab1d186ebdfc51c24d6704cdda226b36b9366b134b5",
+    "checksum_mode": "canonical_lf_v1",
+    "forwardCount": 41
+  },
+  "classification_unchanged": {
+    "foundation_1b_docker_gate": "absent",
+    "messi_ledger_updated": false,
+    "note": "Evidence package only; does not reclassify FOUNDATION or MESSI gates."
+  },
+  "does_not_prove": [
+    "G_DOCKER_FRESH_DB_REPLACEMENT_complete",
+    "FOUNDATION_production_readiness",
+    "MESSI_complete",
+    "certificate_architecture",
+    "live_restore_drill"
+  ],
+  "lock_hash": "e2e87a5613d77710d25476c3c8b224fa57c02e5f5c61e62403edea6a41b9c61d"
+}
