@@ -1,37 +1,58 @@
 'use strict';
 
 /**
- * Crowsnest Luna Sales Slice 1 — in-memory prospects, fixture research, decisions, audit.
- * No DB, HubSpot, Maps, Apollo, live AI, or outreach sending.
+ * Crowsnest Luna Sales Slice 1 — prospects, fixture research, decisions, audit.
+ *
+ * Persistence goes through crowsnest-sales-store (dedicated CROWSNEST_SALES_DATABASE_URL).
+ * In-memory fallback is explicit for non-production/test when the durable DSN is absent.
+ * Production without the dedicated DSN fails closed on Sales mutations.
  */
 
-const crypto = require('crypto');
+const {
+  createMemorySalesRepository,
+  createSalesRepository,
+  newSalesUuid,
+  resolveSalesStoreConfig,
+} = require('./crowsnest-sales-store');
 
 const ALLOWED_DECISIONS = new Set(['approved', 'rejected', 'needs_research']);
 
-/** @type {{ prospects: Map<string, object>, researchByProspect: Map<string, object>, auditEvents: object[] }} */
-const store = {
-  prospects: new Map(),
-  researchByProspect: new Map(),
-  auditEvents: [],
-};
+/** @type {ReturnType<typeof createMemorySalesRepository> | null} */
+let repository = null;
+let repositoryInit = null;
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-function newId(prefix) {
-  return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
+async function getRepository() {
+  if (repository) return repository;
+  if (!repositoryInit) {
+    repositoryInit = createSalesRepository(process.env).then((repo) => {
+      repository = repo;
+      return repo;
+    });
+  }
+  return repositoryInit;
 }
 
-function appendAudit(event) {
+function _setSalesRepositoryForTests(repo) {
+  repository = repo || null;
+  repositoryInit = repo ? Promise.resolve(repo) : null;
+}
+
+async function appendAudit(event) {
+  const repo = await getRepository();
   const entry = {
-    id: newId('aud'),
+    id: newSalesUuid(),
     at: nowIso(),
     ...event,
   };
-  store.auditEvents.push(entry);
-  return entry;
+  const result = await repo.appendAuditEvent(entry);
+  if (result && result.ok === false) {
+    return result;
+  }
+  return (result && result.event) || entry;
 }
 
 function normalizeWebsiteUrl(raw) {
@@ -83,7 +104,7 @@ function validateManualIntake(input = {}) {
 function buildFixtureResearch(prospect) {
   const canonicalName = prospect.canonical_name || prospect.website_url || 'Unknown business';
   return {
-    id: newId('res'),
+    id: newSalesUuid(),
     prospect_id: prospect.id,
     source: 'fixture',
     status: 'completed',
@@ -115,13 +136,14 @@ function buildFixtureResearch(prospect) {
   };
 }
 
-function createProspect(input = {}, actor = 'Admin') {
+async function createProspect(input = {}, actor = 'Admin') {
   const validation = validateManualIntake(input);
   if (!validation.ok) {
     return { ok: false, error: validation.error };
   }
 
-  const id = newId('prs');
+  const repo = await getRepository();
+  const id = newSalesUuid();
   const createdAt = nowIso();
   const prospect = {
     id,
@@ -135,10 +157,56 @@ function createProspect(input = {}, actor = 'Admin') {
   };
 
   const research = buildFixtureResearch(prospect);
-  store.prospects.set(id, prospect);
-  store.researchByProspect.set(id, research);
 
-  appendAudit({
+  // Postgres path: atomic prospect + fixture research + initial audit records.
+  if (typeof repo.createProspectBundle === 'function') {
+    const auditEvents = [
+      {
+        id: newSalesUuid(),
+        at: createdAt,
+        actor: String(actor || 'Admin'),
+        action: 'prospect_created',
+        entity_type: 'prospect',
+        entity_id: id,
+        detail: {
+          canonical_name: prospect.canonical_name,
+          website_url: prospect.website_url,
+          lifecycle_status: prospect.lifecycle_status,
+          prospect_id: id,
+        },
+      },
+      {
+        id: newSalesUuid(),
+        at: createdAt,
+        actor: 'system',
+        action: 'research_fixture_attached',
+        entity_type: 'research',
+        entity_id: research.id,
+        detail: {
+          prospect_id: id,
+          source: research.source,
+          status: research.status,
+        },
+      },
+    ];
+    const bundled = await repo.createProspectBundle({ prospect, research, auditEvents });
+    if (bundled && bundled.ok === false) {
+      return bundled;
+    }
+    return { ok: true, prospect, research };
+  }
+
+  const created = await repo.createProspectRecord(prospect);
+  if (created && created.ok === false) {
+    return created;
+  }
+
+  const savedResearch = await repo.saveResearchJob(research);
+  if (savedResearch && savedResearch.ok === false) {
+    return savedResearch;
+  }
+
+  const auditCreate = await appendAudit({
     actor: String(actor || 'Admin'),
     action: 'prospect_created',
     entity_type: 'prospect',
@@ -147,9 +215,14 @@ function createProspect(input = {}, actor = 'Admin') {
       canonical_name: prospect.canonical_name,
       website_url: prospect.website_url,
       lifecycle_status: prospect.lifecycle_status,
+      prospect_id: id,
     },
   });
-  appendAudit({
+  if (auditCreate && auditCreate.ok === false) {
+    return auditCreate;
+  }
+
+  const auditResearch = await appendAudit({
     actor: 'system',
     action: 'research_fixture_attached',
     entity_type: 'research',
@@ -160,35 +233,35 @@ function createProspect(input = {}, actor = 'Admin') {
       status: research.status,
     },
   });
+  if (auditResearch && auditResearch.ok === false) {
+    return auditResearch;
+  }
 
   return { ok: true, prospect, research };
 }
 
-function listProspects() {
-  return Array.from(store.prospects.values()).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+async function listProspects() {
+  const repo = await getRepository();
+  return repo.listProspects();
 }
 
-function getProspect(id) {
-  return store.prospects.get(String(id || '')) || null;
+async function getProspect(id) {
+  const repo = await getRepository();
+  return repo.getProspect(id);
 }
 
-function getResearchForProspect(id) {
-  return store.researchByProspect.get(String(id || '')) || null;
+async function getResearchForProspect(id) {
+  const repo = await getRepository();
+  return repo.getResearchForProspect(id);
 }
 
-function listAuditEvents(prospectId) {
-  const events = store.auditEvents.slice();
-  if (!prospectId) return events;
-  const pid = String(prospectId);
-  return events.filter((event) => {
-    if (event.entity_id === pid) return true;
-    if (event.detail && event.detail.prospect_id === pid) return true;
-    return false;
-  });
+async function listAuditEvents(prospectId) {
+  const repo = await getRepository();
+  return repo.listAuditEvents(prospectId);
 }
 
-function decideProspect(id, input = {}, actor = 'Admin') {
-  const prospect = getProspect(id);
+async function decideProspect(id, input = {}, actor = 'Admin') {
+  const prospect = await getProspect(id);
   if (!prospect) {
     return { ok: false, error: 'Prospect not found.', status: 404 };
   }
@@ -207,16 +280,25 @@ function decideProspect(id, input = {}, actor = 'Admin') {
   }
 
   const previous = prospect.lifecycle_status;
-  prospect.lifecycle_status = decision;
-  prospect.updated_at = nowIso();
-  prospect.last_decision = {
+  const updatedAt = nowIso();
+  const lastDecision = {
     decision,
     reason,
     reviewer_id: String(actor || 'Admin'),
-    created_at: prospect.updated_at,
+    created_at: updatedAt,
   };
 
-  appendAudit({
+  const repo = await getRepository();
+  const updated = await repo.updateProspectDecision(prospect.id, {
+    lifecycle_status: decision,
+    updated_at: updatedAt,
+    last_decision: lastDecision,
+  });
+  if (updated && updated.ok === false) {
+    return updated;
+  }
+
+  const audit = await appendAudit({
     actor: String(actor || 'Admin'),
     action: 'review_decision',
     entity_type: 'prospect',
@@ -229,14 +311,22 @@ function decideProspect(id, input = {}, actor = 'Admin') {
       reviewer_id: String(actor || 'Admin'),
     },
   });
+  if (audit && audit.ok === false) {
+    return audit;
+  }
 
-  return { ok: true, prospect };
+  return { ok: true, prospect: (updated && updated.prospect) || { ...prospect, lifecycle_status: decision, updated_at: updatedAt, last_decision: lastDecision } };
 }
 
-function resetSalesStore() {
-  store.prospects.clear();
-  store.researchByProspect.clear();
-  store.auditEvents.length = 0;
+async function resetSalesStore() {
+  const repo = await getRepository();
+  if (typeof repo.reset === 'function') {
+    await repo.reset();
+  }
+}
+
+function getSalesStoreMode() {
+  return resolveSalesStoreConfig(process.env);
 }
 
 module.exports = {
@@ -246,8 +336,10 @@ module.exports = {
   decideProspect,
   getProspect,
   getResearchForProspect,
+  getSalesStoreMode,
   listAuditEvents,
   listProspects,
   resetSalesStore,
   validateManualIntake,
+  _setSalesRepositoryForTests,
 };

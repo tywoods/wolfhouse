@@ -33,7 +33,12 @@ const {
   getProspect,
   getResearchForProspect,
   listAuditEvents,
+  listProspects,
 } = require('./lib/crowsnest/crowsnest-sales');
+const {
+  isSalesStoreUnavailableError,
+  isSalesUnavailableResult,
+} = require('./lib/crowsnest/crowsnest-sales-store');
 
 const PORT = Number(process.env.CROWSNEST_PORT) || 3040;
 const HOST = process.env.CROWSNEST_HOST || '0.0.0.0';
@@ -140,6 +145,25 @@ function sendNoContentLike(res, status, extraHeaders = {}) {
 
 function sendMethodNotAllowed(res, allow) {
   return sendJSON(res, 405, { success: false, error: 'method not allowed' }, { Allow: allow });
+}
+
+/** Safe, retryable Sales-store outage response — never includes DSN/SQL/credentials. */
+function sendSalesUnavailable(res) {
+  return sendJSON(
+    res,
+    503,
+    {
+      success: false,
+      code: 'sales_unavailable',
+      error: 'Crowsnest Sales store is temporarily unavailable. Please retry.',
+      retryable: true,
+    },
+    { 'Retry-After': '5' },
+  );
+}
+
+function isSalesUnavailableFailure(value) {
+  return isSalesUnavailableResult(value) || isSalesStoreUnavailableError(value);
 }
 
 function getRequestMethod(req) {
@@ -351,7 +375,7 @@ function resolveProtectedUiView(pathname) {
   return 'spyglass';
 }
 
-function handleProtectedUi(req, res, method, pathname) {
+async function handleProtectedUi(req, res, method, pathname) {
   if (method !== 'GET' && method !== 'HEAD') {
     return sendMethodNotAllowed(res, 'GET, HEAD');
   }
@@ -363,10 +387,21 @@ function handleProtectedUi(req, res, method, pathname) {
   }
   const view = resolveProtectedUiView(pathname);
   const cspNonce = createBrowserCspNonce();
-  return sendHTML(res, 200, renderCrowsnestPage({ cspNonce, view: view }), { 'Cache-Control': 'no-store' }, cspNonce);
+  const pageOptions = { cspNonce, view };
+  try {
+    if (view === 'sales') {
+      pageOptions.prospects = await listProspects();
+    }
+    return sendHTML(res, 200, renderCrowsnestPage(pageOptions), { 'Cache-Control': 'no-store' }, cspNonce);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
 }
 
-function handleSalesProspectDetail(req, res, method, prospectId) {
+async function handleSalesProspectDetail(req, res, method, prospectId) {
   if (method !== 'GET' && method !== 'HEAD') {
     return sendMethodNotAllowed(res, 'GET, HEAD');
   }
@@ -376,30 +411,37 @@ function handleSalesProspectDetail(req, res, method, prospectId) {
   if (method === 'HEAD') {
     return sendNoContentLike(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
   }
-  const prospect = getProspect(prospectId);
-  const cspNonce = createBrowserCspNonce();
-  if (!prospect) {
+  try {
+    const prospect = await getProspect(prospectId);
+    const cspNonce = createBrowserCspNonce();
+    if (!prospect) {
+      return sendHTML(
+        res,
+        404,
+        renderCrowsnestPage({ cspNonce, view: 'sales_detail', prospect: null }),
+        { 'Cache-Control': 'no-store' },
+        cspNonce,
+      );
+    }
     return sendHTML(
       res,
-      404,
-      renderCrowsnestPage({ cspNonce, view: 'sales_detail', prospect: null }),
+      200,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_detail',
+        prospect,
+        research: await getResearchForProspect(prospectId),
+        auditEvents: await listAuditEvents(prospectId),
+      }),
       { 'Cache-Control': 'no-store' },
       cspNonce,
     );
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
   }
-  return sendHTML(
-    res,
-    200,
-    renderCrowsnestPage({
-      cspNonce,
-      view: 'sales_detail',
-      prospect,
-      research: getResearchForProspect(prospectId),
-      auditEvents: listAuditEvents(prospectId),
-    }),
-    { 'Cache-Control': 'no-store' },
-    cspNonce,
-  );
 }
 
 async function handleSalesCreateProspect(req, res, method) {
@@ -410,18 +452,26 @@ async function handleSalesCreateProspect(req, res, method) {
     return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
   }
   if (!hasLoginFormContentType(req)) {
-    const cspNonce = createBrowserCspNonce();
-    return sendHTML(
-      res,
-      400,
-      renderCrowsnestPage({
+    try {
+      const cspNonce = createBrowserCspNonce();
+      return sendHTML(
+        res,
+        400,
+        renderCrowsnestPage({
+          cspNonce,
+          view: 'sales',
+          prospects: await listProspects(),
+          intakeError: 'Provide a business website or a business name.',
+        }),
+        { 'Cache-Control': 'no-store' },
         cspNonce,
-        view: 'sales',
-        intakeError: 'Provide a business website or a business name.',
-      }),
-      { 'Cache-Control': 'no-store' },
-      cspNonce,
-    );
+      );
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
   }
 
   let body;
@@ -431,42 +481,70 @@ async function handleSalesCreateProspect(req, res, method) {
     if (err && err.message === 'body too large') {
       return sendPayloadTooLarge(res);
     }
-    const cspNonce = createBrowserCspNonce();
-    return sendHTML(
-      res,
-      400,
-      renderCrowsnestPage({
+    try {
+      const cspNonce = createBrowserCspNonce();
+      return sendHTML(
+        res,
+        400,
+        renderCrowsnestPage({
+          cspNonce,
+          view: 'sales',
+          prospects: await listProspects(),
+          intakeError: 'Provide a business website or a business name.',
+        }),
+        { 'Cache-Control': 'no-store' },
         cspNonce,
-        view: 'sales',
-        intakeError: 'Provide a business website or a business name.',
-      }),
-      { 'Cache-Control': 'no-store' },
-      cspNonce,
-    );
+      );
+    } catch (listErr) {
+      if (isSalesUnavailableFailure(listErr)) {
+        return sendSalesUnavailable(res);
+      }
+      throw listErr;
+    }
   }
 
   const form = parseSalesFormBody(body);
   const actor = resolveOperatorActor(req);
-  const result = createProspect({
-    website_url: form.website_url,
-    business_name: form.business_name,
-  }, actor);
+  let result;
+  try {
+    result = await createProspect({
+      website_url: form.website_url,
+      business_name: form.business_name,
+    }, actor);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
 
   if (!result.ok) {
-    const cspNonce = createBrowserCspNonce();
-    return sendHTML(
-      res,
-      400,
-      renderCrowsnestPage({
+    if (isSalesUnavailableFailure(result)) {
+      return sendSalesUnavailable(res);
+    }
+    try {
+      const status = result.status || 400;
+      const cspNonce = createBrowserCspNonce();
+      return sendHTML(
+        res,
+        status,
+        renderCrowsnestPage({
+          cspNonce,
+          view: 'sales',
+          prospects: await listProspects(),
+          intakeError: result.error,
+          intakeWebsiteUrl: form.website_url,
+          intakeBusinessName: form.business_name,
+        }),
+        { 'Cache-Control': 'no-store' },
         cspNonce,
-        view: 'sales',
-        intakeError: result.error,
-        intakeWebsiteUrl: form.website_url,
-        intakeBusinessName: form.business_name,
-      }),
-      { 'Cache-Control': 'no-store' },
-      cspNonce,
-    );
+      );
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
   }
 
   return sendRedirect(res, `/sales/prospects/${result.prospect.id}`, { 'Cache-Control': 'no-store' });
@@ -481,22 +559,29 @@ async function handleSalesDecision(req, res, method, prospectId) {
   }
   const detailPath = `/sales/prospects/${prospectId}`;
   if (!hasLoginFormContentType(req)) {
-    const prospect = getProspect(prospectId);
-    const cspNonce = createBrowserCspNonce();
-    return sendHTML(
-      res,
-      400,
-      renderCrowsnestPage({
+    try {
+      const prospect = await getProspect(prospectId);
+      const cspNonce = createBrowserCspNonce();
+      return sendHTML(
+        res,
+        400,
+        renderCrowsnestPage({
+          cspNonce,
+          view: 'sales_detail',
+          prospect,
+          research: await getResearchForProspect(prospectId),
+          auditEvents: await listAuditEvents(prospectId),
+          decisionError: 'A reason is required for Admin decisions.',
+        }),
+        { 'Cache-Control': 'no-store' },
         cspNonce,
-        view: 'sales_detail',
-        prospect,
-        research: getResearchForProspect(prospectId),
-        auditEvents: listAuditEvents(prospectId),
-        decisionError: 'A reason is required for Admin decisions.',
-      }),
-      { 'Cache-Control': 'no-store' },
-      cspNonce,
-    );
+      );
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
   }
 
   let body;
@@ -506,52 +591,77 @@ async function handleSalesDecision(req, res, method, prospectId) {
     if (err && err.message === 'body too large') {
       return sendPayloadTooLarge(res);
     }
-    const prospect = getProspect(prospectId);
-    const cspNonce = createBrowserCspNonce();
-    return sendHTML(
-      res,
-      400,
-      renderCrowsnestPage({
+    try {
+      const prospect = await getProspect(prospectId);
+      const cspNonce = createBrowserCspNonce();
+      return sendHTML(
+        res,
+        400,
+        renderCrowsnestPage({
+          cspNonce,
+          view: 'sales_detail',
+          prospect,
+          research: await getResearchForProspect(prospectId),
+          auditEvents: await listAuditEvents(prospectId),
+          decisionError: 'A reason is required for Admin decisions.',
+        }),
+        { 'Cache-Control': 'no-store' },
         cspNonce,
-        view: 'sales_detail',
-        prospect,
-        research: getResearchForProspect(prospectId),
-        auditEvents: listAuditEvents(prospectId),
-        decisionError: 'A reason is required for Admin decisions.',
-      }),
-      { 'Cache-Control': 'no-store' },
-      cspNonce,
-    );
+      );
+    } catch (listErr) {
+      if (isSalesUnavailableFailure(listErr)) {
+        return sendSalesUnavailable(res);
+      }
+      throw listErr;
+    }
   }
 
   const form = parseSalesFormBody(body);
   const actor = resolveOperatorActor(req);
-  const result = decideProspect(prospectId, {
-    decision: form.decision,
-    reason: form.reason,
-  }, actor);
+  let result;
+  try {
+    result = await decideProspect(prospectId, {
+      decision: form.decision,
+      reason: form.reason,
+    }, actor);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
 
   if (!result.ok) {
+    if (isSalesUnavailableFailure(result)) {
+      return sendSalesUnavailable(res);
+    }
     const status = result.status || 400;
     if (status === 404) {
       return sendJSON(res, 404, { success: false, error: 'not found' });
     }
-    const prospect = getProspect(prospectId);
-    const cspNonce = createBrowserCspNonce();
-    return sendHTML(
-      res,
-      status,
-      renderCrowsnestPage({
+    try {
+      const prospect = await getProspect(prospectId);
+      const cspNonce = createBrowserCspNonce();
+      return sendHTML(
+        res,
+        status,
+        renderCrowsnestPage({
+          cspNonce,
+          view: 'sales_detail',
+          prospect,
+          research: await getResearchForProspect(prospectId),
+          auditEvents: await listAuditEvents(prospectId),
+          decisionError: result.error,
+        }),
+        { 'Cache-Control': 'no-store' },
         cspNonce,
-        view: 'sales_detail',
-        prospect,
-        research: getResearchForProspect(prospectId),
-        auditEvents: listAuditEvents(prospectId),
-        decisionError: result.error,
-      }),
-      { 'Cache-Control': 'no-store' },
-      cspNonce,
-    );
+      );
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
   }
 
   return sendRedirect(res, detailPath, { 'Cache-Control': 'no-store' });
@@ -627,6 +737,9 @@ const server = http.createServer((req, res) => {
       }
       return;
     }
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
     sendJSON(res, 500, { success: false, error: 'internal server error' });
   });
 });
@@ -639,4 +752,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, router, PORT, HOST };
+module.exports = { server, router, PORT, HOST, sendSalesUnavailable };

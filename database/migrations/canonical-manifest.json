@@ -431,6 +431,15 @@
       "rationale": "Slice 13C.3c: fail-closed additive convergence for six Phase C notification indexes + surf-pack FK/index/trigger. Phase D CHECKs deferred."
     },
     {
+      "id": "042_luna_sales_schema",
+      "filename": "042_luna_sales_schema.sql",
+      "sha256": "d741bc9aaf385eef81b4864e5ec40b42f2bbc4e0ebfa59b65a16aa684c1c4e1e",
+      "order": 40,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Luna Sales Chapter 1 / Slice 1: dedicated luna_sales schema (prospects, research_jobs, append-only audit_events) for Crowsnest durable Sales store."
+    },
+    {
       "id": "022_sunset_location_id_PROPOSED",
       "filename": "022_sunset_location_id_PROPOSED.sql",
       "sha256": "5854d06527c2f2f1cd6e209b9a87759db3d72396a0ee9b9c58a834ff18f8448f",

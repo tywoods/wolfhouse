@@ -188,7 +188,14 @@ function structuralChecks() {
   ok('sales module exports decideProspect', /decideProspect|recordProspectDecision|decideCrowsnestProspect/.test(salesSrc));
   ok('sales module exports audit helpers', /listAudit|getAudit|appendAudit|auditEvents/.test(salesSrc));
   ok('no HubSpot/Apollo/Maps live adapters in sales', !/require\(['"][^'"]*(hubspot|apollo|googleapis|maps)/i.test(salesSrc));
-  ok('no pg/database import in sales', !/require\(['"].*pg|postgres|WOLFHOUSE_DATABASE/i.test(salesSrc));
+  ok(
+    'sales domain does not import pg or WOLFHOUSE_DATABASE_URL',
+    !/require\(['"]pg['"]\)/.test(salesSrc) && !/WOLFHOUSE_DATABASE_URL/.test(salesSrc),
+  );
+  ok(
+    'sales domain uses crowsnest-sales-store',
+    /require\(['"]\.\/crowsnest-sales-store['"]\)/.test(salesSrc),
+  );
 }
 
 async function main() {

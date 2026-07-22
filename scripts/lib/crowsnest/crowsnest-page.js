@@ -9,11 +9,6 @@ const path = require('path');
 
 const { getCrowsnestClients, getCrowsnestTemplates } = require('./crowsnest-clients');
 const { renderCrowsnestOnboardingSection } = require('./crowsnest-onboarding');
-const {
-  getResearchForProspect,
-  listAuditEvents,
-  listProspects,
-} = require('./crowsnest-sales');
 
 const SUNSET_LOGIN_CSS = fs.readFileSync(
   path.join(__dirname, '..', '..', '..', 'config', 'staff-portal', 'staff-login-page.css'),
@@ -873,12 +868,12 @@ function renderProspectListItems(prospects) {
 }
 
 function renderSalesMain(options = {}) {
-  const prospects = listProspects();
+  const prospects = Array.isArray(options.prospects) ? options.prospects : [];
   const errorHtml = options.intakeError
     ? `<p class="sales-error" role="alert">${escapeHtml(options.intakeError)}</p>`
     : '';
   return `<section id="sales" aria-labelledby="sales-title">
-      <p class="section-note">Manual intake only — in-memory prospects with fixture research. No HubSpot, Maps, Apollo, live AI research, or outreach sending.</p>
+      <p class="section-note">Manual intake — durable Sales store when configured; local/test may use in-memory fallback. No HubSpot, Maps, Apollo, live AI research, or outreach sending.</p>
       <h2 class="section">Prospects</h2>
       ${renderProspectListItems(prospects)}
 
@@ -933,8 +928,8 @@ function renderSalesDetailMain(options = {}) {
       <p><a href="/sales">Back to Sales</a></p>
     </section>`;
   }
-  const research = options.research || getResearchForProspect(prospect.id);
-  const audit = options.auditEvents || listAuditEvents(prospect.id);
+  const research = options.research || null;
+  const audit = Array.isArray(options.auditEvents) ? options.auditEvents : [];
   const errorHtml = options.decisionError
     ? `<p class="sales-error" role="alert">${escapeHtml(options.decisionError)}</p>`
     : '';
@@ -1001,7 +996,7 @@ function renderSalesDetailMain(options = {}) {
         <h2>Append-only audit trail</h2>
         ${renderAuditList(audit)}
       </article>
-      <div class="safety"><strong>Safety:</strong> In-memory decisions only. No CRM writes, no outreach delivery, no live provider calls.</div>
+      <div class="safety"><strong>Safety:</strong> Durable Sales decisions when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no live provider calls.</div>
     </section>`;
 }
 

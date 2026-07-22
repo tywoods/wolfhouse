@@ -69,6 +69,7 @@
     "verify:crowsnest-ai-usage-contract": "node scripts/verify-crowsnest-ai-usage-contract.js",
     "verify:crowsnest-ai-usage-adapter": "node scripts/verify-crowsnest-ai-usage-adapter.js",
     "verify:crowsnest-sales": "node scripts/verify-crowsnest-sales.js",
+    "verify:crowsnest-sales-durable": "node scripts/verify-crowsnest-sales-durable.js",
     "verify:staff-auth-api": "node scripts/verify-staff-auth-api.js",
     "verify:staff-conversation-queries": "node scripts/verify-staff-conversation-queries.js",
     "verify:staff-conversation-api": "node scripts/verify-staff-conversation-api.js",
