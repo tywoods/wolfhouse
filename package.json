@@ -294,6 +294,7 @@
     "migrate:canonical": "node scripts/run-canonical-migrations.js",
     "prove:canonical-migrations-fresh-db": "node scripts/prove-canonical-migrations-fresh-db.js",
     "prove:foundation-docker-fresh-db-replacement": "node scripts/prove-foundation-docker-fresh-db-replacement.js",
+    "verify:foundation-docker-fresh-db-replacement-evidence": "node scripts/verify-foundation-docker-fresh-db-replacement-evidence.js",
     "generate:sunset-expected-schema-contract": "node scripts/generate-sunset-expected-schema-contract.js",
     "observe:sunset-schema-drift": "node scripts/observe-sunset-schema-drift.js",
     "verify:sunset-schema-observer": "node scripts/verify-sunset-schema-observer.js",
