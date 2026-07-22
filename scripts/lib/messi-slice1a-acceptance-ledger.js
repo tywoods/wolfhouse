@@ -4,25 +4,27 @@
  * messi-slice1a-acceptance-ledger — MESSI sole production classifier and
  * parent-binding locks (docs/fixtures/verifier only).
  *
- * Slice 1I narrows G_MESSI_MILESTONE_CLOSEOUT only: record that the finite MESSI
- * evidence-integration ledger/audit workstream is complete and that all four
- * reviewed parent dispositions plus the cross-parent gap manifest are reviewed,
- * while keeping the formal milestone gate ABSENT because four parents remain
- * partial and cross-parent operated/production proof is absent. The five
- * unrelated gate objects (four parents + G_CROSS_PARENT_INTEGRATION) stay
- * serialization-identical to master basis 977afcc2. Frozen score 0/4/2, RADAR
- * formal 0/9/0, and false production/MESSI completion are preserved. No
- * certificate architecture / runtime / live changes — reuse redesign +
+ * Slice 1J wires the reviewed FOUNDATION 1J Docker-gate-complete disposition
+ * into this canonical ledger: bind exact 1J candidate c7a3cd0f + merge tip
+ * 4621353f + 44-migration evidence correction 029cb799 protected blobs,
+ * execute verify:foundation-slice1j-docker-gate-complete, expose FOUNDATION
+ * score 3/0/5 on G_FOUNDATION_PARENT only, remove only docker_fresh_db_replacement_proof
+ * from that parent's missing list, and keep the parent partial with production
+ * readiness absent. Ledger semantic changes are FOUNDATION-confined: the five
+ * unrelated gate objects stay serialization-identical to master basis 029cb799
+ * (FORTRESS/RADAR/FACTORY/CROSS/MESSI closeout). Frozen MESSI score 0/4/2,
+ * RADAR formal 0/9/0, and false production/MESSI completion are preserved.
+ * No certificate architecture / runtime / live changes — reuse redesign +
  * squash-proof as-is.
  *
  * Post-merge tip scope: immutable reviewed-candidate blob certificates at HEAD.
- * Never infer 1A/1I scope from MASTER_BASIS..HEAD path allowlists (concurrent
+ * Never infer 1A/1J scope from MASTER_BASIS..HEAD path allowlists (concurrent
  * unrelated master commits after the squash — e.g. #147 — are irrelevant).
  *
  * Parent milestones are never marked complete from labels, summaries, or
  * self-authored booleans — only from inventory + exact hash binding + real
  * retained gate execution + deterministic classification with explicit missing
- * proof. Finite ledger/audit closeout is never MESSI complete.
+ * proof. Docker-gate complete is never FOUNDATION parent complete.
  *
  * Threat boundary (honest): module.exports is recursively deep-frozen. This
  * does NOT defend against require.cache replacement or rewriting this file
@@ -71,11 +73,11 @@ function sha256Text(text) {
   return crypto.createHash('sha256').update(String(text), 'utf8').digest('hex');
 }
 
-const SLICE = 'MESSI-1I';
-const BRANCH = 'messi/slice-1i-finite-closeout';
-const OUTCOME_ID = '1I_finite_evidence_integration_ledger_audit_closeout';
-/** Master tip this slice starts from (#162 cross-parent gap tip). */
-const MASTER_BASIS = '977afcc28a0424706e9c81665a529d1eb30fa00a';
+const SLICE = 'MESSI-1J';
+const BRANCH = 'messi/slice-1j-foundation-docker-wiring';
+const OUTCOME_ID = '1J_foundation_docker_gate_ledger_wiring';
+/** Master tip this slice starts from (#171 44-migration evidence correction). */
+const MASTER_BASIS = '029cb799c917e46d6a82b4862bddc1adc34f7735';
 /** Git-anchored whole-path redesign pin (never frozen_only / fixture trust root). */
 const redesignPin = require('./breakglass-redesign-candidate-sha');
 /**
@@ -91,8 +93,8 @@ const LANDING_TIP = redesignPin.SQUASH_PROOF_LANDING_TIP
   || 'c61bc9feba412de8e24cd14b5907bd62b65abd13';
 /** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
 const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
-const PROGRESS_CLASS = 'finite_messi_evidence_integration_ledger_audit_closeout';
-/** 1I finite evidence-integration ledger/audit closeout — formal gate stays absent. */
+const PROGRESS_CLASS = 'foundation_docker_gate_ledger_wiring_only';
+/** Preserved from base 029cb799 / 1I — not overwritten by 1J progress_class. */
 const MESSI_CLOSEOUT_WORKSTREAM_CLASS =
   'finite_messi_evidence_integration_ledger_audit_closeout';
 const MESSI_CLOSEOUT_FINITE_FLAG =
@@ -110,6 +112,22 @@ const RADAR_16AP_MASTER_BASIS = '66e34a5833ff3bcc7f297108f594b4fc58a0eccc';
 const FOUNDATION_1B_MERGE_TIP = '98202775a57e64597e0e606a6e58933bb8ba7250';
 const FOUNDATION_1B_CANDIDATE_SHA = '4a550b44bb7669a860557f0ec211260d7b76250c';
 const FOUNDATION_1B_MASTER_BASIS = '6106c27c54e25a8e4ba5ba00178d20be0c3e55f5';
+
+/** Reviewed FOUNDATION 1J Docker-gate candidate + squash-merge tip + evidence correction. */
+const FOUNDATION_1J_MERGE_TIP = '4621353f16fc00783ae87b9391ca2c6578decd44';
+const FOUNDATION_1J_CANDIDATE_SHA = 'c7a3cd0f9b305a6609433f4fd7e663ebfff364d3';
+const FOUNDATION_1J_MASTER_BASIS = 'f99c8bdc3106c3995b72aaff22e351337eb71590';
+/** 44-migration Docker-proof re-anchor on master (#171). */
+const FOUNDATION_1J_EVIDENCE_CORRECTION_SHA =
+  '029cb799c917e46d6a82b4862bddc1adc34f7735';
+/** Frozen FOUNDATION disposition score after 1J Docker-gate promotion. */
+const FOUNDATION_1J_FROZEN_SCORE = Object.freeze({
+  proven: 3,
+  partial: 0,
+  absent: 5,
+  total: 8,
+});
+const FOUNDATION_1J_NPM = 'verify:foundation-slice1j-docker-gate-complete';
 
 /** Reviewed FORTRESS 1D candidate + squash-merge tip on master (PR #148). */
 const FORTRESS_1D_MERGE_TIP = 'ff285598ac2cfec980e8316e772924a9c79a6a7e';
@@ -130,35 +148,20 @@ const GATE_IDS = Object.freeze([
   'G_MESSI_MILESTONE_CLOSEOUT',
 ]);
 
-/** Non-MESSI-closeout gates — must remain byte-identical to master basis 977afcc2 ledger. */
+/** Non-FOUNDATION gates — must remain byte-identical to master basis 029cb799 ledger. */
 const UNRELATED_GATE_IDS = Object.freeze([
-  'G_FOUNDATION_PARENT',
   'G_FORTRESS_PARENT',
   'G_RADAR_PARENT',
   'G_FACTORY_PARENT',
   'G_CROSS_PARENT_INTEGRATION',
+  'G_MESSI_MILESTONE_CLOSEOUT',
 ]);
 
 /**
  * Exact unrelated parent gate objects from fixtures/messi-acceptance/slice1a-ledger.json
- * at master basis 977afcc2 (pre-1I). CROSS row is appended after CROSS_PARENT_GAP_MANIFEST.
+ * at master basis 029cb799 (pre-1J). FOUNDATION is the 1J-changed gate.
  */
 const BASE_UNRELATED_PARENT_GATE_OBJECTS = Object.freeze([
-  Object.freeze({
-    id: 'G_FOUNDATION_PARENT',
-    verdict: 'partial',
-    parent: 'FOUNDATION',
-    workstream_class: 'finite_staging_schema_migration_recovery_closeout',
-    production_readiness: 'absent',
-    finite_closeout_analog: 'verify:messi-slice1b-foundation-closeout',
-    finite_staging_workstream_complete: true,
-    missing_proof: Object.freeze([
-      'docker_fresh_db_replacement_proof',
-      'production_schema_readiness',
-      'live_restore_drill',
-      'operated_readiness',
-    ]),
-  }),
   Object.freeze({
     id: 'G_FORTRESS_PARENT',
     verdict: 'partial',
@@ -255,6 +258,9 @@ const PACKAGE_JSON_1H_SCRIPT_VALUE =
 const PACKAGE_JSON_1I_SCRIPT_KEY = 'verify:messi-slice1i-finite-closeout';
 const PACKAGE_JSON_1I_SCRIPT_VALUE =
   'node scripts/verify-messi-slice1a-acceptance-ledger.js';
+const PACKAGE_JSON_1J_SCRIPT_KEY = 'verify:messi-slice1j-foundation-docker-wiring';
+const PACKAGE_JSON_1J_SCRIPT_VALUE =
+  'node scripts/verify-messi-slice1a-acceptance-ledger.js';
 
 const SCOPE_FENCE = Object.freeze({
   allowed: Object.freeze([
@@ -303,50 +309,69 @@ const PARENTS = Object.freeze({
   FOUNDATION: Object.freeze({
     id: 'FOUNDATION',
     title: 'Sunset schema / Phase D foundation workstream',
-    tip_slice: 'MESSI-1B',
-    outcome_id: '1B_foundation_finite_workstream_closeout',
-    master_basis: FOUNDATION_1B_MASTER_BASIS,
-    // Squash-merge on master (1B PR #145). Candidate is the reviewed branch tip;
-    // same tree as merge (not a git ancestor — squash).
-    canonical_tip: FOUNDATION_1B_MERGE_TIP,
-    candidate_sha: FOUNDATION_1B_CANDIDATE_SHA,
-    tip_sha_on_master: FOUNDATION_1B_MERGE_TIP,
+    tip_slice: 'FOUNDATION-1J',
+    outcome_id: '1J_docker_fresh_db_replacement_gate_complete',
+    master_basis: FOUNDATION_1J_MASTER_BASIS,
+    // Squash-merge on master (1J PR #170). Candidate is the reviewed branch tip;
+    // concurrent #169 means whole trees differ — provenance_bound_files blobs match.
+    canonical_tip: FOUNDATION_1J_MERGE_TIP,
+    candidate_sha: FOUNDATION_1J_CANDIDATE_SHA,
+    tip_sha_on_master: FOUNDATION_1J_MERGE_TIP,
+    // 44-migration Docker-proof re-anchor (#171) — protected blobs only.
+    evidence_correction_sha: FOUNDATION_1J_EVIDENCE_CORRECTION_SHA,
+    // Keep 1B analog so CROSS/MESSI reviewed dispositions stay serialization-identical.
     workstream_class: 'finite_staging_schema_migration_recovery_closeout',
     finite_closeout_analog: 'verify:messi-slice1b-foundation-closeout',
+    docker_gate_analog: FOUNDATION_1J_NPM,
     production_readiness: 'absent',
     docs: Object.freeze([
+      'docs/FOUNDATION-SLICE-1J-DOCKER-GATE.md',
       'docs/FOUNDATION-FINITE-CLOSEOUT.md',
     ]),
     evidence: Object.freeze([
+      'fixtures/foundation-slice1j/disposition.json',
+      'fixtures/foundation-slice1j/contract.json',
+      'fixtures/foundation-slice1j/findings.md',
       'fixtures/foundation-closeout/finite-closeout.json',
       'fixtures/foundation-closeout/contract.json',
       'fixtures/foundation-closeout/findings.md',
     ]),
-    // Tip-blob provenance at 1B merge (parent evidence only).
+    // Tip-blob provenance at 1J merge (1J + retained 1B evidence).
     provenance_bound_files: Object.freeze([
+      'docs/FOUNDATION-SLICE-1J-DOCKER-GATE.md',
+      'fixtures/foundation-slice1j/disposition.json',
+      'fixtures/foundation-slice1j/contract.json',
+      'fixtures/foundation-slice1j/findings.md',
       'docs/FOUNDATION-FINITE-CLOSEOUT.md',
       'fixtures/foundation-closeout/finite-closeout.json',
       'fixtures/foundation-closeout/contract.json',
       'fixtures/foundation-closeout/findings.md',
     ]),
-    lock_module: 'scripts/lib/messi-slice1b-foundation-closeout.js',
-    verifier_script: 'scripts/verify-messi-slice1b-foundation-closeout.js',
-    npm_script: 'verify:messi-slice1b-foundation-closeout',
+    // Docker proof protected blobs bind at the 44-migration evidence correction tip.
+    evidence_correction_bound_files: Object.freeze([
+      'fixtures/foundation-docker-proof/contract.json',
+      'fixtures/foundation-docker-proof/lunabox-disposable-compared-evidence.json',
+      'fixtures/foundation-docker-proof/findings.md',
+      'scripts/lib/foundation-docker-fresh-db-replacement-evidence.js',
+    ]),
+    lock_module: 'scripts/lib/foundation-slice1j-docker-gate-complete.js',
+    verifier_script: 'scripts/verify-foundation-slice1j-docker-gate-complete.js',
+    npm_script: FOUNDATION_1J_NPM,
     retained_gates: Object.freeze([
       Object.freeze({
-        id: 'foundation_1b_finite_closeout',
+        id: 'foundation_1j_docker_gate_complete',
         kind: 'node',
-        script: 'scripts/verify-messi-slice1b-foundation-closeout.js',
-        npm: 'verify:messi-slice1b-foundation-closeout',
+        script: 'scripts/verify-foundation-slice1j-docker-gate-complete.js',
+        npm: FOUNDATION_1J_NPM,
       }),
     ]),
-    // Finite staging closeout is wired; parent stays incomplete without these.
+    // Docker gate wired; parent stays incomplete without production proofs.
     missing_proof_for_complete: Object.freeze([
-      'docker_fresh_db_replacement_proof',
       'production_schema_readiness',
       'live_restore_drill',
       'operated_readiness',
     ]),
+    foundation_score: FOUNDATION_1J_FROZEN_SCORE,
   }),
   FORTRESS: Object.freeze({
     id: 'FORTRESS',
@@ -509,7 +534,7 @@ const MESSI_GATES = Object.freeze([
     parent: 'FOUNDATION',
     title: 'FOUNDATION parent evidence binding + retained gate',
     requirement:
-      'Inventory FOUNDATION 1B finite closeout, bind exact 1B merge/candidate tip blobs, run verify:messi-slice1b-foundation-closeout, expose finite staging-workstream completion, and keep parent partial while Docker fresh-db, production schema, live restore/drill, and operated-readiness remain missing. Do not mark complete from labels.',
+      'Inventory FOUNDATION 1J Docker-gate complete, bind exact 1J candidate c7a3cd0f + merge tip 4621353f + 44-migration evidence correction 029cb799 protected blobs, run verify:foundation-slice1j-docker-gate-complete, expose FOUNDATION score 3/0/5, remove only docker_fresh_db_replacement_proof from missing proof, and keep parent partial while production schema, live restore/drill, and operated-readiness remain missing. Do not mark complete from labels or treat Docker completion as FOUNDATION parent complete.',
   }),
   Object.freeze({
     id: 'G_FORTRESS_PARENT',
@@ -624,24 +649,6 @@ const CROSS_PARENT_MISSING_PROOF = Object.freeze([
 ]);
 
 /**
- * Exact unrelated gate objects from basis 977afcc2 (four parents + CROSS with
- * gap manifest). G_MESSI_MILESTONE_CLOSEOUT is the 1I-changed gate.
- */
-const BASE_UNRELATED_GATE_OBJECTS = Object.freeze([
-  ...BASE_UNRELATED_PARENT_GATE_OBJECTS,
-  Object.freeze({
-    id: 'G_CROSS_PARENT_INTEGRATION',
-    verdict: 'absent',
-    parent: null,
-    workstream_class: CROSS_PARENT_WORKSTREAM_CLASS,
-    production_readiness: 'absent',
-    finite_closeout_analog: null,
-    gap_manifest: CROSS_PARENT_GAP_MANIFEST,
-    missing_proof: CROSS_PARENT_MISSING_PROOF,
-  }),
-]);
-
-/**
  * Reviewed dispositions recorded on G_MESSI_MILESTONE_CLOSEOUT for finite
  * ledger/audit closeout. Four parent dispositions + cross-parent gap manifest.
  * Presence is not MESSI complete / production readiness.
@@ -675,6 +682,35 @@ const MESSI_CLOSEOUT_MISSING_PROOF = Object.freeze([
   'radar_formal_gates_no_longer_partial',
 ]);
 
+/**
+ * Exact unrelated gate objects from basis 029cb799 (FORTRESS/RADAR/FACTORY + CROSS
+ * with gap manifest + MESSI closeout). G_FOUNDATION_PARENT is the 1J-changed gate.
+ */
+const BASE_UNRELATED_GATE_OBJECTS = Object.freeze([
+  ...BASE_UNRELATED_PARENT_GATE_OBJECTS,
+  Object.freeze({
+    id: 'G_CROSS_PARENT_INTEGRATION',
+    verdict: 'absent',
+    parent: null,
+    workstream_class: CROSS_PARENT_WORKSTREAM_CLASS,
+    production_readiness: 'absent',
+    finite_closeout_analog: null,
+    gap_manifest: CROSS_PARENT_GAP_MANIFEST,
+    missing_proof: CROSS_PARENT_MISSING_PROOF,
+  }),
+  Object.freeze({
+    id: 'G_MESSI_MILESTONE_CLOSEOUT',
+    verdict: 'absent',
+    parent: null,
+    workstream_class: MESSI_CLOSEOUT_WORKSTREAM_CLASS,
+    production_readiness: 'absent',
+    finite_closeout_analog: MESSI_CLOSEOUT_ANALOG,
+    finite_evidence_integration_ledger_audit_workstream_complete: true,
+    reviewed_dispositions: MESSI_REVIEWED_DISPOSITIONS,
+    missing_proof: MESSI_CLOSEOUT_MISSING_PROOF,
+  }),
+]);
+
 /** Exact sha256 pins for parent-bound committed files (recomputed by verifier). */
 const BOUND_FILE_HASHES = Object.freeze({
   'docs/FOUNDATION-FINITE-CLOSEOUT.md':
@@ -685,6 +721,22 @@ const BOUND_FILE_HASHES = Object.freeze({
     '3e2d2520e4c497b7ec17b76669cc29703b3c1eb7a890125b007dd805a5503e40',
   'fixtures/foundation-closeout/findings.md':
     '8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439',
+  'docs/FOUNDATION-SLICE-1J-DOCKER-GATE.md':
+    'cf862f3ef873946f96d36622464d077a18289abfb20601be465642703689e58e',
+  'fixtures/foundation-slice1j/disposition.json':
+    '062cdc87a9597b58f7db4da473b24bab6d92b1d9aa6b04559fa8a01e49aefc13',
+  'fixtures/foundation-slice1j/contract.json':
+    '447e853cfaf13ffc4e09e356d631b336708ec9e5ed4b968d619fb7ac927b8e94',
+  'fixtures/foundation-slice1j/findings.md':
+    '8608706e047a78d2947f131648ee9f5f38f440d4d132a58d114d8688d6a2ce42',
+  'fixtures/foundation-docker-proof/contract.json':
+    '405466965a8d7373cf2a3087e84633dfaecb0d1d22fed298768fc82088b92af0',
+  'fixtures/foundation-docker-proof/lunabox-disposable-compared-evidence.json':
+    'd4efd067d2ccaacb11c86d4be8e7b937b1a8e920c8e6801a1ed7a204079419d0',
+  'fixtures/foundation-docker-proof/findings.md':
+    'a4be1c0c6be30942af58c5281eb10e33d842af4db3eced170bc28e830c5e6132',
+  'scripts/lib/foundation-docker-fresh-db-replacement-evidence.js':
+    '066c73bab3b69daf70aff1f386b97c543a2796a7abab162ee3556983f7b23d90',
   'scripts/lib/messi-slice1b-foundation-closeout.js':
     '4a1d5c368676c4d728b66f7c869a4e229b254edafac960bdf701d7e12b20d15b',
   'scripts/verify-messi-slice1b-foundation-closeout.js':
@@ -1144,6 +1196,58 @@ function verifyParentShaProvenance(root, opts) {
       }
     }
 
+    // Optional evidence-correction tip: protected blobs bind at a later correction
+    // SHA (e.g. FOUNDATION 1J 44-migration Docker proof) without moving canonical_tip.
+    if (locked.evidence_correction_sha && locked.evidence_correction_bound_files) {
+      const corrSha = resolveCommitSha(root, locked.evidence_correction_sha);
+      if (!corrSha) {
+        parentErrors.push(
+          `missing_ref:evidence_correction_sha:${locked.evidence_correction_sha}`,
+        );
+      } else {
+        if (!isGitAncestor(root, lockedTipSha || tipSha || '', corrSha)
+          && lockedTipSha
+          && corrSha !== lockedTipSha) {
+          // Correction must be the tip itself or a descendant of the merge tip.
+          if (!isGitAncestor(root, lockedTipSha, corrSha)) {
+            parentErrors.push(
+              `evidence_correction_not_descendant_of_tip:${corrSha}:${lockedTipSha}`,
+            );
+          }
+        }
+        for (const rel of locked.evidence_correction_bound_files) {
+          const expectedLocked = BOUND_FILE_HASHES[rel];
+          if (!expectedLocked) {
+            parentErrors.push(`missing_bound_hash_entry:${rel}`);
+            continue;
+          }
+          const corrBlob = gitBlobSha256AtCommit(root, corrSha, rel);
+          if (!corrBlob.ok) {
+            parentErrors.push(`missing_blob_at_evidence_correction:${rel}`);
+            continue;
+          }
+          if (corrBlob.sha256 !== expectedLocked) {
+            parentErrors.push(
+              `evidence_correction_blob_mismatch:${rel}:got=${corrBlob.sha256}:expected=${expectedLocked}`,
+            );
+          }
+          if (!options.skipWorkingTreeCheck) {
+            const abs = rootJoin(root, rel);
+            if (!fs.existsSync(abs)) {
+              parentErrors.push(`missing_working_tree_file:${rel}`);
+              continue;
+            }
+            const wtHash = sha256File(abs);
+            if (wtHash !== expectedLocked) {
+              parentErrors.push(
+                `altered_parent_file:${rel}:wt=${wtHash}:expected=${expectedLocked}`,
+              );
+            }
+          }
+        }
+      }
+    }
+
 
     perParent[parentId] = {
       canonical_tip: tipSha,
@@ -1453,12 +1557,19 @@ function classifyMessiGates(opts) {
       missing_proof: missing,
     };
     // Finite staging completion is FOUNDATION-only — never leak onto other parents.
+    // 1J keeps the 1B analog string for CROSS serialization identity while the
+    // retained gate is the real 1J Docker-gate verifier.
     if (parentId === 'FOUNDATION') {
       gate.finite_staging_workstream_complete = parent.workstream_class
           === 'finite_staging_schema_migration_recovery_closeout'
         && parent.finite_closeout_analog === 'verify:messi-slice1b-foundation-closeout'
+        && parent.docker_gate_analog === FOUNDATION_1J_NPM
         && hashBindingOk
         && gatesPass;
+      gate.foundation_score = gatesPass && hashBindingOk
+        ? { ...FOUNDATION_1J_FROZEN_SCORE }
+        : { proven: 0, partial: 0, absent: 8, total: 8 };
+      gate.docker_gate_analog = parent.docker_gate_analog;
     }
     // Finite audit/source completion is FORTRESS-only — never security readiness.
     if (parentId === 'FORTRESS') {
@@ -1501,10 +1612,10 @@ function classifyMessiGates(opts) {
   gates.push(messiBuilt.gate);
 
   // Hard contract: FOUNDATION parent never complete without production proofs.
+  // Docker-gate complete must never promote the MESSI parent to complete.
   const foundationGate = gates.find((g) => g.id === 'G_FOUNDATION_PARENT');
   if (foundationGate) {
     const requiredMissing = [
-      'docker_fresh_db_replacement_proof',
       'production_schema_readiness',
       'live_restore_drill',
       'operated_readiness',
@@ -1514,8 +1625,23 @@ function classifyMessiGates(opts) {
         errors.push(`foundation_hidden_missing_proof:${m}`);
       }
     }
+    if (foundationGate.missing_proof.includes('docker_fresh_db_replacement_proof')) {
+      errors.push('foundation_docker_proof_still_listed_after_1j_wiring');
+    }
     if (foundationGate.verdict === 'complete') {
       errors.push('foundation_complete_without_production_proofs');
+      errors.push('docker_completion_promoted_to_FOUNDATION_parent_complete');
+    }
+    if (!deepEqual(foundationGate.foundation_score, FOUNDATION_1J_FROZEN_SCORE)
+      && foundationGate.verdict === 'partial'
+      && !foundationGate.missing_proof.includes('retained_gate_exit_nonzero_or_missing')
+      && !foundationGate.missing_proof.includes('exact_file_hash_binding_failed')) {
+      errors.push('foundation_score_not_3_0_5');
+    }
+    const foundationResults = gateResults.FOUNDATION || [];
+    const oneJ = foundationResults.find((r) => r.id === 'foundation_1j_docker_gate_complete');
+    if (!oneJ || !oneJ.ok) {
+      errors.push('1j_retained_gate_skipped');
     }
   }
 
@@ -1717,7 +1843,7 @@ function buildExpectedLedgerSkeleton() {
       'Parent milestones are never marked complete from labels, summaries, or self-authored booleans. Classification requires inventory + exact hash binding + real retained gate execution + explicit missing proof.',
     parents: Object.keys(PARENTS).map((id) => {
       const p = PARENTS[id];
-      return {
+      const row = {
         id: p.id,
         tip_slice: p.tip_slice,
         outcome_id: p.outcome_id,
@@ -1734,16 +1860,36 @@ function buildExpectedLedgerSkeleton() {
         provenance_bound_files: [...p.provenance_bound_files],
         missing_proof_for_complete: [...p.missing_proof_for_complete],
       };
+      if (p.evidence_correction_sha) {
+        row.evidence_correction_sha = p.evidence_correction_sha;
+      }
+      if (p.evidence_correction_bound_files) {
+        row.evidence_correction_bound_files = [...p.evidence_correction_bound_files];
+      }
+      if (p.docker_gate_analog) {
+        row.docker_gate_analog = p.docker_gate_analog;
+      }
+      if (p.foundation_score) {
+        row.foundation_score = { ...p.foundation_score };
+      }
+      return row;
     }),
     bound_file_hashes: { ...BOUND_FILE_HASHES },
     parent_sha_provenance: Object.keys(PARENTS).reduce((acc, id) => {
       const p = PARENTS[id];
-      acc[id] = {
+      const row = {
         canonical_tip: p.canonical_tip,
         candidate_sha: p.candidate_sha,
         master_basis: p.master_basis,
         provenance_bound_files: [...p.provenance_bound_files],
       };
+      if (p.evidence_correction_sha) {
+        row.evidence_correction_sha = p.evidence_correction_sha;
+      }
+      if (p.evidence_correction_bound_files) {
+        row.evidence_correction_bound_files = [...p.evidence_correction_bound_files];
+      }
+      acc[id] = row;
       return acc;
     }, {}),
     gate_ids: [...GATE_IDS],
@@ -1790,6 +1936,12 @@ function ledgerGateObject(g) {
   if (Object.prototype.hasOwnProperty.call(g, MESSI_CLOSEOUT_FINITE_FLAG)) {
     out[MESSI_CLOSEOUT_FINITE_FLAG] = g[MESSI_CLOSEOUT_FINITE_FLAG];
   }
+  if (Object.prototype.hasOwnProperty.call(g, 'docker_gate_analog')) {
+    out.docker_gate_analog = g.docker_gate_analog;
+  }
+  if (Object.prototype.hasOwnProperty.call(g, 'foundation_score')) {
+    out.foundation_score = deepClone(g.foundation_score);
+  }
   if (Object.prototype.hasOwnProperty.call(g, 'gap_manifest')) {
     out.gap_manifest = deepClone(g.gap_manifest);
   }
@@ -1814,10 +1966,14 @@ function unrelatedGatesMatchBase(gates) {
       && !Object.prototype.hasOwnProperty.call(exp, 'gap_manifest')) {
       errors.push(`gap_manifest_on_unrelated_gate:${exp.id}`);
     }
-    if (Object.prototype.hasOwnProperty.call(got, 'reviewed_dispositions')) {
+    // reviewed_dispositions / finite MESSI flag are allowed only on the frozen
+    // G_MESSI_MILESTONE_CLOSEOUT unrelated object (post-1I baseline).
+    if (Object.prototype.hasOwnProperty.call(got, 'reviewed_dispositions')
+      && exp.id !== 'G_MESSI_MILESTONE_CLOSEOUT') {
       errors.push(`reviewed_dispositions_on_unrelated_gate:${exp.id}`);
     }
-    if (Object.prototype.hasOwnProperty.call(got, MESSI_CLOSEOUT_FINITE_FLAG)) {
+    if (Object.prototype.hasOwnProperty.call(got, MESSI_CLOSEOUT_FINITE_FLAG)
+      && exp.id !== 'G_MESSI_MILESTONE_CLOSEOUT') {
       errors.push(`messi_finite_flag_on_unrelated_gate:${exp.id}`);
     }
     if (!deepEqual(ledgerGateObject(got), deepClone(exp))) {
@@ -1891,6 +2047,14 @@ function validateLedgerFixture(ledger, classification) {
       if (Object.prototype.hasOwnProperty.call(g, 'finite_staging_workstream_complete')
         && got.finite_staging_workstream_complete !== g.finite_staging_workstream_complete) {
         errors.push(`finite_staging_workstream_complete_mismatch:${g.id}`);
+      }
+      if (Object.prototype.hasOwnProperty.call(g, 'foundation_score')
+        && !deepEqual(got.foundation_score, g.foundation_score)) {
+        errors.push(`foundation_score_mismatch:${g.id}`);
+      }
+      if (Object.prototype.hasOwnProperty.call(g, 'docker_gate_analog')
+        && got.docker_gate_analog !== g.docker_gate_analog) {
+        errors.push(`docker_gate_analog_mismatch:${g.id}`);
       }
       if (Object.prototype.hasOwnProperty.call(g, 'finite_audit_workstream_complete')
         && got.finite_audit_workstream_complete !== g.finite_audit_workstream_complete) {
@@ -2042,6 +2206,9 @@ const REQUIRED_RED = Object.freeze([
   // MESSI 1I — finite evidence-integration ledger/audit closeout hostiles (only two new)
   'finite_ledger_closeout_as_MESSI_complete',
   'missing_reviewed_disposition',
+  // MESSI 1J — FOUNDATION Docker-gate wiring hostiles (only two new)
+  '1j_retained_gate_skipped',
+  'docker_completion_promoted_to_FOUNDATION_parent_complete',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -2099,6 +2266,12 @@ module.exports = deepFreeze({
   FOUNDATION_1B_MERGE_TIP,
   FOUNDATION_1B_CANDIDATE_SHA,
   FOUNDATION_1B_MASTER_BASIS,
+  FOUNDATION_1J_MERGE_TIP,
+  FOUNDATION_1J_CANDIDATE_SHA,
+  FOUNDATION_1J_MASTER_BASIS,
+  FOUNDATION_1J_EVIDENCE_CORRECTION_SHA,
+  FOUNDATION_1J_FROZEN_SCORE,
+  FOUNDATION_1J_NPM,
   FORTRESS_1D_MERGE_TIP,
   FORTRESS_1D_CANDIDATE_SHA,
   FORTRESS_1D_MASTER_BASIS,
@@ -2123,6 +2296,8 @@ module.exports = deepFreeze({
   PACKAGE_JSON_1H_SCRIPT_VALUE,
   PACKAGE_JSON_1I_SCRIPT_KEY,
   PACKAGE_JSON_1I_SCRIPT_VALUE,
+  PACKAGE_JSON_1J_SCRIPT_KEY,
+  PACKAGE_JSON_1J_SCRIPT_VALUE,
   SCOPE_FENCE,
   PARENTS,
   MESSI_GATES,

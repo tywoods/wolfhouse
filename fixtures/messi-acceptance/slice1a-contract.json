@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "slice": "MESSI-1I",
-  "outcome_id": "1I_finite_evidence_integration_ledger_audit_closeout",
-  "branch": "messi/slice-1i-finite-closeout",
-  "master_basis": "977afcc28a0424706e9c81665a529d1eb30fa00a",
-  "progress_class": "finite_messi_evidence_integration_ledger_audit_closeout",
-  "title": "MESSI Slice 1I — finite evidence-integration ledger/audit closeout (absent formal milestone)",
+  "slice": "MESSI-1J",
+  "outcome_id": "1J_foundation_docker_gate_ledger_wiring",
+  "branch": "messi/slice-1j-foundation-docker-wiring",
+  "master_basis": "029cb799c917e46d6a82b4862bddc1adc34f7735",
+  "progress_class": "foundation_docker_gate_ledger_wiring_only",
+  "title": "MESSI Slice 1J — FOUNDATION Docker-gate ledger wiring (parent remains partial)",
   "live_mutation": false,
   "runtime_behavior_changed": false,
   "messi_definition": "MESSI is the integration gate above FOUNDATION, FORTRESS, RADAR, and FACTORY.",
@@ -40,36 +40,57 @@
   "parents": [
     {
       "id": "FOUNDATION",
-      "tip_slice": "MESSI-1B",
-      "outcome_id": "1B_foundation_finite_workstream_closeout",
-      "master_basis": "6106c27c54e25a8e4ba5ba00178d20be0c3e55f5",
-      "canonical_tip": "98202775a57e64597e0e606a6e58933bb8ba7250",
-      "candidate_sha": "4a550b44bb7669a860557f0ec211260d7b76250c",
+      "tip_slice": "FOUNDATION-1J",
+      "outcome_id": "1J_docker_fresh_db_replacement_gate_complete",
+      "master_basis": "f99c8bdc3106c3995b72aaff22e351337eb71590",
+      "canonical_tip": "4621353f16fc00783ae87b9391ca2c6578decd44",
+      "candidate_sha": "c7a3cd0f9b305a6609433f4fd7e663ebfff364d3",
       "workstream_class": "finite_staging_schema_migration_recovery_closeout",
       "finite_closeout_analog": "verify:messi-slice1b-foundation-closeout",
       "production_readiness": "absent",
-      "npm_script": "verify:messi-slice1b-foundation-closeout",
+      "npm_script": "verify:foundation-slice1j-docker-gate-complete",
       "evidence": [
+        "fixtures/foundation-slice1j/disposition.json",
+        "fixtures/foundation-slice1j/contract.json",
+        "fixtures/foundation-slice1j/findings.md",
         "fixtures/foundation-closeout/finite-closeout.json",
         "fixtures/foundation-closeout/contract.json",
         "fixtures/foundation-closeout/findings.md"
       ],
       "docs": [
+        "docs/FOUNDATION-SLICE-1J-DOCKER-GATE.md",
         "docs/FOUNDATION-FINITE-CLOSEOUT.md"
       ],
-      "verifier_script": "scripts/verify-messi-slice1b-foundation-closeout.js",
+      "verifier_script": "scripts/verify-foundation-slice1j-docker-gate-complete.js",
       "provenance_bound_files": [
+        "docs/FOUNDATION-SLICE-1J-DOCKER-GATE.md",
+        "fixtures/foundation-slice1j/disposition.json",
+        "fixtures/foundation-slice1j/contract.json",
+        "fixtures/foundation-slice1j/findings.md",
         "docs/FOUNDATION-FINITE-CLOSEOUT.md",
         "fixtures/foundation-closeout/finite-closeout.json",
         "fixtures/foundation-closeout/contract.json",
         "fixtures/foundation-closeout/findings.md"
       ],
       "missing_proof_for_complete": [
-        "docker_fresh_db_replacement_proof",
         "production_schema_readiness",
         "live_restore_drill",
         "operated_readiness"
-      ]
+      ],
+      "evidence_correction_sha": "029cb799c917e46d6a82b4862bddc1adc34f7735",
+      "evidence_correction_bound_files": [
+        "fixtures/foundation-docker-proof/contract.json",
+        "fixtures/foundation-docker-proof/lunabox-disposable-compared-evidence.json",
+        "fixtures/foundation-docker-proof/findings.md",
+        "scripts/lib/foundation-docker-fresh-db-replacement-evidence.js"
+      ],
+      "docker_gate_analog": "verify:foundation-slice1j-docker-gate-complete",
+      "foundation_score": {
+        "proven": 3,
+        "partial": 0,
+        "absent": 5,
+        "total": 8
+      }
     },
     {
       "id": "FORTRESS",

@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "slice": "MESSI-1I",
-  "outcome_id": "1I_finite_evidence_integration_ledger_audit_closeout",
-  "branch": "messi/slice-1i-finite-closeout",
-  "master_basis": "977afcc28a0424706e9c81665a529d1eb30fa00a",
-  "progress_class": "finite_messi_evidence_integration_ledger_audit_closeout",
+  "slice": "MESSI-1J",
+  "outcome_id": "1J_foundation_docker_gate_ledger_wiring",
+  "branch": "messi/slice-1j-foundation-docker-wiring",
+  "master_basis": "029cb799c917e46d6a82b4862bddc1adc34f7735",
+  "progress_class": "foundation_docker_gate_ledger_wiring_only",
   "live_mutation": false,
   "runtime_behavior_changed": false,
   "messi_definition": "MESSI is the integration gate above FOUNDATION, FORTRESS, RADAR, and FACTORY.",
@@ -12,36 +12,57 @@
   "parents": [
     {
       "id": "FOUNDATION",
-      "tip_slice": "MESSI-1B",
-      "outcome_id": "1B_foundation_finite_workstream_closeout",
-      "master_basis": "6106c27c54e25a8e4ba5ba00178d20be0c3e55f5",
-      "canonical_tip": "98202775a57e64597e0e606a6e58933bb8ba7250",
-      "candidate_sha": "4a550b44bb7669a860557f0ec211260d7b76250c",
+      "tip_slice": "FOUNDATION-1J",
+      "outcome_id": "1J_docker_fresh_db_replacement_gate_complete",
+      "master_basis": "f99c8bdc3106c3995b72aaff22e351337eb71590",
+      "canonical_tip": "4621353f16fc00783ae87b9391ca2c6578decd44",
+      "candidate_sha": "c7a3cd0f9b305a6609433f4fd7e663ebfff364d3",
       "workstream_class": "finite_staging_schema_migration_recovery_closeout",
       "finite_closeout_analog": "verify:messi-slice1b-foundation-closeout",
       "production_readiness": "absent",
-      "npm_script": "verify:messi-slice1b-foundation-closeout",
+      "npm_script": "verify:foundation-slice1j-docker-gate-complete",
       "evidence": [
+        "fixtures/foundation-slice1j/disposition.json",
+        "fixtures/foundation-slice1j/contract.json",
+        "fixtures/foundation-slice1j/findings.md",
         "fixtures/foundation-closeout/finite-closeout.json",
         "fixtures/foundation-closeout/contract.json",
         "fixtures/foundation-closeout/findings.md"
       ],
       "docs": [
+        "docs/FOUNDATION-SLICE-1J-DOCKER-GATE.md",
         "docs/FOUNDATION-FINITE-CLOSEOUT.md"
       ],
-      "verifier_script": "scripts/verify-messi-slice1b-foundation-closeout.js",
+      "verifier_script": "scripts/verify-foundation-slice1j-docker-gate-complete.js",
       "provenance_bound_files": [
+        "docs/FOUNDATION-SLICE-1J-DOCKER-GATE.md",
+        "fixtures/foundation-slice1j/disposition.json",
+        "fixtures/foundation-slice1j/contract.json",
+        "fixtures/foundation-slice1j/findings.md",
         "docs/FOUNDATION-FINITE-CLOSEOUT.md",
         "fixtures/foundation-closeout/finite-closeout.json",
         "fixtures/foundation-closeout/contract.json",
         "fixtures/foundation-closeout/findings.md"
       ],
       "missing_proof_for_complete": [
-        "docker_fresh_db_replacement_proof",
         "production_schema_readiness",
         "live_restore_drill",
         "operated_readiness"
-      ]
+      ],
+      "evidence_correction_sha": "029cb799c917e46d6a82b4862bddc1adc34f7735",
+      "evidence_correction_bound_files": [
+        "fixtures/foundation-docker-proof/contract.json",
+        "fixtures/foundation-docker-proof/lunabox-disposable-compared-evidence.json",
+        "fixtures/foundation-docker-proof/findings.md",
+        "scripts/lib/foundation-docker-fresh-db-replacement-evidence.js"
+      ],
+      "docker_gate_analog": "verify:foundation-slice1j-docker-gate-complete",
+      "foundation_score": {
+        "proven": 3,
+        "partial": 0,
+        "absent": 5,
+        "total": 8
+      }
     },
     {
       "id": "FORTRESS",
@@ -157,6 +178,14 @@
     "fixtures/foundation-closeout/finite-closeout.json": "3411701e798e863e7d3d1583963336f0d19fe740823f07280060230a500a9e52",
     "fixtures/foundation-closeout/contract.json": "3e2d2520e4c497b7ec17b76669cc29703b3c1eb7a890125b007dd805a5503e40",
     "fixtures/foundation-closeout/findings.md": "8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439",
+    "docs/FOUNDATION-SLICE-1J-DOCKER-GATE.md": "cf862f3ef873946f96d36622464d077a18289abfb20601be465642703689e58e",
+    "fixtures/foundation-slice1j/disposition.json": "062cdc87a9597b58f7db4da473b24bab6d92b1d9aa6b04559fa8a01e49aefc13",
+    "fixtures/foundation-slice1j/contract.json": "447e853cfaf13ffc4e09e356d631b336708ec9e5ed4b968d619fb7ac927b8e94",
+    "fixtures/foundation-slice1j/findings.md": "8608706e047a78d2947f131648ee9f5f38f440d4d132a58d114d8688d6a2ce42",
+    "fixtures/foundation-docker-proof/contract.json": "405466965a8d7373cf2a3087e84633dfaecb0d1d22fed298768fc82088b92af0",
+    "fixtures/foundation-docker-proof/lunabox-disposable-compared-evidence.json": "d4efd067d2ccaacb11c86d4be8e7b937b1a8e920c8e6801a1ed7a204079419d0",
+    "fixtures/foundation-docker-proof/findings.md": "a4be1c0c6be30942af58c5281eb10e33d842af4db3eced170bc28e830c5e6132",
+    "scripts/lib/foundation-docker-fresh-db-replacement-evidence.js": "066c73bab3b69daf70aff1f386b97c543a2796a7abab162ee3556983f7b23d90",
     "scripts/lib/messi-slice1b-foundation-closeout.js": "4a1d5c368676c4d728b66f7c869a4e229b254edafac960bdf701d7e12b20d15b",
     "scripts/verify-messi-slice1b-foundation-closeout.js": "19d03e5e482ea4b8f8bb25c1bbb3e53ccae17a4b712ca6bdea631c559b2fbcac",
     "docs/FORTRESS-FINITE-CLOSEOUT.md": "e5eea1639d80a11bd6c16782db88c8da388bbd5dd8b655ef5b7014b3ee59a0ab",
@@ -184,14 +213,25 @@
   },
   "parent_sha_provenance": {
     "FOUNDATION": {
-      "canonical_tip": "98202775a57e64597e0e606a6e58933bb8ba7250",
-      "candidate_sha": "4a550b44bb7669a860557f0ec211260d7b76250c",
-      "master_basis": "6106c27c54e25a8e4ba5ba00178d20be0c3e55f5",
+      "canonical_tip": "4621353f16fc00783ae87b9391ca2c6578decd44",
+      "candidate_sha": "c7a3cd0f9b305a6609433f4fd7e663ebfff364d3",
+      "master_basis": "f99c8bdc3106c3995b72aaff22e351337eb71590",
       "provenance_bound_files": [
+        "docs/FOUNDATION-SLICE-1J-DOCKER-GATE.md",
+        "fixtures/foundation-slice1j/disposition.json",
+        "fixtures/foundation-slice1j/contract.json",
+        "fixtures/foundation-slice1j/findings.md",
         "docs/FOUNDATION-FINITE-CLOSEOUT.md",
         "fixtures/foundation-closeout/finite-closeout.json",
         "fixtures/foundation-closeout/contract.json",
         "fixtures/foundation-closeout/findings.md"
+      ],
+      "evidence_correction_sha": "029cb799c917e46d6a82b4862bddc1adc34f7735",
+      "evidence_correction_bound_files": [
+        "fixtures/foundation-docker-proof/contract.json",
+        "fixtures/foundation-docker-proof/lunabox-disposable-compared-evidence.json",
+        "fixtures/foundation-docker-proof/findings.md",
+        "scripts/lib/foundation-docker-fresh-db-replacement-evidence.js"
       ]
     },
     "FORTRESS": {
@@ -258,6 +298,12 @@
   },
   "messi_complete": false,
   "production_ready": false,
+  "score": {
+    "proven": 0,
+    "partial": 4,
+    "absent": 2,
+    "total": 6
+  },
   "gates": [
     {
       "id": "G_FOUNDATION_PARENT",
@@ -267,8 +313,14 @@
       "production_readiness": "absent",
       "finite_closeout_analog": "verify:messi-slice1b-foundation-closeout",
       "finite_staging_workstream_complete": true,
+      "docker_gate_analog": "verify:foundation-slice1j-docker-gate-complete",
+      "foundation_score": {
+        "proven": 3,
+        "partial": 0,
+        "absent": 5,
+        "total": 8
+      },
       "missing_proof": [
-        "docker_fresh_db_replacement_proof",
         "production_schema_readiness",
         "live_restore_drill",
         "operated_readiness"
@@ -464,12 +516,5 @@
         "radar_formal_gates_no_longer_partial"
       ]
     }
-  ],
-  "score": {
-    "proven": 0,
-    "partial": 4,
-    "absent": 2,
-    "total": 6
-  },
-  "classification_ok": true
+  ]
 }

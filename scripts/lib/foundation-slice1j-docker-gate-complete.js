@@ -686,9 +686,26 @@ function messiLedgerUntouched(root) {
   if (!parent || parent.production_readiness !== 'absent') {
     errors.push('G_FOUNDATION_PARENT_production_readiness_not_absent');
   }
+  // Post MESSI-1J wiring: docker proof removed from missing; score 3/0/5 exposed;
+  // parent remains partial. Pre-wiring trees still listing docker fail this check.
   if (!Array.isArray(parent.missing_proof)
-    || !parent.missing_proof.includes('docker_fresh_db_replacement_proof')) {
-    errors.push('MESSI_parent_missing_proof_lost_docker_before_wiring');
+    || parent.missing_proof.includes('docker_fresh_db_replacement_proof')) {
+    errors.push('MESSI_parent_missing_proof_still_lists_docker_after_wiring');
+  }
+  for (const m of [
+    'production_schema_readiness',
+    'live_restore_drill',
+    'operated_readiness',
+  ]) {
+    if (!Array.isArray(parent.missing_proof) || !parent.missing_proof.includes(m)) {
+      errors.push(`MESSI_parent_missing_proof_lost:${m}`);
+    }
+  }
+  if (!parent.foundation_score
+    || parent.foundation_score.proven !== 3
+    || parent.foundation_score.partial !== 0
+    || parent.foundation_score.absent !== 5) {
+    errors.push('MESSI_parent_foundation_score_not_3_0_5');
   }
   return { ok: errors.length === 0, errors };
 }
