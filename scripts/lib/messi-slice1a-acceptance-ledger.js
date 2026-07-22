@@ -7,9 +7,12 @@
  * Slice 1C wires the reviewed FOUNDATION 1B finite closeout into this
  * canonical ledger: bind 1B merge/candidate provenance + blobs, execute
  * verify:messi-slice1b-foundation-closeout, expose finite staging-workstream
- * completion, and keep G_FOUNDATION_PARENT partial while Docker fresh-db,
- * production schema, live restore/drill, and operated-readiness remain
- * missing. Other parent/MESSI gates and frozen score are unchanged.
+ * completion on G_FOUNDATION_PARENT only, and keep that parent partial while
+ * Docker fresh-db, production schema, live restore/drill, and operated-
+ * readiness remain missing. Ledger semantic changes are FOUNDATION-confined:
+ * the five unrelated gate objects stay byte-identical to master basis
+ * 98202775 (including G_MESSI_MILESTONE_CLOSEOUT.workstream_class). Frozen
+ * score 0/4/2 and false production/MESSI completion are preserved.
  *
  * Parent milestones are never marked complete from labels, summaries, or
  * self-authored booleans — only from inventory + exact hash binding + real
@@ -67,6 +70,8 @@ const OUTCOME_ID = '1C_foundation_finite_closeout_ledger_wiring';
 /** MESSI 1B merge tip on master — this slice starts from that SHA. */
 const MASTER_BASIS = '98202775a57e64597e0e606a6e58933bb8ba7250';
 const PROGRESS_CLASS = 'foundation_finite_closeout_ledger_wiring_only';
+/** Preserved from base 98202775 — not overwritten by 1C progress_class. */
+const MESSI_CLOSEOUT_WORKSTREAM_CLASS = 'acceptance_ledger_inventory_and_verifier_only';
 
 /** Reviewed FOUNDATION 1B squash candidate (same tree as MASTER_BASIS merge). */
 const FOUNDATION_1B_MERGE_TIP = MASTER_BASIS;
@@ -80,6 +85,93 @@ const GATE_IDS = Object.freeze([
   'G_FACTORY_PARENT',
   'G_CROSS_PARENT_INTEGRATION',
   'G_MESSI_MILESTONE_CLOSEOUT',
+]);
+
+/** Non-FOUNDATION gates — must remain byte-identical to base 98202775 ledger. */
+const UNRELATED_GATE_IDS = Object.freeze([
+  'G_FORTRESS_PARENT',
+  'G_RADAR_PARENT',
+  'G_FACTORY_PARENT',
+  'G_CROSS_PARENT_INTEGRATION',
+  'G_MESSI_MILESTONE_CLOSEOUT',
+]);
+
+/**
+ * Exact unrelated gate objects from fixtures/messi-acceptance/slice1a-ledger.json
+ * at master basis 98202775 (pre-1C). Semantic ledger confinement proof target.
+ */
+const BASE_UNRELATED_GATE_OBJECTS = Object.freeze([
+  Object.freeze({
+    id: 'G_FORTRESS_PARENT',
+    verdict: 'partial',
+    parent: 'FORTRESS',
+    workstream_class: 'tip_retained_security_remediation_plus_audit_matrix',
+    production_readiness: 'absent',
+    finite_closeout_analog: null,
+    missing_proof: Object.freeze([
+      'finite_milestone_closeout_disposition',
+      'matrix_unproven_cleared_to_proven_fail_closed',
+      'matrix_vulnerable_remediated',
+      '15L_live_kv_secret_creation_and_staff_api_deploy_activation',
+      'B02_meta_live_client_slug_authority_activation',
+      'production_tenant_boundary_proof',
+    ]),
+  }),
+  Object.freeze({
+    id: 'G_RADAR_PARENT',
+    verdict: 'partial',
+    parent: 'RADAR',
+    workstream_class: 'finite_milestone_closeout_staging_readiness_only',
+    production_readiness: 'absent',
+    finite_closeout_analog: 'verify:radar-slice16ap-finite-closeout',
+    missing_proof: Object.freeze([
+      'formal_gates_raised_from_partial_to_proven',
+      'production_only_unknowns_closed',
+      'full_G06_proven_forbidden_by_16AP',
+      'production_ready_claim_forbidden_by_16AP',
+    ]),
+  }),
+  Object.freeze({
+    id: 'G_FACTORY_PARENT',
+    verdict: 'partial',
+    parent: 'FACTORY',
+    workstream_class: 'finite_offline_dry_run_packaging_closeout',
+    production_readiness: 'absent',
+    finite_closeout_analog: 'verify:factory-slice1e-finite-closeout',
+    missing_proof: Object.freeze([
+      'third_tenant_live_or_prod_onboarding',
+      'apply_or_disk_materialization',
+      'RADAR_reopen_third_tenant_factory_clearance',
+      'production_client_productization_readiness',
+    ]),
+  }),
+  Object.freeze({
+    id: 'G_CROSS_PARENT_INTEGRATION',
+    verdict: 'absent',
+    parent: null,
+    workstream_class: 'none',
+    production_readiness: 'absent',
+    finite_closeout_analog: null,
+    missing_proof: Object.freeze([
+      'committed_cross_parent_integration_proof',
+      'composed_foundation_fortress_radar_factory_production_evidence',
+      'end_to_end_live_staging_integration_beyond_parent_silos',
+    ]),
+  }),
+  Object.freeze({
+    id: 'G_MESSI_MILESTONE_CLOSEOUT',
+    verdict: 'absent',
+    parent: null,
+    workstream_class: MESSI_CLOSEOUT_WORKSTREAM_CLASS,
+    production_readiness: 'absent',
+    finite_closeout_analog: null,
+    missing_proof: Object.freeze([
+      'all_parent_messi_gates_complete',
+      'cross_parent_integration_complete',
+      'production_readiness_proven',
+      'radar_formal_gates_no_longer_partial',
+    ]),
+  }),
 ]);
 
 const VERDICTS = Object.freeze(['complete', 'partial', 'absent']);
@@ -893,19 +985,13 @@ function classifyMessiGates(opts) {
       // FOUNDATION is exposed separately — never as parent complete.
       verdict = 'partial';
     }
-    const finiteStagingComplete = parentId === 'FOUNDATION'
-      && parent.workstream_class === 'finite_staging_schema_migration_recovery_closeout'
-      && parent.finite_closeout_analog === 'verify:messi-slice1b-foundation-closeout'
-      && hashBindingOk
-      && gatesPass;
-    gates.push({
+    const gate = {
       id: gateId,
       verdict,
       parent: parentId,
       workstream_class: parent.workstream_class,
       production_readiness: parent.production_readiness,
       finite_closeout_analog: parent.finite_closeout_analog,
-      finite_staging_workstream_complete: finiteStagingComplete,
       retained_gate_results: results.map((r) => ({
         id: r.id,
         script: r.script,
@@ -914,7 +1000,16 @@ function classifyMessiGates(opts) {
         elapsed_ms: r.elapsed_ms,
       })),
       missing_proof: missing,
-    });
+    };
+    // Finite staging completion is FOUNDATION-only — never leak onto other parents.
+    if (parentId === 'FOUNDATION') {
+      gate.finite_staging_workstream_complete = parent.workstream_class
+          === 'finite_staging_schema_migration_recovery_closeout'
+        && parent.finite_closeout_analog === 'verify:messi-slice1b-foundation-closeout'
+        && hashBindingOk
+        && gatesPass;
+    }
+    gates.push(gate);
   }
 
   pushParentGate('G_FOUNDATION_PARENT', 'FOUNDATION');
@@ -929,7 +1024,6 @@ function classifyMessiGates(opts) {
     workstream_class: 'none',
     production_readiness: 'absent',
     finite_closeout_analog: null,
-    finite_staging_workstream_complete: false,
     retained_gate_results: [],
     missing_proof: Object.freeze([
       'committed_cross_parent_integration_proof',
@@ -942,10 +1036,10 @@ function classifyMessiGates(opts) {
     id: 'G_MESSI_MILESTONE_CLOSEOUT',
     verdict: 'absent',
     parent: null,
-    workstream_class: PROGRESS_CLASS,
+    // Preserve base 98202775 workstream_class — not 1C progress_class.
+    workstream_class: MESSI_CLOSEOUT_WORKSTREAM_CLASS,
     production_readiness: 'absent',
     finite_closeout_analog: null,
-    finite_staging_workstream_complete: false,
     retained_gate_results: [],
     missing_proof: Object.freeze([
       'all_parent_messi_gates_complete',
@@ -1076,6 +1170,47 @@ function buildExpectedLedgerSkeleton() {
   };
 }
 
+/**
+ * Ledger/classifier semantic gate object (strips retained_gate_results).
+ * finite_staging_workstream_complete is included only when present (FOUNDATION).
+ */
+function ledgerGateObject(g) {
+  if (!g || typeof g !== 'object') return null;
+  const out = {
+    id: g.id,
+    verdict: g.verdict,
+    parent: g.parent,
+    workstream_class: g.workstream_class,
+    production_readiness: g.production_readiness,
+    finite_closeout_analog: g.finite_closeout_analog,
+    missing_proof: Array.isArray(g.missing_proof) ? [...g.missing_proof] : g.missing_proof,
+  };
+  if (Object.prototype.hasOwnProperty.call(g, 'finite_staging_workstream_complete')) {
+    out.finite_staging_workstream_complete = g.finite_staging_workstream_complete;
+  }
+  return out;
+}
+
+function unrelatedGatesMatchBase(gates) {
+  const errors = [];
+  const byId = {};
+  for (const g of gates || []) byId[g.id] = g;
+  for (const exp of BASE_UNRELATED_GATE_OBJECTS) {
+    const got = byId[exp.id];
+    if (!got) {
+      errors.push(`unrelated_gate_missing:${exp.id}`);
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(got, 'finite_staging_workstream_complete')) {
+      errors.push(`finite_staging_on_unrelated_gate:${exp.id}`);
+    }
+    if (!deepEqual(ledgerGateObject(got), deepClone(exp))) {
+      errors.push(`unrelated_gate_drift:${exp.id}`);
+    }
+  }
+  return { ok: errors.length === 0, errors };
+}
+
 function validateLedgerFixture(ledger, classification) {
   const errors = [];
   if (ledger.slice !== SLICE) errors.push('slice');
@@ -1145,6 +1280,20 @@ function validateLedgerFixture(ledger, classification) {
         errors.push(`finite_staging_workstream_complete_mismatch:${g.id}`);
       }
     }
+    // FOUNDATION-only finite staging flag; unrelated gates must match base 98202775.
+    const foundationGot = byId.G_FOUNDATION_PARENT;
+    if (foundationGot
+      && foundationGot.finite_staging_workstream_complete !== true
+      && classification.gates.find((x) => x.id === 'G_FOUNDATION_PARENT')
+        ?.finite_staging_workstream_complete === true) {
+      errors.push('foundation_finite_staging_missing_in_ledger');
+    }
+    const unrelatedLedger = unrelatedGatesMatchBase(ledger.gates || []);
+    for (const e of unrelatedLedger.errors) errors.push(e);
+    const unrelatedClass = unrelatedGatesMatchBase(classification.gates);
+    for (const e of unrelatedClass.errors) {
+      errors.push(`classifier_${e}`);
+    }
   }
   return { ok: errors.length === 0, errors };
 }
@@ -1168,6 +1317,7 @@ const REQUIRED_RED = Object.freeze([
   'stale_or_repinned_1b_provenance',
   'hidden_missing_proofs',
   'self_authored_score_change',
+  'unrelated_gate_semantic_drift',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -1179,6 +1329,7 @@ const REQUIRED_GREEN = Object.freeze([
   'radar_formal_0_9_0_preserved',
   'finite_vs_production_distinguished',
   'foundation_finite_staging_exposed',
+  'unrelated_gates_byte_identical_to_base',
   'messi_not_complete',
   'package_script_registered',
 ]);
@@ -1197,6 +1348,8 @@ deepFreeze(SELF_REF_FORBIDDEN_PREFIXES);
 deepFreeze(REQUIRED_RED);
 deepFreeze(REQUIRED_GREEN);
 deepFreeze(GATE_IDS);
+deepFreeze(UNRELATED_GATE_IDS);
+deepFreeze(BASE_UNRELATED_GATE_OBJECTS);
 
 module.exports = deepFreeze({
   SLICE,
@@ -1204,10 +1357,13 @@ module.exports = deepFreeze({
   OUTCOME_ID,
   MASTER_BASIS,
   PROGRESS_CLASS,
+  MESSI_CLOSEOUT_WORKSTREAM_CLASS,
   FOUNDATION_1B_MERGE_TIP,
   FOUNDATION_1B_CANDIDATE_SHA,
   FOUNDATION_1B_MASTER_BASIS,
   GATE_IDS,
+  UNRELATED_GATE_IDS,
+  BASE_UNRELATED_GATE_OBJECTS,
   VERDICTS,
   FROZEN_MESSI_SCORE,
   RADAR_FORMAL_SCORE,
@@ -1251,5 +1407,7 @@ module.exports = deepFreeze({
   readFortressMatrixCounts,
   readRadarFormalScore,
   buildExpectedLedgerSkeleton,
+  ledgerGateObject,
+  unrelatedGatesMatchBase,
   validateLedgerFixture,
 });

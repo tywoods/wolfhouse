@@ -314,7 +314,6 @@
       "workstream_class": "tip_retained_security_remediation_plus_audit_matrix",
       "production_readiness": "absent",
       "finite_closeout_analog": null,
-      "finite_staging_workstream_complete": false,
       "missing_proof": [
         "finite_milestone_closeout_disposition",
         "matrix_unproven_cleared_to_proven_fail_closed",
@@ -331,7 +330,6 @@
       "workstream_class": "finite_milestone_closeout_staging_readiness_only",
       "production_readiness": "absent",
       "finite_closeout_analog": "verify:radar-slice16ap-finite-closeout",
-      "finite_staging_workstream_complete": false,
       "missing_proof": [
         "formal_gates_raised_from_partial_to_proven",
         "production_only_unknowns_closed",
@@ -346,7 +344,6 @@
       "workstream_class": "finite_offline_dry_run_packaging_closeout",
       "production_readiness": "absent",
       "finite_closeout_analog": "verify:factory-slice1e-finite-closeout",
-      "finite_staging_workstream_complete": false,
       "missing_proof": [
         "third_tenant_live_or_prod_onboarding",
         "apply_or_disk_materialization",
@@ -361,7 +358,6 @@
       "workstream_class": "none",
       "production_readiness": "absent",
       "finite_closeout_analog": null,
-      "finite_staging_workstream_complete": false,
       "missing_proof": [
         "committed_cross_parent_integration_proof",
         "composed_foundation_fortress_radar_factory_production_evidence",
@@ -372,10 +368,9 @@
       "id": "G_MESSI_MILESTONE_CLOSEOUT",
       "verdict": "absent",
       "parent": null,
-      "workstream_class": "foundation_finite_closeout_ledger_wiring_only",
+      "workstream_class": "acceptance_ledger_inventory_and_verifier_only",
       "production_readiness": "absent",
       "finite_closeout_analog": null,
-      "finite_staging_workstream_complete": false,
       "missing_proof": [
         "all_parent_messi_gates_complete",
         "cross_parent_integration_complete",

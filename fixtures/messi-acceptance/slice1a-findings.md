@@ -62,8 +62,10 @@ Finite staging/offline closeouts are **not** production readiness.
 ## What 1C proves / does not prove
 
 **Proves:** FOUNDATION 1B merge/candidate provenance + tip blobs bound; real 1B gate executed;
-finite staging-workstream completion exposed; honest MESSI score remains 0/4/2; other parent
-gates unchanged; RADAR formal 0/9/0 preserved; `production_ready` / `messi_complete` false.
+finite staging-workstream completion exposed on `G_FOUNDATION_PARENT` only; honest MESSI
+score remains 0/4/2; five unrelated gate objects byte-identical to base `98202775`
+(including `G_MESSI_MILESTONE_CLOSEOUT.workstream_class`); RADAR formal 0/9/0 preserved;
+`production_ready` / `messi_complete` false.
 
 **Does not prove:** MESSI complete, production ready, Docker fresh-db replacement, production
 schema readiness, live restore/drill, operated readiness, cross-parent integration, raising any
@@ -79,7 +81,8 @@ RADAR formal gate, clearing FORTRESS matrix gaps, live/prod FACTORY third tenant
 | FACTORY | `14facf5d54be8767cf9aca4d69a880f28ea3dc2e` | identity |
 
 Hostile REDs cover treating finite closeout as production completion, stale/re-pinned 1B
-provenance, hidden missing proofs, self-authored score changes, plus retained 1A hostiles.
+provenance, hidden missing proofs, self-authored score changes, unrelated-gate semantic
+drift vs base `98202775`, plus retained 1A hostiles.
 
 ## Out of scope
 

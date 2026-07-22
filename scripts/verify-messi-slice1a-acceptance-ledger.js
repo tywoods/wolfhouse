@@ -250,6 +250,24 @@ green('foundation_finite_staging_exposed', (() => {
     && ledgerG.finite_staging_workstream_complete === true
     && ledgerG.verdict === 'partial';
 })());
+green('unrelated_gates_byte_identical_to_base', (() => {
+  const ledgerMatch = locks.unrelatedGatesMatchBase(ledger.gates || []);
+  const classMatch = locks.unrelatedGatesMatchBase(classification.gates);
+  return ledgerMatch.ok
+    && classMatch.ok
+    && locks.UNRELATED_GATE_IDS.length === 5
+    && locks.BASE_UNRELATED_GATE_OBJECTS.length === 5
+    && locks.BASE_UNRELATED_GATE_OBJECTS.every((exp) => {
+      const got = (ledger.gates || []).find((x) => x.id === exp.id);
+      return got
+        && !Object.prototype.hasOwnProperty.call(got, 'finite_staging_workstream_complete')
+        && locks.deepEqual(locks.ledgerGateObject(got), locks.deepClone(exp));
+    })
+    && (ledger.gates || []).find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT')
+      ?.workstream_class === locks.MESSI_CLOSEOUT_WORKSTREAM_CLASS
+    && (ledger.gates || []).find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT')
+      ?.workstream_class === 'acceptance_ledger_inventory_and_verifier_only';
+})());
 green('messi_not_complete',
   classification.messi_complete === false
   && ledger.messi_complete === false
@@ -581,6 +599,27 @@ red('self_authored_score_change', (() => {
       v.errors.includes('frozen_messi_score')
       || v.errors.includes('score_mismatch')
     );
+})());
+
+red('unrelated_gate_semantic_drift', (() => {
+  // Leak finite_staging onto FORTRESS — must fail closed.
+  const leak = locks.thaw(ledger);
+  const fg = leak.gates.find((x) => x.id === 'G_FORTRESS_PARENT');
+  fg.finite_staging_workstream_complete = false;
+  const vLeak = locks.validateLedgerFixture(leak, classification);
+  // Mutate G_MESSI_MILESTONE_CLOSEOUT.workstream_class away from base 98202775.
+  const drift = locks.thaw(ledger);
+  const cg = drift.gates.find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT');
+  cg.workstream_class = locks.PROGRESS_CLASS;
+  const vDrift = locks.validateLedgerFixture(drift, classification);
+  // Exact compare of locked base objects vs live unrelated ledger gates.
+  const live = locks.unrelatedGatesMatchBase(ledger.gates || []);
+  return live.ok === true
+    && vLeak.ok === false
+    && vLeak.errors.some((e) => e === 'finite_staging_on_unrelated_gate:G_FORTRESS_PARENT'
+      || e === 'unrelated_gate_drift:G_FORTRESS_PARENT')
+    && vDrift.ok === false
+    && vDrift.errors.includes('unrelated_gate_drift:G_MESSI_MILESTONE_CLOSEOUT');
 })());
 
 // Lock export immutability (best-effort)

@@ -56,7 +56,11 @@ The sole classifier lives in `scripts/lib/messi-slice1a-acceptance-ledger.js` (`
 Finite staging-workstream completion for FOUNDATION is exposed as
 `finite_staging_workstream_complete=true` on `G_FOUNDATION_PARENT` when the 1B gate passes.
 That flag does **not** raise the parent verdict to complete and does **not** set
-`production_ready` / `messi_complete`.
+`production_ready` / `messi_complete`. It is **FOUNDATION-only** — the five unrelated
+gate objects (`G_FORTRESS_PARENT`, `G_RADAR_PARENT`, `G_FACTORY_PARENT`,
+`G_CROSS_PARENT_INTEGRATION`, `G_MESSI_MILESTONE_CLOSEOUT`) remain byte-identical to
+master basis `98202775` (including `G_MESSI_MILESTONE_CLOSEOUT.workstream_class` =
+`acceptance_ledger_inventory_and_verifier_only`).
 
 ## Frozen MESSI score (unchanged)
 
