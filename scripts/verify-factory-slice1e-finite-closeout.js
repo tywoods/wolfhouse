@@ -499,20 +499,38 @@ green('archetype_templates_immutable_during_1e', slice1e.deepEqual(beforeTemplat
 // ── Tip scope ───────────────────────────────────────────────────────────────
 console.log('\n── Tip scope ──');
 {
+  // Committed range only (basis...HEAD) — unrelated master paths outside factory
+  // scope never enter the allowlist check; detached HEAD is fine.
   let changed = [];
   try {
-    changed = spawnSync('git', ['diff', '--name-only', slice1e.MASTER_BASIS], {
+    changed = spawnSync('git', [
+      'diff', '--name-only', `${slice1e.MASTER_BASIS}...HEAD`,
+    ], {
       cwd: ROOT,
       encoding: 'utf8',
     }).stdout.trim().split('\n').filter(Boolean);
   } catch (_) {
     changed = [];
   }
-  const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  }).stdout.trim().split('\n').filter(Boolean);
-  const factoryTouched = [...new Set([...changed, ...untracked])].filter((p) => (
+  let dirtyFactory = [];
+  try {
+    const dirty = spawnSync('git', ['diff', '--name-only', 'HEAD'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    }).stdout.trim().split('\n').filter(Boolean);
+    const staged = spawnSync('git', ['diff', '--cached', '--name-only'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    }).stdout.trim().split('\n').filter(Boolean);
+    const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    }).stdout.trim().split('\n').filter(Boolean);
+    dirtyFactory = [...new Set(dirty.concat(staged, untracked))];
+  } catch (_) {
+    dirtyFactory = [];
+  }
+  const factoryTouched = [...new Set([...changed, ...dirtyFactory])].filter((p) => (
     p.startsWith('fixtures/factory-client-productization/')
     || p.startsWith('scripts/lib/factory-slice1')
     || p.startsWith('scripts/verify-factory-slice1')

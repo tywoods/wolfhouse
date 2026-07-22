@@ -14,9 +14,9 @@
  * 98202775 (including G_MESSI_MILESTONE_CLOSEOUT.workstream_class). Frozen
  * score 0/4/2 and false production/MESSI completion are preserved.
  *
- * Post-merge tip scope: bind REVIEWED_CANDIDATE + LANDING_TIP provenance.
- * Never infer 1A/1C scope from MASTER_BASIS..HEAD (concurrent unrelated master
- * commits after the squash — e.g. #147 — must not require a file allowlist).
+ * Post-merge tip scope: immutable reviewed-candidate blob certificates at HEAD.
+ * Never infer 1A/1C scope from MASTER_BASIS..HEAD path allowlists (concurrent
+ * unrelated master commits after the squash — e.g. #147 — are irrelevant).
  *
  * Parent milestones are never marked complete from labels, summaries, or
  * self-authored booleans — only from inventory + exact hash binding + real
@@ -32,6 +32,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
+const blobCerts = require('./reviewed-candidate-blob-certificates');
 
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -79,8 +80,17 @@ const MASTER_BASIS = '98202775a57e64597e0e606a6e58933bb8ba7250';
  * (concurrent #147 landed after squash merge #146).
  */
 const REVIEWED_CANDIDATE = '3cbf4ca1d933585758b87346a7de16bf957e13d8';
-/** Squash-merge tip on master for 1C wiring (PR #146). */
+/** Squash-merge tip on master for 1C wiring (PR #146). Historical — not a tip-scope gate. */
 const LANDING_TIP = '949be24936c3056b19904904f98feccab5caf883';
+/** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
+const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
+/**
+ * path→sha256 for whole-path redesign files (external fixture — not self-hashed
+ * into this lock module). Binds correction accountability after 53c1abcf.
+ */
+const WHOLE_PATH_REDESIGN_BLOBS = blobCerts.loadWholePathRedesignBlobs(
+  path.join(__dirname, '..', '..'),
+);
 const PROGRESS_CLASS = 'foundation_finite_closeout_ledger_wiring_only';
 /** Preserved from base 98202775 — not overwritten by 1C progress_class. */
 const MESSI_CLOSEOUT_WORKSTREAM_CLASS = 'acceptance_ledger_inventory_and_verifier_only';
@@ -217,35 +227,6 @@ const PACKAGE_JSON_ALLOWED_SCRIPT_VALUE =
 const PACKAGE_JSON_1C_SCRIPT_KEY = 'verify:messi-slice1c-foundation-wiring';
 const PACKAGE_JSON_1C_SCRIPT_VALUE =
   'node scripts/verify-messi-slice1a-acceptance-ledger.js';
-
-const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
-  'docs/MESSI-ACCEPTANCE-LEDGER.md',
-  'fixtures/messi-acceptance/',
-  'scripts/lib/messi-slice1a-acceptance-ledger.js',
-  'scripts/verify-messi-slice1a-acceptance-ledger.js',
-  // Forward-compat tip-allowlist path entries only on FACTORY 1B–1E locks
-  // (same pattern 1E used for itself). No generator/template/runtime behavior.
-  'scripts/lib/factory-slice1b-archetype-templates.js',
-  'scripts/lib/factory-slice1c-dry-run-generator.js',
-  'scripts/lib/factory-slice1d-integration-proof.js',
-  'scripts/lib/factory-slice1e-finite-closeout.js',
-  'scripts/verify-factory-slice1b-archetype-templates.js',
-  'scripts/verify-factory-slice1e-finite-closeout.js',
-  // Forward-compat tip-allowlist for MESSI 1B FOUNDATION closeout (paths only).
-  // 1B lock/verifier may receive tip-scope allowlist / nested-gate forward-compat
-  // edits; those two scripts are TIP_SCOPE_FORWARD_COMPAT_RELS (not tip-blob
-  // provenance). Closeout docs/fixtures stay tip-blob bound.
-  'docs/FOUNDATION-FINITE-CLOSEOUT.md',
-  'fixtures/foundation-closeout/',
-  'scripts/lib/messi-slice1b-foundation-closeout.js',
-  'scripts/verify-messi-slice1b-foundation-closeout.js',
-  // Forward-compat tip-allowlist for MESSI 1D FORTRESS closeout (paths only).
-  'docs/FORTRESS-FINITE-CLOSEOUT.md',
-  'fixtures/fortress-closeout/',
-  'scripts/lib/messi-slice1d-fortress-closeout.js',
-  'scripts/verify-messi-slice1d-fortress-closeout.js',
-  'package.json',
-]);
 
 const SCOPE_FENCE = Object.freeze({
   allowed: Object.freeze([
@@ -569,9 +550,9 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/foundation-closeout/findings.md':
     '8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439',
   'scripts/lib/messi-slice1b-foundation-closeout.js':
-    '63c12920a26064d12b95d08105b7185ab8ccbd5853ec5ca56cfa434588108772',
+    '36cc71e5f4df9ab1c1e521f748f510b4f9e128a573f0b46faee19b7eb0b5ed7b',
   'scripts/verify-messi-slice1b-foundation-closeout.js':
-    '31e730bbdcefe0b7434db7bf2a047696aff14c02182fcf9acc423234bb548ce6',
+    '24286e64bee0204e0de14b71dd2a1a3b229cba2fb39a0749726ae21d1167e942',
   'docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md':
     'ec8fe4e611d086651842f287610a13495ef34df174e801e0bdc8e35d45bfccf9',
   'fixtures/fortress-tenant-identity/boundary-matrix.json':
@@ -621,7 +602,7 @@ const BOUND_FILE_HASHES = Object.freeze({
   'scripts/lib/factory-slice1e-finite-closeout.js':
     '7311dcc579608d041e809476671c9110072de5f115186e91ac68b6bfe9520a91',
   'scripts/verify-factory-slice1e-finite-closeout.js':
-    '76db5ab78b845f59a65c4950ce26e6a5b1e2970ede3dc25adf7080e0b66a2a08',
+    'b1c95fe240b61e096fe9ad9e5467daffcfdef84a9c7edb9cfb3d5cf03bd1bbd1',
 });
 
 const ARTIFACT_RELS = Object.freeze({
@@ -771,199 +752,113 @@ function currentHeadSha(root) {
   }
 }
 
-function tipPathAllowed(rel) {
-  const p = String(rel || '');
-  return ALLOWED_TIP_PATH_PREFIXES.some((pref) => (
-    pref.endsWith('/')
-      ? p.startsWith(pref) || p === pref.slice(0, -1)
-      : p === pref
-  ));
+function resolveTipSha(root, tipSha) {
+  const raw = String(tipSha || '').trim();
+  if (!raw || raw === 'HEAD') return currentHeadSha(root);
+  return blobCerts.resolveCommitSha(root, raw);
 }
 
-function unauthorizedTipPaths(paths) {
-  return (paths || []).filter((p) => !tipPathAllowed(p));
-}
-
-function listDiffPaths(root, fromSha, toSha) {
-  try {
-    const out = execSync(`git diff --name-only ${fromSha}..${toSha}`, {
-      cwd: root,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-    if (!out) return [];
-    return out.split('\n').map((s) => s.trim()).filter(Boolean);
-  } catch (_) {
-    return null;
-  }
-}
-
-/**
- * Scope fence for the exact reviewed 1C candidate only. Unrelated commits that
- * landed on master after LANDING_TIP (e.g. #147) need no file allowlist.
- */
-function verifyReviewedCandidateScope(root, opts) {
-  const options = opts || {};
-  const claimCandidate = options.candidate_sha || REVIEWED_CANDIDATE;
-  const errors = [];
-
-  const lockedCandidate = resolveCommitSha(root, REVIEWED_CANDIDATE);
-  if (!lockedCandidate) {
-    errors.push(`missing_ref:locked_reviewed_candidate:${REVIEWED_CANDIDATE}`);
-  }
-
-  const candidateSha = resolveCommitSha(root, claimCandidate);
-  if (!candidateSha) {
-    errors.push(`missing_ref:reviewed_candidate:${claimCandidate}`);
-  }
-
-  if (candidateSha && lockedCandidate && candidateSha !== lockedCandidate) {
-    errors.push(
-      `stale_or_wrong_reviewed_candidate:claimed=${candidateSha}:locked=${lockedCandidate}`,
-    );
-  }
-
-  if (candidateSha) {
-    const basis = resolveCommitSha(root, MASTER_BASIS);
-    if (basis
-      && candidateSha !== basis
-      && !isGitAncestor(root, basis, candidateSha)) {
-      errors.push(`reviewed_candidate_not_descendant_of_master_basis:${candidateSha}`);
-    }
-
-    const paths = listDiffPaths(root, MASTER_BASIS, candidateSha);
-    if (paths === null) {
-      errors.push('candidate_diff_failed');
-      return { ok: false, errors, paths: [], candidateSha };
-    }
-    const bad = unauthorizedTipPaths(paths);
-    if (bad.length > 0) {
-      errors.push(`altered_candidate_scope:${bad.join(',')}`);
-    }
-    return {
-      ok: errors.length === 0,
-      errors,
-      paths,
-      unauthorized: bad,
-      candidateSha,
-    };
-  }
-
-  return { ok: false, errors, paths: [], candidateSha: null };
-}
-
-/**
- * Merged provenance: LANDING_TIP (squash #146) carries the same blobs as
- * REVIEWED_CANDIDATE for every path in the candidate scope.
- */
-function verifyMergedProvenance(root, opts) {
-  const options = opts || {};
-  const claimLanding = options.landing_tip || LANDING_TIP;
-  const claimCandidate = options.candidate_sha || REVIEWED_CANDIDATE;
-  const errors = [];
-
-  const lockedLanding = resolveCommitSha(root, LANDING_TIP);
-  const lockedCandidate = resolveCommitSha(root, REVIEWED_CANDIDATE);
-  if (!lockedLanding) errors.push(`missing_ref:locked_landing_tip:${LANDING_TIP}`);
-  if (!lockedCandidate) {
-    errors.push(`missing_ref:locked_reviewed_candidate:${REVIEWED_CANDIDATE}`);
-  }
-
-  const landingSha = resolveCommitSha(root, claimLanding);
-  if (!landingSha) errors.push(`missing_ref:landing_tip:${claimLanding}`);
-  const candidateSha = resolveCommitSha(root, claimCandidate);
-  if (!candidateSha) errors.push(`missing_ref:reviewed_candidate:${claimCandidate}`);
-
-  if (landingSha && lockedLanding && landingSha !== lockedLanding) {
-    errors.push(
-      `stale_or_wrong_landing_tip:claimed=${landingSha}:locked=${lockedLanding}`,
-    );
-  }
-  if (candidateSha && lockedCandidate && candidateSha !== lockedCandidate) {
-    errors.push(
-      `stale_or_wrong_reviewed_candidate:claimed=${candidateSha}:locked=${lockedCandidate}`,
-    );
-  }
-
-  if (landingSha && candidateSha) {
-    const basis = resolveCommitSha(root, MASTER_BASIS);
-    if (basis
-      && landingSha !== basis
-      && !isGitAncestor(root, basis, landingSha)) {
-      errors.push(`landing_tip_not_descendant_of_master_basis:${landingSha}`);
-    }
-
-    const paths = listDiffPaths(root, MASTER_BASIS, candidateSha);
-    if (paths === null) {
-      errors.push('candidate_diff_failed');
-    } else {
-      for (const rel of paths) {
-        const a = gitBlobSha256AtCommit(root, candidateSha, rel);
-        const b = gitBlobSha256AtCommit(root, landingSha, rel);
-        if (!a.ok || !b.ok || a.sha256 !== b.sha256) {
-          errors.push(`merged_provenance_blob_mismatch:${rel}`);
-        }
-      }
-    }
-  }
-
+function reviewedBlobCertificateConfig() {
   return {
-    ok: errors.length === 0,
-    errors,
-    landingSha,
-    candidateSha,
+    slice_cert_id: 'messi-1a-reviewed',
+    master_basis: MASTER_BASIS,
+    reviewed_candidate: REVIEWED_CANDIDATE,
+    correction_candidate: CORRECTION_CANDIDATE_53C1,
+    correction_cert_id: 'breakglass-53c1abcf',
+    correction_basis: 'ff285598ac2cfec980e8316e772924a9c79a6a7e',
+    redesign_cert_id: 'breakglass-whole-path',
+    redesign_blobs: WHOLE_PATH_REDESIGN_BLOBS,
   };
 }
 
 /**
- * Dirty working-tree / untracked delta only. Does not re-scan
- * MASTER_BASIS..HEAD concurrent files.
+ * Build the locked reviewed-candidate blob certificate chain for this slice.
+ */
+function buildLockedReviewedBlobCertificates(root) {
+  return blobCerts.buildSupersedingCertificateChain(root, reviewedBlobCertificateConfig());
+}
+
+/**
+ * Tip + optional forged chain verification. Branch name is never trusted.
+ */
+function verifyReviewedBlobCertificatesAtTip(root, opts) {
+  const options = opts || {};
+  const built = buildLockedReviewedBlobCertificates(root);
+  if (!built.ok) {
+    return {
+      ok: false,
+      errors: built.errors,
+      certificates: [],
+      tipSha: null,
+      effective: {},
+      source: {},
+    };
+  }
+  const tipSha = resolveTipSha(root, options.tip_sha);
+  if (!tipSha) {
+    return {
+      ok: false,
+      errors: ['missing_ref:tip'],
+      certificates: built.certificates,
+      tipSha: null,
+      effective: {},
+      source: {},
+    };
+  }
+  return blobCerts.verifyReviewedBlobCertificates(root, {
+    certificates: built.certificates,
+    claimed_certificates: options.claimed_certificates,
+    tip_sha: tipSha,
+    branch_name: options.branch_name,
+  });
+}
+
+/**
+ * Tip acceptance: effective certificate blobs match tip tree. Branch never trusted.
+ */
+function tipAcceptsCertificates(root, tipSha, branchName) {
+  const built = buildLockedReviewedBlobCertificates(root);
+  if (!built.ok) return false;
+  const resolved = resolveTipSha(root, tipSha);
+  if (!resolved) return false;
+  return blobCerts.verifyReviewedBlobCertificates(root, {
+    certificates: built.certificates,
+    tip_sha: resolved,
+    branch_name: branchName,
+  }).ok === true;
+}
+
+function makeUnrelatedOrphanCommit(root) {
+  const tree = execSync(`git rev-parse ${MASTER_BASIS}^{tree}`, {
+    cwd: root,
+    encoding: 'utf8',
+  }).trim();
+  return execSync(
+    `git commit-tree ${tree} -m "messi1a-unrelated-orphan-proof"`,
+    { cwd: root, encoding: 'utf8' },
+  ).trim();
+}
+
+/**
+ * @deprecated Use verifyReviewedBlobCertificatesAtTip — retained for hostile RED fixtures.
+ */
+function verifyReviewedCandidateScope(root, opts) {
+  return verifyReviewedBlobCertificatesAtTip(root, opts);
+}
+
+/**
+ * @deprecated Superseded by immutable blob certificates at tip.
+ */
+function verifyMergedProvenance(root, opts) {
+  void opts;
+  return verifyReviewedBlobCertificatesAtTip(root);
+}
+
+/**
+ * @deprecated Superseded by verifyReviewedBlobCertificatesAtTip at HEAD.
  */
 function verifyWorkingTreeDeltaScope(root, opts) {
-  const options = opts || {};
-  const errors = [];
-  let paths = [];
-  try {
-    const out = execSync('git diff --name-only HEAD', {
-      cwd: root,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-    const staged = execSync('git diff --cached --name-only', {
-      cwd: root,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-    paths = [out, staged]
-      .filter(Boolean)
-      .join('\n')
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
-  } catch (_) {
-    errors.push('working_tree_diff_failed');
-  }
-
-  const untracked = options.untracked_paths;
-  let extra = [];
-  if (Array.isArray(untracked)) {
-    extra = untracked;
-  } else {
-    try {
-      extra = execSync('git ls-files --others --exclude-standard', {
-        cwd: root,
-        encoding: 'utf8',
-      }).split('\n').map((s) => s.trim()).filter(Boolean)
-        .filter((p) => !p.startsWith('tmp/'));
-    } catch (_) {
-      errors.push('untracked_list_failed');
-    }
-  }
-
-  const all = [...new Set(paths.concat(extra))];
-  const bad = unauthorizedTipPaths(all);
-  if (bad.length > 0) errors.push(`working_tree_unauthorized:${bad.join(',')}`);
-  return { ok: errors.length === 0, errors, paths: all, unauthorized: bad };
+  return verifyReviewedBlobCertificatesAtTip(root, opts);
 }
 
 /**
@@ -1545,7 +1440,12 @@ const REQUIRED_RED = Object.freeze([
   'unrelated_gate_semantic_drift',
   'concurrent_merge_topology',
   'altered_candidate_scope',
+  'altered_certificate_scope',
   'missing_reviewed_candidate_ref',
+  'reordered_or_superseded_certificates',
+  'multi_squash_unrelated_topology',
+  'changed_protected_blob',
+  'spoofed_locked_branch_name_rejected',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -1561,7 +1461,7 @@ const REQUIRED_GREEN = Object.freeze([
   'messi_not_complete',
   'package_script_registered',
   'reviewed_candidate_scope_authorized',
-  'merged_provenance_matches_reviewed_candidate',
+  'blob_certificates_match_current_tree',
 ]);
 
 deepFreeze(PARENTS);
@@ -1573,7 +1473,6 @@ deepFreeze(ARTIFACT_RELS);
 deepFreeze(FROZEN_MESSI_SCORE);
 deepFreeze(RADAR_FORMAL_SCORE);
 deepFreeze(FORTRESS_MATRIX_VERDICT_COUNTS);
-deepFreeze(ALLOWED_TIP_PATH_PREFIXES);
 deepFreeze(SELF_REF_FORBIDDEN_PREFIXES);
 deepFreeze(REQUIRED_RED);
 deepFreeze(REQUIRED_GREEN);
@@ -1588,6 +1487,8 @@ module.exports = deepFreeze({
   MASTER_BASIS,
   REVIEWED_CANDIDATE,
   LANDING_TIP,
+  CORRECTION_CANDIDATE_53C1,
+  WHOLE_PATH_REDESIGN_BLOBS,
   PROGRESS_CLASS,
   MESSI_CLOSEOUT_WORKSTREAM_CLASS,
   FOUNDATION_1B_MERGE_TIP,
@@ -1604,7 +1505,6 @@ module.exports = deepFreeze({
   PACKAGE_JSON_ALLOWED_SCRIPT_VALUE,
   PACKAGE_JSON_1C_SCRIPT_KEY,
   PACKAGE_JSON_1C_SCRIPT_VALUE,
-  ALLOWED_TIP_PATH_PREFIXES,
   SCOPE_FENCE,
   PARENTS,
   MESSI_GATES,
@@ -1631,9 +1531,12 @@ module.exports = deepFreeze({
   assertCandidateFitsTip,
   gitBlobSha256AtCommit,
   currentHeadSha,
-  tipPathAllowed,
-  unauthorizedTipPaths,
-  listDiffPaths,
+  resolveTipSha,
+  reviewedBlobCertificateConfig,
+  buildLockedReviewedBlobCertificates,
+  verifyReviewedBlobCertificatesAtTip,
+  tipAcceptsCertificates,
+  makeUnrelatedOrphanCommit,
   verifyReviewedCandidateScope,
   verifyMergedProvenance,
   verifyWorkingTreeDeltaScope,

@@ -19,15 +19,16 @@
  * This does NOT defend against require.cache replacement, rewriting this file
  * before load, or other process-level code injection.
  *
- * Post-merge tip scope: bind REVIEWED_CANDIDATE + LANDING_TIP provenance.
- * Never infer 1D scope from MASTER_BASIS..HEAD (concurrent unrelated master
- * commits between basis and squash merge must not require a file allowlist).
+ * Post-merge tip scope: immutable reviewed-candidate blob certificates at HEAD.
+ * Never infer 1D scope from MASTER_BASIS..HEAD path allowlists (concurrent
+ * unrelated master commits after the squash — e.g. #147 — are irrelevant).
  */
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
+const blobCerts = require('./reviewed-candidate-blob-certificates');
 
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -77,8 +78,17 @@ const MASTER_BASIS = '949be24936c3056b19904904f98feccab5caf883';
  * landed between basis and squash merge #148).
  */
 const REVIEWED_CANDIDATE = 'fa2c5d71ad6c662b4c4f60b08ede409064acf2fe';
-/** Squash-merge tip on master for this slice (PR #148). */
+/** Squash-merge tip on master for this slice (PR #148). Historical — not a tip-scope gate. */
 const LANDING_TIP = 'ff285598ac2cfec980e8316e772924a9c79a6a7e';
+/** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
+const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
+/**
+ * path→sha256 for whole-path redesign files (external fixture — not self-hashed
+ * into this lock module). Binds correction accountability after 53c1abcf.
+ */
+const WHOLE_PATH_REDESIGN_BLOBS = blobCerts.loadWholePathRedesignBlobs(
+  path.join(__dirname, '..', '..'),
+);
 const PROGRESS_CLASS = 'finite_fortress_audit_workstream_closeout_only';
 const WORKSTREAM_CLASS = 'finite_fortress_audit_workstream_closeout';
 
@@ -155,31 +165,6 @@ const CONTRACT_REL = 'fixtures/fortress-closeout/contract.json';
 const FINDINGS_REL = 'fixtures/fortress-closeout/findings.md';
 const LOCK_MODULE_REL = 'scripts/lib/messi-slice1d-fortress-closeout.js';
 const VERIFIER_REL = 'scripts/verify-messi-slice1d-fortress-closeout.js';
-
-const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
-  DOC_REL,
-  'fixtures/fortress-closeout/',
-  LOCK_MODULE_REL,
-  VERIFIER_REL,
-  // Tip-scope forward-compat only on MESSI 1A/1B/1C allowlist + FACTORY 1B–1E
-  // allowlists (paths / tip-scope hash rebinds; no ledger semantics from 1D).
-  'docs/MESSI-ACCEPTANCE-LEDGER.md',
-  'fixtures/messi-acceptance/',
-  'scripts/lib/messi-slice1a-acceptance-ledger.js',
-  'scripts/verify-messi-slice1a-acceptance-ledger.js',
-  'docs/FOUNDATION-FINITE-CLOSEOUT.md',
-  'fixtures/foundation-closeout/',
-  'scripts/lib/messi-slice1b-foundation-closeout.js',
-  'scripts/verify-messi-slice1b-foundation-closeout.js',
-  'scripts/lib/factory-slice1b-archetype-templates.js',
-  'scripts/lib/factory-slice1c-dry-run-generator.js',
-  'scripts/lib/factory-slice1d-integration-proof.js',
-  'scripts/lib/factory-slice1e-finite-closeout.js',
-  'scripts/verify-factory-slice1b-archetype-templates.js',
-  'scripts/verify-factory-slice1e-finite-closeout.js',
-  'package.json',
-  'package-lock.json',
-]);
 
 /**
  * Exact tip-blob sha256 for FORTRESS provenance_bound_files at FORTRESS_TIP
@@ -551,6 +536,10 @@ const REQUIRED_RED = Object.freeze([
   'altered_candidate_scope',
   'non_descendant_tip_rejected',
   'missing_reviewed_candidate_ref',
+  'altered_certificate_scope',
+  'reordered_or_superseded_certificates',
+  'multi_squash_unrelated_topology',
+  'changed_protected_blob',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -567,7 +556,7 @@ const REQUIRED_GREEN = Object.freeze([
   'export_object_frozen',
   'master_basis_ancestor_of_head',
   'reviewed_candidate_scope_authorized',
-  'merged_provenance_matches_reviewed_candidate',
+  'blob_certificates_match_current_tree',
 ]);
 
 const VALIDATOR_EXPORT = 'validateCloseout';
@@ -645,17 +634,23 @@ function currentBranch(root) {
 }
 
 /**
- * Tip acceptance is ancestry-only: HEAD (or claimed tip) must contain
- * LANDING_TIP (squash merge #148) as ancestor. Branch name is informational
- * and never trusted — including a tip claiming messi/slice-1d-fortress-closeout.
- * MASTER_BASIS-only descendants (pre-merge / concurrent side tips) are rejected.
+ * Tip acceptance: effective certificate blobs match tip tree. Branch never trusted.
  */
-function tipAccepts1d(tipSha, _branchName, root) {
-  const tip = String(tipSha || '').trim();
-  if (!/^[0-9a-f]{7,40}$/i.test(tip)) return false;
-  const landing = resolveCommitSha(root, LANDING_TIP);
-  if (!landing) return false;
-  return isGitAncestor(root, landing, tip) || tip === landing;
+function tipAcceptsCertificates(root, tipSha, branchName) {
+  const built = buildLockedReviewedBlobCertificates(root);
+  if (!built.ok) return false;
+  const resolved = resolveTipSha(root, tipSha);
+  if (!resolved) return false;
+  return blobCerts.verifyReviewedBlobCertificates(root, {
+    certificates: built.certificates,
+    tip_sha: resolved,
+    branch_name: branchName,
+  }).ok === true;
+}
+
+/** @deprecated Use tipAcceptsCertificates — branch name never trusted. */
+function tipAccepts1d(tipSha, branchName, root) {
+  return tipAcceptsCertificates(root, tipSha, branchName);
 }
 
 function makeSyntheticDescendantOfMaster(root) {
@@ -670,12 +665,15 @@ function makeSyntheticDescendantOfMaster(root) {
 }
 
 function makeSyntheticDescendantOfLanding(root) {
-  const tree = execSync(`git rev-parse ${LANDING_TIP}^{tree}`, {
+  const head = currentHeadSha(root);
+  const tree = execSync(`git rev-parse ${head}^{tree}`, {
     cwd: root,
     encoding: 'utf8',
   }).trim();
+  const landing = resolveCommitSha(root, LANDING_TIP);
+  const parent = landing || LANDING_TIP;
   return execSync(
-    `git commit-tree ${tree} -p ${LANDING_TIP} -m "messi1d-synth-landing-descendant-proof"`,
+    `git commit-tree ${tree} -p ${parent} -m "messi1d-synth-landing-descendant-proof"`,
     { cwd: root, encoding: 'utf8' },
   ).trim();
 }
@@ -691,220 +689,81 @@ function makeUnrelatedOrphanCommit(root) {
   ).trim();
 }
 
-function tipPathAllowed(rel) {
-  const p = String(rel || '');
-  return ALLOWED_TIP_PATH_PREFIXES.some((pref) => (
-    pref.endsWith('/')
-      ? p.startsWith(pref) || p === pref.slice(0, -1)
-      : p === pref
-  ));
+function resolveTipSha(root, tipSha) {
+  const raw = String(tipSha || '').trim();
+  if (!raw || raw === 'HEAD') return currentHeadSha(root);
+  return blobCerts.resolveCommitSha(root, raw);
 }
 
-function unauthorizedTipPaths(paths) {
-  return (paths || []).filter((p) => !tipPathAllowed(p));
-}
-
-/**
- * Paths changed between two commits. Fail-closed: returns null on git error.
- * Uses A..B (merge-base(A,B)..B) so concurrent side history is visible when
- * comparing MASTER_BASIS..LANDING_TIP.
- */
-function listDiffPaths(root, fromSha, toSha) {
-  try {
-    const out = execSync(`git diff --name-only ${fromSha}..${toSha}`, {
-      cwd: root,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-    if (!out) return [];
-    return out.split('\n').map((s) => s.trim()).filter(Boolean);
-  } catch (_) {
-    return null;
-  }
-}
-
-/**
- * Scope fence for the exact reviewed candidate only. Unrelated commits that
- * landed on master between MASTER_BASIS and LANDING_TIP (e.g. #147) are not
- * part of this diff and need no file allowlist.
- */
-function verifyReviewedCandidateScope(root, opts) {
-  const options = opts || {};
-  const claimCandidate = options.candidate_sha || REVIEWED_CANDIDATE;
-  const errors = [];
-
-  const lockedCandidate = resolveCommitSha(root, REVIEWED_CANDIDATE);
-  if (!lockedCandidate) {
-    errors.push(`missing_ref:locked_reviewed_candidate:${REVIEWED_CANDIDATE}`);
-  }
-
-  const candidateSha = resolveCommitSha(root, claimCandidate);
-  if (!candidateSha) {
-    errors.push(`missing_ref:reviewed_candidate:${claimCandidate}`);
-  }
-
-  if (candidateSha && lockedCandidate && candidateSha !== lockedCandidate) {
-    errors.push(
-      `stale_or_wrong_reviewed_candidate:claimed=${candidateSha}:locked=${lockedCandidate}`,
-    );
-  }
-
-  if (candidateSha) {
-    const basis = resolveCommitSha(root, MASTER_BASIS);
-    if (basis
-      && candidateSha !== basis
-      && !isGitAncestor(root, basis, candidateSha)) {
-      errors.push(`reviewed_candidate_not_descendant_of_master_basis:${candidateSha}`);
-    }
-
-    const paths = listDiffPaths(root, MASTER_BASIS, candidateSha);
-    if (paths === null) {
-      errors.push('candidate_diff_failed');
-      return { ok: false, errors, paths: [], candidateSha };
-    }
-    const bad = unauthorizedTipPaths(paths);
-    if (bad.length > 0) {
-      errors.push(`altered_candidate_scope:${bad.join(',')}`);
-    }
-    return {
-      ok: errors.length === 0,
-      errors,
-      paths,
-      unauthorized: bad,
-      candidateSha,
-    };
-  }
-
-  return { ok: false, errors, paths: [], candidateSha: null };
-}
-
-/**
- * Merged provenance: LANDING_TIP (squash #148) carries the same blobs as
- * REVIEWED_CANDIDATE for every path in the candidate scope. Full-tree equality
- * is not required — concurrent #147 may differ outside 1D paths.
- */
-function verifyMergedProvenance(root, opts) {
-  const options = opts || {};
-  const claimLanding = options.landing_tip || LANDING_TIP;
-  const claimCandidate = options.candidate_sha || REVIEWED_CANDIDATE;
-  const errors = [];
-
-  const lockedLanding = resolveCommitSha(root, LANDING_TIP);
-  const lockedCandidate = resolveCommitSha(root, REVIEWED_CANDIDATE);
-  if (!lockedLanding) errors.push(`missing_ref:locked_landing_tip:${LANDING_TIP}`);
-  if (!lockedCandidate) {
-    errors.push(`missing_ref:locked_reviewed_candidate:${REVIEWED_CANDIDATE}`);
-  }
-
-  const landingSha = resolveCommitSha(root, claimLanding);
-  if (!landingSha) errors.push(`missing_ref:landing_tip:${claimLanding}`);
-  const candidateSha = resolveCommitSha(root, claimCandidate);
-  if (!candidateSha) errors.push(`missing_ref:reviewed_candidate:${claimCandidate}`);
-
-  if (landingSha && lockedLanding && landingSha !== lockedLanding) {
-    errors.push(
-      `stale_or_wrong_landing_tip:claimed=${landingSha}:locked=${lockedLanding}`,
-    );
-  }
-  if (candidateSha && lockedCandidate && candidateSha !== lockedCandidate) {
-    errors.push(
-      `stale_or_wrong_reviewed_candidate:claimed=${candidateSha}:locked=${lockedCandidate}`,
-    );
-  }
-
-  if (landingSha && candidateSha) {
-    const basis = resolveCommitSha(root, MASTER_BASIS);
-    if (basis
-      && landingSha !== basis
-      && !isGitAncestor(root, basis, landingSha)) {
-      errors.push(`landing_tip_not_descendant_of_master_basis:${landingSha}`);
-    }
-
-    const paths = listDiffPaths(root, MASTER_BASIS, candidateSha);
-    if (paths === null) {
-      errors.push('candidate_diff_failed');
-    } else {
-      for (const rel of paths) {
-        const a = gitBlobSha256AtCommit(root, candidateSha, rel);
-        const b = gitBlobSha256AtCommit(root, landingSha, rel);
-        if (!a.ok || !b.ok || a.sha256 !== b.sha256) {
-          errors.push(`merged_provenance_blob_mismatch:${rel}`);
-        }
-      }
-    }
-  }
-
+function reviewedBlobCertificateConfig() {
   return {
-    ok: errors.length === 0,
-    errors,
-    landingSha,
-    candidateSha,
+    slice_cert_id: 'messi-1d-reviewed',
+    master_basis: MASTER_BASIS,
+    reviewed_candidate: REVIEWED_CANDIDATE,
+    correction_candidate: CORRECTION_CANDIDATE_53C1,
+    correction_cert_id: 'breakglass-53c1abcf',
+    correction_basis: 'ff285598ac2cfec980e8316e772924a9c79a6a7e',
+    redesign_cert_id: 'breakglass-whole-path',
+    redesign_blobs: WHOLE_PATH_REDESIGN_BLOBS,
   };
 }
 
+function buildLockedReviewedBlobCertificates(root) {
+  return blobCerts.buildSupersedingCertificateChain(root, reviewedBlobCertificateConfig());
+}
+
+function verifyReviewedBlobCertificatesAtTip(root, opts) {
+  const options = opts || {};
+  const built = buildLockedReviewedBlobCertificates(root);
+  if (!built.ok) {
+    return {
+      ok: false,
+      errors: built.errors,
+      certificates: [],
+      tipSha: null,
+      effective: {},
+      source: {},
+    };
+  }
+  const tipSha = resolveTipSha(root, options.tip_sha);
+  if (!tipSha) {
+    return {
+      ok: false,
+      errors: ['missing_ref:tip'],
+      certificates: built.certificates,
+      tipSha: null,
+      effective: {},
+      source: {},
+    };
+  }
+  return blobCerts.verifyReviewedBlobCertificates(root, {
+    certificates: built.certificates,
+    claimed_certificates: options.claimed_certificates,
+    tip_sha: tipSha,
+    branch_name: options.branch_name,
+  });
+}
+
 /**
- * Post-landing delta (break-glass / follow-on commits + working tree + untracked)
- * must stay inside ALLOWED_TIP_PATH_PREFIXES. Does not re-scan pre-merge
- * concurrent files via MASTER_BASIS..HEAD.
+ * @deprecated Use verifyReviewedBlobCertificatesAtTip.
+ */
+function verifyReviewedCandidateScope(root, opts) {
+  return verifyReviewedBlobCertificatesAtTip(root, opts);
+}
+
+/**
+ * @deprecated Superseded by immutable blob certificates at tip.
+ */
+function verifyMergedProvenance(root, opts) {
+  void opts;
+  return verifyReviewedBlobCertificatesAtTip(root);
+}
+
+/**
+ * @deprecated Superseded by verifyReviewedBlobCertificatesAtTip at HEAD.
  */
 function verifyPostLandingDeltaScope(root, opts) {
-  const options = opts || {};
-  const tipSha = options.tip_sha || currentHeadSha(root);
-  const errors = [];
-  const landingSha = resolveCommitSha(root, LANDING_TIP);
-  if (!landingSha) {
-    return {
-      ok: false,
-      errors: [`missing_ref:locked_landing_tip:${LANDING_TIP}`],
-      paths: [],
-    };
-  }
-  const tip = resolveCommitSha(root, tipSha);
-  if (!tip) {
-    return {
-      ok: false,
-      errors: [`missing_ref:tip:${tipSha}`],
-      paths: [],
-    };
-  }
-
-  if (tip !== landingSha && !isGitAncestor(root, landingSha, tip)) {
-    errors.push(`tip_not_descendant_of_landing:${tip}`);
-  }
-
-  let paths = [];
-  try {
-    // Compare landing tip to working tree (committed + unstaged), not base-to-HEAD.
-    const out = execSync(`git diff --name-only ${landingSha}`, {
-      cwd: root,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-    paths = out ? out.split('\n').map((s) => s.trim()).filter(Boolean) : [];
-  } catch (_) {
-    errors.push('post_landing_diff_failed');
-  }
-
-  const untracked = options.untracked_paths;
-  let extra = [];
-  if (Array.isArray(untracked)) {
-    extra = untracked;
-  } else {
-    try {
-      extra = execSync('git ls-files --others --exclude-standard', {
-        cwd: root,
-        encoding: 'utf8',
-      }).split('\n').map((s) => s.trim()).filter(Boolean)
-        .filter((p) => !p.startsWith('tmp/'));
-    } catch (_) {
-      errors.push('untracked_list_failed');
-    }
-  }
-
-  const all = [...new Set(paths.concat(extra))];
-  const bad = unauthorizedTipPaths(all);
-  if (bad.length > 0) errors.push(`post_landing_unauthorized:${bad.join(',')}`);
-  return { ok: errors.length === 0, errors, paths: all, unauthorized: bad };
+  return verifyReviewedBlobCertificatesAtTip(root, opts);
 }
 
 /**
@@ -1402,7 +1261,6 @@ deepFreeze(FORTRESS_15A_MATRIX_BOUND_HASHES);
 deepFreeze(FORTRESS_PROVENANCE_BOUND_FILES);
 deepFreeze(FORTRESS_15A_MATRIX_BOUND_FILES);
 deepFreeze(MUST_NOT_MUTATE);
-deepFreeze(ALLOWED_TIP_PATH_PREFIXES);
 deepFreeze(SCOPE_FENCE);
 deepFreeze(PROVES);
 deepFreeze(DOES_NOT_PROVE);
@@ -1425,6 +1283,8 @@ module.exports = deepFreeze({
   MASTER_BASIS,
   REVIEWED_CANDIDATE,
   LANDING_TIP,
+  CORRECTION_CANDIDATE_53C1,
+  WHOLE_PATH_REDESIGN_BLOBS,
   PROGRESS_CLASS,
   WORKSTREAM_CLASS,
   FORTRESS_TIP,
@@ -1454,7 +1314,6 @@ module.exports = deepFreeze({
   LOCK_MODULE_REL,
   VERIFIER_REL,
   MODULE_REL,
-  ALLOWED_TIP_PATH_PREFIXES,
   FORTRESS_TIP_BOUND_HASHES,
   FORTRESS_15A_MATRIX_BOUND_HASHES,
   FORTRESS_PROVENANCE_BOUND_FILES,
@@ -1480,10 +1339,12 @@ module.exports = deepFreeze({
   gitBlobSha256AtCommit,
   currentHeadSha,
   currentBranch,
+  tipAcceptsCertificates,
   tipAccepts1d,
-  tipPathAllowed,
-  unauthorizedTipPaths,
-  listDiffPaths,
+  resolveTipSha,
+  reviewedBlobCertificateConfig,
+  buildLockedReviewedBlobCertificates,
+  verifyReviewedBlobCertificatesAtTip,
   verifyReviewedCandidateScope,
   verifyMergedProvenance,
   verifyPostLandingDeltaScope,

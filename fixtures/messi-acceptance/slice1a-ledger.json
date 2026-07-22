@@ -165,8 +165,8 @@
     "fixtures/foundation-closeout/finite-closeout.json": "3411701e798e863e7d3d1583963336f0d19fe740823f07280060230a500a9e52",
     "fixtures/foundation-closeout/contract.json": "3e2d2520e4c497b7ec17b76669cc29703b3c1eb7a890125b007dd805a5503e40",
     "fixtures/foundation-closeout/findings.md": "8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439",
-    "scripts/lib/messi-slice1b-foundation-closeout.js": "63c12920a26064d12b95d08105b7185ab8ccbd5853ec5ca56cfa434588108772",
-    "scripts/verify-messi-slice1b-foundation-closeout.js": "31e730bbdcefe0b7434db7bf2a047696aff14c02182fcf9acc423234bb548ce6",
+    "scripts/lib/messi-slice1b-foundation-closeout.js": "36cc71e5f4df9ab1c1e521f748f510b4f9e128a573f0b46faee19b7eb0b5ed7b",
+    "scripts/verify-messi-slice1b-foundation-closeout.js": "24286e64bee0204e0de14b71dd2a1a3b229cba2fb39a0749726ae21d1167e942",
     "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md": "ec8fe4e611d086651842f287610a13495ef34df174e801e0bdc8e35d45bfccf9",
     "fixtures/fortress-tenant-identity/boundary-matrix.json": "7503c290cca697af916edd9d570eb4973a88f0c3dc349042a2392fc220aede1d",
     "fixtures/fortress-tenant-identity/attack-cases.json": "6f73fb951e49d45ed264a1383dc6e65224937da29d91ea6dafd0cd50430fc5bc",
@@ -191,7 +191,7 @@
     "scripts/lib/factory-slice1c-dry-run-generator.js": "c6864be5c9770c8b05915ca8d892a1a4f5768e012afb32a458f4ad6a3f6be879",
     "scripts/lib/factory-slice1d-integration-proof.js": "0db5a8d0aedf9418ef58dc1d842a558059c5c58d5f85a3465d92aeec159da8d8",
     "scripts/lib/factory-slice1e-finite-closeout.js": "7311dcc579608d041e809476671c9110072de5f115186e91ac68b6bfe9520a91",
-    "scripts/verify-factory-slice1e-finite-closeout.js": "76db5ab78b845f59a65c4950ce26e6a5b1e2970ede3dc25adf7080e0b66a2a08"
+    "scripts/verify-factory-slice1e-finite-closeout.js": "b1c95fe240b61e096fe9ad9e5467daffcfdef84a9c7edb9cfb3d5cf03bd1bbd1"
   },
   "tip_scope_forward_compat_rels": [
     "scripts/lib/factory-slice1b-archetype-templates.js",
