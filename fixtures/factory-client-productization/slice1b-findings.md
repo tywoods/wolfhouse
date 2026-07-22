@@ -41,4 +41,4 @@ File-set GREEN enumerates actual archetype directories/JSON files on disk (not l
 
 ## Ledger
 
-1A gate ledger evidence for `G_ARCHETYPE_SURF_HOUSE` and `G_ARCHETYPE_SURF_SCHOOL_SHOP` is `1B_static_disabled_archetype_templates` **only when** the independent 1B validator passes (`completion_requires: verify:factory-slice1b-archetype-templates`). Stages 1A and 1B are marked `complete` under that gate. Generator work remains **1C**.
+1A gate ledger evidence for `G_ARCHETYPE_SURF_HOUSE` and `G_ARCHETYPE_SURF_SCHOOL_SHOP` is `1B_static_disabled_archetype_templates` **only when** the independent 1B validator passes (`completion_requires: verify:factory-slice1b-archetype-templates`). Stages 1A and 1B are marked `complete` under that gate. Generator dry-run work is **1C** (`verify:factory-slice1c-dry-run-generator`).

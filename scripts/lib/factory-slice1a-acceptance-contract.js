@@ -62,8 +62,10 @@ const FINITE_STAGES = Object.freeze([
   Object.freeze({
     id: '1C',
     title: 'Deterministic generator with secret rejection and no live-target copy',
-    status: 'deferred_future_stage',
+    status: 'complete',
     depends_on: '1B',
+    completion_evidence: '1C_deterministic_disabled_dry_run_generator',
+    completion_requires: 'verify:factory-slice1c-dry-run-generator',
   }),
   Object.freeze({
     id: '1D',
@@ -123,7 +125,7 @@ const GATES = Object.freeze([
     requirement:
       'Generated clients must set live_enabled=false, deployment.enabled=false (or equivalent), and channel enabled=false unless an explicit later enablement gate flips them. Generation must be deterministic for identical inputs.',
     proof_stage: '1C+',
-    current_stage_evidence: 'gate_text_freeze_only',
+    current_stage_evidence: '1C_deterministic_disabled_dry_run_generator',
   }),
   Object.freeze({
     id: 'G_SECRET_REJECTION',
@@ -131,7 +133,7 @@ const GATES = Object.freeze([
     requirement:
       'Generator and templates must reject embedding live secret values; only secret:<key> refs and *.secrets.example.json shapes are allowed in committed outputs.',
     proof_stage: '1C+',
-    current_stage_evidence: 'gate_text_freeze_only',
+    current_stage_evidence: '1C_deterministic_disabled_dry_run_generator',
   }),
   Object.freeze({
     id: 'G_NO_LIVE_TARGET_COPYING',
@@ -139,7 +141,7 @@ const GATES = Object.freeze([
     requirement:
       'Generation must not copy production/live Azure resource IDs, phone_number_id values, Stripe live keys, or live hostnames from Wolfhouse/Sunset live targets into a new client.',
     proof_stage: '1C+',
-    current_stage_evidence: 'gate_text_freeze_only',
+    current_stage_evidence: '1C_deterministic_disabled_dry_run_generator',
   }),
   Object.freeze({
     id: 'G_TENANT_LOCATION_ISOLATION',
@@ -396,6 +398,43 @@ function validate1bLedgerClaim(stage1b, gates, slice1bVerifierPassed) {
   return errors;
 }
 
+/**
+ * 1C ledger may claim complete only when the independent 1C verifier passed.
+ * Gates G_DISABLED / G_SECRET / G_NO_LIVE_TARGET must carry matching 1C evidence.
+ */
+function validate1cLedgerClaim(stage1c, gates, slice1cVerifierPassed) {
+  const errors = [];
+  if (!stage1c || stage1c.id !== '1C') {
+    errors.push('1c_stage_missing');
+    return errors;
+  }
+  const evidence = '1C_deterministic_disabled_dry_run_generator';
+  const requires = 'verify:factory-slice1c-dry-run-generator';
+  if (stage1c.status === 'complete') {
+    if (!slice1cVerifierPassed) {
+      errors.push('1c_complete_without_independent_validator');
+    }
+    if (stage1c.completion_evidence !== evidence) {
+      errors.push('1c_complete_evidence_mismatch');
+    }
+    if (stage1c.completion_requires !== requires) {
+      errors.push('1c_complete_requires_mismatch');
+    }
+    const byId = new Map((gates || []).map((g) => [g.id, g]));
+    for (const gateId of [
+      'G_DISABLED_BY_DEFAULT_GENERATION',
+      'G_SECRET_REJECTION',
+      'G_NO_LIVE_TARGET_COPYING',
+    ]) {
+      const g = byId.get(gateId);
+      if (!g || g.current_stage_evidence !== evidence) {
+        errors.push(`1c_gate_evidence_mismatch:${gateId}`);
+      }
+    }
+  }
+  return errors;
+}
+
 deepFreeze(CONTRACT);
 
 module.exports = Object.freeze({
@@ -421,4 +460,5 @@ module.exports = Object.freeze({
   deepEqual,
   validateFactory1aContract,
   validate1bLedgerClaim,
+  validate1cLedgerClaim,
 });

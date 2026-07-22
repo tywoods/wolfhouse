@@ -51,9 +51,9 @@ Adversarial temporary-source REDs prove discovery catches split-string `path.res
 |----|-------------|-----------------|
 | `G_ARCHETYPE_SURF_HOUSE` | 1B+ | **1B complete** — `config/archetypes/surf_house/` static disabled templates (`1B_static_disabled_archetype_templates`) |
 | `G_ARCHETYPE_SURF_SCHOOL_SHOP` | 1B+ | **1B complete** — `config/archetypes/surf_school_shop/` static disabled templates (`1B_static_disabled_archetype_templates`) |
-| `G_DISABLED_BY_DEFAULT_GENERATION` | 1C+ | gate text only (1B templates already `live_enabled=false` / channels off; generator proof deferred) |
-| `G_SECRET_REJECTION` | 1C+ | gate text only |
-| `G_NO_LIVE_TARGET_COPYING` | 1C+ | gate text only |
+| `G_DISABLED_BY_DEFAULT_GENERATION` | 1C+ | **1C complete** — dry-run generator forces enablement off (`1C_deterministic_disabled_dry_run_generator`) |
+| `G_SECRET_REJECTION` | 1C+ | **1C complete** — generator rejects secret-shaped input/output (`1C_deterministic_disabled_dry_run_generator`) |
+| `G_NO_LIVE_TARGET_COPYING` | 1C+ | **1C complete** — generator rejects live-target shaped input/output (`1C_deterministic_disabled_dry_run_generator`) |
 | `G_TENANT_LOCATION_ISOLATION` | 1D+ | existing multiclient verifiers retained |
 | `G_LEGACY_COMPATIBILITY` | 1D+ | legacy verticals mapped in inventory |
 | `G_DRY_RUN_PROOF` | 1E | gate text only |
@@ -80,4 +80,4 @@ Allowed stage IDs: **1A, 1B, 1C, 1D, 1E** only. Extra stages, gate renames, or t
 
 ## Closeout
 
-1A is complete when `npm run verify:factory-slice1a-acceptance-contract` passes and existing multiclient/config regressions remain green. **1B is complete** under this ledger only when the independent validator `npm run verify:factory-slice1b-archetype-templates` passes (`completion_requires`); static disabled archetype templates live at `config/archetypes/{surf_house,surf_school_shop}/`. Productization continues at **1C** (deterministic generator) — no gate/scope drift.
+1A is complete when `npm run verify:factory-slice1a-acceptance-contract` passes and existing multiclient/config regressions remain green. **1B is complete** under this ledger only when the independent validator `npm run verify:factory-slice1b-archetype-templates` passes (`completion_requires`); static disabled archetype templates live at `config/archetypes/{surf_house,surf_school_shop}/`. **1C is complete** only when `npm run verify:factory-slice1c-dry-run-generator` passes (`completion_requires`); dry-run CLI is `scripts/onboard-client.js`. Productization continues at **1D** (tenant/location isolation + legacy-compatibility proofs) — no gate/scope drift.

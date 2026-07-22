@@ -1,0 +1,11 @@
+{
+  "client_slug": "fixture-house",
+  "display_name": "Fixture fixture-house",
+  "live_enabled": false,
+  "locations": [
+    {
+      "display_name": "Fixture fixture-house",
+      "location_id": "fixture-house-main"
+    }
+  ]
+}

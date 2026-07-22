@@ -1,0 +1,347 @@
+{
+  "_meta": {
+    "based_on_schema": "config/clients/wolfhouse-somo.baseline.json",
+    "client_name": "Fixture fixture-house",
+    "client_slug": "fixture-house",
+    "currency": "EUR",
+    "languages": [
+      "en"
+    ],
+    "purpose": "FACTORY 1B static surf_house archetype template derived from Wolfhouse lodging shape. Placeholders only. Not a live client.",
+    "slice": "FACTORY-1C",
+    "status": "dry_run_preview",
+    "timezone": "Europe/Madrid",
+    "version": "1B.0",
+    "vertical": "lodging_surf_house"
+  },
+  "cancellation": {
+    "auto_cancel_allowed_if_unpaid": true,
+    "no_show_policy": "handoff",
+    "paid_cancellation_handoff": true,
+    "refund_mechanism": {
+      "all_refunds_manual_staff": true,
+      "bot_issues_refund_or_voucher": false,
+      "default_remedy": "manual_staff_refund"
+    },
+    "refund_requests_handoff": true
+  },
+  "channels": {
+    "email": {
+      "enabled": false,
+      "reply_style": "structured_sections_allowed"
+    },
+    "whatsapp": {
+      "enabled": false,
+      "max_reply_chars": 900,
+      "reply_style": "short_one_question_per_reply"
+    }
+  },
+  "confirmation": {
+    "address": "1 Example Street",
+    "auto_confirm_after_deposit": false,
+    "confirmation_requires_payment_truth": true,
+    "confirmation_send_mode": "dry_run",
+    "gate_code": "0000",
+    "include_address": true,
+    "include_bed_number": false,
+    "include_checkin_checkout": true,
+    "include_gate_code": true,
+    "include_room_number": true,
+    "maps_link": "https://example.test/maps/fixture"
+  },
+  "customer_memory_privacy": {
+    "layer2_personal_data_to_pg_allowed": false,
+    "raw_whatsapp_exports_in_repo": false
+  },
+  "deployment": {
+    "deploy_target": null,
+    "enabled": false,
+    "staff_api_tenant_scope": "fixture-house",
+    "stripe_context_ref": "secret:stripe_publishable_key",
+    "whatsapp_phone_number_id": null
+  },
+  "features": {
+    "inventory_model": "lodging_rooms_beds",
+    "portal_default_tab": "bed-calendar",
+    "supports_package_nights": true,
+    "supports_rooming": true
+  },
+  "handoff": {
+    "always_handoff": [
+      "refund_request",
+      "complaint_or_angry_guest",
+      "discount_request",
+      "medical_legal_emergency",
+      "low_route_confidence",
+      "llm_parse_error_or_api_failure"
+    ],
+    "handoff_channel": "whatsapp",
+    "handoff_safe_reply": "A teammate will help shortly.",
+    "handoff_whatsapp_target": {
+      "editable": true,
+      "label": "Host",
+      "phone_ref": "secret:handoff_whatsapp_phone"
+    },
+    "tell_guest_before_handoff": true
+  },
+  "live_enabled": false,
+  "llm_safety": {
+    "api_error_behavior": "handoff_or_logged_safe_fallback",
+    "low_confidence_behavior": "handoff",
+    "never_mark_from_llm_alone": [
+      "paid",
+      "confirmed",
+      "cancelled"
+    ],
+    "parsing_uncertainty_behavior": "ask_clarification_not_act"
+  },
+  "operations": {
+    "check_in_time": "16:00",
+    "check_out_time": "11:00",
+    "housekeeping": {
+      "cleaning_buffer_minutes": "60",
+      "cleaning_scope": "standard",
+      "no_next_guest_rule": "buffer_required"
+    }
+  },
+  "packages": {
+    "base_nights": 7,
+    "closed_months": [
+      "november",
+      "december"
+    ],
+    "currency": "EUR",
+    "inclusions": {
+      "full_board": [
+        "bed",
+        "breakfast",
+        "lesson"
+      ],
+      "surf_plus": [
+        "bed",
+        "breakfast"
+      ],
+      "surf_week": [
+        "bed"
+      ]
+    },
+    "known_packages": [
+      "surf_week",
+      "surf_plus",
+      "full_board"
+    ],
+    "non_7_night_pricing": {
+      "addons_billed_separately": true,
+      "method": "prorate_chosen_package_per_night_then_multiply_nights",
+      "per_night_formula": "round_up_to_nearest_5_eur(chosen_package_season_price / base_nights)"
+    },
+    "price_basis": "per_person",
+    "prices_per_person_base_nights_shared": {
+      "high": {
+        "full_board": "10",
+        "surf_plus": "10",
+        "surf_week": "10"
+      },
+      "peak": {
+        "full_board": "10",
+        "surf_plus": "10",
+        "surf_week": "10"
+      },
+      "shoulder": {
+        "full_board": "10",
+        "surf_plus": "10",
+        "surf_week": "10"
+      }
+    },
+    "pricing_status": "unverified_seed",
+    "room_type_pricing": {
+      "double": {
+        "modifier_eur_per_night_per_person": "15"
+      },
+      "shared": {
+        "modifier_eur": 0
+      }
+    },
+    "safe_default": "quote_only_from_config_with_pricing_status_respected_else_handoff",
+    "seasons": {
+      "high": [
+        "june"
+      ],
+      "peak": [
+        "july"
+      ],
+      "shoulder": [
+        "april",
+        "may"
+      ]
+    }
+  },
+  "payment": {
+    "ask_deposit_or_full": true,
+    "balance_payment_methods": [
+      "card",
+      "cash"
+    ],
+    "deposit_rule": {
+      "default_eur": "50",
+      "pricing_status": "unverified_seed",
+      "scope": "per_booking",
+      "tiers": {
+        "custom_or_short_stay": {
+          "_match": "custom-built package OR shorter stay",
+          "amount_eur": "50"
+        },
+        "standard_package": {
+          "_match": "named package at standard terms",
+          "amount_eur": "100"
+        }
+      },
+      "type": "tiered_by_booking_type"
+    },
+    "hold_expiry_minutes": "60",
+    "payment_claim_behavior": "check_stripe_payment_events_not_llm",
+    "payment_link_auto_allowed": false,
+    "payment_link_options": [
+      "deposit",
+      "full"
+    ],
+    "payment_link_requires_email": true,
+    "payment_link_requires_name": true,
+    "safe_default": "do_not_send_payment_link_while_template_disabled"
+  },
+  "persona": {
+    "assistant_name": "Luna",
+    "brand_name": "Brand fixture-house",
+    "emoji_level": "low",
+    "no_ai_mention": true,
+    "one_clear_next_step": true,
+    "role": "front_desk",
+    "voice_summary": "warm_concise"
+  },
+  "pricing_policy": {
+    "currency": "EUR",
+    "global_pricing_status": "unverified_seed",
+    "live_autonomous_charge_requires": "pricing_status_confirmed",
+    "on_provisional_in_live": "handoff_or_block_do_not_autocharge",
+    "rounding_rule_addons": "round_up_to_nearest_1_eur",
+    "rounding_rule_packages": "prorate_per_night_then_round_up_to_nearest_5_eur"
+  },
+  "rooming": {
+    "manual_assignment_lock": true,
+    "never_move_staff_assignments": true,
+    "rooming_auto_assign_allowed": false,
+    "rooming_uses_rooms_table": true,
+    "rooms": {
+      "room-a": {
+        "capacity": "4",
+        "guest_assignable": true,
+        "type": "shared"
+      },
+      "room-b": {
+        "capacity": "2",
+        "guest_assignable": true,
+        "type": "double"
+      }
+    }
+  },
+  "secrets": {
+    "_note": "Real credentials must never be committed. Generator (1C+) may only emit secret:<key> refs plus a secrets.example file.",
+    "example_file": "config/archetypes/surf_house/secrets.example.template.json",
+    "keys": [
+      "handoff_whatsapp_phone",
+      "master_admin_numbers",
+      "staff_admin_password",
+      "stripe_publishable_key",
+      "stripe_secret_key",
+      "stripe_webhook_secret"
+    ],
+    "secret_file": "config/clients/fixture-house.secrets.json"
+  },
+  "service_addons": {
+    "bundles": {
+      "wetsuit_board_combo": {
+        "includes": [
+          "wetsuit_rental",
+          "board_rental"
+        ],
+        "price_eur": "10",
+        "pricing_status": "unverified_seed",
+        "pricing_unit": "per_day"
+      }
+    },
+    "during_stay_requests_enabled": false,
+    "lesson_scheduling": {
+      "bot_assigns_slot": false,
+      "bot_collects_request_then_staff_schedule": true,
+      "daily_slots": [
+        {
+          "group": 1,
+          "lesson_window": "09:30-11:00",
+          "transport_time": "09:00"
+        },
+        {
+          "group": 2,
+          "lesson_window": "12:00-13:30",
+          "transport_time": "11:30"
+        }
+      ],
+      "enabled": false,
+      "tracking": "manual_by_staff"
+    },
+    "service_catalog": {
+      "board_rental": {
+        "fulfillment": "onsite_redeem",
+        "price_eur": "10",
+        "pricing_status": "unverified_seed",
+        "pricing_unit": "per_day"
+      },
+      "surf_lesson": {
+        "fulfillment": "onsite_redeem",
+        "pricing_model": "tiered_by_quantity",
+        "pricing_status": "unverified_seed",
+        "pricing_unit": "per_lesson",
+        "tiers": [
+          {
+            "max_qty": 1,
+            "min_qty": 1,
+            "price_eur": "10"
+          },
+          {
+            "max_qty": null,
+            "min_qty": 2,
+            "price_eur_each": "10"
+          }
+        ]
+      },
+      "wetsuit_rental": {
+        "fulfillment": "onsite_redeem",
+        "price_eur": "10",
+        "pricing_status": "unverified_seed",
+        "pricing_unit": "per_day"
+      }
+    }
+  },
+  "staff_directory": {
+    "approved_numbers": [],
+    "default_for_unknown_number": "treat_as_guest_no_staff_privileges",
+    "master_admin": {
+      "default_permissions": {
+        "can_manage_staff": true,
+        "can_query": true,
+        "can_reply_handoff": true
+      },
+      "numbers_ref": "secret:master_admin_numbers"
+    }
+  },
+  "staff_queries": {
+    "read_only": true,
+    "safe_intents": [
+      "arrivals_on_date",
+      "departures_on_date",
+      "room_occupancy_on_date",
+      "free_beds_on_range",
+      "balance_outstanding"
+    ],
+    "staff_channel_only": true
+  }
+}

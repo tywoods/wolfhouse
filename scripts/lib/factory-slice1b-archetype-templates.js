@@ -296,8 +296,11 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'fixtures/factory-client-productization/',
   'scripts/lib/factory-slice1a-acceptance-contract.js',
   'scripts/lib/factory-slice1b-archetype-templates.js',
+  'scripts/lib/factory-slice1c-dry-run-generator.js',
   'scripts/verify-factory-slice1a-acceptance-contract.js',
   'scripts/verify-factory-slice1b-archetype-templates.js',
+  'scripts/verify-factory-slice1c-dry-run-generator.js',
+  'scripts/onboard-client.js',
   'package.json',
   'package-lock.json',
 ]);

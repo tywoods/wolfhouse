@@ -43,8 +43,10 @@
     {
       "id": "1C",
       "title": "Deterministic generator with secret rejection and no live-target copy",
-      "status": "deferred_future_stage",
-      "depends_on": "1B"
+      "status": "complete",
+      "depends_on": "1B",
+      "completion_evidence": "1C_deterministic_disabled_dry_run_generator",
+      "completion_requires": "verify:factory-slice1c-dry-run-generator"
     },
     {
       "id": "1D",
@@ -104,21 +106,21 @@
       "title": "Deterministic disabled-by-default generation",
       "requirement": "Generated clients must set live_enabled=false, deployment.enabled=false (or equivalent), and channel enabled=false unless an explicit later enablement gate flips them. Generation must be deterministic for identical inputs.",
       "proof_stage": "1C+",
-      "current_stage_evidence": "gate_text_freeze_only"
+      "current_stage_evidence": "1C_deterministic_disabled_dry_run_generator"
     },
     {
       "id": "G_SECRET_REJECTION",
       "title": "Secret rejection",
       "requirement": "Generator and templates must reject embedding live secret values; only secret:<key> refs and *.secrets.example.json shapes are allowed in committed outputs.",
       "proof_stage": "1C+",
-      "current_stage_evidence": "gate_text_freeze_only"
+      "current_stage_evidence": "1C_deterministic_disabled_dry_run_generator"
     },
     {
       "id": "G_NO_LIVE_TARGET_COPYING",
       "title": "No live-target copying",
       "requirement": "Generation must not copy production/live Azure resource IDs, phone_number_id values, Stripe live keys, or live hostnames from Wolfhouse/Sunset live targets into a new client.",
       "proof_stage": "1C+",
-      "current_stage_evidence": "gate_text_freeze_only"
+      "current_stage_evidence": "1C_deterministic_disabled_dry_run_generator"
     },
     {
       "id": "G_TENANT_LOCATION_ISOLATION",

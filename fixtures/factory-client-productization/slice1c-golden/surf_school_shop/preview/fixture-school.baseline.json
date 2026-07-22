@@ -1,0 +1,327 @@
+{
+  "_meta": {
+    "based_on_schema": "config/clients/sunset.baseline.json",
+    "client_name": "Fixture fixture-school",
+    "client_slug": "fixture-school",
+    "currency": "EUR",
+    "languages": [
+      "en",
+      "es"
+    ],
+    "purpose": "FACTORY 1B static surf_school_shop archetype template derived from Sunset multi-location school+shop shape. Placeholders only. Not a live client.",
+    "slice": "FACTORY-1C",
+    "status": "dry_run_preview",
+    "tenant_id": "fixture-school",
+    "timezone": "Europe/Madrid",
+    "version": "1B.0",
+    "vertical": "surf_school_rentals"
+  },
+  "cancellation": {
+    "auto_cancel_allowed_if_unpaid": true,
+    "bad_weather_or_no_waves_policy": "reschedule_or_credit",
+    "no_show_policy": "handoff",
+    "paid_cancellation_handoff": true,
+    "refund_mechanism": {
+      "all_refunds_manual_staff": true,
+      "bot_issues_refund_or_voucher": false,
+      "default_remedy": "manual_staff_refund"
+    },
+    "refund_policy": "manual",
+    "refund_requests_handoff": true
+  },
+  "catalog": {
+    "accommodation": {
+      "availability_source": "staff_api_or_partner_confirmation",
+      "inventory_model": "partner_confirmed",
+      "inventory_owner": "partner_hotel",
+      "offerings": {
+        "stay_pack": {
+          "includes": [
+            "breakfast",
+            "transfer"
+          ],
+          "inventory_model": "partner_confirmed",
+          "label": "Stay pack",
+          "pricing_status": "unverified_seed"
+        }
+      },
+      "price_basis": "per_package_quote",
+      "pricing_status": "unverified_seed",
+      "safe_default": "never_confirm_accommodation_without_partner_or_staff_api_confirmation"
+    },
+    "lessons": {
+      "capacity_check_source": "staff_api_slot_capacity",
+      "fallback_if_no_capacity_data": "collect_request_then_staff_schedule",
+      "inventory_model": "capacity_limited",
+      "materials_included": true,
+      "offerings": {
+        "group_adult": {
+          "inventory_model": "capacity_limited",
+          "label": "Group adult",
+          "price_basis": "per_seat_per_session",
+          "prices_eur": {
+            "pack_per_surfer": "10",
+            "single_lesson": "10"
+          },
+          "pricing_status": "unverified_seed"
+        },
+        "kids": {
+          "inventory_model": "capacity_limited",
+          "label": "Kids",
+          "price_basis": "per_seat_per_session",
+          "prices_eur": {
+            "single_lesson": "10"
+          },
+          "pricing_status": "unverified_seed"
+        },
+        "private": {
+          "inventory_model": "capacity_limited",
+          "label": "Private",
+          "price_basis": "per_session",
+          "prices_eur": {
+            "per_session": "10"
+          },
+          "pricing_status": "unverified_seed"
+        }
+      },
+      "price_basis": "per_seat_per_session",
+      "safe_default": "no_lesson_seat_without_capacity_check_or_staff_schedule_confirmation",
+      "scheduling": {
+        "arrive_before_class_minutes": "15",
+        "bot_assigns_slot": false,
+        "bot_collects_request_then_staff_schedule": true,
+        "common_slot_times": [
+          "09:00",
+          "11:00"
+        ]
+      }
+    },
+    "offering_type": "multi",
+    "price_quote_safe_default": "no_price_quote_without_pricing_status_confirmed_config_row",
+    "rentals": {
+      "inventory_model": "unlimited",
+      "offerings": {
+        "board": {
+          "inventory_model": "unlimited",
+          "label": "Board",
+          "prices_eur": {
+            "2h": "10",
+            "full_day": "10",
+            "half_day": "10"
+          },
+          "pricing_status": "unverified_seed"
+        },
+        "bundle": {
+          "inventory_model": "unlimited",
+          "label": "Bundle",
+          "prices_eur": {
+            "2h": "10",
+            "full_day": "10",
+            "half_day": "10"
+          },
+          "pricing_status": "unverified_seed"
+        },
+        "wetsuit": {
+          "inventory_model": "unlimited",
+          "label": "Wetsuit",
+          "prices_eur": {
+            "2h": "10",
+            "full_day": "10",
+            "half_day": "10"
+          },
+          "pricing_status": "unverified_seed"
+        }
+      },
+      "price_basis": "per_item_per_window",
+      "safe_default": "no_price_quote_without_confirmed_config_row_no_availability_check_for_unlimited_mvp",
+      "windows": [
+        "2h",
+        "half_day",
+        "full_day"
+      ]
+    }
+  },
+  "channels": {
+    "email": {
+      "enabled": false,
+      "reply_style": "structured_sections_allowed",
+      "status": "planned"
+    },
+    "whatsapp": {
+      "enabled": false,
+      "max_reply_chars": 900,
+      "reply_style": "short_one_question_per_reply",
+      "status": "template"
+    }
+  },
+  "confirmation": {
+    "confirmation_requires_payment_truth": true,
+    "confirmation_send_mode": "dry_run",
+    "include_arrive_before_minutes": "15",
+    "include_meeting_point": true,
+    "include_service_details": true,
+    "safe_default": "keep_dry_run_until_real_send_gate_is_proven"
+  },
+  "customer_memory_privacy": "engine_default_blocked_until_privacy_gate",
+  "deployment": {
+    "deploy_target": null,
+    "email_inbox": null,
+    "enabled": false,
+    "staff_api_tenant_scope": "fixture-school",
+    "stripe_context_ref": "secret:stripe_publishable_key",
+    "whatsapp_phone_number_id": null
+  },
+  "features": {
+    "inventory_model": "lessons_capacity_plus_rentals_unlimited",
+    "portal_default_tab": "portal-home",
+    "supports_lessons": true,
+    "supports_multi_location": true,
+    "supports_rentals": true
+  },
+  "handoff": {
+    "always_handoff": [
+      "refund_request",
+      "complaint_or_angry_guest",
+      "discount_request",
+      "large_group_beyond_configured_limit",
+      "minor_without_guardian_consent",
+      "guest_claims_paid_but_no_payment_record",
+      "paid_booking_cancellation",
+      "accommodation_availability_unconfirmed",
+      "medical_legal_emergency",
+      "low_route_confidence",
+      "llm_parse_error_or_api_failure"
+    ],
+    "handoff_channel": "whatsapp",
+    "handoff_safe_reply": "A teammate will help shortly.",
+    "handoff_whatsapp_target": {
+      "editable": true,
+      "label": "Host",
+      "phone_ref": "secret:handoff_whatsapp_phone"
+    },
+    "tell_guest_before_handoff": true
+  },
+  "live_enabled": false,
+  "llm_safety": {
+    "api_error_behavior": "handoff_or_logged_safe_fallback",
+    "low_confidence_behavior": "handoff",
+    "multilingual_test_required": [
+      "en",
+      "es"
+    ],
+    "never_mark_from_llm_alone": [
+      "paid",
+      "confirmed",
+      "cancelled"
+    ],
+    "parsing_uncertainty_behavior": "ask_clarification_not_act"
+  },
+  "locations": [
+    {
+      "display_name": "fixture-school A",
+      "location_id": "fixture-school-a"
+    },
+    {
+      "display_name": "fixture-school B",
+      "location_id": "fixture-school-b"
+    }
+  ],
+  "payment": {
+    "balance_payment_methods": [
+      "card"
+    ],
+    "deposit_rule": {
+      "default_eur": "50",
+      "pricing_status": "unverified_seed",
+      "scope": "per_booking",
+      "type": "fixed"
+    },
+    "hold_expiry_minutes": "60",
+    "payment_claim_behavior": "check_stripe_payment_events_not_llm",
+    "payment_link_auto_allowed": false,
+    "payment_link_options": [
+      "full"
+    ],
+    "payment_link_requires_email": true,
+    "payment_link_requires_name": true,
+    "safe_default": "do_not_send_payment_link_while_template_disabled"
+  },
+  "persona": {
+    "assistant_name": "Luna",
+    "brand_name": "Brand fixture-school",
+    "emoji_level": "low",
+    "no_ai_mention": true,
+    "one_clear_next_step": true,
+    "role": "front_desk",
+    "voice_summary": "warm_concise"
+  },
+  "portal_demo": {
+    "client_slug": "fixture-school",
+    "demo_mode": false,
+    "inbox_threads": [],
+    "lesson_slots": [],
+    "tenant_id": "fixture-school"
+  },
+  "pricing_policy": {
+    "currency": "EUR",
+    "live_autonomous_charge_requires": "pricing_status_confirmed",
+    "on_provisional_in_live": "handoff_or_block_do_not_autocharge",
+    "on_unverified_seed_in_live": "block_do_not_quote",
+    "payment_claim_behavior": "check_stripe_payment_events_not_llm",
+    "rounding_rule_addons": "round_up_to_nearest_1_eur"
+  },
+  "safety_rules": {
+    "confirmation_requires_payment_truth": true,
+    "minor_guardian_consent_required_before_booking": true,
+    "no_invented_availability": true,
+    "no_invented_payment_links": true,
+    "no_invented_prices": true
+  },
+  "secrets": {
+    "_note": "Real credentials must never be committed. Generator (1C+) may only emit secret:<key> refs plus a secrets.example file.",
+    "example_file": "config/archetypes/surf_school_shop/secrets.example.template.json",
+    "keys": [
+      "handoff_whatsapp_phone",
+      "handoff_email_address",
+      "master_admin_numbers",
+      "staff_admin_password",
+      "stripe_publishable_key",
+      "stripe_secret_key",
+      "stripe_webhook_secret"
+    ],
+    "secret_file": "config/clients/fixture-school.secrets.json"
+  },
+  "service_addons": {
+    "lesson_scheduling": {
+      "bot_assigns_slot": false,
+      "bot_checks_slot_availability": true,
+      "bot_collects_request_then_staff_schedule": false,
+      "daily_slots": [],
+      "enabled": false,
+      "inventory_model": "capacity_limited",
+      "tracking": "staff_api_slots"
+    }
+  },
+  "staff_directory": {
+    "approved_numbers": [],
+    "default_for_unknown_number": "treat_as_guest_no_staff_privileges",
+    "master_admin": {
+      "default_permissions": {
+        "can_manage_staff": true,
+        "can_query": true,
+        "can_reply_handoff": true
+      },
+      "numbers_ref": "secret:master_admin_numbers"
+    }
+  },
+  "staff_queries": {
+    "read_only": true,
+    "safe_intents": [
+      "bookings_on_date",
+      "lessons_on_date",
+      "rentals_active_on_date",
+      "balance_outstanding"
+    ],
+    "staff_channel_only": true
+  }
+}
