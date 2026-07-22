@@ -1,12 +1,13 @@
 'use strict';
 
 /**
- * verify:messi-slice1a-acceptance-ledger — MESSI acceptance ledger (1A + 1C wiring)
+ * verify:messi-slice1a-acceptance-ledger — MESSI acceptance ledger (1A + 1E wiring)
  *
  * Read-only deterministic acceptance ledger verifier. Canonical classifier +
  * parent bindings live in scripts/lib/messi-slice1a-acceptance-ledger.js.
- * Slice 1C wires FOUNDATION 1B finite closeout into the ledger. Runs retained
- * offline parent gates only — no deploy/DB/cloud/network/live product mutation.
+ * Slice 1E wires FORTRESS 1D finite audit closeout into the ledger. Runs
+ * retained offline parent gates only — no deploy/DB/cloud/network/live product
+ * mutation.
  *
  * Exit 0 on pass, nonzero on failure.
  */
@@ -64,7 +65,7 @@ function noTrailingWhitespace(text) {
   return !String(text).split('\n').some((line) => /[ \t]+$/.test(line));
 }
 
-console.log('verify:messi-slice1a-acceptance-ledger — MESSI ledger (1C FOUNDATION wiring)\n');
+console.log('verify:messi-slice1a-acceptance-ledger — MESSI ledger (1E FORTRESS wiring)\n');
 
 // ── Artifacts ───────────────────────────────────────────────────────────────
 console.log('── Artifacts ──');
@@ -82,7 +83,7 @@ const doc = readText(locks.ARTIFACT_RELS.doc);
 const lockSrc = readText(locks.ARTIFACT_RELS.lock_module);
 const verifierSrc = readText(locks.ARTIFACT_RELS.verifier);
 
-ok('contract slice MESSI-1C', contract.slice === locks.SLICE && locks.SLICE === 'MESSI-1C');
+ok('contract slice MESSI-1E', contract.slice === locks.SLICE && locks.SLICE === 'MESSI-1E');
 ok('contract outcome', contract.outcome_id === locks.OUTCOME_ID);
 ok('contract master basis', contract.master_basis === locks.MASTER_BASIS);
 ok('contract messi_complete false', contract.messi_complete === false);
@@ -95,15 +96,27 @@ ok('doc defines MESSI above four parents',
 ok('findings forbid label completion',
   /never.*marked complete from labels/i.test(findings));
 ok('doc/findings distinguish finite vs production',
-  /Finite staging\/offline closeouts are \*\*not\*\* production readiness/i.test(findings)
+  /Finite staging\/offline\/audit closeouts are \*\*not\*\* production readiness/i.test(findings)
+  || /Finite staging\/offline closeouts are \*\*not\*\* production readiness/i.test(findings)
   || /distinguish.*finite.*production/i.test(doc));
 ok('findings have no trailing whitespace', noTrailingWhitespace(findings));
 ok('doc has no trailing whitespace', noTrailingWhitespace(doc));
 ok('1B merge/candidate bound',
-  locks.FOUNDATION_1B_MERGE_TIP === locks.MASTER_BASIS
+  locks.FOUNDATION_1B_MERGE_TIP === '98202775a57e64597e0e606a6e58933bb8ba7250'
   && locks.PARENTS.FOUNDATION.canonical_tip === locks.FOUNDATION_1B_MERGE_TIP
   && locks.PARENTS.FOUNDATION.candidate_sha === locks.FOUNDATION_1B_CANDIDATE_SHA
   && locks.sameGitTree(ROOT, locks.FOUNDATION_1B_CANDIDATE_SHA, locks.FOUNDATION_1B_MERGE_TIP));
+ok('1D candidate/merge bound',
+  locks.FORTRESS_1D_CANDIDATE_SHA === 'fa2c5d71ad6c662b4c4f60b08ede409064acf2fe'
+  && locks.FORTRESS_1D_MERGE_TIP === 'ff285598ac2cfec980e8316e772924a9c79a6a7e'
+  && locks.PARENTS.FORTRESS.canonical_tip === locks.FORTRESS_1D_MERGE_TIP
+  && locks.PARENTS.FORTRESS.candidate_sha === locks.FORTRESS_1D_CANDIDATE_SHA
+  && locks.assertCandidateFitsTip(
+    ROOT,
+    locks.FORTRESS_1D_CANDIDATE_SHA,
+    locks.FORTRESS_1D_MERGE_TIP,
+    locks.PARENTS.FORTRESS.provenance_bound_files,
+  ).ok);
 
 // ── Package script ──────────────────────────────────────────────────────────
 console.log('\n── Package script ──');
@@ -115,7 +128,9 @@ console.log('\n── Package script ──');
       && pkg.scripts[locks.PACKAGE_JSON_ALLOWED_SCRIPT_KEY]
       === locks.PACKAGE_JSON_ALLOWED_SCRIPT_VALUE
       && pkg.scripts[locks.PACKAGE_JSON_1C_SCRIPT_KEY]
-      === locks.PACKAGE_JSON_1C_SCRIPT_VALUE,
+      === locks.PACKAGE_JSON_1C_SCRIPT_VALUE
+      && pkg.scripts[locks.PACKAGE_JSON_1E_SCRIPT_KEY]
+      === locks.PACKAGE_JSON_1E_SCRIPT_VALUE,
   );
 }
 
@@ -138,7 +153,12 @@ console.log('\n── Parent inventory ──');
     ok(`${id} candidate_sha bound`, /^[0-9a-f]{40}$/.test(p.candidate_sha));
     const ancestor = locks.assertShaAncestor(ROOT, p.canonical_tip, locks.MASTER_BASIS);
     ok(`${id} canonical_tip is ancestor of MESSI base`, ancestor.ok, ancestor.detail);
-    const candFit = locks.assertCandidateFitsTip(ROOT, p.candidate_sha, p.canonical_tip);
+    const candFit = locks.assertCandidateFitsTip(
+      ROOT,
+      p.candidate_sha,
+      p.canonical_tip,
+      p.provenance_bound_files,
+    );
     ok(`${id} candidate_sha fits canonical_tip`, candFit.ok, candFit.detail);
   }
   green('parent_inventory_bound', true);
@@ -187,6 +207,8 @@ green('finite_vs_production_distinguished',
   Object.values(locks.PARENTS).every((p) => p.production_readiness === 'absent')
   && locks.PARENTS.FOUNDATION.workstream_class
     === 'finite_staging_schema_migration_recovery_closeout'
+  && locks.PARENTS.FORTRESS.workstream_class
+    === 'finite_fortress_audit_workstream_closeout'
   && locks.PARENTS.RADAR.workstream_class === 'finite_milestone_closeout_staging_readiness_only'
   && locks.PARENTS.FACTORY.workstream_class === 'finite_offline_dry_run_packaging_closeout');
 
@@ -239,6 +261,26 @@ green('foundation_finite_staging_exposed', (() => {
     && ledgerG.finite_staging_workstream_complete === true
     && ledgerG.verdict === 'partial';
 })());
+green('fortress_finite_audit_exposed', (() => {
+  const g = classification.gates.find((x) => x.id === 'G_FORTRESS_PARENT');
+  const ledgerG = (ledger.gates || []).find((x) => x.id === 'G_FORTRESS_PARENT');
+  return g
+    && g.verdict === 'partial'
+    && g.finite_audit_workstream_complete === true
+    && g.finite_closeout_analog === 'verify:messi-slice1d-fortress-closeout'
+    && g.workstream_class === 'finite_fortress_audit_workstream_closeout'
+    && Array.isArray(g.missing_proof)
+    && g.missing_proof.includes('matrix_unproven_cleared_to_proven_fail_closed')
+    && g.missing_proof.includes('matrix_vulnerable_remediated')
+    && g.missing_proof.includes('15L_live_kv_secret_creation_and_staff_api_deploy_activation')
+    && g.missing_proof.includes('production_tenant_boundary_proof')
+    && g.missing_proof.includes('security_drills')
+    && g.missing_proof.includes('operated_readiness')
+    && ledgerG
+    && ledgerG.finite_audit_workstream_complete === true
+    && ledgerG.verdict === 'partial'
+    && !Object.prototype.hasOwnProperty.call(g, 'finite_staging_workstream_complete');
+})());
 green('unrelated_gates_byte_identical_to_base', (() => {
   const ledgerMatch = locks.unrelatedGatesMatchBase(ledger.gates || []);
   const classMatch = locks.unrelatedGatesMatchBase(classification.gates);
@@ -249,9 +291,11 @@ green('unrelated_gates_byte_identical_to_base', (() => {
     && locks.BASE_UNRELATED_GATE_OBJECTS.every((exp) => {
       const got = (ledger.gates || []).find((x) => x.id === exp.id);
       return got
-        && !Object.prototype.hasOwnProperty.call(got, 'finite_staging_workstream_complete')
+        && !Object.prototype.hasOwnProperty.call(got, 'finite_audit_workstream_complete')
         && locks.deepEqual(locks.ledgerGateObject(got), locks.deepClone(exp));
     })
+    && (ledger.gates || []).find((x) => x.id === 'G_FOUNDATION_PARENT')
+      ?.finite_staging_workstream_complete === true
     && (ledger.gates || []).find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT')
       ?.workstream_class === locks.MESSI_CLOSEOUT_WORKSTREAM_CLASS
     && (ledger.gates || []).find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT')
@@ -292,15 +336,14 @@ console.log('\n── Recursion fence ──');
 {
   const parentVerifiers = [
     'scripts/verify-messi-slice1b-foundation-closeout.js',
-    'scripts/verify-fortress-tenant-identity-boundary-matrix.js',
-    'scripts/verify-fortress-slice15l-meta-signature-fail-closed.js',
+    'scripts/verify-messi-slice1d-fortress-closeout.js',
     'scripts/verify-radar-slice16ap-finite-closeout.js',
     'scripts/verify-factory-slice1e-finite-closeout.js',
   ];
   for (const rel of parentVerifiers) {
     const src = readText(rel);
     ok(`${rel} does not spawn MESSI ledger verifier`,
-      !/verify-messi-slice1a-acceptance-ledger\.js|verify:messi-slice1c-foundation-wiring/.test(src));
+      !/verify-messi-slice1a-acceptance-ledger\.js|verify:messi-slice1c-foundation-wiring|verify:messi-slice1e-fortress-wiring/.test(src));
   }
 }
 
@@ -587,12 +630,12 @@ red('self_authored_score_change', (() => {
 })());
 
 red('unrelated_gate_semantic_drift', (() => {
-  // Leak finite_staging onto FORTRESS — must fail closed.
+  // Leak finite_audit onto FOUNDATION (unrelated) — must fail closed.
   const leak = locks.thaw(ledger);
-  const fg = leak.gates.find((x) => x.id === 'G_FORTRESS_PARENT');
-  fg.finite_staging_workstream_complete = false;
+  const fg = leak.gates.find((x) => x.id === 'G_FOUNDATION_PARENT');
+  fg.finite_audit_workstream_complete = false;
   const vLeak = locks.validateLedgerFixture(leak, classification);
-  // Mutate G_MESSI_MILESTONE_CLOSEOUT.workstream_class away from base 98202775.
+  // Mutate G_MESSI_MILESTONE_CLOSEOUT.workstream_class away from base.
   const drift = locks.thaw(ledger);
   const cg = drift.gates.find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT');
   cg.workstream_class = locks.PROGRESS_CLASS;
@@ -601,10 +644,110 @@ red('unrelated_gate_semantic_drift', (() => {
   const live = locks.unrelatedGatesMatchBase(ledger.gates || []);
   return live.ok === true
     && vLeak.ok === false
-    && vLeak.errors.some((e) => e === 'finite_staging_on_unrelated_gate:G_FORTRESS_PARENT'
-      || e === 'unrelated_gate_drift:G_FORTRESS_PARENT')
+    && vLeak.errors.some((e) => e === 'finite_audit_on_unrelated_gate:G_FOUNDATION_PARENT'
+      || e === 'unrelated_gate_drift:G_FOUNDATION_PARENT')
     && vDrift.ok === false
     && vDrift.errors.includes('unrelated_gate_drift:G_MESSI_MILESTONE_CLOSEOUT');
+})());
+
+red('unrelated_gate_identity', (() => {
+  // Exact byte-identity of all five unrelated gate objects vs locked base.
+  const live = locks.unrelatedGatesMatchBase(ledger.gates || []);
+  const classified = locks.unrelatedGatesMatchBase(classification.gates);
+  const forged = locks.thaw(ledger);
+  const radar = forged.gates.find((x) => x.id === 'G_RADAR_PARENT');
+  radar.missing_proof = [...radar.missing_proof, 'hostile_extra_gap'];
+  const v = locks.validateLedgerFixture(forged, classification);
+  return live.ok === true
+    && classified.ok === true
+    && locks.UNRELATED_GATE_IDS.length === 5
+    && locks.deepEqual([...locks.UNRELATED_GATE_IDS].sort(), [
+      'G_CROSS_PARENT_INTEGRATION',
+      'G_FACTORY_PARENT',
+      'G_FOUNDATION_PARENT',
+      'G_MESSI_MILESTONE_CLOSEOUT',
+      'G_RADAR_PARENT',
+    ])
+    && v.ok === false
+    && v.errors.includes('unrelated_gate_drift:G_RADAR_PARENT');
+})());
+
+red('finite_as_security_overclaim', (() => {
+  // Finite audit complete must never imply FORTRESS parent complete /
+  // production_ready / emptied security missing proofs.
+  const badLedger = locks.thaw(ledger);
+  const g = badLedger.gates.find((x) => x.id === 'G_FORTRESS_PARENT');
+  g.verdict = 'complete';
+  g.finite_audit_workstream_complete = true;
+  g.production_readiness = 'proven';
+  g.missing_proof = [];
+  badLedger.production_ready = true;
+  badLedger.score = { proven: 1, partial: 3, absent: 2, total: 6 };
+  const v = locks.validateLedgerFixture(badLedger, classification);
+  const forged = locks.classifyMessiGates({
+    hashBindingOk: true,
+    gateResults,
+    radarFormalScore: radarScore,
+    fortressMatrixCounts: matrixCounts,
+  });
+  const fg = forged.gates.find((x) => x.id === 'G_FORTRESS_PARENT');
+  return v.ok === false
+    && fg.verdict === 'partial'
+    && fg.finite_audit_workstream_complete === true
+    && fg.production_readiness === 'absent'
+    && forged.production_ready === false
+    && (
+      v.errors.includes('false_production_ready')
+      || v.errors.includes('gate_verdict_mismatch:G_FORTRESS_PARENT')
+      || v.errors.includes('downgraded_or_false_complete:G_FORTRESS_PARENT')
+      || v.errors.includes('score_mismatch')
+      || forged.errors.includes('fortress_complete_without_security_production_proofs')
+      || forged.errors.includes('finite_audit_as_security_or_production_readiness')
+    );
+})());
+
+red('stale_or_repinned_1d_provenance', (() => {
+  // Stale-but-valid: 1D master basis is a real ancestor of the 1D merge tip.
+  const stale = locks.FORTRESS_1D_MASTER_BASIS;
+  ok('1D master_basis is real ancestor of merge tip',
+    locks.isGitAncestor(ROOT, stale, locks.FORTRESS_1D_MERGE_TIP)
+    && stale !== locks.FORTRESS_1D_MERGE_TIP);
+  const r = locks.verifyParentShaProvenance(ROOT, {
+    claimedParents: {
+      FORTRESS: {
+        canonical_tip: stale,
+        candidate_sha: stale,
+        bound_hashes: { ...locks.BOUND_FILE_HASHES },
+      },
+    },
+    skipWorkingTreeCheck: true,
+  });
+  return r.ok === false
+    && r.errors.some((e) => e.includes('FORTRESS:')
+      && (e.includes('stale_or_wrong_canonical_tip')
+        || e.includes('repinned_or_tip_blob_mismatch')));
+})());
+
+red('hidden_fortress_missing_proofs', (() => {
+  const badLedger = locks.thaw(ledger);
+  const g = badLedger.gates.find((x) => x.id === 'G_FORTRESS_PARENT');
+  g.missing_proof = g.missing_proof.filter((m) => m !== 'security_drills'
+    && m !== 'operated_readiness'
+    && m !== 'matrix_vulnerable_remediated');
+  const v = locks.validateLedgerFixture(badLedger, classification);
+  const c = locks.classifyMessiGates({
+    hashBindingOk: true,
+    gateResults,
+    radarFormalScore: radarScore,
+    fortressMatrixCounts: matrixCounts,
+  });
+  const cg = c.gates.find((x) => x.id === 'G_FORTRESS_PARENT');
+  return v.ok === false
+    && v.errors.some((e) => e.includes('gate_missing_proof_mismatch:G_FORTRESS_PARENT'))
+    && cg.missing_proof.includes('security_drills')
+    && cg.missing_proof.includes('operated_readiness')
+    && cg.missing_proof.includes('matrix_vulnerable_remediated')
+    && cg.missing_proof.includes('matrix_unproven_cleared_to_proven_fail_closed');
 })());
 
 red('missing_reviewed_candidate_ref', (() => {
@@ -735,6 +878,26 @@ red('concurrent_merge_topology', (() => {
 
 
 red('source_fixture_co_tamper', (() => {
+  if (!blobCerts.redesignPin.isRedesignActivated()) {
+    const meta = blobCerts.validateWholePathRedesignAnchor(ROOT);
+    const forged = {
+      id: blobCerts.REDESIGN_CERT_ID,
+      candidate_sha: '',
+      correction_candidate_bound: blobCerts.redesignPin.CORRECTION_CANDIDATE_BOUND,
+      master_basis: blobCerts.redesignPin.MASTER_BASIS_BOUND,
+      paths: [...blobCerts.redesignPin.REDESIGN_PATHS],
+      blobs: { 'hostile.js': 'f'.repeat(64) },
+    };
+    const hostile = blobCerts.validateWholePathRedesignAnchorData(
+      blobCerts.redesignPin,
+      forged,
+      ROOT,
+    );
+    return meta.ok === true
+      && meta.activated === false
+      && hostile.ok === false
+      && hostile.errors.some((e) => e.includes('fixture_blobs_forbidden'));
+  }
   const built = locks.buildLockedReviewedBlobCertificates(ROOT);
   if (!built.ok) return false;
   const redesign = built.certificates.find((c) => c.id === blobCerts.REDESIGN_CERT_ID);
@@ -791,10 +954,30 @@ red('fixture_metadata_tamper', (() => {
     && meta.errors.some((e) => e.includes('candidate_sha_mismatch')
       || e.includes('correction_ref_mismatch')
       || e.includes('master_basis_mismatch')
-      || e.includes('paths_mismatch'));
+      || e.includes('paths_mismatch')
+      || e.includes('candidate_sha_premature'));
 })());
 
 red('redesign_ref_tamper', (() => {
+  if (!blobCerts.redesignPin.isRedesignActivated()) {
+    const meta = blobCerts.validateWholePathRedesignAnchor(ROOT);
+    const forged = {
+      id: blobCerts.REDESIGN_CERT_ID,
+      candidate_sha: 'dddddddddddddddddddddddddddddddddddddddd',
+      correction_candidate_bound: blobCerts.redesignPin.CORRECTION_CANDIDATE_BOUND,
+      master_basis: blobCerts.redesignPin.MASTER_BASIS_BOUND,
+      paths: [...blobCerts.redesignPin.REDESIGN_PATHS],
+    };
+    const hostile = blobCerts.validateWholePathRedesignAnchorData(
+      blobCerts.redesignPin,
+      forged,
+      ROOT,
+    );
+    return meta.ok === true
+      && meta.activated === false
+      && hostile.ok === false
+      && hostile.errors.some((e) => e.includes('candidate_sha_premature'));
+  }
   const built = locks.buildLockedReviewedBlobCertificates(ROOT);
   if (!built.ok) return false;
   const redesign = built.certificates.find((c) => c.id === blobCerts.REDESIGN_CERT_ID);
@@ -812,6 +995,10 @@ red('redesign_ref_tamper', (() => {
 })());
 
 red('redesign_hash_tamper', (() => {
+  if (!blobCerts.redesignPin.isRedesignActivated()) {
+    const meta = blobCerts.validateWholePathRedesignAnchor(ROOT);
+    return meta.ok === true && meta.activated === false;
+  }
   const built = locks.buildLockedReviewedBlobCertificates(ROOT);
   if (!built.ok) return false;
   const redesign = built.certificates.find((c) => c.id === blobCerts.REDESIGN_CERT_ID);
