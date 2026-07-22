@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Crowsnest Luna Sales durable store (Chapter 1 / Slice 1 + Chapter 2 evidence).
+ * Crowsnest Luna Sales durable store (Chapter 1 / Slice 1 + Chapter 2 evidence + Chapter 3 qualification).
  *
  * Owns config validation, repository adapters (memory / postgres / fail-closed),
  * and a bounded pg pool lifecycle. Never reads WOLFHOUSE_DATABASE_URL.
@@ -115,10 +115,19 @@ function createMemorySalesRepository() {
   const prospects = new Map();
   /** @type {Map<string, object[]>} */
   const researchByProspect = new Map();
+  /** @type {Map<string, object[]>} */
+  const qualificationsByProspect = new Map();
   const auditEvents = [];
 
   function researchListFor(id) {
     const list = researchByProspect.get(String(id || '')) || [];
+    return list
+      .map((row) => cloneJson(row))
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  }
+
+  function qualificationListFor(id) {
+    const list = qualificationsByProspect.get(String(id || '')) || [];
     return list
       .map((row) => cloneJson(row))
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
@@ -138,6 +147,14 @@ function createMemorySalesRepository() {
       list.push(row);
       researchByProspect.set(key, list);
       return { ok: true, research: cloneJson(row) };
+    },
+    async saveQualificationAssessment(assessment) {
+      const row = cloneJson(assessment);
+      const key = String(row.prospect_id);
+      const list = qualificationsByProspect.get(key) || [];
+      list.push(row);
+      qualificationsByProspect.set(key, list);
+      return { ok: true, assessment: cloneJson(row) };
     },
     async appendAuditEvent(event) {
       const row = cloneJson(event);
@@ -174,6 +191,13 @@ function createMemorySalesRepository() {
     async listResearchForProspect(id) {
       return researchListFor(id);
     },
+    async listQualificationsForProspect(id) {
+      return qualificationListFor(id);
+    },
+    async getLatestQualification(id) {
+      const list = qualificationListFor(id);
+      return list.length ? list[0] : null;
+    },
     async listAuditEvents(prospectId) {
       const events = auditEvents.map((row) => cloneJson(row));
       if (!prospectId) return events;
@@ -187,6 +211,7 @@ function createMemorySalesRepository() {
     async reset() {
       prospects.clear();
       researchByProspect.clear();
+      qualificationsByProspect.clear();
       auditEvents.length = 0;
     },
   };
@@ -200,6 +225,7 @@ function createFailClosedSalesRepository(config = {}) {
     backend: 'fail_closed',
     createProspectRecord: reject,
     saveResearchJob: reject,
+    saveQualificationAssessment: reject,
     appendAuditEvent: reject,
     updateProspectDecision: reject,
     async getProspect() {
@@ -213,6 +239,12 @@ function createFailClosedSalesRepository(config = {}) {
     },
     async listResearchForProspect() {
       return [];
+    },
+    async listQualificationsForProspect() {
+      return [];
+    },
+    async getLatestQualification() {
+      return null;
     },
     async listAuditEvents() {
       return [];
@@ -262,6 +294,22 @@ function mapAuditRow(row) {
     entity_type: row.entity_type,
     entity_id: String(row.entity_id),
     detail: cloneJson(row.detail || {}),
+  };
+}
+
+function mapQualificationRow(row) {
+  if (!row) return null;
+  const evidenceIds = Array.isArray(row.evidence_ids)
+    ? row.evidence_ids.map((id) => String(id))
+    : cloneJson(row.evidence_ids || []);
+  return {
+    id: String(row.id),
+    prospect_id: String(row.prospect_id),
+    decision: row.decision,
+    rationale: row.rationale || '',
+    evidence_ids: evidenceIds,
+    reviewer_id: row.reviewer_id || 'Admin',
+    created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
   };
 }
 
@@ -355,6 +403,23 @@ function createPgSalesRepository(options = {}) {
     );
   }
 
+  async function insertQualification(txQuery, assessment) {
+    await txQuery(
+      `INSERT INTO luna_sales.qualification_assessments (
+          id, prospect_id, decision, rationale, evidence_ids, reviewer_id, created_at
+        ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::timestamptz)`,
+      [
+        assessment.id,
+        assessment.prospect_id,
+        assessment.decision,
+        assessment.rationale || '',
+        JSON.stringify(assessment.evidence_ids || []),
+        assessment.reviewer_id || 'Admin',
+        assessment.created_at,
+      ],
+    );
+  }
+
   return {
     backend: 'postgres',
     async createProspectBundle({ prospect, research, auditEvents = [] } = {}) {
@@ -383,6 +448,14 @@ function createPgSalesRepository(options = {}) {
       try {
         await insertResearch(queryFn, research);
         return { ok: true, research: cloneJson(research) };
+      } catch {
+        return salesUnavailableResult();
+      }
+    },
+    async saveQualificationAssessment(assessment) {
+      try {
+        await insertQualification(queryFn, assessment);
+        return { ok: true, assessment: cloneJson(assessment) };
       } catch {
         return salesUnavailableResult();
       }
@@ -475,6 +548,35 @@ function createPgSalesRepository(options = {}) {
           [id],
         );
         return (result.rows || []).map(mapResearchRow);
+      } catch {
+        throw new SalesStoreUnavailableError();
+      }
+    },
+    async listQualificationsForProspect(id) {
+      try {
+        const result = await queryFn(
+          `SELECT id, prospect_id, decision, rationale, evidence_ids, reviewer_id, created_at
+           FROM luna_sales.qualification_assessments
+           WHERE prospect_id = $1
+           ORDER BY created_at DESC`,
+          [id],
+        );
+        return (result.rows || []).map(mapQualificationRow);
+      } catch {
+        throw new SalesStoreUnavailableError();
+      }
+    },
+    async getLatestQualification(id) {
+      try {
+        const result = await queryFn(
+          `SELECT id, prospect_id, decision, rationale, evidence_ids, reviewer_id, created_at
+           FROM luna_sales.qualification_assessments
+           WHERE prospect_id = $1
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [id],
+        );
+        return mapQualificationRow(result.rows && result.rows[0]);
       } catch {
         throw new SalesStoreUnavailableError();
       }

@@ -30,12 +30,15 @@ const {
 const {
   createProspect,
   decideProspect,
+  getLatestQualification,
   getProspect,
   getResearchForProspect,
   listAuditEvents,
   listProspects,
+  listQualificationsForProspect,
   listResearchForProspect,
   recordManualEvidence,
+  recordQualification,
 } = require('./lib/crowsnest/crowsnest-sales');
 const {
   isSalesStoreUnavailableError,
@@ -241,6 +244,9 @@ function parseSalesFormBody(body) {
     factual_notes: String(params.get('factual_notes') || ''),
     limitations: String(params.get('limitations') || ''),
     confidence: String(params.get('confidence') || ''),
+    qualification_decision: String(params.get('qualification_decision') || ''),
+    rationale: String(params.get('rationale') || ''),
+    evidence_ids: params.getAll('evidence_ids').map((id) => String(id || '').trim()).filter(Boolean),
   };
 }
 
@@ -275,6 +281,11 @@ function matchSalesEvidencePath(pathname) {
   return match ? match[1] : null;
 }
 
+function matchSalesQualificationPath(pathname) {
+  const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)\/qualification$/.exec(String(pathname || ''));
+  return match ? match[1] : null;
+}
+
 async function loadSalesDetailPageOptions(prospectId, extra = {}) {
   const prospect = await getProspect(prospectId);
   if (!prospect) {
@@ -284,10 +295,14 @@ async function loadSalesDetailPageOptions(prospectId, extra = {}) {
   const research = researchJobs.find((job) => job && job.source === 'fixture')
     || researchJobs[researchJobs.length - 1]
     || await getResearchForProspect(prospectId);
+  const qualificationAssessments = await listQualificationsForProspect(prospectId);
+  const latestQualification = await getLatestQualification(prospectId);
   return {
     prospect,
     research,
     researchJobs,
+    qualificationAssessments,
+    latestQualification,
     auditEvents: await listAuditEvents(prospectId),
     ...extra,
   };
@@ -794,6 +809,101 @@ async function handleSalesEvidence(req, res, method, prospectId) {
   return sendRedirect(res, detailPath, { 'Cache-Control': 'no-store' });
 }
 
+async function handleSalesQualification(req, res, method, prospectId) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  const detailPath = `/sales/prospects/${prospectId}`;
+
+  async function redisplay(status, error, form = {}) {
+    const pageOptions = await loadSalesDetailPageOptions(prospectId, {
+      qualificationError: error,
+      qualificationDecision: form.qualification_decision || '',
+      qualificationRationale: form.rationale || '',
+      qualificationEvidenceIds: Array.isArray(form.evidence_ids) ? form.evidence_ids : [],
+    });
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      status,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_detail',
+        ...pageOptions,
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+
+  if (!hasLoginFormContentType(req)) {
+    try {
+      return await redisplay(400, 'A rationale is required for qualification assessments.');
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
+  }
+
+  let body;
+  try {
+    body = await readLimitedBody(req, getCrowsnestLoginBodyLimit());
+  } catch (err) {
+    if (err && err.message === 'body too large') {
+      return sendPayloadTooLarge(res);
+    }
+    try {
+      return await redisplay(400, 'A rationale is required for qualification assessments.');
+    } catch (listErr) {
+      if (isSalesUnavailableFailure(listErr)) {
+        return sendSalesUnavailable(res);
+      }
+      throw listErr;
+    }
+  }
+
+  const form = parseSalesFormBody(body);
+  const actor = resolveOperatorActor(req);
+  let result;
+  try {
+    result = await recordQualification(prospectId, {
+      qualification_decision: form.qualification_decision,
+      rationale: form.rationale,
+      evidence_ids: form.evidence_ids,
+    }, actor);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+
+  if (!result.ok) {
+    if (isSalesUnavailableFailure(result)) {
+      return sendSalesUnavailable(res);
+    }
+    const status = result.status || 400;
+    if (status === 404) {
+      return sendJSON(res, 404, { success: false, error: 'not found' });
+    }
+    try {
+      return await redisplay(status, result.error, form);
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
+  }
+
+  return sendRedirect(res, detailPath, { 'Cache-Control': 'no-store' });
+}
+
 async function router(req, res) {
   clearExpiredCrowsnestSessions();
   const pathname = getRequestPath(req);
@@ -833,6 +943,11 @@ async function router(req, res) {
   const evidenceProspectId = matchSalesEvidencePath(pathname);
   if (evidenceProspectId) {
     return handleSalesEvidence(req, res, method, evidenceProspectId);
+  }
+
+  const qualificationProspectId = matchSalesQualificationPath(pathname);
+  if (qualificationProspectId) {
+    return handleSalesQualification(req, res, method, qualificationProspectId);
   }
 
   const detailProspectId = matchSalesProspectDetailPath(pathname);
