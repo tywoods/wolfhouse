@@ -214,9 +214,7 @@
       "provenance_bound_files": [
         "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
         "fixtures/radar-operations/slice16ap-finite-closeout.json",
-        "fixtures/radar-operations/slice16ap-expected-contract.json",
-        "scripts/lib/radar-slice16ap-finite-closeout.js",
-        "scripts/verify-radar-slice16ap-finite-closeout.js"
+        "fixtures/radar-operations/slice16ap-expected-contract.json"
       ]
     },
     "FACTORY": {

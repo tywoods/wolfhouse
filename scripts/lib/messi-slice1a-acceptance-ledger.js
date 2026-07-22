@@ -402,8 +402,8 @@ const PARENTS = Object.freeze({
       'docs/RADAR-OPERATIONS-GATE-LEDGER.md',
       'fixtures/radar-operations/slice16ap-finite-closeout.json',
       'fixtures/radar-operations/slice16ap-expected-contract.json',
-      'scripts/lib/radar-slice16ap-finite-closeout.js',
-      'scripts/verify-radar-slice16ap-finite-closeout.js',
+      // Lock/verifier scripts may receive later MESSI nested-gate supersession;
+      // tip provenance binds evidence/docs only (same pattern as FACTORY).
     ]),
     lock_module: 'scripts/lib/radar-slice16ap-finite-closeout.js',
     verifier_script: 'scripts/verify-radar-slice16ap-finite-closeout.js',

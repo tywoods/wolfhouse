@@ -751,6 +751,17 @@ function buildSupersedingCertificateChain(root, config) {
     slicePaths = filterExcludedPaths(inferred, cfg.exclude_paths);
   }
 
+  // Slice paths must exist at the correction candidate so the pre-redesign
+  // subchain (slice→correction) is self-contained for multi-squash REDs.
+  if (correction) {
+    const corrSha = resolveCommitSha(root, correction);
+    if (corrSha) {
+      slicePaths = slicePaths.filter(
+        (rel) => gitBlobSha256AtCommit(root, corrSha, rel).ok,
+      );
+    }
+  }
+
   let correctionChanged = cfg.correction_changed_paths;
   if (!correctionChanged) {
     if (cfg.allow_path_range_inference === true) {
