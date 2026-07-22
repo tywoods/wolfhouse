@@ -704,8 +704,8 @@ red('unrelated_gate_identity', (() => {
     && locks.deepEqual([...locks.UNRELATED_GATE_IDS].sort(), [
       'G_CROSS_PARENT_INTEGRATION',
       'G_FACTORY_PARENT',
-      'G_FOUNDATION_PARENT',
       'G_FORTRESS_PARENT',
+      'G_FOUNDATION_PARENT',
       'G_MESSI_MILESTONE_CLOSEOUT',
     ])
     && v.ok === false

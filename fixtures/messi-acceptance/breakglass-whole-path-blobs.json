@@ -5,7 +5,7 @@
   "master_basis": "38f1a719fa3287af43737b2fca7f9b4d4f71383a",
   "squash_proof_reviewed_candidate": "9a35afcc6b94fc4bf49a96b11654c6e8ec424bb1",
   "squash_proof_landing_tip": "c61bc9feba412de8e24cd14b5907bd62b65abd13",
-  "squash_proof_candidate_sha": "84f6d5e46e15af0c65d1be778830a8db766159e8",
+  "squash_proof_candidate_sha": "",
   "paths": [
     "docs/MESSI-ACCEPTANCE-LEDGER.md",
     "fixtures/messi-acceptance/slice1a-contract.json",
