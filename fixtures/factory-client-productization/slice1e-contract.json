@@ -61,7 +61,7 @@
     "npm run verify:factory-slice1d-integration-proof",
     "npm run verify:luna-all",
     "npm run verify:multiclient",
-    "git diff --check"
+    "git diff --check e8452d178ad8f4b6aadc8b59b2d3032634952471...HEAD"
   ],
   "findings": "fixtures/factory-client-productization/slice1e-findings.md",
   "operator_handoff": "fixtures/factory-client-productization/slice1e-operator-handoff.md",

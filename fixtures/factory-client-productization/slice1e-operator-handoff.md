@@ -22,5 +22,5 @@ Finite FACTORY stages **1A–1E** are closed for **offline dry-run packaging onl
 
 ## What FACTORY does / does not prove
 
-**Proves:** deterministic disabled dry-run packaging + verifier gates for a clearly fake tenant.  
+**Proves:** deterministic disabled dry-run packaging + verifier gates for a clearly fake tenant.
 **Does not prove:** live third-tenant readiness, apply safety, or deploy authority.

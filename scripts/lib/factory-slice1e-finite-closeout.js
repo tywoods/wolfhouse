@@ -21,6 +21,8 @@ function deepFreeze(value) {
 const SLICE = 'FACTORY-1E';
 const BRANCH = 'factory/slice-1e-finite-closeout';
 const MASTER_BASIS = 'e8452d178ad8f4b6aadc8b59b2d3032634952471';
+/** Fail-closed candidate range — bare working-tree `git diff --check` can miss committed trailing WS. */
+const RANGE_DIFF_CHECK_GATE = `git diff --check ${MASTER_BASIS}...HEAD`;
 const OUTCOME_ID = '1E_dry_run_proof_packaging_milestone_closeout';
 const COMPLETION_EVIDENCE = '1E_dry_run_proof_packaging_milestone_closeout';
 const COMPLETION_REQUIRES = 'verify:factory-slice1e-finite-closeout';
@@ -217,6 +219,7 @@ module.exports = Object.freeze({
   SLICE,
   BRANCH,
   MASTER_BASIS,
+  RANGE_DIFF_CHECK_GATE,
   OUTCOME_ID,
   COMPLETION_EVIDENCE,
   COMPLETION_REQUIRES,

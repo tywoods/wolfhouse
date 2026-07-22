@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const { spawnSync } = require('child_process');
 
 const slice1e = require('./lib/factory-slice1e-finite-closeout');
@@ -210,6 +211,72 @@ function scanForbiddenPatterns(text) {
     if (pat.re.test(text)) hits.push(pat.id);
   }
   return hits;
+}
+
+function noTrailingWhitespace(text) {
+  return !String(text || '').split(/\n/).some((line) => /[ \t]+$/.test(line));
+}
+
+/** Range check vs master basis — bare `git diff --check` on a clean tree can miss committed trailing WS. */
+function rangeDiffCheckClean() {
+  const r = spawnSync(
+    'git',
+    ['diff', '--check', `${slice1e.MASTER_BASIS}...HEAD`],
+    { cwd: ROOT, encoding: 'utf8' },
+  );
+  const detail = `${r.stdout || ''}${r.stderr || ''}`.trim();
+  return { ok: r.status === 0, detail: detail || '(clean)', status: r.status };
+}
+
+/**
+ * RED: committed trailing whitespace is detected by candidate-range `--check`,
+ * while bare working-tree `git diff --check` stays clean. Isolated temp repo only.
+ */
+function proveCommittedTrailingWhitespaceDetectedByRange() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory1e-ws-range-'));
+  const git = (args) => spawnSync('git', args, {
+    cwd: tmp,
+    encoding: 'utf8',
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' },
+  });
+  try {
+    let r = git(['init']);
+    if (r.status !== 0) {
+      return { ok: false, detail: `git init failed: ${(r.stderr || '').slice(0, 200)}` };
+    }
+    git(['config', 'user.email', 'factory1e-ws@example.invalid']);
+    git(['config', 'user.name', 'factory1e-ws']);
+    git(['config', 'commit.gpgsign', 'false']);
+    fs.writeFileSync(path.join(tmp, 'note.md'), 'basis clean\n');
+    git(['add', 'note.md']);
+    r = git(['commit', '-m', 'basis']);
+    if (r.status !== 0) {
+      return { ok: false, detail: `basis commit failed: ${(r.stderr || r.stdout || '').slice(0, 200)}` };
+    }
+    const basis = git(['rev-parse', 'HEAD']).stdout.trim();
+    fs.writeFileSync(path.join(tmp, 'note.md'), 'committed trailing whitespace  \n');
+    git(['add', 'note.md']);
+    r = git(['commit', '-m', 'trail']);
+    if (r.status !== 0) {
+      return { ok: false, detail: `trail commit failed: ${(r.stderr || r.stdout || '').slice(0, 200)}` };
+    }
+    const wt = git(['diff', '--check']);
+    const range = git(['diff', '--check', `${basis}...HEAD`]);
+    const rangeOut = `${range.stdout || ''}${range.stderr || ''}`;
+    const ok = wt.status === 0
+      && range.status !== 0
+      && /trailing whitespace/i.test(rangeOut);
+    return {
+      ok,
+      detail: `wt_status=${wt.status} range_status=${range.status} range_out=${rangeOut.slice(0, 240)}`,
+    };
+  } finally {
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } catch (_) {
+      /* ignore */
+    }
+  }
 }
 
 console.log('verify:factory-slice1e-finite-closeout — FACTORY 1E\n');
@@ -493,6 +560,10 @@ console.log('\n── Source fences ──');
   red('1e_does_not_export_write_or_apply_apis',
     typeof slice1e.writeDryRunPreview !== 'function'
     && typeof slice1e.generateDryRunPreview !== 'function');
+  red('verifier_pins_fail_closed_candidate_range_diff_check',
+    verifierSrc.includes('${slice1e.MASTER_BASIS}...HEAD')
+    && /diff', '--check', `\$\{slice1e\.MASTER_BASIS\}\.\.\.HEAD`/.test(verifierSrc)
+    && !/ok\('git diff --check clean'/.test(verifierSrc));
 }
 
 // ── 1A ledger must claim 1E complete with evidence (structural) ─────────────
@@ -590,12 +661,19 @@ console.log('\n── Legacy Luna + hard multiclient gates ──');
 }
 
 {
-  const diffCheck = spawnSync('git', ['diff', '--check'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  });
-  ok('git diff --check clean', diffCheck.status === 0,
-    (diffCheck.stdout || diffCheck.stderr || '').slice(-300));
+  ok('handoff has no trailing whitespace', noTrailingWhitespace(handoff));
+  ok('findings have no trailing whitespace', noTrailingWhitespace(findings));
+
+  const rangeCheck = rangeDiffCheckClean();
+  ok('git range diff --check clean vs master basis', rangeCheck.ok, rangeCheck.detail);
+  ok('contract gates pin range diff --check',
+    Array.isArray(contract.gates_npm)
+    && contract.gates_npm.includes(slice1e.RANGE_DIFF_CHECK_GATE)
+    && slice1e.RANGE_DIFF_CHECK_GATE === `git diff --check ${slice1e.MASTER_BASIS}...HEAD`);
+
+  const committedWsRed = proveCommittedTrailingWhitespaceDetectedByRange();
+  red('committed_trailing_whitespace_detected_by_candidate_range',
+    committedWsRed.ok, committedWsRed.detail);
 }
 
 // ── Milestone closeout claim (only after proof) ─────────────────────────────
