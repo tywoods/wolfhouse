@@ -531,9 +531,9 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/foundation-closeout/findings.md':
     '8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439',
   'scripts/lib/messi-slice1b-foundation-closeout.js':
-    'd67d1978fd63d3ca3bb2706d6b344dd91e619d76cf150c6ab1378a735b1ea23a',
+    '2ccbf15695d6549a600ce6b9a5a8ee9c4799d74cfc7df91410a9b79c42c75f97',
   'scripts/verify-messi-slice1b-foundation-closeout.js':
-    '253d2b9a35e307bb73fd339a5badb586473988282854ff4452fd90542c508091',
+    'e66fda5c1f756c00674063f07f7aec9207efc39b20dda425d305c20a0a03f01b',
   'docs/FORTRESS-FINITE-CLOSEOUT.md':
     'e5eea1639d80a11bd6c16782db88c8da388bbd5dd8b655ef5b7014b3ee59a0ab',
   'fixtures/fortress-closeout/finite-closeout.json':
@@ -543,9 +543,9 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/fortress-closeout/findings.md':
     '5b57d89556f490697d72ae75348e468692a4c1df6a01434f3bb3c881ecb8da1b',
   'scripts/lib/messi-slice1d-fortress-closeout.js':
-    '430ca871a50caa033c2158c9e2f8c747721dbfb7a2874f13331e43bb63a1c1a8',
+    '842ed65c402d285468cab716dc25f3ffda50e216b1f66eb58275760ad292a59e',
   'scripts/verify-messi-slice1d-fortress-closeout.js':
-    '4caed4a6e62bd5b461baa2b0b908b0a5a925eecf44934c0fbe4a2fee698f1953',
+    'e97e9b4040254615e81ee6841fbc53a07ab9f5da78d2e7232bc4c5b7bf0435a3',
   'docs/RADAR-OPERATIONS-GATE-LEDGER.md':
     'c3aac5ad4a083868a3350a5ca099447faed0f016f3ee92570997e2533747e5d9',
   'fixtures/radar-operations/slice16ap-finite-closeout.json':
@@ -577,7 +577,7 @@ const BOUND_FILE_HASHES = Object.freeze({
   'scripts/lib/factory-slice1e-finite-closeout.js':
     '6016f1b42190aca2d4466162aaf747a05b2ccf33b30f67bef6af9052741ba3f7',
   'scripts/verify-factory-slice1e-finite-closeout.js':
-    '045c07f246e32ee767d1743bce7912c513d61817a87efbb7239db3a6d4002098',
+    '9ff8d5085849fe95ea821a71e1e196496335c7cd2f6edcba9c13fd56e19ac1bd',
 });
 
 const ARTIFACT_RELS = Object.freeze({
@@ -1500,6 +1500,7 @@ const REQUIRED_RED = Object.freeze([
   'fixture_metadata_tamper',
   'redesign_ref_tamper',
   'redesign_hash_tamper',
+  'obsolete_authorization_green_name_absent',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -1515,7 +1516,7 @@ const REQUIRED_GREEN = Object.freeze([
   'unrelated_gates_byte_identical_to_base',
   'messi_not_complete',
   'package_script_registered',
-  'reviewed_candidate_scope_authorized',
+  'candidate_certificate_paths_git_bound',
   'blob_certificates_match_current_tree',
 ]);
 

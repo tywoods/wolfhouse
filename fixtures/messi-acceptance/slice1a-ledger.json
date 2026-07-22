@@ -159,14 +159,14 @@
     "fixtures/foundation-closeout/finite-closeout.json": "3411701e798e863e7d3d1583963336f0d19fe740823f07280060230a500a9e52",
     "fixtures/foundation-closeout/contract.json": "3e2d2520e4c497b7ec17b76669cc29703b3c1eb7a890125b007dd805a5503e40",
     "fixtures/foundation-closeout/findings.md": "8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439",
-    "scripts/lib/messi-slice1b-foundation-closeout.js": "d67d1978fd63d3ca3bb2706d6b344dd91e619d76cf150c6ab1378a735b1ea23a",
-    "scripts/verify-messi-slice1b-foundation-closeout.js": "253d2b9a35e307bb73fd339a5badb586473988282854ff4452fd90542c508091",
+    "scripts/lib/messi-slice1b-foundation-closeout.js": "2ccbf15695d6549a600ce6b9a5a8ee9c4799d74cfc7df91410a9b79c42c75f97",
+    "scripts/verify-messi-slice1b-foundation-closeout.js": "e66fda5c1f756c00674063f07f7aec9207efc39b20dda425d305c20a0a03f01b",
     "docs/FORTRESS-FINITE-CLOSEOUT.md": "e5eea1639d80a11bd6c16782db88c8da388bbd5dd8b655ef5b7014b3ee59a0ab",
     "fixtures/fortress-closeout/finite-closeout.json": "8e65993bac48effd75ab016f50c7f15500b47faa9517972dd599670181f5bad5",
     "fixtures/fortress-closeout/contract.json": "8801c4a5a198231ccd5c29b1e28b3bd0194a8a06fcd9ac7ee18cef5f652800e7",
     "fixtures/fortress-closeout/findings.md": "5b57d89556f490697d72ae75348e468692a4c1df6a01434f3bb3c881ecb8da1b",
-    "scripts/lib/messi-slice1d-fortress-closeout.js": "430ca871a50caa033c2158c9e2f8c747721dbfb7a2874f13331e43bb63a1c1a8",
-    "scripts/verify-messi-slice1d-fortress-closeout.js": "4caed4a6e62bd5b461baa2b0b908b0a5a925eecf44934c0fbe4a2fee698f1953",
+    "scripts/lib/messi-slice1d-fortress-closeout.js": "842ed65c402d285468cab716dc25f3ffda50e216b1f66eb58275760ad292a59e",
+    "scripts/verify-messi-slice1d-fortress-closeout.js": "e97e9b4040254615e81ee6841fbc53a07ab9f5da78d2e7232bc4c5b7bf0435a3",
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md": "c3aac5ad4a083868a3350a5ca099447faed0f016f3ee92570997e2533747e5d9",
     "fixtures/radar-operations/slice16ap-finite-closeout.json": "158e3418cc573852780766cc78dafdfa427a3e9a27e0a14e3036266bde91ece2",
     "fixtures/radar-operations/slice16ap-expected-contract.json": "ad856cfe50b1eb8f6a535bdc137ec4a23daa6d89d8bcd0b2a4b90103a95f8621",
@@ -182,7 +182,7 @@
     "scripts/lib/factory-slice1c-dry-run-generator.js": "c6864be5c9770c8b05915ca8d892a1a4f5768e012afb32a458f4ad6a3f6be879",
     "scripts/lib/factory-slice1d-integration-proof.js": "0db5a8d0aedf9418ef58dc1d842a558059c5c58d5f85a3465d92aeec159da8d8",
     "scripts/lib/factory-slice1e-finite-closeout.js": "6016f1b42190aca2d4466162aaf747a05b2ccf33b30f67bef6af9052741ba3f7",
-    "scripts/verify-factory-slice1e-finite-closeout.js": "045c07f246e32ee767d1743bce7912c513d61817a87efbb7239db3a6d4002098"
+    "scripts/verify-factory-slice1e-finite-closeout.js": "9ff8d5085849fe95ea821a71e1e196496335c7cd2f6edcba9c13fd56e19ac1bd"
   },
   "parent_sha_provenance": {
     "FOUNDATION": {

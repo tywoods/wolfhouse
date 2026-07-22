@@ -415,6 +415,7 @@ const REQUIRED_RED = Object.freeze([
   'redesign_ref_tamper',
   'fixture_metadata_tamper',
   'source_fixture_co_tamper',
+  'obsolete_authorization_green_name_absent',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -429,7 +430,7 @@ const REQUIRED_GREEN = Object.freeze([
   'no_doc_overclaim',
   'export_object_frozen',
   'master_basis_ancestor_of_head',
-  'reviewed_candidate_scope_authorized',
+  'candidate_certificate_paths_git_bound',
   'blob_certificates_match_current_tree',
 ]);
 

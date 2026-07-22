@@ -573,7 +573,7 @@ console.log('\n── Tip scope (immutable reviewed-candidate blob certificates)
     built.ok && candidateOnlyVerify.ok,
     (candidateOnlyVerify.errors || []).slice(0, 12).join('; '));
 
-  green('reviewed_candidate_scope_authorized',
+  green('candidate_certificate_paths_git_bound',
     tipVerify.ok && Object.keys(tipVerify.effective || {}).length > 0,
     (tipVerify.errors || []).slice(0, 20).join('; '));
   green('blob_certificates_match_current_tree',
@@ -590,6 +590,18 @@ console.log('\n── Tip scope (immutable reviewed-candidate blob certificates)
       'totally-wrong-branch-name',
     ),
     `head=${head}`);
+
+  red('obsolete_authorization_green_name_absent', (() => {
+    const obsolete = ['reviewed_candidate_scope', '_authorized'].join('');
+    const pin = redesignPin;
+    const rels = [...pin.REDESIGN_PATHS, pin.PIN_MODULE_REL, pin.ANCHOR_FIXTURE_REL];
+    for (const rel of rels) {
+      const abs = path.join(ROOT, rel);
+      if (!fs.existsSync(abs)) return false;
+      if (fs.readFileSync(abs, 'utf8').includes(obsolete)) return false;
+    }
+    return true;
+  })());
 
   red('no_archetype_template_edits_in_tip', (() => {
     const eff = tipVerify.effective || {};
