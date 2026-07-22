@@ -34,6 +34,8 @@ const {
   getResearchForProspect,
   listAuditEvents,
   listProspects,
+  listResearchForProspect,
+  recordManualEvidence,
 } = require('./lib/crowsnest/crowsnest-sales');
 const {
   isSalesStoreUnavailableError,
@@ -233,6 +235,12 @@ function parseSalesFormBody(body) {
     business_name: String(params.get('business_name') || ''),
     decision: String(params.get('decision') || ''),
     reason: String(params.get('reason') || ''),
+    source_label: String(params.get('source_label') || ''),
+    source_url: String(params.get('source_url') || ''),
+    summary: String(params.get('summary') || ''),
+    factual_notes: String(params.get('factual_notes') || ''),
+    limitations: String(params.get('limitations') || ''),
+    confidence: String(params.get('confidence') || ''),
   };
 }
 
@@ -260,6 +268,29 @@ function matchSalesProspectDetailPath(pathname) {
 function matchSalesDecisionPath(pathname) {
   const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)\/decision$/.exec(String(pathname || ''));
   return match ? match[1] : null;
+}
+
+function matchSalesEvidencePath(pathname) {
+  const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)\/evidence$/.exec(String(pathname || ''));
+  return match ? match[1] : null;
+}
+
+async function loadSalesDetailPageOptions(prospectId, extra = {}) {
+  const prospect = await getProspect(prospectId);
+  if (!prospect) {
+    return { prospect: null };
+  }
+  const researchJobs = await listResearchForProspect(prospectId);
+  const research = researchJobs.find((job) => job && job.source === 'fixture')
+    || researchJobs[researchJobs.length - 1]
+    || await getResearchForProspect(prospectId);
+  return {
+    prospect,
+    research,
+    researchJobs,
+    auditEvents: await listAuditEvents(prospectId),
+    ...extra,
+  };
 }
 
 async function handleLogin(req, res, method) {
@@ -412,9 +443,9 @@ async function handleSalesProspectDetail(req, res, method, prospectId) {
     return sendNoContentLike(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
   }
   try {
-    const prospect = await getProspect(prospectId);
+    const pageOptions = await loadSalesDetailPageOptions(prospectId);
     const cspNonce = createBrowserCspNonce();
-    if (!prospect) {
+    if (!pageOptions.prospect) {
       return sendHTML(
         res,
         404,
@@ -429,9 +460,7 @@ async function handleSalesProspectDetail(req, res, method, prospectId) {
       renderCrowsnestPage({
         cspNonce,
         view: 'sales_detail',
-        prospect,
-        research: await getResearchForProspect(prospectId),
-        auditEvents: await listAuditEvents(prospectId),
+        ...pageOptions,
       }),
       { 'Cache-Control': 'no-store' },
       cspNonce,
@@ -560,7 +589,9 @@ async function handleSalesDecision(req, res, method, prospectId) {
   const detailPath = `/sales/prospects/${prospectId}`;
   if (!hasLoginFormContentType(req)) {
     try {
-      const prospect = await getProspect(prospectId);
+      const pageOptions = await loadSalesDetailPageOptions(prospectId, {
+        decisionError: 'A reason is required for Admin decisions.',
+      });
       const cspNonce = createBrowserCspNonce();
       return sendHTML(
         res,
@@ -568,10 +599,7 @@ async function handleSalesDecision(req, res, method, prospectId) {
         renderCrowsnestPage({
           cspNonce,
           view: 'sales_detail',
-          prospect,
-          research: await getResearchForProspect(prospectId),
-          auditEvents: await listAuditEvents(prospectId),
-          decisionError: 'A reason is required for Admin decisions.',
+          ...pageOptions,
         }),
         { 'Cache-Control': 'no-store' },
         cspNonce,
@@ -592,7 +620,9 @@ async function handleSalesDecision(req, res, method, prospectId) {
       return sendPayloadTooLarge(res);
     }
     try {
-      const prospect = await getProspect(prospectId);
+      const pageOptions = await loadSalesDetailPageOptions(prospectId, {
+        decisionError: 'A reason is required for Admin decisions.',
+      });
       const cspNonce = createBrowserCspNonce();
       return sendHTML(
         res,
@@ -600,10 +630,7 @@ async function handleSalesDecision(req, res, method, prospectId) {
         renderCrowsnestPage({
           cspNonce,
           view: 'sales_detail',
-          prospect,
-          research: await getResearchForProspect(prospectId),
-          auditEvents: await listAuditEvents(prospectId),
-          decisionError: 'A reason is required for Admin decisions.',
+          ...pageOptions,
         }),
         { 'Cache-Control': 'no-store' },
         cspNonce,
@@ -640,7 +667,9 @@ async function handleSalesDecision(req, res, method, prospectId) {
       return sendJSON(res, 404, { success: false, error: 'not found' });
     }
     try {
-      const prospect = await getProspect(prospectId);
+      const pageOptions = await loadSalesDetailPageOptions(prospectId, {
+        decisionError: result.error,
+      });
       const cspNonce = createBrowserCspNonce();
       return sendHTML(
         res,
@@ -648,14 +677,112 @@ async function handleSalesDecision(req, res, method, prospectId) {
         renderCrowsnestPage({
           cspNonce,
           view: 'sales_detail',
-          prospect,
-          research: await getResearchForProspect(prospectId),
-          auditEvents: await listAuditEvents(prospectId),
-          decisionError: result.error,
+          ...pageOptions,
         }),
         { 'Cache-Control': 'no-store' },
         cspNonce,
       );
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
+  }
+
+  return sendRedirect(res, detailPath, { 'Cache-Control': 'no-store' });
+}
+
+async function handleSalesEvidence(req, res, method, prospectId) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  const detailPath = `/sales/prospects/${prospectId}`;
+
+  async function redisplay(status, error, form = {}) {
+    const pageOptions = await loadSalesDetailPageOptions(prospectId, {
+      evidenceError: error,
+      evidenceSourceLabel: form.source_label || '',
+      evidenceSourceUrl: form.source_url || '',
+      evidenceSummary: form.summary || '',
+      evidenceFactualNotes: form.factual_notes || '',
+      evidenceLimitations: form.limitations || '',
+      evidenceConfidence: form.confidence || '',
+    });
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      status,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_detail',
+        ...pageOptions,
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+
+  if (!hasLoginFormContentType(req)) {
+    try {
+      return await redisplay(400, 'Source label is required.');
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
+  }
+
+  let body;
+  try {
+    body = await readLimitedBody(req, getCrowsnestLoginBodyLimit());
+  } catch (err) {
+    if (err && err.message === 'body too large') {
+      return sendPayloadTooLarge(res);
+    }
+    try {
+      return await redisplay(400, 'Source label is required.');
+    } catch (listErr) {
+      if (isSalesUnavailableFailure(listErr)) {
+        return sendSalesUnavailable(res);
+      }
+      throw listErr;
+    }
+  }
+
+  const form = parseSalesFormBody(body);
+  const actor = resolveOperatorActor(req);
+  let result;
+  try {
+    result = await recordManualEvidence(prospectId, {
+      source_label: form.source_label,
+      source_url: form.source_url,
+      summary: form.summary,
+      factual_notes: form.factual_notes,
+      limitations: form.limitations,
+      confidence: form.confidence,
+    }, actor);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+
+  if (!result.ok) {
+    if (isSalesUnavailableFailure(result)) {
+      return sendSalesUnavailable(res);
+    }
+    const status = result.status || 400;
+    if (status === 404) {
+      return sendJSON(res, 404, { success: false, error: 'not found' });
+    }
+    try {
+      return await redisplay(status, result.error, form);
     } catch (err) {
       if (isSalesUnavailableFailure(err)) {
         return sendSalesUnavailable(res);
@@ -701,6 +828,11 @@ async function router(req, res) {
   const decisionProspectId = matchSalesDecisionPath(pathname);
   if (decisionProspectId) {
     return handleSalesDecision(req, res, method, decisionProspectId);
+  }
+
+  const evidenceProspectId = matchSalesEvidencePath(pathname);
+  if (evidenceProspectId) {
+    return handleSalesEvidence(req, res, method, evidenceProspectId);
   }
 
   const detailProspectId = matchSalesProspectDetailPath(pathname);

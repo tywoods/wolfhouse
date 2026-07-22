@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Crowsnest Luna Sales durable store (Chapter 1 / Slice 1).
+ * Crowsnest Luna Sales durable store (Chapter 1 / Slice 1 + Chapter 2 evidence).
  *
  * Owns config validation, repository adapters (memory / postgres / fail-closed),
  * and a bounded pg pool lifecycle. Never reads WOLFHOUSE_DATABASE_URL.
@@ -113,8 +113,16 @@ function cloneJson(value) {
 
 function createMemorySalesRepository() {
   const prospects = new Map();
+  /** @type {Map<string, object[]>} */
   const researchByProspect = new Map();
   const auditEvents = [];
+
+  function researchListFor(id) {
+    const list = researchByProspect.get(String(id || '')) || [];
+    return list
+      .map((row) => cloneJson(row))
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  }
 
   return {
     backend: 'memory',
@@ -125,7 +133,10 @@ function createMemorySalesRepository() {
     },
     async saveResearchJob(research) {
       const row = cloneJson(research);
-      researchByProspect.set(String(row.prospect_id), row);
+      const key = String(row.prospect_id);
+      const list = researchByProspect.get(key) || [];
+      list.push(row);
+      researchByProspect.set(key, list);
       return { ok: true, research: cloneJson(row) };
     },
     async appendAuditEvent(event) {
@@ -157,8 +168,11 @@ function createMemorySalesRepository() {
         .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
     },
     async getResearchForProspect(id) {
-      const row = researchByProspect.get(String(id || ''));
-      return row ? cloneJson(row) : null;
+      const list = researchListFor(id);
+      return list.length ? list[0] : null;
+    },
+    async listResearchForProspect(id) {
+      return researchListFor(id);
     },
     async listAuditEvents(prospectId) {
       const events = auditEvents.map((row) => cloneJson(row));
@@ -197,6 +211,9 @@ function createFailClosedSalesRepository(config = {}) {
     async getResearchForProspect() {
       return null;
     },
+    async listResearchForProspect() {
+      return [];
+    },
     async listAuditEvents() {
       return [];
     },
@@ -229,6 +246,8 @@ function mapResearchRow(row) {
     summary: row.summary || '',
     facts: cloneJson(row.facts || []),
     limitations: cloneJson(row.limitations || []),
+    source_url: row.source_url || '',
+    confidence: row.confidence || '',
     created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
   };
 }
@@ -300,8 +319,9 @@ function createPgSalesRepository(options = {}) {
   async function insertResearch(txQuery, research) {
     await txQuery(
       `INSERT INTO luna_sales.research_jobs (
-          id, prospect_id, source, status, job_label, summary, facts, limitations, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::timestamptz)`,
+          id, prospect_id, source, status, job_label, summary, facts, limitations,
+          source_url, confidence, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11::timestamptz)`,
       [
         research.id,
         research.prospect_id,
@@ -311,6 +331,8 @@ function createPgSalesRepository(options = {}) {
         research.summary || '',
         JSON.stringify(research.facts || []),
         JSON.stringify(research.limitations || []),
+        research.source_url || '',
+        research.confidence || '',
         research.created_at,
       ],
     );
@@ -429,7 +451,8 @@ function createPgSalesRepository(options = {}) {
     async getResearchForProspect(id) {
       try {
         const result = await queryFn(
-          `SELECT id, prospect_id, source, status, job_label, summary, facts, limitations, created_at
+          `SELECT id, prospect_id, source, status, job_label, summary, facts, limitations,
+                  source_url, confidence, created_at
            FROM luna_sales.research_jobs
            WHERE prospect_id = $1
            ORDER BY created_at DESC
@@ -437,6 +460,21 @@ function createPgSalesRepository(options = {}) {
           [id],
         );
         return mapResearchRow(result.rows && result.rows[0]);
+      } catch {
+        throw new SalesStoreUnavailableError();
+      }
+    },
+    async listResearchForProspect(id) {
+      try {
+        const result = await queryFn(
+          `SELECT id, prospect_id, source, status, job_label, summary, facts, limitations,
+                  source_url, confidence, created_at
+           FROM luna_sales.research_jobs
+           WHERE prospect_id = $1
+           ORDER BY created_at DESC`,
+          [id],
+        );
+        return (result.rows || []).map(mapResearchRow);
       } catch {
         throw new SalesStoreUnavailableError();
       }
