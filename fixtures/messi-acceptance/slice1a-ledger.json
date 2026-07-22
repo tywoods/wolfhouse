@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "slice": "MESSI-1F",
-  "outcome_id": "1F_radar_finite_closeout_ledger_wiring",
-  "branch": "messi/slice-1f-radar-wiring",
-  "master_basis": "f0a4c696131e3897691e25c053c1583a3545393b",
-  "progress_class": "radar_finite_closeout_ledger_wiring_only",
+  "slice": "MESSI-1G",
+  "outcome_id": "1G_factory_finite_closeout_ledger_wiring",
+  "branch": "messi/slice-1g-factory-wiring",
+  "master_basis": "94be40ba9ffc2a9c55030ebf50f711aaa6f6a594",
+  "progress_class": "factory_finite_closeout_ledger_wiring_only",
   "live_mutation": false,
   "runtime_behavior_changed": false,
   "messi_definition": "MESSI is the integration gate above FOUNDATION, FORTRESS, RADAR, and FACTORY.",
@@ -320,6 +320,7 @@
       "workstream_class": "finite_offline_dry_run_packaging_closeout",
       "production_readiness": "absent",
       "finite_closeout_analog": "verify:factory-slice1e-finite-closeout",
+      "finite_offline_dry_run_workstream_complete": true,
       "missing_proof": [
         "third_tenant_live_or_prod_onboarding",
         "apply_or_disk_materialization",
