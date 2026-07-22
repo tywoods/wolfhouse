@@ -228,7 +228,7 @@ ok('retained master RED deep-equal locks',
 
 const stageIds = contract.finite_stages.map((s) => s.id);
 ok('exactly five stages 1A–1E', deepEqual(stageIds, ['1A', '1B', '1C', '1D', '1E']));
-ok('1A/1B/1C/1D complete; 1E deferred',
+ok('1A/1B/1C/1D/1E all complete',
   contract.finite_stages[0].id === '1A'
   && contract.finite_stages[0].status === 'complete'
   && contract.finite_stages[1].id === '1B'
@@ -238,7 +238,7 @@ ok('1A/1B/1C/1D complete; 1E deferred',
   && contract.finite_stages[3].id === '1D'
   && contract.finite_stages[3].status === 'complete'
   && contract.finite_stages[4].id === '1E'
-  && contract.finite_stages[4].status === 'deferred_future_stage');
+  && contract.finite_stages[4].status === 'complete');
 ok('1A forbids productization surfaces', deepEqual(contract.finite_stages[0].forbids, expected.finite_stages[0].forbids));
 ok('1B completion_requires independent verifier',
   contract.finite_stages[1].completion_requires === 'verify:factory-slice1b-archetype-templates');
@@ -246,6 +246,8 @@ ok('1C completion_requires independent verifier',
   contract.finite_stages[2].completion_requires === 'verify:factory-slice1c-dry-run-generator');
 ok('1D completion_requires independent verifier',
   contract.finite_stages[3].completion_requires === 'verify:factory-slice1d-integration-proof');
+ok('1E completion_requires independent verifier',
+  contract.finite_stages[4].completion_requires === 'verify:factory-slice1e-finite-closeout');
 ok('archetype gate ledger evidence is 1B templates',
   contract.gates[0].current_stage_evidence === '1B_static_disabled_archetype_templates'
   && contract.gates[1].current_stage_evidence === '1B_static_disabled_archetype_templates');
@@ -256,6 +258,9 @@ ok('1C safety gate ledger evidence is dry-run generator',
 ok('1D isolation/legacy gate ledger evidence is integration proof',
   contract.gates[5].current_stage_evidence === '1D_integration_isolation_legacy_compat_proof'
   && contract.gates[6].current_stage_evidence === '1D_integration_isolation_legacy_compat_proof');
+ok('1E dry-run/closeout gate ledger evidence is milestone closeout',
+  contract.gates[7].current_stage_evidence === '1E_dry_run_proof_packaging_milestone_closeout'
+  && contract.gates[8].current_stage_evidence === '1E_dry_run_proof_packaging_milestone_closeout');
 
 const gateIds = contract.gates.map((g) => g.id);
 ok('nine gates present', gateIds.length === 9);
@@ -1080,6 +1085,39 @@ let slice1dVerifierPassed = false;
     badErrs.includes('1d_complete_without_independent_validator'));
 }
 
+// ── 1E ledger structural fields (recursion fence: 1A does not spawn 1E) ──────
+console.log('\n── 1E ledger structural fields (1A does not invoke 1E) ──');
+{
+  // 1E closeout verifier invokes 1A; spawning 1E here would recurse.
+  const stage1e = contract.finite_stages[4];
+  ok('1E stage structurally complete with closeout evidence',
+    stage1e.status === 'complete'
+    && stage1e.completion_evidence === '1E_dry_run_proof_packaging_milestone_closeout'
+    && stage1e.completion_requires === 'verify:factory-slice1e-finite-closeout');
+  ok('1E gate evidence fields present on ledger',
+    contract.gates[7].current_stage_evidence === '1E_dry_run_proof_packaging_milestone_closeout'
+    && contract.gates[8].current_stage_evidence === '1E_dry_run_proof_packaging_milestone_closeout');
+  const badErrs = locks.validate1eLedgerClaim(
+    {
+      id: '1E',
+      status: 'complete',
+      completion_evidence: '1E_dry_run_proof_packaging_milestone_closeout',
+      completion_requires: 'verify:factory-slice1e-finite-closeout',
+    },
+    contract.gates,
+    false,
+  );
+  red('R_1E_complete_without_independent_validator',
+    badErrs.includes('1e_complete_without_independent_validator'));
+  red('1a_does_not_invoke_1e',
+    !/npm['"\s,]*run['"\s,]*verify:factory-slice1e/.test(
+      fs.readFileSync(path.join(ROOT, 'scripts', 'verify-factory-slice1a-acceptance-contract.js'), 'utf8'),
+    )
+    && !/spawnSync\([^)]*verify-factory-slice1e/.test(
+      fs.readFileSync(path.join(ROOT, 'scripts', 'verify-factory-slice1a-acceptance-contract.js'), 'utf8'),
+    ));
+}
+
 // Source fence: no FACTORY_* skip/probe bypasses remain in factory verifiers.
 {
   const factoryVerifiers = [
@@ -1087,12 +1125,13 @@ let slice1dVerifierPassed = false;
     'scripts/verify-factory-slice1b-archetype-templates.js',
     'scripts/verify-factory-slice1c-dry-run-generator.js',
     'scripts/verify-factory-slice1d-integration-proof.js',
+    'scripts/verify-factory-slice1e-finite-closeout.js',
   ];
   let bypassHits = [];
   for (const rel of factoryVerifiers) {
     const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
     if (/process\.env\.FACTORY_\w*(SKIP|PROBE)/.test(src)
-      || /FACTORY_1[ABCD]_(SKIP|LEDGER_PROBE|SKIP_NESTED|SKIP_LEGACY)\s*[:=]/.test(src)) {
+      || /FACTORY_1[ABCDE]_(SKIP|LEDGER_PROBE|SKIP_NESTED|SKIP_LEGACY)\s*[:=]/.test(src)) {
       bypassHits.push(rel);
     }
   }

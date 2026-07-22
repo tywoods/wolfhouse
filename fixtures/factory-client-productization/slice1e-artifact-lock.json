@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "slice": "FACTORY-1E",
+  "outcome_id": "1E_dry_run_proof_packaging_milestone_closeout",
+  "note": "Committed synthetic third-tenant dry-run stdout artifact lock. Verifier regenerates via fresh-process CLI and compares exact bytes + manifest hashes. Not a live tenant.",
+  "archetype": "surf_house",
+  "client_slug": "zyx-null-beacon",
+  "location_ids": [
+    "zyx-null-beacon-main"
+  ],
+  "substitutions_fixture": "fixtures/factory-client-productization/slice1e-substitutions-zyx-null-beacon.json",
+  "stdout_artifact": "fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json",
+  "stdout_sha256": "1204d0f32729f2e5f258908e84ea0735bdb5bb3ab1b1c360751691a233ef99cd",
+  "stdout_bytes": 28012,
+  "manifest_sha256": "46d121124585e09697d16ec785125e6347b1635bf12a6536c243d1b488bc21f7",
+  "files": {
+    "dry-run-manifest.json": {
+      "kind": "manifest",
+      "sha256": "46d121124585e09697d16ec785125e6347b1635bf12a6536c243d1b488bc21f7",
+      "bytes": 3792
+    },
+    "preview/zyx-null-beacon.baseline.json": {
+      "kind": "baseline",
+      "sha256": "d55b4a52a19eb67f0dd6028e54a25c411394e101f7d0a1507959880acf0d4cc3",
+      "bytes": 9281
+    },
+    "preview/zyx-null-beacon.pricing.json": {
+      "kind": "pricing",
+      "sha256": "0e56d31e1acdaf0341e4fbcf6e4c0a597e79eb3321df7308bba8c4f9877359cc",
+      "bytes": 6404
+    },
+    "preview/zyx-null-beacon.registry-entry.json": {
+      "kind": "registry_entry",
+      "sha256": "219d16bd50325253969418b85ff82e261cc9fb57fa7756e9c0c8e7768ff7835d",
+      "bytes": 256
+    },
+    "preview/zyx-null-beacon.secrets.example.json": {
+      "kind": "secrets_example",
+      "sha256": "0128b3382d27e5a6b8fe36b6fa9c4952cecb10fd03340e1f8243dd7f8fad9ac9",
+      "bytes": 630
+    }
+  },
+  "enablement_forced_false": true,
+  "apply": false,
+  "disk_materialization_supported": false,
+  "writes_config_clients": false,
+  "writes_registry": false,
+  "runtime_loading": false,
+  "network": false,
+  "db": false,
+  "cloud": false,
+  "secrets_materialized": false,
+  "synthetic_markers": [
+    "zyx-null-beacon",
+    "Synthetic Fixture",
+    "example.test"
+  ],
+  "forbidden_identity_tokens": [
+    "crowsnest",
+    "wolfhouse",
+    "sunset",
+    "elsardi",
+    "el-sardi",
+    "el_sardi"
+  ]
+}

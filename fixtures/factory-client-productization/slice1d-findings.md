@@ -43,4 +43,4 @@ Apply path, safe disk materialization, registry/`config/clients` writes, runtime
 
 ## Ledger
 
-1A gate ledger evidence for `G_TENANT_LOCATION_ISOLATION` and `G_LEGACY_COMPATIBILITY` is `1D_integration_isolation_legacy_compat_proof` **only when** the independent 1D validator passes (`completion_requires: verify:factory-slice1d-integration-proof`). Stage **1D** is marked `complete` under that gate via integration proof evidence. Dry-run packaging closeout remains **1E**.
+1A gate ledger evidence for `G_TENANT_LOCATION_ISOLATION` and `G_LEGACY_COMPATIBILITY` is `1D_integration_isolation_legacy_compat_proof` **only when** the independent 1D validator passes (`completion_requires: verify:factory-slice1d-integration-proof`). Stage **1D** is marked `complete` under that gate via integration proof evidence. Dry-run packaging closeout is **1E** (`verify:factory-slice1e-finite-closeout`).

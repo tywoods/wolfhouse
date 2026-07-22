@@ -59,8 +59,10 @@
     {
       "id": "1E",
       "title": "Dry-run proof packaging and milestone closeout",
-      "status": "deferred_future_stage",
-      "depends_on": "1D"
+      "status": "complete",
+      "depends_on": "1D",
+      "completion_evidence": "1E_dry_run_proof_packaging_milestone_closeout",
+      "completion_requires": "verify:factory-slice1e-finite-closeout"
     }
   ],
   "archetypes": [
@@ -143,14 +145,14 @@
       "title": "Dry-run proof",
       "requirement": "A dry-run generation path must produce inspectable artifacts and pass offline verifiers without writing live targets, secrets, DB rows, or deploying.",
       "proof_stage": "1E",
-      "current_stage_evidence": "gate_text_freeze_only"
+      "current_stage_evidence": "1E_dry_run_proof_packaging_milestone_closeout"
     },
     {
       "id": "G_MILESTONE_CLOSEOUT",
       "title": "Milestone closeout",
       "requirement": "FACTORY 1A–1E closes only when all nine gates have stage-appropriate evidence, finite stage fence is intact, and third-tenant live/prod remains blocked pending RADAR reopen.",
       "proof_stage": "1E",
-      "current_stage_evidence": "closeout_deferred_to_1E"
+      "current_stage_evidence": "1E_dry_run_proof_packaging_milestone_closeout"
     }
   ],
   "evidence_classes": {

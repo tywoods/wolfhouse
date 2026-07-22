@@ -56,8 +56,8 @@ Adversarial temporary-source REDs prove discovery catches split-string `path.res
 | `G_NO_LIVE_TARGET_COPYING` | 1C+ | **1C complete** — generator rejects live-target shaped input/output (`1C_deterministic_disabled_dry_run_generator`) |
 | `G_TENANT_LOCATION_ISOLATION` | 1D+ | **1D complete** — integration isolation proof (`1D_integration_isolation_legacy_compat_proof`) |
 | `G_LEGACY_COMPATIBILITY` | 1D+ | **1D complete** — legacy consumer compatibility on verifier-owned temps (`1D_integration_isolation_legacy_compat_proof`) |
-| `G_DRY_RUN_PROOF` | 1E | gate text only |
-| `G_MILESTONE_CLOSEOUT` | 1E | deferred to 1E |
+| `G_DRY_RUN_PROOF` | 1E | **1E complete** — synthetic stdout artifact + closeout verifier (`1E_dry_run_proof_packaging_milestone_closeout`) |
+| `G_MILESTONE_CLOSEOUT` | 1E | **1E complete** — finite milestone closeout (`1E_dry_run_proof_packaging_milestone_closeout`) |
 
 ## Stage fence
 
@@ -80,4 +80,4 @@ Allowed stage IDs: **1A, 1B, 1C, 1D, 1E** only. Extra stages, gate renames, or t
 
 ## Closeout
 
-1A is complete when `npm run verify:factory-slice1a-acceptance-contract` passes and existing multiclient/config regressions remain green. **1B is complete** under this ledger only when the independent validator `npm run verify:factory-slice1b-archetype-templates` passes (`completion_requires`); static disabled archetype templates live at `config/archetypes/{surf_house,surf_school_shop}/`. **1C is complete** only when `npm run verify:factory-slice1c-dry-run-generator` passes (`completion_requires`); dry-run CLI is `scripts/onboard-client.js`. **1D is complete** only when `npm run verify:factory-slice1d-integration-proof` passes (`completion_requires`). Productization continues at **1E** (dry-run packaging + milestone closeout) — no gate/scope drift.
+1A is complete when `npm run verify:factory-slice1a-acceptance-contract` passes and existing multiclient/config regressions remain green. **1B is complete** under this ledger only when the independent validator `npm run verify:factory-slice1b-archetype-templates` passes (`completion_requires`); static disabled archetype templates live at `config/archetypes/{surf_house,surf_school_shop}/`. **1C is complete** only when `npm run verify:factory-slice1c-dry-run-generator` passes (`completion_requires`); dry-run CLI is `scripts/onboard-client.js`. **1D is complete** only when `npm run verify:factory-slice1d-integration-proof` passes (`completion_requires`). **1E is complete** only when `npm run verify:factory-slice1e-finite-closeout` passes (`completion_requires`); synthetic third-tenant dry-run packaging + milestone closeout. Finite FACTORY **1A–1E** is closed under that gate — no gate/scope drift; third-tenant live/prod remains out of scope pending RADAR reopen `third_tenant_factory`.
