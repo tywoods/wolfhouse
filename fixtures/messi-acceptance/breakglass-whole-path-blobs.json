@@ -6,6 +6,7 @@
     "scripts/lib/messi-slice1d-fortress-closeout.js": "9e45adbecca7f5ab5f5fbdaf96d961dbbbb25ccdbf732459a230c049fd0cb7b7",
     "scripts/lib/reviewed-candidate-blob-certificates.js": "cd3ab6988b9f7f8157230461c90efff3b80793b5db5ad74da33eb5c8c64a24f7",
     "scripts/verify-factory-slice1b-archetype-templates.js": "796325286214e8050e1e9d2aece4dc1fdd346f507825ff39288fa6c412c26194",
+    "scripts/verify-factory-slice1e-finite-closeout.js": "b1c95fe240b61e096fe9ad9e5467daffcfdef84a9c7edb9cfb3d5cf03bd1bbd1",
     "scripts/verify-messi-slice1a-acceptance-ledger.js": "60b184ff1cd8161992bb10beb60f1a338e523faf7f04452bef3ec72e5d7ef0d5",
     "scripts/verify-messi-slice1b-foundation-closeout.js": "24286e64bee0204e0de14b71dd2a1a3b229cba2fb39a0749726ae21d1167e942",
     "scripts/verify-messi-slice1d-fortress-closeout.js": "2af143ce12dc16670a31bc068665c30d3241f9105ceb007843001275b2e9f8cf"
