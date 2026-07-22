@@ -1,0 +1,376 @@
+{
+  "schema_version": 1,
+  "slice": "MESSI-1A",
+  "outcome_id": "1A_messi_acceptance_ledger",
+  "branch": "messi/slice-1a-acceptance-ledger",
+  "master_basis": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
+  "progress_class": "acceptance_ledger_inventory_and_verifier_only",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "messi_definition": "MESSI is the integration gate above FOUNDATION, FORTRESS, RADAR, and FACTORY.",
+  "completion_policy": "Parent milestones are never marked complete from labels, summaries, or self-authored booleans. Classification requires inventory + exact hash binding + real retained gate execution + explicit missing proof.",
+  "parents": [
+    {
+      "id": "FOUNDATION",
+      "tip_slice": "FOUNDATION-14AE",
+      "outcome_id": "canonical_runner_noop_live_ok",
+      "master_basis": "21371079ac5a331d47e7ed5f79351fceeeceefa6",
+      "canonical_tip": "32b44930685450cb27ac519d052332be7b18150d",
+      "candidate_sha": "32b44930685450cb27ac519d052332be7b18150d",
+      "workstream_class": "tip_retained_staging_schema_noop",
+      "finite_closeout_analog": null,
+      "production_readiness": "absent",
+      "npm_script": "verify:sunset-schema-slice14ae",
+      "evidence": [
+        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json",
+        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json",
+        "fixtures/sunset-schema-observer/slice14ae-findings.md"
+      ],
+      "docs": [],
+      "verifier_script": "scripts/verify-sunset-schema-slice14ae.js",
+      "provenance_bound_files": [
+        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json",
+        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json",
+        "fixtures/sunset-schema-observer/slice14ae-findings.md",
+        "scripts/verify-sunset-schema-slice14ae.js"
+      ],
+      "missing_proof_for_complete": [
+        "finite_milestone_closeout_disposition_analogous_to_16AP_or_1E",
+        "docker_fresh_db_replacement_proof",
+        "production_schema_readiness",
+        "claim_zero_remaining_drift_forbidden_by_14AE"
+      ]
+    },
+    {
+      "id": "FORTRESS",
+      "tip_slice": "FORTRESS-15L",
+      "outcome_id": "15L_meta_signature_fail_closed",
+      "master_basis": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
+      "canonical_tip": "28a30a688baa637e1bcb549d9b585cb5917942d1",
+      "candidate_sha": "28a30a688baa637e1bcb549d9b585cb5917942d1",
+      "workstream_class": "tip_retained_security_remediation_plus_audit_matrix",
+      "finite_closeout_analog": null,
+      "production_readiness": "absent",
+      "npm_script": "verify:fortress-slice15l-meta-signature-fail-closed",
+      "evidence": [
+        "fixtures/fortress-tenant-identity/boundary-matrix.json",
+        "fixtures/fortress-tenant-identity/attack-cases.json",
+        "fixtures/fortress-tenant-identity/slice15l-contract.json",
+        "fixtures/fortress-tenant-identity/slice15l-evidence.json",
+        "fixtures/fortress-tenant-identity/slice15l-findings.md"
+      ],
+      "docs": [
+        "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
+      ],
+      "verifier_script": "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js",
+      "provenance_bound_files": [
+        "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md",
+        "fixtures/fortress-tenant-identity/boundary-matrix.json",
+        "fixtures/fortress-tenant-identity/attack-cases.json",
+        "fixtures/fortress-tenant-identity/slice15l-contract.json",
+        "fixtures/fortress-tenant-identity/slice15l-evidence.json",
+        "fixtures/fortress-tenant-identity/slice15l-findings.md",
+        "scripts/lib/fortress-tenant-identity-boundary.js",
+        "scripts/verify-fortress-tenant-identity-boundary-matrix.js",
+        "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js"
+      ],
+      "missing_proof_for_complete": [
+        "finite_milestone_closeout_disposition",
+        "matrix_unproven_cleared_to_proven_fail_closed",
+        "matrix_vulnerable_remediated",
+        "15L_live_kv_secret_creation_and_staff_api_deploy_activation",
+        "B02_meta_live_client_slug_authority_activation",
+        "production_tenant_boundary_proof"
+      ]
+    },
+    {
+      "id": "RADAR",
+      "tip_slice": "RADAR-16AP",
+      "outcome_id": "16AP_finite_milestone_closeout",
+      "master_basis": "66e34a5833ff3bcc7f297108f594b4fc58a0eccc",
+      "canonical_tip": "7e56a99a2d69e13bf1a764090e4033195e189641",
+      "candidate_sha": "7870a9fb818bbd94d33b291c8782851276e2715e",
+      "workstream_class": "finite_milestone_closeout_staging_readiness_only",
+      "finite_closeout_analog": "verify:radar-slice16ap-finite-closeout",
+      "production_readiness": "absent",
+      "npm_script": "verify:radar-slice16ap-finite-closeout",
+      "evidence": [
+        "fixtures/radar-operations/slice16ap-finite-closeout.json",
+        "fixtures/radar-operations/slice16ap-expected-contract.json"
+      ],
+      "docs": [
+        "docs/RADAR-OPERATIONS-GATE-LEDGER.md"
+      ],
+      "verifier_script": "scripts/verify-radar-slice16ap-finite-closeout.js",
+      "provenance_bound_files": [
+        "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+        "fixtures/radar-operations/slice16ap-finite-closeout.json",
+        "fixtures/radar-operations/slice16ap-expected-contract.json",
+        "scripts/lib/radar-slice16ap-finite-closeout.js",
+        "scripts/verify-radar-slice16ap-finite-closeout.js"
+      ],
+      "missing_proof_for_complete": [
+        "formal_gates_raised_from_partial_to_proven",
+        "production_only_unknowns_closed",
+        "full_G06_proven_forbidden_by_16AP",
+        "production_ready_claim_forbidden_by_16AP"
+      ]
+    },
+    {
+      "id": "FACTORY",
+      "tip_slice": "FACTORY-1E",
+      "outcome_id": "1E_dry_run_proof_packaging_milestone_closeout",
+      "master_basis": "e8452d178ad8f4b6aadc8b59b2d3032634952471",
+      "canonical_tip": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
+      "candidate_sha": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
+      "workstream_class": "finite_offline_dry_run_packaging_closeout",
+      "finite_closeout_analog": "verify:factory-slice1e-finite-closeout",
+      "production_readiness": "absent",
+      "npm_script": "verify:factory-slice1e-finite-closeout",
+      "evidence": [
+        "fixtures/factory-client-productization/slice1e-contract.json",
+        "fixtures/factory-client-productization/slice1e-findings.md",
+        "fixtures/factory-client-productization/slice1e-operator-handoff.md",
+        "fixtures/factory-client-productization/slice1e-artifact-lock.json",
+        "fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json",
+        "scripts/lib/factory-slice1b-archetype-templates.js",
+        "scripts/lib/factory-slice1c-dry-run-generator.js",
+        "scripts/lib/factory-slice1d-integration-proof.js",
+        "scripts/lib/factory-slice1e-finite-closeout.js"
+      ],
+      "docs": [
+        "docs/FACTORY-CLIENT-PRODUCTIZATION.md"
+      ],
+      "verifier_script": "scripts/verify-factory-slice1e-finite-closeout.js",
+      "provenance_bound_files": [
+        "docs/FACTORY-CLIENT-PRODUCTIZATION.md",
+        "fixtures/factory-client-productization/slice1e-contract.json",
+        "fixtures/factory-client-productization/slice1e-findings.md",
+        "fixtures/factory-client-productization/slice1e-operator-handoff.md",
+        "fixtures/factory-client-productization/slice1e-artifact-lock.json",
+        "fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json"
+      ],
+      "missing_proof_for_complete": [
+        "third_tenant_live_or_prod_onboarding",
+        "apply_or_disk_materialization",
+        "RADAR_reopen_third_tenant_factory_clearance",
+        "production_client_productization_readiness"
+      ]
+    }
+  ],
+  "bound_file_hashes": {
+    "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json": "08bc566478a1d9fe6a47fe696dfa426d3707c1089c963941110104a541804327",
+    "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json": "bbcd89f68c882168f0344ad4cfa252225d234ad65cc72149dd770f16c288a567",
+    "fixtures/sunset-schema-observer/slice14ae-findings.md": "442548e91d36c739c411294a6c3ac4da7a834ac8497e1ea95eee23a0926b1947",
+    "scripts/verify-sunset-schema-slice14ae.js": "73bb073442a78e30bec6d8717cfc7a4d10d85002e3257e1491f2da1c6b14faa4",
+    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md": "ec8fe4e611d086651842f287610a13495ef34df174e801e0bdc8e35d45bfccf9",
+    "fixtures/fortress-tenant-identity/boundary-matrix.json": "7503c290cca697af916edd9d570eb4973a88f0c3dc349042a2392fc220aede1d",
+    "fixtures/fortress-tenant-identity/attack-cases.json": "6f73fb951e49d45ed264a1383dc6e65224937da29d91ea6dafd0cd50430fc5bc",
+    "fixtures/fortress-tenant-identity/slice15l-contract.json": "0f12fa1a35d0a9e087fece87b6211760f33d7c8f3ea5ffd31581ba314045005d",
+    "fixtures/fortress-tenant-identity/slice15l-evidence.json": "d52c801dde68cc74ff59685543a7ba1927118d1a140b7971f2422db021a88cd3",
+    "fixtures/fortress-tenant-identity/slice15l-findings.md": "c6f63bb9b9d407d0095c3c44e5aa9f1c21b6271156d80c078be946ce0dbafbfd",
+    "scripts/lib/fortress-tenant-identity-boundary.js": "42bf5c258f93a6acc31011e15ef160157d51942f3cd5a5a7a89b022206c28e9d",
+    "scripts/verify-fortress-tenant-identity-boundary-matrix.js": "ed60a75f5693e8f2d205f1ddcd286d3ad120252b2eb47037a6e480d4c803f274",
+    "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js": "5c6296df732e1ad7f34c4190dccb59fb4947f9be9cb307175813535cacc75c4e",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md": "c3aac5ad4a083868a3350a5ca099447faed0f016f3ee92570997e2533747e5d9",
+    "fixtures/radar-operations/slice16ap-finite-closeout.json": "158e3418cc573852780766cc78dafdfa427a3e9a27e0a14e3036266bde91ece2",
+    "fixtures/radar-operations/slice16ap-expected-contract.json": "ad856cfe50b1eb8f6a535bdc137ec4a23daa6d89d8bcd0b2a4b90103a95f8621",
+    "scripts/lib/radar-slice16ap-finite-closeout.js": "4ba18280ac6b595921e20e1f9989662d6379456eb6f24303a2ab71dd2302bf77",
+    "scripts/verify-radar-slice16ap-finite-closeout.js": "44746f0b016539d34ba73f71ca7c86b442eb5245bdb72f1c666d5ceb04106d01",
+    "docs/FACTORY-CLIENT-PRODUCTIZATION.md": "3a5c44e0f247fb1ca35397f3e1faaa0f9c9e26b9bcd80271671a6874cea38265",
+    "fixtures/factory-client-productization/slice1e-contract.json": "2cc3a5992207070e4f6212a8c30f0d4aed44056c226d6bfe911a6e5f6088b717",
+    "fixtures/factory-client-productization/slice1e-findings.md": "792b739448e7148769ff36bd24fc1bf22b0ca05ba9c6ccfe4ff7e040e146c12b",
+    "fixtures/factory-client-productization/slice1e-operator-handoff.md": "845c9fb43c8aadee65dd54e3b403dd8e523810b4c84a6f4fcf20c28d6b4d3163",
+    "fixtures/factory-client-productization/slice1e-artifact-lock.json": "fad80e4f02dce0c0e9047a31326220889555948c0eeaefc0536720b626ca2901",
+    "fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json": "1204d0f32729f2e5f258908e84ea0735bdb5bb3ab1b1c360751691a233ef99cd",
+    "scripts/lib/factory-slice1b-archetype-templates.js": "2d0e993d2e46f32914979fc50082cfb6b166852cc1db9d977f161d768aeb9413",
+    "scripts/lib/factory-slice1c-dry-run-generator.js": "00b9c044998f72888de136a234adc9419586ac438b4e4feb246cf046cb7e6aba",
+    "scripts/lib/factory-slice1d-integration-proof.js": "7bbe71fcb2eb00a5ce7ee8756fa2d49afae5cf73e5bf2a4c15e99f5e36034852",
+    "scripts/lib/factory-slice1e-finite-closeout.js": "4179ad5123e6a75104e126c83c36b442049f0119d2d5bc235795322f4d311e56",
+    "scripts/verify-factory-slice1e-finite-closeout.js": "3d0acb8b5f7f0275b506a519461baaebe0f06ce82988069df4a062cdab112991"
+  },
+  "tip_scope_forward_compat_rels": [
+    "scripts/lib/factory-slice1b-archetype-templates.js",
+    "scripts/lib/factory-slice1c-dry-run-generator.js",
+    "scripts/lib/factory-slice1d-integration-proof.js",
+    "scripts/lib/factory-slice1e-finite-closeout.js",
+    "scripts/verify-factory-slice1e-finite-closeout.js"
+  ],
+  "parent_sha_provenance": {
+    "FOUNDATION": {
+      "canonical_tip": "32b44930685450cb27ac519d052332be7b18150d",
+      "candidate_sha": "32b44930685450cb27ac519d052332be7b18150d",
+      "master_basis": "21371079ac5a331d47e7ed5f79351fceeeceefa6",
+      "provenance_bound_files": [
+        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json",
+        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json",
+        "fixtures/sunset-schema-observer/slice14ae-findings.md",
+        "scripts/verify-sunset-schema-slice14ae.js"
+      ]
+    },
+    "FORTRESS": {
+      "canonical_tip": "28a30a688baa637e1bcb549d9b585cb5917942d1",
+      "candidate_sha": "28a30a688baa637e1bcb549d9b585cb5917942d1",
+      "master_basis": "f703f3e07d3cd9214c661f169c23c7d5d5370709",
+      "provenance_bound_files": [
+        "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md",
+        "fixtures/fortress-tenant-identity/boundary-matrix.json",
+        "fixtures/fortress-tenant-identity/attack-cases.json",
+        "fixtures/fortress-tenant-identity/slice15l-contract.json",
+        "fixtures/fortress-tenant-identity/slice15l-evidence.json",
+        "fixtures/fortress-tenant-identity/slice15l-findings.md",
+        "scripts/lib/fortress-tenant-identity-boundary.js",
+        "scripts/verify-fortress-tenant-identity-boundary-matrix.js",
+        "scripts/verify-fortress-slice15l-meta-signature-fail-closed.js"
+      ]
+    },
+    "RADAR": {
+      "canonical_tip": "7e56a99a2d69e13bf1a764090e4033195e189641",
+      "candidate_sha": "7870a9fb818bbd94d33b291c8782851276e2715e",
+      "master_basis": "66e34a5833ff3bcc7f297108f594b4fc58a0eccc",
+      "provenance_bound_files": [
+        "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+        "fixtures/radar-operations/slice16ap-finite-closeout.json",
+        "fixtures/radar-operations/slice16ap-expected-contract.json",
+        "scripts/lib/radar-slice16ap-finite-closeout.js",
+        "scripts/verify-radar-slice16ap-finite-closeout.js"
+      ]
+    },
+    "FACTORY": {
+      "canonical_tip": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
+      "candidate_sha": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
+      "master_basis": "e8452d178ad8f4b6aadc8b59b2d3032634952471",
+      "provenance_bound_files": [
+        "docs/FACTORY-CLIENT-PRODUCTIZATION.md",
+        "fixtures/factory-client-productization/slice1e-contract.json",
+        "fixtures/factory-client-productization/slice1e-findings.md",
+        "fixtures/factory-client-productization/slice1e-operator-handoff.md",
+        "fixtures/factory-client-productization/slice1e-artifact-lock.json",
+        "fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json"
+      ]
+    }
+  },
+  "gate_ids": [
+    "G_FOUNDATION_PARENT",
+    "G_FORTRESS_PARENT",
+    "G_RADAR_PARENT",
+    "G_FACTORY_PARENT",
+    "G_CROSS_PARENT_INTEGRATION",
+    "G_MESSI_MILESTONE_CLOSEOUT"
+  ],
+  "frozen_messi_score": {
+    "proven": 0,
+    "partial": 4,
+    "absent": 2,
+    "total": 6
+  },
+  "radar_formal_score": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "total": 9
+  },
+  "fortress_matrix_counts": {
+    "proven_fail_closed": 5,
+    "proven_isolated_by_runtime": 3,
+    "unproven": 3,
+    "vulnerable": 4,
+    "total": 15
+  },
+  "messi_complete": false,
+  "production_ready": false,
+  "score": {
+    "proven": 0,
+    "partial": 4,
+    "absent": 2,
+    "total": 6
+  },
+  "gates": [
+    {
+      "id": "G_FOUNDATION_PARENT",
+      "verdict": "partial",
+      "parent": "FOUNDATION",
+      "workstream_class": "tip_retained_staging_schema_noop",
+      "production_readiness": "absent",
+      "finite_closeout_analog": null,
+      "missing_proof": [
+        "finite_milestone_closeout_disposition_analogous_to_16AP_or_1E",
+        "docker_fresh_db_replacement_proof",
+        "production_schema_readiness",
+        "claim_zero_remaining_drift_forbidden_by_14AE"
+      ]
+    },
+    {
+      "id": "G_FORTRESS_PARENT",
+      "verdict": "partial",
+      "parent": "FORTRESS",
+      "workstream_class": "tip_retained_security_remediation_plus_audit_matrix",
+      "production_readiness": "absent",
+      "finite_closeout_analog": null,
+      "missing_proof": [
+        "finite_milestone_closeout_disposition",
+        "matrix_unproven_cleared_to_proven_fail_closed",
+        "matrix_vulnerable_remediated",
+        "15L_live_kv_secret_creation_and_staff_api_deploy_activation",
+        "B02_meta_live_client_slug_authority_activation",
+        "production_tenant_boundary_proof"
+      ]
+    },
+    {
+      "id": "G_RADAR_PARENT",
+      "verdict": "partial",
+      "parent": "RADAR",
+      "workstream_class": "finite_milestone_closeout_staging_readiness_only",
+      "production_readiness": "absent",
+      "finite_closeout_analog": "verify:radar-slice16ap-finite-closeout",
+      "missing_proof": [
+        "formal_gates_raised_from_partial_to_proven",
+        "production_only_unknowns_closed",
+        "full_G06_proven_forbidden_by_16AP",
+        "production_ready_claim_forbidden_by_16AP"
+      ]
+    },
+    {
+      "id": "G_FACTORY_PARENT",
+      "verdict": "partial",
+      "parent": "FACTORY",
+      "workstream_class": "finite_offline_dry_run_packaging_closeout",
+      "production_readiness": "absent",
+      "finite_closeout_analog": "verify:factory-slice1e-finite-closeout",
+      "missing_proof": [
+        "third_tenant_live_or_prod_onboarding",
+        "apply_or_disk_materialization",
+        "RADAR_reopen_third_tenant_factory_clearance",
+        "production_client_productization_readiness"
+      ]
+    },
+    {
+      "id": "G_CROSS_PARENT_INTEGRATION",
+      "verdict": "absent",
+      "parent": null,
+      "workstream_class": "none",
+      "production_readiness": "absent",
+      "finite_closeout_analog": null,
+      "missing_proof": [
+        "committed_cross_parent_integration_proof",
+        "composed_foundation_fortress_radar_factory_production_evidence",
+        "end_to_end_live_staging_integration_beyond_parent_silos"
+      ]
+    },
+    {
+      "id": "G_MESSI_MILESTONE_CLOSEOUT",
+      "verdict": "absent",
+      "parent": null,
+      "workstream_class": "acceptance_ledger_inventory_and_verifier_only",
+      "production_readiness": "absent",
+      "finite_closeout_analog": null,
+      "missing_proof": [
+        "all_parent_messi_gates_complete",
+        "cross_parent_integration_complete",
+        "production_readiness_proven",
+        "radar_formal_gates_no_longer_partial"
+      ]
+    }
+  ],
+  "classification_ok": true
+}
