@@ -1,7 +1,7 @@
 {
   "kind": "staging-ledger-recovery-evidence-v1",
   "immutable": true,
-  "slice": "staging-ledger-recovery",
+  "slice": "staging-ledger-recovery-apply",
   "checksumMode": "canonical_lf_v1",
   "target": {
     "environment": "staging",
@@ -747,7 +747,8 @@
   "notes": [
     "One-time staging recovery evidence for sole-042 partial ledger",
     "Does not invent historical runner provenance",
-    "Mutation disabled in this slice"
+    "Apply records verified_structural_baseline only; never executed_by_canonical_runner",
+    "Offline fixture placeholders — operator must collect real staging structural evidence before apply"
   ],
-  "evidenceDigest": "92f9ae683873ac116e6b38a2417cc733aedb91c576ba55070bf0739400f3b2e9"
+  "evidenceDigest": "dcbbbb80c97f5e5de3d348ee3e9a514f75d936c2e7a448f55f5b6a6ebd156093"
 }

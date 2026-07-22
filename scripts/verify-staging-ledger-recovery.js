@@ -1,10 +1,10 @@
 'use strict';
 
 /**
- * verify:staging-ledger-recovery — RED→GREEN gate for the staging ledger
- * recovery plan/certification contract (dry-run only; mutation disabled).
+ * verify:staging-ledger-recovery — RED→GREEN gate for staging ledger recovery
+ * plan/certification + one-time apply (injected db-client seam only).
  *
- * No database connection. No Azure. No secrets. No live mutation.
+ * No live database connection. No Azure secret retrieval. No live mutation.
  */
 
 const fs = require('fs');
@@ -30,8 +30,12 @@ const {
   CLI_APPLY_MUTATION,
   APPROVAL_TOKEN,
   KNOWN_PARTIAL_SCENARIO,
+  RECOVERY_INSERT_COUNT,
   RECOVERY_TARGET,
   SAFE_OUTPUT_KEYS,
+  AUTHORIZED_APPLY_SEQUENCE,
+  SUCCESS_PATH_QUERY_COUNT,
+  APPLY_LOCKS,
   evaluateRecoveryGates,
   validateEvidenceArtifact,
   certifyContiguousBaseline,
@@ -41,9 +45,13 @@ const {
   sealEvidence,
   buildFixtureEvidence,
   exactRecoveryPlanArgv,
+  exactRecoveryApplyArgv,
   recoveryPlanEnv,
   loadLiveManifestContext,
   digestEvidencePayload,
+  createScriptedRecoveryApplyFakeClientFactory,
+  resetRecoveryApplyCounters,
+  getRecoveryApplyCounters,
   APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
 } = require('./lib/staging-ledger-recovery');
 
@@ -69,12 +77,17 @@ const REQUIRED_RED = [
   'executed_runner_label_refused',
   'arbitrary_sql_refused',
   'non_contiguous_baseline',
-  'mutation_disabled',
   'forbidden_argv_dsn_sql',
+  'apply_without_approval',
+  'apply_empty_ledger_refused',
+  'apply_other_ledger_shape_refused',
+  'apply_repeated_refused',
+  'apply_mid_insert_rollback',
+  'apply_without_db_client',
 ];
 
 const REQUIRED_GREEN = [
-  'mutation_remains_disabled',
+  'mutation_capability_enabled',
   'canonical_reconcile_still_fails_partial_042',
   'fixture_evidence_certifies_contiguous_baseline',
   'projected_reconcile_ok',
@@ -82,6 +95,12 @@ const REQUIRED_GREEN = [
   'dry_run_plan_public_output_secret_free',
   'cli_plan_only_success',
   'docs_and_contract_present',
+  'docs_require_operator_structural_evidence',
+  'apply_fake_client_exact_sequence',
+  'apply_preserves_042',
+  'apply_39_structural_only',
+  'apply_post_write_reconcile_ok',
+  'apply_public_output_secret_free',
 ];
 
 let failed = 0;
@@ -116,8 +135,12 @@ function parseLastJson(stdout) {
   }
 }
 
-function main() {
-  console.log('verify:staging-ledger-recovery — RED→GREEN\n');
+function sole042FromEvidence(evidence) {
+  return deepClone(evidence.observedLedger.rows[0]);
+}
+
+async function main() {
+  console.log('verify:staging-ledger-recovery — RED→GREEN (plan + apply seam)\n');
 
   const redCases = [];
   const greenCases = [];
@@ -133,23 +156,28 @@ function main() {
     kind: 'staging-ledger-recovery-contract',
     slice: SLICE_ID,
     secretFree: true,
-    planOnly: true,
+    planOnlyDefault: true,
     dryRunDefault: true,
-    containsLiveApplyCode: false,
-    mutationEnabled: false,
-    mutationMode: 'disabled_until_later_approved_slice',
+    containsLiveApplyCode: true,
+    mutationEnabled: true,
+    mutationMode: 'one_time_sole_042_injected_client_apply',
     allowsExecutedByCanonicalRunnerLabel: false,
     acceptsArbitrarySql: false,
     weakensCanonicalReconcile: false,
+    requireOperatorStructuralEvidenceBeforeApply: true,
     evidenceKind: EVIDENCE_KIND,
     knownPartialScenario: KNOWN_PARTIAL_SCENARIO,
+    recoveryInsertCount: RECOVERY_INSERT_COUNT,
     target: RECOVERY_TARGET,
+    applyLocks: APPLY_LOCKS,
+    authorizedApplySequenceLength: SUCCESS_PATH_QUERY_COUNT,
     manifestHash: ctx.manifestHash,
     forwardCount: ctx.forward.length,
     checksumMode: 'canonical_lf_v1',
     approvalTokenEnv: ENV_APPROVAL_TOKEN,
     approvalFlag: CLI_APPROVE,
     planOnlyFlag: CLI_PLAN_ONLY,
+    applyFlag: CLI_APPLY_MUTATION,
     requiredRed: REQUIRED_RED,
     requiredGreen: REQUIRED_GREEN,
   };
@@ -291,7 +319,6 @@ function main() {
   }
   {
     const ev = deepClone(goodEvidence);
-    // Drop order 1 evidence but keep count via duplicating another — force gap.
     ev.historicalMigrations = ev.historicalMigrations.filter((h) => h.order !== 1);
     const clone = deepClone(ev.historicalMigrations[0]);
     clone.id = `${clone.id}__dup`;
@@ -309,20 +336,6 @@ function main() {
     pass('red-non_contiguous_baseline', ok, JSON.stringify((result.errors || []).slice(0, 3)));
   }
   {
-    const mut = executeRecoveryMutation();
-    const gates = evaluateRecoveryGates({
-      env: recoveryPlanEnv(),
-      argv: [...exactRecoveryPlanArgv(EVIDENCE_PATH), CLI_APPLY_MUTATION],
-    });
-    const ok = mut.ok === false
-      && mut.code === 'mutation_disabled'
-      && STAGING_LEDGER_RECOVERY_MUTATION_ENABLED === false
-      && gates.ok === false
-      && gates.errors.some((e) => e.code === 'mutation_disabled' || e.code === 'forbidden_argv');
-    redCases.push({ name: 'mutation_disabled', ok });
-    pass('red-mutation_disabled', ok);
-  }
-  {
     const gates = evaluateRecoveryGates({
       env: recoveryPlanEnv(),
       argv: [...exactRecoveryPlanArgv(EVIDENCE_PATH), '--dsn', 'postgres://secret'],
@@ -332,13 +345,124 @@ function main() {
     redCases.push({ name: 'forbidden_argv_dsn_sql', ok });
     pass('red-forbidden_argv_dsn_sql', ok);
   }
+  {
+    const argv = exactRecoveryApplyArgv(EVIDENCE_PATH).filter((a) => a !== CLI_APPROVE);
+    const gates = evaluateRecoveryGates({ env: recoveryPlanEnv(), argv });
+    const ok = gates.ok === false
+      && gates.errors.some((e) => e.code === 'operator_approval_flag_required');
+    redCases.push({ name: 'apply_without_approval', ok });
+    pass('red-apply_without_approval', ok);
+  }
+  {
+    resetRecoveryApplyCounters();
+    const result = await executeRecoveryMutation({
+      env: recoveryPlanEnv(),
+      argv: exactRecoveryApplyArgv(EVIDENCE_PATH),
+      evidence: goodEvidence,
+      manifestContext: ctx,
+      Client: createScriptedRecoveryApplyFakeClientFactory({
+        emptyLedger: true,
+        sole042: sole042FromEvidence(goodEvidence),
+      }),
+    });
+    const ok = result.ok === false
+      && (result.code === 'empty_ledger_refused'
+        || (result.errors || []).some((e) => e.code === 'empty_ledger_refused'));
+    redCases.push({ name: 'apply_empty_ledger_refused', ok });
+    pass('red-apply_empty_ledger_refused', ok, result.code);
+  }
+  {
+    resetRecoveryApplyCounters();
+    const other = sole042FromEvidence(goodEvidence);
+    other.id = '041_notification_surfpack_convergence';
+    other.apply_order = 39;
+    const result = await executeRecoveryMutation({
+      env: recoveryPlanEnv(),
+      argv: exactRecoveryApplyArgv(EVIDENCE_PATH),
+      evidence: goodEvidence,
+      manifestContext: ctx,
+      Client: createScriptedRecoveryApplyFakeClientFactory({
+        initialLedgerRows: [other],
+      }),
+    });
+    const ok = result.ok === false
+      && (result.code === 'partial_ledger_refused'
+        || (result.errors || []).some((e) => e.code === 'partial_ledger_refused'));
+    redCases.push({ name: 'apply_other_ledger_shape_refused', ok });
+    pass('red-apply_other_ledger_shape_refused', ok, result.code);
+  }
+  {
+    resetRecoveryApplyCounters();
+    const row042 = sole042FromEvidence(goodEvidence);
+    const already = [
+      row042,
+      {
+        ...row042,
+        id: '001_init',
+        filename: '001_init.sql',
+        apply_order: 1,
+        apply_kind: APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
+      },
+    ];
+    const result = await executeRecoveryMutation({
+      env: recoveryPlanEnv(),
+      argv: exactRecoveryApplyArgv(EVIDENCE_PATH),
+      evidence: goodEvidence,
+      manifestContext: ctx,
+      Client: createScriptedRecoveryApplyFakeClientFactory({
+        initialLedgerRows: already,
+      }),
+    });
+    const ok = result.ok === false
+      && (result.code === 'repeated_application_refused'
+        || (result.errors || []).some((e) => e.code === 'repeated_application_refused'));
+    redCases.push({ name: 'apply_repeated_refused', ok });
+    pass('red-apply_repeated_refused', ok, result.code);
+  }
+  {
+    resetRecoveryApplyCounters();
+    const result = await executeRecoveryMutation({
+      env: recoveryPlanEnv(),
+      argv: exactRecoveryApplyArgv(EVIDENCE_PATH),
+      evidence: goodEvidence,
+      manifestContext: ctx,
+      Client: createScriptedRecoveryApplyFakeClientFactory({
+        sole042: sole042FromEvidence(goodEvidence),
+        failAtInsertIndex: 3,
+      }),
+    });
+    const ok = result.ok === false
+      && result.rolledBack === true
+      && result.liveMutation !== true
+      && result.ledgerWritten !== true
+      && Array.isArray(result.steps)
+      && result.steps.includes('ROLLBACK')
+      && !result.steps.includes('COMMIT');
+    redCases.push({ name: 'apply_mid_insert_rollback', ok });
+    pass('red-apply_mid_insert_rollback', ok, `${result.code} steps=${JSON.stringify(result.steps)}`);
+  }
+  {
+    resetRecoveryApplyCounters();
+    const result = await executeRecoveryMutation({
+      env: recoveryPlanEnv(),
+      argv: exactRecoveryApplyArgv(EVIDENCE_PATH),
+      evidence: goodEvidence,
+      manifestContext: ctx,
+    });
+    const ok = result.ok === false
+      && result.code === 'db_client_required'
+      && getRecoveryApplyCounters().clientsInstantiated === 0;
+    redCases.push({ name: 'apply_without_db_client', ok });
+    pass('red-apply_without_db_client', ok, result.code);
+  }
 
   // ── GREEN cases ────────────────────────────────────────────────────────
   {
-    const ok = STAGING_LEDGER_RECOVERY_MUTATION_ENABLED === false
-      && executeRecoveryMutation().code === 'mutation_disabled';
-    greenCases.push({ name: 'mutation_remains_disabled', ok });
-    pass('green-mutation_remains_disabled', ok);
+    const ok = STAGING_LEDGER_RECOVERY_MUTATION_ENABLED === true
+      && AUTHORIZED_APPLY_SEQUENCE.length === SUCCESS_PATH_QUERY_COUNT
+      && SUCCESS_PATH_QUERY_COUNT === 50;
+    greenCases.push({ name: 'mutation_capability_enabled', ok });
+    pass('green-mutation_capability_enabled', ok);
   }
   {
     const manifest = loadManifest(MANIFEST_PATH);
@@ -369,8 +493,7 @@ function main() {
       && result.code === 'contiguous_baseline_certified'
       && result.proposedInsertCount === KNOWN_PARTIAL_SCENARIO.historicalOrderEnd
       && result.projectedLedgerCount === KNOWN_PARTIAL_SCENARIO.recoveryTipOrder
-      && result.dryRun === true
-      && result.mutationEnabled === false;
+      && result.dryRun === true;
     greenCases.push({ name: 'fixture_evidence_certifies_contiguous_baseline', ok });
     pass('green-fixture_evidence_certifies_contiguous_baseline', ok, result.code);
   }
@@ -395,7 +518,11 @@ function main() {
       env: recoveryPlanEnv(),
       argv: exactRecoveryPlanArgv(EVIDENCE_PATH),
       evidence: goodEvidence,
-      gates: { env: recoveryPlanEnv(), argv: exactRecoveryPlanArgv(EVIDENCE_PATH) },
+      gates: {
+        env: recoveryPlanEnv(),
+        argv: exactRecoveryPlanArgv(EVIDENCE_PATH),
+        evidence: goodEvidence,
+      },
     });
     const pub = publicResult(plan);
     const hits = scanSecretValues(pub);
@@ -416,47 +543,154 @@ function main() {
       && json.ok === true
       && json.certified === true
       && json.planOnly === true
-      && json.mutationEnabled === false
       && json.liveMutation === false;
     greenCases.push({ name: 'cli_plan_only_success', ok });
     pass('green-cli_plan_only_success', ok, `status=${cli.status} code=${json && json.code}`);
   }
   {
+    const doc = fs.readFileSync(DOC_PATH, 'utf8');
     const ok = fs.existsSync(DOC_PATH)
       && fs.existsSync(CONTRACT_PATH)
       && fs.existsSync(LIB_PATH)
       && fs.existsSync(CLI_PATH)
-      && /ledger_partial_history/.test(fs.readFileSync(DOC_PATH, 'utf8'))
-      && /mutation/i.test(fs.readFileSync(DOC_PATH, 'utf8'))
-      && /executed_by_canonical_runner/.test(fs.readFileSync(DOC_PATH, 'utf8'));
+      && /ledger_partial_history/.test(doc)
+      && /executed_by_canonical_runner/.test(doc)
+      && /verified_structural_baseline/.test(doc);
     greenCases.push({ name: 'docs_and_contract_present', ok });
     pass('green-docs_and_contract_present', ok);
   }
+  {
+    const doc = fs.readFileSync(DOC_PATH, 'utf8');
+    const ok = /real staging structural evidence/i.test(doc)
+      && /operator/i.test(doc)
+      && /--apply-ledger-recovery/.test(doc)
+      && /injected|db.client|client seam/i.test(doc);
+    greenCases.push({ name: 'docs_require_operator_structural_evidence', ok });
+    pass('green-docs_require_operator_structural_evidence', ok);
+  }
+  {
+    resetRecoveryApplyCounters();
+    const result = await executeRecoveryMutation({
+      env: recoveryPlanEnv(),
+      argv: exactRecoveryApplyArgv(EVIDENCE_PATH),
+      evidence: goodEvidence,
+      manifestContext: ctx,
+      Client: createScriptedRecoveryApplyFakeClientFactory({
+        sole042: sole042FromEvidence(goodEvidence),
+      }),
+    });
+    const ok = result.ok === true
+      && result.code === 'staging_ledger_recovery_apply_ok'
+      && result.liveMutation === true
+      && result.ledgerWritten === true
+      && result.insertedRowCount === RECOVERY_INSERT_COUNT
+      && JSON.stringify(result.steps) === JSON.stringify(AUTHORIZED_APPLY_SEQUENCE)
+      && result.queryCalls === SUCCESS_PATH_QUERY_COUNT
+      && APPLY_LOCKS.advisoryLockKey1 === 0x57480001
+      && APPLY_LOCKS.advisoryLockKey2 === 0x4d494731;
+    greenCases.push({ name: 'apply_fake_client_exact_sequence', ok });
+    pass('green-apply_fake_client_exact_sequence', ok, `${result.code} q=${result.queryCalls}`);
+  }
+  {
+    resetRecoveryApplyCounters();
+    const Fake = createScriptedRecoveryApplyFakeClientFactory({
+      sole042: sole042FromEvidence(goodEvidence),
+    });
+    const client = new Fake();
+    await client.connect();
+    const result = await executeRecoveryMutation({
+      env: recoveryPlanEnv(),
+      argv: exactRecoveryApplyArgv(EVIDENCE_PATH),
+      evidence: goodEvidence,
+      manifestContext: ctx,
+      dbClient: client,
+    });
+    const preserved = client.ledgerStore.find((r) => r.id === KNOWN_PARTIAL_SCENARIO.soleRowId);
+    const before = sole042FromEvidence(goodEvidence);
+    const ok = result.ok === true
+      && result.preserved042 === true
+      && preserved
+      && String(preserved.apply_kind) === String(before.apply_kind)
+      && String(preserved.checksum_sha256) === String(before.checksum_sha256)
+      && String(preserved.applied_at) === String(before.applied_at)
+      && String(preserved.ledger_recorded_at) === String(before.ledger_recorded_at)
+      && String(preserved.evidence_ref) === String(before.evidence_ref);
+    greenCases.push({ name: 'apply_preserves_042', ok });
+    pass('green-apply_preserves_042', ok);
+    await client.end();
+  }
+  {
+    resetRecoveryApplyCounters();
+    const Fake = createScriptedRecoveryApplyFakeClientFactory({
+      sole042: sole042FromEvidence(goodEvidence),
+    });
+    const client = new Fake();
+    await client.connect();
+    const result = await executeRecoveryMutation({
+      env: recoveryPlanEnv(),
+      argv: exactRecoveryApplyArgv(EVIDENCE_PATH),
+      evidence: goodEvidence,
+      manifestContext: ctx,
+      dbClient: client,
+    });
+    const inserted = client.ledgerStore.filter((r) => r.id !== KNOWN_PARTIAL_SCENARIO.soleRowId);
+    const ok = result.ok === true
+      && inserted.length === 39
+      && inserted.every((r) => r.apply_kind === APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE)
+      && !inserted.some((r) => r.apply_kind === APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER)
+      && result.applyKinds
+      && result.applyKinds[APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE] === 39;
+    greenCases.push({ name: 'apply_39_structural_only', ok });
+    pass('green-apply_39_structural_only', ok);
+    await client.end();
+  }
+  {
+    resetRecoveryApplyCounters();
+    const Fake = createScriptedRecoveryApplyFakeClientFactory({
+      sole042: sole042FromEvidence(goodEvidence),
+    });
+    const client = new Fake();
+    await client.connect();
+    const result = await executeRecoveryMutation({
+      env: recoveryPlanEnv(),
+      argv: exactRecoveryApplyArgv(EVIDENCE_PATH),
+      evidence: goodEvidence,
+      manifestContext: ctx,
+      dbClient: client,
+    });
+    const recon = reconcileLedger(
+      ctx.forward,
+      client.ledgerStore.slice().sort((a, b) => a.apply_order - b.apply_order),
+    );
+    const ok = result.ok === true && result.reconcileOk === true && recon.ok === true;
+    greenCases.push({ name: 'apply_post_write_reconcile_ok', ok });
+    pass('green-apply_post_write_reconcile_ok', ok, JSON.stringify((recon.errors || []).slice(0, 2)));
+    await client.end();
+  }
+  {
+    resetRecoveryApplyCounters();
+    const result = await executeRecoveryMutation({
+      env: recoveryPlanEnv(),
+      argv: exactRecoveryApplyArgv(EVIDENCE_PATH),
+      evidence: goodEvidence,
+      manifestContext: ctx,
+      Client: createScriptedRecoveryApplyFakeClientFactory({
+        sole042: sole042FromEvidence(goodEvidence),
+      }),
+    });
+    const pub = publicResult(result);
+    const hits = scanSecretValues(pub);
+    const ok = result.ok === true
+      && hits.length === 0
+      && Object.keys(pub).every((k) => SAFE_OUTPUT_KEYS.includes(k))
+      && !JSON.stringify(pub).includes('postgres://')
+      && !JSON.stringify(pub).includes('PASSWORD');
+    greenCases.push({ name: 'apply_public_output_secret_free', ok });
+    pass('green-apply_public_output_secret_free', ok);
+  }
 
-  // Contract artifact + secret-free source scan
   const contract = {
-    kind: 'staging-ledger-recovery-contract',
-    slice: SLICE_ID,
-    secretFree: true,
-    planOnly: true,
-    dryRunDefault: true,
-    containsLiveApplyCode: false,
-    mutationEnabled: false,
-    mutationMode: 'disabled_until_later_approved_slice',
-    allowsExecutedByCanonicalRunnerLabel: false,
-    acceptsArbitrarySql: false,
-    weakensCanonicalReconcile: false,
-    evidenceKind: EVIDENCE_KIND,
-    knownPartialScenario: KNOWN_PARTIAL_SCENARIO,
-    target: RECOVERY_TARGET,
-    manifestHash: ctx.manifestHash,
-    forwardCount: ctx.forward.length,
-    checksumMode: 'canonical_lf_v1',
-    approvalTokenEnv: ENV_APPROVAL_TOKEN,
-    approvalFlag: CLI_APPROVE,
-    planOnlyFlag: CLI_PLAN_ONLY,
-    requiredRed: REQUIRED_RED,
-    requiredGreen: REQUIRED_GREEN,
+    ...contractSeed,
     generatedAt: new Date().toISOString(),
   };
   fs.writeFileSync(CONTRACT_PATH, `${JSON.stringify(contract, null, 2)}\n`);
@@ -486,18 +720,26 @@ function main() {
   }
   pass('green-artifacts-secret-free', secretHits === 0);
 
-  // Evidence digest stability
   pass(
     'green-evidence-digest-stable',
     goodEvidence.evidenceDigest === digestEvidencePayload(goodEvidence),
   );
 
-  // Canonical integrity untouched
   const integrity = validateManifestIntegrity(loadManifest(MANIFEST_PATH));
   pass('green-canonical-manifest-integrity-untouched', integrity.ok);
+
+  const libSrc = fs.readFileSync(LIB_PATH, 'utf8');
+  pass(
+    'green-no-secret-retrieval-in-apply',
+    !/loadProtectedAdminCredentialsViaManagedIdentity/.test(libSrc)
+      && !/KeyVault|keyvault|IMDS|169\.254\.169\.254/i.test(libSrc),
+  );
 
   console.log(`\n── verify:staging-ledger-recovery: ${failed ? 'FAILED' : 'PASSED'} ──`);
   process.exit(failed ? 1 : 0);
 }
 
-main();
+main().catch((err) => {
+  console.error(err && err.stack ? err.stack : err);
+  process.exit(1);
+});

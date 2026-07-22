@@ -55,7 +55,7 @@ node scripts/prove-canonical-migrations-fresh-db.js
 
 The runner refuses Azure / staging / production hosts and forbidden DB names (`sunset_staging`, `wolfhouse_staging`, …). It records applies in `schema_migration_ledger` under a PostgreSQL advisory lock.
 
-**Staging ledger recovery (plan-only):** when staging ledger history is partial (e.g. only `042` present → `ledger_partial_history`), use the dry-run recovery certifier documented in [`docs/STAGING-LEDGER-RECOVERY.md`](../docs/STAGING-LEDGER-RECOVERY.md). Mutation remains disabled in that slice; canonical reconciliation is not weakened.
+**Staging ledger recovery (plan + one-time apply):** when staging ledger history is partial (e.g. only `042` present → `ledger_partial_history`), use the recovery certifier / apply tooling documented in [`docs/STAGING-LEDGER-RECOVERY.md`](../docs/STAGING-LEDGER-RECOVERY.md). Apply may write only the 39 missing `verified_structural_baseline` rows for the locked sole-042 case via an injected client seam after real staging structural evidence is collected; canonical reconciliation is not weakened.
 
 **015 gap:** intentionally unused (documented above). Duplicate numbers `024` / `030` / `033` are resolved in the manifest without renaming SQL files.
 
