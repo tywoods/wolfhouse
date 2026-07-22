@@ -409,12 +409,19 @@ green('unrelated_gates_byte_identical_to_base', (() => {
     && locks.BASE_UNRELATED_GATE_OBJECTS.length === 5
     && locks.BASE_UNRELATED_GATE_OBJECTS.every((exp) => {
       const got = (ledger.gates || []).find((x) => x.id === exp.id);
-      return got
-        && !Object.prototype.hasOwnProperty.call(got, 'reviewed_dispositions')
+      if (!got) return false;
+      // MESSI closeout is unrelated post-1J and retains reviewed_dispositions + finite flag.
+      if (exp.id === 'G_MESSI_MILESTONE_CLOSEOUT') {
+        return Object.prototype.hasOwnProperty.call(got, 'reviewed_dispositions')
+          && Object.prototype.hasOwnProperty.call(got, locks.MESSI_CLOSEOUT_FINITE_FLAG)
+          && locks.deepEqual(locks.ledgerGateObject(got), locks.deepClone(exp));
+      }
+      return !Object.prototype.hasOwnProperty.call(got, 'reviewed_dispositions')
         && !Object.prototype.hasOwnProperty.call(got, locks.MESSI_CLOSEOUT_FINITE_FLAG)
         && locks.deepEqual(locks.ledgerGateObject(got), locks.deepClone(exp));
     })
-    && !(locks.UNRELATED_GATE_IDS.includes('G_MESSI_MILESTONE_CLOSEOUT'))
+    && locks.UNRELATED_GATE_IDS.includes('G_MESSI_MILESTONE_CLOSEOUT')
+    && !locks.UNRELATED_GATE_IDS.includes('G_FOUNDATION_PARENT')
     && locks.UNRELATED_GATE_IDS.includes('G_CROSS_PARENT_INTEGRATION')
     && locks.UNRELATED_GATE_IDS.includes('G_FACTORY_PARENT')
     && (ledger.gates || []).find((x) => x.id === 'G_FOUNDATION_PARENT')
