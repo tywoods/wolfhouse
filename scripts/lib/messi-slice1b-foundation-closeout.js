@@ -80,13 +80,8 @@ const REVIEWED_CANDIDATE = '4a550b44bb7669a860557f0ec211260d7b76250c';
 const LANDING_TIP = '98202775a57e64597e0e606a6e58933bb8ba7250';
 /** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
 const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
-/**
- * path→sha256 for whole-path redesign files (external fixture — not self-hashed
- * into this lock module). Binds correction accountability after 53c1abcf.
- */
-const WHOLE_PATH_REDESIGN_BLOBS = blobCerts.loadWholePathRedesignBlobs(
-  path.join(__dirname, '..', '..'),
-);
+/** Git-anchored whole-path redesign pin (never frozen_only / fixture trust root). */
+const redesignPin = require('./breakglass-redesign-candidate-sha');
 const PROGRESS_CLASS = 'finite_staging_schema_migration_recovery_closeout_only';
 const WORKSTREAM_CLASS = 'finite_staging_schema_migration_recovery_closeout';
 
@@ -165,9 +160,8 @@ const MUST_NOT_MUTATE = Object.freeze([
   'fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json',
   'fixtures/sunset-schema-observer/slice14ae-findings.md',
   'docker/hermes-staging/SOUL.md',
-  // MESSI 1A semantic ledger fixtures may receive tip-scope hash rebinds only
-  // (FACTORY forward-compat allowlist hashes). Classification / score / parents
-  // must stay frozen — enforced in the verifier, not via blanket path ban.
+  // MESSI 1A semantic ledger fixtures may receive tip-scope hash rebinds only.
+  // Classification / score / parents must stay frozen — enforced in the verifier.
 ]);
 
 /**
@@ -417,6 +411,10 @@ const REQUIRED_RED = Object.freeze([
   'reordered_or_superseded_certificates',
   'multi_squash_unrelated_topology',
   'changed_protected_blob',
+  'redesign_hash_tamper',
+  'redesign_ref_tamper',
+  'fixture_metadata_tamper',
+  'source_fixture_co_tamper',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -579,8 +577,9 @@ function reviewedBlobCertificateConfig() {
     correction_candidate: CORRECTION_CANDIDATE_53C1,
     correction_cert_id: 'breakglass-53c1abcf',
     correction_basis: 'ff285598ac2cfec980e8316e772924a9c79a6a7e',
-    redesign_cert_id: 'breakglass-whole-path',
-    redesign_blobs: WHOLE_PATH_REDESIGN_BLOBS,
+    redesign_cert_id: redesignPin.REDESIGN_CERT_ID,
+    redesign_candidate_sha: redesignPin.REDESIGN_CANDIDATE_SHA,
+    redesign_paths: redesignPin.REDESIGN_PATHS,
   };
 }
 
@@ -617,6 +616,7 @@ function verifyReviewedBlobCertificatesAtTip(root, opts) {
     claimed_certificates: options.claimed_certificates,
     tip_sha: tipSha,
     branch_name: options.branch_name,
+    skip_anchor_validation: options.skip_anchor_validation === true,
   });
 }
 
@@ -1011,7 +1011,7 @@ module.exports = deepFreeze({
   REVIEWED_CANDIDATE,
   LANDING_TIP,
   CORRECTION_CANDIDATE_53C1,
-  WHOLE_PATH_REDESIGN_BLOBS,
+  redesignPin,
   FOUNDATION_TIP,
   FOUNDATION_CANDIDATE,
   FOUNDATION_MASTER_BASIS,

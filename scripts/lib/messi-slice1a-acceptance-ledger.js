@@ -84,13 +84,8 @@ const REVIEWED_CANDIDATE = '3cbf4ca1d933585758b87346a7de16bf957e13d8';
 const LANDING_TIP = '949be24936c3056b19904904f98feccab5caf883';
 /** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
 const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
-/**
- * path→sha256 for whole-path redesign files (external fixture — not self-hashed
- * into this lock module). Binds correction accountability after 53c1abcf.
- */
-const WHOLE_PATH_REDESIGN_BLOBS = blobCerts.loadWholePathRedesignBlobs(
-  path.join(__dirname, '..', '..'),
-);
+/** Git-anchored whole-path redesign pin (never frozen_only / fixture trust root). */
+const redesignPin = require('./breakglass-redesign-candidate-sha');
 const PROGRESS_CLASS = 'foundation_finite_closeout_ledger_wiring_only';
 /** Preserved from base 98202775 — not overwritten by 1C progress_class. */
 const MESSI_CLOSEOUT_WORKSTREAM_CLASS = 'acceptance_ledger_inventory_and_verifier_only';
@@ -264,9 +259,8 @@ const SCOPE_FENCE = Object.freeze({
  * - each canonical_tip must be an ancestor of MESSI MASTER_BASIS
  * - candidate_sha must be an ancestor of canonical_tip (identity OK when equal)
  *
- * FACTORY tip-scope forward-compat allowlist edits are intentionally excluded
- * from provenance_bound_files (see TIP_SCOPE_FORWARD_COMPAT_RELS) — they are
- * MESSI tip mutations, not parent-tip evidence.
+ * Tip-scope verifier/lock mutations are certified via reviewed-candidate blob
+ * certificates — not parent-tip provenance_bound_files.
  */
 const PARENTS = Object.freeze({
   FOUNDATION: Object.freeze({
@@ -291,8 +285,7 @@ const PARENTS = Object.freeze({
       'fixtures/foundation-closeout/contract.json',
       'fixtures/foundation-closeout/findings.md',
     ]),
-    // Tip-blob provenance at 1B merge. Lock/verifier may receive tip-scope
-    // forward-compat edits (see TIP_SCOPE_FORWARD_COMPAT_RELS).
+    // Tip-blob provenance at 1B merge (parent evidence only).
     provenance_bound_files: Object.freeze([
       'docs/FOUNDATION-FINITE-CLOSEOUT.md',
       'fixtures/foundation-closeout/finite-closeout.json',
@@ -452,7 +445,7 @@ const PARENTS = Object.freeze({
       'scripts/lib/factory-slice1d-integration-proof.js',
       'scripts/lib/factory-slice1e-finite-closeout.js',
     ]),
-    // Tip-blob provenance excludes MESSI forward-compat allowlist mutations.
+    // Tip-blob provenance is parent evidence only (not tip-scope cert paths).
     provenance_bound_files: Object.freeze([
       'docs/FACTORY-CLIENT-PRODUCTIZATION.md',
       'fixtures/factory-client-productization/slice1e-contract.json',
@@ -480,19 +473,6 @@ const PARENTS = Object.freeze({
     ]),
   }),
 });
-
-/** MESSI tip-scope only — current-tree hash bound, NOT parent-tip blob provenance. */
-const TIP_SCOPE_FORWARD_COMPAT_RELS = Object.freeze([
-  'scripts/lib/factory-slice1b-archetype-templates.js',
-  'scripts/lib/factory-slice1c-dry-run-generator.js',
-  'scripts/lib/factory-slice1d-integration-proof.js',
-  'scripts/lib/factory-slice1e-finite-closeout.js',
-  'scripts/verify-factory-slice1b-archetype-templates.js',
-  'scripts/verify-factory-slice1e-finite-closeout.js',
-  // 1B lock/verifier may gain tip-scope allowlist / nested-gate forward-compat.
-  'scripts/lib/messi-slice1b-foundation-closeout.js',
-  'scripts/verify-messi-slice1b-foundation-closeout.js',
-]);
 
 const MESSI_GATES = Object.freeze([
   Object.freeze({
@@ -550,9 +530,9 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/foundation-closeout/findings.md':
     '8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439',
   'scripts/lib/messi-slice1b-foundation-closeout.js':
-    '36cc71e5f4df9ab1c1e521f748f510b4f9e128a573f0b46faee19b7eb0b5ed7b',
+    'd67d1978fd63d3ca3bb2706d6b344dd91e619d76cf150c6ab1378a735b1ea23a',
   'scripts/verify-messi-slice1b-foundation-closeout.js':
-    '24286e64bee0204e0de14b71dd2a1a3b229cba2fb39a0749726ae21d1167e942',
+    '253d2b9a35e307bb73fd339a5badb586473988282854ff4452fd90542c508091',
   'docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md':
     'ec8fe4e611d086651842f287610a13495ef34df174e801e0bdc8e35d45bfccf9',
   'fixtures/fortress-tenant-identity/boundary-matrix.json':
@@ -594,15 +574,15 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json':
     '1204d0f32729f2e5f258908e84ea0735bdb5bb3ab1b1c360751691a233ef99cd',
   'scripts/lib/factory-slice1b-archetype-templates.js':
-    '96f79c00c66abbb2bdb973ef1beb248c561a2604b01a27498c15593fb397a873',
+    '1e3683e9cbb9027f74d17390ce98c241a8bfbe09599b93e6bd83573bc237f624',
   'scripts/lib/factory-slice1c-dry-run-generator.js':
     'c6864be5c9770c8b05915ca8d892a1a4f5768e012afb32a458f4ad6a3f6be879',
   'scripts/lib/factory-slice1d-integration-proof.js':
     '0db5a8d0aedf9418ef58dc1d842a558059c5c58d5f85a3465d92aeec159da8d8',
   'scripts/lib/factory-slice1e-finite-closeout.js':
-    '7311dcc579608d041e809476671c9110072de5f115186e91ac68b6bfe9520a91',
+    '6016f1b42190aca2d4466162aaf747a05b2ccf33b30f67bef6af9052741ba3f7',
   'scripts/verify-factory-slice1e-finite-closeout.js':
-    'b1c95fe240b61e096fe9ad9e5467daffcfdef84a9c7edb9cfb3d5cf03bd1bbd1',
+    '761707dff891b922cd427c99f471f25f2745560e0d8e09cc8670e665f6707a41',
 });
 
 const ARTIFACT_RELS = Object.freeze({
@@ -766,8 +746,9 @@ function reviewedBlobCertificateConfig() {
     correction_candidate: CORRECTION_CANDIDATE_53C1,
     correction_cert_id: 'breakglass-53c1abcf',
     correction_basis: 'ff285598ac2cfec980e8316e772924a9c79a6a7e',
-    redesign_cert_id: 'breakglass-whole-path',
-    redesign_blobs: WHOLE_PATH_REDESIGN_BLOBS,
+    redesign_cert_id: redesignPin.REDESIGN_CERT_ID,
+    redesign_candidate_sha: redesignPin.REDESIGN_CANDIDATE_SHA,
+    redesign_paths: redesignPin.REDESIGN_PATHS,
   };
 }
 
@@ -810,6 +791,7 @@ function verifyReviewedBlobCertificatesAtTip(root, opts) {
     claimed_certificates: options.claimed_certificates,
     tip_sha: tipSha,
     branch_name: options.branch_name,
+    skip_anchor_validation: options.skip_anchor_validation === true,
   });
 }
 
@@ -984,11 +966,6 @@ function verifyParentShaProvenance(root, opts) {
       }
     }
 
-    for (const rel of TIP_SCOPE_FORWARD_COMPAT_RELS) {
-      if (locked.provenance_bound_files.includes(rel)) {
-        parentErrors.push(`tip_scope_file_claimed_as_provenance:${rel}`);
-      }
-    }
 
     perParent[parentId] = {
       canonical_tip: tipSha,
@@ -1270,7 +1247,6 @@ function buildExpectedLedgerSkeleton() {
       };
     }),
     bound_file_hashes: { ...BOUND_FILE_HASHES },
-    tip_scope_forward_compat_rels: [...TIP_SCOPE_FORWARD_COMPAT_RELS],
     parent_sha_provenance: Object.keys(PARENTS).reduce((acc, id) => {
       const p = PARENTS[id];
       acc[id] = {
@@ -1342,9 +1318,6 @@ function validateLedgerFixture(ledger, classification) {
   if (!deepEqual(ledger.frozen_messi_score, FROZEN_MESSI_SCORE)) errors.push('frozen_messi_score');
   if (!deepEqual(ledger.radar_formal_score, RADAR_FORMAL_SCORE)) errors.push('radar_formal_score');
   if (!deepEqual(ledger.bound_file_hashes, BOUND_FILE_HASHES)) errors.push('bound_file_hashes');
-  if (!deepEqual(ledger.tip_scope_forward_compat_rels, [...TIP_SCOPE_FORWARD_COMPAT_RELS])) {
-    errors.push('tip_scope_forward_compat_rels');
-  }
   if (!ledger.parent_sha_provenance) {
     errors.push('parent_sha_provenance_missing');
   } else {
@@ -1446,6 +1419,10 @@ const REQUIRED_RED = Object.freeze([
   'multi_squash_unrelated_topology',
   'changed_protected_blob',
   'spoofed_locked_branch_name_rejected',
+  'source_fixture_co_tamper',
+  'fixture_metadata_tamper',
+  'redesign_ref_tamper',
+  'redesign_hash_tamper',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -1467,7 +1444,6 @@ const REQUIRED_GREEN = Object.freeze([
 deepFreeze(PARENTS);
 deepFreeze(MESSI_GATES);
 deepFreeze(BOUND_FILE_HASHES);
-deepFreeze(TIP_SCOPE_FORWARD_COMPAT_RELS);
 deepFreeze(SCOPE_FENCE);
 deepFreeze(ARTIFACT_RELS);
 deepFreeze(FROZEN_MESSI_SCORE);
@@ -1488,7 +1464,7 @@ module.exports = deepFreeze({
   REVIEWED_CANDIDATE,
   LANDING_TIP,
   CORRECTION_CANDIDATE_53C1,
-  WHOLE_PATH_REDESIGN_BLOBS,
+  redesignPin,
   PROGRESS_CLASS,
   MESSI_CLOSEOUT_WORKSTREAM_CLASS,
   FOUNDATION_1B_MERGE_TIP,
@@ -1509,7 +1485,6 @@ module.exports = deepFreeze({
   PARENTS,
   MESSI_GATES,
   BOUND_FILE_HASHES,
-  TIP_SCOPE_FORWARD_COMPAT_RELS,
   ARTIFACT_RELS,
   SELF_REF_FORBIDDEN_PREFIXES,
   REQUIRED_RED,

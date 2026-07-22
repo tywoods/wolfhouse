@@ -600,9 +600,7 @@ red('changed_protected_blob', (() => {
 red('multi_squash_unrelated_topology', (() => {
   const built = locks.buildLockedReviewedBlobCertificates(ROOT);
   if (!built.ok) return false;
-  const candidateCerts = built.certificates.filter(
-    (c) => c.candidate_sha && !c.frozen_only,
-  );
+  const candidateCerts = blobCerts.certificatesBeforeRedesign(built.certificates);
   const topo = blobCerts.makeMultiSquashUnrelatedTopology(ROOT, candidateCerts);
   const atTip = blobCerts.verifyReviewedBlobCertificates(ROOT, {
     certificates: candidateCerts,
@@ -622,9 +620,7 @@ red('concurrent_merge_topology', (() => {
   const built = locks.buildLockedReviewedBlobCertificates(ROOT);
   if (!built.ok) return false;
   const head = locks.currentHeadSha(ROOT);
-  const candidateCerts = built.certificates.filter(
-    (c) => c.candidate_sha && !c.frozen_only,
-  );
+  const candidateCerts = blobCerts.certificatesBeforeRedesign(built.certificates);
   const real = locks.verifyReviewedBlobCertificatesAtTip(ROOT, { tip_sha: head });
   const forged = locks.verifyReviewedBlobCertificatesAtTip(ROOT, {
     tip_sha: locks.MASTER_BASIS,
@@ -640,6 +636,103 @@ red('concurrent_merge_topology', (() => {
     && (
       forged.errors.some((e) => e.includes('changed_protected_blob'))
       || forged.errors.some((e) => e.includes('missing_protected_blob'))
+    );
+})());
+
+
+red('source_fixture_co_tamper', (() => {
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  if (!built.ok) return false;
+  const redesign = built.certificates.find((c) => c.id === blobCerts.REDESIGN_CERT_ID);
+  if (!redesign || !redesign.paths.length) return false;
+  const rel = redesign.paths[0];
+  const forgedFixture = {
+    id: blobCerts.REDESIGN_CERT_ID,
+    candidate_sha: redesign.candidate_sha,
+    correction_candidate_bound: blobCerts.redesignPin.CORRECTION_CANDIDATE_BOUND,
+    master_basis: blobCerts.redesignPin.MASTER_BASIS_BOUND,
+    paths: [...redesign.paths],
+    blobs: { ...redesign.blobs, [rel]: 'f'.repeat(64) },
+  };
+  const meta = blobCerts.validateWholePathRedesignAnchorData(
+    blobCerts.redesignPin,
+    forgedFixture,
+    ROOT,
+  );
+  const forgedCerts = built.certificates.map((c) => {
+    if (c.id !== blobCerts.REDESIGN_CERT_ID) return c;
+    return {
+      ...c,
+      blobs: { ...c.blobs, [rel]: 'f'.repeat(64) },
+    };
+  });
+  const r = locks.verifyReviewedBlobCertificatesAtTip(ROOT, {
+    claimed_certificates: forgedCerts,
+    skip_anchor_validation: true,
+  });
+  return meta.ok === false
+    && meta.errors.some((e) => e.includes('fixture_blobs_forbidden'))
+    && r.ok === false
+    && (
+      r.errors.some((e) => e.includes('altered_certificate_scope'))
+      || r.errors.some((e) => e.includes('certificate_blob_mismatch'))
+    );
+})());
+
+red('fixture_metadata_tamper', (() => {
+  const forged = {
+    id: blobCerts.REDESIGN_CERT_ID,
+    candidate_sha: 'a'.repeat(40),
+    correction_candidate_bound: 'b'.repeat(40),
+    master_basis: 'c'.repeat(40),
+    paths: ['hostile/not-in-pin.js'],
+  };
+  const meta = blobCerts.validateWholePathRedesignAnchorData(
+    blobCerts.redesignPin,
+    forged,
+    ROOT,
+  );
+  return meta.ok === false
+    && meta.errors.some((e) => e.includes('fixture_metadata_'));
+})());
+
+red('redesign_ref_tamper', (() => {
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  if (!built.ok) return false;
+  const redesign = built.certificates.find((c) => c.id === blobCerts.REDESIGN_CERT_ID);
+  if (!redesign) return false;
+  const forged = built.certificates.map((c) => {
+    if (c.id !== blobCerts.REDESIGN_CERT_ID) return c;
+    return { ...c, candidate_sha: 'dddddddddddddddddddddddddddddddddddddddd' };
+  });
+  const r = locks.verifyReviewedBlobCertificatesAtTip(ROOT, {
+    claimed_certificates: forged,
+  });
+  return r.ok === false
+    && r.errors.some((e) => e.includes('stale_or_wrong_reviewed_candidate')
+      || e.includes('missing_ref:reviewed_candidate'));
+})());
+
+red('redesign_hash_tamper', (() => {
+  const built = locks.buildLockedReviewedBlobCertificates(ROOT);
+  if (!built.ok) return false;
+  const redesign = built.certificates.find((c) => c.id === blobCerts.REDESIGN_CERT_ID);
+  if (!redesign || !redesign.paths.length) return false;
+  const rel = redesign.paths[0];
+  const forged = built.certificates.map((c) => {
+    if (c.id !== blobCerts.REDESIGN_CERT_ID) return c;
+    return {
+      ...c,
+      blobs: { ...c.blobs, [rel]: 'e'.repeat(64) },
+    };
+  });
+  const r = locks.verifyReviewedBlobCertificatesAtTip(ROOT, {
+    claimed_certificates: forged,
+  });
+  return r.ok === false
+    && (
+      r.errors.some((e) => e.includes('altered_certificate_scope'))
+      || r.errors.some((e) => e.includes('certificate_blob_mismatch'))
     );
 })());
 

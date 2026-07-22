@@ -82,13 +82,8 @@ const REVIEWED_CANDIDATE = 'fa2c5d71ad6c662b4c4f60b08ede409064acf2fe';
 const LANDING_TIP = 'ff285598ac2cfec980e8316e772924a9c79a6a7e';
 /** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
 const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
-/**
- * path→sha256 for whole-path redesign files (external fixture — not self-hashed
- * into this lock module). Binds correction accountability after 53c1abcf.
- */
-const WHOLE_PATH_REDESIGN_BLOBS = blobCerts.loadWholePathRedesignBlobs(
-  path.join(__dirname, '..', '..'),
-);
+/** Git-anchored whole-path redesign pin (never frozen_only / fixture trust root). */
+const redesignPin = require('./breakglass-redesign-candidate-sha');
 const PROGRESS_CLASS = 'finite_fortress_audit_workstream_closeout_only';
 const WORKSTREAM_CLASS = 'finite_fortress_audit_workstream_closeout';
 
@@ -540,6 +535,10 @@ const REQUIRED_RED = Object.freeze([
   'reordered_or_superseded_certificates',
   'multi_squash_unrelated_topology',
   'changed_protected_blob',
+  'redesign_hash_tamper',
+  'redesign_ref_tamper',
+  'fixture_metadata_tamper',
+  'source_fixture_co_tamper',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -703,8 +702,9 @@ function reviewedBlobCertificateConfig() {
     correction_candidate: CORRECTION_CANDIDATE_53C1,
     correction_cert_id: 'breakglass-53c1abcf',
     correction_basis: 'ff285598ac2cfec980e8316e772924a9c79a6a7e',
-    redesign_cert_id: 'breakglass-whole-path',
-    redesign_blobs: WHOLE_PATH_REDESIGN_BLOBS,
+    redesign_cert_id: redesignPin.REDESIGN_CERT_ID,
+    redesign_candidate_sha: redesignPin.REDESIGN_CANDIDATE_SHA,
+    redesign_paths: redesignPin.REDESIGN_PATHS,
   };
 }
 
@@ -741,6 +741,7 @@ function verifyReviewedBlobCertificatesAtTip(root, opts) {
     claimed_certificates: options.claimed_certificates,
     tip_sha: tipSha,
     branch_name: options.branch_name,
+    skip_anchor_validation: options.skip_anchor_validation === true,
   });
 }
 
@@ -1284,7 +1285,7 @@ module.exports = deepFreeze({
   REVIEWED_CANDIDATE,
   LANDING_TIP,
   CORRECTION_CANDIDATE_53C1,
-  WHOLE_PATH_REDESIGN_BLOBS,
+  redesignPin,
   PROGRESS_CLASS,
   WORKSTREAM_CLASS,
   FORTRESS_TIP,

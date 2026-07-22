@@ -8,6 +8,9 @@
  * stdout dry-run artifact and proves byte-identical regeneration with no side
  * effects. Milestone stages/gates may claim complete only after the independent
  * 1E verifier passes.
+ *
+ * Tip scope: immutable reviewed-candidate blob certificates (never
+ * base/landing-to-HEAD path allowlists).
  */
 
 function deepFreeze(value) {
@@ -21,6 +24,8 @@ function deepFreeze(value) {
 const SLICE = 'FACTORY-1E';
 const BRANCH = 'factory/slice-1e-finite-closeout';
 const MASTER_BASIS = 'e8452d178ad8f4b6aadc8b59b2d3032634952471';
+/** Exact reviewed 1E candidate (pre-squash tip of factory/slice-1e-finite-closeout). */
+const REVIEWED_CANDIDATE = '363722c8233bfce3b7c250ae994d3f2151cff96c';
 /** Fail-closed candidate range — bare working-tree `git diff --check` can miss committed trailing WS. */
 const RANGE_DIFF_CHECK_GATE = `git diff --check ${MASTER_BASIS}...HEAD`;
 const OUTCOME_ID = '1E_dry_run_proof_packaging_milestone_closeout';
@@ -40,37 +45,6 @@ const ARTIFACT_LOCK_REL =
 const CONTRACT_REL = 'fixtures/factory-client-productization/slice1e-contract.json';
 const FINDINGS_REL = 'fixtures/factory-client-productization/slice1e-findings.md';
 const HANDOFF_REL = 'fixtures/factory-client-productization/slice1e-operator-handoff.md';
-
-const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
-  'docs/FACTORY-CLIENT-PRODUCTIZATION.md',
-  'fixtures/factory-client-productization/',
-  'scripts/lib/factory-slice1a-acceptance-contract.js',
-  'scripts/lib/factory-slice1b-archetype-templates.js',
-  'scripts/lib/factory-slice1c-dry-run-generator.js',
-  'scripts/lib/factory-slice1d-integration-proof.js',
-  'scripts/lib/factory-slice1e-finite-closeout.js',
-  'scripts/verify-factory-slice1a-acceptance-contract.js',
-  'scripts/verify-factory-slice1b-archetype-templates.js',
-  'scripts/verify-factory-slice1c-dry-run-generator.js',
-  'scripts/verify-factory-slice1d-integration-proof.js',
-  'scripts/verify-factory-slice1e-finite-closeout.js',
-  'scripts/lib/messi-slice1a-acceptance-ledger.js',
-  'scripts/verify-messi-slice1a-acceptance-ledger.js',
-  'docs/MESSI-ACCEPTANCE-LEDGER.md',
-  'fixtures/messi-acceptance/',
-  // Forward-compat tip-allowlist for MESSI 1B FOUNDATION closeout (paths only).
-  'docs/FOUNDATION-FINITE-CLOSEOUT.md',
-  'fixtures/foundation-closeout/',
-  'scripts/lib/messi-slice1b-foundation-closeout.js',
-  'scripts/verify-messi-slice1b-foundation-closeout.js',
-  // Forward-compat tip-allowlist for MESSI 1D FORTRESS closeout (paths only).
-  'docs/FORTRESS-FINITE-CLOSEOUT.md',
-  'fixtures/fortress-closeout/',
-  'scripts/lib/messi-slice1d-fortress-closeout.js',
-  'scripts/verify-messi-slice1d-fortress-closeout.js',
-  'package.json',
-  'package-lock.json',
-]);
 
 const PACKAGE_JSON_ALLOWED_SCRIPT_KEY = 'verify:factory-slice1e-finite-closeout';
 const PACKAGE_JSON_ALLOWED_SCRIPT_VALUE =
@@ -223,7 +197,6 @@ function identityTextHasForbiddenToken(text) {
 deepFreeze(EVIDENCE_CLASSES);
 deepFreeze(EXISTING_REGRESSION_GATES);
 deepFreeze(EXISTING_REGRESSION_RETAINED_MASTER_RED);
-deepFreeze(ALLOWED_TIP_PATH_PREFIXES);
 deepFreeze(FORBIDDEN_IDENTITY_TOKENS);
 deepFreeze(LOCATION_IDS);
 deepFreeze(PROVES);
@@ -233,6 +206,7 @@ module.exports = Object.freeze({
   SLICE,
   BRANCH,
   MASTER_BASIS,
+  REVIEWED_CANDIDATE,
   RANGE_DIFF_CHECK_GATE,
   OUTCOME_ID,
   COMPLETION_EVIDENCE,
@@ -246,7 +220,6 @@ module.exports = Object.freeze({
   CONTRACT_REL,
   FINDINGS_REL,
   HANDOFF_REL,
-  ALLOWED_TIP_PATH_PREFIXES,
   PACKAGE_JSON_ALLOWED_SCRIPT_KEY,
   PACKAGE_JSON_ALLOWED_SCRIPT_VALUE,
   FORBIDDEN_IDENTITY_TOKENS,

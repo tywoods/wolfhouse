@@ -4,23 +4,27 @@
  * Immutable reviewed-candidate blob certificates.
  *
  * Replaces base/landing-to-HEAD path allowlists. Each certificate binds a
- * reviewed candidate commit to an exact path → content-sha256 map. Certificates
- * form an ordered chain: a later certificate may supersede earlier ones for
- * overlapping paths only when it declares those ids in `supersedes`.
+ * reviewed candidate commit to an exact path → content-sha256 map derived from
+ * that commit's Git tree. Certificates form an ordered chain: a later
+ * certificate may supersede earlier ones for overlapping paths only when it
+ * declares those ids in `supersedes`.
  *
- * Effective expected blobs are applied in chain order. Current tip/tree blobs
- * must match the effective map. Paths never mentioned by any certificate —
- * including arbitrary unrelated master commits before or after squash landings —
- * are irrelevant.
+ * Whole-path redesign is Git-anchored via breakglass-redesign-candidate-sha.js
+ * (never frozen_only, never trust-root from working-tree JSON). The metadata
+ * fixture may only mirror locked pin fields; it cannot supply blobs or redefine
+ * the candidate SHA.
  *
  * Fail-closed on: missing refs, certificate blob mismatches vs candidate tree,
  * altered path scope, undeclared/reordered supersession, changed protected
- * blobs at the tip, and branch-name spoofing (branch is never trusted).
+ * blobs at the tip, branch-name spoofing, fixture metadata drift, and any
+ * fixture `blobs` map (co-tamper surface).
  */
 
 const fs = require('fs');
 const crypto = require('crypto');
+const path = require('path');
 const { execSync, spawnSync } = require('child_process');
+const redesignPin = require('./breakglass-redesign-candidate-sha');
 
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -129,58 +133,10 @@ function buildCertificateFromCandidate(root, spec) {
   return { ok: errors.length === 0, errors, certificate: cert };
 }
 
-/**
- * Build certificate from frozen path→sha256 map (whole-path redesign content).
- * Optional candidate_sha, when present, must carry identical blobs.
- */
-function buildCertificateFromFrozenBlobs(root, spec) {
-  const id = String(spec.id || '').trim();
-  const supersedes = Object.freeze([...(spec.supersedes || [])].map(String));
-  const blobsIn = spec.blobs || {};
-  const paths = sortedPaths(spec.paths || Object.keys(blobsIn));
-  const errors = [];
-  if (!id) errors.push('certificate_missing_id');
-  const blobs = {};
-  for (const rel of paths) {
-    const expected = blobsIn[rel];
-    if (!expected || !/^[0-9a-f]{64}$/i.test(String(expected))) {
-      errors.push(`frozen_blob_missing_or_invalid:${rel}`);
-    } else {
-      blobs[rel] = String(expected).toLowerCase();
-    }
-  }
-  let candidateSha = null;
-  if (spec.candidate_sha) {
-    candidateSha = resolveCommitSha(root, spec.candidate_sha);
-    if (!candidateSha) {
-      errors.push(`missing_ref:reviewed_candidate:${spec.candidate_sha}`);
-    } else {
-      for (const rel of paths) {
-        const blob = gitBlobSha256AtCommit(root, candidateSha, rel);
-        if (!blob.ok) {
-          errors.push(`missing_blob_at_candidate:${rel}`);
-        } else if (blobs[rel] && blob.sha256 !== blobs[rel]) {
-          errors.push(`certificate_blob_mismatch:${rel}`);
-        }
-      }
-    }
-  }
-  const cert = deepFreeze({
-    id,
-    candidate_sha: candidateSha || String(spec.candidate_sha || ''),
-    frozen_only: true,
-    supersedes,
-    paths: Object.freeze(paths),
-    blobs: deepFreeze(blobs),
-  });
-  return { ok: errors.length === 0, errors, certificate: cert };
-}
-
 function freezeCertificate(spec) {
   return deepFreeze({
     id: String(spec.id),
     candidate_sha: String(spec.candidate_sha || ''),
-    frozen_only: spec.frozen_only === true,
     supersedes: Object.freeze([...(spec.supersedes || [])].map(String)),
     paths: Object.freeze(sortedPaths(spec.paths || Object.keys(spec.blobs || {}))),
     blobs: deepFreeze({ ...(spec.blobs || {}) }),
@@ -189,13 +145,16 @@ function freezeCertificate(spec) {
 
 /**
  * Verify one locked certificate against the candidate object store.
- * frozen_only certificates are content-addressed (no candidate ref required).
+ * Every certificate requires a resolvable candidate_sha (no frozen_only).
  */
 function verifyCertificateIdentity(root, cert) {
   const errors = [];
   const locked = freezeCertificate(cert);
   if (!locked.id) errors.push('certificate_missing_id');
   if (!locked.paths.length) errors.push(`certificate_empty_scope:${locked.id}`);
+  if (!locked.candidate_sha) {
+    errors.push(`missing_ref:reviewed_candidate:${locked.id}:empty`);
+  }
 
   const blobKeys = sortedPaths(Object.keys(locked.blobs || {}));
   if (!pathsEqual(blobKeys, locked.paths)) {
@@ -207,15 +166,6 @@ function verifyCertificateIdentity(root, cert) {
     if (!expected || !/^[0-9a-f]{64}$/i.test(String(expected))) {
       errors.push(`altered_certificate_scope:${locked.id}:missing_blob_entry:${rel}`);
     }
-  }
-
-  if (locked.frozen_only || !locked.candidate_sha) {
-    return {
-      ok: errors.length === 0,
-      errors,
-      certificate: locked,
-      candidateSha: null,
-    };
   }
 
   const candidateSha = resolveCommitSha(root, locked.candidate_sha);
@@ -268,9 +218,7 @@ function verifyCertificateChainOrder(certificates) {
     }
   }
 
-  // Overlapping paths require the later certificate to declare supersession of
-  // the immediately prior owner of that path.
-  const owners = new Map(); // path -> [cert ids in order]
+  const owners = new Map();
   for (const cert of certs) {
     for (const rel of cert.paths) {
       if (!owners.has(rel)) owners.set(rel, []);
@@ -336,11 +284,95 @@ function verifyEffectiveBlobsAtTip(root, certificates, tipSha) {
   };
 }
 
+function anchorFixtureAbs(root) {
+  const base = root || path.join(__dirname, '..', '..');
+  return path.join(base, redesignPin.ANCHOR_FIXTURE_REL);
+}
+
+/**
+ * Pure metadata validation (pin vs fixture object). Used by live verification
+ * and hostile REDs (fixture blobs / metadata / ref co-tamper).
+ */
+function validateWholePathRedesignAnchorData(pin, raw, root) {
+  const errors = [];
+  const locked = pin || redesignPin;
+  const pinSha = String(locked.REDESIGN_CANDIDATE_SHA || '').trim();
+  const activated = typeof locked.isRedesignActivated === 'function'
+    ? locked.isRedesignActivated()
+    : /^[0-9a-f]{40}$/i.test(pinSha);
+  const body = raw && typeof raw === 'object' ? raw : {};
+
+  if (Object.prototype.hasOwnProperty.call(body, 'blobs')) {
+    errors.push('fixture_blobs_forbidden:working_tree_json_cannot_redefine_trust_root');
+  }
+
+  if (body.id !== locked.REDESIGN_CERT_ID) {
+    errors.push(
+      `fixture_metadata_id_mismatch:got=${body.id}:locked=${locked.REDESIGN_CERT_ID}`,
+    );
+  }
+  if (body.correction_candidate_bound !== locked.CORRECTION_CANDIDATE_BOUND) {
+    errors.push('fixture_metadata_correction_ref_mismatch');
+  }
+  if (body.master_basis !== locked.MASTER_BASIS_BOUND) {
+    errors.push('fixture_metadata_master_basis_mismatch');
+  }
+  if (!pathsEqual(body.paths || [], locked.REDESIGN_PATHS)) {
+    errors.push('fixture_metadata_paths_mismatch');
+  }
+
+  const fixtureSha = String(body.candidate_sha || '').trim();
+  if (activated) {
+    if (fixtureSha !== pinSha) {
+      errors.push(
+        `fixture_metadata_candidate_sha_mismatch:got=${fixtureSha}:locked=${pinSha}`,
+      );
+    }
+    if (root && !resolveCommitSha(root, pinSha)) {
+      errors.push(`missing_ref:redesign_candidate:${pinSha}`);
+    }
+  } else if (fixtureSha) {
+    errors.push(
+      `fixture_metadata_candidate_sha_premature:got=${fixtureSha}:pin_inactive`,
+    );
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    activated,
+    pinSha: activated ? pinSha : '',
+    fixture: body,
+  };
+}
+
+/**
+ * Load + validate redesign metadata fixture against the hardcoded pin.
+ * Rejects any `blobs` map so working-tree JSON cannot redefine trust.
+ */
+function validateWholePathRedesignAnchor(root) {
+  const pinSha = String(redesignPin.REDESIGN_CANDIDATE_SHA || '').trim();
+  const activated = redesignPin.isRedesignActivated();
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(anchorFixtureAbs(root), 'utf8'));
+  } catch (err) {
+    return {
+      ok: false,
+      errors: [`whole_path_redesign_anchor_unreadable:${err.message}`],
+      activated,
+      pinSha,
+    };
+  }
+  return validateWholePathRedesignAnchorData(redesignPin, raw, root);
+}
+
 /**
  * Full chain verification against a tip commit.
  * opts.certificates — locked chain
  * opts.tip_sha — default HEAD
  * opts.claimed_certificates — optional forged chain (order/scope RED)
+ * opts.skip_anchor_validation — test-only
  */
 function verifyReviewedBlobCertificates(root, opts) {
   const options = opts || {};
@@ -350,6 +382,11 @@ function verifyReviewedBlobCertificates(root, opts) {
     : locked;
   const tipSha = options.tip_sha || 'HEAD';
   const errors = [];
+
+  if (!options.skip_anchor_validation) {
+    const anchor = validateWholePathRedesignAnchor(root);
+    if (!anchor.ok) errors.push(...anchor.errors);
+  }
 
   const orderLocked = verifyCertificateChainOrder(locked);
   if (!orderLocked.ok) errors.push(...orderLocked.errors);
@@ -395,9 +432,7 @@ function verifyReviewedBlobCertificates(root, opts) {
   const tip = verifyEffectiveBlobsAtTip(root, locked, tipSha);
   if (!tip.ok) errors.push(...tip.errors);
 
-  // Branch name is informational only — never consulted.
   if (Object.prototype.hasOwnProperty.call(options, 'branch_name')) {
-    // Explicit no-op binding so callers can pass branch without effect.
     void options.branch_name;
   }
 
@@ -426,14 +461,24 @@ function tipAcceptsCertificates(root, certificates, tipSha, _branchName) {
 }
 
 /**
+ * Certificates before the redesign cert — used for correction-tip subchain
+ * proofs and multi-squash topologies that land pre-redesign candidates.
+ */
+function certificatesBeforeRedesign(certificates) {
+  return (certificates || [])
+    .map(freezeCertificate)
+    .filter((c) => c.id !== redesignPin.REDESIGN_CERT_ID);
+}
+
+/**
  * RED topology helper: arbitrary unrelated commits before/after multiple
  * squash-like landings. Returns a tip SHA whose tree still matches the
  * effective certificate blobs when landings restore certified paths.
  */
 function makeMultiSquashUnrelatedTopology(root, certificates) {
-  const certs = (certificates || []).map(freezeCertificate);
-  const withCandidates = certs.filter((c) => c.candidate_sha && !c.frozen_only);
-  if (withCandidates.length < 2) {
+  const certs = (certificates || []).map(freezeCertificate)
+    .filter((c) => c.candidate_sha);
+  if (certs.length < 2) {
     throw new Error('need_at_least_two_candidate_certificates_for_topology');
   }
 
@@ -471,23 +516,20 @@ function makeMultiSquashUnrelatedTopology(root, certificates) {
     }).trim();
   }
 
-  const firstCand = resolveCommitSha(root, withCandidates[0].candidate_sha);
-  if (!firstCand) throw new Error(`missing_ref:${withCandidates[0].candidate_sha}`);
+  const firstCand = resolveCommitSha(root, certs[0].candidate_sha);
+  if (!firstCand) throw new Error(`missing_ref:${certs[0].candidate_sha}`);
 
-  // Orphan unrelated commit before any landing.
   const unrelatedBefore = commitTree(
     treeOf(firstCand),
     [],
     'topology-unrelated-before-landings',
   );
 
-  // Squash-like landings for each candidate certificate, with unrelated
-  // commits between landings.
   let tip = unrelatedBefore;
   const landings = [];
-  for (let i = 0; i < withCandidates.length; i += 1) {
-    const cand = resolveCommitSha(root, withCandidates[i].candidate_sha);
-    if (!cand) throw new Error(`missing_ref:${withCandidates[i].candidate_sha}`);
+  for (let i = 0; i < certs.length; i += 1) {
+    const cand = resolveCommitSha(root, certs[i].candidate_sha);
+    if (!cand) throw new Error(`missing_ref:${certs[i].candidate_sha}`);
     const unrelatedMid = commitTree(
       treeOf(tip),
       [tip],
@@ -497,15 +539,12 @@ function makeMultiSquashUnrelatedTopology(root, certificates) {
     const landing = commitTree(
       treeOf(cand),
       [tip],
-      `topology-squash-landing-${withCandidates[i].id}`,
+      `topology-squash-landing-${certs[i].id}`,
     );
     landings.push(landing);
     tip = landing;
   }
 
-  // Unrelated commit after final landing (same tree — certified blobs intact
-  // for candidate certificates; frozen_only redesign certs are checked against
-  // real HEAD separately).
   const unrelatedAfter = commitTree(
     treeOf(tip),
     [tip],
@@ -517,7 +556,7 @@ function makeMultiSquashUnrelatedTopology(root, certificates) {
     landings,
     unrelatedAfter,
     tipSha: unrelatedAfter,
-    candidateCertificates: withCandidates,
+    candidateCertificates: certs,
   };
 }
 
@@ -541,23 +580,26 @@ function deriveBlobs(root, candidateSha, paths) {
  *   1) reviewed slice candidate (basis..candidate paths)
  *   2) correction candidate snapshot (53c1abcf) superseding those paths
  *      plus any extra correction paths
- *   3) optional frozen whole-path redesign certificate
+ *   3) optional Git-anchored whole-path redesign certificate (pin SHA)
  */
 function buildSupersedingCertificateChain(root, config) {
   const cfg = config || {};
   const errors = [];
   const sliceId = String(cfg.slice_cert_id || 'slice-reviewed');
   const correctionId = String(cfg.correction_cert_id || 'breakglass-53c1abcf');
-  const redesignId = String(cfg.redesign_cert_id || 'breakglass-whole-path');
+  const redesignId = String(cfg.redesign_cert_id || redesignPin.REDESIGN_CERT_ID);
   const reviewed = String(cfg.reviewed_candidate || '');
   const basis = String(cfg.master_basis || '');
   const correction = String(cfg.correction_candidate || '');
+
+  const anchor = validateWholePathRedesignAnchor(root);
+  if (!anchor.ok) errors.push(...anchor.errors);
 
   const slicePaths = listDiffPaths(root, basis, reviewed);
   if (slicePaths === null) {
     return {
       ok: false,
-      errors: ['candidate_diff_failed'],
+      errors: ['candidate_diff_failed', ...errors],
       certificates: [],
     };
   }
@@ -587,18 +629,30 @@ function buildSupersedingCertificateChain(root, config) {
   if (c1.certificate) certificates.push(c1.certificate);
   if (c2.certificate) certificates.push(c2.certificate);
 
-  const redesignBlobs = cfg.redesign_blobs || null;
-  if (redesignBlobs && Object.keys(redesignBlobs).length > 0) {
-    const c3 = buildCertificateFromFrozenBlobs(root, {
-      id: redesignId,
-      candidate_sha: cfg.redesign_candidate_sha || '',
-      frozen_only: true,
-      supersedes: [correctionId],
-      paths: sortedPaths(Object.keys(redesignBlobs)),
-      blobs: redesignBlobs,
-    });
-    if (!c3.ok) errors.push(...c3.errors);
-    if (c3.certificate) certificates.push(c3.certificate);
+  const redesignSha = String(
+    cfg.redesign_candidate_sha || redesignPin.REDESIGN_CANDIDATE_SHA || '',
+  ).trim();
+  const redesignPaths = sortedPaths(
+    cfg.redesign_paths || redesignPin.REDESIGN_PATHS || [],
+  );
+
+  if (redesignSha && redesignPaths.length > 0) {
+    if (!/^[0-9a-f]{40}$/i.test(redesignSha)) {
+      errors.push(`redesign_candidate_sha_invalid:${redesignSha}`);
+    } else {
+      const c3 = buildCertificateFromCandidate(root, {
+        id: redesignId,
+        candidate_sha: redesignSha,
+        supersedes: [correctionId],
+        paths: redesignPaths,
+      });
+      if (!c3.ok) errors.push(...c3.errors);
+      if (c3.certificate) certificates.push(c3.certificate);
+    }
+  } else if (Object.prototype.hasOwnProperty.call(cfg, 'redesign_blobs')
+    && cfg.redesign_blobs
+    && Object.keys(cfg.redesign_blobs).length > 0) {
+    errors.push('frozen_only_redesign_blobs_forbidden:use_git_anchored_candidate');
   }
 
   const order = verifyCertificateChainOrder(certificates);
@@ -606,31 +660,23 @@ function buildSupersedingCertificateChain(root, config) {
 
   return {
     ok: errors.length === 0,
-    errors,
+    errors: [...new Set(errors)],
     certificates: order.certificates || certificates,
+    redesignActivated: Boolean(redesignSha),
   };
 }
 
 /**
- * Load whole-path redesign blobs from the external fixture (not self-hashed into
- * lock modules — breaks the lock-file self-hash cycle while still binding
- * correction candidate 53c1abcf and redesigned tip blobs).
+ * @deprecated Fixture is metadata-only; use validateWholePathRedesignAnchor.
+ * Retained name so call sites can migrate — returns empty object and never
+ * supplies trust-root blobs.
  */
 function loadWholePathRedesignBlobs(root) {
-  const abs = pathModuleJoin(root);
-  try {
-    const raw = JSON.parse(fs.readFileSync(abs, 'utf8'));
-    const blobs = raw && raw.blobs && typeof raw.blobs === 'object' ? raw.blobs : {};
-    return deepFreeze({ ...blobs });
-  } catch (err) {
-    throw new Error(`whole_path_redesign_blobs_fixture_unreadable:${err.message}`);
+  const anchor = validateWholePathRedesignAnchor(root);
+  if (!anchor.ok) {
+    throw new Error(`whole_path_redesign_anchor_invalid:${anchor.errors.join(';')}`);
   }
-}
-
-function pathModuleJoin(root) {
-  const path = require('path');
-  const base = root || path.join(__dirname, '..', '..');
-  return path.join(base, 'fixtures', 'messi-acceptance', 'breakglass-whole-path-blobs.json');
+  return deepFreeze({});
 }
 
 module.exports = deepFreeze({
@@ -642,18 +688,21 @@ module.exports = deepFreeze({
   sortedPaths,
   pathsEqual,
   buildCertificateFromCandidate,
-  buildCertificateFromFrozenBlobs,
   freezeCertificate,
   verifyCertificateIdentity,
   verifyCertificateChainOrder,
   effectiveBlobMap,
   verifyEffectiveBlobsAtTip,
+  validateWholePathRedesignAnchor,
+  validateWholePathRedesignAnchorData,
   verifyReviewedBlobCertificates,
   tipAcceptsCertificates,
+  certificatesBeforeRedesign,
   makeMultiSquashUnrelatedTopology,
   deriveBlobs,
   buildSupersedingCertificateChain,
   loadWholePathRedesignBlobs,
-  WHOLE_PATH_BLOBS_FIXTURE_REL:
-    'fixtures/messi-acceptance/breakglass-whole-path-blobs.json',
+  WHOLE_PATH_BLOBS_FIXTURE_REL: redesignPin.ANCHOR_FIXTURE_REL,
+  REDESIGN_CERT_ID: redesignPin.REDESIGN_CERT_ID,
+  redesignPin,
 });
