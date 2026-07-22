@@ -166,7 +166,7 @@
     "fixtures/fortress-closeout/contract.json": "8801c4a5a198231ccd5c29b1e28b3bd0194a8a06fcd9ac7ee18cef5f652800e7",
     "fixtures/fortress-closeout/findings.md": "5b57d89556f490697d72ae75348e468692a4c1df6a01434f3bb3c881ecb8da1b",
     "scripts/lib/messi-slice1d-fortress-closeout.js": "430ca871a50caa033c2158c9e2f8c747721dbfb7a2874f13331e43bb63a1c1a8",
-    "scripts/verify-messi-slice1d-fortress-closeout.js": "c77bb6eda562914bad38b25b099232e8550a16d6115a92d67bc4923e625a3634",
+    "scripts/verify-messi-slice1d-fortress-closeout.js": "4caed4a6e62bd5b461baa2b0b908b0a5a925eecf44934c0fbe4a2fee698f1953",
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md": "c3aac5ad4a083868a3350a5ca099447faed0f016f3ee92570997e2533747e5d9",
     "fixtures/radar-operations/slice16ap-finite-closeout.json": "158e3418cc573852780766cc78dafdfa427a3e9a27e0a14e3036266bde91ece2",
     "fixtures/radar-operations/slice16ap-expected-contract.json": "ad856cfe50b1eb8f6a535bdc137ec4a23daa6d89d8bcd0b2a4b90103a95f8621",

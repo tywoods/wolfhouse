@@ -545,7 +545,7 @@ const BOUND_FILE_HASHES = Object.freeze({
   'scripts/lib/messi-slice1d-fortress-closeout.js':
     '430ca871a50caa033c2158c9e2f8c747721dbfb7a2874f13331e43bb63a1c1a8',
   'scripts/verify-messi-slice1d-fortress-closeout.js':
-    'c77bb6eda562914bad38b25b099232e8550a16d6115a92d67bc4923e625a3634',
+    '4caed4a6e62bd5b461baa2b0b908b0a5a925eecf44934c0fbe4a2fee698f1953',
   'docs/RADAR-OPERATIONS-GATE-LEDGER.md':
     'c3aac5ad4a083868a3350a5ca099447faed0f016f3ee92570997e2533747e5d9',
   'fixtures/radar-operations/slice16ap-finite-closeout.json':

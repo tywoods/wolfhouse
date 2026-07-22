@@ -93,88 +93,83 @@ function runtimePathsUnchanged() {
 
 function messiLedgerSemanticsUntouched() {
   try {
-    // 1D must not rewrite MESSI ledger semantics vs its master basis.
-    // Tip-scope hash rebinds on forward-compat allowlist files are checked
-    // separately; semantic keys/gates/parents must stay frozen.
+    // Prove 1D itself did not rewrite MESSI ledger semantics: compare the
+    // ledger at 1D master basis vs the locked 1D landing tip. Later MESSI
+    // slices (1E+) may wire FORTRESS into the canonical ledger — that is
+    // not a 1D regression and must not fail this green when re-run nested.
     const ledgerBase = JSON.parse(execSync(
       `git show ${locks.MASTER_BASIS}:fixtures/messi-acceptance/slice1a-ledger.json`,
       { cwd: ROOT, encoding: 'utf8' },
     ));
-    const ledgerNow = JSON.parse(
-      fs.readFileSync(path.join(ROOT, 'fixtures/messi-acceptance/slice1a-ledger.json'), 'utf8'),
-    );
+    const ledgerAtLanding = JSON.parse(execSync(
+      `git show ${locks.LANDING_TIP}:fixtures/messi-acceptance/slice1a-ledger.json`,
+      { cwd: ROOT, encoding: 'utf8' },
+    ));
     const keys = [
       'slice', 'outcome_id', 'branch', 'master_basis', 'progress_class',
       'messi_complete', 'production_ready', 'frozen_messi_score',
       'radar_formal_score', 'fortress_matrix_counts', 'gate_ids',
     ];
     for (const k of keys) {
-      if (!locks.deepEqual(ledgerNow[k], ledgerBase[k])) {
-        return { ok: false, detail: `semantic_drift:${k}` };
+      if (!locks.deepEqual(ledgerAtLanding[k], ledgerBase[k])) {
+        return { ok: false, detail: `semantic_drift_in_1d_tip:${k}` };
       }
     }
-    if (!Array.isArray(ledgerNow.parents) || !Array.isArray(ledgerBase.parents)) {
+    if (!Array.isArray(ledgerAtLanding.parents) || !Array.isArray(ledgerBase.parents)) {
       return { ok: false, detail: 'parents_missing' };
     }
-    if (ledgerNow.parents.length !== ledgerBase.parents.length) {
+    if (ledgerAtLanding.parents.length !== ledgerBase.parents.length) {
       return { ok: false, detail: 'parents_length' };
     }
     for (let i = 0; i < ledgerBase.parents.length; i += 1) {
       const a = ledgerBase.parents[i];
-      const b = ledgerNow.parents[i];
+      const b = ledgerAtLanding.parents[i];
       for (const k of [
         'id', 'tip_slice', 'outcome_id', 'canonical_tip', 'candidate_sha',
         'workstream_class', 'finite_closeout_analog', 'production_readiness',
         'npm_script', 'missing_proof_for_complete',
       ]) {
         if (!locks.deepEqual(a[k], b[k])) {
-          return { ok: false, detail: `parent_semantic_drift:${a.id}:${k}` };
+          return { ok: false, detail: `parent_semantic_drift_in_1d_tip:${a.id}:${k}` };
         }
       }
     }
-    if (!locks.deepEqual(ledgerNow.gates, ledgerBase.gates)) {
-      return { ok: false, detail: 'gates_semantic_drift' };
+    if (!locks.deepEqual(ledgerAtLanding.gates, ledgerBase.gates)) {
+      return { ok: false, detail: 'gates_semantic_drift_in_1d_tip' };
     }
-    if (!locks.deepEqual(ledgerNow.score, ledgerBase.score)) {
-      return { ok: false, detail: 'score_semantic_drift' };
+    if (!locks.deepEqual(ledgerAtLanding.score, ledgerBase.score)) {
+      return { ok: false, detail: 'score_semantic_drift_in_1d_tip' };
     }
-    // Doc / findings must stay byte-identical for this disposition slice.
-    // Contract may drop tip_scope_forward_compat_rels (path-allowlist removal)
-    // and rebind bound hashes; semantic keys must stay frozen.
-    for (const rel of [
-      'docs/MESSI-ACCEPTANCE-LEDGER.md',
-      'fixtures/messi-acceptance/slice1a-findings.md',
-    ]) {
-      const base = execSync(`git show ${locks.MASTER_BASIS}:${rel}`, {
-        cwd: ROOT,
-        encoding: 'buffer',
-        maxBuffer: 32 * 1024 * 1024,
-      });
-      const now = fs.readFileSync(path.join(ROOT, rel));
-      if (Buffer.compare(base, now) !== 0) {
-        return { ok: false, detail: `doc_or_contract_changed:${rel}` };
-      }
+    // Contract may drop tip_scope_forward_compat_rels at landing; compare
+    // docs/findings byte-identity and contract semantic keys at 1D tip only.
+    const docDiff = execSync(
+      `git diff --name-only ${locks.MASTER_BASIS} ${locks.LANDING_TIP} -- docs/MESSI-ACCEPTANCE-LEDGER.md fixtures/messi-acceptance/slice1a-findings.md`,
+      { cwd: ROOT, encoding: 'utf8' },
+    ).trim();
+    if (docDiff) {
+      return { ok: false, detail: `docs_changed_in_1d_tip:${docDiff}` };
     }
     {
       const contractBase = JSON.parse(execSync(
         `git show ${locks.MASTER_BASIS}:fixtures/messi-acceptance/slice1a-contract.json`,
         { cwd: ROOT, encoding: 'utf8' },
       ));
-      const contractNow = JSON.parse(
-        fs.readFileSync(path.join(ROOT, 'fixtures/messi-acceptance/slice1a-contract.json'), 'utf8'),
-      );
+      const contractAtLanding = JSON.parse(execSync(
+        `git show ${locks.LANDING_TIP}:fixtures/messi-acceptance/slice1a-contract.json`,
+        { cwd: ROOT, encoding: 'utf8' },
+      ));
       const contractKeys = [
         'slice', 'outcome_id', 'branch', 'master_basis', 'progress_class',
         'messi_complete', 'production_ready', 'frozen_messi_score',
         'radar_formal_score', 'fortress_matrix_counts', 'gate_ids', 'parents',
       ];
       for (const k of contractKeys) {
-        if (!locks.deepEqual(contractNow[k], contractBase[k])) {
-          return { ok: false, detail: `contract_semantic_drift:${k}` };
+        if (!locks.deepEqual(contractAtLanding[k], contractBase[k])) {
+          return { ok: false, detail: `contract_semantic_drift_in_1d_tip:${k}` };
         }
       }
     }
-    return { ok: true, detail: '(1D left MESSI ledger semantics frozen; hash rebinds only allowed)' };
+    return { ok: true, detail: '(1D tip left MESSI ledger semantics frozen; later wiring allowed)' };
   } catch (err) {
     return { ok: false, detail: String(err && err.message) };
   }
