@@ -31,8 +31,10 @@ const {
   createProspect,
   decideProspect,
   getCrmSyncPreview,
+  getCurrentOutreachDraft,
   getLatestCrmReviewMark,
   getLatestQualification,
+  getOutreachDraftWorkspace,
   getProspect,
   getResearchForProspect,
   listAuditEvents,
@@ -44,6 +46,7 @@ const {
   normalizeReviewQueueFilter,
   recordManualEvidence,
   recordQualification,
+  saveOutreachDraft,
 } = require('./lib/crowsnest/crowsnest-sales');
 const {
   isSalesStoreUnavailableError,
@@ -283,6 +286,10 @@ function parseSalesFormBody(body) {
     qualification_decision: String(params.get('qualification_decision') || ''),
     rationale: String(params.get('rationale') || ''),
     evidence_ids: params.getAll('evidence_ids').map((id) => String(id || '').trim()).filter(Boolean),
+    subject: String(params.get('subject') || ''),
+    body: String(params.get('body') || ''),
+    channel: String(params.get('channel') || ''),
+    next_step_note: String(params.get('next_step_note') || ''),
   };
 }
 
@@ -332,6 +339,11 @@ function matchSalesCrmReadyPath(pathname) {
   return match ? match[1] : null;
 }
 
+function matchSalesOutreachDraftPath(pathname) {
+  const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)\/outreach-draft$/.exec(String(pathname || ''));
+  return match ? match[1] : null;
+}
+
 async function loadSalesDetailPageOptions(prospectId, extra = {}) {
   const prospect = await getProspect(prospectId);
   if (!prospect) {
@@ -344,6 +356,7 @@ async function loadSalesDetailPageOptions(prospectId, extra = {}) {
   const qualificationAssessments = await listQualificationsForProspect(prospectId);
   const latestQualification = await getLatestQualification(prospectId);
   const latestCrmReviewMark = await getLatestCrmReviewMark(prospectId);
+  const currentOutreachDraft = await getCurrentOutreachDraft(prospectId);
   return {
     prospect,
     research,
@@ -351,6 +364,9 @@ async function loadSalesDetailPageOptions(prospectId, extra = {}) {
     qualificationAssessments,
     latestQualification,
     latestCrmReviewMark,
+    currentOutreachDraft,
+    draftReady: Boolean(latestCrmReviewMark),
+    draftPresent: Boolean(currentOutreachDraft),
     auditEvents: await listAuditEvents(prospectId),
     ...extra,
   };
@@ -1114,6 +1130,177 @@ async function handleSalesCrmReady(req, res, method, prospectId) {
   return sendRedirect(res, previewPath, { 'Cache-Control': 'no-store' });
 }
 
+async function handleSalesOutreachDraft(req, res, method, prospectId) {
+  if (method !== 'GET' && method !== 'HEAD' && method !== 'POST') {
+    return sendMethodNotAllowed(res, 'GET, HEAD, POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+
+  const draftPath = `/sales/prospects/${prospectId}/outreach-draft`;
+
+  async function redisplay(status, error, formValues = {}) {
+    const pageOptions = await loadSalesDetailPageOptions(prospectId, {
+      outreachDraftError: error,
+      ...formValues,
+    });
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      status,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_detail',
+        ...pageOptions,
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+
+  if (method === 'GET' || method === 'HEAD') {
+    if (method === 'HEAD') {
+      return sendNoContentLike(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    }
+    try {
+      const result = await getOutreachDraftWorkspace(prospectId);
+      if (isSalesStoreFailure(result)) {
+        return sendSalesStoreFailure(res, result);
+      }
+      if (!result.ok) {
+        const status = result.status || 400;
+        if (status === 404) {
+          return sendJSON(res, 404, { success: false, error: 'not found' });
+        }
+        return redisplay(status, result.error);
+      }
+
+      const cspNonce = createBrowserCspNonce();
+      return sendHTML(
+        res,
+        200,
+        renderCrowsnestPage({
+          cspNonce,
+          view: 'sales_outreach_draft',
+          prospect: result.prospect,
+          latestCrmReviewMark: result.latestCrmReviewMark,
+          currentOutreachDraft: result.currentDraft,
+          outreachDraftRevisions: result.revisions,
+          draftReady: result.draft_ready,
+          draftPresent: result.draft_present,
+          auditEvents: await listAuditEvents(prospectId),
+        }),
+        { 'Cache-Control': 'no-store' },
+        cspNonce,
+      );
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
+  }
+
+  // POST — create/edit current draft (append revision)
+  if (!hasLoginFormContentType(req)) {
+    try {
+      return await redisplay(400, 'Subject is required.');
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
+  }
+
+  let body;
+  try {
+    body = await readLimitedBody(req, getCrowsnestLoginBodyLimit());
+  } catch (err) {
+    if (err && err.message === 'body too large') {
+      return sendPayloadTooLarge(res);
+    }
+    try {
+      return await redisplay(400, 'Subject is required.');
+    } catch (listErr) {
+      if (isSalesUnavailableFailure(listErr)) {
+        return sendSalesUnavailable(res);
+      }
+      throw listErr;
+    }
+  }
+
+  const fields = parseSalesFormBody(body);
+  const actor = resolveOperatorActor(req);
+  let result;
+  try {
+    result = await saveOutreachDraft(prospectId, {
+      subject: fields.subject,
+      body: fields.body,
+      channel: fields.channel,
+      next_step_note: fields.next_step_note,
+    }, actor);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+
+  if (!result.ok) {
+    if (isSalesUnavailableFailure(result)) {
+      return sendSalesUnavailable(res);
+    }
+    const status = result.status || 400;
+    if (status === 404) {
+      return sendJSON(res, 404, { success: false, error: 'not found' });
+    }
+    try {
+      // If CRM-ready, redisplay workspace with error; otherwise detail with gate error.
+      const workspace = await getOutreachDraftWorkspace(prospectId);
+      if (workspace && workspace.ok) {
+        const cspNonce = createBrowserCspNonce();
+        return sendHTML(
+          res,
+          status,
+          renderCrowsnestPage({
+            cspNonce,
+            view: 'sales_outreach_draft',
+            prospect: workspace.prospect,
+            latestCrmReviewMark: workspace.latestCrmReviewMark,
+            currentOutreachDraft: workspace.currentDraft,
+            outreachDraftRevisions: workspace.revisions,
+            draftReady: workspace.draft_ready,
+            draftPresent: workspace.draft_present,
+            outreachDraftError: result.error,
+            outreachDraftSubject: fields.subject,
+            outreachDraftBody: fields.body,
+            outreachDraftChannel: fields.channel,
+            outreachDraftNextStepNote: fields.next_step_note,
+            auditEvents: await listAuditEvents(prospectId),
+          }),
+          { 'Cache-Control': 'no-store' },
+          cspNonce,
+        );
+      }
+      return await redisplay(status, result.error, {
+        outreachDraftSubject: fields.subject,
+        outreachDraftBody: fields.body,
+        outreachDraftChannel: fields.channel,
+        outreachDraftNextStepNote: fields.next_step_note,
+      });
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
+  }
+
+  return sendRedirect(res, draftPath, { 'Cache-Control': 'no-store' });
+}
+
 async function router(req, res) {
   clearExpiredCrowsnestSessions();
   const pathname = getRequestPath(req);
@@ -1172,6 +1359,11 @@ async function router(req, res) {
   const crmReadyProspectId = matchSalesCrmReadyPath(pathname);
   if (crmReadyProspectId) {
     return handleSalesCrmReady(req, res, method, crmReadyProspectId);
+  }
+
+  const outreachDraftProspectId = matchSalesOutreachDraftPath(pathname);
+  if (outreachDraftProspectId) {
+    return handleSalesOutreachDraft(req, res, method, outreachDraftProspectId);
   }
 
   const detailProspectId = matchSalesProspectDetailPath(pathname);

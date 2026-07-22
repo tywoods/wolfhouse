@@ -2,14 +2,17 @@
 
 /**
  * Crowsnest Luna Sales — prospects, fixture research, manual evidence, qualification,
- * CRM sync preview (provider-neutral), CRM review readiness, decisions, audit.
+ * CRM sync preview (provider-neutral), CRM review readiness, outreach drafts,
+ * decisions, audit.
  *
  * Persistence goes through crowsnest-sales-store (dedicated CROWSNEST_SALES_DATABASE_URL).
  * In-memory fallback is explicit for non-production/test when the durable DSN is absent.
  * Production without the dedicated DSN fails closed on Sales mutations.
  *
  * Chapter 5 builds a CRM sync *preview* and manual "ready for CRM review" mark only —
- * no CRM provider SDK/HTTP/env keys, no automatic writes, no outreach.
+ * no CRM provider SDK/HTTP/env keys, no automatic writes.
+ * Chapter 6 adds manual internal outreach drafts only — no SMTP/WhatsApp/LinkedIn/HubSpot
+ * send, no webhooks, no auto-generation.
  */
 
 const {
@@ -39,6 +42,16 @@ const QUALIFICATION_BOUNDS = {
   rationaleMax: 2000,
   maxEvidenceRefs: 40,
 };
+
+const ALLOWED_OUTREACH_CHANNELS = new Set(['email', 'linkedin', 'other']);
+
+const OUTREACH_DRAFT_BOUNDS = {
+  subjectMax: 500,
+  bodyMax: 10000,
+  nextStepNoteMax: 2000,
+};
+
+const OUTREACH_DRAFT_DISCLAIMER = 'Draft only — no message has been sent.';
 
 /** Accepted future CRM Company mapping (provider-neutral domain terms). */
 const CRM_PREVIEW_LIFECYCLE_STAGE = 'Lead';
@@ -311,6 +324,70 @@ function validateQualification(input = {}, availableEvidenceIds = []) {
     decision,
     rationale,
     evidence_ids: unique,
+  };
+}
+
+function validateOutreachDraft(input = {}) {
+  const subject = String(input.subject || '').trim();
+  const body = String(input.body || '').replace(/\r\n/g, '\n').trim();
+  const channel = String(input.channel || '').trim().toLowerCase();
+  const nextStepNote = String(
+    input.next_step_note != null ? input.next_step_note : (input.nextStepNote || ''),
+  ).trim();
+
+  if (!subject) {
+    return { ok: false, error: 'Subject is required.' };
+  }
+  if (subject.length > OUTREACH_DRAFT_BOUNDS.subjectMax) {
+    return {
+      ok: false,
+      error: `Subject must be at most ${OUTREACH_DRAFT_BOUNDS.subjectMax} characters.`,
+    };
+  }
+  if (!body) {
+    return { ok: false, error: 'Body is required.' };
+  }
+  if (body.length > OUTREACH_DRAFT_BOUNDS.bodyMax) {
+    return {
+      ok: false,
+      error: `Body must be at most ${OUTREACH_DRAFT_BOUNDS.bodyMax} characters.`,
+    };
+  }
+  if (!ALLOWED_OUTREACH_CHANNELS.has(channel)) {
+    return {
+      ok: false,
+      error: 'Channel must be email, linkedin, or other.',
+    };
+  }
+  if (!nextStepNote) {
+    return { ok: false, error: 'A clear next-step note is required.' };
+  }
+  if (nextStepNote.length > OUTREACH_DRAFT_BOUNDS.nextStepNoteMax) {
+    return {
+      ok: false,
+      error: `Next-step note must be at most ${OUTREACH_DRAFT_BOUNDS.nextStepNoteMax} characters.`,
+    };
+  }
+
+  return {
+    ok: true,
+    draft: {
+      subject,
+      body,
+      channel,
+      next_step_note: nextStepNote,
+      message_sent: false,
+      disclaimer: OUTREACH_DRAFT_DISCLAIMER,
+    },
+  };
+}
+
+function decorateOutreachDraft(revision) {
+  if (!revision) return null;
+  return {
+    ...revision,
+    message_sent: false,
+    disclaimer: OUTREACH_DRAFT_DISCLAIMER,
   };
 }
 
@@ -770,6 +847,194 @@ async function markReadyForCrmReview(prospectId, actor = 'Admin') {
   }
 }
 
+async function listOutreachDraftRevisionsForProspect(id) {
+  const repo = await getRepository();
+  if (typeof repo.listOutreachDraftRevisionsForProspect === 'function') {
+    const list = await repo.listOutreachDraftRevisionsForProspect(id);
+    return (Array.isArray(list) ? list : []).map(decorateOutreachDraft);
+  }
+  return [];
+}
+
+async function getCurrentOutreachDraft(id) {
+  const repo = await getRepository();
+  if (typeof repo.getCurrentOutreachDraftRevision === 'function') {
+    return decorateOutreachDraft(await repo.getCurrentOutreachDraftRevision(id));
+  }
+  const list = await listOutreachDraftRevisionsForProspect(id);
+  return list.length ? list[0] : null;
+}
+
+async function getOutreachDraftWorkspace(prospectId) {
+  try {
+    const repo = await getRepository();
+    if (repo.backend === 'fail_closed') {
+      if (typeof repo.getCurrentOutreachDraftRevision === 'function') {
+        const closed = await repo.getCurrentOutreachDraftRevision(prospectId);
+        if (closed && closed.ok === false) return closed;
+      }
+      return {
+        ok: false,
+        status: 503,
+        code: 'sales_store_misconfigured',
+        error: 'Crowsnest Sales durable store is not configured.',
+      };
+    }
+
+    const prospect = await repo.getProspect(prospectId);
+    if (!prospect) {
+      return { ok: false, error: 'Prospect not found.', status: 404 };
+    }
+
+    const latestCrmReviewMark = typeof repo.getLatestCrmReviewMark === 'function'
+      ? await repo.getLatestCrmReviewMark(prospect.id)
+      : null;
+    const draftReady = Boolean(latestCrmReviewMark && latestCrmReviewMark.id);
+    if (!draftReady) {
+      return {
+        ok: false,
+        error: 'Outreach drafts require the prospect to be marked CRM-ready.',
+        status: 400,
+        prospect,
+        draft_ready: false,
+        draft_present: false,
+        currentDraft: null,
+        revisions: [],
+        latestCrmReviewMark: null,
+      };
+    }
+
+    const revisions = typeof repo.listOutreachDraftRevisionsForProspect === 'function'
+      ? (await repo.listOutreachDraftRevisionsForProspect(prospect.id)).map(decorateOutreachDraft)
+      : [];
+    const currentDraft = revisions.length ? revisions[0] : null;
+
+    return {
+      ok: true,
+      prospect,
+      latestCrmReviewMark,
+      draft_ready: true,
+      draft_present: Boolean(currentDraft),
+      currentDraft,
+      revisions,
+      disclaimer: OUTREACH_DRAFT_DISCLAIMER,
+    };
+  } catch (err) {
+    if (isSalesStoreUnavailableError(err)) {
+      return salesUnavailableResult();
+    }
+    throw err;
+  }
+}
+
+async function saveOutreachDraft(prospectId, input = {}, actor = 'Admin') {
+  try {
+    const repo = await getRepository();
+    if (repo.backend === 'fail_closed') {
+      return typeof repo.saveOutreachDraftRevision === 'function'
+        ? repo.saveOutreachDraftRevision({})
+        : {
+          ok: false,
+          status: 503,
+          code: 'sales_store_misconfigured',
+          error: 'Crowsnest Sales durable store is not configured.',
+        };
+    }
+
+    const prospect = await repo.getProspect(prospectId);
+    if (!prospect) {
+      return { ok: false, error: 'Prospect not found.', status: 404 };
+    }
+
+    const latestCrmReviewMark = typeof repo.getLatestCrmReviewMark === 'function'
+      ? await repo.getLatestCrmReviewMark(prospect.id)
+      : null;
+    if (!latestCrmReviewMark || !latestCrmReviewMark.id) {
+      return {
+        ok: false,
+        error: 'Outreach drafts require the prospect to be marked CRM-ready.',
+        status: 400,
+      };
+    }
+
+    const validated = validateOutreachDraft(input);
+    if (!validated.ok) {
+      return { ok: false, error: validated.error, status: 400 };
+    }
+
+    let revisionNumber = 1;
+    if (typeof repo.getNextOutreachDraftRevisionNumber === 'function') {
+      const next = await repo.getNextOutreachDraftRevisionNumber(prospect.id);
+      if (next && typeof next === 'object' && next.ok === false) {
+        return next;
+      }
+      revisionNumber = Number(next) || 1;
+    } else if (typeof repo.listOutreachDraftRevisionsForProspect === 'function') {
+      const existing = await repo.listOutreachDraftRevisionsForProspect(prospect.id);
+      let max = 0;
+      for (const row of existing || []) {
+        const n = Number(row.revision_number) || 0;
+        if (n > max) max = n;
+      }
+      revisionNumber = max + 1;
+    }
+
+    const revision = {
+      id: newSalesUuid(),
+      prospect_id: prospect.id,
+      revision_number: revisionNumber,
+      subject: validated.draft.subject,
+      body: validated.draft.body,
+      channel: validated.draft.channel,
+      next_step_note: validated.draft.next_step_note,
+      author_id: String(actor || 'Admin'),
+      created_at: nowIso(),
+      message_sent: false,
+      disclaimer: OUTREACH_DRAFT_DISCLAIMER,
+    };
+
+    const saved = await repo.saveOutreachDraftRevision(revision);
+    if (saved && saved.ok === false) {
+      return saved;
+    }
+
+    const draft = decorateOutreachDraft((saved && saved.revision) || revision);
+
+    const audit = await appendAudit({
+      actor: String(actor || 'Admin'),
+      action: 'outreach_draft_saved',
+      entity_type: 'outreach_draft',
+      entity_id: draft.id,
+      detail: {
+        prospect_id: prospect.id,
+        revision_id: draft.id,
+        revision_number: draft.revision_number,
+        subject: draft.subject,
+        channel: draft.channel,
+        next_step_note: draft.next_step_note,
+        author_id: draft.author_id,
+        message_sent: false,
+        crm_review_mark_id: latestCrmReviewMark.id,
+      },
+    });
+    if (audit && audit.ok === false) {
+      return audit;
+    }
+
+    return {
+      ok: true,
+      draft,
+      audit,
+      latestCrmReviewMark,
+    };
+  } catch (err) {
+    if (isSalesStoreUnavailableError(err)) {
+      return salesUnavailableResult();
+    }
+    throw err;
+  }
+}
+
 function isActionableReviewBucket(bucket) {
   return ACTIONABLE_REVIEW_BUCKETS.has(String(bucket || ''));
 }
@@ -816,6 +1081,10 @@ function buildReviewQueueItem(summary = {}) {
     ? summary.latest_qualification_decision
     : null;
   const crmReady = isCrmReadyFlag(summary);
+  const draftPresent = summary.draft_present === true
+    || Boolean(summary.latest_outreach_draft_at)
+    || Boolean(summary.current_outreach_draft_id);
+  const draftReady = summary.draft_ready === true || crmReady;
   const bucket = assignReviewBucket({
     evidence_count: evidenceCount,
     latest_qualification_decision: latestDecision,
@@ -833,6 +1102,7 @@ function buildReviewQueueItem(summary = {}) {
       summary.updated_at,
       summary.latest_qualification_at,
       summary.latest_crm_review_mark_at,
+      summary.latest_outreach_draft_at,
     ]);
 
   return {
@@ -851,6 +1121,13 @@ function buildReviewQueueItem(summary = {}) {
       ? (summary.latest_crm_review_mark_at instanceof Date
         ? summary.latest_crm_review_mark_at.toISOString()
         : String(summary.latest_crm_review_mark_at))
+      : null,
+    draft_ready: draftReady,
+    draft_present: draftPresent,
+    latest_outreach_draft_at: summary.latest_outreach_draft_at
+      ? (summary.latest_outreach_draft_at instanceof Date
+        ? summary.latest_outreach_draft_at.toISOString()
+        : String(summary.latest_outreach_draft_at))
       : null,
     most_recent_activity: mostRecentActivity,
     bucket,
@@ -1174,12 +1451,15 @@ function getSalesStoreMode() {
 module.exports = {
   ALLOWED_DECISIONS,
   ALLOWED_EVIDENCE_CONFIDENCE,
+  ALLOWED_OUTREACH_CHANNELS,
   ALLOWED_QUALIFICATION_DECISIONS,
   ACTIONABLE_REVIEW_BUCKETS,
   CRM_PREVIEW_LIFECYCLE_STAGE,
   CRM_PREVIEW_STATUS_PROPERTY,
   CRM_PREVIEW_STATUS_VALUE,
   EVIDENCE_BOUNDS,
+  OUTREACH_DRAFT_BOUNDS,
+  OUTREACH_DRAFT_DISCLAIMER,
   QUALIFICATION_BOUNDS,
   REVIEW_QUEUE_FILTERS,
   appendAudit,
@@ -1191,14 +1471,17 @@ module.exports = {
   extractCompanyDomain,
   filterReviewQueueItems,
   getCrmSyncPreview,
+  getCurrentOutreachDraft,
   getLatestCrmReviewMark,
   getLatestQualification,
+  getOutreachDraftWorkspace,
   getProspect,
   getResearchForProspect,
   getSalesStoreMode,
   isActionableReviewBucket,
   listAuditEvents,
   listCrmReviewMarksForProspect,
+  listOutreachDraftRevisionsForProspect,
   listProspects,
   listQualificationsForProspect,
   listResearchForProspect,
@@ -1208,9 +1491,11 @@ module.exports = {
   recordManualEvidence,
   recordQualification,
   resetSalesStore,
+  saveOutreachDraft,
   sortReviewQueueItems,
   validateManualEvidence,
   validateManualIntake,
+  validateOutreachDraft,
   validateQualification,
   _setSalesRepositoryForTests,
 };

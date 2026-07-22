@@ -840,7 +840,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
 }
 `;
 
-const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail', 'sales_review', 'sales_crm_preview']);
+const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail', 'sales_review', 'sales_crm_preview', 'sales_outreach_draft']);
 
 const CROWSNEST_NAV_ITEMS = [
   { view: 'spyglass', href: '/', label: 'Spyglass' },
@@ -856,7 +856,7 @@ function normalizeCrowsnestView(raw) {
 }
 
 function navActiveView(view) {
-  return (view === 'sales_detail' || view === 'sales_review' || view === 'sales_crm_preview') ? 'sales' : view;
+  return (view === 'sales_detail' || view === 'sales_review' || view === 'sales_crm_preview' || view === 'sales_outreach_draft') ? 'sales' : view;
 }
 
 function renderCrowsnestNav(activeView) {
@@ -1184,6 +1184,8 @@ function renderReviewQueueItems(items) {
     const qual = item.latest_qualification_decision
       ? `<code>${escapeHtml(item.latest_qualification_decision)}</code>`
       : '<code>none</code>';
+    const draftReadyLabel = item.draft_ready ? 'Yes' : 'No';
+    const draftPresentLabel = item.draft_present ? 'Yes' : 'No';
     return `<li class="card review-queue-item">
         <p><a href="/sales/prospects/${escapeHtml(item.id)}">${escapeHtml(name)}</a></p>
         <div class="review-queue-meta">
@@ -1191,6 +1193,8 @@ function renderReviewQueueItems(items) {
           ${website}
           <div>Latest qualification: ${qual}</div>
           <div>Evidence count: <code>${escapeHtml(String(item.evidence_count == null ? 0 : item.evidence_count))}</code></div>
+          <div>Draft ready: <code>${escapeHtml(draftReadyLabel)}</code></div>
+          <div>Draft present: <code>${escapeHtml(draftPresentLabel)}</code></div>
           <div>Most recent activity: <code>${escapeHtml(item.most_recent_activity || '')}</code></div>
         </div>
       </li>`;
@@ -1411,6 +1415,9 @@ function renderSalesDetailMain(options = {}) {
   const crmReadyErrorHtml = options.crmReadyError
     ? `<p class="sales-error" role="alert">${escapeHtml(options.crmReadyError)}</p>`
     : '';
+  const outreachDraftErrorHtml = options.outreachDraftError
+    ? `<p class="sales-error" role="alert">${escapeHtml(options.outreachDraftError)}</p>`
+    : '';
   const facts = (fixtureResearch && fixtureResearch.facts) || [];
   const limitations = (fixtureResearch && fixtureResearch.limitations) || [];
   const lastDecision = prospect.last_decision
@@ -1427,6 +1434,9 @@ function renderSalesDetailMain(options = {}) {
   const isCurrentlyQualified = latestQualification
     && String(latestQualification.decision || '').toLowerCase() === 'qualified';
   const latestCrmReviewMark = options.latestCrmReviewMark || null;
+  const currentOutreachDraft = options.currentOutreachDraft || null;
+  const draftReady = Boolean(latestCrmReviewMark) || options.draftReady === true;
+  const draftPresent = Boolean(currentOutreachDraft) || options.draftPresent === true;
   const crmReadyStatus = latestCrmReviewMark
     ? `<p>Marked ready for CRM review at <code>${escapeHtml(latestCrmReviewMark.created_at || '')}</code>
          by <code>${escapeHtml(latestCrmReviewMark.reviewer_id || '')}</code>
@@ -1440,6 +1450,15 @@ function renderSalesDetailMain(options = {}) {
           </div>
         </form>`
     : '<p class="section-note">CRM preview and ready-for-review are available only when the latest qualification is <code>qualified</code>.</p>';
+  const outreachDraftStatus = `<p>Draft ready: <code>${draftReady ? 'Yes' : 'No'}</code>
+       · Draft present: <code>${draftPresent ? 'Yes' : 'No'}</code>
+       ${draftPresent && currentOutreachDraft
+    ? `(revision <code>${escapeHtml(String(currentOutreachDraft.revision_number || ''))}</code>, channel <code>${escapeHtml(currentOutreachDraft.channel || '')}</code>)`
+    : '(no outreach draft yet)'}</p>
+      <p class="section-note">Draft only — no message has been sent. Indicators are not delivery status.</p>`;
+  const outreachDraftActions = draftReady
+    ? `<p><a href="/sales/prospects/${escapeHtml(prospect.id)}/outreach-draft">Open outreach draft workspace</a></p>`
+    : '<p class="section-note">Outreach drafts are available only after the prospect is marked CRM-ready.</p>';
 
   return `<section id="sales-detail" aria-labelledby="sales-detail-title">
       <p><a href="/sales">← Back to Sales</a></p>
@@ -1547,6 +1566,14 @@ function renderSalesDetailMain(options = {}) {
       </article>
 
       <article class="card">
+        <h2>Outreach draft</h2>
+        <p class="section-note">Manual internal draft only for CRM-ready prospects. Draft only — no message has been sent. No SMTP, WhatsApp, LinkedIn, HubSpot, or send controls.</p>
+        ${outreachDraftErrorHtml}
+        ${outreachDraftStatus}
+        ${outreachDraftActions}
+      </article>
+
+      <article class="card">
         <h2>Admin status decision</h2>
         <p class="section-note">Any authenticated Crowsnest operator may record approve, reject, or needs_research in this MVP. No HubSpot sync and no outreach send in this slice.</p>
         ${decisionErrorHtml}
@@ -1573,7 +1600,7 @@ function renderSalesDetailMain(options = {}) {
         <h2>Append-only audit trail</h2>
         ${renderAuditList(audit)}
       </article>
-      <div class="safety"><strong>Safety:</strong> Durable Sales decisions, manual evidence, operator qualification, and CRM preview/readiness when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no live provider calls, and no automatic AI scoring.</div>
+      <div class="safety"><strong>Safety:</strong> Durable Sales decisions, manual evidence, operator qualification, CRM preview/readiness, and internal outreach drafts when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no live provider calls, and no automatic AI scoring.</div>
     </section>`;
 }
 
@@ -1669,6 +1696,110 @@ function renderSalesCrmPreviewMain(options = {}) {
     </section>`;
 }
 
+function renderOutreachDraftRevisionList(revisions) {
+  const list = Array.isArray(revisions) ? revisions : [];
+  if (!list.length) {
+    return '<p class="section-note">No draft revisions yet. Save the first current draft below.</p>';
+  }
+  const items = list.map((rev) => {
+    return `<li class="card">
+        <p><strong>Revision ${escapeHtml(String(rev.revision_number || ''))}</strong>
+          · channel=<code>${escapeHtml(rev.channel || '')}</code>
+          · author=<code>${escapeHtml(rev.author_id || '')}</code>
+          · at=<code>${escapeHtml(rev.created_at || '')}</code></p>
+        <p><strong>Subject:</strong> ${escapeHtml(rev.subject || '')}</p>
+        <p><strong>Body:</strong> ${escapeHtml(rev.body || '')}</p>
+        <p><strong>Next-step note:</strong> ${escapeHtml(rev.next_step_note || '')}</p>
+        <p class="section-note">Draft only — no message has been sent.</p>
+      </li>`;
+  }).join('\n        ');
+  return `<ul class="fact-list" aria-label="Outreach draft revision history">
+        ${items}
+      </ul>`;
+}
+
+function renderSalesOutreachDraftMain(options = {}) {
+  const prospect = options.prospect || null;
+  if (!prospect) {
+    return `<section id="sales-outreach-draft" class="card placeholder-shell">
+      <p>Outreach draft workspace is unavailable.</p>
+      <p><a href="/sales">Back to Sales</a></p>
+    </section>`;
+  }
+  const current = options.currentOutreachDraft || options.currentDraft || null;
+  const revisions = Array.isArray(options.outreachDraftRevisions)
+    ? options.outreachDraftRevisions
+    : (Array.isArray(options.revisions) ? options.revisions : []);
+  const draftErrorHtml = options.outreachDraftError
+    ? `<p class="sales-error" role="alert">${escapeHtml(options.outreachDraftError)}</p>`
+    : '';
+  const subjectValue = options.outreachDraftSubject != null
+    ? options.outreachDraftSubject
+    : (current && current.subject) || '';
+  const bodyValue = options.outreachDraftBody != null
+    ? options.outreachDraftBody
+    : (current && current.body) || '';
+  const channelValue = options.outreachDraftChannel != null
+    ? options.outreachDraftChannel
+    : (current && current.channel) || 'email';
+  const nextStepValue = options.outreachDraftNextStepNote != null
+    ? options.outreachDraftNextStepNote
+    : (current && current.next_step_note) || '';
+  const audit = Array.isArray(options.auditEvents) ? options.auditEvents : [];
+
+  return `<section id="sales-outreach-draft" aria-labelledby="sales-outreach-draft-title">
+      <p><a href="/sales/prospects/${escapeHtml(prospect.id)}">← Back to prospect detail</a></p>
+      <article class="card">
+        <h2>Outreach draft</h2>
+        <p class="section-note"><strong>Draft only — no message has been sent.</strong> Manual internal workspace for one current draft. No SMTP, WhatsApp, LinkedIn, HubSpot API, send endpoint, webhooks, or auto-generation.</p>
+        <p><strong>Business name:</strong> ${escapeHtml(prospect.canonical_name || 'n/a')}</p>
+        <p><strong>Website:</strong> ${escapeHtml(prospect.website_url || 'n/a')}</p>
+        <p>Draft ready: <code>Yes</code> · Draft present: <code>${current ? 'Yes' : 'No'}</code></p>
+      </article>
+
+      <article class="card">
+        <h2>${current ? 'Edit current draft' : 'Create current draft'}</h2>
+        ${draftErrorHtml}
+        <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/outreach-draft" accept-charset="utf-8">
+          <div class="form-row">
+            <label for="subject">Subject</label>
+            <input id="subject" name="subject" type="text" required maxlength="500" value="${escapeHtml(subjectValue)}">
+          </div>
+          <div class="form-row">
+            <label for="body">Body</label>
+            <textarea id="body" name="body" required maxlength="10000">${escapeHtml(bodyValue)}</textarea>
+          </div>
+          <div class="form-row">
+            <label for="channel">Channel</label>
+            <select id="channel" name="channel" required>
+              <option value="email"${channelValue === 'email' ? ' selected' : ''}>Email</option>
+              <option value="linkedin"${channelValue === 'linkedin' ? ' selected' : ''}>LinkedIn</option>
+              <option value="other"${channelValue === 'other' ? ' selected' : ''}>Other</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="next_step_note">Next-step note</label>
+            <textarea id="next_step_note" name="next_step_note" required maxlength="2000" placeholder="What should happen after this draft?">${escapeHtml(nextStepValue)}</textarea>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">${current ? 'Save draft revision' : 'Create draft'}</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="card">
+        <h2>Revision history (newest first)</h2>
+        ${renderOutreachDraftRevisionList(revisions)}
+      </article>
+
+      <article class="card">
+        <h2>Append-only audit trail</h2>
+        ${renderAuditList(audit)}
+      </article>
+      <div class="safety"><strong>Safety:</strong> Internal outreach drafts only. No message has been sent. No SMTP, WhatsApp, LinkedIn, HubSpot, send controls, webhooks, or AI generation.</div>
+    </section>`;
+}
+
 function renderViewMain(view, clients, templates, options = {}) {
   if (view === 'clients') return renderClientsMain(clients, templates);
   if (view === 'billing') return renderBillingMain();
@@ -1677,6 +1808,7 @@ function renderViewMain(view, clients, templates, options = {}) {
   if (view === 'sales_detail') return renderSalesDetailMain(options);
   if (view === 'sales_review') return renderSalesReviewMain(options);
   if (view === 'sales_crm_preview') return renderSalesCrmPreviewMain(options);
+  if (view === 'sales_outreach_draft') return renderSalesOutreachDraftMain(options);
   return renderSpyglassMain(clients);
 }
 
@@ -1686,6 +1818,7 @@ function viewPageTitle(view) {
   if (view === 'communications') return 'Communications';
   if (view === 'sales_review') return 'Sales review queue';
   if (view === 'sales_crm_preview') return 'CRM sync preview';
+  if (view === 'sales_outreach_draft') return 'Outreach draft';
   if (view === 'sales' || view === 'sales_detail') return 'Sales';
   return 'Spyglass';
 }
@@ -1695,9 +1828,10 @@ function viewSubtitle(view) {
   if (view === 'billing') return 'Billing sources are not connected yet';
   if (view === 'communications') return 'Communications sources are not connected yet';
   if (view === 'sales') return 'Manual prospect intake, fixture research, and Admin review';
-  if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, qualification, CRM preview, and Admin decision';
+  if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, qualification, CRM preview, outreach draft, and Admin decision';
   if (view === 'sales_review') return 'Sales review queue — operating buckets for operator decisions';
   if (view === 'sales_crm_preview') return 'Provider-neutral CRM sync preview — no record sent';
+  if (view === 'sales_outreach_draft') return 'Internal outreach draft workspace — draft only, no message sent';
   return 'Internal Luna Front Desk overview dashboard';
 }
 
@@ -1729,7 +1863,7 @@ function renderCrowsnestPage(options = {}) {
         </form>
       </div>
       ${renderCrowsnestNav(view)}
-      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : view)))}-title">${escapeHtml(title)}</h1>
+      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : (view === 'sales_outreach_draft' ? 'sales-outreach-draft' : view))))}-title">${escapeHtml(title)}</h1>
       <p class="sub">${escapeHtml(viewSubtitle(view))}</p>
     </header>
 
