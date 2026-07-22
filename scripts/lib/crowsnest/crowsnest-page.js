@@ -16,6 +16,7 @@ const SUNSET_LOGIN_CSS = fs.readFileSync(
 ) + `
 /* Crowsnest keeps the Sunset composition, with a more compact operator sign-in card. */
 .loginStage{width:min(100%,380px)}
+.loginCard{box-sizing:border-box}
 .login-logo{display:block;width:min(100%,320px);height:auto;margin-inline:auto;margin-bottom:14px}
 .login-error{margin:0 0 14px;padding:10px 13px;border-radius:10px;background:#FEF1EC;border:1px solid #F2C4AC;color:#9B4020;font-size:13px}
 `;
