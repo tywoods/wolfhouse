@@ -138,11 +138,12 @@ function messiLedgerSemanticsUntouched() {
     if (!locks.deepEqual(ledgerNow.score, ledgerBase.score)) {
       return { ok: false, detail: 'score_semantic_drift' };
     }
-    // Doc / findings / contract must stay byte-identical for this disposition slice.
+    // Doc / findings must stay byte-identical for this disposition slice.
+    // Contract may drop tip_scope_forward_compat_rels (path-allowlist removal)
+    // and rebind bound hashes; semantic keys must stay frozen.
     for (const rel of [
       'docs/MESSI-ACCEPTANCE-LEDGER.md',
       'fixtures/messi-acceptance/slice1a-findings.md',
-      'fixtures/messi-acceptance/slice1a-contract.json',
     ]) {
       const base = execSync(`git show ${locks.MASTER_BASIS}:${rel}`, {
         cwd: ROOT,
@@ -152,6 +153,25 @@ function messiLedgerSemanticsUntouched() {
       const now = fs.readFileSync(path.join(ROOT, rel));
       if (Buffer.compare(base, now) !== 0) {
         return { ok: false, detail: `doc_or_contract_changed:${rel}` };
+      }
+    }
+    {
+      const contractBase = JSON.parse(execSync(
+        `git show ${locks.MASTER_BASIS}:fixtures/messi-acceptance/slice1a-contract.json`,
+        { cwd: ROOT, encoding: 'utf8' },
+      ));
+      const contractNow = JSON.parse(
+        fs.readFileSync(path.join(ROOT, 'fixtures/messi-acceptance/slice1a-contract.json'), 'utf8'),
+      );
+      const contractKeys = [
+        'slice', 'outcome_id', 'branch', 'master_basis', 'progress_class',
+        'messi_complete', 'production_ready', 'frozen_messi_score',
+        'radar_formal_score', 'fortress_matrix_counts', 'gate_ids', 'parents',
+      ];
+      for (const k of contractKeys) {
+        if (!locks.deepEqual(contractNow[k], contractBase[k])) {
+          return { ok: false, detail: `contract_semantic_drift:${k}` };
+        }
       }
     }
     return { ok: true, detail: '(1D left MESSI ledger semantics frozen; hash rebinds only allowed)' };
