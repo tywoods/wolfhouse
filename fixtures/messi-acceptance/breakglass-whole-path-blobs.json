@@ -3,12 +3,14 @@
   "candidate_sha": "20f96aead39fbf0854452ec77f855965df3c0ac0",
   "correction_candidate_bound": "53c1abcfb67edb491c5100de571260c60813aec4",
   "master_basis": "38f1a719fa3287af43737b2fca7f9b4d4f71383a",
+  "squash_proof_reviewed_candidate": "9a35afcc6b94fc4bf49a96b11654c6e8ec424bb1",
+  "squash_proof_landing_tip": "c61bc9feba412de8e24cd14b5907bd62b65abd13",
+  "squash_proof_candidate_sha": "",
   "paths": [
     "docs/MESSI-ACCEPTANCE-LEDGER.md",
     "fixtures/messi-acceptance/slice1a-contract.json",
     "fixtures/messi-acceptance/slice1a-findings.md",
     "fixtures/messi-acceptance/slice1a-ledger.json",
-    "package.json",
     "scripts/lib/factory-slice1b-archetype-templates.js",
     "scripts/lib/factory-slice1e-finite-closeout.js",
     "scripts/lib/messi-slice1a-acceptance-ledger.js",
@@ -21,5 +23,17 @@
     "scripts/verify-messi-slice1b-foundation-closeout.js",
     "scripts/verify-messi-slice1d-fortress-closeout.js"
   ],
-  "note": "Metadata mirror of scripts/lib/breakglass-redesign-candidate-sha.js only. No blobs — Git candidate is the trust root."
+  "squash_proof_paths": [
+    "fixtures/messi-acceptance/slice1a-ledger.json",
+    "scripts/lib/messi-slice1a-acceptance-ledger.js",
+    "scripts/lib/messi-slice1b-foundation-closeout.js",
+    "scripts/lib/messi-slice1d-fortress-closeout.js",
+    "scripts/lib/reviewed-candidate-blob-certificates.js",
+    "scripts/verify-factory-slice1b-archetype-templates.js",
+    "scripts/verify-factory-slice1e-finite-closeout.js",
+    "scripts/verify-messi-slice1a-acceptance-ledger.js",
+    "scripts/verify-messi-slice1b-foundation-closeout.js",
+    "scripts/verify-messi-slice1d-fortress-closeout.js"
+  ],
+  "note": "Metadata mirror of scripts/lib/breakglass-redesign-candidate-sha.js only. No blobs — Git candidate is the trust root. package.json excluded from redesign paths (concurrent script drift). 1E binds 9a35afcc↔c61bc9fe via candidate-path blob equality."
 }

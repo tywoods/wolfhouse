@@ -700,12 +700,16 @@ function reviewedBlobCertificateConfig() {
     slice_cert_id: 'messi-1d-reviewed',
     master_basis: MASTER_BASIS,
     reviewed_candidate: REVIEWED_CANDIDATE,
+    allow_path_range_inference: true,
     correction_candidate: CORRECTION_CANDIDATE_53C1,
     correction_cert_id: 'breakglass-53c1abcf',
     correction_basis: 'ff285598ac2cfec980e8316e772924a9c79a6a7e',
     redesign_cert_id: redesignPin.REDESIGN_CERT_ID,
     redesign_candidate_sha: redesignPin.REDESIGN_CANDIDATE_SHA,
     redesign_paths: redesignPin.REDESIGN_PATHS,
+    squash_proof_cert_id: redesignPin.SQUASH_PROOF_CERT_ID,
+    squash_proof_candidate_sha: redesignPin.SQUASH_PROOF_CANDIDATE_SHA,
+    squash_proof_paths: redesignPin.SQUASH_PROOF_PATHS,
   };
 }
 

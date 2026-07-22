@@ -494,12 +494,16 @@ console.log('\n── Tip scope (immutable reviewed-candidate blob certificates)
       slice_cert_id: 'factory-1e-reviewed',
       master_basis: slice1e.MASTER_BASIS,
       reviewed_candidate: slice1e.REVIEWED_CANDIDATE,
+      allow_path_range_inference: true,
       correction_candidate: '53c1abcfb67edb491c5100de571260c60813aec4',
       correction_cert_id: 'breakglass-53c1abcf',
       correction_basis: 'ff285598ac2cfec980e8316e772924a9c79a6a7e',
       redesign_cert_id: redesignPin.REDESIGN_CERT_ID,
       redesign_candidate_sha: redesignPin.REDESIGN_CANDIDATE_SHA,
       redesign_paths: redesignPin.REDESIGN_PATHS,
+      squash_proof_cert_id: redesignPin.SQUASH_PROOF_CERT_ID,
+      squash_proof_candidate_sha: redesignPin.SQUASH_PROOF_CANDIDATE_SHA,
+      squash_proof_paths: redesignPin.SQUASH_PROOF_PATHS,
     };
   }
 

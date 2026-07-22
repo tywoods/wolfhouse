@@ -159,19 +159,19 @@
     "fixtures/foundation-closeout/finite-closeout.json": "3411701e798e863e7d3d1583963336f0d19fe740823f07280060230a500a9e52",
     "fixtures/foundation-closeout/contract.json": "3e2d2520e4c497b7ec17b76669cc29703b3c1eb7a890125b007dd805a5503e40",
     "fixtures/foundation-closeout/findings.md": "8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439",
-    "scripts/lib/messi-slice1b-foundation-closeout.js": "2ccbf15695d6549a600ce6b9a5a8ee9c4799d74cfc7df91410a9b79c42c75f97",
-    "scripts/verify-messi-slice1b-foundation-closeout.js": "e66fda5c1f756c00674063f07f7aec9207efc39b20dda425d305c20a0a03f01b",
+    "scripts/lib/messi-slice1b-foundation-closeout.js": "41fc28cd4482b3cbefa209a88e14364e67b9b47eb6146f3dcdeb47b83d0e8eea",
+    "scripts/verify-messi-slice1b-foundation-closeout.js": "19d03e5e482ea4b8f8bb25c1bbb3e53ccae17a4b712ca6bdea631c559b2fbcac",
     "docs/FORTRESS-FINITE-CLOSEOUT.md": "e5eea1639d80a11bd6c16782db88c8da388bbd5dd8b655ef5b7014b3ee59a0ab",
     "fixtures/fortress-closeout/finite-closeout.json": "8e65993bac48effd75ab016f50c7f15500b47faa9517972dd599670181f5bad5",
     "fixtures/fortress-closeout/contract.json": "8801c4a5a198231ccd5c29b1e28b3bd0194a8a06fcd9ac7ee18cef5f652800e7",
     "fixtures/fortress-closeout/findings.md": "5b57d89556f490697d72ae75348e468692a4c1df6a01434f3bb3c881ecb8da1b",
-    "scripts/lib/messi-slice1d-fortress-closeout.js": "842ed65c402d285468cab716dc25f3ffda50e216b1f66eb58275760ad292a59e",
-    "scripts/verify-messi-slice1d-fortress-closeout.js": "e97e9b4040254615e81ee6841fbc53a07ab9f5da78d2e7232bc4c5b7bf0435a3",
+    "scripts/lib/messi-slice1d-fortress-closeout.js": "0ce0b79a8e124a84b3b08cbf3ecfdf4f7cd099061f4b9233ef729dfa72e68204",
+    "scripts/verify-messi-slice1d-fortress-closeout.js": "7e6f65264984961d504c2e2881417eab361538f9b9ba66d10fa564588b2ca05e",
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md": "c3aac5ad4a083868a3350a5ca099447faed0f016f3ee92570997e2533747e5d9",
     "fixtures/radar-operations/slice16ap-finite-closeout.json": "158e3418cc573852780766cc78dafdfa427a3e9a27e0a14e3036266bde91ece2",
     "fixtures/radar-operations/slice16ap-expected-contract.json": "ad856cfe50b1eb8f6a535bdc137ec4a23daa6d89d8bcd0b2a4b90103a95f8621",
     "scripts/lib/radar-slice16ap-finite-closeout.js": "4ba18280ac6b595921e20e1f9989662d6379456eb6f24303a2ab71dd2302bf77",
-    "scripts/verify-radar-slice16ap-finite-closeout.js": "44746f0b016539d34ba73f71ca7c86b442eb5245bdb72f1c666d5ceb04106d01",
+    "scripts/verify-radar-slice16ap-finite-closeout.js": "8a4d0b03bae605c0370c1bdbbcbce501a1bdf7710a9006005638ebc24fc51bfc",
     "docs/FACTORY-CLIENT-PRODUCTIZATION.md": "3a5c44e0f247fb1ca35397f3e1faaa0f9c9e26b9bcd80271671a6874cea38265",
     "fixtures/factory-client-productization/slice1e-contract.json": "2cc3a5992207070e4f6212a8c30f0d4aed44056c226d6bfe911a6e5f6088b717",
     "fixtures/factory-client-productization/slice1e-findings.md": "792b739448e7148769ff36bd24fc1bf22b0ca05ba9c6ccfe4ff7e040e146c12b",
@@ -182,7 +182,7 @@
     "scripts/lib/factory-slice1c-dry-run-generator.js": "c6864be5c9770c8b05915ca8d892a1a4f5768e012afb32a458f4ad6a3f6be879",
     "scripts/lib/factory-slice1d-integration-proof.js": "0db5a8d0aedf9418ef58dc1d842a558059c5c58d5f85a3465d92aeec159da8d8",
     "scripts/lib/factory-slice1e-finite-closeout.js": "6016f1b42190aca2d4466162aaf747a05b2ccf33b30f67bef6af9052741ba3f7",
-    "scripts/verify-factory-slice1e-finite-closeout.js": "9ff8d5085849fe95ea821a71e1e196496335c7cd2f6edcba9c13fd56e19ac1bd"
+    "scripts/verify-factory-slice1e-finite-closeout.js": "99207f55880b52a859e3169b9c3167b11995cb17804ac858e4e0da5d6c809b1d"
   },
   "parent_sha_provenance": {
     "FOUNDATION": {

@@ -77,19 +77,21 @@ const BRANCH = 'messi/slice-1e-fortress-wiring';
 const OUTCOME_ID = '1E_fortress_finite_closeout_ledger_wiring';
 /** Master tip this slice starts from (#151 blob-certificate anchor). */
 const MASTER_BASIS = '28ba003acc57bd732df17d799a95a4d99f69f2f9';
-/**
- * Exact reviewed 1E candidate (pre-squash tip of messi/slice-1e-fortress-wiring).
- * Tip scope binds via immutable reviewed-candidate blob certificates — never
- * MASTER_BASIS..HEAD path allowlists. Placeholder equals MASTER_BASIS until
- * content commit; content+anchor bootstrap sets the real candidate SHA.
- */
-const REVIEWED_CANDIDATE = '6e12a3a506f45a69314f1da3a2eb1164c5488b38';
-/** Pre-merge reviewed tip (updated with REVIEWED_CANDIDATE on content bootstrap). */
-const LANDING_TIP = '6e12a3a506f45a69314f1da3a2eb1164c5488b38';
-/** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
-const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
 /** Git-anchored whole-path redesign pin (never frozen_only / fixture trust root). */
 const redesignPin = require('./breakglass-redesign-candidate-sha');
+/**
+ * Exact reviewed 1E candidate (pre-squash tip of messi/slice-1e-fortress-wiring).
+ * Tip scope binds via immutable reviewed-candidate blob certificates and
+ * candidate-path blob equality with the squash landing — never
+ * MASTER_BASIS..HEAD path allowlists or ancestry inference.
+ */
+const REVIEWED_CANDIDATE = redesignPin.SQUASH_PROOF_REVIEWED_CANDIDATE
+  || '9a35afcc6b94fc4bf49a96b11654c6e8ec424bb1';
+/** Squash-merge tip on master for this slice (PR #154). */
+const LANDING_TIP = redesignPin.SQUASH_PROOF_LANDING_TIP
+  || 'c61bc9feba412de8e24cd14b5907bd62b65abd13';
+/** Break-glass correction candidate (immutable reviewed-candidate blob certificates). */
+const CORRECTION_CANDIDATE_53C1 = '53c1abcfb67edb491c5100de571260c60813aec4';
 const PROGRESS_CLASS = 'fortress_finite_closeout_ledger_wiring_only';
 /** Preserved from base 28ba003a / 98202775 — not overwritten by 1E progress_class. */
 const MESSI_CLOSEOUT_WORKSTREAM_CLASS = 'acceptance_ledger_inventory_and_verifier_only';
@@ -531,9 +533,9 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/foundation-closeout/findings.md':
     '8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439',
   'scripts/lib/messi-slice1b-foundation-closeout.js':
-    '2ccbf15695d6549a600ce6b9a5a8ee9c4799d74cfc7df91410a9b79c42c75f97',
+    '41fc28cd4482b3cbefa209a88e14364e67b9b47eb6146f3dcdeb47b83d0e8eea',
   'scripts/verify-messi-slice1b-foundation-closeout.js':
-    'e66fda5c1f756c00674063f07f7aec9207efc39b20dda425d305c20a0a03f01b',
+    '19d03e5e482ea4b8f8bb25c1bbb3e53ccae17a4b712ca6bdea631c559b2fbcac',
   'docs/FORTRESS-FINITE-CLOSEOUT.md':
     'e5eea1639d80a11bd6c16782db88c8da388bbd5dd8b655ef5b7014b3ee59a0ab',
   'fixtures/fortress-closeout/finite-closeout.json':
@@ -543,9 +545,9 @@ const BOUND_FILE_HASHES = Object.freeze({
   'fixtures/fortress-closeout/findings.md':
     '5b57d89556f490697d72ae75348e468692a4c1df6a01434f3bb3c881ecb8da1b',
   'scripts/lib/messi-slice1d-fortress-closeout.js':
-    '842ed65c402d285468cab716dc25f3ffda50e216b1f66eb58275760ad292a59e',
+    '0ce0b79a8e124a84b3b08cbf3ecfdf4f7cd099061f4b9233ef729dfa72e68204',
   'scripts/verify-messi-slice1d-fortress-closeout.js':
-    'e97e9b4040254615e81ee6841fbc53a07ab9f5da78d2e7232bc4c5b7bf0435a3',
+    '7e6f65264984961d504c2e2881417eab361538f9b9ba66d10fa564588b2ca05e',
   'docs/RADAR-OPERATIONS-GATE-LEDGER.md':
     'c3aac5ad4a083868a3350a5ca099447faed0f016f3ee92570997e2533747e5d9',
   'fixtures/radar-operations/slice16ap-finite-closeout.json':
@@ -555,7 +557,7 @@ const BOUND_FILE_HASHES = Object.freeze({
   'scripts/lib/radar-slice16ap-finite-closeout.js':
     '4ba18280ac6b595921e20e1f9989662d6379456eb6f24303a2ab71dd2302bf77',
   'scripts/verify-radar-slice16ap-finite-closeout.js':
-    '44746f0b016539d34ba73f71ca7c86b442eb5245bdb72f1c666d5ceb04106d01',
+    '8a4d0b03bae605c0370c1bdbbcbce501a1bdf7710a9006005638ebc24fc51bfc',
   'docs/FACTORY-CLIENT-PRODUCTIZATION.md':
     '3a5c44e0f247fb1ca35397f3e1faaa0f9c9e26b9bcd80271671a6874cea38265',
   'fixtures/factory-client-productization/slice1e-contract.json':
@@ -577,7 +579,7 @@ const BOUND_FILE_HASHES = Object.freeze({
   'scripts/lib/factory-slice1e-finite-closeout.js':
     '6016f1b42190aca2d4466162aaf747a05b2ccf33b30f67bef6af9052741ba3f7',
   'scripts/verify-factory-slice1e-finite-closeout.js':
-    '9ff8d5085849fe95ea821a71e1e196496335c7cd2f6edcba9c13fd56e19ac1bd',
+    '99207f55880b52a859e3169b9c3167b11995cb17804ac858e4e0da5d6c809b1d',
 });
 
 const ARTIFACT_RELS = Object.freeze({
@@ -754,12 +756,17 @@ function reviewedBlobCertificateConfig() {
     slice_cert_id: 'messi-1e-reviewed',
     master_basis: MASTER_BASIS,
     reviewed_candidate: REVIEWED_CANDIDATE,
+    binding_tip_sha: LANDING_TIP,
+    path_universe: redesignPin.REDESIGN_PATHS,
     correction_candidate: CORRECTION_CANDIDATE_53C1,
     correction_cert_id: 'breakglass-53c1abcf',
-    correction_basis: 'ff285598ac2cfec980e8316e772924a9c79a6a7e',
+    correction_changed_paths: [],
     redesign_cert_id: redesignPin.REDESIGN_CERT_ID,
     redesign_candidate_sha: redesignPin.REDESIGN_CANDIDATE_SHA,
     redesign_paths: redesignPin.REDESIGN_PATHS,
+    squash_proof_cert_id: redesignPin.SQUASH_PROOF_CERT_ID,
+    squash_proof_candidate_sha: redesignPin.SQUASH_PROOF_CANDIDATE_SHA,
+    squash_proof_paths: redesignPin.SQUASH_PROOF_PATHS,
   };
 }
 
