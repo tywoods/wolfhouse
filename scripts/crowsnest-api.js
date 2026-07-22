@@ -37,6 +37,7 @@ const {
   getOutreachDraftWorkspace,
   getProspect,
   getResearchForProspect,
+  getSalesAnalytics,
   importManualDiscoveryProposal,
   importMapsDiscoveryCandidate,
   listAuditEvents,
@@ -890,6 +891,45 @@ async function handleSalesReviewQueue(req, res, method) {
         view: 'sales_review',
         reviewQueueFilter: (queue && queue.filter) || state,
         reviewQueueItems: (queue && queue.items) || [],
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+}
+
+async function handleSalesAnalytics(req, res, method) {
+  if (method !== 'GET' && method !== 'HEAD') {
+    return sendMethodNotAllowed(res, 'GET, HEAD');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  if (method === 'HEAD') {
+    return sendNoContentLike(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  }
+
+  try {
+    const analytics = await getSalesAnalytics();
+    if (isSalesStoreFailure(analytics)) {
+      return sendSalesStoreFailure(res, analytics);
+    }
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      200,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_analytics',
+        analyticsCounts: (analytics && analytics.counts) || null,
+        analyticsRecentActivity: (analytics && analytics.recent_activity) || [],
+        analyticsDataQualityAlerts: (analytics && analytics.data_quality_alerts) || [],
+        analyticsDisclaimer: (analytics && analytics.disclaimer) || '',
       }),
       { 'Cache-Control': 'no-store' },
       cspNonce,
@@ -1790,6 +1830,10 @@ async function router(req, res) {
 
   if (pathname === '/sales/review') {
     return handleSalesReviewQueue(req, res, method);
+  }
+
+  if (pathname === '/sales/analytics') {
+    return handleSalesAnalytics(req, res, method);
   }
 
   if (pathname === '/sales/discovery') {

@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * Crowsnest Luna Sales durable store (Chapters 1–6 + 9: durable prospects, evidence,
+ * Crowsnest Luna Sales durable store (Chapters 1–6 + 9–10: durable prospects, evidence,
  * qualification, review queue, CRM review readiness / preview support, outreach drafts,
- * manual contact candidates).
+ * manual contact candidates, read-only analytics summaries).
  *
  * Owns config validation, repository adapters (memory / postgres / fail-closed),
  * and a bounded pg pool lifecycle. Never reads WOLFHOUSE_DATABASE_URL.
@@ -324,6 +324,51 @@ function createMemorySalesRepository() {
       }
       return rows;
     },
+    async listAnalyticsSummaries() {
+      const rows = [];
+      for (const prospect of prospects.values()) {
+        const research = researchListFor(prospect.id);
+        const quals = qualificationListFor(prospect.id);
+        const crmMarks = crmReviewMarkListFor(prospect.id);
+        const drafts = outreachDraftRevisionListFor(prospect.id);
+        const contacts = contactCandidateListFor(prospect.id);
+        const latestQual = quals.length ? quals[0] : null;
+        const latestCrmMark = crmMarks.length ? crmMarks[0] : null;
+        const latestDraft = drafts.length ? drafts[0] : null;
+        const timestamps = [
+          prospect.created_at,
+          prospect.updated_at,
+          ...research.map((row) => row.created_at),
+          ...quals.map((row) => row.created_at),
+          ...crmMarks.map((row) => row.created_at),
+          ...drafts.map((row) => row.created_at),
+          ...contacts.map((row) => row.created_at),
+        ];
+        let mostRecent = '';
+        for (const value of timestamps) {
+          const iso = String(value || '');
+          if (iso && (!mostRecent || iso > mostRecent)) mostRecent = iso;
+        }
+        rows.push({
+          id: String(prospect.id),
+          canonical_name: prospect.canonical_name || '',
+          website_url: prospect.website_url || '',
+          created_at: prospect.created_at,
+          updated_at: prospect.updated_at,
+          evidence_count: research.length,
+          contact_count: contacts.length,
+          latest_qualification_decision: latestQual ? latestQual.decision : null,
+          latest_qualification_at: latestQual ? latestQual.created_at : null,
+          crm_ready: Boolean(latestCrmMark),
+          latest_crm_review_mark_at: latestCrmMark ? latestCrmMark.created_at : null,
+          draft_ready: Boolean(latestCrmMark),
+          draft_present: Boolean(latestDraft),
+          latest_outreach_draft_at: latestDraft ? latestDraft.created_at : null,
+          most_recent_activity: mostRecent || String(prospect.updated_at || prospect.created_at || ''),
+        });
+      }
+      return rows;
+    },
     async listAuditEvents(prospectId) {
       const events = auditEvents.map((row) => cloneJson(row));
       if (!prospectId) return events;
@@ -397,6 +442,9 @@ function createFailClosedSalesRepository(config = {}) {
       return [];
     },
     async listReviewQueueSummaries() {
+      return misconfiguredResult(message);
+    },
+    async listAnalyticsSummaries() {
       return misconfiguredResult(message);
     },
     async listAuditEvents() {
@@ -1021,6 +1069,114 @@ function createPgSalesRepository(options = {}) {
           created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at || ''),
           updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at || ''),
           evidence_count: Number(row.evidence_count) || 0,
+          latest_qualification_decision: row.latest_qualification_decision || null,
+          latest_qualification_at: row.latest_qualification_at == null
+            ? null
+            : (row.latest_qualification_at instanceof Date
+              ? row.latest_qualification_at.toISOString()
+              : String(row.latest_qualification_at)),
+          crm_ready: Boolean(row.latest_crm_review_mark_at),
+          latest_crm_review_mark_at: row.latest_crm_review_mark_at == null
+            ? null
+            : (row.latest_crm_review_mark_at instanceof Date
+              ? row.latest_crm_review_mark_at.toISOString()
+              : String(row.latest_crm_review_mark_at)),
+          draft_ready: Boolean(row.latest_crm_review_mark_at),
+          draft_present: Boolean(row.latest_outreach_draft_at),
+          latest_outreach_draft_at: row.latest_outreach_draft_at == null
+            ? null
+            : (row.latest_outreach_draft_at instanceof Date
+              ? row.latest_outreach_draft_at.toISOString()
+              : String(row.latest_outreach_draft_at)),
+          most_recent_activity: row.most_recent_activity instanceof Date
+            ? row.most_recent_activity.toISOString()
+            : String(row.most_recent_activity || ''),
+        }));
+      } catch {
+        throw new SalesStoreUnavailableError();
+      }
+    },
+    async listAnalyticsSummaries() {
+      try {
+        const result = await queryFn(
+          `SELECT
+             p.id,
+             p.canonical_name,
+             p.website_url,
+             p.created_at,
+             p.updated_at,
+             (
+               SELECT COUNT(*)::int
+               FROM luna_sales.research_jobs r
+               WHERE r.prospect_id = p.id
+             ) AS evidence_count,
+             (
+               SELECT COUNT(*)::int
+               FROM luna_sales.contact_candidates c
+               WHERE c.prospect_id = p.id
+             ) AS contact_count,
+             (
+               SELECT q.decision
+               FROM luna_sales.qualification_assessments q
+               WHERE q.prospect_id = p.id
+               ORDER BY q.created_at DESC
+               LIMIT 1
+             ) AS latest_qualification_decision,
+             (
+               SELECT q.created_at
+               FROM luna_sales.qualification_assessments q
+               WHERE q.prospect_id = p.id
+               ORDER BY q.created_at DESC
+               LIMIT 1
+             ) AS latest_qualification_at,
+             (
+               SELECT m.created_at
+               FROM luna_sales.crm_review_marks m
+               WHERE m.prospect_id = p.id
+               ORDER BY m.created_at DESC
+               LIMIT 1
+             ) AS latest_crm_review_mark_at,
+             (
+               SELECT d.created_at
+               FROM luna_sales.outreach_draft_revisions d
+               WHERE d.prospect_id = p.id
+               ORDER BY d.revision_number DESC, d.created_at DESC
+               LIMIT 1
+             ) AS latest_outreach_draft_at,
+             GREATEST(
+               p.created_at,
+               p.updated_at,
+               COALESCE(
+                 (SELECT MAX(r.created_at) FROM luna_sales.research_jobs r WHERE r.prospect_id = p.id),
+                 p.created_at
+               ),
+               COALESCE(
+                 (SELECT MAX(q.created_at) FROM luna_sales.qualification_assessments q WHERE q.prospect_id = p.id),
+                 p.created_at
+               ),
+               COALESCE(
+                 (SELECT MAX(m.created_at) FROM luna_sales.crm_review_marks m WHERE m.prospect_id = p.id),
+                 p.created_at
+               ),
+               COALESCE(
+                 (SELECT MAX(d.created_at) FROM luna_sales.outreach_draft_revisions d WHERE d.prospect_id = p.id),
+                 p.created_at
+               ),
+               COALESCE(
+                 (SELECT MAX(c.created_at) FROM luna_sales.contact_candidates c WHERE c.prospect_id = p.id),
+                 p.created_at
+               )
+             ) AS most_recent_activity
+           FROM luna_sales.prospects p`,
+        );
+        return (result.rows || []).map((row) => ({
+          id: String(row.id),
+          canonical_name: row.canonical_name || '',
+          website_url: row.website_url || '',
+          created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at || ''),
+          updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at || ''),
+          evidence_count: Number(row.evidence_count) || 0,
+          contact_count: Number(row.contact_count) || 0,
           latest_qualification_decision: row.latest_qualification_decision || null,
           latest_qualification_at: row.latest_qualification_at == null
             ? null

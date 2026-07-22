@@ -20,6 +20,9 @@
  * no real HTTP, API key, Google SDK, or scraping; operators inspect/import explicitly.
  * Chapter 9 adds manual contact candidates only — no Apollo/other external enrichment,
  * no auto-find, no CRM write, no outreach send.
+ * Chapter 10 adds a read-only analytics dashboard — truthful pipeline counts, recent audit
+ * activity, and informational data-quality alerts only; no AI/agent scores, external calls,
+ * writes, or automatic actions.
  */
 
 const {
@@ -80,6 +83,8 @@ const CONTACT_BOUNDS = {
 
 const OUTREACH_DRAFT_DISCLAIMER = 'Draft only — no message has been sent.';
 const CONTACT_ENRICHMENT_DISCLAIMER = 'Manual contact records only — no Apollo lookup, no auto-find, no CRM write, no message sent.';
+const ANALYTICS_DISCLAIMER = 'Read-only monitoring from persisted Sales records. Informational data-quality alerts only — operators decide. No AI/agent scores, no external calls, no writes, no automatic actions.';
+const ANALYTICS_RECENT_ACTIVITY_LIMIT = 25;
 
 /** Accepted future CRM Company mapping (provider-neutral domain terms). */
 const CRM_PREVIEW_LIFECYCLE_STAGE = 'Lead';
@@ -1356,6 +1361,218 @@ async function listReviewQueue(options = {}) {
   }
 }
 
+function emptyPipelineCounts() {
+  return {
+    prospects: 0,
+    evidence_records: 0,
+    crm_ready: 0,
+    drafts_present: 0,
+    contacts: 0,
+    qualification: {
+      qualified: 0,
+      not_qualified: 0,
+      needs_more_research: 0,
+      unassessed: 0,
+    },
+  };
+}
+
+/**
+ * Truthful pipeline counts from analytics summaries. No invented scores.
+ */
+function buildPipelineCounts(summaries = []) {
+  const counts = emptyPipelineCounts();
+  const list = Array.isArray(summaries) ? summaries : [];
+  for (const row of list) {
+    counts.prospects += 1;
+    counts.evidence_records += Number(row && row.evidence_count) || 0;
+    counts.contacts += Number(row && row.contact_count) || 0;
+    if (isCrmReadyFlag(row)) counts.crm_ready += 1;
+    const draftPresent = row && (
+      row.draft_present === true
+      || Boolean(row.latest_outreach_draft_at)
+      || Boolean(row.current_outreach_draft_id)
+    );
+    if (draftPresent) counts.drafts_present += 1;
+
+    const decision = String(
+      row && row.latest_qualification_decision != null
+        ? row.latest_qualification_decision
+        : '',
+    ).trim().toLowerCase();
+    if (decision === 'qualified') counts.qualification.qualified += 1;
+    else if (decision === 'not_qualified') counts.qualification.not_qualified += 1;
+    else if (decision === 'needs_more_research') counts.qualification.needs_more_research += 1;
+    else counts.qualification.unassessed += 1;
+  }
+  return counts;
+}
+
+/**
+ * Informational data-quality alerts only — never auto-remediate.
+ */
+function buildDataQualityAlerts(summaries = []) {
+  const alerts = [];
+  const list = Array.isArray(summaries) ? summaries : [];
+  for (const row of list) {
+    if (!row || !row.id) continue;
+    const prospectId = String(row.id);
+    const name = String(row.canonical_name || '').trim();
+    const website = String(row.website_url || '').trim();
+    const evidenceCount = Number(row.evidence_count) || 0;
+    const contactCount = Number(row.contact_count) || 0;
+    const decision = String(row.latest_qualification_decision || '').trim().toLowerCase();
+    const crmReady = isCrmReadyFlag(row);
+    const draftPresent = row.draft_present === true
+      || Boolean(row.latest_outreach_draft_at)
+      || Boolean(row.current_outreach_draft_id);
+
+    if (!website) {
+      alerts.push({
+        code: 'missing_website',
+        prospect_id: prospectId,
+        canonical_name: name,
+        message: 'Prospect has no website URL recorded.',
+      });
+    }
+    if (evidenceCount <= 0) {
+      alerts.push({
+        code: 'no_evidence',
+        prospect_id: prospectId,
+        canonical_name: name,
+        message: 'Prospect has no research evidence recorded.',
+      });
+    }
+    if (decision === 'qualified' && !crmReady) {
+      alerts.push({
+        code: 'qualified_without_crm_ready',
+        prospect_id: prospectId,
+        canonical_name: name,
+        message: 'Prospect is qualified but not marked ready for CRM review.',
+      });
+    }
+    if (crmReady && !draftPresent) {
+      alerts.push({
+        code: 'crm_ready_without_draft',
+        prospect_id: prospectId,
+        canonical_name: name,
+        message: 'Prospect is CRM-ready but has no outreach draft yet.',
+      });
+    }
+    if (crmReady && contactCount <= 0) {
+      alerts.push({
+        code: 'crm_ready_without_contact',
+        prospect_id: prospectId,
+        canonical_name: name,
+        message: 'Prospect is CRM-ready but has no contact candidates recorded.',
+      });
+    }
+  }
+  return alerts;
+}
+
+function resolveAuditProspectId(event = {}) {
+  if (event.entity_type === 'prospect' && event.entity_id) {
+    return String(event.entity_id);
+  }
+  const detail = event.detail || {};
+  if (detail.prospect_id) return String(detail.prospect_id);
+  return '';
+}
+
+/**
+ * Newest-first recent audit activity (bounded). Read-only view of append-only events.
+ */
+function buildRecentActivity(events = [], options = {}) {
+  const limitRaw = Number(options.limit != null ? options.limit : ANALYTICS_RECENT_ACTIVITY_LIMIT);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0
+    ? Math.min(Math.floor(limitRaw), 100)
+    : ANALYTICS_RECENT_ACTIVITY_LIMIT;
+  const list = Array.isArray(events) ? events.slice() : [];
+  list.sort((a, b) => {
+    const aAt = String((a && a.at) || '');
+    const bAt = String((b && b.at) || '');
+    if (aAt !== bAt) return bAt.localeCompare(aAt);
+    return String((a && a.id) || '').localeCompare(String((b && b.id) || ''));
+  });
+  return list.slice(0, limit).map((event) => {
+    const prospectId = resolveAuditProspectId(event);
+    return {
+      id: String((event && event.id) || ''),
+      at: event && event.at
+        ? (event.at instanceof Date ? event.at.toISOString() : String(event.at))
+        : '',
+      actor: String((event && event.actor) || ''),
+      action: String((event && event.action) || ''),
+      entity_type: String((event && event.entity_type) || ''),
+      entity_id: String((event && event.entity_id) || ''),
+      prospect_id: prospectId || null,
+    };
+  });
+}
+
+async function getSalesAnalytics(options = {}) {
+  try {
+    const repo = await getRepository();
+    if (repo.backend === 'fail_closed') {
+      if (typeof repo.listAnalyticsSummaries === 'function') {
+        return repo.listAnalyticsSummaries();
+      }
+      return {
+        ok: false,
+        status: 503,
+        code: 'sales_store_misconfigured',
+        error: 'Crowsnest Sales durable store is not configured.',
+      };
+    }
+
+    let summaries;
+    if (typeof repo.listAnalyticsSummaries === 'function') {
+      summaries = await repo.listAnalyticsSummaries();
+    } else if (typeof repo.listReviewQueueSummaries === 'function') {
+      summaries = await repo.listReviewQueueSummaries();
+    } else {
+      summaries = [];
+    }
+
+    if (summaries && summaries.ok === false) {
+      return summaries;
+    }
+
+    let auditEvents = [];
+    if (typeof repo.listAuditEvents === 'function') {
+      auditEvents = await repo.listAuditEvents();
+      if (auditEvents && auditEvents.ok === false) {
+        return auditEvents;
+      }
+    }
+
+    const list = Array.isArray(summaries) ? summaries : [];
+    const nameById = new Map(
+      list.map((row) => [String(row.id), String(row.canonical_name || '')]),
+    );
+    const recent = buildRecentActivity(auditEvents, {
+      limit: options.recentLimit != null ? options.recentLimit : ANALYTICS_RECENT_ACTIVITY_LIMIT,
+    }).map((item) => ({
+      ...item,
+      canonical_name: item.prospect_id ? (nameById.get(String(item.prospect_id)) || '') : '',
+    }));
+
+    return {
+      ok: true,
+      counts: buildPipelineCounts(list),
+      recent_activity: recent,
+      data_quality_alerts: buildDataQualityAlerts(list),
+      disclaimer: ANALYTICS_DISCLAIMER,
+    };
+  } catch (err) {
+    if (isSalesStoreUnavailableError(err)) {
+      return salesUnavailableResult();
+    }
+    throw err;
+  }
+}
+
 async function listProspects() {
   const repo = await getRepository();
   return repo.listProspects();
@@ -1988,6 +2205,8 @@ module.exports = {
   ALLOWED_OUTREACH_CHANNELS,
   ALLOWED_QUALIFICATION_DECISIONS,
   ACTIONABLE_REVIEW_BUCKETS,
+  ANALYTICS_DISCLAIMER,
+  ANALYTICS_RECENT_ACTIVITY_LIMIT,
   CONTACT_BOUNDS,
   CONTACT_ENRICHMENT_DISCLAIMER,
   CRM_PREVIEW_LIFECYCLE_STAGE,
@@ -2002,6 +2221,9 @@ module.exports = {
   appendAudit,
   assignReviewBucket,
   buildCrmSyncPreview,
+  buildDataQualityAlerts,
+  buildPipelineCounts,
+  buildRecentActivity,
   compareReviewQueueItems,
   createProspect,
   decideProspect,
@@ -2014,6 +2236,7 @@ module.exports = {
   getOutreachDraftWorkspace,
   getProspect,
   getResearchForProspect,
+  getSalesAnalytics,
   getSalesStoreMode,
   importManualDiscoveryProposal,
   importMapsDiscoveryCandidate,
