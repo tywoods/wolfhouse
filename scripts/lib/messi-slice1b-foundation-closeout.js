@@ -114,11 +114,12 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'fixtures/foundation-closeout/',
   LOCK_MODULE_REL,
   VERIFIER_REL,
-  // Tip-scope forward-compat only on MESSI 1A allowlist + FACTORY 1B–1E
-  // allowlists (paths / tip-scope hash rebinds; no ledger semantics).
+  // Tip-scope forward-compat only on MESSI 1A/1C allowlist + FACTORY 1B–1E
+  // allowlists (paths / tip-scope hash rebinds; no ledger semantics from 1B).
+  'docs/MESSI-ACCEPTANCE-LEDGER.md',
+  'fixtures/messi-acceptance/',
   'scripts/lib/messi-slice1a-acceptance-ledger.js',
   'scripts/verify-messi-slice1a-acceptance-ledger.js',
-  'fixtures/messi-acceptance/slice1a-ledger.json',
   'scripts/lib/factory-slice1b-archetype-templates.js',
   'scripts/lib/factory-slice1c-dry-run-generator.js',
   'scripts/lib/factory-slice1d-integration-proof.js',
@@ -127,6 +128,9 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'package.json',
   'package-lock.json',
 ]);
+
+/** Squash-merge tip on master for this slice (PR #145). */
+const LANDING_TIP = '98202775a57e64597e0e606a6e58933bb8ba7250';
 
 /**
  * Exact tip-blob sha256 for FOUNDATION provenance_bound_files at FOUNDATION_TIP.
@@ -896,6 +900,7 @@ module.exports = deepFreeze({
   MASTER_BASIS,
   PROGRESS_CLASS,
   WORKSTREAM_CLASS,
+  LANDING_TIP,
   FOUNDATION_TIP,
   FOUNDATION_CANDIDATE,
   FOUNDATION_MASTER_BASIS,

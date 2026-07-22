@@ -102,11 +102,16 @@ function runtimePathsUnchanged() {
 
 function messiLedgerSemanticsUntouched() {
   try {
-    const ledgerNow = JSON.parse(
-      fs.readFileSync(path.join(ROOT, 'fixtures/messi-acceptance/slice1a-ledger.json'), 'utf8'),
-    );
+    // Prove 1B itself did not rewrite MESSI ledger semantics: compare the
+    // ledger at 1B master basis vs the locked 1B landing tip. Later MESSI
+    // slices (1C+) may wire FOUNDATION into the canonical ledger — that is
+    // not a 1B regression and must not fail this green when re-run nested.
     const ledgerBase = JSON.parse(execSync(
       `git show ${locks.MASTER_BASIS}:fixtures/messi-acceptance/slice1a-ledger.json`,
+      { cwd: ROOT, encoding: 'utf8' },
+    ));
+    const ledgerAtLanding = JSON.parse(execSync(
+      `git show ${locks.LANDING_TIP}:fixtures/messi-acceptance/slice1a-ledger.json`,
       { cwd: ROOT, encoding: 'utf8' },
     ));
     const keys = [
@@ -115,46 +120,43 @@ function messiLedgerSemanticsUntouched() {
       'radar_formal_score', 'fortress_matrix_counts', 'gate_ids',
     ];
     for (const k of keys) {
-      if (!locks.deepEqual(ledgerNow[k], ledgerBase[k])) {
-        return { ok: false, detail: `semantic_drift:${k}` };
+      if (!locks.deepEqual(ledgerAtLanding[k], ledgerBase[k])) {
+        return { ok: false, detail: `semantic_drift_in_1b_tip:${k}` };
       }
     }
-    // Parent inventory semantics: finite_closeout_analog / production_readiness /
-    // missing_proof must not change (tip-scope hash rebinds on bound_file_hashes OK).
-    if (!Array.isArray(ledgerNow.parents) || !Array.isArray(ledgerBase.parents)) {
+    if (!Array.isArray(ledgerAtLanding.parents) || !Array.isArray(ledgerBase.parents)) {
       return { ok: false, detail: 'parents_missing' };
     }
-    if (ledgerNow.parents.length !== ledgerBase.parents.length) {
+    if (ledgerAtLanding.parents.length !== ledgerBase.parents.length) {
       return { ok: false, detail: 'parents_length' };
     }
     for (let i = 0; i < ledgerBase.parents.length; i += 1) {
       const a = ledgerBase.parents[i];
-      const b = ledgerNow.parents[i];
+      const b = ledgerAtLanding.parents[i];
       for (const k of [
         'id', 'tip_slice', 'outcome_id', 'canonical_tip', 'candidate_sha',
         'workstream_class', 'finite_closeout_analog', 'production_readiness',
         'npm_script', 'missing_proof_for_complete',
       ]) {
         if (!locks.deepEqual(a[k], b[k])) {
-          return { ok: false, detail: `parent_semantic_drift:${a.id}:${k}` };
+          return { ok: false, detail: `parent_semantic_drift_in_1b_tip:${a.id}:${k}` };
         }
       }
     }
-    if (!locks.deepEqual(ledgerNow.gates, ledgerBase.gates)) {
-      return { ok: false, detail: 'gates_semantic_drift' };
+    if (!locks.deepEqual(ledgerAtLanding.gates, ledgerBase.gates)) {
+      return { ok: false, detail: 'gates_semantic_drift_in_1b_tip' };
     }
-    if (!locks.deepEqual(ledgerNow.score, ledgerBase.score)) {
-      return { ok: false, detail: 'score_semantic_drift' };
+    if (!locks.deepEqual(ledgerAtLanding.score, ledgerBase.score)) {
+      return { ok: false, detail: 'score_semantic_drift_in_1b_tip' };
     }
-    // Docs/findings: no content change required; allow absence of diff.
     const docDiff = execSync(
-      `git diff --name-only ${locks.MASTER_BASIS} -- docs/MESSI-ACCEPTANCE-LEDGER.md fixtures/messi-acceptance/slice1a-findings.md fixtures/messi-acceptance/slice1a-contract.json`,
+      `git diff --name-only ${locks.MASTER_BASIS} ${locks.LANDING_TIP} -- docs/MESSI-ACCEPTANCE-LEDGER.md fixtures/messi-acceptance/slice1a-findings.md fixtures/messi-acceptance/slice1a-contract.json`,
       { cwd: ROOT, encoding: 'utf8' },
     ).trim();
     if (docDiff) {
-      return { ok: false, detail: `docs_or_contract_changed:${docDiff}` };
+      return { ok: false, detail: `docs_or_contract_changed_in_1b_tip:${docDiff}` };
     }
-    return { ok: true, detail: '(semantic ledger frozen; tip-scope hash rebinds allowed)' };
+    return { ok: true, detail: '(1B tip left MESSI ledger semantics frozen; later wiring allowed)' };
   } catch (err) {
     return { ok: false, detail: String(err && err.message) };
   }

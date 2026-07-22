@@ -1,12 +1,12 @@
 'use strict';
 
 /**
- * verify:messi-slice1a-acceptance-ledger — MESSI Slice 1A
+ * verify:messi-slice1a-acceptance-ledger — MESSI acceptance ledger (1A + 1C wiring)
  *
  * Read-only deterministic acceptance ledger verifier. Canonical classifier +
  * parent bindings live in scripts/lib/messi-slice1a-acceptance-ledger.js.
- * Runs retained offline parent gates only — no deploy/DB/cloud/network/live
- * product mutation.
+ * Slice 1C wires FOUNDATION 1B finite closeout into the ledger. Runs retained
+ * offline parent gates only — no deploy/DB/cloud/network/live product mutation.
  *
  * Exit 0 on pass, nonzero on failure.
  */
@@ -75,7 +75,7 @@ function tipPathsAllowed(changedPaths) {
   return { ok: bad.length === 0, bad };
 }
 
-console.log('verify:messi-slice1a-acceptance-ledger — MESSI Slice 1A\n');
+console.log('verify:messi-slice1a-acceptance-ledger — MESSI ledger (1C FOUNDATION wiring)\n');
 
 // ── Artifacts ───────────────────────────────────────────────────────────────
 console.log('── Artifacts ──');
@@ -93,7 +93,7 @@ const doc = readText(locks.ARTIFACT_RELS.doc);
 const lockSrc = readText(locks.ARTIFACT_RELS.lock_module);
 const verifierSrc = readText(locks.ARTIFACT_RELS.verifier);
 
-ok('contract slice MESSI-1A', contract.slice === locks.SLICE);
+ok('contract slice MESSI-1C', contract.slice === locks.SLICE && locks.SLICE === 'MESSI-1C');
 ok('contract outcome', contract.outcome_id === locks.OUTCOME_ID);
 ok('contract master basis', contract.master_basis === locks.MASTER_BASIS);
 ok('contract messi_complete false', contract.messi_complete === false);
@@ -110,6 +110,11 @@ ok('doc/findings distinguish finite vs production',
   || /distinguish.*finite.*production/i.test(doc));
 ok('findings have no trailing whitespace', noTrailingWhitespace(findings));
 ok('doc has no trailing whitespace', noTrailingWhitespace(doc));
+ok('1B merge/candidate bound',
+  locks.FOUNDATION_1B_MERGE_TIP === locks.MASTER_BASIS
+  && locks.PARENTS.FOUNDATION.canonical_tip === locks.FOUNDATION_1B_MERGE_TIP
+  && locks.PARENTS.FOUNDATION.candidate_sha === locks.FOUNDATION_1B_CANDIDATE_SHA
+  && locks.sameGitTree(ROOT, locks.FOUNDATION_1B_CANDIDATE_SHA, locks.FOUNDATION_1B_MERGE_TIP));
 
 // ── Package script ──────────────────────────────────────────────────────────
 console.log('\n── Package script ──');
@@ -119,7 +124,9 @@ console.log('\n── Package script ──');
     'package_script_registered',
     pkg.scripts
       && pkg.scripts[locks.PACKAGE_JSON_ALLOWED_SCRIPT_KEY]
-      === locks.PACKAGE_JSON_ALLOWED_SCRIPT_VALUE,
+      === locks.PACKAGE_JSON_ALLOWED_SCRIPT_VALUE
+      && pkg.scripts[locks.PACKAGE_JSON_1C_SCRIPT_KEY]
+      === locks.PACKAGE_JSON_1C_SCRIPT_VALUE,
   );
 }
 
@@ -142,8 +149,8 @@ console.log('\n── Parent inventory ──');
     ok(`${id} candidate_sha bound`, /^[0-9a-f]{40}$/.test(p.candidate_sha));
     const ancestor = locks.assertShaAncestor(ROOT, p.canonical_tip, locks.MASTER_BASIS);
     ok(`${id} canonical_tip is ancestor of MESSI base`, ancestor.ok, ancestor.detail);
-    const candAnc = locks.assertShaAncestor(ROOT, p.candidate_sha, p.canonical_tip);
-    ok(`${id} candidate_sha is ancestor of canonical_tip`, candAnc.ok, candAnc.detail);
+    const candFit = locks.assertCandidateFitsTip(ROOT, p.candidate_sha, p.canonical_tip);
+    ok(`${id} candidate_sha fits canonical_tip`, candFit.ok, candFit.detail);
   }
   green('parent_inventory_bound', true);
 }
@@ -189,6 +196,8 @@ green('radar_formal_0_9_0_preserved',
   locks.deepEqual(radarScore, locks.RADAR_FORMAL_SCORE));
 green('finite_vs_production_distinguished',
   Object.values(locks.PARENTS).every((p) => p.production_readiness === 'absent')
+  && locks.PARENTS.FOUNDATION.workstream_class
+    === 'finite_staging_schema_migration_recovery_closeout'
   && locks.PARENTS.RADAR.workstream_class === 'finite_milestone_closeout_staging_readiness_only'
   && locks.PARENTS.FACTORY.workstream_class === 'finite_offline_dry_run_packaging_closeout');
 
@@ -225,6 +234,40 @@ const ledgerValidation = locks.validateLedgerFixture(ledger, classification);
 ok('ledger matches classifier', ledgerValidation.ok,
   ledgerValidation.errors.join(','));
 green('classification_matches_ledger', ledgerValidation.ok);
+green('foundation_finite_staging_exposed', (() => {
+  const g = classification.gates.find((x) => x.id === 'G_FOUNDATION_PARENT');
+  const ledgerG = (ledger.gates || []).find((x) => x.id === 'G_FOUNDATION_PARENT');
+  return g
+    && g.verdict === 'partial'
+    && g.finite_staging_workstream_complete === true
+    && g.finite_closeout_analog === 'verify:messi-slice1b-foundation-closeout'
+    && Array.isArray(g.missing_proof)
+    && g.missing_proof.includes('docker_fresh_db_replacement_proof')
+    && g.missing_proof.includes('production_schema_readiness')
+    && g.missing_proof.includes('live_restore_drill')
+    && g.missing_proof.includes('operated_readiness')
+    && ledgerG
+    && ledgerG.finite_staging_workstream_complete === true
+    && ledgerG.verdict === 'partial';
+})());
+green('unrelated_gates_byte_identical_to_base', (() => {
+  const ledgerMatch = locks.unrelatedGatesMatchBase(ledger.gates || []);
+  const classMatch = locks.unrelatedGatesMatchBase(classification.gates);
+  return ledgerMatch.ok
+    && classMatch.ok
+    && locks.UNRELATED_GATE_IDS.length === 5
+    && locks.BASE_UNRELATED_GATE_OBJECTS.length === 5
+    && locks.BASE_UNRELATED_GATE_OBJECTS.every((exp) => {
+      const got = (ledger.gates || []).find((x) => x.id === exp.id);
+      return got
+        && !Object.prototype.hasOwnProperty.call(got, 'finite_staging_workstream_complete')
+        && locks.deepEqual(locks.ledgerGateObject(got), locks.deepClone(exp));
+    })
+    && (ledger.gates || []).find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT')
+      ?.workstream_class === locks.MESSI_CLOSEOUT_WORKSTREAM_CLASS
+    && (ledger.gates || []).find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT')
+      ?.workstream_class === 'acceptance_ledger_inventory_and_verifier_only';
+})());
 green('messi_not_complete',
   classification.messi_complete === false
   && ledger.messi_complete === false
@@ -263,7 +306,7 @@ console.log('\n── Tip scope ──');
 console.log('\n── Recursion fence ──');
 {
   const parentVerifiers = [
-    'scripts/verify-sunset-schema-slice14ae.js',
+    'scripts/verify-messi-slice1b-foundation-closeout.js',
     'scripts/verify-fortress-tenant-identity-boundary-matrix.js',
     'scripts/verify-fortress-slice15l-meta-signature-fail-closed.js',
     'scripts/verify-radar-slice16ap-finite-closeout.js',
@@ -271,8 +314,8 @@ console.log('\n── Recursion fence ──');
   ];
   for (const rel of parentVerifiers) {
     const src = readText(rel);
-    ok(`${rel} does not invoke MESSI`,
-      !/verify:messi-slice1a|verify-messi-slice1a|messi-slice1a-acceptance-ledger/.test(src));
+    ok(`${rel} does not spawn MESSI ledger verifier`,
+      !/verify-messi-slice1a-acceptance-ledger\.js|verify:messi-slice1c-foundation-wiring/.test(src));
   }
 }
 
@@ -470,6 +513,113 @@ red('self_authored_parent_complete_boolean', (() => {
   const v = locks.validateLedgerFixture(badLedger, classification);
   return v.ok === false
     && v.errors.some((e) => e.startsWith('self_authored_parent_complete_boolean'));
+})());
+
+red('finite_closeout_as_production_completion', (() => {
+  // Finite staging complete must never imply FOUNDATION parent complete /
+  // production_ready / emptied production missing proofs.
+  const badLedger = locks.thaw(ledger);
+  const g = badLedger.gates.find((x) => x.id === 'G_FOUNDATION_PARENT');
+  g.verdict = 'complete';
+  g.finite_staging_workstream_complete = true;
+  g.missing_proof = [];
+  badLedger.production_ready = true;
+  badLedger.score = { proven: 1, partial: 3, absent: 2, total: 6 };
+  const v = locks.validateLedgerFixture(badLedger, classification);
+  const forged = locks.classifyMessiGates({
+    hashBindingOk: true,
+    gateResults,
+    radarFormalScore: radarScore,
+    fortressMatrixCounts: matrixCounts,
+  });
+  const fg = forged.gates.find((x) => x.id === 'G_FOUNDATION_PARENT');
+  return v.ok === false
+    && fg.verdict === 'partial'
+    && fg.finite_staging_workstream_complete === true
+    && forged.production_ready === false
+    && (
+      v.errors.includes('false_production_ready')
+      || v.errors.includes('gate_verdict_mismatch:G_FOUNDATION_PARENT')
+      || v.errors.includes('downgraded_or_false_complete:G_FOUNDATION_PARENT')
+      || v.errors.includes('score_mismatch')
+    );
+})());
+
+red('stale_or_repinned_1b_provenance', (() => {
+  // Stale-but-valid: 1B master basis is a real ancestor of the 1B merge tip.
+  const stale = locks.FOUNDATION_1B_MASTER_BASIS;
+  ok('1B master_basis is real ancestor of merge tip',
+    locks.isGitAncestor(ROOT, stale, locks.FOUNDATION_1B_MERGE_TIP)
+    && stale !== locks.FOUNDATION_1B_MERGE_TIP);
+  const r = locks.verifyParentShaProvenance(ROOT, {
+    claimedParents: {
+      FOUNDATION: {
+        canonical_tip: stale,
+        candidate_sha: stale,
+        bound_hashes: { ...locks.BOUND_FILE_HASHES },
+      },
+    },
+    skipWorkingTreeCheck: true,
+  });
+  return r.ok === false
+    && r.errors.some((e) => e.includes('FOUNDATION:')
+      && (e.includes('stale_or_wrong_canonical_tip')
+        || e.includes('repinned_or_tip_blob_mismatch')));
+})());
+
+red('hidden_missing_proofs', (() => {
+  const badLedger = locks.thaw(ledger);
+  const g = badLedger.gates.find((x) => x.id === 'G_FOUNDATION_PARENT');
+  g.missing_proof = g.missing_proof.filter((m) => m !== 'docker_fresh_db_replacement_proof'
+    && m !== 'operated_readiness');
+  const v = locks.validateLedgerFixture(badLedger, classification);
+  // Classifier itself must still surface the required missing proofs.
+  const c = locks.classifyMessiGates({
+    hashBindingOk: true,
+    gateResults,
+    radarFormalScore: radarScore,
+    fortressMatrixCounts: matrixCounts,
+  });
+  const cg = c.gates.find((x) => x.id === 'G_FOUNDATION_PARENT');
+  return v.ok === false
+    && v.errors.some((e) => e.includes('gate_missing_proof_mismatch:G_FOUNDATION_PARENT'))
+    && cg.missing_proof.includes('docker_fresh_db_replacement_proof')
+    && cg.missing_proof.includes('production_schema_readiness')
+    && cg.missing_proof.includes('live_restore_drill')
+    && cg.missing_proof.includes('operated_readiness');
+})());
+
+red('self_authored_score_change', (() => {
+  const badLedger = locks.thaw(ledger);
+  badLedger.frozen_messi_score = { proven: 1, partial: 3, absent: 2, total: 6 };
+  badLedger.score = { proven: 1, partial: 3, absent: 2, total: 6 };
+  const v = locks.validateLedgerFixture(badLedger, classification);
+  return v.ok === false
+    && (
+      v.errors.includes('frozen_messi_score')
+      || v.errors.includes('score_mismatch')
+    );
+})());
+
+red('unrelated_gate_semantic_drift', (() => {
+  // Leak finite_staging onto FORTRESS — must fail closed.
+  const leak = locks.thaw(ledger);
+  const fg = leak.gates.find((x) => x.id === 'G_FORTRESS_PARENT');
+  fg.finite_staging_workstream_complete = false;
+  const vLeak = locks.validateLedgerFixture(leak, classification);
+  // Mutate G_MESSI_MILESTONE_CLOSEOUT.workstream_class away from base 98202775.
+  const drift = locks.thaw(ledger);
+  const cg = drift.gates.find((x) => x.id === 'G_MESSI_MILESTONE_CLOSEOUT');
+  cg.workstream_class = locks.PROGRESS_CLASS;
+  const vDrift = locks.validateLedgerFixture(drift, classification);
+  // Exact compare of locked base objects vs live unrelated ledger gates.
+  const live = locks.unrelatedGatesMatchBase(ledger.gates || []);
+  return live.ok === true
+    && vLeak.ok === false
+    && vLeak.errors.some((e) => e === 'finite_staging_on_unrelated_gate:G_FORTRESS_PARENT'
+      || e === 'unrelated_gate_drift:G_FORTRESS_PARENT')
+    && vDrift.ok === false
+    && vDrift.errors.includes('unrelated_gate_drift:G_MESSI_MILESTONE_CLOSEOUT');
 })());
 
 // Lock export immutability (best-effort)
