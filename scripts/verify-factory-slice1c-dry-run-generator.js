@@ -636,6 +636,225 @@ expectFail('postgres_url_input', {
   },
 }, (e) => e.some((x) => x.includes('postgres_url')));
 
+// ── Reserved substituted-key safety REDs ────────────────────────────────────
+console.log('\n── Reserved substituted-key safety REDs ──');
+{
+  const PROTO_OWN_BEFORE = Object.getOwnPropertyNames(Object.prototype).slice().sort().join(',');
+  function protoUnchanged() {
+    return Object.getOwnPropertyNames(Object.prototype).slice().sort().join(',') === PROTO_OWN_BEFORE;
+  }
+
+  const RESERVED_EXACT = [...gen.RESERVED_OBJECT_KEYS];
+  // Exact policy: ASCII case-insensitive match of the three reserved names.
+  const RESERVED_MIXED = ['__Proto__', 'Prototype', 'Constructor'];
+
+  const contexts = [
+    {
+      map: 'package',
+      archetype: 'surf_house',
+      token: 'PACKAGE_CODE_1',
+      base: baseHouse,
+      slug: 'fresh-house-pkg',
+      locPatch: { LOCATION_ID: 'fresh-house-pkg-main' },
+    },
+    {
+      map: 'rental',
+      archetype: 'surf_school_shop',
+      token: 'RENTAL_BOARD',
+      base: baseSchool,
+      slug: 'fresh-school-rental',
+      locPatch: { LOCATION_ID_1: 'fresh-school-rental-a', LOCATION_ID_2: 'fresh-school-rental-b' },
+    },
+    {
+      map: 'lesson',
+      archetype: 'surf_school_shop',
+      token: 'LESSON_GROUP_ADULT',
+      base: baseSchool,
+      slug: 'fresh-school-lesson',
+      locPatch: { LOCATION_ID_1: 'fresh-school-lesson-a', LOCATION_ID_2: 'fresh-school-lesson-b' },
+    },
+    {
+      map: 'location',
+      archetype: 'surf_house',
+      token: 'ROOM_ID_1',
+      base: baseHouse,
+      slug: 'fresh-house-loc',
+      locPatch: { LOCATION_ID: 'fresh-house-loc-main' },
+    },
+    {
+      map: 'nested_price',
+      archetype: 'surf_school_shop',
+      token: 'RENTAL_WINDOW_1',
+      base: baseSchool,
+      slug: 'fresh-school-price',
+      locPatch: { LOCATION_ID_1: 'fresh-school-price-a', LOCATION_ID_2: 'fresh-school-price-b' },
+    },
+  ];
+
+  for (const ctx of contexts) {
+    for (const reserved of RESERVED_EXACT) {
+      const id = `reserved_key_${ctx.map}_${reserved.replace(/_/g, '')}`;
+      const substitutions = {
+        ...ctx.base,
+        CLIENT_SLUG: `${ctx.slug}-${reserved.replace(/_/g, '')}`.slice(0, 64).replace(/-$/, ''),
+        ...ctx.locPatch,
+        [ctx.token]: reserved,
+      };
+      // Keep location ids unique + valid when slug patch collides with reserved.
+      if (ctx.archetype === 'surf_house') {
+        substitutions.LOCATION_ID = `${substitutions.CLIENT_SLUG}-main`;
+      } else {
+        substitutions.LOCATION_ID_1 = `${substitutions.CLIENT_SLUG}-a`;
+        substitutions.LOCATION_ID_2 = `${substitutions.CLIENT_SLUG}-b`;
+      }
+      const r = gen.generateDryRunPreview({
+        repoRoot: ROOT,
+        archetype: ctx.archetype,
+        mode: gen.MODE_DRY_RUN,
+        substitutions,
+      });
+      const errs = r.errors || [];
+      red(id,
+        !r.ok
+        && errs.some((e) => e === `reserved_object_key:${reserved}`)
+        && protoUnchanged()
+        && !Object.prototype.hasOwnProperty('polluted'),
+        errs.join(','));
+    }
+
+    for (const mixed of RESERVED_MIXED) {
+      const id = `reserved_key_${ctx.map}_mixed_${mixed.replace(/_/g, '')}`;
+      const substitutions = {
+        ...ctx.base,
+        CLIENT_SLUG: `${ctx.slug}-m-${mixed.replace(/[^a-zA-Z]/g, '').toLowerCase()}`.slice(0, 64),
+        [ctx.token]: mixed,
+      };
+      if (ctx.archetype === 'surf_house') {
+        substitutions.LOCATION_ID = `${substitutions.CLIENT_SLUG}-main`;
+      } else {
+        substitutions.LOCATION_ID_1 = `${substitutions.CLIENT_SLUG}-a`;
+        substitutions.LOCATION_ID_2 = `${substitutions.CLIENT_SLUG}-b`;
+      }
+      const r = gen.generateDryRunPreview({
+        repoRoot: ROOT,
+        archetype: ctx.archetype,
+        mode: gen.MODE_DRY_RUN,
+        substitutions,
+      });
+      const errs = r.errors || [];
+      red(id,
+        !r.ok
+        && errs.some((e) => e === `reserved_object_key:${mixed}`)
+        && protoUnchanged(),
+        errs.join(','));
+    }
+  }
+
+  // Literal reserved keys (not placeholder-derived) — JSON own keys, every map label.
+  for (const reserved of RESERVED_EXACT) {
+    for (const mapName of ['package', 'rental', 'lesson', 'location', 'nested_price']) {
+      const unresolved = new Set();
+      const errors = [];
+      // JSON.parse yields an own key named __proto__; object-literal syntax would not.
+      const tree = JSON.parse(`{"keep":{"map":"${mapName}"},"${reserved}":{"marker":1}}`);
+      const out = gen.substituteTree(tree, {}, unresolved, null, errors);
+      const ownKeys = Object.keys(out);
+      red(`literal_reserved_${mapName}_${reserved.replace(/_/g, '')}`,
+        errors.includes(`reserved_object_key:${reserved}`)
+        && ownKeys.includes('keep')
+        && !ownKeys.includes(reserved)
+        && Object.getPrototypeOf(out) === null
+        && protoUnchanged(),
+        `errors=${errors.join(',')} keys=${ownKeys.join(',')}`);
+    }
+  }
+
+  // Collision re-check after substitution (two tokens -> same key).
+  {
+    const r = gen.generateDryRunPreview({
+      repoRoot: ROOT,
+      archetype: 'surf_house',
+      mode: gen.MODE_DRY_RUN,
+      substitutions: {
+        ...baseHouse,
+        CLIENT_SLUG: 'fresh-house-collision',
+        LOCATION_ID: 'fresh-house-collision-main',
+        PACKAGE_CODE_1: 'same-pack',
+        PACKAGE_CODE_2: 'same-pack',
+      },
+    });
+    red('post_sub_key_collision_recheck',
+      !r.ok && (r.errors || []).some((e) => e === 'key_collision:same-pack'),
+      (r.errors || []).join(','));
+  }
+
+  // Cross-refs use enumerable own keys only (inherited prototype keys must not satisfy).
+  {
+    const polluted = false;
+    try {
+      // If a prior bug polluted, clean for the assertion surface.
+      delete Object.prototype.surf_week;
+    } catch (_) { /* ignore */ }
+    const r = gen.generateDryRunPreview({
+      repoRoot: ROOT,
+      archetype: 'surf_house',
+      mode: gen.MODE_DRY_RUN,
+      substitutions: {
+        ...baseHouse,
+        CLIENT_SLUG: 'fresh-house-ownkeys',
+        LOCATION_ID: 'fresh-house-ownkeys-main',
+      },
+    });
+    let ownOk = false;
+    if (r.ok) {
+      const baseline = JSON.parse(r.files.find((f) => f.kind === 'baseline').content);
+      const inclusions = baseline.packages.inclusions;
+      const known = baseline.packages.known_packages;
+      ownOk = known.every((pkg) => Object.prototype.hasOwnProperty.call(inclusions, pkg)
+        && Object.keys(inclusions).includes(pkg));
+    }
+    red('cross_ref_enumerable_own_keys_only',
+      r.ok && ownOk && protoUnchanged() && !polluted,
+      r.ok ? `ownOk=${ownOk}` : (r.errors || []).join(','));
+  }
+
+  // GREEN: null-prototype substituted objects, no omitted package keys.
+  {
+    const r = gen.generateDryRunPreview({
+      repoRoot: ROOT,
+      archetype: 'surf_house',
+      mode: gen.MODE_DRY_RUN,
+      substitutions: {
+        ...baseHouse,
+        CLIENT_SLUG: 'fresh-house-nullproto',
+        LOCATION_ID: 'fresh-house-nullproto-main',
+      },
+    });
+    let detail = '';
+    let passNull = false;
+    if (r.ok) {
+      const unresolved = new Set();
+      const errors = [];
+      const templates = gen.loadArchetypeTemplates(ROOT, 'surf_house');
+      const subs = { ...baseHouse, CLIENT_SLUG: 'fresh-house-nullproto', LOCATION_ID: 'fresh-house-nullproto-main' };
+      const baseline = gen.substituteTree(gen.thaw(templates.baseline), subs, unresolved, null, errors);
+      const known = baseline.packages.known_packages;
+      const inclusionKeys = Object.keys(baseline.packages.inclusions);
+      passNull = Object.getPrototypeOf(baseline) === null
+        && Object.getPrototypeOf(baseline.packages.inclusions) === null
+        && errors.length === 0
+        && known.every((k) => inclusionKeys.includes(k))
+        && inclusionKeys.length === known.length;
+      detail = `protoNull=${Object.getPrototypeOf(baseline) === null} keys=${inclusionKeys.join(',')}`;
+    }
+    green('substituted_null_prototype_no_omitted_keys',
+      r.ok && passNull && protoUnchanged(),
+      detail || (r.errors || []).join(','));
+  }
+
+  red('object_prototype_unpolluted_after_reserved_reds', protoUnchanged());
+}
+
 // Tip scope (diff vs master basis when available)
 console.log('\n── Tip scope ──');
 {

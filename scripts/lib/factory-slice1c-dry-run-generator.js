@@ -53,6 +53,12 @@ const DOC_FIELD_KEYS = Object.freeze([
   'note',
 ]);
 
+/** Exact reserved object keys (prototype-chain / setter hazards). */
+const RESERVED_OBJECT_KEYS = Object.freeze(['__proto__', 'prototype', 'constructor']);
+const RESERVED_OBJECT_KEYS_LOWER = Object.freeze(
+  new Set(RESERVED_OBJECT_KEYS.map((k) => k.toLowerCase())),
+);
+
 const REQUIRED_IDENTITY_TOKENS = Object.freeze({
   surf_house: Object.freeze([
     'CLIENT_SLUG',
@@ -123,10 +129,26 @@ const EXISTING_REGRESSION_GATES = Object.freeze([
 
 const FORBIDDEN_CONTENT_PATTERNS = slice1b.FORBIDDEN_CONTENT_PATTERNS;
 
+function emptyObject() {
+  return Object.create(null);
+}
+
+function hasOwnKey(obj, key) {
+  return obj != null && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+/**
+ * Reserved-key policy: exact `__proto__` / `prototype` / `constructor`, plus
+ * ASCII case variants (e.g. `__Proto__`, `Prototype`, `Constructor`).
+ */
+function isReservedObjectKey(key) {
+  return typeof key === 'string' && RESERVED_OBJECT_KEYS_LOWER.has(key.toLowerCase());
+}
+
 function thaw(value) {
   if (Array.isArray(value)) return value.map(thaw);
   if (value && typeof value === 'object') {
-    const out = {};
+    const out = emptyObject();
     for (const key of Object.keys(value)) out[key] = thaw(value[key]);
     return out;
   }
@@ -179,7 +201,7 @@ function stableStringify(value, space) {
 function sortKeysDeep(value) {
   if (Array.isArray(value)) return value.map(sortKeysDeep);
   if (value && typeof value === 'object') {
-    const out = {};
+    const out = emptyObject();
     for (const key of Object.keys(value).sort()) {
       out[key] = sortKeysDeep(value[key]);
     }
@@ -249,16 +271,17 @@ function substituteString(str, substitutions, unresolved) {
   });
 }
 
-function substituteTree(node, substitutions, unresolved, parentKey) {
+function substituteTree(node, substitutions, unresolved, parentKey, errors) {
   if (isDocFieldKey(parentKey)) return node;
   if (typeof node === 'string') {
     return substituteString(node, substitutions, unresolved);
   }
   if (Array.isArray(node)) {
-    return node.map((item) => substituteTree(item, substitutions, unresolved, parentKey));
+    return node.map((item) => substituteTree(item, substitutions, unresolved, parentKey, errors));
   }
   if (node && typeof node === 'object') {
-    const out = {};
+    const out = emptyObject();
+    const seen = emptyObject();
     for (const key of Object.keys(node)) {
       const keyExact = PLACEHOLDER_RE.exec(key);
       let nextKey = key;
@@ -270,10 +293,17 @@ function substituteTree(node, substitutions, unresolved, parentKey) {
           nextKey = String(substitutions[token]);
         }
       }
-      if (Object.prototype.hasOwnProperty.call(out, nextKey)) {
-        unresolved.add(`key_collision:${nextKey}`);
+      if (isReservedObjectKey(nextKey)) {
+        if (errors) errors.push(`reserved_object_key:${nextKey}`);
+        else unresolved.add(`reserved_object_key:${nextKey}`);
+        continue;
       }
-      out[nextKey] = substituteTree(node[key], substitutions, unresolved, key);
+      if (hasOwnKey(seen, nextKey) || hasOwnKey(out, nextKey)) {
+        if (errors) errors.push(`key_collision:${nextKey}`);
+        else unresolved.add(`key_collision:${nextKey}`);
+      }
+      seen[nextKey] = true;
+      out[nextKey] = substituteTree(node[key], substitutions, unresolved, key, errors);
     }
     return out;
   }
@@ -285,9 +315,194 @@ function getPath(obj, dotted) {
   let cur = obj;
   for (const p of parts) {
     if (cur == null || typeof cur !== 'object') return undefined;
+    if (Array.isArray(cur)) {
+      const idx = Number(p);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= cur.length) return undefined;
+      cur = cur[idx];
+      continue;
+    }
+    if (!hasOwnKey(cur, p)) return undefined;
     cur = cur[p];
   }
   return cur;
+}
+
+/**
+ * Walk substituted tree: reject reserved keys and re-check key collisions
+ * against enumerable own keys (belt-and-suspenders after substituteTree).
+ */
+function validateSubstitutedKeySafety(node, errors, pathParts = []) {
+  if (Array.isArray(node)) {
+    for (let i = 0; i < node.length; i += 1) {
+      validateSubstitutedKeySafety(node[i], errors, pathParts.concat(String(i)));
+    }
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+
+  const ownKeys = Object.keys(node);
+  const seen = emptyObject();
+  for (const key of ownKeys) {
+    if (isReservedObjectKey(key)) {
+      errors.push(`reserved_object_key:${key}`);
+    }
+    if (hasOwnKey(seen, key)) {
+      errors.push(`key_collision:${key}`);
+    }
+    seen[key] = true;
+    validateSubstitutedKeySafety(node[key], errors, pathParts.concat(key));
+  }
+
+  // Prototype must stay null (or array proto for arrays — handled above).
+  const proto = Object.getPrototypeOf(node);
+  if (proto !== null) {
+    errors.push(`substituted_object_non_null_prototype:${pathParts.join('.') || '<root>'}`);
+  }
+}
+
+function assertOwnRef(map, key, errors, label) {
+  if (map == null || typeof map !== 'object' || Array.isArray(map)) {
+    errors.push(`cross_ref_map_missing:${label}`);
+    return false;
+  }
+  if (!hasOwnKey(map, key)) {
+    errors.push(`cross_ref_missing:${label}:${key}`);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Validate cross-references against actual enumerable own keys only
+ * (never `in` / inherited prototype lookups).
+ */
+function validateSubstitutedCrossRefs(baseline, pricing, archetypeId, errors) {
+  if (archetypeId === 'surf_house') {
+    const known = getPath(baseline, 'packages.known_packages');
+    const inclusions = getPath(baseline, 'packages.inclusions');
+    const seasons = getPath(baseline, 'packages.seasons');
+    const prices = getPath(baseline, 'packages.prices_per_person_base_nights_shared');
+    const rooms = getPath(baseline, 'rooming.rooms');
+    const services = getPath(baseline, 'service_addons.service_catalog');
+    const bundles = getPath(baseline, 'service_addons.bundles');
+
+    if (Array.isArray(known)) {
+      if (known.length !== new Set(known).size) {
+        errors.push('package_code_duplicate');
+      }
+      for (const pkg of known) {
+        assertOwnRef(inclusions, pkg, errors, 'packages.inclusions');
+      }
+      if (seasons && typeof seasons === 'object') {
+        for (const season of Object.keys(seasons)) {
+          if (!assertOwnRef(prices, season, errors, 'packages.prices_per_person_base_nights_shared')) {
+            continue;
+          }
+          const seasonPrices = prices[season];
+          for (const pkg of known) {
+            assertOwnRef(seasonPrices, pkg, errors, `packages.prices_per_person_base_nights_shared.${season}`);
+          }
+        }
+      }
+    }
+
+    if (rooms && typeof rooms === 'object') {
+      for (const roomId of Object.keys(rooms)) {
+        if (isReservedObjectKey(roomId)) {
+          errors.push(`reserved_object_key:${roomId}`);
+        }
+      }
+    }
+    if (services && typeof services === 'object') {
+      for (const code of Object.keys(services)) {
+        if (isReservedObjectKey(code)) errors.push(`reserved_object_key:${code}`);
+      }
+    }
+    if (bundles && typeof bundles === 'object') {
+      for (const code of Object.keys(bundles)) {
+        if (isReservedObjectKey(code)) errors.push(`reserved_object_key:${code}`);
+      }
+      for (const [code, bundle] of Object.entries(bundles)) {
+        const includes = bundle && bundle.includes;
+        if (!Array.isArray(includes) || !services) continue;
+        for (const svc of includes) {
+          assertOwnRef(services, svc, errors, `service_addons.bundles.${code}.includes`);
+        }
+      }
+    }
+
+    if (pricing && typeof pricing === 'object') {
+      validateSubstitutedKeySafety(pricing, errors, ['pricing']);
+      const pkgs = pricing.packages;
+      if (Array.isArray(pkgs) && Array.isArray(known)) {
+        const codes = pkgs.map((p) => p && p.code).filter(Boolean);
+        if (codes.length !== new Set(codes).size) {
+          errors.push('pricing_package_code_duplicate');
+        }
+        for (const pkg of known) {
+          if (!codes.includes(pkg)) {
+            errors.push(`cross_ref_missing:pricing.packages:${pkg}`);
+          }
+        }
+      }
+    }
+    return;
+  }
+
+  // surf_school_shop
+  const windows = getPath(baseline, 'catalog.rentals.windows');
+  const rentals = getPath(baseline, 'catalog.rentals.offerings');
+  const lessons = getPath(baseline, 'catalog.lessons.offerings');
+  const accommodation = getPath(baseline, 'catalog.accommodation.offerings');
+  const locations = getPath(baseline, 'locations');
+
+  if (Array.isArray(windows)) {
+    if (windows.length !== new Set(windows).size) {
+      errors.push('rental_window_duplicate');
+    }
+  }
+  if (rentals && typeof rentals === 'object') {
+    for (const [code, off] of Object.entries(rentals)) {
+      if (isReservedObjectKey(code)) errors.push(`reserved_object_key:${code}`);
+      const pricesEur = off && off.prices_eur;
+      if (!pricesEur || typeof pricesEur !== 'object') {
+        errors.push(`cross_ref_map_missing:catalog.rentals.offerings.${code}.prices_eur`);
+        continue;
+      }
+      if (Array.isArray(windows)) {
+        for (const w of windows) {
+          assertOwnRef(pricesEur, w, errors, `catalog.rentals.offerings.${code}.prices_eur`);
+        }
+      }
+    }
+  }
+  if (lessons && typeof lessons === 'object') {
+    for (const [code, off] of Object.entries(lessons)) {
+      if (isReservedObjectKey(code)) errors.push(`reserved_object_key:${code}`);
+      const pricesEur = off && off.prices_eur;
+      if (!pricesEur || typeof pricesEur !== 'object') {
+        errors.push(`cross_ref_map_missing:catalog.lessons.offerings.${code}.prices_eur`);
+        continue;
+      }
+      for (const unitKey of Object.keys(pricesEur)) {
+        if (isReservedObjectKey(unitKey)) errors.push(`reserved_object_key:${unitKey}`);
+      }
+    }
+  }
+  if (accommodation && typeof accommodation === 'object') {
+    for (const code of Object.keys(accommodation)) {
+      if (isReservedObjectKey(code)) errors.push(`reserved_object_key:${code}`);
+    }
+  }
+  if (Array.isArray(locations)) {
+    const ids = locations.map((l) => l && l.location_id).filter(Boolean);
+    if (ids.length !== new Set(ids).size) {
+      errors.push('location_id_collision');
+    }
+    for (const id of ids) {
+      if (isReservedObjectKey(id)) errors.push(`reserved_object_key:${id}`);
+    }
+  }
 }
 
 function readJson(filePath) {
@@ -389,34 +604,28 @@ function expectedOutputPathSet(archetypeId, clientSlug) {
 
 function buildRegistryEntry(archetypeId, substitutions) {
   if (archetypeId === 'surf_house') {
-    return {
-      client_slug: substitutions.CLIENT_SLUG,
-      display_name: substitutions.CLIENT_NAME,
-      live_enabled: false,
-      locations: [
-        {
-          location_id: substitutions.LOCATION_ID,
-          display_name: substitutions.LOCATION_NAME
-            || substitutions.CLIENT_NAME,
-        },
-      ],
-    };
+    const entry = emptyObject();
+    entry.client_slug = substitutions.CLIENT_SLUG;
+    entry.display_name = substitutions.CLIENT_NAME;
+    entry.live_enabled = false;
+    const loc = emptyObject();
+    loc.location_id = substitutions.LOCATION_ID;
+    loc.display_name = substitutions.LOCATION_NAME || substitutions.CLIENT_NAME;
+    entry.locations = [loc];
+    return entry;
   }
-  return {
-    client_slug: substitutions.CLIENT_SLUG,
-    display_name: substitutions.CLIENT_NAME,
-    live_enabled: false,
-    locations: [
-      {
-        location_id: substitutions.LOCATION_ID_1,
-        display_name: substitutions.LOCATION_NAME_1,
-      },
-      {
-        location_id: substitutions.LOCATION_ID_2,
-        display_name: substitutions.LOCATION_NAME_2,
-      },
-    ],
-  };
+  const entry = emptyObject();
+  entry.client_slug = substitutions.CLIENT_SLUG;
+  entry.display_name = substitutions.CLIENT_NAME;
+  entry.live_enabled = false;
+  const loc1 = emptyObject();
+  loc1.location_id = substitutions.LOCATION_ID_1;
+  loc1.display_name = substitutions.LOCATION_NAME_1;
+  const loc2 = emptyObject();
+  loc2.location_id = substitutions.LOCATION_ID_2;
+  loc2.display_name = substitutions.LOCATION_NAME_2;
+  entry.locations = [loc1, loc2];
+  return entry;
 }
 
 function loadArchetypeTemplates(repoRoot, archetypeId) {
@@ -469,7 +678,7 @@ function generateDryRunPreview(input) {
     return { ok: false, errors: ['apply_path_forbidden'] };
   }
 
-  const substitutions = {};
+  const substitutions = emptyObject();
   for (const [k, v] of Object.entries(substitutionsIn)) {
     const token = String(k).replace(/^\{\{/, '').replace(/\}\}$/, '');
     substitutions[token] = v;
@@ -544,10 +753,10 @@ function generateDryRunPreview(input) {
   if (errors.length) return { ok: false, errors: [...new Set(errors)].sort() };
 
   const unresolved = new Set();
-  const baseline = substituteTree(thaw(templates.baseline), substitutions, unresolved, null);
-  const secretsExample = substituteTree(thaw(templates.secretsExample), substitutions, unresolved, null);
+  const baseline = substituteTree(thaw(templates.baseline), substitutions, unresolved, null, errors);
+  const secretsExample = substituteTree(thaw(templates.secretsExample), substitutions, unresolved, null, errors);
   const pricing = templates.pricing
-    ? substituteTree(thaw(templates.pricing), substitutions, unresolved, null)
+    ? substituteTree(thaw(templates.pricing), substitutions, unresolved, null, errors)
     : null;
   const registryEntry = buildRegistryEntry(archetype, substitutions);
 
@@ -573,6 +782,14 @@ function generateDryRunPreview(input) {
     baseline._meta.slice = SLICE;
   }
   registryEntry.live_enabled = false;
+
+  // Re-check reserved keys / collisions after substitution; cross-refs use
+  // enumerable own keys only (no inherited prototype lookups).
+  validateSubstitutedKeySafety(baseline, errors, ['baseline']);
+  validateSubstitutedKeySafety(secretsExample, errors, ['secrets_example']);
+  validateSubstitutedKeySafety(registryEntry, errors, ['registry_entry']);
+  if (pricing) validateSubstitutedKeySafety(pricing, errors, ['pricing']);
+  validateSubstitutedCrossRefs(baseline, pricing, archetype, errors);
 
   assertEnablementFalse(baseline, archetype, errors);
   if (registryEntry.live_enabled !== false) {
@@ -877,6 +1094,7 @@ deepFreeze(TEMPLATE_SOURCE_FILES);
 deepFreeze(ALLOWED_TIP_PATH_PREFIXES);
 deepFreeze(EXISTING_REGRESSION_GATES);
 deepFreeze(DOC_FIELD_KEYS);
+deepFreeze(RESERVED_OBJECT_KEYS);
 
 module.exports = Object.freeze({
   SLICE,
@@ -898,6 +1116,10 @@ module.exports = Object.freeze({
   PACKAGE_JSON_ALLOWED_SCRIPT_VALUE,
   EXISTING_REGRESSION_GATES,
   FORBIDDEN_CONTENT_PATTERNS,
+  RESERVED_OBJECT_KEYS,
+  emptyObject,
+  hasOwnKey,
+  isReservedObjectKey,
   thaw,
   deepEqual,
   sha256Hex,
@@ -906,6 +1128,9 @@ module.exports = Object.freeze({
   scanForbiddenContent,
   collectPlaceholders,
   isStrictSlug,
+  substituteTree,
+  validateSubstitutedKeySafety,
+  validateSubstitutedCrossRefs,
   expectedOutputPathSet,
   previewRelativePaths,
   loadArchetypeTemplates,

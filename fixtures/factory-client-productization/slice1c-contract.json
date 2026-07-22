@@ -27,7 +27,8 @@
       "stdout_zero_write",
       "disk_materialization_unsupported",
       "no_side_effects_outside_stdout",
-      "adversarial_rejection_of_secrets_live_targets_collisions_enablement"
+      "adversarial_rejection_of_secrets_live_targets_collisions_enablement",
+      "substituted_key_reserved_rejection_null_prototype_own_key_cross_refs"
     ],
     "out_of_scope_current_stage": [
       "apply_path",
