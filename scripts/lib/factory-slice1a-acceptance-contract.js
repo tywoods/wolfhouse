@@ -78,8 +78,10 @@ const FINITE_STAGES = Object.freeze([
   Object.freeze({
     id: '1E',
     title: 'Dry-run proof packaging and milestone closeout',
-    status: 'deferred_future_stage',
+    status: 'complete',
     depends_on: '1D',
+    completion_evidence: '1E_dry_run_proof_packaging_milestone_closeout',
+    completion_requires: 'verify:factory-slice1e-finite-closeout',
   }),
 ]);
 
@@ -167,7 +169,7 @@ const GATES = Object.freeze([
     requirement:
       'A dry-run generation path must produce inspectable artifacts and pass offline verifiers without writing live targets, secrets, DB rows, or deploying.',
     proof_stage: '1E',
-    current_stage_evidence: 'gate_text_freeze_only',
+    current_stage_evidence: '1E_dry_run_proof_packaging_milestone_closeout',
   }),
   Object.freeze({
     id: 'G_MILESTONE_CLOSEOUT',
@@ -175,7 +177,7 @@ const GATES = Object.freeze([
     requirement:
       'FACTORY 1A–1E closes only when all nine gates have stage-appropriate evidence, finite stage fence is intact, and third-tenant live/prod remains blocked pending RADAR reopen.',
     proof_stage: '1E',
-    current_stage_evidence: 'closeout_deferred_to_1E',
+    current_stage_evidence: '1E_dry_run_proof_packaging_milestone_closeout',
   }),
 ]);
 
@@ -470,6 +472,43 @@ function validate1dLedgerClaim(stage1d, gates, slice1dVerifierPassed) {
   return errors;
 }
 
+/**
+ * 1E ledger may claim complete only when the independent 1E verifier passed.
+ * Gates G_DRY_RUN_PROOF / G_MILESTONE_CLOSEOUT must carry matching 1E evidence.
+ *
+ * Recursion fence: the 1A executable must not spawn the 1E verifier (1E invokes
+ * 1A). Green validate1eLedgerClaim(pass=true) is enforced by the 1E closeout
+ * verifier; 1A only asserts structural fields + RED(pass=false).
+ */
+function validate1eLedgerClaim(stage1e, gates, slice1eVerifierPassed) {
+  const errors = [];
+  if (!stage1e || stage1e.id !== '1E') {
+    errors.push('1e_stage_missing');
+    return errors;
+  }
+  const evidence = '1E_dry_run_proof_packaging_milestone_closeout';
+  const requires = 'verify:factory-slice1e-finite-closeout';
+  if (stage1e.status === 'complete') {
+    if (!slice1eVerifierPassed) {
+      errors.push('1e_complete_without_independent_validator');
+    }
+    if (stage1e.completion_evidence !== evidence) {
+      errors.push('1e_complete_evidence_mismatch');
+    }
+    if (stage1e.completion_requires !== requires) {
+      errors.push('1e_complete_requires_mismatch');
+    }
+    const byId = new Map((gates || []).map((g) => [g.id, g]));
+    for (const gateId of ['G_DRY_RUN_PROOF', 'G_MILESTONE_CLOSEOUT']) {
+      const g = byId.get(gateId);
+      if (!g || g.current_stage_evidence !== evidence) {
+        errors.push(`1e_gate_evidence_mismatch:${gateId}`);
+      }
+    }
+  }
+  return errors;
+}
+
 deepFreeze(CONTRACT);
 
 module.exports = Object.freeze({
@@ -497,4 +536,5 @@ module.exports = Object.freeze({
   validate1bLedgerClaim,
   validate1cLedgerClaim,
   validate1dLedgerClaim,
+  validate1eLedgerClaim,
 });

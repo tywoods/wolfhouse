@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "slice": "FACTORY-1E",
+  "outcome_id": "1E_dry_run_proof_packaging_milestone_closeout",
+  "branch": "factory/slice-1e-finite-closeout",
+  "master_basis": "e8452d178ad8f4b6aadc8b59b2d3032634952471",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "generator_behavior_changed": false,
+  "template_behavior_changed": false,
+  "title": "FACTORY Slice 1E — dry-run proof packaging + milestone closeout",
+  "status": "finite_milestone_closeout_delivered",
+  "apply_path": false,
+  "disk_materialization_supported": false,
+  "archetype": "surf_house",
+  "synthetic_client_slug": "zyx-null-beacon",
+  "synthetic_location_ids": ["zyx-null-beacon-main"],
+  "library": "scripts/lib/factory-slice1e-finite-closeout.js",
+  "verifier": "scripts/verify-factory-slice1e-finite-closeout.js",
+  "completion_evidence": "1E_dry_run_proof_packaging_milestone_closeout",
+  "completion_requires": "verify:factory-slice1e-finite-closeout",
+  "artifact": {
+    "substitutions": "fixtures/factory-client-productization/slice1e-substitutions-zyx-null-beacon.json",
+    "stdout": "fixtures/factory-client-productization/slice1e-third-tenant-dry-run-stdout.json",
+    "lock": "fixtures/factory-client-productization/slice1e-artifact-lock.json"
+  },
+  "evidence_classes": {
+    "required_current_stage": [
+      "committed_synthetic_third_tenant_stdout_dry_run_artifact",
+      "fresh_process_byte_identical_regeneration",
+      "exact_artifact_and_manifest_hash_compare",
+      "no_side_effects_on_config_clients_registry_templates",
+      "all_enablement_false_no_secrets_no_live_targets",
+      "independent_1a_through_1d_plus_luna_hard_multiclient_gates",
+      "operator_handoff_stdout_only_no_deploy",
+      "retained_master_red_classification"
+    ],
+    "out_of_scope_current_stage": [
+      "product_runtime_archetype_template_generator_behavior_changes",
+      "apply_path",
+      "safe_disk_materialization",
+      "registry_edits",
+      "config_clients_writes",
+      "runtime_registration",
+      "client_creation",
+      "iac_mutation",
+      "db_mutation",
+      "deploy",
+      "staging_or_production_rollout",
+      "secret_materialization",
+      "live_network_calls",
+      "third_tenant_live_or_prod_onboarding",
+      "radar_third_tenant_factory_reopen_satisfaction"
+    ]
+  },
+  "gates_npm": [
+    "npm run verify:factory-slice1e-finite-closeout",
+    "npm run verify:factory-slice1a-acceptance-contract",
+    "npm run verify:factory-slice1b-archetype-templates",
+    "npm run verify:factory-slice1c-dry-run-generator",
+    "npm run verify:factory-slice1d-integration-proof",
+    "npm run verify:luna-all",
+    "npm run verify:multiclient",
+    "git diff --check"
+  ],
+  "findings": "fixtures/factory-client-productization/slice1e-findings.md",
+  "operator_handoff": "fixtures/factory-client-productization/slice1e-operator-handoff.md",
+  "doc": "docs/FACTORY-CLIENT-PRODUCTIZATION.md",
+  "existing_regression_retained_master_red": [
+    {
+      "gate": "node scripts/verify-staff-tenant-scope.js",
+      "retained_failure": "H3 stripe webhook addon idempotent COUNT filters by client_slug"
+    },
+    {
+      "gate": "node scripts/verify-tenant-business-config.js",
+      "retained_failure": "DB prices used (async DB overlay merges baseline prices; length>1)"
+    }
+  ],
+  "recursion_fence": {
+    "1e_invokes": ["1A", "1B", "1C", "1D", "luna-all", "hard_multiclient"],
+    "1a_must_not_invoke_1e": true
+  }
+}

@@ -1,22 +1,23 @@
 # FACTORY — Client productization (finite stages 1A–1E)
 
-**Status:** Slice **1D delivered** (1C typed-substitution correction + integration isolation + legacy-compatibility proofs). Slices **1A**, **1B**, and **1C** complete.
+**Status:** Slice **1E delivered** — dry-run proof packaging + finite milestone closeout. Slices **1A**, **1B**, **1C**, and **1D** complete.
 
+**Master basis (1E):** `e8452d178ad8f4b6aadc8b59b2d3032634952471`
 **Master basis (1D):** `210b3643793ad5569dc466977b8fe4421c22ef92`
 **Master basis (1C):** `ce89a43ee1e2367a832255fec5ee4aefbfb4d2d8`
 **Master basis (1B):** `86f4cb9daaefdecab75ad02a2e755e2e7503216d`
 **Master basis (1A freeze parent):** `0ef5958ed8b81ca04b196062505bf4be7a403221`
 
 **Owner artifacts:**
-`config/archetypes/` · `fixtures/factory-client-productization/` · `scripts/lib/factory-slice1a-acceptance-contract.js` · `scripts/lib/factory-slice1a-inventory-discovery.js` · `scripts/lib/factory-slice1b-archetype-templates.js` · `scripts/lib/factory-slice1c-dry-run-generator.js` · `scripts/lib/factory-slice1d-integration-proof.js` · `scripts/onboard-client.js` · `scripts/verify-factory-slice1a-acceptance-contract.js` · `scripts/verify-factory-slice1b-archetype-templates.js` · `scripts/verify-factory-slice1c-dry-run-generator.js` · `scripts/verify-factory-slice1d-integration-proof.js`
+`config/archetypes/` · `fixtures/factory-client-productization/` · `scripts/lib/factory-slice1a-acceptance-contract.js` · `scripts/lib/factory-slice1a-inventory-discovery.js` · `scripts/lib/factory-slice1b-archetype-templates.js` · `scripts/lib/factory-slice1c-dry-run-generator.js` · `scripts/lib/factory-slice1d-integration-proof.js` · `scripts/lib/factory-slice1e-finite-closeout.js` · `scripts/onboard-client.js` · `scripts/verify-factory-slice1a-acceptance-contract.js` · `scripts/verify-factory-slice1b-archetype-templates.js` · `scripts/verify-factory-slice1c-dry-run-generator.js` · `scripts/verify-factory-slice1d-integration-proof.js` · `scripts/verify-factory-slice1e-finite-closeout.js`
 
-Related: [`MULTICLIENT-ARCHITECTURE.md`](MULTICLIENT-ARCHITECTURE.md) · [`DEPLOYMENT-CONFIG.md`](DEPLOYMENT-CONFIG.md) · RADAR reopen `third_tenant_factory` in [`RADAR-OPERATIONS-GATE-LEDGER.md`](RADAR-OPERATIONS-GATE-LEDGER.md).
+Related: [`MULTICLIENT-ARCHITECTURE.md`](MULTICLIENT-ARCHITECTURE.md) · [`DEPLOYMENT-CONFIG.md`](DEPLOYMENT-CONFIG.md) · RADAR reopen `third_tenant_factory` in [`RADAR-OPERATIONS-GATE-LEDGER.md`](RADAR-OPERATIONS-GATE-LEDGER.md) · operator handoff `fixtures/factory-client-productization/slice1e-operator-handoff.md`.
 
 ---
 
 ## Purpose
 
-Freeze a **finite, source-only acceptance contract** before any client-productization implementation, then ship **reviewed static archetype templates** (1B) before a **deterministic dry-run generator** (1C), then **integration isolation + legacy-compat proofs** (1D). FACTORY turns the Wolfhouse + Sunset worked examples into two reusable archetypes without drifting into open-ended platform work.
+Freeze a **finite, source-only acceptance contract** before any client-productization implementation, then ship **reviewed static archetype templates** (1B) before a **deterministic dry-run generator** (1C), then **integration isolation + legacy-compat proofs** (1D), then **dry-run packaging + milestone closeout** (1E). FACTORY turns the Wolfhouse + Sunset worked examples into two reusable archetypes without drifting into open-ended platform work.
 
 ## Finite stages (reject drift beyond these five)
 
@@ -26,7 +27,7 @@ Freeze a **finite, source-only acceptance contract** before any client-productiz
 | **1B** | Archetype schema + disabled-by-default templates | **Complete** — `config/archetypes/{surf_house,surf_school_shop}/` |
 | **1C** | Deterministic generator (secret rejection, no live-target copy) | **Complete** — dry-run CLI `scripts/onboard-client.js` |
 | **1D** | Tenant/location isolation + legacy-compatibility proofs | **Complete** — independent integration verifier |
-| **1E** | Dry-run proof packaging + milestone closeout | Deferred |
+| **1E** | Dry-run proof packaging + milestone closeout | **Complete** — synthetic stdout artifact + closeout verifier |
 
 **1A forbids:** templates, generator, runtime, IaC, DB, deploy, secrets, live calls.
 
@@ -35,6 +36,8 @@ Freeze a **finite, source-only acceptance contract** before any client-productiz
 **1C forbids:** apply path, disk materialization / `--output-dir`, registry edits, `config/clients` writes, runtime loading, IaC, DB, deploy, secret materialization, live network calls. Safe disk materialization is **unsupported** (not deferred proof).
 
 **1D forbids:** product/runtime/template behavior changes beyond the typed whole-token substitution compatibility correction in the 1C generator/CLI/fixtures, apply path, registry/`config/clients` writes, runtime registration, client creation, IaC, DB, deploy, secret materialization, live network calls. Evidence is verifier-owned temp fixtures + fresh-process CLI only. No `FACTORY_*` skip/probe env may reduce checks.
+
+**1E forbids:** product/runtime/template/generator behavior changes, apply path, disk materialization, registry/`config/clients` writes, runtime registration, client creation, IaC, DB, deploy, staging/production rollout, secret materialization, live network calls, treating a live third tenant as closeout evidence. Packaging evidence is one committed synthetic stdout artifact + independent regeneration proof only.
 
 **Reject:** extra stages, renamed gates, or claiming third-tenant live/prod as current-stage evidence.
 
@@ -45,6 +48,8 @@ Freeze a **finite, source-only acceptance contract** before any client-productiz
 **1C tip scope:** factory fixtures/docs, 1C library + CLI + verifier, 1A ledger evidence updates for 1C gates, and locked `verify:factory-slice1c-dry-run-generator`. Does **not** mutate `config/archetypes/`.
 
 **1D tip scope:** factory fixtures/docs, 1D lock + verifier, 1C typed-substitution correction (generator + CLI + goldens/locks/substitution fixtures + 1C verifier REDs), 1A ledger evidence updates for isolation/legacy gates, and locked `verify:factory-slice1d-integration-proof`. Does **not** mutate `config/archetypes/`. Structural recursion: 1D invokes 1B/1C + legacy gates and must not invoke 1A; 1A may invoke full 1D.
+
+**1E tip scope:** factory fixtures/docs (including synthetic stdout artifact + operator handoff), 1E lock + verifier, forward-compatible tip-allowlist entries on 1B/1C/1D lock modules (paths only; no generator/template behavior change), 1A ledger evidence updates for dry-run/closeout gates, and locked `verify:factory-slice1e-finite-closeout`. Does **not** mutate `config/archetypes/`, generator algorithms, or CLI behavior. Structural recursion: 1E invokes 1A–1D + Luna/hard multiclient gates; **1A must not invoke 1E**.
 
 ## Archetypes
 
@@ -64,8 +69,8 @@ Crowsnest mock templates (`surf_house` / `surf_school`) remain UI reference only
 5. **`G_NO_LIVE_TARGET_COPYING`** — do not copy live Azure IDs, Meta phone_number_ids, Stripe live keys, or live hostnames. **1C evidence:** generator rejects live-target shaped input/output.
 6. **`G_TENANT_LOCATION_ISOLATION`** — unique `client_slug` / globally unique `location_id`; live isolation per multiclient architecture. **1D evidence:** fresh-process portable envelopes + cross-tenant substitution isolation.
 7. **`G_LEGACY_COMPATIBILITY`** — Wolfhouse + Sunset keep working on existing loaders without a forced FACTORY migration in 1A–1E. **1D evidence:** pure consumer validators on verifier-owned temps + legacy Luna/multiclient gates.
-8. **`G_DRY_RUN_PROOF`** — offline dry-run artifacts + verifiers; no live writes.
-9. **`G_MILESTONE_CLOSEOUT`** — 1E only when all gates have stage-appropriate evidence and the stage fence holds.
+8. **`G_DRY_RUN_PROOF`** — offline dry-run artifacts + verifiers; no live writes. **1E evidence:** committed synthetic stdout artifact + fresh-process exact regeneration.
+9. **`G_MILESTONE_CLOSEOUT`** — 1E only when all gates have stage-appropriate evidence and the stage fence holds. **1E evidence:** independent closeout verifier after nested 1A–1D + Luna/hard gates.
 
 ## Inventory (source-derived)
 
@@ -117,8 +122,20 @@ npm run verify:factory-slice1d-integration-proof
 - Consumer validation feeds **byte-preserved generated JSON** to pure validators/calculators — no coercion, renaming, hard-coded pricing/records, or surrogate clones; N/A where an archetype has no applicable legacy consumer
 - Cross-tenant/location substitution isolation; no Wolfhouse/Sunset live identity fields; no secrets/live targets; enablement remains disabled
 - Reference Wolfhouse/Sunset blobs unchanged; no process/env/module-cache leakage
-- Structural recursion: 1D invokes 1B/1C + every legacy gate and must **not** invoke 1A; no `FACTORY_*` skip/probe env bypasses
+- Structural recursion: 1D invokes 1B/1C + every legacy gate and must **not** invoke 1A; no `FACTORY_*` skip/probe bypasses
 - Full legacy `verify:luna-all` + multiclient hard gates; retained master REDs classified honestly
+
+## Milestone closeout (1E)
+
+```bash
+npm run verify:factory-slice1e-finite-closeout
+```
+
+- One committed synthetic third-tenant stdout artifact (`zyx-null-beacon` / `surf_house`) with typed substitutions and exact manifest hashes
+- Fresh-process regeneration compares **exact** artifact bytes; proves no `config/clients` / registry / archetype side effects
+- Invokes full **1A–1D** plus `verify:luna-all` and hard multiclient gates; retained master REDs classified honestly
+- Operator handoff: stdout preview only; disk/apply unsupported; manual future review; explicit RADAR/`third_tenant_factory` reopen before any real third tenant; **no** production/staging/deploy in this milestone
+- Five stages / nine gates claim complete **only after** this verifier passes
 
 ## Current-stage evidence vs third-tenant live/prod
 
@@ -129,6 +146,8 @@ npm run verify:factory-slice1d-integration-proof
 **Required for 1C:** pure dry-run library + CLI; byte-determinism; template immutability; exact output set; stdout zero-write; disk materialization unsupported (static/runtime REDs); adversarial rejection; 1A ledger evidence update for generation/safety gates **only when** the independent 1C verifier passes.
 
 **Required for 1D:** independent integration verifier proving portable determinism, byte-preserved consumer compatibility (no coercion/surrogates; N/A where no applicable consumer), tenant/location isolation, legacy gates + retained RED classification; structural no-1A recursion + no `FACTORY_*` skip/probe bypasses; 1A ledger evidence update for isolation/legacy gates **only when** the independent 1D validator passes. May include the 1C typed-substitution compatibility correction (generator/CLI/fixtures/goldens) — not archetype template or product/runtime changes.
+
+**Required for 1E:** one committed synthetic third-tenant dry-run stdout artifact; independent closeout verifier with fresh-process exact regeneration, no side effects, nested 1A–1D + Luna/hard gates, truthful retained REDs; operator handoff; 1A ledger evidence update for dry-run/closeout gates **only when** the independent 1E validator passes.
 
 **Out of scope for 1A–1E current-stage evidence:** third-tenant **live/prod** onboarding beyond the Wolfhouse + Sunset staging pair.
 
@@ -143,12 +162,13 @@ npm run verify:factory-slice1a-acceptance-contract
 npm run verify:factory-slice1b-archetype-templates
 npm run verify:factory-slice1c-dry-run-generator
 npm run verify:factory-slice1d-integration-proof
+npm run verify:factory-slice1e-finite-closeout
 ```
 
 Hard regressions spawned by the verifiers: multiclient-isolation, no-client-hardcoding, tenant-resolution, meta-whatsapp-tenant-shadow.
 
-**Retained master REDs** (not introduced by 1A/1B/1C/1D; reported, not fail-closed here): `verify-staff-tenant-scope` H3; `verify-tenant-business-config` “DB prices used” merge behavior.
+**Retained master REDs** (not introduced by 1A/1B/1C/1D/1E; reported, not fail-closed here): `verify-staff-tenant-scope` H3; `verify-tenant-business-config` “DB prices used” merge behavior.
 
-## What 1D does not authorize
+## What 1E does not authorize
 
-Product/runtime/archetype-template changes beyond the typed whole-token substitution compatibility correction, apply or materialize preview bytes to disk, write client instances into `config/clients/` or registries, runtime registration of generated previews, client creation, mutating IaC/DB, deploying, materializing secrets, live network calls, raising RADAR gates, or treating a third live tenant as FACTORY closeout evidence.
+Product/runtime/archetype-template/generator behavior changes, apply or materialize preview bytes to disk, write client instances into `config/clients/` or registries, runtime registration of generated previews, client creation, mutating IaC/DB, deploying to staging or production, materializing secrets, live network calls, raising RADAR gates, or treating a third live tenant as FACTORY closeout evidence.
