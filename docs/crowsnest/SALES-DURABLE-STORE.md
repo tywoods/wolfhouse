@@ -2,6 +2,8 @@
 
 Durable persistence for Luna Sales Slice 1 prospects, fixture/manual research jobs, and append-only audit events.
 
+Chapter 2 builds on this store for **manual research evidence** (see [`SALES-RESEARCH-EVIDENCE.md`](SALES-RESEARCH-EVIDENCE.md)); migration `043_luna_sales_research_evidence.sql` adds `source_url` and `confidence` on `luna_sales.research_jobs`.
+
 ## Why
 
 The deployed Sales Slice 1 kept prospects, research, and audit **in memory**. A Crowsnest restart lost operator work. This slice adds a dedicated PostgreSQL schema and a Crowsnest-owned repository adapter so the existing manual intake → fixture research → review → operator decision → append-only audit loop survives restart.

@@ -301,6 +301,11 @@ a:focus-visible,button:focus-visible{outline:none;box-shadow:var(--focus)}
   color:#9B4020;
   font-size:13px;
 }
+.evidence-entry{
+  border-top:1px solid var(--line,#d7e0ea);
+  margin-top:14px;
+  padding-top:12px;
+}
 .btn-primary{
   display:inline-flex;
   align-items:center;
@@ -912,12 +917,51 @@ function renderAuditList(events) {
       detail.decision ? `decision=${escapeHtml(detail.decision)}` : '',
       detail.reason ? `reason=${escapeHtml(detail.reason)}` : '',
       detail.reviewer_id ? `reviewer=${escapeHtml(detail.reviewer_id)}` : '',
+      detail.source_label ? `source=${escapeHtml(detail.source_label)}` : '',
+      detail.confidence ? `confidence=${escapeHtml(detail.confidence)}` : '',
     ].filter(Boolean);
     return `<li>${bits.join(' · ')}</li>`;
   }).join('\n        ');
   return `<ul class="audit-list" aria-label="Append-only audit trail">
         ${items}
       </ul>`;
+}
+
+function renderResearchFacts(facts) {
+  if (!facts.length) return '<li>No facts</li>';
+  return facts.map((fact) => (
+    `<li><strong>${escapeHtml(fact.type)}:</strong> ${escapeHtml(fact.value)} <em>(citation: ${escapeHtml(fact.citation)})</em></li>`
+  )).join('\n          ');
+}
+
+function renderResearchLimitations(limitations) {
+  if (!limitations.length) return '<li>None listed</li>';
+  return limitations.map((line) => `<li>${escapeHtml(line)}</li>`).join('\n          ');
+}
+
+function renderManualEvidenceEntries(entries) {
+  if (!entries.length) {
+    return '<p class="section-note">No manual evidence recorded yet.</p>';
+  }
+  return entries.map((entry) => {
+    const facts = Array.isArray(entry.facts) ? entry.facts : [];
+    const limitations = Array.isArray(entry.limitations) ? entry.limitations : [];
+    return `<article class="evidence-entry">
+        <p><strong>${escapeHtml(entry.job_label || 'Manual evidence')}</strong>
+          · <code>${escapeHtml(entry.created_at || '')}</code>
+          · confidence=<code>${escapeHtml(entry.confidence || 'n/a')}</code></p>
+        <p>Source URL: ${escapeHtml(entry.source_url || 'n/a')}</p>
+        <p>${escapeHtml(entry.summary || '')}</p>
+        <h3>Factual notes</h3>
+        <ul class="fact-list">
+          ${renderResearchFacts(facts)}
+        </ul>
+        <h3>Limitations</h3>
+        <ul class="fact-list">
+          ${renderResearchLimitations(limitations)}
+        </ul>
+      </article>`;
+  }).join('\n      ');
 }
 
 function renderSalesDetailMain(options = {}) {
@@ -928,18 +972,23 @@ function renderSalesDetailMain(options = {}) {
       <p><a href="/sales">Back to Sales</a></p>
     </section>`;
   }
-  const research = options.research || null;
+  const researchJobs = Array.isArray(options.researchJobs)
+    ? options.researchJobs
+    : (options.research ? [options.research] : []);
+  const fixtureResearch = researchJobs.find((job) => job && job.source === 'fixture')
+    || (options.research && options.research.source === 'fixture' ? options.research : null)
+    || researchJobs.find((job) => job && job.source !== 'manual')
+    || null;
+  const evidenceEntries = researchJobs.filter((job) => job && job.source === 'manual');
   const audit = Array.isArray(options.auditEvents) ? options.auditEvents : [];
-  const errorHtml = options.decisionError
+  const decisionErrorHtml = options.decisionError
     ? `<p class="sales-error" role="alert">${escapeHtml(options.decisionError)}</p>`
     : '';
-  const facts = (research && research.facts) || [];
-  const factItems = facts.map((fact) => (
-    `<li><strong>${escapeHtml(fact.type)}:</strong> ${escapeHtml(fact.value)} <em>(citation: ${escapeHtml(fact.citation)})</em></li>`
-  )).join('\n          ');
-  const limitations = ((research && research.limitations) || []).map((line) => (
-    `<li>${escapeHtml(line)}</li>`
-  )).join('\n          ');
+  const evidenceErrorHtml = options.evidenceError
+    ? `<p class="sales-error" role="alert">${escapeHtml(options.evidenceError)}</p>`
+    : '';
+  const facts = (fixtureResearch && fixtureResearch.facts) || [];
+  const limitations = (fixtureResearch && fixtureResearch.limitations) || [];
   const lastDecision = prospect.last_decision
     ? `<p>Last Admin decision: <code>${escapeHtml(prospect.last_decision.decision)}</code> — ${escapeHtml(prospect.last_decision.reason)} (reviewer: ${escapeHtml(prospect.last_decision.reviewer_id)})</p>`
     : '<p>No Admin decision recorded yet.</p>';
@@ -956,23 +1005,64 @@ function renderSalesDetailMain(options = {}) {
 
       <article class="card">
         <h2>Fixture research</h2>
-        <p class="section-note">${escapeHtml((research && research.job_label) || 'Manual / fixture research job')}</p>
-        <p>${escapeHtml((research && research.summary) || 'No research snapshot.')}</p>
-        <p><strong>Research status:</strong> <code>${escapeHtml((research && research.status) || 'n/a')}</code> · source=<code>${escapeHtml((research && research.source) || 'fixture')}</code></p>
+        <p class="section-note">${escapeHtml((fixtureResearch && fixtureResearch.job_label) || 'Manual / fixture research job')}</p>
+        <p>${escapeHtml((fixtureResearch && fixtureResearch.summary) || 'No research snapshot.')}</p>
+        <p><strong>Research status:</strong> <code>${escapeHtml((fixtureResearch && fixtureResearch.status) || 'n/a')}</code> · source=<code>${escapeHtml((fixtureResearch && fixtureResearch.source) || 'fixture')}</code></p>
         <h3>Evidence / facts</h3>
         <ul class="fact-list">
-          ${factItems || '<li>No facts</li>'}
+          ${renderResearchFacts(facts)}
         </ul>
         <h3>Limitations</h3>
         <ul class="fact-list">
-          ${limitations || '<li>None listed</li>'}
+          ${renderResearchLimitations(limitations)}
         </ul>
+      </article>
+
+      <article class="card">
+        <h2>Manual research evidence</h2>
+        <p class="section-note">Operator-entered dated notes only. Fixture research is preserved above. No live crawl, HubSpot, Maps, Apollo, or automated AI research in this chapter.</p>
+        ${evidenceErrorHtml}
+        <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/evidence" accept-charset="utf-8">
+          <div class="form-row">
+            <label for="source_label">Source label</label>
+            <input id="source_label" name="source_label" type="text" required maxlength="200" placeholder="Hostel website" value="${escapeHtml(options.evidenceSourceLabel || '')}">
+          </div>
+          <div class="form-row">
+            <label for="source_url">Source URL</label>
+            <input id="source_url" name="source_url" type="url" required maxlength="2000" placeholder="https://example.com/about" value="${escapeHtml(options.evidenceSourceUrl || '')}">
+          </div>
+          <div class="form-row">
+            <label for="summary">Summary</label>
+            <textarea id="summary" name="summary" required maxlength="4000" placeholder="What did you learn?">${escapeHtml(options.evidenceSummary || '')}</textarea>
+          </div>
+          <div class="form-row">
+            <label for="factual_notes">Factual notes</label>
+            <textarea id="factual_notes" name="factual_notes" required maxlength="8000" placeholder="One fact per line">${escapeHtml(options.evidenceFactualNotes || '')}</textarea>
+          </div>
+          <div class="form-row">
+            <label for="limitations">Limitations</label>
+            <textarea id="limitations" name="limitations" required maxlength="4000" placeholder="What is incomplete or uncertain?">${escapeHtml(options.evidenceLimitations || '')}</textarea>
+          </div>
+          <div class="form-row">
+            <label for="confidence">Confidence</label>
+            <select id="confidence" name="confidence" required>
+              <option value="low"${options.evidenceConfidence === 'low' ? ' selected' : ''}>Low</option>
+              <option value="medium"${!options.evidenceConfidence || options.evidenceConfidence === 'medium' ? ' selected' : ''}>Medium</option>
+              <option value="high"${options.evidenceConfidence === 'high' ? ' selected' : ''}>High</option>
+            </select>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Record manual evidence</button>
+          </div>
+        </form>
+        <h3>Recorded evidence (newest first)</h3>
+        ${renderManualEvidenceEntries(evidenceEntries)}
       </article>
 
       <article class="card">
         <h2>Admin status decision</h2>
         <p class="section-note">Any authenticated Crowsnest operator may record approve, reject, or needs_research in this MVP. No HubSpot sync and no outreach send in this slice.</p>
-        ${errorHtml}
+        ${decisionErrorHtml}
         <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/decision" accept-charset="utf-8">
           <div class="form-row">
             <label for="decision">Decision</label>
@@ -996,7 +1086,7 @@ function renderSalesDetailMain(options = {}) {
         <h2>Append-only audit trail</h2>
         ${renderAuditList(audit)}
       </article>
-      <div class="safety"><strong>Safety:</strong> Durable Sales decisions when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no live provider calls.</div>
+      <div class="safety"><strong>Safety:</strong> Durable Sales decisions and manual evidence when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no live provider calls.</div>
     </section>`;
 }
 
@@ -1022,7 +1112,7 @@ function viewSubtitle(view) {
   if (view === 'billing') return 'Billing sources are not connected yet';
   if (view === 'communications') return 'Communications sources are not connected yet';
   if (view === 'sales') return 'Manual prospect intake, fixture research, and Admin review';
-  if (view === 'sales_detail') return 'Prospect review detail, fixture research, and Admin decision';
+  if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, and Admin decision';
   return 'Internal Luna Front Desk overview dashboard';
 }
 

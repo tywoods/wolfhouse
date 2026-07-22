@@ -58,6 +58,10 @@ Offline **AI usage adapter**: maps native OpenAI / Anthropic technical usage fie
 
 Offline **AI usage event contract** (`crowsnest.ai_usage.v1`): pure validator, sanitized fixtures, and `npm run verify:crowsnest-ai-usage-contract`. See [`docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md`](crowsnest/AI-USAGE-EVENT-CONTRACT.md). No storage, provider wiring, or UI panel in this slice.
 
+### Luna Sales Chapter 2 (research evidence workspace)
+
+On the existing prospect detail page, authenticated operators can record **dated manual research evidence** (source label/URL, summary, factual notes, limitations, confidence). Fixture research is preserved; evidence is prospect-scoped in `luna_sales.research_jobs`, listed newest-first, XSS-escaped in the UI, and append-audited as `research_evidence_recorded`. Extends Chapter 1 via migration `043_luna_sales_research_evidence.sql` (`source_url`, `confidence`). Does **not** claim live AI or external research providers. See [`docs/crowsnest/SALES-RESEARCH-EVIDENCE.md`](crowsnest/SALES-RESEARCH-EVIDENCE.md). Verify with `npm run verify:crowsnest-sales-research`.
+
 ### Luna Sales Chapter 1 / Slice 1 (durable store foundation)
 
 Protected **Sales** navigation area: manual website **or** business-name intake → prospect → fixture/manual research packet → review detail → authenticated operator `approved` / `rejected` / `needs_research` decision → append-only audit trail. Persistence uses dedicated schema `luna_sales` via `CROWSNEST_SALES_DATABASE_URL` (never `WOLFHOUSE_DATABASE_URL`). Production without that DSN **fails closed** on Sales mutations; non-production/test may use an explicit in-memory fallback. See [`docs/crowsnest/SALES-DURABLE-STORE.md`](crowsnest/SALES-DURABLE-STORE.md). No HubSpot, Maps, Apollo, live AI research, outreach sending, or roles system. Verify with `npm run verify:crowsnest-sales` and `npm run verify:crowsnest-sales-durable`.
