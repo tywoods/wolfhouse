@@ -1,0 +1,15 @@
+{
+  "client_slug": "fixture-school",
+  "display_name": "Fixture fixture-school",
+  "live_enabled": false,
+  "locations": [
+    {
+      "display_name": "fixture-school A",
+      "location_id": "fixture-school-a"
+    },
+    {
+      "display_name": "fixture-school B",
+      "location_id": "fixture-school-b"
+    }
+  ]
+}

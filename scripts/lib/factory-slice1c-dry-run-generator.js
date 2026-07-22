@@ -5,8 +5,11 @@
  *
  * Pure library: reads reviewed 1B templates under config/archetypes/, applies
  * substitutions, validates safety constraints, and returns canonical preview
- * bytes + manifest/hashes. Does not apply, write registries, touch
- * config/clients, load runtime, open DB/cloud/network, or materialize secrets.
+ * bytes + manifest/hashes. Optional materialization writes via private sibling
+ * staging + atomic rename into a nonexistent final directory (exclusive
+ * creates; parent chain lstat/realpath safety). Does not apply, write
+ * registries, touch config/clients, load runtime, open DB/cloud/network, or
+ * materialize secrets. stdout emission is zero-write.
  */
 
 const fs = require('fs');
@@ -669,62 +672,345 @@ function generateDryRunPreview(input) {
   };
 }
 
-function isSafeOutputDirectory(repoRoot, outputDir) {
-  if (!outputDir || typeof outputDir !== 'string') {
-    return { ok: false, error: 'output_dir_required' };
-  }
-  const resolved = path.resolve(outputDir);
-  const repoResolved = path.resolve(repoRoot);
+function resolveRepoRealpath(repoRoot) {
+  const abs = path.resolve(repoRoot);
+  return fs.realpathSync(abs);
+}
+
+function pathIsInsideOrEqual(candidate, root) {
+  const c = path.resolve(candidate);
+  const r = path.resolve(root);
+  return c === r || c.startsWith(`${r}${path.sep}`);
+}
+
+function forbiddenRootReals(repoReal) {
+  const out = [];
   for (const root of FORBIDDEN_OUTPUT_ROOTS) {
-    const forbidden = path.resolve(repoResolved, root);
-    if (resolved === forbidden || resolved.startsWith(`${forbidden}${path.sep}`)) {
-      return { ok: false, error: `output_dir_forbidden_root:${root}` };
+    const candidate = path.resolve(repoReal, root);
+    let real = candidate;
+    try {
+      real = fs.realpathSync(candidate);
+    } catch (_) {
+      // Nonexistent forbidden roots still block by lexical resolve under repoReal.
+    }
+    out.push({ root, real, lexical: candidate });
+  }
+  return out;
+}
+
+function assertOutsideForbidden(absPath, repoReal, label) {
+  for (const row of forbiddenRootReals(repoReal)) {
+    if (pathIsInsideOrEqual(absPath, row.real) || pathIsInsideOrEqual(absPath, row.lexical)) {
+      return `${label}_forbidden_root:${row.root}`;
     }
   }
-  // Reject writing directly onto the repo root.
-  if (resolved === repoResolved) {
-    return { ok: false, error: 'output_dir_cannot_be_repo_root' };
-  }
-  return { ok: true, resolved };
+  return null;
 }
 
 /**
- * Write dry-run preview files. Never overwrites. No apply semantics.
+ * lstat-check every existing ancestor of `startAbs` (inclusive) up to filesystem root.
+ * Never follows symlinks; never descends into caller-controlled children.
+ */
+function assertNonSymlinkAncestorChain(startAbs) {
+  let cur = path.resolve(startAbs);
+  const seen = new Set();
+  while (true) {
+    if (seen.has(cur)) return { ok: false, error: 'output_dir_ancestor_cycle' };
+    seen.add(cur);
+    let st;
+    try {
+      st = fs.lstatSync(cur);
+    } catch (err) {
+      if (err && err.code === 'ENOENT') {
+        return { ok: false, error: `output_dir_ancestor_missing:${cur}` };
+      }
+      return { ok: false, error: `output_dir_ancestor_lstat_failed:${err && err.code}` };
+    }
+    if (st.isSymbolicLink()) {
+      return { ok: false, error: `output_dir_ancestor_symlink:${cur}` };
+    }
+    if (!st.isDirectory()) {
+      return { ok: false, error: `output_dir_ancestor_not_directory:${cur}` };
+    }
+    const parent = path.dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  return { ok: true };
+}
+
+/**
+ * Materialization target: final output directory must not exist. Its immediate
+ * parent must exist; the existing parent/ancestor chain is lstat-checked
+ * non-symlink and realpath-validated outside forbidden roots. Does not traverse
+ * any caller-controlled descendants of the final path.
+ */
+function validateOutputMaterializationTarget(repoRoot, outputDir) {
+  if (!outputDir || typeof outputDir !== 'string') {
+    return { ok: false, error: 'output_dir_required' };
+  }
+  if (outputDir.includes('\0')) {
+    return { ok: false, error: 'output_dir_nul' };
+  }
+
+  let repoReal;
+  try {
+    repoReal = resolveRepoRealpath(repoRoot);
+  } catch (err) {
+    return { ok: false, error: `repo_root_realpath_failed:${err && err.code}` };
+  }
+
+  const finalAbs = path.resolve(outputDir);
+  const parentAbs = path.dirname(finalAbs);
+
+  // Final must be nonexistent (lstat; do not follow; do not traverse descendants).
+  try {
+    const st = fs.lstatSync(finalAbs);
+    if (st.isSymbolicLink()) {
+      return { ok: false, error: 'output_dir_symlink' };
+    }
+    return { ok: false, error: 'output_dir_must_not_exist' };
+  } catch (err) {
+    if (!err || err.code !== 'ENOENT') {
+      return { ok: false, error: `output_dir_lstat_failed:${err && err.code}` };
+    }
+  }
+
+  // Immediate parent must exist (sibling staging lives here).
+  let parentStat;
+  try {
+    parentStat = fs.lstatSync(parentAbs);
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      return { ok: false, error: 'output_dir_parent_missing' };
+    }
+    return { ok: false, error: `output_dir_parent_lstat_failed:${err && err.code}` };
+  }
+  if (parentStat.isSymbolicLink()) {
+    return { ok: false, error: 'output_dir_parent_symlink' };
+  }
+  if (!parentStat.isDirectory()) {
+    return { ok: false, error: 'output_dir_parent_not_directory' };
+  }
+
+  const chain = assertNonSymlinkAncestorChain(parentAbs);
+  if (!chain.ok) return chain;
+
+  let parentReal;
+  try {
+    parentReal = fs.realpathSync(parentAbs);
+  } catch (err) {
+    return { ok: false, error: `output_dir_parent_realpath_failed:${err && err.code}` };
+  }
+
+  // Re-check realpath parent is still a non-symlink directory (no swap to symlink).
+  try {
+    const st = fs.lstatSync(parentReal);
+    if (st.isSymbolicLink()) {
+      return { ok: false, error: 'output_dir_parent_realpath_symlink' };
+    }
+    if (!st.isDirectory()) {
+      return { ok: false, error: 'output_dir_parent_realpath_not_directory' };
+    }
+  } catch (err) {
+    return { ok: false, error: `output_dir_parent_realpath_lstat_failed:${err && err.code}` };
+  }
+
+  const projectedFinal = path.join(parentReal, path.basename(finalAbs));
+  const parentForbidden = assertOutsideForbidden(parentReal, repoReal, 'output_dir_parent');
+  if (parentForbidden) return { ok: false, error: parentForbidden };
+  const finalForbidden = assertOutsideForbidden(projectedFinal, repoReal, 'output_dir');
+  if (finalForbidden) return { ok: false, error: finalForbidden };
+  if (projectedFinal === repoReal) {
+    return { ok: false, error: 'output_dir_cannot_be_repo_root' };
+  }
+
+  return {
+    ok: true,
+    finalAbs,
+    parentAbs,
+    parentReal,
+    projectedFinal,
+    repoReal,
+  };
+}
+
+/** @deprecated Prefer validateOutputMaterializationTarget; retained for callers. */
+function isSafeOutputDirectory(repoRoot, outputDir) {
+  const v = validateOutputMaterializationTarget(repoRoot, outputDir);
+  if (!v.ok) return { ok: false, error: v.error };
+  return { ok: true, resolved: v.projectedFinal };
+}
+
+function cleanupStagingDir(stagingPath) {
+  if (!stagingPath) return;
+  try {
+    fs.rmSync(stagingPath, { recursive: true, force: true });
+  } catch (_) {
+    // Best-effort; callers still fail closed on the original error.
+  }
+}
+
+function exclusiveWriteFile(absPath, content) {
+  const flags = fs.constants.O_WRONLY
+    | fs.constants.O_CREAT
+    | fs.constants.O_EXCL;
+  // O_NOFOLLOW rejects a symlink race on the leaf when the platform supports it.
+  const noFollow = fs.constants.O_NOFOLLOW || 0;
+  const fd = fs.openSync(absPath, flags | noFollow, 0o600);
+  try {
+    fs.writeFileSync(fd, content);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
+ * Materialize dry-run preview via private sibling staging + atomic rename.
+ * Final directory must not exist. Never overwrites. No apply semantics.
+ * Cleans staging on every error. Does not traverse caller-controlled descendants.
  */
 function writeDryRunPreview(result, options) {
   if (!result || !result.ok) {
     return { ok: false, errors: (result && result.errors) || ['result_not_ok'] };
   }
-  const repoRoot = options.repoRoot;
-  const outputDir = options.outputDir;
-  const safety = isSafeOutputDirectory(repoRoot, outputDir);
+  const repoRoot = options && options.repoRoot;
+  const outputDir = options && options.outputDir;
+  const safety = validateOutputMaterializationTarget(repoRoot, outputDir);
   if (!safety.ok) return { ok: false, errors: [safety.error] };
 
-  const errors = [];
-  fs.mkdirSync(safety.resolved, { recursive: true });
+  const stagingName = `.factory-1c-staging-${crypto.randomBytes(12).toString('hex')}`;
+  const stagingPath = path.join(safety.parentReal, stagingName);
+  let stagingCreated = false;
+
+  const fail = (errors) => {
+    if (stagingCreated) cleanupStagingDir(stagingPath);
+    return { ok: false, errors: Array.isArray(errors) ? errors : [errors] };
+  };
+
+  try {
+    fs.mkdirSync(stagingPath, { recursive: false, mode: 0o700 });
+    stagingCreated = true;
+  } catch (err) {
+    return { ok: false, errors: [`staging_mkdir_failed:${err && err.code}`] };
+  }
+
+  // Staging itself must be a real directory we own (not a symlink swap).
+  try {
+    const st = fs.lstatSync(stagingPath);
+    if (st.isSymbolicLink() || !st.isDirectory()) {
+      return fail(['staging_not_real_directory']);
+    }
+  } catch (err) {
+    return fail([`staging_lstat_failed:${err && err.code}`]);
+  }
+
   const written = [];
   for (const file of result.files) {
-    const abs = path.join(safety.resolved, file.relativePath);
+    if (!file || typeof file.relativePath !== 'string' || file.relativePath.length === 0) {
+      return fail(['write_relative_path_invalid']);
+    }
+    if (
+      file.relativePath.includes('\0')
+      || path.isAbsolute(file.relativePath)
+      || file.relativePath.split(/[\\/]/).some((p) => p === '..')
+    ) {
+      return fail([`write_path_traversal:${file.relativePath}`]);
+    }
+
+    const abs = path.join(stagingPath, file.relativePath);
     const absResolved = path.resolve(abs);
-    if (!absResolved.startsWith(`${safety.resolved}${path.sep}`)
-      && absResolved !== safety.resolved) {
-      errors.push(`write_path_escape:${file.relativePath}`);
-      continue;
+    if (
+      absResolved !== stagingPath
+      && !absResolved.startsWith(`${stagingPath}${path.sep}`)
+    ) {
+      return fail([`write_path_escape:${file.relativePath}`]);
     }
-    if (fs.existsSync(absResolved)) {
-      errors.push(`overwrite_refused:${file.relativePath}`);
-      continue;
+
+    try {
+      fs.mkdirSync(path.dirname(absResolved), { recursive: true, mode: 0o700 });
+      exclusiveWriteFile(absResolved, file.content);
+    } catch (err) {
+      if (err && err.code === 'EEXIST') {
+        return fail([`overwrite_refused:${file.relativePath}`]);
+      }
+      return fail([`write_failed:${file.relativePath}:${err && err.code}`]);
     }
-    fs.mkdirSync(path.dirname(absResolved), { recursive: true });
-    fs.writeFileSync(absResolved, file.content, { flag: 'wx' });
+
     written.push({
       relativePath: file.relativePath,
-      absolutePath: absResolved,
+      absolutePath: path.join(safety.projectedFinal, file.relativePath),
       sha256: file.sha256,
     });
   }
-  if (errors.length) return { ok: false, errors, written };
-  return { ok: true, errors: [], written, outputDir: safety.resolved };
+
+  // Test hook: allow injecting a race (final appears) before atomic rename.
+  if (options && typeof options.beforeAtomicRename === 'function') {
+    try {
+      options.beforeAtomicRename({
+        finalAbs: safety.projectedFinal,
+        stagingPath,
+        parentReal: safety.parentReal,
+      });
+    } catch (err) {
+      return fail([`before_atomic_rename_hook_failed:${err && err.message}`]);
+    }
+  }
+
+  // Fail closed if final appeared (symlink or any node) before rename.
+  try {
+    const st = fs.lstatSync(safety.projectedFinal);
+    if (st.isSymbolicLink()) {
+      return fail(['output_dir_appeared_symlink']);
+    }
+    return fail(['output_dir_appeared']);
+  } catch (err) {
+    if (!err || err.code !== 'ENOENT') {
+      return fail([`output_dir_pre_rename_lstat_failed:${err && err.code}`]);
+    }
+  }
+
+  // Parent must still be a non-symlink directory (swap/race).
+  try {
+    const st = fs.lstatSync(safety.parentReal);
+    if (st.isSymbolicLink()) {
+      return fail(['output_dir_parent_swapped_symlink']);
+    }
+    if (!st.isDirectory()) {
+      return fail(['output_dir_parent_swapped_not_directory']);
+    }
+  } catch (err) {
+    return fail([`output_dir_parent_pre_rename_lstat_failed:${err && err.code}`]);
+  }
+
+  try {
+    fs.renameSync(stagingPath, safety.projectedFinal);
+    stagingCreated = false; // now owned as final
+  } catch (err) {
+    return fail([`atomic_rename_failed:${err && err.code}`]);
+  }
+
+  // Post-rename: final must be a real directory (not a symlink).
+  try {
+    const st = fs.lstatSync(safety.projectedFinal);
+    if (st.isSymbolicLink()) {
+      // Extremely hostile; leave as-is but fail closed for the caller.
+      return { ok: false, errors: ['output_dir_final_is_symlink'], written: [], outputDir: safety.projectedFinal };
+    }
+    if (!st.isDirectory()) {
+      return { ok: false, errors: ['output_dir_final_not_directory'], written: [], outputDir: safety.projectedFinal };
+    }
+  } catch (err) {
+    return { ok: false, errors: [`output_dir_final_lstat_failed:${err && err.code}`], written: [] };
+  }
+
+  return {
+    ok: true,
+    errors: [],
+    written,
+    outputDir: safety.projectedFinal,
+    stagingCleaned: true,
+  };
 }
 
 function emitStdout(result) {
@@ -955,6 +1241,7 @@ module.exports = Object.freeze({
   collectPlaceholders,
   isStrictSlug,
   isSafeOutputDirectory,
+  validateOutputMaterializationTarget,
   expectedOutputPathSet,
   previewRelativePaths,
   loadArchetypeTemplates,
@@ -964,4 +1251,5 @@ module.exports = Object.freeze({
   emitStdout,
   validate1cLedgerClaim,
   buildFixtureSubstitutions,
+  cleanupStagingDir,
 });

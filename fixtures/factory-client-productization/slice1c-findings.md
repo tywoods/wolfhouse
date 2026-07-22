@@ -14,9 +14,22 @@ Slice **1C** adds a deterministic disabled-by-default dry-run onboarding generat
 | `surf_house` | baseline, pricing, secrets.example, registry-entry, dry-run-manifest |
 | `surf_school_shop` | baseline, secrets.example, registry-entry, dry-run-manifest |
 
-Default and only mode is `dry-run`. `--apply` and any non-dry-run mode are rejected. Preview bytes are canonical key-sorted JSON with SHA-256 hashes. Writes are allowed only to an explicit safe `--output-dir` (never overwrite) or `--stdout`.
+Default and only mode is `dry-run`. `--apply` and any non-dry-run mode are rejected. Preview bytes are canonical key-sorted JSON with SHA-256 hashes. Materialization uses a private sibling staging directory + atomic rename into a nonexistent final output directory (exclusive file creates); `--stdout` is zero-write.
 
-## Safety
+## Independent output truth
+
+Golden rendered-byte fixtures under `fixtures/factory-client-productization/slice1c-golden/{archetype}/` plus locked hashes/output set in `slice1c-golden-lock.json`. The verifier compares generator bytes to these fixtures without importing generator expectation helpers (`expectedOutputPathSet` / `previewRelativePaths`).
+
+## Output safety
+
+- Final output directory must not exist (lstat; symlinked final rejected)
+- Existing parent/ancestor chain is lstat-checked non-symlink and realpath-validated outside forbidden roots (`config/clients`, `config/archetypes`, `database`, `infra`, `.git`, repo root)
+- Private sibling `.factory-1c-staging-*` directory; exclusive file flags; atomic rename staging → final
+- Fail closed if final appears before rename; clean staging on every error
+- Never traverse caller-controlled descendants; reject relativePath traversal / nested symlink attacks
+- Swap/race coverage in verifier REDs (final mkdir/symlink injection before rename)
+
+## Safety (generation)
 
 - Strict kebab `client_slug` / `location_id` validation
 - Required identity + full template substitution coverage; unresolved placeholders fail closed
@@ -32,7 +45,7 @@ Default and only mode is `dry-run`. `--apply` and any non-dry-run mode are rejec
 npm run verify:factory-slice1c-dry-run-generator
 ```
 
-Independent verifier proves byte-determinism, template immutability, exact output set, no side effects outside the explicit output directory, and adversarial REDs for secrets, live hosts, Meta/Azure IDs, existing conflicts, overwrite, apply, unsafe output roots, and enablement flips.
+Independent verifier proves golden-byte truth, byte-determinism, template immutability, atomic materialization safety, stdout zero-write, and adversarial REDs for secrets, live hosts, Meta/Azure IDs, existing conflicts, symlink/race/swap, apply, unsafe output roots, and enablement flips.
 
 ## Ledger
 

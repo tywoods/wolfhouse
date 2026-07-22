@@ -1,0 +1,235 @@
+{
+  "_meta": {
+    "client_slug": "fixture-house",
+    "config_version": "1B.0",
+    "derived_from_consumer": "scripts/lib/wolfhouse-quote-calculator.js",
+    "notes": [
+      "Calculator-accessed fields: seasons.month_numbers (numeric 1–12), seasons.priority, packages.seasonal_prices.weekly_per_person_cents, room_supplements, add_ons, deposits.tiers, payment_options.",
+      "rounding and hold are recognized companion metadata (canonical wolfhouse-somo.pricing.json parity) — not read by wolfhouse-quote-calculator today.",
+      "month_numbers are unique numeric 1–12 with deterministic no-overlap, or explicit unique priority for overlaps (findSeason).",
+      "Consumer-facing scalars are numbers or strict {{TOKEN}} placeholders — never objects/notes-only maps.",
+      "Do not invent top-level addons or deposit keys — calculator reads add_ons and deposits.tiers."
+    ],
+    "pricing_status": "unverified_seed",
+    "purpose": "FACTORY 1B surf_house pricing companion template. Shape mirrors wolfhouse-quote-calculator reads (add_ons, deposits.tiers, room_supplements, seasons.month_numbers+priority, packages.seasonal_prices, payment_options). rounding/hold are recognized companion metadata for canonical-file parity — not calculator-consumed. Placeholders only — not live prices.",
+    "slice": "FACTORY-1B",
+    "status": "archetype_template"
+  },
+  "add_ons": {
+    "hard_board_rental": {
+      "code": "hard_board_rental",
+      "name": "Hard board",
+      "price_cents": "1000",
+      "pricing_status": "unverified_seed",
+      "pricing_unit": "per_day"
+    },
+    "meal": {
+      "code": "meal",
+      "name": "Meal",
+      "price_cents": "1000",
+      "pricing_status": "unverified_seed",
+      "pricing_unit": "per_meal"
+    },
+    "meals": {
+      "code": "meals",
+      "name": "Meals",
+      "price_cents": "1000",
+      "pricing_status": "unverified_seed",
+      "pricing_unit": "per_meal"
+    },
+    "soft_top_rental": {
+      "code": "soft_top_rental",
+      "name": "Soft top",
+      "price_cents": "1000",
+      "pricing_status": "unverified_seed",
+      "pricing_unit": "per_day"
+    },
+    "surf_lesson_multi": {
+      "code": "surf_lesson_multi",
+      "name": "Multi lesson",
+      "price_cents_each": "1000",
+      "pricing_status": "unverified_seed",
+      "pricing_unit": "per_lesson"
+    },
+    "surf_lesson_single": {
+      "code": "surf_lesson_single",
+      "name": "Single lesson",
+      "price_cents": "1000",
+      "pricing_status": "unverified_seed",
+      "pricing_unit": "per_lesson"
+    },
+    "wetsuit_hard_board_combo": {
+      "code": "wetsuit_hard_board_combo",
+      "name": "Wetsuit + hard board",
+      "price_cents": "1000",
+      "pricing_status": "unverified_seed",
+      "pricing_unit": "per_day"
+    },
+    "wetsuit_rental": {
+      "code": "wetsuit_rental",
+      "name": "Wetsuit",
+      "price_cents": "1000",
+      "pricing_status": "unverified_seed",
+      "pricing_unit": "per_day"
+    },
+    "wetsuit_soft_top_combo": {
+      "code": "wetsuit_soft_top_combo",
+      "name": "Wetsuit + soft top",
+      "price_cents": "1000",
+      "pricing_status": "unverified_seed",
+      "pricing_unit": "per_day"
+    },
+    "yoga_class": {
+      "code": "yoga_class",
+      "name": "Yoga",
+      "on_site": true,
+      "price_cents": "1000",
+      "pricing_status": "unverified_seed",
+      "pricing_unit": "per_class"
+    }
+  },
+  "client_slug": "fixture-house",
+  "config_version": "1B.0",
+  "currency": "EUR",
+  "deposits": {
+    "default_cents": "5000",
+    "rule_type": "tiered_by_booking_type",
+    "scope": "per_booking",
+    "tiers": {
+      "custom_or_short_stay": {
+        "amount_cents": "5000"
+      },
+      "standard_package": {
+        "amount_cents": "10000"
+      }
+    }
+  },
+  "hold": {
+    "expiry_minutes": "60",
+    "status": "unverified_seed"
+  },
+  "packages": [
+    {
+      "base_room_type": "shared",
+      "code": "surf_week",
+      "inclusions": [
+        "bed"
+      ],
+      "name": "Surf week",
+      "price_scope": "per_person_per_week",
+      "pricing_status": "unverified_seed",
+      "seasonal_prices": {
+        "high": {
+          "weekly_per_person_cents": "1000"
+        },
+        "peak": {
+          "weekly_per_person_cents": "1000"
+        },
+        "shoulder": {
+          "weekly_per_person_cents": "1000"
+        }
+      }
+    },
+    {
+      "base_room_type": "shared",
+      "code": "surf_plus",
+      "inclusions": [
+        "bed",
+        "breakfast"
+      ],
+      "name": "Surf plus",
+      "price_scope": "per_person_per_week",
+      "pricing_status": "unverified_seed",
+      "seasonal_prices": {
+        "high": {
+          "weekly_per_person_cents": "1000"
+        },
+        "peak": {
+          "weekly_per_person_cents": "1000"
+        },
+        "shoulder": {
+          "weekly_per_person_cents": "1000"
+        }
+      }
+    },
+    {
+      "base_room_type": "shared",
+      "code": "full_board",
+      "inclusions": [
+        "bed",
+        "breakfast",
+        "lesson"
+      ],
+      "name": "Full board",
+      "price_scope": "per_person_per_week",
+      "pricing_status": "unverified_seed",
+      "seasonal_prices": {
+        "high": {
+          "weekly_per_person_cents": "1000"
+        },
+        "peak": {
+          "weekly_per_person_cents": "1000"
+        },
+        "shoulder": {
+          "weekly_per_person_cents": "1000"
+        }
+      }
+    }
+  ],
+  "payment_options": [
+    "deposit",
+    "full",
+    "pay_on_arrival"
+  ],
+  "room_supplements": {
+    "double": {
+      "per_person_per_night_cents": "1500",
+      "per_room_per_night_cents": "1500"
+    },
+    "private": {
+      "per_person_per_night_cents": "2500",
+      "per_room_per_night_cents": "2500"
+    },
+    "shared": {
+      "per_person_per_night_cents": "0"
+    }
+  },
+  "rounding": {
+    "formula_to_use": "round_up_5",
+    "method": "ceil_to_nearest_5_eur",
+    "nearest_cents": 500,
+    "seven_night_rule": "For stays of exactly 7 nights, use the flat weekly_per_person_cents directly — no proration needed."
+  },
+  "seasons": [
+    {
+      "code": "shoulder",
+      "month_numbers": [
+        1,
+        2
+      ],
+      "priority": 0
+    },
+    {
+      "code": "high",
+      "month_numbers": [
+        3
+      ],
+      "priority": 0
+    },
+    {
+      "code": "peak",
+      "month_numbers": [
+        4
+      ],
+      "priority": 10
+    },
+    {
+      "bookable": false,
+      "code": "closed",
+      "month_numbers": [
+        5,
+        6
+      ]
+    }
+  ]
+}

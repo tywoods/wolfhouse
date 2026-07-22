@@ -94,8 +94,10 @@ node scripts/onboard-client.js \
 ```
 
 - Mode: `dry-run` only (`--apply` rejected)
-- Emits canonical sorted JSON preview + `dry-run-manifest.json` (hashes) to an explicit safe output directory or `--stdout`
-- Never overwrites; refuses output under `config/clients`, `config/archetypes`, or the repo root
+- Emits canonical sorted JSON preview + `dry-run-manifest.json` (hashes) to an explicit safe output directory or `--stdout` (stdout is zero-write)
+- Materialization: nonexistent final dir; parent chain lstat non-symlink + realpath outside forbidden roots; private sibling staging; exclusive creates; atomic rename; fail closed if final appears; staging cleaned on error
+- Independent golden rendered-byte fixtures (`slice1c-golden/`, `slice1c-golden-lock.json`) lock output set + hashes; verifier compares generator bytes to fixtures without importing generator expectation helpers
+- Never overwrites; refuses output under `config/clients`, `config/archetypes`, or the repo root; rejects symlinked parent/final and nested path attacks
 - Validates slugs, required substitutions, unresolved placeholders, path traversal/collisions, existing tenant/location conflicts, secret/live-target shaped values, and all enablement false
 
 ## Current-stage evidence vs third-tenant live/prod

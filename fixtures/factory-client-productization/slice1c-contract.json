@@ -20,10 +20,13 @@
     "required_current_stage": [
       "pure_dry_run_generator_library_and_cli",
       "byte_deterministic_canonical_sorted_json_preview",
+      "independent_golden_rendered_byte_fixtures_locked_hashes",
       "template_immutability_no_archetype_mutation",
       "exact_output_set_manifest_and_hashes",
+      "atomic_staging_materialization_output_safety",
       "no_side_effects_outside_explicit_output_dir_or_stdout",
-      "adversarial_rejection_of_secrets_live_targets_collisions_enablement"
+      "stdout_zero_write",
+      "adversarial_rejection_of_secrets_live_targets_collisions_enablement_symlink_race"
     ],
     "out_of_scope_current_stage": [
       "apply_path",
@@ -53,5 +56,21 @@
   "substitution_fixtures": [
     "fixtures/factory-client-productization/slice1c-substitutions-surf_house.json",
     "fixtures/factory-client-productization/slice1c-substitutions-surf_school_shop.json"
-  ]
+  ],
+  "golden_lock": "fixtures/factory-client-productization/slice1c-golden-lock.json",
+  "golden_dirs": [
+    "fixtures/factory-client-productization/slice1c-golden/surf_house",
+    "fixtures/factory-client-productization/slice1c-golden/surf_school_shop"
+  ],
+  "output_safety": {
+    "final_must_not_exist": true,
+    "parent_chain_lstat_non_symlink": true,
+    "parent_realpath_outside_forbidden_roots": true,
+    "private_sibling_staging_atomic_rename": true,
+    "exclusive_file_creates": true,
+    "fail_closed_if_final_appears": true,
+    "clean_staging_on_error": true,
+    "never_traverse_caller_controlled_descendants": true,
+    "stdout_zero_write": true
+  }
 }
