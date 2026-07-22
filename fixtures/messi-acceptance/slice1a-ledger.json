@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "slice": "MESSI-1A",
-  "outcome_id": "1A_messi_acceptance_ledger",
-  "branch": "messi/slice-1a-acceptance-ledger",
-  "master_basis": "14facf5d54be8767cf9aca4d69a880f28ea3dc2e",
-  "progress_class": "acceptance_ledger_inventory_and_verifier_only",
+  "slice": "MESSI-1C",
+  "outcome_id": "1C_foundation_finite_closeout_ledger_wiring",
+  "branch": "messi/slice-1c-foundation-wiring",
+  "master_basis": "98202775a57e64597e0e606a6e58933bb8ba7250",
+  "progress_class": "foundation_finite_closeout_ledger_wiring_only",
   "live_mutation": false,
   "runtime_behavior_changed": false,
   "messi_definition": "MESSI is the integration gate above FOUNDATION, FORTRESS, RADAR, and FACTORY.",
@@ -12,33 +12,35 @@
   "parents": [
     {
       "id": "FOUNDATION",
-      "tip_slice": "FOUNDATION-14AE",
-      "outcome_id": "canonical_runner_noop_live_ok",
-      "master_basis": "21371079ac5a331d47e7ed5f79351fceeeceefa6",
-      "canonical_tip": "32b44930685450cb27ac519d052332be7b18150d",
-      "candidate_sha": "32b44930685450cb27ac519d052332be7b18150d",
-      "workstream_class": "tip_retained_staging_schema_noop",
-      "finite_closeout_analog": null,
+      "tip_slice": "MESSI-1B",
+      "outcome_id": "1B_foundation_finite_workstream_closeout",
+      "master_basis": "6106c27c54e25a8e4ba5ba00178d20be0c3e55f5",
+      "canonical_tip": "98202775a57e64597e0e606a6e58933bb8ba7250",
+      "candidate_sha": "4a550b44bb7669a860557f0ec211260d7b76250c",
+      "workstream_class": "finite_staging_schema_migration_recovery_closeout",
+      "finite_closeout_analog": "verify:messi-slice1b-foundation-closeout",
       "production_readiness": "absent",
-      "npm_script": "verify:sunset-schema-slice14ae",
+      "npm_script": "verify:messi-slice1b-foundation-closeout",
       "evidence": [
-        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json",
-        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json",
-        "fixtures/sunset-schema-observer/slice14ae-findings.md"
+        "fixtures/foundation-closeout/finite-closeout.json",
+        "fixtures/foundation-closeout/contract.json",
+        "fixtures/foundation-closeout/findings.md"
       ],
-      "docs": [],
-      "verifier_script": "scripts/verify-sunset-schema-slice14ae.js",
+      "docs": [
+        "docs/FOUNDATION-FINITE-CLOSEOUT.md"
+      ],
+      "verifier_script": "scripts/verify-messi-slice1b-foundation-closeout.js",
       "provenance_bound_files": [
-        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json",
-        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json",
-        "fixtures/sunset-schema-observer/slice14ae-findings.md",
-        "scripts/verify-sunset-schema-slice14ae.js"
+        "docs/FOUNDATION-FINITE-CLOSEOUT.md",
+        "fixtures/foundation-closeout/finite-closeout.json",
+        "fixtures/foundation-closeout/contract.json",
+        "fixtures/foundation-closeout/findings.md"
       ],
       "missing_proof_for_complete": [
-        "finite_milestone_closeout_disposition_analogous_to_16AP_or_1E",
         "docker_fresh_db_replacement_proof",
         "production_schema_readiness",
-        "claim_zero_remaining_drift_forbidden_by_14AE"
+        "live_restore_drill",
+        "operated_readiness"
       ]
     },
     {
@@ -159,10 +161,12 @@
     }
   ],
   "bound_file_hashes": {
-    "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json": "08bc566478a1d9fe6a47fe696dfa426d3707c1089c963941110104a541804327",
-    "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json": "bbcd89f68c882168f0344ad4cfa252225d234ad65cc72149dd770f16c288a567",
-    "fixtures/sunset-schema-observer/slice14ae-findings.md": "442548e91d36c739c411294a6c3ac4da7a834ac8497e1ea95eee23a0926b1947",
-    "scripts/verify-sunset-schema-slice14ae.js": "73bb073442a78e30bec6d8717cfc7a4d10d85002e3257e1491f2da1c6b14faa4",
+    "docs/FOUNDATION-FINITE-CLOSEOUT.md": "9381b71ee596a6cb14942d014da11dbbc607b3d9f3108155e67d3a08dbe577cc",
+    "fixtures/foundation-closeout/finite-closeout.json": "3411701e798e863e7d3d1583963336f0d19fe740823f07280060230a500a9e52",
+    "fixtures/foundation-closeout/contract.json": "3e2d2520e4c497b7ec17b76669cc29703b3c1eb7a890125b007dd805a5503e40",
+    "fixtures/foundation-closeout/findings.md": "8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439",
+    "scripts/lib/messi-slice1b-foundation-closeout.js": "19f0014f8cc43f4fa0f647530f70980554342afdc2b055376be23c7093d4ff3a",
+    "scripts/verify-messi-slice1b-foundation-closeout.js": "919ae1262366ff054aa751c94c1a086f1edd98a29753b01c294148e69fde9283",
     "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md": "ec8fe4e611d086651842f287610a13495ef34df174e801e0bdc8e35d45bfccf9",
     "fixtures/fortress-tenant-identity/boundary-matrix.json": "7503c290cca697af916edd9d570eb4973a88f0c3dc349042a2392fc220aede1d",
     "fixtures/fortress-tenant-identity/attack-cases.json": "6f73fb951e49d45ed264a1383dc6e65224937da29d91ea6dafd0cd50430fc5bc",
@@ -194,18 +198,20 @@
     "scripts/lib/factory-slice1c-dry-run-generator.js",
     "scripts/lib/factory-slice1d-integration-proof.js",
     "scripts/lib/factory-slice1e-finite-closeout.js",
-    "scripts/verify-factory-slice1e-finite-closeout.js"
+    "scripts/verify-factory-slice1e-finite-closeout.js",
+    "scripts/lib/messi-slice1b-foundation-closeout.js",
+    "scripts/verify-messi-slice1b-foundation-closeout.js"
   ],
   "parent_sha_provenance": {
     "FOUNDATION": {
-      "canonical_tip": "32b44930685450cb27ac519d052332be7b18150d",
-      "candidate_sha": "32b44930685450cb27ac519d052332be7b18150d",
-      "master_basis": "21371079ac5a331d47e7ed5f79351fceeeceefa6",
+      "canonical_tip": "98202775a57e64597e0e606a6e58933bb8ba7250",
+      "candidate_sha": "4a550b44bb7669a860557f0ec211260d7b76250c",
+      "master_basis": "6106c27c54e25a8e4ba5ba00178d20be0c3e55f5",
       "provenance_bound_files": [
-        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json",
-        "fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json",
-        "fixtures/sunset-schema-observer/slice14ae-findings.md",
-        "scripts/verify-sunset-schema-slice14ae.js"
+        "docs/FOUNDATION-FINITE-CLOSEOUT.md",
+        "fixtures/foundation-closeout/finite-closeout.json",
+        "fixtures/foundation-closeout/contract.json",
+        "fixtures/foundation-closeout/findings.md"
       ]
     },
     "FORTRESS": {
@@ -290,14 +296,15 @@
       "id": "G_FOUNDATION_PARENT",
       "verdict": "partial",
       "parent": "FOUNDATION",
-      "workstream_class": "tip_retained_staging_schema_noop",
+      "workstream_class": "finite_staging_schema_migration_recovery_closeout",
       "production_readiness": "absent",
-      "finite_closeout_analog": null,
+      "finite_closeout_analog": "verify:messi-slice1b-foundation-closeout",
+      "finite_staging_workstream_complete": true,
       "missing_proof": [
-        "finite_milestone_closeout_disposition_analogous_to_16AP_or_1E",
         "docker_fresh_db_replacement_proof",
         "production_schema_readiness",
-        "claim_zero_remaining_drift_forbidden_by_14AE"
+        "live_restore_drill",
+        "operated_readiness"
       ]
     },
     {
@@ -307,6 +314,7 @@
       "workstream_class": "tip_retained_security_remediation_plus_audit_matrix",
       "production_readiness": "absent",
       "finite_closeout_analog": null,
+      "finite_staging_workstream_complete": false,
       "missing_proof": [
         "finite_milestone_closeout_disposition",
         "matrix_unproven_cleared_to_proven_fail_closed",
@@ -323,6 +331,7 @@
       "workstream_class": "finite_milestone_closeout_staging_readiness_only",
       "production_readiness": "absent",
       "finite_closeout_analog": "verify:radar-slice16ap-finite-closeout",
+      "finite_staging_workstream_complete": false,
       "missing_proof": [
         "formal_gates_raised_from_partial_to_proven",
         "production_only_unknowns_closed",
@@ -337,6 +346,7 @@
       "workstream_class": "finite_offline_dry_run_packaging_closeout",
       "production_readiness": "absent",
       "finite_closeout_analog": "verify:factory-slice1e-finite-closeout",
+      "finite_staging_workstream_complete": false,
       "missing_proof": [
         "third_tenant_live_or_prod_onboarding",
         "apply_or_disk_materialization",
@@ -351,6 +361,7 @@
       "workstream_class": "none",
       "production_readiness": "absent",
       "finite_closeout_analog": null,
+      "finite_staging_workstream_complete": false,
       "missing_proof": [
         "committed_cross_parent_integration_proof",
         "composed_foundation_fortress_radar_factory_production_evidence",
@@ -361,9 +372,10 @@
       "id": "G_MESSI_MILESTONE_CLOSEOUT",
       "verdict": "absent",
       "parent": null,
-      "workstream_class": "acceptance_ledger_inventory_and_verifier_only",
+      "workstream_class": "foundation_finite_closeout_ledger_wiring_only",
       "production_readiness": "absent",
       "finite_closeout_analog": null,
+      "finite_staging_workstream_complete": false,
       "missing_proof": [
         "all_parent_messi_gates_complete",
         "cross_parent_integration_complete",

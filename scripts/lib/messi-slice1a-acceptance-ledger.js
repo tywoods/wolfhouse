@@ -1,10 +1,16 @@
 'use strict';
 
 /**
- * messi-slice1a-acceptance-ledger — MESSI Slice 1A sole production classifier
- * and parent-binding locks (docs/fixtures/verifier only).
+ * messi-slice1a-acceptance-ledger — MESSI sole production classifier and
+ * parent-binding locks (docs/fixtures/verifier only).
  *
- * MESSI is the integration gate above FOUNDATION, FORTRESS, RADAR, and FACTORY.
+ * Slice 1C wires the reviewed FOUNDATION 1B finite closeout into this
+ * canonical ledger: bind 1B merge/candidate provenance + blobs, execute
+ * verify:messi-slice1b-foundation-closeout, expose finite staging-workstream
+ * completion, and keep G_FOUNDATION_PARENT partial while Docker fresh-db,
+ * production schema, live restore/drill, and operated-readiness remain
+ * missing. Other parent/MESSI gates and frozen score are unchanged.
+ *
  * Parent milestones are never marked complete from labels, summaries, or
  * self-authored booleans — only from inventory + exact hash binding + real
  * retained gate execution + deterministic classification with explicit missing
@@ -55,11 +61,17 @@ function sha256Text(text) {
   return crypto.createHash('sha256').update(String(text), 'utf8').digest('hex');
 }
 
-const SLICE = 'MESSI-1A';
-const BRANCH = 'messi/slice-1a-acceptance-ledger';
-const OUTCOME_ID = '1A_messi_acceptance_ledger';
-const MASTER_BASIS = '14facf5d54be8767cf9aca4d69a880f28ea3dc2e';
-const PROGRESS_CLASS = 'acceptance_ledger_inventory_and_verifier_only';
+const SLICE = 'MESSI-1C';
+const BRANCH = 'messi/slice-1c-foundation-wiring';
+const OUTCOME_ID = '1C_foundation_finite_closeout_ledger_wiring';
+/** MESSI 1B merge tip on master — this slice starts from that SHA. */
+const MASTER_BASIS = '98202775a57e64597e0e606a6e58933bb8ba7250';
+const PROGRESS_CLASS = 'foundation_finite_closeout_ledger_wiring_only';
+
+/** Reviewed FOUNDATION 1B squash candidate (same tree as MASTER_BASIS merge). */
+const FOUNDATION_1B_MERGE_TIP = MASTER_BASIS;
+const FOUNDATION_1B_CANDIDATE_SHA = '4a550b44bb7669a860557f0ec211260d7b76250c';
+const FOUNDATION_1B_MASTER_BASIS = '6106c27c54e25a8e4ba5ba00178d20be0c3e55f5';
 
 const GATE_IDS = Object.freeze([
   'G_FOUNDATION_PARENT',
@@ -98,6 +110,9 @@ const FORTRESS_MATRIX_VERDICT_COUNTS = Object.freeze({
 const PACKAGE_JSON_ALLOWED_SCRIPT_KEY = 'verify:messi-slice1a-acceptance-ledger';
 const PACKAGE_JSON_ALLOWED_SCRIPT_VALUE =
   'node scripts/verify-messi-slice1a-acceptance-ledger.js';
+const PACKAGE_JSON_1C_SCRIPT_KEY = 'verify:messi-slice1c-foundation-wiring';
+const PACKAGE_JSON_1C_SCRIPT_VALUE =
+  'node scripts/verify-messi-slice1a-acceptance-ledger.js';
 
 const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'docs/MESSI-ACCEPTANCE-LEDGER.md',
@@ -111,8 +126,10 @@ const ALLOWED_TIP_PATH_PREFIXES = Object.freeze([
   'scripts/lib/factory-slice1d-integration-proof.js',
   'scripts/lib/factory-slice1e-finite-closeout.js',
   'scripts/verify-factory-slice1e-finite-closeout.js',
-  // Forward-compat tip-allowlist for MESSI 1B FOUNDATION closeout (paths only;
-  // no 1A ledger semantics / classification / parent inventory changes).
+  // Forward-compat tip-allowlist for MESSI 1B FOUNDATION closeout (paths only).
+  // 1B lock/verifier may receive tip-scope allowlist / nested-gate forward-compat
+  // edits; those two scripts are TIP_SCOPE_FORWARD_COMPAT_RELS (not tip-blob
+  // provenance). Closeout docs/fixtures stay tip-blob bound.
   'docs/FOUNDATION-FINITE-CLOSEOUT.md',
   'fixtures/foundation-closeout/',
   'scripts/lib/messi-slice1b-foundation-closeout.js',
@@ -164,42 +181,50 @@ const PARENTS = Object.freeze({
   FOUNDATION: Object.freeze({
     id: 'FOUNDATION',
     title: 'Sunset schema / Phase D foundation workstream',
-    tip_slice: 'FOUNDATION-14AE',
-    outcome_id: 'canonical_runner_noop_live_ok',
-    master_basis: '21371079ac5a331d47e7ed5f79351fceeeceefa6',
-    canonical_tip: '32b44930685450cb27ac519d052332be7b18150d',
-    candidate_sha: '32b44930685450cb27ac519d052332be7b18150d',
-    tip_sha_on_master: '32b44930685450cb27ac519d052332be7b18150d',
-    workstream_class: 'tip_retained_staging_schema_noop',
-    finite_closeout_analog: null,
+    tip_slice: 'MESSI-1B',
+    outcome_id: '1B_foundation_finite_workstream_closeout',
+    master_basis: FOUNDATION_1B_MASTER_BASIS,
+    // Squash-merge on master (1B PR #145). Candidate is the reviewed branch tip;
+    // same tree as merge (not a git ancestor — squash).
+    canonical_tip: FOUNDATION_1B_MERGE_TIP,
+    candidate_sha: FOUNDATION_1B_CANDIDATE_SHA,
+    tip_sha_on_master: FOUNDATION_1B_MERGE_TIP,
+    workstream_class: 'finite_staging_schema_migration_recovery_closeout',
+    finite_closeout_analog: 'verify:messi-slice1b-foundation-closeout',
     production_readiness: 'absent',
-    docs: Object.freeze([]),
+    docs: Object.freeze([
+      'docs/FOUNDATION-FINITE-CLOSEOUT.md',
+    ]),
     evidence: Object.freeze([
-      'fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json',
-      'fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json',
-      'fixtures/sunset-schema-observer/slice14ae-findings.md',
+      'fixtures/foundation-closeout/finite-closeout.json',
+      'fixtures/foundation-closeout/contract.json',
+      'fixtures/foundation-closeout/findings.md',
     ]),
+    // Tip-blob provenance at 1B merge. Lock/verifier may receive tip-scope
+    // forward-compat edits (see TIP_SCOPE_FORWARD_COMPAT_RELS).
     provenance_bound_files: Object.freeze([
-      'fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json',
-      'fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json',
-      'fixtures/sunset-schema-observer/slice14ae-findings.md',
-      'scripts/verify-sunset-schema-slice14ae.js',
+      'docs/FOUNDATION-FINITE-CLOSEOUT.md',
+      'fixtures/foundation-closeout/finite-closeout.json',
+      'fixtures/foundation-closeout/contract.json',
+      'fixtures/foundation-closeout/findings.md',
     ]),
-    verifier_script: 'scripts/verify-sunset-schema-slice14ae.js',
-    npm_script: 'verify:sunset-schema-slice14ae',
+    lock_module: 'scripts/lib/messi-slice1b-foundation-closeout.js',
+    verifier_script: 'scripts/verify-messi-slice1b-foundation-closeout.js',
+    npm_script: 'verify:messi-slice1b-foundation-closeout',
     retained_gates: Object.freeze([
       Object.freeze({
-        id: 'foundation_14ae_offline',
+        id: 'foundation_1b_finite_closeout',
         kind: 'node',
-        script: 'scripts/verify-sunset-schema-slice14ae.js',
-        npm: 'verify:sunset-schema-slice14ae',
+        script: 'scripts/verify-messi-slice1b-foundation-closeout.js',
+        npm: 'verify:messi-slice1b-foundation-closeout',
       }),
     ]),
+    // Finite staging closeout is wired; parent stays incomplete without these.
     missing_proof_for_complete: Object.freeze([
-      'finite_milestone_closeout_disposition_analogous_to_16AP_or_1E',
       'docker_fresh_db_replacement_proof',
       'production_schema_readiness',
-      'claim_zero_remaining_drift_forbidden_by_14AE',
+      'live_restore_drill',
+      'operated_readiness',
     ]),
   }),
   FORTRESS: Object.freeze({
@@ -372,6 +397,9 @@ const TIP_SCOPE_FORWARD_COMPAT_RELS = Object.freeze([
   'scripts/lib/factory-slice1d-integration-proof.js',
   'scripts/lib/factory-slice1e-finite-closeout.js',
   'scripts/verify-factory-slice1e-finite-closeout.js',
+  // 1B lock/verifier may gain tip-scope allowlist / nested-gate forward-compat.
+  'scripts/lib/messi-slice1b-foundation-closeout.js',
+  'scripts/verify-messi-slice1b-foundation-closeout.js',
 ]);
 
 const MESSI_GATES = Object.freeze([
@@ -380,7 +408,7 @@ const MESSI_GATES = Object.freeze([
     parent: 'FOUNDATION',
     title: 'FOUNDATION parent evidence binding + retained gate',
     requirement:
-      'Inventory FOUNDATION canonical tip evidence/verifier, bind exact file hashes, run verify:sunset-schema-slice14ae, and classify with explicit missing proof. Do not mark complete from labels.',
+      'Inventory FOUNDATION 1B finite closeout, bind exact 1B merge/candidate tip blobs, run verify:messi-slice1b-foundation-closeout, expose finite staging-workstream completion, and keep parent partial while Docker fresh-db, production schema, live restore/drill, and operated-readiness remain missing. Do not mark complete from labels.',
   }),
   Object.freeze({
     id: 'G_FORTRESS_PARENT',
@@ -421,14 +449,18 @@ const MESSI_GATES = Object.freeze([
 
 /** Exact sha256 pins for parent-bound committed files (recomputed by verifier). */
 const BOUND_FILE_HASHES = Object.freeze({
-  'fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-contract.json':
-    '08bc566478a1d9fe6a47fe696dfa426d3707c1089c963941110104a541804327',
-  'fixtures/sunset-schema-observer/slice14ae-canonical-runner-noop-evidence.json':
-    'bbcd89f68c882168f0344ad4cfa252225d234ad65cc72149dd770f16c288a567',
-  'fixtures/sunset-schema-observer/slice14ae-findings.md':
-    '442548e91d36c739c411294a6c3ac4da7a834ac8497e1ea95eee23a0926b1947',
-  'scripts/verify-sunset-schema-slice14ae.js':
-    '73bb073442a78e30bec6d8717cfc7a4d10d85002e3257e1491f2da1c6b14faa4',
+  'docs/FOUNDATION-FINITE-CLOSEOUT.md':
+    '9381b71ee596a6cb14942d014da11dbbc607b3d9f3108155e67d3a08dbe577cc',
+  'fixtures/foundation-closeout/finite-closeout.json':
+    '3411701e798e863e7d3d1583963336f0d19fe740823f07280060230a500a9e52',
+  'fixtures/foundation-closeout/contract.json':
+    '3e2d2520e4c497b7ec17b76669cc29703b3c1eb7a890125b007dd805a5503e40',
+  'fixtures/foundation-closeout/findings.md':
+    '8dc32ea7e17a7b75f224b7f908f04c0ed467a9a6feb8df8223125bdd5dd7f439',
+  'scripts/lib/messi-slice1b-foundation-closeout.js':
+    '19f0014f8cc43f4fa0f647530f70980554342afdc2b055376be23c7093d4ff3a',
+  'scripts/verify-messi-slice1b-foundation-closeout.js':
+    '919ae1262366ff054aa751c94c1a086f1edd98a29753b01c294148e69fde9283',
   'docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md':
     'ec8fe4e611d086651842f287610a13495ef34df174e801e0bdc8e35d45bfccf9',
   'fixtures/fortress-tenant-identity/boundary-matrix.json':
@@ -549,6 +581,35 @@ function isGitAncestor(root, ancestor, descendant) {
   }
 }
 
+/** True when two commits point at the identical tree (squash-merge equivalent). */
+function sameGitTree(root, shaA, shaB) {
+  try {
+    const a = execSync(`git rev-parse ${shaA}^{tree}`, {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    const b = execSync(`git rev-parse ${shaB}^{tree}`, {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    return Boolean(a) && a === b;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Candidate must be ancestor of tip, identical to tip, or same-tree (squash).
+ */
+function candidateFitsTip(root, candidateSha, tipSha) {
+  if (!candidateSha || !tipSha) return false;
+  if (candidateSha === tipSha) return true;
+  if (isGitAncestor(root, candidateSha, tipSha)) return true;
+  return sameGitTree(root, candidateSha, tipSha);
+}
+
 function assertShaAncestor(root, sha, descendant) {
   const tip = descendant || 'HEAD';
   const resolved = resolveCommitSha(root, sha);
@@ -557,6 +618,17 @@ function assertShaAncestor(root, sha, descendant) {
     return { ok: false, detail: `not_ancestor:${resolved}:${tip}` };
   }
   return { ok: true, sha: resolved };
+}
+
+function assertCandidateFitsTip(root, candidate, tip) {
+  const cand = resolveCommitSha(root, candidate);
+  const tipSha = resolveCommitSha(root, tip);
+  if (!cand) return { ok: false, detail: `missing_ref:candidate:${candidate}` };
+  if (!tipSha) return { ok: false, detail: `missing_ref:tip:${tip}` };
+  if (!candidateFitsTip(root, cand, tipSha)) {
+    return { ok: false, detail: `candidate_not_fit_tip:${cand}:${tipSha}` };
+  }
+  return { ok: true, candidate: cand, tip: tipSha };
 }
 
 function gitBlobSha256AtCommit(root, commitSha, rel) {
@@ -635,14 +707,14 @@ function verifyParentShaProvenance(root, opts) {
       parentErrors.push(`canonical_tip_not_ancestor_of_messi_tip:${tipSha}`);
     }
 
-    if (tipSha && candidateSha && !isGitAncestor(root, candidateSha, tipSha)) {
+    if (tipSha && candidateSha && !candidateFitsTip(root, candidateSha, tipSha)) {
       parentErrors.push(`mismatched_candidate_tip_pair:${candidateSha}:${tipSha}`);
     }
     // Also enforce locked pair relationship independently of forged claims.
     if (
       lockedTipSha
       && lockedCandidateSha
-      && !isGitAncestor(root, lockedCandidateSha, lockedTipSha)
+      && !candidateFitsTip(root, lockedCandidateSha, lockedTipSha)
     ) {
       parentErrors.push(
         `locked_mismatched_candidate_tip_pair:${lockedCandidateSha}:${lockedTipSha}`,
@@ -747,7 +819,10 @@ function runAllRetainedGates(root) {
   for (const parentId of Object.keys(PARENTS)) {
     const parent = PARENTS[parentId];
     results[parentId] = parent.retained_gates.map((g) => {
-      const timeout = parentId === 'FACTORY' ? 1200000 : 180000;
+      // FOUNDATION 1B nests 14AE; FACTORY nests 1A–1D — allow long offline runs.
+      const timeout = (parentId === 'FACTORY' || parentId === 'FOUNDATION')
+        ? 1200000
+        : 180000;
       return runRetainedGate(root, g, timeout);
     });
   }
@@ -812,10 +887,17 @@ function classifyMessiGates(opts) {
       if (!hashBindingOk) missing.unshift('exact_file_hash_binding_failed');
     } else {
       // Retained gates pass + hashes bind, but production unknowns / missing
-      // finite-closeout (FOUNDATION/FORTRESS) or formal partials (RADAR) or
-      // offline-only closeout (FACTORY) keep MESSI parent gates partial.
+      // finite-closeout (FORTRESS) or formal partials (RADAR) or offline-only
+      // closeout (FACTORY) or FOUNDATION production/Docker/restore/operated
+      // unknowns keep MESSI parent gates partial. Finite staging closeout for
+      // FOUNDATION is exposed separately — never as parent complete.
       verdict = 'partial';
     }
+    const finiteStagingComplete = parentId === 'FOUNDATION'
+      && parent.workstream_class === 'finite_staging_schema_migration_recovery_closeout'
+      && parent.finite_closeout_analog === 'verify:messi-slice1b-foundation-closeout'
+      && hashBindingOk
+      && gatesPass;
     gates.push({
       id: gateId,
       verdict,
@@ -823,6 +905,7 @@ function classifyMessiGates(opts) {
       workstream_class: parent.workstream_class,
       production_readiness: parent.production_readiness,
       finite_closeout_analog: parent.finite_closeout_analog,
+      finite_staging_workstream_complete: finiteStagingComplete,
       retained_gate_results: results.map((r) => ({
         id: r.id,
         script: r.script,
@@ -846,6 +929,7 @@ function classifyMessiGates(opts) {
     workstream_class: 'none',
     production_readiness: 'absent',
     finite_closeout_analog: null,
+    finite_staging_workstream_complete: false,
     retained_gate_results: [],
     missing_proof: Object.freeze([
       'committed_cross_parent_integration_proof',
@@ -861,6 +945,7 @@ function classifyMessiGates(opts) {
     workstream_class: PROGRESS_CLASS,
     production_readiness: 'absent',
     finite_closeout_analog: null,
+    finite_staging_workstream_complete: false,
     retained_gate_results: [],
     missing_proof: Object.freeze([
       'all_parent_messi_gates_complete',
@@ -869,6 +954,25 @@ function classifyMessiGates(opts) {
       'radar_formal_gates_no_longer_partial',
     ]),
   });
+
+  // Hard contract: FOUNDATION parent never complete without production proofs.
+  const foundationGate = gates.find((g) => g.id === 'G_FOUNDATION_PARENT');
+  if (foundationGate) {
+    const requiredMissing = [
+      'docker_fresh_db_replacement_proof',
+      'production_schema_readiness',
+      'live_restore_drill',
+      'operated_readiness',
+    ];
+    for (const m of requiredMissing) {
+      if (!foundationGate.missing_proof.includes(m)) {
+        errors.push(`foundation_hidden_missing_proof:${m}`);
+      }
+    }
+    if (foundationGate.verdict === 'complete') {
+      errors.push('foundation_complete_without_production_proofs');
+    }
+  }
 
   const score = {
     proven: gates.filter((g) => g.verdict === 'complete').length,
@@ -1036,6 +1140,10 @@ function validateLedgerFixture(ledger, classification) {
         errors.push(`gate_missing_proof_mismatch:${g.id}`);
       }
       if (got.verdict === 'complete') errors.push(`downgraded_or_false_complete:${g.id}`);
+      if (Object.prototype.hasOwnProperty.call(g, 'finite_staging_workstream_complete')
+        && got.finite_staging_workstream_complete !== g.finite_staging_workstream_complete) {
+        errors.push(`finite_staging_workstream_complete_mismatch:${g.id}`);
+      }
     }
   }
   return { ok: errors.length === 0, errors };
@@ -1055,6 +1163,11 @@ const REQUIRED_RED = Object.freeze([
   'downgraded_partial_to_complete',
   'radar_formal_score_raised',
   'false_messi_completion',
+  // MESSI 1C — FOUNDATION finite closeout wiring hostiles
+  'finite_closeout_as_production_completion',
+  'stale_or_repinned_1b_provenance',
+  'hidden_missing_proofs',
+  'self_authored_score_change',
 ]);
 
 const REQUIRED_GREEN = Object.freeze([
@@ -1065,6 +1178,7 @@ const REQUIRED_GREEN = Object.freeze([
   'classification_matches_ledger',
   'radar_formal_0_9_0_preserved',
   'finite_vs_production_distinguished',
+  'foundation_finite_staging_exposed',
   'messi_not_complete',
   'package_script_registered',
 ]);
@@ -1090,6 +1204,9 @@ module.exports = deepFreeze({
   OUTCOME_ID,
   MASTER_BASIS,
   PROGRESS_CLASS,
+  FOUNDATION_1B_MERGE_TIP,
+  FOUNDATION_1B_CANDIDATE_SHA,
+  FOUNDATION_1B_MASTER_BASIS,
   GATE_IDS,
   VERDICTS,
   FROZEN_MESSI_SCORE,
@@ -1097,6 +1214,8 @@ module.exports = deepFreeze({
   FORTRESS_MATRIX_VERDICT_COUNTS,
   PACKAGE_JSON_ALLOWED_SCRIPT_KEY,
   PACKAGE_JSON_ALLOWED_SCRIPT_VALUE,
+  PACKAGE_JSON_1C_SCRIPT_KEY,
+  PACKAGE_JSON_1C_SCRIPT_VALUE,
   ALLOWED_TIP_PATH_PREFIXES,
   SCOPE_FENCE,
   PARENTS,
@@ -1118,7 +1237,10 @@ module.exports = deepFreeze({
   recomputeBoundHashes,
   resolveCommitSha,
   isGitAncestor,
+  sameGitTree,
+  candidateFitsTip,
   assertShaAncestor,
+  assertCandidateFitsTip,
   gitBlobSha256AtCommit,
   verifyParentShaProvenance,
   runRetainedGate,
