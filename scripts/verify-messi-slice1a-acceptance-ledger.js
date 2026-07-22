@@ -278,28 +278,35 @@ for (const g of classification.gates) {
   ok(`${g.id} has explicit missing_proof`, Array.isArray(g.missing_proof) && g.missing_proof.length > 0);
 }
 
-// ── Tip scope (vs master basis) ─────────────────────────────────────────────
+// ── Tip scope (candidate/landing provenance — NOT base-to-HEAD) ─────────────
 console.log('\n── Tip scope ──');
 {
-  let changed = [];
-  try {
-    const out = execSync(`git diff --name-only ${locks.MASTER_BASIS}`, {
-      cwd: ROOT,
-      encoding: 'utf8',
-    });
-    changed = out.split('\n').map((s) => s.trim()).filter(Boolean);
-  } catch (err) {
-    ok('git diff vs master basis', false, String(err.message));
-  }
-  const untracked = execSync('git ls-files --others --exclude-standard', {
-    cwd: ROOT,
-    encoding: 'utf8',
-  }).split('\n').map((s) => s.trim()).filter(Boolean)
-    .filter((p) => !p.startsWith('tmp/'));
-  const all = [...new Set(changed.concat(untracked))];
-  const scope = tipPathsAllowed(all);
-  ok('tip paths only messi ledger artifacts (+package.json)', scope.ok,
-    scope.bad.slice(0, 20).join(', '));
+  const cand = locks.verifyReviewedCandidateScope(ROOT);
+  green('reviewed_candidate_scope_authorized',
+    cand.ok && Array.isArray(cand.paths) && cand.paths.length > 0,
+    (cand.errors || []).concat(cand.unauthorized || []).slice(0, 20).join('; '));
+
+  const merged = locks.verifyMergedProvenance(ROOT);
+  green('merged_provenance_matches_reviewed_candidate',
+    merged.ok,
+    (merged.errors || []).slice(0, 20).join('; '));
+
+  const dirty = locks.verifyWorkingTreeDeltaScope(ROOT);
+  ok('working-tree delta only allowlisted messi ledger paths (break-glass; no base-to-HEAD)',
+    dirty.ok,
+    (dirty.errors || []).concat(dirty.unauthorized || []).slice(0, 20).join('; '));
+
+  const baseToHead = locks.listDiffPaths(
+    ROOT,
+    locks.MASTER_BASIS,
+    locks.currentHeadSha(ROOT),
+  ) || [];
+  const concurrentUnrelated = locks.unauthorizedTipPaths(baseToHead);
+  ok('concurrent post-landing master paths need no 1A file allowlist',
+    concurrentUnrelated.length > 0
+    && cand.ok
+    && tipPathsAllowed(cand.paths).ok,
+    `unrelated=${concurrentUnrelated.slice(0, 8).join(',')}`);
 }
 
 // ── Structural: parents must not invoke MESSI (no recursion) ────────────────
@@ -620,6 +627,65 @@ red('unrelated_gate_semantic_drift', (() => {
       || e === 'unrelated_gate_drift:G_FORTRESS_PARENT')
     && vDrift.ok === false
     && vDrift.errors.includes('unrelated_gate_drift:G_MESSI_MILESTONE_CLOSEOUT');
+})());
+
+red('missing_reviewed_candidate_ref', (() => {
+  const r = locks.verifyReviewedCandidateScope(ROOT, {
+    candidate_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  });
+  return r.ok === false
+    && r.errors.some((e) => e.includes('missing_ref:reviewed_candidate'));
+})());
+
+red('altered_candidate_scope', (() => {
+  // Synthetic commit with HEAD tree parented on MASTER_BASIS — includes
+  // concurrent #147 crowsnest paths (unauthorized for 1A/1C candidate).
+  let synth = '';
+  try {
+    const tree = execSync('git rev-parse HEAD^{tree}', {
+      cwd: ROOT,
+      encoding: 'utf8',
+    }).trim();
+    synth = execSync(
+      `git commit-tree ${tree} -p ${locks.MASTER_BASIS} -m "messi1a-altered-candidate-scope-probe"`,
+      { cwd: ROOT, encoding: 'utf8' },
+    ).trim();
+  } catch (_) {
+    return false;
+  }
+  const paths = locks.listDiffPaths(ROOT, locks.MASTER_BASIS, synth) || [];
+  const bad = locks.unauthorizedTipPaths(paths);
+  const identity = locks.verifyReviewedCandidateScope(ROOT, {
+    candidate_sha: synth,
+  });
+  return bad.length > 0
+    && identity.ok === false
+    && (
+      identity.errors.some((e) => e.startsWith('altered_candidate_scope:'))
+      || identity.errors.some((e) => e.startsWith('stale_or_wrong_reviewed_candidate:'))
+    );
+})());
+
+red('concurrent_merge_topology', (() => {
+  // Concurrent #147 after 1C landing: base..HEAD has unauthorized paths, but
+  // exact reviewed candidate scope stays clean. Forging HEAD as candidate rejects.
+  const baseToHead = locks.listDiffPaths(
+    ROOT,
+    locks.MASTER_BASIS,
+    locks.currentHeadSha(ROOT),
+  ) || [];
+  const unrelated = locks.unauthorizedTipPaths(baseToHead);
+  const forged = locks.verifyReviewedCandidateScope(ROOT, {
+    candidate_sha: locks.currentHeadSha(ROOT),
+  });
+  const real = locks.verifyReviewedCandidateScope(ROOT);
+  return unrelated.length > 0
+    && real.ok === true
+    && forged.ok === false
+    && (
+      forged.errors.some((e) => e.startsWith('stale_or_wrong_reviewed_candidate:'))
+      || forged.errors.some((e) => e.startsWith('altered_candidate_scope:'))
+    );
 })());
 
 // Lock export immutability (best-effort)

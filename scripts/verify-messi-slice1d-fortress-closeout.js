@@ -79,14 +79,7 @@ function overclaimHits(text) {
 }
 
 function tipPathsAllowed(changedPaths) {
-  const prefixes = locks.ALLOWED_TIP_PATH_PREFIXES;
-  const bad = [];
-  for (const p of changedPaths) {
-    const okPath = prefixes.some((pref) => (
-      pref.endsWith('/') ? p.startsWith(pref) || p === pref.slice(0, -1) : p === pref
-    ));
-    if (!okPath) bad.push(p);
-  }
+  const bad = locks.unauthorizedTipPaths(changedPaths);
   return { ok: bad.length === 0, bad };
 }
 
@@ -208,6 +201,8 @@ ok('C0 locks identity',
   && locks.OUTCOME_ID === '1D_fortress_finite_audit_workstream_closeout'
   && locks.BRANCH === 'messi/slice-1d-fortress-closeout'
   && locks.MASTER_BASIS === '949be24936c3056b19904904f98feccab5caf883'
+  && locks.REVIEWED_CANDIDATE === 'fa2c5d71ad6c662b4c4f60b08ede409064acf2fe'
+  && locks.LANDING_TIP === 'ff285598ac2cfec980e8316e772924a9c79a6a7e'
   && locks.FORTRESS_TIP === '28a30a688baa637e1bcb549d9b585cb5917942d1'
   && locks.FORTRESS_CANDIDATE === locks.FORTRESS_TIP
   && locks.FORTRESS_15A_TIP === '8ed81111b9a67a656dee0b7dbd5a46ab91ca125c'
@@ -218,6 +213,8 @@ ok('C0 locks identity',
   && locks.FORTRESS_MATRIX_VERDICT_COUNTS.unproven === 3
   && locks.FORTRESS_MATRIX_VERDICT_COUNTS.vulnerable === 4
   && typeof locks.validateCloseout === 'function'
+  && typeof locks.verifyReviewedCandidateScope === 'function'
+  && typeof locks.verifyMergedProvenance === 'function'
   && locks.VALIDATOR_EXPORT === 'validateCloseout'
   && locks.MODULE_REL === 'scripts/lib/messi-slice1d-fortress-closeout.js'
   && /require\.cache|code injection/i.test(locks.THREAT_BOUNDARY.summary));
@@ -385,25 +382,35 @@ green('export_object_frozen',
 
 console.log('\n── Tip scope ──');
 {
-  let changed = [];
-  try {
-    const out = execSync(`git diff --name-only ${locks.MASTER_BASIS}`, {
-      cwd: ROOT,
-      encoding: 'utf8',
-    });
-    changed = out.split('\n').map((s) => s.trim()).filter(Boolean);
-  } catch (err) {
-    ok('git diff vs master basis', false, String(err.message));
-  }
-  const untracked = execSync('git ls-files --others --exclude-standard', {
-    cwd: ROOT,
-    encoding: 'utf8',
-  }).split('\n').map((s) => s.trim()).filter(Boolean)
-    .filter((p) => !p.startsWith('tmp/'));
-  const all = [...new Set(changed.concat(untracked))];
-  const scope = tipPathsAllowed(all);
-  ok('tip paths only 1D closeout artifacts (+1A/1B/FACTORY allowlist forward-compat + package.json)',
-    scope.ok, scope.bad.slice(0, 20).join(', '));
+  // Exact reviewed candidate scope — NOT base-to-HEAD (concurrent #147).
+  const cand = locks.verifyReviewedCandidateScope(ROOT);
+  green('reviewed_candidate_scope_authorized',
+    cand.ok && Array.isArray(cand.paths) && cand.paths.length > 0,
+    (cand.errors || []).concat(cand.unauthorized || []).slice(0, 20).join('; '));
+
+  const merged = locks.verifyMergedProvenance(ROOT);
+  green('merged_provenance_matches_reviewed_candidate',
+    merged.ok,
+    (merged.errors || []).slice(0, 20).join('; '));
+
+  const post = locks.verifyPostLandingDeltaScope(ROOT);
+  ok('post-landing delta only allowlisted 1D paths (break-glass; no pre-merge allowlist)',
+    post.ok,
+    (post.errors || []).concat(post.unauthorized || []).slice(0, 20).join('; '));
+
+  // Explicit: base-to-landing may include unrelated concurrent files; that must
+  // not be treated as 1D tip scope.
+  const baseToLanding = locks.listDiffPaths(
+    ROOT,
+    locks.MASTER_BASIS,
+    locks.LANDING_TIP,
+  ) || [];
+  const concurrentUnrelated = locks.unauthorizedTipPaths(baseToLanding);
+  ok('concurrent pre-merge master paths need no 1D file allowlist',
+    concurrentUnrelated.length > 0
+    && cand.ok
+    && tipPathsAllowed(cand.paths).ok,
+    `unrelated=${concurrentUnrelated.slice(0, 8).join(',')}`);
 }
 
 console.log('\n── Diff check ──');
@@ -512,9 +519,81 @@ red('relabeling_source_as_activation', (() => {
 red('spoofed_locked_branch_name_rejected', (() => {
   const orphan = locks.makeUnrelatedOrphanCommit(ROOT);
   const accepted = locks.tipAccepts1d(orphan, locks.BRANCH, ROOT);
-  const synth = locks.makeSyntheticDescendantOfMaster(ROOT);
+  const synth = locks.makeSyntheticDescendantOfLanding(ROOT);
   const synthOk = locks.tipAccepts1d(synth, 'totally-wrong-branch-name', ROOT);
   return accepted === false && synthOk === true;
+})());
+
+red('non_descendant_tip_rejected', (() => {
+  // Descendant of MASTER_BASIS only (pre-merge / side tip) — not of LANDING_TIP.
+  const masterOnly = locks.makeSyntheticDescendantOfMaster(ROOT);
+  const landingOk = locks.tipAccepts1d(
+    locks.makeSyntheticDescendantOfLanding(ROOT),
+    'wrong-branch',
+    ROOT,
+  );
+  return locks.tipAccepts1d(masterOnly, locks.BRANCH, ROOT) === false
+    && landingOk === true;
+})());
+
+red('missing_reviewed_candidate_ref', (() => {
+  const r = locks.verifyReviewedCandidateScope(ROOT, {
+    candidate_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  });
+  return r.ok === false
+    && r.errors.some((e) => e.includes('missing_ref:reviewed_candidate'));
+})());
+
+red('altered_candidate_scope', (() => {
+  // Synthetic commit with LANDING_TIP tree parented on MASTER_BASIS — diff
+  // includes concurrent #147 crowsnest paths (unauthorized for 1D candidate).
+  let synth = '';
+  try {
+    const tree = execSync(`git rev-parse ${locks.LANDING_TIP}^{tree}`, {
+      cwd: ROOT,
+      encoding: 'utf8',
+    }).trim();
+    synth = execSync(
+      `git commit-tree ${tree} -p ${locks.MASTER_BASIS} -m "messi1d-altered-candidate-scope-probe"`,
+      { cwd: ROOT, encoding: 'utf8' },
+    ).trim();
+  } catch (_) {
+    return false;
+  }
+  const paths = locks.listDiffPaths(ROOT, locks.MASTER_BASIS, synth) || [];
+  const bad = locks.unauthorizedTipPaths(paths);
+  const identity = locks.verifyReviewedCandidateScope(ROOT, {
+    candidate_sha: synth,
+  });
+  return bad.length > 0
+    && identity.ok === false
+    && (
+      identity.errors.some((e) => e.startsWith('altered_candidate_scope:'))
+      || identity.errors.some((e) => e.startsWith('stale_or_wrong_reviewed_candidate:'))
+    );
+})());
+
+red('concurrent_merge_topology', (() => {
+  // Reproduce #147 between basis 949be249 and squash #148: base..landing has
+  // unauthorized paths, but exact reviewed candidate scope stays clean. Forging
+  // LANDING_TIP as the reviewed candidate must reject.
+  const baseToLanding = locks.listDiffPaths(
+    ROOT,
+    locks.MASTER_BASIS,
+    locks.LANDING_TIP,
+  ) || [];
+  const unrelated = locks.unauthorizedTipPaths(baseToLanding);
+  const forged = locks.verifyReviewedCandidateScope(ROOT, {
+    candidate_sha: locks.LANDING_TIP,
+  });
+  const real = locks.verifyReviewedCandidateScope(ROOT);
+  return unrelated.length > 0
+    && real.ok === true
+    && forged.ok === false
+    && (
+      forged.errors.some((e) => e.startsWith('stale_or_wrong_reviewed_candidate:'))
+      || forged.errors.some((e) => e.startsWith('altered_candidate_scope:'))
+    );
 })());
 
 red('score_inflation_rejected', (() => {
