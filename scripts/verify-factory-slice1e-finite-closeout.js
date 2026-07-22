@@ -710,8 +710,13 @@ console.log('\n── Source fences ──');
     && /diff', '--check', `\$\{slice1e\.MASTER_BASIS\}\.\.\.HEAD`/.test(verifierSrc)
     && !/ok\('git diff --check clean'/.test(verifierSrc));
   red('no_tip_path_allowlist_in_1e',
-    !/ALLOWED_TIP_PATH_PREFIXES|tipPathsAllowed|TIP_SCOPE_FORWARD_COMPAT/.test(verifierSrc)
-    && !Object.prototype.hasOwnProperty.call(slice1e, 'ALLOWED_TIP_PATH_PREFIXES'));
+    !Object.prototype.hasOwnProperty.call(slice1e, 'ALLOWED_TIP_PATH_PREFIXES')
+    && typeof slice1e.REVIEWED_CANDIDATE === 'string'
+    && /^[0-9a-f]{40}$/i.test(slice1e.REVIEWED_CANDIDATE)
+    && !fs.readFileSync(path.join(ROOT, 'scripts/lib/factory-slice1e-finite-closeout.js'), 'utf8')
+      .includes('ALLOWED_TIP_PATH_PREFIXES')
+    && !fs.readFileSync(path.join(ROOT, 'scripts/lib/factory-slice1e-finite-closeout.js'), 'utf8')
+      .includes('TIP_SCOPE_FORWARD_COMPAT'));
 }
 
 // ── 1A ledger must claim 1E complete with evidence (structural) ─────────────

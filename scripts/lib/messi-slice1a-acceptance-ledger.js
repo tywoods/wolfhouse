@@ -582,7 +582,7 @@ const BOUND_FILE_HASHES = Object.freeze({
   'scripts/lib/factory-slice1e-finite-closeout.js':
     '6016f1b42190aca2d4466162aaf747a05b2ccf33b30f67bef6af9052741ba3f7',
   'scripts/verify-factory-slice1e-finite-closeout.js':
-    '761707dff891b922cd427c99f471f25f2745560e0d8e09cc8670e665f6707a41',
+    '045c07f246e32ee767d1743bce7912c513d61817a87efbb7239db3a6d4002098',
 });
 
 const ARTIFACT_RELS = Object.freeze({
