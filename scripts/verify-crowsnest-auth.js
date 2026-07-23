@@ -989,11 +989,30 @@ async function main() {
         ok(`GET ${route.path} keeps logout`, /action=["']\/logout["']/i.test(res.body));
 
         if (route.expectSpyglass) {
+          // Pupil: Spyglass shows privacy-safe tenant metrics cards from the Crowsnest
+          // metrics store. Empty store => "not reporting yet" (no fabricated counts);
+          // AI usage numbers remain allowed only with explicit sample labeling.
           ok(`${route.label} renders Spyglass`, /Spyglass/i.test(res.body) && /<h1[^>]*>[\s\S]*Spyglass/i.test(res.body));
-          ok(`${route.label} omits client cards`, !res.body.includes('Wolfhouse Somo'));
+          ok(
+            `${route.label} renders privacy-safe client metrics cards`,
+            res.body.includes('client-row')
+              && res.body.includes('Wolfhouse Somo')
+              && res.body.includes('Sunset Somo')
+              && res.body.includes('Sunset Sardinero'),
+          );
           ok(`${route.label} omits onboarding`, !res.body.includes('New client onboarding'));
-          ok(`${route.label} has honest unavailable states`, /n\/a|not connected|unavailable|no data/i.test(res.body));
-          ok(`${route.label} invents no AI/cost/billing numbers`, !hasInventedMetricNumber(res.body));
+          ok(
+            `${route.label} shows not reporting yet when empty`,
+            /not reporting yet/i.test(res.body) && /0\/3 reporting|0 reporting/.test(res.body),
+          );
+          ok(
+            `${route.label} reads own metrics store, not tenant DB`,
+            /own metrics store/i.test(res.body) && /no direct access to tenant/i.test(res.body),
+          );
+          ok(
+            `${route.label} numbers only with sample labeling`,
+            !hasInventedMetricNumber(res.body) || /sample/i.test(res.body),
+          );
           ok(`${route.label} read-only language`, /read-only|no live writes|no writes/i.test(res.body));
         }
         if (route.expectClients) {
@@ -1021,6 +1040,92 @@ async function main() {
           ok('Sales route has intake form', /action=["']\/sales\/prospects["']/i.test(res.body));
           ok('Sales route mentions fixture/manual research', /fixture|manual/i.test(res.body) && /research/i.test(res.body));
         }
+      }
+
+      // Hostile privacy checks via renderCrowsnestPage (accepts a raw clientMetrics map).
+      // Even if a snapshot smuggled sensitive/arbitrary keys past ingest, Spyglass must
+      // only surface the privacy-safe measured aggregates — never phone/email/secrets.
+      let renderCrowsnestPage = null;
+      try {
+        ({ renderCrowsnestPage } = require(path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-page.js')));
+      } catch {
+        renderCrowsnestPage = null;
+      }
+      if (typeof renderCrowsnestPage === 'function') {
+        const measuredBase = {
+          schema_version: 'crowsnest.client_metrics.v1',
+          snapshot_id: 'snap_hostile_auth_001',
+          captured_at: '2026-07-22T15:00:00.000Z',
+          client_slug: 'wolfhouse-somo',
+          tenant_id: 'tenant_wolfhouse',
+          source_service: 'hostile-auth-verifier',
+          window: { kind: 'rolling_24h', days: 1 },
+        };
+        const hostileMeasured = {
+          ...measuredBase,
+          metrics: {
+            availability: 'measured',
+            conversations_total: 128,
+            conversations_active: 34,
+            conversations_needing_human: 5,
+            messages_last_24h: 342,
+            messages_per_day_avg: 318.5,
+            last_activity_at: '2026-07-22T14:58:12.000Z',
+            phone: '+34999888777',
+            email: 'secret-guest@example.com',
+            guest_name: 'Alice Secret',
+            api_key: 'sk-hostile-must-never-render',
+            password: 'hunter2-hostile',
+            arbitrary_payload: { nested: 'should-not-leak' },
+          },
+        };
+        const hostileHtml = renderCrowsnestPage({
+          view: 'spyglass',
+          clientMetrics: { 'wolfhouse-somo': hostileMeasured },
+        });
+        ok(
+          'hostile: contract-valid measured counts render',
+          /128\s*convs/i.test(hostileHtml)
+            && /319\/day/.test(hostileHtml)
+            && /5 need human/.test(hostileHtml)
+            && /1\/3 reporting/.test(hostileHtml),
+        );
+        ok('hostile: sensitive phone cannot render', !hostileHtml.includes('+34999888777'));
+        ok('hostile: sensitive email cannot render', !hostileHtml.includes('secret-guest@example.com'));
+        ok('hostile: sensitive guest_name cannot render', !hostileHtml.includes('Alice Secret'));
+        ok('hostile: api_key cannot render', !hostileHtml.includes('sk-hostile-must-never-render'));
+        ok('hostile: password cannot render', !hostileHtml.includes('hunter2-hostile'));
+        ok('hostile: arbitrary nested payload cannot render', !hostileHtml.includes('should-not-leak'));
+
+        const unavailableHostile = {
+          ...measuredBase,
+          snapshot_id: 'snap_hostile_auth_unavailable',
+          metrics: {
+            availability: 'unavailable',
+            conversations_total: 777001,
+            conversations_active: 777002,
+            conversations_needing_human: 777003,
+            messages_last_24h: 777004,
+            messages_per_day_avg: 777005,
+            last_activity_at: '2026-07-22T14:58:12.000Z',
+            phone: '+34111222333',
+          },
+        };
+        const unavailableHtml = renderCrowsnestPage({
+          view: 'spyglass',
+          clientMetrics: { 'wolfhouse-somo': unavailableHostile },
+        });
+        ok(
+          'hostile: unavailable metrics stay not-reporting (no invented counts)',
+          /not reporting yet/i.test(unavailableHtml)
+            && /0\/3 reporting|0 reporting/.test(unavailableHtml)
+            && !unavailableHtml.includes('777001')
+            && !unavailableHtml.includes('777003')
+            && !unavailableHtml.includes('777005')
+            && !unavailableHtml.includes('+34111222333'),
+        );
+      } else {
+        ok('hostile: renderCrowsnestPage helper available', false);
       }
 
       const unknown = await request(port, '/nope-slice1', { headers: { Cookie: cookie } });
