@@ -12,7 +12,7 @@
  * - Pure consumer validators/calculators on verifier-owned temp fixtures only
  * - Cross-tenant/location isolation; no live WH/Sunset identity or secrets
  * - Disabled enablement; reference blobs unchanged; no cache/env leakage
- * - Full legacy Luna + multiclient gates; retained master REDs classified
+ * - Full legacy Luna + multiclient gates; retained gates GREEN on current master
  */
 
 const fs = require('fs');
@@ -871,18 +871,30 @@ function runNodeScript(relScript) {
       r.status !== 0 ? (r.stderr || r.stdout || '').slice(-400) : '');
   }
 
-  console.log('\n── Retained master RED classification (honest) ──');
+  console.log('\n── Retained master GREEN classification (current master) ──');
+  // Same gate commands as the lock list; PRs #174/#175 made both exit 0.
+  function runRetainedGreenGate(rel, { runner = runNodeScript } = {}) {
+    const result = runner(rel);
+    return { result, passed: result.status === 0 };
+  }
+  {
+    const sanity = runRetainedGreenGate('scripts/_sanity.js', {
+      runner: () => ({ status: 0 }),
+    });
+    ok('injected zero-status retained GREEN sanity', sanity.passed === true);
+  }
   for (const row of slice1d.EXISTING_REGRESSION_RETAINED_MASTER_RED) {
     const rel = row.gate.replace(/^node\s+/, '');
-    const r = runNodeScript(rel);
-    const out = `${r.stdout || ''}\n${r.stderr || ''}`;
-    const stillRed = r.status !== 0;
-    ok(`${rel} still RED (retained pre-existing)`, stillRed,
-      stillRed ? '' : 'unexpectedly green — update retained_master_red lock');
-    const marker = row.retained_failure.split('(')[0].trim();
-    ok(`${rel} retains expected failure marker`,
-      stillRed && out.includes(marker),
-      `expected to mention: ${row.retained_failure}`);
+    // Hostile: nonzero exit for either retained gate must fail FACTORY classification.
+    let seen = null;
+    const hostile = runRetainedGreenGate(rel, {
+      runner: (p) => { seen = p; return { status: 1 }; },
+    });
+    ok(`hostile: nonzero ${path.basename(rel)} fails FACTORY retained GREEN`,
+      seen === rel && hostile.passed === false);
+    const { result: r, passed } = runRetainedGreenGate(rel);
+    ok(`${rel} retained GREEN (current master)`, passed,
+      r.status !== 0 ? (r.stderr || r.stdout || '').slice(-400) : '');
   }
 }
 
