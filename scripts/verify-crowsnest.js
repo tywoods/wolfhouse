@@ -256,7 +256,8 @@ ok('asset rejects non-GET/HEAD', assetBody.includes("method !== 'GET' && method 
 ok('login allows GET/HEAD/POST only', loginBody.includes("method !== 'POST'") && loginBody.includes("sendMethodNotAllowed(res, 'GET, HEAD, POST')"));
 ok('logout allows POST only', logoutBody.includes("method !== 'POST'") && logoutBody.includes("sendMethodNotAllowed(res, 'POST')"));
 ok('router fallback stays GET/HEAD only', routerBody.includes("method !== 'GET' && method !== 'HEAD'") && routerBody.includes("sendMethodNotAllowed(res, 'GET, HEAD')"));
-ok('only /login advertises POST in Allow header', (apiSrc.match(/sendMethodNotAllowed\(res, 'GET, HEAD, POST'\)/g) || []).length === 1);
+ok('only /login and the allowlisted Sales outreach-draft route advertise POST with GET/HEAD',
+  (apiSrc.match(/sendMethodNotAllowed\(res, 'GET, HEAD, POST'\)/g) || []).length === 2);
 
 ok('CROWSNEST_AUTH_USERNAME env referenced', /CROWSNEST_AUTH_USERNAME/.test(authSrc));
 ok('CROWSNEST_AUTH_PASSWORD env referenced', /CROWSNEST_AUTH_PASSWORD/.test(authSrc));
