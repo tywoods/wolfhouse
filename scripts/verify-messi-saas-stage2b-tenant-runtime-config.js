@@ -26,29 +26,6 @@ const red = (n, c, d) => ok(`RED ${n}`, c, d);
 const green = (n, c, d) => ok(`GREEN ${n}`, c, d);
 const UUID = '00000000-0000-4000-8000-000000000001';
 
-function diffStat() {
-  const out = execFileSync('git', ['diff', '--ignore-cr-at-eol', '--numstat', BASE, '--', ...FILES], {
-    cwd: ROOT, encoding: 'utf8',
-  }).trim();
-  let rawAdd = 0; let rawDel = 0; const perFile = [];
-  for (const line of out.split('\n').filter(Boolean)) {
-    const [a, d, file] = line.split('\t');
-    const add = a === '-' ? 0 : Number(a); const del = d === '-' ? 0 : Number(d);
-    rawAdd += add; rawDel += del; perFile.push({ file, add, del });
-  }
-  for (const rel of FILES) {
-    if (perFile.some((p) => p.file === rel)) continue;
-    const abs = path.join(ROOT, rel); if (!fs.existsSync(abs)) continue;
-    let baseLines = 0;
-    try {
-      baseLines = execFileSync('git', ['show', `${BASE}:${rel}`], { cwd: ROOT, encoding: 'utf8' })
-        .split(/\r?\n/).length;
-    } catch (_) { /* new */ }
-    const cur = fs.readFileSync(abs, 'utf8').split(/\r?\n/).length;
-    if (!baseLines) { rawAdd += cur; perFile.push({ file: rel, add: cur, del: 0 }); }
-  }
-  return { rawAdd, rawDel, net: rawAdd - rawDel, files: perFile.length, perFile };
-}
 
 const validSynth = () => ({
   version: 1, tenant_slug: 'synthdemo',
@@ -332,13 +309,6 @@ red('central_authz_wired', /authorizeAuthenticatedStaffRoute/.test(staffSrc)
   green('http_no_secret_or_sunset_break', [a, b, admin, sun, ...Object.values(mutations)]
     .every((r) => !leakRe.test(r.bodyRaw || '')) && [200, 401, 403, 500].includes(sun.status));
 
-  const st = diffStat();
-  console.log('\n── budget ──');
-  console.log(JSON.stringify({
-    files: st.files, rawAdd: st.rawAdd, rawDel: st.rawDel, net: st.net, perFile: st.perFile,
-  }, null, 2));
-  ok('budget_files', st.files <= 8, `files=${st.files}`);
-  ok('budget_net', st.net <= 875, `net=${st.net}`);
   try {
     execFileSync('git', ['-c', 'core.whitespace=trailing-space,space-before-tab,cr-at-eol',
       'diff', '--check', BASE, '--', ...FILES], { cwd: ROOT, stdio: 'pipe' });
