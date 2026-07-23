@@ -736,7 +736,8 @@
     "verify:messi-slice1h-cross-parent-gap": "node scripts/verify-messi-slice1a-acceptance-ledger.js",
     "verify:messi-slice1i-finite-closeout": "node scripts/verify-messi-slice1a-acceptance-ledger.js",
     "verify:messi-slice1j-foundation-docker-wiring": "node scripts/verify-messi-slice1a-acceptance-ledger.js",
-    "verify:messi-saas-stage1-materialize": "node scripts/verify-messi-saas-stage1-materialize.js"
+    "verify:messi-saas-stage1-materialize": "node scripts/verify-messi-saas-stage1-materialize.js",
+    "verify:messi-saas-stage2a-tenant-staging-iac": "node scripts/verify-messi-saas-stage2a-tenant-staging-iac.js"
   },
   "dependencies": {
     "acorn": "8.14.1",

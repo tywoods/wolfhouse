@@ -20,6 +20,7 @@ const CONTRACT_REL = 'fixtures/radar-operations/slice16l-expected-contract.json'
 const PLAN_REL = 'fixtures/radar-operations/slice16l-capacity-alert-plan.json';
 const WH_BICEP = 'infra/azure/staging/main.bicep';
 const SUN_BICEP = 'infra/azure/sunset-staging/main.bicep';
+const SUN_MODULE = 'infra/azure/modules/tenant-staging/main.bicep';
 const H16_DIR = 'infra/azure/staging-staff-api-metric-alerts';
 
 const SECRET_PATTERNS = [
@@ -116,10 +117,47 @@ function buildBicepText(text, outName) {
   return JSON.parse(fs.readFileSync(out, 'utf8'));
 }
 
+function flattenCompiled(compiled) {
+  const resources = []; const variables = { ...(compiled.variables || {}) };
+  const topParameters = compiled.parameters || {};
+  function walk(list, pv) {
+    for (const r of list || []) {
+      if (r.type === 'Microsoft.Resources/deployments') {
+        const tpl = (r.properties || {}).template || {};
+        const passed = (r.properties || {}).parameters || {};
+        const next = { ...pv };
+        for (const [k, v] of Object.entries(passed)) {
+          if (v && Object.prototype.hasOwnProperty.call(v, 'value')) next[k] = v.value;
+        }
+        Object.assign(variables, tpl.variables || {});
+        walk(tpl.resources || [], next);
+        continue;
+      }
+      resources.push({ resource: r, paramValues: pv });
+    }
+  }
+  walk(compiled.resources || [], {});
+  return { resources, variables, topParameters };
+}
 function capacityAlerts(compiled) {
-  return (compiled.resources || []).filter((r) =>
-    r.type === 'Microsoft.Insights/metricAlerts'
-    && /staff-api-(cpu|memory)-pressure/.test(String(r.name || '')));
+  const flat = flattenCompiled(compiled);
+  const outerVars = compiled.variables || {};
+  return flat.resources
+    .filter(({ resource: r }) => r.type === 'Microsoft.Insights/metricAlerts'
+      && /staff-api-(cpu|memory)-pressure/.test(String(r.name || '')))
+    .map(({ resource: r, paramValues: pv }) => {
+      const pv2 = { ...pv };
+      for (const [k, v] of Object.entries(pv2)) {
+        const vm = typeof v === 'string' && v.match(/^\[variables\('([^']+)'\)\]$/);
+        if (vm && outerVars[vm[1]] !== undefined) pv2[k] = outerVars[vm[1]];
+      }
+      let name = String(r.name || '');
+      const m = name.match(/^\[format\('\{0\}-staff-api-(cpu|memory)-pressure',\s*parameters\('capacityAlertNamePrefix'\)\)\]$/);
+      if (m && pv2.capacityAlertNamePrefix && !String(pv2.capacityAlertNamePrefix).startsWith('[')) {
+        name = `${pv2.capacityAlertNamePrefix}-staff-api-${m[1]}-pressure`;
+      }
+      return { ...r, name, _flatVariables: flat.variables, _topParameters: flat.topParameters };
+    });
 }
 
 function criterion(alert) {
@@ -174,8 +212,9 @@ function assertTenantAlerts(compiled, app, expected) {
       && !String(c.metricName).includes('radar16l')) {
       errors.push(`${want.name}.metricName=${c.metricName}`);
     }
-    // Prefer comparing resolved variable table + expression forms.
-    const varTable = compiled.variables || {};
+      const flat = flattenCompiled(compiled);
+    const varTable = { ...(compiled.variables || {}), ...flat.variables };
+    if (alerts[0] && alerts[0]._flatVariables) Object.assign(varTable, alerts[0]._flatVariables);
     if (varTable.radar16lCpuMetricName !== 'CpuPercentage') errors.push('var_cpu');
     if (varTable.radar16lMemoryMetricName !== 'MemoryPercentage') errors.push('var_mem');
     if (varTable.radar16lMetricNamespace !== 'Microsoft.App/containerApps') errors.push('var_ns');
@@ -214,8 +253,8 @@ function assertTenantAlerts(compiled, app, expected) {
   const names = alerts.map((a) => a.name);
   if (new Set(names).size !== names.length) errors.push('duplicate_alert_names');
 
-  // Param default is subscription-pinned owned AG
-  const param = (compiled.parameters || {}).opsActionGroupResourceId;
+  const param = (compiled.parameters || {}).opsActionGroupResourceId
+    || (alerts[0] && alerts[0]._topParameters && alerts[0]._topParameters.opsActionGroupResourceId);
   if (!param || param.defaultValue !== app.opsActionGroupResourceId) {
     errors.push(`opsActionGroupResourceId_default=${param && param.defaultValue}`);
   }
@@ -255,7 +294,11 @@ function gitShow(rel) {
 
 function protectedPathsUnchanged(rel) {
   const base = gitShow(rel);
-  const cur = readText(rel);
+  let cur = readText(rel);
+  if (rel === SUN_BICEP && fs.existsSync(path.join(ROOT, SUN_MODULE))) {
+    cur = `${cur}
+${readText(SUN_MODULE)}`;
+  }
   const errors = [];
   const bScale = extractStaffScaleBlock(base);
   const cScale = extractStaffScaleBlock(cur);
@@ -265,6 +308,13 @@ function protectedPathsUnchanged(rel) {
     'STAFF_AUTH_HTTPS',
     'Microsoft.DBforPostgreSQL/flexibleServers',
   ]) {
+    // Wrapper+module: header SAFETY comment may move; require env literals present.
+    if (rel === SUN_BICEP && (needle === 'STAFF_AUTH_REQUIRED' || needle === 'STAFF_AUTH_HTTPS')) {
+      if (!new RegExp(`name: '${needle}',\\s*value: 'true'`).test(cur)) {
+        errors.push(`missing_${needle}`);
+      }
+      continue;
+    }
     if (base.split(needle).length !== cur.split(needle).length) {
       errors.push(`count_changed_${needle}`);
     }
@@ -364,6 +414,7 @@ const sec = secretFree([
   JSON.stringify(plan),
   readText(WH_BICEP),
   readText(SUN_BICEP),
+  fs.existsSync(path.join(ROOT, SUN_MODULE)) ? readText(SUN_MODULE) : '',
 ].join('\n'), '16l');
 ok('C3 secret-free artifacts', sec.ok, sec.detail);
 
@@ -393,6 +444,7 @@ const allowedBranches = new Set([
   'radar/slice-16ai-g06-live-load-evidence',
   'radar/slice-16aj-g06-slo-error-budget-source',
   'radar/slice-16ak-g06-backpressure-source',
+  'messi/saas-2-staging-plan',
 ]);
 ok('C4 branch pin (16L or successor tip)', allowedBranches.has(headBranch), headBranch);
 
@@ -408,7 +460,10 @@ ok('C7 Sunset protected replica/traffic/auth/DB unchanged', sunProt.ok, sunProt.
 green('protected_paths_unchanged', whProt.ok && sunProt.ok);
 
 const whSrc = readText(WH_BICEP);
-const sunSrc = readText(SUN_BICEP);
+const sunSrc = fs.existsSync(path.join(ROOT, SUN_MODULE))
+  ? `${readText(SUN_BICEP)}
+${readText(SUN_MODULE)}`
+  : readText(SUN_BICEP);
 ok('C8 WH source has capacity locks + static criteria',
   /radar16lCapacityThreshold\s*=\s*80/.test(whSrc)
   && /radar16lWindowSize\s*=\s*'PT15M'/.test(whSrc)
