@@ -4,14 +4,21 @@
  * verify:foundation-docker-fresh-db-replacement-evidence
  *
  * Offline gate for the compact Lunabox disposable-Docker compared fixture.
- * Binds proof script, harness, canonical migration manifest/checksums, and
- * fixture hashes. Hostile REDs for count/hash/fingerprint/equality/cleanup/
- * candidate drift. Does not reclassify FOUNDATION or MESSI. No live Docker.
+ * Binds proof script, harness, and the *historical* canonical migration
+ * manifest at locks.CANDIDATE_SHA (git blob), plus fixture hashes.
+ *
+ * Current-HEAD fail-closed: candidate must be an ancestor of HEAD and the
+ * candidate blob must match locked checksums. Live-tree manifest growth after
+ * the Docker proof is not a re-anchor and must not satisfy the historical
+ * binding. Hostile REDs for count/hash/fingerprint/equality/cleanup/candidate
+ * drift + live-tree re-anchor. Does not reclassify FOUNDATION or MESSI.
+ * No live Docker.
  */
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { spawnSync } = require('child_process');
 const {
   loadManifest,
   validateManifestIntegrity,
@@ -22,6 +29,66 @@ const { hashCanonicalManifest } = require('./lib/sunset-schema-observer');
 const locks = require('./lib/foundation-docker-fresh-db-replacement-evidence');
 
 const ROOT = path.join(__dirname, '..');
+
+function gitShowBuffer(commitSha, rel) {
+  const r = spawnSync('git', ['show', `${commitSha}:${rel}`], {
+    cwd: ROOT,
+    encoding: 'buffer',
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (r.status !== 0) {
+    return {
+      ok: false,
+      detail: String(r.stderr || r.stdout || 'git show failed'),
+    };
+  }
+  return { ok: true, buffer: r.stdout };
+}
+
+function isGitAncestor(ancestor, descendant) {
+  const r = spawnSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+  return r.status === 0;
+}
+
+/**
+ * Historical Docker-proof binding: checksum the canonical manifest blob at
+ * commitSha (not the live working tree). Do not run validateManifestIntegrity
+ * here — that walks the live migrations directory and rejects post-proof SQL
+ * growth. Fail-closed on missing blob / parse / checksum drift only.
+ */
+function historicalManifestBinding(commitSha) {
+  const shown = gitShowBuffer(commitSha, locks.CANONICAL_MANIFEST_REL);
+  if (!shown.ok) {
+    return {
+      ok: false,
+      errors: [`missing_blob:${shown.detail}`],
+    };
+  }
+  const fileSha = crypto.createHash('sha256').update(shown.buffer).digest('hex');
+  let manifest;
+  try {
+    manifest = JSON.parse(shown.buffer.toString('utf8'));
+  } catch (err) {
+    return { ok: false, errors: [`parse:${String(err && err.message)}`] };
+  }
+  const manifestHash = hashCanonicalManifest(manifest).manifestHash;
+  const forward = forwardEntries(manifest);
+  const errors = [];
+  if (fileSha !== locks.CANONICAL_MANIFEST_FILE_SHA256) errors.push('file_sha');
+  if (manifestHash !== locks.CANONICAL_MANIFEST_HASH) errors.push('manifest_hash');
+  if (forward.length !== locks.FORWARD_COUNT) errors.push('forward_count');
+  if (manifest.checksumMode !== locks.CHECKSUM_MODE) errors.push('checksum_mode');
+  return {
+    ok: errors.length === 0,
+    errors,
+    fileSha,
+    manifestHash,
+    forwardCount: forward.length,
+  };
+}
 
 let pass = 0;
 let fail = 0;
@@ -214,22 +281,27 @@ function main() {
     liveHarnessSha,
   );
 
-  const manifest = loadManifest();
-  const integrity = validateManifestIntegrity(manifest);
-  const liveManifestFileSha = sha256File(path.join(ROOT, locks.CANONICAL_MANIFEST_REL));
-  const liveManifestHash = hashCanonicalManifest(manifest).manifestHash;
-  const liveForward = forwardEntries(manifest);
+  // Bind historical candidate blob — not live HEAD working-tree manifest.
+  // Post-proof migration growth on master must not invalidate the reviewed
+  // Docker evidence, and must not be "fixed" by re-anchoring lock hashes.
+  // Current-HEAD fail-closed: candidate ancestor of HEAD + live integrity ok.
+  const hist = historicalManifestBinding(locks.CANDIDATE_SHA);
+  const candidateAncestorOfHead = isGitAncestor(locks.CANDIDATE_SHA, 'HEAD');
+  const liveIntegrity = validateManifestIntegrity(loadManifest());
   green(
     'binding_canonical_manifest',
-    integrity.ok === true
-      && liveManifestFileSha === locks.CANONICAL_MANIFEST_FILE_SHA256
-      && liveManifestHash === locks.CANONICAL_MANIFEST_HASH
-      && liveForward.length === locks.FORWARD_COUNT
-      && manifest.checksumMode === locks.CHECKSUM_MODE
+    hist.ok === true
+      && candidateAncestorOfHead === true
+      && liveIntegrity.ok === true
       && evidence.bindings.canonical_manifest_hash === locks.CANONICAL_MANIFEST_HASH
       && evidence.bindings.canonical_manifest_file_sha256
-        === locks.CANONICAL_MANIFEST_FILE_SHA256,
-    `file=${liveManifestFileSha} hash=${liveManifestHash} n=${liveForward.length}`,
+        === locks.CANONICAL_MANIFEST_FILE_SHA256
+      && evidence.bindings.forwardCount === locks.FORWARD_COUNT
+      && evidence.bindings.checksum_mode === locks.CHECKSUM_MODE,
+    `candidate=${locks.CANDIDATE_SHA} file=${hist.fileSha} hash=${hist.manifestHash}`
+      + ` n=${hist.forwardCount} ancestor=${candidateAncestorOfHead}`
+      + ` live_integrity=${liveIntegrity.ok}`
+      + ` errors=${(hist.errors || []).join(',') || '(none)'}`,
   );
 
   const foundationCloseout = readJson('fixtures/foundation-closeout/finite-closeout.json');
@@ -370,6 +442,29 @@ function main() {
         && staleNoop.ok === false
         && staleNoop.errors.includes('lock_hash'),
       `only=${onlyHash.errors.join(',')} stale=${staleNoop.errors.join(',')}`,
+    );
+  }
+
+  // Hostile proof of corrected semantic: live HEAD working-tree manifest must
+  // not satisfy the historical Docker-proof binding (no silent re-anchor).
+  {
+    const liveManifest = loadManifest();
+    const liveFileSha = sha256File(path.join(ROOT, locks.CANONICAL_MANIFEST_REL));
+    const liveHash = hashCanonicalManifest(liveManifest).manifestHash;
+    const liveForward = forwardEntries(liveManifest).length;
+    const liveEqualsHistoricalLocks = liveFileSha === locks.CANONICAL_MANIFEST_FILE_SHA256
+      && liveHash === locks.CANONICAL_MANIFEST_HASH
+      && liveForward === locks.FORWARD_COUNT;
+    const liveAsBinding = historicalManifestBinding('HEAD');
+    const candidateBinding = historicalManifestBinding(locks.CANDIDATE_SHA);
+    red(
+      'live_tree_manifest_reanchor_rejected',
+      liveEqualsHistoricalLocks === false
+        && liveAsBinding.ok === false
+        && candidateBinding.ok === true
+        && isGitAncestor(locks.CANDIDATE_SHA, 'HEAD') === true,
+      `live_file=${liveFileSha} live_n=${liveForward}`
+        + ` live_bind_ok=${liveAsBinding.ok} candidate_bind_ok=${candidateBinding.ok}`,
     );
   }
 
