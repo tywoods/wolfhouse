@@ -1,0 +1,8 @@
+{
+  "label": "invalid-equal-fields",
+  "env": {
+    "CROWSNEST_AI_USAGE_CLIENT_SLUG": "cn_fixture_same_value",
+    "CROWSNEST_AI_USAGE_TENANT_ID": "cn_fixture_same_value"
+  },
+  "expect": { "ok": false, "reason": "identity_fields_must_differ" }
+}

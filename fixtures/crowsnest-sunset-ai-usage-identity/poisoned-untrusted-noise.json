@@ -1,0 +1,18 @@
+{
+  "label": "poisoned-untrusted-noise",
+  "env": {
+    "CROWSNEST_AI_USAGE_CLIENT_SLUG": "cn_fixture_client_alpha",
+    "CROWSNEST_AI_USAGE_TENANT_ID": "tn_fixture_tenant_beta",
+    "LUNA_CLIENT_SLUG": "sunset",
+    "LUNA_TENANT_ID": "sunset",
+    "DEFAULT_CLIENT_SLUG": "sunset",
+    "SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID": "meta-phone-spoof-999",
+    "REQUEST_URL": "https://sunset-staging.lunafrontdesk.com/whatsapp",
+    "GUEST_PHONE": "+34600111222",
+    "GUEST_MESSAGE": "book me a lesson please",
+    "PROVIDER_MODEL": "gpt-spoof",
+    "PROVIDER_USAGE": "{\"prompt_tokens\":9}",
+    "BROWSER_CLIENT_ID": "browser-spoof-id"
+  },
+  "expect": { "ok": true }
+}

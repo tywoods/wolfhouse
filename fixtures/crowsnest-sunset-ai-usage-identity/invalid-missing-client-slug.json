@@ -1,0 +1,7 @@
+{
+  "label": "invalid-missing-client-slug",
+  "env": {
+    "CROWSNEST_AI_USAGE_TENANT_ID": "tn_fixture_tenant_beta"
+  },
+  "expect": { "ok": false, "reason": "missing_client_slug" }
+}

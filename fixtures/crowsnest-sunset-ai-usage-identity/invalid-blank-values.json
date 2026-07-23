@@ -1,0 +1,8 @@
+{
+  "label": "invalid-blank-values",
+  "env": {
+    "CROWSNEST_AI_USAGE_CLIENT_SLUG": "   ",
+    "CROWSNEST_AI_USAGE_TENANT_ID": ""
+  },
+  "expect": { "ok": false }
+}
