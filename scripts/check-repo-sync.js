@@ -10,6 +10,9 @@
  *   node scripts/check-repo-sync.js --strict --ignore-dirty  # pre-push / deploy (sync only)
  *   node scripts/check-repo-sync.js --skip-vm # laptop vs origin only
  *   node scripts/check-repo-sync.js --json
+ *
+ * Optional: WH_LUNABOX_SSH_KEY=/path/to/key  — explicit identity for Lunabox SSH
+ * (avoids rewriting HOME / relying on ssh-agent). Unreadable explicit path fails closed.
  */
 
 const fs = require('fs');
@@ -54,12 +57,72 @@ function azVmIp() {
   }
 }
 
-function ssh(cmd) {
+/** POSIX-safe single-arg quoting for ssh -i paths. */
+function shellQuote(arg) {
+  const s = String(arg);
+  if (s.length === 0) return "''";
+  if (/^[A-Za-z0-9_./:=@+-]+$/.test(s)) return s;
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Resolve Lunabox SSH identity.
+ * Prefer WH_LUNABOX_SSH_KEY when set; otherwise ~/.ssh/id_rsa if present.
+ *
+ * @param {{ env?: NodeJS.ProcessEnv, home?: string, existsSync?: Function, accessSync?: Function, R_OK?: number }} [opts]
+ */
+function resolveSshIdentity(opts = {}) {
+  const env = opts.env || process.env;
+  const home =
+    opts.home != null ? opts.home : env.USERPROFILE || env.HOME || '';
+  const existsSync = opts.existsSync || fs.existsSync.bind(fs);
+  const accessSync = opts.accessSync || ((p, mode) => fs.accessSync(p, mode));
+  const R_OK = opts.R_OK != null ? opts.R_OK : fs.constants.R_OK;
+
+  const raw = env.WH_LUNABOX_SSH_KEY;
+  if (raw != null && String(raw).trim() !== '') {
+    const keyPath = String(raw).trim();
+    try {
+      accessSync(keyPath, R_OK);
+      if (!existsSync(keyPath) || (opts.statSync || fs.statSync.bind(fs))(keyPath).isDirectory()) {
+        throw new Error('not a file');
+      }
+      return { ok: true, source: 'env', keyPath, identitiesOnly: true };
+    } catch {
+      return {
+        ok: false,
+        source: 'env',
+        keyPath,
+        identitiesOnly: true,
+        warning:
+          `WH_LUNABOX_SSH_KEY is set but not a readable file (${keyPath}) — ` +
+          'refusing to SSH without the configured identity.',
+      };
+    }
+  }
+
+  const keyPath = path.join(home, '.ssh', 'id_rsa');
+  if (existsSync(keyPath)) {
+    return { ok: true, source: 'fallback', keyPath, identitiesOnly: false };
+  }
+  return { ok: true, source: 'none', keyPath: null, identitiesOnly: false };
+}
+
+/** Build ssh CLI identity fragment; empty string when none / fail-closed. */
+function buildSshIdentityArgs(identity) {
+  if (!identity || !identity.ok || !identity.keyPath) return '';
+  const quoted = shellQuote(identity.keyPath);
+  if (identity.identitiesOnly) {
+    return `-o IdentitiesOnly=yes -i ${quoted}`;
+  }
+  return `-i ${quoted}`;
+}
+
+function ssh(cmd, identity) {
   const ip = azVmIp();
   if (!ip) return null;
-  const home = process.env.USERPROFILE || process.env.HOME || '';
-  const key = path.join(home, '.ssh', 'id_rsa');
-  const keyArg = fs.existsSync(key) ? `-i ${key}` : '';
+  if (!identity || !identity.ok) return null;
+  const keyArg = buildSshIdentityArgs(identity);
   try {
     return execSync(
       `ssh -o BatchMode=yes -o ConnectTimeout=12 -o StrictHostKeyChecking=accept-new ${keyArg} azureuser@${ip} ${JSON.stringify(cmd)}`,
@@ -96,18 +159,22 @@ function collect() {
   const originHead = originUrl ? gitOk(`rev-parse origin/${branch}`) : null;
 
   let vm = null;
+  let sshIdentity = null;
   if (!skipVm) {
-    const vmHead = ssh(`git -C ${HERMES_VM.REPO_PATH} rev-parse HEAD 2>/dev/null`);
-    const vmDirty = ssh(`git -C ${HERMES_VM.REPO_PATH} status --porcelain 2>/dev/null`);
-    const vmBranch = ssh(`git -C ${HERMES_VM.REPO_PATH} branch --show-current 2>/dev/null`);
-    const vmLog = ssh(`git -C ${HERMES_VM.REPO_PATH} log -1 --oneline 2>/dev/null`);
-    if (vmHead) {
-      vm = {
-        head: vmHead,
-        branch: vmBranch || null,
-        dirty: Boolean(vmDirty),
-        log: vmLog || null,
-      };
+    sshIdentity = resolveSshIdentity();
+    if (sshIdentity.ok) {
+      const vmHead = ssh(`git -C ${HERMES_VM.REPO_PATH} rev-parse HEAD 2>/dev/null`, sshIdentity);
+      const vmDirty = ssh(`git -C ${HERMES_VM.REPO_PATH} status --porcelain 2>/dev/null`, sshIdentity);
+      const vmBranch = ssh(`git -C ${HERMES_VM.REPO_PATH} branch --show-current 2>/dev/null`, sshIdentity);
+      const vmLog = ssh(`git -C ${HERMES_VM.REPO_PATH} log -1 --oneline 2>/dev/null`, sshIdentity);
+      if (vmHead) {
+        vm = {
+          head: vmHead,
+          branch: vmBranch || null,
+          dirty: Boolean(vmDirty),
+          log: vmLog || null,
+        };
+      }
     }
   }
 
@@ -133,7 +200,9 @@ function collect() {
   if (originHead && localHead && !isAncestor(localHead, originHead) && !isAncestor(originHead, localHead)) {
     warnings.push('Laptop and origin have diverged — pull and merge (or rebase) before push.');
   }
-  if (!skipVm && !vm) {
+  if (!skipVm && sshIdentity && !sshIdentity.ok) {
+    warnings.push(sshIdentity.warning);
+  } else if (!skipVm && !vm) {
     warnings.push('Could not read Lunabox repo (SSH/az unavailable or no clone at /opt/wolfhouse/WH).');
   }
   if (vm) {
@@ -193,4 +262,12 @@ function main() {
   if (strict && !report.ok) process.exit(1);
 }
 
-main();
+module.exports = {
+  shellQuote,
+  resolveSshIdentity,
+  buildSshIdentityArgs,
+};
+
+if (require.main === module) {
+  main();
+}
