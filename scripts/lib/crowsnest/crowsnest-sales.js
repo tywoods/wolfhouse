@@ -23,6 +23,9 @@
  * Chapter 10 adds a read-only analytics dashboard — truthful pipeline counts, recent audit
  * activity, and informational data-quality alerts only; no AI/agent scores, external calls,
  * writes, or automatic actions.
+ * Chapter 11 adds a read-only scale/governance page — workflow safeguards, human-approval
+ * rules, data retention/ownership notes, external integration state, and action-boundary
+ * audit summary; no automatic CRM writes/outreach, no external calls, no roles changes.
  */
 
 const {
@@ -85,6 +88,8 @@ const OUTREACH_DRAFT_DISCLAIMER = 'Draft only — no message has been sent.';
 const CONTACT_ENRICHMENT_DISCLAIMER = 'Manual contact records only — no Apollo lookup, no auto-find, no CRM write, no message sent.';
 const ANALYTICS_DISCLAIMER = 'Read-only monitoring from persisted Sales records. Informational data-quality alerts only — operators decide. No AI/agent scores, no external calls, no writes, no automatic actions.';
 const ANALYTICS_RECENT_ACTIVITY_LIMIT = 25;
+
+const GOVERNANCE_DISCLAIMER = 'Read-only Sales scale and governance. Explicit human approval required for workflow gates. No automatic CRM writes, no automatic outreach, no external provider calls, and no roles changes in this chapter.';
 
 /** Accepted future CRM Company mapping (provider-neutral domain terms). */
 const CRM_PREVIEW_LIFECYCLE_STAGE = 'Lead';
@@ -1573,6 +1578,238 @@ async function getSalesAnalytics(options = {}) {
   }
 }
 
+/**
+ * Static workflow safeguards for Luna Sales (Chapter 11).
+ * Every listed gate requires an authenticated human operator — nothing auto-advances.
+ */
+function buildWorkflowSafeguards() {
+  return [
+    {
+      id: 'intake_and_evidence',
+      title: 'Manual intake and evidence',
+      summary: 'Prospects and research evidence are recorded by authenticated operators only.',
+      human_approval_required: true,
+    },
+    {
+      id: 'qualification_gate',
+      title: 'Qualification assessment',
+      summary: 'Qualified / not qualified / needs more research requires an explicit operator assessment with rationale and evidence references.',
+      human_approval_required: true,
+    },
+    {
+      id: 'crm_review_gate',
+      title: 'CRM review readiness',
+      summary: 'Marking ready for CRM review is a manual operator action on currently qualified prospects; CRM sync remains preview-only.',
+      human_approval_required: true,
+    },
+    {
+      id: 'outreach_draft_gate',
+      title: 'Outreach drafts',
+      summary: 'Outreach content is saved as internal drafts only; sending requires a future human-approved channel outside this chapter.',
+      human_approval_required: true,
+    },
+    {
+      id: 'discovery_import_gate',
+      title: 'Discovery import',
+      summary: 'Manual and Maps dry-run discovery stay preview-only until an operator explicitly imports a candidate.',
+      human_approval_required: true,
+    },
+    {
+      id: 'review_decision_gate',
+      title: 'Review decision',
+      summary: 'Approved / rejected / needs research decisions are operator-recorded and append-audited.',
+      human_approval_required: true,
+    },
+  ];
+}
+
+/**
+ * Explicit human-approval rules (Chapter 11). Policy surface only — not a roles system.
+ */
+function buildHumanApprovalRules() {
+  return [
+    {
+      id: 'no_automatic_crm_writes',
+      rule: 'No automatic CRM writes — HubSpot/CRM sync stays preview-only until a human operator acts outside automatic paths.',
+    },
+    {
+      id: 'no_automatic_outreach',
+      rule: 'No automatic outreach — drafts are operator-authored; messages are not sent by the Sales workflow.',
+    },
+    {
+      id: 'no_external_provider_calls',
+      rule: 'No external provider calls from governance or Sales automation — Maps dry-run, manual discovery, and manual contacts only.',
+    },
+    {
+      id: 'no_roles_changes',
+      rule: 'No roles changes — Crowsnest Sales does not grant, revoke, or mutate operator roles from this surface.',
+    },
+    {
+      id: 'operator_gates',
+      rule: 'Workflow gates (qualification, CRM-ready, discovery import, review decision) require authenticated human approval.',
+    },
+    {
+      id: 'append_only_audit',
+      rule: 'Operator actions that mutate Sales records must append an audit event; governance itself is read-only.',
+    },
+  ];
+}
+
+/**
+ * Data retention and ownership notes for the dedicated Sales store.
+ */
+function buildDataRetentionNotes() {
+  return {
+    schema: 'luna_sales',
+    dsn_env: 'CROWSNEST_SALES_DATABASE_URL',
+    ownership: 'Crowsnest / Luna Sales operators own Sales prospect, evidence, qualification, CRM-ready, draft, contact, and audit records in schema luna_sales.',
+    retention_note: 'Records persist in the dedicated Sales store for operator review and append-only audit. Retention policy is operator-owned; this chapter does not auto-delete or export data.',
+    isolation_note: 'Sales must use dedicated CROWSNEST_SALES_DATABASE_URL — never the Wolfhouse guest booking database connection.',
+    audit_note: 'Audit events are append-only; governance page does not rewrite history.',
+  };
+}
+
+/**
+ * Truthful external integration state — none perform live writes from Sales.
+ */
+function buildExternalIntegrationState() {
+  return [
+    {
+      id: 'hubspot_crm',
+      name: 'HubSpot / CRM',
+      state: 'preview_only',
+      write_enabled: false,
+      automatic: false,
+      note: 'CRM sync preview and manual ready-for-review mark only — no HubSpot SDK, HTTP, or automatic CRM writes.',
+    },
+    {
+      id: 'google_maps',
+      name: 'Google Maps discovery',
+      state: 'dry_run_fixtures',
+      write_enabled: false,
+      automatic: false,
+      note: 'Maps discovery uses local fixtures only — no live Google Maps HTTP, API key, SDK, or scraping.',
+    },
+    {
+      id: 'apollo_enrichment',
+      name: 'Apollo / contact enrichment',
+      state: 'manual_only',
+      write_enabled: false,
+      automatic: false,
+      note: 'Contact candidates are typed in by operators — no Apollo lookup or auto-find.',
+    },
+    {
+      id: 'outreach_delivery',
+      name: 'Outreach delivery (SMTP / WhatsApp / LinkedIn)',
+      state: 'drafts_only',
+      write_enabled: false,
+      automatic: false,
+      note: 'Outreach workspace stores drafts only — no SMTP, WhatsApp, LinkedIn send, or webhooks.',
+    },
+    {
+      id: 'live_ai_research',
+      name: 'Live AI research providers',
+      state: 'not_connected',
+      write_enabled: false,
+      automatic: false,
+      note: 'Research evidence is manual or fixture-based — no live AI research provider calls.',
+    },
+  ];
+}
+
+/**
+ * Action-boundary audit summary: what operators may do vs what must never auto-run.
+ */
+function buildActionBoundaryAuditSummary() {
+  return {
+    allowed_manual: [
+      {
+        id: 'prospect_created',
+        action: 'Create prospect via manual intake or explicit discovery import',
+        human_approval_required: true,
+        operator_triggered: true,
+        audited_as: 'prospect_created / discovery_proposal_imported',
+      },
+      {
+        id: 'research_evidence_recorded',
+        action: 'Record manual research evidence',
+        human_approval_required: true,
+        operator_triggered: true,
+        audited_as: 'research_evidence_recorded',
+      },
+      {
+        id: 'qualification_assessed',
+        action: 'Record qualification assessment',
+        human_approval_required: true,
+        operator_triggered: true,
+        audited_as: 'qualification_assessed',
+      },
+      {
+        id: 'crm_review_ready_marked',
+        action: 'Mark ready for CRM review (preview boundary only)',
+        human_approval_required: true,
+        operator_triggered: true,
+        audited_as: 'crm_review_ready_marked',
+      },
+      {
+        id: 'outreach_draft_saved',
+        action: 'Save outreach draft (not sent)',
+        human_approval_required: true,
+        operator_triggered: true,
+        audited_as: 'outreach_draft_saved',
+      },
+      {
+        id: 'contact_candidate_recorded',
+        action: 'Record manual contact candidate',
+        human_approval_required: true,
+        operator_triggered: true,
+        audited_as: 'contact_candidate_recorded',
+      },
+      {
+        id: 'review_decision',
+        action: 'Record review decision',
+        human_approval_required: true,
+        operator_triggered: true,
+        audited_as: 'review_decision',
+      },
+    ],
+    forbidden_automatic: [
+      {
+        id: 'automatic_crm_write',
+        action: 'Automatic CRM write / HubSpot upsert',
+      },
+      {
+        id: 'automatic_outreach_send',
+        action: 'Automatic outreach send (SMTP / WhatsApp / LinkedIn)',
+      },
+      {
+        id: 'external_provider_calls',
+        action: 'External provider calls (live Maps, Apollo, web search, live AI research)',
+      },
+      {
+        id: 'roles_changes',
+        action: 'Roles changes (grant, revoke, or mutate operator roles)',
+      },
+    ],
+  };
+}
+
+/**
+ * Read-only governance payload (Chapter 11). Pure policy surface — no store writes,
+ * no external calls, no roles mutations.
+ */
+async function getSalesGovernance() {
+  return {
+    ok: true,
+    disclaimer: GOVERNANCE_DISCLAIMER,
+    workflow_safeguards: buildWorkflowSafeguards(),
+    human_approval_rules: buildHumanApprovalRules(),
+    data_retention: buildDataRetentionNotes(),
+    external_integrations: buildExternalIntegrationState(),
+    action_boundaries: buildActionBoundaryAuditSummary(),
+  };
+}
+
 async function listProspects() {
   const repo = await getRepository();
   return repo.listProspects();
@@ -2214,16 +2451,22 @@ module.exports = {
   CRM_PREVIEW_STATUS_VALUE,
   DISCOVERY_PREVIEW_DISCLAIMER,
   EVIDENCE_BOUNDS,
+  GOVERNANCE_DISCLAIMER,
   OUTREACH_DRAFT_BOUNDS,
   OUTREACH_DRAFT_DISCLAIMER,
   QUALIFICATION_BOUNDS,
   REVIEW_QUEUE_FILTERS,
   appendAudit,
   assignReviewBucket,
+  buildActionBoundaryAuditSummary,
   buildCrmSyncPreview,
   buildDataQualityAlerts,
+  buildDataRetentionNotes,
+  buildExternalIntegrationState,
+  buildHumanApprovalRules,
   buildPipelineCounts,
   buildRecentActivity,
+  buildWorkflowSafeguards,
   compareReviewQueueItems,
   createProspect,
   decideProspect,
@@ -2237,6 +2480,7 @@ module.exports = {
   getProspect,
   getResearchForProspect,
   getSalesAnalytics,
+  getSalesGovernance,
   getSalesStoreMode,
   importManualDiscoveryProposal,
   importMapsDiscoveryCandidate,

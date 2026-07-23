@@ -38,6 +38,7 @@ const {
   getProspect,
   getResearchForProspect,
   getSalesAnalytics,
+  getSalesGovernance,
   importManualDiscoveryProposal,
   importMapsDiscoveryCandidate,
   listAuditEvents,
@@ -942,6 +943,37 @@ async function handleSalesAnalytics(req, res, method) {
   }
 }
 
+async function handleSalesGovernance(req, res, method) {
+  if (method !== 'GET' && method !== 'HEAD') {
+    return sendMethodNotAllowed(res, 'GET, HEAD');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  if (method === 'HEAD') {
+    return sendNoContentLike(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  }
+
+  const governance = await getSalesGovernance();
+  const cspNonce = createBrowserCspNonce();
+  return sendHTML(
+    res,
+    200,
+    renderCrowsnestPage({
+      cspNonce,
+      view: 'sales_governance',
+      governanceDisclaimer: (governance && governance.disclaimer) || '',
+      governanceWorkflowSafeguards: (governance && governance.workflow_safeguards) || [],
+      governanceHumanApprovalRules: (governance && governance.human_approval_rules) || [],
+      governanceDataRetention: (governance && governance.data_retention) || null,
+      governanceExternalIntegrations: (governance && governance.external_integrations) || [],
+      governanceActionBoundaries: (governance && governance.action_boundaries) || null,
+    }),
+    { 'Cache-Control': 'no-store' },
+    cspNonce,
+  );
+}
+
 async function handleSalesProspectDetail(req, res, method, prospectId) {
   if (method !== 'GET' && method !== 'HEAD') {
     return sendMethodNotAllowed(res, 'GET, HEAD');
@@ -1834,6 +1866,10 @@ async function router(req, res) {
 
   if (pathname === '/sales/analytics') {
     return handleSalesAnalytics(req, res, method);
+  }
+
+  if (pathname === '/sales/governance') {
+    return handleSalesGovernance(req, res, method);
   }
 
   if (pathname === '/sales/discovery') {

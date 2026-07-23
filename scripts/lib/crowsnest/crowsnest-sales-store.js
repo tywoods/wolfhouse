@@ -1,9 +1,10 @@
 'use strict';
 
 /**
- * Crowsnest Luna Sales durable store (Chapters 1–6 + 9–10: durable prospects, evidence,
+ * Crowsnest Luna Sales durable store (Chapters 1–6 + 9–11: durable prospects, evidence,
  * qualification, review queue, CRM review readiness / preview support, outreach drafts,
  * manual contact candidates, read-only analytics summaries).
+ * Chapter 11 governance is a pure policy surface and does not add store tables.
  *
  * Owns config validation, repository adapters (memory / postgres / fail-closed),
  * and a bounded pg pool lifecycle. Never reads WOLFHOUSE_DATABASE_URL.

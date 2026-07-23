@@ -58,6 +58,10 @@ Offline **AI usage adapter**: maps native OpenAI / Anthropic technical usage fie
 
 Offline **AI usage event contract** (`crowsnest.ai_usage.v1`): pure validator, sanitized fixtures, and `npm run verify:crowsnest-ai-usage-contract`. See [`docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md`](crowsnest/AI-USAGE-EVENT-CONTRACT.md). No storage, provider wiring, or UI panel in this slice.
 
+### Luna Sales Chapter 11 (scale and governance)
+
+Protected **read-only governance page** at `/sales/governance` for authenticated operators. Shows workflow safeguards (human approval at every gate), explicit human-approval rules (no automatic CRM writes/outreach, no external calls, no roles changes), data retention/ownership notes for schema `luna_sales` / `CROWSNEST_SALES_DATABASE_URL`, external integration state (preview/dry-run/manual/not connected), and an action-boundary audit summary (allowed manual vs forbidden automatic). Pure policy surface — no new migration, no store writes, no external calls, no roles mutations. See [`docs/crowsnest/SALES-GOVERNANCE.md`](crowsnest/SALES-GOVERNANCE.md). Verify with `npm run verify:crowsnest-sales-governance`.
+
 ### Luna Sales Chapter 10 (sales analytics and monitoring)
 
 Protected **read-only analytics dashboard** at `/sales/analytics` for authenticated operators. Shows truthful pipeline counts (prospects, evidence records, qualification states, CRM-ready, drafts present, contacts), recent append-only audit activity, and informational data-quality alerts (missing website, no evidence, CRM-ready without draft/contact). Copy states **read-only monitoring from persisted Sales records** — no AI/agent scores, external calls, writes, or automatic actions. Reuses durable store read-only queries (`listAnalyticsSummaries`); no new migration. See [`docs/crowsnest/SALES-ANALYTICS.md`](crowsnest/SALES-ANALYTICS.md). Verify with `npm run verify:crowsnest-sales-analytics`.
@@ -189,6 +193,7 @@ npm run verify:crowsnest-sales
 npm run verify:crowsnest-sales-durable
 npm run verify:crowsnest-sales-contact-enrichment
 npm run verify:crowsnest-sales-analytics
+npm run verify:crowsnest-sales-governance
 npm run verify:crowsnest-ai-usage-contract
 npm run verify:crowsnest-ai-usage-adapter
 ```
