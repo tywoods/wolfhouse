@@ -25,13 +25,18 @@ var digestOk = digestHexOk && digestLiteralGate
 var pgServerName = '${appNamePrefix}-pg-app'
 var envName = '${appNamePrefix}-env'
 var idName = '${appNamePrefix}-identity'
-var resourceTags = {
+var drillTags = empty(provenance.temporaryDrill) ? {} : {
+  temporaryDrill: provenance.temporaryDrill
+  createdAt: provenance.createdAt
+  expiresAt: provenance.expiresAt
+}
+var resourceTags = union({
   tenant: provenance.tenantSlug
   stage: provenance.stageTag
   owner: provenance.ownerTag
   planDigest: provenance.planDigest
   deploySha: provenance.deploySha
-}
+}, drillTags)
 resource pgApp 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' existing = { name: pgServerName }
 resource appDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-preview' existing = { parent: pgApp, name: appDbName }
 resource containerAppsEnv 'Microsoft.App/managedEnvironments@2023-05-01' existing = { name: envName }

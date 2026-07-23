@@ -42,13 +42,18 @@ var databaseUrlSecretName = '${tenantSlugLower}-database-url'
 var appDatabaseUrl = 'postgresql://${uriComponent(expectedAppUser)}:${uriComponent(appDatabasePassword)}@${postgresFqdn}:5432/${uriComponent(derivedDatabaseName)}?sslmode=require'
 var expectedInboxA = '${tenantSlugLower}-a@inbox.${tenantSlugLower}.invalid'
 var expectedInboxB = '${tenantSlugLower}-b@inbox.${tenantSlugLower}.invalid'
-var resourceTags = {
+var drillTags = empty(provenance.temporaryDrill) ? {} : {
+  temporaryDrill: provenance.temporaryDrill
+  createdAt: provenance.createdAt
+  expiresAt: provenance.expiresAt
+}
+var resourceTags = union({
   tenant: provenance.tenantSlug
   stage: provenance.stageTag
   owner: provenance.ownerTag
   planDigest: provenance.planDigest
   deploySha: provenance.deploySha
-}
+}, drillTags)
 var stripeSecretOk = stripeSecretKey == '***' ? true : fail('stripe_secret_sentinel')
 var stripeWebhookOk = stripeWebhookSecret == 'whsec_disabled' ? true : fail('stripe_webhook_sentinel')
 var metaTokenOk = metaWhatsappToken == 'EAAG_disabled' ? true : fail('meta_token_sentinel')

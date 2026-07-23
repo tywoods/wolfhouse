@@ -3,7 +3,11 @@
 /** Stage 2C2 synthetic bootstrap — secrets via env; rejects sunset/wolfhouse/prod. Public DML/seq/fn grants + default ACLs. */
 const crypto = require('crypto');
 const { URL } = require('url');
-const { Client } = require('pg');
+function loadPgClient() {
+  // Lazy: offline 2D2/C2 operator argv tests must not require native `pg`.
+  // eslint-disable-next-line global-require
+  return require('pg').Client;
+}
 const {
   runCanonicalMigrations, withAdvisoryLock, probeFreshSyntheticDatabase,
   reconcileLedger, loadLedger, ensureLedger,
@@ -325,7 +329,7 @@ async function runBootstrap(env, deps) {
   };
   const safety = assertSafeDatabaseTarget(connection, { allowDedicatedSyntheticAzureInitialApply: true, syntheticTenantSlug: att.tenantSlug });
   if (!safety.ok) return { ok: false, summary: buildSummary({ ok: false, attestation: att }), errors: safety.errors };
-  const ClientCtor = d.Client || Client;
+  const ClientCtor = d.Client || loadPgClient();
   const migrate = d.runCanonicalMigrations || runCanonicalMigrations;
   const client = new ClientCtor({ ...connection, connectionTimeoutMillis: 10000, statement_timeout: 120000 });
   let appliedCount = 0; let skippedCount = 0;
@@ -359,9 +363,11 @@ async function runBootstrap(env, deps) {
 }
 async function runOperatorJobLifecycle(opts) {
   const o = opts || {}; const att = o.attestation || {}; const secrets = o.secrets || [];
+  const assertFn = o.assertActiveDrill;
   const azure = o.azure || createLocalAzOperator({
     attestation: att, secrets, run: o.run, runSync: o.runSync, sleep: o.sleep, now: o.now,
     pollMs: o.pollMs, timeoutMs: o.timeoutMs, fetchLogs: o.fetchLogs !== false,
+    azCommand: o.azCommand || o.azPath, assertActiveDrill: assertFn,
   });
   const proc = o.process || process;
   if (azure.installSignalHandlers) azure.installSignalHandlers(proc);
@@ -380,7 +386,9 @@ async function runOperatorJobLifecycle(opts) {
         result = { ok: false, deleted: false, ownershipVerified: true, summary: null,
           errors: (start && start.errors) || [{ code: 'job_start_failed', message: 'start failed' }] };
       } else {
-        const wait = await azure.waitTerminal({ attestation: att, executionName: start.executionName });
+        const wait = await azure.waitTerminal({
+          attestation: att, executionName: start.executionName, assertActiveDrill: assertFn,
+        });
         const summary = wait && wait.summary ? wait.summary : null;
         const sumTxt = JSON.stringify(summary || {});
         if (/postgres(ql)?:\/\//i.test(sumTxt) || secrets.some((s) => s && sumTxt.includes(String(s)))) {
@@ -434,9 +442,26 @@ function parseAllowlistedSummary(text, secrets) {
   }
   return { ok: false, summary: null, errors: [{ code: 'summary_parse_failed', message: 'no allowlisted summary JSON' }] };
 }
+function resolveOperatorAzCommand(opts) {
+  const pathMod = require('path');
+  const o = opts || {};
+  const candidate = o.azCommand || o.azPath || '/opt/data/.local/bin/az';
+  if (typeof candidate !== 'string' || !candidate || candidate === 'az' || !pathMod.isAbsolute(candidate)) {
+    const e = new Error('az_command_must_be_absolute'); e.code = 'az_command_must_be_absolute'; throw e;
+  }
+  if (candidate.includes('\0') || /\s/.test(candidate) || candidate.includes('..')) {
+    const e = new Error('az_command_invalid'); e.code = 'az_command_invalid'; throw e;
+  }
+  const resolved = pathMod.resolve(candidate);
+  if (resolved !== candidate) {
+    const e = new Error('az_command_must_be_absolute'); e.code = 'az_command_must_be_absolute'; throw e;
+  }
+  return candidate;
+}
 function createLocalAzOperator(opts) {
   const o = opts || {}; const att = o.attestation || {}; const secrets = o.secrets || [];
   const names = derivedBootstrapJobNames(att);
+  const azCmd = resolveOperatorAzCommand(o);
   const { execFile, execFileSync } = require('child_process');
   const run = o.run || ((cmd, argv) => new Promise((resolve, reject) => {
     execFile(cmd, argv, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
@@ -446,6 +471,7 @@ function createLocalAzOperator(opts) {
   const runSync = o.runSync || ((cmd, argv) => execFileSync(cmd, argv, { encoding: 'utf8' }));
   const sleep = o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms))); const now = o.now || Date.now;
   const pollMs = Number(o.pollMs || 2000); const timeoutMs = Number(o.timeoutMs || 900000); const fetchLogs = o.fetchLogs !== false;
+  const assertFn = o.assertActiveDrill;
   let ownershipVerified = false; let deleted = false; const sigHandlers = {};
   const g = names.resourceGroupName; const jn = names.jobName;
   const A = () => ['account', 'show', '--subscription', String(att.subscriptionId), '-o', 'json'];
@@ -456,8 +482,12 @@ function createLocalAzOperator(opts) {
   const D = () => ['containerapp', 'job', 'delete', '-g', g, '-n', jn, '--yes', '-o', 'none'];
   const notFound = (err) => /(?:StatusCodeNotFound|ResourceNotFound|could not be found|NotFound|\(404\))/i.test(`${err && err.message || ''} ${err && err.stderr || ''} ${err && err.stdout || ''}`);
   const fail = (code, message) => ({ ok: false, errors: [{ code, message }] });
+  const beforeMut = async (b) => {
+    if (typeof assertFn !== 'function') return { ok: true };
+    const r = await assertFn(b); return (r && r.ok === false) ? r : { ok: true };
+  };
   async function azJson(argv) {
-    const r = await run('az', argv);
+    const r = await run(azCmd, argv);
     try { return { ok: true, json: String(r.stdout || '').trim() ? JSON.parse(r.stdout) : null }; }
     catch (err) { return fail('az_json_parse', redactSecrets(String(err.message || err), secrets)); }
   }
@@ -492,6 +522,7 @@ function createLocalAzOperator(opts) {
     }
   }
   async function startJob() {
+    const g0 = await beforeMut('before-startJob'); if (!g0.ok) return g0;
     if (!ownershipVerified) return fail('ownership_not_verified', 'start requires ownership');
     try {
       const r = await azJson(T()); if (!r.ok) return r;
@@ -501,10 +532,15 @@ function createLocalAzOperator(opts) {
   }
   async function waitTerminal(args) {
     const executionName = String((args || {}).executionName || '');
+    const pollAssert = (args && args.assertActiveDrill) || assertFn;
     if (!ownershipVerified) return fail('ownership_not_verified', 'wait requires ownership');
     if (!executionName) return fail('execution_name_required', 'execution name required');
     const t0 = now(); let lastStatus = null;
     while (now() - t0 <= timeoutMs) {
+      if (typeof pollAssert === 'function') {
+        const g0 = await pollAssert('waitTerminal-poll');
+        if (g0 && g0.ok === false) return g0;
+      }
       try {
         const r = await azJson(E(executionName)); if (!r.ok) return r;
         lastStatus = String((((r.json || {}).properties || {}).status) || (r.json && r.json.status) || '');
@@ -516,7 +552,7 @@ function createLocalAzOperator(opts) {
     if (lastStatus !== 'Succeeded') return { ok: false, status: lastStatus, summary: null, errors: [{ code: 'execution_terminal_failed', message: `execution ${lastStatus}` }] };
     if (!fetchLogs) return { ok: true, status: lastStatus, summary: null, errors: [] };
     try {
-      const parsed = parseAllowlistedSummary(((await run('az', L(executionName))) || {}).stdout || '', secrets);
+      const parsed = parseAllowlistedSummary(((await run(azCmd, L(executionName))) || {}).stdout || '', secrets);
       return parsed.ok ? { ok: true, status: lastStatus, summary: parsed.summary, errors: [] }
         : { ok: false, status: lastStatus, summary: null, errors: parsed.errors };
     } catch (err) {
@@ -524,12 +560,13 @@ function createLocalAzOperator(opts) {
     }
   }
   async function deleteJob() {
+    const g0 = await beforeMut('before-deleteJob'); if (!g0.ok) return g0;
     if (!ownershipVerified) return { ok: false, verifiedAbsent: false, errors: [{ code: 'ownership_not_verified', message: 'delete only after ownership' }] };
     if (deleted) return { ok: true, verifiedAbsent: true, idempotent: true, errors: [] };
-    try { await run('az', D()); } catch (err) {
+    try { await run(azCmd, D()); } catch (err) {
       if (!notFound(err)) return { ok: false, verifiedAbsent: false, errors: [{ code: 'job_delete_failed', message: redactSecrets(String(err.message || err), secrets) }] };
     }
-    try { await run('az', S()); return { ok: false, verifiedAbsent: false, errors: [{ code: 'job_still_present', message: 'job show succeeded after delete' }] }; }
+    try { await run(azCmd, S()); return { ok: false, verifiedAbsent: false, errors: [{ code: 'job_still_present', message: 'job show succeeded after delete' }] }; }
     catch (err) {
       if (!notFound(err)) return { ok: false, verifiedAbsent: false, errors: [{ code: 'job_delete_verify_failed', message: redactSecrets(String(err.message || err), secrets) }] };
     }
@@ -538,7 +575,7 @@ function createLocalAzOperator(opts) {
   function installSignalHandlers(proc) {
     const p = proc || process;
     const h = () => {
-      try { if (ownershipVerified && !deleted) { try { runSync('az', D()); deleted = true; } catch (err) { if (!notFound(err)) { /* */ } } } }
+      try { if (ownershipVerified && !deleted) { try { runSync(azCmd, D()); deleted = true; } catch (err) { if (!notFound(err)) { /* */ } } } }
       finally { try { p.exit(1); } catch (_) { /* */ } }
     };
     for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) { sigHandlers[sig] = h; if (p.on) p.on(sig, h); }
@@ -548,7 +585,7 @@ function createLocalAzOperator(opts) {
     for (const sig of Object.keys(sigHandlers)) { if (p.removeListener) p.removeListener(sig, sigHandlers[sig]); delete sigHandlers[sig]; }
   }
   return {
-    names, get isOwnershipVerified() { return ownershipVerified; },
+    names, azCommand: azCmd, get isOwnershipVerified() { return ownershipVerified; },
     argvAccountShow: A, argvJobShow: S, argvJobStart: T, argvExecShow: E, argvJobLogsShow: L, argvJobDelete: D,
     assertCanDelete, startJob, waitTerminal, deleteJob, installSignalHandlers, removeSignalHandlers,
   };
@@ -558,7 +595,8 @@ module.exports = {
   assertFreshSyntheticDatabase, createTenantAppRole, maybeCreateAppRoleAfterMigrations,
   buildSummary, attestationDigest, readAttestationFromEnv, runBootstrap, appRoleNameForSlug,
   withBootstrapLock, evaluateBootstrapMode, runOperatorJobLifecycle, readAttestationRows,
-  evaluateAttestationRows, inspectAppRoleSecurity, createLocalAzOperator, derivedBootstrapJobNames,
+  evaluateAttestationRows, inspectAppRoleSecurity, createLocalAzOperator, resolveOperatorAzCommand,
+  derivedBootstrapJobNames,
   parseAllowlistedSummary, APP_ROLE_TABLE_PRIVS, APP_ROLE_SEQ_PRIVS, APP_ROLE_FN_PRIVS,
   ADVISORY_LOCK_KEY1, ADVISORY_LOCK_KEY2,
 };
