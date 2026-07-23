@@ -503,6 +503,15 @@
       "rationale": "Luna Sales: luna_sales.approved_crm_sync_attempts for durable approved HubSpot CRM sync attempt records (idempotency key unique; IDs/status/sanitized error only)."
     },
     {
+      "id": "050_crowsnest_ai_usage_events",
+      "filename": "050_crowsnest_ai_usage_events.sql",
+      "sha256": "518a9fe6838e73dc8e48f64fd7922d10e625920fe9312982630880f6156e542f",
+      "order": 48,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Crowsnest product AI usage durable ledger: public.crowsnest_ai_usage_events for secret-free contract-valid per-call receipts (unique event_id; append-only ON CONFLICT DO NOTHING; no content/PII/JSON blob)."
+    },
+    {
       "id": "022_sunset_location_id_PROPOSED",
       "filename": "022_sunset_location_id_PROPOSED.sql",
       "sha256": "5854d06527c2f2f1cd6e209b9a87759db3d72396a0ee9b9c58a834ff18f8448f",

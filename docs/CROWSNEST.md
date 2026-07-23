@@ -58,6 +58,10 @@ Offline **AI usage adapter**: maps native OpenAI / Anthropic technical usage fie
 
 Offline **AI usage event contract** (`crowsnest.ai_usage.v1`): pure validator, sanitized fixtures, and `npm run verify:crowsnest-ai-usage-contract`. See [`docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md`](crowsnest/AI-USAGE-EVENT-CONTRACT.md). No storage, provider wiring, or UI panel in this slice.
 
+### Durable AI usage ledger (foundation — not applied / not wired)
+
+Durable **AI usage store**: migration `050_crowsnest_ai_usage_events.sql` plus injected-db `recordCrowsnestAiUsageEvent` that validates `crowsnest.ai_usage.v1` before a parameterized idempotent insert. See [`docs/crowsnest/AI-USAGE-STORE.md`](crowsnest/AI-USAGE-STORE.md) and `npm run verify:crowsnest-ai-usage-store`. No production call-site wiring, no API routes, no Spyglass UI changes, migration not applied in this slice.
+
 ### Project Clear Deck (Sales UX)
 
 Presentation-only work to turn Sales into an operator-first **Sales cockpit** (action queue → prospect workspace / flight deck) without changing Sales domain/store routes or POST field names. Slices A–E cover the UX verifier, cockpit home, prospect lifecycle workspace, quiet supporting rooms with local Preview only / Draft only / sample·dry-run badges, and Polished Hull responsive CSS/status-chip hierarchy (no page-wide disclaimer walls). See [`docs/crowsnest/SALES-UX-CLEAR-DECK.md`](crowsnest/SALES-UX-CLEAR-DECK.md). Verify with `npm run verify:crowsnest-sales-ux`.
@@ -201,4 +205,5 @@ npm run verify:crowsnest-sales-analytics
 npm run verify:crowsnest-sales-governance
 npm run verify:crowsnest-ai-usage-contract
 npm run verify:crowsnest-ai-usage-adapter
+npm run verify:crowsnest-ai-usage-store
 ```
