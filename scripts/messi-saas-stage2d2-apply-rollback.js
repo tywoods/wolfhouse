@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 'use strict';
-/** MESSI SaaS Stage 2D2 CLI — temporary apply / rollback / expiry-status. */
+/** MESSI SaaS Stage 2D2 CLI — prepare-spec / temporary apply / rollback / expiry-status. */
 const path = require('path');
 const lib = require('./lib/messi-saas-stage2d2-apply-rollback');
 function usage() {
   return [
     'Usage:',
-    '  node scripts/messi-saas-stage2d2-apply-rollback.js apply --slug <slug> --approve-max-total-usd 8 --ttl-hours 48 [--rollback-on-failure]',
+    '  node scripts/messi-saas-stage2d2-apply-rollback.js prepare-spec --slug <slug> --approve-max-total-usd 8 --ttl-hours 48',
+    '  node scripts/messi-saas-stage2d2-apply-rollback.js apply --slug <slug> --approve-max-total-usd 8 --ttl-hours 48 [--adopt-prepared-rg] [--rollback-on-failure]',
     '  node scripts/messi-saas-stage2d2-apply-rollback.js rollback --slug <slug> --confirm-delete luna-<slug>-staging-rg',
     '  node scripts/messi-saas-stage2d2-apply-rollback.js expiry-status --slug <slug>',
     '',
@@ -18,7 +19,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a.startsWith('--')) {
       const key = a.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-      if (key === 'rollbackOnFailure') { out[key] = true; continue; }
+      if (key === 'rollbackOnFailure' || key === 'adoptPreparedRg') { out[key] = true; continue; }
       out[key] = argv[++i];
       continue;
     }
@@ -29,13 +30,23 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const cmd = args._[0];
-  if (!cmd || !['apply', 'rollback', 'expiry-status'].includes(cmd)) {
+  if (!cmd || !['prepare-spec', 'apply', 'rollback', 'expiry-status'].includes(cmd)) {
     process.stderr.write(usage());
     process.exit(2);
   }
   const deps = lib.createDeps({ repoRoot: path.join(__dirname, '..') });
   let result;
-  if (cmd === 'apply') {
+  if (cmd === 'prepare-spec') {
+    result = await lib.prepareSpec({
+      slug: args.slug,
+      approveMaxTotalUsd: args.approveMaxTotalUsd,
+      ttlHours: args.ttlHours,
+      approveMonthlyUsd: args.approveMonthlyUsd,
+      confirmCostApproval: args.confirmCostApproval,
+      maxMonthlyEstimate: args.maxMonthlyEstimate,
+      actionGroupResourceId: args.actionGroupResourceId,
+    }, deps);
+  } else if (cmd === 'apply') {
     result = await lib.apply({
       slug: args.slug,
       approveMaxTotalUsd: args.approveMaxTotalUsd,
@@ -44,6 +55,7 @@ async function main() {
       confirmCostApproval: args.confirmCostApproval,
       maxMonthlyEstimate: args.maxMonthlyEstimate,
       rollbackOnFailure: !!args.rollbackOnFailure,
+      adoptPreparedRg: !!args.adoptPreparedRg,
       actionGroupResourceId: args.actionGroupResourceId,
     }, deps);
   } else if (cmd === 'rollback') {
