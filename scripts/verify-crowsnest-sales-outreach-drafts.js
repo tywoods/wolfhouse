@@ -199,6 +199,65 @@ function encodeForm(fields) {
   return params.toString();
 }
 
+/** Extract named function/method/const blocks (brace-balanced) for static owner-path scans. */
+function extractNamedBlocks(src, names) {
+  const text = String(src || '');
+  if (!text || !names.length) return '';
+  const alt = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const startRe = new RegExp(
+    String.raw`(?:(?:async\s+)?function\s+(?:${alt})\b|(?:const|let|var)\s+(?:${alt})\s*=|^\s*(?:async\s+)?(?:${alt})\s*\()`,
+    'gm',
+  );
+  const chunks = [];
+  let match;
+  while ((match = startRe.exec(text))) {
+    const from = match.index;
+    const brace = text.indexOf('{', from);
+    const semi = text.indexOf(';', from);
+    if (brace < 0 || (semi >= 0 && semi < brace)) {
+      chunks.push(text.slice(from, semi >= 0 ? semi + 1 : from + match[0].length));
+      continue;
+    }
+    let depth = 0;
+    let end = brace;
+    for (; end < text.length; end += 1) {
+      const ch = text[end];
+      if (ch === '{') depth += 1;
+      else if (ch === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          end += 1;
+          break;
+        }
+      }
+    }
+    chunks.push(text.slice(from, end));
+  }
+  return chunks.join('\n');
+}
+
+/** Outreach draft owner paths only — not governance catalogs or the metrics reporter. */
+const OUTREACH_DRAFT_OWNER_SYMBOLS = [
+  'ALLOWED_OUTREACH_CHANNELS',
+  'OUTREACH_DRAFT_BOUNDS',
+  'OUTREACH_DRAFT_DISCLAIMER',
+  'validateOutreachDraft',
+  'decorateOutreachDraft',
+  'listOutreachDraftRevisionsForProspect',
+  'getCurrentOutreachDraft',
+  'getOutreachDraftWorkspace',
+  'saveOutreachDraft',
+  'mapOutreachDraftRevisionRow',
+  'insertOutreachDraftRevision',
+  'saveOutreachDraftRevision',
+  'getCurrentOutreachDraftRevision',
+  'getNextOutreachDraftRevisionNumber',
+  'matchSalesOutreachDraftPath',
+  'handleSalesOutreachDraft',
+  'renderOutreachDraftRevisionList',
+  'renderSalesOutreachDraftMain',
+];
+
 function structuralChecks() {
   console.log('\n▸ Structural: Chapter 6 outreach drafts');
   const apiSrc = read(API_PATH) || '';
@@ -208,6 +267,12 @@ function structuralChecks() {
   const mig046 = read(MIGRATION_046_PATH) || '';
   const docSrc = read(DOC_PATH) || '';
   const productSrc = read(PRODUCT_DOC) || '';
+  const outreachOwnerSrc = [
+    extractNamedBlocks(salesSrc, OUTREACH_DRAFT_OWNER_SYMBOLS),
+    extractNamedBlocks(storeSrc, OUTREACH_DRAFT_OWNER_SYMBOLS),
+    extractNamedBlocks(pageSrc, OUTREACH_DRAFT_OWNER_SYMBOLS),
+    extractNamedBlocks(apiSrc, OUTREACH_DRAFT_OWNER_SYMBOLS),
+  ].join('\n');
 
   ok('crowsnest-sales.js exists', fs.existsSync(SALES_PATH));
   ok('sales exports validateOutreachDraft', /validateOutreachDraft/.test(salesSrc));
@@ -222,14 +287,18 @@ function structuralChecks() {
   ok('page escapes outreach draft fields', /escapeHtml/.test(pageSrc));
   ok('detail/queue show draft ready or draft present', /draft ready|draft present|draft_ready|draft_present/i.test(pageSrc));
   ok(
-    'no SMTP / WhatsApp / LinkedIn / HubSpot send wiring in sales modules',
-    !/require\(['"][^'"]*nodemailer/i.test(salesSrc)
+    'no SMTP / WhatsApp / LinkedIn / HubSpot delivery wiring in outreach draft owner paths',
+    Boolean(outreachOwnerSrc)
+      && !/require\(['"][^'"]*nodemailer/i.test(outreachOwnerSrc)
+      && !/require\(['"][^'"]*nodemailer/i.test(salesSrc)
       && !/require\(['"][^'"]*nodemailer/i.test(storeSrc)
-      && !/createTransport|smtp:\/\//i.test(salesSrc)
-      && !/graph\.facebook|api\.linkedin\.com|HUBSPOT_[A-Z0-9_]+|api\.hubapi\.com|api\.hubspot\.com/i.test(salesSrc)
-      && !/graph\.facebook|api\.linkedin\.com|HUBSPOT_[A-Z0-9_]+/i.test(storeSrc)
-      && !/outreach\/send|webhook.*outreach/i.test(salesSrc)
-      && !/openai\.com|anthropic\.com|generateOutreachDraftFromAi/i.test(salesSrc),
+      && !/createTransport|smtp:\/\//i.test(outreachOwnerSrc)
+      && !/graph\.facebook|api\.linkedin\.com|api\.hubapi\.com|api\.hubspot\.com/i.test(outreachOwnerSrc)
+      && !/HUBSPOT_[A-Z0-9_]+/.test(outreachOwnerSrc)
+      && !/HUBSPOT_[A-Z0-9_]+/.test(salesSrc)
+      && !/HUBSPOT_[A-Z0-9_]+/.test(storeSrc)
+      && !/outreach\/send|webhook.*outreach/i.test(outreachOwnerSrc)
+      && !/openai\.com|anthropic\.com|generateOutreachDraftFromAi/i.test(outreachOwnerSrc),
   );
   ok(
     'no delivery / send-completed claims on pages',
