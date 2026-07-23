@@ -251,7 +251,7 @@ if (manifest) {
     ok('049 sha256 matches live file', entry.sha256 === live, `manifest=${entry.sha256} live=${live}`);
   }
   const forwards = forwardEntries(manifest);
-  ok('forward count includes 049 (47)', forwards.length === 47, `forward=${forwards.length}`);
+  ok('forward count includes 050 (48)', forwards.length === 48, `forward=${forwards.length}`);
   const order48 = manifest.entries.find((e) => e.filename === '048_crowsnest_metrics_client_metrics_snapshots.sql');
   ok('048 remains order 46 ahead of 049', order48 && order48.order === 46);
 }

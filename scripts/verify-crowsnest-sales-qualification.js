@@ -280,7 +280,7 @@ function structuralChecks() {
       ok('044 sha256 matches live file', entry.sha256 === live, `manifest=${entry.sha256} live=${live}`);
     }
     const forwards = forwardEntries(manifest);
-    ok('forward count includes 049 (47)', forwards.length === 47, `forward=${forwards.length}`);
+    ok('forward count includes 050 (48)', forwards.length === 48, `forward=${forwards.length}`);
   }
 
   ok('042 schema retained as base', fs.existsSync(MIGRATION_042_PATH) && /luna_sales/i.test(read(MIGRATION_042_PATH) || ''));

@@ -68,6 +68,7 @@
     "verify:crowsnest-auth": "node scripts/verify-crowsnest-auth.js",
     "verify:crowsnest-ai-usage-contract": "node scripts/verify-crowsnest-ai-usage-contract.js",
     "verify:crowsnest-ai-usage-adapter": "node scripts/verify-crowsnest-ai-usage-adapter.js",
+    "verify:crowsnest-ai-usage-store": "node scripts/verify-crowsnest-ai-usage-store.js",
     "verify:crowsnest-client-metrics-contract": "node scripts/verify-crowsnest-client-metrics-contract.js",
     "verify:crowsnest-client-metrics-store": "node scripts/verify-crowsnest-client-metrics-store.js",
     "verify:crowsnest-client-metrics-ingest": "node scripts/verify-crowsnest-client-metrics-ingest.js",
