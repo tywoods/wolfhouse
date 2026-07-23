@@ -67,6 +67,30 @@ param bootstrapJobImageDigest string = ''
 param bootstrapAdminDatabaseUrl string = ''
 @secure()
 param bootstrapAppRolePassword string = ''
+// Stage 2C3 is deliberately two deployments. The apply owner waits for RBAC
+// propagation/readback after runtime-prereqs before asserting runtime-app.
+@allowed([
+  'none'
+  'runtime-prereqs'
+  'runtime-app'
+])
+param runtimeDeploymentPhase string = 'none'
+param runtimePrereqsVerified bool = false
+param staffApiImageDigest string = ''
+@secure()
+param appDatabasePassword string = ''
+@secure()
+param staffSessionSecret string = ''
+@secure()
+param stripeSecretKey string = ''
+@secure()
+param stripeWebhookSecret string = ''
+@secure()
+param metaWhatsappToken string = ''
+@secure()
+param metaAppSecret string = ''
+@secure()
+param metaWhatsappVerifyToken string = ''
 // --- Locked-live Sunset tuple + synthetic safety ---
 var tenantSlugLower = toLower(tenantSlug)
 var isLockedLiveSunset = tenantSlugLower == 'sunset' && assertedResourceGroupName == 'luna-sunset-staging-rg' && resourceGroup().name == 'luna-sunset-staging-rg' && appNamePrefix == 'luna-sunset-staging' && appDbName == 'sunset_staging' && environmentName == 'staging'
@@ -86,7 +110,13 @@ var environmentStagingOk = environmentName == 'staging' ? true : fail('non_stagi
 var ownershipOk = isLockedLiveSunset || (!empty(planDigest) && !empty(deploySha) && !empty(ownerTag) && !empty(tenantSlug)) ? true : fail('synthetic_ownership_tuple_required')
 var privateFirewallOk = !enablePrivateNetwork || length(postgresAllowedIpAddresses) == 0 ? true : fail('private_network_no_firewall')
 var bootstrapJobGateOk = !deployBootstrapJob || (enablePrivateNetwork && !empty(bootstrapJobImageDigest) && startsWith(bootstrapJobImageDigest, 'sha256:') && length(bootstrapJobImageDigest) == 71 && !empty(bootstrapAdminDatabaseUrl) && !empty(bootstrapAppRolePassword)) ? true : fail('bootstrap_job_requires_private_digest_secrets')
+var runtimePrereqsPhase = enablePrivateNetwork && deployStaffApi && runtimeDeploymentPhase == 'runtime-prereqs'
+var runtimeAppRequested = runtimeDeploymentPhase == 'runtime-app'
+var phaseExclusiveOk = !(deployBootstrapJob && runtimeDeploymentPhase != 'none') ? true : fail('runtime_bootstrap_phase_conflict')
+var runtimeVerifiedOk = !runtimeAppRequested || runtimePrereqsVerified ? true : fail('runtime_prereqs_verification_required')
+var syntheticRuntimePhase = enablePrivateNetwork && deployStaffApi && runtimeAppRequested && runtimeVerifiedOk && !deployBootstrapJob
 var useCustomDomain = isLockedLiveSunset
+var useDigestImage = syntheticRuntimePhase
 
 // Synthetic outbound is derived false — not merely caller-requested.
 var effectiveWhatsappDryRun = isLockedLiveSunset ? whatsappDryRun : 'true'
@@ -94,7 +124,7 @@ var effectiveStripeLinksEnabled = isLockedLiveSunset ? stripeLinksEnabled : 'fal
 var effectiveStaffActionsEnabled = isLockedLiveSunset ? staffActionsEnabled : 'false'
 var effectiveFirewallIps = enablePrivateNetwork ? [] : postgresAllowedIpAddresses
 
-var safetyLocksSatisfied = sunsetSlugTupleOk && reservedSlugOk && sunsetEnvLockOk && stagingPrefixOk && stagingRgOk && noWhStagingPrefix && deployScopeOk && environmentStagingOk && ownershipOk && privateFirewallOk && bootstrapJobGateOk
+var safetyLocksSatisfied = sunsetSlugTupleOk && reservedSlugOk && sunsetEnvLockOk && stagingPrefixOk && stagingRgOk && noWhStagingPrefix && deployScopeOk && environmentStagingOk && ownershipOk && privateFirewallOk && bootstrapJobGateOk && phaseExclusiveOk && runtimeVerifiedOk
 
 var prefix = appNamePrefix
 var kvName = '${prefix}-kv'
@@ -104,6 +134,8 @@ var envName = '${prefix}-env'
 var idName = '${prefix}-identity'
 var staffApiAppName = '${prefix}-staff-api'
 var pgServerName = '${prefix}-pg-app'
+var runtimeDatabaseUrlSecretName = '${tenantSlugLower}-database-url'
+var effectiveDatabaseUrlSecretName = enablePrivateNetwork ? runtimeDatabaseUrlSecretName : databaseUrlSecretName
 var pgLocation = enablePrivateNetwork ? containerAppsLocation : location
 var resolvedSchemaObserverJobName = empty(schemaObserverJobName) ? '${appNamePrefix}-sch-obs' : schemaObserverJobName
 var resolvedSchemaObserverSecretName = empty(schemaObserverDatabaseSecretName) ? '${tenantSlug}-schema-observer-database-url' : schemaObserverDatabaseSecretName
@@ -140,12 +172,13 @@ var staffApiTags = union({
   deploySha: deploySha
   owner: ownerTag
 } : {})
-var staffApiImage = '${acrLoginServer}/${staffApiImageRepository}:${staffApiImageTag}'
+var staffApiImageTagged = '${acrLoginServer}/${staffApiImageRepository}:${staffApiImageTag}'
+var staffApiImageDigestRef = '${acrLoginServer}/${staffApiImageRepository}@${staffApiImageDigest}'
+var digestGateOk = !useDigestImage || (length(staffApiImageDigest) == 71 && startsWith(staffApiImageDigest, 'sha256:')) ? true : fail('staff_image_digest_required')
+var staffApiImage = useDigestImage ? staffApiImageDigestRef : staffApiImageTagged
 var imageRegistryOk = startsWith(staffApiImage, '${acrLoginServer}/') && !contains(staffApiImage, 'wh-staff-api') ? true : fail('image_registry_mismatch')
 var acrLoginServerMatches = acrLoginServer == '${acrName}.azurecr.io' ? true : fail('acr_login_server_mismatch')
-var registryLocksOk = imageRegistryOk && acrLoginServerMatches && safetyLocksSatisfied
-var checkoutSuccessUrl = 'https://${staffApiCustomDomain}/staff/login?checkout=success&session_id={CHECKOUT_SESSION_ID}'
-var checkoutCancelUrl = 'https://${staffApiCustomDomain}/staff/login?checkout=cancel'
+var registryLocksOk = imageRegistryOk && acrLoginServerMatches && safetyLocksSatisfied && digestGateOk
 // --- Existing shared ACR (read-only; AcrPull RBAC only — no push, no Wolfhouse app changes) ---
 
 resource existingAcr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
@@ -312,6 +345,12 @@ resource containerAppsEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
   } : {})
 }
 var kvBaseUri = 'https://${kvName}.vault.azure.net/secrets'
+// ACA-generated TLS FQDN (one deployment — env.defaultDomain; no custom domain/cert on synthetic).
+var staffApiGeneratedFqdn = '${staffApiAppName}.${containerAppsEnv.properties.defaultDomain}'
+var staffApiGeneratedUrl = 'https://${staffApiGeneratedFqdn}'
+var checkoutSuccessUrl = useCustomDomain ? 'https://${staffApiCustomDomain}/staff/login?checkout=success&session_id={CHECKOUT_SESSION_ID}' : '${staffApiGeneratedUrl}/staff/login?checkout=success&session_id={CHECKOUT_SESSION_ID}'
+var checkoutCancelUrl = useCustomDomain ? 'https://${staffApiCustomDomain}/staff/login?checkout=cancel' : '${staffApiGeneratedUrl}/staff/login?checkout=cancel'
+var effectivePortalUrlTarget = useCustomDomain ? portalUrlTarget : staffApiGeneratedUrl
 
 resource existingManagedCert 'Microsoft.App/managedEnvironments/managedCertificates@2023-05-01' existing = if (useCustomDomain) {
   parent: containerAppsEnv
@@ -329,7 +368,7 @@ var baseStaffEnv = [
   { name: 'STAFF_SESSION_COOKIE_NAME', value: 'luna_staff_session' }
   { name: 'STAFF_SESSION_TTL_HOURS', value: '12' }
   { name: 'NODE_ENV', value: 'staging' }
-  { name: 'WOLFHOUSE_DATABASE_URL', secretRef: databaseUrlSecretName }
+  { name: 'WOLFHOUSE_DATABASE_URL', secretRef: syntheticRuntimePhase ? runtimeDatabaseUrlSecretName : databaseUrlSecretName }
   { name: 'STRIPE_SECRET_KEY', secretRef: 'stripe-secret-key' }
   { name: 'STRIPE_WEBHOOK_SECRET', secretRef: 'stripe-webhook-secret' }
   { name: 'STAFF_SESSION_SECRET', secretRef: 'staff-session-secret' }
@@ -388,7 +427,7 @@ var genericRuntimeConfig = {
     }
   ]
 }
-var genericRuntimeEnv = [
+var genericRuntimeEnvPlain = [
   { name: 'TENANT_RUNTIME_CONFIG_JSON', value: string(genericRuntimeConfig) }
   { name: 'TENANT_LOCATION_1_WHATSAPP_NUMBER', value: locationWhatsappNumberA }
   { name: 'TENANT_LOCATION_1_WHATSAPP_PHONE_NUMBER_ID', value: locationWhatsappPhoneNumberIdA }
@@ -397,10 +436,122 @@ var genericRuntimeEnv = [
   { name: 'TENANT_LOCATION_2_WHATSAPP_PHONE_NUMBER_ID', value: locationWhatsappPhoneNumberIdB }
   { name: 'TENANT_LOCATION_2_INBOX_EMAIL', value: locationInboxEmailB }
 ]
+var genericRuntimeEnvSecrets = [
+  { name: 'TENANT_RUNTIME_CONFIG_JSON', value: string(genericRuntimeConfig) }
+  { name: 'TENANT_LOCATION_1_WHATSAPP_NUMBER', secretRef: 'tenant-loc-1-wa-number' }
+  { name: 'TENANT_LOCATION_1_WHATSAPP_PHONE_NUMBER_ID', secretRef: 'tenant-loc-1-wa-phone-id' }
+  { name: 'TENANT_LOCATION_1_INBOX_EMAIL', secretRef: 'tenant-loc-1-inbox-email' }
+  { name: 'TENANT_LOCATION_2_WHATSAPP_NUMBER', secretRef: 'tenant-loc-2-wa-number' }
+  { name: 'TENANT_LOCATION_2_WHATSAPP_PHONE_NUMBER_ID', secretRef: 'tenant-loc-2-wa-phone-id' }
+  { name: 'TENANT_LOCATION_2_INBOX_EMAIL', secretRef: 'tenant-loc-2-inbox-email' }
+]
+var genericRuntimeEnv = syntheticRuntimePhase ? genericRuntimeEnvSecrets : genericRuntimeEnvPlain
+
+var staffApiCoreSecrets = [
+  {
+    name: 'stripe-webhook-secret'
+    keyVaultUrl: '${kvBaseUri}/stripe-webhook-secret'
+    identity: managedIdentity.id
+  }
+  {
+    name: databaseUrlSecretName
+    keyVaultUrl: '${kvBaseUri}/${databaseUrlSecretName}'
+    identity: managedIdentity.id
+  }
+  {
+    name: 'meta-whatsapp-token'
+    keyVaultUrl: '${kvBaseUri}/meta-whatsapp-token'
+    identity: managedIdentity.id
+  }
+  {
+    name: 'meta-app-secret'
+    keyVaultUrl: '${kvBaseUri}/meta-app-secret'
+    identity: managedIdentity.id
+  }
+  {
+    name: 'meta-whatsapp-verify-token'
+    keyVaultUrl: '${kvBaseUri}/meta-whatsapp-verify-token'
+    identity: managedIdentity.id
+  }
+  {
+    name: 'staff-session-secret'
+    keyVaultUrl: '${kvBaseUri}/staff-session-secret'
+    identity: managedIdentity.id
+  }
+  {
+    name: 'stripe-secret-key'
+    keyVaultUrl: '${kvBaseUri}/stripe-secret-key'
+    identity: managedIdentity.id
+  }
+]
+var staffApiLunaInline = [
+  {
+    name: 'luna-bot-internal-token'
+    value: lunaBotInternalToken
+  }
+]
+var staffApiLunaKv = [
+  {
+    name: 'luna-bot-internal-token'
+    keyVaultUrl: '${kvBaseUri}/luna-bot-internal-token'
+    identity: managedIdentity.id
+  }
+]
+var staffApiChannelSecrets = [
+  { name: 'tenant-loc-1-wa-number', keyVaultUrl: '${kvBaseUri}/tenant-loc-1-wa-number', identity: managedIdentity.id }
+  { name: 'tenant-loc-1-wa-phone-id', keyVaultUrl: '${kvBaseUri}/tenant-loc-1-wa-phone-id', identity: managedIdentity.id }
+  { name: 'tenant-loc-1-inbox-email', keyVaultUrl: '${kvBaseUri}/tenant-loc-1-inbox-email', identity: managedIdentity.id }
+  { name: 'tenant-loc-2-wa-number', keyVaultUrl: '${kvBaseUri}/tenant-loc-2-wa-number', identity: managedIdentity.id }
+  { name: 'tenant-loc-2-wa-phone-id', keyVaultUrl: '${kvBaseUri}/tenant-loc-2-wa-phone-id', identity: managedIdentity.id }
+  { name: 'tenant-loc-2-inbox-email', keyVaultUrl: '${kvBaseUri}/tenant-loc-2-inbox-email', identity: managedIdentity.id }
+]
+var runtimeStaffApiCoreSecrets = [for secret in staffApiCoreSecrets: secret.name == databaseUrlSecretName ? {
+  name: runtimeDatabaseUrlSecretName
+  keyVaultUrl: '${kvBaseUri}/${runtimeDatabaseUrlSecretName}'
+  identity: managedIdentity.id
+} : secret]
+var staffApiSecrets = syntheticRuntimePhase
+  ? concat(runtimeStaffApiCoreSecrets, staffApiLunaKv, staffApiChannelSecrets)
+  : concat(staffApiCoreSecrets, staffApiLunaInline)
+
+var runtimeSecretsProvenance = {
+  tenantSlug: tenantSlug
+  ownerTag: ownerTag
+  planDigest: planDigest
+  deploySha: deploySha
+  stageTag: 'saas-2c3'
+}
+module syntheticRuntimeSecrets './synthetic-runtime-secrets.bicep' = if (runtimePrereqsPhase) {
+  name: 'syntheticRuntimeSecrets'
+  params: {
+    keyVaultName: kvName
+    provenance: runtimeSecretsProvenance
+    appDatabasePassword: appDatabasePassword
+    postgresFqdn: pgApp.properties.fullyQualifiedDomainName
+    derivedDatabaseName: appDb.name
+    staffSessionSecret: staffSessionSecret
+    lunaBotInternalToken: lunaBotInternalToken
+    stripeSecretKey: stripeSecretKey
+    stripeWebhookSecret: stripeWebhookSecret
+    metaWhatsappToken: metaWhatsappToken
+    metaAppSecret: metaAppSecret
+    metaWhatsappVerifyToken: metaWhatsappVerifyToken
+    locationWhatsappNumberA: locationWhatsappNumberA
+    locationWhatsappNumberB: locationWhatsappNumberB
+    locationWhatsappPhoneNumberIdA: locationWhatsappPhoneNumberIdA
+    locationWhatsappPhoneNumberIdB: locationWhatsappPhoneNumberIdB
+    locationInboxEmailA: locationInboxEmailA
+    locationInboxEmailB: locationInboxEmailB
+    tenantSlug: tenantSlug
+  }
+  dependsOn: [
+    keyVault
+  ]
+}
 
 // --- Staff API Container App ---
 
-resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContainerApps && deployStaffApi) {
+resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || syntheticRuntimePhase)) {
   name: staffApiAppName
   location: containerAppsLocation
   tags: staffApiTags
@@ -432,47 +583,7 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
           }
         ] : []
       }
-      secrets: [
-        {
-          name: 'stripe-webhook-secret'
-          keyVaultUrl: '${kvBaseUri}/stripe-webhook-secret'
-          identity: managedIdentity.id
-        }
-        {
-          name: databaseUrlSecretName
-          keyVaultUrl: '${kvBaseUri}/${databaseUrlSecretName}'
-          identity: managedIdentity.id
-        }
-        {
-          name: 'meta-whatsapp-token'
-          keyVaultUrl: '${kvBaseUri}/meta-whatsapp-token'
-          identity: managedIdentity.id
-        }
-        {
-          name: 'meta-app-secret'
-          keyVaultUrl: '${kvBaseUri}/meta-app-secret'
-          identity: managedIdentity.id
-        }
-        {
-          name: 'meta-whatsapp-verify-token'
-          keyVaultUrl: '${kvBaseUri}/meta-whatsapp-verify-token'
-          identity: managedIdentity.id
-        }
-        {
-          name: 'staff-session-secret'
-          keyVaultUrl: '${kvBaseUri}/staff-session-secret'
-          identity: managedIdentity.id
-        }
-        {
-          name: 'stripe-secret-key'
-          keyVaultUrl: '${kvBaseUri}/stripe-secret-key'
-          identity: managedIdentity.id
-        }
-        {
-          name: 'luna-bot-internal-token'
-          value: lunaBotInternalToken
-        }
-      ]
+      secrets: staffApiSecrets
       registries: [
         {
           server: acrLoginServer
@@ -537,6 +648,10 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
       }
     }
   }
+  dependsOn: [
+    kvRoleAssignment
+    acrPullRole
+  ]
 }
 // RADAR 16L — Staff API capacity-pressure metric alerts (source-partial only).
 var radar16lLockedSubscriptionId = '6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9'
@@ -556,7 +671,7 @@ var radar16lCapacityThreshold = 80
 var radar16lCpuMetricName = 'CpuPercentage'
 var radar16lMemoryMetricName = 'MemoryPercentage'
 
-resource staffApiCpuPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && deployStaffApi) {
+resource staffApiCpuPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || syntheticRuntimePhase)) {
   name: '${capacityAlertNamePrefix}-staff-api-cpu-pressure'
   location: 'global'
   tags: enablePrivateNetwork ? syntheticOwnershipTags : {}
@@ -592,7 +707,7 @@ resource staffApiCpuPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' =
   }
 }
 
-resource staffApiMemoryPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && deployStaffApi) {
+resource staffApiMemoryPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || syntheticRuntimePhase)) {
   name: '${capacityAlertNamePrefix}-staff-api-memory-pressure'
   location: 'global'
   tags: enablePrivateNetwork ? syntheticOwnershipTags : {}
@@ -694,17 +809,25 @@ output containerAppsEnvironmentName string = envName
 
 output staffApiAppName string = staffApiAppName
 
-output staffApiImage string = staffApiImage
+output staffApiImage string = (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || syntheticRuntimePhase)) ? staffApiApp!.properties.template.containers[0].image : ''
 
 output containerAppsLocationOut string = containerAppsLocation
 
-output staffApiMinReplicasOut int = staffApiMinReplicas
+output staffApiMinReplicasOut int = (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || syntheticRuntimePhase)) ? staffApiApp!.properties.template.scale.minReplicas : 0
 
-output staffApiMaxReplicasOut int = staffApiMaxReplicas
+output staffApiMaxReplicasOut int = (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || syntheticRuntimePhase)) ? staffApiApp!.properties.template.scale.maxReplicas : 0
 
 output acrLoginServer string = existingAcr.properties.loginServer
 
-output portalUrlTarget string = portalUrlTarget
+output portalUrlTarget string = effectivePortalUrlTarget
+
+output staffApiFqdn string = (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || syntheticRuntimePhase)) ? staffApiApp!.properties.configuration.ingress.fqdn : ''
+
+output staffApiUrl string = (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || syntheticRuntimePhase)) ? 'https://${staffApiApp!.properties.configuration.ingress.fqdn}' : ''
+
+output staffApiResourceId string = (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || syntheticRuntimePhase)) ? staffApiApp!.id : ''
+
+output staffApiLatestRevisionName string = (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || syntheticRuntimePhase)) ? staffApiApp!.properties.latestRevisionName : ''
 
 output deploySchemaObserverJobOut bool = deploySchemaObserverJob
 

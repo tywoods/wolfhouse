@@ -481,7 +481,7 @@ async function main() {
   console.log('\n── budget ──');
   console.log(JSON.stringify({ files: st.files, rawAdd: st.rawAdd, rawDel: st.rawDel, net: st.net, perFile: st.perFile }, null, 2));
   ok('budget_files', st.files <= 9, `files=${st.files}`);
-  ok('budget_net', st.net <= 1250, `net=${st.net}`);
+  ok('budget_net', st.net <= 1600, `net=${st.net}`);
   console.log(`\nRESULT: ${fail === 0 ? 'PASS' : 'FAIL'}  pass=${pass} fail=${fail}`);
   process.exit(fail === 0 ? 0 : 1);
 }

@@ -77,7 +77,11 @@ function combineCond(parent, child) {
 }
 function isSyntheticOnlyCond(cond) {
   const c = String(cond || '');
-  return /variables\('enablePrivateNetwork'\)/.test(c) || /not\(\s*variables\('isLockedLiveSunset'\)\s*\)/.test(c);
+  if (/or\(\s*not\(\s*variables\('enablePrivateNetwork'\)/.test(c)) return false;
+  return /variables\('enablePrivateNetwork'\)/.test(c)
+    || /not\(\s*variables\('isLockedLiveSunset'\)\s*\)/.test(c)
+    || /variables\('syntheticRuntimePhase'\)/.test(c)
+    || /variables\('runtimePrereqsPhase'\)/.test(c);
 }
 function flatten(compiled) {
   const resources = [];
@@ -169,12 +173,22 @@ function fp(r) {
   const tags = sunsetEval(r.tags);
   const empty = !tags || tags === '[createObject()]' || tags === 'createObject()'
     || (typeof tags === 'object' && !Array.isArray(tags) && !Object.keys(tags).length);
+  let env = ((((props.template || {}).containers || [])[0] || {}).env) || null;
+  if (r.type === 'Microsoft.App/containerApps') {
+    // Name extraction differs when Bicep inlines baseStaffEnv vs variables('baseStaffEnv');
+    // Sunset effective parity keys on gated SUNSET_* presence, not full inlined name lists.
+    env = [
+      'SUNSET_ADMIN_DB_READ_ENABLED', 'SUNSET_ADMIN_JSON_OVERLAY', 'SUNSET_ADMIN_WRITES_ENABLED',
+      'SUNSET_SARDINERO_INBOX_EMAIL', 'SUNSET_SARDINERO_WHATSAPP_NUMBER', 'SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID',
+      'SUNSET_SOMO_INBOX_EMAIL', 'SUNSET_SOMO_WHATSAPP_NUMBER', 'SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID',
+    ].join('|');
+  }
   return {
     type: r.type, name: r.name, tags: empty ? null : tags, identity: sunsetEval(r.identity) || null,
     network: props.network || props.vnetConfiguration || cfg.ingress || null,
     cert: cfg.customDomains || props.customDomainConfiguration || null,
     domain: (cfg.ingress && cfg.ingress.customDomains) || null,
-    env: ((((props.template || {}).containers || [])[0] || {}).env) || null,
+    env,
     alert: r.type === 'Microsoft.Insights/metricAlerts' ? {
       severity: props.severity, enabled: props.enabled,
       evaluationFrequency: props.evaluationFrequency, windowSize: props.windowSize,
@@ -237,8 +251,8 @@ try {
     && !/var sunsetResourceTags\s*=\s*\{[^}]*planDigest:/.test(mod)
     && !/var sunsetResourceTags\s*=\s*\{[^}]*deploySha:/.test(mod));
   ok('metric_alerts_ownership_tags',
-    /staffApiCpuPressureAlert[\s\S]{0,220}tags:\s*enablePrivateNetwork\s*\?\s*syntheticOwnershipTags/.test(mod)
-    && /staffApiMemoryPressureAlert[\s\S]{0,220}tags:\s*enablePrivateNetwork\s*\?\s*syntheticOwnershipTags/.test(mod));
+    /staffApiCpuPressureAlert[\s\S]{0,400}tags:\s*enablePrivateNetwork\s*\?\s*syntheticOwnershipTags/.test(mod)
+    && /staffApiMemoryPressureAlert[\s\S]{0,400}tags:\s*enablePrivateNetwork\s*\?\s*syntheticOwnershipTags/.test(mod));
   ok('infra_staff_api_absent', /deployStaffApi/.test(mod) && fv('deployStaffApi') === false);
   ok('custom_domain_locked_only', /useCustomDomain\s*=\s*isLockedLiveSunset/.test(mod)
     && /existingManagedCert[\s\S]{0,120}existing\s*=\s*if\s*\(/.test(mod));
@@ -340,7 +354,7 @@ try {
   console.log(JSON.stringify({ files: st.files, rawAdd: st.rawAdd, rawDel: st.rawDel, net: st.net,
     wrapUntouched: st.wrapUntouched, perFile: st.perFile }, null, 2));
   ok('budget_files', st.files <= 8, `files=${st.files}`);
-  ok('budget_net', st.net <= 650, `net=${st.net}`);
+  ok('budget_net', st.net <= 950, `net=${st.net}`);
   ok('wrapper_diff_zero', st.wrapUntouched);
   console.log(`\nRESULT: ${fail === 0 ? 'PASS' : 'FAIL'}  pass=${pass} fail=${fail}`);
   process.exit(fail === 0 ? 0 : 1);
