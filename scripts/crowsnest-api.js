@@ -919,6 +919,11 @@ async function handleProtectedUi(req, res, method, pathname) {
   try {
     if (view === 'sales') {
       pageOptions.prospects = await listProspects();
+      const salesMode = String(getRequestSearchParams(req).get('mode') || '').trim().toLowerCase();
+      if (salesMode === 'add') {
+        pageOptions.salesMode = 'add';
+        pageOptions.mode = 'add';
+      }
     }
     if (view === 'spyglass') {
       // Fail-soft reader: returns {} on any failure so Spyglass renders "not reporting yet".
@@ -1098,6 +1103,8 @@ async function handleSalesCreateProspect(req, res, method) {
         renderCrowsnestPage({
           cspNonce,
           view: 'sales',
+          salesMode: 'add',
+          mode: 'add',
           prospects: await listProspects(),
           intakeError: 'Provide a business website or a business name.',
         }),
@@ -1127,6 +1134,8 @@ async function handleSalesCreateProspect(req, res, method) {
         renderCrowsnestPage({
           cspNonce,
           view: 'sales',
+          salesMode: 'add',
+          mode: 'add',
           prospects: await listProspects(),
           intakeError: 'Provide a business website or a business name.',
         }),
@@ -1169,6 +1178,8 @@ async function handleSalesCreateProspect(req, res, method) {
         renderCrowsnestPage({
           cspNonce,
           view: 'sales',
+          salesMode: 'add',
+          mode: 'add',
           prospects: await listProspects(),
           intakeError: result.error,
           intakeWebsiteUrl: form.website_url,

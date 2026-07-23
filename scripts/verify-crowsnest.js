@@ -179,7 +179,17 @@ assertSharedNav('Communications', communicationsHtml, '/communications');
 const salesHtml = renderPageHtml({ view: 'sales' });
 assertSharedNav('Sales', salesHtml, '/sales');
 ok('Sales view renders Sales heading', /<h1[^>]*>[\s\S]*Sales/i.test(salesHtml));
-ok('Sales view shows manual intake', /website|business.?name/i.test(salesHtml) && /<form\b[^>]*action=["']\/sales\/prospects["']/i.test(salesHtml));
+ok(
+  'Sales cockpit omits full intake by default',
+  !/<form\b[^>]*action=["']\/sales\/prospects["']/i.test(salesHtml),
+);
+ok(
+  'Sales add mode shows manual intake',
+  (() => {
+    const addHtml = renderPageHtml({ view: 'sales', mode: 'add', salesMode: 'add' });
+    return /website|business.?name/i.test(addHtml) && /<form\b[^>]*action=["']\/sales\/prospects["']/i.test(addHtml);
+  })(),
+);
 ok('router protects /sales', routerBody.includes("pathname === '/sales'"));
 ok('router allowlists Sales create mutation', /\/sales\/prospects/.test(routerBody));
 ok('crowsnest-sales module exists', fs.existsSync(path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-sales.js')));
@@ -392,6 +402,7 @@ ok('package.json has verify:crowsnest-auth', pkg && pkg.scripts && typeof pkg.sc
 ok('package.json has verify:crowsnest-ai-usage-contract', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-contract'] === 'string');
 ok('package.json has verify:crowsnest-ai-usage-adapter', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-adapter'] === 'string');
 ok('package.json has verify:crowsnest-sales', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-sales'] === 'string');
+ok('package.json has verify:crowsnest-sales-ux', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-sales-ux'] === 'string');
 ok('package.json has verify:crowsnest-sales-durable', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-sales-durable'] === 'string');
 
 console.log(`\n── verify:crowsnest: ${pass} passed, ${fail} failed ──`);
