@@ -12,7 +12,13 @@
  */
 
 const { loadBaselineJson, loadClientPortalProfile } = require('./staff-portal-clients');
-const { normalizeSunsetLocationId, isSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+const {
+  normalizeSunsetLocationId,
+  isSunsetLocationId,
+  DEFAULT_SUNSET_LOCATION_ID,
+  SUNSET_CLIENT_SLUG,
+  SUNSET_LOCATIONS,
+} = require('./sunset-school-locations');
 const {
   defaultPrivateLessonApi,
   defaultPrivateLessonFromConfig,
@@ -752,6 +758,320 @@ async function resolveTenantBusinessConfigAsync(clientSlug, options = {}) {
   return locationStore.applyStoreToResolvedConfig(withMeta, locationId);
 }
 
+
+const TENANT_RUNTIME_CONFIG_ENV = 'TENANT_RUNTIME_CONFIG_JSON';
+const RUNTIME_PERM_KEYS = ['admin_db_read', 'admin_writes', 'stripe_links', 'staff_actions', 'whatsapp_dry_run'];
+const CHANNEL_SLOT_MAX = 8;
+const SECRET_LEAK_RE = /sk_live_|sk_test_|whsec_|BEGIN (RSA |EC )?PRIVATE KEY|password\s*=/i;
+const trimRt = (v) => (v == null ? '' : String(v).trim());
+
+function isReservedTenantSlug(slug) {
+  const s = trimRt(slug).toLowerCase();
+  return !s || s === 'wolfhouse' || s === 'wh' || s.startsWith('wolfhouse');
+}
+function locationBelongsToTenant(tenantSlug, locationId) {
+  const t = trimRt(tenantSlug).toLowerCase();
+  const loc = trimRt(locationId).toLowerCase();
+  return Boolean(t && loc && (loc === t || loc.startsWith(`${t}-`)));
+}
+function tenantLocationChannelEnvKeys(slot) {
+  const n = Number(slot);
+  if (!Number.isInteger(n) || n < 1 || n > CHANNEL_SLOT_MAX) {
+    return null;
+  }
+  return Object.freeze({
+    whatsapp_number: `TENANT_LOCATION_${n}_WHATSAPP_NUMBER`,
+    whatsapp_phone_number_id: `TENANT_LOCATION_${n}_WHATSAPP_PHONE_NUMBER_ID`,
+    inbox_email: `TENANT_LOCATION_${n}_INBOX_EMAIL`,
+  });
+}
+function scanSecretBearing(node) {
+  if (node == null || typeof node === 'number' || typeof node === 'boolean') return false;
+  if (typeof node === 'string') return SECRET_LEAK_RE.test(node);
+  if (Array.isArray(node)) return node.some(scanSecretBearing);
+  if (typeof node === 'object') return Object.values(node).some(scanSecretBearing);
+  return false;
+}
+function hasForbiddenChannelRefShape(node) {
+  if (node == null || typeof node !== 'object') return false;
+  if (Array.isArray(node)) return node.some(hasForbiddenChannelRefShape);
+  if (Object.prototype.hasOwnProperty.call(node, 'env')
+    || Object.prototype.hasOwnProperty.call(node, 'secretRef')) {
+    return true;
+  }
+  if (Object.prototype.hasOwnProperty.call(node, 'channels')) return true;
+  return Object.values(node).some(hasForbiddenChannelRefShape);
+}
+function isPlainRuntimeRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype;
+}
+function hasExactOwnKeys(value, required) {
+  if (!isPlainRuntimeRecord(value)) return false;
+  const keys = Object.keys(value);
+  return keys.length === required.length
+    && required.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+function parseTenantRuntimeConfig(input) {
+  let raw = input;
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw); } catch (_) { return { ok: false, reason: 'malformed_config' }; }
+  }
+  const TOP_KEY_LIST = ['version', 'tenant_slug', 'permissions', 'locations'];
+  if (!isPlainRuntimeRecord(raw)) return { ok: false, reason: 'malformed_config' };
+  if (scanSecretBearing(raw)) return { ok: false, reason: 'secret_bearing_config' };
+  if (hasForbiddenChannelRefShape(raw)) return { ok: false, reason: 'malformed_config' };
+  const TOP_KEYS = new Set(TOP_KEY_LIST);
+  for (const key of Object.keys(raw)) {
+    if (!TOP_KEYS.has(key)) return { ok: false, reason: 'unknown_top_level_key' };
+  }
+  if (!hasExactOwnKeys(raw, TOP_KEY_LIST)) return { ok: false, reason: 'malformed_config' };
+  if (raw.version !== 1) return { ok: false, reason: 'malformed_config' };
+  const tenantSlug = trimRt(raw.tenant_slug);
+  if (!tenantSlug) return { ok: false, reason: 'malformed_config' };
+  if (isReservedTenantSlug(tenantSlug)) return { ok: false, reason: 'reserved_tenant_slug' };
+  const permsIn = raw.permissions;
+  if (!isPlainRuntimeRecord(permsIn)) {
+    return { ok: false, reason: 'malformed_config' };
+  }
+  for (const key of Object.keys(permsIn)) {
+    if (!RUNTIME_PERM_KEYS.includes(key)) return { ok: false, reason: 'unknown_permission_key' };
+  }
+  if (!hasExactOwnKeys(permsIn, RUNTIME_PERM_KEYS)) return { ok: false, reason: 'malformed_config' };
+  const permissions = {};
+  for (const key of RUNTIME_PERM_KEYS) {
+    if (typeof permsIn[key] !== 'boolean') return { ok: false, reason: 'malformed_config' };
+    permissions[key] = permsIn[key];
+  }
+  if (!Array.isArray(raw.locations) || raw.locations.length < 1) {
+    return { ok: false, reason: 'malformed_config' };
+  }
+  const LOC_KEY_LIST = ['location_id', 'display_name', 'channel_slot'];
+  const LOC_KEYS = new Set(LOC_KEY_LIST);
+  const seenLoc = new Set();
+  const seenSlot = new Set();
+  const locations = [];
+  for (const loc of raw.locations) {
+    if (!isPlainRuntimeRecord(loc)) {
+      return { ok: false, reason: 'malformed_config' };
+    }
+    for (const key of Object.keys(loc)) {
+      if (!LOC_KEYS.has(key)) return { ok: false, reason: 'unknown_location_key' };
+    }
+    if (!hasExactOwnKeys(loc, LOC_KEY_LIST)) return { ok: false, reason: 'malformed_config' };
+    if (Object.prototype.hasOwnProperty.call(loc, 'channels')
+      || Object.prototype.hasOwnProperty.call(loc, 'env')
+      || Object.prototype.hasOwnProperty.call(loc, 'secretRef')) {
+      return { ok: false, reason: 'malformed_config' };
+    }
+    const locationId = trimRt(loc.location_id).toLowerCase();
+    const displayName = trimRt(loc.display_name);
+    if (!locationId || !displayName) return { ok: false, reason: 'malformed_config' };
+    if (seenLoc.has(locationId)) return { ok: false, reason: 'duplicate_location' };
+    seenLoc.add(locationId);
+    if (!locationBelongsToTenant(tenantSlug, locationId)) {
+      return { ok: false, reason: 'cross_tenant_location' };
+    }
+    const slot = loc.channel_slot;
+    if (!Number.isInteger(slot) || slot < 1 || slot > CHANNEL_SLOT_MAX) {
+      return { ok: false, reason: 'invalid_channel_slot' };
+    }
+    if (seenSlot.has(slot)) return { ok: false, reason: 'duplicate_channel_slot' };
+    seenSlot.add(slot);
+    locations.push({
+      location_id: locationId,
+      display_name: displayName,
+      channel_slot: slot,
+    });
+  }
+  return {
+    ok: true,
+    config: {
+      version: 1,
+      tenant_slug: tenantSlug.toLowerCase(),
+      permissions,
+      locations,
+    },
+  };
+}
+function envFlagTrue(env, key) {
+  const raw = env && env[key];
+  if (raw == null || String(raw).trim() === '') return false;
+  return /^(1|true|yes|on)$/i.test(String(raw).trim());
+}
+function processPermissionFlags(env) {
+  const src = env && typeof env === 'object' ? env : process.env;
+  const dryRaw = src.WHATSAPP_DRY_RUN;
+  return {
+    admin_db_read: envFlagTrue(src, 'SUNSET_ADMIN_DB_READ_ENABLED'),
+    admin_writes: envFlagTrue(src, 'SUNSET_ADMIN_WRITES_ENABLED'),
+    stripe_links: envFlagTrue(src, 'STRIPE_LINKS_ENABLED'),
+    staff_actions: envFlagTrue(src, 'STAFF_ACTIONS_ENABLED'),
+    whatsapp_dry_run: dryRaw == null || String(dryRaw).trim() === ''
+      ? true
+      : envFlagTrue(src, 'WHATSAPP_DRY_RUN'),
+  };
+}
+function legacySunsetTenantRuntimeConfig(env) {
+  const src = env && typeof env === 'object' ? env : process.env;
+  const flags = processPermissionFlags(src);
+  return {
+    ok: true,
+    source: 'legacy_sunset',
+    config: {
+      version: 1,
+      tenant_slug: SUNSET_CLIENT_SLUG,
+      permissions: flags,
+      locations: SUNSET_LOCATIONS.map((loc) => ({
+        location_id: loc.id,
+        display_name: loc.displayName,
+        channel_slot: null,
+      })),
+    },
+  };
+}
+function loadTenantRuntimeConfig(opts = {}) {
+  const env = opts.env && typeof opts.env === 'object' ? opts.env : process.env;
+  const clientSlug = trimRt(opts.clientSlug || env.DEFAULT_CLIENT_SLUG).toLowerCase();
+  if (isReservedTenantSlug(clientSlug)) {
+    return { ok: false, reason: 'reserved_tenant_slug', client_slug: clientSlug };
+  }
+  if (clientSlug === SUNSET_CLIENT_SLUG || clientSlug === SUNSET_ADMIN_CLIENT) {
+    return legacySunsetTenantRuntimeConfig(env);
+  }
+  const raw = opts.raw != null ? opts.raw : env[TENANT_RUNTIME_CONFIG_ENV];
+  if (raw == null || (typeof raw === 'string' && !raw.trim())) {
+    return { ok: false, reason: 'missing_runtime_config', client_slug: clientSlug };
+  }
+  const parsed = parseTenantRuntimeConfig(raw);
+  if (!parsed.ok) return { ...parsed, client_slug: clientSlug };
+  if (parsed.config.tenant_slug !== clientSlug) {
+    return { ok: false, reason: 'tenant_slug_mismatch', client_slug: clientSlug };
+  }
+  return { ok: true, source: 'generic', config: parsed.config, client_slug: clientSlug };
+}
+function resolveTenantRuntimeChannel(config, locationId, env) {
+  const src = env && typeof env === 'object' ? env : process.env;
+  if (!config || !Array.isArray(config.locations)) return { ok: false, reason: 'malformed_config' };
+  const loc = config.locations.find((l) => l.location_id === trimRt(locationId).toLowerCase());
+  if (!loc) return { ok: false, reason: 'unknown_location' };
+  if (!locationBelongsToTenant(config.tenant_slug, loc.location_id)) {
+    return { ok: false, reason: 'cross_tenant_location' };
+  }
+  if (loc.channel_slot == null) return { ok: false, reason: 'legacy_channel_unsupported' };
+  const keys = tenantLocationChannelEnvKeys(loc.channel_slot);
+  if (!keys) return { ok: false, reason: 'invalid_channel_slot' };
+  const read = (k) => {
+    const v = src[k];
+    return v == null ? '' : String(v).trim();
+  };
+  const whatsappNumber = read(keys.whatsapp_number);
+  const whatsappPhoneNumberId = read(keys.whatsapp_phone_number_id);
+  if (!whatsappNumber || !whatsappPhoneNumberId) {
+    return { ok: false, reason: 'missing_channel_slot_config' };
+  }
+  return {
+    ok: true,
+    location_id: loc.location_id,
+    display_name: loc.display_name,
+    channel_slot: loc.channel_slot,
+    whatsapp_number: whatsappNumber,
+    whatsapp_phone_number_id: whatsappPhoneNumberId,
+    inbox_email: read(keys.inbox_email),
+  };
+}
+function effectiveTenantPermission(clientSlug, permissionKey, env) {
+  const src = env && typeof env === 'object' ? env : process.env;
+  const flags = processPermissionFlags(src);
+  if (!Object.prototype.hasOwnProperty.call(flags, permissionKey)) return false;
+  const processVal = flags[permissionKey];
+  const slug = trimRt(clientSlug || src.DEFAULT_CLIENT_SLUG).toLowerCase();
+  if (!slug || isReservedTenantSlug(slug) || slug === SUNSET_CLIENT_SLUG || slug === SUNSET_ADMIN_CLIENT) {
+    return processVal;
+  }
+  const loaded = loadTenantRuntimeConfig({ clientSlug: slug, env: src });
+  if (!loaded.ok) {
+    return permissionKey === 'whatsapp_dry_run' ? true : false;
+  }
+  const tenantVal = loaded.config.permissions[permissionKey];
+  if (permissionKey === 'whatsapp_dry_run') {
+    return Boolean(processVal) || Boolean(tenantVal);
+  }
+  return Boolean(processVal) && Boolean(tenantVal);
+}
+
+function isStaffRouteSessionHealthPath(pathname) {
+  const p = trimRt(pathname) || '/';
+  return /^\/staff\/auth\/session$/i.test(p) || /^\/(staff\/api\/)?(healthz|readyz)$/i.test(p);
+}
+function isStaffRouteAdminPath(pathname) {
+  return /^\/staff\/admin(\/|$)/i.test(trimRt(pathname));
+}
+function isStaffRoutePaymentStripePath(pathname) {
+  return /create-stripe-link|create-payment-link|generate-(guest-)?payment-link|payment-link/i.test(trimRt(pathname));
+}
+function isStaffRouteWhatsAppSendPath(pathname) {
+  return /inbox\/send-reply|send-confirmation|guest-reply-send/i.test(trimRt(pathname));
+}
+function denyStaffRouteAuthz(reason, extra) {
+  return { ok: false, status: 403, body: Object.assign({
+    success: false, error: 'tenant_route_forbidden', reason_code: reason,
+  }, extra || {}) };
+}
+function authorizeAuthenticatedStaffRoute(opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  const env = o.env && typeof o.env === 'object' ? o.env : process.env;
+  const method = trimRt(o.method || 'GET').toUpperCase();
+  const pathname = trimRt(o.pathname) || '/';
+  const clientSlug = trimRt(o.clientSlug).toLowerCase();
+  if (!clientSlug) return denyStaffRouteAuthz('unresolved_tenant_scope');
+  if (isReservedTenantSlug(clientSlug) || clientSlug === SUNSET_CLIENT_SLUG
+    || clientSlug === SUNSET_ADMIN_CLIENT) {
+    return { ok: true, mode: 'process_level', client_slug: clientSlug };
+  }
+  const loaded = loadTenantRuntimeConfig({ clientSlug, env });
+  if (!loaded.ok) {
+    return denyStaffRouteAuthz(loaded.reason || 'missing_runtime_config', { client_slug: clientSlug });
+  }
+  if (isStaffRouteSessionHealthPath(pathname)) {
+    return { ok: true, mode: 'allowlist', client_slug: clientSlug };
+  }
+  const mutating = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+  const perm = (key) => effectiveTenantPermission(clientSlug, key, env);
+  if (isStaffRouteAdminPath(pathname)) {
+    if (!mutating) {
+      return perm('admin_db_read')
+        ? { ok: true, mode: 'admin_read', client_slug: clientSlug }
+        : denyStaffRouteAuthz('admin_db_read_disabled', { admin_db_read: false, client_slug: clientSlug });
+    }
+    if (!perm('staff_actions')) {
+      return denyStaffRouteAuthz('staff_actions_disabled', { staff_actions_enabled: false, client_slug: clientSlug });
+    }
+    return perm('admin_writes')
+      ? { ok: true, mode: 'admin_write', client_slug: clientSlug }
+      : denyStaffRouteAuthz('admin_writes_disabled', { admin_writes_enabled: false, client_slug: clientSlug });
+  }
+  if (!mutating) return { ok: true, mode: 'read', client_slug: clientSlug };
+  if (!perm('staff_actions')) {
+    return denyStaffRouteAuthz('staff_actions_disabled', { staff_actions_enabled: false, client_slug: clientSlug });
+  }
+  if (isStaffRouteWhatsAppSendPath(pathname)) {
+    return perm('whatsapp_dry_run')
+      ? denyStaffRouteAuthz('whatsapp_dry_run_enforced', {
+        staff_actions_enabled: true, whatsapp_dry_run: true, client_slug: clientSlug,
+      })
+      : { ok: true, mode: 'whatsapp_send', client_slug: clientSlug };
+  }
+  if (isStaffRoutePaymentStripePath(pathname)) {
+    return perm('stripe_links')
+      ? { ok: true, mode: 'stripe', client_slug: clientSlug }
+      : denyStaffRouteAuthz('stripe_links_disabled', {
+        staff_actions_enabled: true, stripe_links_enabled: false, client_slug: clientSlug,
+      });
+  }
+  return { ok: true, mode: 'staff_mutation', client_slug: clientSlug };
+}
+
 module.exports = {
   attachLessonPrices,
   parseAdminLessonType,
@@ -772,4 +1092,15 @@ module.exports = {
   resolveTenantBusinessConfig,
   resolveTenantBusinessConfigAsync,
   mergeDbWithConfig,
+  TENANT_RUNTIME_CONFIG_ENV,
+  CHANNEL_SLOT_MAX,
+  isReservedTenantSlug,
+  tenantLocationChannelEnvKeys,
+  parseTenantRuntimeConfig,
+  loadTenantRuntimeConfig,
+  resolveTenantRuntimeChannel,
+  legacySunsetTenantRuntimeConfig,
+  effectiveTenantPermission,
+  processPermissionFlags,
+  authorizeAuthenticatedStaffRoute,
 };

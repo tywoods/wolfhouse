@@ -220,6 +220,42 @@ function extractSunsetChannelHintsFromNormalized(normalized) {
   };
 }
 
+
+/**
+ * Generic inbox channel resolve: Sunset → exact legacy SUNSET_* path;
+ * else channel_slot allowlist via tenant-business-config (no caller-selected env keys).
+ */
+function resolveTenantInboxChannelConfig(clientSlug, locationId, env) {
+  const slug = trimStr(clientSlug).toLowerCase();
+  if (!slug) return null;
+  if (isSunsetClientSlug(slug)) return resolveSunsetInboxChannelConfig(locationId, env);
+  const {
+    loadTenantRuntimeConfig,
+    resolveTenantRuntimeChannel,
+    isReservedTenantSlug,
+  } = require('./tenant-business-config');
+  if (typeof isReservedTenantSlug === 'function' && isReservedTenantSlug(slug)) return null;
+  const loaded = loadTenantRuntimeConfig({ clientSlug: slug, env });
+  if (!loaded.ok) return null;
+  const locId = trimStr(locationId).toLowerCase();
+  const target = locId
+    || (loaded.config.locations[0] && loaded.config.locations[0].location_id)
+    || '';
+  if (!target) return null;
+  // Cross-tenant / unknown location → null (fail closed; never Sunset fallback).
+  const owned = loaded.config.locations.some((l) => l.location_id === target);
+  if (!owned) return null;
+  const ch = resolveTenantRuntimeChannel(loaded.config, target, env);
+  if (!ch.ok) return null;
+  return Object.freeze({
+    location_id: ch.location_id,
+    display_name: ch.display_name,
+    whatsapp_number: ch.whatsapp_number || '',
+    whatsapp_phone_number_id: ch.whatsapp_phone_number_id || '',
+    email_address: ch.inbox_email || '',
+  });
+}
+
 module.exports = {
   SUNSET_CLIENT_SLUG,
   DEFAULT_SUNSET_LOCATION_ID,
@@ -232,6 +268,7 @@ module.exports = {
   mergeSunsetInboundLocationMetadata,
   attachConversationChannelMetadata,
   extractSunsetChannelHintsFromNormalized,
+  resolveTenantInboxChannelConfig,
   normalizePhoneDigits,
   normalizeInboxEmail,
 };
