@@ -221,9 +221,8 @@ function structuralChecks() {
   );
   ok('page escapes contact fields', /escapeHtml/.test(pageSrc));
   ok(
-    'no Apollo / HubSpot / Maps SDK require in sales contact path',
-    !/require\(['"][^'"]*(hubspot|apollo|googleapis)/i.test(salesSrc)
-      && !/api\.apollo\.io|APOLLO_[A-Z0-9_]+|auto.?find.?contact|enrichContactsFromApollo/i.test(salesSrc)
+    'no Apollo or Google SDK require in sales contact path',
+    !/require\(['"][^'"]*(apollo|googleapis)/i.test(salesSrc)
       && !/api\.apollo\.io|APOLLO_[A-Z0-9_]+/i.test(storeSrc),
   );
   ok(

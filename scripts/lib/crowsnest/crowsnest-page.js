@@ -840,7 +840,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
 }
 `;
 
-const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail', 'sales_review', 'sales_crm_preview', 'sales_outreach_draft', 'sales_discovery', 'sales_analytics']);
+const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail', 'sales_review', 'sales_crm_preview', 'sales_outreach_draft', 'sales_discovery', 'sales_analytics', 'sales_governance']);
 
 const CROWSNEST_NAV_ITEMS = [
   { view: 'spyglass', href: '/', label: 'Spyglass' },
@@ -856,7 +856,7 @@ function normalizeCrowsnestView(raw) {
 }
 
 function navActiveView(view) {
-  return (view === 'sales_detail' || view === 'sales_review' || view === 'sales_crm_preview' || view === 'sales_outreach_draft' || view === 'sales_discovery' || view === 'sales_analytics') ? 'sales' : view;
+  return (view === 'sales_detail' || view === 'sales_review' || view === 'sales_crm_preview' || view === 'sales_outreach_draft' || view === 'sales_discovery' || view === 'sales_analytics' || view === 'sales_governance') ? 'sales' : view;
 }
 
 function renderCrowsnestNav(activeView) {
@@ -1209,7 +1209,7 @@ function renderSalesReviewMain(options = {}) {
   const filter = options.reviewQueueFilter || 'all';
   return `<section id="sales-review" aria-labelledby="sales-review-title">
       <p class="section-note">Operating review queue from persisted Sales records only. Operators decide qualification and next steps. No CRM writes, no outreach delivery, and no provider discovery in this chapter.</p>
-      <p><a href="/sales">← Back to Sales intake</a> · <a href="/sales/analytics">Sales analytics</a></p>
+      <p><a href="/sales">← Back to Sales intake</a> · <a href="/sales/analytics">Sales analytics</a> · <a href="/sales/governance">Sales governance</a></p>
       <h2 class="section">Filter</h2>
       ${renderReviewQueueFilterForm(filter)}
       <h2 class="section">Queue</h2>
@@ -1318,7 +1318,7 @@ function renderSalesAnalyticsMain(options = {}) {
 
   return `<section id="sales-analytics" aria-labelledby="sales-analytics-title">
       <p class="section-note">${escapeHtml(disclaimer)}</p>
-      <p><a href="/sales">← Back to Sales intake</a> · <a href="/sales/review">Sales review queue</a></p>
+      <p><a href="/sales">← Back to Sales intake</a> · <a href="/sales/review">Sales review queue</a> · <a href="/sales/governance">Sales governance</a></p>
 
       <h2 class="section">Pipeline counts</h2>
       <div class="kpi-strip" aria-label="Pipeline counts">
@@ -1347,6 +1347,115 @@ function renderSalesAnalyticsMain(options = {}) {
     </section>`;
 }
 
+function renderGovernanceList(items, ariaLabel) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) {
+    return `<p class="section-note">No items recorded.</p>`;
+  }
+  const rows = list.map((item) => {
+    const title = escapeHtml(item.title || item.name || item.id || 'item');
+    const body = escapeHtml(item.summary || item.rule || item.note || item.action || '');
+    const meta = item.human_approval_required === true
+      ? ' · Human approval required'
+      : (item.state ? ` · ${escapeHtml(String(item.state))}` : '');
+    return `<li>
+        <strong>${title}</strong>${meta}
+        · ${body}
+      </li>`;
+  }).join('\n        ');
+  return `<ul class="review-queue-list" aria-label="${escapeHtml(ariaLabel)}">
+        ${rows}
+      </ul>`;
+}
+
+function renderGovernanceRetention(notes = {}) {
+  const rows = [
+    ['Schema', notes.schema],
+    ['DSN', notes.dsn_env],
+    ['Ownership', notes.ownership],
+    ['Retention', notes.retention_note],
+    ['Isolation', notes.isolation_note],
+    ['Audit', notes.audit_note],
+  ].filter(([, value]) => value);
+  if (!rows.length) {
+    return '<p class="section-note">No retention notes available.</p>';
+  }
+  const body = rows.map(([label, value]) => `<li><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</li>`).join('\n        ');
+  return `<ul class="review-queue-list" aria-label="Data retention and ownership">
+        ${body}
+      </ul>`;
+}
+
+function renderGovernanceBoundaries(boundaries = {}) {
+  const allowed = Array.isArray(boundaries.allowed_manual) ? boundaries.allowed_manual : [];
+  const forbidden = Array.isArray(boundaries.forbidden_automatic) ? boundaries.forbidden_automatic : [];
+  const allowedRows = allowed.map((item) => `<li>
+        <strong>${escapeHtml(item.id || 'allowed')}</strong>
+        · ${escapeHtml(item.action || '')}
+        · Human approval required
+        ${item.audited_as ? `· Audited as <code>${escapeHtml(item.audited_as)}</code>` : ''}
+      </li>`).join('\n        ');
+  const forbiddenRows = forbidden.map((item) => `<li>
+        <strong>${escapeHtml(item.id || 'forbidden')}</strong>
+        · ${escapeHtml(item.action || '')}
+        · Not permitted / must not run automatically
+      </li>`).join('\n        ');
+  return `<article class="panel">
+        <div class="panel-head">
+          <h3 class="panel-title">Allowed manual (operator-triggered)</h3>
+        </div>
+        <ul class="review-queue-list" aria-label="Allowed manual actions">
+        ${allowedRows || '<li>None listed.</li>'}
+        </ul>
+      </article>
+      <article class="panel">
+        <div class="panel-head">
+          <h3 class="panel-title">Forbidden automatic</h3>
+        </div>
+        <ul class="review-queue-list" aria-label="Forbidden automatic actions">
+        ${forbiddenRows || '<li>None listed.</li>'}
+        </ul>
+      </article>`;
+}
+
+function renderSalesGovernanceMain(options = {}) {
+  const disclaimer = options.governanceDisclaimer
+    || 'Read-only Sales scale and governance. Explicit human approval required for workflow gates. No automatic CRM writes, no automatic outreach, no external provider calls, and no roles changes in this chapter.';
+  const safeguards = Array.isArray(options.governanceWorkflowSafeguards) ? options.governanceWorkflowSafeguards : [];
+  const rules = Array.isArray(options.governanceHumanApprovalRules) ? options.governanceHumanApprovalRules : [];
+  const retention = options.governanceDataRetention || {};
+  const integrations = Array.isArray(options.governanceExternalIntegrations) ? options.governanceExternalIntegrations : [];
+  const boundaries = options.governanceActionBoundaries || { allowed_manual: [], forbidden_automatic: [] };
+
+  return `<section id="sales-governance" aria-labelledby="sales-governance-title">
+      <p class="section-note">${escapeHtml(disclaimer)}</p>
+      <p><a href="/sales">← Back to Sales intake</a> · <a href="/sales/review">Sales review queue</a> · <a href="/sales/analytics">Sales analytics</a></p>
+
+      <h2 class="section">Workflow safeguards</h2>
+      <p class="section-note">Each gate requires authenticated human approval — nothing auto-advances.</p>
+      ${renderGovernanceList(safeguards, 'Workflow safeguards')}
+
+      <h2 class="section">Human-approval rules</h2>
+      ${renderGovernanceList(rules.map((rule) => ({
+    id: rule.id,
+    title: rule.id,
+    rule: rule.rule,
+  })), 'Human-approval rules')}
+
+      <h2 class="section">Data retention and ownership</h2>
+      ${renderGovernanceRetention(retention)}
+
+      <h2 class="section">External integration state</h2>
+      <p class="section-note">No automatic CRM writes and no live outreach delivery from Sales.</p>
+      ${renderGovernanceList(integrations, 'External integration state')}
+
+      <h2 class="section">Action boundary audit summary</h2>
+      ${renderGovernanceBoundaries(boundaries)}
+
+      <div class="safety"><strong>Safety:</strong> Read-only governance documentation for Luna Sales. Explicit human approval at workflow gates. No automatic CRM writes, no automatic outreach, no external provider calls, and no roles changes in this chapter.</div>
+    </section>`;
+}
+
 function renderSalesMain(options = {}) {
   const prospects = Array.isArray(options.prospects) ? options.prospects : [];
   const errorHtml = options.intakeError
@@ -1354,7 +1463,7 @@ function renderSalesMain(options = {}) {
     : '';
   return `<section id="sales" aria-labelledby="sales-title">
       <p class="section-note">Manual intake — durable Sales store when configured; local/test may use in-memory fallback. No HubSpot, Maps, Apollo, live AI research, or outreach sending.</p>
-      <p><a href="/sales/review">Open Sales review queue</a> · <a href="/sales/analytics">Sales analytics</a> · <a href="/sales/discovery">Manual discovery preview</a></p>
+      <p><a href="/sales/review">Open Sales review queue</a> · <a href="/sales/analytics">Sales analytics</a> · <a href="/sales/governance">Sales governance</a> · <a href="/sales/discovery">Manual discovery preview</a></p>
       <h2 class="section">Prospects</h2>
       ${renderProspectListItems(prospects)}
 
@@ -2202,6 +2311,7 @@ function renderViewMain(view, clients, templates, options = {}) {
   if (view === 'sales_detail') return renderSalesDetailMain(options);
   if (view === 'sales_review') return renderSalesReviewMain(options);
   if (view === 'sales_analytics') return renderSalesAnalyticsMain(options);
+  if (view === 'sales_governance') return renderSalesGovernanceMain(options);
   if (view === 'sales_crm_preview') return renderSalesCrmPreviewMain(options);
   if (view === 'sales_outreach_draft') return renderSalesOutreachDraftMain(options);
   if (view === 'sales_discovery') return renderSalesDiscoveryMain(options);
@@ -2214,6 +2324,7 @@ function viewPageTitle(view) {
   if (view === 'communications') return 'Communications';
   if (view === 'sales_review') return 'Sales review queue';
   if (view === 'sales_analytics') return 'Sales analytics';
+  if (view === 'sales_governance') return 'Sales governance';
   if (view === 'sales_crm_preview') return 'CRM sync preview';
   if (view === 'sales_outreach_draft') return 'Outreach draft';
   if (view === 'sales_discovery') return 'Sales discovery';
@@ -2229,6 +2340,7 @@ function viewSubtitle(view) {
   if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, manual contacts, qualification, CRM preview, outreach draft, and Admin decision';
   if (view === 'sales_review') return 'Sales review queue — operating buckets for operator decisions';
   if (view === 'sales_analytics') return 'Sales analytics — truthful pipeline counts, recent activity, and data-quality alerts';
+  if (view === 'sales_governance') return 'Sales governance — workflow safeguards, human-approval rules, retention, integrations, action boundaries';
   if (view === 'sales_crm_preview') return 'Provider-neutral CRM sync preview — no record sent';
   if (view === 'sales_outreach_draft') return 'Internal outreach draft workspace — draft only, no message sent';
   if (view === 'sales_discovery') return 'Manual + Maps dry-run discovery — sample data only; no prospect auto-created';
@@ -2263,7 +2375,7 @@ function renderCrowsnestPage(options = {}) {
         </form>
       </div>
       ${renderCrowsnestNav(view)}
-      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_analytics' ? 'sales-analytics' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : (view === 'sales_outreach_draft' ? 'sales-outreach-draft' : (view === 'sales_discovery' ? 'sales-discovery' : view))))))}-title">${escapeHtml(title)}</h1>
+      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_analytics' ? 'sales-analytics' : (view === 'sales_governance' ? 'sales-governance' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : (view === 'sales_outreach_draft' ? 'sales-outreach-draft' : (view === 'sales_discovery' ? 'sales-discovery' : view)))))))}-title">${escapeHtml(title)}</h1>
       <p class="sub">${escapeHtml(viewSubtitle(view))}</p>
     </header>
 
