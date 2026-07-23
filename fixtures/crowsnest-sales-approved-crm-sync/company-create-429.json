@@ -1,0 +1,6 @@
+{
+  "status": "error",
+  "message": "You have reached your secondly limit.",
+  "correlationId": "corr-fixture-429",
+  "category": "RATE_LIMIT"
+}

@@ -494,6 +494,15 @@
       "rationale": "Pupil: crowsnest_metrics.client_metrics_snapshots for latest-wins client metrics ingest (production runtime must not auto-DDL; role grants out of band)."
     },
     {
+      "id": "049_luna_sales_approved_crm_sync_attempts",
+      "filename": "049_luna_sales_approved_crm_sync_attempts.sql",
+      "sha256": "80766e4ba414d483d9846f0704ef0b2a6fd3b5e40e35ac01b53a98247ea71829",
+      "order": 47,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Luna Sales: luna_sales.approved_crm_sync_attempts for durable approved HubSpot CRM sync attempt records (idempotency key unique; IDs/status/sanitized error only)."
+    },
+    {
       "id": "022_sunset_location_id_PROPOSED",
       "filename": "022_sunset_location_id_PROPOSED.sql",
       "sha256": "5854d06527c2f2f1cd6e209b9a87759db3d72396a0ee9b9c58a834ff18f8448f",

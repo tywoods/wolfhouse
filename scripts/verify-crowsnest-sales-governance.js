@@ -310,8 +310,12 @@ async function domainGovernanceChecks() {
     JSON.stringify(integrations),
   );
   ok(
-    'integrations mark write_enabled false / not automatic',
-    integrations.every((i) => i.write_enabled !== true && i.automatic !== true),
+    'integrations mark not automatic; HubSpot may allow explicit operator write only',
+    integrations.every((i) => i.automatic !== true)
+      && integrations.every((i) => (
+        i.write_enabled !== true
+        || (i.id === 'hubspot_crm' && i.automatic === false && /explicit|operator|Send to HubSpot/i.test(String(i.note || '')))
+      )),
   );
 
   const boundaries = sales.buildActionBoundaryAuditSummary();

@@ -2317,7 +2317,7 @@ function renderSalesDetailMain(options = {}) {
 
       <details class="sales-workspace-secondary" id="sales-workspace-admin-decision">
         <summary>Admin status decision</summary>
-        <p class="section-note">Any authenticated Crowsnest operator may record approve, reject, or needs_research in this MVP. No HubSpot sync and no outreach send in this slice.</p>
+        <p class="section-note">Any authenticated Crowsnest operator may record approve, reject, or needs_research in this MVP. HubSpot sync is a separate explicit action available only after qualification and CRM review; outreach remains draft-only.</p>
         ${decisionErrorHtml}
         <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/decision" accept-charset="utf-8">
           <div class="form-row">
@@ -2343,7 +2343,7 @@ function renderSalesDetailMain(options = {}) {
         ${renderAuditList(audit)}
       </details>
 
-      <div class="safety"><strong>Safety:</strong> Durable Sales decisions, manual evidence, manual contacts, operator qualification, CRM preview/readiness, and internal outreach drafts when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no Apollo/auto-find, no live provider calls, and no automatic AI scoring.</div>
+      <div class="safety"><strong>Safety:</strong> Durable Sales decisions, manual evidence, manual contacts, operator qualification, CRM preview/readiness, and internal outreach drafts use the dedicated store when configured; local/test may use in-memory fallback. HubSpot Company/Contact sync is an explicit operator action from CRM Preview only, with no automatic CRM writes. No outreach delivery, Apollo/auto-find, live provider calls beyond that explicit sync, or automatic AI scoring.</div>
     </section>`;
 }
 
@@ -2361,6 +2361,71 @@ function renderCrmPreviewContacts(contacts) {
   return `<ul class="fact-list" aria-label="CRM preview contacts">
           ${items}
         </ul>`;
+}
+
+function renderApprovedCrmSyncStatus(attempt) {
+  if (!attempt || typeof attempt !== 'object') {
+    return '<p class="section-note">No HubSpot sync attempt recorded yet.</p>';
+  }
+  const status = String(attempt.status || '').toLowerCase();
+  const companyId = String(attempt.provider_company_id || '').trim();
+  const contactIds = Array.isArray(attempt.provider_contact_ids)
+    ? attempt.provider_contact_ids.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const errorCategory = String(attempt.error_category || '').trim();
+
+  if (status === 'succeeded' && companyId) {
+    return `<p>HubSpot sync status: <code>succeeded</code></p>
+        <p>Confirmed Company ID: <code>${escapeHtml(companyId)}</code></p>
+        <p>Confirmed Contact IDs: <code>${escapeHtml(contactIds.join(', ') || 'none')}</code></p>
+        <p class="section-note">Success is shown only after provider IDs were confirmed. This did not send outreach.</p>`;
+  }
+  if (status === 'pending') {
+    return `<p>HubSpot sync status: <code>pending</code></p>
+        <p class="section-note">Attempt recorded; provider IDs are not confirmed yet — do not treat this as success.</p>`;
+  }
+  if (status === 'failed') {
+    return `<p>HubSpot sync status: <code>failed</code></p>
+        <p>Error category: <code>${escapeHtml(errorCategory || 'unknown')}</code></p>
+        <p class="section-note">No confirmed HubSpot Company/Contact IDs. Retry only with an explicit Send to HubSpot action.</p>`;
+  }
+  return `<p>HubSpot sync status: <code>${escapeHtml(status || 'unknown')}</code></p>
+        <p class="section-note">Provider IDs are not confirmed — do not treat this as success.</p>`;
+}
+
+function renderApprovedCrmSyncControls(options = {}) {
+  const prospect = options.prospect || null;
+  if (!prospect || !prospect.id) return '';
+  const eligible = options.approvedCrmSyncEligible === true;
+  if (!eligible) {
+    return '';
+  }
+
+  const attempt = options.approvedCrmSyncAttempt || null;
+  const mark = options.latestCrmReviewMark || null;
+  const statusHtml = renderApprovedCrmSyncStatus(attempt);
+  const succeeded = attempt
+    && String(attempt.status || '').toLowerCase() === 'succeeded'
+    && String(attempt.provider_company_id || '').trim();
+
+  const formHtml = succeeded
+    ? '<p class="section-note">A confirmed HubSpot Company already exists for this review mark. Repeating Send returns the durable prior attempt and does not create a duplicate.</p>'
+    : `<form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/approved-crm-sync" accept-charset="utf-8">
+          <input type="hidden" name="operator_command" value="send_approved_crm_sync">
+          ${mark && mark.id
+    ? `<input type="hidden" name="crm_review_mark_id" value="${escapeHtml(mark.id)}">`
+    : ''}
+          <p>This creates/updates a Company and optional Contacts. It does not send outreach.</p>
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Send to HubSpot</button>
+          </div>
+        </form>`;
+
+  return `<article class="card" id="sales-approved-crm-sync">
+        <h2>Send to HubSpot</h2>
+        ${statusHtml}
+        ${formHtml}
+      </article>`;
 }
 
 function renderSalesCrmPreviewMain(options = {}) {
@@ -2385,6 +2450,9 @@ function renderSalesCrmPreviewMain(options = {}) {
          by <code>${escapeHtml(mark.reviewer_id || '')}</code>.</p>`
     : '<p class="section-note">Not yet marked ready for CRM review.</p>';
   const audit = Array.isArray(options.auditEvents) ? options.auditEvents : [];
+  const syncError = options.approvedCrmSyncError
+    ? `<p class="form-error" role="alert">${escapeHtml(options.approvedCrmSyncError)}</p>`
+    : '';
 
   return `<section id="sales-crm-preview" aria-labelledby="sales-crm-preview-title">
       ${renderSalesSupportingRoomNav({
@@ -2434,6 +2502,9 @@ function renderSalesCrmPreviewMain(options = {}) {
           </div>
         </form>
       </article>
+
+      ${syncError}
+      ${renderApprovedCrmSyncControls(options)}
 
       <article class="card">
         <h2>Append-only audit trail</h2>

@@ -10,8 +10,10 @@
  * Production without the dedicated DSN fails closed on Sales mutations.
  *
  * Chapter 5 builds a CRM sync *preview* and manual "ready for CRM review" mark only —
- * no CRM provider SDK/HTTP/env keys, no automatic writes.
- * Chapter 6 adds manual internal outreach drafts only — no SMTP/WhatsApp/LinkedIn/HubSpot
+ * no automatic CRM writes from preview alone.
+ * Approved HubSpot Company/Contact sync is an explicit operator command with an injected
+ * adapter + runtime Service Key boundary — never automatic, never Deal/outreach.
+ * Chapter 6 adds manual internal outreach drafts only — no SMTP/WhatsApp/LinkedIn
  * send, no webhooks, no auto-generation.
  * Chapter 7 adds a provider-neutral discovery source contract + manual adapter only —
  * validation/dedup preview and explicit operator import; no live Maps/Apollo/web search,
@@ -46,6 +48,11 @@ const {
   resolveMapsFixtureCandidate,
   search: searchMapsDryRun,
 } = require('./crowsnest-sales-discovery-maps');
+const {
+  APPROVED_CRM_SYNC_OPERATOR_COMMAND,
+  assessApprovedCrmSyncEligibility,
+  buildApprovedCrmSyncCommand,
+} = require('./crowsnest-sales-approved-crm-sync-contract');
 
 const ALLOWED_DECISIONS = new Set(['approved', 'rejected', 'needs_research']);
 const ALLOWED_QUALIFICATION_DECISIONS = new Set(['qualified', 'not_qualified', 'needs_more_research']);
@@ -893,12 +900,27 @@ async function getCrmSyncPreview(prospectId, options = {}) {
       ? await repo.getLatestCrmReviewMark(prospect.id)
       : null;
 
+    let latestAttempt = null;
+    if (typeof repo.listApprovedCrmSyncAttemptsForProspect === 'function') {
+      const attempts = await repo.listApprovedCrmSyncAttemptsForProspect(prospect.id);
+      if (attempts && attempts.ok === false) {
+        return attempts;
+      }
+      latestAttempt = Array.isArray(attempts) && attempts.length ? attempts[0] : null;
+    }
+
     return {
       ok: true,
       prospect,
       qualification,
       latestCrmReviewMark: latestMark || null,
       preview: built.preview,
+      approvedCrmSyncEligible: isApprovedCrmSyncUiEligible({
+        prospect,
+        qualification,
+        latestCrmReviewMark: latestMark,
+      }),
+      approvedCrmSyncAttempt: latestAttempt,
     };
   } catch (err) {
     if (isSalesStoreUnavailableError(err)) {
@@ -1000,6 +1022,331 @@ async function markReadyForCrmReview(prospectId, actor = 'Admin') {
     }
     throw err;
   }
+}
+
+function isApprovedCrmSyncUiEligible({ prospect, qualification, latestCrmReviewMark } = {}) {
+  const assessed = assessApprovedCrmSyncEligibility({
+    prospect,
+    qualification,
+    crm_review_mark: latestCrmReviewMark,
+    operator_id: 'ui',
+    operator_command: APPROVED_CRM_SYNC_OPERATOR_COMMAND,
+  });
+  return Boolean(assessed && assessed.ok && assessed.eligible);
+}
+
+function extractProviderIdsFromAdapterResult(adapterResult) {
+  const result = adapterResult && adapterResult.result ? adapterResult.result : null;
+  const companyId = result && result.company && result.company.provider_object_id
+    ? String(result.company.provider_object_id).trim()
+    : '';
+  const contacts = result && Array.isArray(result.contacts) ? result.contacts : [];
+  const contactIds = contacts
+    .map((row) => (row && row.provider_object_id != null ? String(row.provider_object_id).trim() : ''))
+    .filter(Boolean);
+  return { companyId, contactIds };
+}
+
+function sanitizeAdapterFailureCategory(adapterResult) {
+  const raw = (adapterResult && (adapterResult.error_category || adapterResult.code)) || 'unknown';
+  const text = String(raw).trim();
+  if (!text) return 'unknown';
+  if (
+    /pat-na1-|Bearer\s|postgres:\/\/|[{}\n]/i.test(text)
+    || /service[_-]?key/i.test(text)
+    || text.length > 64
+  ) {
+    return 'unknown';
+  }
+  if (/^[a-z][a-z0-9_]{0,63}$/.test(text)) return text;
+  return 'unknown';
+}
+
+/**
+ * Explicit operator-approved HubSpot Company/Contact sync.
+ * Requires injected syncAdapter. Persists pending attempt before adapter call.
+ * Idempotent on prospect + CRM-review mark. Never reads HubSpot secrets itself.
+ */
+async function sendApprovedCrmSync(prospectId, actor = 'Admin', deps = {}) {
+  try {
+    const repo = deps.repository || await getRepository();
+    if (repo.backend === 'fail_closed') {
+      return {
+        ok: false,
+        status: 503,
+        code: 'sales_store_misconfigured',
+        error: 'Crowsnest Sales durable store is not configured.',
+      };
+    }
+
+    const operatorCommand = String(
+      deps.operatorCommand != null ? deps.operatorCommand : (deps.operator_command || ''),
+    ).trim();
+    const accessToken = String(
+      deps.accessToken != null ? deps.accessToken : (deps.access_token || ''),
+    ).trim();
+    const configured = deps.hubspotConfigured != null
+      ? Boolean(deps.hubspotConfigured)
+      : Boolean(accessToken);
+    const syncAdapter = deps.syncAdapter || deps.adapter;
+
+    if (!configured || !accessToken) {
+      return {
+        ok: false,
+        status: 503,
+        code: 'hubspot_not_configured',
+        error: 'HubSpot sync is unavailable.',
+      };
+    }
+    if (typeof syncAdapter !== 'function') {
+      return {
+        ok: false,
+        status: 503,
+        code: 'hubspot_not_configured',
+        error: 'HubSpot sync is unavailable.',
+      };
+    }
+
+    const prospect = await repo.getProspect(prospectId);
+    if (!prospect) {
+      return { ok: false, error: 'Prospect not found.', status: 404 };
+    }
+
+    const qualification = typeof repo.getLatestQualification === 'function'
+      ? await repo.getLatestQualification(prospect.id)
+      : null;
+    const mark = typeof repo.getLatestCrmReviewMark === 'function'
+      ? await repo.getLatestCrmReviewMark(prospect.id)
+      : null;
+    let contacts = deps.contacts;
+    if (contacts == null && typeof repo.listContactCandidatesForProspect === 'function') {
+      contacts = await repo.listContactCandidatesForProspect(prospect.id);
+    }
+
+    const built = buildApprovedCrmSyncCommand({
+      prospect,
+      qualification,
+      crm_review_mark: mark,
+      operator_id: String(actor || 'Admin'),
+      operator_command: operatorCommand,
+      contacts: contacts || [],
+    });
+    if (!built.ok) {
+      return {
+        ok: false,
+        status: built.status || 400,
+        code: built.code || 'not_eligible',
+        error: built.error || 'Approved CRM sync is not eligible.',
+        eligible: false,
+      };
+    }
+
+    const command = built.command;
+    const existing = typeof repo.getApprovedCrmSyncAttemptByIdempotencyKey === 'function'
+      ? await repo.getApprovedCrmSyncAttemptByIdempotencyKey(command.idempotency_key)
+      : null;
+    if (existing && existing.ok === false) {
+      return existing;
+    }
+    if (existing) {
+      return {
+        ok: true,
+        attempt: existing,
+        idempotent_replay: true,
+        command,
+      };
+    }
+
+    const pendingAttempt = {
+      id: newSalesUuid(),
+      prospect_id: prospect.id,
+      crm_review_mark_id: command.crm_review_mark_id,
+      provider: 'hubspot',
+      idempotency_key: command.idempotency_key,
+      status: 'pending',
+      provider_company_id: '',
+      provider_contact_ids: [],
+      actor_id: String(actor || 'Admin'),
+      error_category: '',
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    };
+
+    const saved = await repo.saveApprovedCrmSyncAttempt(pendingAttempt);
+    if (saved && saved.ok === false) {
+      return saved;
+    }
+    if (saved && saved.idempotent_replay === true && saved.attempt) {
+      return {
+        ok: true,
+        attempt: saved.attempt,
+        idempotent_replay: true,
+        command,
+      };
+    }
+
+    const attempt = (saved && saved.attempt) || pendingAttempt;
+
+    const auditAttempted = await appendAudit({
+      actor: String(actor || 'Admin'),
+      action: 'approved_crm_sync_attempted',
+      entity_type: 'approved_crm_sync',
+      entity_id: attempt.id,
+      detail: {
+        prospect_id: prospect.id,
+        crm_review_mark_id: command.crm_review_mark_id,
+        attempt_id: attempt.id,
+        idempotency_key: command.idempotency_key,
+        provider: 'hubspot',
+        status: 'pending',
+      },
+    });
+    if (auditAttempted && auditAttempted.ok === false) {
+      return auditAttempted;
+    }
+
+    const adapterResult = await syncAdapter({
+      command,
+      accessToken,
+      fetch: deps.fetch || deps.fetchImpl || deps.transport,
+      fetchImpl: deps.fetch || deps.fetchImpl || deps.transport,
+      transport: deps.fetch || deps.fetchImpl || deps.transport,
+      timeoutMs: deps.timeoutMs,
+    });
+
+    if (adapterResult && adapterResult.ok === true) {
+      const ids = extractProviderIdsFromAdapterResult(adapterResult);
+      if (!ids.companyId) {
+        const failedNoId = await repo.updateApprovedCrmSyncAttemptOutcome(attempt.id, {
+          status: 'failed',
+          provider_company_id: '',
+          provider_contact_ids: [],
+          error_category: 'provider_rejected',
+          updated_at: nowIso(),
+        });
+        await appendAudit({
+          actor: String(actor || 'Admin'),
+          action: 'approved_crm_sync_failed',
+          entity_type: 'approved_crm_sync',
+          entity_id: attempt.id,
+          detail: {
+            prospect_id: prospect.id,
+            crm_review_mark_id: command.crm_review_mark_id,
+            attempt_id: attempt.id,
+            idempotency_key: command.idempotency_key,
+            provider: 'hubspot',
+            status: 'failed',
+            error_category: 'provider_rejected',
+          },
+        });
+        return {
+          ok: false,
+          status: 502,
+          code: 'provider_rejected',
+          error: 'HubSpot sync did not confirm a Company ID.',
+          attempt: (failedNoId && failedNoId.attempt) || {
+            ...attempt,
+            status: 'failed',
+            error_category: 'provider_rejected',
+          },
+        };
+      }
+
+      const updated = await repo.updateApprovedCrmSyncAttemptOutcome(attempt.id, {
+        status: 'succeeded',
+        provider_company_id: ids.companyId,
+        provider_contact_ids: ids.contactIds,
+        error_category: '',
+        updated_at: nowIso(),
+      });
+      if (updated && updated.ok === false) {
+        return updated;
+      }
+
+      await appendAudit({
+        actor: String(actor || 'Admin'),
+        action: 'approved_crm_sync_succeeded',
+        entity_type: 'approved_crm_sync',
+        entity_id: attempt.id,
+        detail: {
+          prospect_id: prospect.id,
+          crm_review_mark_id: command.crm_review_mark_id,
+          attempt_id: attempt.id,
+          idempotency_key: command.idempotency_key,
+          provider: 'hubspot',
+          status: 'succeeded',
+          provider_company_id: ids.companyId,
+          provider_contact_ids: ids.contactIds,
+        },
+      });
+
+      return {
+        ok: true,
+        attempt: (updated && updated.attempt) || {
+          ...attempt,
+          status: 'succeeded',
+          provider_company_id: ids.companyId,
+          provider_contact_ids: ids.contactIds,
+        },
+        command,
+      };
+    }
+
+    const errorCategory = sanitizeAdapterFailureCategory(adapterResult);
+    const failedUpdate = await repo.updateApprovedCrmSyncAttemptOutcome(attempt.id, {
+      status: 'failed',
+      provider_company_id: '',
+      provider_contact_ids: [],
+      error_category: errorCategory,
+      updated_at: nowIso(),
+    });
+    if (failedUpdate && failedUpdate.ok === false) {
+      return failedUpdate;
+    }
+
+    await appendAudit({
+      actor: String(actor || 'Admin'),
+      action: 'approved_crm_sync_failed',
+      entity_type: 'approved_crm_sync',
+      entity_id: attempt.id,
+      detail: {
+        prospect_id: prospect.id,
+        crm_review_mark_id: command.crm_review_mark_id,
+        attempt_id: attempt.id,
+        idempotency_key: command.idempotency_key,
+        provider: 'hubspot',
+        status: 'failed',
+        error_category: errorCategory,
+      },
+    });
+
+    return {
+      ok: false,
+      status: (adapterResult && adapterResult.status) || 502,
+      code: errorCategory,
+      error: 'HubSpot approved CRM sync failed.',
+      attempt: (failedUpdate && failedUpdate.attempt) || {
+        ...attempt,
+        status: 'failed',
+        error_category: errorCategory,
+      },
+    };
+  } catch (err) {
+    if (isSalesStoreUnavailableError(err)) {
+      return salesUnavailableResult();
+    }
+    throw err;
+  }
+}
+
+async function getLatestApprovedCrmSyncAttempt(prospectId) {
+  const repo = await getRepository();
+  if (typeof repo.listApprovedCrmSyncAttemptsForProspect !== 'function') {
+    return null;
+  }
+  const list = await repo.listApprovedCrmSyncAttemptsForProspect(prospectId);
+  if (list && list.ok === false) return list;
+  return Array.isArray(list) && list.length ? list[0] : null;
 }
 
 async function listOutreachDraftRevisionsForProspect(id) {
@@ -1677,10 +2024,10 @@ function buildExternalIntegrationState() {
     {
       id: 'hubspot_crm',
       name: 'HubSpot / CRM',
-      state: 'preview_only',
-      write_enabled: false,
+      state: 'operator_approved_sync',
+      write_enabled: true,
       automatic: false,
-      note: 'CRM sync preview and manual ready-for-review mark only — no HubSpot SDK, HTTP, or automatic CRM writes.',
+      note: 'Explicit operator Send to HubSpot for Company + optional Contacts only — no Deals, no outreach, no automatic sync.',
     },
     {
       id: 'google_maps',
@@ -1750,6 +2097,13 @@ function buildActionBoundaryAuditSummary() {
         human_approval_required: true,
         operator_triggered: true,
         audited_as: 'crm_review_ready_marked',
+      },
+      {
+        id: 'approved_crm_sync_sent',
+        action: 'Send approved CRM sync to HubSpot (Company + optional Contacts)',
+        human_approval_required: true,
+        operator_triggered: true,
+        audited_as: 'approved_crm_sync_attempted / succeeded / failed',
       },
       {
         id: 'outreach_draft_saved',
@@ -2502,6 +2856,7 @@ module.exports = {
   recordQualification,
   resetSalesStore,
   saveOutreachDraft,
+  sendApprovedCrmSync,
   sortReviewQueueItems,
   validateManualContact,
   validateManualEvidence,

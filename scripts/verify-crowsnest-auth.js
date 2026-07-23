@@ -588,6 +588,24 @@ async function main() {
   console.log('[config] auth accounts parsing / legacy isolation');
   assertAuthAccountsConfigContract();
 
+  console.log('[sales] approved CRM sync route auth boundary (structural)');
+  const apiSrc = fs.readFileSync(API_SCRIPT, 'utf8');
+  ok(
+    'api allowlists matchSalesApprovedCrmSyncPath',
+    /function matchSalesApprovedCrmSyncPath/.test(apiSrc)
+      && /approved-crm-sync/.test(apiSrc),
+  );
+  ok(
+    'approved CRM sync handler requires browser UI auth',
+    /handleSalesApprovedCrmSync[\s\S]{0,400}isBrowserUiAuthorized/.test(apiSrc)
+      || /async function handleSalesApprovedCrmSync[\s\S]{0,800}isBrowserUiAuthorized/.test(apiSrc),
+  );
+  ok(
+    'approved CRM sync handler is POST-only',
+    /handleSalesApprovedCrmSync[\s\S]{0,200}method !== 'POST'/.test(apiSrc)
+      || /async function handleSalesApprovedCrmSync[\s\S]{0,300}POST/.test(apiSrc),
+  );
+
   console.log('[auth] dual operator login + Basic Auth');
   assertMultiAccountLoginAndBasicAuth();
 
@@ -1134,6 +1152,38 @@ async function main() {
       ok('unknown route => 404 JSON', unknown.statusCode === 404 && /application\/json/i.test(String(unknown.headers['content-type'] || '')));
       ok('unknown route body is not found', /not found/i.test(unknown.body) && !unknown.body.includes('<!DOCTYPE html>'));
       assertBrowserSecurityHeaders('unknown route 404', unknown);
+    },
+  ]);
+
+  await runScenario('J approved CRM sync POST requires auth', BASE_PORT + 9, {
+    CROWSNEST_AUTH_REQUIRED: 'true',
+    CROWSNEST_AUTH_USERNAME: 'admin',
+    CROWSNEST_AUTH_PASSWORD: 'admin',
+  }, [
+    async (port) => {
+      const syncPath = '/sales/prospects/00000000-0000-4000-8000-000000000001/approved-crm-sync';
+      const unauth = await request(port, syncPath, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'operator_command=send_approved_crm_sync',
+      });
+      ok(
+        'unauthenticated POST approved-crm-sync redirects to /login',
+        unauth.statusCode === 302 && String(unauth.headers.location || '') === '/login',
+        `status=${unauth.statusCode} loc=${unauth.headers.location}`,
+      );
+      ok(
+        'unauthenticated approved-crm-sync has no Basic challenge',
+        !String(unauth.headers['www-authenticate'] || '').includes('Basic'),
+      );
+      ok(
+        'unauthenticated approved-crm-sync response has no Service Key leak',
+        !/HUBSPOT_SERVICE_KEY|hubspot-service-key|pat-na1-/i.test(unauth.body),
+      );
+
+      for (const method of ['GET', 'PUT', 'PATCH', 'DELETE']) {
+        await assertMethodRejected(port, syncPath, method, undefined, 'POST');
+      }
     },
   ]);
 

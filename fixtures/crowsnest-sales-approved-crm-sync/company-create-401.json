@@ -1,0 +1,6 @@
+{
+  "status": "error",
+  "message": "Authentication credentials not found. This API supports OAuth 2.0 authentication and you can find more details at https://developers.hubspot.com/docs/methods/auth/oauth-overview. Token leaked-TEST_HUBSPOT_TOKEN_MARKER_DO_NOT_LOG",
+  "correlationId": "corr-fixture-401",
+  "category": "INVALID_AUTHENTICATION"
+}
