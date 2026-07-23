@@ -63,6 +63,10 @@ param capacityAlertNamePrefix string
 param portalUrlTarget string
 param planDigest string = ''
 param stageTag string = 'saas-2c1'
+// Optional temporary-drill tags (Stage 2D2). Empty defaults preserve Sunset locked-live output.
+param temporaryDrill string = ''
+param createdAt string = ''
+param expiresAt string = ''
 param deployBootstrapJob bool = false
 param bootstrapJobImageDigest string = ''
 @secure()
@@ -158,22 +162,27 @@ var syntheticOwnershipTags = {
   planDigest: planDigest
   deploySha: deploySha
 }
-var resourceTags = union(sunsetResourceTags, enablePrivateNetwork ? {
+var drillTags = enablePrivateNetwork && !empty(temporaryDrill) ? {
+  temporaryDrill: temporaryDrill
+  createdAt: createdAt
+  expiresAt: expiresAt
+} : {}
+var resourceTags = union(sunsetResourceTags, enablePrivateNetwork ? union({
   stage: stageTag
   planDigest: planDigest
   deploySha: deploySha
-} : {})
+}, drillTags) : {})
 var staffApiTags = union({
   product: 'Luna Front Desk'
   tenant: tenantSlug
   environment: environmentName
   slice: 'portal-1'
-}, enablePrivateNetwork ? {
+}, enablePrivateNetwork ? union({
   stage: stageTag
   planDigest: planDigest
   deploySha: deploySha
   owner: ownerTag
-} : {})
+}, drillTags) : {})
 var staffApiImageTagged = '${acrLoginServer}/${staffApiImageRepository}:${staffApiImageTag}'
 var staffApiImageDigestRef = '${acrLoginServer}/${staffApiImageRepository}@${staffApiImageDigest}'
 var digestGateOk = !useDigestImage || (length(staffApiImageDigest) == 71 && startsWith(staffApiImageDigest, 'sha256:')) ? true : fail('staff_image_digest_required')
@@ -522,6 +531,9 @@ var runtimeSecretsProvenance = {
   planDigest: planDigest
   deploySha: deploySha
   stageTag: 'saas-2c3'
+  temporaryDrill: temporaryDrill
+  createdAt: createdAt
+  expiresAt: expiresAt
 }
 module syntheticRuntimeSecrets './synthetic-runtime-secrets.bicep' = if (runtimePrereqsPhase) {
   name: 'syntheticRuntimeSecrets'
@@ -768,6 +780,9 @@ var bootstrapProvenance = {
   planDigest: planDigest
   deploySha: deploySha
   stageTag: 'saas-2c2'
+  temporaryDrill: temporaryDrill
+  createdAt: createdAt
+  expiresAt: expiresAt
 }
 module syntheticBootstrapJob './synthetic-bootstrap-job.bicep' = if (enablePrivateNetwork && deployBootstrapJob && bootstrapJobGateOk) {
   name: 'syntheticBootstrapJob'
