@@ -302,6 +302,41 @@ var sunsetAdminLocationEnv = [
   { name: 'SUNSET_SARDINERO_INBOX_EMAIL', value: locationInboxEmailB }
 ]
 
+// Stage 2B — generic runtime: channel_slot integers in JSON; fixed TENANT_LOCATION_N_* from @secure params.
+var enableGenericRuntimeEnv = !isLockedLiveSunset
+var genericRuntimeConfig = {
+  version: 1
+  tenant_slug: tenantSlug
+  permissions: {
+    admin_db_read: false
+    admin_writes: false
+    stripe_links: false
+    staff_actions: false
+    whatsapp_dry_run: true
+  }
+  locations: [
+    {
+      location_id: '${tenantSlug}-a'
+      display_name: '${tenantSlug} A'
+      channel_slot: 1
+    }
+    {
+      location_id: '${tenantSlug}-b'
+      display_name: '${tenantSlug} B'
+      channel_slot: 2
+    }
+  ]
+}
+var genericRuntimeEnv = [
+  { name: 'TENANT_RUNTIME_CONFIG_JSON', value: string(genericRuntimeConfig) }
+  { name: 'TENANT_LOCATION_1_WHATSAPP_NUMBER', value: locationWhatsappNumberA }
+  { name: 'TENANT_LOCATION_1_WHATSAPP_PHONE_NUMBER_ID', value: locationWhatsappPhoneNumberIdA }
+  { name: 'TENANT_LOCATION_1_INBOX_EMAIL', value: locationInboxEmailA }
+  { name: 'TENANT_LOCATION_2_WHATSAPP_NUMBER', value: locationWhatsappNumberB }
+  { name: 'TENANT_LOCATION_2_WHATSAPP_PHONE_NUMBER_ID', value: locationWhatsappPhoneNumberIdB }
+  { name: 'TENANT_LOCATION_2_INBOX_EMAIL', value: locationInboxEmailB }
+]
+
 // --- Staff API Container App ---
 
 resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContainerApps && deployStaffApi) {
@@ -393,7 +428,7 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
             cpu: json(staffApiCpu)
             memory: staffApiMemory
           }
-          env: concat(baseStaffEnv, enableSunsetRuntimeEnv ? sunsetAdminLocationEnv : [])
+          env: concat(baseStaffEnv, enableSunsetRuntimeEnv ? sunsetAdminLocationEnv : [], enableGenericRuntimeEnv ? genericRuntimeEnv : [])
           // RADAR 16I — ACA probes (port must match ingress targetPort 3036).
           probes: [
             {

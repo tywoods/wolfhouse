@@ -347,6 +347,8 @@ const {
   resolveTenantBusinessConfig,
   resolveTenantBusinessConfigAsync,
   isSunsetAdminDbReadEnabled,
+  effectiveTenantPermission,
+  authorizeAuthenticatedStaffRoute,
 } = require('./lib/tenant-business-config');
 const {
   isSunsetAdminWritesEnabled,
@@ -443,6 +445,7 @@ const {
 } = require('./lib/sunset-waiver-booking');
 const {
   resolveSunsetInboxChannelConfig,
+  resolveTenantInboxChannelConfig,
   attachConversationChannelMetadata,
 } = require('./lib/sunset-inbox-channel-config');
 const {
@@ -897,6 +900,38 @@ const BOOKING_MOVE_WRITE_ENABLED = process.env.BOOKING_MOVE_WRITE_ENABLED !== 'f
 const STRIPE_LINKS_ENABLED   = process.env.STRIPE_LINKS_ENABLED   === 'true';
 const STRIPE_SECRET_KEY      = process.env.STRIPE_SECRET_KEY      || null;
 const STRIPE_SUCCESS_URL     = process.env.STRIPE_CHECKOUT_SUCCESS_URL || process.env.STRIPE_SUCCESS_URL || null;
+
+function gateClientSlug(explicit) {
+  const s = String(explicit == null ? '' : explicit).trim();
+  if (s) return s;
+  if (process.env.DEFAULT_CLIENT_SLUG != null && String(process.env.DEFAULT_CLIENT_SLUG).trim()) {
+    return String(process.env.DEFAULT_CLIENT_SLUG).trim();
+  }
+  return DEFAULT_CLIENT;
+}
+const staffActionsGate = (s) => effectiveTenantPermission(gateClientSlug(s), 'staff_actions');
+const stripeLinksGate = (s) => effectiveTenantPermission(gateClientSlug(s), 'stripe_links');
+const adminWritesGate = (s) => effectiveTenantPermission(gateClientSlug(s), 'admin_writes');
+const adminDbReadGate = (s) => effectiveTenantPermission(gateClientSlug(s), 'admin_db_read');
+const whatsappDryRunGate = (s) => effectiveTenantPermission(gateClientSlug(s), 'whatsapp_dry_run');
+function resolveAuthenticatedStaffRouteClientSlug(req, user) {
+  const q = (url.parse(req.url || '/', true).query) || {};
+  const fromQuery = String(q.client_slug || q.client || '').trim();
+  const fromUser = user && user.client_slug != null ? String(user.client_slug).trim() : '';
+  return gateClientSlug(fromUser || fromQuery);
+}
+function enforceAuthenticatedStaffRouteAuthz(req, res, user) {
+  const pathname = String((url.parse(req.url || '/', true).pathname) || '/').replace(/\/+$/, '') || '/';
+  const decision = authorizeAuthenticatedStaffRoute({
+    clientSlug: resolveAuthenticatedStaffRouteClientSlug(req, user),
+    method: req.method, pathname, env: process.env,
+  });
+  if (!decision.ok) {
+    sendJSON(res, decision.status || 403, decision.body || { success: false, error: 'tenant_route_forbidden' });
+    return false;
+  }
+  return true;
+}
 const STRIPE_CANCEL_URL      = process.env.STRIPE_CHECKOUT_CANCEL_URL  || process.env.STRIPE_CANCEL_URL  || null;
 
 /** Public site origin for Stripe Checkout redirects (env URLs or STAFF_PUBLIC_BASE_URL). */
@@ -1239,7 +1274,9 @@ async function requireAuth(req, res, minRole) {
     return { ok: false };
   }
 
-  return { ok: true, user: { ...user, role: resolveStaffRole(user) } };
+  const resolvedUser = { ...user, role: resolveStaffRole(user) };
+  if (!enforceAuthenticatedStaffRouteAuthz(req, res, resolvedUser)) return { ok: false };
+  return { ok: true, user: resolvedUser };
 }
 
 /** Stage 25j — Owner Insights API gate: owner/admin only (not operator/viewer). */
@@ -1327,6 +1364,7 @@ async function requireBotAuth(req, res) {
           });
           return { ok: false };
         }
+        if (!enforceAuthenticatedStaffRouteAuthz(req, res, principal.user)) return { ok: false };
         return { ok: true, user: principal.user, auth_mode: 'bot_token' };
       }
       // Token provided but wrong → 401 immediately (do not fall through to session)
@@ -1356,6 +1394,7 @@ async function requireBotAuth(req, res) {
     return { ok: false };
   }
 
+  if (!enforceAuthenticatedStaffRouteAuthz(req, res, user)) return { ok: false };
   return { ok: true, user, auth_mode: 'session' };
 }
 
@@ -2405,8 +2444,8 @@ async function handleResolveHandoff(handoffId, req, res) {
   // ── Auth gate (session when STAFF_AUTH_REQUIRED=true, else operator token) ──
   // Session path: requires authenticated session with role operator or admin.
   // Token path: local/dev backward compat (STAFF_AUTH_REQUIRED=false only).
+  let sessionUser = null;
   if (STAFF_AUTH_REQUIRED) {
-    let sessionUser;
     try { sessionUser = await loadAuthSession(req); } catch (_) { sessionUser = null; }
     if (!sessionUser) {
       appendAuditLog({
@@ -2443,6 +2482,7 @@ async function handleResolveHandoff(handoffId, req, res) {
       return sendJSON(res, 401, { success: false, error: 'Missing or invalid x-staff-operator-token header.' });
     }
   }
+  if (!enforceAuthenticatedStaffRouteAuthz(req, res, sessionUser)) return;
 
   // ── Parse body ─────────────────────────────────────────────────────────────
   let body = {};
@@ -8246,9 +8286,10 @@ async function handleBookingRecordCashPayment(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function paymentLinkServiceExecOpts(stripe) {
+  const gateSlug = gateClientSlug();
   return {
-    staffActionsEnabled: STAFF_ACTIONS_ENABLED,
-    stripeLinksEnabled: STRIPE_LINKS_ENABLED,
+    staffActionsEnabled: staffActionsGate(gateSlug),
+    stripeLinksEnabled: stripeLinksGate(gateSlug),
     secretKey: STRIPE_SECRET_KEY,
     successUrl: stripeCheckoutSessionSuccessUrl(),
     cancelUrl: stripeCheckoutSessionCancelUrl(),
@@ -8283,14 +8324,22 @@ function paymentLinkServiceExecOpts(stripe) {
 async function handleBookingGeneratePaymentLink(req, res, user) {
   const started = Date.now();
 
-  if (!STAFF_ACTIONS_ENABLED) {
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+  const gateSlug = gateClientSlug(body.client_slug || body.client);
+
+  if (!staffActionsGate(gateSlug)) {
     return sendJSON(res, 403, {
       success: false,
       error: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
       staff_actions_enabled: false,
     });
   }
-  if (!STRIPE_LINKS_ENABLED) {
+  if (!stripeLinksGate(gateSlug)) {
     return sendJSON(res, 403, {
       success: false,
       error: 'Stripe link creation is disabled. Set STRIPE_LINKS_ENABLED=true to enable.',
@@ -8310,13 +8359,6 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
       error: 'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set in env.',
       no_db_write: true,
     });
-  }
-
-  let body = {};
-  try {
-    body = JSON.parse((await readBody(req)) || '{}');
-  } catch (_) {
-    return send400(res, 'invalid or missing JSON body');
   }
 
   const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
@@ -10171,7 +10213,7 @@ function sendBotAddonCreateContextResponse(res, ctx, resolvedAuthMode) {
 
 async function handleBotAddonRequestCreate(req, res, user, authMode) {
   const started = Date.now();
-  const whatsappDryRun = process.env.WHATSAPP_DRY_RUN !== 'false';
+  const whatsappDryRun = whatsappDryRunGate(process.env.DEFAULT_CLIENT_SLUG || DEFAULT_CLIENT);
 
   if (!BOT_ADDON_REQUESTS_ENABLED) {
     return sendJSON(res, 403, {
@@ -38237,7 +38279,7 @@ async function handleAdminConfig(query, res, user) {
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
   const locationId = normalizeSunsetLocationId(query.location);
-  const resolved = isSunsetAdminDbReadEnabled()
+  const resolved = adminDbReadGate(clientSlug)
     ? await resolveTenantBusinessConfigAsync(clientSlug, {
       locationId,
       includeInactiveCanonicalRentals: true,
@@ -38275,12 +38317,13 @@ async function handleAdminConfig(query, res, user) {
     elapsed_ms: elapsed,
   });
 
+  const writesOn = isSunsetAdminWritesEnabled() && adminWritesGate(clientSlug);
   const { ok, ...payload } = resolved;
   return sendJSON(res, 200, {
     success: true,
     ...payload,
-    read_only: !isSunsetAdminWritesEnabled(),
-    writes_enabled: isSunsetAdminWritesEnabled(),
+    read_only: !writesOn,
+    writes_enabled: isSunsetAdminWritesEnabled() && adminWritesGate(clientSlug),
     elapsed_ms: elapsed,
   });
 }
@@ -41020,13 +41063,27 @@ async function handleCustomerCreateConversation(phoneRaw, query, req, res, user)
 
 function resolveSunsetConversationScope(clientSlug, query) {
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
-    return { scoped: false, locationId: null, queryOpts: {} };
+    // Generic tenant: attach channel_config via runtime allowlist; do not change DB location scope.
+    const locRaw = String((query && query.location) || '').trim().toLowerCase();
+    const channel = resolveTenantInboxChannelConfig(clientSlug, locRaw || null);
+    if (channel && channel.location_id) {
+      return {
+        scoped: false,
+        locationId: channel.location_id,
+        queryOpts: {},
+        attachChannel: true,
+        channelConfig: channel,
+      };
+    }
+    return { scoped: false, locationId: null, queryOpts: {}, attachChannel: false, channelConfig: null };
   }
   const locationId = normalizeSunsetLocationId(query.location);
   return {
     scoped: true,
     locationId,
     queryOpts: { locationScoped: true },
+    attachChannel: true,
+    channelConfig: resolveSunsetInboxChannelConfig(locationId),
   };
 }
 
@@ -41072,9 +41129,10 @@ async function handleConversationInbox(query, res, user) {
     count: rows.length,
     elapsed_ms: elapsed,
   };
-  if (scope.scoped) {
+  if (scope.scoped || scope.attachChannel) {
     payload.location_id = scope.locationId;
-    payload.channel_config = resolveSunsetInboxChannelConfig(scope.locationId);
+    payload.channel_config = scope.channelConfig
+      || resolveTenantInboxChannelConfig(clientSlug, scope.locationId);
   }
   return sendJSON(res, 200, payload);
 }
@@ -44278,6 +44336,7 @@ async function handleBedReassignConfirm(req, res) {
       current_role: sessionUser.role,
     });
   }
+  if (!enforceAuthenticatedStaffRouteAuthz(req, res, sessionUser)) return;
 
   // ── 3. Parse body ───────────────────────────────────────────────────────────
   let body = {};

@@ -11,6 +11,8 @@ const {
   adminConfigTablesExist,
   resolveFromConfigFile,
   loadLessonTimesFromConfig,
+  effectiveTenantPermission,
+  isReservedTenantSlug,
 } = require('./tenant-business-config');
 const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const locationStore = require('./sunset-admin-location-store');
@@ -151,6 +153,15 @@ function evaluateAdminWriteGate(ctx) {
   const clientSlug = String(ctx.clientSlug || '').trim();
   if (!isSunsetAdminWritesEnabled()) {
     return { ok: false, ...writesDisabledResponse() };
+  }
+  // Generic tenants: AND process-level writes with tenant permission; fail closed.
+  // Sunset + Wolfhouse reserved slugs keep prior process/unsupported_client behavior.
+  const slugLower = clientSlug.toLowerCase();
+  if (slugLower && slugLower !== SUNSET_ADMIN_CLIENT
+    && !(typeof isReservedTenantSlug === 'function' && isReservedTenantSlug(slugLower))) {
+    if (!effectiveTenantPermission(slugLower, 'admin_writes', ctx.env)) {
+      return { ok: false, ...writesDisabledResponse() };
+    }
   }
   if (clientSlug !== SUNSET_ADMIN_CLIENT) {
     return {
