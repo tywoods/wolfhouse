@@ -118,6 +118,13 @@ const {
   createUnavailableJobStartTransport,
   requestSpyglassRefreshAll,
 } = require('./lib/crowsnest/crowsnest-spyglass-refresh');
+const {
+  resolveSpyglassRefreshRuntimeConfig,
+  resolveManagedIdentityEndpointConfig,
+} = require('./lib/crowsnest/crowsnest-spyglass-refresh-runtime-config');
+const {
+  createAzureContainerAppsJobStartTransport,
+} = require('./lib/crowsnest/crowsnest-spyglass-refresh-azure-job-start');
 
 const METRICS_INGEST_TOKEN_ENV = 'CROWSNEST_METRICS_INGEST_TOKEN';
 const METRICS_INGEST_MAX_BODY = 64 * 1024; // snapshots are tiny; cap the surface
@@ -964,8 +971,8 @@ function resolveProtectedUiView(pathname) {
 }
 
 function resolveSpyglassRefreshConfiguredTargets() {
-  // Slice A: Sunset Somo staging is the only explicit configured target.
-  // Wolfhouse manual job exists in Azure but is not auto-assumed configured.
+  // Sunset Somo staging is the only explicit configured target.
+  // Wolfhouse / Sardinero are never auto-assumed configured in the runtime default.
   return [SUNSET_SOMO_STAGING_TARGET];
 }
 
@@ -980,8 +987,23 @@ function resolveSpyglassRefreshStartJob() {
   if (fixtureMode && !isProduction()) {
     return createFixtureSpyglassRefreshTransport();
   }
-  // Slice A: no Azure Job-start adapter yet — fail closed to unavailable.
-  return createUnavailableJobStartTransport('azure_job_start_not_wired');
+
+  // Production Azure adapter only when validated runtime config + MI endpoint exist.
+  // Fail closed to unavailable until Earthling binds identity / RBAC / env.
+  const runtime = resolveSpyglassRefreshRuntimeConfig(process.env);
+  const identity = resolveManagedIdentityEndpointConfig(process.env);
+  if (!runtime.ok || !identity.ok) {
+    return createUnavailableJobStartTransport('azure_job_start_not_configured');
+  }
+  if (typeof fetch !== 'function') {
+    return createUnavailableJobStartTransport('azure_job_start_fetch_unavailable');
+  }
+  return createAzureContainerAppsJobStartTransport({
+    fetch,
+    runtimeConfig: runtime.config,
+    identityEndpoint: identity.identity_endpoint,
+    identityHeader: identity.identity_header,
+  });
 }
 
 // POST /spyglass/refresh-all — authenticated operator requests reports from fixed

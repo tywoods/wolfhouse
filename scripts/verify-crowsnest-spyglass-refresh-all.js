@@ -206,22 +206,21 @@ function structuralAndContractChecks() {
   );
   ok(
     'contract has no global fetch / az CLI / pg',
-    !/\bfetch\b/.test(contractSrc)
+    !/\bfetch\s*\(/.test(contractSrc)
       && !/\baz\b/.test(contractSrc)
       && !/require\(['"]pg['"]\)/.test(contractSrc)
       && !/DefaultAzureCredential|ManagedIdentityCredential|@azure\//.test(contractSrc),
   );
   ok(
-    'api Slice A wiring has no Azure SDK / ARM token code',
-    !/DefaultAzureCredential|ManagedIdentityCredential|@azure\//.test(apiSrc)
-      && !/management\.azure\.com/.test(apiSrc),
+    'api wiring has no Azure SDK / DefaultAzureCredential',
+    !/DefaultAzureCredential|ManagedIdentityCredential|@azure\//.test(apiSrc),
   );
   ok(
-    'doc describes Slice B managed-identity Job-start + RBAC',
-    /Slice B/i.test(docSrc)
-      && /managed.?identity/i.test(docSrc)
+    'doc describes managed-identity Job-start + RBAC / Earthling delivery',
+    /managed.?identity/i.test(docSrc)
       && /RBAC/i.test(docSrc)
-      && /Job-?start|job start/i.test(docSrc),
+      && /Job-?start|job start|jobs\/start/i.test(docSrc)
+      && /Earthling/i.test(docSrc),
   );
   ok(
     'doc keeps scheduled reporting separate',

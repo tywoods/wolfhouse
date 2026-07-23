@@ -11,7 +11,7 @@
  *   started | not_configured | unavailable
  * Never claims every client refreshed / metrics refreshed.
  *
- * Slice B will supply a server-side identity-based cloud Job-start adapter; this
+ * Slice B supplies a server-side identity-based cloud Job-start adapter; this
  * module stays transport-agnostic.
  */
 

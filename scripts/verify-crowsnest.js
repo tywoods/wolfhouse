@@ -265,8 +265,21 @@ ok('Communications does not invent counts', !hasInventedMetricNumber(communicati
 
 ok('product doc labels Slice 1 as merged and deployed', /Slice 1/i.test(productDoc) && /merged and deployed/i.test(productDoc) && /14a7e3f7f656dd8a7dc11b528b8a645d3feb1210/.test(productDoc) && /crowsnest-internal--0000010/.test(productDoc) && /#128|PR #128|pull\/128/i.test(productDoc) && /cb11e/.test(productDoc) && /wh-staging-staff-api--0000520/.test(productDoc) && !/local candidate/i.test(productDoc));
 
-const crowsnestLibSrc = [pageSrc, clientsSrc, onboardingSrc, read(AUTH_PATH) || '', read(SALES_PATH) || ''].join('\n');
-ok('no fetch/axios/http outbound in crowsnest lib', !/\bfetch\s*\(|require\(['"]axios|require\(['"]node-fetch|https?\.request\s*\(|https?\.get\s*\(/.test(crowsnestLibSrc));
+const CROWSNEST_LIB_DIR = path.join(ROOT, 'scripts', 'lib', 'crowsnest');
+const CROWSNEST_OUTBOUND_ALLOWLIST = new Set([
+  // Slice B: dedicated Azure Container Apps Job-start adapter (injected fetch only).
+  'crowsnest-spyglass-refresh-azure-job-start.js',
+]);
+const crowsnestOutboundRe = /\bfetch\s*\(|require\(['"]axios|require\(['"]node-fetch|https?\.request\s*\(|https?\.get\s*\(/;
+const crowsnestLibOutboundViolations = fs.existsSync(CROWSNEST_LIB_DIR)
+  ? fs.readdirSync(CROWSNEST_LIB_DIR)
+    .filter((name) => name.endsWith('.js') && !CROWSNEST_OUTBOUND_ALLOWLIST.has(name))
+    .filter((name) => crowsnestOutboundRe.test(read(path.join(CROWSNEST_LIB_DIR, name)) || ''))
+  : ['missing-lib-dir'];
+ok(
+  'no fetch/axios/http outbound in crowsnest lib (except dedicated azure job-start adapter)',
+  crowsnestLibOutboundViolations.length === 0,
+);
 ok('/healthz route present', apiSrc.includes("pathname === '/healthz'"));
 ok('healthz returns service crowsnest', apiSrc.includes("service: 'crowsnest'"));
 ok('writes_enabled false in healthz', apiSrc.includes('writes_enabled: false'));
@@ -410,6 +423,7 @@ ok('package.json has verify:crowsnest-ai-usage-adapter', pkg && pkg.scripts && t
 ok('package.json has verify:crowsnest-ai-usage-store', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-store'] === 'string');
 ok('package.json has verify:crowsnest-client-metrics-reporter', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-client-metrics-reporter'] === 'string');
 ok('package.json has verify:crowsnest-spyglass-refresh-all', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-spyglass-refresh-all'] === 'string');
+ok('package.json has verify:crowsnest-spyglass-refresh-azure-job-start', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-spyglass-refresh-azure-job-start'] === 'string');
 ok('package.json has verify:crowsnest-sales', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-sales'] === 'string');
 ok('package.json has verify:crowsnest-sales-ux', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-sales-ux'] === 'string');
 ok('package.json has verify:crowsnest-sales-durable', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-sales-durable'] === 'string');
