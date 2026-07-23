@@ -1,0 +1,551 @@
+#!/usr/bin/env node
+'use strict';
+/** verify:messi-saas-stage2d1-plan-status — offline Stage 2D1 plan/status gate (no Azure writes). */
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
+const healthz = require('./lib/staff-api-healthz');
+const healthId = require('./lib/staff-api-health-identity');
+const ROOT = path.join(__dirname, '..');
+const BASE = 'ee5f344e1bd48bf02d5fa1adedcb2e89e2d5df68';
+const LIB_REL = 'scripts/lib/messi-saas-stage2d1-plan-status.js';
+const CLI_REL = 'scripts/messi-saas-stage2d1-plan-status.js';
+const DOC_REL = 'docs/MESSI-SAAS-STAGE2D1-PLAN-STATUS.md';
+const MOD_REL = 'infra/azure/modules/tenant-staging/main.bicep';
+const WRAP_REL = 'infra/azure/sunset-staging/main.bicep';
+const SUB_CFG = 'config/azure-staging-subscription.json';
+const HID_REL = 'scripts/lib/staff-api-health-identity.js';
+const API_REL = 'scripts/staff-query-api.js';
+const FILES = [LIB_REL, CLI_REL, 'scripts/verify-messi-saas-stage2d1-plan-status.js', DOC_REL,
+  'package.json', MOD_REL, SUB_CFG, HID_REL, API_REL];
+const SLUG = 'synthdemo';
+const SUB = '6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9';
+const RG = `luna-${SLUG}-staging-rg`;
+const SHA = 'a'.repeat(40);
+const PREFIX = `luna-${SLUG}-staging`;
+const TPL_BYTES = Buffer.from(JSON.stringify({
+  $schema: 'https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#',
+  contentVersion: '1.0.0.0', resources: [{ type: 'Microsoft.Resources/deployments', name: 'tenant' }], outputs: {},
+}), 'utf8');
+let pass = 0; let fail = 0;
+const ok = (n, c, d) => { if (c) { pass += 1; console.log(`  PASS  ${n}`); }
+else { fail += 1; console.log(`  FAIL  ${n}${d ? `\n        ${d}` : ''}`); } };
+function diffStat() {
+  const out = execFileSync('git', ['diff', '--numstat', BASE, '--', ...FILES], {
+    cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+  let rawAdd = 0; let rawDel = 0; const perFile = [];
+  for (const line of out.split('\n').filter(Boolean)) {
+    const [a, d, file] = line.split('\t');
+    const add = a === '-' ? 0 : Number(a); const del = d === '-' ? 0 : Number(d);
+    rawAdd += add; rawDel += del; perFile.push({ file, add, del });
+  }
+  for (const rel of FILES) {
+    if (perFile.some((p) => p.file === rel)) continue;
+    const abs = path.join(ROOT, rel); if (!fs.existsSync(abs)) continue;
+    let baseLines = 0;
+    try {
+      baseLines = execFileSync('git', ['show', `${BASE}:${rel}`], {
+        cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      }).split(/\r?\n/).length;
+    } catch (_) { baseLines = 0; }
+    const cur = fs.readFileSync(abs, 'utf8').split(/\r?\n/).length;
+    if (!baseLines) { rawAdd += cur; perFile.push({ file: rel, add: cur, del: 0 }); }
+  }
+  return { rawAdd, rawDel, net: rawAdd - rawDel, files: perFile.length };
+}
+function ownedTags(digest) {
+  return { tenant: SLUG, stage: 'saas-2d1', owner: 'messi-stage2d1', planDigest: digest, deploySha: SHA };
+}
+const PID = '11111111-2222-3333-4444-555555555555';
+const BICEP = ['/opt/data/.azure/bin/bicep', '/opt/data/home/.azure/bin/bicep'].find((p) => fs.existsSync(p));
+function foundationTop(lib, tags) {
+  const c = lib.buildExpectedResourceContract(lib.deriveNames(SLUG, SUB), { principalId: PID });
+  return c.foundationTopLevel.map((r) => ({
+    id: r.id, name: r.name, type: r.type, tags, provisioningState: 'Succeeded',
+  }));
+}
+function makeHarness(lib, opts = {}) {
+  const armLog = []; const gitLog = [];
+  let rg = null; let resources = []; let app = null; let job = null;
+  let secrets = []; let rolesByScope = {}; let nested = {};
+  let costFail = false; let costRows = [[12.5, 'USD']];
+  let identityOk = true; let branch = 'master'; let pages = null;
+  let miBody = { properties: { principalId: PID } };
+  const fakeTools = {
+    gitSha256: '1'.repeat(64), tarSha256: '2'.repeat(64), nodeSha256: '3'.repeat(64),
+    azSha256: '4'.repeat(64), bicepSha256: '5'.repeat(64), bicepVersion: 'Bicep CLI version 0.45.15 (test)',
+  };
+  const notFound = { status: 404, body: {} };
+  const deps = lib.createDeps({
+    repoRoot: ROOT, sleep: async () => {}, now: () => new Date('2026-07-23T12:00:00Z'),
+    toolAuthority: opts.toolAuthority || fakeTools, verifiedDeploySha: opts.verifiedDeploySha || SHA,
+    inExactSnapshot: opts.inExactSnapshot === true,
+    snapshotAdapter: opts.snapshotAdapter === null ? null
+      : (opts.snapshotAdapter || (() => ({ root: ROOT, cleanup: () => {} }))),
+    gitExec: (args) => {
+      const a = args.join(' '); gitLog.push(a);
+      if (a === 'fetch origin master') return '';
+      if (a === 'rev-parse --abbrev-ref HEAD') return branch;
+      if (a === 'status --porcelain') return opts.dirty ? ' M x' : '';
+      if (a === 'rev-parse HEAD' || a === 'rev-parse origin/master') return SHA;
+      return '';
+    },
+    azExec: (args) => {
+      if (args[0] === 'account' && args[1] === 'show') {
+        return JSON.stringify({ id: opts.activeSub || SUB, name: 'staging', state: 'Enabled' });
+      }
+      if (args[0] === 'account' && args[1] === 'get-access-token') {
+        return JSON.stringify({ accessToken: 'TEST_TOKEN_NOT_SECRET', expiresOn: '2099-01-01' });
+      }
+      throw new Error(`unexpected_az:${args.join(' ')}`);
+    },
+    bicepBuildBytes: () => Buffer.from(TPL_BYTES),
+    armRequest: async (req) => {
+      armLog.push({ method: req.method, path: req.path, body: req.body || null });
+      const p = req.path || '';
+      if (req.method === 'GET' && /resourcegroups\/[^/?]+(\?|$)/i.test(p)
+        && !/providers\//i.test(p.split('resourcegroups/')[1] || '')) {
+        return rg ? { status: 200, body: rg } : { status: 404, body: { error: { code: 'ResourceGroupNotFound' } } };
+      }
+      if (/CostManagement\/query/i.test(p)) {
+        return costFail ? { status: 503, body: {} }
+          : { status: 200, body: { properties: { columns: [{ name: 'PreTaxCost' }, { name: 'Currency' }], rows: costRows } } };
+      }
+      if (/\/resources(\?|&|$)/i.test(p) || /skiptoken=/i.test(p)) {
+        if (Array.isArray(pages)) {
+          return { status: 200, body: pages[armLog.filter((x) => /\/resources/i.test(x.path)).length - 1] || { value: [] } };
+        }
+        return { status: 200, body: { value: resources } };
+      }
+      if (/userAssignedIdentities\//i.test(p)) return miBody ? { status: 200, body: miBody } : notFound;
+      if (/roleAssignments/i.test(p)) {
+        const m = p.match(/roleAssignments\/([0-9a-f-]{36})(?:\?|$)/i);
+        if (m) {
+          for (const list of Object.values(rolesByScope)) {
+            const hit = (list || []).find((r) => String(r.name || '').toLowerCase() === m[1].toLowerCase());
+            if (hit) return { status: 200, body: hit };
+          }
+          return notFound;
+        }
+        return { status: 200, body: { value: rolesByScope[p.split('/providers/Microsoft.Authorization/roleAssignments')[0]] || [] } };
+      }
+      if (/KeyVault\/vaults/i.test(p) && /\/secrets(\/|\?|$)/i.test(p)) {
+        const m = p.match(/\/secrets\/([^/?]+)(?:\?|$)/i);
+        if (m) {
+          const hit = secrets.find((s) => s.name === decodeURIComponent(m[1]));
+          return hit ? { status: 200, body: { id: hit.id, name: hit.name, tags: hit.tags || {} } } : notFound;
+        }
+        return { status: 200, body: { value: secrets } };
+      }
+      if (/databases\//i.test(p) || /virtualNetworkLinks\//i.test(p)) {
+        const key = Object.keys(nested).find((k) => p.includes(k));
+        return key ? { status: 200, body: nested[key] } : notFound;
+      }
+      if (/\/jobs\//i.test(p) && !/executions/i.test(p)) return job ? { status: 200, body: job } : notFound;
+      if (/containerApps\//i.test(p) && !/revisions\//i.test(p)) return app ? { status: 200, body: app } : notFound;
+      if (/revisions\//i.test(p)) {
+        return { status: 200, body: { properties: { runningState: 'Running', healthState: 'Healthy', replicas: 1 } } };
+      }
+      if (/roleAssignments\/|\/secrets\//i.test(p)) return notFound;
+      return { status: 200, body: {} };
+    },
+    httpsRequest: async (o) => {
+      if ((o.path || '') !== healthId.HEALTH_IDENTITY_PATH) return { status: 404, body: '' };
+      if (!identityOk) return { status: 503, body: '{}' };
+      return { status: 200, body: JSON.stringify({ status: 'ok', service: 'staff-api', default_client_slug: SLUG }) };
+    },
+  });
+  return {
+    deps, armLog, gitLog,
+    setRg(v) { rg = v; }, setResources(v) { resources = v; }, setApp(v) { app = v; },
+    setJob(v) { job = v; }, setSecrets(v) { secrets = v; }, setRoles(v) { rolesByScope = v; },
+    setNested(v) { nested = v; }, setMi(v) { miBody = v; },
+    setCostFail(v) { costFail = v; }, setCostRows(v) { costRows = v; },
+    setIdentityOk(v) { identityOk = v; }, setBranch(v) { branch = v; }, setPages(v) { pages = v; },
+  };
+}
+function seedFoundation(h, lib, tags) {
+  const names = lib.deriveNames(SLUG, SUB);
+  const c = lib.buildExpectedResourceContract(names, { principalId: PID });
+  h.setResources(foundationTop(lib, tags));
+  h.setNested({
+    [c.nestedChildren[0].id]: { id: c.nestedChildren[0].id, name: c.nestedChildren[0].name, type: c.nestedChildren[0].type },
+    [c.nestedChildren[1].id]: {
+      id: c.nestedChildren[1].id, name: c.nestedChildren[1].name, type: c.nestedChildren[1].type, tags,
+    },
+  });
+  const kv = c.roleAssignments.find((r) => r.kind === 'kv');
+  const acr = c.roleAssignments.find((r) => r.kind === 'acr');
+  const roleBody = (role) => [{
+    id: role.id, name: role.name, type: role.type,
+    properties: {
+      roleDefinitionId: `/subscriptions/${SUB}/providers/Microsoft.Authorization/roleDefinitions/${role.roleDefinitionId}`,
+      principalId: PID, scope: role.scope,
+    },
+  }];
+  h.setRoles({ [kv.scope]: roleBody(kv), [acr.scope]: roleBody(acr) });
+  return c;
+}
+function compileBicep(file) {
+  const out = path.join(require('os').tmpdir(), `d1-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
+  execFileSync(BICEP, ['build', file, '--outfile', out], {
+    cwd: ROOT, env: { ...process.env, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: '1', PATH: '/usr/bin:/bin' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const json = JSON.parse(fs.readFileSync(out, 'utf8'));
+  try { fs.unlinkSync(out); } catch (_) { /* */ }
+  return json;
+}
+async function main() {
+  console.log('verify:messi-saas-stage2d1-plan-status — Stage 2D1\n');
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  ok('package_script', pkg.scripts['verify:messi-saas-stage2d1-plan-status']
+    === 'node scripts/verify-messi-saas-stage2d1-plan-status.js');
+  ok('files_exist', [CLI_REL, LIB_REL, DOC_REL, SUB_CFG].every((r) => fs.existsSync(path.join(ROOT, r))));
+  let lib;
+  try { lib = require('./lib/messi-saas-stage2d1-plan-status'); }
+  catch (e) { ok('lib_loads', false, String(e.message)); process.exit(1); }
+  ok('lib_loads', !!lib);
+  ok('api_surface', typeof lib.plan === 'function' && typeof lib.status === 'function'
+    && typeof lib.createDeps === 'function' && typeof lib.apply !== 'function'
+    && typeof lib.rollback !== 'function');
+  const doc = fs.readFileSync(path.join(ROOT, DOC_REL), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8') + fs.readFileSync(path.join(ROOT, CLI_REL), 'utf8');
+  const apiSrc = fs.readFileSync(path.join(ROOT, API_REL), 'utf8');
+  ok('docs_exact_commands', /messi-saas-stage2d1-plan-status\.js plan/.test(doc)
+    && /messi-saas-stage2d1-plan-status\.js status/.test(doc) && !/\bapply --/.test(doc)
+    && /expected-plan-digest|freshly derived plan digest/i.test(doc));
+  ok('readonly_and_authority', !/--manifest[_-]dir/.test(src) && !/\basync function apply\b/.test(src)
+    && !/\basync function rollback\b/.test(src) && !/acr',\s*'build'|method:\s*'DELETE'/i.test(src)
+    && !/expectedPlanDigest/.test(fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8'))
+    && /fetch',\s*'origin',\s*'master'/.test(src) && /branch_not_master/.test(src)
+    && /archive',\s*'--format=tar'/.test(src) && !/archive',\s*'--format=tar',\s*'HEAD'/.test(src)
+    && /verifiedDeploySha/.test(src) && /0o700|chmodSync\(tmp,\s*0o700\)/.test(src)
+    && /snapshotAdapter/.test(src) && /subscription_mismatch/.test(src) && /nextLink/.test(src)
+    && /HEALTH_IDENTITY_PATH|healthz\/identity/.test(src)
+    && /\/usr\/bin\/git/.test(src) && /\/usr\/local\/bin\/node/.test(src)
+    && /internal-snapshot-worker/.test(src) && /readCapabilityFd|CAPABILITY_FD/.test(src)
+    && /assertSafeTarMembers|tar_member_/.test(src) && /toolAuthority|bicepVersion/.test(src)
+    && /verifyLauncherBytes|launcher_bytes_mismatch/.test(src) && /buildSanitizedChildEnv/.test(src)
+    && /account',\s*'get-access-token'/.test(src) && /CostManagement\/query/.test(src)
+    && /factory-slice1c-dry-run-generator/.test(src) && /messi-saas-stage1-materialize/.test(src)
+    && /realpathSync|lstatSync/.test(src));
+  const mod = fs.readFileSync(path.join(ROOT, MOD_REL), 'utf8');
+  const wrap = fs.readFileSync(path.join(ROOT, WRAP_REL), 'utf8');
+  ok('alerts_and_sub', /param deployCapacityAlerts bool = false/.test(mod)
+    && /deployCapacityAlerts && syntheticRuntimePhase/.test(mod)
+    && /!enablePrivateNetwork \|\| \(deployCapacityAlerts && syntheticRuntimePhase\)/.test(mod)
+    && /opsActionGroupResourceId string = '\/subscriptions\/6dfa56e7/.test(wrap)
+    && !/deployCapacityAlerts:/.test(wrap)
+    && JSON.parse(fs.readFileSync(path.join(ROOT, SUB_CFG), 'utf8')).subscriptionId === SUB);
+  ok('health_identity_endpoint', healthId.HEALTH_IDENTITY_PATH === '/healthz/identity'
+    && typeof healthId.handleStaffApiHealthIdentity === 'function'
+    && /HEALTH_IDENTITY_PATH/.test(apiSrc) && /handleStaffApiHealthIdentity/.test(apiSrc));
+  {
+    const bodies = [];
+    healthId.handleStaffApiHealthIdentity({}, (res, status, body) => {
+      bodies.push({ status, body }); return body;
+    }, { env: { DEFAULT_CLIENT_SLUG: SLUG, STRIPE_SECRET_KEY: 'sk_live_SHOULD_NOT_LEAK' } });
+    ok('health_identity_no_secrets', bodies[0] && bodies[0].status === 200
+      && bodies[0].body.default_client_slug === SLUG
+      && !JSON.stringify(bodies[0].body).includes('sk_live')
+      && healthId.assertPublicHealthIdentityBody(bodies[0].body, SLUG).ok
+      && healthz.assertPublicHealthzBody(healthz.HEALTHZ_BODY).ok);
+  }
+  {
+    const h = makeHarness(lib);
+    const r = await lib.plan({ slug: SLUG }, h.deps);
+    const costCalls = h.armLog.filter((x) => /CostManagement\/query/i.test(x.path));
+    ok('plan_ok_core_cost', r.ok === true && r.plan.rgExists === false && r.plan.resourceGroupName === RG
+      && /^[a-f0-9]{64}$/.test(r.plan.planDigest) && r.plan.compiledTemplateSha256 === lib.sha256(TPL_BYTES)
+      && r.plan.deploySha === SHA && r.plan.subscriptionId === SUB && r.plan.currentCost.amount === 12.5
+      && r.plan.capacityAlerts.enabled === false && costCalls.length >= 1
+      && costCalls.every((c) => c.method === 'POST'
+        && /\/subscriptions\/[^/]+\/providers\/Microsoft\.CostManagement\/query/.test(c.path)
+        && c.body.dataset.filter.dimensions.values.includes(RG)),
+    JSON.stringify(r.errors || r).slice(0, 200));
+  }
+  {
+    const h = makeHarness(lib); h.setCostFail(true);
+    const r = await lib.plan({ slug: SLUG }, h.deps);
+    ok('plan_cost_fail_closed', r.ok === false && (r.errors || []).some((e) => /cost/i.test(e.code || ''))
+      && !((r.plan || {}).currentCost && r.plan.currentCost.amount === 0));
+  }
+  {
+    const h = makeHarness(lib);
+    ok('plan_rejects_reserved', (await lib.plan({ slug: 'sunset' }, h.deps)).ok === false);
+  }
+  {
+    const h = makeHarness(lib);
+    h.setRg({ name: RG, tags: ownedTags('x') });
+    const r = await lib.plan({ slug: SLUG }, h.deps);
+    ok('plan_rejects_existing_rg_no_soft', r.ok === false && (r.errors || []).some((e) => /rg_exists/i.test(e.code || '')));
+  }
+  {
+    const h = makeHarness(lib); h.setBranch('captain/messi-saas-2d1-plan-status');
+    const r = await lib.plan({ slug: SLUG }, h.deps);
+    ok('plan_requires_master_branch', r.ok === false
+      && (r.errors || []).some((e) => e.code === 'branch_not_master'));
+  }
+  {
+    const h = makeHarness(lib, { activeSub: '00000000-0000-0000-0000-000000000099' });
+    const r = await lib.plan({ slug: SLUG }, h.deps);
+    ok('plan_rejects_sub_mismatch', r.ok === false
+      && (r.errors || []).some((e) => e.code === 'subscription_mismatch'));
+  }
+  {
+    const prev = process.env.AZURE_CONFIG_DIR;
+    process.env.AZURE_CONFIG_DIR = '/tmp/evil-azure-config-should-not-change-expected-sub';
+    const auth = lib.readStagingSubscriptionAuthority(ROOT);
+    ok('azure_config_dir_cannot_alter_expected_sub', auth.ok && auth.subscriptionId === SUB);
+    if (prev == null) delete process.env.AZURE_CONFIG_DIR; else process.env.AZURE_CONFIG_DIR = prev;
+  }
+    {
+    const h = makeHarness(lib);
+    const r = await lib.status({ slug: SLUG }, h.deps);
+    const planned = await lib.plan({ slug: SLUG }, h.deps);
+    ok('status_absent', r.ok && r.present === false && r.phase === 'absent'
+      && r.comparedAgainst === 'arm_readback' && r.ignoresLocalState === true
+      && (await lib.status({ slug: SLUG, expectedPlanDigest: 'f'.repeat(64) }, h.deps)).planDigest
+      === planned.plan.planDigest);
+  }
+  {
+    const h = makeHarness(lib);
+    const planned = await lib.plan({ slug: SLUG }, h.deps);
+    const digest = planned.plan.planDigest;
+    const tags = ownedTags(digest);
+    const c = lib.buildExpectedResourceContract(lib.deriveNames(SLUG, SUB), { principalId: PID });
+    ok('contract_exact_counts', c.counts.foundationTopLevel === 10 && c.counts.nestedChildren === 2
+      && c.counts.roleAssignments === 2 && c.counts.runtimeSecrets === 14
+      && c.runtimeSecretNames.length === 14 && c.runtimeSecretNames[1] === `${SLUG}-database-url`
+      && c.roleAssignments[0].name && c.roleAssignments[1].name
+      && c.roleAssignments[1].scope.includes('wh-staging-rg')
+      && c.ignoreTypes.includes('Microsoft.Resources/deployments'));
+    h.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    seedFoundation(h, lib, tags);
+    h.setResources([
+      ...foundationTop(lib, tags).slice(0, 3),
+      { id: 'x', name: 'rogue-storage', type: 'Microsoft.Storage/storageAccounts', tags: {}, provisioningState: 'Succeeded' },
+      { id: 'dep', name: 'nested', type: 'Microsoft.Resources/deployments', tags: {}, provisioningState: 'Succeeded' },
+    ]);
+    const r = await lib.status({ slug: SLUG }, h.deps);
+    ok('status_flags_missing_and_unexpected', r.phase === 'foundation'
+      && (r.findings || []).some((f) => f.code === 'missing_resource')
+      && (r.findings || []).some((f) => f.code === 'unexpected_resource' && f.name === 'rogue-storage')
+      && !(r.findings || []).some((f) => f.type === 'Microsoft.Resources/deployments'),
+    JSON.stringify(r.findings || r.errors || r).slice(0, 280));
+  }
+  {
+    const h = makeHarness(lib);
+    const planned = await lib.plan({ slug: SLUG }, h.deps);
+    const tags = ownedTags(planned.plan.planDigest);
+    h.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    const c = seedFoundation(h, lib, tags);
+    h.setJob({ id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type, tags });
+    const r = await lib.status({ slug: SLUG }, h.deps);
+    ok('status_phase_bootstrap_active', r.phase === 'bootstrap-active' && r.ok === true,
+      JSON.stringify(r.findings || r.errors || r).slice(0, 240));
+  }
+  {
+    const h = makeHarness(lib);
+    const planned = await lib.plan({ slug: SLUG }, h.deps);
+    const tags = ownedTags(planned.plan.planDigest);
+    h.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    seedFoundation(h, lib, tags);
+    const r = await lib.status({ slug: SLUG }, h.deps);
+    ok('status_phase_foundation_after_job_cleanup', r.phase === 'foundation' && r.ok === true
+      && r.live && r.live.jobExists === false && r.live.secretCount === 0,
+      JSON.stringify(r.findings || r.errors || r).slice(0, 240));
+  }
+  {
+    const h = makeHarness(lib);
+    const planned = await lib.plan({ slug: SLUG }, h.deps);
+    const tags = ownedTags(planned.plan.planDigest);
+    h.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    const tops = foundationTop(lib, tags);
+    h.setPages([
+      {
+        value: tops.slice(0, 5),
+        nextLink: `https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/resources?api-version=2021-04-01&$skiptoken=page2`,
+      },
+      { value: tops.slice(5) },
+    ]);
+    seedFoundation(h, lib, tags);
+    const r = await lib.status({ slug: SLUG }, h.deps);
+    ok('status_follows_nextlink_same_host_sub', r.phase === 'foundation'
+      && (r.resources || []).length === tops.length
+      && h.armLog.filter((x) => /\/resources/i.test(x.path)).length >= 2,
+    JSON.stringify(r.findings || r.errors || { n: (r.resources || []).length }).slice(0, 240));
+  }
+  {
+    const h = makeHarness(lib);
+    const planned = await lib.plan({ slug: SLUG }, h.deps);
+    const tags = ownedTags(planned.plan.planDigest);
+    h.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    h.setPages([{
+      value: foundationTop(lib, tags).slice(0, 2),
+      nextLink: `https://evil.example/subscriptions/${SUB}/resourceGroups/${RG}/resources?api-version=2021-04-01`,
+    }]);
+    const r = await lib.status({ slug: SLUG }, h.deps);
+    ok('status_rejects_evil_nextlink_host', r.ok === false
+      && (r.errors || []).some((e) => /nextlink_host/i.test(e.code || '')));
+  }
+
+  {
+    const bad = lib.assertSafeTarMembers('ok/file.txt\n/abs/evil\n../x\n', '-rw-r--r-- 0 0 0 file\nlrwxrwxrwx 0 0 0 link -> x\n');
+    let archivedSha = null;
+    const h = makeHarness(lib, { snapshotAdapter: ({ verifiedDeploySha }) => {
+      archivedSha = verifiedDeploySha; return { root: ROOT, cleanup: () => {} };
+    } });
+    const r = await lib.plan({ slug: SLUG }, h.deps);
+    const mismatch = lib.verifyLauncherBytes({
+      repoRoot: ROOT, pinnedBins: lib.PINNED_BINS, gitShowBytes: () => Buffer.from('NOT_THE_LAUNCHER'),
+    }, SHA, [CLI_REL]);
+    const refuse = lib.readCapabilityFd(9999);
+    ok('snapshot_authority_locks', bad.ok === false && bad.errors.some((e) => e.code === 'tar_member_path')
+      && r.ok && archivedSha === SHA && r.plan.toolAuthority.gitSha256 === '1'.repeat(64)
+      && r.plan.toolAuthority.nodePath === '/usr/local/bin/node' && r.plan.stagingSubscriptionConfigSha256
+      && mismatch.ok === false && mismatch.errors.some((e) => e.code === 'launcher_bytes_mismatch')
+      && refuse.ok === false && refuse.errors.some((e) => /internal_capability/.test(e.code)));
+  }
+  {
+    const h = makeHarness(lib);
+    const planned = await lib.plan({ slug: SLUG }, h.deps);
+    const tags = ownedTags(planned.plan.planDigest);
+    h.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    h.setResources(foundationTop(lib, tags).slice(0, 2));
+    h.setNested({});
+    h.setRoles({});
+    const r = await lib.status({ slug: SLUG }, h.deps);
+    const missing = (r.findings || []).filter((f) => f.code === 'missing_resource').map((f) => f.name);
+    ok('status_expected_names_not_stale', r.phase === 'foundation'
+      && missing.includes(`${PREFIX}-kv`)
+      && missing.includes(`${PREFIX}-pg-app`)
+      && missing.includes(`${PREFIX}-vnet`)
+      && missing.includes('privatelink.postgres.database.azure.com')
+      && !missing.includes(`${PREFIX}-logs`)
+      && !missing.includes(`${PREFIX}-appinsights`)
+      && r.expectedNames && r.expectedNames.staffApiAppName === `${PREFIX}-staff-api`);
+  }
+  {
+    const h = makeHarness(lib);
+    const planned = await lib.plan({ slug: SLUG }, h.deps);
+    const tags = ownedTags(planned.plan.planDigest);
+    h.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    const c = seedFoundation(h, lib, tags);
+    h.setSecrets(c.runtimeSecrets.map((s) => ({ id: s.id, name: s.name, tags })));
+    const r = await lib.status({ slug: SLUG }, h.deps);
+    ok('status_phase_runtime_prereqs', r.phase === 'runtime-prereqs' && r.ok === true
+      && r.live.secretsExact === 14 && r.live.appExists === false,
+      JSON.stringify(r.findings || r.errors || r).slice(0, 240));
+  }
+  {
+    const h = makeHarness(lib);
+    const planned = await lib.plan({ slug: SLUG }, h.deps);
+    const tags = ownedTags(planned.plan.planDigest);
+    h.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    const c = seedFoundation(h, lib, tags);
+    h.setSecrets(c.runtimeSecrets.slice(0, 3).map((s) => ({ id: s.id, name: s.name, tags })));
+    const r = await lib.status({ slug: SLUG }, h.deps);
+    ok('status_partial_secrets_unhealthy', r.phase === 'foundation' && r.ok === false
+      && (r.findings || []).some((f) => f.code === 'unexpected_resource'
+        && f.type === 'Microsoft.KeyVault/vaults/secrets'),
+      JSON.stringify(r.findings || r.errors || r).slice(0, 240));
+  }
+  {
+    const h = makeHarness(lib);
+    const planned = await lib.plan({ slug: SLUG }, h.deps);
+    const tags = ownedTags(planned.plan.planDigest);
+    h.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    const c = seedFoundation(h, lib, tags);
+    h.setSecrets(c.runtimeSecrets.map((s) => ({ id: s.id, name: s.name, tags })));
+    h.setApp({
+      id: c.runtimeApp.id, tags,
+      properties: {
+        provisioningState: 'Succeeded', latestRevisionName: `${PREFIX}-staff-api--rev1`,
+        configuration: { ingress: { fqdn: `${SLUG}.example.azurecontainerapps.io` } },
+        template: {
+          containers: [{
+            name: `${PREFIX}-staff-api`,
+            image: 'whstagingacr.azurecr.io/luna-sunset-staff-api@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            env: [
+              { name: 'DEFAULT_CLIENT_SLUG', value: SLUG },
+              { name: 'STAFF_API_INGRESS_TENANT_SLUG', value: SLUG },
+              { name: 'STAFF_ACTIONS_ENABLED', value: 'false' },
+              { name: 'STRIPE_LINKS_ENABLED', value: 'false' },
+              { name: 'WHATSAPP_DRY_RUN', value: 'true' },
+            ],
+          }],
+          scale: { minReplicas: 1, maxReplicas: 1 },
+        },
+      },
+    });
+    const r = await lib.status({ slug: SLUG }, h.deps);
+    const ids = [...c.roleAssignments.map((x) => x.id), ...c.runtimeSecrets.map((x) => x.id)];
+    const got = (id) => h.armLog.some((x) => x.method === 'GET' && (x.path || '').includes(id));
+    const targeted = h.armLog.filter((x) => /databases\/|virtualNetworkLinks\/|roleAssignments|\/secrets\?|\/jobs\/|userAssignedIdentities\//i.test(x.path));
+    const libSrc = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8');
+    ok('status_revision_ready_and_identity_exact', r.ok && r.phase === 'runtime' && r.app
+      && r.app.revisionRunning === 'Running' && r.app.revisionHealth === 'Healthy'
+      && r.app.readyTerminal === true && r.app.healthIdentityOk === true
+      && r.app.healthIdentityBody && r.app.healthIdentityBody.default_client_slug === SLUG
+      && Object.keys(r.app.healthIdentityBody).sort().join(',') === 'default_client_slug,service,status'
+      && targeted.length >= 5,
+      JSON.stringify({ app: r.app, findings: r.findings, targeted: targeted.length }).slice(0, 280));
+    ok('status_exact_16_contract_ids', ids.length === 16 && ids.every(got)
+      && c.roleAssignments.every((role) => h.armLog.some((x) => new RegExp(`roleAssignments/${role.name}(\\?|$)`, 'i').test(x.path || '')))
+      && c.runtimeSecrets.every((s) => h.armLog.some((x) => (x.path || '').includes(`/secrets/${s.name}`)))
+      && /\$\{expected\.id\}\?api-version=\$\{ROLE_API\}/.test(libSrc)
+      && /\$\{exp\.id\}\?api-version=\$\{KV_API\}/.test(libSrc),
+    `exact=${ids.filter(got).length}`);
+    const realArm = h.deps.armRequest;
+    h.deps.armRequest = async (req) => (/roleAssignments\/[0-9a-f-]{36}|\/secrets\/[^/?]+(\?|$)/i.test(req.path || '')
+      ? { status: 404, body: {} } : realArm(req));
+    h.armLog.length = 0;
+    const listOnly = await lib.status({ slug: SLUG }, h.deps);
+    ok('status_list_only_exact_gets_fail', listOnly.ok === false && listOnly.phase === 'foundation'
+      && (listOnly.live || {}).secretsExact === 0 && ((listOnly.live || {}).roles || 0) === 0
+      && (listOnly.findings || []).some((f) => f.code === 'missing_role_assignment'),
+    JSON.stringify({ phase: listOnly.phase, live: listOnly.live }).slice(0, 200));
+  }
+  {
+    const names = lib.deriveNames(SLUG, SUB);
+    const contract = lib.buildExpectedResourceContract(names, { principalId: PID });
+    if (!BICEP) ok('compile_c1_c2_c3_phase_fixtures', false, 'no bicep');
+    else {
+      try {
+        const blob = (rel) => JSON.stringify(compileBicep(path.join(ROOT, rel)));
+        const mainB = blob(MOD_REL);
+        const secB = blob('infra/azure/modules/tenant-staging/synthetic-runtime-secrets.bicep');
+        const netB = blob('infra/azure/modules/tenant-staging/private-network.bicep');
+        const jobB = blob('infra/azure/modules/tenant-staging/synthetic-bootstrap-job.bicep');
+        const c1 = JSON.parse(fs.readFileSync(path.join(ROOT, 'infra/azure/modules/tenant-staging/parameters.synthetic.json'), 'utf8'));
+        const c3 = JSON.parse(fs.readFileSync(path.join(ROOT, 'infra/azure/modules/tenant-staging/parameters.synthetic-runtime.json'), 'utf8'));
+        ok('compile_c1_c2_c3_phase_fixtures',
+          /natGateways/.test(netB) && /Microsoft.App\/jobs/.test(jobB)
+          && /vaults\/secrets/.test(secB) && /containerApps/.test(mainB)
+          && c1.parameters.deployStaffApi.value === false
+          && c3.parameters.runtimeDeploymentPhase.value === 'runtime-app'
+          && contract.runtimeSecretNames.every((n) => secB.includes(n) || n === `${SLUG}-database-url`)
+          && /bootstrap/.test(jobB));
+      } catch (e) {
+        ok('compile_c1_c2_c3_phase_fixtures', false, String(e.stderr || e.message || e).slice(0, 240));
+      }
+    }
+  }
+  {
+    const cli = fs.readFileSync(path.join(ROOT, CLI_REL), 'utf8');
+    const libSrc = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8');
+    ok('cli_parent_and_surface', /runProductionParent/.test(cli) && /INTERNAL_FLAG/.test(cli)
+      && libSrc.includes('/usr/local/bin/node') && libSrc.includes('internal-snapshot-worker')
+      && /spawn\(pins\.node/.test(libSrc) && /plan|status/.test(cli)
+      && !/\bapply\b|\brollback\b/.test(cli) && /expected_plan_digest_removed|expectedPlanDigest/.test(cli));
+  }
+  const st = diffStat();
+  ok('file_budget', st.files <= 10, `files=${st.files}`);
+  ok('net_budget', st.net <= 1650, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
+  process.exit(fail ? 1 : 0);
+}
+main().catch((e) => { console.error(e); process.exit(1); });
