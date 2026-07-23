@@ -142,15 +142,19 @@ ok('handleProtectedUi passes view/route into page renderer', /renderCrowsnestPag
 ok('unknown path still returns 404 JSON', routerBody.includes("sendJSON(res, 404") && /not found/.test(routerBody));
 
 ok('default render is Spyglass heading', /Spyglass/i.test(uiHtml) && /<h1[^>]*>[\s\S]*Spyglass/i.test(uiHtml));
-// ── Iris: Spyglass is now a populated (sample-data) overview, not a counts shell ──
-ok('Iris Spyglass renders expandable client rows with names', uiHtml.includes('client-row') && uiHtml.includes('Wolfhouse Somo') && uiHtml.includes('Sunset Somo') && uiHtml.includes('Sunset Sardinero'));
+// ── Pupil slice 1: Spyglass client rows are LIVE (Crowsnest metrics store); AI usage still sample ──
+ok('Spyglass renders expandable client rows with names', uiHtml.includes('client-row') && uiHtml.includes('Wolfhouse Somo') && uiHtml.includes('Sunset Somo') && uiHtml.includes('Sunset Sardinero'));
 ok('default Spyglass does not render onboarding form', !uiHtml.includes('New client onboarding'));
 ok('spyglass alias matches default with client rows', /Spyglass/i.test(spyglassAliasHtml) && spyglassAliasHtml.includes('client-row'));
-ok('Iris Spyglass renders full-width AI usage panel', /ai-usage-panel/.test(uiHtml) && /AI usage/i.test(uiHtml));
-ok('Iris Spyglass clearly labels sample data', /sample data/i.test(uiHtml) && uiHtml.includes('sample-badge') && uiHtml.includes('sample-banner'));
-ok('Iris Spyglass states numbers are not live telemetry', /not live telemetry/i.test(uiHtml));
-// Numbers ARE now allowed on Spyglass, but only alongside explicit sample labeling (guarded above).
-ok('Iris Spyglass numbers appear only with sample labeling', !hasInventedMetricNumber(uiHtml) || /sample/i.test(uiHtml));
+ok('Spyglass renders full-width AI usage panel', /ai-usage-panel/.test(uiHtml) && /AI usage/i.test(uiHtml));
+ok('Spyglass AI usage panel still clearly labelled sample', /sample data/i.test(uiHtml) && uiHtml.includes('sample-badge'));
+ok('Spyglass AI usage stated not live telemetry', /not live telemetry/i.test(uiHtml));
+// Client metrics now come from the Crowsnest-owned store — with no store data the page must be honest.
+ok('Spyglass client rows are live-sourced (honest "not reporting yet" when empty)', /not reporting yet/i.test(uiHtml));
+ok('Spyglass default shows 0 reporting, no fabricated client numbers', /0\/3 reporting|0 reporting/.test(uiHtml));
+ok('Spyglass reads from Crowsnest own store, not tenant DB', /own metrics store/i.test(uiHtml) && /no direct access to tenant/i.test(uiHtml));
+// Remaining Spyglass numbers (AI usage) are permitted only alongside explicit sample labeling.
+ok('Spyglass numbers appear only with sample labeling', !hasInventedMetricNumber(uiHtml) || /sample/i.test(uiHtml));
 ok('Spyglass includes read-only / no-live-writes language', /read-only|no live writes|no writes/i.test(uiHtml));
 ok('Spyglass shows static client count from in-memory data', /\b3\b/.test(uiHtml) && /client/i.test(uiHtml));
 

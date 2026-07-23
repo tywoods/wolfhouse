@@ -9,7 +9,7 @@ const path = require('path');
 
 const { getCrowsnestClients, getCrowsnestTemplates } = require('./crowsnest-clients');
 const { renderCrowsnestOnboardingSection } = require('./crowsnest-onboarding');
-const { getSampleClientMetrics, getSampleAiUsage } = require('./crowsnest-sample-telemetry');
+const { getSampleAiUsage } = require('./crowsnest-sample-telemetry');
 
 const SUNSET_LOGIN_CSS = fs.readFileSync(
   path.join(__dirname, '..', '..', '..', 'config', 'staff-portal', 'staff-login-page.css'),
@@ -679,6 +679,7 @@ h2.section{
 .cr-metric{background:var(--surface-raised);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:10px 12px}
 .cr-metric-label{display:block;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3)}
 .cr-metric-value{display:block;margin-top:3px;font-size:1.2rem;font-weight:800;color:var(--navy)}
+.cr-not-reporting{margin:14px 0;font-size:13px;color:var(--text-3);line-height:1.5;font-style:italic}
 .env-mini{margin-top:4px}
 .env-mini .env-heading{margin-bottom:10px}
 
@@ -978,16 +979,46 @@ function renderAiUsagePanel(usage) {
       </section>`;
 }
 
-function renderSpyglassClientRow(client, metrics) {
-  const m = metrics || {};
-  const notLive = m.live === false;
-  const humanClass = m.needs_human > 0 ? ' cr-chip--alert' : '';
+function roundNum(n) {
+  return Math.round(Number(n) || 0);
+}
+
+// Compact, deterministic last-active from an ISO-8601 UTC instant (no Date.now()).
+function formatLastActive(iso) {
+  if (!iso || typeof iso !== 'string' || iso.length < 16) return '—';
+  return `${iso.slice(11, 16)} UTC · ${iso.slice(5, 10)}`;
+}
+
+// Extract display fields from a crowsnest.client_metrics.v1 snapshot, or null when the
+// client is not reporting a `measured` snapshot (→ "not reporting yet").
+function readClientMetrics(event) {
+  const m = event && event.metrics;
+  if (!m || m.availability !== 'measured') return null;
+  return {
+    conversations: roundNum(m.conversations_total),
+    messagesPerDay: roundNum(m.messages_per_day_avg),
+    needsHuman: roundNum(m.conversations_needing_human),
+    lastActive: formatLastActive(m.last_activity_at),
+  };
+}
+
+function renderSpyglassClientRow(client, event) {
+  const m = readClientMetrics(event);
+  const humanClass = m && m.needsHuman > 0 ? ' cr-chip--alert' : '';
   const envRows = (client.environments || []).map(renderEnvironmentRow).join('\n            ');
-  const summaryChips = notLive
+  const summaryChips = !m
     ? '<span class="cr-chip cr-chip--muted">not reporting yet</span>'
     : `<span class="cr-chip">${escapeHtml(String(m.conversations))} convs</span>
-            <span class="cr-chip">${escapeHtml(String(m.messages_per_day))}/day</span>
-            <span class="cr-chip${humanClass}">${escapeHtml(String(m.needs_human))} need human</span>`;
+            <span class="cr-chip">${escapeHtml(String(m.messagesPerDay))}/day</span>
+            <span class="cr-chip${humanClass}">${escapeHtml(String(m.needsHuman))} need human</span>`;
+  const detail = !m
+    ? '<p class="cr-not-reporting">Not reporting yet — this client isn’t sending metric snapshots. It populates automatically once its reporter is turned on.</p>'
+    : `<div class="cr-metrics">
+              <div class="cr-metric"><span class="cr-metric-label">Conversations</span><span class="cr-metric-value">${escapeHtml(String(m.conversations))}</span></div>
+              <div class="cr-metric"><span class="cr-metric-label">Messages / day</span><span class="cr-metric-value">${escapeHtml(String(m.messagesPerDay))}</span></div>
+              <div class="cr-metric"><span class="cr-metric-label">Need human</span><span class="cr-metric-value">${escapeHtml(String(m.needsHuman))}</span></div>
+              <div class="cr-metric"><span class="cr-metric-label">Last active</span><span class="cr-metric-value">${escapeHtml(String(m.lastActive))}</span></div>
+            </div>`;
 
   return `<details class="client-row">
           <summary class="client-row-summary">
@@ -1000,12 +1031,7 @@ function renderSpyglassClientRow(client, metrics) {
             <span class="cr-caret" aria-hidden="true"></span>
           </summary>
           <div class="client-row-body">
-            <div class="cr-metrics">
-              <div class="cr-metric"><span class="cr-metric-label">Conversations</span><span class="cr-metric-value">${escapeHtml(String(m.conversations || 0))}</span></div>
-              <div class="cr-metric"><span class="cr-metric-label">Messages / day</span><span class="cr-metric-value">${escapeHtml(String(m.messages_per_day || 0))}</span></div>
-              <div class="cr-metric"><span class="cr-metric-label">Need human</span><span class="cr-metric-value">${escapeHtml(String(m.needs_human || 0))}</span></div>
-              <div class="cr-metric"><span class="cr-metric-label">Last active</span><span class="cr-metric-value">${escapeHtml(String(m.last_active || '—'))}</span></div>
-            </div>
+            ${detail}
             <div class="env-mini">
               <h4 class="env-heading">Environments / status</h4>
               <ul class="env-list">
@@ -1016,41 +1042,46 @@ function renderSpyglassClientRow(client, metrics) {
         </details>`;
 }
 
-function renderSpyglassMain(clients) {
+// clientMetrics: map of client_slug -> crowsnest.client_metrics.v1 snapshot (from the
+// Crowsnest-owned metrics store). Empty map => every client shows "not reporting yet".
+function renderSpyglassMain(clients, clientMetrics = {}) {
   const stats = countStaticEnvironmentStats(clients);
-  const metrics = getSampleClientMetrics();
   const usage = getSampleAiUsage();
-  const liveClients = clients.filter((c) => (metrics[c.id] || {}).live !== false);
-  const totalConversations = liveClients.reduce((sum, c) => sum + (metrics[c.id] || {}).conversations || 0, 0);
-  const totalMsgPerDay = liveClients.reduce((sum, c) => sum + ((metrics[c.id] || {}).messages_per_day || 0), 0);
-  const totalNeedsHuman = liveClients.reduce((sum, c) => sum + ((metrics[c.id] || {}).needs_human || 0), 0);
-  const clientRows = clients.map((c) => renderSpyglassClientRow(c, metrics[c.id])).join('\n        ');
+  const reporting = clients
+    .map((c) => readClientMetrics(clientMetrics[c.client_slug]))
+    .filter(Boolean);
+  const reportingCount = reporting.length;
+  const totalConversations = reporting.reduce((s, m) => s + m.conversations, 0);
+  const totalMsgPerDay = reporting.reduce((s, m) => s + m.messagesPerDay, 0);
+  const totalNeedsHuman = reporting.reduce((s, m) => s + m.needsHuman, 0);
+  const kv = (n) => (reportingCount === 0 ? '—' : String(n));
+  const clientRows = clients.map((c) => renderSpyglassClientRow(c, clientMetrics[c.client_slug])).join('\n        ');
 
   return `<section id="spyglass" aria-labelledby="spyglass-title">
       <div class="sample-banner">
         <span class="sample-dot" aria-hidden="true"></span>
-        <span><strong>Sample data (Iris preview).</strong> Numbers are illustrative placeholders, not live telemetry. Pupil wires real sources next.</span>
+        <span><strong>Client metrics are live.</strong> Clients report snapshots into Crowsnest's own store — rows show <em>&ldquo;not reporting yet&rdquo;</em> until a client's reporter is turned on. The <strong>AI usage</strong> panel below is still sample data.</span>
       </div>
       <div class="kpi-strip">
         <div class="kpi">
           <span class="kpi-label">Clients</span>
           <span class="kpi-value">${escapeHtml(String(stats.clientCount))}</span>
-          <span class="kpi-sub">${escapeHtml(String(liveClients.length))} reporting</span>
+          <span class="kpi-sub">${escapeHtml(String(reportingCount))} reporting</span>
         </div>
         <div class="kpi">
           <span class="kpi-label">Conversations</span>
-          <span class="kpi-value">${escapeHtml(String(totalConversations))}</span>
-          <span class="kpi-sub">sample</span>
+          <span class="kpi-value">${escapeHtml(kv(totalConversations))}</span>
+          <span class="kpi-sub">live</span>
         </div>
         <div class="kpi">
           <span class="kpi-label">Messages / day</span>
-          <span class="kpi-value">${escapeHtml(String(totalMsgPerDay))}</span>
-          <span class="kpi-sub">sample</span>
+          <span class="kpi-value">${escapeHtml(kv(totalMsgPerDay))}</span>
+          <span class="kpi-sub">live</span>
         </div>
         <div class="kpi kpi--alert">
           <span class="kpi-label">Need human</span>
-          <span class="kpi-value">${escapeHtml(String(totalNeedsHuman))}</span>
-          <span class="kpi-sub">sample</span>
+          <span class="kpi-value">${escapeHtml(kv(totalNeedsHuman))}</span>
+          <span class="kpi-sub">live</span>
         </div>
       </div>
 
@@ -1059,15 +1090,14 @@ function renderSpyglassMain(clients) {
       <section class="panel clients-panel" aria-labelledby="clients-overview-title">
         <header class="panel-head">
           <h2 class="panel-title" id="clients-overview-title">Clients</h2>
-          <span class="sample-badge">Sample metrics</span>
-          <span class="panel-window">Tap a client to expand</span>
+          <span class="panel-window">${escapeHtml(String(reportingCount))}/${escapeHtml(String(stats.clientCount))} reporting · tap a client to expand</span>
         </header>
         <div class="client-rows">
         ${clientRows}
         </div>
       </section>
 
-      <div class="safety"><strong>Safety:</strong> Read-only Spyglass shell. All AI usage and client metrics shown are clearly-labeled <strong>sample data</strong>, not live telemetry — no live writes, no billing feeds, and no production actions are enabled.</div>
+      <div class="safety"><strong>Safety:</strong> Read-only Spyglass. Client metrics are read from Crowsnest's own metrics store (clients push snapshots in) — no direct access to tenant databases and no writes. The AI usage panel is still clearly-labelled <strong>sample data</strong>, not live telemetry.</div>
     </section>`;
 }
 
@@ -2315,7 +2345,7 @@ function renderViewMain(view, clients, templates, options = {}) {
   if (view === 'sales_crm_preview') return renderSalesCrmPreviewMain(options);
   if (view === 'sales_outreach_draft') return renderSalesOutreachDraftMain(options);
   if (view === 'sales_discovery') return renderSalesDiscoveryMain(options);
-  return renderSpyglassMain(clients);
+  return renderSpyglassMain(clients, options.clientMetrics || {});
 }
 
 function viewPageTitle(view) {

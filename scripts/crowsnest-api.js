@@ -61,6 +61,10 @@ const {
   isSalesUnavailableResult,
 } = require('./lib/crowsnest/crowsnest-sales-store');
 
+const {
+  getSpyglassClientMetricsMap,
+} = require('./lib/crowsnest/crowsnest-client-metrics-store');
+
 const PORT = Number(process.env.CROWSNEST_PORT) || 3040;
 const HOST = process.env.CROWSNEST_HOST || '0.0.0.0';
 const ASSETS = new Map([
@@ -856,6 +860,10 @@ async function handleProtectedUi(req, res, method, pathname) {
   try {
     if (view === 'sales') {
       pageOptions.prospects = await listProspects();
+    }
+    if (view === 'spyglass') {
+      // Fail-soft reader: returns {} on any failure so Spyglass renders "not reporting yet".
+      pageOptions.clientMetrics = await getSpyglassClientMetricsMap();
     }
     return sendHTML(res, 200, renderCrowsnestPage(pageOptions), { 'Cache-Control': 'no-store' }, cspNonce);
   } catch (err) {
