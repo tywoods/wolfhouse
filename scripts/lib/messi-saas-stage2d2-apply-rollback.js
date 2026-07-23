@@ -12,6 +12,7 @@ const http = require('http');
 const { execFileSync } = require('child_process');
 const d1 = require('./messi-saas-stage2d1-plan-status');
 const { assertPublicHealthIdentityBody } = require('./staff-api-health-identity');
+const { azureArmGuid } = require('./phase-d-kv-secrets-user-rbac-plan');
 
 function loadC2Operator() {
   // Lazy: bootstrap-synthetic-tenant-db pulls `pg`; offline verify must not require it.
@@ -105,6 +106,13 @@ const HOURS_PER_MONTH = 30 * 24; const ARM_API = '2022-09-01'; const DEP_API = '
 const APP_API = '2023-05-01'; const ROLE_API = '2022-04-01'; const LOC = 'westeurope';
 const ACA_LOC = 'northeurope'; const ACR_NAME = 'whstagingacr'; const ACR_RG = 'wh-staging-rg';
 const ACR_LOGIN = 'whstagingacr.azurecr.io'; const IMAGE_REPO = 'luna-sunset-staff-api';
+const EXECUTOR_UAI_OID = 'e3136eed-948b-4947-a26e-50a33b45a41a';
+const ROLE_CONTRIBUTOR = 'b24988ac-6180-42a0-ab88-20f7382dd24c';
+const ROLE_RBAC_ADMIN = 'f58310d9-a9f6-439a-9e8d-f62e7b41a168';
+const ROLE_ACR_PUSH = '8311e382-0749-4cb8-b61a-304f252e45ec';
+const ROLE_ACR_BUILD_RUNNER = 'fb382eab-e894-4461-af04-94435c366c3f';
+const ROLE_OWNER = '8e3af657-a8ff-443c-a75c-2fe8c4bcb635';
+const PREPARED_FOR = OWNER; const DRILL_BIND = OWNER;
 const LEGITIMATE_PHASES = Object.freeze(['foundation', 'bootstrap-active', 'runtime-prereqs', 'runtime']);
 const PHASE_MAX_MS = Object.freeze({
   'rg-create': 120000, infra: 1200000, bootstrap: 1200000, 'c2-operator': 1200000,
@@ -158,6 +166,7 @@ function createDeps(overrides = {}) {
     armRequest: overrides.armRequest || null,
     httpsRequest: overrides.httpsRequest || null,
     openLock: overrides.openLock || null,
+    adoptAfterValidateHook: overrides.adoptAfterValidateHook || null,
     token: null,
     abortState: overrides.abortState || { aborted: false, signal: null },
   };
@@ -602,6 +611,393 @@ async function deriveD1Authority(opts, deps) {
 function pasteReadyRollbackCommand(slug) {
   return `node scripts/messi-saas-stage2d2-apply-rollback.js rollback --slug ${slug} --confirm-delete luna-${slug}-staging-rg`;
 }
+function rgScopeId(names) {
+  return `/subscriptions/${names.subscriptionId}/resourceGroups/${names.resourceGroupName}`;
+}
+function acrResourceId(names) {
+  return `/subscriptions/${names.subscriptionId}/resourceGroups/${ACR_RG}/providers/Microsoft.ContainerRegistry/registries/${ACR_NAME}`;
+}
+function preparedTags({ tenantSlug, planDigest, deploySha }) {
+  return { preparedFor: PREPARED_FOR, tenant: tenantSlug, planDigest, deploySha };
+}
+function buildPreparedRoleAssignments(names) {
+  const rg = rgScopeId(names);
+  const acr = acrResourceId(names);
+  const mk = (kind, scope, roleDefinitionId) => {
+    const name = azureArmGuid(scope, EXECUTOR_UAI_OID, roleDefinitionId, DRILL_BIND);
+    return {
+      kind, name, scope, roleDefinitionId, principalId: EXECUTOR_UAI_OID,
+      id: `${scope}/providers/Microsoft.Authorization/roleAssignments/${name}`,
+      roleDefinitionResourceId: `/subscriptions/${names.subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/${roleDefinitionId}`,
+    };
+  };
+  return Object.freeze([
+    mk('rg-contributor', rg, ROLE_CONTRIBUTOR),
+    mk('rg-rbac-admin', rg, ROLE_RBAC_ADMIN),
+    mk('acr-rbac-admin-temp', acr, ROLE_RBAC_ADMIN),
+  ]);
+}
+function pasteReadyAcrCleanupCommand(names) {
+  const temp = buildPreparedRoleAssignments(names).find((r) => r.kind === 'acr-rbac-admin-temp');
+  return `az role assignment delete --ids ${temp.id}`;
+}
+function decodeTokenOid(token) {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length < 2) return null;
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const claims = JSON.parse(Buffer.from(pad, 'base64').toString('utf8'));
+    return claims && claims.oid != null ? String(claims.oid) : null;
+  } catch (_) { return null; }
+}
+async function ensureToken(deps) {
+  if (!deps.token) {
+    const raw = deps.azExec([
+      'account', 'get-access-token', '--resource', 'https://management.azure.com/', '-o', 'json',
+    ]);
+    deps.token = JSON.parse(raw).accessToken;
+  }
+  return deps.token;
+}
+async function assertActiveTokenExecutor(deps) {
+  const token = await ensureToken(deps);
+  const oid = decodeTokenOid(token);
+  if (String(oid || '').toLowerCase() !== EXECUTOR_UAI_OID.toLowerCase()) {
+    return { ok: false, errors: [err('executor_oid_mismatch', 'active token oid must equal approved executor')] };
+  }
+  return { ok: true, errors: [], oid };
+}
+function assertPreparedTags(tags, expected) {
+  const exp = preparedTags(expected); const errors = [];
+  for (const k of Object.keys(exp)) {
+    if (String((tags || {})[k] || '') !== String(exp[k])) {
+      errors.push(err('prepared_tag_mismatch', `tag ${k} mismatch`));
+    }
+  }
+  return { ok: !errors.length, errors };
+}
+async function assertPreparedRoleAssignment(deps, expected) {
+  const got = await deps.armRequest({ method: 'GET', path: `${expected.id}?api-version=${ROLE_API}` });
+  if (got.status === 404) {
+    return { ok: false, errors: [err('missing_prep_role', `missing ${expected.kind}`)] };
+  }
+  if (got.status < 200 || got.status >= 300) {
+    return { ok: false, errors: [err('prep_role_read_failed', `status ${got.status}`)] };
+  }
+  const props = (got.body || {}).properties || {};
+  const def = String(props.roleDefinitionId || '').toLowerCase();
+  if (!def.endsWith(String(expected.roleDefinitionId).toLowerCase())) {
+    return { ok: false, errors: [err('prep_role_definition_mismatch', `wrong role for ${expected.kind}`)] };
+  }
+  if (String(props.principalId || '').toLowerCase() !== String(expected.principalId).toLowerCase()) {
+    return { ok: false, errors: [err('prep_role_principal_mismatch', `wrong principal for ${expected.kind}`)] };
+  }
+  if (Object.prototype.hasOwnProperty.call(props, 'scope')
+    && String(props.scope || '').toLowerCase() !== String(expected.scope).toLowerCase()) {
+    return { ok: false, errors: [err('prep_role_scope_mismatch', `wrong scope for ${expected.kind}`)] };
+  }
+  return { ok: true, errors: [], body: got.body, headers: got.headers };
+}
+function roleDefGuid(roleDefinitionId) {
+  const m = String(roleDefinitionId || '').toLowerCase().match(/roledefinitions\/([0-9a-f-]{36})/i);
+  return m ? m[1] : String(roleDefinitionId || '').toLowerCase().split('/').pop();
+}
+async function listDirectRoleAssignments(deps, scope) {
+  const filter = encodeURIComponent('atScope()');
+  const listed = await deps.armRequest({
+    method: 'GET',
+    path: `${scope}/providers/Microsoft.Authorization/roleAssignments?api-version=${ROLE_API}&$filter=${filter}`,
+  });
+  if (listed.status < 200 || listed.status >= 300) {
+    return { ok: false, errors: [err('direct_role_list_failed', `status ${listed.status}`)], value: [] };
+  }
+  return { ok: true, errors: [], value: ((listed.body || {}).value) || [] };
+}
+async function assertPreparedRgInventory(deps, names, prepRoles) {
+  const listPath = `/subscriptions/${names.subscriptionId}/resourceGroups/${names.resourceGroupName}/resources?api-version=${ARM_API}`;
+  const listed = await deps.armRequest({ method: 'GET', path: listPath });
+  if (listed.status < 200 || listed.status >= 300) {
+    return { ok: false, errors: [err('inventory_list_failed', `status ${listed.status}`)] };
+  }
+  const allowed = new Set(
+    prepRoles.filter((r) => r.kind.startsWith('rg-')).map((r) => String(r.name).toLowerCase()),
+  );
+  const resources = ((listed.body || {}).value) || [];
+  for (const r of resources) {
+    const typ = String(r.type || '');
+    if (typ === 'Microsoft.Resources/deployments') continue;
+    if (typ === 'Microsoft.Authorization/roleAssignments') {
+      const nm = String(r.name || String(r.id || '').split('/').pop() || '').toLowerCase();
+      if (allowed.has(nm)) continue;
+      return {
+        ok: false,
+        errors: [err('unexpected_prep_role', `unexpected role assignment ${r.name}`)],
+      };
+    }
+    return {
+      ok: false,
+      errors: [err('precreated_resource', `inventory not empty: ${typ}/${r.name}`)],
+    };
+  }
+  return { ok: true, errors: [], resources };
+}
+async function assertExactDirectRgRoles(deps, names, prepRoles) {
+  const rg = rgScopeId(names);
+  const expected = prepRoles.filter((r) => r.kind.startsWith('rg-'));
+  const listed = await listDirectRoleAssignments(deps, rg);
+  if (!listed.ok) return listed;
+  const byName = new Map();
+  for (const row of listed.value) {
+    const nm = String(row.name || String(row.id || '').split('/').pop() || '').toLowerCase();
+    if (byName.has(nm)) {
+      return { ok: false, errors: [err('extra_direct_rg_role', `duplicate direct RG role ${nm}`)] };
+    }
+    byName.set(nm, row);
+  }
+  if (byName.size !== expected.length) {
+    return {
+      ok: false,
+      errors: [err('direct_rg_role_set_mismatch', `expected ${expected.length} direct RG roles, got ${byName.size}`)],
+    };
+  }
+  for (const exp of expected) {
+    const row = byName.get(String(exp.name).toLowerCase());
+    if (!row) {
+      return { ok: false, errors: [err('missing_direct_rg_role', `missing direct RG role ${exp.kind}`)] };
+    }
+    const props = row.properties || {};
+    if (roleDefGuid(props.roleDefinitionId) !== String(exp.roleDefinitionId).toLowerCase()) {
+      return { ok: false, errors: [err('prep_role_definition_mismatch', `wrong role for ${exp.kind}`)] };
+    }
+    if (String(props.principalId || '').toLowerCase() !== String(exp.principalId).toLowerCase()) {
+      return { ok: false, errors: [err('prep_role_principal_mismatch', `wrong principal for ${exp.kind}`)] };
+    }
+    if (Object.prototype.hasOwnProperty.call(props, 'scope')
+      && String(props.scope || '').toLowerCase() !== String(exp.scope).toLowerCase()) {
+      return { ok: false, errors: [err('prep_role_scope_mismatch', `wrong scope for ${exp.kind}`)] };
+    }
+  }
+  for (const nm of byName.keys()) {
+    if (!expected.some((e) => String(e.name).toLowerCase() === nm)) {
+      return { ok: false, errors: [err('extra_direct_rg_role', `unexpected direct RG role ${nm}`)] };
+    }
+  }
+  return { ok: true, errors: [], value: listed.value };
+}
+async function assertExactExecutorAcrRoles(deps, names, prepRoles) {
+  const acr = acrResourceId(names);
+  const temp = prepRoles.find((r) => r.kind === 'acr-rbac-admin-temp');
+  const listed = await listDirectRoleAssignments(deps, acr);
+  if (!listed.ok) return listed;
+  const allowed = new Set([
+    ROLE_ACR_PUSH.toLowerCase(), ROLE_ACR_BUILD_RUNNER.toLowerCase(), ROLE_RBAC_ADMIN.toLowerCase(),
+  ]);
+  const seen = new Set();
+  for (const row of listed.value) {
+    const props = row.properties || {};
+    if (String(props.principalId || '').toLowerCase() !== EXECUTOR_UAI_OID.toLowerCase()) continue;
+    const def = roleDefGuid(props.roleDefinitionId);
+    if (!allowed.has(def)) {
+      return {
+        ok: false,
+        errors: [err('unexpected_acr_executor_role', `executor has non-allowed direct ACR role ${def}`)],
+      };
+    }
+    if (seen.has(def)) {
+      return { ok: false, errors: [err('duplicate_acr_executor_role', `duplicate executor ACR role ${def}`)] };
+    }
+    seen.add(def);
+    if (def === ROLE_RBAC_ADMIN.toLowerCase()) {
+      const nm = String(row.name || String(row.id || '').split('/').pop() || '').toLowerCase();
+      if (temp && nm !== String(temp.name).toLowerCase()) {
+        return {
+          ok: false,
+          errors: [err('acr_temp_rbac_name_mismatch', 'temp ACR RBAC-admin must be deterministic named grant')],
+        };
+      }
+    }
+  }
+  if (!seen.has(ROLE_ACR_PUSH.toLowerCase()) || !seen.has(ROLE_ACR_BUILD_RUNNER.toLowerCase())) {
+    return { ok: false, errors: [err('acr_build_roles_missing', 'AcrPush and ACR Build Runner must remain present')] };
+  }
+  if (!seen.has(ROLE_RBAC_ADMIN.toLowerCase())) {
+    return { ok: false, errors: [err('missing_prep_role', 'missing acr-rbac-admin-temp')] };
+  }
+  if (seen.size !== 3) {
+    return { ok: false, errors: [err('acr_executor_role_set_mismatch', 'executor ACR direct roles must be exact set of 3')] };
+  }
+  return { ok: true, errors: [], value: listed.value };
+}
+async function assertPreparedAuthzSnapshot(deps, names, prep) {
+  const inv = await assertPreparedRgInventory(deps, names, prep);
+  if (!inv.ok) return inv;
+  const rgRoles = await assertExactDirectRgRoles(deps, names, prep);
+  if (!rgRoles.ok) return rgRoles;
+  for (const role of prep) {
+    const chk = await assertPreparedRoleAssignment(deps, role);
+    if (!chk.ok) return chk;
+  }
+  const acrRoles = await assertExactExecutorAcrRoles(deps, names, prep);
+  if (!acrRoles.ok) return acrRoles;
+  const oid = await assertActiveTokenExecutor(deps);
+  if (!oid.ok) return oid;
+  return { ok: true, errors: [] };
+}
+async function deleteExactTempAcrRbacAdmin(deps, names, opts = {}) {
+  const expected = buildPreparedRoleAssignments(names).find((r) => r.kind === 'acr-rbac-admin-temp');
+  if (opts.roleAssignmentId != null
+    && String(opts.roleAssignmentId).toLowerCase() !== String(expected.id).toLowerCase()) {
+    return {
+      ok: false,
+      errors: [err('acr_role_delete_refused', 'only exact temp ACR RBAC-admin assignment may be removed')],
+    };
+  }
+  const got = await deps.armRequest({ method: 'GET', path: `${expected.id}?api-version=${ROLE_API}` });
+  if (got.status === 404) return { ok: true, alreadyAbsent: true, deleted: false, id: expected.id };
+  if (got.status < 200 || got.status >= 300) {
+    return { ok: false, errors: [err('acr_temp_role_read_failed', `status ${got.status}`)] };
+  }
+  const props = (got.body || {}).properties || {};
+  const pOk = Object.prototype.hasOwnProperty.call(props, 'principalId')
+    && String(props.principalId).toLowerCase() === EXECUTOR_UAI_OID.toLowerCase();
+  const dOk = Object.prototype.hasOwnProperty.call(props, 'roleDefinitionId')
+    && String(props.roleDefinitionId).toLowerCase()
+      === String(expected.roleDefinitionResourceId).toLowerCase();
+  const sOk = Object.prototype.hasOwnProperty.call(props, 'scope')
+    && String(props.scope).toLowerCase() === String(expected.scope).toLowerCase();
+  if (!pOk) {
+    return { ok: false, errors: [err('acr_temp_role_principal_mismatch', 'wrong principal')] };
+  }
+  if (!dOk) {
+    return { ok: false, errors: [err('acr_temp_role_definition_mismatch', 'wrong roleDefinitionId')] };
+  }
+  if (!sOk) {
+    return { ok: false, errors: [err('acr_temp_role_scope_mismatch', 'wrong scope')] };
+  }
+  const etag = (got.headers && (got.headers.etag || got.headers.ETag))
+    || (got.body && got.body.etag) || null;
+  if (!etag) return { ok: false, errors: [err('etag_missing', 'If-Match ETag required for ACR role delete')] };
+  const del = await deps.armRequest({
+    method: 'DELETE', path: `${expected.id}?api-version=${ROLE_API}`, headers: { 'If-Match': etag },
+  });
+  if (del.status === 412) return { ok: false, errors: [err('etag_race', 'If-Match precondition failed')] };
+  if (!(del.status === 200 || del.status === 202 || del.status === 204 || del.status === 404)) {
+    return { ok: false, errors: [err('acr_temp_role_delete_failed', `status ${del.status}`)] };
+  }
+  const readback = await deps.armRequest({ method: 'GET', path: `${expected.id}?api-version=${ROLE_API}` });
+  if (readback.status !== 404) {
+    return { ok: false, errors: [err('acr_temp_role_still_present', 'temp ACR RBAC-admin still present after delete')] };
+  }
+  return { ok: true, deleted: true, alreadyAbsent: false, id: expected.id };
+}
+async function adoptPreparedResourceGroup(deps, {
+  names, planDigest, verifiedDeploySha, createdAt, expiresAt, tags,
+}) {
+  const cleanup = pasteReadyAcrCleanupCommand(names);
+  const fail = (errors, extra = {}) => ({ ok: false, errors, acrCleanupCommand: cleanup, ...extra });
+  const expectedId = rgScopeId(names);
+  const rgPath = `/subscriptions/${names.subscriptionId}/resourcegroups/${names.resourceGroupName}?api-version=${ARM_API}`;
+  const rg = await deps.armRequest({ method: 'GET', path: rgPath });
+  if (rg.status === 404) {
+    return fail([err('prepared_rg_absent', 'prepared RG required for --adopt-prepared-rg')]);
+  }
+  if (rg.status < 200 || rg.status >= 300) {
+    return fail([err('rg_read_failed', `status ${rg.status}`)]);
+  }
+  const body = rg.body || {};
+  const liveId = String(body.id || expectedId);
+  if (liveId.toLowerCase() !== expectedId.toLowerCase()) {
+    return fail([err('rg_id_mismatch', 'RG id mismatch')]);
+  }
+  if (String(body.location || '').toLowerCase() !== LOC) {
+    return fail([err('rg_location_mismatch', `location must be ${LOC}`)]);
+  }
+  const tagCheck = assertPreparedTags(body.tags || {}, {
+    tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha,
+  });
+  if (!tagCheck.ok) return fail(tagCheck.errors);
+  const prep = buildPreparedRoleAssignments(names);
+  const first = await assertPreparedAuthzSnapshot(deps, names, prep);
+  if (!first.ok) return fail(first.errors);
+  if (typeof deps.adoptAfterValidateHook === 'function') {
+    await deps.adoptAfterValidateHook({ deps, names, prep });
+  }
+  const etag = (rg.headers && (rg.headers.etag || rg.headers.ETag)) || body.etag || null;
+  if (!etag) return fail([err('etag_missing', 'If-Match ETag required for prepared RG retag')]);
+  const put = await deps.armRequest({
+    method: 'PUT', path: rgPath, headers: { 'If-Match': etag },
+    body: { location: LOC, tags },
+  });
+  if (put.status === 412) return fail([err('etag_race', 'If-Match precondition failed')]);
+  if (put.status < 200 || put.status >= 300) {
+    return fail([err('rg_retag_failed', `status ${put.status}`)]);
+  }
+  const readback = await deps.armRequest({ method: 'GET', path: rgPath });
+  if (readback.status < 200 || readback.status >= 300) {
+    return fail([err('rg_read_failed', `status ${readback.status}`)], { retagged: true });
+  }
+  const rbBody = readback.body || {};
+  const rbEtag = (readback.headers && (readback.headers.etag || readback.headers.ETag))
+    || rbBody.etag || null;
+  if (!rbEtag) return fail([err('etag_missing', 'post-retag RG ETag required')], { retagged: true });
+  const drillCheck = assertDrillTags(rbBody.tags || {}, {
+    tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha, createdAt, expiresAt,
+  });
+  if (!drillCheck.ok) return fail(drillCheck.errors, { retagged: true });
+  const second = await assertPreparedAuthzSnapshot(deps, names, prep);
+  if (!second.ok) return fail(second.errors, { retagged: true });
+  return {
+    ok: true, errors: [], prep, createdAt, expiresAt, etag: rbEtag,
+    acrCleanupCommand: cleanup, retagged: true,
+  };
+}
+async function prepareSpec(opts, depsIn) {
+  const deps = depsIn || createDeps();
+  const approval = validateApprovalFlags(opts || {});
+  if (!approval.ok) return approval;
+  const auth = await deriveD1Authority(opts || {}, deps);
+  if (!auth.ok) return auth;
+  const { names, planDigest, verifiedDeploySha } = auth;
+  const tags = preparedTags({
+    tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha,
+  });
+  const roles = buildPreparedRoleAssignments(names);
+  const rgId = rgScopeId(names);
+  const tagArgs = Object.keys(tags).map((k) => `${k}=${tags[k]}`).join(' ');
+  const azureAdminCommands = [
+    `az group create --name ${names.resourceGroupName} --location ${LOC} --subscription ${names.subscriptionId} --tags ${tagArgs}`,
+    ...roles.map((r) => (
+      `az role assignment create --name ${r.name} --assignee-object-id ${EXECUTOR_UAI_OID}`
+      + ` --assignee-principal-type ServicePrincipal --role ${r.roleDefinitionId}`
+      + ` --scope ${r.scope} --subscription ${names.subscriptionId}`
+    )),
+  ];
+  for (const c of azureAdminCommands) {
+    if (/--scope\s+\/subscriptions\/[^/\s]+\s*$/i.test(c)
+      && (c.includes(ROLE_CONTRIBUTOR) || c.includes(ROLE_OWNER) || /--role\s+Owner/i.test(c))) {
+      return { ok: false, errors: [err('subscription_write_forbidden', 'never grant subscription Contributor/Owner')] };
+    }
+  }
+  return {
+    ok: true, errors: [], readOnly: true, kind: 'prepare_spec',
+    tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha,
+    executorPrincipalId: EXECUTOR_UAI_OID, approveMaxTotalUsd: approval.approveMaxTotalUsd,
+    ttlHours: approval.ttlHours,
+    resourceGroup: {
+      name: names.resourceGroupName, id: rgId, location: LOC, tags,
+      subscriptionId: names.subscriptionId,
+    },
+    roleAssignments: roles.map((r) => ({
+      kind: r.kind, name: r.name, id: r.id, scope: r.scope,
+      roleDefinitionId: r.roleDefinitionId, principalId: r.principalId,
+    })),
+    azureAdminCommands,
+    acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
+    adoptCommand: `node scripts/messi-saas-stage2d2-apply-rollback.js apply --slug ${names.tenantSlug} --approve-max-total-usd 8 --ttl-hours 48 --adopt-prepared-rg`,
+    neverGrant: Object.freeze(['subscription Contributor', 'subscription Owner']),
+  };
+}
 async function deleteBootstrapJobExact(deps, names, drill) {
   const aborted = checkAbort(deps);
   if (!aborted.ok) return aborted;
@@ -768,12 +1164,20 @@ async function apply(opts, depsIn) {
     const { names, planDigest, verifiedDeploySha, core, templateBytes, compiled } = auth;
     const aborted0 = checkAbort(deps);
     if (!aborted0.ok) return aborted0;
+    const adoptPreparedRg = !!(optsIn.adoptPreparedRg);
     const rgCheck = await deps.armRequest({
       method: 'GET',
       path: `/subscriptions/${names.subscriptionId}/resourcegroups/${names.resourceGroupName}?api-version=${ARM_API}`,
     });
-    if (rgCheck.status !== 404) {
+    if (!adoptPreparedRg && rgCheck.status !== 404) {
       return { ok: false, errors: [err('rg_exists', `target RG ${names.resourceGroupName} must be absent for APPLY`)] };
+    }
+    if (adoptPreparedRg && rgCheck.status === 404) {
+      return {
+        ok: false,
+        errors: [err('prepared_rg_absent', 'prepared RG required for --adopt-prepared-rg')],
+        acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
+      };
     }
     const createdAt = deps.now().toISOString();
     const expiresAt = new Date(deps.now().getTime() + approval.ttlHours * 3600 * 1000).toISOString();
@@ -802,6 +1206,7 @@ async function apply(opts, depsIn) {
     let runtime = null;
     let costAfter = null;
     let principalId = null;
+    let acrCleanupCommand = pasteReadyAcrCleanupCommand(names);
 
     const phaseGate = (phase) => {
       const aborted = checkAbort(deps);
@@ -816,14 +1221,29 @@ async function apply(opts, depsIn) {
 
     {
       const g = phaseGate('rg-create'); if (!g.ok) return g;
-      const rgPath = `/subscriptions/${names.subscriptionId}/resourcegroups/${names.resourceGroupName}?api-version=${ARM_API}`;
-      const put = await deps.armRequest({
-        method: 'PUT', path: rgPath, body: { location: LOC, tags },
-      });
-      if (put.status < 200 || put.status >= 300) {
-        return { ok: false, errors: [err('rg_create_failed', `status ${put.status}`)] };
+      if (adoptPreparedRg) {
+        const adopted = await adoptPreparedResourceGroup(deps, {
+          names, planDigest, verifiedDeploySha, createdAt, expiresAt, tags,
+        });
+        if (!adopted.ok) {
+          return preserveFailure(deps, {
+            errors: adopted.errors, names, planDigest, verifiedDeploySha, tags,
+            invocationCreatedRg: false, secretsHeld, opts: optsIn,
+            acrCleanupCommand: adopted.acrCleanupCommand || acrCleanupCommand,
+          });
+        }
+        invocationCreatedRg = true;
+        acrCleanupCommand = adopted.acrCleanupCommand || acrCleanupCommand;
+      } else {
+        const rgPath = `/subscriptions/${names.subscriptionId}/resourcegroups/${names.resourceGroupName}?api-version=${ARM_API}`;
+        const put = await deps.armRequest({
+          method: 'PUT', path: rgPath, body: { location: LOC, tags },
+        });
+        if (put.status < 200 || put.status >= 300) {
+          return { ok: false, errors: [err('rg_create_failed', `status ${put.status}`)] };
+        }
+        invocationCreatedRg = true;
       }
-      invocationCreatedRg = true;
     }
 
     for (const phase of ['infra', 'bootstrap']) {
@@ -1083,9 +1503,12 @@ async function apply(opts, depsIn) {
 }
 
 async function preserveFailure(deps, ctx) {
+  const acrCleanupCommand = ctx.acrCleanupCommand
+    || (ctx.names && ctx.names.subscriptionId ? pasteReadyAcrCleanupCommand(ctx.names) : null);
   const base = {
     ok: false, errors: ctx.errors, preservedResourceGroup: true,
     invocationCreatedRg: !!ctx.invocationCreatedRg, phase: ctx.phase || null,
+    acrCleanupCommand,
   };
   try {
     writeReceipt(deps, {
@@ -1094,7 +1517,7 @@ async function preserveFailure(deps, ctx) {
       subscriptionId: ctx.names.subscriptionId, planDigest: ctx.planDigest,
       deploySha: ctx.verifiedDeploySha, phase: ctx.phase || null,
       tags: ctx.tags, rollbackCommand: pasteReadyRollbackCommand(ctx.names.tenantSlug),
-      preservedResourceGroup: true,
+      acrCleanupCommand, preservedResourceGroup: true,
     });
   } catch (_) { /* receipt best-effort */ }
   if (ctx.opts && ctx.opts.rollbackOnFailure && ctx.invocationCreatedRg) {
@@ -1155,7 +1578,15 @@ async function rollback(opts, depsIn) {
     }
     const rgPath = `/subscriptions/${names.subscriptionId}/resourcegroups/${names.resourceGroupName}?api-version=${ARM_API}`;
     const rg = await deps.armRequest({ method: 'GET', path: rgPath });
-    if (rg.status === 404) return { ok: true, alreadyAbsent: true, resourceGroupName: expectedRg };
+    if (rg.status === 404) {
+      const acrDel = await deleteExactTempAcrRbacAdmin(deps, names);
+      return {
+        ok: acrDel.ok, alreadyAbsent: true, resourceGroupName: expectedRg,
+        acrTempRoleAbsent: !!(acrDel.ok && (acrDel.alreadyAbsent || acrDel.deleted)),
+        acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
+        errors: acrDel.ok ? [] : acrDel.errors,
+      };
+    }
     if (rg.status < 200 || rg.status >= 300) {
       return { ok: false, errors: [err('rg_read_failed', `status ${rg.status}`)] };
     }
@@ -1238,8 +1669,22 @@ async function rollback(opts, depsIn) {
         slug, names, status: 'rollback_aborted', errors: polled.errors,
         planDigest, deploySha: verifiedDeploySha, phase, signal: (deps.abortState || {}).signal,
       });
+      return polled;
     }
-    return polled;
+    if (!polled.ok) return polled;
+    const acrDel = await deleteExactTempAcrRbacAdmin(deps, names);
+    if (!acrDel.ok) {
+      return {
+        ok: false, deleted: true, resourceGroupName: expectedRg, phase,
+        acrTempRoleAbsent: false, acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
+        errors: acrDel.errors,
+      };
+    }
+    return {
+      ...polled,
+      acrTempRoleAbsent: true,
+      acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
+    };
   } catch (e) {
     const errors = [err('rollback_exception', redact(e.message, []))];
     if (rgKnownPresent) {
@@ -1264,10 +1709,21 @@ async function expiryStatus(opts, depsIn) {
     const rgPath = `/subscriptions/${names.subscriptionId}/resourcegroups/${names.resourceGroupName}?api-version=${ARM_API}`;
     const rg = await deps.armRequest({ method: 'GET', path: rgPath });
     const rollbackCommand = pasteReadyRollbackCommand(names.tenantSlug);
+    const acrCleanupCommand = pasteReadyAcrCleanupCommand(names);
+    const temp = buildPreparedRoleAssignments(names).find((r) => r.kind === 'acr-rbac-admin-temp');
+    const acrGot = await deps.armRequest({ method: 'GET', path: `${temp.id}?api-version=${ROLE_API}` });
+    const warnings = [];
+    if (acrGot.status === 200) {
+      warnings.push({
+        code: 'temp_acr_rbac_admin_present',
+        message: 'temporary ACR Role Based Access Control Administrator assignment still present',
+        roleAssignmentId: temp.id,
+      });
+    }
     if (rg.status === 404) {
       return {
         ok: true, present: false, expired: false, planDigest, deploySha: verifiedDeploySha,
-        resourceGroupName: names.resourceGroupName, rollbackCommand,
+        resourceGroupName: names.resourceGroupName, rollbackCommand, acrCleanupCommand, warnings,
       };
     }
     if (rg.status < 200 || rg.status >= 300) {
@@ -1285,7 +1741,7 @@ async function expiryStatus(opts, depsIn) {
       createdAt, expiresAt, temporaryDrill: tags.temporaryDrill === 'true',
       planDigest: tags.planDigest || null, deploySha: tags.deploySha || null,
       rederivedPlanDigest: planDigest, rederivedDeploySha: verifiedDeploySha,
-      resourceGroupName: names.resourceGroupName, rollbackCommand, tags,
+      resourceGroupName: names.resourceGroupName, rollbackCommand, acrCleanupCommand, warnings, tags,
     };
   } catch (e) {
     return { ok: false, errors: [err('expiry_status_exception', redact(e.message, []))] };
@@ -1294,11 +1750,14 @@ async function expiryStatus(opts, depsIn) {
 
 module.exports = Object.freeze({
   STAGE, OWNER, STAGE_TAG, CLI_REL, LIB_REL, APPROVE_MAX_TOTAL_USD, TTL_HOURS_MAX, ACR_NAME, IMAGE_REPO,
-  SENTINELS, LEGITIMATE_PHASES, PHASE_MAX_MS, createDeps, apply, rollback, expiryStatus,
+  EXECUTOR_UAI_OID, ROLE_CONTRIBUTOR, ROLE_RBAC_ADMIN, ROLE_ACR_PUSH, ROLE_ACR_BUILD_RUNNER, PREPARED_FOR,
+  SENTINELS, LEGITIMATE_PHASES, PHASE_MAX_MS, createDeps, apply, rollback, expiryStatus, prepareSpec,
   validateApprovalFlags, estimateProratedWorstCaseUsd, assertCostGate, assertActiveDrill, assertDrillTags,
-  drillTags, generateSecrets, buildBootstrapAdminDsn, installedAcrManifestShowArgv, installedAcrBuildArgv,
-  resolveImageDigest, buildStaffImage, putAndPoll, pollArmTerminal, pasteReadyRollbackCommand,
-  acquireExclusiveLock, writeReceipt, readReceipt, deriveD1Authority, redact, sha256, checkAbort,
-  installOperationSignals, buildNonsecretParams, parseRetryAfterMs, nextPollSleepMs,
-  runInjectedOperatorLifecycle, waitExactRoles,
+  drillTags, preparedTags, buildPreparedRoleAssignments, deleteExactTempAcrRbacAdmin,
+  pasteReadyAcrCleanupCommand, generateSecrets, buildBootstrapAdminDsn, installedAcrManifestShowArgv,
+  installedAcrBuildArgv, resolveImageDigest, buildStaffImage, putAndPoll, pollArmTerminal,
+  pasteReadyRollbackCommand, acquireExclusiveLock, writeReceipt, readReceipt, deriveD1Authority, redact,
+  sha256, checkAbort, installOperationSignals, buildNonsecretParams, parseRetryAfterMs, nextPollSleepMs,
+  runInjectedOperatorLifecycle, waitExactRoles, adoptPreparedResourceGroup, decodeTokenOid,
+  listDirectRoleAssignments, assertExactDirectRgRoles, assertExactExecutorAcrRoles, assertPreparedAuthzSnapshot,
 });
