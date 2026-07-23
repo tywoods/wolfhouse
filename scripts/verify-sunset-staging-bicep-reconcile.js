@@ -18,12 +18,14 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const BICEP = path.join(ROOT, 'infra/azure/sunset-staging/main.bicep');
+const MODULE = path.join(ROOT, 'infra/azure/modules/tenant-staging/main.bicep');
 const PARAMS = path.join(ROOT, 'infra/azure/sunset-staging/parameters.example.json');
 const README = path.join(ROOT, 'infra/azure/sunset-staging/README.md');
 const INVENTORY = path.join(
   ROOT,
   'infra/azure/sunset-staging/inventory/live-inventory.normalized.json',
 );
+const loadModuleText = () => (fs.existsSync(MODULE) ? fs.readFileSync(MODULE, 'utf8') : '');
 
 const LIVE_IMAGE_TAG = '186307418400581a74f86b096e02bc32a41513b6';
 
@@ -62,10 +64,13 @@ function deepClone(v) {
   return JSON.parse(JSON.stringify(v));
 }
 
-function evaluate(bicepText, paramsObj, readmeText, inventory, label) {
+function evaluate(bicepText, paramsObj, readmeText, inventory, label, moduleTextOpt) {
   const errors = [];
   const params = paramsObj && paramsObj.parameters ? paramsObj.parameters : {};
   const val = (name) => (params[name] && params[name].value !== undefined ? params[name].value : undefined);
+  const moduleText = moduleTextOpt !== undefined ? moduleTextOpt : loadModuleText();
+  const composed = `${bicepText}\n${moduleText}`;
+  const isWrapper = /modules\/tenant-staging\/main\.bicep/.test(bicepText);
 
   // --- Reconciled live contract ---
   if (val('containerAppsLocation') !== 'northeurope') {
@@ -113,26 +118,29 @@ function evaluate(bicepText, paramsObj, readmeText, inventory, label) {
     errors.push('params.example metadata must state NON-DEPLOYABLE');
   }
 
-  // Bicep source contracts
   if (!/param containerAppsLocation string = 'northeurope'/.test(bicepText)) {
     errors.push('bicep default containerAppsLocation must be northeurope');
   }
   if (!/param location string = 'westeurope'/.test(bicepText)) {
     errors.push('bicep default location must be westeurope');
   }
-  if (!/name: 'STAFF_ACTIONS_ENABLED',\s*value: 'true'/.test(bicepText)) {
-    errors.push('bicep must hardcode STAFF_ACTIONS_ENABLED=true');
-  }
-  if (!/name: 'WHATSAPP_DRY_RUN',\s*value: 'true'/.test(bicepText)) {
-    errors.push('bicep must keep WHATSAPP_DRY_RUN=true');
-  }
-  if (!/name: 'STAFF_AUTH_REQUIRED',\s*value: 'true'/.test(bicepText)) {
+  const staffActionsOk = /name: 'STAFF_ACTIONS_ENABLED',\s*value: 'true'/.test(composed)
+    || (/name: 'STAFF_ACTIONS_ENABLED',\s*value: effectiveStaffActionsEnabled/.test(moduleText)
+      && /lockedStaffActionsEnabled\s*=\s*'true'/.test(bicepText)
+      && /effectiveStaffActionsEnabled\s*=\s*isLockedLiveSunset\s*\?\s*staffActionsEnabled/.test(moduleText));
+  if (!staffActionsOk) errors.push('bicep must hardcode STAFF_ACTIONS_ENABLED=true');
+  const whatsappDryOk = /name: 'WHATSAPP_DRY_RUN',\s*value: 'true'/.test(composed)
+    || (/name: 'WHATSAPP_DRY_RUN',\s*value: effectiveWhatsappDryRun/.test(moduleText)
+      && /lockedWhatsappDryRun\s*=\s*'true'/.test(bicepText)
+      && /effectiveWhatsappDryRun\s*=\s*isLockedLiveSunset\s*\?\s*whatsappDryRun/.test(moduleText));
+  if (!whatsappDryOk) errors.push('bicep must keep WHATSAPP_DRY_RUN=true');
+  if (!/name: 'STAFF_AUTH_REQUIRED',\s*value: 'true'/.test(composed)) {
     errors.push('bicep must keep STAFF_AUTH_REQUIRED=true');
   }
-  if (!/name: 'STRIPE_WEBHOOK_SKIP_VERIFY',\s*value: 'false'/.test(bicepText)) {
+  if (!/name: 'STRIPE_WEBHOOK_SKIP_VERIFY',\s*value: 'false'/.test(composed)) {
     errors.push('bicep must keep STRIPE_WEBHOOK_SKIP_VERIFY=false');
   }
-  if (!/minReplicas:\s*staffApiMinReplicas/.test(bicepText)) {
+  if (!/minReplicas:\s*staffApiMinReplicas/.test(composed)) {
     errors.push('bicep must scale via staffApiMinReplicas (live min=1)');
   }
   if (!/param staffApiImageTag string\b/.test(bicepText)
@@ -145,57 +153,71 @@ function evaluate(bicepText, paramsObj, readmeText, inventory, label) {
   if (!/param deploySha string\b/.test(bicepText) || !/param forceRevision string\b/.test(bicepText)) {
     errors.push('bicep must declare deploySha and forceRevision parameters');
   }
-  if (!/luna-sunset-staff-api:\$\{staffApiImageTag\}/.test(bicepText)) {
+  if (!/luna-sunset-staff-api:\$\{staffApiImageTag\}/.test(composed)
+    && !(/staffApiImageRepository/.test(composed)
+      && /lockedStaffApiImageRepository\s*=\s*'luna-sunset-staff-api'/.test(bicepText)
+      && /\$\{staffApiImageRepository\}:\$\{staffApiImageTag\}/.test(moduleText))) {
     errors.push('bicep image must be luna-sunset-staff-api:${staffApiImageTag}');
   }
-  if (/wh-staff-api:/.test(bicepText) || /whstagingacr\.azurecr\.io\/wh-staff-api/.test(bicepText)) {
+  if (isWrapper && (!/lockedAcrLoginServer\s*=\s*'whstagingacr\.azurecr\.io'/.test(bicepText)
+    || !/acrLoginServer:\s*lockedAcrLoginServer/.test(bicepText))) {
+    errors.push('wrapper must lock acrLoginServer to whstagingacr.azurecr.io');
+  }
+  if (/wh-staff-api:/.test(composed) || /whstagingacr\.azurecr\.io\/wh-staff-api/.test(composed)) {
     errors.push('bicep must not reference wh-staff-api image');
   }
-  if (/'wolfhouse_staging'/.test(bicepText)) {
+  if (/'wolfhouse_staging'/.test(composed)) {
     errors.push('bicep must not use wolfhouse_staging database');
   }
-  if (/name:\s*'luna-bot-internal-token'/.test(bicepText)
-    && !/value:\s*lunaBotInternalToken/.test(bicepText)) {
+  if (/name:\s*'luna-bot-internal-token'/.test(composed)
+    && !/value:\s*lunaBotInternalToken/.test(composed)) {
     errors.push('bicep luna-bot-internal-token must stay a secure-param value (manual), not a committed literal');
   }
-  if (/luna-sunset-staging-hold-expiry/.test(bicepText)) {
+  if (/luna-sunset-staging-hold-expiry/.test(composed)) {
     errors.push('bicep must not claim hold-expiry job');
   }
   if (!/param deploySchemaObserverJob bool = false/.test(bicepText)) {
     errors.push('bicep deploySchemaObserverJob must default false');
   }
-  if (!/module schemaObserverJob 'schema-observer-job\.bicep' = if \(deployContainerApps && deploySchemaObserverJob\)/.test(bicepText)) {
+  if (!/module schemaObserverJob '[^']*schema-observer-job\.bicep' = if \(deployContainerApps && deploySchemaObserverJob\)/.test(composed)) {
     errors.push('bicep schema observer job must be gated by deployContainerApps && deploySchemaObserverJob');
   }
-  if (/resource \w+ 'Microsoft\.App\/managedEnvironments\/managedCertificates[^']*' = \{/.test(bicepText)) {
+  if (/resource \w+ 'Microsoft\.App\/managedEnvironments\/managedCertificates[^']*' = \{/.test(composed)) {
     errors.push('bicep must not create managed certificates (use existing reference only)');
+  }
+  if (isWrapper && (!/lockedAssertedRg\s*=\s*'luna-sunset-staging-rg'/.test(bicepText)
+    || !/lockedTenantSlug\s*=\s*'sunset'/.test(bicepText))) {
+    errors.push('wrapper must lock RG luna-sunset-staging-rg and tenant sunset');
   }
 
   // Forbidden deployable sanitized / masked literals in Bicep
-  if (/\*{2,}/.test(bicepText) || /\*\*\*\*/.test(bicepText)) {
+  if (/\*{2,}/.test(composed) || /\*\*\*\*/.test(composed)) {
     errors.push('bicep forbids masked **** placeholders as deployable values');
   }
-  if (/example\.test/.test(bicepText)) {
+  if (/example\.test/.test(composed)) {
     errors.push('bicep forbids example.test as deployed env literal');
   }
-  if (/staging_[a-z0-9]+_phone_number_id/.test(bicepText)) {
+  if (/staging_[a-z0-9]+_phone_number_id/.test(composed)) {
     errors.push('bicep forbids staging_*_phone_number_id as deployed env literal');
   }
-  if (/\+34000000000[12]/.test(bicepText)) {
+  if (/\+34000000000[12]/.test(composed)) {
     errors.push('bicep forbids sanitized WhatsApp number literals');
   }
 
-  // Six ingress-routing env vars must resolve from parameters
+  const bind = {
+    SUNSET_SOMO_WHATSAPP_NUMBER: 'locationWhatsappNumberA',
+    SUNSET_SARDINERO_WHATSAPP_NUMBER: 'locationWhatsappNumberB',
+    SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID: 'locationWhatsappPhoneNumberIdA',
+    SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID: 'locationWhatsappPhoneNumberIdB',
+    SUNSET_SOMO_INBOX_EMAIL: 'locationInboxEmailA',
+    SUNSET_SARDINERO_INBOX_EMAIL: 'locationInboxEmailB',
+  };
   for (const row of INGRESS_ROUTING_ENV) {
-    const re = new RegExp(
-      `name:\\s*'${row.env}'\\s*,\\s*value:\\s*${row.param}\\b`,
-    );
-    if (!re.test(bicepText)) {
+    const direct = new RegExp(`name:\\s*'${row.env}'\\s*,\\s*value:\\s*${row.param}\\b`);
+    const viaMod = new RegExp(`name:\\s*'${row.env}'\\s*,\\s*value:\\s*${bind[row.env]}\\b`);
+    const mapped = new RegExp(`${bind[row.env]}:\\s*${row.param}\\b`);
+    if (!(direct.test(composed) || (isWrapper && viaMod.test(moduleText) && mapped.test(bicepText)))) {
       errors.push(`bicep ${row.env} must resolve from parameter ${row.param}`);
-    }
-    if (!new RegExp(`@secure\\(\\)[\\s\\S]{0,120}param ${row.param} string\\b`).test(bicepText)
-      && !new RegExp(`param ${row.param} string\\b`).test(bicepText)) {
-      errors.push(`bicep missing parameter ${row.param}`);
     }
     if (!new RegExp(`@secure\\(\\)[\\s\\S]{0,200}param ${row.param} string\\b`).test(bicepText)) {
       errors.push(`bicep parameter ${row.param} must be @secure()`);
@@ -236,7 +258,7 @@ function evaluate(bicepText, paramsObj, readmeText, inventory, label) {
   }
 
   // No secret values in sources
-  const blob = `${bicepText}\n${JSON.stringify(paramsObj)}\n${readmeText}`;
+  const blob = `${composed}\n${JSON.stringify(paramsObj)}\n${readmeText}`;
   if (/sk_live_[A-Za-z0-9]+/.test(blob) || /sk_test_[A-Za-z0-9]{8,}/.test(blob)) {
     errors.push('secret-looking stripe key in sources');
   }
@@ -262,6 +284,7 @@ function printResult(result) {
 function runSelfTest() {
   console.log('verify:sunset-staging-bicep-reconcile — self-test (RED→GREEN)\n');
   const bicep = read(BICEP);
+  const moduleSrc = loadModuleText();
   const params = JSON.parse(read(PARAMS));
   const readme = read(README);
   const inventory = JSON.parse(read(INVENTORY));
@@ -271,8 +294,15 @@ function runSelfTest() {
   const green = evaluate(bicep, params, readme, inventory, 'green-live-contract');
   if (!printResult(green)) failed += 1;
 
-  const expectFail = (name, mutatedBicep, mutatedParams, needle) => {
-    const r = evaluate(mutatedBicep, mutatedParams, readme, inventory, name);
+  const expectFail = (name, mutatedBicep, mutatedParams, needle, mutatedModule) => {
+    const r = evaluate(
+      mutatedBicep,
+      mutatedParams,
+      readme,
+      inventory,
+      name,
+      mutatedModule === undefined ? moduleSrc : mutatedModule,
+    );
     const ok = !r.ok && r.errors.some((e) => e.includes(needle));
     console.log(`  ${ok ? 'PASS' : 'FAIL'}  self-test ${name} (expect fail / ${needle})`);
     if (!ok) {
@@ -293,8 +323,8 @@ function runSelfTest() {
   }
   {
     const badBicep = bicep.replace(
-      "name: 'STAFF_ACTIONS_ENABLED', value: 'true'",
-      "name: 'STAFF_ACTIONS_ENABLED', value: 'false'",
+      "lockedStaffActionsEnabled = 'true'",
+      "lockedStaffActionsEnabled = 'false'",
     );
     expectFail('red-staff-actions-false', badBicep, params, 'STAFF_ACTIONS_ENABLED');
   }
@@ -311,27 +341,27 @@ function runSelfTest() {
 
   // RED: masked **** in deployable Bicep
   {
-    const bad = bicep.replace(
-      'value: sunsetSomoWhatsappNumber',
+    const badMod = moduleSrc.replace(
+      'value: locationWhatsappNumberA',
       "value: '+34********01'",
     );
-    expectFail('red-masked-asterisks', bad, params, '****');
+    expectFail('red-masked-asterisks', bicep, params, '****', badMod);
   }
 
   // RED: example.test / staging_*_phone_number_id literals
   {
-    const bad = bicep.replace(
-      'value: sunsetSomoInboxEmail',
+    const badMod = moduleSrc.replace(
+      'value: locationInboxEmailA',
       "value: 'leak@staging.example.test'",
     );
-    expectFail('red-example-test-literal', bad, params, 'example.test');
+    expectFail('red-example-test-literal', bicep, params, 'example.test', badMod);
   }
   {
-    const bad = bicep.replace(
-      'value: sunsetSomoWhatsappPhoneNumberId',
+    const badMod = moduleSrc.replace(
+      'value: locationWhatsappPhoneNumberIdA',
       "value: 'staging_somo_phone_number_id'",
     );
-    expectFail('red-staging-phone-id-literal', bad, params, 'staging_*_phone_number_id');
+    expectFail('red-staging-phone-id-literal', bicep, params, 'staging_*_phone_number_id', badMod);
   }
 
   // RED: operational SHA defaults
@@ -345,11 +375,11 @@ function runSelfTest() {
 
   // RED: ingress-routing env not from parameters
   {
-    const bad = bicep.replace(
-      "name: 'SUNSET_SARDINERO_INBOX_EMAIL', value: sunsetSardineroInboxEmail",
+    const badMod = moduleSrc.replace(
+      "name: 'SUNSET_SARDINERO_INBOX_EMAIL', value: locationInboxEmailB",
       "name: 'SUNSET_SARDINERO_INBOX_EMAIL', value: 'hardcoded@not-from-param.invalid'",
     );
-    expectFail('red-ingress-env-not-from-param', bad, params, 'SUNSET_SARDINERO_INBOX_EMAIL must resolve from parameter');
+    expectFail('red-ingress-env-not-from-param', bicep, params, 'SUNSET_SARDINERO_INBOX_EMAIL must resolve from parameter', badMod);
   }
 
   {
