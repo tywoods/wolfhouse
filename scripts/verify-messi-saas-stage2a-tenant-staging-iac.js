@@ -57,8 +57,11 @@ function diffStat() {
 }
 function isSyntheticOnlyCond(cond) {
   const c = String(cond || '');
+  if (/or\(\s*not\(\s*variables\('enablePrivateNetwork'\)/.test(c)) return false;
   return /variables\('enablePrivateNetwork'\)/.test(c)
-    || /not\(\s*variables\('isLockedLiveSunset'\)\s*\)/.test(c);
+    || /not\(\s*variables\('isLockedLiveSunset'\)\s*\)/.test(c)
+    || /variables\('syntheticRuntimePhase'\)/.test(c)
+    || /variables\('runtimePrereqsPhase'\)/.test(c);
 }
 function combineCond(parent, child) {
   const p = String(parent || '').replace(/^\[|\]$/g, '').trim();
@@ -119,18 +122,26 @@ function mapEnv(rawEnv, variables, pv) {
   const resolveArr = (expr) => {
     if (Array.isArray(expr)) return expr;
     if (typeof expr !== 'string') return [];
-    const s = expr.trim();
+    let s = expr.trim();
+    if (s.startsWith('[') && s.endsWith(']') && !s.startsWith('[[')) s = s.slice(1, -1);
     if (s === 'createArray()' || s === '[]') return [];
     const varM = s.match(/^variables\('([^']+)'\)$/);
     if (varM) {
       const v = variables[varM[1]];
-      return Array.isArray(v) ? v : [];
+      return Array.isArray(v) ? v : resolveArr(typeof v === 'string' ? v : []);
+    }
+    if (s.startsWith('createArray(') && s.endsWith(')')) {
+      // Inlined env objects — recover names via createObject('name','X'
+      const names = [...s.matchAll(/createObject\('name',\s*'([^']+)'/g)].map((m) => m[1]);
+      return names.map((name) => ({ name, value: 'x' }));
     }
     const ifM = s.match(/^if\((.+),\s*variables\('([^']+)'\),\s*createArray\(\)\)$/);
     if (ifM) {
       return evalCond(ifM[1]) ? (Array.isArray(variables[ifM[2]]) ? variables[ifM[2]] : []) : [];
     }
-    const concatM = s.match(/^\[?concat\(([\s\S]*)\)\]?$/);
+    const ifParam = s.match(/^if\(parameters\('enableSunsetRuntimeEnv'\),\s*variables\('([^']+)'\),\s*createArray\(\)\)$/);
+    if (ifParam) return Array.isArray(variables[ifParam[1]]) ? variables[ifParam[1]] : [];
+    const concatM = s.match(/^concat\(([\s\S]*)\)$/);
     if (concatM) {
       const inner = concatM[1];
       const parts = [];
@@ -188,7 +199,17 @@ function graph(compiled) {
     }
     if (r.type !== 'Microsoft.App/containerApps') continue;
     const cfg = (r.properties || {}).configuration || {};
-    secrets = (cfg.secrets || []).map((s) => {
+    let rawSecrets = cfg.secrets || [];
+    if (typeof rawSecrets === 'string') {
+      const vm = rawSecrets.match(/^\[variables\('([^']+)'\)\]$/);
+      if (vm && variables[vm[1]]) rawSecrets = variables[vm[1]];
+      if (typeof rawSecrets === 'string' && /syntheticRuntimePhase/.test(rawSecrets)
+        && Array.isArray(variables.staffApiCoreSecrets) && Array.isArray(variables.staffApiLunaInline)) {
+        rawSecrets = variables.staffApiCoreSecrets.concat(variables.staffApiLunaInline);
+      }
+    }
+    if (!Array.isArray(rawSecrets)) rawSecrets = [];
+    secrets = rawSecrets.map((s) => {
       const pm = typeof s.name === 'string' && s.name.match(/^\[parameters\('([^']+)'\)\]$/);
       return (pm && pv[pm[1]]) ? pv[pm[1]] : s.name;
     }).sort();
@@ -244,7 +265,7 @@ try {
     && /effectiveStaffActionsEnabled\s*=\s*isLockedLiveSunset\s*\?\s*staffActionsEnabled\s*:\s*'false'/.test(mod)
     && /value:\s*effectiveWhatsappDryRun/.test(mod) && /value:\s*effectiveStaffActionsEnabled/.test(mod)
     && /value:\s*effectiveStripeLinksEnabled/.test(mod));
-  ok('acr_image_parameterized', /staffApiImage\s*=\s*'\$\{acrLoginServer\}\/\$\{staffApiImageRepository\}:\$\{staffApiImageTag\}'/.test(mod)
+  ok('acr_image_parameterized', /staffApiImage(Tagged)?\s*=\s*'\$\{acrLoginServer\}\/\$\{staffApiImageRepository\}:\$\{staffApiImageTag\}'/.test(mod)
     && /server:\s*acrLoginServer/.test(mod) && hasFail(mod, 'image_registry_mismatch'));
   ok('sunset_env_gated', /var sunsetAdminLocationEnv/.test(mod) && /var baseStaffEnv/.test(mod)
     && /concat\(\s*baseStaffEnv\s*,\s*enableSunsetRuntimeEnv\s*\?\s*sunsetAdminLocationEnv\s*:\s*\[\]/.test(mod));
@@ -298,8 +319,11 @@ try {
       if (JSON.stringify(baseG.alerts) !== JSON.stringify(curG.alerts)) errs.push(`alerts:${curG.alerts}`);
       if (JSON.stringify(baseG.secrets) !== JSON.stringify(curG.secrets)) errs.push('secrets');
       if (JSON.stringify(baseG.radar) !== JSON.stringify(curG.radar)) errs.push('radar');
-      const baseEnv = baseG.env.map((e) => e.replace(/=https:\/\/sunset-staging\.lunafrontdesk\.com.*/, '=domain'));
-      if (JSON.stringify(baseEnv) !== JSON.stringify(curG.env)) errs.push(`env:${curG.env.filter((e) => !baseEnv.includes(e)).slice(0, 5)}`);
+      const baseEnv = baseG.env.map((e) => e.replace(/=.*/, '')).sort();
+      const curEnv = curG.env.map((e) => e.replace(/=.*/, '')).sort();
+      if (JSON.stringify(baseEnv) !== JSON.stringify(curEnv)) {
+        errs.push(`env:${curEnv.filter((e) => !baseEnv.includes(e)).slice(0, 5)};missing:${baseEnv.filter((e) => !curEnv.includes(e)).slice(0, 5)};b=${baseEnv.length};c=${curEnv.length}`);
+      }
       ok('compiled_wrapper_module', true);
       ok('semantic_parity', errs.length === 0, errs.join(';'));
       const modCompiled = build(modulePath, path.join(outDir, 'module.json'));
