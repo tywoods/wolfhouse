@@ -61,6 +61,12 @@ param capacityAlertNamePrefix string
 param portalUrlTarget string
 param planDigest string = ''
 param stageTag string = 'saas-2c1'
+param deployBootstrapJob bool = false
+param bootstrapJobImageDigest string = ''
+@secure()
+param bootstrapAdminDatabaseUrl string = ''
+@secure()
+param bootstrapAppRolePassword string = ''
 // --- Locked-live Sunset tuple + synthetic safety ---
 var tenantSlugLower = toLower(tenantSlug)
 var isLockedLiveSunset = tenantSlugLower == 'sunset' && assertedResourceGroupName == 'luna-sunset-staging-rg' && resourceGroup().name == 'luna-sunset-staging-rg' && appNamePrefix == 'luna-sunset-staging' && appDbName == 'sunset_staging' && environmentName == 'staging'
@@ -79,6 +85,7 @@ var deployScopeOk = resourceGroup().name == assertedResourceGroupName ? true : f
 var environmentStagingOk = environmentName == 'staging' ? true : fail('non_staging_environment')
 var ownershipOk = isLockedLiveSunset || (!empty(planDigest) && !empty(deploySha) && !empty(ownerTag) && !empty(tenantSlug)) ? true : fail('synthetic_ownership_tuple_required')
 var privateFirewallOk = !enablePrivateNetwork || length(postgresAllowedIpAddresses) == 0 ? true : fail('private_network_no_firewall')
+var bootstrapJobGateOk = !deployBootstrapJob || (enablePrivateNetwork && !empty(bootstrapJobImageDigest) && startsWith(bootstrapJobImageDigest, 'sha256:') && length(bootstrapJobImageDigest) == 71 && !empty(bootstrapAdminDatabaseUrl) && !empty(bootstrapAppRolePassword)) ? true : fail('bootstrap_job_requires_private_digest_secrets')
 var useCustomDomain = isLockedLiveSunset
 
 // Synthetic outbound is derived false — not merely caller-requested.
@@ -87,7 +94,7 @@ var effectiveStripeLinksEnabled = isLockedLiveSunset ? stripeLinksEnabled : 'fal
 var effectiveStaffActionsEnabled = isLockedLiveSunset ? staffActionsEnabled : 'false'
 var effectiveFirewallIps = enablePrivateNetwork ? [] : postgresAllowedIpAddresses
 
-var safetyLocksSatisfied = sunsetSlugTupleOk && reservedSlugOk && sunsetEnvLockOk && stagingPrefixOk && stagingRgOk && noWhStagingPrefix && deployScopeOk && environmentStagingOk && ownershipOk && privateFirewallOk
+var safetyLocksSatisfied = sunsetSlugTupleOk && reservedSlugOk && sunsetEnvLockOk && stagingPrefixOk && stagingRgOk && noWhStagingPrefix && deployScopeOk && environmentStagingOk && ownershipOk && privateFirewallOk && bootstrapJobGateOk
 
 var prefix = appNamePrefix
 var kvName = '${prefix}-kv'
@@ -634,6 +641,38 @@ module schemaObserverJob '../../sunset-staging/schema-observer-job.bicep' = if (
     observerDatabaseSecretName: resolvedSchemaObserverSecretName
     tags: resourceTags
   }
+}
+
+// Stage 2C2 — conditional synthetic bootstrap Job (private network only).
+var bootstrapJobName = '${prefix}-bootstrap'
+var bootstrapProvenance = {
+  tenantSlug: tenantSlug
+  ownerTag: ownerTag
+  planDigest: planDigest
+  deploySha: deploySha
+  stageTag: 'saas-2c2'
+}
+module syntheticBootstrapJob './synthetic-bootstrap-job.bicep' = if (enablePrivateNetwork && deployBootstrapJob && bootstrapJobGateOk) {
+  name: 'syntheticBootstrapJob'
+  params: {
+    jobName: bootstrapJobName
+    containerAppsLocation: containerAppsLocation
+    appNamePrefix: prefix
+    appDbName: appDbName
+    acrLoginServer: acrLoginServer
+    staffApiImageRepository: staffApiImageRepository
+    staffApiImageDigest: bootstrapJobImageDigest
+    provenance: bootstrapProvenance
+    adminDatabaseUrl: bootstrapAdminDatabaseUrl
+    appRolePassword: bootstrapAppRolePassword
+  }
+  dependsOn: [
+    pgApp
+    appDb
+    containerAppsEnv
+    managedIdentity
+    acrPullRole
+  ]
 }
 // --- Outputs ---
 

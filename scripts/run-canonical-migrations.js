@@ -1,5 +1,4 @@
 'use strict';
-
 /**
  * Fail-closed canonical migration runner (FOUNDATION Slice 4 + 14AD + 14AE).
  * Uses provenance-aware schema_migration_ledger + PostgreSQL advisory lock.
@@ -17,8 +16,8 @@
  * Sunset host/db/port only) + ssl/application_name/Client injection so the
  * managed-identity TLS wrapper can invoke this same implementation once and
  * prove a zero-apply no-op over the 39-row provenance baseline ledger.
+ * Stage 2C2: allowDedicatedSyntheticAzureInitialApply (fresh synthetic only; no default widen).
  */
-
 const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
@@ -41,7 +40,6 @@ const {
   resolveChecksumMode,
   CHECKSUM_MODE_CANONICAL_LF_V1,
 } = require('./lib/migration-integrity');
-
 async function withAdvisoryLock(client, fn) {
   await client.query('SELECT pg_advisory_lock($1, $2)', [ADVISORY_LOCK_KEY1, ADVISORY_LOCK_KEY2]);
   try {
@@ -50,7 +48,6 @@ async function withAdvisoryLock(client, fn) {
     await client.query('SELECT pg_advisory_unlock($1, $2)', [ADVISORY_LOCK_KEY1, ADVISORY_LOCK_KEY2]);
   }
 }
-
 /**
  * Create fresh provenance-aware ledger, then additively upgrade any legacy
  * five-column ledger before runner use.
@@ -59,7 +56,6 @@ async function ensureLedger(client) {
   await client.query(LEDGER_DDL);
   await client.query(LEDGER_LEGACY_UPGRADE_DDL);
 }
-
 async function loadLedger(client) {
   const cols = LEDGER_SELECT_COLUMNS.join(', ');
   const res = await client.query(
@@ -67,7 +63,6 @@ async function loadLedger(client) {
   );
   return res.rows;
 }
-
 /**
  * Apply one migration + ledger insert in a single atomic transaction.
  * Outer BEGIN/COMMIT wrappers are stripped conservatively before execution.
@@ -87,16 +82,13 @@ async function applyOne(client, entry, migrationsDir, hooks, checksumMode) {
       code: live.ok ? 'checksum_mismatch' : live.code || 'checksum_mismatch',
     });
   }
-
   const prepared = prepareMigrationBody(sql);
   if (!prepared.ok) {
     throw Object.assign(new Error(prepared.message || 'invalid migration transaction shape'), {
       code: prepared.code || 'txn_prepare_failed',
     });
   }
-
   const provenance = buildExecutedByCanonicalRunnerProvenance(entry);
-
   await client.query('BEGIN');
   try {
     await client.query(prepared.body);
@@ -136,22 +128,42 @@ async function applyOne(client, entry, migrationsDir, hooks, checksumMode) {
     throw e;
   }
 }
-
 /**
- * @param {object} opts
- * @param {{host:string,port:number,user:string,password:string,database:string,ssl?:object,application_name?:string}} opts.connection
- * @param {string} [opts.manifestPath]
- * @param {string} [opts.migrationsDir]
- * @param {boolean} [opts.dryRun]
- * @param {boolean} [opts.allowSunsetStagingCanonicalRunnerNoop] Slice 14AE gated allow
- * @param {typeof Client} [opts.Client] injectable pg Client (instrumentation / tests)
- * @param {(client:object, entry:object)=>Promise<void>} [opts.beforeLedgerInsert]
+ * @param {object} opts connection + optional allowSunsetStagingCanonicalRunnerNoop /
+ *   allowDedicatedSyntheticAzureInitialApply (+ syntheticTenantSlug) + Client/dryRun hooks
  */
+async function probeFreshSyntheticDatabase(client) {
+  const ns = "n.nspname NOT IN ('pg_catalog','information_schema','pg_toast') AND n.nspname NOT LIKE 'pg_temp_%' AND n.nspname NOT LIKE 'pg_toast_temp_%'";
+  const res = await client.query(
+    `SELECT (to_regclass('public.schema_migration_ledger') IS NOT NULL) AS ledger_exists,`
+    + ` CASE WHEN to_regclass('public.schema_migration_ledger') IS NULL THEN 0 ELSE (SELECT COUNT(*)::int FROM public.schema_migration_ledger) END AS ledger_rows,`
+    + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_namespace n WHERE n.nspname NOT IN ('pg_catalog','information_schema','pg_toast','public') AND n.nspname NOT LIKE 'pg_temp_%' AND n.nspname NOT LIKE 'pg_toast_temp_%') AS user_schemas,`
+    + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE ${ns} AND c.relkind IN ('r','v','m','S','f','p') AND NOT (n.nspname='public' AND c.relname='schema_migration_ledger')) AS user_relations,`
+    + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE ${ns}) AS user_functions,`
+    + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace WHERE ${ns} AND t.typtype IN ('c','e','d','r') AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.oid=t.typrelid AND c.relkind IN ('r','v','m','S','f','p'))) AS user_types,`
+    + ` (SELECT COUNT(*)::int FROM pg_catalog.pg_trigger tr JOIN pg_catalog.pg_class c ON c.oid=tr.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE NOT tr.tgisinternal AND ${ns}) AS user_triggers`,
+  );
+  const row = (res.rows && res.rows[0]) || {};
+  const ledgerExists = row.ledger_exists === true || row.ledger_exists === 't';
+  const ledgerRows = Number(row.ledger_rows || 0);
+  const userSchemas = Number(row.user_schemas || 0);
+  const userRelations = Number(row.user_relations || 0);
+  const userFunctions = Number(row.user_functions || 0);
+  const userTypes = Number(row.user_types || 0);
+  const userTriggers = Number(row.user_triggers || 0);
+  if (ledgerExists && ledgerRows > 0) return { ok: false, errors: [{ code: 'synthetic_db_not_fresh_ledger', message: 'canonical ledger not empty' }] };
+  if (userSchemas || userRelations || userFunctions || userTypes || userTriggers) {
+    return { ok: false, errors: [{ code: 'synthetic_db_not_fresh_schema', message: 'user schema objects present' }], userSchemas, userRelations, userFunctions, userTypes, userTriggers };
+  }
+  return { ok: true, errors: [], ledgerExists, ledgerRows, userSchemas, userRelations, userFunctions, userTypes, userTriggers };
+}
 async function runCanonicalMigrations(opts) {
   const options = opts || {};
   const connection = options.connection;
   const safety = assertSafeDatabaseTarget(connection, {
     allowSunsetStagingCanonicalRunnerNoop: options.allowSunsetStagingCanonicalRunnerNoop === true,
+    allowDedicatedSyntheticAzureInitialApply: options.allowDedicatedSyntheticAzureInitialApply === true,
+    syntheticTenantSlug: options.syntheticTenantSlug,
   });
   if (!safety.ok) {
     return {
@@ -163,7 +175,6 @@ async function runCanonicalMigrations(opts) {
       safetyMode: safety.mode || null,
     };
   }
-
   const manifest = loadManifest(options.manifestPath || MANIFEST_PATH);
   const modeGate = resolveChecksumMode(manifest);
   if (!modeGate.ok) {
@@ -189,9 +200,17 @@ async function runCanonicalMigrations(opts) {
       safetyMode: safety.mode || null,
     };
   }
-
   const forward = forwardEntries(manifest);
   const ClientCtor = options.Client || Client;
+  const externalClient = options.client || null;
+  const advisoryLockHeld = options.advisoryLockHeld === true;
+  if (advisoryLockHeld && !externalClient) {
+    return {
+      ok: false, applied: [], skipped: [], pending: [],
+      errors: [{ code: 'advisory_lock_client_required', message: 'advisoryLockHeld requires injected client' }],
+      safetyMode: safety.mode || null,
+    };
+  }
   const clientConfig = {
     host: connection.host,
     port: connection.port,
@@ -205,62 +224,71 @@ async function runCanonicalMigrations(opts) {
   if (connection.application_name != null) {
     clientConfig.application_name = connection.application_name;
   }
-  const client = new ClientCtor(clientConfig);
-
+  const client = externalClient || new ClientCtor(clientConfig);
   const applied = [];
   const skipped = [];
   const errors = [];
   let pending = forward.map((e) => e.id);
-
-  try {
-    await client.connect();
-    await withAdvisoryLock(client, async () => {
-      await ensureLedger(client);
-      const ledgerRows = await loadLedger(client);
-      const recon = reconcileLedger(forward, ledgerRows);
-      if (!recon.ok) {
-        errors.push(...recon.errors);
-        pending = forward.filter((e) => !recon.byId.has(e.id)).map((e) => e.id);
+  const requireFresh = options.allowDedicatedSyntheticAzureInitialApply === true
+    && options.skipFreshnessProbe !== true;
+  const runBody = async () => {
+    if (requireFresh) {
+      const fresh = await probeFreshSyntheticDatabase(client);
+      if (!fresh.ok) {
+        errors.push(...fresh.errors);
         return;
       }
-
-      for (const entry of forward) {
-        if (recon.byId.has(entry.id)) {
-          skipped.push(entry.id);
-          continue;
-        }
-        if (options.dryRun) {
-          applied.push(entry.id);
-          continue;
-        }
-        await applyOne(
-          client,
-          entry,
-          options.migrationsDir || MIGRATIONS_DIR,
-          {
-            beforeLedgerInsert: options.beforeLedgerInsert,
-          },
-          modeGate.mode,
-        );
-        applied.push(entry.id);
+    }
+    await ensureLedger(client);
+    const ledgerRows = await loadLedger(client);
+    const recon = reconcileLedger(forward, ledgerRows);
+    if (!recon.ok) {
+      errors.push(...recon.errors);
+      pending = forward.filter((e) => !recon.byId.has(e.id)).map((e) => e.id);
+      return;
+    }
+    for (const entry of forward) {
+      if (recon.byId.has(entry.id)) {
+        skipped.push(entry.id);
+        continue;
       }
-      pending = forward
-        .filter((e) => !skipped.includes(e.id) && !applied.includes(e.id))
-        .map((e) => e.id);
-    });
+      if (options.dryRun) {
+        applied.push(entry.id);
+        continue;
+      }
+      await applyOne(
+        client,
+        entry,
+        options.migrationsDir || MIGRATIONS_DIR,
+        {
+          beforeLedgerInsert: options.beforeLedgerInsert,
+        },
+        modeGate.mode,
+      );
+      applied.push(entry.id);
+    }
+    pending = forward
+      .filter((e) => !skipped.includes(e.id) && !applied.includes(e.id))
+      .map((e) => e.id);
+  };
+  try {
+    if (!externalClient) await client.connect();
+    if (advisoryLockHeld) await runBody();
+    else await withAdvisoryLock(client, runBody);
   } catch (e) {
     errors.push({
       code: e.code || 'apply_failed',
       message: String(e.message || e).slice(0, 800),
     });
   } finally {
-    try {
-      await client.end();
-    } catch (_) {
-      /* ignore */
+    if (!externalClient) {
+      try {
+        await client.end();
+      } catch (_) {
+        /* ignore */
+      }
     }
   }
-
   return {
     ok: errors.length === 0,
     applied,
@@ -271,7 +299,6 @@ async function runCanonicalMigrations(opts) {
     safetyMode: safety.mode || null,
   };
 }
-
 module.exports = {
   runCanonicalMigrations,
   reconcileLedger,
@@ -279,8 +306,8 @@ module.exports = {
   withAdvisoryLock,
   applyOne,
   loadLedger,
+  probeFreshSyntheticDatabase,
 };
-
 if (require.main === module) {
   const args = process.argv.slice(2);
   function arg(name) {

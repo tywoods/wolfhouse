@@ -725,39 +725,74 @@ const SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET = Object.freeze({
   port: 5432,
 });
 
+const RESERVED_SYNTHETIC_SLUGS = Object.freeze(['sunset', 'wolfhouse', 'wh', 'prod']);
+const expectedSyntheticPostgresHost = (slug) => `luna-${slug}-staging-pg-app.postgres.database.azure.com`;
+const expectedSyntheticDatabaseName = (slug) => `${slug}_staging`;
+
+function assertSyntheticTenantSlug(slug) {
+  const s = String(slug || '');
+  const errors = [];
+  if (!/^[a-z][a-z0-9]{2,31}$/.test(s)) errors.push({ code: 'synthetic_slug_shape', message: 'synthetic tenant slug shape invalid' });
+  if (RESERVED_SYNTHETIC_SLUGS.includes(s) || s.includes('prod') || s.includes('wolfhouse')) {
+    errors.push({ code: 'synthetic_slug_reserved', message: 'reserved/prod synthetic tenant slug' });
+  }
+  return { ok: errors.length === 0, errors, slug: s };
+}
+
 function assertSafeDatabaseTarget(connectionInfo, opts) {
   const options = opts || {};
   const errors = [];
   const host = String(connectionInfo.host || '');
   const database = String(connectionInfo.database || '');
   const port = Number(connectionInfo.port);
+  const wantSunset = options.allowSunsetStagingCanonicalRunnerNoop === true;
+  const wantSynthetic = options.allowDedicatedSyntheticAzureInitialApply === true;
+
+  if (wantSunset && wantSynthetic) {
+    return {
+      ok: false,
+      errors: [{ code: 'conflicting_safety_capabilities', message: 'Sunset no-op and synthetic initial-apply are mutually exclusive' }],
+      mode: null,
+    };
+  }
 
   // Slice 14AE: gated Sunset staging no-op allowlist (exact host/db/port only).
   // Does not weaken the default ephemeral-loopback policy for other callers.
-  if (options.allowSunsetStagingCanonicalRunnerNoop === true) {
+  if (wantSunset) {
     if (host !== SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET.host) {
-      errors.push({
-        code: 'sunset_noop_host_mismatch',
-        message: 'Sunset canonical-runner no-op requires exact locked postgres host',
-      });
+      errors.push({ code: 'sunset_noop_host_mismatch', message: 'Sunset canonical-runner no-op requires exact locked postgres host' });
     }
     if (database !== SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET.database) {
-      errors.push({
-        code: 'sunset_noop_database_mismatch',
-        message: 'Sunset canonical-runner no-op requires exact locked database',
-      });
+      errors.push({ code: 'sunset_noop_database_mismatch', message: 'Sunset canonical-runner no-op requires exact locked database' });
     }
     if (!Number.isFinite(port) || port !== SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET.port) {
-      errors.push({
-        code: 'sunset_noop_port_mismatch',
-        message: 'Sunset canonical-runner no-op requires exact locked port',
-      });
+      errors.push({ code: 'sunset_noop_port_mismatch', message: 'Sunset canonical-runner no-op requires exact locked port' });
     }
-    return {
-      ok: errors.length === 0,
-      errors,
-      mode: 'sunset_staging_canonical_runner_noop',
-    };
+    return { ok: errors.length === 0, errors, mode: 'sunset_staging_canonical_runner_noop' };
+  }
+
+  // Stage 2C2: dedicated synthetic Azure initial-apply (exact host/db + TLS). Does not broaden defaults.
+  if (wantSynthetic) {
+    const slugGate = assertSyntheticTenantSlug(options.syntheticTenantSlug);
+    if (!slugGate.ok) errors.push(...slugGate.errors);
+    const slug = slugGate.slug;
+    if (!slugGate.ok || host !== expectedSyntheticPostgresHost(slug)) {
+      errors.push({ code: 'synthetic_host_mismatch', message: 'requires exact luna-<slug>-staging-pg-app host' });
+    }
+    if (!slugGate.ok || database !== expectedSyntheticDatabaseName(slug)) {
+      errors.push({ code: 'synthetic_database_mismatch', message: 'requires exact <slug>_staging database' });
+    }
+    if (!Number.isFinite(port) || port !== 5432) {
+      errors.push({ code: 'synthetic_port_mismatch', message: 'requires port 5432' });
+    }
+    // Exact TLS object only — reject truthy bypasses (true, {}, rejectUnauthorized:false, extras).
+    const ssl = connectionInfo.ssl;
+    const sslKeys = ssl && typeof ssl === 'object' && !Array.isArray(ssl) ? Object.keys(ssl) : null;
+    if (!sslKeys || sslKeys.length !== 1 || sslKeys[0] !== 'rejectUnauthorized'
+      || ssl.rejectUnauthorized !== true) {
+      errors.push({ code: 'synthetic_tls_required', message: 'requires ssl:{rejectUnauthorized:true} exact' });
+    }
+    return { ok: errors.length === 0, errors, mode: 'dedicated_synthetic_azure_initial_apply' };
   }
 
   if (!host || host === '') {
@@ -765,24 +800,16 @@ function assertSafeDatabaseTarget(connectionInfo, opts) {
   }
   const loopbackOk = host === '127.0.0.1' || host === 'localhost' || host === '::1';
   if (!loopbackOk) {
-    errors.push({
-      code: 'target_host_not_loopback',
-      message: 'refusing non-loopback host (only localhost, 127.0.0.1, ::1)',
-    });
+    errors.push({ code: 'target_host_not_loopback', message: 'refusing non-loopback host (only localhost, 127.0.0.1, ::1)' });
   }
   for (const re of FORBIDDEN_HOST_PATTERNS) {
-    if (re.test(host)) {
-      errors.push({ code: 'target_host_forbidden', message: 'forbidden host pattern' });
-    }
+    if (re.test(host)) errors.push({ code: 'target_host_forbidden', message: 'forbidden host pattern' });
   }
   if (FORBIDDEN_DB_NAMES.includes(database.toLowerCase())) {
     errors.push({ code: 'target_db_forbidden', message: 'forbidden database name' });
   }
   if (!/^wh_mig_[a-z0-9_]+$/i.test(database)) {
-    errors.push({
-      code: 'target_db_not_ephemeral',
-      message: 'database name must match wh_mig_* ephemeral pattern',
-    });
+    errors.push({ code: 'target_db_not_ephemeral', message: 'database name must match wh_mig_* ephemeral pattern' });
   }
   if (!Number.isFinite(port) || port < 1 || port > 65535) {
     errors.push({ code: 'target_port_invalid', message: 'invalid port' });
@@ -1055,6 +1082,10 @@ module.exports = {
   FORBIDDEN_HOST_PATTERNS,
   FORBIDDEN_DB_NAMES,
   SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET,
+  RESERVED_SYNTHETIC_SLUGS,
+  expectedSyntheticPostgresHost,
+  expectedSyntheticDatabaseName,
+  assertSyntheticTenantSlug,
   CLASSIFICATIONS,
   LEDGER_DDL,
   LEDGER_DDL_SLICE4_BASE,
