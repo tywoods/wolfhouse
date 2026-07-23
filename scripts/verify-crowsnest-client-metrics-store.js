@@ -65,6 +65,35 @@ function ok(name, cond) {
   const prodMap = await store.getSpyglassClientMetricsMap({ NODE_ENV: 'production' }); // fail_closed
   ok('reader (prod/no DSN) yields empty map', prodMap && Object.keys(prodMap).length === 0);
 
+  // Postgres backend — exercised with an injected mock pool (no real DB).
+  const calls = [];
+  const fakePool = {
+    query: async (sql, params) => {
+      calls.push({ sql: String(sql), params });
+      if (/^\s*SELECT event FROM/i.test(sql)) {
+        // getLatest has a WHERE $1; getAllLatest does not
+        return { rows: params ? [{ event: valid }] : [{ event: valid }] };
+      }
+      return { rows: [] }; // CREATE SCHEMA / CREATE TABLE / INSERT
+    },
+  };
+  const pg = store.createPostgresRepository({ pool: fakePool });
+  ok('postgres: backend label is postgres', pg.backend === 'postgres');
+  const pgPut = await pg.putSnapshot(valid);
+  ok('postgres: valid snapshot put ok', pgPut.ok === true);
+  ok('postgres: ensures schema + table before write', calls.some((c) => /CREATE SCHEMA IF NOT EXISTS crowsnest_metrics/.test(c.sql)) && calls.some((c) => /CREATE TABLE IF NOT EXISTS crowsnest_metrics\.client_metrics_snapshots/.test(c.sql)));
+  ok('postgres: upsert is latest-wins on conflict', calls.some((c) => /INSERT INTO crowsnest_metrics\.client_metrics_snapshots/.test(c.sql) && /ON CONFLICT \(client_slug\) DO UPDATE/.test(c.sql) && /EXCLUDED\.captured_at >=/.test(c.sql)));
+  const pgAll = await pg.getAllLatest();
+  ok('postgres: getAllLatest maps rows to events', Array.isArray(pgAll) && pgAll[0] && pgAll[0].snapshot_id === valid.snapshot_id);
+
+  // Invalid event is rejected BEFORE any DB call.
+  const callsBefore = calls.length;
+  const pgBad = await pg.putSnapshot({ schema_version: 'nope' });
+  ok('postgres: invalid event rejected without touching the pool', pgBad.ok === false && calls.length === callsBefore);
+
+  // createRepository routes a DSN-configured env to the postgres backend.
+  ok('createRepository(DSN) => postgres backend', store.createRepository({ CROWSNEST_METRICS_DATABASE_URL: 'postgres://x' }).backend === 'postgres');
+
   console.log(`\n── verify:crowsnest-client-metrics-store: ${pass} passed, ${fail} failed ──`);
   if (fail > 0) { console.error('verify:crowsnest-client-metrics-store — FAILURES'); process.exit(1); }
   console.log('verify:crowsnest-client-metrics-store — ALL CHECKS PASSED');

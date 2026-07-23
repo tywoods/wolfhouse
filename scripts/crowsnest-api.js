@@ -63,7 +63,66 @@ const {
 
 const {
   getSpyglassClientMetricsMap,
+  putClientMetricsSnapshot,
 } = require('./lib/crowsnest/crowsnest-client-metrics-store');
+
+const METRICS_INGEST_TOKEN_ENV = 'CROWSNEST_METRICS_INGEST_TOKEN';
+const METRICS_INGEST_MAX_BODY = 64 * 1024; // snapshots are tiny; cap the surface
+
+function metricsIngestConfigured() {
+  return String(process.env[METRICS_INGEST_TOKEN_ENV] || '').trim().length > 0;
+}
+
+// Constant-time bearer-token check for the machine reporter. False on any mismatch.
+function metricsIngestAuthorized(req) {
+  const expected = String(process.env[METRICS_INGEST_TOKEN_ENV] || '').trim();
+  if (!expected) return false;
+  const header = String((req && req.headers && req.headers.authorization) || '');
+  const m = header.match(/^Bearer\s+(.+)$/i);
+  if (!m) return false;
+  const provided = Buffer.from(m[1].trim());
+  const expectedBuf = Buffer.from(expected);
+  if (provided.length !== expectedBuf.length) return false;
+  return crypto.timingSafeEqual(provided, expectedBuf);
+}
+
+// POST /api/client-metrics — machine reporters push crowsnest.client_metrics.v1
+// snapshots. Invisible (404) unless a token is configured; the contract validates
+// every event; the store fails closed (503) until a DSN is set. No writes to any
+// tenant/prod system — only Crowsnest's own metrics store.
+async function handleClientMetricsIngest(req, res, method) {
+  if (!metricsIngestConfigured()) {
+    return sendJSON(res, 404, { error: 'not found' }, { 'Cache-Control': 'no-store' });
+  }
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!metricsIngestAuthorized(req)) {
+    return sendJSON(res, 401, { error: 'unauthorized' }, { 'Cache-Control': 'no-store', 'WWW-Authenticate': 'Bearer' });
+  }
+  let raw;
+  try {
+    raw = await readLimitedBody(req, METRICS_INGEST_MAX_BODY);
+  } catch {
+    return sendPayloadTooLarge(res);
+  }
+  let event;
+  try {
+    event = JSON.parse(raw || '');
+  } catch {
+    return sendJSON(res, 400, { ok: false, code: 'invalid_json' }, { 'Cache-Control': 'no-store' });
+  }
+  const result = await putClientMetricsSnapshot(event);
+  if (result && result.ok) {
+    return sendJSON(res, 200, { ok: true }, { 'Cache-Control': 'no-store' });
+  }
+  const status = result && result.status === 503 ? 503 : 400;
+  return sendJSON(res, status, {
+    ok: false,
+    code: (result && result.code) || 'rejected',
+    errors: (result && result.errors) || undefined,
+  }, { 'Cache-Control': 'no-store' });
+}
 
 const PORT = Number(process.env.CROWSNEST_PORT) || 3040;
 const HOST = process.env.CROWSNEST_HOST || '0.0.0.0';
@@ -1864,6 +1923,10 @@ async function router(req, res) {
     return handleAsset(req, res, method, pathname);
   }
 
+  if (pathname === '/api/client-metrics') {
+    return handleClientMetricsIngest(req, res, method);
+  }
+
   if (pathname === '/sales/prospects') {
     return handleSalesCreateProspect(req, res, method);
   }
@@ -1984,4 +2047,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, router, PORT, HOST, sendSalesUnavailable };
+module.exports = { server, router, PORT, HOST, sendSalesUnavailable, handleClientMetricsIngest, METRICS_INGEST_TOKEN_ENV };
