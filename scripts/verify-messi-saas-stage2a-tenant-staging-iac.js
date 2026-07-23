@@ -55,11 +55,26 @@ function diffStat() {
   return { rawAdd, rawDel, net: rawAdd - rawDel, perFile, files: perFile.length, moved,
     nonMoved: Math.max(0, rawAdd - moved) };
 }
+function isSyntheticOnlyCond(cond) {
+  const c = String(cond || '');
+  return /variables\('enablePrivateNetwork'\)/.test(c)
+    || /not\(\s*variables\('isLockedLiveSunset'\)\s*\)/.test(c);
+}
+function combineCond(parent, child) {
+  const p = String(parent || '').replace(/^\[|\]$/g, '').trim();
+  const c = String(child || '').replace(/^\[|\]$/g, '').trim();
+  if (p && c) return `[and(${p}, ${c})]`;
+  if (p) return `[${p}]`;
+  if (c) return `[${c}]`;
+  return '';
+}
 function flatten(compiled) {
   const resources = []; const variables = { ...(compiled.variables || {}) };
-  const walk = (list, pv) => {
+  const walk = (list, pv, parentCond) => {
     for (const r of list || []) {
+      const cond = combineCond(parentCond, r.condition);
       if (r.type === 'Microsoft.Resources/deployments') {
+        if (isSyntheticOnlyCond(cond)) continue; // gated private network — absent for Sunset
         const tpl = (r.properties || {}).template || {};
         const passed = (r.properties || {}).parameters || {};
         const next = { ...pv };
@@ -71,12 +86,17 @@ function flatten(compiled) {
           next[k] = val;
         }
         Object.assign(variables, tpl.variables || {});
-        walk(tpl.resources || [], next); continue;
+        walk(tpl.resources || [], next, cond);
+        continue;
+      }
+      if (isSyntheticOnlyCond(cond)) continue;
+      if (String(r.type || '').startsWith('Microsoft.Network/')) {
+        throw new Error(`private_network_leak:${r.type}:${r.name}`);
       }
       resources.push({ r, pv });
     }
   };
-  walk(compiled.resources || [], {});
+  walk(compiled.resources || [], {}, '');
   return { resources, variables };
 }
 function mapEnv(rawEnv, variables, pv) {
@@ -217,7 +237,7 @@ try {
     && /tenantSlugLower\s*=\s*toLower\(tenantSlug\)/.test(mod)
     && /startsWith\(tenantSlugLower,\s*'wolfhouse'\)/.test(mod));
   ok('unconditional_scope_env', hasFail(mod, 'wrong_resource_group') && hasFail(mod, 'non_staging_environment')
-    && /safetyLocksSatisfied/.test(mod) && /resourceTags[\s\S]{0,200}safetyLocksSatisfied/.test(mod)
+    && /safetyLocksSatisfied/.test(mod) && /(resourceTags|sunsetResourceTags)[\s\S]{0,220}safetyLocksSatisfied/.test(mod)
     && /tags:\s*union\(resourceTags/.test(mod));
   ok('derived_synthetic_outbound', /effectiveWhatsappDryRun\s*=\s*isLockedLiveSunset\s*\?\s*whatsappDryRun\s*:\s*'true'/.test(mod)
     && /effectiveStripeLinksEnabled\s*=\s*isLockedLiveSunset\s*\?\s*stripeLinksEnabled\s*:\s*'false'/.test(mod)

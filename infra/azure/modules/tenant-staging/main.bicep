@@ -59,9 +59,12 @@ param stripeLinksEnabled string
 param whatsappDryRun string
 param capacityAlertNamePrefix string
 param portalUrlTarget string
+param planDigest string = ''
+param stageTag string = 'saas-2c1'
 // --- Locked-live Sunset tuple + synthetic safety ---
 var tenantSlugLower = toLower(tenantSlug)
 var isLockedLiveSunset = tenantSlugLower == 'sunset' && assertedResourceGroupName == 'luna-sunset-staging-rg' && resourceGroup().name == 'luna-sunset-staging-rg' && appNamePrefix == 'luna-sunset-staging' && appDbName == 'sunset_staging' && environmentName == 'staging'
+var enablePrivateNetwork = !isLockedLiveSunset
 var sunsetSlugTupleOk = tenantSlugLower != 'sunset' || isLockedLiveSunset ? true : fail('sunset_slug_requires_locked_live_tuple')
 var reservedSlug = tenantSlugLower == 'wolfhouse' || tenantSlugLower == 'wh' || startsWith(tenantSlugLower, 'wolfhouse')
 var reservedSlugOk = isLockedLiveSunset || !reservedSlug ? true : fail('reserved_slug_in_synthetic_mode')
@@ -74,13 +77,17 @@ var stagingRgOk = endsWith(rgLower, '-staging-rg') && !contains(rgLower, 'prod')
 var noWhStagingPrefix = appNamePrefix != 'wh-staging' ? true : fail('forbidden_wh_staging_prefix')
 var deployScopeOk = resourceGroup().name == assertedResourceGroupName ? true : fail('wrong_resource_group')
 var environmentStagingOk = environmentName == 'staging' ? true : fail('non_staging_environment')
+var ownershipOk = isLockedLiveSunset || (!empty(planDigest) && !empty(deploySha) && !empty(ownerTag) && !empty(tenantSlug)) ? true : fail('synthetic_ownership_tuple_required')
+var privateFirewallOk = !enablePrivateNetwork || length(postgresAllowedIpAddresses) == 0 ? true : fail('private_network_no_firewall')
+var useCustomDomain = isLockedLiveSunset
 
 // Synthetic outbound is derived false — not merely caller-requested.
 var effectiveWhatsappDryRun = isLockedLiveSunset ? whatsappDryRun : 'true'
 var effectiveStripeLinksEnabled = isLockedLiveSunset ? stripeLinksEnabled : 'false'
 var effectiveStaffActionsEnabled = isLockedLiveSunset ? staffActionsEnabled : 'false'
+var effectiveFirewallIps = enablePrivateNetwork ? [] : postgresAllowedIpAddresses
 
-var safetyLocksSatisfied = sunsetSlugTupleOk && reservedSlugOk && sunsetEnvLockOk && stagingPrefixOk && stagingRgOk && noWhStagingPrefix && deployScopeOk && environmentStagingOk
+var safetyLocksSatisfied = sunsetSlugTupleOk && reservedSlugOk && sunsetEnvLockOk && stagingPrefixOk && stagingRgOk && noWhStagingPrefix && deployScopeOk && environmentStagingOk && ownershipOk && privateFirewallOk
 
 var prefix = appNamePrefix
 var kvName = '${prefix}-kv'
@@ -90,10 +97,12 @@ var envName = '${prefix}-env'
 var idName = '${prefix}-identity'
 var staffApiAppName = '${prefix}-staff-api'
 var pgServerName = '${prefix}-pg-app'
+var pgLocation = enablePrivateNetwork ? containerAppsLocation : location
 var resolvedSchemaObserverJobName = empty(schemaObserverJobName) ? '${appNamePrefix}-sch-obs' : schemaObserverJobName
 var resolvedSchemaObserverSecretName = empty(schemaObserverDatabaseSecretName) ? '${tenantSlug}-schema-observer-database-url' : schemaObserverDatabaseSecretName
 
-var resourceTags = {
+// Exact pre-2C1 Sunset tags — synthetic ownership must not leak into locked-live.
+var sunsetResourceTags = {
   product: 'Luna Front Desk'
   tenant: tenantSlug
   environment: environmentName
@@ -101,12 +110,29 @@ var resourceTags = {
   slice: 'portal-1'
   safetyLocksSatisfied: string(safetyLocksSatisfied)
 }
-var staffApiTags = {
+var syntheticOwnershipTags = {
+  tenant: tenantSlug
+  stage: stageTag
+  owner: ownerTag
+  planDigest: planDigest
+  deploySha: deploySha
+}
+var resourceTags = union(sunsetResourceTags, enablePrivateNetwork ? {
+  stage: stageTag
+  planDigest: planDigest
+  deploySha: deploySha
+} : {})
+var staffApiTags = union({
   product: 'Luna Front Desk'
   tenant: tenantSlug
   environment: environmentName
   slice: 'portal-1'
-}
+}, enablePrivateNetwork ? {
+  stage: stageTag
+  planDigest: planDigest
+  deploySha: deploySha
+  owner: ownerTag
+} : {})
 var staffApiImage = '${acrLoginServer}/${staffApiImageRepository}:${staffApiImageTag}'
 var imageRegistryOk = startsWith(staffApiImage, '${acrLoginServer}/') && !contains(staffApiImage, 'wh-staff-api') ? true : fail('image_registry_mismatch')
 var acrLoginServerMatches = acrLoginServer == '${acrName}.azurecr.io' ? true : fail('acr_login_server_mismatch')
@@ -187,11 +213,24 @@ module acrPullRole '../../sunset-staging/acr-pull-role.bicep' = {
     principalId: managedIdentity.properties.principalId
   }
 }
-// --- Postgres Flexible Server (Sunset dedicated) ---
+
+module privateNetwork './private-network.bicep' = if (enablePrivateNetwork) {
+  name: 'privateNetwork'
+  params: {
+    location: containerAppsLocation
+    appNamePrefix: appNamePrefix
+    tenantSlug: tenantSlug
+    stageTag: stageTag
+    ownerTag: ownerTag
+    planDigest: planDigest
+    deploySha: deploySha
+  }
+}
+// --- Postgres Flexible Server (Sunset public / synthetic private) ---
 
 resource pgApp 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = {
   name: pgServerName
-  location: location
+  location: pgLocation
   tags: resourceTags
   sku: {
     name: postgresSku
@@ -211,7 +250,11 @@ resource pgApp 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = 
     highAvailability: {
       mode: 'Disabled'
     }
-    network: {
+    network: enablePrivateNetwork ? {
+      delegatedSubnetResourceId: privateNetwork!.outputs.postgresDelegatedSubnetId
+      privateDnsZoneArmResourceId: privateNetwork!.outputs.privateDnsZoneId
+      publicNetworkAccess: 'Disabled'
+    } : {
       publicNetworkAccess: 'Enabled'
     }
   }
@@ -226,7 +269,7 @@ resource appDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-p
   }
 }
 
-resource pgFirewallRules 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = [for (ip, i) in postgresAllowedIpAddresses: {
+resource pgFirewallRules 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = [for (ip, i) in effectiveFirewallIps: {
   parent: pgApp
   name: '${firewallRuleNamePrefix}${i}'
   properties: {
@@ -240,7 +283,7 @@ resource containerAppsEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
   name: envName
   location: containerAppsLocation
   tags: resourceTags
-  properties: {
+  properties: union({
     appLogsConfiguration: {
       destination: 'log-analytics'
       logAnalyticsConfiguration: {
@@ -248,11 +291,22 @@ resource containerAppsEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
         sharedKey: logAnalytics.listKeys().primarySharedKey
       }
     }
-  }
+  }, enablePrivateNetwork ? {
+    vnetConfiguration: {
+      infrastructureSubnetId: privateNetwork!.outputs.acaInfrastructureSubnetId
+      internal: false
+    }
+    workloadProfiles: [
+      {
+        name: 'Consumption'
+        workloadProfileType: 'Consumption'
+      }
+    ]
+  } : {})
 }
 var kvBaseUri = 'https://${kvName}.vault.azure.net/secrets'
 
-resource existingManagedCert 'Microsoft.App/managedEnvironments/managedCertificates@2023-05-01' existing = {
+resource existingManagedCert 'Microsoft.App/managedEnvironments/managedCertificates@2023-05-01' existing = if (useCustomDomain) {
   parent: containerAppsEnv
   name: managedCertificateName
 }
@@ -363,13 +417,13 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
             weight: 100
           }
         ]
-        customDomains: [
+        customDomains: useCustomDomain ? [
           {
             name: staffApiCustomDomain
             bindingType: 'SniEnabled'
             certificateId: existingManagedCert.id
           }
-        ]
+        ] : []
       }
       secrets: [
         {
@@ -498,6 +552,7 @@ var radar16lMemoryMetricName = 'MemoryPercentage'
 resource staffApiCpuPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && deployStaffApi) {
   name: '${capacityAlertNamePrefix}-staff-api-cpu-pressure'
   location: 'global'
+  tags: enablePrivateNetwork ? syntheticOwnershipTags : {}
   properties: {
     description: '${capacityAlertNamePrefix == 'sunset' ? 'Sunset' : tenantSlug} Staff API capacity pressure: CpuPercentage Average > 80 (RADAR 16L; locks=${radar16lCapacityLocksSatisfied})'
     severity: radar16lAlertSeverity
@@ -533,6 +588,7 @@ resource staffApiCpuPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' =
 resource staffApiMemoryPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && deployStaffApi) {
   name: '${capacityAlertNamePrefix}-staff-api-memory-pressure'
   location: 'global'
+  tags: enablePrivateNetwork ? syntheticOwnershipTags : {}
   properties: {
     description: '${capacityAlertNamePrefix == 'sunset' ? 'Sunset' : tenantSlug} Staff API capacity pressure: MemoryPercentage Average > 80 (RADAR 16L; locks=${radar16lCapacityLocksSatisfied})'
     severity: radar16lAlertSeverity
@@ -612,3 +668,27 @@ output acrLoginServer string = existingAcr.properties.loginServer
 output portalUrlTarget string = portalUrlTarget
 
 output deploySchemaObserverJobOut bool = deploySchemaObserverJob
+
+output privateNetworkEnabled bool = enablePrivateNetwork
+
+output vnetId string = enablePrivateNetwork ? privateNetwork!.outputs.vnetId : ''
+
+output acaInfrastructureSubnetId string = enablePrivateNetwork ? privateNetwork!.outputs.acaInfrastructureSubnetId : ''
+
+output postgresDelegatedSubnetId string = enablePrivateNetwork ? privateNetwork!.outputs.postgresDelegatedSubnetId : ''
+
+output privateDnsZoneId string = enablePrivateNetwork ? privateNetwork!.outputs.privateDnsZoneId : ''
+
+output privateDnsVnetLinkId string = enablePrivateNetwork ? privateNetwork!.outputs.privateDnsVnetLinkId : ''
+
+output natGatewayId string = enablePrivateNetwork ? privateNetwork!.outputs.natGatewayId : ''
+
+output natPublicIpId string = enablePrivateNetwork ? privateNetwork!.outputs.natPublicIpId : ''
+
+output natPublicIpAddress string = enablePrivateNetwork ? privateNetwork!.outputs.natPublicIpAddress : ''
+
+output postgresServerId string = pgApp.id
+
+output postgresPrivateFqdn string = pgApp.properties.fullyQualifiedDomainName
+
+output containerAppsEnvironmentId string = containerAppsEnv.id
