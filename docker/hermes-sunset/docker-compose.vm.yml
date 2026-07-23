@@ -25,5 +25,10 @@ services:
       WHATSAPP_BURST_DEBOUNCE_MS: "5000"
       WHATSAPP_BURST_MAX_MESSAGES: "20"
       WHATSAPP_BURST_MAX_CHARS: "8000"
+      # Crowsnest AI-usage canonical identity (Slice B1). Names only — values come
+      # from /etc/hermes-sunset-luna.env (Earthling). Unset keeps the future observer dormant.
+      # Never set these to the logical slug "sunset"; never invent a UUID here.
+      CROWSNEST_AI_USAGE_CLIENT_SLUG: ${CROWSNEST_AI_USAGE_CLIENT_SLUG:-}
+      CROWSNEST_AI_USAGE_TENANT_ID: ${CROWSNEST_AI_USAGE_TENANT_ID:-}
     env_file:
       - /etc/hermes-sunset-luna.env

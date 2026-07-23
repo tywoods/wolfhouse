@@ -1,0 +1,7 @@
+{
+  "label": "invalid-missing-tenant-id",
+  "env": {
+    "CROWSNEST_AI_USAGE_CLIENT_SLUG": "cn_fixture_client_alpha"
+  },
+  "expect": { "ok": false, "reason": "missing_tenant_id" }
+}

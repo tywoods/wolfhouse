@@ -30,7 +30,13 @@ for (const expected of [
   'hermes-sunset-luna:', '"8092:8092"', '/var/lib/hermes-sunset-luna:/opt/data',
   '/etc/hermes-sunset-luna.env', 'HERMES_ROLE: sunset-luna', 'LUNA_TENANT_ID: sunset',
   'WHATSAPP_CLOUD_WEBHOOK_PORT: "8092"', 'SUNSET_INGRESS_LOCATION_ID: sunset-somo',
+  'CROWSNEST_AI_USAGE_CLIENT_SLUG', 'CROWSNEST_AI_USAGE_TENANT_ID',
 ]) assert.ok(compose.includes(expected), `compose missing ${expected}`);
+assert.ok(
+  !/CROWSNEST_AI_USAGE_CLIENT_SLUG:\s*sunset\b/.test(compose)
+  && !/CROWSNEST_AI_USAGE_TENANT_ID:\s*sunset\b/.test(compose),
+  'compose must not bind AI-usage identity to logical slug sunset',
+);
 assert.ok(!compose.includes('/var/lib/hermes-luna:/opt/data'), 'must not share Wolfhouse data');
 const gatewayPatch = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'apply_gateway_patches.py'), 'utf8');
 assert.ok(!gatewayPatch.includes('("WOLFHOUSE_WHATSAPP_GUEST_PHONE", "WHATSAPP_GUEST_PHONE", "SUNSET_INGRESS_LOCATION_ID")'), 'turn cleanup must not delete fixed Sunset ingress binding');
@@ -40,7 +46,15 @@ for (const expected of [
   'HERMES_ROLE', 'sunset-luna', 'LUNA_TENANT_ID', 'sunset',
   'SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID', 'SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID',
   'WHATSAPP_CLOUD_WEBHOOK_PORT=8092', 'SOUL.md',
+  'CROWSNEST_AI_USAGE_CLIENT_SLUG', 'CROWSNEST_AI_USAGE_TENANT_ID',
 ]) assert.ok(bootstrap.includes(expected), `bootstrap missing ${expected}`);
+const stagingBootstrap = fs.readFileSync(
+  path.join(__dirname, '..', 'docker', 'hermes-staging', 'bootstrap.sh'),
+  'utf8',
+);
+for (const expected of ['CROWSNEST_AI_USAGE_CLIENT_SLUG', 'CROWSNEST_AI_USAGE_TENANT_ID']) {
+  assert.ok(stagingBootstrap.includes(expected), `staging bootstrap missing ${expected}`);
+}
 
 const soul = fs.readFileSync(path.join(runtime, 'SOUL.md'), 'utf8');
 for (const expected of ['Sunset Surf School', 'Your tenant is `sunset`', 'sunset-somo', 'sunset-sardinero']) {

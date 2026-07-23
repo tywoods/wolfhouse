@@ -1,0 +1,8 @@
+{
+  "label": "valid-synthetic-opaque",
+  "env": {
+    "CROWSNEST_AI_USAGE_CLIENT_SLUG": "cn_fixture_client_alpha",
+    "CROWSNEST_AI_USAGE_TENANT_ID": "tn_fixture_tenant_beta"
+  },
+  "expect": { "ok": true }
+}

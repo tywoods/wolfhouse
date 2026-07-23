@@ -1,0 +1,8 @@
+{
+  "label": "valid-synthetic-uuid-like",
+  "env": {
+    "CROWSNEST_AI_USAGE_CLIENT_SLUG": "aaaaaaaa-bbbb-4ccc-8ddd-111111111111",
+    "CROWSNEST_AI_USAGE_TENANT_ID": "eeeeeeee-ffff-4111-8222-333333333333"
+  },
+  "expect": { "ok": true }
+}

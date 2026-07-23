@@ -1,0 +1,8 @@
+{
+  "label": "invalid-both-logical-slug",
+  "env": {
+    "CROWSNEST_AI_USAGE_CLIENT_SLUG": "sunset",
+    "CROWSNEST_AI_USAGE_TENANT_ID": "sunset"
+  },
+  "expect": { "ok": false }
+}

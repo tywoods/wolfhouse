@@ -1,0 +1,9 @@
+{
+  "label": "invalid-luna-slug-fallback-only",
+  "env": {
+    "LUNA_CLIENT_SLUG": "sunset",
+    "LUNA_TENANT_ID": "sunset",
+    "DEFAULT_CLIENT_SLUG": "sunset"
+  },
+  "expect": { "ok": false, "reason": "missing_client_slug" }
+}
