@@ -150,7 +150,9 @@ body{
 }
 a{color:var(--sea-link);text-decoration:none}
 a:hover{color:#245A75}
-a:focus-visible,button:focus-visible{outline:none;box-shadow:var(--focus)}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.btn-primary:focus-visible{
+  outline:none;box-shadow:var(--focus)
+}
 .wrap{
   max-width:var(--max);
   margin:0 auto;
@@ -321,11 +323,190 @@ a:focus-visible,button:focus-visible{outline:none;box-shadow:var(--focus)}
   font-weight:800;
   cursor:pointer;
   box-shadow:var(--shadow-soft);
+  text-decoration:none;
 }
 .btn-primary:hover{filter:brightness(1.05)}
+a.btn-primary:hover{text-decoration:none;color:#fff}
 .prospect-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
 .prospect-list a{color:var(--sea);font-weight:700;text-decoration:none}
 .prospect-list a:hover{text-decoration:underline}
+.prospect-card{
+  padding:12px 14px;
+  display:grid;
+  gap:6px;
+}
+.prospect-card .overview-note{margin:0;font-size:13px;color:var(--text-3)}
+.sales-cockpit-header{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:16px;
+}
+.sales-cockpit-header .section-note{margin:0;max-width:52ch}
+.sales-cockpit-grid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:18px;
+  margin:0 0 18px;
+}
+.sales-cockpit-primary,.sales-cockpit-prospects{min-width:0}
+.sales-secondary-nav{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:12px;
+  margin:0 0 18px;
+  padding:0;
+  list-style:none;
+}
+@media(min-width:720px){
+  .sales-cockpit-grid{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:20px;align-items:start}
+  .sales-secondary-nav{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+}
+.sales-nav-group{
+  margin:0;
+  padding:12px 14px;
+  background:var(--surface-raised);
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius-sm);
+  box-shadow:var(--shadow-soft);
+}
+.sales-nav-group-title{
+  margin:0 0 8px;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--text-3);
+}
+.sales-nav-group ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}
+.sales-nav-group a{color:var(--sea);font-weight:600;text-decoration:none;font-size:14px}
+.sales-nav-group a:hover{text-decoration:underline}
+.sales-room-back{margin:0 0 12px;font-size:14px}
+.sales-room-back a{color:var(--sea);font-weight:600;text-decoration:none}
+.sales-room-back a:hover{text-decoration:underline}
+.safety-badge,.contextual-safety{
+  display:inline-flex;align-items:center;padding:3px 9px;border-radius:var(--radius-pill);
+  font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:#6A4E12;background:linear-gradient(180deg,#FFF7E7 0%,#FBEFD6 100%);
+  border:1px solid rgba(154,107,27,.28);vertical-align:middle;
+}
+.safety-context{
+  display:inline;margin-left:6px;font-size:13px;color:#6A4E12;line-height:1.4;
+}
+.sales-action-safety{
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px;
+}
+.sales-pipeline{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:10px;
+  margin:0 0 16px;
+}
+@media(min-width:720px){
+  .sales-pipeline{grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+}
+.sales-pipeline .kpi{padding:10px 12px}
+.sales-status-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  max-width:100%;
+  padding:3px 10px;
+  border-radius:var(--radius-pill);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.02em;
+  color:var(--navy);
+  background:var(--sea-soft);
+  border:1px solid rgba(74,124,148,.22);
+  vertical-align:middle;
+}
+.sales-status-chip-text{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:11px;
+  word-break:break-word;
+}
+.sales-action-queue{margin:0 0 18px;padding:0;list-style:none;display:grid;gap:8px}
+.sales-action-queue .prospect-card,.sales-action-card{padding:10px 12px}
+.sales-action-card{
+  border-left:3px solid var(--sea);
+  background:linear-gradient(180deg,var(--surface-raised) 0%,#F7FBFD 100%);
+}
+.sales-action-card a{font-weight:800}
+.sales-workspace-header{
+  display:grid;
+  gap:10px;
+  margin:0 0 18px;
+  padding:16px 18px;
+  background:var(--surface-raised);
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius-sm);
+  box-shadow:var(--shadow-soft);
+}
+.sales-workspace-header h1{
+  margin:0;
+  font-size:clamp(1.35rem,3vw,1.75rem);
+  font-weight:800;
+  letter-spacing:-.02em;
+  color:var(--navy);
+  line-height:1.15;
+}
+.sales-workspace-meta{
+  margin:0;
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px 14px;
+  font-size:13px;
+  color:var(--text-2);
+}
+.sales-next-step{
+  margin:0;
+  padding:10px 12px;
+  border-radius:10px;
+  background:var(--sea-soft);
+  border:1px solid rgba(74,124,148,.2);
+  color:var(--navy);
+  font-size:14px;
+  font-weight:700;
+  line-height:1.4;
+}
+.sales-workspace-nav{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px 12px;
+  margin:0 0 18px;
+  padding:0;
+  list-style:none;
+  font-size:13px;
+}
+.sales-workspace-nav a{color:var(--sea);font-weight:600;text-decoration:none}
+.sales-workspace-nav a:hover{text-decoration:underline}
+.sales-workspace-section{margin-bottom:18px}
+.sales-workspace-section > h2{
+  margin:0 0 10px;
+  font-size:1.05rem;
+  font-weight:800;
+  letter-spacing:-.01em;
+  color:var(--navy);
+}
+.sales-workspace-secondary{
+  margin:0 0 14px;
+  padding:12px 14px;
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius-sm);
+  background:var(--surface-raised);
+}
+.sales-workspace-secondary > summary{
+  cursor:pointer;
+  font-weight:700;
+  color:var(--navy);
+  list-style:disclosure-closed;
+}
+.sales-workspace-secondary[open] > summary{margin-bottom:12px;list-style:disclosure-open}
+.sales-workspace-secondary .card{box-shadow:none}
 .review-queue-list{display:grid;gap:12px;margin:0;padding:0;list-style:none}
 .review-queue-item{padding:14px 16px}
 .review-queue-meta{display:grid;gap:4px;margin-top:8px;color:var(--ink-muted);font-size:.92rem}
@@ -1148,18 +1329,146 @@ function renderCommunicationsMain() {
     </section>`;
 }
 
+const COCKPIT_PIPELINE_STAGES = [
+  ['ready_for_review', 'Ready for review'],
+  ['needs_more_research', 'Needs more research'],
+  ['qualified', 'Qualified'],
+  ['not_qualified', 'Not qualified'],
+  ['crm_ready', 'CRM ready'],
+];
+
+const COCKPIT_ATTENTION_STATUSES = new Set(['ready_for_review', 'needs_more_research']);
+
+function renderSalesStatusChip(status) {
+  const raw = String(status || '').trim() || 'unknown';
+  return `<span class="sales-status-chip" role="status"><span class="sales-status-chip-text">${escapeHtml(raw)}</span></span>`;
+}
+
+function countProspectLifecycleStages(prospects) {
+  const counts = Object.create(null);
+  for (const [status] of COCKPIT_PIPELINE_STAGES) {
+    counts[status] = 0;
+  }
+  for (const prospect of prospects) {
+    const status = String(prospect && prospect.lifecycle_status || '');
+    if (Object.prototype.hasOwnProperty.call(counts, status)) {
+      counts[status] += 1;
+    }
+  }
+  return counts;
+}
+
+function renderSalesPipelineCounts(prospects) {
+  const counts = countProspectLifecycleStages(prospects);
+  const tiles = COCKPIT_PIPELINE_STAGES.map(([status, label]) => (
+    `<div class="kpi">
+        <span class="kpi-label">${escapeHtml(label)}</span>
+        <span class="kpi-value">${escapeHtml(String(counts[status] || 0))}</span>
+      </div>`
+  )).join('\n      ');
+  return `<div class="sales-pipeline" id="sales-pipeline" aria-label="Sales pipeline stage counts">
+      ${tiles}
+    </div>`;
+}
+
+function renderSalesAttentionItems(prospects) {
+  const actionable = prospects.filter((p) => COCKPIT_ATTENTION_STATUSES.has(String(p && p.lifecycle_status || '')));
+  if (!actionable.length) {
+    return '<p class="section-note">No prospects need attention right now.</p>';
+  }
+  const items = actionable.map((p) => {
+    const label = p.canonical_name || p.website_url || p.id;
+    return `<li class="card prospect-card compact-prospect sales-action-card">
+        <a href="/sales/prospects/${escapeHtml(p.id)}">${escapeHtml(label)}</a>
+        <div class="overview-note">Status: ${renderSalesStatusChip(p.lifecycle_status)}</div>
+      </li>`;
+  }).join('\n      ');
+  return `<ul class="sales-action-queue" id="sales-action-queue" aria-label="Sales action queue">
+      ${items}
+    </ul>`;
+}
+
+function renderSalesSecondaryNav(options = {}) {
+  const governanceHref = options.governanceHref || '/sales#sales-governance';
+  return `<nav class="sales-secondary-nav" aria-label="Sales secondary navigation">
+      <div class="sales-nav-group">
+        <h3 class="sales-nav-group-title">Work</h3>
+        <ul>
+          <li><a href="/sales/review">Review queue</a></li>
+          <li><a href="/sales?mode=add">Prospect intake</a></li>
+        </ul>
+      </div>
+      <div class="sales-nav-group">
+        <h3 class="sales-nav-group-title">Tools</h3>
+        <ul>
+          <li><a href="/sales/discovery">Discovery</a></li>
+        </ul>
+      </div>
+      <div class="sales-nav-group">
+        <h3 class="sales-nav-group-title">Monitor</h3>
+        <ul>
+          <li><a href="/sales/analytics">Analytics</a></li>
+        </ul>
+      </div>
+      <div class="sales-nav-group">
+        <h3 class="sales-nav-group-title">Reference</h3>
+        <ul>
+          <li><a href="${escapeHtml(governanceHref)}">Governance</a></li>
+        </ul>
+      </div>
+    </nav>`;
+}
+
+function renderSalesSupportingRoomNav(options = {}) {
+  const backHref = options.backHref || '/sales';
+  const backLabel = options.backLabel || 'Back to Sales cockpit';
+  const governanceHref = options.governanceHref || '/sales#sales-governance';
+  return `<p class="sales-room-back"><a href="${escapeHtml(backHref)}">← ${escapeHtml(backLabel)}</a></p>
+      ${renderSalesSecondaryNav({ governanceHref })}`;
+}
+
+function renderSalesSafetyBadge(label, context) {
+  const badge = `<span class="safety-badge" role="status">${escapeHtml(label)}</span>`;
+  if (!context) return badge;
+  return `<span class="sales-action-safety">${badge}<span class="safety-context">${escapeHtml(context)}</span></span>`;
+}
+
 function renderProspectListItems(prospects) {
   if (!prospects.length) {
-    return '<p class="section-note">No prospects yet. Add a website or business name below.</p>';
+    return '<p class="section-note">No prospects yet. Use Add prospect when you are ready to record one.</p>';
   }
   const items = prospects.map((p) => {
     const label = p.canonical_name || p.website_url || p.id;
-    return `<li class="card">
+    return `<li class="card prospect-card compact-prospect">
         <a href="/sales/prospects/${escapeHtml(p.id)}">${escapeHtml(label)}</a>
-        <div class="overview-note">Status: <code>${escapeHtml(p.lifecycle_status)}</code></div>
+        <div class="overview-note">Status: ${renderSalesStatusChip(p.lifecycle_status)}</div>
       </li>`;
   }).join('\n      ');
   return `<ul class="prospect-list">${items}</ul>`;
+}
+
+function renderSalesIntakeForm(options = {}) {
+  const errorHtml = options.intakeError
+    ? `<p class="sales-error" role="alert">${escapeHtml(options.intakeError)}</p>`
+    : '';
+  return `<h2 class="section">Manual intake</h2>
+      <article class="card">
+        <p class="section-note">Provide a business website <strong>or</strong> a business name (Northern Spain pilot).</p>
+        ${errorHtml}
+        <form class="sales-form" method="post" action="/sales/prospects" accept-charset="utf-8">
+          <div class="form-row">
+            <label for="website_url">Business website</label>
+            <input id="website_url" name="website_url" type="url" placeholder="https://example-surf-house.example" value="${escapeHtml(options.intakeWebsiteUrl || '')}">
+          </div>
+          <div class="form-row">
+            <label for="business_name">Business name</label>
+            <input id="business_name" name="business_name" type="text" placeholder="Somo Surf House" value="${escapeHtml(options.intakeBusinessName || '')}">
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Create prospect</button>
+          </div>
+        </form>
+      </article>`;
 }
 
 const REVIEW_BUCKET_LABELS = {
@@ -1238,14 +1547,14 @@ function renderSalesReviewMain(options = {}) {
   const items = Array.isArray(options.reviewQueueItems) ? options.reviewQueueItems : [];
   const filter = options.reviewQueueFilter || 'all';
   return `<section id="sales-review" aria-labelledby="sales-review-title">
-      <p class="section-note">Operating review queue from persisted Sales records only. Operators decide qualification and next steps. No CRM writes, no outreach delivery, and no provider discovery in this chapter.</p>
-      <p><a href="/sales">← Back to Sales intake</a> · <a href="/sales/analytics">Sales analytics</a> · <a href="/sales/governance">Sales governance</a></p>
+      <h2 class="section" id="sales-review-title">Review queue</h2>
+      <p class="section-note">Filter and act on durable Sales prospects. Operators decide qualification and next steps. No CRM writes, no outreach delivery, and no provider discovery in this chapter.</p>
+      ${renderSalesSupportingRoomNav()}
       <h2 class="section">Filter</h2>
       ${renderReviewQueueFilterForm(filter)}
       <h2 class="section">Queue</h2>
       <p class="section-note">Buckets: Ready for review (has evidence, no current qualification), Needs more research, Qualified, Not qualified, and Ready for CRM review. Ordered newest actionable first.</p>
       ${renderReviewQueueItems(items)}
-      <div class="safety"><strong>Safety:</strong> Read-only review queue over durable Sales data when configured; local/test may use in-memory fallback. Authenticated operators decide. No CRM writes, no outreach delivery, no Maps/Apollo/live AI discovery in this chapter.</div>
     </section>`;
 }
 
@@ -1347,8 +1656,9 @@ function renderSalesAnalyticsMain(options = {}) {
     || 'Read-only monitoring from persisted Sales records. Informational data-quality alerts only — operators decide. No AI/agent scores, no external calls, no writes, no automatic actions.';
 
   return `<section id="sales-analytics" aria-labelledby="sales-analytics-title">
+      <h2 class="section" id="sales-analytics-title">Sales analytics</h2>
       <p class="section-note">${escapeHtml(disclaimer)}</p>
-      <p><a href="/sales">← Back to Sales intake</a> · <a href="/sales/review">Sales review queue</a> · <a href="/sales/governance">Sales governance</a></p>
+      ${renderSalesSupportingRoomNav()}
 
       <h2 class="section">Pipeline counts</h2>
       <div class="kpi-strip" aria-label="Pipeline counts">
@@ -1372,8 +1682,68 @@ function renderSalesAnalyticsMain(options = {}) {
       <h2 class="section">Data-quality alerts</h2>
       <p class="section-note">Informational only — operators decide; nothing is auto-fixed.</p>
       ${renderAnalyticsDataQualityAlerts(alerts)}
+    </section>`;
+}
 
-      <div class="safety"><strong>Safety:</strong> Read-only analytics over durable Sales data when configured; local/test may use in-memory fallback. Authenticated operators monitor truthful counts and alerts. No AI/agent scores, no CRM writes, no outreach delivery, no external discovery calls, and no automatic actions in this chapter.</div>
+function isSalesAddMode(options = {}) {
+  const mode = String(options.salesMode || options.mode || '').trim().toLowerCase();
+  return mode === 'add' || Boolean(options.intakeError);
+}
+
+function renderSalesAddModeMain(options = {}) {
+  return `<section id="sales" aria-labelledby="sales-title">
+      <p><a href="/sales">← Back to Sales cockpit</a></p>
+      <p class="section-note">Manual prospect intake — durable Sales store when configured; local/test may use in-memory fallback.</p>
+      ${renderSalesIntakeForm(options)}
+      <div class="safety"><strong>Safety:</strong> Durable Sales intake when the dedicated store is configured; local/test may use in-memory fallback. Authenticated Crowsnest operators can record decisions. No CRM writes and no outreach delivery.</div>
+    </section>`;
+}
+
+function renderSalesCockpitMain(options = {}) {
+  const prospects = Array.isArray(options.prospects) ? options.prospects : [];
+  const attentionBody = prospects.length
+    ? renderSalesAttentionItems(prospects)
+    : '<p class="section-note">No prospects yet. No prospects need attention right now.</p>';
+  const attentionRegion = attentionBody.includes('id="sales-action-queue"')
+    ? attentionBody
+    : `<div id="sales-action-queue" aria-label="Sales action queue">${attentionBody}</div>`;
+
+  return `<section id="sales-cockpit" aria-labelledby="sales-cockpit-title">
+      <div class="sales-cockpit-header">
+        <div>
+          <h2 class="section" id="sales-cockpit-title">Sales cockpit</h2>
+          <p class="section-note">See current pipeline work, open the next prospect that needs attention, then complete existing human-approved manual intake and review actions. No CRM writes and no outreach delivery.</p>
+        </div>
+        <p class="cta-row"><a class="btn-primary" href="/sales?mode=add">Add prospect</a></p>
+      </div>
+
+      ${renderSalesSecondaryNav()}
+
+      <div class="sales-cockpit-grid" id="sales-cockpit-grid">
+        <div class="sales-cockpit-primary">
+          <h2 class="section">Pipeline</h2>
+          ${renderSalesPipelineCounts(prospects)}
+
+          <h2 class="section">Needs attention</h2>
+          ${attentionRegion}
+        </div>
+        <div class="sales-cockpit-prospects">
+          <h2 class="section">Prospects</h2>
+          ${renderProspectListItems(prospects)}
+        </div>
+      </div>
+
+      <div class="safety" id="sales-governance">
+        <strong>Governance &amp; safeguards</strong>
+        <p class="section-note" style="margin:8px 0 0;color:#6A4E12">Detailed Sales policy lives here. Supporting rooms keep only action-adjacent badges.</p>
+        <ul class="checklist" style="margin-top:10px">
+          <li><span class="check-label">CRM:</span> Preview only — no CRM record has been sent; no CRM writes; no provider SDK/HTTP.</li>
+          <li><span class="check-label">Outreach:</span> Draft only — no message has been sent; no SMTP, WhatsApp, LinkedIn, HubSpot send, webhooks, or AI generation.</li>
+          <li><span class="check-label">Discovery:</span> Manual proposal plus Maps sample / dry-run fixtures only — no live Maps, Apollo, web search, or external discovery HTTP; preview never auto-creates prospects.</li>
+          <li><span class="check-label">Analytics:</span> Read-only monitoring — informational alerts only; no remediation controls or automatic actions.</li>
+          <li><span class="check-label">Access:</span> Durable Sales when configured; local/test may use in-memory fallback. Authenticated operators decide.</li>
+        </ul>
+      </div>
     </section>`;
 }
 
@@ -1487,36 +1857,10 @@ function renderSalesGovernanceMain(options = {}) {
 }
 
 function renderSalesMain(options = {}) {
-  const prospects = Array.isArray(options.prospects) ? options.prospects : [];
-  const errorHtml = options.intakeError
-    ? `<p class="sales-error" role="alert">${escapeHtml(options.intakeError)}</p>`
-    : '';
-  return `<section id="sales" aria-labelledby="sales-title">
-      <p class="section-note">Manual intake — durable Sales store when configured; local/test may use in-memory fallback. No HubSpot, Maps, Apollo, live AI research, or outreach sending.</p>
-      <p><a href="/sales/review">Open Sales review queue</a> · <a href="/sales/analytics">Sales analytics</a> · <a href="/sales/governance">Sales governance</a> · <a href="/sales/discovery">Manual discovery preview</a></p>
-      <h2 class="section">Prospects</h2>
-      ${renderProspectListItems(prospects)}
-
-      <h2 class="section">Manual intake</h2>
-      <article class="card">
-        <p class="section-note">Provide a business website <strong>or</strong> a business name (Northern Spain pilot).</p>
-        ${errorHtml}
-        <form class="sales-form" method="post" action="/sales/prospects" accept-charset="utf-8">
-          <div class="form-row">
-            <label for="website_url">Business website</label>
-            <input id="website_url" name="website_url" type="url" placeholder="https://example-surf-house.example" value="${escapeHtml(options.intakeWebsiteUrl || '')}">
-          </div>
-          <div class="form-row">
-            <label for="business_name">Business name</label>
-            <input id="business_name" name="business_name" type="text" placeholder="Somo Surf House" value="${escapeHtml(options.intakeBusinessName || '')}">
-          </div>
-          <div class="form-actions">
-            <button class="btn-primary" type="submit">Create prospect</button>
-          </div>
-        </form>
-      </article>
-      <div class="safety"><strong>Safety:</strong> Durable Sales intake when the dedicated store is configured; local/test may use in-memory fallback. Authenticated Crowsnest operators can record decisions. No CRM writes and no outreach delivery.</div>
-    </section>`;
+  if (isSalesAddMode(options)) {
+    return renderSalesAddModeMain(options);
+  }
+  return renderSalesCockpitMain(options);
 }
 
 function renderAuditList(events) {
@@ -1673,6 +2017,43 @@ function renderLatestQualification(assessment, researchJobs) {
       </div>`;
 }
 
+/**
+ * Truthful next permitted Sales action from existing detail state only.
+ * Gates: evidence → qualification → CRM-ready → outreach draft. No invented scores.
+ */
+function deriveSalesWorkspaceNextStep({
+  hasEvidence,
+  latestQualification,
+  isCrmReady,
+  draftPresent,
+}) {
+  if (!hasEvidence) {
+    return 'Record research evidence';
+  }
+  const decision = latestQualification
+    ? String(latestQualification.decision || '').trim().toLowerCase()
+    : '';
+  if (!decision) {
+    return 'Record qualification';
+  }
+  if (decision === 'needs_more_research') {
+    return 'Record research evidence';
+  }
+  if (decision === 'not_qualified') {
+    return 'Review qualification';
+  }
+  if (decision === 'qualified' && !isCrmReady) {
+    return 'Mark ready for CRM review';
+  }
+  if (isCrmReady && !draftPresent) {
+    return 'Open outreach draft workspace';
+  }
+  if (draftPresent) {
+    return 'Review outreach draft';
+  }
+  return 'Review prospect status';
+}
+
 function renderSalesDetailMain(options = {}) {
   const prospect = options.prospect || null;
   if (!prospect) {
@@ -1727,6 +2108,13 @@ function renderSalesDetailMain(options = {}) {
   const currentOutreachDraft = options.currentOutreachDraft || null;
   const draftReady = Boolean(latestCrmReviewMark) || options.draftReady === true;
   const draftPresent = Boolean(currentOutreachDraft) || options.draftPresent === true;
+  const hasEvidence = researchJobs.length > 0;
+  const nextStepLabel = deriveSalesWorkspaceNextStep({
+    hasEvidence,
+    latestQualification,
+    isCrmReady: draftReady,
+    draftPresent,
+  });
   const crmReadyStatus = latestCrmReviewMark
     ? `<p>Marked ready for CRM review at <code>${escapeHtml(latestCrmReviewMark.created_at || '')}</code>
          by <code>${escapeHtml(latestCrmReviewMark.reviewer_id || '')}</code>
@@ -1750,18 +2138,38 @@ function renderSalesDetailMain(options = {}) {
     ? `<p><a href="/sales/prospects/${escapeHtml(prospect.id)}/outreach-draft">Open outreach draft workspace</a></p>`
     : '<p class="section-note">Outreach drafts are available only after the prospect is marked CRM-ready.</p>';
 
-  return `<section id="sales-detail" aria-labelledby="sales-detail-title">
+  return `<section id="sales-detail" class="sales-workspace" aria-labelledby="sales-workspace-title">
       <p><a href="/sales">← Back to Sales</a></p>
-      <article class="card">
-        <h2>Review detail</h2>
+
+      <header class="sales-workspace-header" id="sales-workspace-header">
+        <h1 id="sales-workspace-title">${escapeHtml(prospect.canonical_name || 'Prospect')}</h1>
+        <p class="sales-workspace-meta">
+          <span><strong>Website:</strong> ${escapeHtml(prospect.website_url || 'n/a')}</span>
+          <span><strong>Lifecycle:</strong> ${renderSalesStatusChip(prospect.lifecycle_status)}</span>
+        </p>
+        <p class="sales-next-step" id="sales-next-step" aria-label="Next step">Next step: ${escapeHtml(nextStepLabel)}</p>
+      </header>
+
+      <ul class="sales-workspace-nav" aria-label="Prospect workspace sections">
+        <li><a href="#sales-workspace-overview">Overview</a></li>
+        <li><a href="#sales-workspace-research">Research</a></li>
+        <li><a href="#sales-workspace-qualification">Qualification</a></li>
+        <li><a href="#sales-workspace-crm">CRM review</a></li>
+        <li><a href="#sales-workspace-outreach">Draft outreach</a></li>
+      </ul>
+
+      <article class="card sales-workspace-section" id="sales-workspace-overview">
+        <h2>Overview</h2>
         <p><strong>Business name:</strong> ${escapeHtml(prospect.canonical_name || 'n/a')}</p>
         <p><strong>Website:</strong> ${escapeHtml(prospect.website_url || 'n/a')}</p>
         <p><strong>Lifecycle status:</strong> <code>${escapeHtml(prospect.lifecycle_status)}</code></p>
         ${lastDecision}
+        <p class="section-note">Review detail workspace — complete Research → Qualification → CRM review → Draft outreach using existing manual actions only.</p>
       </article>
 
-      <article class="card">
-        <h2>Fixture research</h2>
+      <article class="card sales-workspace-section" id="sales-workspace-research">
+        <h2>Research</h2>
+        <h3>Fixture research</h3>
         <p class="section-note">${escapeHtml((fixtureResearch && fixtureResearch.job_label) || 'Manual / fixture research job')}</p>
         <p>${escapeHtml((fixtureResearch && fixtureResearch.summary) || 'No research snapshot.')}</p>
         <p><strong>Research status:</strong> <code>${escapeHtml((fixtureResearch && fixtureResearch.status) || 'n/a')}</code> · source=<code>${escapeHtml((fixtureResearch && fixtureResearch.source) || 'fixture')}</code></p>
@@ -1773,10 +2181,7 @@ function renderSalesDetailMain(options = {}) {
         <ul class="fact-list">
           ${renderResearchLimitations(limitations)}
         </ul>
-      </article>
-
-      <article class="card">
-        <h2>Manual research evidence</h2>
+        <h3>Manual research evidence</h3>
         <p class="section-note">Operator-entered dated notes only. Fixture research is preserved above. No live crawl, HubSpot, Maps, Apollo, or automated AI research in this chapter.</p>
         ${evidenceErrorHtml}
         <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/evidence" accept-charset="utf-8">
@@ -1816,8 +2221,57 @@ function renderSalesDetailMain(options = {}) {
         ${renderManualEvidenceEntries(evidenceEntries)}
       </article>
 
-      <article class="card">
-        <h2>Manual contact enrichment</h2>
+      <article class="card sales-workspace-section" id="sales-workspace-qualification">
+        <h2>Qualification</h2>
+        <p class="section-note">Operator-controlled qualification policy only. Transparent decisions with cited evidence — never automatic AI scoring, never a numeric lead score, never HubSpot sync, external research, or outreach in this chapter.</p>
+        ${renderLatestQualification(latestQualification, researchJobs)}
+        ${qualificationErrorHtml}
+        <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/qualification" accept-charset="utf-8">
+          <div class="form-row">
+            <label for="qualification_decision">Qualification decision</label>
+            <select id="qualification_decision" name="qualification_decision" required>
+              <option value="qualified"${options.qualificationDecision === 'qualified' ? ' selected' : ''}>Qualified</option>
+              <option value="not_qualified"${options.qualificationDecision === 'not_qualified' ? ' selected' : ''}>Not qualified</option>
+              <option value="needs_more_research"${!options.qualificationDecision || options.qualificationDecision === 'needs_more_research' ? ' selected' : ''}>Needs more research</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="rationale">Rationale</label>
+            <textarea id="rationale" name="rationale" required maxlength="2000" placeholder="Why this qualification decision?">${escapeHtml(options.qualificationRationale || '')}</textarea>
+          </div>
+          <fieldset class="form-row">
+            <legend>Evidence references</legend>
+            <p class="section-note">Select evidence already on this prospect (fixture and/or manual).</p>
+            ${renderEvidenceRefOptions(researchJobs, selectedEvidenceIds)}
+          </fieldset>
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Record qualification</button>
+          </div>
+        </form>
+        <details class="sales-workspace-secondary">
+          <summary>Qualification history (newest first)</summary>
+          ${renderQualificationHistory(qualificationAssessments, researchJobs)}
+        </details>
+      </article>
+
+      <article class="card sales-workspace-section" id="sales-workspace-crm">
+        <h2>CRM review</h2>
+        <p class="section-note">Provider-neutral preview of what would become one Company and zero-or-more Contacts under the accepted future mapping (lifecycle <code>Lead</code>, Company property <code>Luna Sales Status = Qualified Prospect</code>). Preview only — no CRM record has been sent. No Deal. No automatic writes.</p>
+        ${crmReadyErrorHtml}
+        ${crmReadyStatus}
+        ${crmActions}
+      </article>
+
+      <article class="card sales-workspace-section" id="sales-workspace-outreach">
+        <h2>Draft outreach</h2>
+        <p class="section-note">Manual internal draft only for CRM-ready prospects. Draft only — no message has been sent. No SMTP, WhatsApp, LinkedIn, HubSpot, or send controls.</p>
+        ${outreachDraftErrorHtml}
+        ${outreachDraftStatus}
+        ${outreachDraftActions}
+      </article>
+
+      <details class="sales-workspace-secondary" id="sales-workspace-contacts">
+        <summary>Manual contact enrichment</summary>
         <p class="section-note">Manual contact records only — no Apollo lookup, no auto-find, no CRM write, no message sent. Name and role required; email, phone, and LinkedIn optional.</p>
         ${contactErrorHtml}
         <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/contacts" accept-charset="utf-8">
@@ -1859,57 +2313,10 @@ function renderSalesDetailMain(options = {}) {
         </form>
         <h3>Recorded contacts (newest first)</h3>
         ${renderContactCandidates(options.contactCandidates)}
-      </article>
+      </details>
 
-      <article class="card">
-        <h2>Qualification assessment</h2>
-        <p class="section-note">Operator-controlled qualification policy only. Transparent decisions with cited evidence — never automatic AI scoring, never a numeric lead score, never HubSpot sync, external research, or outreach in this chapter.</p>
-        ${renderLatestQualification(latestQualification, researchJobs)}
-        ${qualificationErrorHtml}
-        <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/qualification" accept-charset="utf-8">
-          <div class="form-row">
-            <label for="qualification_decision">Qualification decision</label>
-            <select id="qualification_decision" name="qualification_decision" required>
-              <option value="qualified"${options.qualificationDecision === 'qualified' ? ' selected' : ''}>Qualified</option>
-              <option value="not_qualified"${options.qualificationDecision === 'not_qualified' ? ' selected' : ''}>Not qualified</option>
-              <option value="needs_more_research"${!options.qualificationDecision || options.qualificationDecision === 'needs_more_research' ? ' selected' : ''}>Needs more research</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label for="rationale">Rationale</label>
-            <textarea id="rationale" name="rationale" required maxlength="2000" placeholder="Why this qualification decision?">${escapeHtml(options.qualificationRationale || '')}</textarea>
-          </div>
-          <fieldset class="form-row">
-            <legend>Evidence references</legend>
-            <p class="section-note">Select evidence already on this prospect (fixture and/or manual).</p>
-            ${renderEvidenceRefOptions(researchJobs, selectedEvidenceIds)}
-          </fieldset>
-          <div class="form-actions">
-            <button class="btn-primary" type="submit">Record qualification</button>
-          </div>
-        </form>
-        <h3>Qualification history (newest first)</h3>
-        ${renderQualificationHistory(qualificationAssessments, researchJobs)}
-      </article>
-
-      <article class="card">
-        <h2>CRM sync preview</h2>
-        <p class="section-note">Provider-neutral preview of what would become one Company and zero-or-more Contacts under the accepted future mapping (lifecycle <code>Lead</code>, Company property <code>Luna Sales Status = Qualified Prospect</code>). Preview only — no CRM record has been sent. No Deal. No automatic writes.</p>
-        ${crmReadyErrorHtml}
-        ${crmReadyStatus}
-        ${crmActions}
-      </article>
-
-      <article class="card">
-        <h2>Outreach draft</h2>
-        <p class="section-note">Manual internal draft only for CRM-ready prospects. Draft only — no message has been sent. No SMTP, WhatsApp, LinkedIn, HubSpot, or send controls.</p>
-        ${outreachDraftErrorHtml}
-        ${outreachDraftStatus}
-        ${outreachDraftActions}
-      </article>
-
-      <article class="card">
-        <h2>Admin status decision</h2>
+      <details class="sales-workspace-secondary" id="sales-workspace-admin-decision">
+        <summary>Admin status decision</summary>
         <p class="section-note">Any authenticated Crowsnest operator may record approve, reject, or needs_research in this MVP. No HubSpot sync and no outreach send in this slice.</p>
         ${decisionErrorHtml}
         <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/decision" accept-charset="utf-8">
@@ -1929,12 +2336,13 @@ function renderSalesDetailMain(options = {}) {
             <button class="btn-primary" type="submit">Record Admin decision</button>
           </div>
         </form>
-      </article>
+      </details>
 
-      <article class="card">
-        <h2>Append-only audit trail</h2>
+      <details class="sales-workspace-secondary" id="sales-workspace-audit">
+        <summary>Append-only audit trail</summary>
         ${renderAuditList(audit)}
-      </article>
+      </details>
+
       <div class="safety"><strong>Safety:</strong> Durable Sales decisions, manual evidence, manual contacts, operator qualification, CRM preview/readiness, and internal outreach drafts when the dedicated store is configured; local/test may use in-memory fallback. No CRM writes, no outreach delivery, no Apollo/auto-find, no live provider calls, and no automatic AI scoring.</div>
     </section>`;
 }
@@ -1979,10 +2387,13 @@ function renderSalesCrmPreviewMain(options = {}) {
   const audit = Array.isArray(options.auditEvents) ? options.auditEvents : [];
 
   return `<section id="sales-crm-preview" aria-labelledby="sales-crm-preview-title">
-      <p><a href="/sales/prospects/${escapeHtml(prospect.id)}">← Back to prospect detail</a></p>
+      ${renderSalesSupportingRoomNav({
+    backHref: `/sales/prospects/${prospect.id}`,
+    backLabel: 'Back to prospect detail',
+  })}
       <article class="card">
-        <h2>CRM sync preview</h2>
-        <p class="section-note"><strong>Preview only — no CRM record has been sent.</strong> This page shows the provider-neutral Company + Contacts mapping that would be used later. No Deal. No automatic CRM write.</p>
+        <h2 id="sales-crm-preview-title">CRM sync preview</h2>
+        ${renderSalesSafetyBadge('Preview only', 'No CRM record has been sent. Provider-neutral Company + Contacts mapping only — no Deal, no automatic CRM write.')}
         ${markHtml}
         <p><strong>Business name:</strong> ${escapeHtml(prospect.canonical_name || 'n/a')}</p>
         <p><strong>Website:</strong> ${escapeHtml(prospect.website_url || 'n/a')}</p>
@@ -2018,6 +2429,7 @@ function renderSalesCrmPreviewMain(options = {}) {
         <p>Evidence refs: <code>${escapeHtml(evidenceIds.join(',') || 'none')}</code></p>
         <form class="sales-form" method="post" action="/sales/prospects/${escapeHtml(prospect.id)}/crm-ready" accept-charset="utf-8">
           <div class="form-actions">
+            ${renderSalesSafetyBadge('Preview only', 'No CRM writes from this action.')}
             <button class="btn-primary" type="submit">Mark ready for CRM review</button>
           </div>
         </form>
@@ -2027,7 +2439,6 @@ function renderSalesCrmPreviewMain(options = {}) {
         <h2>Append-only audit trail</h2>
         ${renderAuditList(audit)}
       </article>
-      <div class="safety"><strong>Safety:</strong> Preview-only CRM mapping. No provider SDK/HTTP calls, no CRM writes, no outreach delivery.</div>
     </section>`;
 }
 
@@ -2083,10 +2494,13 @@ function renderSalesOutreachDraftMain(options = {}) {
   const audit = Array.isArray(options.auditEvents) ? options.auditEvents : [];
 
   return `<section id="sales-outreach-draft" aria-labelledby="sales-outreach-draft-title">
-      <p><a href="/sales/prospects/${escapeHtml(prospect.id)}">← Back to prospect detail</a></p>
+      ${renderSalesSupportingRoomNav({
+    backHref: `/sales/prospects/${prospect.id}`,
+    backLabel: 'Back to prospect detail',
+  })}
       <article class="card">
-        <h2>Outreach draft</h2>
-        <p class="section-note"><strong>Draft only — no message has been sent.</strong> Manual internal workspace for one current draft. No SMTP, WhatsApp, LinkedIn, HubSpot API, send endpoint, webhooks, or auto-generation.</p>
+        <h2 id="sales-outreach-draft-title">Outreach draft</h2>
+        ${renderSalesSafetyBadge('Draft only', 'No message has been sent. Manual internal workspace — no SMTP, WhatsApp, LinkedIn, HubSpot API, send endpoint, webhooks, or auto-generation.')}
         <p><strong>Business name:</strong> ${escapeHtml(prospect.canonical_name || 'n/a')}</p>
         <p><strong>Website:</strong> ${escapeHtml(prospect.website_url || 'n/a')}</p>
         <p>Draft ready: <code>Yes</code> · Draft present: <code>${current ? 'Yes' : 'No'}</code></p>
@@ -2117,6 +2531,7 @@ function renderSalesOutreachDraftMain(options = {}) {
             <textarea id="next_step_note" name="next_step_note" required maxlength="2000" placeholder="What should happen after this draft?">${escapeHtml(nextStepValue)}</textarea>
           </div>
           <div class="form-actions">
+            ${renderSalesSafetyBadge('Draft only', 'No message has been sent.')}
             <button class="btn-primary" type="submit">${current ? 'Save draft revision' : 'Create draft'}</button>
           </div>
         </form>
@@ -2131,7 +2546,6 @@ function renderSalesOutreachDraftMain(options = {}) {
         <h2>Append-only audit trail</h2>
         ${renderAuditList(audit)}
       </article>
-      <div class="safety"><strong>Safety:</strong> Internal outreach drafts only. No message has been sent. No SMTP, WhatsApp, LinkedIn, HubSpot, send controls, webhooks, or AI generation.</div>
     </section>`;
 }
 
@@ -2257,11 +2671,12 @@ function renderSalesDiscoveryMain(options = {}) {
     ? `<p class="sales-error" role="alert">${escapeHtml(options.mapsDiscoveryError)}</p>`
     : '';
   return `<section id="sales-discovery" aria-labelledby="sales-discovery-title">
-      <p class="section-note">Discovery source contract — manual adapter plus Google Maps <strong>dry-run</strong> fixture shell. Preview normalization and deduplication, then optionally import. Preview only — no prospect has been created until you explicitly import.</p>
-      <p><a href="/sales">← Back to Sales intake</a></p>
-      <article class="card">
+      <h2 class="section" id="sales-discovery-title">Sales discovery</h2>
+      <p class="section-note">Preview normalization and deduplication, then optionally import. Preview only — no prospect has been created until you explicitly import.</p>
+      ${renderSalesSupportingRoomNav()}
+      <article class="card" id="manual-discovery-proposal">
         <h2>Manual discovery proposal</h2>
-        <p class="section-note">Provider-neutral fields. No live Google Maps, Apollo, web search, or external API calls.</p>
+        <p class="section-note">Primary path. Provider-neutral fields. No live Google Maps, Apollo, web search, or external API calls.</p>
         ${errorHtml}
         <form class="sales-form" method="post" action="/sales/discovery/preview" accept-charset="utf-8">
           <div class="form-row">
@@ -2294,15 +2709,9 @@ function renderSalesDiscoveryMain(options = {}) {
         </form>
       </article>
       ${renderDiscoveryPreviewPanel(options)}
-      <div class="sample-banner" role="status">
-        <span class="sample-dot" aria-hidden="true"></span>
-        <div>
-          <strong>Sample / dry-run data only</strong>
-          <p>Google Maps discovery uses local test fixtures. No live HTTP, API key, Google SDK, or scraping.</p>
-        </div>
-      </div>
       <article class="card" id="maps-discovery-dry-run">
         <h2>Google Maps discovery (dry-run)</h2>
+        ${renderSalesSafetyBadge('Sample / dry-run data only', 'Local test fixtures only — no live Maps HTTP, API key, Google SDK, or scraping. No live Maps / no external discovery from this room.')}
         <p class="section-note">Northern Spain scope enforced. Search returns sample place candidates with exact place ID and search area provenance. Dedup uses the existing discovery preview. No prospect is created until you explicitly import one candidate.</p>
         ${mapsErrorHtml}
         <form class="sales-form" method="post" action="/sales/discovery/maps/preview" accept-charset="utf-8">
@@ -2329,7 +2738,6 @@ function renderSalesDiscoveryMain(options = {}) {
         </form>
       </article>
       ${renderMapsDiscoveryPreviewPanel(options)}
-      <div class="safety"><strong>Safety:</strong> Manual discovery plus Maps dry-run fixture shell only. No live Maps, Apollo, web search, or external discovery HTTP. Preview does not create prospects. Explicit import is operator-triggered and audited. Visible Maps results are sample / dry-run data only.</div>
     </section>`;
 }
 
@@ -2366,7 +2774,7 @@ function viewSubtitle(view) {
   if (view === 'clients') return 'Static client cards, templates, and onboarding mockup';
   if (view === 'billing') return 'Billing sources are not connected yet';
   if (view === 'communications') return 'Communications sources are not connected yet';
-  if (view === 'sales') return 'Manual prospect intake, fixture research, and Admin review';
+  if (view === 'sales') return 'Operator Sales cockpit — pipeline, attention queue, and human-approved intake';
   if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, manual contacts, qualification, CRM preview, outreach draft, and Admin decision';
   if (view === 'sales_review') return 'Sales review queue — operating buckets for operator decisions';
   if (view === 'sales_analytics') return 'Sales analytics — truthful pipeline counts, recent activity, and data-quality alerts';

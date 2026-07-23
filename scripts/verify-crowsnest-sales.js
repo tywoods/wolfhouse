@@ -237,7 +237,15 @@ async function main() {
       ok('GET /sales preserves Clients nav', /href=["']\/clients["']/.test(sales.body));
       ok('GET /sales preserves Billing nav', /href=["']\/billing["']/.test(sales.body));
       ok('GET /sales preserves Communications nav', /href=["']\/communications["']/.test(sales.body));
-      ok('GET /sales shows manual intake form', /website|business.?name|canonical.?name/i.test(sales.body) && /<form\b/i.test(sales.body));
+      ok('GET /sales shows Sales cockpit', /sales-cockpit|Sales cockpit/i.test(sales.body));
+      ok('GET /sales primary Add prospect action', /href=["']\/sales\?mode=add["']/i.test(sales.body) && /Add prospect/i.test(sales.body));
+      ok('GET /sales default omits intake form', !/<form\b[^>]*action=["']\/sales\/prospects["']/i.test(sales.body));
+
+      const addMode = await request(port, '/sales?mode=add', { headers: { Cookie: cookie } });
+      ok('GET /sales?mode=add => 200', addMode.statusCode === 200, `got ${addMode.statusCode}`);
+      ok('GET /sales?mode=add shows manual intake form', /website|business.?name|canonical.?name/i.test(addMode.body) && /<form\b[^>]*action=["']\/sales\/prospects["']/i.test(addMode.body));
+      ok('GET /sales?mode=add keeps intake field names', /\bname=["']business_name["']/.test(addMode.body) && /\bname=["']website_url["']/.test(addMode.body));
+      ok('GET /sales?mode=add has back to cockpit', /Back to (?:Sales )?cockpit/i.test(addMode.body));
 
       const home = await request(port, '/', { headers: { Cookie: cookie } });
       ok('Spyglass nav includes Sales link', /href=["']\/sales["']/.test(home.body) && /Sales/i.test(home.body));

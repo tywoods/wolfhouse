@@ -1037,8 +1037,10 @@ async function main() {
         }
         if (route.expectSales) {
           ok('Sales route heading', /<h1[^>]*>[\s\S]*Sales/i.test(res.body));
-          ok('Sales route has intake form', /action=["']\/sales\/prospects["']/i.test(res.body));
-          ok('Sales route mentions fixture/manual research', /fixture|manual/i.test(res.body) && /research/i.test(res.body));
+          ok('Sales route shows cockpit', /sales-cockpit|Sales cockpit/i.test(res.body));
+          ok('Sales route has Add prospect', /href=["']\/sales\?mode=add["']/i.test(res.body) && /Add prospect/i.test(res.body));
+          ok('Sales route default omits intake form', !/<form\b[^>]*action=["']\/sales\/prospects["']/i.test(res.body));
+          ok('Sales route mentions fixture/manual research', /fixture|manual/i.test(res.body) && /research|intake|pipeline/i.test(res.body));
         }
       }
 
