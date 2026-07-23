@@ -12,7 +12,7 @@ const FILES = [
   'scripts/lib/sunset-inbox-channel-config.js',
   'scripts/lib/tenant-admin-writes.js',
   'scripts/staff-query-api.js',
-  'infra/azure/modules/tenant-staging/main.bicep',
+  // tenant-staging main.bicep owned by Stage 2A/2C1 IaC budgets after MOVE
   'scripts/verify-messi-saas-stage2b-tenant-runtime-config.js',
   'scripts/verify-messi-saas-stage2a-tenant-staging-iac.js',
   'package.json',

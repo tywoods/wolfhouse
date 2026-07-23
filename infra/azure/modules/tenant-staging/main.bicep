@@ -59,9 +59,24 @@ param stripeLinksEnabled string
 param whatsappDryRun string
 param capacityAlertNamePrefix string
 param portalUrlTarget string
+@allowed([
+  ''
+  'infra'
+  'runtime'
+])
+param bootstrapPhase string = ''
+param planDigest string = ''
+param stageTag string = 'saas-2c1'
+param operatorMigrationIp string = ''
+param acaOutboundIpAddresses array = []
+param appDatabaseUser string = ''
+param runtimeBootstrapComplete bool = false
 // --- Locked-live Sunset tuple + synthetic safety ---
 var tenantSlugLower = toLower(tenantSlug)
 var isLockedLiveSunset = tenantSlugLower == 'sunset' && assertedResourceGroupName == 'luna-sunset-staging-rg' && resourceGroup().name == 'luna-sunset-staging-rg' && appNamePrefix == 'luna-sunset-staging' && appDbName == 'sunset_staging' && environmentName == 'staging'
+var isInfraBootstrap = !isLockedLiveSunset && bootstrapPhase == 'infra'
+var isRuntimeBootstrap = !isLockedLiveSunset && bootstrapPhase == 'runtime'
+var bootstrapPhaseOk = isLockedLiveSunset || isInfraBootstrap || isRuntimeBootstrap ? true : fail('synthetic_bootstrap_phase_required')
 var sunsetSlugTupleOk = tenantSlugLower != 'sunset' || isLockedLiveSunset ? true : fail('sunset_slug_requires_locked_live_tuple')
 var reservedSlug = tenantSlugLower == 'wolfhouse' || tenantSlugLower == 'wh' || startsWith(tenantSlugLower, 'wolfhouse')
 var reservedSlugOk = isLockedLiveSunset || !reservedSlug ? true : fail('reserved_slug_in_synthetic_mode')
@@ -74,13 +89,22 @@ var stagingRgOk = endsWith(rgLower, '-staging-rg') && !contains(rgLower, 'prod')
 var noWhStagingPrefix = appNamePrefix != 'wh-staging' ? true : fail('forbidden_wh_staging_prefix')
 var deployScopeOk = resourceGroup().name == assertedResourceGroupName ? true : fail('wrong_resource_group')
 var environmentStagingOk = environmentName == 'staging' ? true : fail('non_staging_environment')
+var runtimeOwnershipOk = !isRuntimeBootstrap || (!empty(planDigest) && !empty(deploySha) && !empty(ownerTag) && !empty(tenantSlug)) ? true : fail('runtime_ownership_tuple_required')
+var appUserLower = toLower(appDatabaseUser)
+var appDsnUserOk = !isRuntimeBootstrap || (!empty(appDatabaseUser) && appDatabaseUser != postgresAdminUser && appUserLower != 'postgres' && !contains(appUserLower, 'admin')) ? true : fail('admin_app_dsn_user_rejected')
 
 // Synthetic outbound is derived false — not merely caller-requested.
 var effectiveWhatsappDryRun = isLockedLiveSunset ? whatsappDryRun : 'true'
 var effectiveStripeLinksEnabled = isLockedLiveSunset ? stripeLinksEnabled : 'false'
 var effectiveStaffActionsEnabled = isLockedLiveSunset ? staffActionsEnabled : 'false'
+var effectiveDeployStaffApi = isInfraBootstrap ? false : (isRuntimeBootstrap ? (deployStaffApi && runtimeBootstrapComplete) : deployStaffApi)
+var useCustomDomain = isLockedLiveSunset
+var effectiveFirewallIps = isRuntimeBootstrap ? concat(!empty(operatorMigrationIp) ? [operatorMigrationIp] : [], acaOutboundIpAddresses) : (isInfraBootstrap ? [] : postgresAllowedIpAddresses)
+var broadFirewallRejected = contains(effectiveFirewallIps, '0.0.0.0') || contains(effectiveFirewallIps, '255.255.255.255') ? fail('broad_firewall_rejected') : true
+var runtimeFirewallOk = !isRuntimeBootstrap || (!empty(operatorMigrationIp) && length(acaOutboundIpAddresses) >= 1 && length(effectiveFirewallIps) >= 2 && broadFirewallRejected) ? true : fail('runtime_firewall_ips_required')
+var runtimeBootstrapOk = !isRuntimeBootstrap || runtimeBootstrapComplete ? true : fail('runtime_bootstrap_incomplete')
 
-var safetyLocksSatisfied = sunsetSlugTupleOk && reservedSlugOk && sunsetEnvLockOk && stagingPrefixOk && stagingRgOk && noWhStagingPrefix && deployScopeOk && environmentStagingOk
+var safetyLocksSatisfied = sunsetSlugTupleOk && reservedSlugOk && sunsetEnvLockOk && stagingPrefixOk && stagingRgOk && noWhStagingPrefix && deployScopeOk && environmentStagingOk && bootstrapPhaseOk && runtimeOwnershipOk && appDsnUserOk && runtimeFirewallOk && runtimeBootstrapOk
 
 var prefix = appNamePrefix
 var kvName = '${prefix}-kv'
@@ -100,13 +124,12 @@ var resourceTags = {
   owner: ownerTag
   slice: 'portal-1'
   safetyLocksSatisfied: string(safetyLocksSatisfied)
+  synthetic: isLockedLiveSunset ? 'false' : 'true'
+  stage: stageTag
+  planDigest: planDigest
+  deploySha: deploySha
 }
-var staffApiTags = {
-  product: 'Luna Front Desk'
-  tenant: tenantSlug
-  environment: environmentName
-  slice: 'portal-1'
-}
+var staffApiTags = resourceTags
 var staffApiImage = '${acrLoginServer}/${staffApiImageRepository}:${staffApiImageTag}'
 var imageRegistryOk = startsWith(staffApiImage, '${acrLoginServer}/') && !contains(staffApiImage, 'wh-staff-api') ? true : fail('image_registry_mismatch')
 var acrLoginServerMatches = acrLoginServer == '${acrName}.azurecr.io' ? true : fail('acr_login_server_mismatch')
@@ -226,7 +249,7 @@ resource appDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-p
   }
 }
 
-resource pgFirewallRules 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = [for (ip, i) in postgresAllowedIpAddresses: {
+resource pgFirewallRules 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = [for (ip, i) in effectiveFirewallIps: {
   parent: pgApp
   name: '${firewallRuleNamePrefix}${i}'
   properties: {
@@ -251,8 +274,11 @@ resource containerAppsEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
   }
 }
 var kvBaseUri = 'https://${kvName}.vault.azure.net/secrets'
+// Synthetic runtime: pass ACA-generated FQDN via staffApiCustomDomain/portalUrlTarget params (no DNS/cert).
+// Locked Sunset: existing managed cert + custom domain only. KV secret *values* are created by sibling
+// runtime-kv-secrets.bicep in the runtime phase (keeps Sunset compiled graph free of secret resources).
 
-resource existingManagedCert 'Microsoft.App/managedEnvironments/managedCertificates@2023-05-01' existing = {
+resource existingManagedCert 'Microsoft.App/managedEnvironments/managedCertificates@2023-05-01' existing = if (useCustomDomain) {
   parent: containerAppsEnv
   name: managedCertificateName
 }
@@ -339,7 +365,7 @@ var genericRuntimeEnv = [
 
 // --- Staff API Container App ---
 
-resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContainerApps && deployStaffApi) {
+resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContainerApps && effectiveDeployStaffApi) {
   name: staffApiAppName
   location: containerAppsLocation
   tags: staffApiTags
@@ -363,13 +389,13 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
             weight: 100
           }
         ]
-        customDomains: [
+        customDomains: useCustomDomain ? [
           {
             name: staffApiCustomDomain
             bindingType: 'SniEnabled'
             certificateId: existingManagedCert.id
           }
-        ]
+        ] : []
       }
       secrets: [
         {
@@ -495,7 +521,7 @@ var radar16lCapacityThreshold = 80
 var radar16lCpuMetricName = 'CpuPercentage'
 var radar16lMemoryMetricName = 'MemoryPercentage'
 
-resource staffApiCpuPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && deployStaffApi) {
+resource staffApiCpuPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && effectiveDeployStaffApi && isLockedLiveSunset) {
   name: '${capacityAlertNamePrefix}-staff-api-cpu-pressure'
   location: 'global'
   properties: {
@@ -530,7 +556,7 @@ resource staffApiCpuPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' =
   }
 }
 
-resource staffApiMemoryPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && deployStaffApi) {
+resource staffApiMemoryPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && effectiveDeployStaffApi && isLockedLiveSunset) {
   name: '${capacityAlertNamePrefix}-staff-api-memory-pressure'
   location: 'global'
   properties: {
@@ -579,23 +605,37 @@ module schemaObserverJob '../../sunset-staging/schema-observer-job.bicep' = if (
     tags: resourceTags
   }
 }
-// --- Outputs ---
+// --- Outputs (no secrets) ---
 
 output resourceGroupName string = resourceGroup().name
 
 output keyVaultName string = keyVault.name
 
+output keyVaultId string = keyVault.id
+
+output keyVaultUri string = keyVault.properties.vaultUri
+
 output managedIdentityName string = managedIdentity.name
+
+output managedIdentityId string = managedIdentity.id
 
 output managedIdentityPrincipalId string = managedIdentity.properties.principalId
 
 output postgresServerName string = pgApp.name
+
+output postgresServerId string = pgApp.id
 
 output postgresFqdn string = pgApp.properties.fullyQualifiedDomainName
 
 output databaseName string = appDb.name
 
 output containerAppsEnvironmentName string = envName
+
+output containerAppsEnvironmentId string = containerAppsEnv.id
+
+output containerAppsEnvironmentStaticIp string = containerAppsEnv.properties.staticIp
+
+output containerAppsEnvironmentDefaultDomain string = containerAppsEnv.properties.defaultDomain
 
 output staffApiAppName string = staffApiAppName
 
@@ -612,3 +652,15 @@ output acrLoginServer string = existingAcr.properties.loginServer
 output portalUrlTarget string = portalUrlTarget
 
 output deploySchemaObserverJobOut bool = deploySchemaObserverJob
+
+output ownershipSynthetic string = isLockedLiveSunset ? 'false' : 'true'
+
+output ownershipPlanDigest string = planDigest
+
+output ownershipDeploySha string = deploySha
+
+output ownershipTenant string = tenantSlug
+
+output bootstrapPhaseOut string = bootstrapPhase
+
+output effectiveDeployStaffApiOut bool = effectiveDeployStaffApi
