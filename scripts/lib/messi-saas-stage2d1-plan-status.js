@@ -368,7 +368,11 @@ function createExactShaSnapshot(deps, verifiedDeploySha) {
   try {
     fs.chmodSync(tmp, 0o700);
     const tarPath = path.join(tmp, `.${sha}.tar`);
-    execFileSync(pins.git, ['archive', '--format=tar', sha, '-o', tarPath], {
+    // Snapshot only the fixed planner authority surface. The repository also
+    // contains unrelated tracked symlinks (for example website/CLAUDE.md),
+    // which must never weaken archive member validation.
+    const authorityPaths = ['scripts', 'database', 'config', 'infra', 'fixtures', 'package.json', 'package-lock.json'];
+    execFileSync(pins.git, ['archive', '--format=tar', sha, '-o', tarPath, '--', ...authorityPaths], {
       cwd: deps.repoRoot, stdio: ['ignore', 'pipe', 'pipe'],
     });
     const tf = execFileSync(pins.tar, ['-tf', tarPath], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
