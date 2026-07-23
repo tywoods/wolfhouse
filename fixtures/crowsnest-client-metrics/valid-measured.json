@@ -1,0 +1,18 @@
+{
+  "schema_version": "crowsnest.client_metrics.v1",
+  "snapshot_id": "snap_fixture_measured_001",
+  "captured_at": "2026-07-22T15:00:00.000Z",
+  "client_slug": "example-client",
+  "tenant_id": "tenant_example_alpha",
+  "source_service": "example-staff-api",
+  "window": { "kind": "rolling_24h", "days": 1 },
+  "metrics": {
+    "availability": "measured",
+    "conversations_total": 128,
+    "conversations_active": 34,
+    "conversations_needing_human": 5,
+    "messages_last_24h": 342,
+    "messages_per_day_avg": 318.5,
+    "last_activity_at": "2026-07-22T14:58:12.000Z"
+  }
+}

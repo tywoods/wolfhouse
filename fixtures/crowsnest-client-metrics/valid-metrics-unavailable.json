@@ -1,0 +1,10 @@
+{
+  "schema_version": "crowsnest.client_metrics.v1",
+  "snapshot_id": "snap_fixture_unavailable_001",
+  "captured_at": "2026-07-22T15:00:00.000Z",
+  "client_slug": "example-client-two",
+  "tenant_id": "tenant_example_beta",
+  "source_service": "example-staff-api",
+  "window": { "kind": "all_time" },
+  "metrics": { "availability": "unavailable" }
+}
