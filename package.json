@@ -71,6 +71,7 @@
     "verify:crowsnest-client-metrics-contract": "node scripts/verify-crowsnest-client-metrics-contract.js",
     "verify:crowsnest-client-metrics-store": "node scripts/verify-crowsnest-client-metrics-store.js",
     "verify:crowsnest-client-metrics-ingest": "node scripts/verify-crowsnest-client-metrics-ingest.js",
+    "verify:crowsnest-client-metrics-reporter": "node scripts/verify-crowsnest-client-metrics-reporter.js",
     "verify:crowsnest-sales": "node scripts/verify-crowsnest-sales.js",
     "verify:crowsnest-sales-durable": "node scripts/verify-crowsnest-sales-durable.js",
     "verify:crowsnest-sales-research": "node scripts/verify-crowsnest-sales-research.js",
