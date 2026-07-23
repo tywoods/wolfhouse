@@ -8,9 +8,10 @@
  * conversations/messages tables directly. Mirrors the crowsnest-sales-store discipline:
  * dedicated DSN env, repository adapters, fail-closed in production without a DSN.
  *
- * Postgres backend (CROWSNEST_METRICS_DATABASE_URL): production performs NO runtime
- * DDL — schema/table come from migration 048. Optional auto-create is non-prod/tests
- * only. Missing table fails closed (reads empty; ingest returns a safe 503).
+ * Postgres backend (CROWSNEST_METRICS_DATABASE_URL): runtime DDL is strict opt-in
+ * (autoCreateSchema === true AND non-production). Default/unset env emits no CREATE —
+ * schema/table come from migration 048. Missing table fails closed (reads empty;
+ * ingest returns a safe 503).
  */
 
 const { validateCrowsnestClientMetricsEvent } = require('./crowsnest-client-metrics-contract');
@@ -124,15 +125,17 @@ async function closeMetricsStore() {
 }
 
 /**
- * Optional auto-DDL is for non-production / local tests only.
- * Production ALWAYS assumes migration 048 pre-provisioned the schema+table so a
- * least-privilege role (USAGE + DML, no database CREATE) can ingest safely.
- * `autoCreateSchema: true` cannot override production.
+ * Optional auto-DDL is explicit opt-in for non-production / local tests only.
+ * Requires autoCreateSchema === true AND a non-production env. Default/unset
+ * NODE_ENV (e.g. Azure candidate) emits no CREATE so least-privilege roles
+ * (USAGE + DML, no database CREATE) never hit 42501. Production ALWAYS assumes
+ * migration 048 pre-provisioned the schema+table; autoCreateSchema:true cannot
+ * override production.
  */
 function shouldAutoCreateSchema(options = {}) {
   const env = options.env || process.env;
   if (isProductionEnv(env)) return false;
-  return options.autoCreateSchema !== false;
+  return options.autoCreateSchema === true;
 }
 
 function createPostgresRepository(options = {}) {
