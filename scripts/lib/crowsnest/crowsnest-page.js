@@ -758,6 +758,27 @@ h2.section{
   box-shadow:var(--shadow-soft);
 }
 .safety strong{color:#4F3910}
+.refresh-panel{margin:18px 0 22px}
+.refresh-form .form-actions{margin-top:8px}
+.refresh-coverage{
+  margin-top:14px;
+  padding:12px 14px;
+  border-radius:var(--radius-sm);
+  background:var(--sea-soft);
+  border:1px solid #C5D9E4;
+}
+.refresh-coverage-summary{margin:0 0 10px;font-size:13px;color:var(--text-2);line-height:1.45}
+.refresh-coverage-list{list-style:none;display:grid;gap:8px;margin:0;padding:0}
+.refresh-coverage-item{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  font-size:14px;
+}
+.refresh-client{font-weight:600;color:var(--navy)}
+.refresh-status{color:var(--text-2)}
 
 /* ── Iris: sample banner ── */
 .sample-banner{
@@ -1223,9 +1244,59 @@ function renderSpyglassClientRow(client, event) {
         </details>`;
 }
 
+function refreshStatusLabel(status) {
+  const key = String(status || '').trim().toLowerCase();
+  if (key === 'started') return 'Report requested';
+  if (key === 'not_configured') return 'Not configured';
+  if (key === 'unavailable') return 'Unavailable';
+  return 'Unavailable';
+}
+
+function renderSpyglassRefreshCoverage(refreshCoverage, clients) {
+  const results = refreshCoverage && Array.isArray(refreshCoverage.results)
+    ? refreshCoverage.results
+    : null;
+  if (!results || results.length === 0) return '';
+  const nameById = new Map((clients || []).map((c) => [c.id, c.name]));
+  const coverage = refreshCoverage.coverage || {};
+  const started = Number(coverage.started) || 0;
+  const total = Number(coverage.total) || results.length;
+  const rows = results.map((row) => {
+    const name = nameById.get(row.client_id) || row.client_id;
+    return `<li class="refresh-coverage-item">
+            <span class="refresh-client">${escapeHtml(name)}</span>
+            <span class="refresh-status">${escapeHtml(refreshStatusLabel(row.status))}</span>
+          </li>`;
+  }).join('\n          ');
+  return `<div class="refresh-coverage" role="status" aria-live="polite">
+        <p class="refresh-coverage-summary">Coverage after request: ${escapeHtml(String(started))}/${escapeHtml(String(total))} report(s) requested from configured clients. Partial coverage is expected — this does not mean metrics are already updated.</p>
+        <ul class="refresh-coverage-list">
+          ${rows}
+        </ul>
+      </div>`;
+}
+
+function renderSpyglassRefreshPanel(clients, refreshCoverage) {
+  const coverageHtml = renderSpyglassRefreshCoverage(refreshCoverage, clients);
+  return `<section class="panel refresh-panel" aria-labelledby="spyglass-refresh-title">
+        <header class="panel-head">
+          <h2 class="panel-title" id="spyglass-refresh-title">Refresh reports</h2>
+        </header>
+        <p class="section-note">Requests a new report from each <strong>configured</strong> client's reporter. Only fixed, server-configured clients are contacted — coverage may be partial.</p>
+        <form class="refresh-form" method="post" action="/spyglass/refresh-all" accept-charset="utf-8">
+          <div class="form-actions">
+            <button class="btn-primary" type="submit">Refresh all</button>
+          </div>
+        </form>
+        ${coverageHtml}
+      </section>`;
+}
+
 // clientMetrics: map of client_slug -> crowsnest.client_metrics.v1 snapshot (from the
 // Crowsnest-owned metrics store). Empty map => every client shows "not reporting yet".
-function renderSpyglassMain(clients, clientMetrics = {}) {
+function renderSpyglassMain(clients, options = {}) {
+  const clientMetrics = options.clientMetrics || {};
+  const refreshCoverage = options.refreshCoverage || null;
   const stats = countStaticEnvironmentStats(clients);
   const usage = getSampleAiUsage();
   const reporting = clients
@@ -1266,6 +1337,8 @@ function renderSpyglassMain(clients, clientMetrics = {}) {
         </div>
       </div>
 
+      ${renderSpyglassRefreshPanel(clients, refreshCoverage)}
+
       ${renderAiUsagePanel(usage)}
 
       <section class="panel clients-panel" aria-labelledby="clients-overview-title">
@@ -1278,7 +1351,7 @@ function renderSpyglassMain(clients, clientMetrics = {}) {
         </div>
       </section>
 
-      <div class="safety"><strong>Safety:</strong> Read-only Spyglass. Client metrics are read from Crowsnest's own metrics store (clients push snapshots in) — no direct access to tenant databases and no writes. The AI usage panel is still clearly-labelled <strong>sample data</strong>, not live telemetry.</div>
+      <div class="safety"><strong>Safety:</strong> Read-only Spyglass. Client metrics are read from Crowsnest's own metrics store (clients push snapshots in) — no direct access to tenant databases and no writes. Refresh all only requests reports from configured clients and never claims metrics are refreshed. The AI usage panel is still clearly-labelled <strong>sample data</strong>, not live telemetry.</div>
     </section>`;
 }
 
@@ -2824,7 +2897,7 @@ function renderViewMain(view, clients, templates, options = {}) {
   if (view === 'sales_crm_preview') return renderSalesCrmPreviewMain(options);
   if (view === 'sales_outreach_draft') return renderSalesOutreachDraftMain(options);
   if (view === 'sales_discovery') return renderSalesDiscoveryMain(options);
-  return renderSpyglassMain(clients, options.clientMetrics || {});
+  return renderSpyglassMain(clients, options);
 }
 
 function viewPageTitle(view) {

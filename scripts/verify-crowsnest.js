@@ -408,6 +408,8 @@ ok('package.json has verify:crowsnest-auth', pkg && pkg.scripts && typeof pkg.sc
 ok('package.json has verify:crowsnest-ai-usage-contract', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-contract'] === 'string');
 ok('package.json has verify:crowsnest-ai-usage-adapter', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-adapter'] === 'string');
 ok('package.json has verify:crowsnest-ai-usage-store', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-store'] === 'string');
+ok('package.json has verify:crowsnest-client-metrics-reporter', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-client-metrics-reporter'] === 'string');
+ok('package.json has verify:crowsnest-spyglass-refresh-all', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-spyglass-refresh-all'] === 'string');
 ok('package.json has verify:crowsnest-sales', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-sales'] === 'string');
 ok('package.json has verify:crowsnest-sales-ux', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-sales-ux'] === 'string');
 ok('package.json has verify:crowsnest-sales-durable', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-sales-durable'] === 'string');
