@@ -113,6 +113,18 @@ const {
   getSpyglassClientMetricsMap,
   putClientMetricsSnapshot,
 } = require('./lib/crowsnest/crowsnest-client-metrics-store');
+const {
+  SUNSET_SOMO_STAGING_TARGET,
+  createUnavailableJobStartTransport,
+  requestSpyglassRefreshAll,
+} = require('./lib/crowsnest/crowsnest-spyglass-refresh');
+const {
+  resolveSpyglassRefreshRuntimeConfig,
+  resolveManagedIdentityEndpointConfig,
+} = require('./lib/crowsnest/crowsnest-spyglass-refresh-runtime-config');
+const {
+  createAzureContainerAppsJobStartTransport,
+} = require('./lib/crowsnest/crowsnest-spyglass-refresh-azure-job-start');
 
 const METRICS_INGEST_TOKEN_ENV = 'CROWSNEST_METRICS_INGEST_TOKEN';
 const METRICS_INGEST_MAX_BODY = 64 * 1024; // snapshots are tiny; cap the surface
@@ -956,6 +968,84 @@ function resolveProtectedUiView(pathname) {
   if (pathname === '/sales') return 'sales';
   // `/`, `/crowsnest`, `/crowsnest/ui` → Spyglass
   return 'spyglass';
+}
+
+function resolveSpyglassRefreshConfiguredTargets() {
+  // Sunset Somo staging is the only explicit configured target.
+  // Wolfhouse / Sardinero are never auto-assumed configured in the runtime default.
+  return [SUNSET_SOMO_STAGING_TARGET];
+}
+
+function createFixtureSpyglassRefreshTransport() {
+  return async function fixtureSpyglassRefreshStart() {
+    return { ok: true };
+  };
+}
+
+function resolveSpyglassRefreshStartJob() {
+  const fixtureMode = String(process.env.CROWSNEST_SPYGLASS_REFRESH_FIXTURE_TRANSPORT || '').trim() === '1';
+  if (fixtureMode && !isProduction()) {
+    return createFixtureSpyglassRefreshTransport();
+  }
+
+  // Production Azure adapter only when validated runtime config + MI endpoint exist.
+  // Fail closed to unavailable until Earthling binds identity / RBAC / env.
+  const runtime = resolveSpyglassRefreshRuntimeConfig(process.env);
+  const identity = resolveManagedIdentityEndpointConfig(process.env);
+  if (!runtime.ok || !identity.ok) {
+    return createUnavailableJobStartTransport('azure_job_start_not_configured');
+  }
+  if (typeof fetch !== 'function') {
+    return createUnavailableJobStartTransport('azure_job_start_fetch_unavailable');
+  }
+  return createAzureContainerAppsJobStartTransport({
+    fetch,
+    runtimeConfig: runtime.config,
+    identityEndpoint: identity.identity_endpoint,
+    identityHeader: identity.identity_header,
+  });
+}
+
+// POST /spyglass/refresh-all — authenticated operator requests reports from fixed
+// configured targets only. Browser body fields never choose clients/jobs.
+async function handleSpyglassRefreshAll(req, res, method) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+
+  // Drain body for completeness; never parse client_id / job_name / resource names
+  // into refresh targets (CSRF-safe cookie session + form POST only).
+  try {
+    await readLimitedBody(req, getCrowsnestLoginBodyLimit());
+  } catch (err) {
+    if (err && err.message === 'body too large') {
+      return sendPayloadTooLarge(res);
+    }
+  }
+
+  const refreshCoverage = await requestSpyglassRefreshAll({
+    configuredTargets: resolveSpyglassRefreshConfiguredTargets(),
+    startJob: resolveSpyglassRefreshStartJob(),
+  });
+
+  const cspNonce = createBrowserCspNonce();
+  const pageOptions = {
+    cspNonce,
+    view: 'spyglass',
+    refreshCoverage,
+  };
+  try {
+    pageOptions.clientMetrics = await getSpyglassClientMetricsMap();
+    return sendHTML(res, 200, renderCrowsnestPage(pageOptions), { 'Cache-Control': 'no-store' }, cspNonce);
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
 }
 
 async function handleProtectedUi(req, res, method, pathname) {
@@ -2110,6 +2200,10 @@ async function router(req, res) {
     return handleClientMetricsIngest(req, res, method);
   }
 
+  if (pathname === '/spyglass/refresh-all') {
+    return handleSpyglassRefreshAll(req, res, method);
+  }
+
   if (pathname === '/sales/prospects') {
     return handleSalesCreateProspect(req, res, method);
   }
@@ -2235,4 +2329,13 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, router, PORT, HOST, sendSalesUnavailable, handleClientMetricsIngest, METRICS_INGEST_TOKEN_ENV };
+module.exports = {
+  server,
+  router,
+  PORT,
+  HOST,
+  sendSalesUnavailable,
+  handleClientMetricsIngest,
+  handleSpyglassRefreshAll,
+  METRICS_INGEST_TOKEN_ENV,
+};
