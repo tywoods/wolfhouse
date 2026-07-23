@@ -348,7 +348,7 @@ function structuralChecks() {
       ok('046 sha256 matches live file', entry.sha256 === live, `manifest=${entry.sha256} live=${live}`);
     }
     const forwards = forwardEntries(manifest);
-    ok('forward count includes 047 (45)', forwards.length === 45, `forward=${forwards.length}`);
+    ok('forward count includes 048 (46)', forwards.length === 46, `forward=${forwards.length}`);
   }
 
   ok('045 crm review retained as dependency', fs.existsSync(MIGRATION_045_PATH) && /crm_review_marks/i.test(read(MIGRATION_045_PATH) || ''));

@@ -8,11 +8,9 @@
  * conversations/messages tables directly. Mirrors the crowsnest-sales-store discipline:
  * dedicated DSN env, repository adapters, fail-closed in production without a DSN.
  *
- * SLICE SCOPE (this file): the store scaffolding + reader with `memory` and
- * `fail_closed` backends only. Reads always degrade to "empty" so the Spyglass page
- * shows an honest "not reporting yet" instead of erroring. The persistent Postgres
- * backend (keyed off CROWSNEST_METRICS_DATABASE_URL) and the ingest endpoint that lets
- * clients push snapshots land with the reporter/mailer slice.
+ * Postgres backend (CROWSNEST_METRICS_DATABASE_URL): production performs NO runtime
+ * DDL — schema/table come from migration 048. Optional auto-create is non-prod/tests
+ * only. Missing table fails closed (reads empty; ingest returns a safe 503).
  */
 
 const { validateCrowsnestClientMetricsEvent } = require('./crowsnest-client-metrics-contract');
@@ -88,6 +86,7 @@ function createFailClosedRepository() {
 // ── Postgres backend ────────────────────────────────────────────────────────
 // One row per client (latest-wins upsert). Crowsnest owns this schema; it holds
 // only aggregate crowsnest.client_metrics.v1 snapshots pushed in by clients.
+// Production assumes migration 048 already created schema+table (no CREATE).
 
 const POOL_MAX = 4;
 const POOL_IDLE_MS = 30_000;
@@ -124,12 +123,25 @@ async function closeMetricsStore() {
   await ending.end();
 }
 
+/**
+ * Optional auto-DDL is for non-production / local tests only.
+ * Production ALWAYS assumes migration 048 pre-provisioned the schema+table so a
+ * least-privilege role (USAGE + DML, no database CREATE) can ingest safely.
+ * `autoCreateSchema: true` cannot override production.
+ */
+function shouldAutoCreateSchema(options = {}) {
+  const env = options.env || process.env;
+  if (isProductionEnv(env)) return false;
+  return options.autoCreateSchema !== false;
+}
+
 function createPostgresRepository(options = {}) {
   // SCHEMA is a hardcoded safe identifier (never user input) — safe to interpolate.
   const TABLE = `${SCHEMA}.client_metrics_snapshots`;
+  const autoCreate = shouldAutoCreateSchema(options);
   let ensured = false;
   async function ensure(pool) {
-    if (ensured) return;
+    if (!autoCreate || ensured) return;
     await pool.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`);
     await pool.query(`CREATE TABLE IF NOT EXISTS ${TABLE} (
       client_slug TEXT PRIMARY KEY,
@@ -144,29 +156,48 @@ function createPostgresRepository(options = {}) {
     async putSnapshot(event) {
       const res = validateCrowsnestClientMetricsEvent(event);
       if (!res.ok) return { ok: false, code: 'invalid_client_metrics_event', errors: res.errors };
-      const pool = getMetricsPool(options);
-      await ensure(pool);
-      await pool.query(
-        `INSERT INTO ${TABLE} (client_slug, captured_at, event)
-         VALUES ($1, $2, $3::jsonb)
-         ON CONFLICT (client_slug) DO UPDATE
-           SET captured_at = EXCLUDED.captured_at, event = EXCLUDED.event, updated_at = now()
-           WHERE EXCLUDED.captured_at >= ${TABLE}.captured_at`,
-        [event.client_slug, event.captured_at, JSON.stringify(event)],
-      );
-      return { ok: true };
+      try {
+        const pool = getMetricsPool(options);
+        await ensure(pool);
+        await pool.query(
+          `INSERT INTO ${TABLE} (client_slug, captured_at, event)
+           VALUES ($1, $2, $3::jsonb)
+           ON CONFLICT (client_slug) DO UPDATE
+             SET captured_at = EXCLUDED.captured_at, event = EXCLUDED.event, updated_at = now()
+             WHERE EXCLUDED.captured_at >= ${TABLE}.captured_at`,
+          [event.client_slug, event.captured_at, JSON.stringify(event)],
+        );
+        return { ok: true };
+      } catch {
+        // Missing table / connectivity / privilege: never throw into the ingest
+        // handler (would 500). Fail closed with a safe 503.
+        return {
+          ok: false,
+          status: 503,
+          code: 'client_metrics_store_unavailable',
+          error: 'Client metrics store is temporarily unavailable.',
+        };
+      }
     },
     async getLatest(clientSlug) {
-      const pool = getMetricsPool(options);
-      await ensure(pool);
-      const r = await pool.query(`SELECT event FROM ${TABLE} WHERE client_slug = $1`, [clientSlug]);
-      return r.rows[0] ? r.rows[0].event : null;
+      try {
+        const pool = getMetricsPool(options);
+        await ensure(pool);
+        const r = await pool.query(`SELECT event FROM ${TABLE} WHERE client_slug = $1`, [clientSlug]);
+        return r.rows[0] ? r.rows[0].event : null;
+      } catch {
+        return null;
+      }
     },
     async getAllLatest() {
-      const pool = getMetricsPool(options);
-      await ensure(pool);
-      const r = await pool.query(`SELECT event FROM ${TABLE}`);
-      return r.rows.map((row) => row.event);
+      try {
+        const pool = getMetricsPool(options);
+        await ensure(pool);
+        const r = await pool.query(`SELECT event FROM ${TABLE}`);
+        return r.rows.map((row) => row.event);
+      } catch {
+        return [];
+      }
     },
   };
 }

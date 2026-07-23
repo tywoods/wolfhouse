@@ -286,7 +286,7 @@ function structuralChecks() {
       ok('045 sha256 matches live file', entry.sha256 === live, `manifest=${entry.sha256} live=${live}`);
     }
     const forwards = forwardEntries(manifest);
-    ok('forward count includes 047 (45)', forwards.length === 45, `forward=${forwards.length}`);
+    ok('forward count includes 048 (46)', forwards.length === 46, `forward=${forwards.length}`);
   }
 
   ok('044 qualification retained as dependency', fs.existsSync(MIGRATION_044_PATH) && /qualification_assessments/i.test(read(MIGRATION_044_PATH) || ''));
