@@ -79,6 +79,8 @@
     "verify:crowsnest-sales-qualification": "node scripts/verify-crowsnest-sales-qualification.js",
     "verify:crowsnest-sales-review-queue": "node scripts/verify-crowsnest-sales-review-queue.js",
     "verify:crowsnest-sales-hubspot-adapter": "node scripts/verify-crowsnest-sales-hubspot-adapter.js",
+    "verify:crowsnest-sales-approved-crm-sync": "node scripts/verify-crowsnest-sales-approved-crm-sync.js",
+    "verify:crowsnest-sales-approved-crm-sync-attempts": "node scripts/verify-crowsnest-sales-approved-crm-sync-attempts.js",
     "verify:crowsnest-sales-outreach-drafts": "node scripts/verify-crowsnest-sales-outreach-drafts.js",
     "verify:crowsnest-sales-discovery-contract": "node scripts/verify-crowsnest-sales-discovery-contract.js",
     "verify:crowsnest-sales-maps-discovery": "node scripts/verify-crowsnest-sales-maps-discovery.js",

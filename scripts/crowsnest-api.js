@@ -55,11 +55,59 @@ const {
   recordManualEvidence,
   recordQualification,
   saveOutreachDraft,
+  sendApprovedCrmSync,
 } = require('./lib/crowsnest/crowsnest-sales');
 const {
   isSalesStoreUnavailableError,
   isSalesUnavailableResult,
 } = require('./lib/crowsnest/crowsnest-sales-store');
+const {
+  syncApprovedCrmToHubSpotV3,
+} = require('./lib/crowsnest/crowsnest-sales-hubspot-v3-adapter');
+const {
+  resolveHubSpotServiceKeyAccess,
+} = require('./lib/crowsnest/crowsnest-hubspot-runtime-config');
+
+function createApprovedCrmSyncFixtureTransport() {
+  const fixtureDir = path.join(__dirname, '..', 'fixtures', 'crowsnest-sales-approved-crm-sync');
+  const companyFixture = JSON.parse(
+    fs.readFileSync(path.join(fixtureDir, 'company-create-201.json'), 'utf8'),
+  );
+  const contactFixture = JSON.parse(
+    fs.readFileSync(path.join(fixtureDir, 'contact-create-201.json'), 'utf8'),
+  );
+  return async (url) => {
+    const target = String(url || '');
+    let body = companyFixture;
+    if (/\/crm\/v3\/objects\/contacts/.test(target)) {
+      body = contactFixture;
+    } else if (!/\/crm\/v3\/objects\/companies/.test(target)) {
+      return {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        json: async () => ({ status: 'error', message: 'fixture path not found' }),
+        text: async () => '{"status":"error"}',
+      };
+    }
+    return {
+      ok: true,
+      status: 201,
+      statusText: 'Created',
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    };
+  };
+}
+
+function resolveApprovedCrmSyncTransport() {
+  const fixtureMode = String(process.env.CROWSNEST_HUBSPOT_FIXTURE_TRANSPORT || '').trim() === '1';
+  const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (fixtureMode && !isProd) {
+    return createApprovedCrmSyncFixtureTransport();
+  }
+  return typeof fetch === 'function' ? fetch : undefined;
+}
 
 const {
   getSpyglassClientMetricsMap,
@@ -375,6 +423,8 @@ function parseSalesFormBody(body) {
     market: String(params.get('market') || ''),
     search_area: String(params.get('search_area') || ''),
     place_id: String(params.get('place_id') || ''),
+    operator_command: String(params.get('operator_command') || ''),
+    crm_review_mark_id: String(params.get('crm_review_mark_id') || ''),
   };
 }
 
@@ -421,6 +471,11 @@ function matchSalesCrmPreviewPath(pathname) {
 
 function matchSalesCrmReadyPath(pathname) {
   const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)\/crm-ready$/.exec(String(pathname || ''));
+  return match ? match[1] : null;
+}
+
+function matchSalesApprovedCrmSyncPath(pathname) {
+  const match = /^\/sales\/prospects\/([a-zA-Z0-9_-]+)\/approved-crm-sync$/.exec(String(pathname || ''));
   return match ? match[1] : null;
 }
 
@@ -1664,6 +1719,8 @@ async function handleSalesCrmPreview(req, res, method, prospectId) {
         qualification: result.qualification,
         latestCrmReviewMark: result.latestCrmReviewMark,
         crmPreview: result.preview,
+        approvedCrmSyncEligible: result.approvedCrmSyncEligible === true,
+        approvedCrmSyncAttempt: result.approvedCrmSyncAttempt || null,
         auditEvents: await listAuditEvents(prospectId),
       }),
       { 'Cache-Control': 'no-store' },
@@ -1725,6 +1782,121 @@ async function handleSalesCrmReady(req, res, method, prospectId) {
     }
     try {
       return await redisplay(status, result.error);
+    } catch (err) {
+      if (isSalesUnavailableFailure(err)) {
+        return sendSalesUnavailable(res);
+      }
+      throw err;
+    }
+  }
+
+  return sendRedirect(res, previewPath, { 'Cache-Control': 'no-store' });
+}
+
+async function handleSalesApprovedCrmSync(req, res, method, prospectId) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  const previewPath = `/sales/prospects/${prospectId}/crm-preview`;
+
+  async function redisplay(status, error) {
+    const preview = await getCrmSyncPreview(prospectId);
+    if (isSalesStoreFailure(preview)) {
+      return sendSalesStoreFailure(res, preview);
+    }
+    if (!preview.ok || !preview.prospect) {
+      const pageOptions = await loadSalesDetailPageOptions(prospectId, {
+        approvedCrmSyncError: error,
+      });
+      if (!pageOptions.prospect) {
+        return sendJSON(res, 404, { success: false, error: 'not found' });
+      }
+      const cspNonce = createBrowserCspNonce();
+      return sendHTML(
+        res,
+        status,
+        renderCrowsnestPage({
+          cspNonce,
+          view: 'sales_detail',
+          ...pageOptions,
+        }),
+        { 'Cache-Control': 'no-store' },
+        cspNonce,
+      );
+    }
+    const cspNonce = createBrowserCspNonce();
+    return sendHTML(
+      res,
+      status,
+      renderCrowsnestPage({
+        cspNonce,
+        view: 'sales_crm_preview',
+        prospect: preview.prospect,
+        qualification: preview.qualification,
+        latestCrmReviewMark: preview.latestCrmReviewMark,
+        crmPreview: preview.preview,
+        approvedCrmSyncEligible: preview.approvedCrmSyncEligible === true,
+        approvedCrmSyncAttempt: preview.approvedCrmSyncAttempt || null,
+        approvedCrmSyncError: error,
+        auditEvents: await listAuditEvents(prospectId),
+      }),
+      { 'Cache-Control': 'no-store' },
+      cspNonce,
+    );
+  }
+
+  let operatorCommand = '';
+  if (hasLoginFormContentType(req)) {
+    try {
+      const body = await readLimitedBody(req, getCrowsnestLoginBodyLimit());
+      const form = parseSalesFormBody(body);
+      operatorCommand = String(form.operator_command || '').trim();
+    } catch (err) {
+      if (err && err.message === 'body too large') {
+        return sendPayloadTooLarge(res);
+      }
+      try {
+        return await redisplay(400, 'Approved CRM sync requires the explicit operator command.');
+      } catch (listErr) {
+        if (isSalesUnavailableFailure(listErr)) {
+          return sendSalesUnavailable(res);
+        }
+        throw listErr;
+      }
+    }
+  }
+
+  const actor = resolveOperatorActor(req);
+  const keyAccess = resolveHubSpotServiceKeyAccess(process.env);
+  let result;
+  try {
+    result = await sendApprovedCrmSync(prospectId, actor, {
+      operatorCommand,
+      accessToken: keyAccess.ok ? keyAccess.accessToken : '',
+      hubspotConfigured: keyAccess.configured === true,
+      syncAdapter: syncApprovedCrmToHubSpotV3,
+      fetch: resolveApprovedCrmSyncTransport(),
+    });
+  } catch (err) {
+    if (isSalesUnavailableFailure(err)) {
+      return sendSalesUnavailable(res);
+    }
+    throw err;
+  }
+
+  if (!result.ok) {
+    if (isSalesUnavailableFailure(result)) {
+      return sendSalesUnavailable(res);
+    }
+    const status = result.status || 400;
+    if (status === 404) {
+      return sendJSON(res, 404, { success: false, error: 'not found' });
+    }
+    try {
+      return await redisplay(status, result.error || 'HubSpot sync is unavailable.');
     } catch (err) {
       if (isSalesUnavailableFailure(err)) {
         return sendSalesUnavailable(res);
@@ -2002,6 +2174,11 @@ async function router(req, res) {
   const crmReadyProspectId = matchSalesCrmReadyPath(pathname);
   if (crmReadyProspectId) {
     return handleSalesCrmReady(req, res, method, crmReadyProspectId);
+  }
+
+  const approvedCrmSyncProspectId = matchSalesApprovedCrmSyncPath(pathname);
+  if (approvedCrmSyncProspectId) {
+    return handleSalesApprovedCrmSync(req, res, method, approvedCrmSyncProspectId);
   }
 
   const outreachDraftProspectId = matchSalesOutreachDraftPath(pathname);

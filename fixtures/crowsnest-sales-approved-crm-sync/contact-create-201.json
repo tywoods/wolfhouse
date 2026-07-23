@@ -1,0 +1,12 @@
+{
+  "id": "902001",
+  "properties": {
+    "email": "ada@somo-surf.example",
+    "firstname": "Ada",
+    "lastname": "Owner",
+    "jobtitle": "Owner"
+  },
+  "createdAt": "2026-07-23T08:00:01.000Z",
+  "updatedAt": "2026-07-23T08:00:01.000Z",
+  "archived": false
+}

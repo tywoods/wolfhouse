@@ -1,0 +1,14 @@
+{
+  "id": "451001",
+  "properties": {
+    "name": "Somo Surf House",
+    "domain": "somo-surf.example",
+    "website": "https://www.somo-surf.example/stay",
+    "lifecyclestage": "lead",
+    "luna_sales_status": "Qualified Prospect",
+    "crowsnest_sales_prospect_id": "11111111-1111-4111-8111-111111111111"
+  },
+  "createdAt": "2026-07-23T08:00:00.000Z",
+  "updatedAt": "2026-07-23T08:00:00.000Z",
+  "archived": false
+}

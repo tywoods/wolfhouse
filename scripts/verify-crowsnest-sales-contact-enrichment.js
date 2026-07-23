@@ -271,7 +271,7 @@ function structuralChecks() {
       ok('047 sha256 matches live file', entry.sha256 === live, `manifest=${entry.sha256} live=${live}`);
     }
     const forwards = forwardEntries(manifest);
-    ok('forward count includes 048 (46)', forwards.length === 46, `forward=${forwards.length}`);
+    ok('forward count includes 049 (47)', forwards.length === 47, `forward=${forwards.length}`);
   }
 
   ok(

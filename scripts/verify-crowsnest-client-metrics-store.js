@@ -298,7 +298,7 @@ function isDdlSql(sql) {
       const live = sha256CanonicalLfV1File(MIGRATION_PATH);
       ok('048 sha256 matches live file', entry.sha256 === live, `manifest=${entry.sha256} live=${live}`);
     }
-    ok('forward count includes 048 (46)', forwards.length === 46, `forward=${forwards.length}`);
+    ok('forward count includes 049 (47)', forwards.length === 47, `forward=${forwards.length}`);
   }
 
   console.log(`\n── verify:crowsnest-client-metrics-store: ${pass} passed, ${fail} failed ──`);

@@ -3,11 +3,13 @@
 /**
  * Crowsnest Luna Sales durable store (Chapters 1–6 + 9–11: durable prospects, evidence,
  * qualification, review queue, CRM review readiness / preview support, outreach drafts,
- * manual contact candidates, read-only analytics summaries).
+ * manual contact candidates, read-only analytics summaries, approved CRM sync attempts).
  * Chapter 11 governance is a pure policy surface and does not add store tables.
  *
  * Owns config validation, repository adapters (memory / postgres / fail-closed),
  * and a bounded pg pool lifecycle. Never reads WOLFHOUSE_DATABASE_URL.
+ * Never reads HubSpot Service Keys / HUBSPOT_* env; attempt rows store IDs/status
+ * categories only (no tokens, raw payloads, email/phone, or JSON blobs).
  *
  * Production without CROWSNEST_SALES_DATABASE_URL fails closed for mutations.
  * Non-production / test may fall back to an explicit in-memory repository.
@@ -20,6 +22,24 @@ const SALES_SCHEMA = 'luna_sales';
 const POOL_MAX = 4;
 const POOL_IDLE_MS = 30_000;
 const POOL_CONNECT_MS = 10_000;
+
+const APPROVED_CRM_SYNC_STATUSES = Object.freeze(['pending', 'succeeded', 'failed']);
+const APPROVED_CRM_SYNC_PROVIDER = 'hubspot';
+const APPROVED_CRM_SYNC_ERROR_CATEGORIES = Object.freeze([
+  '',
+  'auth_failed',
+  'rate_limited',
+  'timeout',
+  'provider_rejected',
+  'transport_failed',
+  'transport_required',
+  'invalid_command',
+  'automatic_forbidden',
+  'deal_forbidden',
+  'hubspot_not_configured',
+  'store_failed',
+  'unknown',
+]);
 
 /** @type {import('pg').Pool | null} */
 let salesPool = null;
@@ -114,6 +134,110 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function isUniqueViolation(err) {
+  if (!err || typeof err !== 'object') return false;
+  if (String(err.code || '') === '23505') return true;
+  return /duplicate key value violates unique constraint/i.test(String(err.message || ''));
+}
+
+function normalizeProviderContactIds(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((id) => String(id == null ? '' : id).trim())
+    .filter(Boolean);
+}
+
+function normalizeApprovedCrmSyncStatus(value) {
+  const status = String(value == null ? '' : value).trim().toLowerCase();
+  return APPROVED_CRM_SYNC_STATUSES.includes(status) ? status : 'pending';
+}
+
+/**
+ * Persist only a short sanitized error category — never tokens, payloads, or prose.
+ */
+function sanitizeApprovedCrmSyncErrorCategory(value) {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return '';
+  if (APPROVED_CRM_SYNC_ERROR_CATEGORIES.includes(raw)) return raw;
+  const firstToken = raw.split(/[\s{,:;]+/)[0];
+  if (APPROVED_CRM_SYNC_ERROR_CATEGORIES.includes(firstToken)) return firstToken;
+  if (
+    /pat-na1-|Bearer\s|postgres:\/\/|hubspot-service-key|[{}\n]|https?:\/\//i.test(raw)
+    || raw.length > 64
+  ) {
+    return 'unknown';
+  }
+  if (/^[a-z][a-z0-9_]{0,63}$/.test(raw)) return raw;
+  return 'unknown';
+}
+
+function normalizeApprovedCrmSyncAttempt(input = {}) {
+  const provider = String(input.provider == null ? '' : input.provider).trim().toLowerCase();
+  if (provider && provider !== APPROVED_CRM_SYNC_PROVIDER) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'invalid_provider',
+      error: 'Approved CRM sync attempts only support provider hubspot.',
+    };
+  }
+  const idempotencyKey = String(input.idempotency_key == null ? '' : input.idempotency_key).trim();
+  if (!idempotencyKey) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'idempotency_key_required',
+      error: 'Approved CRM sync attempts require an idempotency key.',
+    };
+  }
+  const prospectId = String(input.prospect_id == null ? '' : input.prospect_id).trim();
+  const markId = String(input.crm_review_mark_id == null ? '' : input.crm_review_mark_id).trim();
+  if (!prospectId || !markId) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'attempt_refs_required',
+      error: 'Approved CRM sync attempts require prospect_id and crm_review_mark_id.',
+    };
+  }
+  const now = new Date().toISOString();
+  return {
+    ok: true,
+    attempt: {
+      id: String(input.id || ''),
+      prospect_id: prospectId,
+      crm_review_mark_id: markId,
+      provider: APPROVED_CRM_SYNC_PROVIDER,
+      idempotency_key: idempotencyKey,
+      status: normalizeApprovedCrmSyncStatus(input.status),
+      provider_company_id: String(input.provider_company_id == null ? '' : input.provider_company_id).trim(),
+      provider_contact_ids: normalizeProviderContactIds(input.provider_contact_ids),
+      actor_id: String(input.actor_id == null ? 'Admin' : input.actor_id).trim() || 'Admin',
+      error_category: sanitizeApprovedCrmSyncErrorCategory(input.error_category),
+      created_at: input.created_at || now,
+      updated_at: input.updated_at || input.created_at || now,
+    },
+  };
+}
+
+function mapApprovedCrmSyncAttemptRow(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    prospect_id: String(row.prospect_id),
+    crm_review_mark_id: String(row.crm_review_mark_id),
+    provider: row.provider || APPROVED_CRM_SYNC_PROVIDER,
+    idempotency_key: String(row.idempotency_key || ''),
+    status: normalizeApprovedCrmSyncStatus(row.status),
+    provider_company_id: row.provider_company_id || '',
+    provider_contact_ids: normalizeProviderContactIds(row.provider_contact_ids),
+    actor_id: row.actor_id || 'Admin',
+    error_category: sanitizeApprovedCrmSyncErrorCategory(row.error_category),
+    created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+    updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+  };
+}
+
 function createMemorySalesRepository() {
   const prospects = new Map();
   /** @type {Map<string, object[]>} */
@@ -126,6 +250,10 @@ function createMemorySalesRepository() {
   const outreachDraftRevisionsByProspect = new Map();
   /** @type {Map<string, object[]>} */
   const contactCandidatesByProspect = new Map();
+  /** @type {Map<string, object>} idempotency_key -> attempt */
+  const approvedCrmSyncAttemptsByKey = new Map();
+  /** @type {Map<string, object>} id -> attempt */
+  const approvedCrmSyncAttemptsById = new Map();
   const auditEvents = [];
 
   function researchListFor(id) {
@@ -213,6 +341,64 @@ function createMemorySalesRepository() {
       list.push(row);
       contactCandidatesByProspect.set(key, list);
       return { ok: true, contact: cloneJson(row) };
+    },
+    async saveApprovedCrmSyncAttempt(attemptInput) {
+      const normalized = normalizeApprovedCrmSyncAttempt(attemptInput);
+      if (!normalized.ok) return normalized;
+      const row = cloneJson(normalized.attempt);
+      if (!row.id) {
+        return {
+          ok: false,
+          status: 400,
+          code: 'attempt_id_required',
+          error: 'Approved CRM sync attempts require an id.',
+        };
+      }
+      const existing = approvedCrmSyncAttemptsByKey.get(row.idempotency_key);
+      if (existing) {
+        return {
+          ok: true,
+          attempt: cloneJson(existing),
+          idempotent_replay: true,
+        };
+      }
+      approvedCrmSyncAttemptsByKey.set(row.idempotency_key, row);
+      approvedCrmSyncAttemptsById.set(String(row.id), row);
+      return { ok: true, attempt: cloneJson(row) };
+    },
+    async updateApprovedCrmSyncAttemptOutcome(id, patch = {}) {
+      const existing = approvedCrmSyncAttemptsById.get(String(id || ''));
+      if (!existing) {
+        return { ok: false, error: 'Approved CRM sync attempt not found.', status: 404 };
+      }
+      const next = {
+        ...existing,
+        status: normalizeApprovedCrmSyncStatus(patch.status != null ? patch.status : existing.status),
+        provider_company_id: patch.provider_company_id != null
+          ? String(patch.provider_company_id).trim()
+          : existing.provider_company_id,
+        provider_contact_ids: patch.provider_contact_ids != null
+          ? normalizeProviderContactIds(patch.provider_contact_ids)
+          : existing.provider_contact_ids,
+        error_category: patch.error_category != null
+          ? sanitizeApprovedCrmSyncErrorCategory(patch.error_category)
+          : existing.error_category,
+        updated_at: patch.updated_at || new Date().toISOString(),
+      };
+      approvedCrmSyncAttemptsById.set(String(next.id), next);
+      approvedCrmSyncAttemptsByKey.set(next.idempotency_key, next);
+      return { ok: true, attempt: cloneJson(next) };
+    },
+    async getApprovedCrmSyncAttemptByIdempotencyKey(idempotencyKey) {
+      const row = approvedCrmSyncAttemptsByKey.get(String(idempotencyKey || '').trim());
+      return row ? cloneJson(row) : null;
+    },
+    async listApprovedCrmSyncAttemptsForProspect(prospectId) {
+      const pid = String(prospectId || '');
+      return Array.from(approvedCrmSyncAttemptsById.values())
+        .filter((row) => String(row.prospect_id) === pid)
+        .map((row) => cloneJson(row))
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
     },
     async appendAuditEvent(event) {
       const row = cloneJson(event);
@@ -387,6 +573,8 @@ function createMemorySalesRepository() {
       crmReviewMarksByProspect.clear();
       outreachDraftRevisionsByProspect.clear();
       contactCandidatesByProspect.clear();
+      approvedCrmSyncAttemptsByKey.clear();
+      approvedCrmSyncAttemptsById.clear();
       auditEvents.length = 0;
     },
   };
@@ -404,6 +592,8 @@ function createFailClosedSalesRepository(config = {}) {
     saveCrmReviewMark: reject,
     saveOutreachDraftRevision: reject,
     saveContactCandidate: reject,
+    saveApprovedCrmSyncAttempt: reject,
+    updateApprovedCrmSyncAttemptOutcome: reject,
     appendAuditEvent: reject,
     updateProspectDecision: reject,
     async getProspect() {
@@ -440,6 +630,12 @@ function createFailClosedSalesRepository(config = {}) {
       return misconfiguredResult(message);
     },
     async listContactCandidatesForProspect() {
+      return [];
+    },
+    async getApprovedCrmSyncAttemptByIdempotencyKey() {
+      return null;
+    },
+    async listApprovedCrmSyncAttemptsForProspect() {
       return [];
     },
     async listReviewQueueSummaries() {
@@ -726,6 +922,34 @@ function createPgSalesRepository(options = {}) {
     );
   }
 
+  async function insertApprovedCrmSyncAttempt(txQuery, attempt) {
+    await txQuery(
+      `INSERT INTO luna_sales.approved_crm_sync_attempts (
+          id, prospect_id, crm_review_mark_id, provider, idempotency_key, status,
+          provider_company_id, provider_contact_ids, actor_id, error_category,
+          created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6,
+          $7, $8::text[], $9, $10,
+          $11::timestamptz, $12::timestamptz
+        )`,
+      [
+        attempt.id,
+        attempt.prospect_id,
+        attempt.crm_review_mark_id,
+        attempt.provider,
+        attempt.idempotency_key,
+        attempt.status,
+        attempt.provider_company_id || '',
+        normalizeProviderContactIds(attempt.provider_contact_ids),
+        attempt.actor_id || 'Admin',
+        attempt.error_category || '',
+        attempt.created_at,
+        attempt.updated_at,
+      ],
+    );
+  }
+
   return {
     backend: 'postgres',
     async createProspectBundle({ prospect, research, auditEvents = [] } = {}) {
@@ -788,6 +1012,113 @@ function createPgSalesRepository(options = {}) {
         return { ok: true, contact: cloneJson(contact) };
       } catch {
         return salesUnavailableResult();
+      }
+    },
+    async saveApprovedCrmSyncAttempt(attemptInput) {
+      const normalized = normalizeApprovedCrmSyncAttempt(attemptInput);
+      if (!normalized.ok) return normalized;
+      const attempt = normalized.attempt;
+      if (!attempt.id) {
+        return {
+          ok: false,
+          status: 400,
+          code: 'attempt_id_required',
+          error: 'Approved CRM sync attempts require an id.',
+        };
+      }
+      try {
+        await insertApprovedCrmSyncAttempt(queryFn, attempt);
+        return { ok: true, attempt: cloneJson(attempt) };
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          try {
+            const existingResult = await queryFn(
+              `SELECT id, prospect_id, crm_review_mark_id, provider, idempotency_key, status,
+                      provider_company_id, provider_contact_ids, actor_id, error_category,
+                      created_at, updated_at
+               FROM luna_sales.approved_crm_sync_attempts
+               WHERE idempotency_key = $1`,
+              [attempt.idempotency_key],
+            );
+            const existing = mapApprovedCrmSyncAttemptRow(
+              existingResult.rows && existingResult.rows[0],
+            );
+            if (existing) {
+              return { ok: true, attempt: existing, idempotent_replay: true };
+            }
+          } catch {
+            // fall through to conflict without leaking DB detail
+          }
+          return {
+            ok: false,
+            status: 409,
+            code: 'idempotency_conflict',
+            error: 'An approved CRM sync attempt with this idempotency key already exists.',
+          };
+        }
+        return salesUnavailableResult();
+      }
+    },
+    async updateApprovedCrmSyncAttemptOutcome(id, patch = {}) {
+      try {
+        const status = normalizeApprovedCrmSyncStatus(patch.status);
+        const providerCompanyId = patch.provider_company_id != null
+          ? String(patch.provider_company_id).trim()
+          : '';
+        const providerContactIds = normalizeProviderContactIds(patch.provider_contact_ids);
+        const errorCategory = sanitizeApprovedCrmSyncErrorCategory(patch.error_category);
+        const updatedAt = patch.updated_at || new Date().toISOString();
+        const result = await queryFn(
+          `UPDATE luna_sales.approved_crm_sync_attempts
+           SET status = $2,
+               provider_company_id = $3,
+               provider_contact_ids = $4::text[],
+               error_category = $5,
+               updated_at = $6::timestamptz
+           WHERE id = $1
+           RETURNING id, prospect_id, crm_review_mark_id, provider, idempotency_key, status,
+                     provider_company_id, provider_contact_ids, actor_id, error_category,
+                     created_at, updated_at`,
+          [id, status, providerCompanyId, providerContactIds, errorCategory, updatedAt],
+        );
+        const row = mapApprovedCrmSyncAttemptRow(result.rows && result.rows[0]);
+        if (!row) {
+          return { ok: false, error: 'Approved CRM sync attempt not found.', status: 404 };
+        }
+        return { ok: true, attempt: row };
+      } catch {
+        return salesUnavailableResult();
+      }
+    },
+    async getApprovedCrmSyncAttemptByIdempotencyKey(idempotencyKey) {
+      try {
+        const result = await queryFn(
+          `SELECT id, prospect_id, crm_review_mark_id, provider, idempotency_key, status,
+                  provider_company_id, provider_contact_ids, actor_id, error_category,
+                  created_at, updated_at
+           FROM luna_sales.approved_crm_sync_attempts
+           WHERE idempotency_key = $1`,
+          [String(idempotencyKey || '').trim()],
+        );
+        return mapApprovedCrmSyncAttemptRow(result.rows && result.rows[0]);
+      } catch {
+        return null;
+      }
+    },
+    async listApprovedCrmSyncAttemptsForProspect(prospectId) {
+      try {
+        const result = await queryFn(
+          `SELECT id, prospect_id, crm_review_mark_id, provider, idempotency_key, status,
+                  provider_company_id, provider_contact_ids, actor_id, error_category,
+                  created_at, updated_at
+           FROM luna_sales.approved_crm_sync_attempts
+           WHERE prospect_id = $1
+           ORDER BY created_at DESC`,
+          [prospectId],
+        );
+        return (result.rows || []).map(mapApprovedCrmSyncAttemptRow).filter(Boolean);
+      } catch {
+        throw new SalesStoreUnavailableError();
       }
     },
     async appendAuditEvent(event) {
@@ -1301,6 +1632,8 @@ module.exports = {
   SALES_DSN_ENV,
   SALES_SCHEMA,
   POOL_MAX,
+  APPROVED_CRM_SYNC_PROVIDER,
+  APPROVED_CRM_SYNC_STATUSES,
   SalesStoreUnavailableError,
   closeSalesStore,
   createFailClosedSalesRepository,
@@ -1312,5 +1645,6 @@ module.exports = {
   isSalesUnavailableResult,
   newSalesUuid,
   resolveSalesStoreConfig,
+  sanitizeApprovedCrmSyncErrorCategory,
   salesUnavailableResult,
 };
