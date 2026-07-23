@@ -35,6 +35,8 @@ param staffApiMinReplicas int = 1
 param staffApiMaxReplicas int = 1
 param opsActionGroupResourceId string
 param opsActionGroupName string
+@description('Deploy RADAR 16L capacity alerts. Sunset passes true with locked AG. Fresh synthetic stays false until an actual actionGroupResourceId is supplied.')
+param deployCapacityAlerts bool = false
 @secure()
 param lunaBotInternalToken string
 param deploySha string
@@ -671,7 +673,7 @@ var radar16lCapacityThreshold = 80
 var radar16lCpuMetricName = 'CpuPercentage'
 var radar16lMemoryMetricName = 'MemoryPercentage'
 
-resource staffApiCpuPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || syntheticRuntimePhase)) {
+resource staffApiCpuPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || (deployCapacityAlerts && syntheticRuntimePhase))) {
   name: '${capacityAlertNamePrefix}-staff-api-cpu-pressure'
   location: 'global'
   tags: enablePrivateNetwork ? syntheticOwnershipTags : {}
@@ -707,7 +709,7 @@ resource staffApiCpuPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' =
   }
 }
 
-resource staffApiMemoryPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || syntheticRuntimePhase)) {
+resource staffApiMemoryPressureAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = if (deployContainerApps && deployStaffApi && (!enablePrivateNetwork || (deployCapacityAlerts && syntheticRuntimePhase))) {
   name: '${capacityAlertNamePrefix}-staff-api-memory-pressure'
   location: 'global'
   tags: enablePrivateNetwork ? syntheticOwnershipTags : {}

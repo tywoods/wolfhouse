@@ -743,7 +743,8 @@
     "verify:messi-saas-stage2b-tenant-runtime-config": "node scripts/verify-messi-saas-stage2b-tenant-runtime-config.js",
     "verify:messi-saas-stage2c1-private-network": "node scripts/verify-messi-saas-stage2c1-private-network.js",
     "verify:messi-saas-stage2c2-bootstrap-job": "node scripts/verify-messi-saas-stage2c2-bootstrap-job.js",
-    "verify:messi-saas-stage2c3-runtime-deploy": "node scripts/verify-messi-saas-stage2c3-runtime-deploy.js"
+    "verify:messi-saas-stage2c3-runtime-deploy": "node scripts/verify-messi-saas-stage2c3-runtime-deploy.js",
+    "verify:messi-saas-stage2d1-plan-status": "node scripts/verify-messi-saas-stage2d1-plan-status.js"
   },
   "dependencies": {
     "acorn": "8.14.1",

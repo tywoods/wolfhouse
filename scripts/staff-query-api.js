@@ -92,6 +92,10 @@ const {
   handleStaffApiHealthz,
 } = require('./lib/staff-api-healthz');
 const {
+  HEALTH_IDENTITY_PATH,
+  handleStaffApiHealthIdentity,
+} = require('./lib/staff-api-health-identity');
+const {
   resolveAdmissionControlEnabled,
   createAdmissionBoundary,
   bindAdmissionShutdownBegin,
@@ -46883,6 +46887,10 @@ async function router(req, res) {
       ? { pool: seam.readinessPool }
       : { getPool: getReadinessPool };
     return handleStaffApiReadyz(res, sendJSON, withPgClient, readinessOpts);
+  }
+
+  if (pathname === HEALTH_IDENTITY_PATH) {
+    return handleStaffApiHealthIdentity(res, sendJSON);
   }
 
   if (pathname === HEALTHZ_PATH || pathname === '/') {
