@@ -79,7 +79,48 @@ function isDdlSql(sql) {
   ok('reader (prod/no DSN) yields empty map', prodMap && Object.keys(prodMap).length === 0);
 
   // Postgres backend — exercised with an injected mock pool (no real DB).
-  // Non-prod / explicit autoCreateSchema keeps optional DDL for local tests.
+  // Runtime DDL is strict opt-in: autoCreateSchema === true AND non-production.
+  // Default / unset NODE_ENV (Azure candidate) must emit no CREATE.
+  const defaultCalls = [];
+  const defaultPool = {
+    query: async (sql, params) => {
+      defaultCalls.push({ sql: String(sql), params });
+      return { rows: [] };
+    },
+  };
+  const pgDefault = store.createPostgresRepository({
+    pool: defaultPool,
+    env: { CROWSNEST_METRICS_DATABASE_URL: 'postgres://x' }, // NODE_ENV unset
+  });
+  await pgDefault.putSnapshot(valid);
+  ok(
+    'postgres unset env/default: never emits CREATE SCHEMA/TABLE',
+    !defaultCalls.some((c) => isDdlSql(c.sql)),
+    defaultCalls.map((c) => c.sql.split('\n')[0]).join(' | '),
+  );
+  ok(
+    'postgres unset env/default: upsert still runs without DDL',
+    defaultCalls.some((c) => /INSERT INTO crowsnest_metrics\.client_metrics_snapshots/.test(c.sql)),
+  );
+
+  const falseCalls = [];
+  const falsePool = {
+    query: async (sql, params) => {
+      falseCalls.push({ sql: String(sql), params });
+      return { rows: [] };
+    },
+  };
+  const pgFalse = store.createPostgresRepository({
+    pool: falsePool,
+    env: { NODE_ENV: 'development', CROWSNEST_METRICS_DATABASE_URL: 'postgres://x' },
+    autoCreateSchema: false,
+  });
+  await pgFalse.putSnapshot(valid);
+  ok(
+    'postgres non-prod autoCreateSchema:false: never emits CREATE',
+    !falseCalls.some((c) => isDdlSql(c.sql)),
+  );
+
   const calls = [];
   const fakePool = {
     query: async (sql, params) => {
@@ -100,9 +141,27 @@ function isDdlSql(sql) {
   const pgPut = await pg.putSnapshot(valid);
   ok('postgres: valid snapshot put ok', pgPut.ok === true);
   ok(
-    'postgres non-prod autoCreate: ensures schema + table before write',
+    'postgres explicit non-prod autoCreate:true: ensures schema + table before write',
     calls.some((c) => /CREATE SCHEMA IF NOT EXISTS crowsnest_metrics/.test(c.sql))
       && calls.some((c) => /CREATE TABLE IF NOT EXISTS crowsnest_metrics\.client_metrics_snapshots/.test(c.sql)),
+  );
+  // Explicit test env + true is the other local-opt-in path.
+  const testCalls = [];
+  const testPool = {
+    query: async (sql, params) => {
+      testCalls.push({ sql: String(sql), params });
+      return { rows: [] };
+    },
+  };
+  const pgTest = store.createPostgresRepository({
+    pool: testPool,
+    env: { NODE_ENV: 'test', CROWSNEST_METRICS_DATABASE_URL: 'postgres://x' },
+    autoCreateSchema: true,
+  });
+  await pgTest.putSnapshot(valid);
+  ok(
+    'postgres explicit test autoCreate:true: emits CREATE SCHEMA/TABLE',
+    testCalls.some((c) => isDdlSql(c.sql)),
   );
   ok('postgres: upsert is latest-wins on conflict', calls.some((c) => /INSERT INTO crowsnest_metrics\.client_metrics_snapshots/.test(c.sql) && /ON CONFLICT \(client_slug\) DO UPDATE/.test(c.sql) && /EXCLUDED\.captured_at >=/.test(c.sql)));
   const pgAll = await pg.getAllLatest();
