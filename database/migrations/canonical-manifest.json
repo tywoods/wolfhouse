@@ -485,6 +485,15 @@
       "rationale": "Luna Sales Chapter 9: luna_sales.contact_candidates for manual contact enrichment (name/role/optional channels/source/confidence; no Apollo)."
     },
     {
+      "id": "048_crowsnest_metrics_client_metrics_snapshots",
+      "filename": "048_crowsnest_metrics_client_metrics_snapshots.sql",
+      "sha256": "c06780bc6e1739b955eee20edb1ae926e94c60794b246038d71de74fcc8f2cb7",
+      "order": 46,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Pupil: crowsnest_metrics.client_metrics_snapshots for latest-wins client metrics ingest (production runtime must not auto-DDL; role grants out of band)."
+    },
+    {
       "id": "022_sunset_location_id_PROPOSED",
       "filename": "022_sunset_location_id_PROPOSED.sql",
       "sha256": "5854d06527c2f2f1cd6e209b9a87759db3d72396a0ee9b9c58a834ff18f8448f",
