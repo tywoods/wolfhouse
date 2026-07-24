@@ -949,10 +949,12 @@ async function adoptPreparedResourceGroup(deps, {
   if (typeof deps.adoptAfterValidateHook === 'function') {
     await deps.adoptAfterValidateHook({ deps, names, prep });
   }
+  // Live ARM Resource Group GET often returns 200 with no ETag header/body field.
+  // Conditionally send If-Match only when Azure supplied one; never fabricate or use '*'.
   const etag = (rg.headers && (rg.headers.etag || rg.headers.ETag)) || body.etag || null;
-  if (!etag) return fail([err('etag_missing', 'If-Match ETag required for prepared RG retag')]);
+  const putHeaders = etag ? { 'If-Match': etag } : {};
   const put = await deps.armRequest({
-    method: 'PUT', path: rgPath, headers: { 'If-Match': etag },
+    method: 'PUT', path: rgPath, headers: putHeaders,
     body: { location: LOC, tags },
   });
   if (put.status === 412) return fail([err('etag_race', 'If-Match precondition failed')]);
@@ -966,7 +968,7 @@ async function adoptPreparedResourceGroup(deps, {
   const rbBody = readback.body || {};
   const rbEtag = (readback.headers && (readback.headers.etag || readback.headers.ETag))
     || rbBody.etag || null;
-  if (!rbEtag) return fail([err('etag_missing', 'post-retag RG ETag required')], { retagged: true });
+  // Post-retag absence of RG ETag is accepted; drill tuple + inventory remain mandatory.
   const drillCheck = assertDrillTags(rbBody.tags || {}, {
     tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha, createdAt, expiresAt,
   });
@@ -1621,8 +1623,9 @@ async function rollback(opts, depsIn) {
     }
     rgKnownPresent = true;
     const tags = (rg.body && rg.body.tags) || {};
+    // Capture optional RG ETag after ownership/provenance/inventory gates (not before).
+    // Live ARM often omits RG ETag; delete without If-Match only when none was supplied.
     const etag = (rg.headers && (rg.headers.etag || rg.headers.ETag)) || (rg.body && rg.body.etag) || null;
-    if (!etag) return { ok: false, errors: [err('etag_missing', 'If-Match ETag required for delete')] };
     const drillCheck = assertDrillTags(tags, {
       tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha,
       createdAt: tags.createdAt, expiresAt: tags.expiresAt,
@@ -1659,8 +1662,9 @@ async function rollback(opts, depsIn) {
       });
       return stop;
     }
+    const delHeaders = etag ? { 'If-Match': etag } : {};
     const del = await deps.armRequest({
-      method: 'DELETE', path: rgPath, headers: { 'If-Match': etag },
+      method: 'DELETE', path: rgPath, headers: delHeaders,
     });
     if (del.status === 412) {
       return { ok: false, errors: [err('etag_race', 'If-Match precondition failed')] };
