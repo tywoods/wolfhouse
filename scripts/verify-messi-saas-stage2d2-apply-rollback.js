@@ -2572,8 +2572,13 @@ async function main() {
       };
     });
     const dnsLink = contract.nestedChildren.find((n) => n.type.includes('virtualNetworkLinks'));
-    const residualNested = dnsLink
-      ? { [dnsLink.id]: { id: dnsLink.id, name: dnsLink.name, type: dnsLink.type, tags } } : {};
+    const appDb = contract.nestedChildren.find((n) => n.type.includes('flexibleServers/databases'));
+    // Live residual (xhOFOm/cleanup-216): nested app DB + DNS link present; only AcrPull absent.
+    // Seed both nested children so foundation residual path matches live (infra-partial also filters
+    // missing nested, but foundation does not — and cleanup-216 classifies as foundation).
+    const residualNested = {};
+    if (appDb) residualNested[appDb.id] = { id: appDb.id, name: appDb.name, type: appDb.type };
+    if (dnsLink) residualNested[dnsLink.id] = { id: dnsLink.id, name: dnsLink.name, type: dnsLink.type, tags };
     // KV role only (AcrPull never created in residual).
     const kvRole = contract.roleAssignments.find((r) => r.kind === 'kv');
     const residualRoles = kvRole ? {
@@ -2909,6 +2914,119 @@ async function main() {
           || (refuse.errors || []).some((e) => e.code === 'inventory_findings'
             || e.code === 'rollback_phase_invalid')),
         JSON.stringify(refuse.findings || refuse.errors || refuse).slice(0, 300));
+    }
+
+    // residual-cleanup-216: live residual classifies as foundation (Succeeded FA deploy is
+    // not the Failed MissingSubscriptionRegistration signature → not infra-partial). D1 still
+    // emits missing_role_assignment kind=acr; phaseContractFindings must permit it before
+    // top-level inventory_findings refuse so full rollback reaches exact inventory gate +
+    // canonical order (RG → exact AcrPull if present → temp admin). Missing KV still zero mut.
+    {
+      const faSucceeded = {
+        id: depId('Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8'),
+        name: 'Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8',
+        type: 'Microsoft.Resources/deployments',
+        provisioningState: 'Succeeded',
+        properties: { provisioningState: 'Succeeded' },
+      };
+      const depRowsFoundation = [...ownedDepRows, faSucceeded];
+      const prep = lib.buildPreparedRoleAssignments(names);
+      const temp = prep.find((r) => r.kind === 'acr-rbac-admin-temp');
+      const acrRole = contract.roleAssignments.find((r) => r.kind === 'acr');
+
+      // Collect: foundation phase + live missing AcrPull finding + classifier permits it.
+      {
+        const h = makeHarness(lib, d1);
+        h.setRg({ name: RG, tags });
+        h.setResources(residualResources);
+        h.setNested(residualNested);
+        h.setSecrets([]);
+        h.setRoles(residualRoles);
+        h.setMi({ properties: { principalId: livePid } });
+        h.setDeploymentsList(depRowsFoundation);
+        const inv = await d1.collectLiveInventory(h.deps, names, tags);
+        inv.rgExists = true;
+        const phase = d1.inferLivePhase(inv);
+        const classified = d1.phaseContractFindings(inv, phase);
+        const liveMissingAcr = (inv.findings || []).some((f) => f.code === 'missing_role_assignment'
+          && f.kind === 'acr'
+          && String(f.name || '') === String(acrRole.name));
+        ok('live_residual_foundation_missing_acrpull_classified_permitted',
+          inv.ok === true
+          && phase === 'foundation'
+          && d1.isExactInfraPartialLive(inv) === false
+          && liveMissingAcr === true
+          && d1.isPermittedAbsentTenantAcrPullFinding({
+            code: 'missing_role_assignment', kind: 'acr', name: acrRole.name,
+          }) === true
+          && d1.isPermittedAbsentTenantAcrPullFinding({
+            code: 'missing_role_assignment', kind: 'kv', name: kvRole.name,
+          }) === false
+          && classified.length === 0,
+          inv.ok
+            ? `phase=${phase} liveAcr=${liveMissingAcr} classified=${JSON.stringify(classified).slice(0, 200)}`
+            : JSON.stringify(inv.errors || inv).slice(0, 400));
+      }
+
+      // Full rollback path GREEN: inventory gate accepts, canonical delete order.
+      {
+        const h = makeHarness(lib, d1);
+        h.setRg({ name: RG, tags });
+        h.setResources(residualResources);
+        h.setNested(residualNested);
+        h.setSecrets([]);
+        h.setMi({ properties: { principalId: livePid } });
+        h.setDeploymentsList(depRowsFoundation);
+        const rolesMap = { ...residualRoles };
+        rolesMap[String(temp.name).toLowerCase()] = {
+          id: temp.id, name: temp.name,
+          properties: {
+            roleDefinitionId: temp.roleDefinitionResourceId,
+            principalId: lib.EXECUTOR_UAI_OID,
+            scope: temp.scope,
+            principalType: 'ServicePrincipal',
+          },
+        };
+        h.setRoles(rolesMap);
+        const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+        const delOrder = h.armLog
+          .filter((x) => x.method === 'DELETE')
+          .map((x) => x.path || '');
+        const rgIdx = delOrder.findIndex((p) => /resourcegroups\/[^/?]+(\?|$)/i.test(p)
+          && !/providers\//i.test((p.split('resourcegroups/')[1] || '')));
+        const acrPullIdx = delOrder.findIndex((p) => new RegExp(`roleAssignments/${acrRole.name}`, 'i').test(p));
+        const tempIdx = delOrder.findIndex((p) => new RegExp(`roleAssignments/${temp.name}`, 'i').test(p));
+        ok('live_residual_foundation_missing_acrpull_full_rollback_green',
+          rb.ok === true && rb.deleted === true && rb.phase === 'foundation'
+          && !(rb.errors || []).some((e) => e.code === 'inventory_findings')
+          && rb.acrTempRoleAbsent === true && rb.acrPullRoleAbsent === true
+          && rgIdx >= 0 && acrPullIdx < 0 && tempIdx > rgIdx,
+          rb.ok
+            ? `phase=${rb.phase} order rg=${rgIdx} acrPull=${acrPullIdx} temp=${tempIdx}`
+            : JSON.stringify(rb.errors || rb.findings || rb).slice(0, 500));
+      }
+
+      // Attack: missing KV role (not permitted) → inventory_findings + zero mutation.
+      {
+        const h = makeHarness(lib, d1);
+        h.setRg({ name: RG, tags });
+        h.setResources(residualResources);
+        h.setNested(residualNested);
+        h.setSecrets([]);
+        h.setMi({ properties: { principalId: livePid } });
+        h.setDeploymentsList(depRowsFoundation);
+        h.setRoles({}); // no KV, no AcrPull
+        const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+        const anyDel = h.armLog.filter((x) => x.method === 'DELETE');
+        ok('live_residual_foundation_missing_kv_zero_mutation',
+          rb.ok === false && anyDel.length === 0
+          && (rb.errors || []).some((e) => e.code === 'inventory_findings')
+          && (rb.findings || []).some((f) => f.code === 'missing_role_assignment' && f.kind === 'kv')
+          && !(rb.findings || []).some((f) => f.code === 'missing_role_assignment' && f.kind === 'acr'),
+          rb.ok
+            ? 'unexpected ok'
+            : `findings=${JSON.stringify(rb.findings || []).slice(0, 240)} dels=${anyDel.length}`);
+      }
     }
 
     // JS AcrPull PUT after infra: exact principal/type/role/scope + fail-closed before bootstrap.

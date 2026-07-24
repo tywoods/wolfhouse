@@ -1305,6 +1305,12 @@ function inferLivePhase(live) {
   if (isExactInfraPartialLive(live)) return 'infra-partial';
   return 'foundation';
 }
+function isPermittedAbsentTenantAcrPullFinding(f) {
+  // Exact owned infra-partial / foundation residual may omit JS-owned tenant AcrPull
+  // (failed nested *StagingAcrPull never created the assignment). Not unexpected/foreign.
+  // All other missing roles (e.g. KV), wrong definitions, unexpected resources remain closed.
+  return !!(f && f.code === 'missing_role_assignment' && f.kind === 'acr');
+}
 function phaseContractFindings(live, phase) {
   // Narrow empty phase: only the exact zero inventory is contract-clean; expected
   // missing foundation/roles are not findings. Any nonzero or unexpected inventory refuses.
@@ -1371,8 +1377,8 @@ function phaseContractFindings(live, phase) {
     }
     // Present expected-contract findings that are not "missing" remain closed
     // (tag drift, duplicates, unexpected, wrong role definition).
-    // missing_role_assignment for AcrPull is permissible only as an absent member of the
-    // exact expected subset in infra-partial; unexpected/wrong roles remain refused.
+    // missing_resource / missing expected roles (incl. AcrPull) are permissible as absent
+    // members of the exact owned infra-partial subset; unexpected/wrong roles remain refused.
     for (const f of live.findings || []) {
       if (f.code === 'missing_resource' || f.code === 'missing_role_assignment') continue;
       // Mid-apply crash may leave non-Succeeded provisioning; whole-RG delete still safe.
@@ -1401,8 +1407,17 @@ function phaseContractFindings(live, phase) {
       findings.push({ code: 'unexpected_resource', name: c.runtimeApp.name, type: c.runtimeApp.type });
     }
   };
-  if (phase === 'foundation') banJobAppSecrets(true);
-  else if (phase === 'bootstrap-active') {
+  if (phase === 'foundation') {
+    banJobAppSecrets(true);
+    // Foundation residual (e.g. live residual-cleanup after nested AcrPull ResourceNotFound):
+    // D1 still emits missing_role_assignment kind=acr, but exact owned foundation subset may
+    // omit JS-owned tenant AcrPull. Classify before top-level inventory_findings refuse so
+    // rollback can reach the exact inventory gate + canonical deletion ordering.
+    // Missing KV, unexpected resources, malformed IDs, smart-detector GET mismatch, tag drift
+    // remain fail-closed.
+    return findings.filter((f) => !isPermittedAbsentTenantAcrPullFinding(f));
+  }
+  if (phase === 'bootstrap-active') {
     if (!live.jobExists) pushMiss(c.bootstrapJob.name, c.bootstrapJob.type);
     banJobAppSecrets(true);
   } else if (phase === 'runtime-prereqs' || phase === 'runtime') {
@@ -1857,6 +1872,7 @@ module.exports = Object.freeze({
   plan, status, buildExpectedResourceContract, buildExpectedFailureAnomaliesSmartDetector,
   isExactPlatformSupplementalSmartDetector, matchPlatformSupplementalResource,
   buildOwnedDeploymentNames, isExactInfraPartialLive, isFullFoundationContract,
+  isPermittedAbsentTenantAcrPullFinding,
   isExactDeploymentRowShape, isExactOwnedFailureAnomaliesDeployment, isOwnedDeploymentRow,
   failureAnomaliesMatchesPlatformSignature, failureAnomaliesCorrelatesToAppInsights,
   liveInventoryHasExactAppInsights,
