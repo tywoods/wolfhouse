@@ -1206,8 +1206,10 @@ async function apply(opts, depsIn) {
         acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
       };
     }
-    const createdAt = deps.now().toISOString();
-    const expiresAt = new Date(deps.now().getTime() + approval.ttlHours * 3600 * 1000).toISOString();
+    // One clock sample: dual deps.now() can advance 1ms and trip exact-48h expires_at_invalid.
+    const nowMs = deps.now().getTime();
+    const createdAt = new Date(nowMs).toISOString();
+    const expiresAt = new Date(nowMs + approval.ttlHours * 3600 * 1000).toISOString();
     const costGate = assertCostGate({
       estimatedMonthlyUsd: core.estimatedMonthlyUsd, ttlHours: approval.ttlHours,
       approveMaxTotalUsd: approval.approveMaxTotalUsd, createdAt, expiresAt, now: deps.now(),
