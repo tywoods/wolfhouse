@@ -16142,6 +16142,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-view-btn.active{background:var(--sched-text);border-color:var(--sched-text);color:#fff}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-range{color:var(--sched-text)}
 :root:not([data-theme="dark"]) #tab-portal-home .btn-primary{background:var(--sched-primary);border-color:var(--sched-primary);color:#fff;box-shadow:none}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-addon-card{background:var(--sunset-panel-strong, var(--surface));border-color:var(--sunset-border-soft, var(--border-soft))}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-addon-row{background:var(--sunset-panel, var(--surface-soft));border-color:var(--sunset-border-soft, var(--border-soft))}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-addon-pill{background:var(--sched-primary)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-addon-amt{color:var(--sched-primary)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-addon-step:hover{background:var(--sched-primary);color:#fff}
+
 :root:not([data-theme="dark"]) #tab-portal-home .btn-primary:hover{background:var(--sched-primary-hover);border-color:var(--sched-primary-hover)}
 :root:not([data-theme="dark"]) #tab-portal-home .btn-ghost{background:var(--sched-surface);border-color:var(--sched-border);color:var(--sched-text-2)}
 :root:not([data-theme="dark"]) #tab-portal-home .btn-ghost:hover{background:var(--sched-surface-soft);border-color:var(--sched-border)}
@@ -16370,20 +16376,37 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-stripe-delete-btn{color:#9C4A42}
 .portal-schedule-private-session-row{padding:2px 0}
 .portal-schedule-create-check{padding:7px 12px}
-.portal-schedule-addon-field{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
-.portal-schedule-addon-field .portal-schedule-addon-toggle{flex:1 1 auto;margin:0}
-.portal-schedule-addon-rows{display:flex;flex-direction:column;gap:2px;flex:0 0 auto}
-.portal-schedule-addon-rows.is-multi{flex-basis:100%;width:100%;margin-top:4px}
-.portal-schedule-addon-row{display:flex;align-items:center;gap:10px;padding:2px 0}
-.portal-schedule-addon-row .portal-schedule-addon-date{flex:1 1 auto;min-width:0;font-size:12px;font-weight:600;color:var(--text-2)}
+.portal-schedule-addon-field{display:flex;flex-direction:column;align-items:stretch;gap:0;margin:0}
+.portal-schedule-addon-field .portal-schedule-addon-toggle{display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;margin:0;min-height:44px}
+.portal-schedule-addon-toggle-main{display:inline-flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;flex-wrap:wrap}
+.portal-schedule-addon-pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;line-height:1.2;color:#fff;background:var(--sched-primary, #4E5853);flex:0 0 auto}
+.portal-schedule-addon-price-hint{flex:0 0 auto;margin-left:auto;font-size:12px;font-weight:700;color:var(--text-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.portal-schedule-addon-card{display:none;width:100%;box-sizing:border-box;margin-top:8px;padding:12px 12px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);box-shadow:var(--shadow-soft)}
+.portal-schedule-addon-field.is-open .portal-schedule-addon-card{display:block}
+.portal-schedule-addon-field.is-open .portal-schedule-addon-toggle{border-color:var(--sched-primary, #4E5853);background:var(--surface)}
+.portal-schedule-addon-help{margin:0 0 10px;font-size:12px;line-height:1.4;color:var(--text-2);font-weight:500}
+.portal-schedule-addon-rows{display:flex;flex-direction:column;gap:8px;width:100%}
+.portal-schedule-addon-rows.is-multi{margin-top:0}
+.portal-schedule-addon-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft)}
+.portal-schedule-addon-row .portal-schedule-addon-date{flex:1 1 auto;min-width:0;font-size:13px;font-weight:600;color:var(--text)}
+.portal-schedule-addon-people-label{display:none;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3)}
 .portal-schedule-addon-stepper{display:inline-flex;align-items:center;flex:0 0 auto;border:1px solid var(--border-soft);border-radius:8px;overflow:hidden;background:var(--surface)}
-.portal-schedule-addon-step{width:26px;height:26px;padding:0;border:none;background:var(--surface-soft);color:var(--text-2);font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.portal-schedule-addon-step:hover{background:var(--border-soft);color:var(--text)}
-.portal-schedule-addon-field .portal-schedule-addon-stepper input{width:32px;height:26px;padding:0;border:none;border-left:1px solid var(--border-soft);border-right:1px solid var(--border-soft);text-align:center;font-size:13px;font-weight:600;color:var(--text);background:var(--surface);-moz-appearance:textfield;box-sizing:border-box}
+.portal-schedule-addon-step{width:30px;height:30px;padding:0;border:none;background:var(--surface-soft);color:var(--text-2);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.portal-schedule-addon-step:hover{background:var(--sched-primary, #4E5853);color:#fff}
+.portal-schedule-addon-field .portal-schedule-addon-stepper input{width:36px;height:30px;padding:0;border:none;border-left:1px solid var(--border-soft);border-right:1px solid var(--border-soft);text-align:center;font-size:13px;font-weight:700;color:var(--text);background:var(--surface);-moz-appearance:textfield;box-sizing:border-box;font-variant-numeric:tabular-nums}
 .portal-schedule-addon-stepper input::-webkit-outer-spin-button,.portal-schedule-addon-stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.portal-schedule-addon-amt{flex:0 0 auto;min-width:52px;text-align:right;font-size:13px;font-weight:700;color:var(--text)}
-.portal-schedule-addon-summary{flex-basis:100%;width:100%;font-size:12px;font-weight:600;color:var(--text-2)}
-.portal-schedule-addon-empty{font-size:12px;color:var(--text-3);font-style:italic;padding:2px 0}
+.portal-schedule-addon-amt{flex:0 0 auto;min-width:52px;text-align:right;font-size:13px;font-weight:700;color:var(--sched-primary, #4E5853);font-variant-numeric:tabular-nums}
+.portal-schedule-addon-summary{width:100%;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft);font-size:12px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+.portal-schedule-addon-empty{font-size:12px;color:var(--text-3);font-style:italic;padding:4px 0}
+@media(max-width:768px){
+  .portal-schedule-addon-field .portal-schedule-addon-toggle{padding:10px 12px;gap:8px}
+  .portal-schedule-addon-price-hint{font-size:11px}
+  .portal-schedule-addon-card{padding:10px;margin-top:8px}
+  .portal-schedule-addon-row{gap:8px;padding:8px}
+  .portal-schedule-addon-row .portal-schedule-addon-date{font-size:12px}
+  .portal-schedule-addon-step{width:32px;height:32px}
+  .portal-schedule-addon-field .portal-schedule-addon-stepper input{width:34px;height:32px}
+}
 .portal-schedule-drawer-hero h3,.portal-schedule-drawer-hero-title{font-family:var(--sched-drawer-serif);font-weight:700;letter-spacing:-.02em}
 .portal-schedule-drawer-hero-title{margin:0 0 6px;font-size:22px;line-height:1.15;word-wrap:break-word;overflow-wrap:anywhere;color:var(--text)}
 .portal-schedule-drawer-hero-meta{margin:0 0 6px;font-size:12px;font-weight:500;line-height:1.45;color:var(--text-2);letter-spacing:.01em}
@@ -18334,9 +18357,12 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-live="polite"></div>
     </div>
     <div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-create-addon-fullday-field" style="display:none">
-      <label class="portal-schedule-create-check portal-schedule-addon-toggle" style="min-height:44px;display:flex;align-items:center"><input id="ps-create-comp-fullday" type="checkbox"> <span data-i18n="schedule.type.fullDayEquipment">Full-day equipment</span></label>
-      <div id="ps-create-fullday-rows" class="portal-schedule-addon-rows" style="display:none"></div>
-      <div id="ps-create-fullday-summary" class="portal-schedule-addon-summary" style="display:none" aria-live="polite"></div>
+      <label class="portal-schedule-create-check portal-schedule-addon-toggle"><input id="ps-create-comp-fullday" type="checkbox"> <span class="portal-schedule-addon-toggle-main"><span data-i18n="schedule.type.fullDayEquipment">Full-day gear</span><span class="portal-schedule-addon-pill" data-i18n="schedule.addon.pill">Add-on</span></span><span class="portal-schedule-addon-price-hint" id="ps-create-fullday-price-hint"></span></label>
+      <div class="portal-schedule-addon-card" id="ps-create-fullday-card" style="display:none">
+        <p class="portal-schedule-addon-help" data-i18n="schedule.addon.fullDayHelp">Board/suit for the whole day (add-on dates).</p>
+        <div id="ps-create-fullday-rows" class="portal-schedule-addon-rows"></div>
+        <div id="ps-create-fullday-summary" class="portal-schedule-addon-summary" style="display:none" aria-live="polite"></div>
+      </div>
     </div>
     <div id="ps-create-private-lesson-fields" style="display:none">
       <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1"></div>
@@ -21876,11 +21902,27 @@ function scheduleRefreshCreateFullDayAddon(){
   var summary = el('ps-create-fullday-summary');
   if (!show){
     if (checkbox) checkbox.checked = false;
+    try { field.classList.remove('is-open'); } catch (_c) {}
+    var cardHide = el('ps-create-fullday-card');
+    if (cardHide) cardHide.style.display = 'none';
     if (rows) rows.style.display = 'none';
     if (summary) summary.style.display = 'none';
     return;
   }
   var on = !!(checkbox && checkbox.checked);
+  var card = el('ps-create-fullday-card');
+  var priceHint = el('ps-create-fullday-price-hint');
+  try { field.classList.toggle('is-open', !!on); } catch (_cls) {}
+  if (priceHint){
+    if (scheduleFullDayAddonUnitCents != null){
+      priceHint.textContent = scheduleAddonEur(scheduleFullDayAddonUnitCents) + (portalT('schedule.addon.perDaySuffix') || '/day');
+      priceHint.style.display = '';
+    } else {
+      priceHint.textContent = '';
+      priceHint.style.display = 'none';
+    }
+  }
+  if (card) card.style.display = on ? '' : 'none';
   if (rows) rows.style.display = on ? '' : 'none';
   if (on){
     scheduleRenderFullDayAddonRows('ps-create-fullday-rows', 'ps-create-fullday-summary', eligibleDates, defaultQty, null, scheduleUpdateCreateTotalPreview);
@@ -22239,10 +22281,10 @@ function scheduleRenderFullDayAddonRows(containerId, summaryId, dates, defaultQt
       var iso = dates[i];
       var q = (prev[iso] != null) ? prev[iso] : (defaultQty || 1);
       html += '<div class="portal-schedule-addon-row" data-addon-date="'+iso+'">'
-        + (multi ? '<span class="portal-schedule-addon-date">'+escHtml(scheduleAddonDateLabel(iso))+'</span>' : '')
-        + '<span class="portal-schedule-addon-stepper">'
+        + '<span class="portal-schedule-addon-date">'+escHtml(scheduleAddonDateLabel(iso))+'</span>'
+        + '<span class="portal-schedule-addon-stepper" title="' + escHtml(portalT('schedule.addon.people') || 'People') + '">'
         + '<button type="button" class="portal-schedule-addon-step" data-addon-dec aria-label="minus">−</button>'
-        + '<input data-addon-qty type="number" min="1" max="99" value="'+q+'" inputmode="numeric">'
+        + '<input data-addon-qty type="number" min="1" max="99" value="'+q+'" inputmode="numeric" aria-label="' + escHtml(portalT('schedule.addon.people') || 'People') + '">'
         + '<button type="button" class="portal-schedule-addon-step" data-addon-inc aria-label="plus">+</button>'
         + '</span>'
         + '<span class="portal-schedule-addon-amt" data-addon-subtotal>'+scheduleAddonEur(unit != null ? unit*q : null)+'</span>'
@@ -22280,14 +22322,20 @@ function scheduleUpdateFullDayAddonSummary(containerId, summaryId){
   var map = scheduleReadFullDayAddonRows(containerId);
   var total = 0; var count = 0;
   for (var iso in map){ if (map.hasOwnProperty(iso)){ count += 1; total += (unit != null ? unit*map[iso] : 0); } }
-  if (unit == null){
+  if (unit == null || count < 1){
     summary.style.display = 'none';
     return;
   }
-  // Single date shows its amount inline on the row; the combined subtotal is only
-  // useful across multiple dates.
-  summary.style.display = count > 1 ? '' : 'none';
-  summary.textContent = (portalT('schedule.addon.combinedSubtotal') || 'Add-on subtotal') + ': ' + scheduleAddonEur(total);
+  var people = 0;
+  for (var p in map){ if (map.hasOwnProperty(p)) people += (map[p] || 0); }
+  summary.style.display = '';
+  var daysLabel = count === 1
+    ? (portalT('schedule.addon.oneDay') || '1 day')
+    : String(count) + ' ' + (portalT('schedule.addon.days') || 'days');
+  var peopleLabel = people === 1
+    ? (portalT('schedule.addon.onePerson') || '1 person')
+    : String(people) + ' ' + (portalT('schedule.addon.people') || 'people');
+  summary.textContent = daysLabel + ' · ' + peopleLabel + ' · ' + scheduleAddonEur(total);
 }
 
 function scheduleNormalizeSlotTime(raw){
