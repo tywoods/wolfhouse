@@ -16099,8 +16099,11 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
   --sched-text-3:#8A7968;
   --sched-rail-staff:#7DA896;
   --sched-rail-luna:#8499B0;
-  --sched-primary:#7A9279;
-  --sched-primary-hover:#6A8268;
+  /* Trial: schedule primary buttons match mobile menu Sign out green (var(--text)).
+     OLD: --sched-primary:#7A9279; --sched-primary-hover:#6A8268;
+     NEW: --sched-primary:#4E5853; --sched-primary-hover:#3F4843; */
+  --sched-primary:#4E5853;
+  --sched-primary-hover:#3F4843;
   --sched-unpaid:#B4534A;
   background:var(--sunset-bg);
 }
