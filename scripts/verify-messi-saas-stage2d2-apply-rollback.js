@@ -134,19 +134,26 @@ function makeHarness(lib, d1, opts = {}) {
       if (req.method === 'GET' && /resourcegroups\/[^/?]+(\?|$)/i.test(p)
         && !/providers\//i.test(p.split('resourcegroups/')[1] || '')) {
         return rg
-          ? { status: 200, body: rg, headers: { etag } }
+          ? { status: 200, body: rg, headers: etag ? { etag } : {} }
           : { status: 404, body: {}, headers: {} };
       }
       if (req.method === 'PUT' && /resourcegroups\/[^/?]+(\?|$)/i.test(p)
         && !/providers\//i.test(p.split('resourcegroups/')[1] || '')) {
+        if (rg && etag) {
+          const want = (req.headers && (req.headers['If-Match'] || req.headers['if-match'])) || null;
+          if (!want || want !== etag) return { status: 412, body: {}, headers: {} };
+        }
         rg = { name: RG, location: 'westeurope', tags: (req.body && req.body.tags) || {}, properties: { provisioningState: 'Succeeded' } };
-        return { status: 200, body: rg, headers: { etag } };
+        if (etag) etag = `"etag-${Date.now()}"`;
+        return { status: 200, body: rg, headers: etag ? { etag } : {} };
       }
       if (req.method === 'DELETE' && /resourcegroups\/[^/?]+(\?|$)/i.test(p)
         && !/providers\//i.test(p.split('resourcegroups/')[1] || '')) {
         if (deleteEtagRace) return { status: 412, body: {}, headers: {} };
-        const want = (req.headers && (req.headers['If-Match'] || req.headers['if-match'])) || null;
-        if (!want || want !== etag) return { status: 412, body: {}, headers: {} };
+        if (etag) {
+          const want = (req.headers && (req.headers['If-Match'] || req.headers['if-match'])) || null;
+          if (!want || want !== etag) return { status: 412, body: {}, headers: {} };
+        }
         rg = null;
         return { status: 202, body: {}, headers: {} };
       }
@@ -542,6 +549,47 @@ async function main() {
     h.seedFoundation(tags);
     const race = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
     ok('etag_race_refused', race.ok === false && (race.errors || []).some((e) => e.code === 'etag_race'));
+  }
+
+  // Live ARM RG GET returns 200 with no ETag — rollback must delete without If-Match
+  // after full ownership/provenance/inventory checks; wrong tags still refuse with zero DELETE.
+  {
+    const authPreview = await lib.deriveD1Authority({ slug: SLUG }, makeHarness(lib, d1).deps);
+    const tags = drillOwned(authPreview.planDigest);
+    const h = makeHarness(lib, d1);
+    h.setRg({ name: RG, tags });
+    h.seedFoundation(tags);
+    h.setEtag(null);
+    const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+    const del = h.armLog.find((x) => x.method === 'DELETE'
+      && /resourcegroups\/[^/?]+(\?|$)/i.test(x.path || '')
+      && !/providers\//i.test((x.path || '').split('resourcegroups/')[1] || ''));
+    const ifMatch = del && del.headers && (del.headers['If-Match'] || del.headers['if-match']);
+    ok('rollback_no_rg_etag_omits_if_match', rb.ok === true && rb.deleted === true && rb.phase === 'foundation'
+      && !!del && !ifMatch, rb.ok ? `ifMatch=${ifMatch}` : JSON.stringify(rb.errors || rb).slice(0, 400));
+
+    const bad = makeHarness(lib, d1);
+    bad.setRg({
+      name: RG,
+      tags: { ...tags, owner: 'other-owner' },
+    });
+    bad.setEtag(null);
+    const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, bad.deps);
+    const badDel = bad.armLog.filter((x) => x.method === 'DELETE');
+    ok('rollback_no_rg_etag_still_enforces_ownership', refuse.ok === false
+      && (refuse.errors || []).some((e) => /tag_mismatch|takeover|rollback_tag/i.test(e.code || ''))
+      && badDel.length === 0);
+
+    const withEtag = makeHarness(lib, d1);
+    withEtag.setRg({ name: RG, tags });
+    withEtag.seedFoundation(tags);
+    withEtag.setEtag('"live-etag"');
+    const okRb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, withEtag.deps);
+    const delMatch = withEtag.armLog.find((x) => x.method === 'DELETE'
+      && /resourcegroups\/[^/?]+(\?|$)/i.test(x.path || '')
+      && !/providers\//i.test((x.path || '').split('resourcegroups/')[1] || ''));
+    ok('rollback_with_rg_etag_sends_if_match', okRb.ok === true && okRb.deleted === true
+      && delMatch && delMatch.headers && delMatch.headers['If-Match'] === '"live-etag"');
   }
 
   {
