@@ -884,7 +884,14 @@ async function deleteExactTempAcrRbacAdmin(deps, names, opts = {}) {
   if (got.status < 200 || got.status >= 300) {
     return { ok: false, errors: [err('acr_temp_role_read_failed', `status ${got.status}`)] };
   }
-  const props = (got.body || {}).properties || {};
+  // Independent exact-GET identity contract: required body.id/name + properties
+  // (principalId/roleDefinitionId/scope/principalType) must match before DELETE.
+  const body = got.body || {};
+  const props = body.properties || {};
+  const idOk = Object.prototype.hasOwnProperty.call(body, 'id')
+    && String(body.id).toLowerCase() === String(expected.id).toLowerCase();
+  const nameOk = Object.prototype.hasOwnProperty.call(body, 'name')
+    && String(body.name).toLowerCase() === String(expected.name).toLowerCase();
   const pOk = Object.prototype.hasOwnProperty.call(props, 'principalId')
     && String(props.principalId).toLowerCase() === EXECUTOR_UAI_OID.toLowerCase();
   const dOk = Object.prototype.hasOwnProperty.call(props, 'roleDefinitionId')
@@ -892,6 +899,14 @@ async function deleteExactTempAcrRbacAdmin(deps, names, opts = {}) {
       === String(expected.roleDefinitionResourceId).toLowerCase();
   const sOk = Object.prototype.hasOwnProperty.call(props, 'scope')
     && String(props.scope).toLowerCase() === String(expected.scope).toLowerCase();
+  const ptOk = Object.prototype.hasOwnProperty.call(props, 'principalType')
+    && String(props.principalType).toLowerCase() === 'serviceprincipal';
+  if (!idOk) {
+    return { ok: false, errors: [err('acr_temp_role_id_mismatch', 'wrong or missing assignment id')] };
+  }
+  if (!nameOk) {
+    return { ok: false, errors: [err('acr_temp_role_name_mismatch', 'wrong or missing assignment name')] };
+  }
   if (!pOk) {
     return { ok: false, errors: [err('acr_temp_role_principal_mismatch', 'wrong principal')] };
   }
@@ -901,11 +916,20 @@ async function deleteExactTempAcrRbacAdmin(deps, names, opts = {}) {
   if (!sOk) {
     return { ok: false, errors: [err('acr_temp_role_scope_mismatch', 'wrong scope')] };
   }
+  if (!ptOk) {
+    return {
+      ok: false,
+      errors: [err('acr_temp_role_principal_type_mismatch', 'principalType must be ServicePrincipal')],
+    };
+  }
+  // Live Microsoft.Authorization roleAssignments GET often returns 200 with no ETag
+  // header/body field. Conditionally send If-Match only when Azure supplied one;
+  // never fabricate or use '*'. Exact identity/scope/role gates above still apply.
   const etag = (got.headers && (got.headers.etag || got.headers.ETag))
     || (got.body && got.body.etag) || null;
-  if (!etag) return { ok: false, errors: [err('etag_missing', 'If-Match ETag required for ACR role delete')] };
+  const delHeaders = etag ? { 'If-Match': etag } : {};
   const del = await deps.armRequest({
-    method: 'DELETE', path: `${expected.id}?api-version=${ROLE_API}`, headers: { 'If-Match': etag },
+    method: 'DELETE', path: `${expected.id}?api-version=${ROLE_API}`, headers: delHeaders,
   });
   if (del.status === 412) return { ok: false, errors: [err('etag_race', 'If-Match precondition failed')] };
   if (!(del.status === 200 || del.status === 202 || del.status === 204 || del.status === 404)) {

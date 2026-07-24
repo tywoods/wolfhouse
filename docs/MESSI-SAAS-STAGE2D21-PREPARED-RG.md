@@ -27,7 +27,7 @@ node scripts/messi-saas-stage2d2-apply-rollback.js apply \
 
 `--adopt-prepared-rg` validates prepared state (exact RG id/location/prepared tags; empty generic child inventory except RG-scope prep metadata; ARM `atScope()` direct RG roles exactly executor Contributor + RBAC Administrator; targeted GET bodies for all three prep assignments; executor direct ACR roles exactly existing AcrPush + named ACR Build Runner + deterministic temp RBAC Administrator, ignoring unrelated principals; active token `oid` = approved executor). Then If-Match retags to full drill tags and immediately re-reads RG tags/ETag and re-enumerates inventory, direct RG roles, targeted prep roles, executor ACR roles, and token oid before the first deployment PUT (TOCTOU fail-closed with nonsecret ACR cleanup receipt/commands and no phase write). Without the flag, APPLY still requires the RG absent.
 
-Rollback deletes the RG (exact inventory), then deletes the exact temporary ACR RBAC-admin assignment (If-Match + readback). `expiry-status` warns if that ACR grant remains. Failed apply receipts include paste-ready ACR cleanup (no secrets).
+Rollback deletes the RG (exact inventory), then deletes the exact temporary ACR RBAC-admin assignment only after an independent exact-GET identity match (body.id/name case-insensitive; properties principalId/roleDefinitionId/scope; principalType=ServicePrincipal), with If-Match only when Azure supplied an ETag, and post-delete 404 readback. `expiry-status` warns if that ACR grant remains. Failed apply receipts include paste-ready ACR cleanup (no secrets).
 
 ```bash
 npm run verify:messi-saas-stage2d21-prepared-rg
