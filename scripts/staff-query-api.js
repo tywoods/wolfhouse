@@ -15721,8 +15721,8 @@ ${getStaffPortalThemeEarlyScript()}
   --radius-pill:999px;
   --shadow:0 1px 2px rgba(78,88,83,.04),0 4px 14px rgba(78,88,83,.05);
   --shadow-soft:0 1px 2px rgba(78,88,83,.03),0 2px 8px rgba(78,88,83,.04);
-  --primary:#7A9279;      /* primary action (deep sage) */
-  --primary-hover:#6A8268;
+  --primary:#4E5853;      /* primary action — match sign-out / schedule green */
+  --primary-hover:#3F4843;
   --focus:#9DB4C4;        /* focus ring (ocean) */
 }
 [data-theme="dark"]{
@@ -17134,10 +17134,18 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .detail-header-right{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
 .detail-header-main .detail-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .detail-header-main .detail-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.detail-header-switches{display:flex;align-items:center;gap:6px;flex-shrink:0}
-.inbox-header-switch{width:34px;height:20px;flex-shrink:0}
+.detail-header-switches{display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+.inbox-header-switch-item{display:inline-flex;align-items:center;gap:6px;cursor:pointer;margin:0;user-select:none}
+.inbox-header-switch-label{font-size:11px;font-weight:600;color:var(--text-2);letter-spacing:.01em;white-space:nowrap;line-height:1.1}
+.inbox-header-switch{position:relative;display:inline-block;width:34px;height:20px;flex-shrink:0}
+.inbox-header-switch input{opacity:0;width:0;height:0;position:absolute}
+.inbox-header-switch .inbox-switch-slider{position:absolute;cursor:pointer;inset:0;border-radius:999px;transition:background .2s}
 .inbox-header-switch .inbox-switch-slider:before{height:14px;width:14px;left:2px;bottom:3px}
 .inbox-header-switch input:checked + .inbox-switch-slider:before{transform:translateX(14px)}
+@media(max-width:768px){
+  .detail-header-switches{gap:8px;width:100%;justify-content:flex-end}
+  .inbox-header-switch-label{font-size:10px}
+}
 .detail-header-switches .luna-pause-action-status{display:none!important}
 .inbox-thread-shell{display:flex;flex-direction:column;flex:0 0 auto;width:100%;flex-shrink:0;position:relative;z-index:2}
 .inbox-thread-wrap{position:relative;overflow:hidden;border:1px solid var(--border-soft);border-radius:12px 12px 0 0;background:var(--surface);display:flex;flex-direction:column;flex:0 0 auto;min-height:200px;width:100%}
@@ -17286,6 +17294,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .inbox-booking-stack-item.inbox-booking-staff{border-color:#CADCBE;background:#DCEAD2}
 .inbox-booking-stack-item h4{font-size:12px;font-weight:700;color:var(--text-1);margin:0 0 8px}
 .inbox-booking-linked-tag{font-size:10px;font-weight:700;color:#5C7350;background:#DCEAD2;border:1px solid #CADCBE;border-radius:8px;padding:1px 6px;margin-left:6px;vertical-align:middle;text-transform:uppercase;letter-spacing:.04em}
+.inbox-booking-code-link{background:none;border:none;padding:0;margin:0;font:inherit;font-weight:700;color:var(--sched-primary, #4E5853);cursor:pointer;text-align:left;text-decoration:underline;text-underline-offset:2px}
+.inbox-booking-code-link:hover{color:var(--sched-primary-hover, #3F4843)}
 .inbox-booking-cal-link{margin-top:10px}
 .inbox-no-bookings{color:var(--text-3);font-size:12px;font-style:italic}
 .luna-auto-status{margin-bottom:12px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);background:var(--surface)}
@@ -21901,7 +21911,8 @@ function scheduleRefreshCreateFullDayAddon(){
     : [];
   var boardOn = rentals.some(function(r){ return r.offering_key === 'board_rental' || r.offering_key === 'board_and_suit_rental'; });
   var wetsuitOn = rentals.some(function(r){ return r.offering_key === 'wetsuit_rental' || r.offering_key === 'board_and_suit_rental'; });
-  var hasEligibleBase = courseOn || privateOn || boardOn || wetsuitOn || rentals.length > 0;
+  // Full-day gear only when both board + wetsuit are selected (board_and_suit counts as both).
+  var hasEligibleBase = boardOn && wetsuitOn;
   var eligibleDates = [];
   var defaultQty = 1;
   if (privateOn){
@@ -28343,13 +28354,19 @@ function convHeaderStatusPillsHtml(conv, lunaPaused){
 function detailHeaderSwitchesHtml(c, lunaGuestPaused){
   return (lunaGuestPaused ? inboxLunaPausedPillHtml(true) : '') +
     '<div class="detail-header-switches">' +
-    '<label class="inbox-switch inbox-switch-orange inbox-header-switch" title="' + escHtml(t('inbox.detail.switch.needsHuman')) + '">' +
-      '<input type="checkbox" id="conv-needs-human-toggle"' + (c.needs_human ? ' checked' : '') + '>' +
-      '<span class="inbox-switch-slider"></span>' +
+    '<label class="inbox-header-switch-item" for="conv-needs-human-toggle" title="' + escHtml(t('inbox.detail.switch.needsHuman')) + '">' +
+      '<span class="inbox-header-switch-label">' + escHtml(t('inbox.detail.switch.needsHuman')) + '</span>' +
+      '<span class="inbox-switch inbox-switch-orange inbox-header-switch">' +
+        '<input type="checkbox" id="conv-needs-human-toggle"' + (c.needs_human ? ' checked' : '') + '>' +
+        '<span class="inbox-switch-slider"></span>' +
+      '</span>' +
     '</label>' +
-    '<label class="inbox-switch inbox-switch-red inbox-header-switch" title="' + escHtml(t('inbox.detail.switch.pauseLuna')) + '">' +
-      '<input type="checkbox" id="luna-pause-switch"' + (lunaGuestPaused ? ' checked' : '') + '>' +
-      '<span class="inbox-switch-slider"></span>' +
+    '<label class="inbox-header-switch-item" for="luna-pause-switch" title="' + escHtml(t('inbox.detail.switch.pauseLuna')) + '">' +
+      '<span class="inbox-header-switch-label">' + escHtml(t('inbox.detail.switch.pauseLuna')) + '</span>' +
+      '<span class="inbox-switch inbox-switch-red inbox-header-switch">' +
+        '<input type="checkbox" id="luna-pause-switch"' + (lunaGuestPaused ? ' checked' : '') + '>' +
+        '<span class="inbox-switch-slider"></span>' +
+      '</span>' +
     '</label>' +
   '</div>';
 }
@@ -29272,17 +29289,56 @@ function inboxBookingSourceToneClass(bctx){
   return inboxBookingIsLunaSource(bctx) ? 'inbox-booking-luna' : 'inbox-booking-staff';
 }
 
+function inboxHumanizeStatus(raw){
+  var s = String(raw || '').trim();
+  if (!s || s === '—' || s === '-') return '—';
+  var key = s.toLowerCase().replace(/\s+/g, '_');
+  var map = {
+    payment_pending: 'Payment pending',
+    payment_link_sent: 'Payment link sent',
+    link_sent: 'Payment link sent',
+    paid: 'Paid',
+    unpaid: 'Unpaid',
+    partial: 'Partially paid',
+    partially_paid: 'Partially paid',
+    confirmed: 'Confirmed',
+    hold: 'Hold',
+    cancelled: 'Cancelled',
+    canceled: 'Cancelled',
+    needs_review: 'Needs review',
+    pending: 'Pending',
+    failed: 'Failed',
+    expired: 'Expired',
+    open: 'Open',
+    complete: 'Complete',
+    completed: 'Complete'
+  };
+  if (map[key]) return map[key];
+  // snake_case / camelCase → Title words
+  return s.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/\b\w/g, function(ch){ return ch.toUpperCase(); });
+}
+
 function renderInboxBookingStackItemHtml(bctx, guestName){
   var linked = !!bctx.is_linked;
   var toneCls = inboxBookingSourceToneClass(bctx);
   var isSurf = getPortalProfile(getClient()).is_surf_vertical;
+  var openLabel = isSurf
+    ? (portalT('inbox.booking.openInSchedule') || 'Open booking')
+    : (portalT('inbox.booking.openInCalendar') || 'Open booking in calendar');
   var html = '<div class="inbox-booking-stack-item ' + toneCls + '">';
-  html += '<h4>' + escHtml(bctx.booking_code || 'Booking');
+  html += '<h4><button type="button" class="inbox-booking-code-link inbox-open-booking-cal" ' +
+    'data-booking-id="' + escHtml(bctx.booking_id || '') + '" ' +
+    'data-booking-code="' + escHtml(bctx.booking_code || '') + '" ' +
+    'data-check-in="' + escHtml(bctx.check_in || '') + '" ' +
+    'data-check-out="' + escHtml(bctx.check_out || '') + '" ' +
+    'data-guest-name="' + escHtml(bctx.booking_guest_name || guestName || '') + '">' +
+    escHtml(bctx.booking_code || 'Booking') + '</button>';
   if (linked) html += ' <span class="inbox-booking-linked-tag">Linked</span>';
   html += '</h4>';
   html += '<div class="kv2">';
-  html +=   kv('Status',      bctx.booking_status) +
-            kv('Payment',     bctx.booking_payment_status);
+  html +=   kv('Status',      inboxHumanizeStatus(bctx.booking_status)) +
+            kv('Payment',     inboxHumanizeStatus(bctx.booking_payment_status));
   if (!isSurf) {
     html += kv('Stay',        fmtDateOnly(bctx.check_in) + ' \u2192 ' + fmtDateOnly(bctx.check_out)) +
             kv('Guests',      bctx.guest_count) +
@@ -29300,20 +29356,17 @@ function renderInboxBookingStackItemHtml(bctx, guestName){
     html +=   '<div style="font-size:11px;font-weight:700;color:#5a6a85;margin-bottom:6px">Payment</div>';
     html +=   '<div class="kv2">';
     html +=     kv('Due',    '\u20ac' + (bctx.payment_amount_due_cents / 100).toFixed(2)) +
-              kv('Paid',   '\u20ac' + ((bctx.payment_amount_paid_cents || 0) / 100).toFixed(2)) +
-              kv('Status', bctx.payment_record_status || '\u2014');
+              kv('Paid',   '\u20ac' + ((bctx.payment_amount_paid_cents || 0) / 100).toFixed(2));
     html +=   '</div>';
     html += '</div>';
   }
-  if (!isSurf) {
-    html += '<button type="button" class="inbox-booking-cal-link inbox-open-booking-cal" ' +
-      'data-booking-id="' + escHtml(bctx.booking_id || '') + '" ' +
-      'data-booking-code="' + escHtml(bctx.booking_code || '') + '" ' +
-      'data-check-in="' + escHtml(bctx.check_in || '') + '" ' +
-      'data-check-out="' + escHtml(bctx.check_out || '') + '" ' +
-      'data-guest-name="' + escHtml(bctx.booking_guest_name || guestName || '') + '">' +
-      'Open Booking in Calendar</button>';
-  }
+  html += '<button type="button" class="inbox-booking-cal-link inbox-open-booking-cal" ' +
+    'data-booking-id="' + escHtml(bctx.booking_id || '') + '" ' +
+    'data-booking-code="' + escHtml(bctx.booking_code || '') + '" ' +
+    'data-check-in="' + escHtml(bctx.check_in || '') + '" ' +
+    'data-check-out="' + escHtml(bctx.check_out || '') + '" ' +
+    'data-guest-name="' + escHtml(bctx.booking_guest_name || guestName || '') + '">' +
+    escHtml(openLabel) + '</button>';
   html += '</div>';
   return html;
 }
