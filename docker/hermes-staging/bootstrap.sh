@@ -120,6 +120,7 @@ terminal:
 gateway:
   platforms:
     discord:
+      enabled: true
       require_mention: false
 EOF
 }

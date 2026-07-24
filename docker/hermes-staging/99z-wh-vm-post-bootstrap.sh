@@ -99,6 +99,7 @@ terminal:
 gateway:
   platforms:
     discord:
+      enabled: true
       require_mention: false
 EOF
   if [ -f "$HERMES_HOME/deckhand-SOUL.md" ]; then
