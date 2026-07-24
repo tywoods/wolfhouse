@@ -5,6 +5,10 @@ param environmentName string = 'staging'
 param location string
 param containerAppsLocation string
 param appNamePrefix string
+@minLength(3)
+@maxLength(24)
+@description('Azure Key Vault name — owned by JS deriveKeyVaultName (3-24, lowercase alnum/hyphen).')
+param keyVaultName string
 param assertedResourceGroupName string
 param acrName string = 'whstagingacr'
 param acrResourceGroupName string = 'wh-staging-rg'
@@ -133,7 +137,8 @@ var effectiveFirewallIps = enablePrivateNetwork ? [] : postgresAllowedIpAddresse
 var safetyLocksSatisfied = sunsetSlugTupleOk && reservedSlugOk && sunsetEnvLockOk && stagingPrefixOk && stagingRgOk && noWhStagingPrefix && deployScopeOk && environmentStagingOk && ownershipOk && privateFirewallOk && bootstrapJobGateOk && phaseExclusiveOk && runtimeVerifiedOk
 
 var prefix = appNamePrefix
-var kvName = '${prefix}-kv'
+// keyVaultName is the single owner-derived name (not prefix+"-kv", which exceeds 24 for long slugs).
+var kvName = keyVaultName
 var logName = '${prefix}-logs'
 var aiName = '${prefix}-appinsights'
 var envName = '${prefix}-env'

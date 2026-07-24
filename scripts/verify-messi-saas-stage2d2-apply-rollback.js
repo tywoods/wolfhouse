@@ -394,6 +394,54 @@ async function main() {
       && /provenance\.temporaryDrill/.test(job) && /provenance\.temporaryDrill/.test(sec));
   }
 
+  // Stage 2D2 messiproof: canonical KV name exceeds Azure 24-char limit (InvalidTemplate class).
+  // Owner function shortens; Bicep params / contract / role IDs all use the same name.
+  {
+    const canon = d1.canonicalKeyVaultName(SLUG);
+    const names = d1.deriveNames(SLUG, SUB);
+    const kv = names.keyVaultName;
+    ok('d2_kv_name_red_messiproof_canonical_invalid',
+      SLUG === 'messiproof'
+      && canon === 'luna-messiproof-staging-kv'
+      && canon.length === 26
+      && d1.isValidAzureKeyVaultName(canon) === false);
+    ok('d2_kv_name_green_owner_valid',
+      kv === d1.deriveKeyVaultName(SLUG)
+      && d1.isValidAzureKeyVaultName(kv) === true
+      && kv.length <= 24 && kv !== canon);
+    const contract = d1.buildExpectedResourceContract(names, { principalId: PID });
+    const params = lib.buildNonsecretParams(names, SHA, 'd'.repeat(64), 'infra', {
+      temporaryDrill: 'true', createdAt: CREATED, expiresAt: EXPIRES,
+    });
+    ok('d2_kv_name_params_contract_role_ids_consistent',
+      params.keyVaultName && params.keyVaultName.value === kv
+      && contract.foundationTopLevel.some((r) => r.type === 'Microsoft.KeyVault/vaults' && r.name === kv)
+      && contract.roleAssignments.some((r) => r.kind === 'kv' && r.scope.endsWith(`/vaults/${kv}`))
+      && contract.runtimeSecrets.every((s) => s.id.includes(`/vaults/${kv}/secrets/`))
+      && !JSON.stringify(params).includes(canon)
+      && !JSON.stringify(contract).includes(canon),
+      `kv=${kv} param=${params.keyVaultName && params.keyVaultName.value}`);
+    const liveFix = JSON.parse(fs.readFileSync(
+      path.join(ROOT, 'fixtures/messi-saas-stage2d2/infra-partial-live-crash.json'), 'utf8',
+    ));
+    ok('d2_kv_name_fixture_excluded_uses_owner',
+      Array.isArray(liveFix.excludedFoundationNames)
+      && liveFix.excludedFoundationNames[0] === kv
+      && liveFix.excludedFoundationNames[0] !== canon
+      && !liveFix.topLevelResourceNames.includes(kv)
+      && !liveFix.topLevelResourceNames.includes(canon));
+    // Attack/edge: min/max slugs + similar long prefixes cannot collide.
+    const minKv = d1.deriveKeyVaultName('aaa');
+    const maxKv = d1.deriveKeyVaultName(`z${'y'.repeat(31)}`);
+    const p1 = d1.deriveKeyVaultName('messiproofaa');
+    const p2 = d1.deriveKeyVaultName('messiproofbb');
+    ok('d2_kv_name_edges_and_collision_resistance',
+      d1.isValidAzureKeyVaultName(minKv) && d1.isValidAzureKeyVaultName(maxKv)
+      && minKv === d1.canonicalKeyVaultName('aaa')
+      && maxKv.length === 24 && p1 !== p2
+      && d1.isValidAzureKeyVaultName(p1) && d1.isValidAzureKeyVaultName(p2));
+  }
+
   {
     const bad = [{}, { approveMaxTotalUsd: 8, ttlHours: 49 }, { approveMaxTotalUsd: 9, ttlHours: 48 },
       { approveMaxTotalUsd: 8, ttlHours: 48, approveMonthlyUsd: 120 },
