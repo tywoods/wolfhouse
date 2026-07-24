@@ -18023,15 +18023,15 @@ body{width:100%;max-width:100vw;overflow-x:hidden;min-height:100vh;min-height:10
 .nav-quick-flip:not([hidden]){display:inline-flex}
 /* Move account tools into hamburger drawer on mobile */
 #banner .banner-tools{display:none}
-.nav-menu-tools{display:flex;flex-direction:column;align-items:flex-end;justify-content:flex-end;gap:12px;margin-top:auto;padding:14px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--border-soft);background:var(--surface);width:100%;box-sizing:border-box}
-.nav-menu-tools .banner-tools{display:flex;flex-direction:column;align-items:flex-end;gap:12px;width:100%}
-.nav-menu-tools .staff-lang-switch{color:var(--text);font-size:12px;font-weight:600;letter-spacing:.06em;justify-content:flex-end}
-.nav-menu-tools .staff-lang-btn{color:var(--text-2)}
+.nav-menu-tools{display:flex;flex-direction:row;align-items:center;justify-content:flex-end;gap:0;margin-top:auto;padding:12px 14px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--border-soft);background:var(--surface);width:100%;box-sizing:border-box}
+.nav-menu-tools .banner-tools{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:flex-end;gap:10px;width:100%}
+.nav-menu-tools .staff-lang-switch{color:var(--text);font-size:12px;font-weight:600;letter-spacing:.04em;justify-content:flex-end;flex:0 0 auto;white-space:nowrap}
+.nav-menu-tools .staff-lang-btn{color:var(--text-2);padding:4px 5px}
 .nav-menu-tools .staff-lang-btn.is-active{color:var(--text)}
 .nav-menu-tools .staff-lang-sep{color:var(--text-3)}
-.nav-menu-tools .staff-theme-toggle{border-color:var(--border);background:var(--surface-soft);color:var(--text);width:36px;height:36px}
+.nav-menu-tools .staff-theme-toggle{border-color:var(--border);background:var(--surface-soft);color:var(--text);width:34px;height:34px;flex:0 0 auto}
 .nav-menu-tools .staff-theme-toggle:hover{background:var(--surface);border-color:var(--text-3)}
-.nav-menu-tools .btn-logout{background:var(--text);color:var(--surface);border:1px solid var(--text);border-radius:20px;padding:8px 16px;font-size:12px;font-weight:600}
+.nav-menu-tools .btn-logout{background:var(--text);color:var(--surface);border:1px solid var(--text);border-radius:20px;padding:7px 12px;font-size:12px;font-weight:600;flex:0 0 auto;white-space:nowrap;margin:0}
 #tabs .tabs-global-pause{margin-top:0}
 .nav-menu-backdrop{display:none;position:fixed;inset:0;background:rgba(20,18,14,.35);z-index:8500}
 body.nav-menu-open .nav-menu-backdrop{display:block}
