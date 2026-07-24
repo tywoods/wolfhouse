@@ -18017,7 +18017,9 @@ body{width:100%;max-width:100vw;overflow-x:hidden;min-height:100vh;min-height:10
 #banner{width:100%;max-width:100vw;height:auto;min-height:52px;padding:8px 12px;padding-top:max(8px,env(safe-area-inset-top));flex-wrap:wrap;gap:8px;box-sizing:border-box}
 #banner .brand{align-self:center}
 #banner .brand-logo{max-height:40px;height:40px;max-width:min(200px,calc(100vw - 180px))}
-#banner .banner-actions{flex-wrap:wrap;gap:6px;margin-left:auto;flex-shrink:0}
+#banner .banner-actions{display:flex;flex-wrap:nowrap;align-items:center;gap:8px;margin-left:auto;flex-shrink:0}
+#banner .staff-school-switch{display:inline-flex;align-items:center;margin-right:0;font-size:11px}
+#banner .staff-school-btn{padding:4px 6px}
 #banner .btn-logout{padding:5px 12px;font-size:11px}
 .nav-menu-toggle{display:inline-flex}
 .nav-quick-flip:not([hidden]){display:inline-flex}
@@ -18139,18 +18141,18 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     <img src="/staff/assets/luna-front-desk-logo.png?v=2" alt="Luna Front Desk" class="brand-logo">
   </a>
   <div class="banner-actions">
-  <button type="button" class="nav-quick-flip" id="nav-quick-flip" aria-label="Open booking calendar" title="Booking calendar" hidden>
+  <div class="staff-school-switch" id="staff-school-switch" aria-label="School">
+    <button type="button" class="staff-school-btn is-active" data-school="sunset-somo" data-i18n="school.sunsetSomo">Sunset</button>
+    <span class="staff-lang-sep">|</span>
+    <button type="button" class="staff-school-btn" data-school="sunset-sardinero" data-i18n="school.sunsetSardinero">elSardi</button>
+  </div>
+  <button type="button" class="nav-quick-flip" id="nav-quick-flip" aria-label="Open schedule" title="Schedule" hidden>
     <svg class="nav-quick-flip-icon nav-quick-flip-cal" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M7 2a1 1 0 0 0-1 1v1H5a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3h-1V3a1 1 0 1 0-2 0v1H8V3a1 1 0 0 0-1-1zm12 6H5v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM7 11h3v3H7v-3zm5 0h3v3h-3v-3zm5 0h-2v3h2v-3z"/></svg>
     <svg class="nav-quick-flip-icon nav-quick-flip-inbox" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4-8 5L4 8V6l8 5 8-5v2z"/></svg>
   </button>
   <button type="button" class="nav-menu-toggle" id="nav-menu-toggle" aria-expanded="false" aria-controls="tabs" title="Menu" aria-label="Menu">
     <span class="nav-menu-toggle-bars" aria-hidden="true"></span>
   </button>
-  <div class="staff-school-switch" id="staff-school-switch" aria-label="School">
-    <button type="button" class="staff-school-btn is-active" data-school="sunset-somo" data-i18n="school.sunsetSomo">Sunset</button>
-    <span class="staff-lang-sep">|</span>
-    <button type="button" class="staff-school-btn" data-school="sunset-sardinero" data-i18n="school.sunsetSardinero">elSardi</button>
-  </div>
   <div class="banner-tools" id="banner-tools">
     <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
       ${renderStaffLangSwitchButtons(false)}
@@ -19674,6 +19676,17 @@ window.switchToTabOnly = switchToTabOnly;
     return active ? active.getAttribute('data-tab') : '';
   }
 
+  function scheduleTabForFlip(){
+    // Sunset uses Schedule (portal-home); Wolfhouse uses Booking Calendar (bed-calendar).
+    var home = document.querySelector('.tab-btn[data-tab="portal-home"]');
+    if (home && home.style.display !== 'none') return 'portal-home';
+    var cal = document.querySelector('.tab-btn[data-tab="bed-calendar"]');
+    if (cal && cal.style.display !== 'none') return 'bed-calendar';
+    return 'portal-home';
+  }
+  function isScheduleFlipTab(tab){
+    return tab === 'portal-home' || tab === 'bed-calendar' || tab === 'day-schedule';
+  }
   function syncNavQuickFlip(tab){
     tab = tab || activeMainTab();
     var btn = document.getElementById('nav-quick-flip');
@@ -19687,12 +19700,13 @@ window.switchToTabOnly = switchToTabOnly;
       return;
     }
     if (tab === 'conversations') {
+      var sched = scheduleTabForFlip();
       btn.removeAttribute('hidden');
       btn.classList.add('is-show-cal');
-      btn.setAttribute('data-target-tab', 'bed-calendar');
-      btn.setAttribute('aria-label', 'Open booking calendar');
-      btn.title = 'Booking calendar';
-    } else if (tab === 'bed-calendar') {
+      btn.setAttribute('data-target-tab', sched);
+      btn.setAttribute('aria-label', sched === 'portal-home' ? 'Open schedule' : 'Open booking calendar');
+      btn.title = sched === 'portal-home' ? 'Schedule' : 'Booking calendar';
+    } else if (isScheduleFlipTab(tab)) {
       btn.removeAttribute('hidden');
       btn.classList.add('is-show-inbox');
       btn.setAttribute('data-target-tab', 'conversations');
@@ -20869,6 +20883,7 @@ function applyClientPortalProfile(clientSlug){
   var profile = getPortalProfile(clientSlug);
   wireSunsetSchoolSwitcher();
   refreshSunsetSchoolContextLabels();
+  try { if (window.__syncNavQuickFlip) window.__syncNavQuickFlip(); } catch (_sf) {}
   var hidden = profile.hidden_tabs || [];
   document.querySelectorAll('.tab-btn[data-tab]').forEach(function(btn){
     var tab = btn.getAttribute('data-tab');
