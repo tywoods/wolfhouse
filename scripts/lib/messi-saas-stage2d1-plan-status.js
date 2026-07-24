@@ -44,6 +44,11 @@ const PG_API = '2023-06-01-preview';
 const DNS_API = '2020-06-01';
 // Pinned RG-scope deployment history API (independent of generic /resources list).
 const DEP_API = '2021-04-01';
+// Subscription provider registration GET (Microsoft.Resources/providers).
+const PROVIDER_API = '2021-04-01';
+// App Insights platform Failure-Anomalies smart detector requires this namespace Registered.
+const ALERTS_MANAGEMENT_NAMESPACE = 'Microsoft.AlertsManagement';
+const REQUIRED_PROVIDER_REGISTRATION_STATE = 'Registered';
 const ARM_HOST = 'management.azure.com';
 const MAX_ARM_PAGES = 40;
 const ROLE_KV_SECRETS_USER = '4633458b-17de-408a-b874-0445c86b69e6';
@@ -146,7 +151,7 @@ function buildOwnedDeploymentNames(names) {
     'privateNetwork',
   ]);
 }
-// Azure auto-deploys Failure Anomalies smart-detector alert when App Insights is created.
+// Observed: Azure platform Failure-Anomalies smart-detector deploy appears with App Insights create.
 // Documented deterministic shape only: exact prefix + 8 lowercase hex (no broad wildcards).
 // Live az deployment group show for Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8 has
 // parameters=null, dependencies=[], outputResources=null, validatedResources=null, and
@@ -616,6 +621,127 @@ function assertSubscriptionMatchesAuthority(activeId, expectedId) {
     };
   }
   return { ok: true, errors: [] };
+}
+/**
+ * Exact subscription-scope provider path for Microsoft.AlertsManagement.
+ * Observed: our App Insights create triggered Failure-Anomalies-Alert-Rule-Deployment-<8hex>
+ * under this namespace; MissingSubscriptionRegistration when registrationState != Registered.
+ * (Observed for our template path — not a global unavoidability claim.)
+ */
+function alertsManagementProviderPath(subscriptionId) {
+  return `/subscriptions/${String(subscriptionId || '')}/providers/${ALERTS_MANAGEMENT_NAMESPACE}`
+    + `?api-version=${PROVIDER_API}`;
+}
+/** Paste-ready Azure-admin register + readback (subscription write). Executor never runs these. */
+function buildAlertsManagementAdminCommands(subscriptionId) {
+  const sub = String(subscriptionId || '');
+  return Object.freeze([
+    `az provider register --namespace Microsoft.AlertsManagement --subscription ${sub} --wait`,
+    `az provider show --namespace Microsoft.AlertsManagement --subscription ${sub}`
+      + ' --query registrationState -o tsv',
+  ]);
+}
+function pasteReadyAlertsManagementAdminGuidance(subscriptionId) {
+  const cmds = buildAlertsManagementAdminCommands(subscriptionId);
+  return 'Microsoft.AlertsManagement must be Registered on the exact staging subscription'
+    + ' before Stage 2D1 plan success / Stage 2D2 RG mutation.'
+    + ' Azure admin only (no executor self-register; no subscription Contributor/Owner): '
+    + cmds.join(' && ');
+}
+/**
+ * Read-only preflight: GET provider registration on the exact fixed staging subscription.
+ * Fail-closed unless registrationState === Registered. Never POSTs register.
+ */
+async function assertAlertsManagementProviderRegistered(deps, subscriptionId) {
+  const sub = String(subscriptionId || '').trim();
+  const guidance = pasteReadyAlertsManagementAdminGuidance(sub);
+  const azureAdminCommands = buildAlertsManagementAdminCommands(sub);
+  const fail = (code, message, extra) => ({
+    ok: false,
+    errors: [err(code, message)],
+    azureAdminCommands,
+    ...(extra || {}),
+  });
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sub)) {
+    return fail('alerts_management_provider_unreadable',
+      `subscription id invalid for provider preflight. ${guidance}`);
+  }
+  const reqPath = alertsManagementProviderPath(sub);
+  let res;
+  try {
+    res = await deps.armRequest({ method: 'GET', path: reqPath });
+  } catch (e) {
+    return fail('alerts_management_provider_unreadable',
+      `provider GET failed: ${redact(e && e.message)}. ${guidance}`);
+  }
+  if (!res || res.status == null || res.status < 200 || res.status >= 300) {
+    return fail('alerts_management_provider_unreadable',
+      `provider GET status ${res && res.status}. ${guidance}`,
+      { httpStatus: res && res.status });
+  }
+  const body = res.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return fail('alerts_management_provider_unreadable',
+      `provider body malformed/absent. ${guidance}`);
+  }
+  const ns = String(body.namespace || '');
+  if (ns.toLowerCase() !== ALERTS_MANAGEMENT_NAMESPACE.toLowerCase()) {
+    return fail('alerts_management_provider_wrong_namespace',
+      `expected namespace ${ALERTS_MANAGEMENT_NAMESPACE}, got ${ns || '(absent)'}. ${guidance}`,
+      { namespace: ns || null });
+  }
+  // Strict provider resource identity: body.id must be a present string and
+  // case-insensitively EXACT `/subscriptions/<exact-sub>/providers/Microsoft.AlertsManagement`
+  // (fixture has no trailing slash; allow at most one trailing slash only).
+  // Reject absent/null/empty, non-string, query, suffix/child path, wrong sub/namespace.
+  if (!Object.prototype.hasOwnProperty.call(body, 'id')
+    || body.id == null
+    || typeof body.id !== 'string'
+    || body.id === '') {
+    return fail('alerts_management_provider_unreadable',
+      `provider id absent/null/empty/non-string. ${guidance}`);
+  }
+  const expectedId = `/subscriptions/${sub}/providers/${ALERTS_MANAGEMENT_NAMESPACE}`;
+  const idRaw = body.id;
+  const idLower = idRaw.toLowerCase();
+  const expLower = expectedId.toLowerCase();
+  if (idLower !== expLower && idLower !== `${expLower}/`) {
+    const m = idRaw.match(/^\/subscriptions\/([^/?#]+)\/providers\/([^/?#]+)/i);
+    if (m) {
+      if (String(m[1]).toLowerCase() !== sub.toLowerCase()) {
+        return fail('alerts_management_provider_wrong_subscription',
+          `provider id subscription ${m[1]} != expected ${sub}. ${guidance}`,
+          { responseSubscriptionId: m[1] });
+      }
+      if (String(m[2]).toLowerCase() !== ALERTS_MANAGEMENT_NAMESPACE.toLowerCase()) {
+        return fail('alerts_management_provider_wrong_namespace',
+          `provider id namespace ${m[2]} != ${ALERTS_MANAGEMENT_NAMESPACE}. ${guidance}`,
+          { namespace: m[2] });
+      }
+    }
+    return fail('alerts_management_provider_unreadable',
+      `provider id not exact subscription provider resource (no query/suffix/child). ${guidance}`);
+  }
+  if (!Object.prototype.hasOwnProperty.call(body, 'registrationState')
+    || body.registrationState == null
+    || body.registrationState === '') {
+    return fail('alerts_management_provider_unreadable',
+      `registrationState absent. ${guidance}`);
+  }
+  const state = String(body.registrationState);
+  if (state !== REQUIRED_PROVIDER_REGISTRATION_STATE) {
+    return fail('alerts_management_provider_not_registered',
+      `registrationState=${state} (required ${REQUIRED_PROVIDER_REGISTRATION_STATE}). ${guidance}`,
+      { registrationState: state });
+  }
+  return {
+    ok: true,
+    errors: [],
+    registrationState: REQUIRED_PROVIDER_REGISTRATION_STATE,
+    namespace: ALERTS_MANAGEMENT_NAMESPACE,
+    subscriptionId: sub,
+    path: reqPath,
+  };
 }
 async function getResourceGroup(deps, sub, rg) {
   const res = await deps.armRequest({ method: 'GET', path: `/subscriptions/${sub}/resourcegroups/${rg}?api-version=${ARM_API}` });
@@ -1420,6 +1546,11 @@ async function plan(opts, depsIn) {
   try {
     const d = await deriveAuthority(opts || {}, deps);
     if (!d.ok) return d;
+    // Fail-closed before PLAN success: App Insights platform Failure-Anomalies needs this provider.
+    const providerGate = await assertAlertsManagementProviderRegistered(
+      deps, d.expectedSub.subscriptionId,
+    );
+    if (!providerGate.ok) return providerGate;
     const rg = await getResourceGroup(deps, d.expectedSub.subscriptionId, d.names.resourceGroupName);
     if (!rg.ok) return rg;
     if (rg.exists) {
@@ -1432,6 +1563,7 @@ async function plan(opts, depsIn) {
       plan: {
         ...d.core, planDigest: d.planDigest, rgExists: false, currentCost: cost.currentCost,
         templateBytes: d.templateBytes.length, artifacts: d.man.artifacts,
+        alertsManagementRegistrationState: providerGate.registrationState,
       },
     };
   } catch (e) {
@@ -1505,7 +1637,8 @@ async function status(opts, depsIn) {
 module.exports = Object.freeze({
   STAGE, OWNER, MODULE_REL, STAGING_SUB_REL, SKU_EST, COST_API, HEALTH_IDENTITY_PATH,
   PINNED_BINS, INTERNAL_FLAG, CAPABILITY_FD, CLI_REL, LIB_REL,
-  ROLE_KV_SECRETS_USER, ROLE_ACR_PULL, ACR_RG, IGNORE_TYPES, DEP_API,
+  ROLE_KV_SECRETS_USER, ROLE_ACR_PULL, ACR_RG, IGNORE_TYPES, DEP_API, PROVIDER_API,
+  ALERTS_MANAGEMENT_NAMESPACE, REQUIRED_PROVIDER_REGISTRATION_STATE,
   AZURE_KEY_VAULT_NAME_MIN, AZURE_KEY_VAULT_NAME_MAX,
   isValidAzureKeyVaultName, canonicalKeyVaultName, deriveKeyVaultName,
   createDeps, deriveNames, deriveAuthority, deriveHistoricalRollbackAuthority,
@@ -1518,6 +1651,8 @@ module.exports = Object.freeze({
   FAILURE_ANOMALIES_DEPLOY_PREFIX, FAILURE_ANOMALIES_DEPLOY_NAME_RE, deploymentResourceId,
   FAILURE_ANOMALIES_TEMPLATE_HASH, FAILURE_ANOMALIES_PROVIDER_NS, FAILURE_ANOMALIES_RESOURCE_TYPE,
   FAILURE_ANOMALIES_LOCATION, FAILURE_ANOMALIES_TOP_ERROR_CODE, FAILURE_ANOMALIES_ERROR_CODE,
+  alertsManagementProviderPath, buildAlertsManagementAdminCommands,
+  pasteReadyAlertsManagementAdminGuidance, assertAlertsManagementProviderRegistered,
   inferLivePhase, isExactEmptyLiveInventory, runtimeSecretNames, azureArmGuid, collectLiveInventory, phaseContractFindings,
   readStagingSubscriptionAuthority, assertRepoDeployPreflight, createHeadSnapshot,
   createExactShaSnapshot, assertSafeTarMembers, verifyLauncherBytes, hashPinnedToolAuthority,

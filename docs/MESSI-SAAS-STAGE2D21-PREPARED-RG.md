@@ -13,7 +13,7 @@ node scripts/messi-saas-stage2d2-apply-rollback.js prepare-spec \
   --approve-max-total-usd 8
 ```
 
-Admin pastes the printed commands to create exact empty `luna-messiproof-staging-rg` in `westeurope` with tags `preparedFor=messi-stage2d2`, `tenant`, `planDigest`, `deploySha`, then three deterministic named role assignments: RG Contributor + RG Role Based Access Control Administrator, plus temporary ACR Role Based Access Control Administrator on shared `whstagingacr`. Never grant subscription Contributor/Owner.
+Admin pastes the printed commands. First prerequisite (subscription write — not granted to the executor): register `Microsoft.AlertsManagement` on the exact staging subscription and read back `registrationState=Registered` (observed: our current App Insights creation triggered platform Failure-Anomalies smart detector rules; no supported disable property in our template/repo — not a global unavoidability claim). Then create exact empty `luna-messiproof-staging-rg` in `westeurope` with tags `preparedFor=messi-stage2d2`, `tenant`, `planDigest`, `deploySha`, then three deterministic named role assignments: RG Contributor + RG Role Based Access Control Administrator, plus temporary ACR Role Based Access Control Administrator on shared `whstagingacr`. Never grant subscription Contributor/Owner. `prepare-spec` itself is read-only (never registers providers).
 
 ## Session 2 — executor UAI
 

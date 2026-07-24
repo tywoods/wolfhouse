@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "kind": "alerts_management_provider_not_registered",
+  "note": "RED live shape for Stage 2D2 defect: our current Microsoft.Insights/components creation triggered Azure platform deployment Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8 under Microsoft.AlertsManagement/smartDetectorAlertRules. Live SHOW failed with MissingSubscriptionRegistration because the fixed staging subscription had Microsoft.AlertsManagement registrationState NotRegistered. Repo tenant-staging Bicep declares only Application_Type + WorkspaceResourceId on Microsoft.Insights/components@2020-02-02 — no supported disable property for that platform smart-detection deployment exists in our template/repo. This is an observed fact for our current App Insights path, not a global Azure unavoidability claim (that would need external authoritative evidence). Safe contract: read-only provider GET on exact fixed subscription requires body.id case-insensitively exact /subscriptions/<exact-sub>/providers/Microsoft.AlertsManagement (no query/suffix/child; fixture has no trailing slash) and registrationState==Registered before any RG mutation; prepare-spec exposes Azure-admin register+readback only (executor never self-registers / never gains subscription Contributor/Owner).",
+  "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "providerNamespace": "Microsoft.AlertsManagement",
+  "requiredRegistrationState": "Registered",
+  "liveProviderShow": {
+    "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/providers/Microsoft.AlertsManagement",
+    "namespace": "Microsoft.AlertsManagement",
+    "registrationState": "NotRegistered"
+  },
+  "correlatedFailureAnomalies": {
+    "deploymentName": "Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8",
+    "templateHash": "5081387184824560999",
+    "resourceType": "smartDetectorAlertRules",
+    "location": "global",
+    "topErrorCode": "DeploymentFailed",
+    "detailErrorCode": "MissingSubscriptionRegistration",
+    "detailMessage": "The subscription is not registered to use namespace 'Microsoft.AlertsManagement'. See https://aka.ms/rps-not-found for how to register subscriptions."
+  },
+  "appInsightsComponent": {
+    "type": "Microsoft.Insights/components",
+    "apiVersionInTemplate": "2020-02-02",
+    "requiredForTenantStaging": true,
+    "templatePropertiesUsed": ["Application_Type", "WorkspaceResourceId"],
+    "templateDisableSmartDetectionPropertyFound": false
+  },
+  "observedPlatformDeploymentFromAppInsightsCreate": true,
+  "repoTemplateDisablePropertyFound": false,
+  "globalPlatformDeploymentUnavoidabilityClaimed": false,
+  "preferredGate": {
+    "readOnlyGet": "GET /subscriptions/<exact-sub>/providers/Microsoft.AlertsManagement?api-version=2021-04-01",
+    "require": "registrationState==Registered and body.id case-insensitively exact /subscriptions/<exact-sub>/providers/Microsoft.AlertsManagement",
+    "failClosed": ["NotRegistered", "Unregistered", "Registering", "absent", "malformed", "403", "500", "wrong namespace", "wrong subscription", "absent/null/empty/non-string id", "query/suffix/child id path"],
+    "before": "RG mutation (create or adopt retag)",
+    "prepareSpecExposes": [
+      "az provider register --namespace Microsoft.AlertsManagement --subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 --wait",
+      "az provider show --namespace Microsoft.AlertsManagement --subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 --query registrationState -o tsv"
+    ],
+    "executorMustNot": ["self-register provider", "subscription Contributor", "subscription Owner"]
+  }
+}

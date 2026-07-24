@@ -73,6 +73,13 @@ function makeHarness(lib, opts = {}) {
   let costFail = false; let costRows = [[12.5, 'USD']];
   let identityOk = true; let branch = 'master'; let pages = null;
   let miBody = { properties: { principalId: PID } };
+  // Default GREEN: Microsoft.AlertsManagement Registered (live defect was NotRegistered).
+  let providerHttpStatus = 200;
+  let providerBody = {
+    id: `/subscriptions/${SUB}/providers/Microsoft.AlertsManagement`,
+    namespace: 'Microsoft.AlertsManagement',
+    registrationState: 'Registered',
+  };
   const fakeTools = {
     gitSha256: '1'.repeat(64), tarSha256: '2'.repeat(64), nodeSha256: '3'.repeat(64),
     azSha256: '4'.repeat(64), bicepSha256: '5'.repeat(64), bicepVersion: 'Bicep CLI version 0.45.15 (test)',
@@ -108,6 +115,12 @@ function makeHarness(lib, opts = {}) {
     armRequest: async (req) => {
       armLog.push({ method: req.method, path: req.path, body: req.body || null });
       const p = req.path || '';
+      // Subscription-scope provider registration GET (not RG-scoped providers).
+      if (req.method === 'GET'
+        && /^\/subscriptions\/[^/]+\/providers\/Microsoft\.AlertsManagement(\?|$)/i.test(p)
+        && !/resource[Gg]roups/i.test(p)) {
+        return { status: providerHttpStatus, body: providerBody };
+      }
       if (req.method === 'GET' && /resourcegroups\/[^/?]+(\?|$)/i.test(p)
         && !/providers\//i.test(p.split('resourcegroups/')[1] || '')) {
         return rg ? { status: 200, body: rg } : { status: 404, body: { error: { code: 'ResourceGroupNotFound' } } };
@@ -195,6 +208,15 @@ function makeHarness(lib, opts = {}) {
     setDeploymentListStatus(v) { deploymentListStatus = v; },
     setCostFail(v) { costFail = v; }, setCostRows(v) { costRows = v; },
     setIdentityOk(v) { identityOk = v; }, setBranch(v) { branch = v; }, setPages(v) { pages = v; },
+    setProvider(status, body) { providerHttpStatus = status; providerBody = body; },
+    setProviderRegistrationState(state) {
+      providerHttpStatus = 200;
+      providerBody = {
+        id: `/subscriptions/${SUB}/providers/Microsoft.AlertsManagement`,
+        namespace: 'Microsoft.AlertsManagement',
+        registrationState: state,
+      };
+    },
   };
 }
 function seedFoundation(h, lib, tags) {
@@ -378,14 +400,208 @@ async function main() {
     const h = makeHarness(lib);
     const r = await lib.plan({ slug: SLUG }, h.deps);
     const costCalls = h.armLog.filter((x) => /CostManagement\/query/i.test(x.path));
+    const providerGets = h.armLog.filter((x) => x.method === 'GET'
+      && /^\/subscriptions\/[^/]+\/providers\/Microsoft\.AlertsManagement(\?|$)/i.test(x.path || ''));
     ok('plan_ok_core_cost', r.ok === true && r.plan.rgExists === false && r.plan.resourceGroupName === RG
       && /^[a-f0-9]{64}$/.test(r.plan.planDigest) && r.plan.compiledTemplateSha256 === lib.sha256(TPL_BYTES)
       && r.plan.deploySha === SHA && r.plan.subscriptionId === SUB && r.plan.currentCost.amount === 12.5
       && r.plan.capacityAlerts.enabled === false && costCalls.length >= 1
+      && r.plan.alertsManagementRegistrationState === 'Registered'
+      && providerGets.length >= 1
+      && providerGets.every((g) => g.path.includes(SUB) && /api-version=2021-04-01/.test(g.path)
+        && !/resource[Gg]roups/i.test(g.path))
       && costCalls.every((c) => c.method === 'POST'
         && /\/subscriptions\/[^/]+\/providers\/Microsoft\.CostManagement\/query/.test(c.path)
         && c.body.dataset.filter.dimensions.values.includes(RG)),
     JSON.stringify(r.errors || r).slice(0, 200));
+  }
+  // --- Microsoft.AlertsManagement provider preflight (live Failure-Anomalies defect) ---
+  {
+    const fixPath = path.join(ROOT, 'fixtures/messi-saas-stage2d2/alerts-management-provider-not-registered.json');
+    const fix = JSON.parse(fs.readFileSync(fixPath, 'utf8'));
+    const bicep = fs.readFileSync(path.join(ROOT, MOD_REL), 'utf8');
+    const aiBlock = (bicep.match(/resource appInsights[\s\S]*?\n\}/) || [''])[0];
+    ok('provider_fixture_and_template_evidence',
+      fix.kind === 'alerts_management_provider_not_registered'
+      && fix.subscriptionId === SUB
+      && fix.liveProviderShow.registrationState === 'NotRegistered'
+      && fix.liveProviderShow.id
+        === `/subscriptions/${SUB}/providers/Microsoft.AlertsManagement`
+      && fix.observedPlatformDeploymentFromAppInsightsCreate === true
+      && fix.repoTemplateDisablePropertyFound === false
+      && fix.globalPlatformDeploymentUnavoidabilityClaimed === false
+      && fix.platformDeploymentUnavoidableForAppInsights !== true
+      && fix.appInsightsComponent.templateDisableSmartDetectionPropertyFound === false
+      && /Microsoft\.Insights\/components@2020-02-02/.test(bicep)
+      && /Application_Type:\s*'web'/.test(aiBlock)
+      && /WorkspaceResourceId:\s*logAnalytics\.id/.test(aiBlock)
+      && !/smartDetector|DisableSmart|Failure.?Anomal/i.test(aiBlock)
+      && typeof lib.assertAlertsManagementProviderRegistered === 'function'
+      && typeof lib.buildAlertsManagementAdminCommands === 'function'
+      && lib.ALERTS_MANAGEMENT_NAMESPACE === 'Microsoft.AlertsManagement'
+      && lib.REQUIRED_PROVIDER_REGISTRATION_STATE === 'Registered',
+    `aiBlock=${aiBlock.slice(0, 120)}`);
+    const cmds = lib.buildAlertsManagementAdminCommands(SUB);
+    ok('provider_admin_commands_exact',
+      Array.isArray(cmds) && cmds.length === 2
+      && cmds[0] === `az provider register --namespace Microsoft.AlertsManagement --subscription ${SUB} --wait`
+      && cmds[1] === `az provider show --namespace Microsoft.AlertsManagement --subscription ${SUB} --query registrationState -o tsv`
+      && !cmds.some((c) => /Contributor|Owner/i.test(c)));
+  }
+  {
+    // RED live shape: NotRegistered where plan used to proceed — GREEN refuses with paste-ready admin guidance.
+    const h = makeHarness(lib);
+    h.setProviderRegistrationState('NotRegistered');
+    const r = await lib.plan({ slug: SLUG }, h.deps);
+    const guidance = lib.pasteReadyAlertsManagementAdminGuidance(SUB);
+    const providerGets = h.armLog.filter((x) => x.method === 'GET'
+      && /Microsoft\.AlertsManagement/i.test(x.path || ''));
+    const writes = h.armLog.filter((x) => ['PUT', 'POST', 'DELETE', 'PATCH'].includes(x.method)
+      && !/CostManagement/i.test(x.path || ''));
+    ok('plan_refuses_provider_NotRegistered_with_admin_guidance',
+      r.ok === false
+      && (r.errors || []).some((e) => e.code === 'alerts_management_provider_not_registered'
+        && /NotRegistered/.test(e.message)
+        && e.message.includes(`az provider register --namespace Microsoft.AlertsManagement --subscription ${SUB} --wait`)
+        && e.message.includes('registrationState'))
+      && providerGets.length >= 1
+      && providerGets[0].path === lib.alertsManagementProviderPath(SUB)
+      && writes.length === 0
+      && guidance.includes('--wait')
+      && Array.isArray(r.azureAdminCommands)
+      && r.azureAdminCommands[0].includes('az provider register'),
+    JSON.stringify(r.errors || r).slice(0, 320));
+  }
+  {
+    for (const state of ['Registering', 'Unregistered', 'NotRegistered']) {
+      const h = makeHarness(lib);
+      h.setProviderRegistrationState(state);
+      const r = await lib.plan({ slug: SLUG }, h.deps);
+      ok(`plan_refuses_provider_${state}`,
+        r.ok === false
+        && (r.errors || []).some((e) => e.code === 'alerts_management_provider_not_registered'
+          && String(e.message || '').includes(state)
+          && String(e.message || '').includes('az provider register')),
+      JSON.stringify(r.errors || r).slice(0, 200));
+    }
+  }
+  {
+    const cases = [
+      ['malformed_body', 200, 'not-an-object', 'alerts_management_provider_unreadable'],
+      ['empty_body', 200, null, 'alerts_management_provider_unreadable'],
+      ['http_403', 403, { namespace: 'Microsoft.AlertsManagement', registrationState: 'Registered' },
+        'alerts_management_provider_unreadable'],
+      ['http_500', 500, { error: { code: 'InternalServerError' } }, 'alerts_management_provider_unreadable'],
+      ['wrong_namespace', 200, {
+        id: `/subscriptions/${SUB}/providers/Microsoft.Insights`,
+        namespace: 'Microsoft.Insights', registrationState: 'Registered',
+      }, 'alerts_management_provider_wrong_namespace'],
+      ['wrong_sub_in_id', 200, {
+        id: '/subscriptions/00000000-0000-0000-0000-000000000099/providers/Microsoft.AlertsManagement',
+        namespace: 'Microsoft.AlertsManagement', registrationState: 'Registered',
+      }, 'alerts_management_provider_wrong_subscription'],
+      ['absent_registrationState', 200, {
+        id: `/subscriptions/${SUB}/providers/Microsoft.AlertsManagement`,
+        namespace: 'Microsoft.AlertsManagement',
+      }, 'alerts_management_provider_unreadable'],
+    ];
+    for (const [name, status, body, code] of cases) {
+      const h = makeHarness(lib);
+      h.setProvider(status, body);
+      const r = await lib.plan({ slug: SLUG }, h.deps);
+      ok(`plan_provider_fail_${name}`,
+        r.ok === false && (r.errors || []).some((e) => e.code === code)
+        && (r.errors || []).some((e) => /az provider register/.test(e.message || '')),
+      JSON.stringify(r.errors || r).slice(0, 220));
+    }
+  }
+  {
+    // Identity attacks: require present exact body.id string; zero RG writes.
+    const exactId = `/subscriptions/${SUB}/providers/Microsoft.AlertsManagement`;
+    const base = { namespace: 'Microsoft.AlertsManagement', registrationState: 'Registered' };
+    const attacks = [
+      ['absent_id', { ...base }, 'alerts_management_provider_unreadable'],
+      ['null_id', { ...base, id: null }, 'alerts_management_provider_unreadable'],
+      ['empty_id', { ...base, id: '' }, 'alerts_management_provider_unreadable'],
+      ['non_string_id', { ...base, id: 1 }, 'alerts_management_provider_unreadable'],
+      ['query_id', { ...base, id: `${exactId}?api-version=2021-04-01` },
+        'alerts_management_provider_unreadable'],
+      ['suffix_child_id', { ...base, id: `${exactId}/smartDetectorAlertRules` },
+        'alerts_management_provider_unreadable'],
+      ['suffix_path_id', { ...base, id: `${exactId}/providers/Microsoft.Insights` },
+        'alerts_management_provider_unreadable'],
+      ['double_trailing_slash_id', { ...base, id: `${exactId}//` },
+        'alerts_management_provider_unreadable'],
+      ['wrong_sub_exact', {
+        ...base,
+        id: '/subscriptions/00000000-0000-0000-0000-000000000099/providers/Microsoft.AlertsManagement',
+      }, 'alerts_management_provider_wrong_subscription'],
+      ['wrong_namespace_in_id', {
+        namespace: 'Microsoft.AlertsManagement',
+        registrationState: 'Registered',
+        id: `/subscriptions/${SUB}/providers/Microsoft.Insights`,
+      }, 'alerts_management_provider_wrong_namespace'],
+    ];
+    for (const [name, body, code] of attacks) {
+      const h = makeHarness(lib);
+      h.setProvider(200, body);
+      const r = await lib.plan({ slug: SLUG }, h.deps);
+      const rgWrites = h.armLog.filter((x) => ['PUT', 'POST', 'DELETE', 'PATCH'].includes(x.method)
+        && /resource[Gg]roups/i.test(x.path || ''));
+      const providerPosts = h.armLog.filter((x) => x.method === 'POST'
+        && /Microsoft\.AlertsManagement/i.test(x.path || ''));
+      ok(`plan_provider_id_attack_${name}_zero_rg_writes`,
+        r.ok === false
+        && (r.errors || []).some((e) => e.code === code
+          && /az provider register/.test(e.message || ''))
+        && rgWrites.length === 0
+        && providerPosts.length === 0,
+      JSON.stringify({ errors: r.errors, rgWrites: rgWrites.length }).slice(0, 260));
+    }
+    // Fixture-shaped exact id (no trailing slash) still GREEN; optional single trailing slash ok.
+    for (const [name, id] of [
+      ['exact_no_slash', exactId],
+      ['exact_one_trailing_slash', `${exactId}/`],
+      ['exact_case_insensitive', exactId.toLowerCase().replace('microsoft.alertsmanagement', 'microsoft.ALERTSMANAGEMENT')],
+    ]) {
+      const h = makeHarness(lib);
+      h.setProvider(200, {
+        id, namespace: 'Microsoft.AlertsManagement', registrationState: 'Registered',
+      });
+      const r = await lib.plan({ slug: SLUG }, h.deps);
+      ok(`plan_provider_id_accepts_${name}`,
+        r.ok === true && r.plan.alertsManagementRegistrationState === 'Registered',
+      JSON.stringify(r.errors || { ok: r.ok }).slice(0, 200));
+    }
+  }
+  {
+    const h = makeHarness(lib);
+    h.setProviderRegistrationState('Registered');
+    const r = await lib.plan({ slug: SLUG }, h.deps);
+    ok('plan_provider_Registered_succeeds',
+      r.ok === true && r.plan.alertsManagementRegistrationState === 'Registered'
+      && h.armLog.some((x) => x.method === 'GET'
+        && x.path === lib.alertsManagementProviderPath(SUB)),
+    JSON.stringify(r.errors || { ok: r.ok }).slice(0, 200));
+  }
+  {
+    // Unit gate: wrong subscription argument refuses before trusting body.
+    const h = makeHarness(lib);
+    const bad = await lib.assertAlertsManagementProviderRegistered(h.deps, 'not-a-guid');
+    ok('provider_gate_invalid_sub',
+      bad.ok === false && (bad.errors || []).some((e) => e.code === 'alerts_management_provider_unreadable'));
+    // Gate body is GET-only; register string exists only as paste-ready admin guidance helpers.
+    const libSrc = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8');
+    const gateFn = (libSrc.match(
+      /async function assertAlertsManagementProviderRegistered[\s\S]*?\nasync function getResourceGroup/,
+    ) || [''])[0];
+    ok('provider_gate_readonly_no_self_register',
+      /assertAlertsManagementProviderRegistered/.test(libSrc)
+      && /method:\s*'GET'/.test(gateFn)
+      && !/method:\s*'POST'/.test(gateFn)
+      && !/\/register\?/.test(gateFn)
+      && !/az provider register/.test(gateFn)
+      && /buildAlertsManagementAdminCommands/.test(libSrc));
   }
   {
     const h = makeHarness(lib); h.setCostFail(true);
@@ -859,7 +1075,8 @@ async function main() {
   ok('file_budget', st.files <= 10, `files=${st.files}`);
   // Raised for infra-partial owned-deployment subset + empty-RG deployments LIST authority
   // + Azure Key Vault 24-char name owner (messiproof InvalidTemplate class).
-  ok('net_budget', st.net <= 2750, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // Raised for Microsoft.AlertsManagement Registered preflight (Failure-Anomalies defect).
+  ok('net_budget', st.net <= 3200, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
   console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
   process.exit(fail ? 1 : 0);
 }
