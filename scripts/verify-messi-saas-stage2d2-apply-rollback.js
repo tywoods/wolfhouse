@@ -61,7 +61,8 @@ function diffStat() {
 function makeHarness(lib, d1, opts = {}) {
   const armLog = []; const azLog = []; const azCmdLog = [];
   let rg = null; let etag = '"etag-1"';
-  let deployments = {}; let job = null; let app = null;
+  let deployments = {}; let deploymentList = []; let deploymentListStatus = null;
+  let job = null; let app = null;
   let mi = { properties: { principalId: PID } };
   let rolesById = {}; let resources = []; let nested = {}; let secrets = [];
   let costRows = [[0, 'USD']]; let costFail = false;
@@ -83,6 +84,7 @@ function makeHarness(lib, d1, opts = {}) {
     azSha256: '4'.repeat(64), bicepSha256: '5'.repeat(64), bicepVersion: 'Bicep CLI version 0.45.15 (test)',
   };
   const stateDir = opts.stateDir || fs.mkdtempSync(path.join(os.tmpdir(), 'messi-2d2-'));
+  const isDepListPath = (p) => /\/providers\/Microsoft\.Resources\/deployments(\?|$)/i.test(p);
   const deps = lib.createDeps({
     repoRoot: ROOT, stateDir,
     sleep: async (ms) => { clock = new Date(clock.getTime() + (Number(ms) || 0)); },
@@ -161,6 +163,13 @@ function makeHarness(lib, d1, opts = {}) {
         return costFail ? { status: 503, body: {}, headers: {} }
           : { status: 200, body: { properties: { rows: costRows } }, headers: {} };
       }
+      // Authoritative RG deployment history LIST (empty-phase gate).
+      if (isDepListPath(p)) {
+        if (deploymentListStatus != null) {
+          return { status: deploymentListStatus, body: { error: { code: 'HarnessForced' } }, headers: {} };
+        }
+        return { status: 200, body: { value: deploymentList }, headers: {} };
+      }
       if (/\/deployments\//i.test(p)) {
         const name = (p.match(/deployments\/([^/?]+)/) || [])[1];
         if (req.method === 'PUT') {
@@ -225,6 +234,7 @@ function makeHarness(lib, d1, opts = {}) {
     setRg(v) { rg = v; }, setEtag(v) { etag = v; }, setJob(v) { job = v; }, setApp(v) { app = v; },
     setMi(v) { mi = v; }, setRoles(v) { rolesById = v; }, setResources(v) { resources = v; },
     setNested(v) { nested = v; }, setSecrets(v) { secrets = v; },
+    setDeploymentsList(v) { deploymentList = v; }, setDeploymentListStatus(v) { deploymentListStatus = v; },
     setCostFail(v) { costFail = v; }, setCostRows(v) { costRows = v; },
     setBranch(v) { branch = v; }, setAcrFail(v) { acrFail = v; },
     setPutFailPath(v) { putFailPath = v; }, setPollStates(v) { pollStates = v; },
@@ -648,6 +658,138 @@ async function main() {
     ok('legitimate_phases_compile_accept', phases.every((p) => p.r.ok && p.r.deleted && p.r.phase === p.name));
   }
 
+  // Owned exact-tag empty RG (apply failed before foundation / no KV): allow delete only via
+  // narrow empty phase with independent zero Microsoft.Resources/deployments LIST.
+  // Absent vault must not arm_list_failed on secrets LIST. Unowned, wrong tags, any
+  // deployment history, LIST failure, or nonzero/unexpected inventory remain refused.
+  {
+    const wrapAbsentKvSecrets404 = (hx) => {
+      const real = hx.deps.armRequest;
+      hx.deps.armRequest = async (req) => {
+        const p = req.path || '';
+        if (/KeyVault\/vaults\/[^/]+\/secrets(\?|$)/i.test(p) && !/\/secrets\/[^/?]+(\?|$)/i.test(p)) {
+          return { status: 404, body: { error: { code: 'ResourceNotFound' } }, headers: {} };
+        }
+        return real(req);
+      };
+      return hx;
+    };
+    const rgDeleteCount = (hx) => hx.armLog.filter((x) => x.method === 'DELETE'
+      && /resourcegroups\/[^/?]+(\?|$)/i.test(x.path || '')
+      && !/providers\//i.test((x.path || '').split('resourcegroups/')[1] || '')).length;
+    const authPreview = await lib.deriveD1Authority({ slug: SLUG }, makeHarness(lib, d1).deps);
+    const tags = drillOwned(authPreview.planDigest);
+    const hEmpty = wrapAbsentKvSecrets404(makeHarness(lib, d1));
+    hEmpty.setRg({ name: RG, tags });
+    hEmpty.setResources([]);
+    hEmpty.setDeploymentsList([]);
+    hEmpty.setNested({});
+    hEmpty.setSecrets([]);
+    hEmpty.setMi(null);
+    const emptyRb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, hEmpty.deps);
+    const emptyDel = hEmpty.armLog.find((x) => x.method === 'DELETE'
+      && /resourcegroups\/[^/?]+(\?|$)/i.test(x.path || '')
+      && !/providers\//i.test((x.path || '').split('resourcegroups/')[1] || ''));
+    const secretListCalls = hEmpty.armLog.filter((x) => /KeyVault\/vaults\/[^/]+\/secrets(\?|$)/i.test(x.path || '')
+      && !/\/secrets\/[^/?]+(\?|$)/i.test(x.path || ''));
+    const depListCalls = hEmpty.armLog.filter((x) => /\/providers\/Microsoft\.Resources\/deployments(\?|$)/i.test(x.path || ''));
+    ok('rollback_owned_empty_rg_safe_empty_phase', emptyRb.ok === true && emptyRb.deleted === true
+      && emptyRb.phase === 'empty' && !!emptyDel && secretListCalls.length === 0
+      && depListCalls.length >= 1
+      && depListCalls.every((c) => (c.path || '').includes(`api-version=${d1.DEP_API}`))
+      && emptyRb.acrTempRoleAbsent === true
+      && lib.LEGITIMATE_PHASES.includes('empty'),
+    emptyRb.ok
+      ? `phase=${emptyRb.phase} secretList=${secretListCalls.length} depList=${depListCalls.length}`
+      : JSON.stringify(emptyRb.errors || emptyRb).slice(0, 400));
+
+    const hWrongOwner = wrapAbsentKvSecrets404(makeHarness(lib, d1));
+    hWrongOwner.setRg({ name: RG, tags: { ...tags, owner: 'other-owner' } });
+    hWrongOwner.setResources([]);
+    hWrongOwner.setDeploymentsList([]);
+    const refuseOwner = await lib.rollback({ slug: SLUG, confirmDelete: RG }, hWrongOwner.deps);
+    ok('rollback_empty_unowned_refused', refuseOwner.ok === false
+      && (refuseOwner.errors || []).some((e) => /tag_mismatch|takeover|rollback_tag/i.test(e.code || ''))
+      && hWrongOwner.armLog.filter((x) => x.method === 'DELETE').length === 0);
+
+    const hWrongTag = wrapAbsentKvSecrets404(makeHarness(lib, d1));
+    hWrongTag.setRg({ name: RG, tags: { ...tags, stage: 'wrong-stage' } });
+    hWrongTag.setResources([]);
+    hWrongTag.setDeploymentsList([]);
+    const refuseTag = await lib.rollback({ slug: SLUG, confirmDelete: RG }, hWrongTag.deps);
+    ok('rollback_empty_wrong_tags_refused', refuseTag.ok === false
+      && (refuseTag.errors || []).some((e) => /tag_mismatch|takeover|rollback_tag/i.test(e.code || ''))
+      && hWrongTag.armLog.filter((x) => x.method === 'DELETE').length === 0);
+
+    // Failed deployment history via LIST (resources still empty) refuses RG DELETE.
+    const hDeployFailed = wrapAbsentKvSecrets404(makeHarness(lib, d1));
+    hDeployFailed.setRg({ name: RG, tags });
+    hDeployFailed.setResources([]);
+    hDeployFailed.setDeploymentsList([{
+      id: `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Resources/deployments/leftover-failed`,
+      name: 'leftover-failed', type: 'Microsoft.Resources/deployments',
+      properties: { provisioningState: 'Failed' },
+    }]);
+    const refuseDeployFailed = await lib.rollback({ slug: SLUG, confirmDelete: RG }, hDeployFailed.deps);
+    ok('rollback_empty_with_failed_deployment_refused', refuseDeployFailed.ok === false
+      && (refuseDeployFailed.errors || []).some((e) => e.code === 'inventory_findings'
+        || e.code === 'rollback_phase_invalid')
+      && rgDeleteCount(hDeployFailed) === 0,
+    JSON.stringify(refuseDeployFailed.errors || refuseDeployFailed).slice(0, 280));
+
+    // Succeeded deployment history also refuses empty-phase RG DELETE.
+    const hDeployOk = wrapAbsentKvSecrets404(makeHarness(lib, d1));
+    hDeployOk.setRg({ name: RG, tags });
+    hDeployOk.setResources([]);
+    hDeployOk.setDeploymentsList([{
+      id: `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Resources/deployments/leftover-ok`,
+      name: 'leftover-ok', type: 'Microsoft.Resources/deployments',
+      properties: { provisioningState: 'Succeeded' },
+    }]);
+    const refuseDeployOk = await lib.rollback({ slug: SLUG, confirmDelete: RG }, hDeployOk.deps);
+    ok('rollback_empty_with_succeeded_deployment_refused', refuseDeployOk.ok === false
+      && (refuseDeployOk.errors || []).some((e) => e.code === 'inventory_findings'
+        || e.code === 'rollback_phase_invalid')
+      && rgDeleteCount(hDeployOk) === 0,
+    JSON.stringify(refuseDeployOk.errors || refuseDeployOk).slice(0, 280));
+
+    // Deployment LIST failure (403) refuses empty-phase deletion.
+    const hDepListFail = wrapAbsentKvSecrets404(makeHarness(lib, d1));
+    hDepListFail.setRg({ name: RG, tags });
+    hDepListFail.setResources([]);
+    hDepListFail.setDeploymentListStatus(403);
+    const refuseDepList = await lib.rollback({ slug: SLUG, confirmDelete: RG }, hDepListFail.deps);
+    ok('rollback_empty_deployment_list_failure_refused', refuseDepList.ok === false
+      && (refuseDepList.errors || []).some((e) => e.code === 'arm_list_failed')
+      && rgDeleteCount(hDepListFail) === 0,
+    JSON.stringify(refuseDepList.errors || refuseDepList).slice(0, 280));
+
+    const hRogue = wrapAbsentKvSecrets404(makeHarness(lib, d1));
+    hRogue.setRg({ name: RG, tags });
+    hRogue.setResources([{
+      id: `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/rogue`,
+      name: 'rogue', type: 'Microsoft.Storage/storageAccounts', tags: {}, provisioningState: 'Succeeded',
+    }]);
+    hRogue.setDeploymentsList([]);
+    const refuseRogue = await lib.rollback({ slug: SLUG, confirmDelete: RG }, hRogue.deps);
+    ok('rollback_empty_with_unexpected_refused', refuseRogue.ok === false
+      && (refuseRogue.errors || []).some((e) => e.code === 'inventory_findings')
+      && (refuseRogue.findings || []).some((f) => f.code === 'unexpected_resource')
+      && rgDeleteCount(hRogue) === 0);
+
+    const hPartial = wrapAbsentKvSecrets404(makeHarness(lib, d1));
+    hPartial.setRg({ name: RG, tags });
+    const cPartial = d1.buildExpectedResourceContract(d1.deriveNames(SLUG, SUB), { principalId: PID });
+    hPartial.setResources(cPartial.foundationTopLevel.slice(0, 2).map((r) => ({
+      id: r.id, name: r.name, type: r.type, tags, provisioningState: 'Succeeded',
+    })));
+    hPartial.setDeploymentsList([]);
+    const refusePartial = await lib.rollback({ slug: SLUG, confirmDelete: RG }, hPartial.deps);
+    ok('rollback_partial_nonzero_inventory_refused', refusePartial.ok === false
+      && (refusePartial.errors || []).some((e) => e.code === 'inventory_findings')
+      && rgDeleteCount(hPartial) === 0);
+  }
+
   {
     const h = makeHarness(lib, d1);
     const authPreview = await lib.deriveD1Authority({ slug: SLUG }, h.deps);
@@ -1008,8 +1150,8 @@ async function main() {
 
   const st = diffStat();
   ok('file_budget', st.files <= 10, `files=${st.files}`);
-  // Budget raised slightly for live ACR digest + inherited atScope() regressions.
-  ok('net_budget', st.net <= 3100, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // Budget raised for live ACR digest + independent deployments LIST empty-phase authority.
+  ok('net_budget', st.net <= 3600, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
   console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
   process.exit(fail ? 1 : 0);
 }

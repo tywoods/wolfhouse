@@ -42,6 +42,8 @@ const MI_API = '2023-01-31';
 const ROLE_API = '2022-04-01';
 const PG_API = '2023-06-01-preview';
 const DNS_API = '2020-06-01';
+// Pinned RG-scope deployment history API (independent of generic /resources list).
+const DEP_API = '2021-04-01';
 const ARM_HOST = 'management.azure.com';
 const MAX_ARM_PAGES = 40;
 const ROLE_KV_SECRETS_USER = '4633458b-17de-408a-b874-0445c86b69e6';
@@ -512,7 +514,11 @@ async function armListPaged(deps, startPath, sub) {
     if (res.status < 200 || res.status >= 300) {
       return { ok: false, errors: [err('arm_list_failed', `status ${res.status} path=${startPath}`)] };
     }
-    all.push(...(((res.body || {}).value) || []));
+    const pageValue = (res.body || {}).value;
+    if (pageValue != null && !Array.isArray(pageValue)) {
+      return { ok: false, errors: [err('arm_list_malformed', `value not array path=${startPath}`)] };
+    }
+    all.push(...(pageValue || []));
     const nl = (res.body || {}).nextLink;
     if (!nl) return { ok: true, value: all, pages: page + 1 };
     const parsed = parseNextLink(nl, sub);
@@ -526,6 +532,18 @@ async function listRgResources(deps, sub, rg) {
     `/subscriptions/${sub}/resourceGroups/${rg}/resources?api-version=2021-04-01`, sub);
   if (!listed.ok) return listed;
   return { ok: true, resources: listed.value, pages: listed.pages };
+}
+async function listRgDeployments(deps, sub, rg) {
+  // Authoritative deployment history: generic /resources is insufficient and
+  // Microsoft.Resources/deployments is ignored in top-level inventory.
+  const listed = await armListPaged(deps,
+    `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Resources/deployments?api-version=${DEP_API}`,
+    sub);
+  if (!listed.ok) return listed;
+  if (!Array.isArray(listed.value)) {
+    return { ok: false, errors: [err('arm_list_malformed', 'deployments list value is not an array')] };
+  }
+  return { ok: true, deployments: listed.value, pages: listed.pages };
 }
 async function armGet(deps, path) {
   const res = await deps.armRequest({ method: 'GET', path });
@@ -545,6 +563,15 @@ function matchTags(tags, expected) {
 async function collectLiveInventory(deps, names, expectedTags) {
   const findings = []; const sub = names.subscriptionId; const rg = names.resourceGroupName;
   const listed = await listRgResources(deps, sub, rg); if (!listed.ok) return listed;
+  // Fail-closed deployment history LIST (paged). Required for exact empty-phase authority;
+  // 403/404/5xx/malformed/nextLink errors prevent empty-phase acceptance.
+  const depListed = await listRgDeployments(deps, sub, rg); if (!depListed.ok) return depListed;
+  const deployments = depListed.deployments.map((d) => ({
+    id: d.id || null,
+    name: String(d.name || (d.id || '').split('/').pop() || ''),
+    type: d.type || 'Microsoft.Resources/deployments',
+    provisioningState: ((d.properties || {}).provisioningState) || d.provisioningState || null,
+  }));
   const top = listed.resources.filter((r) => !IGNORE_TYPES.includes(r.type || ''));
   const mi = await armGet(deps,
     `${rid(sub, rg, 'Microsoft.ManagedIdentity/userAssignedIdentities', names.identityName)}?api-version=${MI_API}`);
@@ -605,29 +632,37 @@ async function collectLiveInventory(deps, names, expectedTags) {
       }
     }
   }
-  const secList = await armListPaged(deps,
-    `${rid(sub, rg, 'Microsoft.KeyVault/vaults', names.keyVaultName)}/secrets?api-version=${KV_API}`, sub);
-  if (!secList.ok) return secList;
-  const secretMeta = secList.value.map((s) => ({
-    id: s.id, name: String(s.name || (s.id || '').split('/').pop()),
-    type: 'Microsoft.KeyVault/vaults/secrets', tags: s.tags || {},
-  }));
-  const secretByName = new Map();
-  for (const s of secretMeta) {
-    if (secretByName.has(s.name)) findings.push({ code: 'duplicate_resource', name: s.name, type: s.type });
-    secretByName.set(s.name, s);
-  }
+  // Child secrets LIST requires the expected vault in top-level inventory. When the vault
+  // is absent (empty/partial RG after early apply failure), ARM 404s the list and would
+  // wrongly convert diagnosable missing-foundation findings into arm_list_failed.
+  // Do not treat arbitrary armListPaged 404 as success — only skip when vault is absent.
+  const kvPresent = top.some((r) => r.type === 'Microsoft.KeyVault/vaults' && r.name === names.keyVaultName);
+  let secretMeta = [];
   let secretsExact = 0;
-  for (const exp of contract.runtimeSecrets) {
-    const exactSecret = await armGet(deps, `${exp.id}?api-version=${KV_API}`);
-    if (!exactSecret.ok) return exactSecret;
-    if (!exactSecret.exists) continue;
-    const s = exactSecret.body || {};
-    secretsExact += 1;
-    for (const f of matchTags(s.tags, expectedTags)) findings.push({ ...f, name: s.name, type: s.type });
-  }
-  for (const [name, s] of secretByName) {
-    if (!contract.runtimeSecretNames.includes(name)) findings.push({ code: 'unexpected_resource', name, type: s.type });
+  if (kvPresent) {
+    const secList = await armListPaged(deps,
+      `${rid(sub, rg, 'Microsoft.KeyVault/vaults', names.keyVaultName)}/secrets?api-version=${KV_API}`, sub);
+    if (!secList.ok) return secList;
+    secretMeta = secList.value.map((s) => ({
+      id: s.id, name: String(s.name || (s.id || '').split('/').pop()),
+      type: 'Microsoft.KeyVault/vaults/secrets', tags: s.tags || {},
+    }));
+    const secretByName = new Map();
+    for (const s of secretMeta) {
+      if (secretByName.has(s.name)) findings.push({ code: 'duplicate_resource', name: s.name, type: s.type });
+      secretByName.set(s.name, s);
+    }
+    for (const exp of contract.runtimeSecrets) {
+      const exactSecret = await armGet(deps, `${exp.id}?api-version=${KV_API}`);
+      if (!exactSecret.ok) return exactSecret;
+      if (!exactSecret.exists) continue;
+      const s = exactSecret.body || {};
+      secretsExact += 1;
+      for (const f of matchTags(s.tags, expectedTags)) findings.push({ ...f, name: s.name, type: s.type });
+    }
+    for (const [name, s] of secretByName) {
+      if (!contract.runtimeSecretNames.includes(name)) findings.push({ code: 'unexpected_resource', name, type: s.type });
+    }
   }
   const jobGot = await armGet(deps, `${rid(sub, rg, 'Microsoft.App/jobs', names.bootstrapJobName)}?api-version=${APP_API}`);
   if (!jobGot.ok) return jobGot;
@@ -655,10 +690,29 @@ async function collectLiveInventory(deps, names, expectedTags) {
     ok: true, contract, resources: listed.resources, topLevel: top, nestedLive, rolesLive, secretMeta,
     secretsExact, secretCount: secretMeta.length, jobExists: !!jobGot.exists, job: jobGot.body,
     appExists: !!appGot.exists, appBody: appGot.body, principalId, findings, pages: listed.pages,
+    deployments, deploymentCount: deployments.length, deploymentPages: depListed.pages,
   };
+}
+function isExactEmptyLiveInventory(live) {
+  if (!live) return false;
+  // Fail closed unless authoritative deployment LIST inventory is present and exactly zero.
+  if (!Array.isArray(live.deployments)) return false;
+  if ((live.deploymentCount || 0) !== 0 || live.deployments.length !== 0) return false;
+  return (live.resources || []).length === 0
+    && (live.topLevel || []).length === 0
+    && (live.nestedLive || []).length === 0
+    && (live.rolesLive || []).length === 0
+    && (live.secretMeta || []).length === 0
+    && (live.secretsExact || 0) === 0
+    && (live.secretCount || 0) === 0
+    && !live.jobExists
+    && !live.appExists;
 }
 function inferLivePhase(live) {
   if (!live || live.rgExists === false) return 'absent';
+  // Exact zero-resource, zero-deployment owned drill (apply failed before foundation).
+  // Zero deployments must come from independent Microsoft.Resources/deployments LIST.
+  if (isExactEmptyLiveInventory(live)) return 'empty';
   const secretsComplete = live.secretsExact === 14 && live.secretCount === 14;
   const rolesOk = (live.rolesLive || []).length === 2;
   if (live.appExists && secretsComplete && rolesOk) return 'runtime';
@@ -667,6 +721,15 @@ function inferLivePhase(live) {
   return 'foundation';
 }
 function phaseContractFindings(live, phase) {
+  // Narrow empty phase: only the exact zero inventory is contract-clean; expected
+  // missing foundation/roles are not findings. Any nonzero or unexpected inventory refuses.
+  if (phase === 'empty') {
+    if (!isExactEmptyLiveInventory(live)) {
+      return [{ code: 'unexpected_resource', message: 'empty phase requires zero resources and zero deployments' }];
+    }
+    return (live.findings || []).filter((f) => f.code !== 'missing_resource'
+      && f.code !== 'missing_role_assignment');
+  }
   const findings = [...(live.findings || [])]; const c = live.contract;
   const pushMiss = (name, type) => {
     if (!findings.some((f) => f.code === 'missing_resource' && f.name === name)) {
@@ -986,11 +1049,11 @@ async function status(opts, depsIn) {
 module.exports = Object.freeze({
   STAGE, OWNER, MODULE_REL, STAGING_SUB_REL, SKU_EST, COST_API, HEALTH_IDENTITY_PATH,
   PINNED_BINS, INTERNAL_FLAG, CAPABILITY_FD, CLI_REL, LIB_REL,
-  ROLE_KV_SECRETS_USER, ROLE_ACR_PULL, ACR_RG, IGNORE_TYPES,
+  ROLE_KV_SECRETS_USER, ROLE_ACR_PULL, ACR_RG, IGNORE_TYPES, DEP_API,
   createDeps, deriveNames, deriveAuthority, plan, status, buildExpectedResourceContract,
-  inferLivePhase, runtimeSecretNames, azureArmGuid, collectLiveInventory, phaseContractFindings,
+  inferLivePhase, isExactEmptyLiveInventory, runtimeSecretNames, azureArmGuid, collectLiveInventory, phaseContractFindings,
   readStagingSubscriptionAuthority, assertRepoDeployPreflight, createHeadSnapshot,
   createExactShaSnapshot, assertSafeTarMembers, verifyLauncherBytes, hashPinnedToolAuthority,
   buildSanitizedChildEnv, readCapabilityFd, execSnapshotWorker, runProductionParent,
-  listRgResources, queryRgCost, ownershipTags, sha256, sortedStringify, redact,
+  listRgResources, listRgDeployments, queryRgCost, ownershipTags, sha256, sortedStringify, redact,
 });

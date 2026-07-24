@@ -114,7 +114,8 @@ const ROLE_ACR_PUSH = '8311e382-0749-4cb8-b61a-304f252e45ec';
 const ROLE_ACR_BUILD_RUNNER = 'fb382eab-e894-4461-af04-94435c366c3f';
 const ROLE_OWNER = '8e3af657-a8ff-443c-a75c-2fe8c4bcb635';
 const PREPARED_FOR = OWNER; const DRILL_BIND = OWNER;
-const LEGITIMATE_PHASES = Object.freeze(['foundation', 'bootstrap-active', 'runtime-prereqs', 'runtime']);
+// empty = exact zero-resource/zero-deployment owned drill (apply failed before foundation).
+const LEGITIMATE_PHASES = Object.freeze(['empty', 'foundation', 'bootstrap-active', 'runtime-prereqs', 'runtime']);
 const PHASE_MAX_MS = Object.freeze({
   'rg-create': 120000, infra: 1200000, bootstrap: 1200000, 'c2-operator': 1200000,
   'job-delete': 300000, 'runtime-prereqs': 1200000, roles: 600000, 'runtime-app': 1200000,
