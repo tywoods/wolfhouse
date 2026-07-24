@@ -161,6 +161,16 @@ function makeHarness(lib, opts = {}) {
         }
         return { status: 200, body: { value: resources } };
       }
+      // Exact smart-detector provider GET (pinned SMART_DETECTOR_API).
+      if (req.method === 'GET' && /smartDetectorAlertRules\//i.test(p)) {
+        const rawName = decodeURIComponent((p.match(/smartDetectorAlertRules\/([^/?]+)/i) || [])[1] || '');
+        const hit = (resources || []).find((r) => r
+          && /smartDetectorAlertRules/i.test(String(r.type || ''))
+          && (String(r.name || '') === rawName
+            || String(r.name || '').toLowerCase() === rawName.toLowerCase()));
+        if (!hit) return notFound;
+        return { status: 200, body: hit };
+      }
       if (/userAssignedIdentities\//i.test(p)) return miBody ? { status: 200, body: miBody } : notFound;
       if (/roleAssignments/i.test(p)) {
         const m = p.match(/roleAssignments\/([0-9a-f-]{36})(?:\?|$)/i);
@@ -1076,7 +1086,8 @@ async function main() {
   // Raised for infra-partial owned-deployment subset + empty-RG deployments LIST authority
   // + Azure Key Vault 24-char name owner (messiproof InvalidTemplate class).
   // Raised for Microsoft.AlertsManagement Registered preflight (Failure-Anomalies defect).
-  ok('net_budget', st.net <= 3200, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // Raised for platform-supplemental Failure Anomalies smart-detector contract.
+  ok('net_budget', st.net <= 3800, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
   console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
   process.exit(fail ? 1 : 0);
 }

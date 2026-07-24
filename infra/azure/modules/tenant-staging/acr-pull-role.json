@@ -2,43 +2,18 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "AcrPull for tenant MI on shared ACR using absolute ACR scope. Deployed from the tenant RG (no nested deployment into wh-staging-rg)."
+    "description": "DISABLED — historical residual only. Stage 2D2 no longer nested-deploys AcrPull from tenant or shared RG. JS apply owns exact deterministic AcrPull via ARM roleAssignments PUT at the existing shared ACR scope after infra identity exists (temp ACR RBAC Admin). Do not re-enable this module: tenant-RG nested deploy ResourceNotFound on whstagingacr; shared-RG nested deploy needs deployments/write on wh-staging-rg."
   },
   "parameters": {
     "acrName": {
-      "type": "string",
-      "metadata": {
-        "description": "Existing shared ACR name"
-      }
+      "type": "string"
     },
     "acrResourceGroupName": {
-      "type": "string",
-      "metadata": {
-        "description": "Resource group containing the shared ACR"
-      }
+      "type": "string"
     },
     "principalId": {
-      "type": "string",
-      "metadata": {
-        "description": "Principal ID of the tenant managed identity"
-      }
+      "type": "string"
     }
   },
-  "variables": {
-    "acrId": "[resourceId(parameters('acrResourceGroupName'), 'Microsoft.ContainerRegistry/registries', parameters('acrName'))]",
-    "roleName": "[guid(variables('acrId'), parameters('principalId'), '7f951dda-4ed3-4680-a7ca-43fe172d538d')]"
-  },
-  "resources": [
-    {
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "name": "[variables('roleName')]",
-      "scope": "[variables('acrId')]",
-      "properties": {
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]",
-        "principalId": "[parameters('principalId')]",
-        "principalType": "ServicePrincipal"
-      }
-    }
-  ]
+  "resources": []
 }

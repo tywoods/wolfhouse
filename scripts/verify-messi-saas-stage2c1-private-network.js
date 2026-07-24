@@ -56,7 +56,11 @@ function diffStat() {
     const cur = fs.readFileSync(abs, 'utf8').split(/\r?\n/).length;
     if (!baseLines) { rawAdd += cur; perFile.push({ file: rel, add: cur, del: 0 }); }
   }
-  const wrapDiff = execFileSync('git', ['diff', '--numstat', BASE, '--', WRAPPER_REL], { cwd: ROOT, encoding: 'utf8' }).trim().length;
+  // Wrapper ownership is "branch does not edit Sunset vs origin/master" — not the stage BASE
+  // anchor (master may pin keyVaultName after BASE without this stage owning wrapper edits).
+  const wrapDiff = execFileSync('git', ['diff', '--numstat', 'origin/master', '--', WRAPPER_REL], {
+    cwd: ROOT, encoding: 'utf8',
+  }).trim().length;
   return { rawAdd, rawDel, net: rawAdd - rawDel, files: perFile.length, perFile, wrapUntouched: wrapDiff === 0 };
 }
 
@@ -203,8 +207,13 @@ function fp(r) {
   };
 }
 function sunsetEffective(compiled) {
+  // AcrPull is JS-owned for Stage 2D2 (not emitted from tenant-staging). Base Sunset still
+  // nested an AcrPull role assignment — drop it from effective parity so locked-live surface
+  // remains comparable without reintroducing nested ACR role deploy.
   return flatten(compiled)
     .filter((r) => r.type !== 'Microsoft.Resources/deployments' && !isSyntheticOnlyCond(r._effCond))
+    .filter((r) => !(r.type === 'Microsoft.Authorization/roleAssignments'
+      && /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(JSON.stringify(r.properties || r))))
     .map(fp).sort((a, b) => `${a.type}:${a.name}`.localeCompare(`${b.type}:${b.name}`));
 }
 function hasOwnershipTags(tags) {

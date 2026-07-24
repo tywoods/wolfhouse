@@ -212,6 +212,26 @@ function makeHarness(lib, d1, opts = {}) {
       if (/roleAssignments\/[0-9a-f-]{36}/i.test(p)) {
         const id = (p.match(/roleAssignments\/([0-9a-f-]{36})/i) || [])[1];
         const key = String(id).toLowerCase();
+        if (req.method === 'PUT') {
+          // JS-owned AcrPull (and any exact role PUT): store identity for readback.
+          const props = (req.body && req.body.properties) || {};
+          const scopeFromPath = p.replace(/\?.*$/, '')
+            .replace(/\/providers\/Microsoft\.Authorization\/roleAssignments\/[^/]+$/i, '');
+          const body = {
+            id: p.replace(/\?.*$/, ''),
+            name: id,
+            type: 'Microsoft.Authorization/roleAssignments',
+            etag: '"role-etag"',
+            properties: {
+              roleDefinitionId: props.roleDefinitionId,
+              principalId: props.principalId,
+              principalType: props.principalType || 'ServicePrincipal',
+              scope: props.scope || scopeFromPath,
+            },
+          };
+          rolesById[key] = body;
+          return { status: 201, body, headers: { etag: body.etag } };
+        }
         if (req.method === 'DELETE') {
           const hit = rolesById[key];
           if (!hit) return { status: 404, body: {}, headers: {} };
@@ -298,7 +318,9 @@ function makeHarness(lib, d1, opts = {}) {
         id: role.id, name: role.name, etag: '"role-etag"',
         properties: {
           roleDefinitionId: `/subscriptions/${SUB}/providers/Microsoft.Authorization/roleDefinitions/${role.roleDefinitionId}`,
-          principalId: '11111111-2222-3333-4444-555555555555', scope: role.scope,
+          principalId: '11111111-2222-3333-4444-555555555555',
+          principalType: 'ServicePrincipal',
+          scope: role.scope,
         },
       }]));
       return c;
@@ -861,7 +883,9 @@ async function main() {
         id: role.id, name: role.name, etag: '"role-etag"',
         properties: {
           roleDefinitionId: `/subscriptions/${SUB}/providers/Microsoft.Authorization/roleDefinitions/${role.roleDefinitionId}`,
-          principalId: '11111111-2222-3333-4444-555555555555', scope: role.scope,
+          principalId: '11111111-2222-3333-4444-555555555555',
+          principalType: 'ServicePrincipal',
+          scope: role.scope,
         },
       };
     }
@@ -875,10 +899,17 @@ async function main() {
     h.setRoles(seededRoles);
     const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
     const acrDel = h.armLog.filter((x) => x.method === 'DELETE' && /roleAssignments\//i.test(x.path || ''));
+    const acrPull = foundation.roleAssignments.find((r) => r.kind === 'acr');
+    const tempDel = acrDel.filter((x) => (x.path || '').includes(prep[2].name));
+    const pullDel = acrPull
+      ? acrDel.filter((x) => (x.path || '').includes(acrPull.name)) : [];
+    // Canonical order: RG delete, then exact tenant AcrPull (shared ACR), then exact temp admin.
     ok('rollback_deletes_rg_then_exact_temp_acr', rb.ok === true
-      && acrDel.length === 1 && acrDel[0].path.includes(prep[2].name)
-      && acrDel[0].headers && acrDel[0].headers['If-Match']
-      && rb.acrTempRoleAbsent === true, rb.ok ? '' : JSON.stringify(rb.errors || rb.findings || rb).slice(0, 400));
+      && tempDel.length === 1
+      && pullDel.length === 1
+      && tempDel[0].headers && tempDel[0].headers['If-Match']
+      && rb.acrTempRoleAbsent === true
+      && rb.acrPullRoleAbsent === true, rb.ok ? '' : JSON.stringify(rb.errors || rb.findings || rb).slice(0, 400));
   }
 
   {
