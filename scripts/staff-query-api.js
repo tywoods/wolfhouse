@@ -15982,6 +15982,22 @@ button,.btn,.btn-primary,.btn-ghost,.btn-logout,
 .staff-theme-toggle.is-dark .staff-theme-icon-moon{display:none}
 .staff-theme-toggle.is-dark .staff-theme-icon-sun{display:block}
 /* ── Tabs ───────────────────────────────────────────────────────────────── */
+/* ── Mobile nav hamburger (hidden on desktop) ───────────────────────────── */
+.nav-menu-toggle{display:none;align-items:center;justify-content:center;width:40px;height:40px;margin:0;padding:0;border:1px solid rgba(255,255,255,.28);border-radius:10px;background:rgba(255,255,255,.12);color:#fffaf1;cursor:pointer;flex-shrink:0;transition:background .15s,border-color .15s}
+.nav-menu-toggle:hover{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.4)}
+.nav-menu-toggle:focus-visible{outline:2px solid rgba(255,255,255,.55);outline-offset:2px}
+.nav-menu-toggle-bars,.nav-menu-toggle-bars:before,.nav-menu-toggle-bars:after{display:block;width:18px;height:2px;background:currentColor;border-radius:1px;position:relative;transition:transform .18s,opacity .18s}
+.nav-menu-toggle-bars:before,.nav-menu-toggle-bars:after{content:"";position:absolute;left:0}
+.nav-menu-toggle-bars:before{top:-6px}
+.nav-menu-toggle-bars:after{top:6px}
+body.nav-menu-open .nav-menu-toggle-bars{background:transparent}
+body.nav-menu-open .nav-menu-toggle-bars:before{top:0;transform:rotate(45deg)}
+body.nav-menu-open .nav-menu-toggle-bars:after{top:0;transform:rotate(-45deg)}
+.nav-menu-backdrop{display:none}
+[data-theme="dark"] body.nav-menu-open #tabs{background:#1e1e1e;border-left-color:#3c3c3c}
+[data-theme="dark"] body.nav-menu-open #tabs .tab-btn{border-bottom-color:#333}
+[data-theme="dark"] body.nav-menu-open #tabs .tab-btn.active{background:#252526}
+[data-theme="dark"] body.nav-menu-open #tabs .tabs-global-pause{background:#252526;border-top-color:#3c3c3c}
 #tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:0;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex:0 0 auto}
 #tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border:0;background:var(--surface);box-shadow:-16px 0 12px -8px var(--surface);position:sticky;right:0;z-index:2}
 #tabs .tabs-global-pause.luna-global-paused{background:var(--surface);border:0}
@@ -15991,7 +16007,7 @@ button,.btn,.btn-primary,.btn-ghost,.btn-logout,
 #tabs .tabs-global-pause .luna-global-pause-slider:before{height:16px;width:16px;left:2px;bottom:2px}
 #tabs .tabs-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
 #tabs .tabs-global-pause .tabs-global-pause-help,#tabs #luna-global-pause-status{display:none!important}
-.tab-btn{padding:14px 22px;font-size:14px;font-weight:500;color:var(--text-2);font-family:var(--font-sans);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;letter-spacing:.01em;white-space:nowrap;flex:0 0 auto}
+.tab-btn{padding:14px 22px;font-size:14px;font-weight:500;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:var(--font-sans);letter-spacing:.01em;white-space:nowrap;flex:0 0 auto}
 /* Hide unused dev tabs (Developer Tools + Luna Guest Simulator) from the nav. */
 #tabs .tab-btn.dev-tab{display:none!important}
 .tab-btn:hover{color:var(--text)}
@@ -17989,14 +18005,20 @@ body{width:100%;max-width:100vw;overflow-x:hidden;min-height:100vh;min-height:10
 #banner .brand-logo{max-height:40px;height:40px;max-width:min(200px,calc(100vw - 180px))}
 #banner .banner-actions{flex-wrap:wrap;gap:6px;margin-left:auto;flex-shrink:0}
 #banner .btn-logout{padding:5px 12px;font-size:11px}
-#tabs{width:100%;max-width:100vw;padding:0 8px 0 8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;flex-wrap:nowrap;box-sizing:border-box}
-#tabs .tabs-global-pause{padding-left:10px}
-#tabs .tabs-global-pause-toggle{padding:8px 8px 8px 0;font-size:11px;gap:6px}
-#tabs .tabs-global-pause-label{font-size:11px}
-#tabs .tabs-global-pause .luna-global-pause-switch{width:30px;height:18px}
-#tabs .tabs-global-pause .luna-global-pause-slider:before{height:14px;width:14px}
-#tabs .tabs-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(12px)}
-.tab-btn{flex:0 0 auto;padding:12px 14px;font-size:12px;scroll-snap-align:start;white-space:nowrap;min-width:0}
+.nav-menu-toggle{display:inline-flex}
+.nav-menu-backdrop{display:none;position:fixed;inset:0;background:rgba(20,18,14,.35);z-index:8500}
+body.nav-menu-open .nav-menu-backdrop{display:block}
+#tabs{display:none;position:fixed;top:0;right:0;width:min(320px,88vw);height:100vh;height:100dvh;max-width:100vw;margin:0;padding:calc(12px + env(safe-area-inset-top)) 0 calc(16px + env(safe-area-inset-bottom));overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;flex-direction:column;flex-wrap:nowrap;align-items:stretch;box-sizing:border-box;z-index:8600;background:var(--surface);border-bottom:none;border-left:1px solid var(--border);box-shadow:var(--shadow);scroll-snap-type:none}
+body.nav-menu-open #tabs{display:flex}
+#tabs .tabs-global-pause{margin-left:0;margin-top:auto;padding:14px 16px;border-top:1px solid var(--border-soft);width:100%;box-sizing:border-box;box-shadow:none;background:var(--surface-soft);position:static}
+#tabs .tabs-global-pause-toggle{padding:4px 0;font-size:13px;gap:10px;width:100%;justify-content:space-between}
+#tabs .tabs-global-pause-label{font-size:13px;font-weight:600}
+#tabs .tabs-global-pause .luna-global-pause-switch{width:42px;height:24px}
+#tabs .tabs-global-pause .luna-global-pause-slider:before{height:18px;width:18px;left:3px;bottom:3px}
+#tabs .tabs-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(18px)}
+.tab-btn{flex:0 0 auto;width:100%;padding:14px 18px;font-size:14px;font-weight:500;text-align:left;border-bottom:1px solid var(--border-soft);border-radius:0;margin:0;white-space:normal;min-width:0;scroll-snap-align:none}
+.tab-btn.active{border-bottom-color:var(--border-soft);background:var(--surface-soft);box-shadow:inset 3px 0 0 var(--sage)}
+.tab-btn.dev-tab{margin-left:0;padding-left:18px;border-left:none}
 #wrap,#wrap-bc,.customers-wrap,.portal-admin-wrap,.portal-home-wrap,#al-wrap{width:100%!important;max-width:100vw!important;padding:8px 12px!important;margin:0 auto;box-sizing:border-box;height:auto!important;min-height:calc(100dvh - 120px)}
 #tab-conversations.active{display:flex;flex-direction:column;width:100%!important;max-width:100vw!important;height:calc(100dvh - 112px)!important;min-height:0;overflow:hidden;box-sizing:border-box}
 #tab-conversations.active #wrap{padding:0!important;width:100%!important;max-width:100vw!important;height:100%!important;flex:1;min-height:0;overflow:hidden}
@@ -18090,6 +18112,9 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     <img src="/staff/assets/luna-front-desk-logo.png?v=2" alt="Luna Front Desk" class="brand-logo">
   </a>
   <div class="banner-actions">
+  <button type="button" class="nav-menu-toggle" id="nav-menu-toggle" aria-expanded="false" aria-controls="tabs" title="Menu" aria-label="Menu">
+    <span class="nav-menu-toggle-bars" aria-hidden="true"></span>
+  </button>
   <div class="staff-school-switch" id="staff-school-switch" aria-label="School">
     <button type="button" class="staff-school-btn is-active" data-school="sunset-somo" data-i18n="school.sunsetSomo">Sunset</button>
     <span class="staff-lang-sep">|</span>
@@ -18131,6 +18156,7 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     <span id="luna-global-pause-status" class="luna-pause-action-status" style="display:none"></span>
   </div>
 </div>
+<div class="nav-menu-backdrop" id="nav-menu-backdrop" hidden></div>
 
 <div id="portal-profile-gate" aria-live="polite" aria-busy="true">
   <div class="portal-profile-gate-inner">Loading portal…</div>
@@ -19522,6 +19548,7 @@ function fmtDateOnly(d){
 
 /* ── Tab utilities ────────────────────────────────────────────────────────── */
 function switchToTab(tab, subtab){
+  try { if (window.__closeStaffNavMenu) window.__closeStaffNavMenu(); } catch (_navClose) {}
   if (isTabHiddenForClient(tab, getClient())) {
     var p = getPortalProfile(getClient());
     tab = p.default_tab || 'bed-calendar';
@@ -19560,6 +19587,53 @@ function switchToTabOnly(tab){ switchToTab(tab, null); }
 // Tab helpers must be global for Today tile onclick handlers (Stage 8.7.4)
 window.switchToTab = switchToTab;
 window.switchToTabOnly = switchToTabOnly;
+
+/* Mobile nav: hamburger opens tabs + Pause Luna drawer */
+(function(){
+  function setNavMenuOpen(open){
+    try {
+      document.body.classList.toggle('nav-menu-open', !!open);
+      var btn = document.getElementById('nav-menu-toggle');
+      var backdrop = document.getElementById('nav-menu-backdrop');
+      if (btn) {
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        var label = open ? 'Close menu' : 'Menu';
+        btn.setAttribute('aria-label', label);
+        btn.title = label;
+      }
+      if (backdrop) {
+        if (open) backdrop.removeAttribute('hidden');
+        else backdrop.setAttribute('hidden', '');
+      }
+      try { document.body.style.overflow = open ? 'hidden' : ''; } catch (_) {}
+    } catch (_) {}
+  }
+  function closeNavMenu(){ setNavMenuOpen(false); }
+  function toggleNavMenu(){ setNavMenuOpen(!document.body.classList.contains('nav-menu-open')); }
+  window.__closeStaffNavMenu = closeNavMenu;
+  function wireNavMenu(){
+    var btn = document.getElementById('nav-menu-toggle');
+    var backdrop = document.getElementById('nav-menu-backdrop');
+    if (btn && !btn.__navWired) {
+      btn.__navWired = true;
+      btn.addEventListener('click', function(e){ e.preventDefault(); toggleNavMenu(); });
+    }
+    if (backdrop && !backdrop.__navWired) {
+      backdrop.__navWired = true;
+      backdrop.addEventListener('click', closeNavMenu);
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireNavMenu);
+  else wireNavMenu();
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeNavMenu(); });
+  try {
+    var mq = window.matchMedia('(min-width: 769px)');
+    function onMq(e){ if (e.matches) closeNavMenu(); }
+    if (mq.addEventListener) mq.addEventListener('change', onMq);
+    else if (mq.addListener) mq.addListener(onMq);
+  } catch (_) {}
+})();
+
 
 /* ── Tabs ─────────────────────────────────────────────────────────────────── */
 document.querySelectorAll('.tab-btn').forEach(function(btn){
