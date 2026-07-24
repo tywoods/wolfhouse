@@ -129,6 +129,44 @@ function deriveKeyVaultName(slug) {
   // Extreme fallback — always valid 24-char form from the same canonical hash.
   return `luna${sha256(canonical).slice(0, 20)}`;
 }
+// Azure Container Apps Job name rules: 2–32 chars, lowercase alnum/hyphen,
+// must begin with a letter and end with alnum (no consecutive hyphens).
+const AZURE_CONTAINER_APPS_JOB_NAME_MIN = 2;
+const AZURE_CONTAINER_APPS_JOB_NAME_MAX = 32;
+function isValidAzureContainerAppsJobName(name) {
+  const n = String(name || '');
+  if (n.length < AZURE_CONTAINER_APPS_JOB_NAME_MIN || n.length > AZURE_CONTAINER_APPS_JOB_NAME_MAX) {
+    return false;
+  }
+  if (!/^[a-z][a-z0-9-]*[a-z0-9]$/.test(n)) return false;
+  if (n.includes('--')) return false;
+  return true;
+}
+/** Full canonical form `luna-<slug>-staging-bootstrap` (may exceed Azure's 32-char limit). */
+function canonicalBootstrapJobName(slug) {
+  return `luna-${String(slug || '')}-staging-bootstrap`;
+}
+/**
+ * Owner for tenant-staging Container Apps bootstrap Job names (contract, Bicep params,
+ * D2 apply/status/rollback, operator argv). Preserves canonical when already Azure-valid
+ * (<=32). Overlength only: deterministic truncation + stable 8-hex sha256 suffix of the
+ * full canonical name (collision-resistant; never raw truncation alone).
+ * Live messiproof evidence: canonical 33 chars → ContainerAppInvalidName.
+ */
+function deriveBootstrapJobName(slug) {
+  const s = String(slug || '');
+  const canonical = canonicalBootstrapJobName(s);
+  if (isValidAzureContainerAppsJobName(canonical)) return canonical;
+  const hash8 = sha256(canonical).slice(0, 8);
+  // luna-<head>-<hash8> with head budget so total length is always <= 32.
+  const headBudget = AZURE_CONTAINER_APPS_JOB_NAME_MAX - 'luna-'.length - 1 - hash8.length;
+  const headRaw = s.replace(/[^a-z0-9]/g, '').slice(0, headBudget) || 'x';
+  const head = headRaw.replace(/-+$/g, '') || 'x';
+  const shortened = `luna-${head}-${hash8}`;
+  if (isValidAzureContainerAppsJobName(shortened)) return shortened;
+  // Extreme fallback — always valid 32-char form from the same canonical hash.
+  return `l${sha256(canonical).slice(0, 31)}`;
+}
 function deriveNames(slug, subscriptionId) {
   const p = `luna-${slug}-staging`;
   return {
@@ -141,7 +179,7 @@ function deriveNames(slug, subscriptionId) {
     appInsightsName: `${p}-appinsights`, identityName: `${p}-identity`,
     vnetName: `${p}-vnet`, natName: `${p}-nat`, natPipName: `${p}-nat-pip`,
     privateDnsZoneName: 'privatelink.postgres.database.azure.com',
-    privateDnsLinkName: `${p}-pg-dns-link`, bootstrapJobName: `${p}-bootstrap`,
+    privateDnsLinkName: `${p}-pg-dns-link`, bootstrapJobName: deriveBootstrapJobName(slug),
     opsActionGroupName: `${p}-ops-budget-ag`,
   };
 }
@@ -1867,6 +1905,8 @@ module.exports = Object.freeze({
   encodeArmResourceIdPath, smartDetectorGetPath, isSmartDetectorCandidateRow,
   AZURE_KEY_VAULT_NAME_MIN, AZURE_KEY_VAULT_NAME_MAX,
   isValidAzureKeyVaultName, canonicalKeyVaultName, deriveKeyVaultName,
+  AZURE_CONTAINER_APPS_JOB_NAME_MIN, AZURE_CONTAINER_APPS_JOB_NAME_MAX,
+  isValidAzureContainerAppsJobName, canonicalBootstrapJobName, deriveBootstrapJobName,
   createDeps, deriveNames, deriveAuthority, deriveHistoricalRollbackAuthority,
   resolveCurrentStagingNames, assertHistoricalDeployShaCandidate, buildAuthorityAtExactSha,
   plan, status, buildExpectedResourceContract, buildExpectedFailureAnomaliesSmartDetector,

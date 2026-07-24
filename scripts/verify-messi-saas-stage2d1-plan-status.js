@@ -276,7 +276,10 @@ async function main() {
     && typeof lib.rollback !== 'function'
     && typeof lib.deriveKeyVaultName === 'function'
     && typeof lib.isValidAzureKeyVaultName === 'function'
-    && typeof lib.canonicalKeyVaultName === 'function');
+    && typeof lib.canonicalKeyVaultName === 'function'
+    && typeof lib.deriveBootstrapJobName === 'function'
+    && typeof lib.isValidAzureContainerAppsJobName === 'function'
+    && typeof lib.canonicalBootstrapJobName === 'function');
   // Azure Key Vault name owner: RED messiproof canonical invalid (26>24); GREEN shortened valid.
   // Preserve short canonicals; shorten only overlength with stable hash of full canonical.
   {
@@ -362,6 +365,100 @@ async function main() {
       && /var kvName = keyVaultName/.test(modSrc)
       && !modSrc.includes("var kvName = '${prefix}-kv'"),
       'bicep still derives kv from prefix');
+  }
+  // Azure Container Apps Job name owner: RED messiproof canonical invalid (33>32);
+  // GREEN owner shortens with stable hash (ContainerAppInvalidName class from live evidence).
+  {
+    const MESSIPROOF = 'messiproof';
+    const canonJob = lib.canonicalBootstrapJobName(MESSIPROOF);
+    ok('bootstrap_job_name_red_messiproof_canonical_invalid',
+      canonJob === 'luna-messiproof-staging-bootstrap'
+      && canonJob.length === 33
+      && lib.isValidAzureContainerAppsJobName(canonJob) === false,
+      `canon=${canonJob} len=${canonJob.length}`);
+    const namesMessi = lib.deriveNames(MESSIPROOF, SUB);
+    const jobMessi = namesMessi.bootstrapJobName;
+    ok('bootstrap_job_name_green_messiproof_valid_from_owner',
+      jobMessi === lib.deriveBootstrapJobName(MESSIPROOF)
+      && lib.isValidAzureContainerAppsJobName(jobMessi) === true
+      && jobMessi.length <= lib.AZURE_CONTAINER_APPS_JOB_NAME_MAX
+      && jobMessi.length >= lib.AZURE_CONTAINER_APPS_JOB_NAME_MIN
+      && jobMessi !== canonJob
+      && jobMessi === 'luna-messiproof-63aa6df2'
+      && /^[a-z][a-z0-9-]*[a-z0-9]$/.test(jobMessi)
+      && !jobMessi.includes('--')
+      && !/^luna-messiproof-staging-bootstra/.test(jobMessi),
+      `job=${jobMessi} len=${jobMessi && jobMessi.length}`);
+    // Contract bootstrap job resource binds the same owner-derived name (not raw truncation).
+    const contractMessi = lib.buildExpectedResourceContract(namesMessi, { principalId: PID });
+    ok('bootstrap_job_name_contract_uses_owner',
+      contractMessi.bootstrapJob
+      && contractMessi.bootstrapJob.name === jobMessi
+      && contractMessi.bootstrapJob.id.endsWith(`/Microsoft.App/jobs/${jobMessi}`)
+      && !JSON.stringify(contractMessi.bootstrapJob).includes(canonJob)
+      && !JSON.stringify(contractMessi).includes(canonJob),
+      `name=${contractMessi.bootstrapJob && contractMessi.bootstrapJob.name}`);
+    // Preserve short/edge-valid canonicals (sunset 29, synthdemo exact-32, short slugs).
+    const shortSlugs = ['aaa', 'sunset', 'synthdemo'];
+    ok('bootstrap_job_name_preserves_short_canonical',
+      shortSlugs.every((s) => {
+        const c = lib.canonicalBootstrapJobName(s);
+        return c.length <= 32
+          && lib.deriveBootstrapJobName(s) === c
+          && lib.isValidAzureContainerAppsJobName(c);
+      }),
+      shortSlugs.map((s) => `${s}:${lib.deriveBootstrapJobName(s)}`).join(','));
+    // Min / max accepted synthetic slug shape; max must shorten (not raw truncate alone).
+    const minSlug = 'aaa';
+    const maxSlug = `a${'b'.repeat(31)}`;
+    const minJob = lib.deriveBootstrapJobName(minSlug);
+    const maxJob = lib.deriveBootstrapJobName(maxSlug);
+    const maxCanon = lib.canonicalBootstrapJobName(maxSlug);
+    ok('bootstrap_job_name_min_max_slug_edges',
+      minSlug.length === 3 && maxSlug.length === 32
+      && lib.isValidAzureContainerAppsJobName(minJob)
+      && lib.isValidAzureContainerAppsJobName(maxJob)
+      && minJob === lib.canonicalBootstrapJobName(minSlug)
+      && maxJob !== maxCanon
+      && maxJob.length <= 32
+      && maxJob.includes(lib.sha256(maxCanon).slice(0, 8)),
+      `min=${minJob} max=${maxJob}`);
+    // Hostile similar long prefixes must not collide (hash of full canonical).
+    const a = lib.deriveBootstrapJobName('messiproofaa');
+    const b = lib.deriveBootstrapJobName('messiproofbb');
+    const c = lib.deriveBootstrapJobName('abcdefghijlongone');
+    const d = lib.deriveBootstrapJobName('abcdefghijlongtwo');
+    ok('bootstrap_job_name_long_similar_prefix_no_collision',
+      a !== b && c !== d
+      && lib.isValidAzureContainerAppsJobName(a) && lib.isValidAzureContainerAppsJobName(b)
+      && lib.isValidAzureContainerAppsJobName(c) && lib.isValidAzureContainerAppsJobName(d)
+      && new Set([a, b, c, d, jobMessi]).size === 5
+      && a !== jobMessi && b !== jobMessi,
+      `a=${a} b=${b} c=${c} d=${d}`);
+    // Not raw truncation: overlength must include hash suffix of full canonical.
+    const rawTrunc = canonJob.slice(0, 32);
+    ok('bootstrap_job_name_not_raw_truncation',
+      jobMessi !== rawTrunc
+      && jobMessi.includes(lib.sha256(canonJob).slice(0, 8))
+      && rawTrunc === 'luna-messiproof-staging-bootstra',
+      `job=${jobMessi} rawTrunc=${rawTrunc}`);
+    // Deterministic; reserved slug gates stay fail-closed.
+    const mig = require('./lib/migration-integrity');
+    ok('bootstrap_job_name_deterministic_and_reserved_intact',
+      lib.deriveBootstrapJobName(MESSIPROOF) === jobMessi
+      && lib.deriveBootstrapJobName(MESSIPROOF) === lib.deriveBootstrapJobName(MESSIPROOF)
+      && mig.assertSyntheticTenantSlug('sunset').ok === false
+      && mig.assertSyntheticTenantSlug(MESSIPROOF).ok === true);
+    // Bicep takes bootstrapJobName param (not prefix-derived) with Azure 2..32 bounds.
+    const modSrc = fs.readFileSync(path.join(ROOT, MOD_REL), 'utf8');
+    ok('bootstrap_job_name_bicep_param_owner_not_prefix',
+      /param bootstrapJobName string/.test(modSrc)
+      && /@maxLength\(32\)/.test(modSrc)
+      && /@minLength\(2\)/.test(modSrc)
+      && /var resolvedBootstrapJobName = bootstrapJobName/.test(modSrc)
+      && /jobName:\s*resolvedBootstrapJobName/.test(modSrc)
+      && !modSrc.includes("var bootstrapJobName = '${prefix}-bootstrap'"),
+      'bicep still derives bootstrap job from prefix');
   }
   const doc = fs.readFileSync(path.join(ROOT, DOC_REL), 'utf8');
   const src = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8') + fs.readFileSync(path.join(ROOT, CLI_REL), 'utf8');
@@ -1057,6 +1154,11 @@ async function main() {
         const c1 = JSON.parse(fs.readFileSync(path.join(ROOT, 'infra/azure/modules/tenant-staging/parameters.synthetic.json'), 'utf8'));
         const c3 = JSON.parse(fs.readFileSync(path.join(ROOT, 'infra/azure/modules/tenant-staging/parameters.synthetic-runtime.json'), 'utf8'));
         const expectedSynthKv = lib.deriveKeyVaultName(SLUG);
+        const expectedSynthJob = lib.deriveBootstrapJobName(SLUG);
+        const compiledMain = compileBicep(path.join(ROOT, MOD_REL));
+        const mainParams = compiledMain.parameters || {};
+        const messiJob = lib.deriveBootstrapJobName('messiproof');
+        const messiCanon = lib.canonicalBootstrapJobName('messiproof');
         ok('compile_c1_c2_c3_phase_fixtures',
           /natGateways/.test(netB) && /Microsoft.App\/jobs/.test(jobB)
           && /vaults\/secrets/.test(secB) && /containerApps/.test(mainB)
@@ -1065,9 +1167,25 @@ async function main() {
           && c1.parameters.keyVaultName && c1.parameters.keyVaultName.value === expectedSynthKv
           && c3.parameters.keyVaultName && c3.parameters.keyVaultName.value === expectedSynthKv
           && lib.isValidAzureKeyVaultName(expectedSynthKv)
+          && c1.parameters.bootstrapJobName
+          && c1.parameters.bootstrapJobName.value === expectedSynthJob
+          && c3.parameters.bootstrapJobName
+          && c3.parameters.bootstrapJobName.value === expectedSynthJob
+          && lib.isValidAzureContainerAppsJobName(expectedSynthJob)
+          && expectedSynthJob === lib.canonicalBootstrapJobName(SLUG)
           && contract.runtimeSecretNames.every((n) => secB.includes(n) || n === `${SLUG}-database-url`)
           && /bootstrap/.test(jobB)
-          && names.keyVaultName === expectedSynthKv);
+          && names.keyVaultName === expectedSynthKv
+          && names.bootstrapJobName === expectedSynthJob
+          && contract.bootstrapJob.name === expectedSynthJob
+          // Compiled Bicep parity: bootstrapJobName is a constrained param (not prefix concat).
+          && mainParams.bootstrapJobName
+          && Number(mainParams.bootstrapJobName.maxLength) === 32
+          && Number(mainParams.bootstrapJobName.minLength) === 2
+          && !mainB.includes("concat(parameters('appNamePrefix'), '-bootstrap')")
+          && messiJob.length <= 32 && messiJob !== messiCanon
+          && messiJob === 'luna-messiproof-63aa6df2',
+          `synthJob=${expectedSynthJob} messiJob=${messiJob}`);
       } catch (e) {
         ok('compile_c1_c2_c3_phase_fixtures', false, String(e.stderr || e.message || e).slice(0, 240));
       }
@@ -1087,7 +1205,8 @@ async function main() {
   // + Azure Key Vault 24-char name owner (messiproof InvalidTemplate class).
   // Raised for Microsoft.AlertsManagement Registered preflight (Failure-Anomalies defect).
   // Raised for platform-supplemental Failure Anomalies smart-detector contract.
-  ok('net_budget', st.net <= 3800, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // Raised for Container Apps Job 32-char name owner (messiproof ContainerAppInvalidName).
+  ok('net_budget', st.net <= 4100, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
   console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
   process.exit(fail ? 1 : 0);
 }

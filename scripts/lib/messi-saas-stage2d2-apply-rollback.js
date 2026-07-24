@@ -533,6 +533,8 @@ function buildNonsecretParams(names, deploySha, planDigest, phase, extras = {}) 
     appNamePrefix: { value: names.appNamePrefix },
     // Same owner as contract/role/secret IDs — never re-derive as prefix+"-kv" in Bicep.
     keyVaultName: { value: names.keyVaultName },
+    // Same owner as contract/operator — never re-derive as prefix+"-bootstrap" in Bicep.
+    bootstrapJobName: { value: names.bootstrapJobName },
     assertedResourceGroupName: { value: names.resourceGroupName },
     acrName: { value: ACR_NAME }, acrResourceGroupName: { value: ACR_RG },
     acrPullModuleName: { value: names.acrPullModuleName }, acrLoginServer: { value: ACR_LOGIN },

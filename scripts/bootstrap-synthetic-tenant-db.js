@@ -427,7 +427,14 @@ const TERMINAL_EXEC = new Set(['Succeeded', 'Failed', 'Stopped', 'Degraded']);
 const SUMMARY_ALLOW = new Set(['ok', 'appliedCount', 'skippedCount', 'appRoleName', 'attestationDigest', 'tenantSlug', 'database']);
 function derivedBootstrapJobNames(att) {
   const slug = String((att || {}).tenantSlug || '');
-  return { resourceGroupName: `luna-${slug}-staging-rg`, jobName: `luna-${slug}-staging-bootstrap` };
+  // Single owner: D1 deriveBootstrapJobName (preserves short canonicals; shortens overlength).
+  // Lazy require keeps offline operator argv tests free of D1 load cost until job names resolve.
+  // eslint-disable-next-line global-require
+  const { deriveBootstrapJobName } = require('./lib/messi-saas-stage2d1-plan-status');
+  return {
+    resourceGroupName: `luna-${slug}-staging-rg`,
+    jobName: deriveBootstrapJobName(slug),
+  };
 }
 function parseAllowlistedSummary(text, secrets) {
   const red = redactSecrets(String(text || ''), secrets);

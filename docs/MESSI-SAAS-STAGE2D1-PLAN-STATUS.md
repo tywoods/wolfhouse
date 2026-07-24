@@ -2,6 +2,8 @@
 
 PLAN/STATUS for `luna-<slug>-staging-rg`. Master gate → `verifiedDeploySha` archive (never HEAD) → snapshot worker via capability FD; digest binds tool hashes+Bicep; no `--expected-plan-digest`. Status uses exact live resource contract (foundation/bootstrap-active/runtime-prereqs/runtime) via targeted ARM GETs.
 
+**Name owners (Azure length limits):** `deriveKeyVaultName` (Key Vault 3–24) and `deriveBootstrapJobName` (Container Apps Job 2–32) are the single JS owners for those resource names. Both preserve short `luna-<slug>-staging-*` canonical forms when already valid; overlength only shortens with a stable sha256 suffix of the full canonical (never raw truncation). Contract, Bicep params, D2 apply, and operator bind the same owner. Live messiproof class: canonical bootstrap job 33 chars → `ContainerAppInvalidName`.
+
 ## Microsoft.AlertsManagement provider preflight (PLAN)
 
 **Observed** (our current tenant-staging App Insights path — not a global Azure unavoidability claim without external authoritative evidence): creating Application Insights (`Microsoft.Insights/components` in repo Bicep) triggered Azure platform deployment `Failure-Anomalies-Alert-Rule-Deployment-<8hex>` under `Microsoft.AlertsManagement/smartDetectorAlertRules`. Live defect: that nested deploy failed with `MissingSubscriptionRegistration` when the fixed staging subscription had `registrationState=NotRegistered`. Repo Bicep only sets `Application_Type` + `WorkspaceResourceId` — no supported disable property for that platform smart-detection deploy exists in our template/repo.

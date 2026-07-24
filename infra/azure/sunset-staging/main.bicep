@@ -158,6 +158,8 @@ module tenantStaging '../modules/tenant-staging/main.bicep' = {
     appNamePrefix: appNamePrefix
     // Locked-live Sunset vault name (22 chars) — must match JS deriveKeyVaultName('sunset').
     keyVaultName: 'luna-sunset-staging-kv'
+    // Locked-live Sunset bootstrap job (29 chars) — must match JS deriveBootstrapJobName('sunset').
+    bootstrapJobName: 'luna-sunset-staging-bootstrap'
     assertedResourceGroupName: lockedAssertedRg
     acrName: acrName
     acrResourceGroupName: acrResourceGroupName
