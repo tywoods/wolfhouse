@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "kind": "infra_partial_live_crash_fixture",
+  "note": "Offline RED/GREEN shape of actual mid-infra crash inventory (az deployment group show). No Azure writes. Ten resources (no Key Vault): identity, logs, nat-pip, private DNS, nat, vnet, App Insights, DNS link, environment, pg-app. Four deployment rows including Azure-generated Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8. Live SHOW has parameters=null, dependencies=[], outputResources=null, validatedResources=null; admit only via strict platform signature (Failed + templateHash + singleton microsoft.alertsmanagement/smartdetectoralertrules/global + error.code DeploymentFailed with exactly one details row code MissingSubscriptionRegistration, target null, no nested details) with exact plan-owned App Insights present in inventory. Live RG tags pin deploySha to master ancestor e1179bf2 while origin/master has advanced to f60f1f32 — rollback must rederive historical authority from those immutable live tags (not receipt, not current HEAD alone).",
+  "tenantSlug": "messiproof",
+  "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "resourceGroupName": "luna-messiproof-staging-rg",
+  "liveDeploySha": "e1179bf285a62e456a48e3e933e498fa5f65e3fd",
+  "livePlanDigestPrefix": "609c6a",
+  "currentHeadAdvanced": "f60f1f32d9b89993ef547b84692a2dc48e402626",
+  "originMaster": "f60f1f32d9b89993ef547b84692a2dc48e402626",
+  "receiptIsAuthority": false,
+  "historicalAuthoritySource": "live_rg_tags_only",
+  "topLevelResourceNames": [
+    "luna-messiproof-staging-identity",
+    "luna-messiproof-staging-logs",
+    "luna-messiproof-staging-nat-pip",
+    "privatelink.postgres.database.azure.com",
+    "luna-messiproof-staging-nat",
+    "luna-messiproof-staging-vnet",
+    "luna-messiproof-staging-appinsights",
+    "luna-messiproof-staging-env",
+    "luna-messiproof-staging-pg-app"
+  ],
+  "nestedResourceNames": [
+    "luna-messiproof-staging-pg-dns-link"
+  ],
+  "excludedFoundationNames": [
+    "luna-messiproof-staging-kv"
+  ],
+  "failureAnomaliesPlatform": {
+    "templateHash": "5081387184824560999",
+    "providerNamespace": "Microsoft.AlertsManagement",
+    "resourceType": "smartDetectorAlertRules",
+    "location": "global",
+    "topErrorCode": "DeploymentFailed",
+    "detailErrorCode": "MissingSubscriptionRegistration",
+    "errorCode": "MissingSubscriptionRegistration"
+  },
+  "deployments": [
+    {
+      "name": "messi-2d2-infra",
+      "type": "Microsoft.Resources/deployments",
+      "provisioningState": "Failed"
+    },
+    {
+      "name": "messiproofStagingAcrPull",
+      "type": "Microsoft.Resources/deployments",
+      "provisioningState": "Succeeded"
+    },
+    {
+      "name": "privateNetwork",
+      "type": "Microsoft.Resources/deployments",
+      "provisioningState": "Succeeded"
+    },
+    {
+      "name": "Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8",
+      "type": "Microsoft.Resources/deployments",
+      "provisioningState": "Failed",
+      "properties": {
+        "provisioningState": "Failed",
+        "templateHash": "5081387184824560999",
+        "parameters": null,
+        "dependencies": [],
+        "outputResources": null,
+        "validatedResources": null,
+        "error": {
+          "code": "DeploymentFailed",
+          "message": "At least one resource deployment operation failed. Please list deployment operations for details. Please see https://aka.ms/arm-deployment-operations for usage details.",
+          "details": [
+            {
+              "code": "MissingSubscriptionRegistration",
+              "message": "The subscription is not registered to use namespace 'Microsoft.AlertsManagement'. See https://aka.ms/rps-not-found for how to register subscriptions.",
+              "target": null
+            }
+          ]
+        },
+        "providers": [
+          {
+            "namespace": "Microsoft.AlertsManagement",
+            "resourceTypes": [
+              {
+                "resourceType": "smartDetectorAlertRules",
+                "locations": ["global"]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "attacks": {
+    "lookalikePrefix": "Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8x",
+    "wrongTargetSuffix": "deadbeef",
+    "wrongType": "Microsoft.Compute/virtualMachines",
+    "wrongIdSub": "00000000-0000-0000-0000-000000000000",
+    "wrongTemplateHash": "0000000000000000000",
+    "extraProviderNamespace": "Microsoft.Insights",
+    "wrongResourceType": "smartDetectorAlertRulesX",
+    "wrongLocation": "westeurope",
+    "wrongTopErrorCode": "ResourceNotFound",
+    "wrongDetailErrorCode": "ResourceNotFound",
+    "wrongErrorCode": "ResourceNotFound",
+    "nonFailedState": "Succeeded"
+  }
+}

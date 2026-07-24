@@ -127,6 +127,21 @@ function makeHarness(lib, opts = {}) {
         }
         return { status: 200, body: { value: deployments } };
       }
+      // Exact deployment GET (Failure-Anomalies SHOW readback).
+      if (req.method === 'GET' && /\/deployments\/[^/?]+(\?|$)/i.test(p)) {
+        const name = decodeURIComponent((p.match(/\/deployments\/([^/?]+)/i) || [])[1] || '');
+        const hit = (deployments || []).find((d) => String(d.name || '') === name);
+        if (!hit) return notFound;
+        return {
+          status: 200,
+          body: {
+            id: hit.id,
+            name: hit.name,
+            type: hit.type || 'Microsoft.Resources/deployments',
+            properties: hit.properties || { provisioningState: hit.provisioningState || 'Succeeded' },
+          },
+        };
+      }
       if (/\/resources(\?|&|$)/i.test(p) || (/skiptoken=/i.test(p) && /\/resources/i.test(p))) {
         if (Array.isArray(pages)) {
           return { status: 200, body: pages[armLog.filter((x) => /\/resources/i.test(x.path)).length - 1] || { value: [] } };
@@ -744,8 +759,8 @@ async function main() {
   }
   const st = diffStat();
   ok('file_budget', st.files <= 10, `files=${st.files}`);
-  // Raised for empty-RG absent-KV secrets LIST skip + independent deployments LIST empty phase.
-  ok('net_budget', st.net <= 2200, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // Raised for infra-partial owned-deployment subset + empty-RG deployments LIST authority.
+  ok('net_budget', st.net <= 2600, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
   console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
   process.exit(fail ? 1 : 0);
 }

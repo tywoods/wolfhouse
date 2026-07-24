@@ -98,6 +98,139 @@ function runtimeSecretNames(slug) {
   const db = `${slug}-database-url`;
   return Object.freeze(['stripe-webhook-secret', db, ...FIXED_RUNTIME_SECRETS.slice(1)]);
 }
+function buildOwnedDeploymentNames(names) {
+  // Plan-owned RG deployment history names only (root phase deploys + Bicep modules).
+  // Authority derives these; live inventory must be an exact name subset — never free-form.
+  // Azure-generated Failure-Anomalies-Alert-Rule-Deployment-<8hex> is NOT listed here:
+  // it is admitted only via isExactOwnedFailureAnomaliesDeployment (prefix + id/type/state + AI correlation).
+  return Object.freeze([
+    'messi-2d2-infra',
+    'messi-2d2-bootstrap',
+    'messi-2d2-runtime-prereqs',
+    'messi-2d2-runtime-app',
+    names.acrPullModuleName,
+    'privateNetwork',
+  ]);
+}
+// Azure auto-deploys Failure Anomalies smart-detector alert when App Insights is created.
+// Documented deterministic shape only: exact prefix + 8 lowercase hex (no broad wildcards).
+// Live az deployment group show for Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8 has
+// parameters=null, dependencies=[], outputResources=null, validatedResources=null, and
+// properties.error.code=DeploymentFailed with details[0].code=MissingSubscriptionRegistration
+// (target null, no nested details) — admit only via that nested signature + exact App Insights.
+const FAILURE_ANOMALIES_DEPLOY_PREFIX = 'Failure-Anomalies-Alert-Rule-Deployment-';
+const FAILURE_ANOMALIES_DEPLOY_NAME_RE = /^Failure-Anomalies-Alert-Rule-Deployment-[0-9a-f]{8}$/;
+// Pinned from live SHOW of Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8 (no wildcards).
+const FAILURE_ANOMALIES_TEMPLATE_HASH = '5081387184824560999';
+const FAILURE_ANOMALIES_PROVIDER_NS = 'microsoft.alertsmanagement';
+const FAILURE_ANOMALIES_RESOURCE_TYPE = 'smartdetectoralertrules';
+const FAILURE_ANOMALIES_LOCATION = 'global';
+// Live SHOW: properties.error.code is DeploymentFailed; MissingSubscriptionRegistration is details[0].code.
+const FAILURE_ANOMALIES_TOP_ERROR_CODE = 'DeploymentFailed';
+const FAILURE_ANOMALIES_ERROR_CODE = 'MissingSubscriptionRegistration';
+const SAFE_DEPLOYMENT_PROVISIONING_STATES = Object.freeze([
+  'Succeeded', 'Failed', 'Canceled', 'Cancelled', 'Accepted', 'Running', 'Updating',
+]);
+function deploymentResourceId(sub, rg, name) {
+  return `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Resources/deployments/${name}`;
+}
+function scopeFromContract(contract) {
+  const sample = (contract && contract.foundationTopLevel && contract.foundationTopLevel[0]) || null;
+  if (!sample || !sample.id) return null;
+  const m = String(sample.id).match(/^\/subscriptions\/([^/]+)\/resourceGroups\/([^/]+)\//i);
+  if (!m) return null;
+  return { subscriptionId: m[1], resourceGroupName: m[2] };
+}
+function expectedAppInsightsFromContract(contract) {
+  return ((contract && contract.foundationTopLevel) || [])
+    .find((e) => e && e.type === 'Microsoft.Insights/components') || null;
+}
+function matchExpectedContractResource(r, contract) {
+  if (!r || !r.type || !r.name || !contract) return null;
+  const top = (contract.foundationTopLevel || [])
+    .find((e) => e.type === r.type && e.name === r.name);
+  if (top) return top;
+  // Live /resources may surface nested children (e.g. private DNS VNet link).
+  return (contract.nestedChildren || []).find((e) => e.type === r.type
+    && (e.name === r.name || String(r.name || '').endsWith(`/${e.name}`))) || null;
+}
+function isExactDeploymentRowShape(d, scope) {
+  if (!d || !scope || !scope.subscriptionId || !scope.resourceGroupName) return false;
+  if (d.name == null || d.name === '') return false;
+  const name = String(d.name);
+  if (String(d.type || '') !== 'Microsoft.Resources/deployments') return false;
+  if (!d.id) return false;
+  const expectedId = deploymentResourceId(scope.subscriptionId, scope.resourceGroupName, name);
+  if (String(d.id).toLowerCase() !== expectedId.toLowerCase()) return false;
+  const state = String(d.provisioningState || '');
+  if (!SAFE_DEPLOYMENT_PROVISIONING_STATES.includes(state)) return false;
+  return true;
+}
+function liveInventoryHasExactAppInsights(liveTopLevel, appInsights) {
+  if (!appInsights || !appInsights.id || !appInsights.name) return false;
+  if (!Array.isArray(liveTopLevel)) return false;
+  const aiId = String(appInsights.id).toLowerCase();
+  const aiName = String(appInsights.name);
+  return liveTopLevel.some((r) => r
+    && String(r.type || '') === 'Microsoft.Insights/components'
+    && String(r.name || '') === aiName
+    && String(r.id || '').toLowerCase() === aiId);
+}
+function failureAnomaliesMatchesPlatformSignature(d) {
+  // Exact live SHOW signature only — no ScopeResourceId / dependencies / outputResources trust,
+  // no broad wildcards. Live row carries parameters=null and empty correlation surfaces.
+  // Error shape is nested: top code DeploymentFailed + exactly one details row with
+  // MissingSubscriptionRegistration, target null, and no nested detail children.
+  if (!d || typeof d !== 'object') return false;
+  if (String(d.provisioningState || '') !== 'Failed') return false;
+  const props = d.properties;
+  if (!props || typeof props !== 'object' || Array.isArray(props)) return false;
+  if (String(props.provisioningState || '') !== 'Failed') return false;
+  if (String(props.templateHash || '') !== FAILURE_ANOMALIES_TEMPLATE_HASH) return false;
+  const err = props.error;
+  if (!err || typeof err !== 'object' || Array.isArray(err)) return false;
+  if (String(err.code || '') !== FAILURE_ANOMALIES_TOP_ERROR_CODE) return false;
+  const details = err.details;
+  if (!Array.isArray(details) || details.length !== 1) return false;
+  const d0 = details[0];
+  if (!d0 || typeof d0 !== 'object' || Array.isArray(d0)) return false;
+  if (String(d0.code || '') !== FAILURE_ANOMALIES_ERROR_CODE) return false;
+  // Live SHOW pins target: null (missing/non-null target is not the platform signature).
+  if (d0.target !== null) return false;
+  // No additional nested details under the single detail row.
+  if (Object.prototype.hasOwnProperty.call(d0, 'details')) {
+    if (d0.details != null && (!Array.isArray(d0.details) || d0.details.length > 0)) return false;
+  }
+  const providers = props.providers;
+  if (!Array.isArray(providers) || providers.length !== 1) return false;
+  const p0 = providers[0];
+  if (!p0 || typeof p0 !== 'object' || Array.isArray(p0)) return false;
+  if (String(p0.namespace || '').toLowerCase() !== FAILURE_ANOMALIES_PROVIDER_NS) return false;
+  const rts = p0.resourceTypes;
+  if (!Array.isArray(rts) || rts.length !== 1) return false;
+  const rt0 = rts[0];
+  if (!rt0 || typeof rt0 !== 'object' || Array.isArray(rt0)) return false;
+  if (String(rt0.resourceType || '').toLowerCase() !== FAILURE_ANOMALIES_RESOURCE_TYPE) return false;
+  const locs = rt0.locations;
+  if (!Array.isArray(locs) || locs.length !== 1) return false;
+  if (String(locs[0] || '').toLowerCase() !== FAILURE_ANOMALIES_LOCATION) return false;
+  return true;
+}
+function failureAnomaliesCorrelatesToAppInsights(d, appInsights, liveTopLevel) {
+  // Platform signature + exact expected App Insights present in live inventory (not receipt).
+  if (!failureAnomaliesMatchesPlatformSignature(d)) return false;
+  return liveInventoryHasExactAppInsights(liveTopLevel, appInsights);
+}
+function isExactOwnedFailureAnomaliesDeployment(d, scope, appInsights, liveTopLevel) {
+  if (!isExactDeploymentRowShape(d, scope)) return false;
+  if (!FAILURE_ANOMALIES_DEPLOY_NAME_RE.test(String(d.name))) return false;
+  return failureAnomaliesCorrelatesToAppInsights(d, appInsights, liveTopLevel);
+}
+function isOwnedDeploymentRow(d, scope, appInsights, ownedNames, liveTopLevel) {
+  if (!isExactDeploymentRowShape(d, scope)) return false;
+  if (ownedNames && ownedNames.has(String(d.name))) return true;
+  return isExactOwnedFailureAnomaliesDeployment(d, scope, appInsights, liveTopLevel);
+}
 function buildExpectedResourceContract(names, opts = {}) {
   const sub = names.subscriptionId; const rg = names.resourceGroupName;
   const top = [
@@ -157,12 +290,14 @@ function buildExpectedResourceContract(names, opts = {}) {
     id: rid(sub, rg, 'Microsoft.App/containerApps', names.staffApiAppName),
     name: names.staffApiAppName, type: 'Microsoft.App/containerApps', taggable: true,
   };
+  const ownedDeploymentNames = buildOwnedDeploymentNames(names);
   return {
     foundationTopLevel: top, nestedChildren: nested, roleAssignments: roles,
     runtimeSecrets: secrets, runtimeSecretNames: secretNames, bootstrapJob: job, runtimeApp: app,
-    ignoreTypes: IGNORE_TYPES.slice(),
+    ownedDeploymentNames, ignoreTypes: IGNORE_TYPES.slice(),
     counts: {
       foundationTopLevel: 10, nestedChildren: 2, roleAssignments: 2, runtimeSecrets: 14, bootstrapJob: 1, runtimeApp: 1,
+      ownedDeploymentNames: ownedDeploymentNames.length,
     },
   };
 }
@@ -566,12 +701,58 @@ async function collectLiveInventory(deps, names, expectedTags) {
   // Fail-closed deployment history LIST (paged). Required for exact empty-phase authority;
   // 403/404/5xx/malformed/nextLink errors prevent empty-phase acceptance.
   const depListed = await listRgDeployments(deps, sub, rg); if (!depListed.ok) return depListed;
-  const deployments = depListed.deployments.map((d) => ({
-    id: d.id || null,
-    name: String(d.name || (d.id || '').split('/').pop() || ''),
-    type: d.type || 'Microsoft.Resources/deployments',
-    provisioningState: ((d.properties || {}).provisioningState) || d.provisioningState || null,
-  }));
+  // LIST may omit SHOW-only fields (templateHash/providers/error). For every candidate
+  // Failure-Anomalies name, obtain exact deployment GET/readback before acceptance.
+  // Fail closed on GET failure, absent body, or id/name/type mismatch with the LIST row.
+  const deployments = [];
+  for (const d of depListed.deployments) {
+    const listProps = d.properties && typeof d.properties === 'object' && !Array.isArray(d.properties)
+      ? d.properties : null;
+    let row = {
+      id: d.id || null,
+      name: String(d.name || (d.id || '').split('/').pop() || ''),
+      type: d.type || 'Microsoft.Resources/deployments',
+      provisioningState: (listProps && listProps.provisioningState) || d.provisioningState || null,
+      properties: listProps,
+    };
+    if (FAILURE_ANOMALIES_DEPLOY_NAME_RE.test(row.name)) {
+      const expectedId = deploymentResourceId(sub, rg, row.name);
+      const got = await armGet(deps, `${expectedId}?api-version=${DEP_API}`);
+      if (!got.ok) return got;
+      if (!got.exists || !got.body || typeof got.body !== 'object') {
+        return {
+          ok: false,
+          errors: [err('arm_get_failed',
+            `Failure-Anomalies deployment GET missing or empty for ${row.name}`)],
+        };
+      }
+      const body = got.body;
+      const gotName = String(body.name || (body.id || '').split('/').pop() || '');
+      const gotId = body.id != null ? String(body.id) : '';
+      const gotType = String(body.type || 'Microsoft.Resources/deployments');
+      if (gotName !== row.name
+        || (row.id && gotId && gotId.toLowerCase() !== String(row.id).toLowerCase())
+        || gotType.toLowerCase() !== 'microsoft.resources/deployments'
+        || (gotId && gotId.toLowerCase() !== expectedId.toLowerCase())) {
+        return {
+          ok: false,
+          errors: [err('deployment_get_mismatch',
+            `Failure-Anomalies deployment GET mismatch for ${row.name}`)],
+        };
+      }
+      const gprops = body.properties && typeof body.properties === 'object'
+        && !Array.isArray(body.properties) ? body.properties : null;
+      row = {
+        id: gotId || expectedId,
+        name: gotName,
+        type: body.type || 'Microsoft.Resources/deployments',
+        provisioningState: (gprops && gprops.provisioningState)
+          || body.provisioningState || row.provisioningState || null,
+        properties: gprops,
+      };
+    }
+    deployments.push(row);
+  }
   const top = listed.resources.filter((r) => !IGNORE_TYPES.includes(r.type || ''));
   const mi = await armGet(deps,
     `${rid(sub, rg, 'Microsoft.ManagedIdentity/userAssignedIdentities', names.identityName)}?api-version=${MI_API}`);
@@ -708,6 +889,51 @@ function isExactEmptyLiveInventory(live) {
     && !live.jobExists
     && !live.appExists;
 }
+function isFullFoundationContract(live) {
+  if (!live || !live.contract) return false;
+  const c = live.contract;
+  for (const exp of c.foundationTopLevel) {
+    if (!(live.topLevel || []).some((r) => r.type === exp.type && r.name === exp.name)) return false;
+  }
+  if ((live.nestedLive || []).length < (c.nestedChildren || []).length) return false;
+  if ((live.rolesLive || []).length < 2) return false;
+  if (live.jobExists || live.appExists) return false;
+  if ((live.secretCount || 0) > 0 || (live.secretsExact || 0) > 0 || (live.secretMeta || []).length > 0) {
+    return false;
+  }
+  return true;
+}
+function isExactInfraPartialLive(live) {
+  // Interrupted infra apply: nonempty exact subset of rederived foundation contract +
+  // nonzero plan-owned (or exact Failure-Anomalies AI-correlated) deployment history only.
+  // Fail closed on unreadable rows, missing/wrong resource IDs, or underspecified deployments.
+  if (!live || !live.contract) return false;
+  if (!Array.isArray(live.deployments)) return false;
+  if (isExactEmptyLiveInventory(live)) return false;
+  if (isFullFoundationContract(live)) return false;
+  if (live.jobExists || live.appExists) return false;
+  if ((live.secretCount || 0) > 0 || (live.secretsExact || 0) > 0 || (live.secretMeta || []).length > 0) {
+    return false;
+  }
+  if (!live.deployments.length) return false;
+  if (!(live.topLevel || []).length) return false;
+  const scope = scopeFromContract(live.contract);
+  if (!scope) return false;
+  const appInsights = expectedAppInsightsFromContract(live.contract);
+  const owned = new Set((live.contract.ownedDeploymentNames || []).map(String));
+  if (!owned.size) return false;
+  const topLevel = live.topLevel || [];
+  for (const d of live.deployments) {
+    if (!isOwnedDeploymentRow(d, scope, appInsights, owned, topLevel)) return false;
+  }
+  for (const r of topLevel) {
+    if (!r || !r.type || !r.name || !r.id) return false;
+    const exp = matchExpectedContractResource(r, live.contract);
+    if (!exp || !exp.id) return false;
+    if (String(r.id).toLowerCase() !== String(exp.id).toLowerCase()) return false;
+  }
+  return true;
+}
 function inferLivePhase(live) {
   if (!live || live.rgExists === false) return 'absent';
   // Exact zero-resource, zero-deployment owned drill (apply failed before foundation).
@@ -718,6 +944,9 @@ function inferLivePhase(live) {
   if (live.appExists && secretsComplete && rolesOk) return 'runtime';
   if (secretsComplete && rolesOk && !live.appExists) return 'runtime-prereqs';
   if (live.jobExists) return 'bootstrap-active';
+  // Incomplete foundation with plan-owned deployment history → infra-partial.
+  // Complete foundation and incomplete-without-owned-deploys keep foundation semantics.
+  if (isExactInfraPartialLive(live)) return 'infra-partial';
   return 'foundation';
 }
 function phaseContractFindings(live, phase) {
@@ -729,6 +958,58 @@ function phaseContractFindings(live, phase) {
     }
     return (live.findings || []).filter((f) => f.code !== 'missing_resource'
       && f.code !== 'missing_role_assignment');
+  }
+  if (phase === 'infra-partial') {
+    if (!isExactInfraPartialLive(live)) {
+      return [{ code: 'infra_partial_invalid', message: 'inventory is not an exact owned infra-partial subset' }];
+    }
+    const findings = [];
+    const c = live.contract;
+    const owned = new Set((c.ownedDeploymentNames || []).map(String));
+    const scope = scopeFromContract(c);
+    const appInsights = expectedAppInsightsFromContract(c);
+    for (const r of live.topLevel || []) {
+      if (!r || !r.type || !r.name || !r.id) {
+        findings.push({ code: 'malformed_resource', message: 'unreadable top-level resource row' });
+        continue;
+      }
+      const exp = matchExpectedContractResource(r, c);
+      if (!exp) findings.push({ code: 'unexpected_resource', name: r.name, type: r.type });
+      else if (!exp.id || String(r.id).toLowerCase() !== String(exp.id).toLowerCase()) {
+        findings.push({ code: 'resource_id_mismatch', name: r.name, type: r.type });
+      }
+    }
+    for (const d of live.deployments || []) {
+      if (!isExactDeploymentRowShape(d, scope)) {
+        findings.push({
+          code: 'malformed_deployment',
+          name: d && d.name != null ? String(d.name) : undefined,
+          message: 'deployment row missing exact id/name/type/state under subscription/RG path',
+        });
+        continue;
+      }
+      if (!isOwnedDeploymentRow(d, scope, appInsights, owned, live.topLevel || [])) {
+        findings.push({ code: 'foreign_deployment', name: String(d.name) });
+      }
+    }
+    if (live.jobExists) {
+      findings.push({ code: 'unexpected_resource', name: c.bootstrapJob.name, type: c.bootstrapJob.type });
+    }
+    if (live.appExists) {
+      findings.push({ code: 'unexpected_resource', name: c.runtimeApp.name, type: c.runtimeApp.type });
+    }
+    if ((live.secretCount || 0) > 0 || (live.secretMeta || []).length > 0) {
+      findings.push({ code: 'unexpected_resource', type: 'Microsoft.KeyVault/vaults/secrets' });
+    }
+    // Present expected-contract findings that are not "missing" remain closed
+    // (tag drift, duplicates, unexpected, wrong role definition).
+    for (const f of live.findings || []) {
+      if (f.code === 'missing_resource' || f.code === 'missing_role_assignment') continue;
+      // Mid-apply crash may leave non-Succeeded provisioning; whole-RG delete still safe.
+      if (f.code === 'provisioning_not_succeeded') continue;
+      findings.push(f);
+    }
+    return findings;
   }
   const findings = [...(live.findings || [])]; const c = live.contract;
   const pushMiss = (name, type) => {
@@ -824,26 +1105,64 @@ async function readAppRuntime(deps, names) {
     },
   };
 }
-async function deriveAuthority(opts, deps) {
+/**
+ * Historical deploySha candidate (rollback-only): full 40-hex, git commit object,
+ * ancestor of both HEAD and origin/master (master lineage — not a side-branch tip).
+ */
+function assertHistoricalDeployShaCandidate(deps, candidateSha) {
+  const raw = String(candidateSha || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(raw)) {
+    return { ok: false, errors: [err('deploy_sha_invalid', 'deploySha must be full 40-hex')] };
+  }
+  let objType = '';
+  try { objType = String(deps.gitExec(['cat-file', '-t', raw]) || '').trim(); }
+  catch (e) {
+    return { ok: false, errors: [err('deploy_sha_missing_object', e.message || 'git object missing')] };
+  }
+  if (objType !== 'commit') {
+    return { ok: false, errors: [err('deploy_sha_not_commit', `deploySha object type ${objType || 'unknown'}`)] };
+  }
+  let head = ''; let om = '';
+  try {
+    head = String(deps.gitExec(['rev-parse', 'HEAD']) || '').trim().toLowerCase();
+    om = String(deps.gitExec(['rev-parse', 'origin/master']) || '').trim().toLowerCase();
+  } catch (e) {
+    return { ok: false, errors: [err('git_rev', e.message)] };
+  }
+  if (!/^[0-9a-f]{40}$/.test(head) || !/^[0-9a-f]{40}$/.test(om)) {
+    return { ok: false, errors: [err('git_rev', 'HEAD/origin/master not full 40-hex')] };
+  }
+  // Master lineage only: must be ancestor of both current HEAD and origin/master.
+  // Side-branch-only commits fail is-ancestor against origin/master.
+  for (const [label, tip] of [['HEAD', head], ['origin/master', om]]) {
+    try { deps.gitExec(['merge-base', '--is-ancestor', raw, tip]); }
+    catch (e) {
+      return {
+        ok: false,
+        errors: [err(
+          label === 'origin/master' && raw !== tip ? 'deploy_sha_side_branch' : 'deploy_sha_not_ancestor',
+          `deploySha is not an ancestor of ${label}`,
+        )],
+      };
+    }
+  }
+  return { ok: true, errors: [], sha: raw, head, originMaster: om };
+}
+
+/** Compile/rederive plan authority at an already-validated exact deploy SHA. */
+async function buildAuthorityAtExactSha(opts, deps, verifiedDeploySha, pre) {
   const slugGate = validateSlug(opts.slug);
   if (!slugGate.ok) return slugGate;
   const slug = slugGate.slug;
-  let verifiedDeploySha = deps.verifiedDeploySha || null;
-  let pre = null;
-  if (!deps.inExactSnapshot) {
-    pre = assertRepoDeployPreflight(deps);
-    if (!pre.ok) return pre;
-    verifiedDeploySha = pre.verifiedDeploySha;
-  } else if (!verifiedDeploySha) {
-    return { ok: false, errors: [err('verified_sha_required', 'internal mode needs verifiedDeploySha')] };
-  } else {
-    pre = { ok: true, errors: [], verifiedDeploySha, deploySha: verifiedDeploySha, branch: 'master' };
+  const sha = String(verifiedDeploySha || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(sha)) {
+    return { ok: false, errors: [err('deploy_sha_invalid', 'verifiedDeploySha must be full 40-hex')] };
   }
   const tools = deps.toolAuthority || hashPinnedToolAuthority(deps);
   let snapRoot = deps.repoRoot;
   let cleanup = () => {};
   if (!deps.inExactSnapshot) {
-    const snap = createExactShaSnapshot(deps, verifiedDeploySha);
+    const snap = createExactShaSnapshot(deps, sha);
     if (!snap.ok) return snap;
     snapRoot = snap.root;
     cleanup = snap.cleanup;
@@ -872,7 +1191,7 @@ async function deriveAuthority(opts, deps) {
       schemaVersion: 1, authority: 'repo_stage1_generator_azure', stage: STAGE, ownerTag: OWNER,
       tenantSlug: names.tenantSlug, resourceGroupName: names.resourceGroupName,
       subscriptionId: names.subscriptionId, appNamePrefix: names.appNamePrefix, appDbName: names.appDbName,
-      deploySha: verifiedDeploySha,
+      deploySha: sha,
       compiledTemplateSha256: compiled.compiledTemplateSha256,
       compiledTemplateBytes: compiled.templateBytes.length,
       manifestSha256: man.manifestSha256, moduleRel: MODULE_REL,
@@ -892,11 +1211,109 @@ async function deriveAuthority(opts, deps) {
     return {
       ok: true, errors: [], slug, names, pre, expectedSub, active, man, compiled, core,
       planDigest, skus, alerts, templateBytes: compiled.templateBytes,
-      verifiedDeploySha, tools, snapRoot,
+      verifiedDeploySha: sha, tools, snapRoot,
     };
   } finally {
     cleanup();
   }
+}
+
+/**
+ * Apply/plan/status authority: always current clean master HEAD (never live RG tags).
+ */
+async function deriveAuthority(opts, deps) {
+  const slugGate = validateSlug(opts.slug);
+  if (!slugGate.ok) return slugGate;
+  let verifiedDeploySha = deps.verifiedDeploySha || null;
+  let pre = null;
+  if (!deps.inExactSnapshot) {
+    pre = assertRepoDeployPreflight(deps);
+    if (!pre.ok) return pre;
+    verifiedDeploySha = pre.verifiedDeploySha;
+  } else if (!verifiedDeploySha) {
+    return { ok: false, errors: [err('verified_sha_required', 'internal mode needs verifiedDeploySha')] };
+  } else {
+    pre = { ok: true, errors: [], verifiedDeploySha, deploySha: verifiedDeploySha, branch: 'master' };
+  }
+  return buildAuthorityAtExactSha(opts, deps, verifiedDeploySha, pre);
+}
+
+/**
+ * Rollback-only historical authority from immutable live RG tags (never receipt).
+ * Requires clean master HEAD==origin/master, full 40-hex live deploySha that is a commit
+ * ancestor of HEAD/origin/master (master lineage), exact-SHA snapshot rederive, and
+ * rederived planDigest exactly equal to live planDigest.
+ */
+async function deriveHistoricalRollbackAuthority(opts, deps) {
+  const slugGate = validateSlug(opts.slug);
+  if (!slugGate.ok) return slugGate;
+  let pre = null;
+  if (!deps.inExactSnapshot) {
+    pre = assertRepoDeployPreflight(deps);
+    if (!pre.ok) return pre;
+  } else {
+    const seed = deps.verifiedDeploySha || opts.liveDeploySha;
+    if (!seed) {
+      return { ok: false, errors: [err('verified_sha_required', 'internal mode needs verifiedDeploySha')] };
+    }
+    pre = { ok: true, errors: [], verifiedDeploySha: seed, deploySha: seed, branch: 'master' };
+  }
+  const cand = assertHistoricalDeployShaCandidate(deps, opts.liveDeploySha);
+  if (!cand.ok) return cand;
+  const auth = await buildAuthorityAtExactSha(opts, deps, cand.sha, pre);
+  if (!auth.ok) return auth;
+  const liveDigest = String(opts.livePlanDigest || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(liveDigest)) {
+    return { ok: false, errors: [err('live_plan_digest_invalid', 'live planDigest must be full 64-hex')] };
+  }
+  if (String(auth.planDigest).toLowerCase() !== liveDigest) {
+    return {
+      ok: false,
+      errors: [err('historical_plan_digest_mismatch',
+        'rederived planDigest from live deploySha does not equal live RG planDigest')],
+      verifiedDeploySha: auth.verifiedDeploySha,
+      planDigest: auth.planDigest,
+      livePlanDigest: liveDigest,
+    };
+  }
+  return {
+    ...auth,
+    historical: true,
+    livePlanDigest: liveDigest,
+    liveDeploySha: cand.sha,
+  };
+}
+
+/**
+ * Resolve slug-derived names under the fixed staging subscription from the current
+ * clean master checkout (not historical SHA). Used by rollback before lock/RG probe.
+ */
+function resolveCurrentStagingNames(opts, deps) {
+  const slugGate = validateSlug(opts.slug);
+  if (!slugGate.ok) return slugGate;
+  const slug = slugGate.slug;
+  let pre = null;
+  if (!deps.inExactSnapshot) {
+    pre = assertRepoDeployPreflight(deps);
+    if (!pre.ok) return pre;
+  } else {
+    const verifiedDeploySha = deps.verifiedDeploySha;
+    if (!verifiedDeploySha) {
+      return { ok: false, errors: [err('verified_sha_required', 'internal mode needs verifiedDeploySha')] };
+    }
+    pre = { ok: true, errors: [], verifiedDeploySha, deploySha: verifiedDeploySha, branch: 'master' };
+  }
+  const expectedSub = readStagingSubscriptionAuthority(deps.repoRoot);
+  if (!expectedSub.ok) return expectedSub;
+  const active = readActiveSubscription(deps);
+  if (!active.ok) return active;
+  const subMatch = assertSubscriptionMatchesAuthority(active.subscriptionId, expectedSub.subscriptionId);
+  if (!subMatch.ok) return subMatch;
+  const names = deriveNames(slug, expectedSub.subscriptionId);
+  return {
+    ok: true, errors: [], slug, names, pre, expectedSub, active,
+    currentDeploySha: pre.verifiedDeploySha || null,
+  };
 }
 function readCapabilityFd(fd = CAPABILITY_FD) {
   try {
@@ -1050,7 +1467,16 @@ module.exports = Object.freeze({
   STAGE, OWNER, MODULE_REL, STAGING_SUB_REL, SKU_EST, COST_API, HEALTH_IDENTITY_PATH,
   PINNED_BINS, INTERNAL_FLAG, CAPABILITY_FD, CLI_REL, LIB_REL,
   ROLE_KV_SECRETS_USER, ROLE_ACR_PULL, ACR_RG, IGNORE_TYPES, DEP_API,
-  createDeps, deriveNames, deriveAuthority, plan, status, buildExpectedResourceContract,
+  createDeps, deriveNames, deriveAuthority, deriveHistoricalRollbackAuthority,
+  resolveCurrentStagingNames, assertHistoricalDeployShaCandidate, buildAuthorityAtExactSha,
+  plan, status, buildExpectedResourceContract,
+  buildOwnedDeploymentNames, isExactInfraPartialLive, isFullFoundationContract,
+  isExactDeploymentRowShape, isExactOwnedFailureAnomaliesDeployment, isOwnedDeploymentRow,
+  failureAnomaliesMatchesPlatformSignature, failureAnomaliesCorrelatesToAppInsights,
+  liveInventoryHasExactAppInsights,
+  FAILURE_ANOMALIES_DEPLOY_PREFIX, FAILURE_ANOMALIES_DEPLOY_NAME_RE, deploymentResourceId,
+  FAILURE_ANOMALIES_TEMPLATE_HASH, FAILURE_ANOMALIES_PROVIDER_NS, FAILURE_ANOMALIES_RESOURCE_TYPE,
+  FAILURE_ANOMALIES_LOCATION, FAILURE_ANOMALIES_TOP_ERROR_CODE, FAILURE_ANOMALIES_ERROR_CODE,
   inferLivePhase, isExactEmptyLiveInventory, runtimeSecretNames, azureArmGuid, collectLiveInventory, phaseContractFindings,
   readStagingSubscriptionAuthority, assertRepoDeployPreflight, createHeadSnapshot,
   createExactShaSnapshot, assertSafeTarMembers, verifyLauncherBytes, hashPinnedToolAuthority,

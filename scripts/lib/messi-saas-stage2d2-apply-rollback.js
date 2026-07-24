@@ -115,7 +115,12 @@ const ROLE_ACR_BUILD_RUNNER = 'fb382eab-e894-4461-af04-94435c366c3f';
 const ROLE_OWNER = '8e3af657-a8ff-443c-a75c-2fe8c4bcb635';
 const PREPARED_FOR = OWNER; const DRILL_BIND = OWNER;
 // empty = exact zero-resource/zero-deployment owned drill (apply failed before foundation).
-const LEGITIMATE_PHASES = Object.freeze(['empty', 'foundation', 'bootstrap-active', 'runtime-prereqs', 'runtime']);
+// infra-partial = exact owned subset of rederived foundation/nested (exact resource IDs) +
+// plan-owned deployments and narrow Failure-Anomalies-Alert-Rule-Deployment-<8hex>
+// (platform SHOW signature + exact App Insights in live inventory) only.
+const LEGITIMATE_PHASES = Object.freeze([
+  'empty', 'infra-partial', 'foundation', 'bootstrap-active', 'runtime-prereqs', 'runtime',
+]);
 const PHASE_MAX_MS = Object.freeze({
   'rg-create': 120000, infra: 1200000, bootstrap: 1200000, 'c2-operator': 1200000,
   'job-delete': 300000, 'runtime-prereqs': 1200000, roles: 600000, 'runtime-app': 1200000,
@@ -339,6 +344,80 @@ function readReceipt(deps, slug) {
   if (!fs.existsSync(p)) return null;
   return JSON.parse(fs.readFileSync(p, 'utf8'));
 }
+function processPidAlive(deps, pid) {
+  const kill = deps.processKill || ((p, s) => process.kill(p, s));
+  try {
+    kill(Number(pid), 0);
+    return true;
+  } catch (e) {
+    if (e && e.code === 'ESRCH') return false;
+    // EPERM etc: process exists but not signalable — treat as live (never steal).
+    return true;
+  }
+}
+function findCompetingLockProcesses(deps, slug, recordedPid) {
+  if (typeof deps.findCompetingProcesses === 'function') {
+    return deps.findCompetingProcesses({ slug, recordedPid }) || [];
+  }
+  const out = [];
+  const procDir = '/proc';
+  let ents;
+  try { ents = fs.readdirSync(procDir); } catch (_) { return out; }
+  const needleCli = 'messi-saas-stage2d2-apply-rollback';
+  const slugTok = `--slug ${slug}`;
+  for (const ent of ents) {
+    if (!/^\d+$/.test(ent)) continue;
+    const pid = Number(ent);
+    if (!Number.isFinite(pid) || pid === process.pid || pid === Number(recordedPid)) continue;
+    let cmd = '';
+    try {
+      cmd = fs.readFileSync(path.join(procDir, ent, 'cmdline'), 'utf8').replace(/\0/g, ' ');
+    } catch (_) { continue; }
+    if (cmd.includes(needleCli) && (cmd.includes(slugTok) || cmd.includes(` ${slug} `) || cmd.endsWith(` ${slug}`))) {
+      out.push({ pid, cmd: cmd.trim() });
+    }
+  }
+  return out;
+}
+function tryRecoverStaleLock(deps, lp, slug) {
+  // Recover only after proving: lock is regular file, PID parseable, recorded PID dead,
+  // and no competing apply/rollback process for this slug. Never steal a live lock.
+  let st;
+  try { st = fs.lstatSync(lp); } catch (e) {
+    return { ok: false, errors: [err('lock_busy', e.message || 'lock missing during recover')] };
+  }
+  if (st.isSymbolicLink()) return { ok: false, errors: [err('lock_symlink', 'nofollow refused symlink lock')] };
+  if (!st.isFile()) return { ok: false, errors: [err('lock_busy', 'lock is not a regular file')] };
+  let raw;
+  try { raw = fs.readFileSync(lp, 'utf8'); } catch (e) {
+    return { ok: false, errors: [err('lock_busy', e.message || 'lock unreadable')] };
+  }
+  const line = String(raw || '').trim().split(/\r?\n/)[0] || '';
+  if (!/^\d+$/.test(line)) {
+    return { ok: false, errors: [err('lock_busy', 'lock pid malformed')] };
+  }
+  const recordedPid = Number(line);
+  if (!Number.isFinite(recordedPid) || recordedPid <= 0) {
+    return { ok: false, errors: [err('lock_busy', 'lock pid invalid')] };
+  }
+  if (recordedPid === process.pid) {
+    return { ok: false, errors: [err('lock_busy', 'lock held by current pid')] };
+  }
+  if (processPidAlive(deps, recordedPid)) {
+    return { ok: false, errors: [err('lock_live', `lock held by live pid ${recordedPid}`)] };
+  }
+  const competing = findCompetingLockProcesses(deps, slug, recordedPid);
+  if (competing.length) {
+    return {
+      ok: false,
+      errors: [err('lock_competing', `competing process for slug ${slug}: pid ${competing[0].pid}`)],
+    };
+  }
+  try { fs.unlinkSync(lp); } catch (e) {
+    return { ok: false, errors: [err('lock_busy', e.message || 'stale lock unlink failed')] };
+  }
+  return { ok: true, recoveredPid: recordedPid };
+}
 function acquireExclusiveLock(deps, slug) {
   fs.mkdirSync(deps.stateDir, { recursive: true, mode: 0o700 });
   const lp = lockPath(deps, slug);
@@ -354,7 +433,15 @@ function acquireExclusiveLock(deps, slug) {
   let fd;
   try { fd = open(lp); }
   catch (e) {
-    return { ok: false, errors: [err('lock_busy', e.message || 'exclusive lock failed')] };
+    const recovered = tryRecoverStaleLock(deps, lp, slug);
+    if (!recovered.ok) {
+      // Prefer specific live/competing codes; otherwise lock_busy.
+      return recovered;
+    }
+    try { fd = open(lp); }
+    catch (e2) {
+      return { ok: false, errors: [err('lock_busy', e2.message || 'exclusive lock failed after stale recover')] };
+    }
   }
   try { fs.writeSync(fd, `${process.pid}\n`); } catch (_) { /* */ }
   return {
@@ -596,8 +683,8 @@ async function putAndPoll(deps, { method = 'PUT', path: reqPath, body, headers, 
   const polled = await pollArmTerminal(deps, reqPath, { createdAt, expiresAt, phase });
   return { ...polled, put };
 }
-async function deriveD1Authority(opts, deps) {
-  const d1deps = deps.d1.createDeps({
+function d1DepsFrom(deps) {
+  return deps.d1.createDeps({
     repoRoot: deps.repoRoot, pinnedBins: deps.pinnedBins, gitExec: deps.gitExec,
     azExec: deps.azExec, armRequest: deps.armRequest, httpsRequest: deps.httpsRequest,
     sleep: deps.sleep, now: deps.now,
@@ -605,8 +692,9 @@ async function deriveD1Authority(opts, deps) {
     verifiedDeploySha: deps.verifiedDeploySha, inExactSnapshot: deps.inExactSnapshot,
     bicepBuildBytes: deps.bicepBuildBytes, hashFile: deps.hashFile, bicepVersion: deps.bicepVersion,
   });
-  const auth = await deps.d1.deriveAuthority({ slug: opts.slug, actionGroupResourceId: opts.actionGroupResourceId }, d1deps);
-  if (!auth.ok) return auth;
+}
+function assertCompiledHandoff(auth) {
+  if (!auth || !auth.ok) return auth;
   if (!Buffer.isBuffer(auth.templateBytes) || !auth.compiled || !auth.compiled.template) {
     return { ok: false, errors: [err('d1_compiled_handoff', 'D1 did not supply compiled template bytes/object')] };
   }
@@ -614,6 +702,102 @@ async function deriveD1Authority(opts, deps) {
     return { ok: false, errors: [err('d1_compiled_hash_mismatch', 'compiled bytes hash drift')] };
   }
   return auth;
+}
+/** Apply/plan path: current HEAD authority only — never live RG historical tags. */
+async function deriveD1Authority(opts, deps) {
+  const auth = await deps.d1.deriveAuthority(
+    { slug: opts.slug, actionGroupResourceId: opts.actionGroupResourceId },
+    d1DepsFrom(deps),
+  );
+  return assertCompiledHandoff(auth);
+}
+/**
+ * Rollback-only: rederive authority from immutable live RG deploySha/planDigest tags
+ * (never receipt). Refuse on nonancestor, missing object, digest mismatch, etc.
+ */
+async function deriveD1HistoricalRollbackAuthority(opts, deps) {
+  const auth = await deps.d1.deriveHistoricalRollbackAuthority({
+    slug: opts.slug,
+    liveDeploySha: opts.liveDeploySha,
+    livePlanDigest: opts.livePlanDigest,
+    actionGroupResourceId: opts.actionGroupResourceId,
+  }, d1DepsFrom(deps));
+  return assertCompiledHandoff(auth);
+}
+function extractRgEtag(rg) {
+  if (!rg) return null;
+  return (rg.headers && (rg.headers.etag || rg.headers.ETag))
+    || (rg.body && rg.body.etag) || null;
+}
+/** Full drill ownership + TTL tag tuple (immutable recovery surface). */
+function extractDrillTagTuple(tags) {
+  const t = tags || {};
+  return {
+    tenant: String(t.tenant || ''),
+    stage: String(t.stage || ''),
+    owner: String(t.owner || ''),
+    planDigest: String(t.planDigest || ''),
+    deploySha: String(t.deploySha || ''),
+    createdAt: String(t.createdAt || ''),
+    expiresAt: String(t.expiresAt || ''),
+    temporaryDrill: String(t.temporaryDrill || ''),
+  };
+}
+function drillTagTuplesEqual(a, b) {
+  const left = extractDrillTagTuple(a);
+  const right = extractDrillTagTuple(b);
+  return Object.keys(left).every((k) => left[k] === right[k]);
+}
+/**
+ * Structural full-tuple check before historical rederive (keys present + shapes).
+ * Exact planDigest/deploySha ownership match happens after rederive.
+ */
+function assertFullDrillTagTuplePresent(tags, tenantSlug) {
+  const t = extractDrillTagTuple(tags);
+  const errors = [];
+  for (const k of Object.keys(t)) {
+    if (!t[k]) errors.push(err('drill_tag_missing', `missing or empty tag ${k}`));
+  }
+  if (t.tenant && t.tenant !== String(tenantSlug || '')) {
+    errors.push(err('drill_tag_tenant', 'live tenant tag does not match slug'));
+  }
+  if (t.stage && t.stage !== STAGE_TAG) {
+    errors.push(err('drill_tag_stage', `live stage tag must be ${STAGE_TAG}`));
+  }
+  if (t.owner && t.owner !== OWNER) {
+    errors.push(err('drill_tag_owner', `live owner tag must be ${OWNER}`));
+  }
+  if (t.temporaryDrill && t.temporaryDrill !== 'true') {
+    errors.push(err('drill_tag_temporary', 'temporaryDrill must be true'));
+  }
+  if (t.planDigest && !/^[0-9a-f]{64}$/i.test(t.planDigest)) {
+    errors.push(err('live_plan_digest_invalid', 'live planDigest must be full 64-hex'));
+  }
+  if (t.deploySha && !/^[0-9a-f]{40}$/i.test(t.deploySha)) {
+    errors.push(err('deploy_sha_invalid', 'live deploySha must be full 40-hex'));
+  }
+  const created = Date.parse(t.createdAt);
+  const expires = Date.parse(t.expiresAt);
+  if (!Number.isFinite(created) || !Number.isFinite(expires) || !(expires > created)
+    || (expires - created) > TTL_HOURS_MAX * 3600 * 1000
+    || (expires - created) < TTL_HOURS_MIN * 3600 * 1000) {
+    errors.push(err('drill_ttl_invalid', 'createdAt/expiresAt missing or outside 1..48h window'));
+  }
+  return { ok: !errors.length, errors, tuple: t };
+}
+function assertRgProbeUnchanged(probe1, probe2) {
+  const etag1 = probe1 && probe1.etag != null ? String(probe1.etag) : null;
+  const etag2 = probe2 && probe2.etag != null ? String(probe2.etag) : null;
+  if (etag1 !== etag2) {
+    return { ok: false, errors: [err('etag_race', 'RG ETag changed between probe and locked re-read')] };
+  }
+  if (!drillTagTuplesEqual(probe1 && probe1.tags, probe2 && probe2.tags)) {
+    return {
+      ok: false,
+      errors: [err('tag_drift', 'RG drill tag tuple changed between probe and locked re-read')],
+    };
+  }
+  return { ok: true, errors: [] };
 }
 function pasteReadyRollbackCommand(slug) {
   return `node scripts/messi-saas-stage2d2-apply-rollback.js rollback --slug ${slug} --confirm-delete luna-${slug}-staging-rg`;
@@ -1618,23 +1802,73 @@ async function rollback(opts, depsIn) {
     if (!slug || confirm !== expectedRg) {
       return { ok: false, errors: [err('confirm_delete_required', `--confirm-delete ${expectedRg} required`)] };
     }
-    const auth = await deriveD1Authority({ slug }, deps);
-    if (!auth.ok) return auth;
-    lock = acquireExclusiveLock(deps, slug);
-    if (!lock.ok) return lock;
-    removeSignals = installOperationSignals(deps);
-    const { names, planDigest, verifiedDeploySha } = auth;
-    namesRef = names; planDigestRef = planDigest; deployShaRef = verifiedDeploySha;
+    // 1) Clean master HEAD==origin/master first (no mutation yet).
+    // 2) Resolve exact slug-derived names under fixed staging subscription only.
+    // 3) Probe live RG tags (immutable recovery surface — receipt is never authority).
+    // 4) Acquire lock, then re-read RG requiring same ETag + full tag tuple (no TOCTOU).
+    // 5) Historical authority from live deploySha snapshot; only then inventory/delete.
+    const resolved = deps.d1.resolveCurrentStagingNames({ slug }, d1DepsFrom(deps));
+    if (!resolved.ok) return resolved;
+    const { names } = resolved;
+    namesRef = names;
     if (names.resourceGroupName !== expectedRg) {
       return { ok: false, errors: [err('rg_name_mismatch', 'derived RG mismatch')] };
     }
-    const aborted = checkAbort(deps);
-    if (!aborted.ok) {
-      return aborted;
+    if (names.subscriptionId !== resolved.expectedSub.subscriptionId) {
+      return { ok: false, errors: [err('subscription_mismatch', 'names sub != staging authority')] };
     }
+    const aborted0 = checkAbort(deps);
+    if (!aborted0.ok) return aborted0;
+
     const rgPath = `/subscriptions/${names.subscriptionId}/resourcegroups/${names.resourceGroupName}?api-version=${ARM_API}`;
-    const rg = await deps.armRequest({ method: 'GET', path: rgPath });
-    if (rg.status === 404) {
+    const probe1Res = await deps.armRequest({ method: 'GET', path: rgPath });
+    if (probe1Res.status !== 404 && (probe1Res.status < 200 || probe1Res.status >= 300)) {
+      return { ok: false, errors: [err('rg_read_failed', `status ${probe1Res.status}`)] };
+    }
+    const probe1 = probe1Res.status === 404
+      ? { absent: true, etag: null, tags: null }
+      : {
+        absent: false,
+        etag: extractRgEtag(probe1Res),
+        tags: (probe1Res.body && probe1Res.body.tags) || {},
+      };
+    if (!probe1.absent) {
+      const struct = assertFullDrillTagTuplePresent(probe1.tags, names.tenantSlug);
+      if (!struct.ok) {
+        return {
+          ok: false,
+          errors: [err('rollback_tag_mismatch', 'live RG missing full drill tag tuple')].concat(struct.errors),
+        };
+      }
+      // Candidate gate before lock (git-local; zero Azure mutation).
+      const cand = deps.d1.assertHistoricalDeployShaCandidate(d1DepsFrom(deps), struct.tuple.deploySha);
+      if (!cand.ok) return cand;
+    }
+
+    lock = acquireExclusiveLock(deps, slug);
+    if (!lock.ok) return lock;
+    removeSignals = installOperationSignals(deps);
+    const aborted = checkAbort(deps);
+    if (!aborted.ok) return aborted;
+
+    const probe2Res = await deps.armRequest({ method: 'GET', path: rgPath });
+    if (probe2Res.status !== 404 && (probe2Res.status < 200 || probe2Res.status >= 300)) {
+      return { ok: false, errors: [err('rg_read_failed', `status ${probe2Res.status}`)] };
+    }
+    const probe2 = probe2Res.status === 404
+      ? { absent: true, etag: null, tags: null }
+      : {
+        absent: false,
+        etag: extractRgEtag(probe2Res),
+        tags: (probe2Res.body && probe2Res.body.tags) || {},
+      };
+    if (probe1.absent !== probe2.absent) {
+      return {
+        ok: false,
+        errors: [err('tag_drift', 'RG presence changed between probe and locked re-read')],
+      };
+    }
+    if (probe1.absent && probe2.absent) {
       const acrDel = await deleteExactTempAcrRbacAdmin(deps, names);
       return {
         ok: acrDel.ok, alreadyAbsent: true, resourceGroupName: expectedRg,
@@ -1643,20 +1877,49 @@ async function rollback(opts, depsIn) {
         errors: acrDel.ok ? [] : acrDel.errors,
       };
     }
-    if (rg.status < 200 || rg.status >= 300) {
-      return { ok: false, errors: [err('rg_read_failed', `status ${rg.status}`)] };
-    }
+    const unchanged = assertRgProbeUnchanged(probe1, probe2);
+    if (!unchanged.ok) return unchanged;
+
     rgKnownPresent = true;
-    const tags = (rg.body && rg.body.tags) || {};
-    // Capture optional RG ETag after ownership/provenance/inventory gates (not before).
+    const tags = probe2.tags || {};
+    const struct2 = assertFullDrillTagTuplePresent(tags, names.tenantSlug);
+    if (!struct2.ok) {
+      return {
+        ok: false,
+        errors: [err('rollback_tag_mismatch', 'live RG missing full drill tag tuple')].concat(struct2.errors),
+      };
+    }
+    // Historical authority from live tags only (not receipt, not current HEAD alone).
+    const auth = await deriveD1HistoricalRollbackAuthority({
+      slug,
+      liveDeploySha: struct2.tuple.deploySha,
+      livePlanDigest: struct2.tuple.planDigest,
+    }, deps);
+    if (!auth.ok) return auth;
+    const { planDigest, verifiedDeploySha } = auth;
+    planDigestRef = planDigest;
+    deployShaRef = verifiedDeploySha;
+    if (auth.names.resourceGroupName !== names.resourceGroupName
+      || auth.names.subscriptionId !== names.subscriptionId
+      || auth.names.tenantSlug !== names.tenantSlug) {
+      return {
+        ok: false,
+        errors: [err('historical_names_mismatch', 'historical rederived names drift from staging slug path')],
+      };
+    }
+    // Capture optional RG ETag after ownership/provenance gates (not before).
     // Live ARM often omits RG ETag; delete without If-Match only when none was supplied.
-    const etag = (rg.headers && (rg.headers.etag || rg.headers.ETag)) || (rg.body && rg.body.etag) || null;
+    const etag = probe2.etag;
     const drillCheck = assertDrillTags(tags, {
       tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha,
       createdAt: tags.createdAt, expiresAt: tags.expiresAt,
     });
     if (!drillCheck.ok) {
-      return { ok: false, errors: [err('rollback_tag_mismatch', 'live RG tags do not match rederived drill ownership')].concat(drillCheck.errors) };
+      return {
+        ok: false,
+        errors: [err('rollback_tag_mismatch', 'live RG tags do not match rederived drill ownership')]
+          .concat(drillCheck.errors),
+      };
     }
     const live = await deps.d1.collectLiveInventory(deps, names, {
       tenant: names.tenantSlug, stage: STAGE_TAG, owner: OWNER, planDigest, deploySha: verifiedDeploySha,
@@ -1742,6 +2005,8 @@ async function rollback(opts, depsIn) {
       ...polled,
       acrTempRoleAbsent: true,
       acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
+      historicalDeploySha: verifiedDeploySha,
+      historicalPlanDigest: planDigest,
     };
   } catch (e) {
     const errors = [err('rollback_exception', redact(e.message, []))];
@@ -1814,7 +2079,9 @@ module.exports = Object.freeze({
   drillTags, preparedTags, buildPreparedRoleAssignments, deleteExactTempAcrRbacAdmin,
   pasteReadyAcrCleanupCommand, generateSecrets, buildBootstrapAdminDsn, installedAcrManifestShowArgv,
   installedAcrBuildArgv, resolveImageDigest, buildStaffImage, putAndPoll, pollArmTerminal,
-  pasteReadyRollbackCommand, acquireExclusiveLock, writeReceipt, readReceipt, deriveD1Authority, redact,
+  pasteReadyRollbackCommand, acquireExclusiveLock, writeReceipt, readReceipt, deriveD1Authority,
+  deriveD1HistoricalRollbackAuthority, extractDrillTagTuple, assertFullDrillTagTuplePresent,
+  assertRgProbeUnchanged, extractRgEtag, redact,
   sha256, checkAbort, installOperationSignals, buildNonsecretParams, parseRetryAfterMs, nextPollSleepMs,
   runInjectedOperatorLifecycle, waitExactRoles, adoptPreparedResourceGroup, decodeTokenOid,
   listDirectRoleAssignments, assertExactDirectRgRoles, assertExactExecutorAcrRoles, assertPreparedAuthzSnapshot,

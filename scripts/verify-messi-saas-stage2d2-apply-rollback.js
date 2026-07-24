@@ -70,6 +70,13 @@ function makeHarness(lib, d1, opts = {}) {
   let acrFail = false; let putFailPath = null;
   let pollStates = {}; let deleteEtagRace = false;
   let clock = new Date('2026-07-23T12:00:00Z');
+  const headSha = String(opts.headSha || opts.verifiedDeploySha || SHA).toLowerCase();
+  const originMasterSha = String(opts.originMasterSha || headSha).toLowerCase();
+  const missingShas = new Set((opts.missingShas || []).map((s) => String(s).toLowerCase()));
+  const nonCommitShas = new Set((opts.nonCommitShas || []).map((s) => String(s).toLowerCase()));
+  const isAncestorFn = typeof opts.isAncestor === 'function'
+    ? opts.isAncestor
+    : (anc, desc) => String(anc).toLowerCase() === String(desc).toLowerCase();
   const listeners = {};
   const fakeProc = {
     on(sig, fn) { listeners[sig] = (listeners[sig] || []).concat([fn]); },
@@ -90,7 +97,7 @@ function makeHarness(lib, d1, opts = {}) {
     sleep: async (ms) => { clock = new Date(clock.getTime() + (Number(ms) || 0)); },
     now: () => new Date(clock.getTime()),
     process: opts.process || fakeProc,
-    toolAuthority: opts.toolAuthority || fakeTools, verifiedDeploySha: opts.verifiedDeploySha || SHA,
+    toolAuthority: opts.toolAuthority || fakeTools, verifiedDeploySha: opts.verifiedDeploySha || headSha,
     snapshotAdapter: opts.snapshotAdapter || (() => ({ root: ROOT, cleanup: () => {} })),
     bicepBuildBytes: opts.bicepBuildBytes || (() => Buffer.from(TPL_BYTES)),
     randomBytes: (n) => Buffer.alloc(n, 7),
@@ -109,7 +116,22 @@ function makeHarness(lib, d1, opts = {}) {
       if (a === 'fetch origin master') return '';
       if (a === 'rev-parse --abbrev-ref HEAD') return branch;
       if (a === 'status --porcelain') return opts.dirty ? ' M x' : '';
-      if (a === 'rev-parse HEAD' || a === 'rev-parse origin/master') return SHA;
+      if (a === 'rev-parse HEAD') return headSha;
+      if (a === 'rev-parse origin/master') return originMasterSha;
+      if (args[0] === 'cat-file' && args[1] === '-t') {
+        const sha = String(args[2] || '').toLowerCase();
+        if (missingShas.has(sha)) {
+          const e = new Error(`Not a valid object name ${sha}`); e.status = 128; throw e;
+        }
+        if (nonCommitShas.has(sha)) return 'blob';
+        return 'commit';
+      }
+      if (args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+        const anc = String(args[2] || '').toLowerCase();
+        const desc = String(args[3] || '').toLowerCase();
+        if (isAncestorFn(anc, desc)) return '';
+        const e = new Error('not an ancestor'); e.status = 1; throw e;
+      }
       return '';
     },
     azExec: (args) => {
@@ -171,7 +193,7 @@ function makeHarness(lib, d1, opts = {}) {
         return { status: 200, body: { value: deploymentList }, headers: {} };
       }
       if (/\/deployments\//i.test(p)) {
-        const name = (p.match(/deployments\/([^/?]+)/) || [])[1];
+        const name = decodeURIComponent((p.match(/deployments\/([^/?]+)/) || [])[1] || '');
         if (req.method === 'PUT') {
           deployments[name] = { id: p.replace(/\?.*$/, ''), properties: { provisioningState: 'Accepted' } };
           const seq = pollStates[name] || ['Succeeded'];
@@ -179,10 +201,25 @@ function makeHarness(lib, d1, opts = {}) {
           return { status: 201, body: deployments[name], headers: {} };
         }
         if (req.method === 'GET') {
+          // Prefer inventory LIST row (SHOW readback for Failure-Anomalies correlation).
+          const listHit = (deploymentList || []).find((d) => String(d.name || '') === name);
+          if (listHit) {
+            return {
+              status: 200,
+              body: {
+                id: listHit.id || p.replace(/\?.*$/, ''),
+                name: listHit.name,
+                type: listHit.type || 'Microsoft.Resources/deployments',
+                properties: listHit.properties
+                  || { provisioningState: listHit.provisioningState || 'Succeeded' },
+              },
+              headers: {},
+            };
+          }
           const seq = pollStates[name] || ['Succeeded'];
           const st = seq.length > 1 ? seq.shift() : seq[0];
           pollStates[name] = seq;
-          deployments[name] = { id: p.replace(/\?.*$/, ''), properties: { provisioningState: st } };
+          deployments[name] = { id: p.replace(/\?.*$/, ''), name, type: 'Microsoft.Resources/deployments', properties: { provisioningState: st } };
           return { status: 200, body: deployments[name], headers: {} };
         }
       }
@@ -267,11 +304,27 @@ function makeHarness(lib, d1, opts = {}) {
   };
 }
 function approval() { return { approveMaxTotalUsd: 8, ttlHours: 48 }; }
-function drillOwned(digest) {
+function drillOwned(digest, deploySha = SHA) {
   return {
     tenant: SLUG, stage: 'saas-2d2-staging', owner: 'messi-stage2d2',
-    planDigest: digest, deploySha: SHA, temporaryDrill: 'true', createdAt: CREATED, expiresAt: EXPIRES,
+    planDigest: digest, deploySha, temporaryDrill: 'true', createdAt: CREATED, expiresAt: EXPIRES,
   };
+}
+/** Rederive planDigest for an exact deploySha under the test harness authority surface. */
+async function rederivedDigestAt(lib, d1, deploySha, harnessOpts = {}) {
+  const h = makeHarness(lib, d1, harnessOpts);
+  const d1deps = d1.createDeps({
+    repoRoot: ROOT, stateDir: h.stateDir, gitExec: h.deps.gitExec, azExec: h.deps.azExec,
+    armRequest: h.deps.armRequest, snapshotAdapter: h.deps.snapshotAdapter,
+    toolAuthority: h.deps.toolAuthority, bicepBuildBytes: h.deps.bicepBuildBytes,
+    verifiedDeploySha: deploySha,
+  });
+  const pre = {
+    ok: true, errors: [], verifiedDeploySha: deploySha, deploySha, branch: 'master',
+  };
+  const auth = await d1.buildAuthorityAtExactSha({ slug: SLUG }, d1deps, deploySha, pre);
+  if (!auth.ok) throw new Error(`rederivedDigestAt failed: ${JSON.stringify(auth.errors)}`);
+  return { digest: auth.planDigest, auth, harness: h };
 }
 function runtimeAppBody(names) {
   return {
@@ -307,7 +360,11 @@ async function main() {
   } catch (e) { ok('lib_loads', false, String(e.message)); process.exit(1); }
   ok('lib_loads', !!lib && typeof d1.deriveAuthority === 'function');
   ok('api_surface', typeof lib.apply === 'function' && typeof lib.rollback === 'function'
-    && typeof lib.expiryStatus === 'function' && typeof lib.deriveD1Authority === 'function');
+    && typeof lib.expiryStatus === 'function' && typeof lib.deriveD1Authority === 'function'
+    && typeof lib.deriveD1HistoricalRollbackAuthority === 'function'
+    && typeof d1.deriveHistoricalRollbackAuthority === 'function'
+    && typeof d1.assertHistoricalDeployShaCandidate === 'function'
+    && typeof d1.resolveCurrentStagingNames === 'function');
 
   const doc = fs.readFileSync(path.join(ROOT, DOC_REL), 'utf8');
   const src = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8') + fs.readFileSync(path.join(ROOT, CLI_REL), 'utf8');
@@ -790,6 +847,604 @@ async function main() {
       && rgDeleteCount(hPartial) === 0);
   }
 
+  // Interrupted infra apply (partial foundation + plan-owned deployment history):
+  // fail-closed subset of rederived contract may roll back via entire RG DELETE + temp ACR role only.
+  // Unexpected resource, foreign deployment, malformed inventory, wrong tags refuse with zero deletes.
+  // Receipt is never authority. Stale PID lock recovers only after dead-PID + no-competitor proof.
+  // Failure-Anomalies admitted only via strict platform SHOW signature + exact AI in inventory.
+  // Live SHOW: parameters/outputResources/validatedResources null; dependencies []. No receipt trust.
+  {
+    const allDeletes = (hx) => hx.armLog.filter((x) => x.method === 'DELETE');
+    const authPreview = await lib.deriveD1Authority({ slug: SLUG }, makeHarness(lib, d1).deps);
+    const tags = drillOwned(authPreview.planDigest);
+    const names = d1.deriveNames(SLUG, SUB);
+    const contract = d1.buildExpectedResourceContract(names, { principalId: PID });
+    const ownedDeps = typeof d1.buildOwnedDeploymentNames === 'function'
+      ? d1.buildOwnedDeploymentNames(names)
+      : (contract.ownedDeploymentNames || []);
+    const depId = (name) => `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Resources/deployments/${name}`;
+    const ownedDepRows = ['messi-2d2-infra', names.acrPullModuleName, 'privateNetwork']
+      .map((name) => ({
+        id: depId(name), name, type: 'Microsoft.Resources/deployments',
+        properties: { provisioningState: name === 'messi-2d2-infra' ? 'Failed' : 'Succeeded' },
+      }));
+    const aiExp = contract.foundationTopLevel.find((e) => e.type === 'Microsoft.Insights/components');
+    const liveFix = JSON.parse(fs.readFileSync(path.join(ROOT, 'fixtures/messi-saas-stage2d2/infra-partial-live-crash.json'), 'utf8'));
+    const faProps = liveFix.deployments[3].properties;
+    const faName = liveFix.deployments[3].name;
+    const faRow = {
+      id: depId(faName), name: faName, type: 'Microsoft.Resources/deployments',
+      provisioningState: 'Failed', properties: faProps,
+    };
+    const liveFourDeps = liveFix.deployments.map((d) => ({
+      id: depId(d.name), name: d.name, type: d.type || 'Microsoft.Resources/deployments',
+      provisioningState: d.provisioningState || (d.properties && d.properties.provisioningState) || 'Succeeded',
+      properties: d.properties || { provisioningState: d.provisioningState || 'Succeeded' },
+    }));
+    const subset = contract.foundationTopLevel.slice(0, 6).map((r) => ({
+      id: r.id, name: r.name, type: r.type, tags, provisioningState: 'Succeeded',
+    }));
+    const liveTopNames = new Set(liveFix.topLevelResourceNames);
+    const liveSubset = contract.foundationTopLevel
+      .filter((r) => liveTopNames.has(r.name))
+      .map((r) => ({ id: r.id, name: r.name, type: r.type, tags, provisioningState: 'Succeeded' }));
+    const dnsLink = contract.nestedChildren.find((n) => n.type.includes('virtualNetworkLinks'));
+    const liveNested = dnsLink
+      ? { [dnsLink.id]: { id: dnsLink.id, name: dnsLink.name, type: dnsLink.type, tags } } : {};
+    const faScope = { subscriptionId: SUB, resourceGroupName: RG };
+    const faProv = (patch, extra) => ({
+      namespace: faProps.providers[0].namespace,
+      resourceTypes: [{
+        resourceType: faProps.providers[0].resourceTypes[0].resourceType,
+        locations: [faProps.providers[0].resourceTypes[0].locations[0]],
+        ...extra,
+      }],
+      ...patch,
+    });
+    const faMut = (propsPatch, rowPatch = {}) => ({
+      ...faRow, ...rowPatch,
+      properties: propsPatch === null ? null
+        : { ...JSON.parse(JSON.stringify(faProps)), ...propsPatch },
+    });
+    const isFaGet = (p) => /Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8/i.test(p)
+      && /\/deployments\/[^/?]+/i.test(p) && !/deployments(\?|$)/i.test(String(p).split('?')[0]);
+
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(subset); h.setNested({}); h.setSecrets([]); h.setRoles({});
+      h.setDeploymentsList(ownedDepRows);
+      fs.mkdirSync(h.stateDir, { recursive: true });
+      fs.writeFileSync(path.join(h.stateDir, `${SLUG}.receipt.json`), JSON.stringify({
+        schemaVersion: 1, kind: 'diagnostic_receipt_not_authority', status: 'apply_failed',
+        tenantSlug: SLUG, planDigest: 'f'.repeat(64), deploySha: 'a'.repeat(40),
+        phase: 'runtime', resourceGroupName: RG,
+      }));
+      const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      const del = h.armLog.find((x) => x.method === 'DELETE'
+        && /resourcegroups\/[^/?]+(\?|$)/i.test(x.path || '')
+        && !/providers\//i.test((x.path || '').split('resourcegroups/')[1] || ''));
+      ok('rollback_infra_partial_owned_subset_accepted', rb.ok === true && rb.deleted === true
+        && rb.phase === 'infra-partial' && !!del && rb.acrTempRoleAbsent === true
+        && lib.LEGITIMATE_PHASES.includes('infra-partial') && ownedDeps.length >= 3
+        && ownedDeps.includes('messi-2d2-infra') && ownedDeps.includes(names.acrPullModuleName)
+        && ownedDeps.includes('privateNetwork') && !ownedDeps.some((n) => /Failure-Anomalies/i.test(n)),
+      rb.ok ? `phase=${rb.phase} owned=${ownedDeps.join(',')}` : JSON.stringify(rb.errors || rb).slice(0, 500));
+      ok('rollback_infra_partial_stale_receipt_not_authority', rb.ok === true
+        && rb.phase === 'infra-partial' && authPreview.planDigest !== 'f'.repeat(64));
+    }
+
+    // RED: live Azure SHOW has params=null; legacy ScopeResourceId-only and sparse LIST lack signature.
+    {
+      const legacy = faMut({
+        templateHash: undefined, providers: undefined,
+        parameters: { ScopeResourceId: { value: aiExp.id } },
+      });
+      delete legacy.properties.templateHash; delete legacy.properties.providers;
+      const sparse = faMut({
+        templateHash: undefined, providers: undefined,
+        parameters: null, dependencies: [], outputResources: null, validatedResources: null,
+      });
+      delete sparse.properties.templateHash; delete sparse.properties.providers;
+      ok('failure_anomalies_live_shaped_without_signature_refused',
+        d1.failureAnomaliesMatchesPlatformSignature(legacy) === false
+        && d1.isExactOwnedFailureAnomaliesDeployment(legacy, faScope, aiExp, liveSubset) === false
+        && d1.failureAnomaliesMatchesPlatformSignature(sparse) === false
+        && d1.isExactOwnedFailureAnomaliesDeployment(sparse, faScope, aiExp, liveSubset) === false
+        && faProps.parameters === null && faProps.outputResources === null
+        && faProps.validatedResources === null
+        && Array.isArray(faProps.dependencies) && faProps.dependencies.length === 0);
+    }
+
+    // RED: exact captured nested error shape must be required — flat top-level MissingSubscriptionRegistration
+    // (pre-correction wrong level) and each nested-shape attack refuse helper + collect/phase.
+    {
+      const liveErr = faProps.error;
+      const liveDetail = liveErr && Array.isArray(liveErr.details) ? liveErr.details[0] : null;
+      ok('failure_anomalies_fixture_nested_error_shape',
+        liveErr && String(liveErr.code) === 'DeploymentFailed'
+        && Array.isArray(liveErr.details) && liveErr.details.length === 1
+        && liveDetail && String(liveDetail.code) === 'MissingSubscriptionRegistration'
+        && liveDetail.target === null
+        && !Object.prototype.hasOwnProperty.call(liveDetail, 'details')
+        && d1.FAILURE_ANOMALIES_TOP_ERROR_CODE === 'DeploymentFailed'
+        && d1.FAILURE_ANOMALIES_ERROR_CODE === 'MissingSubscriptionRegistration');
+
+      const flatTopOnly = faMut({
+        error: {
+          code: 'MissingSubscriptionRegistration',
+          message: 'The subscription is not registered to use namespace \'Microsoft.AlertsManagement\'.',
+        },
+      });
+      const topCodeChanged = faMut({
+        error: {
+          code: liveFix.attacks.wrongTopErrorCode || liveFix.attacks.wrongErrorCode,
+          details: [{ code: 'MissingSubscriptionRegistration', target: null }],
+        },
+      });
+      const zeroDetails = faMut({
+        error: { code: 'DeploymentFailed', details: [] },
+      });
+      const multiDetails = faMut({
+        error: {
+          code: 'DeploymentFailed',
+          details: [
+            { code: 'MissingSubscriptionRegistration', target: null },
+            { code: 'MissingSubscriptionRegistration', target: null },
+          ],
+        },
+      });
+      const wrongDetailCode = faMut({
+        error: {
+          code: 'DeploymentFailed',
+          details: [{
+            code: liveFix.attacks.wrongDetailErrorCode || liveFix.attacks.wrongErrorCode,
+            target: null,
+          }],
+        },
+      });
+      const nestedChildren = faMut({
+        error: {
+          code: 'DeploymentFailed',
+          details: [{
+            code: 'MissingSubscriptionRegistration',
+            target: null,
+            details: [{ code: 'NestedChild', target: null }],
+          }],
+        },
+      });
+      const malformedError = faMut({ error: ['not-an-object'] });
+      const missingTarget = faMut({
+        error: {
+          code: 'DeploymentFailed',
+          details: [{ code: 'MissingSubscriptionRegistration' }],
+        },
+      });
+      const nonNullTarget = faMut({
+        error: {
+          code: 'DeploymentFailed',
+          details: [{ code: 'MissingSubscriptionRegistration', target: 'Microsoft.AlertsManagement' }],
+        },
+      });
+      const nestedShapeAttacks = [
+        ['flat_top_missing_subscription_registration', flatTopOnly],
+        ['top_error_code_changed', topCodeChanged],
+        ['zero_details', zeroDetails],
+        ['multiple_details', multiDetails],
+        ['wrong_detail_code', wrongDetailCode],
+        ['detail_nested_children', nestedChildren],
+        ['malformed_error', malformedError],
+        ['missing_detail_target', missingTarget],
+        ['non_null_detail_target', nonNullTarget],
+      ];
+      let nestedRefuse = 0;
+      for (const [label, row] of nestedShapeAttacks) {
+        const helperRefuse = d1.failureAnomaliesMatchesPlatformSignature(row) === false
+          && d1.isExactOwnedFailureAnomaliesDeployment(row, faScope, aiExp, liveSubset) === false;
+        const h = makeHarness(lib, d1);
+        h.setRg({ name: RG, tags });
+        h.setResources(liveSubset); h.setNested(liveNested); h.setSecrets([]); h.setRoles({});
+        h.setDeploymentsList([...ownedDepRows, row]);
+        const inv = await d1.collectLiveInventory(h.deps, names, tags);
+        inv.rgExists = true;
+        const phaseRefuse = inv.ok === true
+          && d1.inferLivePhase(inv) !== 'infra-partial'
+          && d1.isExactInfraPartialLive(inv) === false;
+        if (helperRefuse && phaseRefuse) nestedRefuse += 1;
+        else {
+          ok(`failure_anomalies_nested_error_${label}_refused`, false,
+            `helper=${helperRefuse} phase=${d1.inferLivePhase(inv)} invOk=${inv.ok}`);
+        }
+      }
+      ok('failure_anomalies_nested_error_shape_attacks_refused',
+        nestedRefuse === nestedShapeAttacks.length,
+        `pass=${nestedRefuse}/${nestedShapeAttacks.length}`);
+    }
+
+    // GREEN: collectLiveInventory GET readback + phase inference + rollback (not helper-only).
+    // Requires exact nested error shape (DeploymentFailed + one MissingSubscriptionRegistration detail).
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(liveSubset); h.setNested(liveNested); h.setSecrets([]); h.setRoles({});
+      h.setDeploymentsList(liveFourDeps);
+      const inv = await d1.collectLiveInventory(h.deps, names, tags);
+      inv.rgExists = true;
+      const faLive = (inv.deployments || []).find((d) => d.name === faName);
+      const getCalls = h.armLog.filter((x) => x.method === 'GET' && isFaGet(x.path || ''));
+      const liveErr = (faLive && faLive.properties && faLive.properties.error) || {};
+      const liveDetail = Array.isArray(liveErr.details) ? liveErr.details[0] : null;
+      ok('collect_live_inventory_failure_anomalies_get_readback', inv.ok === true && !!faLive
+        && String((faLive.properties || {}).templateHash) === liveFix.failureAnomaliesPlatform.templateHash
+        && getCalls.length >= 1);
+      ok('collect_live_inventory_infers_infra_partial_with_live_fa',
+        d1.inferLivePhase(inv) === 'infra-partial' && d1.isExactInfraPartialLive(inv) === true
+        && d1.phaseContractFindings(inv, 'infra-partial').length === 0);
+      ok('failure_anomalies_platform_signature_and_ai_present',
+        d1.failureAnomaliesMatchesPlatformSignature(faRow) === true
+        && d1.failureAnomaliesMatchesPlatformSignature(faLive) === true
+        && String(liveErr.code) === 'DeploymentFailed'
+        && Array.isArray(liveErr.details) && liveErr.details.length === 1
+        && liveDetail && String(liveDetail.code) === 'MissingSubscriptionRegistration'
+        && liveDetail.target === null
+        && d1.liveInventoryHasExactAppInsights(liveSubset, aiExp) === true
+        && d1.isExactOwnedFailureAnomaliesDeployment(faRow, faScope, aiExp, liveSubset) === true
+        && d1.isExactOwnedFailureAnomaliesDeployment(faRow, faScope, aiExp, null) === false);
+      const hRb = makeHarness(lib, d1);
+      hRb.setRg({ name: RG, tags });
+      hRb.setResources(liveSubset); hRb.setNested(liveNested); hRb.setSecrets([]); hRb.setRoles({});
+      hRb.setDeploymentsList(liveFourDeps);
+      const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, hRb.deps);
+      ok('rollback_infra_partial_live_fixture_four_deps_accepted', rb.ok === true && rb.deleted === true
+        && rb.phase === 'infra-partial' && liveSubset.length === 9
+        && liveFourDeps.map((d) => d.name).join(',')
+          === 'messi-2d2-infra,messiproofStagingAcrPull,privateNetwork,Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8'
+        && !liveSubset.some((r) => r.type === 'Microsoft.KeyVault/vaults') && faProps.parameters === null
+        && String((faProps.error || {}).code) === 'DeploymentFailed',
+      rb.ok ? `phase=${rb.phase}` : JSON.stringify(rb.errors || rb).slice(0, 500));
+    }
+
+    // RED: FA GET failure/mismatch fail closed.
+    for (const [label, status, body, code] of [
+      ['get_fail_closed', 500, { error: { code: 'HarnessGetFail' } }, 'arm_get_failed'],
+      ['get_mismatch_fail_closed', 200, {
+        id: depId('other-name'), name: 'other-name', type: 'Microsoft.Resources/deployments', properties: faProps,
+      }, 'deployment_get_mismatch'],
+    ]) {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(liveSubset); h.setNested(liveNested); h.setSecrets([]); h.setRoles({});
+      h.setDeploymentsList(liveFourDeps);
+      const realArm = h.deps.armRequest;
+      h.deps.armRequest = async (req) => (req.method === 'GET' && isFaGet(req.path || '')
+        ? { status, body, headers: {} } : realArm(req));
+      const inv = await d1.collectLiveInventory(h.deps, names, tags);
+      ok(`collect_live_inventory_failure_anomalies_${label}`, inv.ok === false
+        && (inv.errors || []).some((e) => e.code === code));
+    }
+
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources([...subset, {
+        id: `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/rogue`,
+        name: 'rogue', type: 'Microsoft.Storage/storageAccounts', tags, provisioningState: 'Succeeded',
+      }]);
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_infra_partial_unexpected_resource_refused', refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'inventory_findings' || e.code === 'rollback_phase_invalid')
+        && (refuse.findings || []).some((f) => f.code === 'unexpected_resource')
+        && allDeletes(h).length === 0);
+    }
+
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList([...ownedDepRows.slice(0, 1), {
+        id: depId('foreign-deploy'), name: 'foreign-deploy', type: 'Microsoft.Resources/deployments',
+        properties: { provisioningState: 'Succeeded' },
+      }]);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_infra_partial_foreign_deployment_refused', refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'inventory_findings' || e.code === 'rollback_phase_invalid')
+        && allDeletes(h).length === 0);
+    }
+
+    // RED: lookalike signature attacks + nested error attacks + absent/wrong App Insights refuse with zero deletes.
+    {
+      const atk = liveFix.attacks;
+      const noErr = JSON.parse(JSON.stringify(faProps)); delete noErr.error;
+      const goodDetail = { code: 'MissingSubscriptionRegistration', target: null };
+      const attacks = [
+        { label: 'lookalike_prefix', row: {
+          id: depId(atk.lookalikePrefix), name: atk.lookalikePrefix,
+          type: 'Microsoft.Resources/deployments', provisioningState: 'Failed', properties: faProps,
+        } },
+        { label: 'wrong_template_hash', row: faMut({ templateHash: atk.wrongTemplateHash }) },
+        { label: 'extra_provider', row: faMut({
+          providers: [faProps.providers[0], {
+            namespace: atk.extraProviderNamespace, resourceTypes: faProps.providers[0].resourceTypes,
+          }],
+        }) },
+        { label: 'wrong_resource_type', row: faMut({
+          providers: [faProv({}, { resourceType: atk.wrongResourceType })],
+        }) },
+        { label: 'wrong_location', row: faMut({
+          providers: [faProv({}, { locations: [atk.wrongLocation] })],
+        }) },
+        { label: 'non_failed_state', row: faMut(
+          { provisioningState: atk.nonFailedState },
+          { provisioningState: atk.nonFailedState },
+        ) },
+        { label: 'top_error_code_changed', row: faMut({
+          error: { code: atk.wrongTopErrorCode || atk.wrongErrorCode, details: [goodDetail] },
+        }) },
+        { label: 'zero_details', row: faMut({ error: { code: 'DeploymentFailed', details: [] } }) },
+        { label: 'multiple_details', row: faMut({
+          error: { code: 'DeploymentFailed', details: [goodDetail, goodDetail] },
+        }) },
+        { label: 'wrong_detail_code', row: faMut({
+          error: {
+            code: 'DeploymentFailed',
+            details: [{ code: atk.wrongDetailErrorCode || atk.wrongErrorCode, target: null }],
+          },
+        }) },
+        { label: 'detail_nested_children', row: faMut({
+          error: {
+            code: 'DeploymentFailed',
+            details: [{
+              code: 'MissingSubscriptionRegistration',
+              target: null,
+              details: [{ code: 'NestedChild', target: null }],
+            }],
+          },
+        }) },
+        { label: 'flat_top_missing_subscription_registration', row: faMut({
+          error: { code: 'MissingSubscriptionRegistration', message: 'flat wrong level' },
+        }) },
+        { label: 'wrong_error_code', row: faMut({ error: { code: atk.wrongErrorCode } }) },
+        { label: 'missing_error', row: { ...faRow, properties: noErr } },
+        { label: 'malformed_error', row: faMut({ error: ['x'] }) },
+        { label: 'null_properties', row: faMut(null) },
+        { label: 'malformed_properties', row: { ...faRow, properties: ['x'] } },
+        { label: 'wrong_type', row: { ...faRow, type: atk.wrongType } },
+        { label: 'wrong_id', row: {
+          ...faRow,
+          id: `/subscriptions/${atk.wrongIdSub}/resourceGroups/${RG}/providers/Microsoft.Resources/deployments/${faName}`,
+        } },
+        { label: 'absent_app_insights', row: faRow,
+          resources: liveSubset.filter((r) => r.type !== 'Microsoft.Insights/components') },
+        { label: 'wrong_app_insights_id', row: faRow,
+          resources: liveSubset.map((r) => (r.type === 'Microsoft.Insights/components'
+            ? { ...r, id: `${r.id}-x`, name: `${r.name}-x` } : r)) },
+      ];
+      let attackPass = 0;
+      for (const at of attacks) {
+        const h = makeHarness(lib, d1);
+        h.setRg({ name: RG, tags });
+        h.setResources(at.resources || liveSubset); h.setNested(liveNested);
+        h.setDeploymentsList([...ownedDepRows, at.row]);
+        const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+        const helperRow = {
+          id: at.row.id, name: at.row.name, type: at.row.type,
+          provisioningState: at.row.provisioningState
+            || (at.row.properties && at.row.properties.provisioningState) || null,
+          properties: at.row.properties,
+        };
+        if (refuse.ok === false && allDeletes(h).length === 0
+          && d1.isExactOwnedFailureAnomaliesDeployment(helperRow, faScope, aiExp, at.resources || liveSubset) === false
+          && (refuse.errors || []).some((e) => /inventory_findings|rollback_phase_invalid|arm_get_failed|deployment_get_mismatch/.test(e.code || ''))) {
+          attackPass += 1;
+        } else {
+          ok(`rollback_infra_partial_failure_anomalies_${at.label}_refused`, false,
+            JSON.stringify(refuse.errors || refuse).slice(0, 240));
+        }
+      }
+      ok('rollback_infra_partial_failure_anomalies_attacks_refused', attackPass === attacks.length,
+        `pass=${attackPass}/${attacks.length}`);
+    }
+
+    // RED: missing/wrong resource ID; missing/wrong deployment id/type.
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(subset.map((r, i) => (i === 0 ? { name: r.name, type: r.type, tags, provisioningState: 'Succeeded' } : r)));
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_infra_partial_missing_resource_id_refused', refuse.ok === false
+        && allDeletes(h).length === 0
+        && (refuse.errors || []).some((e) => e.code === 'inventory_findings' || e.code === 'rollback_phase_invalid'),
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(subset.map((r, i) => (i === 0
+        ? { ...r, id: `${r.id}-tampered` }
+        : r)));
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_infra_partial_wrong_resource_id_refused', refuse.ok === false
+        && allDeletes(h).length === 0
+        && (refuse.errors || []).some((e) => e.code === 'inventory_findings' || e.code === 'rollback_phase_invalid'),
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows.map((d, i) => (i === 0
+        ? { name: d.name, type: d.type, properties: d.properties }
+        : d)));
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_infra_partial_missing_deployment_id_refused', refuse.ok === false
+        && allDeletes(h).length === 0
+        && (refuse.errors || []).some((e) => e.code === 'inventory_findings' || e.code === 'rollback_phase_invalid'),
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows.map((d, i) => (i === 0
+        ? { ...d, type: 'Microsoft.Resources/deployments/operations' }
+        : d)));
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_infra_partial_wrong_deployment_type_refused', refuse.ok === false
+        && allDeletes(h).length === 0
+        && (refuse.errors || []).some((e) => e.code === 'inventory_findings' || e.code === 'rollback_phase_invalid'),
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+
+    // RED: foreign nested / role / secret still refuse (do not weaken).
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources([
+        ...liveSubset,
+        {
+          id: `${dnsLink.parentId}/virtualNetworkLinks/foreign-dns-link`,
+          name: 'foreign-dns-link',
+          type: 'Microsoft.Network/privateDnsZones/virtualNetworkLinks',
+          tags, provisioningState: 'Succeeded',
+        },
+      ]);
+      h.setNested(liveNested);
+      h.setDeploymentsList(liveFourDeps);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_infra_partial_foreign_nested_refused', refuse.ok === false && allDeletes(h).length === 0
+        && (refuse.errors || []).some((e) => e.code === 'inventory_findings' || e.code === 'rollback_phase_invalid'),
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources([
+        ...liveSubset,
+        {
+          id: `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Authorization/roleAssignments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`,
+          name: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+          type: 'Microsoft.Authorization/roleAssignments',
+          tags, provisioningState: 'Succeeded',
+        },
+      ]);
+      h.setNested(liveNested);
+      h.setDeploymentsList(liveFourDeps);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_infra_partial_foreign_role_refused', refuse.ok === false && allDeletes(h).length === 0
+        && (refuse.errors || []).some((e) => e.code === 'inventory_findings' || e.code === 'rollback_phase_invalid'),
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      const kv = contract.foundationTopLevel.find((r) => r.type === 'Microsoft.KeyVault/vaults');
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources([
+        ...liveSubset,
+        { id: kv.id, name: kv.name, type: kv.type, tags, provisioningState: 'Succeeded' },
+      ]);
+      h.setNested(liveNested);
+      h.setSecrets([{ id: `${kv.id}/secrets/rogue-secret`, name: 'rogue-secret', tags }]);
+      h.setDeploymentsList(liveFourDeps);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_infra_partial_foreign_secret_refused', refuse.ok === false && allDeletes(h).length === 0
+        && (refuse.errors || []).some((e) => e.code === 'inventory_findings' || e.code === 'rollback_phase_invalid'),
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentListStatus(500);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_infra_partial_malformed_inventory_refused', refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'arm_list_failed' || e.code === 'arm_list_malformed'
+          || e.code === 'inventory_list_failed' || e.code === 'inventory_findings')
+        && allDeletes(h).length === 0,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags: { ...tags, owner: 'other-owner', planDigest: '0'.repeat(64) } });
+      h.setResources(subset.map((r) => ({ ...r, tags: { ...tags, owner: 'other-owner' } })));
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_infra_partial_wrong_tags_refused', refuse.ok === false
+        && (refuse.errors || []).some((e) => /tag_mismatch|takeover|rollback_tag/i.test(e.code || ''))
+        && allDeletes(h).length === 0,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+
+    // Stale lock: recorded PID absent + no competing process → recover and proceed.
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      const deadPid = 424242;
+      fs.mkdirSync(h.stateDir, { recursive: true });
+      fs.writeFileSync(path.join(h.stateDir, `${SLUG}.op.lock`), `${deadPid}\n`, { mode: 0o600 });
+      h.deps.processKill = (pid, sig) => {
+        if (Number(pid) === deadPid && (sig === 0 || sig === 'SIGCONT')) {
+          const e = new Error('kill ESRCH'); e.code = 'ESRCH'; throw e;
+        }
+        return process.kill(pid, sig);
+      };
+      h.deps.findCompetingProcesses = () => [];
+      const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_stale_pid_lock_recovered_after_dead_proof', rb.ok === true && rb.deleted === true
+        && rb.phase === 'infra-partial'
+        && !fs.existsSync(path.join(h.stateDir, `${SLUG}.op.lock`)),
+      rb.ok ? `phase=${rb.phase}` : JSON.stringify(rb.errors || rb).slice(0, 400));
+    }
+
+    // Live lock: recorded PID still present → never steal.
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      const livePid = process.pid;
+      fs.mkdirSync(h.stateDir, { recursive: true });
+      fs.writeFileSync(path.join(h.stateDir, `${SLUG}.op.lock`), `${livePid}\n`, { mode: 0o600 });
+      h.deps.processKill = (pid, sig) => process.kill(pid, sig);
+      h.deps.findCompetingProcesses = () => [];
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_live_pid_lock_never_stolen', refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'lock_busy' || e.code === 'lock_live')
+        && fs.existsSync(path.join(h.stateDir, `${SLUG}.op.lock`))
+        && allDeletes(h).length === 0,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+
+    // Competing process proof blocks recovery even if recorded PID is dead.
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      const deadPid = 434343;
+      fs.mkdirSync(h.stateDir, { recursive: true });
+      fs.writeFileSync(path.join(h.stateDir, `${SLUG}.op.lock`), `${deadPid}\n`, { mode: 0o600 });
+      h.deps.processKill = (pid, sig) => {
+        if (Number(pid) === deadPid) {
+          const e = new Error('kill ESRCH'); e.code = 'ESRCH'; throw e;
+        }
+        return process.kill(pid, sig);
+      };
+      h.deps.findCompetingProcesses = () => [{ pid: 999001, cmd: `node ${CLI_REL} rollback --slug ${SLUG}` }];
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_competing_process_blocks_stale_lock_steal', refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'lock_busy' || e.code === 'lock_competing')
+        && allDeletes(h).length === 0,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+  }
+
   {
     const h = makeHarness(lib, d1);
     const authPreview = await lib.deriveD1Authority({ slug: SLUG }, h.deps);
@@ -951,13 +1606,18 @@ async function main() {
     h.setRg({ name: RG, tags });
     h.seedFoundation(tags);
     let signaled = false;
+    let rgGets = 0;
     const real = h.deps.armRequest;
     h.deps.armRequest = async (req) => {
       const res = await real(req);
-      if (!signaled && req.method === 'GET' && /resourcegroups\/[^/?]+(\?|$)/i.test(req.path || '')
+      // Signal only on the locked re-read (2nd RG GET) after installOperationSignals.
+      if (req.method === 'GET' && /resourcegroups\/[^/?]+(\?|$)/i.test(req.path || '')
         && !/providers\//i.test((req.path || '').split('resourcegroups/')[1] || '')
         && res.status === 200) {
-        signaled = true; h.fakeProc.emit('SIGTERM');
+        rgGets += 1;
+        if (!signaled && rgGets >= 2) {
+          signaled = true; h.fakeProc.emit('SIGTERM');
+        }
       }
       return res;
     };
@@ -967,7 +1627,8 @@ async function main() {
       && (rb.errors || []).some((e) => e.code === 'operation_aborted')
       && receipt && /rollback_aborted|rollback_failed/.test(receipt.status)
       && !/postgresql:\/\/|sk_live|whsec_/i.test(JSON.stringify(receipt))
-      && !fs.existsSync(path.join(h.stateDir, `${SLUG}.op.lock`)) && signaled);
+      && !fs.existsSync(path.join(h.stateDir, `${SLUG}.op.lock`)) && signaled,
+    `rb=${JSON.stringify(rb.errors || rb).slice(0, 200)} receipt=${receipt && receipt.status} gets=${rgGets}`);
   }
 
   {
@@ -1107,8 +1768,9 @@ async function main() {
     ok('assert_exact_acr_roles_ignores_inherited_readers', acrAssert.ok === true);
   }
 
-  // Live apply acquires an exclusive lock before D1 preflight. If the default stateDir
-  // lives under the git worktree, that mkdir dirties porcelain and fail-closes with dirty_tree.
+  // Live apply acquires exclusive lock after HEAD authority. Rollback probes live tags,
+  // locks, re-reads (same ETag/full tuple), then historical authority — never receipt.
+  // If default stateDir lives under the git worktree, mkdir dirties porcelain.
   {
     const def = lib.createDeps({ repoRoot: ROOT });
     const underRepo = def.stateDir === path.join(ROOT, 'tmp', 'messi-saas-stage2d2')
@@ -1126,7 +1788,20 @@ async function main() {
       return a >= 0 && l >= 0 && a < l;
     };
     ok('apply_derives_authority_before_lock', authBeforeLock(applyFn));
-    ok('rollback_derives_authority_before_lock', authBeforeLock(rbFn));
+    // Rollback: staging names/preflight + live probe before lock; historical authority after lock re-read.
+    const resolveIdx = rbFn.indexOf('resolveCurrentStagingNames(');
+    const lockIdx = rbFn.indexOf('acquireExclusiveLock(');
+    const histIdx = rbFn.indexOf('deriveD1HistoricalRollbackAuthority(');
+    ok('rollback_probes_and_locks_before_historical_authority',
+      resolveIdx >= 0 && lockIdx >= 0 && histIdx >= 0
+      && resolveIdx < lockIdx && lockIdx < histIdx
+      && rbFn.includes('assertRgProbeUnchanged')
+      && !/readReceipt\(/.test(rbFn));
+    ok('apply_never_calls_historical_authority',
+      !applyFn.includes('deriveD1HistoricalRollbackAuthority')
+      && !applyFn.includes('deriveHistoricalRollbackAuthority')
+      && !applyFn.includes('historicalDeploySha')
+      && !applyFn.includes('liveDeploySha'));
 
     const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'messi-2d2-dirty-'));
     try {
@@ -1148,10 +1823,312 @@ async function main() {
     }
   }
 
+  // Historical authority (rollback-only): live deploySha is a prior master ancestor while
+  // current clean HEAD/origin/master has advanced. Old HEAD-only derive failed tag_mismatch
+  // (same class as empty-RG cleanup). GREEN rederives from live tags + exact-SHA snapshot.
+  {
+    const LIVE_ANCESTOR = 'e1179bf285a62e456a48e3e933e498fa5f65e3fd';
+    const CURRENT_HEAD = 'f60f1f32d9b89993ef547b84692a2dc48e402626';
+    const SIDE_BRANCH = 'd'.repeat(40);
+    const liveFix = JSON.parse(fs.readFileSync(
+      path.join(ROOT, 'fixtures/messi-saas-stage2d2/infra-partial-live-crash.json'), 'utf8',
+    ));
+    ok('fixture_live_shaped_ancestor_current_head',
+      liveFix.liveDeploySha === LIVE_ANCESTOR
+      && liveFix.currentHeadAdvanced === CURRENT_HEAD
+      && liveFix.originMaster === CURRENT_HEAD
+      && liveFix.receiptIsAuthority === false);
+
+    const ancestorOf = (anc, desc) => {
+      const a = String(anc).toLowerCase();
+      const d = String(desc).toLowerCase();
+      if (a === d) return true;
+      if (a === LIVE_ANCESTOR && (d === CURRENT_HEAD || d === LIVE_ANCESTOR)) return true;
+      return false;
+    };
+    const histOpts = {
+      headSha: CURRENT_HEAD,
+      originMasterSha: CURRENT_HEAD,
+      verifiedDeploySha: CURRENT_HEAD,
+      isAncestor: ancestorOf,
+    };
+    const { digest: liveDigest } = await rederivedDigestAt(lib, d1, LIVE_ANCESTOR, histOpts);
+    const { digest: headDigest } = await rederivedDigestAt(lib, d1, CURRENT_HEAD, histOpts);
+    ok('historical_digest_differs_from_advanced_head',
+      liveDigest !== headDigest && /^[0-9a-f]{64}$/.test(liveDigest));
+
+    // RED class: current-HEAD authority cannot match prior-ancestor live tags.
+    {
+      const h = makeHarness(lib, d1, histOpts);
+      const headAuth = await lib.deriveD1Authority({ slug: SLUG }, h.deps);
+      ok('red_head_authority_mismatches_ancestor_live_tags',
+        headAuth.ok === true
+        && headAuth.verifiedDeploySha === CURRENT_HEAD
+        && headAuth.planDigest === headDigest
+        && headAuth.planDigest !== liveDigest
+        && headAuth.verifiedDeploySha !== LIVE_ANCESTOR);
+    }
+
+    const allDeletes = (hx) => hx.armLog.filter((x) => x.method === 'DELETE');
+    const names = d1.deriveNames(SLUG, SUB);
+    const contract = d1.buildExpectedResourceContract(names, { principalId: PID });
+    const depId = (name) => `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Resources/deployments/${name}`;
+    const ownedDepRows = ['messi-2d2-infra', names.acrPullModuleName, 'privateNetwork']
+      .map((name) => ({
+        id: depId(name), name, type: 'Microsoft.Resources/deployments',
+        properties: { provisioningState: name === 'messi-2d2-infra' ? 'Failed' : 'Succeeded' },
+      }));
+    const subset = contract.foundationTopLevel.slice(0, 6).map((r) => {
+      const tags = drillOwned(liveDigest, LIVE_ANCESTOR);
+      return { id: r.id, name: r.name, type: r.type, tags, provisioningState: 'Succeeded' };
+    });
+    const tags = drillOwned(liveDigest, LIVE_ANCESTOR);
+
+    // GREEN: legitimate prior-ancestor crash inventory rolls back under advanced HEAD.
+    {
+      const h = makeHarness(lib, d1, histOpts);
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      h.setNested({});
+      h.setSecrets([]);
+      const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('green_rollback_prior_ancestor_crash_under_advanced_head',
+        rb.ok === true && rb.deleted === true && rb.phase === 'infra-partial'
+        && rb.historicalDeploySha === LIVE_ANCESTOR
+        && rb.historicalPlanDigest === liveDigest
+        && allDeletes(h).some((x) => /resourcegroups\//i.test(x.path || '')),
+      rb.ok ? `phase=${rb.phase} sha=${rb.historicalDeploySha}` : JSON.stringify(rb.errors || rb).slice(0, 400));
+    }
+
+    // Current-SHA rollback unchanged (live deploySha === HEAD).
+    {
+      const curTags = drillOwned(headDigest, CURRENT_HEAD);
+      const h = makeHarness(lib, d1, histOpts);
+      h.setRg({ name: RG, tags: curTags });
+      h.setResources(subset.map((r) => ({ ...r, tags: curTags })));
+      h.setDeploymentsList(ownedDepRows);
+      const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_current_sha_unchanged',
+        rb.ok === true && rb.deleted === true && rb.phase === 'infra-partial'
+        && rb.historicalDeploySha === CURRENT_HEAD,
+      rb.ok ? `sha=${rb.historicalDeploySha}` : JSON.stringify(rb.errors || rb).slice(0, 400));
+    }
+
+    // Attacks: nonancestor / side-branch / missing object / digest mismatch / tag drift /
+    // wrong sub / dirty / non-master — all zero mutation.
+    {
+      const h = makeHarness(lib, d1, {
+        ...histOpts,
+        isAncestor: (anc, desc) => String(anc).toLowerCase() === String(desc).toLowerCase(),
+      });
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('attack_nonancestor_sha_zero_mutation',
+        refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'deploy_sha_not_ancestor'
+          || e.code === 'deploy_sha_side_branch')
+        && allDeletes(h).length === 0,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      // Side-branch-only: ancestor of a divergent HEAD tip but not of origin/master.
+      const h = makeHarness(lib, d1, {
+        headSha: CURRENT_HEAD,
+        originMasterSha: LIVE_ANCESTOR,
+        verifiedDeploySha: CURRENT_HEAD,
+        isAncestor: (anc, desc) => {
+          const a = String(anc).toLowerCase();
+          const d = String(desc).toLowerCase();
+          if (a === d) return true;
+          if (a === SIDE_BRANCH && d === CURRENT_HEAD) return true;
+          if (a === LIVE_ANCESTOR && d === CURRENT_HEAD) return true;
+          return false;
+        },
+      });
+      const d1deps = d1.createDeps({
+        repoRoot: ROOT, gitExec: h.deps.gitExec, azExec: h.deps.azExec,
+        toolAuthority: h.deps.toolAuthority, snapshotAdapter: h.deps.snapshotAdapter,
+        bicepBuildBytes: h.deps.bicepBuildBytes, verifiedDeploySha: CURRENT_HEAD,
+      });
+      const cand = d1.assertHistoricalDeployShaCandidate(d1deps, SIDE_BRANCH);
+      ok('attack_side_branch_sha_zero_mutation',
+        cand.ok === false
+        && (cand.errors || []).some((e) => e.code === 'deploy_sha_side_branch'
+          || e.code === 'deploy_sha_not_ancestor'),
+      JSON.stringify(cand.errors || cand).slice(0, 280));
+    }
+    {
+      const h = makeHarness(lib, d1, { ...histOpts, missingShas: [LIVE_ANCESTOR] });
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('attack_missing_object_zero_mutation',
+        refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'deploy_sha_missing_object')
+        && allDeletes(h).length === 0,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      const h = makeHarness(lib, d1, { ...histOpts, nonCommitShas: [LIVE_ANCESTOR] });
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('attack_non_commit_object_zero_mutation',
+        refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'deploy_sha_not_commit')
+        && allDeletes(h).length === 0,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      const badTags = { ...tags, planDigest: '0'.repeat(64) };
+      const h = makeHarness(lib, d1, histOpts);
+      h.setRg({ name: RG, tags: badTags });
+      h.setResources(subset.map((r) => ({ ...r, tags: badTags })));
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('attack_digest_mismatch_zero_mutation',
+        refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'historical_plan_digest_mismatch'
+          || e.code === 'rollback_tag_mismatch')
+        && allDeletes(h).length === 0,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      // TOCTOU: tags change after probe / before locked re-read → refuse zero mutation.
+      const h = makeHarness(lib, d1, histOpts);
+      let reads = 0;
+      const real = h.deps.armRequest;
+      h.deps.armRequest = async (req) => {
+        if (req.method === 'GET' && /resourcegroups\/[^/?]+(\?|$)/i.test(req.path || '')
+          && !/providers\//i.test((req.path || '').split('resourcegroups/')[1] || '')) {
+          reads += 1;
+          if (reads === 1) {
+            return {
+              status: 200,
+              body: { name: RG, tags },
+              headers: { etag: '"etag-probe-1"' },
+            };
+          }
+          return {
+            status: 200,
+            body: { name: RG, tags: { ...tags, planDigest: '1'.repeat(64) } },
+            headers: { etag: '"etag-probe-2"' },
+          };
+        }
+        return real(req);
+      };
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('attack_tag_drift_after_lock_zero_mutation',
+        refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'tag_drift' || e.code === 'etag_race')
+        && allDeletes(h).length === 0
+        && reads >= 2,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      const h = makeHarness(lib, d1, { ...histOpts, dirty: true });
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('attack_dirty_tree_zero_mutation',
+        refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'dirty_tree')
+        && allDeletes(h).length === 0,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      const h = makeHarness(lib, d1, histOpts);
+      h.setBranch('captain/feature');
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('attack_non_master_checkout_zero_mutation',
+        refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'branch_not_master')
+        && allDeletes(h).length === 0,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      const h = makeHarness(lib, d1, {
+        ...histOpts,
+        headSha: CURRENT_HEAD,
+        originMasterSha: 'a'.repeat(40), // HEAD != origin/master
+        isAncestor: ancestorOf,
+      });
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('attack_head_not_synced_master_zero_mutation',
+        refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'not_synced_master')
+        && allDeletes(h).length === 0,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+    {
+      const h = makeHarness(lib, d1, { ...histOpts, activeSub: '00000000-0000-0000-0000-000000000000' });
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('attack_wrong_subscription_zero_mutation',
+        refuse.ok === false
+        && (refuse.errors || []).some((e) => e.code === 'subscription_mismatch')
+        && allDeletes(h).length === 0,
+      JSON.stringify(refuse.errors || refuse).slice(0, 280));
+    }
+
+    // Apply must NEVER accept historical authority (still HEAD-only; refuses pre-existing RG).
+    {
+      const h = makeHarness(lib, d1, histOpts);
+      h.setRg({ name: RG, tags });
+      const applied = await lib.apply({ slug: SLUG, ...approval() }, h.deps);
+      ok('apply_never_accepts_historical_live_rg',
+        applied.ok === false
+        && (applied.errors || []).some((e) => e.code === 'rg_exists')
+        && !((applied.receipt && applied.receipt.deploySha) === LIVE_ANCESTOR),
+      JSON.stringify(applied.errors || applied).slice(0, 280));
+      // Even if apply path is forced through deriveD1Authority, it is HEAD not live tags.
+      const auth = await lib.deriveD1Authority({ slug: SLUG }, h.deps);
+      ok('apply_authority_is_current_head_not_live_tags',
+        auth.ok === true && auth.verifiedDeploySha === CURRENT_HEAD
+        && auth.planDigest === headDigest
+        && auth.verifiedDeploySha !== LIVE_ANCESTOR);
+    }
+
+    // Receipt remains diagnostic: poisoned receipt must not influence historical authority.
+    {
+      const h = makeHarness(lib, d1, histOpts);
+      h.setRg({ name: RG, tags });
+      h.setResources(subset);
+      h.setDeploymentsList(ownedDepRows);
+      fs.mkdirSync(h.stateDir, { recursive: true });
+      fs.writeFileSync(path.join(h.stateDir, `${SLUG}.receipt.json`), JSON.stringify({
+        schemaVersion: 1, kind: 'diagnostic_receipt_not_authority', status: 'apply_failed',
+        tenantSlug: SLUG, planDigest: 'f'.repeat(64), deploySha: 'a'.repeat(40),
+        phase: 'runtime', resourceGroupName: RG,
+      }));
+      const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('receipt_never_authority_for_historical_rollback',
+        rb.ok === true && rb.deleted === true && rb.historicalDeploySha === LIVE_ANCESTOR
+        && rb.historicalPlanDigest === liveDigest,
+      rb.ok ? `sha=${rb.historicalDeploySha}` : JSON.stringify(rb.errors || rb).slice(0, 400));
+    }
+  }
+
   const st = diffStat();
   ok('file_budget', st.files <= 10, `files=${st.files}`);
-  // Budget raised for live ACR digest + independent deployments LIST empty-phase authority.
-  ok('net_budget', st.net <= 3600, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // Budget raised for historical-authority recovery + infra-partial + FA signature.
+  ok('net_budget', st.net <= 5500, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
   console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
   process.exit(fail ? 1 : 0);
 }
