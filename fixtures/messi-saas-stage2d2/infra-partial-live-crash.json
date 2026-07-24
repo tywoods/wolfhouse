@@ -26,7 +26,7 @@
     "luna-messiproof-staging-pg-dns-link"
   ],
   "excludedFoundationNames": [
-    "luna-messiproof-staging-kv"
+    "luna-messiproof-30ee69c2"
   ],
   "failureAnomaliesPlatform": {
     "templateHash": "5081387184824560999",
@@ -81,7 +81,9 @@
             "resourceTypes": [
               {
                 "resourceType": "smartDetectorAlertRules",
-                "locations": ["global"]
+                "locations": [
+                  "global"
+                ]
               }
             ]
           }

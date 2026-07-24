@@ -241,7 +241,96 @@ async function main() {
   ok('lib_loads', !!lib);
   ok('api_surface', typeof lib.plan === 'function' && typeof lib.status === 'function'
     && typeof lib.createDeps === 'function' && typeof lib.apply !== 'function'
-    && typeof lib.rollback !== 'function');
+    && typeof lib.rollback !== 'function'
+    && typeof lib.deriveKeyVaultName === 'function'
+    && typeof lib.isValidAzureKeyVaultName === 'function'
+    && typeof lib.canonicalKeyVaultName === 'function');
+  // Azure Key Vault name owner: RED messiproof canonical invalid (26>24); GREEN shortened valid.
+  // Preserve short canonicals; shorten only overlength with stable hash of full canonical.
+  {
+    const MESSIPROOF = 'messiproof';
+    const canonMessi = lib.canonicalKeyVaultName(MESSIPROOF);
+    ok('kv_name_red_messiproof_canonical_invalid',
+      canonMessi === 'luna-messiproof-staging-kv'
+      && canonMessi.length === 26
+      && lib.isValidAzureKeyVaultName(canonMessi) === false,
+      `canon=${canonMessi} len=${canonMessi.length}`);
+    const namesMessi = lib.deriveNames(MESSIPROOF, SUB);
+    const kvMessi = namesMessi.keyVaultName;
+    ok('kv_name_green_messiproof_valid_from_owner',
+      kvMessi === lib.deriveKeyVaultName(MESSIPROOF)
+      && lib.isValidAzureKeyVaultName(kvMessi) === true
+      && kvMessi.length <= lib.AZURE_KEY_VAULT_NAME_MAX
+      && kvMessi.length >= lib.AZURE_KEY_VAULT_NAME_MIN
+      && kvMessi !== canonMessi
+      && /^[a-z][a-z0-9-]*[a-z0-9]$/.test(kvMessi)
+      && !kvMessi.includes('--'),
+      `kv=${kvMessi} len=${kvMessi && kvMessi.length}`);
+    // Contract / role / secret IDs must all bind the same owner-derived vault name.
+    const contractMessi = lib.buildExpectedResourceContract(namesMessi, { principalId: PID });
+    const kvTop = contractMessi.foundationTopLevel.find((r) => r.type === 'Microsoft.KeyVault/vaults');
+    const kvRole = contractMessi.roleAssignments.find((r) => r.kind === 'kv');
+    ok('kv_name_contract_role_secret_ids_use_owner',
+      kvTop && kvTop.name === kvMessi
+      && kvTop.id.endsWith(`/Microsoft.KeyVault/vaults/${kvMessi}`)
+      && kvRole && kvRole.scope.endsWith(`/vaults/${kvMessi}`)
+      && (contractMessi.runtimeSecrets || []).every((s) => s.id.includes(`/vaults/${kvMessi}/secrets/`))
+      && !JSON.stringify(contractMessi).includes(canonMessi),
+      `top=${kvTop && kvTop.name} scope=${kvRole && kvRole.scope}`);
+    // Preserve when canonical already <=24 (compatibility — e.g. locked-live sunset).
+    const shortSlugs = ['aaa', 'abcdefg', 'abcdefgh', 'sunset'];
+    ok('kv_name_preserves_short_canonical',
+      shortSlugs.every((s) => {
+        const c = lib.canonicalKeyVaultName(s);
+        return c.length <= 24
+          && lib.deriveKeyVaultName(s) === c
+          && lib.isValidAzureKeyVaultName(c);
+      }),
+      shortSlugs.map((s) => `${s}:${lib.deriveKeyVaultName(s)}`).join(','));
+    // Min / max accepted synthetic slug shape ([a-z][a-z0-9]{2,31}).
+    const minSlug = 'aaa';
+    const maxSlug = `a${'b'.repeat(31)}`;
+    const minKv = lib.deriveKeyVaultName(minSlug);
+    const maxKv = lib.deriveKeyVaultName(maxSlug);
+    ok('kv_name_min_max_slug_edges',
+      minSlug.length === 3 && maxSlug.length === 32
+      && lib.isValidAzureKeyVaultName(minKv) && lib.isValidAzureKeyVaultName(maxKv)
+      && minKv === lib.canonicalKeyVaultName(minSlug)
+      && maxKv !== lib.canonicalKeyVaultName(maxSlug)
+      && maxKv.length === 24,
+      `min=${minKv} max=${maxKv}`);
+    // Similar long prefixes must not collide (hash of full canonical).
+    const a = lib.deriveKeyVaultName('messiproofaa');
+    const b = lib.deriveKeyVaultName('messiproofbb');
+    const c = lib.deriveKeyVaultName('abcdefghijlongone');
+    const d = lib.deriveKeyVaultName('abcdefghijlongtwo');
+    ok('kv_name_long_similar_prefix_no_collision',
+      a !== b && c !== d
+      && lib.isValidAzureKeyVaultName(a) && lib.isValidAzureKeyVaultName(b)
+      && lib.isValidAzureKeyVaultName(c) && lib.isValidAzureKeyVaultName(d)
+      && new Set([a, b, c, d]).size === 4,
+      `a=${a} b=${b} c=${c} d=${d}`);
+    // Deterministic across repeated calls; reserved/slug gates must stay fail-closed.
+    const mig = require('./lib/migration-integrity');
+    ok('kv_name_deterministic_and_reserved_intact',
+      lib.deriveKeyVaultName(MESSIPROOF) === kvMessi
+      && lib.deriveKeyVaultName(MESSIPROOF) === lib.deriveKeyVaultName(MESSIPROOF)
+      && mig.assertSyntheticTenantSlug('sunset').ok === false
+      && mig.assertSyntheticTenantSlug('wolfhouse').ok === false
+      && mig.assertSyntheticTenantSlug('prod').ok === false
+      && mig.assertSyntheticTenantSlug('wh').ok === false
+      && mig.assertSyntheticTenantSlug('ab').ok === false
+      && mig.assertSyntheticTenantSlug(MESSIPROOF).ok === true);
+    // Bicep module takes keyVaultName param (not prefix-derived) with Azure length bounds.
+    const modSrc = fs.readFileSync(path.join(ROOT, MOD_REL), 'utf8');
+    ok('kv_name_bicep_param_owner_not_prefix',
+      /param keyVaultName string/.test(modSrc)
+      && /@maxLength\(24\)/.test(modSrc)
+      && /@minLength\(3\)/.test(modSrc)
+      && /var kvName = keyVaultName/.test(modSrc)
+      && !modSrc.includes("var kvName = '${prefix}-kv'"),
+      'bicep still derives kv from prefix');
+  }
   const doc = fs.readFileSync(path.join(ROOT, DOC_REL), 'utf8');
   const src = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8') + fs.readFileSync(path.join(ROOT, CLI_REL), 'utf8');
   const apiSrc = fs.readFileSync(path.join(ROOT, API_REL), 'utf8');
@@ -451,14 +540,18 @@ async function main() {
     h.setRoles({});
     const r = await lib.status({ slug: SLUG }, h.deps);
     const missing = (r.findings || []).filter((f) => f.code === 'missing_resource').map((f) => f.name);
+    const expectedKv = lib.deriveNames(SLUG, SUB).keyVaultName;
     ok('status_expected_names_not_stale', r.phase === 'foundation'
-      && missing.includes(`${PREFIX}-kv`)
+      && missing.includes(expectedKv)
+      && expectedKv === lib.deriveKeyVaultName(SLUG)
+      && !missing.includes(`${PREFIX}-kv`)
       && missing.includes(`${PREFIX}-pg-app`)
       && missing.includes(`${PREFIX}-vnet`)
       && missing.includes('privatelink.postgres.database.azure.com')
       && !missing.includes(`${PREFIX}-logs`)
       && !missing.includes(`${PREFIX}-appinsights`)
-      && r.expectedNames && r.expectedNames.staffApiAppName === `${PREFIX}-staff-api`);
+      && r.expectedNames && r.expectedNames.staffApiAppName === `${PREFIX}-staff-api`
+      && r.expectedNames.keyVaultName === expectedKv);
   }
   {
     const h = makeHarness(lib);
@@ -737,13 +830,18 @@ async function main() {
         const jobB = blob('infra/azure/modules/tenant-staging/synthetic-bootstrap-job.bicep');
         const c1 = JSON.parse(fs.readFileSync(path.join(ROOT, 'infra/azure/modules/tenant-staging/parameters.synthetic.json'), 'utf8'));
         const c3 = JSON.parse(fs.readFileSync(path.join(ROOT, 'infra/azure/modules/tenant-staging/parameters.synthetic-runtime.json'), 'utf8'));
+        const expectedSynthKv = lib.deriveKeyVaultName(SLUG);
         ok('compile_c1_c2_c3_phase_fixtures',
           /natGateways/.test(netB) && /Microsoft.App\/jobs/.test(jobB)
           && /vaults\/secrets/.test(secB) && /containerApps/.test(mainB)
           && c1.parameters.deployStaffApi.value === false
           && c3.parameters.runtimeDeploymentPhase.value === 'runtime-app'
+          && c1.parameters.keyVaultName && c1.parameters.keyVaultName.value === expectedSynthKv
+          && c3.parameters.keyVaultName && c3.parameters.keyVaultName.value === expectedSynthKv
+          && lib.isValidAzureKeyVaultName(expectedSynthKv)
           && contract.runtimeSecretNames.every((n) => secB.includes(n) || n === `${SLUG}-database-url`)
-          && /bootstrap/.test(jobB));
+          && /bootstrap/.test(jobB)
+          && names.keyVaultName === expectedSynthKv);
       } catch (e) {
         ok('compile_c1_c2_c3_phase_fixtures', false, String(e.stderr || e.message || e).slice(0, 240));
       }
@@ -759,8 +857,9 @@ async function main() {
   }
   const st = diffStat();
   ok('file_budget', st.files <= 10, `files=${st.files}`);
-  // Raised for infra-partial owned-deployment subset + empty-RG deployments LIST authority.
-  ok('net_budget', st.net <= 2600, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // Raised for infra-partial owned-deployment subset + empty-RG deployments LIST authority
+  // + Azure Key Vault 24-char name owner (messiproof InvalidTemplate class).
+  ok('net_budget', st.net <= 2750, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
   console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
   process.exit(fail ? 1 : 0);
 }

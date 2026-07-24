@@ -75,6 +75,40 @@ function sortedStringify(v) {
 function redact(text) {
   return String(text || '').replace(/postgres(ql)?:\/\/[^\s'"]+/gi, '[REDACTED_DSN]');
 }
+// Azure Key Vault vault name rules (global uniqueness aside): 3–24 chars, lowercase
+// alnum/hyphen, must begin with a letter and end with alnum (no consecutive hyphens).
+const AZURE_KEY_VAULT_NAME_MIN = 3;
+const AZURE_KEY_VAULT_NAME_MAX = 24;
+function isValidAzureKeyVaultName(name) {
+  const n = String(name || '');
+  if (n.length < AZURE_KEY_VAULT_NAME_MIN || n.length > AZURE_KEY_VAULT_NAME_MAX) return false;
+  if (!/^[a-z][a-z0-9-]*[a-z0-9]$/.test(n)) return false;
+  if (n.includes('--')) return false;
+  return true;
+}
+/** Full canonical form `luna-<slug>-staging-kv` (may exceed Azure's 24-char limit). */
+function canonicalKeyVaultName(slug) {
+  return `luna-${String(slug || '')}-staging-kv`;
+}
+/**
+ * Owner for tenant-staging Key Vault names (contract, Bicep params, role/secret IDs).
+ * Preserves canonical when already Azure-valid (<=24). Overlength only: deterministic
+ * truncation + stable 8-hex sha256 suffix of the full canonical name (collision-resistant).
+ */
+function deriveKeyVaultName(slug) {
+  const s = String(slug || '');
+  const canonical = canonicalKeyVaultName(s);
+  if (isValidAzureKeyVaultName(canonical)) return canonical;
+  const hash8 = sha256(canonical).slice(0, 8);
+  // luna-<head>-<hash8> with head budget so total length is always <= 24.
+  const headBudget = AZURE_KEY_VAULT_NAME_MAX - 'luna-'.length - 1 - hash8.length;
+  const headRaw = s.replace(/[^a-z0-9]/g, '').slice(0, headBudget) || 'x';
+  const head = headRaw.replace(/-+$/g, '') || 'x';
+  const shortened = `luna-${head}-${hash8}`;
+  if (isValidAzureKeyVaultName(shortened)) return shortened;
+  // Extreme fallback — always valid 24-char form from the same canonical hash.
+  return `luna${sha256(canonical).slice(0, 20)}`;
+}
 function deriveNames(slug, subscriptionId) {
   const p = `luna-${slug}-staging`;
   return {
@@ -82,7 +116,7 @@ function deriveNames(slug, subscriptionId) {
     appDbName: `${slug}_staging`, staffApiAppName: `${p}-staff-api`, staffApiContainerName: `${p}-staff-api`,
     postgresAdminUser: `${slug}admin`, databaseUrlSecretName: `${slug}-database-url`,
     acrPullModuleName: `${slug}StagingAcrPull`, acrName: ACR_NAME, acrResourceGroupName: ACR_RG,
-    keyVaultName: `${p}-kv`, postgresServerName: `${p}-pg-app`,
+    keyVaultName: deriveKeyVaultName(slug), postgresServerName: `${p}-pg-app`,
     containerAppsEnvironmentName: `${p}-env`, logAnalyticsName: `${p}-logs`,
     appInsightsName: `${p}-appinsights`, identityName: `${p}-identity`,
     vnetName: `${p}-vnet`, natName: `${p}-nat`, natPipName: `${p}-nat-pip`,
@@ -1472,6 +1506,8 @@ module.exports = Object.freeze({
   STAGE, OWNER, MODULE_REL, STAGING_SUB_REL, SKU_EST, COST_API, HEALTH_IDENTITY_PATH,
   PINNED_BINS, INTERNAL_FLAG, CAPABILITY_FD, CLI_REL, LIB_REL,
   ROLE_KV_SECRETS_USER, ROLE_ACR_PULL, ACR_RG, IGNORE_TYPES, DEP_API,
+  AZURE_KEY_VAULT_NAME_MIN, AZURE_KEY_VAULT_NAME_MAX,
+  isValidAzureKeyVaultName, canonicalKeyVaultName, deriveKeyVaultName,
   createDeps, deriveNames, deriveAuthority, deriveHistoricalRollbackAuthority,
   resolveCurrentStagingNames, assertHistoricalDeployShaCandidate, buildAuthorityAtExactSha,
   plan, status, buildExpectedResourceContract,

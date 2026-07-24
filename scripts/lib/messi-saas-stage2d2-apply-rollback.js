@@ -531,6 +531,8 @@ function buildNonsecretParams(names, deploySha, planDigest, phase, extras = {}) 
     tenantSlug: { value: names.tenantSlug }, environmentName: { value: 'staging' },
     location: { value: LOC }, containerAppsLocation: { value: ACA_LOC },
     appNamePrefix: { value: names.appNamePrefix },
+    // Same owner as contract/role/secret IDs — never re-derive as prefix+"-kv" in Bicep.
+    keyVaultName: { value: names.keyVaultName },
     assertedResourceGroupName: { value: names.resourceGroupName },
     acrName: { value: ACR_NAME }, acrResourceGroupName: { value: ACR_RG },
     acrPullModuleName: { value: names.acrPullModuleName }, acrLoginServer: { value: ACR_LOGIN },
