@@ -1014,18 +1014,43 @@ async function main() {
         },
       });
       const malformedError = faMut({ error: ['not-an-object'] });
-      const missingTarget = faMut({
-        error: {
-          code: 'DeploymentFailed',
-          details: [{ code: 'MissingSubscriptionRegistration' }],
-        },
-      });
+      // REST omits null-materialized target (not an attack) — see rest_omitted GREEN below.
       const nonNullTarget = faMut({
         error: {
           code: 'DeploymentFailed',
           details: [{ code: 'MissingSubscriptionRegistration', target: 'Microsoft.AlertsManagement' }],
         },
       });
+      const targetLookalikes = [
+        ['detail_target_empty_string', ''],
+        ['detail_target_false', false],
+        ['detail_target_zero', 0],
+        ['detail_target_object', {}],
+        ['detail_target_array', []],
+        ['detail_target_forged', 'Microsoft.AlertsManagement'],
+      ].map(([label, target]) => [label, faMut({
+        error: {
+          code: 'DeploymentFailed',
+          details: [{ code: 'MissingSubscriptionRegistration', target }],
+        },
+      })]);
+      // details/additionalInfo: absent-or-null only. Empty array was a fallthrough bug (Array.isArray+length===0).
+      const optionalNullLookalikes = [
+        ['detail_details_empty_array', { details: [] }],
+        ['detail_details_empty_string', { details: '' }],
+        ['detail_details_false', { details: false }],
+        ['detail_details_object', { details: {} }],
+        ['detail_details_forged', { details: [{ code: 'forged' }] }],
+        ['detail_additionalInfo_forged', { additionalInfo: [{ info: 'x' }] }],
+        ['detail_additionalInfo_empty_string', { additionalInfo: '' }],
+        ['detail_additionalInfo_false', { additionalInfo: false }],
+        ['detail_additionalInfo_array', { additionalInfo: [] }],
+      ].map(([label, extra]) => [label, faMut({
+        error: {
+          code: 'DeploymentFailed',
+          details: [{ code: 'MissingSubscriptionRegistration', target: null, ...extra }],
+        },
+      })]);
       const nestedShapeAttacks = [
         ['flat_top_missing_subscription_registration', flatTopOnly],
         ['top_error_code_changed', topCodeChanged],
@@ -1034,8 +1059,9 @@ async function main() {
         ['wrong_detail_code', wrongDetailCode],
         ['detail_nested_children', nestedChildren],
         ['malformed_error', malformedError],
-        ['missing_detail_target', missingTarget],
         ['non_null_detail_target', nonNullTarget],
+        ...targetLookalikes,
+        ...optionalNullLookalikes,
       ];
       let nestedRefuse = 0;
       for (const [label, row] of nestedShapeAttacks) {
@@ -1059,6 +1085,75 @@ async function main() {
       ok('failure_anomalies_nested_error_shape_attacks_refused',
         nestedRefuse === nestedShapeAttacks.length,
         `pass=${nestedRefuse}/${nestedShapeAttacks.length}`);
+    }
+
+    // RED→GREEN: ARM REST GET omits null-valued detail keys; Azure CLI materializes them as null.
+    // Detail keys from live REST are exactly code,message. Current `target !== null` rejects undefined.
+    {
+      const liveMsg = String((faProps.error.details[0] && faProps.error.details[0].message) || '');
+      const restDetail = {
+        code: 'MissingSubscriptionRegistration',
+        message: liveMsg,
+      };
+      ok('failure_anomalies_rest_detail_keys_exactly_code_message',
+        Object.keys(restDetail).sort().join(',') === 'code,message'
+        && !Object.prototype.hasOwnProperty.call(restDetail, 'target')
+        && !Object.prototype.hasOwnProperty.call(restDetail, 'details')
+        && !Object.prototype.hasOwnProperty.call(restDetail, 'additionalInfo')
+        && liveMsg.includes("Microsoft.AlertsManagement"));
+      const restRow = faMut({
+        error: {
+          code: 'DeploymentFailed',
+          message: faProps.error.message,
+          details: [restDetail],
+        },
+      });
+      const cliNullDetail = {
+        code: 'MissingSubscriptionRegistration',
+        message: liveMsg,
+        target: null,
+        details: null,
+        additionalInfo: null,
+      };
+      const cliRow = faMut({
+        error: {
+          code: 'DeploymentFailed',
+          message: faProps.error.message,
+          details: [cliNullDetail],
+        },
+      });
+      // GREEN after fix: both CLI-null and REST-omitted must match platform signature + infra-partial.
+      ok('failure_anomalies_cli_null_materialized_target_accepted',
+        d1.failureAnomaliesMatchesPlatformSignature(cliRow) === true
+        && d1.isExactOwnedFailureAnomaliesDeployment(cliRow, faScope, aiExp, liveSubset) === true
+        && d1.failureAnomaliesMatchesPlatformSignature(faRow) === true);
+      ok('failure_anomalies_rest_omitted_null_keys_helper_accepted',
+        d1.failureAnomaliesMatchesPlatformSignature(restRow) === true
+        && d1.isExactOwnedFailureAnomaliesDeployment(restRow, faScope, aiExp, liveSubset) === true);
+      const hRest = makeHarness(lib, d1);
+      hRest.setRg({ name: RG, tags });
+      hRest.setResources(liveSubset); hRest.setNested(liveNested); hRest.setSecrets([]); hRest.setRoles({});
+      hRest.setDeploymentsList([...ownedDepRows, restRow]);
+      const invRest = await d1.collectLiveInventory(hRest.deps, names, tags);
+      invRest.rgExists = true;
+      ok('failure_anomalies_rest_omitted_collect_infra_partial',
+        invRest.ok === true
+        && d1.inferLivePhase(invRest) === 'infra-partial'
+        && d1.isExactInfraPartialLive(invRest) === true
+        && d1.phaseContractFindings(invRest, 'infra-partial').length === 0,
+      invRest.ok
+        ? `phase=${d1.inferLivePhase(invRest)}`
+        : JSON.stringify(invRest.errors || invRest).slice(0, 400));
+      const hCli = makeHarness(lib, d1);
+      hCli.setRg({ name: RG, tags });
+      hCli.setResources(liveSubset); hCli.setNested(liveNested); hCli.setSecrets([]); hCli.setRoles({});
+      hCli.setDeploymentsList([...ownedDepRows, cliRow]);
+      const invCli = await d1.collectLiveInventory(hCli.deps, names, tags);
+      invCli.rgExists = true;
+      ok('failure_anomalies_cli_null_collect_infra_partial',
+        invCli.ok === true
+        && d1.inferLivePhase(invCli) === 'infra-partial'
+        && d1.isExactInfraPartialLive(invCli) === true);
     }
 
     // GREEN: collectLiveInventory GET readback + phase inference + rollback (not helper-only).
