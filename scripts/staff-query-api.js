@@ -16143,6 +16143,9 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-range{color:var(--sched-text)}
 :root:not([data-theme="dark"]) #tab-portal-home .btn-primary{background:var(--sched-primary);border-color:var(--sched-primary);color:#fff;box-shadow:none}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-addon-card{background:var(--sunset-panel-strong, var(--surface));border-color:var(--sunset-border-soft, var(--border-soft))}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-addon-switch-row{background:var(--sunset-panel, var(--surface-soft));border-color:var(--sunset-border-soft, var(--border-soft))}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-addon-field.is-open .portal-schedule-addon-switch-row{border-color:var(--sched-primary);background:var(--sunset-panel-strong, var(--surface))}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-addon-switch input:checked + .portal-schedule-addon-switch-slider{background:var(--sched-primary)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-addon-row{background:var(--sunset-panel, var(--surface-soft));border-color:var(--sunset-border-soft, var(--border-soft))}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-addon-pill{background:var(--sched-primary)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-addon-amt{color:var(--sched-primary)}
@@ -16377,13 +16380,21 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-private-session-row{padding:2px 0}
 .portal-schedule-create-check{padding:7px 12px}
 .portal-schedule-addon-field{display:flex;flex-direction:column;align-items:stretch;gap:0;margin:0}
-.portal-schedule-addon-field .portal-schedule-addon-toggle{display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;margin:0;min-height:44px}
-.portal-schedule-addon-toggle-main{display:inline-flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;flex-wrap:wrap}
+.portal-schedule-addon-switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);min-height:48px}
+.portal-schedule-addon-field.is-open .portal-schedule-addon-switch-row{border-color:var(--sched-primary, #4E5853);background:var(--surface)}
+.portal-schedule-addon-switch-copy{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;flex:1 1 auto}
+.portal-schedule-addon-switch-title{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;font-weight:600;color:var(--text);line-height:1.25}
 .portal-schedule-addon-pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;line-height:1.2;color:#fff;background:var(--sched-primary, #4E5853);flex:0 0 auto}
-.portal-schedule-addon-price-hint{flex:0 0 auto;margin-left:auto;font-size:12px;font-weight:700;color:var(--text-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.portal-schedule-addon-price-hint{font-size:12px;font-weight:600;color:var(--text-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.portal-schedule-addon-switch{position:relative;display:inline-block;width:46px;height:28px;flex:0 0 auto;margin:0;cursor:pointer}
+.portal-schedule-addon-switch input{opacity:0;width:0;height:0;position:absolute}
+.portal-schedule-addon-switch-slider{position:absolute;cursor:pointer;inset:0;background:#C9CFC8;border-radius:999px;transition:background .2s,box-shadow .2s}
+.portal-schedule-addon-switch-slider:before{position:absolute;content:"";height:22px;width:22px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(68,80,74,.18)}
+.portal-schedule-addon-switch input:checked + .portal-schedule-addon-switch-slider{background:var(--sched-primary, #4E5853)}
+.portal-schedule-addon-switch input:checked + .portal-schedule-addon-switch-slider:before{transform:translateX(18px)}
+.portal-schedule-addon-switch input:focus-visible + .portal-schedule-addon-switch-slider{box-shadow:0 0 0 3px rgba(78,88,83,.22)}
 .portal-schedule-addon-card{display:none;width:100%;box-sizing:border-box;margin-top:8px;padding:12px 12px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);box-shadow:var(--shadow-soft)}
 .portal-schedule-addon-field.is-open .portal-schedule-addon-card{display:block}
-.portal-schedule-addon-field.is-open .portal-schedule-addon-toggle{border-color:var(--sched-primary, #4E5853);background:var(--surface)}
 .portal-schedule-addon-help{margin:0 0 10px;font-size:12px;line-height:1.4;color:var(--text-2);font-weight:500}
 .portal-schedule-addon-rows{display:flex;flex-direction:column;gap:8px;width:100%}
 .portal-schedule-addon-rows.is-multi{margin-top:0}
@@ -16399,8 +16410,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-addon-summary{width:100%;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft);font-size:12px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
 .portal-schedule-addon-empty{font-size:12px;color:var(--text-3);font-style:italic;padding:4px 0}
 @media(max-width:768px){
-  .portal-schedule-addon-field .portal-schedule-addon-toggle{padding:10px 12px;gap:8px}
+  .portal-schedule-addon-switch-row{padding:12px;gap:10px}
+  .portal-schedule-addon-switch-title{font-size:13px}
   .portal-schedule-addon-price-hint{font-size:11px}
+  .portal-schedule-addon-switch{width:48px;height:28px}
+  .portal-schedule-addon-switch-slider:before{height:22px;width:22px}
+  .portal-schedule-addon-switch input:checked + .portal-schedule-addon-switch-slider:before{transform:translateX(20px)}
   .portal-schedule-addon-card{padding:10px;margin-top:8px}
   .portal-schedule-addon-row{gap:8px;padding:8px}
   .portal-schedule-addon-row .portal-schedule-addon-date{font-size:12px}
@@ -18357,7 +18372,16 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-live="polite"></div>
     </div>
     <div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-create-addon-fullday-field" style="display:none">
-      <label class="portal-schedule-create-check portal-schedule-addon-toggle"><input id="ps-create-comp-fullday" type="checkbox"> <span class="portal-schedule-addon-toggle-main"><span data-i18n="schedule.type.fullDayEquipment">Full-day gear</span><span class="portal-schedule-addon-pill" data-i18n="schedule.addon.pill">Add-on</span></span><span class="portal-schedule-addon-price-hint" id="ps-create-fullday-price-hint"></span></label>
+      <div class="portal-schedule-addon-switch-row">
+        <div class="portal-schedule-addon-switch-copy">
+          <span class="portal-schedule-addon-switch-title"><span data-i18n="schedule.type.fullDayEquipment">Full-day gear</span><span class="portal-schedule-addon-pill" data-i18n="schedule.addon.pill">Add-on</span></span>
+          <span class="portal-schedule-addon-price-hint" id="ps-create-fullday-price-hint"></span>
+        </div>
+        <label class="portal-schedule-addon-switch" for="ps-create-comp-fullday" aria-label="Full-day gear">
+          <input id="ps-create-comp-fullday" type="checkbox">
+          <span class="portal-schedule-addon-switch-slider" aria-hidden="true"></span>
+        </label>
+      </div>
       <div class="portal-schedule-addon-card" id="ps-create-fullday-card" style="display:none">
         <p class="portal-schedule-addon-help" data-i18n="schedule.addon.fullDayHelp">Board/suit for the whole day (add-on dates).</p>
         <div id="ps-create-fullday-rows" class="portal-schedule-addon-rows"></div>
