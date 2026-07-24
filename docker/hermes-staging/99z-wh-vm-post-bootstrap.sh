@@ -89,7 +89,7 @@ if [ "$HERMES_ROLE" = "deckhand" ]; then
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
   default: grok-4.5
-  provider: xai
+  provider: xai-oauth
 agent:
   reasoning_effort: medium
 curator:
