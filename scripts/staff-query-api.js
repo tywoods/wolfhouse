@@ -15983,6 +15983,16 @@ button,.btn,.btn-primary,.btn-ghost,.btn-logout,
 .staff-theme-toggle.is-dark .staff-theme-icon-sun{display:block}
 /* ── Tabs ───────────────────────────────────────────────────────────────── */
 /* ── Mobile nav hamburger (hidden on desktop) ───────────────────────────── */
+
+/* Banner tools + quick flip (mobile placement handled in @media) */
+.banner-tools{display:inline-flex;align-items:center;gap:10px;flex-shrink:0}
+.nav-quick-flip{display:none;align-items:center;justify-content:center;width:40px;height:40px;margin:0;padding:0;border:1px solid rgba(255,255,255,.28);border-radius:10px;background:rgba(255,255,255,.12);color:#fff;cursor:pointer;flex-shrink:0}
+.nav-quick-flip:hover{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.45)}
+.nav-quick-flip:focus-visible{outline:2px solid rgba(255,255,255,.55);outline-offset:2px}
+.nav-quick-flip-icon{width:20px;height:20px;display:none}
+.nav-quick-flip.is-show-cal .nav-quick-flip-cal{display:block}
+.nav-quick-flip.is-show-inbox .nav-quick-flip-inbox{display:block}
+.nav-menu-tools{display:none}
 .nav-menu-toggle{display:none;align-items:center;justify-content:center;width:40px;height:40px;margin:0;padding:0;border:1px solid rgba(255,255,255,.28);border-radius:10px;background:rgba(255,255,255,.12);color:#fffaf1;cursor:pointer;flex-shrink:0;transition:background .15s,border-color .15s}
 .nav-menu-toggle:hover{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.4)}
 .nav-menu-toggle:focus-visible{outline:2px solid rgba(255,255,255,.55);outline-offset:2px}
@@ -15998,6 +16008,10 @@ body.nav-menu-open .nav-menu-toggle-bars:after{top:0;transform:rotate(-45deg)}
 [data-theme="dark"] body.nav-menu-open #tabs .tab-btn{border-bottom-color:#333}
 [data-theme="dark"] body.nav-menu-open #tabs .tab-btn.active{background:#252526}
 [data-theme="dark"] body.nav-menu-open #tabs .tabs-global-pause{background:#252526;border-top-color:#3c3c3c}
+[data-theme="dark"] .nav-menu-tools{background:#1e1e1e;border-top-color:#3c3c3c}
+[data-theme="dark"] .nav-menu-tools .btn-logout{background:#cccccc;color:#1e1e1e;border-color:#cccccc}
+[data-theme="dark"] .nav-menu-tools .staff-theme-toggle{background:#252526;border-color:#3c3c3c;color:#cccccc}
+
 #tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:0;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex:0 0 auto}
 #tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border:0;background:var(--surface);box-shadow:-16px 0 12px -8px var(--surface);position:sticky;right:0;z-index:2}
 #tabs .tabs-global-pause.luna-global-paused{background:var(--surface);border:0}
@@ -18006,11 +18020,24 @@ body{width:100%;max-width:100vw;overflow-x:hidden;min-height:100vh;min-height:10
 #banner .banner-actions{flex-wrap:wrap;gap:6px;margin-left:auto;flex-shrink:0}
 #banner .btn-logout{padding:5px 12px;font-size:11px}
 .nav-menu-toggle{display:inline-flex}
+.nav-quick-flip:not([hidden]){display:inline-flex}
+/* Move account tools into hamburger drawer on mobile */
+#banner .banner-tools{display:none}
+.nav-menu-tools{display:flex;flex-direction:column;align-items:flex-end;justify-content:flex-end;gap:12px;margin-top:auto;padding:14px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--border-soft);background:var(--surface);width:100%;box-sizing:border-box}
+.nav-menu-tools .banner-tools{display:flex;flex-direction:column;align-items:flex-end;gap:12px;width:100%}
+.nav-menu-tools .staff-lang-switch{color:var(--text);font-size:12px;font-weight:600;letter-spacing:.06em;justify-content:flex-end}
+.nav-menu-tools .staff-lang-btn{color:var(--text-2)}
+.nav-menu-tools .staff-lang-btn.is-active{color:var(--text)}
+.nav-menu-tools .staff-lang-sep{color:var(--text-3)}
+.nav-menu-tools .staff-theme-toggle{border-color:var(--border);background:var(--surface-soft);color:var(--text);width:36px;height:36px}
+.nav-menu-tools .staff-theme-toggle:hover{background:var(--surface);border-color:var(--text-3)}
+.nav-menu-tools .btn-logout{background:var(--text);color:var(--surface);border:1px solid var(--text);border-radius:20px;padding:8px 16px;font-size:12px;font-weight:600}
+#tabs .tabs-global-pause{margin-top:0}
 .nav-menu-backdrop{display:none;position:fixed;inset:0;background:rgba(20,18,14,.35);z-index:8500}
 body.nav-menu-open .nav-menu-backdrop{display:block}
 #tabs{display:none;position:fixed;top:0;right:0;width:min(320px,88vw);height:100vh;height:100dvh;max-width:100vw;margin:0;padding:calc(12px + env(safe-area-inset-top)) 0 calc(16px + env(safe-area-inset-bottom));overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;flex-direction:column;flex-wrap:nowrap;align-items:stretch;box-sizing:border-box;z-index:8600;background:var(--surface);border-bottom:none;border-left:1px solid var(--border);box-shadow:var(--shadow);scroll-snap-type:none}
 body.nav-menu-open #tabs{display:flex}
-#tabs .tabs-global-pause{margin-left:0;margin-top:auto;padding:14px 16px;border-top:1px solid var(--border-soft);width:100%;box-sizing:border-box;box-shadow:none;background:var(--surface-soft);position:static}
+#tabs .tabs-global-pause{margin-left:0;margin-top:12px;padding:14px 16px;border-top:1px solid var(--border-soft);width:100%;box-sizing:border-box;box-shadow:none;background:var(--surface-soft);position:static}
 #tabs .tabs-global-pause-toggle{padding:4px 0;font-size:13px;gap:10px;width:100%;justify-content:space-between}
 #tabs .tabs-global-pause-label{font-size:13px;font-weight:600}
 #tabs .tabs-global-pause .luna-global-pause-switch{width:42px;height:24px}
@@ -18112,6 +18139,10 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     <img src="/staff/assets/luna-front-desk-logo.png?v=2" alt="Luna Front Desk" class="brand-logo">
   </a>
   <div class="banner-actions">
+  <button type="button" class="nav-quick-flip" id="nav-quick-flip" aria-label="Open booking calendar" title="Booking calendar" hidden>
+    <svg class="nav-quick-flip-icon nav-quick-flip-cal" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M7 2a1 1 0 0 0-1 1v1H5a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3h-1V3a1 1 0 1 0-2 0v1H8V3a1 1 0 0 0-1-1zm12 6H5v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM7 11h3v3H7v-3zm5 0h3v3h-3v-3zm5 0h-2v3h2v-3z"/></svg>
+    <svg class="nav-quick-flip-icon nav-quick-flip-inbox" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4-8 5L4 8V6l8 5 8-5v2z"/></svg>
+  </button>
   <button type="button" class="nav-menu-toggle" id="nav-menu-toggle" aria-expanded="false" aria-controls="tabs" title="Menu" aria-label="Menu">
     <span class="nav-menu-toggle-bars" aria-hidden="true"></span>
   </button>
@@ -18120,14 +18151,16 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     <span class="staff-lang-sep">|</span>
     <button type="button" class="staff-school-btn" data-school="sunset-sardinero" data-i18n="school.sunsetSardinero">elSardi</button>
   </div>
-  <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
-    ${renderStaffLangSwitchButtons(false)}
+  <div class="banner-tools" id="banner-tools">
+    <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
+      ${renderStaffLangSwitchButtons(false)}
+    </div>
+    <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
+      <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
+      <svg class="staff-theme-icon staff-theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.2" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="21.8"/><line x1="2.2" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="21.8" y2="12"/><line x1="4.9" y1="4.9" x2="7.1" y2="7.1"/><line x1="16.9" y1="16.9" x2="19.1" y2="19.1"/><line x1="16.9" y1="7.1" x2="19.1" y2="4.9"/><line x1="4.9" y1="19.1" x2="7.1" y2="16.9"/></g></svg>
+    </button>
+    <button class="btn-logout" id="btn-logout" onclick="doLogout()" data-i18n="app.signOut">Sign out</button>
   </div>
-  <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
-    <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
-    <svg class="staff-theme-icon staff-theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.2" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="21.8"/><line x1="2.2" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="21.8" y2="12"/><line x1="4.9" y1="4.9" x2="7.1" y2="7.1"/><line x1="16.9" y1="16.9" x2="19.1" y2="19.1"/><line x1="16.9" y1="7.1" x2="19.1" y2="4.9"/><line x1="4.9" y1="19.1" x2="7.1" y2="16.9"/></g></svg>
-  </button>
-  <button class="btn-logout" id="btn-logout" onclick="doLogout()" data-i18n="app.signOut">Sign out</button>
   </div>
 </div>
 
@@ -18155,6 +18188,7 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     <span class="al-hint tabs-global-pause-help" id="luna-global-pause-help" data-i18n="lunaStaff.pause.active" hidden>Luna is active for all guest conversations.</span>
     <span id="luna-global-pause-status" class="luna-pause-action-status" style="display:none"></span>
   </div>
+  <div class="nav-menu-tools" id="nav-menu-tools" aria-label="Account"></div>
 </div>
 <div class="nav-menu-backdrop" id="nav-menu-backdrop" hidden></div>
 
@@ -19549,6 +19583,7 @@ function fmtDateOnly(d){
 /* ── Tab utilities ────────────────────────────────────────────────────────── */
 function switchToTab(tab, subtab){
   try { if (window.__closeStaffNavMenu) window.__closeStaffNavMenu(); } catch (_navClose) {}
+  try { if (window.__syncNavQuickFlip) window.__syncNavQuickFlip(tab); } catch (_flip) {}
   if (isTabHiddenForClient(tab, getClient())) {
     var p = getPortalProfile(getClient());
     tab = p.default_tab || 'bed-calendar';
@@ -19581,6 +19616,7 @@ function switchToTab(tab, subtab){
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   if (tab !== 'conversations') hideInboxMobileThread();
   staffNotificationSettingsApplyVisibility();
+  try { if (window.__syncNavQuickFlip) window.__syncNavQuickFlip(tab); } catch (_f2) {}
 }
 function switchToTabOnly(tab){ switchToTab(tab, null); }
 
@@ -19588,7 +19624,7 @@ function switchToTabOnly(tab){ switchToTab(tab, null); }
 window.switchToTab = switchToTab;
 window.switchToTabOnly = switchToTabOnly;
 
-/* Mobile nav: hamburger opens tabs + Pause Luna drawer */
+/* Mobile nav: hamburger drawer + banner tools + inbox/calendar flip */
 (function(){
   function setNavMenuOpen(open){
     try {
@@ -19611,9 +19647,68 @@ window.switchToTabOnly = switchToTabOnly;
   function closeNavMenu(){ setNavMenuOpen(false); }
   function toggleNavMenu(){ setNavMenuOpen(!document.body.classList.contains('nav-menu-open')); }
   window.__closeStaffNavMenu = closeNavMenu;
+
+  function placeBannerTools(){
+    var tools = document.getElementById('banner-tools');
+    var mobileHost = document.getElementById('nav-menu-tools');
+    var actions = document.querySelector('#banner .banner-actions');
+    if (!tools || !mobileHost || !actions) return;
+    var mobile = false;
+    try { mobile = window.matchMedia('(max-width: 768px)').matches; } catch (_) {}
+    if (mobile) {
+      if (tools.parentElement !== mobileHost) mobileHost.appendChild(tools);
+    } else {
+      // desktop: tools after school switch / before end of actions
+      if (tools.parentElement !== actions) {
+        var flip = document.getElementById('nav-quick-flip');
+        var ham = document.getElementById('nav-menu-toggle');
+        // keep order: flip, ham, school, tools
+        actions.appendChild(tools);
+      }
+      closeNavMenu();
+    }
+  }
+
+  function activeMainTab(){
+    var active = document.querySelector('.tab-btn.active[data-tab]');
+    return active ? active.getAttribute('data-tab') : '';
+  }
+
+  function syncNavQuickFlip(tab){
+    tab = tab || activeMainTab();
+    var btn = document.getElementById('nav-quick-flip');
+    if (!btn) return;
+    var mobile = false;
+    try { mobile = window.matchMedia('(max-width: 768px)').matches; } catch (_) {}
+    btn.classList.remove('is-show-cal', 'is-show-inbox');
+    if (!mobile) {
+      btn.setAttribute('hidden', '');
+      btn.setAttribute('data-target-tab', '');
+      return;
+    }
+    if (tab === 'conversations') {
+      btn.removeAttribute('hidden');
+      btn.classList.add('is-show-cal');
+      btn.setAttribute('data-target-tab', 'bed-calendar');
+      btn.setAttribute('aria-label', 'Open booking calendar');
+      btn.title = 'Booking calendar';
+    } else if (tab === 'bed-calendar') {
+      btn.removeAttribute('hidden');
+      btn.classList.add('is-show-inbox');
+      btn.setAttribute('data-target-tab', 'conversations');
+      btn.setAttribute('aria-label', 'Open inbox');
+      btn.title = 'Inbox';
+    } else {
+      btn.setAttribute('hidden', '');
+      btn.setAttribute('data-target-tab', '');
+    }
+  }
+  window.__syncNavQuickFlip = syncNavQuickFlip;
+
   function wireNavMenu(){
     var btn = document.getElementById('nav-menu-toggle');
     var backdrop = document.getElementById('nav-menu-backdrop');
+    var flip = document.getElementById('nav-quick-flip');
     if (btn && !btn.__navWired) {
       btn.__navWired = true;
       btn.addEventListener('click', function(e){ e.preventDefault(); toggleNavMenu(); });
@@ -19622,15 +19717,31 @@ window.switchToTabOnly = switchToTabOnly;
       backdrop.__navWired = true;
       backdrop.addEventListener('click', closeNavMenu);
     }
+    if (flip && !flip.__navWired) {
+      flip.__navWired = true;
+      flip.addEventListener('click', function(e){
+        e.preventDefault();
+        var target = flip.getAttribute('data-target-tab');
+        if (target && typeof window.switchToTab === 'function') window.switchToTab(target);
+        else if (target && typeof switchToTab === 'function') switchToTab(target);
+      });
+    }
+    placeBannerTools();
+    syncNavQuickFlip();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireNavMenu);
   else wireNavMenu();
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeNavMenu(); });
   try {
-    var mq = window.matchMedia('(min-width: 769px)');
-    function onMq(e){ if (e.matches) closeNavMenu(); }
+    var mq = window.matchMedia('(max-width: 768px)');
+    function onMq(){ placeBannerTools(); syncNavQuickFlip(); }
     if (mq.addEventListener) mq.addEventListener('change', onMq);
     else if (mq.addListener) mq.addListener(onMq);
+  } catch (_) {}
+  // Re-sync after portal profile applies default tab
+  try {
+    var _origApply = window.applyClientPortalProfile;
+    // hooked via switchToTab primarily
   } catch (_) {}
 })();
 
