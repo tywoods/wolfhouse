@@ -6,6 +6,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
@@ -140,7 +141,8 @@ function redact(text, secrets) {
 function createDeps(overrides = {}) {
   const repoRoot = overrides.repoRoot || path.join(__dirname, '..');
   const pins = overrides.pinnedBins || d1.PINNED_BINS;
-  const stateDir = overrides.stateDir || path.join(repoRoot, 'tmp', 'messi-saas-stage2d2');
+  // Outside the git worktree: lock/receipt mkdir must not dirty porcelain before D1 preflight.
+  const stateDir = overrides.stateDir || path.join(os.tmpdir(), 'messi-saas-stage2d2');
   const deps = {
     repoRoot, stateDir, pinnedBins: pins,
     sleep: overrides.sleep || ((ms) => new Promise((r) => setTimeout(r, ms))),
@@ -1180,11 +1182,12 @@ async function apply(opts, depsIn) {
   try {
     const approval = validateApprovalFlags(optsIn);
     if (!approval.ok) return approval;
+    // Authority/preflight before lock so an in-tree stateDir cannot trip dirty_tree.
+    const auth = await deriveD1Authority(optsIn, deps);
+    if (!auth.ok) return auth;
     lock = acquireExclusiveLock(deps, String(optsIn.slug || 'unknown'));
     if (!lock.ok) return lock;
     removeSignals = installOperationSignals(deps);
-    const auth = await deriveD1Authority(optsIn, deps);
-    if (!auth.ok) return auth;
     const { names, planDigest, verifiedDeploySha, core, templateBytes, compiled } = auth;
     const aborted0 = checkAbort(deps);
     if (!aborted0.ok) return aborted0;
@@ -1586,11 +1589,11 @@ async function rollback(opts, depsIn) {
     if (!slug || confirm !== expectedRg) {
       return { ok: false, errors: [err('confirm_delete_required', `--confirm-delete ${expectedRg} required`)] };
     }
+    const auth = await deriveD1Authority({ slug }, deps);
+    if (!auth.ok) return auth;
     lock = acquireExclusiveLock(deps, slug);
     if (!lock.ok) return lock;
     removeSignals = installOperationSignals(deps);
-    const auth = await deriveD1Authority({ slug }, deps);
-    if (!auth.ok) return auth;
     const { names, planDigest, verifiedDeploySha } = auth;
     namesRef = names; planDigestRef = planDigest; deployShaRef = verifiedDeploySha;
     if (names.resourceGroupName !== expectedRg) {
