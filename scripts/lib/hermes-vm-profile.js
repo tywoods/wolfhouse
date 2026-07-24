@@ -24,11 +24,13 @@ const HERMES_VM = Object.freeze({
   DATA_ORCHESTRATOR: '/var/lib/hermes-orchestrator',
   DATA_LUNA: '/var/lib/hermes-luna',
   DATA_WOLFHOUSE_LUNA: '/var/lib/hermes-wolfhouse-luna',
+  DATA_DECKHAND: '/var/lib/hermes-deckhand',
   DATA_SHARED: '/var/lib/hermes-shared',
   COMPOSE_FILE: '/opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml',
   ENV_ORCHESTRATOR: '/etc/hermes-orchestrator.env',
   ENV_LUNA: '/etc/hermes-luna.env',
   ENV_WOLFHOUSE_LUNA: '/etc/hermes-wolfhouse-luna.env',
+  ENV_DECKHAND: '/etc/hermes-deckhand.env',
 
   PORT_ORCHESTRATOR: 8642,
   PORT_LUNA_WEBHOOK: 8090,

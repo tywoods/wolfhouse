@@ -147,6 +147,14 @@ function assertWolfhouseLunaInstance() {
   });
 }
 
+function assertDeckhandInstance() {
+  console.error('[vm] deckhand instance layout (prebuild)...');
+  execSync('python3 docker/hermes-staging/verify_deckhand_instance.py', {
+    cwd: ROOT,
+    stdio: 'inherit',
+  });
+}
+
 function assertGoldenSuite() {
   // Pre-deploy regression gate: replay the golden guest conversations against the
   // locally-running hermes-luna container before we build/ship. --gate runs the
@@ -176,6 +184,7 @@ function buildImage() {
   assertPerGuestSoulContract();
   assertI18nGuestCopy();
   assertWolfhouseLunaInstance();
+  assertDeckhandInstance();
   assertGoldenSuite();
   const fullSha = fullMasterSha();
   const image = resolveHermesImage(fullSha);
@@ -197,7 +206,7 @@ function buildImage() {
 
 /**
  * Recreate only guest Luna containers with HERMES_IMAGE=<full-sha>.
- * Does NOT touch hermes-orchestrator or hermes-seadog.
+ * Does NOT touch hermes-orchestrator, hermes-seadog, or hermes-deckhand.
  *
  * Rollback example (previous full SHA):
  *   HERMES_IMAGE=whstagingacr.azurecr.io/wh-hermes-staging:<previous-full-sha> \
@@ -240,7 +249,7 @@ function deployLunaLocal() {
     ok: true,
     image,
     recreated: ['hermes-luna', 'hermes-sunset-luna'],
-    untouched: ['hermes-orchestrator', 'hermes-seadog'],
+    untouched: ['hermes-orchestrator', 'hermes-seadog', 'hermes-deckhand'],
     rollback_example:
       `HERMES_IMAGE=whstagingacr.azurecr.io/wh-hermes-staging:<previous-full-sha> `
       + 'node scripts/deploy-staging-hermes-vm.js deploy-luna-local',
@@ -348,6 +357,45 @@ function envBody(vars) {
     .concat('\n');
 }
 
+/**
+ * Resolve Deckhand secrets. Never falls back to Skipper's discord-bot-token.
+ * Hermes reads DISCORD_BOT_TOKEN + XAI_API_KEY inside the container; inputs are
+ * distinct env vars / Key Vault names so bots cannot be crossed.
+ */
+function resolveDeckhandSecrets() {
+  const discordToken =
+    process.env.DISCORD_DECKHAND_BOT_TOKEN
+    || kvSecret('discord-deckhand-bot-token')
+    || '';
+  const xaiApiKey =
+    process.env.XAI_API_KEY
+    || kvSecret('xai-api-key')
+    || '';
+  const missing = [];
+  if (!discordToken) {
+    missing.push('DISCORD_DECKHAND_BOT_TOKEN env or Key Vault secret discord-deckhand-bot-token');
+  }
+  if (!xaiApiKey) {
+    missing.push('XAI_API_KEY env or Key Vault secret xai-api-key');
+  }
+  if (missing.length) {
+    console.error(
+      '[vm] FAIL: Deckhand secrets missing — refusing to write /etc/hermes-deckhand.env '
+      + '(will not reuse discord-bot-token / Skipper credentials). Missing: '
+      + missing.join('; '),
+    );
+    process.exit(1);
+  }
+  return {
+    DISCORD_BOT_TOKEN: discordToken,
+    DISCORD_ALLOWED_USERS: process.env.DISCORD_DECKHAND_ALLOWED_USERS
+      || process.env.DISCORD_ALLOWED_USERS
+      || '',
+    XAI_API_KEY: xaiApiKey,
+    WOLFHOUSE_STAFF_API_BASE_URL: HERMES_VM.WOLFHOUSE_STAFF_API_BASE_URL,
+  };
+}
+
 function writeEnvFiles() {
   let apiServerKey = kvSecret('hermes-api-server-key');
   if (!apiServerKey) {
@@ -374,19 +422,23 @@ function writeEnvFiles() {
   const wolfhouseLuna = lunaEnvVars(apiServerKey, anthropicToken, {
     webhookPort: HERMES_VM.PORT_WOLFHOUSE_LUNA_WEBHOOK,
   });
+  const deckhand = resolveDeckhandSecrets();
   fs.mkdirSync(ENV_OUT, { recursive: true });
   const orchBody = envBody(orch);
   const lunaBody = envBody(luna);
   const wolfhouseLunaBody = envBody(wolfhouseLuna);
+  const deckhandBody = envBody(deckhand);
   fs.writeFileSync(path.join(ENV_OUT, 'hermes-orchestrator.env'), orchBody, 'utf8');
   fs.writeFileSync(path.join(ENV_OUT, 'hermes-luna.env'), lunaBody, 'utf8');
   fs.writeFileSync(path.join(ENV_OUT, 'hermes-wolfhouse-luna.env'), wolfhouseLunaBody, 'utf8');
+  fs.writeFileSync(path.join(ENV_OUT, 'hermes-deckhand.env'), deckhandBody, 'utf8');
   console.log(JSON.stringify({
     ok: true,
     orchestrator_env: path.join(ENV_OUT, 'hermes-orchestrator.env'),
     luna_env: path.join(ENV_OUT, 'hermes-luna.env'),
     wolfhouse_luna_env: path.join(ENV_OUT, 'hermes-wolfhouse-luna.env'),
-    note: 'Orchestrator: set DISCORD_BOT_TOKEN (you have it) via env or KV discord-bot-token. Luna: OAuth only — no OPENAI_API_KEY in .env. hermes-wolfhouse-luna listens on :8091; no live Meta traffic until a separate Caddy/cutover step.',
+    deckhand_env: path.join(ENV_OUT, 'hermes-deckhand.env'),
+    note: 'Orchestrator: DISCORD_BOT_TOKEN / KV discord-bot-token. Deckhand: DISCORD_DECKHAND_BOT_TOKEN / KV discord-deckhand-bot-token + XAI_API_KEY / KV xai-api-key (never reuse Skipper token). Luna: OAuth only — no OPENAI_API_KEY in .env. hermes-wolfhouse-luna listens on :8091; no live Meta traffic until a separate Caddy/cutover step.',
   }, null, 2));
 }
 
@@ -496,6 +548,7 @@ function bootstrapRemote() {
   scp(path.join(ENV_OUT, 'hermes-orchestrator.env'), '/tmp/hermes-orchestrator.env');
   scp(path.join(ENV_OUT, 'hermes-luna.env'), '/tmp/hermes-luna.env');
   scp(path.join(ENV_OUT, 'hermes-wolfhouse-luna.env'), '/tmp/hermes-wolfhouse-luna.env');
+  scp(path.join(ENV_OUT, 'hermes-deckhand.env'), '/tmp/hermes-deckhand.env');
   scp(path.join(ROOT, 'scripts', 'provision-hermes-vm.sh'), '/tmp/provision-hermes-vm.sh');
   const composeLocal = path.join(ROOT, 'docker', 'hermes-staging', 'docker-compose.vm.yml');
   ssh('mkdir -p /tmp/hermes-staging');
@@ -503,7 +556,7 @@ function bootstrapRemote() {
   ssh('sed -i "s/\\r$//" /tmp/provision-hermes-vm.sh');
   ssh('sudo bash /tmp/provision-hermes-vm.sh');
   ssh('sudo mkdir -p /opt/wolfhouse/WH/docker/hermes-staging && sudo cp /tmp/hermes-staging/docker-compose.vm.yml /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml');
-  ssh('sudo mv /tmp/hermes-orchestrator.env /etc/hermes-orchestrator.env && sudo mv /tmp/hermes-luna.env /etc/hermes-luna.env && sudo mv /tmp/hermes-wolfhouse-luna.env /etc/hermes-wolfhouse-luna.env && sudo chmod 600 /etc/hermes-*.env');
+  ssh('sudo mv /tmp/hermes-orchestrator.env /etc/hermes-orchestrator.env && sudo mv /tmp/hermes-luna.env /etc/hermes-luna.env && sudo mv /tmp/hermes-wolfhouse-luna.env /etc/hermes-wolfhouse-luna.env && sudo mv /tmp/hermes-deckhand.env /etc/hermes-deckhand.env && sudo chmod 600 /etc/hermes-*.env');
   const acrToken = az(
     `acr login --name ${HERMES_VM.ACR} --expose-token --output tsv --query accessToken`,
     { silent: true },

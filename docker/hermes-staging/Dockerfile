@@ -15,6 +15,7 @@ RUN rm -rf /root/.cache/uv /root/.cache/pip \
 
 COPY SOUL.md /etc/hermes-staging/SOUL.md
 COPY orchestrator-SOUL.md /etc/hermes-staging/orchestrator-SOUL.md
+COPY deckhand-SOUL.md /etc/hermes-staging/deckhand-SOUL.md
 COPY plugins /etc/hermes-staging/plugins
 COPY wolfhouse_whatsapp_mirror.py /etc/hermes-staging/wolfhouse_whatsapp_mirror.py
 COPY wolfhouse_guest_fresh_start.py /etc/hermes-staging/wolfhouse_guest_fresh_start.py
@@ -31,6 +32,7 @@ COPY verify_guest_send_guard_patches.py /etc/hermes-staging/verify_guest_send_gu
 COPY verify_gateway_patch_idempotency.py /etc/hermes-staging/verify_gateway_patch_idempotency.py
 COPY verify_discord_session_continuity.py /etc/hermes-staging/verify_discord_session_continuity.py
 COPY verify_wolfhouse_luna_instance.py /etc/hermes-staging/verify_wolfhouse_luna_instance.py
+COPY verify_deckhand_instance.py /etc/hermes-staging/verify_deckhand_instance.py
 COPY docker-compose.vm.yml /etc/hermes-staging/docker-compose.vm.yml
 COPY lunabox-caddyfile.reference /etc/hermes-staging/lunabox-caddyfile.reference
 COPY bootstrap.sh /etc/hermes-staging/bootstrap.sh
