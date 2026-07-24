@@ -1057,6 +1057,164 @@ async function assertPreparedAuthzSnapshot(deps, names, prep) {
   if (!oid.ok) return oid;
   return { ok: true, errors: [] };
 }
+function expectedTenantAcrPullAssignment(names, principalId) {
+  if (!principalId) return null;
+  const contract = d1.buildExpectedResourceContract(names, { principalId });
+  const acr = (contract.roleAssignments || []).find((r) => r.kind === 'acr');
+  if (!acr || !acr.id || !acr.name) return null;
+  return {
+    ...acr,
+    principalId: String(principalId),
+    roleDefinitionResourceId: `/subscriptions/${names.subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/${acr.roleDefinitionId}`,
+  };
+}
+function assertRoleAssignmentIdentity(body, expected, principalId) {
+  // Exact GET identity: id/name + principalId/roleDefinitionId/scope/principalType.
+  const props = (body && body.properties) || {};
+  if (!body || !Object.prototype.hasOwnProperty.call(body, 'id')
+    || String(body.id).toLowerCase() !== String(expected.id).toLowerCase()) {
+    return { ok: false, errors: [err('role_assignment_id_mismatch', 'wrong or missing assignment id')] };
+  }
+  if (!Object.prototype.hasOwnProperty.call(body, 'name')
+    || String(body.name).toLowerCase() !== String(expected.name).toLowerCase()) {
+    return { ok: false, errors: [err('role_assignment_name_mismatch', 'wrong or missing assignment name')] };
+  }
+  if (!Object.prototype.hasOwnProperty.call(props, 'principalId')
+    || String(props.principalId || '').toLowerCase() !== String(principalId).toLowerCase()) {
+    return { ok: false, errors: [err('role_assignment_principal_mismatch', 'wrong principal')] };
+  }
+  if (!Object.prototype.hasOwnProperty.call(props, 'roleDefinitionId')
+    || String(props.roleDefinitionId || '').toLowerCase()
+      !== String(expected.roleDefinitionResourceId).toLowerCase()) {
+    return { ok: false, errors: [err('role_assignment_definition_mismatch', 'wrong roleDefinitionId')] };
+  }
+  if (!Object.prototype.hasOwnProperty.call(props, 'scope')
+    || String(props.scope || '').toLowerCase() !== String(expected.scope).toLowerCase()) {
+    return { ok: false, errors: [err('role_assignment_scope_mismatch', 'wrong scope')] };
+  }
+  if (!Object.prototype.hasOwnProperty.call(props, 'principalType')
+    || String(props.principalType || '').toLowerCase() !== 'serviceprincipal') {
+    return {
+      ok: false,
+      errors: [err('role_assignment_principal_type_mismatch', 'principalType must be ServicePrincipal')],
+    };
+  }
+  return { ok: true, errors: [], body, props };
+}
+async function putExactTenantAcrPull(deps, names, principalId, drill) {
+  // Post-infra JS owner: create deterministic AcrPull at shared ACR scope via ARM PUT.
+  // No nested Bicep deployment into tenant or shared RG; uses temp ACR RBAC Admin only.
+  const aborted = checkAbort(deps);
+  if (!aborted.ok) return aborted;
+  if (drill) {
+    const active = assertActiveDrill({ ...drill, now: deps.now(), phase: 'roles' });
+    if (!active.ok) return active;
+  }
+  if (!principalId) {
+    return { ok: false, errors: [err('principal_missing', 'managed identity principalId missing')] };
+  }
+  const expected = expectedTenantAcrPullAssignment(names, principalId);
+  if (!expected) {
+    return { ok: false, errors: [err('acr_pull_expected_missing', 'could not derive deterministic AcrPull assignment')] };
+  }
+  const putBody = {
+    properties: {
+      roleDefinitionId: expected.roleDefinitionResourceId,
+      principalId: String(principalId),
+      principalType: 'ServicePrincipal',
+    },
+  };
+  const put = await deps.armRequest({
+    method: 'PUT', path: `${expected.id}?api-version=${ROLE_API}`, body: putBody,
+  });
+  // 200/201 create-or-update; 409 may mean concurrent exact name — still require identity readback.
+  if (!(put.status === 200 || put.status === 201 || put.status === 409)) {
+    return {
+      ok: false,
+      errors: [err('acr_pull_put_failed', `status ${put.status}`)],
+      put, id: expected.id, name: expected.name,
+    };
+  }
+  // Bounded propagation + exact principal/type/role/scope readback (fail closed before later phases).
+  return runBoundedPoll(deps, {
+    phase: 'roles', drill,
+    onTimeout: ({ body, polls }) => ({
+      ok: false,
+      errors: [err('acr_pull_propagation_timeout', 'exact AcrPull readback timed out after PUT')],
+      body, attempts: polls, id: expected.id, name: expected.name,
+    }),
+    iterate: async ({ polls }) => {
+      const got = await deps.armRequest({ method: 'GET', path: `${expected.id}?api-version=${ROLE_API}` });
+      const next = polls + 1;
+      if (got.status === 404) {
+        return { done: false, last: got, polls: next, headers: got.headers };
+      }
+      if (got.status < 200 || got.status >= 300) {
+        return {
+          done: true, last: got, polls: next,
+          result: {
+            ok: false,
+            errors: [err('acr_pull_read_failed', `status ${got.status}`)],
+            body: got.body, id: expected.id,
+          },
+        };
+      }
+      const idn = assertRoleAssignmentIdentity(got.body || {}, expected, principalId);
+      if (!idn.ok) {
+        return { done: false, last: got, polls: next, headers: got.headers };
+      }
+      return {
+        done: true, last: got, polls: next,
+        result: {
+          ok: true, attempts: next, id: expected.id, name: expected.name,
+          scope: expected.scope, principalId: String(principalId),
+          roleDefinitionId: expected.roleDefinitionId, principalType: 'ServicePrincipal',
+          body: got.body,
+        },
+      };
+    },
+  });
+}
+async function deleteExactTenantAcrPull(deps, names, principalId, opts = {}) {
+  // AcrPull lives on shared ACR and does NOT disappear with tenant RG delete.
+  // Canonical rollback deletes only this deterministic assignment (no list-delete).
+  if (!principalId) {
+    return { ok: true, alreadyAbsent: true, deleted: false, skipped: true, reason: 'no_principal' };
+  }
+  const expected = expectedTenantAcrPullAssignment(names, principalId);
+  if (!expected) {
+    return { ok: false, errors: [err('acr_pull_expected_missing', 'could not derive deterministic AcrPull assignment')] };
+  }
+  if (opts.roleAssignmentId != null
+    && String(opts.roleAssignmentId).toLowerCase() !== String(expected.id).toLowerCase()) {
+    return {
+      ok: false,
+      errors: [err('acr_pull_delete_refused', 'only exact tenant AcrPull assignment may be removed')],
+    };
+  }
+  const got = await deps.armRequest({ method: 'GET', path: `${expected.id}?api-version=${ROLE_API}` });
+  if (got.status === 404) return { ok: true, alreadyAbsent: true, deleted: false, id: expected.id };
+  if (got.status < 200 || got.status >= 300) {
+    return { ok: false, errors: [err('acr_pull_role_read_failed', `status ${got.status}`)] };
+  }
+  const idn = assertRoleAssignmentIdentity(got.body || {}, expected, principalId);
+  if (!idn.ok) return idn;
+  const etag = (got.headers && (got.headers.etag || got.headers.ETag))
+    || (got.body && got.body.etag) || null;
+  const delHeaders = etag ? { 'If-Match': etag } : {};
+  const del = await deps.armRequest({
+    method: 'DELETE', path: `${expected.id}?api-version=${ROLE_API}`, headers: delHeaders,
+  });
+  if (del.status === 412) return { ok: false, errors: [err('etag_race', 'If-Match precondition failed')] };
+  if (!(del.status === 200 || del.status === 202 || del.status === 204 || del.status === 404)) {
+    return { ok: false, errors: [err('acr_pull_role_delete_failed', `status ${del.status}`)] };
+  }
+  const readback = await deps.armRequest({ method: 'GET', path: `${expected.id}?api-version=${ROLE_API}` });
+  if (readback.status !== 404) {
+    return { ok: false, errors: [err('acr_pull_role_still_present', 'tenant AcrPull still present after delete')] };
+  }
+  return { ok: true, deleted: true, alreadyAbsent: false, id: expected.id };
+}
 async function deleteExactTempAcrRbacAdmin(deps, names, opts = {}) {
   const expected = buildPreparedRoleAssignments(names).find((r) => r.kind === 'acr-rbac-admin-temp');
   if (opts.roleAssignmentId != null
@@ -1073,40 +1231,20 @@ async function deleteExactTempAcrRbacAdmin(deps, names, opts = {}) {
   }
   // Independent exact-GET identity contract: required body.id/name + properties
   // (principalId/roleDefinitionId/scope/principalType) must match before DELETE.
-  const body = got.body || {};
-  const props = body.properties || {};
-  const idOk = Object.prototype.hasOwnProperty.call(body, 'id')
-    && String(body.id).toLowerCase() === String(expected.id).toLowerCase();
-  const nameOk = Object.prototype.hasOwnProperty.call(body, 'name')
-    && String(body.name).toLowerCase() === String(expected.name).toLowerCase();
-  const pOk = Object.prototype.hasOwnProperty.call(props, 'principalId')
-    && String(props.principalId).toLowerCase() === EXECUTOR_UAI_OID.toLowerCase();
-  const dOk = Object.prototype.hasOwnProperty.call(props, 'roleDefinitionId')
-    && String(props.roleDefinitionId).toLowerCase()
-      === String(expected.roleDefinitionResourceId).toLowerCase();
-  const sOk = Object.prototype.hasOwnProperty.call(props, 'scope')
-    && String(props.scope).toLowerCase() === String(expected.scope).toLowerCase();
-  const ptOk = Object.prototype.hasOwnProperty.call(props, 'principalType')
-    && String(props.principalType).toLowerCase() === 'serviceprincipal';
-  if (!idOk) {
-    return { ok: false, errors: [err('acr_temp_role_id_mismatch', 'wrong or missing assignment id')] };
-  }
-  if (!nameOk) {
-    return { ok: false, errors: [err('acr_temp_role_name_mismatch', 'wrong or missing assignment name')] };
-  }
-  if (!pOk) {
-    return { ok: false, errors: [err('acr_temp_role_principal_mismatch', 'wrong principal')] };
-  }
-  if (!dOk) {
-    return { ok: false, errors: [err('acr_temp_role_definition_mismatch', 'wrong roleDefinitionId')] };
-  }
-  if (!sOk) {
-    return { ok: false, errors: [err('acr_temp_role_scope_mismatch', 'wrong scope')] };
-  }
-  if (!ptOk) {
+  const idn = assertRoleAssignmentIdentity(got.body || {}, expected, EXECUTOR_UAI_OID);
+  if (!idn.ok) {
+    // Preserve historical error codes for temp ACR RBAC-admin identity mismatches.
+    const codeMap = {
+      role_assignment_id_mismatch: 'acr_temp_role_id_mismatch',
+      role_assignment_name_mismatch: 'acr_temp_role_name_mismatch',
+      role_assignment_principal_mismatch: 'acr_temp_role_principal_mismatch',
+      role_assignment_definition_mismatch: 'acr_temp_role_definition_mismatch',
+      role_assignment_scope_mismatch: 'acr_temp_role_scope_mismatch',
+      role_assignment_principal_type_mismatch: 'acr_temp_role_principal_type_mismatch',
+    };
     return {
       ok: false,
-      errors: [err('acr_temp_role_principal_type_mismatch', 'principalType must be ServicePrincipal')],
+      errors: (idn.errors || []).map((e) => err(codeMap[e.code] || e.code, e.message)),
     };
   }
   // Live Microsoft.Authorization roleAssignments GET often returns 200 with no ETag
@@ -1315,6 +1453,10 @@ async function waitExactRoles(deps, names, principalId, drill) {
           && String(props.scope || '').toLowerCase() !== String(expected.scope).toLowerCase()) {
           all = false; break;
         }
+        if (Object.prototype.hasOwnProperty.call(props, 'principalType')
+          && String(props.principalType || '').toLowerCase() !== 'serviceprincipal') {
+          all = false; break;
+        }
       }
       const next = polls + 1;
       if (all) return { done: true, last, polls: next, result: { ok: true, attempts: next, contract } };
@@ -1467,11 +1609,15 @@ async function apply(opts, depsIn) {
     const drill = { createdAt, expiresAt };
     const drillExtras = { temporaryDrill: 'true', createdAt, expiresAt, imageDigest: img.imageDigest };
     const template = compiled.template;
-    const phases = ['infra', 'bootstrap', 'c2-operator', 'job-delete', 'runtime-prereqs', 'roles', 'runtime-app', 'cost-after'];
+    const phases = [
+      'infra', 'acr-pull', 'bootstrap', 'c2-operator', 'job-delete',
+      'runtime-prereqs', 'roles', 'runtime-app', 'cost-after',
+    ];
     const deploymentIds = [];
     let runtime = null;
     let costAfter = null;
     let principalId = null;
+    let acrPullAssignment = null;
     let acrCleanupCommand = pasteReadyAcrCleanupCommand(names);
 
     const phaseGate = (phase) => {
@@ -1512,7 +1658,7 @@ async function apply(opts, depsIn) {
       }
     }
 
-    for (const phase of ['infra', 'bootstrap']) {
+    for (const phase of ['infra']) {
       const g = phaseGate(phase); if (!g.ok) {
         return preserveFailure(deps, {
           errors: g.errors, names, planDigest, verifiedDeploySha, tags, invocationCreatedRg, secretsHeld,
@@ -1535,6 +1681,76 @@ async function apply(opts, depsIn) {
         return preserveFailure(deps, {
           errors: dep.errors, names, planDigest, verifiedDeploySha, tags, invocationCreatedRg, secretsHeld,
           phase, opts: optsIn,
+        });
+      }
+      deploymentIds.push((dep.body && dep.body.id) || depPath);
+    }
+
+    // After infra identity exists: JS-owned AcrPull at shared ACR (no Bicep nested deploy).
+    // Fail closed before bootstrap/runtime so later phases never run without exact readback.
+    {
+      const g = phaseGate('roles'); if (!g.ok) {
+        return preserveFailure(deps, {
+          errors: g.errors, names, planDigest, verifiedDeploySha, tags, invocationCreatedRg, secretsHeld,
+          phase: 'acr-pull', opts: optsIn,
+        });
+      }
+      const miPath = `/subscriptions/${names.subscriptionId}/resourceGroups/${names.resourceGroupName}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${names.identityName}?api-version=2023-01-31`;
+      const mi = await deps.armRequest({ method: 'GET', path: miPath });
+      principalId = String((((mi.body || {}).properties) || {}).principalId || '');
+      if (!principalId) {
+        return preserveFailure(deps, {
+          errors: [err('principal_missing', 'managed identity principalId missing after infra')],
+          names, planDigest, verifiedDeploySha, tags, invocationCreatedRg, secretsHeld,
+          phase: 'acr-pull', opts: optsIn,
+        });
+      }
+      const putAcr = await putExactTenantAcrPull(deps, names, principalId, drill);
+      if (!putAcr.ok) {
+        return preserveFailure(deps, {
+          errors: putAcr.errors || [err('acr_pull_put_failed', 'AcrPull PUT/readback failed')],
+          names, planDigest, verifiedDeploySha, tags, invocationCreatedRg, secretsHeld,
+          phase: 'acr-pull', opts: optsIn, principalId,
+        });
+      }
+      acrPullAssignment = {
+        id: putAcr.id, name: putAcr.name, scope: putAcr.scope,
+        principalId: putAcr.principalId, roleDefinitionId: putAcr.roleDefinitionId,
+        principalType: putAcr.principalType,
+      };
+      // Also wait exact KV (Bicep) + AcrPull set before bootstrap image pulls.
+      const rolesEarly = await waitExactRoles(deps, names, principalId, drill);
+      if (!rolesEarly.ok) {
+        return preserveFailure(deps, {
+          errors: rolesEarly.errors, names, planDigest, verifiedDeploySha, tags, invocationCreatedRg,
+          secretsHeld, phase: 'acr-pull', opts: optsIn, principalId,
+        });
+      }
+    }
+
+    for (const phase of ['bootstrap']) {
+      const g = phaseGate(phase); if (!g.ok) {
+        return preserveFailure(deps, {
+          errors: g.errors, names, planDigest, verifiedDeploySha, tags, invocationCreatedRg, secretsHeld,
+          opts: optsIn, principalId,
+        });
+      }
+      const logical = phase;
+      const params = attachSecureParams(
+        buildNonsecretParams(names, verifiedDeploySha, planDigest, logical, drillExtras),
+        secrets, logical,
+      );
+      const deployName = `messi-2d2-${phase}`;
+      const depPath = `/subscriptions/${names.subscriptionId}/resourceGroups/${names.resourceGroupName}/providers/Microsoft.Resources/deployments/${deployName}?api-version=${DEP_API}`;
+      const dep = await putAndPoll(deps, {
+        path: depPath,
+        body: { properties: { mode: 'Incremental', template, parameters: params } },
+        createdAt, expiresAt, phase,
+      });
+      if (!dep.ok) {
+        return preserveFailure(deps, {
+          errors: dep.errors, names, planDigest, verifiedDeploySha, tags, invocationCreatedRg, secretsHeld,
+          phase, opts: optsIn, principalId,
         });
       }
       deploymentIds.push((dep.body && dep.body.id) || depPath);
@@ -1739,6 +1955,9 @@ async function apply(opts, depsIn) {
       proratedWorstCaseUsd: costGate.proratedWorstCaseUsd,
       rollbackCommand: pasteReadyRollbackCommand(names.tenantSlug),
       phases,
+      // Diagnostic only — never authority. Exact AcrPull created by JS post-infra.
+      acrPullRoleAssignment: acrPullAssignment,
+      principalId,
     };
     const rp = writeReceipt(deps, receipt);
     return {
@@ -1771,10 +1990,31 @@ async function apply(opts, depsIn) {
 async function preserveFailure(deps, ctx) {
   const acrCleanupCommand = ctx.acrCleanupCommand
     || (ctx.names && ctx.names.subscriptionId ? pasteReadyAcrCleanupCommand(ctx.names) : null);
+  // Apply-failure cleanup deletes exact AcrPull when identity is readable (does not vanish with RG).
+  // Canonical operator rollback still owns full RG + AcrPull + temp-admin lifecycle.
+  let acrPullCleanup = null;
+  let principalForCleanup = ctx.principalId || null;
+  if (!principalForCleanup && ctx.names && ctx.names.subscriptionId && ctx.names.identityName
+    && ctx.names.resourceGroupName) {
+    try {
+      const miPath = `/subscriptions/${ctx.names.subscriptionId}/resourceGroups/${ctx.names.resourceGroupName}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${ctx.names.identityName}?api-version=2023-01-31`;
+      const mi = await deps.armRequest({ method: 'GET', path: miPath });
+      if (mi.status >= 200 && mi.status < 300) {
+        principalForCleanup = String((((mi.body || {}).properties) || {}).principalId || '') || null;
+      }
+    } catch (_) { /* best-effort */ }
+  }
+  if (principalForCleanup && ctx.names && ctx.names.subscriptionId) {
+    try {
+      acrPullCleanup = await deleteExactTenantAcrPull(deps, ctx.names, principalForCleanup);
+    } catch (_) {
+      acrPullCleanup = { ok: false, errors: [err('acr_pull_cleanup_exception', 'AcrPull failure cleanup failed')] };
+    }
+  }
   const base = {
     ok: false, errors: ctx.errors, preservedResourceGroup: true,
     invocationCreatedRg: !!ctx.invocationCreatedRg, phase: ctx.phase || null,
-    acrCleanupCommand,
+    acrCleanupCommand, acrPullCleanup,
   };
   try {
     writeReceipt(deps, {
@@ -1784,6 +2024,11 @@ async function preserveFailure(deps, ctx) {
       deploySha: ctx.verifiedDeploySha, phase: ctx.phase || null,
       tags: ctx.tags, rollbackCommand: pasteReadyRollbackCommand(ctx.names.tenantSlug),
       acrCleanupCommand, preservedResourceGroup: true,
+      principalId: principalForCleanup || null,
+      acrPullCleanup: acrPullCleanup && {
+        ok: acrPullCleanup.ok, deleted: !!acrPullCleanup.deleted,
+        alreadyAbsent: !!acrPullCleanup.alreadyAbsent, id: acrPullCleanup.id || null,
+      },
     });
   } catch (_) { /* receipt best-effort */ }
   if (ctx.opts && ctx.opts.rollbackOnFailure && ctx.invocationCreatedRg) {
@@ -1895,10 +2140,13 @@ async function rollback(opts, depsIn) {
       };
     }
     if (probe1.absent && probe2.absent) {
+      // RG already gone: without identity principalId we cannot derive AcrPull id (no list-delete).
+      // Temp ACR RBAC-admin is still exact-name deterministic for the executor.
       const acrDel = await deleteExactTempAcrRbacAdmin(deps, names);
       return {
         ok: acrDel.ok, alreadyAbsent: true, resourceGroupName: expectedRg,
         acrTempRoleAbsent: !!(acrDel.ok && (acrDel.alreadyAbsent || acrDel.deleted)),
+        acrPullRoleAbsent: null,
         acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
         errors: acrDel.ok ? [] : acrDel.errors,
       };
@@ -2019,16 +2267,30 @@ async function rollback(opts, depsIn) {
       return polled;
     }
     if (!polled.ok) return polled;
+    // AcrPull is on shared ACR — does not vanish with RG. Delete exact deterministic
+    // assignment after identity was read from inventory (principalId), then temp admin.
+    const tenantPrincipalId = live.principalId || null;
+    const acrPullDel = await deleteExactTenantAcrPull(deps, names, tenantPrincipalId);
+    if (!acrPullDel.ok) {
+      return {
+        ok: false, deleted: true, resourceGroupName: expectedRg, phase,
+        acrPullRoleAbsent: false, acrTempRoleAbsent: false,
+        acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
+        errors: acrPullDel.errors,
+      };
+    }
     const acrDel = await deleteExactTempAcrRbacAdmin(deps, names);
     if (!acrDel.ok) {
       return {
         ok: false, deleted: true, resourceGroupName: expectedRg, phase,
-        acrTempRoleAbsent: false, acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
+        acrPullRoleAbsent: true, acrTempRoleAbsent: false,
+        acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
         errors: acrDel.errors,
       };
     }
     return {
       ...polled,
+      acrPullRoleAbsent: true,
       acrTempRoleAbsent: true,
       acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
       historicalDeploySha: verifiedDeploySha,
@@ -2103,6 +2365,8 @@ module.exports = Object.freeze({
   SENTINELS, LEGITIMATE_PHASES, PHASE_MAX_MS, createDeps, apply, rollback, expiryStatus, prepareSpec,
   validateApprovalFlags, estimateProratedWorstCaseUsd, assertCostGate, assertActiveDrill, assertDrillTags,
   drillTags, preparedTags, buildPreparedRoleAssignments, deleteExactTempAcrRbacAdmin,
+  expectedTenantAcrPullAssignment, putExactTenantAcrPull, deleteExactTenantAcrPull,
+  assertRoleAssignmentIdentity,
   pasteReadyAcrCleanupCommand, generateSecrets, buildBootstrapAdminDsn, installedAcrManifestShowArgv,
   installedAcrBuildArgv, resolveImageDigest, buildStaffImage, putAndPoll, pollArmTerminal,
   pasteReadyRollbackCommand, acquireExclusiveLock, writeReceipt, readReceipt, deriveD1Authority,

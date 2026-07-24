@@ -103,24 +103,20 @@ async function main() {
     && /pgApp\.id/.test(job) && /containerAppsEnv\.id/.test(job) && /managedIdentity\.id/.test(job)
     && /subscription\(\)\.subscriptionId/.test(job) && /resourceGroup\(\)\.name/.test(job)
     && /fullyQualifiedDomainName/.test(job) && /appDb\.name/.test(job));
-  ok('main_depends_on', /dependsOn:[\s\S]{0,260}acrPullRole/.test(mainSrc)
-    && /dependsOn:[\s\S]{0,260}(pgApp|appDb)/.test(mainSrc)
-    && /dependsOn:[\s\S]{0,260}(containerAppsEnv|managedIdentity)/.test(mainSrc));
+  ok('main_depends_on', /dependsOn:[\s\S]{0,260}(pgApp|appDb)/.test(mainSrc)
+    && /dependsOn:[\s\S]{0,260}(containerAppsEnv|managedIdentity)/.test(mainSrc)
+    && !/dependsOn:[\s\S]{0,260}acrPullRole/.test(mainSrc));
   const acrPullJson = fs.existsSync(path.join(ROOT, 'infra/azure/modules/tenant-staging/acr-pull-role.json'))
     ? read('infra/azure/modules/tenant-staging/acr-pull-role.json') : '';
-  const acrPullSrc = `${mainSrc}\n${acrPullJson}`;
   ok('acr_pull_no_shared_rg_nested_module',
     !/module\s+acrPullRole\b[\s\S]{0,320}scope:\s*resourceGroup\(\s*acrResourceGroupName\s*\)/.test(mainSrc));
-  ok('acr_pull_direct_extension_on_existing_acr',
+  ok('acr_pull_not_emitted_from_bicep',
     /resource\s+existingAcr\s+'Microsoft\.ContainerRegistry\/registries@/.test(mainSrc)
     && /scope:\s*resourceGroup\(\s*acrResourceGroupName\s*\)/.test(mainSrc)
-    && /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(acrPullSrc)
-    && /acrPullRole/.test(mainSrc)
-    && !/module\s+acrPullRole\b[\s\S]{0,320}scope:\s*resourceGroup\(\s*acrResourceGroupName\s*\)/.test(mainSrc)
-    && (/resource\s+acrPullRole\s+'Microsoft\.Authorization\/roleAssignments@/.test(mainSrc)
-      || /guid\(\s*existingAcr\.id/.test(mainSrc)
-      || /module\s+acrPullRole\s+'\.\/acr-pull-role\.json'/.test(mainSrc)
-      || /resourceId\(\s*parameters\('acrResourceGroupName'\)[\s\S]{0,120}ContainerRegistry\/registries/.test(acrPullJson)));
+    && !/module\s+acrPullRole\b/.test(mainSrc)
+    && !/resource\s+acrPullRole\s+'Microsoft\.Authorization\/roleAssignments@/.test(mainSrc)
+    && /JS apply|roleAssignments PUT|JS-owned/i.test(mainSrc)
+    && /"resources"\s*:\s*\[\s*\]/.test(acrPullJson));
   ok('job_no_caller_ownership_params', !/param expectedPgHost/.test(job)
     && !/param postgresServerId/.test(job) && !/param acaEnvironmentId/.test(job)
     && !/param subscriptionId/.test(job) && !/param resourceGroupName/.test(job)
@@ -482,12 +478,11 @@ async function main() {
       ok('forged_resources_impossible', /pgApp\.id/.test(job) && /containerAppsEnv\.id/.test(job)
         && /managedIdentity\.id/.test(job) && /existing =/.test(job)
         && !/param postgresServerId/.test(job) && !/param expectedPgHost/.test(job));
-      ok('compile_depends_on_present', /dependsOn/.test(mainSrc) && /acrPullRole/.test(mainSrc));
+      ok('compile_depends_on_present', /dependsOn/.test(mainSrc) && !/acrPullRole/.test(mainSrc));
       const topDeps = (compiledMain.resources || []).filter((r) => r.type === 'Microsoft.Resources/deployments');
-      const acrPullNamedDeps = topDeps.filter((r) => /acrPullModuleName/.test(String(r.name || '')));
-      ok('compile_acr_pull_no_shared_rg_deployment',
-        !acrPullNamedDeps.some((r) => /acrResourceGroupName|wh-staging-rg/.test(String(r.resourceGroup || ''))),
-        JSON.stringify(acrPullNamedDeps.map((r) => r.resourceGroup)));
+      const acrPullNamedDeps = topDeps.filter((r) => /acrPullModuleName|StagingAcrPull/i.test(String(r.name || '')));
+      ok('compile_acr_pull_no_shared_rg_deployment', acrPullNamedDeps.length === 0,
+        JSON.stringify(acrPullNamedDeps.map((r) => r.name)));
       const walkRoles = (list, acc, tpl) => {
         for (const r of list || []) {
           if (r.type === 'Microsoft.Authorization/roleAssignments') acc.push({ r, tpl });
@@ -500,20 +495,16 @@ async function main() {
       };
       const acrPullRoles = walkRoles(compiledMain.resources || [], [], compiledMain)
         .filter((x) => /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(JSON.stringify(x.r)));
-      const acrScopeOk = acrPullRoles.some((x) => {
-        const blob = `${JSON.stringify(x.r.scope || '')}|${JSON.stringify((x.tpl && x.tpl.variables) || {})}`;
-        return /ContainerRegistry\/registries|acrName|acrId|acrResourceGroupName/.test(blob);
-      });
-      ok('compile_acr_pull_role_at_acr_scope', acrPullRoles.length === 1 && acrScopeOk,
-        `n=${acrPullRoles.length} scopeOk=${acrScopeOk}`);
+      ok('compile_acr_pull_absent_from_bicep', acrPullRoles.length === 0,
+        `n=${acrPullRoles.length}`);
       const bootDep = JSON.stringify(((compiledMain.resources || [])
         .find((r) => /syntheticBootstrapJob/.test(String(r.name || ''))) || {}).dependsOn || []);
-      ok('compile_bootstrap_depends_on_acr_pull', /acrPull|7f951dda|roleAssignments/.test(bootDep), bootDep.slice(0, 180));
+      ok('compile_bootstrap_no_bicep_acr_pull_dependson', !/acrPullRole/.test(bootDep), bootDep.slice(0, 180));
     } catch (err) {
       skipMany(['compile_job','compile_manual','compile_retry_zero','compile_parallelism','compile_completions','compile_no_ingress',
         'compile_secret_refs','compile_outputs_narrow','compile_ownership_tags','compile_digest_image','wrong_image_tag_rejected',
         'compile_main_with_job_gate','forged_resources_impossible','compile_depends_on_present',
-        'compile_acr_pull_no_shared_rg_deployment','compile_acr_pull_role_at_acr_scope','compile_bootstrap_depends_on_acr_pull'],
+        'compile_acr_pull_no_shared_rg_deployment','compile_acr_pull_absent_from_bicep','compile_bootstrap_no_bicep_acr_pull_dependson'],
         String(err.stderr || err.message || err).slice(0, 400));
     }
   } else ok('compile_job', false, 'missing job/main or bicep');

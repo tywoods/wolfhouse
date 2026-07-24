@@ -16,6 +16,8 @@ const FILES = [LIB_REL, CLI_REL, 'scripts/verify-messi-saas-stage2d2-apply-rollb
   'infra/azure/modules/tenant-staging/main.bicep',
   'infra/azure/modules/tenant-staging/synthetic-bootstrap-job.bicep',
   'infra/azure/modules/tenant-staging/synthetic-runtime-secrets.bicep',
+  'infra/azure/modules/tenant-staging/acr-pull-role.json',
+  'fixtures/messi-saas-stage2d2/live-residual-12-resource-acrpull-missing.json',
   D1_REL];
 const SLUG = 'messiproof';
 const SUB = '6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9';
@@ -245,10 +247,44 @@ function makeHarness(lib, d1, opts = {}) {
       }
       if (/roleAssignments\/[0-9a-f-]{36}/i.test(p)) {
         const id = (p.match(/roleAssignments\/([0-9a-f-]{36})/i) || [])[1];
-        const hit = rolesById[String(id).toLowerCase()];
+        const key = String(id).toLowerCase();
+        if (req.method === 'PUT') {
+          const props = (req.body && req.body.properties) || {};
+          const scopeFromPath = p.replace(/\?.*$/, '').replace(/\/providers\/Microsoft\.Authorization\/roleAssignments\/[^/]+$/i, '');
+          const body = {
+            id: p.replace(/\?.*$/, ''),
+            name: id,
+            type: 'Microsoft.Authorization/roleAssignments',
+            properties: {
+              roleDefinitionId: props.roleDefinitionId,
+              principalId: props.principalId,
+              principalType: props.principalType || 'ServicePrincipal',
+              scope: props.scope || scopeFromPath,
+            },
+          };
+          rolesById[key] = body;
+          return { status: 201, body, headers: {} };
+        }
+        if (req.method === 'DELETE') {
+          if (!rolesById[key]) return { status: 404, body: {}, headers: {} };
+          delete rolesById[key];
+          return { status: 200, body: {}, headers: {} };
+        }
+        const hit = rolesById[key];
         return hit ? { status: 200, body: hit, headers: {} } : { status: 404, body: {}, headers: {} };
       }
       if (/\/resources(\?|&|$)/i.test(p)) return { status: 200, body: { value: resources }, headers: {} };
+      // Exact smart-detector provider GET (pinned SMART_DETECTOR_API) — not sparse /resources.
+      if (req.method === 'GET' && /smartDetectorAlertRules\//i.test(p)) {
+        const rawName = decodeURIComponent((p.match(/smartDetectorAlertRules\/([^/?]+)/i) || [])[1] || '');
+        const hit = (resources || []).find((r) => r
+          && /smartDetectorAlertRules/i.test(String(r.type || ''))
+          && (String(r.name || '') === rawName
+            || String(r.name || '').toLowerCase() === rawName.toLowerCase()
+            || (r.id && String(r.id).toLowerCase().endsWith(`/${rawName.toLowerCase()}`))));
+        if (!hit) return { status: 404, body: {}, headers: {} };
+        return { status: 200, body: hit, headers: {} };
+      }
       if (/KeyVault\/vaults/i.test(p) && /\/secrets(\/|\?|$)/i.test(p)) {
         const m = p.match(/\/secrets\/([^/?]+)(?:\?|$)/i);
         if (m) {
@@ -299,13 +335,18 @@ function makeHarness(lib, d1, opts = {}) {
         registrationState: state,
       };
     },
-    seedRoles(names) {
+    seedRoles(names, opts = {}) {
       const c = d1.buildExpectedResourceContract(names, { principalId: PID });
-      rolesById = Object.fromEntries(c.roleAssignments.map((role) => [String(role.name).toLowerCase(), {
+      // Default seeds both roles for foundation inventory tests. Apply still PUTs AcrPull
+      // (create-or-update). Pass { acrPull: false } to start without AcrPull (JS PUT path).
+      const list = opts.acrPull === false
+        ? c.roleAssignments.filter((role) => role.kind !== 'acr')
+        : c.roleAssignments;
+      rolesById = Object.fromEntries(list.map((role) => [String(role.name).toLowerCase(), {
         id: role.id, name: role.name,
         properties: {
           roleDefinitionId: `/subscriptions/${SUB}/providers/Microsoft.Authorization/roleDefinitions/${role.roleDefinitionId}`,
-          principalId: PID, scope: role.scope,
+          principalId: PID, scope: role.scope, principalType: 'ServicePrincipal',
         },
       }]));
       return c;
@@ -2482,11 +2523,466 @@ async function main() {
     }
   }
 
+  // ── Live residual recovery (xhOFOm): 12-resource infra-partial + JS AcrPull owner ──
+  // Nested Bicep AcrPull removed; platform-supplemental Failure Anomalies smart detector
+  // accepted only via exact contract; missing AcrPull OK in infra-partial; rollback deletes
+  // whole RG + exact AcrPull (if present) + exact temp admin. Attacks: zero mutation.
+  {
+    const residualPath = path.join(ROOT,
+      'fixtures/messi-saas-stage2d2/live-residual-12-resource-acrpull-missing.json');
+    const residual = JSON.parse(fs.readFileSync(residualPath, 'utf8'));
+    const authPreview = await lib.deriveD1Authority({ slug: SLUG }, makeHarness(lib, d1).deps);
+    const tags = drillOwned(authPreview.planDigest);
+    const names = d1.deriveNames(SLUG, SUB);
+    const livePid = residual.principalId || PID;
+    const contract = d1.buildExpectedResourceContract(names, { principalId: livePid });
+    const platExp = d1.buildExpectedFailureAnomaliesSmartDetector(names);
+    const depId = (name) => `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Resources/deployments/${name}`;
+    const ownedDepRows = (residual.deployments || []).map((d) => ({
+      id: depId(d.name),
+      name: d.name,
+      type: d.type || 'Microsoft.Resources/deployments',
+      provisioningState: d.provisioningState || 'Succeeded',
+      properties: { provisioningState: d.provisioningState || 'Succeeded' },
+    }));
+    // List rows stay sparse; harness GET returns exact provider GET body (live evidence).
+    const sdListRow = residual.topLevelResources.find((r) => /smartDetector/i.test(r.type));
+    const sdExactGet = residual.platformSupplemental && residual.platformSupplemental.exactGet;
+    const sdExactPath = path.join(ROOT,
+      'fixtures/messi-saas-stage2d2/failure-anomalies-smart-detector-exact-get.json');
+    const sdExactFix = JSON.parse(fs.readFileSync(sdExactPath, 'utf8'));
+    const residualResources = (residual.topLevelResources || []).map((r) => {
+      if (/smartDetector/i.test(String(r.type || '')) && sdExactGet) {
+        // Enriched GET body served by harness on smartDetectorAlertRules GET.
+        // Keep list id for list↔GET identity (case-insensitive).
+        return {
+          id: r.id,
+          name: sdExactGet.name || r.name,
+          type: sdExactGet.type || r.type,
+          location: sdExactGet.location,
+          tags: sdExactGet.tags,
+          properties: JSON.parse(JSON.stringify(sdExactGet.properties)),
+          provisioningState: 'Succeeded',
+        };
+      }
+      return {
+        id: r.id, name: r.name, type: r.type, tags,
+        provisioningState: 'Succeeded',
+        properties: r.properties === undefined ? undefined : r.properties,
+      };
+    });
+    const dnsLink = contract.nestedChildren.find((n) => n.type.includes('virtualNetworkLinks'));
+    const residualNested = dnsLink
+      ? { [dnsLink.id]: { id: dnsLink.id, name: dnsLink.name, type: dnsLink.type, tags } } : {};
+    // KV role only (AcrPull never created in residual).
+    const kvRole = contract.roleAssignments.find((r) => r.kind === 'kv');
+    const residualRoles = kvRole ? {
+      [String(kvRole.name).toLowerCase()]: {
+        id: kvRole.id, name: kvRole.name,
+        properties: {
+          roleDefinitionId: `/subscriptions/${SUB}/providers/Microsoft.Authorization/roleDefinitions/${kvRole.roleDefinitionId}`,
+          principalId: livePid, scope: kvRole.scope, principalType: 'ServicePrincipal',
+        },
+      },
+    } : {};
+    const isSdGet = (p) => /smartDetectorAlertRules\//i.test(p)
+      && /api-version=2019-03-01/i.test(p);
+
+    ok('live_residual_fixture_shape',
+      residual.kind === 'live_residual_infra_partial_fixture'
+      && residual.tenantSlug === SLUG
+      && residual.topLevelResources.length === 12
+      && residual.acrPullPresent === false
+      && residual.platformSupplemental.name === platExp.name
+      && residual.acrPullRoleAssignmentName === contract.roleAssignments.find((r) => r.kind === 'acr').name
+      && residual.principalId === livePid
+      && sdExactGet && sdExactGet.location === 'global'
+      && sdExactFix.apiVersion === d1.SMART_DETECTOR_API
+      && d1.SMART_DETECTOR_API === '2019-03-01');
+
+    ok('platform_supplemental_exact_contract',
+      platExp.name === `Failure Anomalies - ${names.appInsightsName}`
+      && platExp.type === d1.SMART_DETECTOR_ALERT_RULES_TYPE
+      && platExp.id.toLowerCase() === String(sdListRow.id).toLowerCase()
+      // Sparse generic /resources row (properties null) must NOT classify alone.
+      && d1.isExactPlatformSupplementalSmartDetector(sdListRow, platExp, residualResources) === false
+      // Live exact GET shape accepted.
+      && d1.isExactPlatformSupplementalSmartDetector(sdExactGet, platExp, residualResources) === true
+      && d1.isExactPlatformSupplementalSmartDetector(
+        residualResources.find((r) => /smartDetector/i.test(r.type)),
+        platExp,
+        residualResources,
+      ) === true
+      && d1.FAILURE_ANOMALIES_FREQUENCY === 'PT1M'
+      && d1.FAILURE_ANOMALIES_SEVERITY === 'Sev3'
+      && d1.FAILURE_ANOMALIES_STATE === 'Enabled'
+      && d1.FAILURE_ANOMALIES_DETECTOR_NAME === 'Failure Anomalies');
+
+    // Attacks against smart-detector contract (zero acceptance).
+    {
+      const good = residualResources.find((r) => /smartDetector/i.test(r.type));
+      const gprops = good.properties;
+      const attacks = [
+        ['lookalike_name', { ...good, name: residual.attacks.lookalikeSmartDetectorName,
+          id: good.id.replace(good.name, residual.attacks.lookalikeSmartDetectorName) }],
+        ['wrong_case_name', { ...good, name: residual.attacks.wrongCaseSmartDetectorName,
+          id: good.id.replace(good.name, residual.attacks.wrongCaseSmartDetectorName) }],
+        ['wrong_type', { ...good, type: residual.attacks.wrongType }],
+        ['wrong_sub', { ...good, id: good.id.replace(SUB, residual.attacks.wrongSubId) }],
+        ['wrong_rg', { ...good, id: good.id.replace(RG, residual.attacks.wrongRg) }],
+        ['missing_ai_linkage', good], // evaluated without AI in topLevel
+        ['props_null', { ...good, properties: null }],
+        ['props_absent', (() => { const x = { ...good }; delete x.properties; return x; })()],
+        ['props_empty', { ...good, properties: {} }],
+        ['extra_scope', { ...good, properties: {
+          ...gprops,
+          scope: [gprops.scope[0], `${gprops.scope[0]}${residual.attacks.extraScopeSuffix}`],
+        } }],
+        ['wrong_detector_id', { ...good, properties: {
+          ...gprops, detector: { ...gprops.detector, id: residual.attacks.wrongDetectorId },
+        } }],
+        ['wrong_detector_name', { ...good, properties: {
+          ...gprops, detector: { ...gprops.detector, name: 'Failure Anomalies X' },
+        } }],
+        ['extra_supported_type', { ...good, properties: {
+          ...gprops,
+          detector: {
+            ...gprops.detector,
+            supportedResourceTypes: ['ApplicationInsights', 'LogAnalytics'],
+          },
+        } }],
+        ['wrong_frequency', { ...good, properties: {
+          ...gprops, frequency: residual.attacks.wrongFrequency,
+        } }],
+        ['wrong_severity', { ...good, properties: {
+          ...gprops, severity: residual.attacks.wrongSeverity,
+        } }],
+        ['wrong_state', { ...good, properties: {
+          ...gprops, state: residual.attacks.wrongState,
+        } }],
+        ['wrong_location', { ...good, location: residual.attacks.wrongLocation }],
+        ['nonempty_tags', { ...good, tags: residual.attacks.nonEmptyTags }],
+      ];
+      let attackPass = 0;
+      for (const [label, row] of attacks) {
+        const top = label === 'missing_ai_linkage'
+          ? residualResources.filter((r) => r.type !== 'Microsoft.Insights/components')
+          : residualResources;
+        if (d1.isExactPlatformSupplementalSmartDetector(row, platExp, top) === false) attackPass += 1;
+        else ok(`platform_supplemental_attack_${label}_refused`, false);
+      }
+      ok('platform_supplemental_attacks_refused', attackPass === attacks.length,
+        `pass=${attackPass}/${attacks.length}`);
+    }
+
+    // Collect + phase: residual accepted as infra-partial via exact GET readback;
+    // missing AcrPull not a finding; topLevel uses enriched GET row (not list props null).
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(residualResources);
+      h.setNested(residualNested);
+      h.setSecrets([]);
+      h.setRoles(residualRoles);
+      h.setMi({ properties: { principalId: livePid } });
+      h.setDeploymentsList(ownedDepRows);
+      const inv = await d1.collectLiveInventory(h.deps, names, tags);
+      inv.rgExists = true;
+      const phase = d1.inferLivePhase(inv);
+      const findings = d1.phaseContractFindings(inv, phase);
+      const sdLive = (inv.topLevel || []).find((r) => /smartDetector/i.test(String(r.type || '')));
+      const sdGets = h.armLog.filter((x) => x.method === 'GET' && isSdGet(x.path || ''));
+      const platLive = inv.platformSupplementalLive || [];
+      ok('live_residual_collect_infra_partial',
+        inv.ok === true
+        && phase === 'infra-partial'
+        && d1.isExactInfraPartialLive(inv) === true
+        && findings.length === 0
+        && (inv.findings || []).some((f) => f.code === 'missing_role_assignment' && f.kind === 'acr')
+        && !(inv.findings || []).some((f) => f.code === 'unexpected_resource'
+          && /smartDetector/i.test(String(f.type || '')))
+        && sdGets.length >= 1
+        && platLive.length === 1
+        && sdLive
+        && sdLive.location === 'global'
+        && sdLive.properties && sdLive.properties.frequency === 'PT1M'
+        && sdLive.properties.severity === 'Sev3'
+        && sdLive.properties.state === 'Enabled'
+        && Array.isArray(sdLive.properties.scope) && sdLive.properties.scope.length === 1
+        && String(sdLive.properties.detector && sdLive.properties.detector.id)
+          === d1.FAILURE_ANOMALIES_DETECTOR_ID
+        && d1.isExactPlatformSupplementalSmartDetector(sdLive, platExp, inv.topLevel) === true,
+        inv.ok
+          ? `phase=${phase} sdGets=${sdGets.length} plat=${platLive.length} freq=${sdLive && sdLive.properties && sdLive.properties.frequency}`
+          : JSON.stringify(inv.errors || inv).slice(0, 400));
+    }
+
+    // RED: smart-detector GET 403/404/500 fail closed (no soft classify on list row).
+    for (const [label, status, code] of [
+      ['get_403_fail_closed', 403, 'arm_get_failed'],
+      ['get_404_fail_closed', 404, 'arm_get_failed'],
+      ['get_500_fail_closed', 500, 'arm_get_failed'],
+    ]) {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(residualResources);
+      h.setNested(residualNested);
+      h.setSecrets([]);
+      h.setRoles(residualRoles);
+      h.setMi({ properties: { principalId: livePid } });
+      h.setDeploymentsList(ownedDepRows);
+      const realArm = h.deps.armRequest;
+      h.deps.armRequest = async (req) => (req.method === 'GET'
+        && /smartDetectorAlertRules\//i.test(req.path || '')
+        ? { status, body: status === 404 ? {} : { error: { code: 'HarnessForced' } }, headers: {} }
+        : realArm(req));
+      const inv = await d1.collectLiveInventory(h.deps, names, tags);
+      ok(`collect_live_inventory_smart_detector_${label}`, inv.ok === false
+        && (inv.errors || []).some((e) => e.code === code));
+    }
+
+    // RED: sparse list-only body (properties null, no location) refused — not platform-supplemental.
+    {
+      const sparseOnly = residualResources.map((r) => (/smartDetector/i.test(String(r.type || ''))
+        ? {
+          id: r.id, name: r.name, type: r.type, tags: {},
+          properties: null, provisioningState: 'Succeeded',
+        }
+        : r));
+      const hInv = makeHarness(lib, d1);
+      hInv.setRg({ name: RG, tags });
+      hInv.setResources(sparseOnly);
+      hInv.setNested(residualNested);
+      hInv.setSecrets([]);
+      hInv.setRoles(residualRoles);
+      hInv.setMi({ properties: { principalId: livePid } });
+      hInv.setDeploymentsList(ownedDepRows);
+      const inv = await d1.collectLiveInventory(hInv.deps, names, tags);
+      const hRb = makeHarness(lib, d1);
+      hRb.setRg({ name: RG, tags });
+      hRb.setResources(sparseOnly);
+      hRb.setNested(residualNested);
+      hRb.setSecrets([]);
+      hRb.setRoles(residualRoles);
+      hRb.setMi({ properties: { principalId: livePid } });
+      hRb.setDeploymentsList(ownedDepRows);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, hRb.deps);
+      const dels = hRb.armLog.filter((x) => x.method === 'DELETE');
+      ok('sparse_list_smart_detector_refused_zero_mutation',
+        inv.ok === true
+        && (inv.findings || []).some((f) => f.code === 'unexpected_resource'
+          && /smartDetector|Failure Anomalies/i.test(String(f.name || f.type || '')))
+        && refuse.ok === false
+        && dels.length === 0,
+        inv.ok
+          ? `findings=${JSON.stringify(inv.findings).slice(0, 200)} rbOk=${refuse.ok}`
+          : JSON.stringify(inv.errors || inv).slice(0, 300));
+    }
+
+    // GREEN rollback: whole RG + AcrPull absent (never created) + temp admin.
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(residualResources);
+      h.setNested(residualNested);
+      h.setSecrets([]);
+      h.setRoles(residualRoles);
+      h.setMi({ properties: { principalId: livePid } });
+      h.setDeploymentsList(ownedDepRows);
+      // Seed temp ACR RBAC-admin present (exact prepared name).
+      const prep = lib.buildPreparedRoleAssignments(names);
+      const temp = prep.find((r) => r.kind === 'acr-rbac-admin-temp');
+      const rolesMap = { ...residualRoles };
+      rolesMap[String(temp.name).toLowerCase()] = {
+        id: temp.id, name: temp.name,
+        properties: {
+          roleDefinitionId: temp.roleDefinitionResourceId,
+          principalId: lib.EXECUTOR_UAI_OID,
+          scope: temp.scope,
+          principalType: 'ServicePrincipal',
+        },
+      };
+      h.setRoles(rolesMap);
+      const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      const rgDel = h.armLog.filter((x) => x.method === 'DELETE'
+        && /resourcegroups\/[^/?]+(\?|$)/i.test(x.path || '')
+        && !/providers\//i.test((x.path || '').split('resourcegroups/')[1] || ''));
+      const acrPullName = contract.roleAssignments.find((r) => r.kind === 'acr').name;
+      const acrPullDel = h.armLog.filter((x) => x.method === 'DELETE'
+        && new RegExp(`roleAssignments/${acrPullName}`, 'i').test(x.path || ''));
+      const tempDel = h.armLog.filter((x) => x.method === 'DELETE'
+        && new RegExp(`roleAssignments/${temp.name}`, 'i').test(x.path || ''));
+      ok('live_residual_rollback_green',
+        rb.ok === true && rb.deleted === true && rb.phase === 'infra-partial'
+        && rb.acrTempRoleAbsent === true && rb.acrPullRoleAbsent === true
+        && rgDel.length === 1
+        && acrPullDel.length === 0 // never present — GET 404, no DELETE required
+        && tempDel.length === 1,
+        rb.ok
+          ? `phase=${rb.phase} rgDel=${rgDel.length} tempDel=${tempDel.length}`
+          : JSON.stringify(rb.errors || rb.findings || rb).slice(0, 500));
+    }
+
+    // When exact AcrPull IS present, rollback must DELETE it after RG (before temp admin).
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(residualResources);
+      h.setNested(residualNested);
+      h.setSecrets([]);
+      h.setMi({ properties: { principalId: livePid } });
+      h.setDeploymentsList(ownedDepRows);
+      const acrRole = contract.roleAssignments.find((r) => r.kind === 'acr');
+      const prep = lib.buildPreparedRoleAssignments(names);
+      const temp = prep.find((r) => r.kind === 'acr-rbac-admin-temp');
+      h.setRoles({
+        [String(kvRole.name).toLowerCase()]: residualRoles[String(kvRole.name).toLowerCase()],
+        [String(acrRole.name).toLowerCase()]: {
+          id: acrRole.id, name: acrRole.name,
+          properties: {
+            roleDefinitionId: `/subscriptions/${SUB}/providers/Microsoft.Authorization/roleDefinitions/${acrRole.roleDefinitionId}`,
+            principalId: livePid, scope: acrRole.scope, principalType: 'ServicePrincipal',
+          },
+        },
+        [String(temp.name).toLowerCase()]: {
+          id: temp.id, name: temp.name,
+          properties: {
+            roleDefinitionId: temp.roleDefinitionResourceId,
+            principalId: lib.EXECUTOR_UAI_OID, scope: temp.scope, principalType: 'ServicePrincipal',
+          },
+        },
+      });
+      const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      const delOrder = h.armLog
+        .filter((x) => x.method === 'DELETE')
+        .map((x) => x.path || '');
+      const rgIdx = delOrder.findIndex((p) => /resourcegroups\/[^/?]+(\?|$)/i.test(p)
+        && !/providers\//i.test((p.split('resourcegroups/')[1] || '')));
+      const acrPullIdx = delOrder.findIndex((p) => new RegExp(`roleAssignments/${acrRole.name}`, 'i').test(p));
+      const tempIdx = delOrder.findIndex((p) => new RegExp(`roleAssignments/${temp.name}`, 'i').test(p));
+      ok('rollback_deletes_acrpull_then_temp_admin',
+        rb.ok === true && rb.acrPullRoleAbsent === true && rb.acrTempRoleAbsent === true
+        && rgIdx >= 0 && acrPullIdx > rgIdx && tempIdx > acrPullIdx,
+        `order rg=${rgIdx} acrPull=${acrPullIdx} temp=${tempIdx} ok=${rb.ok}`);
+    }
+
+    // Attack: unexpected foreign role remains refused with zero mutation.
+    {
+      const h = makeHarness(lib, d1);
+      h.setRg({ name: RG, tags });
+      h.setResources(residualResources);
+      h.setNested(residualNested);
+      h.setSecrets([]);
+      h.setMi({ properties: { principalId: livePid } });
+      h.setDeploymentsList(ownedDepRows);
+      h.setRoles({
+        ...residualRoles,
+        [residual.attacks.foreignRoleName]: {
+          id: `${contract.roleAssignments.find((r) => r.kind === 'acr').scope}/providers/Microsoft.Authorization/roleAssignments/${residual.attacks.foreignRoleName}`,
+          name: residual.attacks.foreignRoleName,
+          properties: {
+            roleDefinitionId: `/subscriptions/${SUB}/providers/Microsoft.Authorization/roleDefinitions/${d1.ROLE_ACR_PULL}`,
+            principalId: residual.attacks.wrongAcrPullPrincipal,
+            scope: contract.roleAssignments.find((r) => r.kind === 'acr').scope,
+            principalType: 'ServicePrincipal',
+          },
+        },
+      });
+      // Foreign role on ACR is not in live inventory findings path via exact GET of expected only —
+      // unexpected smart-detector lookalike as resource row does refuse.
+      h.setResources([...residualResources, {
+        id: residualResources.find((r) => /smartDetector/i.test(r.type)).id.replace(
+          residual.platformSupplemental.name,
+          residual.attacks.lookalikeSmartDetectorName,
+        ),
+        name: residual.attacks.lookalikeSmartDetectorName,
+        type: d1.SMART_DETECTOR_ALERT_RULES_TYPE,
+        tags: {},
+        provisioningState: 'Succeeded',
+      }]);
+      const refuse = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      const anyDel = h.armLog.filter((x) => x.method === 'DELETE');
+      ok('live_residual_lookalike_smart_detector_refused_zero_mutation',
+        refuse.ok === false && anyDel.length === 0
+        && ((refuse.findings || []).some((f) => f.code === 'unexpected_resource'
+          || f.code === 'duplicate_resource')
+          || (refuse.errors || []).some((e) => e.code === 'inventory_findings'
+            || e.code === 'rollback_phase_invalid')),
+        JSON.stringify(refuse.findings || refuse.errors || refuse).slice(0, 300));
+    }
+
+    // JS AcrPull PUT after infra: exact principal/type/role/scope + fail-closed before bootstrap.
+    {
+      const h = makeHarness(lib, d1);
+      const names2 = d1.deriveNames(SLUG, SUB);
+      h.seedRoles(names2, { acrPull: false }); // KV only — apply must PUT AcrPull
+      h.setJob({ id: 'job', name: names2.bootstrapJobName, tags: {} });
+      h.setApp(runtimeAppBody(names2));
+      const r = await lib.apply({ slug: SLUG, ...approval() }, h.deps);
+      const acrRole = d1.buildExpectedResourceContract(names2, { principalId: PID })
+        .roleAssignments.find((x) => x.kind === 'acr');
+      const puts = h.armLog.filter((x) => x.method === 'PUT'
+        && new RegExp(`roleAssignments/${acrRole.name}`, 'i').test(x.path || ''));
+      ok('apply_puts_exact_acrpull_after_infra',
+        r.ok === true && puts.length >= 1
+        && puts[0].body && puts[0].body.properties
+        && String(puts[0].body.properties.principalId) === PID
+        && String(puts[0].body.properties.principalType) === 'ServicePrincipal'
+        && String(puts[0].body.properties.roleDefinitionId).toLowerCase()
+          .endsWith(String(d1.ROLE_ACR_PULL).toLowerCase())
+        && r.receipt && r.receipt.acrPullRoleAssignment
+        && String(r.receipt.acrPullRoleAssignment.id).toLowerCase() === String(acrRole.id).toLowerCase(),
+        r.ok
+          ? `puts=${puts.length} receipt=${!!(r.receipt && r.receipt.acrPullRoleAssignment)}`
+          : JSON.stringify(r.errors || r).slice(0, 400));
+    }
+
+    // PUT failure fails closed before bootstrap deploy.
+    {
+      const h = makeHarness(lib, d1);
+      const names2 = d1.deriveNames(SLUG, SUB);
+      h.seedRoles(names2, { acrPull: false });
+      const acrRole = d1.buildExpectedResourceContract(names2, { principalId: PID })
+        .roleAssignments.find((x) => x.kind === 'acr');
+      const real = h.deps.armRequest;
+      h.deps.armRequest = async (req) => {
+        if (req.method === 'PUT'
+          && new RegExp(`roleAssignments/${acrRole.name}`, 'i').test(req.path || '')) {
+          return { status: 403, body: { error: { code: 'AuthorizationFailed' } }, headers: {} };
+        }
+        return real(req);
+      };
+      const r = await lib.apply({ slug: SLUG, ...approval() }, h.deps);
+      const bootPuts = h.armLog.filter((x) => x.method === 'PUT'
+        && /deployments\/messi-2d2-bootstrap/i.test(x.path || ''));
+      ok('acrpull_put_fail_closed_before_bootstrap',
+        r.ok === false && r.phase === 'acr-pull'
+        && (r.errors || []).some((e) => e.code === 'acr_pull_put_failed')
+        && bootPuts.length === 0,
+        r.ok ? 'unexpected ok' : `phase=${r.phase} bootPuts=${bootPuts.length}`);
+    }
+
+    // Bicep source: no nested AcrPull module.
+    {
+      const mainSrc = fs.readFileSync(
+        path.join(ROOT, 'infra/azure/modules/tenant-staging/main.bicep'), 'utf8',
+      );
+      const acrJson = fs.readFileSync(
+        path.join(ROOT, 'infra/azure/modules/tenant-staging/acr-pull-role.json'), 'utf8',
+      );
+      ok('bicep_acr_pull_disabled',
+        !/module\s+acrPullRole\b/.test(mainSrc)
+        && !/dependsOn:[\s\S]{0,200}acrPullRole/.test(mainSrc)
+        && /JS apply|roleAssignments PUT|JS-owned/i.test(mainSrc)
+        && /"resources"\s*:\s*\[\s*\]/.test(acrJson)
+        && /DISABLED|historical residual/i.test(acrJson));
+    }
+  }
+
   const st = diffStat();
-  ok('file_budget', st.files <= 10, `files=${st.files}`);
-  // Budget raised for historical-authority recovery + infra-partial + FA signature
-  // + Microsoft.AlertsManagement provider gate (refuse before RG write).
-  ok('net_budget', st.net <= 6200, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  ok('file_budget', st.files <= 14, `files=${st.files}`);
+  // Budget raised for JS-owned AcrPull + platform-supplemental smart detector + live residual.
+  ok('net_budget', st.net <= 7500, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
   console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
   process.exit(fail ? 1 : 0);
 }

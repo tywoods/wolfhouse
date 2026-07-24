@@ -63,7 +63,11 @@ function diffStat() {
     const cur = fs.readFileSync(abs, 'utf8').split(/\r?\n/).length;
     if (!baseLines) { rawAdd += cur; perFile.push({ file: rel, add: cur, del: 0 }); }
   }
-  const wrapDiff = execFileSync('git', ['diff', '--numstat', BASE, '--', WRAP_REL], { cwd: ROOT, encoding: 'utf8' }).trim().length;
+  // Wrapper ownership is "branch does not edit Sunset vs origin/master" — not the stage BASE
+  // anchor (master may pin keyVaultName after BASE without this stage owning wrapper edits).
+  const wrapDiff = execFileSync('git', ['diff', '--numstat', 'origin/master', '--', WRAP_REL], {
+    cwd: ROOT, encoding: 'utf8',
+  }).trim().length;
   return { rawAdd, rawDel, net: rawAdd - rawDel, files: perFile.length, perFile, wrapUntouched: wrapDiff === 0 };
 }
 function build(file) {
@@ -281,8 +285,12 @@ function deepResolve(expr, vars) {
   return cur;
 }
 function sunsetEffective(compiled) {
+  // AcrPull is JS-owned for Stage 2D2 (not emitted from tenant-staging). Exclude AcrPull
+  // roleAssignments from Sunset effective parity (base wrapper still nested one).
   return flatten(compiled)
     .filter((r) => r.type !== 'Microsoft.Resources/deployments' && !isSyntheticOnlyCond(r._effCond))
+    .filter((r) => !(r.type === 'Microsoft.Authorization/roleAssignments'
+      && /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(JSON.stringify(r.properties || r))))
     .map((r) => {
       const vars = r._vars || {};
       const props = r.properties || {};

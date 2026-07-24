@@ -190,6 +190,13 @@ function graph(compiled) {
   const types = []; const alerts = []; let env = []; let secrets = [];
   for (const { r, pv } of resources) {
     if (/sunsetTenantStaging/.test(String(r.name))) continue;
+    // AcrPull is JS-owned for Stage 2D2 (not emitted from tenant-staging Bicep). Base Sunset
+    // wrapper still nested an AcrPull role assignment — exclude it from type parity so the
+    // rest of locked-live semantic surface stays comparable without reintroducing nested deploy.
+    if (r.type === 'Microsoft.Authorization/roleAssignments'
+      && /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(JSON.stringify(r.properties || r))) {
+      continue;
+    }
     types.push(r.type);
     if (r.type === 'Microsoft.Insights/metricAlerts') {
       const s = String(r.name || '');
@@ -299,30 +306,24 @@ try {
   ok('hostile_hidden_sunset_literals', /enableSunsetRuntimeEnv\s*\?\s*sunsetAdminLocationEnv\s*:\s*\[\]/.test(mod)
     && fv('enableSunsetRuntimeEnv') === false);
 
-  // Stage 2D2 auth boundary: tenant RG must not nest a deployment into shared ACR RG.
-  // Prefer direct roleAssignments scoped to existingAcr; BCP139 may force absolute-scope
-  // emission from the tenant RG instead of module scope:resourceGroup(acrResourceGroupName).
+  // Stage 2D2: no Bicep AcrPull nested deploy (tenant RG or shared ACR RG).
+  // JS apply owns exact deterministic AcrPull via ARM roleAssignments PUT after infra identity.
   const acrPullJsonRel = 'infra/azure/modules/tenant-staging/acr-pull-role.json';
   const acrPullJson = fs.existsSync(path.join(ROOT, acrPullJsonRel))
     ? fs.readFileSync(path.join(ROOT, acrPullJsonRel), 'utf8') : '';
-  const acrPullSrc = `${mod}\n${acrPullJson}`;
   const acrPullCrossRgModule = /module\s+acrPullRole\b[\s\S]{0,320}scope:\s*resourceGroup\(\s*acrResourceGroupName\s*\)/.test(mod);
   const existingAcrDecl = /resource\s+existingAcr\s+'Microsoft\.ContainerRegistry\/registries@/.test(mod)
     && /scope:\s*resourceGroup\(\s*acrResourceGroupName\s*\)/.test(mod);
-  const acrPullDirectRole = /resource\s+acrPullRole\s+'Microsoft\.Authorization\/roleAssignments@/.test(mod)
-    && /scope:\s*existingAcr/.test(mod)
-    && /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(acrPullSrc);
-  const acrPullTenantEmitted = /acrPullRole/.test(mod) && /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(acrPullSrc)
-    && !acrPullCrossRgModule
-    && (/resource\s+acrPullRole\s+'Microsoft\.Authorization\/roleAssignments@/.test(mod)
-      || /guid\(\s*existingAcr\.id/.test(mod)
-      || /resourceId\(\s*acrResourceGroupName[\s\S]{0,120}ContainerRegistry\/registries/.test(acrPullSrc)
-      || /module\s+acrPullRole\s+'\.\/acr-pull-role\.json'/.test(mod));
+  const acrPullModuleActive = /module\s+acrPullRole\b/.test(mod);
+  const acrPullDirectRole = /resource\s+acrPullRole\s+'Microsoft\.Authorization\/roleAssignments@/.test(mod);
   ok('acr_pull_no_shared_rg_nested_module', !acrPullCrossRgModule,
     'tenant-staging must not module acr-pull into resourceGroup(acrResourceGroupName)');
-  ok('acr_pull_direct_extension_on_existing_acr', existingAcrDecl && (acrPullDirectRole || acrPullTenantEmitted),
-    'expect existingAcr + AcrPull emitted from tenant RG (direct scope:existingAcr preferred)');
-  ok('acr_pull_runtime_depends_on', /dependsOn:[\s\S]{0,260}acrPullRole/.test(mod));
+  ok('acr_pull_not_emitted_from_bicep', existingAcrDecl && !acrPullModuleActive && !acrPullDirectRole
+    && !/dependsOn:[\s\S]{0,260}acrPullRole/.test(mod)
+    && /JS apply|roleAssignments PUT|owned by JS|JS-owned/i.test(mod),
+    'expect existingAcr read-only + no Bicep AcrPull; JS apply owns AcrPull');
+  ok('acr_pull_json_disabled_empty_resources', /"resources"\s*:\s*\[\s*\]/.test(acrPullJson)
+    && /DISABLED|historical residual/i.test(acrPullJson));
 
   const st = diffStat();
   console.log('\n── budget ──');
@@ -359,15 +360,11 @@ try {
       ok('compile_tmpdir_clean_repo', !fs.existsSync(path.join(ROOT, 'tmp/stage2a-wrapper.json'))
         && !fs.existsSync(path.join(ROOT, 'tmp/stage2a-module.json')));
 
-      // Compiled contract: no acrPullModuleName deployment targeting shared ACR RG; AcrPull stays at ACR.
+      // Compiled contract: no AcrPull roleAssignments and no acrPull nested deployment (JS-owned).
       const topDeps = (modCompiled.resources || []).filter((r) => r.type === 'Microsoft.Resources/deployments');
-      const acrPullNamedDeps = topDeps.filter((r) => /acrPullModuleName/.test(String(r.name || '')));
-      const sharedRgTarget = acrPullNamedDeps.some((r) => {
-        const rg = String(r.resourceGroup || '');
-        return /acrResourceGroupName|wh-staging-rg/.test(rg);
-      });
-      ok('compile_acr_pull_no_shared_rg_deployment', acrPullNamedDeps.length === 0 || !sharedRgTarget,
-        sharedRgTarget ? `nested deploy into shared RG: ${JSON.stringify(acrPullNamedDeps.map((r) => r.resourceGroup))}` : '');
+      const acrPullNamedDeps = topDeps.filter((r) => /acrPullModuleName|StagingAcrPull/i.test(String(r.name || '')));
+      ok('compile_acr_pull_no_shared_rg_deployment', acrPullNamedDeps.length === 0,
+        `unexpected AcrPull nested deploys: ${JSON.stringify(acrPullNamedDeps.map((r) => r.name))}`);
       const walkRoles = (list, acc, tpl) => {
         for (const r of list || []) {
           if (r.type === 'Microsoft.Authorization/roleAssignments') acc.push({ r, tpl });
@@ -380,18 +377,12 @@ try {
       };
       const roles = walkRoles(modCompiled.resources || [], [], modCompiled);
       const acrPullRoles = roles.filter((x) => /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(JSON.stringify(x.r)));
-      const acrScopeOk = acrPullRoles.some((x) => {
-        const blob = `${JSON.stringify(x.r.scope || '')}|${JSON.stringify((x.tpl && x.tpl.variables) || {})}`;
-        return /ContainerRegistry\/registries|existingAcr|acrName|acrId|acrResourceGroupName/.test(blob);
-      });
-      ok('compile_acr_pull_role_at_acr_scope', acrPullRoles.length === 1 && acrScopeOk
-        && /guid|roleName|variables\(/.test(String(acrPullRoles[0].r.name || ''))
-        && /principalId/.test(JSON.stringify((acrPullRoles[0].r.properties) || {})),
-        `roles=${acrPullRoles.length} scopeOk=${acrScopeOk}`);
+      ok('compile_acr_pull_absent_from_bicep', acrPullRoles.length === 0,
+        `roles=${acrPullRoles.length} (JS apply owns AcrPull)`);
       const staff = (modCompiled.resources || []).find((r) => r.type === 'Microsoft.App/containerApps');
       const boot = (modCompiled.resources || []).find((r) => /syntheticBootstrapJob/.test(String(r.name || '')));
       const depBlob = JSON.stringify([staff && staff.dependsOn, boot && boot.dependsOn]);
-      ok('compile_runtime_depends_on_acr_pull', /acrPull|7f951dda|roleAssignments/.test(depBlob),
+      ok('compile_runtime_no_bicep_acr_pull_dependson', !/acrPullRole/.test(depBlob),
         depBlob.slice(0, 220));
     } catch (err) {
       ok('compiled_wrapper_module', false, String(err.stderr || err.message || err).slice(0, 300));

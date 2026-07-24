@@ -261,21 +261,13 @@ resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
-// AcrPull for tenant MI on shared ACR (cross-RG extension at ACR scope).
-// Prefer: resource acrPullRole 'Microsoft.Authorization/roleAssignments@...' = { scope: existingAcr }
-// Bicep BCP139 rejects that for cross-RG existing resources and forces a module.
-// Do NOT module with scope: resourceGroup(acrResourceGroupName) — that nests
-// Microsoft.Resources/deployments into wh-staging-rg and needs deployments/write there.
-// Same-RG module + absolute ACR resourceId keeps the deterministic AcrPull assignment
-// at the ACR while requiring only ACR-scoped roleAssignments/write.
-module acrPullRole './acr-pull-role.json' = {
-  name: acrPullModuleName
-  params: {
-    acrName: acrName
-    acrResourceGroupName: acrResourceGroupName
-    principalId: managedIdentity.properties.principalId
-  }
-}
+// AcrPull for tenant MI on shared ACR is NOT emitted from Bicep.
+// Live failure: nested messi*StagingAcrPull under tenant RG resolved whstagingacr in the
+// tenant RG (ResourceNotFound). Prior shared-RG nested deploy needed deployments/write on
+// wh-staging-rg (executor lacks it; do not grant subscription/shared-RG Contributor).
+// Stage 2D2 JS apply creates the exact deterministic AcrPull via ARM roleAssignments PUT
+// at the existing shared ACR scope after infra identity exists (temp ACR RBAC Admin only).
+// param acrPullModuleName is retained for plan/history naming of residual deployments only.
 
 module privateNetwork './private-network.bicep' = if (enablePrivateNetwork) {
   name: 'privateNetwork'
@@ -676,7 +668,7 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
   }
   dependsOn: [
     kvRoleAssignment
-    acrPullRole
+    // AcrPull is JS-owned post-infra (see acrPullOwnedByJsApply); no Bicep role dependency.
   ]
 }
 // RADAR 16L — Staff API capacity-pressure metric alerts (source-partial only).
@@ -815,7 +807,7 @@ module syntheticBootstrapJob './synthetic-bootstrap-job.bicep' = if (enablePriva
     appDb
     containerAppsEnv
     managedIdentity
-    acrPullRole
+    // AcrPull is JS-owned post-infra; bootstrap image pull requires prior JS role PUT.
   ]
 }
 // --- Outputs ---

@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "kind": "failure_anomalies_smart_detector_exact_get_fixture",
+  "note": "Live exact provider GET of platform Failure Anomalies smart detector (messiproof residual). api-version 2019-03-01. Offline admit shape only — no Azure writes. Do not require description/actionGroups (may vary).",
+  "apiVersion": "2019-03-01",
+  "tenantSlug": "messiproof",
+  "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "resourceGroupName": "luna-messiproof-staging-rg",
+  "appInsightsName": "luna-messiproof-staging-appinsights",
+  "appInsightsId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/Microsoft.Insights/components/luna-messiproof-staging-appinsights",
+  "listRowNote": "Generic /resources list may surface properties:null; classifier must use this exact GET body.",
+  "listRow": {
+    "type": "microsoft.alertsmanagement/smartDetectorAlertRules",
+    "name": "Failure Anomalies - luna-messiproof-staging-appinsights",
+    "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/microsoft.alertsmanagement/smartDetectorAlertRules/Failure Anomalies - luna-messiproof-staging-appinsights",
+    "properties": null
+  },
+  "exactGet": {
+    "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourcegroups/luna-messiproof-staging-rg/providers/microsoft.alertsmanagement/smartdetectoralertrules/failure anomalies - luna-messiproof-staging-appinsights",
+    "name": "Failure Anomalies - luna-messiproof-staging-appinsights",
+    "type": "Microsoft.AlertsManagement/smartDetectorAlertRules",
+    "location": "global",
+    "tags": {},
+    "properties": {
+      "description": "Failure Anomalies notifies you of an unusual rise in the rate of failed HTTP requests or dependency calls.",
+      "actionGroups": {
+        "groupIds": [
+          "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourcegroups/wh-staging-rg/providers/microsoft.insights/actiongroups/application insights smart detection"
+        ]
+      },
+      "detector": {
+        "id": "FailureAnomaliesDetector",
+        "name": "Failure Anomalies",
+        "supportedResourceTypes": ["ApplicationInsights"]
+      },
+      "frequency": "PT1M",
+      "scope": [
+        "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourcegroups/luna-messiproof-staging-rg/providers/microsoft.insights/components/luna-messiproof-staging-appinsights"
+      ],
+      "severity": "Sev3",
+      "state": "Enabled"
+    }
+  },
+  "requiredExactFields": {
+    "location": "global",
+    "tags": {},
+    "detector.id": "FailureAnomaliesDetector",
+    "detector.name": "Failure Anomalies",
+    "supportedResourceTypes": ["ApplicationInsights"],
+    "frequency": "PT1M",
+    "severity": "Sev3",
+    "state": "Enabled",
+    "scope": "singleton AppInsights resource id (case-insensitive)"
+  },
+  "notRequired": ["description", "actionGroups"],
+  "attacks": {
+    "propertiesAbsent": null,
+    "propertiesEmptyObject": {},
+    "extraScope": "duplicate-scope-entry",
+    "wrongDetectorId": "OtherDetector",
+    "wrongDetectorName": "Failure Anomalies X",
+    "extraSupportedType": "LogAnalytics",
+    "wrongFrequency": "PT5M",
+    "wrongSeverity": "Sev2",
+    "wrongState": "Disabled",
+    "wrongLocation": "westeurope",
+    "nonEmptyTags": { "owner": "evil" },
+    "lookalikeName": "Failure Anomalies - luna-messiproof-staging-appinsights-x"
+  }
+}

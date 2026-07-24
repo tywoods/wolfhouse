@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "kind": "live_residual_infra_partial_fixture",
+  "note": "Exact residual from /tmp/messi-stage2d2-live-proof-xhOFOm after apply arm_terminal_failed (nested messiproofStagingAcrPull ResourceNotFound) and refused rollback (missing AcrPull + unexpected Failure Anomalies smart detector). 12 RG resources, no AcrPull assignment created, temp ACR RBAC-admin 2366d78a still present on shared ACR. Offline RED→GREEN only — no Azure writes.",
+  "evidenceDir": "/tmp/messi-stage2d2-live-proof-xhOFOm",
+  "tenantSlug": "messiproof",
+  "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "resourceGroupName": "luna-messiproof-staging-rg",
+  "planDigest": "75ed206e8f952385d994999dcb8cba0d00a8dcaf3966685a0bdbaaa3112bb65a",
+  "deploySha": "65438f94587fc0149352e26ee53610b3e64b8fa8",
+  "principalId": "2e809eca-e259-4f68-9a89-079b8bf9f179",
+  "acrPullRoleAssignmentName": "bb7960b1-3ba6-5fbe-8de2-e5ccd768592b",
+  "acrPullRoleAssignmentId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.ContainerRegistry/registries/whstagingacr/providers/Microsoft.Authorization/roleAssignments/bb7960b1-3ba6-5fbe-8de2-e5ccd768592b",
+  "acrPullPresent": false,
+  "tempAcrRbacAdminName": "2366d78a-655c-56e8-89d6-a9832a404f40",
+  "tempAcrRbacAdminId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.ContainerRegistry/registries/whstagingacr/providers/Microsoft.Authorization/roleAssignments/2366d78a-655c-56e8-89d6-a9832a404f40",
+  "firstFailedGate": {
+    "code": "arm_terminal_failed",
+    "nestedName": "messiproofStagingAcrPull",
+    "nestedCode": "ResourceNotFound",
+    "message": "The Resource 'Microsoft.ContainerRegistry/registries/whstagingacr' under resource group 'luna-messiproof-staging-rg' was not found."
+  },
+  "refusedRollbackFindings": [
+    { "code": "missing_role_assignment", "kind": "acr", "name": "bb7960b1-3ba6-5fbe-8de2-e5ccd768592b" },
+    {
+      "code": "unexpected_resource",
+      "name": "Failure Anomalies - luna-messiproof-staging-appinsights",
+      "type": "microsoft.alertsmanagement/smartDetectorAlertRules"
+    }
+  ],
+  "topLevelResources": [
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "name": "luna-messiproof-staging-identity",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-messiproof-staging-identity"
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "name": "luna-messiproof-staging-logs",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/Microsoft.OperationalInsights/workspaces/luna-messiproof-staging-logs"
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "name": "luna-messiproof-30ee69c2",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/Microsoft.KeyVault/vaults/luna-messiproof-30ee69c2"
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "name": "privatelink.postgres.database.azure.com",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/Microsoft.Network/privateDnsZones/privatelink.postgres.database.azure.com"
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "name": "luna-messiproof-staging-nat-pip",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/Microsoft.Network/publicIPAddresses/luna-messiproof-staging-nat-pip"
+    },
+    {
+      "type": "Microsoft.Network/natGateways",
+      "name": "luna-messiproof-staging-nat",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/Microsoft.Network/natGateways/luna-messiproof-staging-nat"
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "luna-messiproof-staging-vnet",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/Microsoft.Network/virtualNetworks/luna-messiproof-staging-vnet"
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "name": "luna-messiproof-staging-appinsights",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/Microsoft.Insights/components/luna-messiproof-staging-appinsights"
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "name": "privatelink.postgres.database.azure.com/luna-messiproof-staging-pg-dns-link",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/Microsoft.Network/privateDnsZones/privatelink.postgres.database.azure.com/virtualNetworkLinks/luna-messiproof-staging-pg-dns-link"
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers",
+      "name": "luna-messiproof-staging-pg-app",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-messiproof-staging-pg-app"
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "name": "luna-messiproof-staging-env",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/Microsoft.App/managedEnvironments/luna-messiproof-staging-env"
+    },
+    {
+      "type": "microsoft.alertsmanagement/smartDetectorAlertRules",
+      "name": "Failure Anomalies - luna-messiproof-staging-appinsights",
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-messiproof-staging-rg/providers/microsoft.alertsmanagement/smartDetectorAlertRules/Failure Anomalies - luna-messiproof-staging-appinsights",
+      "properties": null,
+      "note": "Generic /resources list is sparse (properties null). Admission requires exact provider GET — see platformSupplemental.exactGet and fixtures/messi-saas-stage2d2/failure-anomalies-smart-detector-exact-get.json."
+    }
+  ],
+  "nestedChildrenPresent": [
+    "luna-messiproof-staging-pg-dns-link"
+  ],
+  "deployments": [
+    {
+      "name": "messi-2d2-infra",
+      "type": "Microsoft.Resources/deployments",
+      "provisioningState": "Failed"
+    },
+    {
+      "name": "messiproofStagingAcrPull",
+      "type": "Microsoft.Resources/deployments",
+      "provisioningState": "Failed"
+    },
+    {
+      "name": "privateNetwork",
+      "type": "Microsoft.Resources/deployments",
+      "provisioningState": "Succeeded"
+    }
+  ],
+  "platformSupplemental": {
+    "kind": "failure-anomalies-smart-detector",
+    "name": "Failure Anomalies - luna-messiproof-staging-appinsights",
+    "type": "microsoft.alertsmanagement/smartDetectorAlertRules",
+    "linkedAppInsightsName": "luna-messiproof-staging-appinsights",
+    "apiVersion": "2019-03-01",
+    "exactGet": {
+      "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourcegroups/luna-messiproof-staging-rg/providers/microsoft.alertsmanagement/smartdetectoralertrules/failure anomalies - luna-messiproof-staging-appinsights",
+      "name": "Failure Anomalies - luna-messiproof-staging-appinsights",
+      "type": "Microsoft.AlertsManagement/smartDetectorAlertRules",
+      "location": "global",
+      "tags": {},
+      "properties": {
+        "description": "Failure Anomalies notifies you of an unusual rise in the rate of failed HTTP requests or dependency calls.",
+        "actionGroups": {
+          "groupIds": [
+            "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourcegroups/wh-staging-rg/providers/microsoft.insights/actiongroups/application insights smart detection"
+          ]
+        },
+        "detector": {
+          "id": "FailureAnomaliesDetector",
+          "name": "Failure Anomalies",
+          "supportedResourceTypes": ["ApplicationInsights"]
+        },
+        "frequency": "PT1M",
+        "scope": [
+          "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourcegroups/luna-messiproof-staging-rg/providers/microsoft.insights/components/luna-messiproof-staging-appinsights"
+        ],
+        "severity": "Sev3",
+        "state": "Enabled"
+      }
+    }
+  },
+  "attacks": {
+    "lookalikeSmartDetectorName": "Failure Anomalies - luna-messiproof-staging-appinsights-x",
+    "wrongCaseSmartDetectorName": "failure anomalies - luna-messiproof-staging-appinsights",
+    "wrongType": "Microsoft.Insights/metricalerts",
+    "wrongSubId": "00000000-0000-0000-0000-000000000000",
+    "wrongRg": "luna-other-staging-rg",
+    "duplicateSmartDetectorName": "Failure Anomalies - luna-messiproof-staging-appinsights",
+    "foreignRoleName": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    "wrongAcrPullPrincipal": "99999999-9999-9999-9999-999999999999",
+    "wrongDetectorId": "OtherDetector",
+    "wrongFrequency": "PT5M",
+    "wrongSeverity": "Sev2",
+    "wrongState": "Disabled",
+    "wrongLocation": "westeurope",
+    "extraScopeSuffix": "-x",
+    "nonEmptyTags": { "owner": "evil" }
+  },
+  "canonicalRollbackOrder": [
+    "accept_infra_partial_with_platform_supplemental_and_missing_acrpull",
+    "delete_whole_owned_rg",
+    "delete_exact_acrpull_if_present_via_principal_readback",
+    "delete_exact_temp_acr_rbac_admin_only"
+  ]
+}

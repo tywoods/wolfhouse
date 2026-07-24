@@ -53,7 +53,22 @@ const ARM_HOST = 'management.azure.com';
 const MAX_ARM_PAGES = 40;
 const ROLE_KV_SECRETS_USER = '4633458b-17de-408a-b874-0445c86b69e6';
 const ROLE_ACR_PULL = '7f951dda-4ed3-4680-a7ca-43fe172d538d';
+// Deployments are inventory-listed separately; never broadly IGNORE smart-detector type.
 const IGNORE_TYPES = Object.freeze(['Microsoft.Resources/deployments']);
+// Azure-managed Failure Anomalies smart detector (exact platform-supplemental resource only).
+// Live residual (provider Registered): name "Failure Anomalies - <appInsightsName>", type
+// microsoft.alertsmanagement/smartDetectorAlertRules under the owned tenant RG. Not a wildcard.
+// Exact provider GET (pinned SMART_DETECTOR_API) is required before admission — generic
+// /resources rows are sparse (properties null) and must not classify alone.
+const SMART_DETECTOR_ALERT_RULES_TYPE = 'microsoft.alertsmanagement/smartDetectorAlertRules';
+const SMART_DETECTOR_API = '2019-03-01';
+const FAILURE_ANOMALIES_SMART_DETECTOR_NAME_PREFIX = 'Failure Anomalies - ';
+const FAILURE_ANOMALIES_DETECTOR_ID = 'FailureAnomaliesDetector';
+const FAILURE_ANOMALIES_DETECTOR_NAME = 'Failure Anomalies';
+const FAILURE_ANOMALIES_SUPPORTED_RESOURCE_TYPE = 'ApplicationInsights';
+const FAILURE_ANOMALIES_FREQUENCY = 'PT1M';
+const FAILURE_ANOMALIES_SEVERITY = 'Sev3';
+const FAILURE_ANOMALIES_STATE = 'Enabled';
 const FIXED_RUNTIME_SECRETS = Object.freeze([
   'stripe-webhook-secret', 'meta-whatsapp-token', 'meta-app-secret', 'meta-whatsapp-verify-token',
   'staff-session-secret', 'stripe-secret-key', 'luna-bot-internal-token',
@@ -184,6 +199,90 @@ function expectedAppInsightsFromContract(contract) {
   return ((contract && contract.foundationTopLevel) || [])
     .find((e) => e && e.type === 'Microsoft.Insights/components') || null;
 }
+function buildExpectedFailureAnomaliesSmartDetector(names) {
+  // Exact one platform-supplemental resource per tenant App Insights component.
+  // id uses the live Azure type casing (lowercase microsoft.alertsmanagement/...).
+  const sub = names.subscriptionId;
+  const rg = names.resourceGroupName;
+  const aiName = names.appInsightsName;
+  const name = `${FAILURE_ANOMALIES_SMART_DETECTOR_NAME_PREFIX}${aiName}`;
+  const type = SMART_DETECTOR_ALERT_RULES_TYPE;
+  const id = `/subscriptions/${sub}/resourceGroups/${rg}/providers/${type}/${name}`;
+  const appInsightsId = rid(sub, rg, 'Microsoft.Insights/components', aiName);
+  return Object.freeze({
+    kind: 'failure-anomalies-smart-detector',
+    name,
+    type,
+    id,
+    appInsightsName: aiName,
+    appInsightsId,
+    taggable: false,
+    platformSupplemental: true,
+  });
+}
+function encodeArmResourceIdPath(resourceId) {
+  // Encode each path segment (names may contain spaces) while preserving leading '/'.
+  return String(resourceId || '').split('/').map((seg) => encodeURIComponent(seg)).join('/');
+}
+function smartDetectorGetPath(resourceId) {
+  return `${encodeArmResourceIdPath(resourceId)}?api-version=${SMART_DETECTOR_API}`;
+}
+function isSmartDetectorCandidateRow(r, contract) {
+  if (!r) return false;
+  if (String(r.type || '').toLowerCase() === SMART_DETECTOR_ALERT_RULES_TYPE.toLowerCase()) return true;
+  for (const exp of (contract && contract.platformSupplemental) || []) {
+    if (exp && exp.kind === 'failure-anomalies-smart-detector'
+      && String(r.name || '') === String(exp.name || '')) {
+      return true;
+    }
+  }
+  return false;
+}
+function isExactPlatformSupplementalSmartDetector(r, expected, liveTopLevel) {
+  // Strict contract from live exact GET (api-version 2019-03-01): exact name, location global,
+  // case-insensitive type/id/sub/RG, exact AI present, required properties object with
+  // singleton scope → AI id, detector id/name + supportedResourceTypes=['ApplicationInsights'],
+  // frequency PT1M / severity Sev3 / state Enabled. Tags empty when returned.
+  // Do not require description or actionGroups (platform prose/default AG may vary).
+  // Fail closed on absent/null/{}-empty properties, extra scope, lookalikes, wrong case name.
+  if (!r || !expected || !expected.id || !expected.name) return false;
+  if (String(r.name || '') !== String(expected.name)) return false;
+  if (String(r.type || '').toLowerCase() !== String(expected.type).toLowerCase()) return false;
+  if (!r.id || String(r.id).toLowerCase() !== String(expected.id).toLowerCase()) return false;
+  const m = String(r.id).match(/^\/subscriptions\/([^/]+)\/resourceGroups\/([^/]+)\//i);
+  const expM = String(expected.id).match(/^\/subscriptions\/([^/]+)\/resourceGroups\/([^/]+)\//i);
+  if (!m || !expM) return false;
+  if (m[1].toLowerCase() !== expM[1].toLowerCase()) return false;
+  if (m[2].toLowerCase() !== expM[2].toLowerCase()) return false;
+  if (String(r.location || '').toLowerCase() !== FAILURE_ANOMALIES_LOCATION) return false;
+  if (Object.prototype.hasOwnProperty.call(r, 'tags')) {
+    if (r.tags == null || typeof r.tags !== 'object' || Array.isArray(r.tags)) return false;
+    if (Object.keys(r.tags).length !== 0) return false;
+  }
+  if (!liveInventoryHasExactAppInsights(liveTopLevel, {
+    id: expected.appInsightsId, name: expected.appInsightsName,
+  })) return false;
+  const props = r.properties;
+  if (props == null || typeof props !== 'object' || Array.isArray(props)) return false;
+  // Exact singleton scope matching App Insights id (case-insensitive). No extra scopes.
+  if (!Array.isArray(props.scope) || props.scope.length !== 1) return false;
+  if (String(props.scope[0] || '').toLowerCase() !== String(expected.appInsightsId).toLowerCase()) {
+    return false;
+  }
+  const det = props.detector;
+  if (!det || typeof det !== 'object' || Array.isArray(det)) return false;
+  if (String(det.id || '') !== FAILURE_ANOMALIES_DETECTOR_ID) return false;
+  if (String(det.name || '') !== FAILURE_ANOMALIES_DETECTOR_NAME) return false;
+  const srt = det.supportedResourceTypes;
+  if (!Array.isArray(srt) || srt.length !== 1
+    || String(srt[0] || '') !== FAILURE_ANOMALIES_SUPPORTED_RESOURCE_TYPE) {
+    return false;
+  }
+  if (String(props.frequency || '') !== FAILURE_ANOMALIES_FREQUENCY) return false;
+  if (String(props.severity || '') !== FAILURE_ANOMALIES_SEVERITY) return false;
+  if (String(props.state || '') !== FAILURE_ANOMALIES_STATE) return false;
+  return true;
+}
 function matchExpectedContractResource(r, contract) {
   if (!r || !r.type || !r.name || !contract) return null;
   const top = (contract.foundationTopLevel || [])
@@ -192,6 +291,16 @@ function matchExpectedContractResource(r, contract) {
   // Live /resources may surface nested children (e.g. private DNS VNet link).
   return (contract.nestedChildren || []).find((e) => e.type === r.type
     && (e.name === r.name || String(r.name || '').endsWith(`/${e.name}`))) || null;
+}
+function matchPlatformSupplementalResource(r, contract, liveTopLevel) {
+  if (!r || !contract) return null;
+  for (const exp of contract.platformSupplemental || []) {
+    if (exp && exp.kind === 'failure-anomalies-smart-detector'
+      && isExactPlatformSupplementalSmartDetector(r, exp, liveTopLevel)) {
+      return exp;
+    }
+  }
+  return null;
 }
 function isExactDeploymentRowShape(d, scope) {
   if (!d || !scope || !scope.subscriptionId || !scope.resourceGroupName) return false;
@@ -335,13 +444,15 @@ function buildExpectedResourceContract(names, opts = {}) {
     name: names.staffApiAppName, type: 'Microsoft.App/containerApps', taggable: true,
   };
   const ownedDeploymentNames = buildOwnedDeploymentNames(names);
+  const platformSupplemental = Object.freeze([buildExpectedFailureAnomaliesSmartDetector(names)]);
   return {
     foundationTopLevel: top, nestedChildren: nested, roleAssignments: roles,
     runtimeSecrets: secrets, runtimeSecretNames: secretNames, bootstrapJob: job, runtimeApp: app,
-    ownedDeploymentNames, ignoreTypes: IGNORE_TYPES.slice(),
+    ownedDeploymentNames, platformSupplemental, ignoreTypes: IGNORE_TYPES.slice(),
     counts: {
       foundationTopLevel: 10, nestedChildren: 2, roleAssignments: 2, runtimeSecrets: 14, bootstrapJob: 1, runtimeApp: 1,
       ownedDeploymentNames: ownedDeploymentNames.length,
+      platformSupplemental: platformSupplemental.length,
     },
   };
 }
@@ -1025,18 +1136,87 @@ async function collectLiveInventory(deps, names, expectedTags) {
     `${contract.bootstrapJob.type}|${contract.bootstrapJob.name}`,
     `${contract.runtimeApp.type}|${contract.runtimeApp.name}`,
   ]);
-  for (const r of top) {
+  const platformHits = [];
+  for (let i = 0; i < top.length; i += 1) {
+    const r = top[i];
     if (known.has(`${r.type}|${r.name}`)) continue;
     if (/\/secrets$|roleAssignments/.test(r.type || '')) continue;
     if (contract.nestedChildren.some((e) => r.type === e.type
       && (r.name === e.name || String(r.name || '').endsWith(`/${e.name}`)))) continue;
+    // Exact platform-supplemental only after pinned provider GET readback — never classify
+    // sparse generic /resources rows (live list properties may be null).
+    if (isSmartDetectorCandidateRow(r, contract)) {
+      const expHit = (contract.platformSupplemental || []).find((e) => e
+        && e.kind === 'failure-anomalies-smart-detector'
+        && String(e.name || '') === String(r.name || ''));
+      const getId = (expHit && expHit.id) || r.id;
+      if (!getId) {
+        return {
+          ok: false,
+          errors: [err('arm_get_failed',
+            `smart detector GET missing resource id for ${String(r.name || '')}`)],
+        };
+      }
+      const got = await armGet(deps, smartDetectorGetPath(getId));
+      if (!got.ok) return got;
+      // Fail closed on 404/absent body for a listed candidate (no soft-miss).
+      if (!got.exists || !got.body || typeof got.body !== 'object' || Array.isArray(got.body)) {
+        return {
+          ok: false,
+          errors: [err('arm_get_failed',
+            `smart detector GET missing or empty for ${String(r.name || getId)}`)],
+        };
+      }
+      const body = got.body;
+      const gotName = String(body.name || (body.id || '').split('/').pop() || '');
+      const gotId = body.id != null ? String(body.id) : '';
+      const gotType = String(body.type || '');
+      if ((r.name && gotName !== String(r.name))
+        || (r.id && gotId && gotId.toLowerCase() !== String(r.id).toLowerCase())
+        || (gotId && gotId.toLowerCase() !== String(getId).toLowerCase())
+        || gotType.toLowerCase() !== SMART_DETECTOR_ALERT_RULES_TYPE.toLowerCase()) {
+        return {
+          ok: false,
+          errors: [err('smart_detector_get_mismatch',
+            `smart detector GET mismatch for ${String(r.name || getId)}`)],
+        };
+      }
+      // Enriched GET row replaces sparse list properties for status/rollback phase authority.
+      const enriched = {
+        id: gotId || String(getId),
+        name: gotName || String(r.name || ''),
+        type: body.type || SMART_DETECTOR_ALERT_RULES_TYPE,
+        location: body.location,
+        tags: Object.prototype.hasOwnProperty.call(body, 'tags') ? body.tags : undefined,
+        properties: body.properties,
+        provisioningState: r.provisioningState || 'Succeeded',
+      };
+      top[i] = enriched;
+      const plat = matchPlatformSupplementalResource(enriched, contract, top);
+      if (plat) {
+        platformHits.push(enriched);
+        continue;
+      }
+      findings.push({ code: 'unexpected_resource', name: enriched.name, type: enriched.type });
+      continue;
+    }
     findings.push({ code: 'unexpected_resource', name: r.name, type: r.type });
   }
+  if (platformHits.length > 1) {
+    findings.push({
+      code: 'duplicate_resource',
+      name: (contract.platformSupplemental[0] && contract.platformSupplemental[0].name) || undefined,
+      type: SMART_DETECTOR_ALERT_RULES_TYPE,
+    });
+  }
+  // Lookalike smart-detector type under wrong name still unexpected (handled above).
+  // Exact expected name with wrong id/type/props already rejected by match + classifier.
   return {
     ok: true, contract, resources: listed.resources, topLevel: top, nestedLive, rolesLive, secretMeta,
     secretsExact, secretCount: secretMeta.length, jobExists: !!jobGot.exists, job: jobGot.body,
     appExists: !!appGot.exists, appBody: appGot.body, principalId, findings, pages: listed.pages,
     deployments, deploymentCount: deployments.length, deploymentPages: depListed.pages,
+    platformSupplementalLive: platformHits,
   };
 }
 function isExactEmptyLiveInventory(live) {
@@ -1091,11 +1271,22 @@ function isExactInfraPartialLive(live) {
   for (const d of live.deployments) {
     if (!isOwnedDeploymentRow(d, scope, appInsights, owned, topLevel)) return false;
   }
+  let platformCount = 0;
   for (const r of topLevel) {
     if (!r || !r.type || !r.name || !r.id) return false;
     const exp = matchExpectedContractResource(r, live.contract);
-    if (!exp || !exp.id) return false;
-    if (String(r.id).toLowerCase() !== String(exp.id).toLowerCase()) return false;
+    if (exp && exp.id) {
+      if (String(r.id).toLowerCase() !== String(exp.id).toLowerCase()) return false;
+      continue;
+    }
+    // Platform-supplemental Failure Anomalies smart detector is an allowed exact extra.
+    const plat = matchPlatformSupplementalResource(r, live.contract, topLevel);
+    if (plat) {
+      platformCount += 1;
+      if (platformCount > 1) return false;
+      continue;
+    }
+    return false;
   }
   return true;
 }
@@ -1133,16 +1324,28 @@ function phaseContractFindings(live, phase) {
     const owned = new Set((c.ownedDeploymentNames || []).map(String));
     const scope = scopeFromContract(c);
     const appInsights = expectedAppInsightsFromContract(c);
+    let platformCount = 0;
     for (const r of live.topLevel || []) {
       if (!r || !r.type || !r.name || !r.id) {
         findings.push({ code: 'malformed_resource', message: 'unreadable top-level resource row' });
         continue;
       }
       const exp = matchExpectedContractResource(r, c);
-      if (!exp) findings.push({ code: 'unexpected_resource', name: r.name, type: r.type });
-      else if (!exp.id || String(r.id).toLowerCase() !== String(exp.id).toLowerCase()) {
-        findings.push({ code: 'resource_id_mismatch', name: r.name, type: r.type });
+      if (exp) {
+        if (!exp.id || String(r.id).toLowerCase() !== String(exp.id).toLowerCase()) {
+          findings.push({ code: 'resource_id_mismatch', name: r.name, type: r.type });
+        }
+        continue;
       }
+      const plat = matchPlatformSupplementalResource(r, c, live.topLevel || []);
+      if (plat) {
+        platformCount += 1;
+        if (platformCount > 1) {
+          findings.push({ code: 'duplicate_resource', name: r.name, type: r.type });
+        }
+        continue;
+      }
+      findings.push({ code: 'unexpected_resource', name: r.name, type: r.type });
     }
     for (const d of live.deployments || []) {
       if (!isExactDeploymentRowShape(d, scope)) {
@@ -1168,6 +1371,8 @@ function phaseContractFindings(live, phase) {
     }
     // Present expected-contract findings that are not "missing" remain closed
     // (tag drift, duplicates, unexpected, wrong role definition).
+    // missing_role_assignment for AcrPull is permissible only as an absent member of the
+    // exact expected subset in infra-partial; unexpected/wrong roles remain refused.
     for (const f of live.findings || []) {
       if (f.code === 'missing_resource' || f.code === 'missing_role_assignment') continue;
       // Mid-apply crash may leave non-Succeeded provisioning; whole-RG delete still safe.
@@ -1639,11 +1844,18 @@ module.exports = Object.freeze({
   PINNED_BINS, INTERNAL_FLAG, CAPABILITY_FD, CLI_REL, LIB_REL,
   ROLE_KV_SECRETS_USER, ROLE_ACR_PULL, ACR_RG, IGNORE_TYPES, DEP_API, PROVIDER_API,
   ALERTS_MANAGEMENT_NAMESPACE, REQUIRED_PROVIDER_REGISTRATION_STATE,
+  SMART_DETECTOR_ALERT_RULES_TYPE, SMART_DETECTOR_API,
+  FAILURE_ANOMALIES_SMART_DETECTOR_NAME_PREFIX,
+  FAILURE_ANOMALIES_DETECTOR_ID, FAILURE_ANOMALIES_DETECTOR_NAME,
+  FAILURE_ANOMALIES_SUPPORTED_RESOURCE_TYPE, FAILURE_ANOMALIES_FREQUENCY,
+  FAILURE_ANOMALIES_SEVERITY, FAILURE_ANOMALIES_STATE,
+  encodeArmResourceIdPath, smartDetectorGetPath, isSmartDetectorCandidateRow,
   AZURE_KEY_VAULT_NAME_MIN, AZURE_KEY_VAULT_NAME_MAX,
   isValidAzureKeyVaultName, canonicalKeyVaultName, deriveKeyVaultName,
   createDeps, deriveNames, deriveAuthority, deriveHistoricalRollbackAuthority,
   resolveCurrentStagingNames, assertHistoricalDeployShaCandidate, buildAuthorityAtExactSha,
-  plan, status, buildExpectedResourceContract,
+  plan, status, buildExpectedResourceContract, buildExpectedFailureAnomaliesSmartDetector,
+  isExactPlatformSupplementalSmartDetector, matchPlatformSupplementalResource,
   buildOwnedDeploymentNames, isExactInfraPartialLive, isFullFoundationContract,
   isExactDeploymentRowShape, isExactOwnedFailureAnomaliesDeployment, isOwnedDeploymentRow,
   failureAnomaliesMatchesPlatformSignature, failureAnomaliesCorrelatesToAppInsights,
