@@ -4,6 +4,7 @@ Hermes staging runs on **Lunabox** — an Azure Linux VM — so `/var/lib/hermes
 
 ```
 You (Discord)     → hermes-orchestrator (Skipper) → ChatGPT 5.5 OAuth (shared auth.json); Anthropic fallback
+You (Discord)     → hermes-deckhand     → xAI grok-4.5 only (API key; isolated Discord bot)
 Guests (WhatsApp) → hermes-luna         → ChatGPT 5.5 OAuth → Anthropic OAuth fallback
                          ↓
               Staff API (wh-staging-staff-api on ACA) → Postgres
@@ -29,7 +30,7 @@ Hermes recommends **one Docker container per profile**. Lunabox runs two contain
 - Azure CLI (`az login`)
 - Resource group `wh-staging-rg`
 - ACR `whstagingacr` with staging Hermes image
-- Key Vault secrets: WhatsApp, Luna bot token, Discord bot token (optional in KV)
+- Key Vault secrets: WhatsApp, Luna bot token, Discord bot token (Skipper; optional in KV), Deckhand Discord (`discord-deckhand-bot-token`) + xAI (`xai-api-key`) when deploying Deckhand
 - DNS A record: `lunabox.lunafrontdesk.com` → Lunabox public IP (when ready)
 
 ## Quick start (from dev machine)
@@ -88,15 +89,92 @@ Disk: Lunabox was tight (~89% used). After `sync-repo`, run `docker system prune
 | `/var/lib/hermes-orchestrator` | Orchestrator `HERMES_HOME` (Discord, repo cwd) |
 | `/var/lib/hermes-luna` | Luna `HERMES_HOME` (WhatsApp, sessions) — **live Meta webhook on :8090** |
 | `/var/lib/hermes-wolfhouse-luna` | Isolated Wolfhouse Luna `HERMES_HOME` (`:8091`, separate sessions; **no live Meta traffic**) |
+| `/var/lib/hermes-deckhand` | Deckhand `HERMES_HOME` (Discord engineering worker; **no inbound ports**) |
 | `/var/lib/hermes-shared/auth.json` | Shared OAuth credential pool (ChatGPT + Anthropic) |
 | `/opt/wolfhouse/WH` | Wolfhouse git repo |
-| `/etc/hermes-orchestrator.env` | Discord token + allowlist |
+| `/etc/hermes-orchestrator.env` | Discord token + allowlist (Skipper) |
 | `/etc/hermes-luna.env` | WhatsApp + Staff API secrets (no model API keys) |
 | `/etc/hermes-wolfhouse-luna.env` | Same secret *names* as `hermes-luna` + `WHATSAPP_CLOUD_WEBHOOK_PORT=8091` |
+| `/etc/hermes-deckhand.env` | Deckhand Discord token + `XAI_API_KEY` (never Skipper's token) |
 
 Compose: `docker/hermes-staging/docker-compose.vm.yml`
 
-Ports: **8642** orchestrator, **8090** Luna WhatsApp webhook (live), **8091** isolated Wolfhouse Luna webhook (prep only).
+Ports: **8642** orchestrator, **8090** Luna WhatsApp webhook (live), **8091** isolated Wolfhouse Luna webhook (prep only). **Deckhand publishes no inbound ports** (Discord outbound only).
+
+## Deckhand (`hermes-deckhand`)
+
+Isolated Discord Hermes worker for Luna / Wolfhouse engineering — same Hermes
+runtime + read-only repo mount as Skipper, but **separate** sessions, profile
+state, Discord bot identity, env file, and data directory. Model is **xAI
+`grok-4.5` only** (no Anthropic / OpenAI fallback).
+
+**Deckhand must not be connected to the Luna WhatsApp number.** It has no
+WhatsApp webhook, no inbound ports, and must never share Meta credentials or
+Caddy `/whatsapp/*` routing with `hermes-luna` / `hermes-wolfhouse-luna`.
+
+| Topic | Choice |
+|-------|--------|
+| Service / container | `hermes-deckhand` |
+| Behavioral role | `HERMES_ROLE: deckhand` |
+| Model | `grok-4.5` via `xai` (only; no fallback providers) |
+| Inbound ports | **None** (Discord gateway outbound) |
+| Data | `/var/lib/hermes-deckhand` |
+| Env | `/etc/hermes-deckhand.env` |
+| Workspace cwd | `/opt/data/workspace/sandbox-repos/WH-deckhand` (created at bootstrap) |
+| Repo context | `/opt/wolfhouse/WH:ro` |
+| Auth pool | Shared `/var/lib/hermes-shared` mount (same as other Hermes services) |
+
+### Secrets (names only — never commit values)
+
+| In-container env | Laptop override env | Key Vault secret | Notes |
+|------------------|---------------------|------------------|-------|
+| `DISCORD_BOT_TOKEN` | `DISCORD_DECKHAND_BOT_TOKEN` | `discord-deckhand-bot-token` | **Must not** use Skipper's `discord-bot-token` |
+| `XAI_API_KEY` | `XAI_API_KEY` | `xai-api-key` | Required; write-env-files fails if absent |
+| `DISCORD_ALLOWED_USERS` | `DISCORD_DECKHAND_ALLOWED_USERS` (falls back to `DISCORD_ALLOWED_USERS`) | — | Optional allowlist |
+
+`node scripts/deploy-staging-hermes-vm.js write-env-files` refuses to generate
+`hermes-deckhand.env` if either Deckhand Discord or xAI secret is missing — it
+will **not** silently copy Skipper's token.
+
+### Safe start / health / rollback (operator — after merge)
+
+Static contract (repo, no containers):
+
+```bash
+python3 docker/hermes-staging/verify_deckhand_instance.py
+```
+
+Last line must print **`ALL OK`**.
+
+After secrets are in KV (or laptop env) and the compose file is on Lunabox:
+
+```bash
+# Laptop — generate env files (fails clearly if Deckhand secrets missing)
+node scripts/deploy-staging-hermes-vm.js write-env-files
+# scp hermes-vm-env/hermes-deckhand.env → /etc/hermes-deckhand.env (chmod 600)
+
+# Lunabox — start only Deckhand (does not recreate Luna / Skipper)
+export HERMES_IMAGE=whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>
+sudo -E docker compose -f /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml up -d hermes-deckhand
+```
+
+Health / logs:
+
+```bash
+sudo docker ps --filter name=hermes-deckhand --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+# Ports column should be empty (no inbound publish)
+sudo docker logs --tail 80 hermes-deckhand
+sudo docker exec hermes-deckhand sh -c 'grep -E "default:|provider:" /opt/data/config.yaml'
+# Expect: default: grok-4.5 / provider: xai — no fallback_providers
+```
+
+Rollback (stop Deckhand only; Luna WhatsApp untouched):
+
+```bash
+sudo docker compose -f /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml stop hermes-deckhand
+# or remove the service container without touching others:
+sudo docker compose -f /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml rm -f hermes-deckhand
+```
 
 ## Isolated Wolfhouse Luna (`hermes-wolfhouse-luna`)
 
@@ -262,12 +340,14 @@ That is an Anthropic **Claude-Max-via-OAuth quota** signal (the shared `auth.jso
 - Watch Anthropic OAuth usage at <https://claude.ai/settings/usage>. The extra-usage `400` is a billing/quota state, not a code bug — top up or wait for the window to reset.
 - Reconciliation TODO (operator decision): fold the overlay into the image so `bootstrap.sh` itself writes Codex-primary, removing the silent-revert hazard if the overlay volume is dropped. Left as a deploy-config decision because it changes the baked image.
 
-## Discord (orchestrator)
+## Discord (orchestrator / Skipper)
 
-You already have the bot token. Either:
+You already have the Skipper bot token. Either:
 
 1. Store in Key Vault as `discord-bot-token`, or
 2. Pass when generating env files: `$env:DISCORD_BOT_TOKEN="..."` then `write-env-files`
+
+**Deckhand** uses a **different** bot — see [Deckhand](#deckhand-hermes-deckhand) (`DISCORD_DECKHAND_BOT_TOKEN` / KV `discord-deckhand-bot-token`). Never point Deckhand at Skipper's token or at the Luna WhatsApp number.
 
 Restart after update:
 

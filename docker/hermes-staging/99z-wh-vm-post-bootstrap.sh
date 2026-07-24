@@ -83,17 +83,15 @@ EOF
 fi
 
 if [ "$HERMES_ROLE" = "deckhand" ]; then
+  # Deckhand: isolated Discord engineering worker. xAI grok-4.5 only — no
+  # Anthropic/OpenAI fallback. Distinct Discord bot + XAI_API_KEY via
+  # /etc/hermes-deckhand.env (never reuse Skipper's discord-bot-token).
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: anthropic/claude-sonnet-4-6
-  provider: anthropic
+  default: grok-4.5
+  provider: xai
 agent:
   reasoning_effort: medium
-compression:
-  codex_gpt55_autoraise: false
-fallback_providers:
-  - provider: openai-codex
-    model: gpt-5.5
 curator:
   enabled: false
 terminal:
@@ -108,8 +106,11 @@ EOF
     chown hermes:hermes "$HERMES_HOME/SOUL.md" 2>/dev/null || true
     chmod 640 "$HERMES_HOME/SOUL.md" 2>/dev/null || true
   fi
-  mkdir -p "$HERMES_HOME/workspace/sandbox-repos" "$HERMES_HOME/workspace/patches" "$HERMES_HOME/workspace/notes"
+  mkdir -p "$HERMES_HOME/workspace/sandbox-repos/WH-deckhand" \
+    "$HERMES_HOME/workspace/patches" \
+    "$HERMES_HOME/workspace/notes"
   chown -R hermes:hermes "$HERMES_HOME/workspace" 2>/dev/null || true
   chown hermes:hermes "$HERMES_HOME/config.yaml" 2>/dev/null || true
+  chmod 640 "$HERMES_HOME/config.yaml" 2>/dev/null || true
 fi
 
