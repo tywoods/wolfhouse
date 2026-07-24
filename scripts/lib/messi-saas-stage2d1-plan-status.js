@@ -117,7 +117,7 @@ function buildOwnedDeploymentNames(names) {
 // Live az deployment group show for Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8 has
 // parameters=null, dependencies=[], outputResources=null, validatedResources=null, and
 // properties.error.code=DeploymentFailed with details[0].code=MissingSubscriptionRegistration
-// (target null, no nested details) — admit only via that nested signature + exact App Insights.
+// (target absent-or-null: CLI materializes null, ARM REST omits; no nested details) + App Insights.
 const FAILURE_ANOMALIES_DEPLOY_PREFIX = 'Failure-Anomalies-Alert-Rule-Deployment-';
 const FAILURE_ANOMALIES_DEPLOY_NAME_RE = /^Failure-Anomalies-Alert-Rule-Deployment-[0-9a-f]{8}$/;
 // Pinned from live SHOW of Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8 (no wildcards).
@@ -180,7 +180,7 @@ function failureAnomaliesMatchesPlatformSignature(d) {
   // Exact live SHOW signature only — no ScopeResourceId / dependencies / outputResources trust,
   // no broad wildcards. Live row carries parameters=null and empty correlation surfaces.
   // Error shape is nested: top code DeploymentFailed + exactly one details row with
-  // MissingSubscriptionRegistration, target null, and no nested detail children.
+  // MissingSubscriptionRegistration, target absent-or-null, and no nested detail children.
   if (!d || typeof d !== 'object') return false;
   if (String(d.provisioningState || '') !== 'Failed') return false;
   const props = d.properties;
@@ -195,11 +195,16 @@ function failureAnomaliesMatchesPlatformSignature(d) {
   const d0 = details[0];
   if (!d0 || typeof d0 !== 'object' || Array.isArray(d0)) return false;
   if (String(d0.code || '') !== FAILURE_ANOMALIES_ERROR_CODE) return false;
-  // Live SHOW pins target: null (missing/non-null target is not the platform signature).
-  if (d0.target !== null) return false;
-  // No additional nested details under the single detail row.
-  if (Object.prototype.hasOwnProperty.call(d0, 'details')) {
-    if (d0.details != null && (!Array.isArray(d0.details) || d0.details.length > 0)) return false;
+  // Azure CLI materializes target:null; ARM REST GET omits null-valued keys (target undefined).
+  // Accept only absent or exactly null — empty string/object/array/false/forged must refuse.
+  // Use != null so both undefined (REST-omitted) and null (CLI) pass; !== null rejects undefined.
+  if (d0.target != null) return false;
+  // Optional null-materialized details: CLI may set details:null; REST omits.
+  // Accept only absent or exactly null — empty array/object/string/false/nested refuse.
+  if (Object.prototype.hasOwnProperty.call(d0, 'details') && d0.details !== null) return false;
+  // Optional null-materialized additionalInfo (CLI null / REST omitted); non-null refuse.
+  if (Object.prototype.hasOwnProperty.call(d0, 'additionalInfo') && d0.additionalInfo != null) {
+    return false;
   }
   const providers = props.providers;
   if (!Array.isArray(providers) || providers.length !== 1) return false;
