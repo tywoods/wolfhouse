@@ -1755,12 +1755,15 @@ function buildStripeCheckoutSuccessLandingHtml(query) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment received</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f6f4f0;color:#2a302c;
+    body{font-family:'Instrument Sans',system-ui,sans-serif;background:#f6f4f0;color:#2a302c;
       margin:0;padding:32px 20px;display:flex;min-height:100vh;align-items:center;justify-content:center}
     .card{max-width:420px;background:#fff;border:1px solid #e2ddd4;border-radius:12px;padding:28px 24px;
       box-shadow:0 2px 12px rgba(42,48,44,.08)}
-    h1{font-size:22px;margin:0 0 12px}
+    h1{font-family:'Newsreader',serif;font-weight:600;font-size:22px;margin:0 0 12px}
     p{margin:0 0 10px;line-height:1.5;font-size:15px}
   </style>
 </head>
@@ -1782,12 +1785,15 @@ function buildStripeCheckoutCancelLandingHtml(query) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment not completed</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f6f4f0;color:#2a302c;
+    body{font-family:'Instrument Sans',system-ui,sans-serif;background:#f6f4f0;color:#2a302c;
       margin:0;padding:32px 20px;display:flex;min-height:100vh;align-items:center;justify-content:center}
     .card{max-width:420px;background:#fff;border:1px solid #e2ddd4;border-radius:12px;padding:28px 24px;
       box-shadow:0 2px 12px rgba(42,48,44,.08)}
-    h1{font-size:22px;margin:0 0 12px}
+    h1{font-family:'Newsreader',serif;font-weight:600;font-size:22px;margin:0 0 12px}
     p{margin:0 0 10px;line-height:1.5;font-size:15px}
   </style>
 </head>
@@ -1846,10 +1852,13 @@ function buildGuestPaymentLinkStatusHtml(title, message) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${title}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: system-ui, sans-serif; background: #f6f8fb; color: #1a1a1a; margin: 0; padding: 32px 16px; }
+    body { font-family: 'Instrument Sans', system-ui, sans-serif; background: #f6f8fb; color: #1a1a1a; margin: 0; padding: 32px 16px; }
     .card { max-width: 520px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 28px 24px; box-shadow: 0 8px 24px rgba(0,0,0,.06); }
-    h1 { font-size: 1.25rem; margin: 0 0 12px; }
+    h1 { font-family: 'Newsreader', serif; font-weight: 600; font-size: 1.25rem; margin: 0 0 12px; }
     p { margin: 0; line-height: 1.5; color: #444; }
   </style>
 </head>
@@ -15682,14 +15691,16 @@ function buildUiHtml(port, portalDeployClient) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Luna Front Desk</title>
+<script>window.PORTAL_DEFAULT_CLIENT=${JSON.stringify(portalDefaultClient)};</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800;900&display=swap">
-<script>window.PORTAL_DEFAULT_CLIENT=${JSON.stringify(portalDefaultClient)};</script>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 ${getStaffPortalThemeEarlyScript()}
 <style>
 /* ── Palette (soft boutique-hospitality) ────────────────────────────────── */
 :root{
+  --font-sans:'Instrument Sans',system-ui,sans-serif;
+  --font-display:'Newsreader',serif;
   --cream:#EDE8E0;        /* warm oatmeal page — reduced glare */
   --surface:#F5F1EA;      /* soft card surface */
   --surface-soft:#EDE8E0; /* inset / muted surface */
@@ -15827,15 +15838,121 @@ ${getStaffPortalThemeEarlyScript()}
 [data-theme="dark"] .inbox-two-col{border-color:var(--border-soft)}
 /* ── Reset + base ───────────────────────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;background:var(--cream);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;height:100dvh;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+body{font-family:var(--font-sans);font-size:14px;font-weight:400;background:var(--cream);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;height:100dvh;overflow:hidden;display:flex;flex-direction:column;min-height:0}
 ::selection{background:var(--teal);color:var(--text)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
+
+/* ── Typography: Newsreader + Instrument Sans ───────────────────────────── */
+button,input,select,textarea{font-family:inherit}
+.portal-schedule-range,
+.portal-home-school,
+.portal-admin-school-heading,
+.al-hero-title,
+.bc-op-title,
+.cc-section-hdr,
+.portal-home-schedule .cc-section-hdr{
+  font-family:var(--font-display);
+  font-weight:600;
+  font-optical-sizing:auto;
+}
+.portal-schedule-range{font-size:22px;font-weight:600;line-height:1.25;letter-spacing:0}
+.portal-home-school{font-size:24px;font-weight:600;letter-spacing:-.01em}
+.portal-admin-school-heading{font-size:26px;font-weight:600;letter-spacing:-.02em}
+.portal-schedule-ops-lesson-hdr-title,
+.portal-schedule-lesson-slot-label,
+.portal-schedule-lesson-time,
+.portal-admin-pack-title,
+.portal-schedule-create-panel h3,
+.portal-schedule-drawer h3,
+.inbox-booking-stack-item h4{
+  font-family:var(--font-display);
+  font-weight:600;
+  font-optical-sizing:auto;
+}
+.portal-schedule-ops-lesson-hdr-title,
+.portal-schedule-lesson-slot-label{font-size:19px;font-weight:600;line-height:1.25}
+.portal-schedule-lesson-time{font-size:20px;font-weight:600}
+.portal-admin-pack-title{font-size:16px;font-weight:600}
+.portal-schedule-card-stat-lg,
+.portal-schedule-metric-card .portal-schedule-card-stat-lg,
+.portal-schedule-metric-card-compact .portal-schedule-card-stat-lg,
+.portal-home-card-stat,
+.portal-admin-capacity-number,
+.portal-schedule-lesson-time-count,
+.portal-schedule-chip-qty,
+.portal-schedule-card-stat{
+  font-family:var(--font-display);
+  font-weight:500;
+  font-optical-sizing:auto;
+  font-variant-numeric:tabular-nums;
+}
+.portal-schedule-card-stat-lg,
+.portal-schedule-metric-card .portal-schedule-card-stat-lg{font-size:34px;font-weight:500;line-height:1.05}
+.portal-schedule-metric-card-compact .portal-schedule-card-stat-lg{font-size:32px;font-weight:500}
+.portal-home-card-stat{font-size:22px;font-weight:500}
+.portal-admin-capacity-number{font-size:30px;font-weight:500}
+.portal-schedule-lesson-time-count{font-size:26px;font-weight:500}
+.portal-schedule-card-stat{font-size:22px;font-weight:500}
+.portal-home-subtitle,
+.portal-home-card-helper,
+.portal-home-schedule-note,
+.portal-schedule-card-body,
+.portal-schedule-card-sub,
+.portal-schedule-card-muted,
+.portal-admin-section-note,
+.portal-admin-school-heading-sub,
+.portal-schedule-ops-lesson-hdr-prep,
+.portal-schedule-ops-row-equip-sub,
+.portal-schedule-booking-sub,
+.msg-meta,.meta,.help-text,.hint{font-weight:400}
+.tab-btn{font-weight:500}
+.tab-btn.active{font-weight:600}
+.portal-home-card-title,
+.portal-schedule-card-label,
+.portal-admin-pill-label,
+.portal-schedule-rentals-hdr,
+.portal-schedule-rental-hdr,
+.portal-schedule-ops-col-hdr,
+.portal-schedule-create-field label,
+.portal-admin-edit-field label,
+.portal-admin-history-table th,
+.bk-label,
+.field label{
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:.09em;
+  text-transform:uppercase;
+}
+button,.btn,.btn-primary,.btn-ghost,.btn-logout,
+.portal-schedule-ops-row-guest,
+.portal-schedule-booking-name,
+.conv-card .guest-name,
+.conv-name{font-weight:600}
+.portal-schedule-booking-qty,
+.portal-schedule-ops-row-qty,
+.portal-schedule-day-seats,
+.portal-schedule-lesson-time-count,
+.portal-schedule-card-stat,
+.portal-schedule-card-stat-lg,
+.portal-home-card-stat,
+.portal-admin-capacity-number,
+.portal-schedule-chip-qty,
+.portal-schedule-lesson-time,
+.portal-schedule-ops-lesson-hdr-time,
+.portal-schedule-lesson-slot-time,
+.al-rows-table td,
+.customers-row-table td,
+.msg-events-table td,
+.hq-table td,
+.portal-admin-history-table td{
+  font-variant-numeric:tabular-nums;
+}
 /* ── Top banner ─────────────────────────────────────────────────────────── */
 #banner{background:linear-gradient(90deg,#2b241f 0%,#4e5f53 38%,#9db9bd 100%);border-bottom:1px solid rgba(74,55,37,.25);color:#fff;height:60px;padding:0 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(43,36,31,.14);min-height:0;box-sizing:border-box;flex:0 0 60px}
 #banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:stretch;align-self:stretch;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent;padding:0}
 #banner .brand-logo{height:100%;width:auto;max-width:min(520px,calc(100vw - 340px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
 #banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0;color:#fffaf1}
-.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0;font-family:'Playfair Display',Georgia,serif}
+.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
 .cc-luna-staff-retired{display:none!important}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
@@ -15868,13 +15985,13 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:0;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex:0 0 auto}
 #tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border:0;background:var(--surface);box-shadow:-16px 0 12px -8px var(--surface);position:sticky;right:0;z-index:2}
 #tabs .tabs-global-pause.luna-global-paused{background:var(--surface);border:0}
-#tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2);font-family:'Playfair Display',Georgia,serif}
+#tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2);font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
 #tabs .tabs-global-pause-label{white-space:nowrap}
 #tabs .tabs-global-pause .luna-global-pause-switch{width:34px;height:20px}
 #tabs .tabs-global-pause .luna-global-pause-slider:before{height:16px;width:16px;left:2px;bottom:2px}
 #tabs .tabs-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
 #tabs .tabs-global-pause .tabs-global-pause-help,#tabs #luna-global-pause-status{display:none!important}
-.tab-btn{padding:14px 22px;font-size:14px;font-weight:600;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:'Playfair Display',Georgia,serif;letter-spacing:.01em;white-space:nowrap;flex:0 0 auto}
+.tab-btn{padding:14px 22px;font-size:14px;font-weight:600;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;letter-spacing:.01em;white-space:nowrap;flex:0 0 auto}
 /* Hide unused dev tabs (Developer Tools + Luna Guest Simulator) from the nav. */
 #tabs .tab-btn.dev-tab{display:none!important}
 .tab-btn:hover{color:var(--text)}
@@ -15898,7 +16015,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-home-wrap{max-width:1180px;margin:0 auto;padding:24px 20px 32px}
 .portal-home-header{margin-bottom:22px}
 .portal-home-brand-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
-.portal-home-school{font-size:24px;font-weight:800;color:var(--text);letter-spacing:-.02em;margin:0}
+.portal-home-school{font-size:24px;font-weight:700;color:var(--text);letter-spacing:-.02em;margin:0}
 .portal-home-pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:4px 10px;border-radius:var(--radius-pill);background:var(--surface-soft);color:var(--text-2);border:1px solid var(--border-soft)}
 .portal-home-subtitle{font-size:14px;color:var(--text-2);margin:0;line-height:1.45;max-width:640px}
 .portal-home-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:22px}
@@ -15907,7 +16024,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-home-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 18px 16px;box-shadow:var(--shadow-soft);cursor:pointer;transition:border-color .18s,box-shadow .18s}
 .portal-home-card:hover{border-color:var(--tan);box-shadow:var(--shadow)}
 .portal-home-card-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:8px}
-.portal-home-card-stat{font-size:20px;font-weight:800;color:var(--text);margin-bottom:6px;line-height:1.2}
+.portal-home-card-stat{font-size:20px;font-weight:700;color:var(--text);margin-bottom:6px;line-height:1.2}
 .portal-home-card-helper{font-size:12px;color:var(--text-3);line-height:1.45;margin:0}
 .portal-home-card-list{margin:8px 0 0;padding:0;list-style:none}
 .portal-home-card-list li{font-size:12px;color:var(--text-2);padding:4px 0;border-top:1px solid var(--border-soft);display:flex;justify-content:space-between;gap:8px}
@@ -15921,7 +16038,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-home-schedule-note{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.45}
 #tab-portal-home.active{display:block}
 /* Sunset Schedule: match the menu-bar serif across the whole page (staff request). */
-#tab-portal-home{--sched-heading-serif:'Playfair Display',Georgia,serif;font-family:var(--sched-heading-serif)}
+#tab-portal-home{--sched-heading-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--sched-heading-serif)}
 #tab-portal-home .portal-schedule-page-title,
 #tab-portal-home .portal-schedule-hero-title,
 #tab-portal-home .portal-schedule-card-label,
@@ -15971,7 +16088,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-card-stat-lg,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-lesson-time,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-lesson-time-count,
-:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-row-guest{color:#1E1912;font-weight:800}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-row-guest{color:#1E1912;font-weight:700}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-card-sub,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-card-body,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-lesson-hdr-time,
@@ -16038,12 +16155,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 
 .portal-admin-wrap{max-width:1100px;margin:0 auto;padding:24px 20px 32px}
 .portal-admin-header{margin-bottom:18px}
-.portal-admin-header h2{font-size:20px;font-weight:800;color:var(--text);margin:0 0 8px}
+.portal-admin-header h2{font-size:20px;font-weight:700;color:var(--text);margin:0 0 8px}
 .portal-admin-banner{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius);padding:12px 16px;margin-bottom:18px;font-size:13px;color:var(--text-2);line-height:1.5}
 .portal-admin-banner strong{color:var(--text)}
 .portal-admin-sections{display:grid;grid-template-columns:1fr;gap:14px}
 .portal-admin-section{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-soft)}
-.portal-admin-section-hdr{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:10px}
+.portal-admin-section-hdr{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:10px}
 .portal-admin-section-body{font-size:13px;color:var(--text);line-height:1.55}
 .portal-admin-kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--border-soft)}
 .portal-admin-kv:first-child{border-top:none;padding-top:0}
@@ -16059,16 +16176,16 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-subsection-title-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .portal-admin-subsection-title-group .portal-admin-subsection-title{margin-bottom:0}
 .portal-admin-lesson-card .portal-admin-card-actions .portal-admin-icon-btn:not(.portal-admin-danger){font-size:10px;padding:0 4px;line-height:1.15;min-height:16px;border-radius:4px}
-.portal-admin-subsection-title{font-size:12px;font-weight:850;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin:0 0 6px}
+.portal-admin-subsection-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin:0 0 6px}
 .portal-admin-subsection-title-row .portal-admin-subsection-title{margin-bottom:0}
 .portal-admin-price-card,.portal-admin-lesson-card{border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-height:0}
 .portal-admin-price-card.is-inactive{opacity:.62}
-.portal-admin-switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;margin-right:8px}.portal-admin-switch input{position:absolute;opacity:0;width:0;height:0}.portal-admin-switch-slider{position:relative;width:34px;height:19px;background:var(--border-soft,#c9c2b8);border-radius:999px;transition:background .15s ease;flex-shrink:0}.portal-admin-switch-slider::before{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:transform .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.28)}.portal-admin-switch input:checked+.portal-admin-switch-slider{background:#2e8b57}.portal-admin-switch input:checked+.portal-admin-switch-slider::before{transform:translateX(15px)}.portal-admin-switch.is-mixed .portal-admin-switch-slider{background:#c88a00}.portal-admin-switch-text{font-size:12px;font-weight:650;color:var(--text-2);white-space:nowrap;min-width:52px}
-.portal-admin-price-available{font-size:11px;font-weight:650;color:var(--text-2);white-space:nowrap}
+.portal-admin-switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;margin-right:8px}.portal-admin-switch input{position:absolute;opacity:0;width:0;height:0}.portal-admin-switch-slider{position:relative;width:34px;height:19px;background:var(--border-soft,#c9c2b8);border-radius:999px;transition:background .15s ease;flex-shrink:0}.portal-admin-switch-slider::before{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:transform .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.28)}.portal-admin-switch input:checked+.portal-admin-switch-slider{background:#2e8b57}.portal-admin-switch input:checked+.portal-admin-switch-slider::before{transform:translateX(15px)}.portal-admin-switch.is-mixed .portal-admin-switch-slider{background:#c88a00}.portal-admin-switch-text{font-size:12px;font-weight:600;color:var(--text-2);white-space:nowrap;min-width:52px}
+.portal-admin-price-available{font-size:11px;font-weight:600;color:var(--text-2);white-space:nowrap}
 .portal-admin-price-card-main,.portal-admin-lesson-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.portal-admin-price-title,.portal-admin-lesson-title{font-weight:750;color:var(--text);line-height:1.25;font-size:13px}
+.portal-admin-price-title,.portal-admin-lesson-title{font-weight:700;color:var(--text);line-height:1.25;font-size:13px}
 .portal-admin-price-meta,.portal-admin-lesson-meta{font-size:11px;color:var(--text-3);margin-top:2px}
-.portal-admin-price-amount,.portal-admin-lesson-time{font-size:14px;font-weight:850;color:var(--text);white-space:nowrap}.portal-admin-price-card-readout{display:flex;align-items:baseline;justify-content:space-between;gap:6px;width:100%}.portal-admin-price-period{font-size:14px;font-weight:850;color:var(--text);line-height:1.2}.portal-admin-subsection-title-row .portal-admin-icon-btn{font-size:10px;padding:1px 6px;min-width:0;line-height:1.4}.portal-admin-subsection-title-row .portal-admin-card-actions{gap:2px}
+.portal-admin-price-amount,.portal-admin-lesson-time{font-size:14px;font-weight:700;color:var(--text);white-space:nowrap}.portal-admin-price-card-readout{display:flex;align-items:baseline;justify-content:space-between;gap:6px;width:100%}.portal-admin-price-period{font-size:14px;font-weight:700;color:var(--text);line-height:1.2}.portal-admin-subsection-title-row .portal-admin-icon-btn{font-size:10px;padding:1px 6px;min-width:0;line-height:1.4}.portal-admin-subsection-title-row .portal-admin-card-actions{gap:2px}
 
 .portal-admin-card-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .portal-admin-card-actions{display:flex;gap:4px;align-items:center;justify-content:flex-end;flex-shrink:0}
@@ -16081,14 +16198,14 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-lesson-price-strip{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 10px}
 .portal-admin-lesson-price-pill{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--border-soft);background:var(--surface-soft);border-radius:999px;padding:5px 9px;font-size:12px;min-width:170px}
 .portal-admin-lesson-price-pill strong{color:var(--text)}
-.portal-admin-school-heading{font-size:26px;font-weight:900;letter-spacing:-.03em;color:var(--text);line-height:1.1;margin:0 0 16px;font-family:var(--admin-serif,'Playfair Display',Georgia,serif)}
+.portal-admin-school-heading{font-size:26px;font-weight:700;letter-spacing:-.03em;color:var(--text);line-height:1.1;margin:0 0 16px;font-family:var(--admin-serif,"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif)}
 .portal-admin-school-heading-sub{font-size:12px;color:var(--text-3);margin-top:4px}
 .portal-admin-chip-row{display:flex;gap:6px;flex-wrap:wrap}
 .portal-admin-chip{display:inline-flex;align-items:center;border:1px solid var(--border-soft);border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:var(--text-2);background:var(--surface)}
 .portal-admin-section-note{margin-top:10px;font-size:12px;color:var(--text-3)}
 .portal-admin-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:2px 0 12px}
 .portal-admin-capacity-card{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--border-soft);border-radius:12px;background:var(--surface-soft);padding:14px 16px}
-.portal-admin-capacity-number{font-size:30px;font-weight:850;color:var(--text);line-height:1}
+.portal-admin-capacity-number{font-size:30px;font-weight:700;color:var(--text);line-height:1}
 .portal-admin-muted{color:var(--text-3);font-style:italic}
 .portal-admin-actions{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
 .portal-admin-btn[disabled]{opacity:.55;cursor:not-allowed}
@@ -16114,25 +16231,25 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-room-checklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px 12px;max-height:180px;overflow:auto;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft)}
 .portal-admin-room-checklist label{display:flex;align-items:center;gap:6px;font-size:13px;margin:0}
 .portal-admin-pack-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
-.portal-admin-pack-title{font-size:14px;font-weight:800;color:var(--text)}
+.portal-admin-pack-title{font-size:14px;font-weight:700;color:var(--text)}
 .portal-admin-pack-sub{font-size:11px;color:var(--text-3)}
 .portal-admin-pill-group{display:flex;flex-direction:column;gap:4px}
 .portal-admin-pill-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2)}
 .portal-admin-pill-row{display:flex;flex-wrap:wrap;gap:4px}
-.portal-admin-pill{border:1px solid var(--border-soft);background:var(--surface);color:var(--text-2);border-radius:999px;padding:3px 9px;font-size:11px;font-weight:650;line-height:1.3;cursor:pointer}
+.portal-admin-pill{border:1px solid var(--border-soft);background:var(--surface);color:var(--text-2);border-radius:999px;padding:3px 9px;font-size:11px;font-weight:600;line-height:1.3;cursor:pointer}
 .portal-admin-pill.is-selected{background:var(--text);color:var(--surface);border-color:var(--text)}
 .portal-admin-pack-tier{border:1px solid var(--border-soft);border-radius:8px;padding:6px 8px;background:var(--surface);font-size:11px;display:flex;flex-direction:column;gap:4px}
 .portal-admin-pack-tier label{font-size:10px;font-weight:700;color:var(--text-2)}
 .portal-admin-pack-tier input{width:100%;padding:3px 6px;font-size:12px;height:26px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface-soft);color:var(--text);box-sizing:border-box}
 .portal-admin-pack-tier-row{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--text)}
-.portal-admin-pack-tier-row strong{color:var(--text);font-weight:800}
+.portal-admin-pack-tier-row strong{color:var(--text);font-weight:700}
 
 #tab-admin.active{display:block}
-#tab-admin{--admin-serif:'Playfair Display',Georgia,serif;font-family:var(--admin-serif);-webkit-font-smoothing:antialiased}
-#tab-admin input,#tab-admin textarea,#tab-admin select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+#tab-admin{--admin-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--admin-serif);-webkit-font-smoothing:antialiased}
+#tab-admin input,#tab-admin textarea,#tab-admin select{font-family:var(--font-sans)}
 /* Camps, Lessons and Services tab — same serif house style as Admin/Customers (form inputs stay sans). */
-#tab-services{--svc-serif:'Playfair Display',Georgia,serif;font-family:var(--svc-serif);-webkit-font-smoothing:antialiased}
-#tab-services input,#tab-services textarea,#tab-services select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+#tab-services{--svc-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--svc-serif);-webkit-font-smoothing:antialiased}
+#tab-services input,#tab-services textarea,#tab-services select{font-family:var(--font-sans)}
 #tab-admin .portal-admin-section-hdr,#tab-admin .portal-admin-subsection-title,#tab-admin .portal-admin-pack-title,#tab-admin .portal-admin-price-title,#tab-admin .portal-admin-lesson-title{font-family:var(--admin-serif)}
 #tab-admin .btn,#tab-admin .portal-admin-pill{font-family:inherit}
 
@@ -16142,7 +16259,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 @media(max-width:640px){.portal-schedule-summary{grid-template-columns:1fr 1fr}}
 .portal-schedule-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 16px;box-shadow:none}
 .portal-schedule-card-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:6px}
-.portal-schedule-card-stat{font-size:22px;font-weight:800;color:var(--text);line-height:1.2}
+.portal-schedule-card-stat{font-size:22px;font-weight:700;color:var(--text);line-height:1.2}
 .portal-schedule-card-body{font-size:12px;line-height:1.45;color:var(--text-2)}
 .portal-schedule-card-body .schedule-slot-line{margin:0 0 4px}
 .portal-schedule-card-body .schedule-slot-line strong{color:var(--text);font-weight:700}
@@ -16204,10 +16321,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-filters{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
 .portal-schedule-filter-btn{font-size:11px;padding:4px 10px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);background:var(--surface);cursor:pointer;font-family:inherit}
 .portal-schedule-filter-btn.active{background:var(--text);color:#fff;border-color:var(--text)}
-.portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9000;padding:16px 18px;padding-bottom:calc(28px + env(safe-area-inset-bottom));overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;box-sizing:border-box;font-size:13px;font-family:'Playfair Display',Georgia,serif;--sched-drawer-serif:'Playfair Display',Georgia,serif}
+.portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9000;padding:16px 18px;padding-bottom:calc(28px + env(safe-area-inset-bottom));overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;box-sizing:border-box;font-size:13px;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;--sched-drawer-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
 @media(max-width:640px){.portal-schedule-drawer,.portal-schedule-create-drawer{width:100vw;border-left:none}}
 .portal-schedule-drawer-section{margin-bottom:18px;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
-.portal-schedule-drawer-section-title{margin:0 0 10px;font-size:15px;font-weight:800;letter-spacing:-.02em;color:var(--text);font-family:var(--sched-drawer-serif);line-height:1.2}
+.portal-schedule-drawer-section-title{margin:0 0 10px;font-size:15px;font-weight:700;letter-spacing:-.02em;color:var(--text);font-family:var(--sched-drawer-serif);line-height:1.2}
 .portal-schedule-manual-pay-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .portal-schedule-manual-pay-grid label,.portal-schedule-manual-pay-note{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-3)}
 .portal-schedule-manual-pay-note{margin-top:8px}
@@ -16234,7 +16351,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-addon-amt{flex:0 0 auto;min-width:52px;text-align:right;font-size:13px;font-weight:700;color:var(--text)}
 .portal-schedule-addon-summary{flex-basis:100%;width:100%;font-size:12px;font-weight:600;color:var(--text-2)}
 .portal-schedule-addon-empty{font-size:12px;color:var(--text-3);font-style:italic;padding:2px 0}
-.portal-schedule-drawer-hero h3,.portal-schedule-drawer-hero-title{font-family:var(--sched-drawer-serif);font-weight:900;letter-spacing:-.02em}
+.portal-schedule-drawer-hero h3,.portal-schedule-drawer-hero-title{font-family:var(--sched-drawer-serif);font-weight:700;letter-spacing:-.02em}
 .portal-schedule-drawer-hero-title{margin:0 0 6px;font-size:22px;line-height:1.15;word-wrap:break-word;overflow-wrap:anywhere;color:var(--text)}
 .portal-schedule-drawer-hero-meta{margin:0 0 6px;font-size:12px;font-weight:500;line-height:1.45;color:var(--text-2);letter-spacing:.01em}
 .portal-schedule-drawer-booking-code-subtle{font-size:11px;font-weight:500;color:var(--text-3);letter-spacing:.03em;margin:0}
@@ -16250,7 +16367,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-drawer .ctx-inv-total-row{grid-template-columns:1fr auto;gap:10px;padding:7px 0}
 .portal-schedule-drawer .ctx-inv-total-label{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--text-3)}
 .portal-schedule-drawer .ctx-inv-total-amount{font-size:14px;text-align:right;font-weight:700}
-.portal-schedule-drawer #ps-drawer-pay-status{font-weight:800}
+.portal-schedule-drawer #ps-drawer-pay-status{font-weight:700}
 .portal-schedule-drawer .ctx-inv-total-amount.paid{color:#5C7350}
 .portal-schedule-drawer .ctx-inv-total-amount.owing{color:#9C5742}
 /* Manual payment: quieter secondary treatment so it doesn't compete with the totals. */
@@ -16261,7 +16378,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-drawer #ps-drawer-manual-pay .btn{font-size:12px;padding:6px 12px}
 /* ── Redesigned Sunset booking drawer (money-first, one card per question) ── */
 .portal-schedule-drawer .ps-money-card{margin-bottom:18px}
-.ps-money-headline{font-size:23px;font-weight:800;letter-spacing:-.015em;line-height:1.1;margin:0 0 2px}
+.ps-money-headline{font-size:23px;font-weight:700;letter-spacing:-.015em;line-height:1.1;margin:0 0 2px}
 .ps-money-headline.is-due{color:#B4534A}
 .ps-money-headline.is-partial{color:#9C5742}
 .ps-money-headline.is-paid{color:#3F6B4F}
@@ -16271,7 +16388,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .ps-money-linkactive{color:#3F6B4F;font-weight:600}
 .ps-money-link{margin:4px 0 0;font-size:12px;word-break:break-all}
 .ps-money-link a{color:var(--luna-blue-text,#2d5a78)}
-.ps-card-eyebrow{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin:0 0 8px}
+.ps-card-eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin:0 0 8px}
 .ps-card-subtitle{font-size:12px;color:var(--text-2);margin:2px 0 12px;letter-spacing:.01em}
 .ps-money-link-row{display:flex;align-items:center;gap:8px;margin:4px 0 0}
 .ps-money-link-a{flex:1 1 auto;min-width:0;font-size:12px;word-break:break-all;color:var(--luna-blue-text,#2d5a78)}
@@ -16296,7 +16413,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .ps-svc-amt{color:var(--text);font-weight:700;white-space:nowrap}
 .ps-day-group{margin-top:8px}
 .ps-day-group:first-child{margin-top:2px}
-.ps-day-header{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin:8px 0 3px}
+.ps-day-header{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin:8px 0 3px}
 .ps-day-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:2px 0;color:var(--text)}
 .ps-day-amt{color:var(--text-2);white-space:nowrap}
 .ps-reg-progress{height:6px;border-radius:999px;background:var(--border-soft);overflow:hidden;margin:2px 0 8px}
@@ -16313,7 +16430,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-item-card.source-luna{background:#eff6ff;border-color:#93c5fd}
 .portal-schedule-item-card.source-staff{border-left:3px solid #16a34a}
 .portal-schedule-item-card.source-luna{border-left:3px solid #2563eb}
-.portal-schedule-chip-qty{font-size:16px;font-weight:800;line-height:1;margin-right:6px;color:var(--text)}
+.portal-schedule-chip-qty{font-size:16px;font-weight:700;line-height:1;margin-right:6px;color:var(--text)}
 .portal-schedule-chip-main{display:flex;align-items:flex-start;gap:6px}
 .portal-schedule-chip-meta{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .portal-schedule-status{display:inline-block;font-size:11px;font-weight:600;line-height:1.3;white-space:nowrap}
@@ -16329,7 +16446,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-drawer-components li{font-size:13px;color:var(--text-2);padding:7px 0;border-bottom:1px solid var(--border-soft)}
 .portal-schedule-drawer-components li:last-child{border-bottom:none}
 .portal-schedule-drawer-comp-label{color:var(--text);font-weight:600}
-.portal-schedule-card-stat-lg{font-size:32px;font-weight:800;line-height:1.1;color:var(--text)}
+.portal-schedule-card-stat-lg{font-size:32px;font-weight:700;line-height:1.1;color:var(--text)}
 .portal-schedule-card-sub{font-size:11px;color:var(--text-3);margin-top:4px;line-height:1.35}
 .portal-schedule-create-components{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
 .portal-schedule-create-components{display:flex;flex-direction:column;gap:8px;margin:8px 0}
@@ -16414,12 +16531,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-lesson-slot-label{font-size:15px;font-weight:700;color:var(--text);line-height:1.25;white-space:normal}
 .portal-schedule-lesson-slot-time{font-size:11px;font-weight:600;color:var(--text-3);line-height:1.3;letter-spacing:.02em}
 .portal-schedule-lesson-time{font-size:20px;font-weight:700;color:var(--text);letter-spacing:.01em;line-height:1.15}
-.portal-schedule-lesson-time-count{font-size:26px;font-weight:800;color:var(--text);line-height:1;min-width:28px;text-align:right;flex-shrink:0}
+.portal-schedule-lesson-time-count{font-size:26px;font-weight:700;color:var(--text);line-height:1;min-width:28px;text-align:right;flex-shrink:0}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-lesson-slot-label{color:var(--sched-text)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-lesson-slot-time{color:var(--sched-text-2)}
 .portal-schedule-lesson-times-empty{font-size:13px;color:var(--text-3);line-height:1.4;padding-top:4px}
 .portal-schedule-ops-rental-pickups{margin-top:20px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);overflow:hidden}
-.portal-schedule-ops-rental-pickups-hdr{padding:12px 16px;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.04)}
+.portal-schedule-ops-rental-pickups-hdr{padding:12px 16px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.04)}
 .portal-schedule-ops-rental-pickups-block{padding:0 0 8px;border-bottom:1px solid var(--border-soft)}
 .portal-schedule-ops-rental-pickups-block:last-child{border-bottom:none}
 .portal-schedule-ops-rental-pickups-subhdr{padding:10px 16px 6px;font-size:13px;font-weight:700;color:var(--text-2)}
@@ -16433,7 +16550,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-week-forecast-card:hover,.portal-schedule-next30-card:hover{border-color:var(--tan);box-shadow:var(--shadow-soft)}
 .portal-schedule-week-forecast-card.is-today,.portal-schedule-next30-card.is-today{border-color:var(--tan)}
 .portal-schedule-week-forecast-hdr,.portal-schedule-next30-hdr{font-size:12px;font-weight:700;color:var(--text-2);margin-bottom:6px}
-.portal-schedule-week-forecast-stat,.portal-schedule-next30-stat{font-size:22px;font-weight:800;color:var(--text);line-height:1.1}
+.portal-schedule-week-forecast-stat,.portal-schedule-next30-stat{font-size:22px;font-weight:700;color:var(--text);line-height:1.1}
 .portal-schedule-week-forecast-meta,.portal-schedule-next30-meta{font-size:11px;color:var(--text-3);margin-top:4px;line-height:1.35}
 .portal-schedule-week-forecast-slots{margin-top:8px;font-size:11px;color:var(--text-2);line-height:1.4}
 .portal-schedule-week-forecast-reply{margin-top:6px;font-size:11px;font-weight:700;color:#7c3aed}
@@ -16445,13 +16562,13 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-drawer-hero-actions{display:flex;flex-shrink:0;gap:6px;align-items:flex-start;margin-top:2px}
 .portal-schedule-drawer-booking-code{font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--text-2)}
 .portal-schedule-drawer-topbar{display:none}
-.portal-schedule-drawer-qty{font-size:42px;font-weight:800;line-height:1;color:var(--text)}
+.portal-schedule-drawer-qty{font-size:42px;font-weight:700;line-height:1;color:var(--text)}
 .portal-schedule-drawer-prep{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0;padding:12px;background:var(--surface-soft);border-radius:var(--radius-sm);font-size:13px}
 .portal-schedule-item-card.source-staff,.portal-schedule-item-card.source-luna{background:var(--surface-soft)}
 
 /* ── Sunset Schedule redesign — glance strip, timeline, capacity bars, heatmap ── */
 .portal-schedule-glance-cell{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 16px;display:flex;flex-direction:column;gap:6px;min-width:0}
-.portal-schedule-glance-num{font-size:30px;font-weight:800;line-height:1;color:var(--text);font-variant-numeric:tabular-nums}
+.portal-schedule-glance-num{font-size:30px;font-weight:700;line-height:1;color:var(--text);font-variant-numeric:tabular-nums}
 .portal-schedule-glance-num small{font-size:12px;font-weight:700;color:var(--text-3);letter-spacing:.01em}
 .portal-schedule-glance-num.is-zero{color:var(--text-3)}
 .portal-schedule-glance-bar{height:6px;border-radius:999px;background:var(--surface-soft);overflow:hidden;margin-top:auto}
@@ -16467,7 +16584,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-timeline::before{content:'';position:absolute;left:81px;top:10px;bottom:10px;width:2px;background:var(--border-soft);border-radius:2px}
 .portal-schedule-tl-item{display:grid;grid-template-columns:64px 14px minmax(0,1fr);gap:0 10px;align-items:start;position:relative}
 .portal-schedule-tl-time{padding-top:13px;text-align:right;display:flex;flex-direction:column;line-height:1.3}
-.portal-schedule-tl-time b{font-size:13px;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums}
+.portal-schedule-tl-time b{font-size:13px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
 .portal-schedule-tl-time small{font-size:10px;font-weight:600;color:var(--text-3);font-variant-numeric:tabular-nums}
 .portal-schedule-tl-dot{width:10px;height:10px;border-radius:50%;background:var(--surface);border:2px solid var(--text-3);margin-top:16px;justify-self:center;position:relative;z-index:1;box-sizing:border-box}
 .portal-schedule-tl-item.is-done .portal-schedule-tl-dot{background:var(--text-3);border-color:var(--text-3)}
@@ -16475,15 +16592,15 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-tl-item.is-empty .portal-schedule-tl-dot{border-style:dashed;border-color:var(--border)}
 .portal-schedule-tl-body{min-width:0}
 .portal-schedule-tl-now{display:grid;grid-template-columns:64px minmax(0,1fr);gap:0 10px;align-items:center;margin:-6px 0}
-.portal-schedule-tl-now span{font-size:10px;font-weight:800;color:#fff;background:#C0563C;border-radius:999px;padding:2px 8px;justify-self:end;font-variant-numeric:tabular-nums}
+.portal-schedule-tl-now span{font-size:10px;font-weight:700;color:#fff;background:#C0563C;border-radius:999px;padding:2px 8px;justify-self:end;font-variant-numeric:tabular-nums}
 .portal-schedule-tl-now::after{content:'';grid-column:2;height:2px;background:#C0563C;border-radius:2px;opacity:.75}
 .portal-schedule-ops-lesson-hdr-row{display:flex;align-items:center;justify-content:space-between;gap:14px}
 .portal-schedule-ops-lesson-hdr-main{min-width:0}
-.portal-schedule-hdr-badge{display:inline-block;font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:999px;vertical-align:2px;margin-left:6px;letter-spacing:.05em;text-transform:uppercase}
+.portal-schedule-hdr-badge{display:inline-block;font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:999px;vertical-align:2px;margin-left:6px;letter-spacing:.05em;text-transform:uppercase}
 .portal-schedule-hdr-badge.is-course{background:#EFE3CE;color:#8A6B3D}
 .portal-schedule-hdr-badge.is-done{background:var(--surface-soft);color:var(--text-3)}
 .portal-schedule-occ{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0}
-.portal-schedule-occ-num{font-size:18px;font-weight:800;color:var(--text);line-height:1;font-variant-numeric:tabular-nums}
+.portal-schedule-occ-num{font-size:18px;font-weight:700;color:var(--text);line-height:1;font-variant-numeric:tabular-nums}
 .portal-schedule-occ-num small{font-size:11px;font-weight:700;color:var(--text-3)}
 .portal-schedule-occ-track{display:flex;width:120px;height:6px;border-radius:999px;background:var(--surface-soft);overflow:hidden}
 .portal-schedule-occ-track i{display:block;height:100%}
@@ -16524,7 +16641,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-wk-flag.is-reply{background:#EDE7F4;color:#6B5080}
 .portal-schedule-next30-wrap{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 16px}
 .portal-schedule-next30-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
-.portal-schedule-next30-dow{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);text-align:center;padding-bottom:2px}
+.portal-schedule-next30-dow{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);text-align:center;padding-bottom:2px}
 .portal-schedule-next30-card{padding:8px 10px;border-radius:10px;min-height:60px;box-sizing:border-box}
 .portal-schedule-next30-hdr{margin-bottom:2px;font-size:11px}
 .portal-schedule-next30-stat{font-size:18px}
@@ -16612,8 +16729,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 #tab-customers.active{display:flex;flex-direction:column;flex:1;min-height:0;height:auto;overflow:hidden}
 .customers-wrap{max-width:1200px;width:100%;margin:0 auto;padding:16px 20px 12px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
 .customers-header{margin-bottom:12px}
-.customers-school-heading{font-size:26px;font-weight:900;letter-spacing:-.03em;color:var(--text);line-height:1.1;margin:0;font-family:var(--cust-serif,'Playfair Display',Georgia,serif)}
-.customers-header h2{font-size:17px;font-weight:800;color:var(--text);margin:0 0 3px;letter-spacing:-.01em}
+.customers-school-heading{font-size:26px;font-weight:700;letter-spacing:-.03em;color:var(--text);line-height:1.1;margin:0;font-family:var(--cust-serif,"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif)}
+.customers-header h2{font-size:17px;font-weight:700;color:var(--text);margin:0 0 3px;letter-spacing:-.01em}
 .customers-header p{font-size:12px;color:var(--text-2);margin:0;line-height:1.45;max-width:640px}
 .customers-promo{font-size:11px;color:var(--text-3);margin:6px 0 0;line-height:1.5;max-width:720px}
 .customers-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
@@ -16629,7 +16746,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-filters-group{padding:4px 0 8px;border-bottom:1px solid var(--border-soft)}
 .customers-filters-group:last-child{border-bottom:none;padding-bottom:4px}
 .customers-filters-group-hdr{padding:6px 14px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
-.customers-filters-option{display:inline-flex;align-items:center;max-width:100%;min-width:0;width:auto;margin:0;padding:3px 8px;min-height:22px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft);text-align:left;font:700 10px/1.2 'Playfair Display',Georgia,serif;color:var(--text-3);cursor:pointer;white-space:nowrap;overflow-wrap:normal}
+.customers-filters-option{display:inline-flex;align-items:center;max-width:100%;min-width:0;width:auto;margin:0;padding:3px 8px;min-height:22px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft);text-align:left;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;white-space:nowrap;overflow-wrap:normal}
 .customers-filters-option:hover{background:transparent;border-color:var(--text-2);color:var(--text-2)}
 .customers-filters-option.active{color:var(--text-2);border-color:#6e6e6e;font-weight:600;background:rgba(255,255,255,.04)}
 .customers-filters-option[data-tag-tone="dnc"].active{color:#d4a0a0;border-color:#a85a5a;background:rgba(180,90,90,.14)}
@@ -16652,7 +16769,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-add-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .customers-tags-grid{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
 .customers-tags-unified-row{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:6px}
-.customers-tag-toggle{display:inline-flex;align-items:center;max-width:100%;min-width:0;font:700 10px/1.2 'Playfair Display',Georgia,serif;color:var(--text-3);cursor:pointer;padding:1px 6px;min-height:18px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft)}
+.customers-tag-toggle{display:inline-flex;align-items:center;max-width:100%;min-width:0;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;padding:1px 6px;min-height:18px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft)}
 .customers-tag-toggle:has(input:checked){color:var(--text-2);border-color:#6e6e6e;background:rgba(255,255,255,.04)}
 .customers-tag-toggle[data-tag-tone="dnc"]:has(input:checked){color:#d4a0a0;border-color:#a85a5a;background:rgba(180,90,90,.14)}
 .customers-tag-toggle[data-tag-tone="hot"]:has(input:checked){color:#b5cfc0;border-color:#6fa783;background:rgba(111,167,131,.18)}
@@ -16710,9 +16827,9 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-profile-hdr-actions{display:flex;flex-wrap:wrap;gap:6px;flex:0 0 auto;align-items:center}
 .customers-profile-hdr-actions .btn{font-size:12px;padding:6px 10px}
 @media(max-width:640px){.customers-profile-summary-hdr{flex-wrap:wrap}.customers-profile-hdr-actions{width:100%;margin-top:4px}.customers-profile-hdr-actions .btn{flex:1 1 auto;justify-content:center;min-height:36px}}
-.customers-profile-avatar{flex:0 0 auto;width:40px;height:40px;border-radius:10px;background:var(--surface-soft);border:1px solid var(--border-soft);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:var(--text-2);letter-spacing:.02em}
+.customers-profile-avatar{flex:0 0 auto;width:40px;height:40px;border-radius:10px;background:var(--surface-soft);border:1px solid var(--border-soft);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--text-2);letter-spacing:.02em}
 .customers-profile-identity{min-width:0;flex:1}
-.customers-profile-name{margin:0 0 2px;font-size:16px;font-weight:800;color:var(--text);line-height:1.25;letter-spacing:-.01em}
+.customers-profile-name{margin:0 0 2px;font-size:16px;font-weight:700;color:var(--text);line-height:1.25;letter-spacing:-.01em}
 .customers-profile-contact{font-size:12px;color:var(--text-3);line-height:1.4;word-break:break-word}
 .customers-profile-fields{display:flex;flex-direction:column;gap:8px}
 .customers-profile-field{display:grid;grid-template-columns:minmax(72px,88px) minmax(0,1fr) auto;gap:6px 10px;align-items:start;font-size:12px;line-height:1.45}
@@ -16765,7 +16882,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-outreach-drawer{position:fixed;top:0;right:0;width:min(440px,92vw);height:100vh;height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9201;padding:16px 18px;overflow:auto;box-sizing:border-box;display:none;flex-direction:column;gap:12px;transform:translateX(100%);transition:transform .22s ease}
 .customers-outreach-drawer.open{display:flex;transform:translateX(0)}
 .customers-outreach-drawer-hdr{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px}
-.customers-outreach-drawer-hdr h3{margin:0;font-size:16px;font-weight:800;color:var(--text)}
+.customers-outreach-drawer-hdr h3{margin:0;font-size:16px;font-weight:700;color:var(--text)}
 .customers-outreach-section{margin-top:4px}
 .customers-outreach-section-hdr{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:6px}
 .customers-outreach-recipient{font-size:13px;padding:6px 0;border-bottom:1px solid var(--border-soft);line-height:1.4}
@@ -16798,13 +16915,13 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-outreach-confirm-stats{font-size:12px;color:var(--text-2);line-height:1.5;margin-bottom:6px}
 #cust-outreach-confirm-modal{z-index:9300}
 /* ── Customers tab typography (Booking Calendar 2026 serif family) ─────────── */
-#tab-customers{--cust-serif:'Playfair Display',Georgia,serif;font-family:var(--cust-serif);-webkit-font-smoothing:antialiased}
-#tab-customers input,#tab-customers textarea,#tab-customers select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+#tab-customers{--cust-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--cust-serif);-webkit-font-smoothing:antialiased}
+#tab-customers input,#tab-customers textarea,#tab-customers select{font-family:var(--font-sans)}
 /* Luna Staff (Ask Luna) portal — same serif house style as the rest of the portal. */
-#tab-ask-luna{--luna-staff-serif:'Playfair Display',Georgia,serif;font-family:var(--luna-staff-serif);-webkit-font-smoothing:antialiased}
-#tab-ask-luna input,#tab-ask-luna textarea,#tab-ask-luna select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+#tab-ask-luna{--luna-staff-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--luna-staff-serif);-webkit-font-smoothing:antialiased}
+#tab-ask-luna input,#tab-ask-luna textarea,#tab-ask-luna select{font-family:var(--font-sans)}
 #tab-customers .customers-header h2{font-weight:600;letter-spacing:.005em}
-#tab-customers .customers-school-heading{font-weight:900;letter-spacing:-.03em}
+#tab-customers .customers-school-heading{font-weight:700;letter-spacing:-.03em}
 #tab-customers .customers-profile-name,#tab-customers .customers-card-name{font-weight:700;letter-spacing:.01em}
 #tab-customers .customers-outreach-drawer-hdr h3{font-weight:700;letter-spacing:.005em}
 #tab-customers .customers-section-hdr,#tab-customers .customers-filters-group-hdr,#tab-customers .customers-profile-field-label,#tab-customers .customers-edit-field span,#tab-customers .customers-tags-system-hdr,#tab-customers .customers-outreach-section-hdr,#tab-customers .customers-msg-dir{letter-spacing:.06em}
@@ -17258,7 +17375,7 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .today-tile{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:22px 20px 18px;box-shadow:var(--shadow);transition:box-shadow .18s,transform .12s;display:flex;flex-direction:column;gap:6px}
 .today-tile:hover{box-shadow:0 4px 16px rgba(68,80,74,.11);transform:translateY(-1px)}
 .today-tile-urgent{border-color:#E6C7BC;background:linear-gradient(135deg,#FBF7F0 0%,#F6E7E1 100%)}
-.today-tile-number{font-size:38px;font-weight:800;color:var(--text);line-height:1;letter-spacing:-.02em}
+.today-tile-number{font-size:38px;font-weight:700;color:var(--text);line-height:1;letter-spacing:-.02em}
 .today-tile-urgent .today-tile-number{color:#9C5742}
 .today-tile-label{font-size:13px;font-weight:700;color:var(--text);margin-top:2px}
 .today-tile-sub{font-size:11.5px;color:var(--text-3);line-height:1.4}
@@ -17834,6 +17951,21 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-private-room-switch input:checked + .bc-private-room-switch-slider{background:transparent;border-color:#cccccc}
 [data-theme="dark"] .bc-private-room-switch-slider:before{background:#858585;box-shadow:none}
 [data-theme="dark"] .bc-private-room-switch input:checked + .bc-private-room-switch-slider:before{background:#cccccc}
+
+/* ── Typography reinforcement (wins over earlier component sizes) ───────── */
+.portal-schedule-range{font-family:var(--font-display)!important;font-weight:600!important;font-size:22px!important}
+.portal-schedule-ops-lesson-hdr-title,.portal-schedule-lesson-slot-label{font-family:var(--font-display)!important;font-weight:600!important;font-size:19px!important}
+.portal-schedule-card-stat-lg,.portal-schedule-metric-card .portal-schedule-card-stat-lg{font-family:var(--font-display)!important;font-weight:500!important;font-size:34px!important}
+.portal-schedule-metric-card-compact .portal-schedule-card-stat-lg{font-family:var(--font-display)!important;font-weight:500!important;font-size:32px!important}
+.portal-home-card-stat{font-family:var(--font-display)!important;font-weight:500!important}
+.portal-admin-capacity-number{font-family:var(--font-display)!important;font-weight:500!important}
+.portal-home-school,.portal-admin-school-heading{font-family:var(--font-display)!important;font-weight:600!important}
+.portal-schedule-lesson-time{font-family:var(--font-display)!important;font-weight:600!important}
+.portal-schedule-lesson-time-count{font-family:var(--font-display)!important;font-weight:500!important;font-variant-numeric:tabular-nums}
+.tab-btn{font-weight:500!important}
+.tab-btn.active{font-weight:600!important}
+.portal-schedule-ops-row-guest,.portal-schedule-booking-name{font-weight:600!important}
+button.btn,.btn,.btn-primary,.btn-ghost,.btn-logout{font-weight:600}
 [data-theme="dark"] .bc-svc-chip{font-weight:700}
 [data-theme="dark"] .bc-svc-color-board{background:rgba(59,130,246,.18);border-color:rgba(96,165,250,.42);color:#dbeafe;font-weight:700}
 [data-theme="dark"] .bc-svc-color-softboard{background:rgba(20,184,166,.16);border-color:rgba(45,212,191,.4);color:#ccfbf1;font-weight:700}
@@ -17931,7 +18063,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
    paperback colors/paper/spacing/borders were removed so the rest returns to the
    original look. Still scoped under .book-ui and gated by STAFF_PORTAL_BOOK_UI
    (set =false to drop the serif too and fully restore the prior look). ===== */
-.book-ui{--bk-serif:'Playfair Display',Georgia,serif}
+.book-ui{--bk-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
 .book-ui .toolbar h2,
 .book-ui .bc-detail-title,
 .book-ui .bc-block-label,
