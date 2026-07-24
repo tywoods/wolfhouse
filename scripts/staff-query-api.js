@@ -15682,6 +15682,9 @@ function buildUiHtml(port, portalDeployClient) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Luna Front Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800;900&display=swap">
 <script>window.PORTAL_DEFAULT_CLIENT=${JSON.stringify(portalDefaultClient)};</script>
 ${getStaffPortalThemeEarlyScript()}
 <style>
@@ -15832,7 +15835,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:stretch;align-self:stretch;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent;padding:0}
 #banner .brand-logo{height:100%;width:auto;max-width:min(520px,calc(100vw - 340px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
 #banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0;color:#fffaf1}
-.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0;font-family:'Playfair Display',Georgia,serif}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
 .cc-luna-staff-retired{display:none!important}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
@@ -15865,13 +15868,13 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:0;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex:0 0 auto}
 #tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border:0;background:var(--surface);box-shadow:-16px 0 12px -8px var(--surface);position:sticky;right:0;z-index:2}
 #tabs .tabs-global-pause.luna-global-paused{background:var(--surface);border:0}
-#tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2);font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+#tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2);font-family:'Playfair Display',Georgia,serif}
 #tabs .tabs-global-pause-label{white-space:nowrap}
 #tabs .tabs-global-pause .luna-global-pause-switch{width:34px;height:20px}
 #tabs .tabs-global-pause .luna-global-pause-slider:before{height:16px;width:16px;left:2px;bottom:2px}
 #tabs .tabs-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
 #tabs .tabs-global-pause .tabs-global-pause-help,#tabs #luna-global-pause-status{display:none!important}
-.tab-btn{padding:14px 22px;font-size:14px;font-weight:600;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;letter-spacing:.01em;white-space:nowrap;flex:0 0 auto}
+.tab-btn{padding:14px 22px;font-size:14px;font-weight:600;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:'Playfair Display',Georgia,serif;letter-spacing:.01em;white-space:nowrap;flex:0 0 auto}
 /* Hide unused dev tabs (Developer Tools + Luna Guest Simulator) from the nav. */
 #tabs .tab-btn.dev-tab{display:none!important}
 .tab-btn:hover{color:var(--text)}
@@ -15918,7 +15921,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-home-schedule-note{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.45}
 #tab-portal-home.active{display:block}
 /* Sunset Schedule: match the menu-bar serif across the whole page (staff request). */
-#tab-portal-home{--sched-heading-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--sched-heading-serif)}
+#tab-portal-home{--sched-heading-serif:'Playfair Display',Georgia,serif;font-family:var(--sched-heading-serif)}
 #tab-portal-home .portal-schedule-page-title,
 #tab-portal-home .portal-schedule-hero-title,
 #tab-portal-home .portal-schedule-card-label,
@@ -16078,7 +16081,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-lesson-price-strip{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 10px}
 .portal-admin-lesson-price-pill{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--border-soft);background:var(--surface-soft);border-radius:999px;padding:5px 9px;font-size:12px;min-width:170px}
 .portal-admin-lesson-price-pill strong{color:var(--text)}
-.portal-admin-school-heading{font-size:26px;font-weight:900;letter-spacing:-.03em;color:var(--text);line-height:1.1;margin:0 0 16px;font-family:var(--admin-serif,"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif)}
+.portal-admin-school-heading{font-size:26px;font-weight:900;letter-spacing:-.03em;color:var(--text);line-height:1.1;margin:0 0 16px;font-family:var(--admin-serif,'Playfair Display',Georgia,serif)}
 .portal-admin-school-heading-sub{font-size:12px;color:var(--text-3);margin-top:4px}
 .portal-admin-chip-row{display:flex;gap:6px;flex-wrap:wrap}
 .portal-admin-chip{display:inline-flex;align-items:center;border:1px solid var(--border-soft);border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:var(--text-2);background:var(--surface)}
@@ -16125,10 +16128,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-pack-tier-row strong{color:var(--text);font-weight:800}
 
 #tab-admin.active{display:block}
-#tab-admin{--admin-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--admin-serif);-webkit-font-smoothing:antialiased}
+#tab-admin{--admin-serif:'Playfair Display',Georgia,serif;font-family:var(--admin-serif);-webkit-font-smoothing:antialiased}
 #tab-admin input,#tab-admin textarea,#tab-admin select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
 /* Camps, Lessons and Services tab — same serif house style as Admin/Customers (form inputs stay sans). */
-#tab-services{--svc-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--svc-serif);-webkit-font-smoothing:antialiased}
+#tab-services{--svc-serif:'Playfair Display',Georgia,serif;font-family:var(--svc-serif);-webkit-font-smoothing:antialiased}
 #tab-services input,#tab-services textarea,#tab-services select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
 #tab-admin .portal-admin-section-hdr,#tab-admin .portal-admin-subsection-title,#tab-admin .portal-admin-pack-title,#tab-admin .portal-admin-price-title,#tab-admin .portal-admin-lesson-title{font-family:var(--admin-serif)}
 #tab-admin .btn,#tab-admin .portal-admin-pill{font-family:inherit}
@@ -16201,7 +16204,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-filters{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
 .portal-schedule-filter-btn{font-size:11px;padding:4px 10px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);background:var(--surface);cursor:pointer;font-family:inherit}
 .portal-schedule-filter-btn.active{background:var(--text);color:#fff;border-color:var(--text)}
-.portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9000;padding:16px 18px;padding-bottom:calc(28px + env(safe-area-inset-bottom));overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;box-sizing:border-box;font-size:13px;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;--sched-drawer-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+.portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9000;padding:16px 18px;padding-bottom:calc(28px + env(safe-area-inset-bottom));overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;box-sizing:border-box;font-size:13px;font-family:'Playfair Display',Georgia,serif;--sched-drawer-serif:'Playfair Display',Georgia,serif}
 @media(max-width:640px){.portal-schedule-drawer,.portal-schedule-create-drawer{width:100vw;border-left:none}}
 .portal-schedule-drawer-section{margin-bottom:18px;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .portal-schedule-drawer-section-title{margin:0 0 10px;font-size:15px;font-weight:800;letter-spacing:-.02em;color:var(--text);font-family:var(--sched-drawer-serif);line-height:1.2}
@@ -16609,7 +16612,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 #tab-customers.active{display:flex;flex-direction:column;flex:1;min-height:0;height:auto;overflow:hidden}
 .customers-wrap{max-width:1200px;width:100%;margin:0 auto;padding:16px 20px 12px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
 .customers-header{margin-bottom:12px}
-.customers-school-heading{font-size:26px;font-weight:900;letter-spacing:-.03em;color:var(--text);line-height:1.1;margin:0;font-family:var(--cust-serif,"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif)}
+.customers-school-heading{font-size:26px;font-weight:900;letter-spacing:-.03em;color:var(--text);line-height:1.1;margin:0;font-family:var(--cust-serif,'Playfair Display',Georgia,serif)}
 .customers-header h2{font-size:17px;font-weight:800;color:var(--text);margin:0 0 3px;letter-spacing:-.01em}
 .customers-header p{font-size:12px;color:var(--text-2);margin:0;line-height:1.45;max-width:640px}
 .customers-promo{font-size:11px;color:var(--text-3);margin:6px 0 0;line-height:1.5;max-width:720px}
@@ -16626,7 +16629,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-filters-group{padding:4px 0 8px;border-bottom:1px solid var(--border-soft)}
 .customers-filters-group:last-child{border-bottom:none;padding-bottom:4px}
 .customers-filters-group-hdr{padding:6px 14px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
-.customers-filters-option{display:inline-flex;align-items:center;max-width:100%;min-width:0;width:auto;margin:0;padding:3px 8px;min-height:22px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft);text-align:left;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;white-space:nowrap;overflow-wrap:normal}
+.customers-filters-option{display:inline-flex;align-items:center;max-width:100%;min-width:0;width:auto;margin:0;padding:3px 8px;min-height:22px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft);text-align:left;font:700 10px/1.2 'Playfair Display',Georgia,serif;color:var(--text-3);cursor:pointer;white-space:nowrap;overflow-wrap:normal}
 .customers-filters-option:hover{background:transparent;border-color:var(--text-2);color:var(--text-2)}
 .customers-filters-option.active{color:var(--text-2);border-color:#6e6e6e;font-weight:600;background:rgba(255,255,255,.04)}
 .customers-filters-option[data-tag-tone="dnc"].active{color:#d4a0a0;border-color:#a85a5a;background:rgba(180,90,90,.14)}
@@ -16649,7 +16652,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-add-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .customers-tags-grid{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
 .customers-tags-unified-row{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:6px}
-.customers-tag-toggle{display:inline-flex;align-items:center;max-width:100%;min-width:0;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;padding:1px 6px;min-height:18px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft)}
+.customers-tag-toggle{display:inline-flex;align-items:center;max-width:100%;min-width:0;font:700 10px/1.2 'Playfair Display',Georgia,serif;color:var(--text-3);cursor:pointer;padding:1px 6px;min-height:18px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft)}
 .customers-tag-toggle:has(input:checked){color:var(--text-2);border-color:#6e6e6e;background:rgba(255,255,255,.04)}
 .customers-tag-toggle[data-tag-tone="dnc"]:has(input:checked){color:#d4a0a0;border-color:#a85a5a;background:rgba(180,90,90,.14)}
 .customers-tag-toggle[data-tag-tone="hot"]:has(input:checked){color:#b5cfc0;border-color:#6fa783;background:rgba(111,167,131,.18)}
@@ -16795,10 +16798,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-outreach-confirm-stats{font-size:12px;color:var(--text-2);line-height:1.5;margin-bottom:6px}
 #cust-outreach-confirm-modal{z-index:9300}
 /* ── Customers tab typography (Booking Calendar 2026 serif family) ─────────── */
-#tab-customers{--cust-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--cust-serif);-webkit-font-smoothing:antialiased}
+#tab-customers{--cust-serif:'Playfair Display',Georgia,serif;font-family:var(--cust-serif);-webkit-font-smoothing:antialiased}
 #tab-customers input,#tab-customers textarea,#tab-customers select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
 /* Luna Staff (Ask Luna) portal — same serif house style as the rest of the portal. */
-#tab-ask-luna{--luna-staff-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--luna-staff-serif);-webkit-font-smoothing:antialiased}
+#tab-ask-luna{--luna-staff-serif:'Playfair Display',Georgia,serif;font-family:var(--luna-staff-serif);-webkit-font-smoothing:antialiased}
 #tab-ask-luna input,#tab-ask-luna textarea,#tab-ask-luna select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
 #tab-customers .customers-header h2{font-weight:600;letter-spacing:.005em}
 #tab-customers .customers-school-heading{font-weight:900;letter-spacing:-.03em}
@@ -17928,7 +17931,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
    paperback colors/paper/spacing/borders were removed so the rest returns to the
    original look. Still scoped under .book-ui and gated by STAFF_PORTAL_BOOK_UI
    (set =false to drop the serif too and fully restore the prior look). ===== */
-.book-ui{--bk-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+.book-ui{--bk-serif:'Playfair Display',Georgia,serif}
 .book-ui .toolbar h2,
 .book-ui .bc-detail-title,
 .book-ui .bc-block-label,
