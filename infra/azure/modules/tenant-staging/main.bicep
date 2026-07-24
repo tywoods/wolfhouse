@@ -256,11 +256,18 @@ resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
-module acrPullRole '../../sunset-staging/acr-pull-role.bicep' = {
+// AcrPull for tenant MI on shared ACR (cross-RG extension at ACR scope).
+// Prefer: resource acrPullRole 'Microsoft.Authorization/roleAssignments@...' = { scope: existingAcr }
+// Bicep BCP139 rejects that for cross-RG existing resources and forces a module.
+// Do NOT module with scope: resourceGroup(acrResourceGroupName) — that nests
+// Microsoft.Resources/deployments into wh-staging-rg and needs deployments/write there.
+// Same-RG module + absolute ACR resourceId keeps the deterministic AcrPull assignment
+// at the ACR while requiring only ACR-scoped roleAssignments/write.
+module acrPullRole './acr-pull-role.json' = {
   name: acrPullModuleName
-  scope: resourceGroup(acrResourceGroupName)
   params: {
     acrName: acrName
+    acrResourceGroupName: acrResourceGroupName
     principalId: managedIdentity.properties.principalId
   }
 }

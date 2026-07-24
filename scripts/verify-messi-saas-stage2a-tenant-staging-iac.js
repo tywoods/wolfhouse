@@ -299,6 +299,31 @@ try {
   ok('hostile_hidden_sunset_literals', /enableSunsetRuntimeEnv\s*\?\s*sunsetAdminLocationEnv\s*:\s*\[\]/.test(mod)
     && fv('enableSunsetRuntimeEnv') === false);
 
+  // Stage 2D2 auth boundary: tenant RG must not nest a deployment into shared ACR RG.
+  // Prefer direct roleAssignments scoped to existingAcr; BCP139 may force absolute-scope
+  // emission from the tenant RG instead of module scope:resourceGroup(acrResourceGroupName).
+  const acrPullJsonRel = 'infra/azure/modules/tenant-staging/acr-pull-role.json';
+  const acrPullJson = fs.existsSync(path.join(ROOT, acrPullJsonRel))
+    ? fs.readFileSync(path.join(ROOT, acrPullJsonRel), 'utf8') : '';
+  const acrPullSrc = `${mod}\n${acrPullJson}`;
+  const acrPullCrossRgModule = /module\s+acrPullRole\b[\s\S]{0,320}scope:\s*resourceGroup\(\s*acrResourceGroupName\s*\)/.test(mod);
+  const existingAcrDecl = /resource\s+existingAcr\s+'Microsoft\.ContainerRegistry\/registries@/.test(mod)
+    && /scope:\s*resourceGroup\(\s*acrResourceGroupName\s*\)/.test(mod);
+  const acrPullDirectRole = /resource\s+acrPullRole\s+'Microsoft\.Authorization\/roleAssignments@/.test(mod)
+    && /scope:\s*existingAcr/.test(mod)
+    && /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(acrPullSrc);
+  const acrPullTenantEmitted = /acrPullRole/.test(mod) && /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(acrPullSrc)
+    && !acrPullCrossRgModule
+    && (/resource\s+acrPullRole\s+'Microsoft\.Authorization\/roleAssignments@/.test(mod)
+      || /guid\(\s*existingAcr\.id/.test(mod)
+      || /resourceId\(\s*acrResourceGroupName[\s\S]{0,120}ContainerRegistry\/registries/.test(acrPullSrc)
+      || /module\s+acrPullRole\s+'\.\/acr-pull-role\.json'/.test(mod));
+  ok('acr_pull_no_shared_rg_nested_module', !acrPullCrossRgModule,
+    'tenant-staging must not module acr-pull into resourceGroup(acrResourceGroupName)');
+  ok('acr_pull_direct_extension_on_existing_acr', existingAcrDecl && (acrPullDirectRole || acrPullTenantEmitted),
+    'expect existingAcr + AcrPull emitted from tenant RG (direct scope:existingAcr preferred)');
+  ok('acr_pull_runtime_depends_on', /dependsOn:[\s\S]{0,260}acrPullRole/.test(mod));
+
   const st = diffStat();
   console.log('\n── budget ──');
   console.log(JSON.stringify({ files: st.files, rawAdd: st.rawAdd, rawDel: st.rawDel, net: st.net,
@@ -333,6 +358,41 @@ try {
       ok('compile_has_casefold_reserved_guard', /toLower[\s\S]*reserved_slug_in_synthetic_mode/.test(blob));
       ok('compile_tmpdir_clean_repo', !fs.existsSync(path.join(ROOT, 'tmp/stage2a-wrapper.json'))
         && !fs.existsSync(path.join(ROOT, 'tmp/stage2a-module.json')));
+
+      // Compiled contract: no acrPullModuleName deployment targeting shared ACR RG; AcrPull stays at ACR.
+      const topDeps = (modCompiled.resources || []).filter((r) => r.type === 'Microsoft.Resources/deployments');
+      const acrPullNamedDeps = topDeps.filter((r) => /acrPullModuleName/.test(String(r.name || '')));
+      const sharedRgTarget = acrPullNamedDeps.some((r) => {
+        const rg = String(r.resourceGroup || '');
+        return /acrResourceGroupName|wh-staging-rg/.test(rg);
+      });
+      ok('compile_acr_pull_no_shared_rg_deployment', acrPullNamedDeps.length === 0 || !sharedRgTarget,
+        sharedRgTarget ? `nested deploy into shared RG: ${JSON.stringify(acrPullNamedDeps.map((r) => r.resourceGroup))}` : '');
+      const walkRoles = (list, acc, tpl) => {
+        for (const r of list || []) {
+          if (r.type === 'Microsoft.Authorization/roleAssignments') acc.push({ r, tpl });
+          if (r.type === 'Microsoft.Resources/deployments') {
+            const child = ((r.properties || {}).template) || {};
+            walkRoles(child.resources || [], acc, child);
+          }
+        }
+        return acc;
+      };
+      const roles = walkRoles(modCompiled.resources || [], [], modCompiled);
+      const acrPullRoles = roles.filter((x) => /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(JSON.stringify(x.r)));
+      const acrScopeOk = acrPullRoles.some((x) => {
+        const blob = `${JSON.stringify(x.r.scope || '')}|${JSON.stringify((x.tpl && x.tpl.variables) || {})}`;
+        return /ContainerRegistry\/registries|existingAcr|acrName|acrId|acrResourceGroupName/.test(blob);
+      });
+      ok('compile_acr_pull_role_at_acr_scope', acrPullRoles.length === 1 && acrScopeOk
+        && /guid|roleName|variables\(/.test(String(acrPullRoles[0].r.name || ''))
+        && /principalId/.test(JSON.stringify((acrPullRoles[0].r.properties) || {})),
+        `roles=${acrPullRoles.length} scopeOk=${acrScopeOk}`);
+      const staff = (modCompiled.resources || []).find((r) => r.type === 'Microsoft.App/containerApps');
+      const boot = (modCompiled.resources || []).find((r) => /syntheticBootstrapJob/.test(String(r.name || '')));
+      const depBlob = JSON.stringify([staff && staff.dependsOn, boot && boot.dependsOn]);
+      ok('compile_runtime_depends_on_acr_pull', /acrPull|7f951dda|roleAssignments/.test(depBlob),
+        depBlob.slice(0, 220));
     } catch (err) {
       ok('compiled_wrapper_module', false, String(err.stderr || err.message || err).slice(0, 300));
       ok('semantic_parity', false, 'compile_failed');
@@ -340,11 +400,17 @@ try {
       ok('compile_has_scope_fail', false, 'skipped'); ok('compile_has_env_fail', false, 'skipped');
       ok('compile_has_casefold_reserved_guard', false, 'skipped');
       ok('compile_tmpdir_clean_repo', false, 'skipped');
+      ok('compile_acr_pull_no_shared_rg_deployment', false, 'skipped');
+      ok('compile_acr_pull_role_at_acr_scope', false, 'skipped');
+      ok('compile_runtime_depends_on_acr_pull', false, 'skipped');
     }
   } else {
     ok('compiled_wrapper_module', false, 'missing'); ok('semantic_parity', false, 'missing');
     ok('compiled_module', false, 'missing');
     ok('compile_has_casefold_reserved_guard', false, 'missing');
+    ok('compile_acr_pull_no_shared_rg_deployment', false, 'missing');
+    ok('compile_acr_pull_role_at_acr_scope', false, 'missing');
+    ok('compile_runtime_depends_on_acr_pull', false, 'missing');
   }
   console.log(`\nRESULT: ${fail === 0 ? 'PASS' : 'FAIL'}  pass=${pass} fail=${fail}`);
   console.log('NOTE: Stage 2B channel_slot allowlist; Sunset legacy env unchanged.');
