@@ -70,6 +70,13 @@ function makeHarness(lib, d1, opts = {}) {
   let acrFail = false; let putFailPath = null;
   let pollStates = {}; let deleteEtagRace = false;
   let clock = new Date('2026-07-23T12:00:00Z');
+  // Default GREEN: AlertsManagement Registered (live defect was NotRegistered).
+  let providerHttpStatus = 200;
+  let providerBody = {
+    id: `/subscriptions/${SUB}/providers/Microsoft.AlertsManagement`,
+    namespace: 'Microsoft.AlertsManagement',
+    registrationState: 'Registered',
+  };
   const headSha = String(opts.headSha || opts.verifiedDeploySha || SHA).toLowerCase();
   const originMasterSha = String(opts.originMasterSha || headSha).toLowerCase();
   const missingShas = new Set((opts.missingShas || []).map((s) => String(s).toLowerCase()));
@@ -154,6 +161,12 @@ function makeHarness(lib, d1, opts = {}) {
       const p = req.path || '';
       if (putFailPath && req.method === 'PUT' && p.includes(putFailPath)) {
         return { status: 500, body: { error: 'fail' }, headers: {} };
+      }
+      // Subscription-scope provider registration GET (exact Microsoft.AlertsManagement preflight).
+      if (req.method === 'GET'
+        && /^\/subscriptions\/[^/]+\/providers\/Microsoft\.AlertsManagement(\?|$)/i.test(p)
+        && !/resource[Gg]roups/i.test(p)) {
+        return { status: providerHttpStatus, body: providerBody, headers: {} };
       }
       if (req.method === 'GET' && /resourcegroups\/[^/?]+(\?|$)/i.test(p)
         && !/providers\//i.test(p.split('resourcegroups/')[1] || '')) {
@@ -277,6 +290,15 @@ function makeHarness(lib, d1, opts = {}) {
     setPutFailPath(v) { putFailPath = v; }, setPollStates(v) { pollStates = v; },
     setDeleteEtagRace(v) { deleteEtagRace = v; }, setIdentityOk(v) { identityOk = v; },
     setClock(v) { clock = new Date(v); }, advanceClock(ms) { clock = new Date(clock.getTime() + ms); },
+    setProvider(status, body) { providerHttpStatus = status; providerBody = body; },
+    setProviderRegistrationState(state) {
+      providerHttpStatus = 200;
+      providerBody = {
+        id: `/subscriptions/${SUB}/providers/Microsoft.AlertsManagement`,
+        namespace: 'Microsoft.AlertsManagement',
+        registrationState: state,
+      };
+    },
     seedRoles(names) {
       const c = d1.buildExpectedResourceContract(names, { principalId: PID });
       rolesById = Object.fromEntries(c.roleAssignments.map((role) => [String(role.name).toLowerCase(), {
@@ -581,8 +603,20 @@ async function main() {
     const deletes = h.armLog.filter((x) => x.method === 'DELETE' && /\/jobs\//i.test(x.path || ''));
     const costPosts = h.armLog.filter((x) => x.method === 'POST' && /CostManagement\/query/i.test(x.path || ''));
     const roleGets = h.armLog.filter((x) => x.method === 'GET' && /roleAssignments\/[0-9a-f-]{36}/i.test(x.path || ''));
+    const providerGets = h.armLog.filter((x) => x.method === 'GET'
+      && /^\/subscriptions\/[^/]+\/providers\/Microsoft\.AlertsManagement(\?|$)/i.test(x.path || ''));
+    const rgPuts = h.armLog.filter((x) => x.method === 'PUT'
+      && /resourcegroups\/[^/?]+(\?|$)/i.test(x.path || '')
+      && !/providers\//i.test((x.path || '').split('resourcegroups/')[1] || ''));
     ok('apply_happy_job_delete_roles_health_receipt', r.ok === true && deletes.length >= 1
       && costPosts.length >= 1 && roleGets.length >= 2
+      && providerGets.length >= 1
+      && providerGets[0].path === d1.alertsManagementProviderPath(SUB)
+      && rgPuts.length >= 1
+      && h.armLog.findIndex((x) => x.method === 'GET'
+        && /Microsoft\.AlertsManagement/i.test(x.path || ''))
+        < h.armLog.findIndex((x) => x.method === 'PUT'
+          && /resourcegroups\//i.test(x.path || '') && !/providers\//i.test(x.path || ''))
       && receipt && receipt.kind === 'diagnostic_receipt_not_authority'
       && receipt.rollbackCommand === lib.pasteReadyRollbackCommand(SLUG)
       && receipt.createdAt === CREATED
@@ -598,6 +632,186 @@ async function main() {
       return pr.temporaryDrill && pr.temporaryDrill.value === 'true'
         && pr.createdAt && pr.createdAt.value && pr.expiresAt && pr.expiresAt.value;
     }));
+  }
+
+  // --- AlertsManagement provider gate: refuse before RG writes (live Failure-Anomalies defect) ---
+  {
+    const fix = JSON.parse(fs.readFileSync(
+      path.join(ROOT, 'fixtures/messi-saas-stage2d2/alerts-management-provider-not-registered.json'), 'utf8',
+    ));
+    const mainBicep = fs.readFileSync(
+      path.join(ROOT, 'infra/azure/modules/tenant-staging/main.bicep'), 'utf8',
+    );
+    const aiBlock = (mainBicep.match(/resource appInsights[\s\S]*?\n\}/) || [''])[0];
+    ok('d2_provider_fixture_observed_platform_fa',
+      fix.observedPlatformDeploymentFromAppInsightsCreate === true
+      && fix.repoTemplateDisablePropertyFound === false
+      && fix.globalPlatformDeploymentUnavoidabilityClaimed === false
+      && fix.platformDeploymentUnavoidableForAppInsights !== true
+      && fix.liveProviderShow.registrationState === 'NotRegistered'
+      && fix.liveProviderShow.id
+        === `/subscriptions/${SUB}/providers/Microsoft.AlertsManagement`
+      && fix.correlatedFailureAnomalies.deploymentName
+        === 'Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8'
+      && /Microsoft\.Insights\/components@2020-02-02/.test(mainBicep)
+      && !/smartDetector|DisableSmart/i.test(aiBlock));
+  }
+  {
+    const h = makeHarness(lib, d1);
+    h.setProviderRegistrationState('NotRegistered');
+    const r = await lib.apply({ slug: SLUG, ...approval() }, h.deps);
+    const rgWrites = h.armLog.filter((x) => ['PUT', 'DELETE', 'PATCH'].includes(x.method)
+      && /resourcegroups\//i.test(x.path || ''));
+    const depWrites = h.armLog.filter((x) => x.method === 'PUT' && /\/deployments\//i.test(x.path || ''));
+    const providerPosts = h.armLog.filter((x) => x.method === 'POST'
+      && /Microsoft\.AlertsManagement/i.test(x.path || ''));
+    ok('apply_refuses_NotRegistered_before_rg_write',
+      r.ok === false
+      && r.refusedBeforeRgWrite === true
+      && (r.errors || []).some((e) => e.code === 'alerts_management_provider_not_registered'
+        && /NotRegistered/.test(e.message)
+        && e.message.includes(`az provider register --namespace Microsoft.AlertsManagement --subscription ${SUB} --wait`))
+      && Array.isArray(r.azureAdminCommands)
+      && r.azureAdminCommands[0].includes('az provider register')
+      && rgWrites.length === 0 && depWrites.length === 0 && providerPosts.length === 0
+      && h.armLog.some((x) => x.method === 'GET'
+        && x.path === d1.alertsManagementProviderPath(SUB)),
+    JSON.stringify({ errors: r.errors, refused: r.refusedBeforeRgWrite }).slice(0, 320));
+  }
+  {
+    for (const state of ['Registering', 'Unregistered', 'NotRegistered']) {
+      const h = makeHarness(lib, d1);
+      h.setProviderRegistrationState(state);
+      const r = await lib.apply({ slug: SLUG, ...approval() }, h.deps);
+      const rgPuts = h.armLog.filter((x) => x.method === 'PUT' && /resourcegroups\//i.test(x.path || '')
+        && !/providers\//i.test(x.path || ''));
+      ok(`apply_refuses_provider_${state}_no_rg_put`,
+        r.ok === false && rgPuts.length === 0
+        && (r.errors || []).some((e) => e.code === 'alerts_management_provider_not_registered'),
+      JSON.stringify(r.errors || r).slice(0, 180));
+    }
+  }
+  {
+    const cases = [
+      ['malformed', 200, 'x', 'alerts_management_provider_unreadable'],
+      ['http_403', 403, { namespace: 'Microsoft.AlertsManagement', registrationState: 'Registered' },
+        'alerts_management_provider_unreadable'],
+      ['http_500', 500, {}, 'alerts_management_provider_unreadable'],
+      ['wrong_namespace', 200, {
+        namespace: 'Microsoft.Insights', registrationState: 'Registered',
+        id: `/subscriptions/${SUB}/providers/Microsoft.Insights`,
+      }, 'alerts_management_provider_wrong_namespace'],
+      ['wrong_sub', 200, {
+        namespace: 'Microsoft.AlertsManagement', registrationState: 'Registered',
+        id: '/subscriptions/00000000-0000-0000-0000-000000000099/providers/Microsoft.AlertsManagement',
+      }, 'alerts_management_provider_wrong_subscription'],
+    ];
+    for (const [name, status, body, code] of cases) {
+      const h = makeHarness(lib, d1);
+      h.setProvider(status, body);
+      const r = await lib.apply({ slug: SLUG, ...approval() }, h.deps);
+      const rgPuts = h.armLog.filter((x) => x.method === 'PUT' && /resourcegroups\//i.test(x.path || '')
+        && !/providers\//i.test(x.path || ''));
+      ok(`apply_provider_fail_${name}`,
+        r.ok === false && r.refusedBeforeRgWrite === true && rgPuts.length === 0
+        && (r.errors || []).some((e) => e.code === code
+          && /az provider register/.test(e.message || '')),
+      JSON.stringify(r.errors || r).slice(0, 200));
+    }
+  }
+  {
+    // D2 identity attacks: require exact body.id; refuse before any RG write; no self-register.
+    const exactId = `/subscriptions/${SUB}/providers/Microsoft.AlertsManagement`;
+    const base = { namespace: 'Microsoft.AlertsManagement', registrationState: 'Registered' };
+    const attacks = [
+      ['absent_id', { ...base }, 'alerts_management_provider_unreadable'],
+      ['null_id', { ...base, id: null }, 'alerts_management_provider_unreadable'],
+      ['empty_id', { ...base, id: '' }, 'alerts_management_provider_unreadable'],
+      ['non_string_id', { ...base, id: { nested: true } }, 'alerts_management_provider_unreadable'],
+      ['query_id', { ...base, id: `${exactId}?api-version=2021-04-01` },
+        'alerts_management_provider_unreadable'],
+      ['suffix_child_id', { ...base, id: `${exactId}/smartDetectorAlertRules` },
+        'alerts_management_provider_unreadable'],
+      ['suffix_path_id', { ...base, id: `${exactId}/foo/bar` },
+        'alerts_management_provider_unreadable'],
+      ['double_trailing_slash_id', { ...base, id: `${exactId}//` },
+        'alerts_management_provider_unreadable'],
+      ['wrong_sub_exact', {
+        ...base,
+        id: '/subscriptions/00000000-0000-0000-0000-000000000099/providers/Microsoft.AlertsManagement',
+      }, 'alerts_management_provider_wrong_subscription'],
+      ['wrong_namespace_in_id', {
+        namespace: 'Microsoft.AlertsManagement',
+        registrationState: 'Registered',
+        id: `/subscriptions/${SUB}/providers/Microsoft.Insights`,
+      }, 'alerts_management_provider_wrong_namespace'],
+    ];
+    for (const [name, body, code] of attacks) {
+      const h = makeHarness(lib, d1);
+      h.setProvider(200, body);
+      const r = await lib.apply({ slug: SLUG, ...approval() }, h.deps);
+      const rgWrites = h.armLog.filter((x) => ['PUT', 'DELETE', 'PATCH'].includes(x.method)
+        && /resourcegroups\//i.test(x.path || ''));
+      const depWrites = h.armLog.filter((x) => x.method === 'PUT' && /\/deployments\//i.test(x.path || ''));
+      const providerPosts = h.armLog.filter((x) => x.method === 'POST'
+        && /Microsoft\.AlertsManagement/i.test(x.path || ''));
+      ok(`apply_provider_id_attack_${name}_zero_rg_writes`,
+        r.ok === false
+        && r.refusedBeforeRgWrite === true
+        && (r.errors || []).some((e) => e.code === code
+          && /az provider register/.test(e.message || ''))
+        && rgWrites.length === 0
+        && depWrites.length === 0
+        && providerPosts.length === 0
+        && !h.armLog.some((x) => x.method === 'PUT' && /resourcegroups\//i.test(x.path || '')
+          && !/providers\//i.test(x.path || '')),
+      JSON.stringify({
+        errors: r.errors, refused: r.refusedBeforeRgWrite, rg: rgWrites.length,
+      }).slice(0, 280));
+    }
+  }
+  {
+    const h = makeHarness(lib, d1);
+    h.setProviderRegistrationState('Registered');
+    const names = d1.deriveNames(SLUG, SUB);
+    h.seedRoles(names);
+    h.setApp(runtimeAppBody(names));
+    const r = await lib.apply({ slug: SLUG, ...approval() }, h.deps);
+    ok('apply_provider_Registered_succeeds',
+      r.ok === true
+      && h.armLog.some((x) => x.method === 'PUT' && /resourcegroups\//i.test(x.path || '')),
+    JSON.stringify(r.errors || { ok: r.ok }).slice(0, 200));
+  }
+  {
+    // prepare-spec remains read-only but exposes explicit register + readback first.
+    const h = makeHarness(lib, d1);
+    const spec = await lib.prepareSpec({ slug: SLUG, ...approval() }, h.deps);
+    const cmds = d1.buildAlertsManagementAdminCommands(SUB);
+    ok('prepare_spec_exposes_provider_admin_prereq_readonly',
+      spec.ok === true && spec.readOnly === true
+      && Array.isArray(spec.azureAdminCommands)
+      && spec.azureAdminCommands[0] === cmds[0]
+      && spec.azureAdminCommands[1] === cmds[1]
+      && /az group create/.test(spec.azureAdminCommands[2] || '')
+      && spec.providerPrerequisites
+      && spec.providerPrerequisites.namespace === 'Microsoft.AlertsManagement'
+      && spec.providerPrerequisites.requiredRegistrationState === 'Registered'
+      && spec.providerPrerequisites.registerCommand === cmds[0]
+      && spec.providerPrerequisites.readbackCommand === cmds[1]
+      && !h.armLog.some((x) => ['PUT', 'POST', 'DELETE', 'PATCH'].includes(x.method))
+      && !h.armLog.some((x) => /Microsoft\.AlertsManagement\/register/i.test(x.path || ''))
+      && !spec.neverGrant.some((g) => !/subscription/i.test(g)),
+    JSON.stringify({
+      ok: spec.ok, cmds: (spec.azureAdminCommands || []).slice(0, 2), prep: spec.providerPrerequisites,
+    }).slice(0, 280));
+    // Apply path source never self-registers.
+    const d2src = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8');
+    ok('apply_never_self_registers_provider',
+      /assertAlertsManagementProviderRegistered/.test(d2src)
+      && !/provider register --namespace Microsoft\.AlertsManagement/.test(
+        (d2src.match(/async function apply[\s\S]*?\nasync function /) || [''])[0],
+      )
+      && !/\/providers\/Microsoft\.AlertsManagement\/register/i.test(d2src));
   }
 
   {
@@ -2270,8 +2484,9 @@ async function main() {
 
   const st = diffStat();
   ok('file_budget', st.files <= 10, `files=${st.files}`);
-  // Budget raised for historical-authority recovery + infra-partial + FA signature.
-  ok('net_budget', st.net <= 5500, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // Budget raised for historical-authority recovery + infra-partial + FA signature
+  // + Microsoft.AlertsManagement provider gate (refuse before RG write).
+  ok('net_budget', st.net <= 6200, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
   console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
   process.exit(fail ? 1 : 0);
 }

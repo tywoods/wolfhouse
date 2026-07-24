@@ -1204,7 +1204,11 @@ async function prepareSpec(opts, depsIn) {
   const roles = buildPreparedRoleAssignments(names);
   const rgId = rgScopeId(names);
   const tagArgs = Object.keys(tags).map((k) => `${k}=${tags[k]}`).join(' ');
+  // Azure-admin only: observed App Insights path needs Microsoft.AlertsManagement Registered
+  // (platform Failure-Anomalies). prepare-spec remains read-only (never registers itself).
+  const providerAdminCommands = deps.d1.buildAlertsManagementAdminCommands(names.subscriptionId);
   const azureAdminCommands = [
+    ...providerAdminCommands,
     `az group create --name ${names.resourceGroupName} --location ${LOC} --subscription ${names.subscriptionId} --tags ${tagArgs}`,
     ...roles.map((r) => (
       `az role assignment create --name ${r.name} --assignee-object-id ${EXECUTOR_UAI_OID}`
@@ -1218,6 +1222,7 @@ async function prepareSpec(opts, depsIn) {
       return { ok: false, errors: [err('subscription_write_forbidden', 'never grant subscription Contributor/Owner')] };
     }
   }
+  // prepare-spec must not call register or any ARM write (provider GET is optional; keep read-only).
   return {
     ok: true, errors: [], readOnly: true, kind: 'prepare_spec',
     tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha,
@@ -1232,6 +1237,12 @@ async function prepareSpec(opts, depsIn) {
       roleDefinitionId: r.roleDefinitionId, principalId: r.principalId,
     })),
     azureAdminCommands,
+    providerPrerequisites: Object.freeze({
+      namespace: deps.d1.ALERTS_MANAGEMENT_NAMESPACE,
+      requiredRegistrationState: deps.d1.REQUIRED_PROVIDER_REGISTRATION_STATE,
+      registerCommand: providerAdminCommands[0],
+      readbackCommand: providerAdminCommands[1],
+    }),
     acrCleanupCommand: pasteReadyAcrCleanupCommand(names),
     adoptCommand: `node scripts/messi-saas-stage2d2-apply-rollback.js apply --slug ${names.tenantSlug} --approve-max-total-usd 8 --ttl-hours 48 --adopt-prepared-rg`,
     neverGrant: Object.freeze(['subscription Contributor', 'subscription Owner']),
@@ -1398,6 +1409,19 @@ async function apply(opts, depsIn) {
     // Authority/preflight before lock so an in-tree stateDir cannot trip dirty_tree.
     const auth = await deriveD1Authority(optsIn, deps);
     if (!auth.ok) return auth;
+    // Read-only Microsoft.AlertsManagement registration gate BEFORE lock / any RG mutation.
+    // Never self-register (no provider POST); Azure admin registers out-of-band via prepare-spec.
+    const providerGate = await deps.d1.assertAlertsManagementProviderRegistered(
+      deps, auth.names.subscriptionId,
+    );
+    if (!providerGate.ok) {
+      return {
+        ...providerGate,
+        refusedBeforeRgWrite: true,
+        azureAdminCommands: providerGate.azureAdminCommands
+          || deps.d1.buildAlertsManagementAdminCommands(auth.names.subscriptionId),
+      };
+    }
     lock = acquireExclusiveLock(deps, String(optsIn.slug || 'unknown'));
     if (!lock.ok) return lock;
     removeSignals = installOperationSignals(deps);

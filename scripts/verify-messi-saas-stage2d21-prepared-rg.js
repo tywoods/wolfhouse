@@ -73,6 +73,12 @@ function makeHarness(lib, d1, opts = {}) {
   let putFailPath = null; let deleteEtagRace = false; let rgPutEtagRace = false;
   let roleDeleteEtagRace = false;
   let clock = new Date('2026-07-23T12:00:00Z');
+  let providerHttpStatus = 200;
+  let providerBody = {
+    id: `/subscriptions/${SUB}/providers/Microsoft.AlertsManagement`,
+    namespace: 'Microsoft.AlertsManagement',
+    registrationState: 'Registered',
+  };
   const listeners = {};
   const fakeProc = {
     on(sig, fn) { listeners[sig] = (listeners[sig] || []).concat([fn]); },
@@ -134,6 +140,11 @@ function makeHarness(lib, d1, opts = {}) {
       const p = req.path || '';
       if (putFailPath && req.method === 'PUT' && p.includes(putFailPath)) {
         return { status: 500, body: { error: 'fail' }, headers: {} };
+      }
+      if (req.method === 'GET'
+        && /^\/subscriptions\/[^/]+\/providers\/Microsoft\.AlertsManagement(\?|$)/i.test(p)
+        && !/resource[Gg]roups/i.test(p)) {
+        return { status: providerHttpStatus, body: providerBody, headers: {} };
       }
       if (req.method === 'GET' && /resourcegroups\/[^/?]+(\?|$)/i.test(p)
         && !/providers\//i.test(p.split('resourcegroups/')[1] || '')) {
@@ -260,6 +271,15 @@ function makeHarness(lib, d1, opts = {}) {
     setAcrRoleList(v) { acrRoleList = v; }, setTokenOid(v) { tokenOid = v; deps.token = null; },
     setPutFailPath(v) { putFailPath = v; }, setDeleteEtagRace(v) { deleteEtagRace = v; },
     setRgPutEtagRace(v) { rgPutEtagRace = v; }, setRoleDeleteEtagRace(v) { roleDeleteEtagRace = v; },
+    setProvider(status, body) { providerHttpStatus = status; providerBody = body; },
+    setProviderRegistrationState(state) {
+      providerHttpStatus = 200;
+      providerBody = {
+        id: `/subscriptions/${SUB}/providers/Microsoft.AlertsManagement`,
+        namespace: 'Microsoft.AlertsManagement',
+        registrationState: state,
+      };
+    },
     getRoles() { return rolesById; }, getAcrRoleList() { return acrRoleList; }, getResources() { return resources; },
     seedFoundation(tags) {
       const names = d1.deriveNames(SLUG, SUB);
@@ -405,6 +425,7 @@ async function main() {
     const names = d1.deriveNames(SLUG, SUB);
     const prep = lib.buildPreparedRoleAssignments(names);
     const blob = JSON.stringify(spec);
+    const providerCmds = d1.buildAlertsManagementAdminCommands(SUB);
     ok('prepare_spec_readonly_exact', spec.ok === true && spec.readOnly === true
       && spec.executorPrincipalId === EXEC
       && spec.resourceGroup.location === 'westeurope'
@@ -419,7 +440,14 @@ async function main() {
       && spec.roleAssignments[2].roleDefinitionId === ROLE_RBAC
       && /whstagingacr/.test(spec.roleAssignments[2].scope)
       && /resourceGroups\/wh-staging-rg/.test(spec.roleAssignments[2].scope)
-      && Array.isArray(spec.azureAdminCommands) && spec.azureAdminCommands.length >= 4
+      && Array.isArray(spec.azureAdminCommands) && spec.azureAdminCommands.length >= 6
+      && spec.azureAdminCommands[0] === providerCmds[0]
+      && spec.azureAdminCommands[1] === providerCmds[1]
+      && /az group create/.test(spec.azureAdminCommands[2] || '')
+      && spec.providerPrerequisites
+      && spec.providerPrerequisites.registerCommand === providerCmds[0]
+      && spec.providerPrerequisites.readbackCommand === providerCmds[1]
+      && spec.providerPrerequisites.namespace === 'Microsoft.AlertsManagement'
       && spec.azureAdminCommands.every((c) => typeof c === 'string')
       && !spec.azureAdminCommands.some((c) => {
         const scope = (c.match(/--scope\s+(\S+)/) || [])[1] || '';
@@ -432,6 +460,21 @@ async function main() {
       const n = d1.azureArmGuid(r.scope, EXEC, r.roleDefinitionId, 'messi-stage2d2');
       return r.name === n;
     }) && new Set(prep.map((r) => r.name)).size === 3);
+  }
+  {
+    // Adopt path also refuses before retag when provider NotRegistered.
+    const h = makeHarness(lib, d1);
+    h.setProviderRegistrationState('NotRegistered');
+    const auth = await lib.deriveD1Authority({ slug: SLUG }, h.deps);
+    h.seedPrepared(lib, d1.deriveNames(SLUG, SUB), auth.planDigest);
+    const r = await lib.apply({ slug: SLUG, ...approval(), adoptPreparedRg: true }, h.deps);
+    const rgPuts = h.armLog.filter((x) => x.method === 'PUT' && /resourcegroups\//i.test(x.path || '')
+      && !/providers\//i.test(x.path || ''));
+    ok('adopt_refuses_NotRegistered_before_rg_retag',
+      r.ok === false && r.refusedBeforeRgWrite === true && rgPuts.length === 0
+      && (r.errors || []).some((e) => e.code === 'alerts_management_provider_not_registered'
+        && /az provider register/.test(e.message || '')),
+    JSON.stringify(r.errors || r).slice(0, 240));
   }
 
   {
@@ -1074,7 +1117,8 @@ async function main() {
   ok('file_budget', st.files <= 8, `files=${st.files}`);
   // Budget raised for exact-GET identity (id/name/principalType) + ETag-optional delete gates.
   // Shared 2D2 lib grows for infra-partial crash recovery + historical-authority rollback.
-  ok('net_budget', st.net <= 2500, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // Raised for AlertsManagement provider prereq in prepare-spec + adopt preflight.
+  ok('net_budget', st.net <= 2800, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
