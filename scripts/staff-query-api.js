@@ -16484,11 +16484,23 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-components{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
 .portal-schedule-create-components{display:flex;flex-direction:column;gap:8px;margin:8px 0}
 .portal-schedule-create-components label,.portal-schedule-create-check{font-size:13px;display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);color:var(--text);cursor:pointer;margin:0}
-.portal-schedule-create-components input[type=checkbox],.portal-schedule-create-check input[type=checkbox]{width:18px;height:18px;flex-shrink:0;accent-color:var(--primary);margin:0}
+.portal-schedule-create-components input[type=checkbox],.portal-schedule-create-check input[type=checkbox]{width:18px;height:18px;flex-shrink:0;accent-color:var(--sched-primary, #4E5853);margin:0}
 .portal-schedule-create-rentals{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-.portal-schedule-create-rental-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
-.portal-schedule-create-rental-qty{display:flex;align-items:center;gap:8px}
-.portal-schedule-create-rental-qty input[type=number]{width:72px;min-height:40px}
+.portal-schedule-create-rental-row{display:flex;flex-wrap:nowrap;align-items:center;gap:10px;width:100%;box-sizing:border-box}
+.portal-schedule-create-rental-row > .portal-schedule-create-check{flex:1 1 auto;min-width:0;margin:0}
+.portal-schedule-create-rental-qty{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex:0 0 auto;margin-left:auto}
+.portal-schedule-create-rental-qty label{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);white-space:nowrap}
+.portal-schedule-create-rental-qty input[type=number]{width:64px;min-width:64px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}
+@media(max-width:768px){
+  .portal-schedule-create-rental-row{gap:8px;padding:2px 0}
+  .portal-schedule-create-rental-row > .portal-schedule-create-check{padding:10px 12px;gap:8px;font-size:13px}
+  .portal-schedule-create-rental-qty{gap:6px;padding-right:2px}
+  .portal-schedule-create-rental-qty label{gap:6px;font-size:10px;letter-spacing:.03em}
+  .portal-schedule-create-rental-qty input[type=number]{width:56px;min-width:56px;min-height:36px;padding:6px 6px;font-size:14px;border-radius:8px}
+  .portal-schedule-create-check input[type=checkbox],
+  .portal-schedule-create-components input[type=checkbox]{width:20px;height:20px;accent-color:var(--sched-primary, #4E5853)}
+}
+
 .portal-schedule-create-rentals-empty{margin:0;padding:10px 12px;border:1px dashed var(--border-soft);border-radius:var(--radius-sm);color:var(--text-muted);font-size:13px}
 .portal-schedule-create-check.is-disabled,.portal-schedule-create-check:has(input:disabled){opacity:.55;cursor:not-allowed}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-field input,
@@ -16508,7 +16520,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}
 .portal-schedule-create-field input,.portal-schedule-create-field select,.portal-schedule-create-field textarea{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
 .portal-schedule-create-field.svc-check label{display:flex;align-items:center;gap:10px;text-transform:none;font-size:13px;font-weight:600;color:var(--text);margin-bottom:0;cursor:pointer}
-.portal-schedule-create-field.svc-check input[type=checkbox]{width:18px;height:18px;flex:0 0 auto;accent-color:var(--primary);margin:0}
+.portal-schedule-create-field.svc-check input[type=checkbox]{width:18px;height:18px;flex:0 0 auto;accent-color:var(--sched-primary, #4E5853);margin:0}
 .svc-weekday-row{display:flex;flex-wrap:wrap;gap:8px}
 .svc-weekday-row label{display:flex;align-items:center;gap:6px;text-transform:none;font-size:13px;font-weight:600;color:var(--text);margin:0;padding:6px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);cursor:pointer}
 .svc-weekday-row input[type=checkbox]{width:16px;height:16px;flex:0 0 auto;accent-color:var(--primary);margin:0}
