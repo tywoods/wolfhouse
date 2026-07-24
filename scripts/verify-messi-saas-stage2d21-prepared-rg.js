@@ -162,6 +162,10 @@ function makeHarness(lib, d1, opts = {}) {
       if (/CostManagement\/query/i.test(p)) {
         return { status: 200, body: { properties: { rows: [[0, 'USD']] } }, headers: {} };
       }
+      // Independent RG deployment history LIST (collectLiveInventory empty-phase authority).
+      if (/\/providers\/Microsoft\.Resources\/deployments(\?|$)/i.test(p)) {
+        return { status: 200, body: { value: [] }, headers: {} };
+      }
       if (/\/deployments\//i.test(p)) {
         const name = (p.match(/deployments\/([^/?]+)/) || [])[1];
         if (req.method === 'PUT') {

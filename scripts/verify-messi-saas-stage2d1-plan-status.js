@@ -69,6 +69,7 @@ function makeHarness(lib, opts = {}) {
   const armLog = []; const gitLog = [];
   let rg = null; let resources = []; let app = null; let job = null;
   let secrets = []; let rolesByScope = {}; let nested = {};
+  let deployments = []; let deploymentPages = null; let deploymentListStatus = null;
   let costFail = false; let costRows = [[12.5, 'USD']];
   let identityOk = true; let branch = 'master'; let pages = null;
   let miBody = { properties: { principalId: PID } };
@@ -77,6 +78,9 @@ function makeHarness(lib, opts = {}) {
     azSha256: '4'.repeat(64), bicepSha256: '5'.repeat(64), bicepVersion: 'Bicep CLI version 0.45.15 (test)',
   };
   const notFound = { status: 404, body: {} };
+  const isDepListPath = (p) => /\/providers\/Microsoft\.Resources\/deployments(\?|$)/i.test(p)
+    || (/Microsoft\.Resources\/deployments/i.test(p) && /\$skiptoken=/i.test(p)
+      && !/\/deployments\/[^/?]+(\?|$)/i.test(p));
   const deps = lib.createDeps({
     repoRoot: ROOT, sleep: async () => {}, now: () => new Date('2026-07-23T12:00:00Z'),
     toolAuthority: opts.toolAuthority || fakeTools, verifiedDeploySha: opts.verifiedDeploySha || SHA,
@@ -112,7 +116,18 @@ function makeHarness(lib, opts = {}) {
         return costFail ? { status: 503, body: {} }
           : { status: 200, body: { properties: { columns: [{ name: 'PreTaxCost' }, { name: 'Currency' }], rows: costRows } } };
       }
-      if (/\/resources(\?|&|$)/i.test(p) || /skiptoken=/i.test(p)) {
+      // Independent Microsoft.Resources/deployments LIST (not generic /resources).
+      if (isDepListPath(p)) {
+        if (deploymentListStatus != null) {
+          return { status: deploymentListStatus, body: { error: { code: 'HarnessForced' } } };
+        }
+        if (Array.isArray(deploymentPages)) {
+          const n = armLog.filter((x) => isDepListPath(x.path || '')).length - 1;
+          return { status: 200, body: deploymentPages[n] || { value: [] } };
+        }
+        return { status: 200, body: { value: deployments } };
+      }
+      if (/\/resources(\?|&|$)/i.test(p) || (/skiptoken=/i.test(p) && /\/resources/i.test(p))) {
         if (Array.isArray(pages)) {
           return { status: 200, body: pages[armLog.filter((x) => /\/resources/i.test(x.path)).length - 1] || { value: [] } };
         }
@@ -161,6 +176,8 @@ function makeHarness(lib, opts = {}) {
     setRg(v) { rg = v; }, setResources(v) { resources = v; }, setApp(v) { app = v; },
     setJob(v) { job = v; }, setSecrets(v) { secrets = v; }, setRoles(v) { rolesByScope = v; },
     setNested(v) { nested = v; }, setMi(v) { miBody = v; },
+    setDeployments(v) { deployments = v; }, setDeploymentPages(v) { deploymentPages = v; },
+    setDeploymentListStatus(v) { deploymentListStatus = v; },
     setCostFail(v) { costFail = v; }, setCostRows(v) { costRows = v; },
     setIdentityOk(v) { identityOk = v; }, setBranch(v) { branch = v; }, setPages(v) { pages = v; },
   };
@@ -453,6 +470,189 @@ async function main() {
         && f.type === 'Microsoft.KeyVault/vaults/secrets'),
       JSON.stringify(r.findings || r.errors || r).slice(0, 240));
   }
+  // Empty owned RG (apply failed before foundation): absent Key Vault must not LIST secrets.
+  // Real ARM 404 on child secrets under a missing vault used to become arm_list_failed and
+  // hide the diagnosable empty/partial inventory. Skip only when expected vault is absent;
+  // keep 403/5xx/malformed/nextLink and present-vault 404 closed.
+  // Exact empty also requires independent zero Microsoft.Resources/deployments LIST.
+  {
+    const h = makeHarness(lib);
+    const planned = await lib.plan({ slug: SLUG }, h.deps);
+    const tags = ownedTags(planned.plan.planDigest);
+    const names = lib.deriveNames(SLUG, SUB);
+    h.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    h.setResources([]);
+    h.setDeployments([]);
+    h.setNested({});
+    h.setRoles({});
+    h.setSecrets([]);
+    h.setMi(null);
+    const realArm = h.deps.armRequest;
+    let secretListAttempts = 0;
+    let secretExactAttempts = 0;
+    h.deps.armRequest = async (req) => {
+      const p = req.path || '';
+      if (/KeyVault\/vaults\/[^/]+\/secrets(\?|$)/i.test(p) && !/\/secrets\/[^/?]+(\?|$)/i.test(p)) {
+        secretListAttempts += 1;
+        return { status: 404, body: { error: { code: 'ResourceNotFound' } } };
+      }
+      if (/\/secrets\/[^/?]+(\?|$)/i.test(p)) secretExactAttempts += 1;
+      return realArm(req);
+    };
+    const live = await lib.collectLiveInventory(h.deps, names, tags);
+    const depListCalls = h.armLog.filter((x) => /\/providers\/Microsoft\.Resources\/deployments(\?|$)/i.test(x.path || ''));
+    ok('inventory_empty_rg_absent_kv_skips_secrets_list', live.ok === true
+      && secretListAttempts === 0
+      && secretExactAttempts === 0
+      && Array.isArray(live.secretMeta) && live.secretMeta.length === 0
+      && live.secretCount === 0 && live.secretsExact === 0
+      && Array.isArray(live.deployments) && live.deploymentCount === 0
+      && depListCalls.length >= 1
+      && depListCalls.every((c) => (c.path || '').includes(`api-version=${lib.DEP_API}`))
+      && (live.findings || []).some((f) => f.code === 'missing_resource'
+        && f.type === 'Microsoft.KeyVault/vaults' && f.name === names.keyVaultName)
+      && !(live.errors || []).some((e) => e.code === 'arm_list_failed'),
+    JSON.stringify({
+      ok: live.ok, errors: live.errors, secretListAttempts, secretExactAttempts,
+      deploymentCount: live.deploymentCount, depListCalls: depListCalls.length,
+      findings: (live.findings || []).slice(0, 4),
+    }).slice(0, 320));
+    live.rgExists = true;
+    ok('inventory_empty_rg_infers_empty_phase', lib.inferLivePhase(live) === 'empty'
+      && lib.isExactEmptyLiveInventory(live) === true
+      && lib.phaseContractFindings(live, 'empty').length === 0,
+    JSON.stringify({
+      phase: lib.inferLivePhase(live),
+      contractFindings: lib.phaseContractFindings(live, 'empty').slice(0, 4),
+    }).slice(0, 240));
+
+    // One failed deployment via authoritative LIST (not generic /resources) refuses empty.
+    const hFailedDep = makeHarness(lib);
+    hFailedDep.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    hFailedDep.setResources([]);
+    hFailedDep.setDeployments([{
+      id: `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Resources/deployments/leftover-failed`,
+      name: 'leftover-failed', type: 'Microsoft.Resources/deployments',
+      properties: { provisioningState: 'Failed' },
+    }]);
+    const failedDepLive = await lib.collectLiveInventory(hFailedDep.deps, names, tags);
+    failedDepLive.rgExists = true;
+    ok('inventory_one_failed_deployment_not_empty', failedDepLive.ok === true
+      && failedDepLive.deploymentCount === 1
+      && lib.isExactEmptyLiveInventory(failedDepLive) === false
+      && lib.inferLivePhase(failedDepLive) !== 'empty'
+      && lib.phaseContractFindings(failedDepLive, 'empty').some((f) => f.code === 'unexpected_resource'),
+    JSON.stringify({
+      phase: lib.inferLivePhase(failedDepLive),
+      deploymentCount: failedDepLive.deploymentCount,
+      deployments: failedDepLive.deployments,
+    }).slice(0, 280));
+
+    // One succeeded deployment via LIST also refuses empty (history is nonzero).
+    const hOkDep = makeHarness(lib);
+    hOkDep.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    hOkDep.setResources([]);
+    hOkDep.setDeployments([{
+      id: `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Resources/deployments/leftover-ok`,
+      name: 'leftover-ok', type: 'Microsoft.Resources/deployments',
+      properties: { provisioningState: 'Succeeded' },
+    }]);
+    const okDepLive = await lib.collectLiveInventory(hOkDep.deps, names, tags);
+    okDepLive.rgExists = true;
+    ok('inventory_one_succeeded_deployment_not_empty', okDepLive.ok === true
+      && okDepLive.deploymentCount === 1
+      && lib.isExactEmptyLiveInventory(okDepLive) === false
+      && lib.inferLivePhase(okDepLive) !== 'empty',
+    JSON.stringify({ phase: lib.inferLivePhase(okDepLive), deployments: okDepLive.deployments }).slice(0, 240));
+
+    // Deployment LIST 403/404/5xx/malformed/nextLink fail closed (no empty phase).
+    for (const [label, status] of [['403', 403], ['404', 404], ['500', 500]]) {
+      const hx = makeHarness(lib);
+      hx.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+      hx.setResources([]);
+      hx.setDeploymentListStatus(status);
+      const bad = await lib.collectLiveInventory(hx.deps, names, tags);
+      ok(`inventory_deployment_list_${label}_fails_closed`, bad.ok === false
+        && (bad.errors || []).some((e) => e.code === 'arm_list_failed')
+        && lib.isExactEmptyLiveInventory(bad) === false,
+      JSON.stringify(bad.errors || bad).slice(0, 200));
+    }
+    const hMalformed = makeHarness(lib);
+    hMalformed.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    hMalformed.setResources([]);
+    hMalformed.setDeploymentPages([{ value: { not: 'array' } }]);
+    const malformed = await lib.collectLiveInventory(hMalformed.deps, names, tags);
+    ok('inventory_deployment_list_malformed_fails_closed', malformed.ok === false
+      && (malformed.errors || []).some((e) => e.code === 'arm_list_malformed')
+      && lib.isExactEmptyLiveInventory(malformed) === false,
+    JSON.stringify(malformed.errors || malformed).slice(0, 200));
+    const hNext = makeHarness(lib);
+    hNext.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    hNext.setResources([]);
+    hNext.setDeploymentPages([{
+      value: [],
+      nextLink: `https://evil.example/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Resources/deployments?api-version=${lib.DEP_API}`,
+    }]);
+    const badNext = await lib.collectLiveInventory(hNext.deps, names, tags);
+    ok('inventory_deployment_list_nextlink_fails_closed', badNext.ok === false
+      && (badNext.errors || []).some((e) => e.code === 'nextlink_host' || e.code === 'nextlink_invalid'
+        || e.code === 'nextlink_subscription'),
+    JSON.stringify(badNext.errors || badNext).slice(0, 200));
+
+    // Present vault: secrets LIST 404 must still fail closed (not global 404→success).
+    const hPresent = makeHarness(lib);
+    hPresent.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    seedFoundation(hPresent, lib, tags);
+    const realPresent = hPresent.deps.armRequest;
+    hPresent.deps.armRequest = async (req) => {
+      const p = req.path || '';
+      if (/KeyVault\/vaults\/[^/]+\/secrets(\?|$)/i.test(p) && !/\/secrets\/[^/?]+(\?|$)/i.test(p)) {
+        return { status: 404, body: { error: { code: 'ResourceNotFound' } } };
+      }
+      return realPresent(req);
+    };
+    const present404 = await lib.collectLiveInventory(hPresent.deps, names, tags);
+    ok('inventory_present_kv_secrets_list_404_still_fails', present404.ok === false
+      && (present404.errors || []).some((e) => e.code === 'arm_list_failed'),
+    JSON.stringify(present404.errors || present404).slice(0, 240));
+
+    const h403 = makeHarness(lib);
+    h403.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    seedFoundation(h403, lib, tags);
+    const real403 = h403.deps.armRequest;
+    h403.deps.armRequest = async (req) => {
+      const p = req.path || '';
+      if (/KeyVault\/vaults\/[^/]+\/secrets(\?|$)/i.test(p) && !/\/secrets\/[^/?]+(\?|$)/i.test(p)) {
+        return { status: 403, body: { error: { code: 'AuthorizationFailed' } } };
+      }
+      return real403(req);
+    };
+    const forbidden = await lib.collectLiveInventory(h403.deps, names, tags);
+    ok('inventory_present_kv_secrets_list_403_still_fails', forbidden.ok === false
+      && (forbidden.errors || []).some((e) => e.code === 'arm_list_failed'),
+    JSON.stringify(forbidden.errors || forbidden).slice(0, 240));
+
+    // Non-empty / unexpected inventory must not classify as empty.
+    const hRogue = makeHarness(lib);
+    hRogue.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
+    hRogue.setResources([{
+      id: `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/rogue`,
+      name: 'rogue', type: 'Microsoft.Storage/storageAccounts', tags: {}, provisioningState: 'Succeeded',
+    }]);
+    const rogueLive = await lib.collectLiveInventory(hRogue.deps, names, tags);
+    rogueLive.rgExists = true;
+    ok('inventory_nonzero_not_empty_phase', rogueLive.ok === true
+      && lib.inferLivePhase(rogueLive) !== 'empty'
+      && (rogueLive.findings || []).some((f) => f.code === 'unexpected_resource'),
+    JSON.stringify({ phase: lib.inferLivePhase(rogueLive), findings: rogueLive.findings }).slice(0, 240));
+
+    // Missing deployments array on hand-built inventory fails closed (not empty).
+    ok('inventory_missing_deployments_field_not_exact_empty',
+      lib.isExactEmptyLiveInventory({
+        resources: [], topLevel: [], nestedLive: [], rolesLive: [], secretMeta: [],
+        secretsExact: 0, secretCount: 0, jobExists: false, appExists: false,
+      }) === false);
+  }
   {
     const h = makeHarness(lib);
     const planned = await lib.plan({ slug: SLUG }, h.deps);
@@ -544,7 +744,8 @@ async function main() {
   }
   const st = diffStat();
   ok('file_budget', st.files <= 10, `files=${st.files}`);
-  ok('net_budget', st.net <= 1700, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // Raised for empty-RG absent-KV secrets LIST skip + independent deployments LIST empty phase.
+  ok('net_budget', st.net <= 2200, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
   console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
   process.exit(fail ? 1 : 0);
 }
