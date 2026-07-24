@@ -145,8 +145,31 @@ async function main() {
     && /deleteJob|delete.*[Jj]ob/.test(cli) && /assertCanDelete|ownership/.test(cli));
   ok('cli_concrete_az_operator', /createLocalAzOperator/.test(cli) && /execFile/.test(cli)
     && !/WH_OPERATOR_AZURE_MODULE/.test(cli) && /SIGINT/.test(cli) && /SIGTERM/.test(cli) && /SIGHUP/.test(cli)
-    && /luna-\$\{slug\}-staging-bootstrap/.test(cli) && /luna-\$\{slug\}-staging-rg/.test(cli)
-    && /bootstrapJobName = '\$\{prefix\}-bootstrap'/.test(mainSrc));
+    && /deriveBootstrapJobName/.test(cli) && /luna-\$\{slug\}-staging-rg/.test(cli)
+    && /param bootstrapJobName string/.test(mainSrc)
+    && /var resolvedBootstrapJobName = bootstrapJobName/.test(mainSrc)
+    && /jobName:\s*resolvedBootstrapJobName/.test(mainSrc)
+    && !mainSrc.includes("var bootstrapJobName = '${prefix}-bootstrap'"));
+  // Offline RED→GREEN: messiproof canonical 33 → owner shortens; synthdemo exact-32 preserved.
+  {
+    const d1 = require('./lib/messi-saas-stage2d1-plan-status');
+    const messiCanon = d1.canonicalBootstrapJobName('messiproof');
+    const messiJob = d1.deriveBootstrapJobName('messiproof');
+    const synthJob = d1.deriveBootstrapJobName(SLUG);
+    ok('c2_bootstrap_job_name_messiproof_red_green',
+      messiCanon === 'luna-messiproof-staging-bootstrap'
+      && messiCanon.length === 33
+      && d1.isValidAzureContainerAppsJobName(messiCanon) === false
+      && messiJob === 'luna-messiproof-63aa6df2'
+      && messiJob.length <= 32
+      && d1.isValidAzureContainerAppsJobName(messiJob) === true
+      && messiJob !== messiCanon.slice(0, 32)
+      && synthJob === `luna-${SLUG}-staging-bootstrap`
+      && synthJob.length === 32
+      && d1.isValidAzureContainerAppsJobName(synthJob)
+      && d1.deriveBootstrapJobName('sunset') === 'luna-sunset-staging-bootstrap',
+      `messi=${messiJob} synth=${synthJob}`);
+  }
   ok('capability_named', /allowDedicatedSyntheticAzureInitialApply/.test(runner + lib + cli));
   ok('sunset_noop_untouched', /allowSunsetStagingCanonicalRunnerNoop/.test(runner)
     && /SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET/.test(lib));
@@ -347,6 +370,7 @@ async function main() {
     ok('summary_no_secrets', !JSON.stringify(summary).includes(secret) && !/password|postgres(ql)?:\/\//i.test(JSON.stringify(summary)));
     if (typeof bootstrap.createLocalAzOperator === 'function' && typeof bootstrap.runOperatorJobLifecycle === 'function') {
       const names = bootstrap.derivedBootstrapJobNames(att);
+      const d1 = require('./lib/messi-saas-stage2d1-plan-status');
       const digestImg = `whstagingacr.azurecr.io/luna-sunset-staff-api@sha256:${'a'.repeat(64)}`;
       const jobId = `/subscriptions/${SUB}/resourceGroups/${names.resourceGroupName}/providers/Microsoft.App/jobs/${names.jobName}`;
       const goodJob = {
@@ -381,7 +405,17 @@ async function main() {
       };
       const az = bootstrap.createLocalAzOperator({ attestation: att, secrets: [secret], run: async () => ({ stdout: '{}' }), runSync: () => '' });
       const jg = names.resourceGroupName; const jn = names.jobName;
-      ok('operator_argv_order', names.jobName === `luna-${SLUG}-staging-bootstrap` && jg === RG
+      // synthdemo canonical is exactly 32 (Azure max) — owner preserves; messiproof must shorten.
+      const messiCanon = d1.canonicalBootstrapJobName('messiproof');
+      const messiJob = d1.deriveBootstrapJobName('messiproof');
+      ok('operator_argv_order', names.jobName === d1.deriveBootstrapJobName(SLUG)
+        && names.jobName === `luna-${SLUG}-staging-bootstrap`
+        && names.jobName.length === 32
+        && d1.isValidAzureContainerAppsJobName(names.jobName)
+        && jg === RG
+        && messiCanon.length === 33 && messiJob.length <= 32 && messiJob !== messiCanon
+        && messiJob === 'luna-messiproof-63aa6df2'
+        && bootstrap.derivedBootstrapJobNames({ tenantSlug: 'messiproof' }).jobName === messiJob
         && az.argvAccountShow().join(' ') === `account show --subscription ${SUB} -o json`
         && az.argvJobShow().join(' ') === `containerapp job show -g ${jg} -n ${jn} -o json`
         && az.argvJobStart().join(' ') === `containerapp job start -g ${jg} -n ${jn} -o json`
@@ -515,7 +549,8 @@ async function main() {
   console.log('\n── budget ──');
   console.log(JSON.stringify({ files: st.files, rawAdd: st.rawAdd, rawDel: st.rawDel, net: st.net, perFile: st.perFile }, null, 2));
   ok('budget_files', st.files <= 9, `files=${st.files}`);
-  ok('budget_net', st.net <= 1600, `net=${st.net}`);
+  // Raised for bootstrap job name owner (messiproof ContainerAppInvalidName 33>32).
+  ok('budget_net', st.net <= 1800, `net=${st.net}`);
   console.log(`\nRESULT: ${fail === 0 ? 'PASS' : 'FAIL'}  pass=${pass} fail=${fail}`);
   process.exit(fail === 0 ? 0 : 1);
 }

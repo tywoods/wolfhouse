@@ -9,6 +9,10 @@ param appNamePrefix string
 @maxLength(24)
 @description('Azure Key Vault name — owned by JS deriveKeyVaultName (3-24, lowercase alnum/hyphen).')
 param keyVaultName string
+@minLength(2)
+@maxLength(32)
+@description('Azure Container Apps Job name — owned by JS deriveBootstrapJobName (2-32, lowercase alnum/hyphen).')
+param bootstrapJobName string
 param assertedResourceGroupName string
 param acrName string = 'whstagingacr'
 param acrResourceGroupName string = 'wh-staging-rg'
@@ -777,7 +781,8 @@ module schemaObserverJob '../../sunset-staging/schema-observer-job.bicep' = if (
 }
 
 // Stage 2C2 — conditional synthetic bootstrap Job (private network only).
-var bootstrapJobName = '${prefix}-bootstrap'
+// bootstrapJobName is the single owner-derived name (not prefix+"-bootstrap", which exceeds 32 for long slugs).
+var resolvedBootstrapJobName = bootstrapJobName
 var bootstrapProvenance = {
   tenantSlug: tenantSlug
   ownerTag: ownerTag
@@ -791,7 +796,7 @@ var bootstrapProvenance = {
 module syntheticBootstrapJob './synthetic-bootstrap-job.bicep' = if (enablePrivateNetwork && deployBootstrapJob && bootstrapJobGateOk) {
   name: 'syntheticBootstrapJob'
   params: {
-    jobName: bootstrapJobName
+    jobName: resolvedBootstrapJobName
     containerAppsLocation: containerAppsLocation
     appNamePrefix: prefix
     appDbName: appDbName

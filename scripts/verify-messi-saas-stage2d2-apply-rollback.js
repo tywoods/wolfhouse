@@ -505,6 +505,71 @@ async function main() {
       && d1.isValidAzureKeyVaultName(p1) && d1.isValidAzureKeyVaultName(p2));
   }
 
+  // Stage 2D2 messiproof: canonical bootstrap Job name is 33 chars (Azure max 32).
+  // Live evidence: ContainerAppInvalidName on luna-messiproof-staging-bootstrap after
+  // infra+AcrPull succeeded. Owner shortens; params/contract/operator share that name.
+  {
+    const canon = d1.canonicalBootstrapJobName(SLUG);
+    const names = d1.deriveNames(SLUG, SUB);
+    const job = names.bootstrapJobName;
+    ok('d2_bootstrap_job_name_red_messiproof_canonical_invalid',
+      SLUG === 'messiproof'
+      && canon === 'luna-messiproof-staging-bootstrap'
+      && canon.length === 33
+      && d1.isValidAzureContainerAppsJobName(canon) === false);
+    ok('d2_bootstrap_job_name_green_owner_valid',
+      job === d1.deriveBootstrapJobName(SLUG)
+      && d1.isValidAzureContainerAppsJobName(job) === true
+      && job.length <= 32 && job !== canon
+      && job === 'luna-messiproof-63aa6df2'
+      && job !== canon.slice(0, 32)
+      && job.includes(d1.sha256(canon).slice(0, 8)));
+    const contract = d1.buildExpectedResourceContract(names, { principalId: PID });
+    const params = lib.buildNonsecretParams(names, SHA, 'd'.repeat(64), 'bootstrap', {
+      temporaryDrill: 'true', createdAt: CREATED, expiresAt: EXPIRES,
+      imageDigest: `sha256:${'a'.repeat(64)}`,
+    });
+    ok('d2_bootstrap_job_name_params_contract_consistent',
+      params.bootstrapJobName && params.bootstrapJobName.value === job
+      && contract.bootstrapJob && contract.bootstrapJob.name === job
+      && contract.bootstrapJob.id.endsWith(`/Microsoft.App/jobs/${job}`)
+      && !JSON.stringify(params).includes(canon)
+      && !JSON.stringify(contract).includes(canon)
+      && params.keyVaultName && params.keyVaultName.value === names.keyVaultName,
+      `job=${job} param=${params.bootstrapJobName && params.bootstrapJobName.value}`);
+    // Hostile edges: min/max slug + similar long prefixes; no raw truncation collisions.
+    const minJob = d1.deriveBootstrapJobName('aaa');
+    const maxJob = d1.deriveBootstrapJobName(`z${'y'.repeat(31)}`);
+    const p1 = d1.deriveBootstrapJobName('messiproofaa');
+    const p2 = d1.deriveBootstrapJobName('messiproofbb');
+    ok('d2_bootstrap_job_name_edges_and_collision_resistance',
+      d1.isValidAzureContainerAppsJobName(minJob)
+      && d1.isValidAzureContainerAppsJobName(maxJob)
+      && minJob === d1.canonicalBootstrapJobName('aaa')
+      && maxJob.length <= 32 && p1 !== p2 && p1 !== job && p2 !== job
+      && d1.isValidAzureContainerAppsJobName(p1)
+      && d1.isValidAzureContainerAppsJobName(p2)
+      && d1.deriveBootstrapJobName('sunset') === 'luna-sunset-staging-bootstrap'
+      && d1.deriveBootstrapJobName('synthdemo') === 'luna-synthdemo-staging-bootstrap');
+    // Compiled Bicep parity: main module takes owner param; job module uses jobName param.
+    const mainSrc = fs.readFileSync(
+      path.join(ROOT, 'infra/azure/modules/tenant-staging/main.bicep'), 'utf8',
+    );
+    const jobSrc = fs.readFileSync(
+      path.join(ROOT, 'infra/azure/modules/tenant-staging/synthetic-bootstrap-job.bicep'), 'utf8',
+    );
+    ok('d2_bootstrap_job_name_bicep_param_parity',
+      /param bootstrapJobName string/.test(mainSrc)
+      && /@maxLength\(32\)/.test(mainSrc)
+      && /@minLength\(2\)/.test(mainSrc)
+      && /var resolvedBootstrapJobName = bootstrapJobName/.test(mainSrc)
+      && /jobName:\s*resolvedBootstrapJobName/.test(mainSrc)
+      && !mainSrc.includes("var bootstrapJobName = '${prefix}-bootstrap'")
+      && /param jobName string/.test(jobSrc)
+      && /name:\s*jobName/.test(jobSrc),
+      'bicep still prefix-derives bootstrap job name');
+  }
+
   {
     const bad = [{}, { approveMaxTotalUsd: 8, ttlHours: 49 }, { approveMaxTotalUsd: 9, ttlHours: 48 },
       { approveMaxTotalUsd: 8, ttlHours: 48, approveMonthlyUsd: 120 },
@@ -3099,8 +3164,9 @@ async function main() {
 
   const st = diffStat();
   ok('file_budget', st.files <= 14, `files=${st.files}`);
-  // Budget raised for JS-owned AcrPull + platform-supplemental smart detector + live residual.
-  ok('net_budget', st.net <= 7500, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // Budget raised for JS-owned AcrPull + platform-supplemental smart detector + live residual
+  // + Container Apps Job 32-char name owner (messiproof ContainerAppInvalidName).
+  ok('net_budget', st.net <= 7800, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
   console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
   process.exit(fail ? 1 : 0);
 }
