@@ -17536,8 +17536,8 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-transfer-remove:hover{background:rgba(156,87,66,.06)}
 .bc-transfer-pricing{margin-top:6px;font-size:11px;color:var(--text-2)}
 .bc-drawer-file-tabs{margin-top:4px}
-.bc-drawer-tabs{display:flex;gap:0;align-items:flex-end;margin:0;padding:0 0 0 4px;border:none;background:transparent;flex-wrap:wrap}
-.bc-drawer-tab{position:relative;padding:10px 18px;font-size:14px;font-weight:500;border:1px solid var(--border-soft);border-bottom:none;background:#F3EBE0;color:var(--text-2);cursor:pointer;border-radius:10px 10px 0 0;line-height:1.25;margin-right:2px;transition:background .15s,color .15s,box-shadow .15s;z-index:1}
+.bc-drawer-tabs{display:flex;gap:0;align-items:flex-end;margin:0;padding:0 0 0 4px;border:none;background:transparent;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.bc-drawer-tab{position:relative;padding:10px 14px;font-size:13px;font-weight:500;white-space:nowrap;flex:0 0 auto;border:1px solid var(--border-soft);border-bottom:none;background:#F3EBE0;color:var(--text-2);cursor:pointer;border-radius:10px 10px 0 0;line-height:1.25;margin-right:2px;transition:background .15s,color .15s,box-shadow .15s;z-index:1}
 .bc-drawer-tab:hover{background:#FAF6EF;color:var(--text)}
 .bc-drawer-tab:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 .bc-drawer-tab.is-active{background:var(--surface-soft);color:var(--text);font-weight:600;border-color:var(--border-soft);box-shadow:none;z-index:3;margin-bottom:-1px;padding-bottom:11px}
