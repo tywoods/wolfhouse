@@ -895,6 +895,47 @@ async function main() {
     ok('assert_exact_acr_roles_ignores_inherited_readers', acrAssert.ok === true);
   }
 
+  // Live apply acquires an exclusive lock before D1 preflight. If the default stateDir
+  // lives under the git worktree, that mkdir dirties porcelain and fail-closes with dirty_tree.
+  {
+    const def = lib.createDeps({ repoRoot: ROOT });
+    const underRepo = def.stateDir === path.join(ROOT, 'tmp', 'messi-saas-stage2d2')
+      || def.stateDir.startsWith(`${ROOT}${path.sep}`);
+    ok('default_state_dir_outside_repo', !underRepo
+      && path.basename(def.stateDir) === 'messi-saas-stage2d2',
+    `stateDir=${def.stateDir}`);
+
+    const applySrc = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8');
+    const applyFn = applySrc.slice(applySrc.indexOf('async function apply('), applySrc.indexOf('async function preserveFailure('));
+    const rbFn = applySrc.slice(applySrc.indexOf('async function rollback('), applySrc.indexOf('async function expiryStatus('));
+    const authBeforeLock = (fn) => {
+      const a = fn.indexOf('deriveD1Authority(');
+      const l = fn.indexOf('acquireExclusiveLock(');
+      return a >= 0 && l >= 0 && a < l;
+    };
+    ok('apply_derives_authority_before_lock', authBeforeLock(applyFn));
+    ok('rollback_derives_authority_before_lock', authBeforeLock(rbFn));
+
+    const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'messi-2d2-dirty-'));
+    try {
+      execFileSync('git', ['init', '-b', 'master'], { cwd: probeRoot, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.email', 'messi@example.invalid'], { cwd: probeRoot, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.name', 'messi'], { cwd: probeRoot, stdio: 'ignore' });
+      fs.writeFileSync(path.join(probeRoot, 'README'), 'x\n');
+      execFileSync('git', ['add', 'README'], { cwd: probeRoot, stdio: 'ignore' });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: probeRoot, stdio: 'ignore' });
+      const probe = lib.createDeps({ repoRoot: probeRoot });
+      const lock = lib.acquireExclusiveLock(probe, SLUG);
+      ok('default_lock_keeps_git_clean', lock.ok === true
+        && execFileSync('git', ['status', '--porcelain'], {
+          cwd: probeRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+        }).trim() === '');
+      if (lock.release) lock.release();
+    } finally {
+      try { fs.rmSync(probeRoot, { recursive: true, force: true }); } catch (_) { /* */ }
+    }
+  }
+
   const st = diffStat();
   ok('file_budget', st.files <= 10, `files=${st.files}`);
   // Budget raised slightly for live ACR digest + inherited atScope() regressions.
