@@ -71,6 +71,7 @@ function makeHarness(lib, d1, opts = {}) {
   let rolesById = {}; let resources = []; let nested = {}; let secrets = [];
   let acrRoleList = []; let tokenOid = opts.tokenOid || EXEC;
   let putFailPath = null; let deleteEtagRace = false; let rgPutEtagRace = false;
+  let roleDeleteEtagRace = false;
   let clock = new Date('2026-07-23T12:00:00Z');
   const listeners = {};
   const fakeProc = {
@@ -193,8 +194,13 @@ function makeHarness(lib, d1, opts = {}) {
         if (req.method === 'DELETE') {
           const hit = rolesById[key];
           if (!hit) return { status: 404, body: {}, headers: {} };
-          const want = (req.headers && (req.headers['If-Match'] || req.headers['if-match'])) || null;
-          if (!want || want !== (hit.etag || '"role-etag"')) return { status: 412, body: {}, headers: {} };
+          if (roleDeleteEtagRace) return { status: 412, body: {}, headers: {} };
+          // Live ARM often omits role-assignment ETag; only enforce If-Match when one was supplied.
+          const roleEtag = hit.etag === null ? null : (hit.etag || '"role-etag"');
+          if (roleEtag) {
+            const want = (req.headers && (req.headers['If-Match'] || req.headers['if-match'])) || null;
+            if (!want || want !== roleEtag) return { status: 412, body: {}, headers: {} };
+          }
           delete rolesById[key];
           acrRoleList = acrRoleList.filter((r) => String(r.name || '').toLowerCase() !== key);
           return { status: 200, body: {}, headers: {} };
@@ -243,7 +249,7 @@ function makeHarness(lib, d1, opts = {}) {
     setSecrets(v) { secrets = v; },
     setAcrRoleList(v) { acrRoleList = v; }, setTokenOid(v) { tokenOid = v; deps.token = null; },
     setPutFailPath(v) { putFailPath = v; }, setDeleteEtagRace(v) { deleteEtagRace = v; },
-    setRgPutEtagRace(v) { rgPutEtagRace = v; },
+    setRgPutEtagRace(v) { rgPutEtagRace = v; }, setRoleDeleteEtagRace(v) { roleDeleteEtagRace = v; },
     getRoles() { return rolesById; }, getAcrRoleList() { return acrRoleList; }, getResources() { return resources; },
     seedFoundation(tags) {
       const names = d1.deriveNames(SLUG, SUB);
@@ -280,7 +286,7 @@ function makeHarness(lib, d1, opts = {}) {
         id: r.id, name: r.name, etag: '"role-etag"',
         properties: {
           roleDefinitionId: r.roleDefinitionResourceId,
-          principalId: r.principalId, scope: r.scope,
+          principalId: r.principalId, principalType: 'ServicePrincipal', scope: r.scope,
         },
       }]));
       resources = prep.filter((r) => r.kind.startsWith('rg-')).map((r) => ({
@@ -809,7 +815,8 @@ async function main() {
     seededRoles[prep[2].name.toLowerCase()] = {
       id: prep[2].id, name: prep[2].name, etag: '"role-etag"',
       properties: {
-        roleDefinitionId: prep[2].roleDefinitionResourceId, principalId: EXEC, scope: prep[2].scope,
+        roleDefinitionId: prep[2].roleDefinitionResourceId, principalId: EXEC,
+        principalType: 'ServicePrincipal', scope: prep[2].scope,
       },
     };
     h.setRoles(seededRoles);
@@ -832,7 +839,8 @@ async function main() {
       [prep[2].name.toLowerCase()]: {
         id: prep[2].id, name: prep[2].name, etag: '"role-etag"',
         properties: {
-          roleDefinitionId: prep[2].roleDefinitionResourceId, principalId: EXEC, scope: prep[2].scope,
+          roleDefinitionId: prep[2].roleDefinitionResourceId, principalId: EXEC,
+          principalType: 'ServicePrincipal', scope: prep[2].scope,
         },
       },
     });
@@ -842,7 +850,10 @@ async function main() {
       && exact.ok === true && exact.deleted === true);
   }
 
-  // ACR role-assignment deletion still requires ETag (RG optional-ETag must not weaken this).
+  // Live Microsoft.Authorization roleAssignments GET often returns 200 with no ETag
+  // header/body. When exact GET identity matches (id/name, principal, ACR scope, role
+  // definition, principalType) but supplies no ETag, DELETE must omit If-Match and
+  // require exact post-delete 404 — never fabricate '*' or skip identity gates.
   {
     const h = makeHarness(lib, d1);
     const names = d1.deriveNames(SLUG, SUB);
@@ -851,57 +862,159 @@ async function main() {
       [prep[2].name.toLowerCase()]: {
         id: prep[2].id, name: prep[2].name, etag: null,
         properties: {
-          roleDefinitionId: prep[2].roleDefinitionResourceId, principalId: EXEC, scope: prep[2].scope,
+          roleDefinitionId: prep[2].roleDefinitionResourceId,
+          principalId: EXEC,
+          principalType: 'ServicePrincipal',
+          scope: prep[2].scope,
         },
       },
     });
     const missing = await lib.deleteExactTempAcrRbacAdmin(h.deps, names);
-    const dels = h.armLog.filter((x) => x.method === 'DELETE');
+    const dels = h.armLog.filter((x) => x.method === 'DELETE' && /roleAssignments\//i.test(x.path || ''));
+    const ifMatch = dels[0] && dels[0].headers
+      && (dels[0].headers['If-Match'] || dels[0].headers['if-match']);
+    ok('acr_role_delete_no_etag_omits_if_match', missing.ok === true && missing.deleted === true
+      && dels.length === 1 && !ifMatch
+      && dels[0].path.includes(prep[2].name)
+      && h.getRoles()[prep[2].name.toLowerCase()] == null
+      && (missing.errors || []).every((e) => e.code !== 'etag_missing'),
+    missing.ok ? `ifMatch=${ifMatch}` : JSON.stringify(missing.errors || missing).slice(0, 400));
+  }
+
+  // When ARM supplies a role-assignment ETag, If-Match remains mandatory; 412 is etag_race.
+  {
+    const h = makeHarness(lib, d1);
+    const names = d1.deriveNames(SLUG, SUB);
+    const prep = lib.buildPreparedRoleAssignments(names);
     h.setRoles({
       [prep[2].name.toLowerCase()]: {
         id: prep[2].id, name: prep[2].name, etag: '"role-etag"',
         properties: {
-          roleDefinitionId: prep[2].roleDefinitionResourceId, principalId: EXEC, scope: prep[2].scope,
+          roleDefinitionId: prep[2].roleDefinitionResourceId,
+          principalId: EXEC,
+          principalType: 'ServicePrincipal',
+          scope: prep[2].scope,
         },
       },
     });
     const okDel = await lib.deleteExactTempAcrRbacAdmin(h.deps, names);
     const acrDel = h.armLog.filter((x) => x.method === 'DELETE' && /roleAssignments\//i.test(x.path || ''));
-    ok('acr_role_delete_still_requires_etag', missing.ok === false
-      && (missing.errors || []).some((e) => e.code === 'etag_missing')
-      && dels.length === 0
-      && okDel.ok === true && okDel.deleted === true
-      && acrDel.some((x) => x.headers && x.headers['If-Match'] === '"role-etag"'));
+    h.setRoles({
+      [prep[2].name.toLowerCase()]: {
+        id: prep[2].id, name: prep[2].name, etag: '"role-etag"',
+        properties: {
+          roleDefinitionId: prep[2].roleDefinitionResourceId,
+          principalId: EXEC,
+          principalType: 'ServicePrincipal',
+          scope: prep[2].scope,
+        },
+      },
+    });
+    h.setRoleDeleteEtagRace(true);
+    const race = await lib.deleteExactTempAcrRbacAdmin(h.deps, names);
+    const raceDel = h.armLog.filter((x) => x.method === 'DELETE' && /roleAssignments\//i.test(x.path || ''));
+    ok('acr_role_delete_with_etag_if_match_412_etag_race', okDel.ok === true && okDel.deleted === true
+      && acrDel.some((x) => x.headers && x.headers['If-Match'] === '"role-etag"')
+      && race.ok === false
+      && (race.errors || []).some((e) => e.code === 'etag_race')
+      && raceDel.some((x) => x.headers && x.headers['If-Match'] === '"role-etag"')
+      && h.getRoles()[prep[2].name.toLowerCase()] != null,
+    okDel.ok ? '' : JSON.stringify(okDel.errors || okDel).slice(0, 400));
   }
 
+  // Exact-GET identity contract: body.id, body.name, properties.principalType are required
+  // and must match expected/ServicePrincipal case-insensitively; any mismatch or missing
+  // field refuses with zero DELETE. principal/definition/scope gates remain.
   {
     const names = d1.deriveNames(SLUG, SUB);
     const prep = lib.buildPreparedRoleAssignments(names);
-    const good = {
-      roleDefinitionId: prep[2].roleDefinitionResourceId, principalId: EXEC, scope: prep[2].scope,
+    const goodProps = {
+      roleDefinitionId: prep[2].roleDefinitionResourceId,
+      principalId: EXEC,
+      principalType: 'ServicePrincipal',
+      scope: prep[2].scope,
     };
     const cases = [
-      [{ ...good, principalId: '11111111-2222-3333-4444-555555555555' }, /principal/i],
-      [{ ...good, roleDefinitionId: `/subscriptions/${SUB}/providers/Microsoft.Authorization/roleDefinitions/${ROLE_CONTRIB}` }, /definition|role/i],
-      [{ ...good, scope: `/subscriptions/${SUB}/resourceGroups/${RG}` }, /scope/i],
-      [{}, /principal|definition|scope/i],
-      [{ ...good, roleDefinitionId: ROLE_RBAC }, /definition|role/i],
+      // body.id mismatch / missing
+      {
+        label: 'id_mismatch', re: /id_mismatch|acr_temp_role_id/i,
+        body: { id: `${prep[2].scope}/providers/Microsoft.Authorization/roleAssignments/ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb`, name: prep[2].name, properties: goodProps },
+      },
+      {
+        label: 'id_missing', re: /id_mismatch|acr_temp_role_id/i,
+        body: { name: prep[2].name, properties: goodProps },
+      },
+      // body.name mismatch / missing
+      {
+        label: 'name_mismatch', re: /name_mismatch|acr_temp_role_name/i,
+        body: { id: prep[2].id, name: 'ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb', properties: goodProps },
+      },
+      {
+        label: 'name_missing', re: /name_mismatch|acr_temp_role_name/i,
+        body: { id: prep[2].id, properties: goodProps },
+      },
+      // properties.principalType mismatch / missing
+      {
+        label: 'principal_type_mismatch', re: /principal_type/i,
+        body: { id: prep[2].id, name: prep[2].name, properties: { ...goodProps, principalType: 'User' } },
+      },
+      {
+        label: 'principal_type_missing', re: /principal_type/i,
+        body: {
+          id: prep[2].id, name: prep[2].name,
+          properties: {
+            roleDefinitionId: goodProps.roleDefinitionId, principalId: EXEC, scope: prep[2].scope,
+          },
+        },
+      },
+      // retained principal / definition / scope mismatches
+      {
+        label: 'principal_mismatch', re: /principal_mismatch|acr_temp_role_principal/i,
+        body: {
+          id: prep[2].id, name: prep[2].name,
+          properties: { ...goodProps, principalId: '11111111-2222-3333-4444-555555555555' },
+        },
+      },
+      {
+        label: 'definition_mismatch', re: /definition|role/i,
+        body: {
+          id: prep[2].id, name: prep[2].name,
+          properties: {
+            ...goodProps,
+            roleDefinitionId: `/subscriptions/${SUB}/providers/Microsoft.Authorization/roleDefinitions/${ROLE_CONTRIB}`,
+          },
+        },
+      },
+      {
+        label: 'scope_mismatch', re: /scope/i,
+        body: {
+          id: prep[2].id, name: prep[2].name,
+          properties: { ...goodProps, scope: `/subscriptions/${SUB}/resourceGroups/${RG}` },
+        },
+      },
+      {
+        label: 'props_empty', re: /principal|definition|scope|principal_type|id|name/i,
+        body: { id: prep[2].id, name: prep[2].name, properties: {} },
+      },
     ];
     let all = true;
-    for (const [props, re] of cases) {
+    const fails = [];
+    for (const c of cases) {
       const h = makeHarness(lib, d1);
       h.setRoles({
-        [prep[2].name.toLowerCase()]: {
-          id: prep[2].id, name: prep[2].name, etag: '"role-etag"', properties: props,
-        },
+        [prep[2].name.toLowerCase()]: { ...c.body, etag: '"role-etag"' },
       });
       const r = await lib.deleteExactTempAcrRbacAdmin(h.deps, names);
       const dels = h.armLog.filter((x) => x.method === 'DELETE');
-      if (!(r.ok === false && dels.length === 0 && (r.errors || []).some((e) => re.test(e.code)))) {
+      const passCase = r.ok === false && dels.length === 0
+        && (r.errors || []).some((e) => c.re.test(e.code));
+      if (!passCase) {
         all = false;
+        fails.push(`${c.label}:${JSON.stringify(r.errors || r).slice(0, 120)} dels=${dels.length}`);
       }
     }
-    ok('delete_temp_acr_rejects_wrong_get_body_zero_delete', all);
+    ok('delete_temp_acr_rejects_wrong_get_identity_zero_delete', all,
+      fails.length ? fails.join(' | ') : '');
   }
 
   {
@@ -949,8 +1062,8 @@ async function main() {
 
   const st = diffStat();
   ok('file_budget', st.files <= 8, `files=${st.files}`);
-  // Budget raised for live RG ETag-optional adopt/rollback compatibility regressions.
-  ok('net_budget', st.net <= 1550, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // Budget raised for exact-GET identity (id/name/principalType) + ETag-optional delete gates.
+  ok('net_budget', st.net <= 1700, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
