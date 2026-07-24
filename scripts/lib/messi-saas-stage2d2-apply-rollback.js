@@ -407,7 +407,11 @@ function resolveImageDigest(deps, tag) {
   let digest = null;
   try {
     const j = JSON.parse(raw);
-    digest = j.digest || (j.manifests && j.manifests[0] && j.manifests[0].digest) || null;
+    // Azure CLI 2.87 `az acr manifest show` returns the immutable digest at config.digest.
+    digest = j.digest
+      || (j.config && j.config.digest)
+      || (j.manifests && j.manifests[0] && j.manifests[0].digest)
+      || null;
   } catch (_) {
     const m = String(raw || '').match(/sha256:[a-f0-9]{64}/i);
     digest = m ? m[0] : null;
@@ -703,6 +707,20 @@ function roleDefGuid(roleDefinitionId) {
   const m = String(roleDefinitionId || '').toLowerCase().match(/roledefinitions\/([0-9a-f-]{36})/i);
   return m ? m[1] : String(roleDefinitionId || '').toLowerCase().split('/').pop();
 }
+function normalizeArmScope(scope) {
+  return String(scope || '').trim().replace(/\/+$/, '').toLowerCase();
+}
+function assignmentScopeFromRow(row) {
+  const props = (row && row.properties) || {};
+  if (Object.prototype.hasOwnProperty.call(props, 'scope') && props.scope != null && String(props.scope) !== '') {
+    return String(props.scope);
+  }
+  const id = String((row && row.id) || '');
+  const marker = '/providers/Microsoft.Authorization/roleAssignments/';
+  const idx = id.toLowerCase().indexOf(marker.toLowerCase());
+  if (idx > 0) return id.slice(0, idx);
+  return null;
+}
 async function listDirectRoleAssignments(deps, scope) {
   const filter = encodeURIComponent('atScope()');
   const listed = await deps.armRequest({
@@ -712,7 +730,13 @@ async function listDirectRoleAssignments(deps, scope) {
   if (listed.status < 200 || listed.status >= 300) {
     return { ok: false, errors: [err('direct_role_list_failed', `status ${listed.status}`)], value: [] };
   }
-  return { ok: true, errors: [], value: ((listed.body || {}).value) || [] };
+  const want = normalizeArmScope(scope);
+  const value = (((listed.body || {}).value) || []).filter((row) => {
+    const got = assignmentScopeFromRow(row);
+    if (got == null) return false;
+    return normalizeArmScope(got) === want;
+  });
+  return { ok: true, errors: [], value };
 }
 async function assertPreparedRgInventory(deps, names, prepRoles) {
   const listPath = `/subscriptions/${names.subscriptionId}/resourceGroups/${names.resourceGroupName}/resources?api-version=${ARM_API}`;
@@ -1760,4 +1784,5 @@ module.exports = Object.freeze({
   sha256, checkAbort, installOperationSignals, buildNonsecretParams, parseRetryAfterMs, nextPollSleepMs,
   runInjectedOperatorLifecycle, waitExactRoles, adoptPreparedResourceGroup, decodeTokenOid,
   listDirectRoleAssignments, assertExactDirectRgRoles, assertExactExecutorAcrRoles, assertPreparedAuthzSnapshot,
+  normalizeArmScope, assignmentScopeFromRow,
 });
