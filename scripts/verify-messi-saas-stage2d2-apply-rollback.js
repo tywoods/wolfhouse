@@ -343,6 +343,28 @@ async function main() {
   }
 
   {
+    // Dual deps.now() for createdAt/expiresAt: a 1ms clock advance makes exact 48h exceed the max.
+    const h = makeHarness(lib, d1);
+    const names = d1.deriveNames(SLUG, SUB);
+    h.seedRoles(names);
+    h.setJob({ id: 'job', name: names.bootstrapJobName, tags: {} });
+    h.setApp(runtimeAppBody(names));
+    let nowCalls = 0;
+    const t0 = Date.parse(CREATED);
+    h.deps.now = () => new Date(t0 + (nowCalls++));
+    const r = await lib.apply({ slug: SLUG, ...approval() }, h.deps);
+    const receipt = lib.readReceipt(h.deps, SLUG);
+    const spanMs = receipt
+      ? (Date.parse(receipt.expiresAt) - Date.parse(receipt.createdAt))
+      : NaN;
+    ok('single_clock_48h_apply_survives_advancing_now', r.ok === true
+      && !(r.errors || []).some((e) => e.code === 'expires_at_invalid')
+      && receipt
+      && spanMs === 48 * 3600 * 1000,
+    r.ok ? `spanMs=${spanMs}` : `errors=${JSON.stringify(r.errors || [])}`);
+  }
+
+  {
     const argv = lib.installedAcrManifestShowArgv(SHA);
     const help = execFileSync(d1.PINNED_BINS.az, ['acr', 'manifest', 'show', '-h'], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
