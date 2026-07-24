@@ -183,8 +183,15 @@ function fp(r) {
       'SUNSET_SOMO_INBOX_EMAIL', 'SUNSET_SOMO_WHATSAPP_NUMBER', 'SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID',
     ].join('|');
   }
+  // AcrPull emission form may change (cross-RG module vs tenant-RG absolute scope) while
+  // the deterministic assignment at ACR scope stays equivalent for Sunset.
+  let name = r.name;
+  if (r.type === 'Microsoft.Authorization/roleAssignments'
+    && /7f951dda-4ed3-4680-a7ca-43fe172d538d/.test(JSON.stringify(r.properties || r))) {
+    name = 'acrPullRoleAssignment';
+  }
   return {
-    type: r.type, name: r.name, tags: empty ? null : tags, identity: sunsetEval(r.identity) || null,
+    type: r.type, name, tags: empty ? null : tags, identity: sunsetEval(r.identity) || null,
     network: props.network || props.vnetConfiguration || cfg.ingress || null,
     cert: cfg.customDomains || props.customDomainConfiguration || null,
     domain: (cfg.ingress && cfg.ingress.customDomains) || null,
