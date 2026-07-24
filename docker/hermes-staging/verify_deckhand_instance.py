@@ -162,6 +162,28 @@ def extract_heredoc_yaml(role_block: str) -> str:
     return "\n".join(body)
 
 
+def discord_platform_enabled(yaml_text: str) -> bool:
+    """True when gateway.platforms.discord explicitly sets enabled: true."""
+    return bool(
+        re.search(
+            r"gateway:\s*\n"
+            r"(?:[ \t]+.*\n)*?"
+            r"[ \t]+platforms:\s*\n"
+            r"(?:[ \t]+.*\n)*?"
+            r"[ \t]+discord:\s*\n"
+            r"(?:[ \t]+.*\n)*?"
+            r"[ \t]+enabled:\s*true\b",
+            yaml_text,
+            re.MULTILINE,
+        )
+    )
+
+
+def has_whatsapp_config(yaml_text: str) -> bool:
+    return bool(re.search(r"whatsapp", yaml_text, re.IGNORECASE))
+
+
+
 def main() -> int:
     compose_path = STAGING / "docker-compose.vm.yml"
     overlay_path = STAGING / "99z-wh-vm-post-bootstrap.sh"
@@ -243,6 +265,8 @@ def main() -> int:
             r"default:\s*grok-4\.5\b", deckhand_yaml
         ) is not None,
         "overlay_provider_xai": re.search(r"provider:\s*xai\b", deckhand_yaml) is not None,
+        "overlay_discord_explicitly_enabled": discord_platform_enabled(deckhand_yaml),
+        "overlay_no_whatsapp_config": not has_whatsapp_config(deckhand_yaml),
         "overlay_no_anthropic_in_deckhand": "anthropic" not in deckhand_yaml.lower(),
         "overlay_no_openai_fallback_in_deckhand": (
             "openai" not in deckhand_yaml.lower()
@@ -306,6 +330,9 @@ def main() -> int:
             and "anthropic" not in bootstrap_deckhand_yaml.lower()
             and "openai" not in bootstrap_deckhand_yaml.lower()
             and "whatsapp" not in bootstrap_deckhand_yaml.lower()
+        ),
+        "bootstrap_deckhand_discord_explicitly_enabled": discord_platform_enabled(
+            bootstrap_deckhand_yaml
         ),
         "bootstrap_deckhand_env_no_whatsapp_or_luna_guest": (
             "write_deckhand_env" in bootstrap
