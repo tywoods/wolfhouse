@@ -112,17 +112,24 @@ state, Discord bot identity, env file, and data directory. Model is **xAI
 WhatsApp webhook, no inbound ports, and must never share Meta credentials or
 Caddy `/whatsapp/*` routing with `hermes-luna` / `hermes-wolfhouse-luna`.
 
+**Deckhand deliberately bypasses Luna guest bootstrap** in
+`docker/hermes-staging/bootstrap.sh`: it never runs `write_luna_config` /
+`write_luna_env` / `install_luna_plugins` / WhatsApp gateway patches, and it
+**cannot be used as a WhatsApp runtime**. Unknown `HERMES_ROLE` values fail
+closed instead of inheriting Luna guest setup.
+
 | Topic | Choice |
 |-------|--------|
 | Service / container | `hermes-deckhand` |
-| Behavioral role | `HERMES_ROLE: deckhand` |
+| Behavioral role | `HERMES_ROLE: deckhand` (explicit non-Luna path) |
 | Model | `grok-4.5` via `xai` (only; no fallback providers) |
 | Inbound ports | **None** (Discord gateway outbound) |
 | Data | `/var/lib/hermes-deckhand` |
-| Env | `/etc/hermes-deckhand.env` |
+| Env | `/etc/hermes-deckhand.env` (Discord + `XAI_API_KEY` only) |
+| SOUL | `docker/hermes-staging/deckhand-SOUL.md` (engineering worker; not guest Luna) |
 | Workspace cwd | `/opt/data/workspace/sandbox-repos/WH-deckhand` (created at bootstrap) |
 | Repo context | `/opt/wolfhouse/WH:ro` |
-| Auth pool | Shared `/var/lib/hermes-shared` mount (same as other Hermes services) |
+| Auth | `XAI_API_KEY` from env file (does not link the shared OAuth `auth.json` pool) |
 
 ### Secrets (names only — never commit values)
 

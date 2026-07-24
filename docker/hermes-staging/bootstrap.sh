@@ -1,7 +1,11 @@
 #!/bin/sh
 # Staging bootstrap: write Hermes config per role on every container startup.
-# HERMES_ROLE=luna     → guest WhatsApp Luna (default for ACA backward compat)
-# HERMES_ROLE=orchestrator → operator Discord/SSH profile (VM)
+# HERMES_ROLE=luna         → guest WhatsApp Luna (default for ACA backward compat)
+# HERMES_ROLE=sunset-luna  → Sunset guest WhatsApp Luna (tenant-gated)
+# HERMES_ROLE=orchestrator → operator Discord/SSH profile (VM Skipper)
+# HERMES_ROLE=seadog       → light Discord persona (legacy: same guest bootstrap path)
+# HERMES_ROLE=deckhand     → Discord engineering worker (xAI; never Luna guest path)
+# Unknown roles fail closed — they must not silently inherit Luna guest bootstrap.
 set -eu
 
 # s6-overlay legacy cont-init scripts run without the container environment.
@@ -20,6 +24,7 @@ HERMES_ROLE="${HERMES_ROLE:-luna}"
 STAGING_LUNA_SOUL="/etc/hermes-staging/SOUL.md"
 SUNSET_LUNA_SOUL="/etc/hermes-sunset/SOUL.md"
 STAGING_ORCH_SOUL="/etc/hermes-staging/orchestrator-SOUL.md"
+STAGING_DECKHAND_SOUL="/etc/hermes-staging/deckhand-SOUL.md"
 STAGING_PLUGINS="/etc/hermes-staging/plugins"
 LUNA_SOUL_MARKER="$HERMES_HOME/.luna-guest-soul.version"
 LUNA_SOUL_VERSION="33"
@@ -99,6 +104,26 @@ gateway:
 EOF
 }
 
+write_deckhand_config() {
+  # Image-baked Deckhand model. VM overlay 99z rewrites the same xAI-only config
+  # and ensures the sandbox cwd exists; keep both in sync.
+  cat > "$HERMES_HOME/config.yaml" <<'EOF'
+model:
+  default: grok-4.5
+  provider: xai
+agent:
+  reasoning_effort: medium
+curator:
+  enabled: false
+terminal:
+  cwd: /opt/data/workspace/sandbox-repos/WH-deckhand
+gateway:
+  platforms:
+    discord:
+      require_mention: false
+EOF
+}
+
 write_luna_env() {
   {
     [ -n "${API_SERVER_KEY:-}" ]                           && printf 'API_SERVER_KEY=%s\n' "$API_SERVER_KEY"
@@ -154,6 +179,17 @@ write_orchestrator_env() {
     [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ]            && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
     # Anthropic OAuth (Claude Max) for Opus 4.8 — claude setup-token output.
     [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=*** "$ANTHROPIC_TOKEN" || true
+  } > "$HERMES_HOME/.env"
+}
+
+write_deckhand_env() {
+  # Discord + xAI only. Never write WhatsApp/Meta, Luna guest, or Staff-API guest tokens.
+  {
+    [ -n "${DISCORD_BOT_TOKEN:-}" ]                       && printf 'DISCORD_BOT_TOKEN=%s\n' "$DISCORD_BOT_TOKEN"
+    [ -n "${DISCORD_ALLOWED_USERS:-}" ]                   && printf 'DISCORD_ALLOWED_USERS=%s\n' "$DISCORD_ALLOWED_USERS"
+    [ -n "${XAI_API_KEY:-}" ]                             && printf 'XAI_API_KEY=%s\n' "$XAI_API_KEY"
+    printf 'GATEWAY_ALLOW_ALL_USERS=true\n'
+    printf 'API_SERVER_ENABLED=false\n'
   } > "$HERMES_HOME/.env"
 }
 
@@ -214,6 +250,15 @@ link_shared_auth() {
   ln -sf ".auth-shared/auth.json" "$LOCAL_AUTH"
 }
 
+ensure_sessions_dir() {
+  mkdir -p "$HERMES_HOME/sessions"
+  chown -R hermes:hermes "$HERMES_HOME/sessions" 2>/dev/null || true
+  chmod 777 "$HERMES_HOME/sessions" 2>/dev/null || true
+  touch "$HERMES_HOME/sessions/sessions.json" 2>/dev/null || true
+  chown hermes:hermes "$HERMES_HOME/sessions/sessions.json" 2>/dev/null || true
+  chmod 666 "$HERMES_HOME/sessions/sessions.json" 2>/dev/null || true
+}
+
 finalize_permissions() {
   chown hermes:hermes "$HERMES_HOME/config.yaml" "$HERMES_HOME/.env" 2>/dev/null || true
   [ -f "$HERMES_HOME/SOUL.md" ] && chown hermes:hermes "$HERMES_HOME/SOUL.md" 2>/dev/null || true
@@ -231,7 +276,27 @@ if [ "$HERMES_ROLE" = "orchestrator" ]; then
   fi
   write_orchestrator_env
   link_shared_auth
-else
+elif [ "$HERMES_ROLE" = "deckhand" ]; then
+  # Discord engineering worker — never Luna guest bootstrap (no SOUL/plugins/WhatsApp
+  # patches/env). Model is xAI grok-4.5 only; auth is XAI_API_KEY from env_file.
+  write_deckhand_config
+  if [ -f "$STAGING_DECKHAND_SOUL" ]; then
+    cp "$STAGING_DECKHAND_SOUL" "$HERMES_HOME/SOUL.md"
+  fi
+  # Live volume override (optional): operator-placed deckhand-SOUL.md in HERMES_HOME.
+  if [ -f "$HERMES_HOME/deckhand-SOUL.md" ]; then
+    cp "$HERMES_HOME/deckhand-SOUL.md" "$HERMES_HOME/SOUL.md"
+  fi
+  mkdir -p "$HERMES_HOME/workspace/sandbox-repos/WH-deckhand" \
+    "$HERMES_HOME/workspace/patches" \
+    "$HERMES_HOME/workspace/notes"
+  chown -R hermes:hermes "$HERMES_HOME/workspace" 2>/dev/null || true
+  ensure_sessions_dir
+  write_deckhand_env
+  # No link_shared_auth: Deckhand uses XAI_API_KEY, not the OAuth shared pool.
+elif [ "$HERMES_ROLE" = "luna" ] \
+  || [ "$HERMES_ROLE" = "sunset-luna" ] \
+  || [ "$HERMES_ROLE" = "seadog" ]; then
   if [ "$HERMES_ROLE" = "sunset-luna" ]; then
     [ "${LUNA_CLIENT_SLUG:-}" = "sunset" ] || { echo "sunset-luna requires LUNA_CLIENT_SLUG=sunset" >&2; exit 1; }
     [ -n "${LUNA_ALLOWED_LOCATION_IDS:-}" ] || { echo "sunset-luna requires LUNA_ALLOWED_LOCATION_IDS" >&2; exit 1; }
@@ -258,15 +323,13 @@ else
   # uid 10000 by provision-hermes-vm.sh); the chmods are a belt-and-suspenders
   # fallback. All guarded with `|| true` so a non-fatal perm hiccup can't abort
   # this `set -e` script before env/patches run.
-  mkdir -p "$HERMES_HOME/sessions"
-  chown -R hermes:hermes "$HERMES_HOME/sessions" 2>/dev/null || true
-  chmod 777 "$HERMES_HOME/sessions" 2>/dev/null || true
-  touch "$HERMES_HOME/sessions/sessions.json" 2>/dev/null || true
-  chown hermes:hermes "$HERMES_HOME/sessions/sessions.json" 2>/dev/null || true
-  chmod 666 "$HERMES_HOME/sessions/sessions.json" 2>/dev/null || true
+  ensure_sessions_dir
   write_luna_env
   apply_patches
   link_shared_auth
+else
+  echo "unsupported HERMES_ROLE: ${HERMES_ROLE} (expected orchestrator|deckhand|luna|sunset-luna|seadog)" >&2
+  exit 1
 fi
 
 finalize_permissions

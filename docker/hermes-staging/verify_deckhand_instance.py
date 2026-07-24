@@ -52,36 +52,78 @@ def extract_service_block(compose_text: str, service: str) -> str:
 
 
 def extract_role_block(bootstrap_text: str, role: str) -> str:
-    """Extract the shell `if [ "$HERMES_ROLE" = "<role>" ]` block body."""
+    """Extract one HERMES_ROLE arm (`if`/`elif`) until the next peer branch or closing `fi`."""
     lines = bootstrap_text.splitlines()
     start = None
     for i, line in enumerate(lines):
-        if re.search(rf'HERMES_ROLE"\s*=\s*"{re.escape(role)}"', line) or re.search(
-            rf"HERMES_ROLE'\s*=\s*'{re.escape(role)}'", line
-        ):
-            start = i
-            break
-        if f'HERMES_ROLE" = "{role}"' in line or f"HERMES_ROLE' = '{role}'" in line:
-            start = i
-            break
-        if f'[ "$HERMES_ROLE" = "{role}" ]' in line:
+        if f'[ "$HERMES_ROLE" = "{role}" ]' in line or f"[ '$HERMES_ROLE' = '{role}' ]" in line:
             start = i
             break
     if start is None:
         return ""
-    # Collect until a top-level `fi` that closes this if (depth tracking).
-    depth = 0
     block: list[str] = []
+    depth = 0
+    started = False
     for line in lines[start:]:
-        block.append(line)
         stripped = line.strip()
+        if not started:
+            block.append(line)
+            depth = 1
+            started = True
+            continue
         if stripped.startswith("if ") or stripped.startswith("if\t"):
             depth += 1
-        elif stripped == "fi":
+            block.append(line)
+            continue
+        if stripped.startswith("elif ") or stripped == "else" or stripped.startswith("else;"):
+            if depth == 1:
+                break
+            block.append(line)
+            continue
+        if stripped == "fi":
             depth -= 1
             if depth == 0:
                 break
+            block.append(line)
+            continue
+        block.append(line)
     return "\n".join(block)
+
+
+def extract_function_body(script: str, func_name: str) -> str:
+    """Extract a POSIX `name() { ... }` function body (best-effort brace match)."""
+    marker = f"{func_name}()"
+    start = script.find(marker)
+    if start < 0:
+        return ""
+    brace = script.find("{", start)
+    if brace < 0:
+        return ""
+    depth = 0
+    for i in range(brace, len(script)):
+        ch = script[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return script[brace + 1 : i]
+    return ""
+
+
+def luna_guest_calls_in(block: str) -> bool:
+    return any(
+        token in block
+        for token in (
+            "write_luna_config",
+            "write_luna_env",
+            "install_luna_plugins",
+            "apply_patches",
+            "STAGING_LUNA_SOUL",
+            "WHATSAPP_CLOUD_",
+            "LUNA_BOT_INTERNAL_TOKEN",
+        )
+    )
 
 
 def has_ports_mapping(service_block: str) -> bool:
@@ -123,22 +165,30 @@ def extract_heredoc_yaml(role_block: str) -> str:
 def main() -> int:
     compose_path = STAGING / "docker-compose.vm.yml"
     overlay_path = STAGING / "99z-wh-vm-post-bootstrap.sh"
+    bootstrap_path = STAGING / "bootstrap.sh"
+    dockerfile_path = STAGING / "Dockerfile"
+    soul_path = STAGING / "deckhand-SOUL.md"
     deploy_path = REPO_ROOT / "scripts" / "deploy-staging-hermes-vm.js"
     docs_path = REPO_ROOT / "docs" / "HERMES-AZURE-VM.md"
     sunset_compose = SUNSET_ROOT / "docker-compose.vm.yml"
 
-    for path in (compose_path, overlay_path, deploy_path, docs_path):
+    for path in (compose_path, overlay_path, bootstrap_path, deploy_path, docs_path):
         if not path.is_file():
             print(f"FAIL: missing {path}", file=sys.stderr)
             return 1
 
     compose = read(compose_path)
     overlay = read(overlay_path)
+    bootstrap = read(bootstrap_path)
+    dockerfile = read(dockerfile_path) if dockerfile_path.is_file() else ""
     deploy = read(deploy_path)
     docs = read(docs_path)
     deckhand = extract_service_block(compose, SERVICE)
     deckhand_role = extract_role_block(overlay, "deckhand")
     deckhand_yaml = extract_heredoc_yaml(deckhand_role)
+    bootstrap_deckhand = extract_role_block(bootstrap, "deckhand")
+    deckhand_fn = extract_function_body(bootstrap, "write_deckhand_config")
+    bootstrap_deckhand_yaml = extract_heredoc_yaml(deckhand_fn)
     orch_role = extract_role_block(overlay, "orchestrator")
     seadog_role = extract_role_block(overlay, "seadog")
 
@@ -146,6 +196,18 @@ def main() -> int:
     sunset_mentions_deckhand = False
     if sunset_compose.is_file():
         sunset_mentions_deckhand = "deckhand" in read(sunset_compose).lower()
+
+    # Unsafe legacy pattern: orchestrator if/else where the else always runs Luna.
+    unsafe_else_luna = bool(
+        re.search(
+            r'if \[ "\$HERMES_ROLE" = "orchestrator" \]; then'
+            r'[\s\S]*?\nelse\n'
+            r'[\s\S]*?write_luna_config',
+            bootstrap,
+        )
+    )
+
+    soul_text = read(soul_path) if soul_path.is_file() else ""
 
     checks = {
         "compose_service_exists": f"  {SERVICE}:" in compose and bool(deckhand),
@@ -220,12 +282,88 @@ def main() -> int:
             and "must not" in docs.lower()
             and "WhatsApp" in docs
         ),
+        "docs_deckhand_bypasses_luna_bootstrap": (
+            "bypass" in docs.lower()
+            and "luna guest bootstrap" in docs.lower()
+            and "cannot be used as a WhatsApp runtime" in docs
+        ),
         "sunset_compose_has_no_deckhand": not sunset_mentions_deckhand,
         "no_deckhand_under_sunset_tree": not any(
             "deckhand" in p.name.lower()
             for p in SUNSET_ROOT.rglob("*")
             if p.is_file()
         ) if SUNSET_ROOT.is_dir() else True,
+        # --- Bootstrap role-dispatch hardening ---
+        "bootstrap_explicit_deckhand_role": bool(bootstrap_deckhand),
+        "bootstrap_no_unsafe_orchestrator_else_luna": not unsafe_else_luna,
+        "bootstrap_deckhand_bypasses_luna_guest_path": (
+            bool(bootstrap_deckhand) and not luna_guest_calls_in(bootstrap_deckhand)
+        ),
+        "bootstrap_deckhand_model_xai_grok": (
+            re.search(r"default:\s*grok-4\.5\b", bootstrap_deckhand_yaml) is not None
+            and re.search(r"provider:\s*xai\b", bootstrap_deckhand_yaml) is not None
+            and "fallback_providers" not in bootstrap_deckhand_yaml
+            and "anthropic" not in bootstrap_deckhand_yaml.lower()
+            and "openai" not in bootstrap_deckhand_yaml.lower()
+            and "whatsapp" not in bootstrap_deckhand_yaml.lower()
+        ),
+        "bootstrap_deckhand_env_no_whatsapp_or_luna_guest": (
+            "write_deckhand_env" in bootstrap
+            and "WHATSAPP_CLOUD_" not in bootstrap_deckhand
+            and "LUNA_BOT_INTERNAL_TOKEN" not in bootstrap_deckhand
+            and "write_luna_env" not in bootstrap_deckhand
+        ),
+        "bootstrap_deckhand_uses_deckhand_soul": (
+            (
+                "deckhand-SOUL.md" in bootstrap_deckhand
+                or "STAGING_DECKHAND_SOUL" in bootstrap_deckhand
+            )
+            and "STAGING_LUNA_SOUL" not in bootstrap_deckhand
+        ),
+        "bootstrap_deckhand_no_luna_plugins_or_patches": (
+            "install_luna_plugins" not in bootstrap_deckhand
+            and "apply_patches" not in bootstrap_deckhand
+        ),
+        "bootstrap_luna_roles_still_use_luna_path": (
+            "write_luna_config" in bootstrap
+            and "write_luna_env" in bootstrap
+            and "install_luna_plugins" in bootstrap
+            and "apply_patches" in bootstrap
+            and re.search(
+                r'\$HERMES_ROLE" = "luna"|\$HERMES_ROLE" = "sunset-luna"|\$HERMES_ROLE" = "seadog"',
+                bootstrap,
+            )
+            is not None
+            and re.search(
+                r'\$HERMES_ROLE" = "luna"|\$HERMES_ROLE" = "sunset-luna"|\$HERMES_ROLE" = "seadog"',
+                bootstrap,
+            )
+            is not None
+            # All three guest/discord-legacy roles must still reach Luna setup.
+            and all(
+                f'$HERMES_ROLE" = "{role}"' in bootstrap
+                for role in ("luna", "sunset-luna", "seadog")
+            )
+        ),
+        "bootstrap_unknown_roles_fail_closed": bool(
+            re.search(
+                r'unsupported HERMES_ROLE|unknown HERMES_ROLE|Unknown HERMES_ROLE',
+                bootstrap,
+                re.IGNORECASE,
+            )
+        )
+        and bool(re.search(r"exit 1", bootstrap)),
+        "deckhand_soul_file_exists": soul_path.is_file() and len(soul_text.strip()) > 40,
+        "deckhand_soul_role_clarity": (
+            "engineering" in soul_text.lower()
+            and "Discord" in soul_text
+            and "WhatsApp" in soul_text
+            and ("never" in soul_text.lower() or "must not" in soul_text.lower())
+            and "AGENTS.md" in soul_text
+            and "receptionist" in soul_text.lower()
+        ),
+        "dockerfile_copies_deckhand_soul": "deckhand-SOUL.md" in dockerfile,
+        "dockerfile_copies_verify_deckhand": "verify_deckhand_instance.py" in dockerfile,
     }
 
     print(json.dumps(checks, indent=2))
