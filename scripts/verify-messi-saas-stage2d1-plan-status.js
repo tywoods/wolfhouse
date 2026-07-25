@@ -1201,6 +1201,7 @@ async function main() {
     ok('cli_parent_and_surface', /runProductionParent/.test(cli) && /INTERNAL_FLAG/.test(cli)
       && libSrc.includes('/usr/local/bin/node') && libSrc.includes('internal-snapshot-worker')
       && /spawn\(pins\.node/.test(libSrc) && /plan|status/.test(cli)
+      && /--lifecycle-mode temporary-drill\|durable-staging/.test(cli) && /lifecycleMode/.test(cli)
       && !/\bapply\b|\brollback\b/.test(cli) && /expected_plan_digest_removed|expectedPlanDigest/.test(cli));
   }
   {
@@ -1252,6 +1253,37 @@ async function main() {
       && typeof lib.apply !== 'function' && !/\basync function apply\b/.test(libSrc)
       && /staging_readiness/.test(libSrc) && !/live_enabled_not_ready/.test(libSrc)
       && !/\/TODO\|provisional\//.test(libSrc) && !/pricing_status ===/.test(libSrc));
+    // Public CLI: exact --lifecycle-mode; refuse aliases/overrides before snapshot worker.
+    const cliMod = require(path.join(ROOT, CLI_REL));
+    const base = ['status', '--slug', MIR];
+    const good = cliMod.parseArgs([...base, '--lifecycle-mode', 'durable-staging']);
+    const def = cliMod.parseArgs(['plan', '--slug', SLUG]);
+    const codeOf = (a) => ((cliMod.parseArgs(a).errors || [])[0] || {}).code;
+    ok('cli_lifecycle_mode_parse_fail_closed',
+      /--lifecycle-mode temporary-drill\|durable-staging/.test(cliMod.usage())
+      && good.ok && good.lifecycleMode === 'durable-staging' && def.ok && def.lifecycleMode == null
+      && cliMod.buildOpts(def).lifecycleMode == null
+      && cliMod.parseArgs(['plan', '--slug', SLUG, '--lifecycle-mode', 'temporary-drill']).lifecycleMode === 'temporary-drill'
+      && codeOf([...base, '--lifecycle', 'durable-staging']) === 'unknown_cli_flag'
+      && codeOf([...base, '--lifecycle_mode', 'durable-staging']) === 'unknown_cli_flag'
+      && codeOf([...base, '--Lifecycle-Mode', 'durable-staging']) === 'unknown_cli_flag'
+      && codeOf([...base, '--lifecycle-mode', 'Durable-Staging']) === 'lifecycle_mode_invalid'
+      && codeOf([...base, '--lifecycle-mode']) === 'missing_cli_flag_value'
+      && codeOf([...base, '--lifecycle-mode', 'durable-staging', '--lifecycle-mode', 'temporary-drill']) === 'conflicting_cli_flag'
+      && codeOf([...base, '--lifecycle-mode', 'durable-staging', '--lifecycle-mode', 'durable-staging']) === 'duplicate_cli_flag'
+      && codeOf([...base, '--ready', 'true']) === 'unknown_cli_flag'
+      && codeOf([...base, '--live-enabled', 'true']) === 'unknown_cli_flag');
+    const nArm2 = h.armLog.length; const cliOpts = cliMod.buildOpts(good);
+    const stCli = await lib.status(cliOpts, h.deps);
+    const pCli = await lib.plan(cliMod.buildOpts(cliMod.parseArgs(['plan', '--slug', MIR, '--lifecycle-mode', 'durable-staging'])), h.deps);
+    const stLib = await lib.status({ slug: MIR, lifecycleMode: 'durable-staging' }, h.deps);
+    const pLib = await lib.plan({ slug: MIR, lifecycleMode: 'durable-staging' }, h.deps);
+    ok('cli_durable_envelope_parity_mirleft',
+      cliOpts.lifecycleMode === 'durable-staging' && stCli.planDigest === stLib.planDigest
+      && JSON.stringify(stCli.blockers) === JSON.stringify(stLib.blockers)
+      && need.every((c) => (stCli.blockers || []).some((b) => b.code === c))
+      && stCli.applyPath == null && stCli.mutationPath == null && pCli.planDigest === pLib.planDigest
+      && pCli.azureDispatches === 0 && pCli.applyPath == null && pCli.mutationPath == null && h.armLog.length === nArm2);
   }
   {
     // Hostile path redaction: secret absolute roots / OS text must never appear in safeReadFile or plan/status.
