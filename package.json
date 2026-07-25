@@ -751,7 +751,8 @@
     "verify:messi-saas-stage2c3-runtime-deploy": "node scripts/verify-messi-saas-stage2c3-runtime-deploy.js",
     "verify:messi-saas-stage2d1-plan-status": "node scripts/verify-messi-saas-stage2d1-plan-status.js",
     "verify:messi-saas-stage2d2-apply-rollback": "node scripts/verify-messi-saas-stage2d2-apply-rollback.js",
-    "verify:messi-saas-stage2d21-prepared-rg": "node scripts/verify-messi-saas-stage2d21-prepared-rg.js"
+    "verify:messi-saas-stage2d21-prepared-rg": "node scripts/verify-messi-saas-stage2d21-prepared-rg.js",
+    "verify:messi-saas-stage2e-durable-staging": "node scripts/verify-messi-saas-stage2e-durable-staging.js"
   },
   "dependencies": {
     "acorn": "8.14.1",
