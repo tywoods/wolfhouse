@@ -484,6 +484,11 @@ function buildBootstrapAdminDsn({ slug, adminPassword }) {
   const host = `luna-${slug}-staging-pg-app.postgres.database.azure.com`;
   return `postgresql://${encodeURIComponent(`${slug}admin`)}:${encodeURIComponent(adminPassword)}@${host}:5432/${slug}_staging?sslmode=require`;
 }
+// Repository-level list only — never tag/digest artifact IDs (pinned ACR + IMAGE_REPO).
+function installedAcrManifestListMetadataArgv() {
+  return ['acr', 'manifest', 'list-metadata', '--name', IMAGE_REPO, '--registry', ACR_NAME, '-o', 'json'];
+}
+/** @deprecated use installedAcrManifestListMetadataArgv — show returns config/layer digests, not image-manifest. */
 function installedAcrManifestShowArgv(tag) {
   return ['acr', 'manifest', 'show', '--name', `${IMAGE_REPO}:${tag}`, '--registry', ACR_NAME, '-o', 'json'];
 }
@@ -493,27 +498,71 @@ function installedAcrBuildArgv(deploySha) {
     '--image', `${IMAGE_REPO}:${deploySha}`, '-f', 'Dockerfile.luna-sunset-staff-api', '.',
   ];
 }
+function isImageManifestDigest(d) {
+  return typeof d === 'string' && /^sha256:[a-f0-9]{64}$/i.test(d);
+}
+/**
+ * Resolve immutable *image-manifest* digest for exact repo+tag via list-metadata.
+ * Never accepts config.digest / layer digests from `az acr manifest show` (live b0b6b319:
+ * config 8bfb… was MANIFEST_UNKNOWN; list-metadata maps tag → sha256:002f7388…).
+ */
 function resolveImageDigest(deps, tag) {
-  const argv = installedAcrManifestShowArgv(tag);
+  const wantTag = String(tag || '');
+  const argv = installedAcrManifestListMetadataArgv();
+  if (!wantTag) {
+    return { ok: false, errors: [err('image_digest_resolve', 'deploy tag required')], argv };
+  }
   let raw;
   try { raw = deps.azExec(argv); }
-  catch (e) { return { ok: false, errors: [err('acr_manifest_show_failed', e.message)], argv }; }
-  let digest = null;
+  catch (e) {
+    return { ok: false, errors: [err('acr_manifest_list_metadata_failed', e.message)], argv };
+  }
+  let rows;
   try {
     const j = JSON.parse(raw);
-    // Azure CLI 2.87 `az acr manifest show` returns the immutable digest at config.digest.
-    digest = j.digest
-      || (j.config && j.config.digest)
-      || (j.manifests && j.manifests[0] && j.manifests[0].digest)
-      || null;
+    if (!Array.isArray(j)) {
+      return { ok: false, errors: [err('image_digest_resolve', 'list-metadata must be array')], argv };
+    }
+    rows = j;
   } catch (_) {
-    const m = String(raw || '').match(/sha256:[a-f0-9]{64}/i);
-    digest = m ? m[0] : null;
+    // Never regex-scrape sha256 — that can grab config/layer digests.
+    return { ok: false, errors: [err('image_digest_resolve', 'list-metadata not json')], argv };
   }
-  if (!digest || !/^sha256:[a-f0-9]{64}$/i.test(digest)) {
-    return { ok: false, errors: [err('image_digest_resolve', 'immutable digest missing')], argv };
+  const matches = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      return { ok: false, errors: [err('image_digest_resolve', 'malformed metadata row')], argv };
+    }
+    // Refuse nested config/layers if present on a metadata row (show-shaped pollution).
+    if (row.config != null || row.layers != null) {
+      return { ok: false, errors: [err('image_digest_resolve', 'config/layer digests refused')], argv };
+    }
+    const tags = row.tags;
+    if (tags == null) continue; // untagged — not a tag mapping candidate
+    if (!Array.isArray(tags)) {
+      return { ok: false, errors: [err('image_digest_resolve', 'malformed tags')], argv };
+    }
+    if (tags.length === 0) continue; // untagged empty array
+    // Exact tag membership only (no substring / prefix match).
+    const hit = tags.some((t) => String(t) === wantTag);
+    if (!hit) continue;
+    if (tags.filter((t) => String(t) === wantTag).length !== 1) {
+      return { ok: false, errors: [err('image_digest_resolve', 'duplicate tag on row')], argv };
+    }
+    // Top-level image-manifest digest only — never config.digest / layers[].digest.
+    if (!Object.prototype.hasOwnProperty.call(row, 'digest') || !isImageManifestDigest(row.digest)) {
+      return { ok: false, errors: [err('image_digest_resolve', 'manifest digest missing or invalid')], argv };
+    }
+    matches.push(String(row.digest).toLowerCase());
   }
-  return { ok: true, imageDigest: digest.toLowerCase().startsWith('sha256:') ? digest : `sha256:${digest}`, argv };
+  if (matches.length === 0) {
+    return { ok: false, errors: [err('image_digest_resolve', 'tag absent in list-metadata')], argv };
+  }
+  if (matches.length !== 1) {
+    return { ok: false, errors: [err('image_digest_resolve', 'duplicate tag metadata')], argv };
+  }
+  return { ok: true, imageDigest: matches[0], argv };
 }
 function buildStaffImage(deps, deploySha) {
   const pre = deps.d1.assertRepoDeployPreflight({
@@ -2505,7 +2554,8 @@ module.exports = Object.freeze({
   drillTags, preparedTags, buildPreparedRoleAssignments, deleteExactTempAcrRbacAdmin,
   expectedTenantAcrPullAssignment, putExactTenantAcrPull, deleteExactTenantAcrPull,
   assertRoleAssignmentIdentity,
-  pasteReadyAcrCleanupCommand, generateSecrets, buildBootstrapAdminDsn, installedAcrManifestShowArgv,
+  pasteReadyAcrCleanupCommand, generateSecrets, buildBootstrapAdminDsn,
+  installedAcrManifestListMetadataArgv, installedAcrManifestShowArgv,
   installedAcrBuildArgv, resolveImageDigest, buildStaffImage, putAndPoll, pollArmTerminal,
   putAndPollWithRbacPropagationRetry, classifyRetryableRbacPropagationFailure, resourceGroupScopeFromArmPath,
   pasteReadyRollbackCommand, acquireExclusiveLock, writeReceipt, readReceipt, deriveD1Authority,
