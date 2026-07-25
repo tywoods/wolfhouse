@@ -99,6 +99,7 @@ function schedulePortalEnsureIdempotencyKey(payload) {
   if (!schedulePortalSubmitIdemKey || schedulePortalSubmitIdemIntent !== intent) {
     schedulePortalSubmitIdemKey = schedulePortalNewIdempotencyKey();
     schedulePortalSubmitIdemIntent = intent;
+    schedulePortalCreateAmbiguous = false;
   }
   return schedulePortalSubmitIdemKey;
 }
@@ -106,9 +107,9 @@ function schedulePortalEnsureIdempotencyKey(payload) {
 function schedulePortalClearSubmitIdempotency() {
   schedulePortalSubmitIdemKey = null;
   schedulePortalSubmitIdemIntent = null;
+  schedulePortalCreateAmbiguous = false;
 }
 
-/** Europe/Madrid YYYY-MM-DD — never browser-UTC-only default for create dates. */
 function schedulePortalMadridTodayIso(refDate) {
   var d = refDate || new Date();
   try {
@@ -118,29 +119,66 @@ function schedulePortalMadridTodayIso(refDate) {
   }
 }
 
-var schedulePortalPendingCourseId = null;
+function schedulePortalCanonicalDateIso(raw) {
+  var s = String(raw == null ? '' : raw).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  var y = Number(s.slice(0, 4)), m = Number(s.slice(5, 7)), d = Number(s.slice(8, 10));
+  var dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || (dt.getUTCMonth() + 1) !== m || dt.getUTCDate() !== d) return null;
+  return s;
+}
 
-function schedulePortalConsumePendingCourseSelect() {
-  var id = schedulePortalPendingCourseId;
-  schedulePortalPendingCourseId = null;
-  if (!id) return;
-  var sel = el('ps-create-course-select');
-  if (sel) sel.value = String(id);
+function schedulePortalSanitizeCreateLaunchContext(context) {
+  if (context == null || typeof context !== 'object') return null;
+  if (typeof Event !== 'undefined' && typeof Event === 'function' && context instanceof Event) return null;
+  if (typeof context.preventDefault === 'function' || typeof context.stopPropagation === 'function') return null;
+  if (Object.prototype.toString.call(context) !== '[object Object]') return null;
+  var today = schedulePortalMadridTodayIso();
+  var hasExplicitDate = context.date_from != null || context.date_to != null || context.date != null;
+  var dateFrom = null, dateTo = null;
+  if (hasExplicitDate) {
+    dateFrom = schedulePortalCanonicalDateIso(context.date_from != null ? context.date_from : context.date);
+    dateTo = schedulePortalCanonicalDateIso(context.date_to != null ? context.date_to : (dateFrom || context.date));
+    if (!dateFrom || !dateTo || dateFrom < today || dateTo < dateFrom) return null;
+  }
+  var out = {};
+  var activity = String(context.activity || context.main_activity || '').toLowerCase().trim();
+  if (activity) out.activity = activity;
+  var courseId = context.course_id != null ? String(context.course_id).trim() : '';
+  if (courseId) out.course_id = courseId;
+  if (dateFrom) { out.date_from = dateFrom; out.date_to = dateTo; }
+  if (!out.activity && !out.course_id && !out.date_from) return null;
+  return out;
 }
 
 function schedulePortalResolveCreateDefaultDate(ctx) {
   var today = schedulePortalMadridTodayIso();
-  if (ctx) {
-    var explicit = String(ctx.date_from || ctx.date || '').slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(explicit)) return explicit;
-  }
+  if (ctx && ctx.date_from) return ctx.date_from;
   var active = '';
   try { if (typeof scheduleActiveDayIso === 'function') active = String(scheduleActiveDayIso() || '').slice(0, 10); } catch (_a) { active = ''; }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(active) && active >= today) return active;
+  if (schedulePortalCanonicalDateIso(active) && active >= today) return active;
   return today;
 }
 
-/** Fresh-open only — same-open activity switches must not call this (gear preserved). */
+var schedulePortalPendingCourseId = null;
+var schedulePortalPendingCourseGen = 0;
+var schedulePortalOpenGen = 0;
+var schedulePortalCreateAmbiguous = false;
+
+function schedulePortalApplyDesiredCourseSelect() {
+  var id = schedulePortalPendingCourseId;
+  if (!id || schedulePortalPendingCourseGen !== schedulePortalOpenGen) return false;
+  var sel = el('ps-create-course-select');
+  if (!sel || !sel.options || !sel.options.length) return false;
+  var match = false;
+  for (var i = 0; i < sel.options.length; i++) {
+    if (String(sel.options[i].value) === String(id)) { match = true; break; }
+  }
+  if (!match) return false;
+  sel.value = String(id);
+  return sel.value === String(id);
+}
+
 function schedulePortalClearCreateDraftFields() {
   var set = function(id, val) { var n = el(id); if (n) n.value = val; };
   set('ps-create-guest', ''); set('ps-create-phone', ''); set('ps-create-notes', '');
@@ -157,10 +195,16 @@ function schedulePortalClearCreateDraftFields() {
   var summary = el('ps-create-summary'); if (summary) summary.innerHTML = '<span class="portal-schedule-create-summary-placeholder">—</span>';
   var msg = el('ps-create-msg'); if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
   schedulePortalPendingCourseId = null;
+  schedulePortalPendingCourseGen = 0;
 }
 
 function schedulePortalApplyCreateLaunchContext(ctx) {
   if (!ctx) return;
+  var courseId = ctx.course_id != null ? String(ctx.course_id).trim() : '';
+  if (courseId) {
+    schedulePortalPendingCourseId = courseId;
+    schedulePortalPendingCourseGen = schedulePortalOpenGen;
+  }
   var activity = String(ctx.activity || ctx.main_activity || '').toLowerCase();
   var pick = null;
   if (activity === 'group' || activity === 'course') pick = 'ps-create-comp-course';
@@ -173,33 +217,23 @@ function schedulePortalApplyCreateLaunchContext(ctx) {
       if (typeof scheduleOnCreateComponentChange === 'function') scheduleOnCreateComponentChange(pick);
     }
   }
-  var courseId = ctx.course_id != null ? String(ctx.course_id).trim() : '';
-  if (courseId) {
-    schedulePortalPendingCourseId = courseId;
-    var sel = el('ps-create-course-select');
-    if (sel && sel.options && sel.options.length) sel.value = courseId;
-  }
-  // slot_key/time not applied: no create form time field for group launches.
+  schedulePortalApplyDesiredCourseSelect();
 }
 
-/** Canonical fresh-open owner. In-flight: preserve draft+key (no wipe). Else clean + context. */
 function schedulePortalPrepareCreateOpen(context) {
-  if (schedulePortalSubmitInFlight) {
+  if (schedulePortalSubmitInFlight || schedulePortalCreateAmbiguous) {
     schedulePortalInvalidatePreviewWork();
     var lockedBtn = el('ps-create-submit');
-    if (lockedBtn) lockedBtn.disabled = true;
-    return { preserved: true };
+    if (lockedBtn) lockedBtn.disabled = !!schedulePortalSubmitInFlight;
+    return { preserved: true, ambiguous: !!schedulePortalCreateAmbiguous };
   }
+  schedulePortalOpenGen += 1;
   schedulePortalInvalidatePreviewWork();
   schedulePortalQuoteState = null;
   schedulePortalClearCreateDraftFields();
-  var ctx = context || null;
+  var ctx = schedulePortalSanitizeCreateLaunchContext(context);
   var dateIso = schedulePortalResolveCreateDefaultDate(ctx);
-  var dateTo = dateIso;
-  if (ctx) {
-    var toRaw = String(ctx.date_to || ctx.date_from || ctx.date || '').slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(toRaw)) dateTo = toRaw;
-  }
+  var dateTo = (ctx && ctx.date_to) ? ctx.date_to : dateIso;
   var df = el('ps-create-date-from'), dt = el('ps-create-date-to');
   if (df) df.value = dateIso; if (dt) dt.value = dateTo;
   schedulePortalApplyCreateLaunchContext(ctx);
@@ -209,10 +243,10 @@ function schedulePortalPrepareCreateOpen(context) {
 }
 
 function schedulePortalResetCreateFormRuntime() {
-  if (schedulePortalSubmitInFlight) {
+  if (schedulePortalSubmitInFlight || schedulePortalCreateAmbiguous) {
     schedulePortalInvalidatePreviewWork();
     var lockedBtn = el('ps-create-submit');
-    if (lockedBtn) lockedBtn.disabled = true;
+    if (lockedBtn) lockedBtn.disabled = !!schedulePortalSubmitInFlight;
     return;
   }
   schedulePortalInvalidatePreviewWork();
@@ -546,6 +580,7 @@ function schedulePortalPopulateCreateCourseFields() {
       sel.value = prev;
       if (sel.value !== prev) schedulePopulateCreateCourseTierFields('');
     }
+    schedulePortalApplyDesiredCourseSelect();
     if (!sel._tierBound) {
       sel._tierBound = true;
       sel.addEventListener('change', function() {
@@ -663,10 +698,13 @@ function submitScheduleManualBooking() {
       false
     );
     createSent = true;
+    schedulePortalCreateAmbiguous = true;
     return schedulePortalSubmitCreate(payload, { idempotency_key: idemKey });
   }).then(function(res) {
     if (!res || res.superseded) return;
     if (!createSent) return;
+    if (res.aborted) return;
+    schedulePortalCreateAmbiguous = false;
     if (!res.ok || !res.data || res.data.success !== true) {
       var d = res.data || {};
       if (d.reason_code === 'quote_stale' || d.reason === 'quote_stale') {
@@ -704,7 +742,6 @@ function submitScheduleManualBooking() {
     }
   }).finally(function() {
     schedulePortalSubmitInFlight = false;
-    // so retry can reuse the same idempotency key for the same intent.
     if (!succeeded && submitBtn) submitBtn.disabled = false;
   });
 }

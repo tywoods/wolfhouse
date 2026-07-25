@@ -23781,10 +23781,9 @@ function openScheduleCreateModal(context){
   modal.setAttribute('aria-hidden', 'false');
   scheduleApplyCreatePrefill();
   scheduleFetchLessonTimesConfig(getClient(), { force: true }).then(function(){
-    schedulePopulateCreateCourseFields();
-    if (typeof schedulePortalConsumePendingCourseSelect === 'function') schedulePortalConsumePendingCourseSelect();
-    scheduleRenderCreateRentals();
-    scheduleRefreshCreateFullDayAddon();
+    var done = function(){ scheduleRenderCreateRentals(); scheduleRefreshCreateFullDayAddon(); };
+    var p = schedulePopulateCreateCourseFields();
+    if (p && typeof p.then === 'function') p.then(done, done); else done();
   });
 }
 
@@ -23815,7 +23814,7 @@ function setScheduleFilter(mode){
 function wireScheduleControls(){
   var ids = [['ps-drawer-close', closeScheduleDetailDrawer],
     ['ps-drawer-refresh', scheduleRefreshDrawer],
-    ['ps-create-booking', openScheduleCreateModal],
+    ['ps-create-booking', function(){ openScheduleCreateModal(null); }],
     ['ps-create-close', closeScheduleCreateModal],
     ['ps-create-cancel', closeScheduleCreateModal],
     ['ps-create-submit', submitScheduleManualBooking]];
