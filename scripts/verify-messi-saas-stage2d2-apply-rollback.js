@@ -152,9 +152,31 @@ function makeHarness(lib, d1, opts = {}) {
         return JSON.stringify({ accessToken: 'TEST_TOKEN_NOT_SECRET', expiresOn: '2099-01-01' });
       }
       if (args[0] === 'acr' && args[1] === 'build') return 'built';
-      if (args[0] === 'acr' && args[1] === 'manifest' && args[2] === 'show') {
-        if (acrFail) throw new Error('acr manifest show failed');
-        return JSON.stringify({ digest: DIGEST_IMG });
+      if (args[0] === 'acr' && args[1] === 'manifest' && args[2] === 'list-metadata') {
+        if (acrFail) throw new Error('acr manifest list-metadata failed');
+        // Exact repo+tag mapping only — other tags/untagged must not win.
+        return JSON.stringify([
+          {
+            digest: DIGEST_IMG,
+            tags: [headSha],
+            architecture: 'amd64',
+            os: 'linux',
+            mediaType: 'application/vnd.docker.distribution.manifest.v2+json',
+            configMediaType: 'application/vnd.docker.container.image.v1+json',
+          },
+          {
+            digest: `sha256:${'d'.repeat(64)}`,
+            tags: ['old-other-tag'],
+            architecture: 'amd64',
+            os: 'linux',
+          },
+          {
+            digest: `sha256:${'e'.repeat(64)}`,
+            tags: [],
+            architecture: 'amd64',
+            os: 'linux',
+          },
+        ]);
       }
       throw new Error(`unexpected_az:${args.join(' ')}`);
     },
@@ -615,12 +637,14 @@ async function main() {
   }
 
   {
-    const argv = lib.installedAcrManifestShowArgv(SHA);
-    const help = execFileSync(d1.PINNED_BINS.az, ['acr', 'manifest', 'show', '-h'], {
+    const argv = lib.installedAcrManifestListMetadataArgv();
+    const help = execFileSync(d1.PINNED_BINS.az, ['acr', 'manifest', 'list-metadata', '-h'], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
     });
-    ok('acr_syntax_installed_valid', argv[0] === 'acr' && argv[1] === 'manifest' && argv[2] === 'show'
-      && argv.includes('--name') && argv.includes(`luna-sunset-staff-api:${SHA}`)
+    ok('acr_syntax_installed_valid', argv[0] === 'acr' && argv[1] === 'manifest'
+      && argv[2] === 'list-metadata'
+      && argv.includes('--name') && argv.includes('luna-sunset-staff-api')
+      && !argv.some((a) => String(a).includes(':'))
       && argv.includes('--registry') && argv.includes('whstagingacr')
       && /--name|--registry/.test(help) && !argv.includes('--repository'));
   }
@@ -2125,29 +2149,125 @@ async function main() {
   }
 
   {
-    // Live Azure CLI 2.87 `az acr manifest show` puts the immutable digest under config.digest.
-    const digest = `sha256:${'a'.repeat(64)}`;
-    const fromConfig = lib.resolveImageDigest({
-      azExec: () => JSON.stringify({ config: { digest } }),
-    }, SHA);
-    ok('acr_manifest_config_digest_resolves', fromConfig.ok === true
-      && fromConfig.imageDigest.toLowerCase() === digest
-      && /^sha256:[a-f0-9]{64}$/.test(fromConfig.imageDigest));
-    const fromTop = lib.resolveImageDigest({
-      azExec: () => JSON.stringify({ digest }),
-    }, SHA);
-    ok('acr_manifest_top_level_digest_still_resolves', fromTop.ok === true
-      && fromTop.imageDigest.toLowerCase() === digest);
-    const fromManifests = lib.resolveImageDigest({
-      azExec: () => JSON.stringify({ manifests: [{ digest }] }),
-    }, SHA);
-    ok('acr_manifest_manifests0_digest_still_resolves', fromManifests.ok === true
-      && fromManifests.imageDigest.toLowerCase() === digest);
-    const rejectTag = lib.resolveImageDigest({
-      azExec: () => JSON.stringify({ digest: 'latest', config: { digest: 'not-a-digest' } }),
-    }, SHA);
-    ok('acr_manifest_rejects_non_sha256_digest', rejectTag.ok === false
-      && (rejectTag.errors || []).some((e) => e.code === 'image_digest_resolve'));
+    // Live b0b6b319: bootstrap ACA Job rejected config digest (az acr manifest show
+    // config.digest) as MANIFEST_UNKNOWN. list-metadata maps exact tag → image-manifest.
+    const LIVE_TAG = 'fb34fd622829609fe70cddaa56ceee2831ac0b6e';
+    const CONFIG_DIGEST = `sha256:8bfb${'0'.repeat(60)}`; // wrong: config blob
+    const MANIFEST_DIGEST = `sha256:002f7388${'1'.repeat(56)}`; // correct: image-manifest
+    const OTHER_DIGEST = `sha256:${'a'.repeat(64)}`;
+    const LAYER_DIGEST = `sha256:${'b'.repeat(64)}`;
+    // Live-shaped list-metadata: exact tag→manifest; foreign tags; untagged; no config/layers.
+    const liveList = [
+      {
+        digest: MANIFEST_DIGEST,
+        tags: [LIVE_TAG],
+        architecture: 'amd64',
+        os: 'linux',
+        mediaType: 'application/vnd.docker.distribution.manifest.v2+json',
+        configMediaType: 'application/vnd.docker.container.image.v1+json',
+        imageSize: 148_291_344,
+      },
+      {
+        digest: OTHER_DIGEST,
+        tags: ['deadbeefdeadbeefdeadbeefdeadbeefdeadbeef'],
+        architecture: 'amd64',
+        os: 'linux',
+      },
+      { digest: `sha256:${'c'.repeat(64)}`, tags: [], architecture: 'amd64', os: 'linux' },
+    ];
+    const green = lib.resolveImageDigest({
+      azExec: (argv) => {
+        ok('list_metadata_argv_pinned_ownership',
+          Array.isArray(argv) && argv[0] === 'acr' && argv[1] === 'manifest'
+          && argv[2] === 'list-metadata'
+          && argv.includes('--name') && argv.includes('luna-sunset-staff-api')
+          && argv.includes('--registry') && argv.includes('whstagingacr')
+          && !argv.some((a) => /:|@sha256:/.test(String(a))));
+        return JSON.stringify(liveList);
+      },
+    }, LIVE_TAG);
+    ok('acr_list_metadata_exact_tag_manifest_digest', green.ok === true
+      && green.imageDigest === MANIFEST_DIGEST.toLowerCase()
+      && green.imageDigest !== CONFIG_DIGEST.toLowerCase());
+
+    // Hostile: show-shaped body with only config.digest / layers (prior wrong path).
+    const showShaped = {
+      schemaVersion: 2,
+      mediaType: 'application/vnd.docker.distribution.manifest.v2+json',
+      config: { mediaType: 'application/vnd.docker.container.image.v1+json', size: 1, digest: CONFIG_DIGEST },
+      layers: [{ mediaType: 'application/vnd.docker.image.rootfs.diff.tar.gzip', size: 1, digest: LAYER_DIGEST }],
+    };
+    const refuseShow = lib.resolveImageDigest({
+      azExec: () => JSON.stringify(showShaped),
+    }, LIVE_TAG);
+    ok('acr_refuses_show_config_layer_digests', refuseShow.ok === false
+      && (refuseShow.errors || []).some((e) => e.code === 'image_digest_resolve'));
+
+    // Hostile: config.digest equal to lookalike on a row that also has our tag — still refuse pollution.
+    const polluted = [{
+      digest: MANIFEST_DIGEST,
+      tags: [LIVE_TAG],
+      config: { digest: CONFIG_DIGEST },
+    }];
+    const refusePolluted = lib.resolveImageDigest({
+      azExec: () => JSON.stringify(polluted),
+    }, LIVE_TAG);
+    ok('acr_refuses_config_polluted_metadata_row', refusePolluted.ok === false
+      && (refusePolluted.errors || []).some((e) => e.code === 'image_digest_resolve'));
+
+    const absent = lib.resolveImageDigest({
+      azExec: () => JSON.stringify(liveList),
+    }, 'ffffffffffffffffffffffffffffffffffffffff');
+    ok('acr_tag_absent_fail_closed', absent.ok === false
+      && (absent.errors || []).some((e) => e.code === 'image_digest_resolve'));
+
+    const untaggedOnly = lib.resolveImageDigest({
+      azExec: () => JSON.stringify([{ digest: MANIFEST_DIGEST, tags: [] }]),
+    }, LIVE_TAG);
+    ok('acr_untagged_not_accepted', untaggedOnly.ok === false
+      && (untaggedOnly.errors || []).some((e) => e.code === 'image_digest_resolve'));
+
+    const dup = lib.resolveImageDigest({
+      azExec: () => JSON.stringify([
+        { digest: MANIFEST_DIGEST, tags: [LIVE_TAG] },
+        { digest: OTHER_DIGEST, tags: [LIVE_TAG] },
+      ]),
+    }, LIVE_TAG);
+    ok('acr_duplicate_tag_fail_closed', dup.ok === false
+      && (dup.errors || []).some((e) => e.code === 'image_digest_resolve'));
+
+    const malformed = lib.resolveImageDigest({
+      azExec: () => JSON.stringify([{ digest: MANIFEST_DIGEST, tags: 'not-array' }]),
+    }, LIVE_TAG);
+    ok('acr_malformed_tags_fail_closed', malformed.ok === false
+      && (malformed.errors || []).some((e) => e.code === 'image_digest_resolve'));
+
+    const badDigest = lib.resolveImageDigest({
+      azExec: () => JSON.stringify([{ digest: 'latest', tags: [LIVE_TAG] }]),
+    }, LIVE_TAG);
+    ok('acr_non_sha256_manifest_digest_fail_closed', badDigest.ok === false
+      && (badDigest.errors || []).some((e) => e.code === 'image_digest_resolve'));
+
+    // buildStaffImage must resolve only the exact newly built deploySha tag.
+    const builtSha = SHA;
+    const foreign = `sha256:${'f'.repeat(64)}`;
+    const h = makeHarness(lib, d1);
+    const origAz = h.deps.azExec;
+    h.deps.azExec = (args) => {
+      if (args[0] === 'acr' && args[1] === 'manifest' && args[2] === 'list-metadata') {
+        return JSON.stringify([
+          { digest: foreign, tags: ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'] },
+          { digest: DIGEST_IMG, tags: [builtSha] },
+          { digest: `sha256:${'e'.repeat(64)}`, tags: [] },
+        ]);
+      }
+      return origAz(args);
+    };
+    const img = lib.buildStaffImage(h.deps, builtSha);
+    ok('build_resolves_only_exact_new_tag', img.ok === true
+      && img.imageDigest === DIGEST_IMG.toLowerCase()
+      && img.imageDigest !== foreign
+      && Array.isArray(img.manifestArgv) && img.manifestArgv[2] === 'list-metadata');
   }
 
   {

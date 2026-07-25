@@ -130,8 +130,14 @@ function makeHarness(lib, d1, opts = {}) {
         return JSON.stringify({ accessToken: jwtForOid(tokenOid), expiresOn: '2099-01-01' });
       }
       if (args[0] === 'acr' && args[1] === 'build') return 'built';
-      if (args[0] === 'acr' && args[1] === 'manifest' && args[2] === 'show') {
-        return JSON.stringify({ digest: DIGEST_IMG });
+      if (args[0] === 'acr' && args[1] === 'manifest' && args[2] === 'list-metadata') {
+        return JSON.stringify([{
+          digest: DIGEST_IMG,
+          tags: [SHA],
+          architecture: 'amd64',
+          os: 'linux',
+          mediaType: 'application/vnd.docker.distribution.manifest.v2+json',
+        }]);
       }
       throw new Error(`unexpected_az:${args.join(' ')}`);
     },
