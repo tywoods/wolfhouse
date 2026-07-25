@@ -6,11 +6,11 @@
   "summary": {
     "total": 51,
     "by_status": {
-      "ok": 50,
+      "ok": 51,
       "todo": 0
     },
     "by_risk": {
-      "false_positive": 49,
+      "false_positive": 50,
       "ok_session_or_indirect_scope": 1,
       "must_fix_before_shared_staging_router": 0,
       "must_fix_before_live_multiclient": 0
@@ -195,18 +195,19 @@
       "migrated_from_v1": "staff-query-api-17198"
     },
     {
-      "fingerprint": "895efa1c4762a0ed",
+      "fingerprint": "fc1e98909426f5f6",
       "file": "scripts/staff-query-api.js",
-      "line": 16300,
+      "line": 17002,
       "table": "customers",
       "operation": "ui_css",
       "owner": null,
-      "normalized_sql": "#tab-customers input,#tab-customers textarea,#tab-customers select{font-family:'inter',ui-sans-serif,system-ui,-apple-system,'segoe ui',sans-serif}",
-      "snippet": "#tab-customers input,#tab-customers textarea,#tab-customers select{font-family:'Inter',ui-sans-serif,system-ui,-apple-sy",
-      "id": "scripts-staff-query-api-js-895efa1c4762a0ed",
+      "normalized_sql": "#tab-customers input,#tab-customers textarea,#tab-customers select{font-family:var(--font-sans)}",
+      "snippet": "#tab-customers input,#tab-customers textarea,#tab-customers select{font-family:var(--font-sans)}",
+      "id": "scripts-staff-query-api-js-fc1e98909426f5f6",
       "status": "ok",
       "risk": "false_positive",
-      "reason": "CSS selector; not SQL."
+      "reason": "CSS selector; not SQL. Same #tab-customers form-control rule as prior fp 895efa1c4762a0ed; only font-family tokenized Inter stack -> var(--font-sans) in 243d0b11 (portal typography). Identity components file/table/operation/owner unchanged; normalized_sql AST change is pure CSS, no tenant query.",
+      "remapped_for": "243d0b11 style(portal) typography: #tab-customers input/textarea/select font-family Inter stack -> var(--font-sans); fingerprint v1 identity refresh of 895efa1c4762a0ed"
     },
     {
       "fingerprint": "3b0526bf438da995",
