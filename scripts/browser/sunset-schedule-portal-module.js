@@ -489,14 +489,13 @@ function schedulePortalRenderCreateQuotePreview(result) {
     box.style.display = 'block'; return;
   }
   var raw = result.body && result.body.total_cents;
-  var total = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(total) || Math.floor(total) !== total || total < 0 || total > Number.MAX_SAFE_INTEGER) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || Math.floor(raw) !== raw || raw < 0 || raw > Number.MAX_SAFE_INTEGER) {
     box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">'
       + escHtml(portalT('schedule.create.quoteFailed') || 'Quote unavailable') + '</p>';
     box.style.display = 'block'; return;
   }
   box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0">'
-    + escHtml((portalT('schedule.create.quoteTotal') || 'Quoted total') + ': \u20ac' + (total / 100).toFixed(2)) + '</p>';
+    + escHtml((portalT('schedule.create.quoteTotal') || 'Quoted total') + ': \u20ac' + (raw / 100).toFixed(2)) + '</p>';
   box.style.display = 'block';
 }
 
@@ -540,16 +539,14 @@ function schedulePortalRenderCreateIntentSummary(payload) {
     try { plGate = schedulePortalValidatePrivateLessonCreate(comps.private_lesson); } catch (_pl) { plGate = { ok: false }; }
     if (!plGate || plGate.ok !== true) {
       box.innerHTML = '<span class="portal-schedule-create-summary-text">'
-        + escHtml(portalT('schedule.create.summary.completeSessions') || 'Complete session details') + '</span>';
-      return;
+        + escHtml(portalT('schedule.create.summary.completeSessions') || 'Complete session details') + '</span>'; return;
     }
   }
   var hasLesson = !!(comps.course || comps.private_lesson);
   var hasGear = rentals.length > 0 || !!(comps.surfboard || comps.wetsuit || comps.full_day_equipment_extension);
   if (!hasLesson && !hasGear) {
     box.innerHTML = '<span class="portal-schedule-create-summary-placeholder">'
-      + escHtml(portalT('schedule.create.summary.chooseLessonOrGear') || 'Choose a lesson or add gear') + '</span>';
-    return;
+      + escHtml(portalT('schedule.create.summary.chooseLessonOrGear') || 'Choose a lesson or add gear') + '</span>'; return;
   }
   var bits = [];
   if (comps.course) {
@@ -604,35 +601,23 @@ function schedulePortalSyncCreateFooter(opts) {
 
 function schedulePortalWireCreateFooter() {
   [['ps-create-guest', true], ['ps-create-payment', false]].forEach(function(pair) {
-    var node = el(pair[0]);
-    if (!node || node.dataset.footerWired === '1') return;
+    var node = el(pair[0]); if (!node || node.dataset.footerWired === '1') return;
     node.dataset.footerWired = '1';
     var fire = function() { schedulePortalSyncCreateFooter({ quote: false }); };
-    node.addEventListener('change', fire);
-    if (pair[1]) node.addEventListener('input', fire);
+    node.addEventListener('change', fire); if (pair[1]) node.addEventListener('input', fire);
   });
 }
 
 function schedulePortalSetCreateStatus(text, isError) {
-  var msg = el('ps-create-msg');
-  if (!msg) return;
-  if (!text) {
-    msg.textContent = '';
-    msg.style.display = 'none';
-    return;
-  }
-  msg.textContent = text;
-  msg.style.display = 'block';
-  try {
-    if (isError) msg.classList.add('error');
-    else msg.classList.remove('error');
-  } catch (_e) { /* ignore */ }
+  var msg = el('ps-create-msg'); if (!msg) return;
+  if (!text) { msg.textContent = ''; msg.style.display = 'none'; return; }
+  msg.textContent = text; msg.style.display = 'block';
+  try { if (isError) msg.classList.add('error'); else msg.classList.remove('error'); } catch (_e) { /* ignore */ }
 }
 
 function schedulePortalClearQuotePreviewUi() {
   schedulePortalQuoteState = null;
-  var box = el('ps-create-quote-preview');
-  if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+  var box = el('ps-create-quote-preview'); if (box) { box.innerHTML = ''; box.style.display = 'none'; }
 }
 
 function schedulePortalRunPreviewQuote() {
@@ -734,6 +719,7 @@ function schedulePortalRefreshCreateQuote() {
     try { schedulePortalQuoteAbort.abort(); } catch (_a) { /* ignore */ }
     schedulePortalQuoteAbort = null;
   }
+  schedulePortalQuoteGen += 1;
   schedulePortalShowQuoteChecking();
   var wait = Number(schedulePortalQuoteDebounceMs);
   if (!(wait >= 300 && wait <= 500)) wait = 400;
