@@ -284,7 +284,12 @@ function schedulePortalFetchCatalog(opts) {
   });
 }
 
-/** POST quote — gen/abort guarded. */
+/** Own total_cents: typeof number, finite int, 0..MAX_SAFE. Else null. */
+function schedulePortalStrictQuoteTotalCents(body) {
+  var v = body && Object.prototype.hasOwnProperty.call(body, 'total_cents') ? body.total_cents : null;
+  return (typeof v === 'number' && Number.isFinite(v) && Math.floor(v) === v && v >= 0 && v <= Number.MAX_SAFE_INTEGER) ? v : null;
+}
+/** POST quote — gen/abort guarded; strict total_cents before state/success. */
 function schedulePortalFetchQuote(createPayload, opts) {
   opts = opts || {};
   var body = {
@@ -325,13 +330,13 @@ function schedulePortalFetchQuote(createPayload, opts) {
         body: data,
       };
     }
+    var totalCents = schedulePortalStrictQuoteTotalCents(data);
+    if (totalCents == null) {
+      if (applyState && myGen === schedulePortalQuoteGen) schedulePortalQuoteState = null;
+      return { ok: false, error: 'invalid_quote_total', body: data };
+    }
     if (applyState && myGen === schedulePortalQuoteGen) {
-      schedulePortalQuoteState = {
-        quote_provenance: data.quote_provenance || null,
-        total_cents: data.total_cents != null ? Number(data.total_cents) : null,
-        fetched_at: Date.now(),
-        gen: myGen,
-      };
+      schedulePortalQuoteState = { quote_provenance: data.quote_provenance || null, total_cents: totalCents, fetched_at: Date.now(), gen: myGen };
     }
     return { ok: true, body: data, gen: myGen };
   }).catch(function(err) {
@@ -488,8 +493,8 @@ function schedulePortalRenderCreateQuotePreview(result) {
     box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">' + escHtml(String(err)) + '</p>';
     box.style.display = 'block'; return;
   }
-  var raw = result.body && result.body.total_cents;
-  if (typeof raw !== 'number' || !Number.isFinite(raw) || Math.floor(raw) !== raw || raw < 0 || raw > Number.MAX_SAFE_INTEGER) {
+  var raw = typeof schedulePortalStrictQuoteTotalCents === 'function' ? schedulePortalStrictQuoteTotalCents(result.body) : (result.body && result.body.total_cents);
+  if (raw == null || (typeof schedulePortalStrictQuoteTotalCents !== 'function' && (typeof raw !== 'number' || !Number.isFinite(raw) || Math.floor(raw) !== raw || raw < 0 || raw > Number.MAX_SAFE_INTEGER))) {
     box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">'
       + escHtml(portalT('schedule.create.quoteFailed') || 'Quote unavailable') + '</p>';
     box.style.display = 'block'; return;
