@@ -2,7 +2,8 @@
 /**
  * MESSI SaaS Stage 2D2 — temporary apply/rollback owner.
  * Authority: D1 deriveAuthority (exact-SHA snapshot, pinned tools, subscription, compiled bytes).
- * Secrets stay in memory → ARM HTTPS bodies only. Diagnostic receipt is never authority.
+ * Default lifecycle temporary-drill (byte-stable). Internal durable-staging binds planDigest/tags/
+ * receipt/authority; public CLI lifecycle flags refuse zero-mutation. Secrets in memory only.
  */
 const fs = require('fs');
 const path = require('path');
@@ -102,6 +103,8 @@ async function runInjectedOperatorLifecycle({ azure, attestation, secrets, asser
 const STAGE = 'saas-2d2'; const OWNER = 'messi-stage2d2'; const STAGE_TAG = 'saas-2d2-staging';
 const CLI_REL = 'scripts/messi-saas-stage2d2-apply-rollback.js';
 const LIB_REL = 'scripts/lib/messi-saas-stage2d2-apply-rollback.js';
+const LIFECYCLE_TEMPORARY = 'temporary-drill';
+const LIFECYCLE_DURABLE = 'durable-staging';
 const APPROVE_MAX_TOTAL_USD = 8; const TTL_HOURS_MAX = 48; const TTL_HOURS_MIN = 1;
 const HOURS_PER_MONTH = 30 * 24; const ARM_API = '2022-09-01'; const DEP_API = '2021-04-01';
 const APP_API = '2023-05-01'; const ROLE_API = '2022-04-01'; const LOC = 'westeurope';
@@ -373,6 +376,58 @@ function drillTags({ tenantSlug, planDigest, deploySha, createdAt, expiresAt }) 
     tenant: tenantSlug, stage: STAGE_TAG, owner: OWNER, planDigest, deploySha,
     createdAt, expiresAt, temporaryDrill: 'true',
   };
+}
+function durableLifecycleTags({ tenantSlug, planDigest, deploySha }) {
+  return {
+    tenant: tenantSlug, stage: STAGE_TAG, owner: OWNER, planDigest, deploySha,
+    lifecycleMode: LIFECYCLE_DURABLE, durableStaging: 'true',
+  };
+}
+function bindLifecyclePlanDigest(base, mode) {
+  return mode === LIFECYCLE_DURABLE
+    ? sha256(`messi-stage2d2:lifecycle=${LIFECYCLE_DURABLE};planDigest=${String(base).toLowerCase()}`)
+    : base;
+}
+function lifeRefuse(code, message) {
+  return { ok: false, refusedBeforeAzureMutation: true, refusedBeforeRgWrite: true, errors: [err(code, message)] };
+}
+function resolveLifecycleMode(opts) {
+  const o = opts || {};
+  const publicHit = o.lifecycleMode != null || o.lifecycle != null
+    || o.durableStaging === true || o.durableStaging === 'true' || o.durable === true;
+  const internal = o._internalDurableLifecycle === true;
+  if (publicHit && !internal) return lifeRefuse('lifecycle_mode_cli_forbidden', 'lifecycle mode is not activatable from public CLI');
+  if (!internal) return { ok: true, errors: [], mode: LIFECYCLE_TEMPORARY, isDurable: false };
+  if ((o.lifecycleMode != null ? String(o.lifecycleMode) : LIFECYCLE_DURABLE) !== LIFECYCLE_DURABLE) {
+    return lifeRefuse('lifecycle_mode_invalid', `internal lifecycle must be ${LIFECYCLE_DURABLE}`);
+  }
+  if (o.ttlHours != null || o.approveMaxTotalUsd != null || o.approveMonthlyUsd != null || o.temporaryDrill) {
+    return lifeRefuse('durable_temporary_semantics_rejected', 'durable-staging rejects TTL/cost-cap/temporaryDrill');
+  }
+  if (o.destroyAfterSuccess || o.rollbackOnSuccess) {
+    return lifeRefuse('durable_destroy_after_success_rejected', 'durable-staging never destroy/rollback-on-success');
+  }
+  return { ok: true, errors: [], mode: LIFECYCLE_DURABLE, isDurable: true };
+}
+function inferLifecycleFromTags(tags) {
+  const t = tags || {};
+  const isDur = String(t.durableStaging || '') === 'true' || String(t.lifecycleMode || '') === LIFECYCLE_DURABLE;
+  if (isDur && String(t.temporaryDrill || '') === 'true') {
+    return { ok: false, errors: [err('lifecycle_mode_conflict', 'temporary and durable tags both set')] };
+  }
+  return { ok: true, mode: isDur ? LIFECYCLE_DURABLE : LIFECYCLE_TEMPORARY };
+}
+function assertDurableLifecycleTags(tags, expected) {
+  const t = tags || {}; const exp = durableLifecycleTags(expected); const errors = [];
+  for (const k of Object.keys(exp)) {
+    if (String(t[k] || '') !== String(exp[k])) errors.push(err('rg_tag_mismatch', `tag ${k} mismatch`));
+  }
+  for (const k of ['temporaryDrill', 'createdAt', 'expiresAt']) {
+    if (Object.prototype.hasOwnProperty.call(t, k) && t[k] != null && String(t[k]) !== '') {
+      errors.push(err('durable_tag_polluted', `durable tags must omit ${k}`));
+    }
+  }
+  return { ok: !errors.length, errors };
 }
 function assertDrillTags(tags, expected) {
   const t = tags || {}; const exp = drillTags(expected); const errors = [];
@@ -1000,15 +1055,35 @@ async function deriveD1Authority(opts, deps) {
 /**
  * Rollback-only: rederive authority from immutable live RG deploySha/planDigest tags
  * (never receipt). Refuse on nonancestor, missing object, digest mismatch, etc.
+ * Durable rebinds planDigest after D1 rederive so modes cannot cross-replay.
  */
 async function deriveD1HistoricalRollbackAuthority(opts, deps) {
-  const auth = await deps.d1.deriveHistoricalRollbackAuthority({
-    slug: opts.slug,
-    liveDeploySha: opts.liveDeploySha,
-    livePlanDigest: opts.livePlanDigest,
-    actionGroupResourceId: opts.actionGroupResourceId,
-  }, d1DepsFrom(deps));
-  return assertCompiledHandoff(auth);
+  const mode = opts.lifecycleMode || LIFECYCLE_TEMPORARY;
+  const d1deps = d1DepsFrom(deps);
+  if (mode !== LIFECYCLE_DURABLE) {
+    return assertCompiledHandoff(await deps.d1.deriveHistoricalRollbackAuthority({
+      slug: opts.slug, liveDeploySha: opts.liveDeploySha, livePlanDigest: opts.livePlanDigest,
+      actionGroupResourceId: opts.actionGroupResourceId,
+    }, d1deps));
+  }
+  const seed = deps.verifiedDeploySha || opts.liveDeploySha;
+  const pre = deps.inExactSnapshot
+    ? { ok: true, errors: [], verifiedDeploySha: seed, deploySha: seed, branch: 'master' }
+    : deps.d1.assertRepoDeployPreflight(d1deps);
+  if (!pre.ok) return pre;
+  if (!seed) return { ok: false, errors: [err('verified_sha_required', 'internal mode needs verifiedDeploySha')] };
+  const cand = deps.d1.assertHistoricalDeployShaCandidate(d1deps, opts.liveDeploySha);
+  if (!cand.ok) return cand;
+  const auth = await deps.d1.buildAuthorityAtExactSha(
+    { slug: opts.slug, actionGroupResourceId: opts.actionGroupResourceId }, d1deps, cand.sha, pre,
+  );
+  if (!auth.ok) return auth;
+  const bound = bindLifecyclePlanDigest(auth.planDigest, LIFECYCLE_DURABLE);
+  if (String(bound).toLowerCase() !== String(opts.livePlanDigest || '').toLowerCase()) {
+    return { ok: false, planDigest: bound, errors: [err('live_plan_digest_mismatch',
+      'rederived durable planDigest from live deploySha does not equal live RG planDigest')] };
+  }
+  return assertCompiledHandoff({ ...auth, planDigest: bound, lifecycleMode: LIFECYCLE_DURABLE });
 }
 function extractRgEtag(rg) {
   if (!rg) return null;
@@ -1018,6 +1093,14 @@ function extractRgEtag(rg) {
 /** Full drill ownership + TTL tag tuple (immutable recovery surface). */
 function extractDrillTagTuple(tags) {
   const t = tags || {};
+  const inf = inferLifecycleFromTags(t);
+  if (inf.ok && inf.mode === LIFECYCLE_DURABLE) {
+    return {
+      tenant: String(t.tenant || ''), stage: String(t.stage || ''), owner: String(t.owner || ''),
+      planDigest: String(t.planDigest || ''), deploySha: String(t.deploySha || ''),
+      lifecycleMode: String(t.lifecycleMode || ''), durableStaging: String(t.durableStaging || ''),
+    };
+  }
   return {
     tenant: String(t.tenant || ''),
     stage: String(t.stage || ''),
@@ -1032,13 +1115,36 @@ function extractDrillTagTuple(tags) {
 function drillTagTuplesEqual(a, b) {
   const left = extractDrillTagTuple(a);
   const right = extractDrillTagTuple(b);
-  return Object.keys(left).every((k) => left[k] === right[k]);
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const k of keys) {
+    if (String(left[k] || '') !== String(right[k] || '')) return false;
+  }
+  return true;
 }
 /**
  * Structural full-tuple check before historical rederive (keys present + shapes).
  * Exact planDigest/deploySha ownership match happens after rederive.
  */
 function assertFullDrillTagTuplePresent(tags, tenantSlug) {
+  const inf = inferLifecycleFromTags(tags);
+  if (!inf.ok) return inf;
+  if (inf.mode === LIFECYCLE_DURABLE) {
+    const t = extractDrillTagTuple(tags); const errors = []; const raw = tags || {};
+    for (const k of Object.keys(t)) { if (!t[k]) errors.push(err('drill_tag_missing', `missing or empty tag ${k}`)); }
+    for (const k of ['temporaryDrill', 'createdAt', 'expiresAt']) {
+      if (Object.prototype.hasOwnProperty.call(raw, k) && raw[k] != null && String(raw[k]) !== '') {
+        errors.push(err('durable_tag_polluted', `durable tags must omit ${k}`));
+      }
+    }
+    if (t.tenant && t.tenant !== String(tenantSlug || '')) errors.push(err('drill_tag_tenant', 'live tenant tag does not match slug'));
+    if (t.stage && t.stage !== STAGE_TAG) errors.push(err('drill_tag_stage', `live stage tag must be ${STAGE_TAG}`));
+    if (t.owner && t.owner !== OWNER) errors.push(err('drill_tag_owner', `live owner tag must be ${OWNER}`));
+    if (t.lifecycleMode && t.lifecycleMode !== LIFECYCLE_DURABLE) errors.push(err('drill_tag_lifecycle', `lifecycleMode must be ${LIFECYCLE_DURABLE}`));
+    if (t.durableStaging && t.durableStaging !== 'true') errors.push(err('drill_tag_durable', 'durableStaging must be true'));
+    if (t.planDigest && !/^[0-9a-f]{64}$/i.test(t.planDigest)) errors.push(err('live_plan_digest_invalid', 'live planDigest must be full 64-hex'));
+    if (t.deploySha && !/^[0-9a-f]{40}$/i.test(t.deploySha)) errors.push(err('deploy_sha_invalid', 'live deploySha must be full 40-hex'));
+    return { ok: !errors.length, errors, tuple: t };
+  }
   const t = extractDrillTagTuple(tags);
   const errors = [];
   for (const k of Object.keys(t)) {
@@ -1830,8 +1936,13 @@ async function apply(opts, depsIn) {
   let removeSignals = null;
   const optsIn = opts || {};
   try {
-    const approval = validateApprovalFlags(optsIn);
-    if (!approval.ok) return approval;
+    const life = resolveLifecycleMode(optsIn);
+    if (!life.ok) return life;
+    let approval = null;
+    if (!life.isDurable) {
+      approval = validateApprovalFlags(optsIn);
+      if (!approval.ok) return approval;
+    }
     // Authority/preflight before lock so an in-tree stateDir cannot trip dirty_tree.
     const auth = await deriveD1Authority(optsIn, deps);
     if (!auth.ok) return auth;
@@ -1855,7 +1966,8 @@ async function apply(opts, depsIn) {
     lock = acquireExclusiveLock(deps, String(optsIn.slug || 'unknown'));
     if (!lock.ok) return lock;
     removeSignals = installOperationSignals(deps);
-    const { names, planDigest, verifiedDeploySha, core, templateBytes, compiled } = auth;
+    const { names, verifiedDeploySha, core, templateBytes, compiled } = auth;
+    const planDigest = bindLifecyclePlanDigest(auth.planDigest, life.mode);
     const aborted0 = checkAbort(deps);
     if (!aborted0.ok) return aborted0;
     const adoptPreparedRg = !!(optsIn.adoptPreparedRg);
@@ -1875,13 +1987,16 @@ async function apply(opts, depsIn) {
     }
     // One clock sample: dual deps.now() can advance 1ms and trip exact-48h expires_at_invalid.
     const nowMs = deps.now().getTime();
-    const createdAt = new Date(nowMs).toISOString();
-    const expiresAt = new Date(nowMs + approval.ttlHours * 3600 * 1000).toISOString();
-    const costGate = assertCostGate({
-      estimatedMonthlyUsd: core.estimatedMonthlyUsd, ttlHours: approval.ttlHours,
-      approveMaxTotalUsd: approval.approveMaxTotalUsd, createdAt, expiresAt, now: deps.now(),
-    });
-    if (!costGate.ok) return costGate;
+    const createdAt = life.isDurable ? null : new Date(nowMs).toISOString();
+    const expiresAt = life.isDurable ? null : new Date(nowMs + approval.ttlHours * 3600 * 1000).toISOString();
+    let costGate = { ok: true, errors: [], proratedWorstCaseUsd: null };
+    if (!life.isDurable) {
+      costGate = assertCostGate({
+        estimatedMonthlyUsd: core.estimatedMonthlyUsd, ttlHours: approval.ttlHours,
+        approveMaxTotalUsd: approval.approveMaxTotalUsd, createdAt, expiresAt, now: deps.now(),
+      });
+      if (!costGate.ok) return costGate;
+    }
     const img = buildStaffImage(deps, verifiedDeploySha);
     if (!img.ok) return img;
     const secrets = generateSecrets({ slug: names.tenantSlug, randomBytes: deps.randomBytes });
@@ -1891,11 +2006,15 @@ async function apply(opts, depsIn) {
     })) {
       return { ok: false, errors: [err('dsn_encode_mismatch', 'bootstrap admin DSN encoding mismatch')] };
     }
-    const tags = drillTags({
-      tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha, createdAt, expiresAt,
-    });
-    const drill = { createdAt, expiresAt };
-    const drillExtras = { temporaryDrill: 'true', createdAt, expiresAt, imageDigest: img.imageDigest };
+    const tagBase = { tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha };
+    const tags = life.isDurable ? durableLifecycleTags(tagBase) : drillTags({ ...tagBase, createdAt, expiresAt });
+    const drill = life.isDurable ? null : { createdAt, expiresAt };
+    const drillExtras = {
+      temporaryDrill: life.isDurable ? '' : 'true',
+      createdAt: life.isDurable ? '' : createdAt,
+      expiresAt: life.isDurable ? '' : expiresAt,
+      imageDigest: img.imageDigest,
+    };
     const template = compiled.template;
     const phases = [
       'infra', 'acr-pull', 'bootstrap', 'c2-operator', 'job-delete',
@@ -1911,6 +2030,7 @@ async function apply(opts, depsIn) {
     const phaseGate = (phase) => {
       const aborted = checkAbort(deps);
       if (!aborted.ok) return aborted;
+      if (life.isDurable) return { ok: true, errors: [] };
       const active = assertActiveDrill({ createdAt, expiresAt, now: deps.now(), phase });
       if (!active.ok) return active;
       return assertCostGate({
@@ -2060,10 +2180,12 @@ async function apply(opts, depsIn) {
         planDigest, deploySha: verifiedDeploySha, owner: OWNER,
       };
       let op;
-      const assertOpDrill = (b) => assertActiveDrill({
-        createdAt, expiresAt, now: deps.now(), phase: 'c2-operator',
-        phaseMaxMs: String(b || '').includes('waitTerminal') ? 0 : PHASE_MAX_MS['c2-operator'],
-      });
+      const assertOpDrill = life.isDurable
+        ? () => ({ ok: true, errors: [] })
+        : (b) => assertActiveDrill({
+          createdAt, expiresAt, now: deps.now(), phase: 'c2-operator',
+          phaseMaxMs: String(b || '').includes('waitTerminal') ? 0 : PHASE_MAX_MS['c2-operator'],
+        });
       if (typeof deps.bootstrapOperator === 'function') {
         const azure = deps.bootstrapOperator({
           attestation: att, secrets: secretsHeld, azCommand: deps.pinnedBins.az,
@@ -2220,9 +2342,13 @@ async function apply(opts, depsIn) {
       path: `/subscriptions/${names.subscriptionId}/resourcegroups/${names.resourceGroupName}?api-version=${ARM_API}`,
     });
     const liveTags = (liveRg.body && liveRg.body.tags) || {};
-    const tagEq = assertDrillTags(liveTags, {
-      tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha, createdAt, expiresAt,
-    });
+    const tagEq = life.isDurable
+      ? assertDurableLifecycleTags(liveTags, {
+        tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha,
+      })
+      : assertDrillTags(liveTags, {
+        tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha, createdAt, expiresAt,
+      });
     if (!tagEq.ok) {
       return preserveFailure(deps, {
         errors: [err('receipt_tag_mismatch', 'live RG tag tuple must equal drill exactly')].concat(tagEq.errors),
@@ -2236,23 +2362,38 @@ async function apply(opts, depsIn) {
       resourceGroupName: names.resourceGroupName, subscriptionId: names.subscriptionId,
       planDigest, deploySha: verifiedDeploySha, compiledTemplateSha256: compiled.compiledTemplateSha256,
       compiledTemplateBytes: templateBytes.length, imageDigest: img.imageDigest,
-      createdAt: liveTags.createdAt, expiresAt: liveTags.expiresAt, temporaryDrill: true,
       stage: STAGE, owner: OWNER, stageTag: STAGE_TAG,
       deploymentIds, fqdn: runtime.fqdn, replicas: runtime.replicas,
       latestRevisionName: runtime.latestRevisionName, costAfter,
-      proratedWorstCaseUsd: costGate.proratedWorstCaseUsd,
-      rollbackCommand: pasteReadyRollbackCommand(names.tenantSlug),
       phases,
       // Diagnostic only — never authority. Exact AcrPull created by JS post-infra.
       acrPullRoleAssignment: acrPullAssignment,
       principalId,
     };
+    if (life.isDurable) {
+      Object.assign(receipt, {
+        lifecycleMode: LIFECYCLE_DURABLE, durableStaging: true, temporaryDrill: false,
+        destroyAfterSuccess: false, rollbackOnSuccess: false, proratedWorstCaseUsd: null,
+      });
+    } else {
+      Object.assign(receipt, {
+        createdAt: liveTags.createdAt, expiresAt: liveTags.expiresAt, temporaryDrill: true,
+        proratedWorstCaseUsd: costGate.proratedWorstCaseUsd,
+        rollbackCommand: pasteReadyRollbackCommand(names.tenantSlug),
+      });
+    }
     const rp = writeReceipt(deps, receipt);
-    return {
+    const out = {
       ok: true, errors: [], receipt, receiptPath: rp, planDigest,
       deploySha: verifiedDeploySha, imageDigest: img.imageDigest,
       resourceGroupName: names.resourceGroupName, rollbackCommand: receipt.rollbackCommand,
     };
+    if (life.isDurable) {
+      out.lifecycleMode = LIFECYCLE_DURABLE;
+      out.destroyAfterSuccess = false;
+      out.rollbackCommand = null;
+    }
+    return out;
   } catch (e) {
     if (invocationCreatedRg) {
       try {
@@ -2458,11 +2599,17 @@ async function rollback(opts, depsIn) {
         errors: [err('rollback_tag_mismatch', 'live RG missing full drill tag tuple')].concat(struct2.errors),
       };
     }
+    const lifeInf = inferLifecycleFromTags(tags);
+    if (!lifeInf.ok) return lifeInf;
+    // Durable only via failed-partial internal path (never public destroy-after-success).
+    if (lifeInf.mode === LIFECYCLE_DURABLE && !(opts || {})._internalFailureRollback) {
+      return { ok: false, errors: [err('durable_rollback_not_public',
+        'durable-staging refuses public rollback; failed-partial internal only')] };
+    }
     // Historical authority from live tags only (not receipt, not current HEAD alone).
     const auth = await deriveD1HistoricalRollbackAuthority({
-      slug,
-      liveDeploySha: struct2.tuple.deploySha,
-      livePlanDigest: struct2.tuple.planDigest,
+      slug, liveDeploySha: struct2.tuple.deploySha, livePlanDigest: struct2.tuple.planDigest,
+      lifecycleMode: lifeInf.mode,
     }, deps);
     if (!auth.ok) return auth;
     const { planDigest, verifiedDeploySha } = auth;
@@ -2479,10 +2626,10 @@ async function rollback(opts, depsIn) {
     // Capture optional RG ETag after ownership/provenance gates (not before).
     // Live ARM often omits RG ETag; delete without If-Match only when none was supplied.
     const etag = probe2.etag;
-    const drillCheck = assertDrillTags(tags, {
-      tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha,
-      createdAt: tags.createdAt, expiresAt: tags.expiresAt,
-    });
+    const own = { tenantSlug: names.tenantSlug, planDigest, deploySha: verifiedDeploySha };
+    const drillCheck = lifeInf.mode === LIFECYCLE_DURABLE
+      ? assertDurableLifecycleTags(tags, own)
+      : assertDrillTags(tags, { ...own, createdAt: tags.createdAt, expiresAt: tags.expiresAt });
     if (!drillCheck.ok) {
       return {
         ok: false,
@@ -2656,11 +2803,14 @@ async function expiryStatus(opts, depsIn) {
 
 module.exports = Object.freeze({
   STAGE, OWNER, STAGE_TAG, CLI_REL, LIB_REL, APPROVE_MAX_TOTAL_USD, TTL_HOURS_MAX, ACR_NAME, IMAGE_REPO,
+  LIFECYCLE_TEMPORARY, LIFECYCLE_DURABLE,
   EXECUTOR_UAI_OID, ROLE_CONTRIBUTOR, ROLE_RBAC_ADMIN, ROLE_ACR_PUSH, ROLE_ACR_BUILD_RUNNER, PREPARED_FOR,
   SENTINELS, LEGITIMATE_PHASES, PHASE_MAX_MS, RBAC_PROPAGATION_MAX_ATTEMPTS,
   LOCAL_APPLY_RUNTIME_PREREQ_CMD, LOCAL_APPLY_RUNTIME_MODULES, LOCAL_APPLY_RUNTIME_ENTRYPOINTS,
   createDeps, apply, rollback, expiryStatus, prepareSpec, assertLocalApplyRuntimePreflight,
   validateApprovalFlags, estimateProratedWorstCaseUsd, assertCostGate, assertActiveDrill, assertDrillTags,
+  resolveLifecycleMode, bindLifecyclePlanDigest, durableLifecycleTags, assertDurableLifecycleTags,
+  inferLifecycleFromTags,
   drillTags, preparedTags, buildPreparedRoleAssignments, deleteExactTempAcrRbacAdmin,
   expectedTenantAcrPullAssignment, putExactTenantAcrPull, deleteExactTenantAcrPull,
   assertRoleAssignmentIdentity,

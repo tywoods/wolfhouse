@@ -3713,11 +3713,76 @@ async function main() {
       && lib.RBAC_PROPAGATION_MAX_ATTEMPTS >= 2 && lib.RBAC_PROPAGATION_MAX_ATTEMPTS <= 5);
   }
 
+  // Lifecycle: default temporary unchanged; internal durable-staging via real apply path.
+  {
+    const baseAuth = await lib.deriveD1Authority({ slug: SLUG }, makeHarness(lib, d1).deps);
+    const bound = lib.bindLifecyclePlanDigest(baseAuth.planDigest, lib.LIFECYCLE_DURABLE);
+    ok('default_lifecycle_digest_unbound',
+      lib.resolveLifecycleMode({}).mode === lib.LIFECYCLE_TEMPORARY
+      && lib.bindLifecyclePlanDigest(baseAuth.planDigest, lib.LIFECYCLE_TEMPORARY) === baseAuth.planDigest
+      && bound !== baseAuth.planDigest
+      && !/_internalDurableLifecycle|lifecycleMode|durable-staging|lifecycle-mode/.test(
+        fs.readFileSync(path.join(ROOT, CLI_REL), 'utf8'),
+      )
+      && /temporary-drill|durable-staging|_internalDurableLifecycle|zero mutation/i.test(doc));
+    const hCli = makeHarness(lib, d1);
+    const rCli = await lib.apply({ slug: SLUG, ...approval(), lifecycleMode: 'durable-staging' }, hCli.deps);
+    ok('public_cli_lifecycle_activation_refused',
+      !rCli.ok && rCli.refusedBeforeAzureMutation
+      && !hCli.armLog.some((x) => ['PUT', 'DELETE', 'PATCH'].includes(x.method))
+      && (rCli.errors || []).some((e) => e.code === 'lifecycle_mode_cli_forbidden'));
+    const hOk = makeHarness(lib, d1);
+    const names = d1.deriveNames(SLUG, SUB);
+    hOk.seedRoles(names);
+    hOk.setJob({
+      id: `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.App/jobs/${names.bootstrapJobName}`,
+      name: names.bootstrapJobName, tags: {},
+    });
+    const app = runtimeAppBody(names);
+    app.id = `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.App/containerApps/${names.staffApiAppName}`;
+    app.properties.latestRevisionName = `${names.staffApiAppName}--rev1`;
+    app.properties.template.scale = { minReplicas: 1, maxReplicas: 1 };
+    hOk.setApp(app);
+    const rOk = await lib.apply({ slug: SLUG, _internalDurableLifecycle: true }, hOk.deps);
+    const rec = lib.readReceipt(hOk.deps, SLUG);
+    const tags = ((hOk.armLog.filter((x) => x.method === 'PUT'
+      && /resourcegroups\/[^/?]+(\?|$)/i.test(x.path || '')).pop() || {}).body || {}).tags || {};
+    ok('durable_mocked_success_preserved',
+      rOk.ok && rOk.lifecycleMode === lib.LIFECYCLE_DURABLE && rOk.destroyAfterSuccess === false
+      && rOk.planDigest === bound && rec && rec.lifecycleMode === lib.LIFECYCLE_DURABLE
+      && rec.durableStaging === true && rec.temporaryDrill === false && rec.createdAt == null
+      && tags.durableStaging === 'true' && tags.temporaryDrill == null && tags.planDigest === bound
+      && !hOk.armLog.some((x) => x.method === 'DELETE' && /resourcegroups\/[^/?]+(\?|$)/i.test(x.path || '')
+        && !/providers\//i.test((x.path || '').split('resourcegroups/')[1] || '')));
+    const hFail = makeHarness(lib, d1);
+    hFail.setPutFailPath('messi-2d2-infra');
+    const rFail = await lib.apply({ slug: SLUG, _internalDurableLifecycle: true, rollbackOnFailure: true }, hFail.deps);
+    ok('durable_mocked_failure_rolled_back',
+      !rFail.ok && rFail.rollbackOnFailure && rFail.rollbackOnFailure.ok && rFail.rollbackOnFailure.deleted);
+    const hX = makeHarness(lib, d1);
+    const dTags = lib.durableLifecycleTags({ tenantSlug: SLUG, planDigest: bound, deploySha: SHA });
+    hX.setRg({ name: RG, tags: dTags }); hX.seedFoundation(dTags);
+    const rbPublic = await lib.rollback({ slug: SLUG, confirmDelete: RG }, hX.deps);
+    const replay = await lib.deriveD1HistoricalRollbackAuthority({
+      slug: SLUG, liveDeploySha: SHA, livePlanDigest: baseAuth.planDigest, lifecycleMode: lib.LIFECYCLE_DURABLE,
+    }, hX.deps);
+    ok('cross_mode_takeover_replay_refused',
+      !rbPublic.ok && (rbPublic.errors || []).some((e) => e.code === 'durable_rollback_not_public')
+      && !replay.ok && (replay.errors || []).some((e) => /plan_digest|digest/i.test(e.code || ''))
+      && !lib.assertDurableLifecycleTags(drillOwned(baseAuth.planDigest), {
+        tenantSlug: SLUG, planDigest: bound, deploySha: SHA,
+      }).ok
+      && !lib.assertDrillTags(dTags, {
+        tenantSlug: SLUG, planDigest: bound, deploySha: SHA, createdAt: CREATED, expiresAt: EXPIRES,
+      }).ok);
+  }
+
   const st = diffStat();
   ok('file_budget', st.files <= 14, `files=${st.files}`);
   // Budget raised for JS-owned AcrPull + platform-supplemental smart detector + live residual
-  // + Container Apps Job 32-char name owner (messiproof ContainerAppInvalidName).
-  ok('net_budget', st.net <= 7800, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
+  // + Container Apps Job 32-char name owner (messiproof ContainerAppInvalidName)
+  // + internal durable-staging lifecycle mode (planDigest/tags/receipt/authority bind).
+  ok('net_budget', st.net <= 8200, `net=${st.net} raw=+${st.rawAdd}/-${st.rawDel}`);
   console.log(`\nRESULT: ${fail ? 'FAIL' : 'PASS'}  pass=${pass} fail=${fail}  net=+${st.net}`);
   process.exit(fail ? 1 : 0);
 }
