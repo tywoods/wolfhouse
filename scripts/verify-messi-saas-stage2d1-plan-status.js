@@ -1201,6 +1201,7 @@ async function main() {
     ok('cli_parent_and_surface', /runProductionParent/.test(cli) && /INTERNAL_FLAG/.test(cli)
       && libSrc.includes('/usr/local/bin/node') && libSrc.includes('internal-snapshot-worker')
       && /spawn\(pins\.node/.test(libSrc) && /plan|status/.test(cli)
+      && /--lifecycle-mode temporary-drill\|durable-staging/.test(cli) && /lifecycleMode/.test(cli)
       && !/\bapply\b|\brollback\b/.test(cli) && /expected_plan_digest_removed|expectedPlanDigest/.test(cli));
   }
   {
@@ -1252,6 +1253,87 @@ async function main() {
       && typeof lib.apply !== 'function' && !/\basync function apply\b/.test(libSrc)
       && /staging_readiness/.test(libSrc) && !/live_enabled_not_ready/.test(libSrc)
       && !/\/TODO\|provisional\//.test(libSrc) && !/pricing_status ===/.test(libSrc));
+    // Public CLI: exact --lifecycle-mode; refuse aliases/overrides/arity before snapshot worker.
+    const cliMod = require(path.join(ROOT, CLI_REL));
+    const base = ['status', '--slug', MIR];
+    const good = cliMod.parseArgs([...base, '--lifecycle-mode', 'durable-staging']);
+    const def = cliMod.parseArgs(['plan', '--slug', SLUG]);
+    const codeOf = (a) => ((cliMod.parseArgs(a).errors || [])[0] || {}).code;
+    ok('cli_lifecycle_mode_parse_fail_closed',
+      /--lifecycle-mode temporary-drill\|durable-staging/.test(cliMod.usage())
+      && good.ok && good.lifecycleMode === 'durable-staging' && def.ok && def.lifecycleMode == null
+      && cliMod.buildOpts(def).lifecycleMode == null
+      && cliMod.parseArgs(['plan', '--slug', SLUG, '--lifecycle-mode', 'temporary-drill']).lifecycleMode === 'temporary-drill'
+      && codeOf([...base, '--lifecycle', 'durable-staging']) === 'unknown_cli_flag'
+      && codeOf([...base, '--lifecycle_mode', 'durable-staging']) === 'unknown_cli_flag'
+      && codeOf([...base, '--Lifecycle-Mode', 'durable-staging']) === 'unknown_cli_flag'
+      && codeOf([...base, '--lifecycle-mode', 'Durable-Staging']) === 'lifecycle_mode_invalid'
+      && codeOf([...base, '--lifecycle-mode']) === 'missing_cli_flag_value'
+      && codeOf([...base, '--lifecycle-mode', 'durable-staging', '--lifecycle-mode', 'temporary-drill']) === 'conflicting_cli_flag'
+      && codeOf([...base, '--lifecycle-mode', 'durable-staging', '--lifecycle-mode', 'durable-staging']) === 'duplicate_cli_flag'
+      && codeOf([...base, '--ready', 'true']) === 'unknown_cli_flag'
+      && codeOf([...base, '--live-enabled', 'true']) === 'unknown_cli_flag'
+      && codeOf([...base, '--lifecycle-mode=durable-staging']) === 'unknown_cli_flag'
+      && codeOf(['plan', '--slug', MIR, 'junk']) === 'unexpected_cli_positional'
+      && codeOf(['plan', 'status', '--slug', MIR]) === 'unexpected_cli_positional'
+      && codeOf(['--slug', MIR]) === 'unexpected_cli_positional'
+      && codeOf(['plan', '--slug', MIR, lib.INTERNAL_FLAG]) === 'unknown_cli_flag'
+      && codeOf(['plan', '--slug', MIR, lib.INTERNAL_FLAG, lib.INTERNAL_FLAG]) === 'unknown_cli_flag');
+    // Parent→worker argv: spy only deps.snapshotWorker (no process/global monkey-patch).
+    const spawns = []; const nArmSpawn = h.armLog.length;
+    h.deps.gitShowBytes = (_sha, rel) => fs.readFileSync(path.join(ROOT, rel));
+    h.deps.snapshotWorker = async ({ argv: workerArgv, payload }) => {
+      spawns.push({ argv: workerArgv.slice(), hasCap: !!(payload && payload.capability && String(payload.capability).length >= 32) });
+      const wArgs = cliMod.parseArgs(workerArgv);
+      if (!wArgs.ok) return { ok: false, errors: wArgs.errors, result: { ok: false, errors: wArgs.errors } };
+      const result = wArgs._[0] === 'plan'
+        ? await lib.plan(cliMod.buildOpts(wArgs), h.deps)
+        : await lib.status(cliMod.buildOpts(wArgs), h.deps);
+      return { ok: !!result.ok, result, exitCode: result.ok ? 0 : 1 };
+    };
+    // Public gate mirror: only spawn when parse+cmd pass (main never reaches parent otherwise).
+    const wouldSpawn = (argv) => {
+      if (argv.includes(lib.INTERNAL_FLAG)) return false; // public short-circuit → FD gate, not parent spawn
+      const a = cliMod.parseArgs(argv);
+      if (!a.ok) return false;
+      return a._[0] === 'plan' || a._[0] === 'status';
+    };
+    const malforms = [
+      ['plan', '--slug', MIR, 'junk'],
+      ['plan', 'status', '--slug', MIR],
+      ['status', '--slug', MIR, '--lifecycle-mode=durable-staging'],
+      ['status', '--slug', MIR, '--lifecycle', 'durable-staging'],
+      ['plan', '--slug', MIR, lib.INTERNAL_FLAG],
+      ['plan', '--slug', MIR, lib.INTERNAL_FLAG, lib.INTERNAL_FLAG],
+    ];
+    for (const badArgv of malforms) {
+      if (wouldSpawn(badArgv)) await lib.runProductionParent(badArgv, h.deps);
+    }
+    ok('cli_malformed_zero_spawn_zero_arm', spawns.length === 0 && h.armLog.length === nArmSpawn
+      && malforms.every((a) => wouldSpawn(a) === false));
+    const durableArgv = ['status', '--slug', MIR, '--lifecycle-mode', 'durable-staging'];
+    ok('cli_public_gate_allows_durable', wouldSpawn(durableArgv) === true);
+    const parentR = await lib.runProductionParent(durableArgv, h.deps);
+    const stLib = await lib.status({ slug: MIR, lifecycleMode: 'durable-staging' }, h.deps);
+    const pLib = await lib.plan({ slug: MIR, lifecycleMode: 'durable-staging' }, h.deps);
+    const pArgv = ['plan', '--slug', MIR, '--lifecycle-mode', 'durable-staging'];
+    const parentP = await lib.runProductionParent(pArgv, h.deps);
+    ok('cli_parent_worker_argv_durable_envelope',
+      spawns.length === 2
+      && spawns.every((s) => s.hasCap && s.argv.includes('--lifecycle-mode') && s.argv.includes('durable-staging')
+        && !s.argv.includes(lib.INTERNAL_FLAG))
+      && JSON.stringify(spawns[0].argv) === JSON.stringify(durableArgv)
+      && JSON.stringify(spawns[1].argv) === JSON.stringify(pArgv)
+      && parentR.lifecycleMode === 'durable-staging' && parentR.planDigest === stLib.planDigest
+      && JSON.stringify(parentR.blockers) === JSON.stringify(stLib.blockers)
+      && need.every((c) => (parentR.blockers || []).some((b) => b.code === c))
+      && parentR.applyPath == null && parentR.mutationPath == null
+      && parentP.planDigest === pLib.planDigest && parentP.azureDispatches === 0
+      && parentP.applyPath == null && parentP.mutationPath == null
+      && h.armLog.length === nArmSpawn
+      && cliMod.buildOpts(good).lifecycleMode === 'durable-staging');
+    // Cleanup spy so later harness reuse cannot leak spawn boundary.
+    delete h.deps.snapshotWorker; delete h.deps.gitShowBytes;
   }
   {
     // Hostile path redaction: secret absolute roots / OS text must never appear in safeReadFile or plan/status.
