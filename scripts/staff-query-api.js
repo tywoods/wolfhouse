@@ -18437,7 +18437,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <div class="portal-schedule-create-field"><label for="ps-create-date-from" data-i18n="schedule.create.dateFrom">From date</label><input id="ps-create-date-from" type="date"></div>
         <div class="portal-schedule-create-field"><label for="ps-create-date-to" data-i18n="schedule.create.dateTo">To date</label><input id="ps-create-date-to" type="date"></div>
         </div>
-        <div class="portal-schedule-create-private-when" style="display:none">
+        <div id="ps-create-private-when" class="portal-schedule-create-private-when" style="display:none">
           <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1"></div>
           <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set date and time for each private course session.</span>
             <div id="ps-create-private-lesson-sessions" class="portal-schedule-private-sessions"></div>
@@ -21794,10 +21794,8 @@ function schedulePopulateCreateComponentFields(){
   // Private Course uses per-session dates: hide range, show When session editor.
   var dateRange = el('ps-create-date-range');
   if (dateRange) dateRange.style.display = privateOn ? 'none' : '';
-  var privateWhen = dateRange && dateRange.nextElementSibling;
-  if (privateWhen && privateWhen.classList && privateWhen.classList.contains('portal-schedule-create-private-when')) {
-    privateWhen.style.display = privateOn ? '' : 'none';
-  }
+  var privateWhen = el('ps-create-private-when');
+  if (privateWhen) privateWhen.style.display = privateOn ? '' : 'none';
   if (courseOn) schedulePopulateCreateCourseFields();
   if (privateOn) {
     scheduleFetchLessonTimesConfig(getClient()).then(function(){
@@ -21829,8 +21827,11 @@ function scheduleRefreshCreateFullDayAddon(){ try {
   var defaultQty = 1;
   if (privateOn){
     var sessions = scheduleReadPrivateLessonSessionsFromDom();
-    var seen = {};
-    for (var i=0;i<sessions.length;i++){ var d = sessions[i].date; if (d && !seen[d]){ seen[d]=1; eligibleDates.push(d); } }
+    var seen = {}, todayFd = typeof schedulePortalMadridTodayIso === 'function' ? schedulePortalMadridTodayIso() : '';
+    for (var i=0;i<sessions.length;i++){
+      var d = typeof schedulePortalCanonicalDateIso === 'function' ? schedulePortalCanonicalDateIso(sessions[i] && sessions[i].date) : null;
+      if (d && (!todayFd || d >= todayFd) && !seen[d]){ seen[d]=1; eligibleDates.push(d); }
+    }
     eligibleDates.sort();
     defaultQty = parseInt((el('ps-create-private-lesson-surfers') && el('ps-create-private-lesson-surfers').value) || '1', 10) || 1;
   } else {
@@ -21964,15 +21965,10 @@ var scheduleAdminPricesCache = [];
 function scheduleCreateDateSpanForRentals(){
   var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
   if (privateOn) {
-    var sessions = scheduleReadPrivateLessonSessionsFromDom();
-    var dates = [];
-    var seen = {};
-    for (var i = 0; i < sessions.length; i++) {
-      var d = sessions[i] && sessions[i].date ? String(sessions[i].date).slice(0, 10) : '';
-      if (d && !seen[d]) { seen[d] = 1; dates.push(d); }
-    }
-    dates.sort();
-    if (dates.length) return { from: dates[0], to: dates[dates.length - 1] };
+    // Outer range is derived from canonical non-past session dates (or cleared).
+    var fromP = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
+    var toP = el('ps-create-date-to') ? el('ps-create-date-to').value : fromP;
+    if (fromP) return { from: fromP, to: toP || fromP };
   }
   var from = el('ps-create-date-from') ? el('ps-create-date-from').value : scheduleTodayIso();
   var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
