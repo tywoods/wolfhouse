@@ -551,6 +551,204 @@ function schedulePortalRefreshCreateQuote() {
   });
 }
 
+/* ── Private multi-session editor (Kaya Slice 4; When section) ─────────── */
+
+function schedulePrivateLessonDefaultEnd(startHm, durationMin) {
+  var startM = scheduleSlotMinutesFromToken(startHm);
+  if (startM == null) return '';
+  return scheduleMinutesLabel(startM + (durationMin || schedulePrivateLessonDurationCache || 120));
+}
+
+function scheduleReadPrivateLessonSessionsFromDom() {
+  var wrap = el('ps-create-private-lesson-sessions');
+  var sessions = [];
+  if (!wrap) return sessions;
+  wrap.querySelectorAll('.portal-schedule-private-session-row').forEach(function(row) {
+    var dateEl = row.querySelector('.ps-pl-session-date');
+    var startEl = row.querySelector('.ps-pl-session-start');
+    var endEl = row.querySelector('.ps-pl-session-end');
+    sessions.push({
+      date: dateEl ? dateEl.value : '',
+      start: startEl ? startEl.value : '',
+      end: endEl ? endEl.value : '',
+    });
+  });
+  return sessions;
+}
+
+function scheduleWirePrivateLessonSessionRow(row) {
+  if (!row || row.dataset.wired) return;
+  row.dataset.wired = '1';
+  var startEl = row.querySelector('.ps-pl-session-start');
+  var endEl = row.querySelector('.ps-pl-session-end');
+  if (startEl) {
+    startEl.addEventListener('change', function() {
+      if (!endEl) return;
+      var curEnd = endEl.value;
+      var defEnd = schedulePrivateLessonDefaultEnd(startEl.value);
+      if (!curEnd || curEnd === schedulePrivateLessonDefaultEnd(startEl.defaultValue || '10:00')) {
+        endEl.value = defEnd;
+      }
+      startEl.defaultValue = startEl.value;
+    });
+  }
+  function onField() {
+    scheduleUpdatePrivateLessonDateRangeFromSessions();
+    if (typeof scheduleRenderCreateRentals === 'function') scheduleRenderCreateRentals();
+    if (typeof scheduleRefreshCreateFullDayAddon === 'function') scheduleRefreshCreateFullDayAddon();
+    if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
+  }
+  ['.ps-pl-session-date', '.ps-pl-session-start', '.ps-pl-session-end'].forEach(function(sel) {
+    var f = row.querySelector(sel);
+    if (!f || f.dataset.sessionFieldWired) return;
+    f.dataset.sessionFieldWired = '1';
+    f.addEventListener('change', onField);
+  });
+}
+
+function scheduleSyncPrivateLessonSessions() {
+  var wrap = el('ps-create-private-lesson-sessions');
+  var qtyEl = el('ps-create-private-lesson-qty');
+  if (!wrap || !qtyEl) return;
+  var qty = parseInt(qtyEl.value, 10) || 1;
+  if (qty < 1) qty = 1;
+  if (qty > 30) qty = 30;
+  qtyEl.value = String(qty);
+  var existing = scheduleReadPrivateLessonSessionsFromDom();
+  var dateFrom = (el('ps-create-date-from') && el('ps-create-date-from').value) || scheduleTodayIso();
+  var html = '';
+  var removeLabel = portalT('schedule.create.privateLesson.removeSession') || 'Remove';
+  for (var i = 0; i < qty; i++) {
+    var prev = existing[i] || {};
+    var date = prev.date || dateFrom;
+    var start = prev.start || '10:00';
+    var end = prev.end || schedulePrivateLessonDefaultEnd(start);
+    var removeBtn = qty > 1
+      ? '<button type="button" class="btn btn-ghost portal-schedule-session-remove" data-session-remove="' + String(i) + '" data-i18n="schedule.create.privateLesson.removeSession" data-i18n-aria="schedule.create.privateLesson.removeSession" aria-label="' + escHtml(removeLabel) + '">Remove</button>'
+      : '';
+    html += '<div class="portal-schedule-private-session-row" data-session-index="' + String(i + 1) + '">' +
+      '<p class="portal-schedule-card-sub" style="margin:8px 0 4px">' + escHtml(portalT('schedule.create.privateLesson.sessionLabel')) + ' ' + String(i + 1) + '</p>' +
+      '<div class="portal-schedule-private-session-grid">' +
+      '<label><span data-i18n="schedule.create.privateLesson.date">Date</span><input class="ps-pl-session-date" type="date" value="' + escHtml(date) + '"></label>' +
+      '<label><span data-i18n="schedule.create.privateLesson.start">Start</span><input class="ps-pl-session-start" type="time" value="' + escHtml(start) + '"></label>' +
+      '<label><span data-i18n="schedule.create.privateLesson.end">End</span><input class="ps-pl-session-end" type="time" value="' + escHtml(end) + '"></label>' +
+      '</div>' + removeBtn + '</div>';
+  }
+  wrap.innerHTML = html;
+  wrap.querySelectorAll('.portal-schedule-private-session-row').forEach(scheduleWirePrivateLessonSessionRow);
+  wrap.querySelectorAll('.portal-schedule-session-remove').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      scheduleRemovePrivateLessonSession(parseInt(btn.getAttribute('data-session-remove'), 10));
+    });
+  });
+  scheduleUpdatePrivateLessonDateRangeFromSessions();
+  var modal = el('ps-create-modal');
+  if (modal && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(modal);
+  if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
+}
+
+function scheduleUpdatePrivateLessonDateRangeFromSessions() {
+  var sessions = scheduleReadPrivateLessonSessionsFromDom();
+  var dates = [];
+  for (var i = 0; i < sessions.length; i++) {
+    var d = sessions[i] && sessions[i].date ? String(sessions[i].date) : '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) dates.push(d);
+  }
+  if (!dates.length) return;
+  dates.sort();
+  var df = el('ps-create-date-from');
+  var dt = el('ps-create-date-to');
+  if (df) df.value = dates[0];
+  if (dt) dt.value = dates[dates.length - 1];
+}
+
+function scheduleAddPrivateLessonSession() {
+  var qtyEl = el('ps-create-private-lesson-qty');
+  if (!qtyEl) return;
+  var existing = scheduleReadPrivateLessonSessionsFromDom();
+  var last = existing[existing.length - 1] || {};
+  var nextDate = last.date
+    ? scheduleIsoDate(scheduleAddDays(scheduleParseIso(last.date), 1))
+    : ((el('ps-create-date-from') && el('ps-create-date-from').value) || scheduleTodayIso());
+  var next = Math.min((parseInt(qtyEl.value, 10) || existing.length || 1) + 1, 30);
+  qtyEl.value = String(next);
+  scheduleSyncPrivateLessonSessions();
+  var wrap = el('ps-create-private-lesson-sessions');
+  if (wrap) {
+    var rows = wrap.querySelectorAll('.portal-schedule-private-session-row');
+    var row = rows[rows.length - 1];
+    if (row) {
+      var dEl = row.querySelector('.ps-pl-session-date');
+      var sEl = row.querySelector('.ps-pl-session-start');
+      var eEl = row.querySelector('.ps-pl-session-end');
+      if (dEl) dEl.value = nextDate;
+      if (sEl && last.start) sEl.value = last.start;
+      if (eEl && last.end) eEl.value = last.end;
+    }
+  }
+  scheduleUpdatePrivateLessonDateRangeFromSessions();
+}
+
+function scheduleRemovePrivateLessonSession(index) {
+  var qtyEl = el('ps-create-private-lesson-qty');
+  var wrap = el('ps-create-private-lesson-sessions');
+  if (!qtyEl || !wrap) return;
+  var rows = wrap.querySelectorAll('.portal-schedule-private-session-row');
+  if (index < 0 || index >= rows.length || rows.length <= 1) return;
+  var target = rows[index];
+  if (target && target.parentNode) target.parentNode.removeChild(target);
+  var remaining = wrap.querySelectorAll('.portal-schedule-private-session-row').length;
+  qtyEl.value = String(Math.max(remaining, 1));
+  scheduleSyncPrivateLessonSessions();
+  scheduleUpdatePrivateLessonDateRangeFromSessions();
+}
+
+/** Client-side private session validation before quote/create (localized keys). */
+function schedulePortalValidatePrivateLessonCreate(pl) {
+  if (!pl || pl.enabled === false) return { ok: true };
+  var max = 30;
+  var qty = parseInt(pl.quantity, 10);
+  if (!Number.isFinite(qty) || qty < 1 || qty > max) {
+    return { ok: false, errorKey: 'schedule.create.privateLesson.sessionMax' };
+  }
+  var sessions = Array.isArray(pl.sessions) ? pl.sessions : null;
+  if (!sessions || sessions.length !== qty) {
+    return { ok: false, errorKey: 'schedule.create.privateLesson.sessionsMismatch' };
+  }
+  var today = schedulePortalMadridTodayIso();
+  var seen = Object.create(null);
+  for (var i = 0; i < sessions.length; i++) {
+    var s = sessions[i] || {};
+    var dateRaw = s.date != null ? String(s.date).trim() : '';
+    var start = s.start != null ? String(s.start).trim() : '';
+    var end = s.end != null ? String(s.end).trim() : '';
+    if (!dateRaw || !start || !end) {
+      return { ok: false, errorKey: 'schedule.create.privateLesson.sessionIncomplete' };
+    }
+    var date = schedulePortalCanonicalDateIso(dateRaw);
+    if (!date) {
+      return { ok: false, errorKey: 'schedule.create.privateLesson.sessionDateInvalid' };
+    }
+    if (date < today) {
+      return { ok: false, errorKey: 'schedule.create.privateLesson.sessionDatePast' };
+    }
+    if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(start) || !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(end)) {
+      return { ok: false, errorKey: 'schedule.create.privateLesson.sessionIncomplete' };
+    }
+    var startM = Number(start.slice(0, 2)) * 60 + Number(start.slice(3, 5));
+    var endM = Number(end.slice(0, 2)) * 60 + Number(end.slice(3, 5));
+    if (!(endM > startM)) {
+      return { ok: false, errorKey: 'schedule.create.privateLesson.sessionEndAfterStart' };
+    }
+    var key = date + '|' + start + '|' + end;
+    if (seen[key]) {
+      return { ok: false, errorKey: 'schedule.create.privateLesson.sessionDuplicate' };
+    }
+    seen[key] = 1;
+  }
+  return { ok: true };
+}
+
 function schedulePortalPopulateCreateCourseFields() {
   var sel = el('ps-create-course-select');
   if (!sel) return Promise.resolve();
@@ -637,17 +835,13 @@ function submitScheduleManualBooking() {
     }
   }
   if (payload.components.private_lesson) {
-    var pl = payload.components.private_lesson;
-    if (!pl.sessions || pl.sessions.length !== pl.quantity) {
-      if (msg) { msg.textContent = portalT('schedule.create.privateLesson.sessionsMismatch'); msg.style.display = 'block'; }
-      return;
-    }
-    for (var si = 0; si < pl.sessions.length; si++) {
-      var sess = pl.sessions[si];
-      if (!sess.date || !sess.start || !sess.end) {
-        if (msg) { msg.textContent = portalT('schedule.create.privateLesson.sessionIncomplete'); msg.style.display = 'block'; }
-        return;
+    var plCheck = schedulePortalValidatePrivateLessonCreate(payload.components.private_lesson);
+    if (!plCheck.ok) {
+      if (msg) {
+        msg.textContent = portalT(plCheck.errorKey || 'schedule.create.privateLesson.sessionIncomplete');
+        msg.style.display = 'block';
       }
+      return;
     }
   }
 
