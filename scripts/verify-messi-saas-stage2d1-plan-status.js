@@ -1203,6 +1203,45 @@ async function main() {
       && /spawn\(pins\.node/.test(libSrc) && /plan|status/.test(cli)
       && !/\bapply\b|\brollback\b/.test(cli) && /expected_plan_digest_removed|expectedPlanDigest/.test(cli));
   }
+  {
+    const MIR = 'mirleft';
+    const need = ['inventory_not_ready', 'prices_not_ready', 'channels_not_ready', 'live_enabled_not_ready'];
+    const h = makeHarness(lib);
+    const st = await lib.status({ slug: MIR, lifecycleMode: lib.LIFECYCLE_DURABLE }, h.deps);
+    const codes = (st.blockers || []).map((b) => b.code);
+    ok('durable_mirleft_exact_blockers', st.ok === false && st.readiness === false
+      && st.lifecycleMode === 'durable-staging' && need.every((c) => codes.includes(c))
+      && st.applyPath == null && st.mutationPath == null
+      && st.rollbackPolicy && st.rollbackPolicy.onSuccess === 'preserve_rg'
+      && st.rollbackPolicy.destroyAfterSuccess === false
+      && (st.humanAdminPrerequisites || []).length >= 3 && st.estimatedMonthlyUsd > 0
+      && st.rgTagContract && st.rgTagContract.lifecycleMode === 'durable-staging'
+      && st.rgTagContract.durableStaging === 'true' && /^[a-f0-9]{64}$/.test(st.planDigest),
+    JSON.stringify({ codes, err: st.errors }).slice(0, 200));
+    const ov = await lib.status({
+      slug: MIR, lifecycleMode: 'durable-staging', ready: true, readiness: true,
+      live_enabled: true, blockers: [], clientReadiness: { ready: true, blockers: [] },
+    }, h.deps);
+    ok('durable_caller_cannot_override_readiness', ov.ok === false && ov.readiness === false
+      && need.every((c) => (ov.blockers || []).some((b) => b.code === c)));
+    const nArm = h.armLog.length;
+    const p1 = await lib.plan({ slug: MIR, lifecycleMode: 'durable-staging' }, h.deps);
+    const p2 = await lib.plan({ slug: MIR, lifecycleMode: 'durable-staging' }, h.deps);
+    ok('durable_no_azure_dispatches', h.armLog.length === nArm && p1.azureDispatches === 0
+      && p1.applyPath == null && p1.mutationPath == null);
+    ok('durable_deterministic_digest', p1.ok && p2.ok && p1.planDigest === p2.planDigest
+      && p1.plan.planDigest === p1.planDigest && /^[a-f0-9]{64}$/.test(p1.planDigest));
+    const temp = await lib.plan({ slug: SLUG }, h.deps);
+    const dur = await lib.plan({ slug: SLUG, lifecycleMode: 'durable-staging' }, h.deps);
+    const blob = JSON.stringify(st) + JSON.stringify(p1);
+    ok('durable_cross_mode_digest_separation', temp.ok && dur.ok
+      && temp.plan.planDigest !== dur.planDigest && dur.plan.lifecycleMode === 'durable-staging'
+      && temp.plan.lifecycleMode == null && !/postgres(ql)?:\/\//i.test(blob)
+      && !/sk_live|sk_test|accessToken|client_secret/i.test(blob) && !/"apply"\s*:/.test(blob)
+      && typeof lib.apply !== 'function'
+      && !/\basync function apply\b/.test(fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8'))
+      && /durable-staging/.test(fs.readFileSync(path.join(ROOT, DOC_REL), 'utf8')));
+  }
   const st = diffStat();
   ok('file_budget', st.files <= 10, `files=${st.files}`);
   // Raised for infra-partial owned-deployment subset + empty-RG deployments LIST authority

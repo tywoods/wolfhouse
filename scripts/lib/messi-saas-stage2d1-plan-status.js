@@ -19,8 +19,10 @@ const OWNER = 'messi-stage2d1';
 const MODULE_REL = 'infra/azure/modules/tenant-staging/main.bicep';
 const SUBS_REL = 'fixtures/factory-client-productization/slice1c-substitutions-surf_house.json';
 const STAGING_SUB_REL = 'config/azure-staging-subscription.json';
+const CLIENTS_REL = 'config/clients/clients.json';
 const CLI_REL = 'scripts/messi-saas-stage2d1-plan-status.js';
 const LIB_REL = 'scripts/lib/messi-saas-stage2d1-plan-status.js';
+const LIFECYCLE_TEMPORARY = 'temporary-drill'; const LIFECYCLE_DURABLE = 'durable-staging';
 const INTERNAL_FLAG = '--internal-snapshot-worker';
 const CAPABILITY_FD = 3;
 const PINNED_BINS = Object.freeze({
@@ -1825,9 +1827,52 @@ async function runProductionParent(argv, depsIn) {
     return worker.result || { ok: false, errors: worker.errors || [err('snapshot_worker_failed', 'no result')] };
   } finally { snap.cleanup(); }
 }
+function resolveLifecycleMode(opts) {
+  const r = opts && (opts.lifecycleMode != null ? opts.lifecycleMode : opts.lifecycle);
+  if (r == null || r === '' || String(r) === LIFECYCLE_TEMPORARY) return { ok: true, isDurable: false };
+  return String(r) === LIFECYCLE_DURABLE ? { ok: true, isDurable: true }
+    : { ok: false, errors: [err('lifecycle_mode_invalid', 'lifecycleMode must be temporary-drill|durable-staging')] };
+}
+function assessClientReadiness(deps, slug) {
+  const blockers = []; const push = (c, m) => { if (!blockers.some((b) => b.code === c)) blockers.push({ code: c, message: m }); };
+  const rf = typeof deps.readFileSync === 'function' ? deps.readFileSync : fs.readFileSync;
+  const j = (rel) => JSON.parse(rf(path.join(deps.repoRoot, rel), 'utf8'));
+  let clients; try { clients = j(CLIENTS_REL); } catch (e) {
+    return { ready: false, blockers: [{ code: 'clients_unreadable', message: redact(String(e.message || e)) }] };
+  }
+  const entry = (clients.clients || []).find((c) => c && c.client_slug === slug);
+  if (!entry || entry.live_enabled !== true) push('live_enabled_not_ready', 'live_enabled is not true');
+  let base; try { base = j(`config/clients/${slug}.baseline.json`); } catch (e) {
+    push('baseline_unreadable', redact(String(e.message || e))); return { ready: false, blockers };
+  }
+  const rm = base.rooming || {};
+  if ((rm._status && /TODO|provisional/i.test(String(rm._status))) || Object.entries(rm.rooms || {}).some(([id, room]) => !id.startsWith('_') && room && (room.guest_assignable === false || /TODO|provisional/i.test(String(room.status || '')))) || (base.inventory && /TODO/i.test(String(base.inventory._note || '')))) push('inventory_not_ready', 'inventory provisional/TODO');
+  const walk = (n) => { if (!n || typeof n !== 'object' || blockers.some((b) => b.code === 'prices_not_ready')) return; if (n.pricing_status === 'unverified_seed' || n.pricing_status === 'todo' || n.pricing_status === 'provisional') { push('prices_not_ready', 'pricing_status not confirmed'); return; } for (const v of Object.values(n)) walk(v); };
+  walk(base.catalog || {}); const wa = (base.channels && base.channels.whatsapp) || {};
+  if (wa.enabled !== true || wa.status === 'planned' || !base.deployment || base.deployment.whatsapp_phone_number_id == null) push('channels_not_ready', 'WhatsApp/channels not provisioned');
+  return { ready: blockers.length === 0, blockers };
+}
+async function buildDurablePlanEnvelope(opts, deps) {
+  const g = validateSlug(opts && opts.slug); if (!g.ok) return g;
+  let sha = deps.verifiedDeploySha || null;
+  if (!deps.inExactSnapshot) { const pre = assertRepoDeployPreflight(deps); if (!pre.ok) return pre; sha = pre.verifiedDeploySha; }
+  else if (!sha) return { ok: false, errors: [err('verified_sha_required', 'internal mode needs verifiedDeploySha')] };
+  const sub = readStagingSubscriptionAuthority(deps.repoRoot); if (!sub.ok) return sub;
+  const tools = deps.toolAuthority || hashPinnedToolAuthority(deps); const compiled = compileBicepInSnapshot(deps, deps.repoRoot); if (!compiled.ok) return compiled;
+  const names = deriveNames(g.slug, sub.subscriptionId); const skus = estimateMonthlySkus();
+  const core = { schemaVersion: 1, authority: 'repo_durable_staging_plan', stage: STAGE, ownerTag: OWNER, lifecycleMode: LIFECYCLE_DURABLE, durableStaging: true, tenantSlug: names.tenantSlug, resourceGroupName: names.resourceGroupName, subscriptionId: names.subscriptionId, appNamePrefix: names.appNamePrefix, appDbName: names.appDbName, deploySha: String(sha).toLowerCase(), compiledTemplateSha256: compiled.compiledTemplateSha256, compiledTemplateBytes: compiled.templateBytes.length, moduleRel: MODULE_REL, stagingSubscriptionConfigSha256: sub.configSha256, toolAuthority: { gitSha256: tools.gitSha256, tarSha256: tools.tarSha256, nodeSha256: tools.nodeSha256, azSha256: tools.azSha256, bicepSha256: tools.bicepSha256, bicepVersion: tools.bicepVersion }, intendedSkus: skus.intendedSkus, estimatedMonthlyUsd: skus.estimatedMonthlyUsd, approvalCeilingUsd: skus.approvalCeilingUsd };
+  const planDigest = sha256(sortedStringify(core)); const clientReadiness = assessClientReadiness(deps, g.slug);
+  const rgTagContract = { tenant: names.tenantSlug, stage: STAGE, owner: OWNER, planDigest, deploySha: core.deploySha, lifecycleMode: LIFECYCLE_DURABLE, durableStaging: 'true' };
+  const rollbackPolicy = { onSuccess: 'preserve_rg', onFailedPartial: 'canonical_owned_rg_delete_only', destroyAfterSuccess: false, rollbackOnSuccess: false, temporaryDrill: false };
+  const humanAdminPrerequisites = ['register_Microsoft.AlertsManagement_on_staging_subscription', 'human_approval_before_any_future_apply_owner', 'client_readiness_blockers_cleared', 'target_rg_absent_or_exact_durable_tag_tuple'];
+  const plan = { ...core, planDigest, rgTagContract, humanAdminPrerequisites, rollbackPolicy, clientReadiness, applyPath: null, mutationPath: null };
+  return { ok: true, errors: [], lifecycleMode: LIFECYCLE_DURABLE, planDigest, estimatedMonthlyUsd: skus.estimatedMonthlyUsd, rgTagContract, humanAdminPrerequisites, rollbackPolicy, clientReadiness, readiness: clientReadiness.ready, blockers: clientReadiness.blockers, applyPath: null, mutationPath: null, azureDispatches: 0, plan, resourceGroupName: names.resourceGroupName, subscriptionId: names.subscriptionId, tenantSlug: names.tenantSlug, deploySha: core.deploySha };
+}
 async function plan(opts, depsIn) {
   const deps = depsIn || createDeps();
   try {
+    const life = resolveLifecycleMode(opts); if (!life.ok) return life;
+    if (life.isDurable) return buildDurablePlanEnvelope(opts || {}, deps);
     const d = await deriveAuthority(opts || {}, deps);
     if (!d.ok) return d;
     // Fail-closed before PLAN success: App Insights platform Failure-Anomalies needs this provider.
@@ -1857,6 +1902,11 @@ async function plan(opts, depsIn) {
 async function status(opts, depsIn) {
   const deps = depsIn || createDeps();
   try {
+    const life = resolveLifecycleMode(opts); if (!life.ok) return life;
+    if (life.isDurable) {
+      const env = await buildDurablePlanEnvelope(opts || {}, deps); if (!env.ok) return env;
+      return { ...env, ok: env.readiness === true, present: false, errors: env.readiness === true ? [] : (env.blockers || []).map((b) => err(b.code, b.message)) };
+    }
     const d = await deriveAuthority(opts || {}, deps);
     if (!d.ok) return d;
     const planDigest = d.planDigest;
@@ -1920,7 +1970,7 @@ async function status(opts, depsIn) {
 }
 module.exports = Object.freeze({
   STAGE, OWNER, MODULE_REL, STAGING_SUB_REL, SKU_EST, COST_API, HEALTH_IDENTITY_PATH,
-  PINNED_BINS, INTERNAL_FLAG, CAPABILITY_FD, CLI_REL, LIB_REL,
+  PINNED_BINS, INTERNAL_FLAG, CAPABILITY_FD, CLI_REL, LIB_REL, CLIENTS_REL, LIFECYCLE_TEMPORARY, LIFECYCLE_DURABLE,
   ROLE_KV_SECRETS_USER, ROLE_ACR_PULL, ACR_RG, IGNORE_TYPES, DEP_API, PROVIDER_API,
   ALERTS_MANAGEMENT_NAMESPACE, REQUIRED_PROVIDER_REGISTRATION_STATE,
   SMART_DETECTOR_ALERT_RULES_TYPE, SMART_DETECTOR_API,
@@ -1935,7 +1985,7 @@ module.exports = Object.freeze({
   isValidAzureContainerAppsJobName, canonicalBootstrapJobName, deriveBootstrapJobName,
   createDeps, deriveNames, deriveAuthority, deriveHistoricalRollbackAuthority,
   resolveCurrentStagingNames, assertHistoricalDeployShaCandidate, buildAuthorityAtExactSha,
-  plan, status, buildExpectedResourceContract, buildExpectedFailureAnomaliesSmartDetector,
+  resolveLifecycleMode, assessClientReadiness, buildDurablePlanEnvelope, plan, status, buildExpectedResourceContract, buildExpectedFailureAnomaliesSmartDetector,
   isExactPlatformSupplementalSmartDetector, matchPlatformSupplementalResource,
   buildOwnedDeploymentNames, isExactInfraPartialLive, isFullFoundationContract,
   isPermittedAbsentTenantAcrPullFinding,
