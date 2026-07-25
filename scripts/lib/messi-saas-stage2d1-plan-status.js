@@ -901,6 +901,11 @@ async function getResourceGroup(deps, sub, rg) {
 function ownershipTags({ tenantSlug, planDigest, deploySha }) {
   return { tenant: tenantSlug, stage: STAGE, owner: OWNER, planDigest, deploySha };
 }
+// Bootstrap Job Bicep hardcodes provenance.stageTag saas-2c2 (not RG/D1/D2 stage).
+const BOOTSTRAP_JOB_STAGE_TAG = 'saas-2c2';
+function bootstrapJobOwnershipTags(expectedTags) {
+  return { ...(expectedTags || {}), stage: BOOTSTRAP_JOB_STAGE_TAG };
+}
 function assertOwnedRg(rgBody, expected) {
   const tags = (rgBody && rgBody.tags) || {}; const exp = ownershipTags(expected); const errors = [];
   for (const k of Object.keys(exp)) {
@@ -1162,7 +1167,28 @@ async function collectLiveInventory(deps, names, expectedTags) {
   const jobGot = await armGet(deps, `${rid(sub, rg, 'Microsoft.App/jobs', names.bootstrapJobName)}?api-version=${APP_API}`);
   if (!jobGot.ok) return jobGot;
   if (jobGot.exists) {
-    for (const f of matchTags((jobGot.body || {}).tags, expectedTags)) {
+    const jobBody = jobGot.body || {};
+    const expJob = contract.bootstrapJob;
+    const gotName = String(jobBody.name || (jobBody.id || '').split('/').pop() || '');
+    const gotId = jobBody.id != null ? String(jobBody.id) : '';
+    const gotType = String(jobBody.type || '');
+    if (gotName && gotName !== expJob.name) {
+      findings.push({
+        code: 'resource_name_mismatch', name: gotName, type: expJob.type, expected: expJob.name,
+      });
+    }
+    if (gotId && gotId.toLowerCase() !== String(expJob.id).toLowerCase()) {
+      findings.push({
+        code: 'resource_id_mismatch', name: expJob.name, type: expJob.type,
+      });
+    }
+    if (gotType && gotType.toLowerCase() !== String(expJob.type).toLowerCase()) {
+      findings.push({
+        code: 'resource_type_mismatch', name: expJob.name, type: gotType, expected: expJob.type,
+      });
+    }
+    // Canonical Job stage is Bicep saas-2c2; RG/D2 stage remains saas-2d2-staging.
+    for (const f of matchTags(jobBody.tags, bootstrapJobOwnershipTags(expectedTags))) {
       findings.push({ ...f, name: names.bootstrapJobName, type: 'Microsoft.App/jobs' });
     }
   }
@@ -1925,5 +1951,7 @@ module.exports = Object.freeze({
   readStagingSubscriptionAuthority, assertRepoDeployPreflight, createHeadSnapshot,
   createExactShaSnapshot, assertSafeTarMembers, verifyLauncherBytes, hashPinnedToolAuthority,
   buildSanitizedChildEnv, readCapabilityFd, execSnapshotWorker, runProductionParent,
-  listRgResources, listRgDeployments, queryRgCost, ownershipTags, sha256, sortedStringify, redact,
+  listRgResources, listRgDeployments, queryRgCost, ownershipTags,
+  BOOTSTRAP_JOB_STAGE_TAG, bootstrapJobOwnershipTags,
+  sha256, sortedStringify, redact,
 });

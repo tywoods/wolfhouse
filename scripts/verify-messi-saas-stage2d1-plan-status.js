@@ -786,7 +786,11 @@ async function main() {
     const tags = ownedTags(planned.plan.planDigest);
     h.setRg({ name: RG, tags, properties: { provisioningState: 'Succeeded' } });
     const c = seedFoundation(h, lib, tags);
-    h.setJob({ id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type, tags });
+    // Live Bicep hardcodes Job stage saas-2c2 (not D1/RG ownership stage).
+    h.setJob({
+      id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type,
+      tags: { ...tags, stage: lib.BOOTSTRAP_JOB_STAGE_TAG },
+    });
     const r = await lib.status({ slug: SLUG }, h.deps);
     ok('status_phase_bootstrap_active', r.phase === 'bootstrap-active' && r.ok === true,
       JSON.stringify(r.findings || r.errors || r).slice(0, 240));

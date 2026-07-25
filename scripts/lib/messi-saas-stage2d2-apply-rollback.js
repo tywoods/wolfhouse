@@ -2302,9 +2302,16 @@ async function rollback(opts, depsIn) {
       if (!cand.ok) return cand;
     }
 
-    lock = acquireExclusiveLock(deps, slug);
-    if (!lock.ok) return lock;
-    removeSignals = installOperationSignals(deps);
+    // Apply already holds the exclusive lock; nested failure rollback must not re-acquire
+    // (would refuse current-PID lock). External/canonical rollback still exclusive.
+    const nestedFailure = !!(opts || {})._internalFailureRollback;
+    if (nestedFailure) {
+      lock = { ok: true, reentrant: true, release: () => {} };
+    } else {
+      lock = acquireExclusiveLock(deps, slug);
+      if (!lock.ok) return lock;
+      removeSignals = installOperationSignals(deps);
+    }
     const aborted = checkAbort(deps);
     if (!aborted.ok) return aborted;
 

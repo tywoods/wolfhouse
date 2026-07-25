@@ -395,6 +395,10 @@ function drillOwned(digest, deploySha = SHA) {
     planDigest: digest, deploySha, temporaryDrill: 'true', createdAt: CREATED, expiresAt: EXPIRES,
   };
 }
+/** Live Bicep hardcodes bootstrap Job stage saas-2c2 (not RG stage saas-2d2-staging). */
+function bootstrapJobOwnedTags(rgTags) {
+  return { ...rgTags, stage: 'saas-2c2' };
+}
 /** Rederive planDigest for an exact deploySha under the test harness authority surface. */
 async function rederivedDigestAt(lib, d1, deploySha, harnessOpts = {}) {
   const h = makeHarness(lib, d1, harnessOpts);
@@ -1089,7 +1093,10 @@ async function main() {
       { name: 'foundation', r: await runPhase((hx) => hx.seedFoundation(tags)) },
       { name: 'bootstrap-active', r: await runPhase((hx) => {
         const c = hx.seedFoundation(tags);
-        hx.setJob({ id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type, tags });
+        hx.setJob({
+          id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type,
+          tags: bootstrapJobOwnedTags(tags),
+        });
       }) },
       { name: 'runtime-prereqs', r: await runPhase((hx) => {
         const c = hx.seedFoundation(tags);
@@ -1105,6 +1112,132 @@ async function main() {
       }) },
     ];
     ok('legitimate_phases_compile_accept', phases.every((p) => p.r.ok && p.r.deleted && p.r.phase === p.name));
+  }
+
+  // Live residual: RG stage saas-2d2-staging; plan-owned bootstrap Job carries Bicep stage saas-2c2
+  // (luna-messiproof-63aa6df2). Rollback must accept that exact owned bootstrap-active residual and
+  // refuse missing/wrong job tags, foreign id/type/name, lookalikes, and extra resources.
+  {
+    const authPreview = await lib.deriveD1Authority({ slug: SLUG }, makeHarness(lib, d1).deps);
+    const tags = drillOwned(authPreview.planDigest);
+    const jobTags = bootstrapJobOwnedTags(tags);
+    const names = d1.deriveNames(SLUG, SUB);
+    const allDeletes = (hx) => hx.armLog.filter((x) => x.method === 'DELETE');
+    const seedBootstrapActive = (hx, jobBody) => {
+      const c = hx.seedFoundation(tags);
+      hx.setRg({ name: RG, tags });
+      hx.setJob(jobBody || {
+        id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type, tags: jobTags,
+      });
+      return c;
+    };
+    {
+      const h = makeHarness(lib, d1);
+      const c = seedBootstrapActive(h);
+      ok('live_bootstrap_job_name_is_messiproof_owner',
+        c.bootstrapJob.name === 'luna-messiproof-63aa6df2'
+        && names.bootstrapJobName === 'luna-messiproof-63aa6df2');
+      const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      ok('rollback_bootstrap_active_live_saas_2c2_job_accepted', rb.ok === true && rb.deleted === true
+        && rb.phase === 'bootstrap-active',
+      rb.ok ? `phase=${rb.phase}` : JSON.stringify(rb.errors || rb.findings || rb).slice(0, 400));
+    }
+    const refuseAttack = async (label, mutate) => {
+      const h = makeHarness(lib, d1);
+      const c = seedBootstrapActive(h);
+      mutate(h, c);
+      const rb = await lib.rollback({ slug: SLUG, confirmDelete: RG }, h.deps);
+      const refused = rb.ok === false && allDeletes(h).length === 0
+        && (rb.errors || []).some((e) => e.code === 'inventory_findings'
+          || e.code === 'rollback_phase_invalid' || e.code === 'rollback_tag_mismatch');
+      ok(`rollback_bootstrap_job_attack_${label}_refused`, refused,
+        JSON.stringify(rb.errors || rb.findings || rb).slice(0, 320));
+      return refused;
+    };
+    await refuseAttack('rg_stage_on_job', (h, c) => {
+      h.setJob({ id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type, tags });
+    });
+    await refuseAttack('wrong_job_stage', (h, c) => {
+      h.setJob({
+        id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type,
+        tags: { ...jobTags, stage: 'saas-2c3' },
+      });
+    });
+    await refuseAttack('missing_job_tags', (h, c) => {
+      h.setJob({ id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type, tags: {} });
+    });
+    await refuseAttack('wrong_tenant', (h, c) => {
+      h.setJob({
+        id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type,
+        tags: { ...jobTags, tenant: 'other-tenant' },
+      });
+    });
+    await refuseAttack('wrong_owner', (h, c) => {
+      h.setJob({
+        id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type,
+        tags: { ...jobTags, owner: 'other-owner' },
+      });
+    });
+    await refuseAttack('wrong_plan_digest', (h, c) => {
+      h.setJob({
+        id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type,
+        tags: { ...jobTags, planDigest: 'f'.repeat(64) },
+      });
+    });
+    await refuseAttack('foreign_job_id', (h, c) => {
+      h.setJob({
+        id: `${c.bootstrapJob.id}-foreign`, name: c.bootstrapJob.name, type: c.bootstrapJob.type,
+        tags: jobTags,
+      });
+    });
+    await refuseAttack('foreign_job_type', (h, c) => {
+      h.setJob({
+        id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: 'Microsoft.App/containerApps',
+        tags: jobTags,
+      });
+    });
+    await refuseAttack('lookalike_job_name', (h, c) => {
+      h.setJob({
+        id: c.bootstrapJob.id, name: `${c.bootstrapJob.name}x`, type: c.bootstrapJob.type,
+        tags: jobTags,
+      });
+    });
+    await refuseAttack('extra_resource', (h, c) => {
+      h.setJob({
+        id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type, tags: jobTags,
+      });
+      h.setResources(c.foundationTopLevel.map((r) => ({
+        id: r.id, name: r.name, type: r.type, tags, provisioningState: 'Succeeded',
+      })).concat([{
+        id: `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/rogue`,
+        name: 'rogueacct', type: 'Microsoft.Storage/storageAccounts', tags: {},
+        provisioningState: 'Succeeded',
+      }]));
+    });
+  }
+
+  // In-process apply→rollbackOnFailure must re-enter under the apply-held lock (same PID),
+  // not refuse with lock_busy "lock held by current pid".
+  {
+    const authPreview = await lib.deriveD1Authority({ slug: SLUG }, makeHarness(lib, d1).deps);
+    const tags = drillOwned(authPreview.planDigest);
+    const h = makeHarness(lib, d1);
+    const c = h.seedFoundation(tags);
+    h.setRg({ name: RG, tags });
+    h.setJob({
+      id: c.bootstrapJob.id, name: c.bootstrapJob.name, type: c.bootstrapJob.type,
+      tags: bootstrapJobOwnedTags(tags),
+    });
+    const held = lib.acquireExclusiveLock(h.deps, SLUG);
+    ok('nested_failure_lock_acquired', held.ok === true);
+    const rb = await lib.rollback({
+      slug: SLUG, confirmDelete: RG, _internalFailureRollback: true,
+    }, h.deps);
+    ok('nested_failure_rollback_own_pid_lock_accepted', rb.ok === true && rb.deleted === true
+      && rb.phase === 'bootstrap-active'
+      && !(rb.errors || []).some((e) => e.code === 'lock_busy' || e.code === 'lock_live'),
+    rb.ok ? `phase=${rb.phase}` : JSON.stringify(rb.errors || rb).slice(0, 360));
+    if (held && held.release) held.release();
   }
 
   // Owned exact-tag empty RG (apply failed before foundation / no KV): allow delete only via
