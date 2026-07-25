@@ -18425,12 +18425,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
           </div>
         </div>
         <div id="ps-create-private-lesson-fields" style="display:none">
-          <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1"></div>
           <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-surfers" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-private-lesson-surfers" type="number" min="1" max="99" value="1"></div>
-          <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set date and time for each private course session.</span>
-            <div id="ps-create-private-lesson-sessions" class="portal-schedule-private-sessions"></div>
-            <button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-create-add-session" data-i18n="schedule.create.privateLesson.addSession">+ Add session</button>
-          </div>
         </div>
         <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect">Select course</label><select id="ps-create-course-select"></select></div>
         <div class="portal-schedule-create-field" id="ps-create-course-tier-wrap" style="display:none"><label for="ps-create-course-tier" data-i18n="schedule.create.courseTier">Course duration</label><select id="ps-create-course-tier"></select></div>
@@ -18441,6 +18436,13 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <div id="ps-create-date-range">
         <div class="portal-schedule-create-field"><label for="ps-create-date-from" data-i18n="schedule.create.dateFrom">From date</label><input id="ps-create-date-from" type="date"></div>
         <div class="portal-schedule-create-field"><label for="ps-create-date-to" data-i18n="schedule.create.dateTo">To date</label><input id="ps-create-date-to" type="date"></div>
+        </div>
+        <div id="ps-create-private-when" class="portal-schedule-create-private-when" style="display:none">
+          <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1"></div>
+          <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set date and time for each private course session.</span>
+            <div id="ps-create-private-lesson-sessions" class="portal-schedule-private-sessions"></div>
+            <button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-create-add-session" data-i18n="schedule.create.privateLesson.addSession">+ Add session</button>
+          </div>
         </div>
       </section>
       <section class="portal-schedule-create-section" data-create-section="payment" aria-labelledby="ps-create-section-payment-title">
@@ -21757,145 +21759,6 @@ function scheduleRefreshCreateEmptyGuidance(){
   if (h) h.style.display = (!(el('ps-create-comp-course') && el('ps-create-comp-course').checked) && !(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked) && !r.length && !(fd && fd.checked)) ? '' : 'none';
 }
 
-function schedulePrivateLessonDefaultEnd(startHm, durationMin){
-  var startM = scheduleSlotMinutesFromToken(startHm);
-  if (startM == null) return '';
-  return scheduleMinutesLabel(startM + (durationMin || schedulePrivateLessonDurationCache || 120));
-}
-
-function scheduleReadPrivateLessonSessionsFromDom(){
-  var wrap = el('ps-create-private-lesson-sessions');
-  var sessions = [];
-  if (!wrap) return sessions;
-  wrap.querySelectorAll('.portal-schedule-private-session-row').forEach(function(row){
-    var dateEl = row.querySelector('.ps-pl-session-date');
-    var startEl = row.querySelector('.ps-pl-session-start');
-    var endEl = row.querySelector('.ps-pl-session-end');
-    sessions.push({
-      date: dateEl ? dateEl.value : '',
-      start: startEl ? startEl.value : '',
-      end: endEl ? endEl.value : '',
-    });
-  });
-  return sessions;
-}
-
-function scheduleWirePrivateLessonSessionRow(row){
-  if (!row || row.dataset.wired) return;
-  row.dataset.wired = '1';
-  var startEl = row.querySelector('.ps-pl-session-start');
-  var endEl = row.querySelector('.ps-pl-session-end');
-  if (startEl) {
-    startEl.addEventListener('change', function(){
-      if (!endEl) return;
-      var curEnd = endEl.value;
-      var defEnd = schedulePrivateLessonDefaultEnd(startEl.value);
-      if (!curEnd || curEnd === schedulePrivateLessonDefaultEnd(startEl.defaultValue || '10:00')) {
-        endEl.value = defEnd;
-      }
-      startEl.defaultValue = startEl.value;
-    });
-  }
-}
-
-function scheduleSyncPrivateLessonSessions(){
-  var wrap = el('ps-create-private-lesson-sessions');
-  var qtyEl = el('ps-create-private-lesson-qty');
-  if (!wrap || !qtyEl) return;
-  var qty = parseInt(qtyEl.value, 10) || 1;
-  if (qty < 1) qty = 1;
-  if (qty > 30) qty = 30;
-  qtyEl.value = String(qty);
-  var existing = scheduleReadPrivateLessonSessionsFromDom();
-  var dateFrom = (el('ps-create-date-from') && el('ps-create-date-from').value) || scheduleTodayIso();
-  var html = '';
-  for (var i = 0; i < qty; i++){
-    var prev = existing[i] || {};
-    var date = prev.date || dateFrom;
-    var start = prev.start || '10:00';
-    var end = prev.end || schedulePrivateLessonDefaultEnd(start);
-    var removeBtn = i > 0
-      ? '<button type="button" class="btn btn-ghost portal-schedule-session-remove" data-session-remove="' + String(i) + '" data-i18n="schedule.create.privateLesson.removeSession">Remove</button>'
-      : '';
-    html += '<div class="portal-schedule-private-session-row" data-session-index="' + String(i + 1) + '">' +
-      '<p class="portal-schedule-card-sub" style="margin:8px 0 4px">' + escHtml(portalT('schedule.create.privateLesson.sessionLabel')) + ' ' + String(i + 1) + '</p>' +
-      '<div class="portal-schedule-private-session-grid">' +
-      '<label><span data-i18n="schedule.create.privateLesson.date">Date</span><input class="ps-pl-session-date" type="date" value="' + escHtml(date) + '"></label>' +
-      '<label><span data-i18n="schedule.create.privateLesson.start">Start</span><input class="ps-pl-session-start" type="time" value="' + escHtml(start) + '"></label>' +
-      '<label><span data-i18n="schedule.create.privateLesson.end">End</span><input class="ps-pl-session-end" type="time" value="' + escHtml(end) + '"></label>' +
-      '</div>' + removeBtn + '</div>';
-  }
-  wrap.innerHTML = html;
-  wrap.querySelectorAll('.portal-schedule-private-session-row').forEach(scheduleWirePrivateLessonSessionRow);
-  wrap.querySelectorAll('.portal-schedule-session-remove').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      scheduleRemovePrivateLessonSession(parseInt(btn.getAttribute('data-session-remove'), 10));
-    });
-  });
-  wrap.querySelectorAll('.ps-pl-session-date').forEach(function(dateEl){
-    if (dateEl.dataset.rentalDateWired) return;
-    dateEl.dataset.rentalDateWired = '1';
-    dateEl.addEventListener('change', function(){
-      scheduleRenderCreateRentals();
-      scheduleRefreshCreateFullDayAddon();
-    });
-  });
-  var modal = el('ps-create-modal');
-  if (modal && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(modal);
-}
-
-function scheduleUpdatePrivateLessonDateRangeFromSessions(){
-  var sessions = scheduleReadPrivateLessonSessionsFromDom().filter(function(s){ return s.date; });
-  if (!sessions.length) return;
-  var dates = sessions.map(function(s){ return s.date; }).sort();
-  var df = el('ps-create-date-from');
-  var dt = el('ps-create-date-to');
-  if (df) df.value = dates[0];
-  if (dt) dt.value = dates[dates.length - 1];
-}
-
-// Add a private-course session: duplicate the last session, defaulting its date to the next day.
-function scheduleAddPrivateLessonSession(){
-  var qtyEl = el('ps-create-private-lesson-qty');
-  if (!qtyEl) return;
-  var existing = scheduleReadPrivateLessonSessionsFromDom();
-  var last = existing[existing.length - 1] || {};
-  var nextDate = last.date ? scheduleIsoDate(scheduleAddDays(scheduleParseIso(last.date), 1)) : ((el('ps-create-date-from') && el('ps-create-date-from').value) || scheduleTodayIso());
-  var max = 30;
-  var next = Math.min((parseInt(qtyEl.value, 10) || existing.length || 1) + 1, max);
-  qtyEl.value = String(next);
-  scheduleSyncPrivateLessonSessions();
-  // Set the new (last) session row to the duplicated defaults.
-  var wrap = el('ps-create-private-lesson-sessions');
-  if (wrap){
-    var rows = wrap.querySelectorAll('.portal-schedule-private-session-row');
-    var row = rows[rows.length - 1];
-    if (row){
-      var dEl = row.querySelector('.ps-pl-session-date');
-      var sEl = row.querySelector('.ps-pl-session-start');
-      var eEl = row.querySelector('.ps-pl-session-end');
-      if (dEl) dEl.value = nextDate;
-      if (sEl && last.start) sEl.value = last.start;
-      if (eEl && last.end) eEl.value = last.end;
-    }
-  }
-  scheduleUpdatePrivateLessonDateRangeFromSessions();
-}
-
-function scheduleRemovePrivateLessonSession(index){
-  var qtyEl = el('ps-create-private-lesson-qty');
-  var wrap = el('ps-create-private-lesson-sessions');
-  if (!qtyEl || !wrap) return;
-  var rows = wrap.querySelectorAll('.portal-schedule-private-session-row');
-  if (index < 0 || index >= rows.length || rows.length <= 1) return;
-  var target = rows[index];
-  if (target && target.parentNode) target.parentNode.removeChild(target);
-  var remaining = wrap.querySelectorAll('.portal-schedule-private-session-row').length;
-  qtyEl.value = String(Math.max(remaining, 1));
-  scheduleSyncPrivateLessonSessions();
-  scheduleUpdatePrivateLessonDateRangeFromSessions();
-}
-
 function scheduleRowBookingRef(row, group){
   group = group || scheduleFindGroupForRow(row) || row;
   var bookingId = (group && group.booking_id) || (row && row.booking_id) || null;
@@ -21928,9 +21791,11 @@ function schedulePopulateCreateComponentFields(){
   if (ct) ct.style.display = courseOn ? '' : 'none';
   if (cq) cq.style.display = courseOn ? '' : 'none';
   if (pf) pf.style.display = privateOn ? '' : 'none';
-  // Private Course uses per-session dates, so hide the group date-range UI when it is selected.
+  // Private Course uses per-session dates: hide range, show When session editor.
   var dateRange = el('ps-create-date-range');
   if (dateRange) dateRange.style.display = privateOn ? 'none' : '';
+  var privateWhen = el('ps-create-private-when');
+  if (privateWhen) privateWhen.style.display = privateOn ? '' : 'none';
   if (courseOn) schedulePopulateCreateCourseFields();
   if (privateOn) {
     scheduleFetchLessonTimesConfig(getClient()).then(function(){
@@ -21962,8 +21827,11 @@ function scheduleRefreshCreateFullDayAddon(){ try {
   var defaultQty = 1;
   if (privateOn){
     var sessions = scheduleReadPrivateLessonSessionsFromDom();
-    var seen = {};
-    for (var i=0;i<sessions.length;i++){ var d = sessions[i].date; if (d && !seen[d]){ seen[d]=1; eligibleDates.push(d); } }
+    var seen = {}, todayFd = typeof schedulePortalMadridTodayIso === 'function' ? schedulePortalMadridTodayIso() : '';
+    for (var i=0;i<sessions.length;i++){
+      var d = typeof schedulePortalCanonicalDateIso === 'function' ? schedulePortalCanonicalDateIso(sessions[i] && sessions[i].date) : null;
+      if (d && (!todayFd || d >= todayFd) && !seen[d]){ seen[d]=1; eligibleDates.push(d); }
+    }
     eligibleDates.sort();
     defaultQty = parseInt((el('ps-create-private-lesson-surfers') && el('ps-create-private-lesson-surfers').value) || '1', 10) || 1;
   } else {
@@ -22097,15 +21965,10 @@ var scheduleAdminPricesCache = [];
 function scheduleCreateDateSpanForRentals(){
   var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
   if (privateOn) {
-    var sessions = scheduleReadPrivateLessonSessionsFromDom();
-    var dates = [];
-    var seen = {};
-    for (var i = 0; i < sessions.length; i++) {
-      var d = sessions[i] && sessions[i].date ? String(sessions[i].date).slice(0, 10) : '';
-      if (d && !seen[d]) { seen[d] = 1; dates.push(d); }
-    }
-    dates.sort();
-    if (dates.length) return { from: dates[0], to: dates[dates.length - 1] };
+    // Outer range is derived from canonical non-past session dates (or cleared).
+    var fromP = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
+    var toP = el('ps-create-date-to') ? el('ps-create-date-to').value : fromP;
+    if (fromP) return { from: fromP, to: toP || fromP };
   }
   var from = el('ps-create-date-from') ? el('ps-create-date-from').value : scheduleTodayIso();
   var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
@@ -23860,6 +23723,7 @@ function wireScheduleControls(){
       node.addEventListener('input', scheduleRefreshCreateFullDayAddon);
     }
   });
+  // scheduleSyncPrivateLessonSessions + schedule.create.privateLesson.sessionsMismatch (portal).
   var plQty = el('ps-create-private-lesson-qty');
   if (plQty && !plQty.dataset.wired) {
     plQty.dataset.wired = '1';
