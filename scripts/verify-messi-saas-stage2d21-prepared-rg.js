@@ -91,6 +91,8 @@ function makeHarness(lib, d1, opts = {}) {
     azSha256: '4'.repeat(64), bicepSha256: '5'.repeat(64), bicepVersion: 'Bicep CLI version 0.45.15 (test)',
   };
   const stateDir = opts.stateDir || fs.mkdtempSync(path.join(os.tmpdir(), 'messi-2d21-'));
+  // Offline GREEN: in-worktree node_modules path only (matches Stage 2D2 local runtime gate).
+  const inTreePg = path.join(ROOT, 'node_modules', 'pg', 'lib', 'index.js');
   const deps = lib.createDeps({
     repoRoot: ROOT, stateDir,
     sleep: async (ms) => { clock = new Date(clock.getTime() + (Number(ms) || 0)); },
@@ -100,6 +102,13 @@ function makeHarness(lib, d1, opts = {}) {
     snapshotAdapter: () => ({ root: ROOT, cleanup: () => {} }),
     bicepBuildBytes: () => Buffer.from(TPL_BYTES),
     randomBytes: (n) => Buffer.alloc(n, 7),
+    requireResolve: opts.requireResolve || ((id) => {
+      if (String(id) === 'pg') return inTreePg;
+      return require.resolve(id, { paths: [ROOT] });
+    }),
+    realpath: opts.realpath || ((p) => {
+      try { return fs.realpathSync(p); } catch (_) { return path.resolve(String(p)); }
+    }),
     adoptAfterValidateHook: opts.adoptAfterValidateHook || null,
     bootstrapOperator: () => ({
       assertCanDelete: async () => ({ ok: true, errors: [] }),

@@ -136,6 +136,17 @@ const SENTINELS = Object.freeze({
   metaWhatsappToken: 'EAAG_disabled', metaAppSecret: 'meta_app_secret_disabled',
   metaWhatsappVerifyToken: 'meta_verify_disabled',
 });
+// Post-mutation Node call graph (C2 → bootstrap-synthetic-tenant-db → run-canonical-migrations):
+// only third-party package is `pg`. dotenv is not on that path. Entrypoints must exist before
+// ACR build / RG adopt-create / role PUT / any ARM write. Runner never auto-installs.
+// LOCAL_APPLY_RUNTIME_MODULES / ENTRYPOINTS are a manually maintained frozen list of the known
+// C2 call graph — not auto-discovered and not auto-complete under future C2 dependency drift.
+const LOCAL_APPLY_RUNTIME_PREREQ_CMD = 'npm ci';
+const LOCAL_APPLY_RUNTIME_MODULES = Object.freeze(['pg']);
+const LOCAL_APPLY_RUNTIME_ENTRYPOINTS = Object.freeze([
+  'scripts/bootstrap-synthetic-tenant-db.js',
+  'scripts/run-canonical-migrations.js',
+]);
 
 function err(code, message) { return { code, message }; }
 function sha256(buf) {
@@ -147,6 +158,90 @@ function redact(text, secrets) {
     if (s && String(s).length >= 4) out = out.split(String(s)).join('[REDACTED]');
   }
   return d1.redact(out);
+}
+/** True when resolved path is exactly parent or a strict descendant (lexical, no realpath). */
+function pathIsInside(parent, child) {
+  const p = path.resolve(parent);
+  const c = path.resolve(child);
+  if (c === p) return true;
+  const prefix = p.endsWith(path.sep) ? p : p + path.sep;
+  return c.startsWith(prefix);
+}
+function localRuntimeDependencyMissing(id) {
+  return {
+    ok: false,
+    refusedBeforeAzureMutation: true,
+    refusedBeforeRgWrite: true,
+    prerequisiteCommand: LOCAL_APPLY_RUNTIME_PREREQ_CMD,
+    // Stable sanitized message only — never echo resolve paths, NODE_PATH, or stacks.
+    errors: [err('local_runtime_dependency_missing', `missing required module: ${id}`)],
+  };
+}
+/**
+ * Fail closed before ACR build / RG create-adopt / role PUT / any ARM write when the
+ * post-mutation local Node call graph cannot load. Never auto-installs; never echoes
+ * resolve/stack absolute paths, env, credentials, or DSNs.
+ * Every listed dependency must resolve inside this worktree's own node_modules install
+ * (lexical + realpath). Ambient NODE_PATH, ancestor node_modules, and out-of-worktree
+ * linked packages are refused as local_runtime_dependency_missing.
+ */
+function assertLocalApplyRuntimePreflight(depsIn) {
+  const deps = depsIn || {};
+  const root = deps.repoRoot || path.join(__dirname, '..', '..');
+  const exists = typeof deps.fileExists === 'function' ? deps.fileExists : ((p) => fs.existsSync(p));
+  const resolve = typeof deps.requireResolve === 'function'
+    ? deps.requireResolve
+    : ((id, opts) => require.resolve(id, opts));
+  const realpath = typeof deps.realpath === 'function'
+    ? deps.realpath
+    : ((p) => fs.realpathSync(p));
+  for (const rel of LOCAL_APPLY_RUNTIME_ENTRYPOINTS) {
+    // Join only; never put absolute paths into error messages.
+    if (!exists(path.join(root, ...rel.split('/')))) {
+      return {
+        ok: false,
+        refusedBeforeAzureMutation: true,
+        refusedBeforeRgWrite: true,
+        prerequisiteCommand: LOCAL_APPLY_RUNTIME_PREREQ_CMD,
+        errors: [err('local_runtime_entrypoint_missing', `missing entrypoint ${rel}`)],
+      };
+    }
+  }
+  const nmRoot = path.resolve(root, 'node_modules');
+  let rootReal;
+  try {
+    rootReal = path.resolve(realpath(path.resolve(root)));
+  } catch (_) {
+    rootReal = path.resolve(root);
+  }
+  for (const id of LOCAL_APPLY_RUNTIME_MODULES) {
+    let resolved;
+    try {
+      resolved = resolve(id, { paths: [root] });
+    } catch (_) {
+      // Swallow resolver text (often includes abs Require stack / env-adjacent paths).
+      return localRuntimeDependencyMissing(id);
+    }
+    if (typeof resolved !== 'string' || !resolved) {
+      return localRuntimeDependencyMissing(id);
+    }
+    const resolvedAbs = path.resolve(resolved);
+    // Lexical: must live under <worktree>/node_modules (blocks NODE_PATH / ancestor / global).
+    if (!pathIsInside(nmRoot, resolvedAbs)) {
+      return localRuntimeDependencyMissing(id);
+    }
+    // Physical: refuse out-of-worktree linked packages (npm link / external symlink target).
+    let resolvedReal;
+    try {
+      resolvedReal = path.resolve(realpath(resolvedAbs));
+    } catch (_) {
+      return localRuntimeDependencyMissing(id);
+    }
+    if (!pathIsInside(rootReal, resolvedReal)) {
+      return localRuntimeDependencyMissing(id);
+    }
+  }
+  return { ok: true, errors: [], prerequisiteCommand: LOCAL_APPLY_RUNTIME_PREREQ_CMD };
 }
 function createDeps(overrides = {}) {
   const repoRoot = overrides.repoRoot || path.join(__dirname, '..');
@@ -175,6 +270,9 @@ function createDeps(overrides = {}) {
       cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...d1.buildSanitizedChildEnv(), ...(envExtra || {}) },
     }).trim()),
+    requireResolve: overrides.requireResolve || ((id, opts) => require.resolve(id, opts)),
+    realpath: overrides.realpath || ((p) => fs.realpathSync(p)),
+    fileExists: overrides.fileExists || ((p) => fs.existsSync(p)),
     armRequest: overrides.armRequest || null,
     httpsRequest: overrides.httpsRequest || null,
     openLock: overrides.openLock || null,
@@ -1737,6 +1835,10 @@ async function apply(opts, depsIn) {
     // Authority/preflight before lock so an in-tree stateDir cannot trip dirty_tree.
     const auth = await deriveD1Authority(optsIn, deps);
     if (!auth.ok) return auth;
+    // Local Node runtime (pg + C2 entrypoints) before ACR build / RG / roles / ARM writes.
+    // Live messiproof: foundation succeeded then loadC2Operator → Cannot find module 'pg'.
+    const localRt = assertLocalApplyRuntimePreflight(deps);
+    if (!localRt.ok) return localRt;
     // Read-only Microsoft.AlertsManagement registration gate BEFORE lock / any RG mutation.
     // Never self-register (no provider POST); Azure admin registers out-of-band via prepare-spec.
     const providerGate = await deps.d1.assertAlertsManagementProviderRegistered(
@@ -2556,7 +2658,8 @@ module.exports = Object.freeze({
   STAGE, OWNER, STAGE_TAG, CLI_REL, LIB_REL, APPROVE_MAX_TOTAL_USD, TTL_HOURS_MAX, ACR_NAME, IMAGE_REPO,
   EXECUTOR_UAI_OID, ROLE_CONTRIBUTOR, ROLE_RBAC_ADMIN, ROLE_ACR_PUSH, ROLE_ACR_BUILD_RUNNER, PREPARED_FOR,
   SENTINELS, LEGITIMATE_PHASES, PHASE_MAX_MS, RBAC_PROPAGATION_MAX_ATTEMPTS,
-  createDeps, apply, rollback, expiryStatus, prepareSpec,
+  LOCAL_APPLY_RUNTIME_PREREQ_CMD, LOCAL_APPLY_RUNTIME_MODULES, LOCAL_APPLY_RUNTIME_ENTRYPOINTS,
+  createDeps, apply, rollback, expiryStatus, prepareSpec, assertLocalApplyRuntimePreflight,
   validateApprovalFlags, estimateProratedWorstCaseUsd, assertCostGate, assertActiveDrill, assertDrillTags,
   drillTags, preparedTags, buildPreparedRoleAssignments, deleteExactTempAcrRbacAdmin,
   expectedTenantAcrPullAssignment, putExactTenantAcrPull, deleteExactTenantAcrPull,
