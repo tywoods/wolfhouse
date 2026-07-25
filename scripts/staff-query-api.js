@@ -16647,12 +16647,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-section{margin:0 0 14px;padding:12px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .portal-schedule-create-section:last-child{margin-bottom:0}
 .portal-schedule-create-section-title{margin:0 0 10px;font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--text);line-height:1.2}
-.portal-schedule-create-footer{flex:0 0 auto;border-top:1px solid var(--border-soft);background:inherit;padding:12px 18px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:2;display:flex;flex-direction:column;gap:10px}
-.portal-schedule-create-summary{min-height:18px;font-size:12px;color:var(--text-3);line-height:1.35}
-.portal-schedule-create-summary-placeholder{color:var(--text-3)}
-.portal-schedule-create-footer .portal-schedule-create-actions{margin-top:0;display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.portal-schedule-create-footer{flex:0 0 auto;border-top:1px solid var(--border-soft);background:inherit;padding:12px 18px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:2;display:flex;flex-direction:column;gap:10px;max-height:min(42vh,280px);overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.portal-schedule-create-summary{min-height:18px;max-height:2.7em;font-size:12px;color:var(--text-3);line-height:1.35;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;word-break:break-word}
+.portal-schedule-create-summary-placeholder,.portal-schedule-create-summary-text{color:var(--text-3)}
+.portal-schedule-create-footer .portal-schedule-create-actions{margin-top:0;display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;flex:0 0 auto}
 .portal-schedule-create-footer .portal-schedule-create-actions .btn{flex:1 1 auto;min-height:44px;padding:10px 14px}
-.portal-schedule-create-footer #ps-create-quote-preview{margin-bottom:0}
+.portal-schedule-create-footer #ps-create-quote-preview{margin-bottom:0;flex:0 0 auto;min-width:0;overflow:hidden}
 .portal-schedule-create-footer #ps-create-quote-preview.portal-schedule-create-field{margin-bottom:0}
 .portal-schedule-drawer-hero{margin-bottom:16px}
 .portal-schedule-drawer-hero-inner{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
@@ -18455,7 +18455,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div id="ps-create-summary" class="portal-schedule-create-summary" aria-live="polite">
         <span class="portal-schedule-create-summary-placeholder">—</span>
       </div>
-      <div id="ps-create-quote-preview" class="portal-schedule-create-field" style="display:none" aria-live="polite"></div>
+      <div id="ps-create-quote-preview" class="portal-schedule-create-field" style="display:none" role="status" aria-live="polite"></div>
       <div class="portal-schedule-create-actions">
         <button type="button" class="btn btn-ghost" id="ps-create-cancel" data-i18n="schedule.create.cancel">Cancel</button>
         <button type="button" class="btn btn-primary" id="ps-create-submit" data-i18n="schedule.create.submit">Create booking</button>
@@ -21880,9 +21880,10 @@ function scheduleRefreshCreateFullDayAddon(){ try {
   } finally { scheduleRefreshCreateEmptyGuidance(); }
 }
 
-// Live create-drawer total preview — canonical quote API (Slice 11 portal module).
+// Live create-drawer total preview — sticky intent summary + canonical quote (Kaya Slice 5).
 function scheduleUpdateCreateTotalPreview(){
-  if (typeof schedulePortalRefreshCreateQuote === 'function') schedulePortalRefreshCreateQuote();
+  if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
+  else if (typeof schedulePortalRefreshCreateQuote === 'function') schedulePortalRefreshCreateQuote();
   else scheduleUpdateFullDayAddonSummary('ps-create-fullday-rows', 'ps-create-fullday-summary');
 }
 
@@ -23735,6 +23736,7 @@ function wireScheduleControls(){
     plAddSession.dataset.wired = '1';
     plAddSession.addEventListener('click', scheduleAddPrivateLessonSession);
   }
+  if (typeof schedulePortalWireCreateFooter === 'function') schedulePortalWireCreateFooter();
 }
 
 function loadPortalHome(){ loadSchedulePage(); }

@@ -194,6 +194,7 @@ function schedulePortalClearCreateDraftFields() {
   var quote = el('ps-create-quote-preview'); if (quote) { quote.innerHTML = ''; quote.style.display = 'none'; }
   var summary = el('ps-create-summary'); if (summary) summary.innerHTML = '<span class="portal-schedule-create-summary-placeholder">—</span>';
   var msg = el('ps-create-msg'); if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
+  schedulePortalQuoteState = null;
   schedulePortalPendingCourseId = null;
   schedulePortalPendingCourseGen = 0;
 }
@@ -239,6 +240,8 @@ function schedulePortalPrepareCreateOpen(context) {
   schedulePortalApplyCreateLaunchContext(ctx);
   var submitBtn = el('ps-create-submit');
   if (submitBtn) submitBtn.disabled = false;
+  schedulePortalWireCreateFooter();
+  schedulePortalRenderCreateIntentSummary();
   return { preserved: false, pending_course_id: schedulePortalPendingCourseId };
 }
 
@@ -448,28 +451,145 @@ function scheduleFetchDrawerContext(row) {
   return schedulePortalFetchDrawerDetail(row);
 }
 
+function schedulePortalHasSellableIntent(payload) {
+  var p = payload || {}, c = p.components || {};
+  return !!(c.course || c.private_lesson || c.full_day_equipment_extension || c.surfboard || c.wetsuit
+    || (Array.isArray(p.rentals) && p.rentals.length));
+}
+
+/** Clear prior total while waiting — never show stale amount as current. */
+function schedulePortalShowQuoteChecking() {
+  var box = el('ps-create-quote-preview');
+  if (!box) return;
+  try { box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite'); } catch (_e) { /* ignore */ }
+  box.innerHTML = '<p class="portal-schedule-drawer-hint portal-schedule-quote-checking" style="margin:0">'
+    + escHtml(portalT('schedule.create.checkingPrice') || 'Checking price\u2026') + '</p>';
+  box.style.display = 'block';
+}
+
 function schedulePortalRenderCreateQuotePreview(result) {
   var box = el('ps-create-quote-preview');
   if (!box) return;
   if (result && (result.superseded || result.aborted)) return;
-  if (!result || !result.ok) {
-    var err = (result && result.error) || portalT('schedule.create.quoteFailed') || 'Quote unavailable';
-    if (result && result.stale) {
-      err = portalT('schedule.create.quoteStale') || 'Price changed — refresh quote before creating.';
-    }
-    if (result && result.status === 503) {
-      err = portalT('schedule.create.quoteBusy') || 'Price check is busy — wait a moment and try again.';
-    }
-    box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">' + escHtml(String(err)) + '</p>';
-    box.style.display = 'block';
-    return;
+  try { box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite'); } catch (_e) { /* ignore */ }
+  if (result && (result.idle || result.softInvalid)) {
+    if (result.softInvalid) schedulePortalQuoteState = null;
+    box.innerHTML = ''; box.style.display = 'none'; return;
   }
-  var total = result.body.total_cents != null ? result.body.total_cents : null;
+  if (result && result.checking) { schedulePortalShowQuoteChecking(); return; }
+  if (!result || !result.ok) {
+    var err = portalT('schedule.create.quoteFailed') || 'Quote unavailable';
+    if (result && result.stale) err = portalT('schedule.create.quoteStale') || 'Price changed — refresh quote before creating.';
+    else if (result && result.status === 503) err = portalT('schedule.create.quoteBusy') || 'Price check is busy — wait a moment and try again.';
+    box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">' + escHtml(String(err)) + '</p>';
+    box.style.display = 'block'; return;
+  }
+  // Canonical amount only: response total_cents (never client-side sum).
+  var total = result.body && result.body.total_cents != null ? result.body.total_cents : null;
+  var eur = (total != null && !isNaN(Number(total))) ? ('\u20ac' + (Number(total) / 100).toFixed(2)) : '—';
   var label = total != null
-    ? (portalT('schedule.create.quoteTotal') || 'Quoted total') + ': \u20ac' + (Number(total) / 100).toFixed(2)
+    ? (portalT('schedule.create.quoteTotal') || 'Quoted total') + ': ' + eur
     : (portalT('schedule.create.quoteReady') || 'Quote ready');
   box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0">' + escHtml(label) + '</p>';
   box.style.display = 'block';
+}
+
+function schedulePortalRentalLabel(offeringKey) {
+  var key = String(offeringKey || '');
+  var i18nKey = typeof scheduleRentalOfferingLabelKey === 'function' ? scheduleRentalOfferingLabelKey(key)
+    : (key === 'wetsuit_rental' ? 'schedule.type.wetsuitRental' : key === 'board_and_suit_rental' ? 'schedule.ops.rentalBoth' : 'schedule.type.boardRental');
+  return portalT(i18nKey) || key;
+}
+
+/** Compact non-price intent for sticky footer — never phone/notes/internal keys. */
+function schedulePortalRenderCreateIntentSummary(payload) {
+  var box = el('ps-create-summary');
+  if (!box) return;
+  var p = payload;
+  if (!p && typeof scheduleReadCreatePayload === 'function') { try { p = scheduleReadCreatePayload(); } catch (_e) { p = null; } }
+  p = p || {};
+  var comps = p.components || {};
+  var rentals = Array.isArray(p.rentals) ? p.rentals : [];
+  if (comps.private_lesson) {
+    var plGate = null;
+    try { plGate = schedulePortalValidatePrivateLessonCreate(comps.private_lesson); } catch (_pl) { plGate = { ok: false }; }
+    if (!plGate || plGate.ok !== true) {
+      box.innerHTML = '<span class="portal-schedule-create-summary-text">'
+        + escHtml(portalT('schedule.create.summary.completeSessions') || 'Complete session details') + '</span>';
+      return;
+    }
+  }
+  var hasLesson = !!(comps.course || comps.private_lesson);
+  var hasGear = rentals.length > 0 || !!(comps.surfboard || comps.wetsuit || comps.full_day_equipment_extension);
+  if (!hasLesson && !hasGear) {
+    box.innerHTML = '<span class="portal-schedule-create-summary-placeholder">'
+      + escHtml(portalT('schedule.create.summary.chooseLessonOrGear') || 'Choose a lesson or add gear') + '</span>';
+    return;
+  }
+  var bits = [];
+  if (comps.course) {
+    var cBits = [portalT('schedule.type.course') || 'Group course'];
+    if (comps.course.course_label) cBits.push(String(comps.course.course_label));
+    var tierSel = el('ps-create-course-tier');
+    var tierLab = (tierSel && tierSel.options && tierSel.selectedIndex >= 0 && tierSel.options[tierSel.selectedIndex])
+      ? String(tierSel.options[tierSel.selectedIndex].textContent || '').trim() : '';
+    if (!tierLab && comps.course.tier_key) tierLab = String(comps.course.tier_key);
+    if (tierLab) cBits.push(tierLab);
+    if (comps.course.quantity) cBits.push('\u00d7' + String(comps.course.quantity));
+    bits.push(cBits.join(' \u00b7 '));
+  } else if (comps.private_lesson) {
+    var pl = comps.private_lesson, plBits = [portalT('schedule.type.privateLesson') || 'Private course'];
+    var sessN = Array.isArray(pl.sessions) ? pl.sessions.length : (pl.quantity || 0);
+    if (sessN) plBits.push(String(sessN));
+    var dates = (pl.sessions || []).map(function(s) { return s && s.date ? String(s.date).slice(0, 10) : ''; }).filter(Boolean).sort();
+    if (dates.length === 1) plBits.push(dates[0]);
+    else if (dates.length > 1) plBits.push(dates[0] + '\u2013' + dates[dates.length - 1]);
+    if (pl.surfer_count) plBits.push(String(pl.surfer_count));
+    bits.push(plBits.join(' \u00b7 '));
+  } else bits.push(portalT('schedule.type.noLesson') || 'No lesson');
+  if (rentals.length) {
+    var gearBits = rentals.map(function(r) {
+      if (!r || !r.offering_key) return '';
+      var lab = schedulePortalRentalLabel(r.offering_key), q = Number(r.quantity) || 0;
+      return q > 1 ? (lab + ' \u00d7' + q) : lab;
+    }).filter(Boolean);
+    if (gearBits.length) bits.push(gearBits.join(', '));
+  } else {
+    if (comps.surfboard) bits.push(schedulePortalRentalLabel('board_rental') + (comps.surfboard.quantity > 1 ? ' \u00d7' + comps.surfboard.quantity : ''));
+    if (comps.wetsuit) bits.push(schedulePortalRentalLabel('wetsuit_rental') + (comps.wetsuit.quantity > 1 ? ' \u00d7' + comps.wetsuit.quantity : ''));
+  }
+  if (comps.full_day_equipment_extension) bits.push(portalT('schedule.type.fullDayEquipment') || 'Full-day gear');
+  if (!comps.private_lesson) {
+    var df = p.date_from ? String(p.date_from).slice(0, 10) : '', dt = p.date_to ? String(p.date_to).slice(0, 10) : df;
+    if (df) bits.push(df === dt ? df : (df + '\u2013' + dt));
+  }
+  bits.push(String(p.payment_status || 'unpaid').toLowerCase() === 'paid'
+    ? (portalT('schedule.payment.paid') || 'Paid') : (portalT('schedule.payment.unpaid') || 'Unpaid'));
+  var guest = p.guest_name != null ? String(p.guest_name).trim() : '';
+  if (guest) bits.push(guest);
+  box.innerHTML = '<span class="portal-schedule-create-summary-text">' + escHtml(bits.join(' \u00b7 ')) + '</span>';
+}
+
+/** One path: intent summary now, debounced canonical quote after. */
+function schedulePortalSyncCreateFooter(opts) {
+  opts = opts || {};
+  schedulePortalRenderCreateIntentSummary();
+  if (opts.quote === false) return;
+  if (typeof schedulePortalRefreshCreateQuote === 'function') schedulePortalRefreshCreateQuote();
+}
+
+function schedulePortalWireCreateFooter() {
+  ['ps-create-guest', 'ps-create-payment', 'ps-create-course-tier', 'ps-create-course-qty', 'ps-create-course-select',
+    'ps-create-private-lesson-surfers', 'ps-create-date-from', 'ps-create-date-to',
+    'ps-create-comp-course', 'ps-create-comp-private-lesson', 'ps-create-comp-no-lesson', 'ps-create-comp-fullday'
+  ].forEach(function(id) {
+    var node = el(id);
+    if (!node || node.dataset.footerWired === '1') return;
+    node.dataset.footerWired = '1';
+    var fire = function() { schedulePortalSyncCreateFooter(); };
+    node.addEventListener('change', fire);
+    if (id === 'ps-create-guest' || id === 'ps-create-course-qty' || id === 'ps-create-private-lesson-surfers') node.addEventListener('input', fire);
+  });
 }
 
 function schedulePortalSetCreateStatus(text, isError) {
@@ -497,14 +617,19 @@ function schedulePortalClearQuotePreviewUi() {
 function schedulePortalRunPreviewQuote() {
   if (schedulePortalSubmitInFlight) return Promise.resolve(null);
   var payload = scheduleReadCreatePayload();
-  if (!Object.keys(payload.components || {}).length) {
+  var comps = payload.components || {};
+  var hasComps = Object.keys(comps).length > 0 || (Array.isArray(payload.rentals) && payload.rentals.length > 0);
+  if (!hasComps) {
     schedulePortalClearQuotePreviewUi();
+    if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
+      schedulePortalRenderCreateQuotePreview({ idle: true });
+    }
     return Promise.resolve(null);
   }
   // Private sessions: shared validator gate before quote fetch (soft-invalid, no toast).
-  if (payload.components && payload.components.private_lesson) {
+  if (comps.private_lesson) {
     var plGate = null;
-    try { plGate = schedulePortalValidatePrivateLessonCreate(payload.components.private_lesson); }
+    try { plGate = schedulePortalValidatePrivateLessonCreate(comps.private_lesson); }
     catch (_pl) { plGate = { ok: false, errorKey: 'schedule.create.privateLesson.sessionIncomplete' }; }
     if (!plGate || plGate.ok !== true) {
       if (schedulePortalQuoteAbort) {
@@ -513,6 +638,12 @@ function schedulePortalRunPreviewQuote() {
       }
       schedulePortalQuoteGen += 1;
       schedulePortalClearQuotePreviewUi();
+      if (typeof schedulePortalRenderCreateIntentSummary === 'function') {
+        schedulePortalRenderCreateIntentSummary(payload);
+      }
+      if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
+        schedulePortalRenderCreateQuotePreview({ ok: false, softInvalid: true });
+      }
       return Promise.resolve({ ok: false, softInvalid: true, errorKey: (plGate && plGate.errorKey) || 'schedule.create.privateLesson.sessionIncomplete' });
     }
   }
@@ -527,6 +658,7 @@ function schedulePortalRunPreviewQuote() {
     controller = new AbortController();
     schedulePortalQuoteAbort = controller;
   }
+  if (typeof schedulePortalShowQuoteChecking === 'function') schedulePortalShowQuoteChecking();
 
   return schedulePortalFetchQuote(payload, {
     gen: myGen,
@@ -537,13 +669,17 @@ function schedulePortalRunPreviewQuote() {
       return { ok: false, superseded: true };
     }
     if (result && result.aborted) return result;
-    schedulePortalRenderCreateQuotePreview(result);
+    if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
+      schedulePortalRenderCreateQuotePreview(result);
+    }
     return result;
   }).catch(function(err) {
     if (myGen !== schedulePortalQuoteGen || schedulePortalSubmitInFlight) {
       return { ok: false, superseded: true };
     }
-    schedulePortalRenderCreateQuotePreview({ ok: false, error: err && err.message });
+    if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
+      schedulePortalRenderCreateQuotePreview({ ok: false, error: err && err.message });
+    }
     return null;
   }).then(function(result) {
     if (schedulePortalQuoteAbort === controller) schedulePortalQuoteAbort = null;
@@ -556,6 +692,32 @@ function schedulePortalRefreshCreateQuote() {
   if (schedulePortalQuoteTimer != null) {
     clearTimeout(schedulePortalQuoteTimer);
     schedulePortalQuoteTimer = null;
+  }
+  var payload = null;
+  try { payload = typeof scheduleReadCreatePayload === 'function' ? scheduleReadCreatePayload() : null; } catch (_r) { payload = null; }
+  var sellable = payload && (typeof schedulePortalHasSellableIntent === 'function'
+    ? schedulePortalHasSellableIntent(payload)
+    : !!(payload.components && (payload.components.course || payload.components.private_lesson
+      || payload.components.full_day_equipment_extension || payload.components.surfboard || payload.components.wetsuit
+      || (Array.isArray(payload.rentals) && payload.rentals.length))));
+  if (payload && sellable) {
+    var soft = false;
+    if (payload.components && payload.components.private_lesson) {
+      try {
+        var g = schedulePortalValidatePrivateLessonCreate(payload.components.private_lesson);
+        soft = !g || g.ok !== true;
+      } catch (_g) { soft = true; }
+    }
+    if (soft) {
+      schedulePortalClearQuotePreviewUi();
+      if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
+        schedulePortalRenderCreateQuotePreview({ ok: false, softInvalid: true });
+      }
+      return Promise.resolve(null);
+    }
+    if (typeof schedulePortalShowQuoteChecking === 'function') schedulePortalShowQuoteChecking();
+  } else {
+    schedulePortalClearQuotePreviewUi();
   }
   var wait = Number(schedulePortalQuoteDebounceMs);
   if (!(wait >= 300 && wait <= 500)) wait = 400;
@@ -814,7 +976,7 @@ function schedulePortalPopulateCreateCourseFields() {
 
 function scheduleUpdateCreateTotalPreview() {
   scheduleUpdateFullDayAddonSummary('ps-create-fullday-rows', 'ps-create-fullday-summary');
-  schedulePortalRefreshCreateQuote();
+  schedulePortalSyncCreateFooter();
 }
 
 function submitScheduleManualBooking() {
