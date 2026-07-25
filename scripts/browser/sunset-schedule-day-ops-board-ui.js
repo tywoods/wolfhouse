@@ -256,22 +256,14 @@ function scheduleWireDayOpsBoardRows(container){
     node.dataset.psAddWired = '1';
     node.addEventListener('click', function(ev){
       ev.stopPropagation();
-      var slotKey = node.getAttribute('data-ps-add-slot');
       var dateIso = scheduleActiveDayIso();
-      openScheduleCreateModal();
-      var df = el('ps-create-date-from');
-      var dt = el('ps-create-date-to');
-      if (df) df.value = dateIso;
-      if (dt) dt.value = dateIso;
-      var courseCb = el('ps-create-comp-course');
-      if (courseCb && !courseCb.checked){
-        courseCb.checked = true;
-        scheduleOnCreateComponentChange('ps-create-comp-course');
-      }
-      schedulePopulateCreateCourseFields();
-      var courseSel = el('ps-create-course-select');
-      var courseId = node.getAttribute('data-ps-add-course');
-      if (courseSel && courseId) courseSel.value = courseId;
+      var courseId = node.getAttribute('data-ps-add-course') || '';
+      openScheduleCreateModal({
+        activity: 'group',
+        course_id: courseId || null,
+        date_from: dateIso,
+        date_to: dateIso,
+      });
     });
   });
 }

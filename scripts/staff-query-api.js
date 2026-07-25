@@ -23768,25 +23768,21 @@ function scheduleApplyCreatePrefill(){
   psPendingCreatePrefill = null;
 }
 
-function openScheduleCreateModal(){
+function openScheduleCreateModal(context){
   var modal = el('ps-create-modal');
   if (!modal) return;
-  if (typeof schedulePortalResetCreateFormRuntime === 'function') schedulePortalResetCreateFormRuntime();
-  var today = scheduleTodayIso();
-  var df = el('ps-create-date-from');
-  var dt = el('ps-create-date-to');
-  if (df && !df.value) df.value = today;
-  if (dt && !dt.value) dt.value = today;
+  var prep = typeof schedulePortalPrepareCreateOpen === 'function' ? schedulePortalPrepareCreateOpen(context || null) : null;
+  if (prep && prep.preserved){ modal.style.display = 'flex'; modal.setAttribute('aria-hidden', 'false'); return; }
+  if (!prep && typeof schedulePortalResetCreateFormRuntime === 'function') schedulePortalResetCreateFormRuntime();
   schedulePopulateCreateComponentFields();
   renderScheduleCreateSchoolContext();
   modal.style.display = 'flex';
   modal.setAttribute('aria-hidden', 'false');
   scheduleApplyCreatePrefill();
-  // Always re-fetch Admin catalog so newly created courses appear without restart.
   scheduleFetchLessonTimesConfig(getClient(), { force: true }).then(function(){
-    schedulePopulateCreateCourseFields();
-    scheduleRenderCreateRentals();
-    scheduleRefreshCreateFullDayAddon();
+    var done = function(){ scheduleRenderCreateRentals(); scheduleRefreshCreateFullDayAddon(); };
+    var p = schedulePopulateCreateCourseFields();
+    if (p && typeof p.then === 'function') p.then(done, done); else done();
   });
 }
 
@@ -23817,7 +23813,7 @@ function setScheduleFilter(mode){
 function wireScheduleControls(){
   var ids = [['ps-drawer-close', closeScheduleDetailDrawer],
     ['ps-drawer-refresh', scheduleRefreshDrawer],
-    ['ps-create-booking', openScheduleCreateModal],
+    ['ps-create-booking', function(){ openScheduleCreateModal(null); }],
     ['ps-create-close', closeScheduleCreateModal],
     ['ps-create-cancel', closeScheduleCreateModal],
     ['ps-create-submit', submitScheduleManualBooking]];
