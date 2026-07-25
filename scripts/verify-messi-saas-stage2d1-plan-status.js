@@ -1221,21 +1221,15 @@ async function main() {
       && st.rgTagContract && st.rgTagContract.lifecycleMode === 'durable-staging'
       && st.rgTagContract.durableStaging === 'true' && /^[a-f0-9]{64}$/.test(st.planDigest),
     JSON.stringify({ codes, err: st.errors }).slice(0, 200));
-    const basePath = path.join(ROOT, 'config/clients/mirleft.baseline.json');
-    const base = JSON.parse(fs.readFileSync(basePath, 'utf8'));
-    const sr = base.staging_readiness || {};
+    const sr = JSON.parse(fs.readFileSync(path.join(ROOT, 'config/clients/mirleft.baseline.json'), 'utf8')).staging_readiness || {};
     ok('durable_mirleft_committed_staging_readiness_false',
       sr.inventory_confirmed === false && sr.prices_confirmed === false
       && sr.channels_provisioned === false && sr.human_staging_approval === false);
+    const allTrue = { inventory_confirmed: true, prices_confirmed: true, channels_provisioned: true, human_staging_approval: true };
     const ov = await lib.status({
       slug: MIR, lifecycleMode: 'durable-staging', ready: true, readiness: true,
-      live_enabled: true, inventory_confirmed: true, prices_confirmed: true,
-      channels_provisioned: true, human_staging_approval: true,
-      blockers: [], clientReadiness: { ready: true, blockers: [] },
-      staging_readiness: {
-        inventory_confirmed: true, prices_confirmed: true,
-        channels_provisioned: true, human_staging_approval: true,
-      },
+      live_enabled: true, ...allTrue, blockers: [], clientReadiness: { ready: true, blockers: [] },
+      staging_readiness: { ...allTrue },
     }, h.deps);
     ok('durable_caller_cannot_override_readiness', ov.ok === false && ov.readiness === false
       && need.every((c) => (ov.blockers || []).some((b) => b.code === c))
@@ -1255,12 +1249,9 @@ async function main() {
       && temp.plan.planDigest !== dur.planDigest && dur.plan.lifecycleMode === 'durable-staging'
       && temp.plan.lifecycleMode == null && !/postgres(ql)?:\/\//i.test(blob)
       && !/sk_live|sk_test|accessToken|client_secret/i.test(blob) && !/"apply"\s*:/.test(blob)
-      && typeof lib.apply !== 'function'
-      && !/\basync function apply\b/.test(libSrc)
-      && /staging_readiness/.test(libSrc)
-      && !/live_enabled_not_ready/.test(libSrc)
-      && !/\/TODO\|provisional\//.test(libSrc)
-      && !/pricing_status ===/.test(libSrc));
+      && typeof lib.apply !== 'function' && !/\basync function apply\b/.test(libSrc)
+      && /staging_readiness/.test(libSrc) && !/live_enabled_not_ready/.test(libSrc)
+      && !/\/TODO\|provisional\//.test(libSrc) && !/pricing_status ===/.test(libSrc));
   }
   const st = diffStat();
   ok('file_budget', st.files <= 10, `files=${st.files}`);

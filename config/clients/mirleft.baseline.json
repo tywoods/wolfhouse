@@ -37,7 +37,7 @@
     "prices_confirmed": false,
     "channels_provisioned": false,
     "human_staging_approval": false,
-    "_note": "Committed durable-staging readiness gates (explicit booleans only). live_enabled in clients.json is production/channel activation and is not a staging-readiness field. Flip each to true only after owner confirmation / provisioning / human staging approval."
+    "_note": "Durable-staging gates (explicit booleans). live_enabled is production activation, not a staging field."
   },
   "deployment": {
     "enabled": false,

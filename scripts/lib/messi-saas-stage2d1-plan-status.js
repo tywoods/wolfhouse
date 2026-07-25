@@ -22,12 +22,11 @@ const STAGING_SUB_REL = 'config/azure-staging-subscription.json';
 const CLI_REL = 'scripts/messi-saas-stage2d1-plan-status.js';
 const LIB_REL = 'scripts/lib/messi-saas-stage2d1-plan-status.js';
 const LIFECYCLE_TEMPORARY = 'temporary-drill'; const LIFECYCLE_DURABLE = 'durable-staging';
-/** Committed baseline-owned staging-readiness booleans (not live_enabled / not free-text heuristics). */
-const STAGING_READINESS_FIELDS = Object.freeze([
-  { field: 'inventory_confirmed', code: 'inventory_not_ready', message: 'inventory not confirmed' },
-  { field: 'prices_confirmed', code: 'prices_not_ready', message: 'prices not confirmed' },
-  { field: 'channels_provisioned', code: 'channels_not_ready', message: 'channels not provisioned' },
-  { field: 'human_staging_approval', code: 'human_staging_approval_not_ready', message: 'human staging approval required' },
+const STAGING_READINESS_FIELDS = Object.freeze([ // baseline staging_readiness.* only; not live_enabled
+  ['inventory_confirmed', 'inventory_not_ready', 'inventory not confirmed'],
+  ['prices_confirmed', 'prices_not_ready', 'prices not confirmed'],
+  ['channels_provisioned', 'channels_not_ready', 'channels not provisioned'],
+  ['human_staging_approval', 'human_staging_approval_not_ready', 'human staging approval required'],
 ]);
 const INTERNAL_FLAG = '--internal-snapshot-worker';
 const CAPABILITY_FD = 3;
@@ -1840,29 +1839,15 @@ function resolveLifecycleMode(opts) {
     : { ok: false, errors: [err('lifecycle_mode_invalid', 'lifecycleMode must be temporary-drill|durable-staging')] };
 }
 function assessClientReadiness(deps, slug) {
-  // Readiness is owned solely by committed baseline staging_readiness.* fields.
-  // Caller opts (ready/readiness/live_enabled/blockers/clientReadiness) are ignored.
-  // live_enabled is production/channel activation — never a staging-readiness blocker.
-  // No regex/free-text scan of rooms, notes, statuses, catalog, channels, or docs.
-  const blockers = [];
-  const push = (c, m) => { if (!blockers.some((b) => b.code === c)) blockers.push({ code: c, message: m }); };
+  // Baseline staging_readiness.* only; caller opts/live_enabled ignored; no free-text heuristics.
+  const blockers = []; const push = (c, m) => { if (!blockers.some((b) => b.code === c)) blockers.push({ code: c, message: m }); };
   const rf = typeof deps.readFileSync === 'function' ? deps.readFileSync : fs.readFileSync;
-  const rel = `config/clients/${String(slug || '')}.baseline.json`;
   let base;
-  try {
-    const raw = rf(path.join(deps.repoRoot, rel), 'utf8');
-    base = JSON.parse(raw);
-  } catch (_e) {
-    return { ready: false, blockers: [{ code: 'baseline_unreadable', message: 'baseline unreadable' }] };
-  }
-  if (!base || typeof base !== 'object' || Array.isArray(base)) {
-    return { ready: false, blockers: [{ code: 'baseline_unreadable', message: 'baseline unreadable' }] };
-  }
-  const srRaw = base.staging_readiness;
-  const sr = (srRaw && typeof srRaw === 'object' && !Array.isArray(srRaw)) ? srRaw : {};
-  for (const { field, code, message } of STAGING_READINESS_FIELDS) {
-    if (sr[field] !== true) push(code, message);
-  }
+  try { base = JSON.parse(rf(path.join(deps.repoRoot, `config/clients/${String(slug || '')}.baseline.json`), 'utf8')); }
+  catch (_e) { return { ready: false, blockers: [{ code: 'baseline_unreadable', message: 'baseline unreadable' }] }; }
+  if (!base || typeof base !== 'object' || Array.isArray(base)) return { ready: false, blockers: [{ code: 'baseline_unreadable', message: 'baseline unreadable' }] };
+  const sr = (base.staging_readiness && typeof base.staging_readiness === 'object' && !Array.isArray(base.staging_readiness)) ? base.staging_readiness : {};
+  for (const [field, code, message] of STAGING_READINESS_FIELDS) if (sr[field] !== true) push(code, message);
   return { ready: blockers.length === 0, blockers };
 }
 async function buildDurablePlanEnvelope(opts, deps) {
