@@ -26,6 +26,10 @@ function parseArgs(argv) {
   if (out.lifecycleMode != null && !LIFECYCLES.has(out.lifecycleMode)) {
     return { ok: false, errors: [{ code: 'lifecycle_mode_invalid', message: 'lifecycleMode must be temporary-drill|durable-staging' }] };
   }
+  // Strict arity: exactly one positional command; reject extras before snapshot spawn.
+  if (out._.length !== 1) {
+    return { ok: false, errors: [{ code: 'unexpected_cli_positional', message: 'exactly one command required (plan|status)' }] };
+  }
   out.ok = true; return out;
 }
 function buildOpts(args) {
