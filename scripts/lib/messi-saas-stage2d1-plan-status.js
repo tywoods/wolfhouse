@@ -520,22 +520,20 @@ function buildSubstitutions(repoRoot, slug) {
   };
 }
 function safeReadFile(abs, containRoot) {
+  const want = path.relative(String(containRoot || ''), String(abs || ''));
+  const id = (want && !want.startsWith('..') && !path.isAbsolute(want))
+    ? want.split(path.sep).join('/') : (path.basename(String(abs || '')) || 'path');
   let lst;
-  try { lst = fs.lstatSync(abs); } catch (e) {
-    return { ok: false, errors: [err('path_missing', e.message)] };
-  }
-  if (lst.isSymbolicLink()) return { ok: false, errors: [err('path_symlink', abs)] };
-  if (!lst.isFile()) return { ok: false, errors: [err('path_nonregular', abs)] };
-  let real;
-  try { real = fs.realpathSync(abs); } catch (e) {
-    return { ok: false, errors: [err('path_realpath', e.message)] };
-  }
-  const rootReal = fs.realpathSync(containRoot);
+  try { lst = fs.lstatSync(abs); } catch (_e) { return { ok: false, errors: [err('path_missing', id)] }; }
+  if (lst.isSymbolicLink()) return { ok: false, errors: [err('path_symlink', id)] };
+  if (!lst.isFile()) return { ok: false, errors: [err('path_nonregular', id)] };
+  let real; let rootReal;
+  try { real = fs.realpathSync(abs); rootReal = fs.realpathSync(containRoot); }
+  catch (_e) { return { ok: false, errors: [err('path_realpath', id)] }; }
   const rel = path.relative(rootReal, real);
-  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
-    return { ok: false, errors: [err('path_escape', abs)] };
-  }
-  return { ok: true, errors: [], bytes: fs.readFileSync(real), realPath: real };
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return { ok: false, errors: [err('path_escape', id)] };
+  try { return { ok: true, errors: [], bytes: fs.readFileSync(real), realPath: real }; }
+  catch (_e) { return { ok: false, errors: [err('path_read', id)] }; }
 }
 function readStagingSubscriptionAuthority(repoRoot) {
   const abs = path.join(repoRoot, STAGING_SUB_REL);
@@ -1997,7 +1995,7 @@ module.exports = Object.freeze({
   alertsManagementProviderPath, buildAlertsManagementAdminCommands,
   pasteReadyAlertsManagementAdminGuidance, assertAlertsManagementProviderRegistered,
   inferLivePhase, isExactEmptyLiveInventory, runtimeSecretNames, azureArmGuid, collectLiveInventory, phaseContractFindings,
-  readStagingSubscriptionAuthority, assertRepoDeployPreflight, createHeadSnapshot,
+  safeReadFile, readStagingSubscriptionAuthority, assertRepoDeployPreflight, createHeadSnapshot,
   createExactShaSnapshot, assertSafeTarMembers, verifyLauncherBytes, hashPinnedToolAuthority,
   buildSanitizedChildEnv, readCapabilityFd, execSnapshotWorker, runProductionParent,
   listRgResources, listRgDeployments, queryRgCost, ownershipTags,
