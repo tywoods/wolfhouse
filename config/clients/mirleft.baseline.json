@@ -32,6 +32,13 @@
     "signed_client": true,
     "_signed_client_note": "Real signed Luna Front Desk client. This file is config/discovery only — no runtime wiring."
   },
+  "staging_readiness": {
+    "inventory_confirmed": false,
+    "prices_confirmed": false,
+    "channels_provisioned": false,
+    "human_staging_approval": false,
+    "_note": "Committed durable-staging readiness gates (explicit booleans only). live_enabled in clients.json is production/channel activation and is not a staging-readiness field. Flip each to true only after owner confirmation / provisioning / human staging approval."
+  },
   "deployment": {
     "enabled": false,
     "deploy_target": null,

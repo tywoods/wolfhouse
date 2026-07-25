@@ -19,10 +19,16 @@ const OWNER = 'messi-stage2d1';
 const MODULE_REL = 'infra/azure/modules/tenant-staging/main.bicep';
 const SUBS_REL = 'fixtures/factory-client-productization/slice1c-substitutions-surf_house.json';
 const STAGING_SUB_REL = 'config/azure-staging-subscription.json';
-const CLIENTS_REL = 'config/clients/clients.json';
 const CLI_REL = 'scripts/messi-saas-stage2d1-plan-status.js';
 const LIB_REL = 'scripts/lib/messi-saas-stage2d1-plan-status.js';
 const LIFECYCLE_TEMPORARY = 'temporary-drill'; const LIFECYCLE_DURABLE = 'durable-staging';
+/** Committed baseline-owned staging-readiness booleans (not live_enabled / not free-text heuristics). */
+const STAGING_READINESS_FIELDS = Object.freeze([
+  { field: 'inventory_confirmed', code: 'inventory_not_ready', message: 'inventory not confirmed' },
+  { field: 'prices_confirmed', code: 'prices_not_ready', message: 'prices not confirmed' },
+  { field: 'channels_provisioned', code: 'channels_not_ready', message: 'channels not provisioned' },
+  { field: 'human_staging_approval', code: 'human_staging_approval_not_ready', message: 'human staging approval required' },
+]);
 const INTERNAL_FLAG = '--internal-snapshot-worker';
 const CAPABILITY_FD = 3;
 const PINNED_BINS = Object.freeze({
@@ -1834,22 +1840,29 @@ function resolveLifecycleMode(opts) {
     : { ok: false, errors: [err('lifecycle_mode_invalid', 'lifecycleMode must be temporary-drill|durable-staging')] };
 }
 function assessClientReadiness(deps, slug) {
-  const blockers = []; const push = (c, m) => { if (!blockers.some((b) => b.code === c)) blockers.push({ code: c, message: m }); };
+  // Readiness is owned solely by committed baseline staging_readiness.* fields.
+  // Caller opts (ready/readiness/live_enabled/blockers/clientReadiness) are ignored.
+  // live_enabled is production/channel activation — never a staging-readiness blocker.
+  // No regex/free-text scan of rooms, notes, statuses, catalog, channels, or docs.
+  const blockers = [];
+  const push = (c, m) => { if (!blockers.some((b) => b.code === c)) blockers.push({ code: c, message: m }); };
   const rf = typeof deps.readFileSync === 'function' ? deps.readFileSync : fs.readFileSync;
-  const j = (rel) => JSON.parse(rf(path.join(deps.repoRoot, rel), 'utf8'));
-  let clients; try { clients = j(CLIENTS_REL); } catch (e) {
-    return { ready: false, blockers: [{ code: 'clients_unreadable', message: redact(String(e.message || e)) }] };
+  const rel = `config/clients/${String(slug || '')}.baseline.json`;
+  let base;
+  try {
+    const raw = rf(path.join(deps.repoRoot, rel), 'utf8');
+    base = JSON.parse(raw);
+  } catch (_e) {
+    return { ready: false, blockers: [{ code: 'baseline_unreadable', message: 'baseline unreadable' }] };
   }
-  const entry = (clients.clients || []).find((c) => c && c.client_slug === slug);
-  if (!entry || entry.live_enabled !== true) push('live_enabled_not_ready', 'live_enabled is not true');
-  let base; try { base = j(`config/clients/${slug}.baseline.json`); } catch (e) {
-    push('baseline_unreadable', redact(String(e.message || e))); return { ready: false, blockers };
+  if (!base || typeof base !== 'object' || Array.isArray(base)) {
+    return { ready: false, blockers: [{ code: 'baseline_unreadable', message: 'baseline unreadable' }] };
   }
-  const rm = base.rooming || {};
-  if ((rm._status && /TODO|provisional/i.test(String(rm._status))) || Object.entries(rm.rooms || {}).some(([id, room]) => !id.startsWith('_') && room && (room.guest_assignable === false || /TODO|provisional/i.test(String(room.status || '')))) || (base.inventory && /TODO/i.test(String(base.inventory._note || '')))) push('inventory_not_ready', 'inventory provisional/TODO');
-  const walk = (n) => { if (!n || typeof n !== 'object' || blockers.some((b) => b.code === 'prices_not_ready')) return; if (n.pricing_status === 'unverified_seed' || n.pricing_status === 'todo' || n.pricing_status === 'provisional') { push('prices_not_ready', 'pricing_status not confirmed'); return; } for (const v of Object.values(n)) walk(v); };
-  walk(base.catalog || {}); const wa = (base.channels && base.channels.whatsapp) || {};
-  if (wa.enabled !== true || wa.status === 'planned' || !base.deployment || base.deployment.whatsapp_phone_number_id == null) push('channels_not_ready', 'WhatsApp/channels not provisioned');
+  const srRaw = base.staging_readiness;
+  const sr = (srRaw && typeof srRaw === 'object' && !Array.isArray(srRaw)) ? srRaw : {};
+  for (const { field, code, message } of STAGING_READINESS_FIELDS) {
+    if (sr[field] !== true) push(code, message);
+  }
   return { ready: blockers.length === 0, blockers };
 }
 async function buildDurablePlanEnvelope(opts, deps) {
@@ -1970,7 +1983,8 @@ async function status(opts, depsIn) {
 }
 module.exports = Object.freeze({
   STAGE, OWNER, MODULE_REL, STAGING_SUB_REL, SKU_EST, COST_API, HEALTH_IDENTITY_PATH,
-  PINNED_BINS, INTERNAL_FLAG, CAPABILITY_FD, CLI_REL, LIB_REL, CLIENTS_REL, LIFECYCLE_TEMPORARY, LIFECYCLE_DURABLE,
+  PINNED_BINS, INTERNAL_FLAG, CAPABILITY_FD, CLI_REL, LIB_REL, LIFECYCLE_TEMPORARY, LIFECYCLE_DURABLE,
+  STAGING_READINESS_FIELDS,
   ROLE_KV_SECRETS_USER, ROLE_ACR_PULL, ACR_RG, IGNORE_TYPES, DEP_API, PROVIDER_API,
   ALERTS_MANAGEMENT_NAMESPACE, REQUIRED_PROVIDER_REGISTRATION_STATE,
   SMART_DETECTOR_ALERT_RULES_TYPE, SMART_DETECTOR_API,

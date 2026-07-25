@@ -26,5 +26,3 @@ node scripts/messi-saas-stage2d1-plan-status.js plan --slug synthdemo
 node scripts/messi-saas-stage2d1-plan-status.js status --slug synthdemo
 npm run verify:messi-saas-stage2d1-plan-status
 ```
-
-**Durable-staging lifecycle (lib only, read-only):** `lifecycleMode: 'durable-staging'` binds lifecycle into immutable `planDigest` (cross-mode digests differ; temporary-drill unchanged), monthly cost, RG/tag contract, human/admin prerequisites, rollback policy (`preserve_rg` on success; canonical owned-RG delete on failed partial only), and client-readiness blockers from committed `config/clients/*.baseline.json` + `clients.json` (never caller booleans). No apply/mutation path; no ARM in durable mode. Mirleft blocked: inventory, prices, channels, live_enabled.

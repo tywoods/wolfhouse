@@ -1205,12 +1205,15 @@ async function main() {
   }
   {
     const MIR = 'mirleft';
-    const need = ['inventory_not_ready', 'prices_not_ready', 'channels_not_ready', 'live_enabled_not_ready'];
+    const need = ['inventory_not_ready', 'prices_not_ready', 'channels_not_ready', 'human_staging_approval_not_ready'];
     const h = makeHarness(lib);
     const st = await lib.status({ slug: MIR, lifecycleMode: lib.LIFECYCLE_DURABLE }, h.deps);
     const codes = (st.blockers || []).map((b) => b.code);
     ok('durable_mirleft_exact_blockers', st.ok === false && st.readiness === false
-      && st.lifecycleMode === 'durable-staging' && need.every((c) => codes.includes(c))
+      && st.lifecycleMode === 'durable-staging'
+      && need.every((c) => codes.includes(c))
+      && codes.length === need.length
+      && !codes.includes('live_enabled_not_ready')
       && st.applyPath == null && st.mutationPath == null
       && st.rollbackPolicy && st.rollbackPolicy.onSuccess === 'preserve_rg'
       && st.rollbackPolicy.destroyAfterSuccess === false
@@ -1218,12 +1221,25 @@ async function main() {
       && st.rgTagContract && st.rgTagContract.lifecycleMode === 'durable-staging'
       && st.rgTagContract.durableStaging === 'true' && /^[a-f0-9]{64}$/.test(st.planDigest),
     JSON.stringify({ codes, err: st.errors }).slice(0, 200));
+    const basePath = path.join(ROOT, 'config/clients/mirleft.baseline.json');
+    const base = JSON.parse(fs.readFileSync(basePath, 'utf8'));
+    const sr = base.staging_readiness || {};
+    ok('durable_mirleft_committed_staging_readiness_false',
+      sr.inventory_confirmed === false && sr.prices_confirmed === false
+      && sr.channels_provisioned === false && sr.human_staging_approval === false);
     const ov = await lib.status({
       slug: MIR, lifecycleMode: 'durable-staging', ready: true, readiness: true,
-      live_enabled: true, blockers: [], clientReadiness: { ready: true, blockers: [] },
+      live_enabled: true, inventory_confirmed: true, prices_confirmed: true,
+      channels_provisioned: true, human_staging_approval: true,
+      blockers: [], clientReadiness: { ready: true, blockers: [] },
+      staging_readiness: {
+        inventory_confirmed: true, prices_confirmed: true,
+        channels_provisioned: true, human_staging_approval: true,
+      },
     }, h.deps);
     ok('durable_caller_cannot_override_readiness', ov.ok === false && ov.readiness === false
-      && need.every((c) => (ov.blockers || []).some((b) => b.code === c)));
+      && need.every((c) => (ov.blockers || []).some((b) => b.code === c))
+      && !(ov.blockers || []).some((b) => b.code === 'live_enabled_not_ready'));
     const nArm = h.armLog.length;
     const p1 = await lib.plan({ slug: MIR, lifecycleMode: 'durable-staging' }, h.deps);
     const p2 = await lib.plan({ slug: MIR, lifecycleMode: 'durable-staging' }, h.deps);
@@ -1234,13 +1250,17 @@ async function main() {
     const temp = await lib.plan({ slug: SLUG }, h.deps);
     const dur = await lib.plan({ slug: SLUG, lifecycleMode: 'durable-staging' }, h.deps);
     const blob = JSON.stringify(st) + JSON.stringify(p1);
+    const libSrc = fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8');
     ok('durable_cross_mode_digest_separation', temp.ok && dur.ok
       && temp.plan.planDigest !== dur.planDigest && dur.plan.lifecycleMode === 'durable-staging'
       && temp.plan.lifecycleMode == null && !/postgres(ql)?:\/\//i.test(blob)
       && !/sk_live|sk_test|accessToken|client_secret/i.test(blob) && !/"apply"\s*:/.test(blob)
       && typeof lib.apply !== 'function'
-      && !/\basync function apply\b/.test(fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8'))
-      && /durable-staging/.test(fs.readFileSync(path.join(ROOT, DOC_REL), 'utf8')));
+      && !/\basync function apply\b/.test(libSrc)
+      && /staging_readiness/.test(libSrc)
+      && !/live_enabled_not_ready/.test(libSrc)
+      && !/\/TODO\|provisional\//.test(libSrc)
+      && !/pricing_status ===/.test(libSrc));
   }
   const st = diffStat();
   ok('file_budget', st.files <= 10, `files=${st.files}`);
