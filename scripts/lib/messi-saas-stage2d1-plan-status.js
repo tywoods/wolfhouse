@@ -22,12 +22,16 @@ const STAGING_SUB_REL = 'config/azure-staging-subscription.json';
 const CLI_REL = 'scripts/messi-saas-stage2d1-plan-status.js';
 const LIB_REL = 'scripts/lib/messi-saas-stage2d1-plan-status.js';
 const LIFECYCLE_TEMPORARY = 'temporary-drill'; const LIFECYCLE_DURABLE = 'durable-staging';
-const STAGING_READINESS_FIELDS = Object.freeze([ // baseline staging_readiness.* only; not live_enabled
-  ['inventory_confirmed', 'inventory_not_ready', 'inventory not confirmed'],
-  ['prices_confirmed', 'prices_not_ready', 'prices not confirmed'],
-  ['channels_provisioned', 'channels_not_ready', 'channels not provisioned'],
-  ['human_staging_approval', 'human_staging_approval_not_ready', 'human staging approval required'],
+const STAGING_READINESS_FIELDS = Object.freeze([
+  ['inventory_confirmed', 'inventory_not_ready', 'inventory not confirmed', 'inventory'],
+  ['prices_confirmed', 'prices_not_ready', 'prices not confirmed', 'prices'],
+  ['channels_provisioned', 'channels_not_ready', 'channels not provisioned', 'channels'],
+  ['human_staging_approval', 'human_staging_approval_not_ready', 'human staging approval required', 'human_staging_approval'],
 ]);
+const EVIDENCE_BASE_KEYS = Object.freeze(['kind', 'client', 'paths', 'sha256']);
+const EVIDENCE_HUMAN_KEYS = Object.freeze(['kind', 'client', 'paths', 'sha256', 'approved_by', 'approved_on']);
+const EVIDENCE_HEX64 = /^[a-f0-9]{64}$/;
+const EVIDENCE_YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
 const INTERNAL_FLAG = '--internal-snapshot-worker';
 const CAPABILITY_FD = 3;
 const PINNED_BINS = Object.freeze({
@@ -49,24 +53,15 @@ const MI_API = '2023-01-31';
 const ROLE_API = '2022-04-01';
 const PG_API = '2023-06-01-preview';
 const DNS_API = '2020-06-01';
-// Pinned RG-scope deployment history API (independent of generic /resources list).
 const DEP_API = '2021-04-01';
-// Subscription provider registration GET (Microsoft.Resources/providers).
 const PROVIDER_API = '2021-04-01';
-// App Insights platform Failure-Anomalies smart detector requires this namespace Registered.
 const ALERTS_MANAGEMENT_NAMESPACE = 'Microsoft.AlertsManagement';
 const REQUIRED_PROVIDER_REGISTRATION_STATE = 'Registered';
 const ARM_HOST = 'management.azure.com';
 const MAX_ARM_PAGES = 40;
 const ROLE_KV_SECRETS_USER = '4633458b-17de-408a-b874-0445c86b69e6';
 const ROLE_ACR_PULL = '7f951dda-4ed3-4680-a7ca-43fe172d538d';
-// Deployments are inventory-listed separately; never broadly IGNORE smart-detector type.
 const IGNORE_TYPES = Object.freeze(['Microsoft.Resources/deployments']);
-// Azure-managed Failure Anomalies smart detector (exact platform-supplemental resource only).
-// Live residual (provider Registered): name "Failure Anomalies - <appInsightsName>", type
-// microsoft.alertsmanagement/smartDetectorAlertRules under the owned tenant RG. Not a wildcard.
-// Exact provider GET (pinned SMART_DETECTOR_API) is required before admission — generic
-// /resources rows are sparse (properties null) and must not classify alone.
 const SMART_DETECTOR_ALERT_RULES_TYPE = 'microsoft.alertsmanagement/smartDetectorAlertRules';
 const SMART_DETECTOR_API = '2019-03-01';
 const FAILURE_ANOMALIES_SMART_DETECTOR_NAME_PREFIX = 'Failure Anomalies - ';
@@ -102,8 +97,6 @@ function sortedStringify(v) {
 function redact(text) {
   return String(text || '').replace(/postgres(ql)?:\/\/[^\s'"]+/gi, '[REDACTED_DSN]');
 }
-// Azure Key Vault vault name rules (global uniqueness aside): 3–24 chars, lowercase
-// alnum/hyphen, must begin with a letter and end with alnum (no consecutive hyphens).
 const AZURE_KEY_VAULT_NAME_MIN = 3;
 const AZURE_KEY_VAULT_NAME_MAX = 24;
 function isValidAzureKeyVaultName(name) {
@@ -113,31 +106,21 @@ function isValidAzureKeyVaultName(name) {
   if (n.includes('--')) return false;
   return true;
 }
-/** Full canonical form `luna-<slug>-staging-kv` (may exceed Azure's 24-char limit). */
 function canonicalKeyVaultName(slug) {
   return `luna-${String(slug || '')}-staging-kv`;
 }
-/**
- * Owner for tenant-staging Key Vault names (contract, Bicep params, role/secret IDs).
- * Preserves canonical when already Azure-valid (<=24). Overlength only: deterministic
- * truncation + stable 8-hex sha256 suffix of the full canonical name (collision-resistant).
- */
 function deriveKeyVaultName(slug) {
   const s = String(slug || '');
   const canonical = canonicalKeyVaultName(s);
   if (isValidAzureKeyVaultName(canonical)) return canonical;
   const hash8 = sha256(canonical).slice(0, 8);
-  // luna-<head>-<hash8> with head budget so total length is always <= 24.
   const headBudget = AZURE_KEY_VAULT_NAME_MAX - 'luna-'.length - 1 - hash8.length;
   const headRaw = s.replace(/[^a-z0-9]/g, '').slice(0, headBudget) || 'x';
   const head = headRaw.replace(/-+$/g, '') || 'x';
   const shortened = `luna-${head}-${hash8}`;
   if (isValidAzureKeyVaultName(shortened)) return shortened;
-  // Extreme fallback — always valid 24-char form from the same canonical hash.
   return `luna${sha256(canonical).slice(0, 20)}`;
 }
-// Azure Container Apps Job name rules: 2–32 chars, lowercase alnum/hyphen,
-// must begin with a letter and end with alnum (no consecutive hyphens).
 const AZURE_CONTAINER_APPS_JOB_NAME_MIN = 2;
 const AZURE_CONTAINER_APPS_JOB_NAME_MAX = 32;
 function isValidAzureContainerAppsJobName(name) {
@@ -149,29 +132,19 @@ function isValidAzureContainerAppsJobName(name) {
   if (n.includes('--')) return false;
   return true;
 }
-/** Full canonical form `luna-<slug>-staging-bootstrap` (may exceed Azure's 32-char limit). */
 function canonicalBootstrapJobName(slug) {
   return `luna-${String(slug || '')}-staging-bootstrap`;
 }
-/**
- * Owner for tenant-staging Container Apps bootstrap Job names (contract, Bicep params,
- * D2 apply/status/rollback, operator argv). Preserves canonical when already Azure-valid
- * (<=32). Overlength only: deterministic truncation + stable 8-hex sha256 suffix of the
- * full canonical name (collision-resistant; never raw truncation alone).
- * Live messiproof evidence: canonical 33 chars → ContainerAppInvalidName.
- */
 function deriveBootstrapJobName(slug) {
   const s = String(slug || '');
   const canonical = canonicalBootstrapJobName(s);
   if (isValidAzureContainerAppsJobName(canonical)) return canonical;
   const hash8 = sha256(canonical).slice(0, 8);
-  // luna-<head>-<hash8> with head budget so total length is always <= 32.
   const headBudget = AZURE_CONTAINER_APPS_JOB_NAME_MAX - 'luna-'.length - 1 - hash8.length;
   const headRaw = s.replace(/[^a-z0-9]/g, '').slice(0, headBudget) || 'x';
   const head = headRaw.replace(/-+$/g, '') || 'x';
   const shortened = `luna-${head}-${hash8}`;
   if (isValidAzureContainerAppsJobName(shortened)) return shortened;
-  // Extreme fallback — always valid 32-char form from the same canonical hash.
   return `l${sha256(canonical).slice(0, 31)}`;
 }
 function deriveNames(slug, subscriptionId) {
@@ -198,10 +171,6 @@ function runtimeSecretNames(slug) {
   return Object.freeze(['stripe-webhook-secret', db, ...FIXED_RUNTIME_SECRETS.slice(1)]);
 }
 function buildOwnedDeploymentNames(names) {
-  // Plan-owned RG deployment history names only (root phase deploys + Bicep modules).
-  // Authority derives these; live inventory must be an exact name subset — never free-form.
-  // Azure-generated Failure-Anomalies-Alert-Rule-Deployment-<8hex> is NOT listed here:
-  // it is admitted only via isExactOwnedFailureAnomaliesDeployment (prefix + id/type/state + AI correlation).
   return Object.freeze([
     'messi-2d2-infra',
     'messi-2d2-bootstrap',
@@ -211,20 +180,12 @@ function buildOwnedDeploymentNames(names) {
     'privateNetwork',
   ]);
 }
-// Observed: Azure platform Failure-Anomalies smart-detector deploy appears with App Insights create.
-// Documented deterministic shape only: exact prefix + 8 lowercase hex (no broad wildcards).
-// Live az deployment group show for Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8 has
-// parameters=null, dependencies=[], outputResources=null, validatedResources=null, and
-// properties.error.code=DeploymentFailed with details[0].code=MissingSubscriptionRegistration
-// (target absent-or-null: CLI materializes null, ARM REST omits; no nested details) + App Insights.
 const FAILURE_ANOMALIES_DEPLOY_PREFIX = 'Failure-Anomalies-Alert-Rule-Deployment-';
 const FAILURE_ANOMALIES_DEPLOY_NAME_RE = /^Failure-Anomalies-Alert-Rule-Deployment-[0-9a-f]{8}$/;
-// Pinned from live SHOW of Failure-Anomalies-Alert-Rule-Deployment-ea8f51b8 (no wildcards).
 const FAILURE_ANOMALIES_TEMPLATE_HASH = '5081387184824560999';
 const FAILURE_ANOMALIES_PROVIDER_NS = 'microsoft.alertsmanagement';
 const FAILURE_ANOMALIES_RESOURCE_TYPE = 'smartdetectoralertrules';
 const FAILURE_ANOMALIES_LOCATION = 'global';
-// Live SHOW: properties.error.code is DeploymentFailed; MissingSubscriptionRegistration is details[0].code.
 const FAILURE_ANOMALIES_TOP_ERROR_CODE = 'DeploymentFailed';
 const FAILURE_ANOMALIES_ERROR_CODE = 'MissingSubscriptionRegistration';
 const SAFE_DEPLOYMENT_PROVISIONING_STATES = Object.freeze([
@@ -245,8 +206,6 @@ function expectedAppInsightsFromContract(contract) {
     .find((e) => e && e.type === 'Microsoft.Insights/components') || null;
 }
 function buildExpectedFailureAnomaliesSmartDetector(names) {
-  // Exact one platform-supplemental resource per tenant App Insights component.
-  // id uses the live Azure type casing (lowercase microsoft.alertsmanagement/...).
   const sub = names.subscriptionId;
   const rg = names.resourceGroupName;
   const aiName = names.appInsightsName;
@@ -266,7 +225,6 @@ function buildExpectedFailureAnomaliesSmartDetector(names) {
   });
 }
 function encodeArmResourceIdPath(resourceId) {
-  // Encode each path segment (names may contain spaces) while preserving leading '/'.
   return String(resourceId || '').split('/').map((seg) => encodeURIComponent(seg)).join('/');
 }
 function smartDetectorGetPath(resourceId) {
@@ -284,12 +242,6 @@ function isSmartDetectorCandidateRow(r, contract) {
   return false;
 }
 function isExactPlatformSupplementalSmartDetector(r, expected, liveTopLevel) {
-  // Strict contract from live exact GET (api-version 2019-03-01): exact name, location global,
-  // case-insensitive type/id/sub/RG, exact AI present, required properties object with
-  // singleton scope → AI id, detector id/name + supportedResourceTypes=['ApplicationInsights'],
-  // frequency PT1M / severity Sev3 / state Enabled. Tags empty when returned.
-  // Do not require description or actionGroups (platform prose/default AG may vary).
-  // Fail closed on absent/null/{}-empty properties, extra scope, lookalikes, wrong case name.
   if (!r || !expected || !expected.id || !expected.name) return false;
   if (String(r.name || '') !== String(expected.name)) return false;
   if (String(r.type || '').toLowerCase() !== String(expected.type).toLowerCase()) return false;
@@ -309,7 +261,6 @@ function isExactPlatformSupplementalSmartDetector(r, expected, liveTopLevel) {
   })) return false;
   const props = r.properties;
   if (props == null || typeof props !== 'object' || Array.isArray(props)) return false;
-  // Exact singleton scope matching App Insights id (case-insensitive). No extra scopes.
   if (!Array.isArray(props.scope) || props.scope.length !== 1) return false;
   if (String(props.scope[0] || '').toLowerCase() !== String(expected.appInsightsId).toLowerCase()) {
     return false;
@@ -333,7 +284,6 @@ function matchExpectedContractResource(r, contract) {
   const top = (contract.foundationTopLevel || [])
     .find((e) => e.type === r.type && e.name === r.name);
   if (top) return top;
-  // Live /resources may surface nested children (e.g. private DNS VNet link).
   return (contract.nestedChildren || []).find((e) => e.type === r.type
     && (e.name === r.name || String(r.name || '').endsWith(`/${e.name}`))) || null;
 }
@@ -370,10 +320,6 @@ function liveInventoryHasExactAppInsights(liveTopLevel, appInsights) {
     && String(r.id || '').toLowerCase() === aiId);
 }
 function failureAnomaliesMatchesPlatformSignature(d) {
-  // Exact live SHOW signature only — no ScopeResourceId / dependencies / outputResources trust,
-  // no broad wildcards. Live row carries parameters=null and empty correlation surfaces.
-  // Error shape is nested: top code DeploymentFailed + exactly one details row with
-  // MissingSubscriptionRegistration, target absent-or-null, and no nested detail children.
   if (!d || typeof d !== 'object') return false;
   if (String(d.provisioningState || '') !== 'Failed') return false;
   const props = d.properties;
@@ -388,14 +334,8 @@ function failureAnomaliesMatchesPlatformSignature(d) {
   const d0 = details[0];
   if (!d0 || typeof d0 !== 'object' || Array.isArray(d0)) return false;
   if (String(d0.code || '') !== FAILURE_ANOMALIES_ERROR_CODE) return false;
-  // Azure CLI materializes target:null; ARM REST GET omits null-valued keys (target undefined).
-  // Accept only absent or exactly null — empty string/object/array/false/forged must refuse.
-  // Use != null so both undefined (REST-omitted) and null (CLI) pass; !== null rejects undefined.
   if (d0.target != null) return false;
-  // Optional null-materialized details: CLI may set details:null; REST omits.
-  // Accept only absent or exactly null — empty array/object/string/false/nested refuse.
   if (Object.prototype.hasOwnProperty.call(d0, 'details') && d0.details !== null) return false;
-  // Optional null-materialized additionalInfo (CLI null / REST omitted); non-null refuse.
   if (Object.prototype.hasOwnProperty.call(d0, 'additionalInfo') && d0.additionalInfo != null) {
     return false;
   }
@@ -415,7 +355,6 @@ function failureAnomaliesMatchesPlatformSignature(d) {
   return true;
 }
 function failureAnomaliesCorrelatesToAppInsights(d, appInsights, liveTopLevel) {
-  // Platform signature + exact expected App Insights present in live inventory (not receipt).
   if (!failureAnomaliesMatchesPlatformSignature(d)) return false;
   return liveInventoryHasExactAppInsights(liveTopLevel, appInsights);
 }
@@ -705,9 +644,6 @@ function createExactShaSnapshot(deps, verifiedDeploySha) {
   try {
     fs.chmodSync(tmp, 0o700);
     const tarPath = path.join(tmp, `.${sha}.tar`);
-    // Snapshot only the fixed planner authority surface. The repository also
-    // contains unrelated tracked symlinks (for example website/CLAUDE.md),
-    // which must never weaken archive member validation.
     const authorityPaths = ['scripts', 'database', 'config', 'infra', 'fixtures', 'package.json', 'package-lock.json'];
     execFileSync(pins.git, ['archive', '--format=tar', sha, '-o', tarPath, '--', ...authorityPaths], {
       cwd: deps.repoRoot, stdio: ['ignore', 'pipe', 'pipe'],
@@ -778,17 +714,10 @@ function assertSubscriptionMatchesAuthority(activeId, expectedId) {
   }
   return { ok: true, errors: [] };
 }
-/**
- * Exact subscription-scope provider path for Microsoft.AlertsManagement.
- * Observed: our App Insights create triggered Failure-Anomalies-Alert-Rule-Deployment-<8hex>
- * under this namespace; MissingSubscriptionRegistration when registrationState != Registered.
- * (Observed for our template path — not a global unavoidability claim.)
- */
 function alertsManagementProviderPath(subscriptionId) {
   return `/subscriptions/${String(subscriptionId || '')}/providers/${ALERTS_MANAGEMENT_NAMESPACE}`
     + `?api-version=${PROVIDER_API}`;
 }
-/** Paste-ready Azure-admin register + readback (subscription write). Executor never runs these. */
 function buildAlertsManagementAdminCommands(subscriptionId) {
   const sub = String(subscriptionId || '');
   return Object.freeze([
@@ -804,10 +733,6 @@ function pasteReadyAlertsManagementAdminGuidance(subscriptionId) {
     + ' Azure admin only (no executor self-register; no subscription Contributor/Owner): '
     + cmds.join(' && ');
 }
-/**
- * Read-only preflight: GET provider registration on the exact fixed staging subscription.
- * Fail-closed unless registrationState === Registered. Never POSTs register.
- */
 async function assertAlertsManagementProviderRegistered(deps, subscriptionId) {
   const sub = String(subscriptionId || '').trim();
   const guidance = pasteReadyAlertsManagementAdminGuidance(sub);
@@ -846,10 +771,6 @@ async function assertAlertsManagementProviderRegistered(deps, subscriptionId) {
       `expected namespace ${ALERTS_MANAGEMENT_NAMESPACE}, got ${ns || '(absent)'}. ${guidance}`,
       { namespace: ns || null });
   }
-  // Strict provider resource identity: body.id must be a present string and
-  // case-insensitively EXACT `/subscriptions/<exact-sub>/providers/Microsoft.AlertsManagement`
-  // (fixture has no trailing slash; allow at most one trailing slash only).
-  // Reject absent/null/empty, non-string, query, suffix/child path, wrong sub/namespace.
   if (!Object.prototype.hasOwnProperty.call(body, 'id')
     || body.id == null
     || typeof body.id !== 'string'
@@ -908,7 +829,6 @@ async function getResourceGroup(deps, sub, rg) {
 function ownershipTags({ tenantSlug, planDigest, deploySha }) {
   return { tenant: tenantSlug, stage: STAGE, owner: OWNER, planDigest, deploySha };
 }
-// Bootstrap Job Bicep hardcodes provenance.stageTag saas-2c2 (not RG/D1/D2 stage).
 const BOOTSTRAP_JOB_STAGE_TAG = 'saas-2c2';
 function bootstrapJobOwnershipTags(expectedTags) {
   return { ...(expectedTags || {}), stage: BOOTSTRAP_JOB_STAGE_TAG };
@@ -995,8 +915,6 @@ async function listRgResources(deps, sub, rg) {
   return { ok: true, resources: listed.value, pages: listed.pages };
 }
 async function listRgDeployments(deps, sub, rg) {
-  // Authoritative deployment history: generic /resources is insufficient and
-  // Microsoft.Resources/deployments is ignored in top-level inventory.
   const listed = await armListPaged(deps,
     `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Resources/deployments?api-version=${DEP_API}`,
     sub);
@@ -1024,12 +942,7 @@ function matchTags(tags, expected) {
 async function collectLiveInventory(deps, names, expectedTags) {
   const findings = []; const sub = names.subscriptionId; const rg = names.resourceGroupName;
   const listed = await listRgResources(deps, sub, rg); if (!listed.ok) return listed;
-  // Fail-closed deployment history LIST (paged). Required for exact empty-phase authority;
-  // 403/404/5xx/malformed/nextLink errors prevent empty-phase acceptance.
   const depListed = await listRgDeployments(deps, sub, rg); if (!depListed.ok) return depListed;
-  // LIST may omit SHOW-only fields (templateHash/providers/error). For every candidate
-  // Failure-Anomalies name, obtain exact deployment GET/readback before acceptance.
-  // Fail closed on GET failure, absent body, or id/name/type mismatch with the LIST row.
   const deployments = [];
   for (const d of depListed.deployments) {
     const listProps = d.properties && typeof d.properties === 'object' && !Array.isArray(d.properties)
@@ -1139,10 +1052,6 @@ async function collectLiveInventory(deps, names, expectedTags) {
       }
     }
   }
-  // Child secrets LIST requires the expected vault in top-level inventory. When the vault
-  // is absent (empty/partial RG after early apply failure), ARM 404s the list and would
-  // wrongly convert diagnosable missing-foundation findings into arm_list_failed.
-  // Do not treat arbitrary armListPaged 404 as success — only skip when vault is absent.
   const kvPresent = top.some((r) => r.type === 'Microsoft.KeyVault/vaults' && r.name === names.keyVaultName);
   let secretMeta = [];
   let secretsExact = 0;
@@ -1194,7 +1103,6 @@ async function collectLiveInventory(deps, names, expectedTags) {
         code: 'resource_type_mismatch', name: expJob.name, type: gotType, expected: expJob.type,
       });
     }
-    // Canonical Job stage is Bicep saas-2c2; RG/D2 stage remains saas-2d2-staging.
     for (const f of matchTags(jobBody.tags, bootstrapJobOwnershipTags(expectedTags))) {
       findings.push({ ...f, name: names.bootstrapJobName, type: 'Microsoft.App/jobs' });
     }
@@ -1214,8 +1122,6 @@ async function collectLiveInventory(deps, names, expectedTags) {
     if (/\/secrets$|roleAssignments/.test(r.type || '')) continue;
     if (contract.nestedChildren.some((e) => r.type === e.type
       && (r.name === e.name || String(r.name || '').endsWith(`/${e.name}`)))) continue;
-    // Exact platform-supplemental only after pinned provider GET readback — never classify
-    // sparse generic /resources rows (live list properties may be null).
     if (isSmartDetectorCandidateRow(r, contract)) {
       const expHit = (contract.platformSupplemental || []).find((e) => e
         && e.kind === 'failure-anomalies-smart-detector'
@@ -1230,7 +1136,6 @@ async function collectLiveInventory(deps, names, expectedTags) {
       }
       const got = await armGet(deps, smartDetectorGetPath(getId));
       if (!got.ok) return got;
-      // Fail closed on 404/absent body for a listed candidate (no soft-miss).
       if (!got.exists || !got.body || typeof got.body !== 'object' || Array.isArray(got.body)) {
         return {
           ok: false,
@@ -1252,7 +1157,6 @@ async function collectLiveInventory(deps, names, expectedTags) {
             `smart detector GET mismatch for ${String(r.name || getId)}`)],
         };
       }
-      // Enriched GET row replaces sparse list properties for status/rollback phase authority.
       const enriched = {
         id: gotId || String(getId),
         name: gotName || String(r.name || ''),
@@ -1280,8 +1184,6 @@ async function collectLiveInventory(deps, names, expectedTags) {
       type: SMART_DETECTOR_ALERT_RULES_TYPE,
     });
   }
-  // Lookalike smart-detector type under wrong name still unexpected (handled above).
-  // Exact expected name with wrong id/type/props already rejected by match + classifier.
   return {
     ok: true, contract, resources: listed.resources, topLevel: top, nestedLive, rolesLive, secretMeta,
     secretsExact, secretCount: secretMeta.length, jobExists: !!jobGot.exists, job: jobGot.body,
@@ -1292,7 +1194,6 @@ async function collectLiveInventory(deps, names, expectedTags) {
 }
 function isExactEmptyLiveInventory(live) {
   if (!live) return false;
-  // Fail closed unless authoritative deployment LIST inventory is present and exactly zero.
   if (!Array.isArray(live.deployments)) return false;
   if ((live.deploymentCount || 0) !== 0 || live.deployments.length !== 0) return false;
   return (live.resources || []).length === 0
@@ -1320,9 +1221,6 @@ function isFullFoundationContract(live) {
   return true;
 }
 function isExactInfraPartialLive(live) {
-  // Interrupted infra apply: nonempty exact subset of rederived foundation contract +
-  // nonzero plan-owned (or exact Failure-Anomalies AI-correlated) deployment history only.
-  // Fail closed on unreadable rows, missing/wrong resource IDs, or underspecified deployments.
   if (!live || !live.contract) return false;
   if (!Array.isArray(live.deployments)) return false;
   if (isExactEmptyLiveInventory(live)) return false;
@@ -1350,7 +1248,6 @@ function isExactInfraPartialLive(live) {
       if (String(r.id).toLowerCase() !== String(exp.id).toLowerCase()) return false;
       continue;
     }
-    // Platform-supplemental Failure Anomalies smart detector is an allowed exact extra.
     const plat = matchPlatformSupplementalResource(r, live.contract, topLevel);
     if (plat) {
       platformCount += 1;
@@ -1363,28 +1260,19 @@ function isExactInfraPartialLive(live) {
 }
 function inferLivePhase(live) {
   if (!live || live.rgExists === false) return 'absent';
-  // Exact zero-resource, zero-deployment owned drill (apply failed before foundation).
-  // Zero deployments must come from independent Microsoft.Resources/deployments LIST.
   if (isExactEmptyLiveInventory(live)) return 'empty';
   const secretsComplete = live.secretsExact === 14 && live.secretCount === 14;
   const rolesOk = (live.rolesLive || []).length === 2;
   if (live.appExists && secretsComplete && rolesOk) return 'runtime';
   if (secretsComplete && rolesOk && !live.appExists) return 'runtime-prereqs';
   if (live.jobExists) return 'bootstrap-active';
-  // Incomplete foundation with plan-owned deployment history → infra-partial.
-  // Complete foundation and incomplete-without-owned-deploys keep foundation semantics.
   if (isExactInfraPartialLive(live)) return 'infra-partial';
   return 'foundation';
 }
 function isPermittedAbsentTenantAcrPullFinding(f) {
-  // Exact owned infra-partial / foundation residual may omit JS-owned tenant AcrPull
-  // (failed nested *StagingAcrPull never created the assignment). Not unexpected/foreign.
-  // All other missing roles (e.g. KV), wrong definitions, unexpected resources remain closed.
   return !!(f && f.code === 'missing_role_assignment' && f.kind === 'acr');
 }
 function phaseContractFindings(live, phase) {
-  // Narrow empty phase: only the exact zero inventory is contract-clean; expected
-  // missing foundation/roles are not findings. Any nonzero or unexpected inventory refuses.
   if (phase === 'empty') {
     if (!isExactEmptyLiveInventory(live)) {
       return [{ code: 'unexpected_resource', message: 'empty phase requires zero resources and zero deployments' }];
@@ -1446,13 +1334,8 @@ function phaseContractFindings(live, phase) {
     if ((live.secretCount || 0) > 0 || (live.secretMeta || []).length > 0) {
       findings.push({ code: 'unexpected_resource', type: 'Microsoft.KeyVault/vaults/secrets' });
     }
-    // Present expected-contract findings that are not "missing" remain closed
-    // (tag drift, duplicates, unexpected, wrong role definition).
-    // missing_resource / missing expected roles (incl. AcrPull) are permissible as absent
-    // members of the exact owned infra-partial subset; unexpected/wrong roles remain refused.
     for (const f of live.findings || []) {
       if (f.code === 'missing_resource' || f.code === 'missing_role_assignment') continue;
-      // Mid-apply crash may leave non-Succeeded provisioning; whole-RG delete still safe.
       if (f.code === 'provisioning_not_succeeded') continue;
       findings.push(f);
     }
@@ -1480,9 +1363,6 @@ function phaseContractFindings(live, phase) {
   };
   if (phase === 'foundation') {
     banJobAppSecrets(true);
-    // Foundation residual (e.g. live residual-cleanup after nested AcrPull ResourceNotFound):
-    // D1 still emits missing_role_assignment kind=acr, but exact owned foundation subset may
-    // omit JS-owned tenant AcrPull. Classify before top-level inventory_findings refuse so
     // rollback can reach the exact inventory gate + canonical deletion ordering.
     // Missing KV, unexpected resources, malformed IDs, smart-detector GET mismatch, tag drift
     // remain fail-closed.
@@ -1838,17 +1718,71 @@ function resolveLifecycleMode(opts) {
   return String(r) === LIFECYCLE_DURABLE ? { ok: true, isDurable: true }
     : { ok: false, errors: [err('lifecycle_mode_invalid', 'lifecycleMode must be temporary-drill|durable-staging')] };
 }
+function isEvidenceYmd(s) {
+  const m = EVIDENCE_YMD.exec(String(s || '')); if (!m) return false;
+  const y = +m[1]; const mo = +m[2]; const d = +m[3]; const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
+function isRepoRelEvidencePath(rel) {
+  const s = String(rel || '');
+  return !!(s && !s.startsWith('/') && !s.includes('\\') && !s.includes('\0')
+    && !s.split('/').some((p) => !p || p === '.' || p === '..'));
+}
+function validateStagingReadinessEvidence(deps, slug, field, kind, entry, usedPaths) {
+  const pfx = `${field}_evidence`; const fail = (c, m) => ({ ok: false, code: `${pfx}_${c}`, message: m });
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return fail('required', 'evidence object required for true');
+  const allowed = field === 'human_staging_approval' ? EVIDENCE_HUMAN_KEYS : EVIDENCE_BASE_KEYS;
+  for (const k of Object.keys(entry)) if (!allowed.includes(k)) return fail('unknown_field', k);
+  if (entry.kind !== kind) return fail('kind', String(entry.kind));
+  if (String(entry.client || '') !== String(slug || '')) return fail('client', String(entry.client));
+  if (!Array.isArray(entry.paths) || !entry.paths.length || !Array.isArray(entry.sha256)
+    || entry.sha256.length !== entry.paths.length) return fail('paths', 'paths/sha256 parallel non-empty required');
+  if (field === 'human_staging_approval') {
+    if (typeof entry.approved_by !== 'string' || !entry.approved_by.trim()) return fail('approval', 'approved_by required');
+    if (!isEvidenceYmd(entry.approved_on)) return fail('date', 'approved_on YYYY-MM-DD required');
+  }
+  const digests = [];
+  for (let i = 0; i < entry.paths.length; i += 1) {
+    const rel = entry.paths[i];
+    if (!isRepoRelEvidencePath(rel)) return fail('path', String(rel));
+    if (usedPaths.has(rel)) return fail('duplicate', String(rel));
+    const read = safeReadFile(path.join(deps.repoRoot, rel), deps.repoRoot);
+    if (!read.ok) {
+      const c = (read.errors[0] && read.errors[0].code) || 'path_missing';
+      return fail(c === 'path_symlink' ? 'symlink' : c === 'path_escape' ? 'escape' : 'missing', String(rel));
+    }
+    const want = String(entry.sha256[i] || '').toLowerCase();
+    if (!EVIDENCE_HEX64.test(want)) return fail('sha256', 'sha256 must be 64-hex');
+    const got = sha256(read.bytes);
+    if (got !== want) return fail('stale', String(rel));
+    usedPaths.add(rel); digests.push(got);
+  }
+  const summary = { kind, client: String(slug), paths: entry.paths.slice(), sha256: digests };
+  if (field === 'human_staging_approval') {
+    summary.approved_by = String(entry.approved_by).trim(); summary.approved_on = entry.approved_on;
+  }
+  return { ok: true, summary };
+}
 function assessClientReadiness(deps, slug) {
-  // Baseline staging_readiness.* only; caller opts/live_enabled ignored; no free-text heuristics.
   const blockers = []; const push = (c, m) => { if (!blockers.some((b) => b.code === c)) blockers.push({ code: c, message: m }); };
+  const empty = { ready: false, blockers: [{ code: 'baseline_unreadable', message: 'baseline unreadable' }], evidenceSummary: {} };
   const rf = typeof deps.readFileSync === 'function' ? deps.readFileSync : fs.readFileSync;
   let base;
   try { base = JSON.parse(rf(path.join(deps.repoRoot, `config/clients/${String(slug || '')}.baseline.json`), 'utf8')); }
-  catch (_e) { return { ready: false, blockers: [{ code: 'baseline_unreadable', message: 'baseline unreadable' }] }; }
-  if (!base || typeof base !== 'object' || Array.isArray(base)) return { ready: false, blockers: [{ code: 'baseline_unreadable', message: 'baseline unreadable' }] };
+  catch (_e) { return empty; }
+  if (!base || typeof base !== 'object' || Array.isArray(base)) return empty;
   const sr = (base.staging_readiness && typeof base.staging_readiness === 'object' && !Array.isArray(base.staging_readiness)) ? base.staging_readiness : {};
-  for (const [field, code, message] of STAGING_READINESS_FIELDS) if (sr[field] !== true) push(code, message);
-  return { ready: blockers.length === 0, blockers };
+  const known = new Set(STAGING_READINESS_FIELDS.map((r) => r[0]));
+  for (const k of Object.keys(sr)) if (k !== 'evidence' && !k.startsWith('_') && !known.has(k)) push('staging_readiness_unknown_field', k);
+  const evRoot = (sr.evidence && typeof sr.evidence === 'object' && !Array.isArray(sr.evidence)) ? sr.evidence : {};
+  for (const k of Object.keys(evRoot)) if (!known.has(k)) push('staging_readiness_evidence_unknown_field', k);
+  const usedPaths = new Set(); const evidenceSummary = {};
+  for (const [field, code, message, kind] of STAGING_READINESS_FIELDS) {
+    if (sr[field] !== true) { push(code, message); continue; }
+    const v = validateStagingReadinessEvidence(deps, slug, field, kind, evRoot[field], usedPaths);
+    if (!v.ok) push(v.code, v.message); else evidenceSummary[field] = v.summary;
+  }
+  return { ready: blockers.length === 0, blockers, evidenceSummary };
 }
 async function buildDurablePlanEnvelope(opts, deps) {
   const g = validateSlug(opts && opts.slug); if (!g.ok) return g;
@@ -1858,13 +1792,15 @@ async function buildDurablePlanEnvelope(opts, deps) {
   const sub = readStagingSubscriptionAuthority(deps.repoRoot); if (!sub.ok) return sub;
   const tools = deps.toolAuthority || hashPinnedToolAuthority(deps); const compiled = compileBicepInSnapshot(deps, deps.repoRoot); if (!compiled.ok) return compiled;
   const names = deriveNames(g.slug, sub.subscriptionId); const skus = estimateMonthlySkus();
-  const core = { schemaVersion: 1, authority: 'repo_durable_staging_plan', stage: STAGE, ownerTag: OWNER, lifecycleMode: LIFECYCLE_DURABLE, durableStaging: true, tenantSlug: names.tenantSlug, resourceGroupName: names.resourceGroupName, subscriptionId: names.subscriptionId, appNamePrefix: names.appNamePrefix, appDbName: names.appDbName, deploySha: String(sha).toLowerCase(), compiledTemplateSha256: compiled.compiledTemplateSha256, compiledTemplateBytes: compiled.templateBytes.length, moduleRel: MODULE_REL, stagingSubscriptionConfigSha256: sub.configSha256, toolAuthority: { gitSha256: tools.gitSha256, tarSha256: tools.tarSha256, nodeSha256: tools.nodeSha256, azSha256: tools.azSha256, bicepSha256: tools.bicepSha256, bicepVersion: tools.bicepVersion }, intendedSkus: skus.intendedSkus, estimatedMonthlyUsd: skus.estimatedMonthlyUsd, approvalCeilingUsd: skus.approvalCeilingUsd };
-  const planDigest = sha256(sortedStringify(core)); const clientReadiness = assessClientReadiness(deps, g.slug);
+  const clientReadiness = assessClientReadiness(deps, g.slug);
+  const readinessEvidence = clientReadiness.evidenceSummary || {};
+  const core = { schemaVersion: 1, authority: 'repo_durable_staging_plan', stage: STAGE, ownerTag: OWNER, lifecycleMode: LIFECYCLE_DURABLE, durableStaging: true, tenantSlug: names.tenantSlug, resourceGroupName: names.resourceGroupName, subscriptionId: names.subscriptionId, appNamePrefix: names.appNamePrefix, appDbName: names.appDbName, deploySha: String(sha).toLowerCase(), compiledTemplateSha256: compiled.compiledTemplateSha256, compiledTemplateBytes: compiled.templateBytes.length, moduleRel: MODULE_REL, stagingSubscriptionConfigSha256: sub.configSha256, toolAuthority: { gitSha256: tools.gitSha256, tarSha256: tools.tarSha256, nodeSha256: tools.nodeSha256, azSha256: tools.azSha256, bicepSha256: tools.bicepSha256, bicepVersion: tools.bicepVersion }, intendedSkus: skus.intendedSkus, estimatedMonthlyUsd: skus.estimatedMonthlyUsd, approvalCeilingUsd: skus.approvalCeilingUsd, readinessEvidence };
+  const planDigest = sha256(sortedStringify(core));
   const rgTagContract = { tenant: names.tenantSlug, stage: STAGE, owner: OWNER, planDigest, deploySha: core.deploySha, lifecycleMode: LIFECYCLE_DURABLE, durableStaging: 'true' };
   const rollbackPolicy = { onSuccess: 'preserve_rg', onFailedPartial: 'canonical_owned_rg_delete_only', destroyAfterSuccess: false, rollbackOnSuccess: false, temporaryDrill: false };
   const humanAdminPrerequisites = ['register_Microsoft.AlertsManagement_on_staging_subscription', 'human_approval_before_any_future_apply_owner', 'client_readiness_blockers_cleared', 'target_rg_absent_or_exact_durable_tag_tuple'];
   const plan = { ...core, planDigest, rgTagContract, humanAdminPrerequisites, rollbackPolicy, clientReadiness, applyPath: null, mutationPath: null };
-  return { ok: true, errors: [], lifecycleMode: LIFECYCLE_DURABLE, planDigest, estimatedMonthlyUsd: skus.estimatedMonthlyUsd, rgTagContract, humanAdminPrerequisites, rollbackPolicy, clientReadiness, readiness: clientReadiness.ready, blockers: clientReadiness.blockers, applyPath: null, mutationPath: null, azureDispatches: 0, plan, resourceGroupName: names.resourceGroupName, subscriptionId: names.subscriptionId, tenantSlug: names.tenantSlug, deploySha: core.deploySha };
+  return { ok: true, errors: [], lifecycleMode: LIFECYCLE_DURABLE, planDigest, estimatedMonthlyUsd: skus.estimatedMonthlyUsd, rgTagContract, humanAdminPrerequisites, rollbackPolicy, clientReadiness, readiness: clientReadiness.ready, blockers: clientReadiness.blockers, readinessEvidence, applyPath: null, mutationPath: null, azureDispatches: 0, plan, resourceGroupName: names.resourceGroupName, subscriptionId: names.subscriptionId, tenantSlug: names.tenantSlug, deploySha: core.deploySha };
 }
 async function plan(opts, depsIn) {
   const deps = depsIn || createDeps();
@@ -1969,7 +1905,8 @@ async function status(opts, depsIn) {
 module.exports = Object.freeze({
   STAGE, OWNER, MODULE_REL, STAGING_SUB_REL, SKU_EST, COST_API, HEALTH_IDENTITY_PATH,
   PINNED_BINS, INTERNAL_FLAG, CAPABILITY_FD, CLI_REL, LIB_REL, LIFECYCLE_TEMPORARY, LIFECYCLE_DURABLE,
-  STAGING_READINESS_FIELDS,
+  STAGING_READINESS_FIELDS, EVIDENCE_BASE_KEYS, EVIDENCE_HUMAN_KEYS,
+  isEvidenceYmd, isRepoRelEvidencePath, validateStagingReadinessEvidence,
   ROLE_KV_SECRETS_USER, ROLE_ACR_PULL, ACR_RG, IGNORE_TYPES, DEP_API, PROVIDER_API,
   ALERTS_MANAGEMENT_NAMESPACE, REQUIRED_PROVIDER_REGISTRATION_STATE,
   SMART_DETECTOR_ALERT_RULES_TYPE, SMART_DETECTOR_API,

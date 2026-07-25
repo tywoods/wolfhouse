@@ -1251,7 +1251,65 @@ async function main() {
       && !/sk_live|sk_test|accessToken|client_secret/i.test(blob) && !/"apply"\s*:/.test(blob)
       && typeof lib.apply !== 'function' && !/\basync function apply\b/.test(libSrc)
       && /staging_readiness/.test(libSrc) && !/live_enabled_not_ready/.test(libSrc)
-      && !/\/TODO\|provisional\//.test(libSrc) && !/pricing_status ===/.test(libSrc));
+      && !/\/TODO\|provisional\//.test(libSrc) && !/pricing_status ===/.test(libSrc)
+      && p1.readinessEvidence && Object.keys(p1.readinessEvidence).length === 0
+      && st.readinessEvidence && Object.keys(st.readinessEvidence).length === 0
+      && typeof lib.validateStagingReadinessEvidence === 'function');
+    // Hostile true cases fail closed with zero Azure; false baseline blockers stay exact above.
+    const baseRaw = fs.readFileSync(path.join(ROOT, 'config/clients/mirleft.baseline.json'), 'utf8');
+    const ge = (kind, client, rel, hash, extra) => ({ kind, client, paths: [rel], sha256: [hash], ...(extra || {}) });
+    const hostile = async (sr) => {
+      const hh = makeHarness(lib); const n0 = hh.armLog.length;
+      hh.deps.readFileSync = (p, enc) => (String(p).replace(/\\/g, '/').endsWith('config/clients/mirleft.baseline.json')
+        ? (() => { const o = JSON.parse(baseRaw); o.staging_readiness = sr; return `${JSON.stringify(o)}\n`; })()
+        : fs.readFileSync(p, enc));
+      const r = await lib.status({
+        slug: MIR, lifecycleMode: 'durable-staging', ready: true, ...allTrue,
+        staging_readiness: sr, clientReadiness: { ready: true, blockers: [] },
+      }, hh.deps);
+      return { r, arm: hh.armLog.length - n0, codes: (r.blockers || []).map((b) => b.code) };
+    };
+    const relA = 'config/azure-staging-subscription.json'; const ha = lib.sha256(fs.readFileSync(path.join(ROOT, relA)));
+    const relB = 'package.json'; const hb = lib.sha256(fs.readFileSync(path.join(ROOT, relB)));
+    const relC = DOC_REL; const hc = lib.sha256(fs.readFileSync(path.join(ROOT, relC)));
+    const relD = 'config/clients/clients.json'; const hd = lib.sha256(fs.readFileSync(path.join(ROOT, relD)));
+    const hum = ge('human_staging_approval', MIR, relC, hc, { approved_by: 'ops', approved_on: '2026-07-25' });
+    const pack = (inv) => ({ ...allTrue, evidence: { inventory_confirmed: inv, prices_confirmed: ge('prices', MIR, relB, hb), channels_provisioned: ge('channels', MIR, relD, hd), human_staging_approval: hum } });
+    const bare = await hostile({ ...allTrue });
+    const trav = await hostile(pack(ge('inventory', MIR, '../etc/passwd', 'a'.repeat(64))));
+    const stale = await hostile(pack(ge('inventory', MIR, relA, 'b'.repeat(64))));
+    const xcli = await hostile(pack(ge('inventory', 'sunset', relA, ha)));
+    const unk = await hostile(pack({ ...ge('inventory', MIR, relA, ha), forged: 1 }));
+    const badDate = await hostile({
+      inventory_confirmed: false, prices_confirmed: false, channels_provisioned: false, human_staging_approval: true,
+      evidence: { human_staging_approval: ge('human_staging_approval', MIR, relC, hc, { approved_by: 'ops', approved_on: '2026-13-40' }) },
+    });
+    const dup = await hostile({
+      ...allTrue,
+      evidence: {
+        inventory_confirmed: ge('inventory', MIR, relA, ha), prices_confirmed: ge('prices', MIR, relA, ha),
+        channels_provisioned: ge('channels', MIR, relB, hb), human_staging_approval: hum,
+      },
+    });
+    const abs = lib.validateStagingReadinessEvidence(
+      { repoRoot: ROOT }, MIR, 'inventory_confirmed', 'inventory', ge('inventory', MIR, '/etc/passwd', 'a'.repeat(64)), new Set(),
+    );
+    ok('durable_hostile_true_fail_closed_zero_azure',
+      [bare, trav, stale, xcli, unk, badDate, dup].every((x) => x.r.ok === false && x.r.readiness === false && x.arm === 0)
+      && bare.codes.includes('inventory_confirmed_evidence_required')
+      && bare.codes.includes('human_staging_approval_evidence_required')
+      && Object.keys(bare.r.readinessEvidence || {}).length === 0
+      && trav.codes.includes('inventory_confirmed_evidence_path')
+      && stale.codes.includes('inventory_confirmed_evidence_stale')
+      && xcli.codes.includes('inventory_confirmed_evidence_client')
+      && unk.codes.includes('inventory_confirmed_evidence_unknown_field')
+      && badDate.codes.includes('human_staging_approval_evidence_date')
+      && need.filter((c) => c !== 'human_staging_approval_not_ready').every((c) => badDate.codes.includes(c))
+      && dup.codes.includes('prices_confirmed_evidence_duplicate')
+      && abs.ok === false && abs.code === 'inventory_confirmed_evidence_path'
+      && lib.isRepoRelEvidencePath('../x') === false && lib.isEvidenceYmd('2026-02-30') === false
+      && lib.isEvidenceYmd('2026-07-25') === true,
+    JSON.stringify({ bare: bare.codes, trav: trav.codes }).slice(0, 280));
   }
   const st = diffStat();
   ok('file_budget', st.files <= 10, `files=${st.files}`);

@@ -37,7 +37,7 @@
     "prices_confirmed": false,
     "channels_provisioned": false,
     "human_staging_approval": false,
-    "_note": "Durable-staging gates (explicit booleans). live_enabled is production activation, not a staging field."
+    "_note": "Durable-staging gates. false needs no evidence. true requires staging_readiness.evidence.<field> with kind/client/paths[]/sha256[] (human also approved_by/approved_on YYYY-MM-DD); bare true is unaudited and rejected. live_enabled is production activation, not a staging field."
   },
   "deployment": {
     "enabled": false,
