@@ -3162,6 +3162,115 @@ async function main() {
     }
   }
 
+  // Live e083a457: exact deploy-shape AuthorizationFailed only (quoted OID/action/scope; no substrings).
+  {
+    const rgScope = `/subscriptions/${SUB}/resourceGroups/${RG}`;
+    const writeAct = 'Microsoft.Network/privateDnsZones/virtualNetworkLinks/write';
+    const oid = lib.EXECUTOR_UAI_OID;
+    const authzMsg = (o, sc, act) => (
+      `The client 'appid' with object id '${o}' does not have authorization to perform action `
+      + `'${act}' over scope '${sc}/providers/Microsoft.Network/privateDnsZones/z/virtualNetworkLinks/l' `
+      + 'or the scope is invalid. If access was recently granted, please refresh your credentials.'
+    );
+    const failedBody = (msg, outer = 'DeploymentFailed') => ({
+      properties: {
+        provisioningState: 'Failed',
+        error: {
+          code: outer, message: 'At least one resource deployment operation failed.',
+          details: [{
+            code: 'DeploymentFailed', message: 'nested privateNetwork failed',
+            details: [{ code: 'AuthorizationFailed', message: msg }],
+          }],
+        },
+      },
+    });
+    const prose = authzMsg(oid, rgScope, writeAct);
+    const liveAuthz = failedBody(prose);
+    const classify = lib.classifyRetryableRbacPropagationFailure;
+    const ctx = { executorOid: oid, resourceGroupScope: rgScope };
+    const cOk = classify(liveAuthz, ctx);
+    ok('rbac_prop_exact_classification_retryable',
+      cOk && cOk.retryable === true && cOk.code === 'AuthorizationFailed' && cOk.action === writeAct);
+    // Hostile: wrong OID/RG/action, root/direct prose, RG/principal lookalikes, bad quotes.
+    const attacks = [
+      failedBody(authzMsg('00000000-0000-0000-0000-000000000099', rgScope, writeAct)),
+      failedBody(authzMsg(oid, `/subscriptions/${SUB}/resourceGroups/wh-staging-rg`, writeAct)),
+      failedBody(authzMsg(oid, rgScope, 'Microsoft.Network/privateDnsZones/read')),
+      { properties: { provisioningState: 'Failed', error: { code: 'ResourceNotFound', message: 'x' } } },
+      { properties: { provisioningState: 'Failed' } },
+      { error: { code: 'AuthorizationFailed', message: 'denied' } },
+      failedBody(authzMsg(oid, `${rgScope}-evil`, writeAct)),
+      failedBody(authzMsg(`${oid}0`, rgScope, writeAct)),
+      { error: { code: 'AuthorizationFailed', message: prose } },
+      { properties: { provisioningState: 'Failed', error: { code: 'AuthorizationFailed', message: prose } } },
+      failedBody(`object id '${oid}' object id '00000000-0000-0000-0000-000000000001' perform action '${writeAct}' over scope '${rgScope}/providers/x' If access was recently granted, please refresh your credentials.`),
+      failedBody(`object id '${oid}' perform action '${writeAct}'. If access was recently granted, please refresh your credentials.`),
+      failedBody(prose, 'LinkedAuthorizationFailed'),
+    ];
+    ok('rbac_prop_hostile_classification_refused',
+      attacks.every((b) => classify(b, ctx).retryable === false), `n=${attacks.length}`);
+    const base = {
+      path: `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Resources/deployments/messi-2d2-infra?api-version=2021-04-01`,
+      body: { properties: { mode: 'Incremental', template: TPL, parameters: {} } },
+      createdAt: CREATED, expiresAt: EXPIRES, phase: 'infra',
+    };
+    const putOk = { status: 201, body: { properties: { provisioningState: 'Accepted' } }, headers: {} };
+    const deps = (armRequest, clock) => ({
+      abortState: {}, now: () => new Date(clock != null ? clock() : CREATED),
+      sleep: async (ms) => { if (clock) clock(Number(ms) || 0); }, armRequest,
+    });
+    {
+      let puts = 0;
+      const r = await lib.putAndPollWithRbacPropagationRetry(deps(async (req) => (
+        req.method === 'PUT' ? (puts += 1, putOk) : { status: 200, body: liveAuthz, headers: {} }
+      )), base);
+      const maxA = lib.RBAC_PROPAGATION_MAX_ATTEMPTS;
+      ok('rbac_prop_retry_exhaustion_fail_closed',
+        r.ok === false && r.attempts === maxA && puts === maxA
+        && (r.errors || []).some((e) => e.code === 'arm_terminal_failed')
+        && (r.errors || []).some((e) => e.code === 'rbac_propagation_retries_exhausted')
+        && Array.isArray(r.attemptErrors) && r.attemptErrors.length === maxA);
+    }
+    {
+      let puts = 0; let gets = 0; let t = Date.parse(CREATED);
+      const r = await lib.putAndPollWithRbacPropagationRetry(deps(async (req) => {
+        if (req.method === 'PUT') { puts += 1; return putOk; }
+        gets += 1;
+        return puts === 1 ? { status: 200, body: liveAuthz, headers: {} }
+          : { status: 200, body: { properties: { provisioningState: 'Succeeded' } }, headers: {} };
+      }, (d) => (d == null ? t : (t += d, t))), base);
+      ok('rbac_prop_eventual_success_after_retry', r.ok === true && r.attempts === 2 && puts === 2 && gets >= 2);
+    }
+    {
+      let armCalls = 0;
+      const d = deps(async () => { armCalls += 1; return { status: 200, body: {}, headers: {} }; });
+      const rolePath = `/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Authorization/roleAssignments/x?api-version=2022-04-01`;
+      const rRole = await lib.putAndPollWithRbacPropagationRetry(d, { ...base, path: rolePath, body: {} });
+      const rGet = await lib.putAndPollWithRbacPropagationRetry(d, { ...base, method: 'GET' });
+      ok('rbac_prop_hostile_non_deployment_wrapper_refused',
+        rRole.ok === false && rGet.ok === false && armCalls === 0 && rRole.attempts === 0
+        && (rRole.errors || []).some((e) => e.code === 'rbac_retry_not_deployment_put')
+        && (rGet.errors || []).some((e) => e.code === 'rbac_retry_not_deployment_put'));
+    }
+    {
+      let puts = 0;
+      const r = await lib.putAndPollWithRbacPropagationRetry(deps(async (req) => {
+        if (req.method !== 'PUT') { puts += 100; return { status: 200, body: {}, headers: {} }; }
+        puts += 1;
+        return { status: 403, body: { error: { code: 'AuthorizationFailed', message: prose } }, headers: {} };
+      }), base);
+      ok('rbac_prop_hostile_direct_http_403_one_put_zero_retries',
+        r.ok === false && puts === 1 && r.attempts === 1
+        && (r.errors || []).some((e) => e.code === 'arm_put_failed')
+        && !(r.errors || []).some((e) => e.code === 'rbac_propagation_retries_exhausted')
+        && r.rbacPropagation && r.rbacPropagation.retryable === false);
+    }
+    ok('rbac_prop_apply_uses_retry_boundary',
+      /putAndPollWithRbacPropagationRetry/.test(fs.readFileSync(path.join(ROOT, LIB_REL), 'utf8'))
+      && typeof lib.putAndPollWithRbacPropagationRetry === 'function'
+      && lib.RBAC_PROPAGATION_MAX_ATTEMPTS >= 2 && lib.RBAC_PROPAGATION_MAX_ATTEMPTS <= 5);
+  }
+
   const st = diffStat();
   ok('file_budget', st.files <= 14, `files=${st.files}`);
   // Budget raised for JS-owned AcrPull + platform-supplemental smart detector + live residual

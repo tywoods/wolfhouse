@@ -127,6 +127,10 @@ const PHASE_MAX_MS = Object.freeze({
   'runtime-verify': 600000, 'cost-after': 120000, 'rg-delete': 1800000, poll: 120000,
 });
 const POLL_SLEEP_MS = 5000; const POLL_SLEEP_CAP_MS = 15000;
+// Bounded RBAC-propagation retries for terminal ARM deploy AuthorizationFailed only.
+// Live e083a457: prepared RG Contributor read back exact, nested privateNetwork still
+// transient-denied virtualNetworkLinks/write for the executor. Fail closed after max.
+const RBAC_PROPAGATION_MAX_ATTEMPTS = 3;
 const SENTINELS = Object.freeze({
   stripeSecretKey: 'sk_test_disabled', stripeWebhookSecret: 'whsec_disabled',
   metaWhatsappToken: 'EAAG_disabled', metaAppSecret: 'meta_app_secret_disabled',
@@ -623,10 +627,11 @@ function nextPollSleepMs(prevSleepMs, headers, nowMs) {
   return Math.min(POLL_SLEEP_CAP_MS, Math.max(POLL_SLEEP_MS, prevSleepMs * 2));
 }
 async function runBoundedPoll(deps, {
-  phase, createdAt, expiresAt, drill, onTimeout, iterate,
+  phase, createdAt, expiresAt, drill, onTimeout, iterate, deadlineAt,
 }) {
   const budget = PHASE_MAX_MS[phase] || PHASE_MAX_MS.poll;
   const t0 = deps.now().getTime();
+  const hardDeadline = deadlineAt != null ? Number(deadlineAt) : (t0 + budget);
   const ttl = drill || (createdAt && expiresAt ? { createdAt, expiresAt } : null);
   let last = null; let polls = 0; let sleepMs = null;
   for (;;) {
@@ -636,7 +641,7 @@ async function runBoundedPoll(deps, {
       const active = assertActiveDrill({ ...ttl, now: deps.now(), phase, phaseMaxMs: 0 });
       if (!active.ok) return { ...active, body: last && last.body, polls };
     }
-    if (deps.now().getTime() - t0 > budget) {
+    if (deps.now().getTime() >= hardDeadline) {
       return onTimeout
         ? await onTimeout({ body: last && last.body, polls, last })
         : { ok: false, errors: [err('arm_poll_timeout', 'bounded ARM poll exhausted')], body: last && last.body, polls };
@@ -646,15 +651,17 @@ async function runBoundedPoll(deps, {
     if (step.polls !== undefined) polls = step.polls;
     if (step.done) return step.result;
     sleepMs = nextPollSleepMs(sleepMs, step.headers, deps.now().getTime());
-    await deps.sleep(sleepMs);
+    // Cap sleep to remaining budget; skip if exhausted so TTL can still win over timeout.
+    const remain = hardDeadline - deps.now().getTime();
+    if (remain > 0) await deps.sleep(Math.min(sleepMs, remain));
   }
 }
 async function pollArmTerminal(deps, reqPath, {
   okStates = ['Succeeded'], failStates = ['Failed', 'Canceled'],
-  createdAt, expiresAt, phase = 'poll',
+  createdAt, expiresAt, phase = 'poll', deadlineAt,
 } = {}) {
   return runBoundedPoll(deps, {
-    phase, createdAt, expiresAt,
+    phase, createdAt, expiresAt, deadlineAt,
     iterate: async ({ polls }) => {
       const res = await deps.armRequest({ method: 'GET', path: reqPath });
       const st = ((res.body || {}).properties || {}).provisioningState
@@ -673,19 +680,147 @@ async function pollArmTerminal(deps, reqPath, {
     },
   });
 }
-async function putAndPoll(deps, { method = 'PUT', path: reqPath, body, headers, createdAt, expiresAt, phase }) {
+function resourceGroupScopeFromArmPath(reqPath) {
+  const m = String(reqPath || '').match(/\/subscriptions\/([^/]+)\/resource[Gg]roups\/([^/?]+)/);
+  if (!m) return null;
+  return `/subscriptions/${m[1]}/resourceGroups/${m[2]}`;
+}
+// Exact: Failed + outer DeploymentFailed + nested AuthorizationFailed; one quoted object id /
+// action / over scope (exact OID; */write; RG or true `/` descendant — no substrings).
+function classifyRetryableRbacPropagationFailure(body, {
+  executorOid = EXECUTOR_UAI_OID, resourceGroupScope,
+} = {}) {
+  const oid = String(executorOid || '').toLowerCase();
+  const rg = normalizeArmScope(resourceGroupScope);
+  if (!oid || !rg) return { retryable: false, reason: 'missing_classifier_context' };
+  const props = body && body.properties;
+  if (!props || String(props.provisioningState) !== 'Failed') {
+    return { retryable: false, reason: 'not_terminal_failed_deployment' };
+  }
+  const topErr = props.error;
+  if (!topErr || typeof topErr !== 'object' || String(topErr.code || '') !== 'DeploymentFailed') {
+    return { retryable: false, reason: 'outer_not_deployment_failed' };
+  }
+  const authNodes = [];
+  const walk = (n, depth) => {
+    if (!n || typeof n !== 'object') return;
+    if (depth > 0 && String(n.code || '') === 'AuthorizationFailed') authNodes.push(n);
+    if (Array.isArray(n.details)) for (const d of n.details) walk(d, depth + 1);
+  };
+  walk(topErr, 0);
+  if (!authNodes.length) return { retryable: false, reason: 'no_nested_authorization_failed' };
+  for (const n of authNodes) {
+    const msg = String(n.message || '');
+    const oids = [...msg.matchAll(/\bobject id '([^']+)'/gi)];
+    const acts = [...msg.matchAll(/\bperform action '([^']+)'/gi)];
+    const scs = [...msg.matchAll(/\bover scope '([^']+)'/gi)];
+    if (oids.length !== 1 || acts.length !== 1 || scs.length !== 1) continue;
+    const objectId = String(oids[0][1] || '').trim();
+    const action = String(acts[0][1] || '').trim();
+    const scope = normalizeArmScope(scs[0][1]);
+    if (!objectId || !action || !scope || objectId.toLowerCase() !== oid
+      || !/\/write$/i.test(action) || !(scope === rg || scope.startsWith(`${rg}/`))
+      || !/recently granted|refresh your credentials/i.test(msg)) continue;
+    return {
+      retryable: true, reason: 'executor_rg_write_authorization_failed',
+      code: 'AuthorizationFailed', action,
+    };
+  }
+  return { retryable: false, reason: 'authorization_not_executor_rg_write' };
+}
+async function putAndPoll(deps, {
+  method = 'PUT', path: reqPath, body, headers, createdAt, expiresAt, phase, deadlineAt,
+}) {
   const aborted = checkAbort(deps);
   if (!aborted.ok) return aborted;
   if (createdAt && expiresAt) {
-    const active = assertActiveDrill({ createdAt, expiresAt, now: deps.now(), phase });
+    const active = assertActiveDrill({
+      createdAt, expiresAt, now: deps.now(), phase,
+      phaseMaxMs: deadlineAt != null ? 0 : undefined,
+    });
     if (!active.ok) return active;
+  }
+  if (deadlineAt != null && deps.now().getTime() >= Number(deadlineAt)) {
+    return { ok: false, errors: [err('arm_poll_timeout', 'bounded ARM poll exhausted')] };
   }
   const put = await deps.armRequest({ method, path: reqPath, body, headers });
   if (put.status < 200 || put.status >= 300) {
     return { ok: false, errors: [err('arm_put_failed', `status ${put.status}`)], put };
   }
-  const polled = await pollArmTerminal(deps, reqPath, { createdAt, expiresAt, phase });
+  const polled = await pollArmTerminal(deps, reqPath, { createdAt, expiresAt, phase, deadlineAt });
   return { ...polled, put };
+}
+/** PUT Microsoft.Resources/deployments only; retry exact nested executor-RG write AuthorizationFailed. */
+async function putAndPollWithRbacPropagationRetry(deps, opts) {
+  const method = String((opts && opts.method) || 'PUT').toUpperCase();
+  const reqPath = opts && opts.path;
+  const pathOnly = String(reqPath || '').split('?')[0];
+  if (method !== 'PUT'
+    || !/\/providers\/Microsoft\.Resources\/deployments\/[^/]+$/i.test(pathOnly)) {
+    return {
+      ok: false, attempts: 0, attemptErrors: [],
+      errors: [err('rbac_retry_not_deployment_put',
+        'RBAC propagation retry requires PUT Microsoft.Resources/deployments')],
+    };
+  }
+  const phase = opts.phase || 'poll';
+  const budget = PHASE_MAX_MS[phase] || PHASE_MAX_MS.poll;
+  const deadlineAt = opts.deadlineAt != null
+    ? Number(opts.deadlineAt) : (deps.now().getTime() + budget);
+  const maxAttempts = RBAC_PROPAGATION_MAX_ATTEMPTS;
+  const rgScope = resourceGroupScopeFromArmPath(reqPath);
+  const attemptErrors = [];
+  let last = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const aborted = checkAbort(deps);
+    if (!aborted.ok) {
+      return { ...aborted, attempts: attempt - 1, attemptErrors, body: last && last.body };
+    }
+    if (opts.createdAt && opts.expiresAt) {
+      const active = assertActiveDrill({
+        createdAt: opts.createdAt, expiresAt: opts.expiresAt,
+        now: deps.now(), phase, phaseMaxMs: 0,
+      });
+      if (!active.ok) {
+        return { ...active, attempts: attempt - 1, attemptErrors, body: last && last.body };
+      }
+    }
+    if (deps.now().getTime() >= deadlineAt) {
+      const errors = [err('arm_poll_timeout', 'bounded ARM poll exhausted')];
+      if (attemptErrors.length) {
+        errors.push(err('rbac_propagation_retries_exhausted', `attempts ${attempt - 1}`));
+      }
+      return { ok: false, errors, attempts: attempt - 1, attemptErrors, body: last && last.body };
+    }
+    last = await putAndPoll(deps, { ...opts, method: 'PUT', deadlineAt });
+    if (last.ok) return { ...last, attempts: attempt, attemptErrors };
+    const terminalAuthz = (last.errors || []).some((e) => e && e.code === 'arm_terminal_failed');
+    const classified = terminalAuthz
+      ? classifyRetryableRbacPropagationFailure(last.body, {
+        executorOid: EXECUTOR_UAI_OID, resourceGroupScope: rgScope,
+      })
+      : { retryable: false, reason: 'not_terminal_authz' };
+    attemptErrors.push({
+      attempt, errors: last.errors || [], retryable: !!classified.retryable,
+      reason: classified.reason || null, action: classified.action || null,
+    });
+    if (!classified.retryable || attempt >= maxAttempts) {
+      const errors = (last.errors || []).slice();
+      if (classified.retryable && attempt >= maxAttempts) {
+        errors.push(err('rbac_propagation_retries_exhausted', `attempts ${attempt}`));
+      }
+      return {
+        ...last, ok: false, errors, attempts: attempt, attemptErrors, rbacPropagation: classified,
+      };
+    }
+    const sleepMs = Math.min(POLL_SLEEP_MS * attempt, POLL_SLEEP_CAP_MS,
+      Math.max(0, deadlineAt - deps.now().getTime()));
+    if (sleepMs > 0) await deps.sleep(sleepMs);
+  }
+  return {
+    ok: false, attempts: maxAttempts, attemptErrors, body: last && last.body,
+    errors: [err('rbac_propagation_retries_exhausted', `attempts ${maxAttempts}`)],
+  };
 }
 function d1DepsFrom(deps) {
   return deps.d1.createDeps({
@@ -1674,7 +1809,7 @@ async function apply(opts, depsIn) {
       );
       const deployName = `messi-2d2-${phase}`;
       const depPath = `/subscriptions/${names.subscriptionId}/resourceGroups/${names.resourceGroupName}/providers/Microsoft.Resources/deployments/${deployName}?api-version=${DEP_API}`;
-      const dep = await putAndPoll(deps, {
+      const dep = await putAndPollWithRbacPropagationRetry(deps, {
         path: depPath,
         body: { properties: { mode: 'Incremental', template, parameters: params } },
         createdAt, expiresAt, phase,
@@ -1744,7 +1879,7 @@ async function apply(opts, depsIn) {
       );
       const deployName = `messi-2d2-${phase}`;
       const depPath = `/subscriptions/${names.subscriptionId}/resourceGroups/${names.resourceGroupName}/providers/Microsoft.Resources/deployments/${deployName}?api-version=${DEP_API}`;
-      const dep = await putAndPoll(deps, {
+      const dep = await putAndPollWithRbacPropagationRetry(deps, {
         path: depPath,
         body: { properties: { mode: 'Incremental', template, parameters: params } },
         createdAt, expiresAt, phase,
@@ -1835,7 +1970,7 @@ async function apply(opts, depsIn) {
       );
       const deployName = 'messi-2d2-runtime-prereqs';
       const depPath = `/subscriptions/${names.subscriptionId}/resourceGroups/${names.resourceGroupName}/providers/Microsoft.Resources/deployments/${deployName}?api-version=${DEP_API}`;
-      const dep = await putAndPoll(deps, {
+      const dep = await putAndPollWithRbacPropagationRetry(deps, {
         path: depPath,
         body: { properties: { mode: 'Incremental', template, parameters: params } },
         createdAt, expiresAt, phase: 'runtime-prereqs',
@@ -1888,7 +2023,7 @@ async function apply(opts, depsIn) {
       );
       const deployName = 'messi-2d2-runtime-app';
       const depPath = `/subscriptions/${names.subscriptionId}/resourceGroups/${names.resourceGroupName}/providers/Microsoft.Resources/deployments/${deployName}?api-version=${DEP_API}`;
-      const dep = await putAndPoll(deps, {
+      const dep = await putAndPollWithRbacPropagationRetry(deps, {
         path: depPath,
         body: { properties: { mode: 'Incremental', template, parameters: params } },
         createdAt, expiresAt, phase: 'runtime-app',
@@ -2364,13 +2499,15 @@ async function expiryStatus(opts, depsIn) {
 module.exports = Object.freeze({
   STAGE, OWNER, STAGE_TAG, CLI_REL, LIB_REL, APPROVE_MAX_TOTAL_USD, TTL_HOURS_MAX, ACR_NAME, IMAGE_REPO,
   EXECUTOR_UAI_OID, ROLE_CONTRIBUTOR, ROLE_RBAC_ADMIN, ROLE_ACR_PUSH, ROLE_ACR_BUILD_RUNNER, PREPARED_FOR,
-  SENTINELS, LEGITIMATE_PHASES, PHASE_MAX_MS, createDeps, apply, rollback, expiryStatus, prepareSpec,
+  SENTINELS, LEGITIMATE_PHASES, PHASE_MAX_MS, RBAC_PROPAGATION_MAX_ATTEMPTS,
+  createDeps, apply, rollback, expiryStatus, prepareSpec,
   validateApprovalFlags, estimateProratedWorstCaseUsd, assertCostGate, assertActiveDrill, assertDrillTags,
   drillTags, preparedTags, buildPreparedRoleAssignments, deleteExactTempAcrRbacAdmin,
   expectedTenantAcrPullAssignment, putExactTenantAcrPull, deleteExactTenantAcrPull,
   assertRoleAssignmentIdentity,
   pasteReadyAcrCleanupCommand, generateSecrets, buildBootstrapAdminDsn, installedAcrManifestShowArgv,
   installedAcrBuildArgv, resolveImageDigest, buildStaffImage, putAndPoll, pollArmTerminal,
+  putAndPollWithRbacPropagationRetry, classifyRetryableRbacPropagationFailure, resourceGroupScopeFromArmPath,
   pasteReadyRollbackCommand, acquireExclusiveLock, writeReceipt, readReceipt, deriveD1Authority,
   deriveD1HistoricalRollbackAuthority, extractDrillTagTuple, assertFullDrillTagTuplePresent,
   assertRgProbeUnchanged, extractRgEtag, redact,
