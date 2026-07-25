@@ -360,6 +360,8 @@ module.exports = {
   'schedule.create.emptyNoLessonNoGear': 'Elige una clase o añade material — aún no es una reserva válida.',
   'schedule.create.summary.chooseLessonOrGear': 'Elige una clase o añade material',
   'schedule.create.summary.completeSessions': 'Completa los detalles de las sesiones',
+  'schedule.create.summary.sessions': 'Sesiones',
+  'schedule.create.summary.surfers': 'Surfistas',
   'schedule.create.checkingPrice': 'Comprobando precio…',
   'schedule.create.quoteTotal': 'Total presupuestado',
   'schedule.create.quoteFailed': 'Presupuesto no disponible',

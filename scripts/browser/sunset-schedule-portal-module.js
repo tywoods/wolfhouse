@@ -457,10 +457,16 @@ function schedulePortalHasSellableIntent(payload) {
     || (Array.isArray(p.rentals) && p.rentals.length));
 }
 
-/** Clear prior total while waiting — never show stale amount as current. */
+function schedulePortalInvalidateCreateQuoteIntent(result) {
+  schedulePortalInvalidatePreviewWork();
+  schedulePortalQuoteState = null;
+  if (result) schedulePortalRenderCreateQuotePreview(result);
+  else { var b = el('ps-create-quote-preview'); if (b) { b.innerHTML = ''; b.style.display = 'none'; } }
+  return schedulePortalQuoteGen;
+}
+
 function schedulePortalShowQuoteChecking() {
-  var box = el('ps-create-quote-preview');
-  if (!box) return;
+  var box = el('ps-create-quote-preview'); if (!box) return;
   try { box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite'); } catch (_e) { /* ignore */ }
   box.innerHTML = '<p class="portal-schedule-drawer-hint portal-schedule-quote-checking" style="margin:0">'
     + escHtml(portalT('schedule.create.checkingPrice') || 'Checking price\u2026') + '</p>';
@@ -468,13 +474,11 @@ function schedulePortalShowQuoteChecking() {
 }
 
 function schedulePortalRenderCreateQuotePreview(result) {
-  var box = el('ps-create-quote-preview');
-  if (!box) return;
+  var box = el('ps-create-quote-preview'); if (!box) return;
   if (result && (result.superseded || result.aborted)) return;
   try { box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite'); } catch (_e) { /* ignore */ }
   if (result && (result.idle || result.softInvalid)) {
-    if (result.softInvalid) schedulePortalQuoteState = null;
-    box.innerHTML = ''; box.style.display = 'none'; return;
+    schedulePortalQuoteState = null; box.innerHTML = ''; box.style.display = 'none'; return;
   }
   if (result && result.checking) { schedulePortalShowQuoteChecking(); return; }
   if (!result || !result.ok) {
@@ -484,32 +488,53 @@ function schedulePortalRenderCreateQuotePreview(result) {
     box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">' + escHtml(String(err)) + '</p>';
     box.style.display = 'block'; return;
   }
-  // Canonical amount only: response total_cents (never client-side sum).
-  var total = result.body && result.body.total_cents != null ? result.body.total_cents : null;
-  var eur = (total != null && !isNaN(Number(total))) ? ('\u20ac' + (Number(total) / 100).toFixed(2)) : '—';
-  var label = total != null
-    ? (portalT('schedule.create.quoteTotal') || 'Quoted total') + ': ' + eur
-    : (portalT('schedule.create.quoteReady') || 'Quote ready');
-  box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0">' + escHtml(label) + '</p>';
+  var raw = result.body && result.body.total_cents;
+  var total = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(total) || Math.floor(total) !== total || total < 0 || total > Number.MAX_SAFE_INTEGER) {
+    box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">'
+      + escHtml(portalT('schedule.create.quoteFailed') || 'Quote unavailable') + '</p>';
+    box.style.display = 'block'; return;
+  }
+  box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0">'
+    + escHtml((portalT('schedule.create.quoteTotal') || 'Quoted total') + ': \u20ac' + (total / 100).toFixed(2)) + '</p>';
   box.style.display = 'block';
 }
 
 function schedulePortalRentalLabel(offeringKey) {
   var key = String(offeringKey || '');
-  var i18nKey = typeof scheduleRentalOfferingLabelKey === 'function' ? scheduleRentalOfferingLabelKey(key)
-    : (key === 'wetsuit_rental' ? 'schedule.type.wetsuitRental' : key === 'board_and_suit_rental' ? 'schedule.ops.rentalBoth' : 'schedule.type.boardRental');
-  return portalT(i18nKey) || key;
+  var i18nKey = (typeof scheduleRentalOfferingLabelKey === 'function' && scheduleRentalOfferingLabelKey(key))
+    || (key === 'wetsuit_rental' ? 'schedule.type.wetsuitRental' : key === 'board_and_suit_rental' ? 'schedule.ops.rentalBoth'
+      : key === 'board_rental' ? 'schedule.type.boardRental' : '');
+  var lab = i18nKey ? portalT(i18nKey) : '';
+  return (lab && lab !== i18nKey) ? lab : '';
+}
+function schedulePortalDurationLabel(durationKey) {
+  var key = String(durationKey || '').trim(); if (!key) return '';
+  if (typeof adminPeriodLabel === 'function') { var al = adminPeriodLabel(key); if (al && al !== '???' && al !== key) return al; }
+  var tKey = 'admin.period.' + key, t = portalT(tKey); return (t && t !== tKey) ? t : '';
+}
+function schedulePortalHumanCourseBit(course) {
+  var id = course && course.course_id != null ? String(course.course_id).trim() : '';
+  var sel = el('ps-create-course-select');
+  var opt = (sel && sel.options && sel.selectedIndex >= 0) ? sel.options[sel.selectedIndex] : null;
+  var cands = [opt ? String((opt.getAttribute && opt.getAttribute('data-label')) || opt.textContent || '').trim() : '',
+    course && course.course_label != null ? String(course.course_label).trim() : ''];
+  if (typeof scheduleResolveCourseDisplayLabel === 'function') cands.push(String(scheduleResolveCourseDisplayLabel(id, cands[1]) || '').trim());
+  for (var i = 0; i < cands.length; i++) {
+    var lab = cands[i];
+    if (!lab || (id && lab === id) || (course && course.tier_key && lab === String(course.tier_key))) continue;
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lab)) continue;
+    return lab;
+  }
+  return '';
 }
 
-/** Compact non-price intent for sticky footer — never phone/notes/internal keys. */
 function schedulePortalRenderCreateIntentSummary(payload) {
-  var box = el('ps-create-summary');
-  if (!box) return;
+  var box = el('ps-create-summary'); if (!box) return;
   var p = payload;
   if (!p && typeof scheduleReadCreatePayload === 'function') { try { p = scheduleReadCreatePayload(); } catch (_e) { p = null; } }
   p = p || {};
-  var comps = p.components || {};
-  var rentals = Array.isArray(p.rentals) ? p.rentals : [];
+  var comps = p.components || {}, rentals = Array.isArray(p.rentals) ? p.rentals : [];
   if (comps.private_lesson) {
     var plGate = null;
     try { plGate = schedulePortalValidatePrivateLessonCreate(comps.private_lesson); } catch (_pl) { plGate = { ok: false }; }
@@ -528,35 +553,35 @@ function schedulePortalRenderCreateIntentSummary(payload) {
   }
   var bits = [];
   if (comps.course) {
-    var cBits = [portalT('schedule.type.course') || 'Group course'];
-    if (comps.course.course_label) cBits.push(String(comps.course.course_label));
+    var cBits = [portalT('schedule.type.course') || 'Group course'], cLab = schedulePortalHumanCourseBit(comps.course);
+    if (cLab) cBits.push(cLab);
     var tierSel = el('ps-create-course-tier');
     var tierLab = (tierSel && tierSel.options && tierSel.selectedIndex >= 0 && tierSel.options[tierSel.selectedIndex])
       ? String(tierSel.options[tierSel.selectedIndex].textContent || '').trim() : '';
-    if (!tierLab && comps.course.tier_key) tierLab = String(comps.course.tier_key);
-    if (tierLab) cBits.push(tierLab);
+    if (tierLab && tierLab !== String(comps.course.tier_key || '')) cBits.push(tierLab);
     if (comps.course.quantity) cBits.push('\u00d7' + String(comps.course.quantity));
     bits.push(cBits.join(' \u00b7 '));
   } else if (comps.private_lesson) {
     var pl = comps.private_lesson, plBits = [portalT('schedule.type.privateLesson') || 'Private course'];
     var sessN = Array.isArray(pl.sessions) ? pl.sessions.length : (pl.quantity || 0);
-    if (sessN) plBits.push(String(sessN));
+    if (sessN) plBits.push((portalT('schedule.create.summary.sessions') || 'Sessions') + ': ' + String(sessN));
     var dates = (pl.sessions || []).map(function(s) { return s && s.date ? String(s.date).slice(0, 10) : ''; }).filter(Boolean).sort();
     if (dates.length === 1) plBits.push(dates[0]);
     else if (dates.length > 1) plBits.push(dates[0] + '\u2013' + dates[dates.length - 1]);
-    if (pl.surfer_count) plBits.push(String(pl.surfer_count));
+    if (pl.surfer_count) plBits.push((portalT('schedule.create.summary.surfers') || 'Surfers') + ': ' + String(pl.surfer_count));
     bits.push(plBits.join(' \u00b7 '));
   } else bits.push(portalT('schedule.type.noLesson') || 'No lesson');
+  function gearBit(key, q, durKey) {
+    var lab = schedulePortalRentalLabel(key); if (!lab) return '';
+    var bit = (Number(q) > 1) ? (lab + ' \u00d7' + q) : lab;
+    var dur = schedulePortalDurationLabel(durKey); return dur ? (bit + ' \u00b7 ' + dur) : bit;
+  }
   if (rentals.length) {
-    var gearBits = rentals.map(function(r) {
-      if (!r || !r.offering_key) return '';
-      var lab = schedulePortalRentalLabel(r.offering_key), q = Number(r.quantity) || 0;
-      return q > 1 ? (lab + ' \u00d7' + q) : lab;
-    }).filter(Boolean);
+    var gearBits = rentals.map(function(r) { return r && r.offering_key ? gearBit(r.offering_key, r.quantity, r.duration_key) : ''; }).filter(Boolean);
     if (gearBits.length) bits.push(gearBits.join(', '));
   } else {
-    if (comps.surfboard) bits.push(schedulePortalRentalLabel('board_rental') + (comps.surfboard.quantity > 1 ? ' \u00d7' + comps.surfboard.quantity : ''));
-    if (comps.wetsuit) bits.push(schedulePortalRentalLabel('wetsuit_rental') + (comps.wetsuit.quantity > 1 ? ' \u00d7' + comps.wetsuit.quantity : ''));
+    if (comps.surfboard) { var sb = gearBit('board_rental', comps.surfboard.quantity); if (sb) bits.push(sb); }
+    if (comps.wetsuit) { var ws = gearBit('wetsuit_rental', comps.wetsuit.quantity); if (ws) bits.push(ws); }
   }
   if (comps.full_day_equipment_extension) bits.push(portalT('schedule.type.fullDayEquipment') || 'Full-day gear');
   if (!comps.private_lesson) {
@@ -570,7 +595,6 @@ function schedulePortalRenderCreateIntentSummary(payload) {
   box.innerHTML = '<span class="portal-schedule-create-summary-text">' + escHtml(bits.join(' \u00b7 ')) + '</span>';
 }
 
-/** One path: intent summary now, debounced canonical quote after. */
 function schedulePortalSyncCreateFooter(opts) {
   opts = opts || {};
   schedulePortalRenderCreateIntentSummary();
@@ -579,16 +603,13 @@ function schedulePortalSyncCreateFooter(opts) {
 }
 
 function schedulePortalWireCreateFooter() {
-  ['ps-create-guest', 'ps-create-payment', 'ps-create-course-tier', 'ps-create-course-qty', 'ps-create-course-select',
-    'ps-create-private-lesson-surfers', 'ps-create-date-from', 'ps-create-date-to',
-    'ps-create-comp-course', 'ps-create-comp-private-lesson', 'ps-create-comp-no-lesson', 'ps-create-comp-fullday'
-  ].forEach(function(id) {
-    var node = el(id);
+  [['ps-create-guest', true], ['ps-create-payment', false]].forEach(function(pair) {
+    var node = el(pair[0]);
     if (!node || node.dataset.footerWired === '1') return;
     node.dataset.footerWired = '1';
-    var fire = function() { schedulePortalSyncCreateFooter(); };
+    var fire = function() { schedulePortalSyncCreateFooter({ quote: false }); };
     node.addEventListener('change', fire);
-    if (id === 'ps-create-guest' || id === 'ps-create-course-qty' || id === 'ps-create-private-lesson-surfers') node.addEventListener('input', fire);
+    if (pair[1]) node.addEventListener('input', fire);
   });
 }
 
@@ -620,6 +641,9 @@ function schedulePortalRunPreviewQuote() {
   var comps = payload.components || {};
   var hasComps = Object.keys(comps).length > 0 || (Array.isArray(payload.rentals) && payload.rentals.length > 0);
   if (!hasComps) {
+    if (schedulePortalQuoteTimer != null) { clearTimeout(schedulePortalQuoteTimer); schedulePortalQuoteTimer = null; }
+    if (schedulePortalQuoteAbort) { try { schedulePortalQuoteAbort.abort(); } catch (_i) { /* ignore */ } schedulePortalQuoteAbort = null; }
+    schedulePortalQuoteGen += 1;
     schedulePortalClearQuotePreviewUi();
     if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
       schedulePortalRenderCreateQuotePreview({ idle: true });
@@ -632,6 +656,7 @@ function schedulePortalRunPreviewQuote() {
     try { plGate = schedulePortalValidatePrivateLessonCreate(comps.private_lesson); }
     catch (_pl) { plGate = { ok: false, errorKey: 'schedule.create.privateLesson.sessionIncomplete' }; }
     if (!plGate || plGate.ok !== true) {
+      if (schedulePortalQuoteTimer != null) { clearTimeout(schedulePortalQuoteTimer); schedulePortalQuoteTimer = null; }
       if (schedulePortalQuoteAbort) {
         try { schedulePortalQuoteAbort.abort(); } catch (_a) { /* ignore */ }
         schedulePortalQuoteAbort = null;
@@ -665,18 +690,14 @@ function schedulePortalRunPreviewQuote() {
     signal: controller ? controller.signal : undefined,
     applyState: true,
   }).then(function(result) {
-    if (myGen !== schedulePortalQuoteGen || schedulePortalSubmitInFlight) {
-      return { ok: false, superseded: true };
-    }
+    if (myGen !== schedulePortalQuoteGen || schedulePortalSubmitInFlight) return { ok: false, superseded: true };
     if (result && result.aborted) return result;
     if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
       schedulePortalRenderCreateQuotePreview(result);
     }
     return result;
   }).catch(function(err) {
-    if (myGen !== schedulePortalQuoteGen || schedulePortalSubmitInFlight) {
-      return { ok: false, superseded: true };
-    }
+    if (myGen !== schedulePortalQuoteGen || schedulePortalSubmitInFlight) return { ok: false, superseded: true };
     if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
       schedulePortalRenderCreateQuotePreview({ ok: false, error: err && err.message });
     }
@@ -695,30 +716,25 @@ function schedulePortalRefreshCreateQuote() {
   }
   var payload = null;
   try { payload = typeof scheduleReadCreatePayload === 'function' ? scheduleReadCreatePayload() : null; } catch (_r) { payload = null; }
-  var sellable = payload && (typeof schedulePortalHasSellableIntent === 'function'
-    ? schedulePortalHasSellableIntent(payload)
-    : !!(payload.components && (payload.components.course || payload.components.private_lesson
-      || payload.components.full_day_equipment_extension || payload.components.surfboard || payload.components.wetsuit
-      || (Array.isArray(payload.rentals) && payload.rentals.length))));
-  if (payload && sellable) {
+  if (!payload || !schedulePortalHasSellableIntent(payload)) {
+    schedulePortalInvalidateCreateQuoteIntent({ idle: true });
+    return Promise.resolve(null);
+  }
+  if (payload.components && payload.components.private_lesson) {
     var soft = false;
-    if (payload.components && payload.components.private_lesson) {
-      try {
-        var g = schedulePortalValidatePrivateLessonCreate(payload.components.private_lesson);
-        soft = !g || g.ok !== true;
-      } catch (_g) { soft = true; }
-    }
+    try { var g = schedulePortalValidatePrivateLessonCreate(payload.components.private_lesson); soft = !g || g.ok !== true; }
+    catch (_g) { soft = true; }
     if (soft) {
-      schedulePortalClearQuotePreviewUi();
-      if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
-        schedulePortalRenderCreateQuotePreview({ ok: false, softInvalid: true });
-      }
+      schedulePortalInvalidateCreateQuoteIntent({ ok: false, softInvalid: true });
+      schedulePortalRenderCreateIntentSummary(payload);
       return Promise.resolve(null);
     }
-    if (typeof schedulePortalShowQuoteChecking === 'function') schedulePortalShowQuoteChecking();
-  } else {
-    schedulePortalClearQuotePreviewUi();
   }
+  if (schedulePortalQuoteAbort) {
+    try { schedulePortalQuoteAbort.abort(); } catch (_a) { /* ignore */ }
+    schedulePortalQuoteAbort = null;
+  }
+  schedulePortalShowQuoteChecking();
   var wait = Number(schedulePortalQuoteDebounceMs);
   if (!(wait >= 300 && wait <= 500)) wait = 400;
   if (Number(schedulePortalQuoteDebounceMs) > 0 && Number(schedulePortalQuoteDebounceMs) < 300) {
@@ -955,7 +971,7 @@ function schedulePortalPopulateCreateCourseFields() {
       sel._tierBound = true;
       sel.addEventListener('change', function() {
         schedulePopulateCreateCourseTierFields('');
-        schedulePortalRefreshCreateQuote();
+        schedulePortalSyncCreateFooter();
       });
     }
     if (!sel._dateBound) {
@@ -965,7 +981,7 @@ function schedulePortalPopulateCreateCourseFields() {
         if (!node || node._courseEligBound) return;
         node._courseEligBound = true;
         node.addEventListener('change', function() {
-          schedulePortalPopulateCreateCourseFields().then(function() { schedulePortalRefreshCreateQuote(); });
+          schedulePortalPopulateCreateCourseFields().then(function() { schedulePortalSyncCreateFooter(); });
         });
       });
     }
