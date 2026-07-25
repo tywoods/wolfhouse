@@ -1253,6 +1253,59 @@ async function main() {
       && /staging_readiness/.test(libSrc) && !/live_enabled_not_ready/.test(libSrc)
       && !/\/TODO\|provisional\//.test(libSrc) && !/pricing_status ===/.test(libSrc));
   }
+  {
+    // Hostile path redaction: secret absolute roots / OS text must never appear in safeReadFile or plan/status.
+    const MARK = 'SECRETHOME_s2d1_path_leak';
+    const os = require('os');
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), `${MARK}-`));
+    const root = path.join(base, 'repo');
+    const outside = path.join(base, 'outside');
+    fs.mkdirSync(path.join(root, 'config'), { recursive: true });
+    fs.mkdirSync(outside, { recursive: true });
+    const markers = [MARK, base, root, outside, os.tmpdir(), process.env.HOME || '',
+      'ENOENT', 'EACCES', 'lstat ', "open '", 'postgresql://', 'SECRET_DSN_BYTES'].filter(Boolean);
+    const noLeak = (v) => { const s = JSON.stringify(v); return markers.every((m) => !s.includes(m)); };
+    const miss = lib.safeReadFile(path.join(root, 'config', 'missing.json'), root);
+    const dir = lib.safeReadFile(path.join(root, 'config'), root);
+    fs.symlinkSync(path.join(root, 'config', 'nope'), path.join(root, 'config', 'sym.json'));
+    const sym = lib.safeReadFile(path.join(root, 'config', 'sym.json'), root);
+    fs.writeFileSync(path.join(outside, 'x.json'), 'SECRET_DSN_BYTES postgresql://u:p@h/db');
+    fs.symlinkSync(outside, path.join(root, 'config', 'esc'));
+    const esc = lib.safeReadFile(path.join(root, 'config', 'esc', 'x.json'), root);
+    const locked = path.join(root, 'config', 'locked.json');
+    fs.writeFileSync(locked, 'SECRET_DSN_BYTES');
+    fs.chmodSync(locked, 0);
+    const rd = lib.safeReadFile(locked, root);
+    try { fs.chmodSync(locked, 0o644); } catch (_) { /* */ }
+    fs.writeFileSync(path.join(root, 'config', 'ok.json'), '{}');
+    const pr = lib.safeReadFile(path.join(root, 'config', 'ok.json'), path.join(base, 'no-such-root'));
+    const auth = lib.readStagingSubscriptionAuthority(root);
+    const fakeTools = {
+      gitSha256: '1'.repeat(64), tarSha256: '2'.repeat(64), nodeSha256: '3'.repeat(64),
+      azSha256: '4'.repeat(64), bicepSha256: '5'.repeat(64), bicepVersion: 'Bicep CLI version 0.45.15 (test)',
+    };
+    const hostileDeps = lib.createDeps({
+      repoRoot: root, inExactSnapshot: true, verifiedDeploySha: SHA, toolAuthority: fakeTools,
+      sleep: async () => {}, now: () => new Date('2026-07-23T12:00:00Z'),
+      bicepBuildBytes: () => Buffer.from(TPL_BYTES),
+    });
+    const planR = await lib.plan({ slug: SLUG }, hostileDeps);
+    const stR = await lib.status({ slug: SLUG }, hostileDeps);
+    const blob = { miss, dir, sym, esc, rd, pr, auth, planR, stR };
+    ok('safe_read_path_errors_sanitized_no_leak',
+      typeof lib.safeReadFile === 'function'
+      && miss.ok === false && miss.errors[0].code === 'path_missing' && miss.errors[0].message === 'config/missing.json'
+      && dir.ok === false && dir.errors[0].code === 'path_nonregular' && dir.errors[0].message === 'config'
+      && sym.ok === false && sym.errors[0].code === 'path_symlink' && sym.errors[0].message === 'config/sym.json'
+      && esc.ok === false && esc.errors[0].code === 'path_escape' && esc.errors[0].message === 'config/esc/x.json'
+      && rd.ok === false && rd.errors[0].code === 'path_read' && rd.errors[0].message === 'config/locked.json'
+      && pr.ok === false && pr.errors[0].code === 'path_realpath' && pr.errors[0].message === 'ok.json'
+      && auth.ok === false && (auth.errors || []).every((e) => e.code === 'staging_sub_config' && e.message === 'config/azure-staging-subscription.json')
+      && planR.ok === false && stR.ok === false
+      && noLeak(blob),
+      JSON.stringify(blob).slice(0, 360));
+    try { fs.rmSync(base, { recursive: true, force: true }); } catch (_) { /* */ }
+  }
   const st = diffStat();
   ok('file_budget', st.files <= 10, `files=${st.files}`);
   // Raised for infra-partial owned-deployment subset + empty-RG deployments LIST authority
