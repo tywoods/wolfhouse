@@ -1160,12 +1160,25 @@ function resolveGuestCount(components) {
   return counts.length ? Math.max(...counts) : 1;
 }
 
-function buildScheduleBookingIntentFingerprint(input, locationId) {
+function canonicalRentalsForIntentFingerprint(rentals) {
+  if (!Array.isArray(rentals) || !rentals.length) return [];
+  return rentals
+    .map((r) => ({
+      offering_key: String((r && r.offering_key) || '').trim(),
+      duration_key: String((r && r.duration_key) || '').trim(),
+      quantity: Number(r && r.quantity) || 0,
+    }))
+    .filter((r) => r.offering_key)
+    .sort((a, b) => (a.offering_key < b.offering_key ? -1 : (a.offering_key > b.offering_key ? 1 : 0)));
+}
+
+function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
+  opts = opts || {};
   const components = input && input.components ? input.components : {};
   const ordered = {};
-  Object.keys(components).sort().forEach((k) => {
-    ordered[k] = components[k];
-  });
+  Object.keys(components).sort().forEach((k) => { ordered[k] = components[k]; });
+  const rentalsSrc = opts.rentals != null ? opts.rentals
+    : (input && input.rentals != null ? input.rentals : []);
   const payload = {
     location_id: String(locationId || ''),
     guest_name: String((input && input.guest_name) || ''),
@@ -1173,6 +1186,7 @@ function buildScheduleBookingIntentFingerprint(input, locationId) {
     payment_status: String((input && input.payment_status) || 'unpaid'),
     service_dates: ((input && input.service_dates) || []).slice().sort(),
     components: ordered,
+    rentals: canonicalRentalsForIntentFingerprint(rentalsSrc),
     notes: String((input && input.notes) || ''),
     needs_reply: !!(input && input.needs_reply),
   };
@@ -1186,52 +1200,38 @@ function scheduleBookingIdempotencyAdvisoryKeys(clientSlug, idempotencyKey) {
   return [h.readInt32BE(0), h.readInt32BE(4)];
 }
 
-/**
- */
-function evaluateIdempotentReplay(existingRows, input, locationId) {
+function evaluateIdempotentReplay(existingRows, input, locationId, opts) {
   if (!existingRows || !existingRows.length) return { replay: false };
   const first = existingRows[0];
   const reqLoc = String(locationId || '');
   const metaLoc = first.location_id != null && first.location_id !== ''
-    ? String(first.location_id)
-    : null;
+    ? String(first.location_id) : null;
   if (metaLoc != null && metaLoc !== reqLoc) {
     return {
-      ok: false,
-      status: 409,
-      body: {
-        success: false,
-        error: 'idempotency_key_location_conflict',
-        reason_code: 'idempotency_key_location_conflict',
-      },
+      ok: false, status: 409,
+      body: { success: false, error: 'idempotency_key_location_conflict', reason_code: 'idempotency_key_location_conflict' },
     };
   }
-  const storedFp = first.idempotency_intent_fp || null;
-  if (storedFp) {
-    const nextFp = buildScheduleBookingIntentFingerprint(input, locationId);
-    if (storedFp !== nextFp) {
-      return {
-        ok: false,
-        status: 409,
-        body: {
-          success: false,
-          error: 'idempotency_key_intent_conflict',
-          reason_code: 'idempotency_key_intent_conflict',
-        },
-      };
-    }
+  const storedFp = first.idempotency_intent_fp != null ? String(first.idempotency_intent_fp).trim() : '';
+  if (!storedFp) {
+    return {
+      ok: false, status: 409,
+      body: { success: false, error: 'idempotency_key_intent_unverifiable', reason_code: 'idempotency_key_intent_unverifiable' },
+    };
+  }
+  const nextFp = buildScheduleBookingIntentFingerprint(input, locationId, opts);
+  if (storedFp !== nextFp) {
+    return {
+      ok: false, status: 409,
+      body: { success: false, error: 'idempotency_key_intent_conflict', reason_code: 'idempotency_key_intent_conflict' },
+    };
   }
   return {
-    ok: true,
-    replay: true,
-    status: 200,
+    ok: true, replay: true, status: 200,
     body: {
-      success: true,
-      idempotent: true,
-      booking_code: first.booking_code,
-      booking_id: first.booking_id,
-      records: existingRows.map(scheduleRowFromDb),
-      booking: scheduleRowFromDb(first),
+      success: true, idempotent: true,
+      booking_code: first.booking_code, booking_id: first.booking_id,
+      records: existingRows.map(scheduleRowFromDb), booking: scheduleRowFromDb(first),
     },
   };
 }
@@ -1266,15 +1266,15 @@ async function createSunsetScheduleBooking(pg, opts) {
   const canonicalRentals = rentalPrep.present ? rentalPrep.rentals : null;
   const rentalSpanDates = rentalPrep.present ? rentalPrep.rentalSpanDates : null;
   const rentalPricingGroupId = rentalPrep.present ? rentalPrep.pricingGroupId : null;
+  const intentFpOpts = { rentals: canonicalRentals || [] };
   const idempotencyIntentFp = input.idempotency_key
-    ? buildScheduleBookingIntentFingerprint(input, locationId)
+    ? buildScheduleBookingIntentFingerprint(input, locationId, intentFpOpts)
     : null;
 
-  // Fast-path idempotent replay; concurrent first-writes use advisory lock in txn.
   if (input.idempotency_key) {
     const existingRows = await findIdempotentBooking(pg, clientSlug, input.idempotency_key);
     if (existingRows && existingRows.length) {
-      const evaluated = evaluateIdempotentReplay(existingRows, input, locationId);
+      const evaluated = evaluateIdempotentReplay(existingRows, input, locationId, intentFpOpts);
       if (evaluated.replay) {
         return { ok: true, status: evaluated.status, body: evaluated.body };
       }
@@ -1434,13 +1434,12 @@ async function createSunsetScheduleBooking(pg, opts) {
 
   await pg.query('BEGIN');
   try {
-    // Concurrent same-key: advisory xact lock + re-check (durable metadata key).
     if (input.idempotency_key) {
       const [k1, k2] = scheduleBookingIdempotencyAdvisoryKeys(clientSlug, input.idempotency_key);
       await pg.query('SELECT pg_advisory_xact_lock($1, $2)', [k1, k2]);
       const lockedRows = await findIdempotentBooking(pg, clientSlug, input.idempotency_key);
       if (lockedRows && lockedRows.length) {
-        const evaluated = evaluateIdempotentReplay(lockedRows, input, locationId);
+        const evaluated = evaluateIdempotentReplay(lockedRows, input, locationId, intentFpOpts);
         if (evaluated.replay) {
           await pg.query('ROLLBACK');
           return { ok: true, status: evaluated.status, body: evaluated.body };

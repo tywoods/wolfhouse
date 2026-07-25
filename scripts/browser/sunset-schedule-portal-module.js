@@ -14,7 +14,6 @@
  * scheduleFindCachedRowByBookingCode, scheduleResetNavigationAfterBookingCreate, scheduleRequestPageLoad, scheduleTodayIso,
  * scheduleEnumerateDates, scheduleRefreshCreateFullDayAddon, scheduleUpdateFullDayAddonSummary.
  *
- * Slice A: debounced preview (gen+abort), single-flight submit, idempotency_key.
  */
 
 var schedulePortalQuoteState = null;
@@ -44,7 +43,6 @@ function schedulePortalFetchJson(url, opts) {
   });
 }
 
-/** Abort pending preview timer + in-flight preview request; bump generation. */
 function schedulePortalInvalidatePreviewWork() {
   if (schedulePortalQuoteTimer != null) {
     clearTimeout(schedulePortalQuoteTimer);
@@ -65,7 +63,19 @@ function schedulePortalNewIdempotencyKey() {
   return 'scb-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
 }
 
-/** Stable intent string for same-form retries (no money fields). */
+function schedulePortalNormalizeRentalsIntent(rentals) {
+  if (!Array.isArray(rentals) || !rentals.length) return [];
+  return rentals.map(function(r) {
+    r = r || {};
+    return {
+      offering_key: String(r.offering_key || '').trim(),
+      duration_key: String(r.duration_key || '').trim(),
+      quantity: Number(r.quantity) || 0,
+    };
+  }).filter(function(r) { return !!r.offering_key; })
+    .sort(function(a, b) { return a.offering_key < b.offering_key ? -1 : (a.offering_key > b.offering_key ? 1 : 0); });
+}
+
 function schedulePortalCreateIntentKey(payload) {
   var p = payload || {};
   var comps = p.components || {};
@@ -78,7 +88,7 @@ function schedulePortalCreateIntentKey(payload) {
     date_to: p.date_to || null,
     payment_status: p.payment_status || 'unpaid',
     components: ordered,
-    rentals: Array.isArray(p.rentals) ? p.rentals : [],
+    rentals: schedulePortalNormalizeRentalsIntent(p.rentals),
     notes: p.notes != null ? String(p.notes) : '',
     location_id: typeof getSunsetLocation === 'function' ? getSunsetLocation() : null,
   });
@@ -98,10 +108,13 @@ function schedulePortalClearSubmitIdempotency() {
   schedulePortalSubmitIdemIntent = null;
 }
 
-/** Reset create-form runtime (call on modal open/close). */
 function schedulePortalResetCreateFormRuntime() {
-  schedulePortalSubmitInFlight = false;
-  schedulePortalClearSubmitIdempotency();
+  if (schedulePortalSubmitInFlight) {
+    schedulePortalInvalidatePreviewWork();
+    var lockedBtn = el('ps-create-submit');
+    if (lockedBtn) lockedBtn.disabled = true;
+    return;
+  }
   schedulePortalInvalidatePreviewWork();
   schedulePortalQuoteState = null;
   var submitBtn = el('ps-create-submit');
@@ -110,7 +123,6 @@ function schedulePortalResetCreateFormRuntime() {
   if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
 }
 
-/** GET/POST /staff/schedule/bookings/catalog — canonical offerings (no config-json price fallback). */
 function schedulePortalFetchCatalog(opts) {
   opts = opts || {};
   var url = '/staff/schedule/bookings/catalog?' + schedulePortalClientQuery();
@@ -135,12 +147,7 @@ function schedulePortalFetchCatalog(opts) {
   });
 }
 
-/**
- * POST /staff/schedule/bookings/quote — authoritative price + provenance.
- * @param {object} createPayload
- * @param {{ gen?: number, signal?: AbortSignal, applyState?: boolean }} opts
- *   applyState: when true (default), write schedulePortalQuoteState if gen still current.
- */
+/** POST quote — gen/abort guarded. */
 function schedulePortalFetchQuote(createPayload, opts) {
   opts = opts || {};
   var body = {
@@ -210,7 +217,6 @@ function schedulePortalServiceDatesFromPayload(payload) {
   return scheduleEnumerateDates(payload.date_from, payload.date_to || payload.date_from);
 }
 
-/** GET /staff/schedule/bookings/detail */
 function schedulePortalFetchDrawerDetail(row) {
   var q = schedulePortalClientQuery();
   if (row.booking_id) q += '&booking_id=' + encodeURIComponent(row.booking_id);
@@ -220,7 +226,6 @@ function schedulePortalFetchDrawerDetail(row) {
   });
 }
 
-/** GET /staff/schedule/bookings/payment-link — canonical payment lifecycle read. */
 function schedulePortalFetchPaymentLink(bookingId, bookingCode) {
   var q = schedulePortalClientQuery();
   if (bookingId) q += '&booking_id=' + encodeURIComponent(bookingId);
@@ -230,7 +235,6 @@ function schedulePortalFetchPaymentLink(bookingId, bookingCode) {
   });
 }
 
-/** Resolve actionable Stripe URL for drawer render — never show invalidated/cancelled links. */
 function schedulePortalStripeLinkFromCtx(ctx) {
   if (!ctx) return { url: '', actionable: false, stale: false, payment_id: null };
   var link = ctx.stripe_link;
@@ -260,7 +264,6 @@ function schedulePortalStripeLinkFromCtx(ctx) {
   };
 }
 
-/** POST /staff/schedule/bookings with quote provenance + idempotency key. */
 function schedulePortalSubmitCreate(createPayload, opts) {
   opts = opts || {};
   var body = Object.assign({}, createPayload, {
@@ -351,7 +354,6 @@ function schedulePortalSetCreateStatus(text, isError) {
   } catch (_e) { /* ignore */ }
 }
 
-/** Run one preview quote for current form (generation-guarded). */
 function schedulePortalRunPreviewQuote() {
   if (schedulePortalSubmitInFlight) return Promise.resolve(null);
   var payload = scheduleReadCreatePayload();
@@ -396,10 +398,6 @@ function schedulePortalRunPreviewQuote() {
   });
 }
 
-/**
- * Debounced preview refresh (300–500ms). Rapid edits coalesce to one request.
- * Superseded responses cannot mutate current quote/error state.
- */
 function schedulePortalRefreshCreateQuote() {
   if (schedulePortalSubmitInFlight) return Promise.resolve(null);
   if (schedulePortalQuoteTimer != null) {
@@ -419,7 +417,6 @@ function schedulePortalRefreshCreateQuote() {
   });
 }
 
-/** Populate course dropdown from canonical catalog POST (server eligibility flags). */
 function schedulePortalPopulateCreateCourseFields() {
   var sel = el('ps-create-course-select');
   if (!sel) return Promise.resolve();

@@ -23,6 +23,7 @@ const {
   evaluateIdempotentReplay,
   scheduleBookingIdempotencyAdvisoryKeys,
   validateScheduleBookingBody,
+  prepareCanonicalRentalsForCreate,
 } = require('./lib/sunset-schedule-booking-writes');
 
 let pass = 0;
@@ -304,9 +305,10 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
   }
 
   console.log('\n[6] Slice A — durable idempotency');
-  const vA = validateScheduleBookingBody({ guest_name: 'Replay', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02' });
-  const vB = validateScheduleBookingBody({ guest_name: 'Other', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02' });
-  const vC = validateScheduleBookingBody({ guest_name: 'Concurrent', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02' });
+  const lessonBody = (name) => ({ guest_name: name, components: { lesson: { quantity: 1 } }, service_date: '2026-08-02' });
+  const vA = validateScheduleBookingBody(lessonBody('Replay'));
+  const vB = validateScheduleBookingBody(lessonBody('Other'));
+  const vC = validateScheduleBookingBody(lessonBody('Concurrent'));
   assert('validated fixtures', vA.ok && vB.ok && vC.ok);
   const fpA = buildScheduleBookingIntentFingerprint(vA.value, 'sunset-somo');
   const fpB = buildScheduleBookingIntentFingerprint(vB.value, 'sunset-somo');
@@ -322,18 +324,64 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
   assert('replay same intent', evaluateIdempotentReplay([row], vA.value, 'sunset-somo').replay === true);
   assert('conflict intent', evaluateIdempotentReplay([row], vB.value, 'sunset-somo').body.reason_code === 'idempotency_key_intent_conflict');
   assert('conflict location', evaluateIdempotentReplay([row], vA.value, 'sunset-sardinero').body.reason_code === 'idempotency_key_location_conflict');
+  for (const badFp of [null, undefined, '', '   ']) {
+    const legacy = { ...row, idempotency_intent_fp: badFp, metadata: { ...row.metadata, idempotency_intent_fp: badFp } };
+    const ev = evaluateIdempotentReplay([legacy], vA.value, 'sunset-somo');
+    assert(`missing fp fails closed (${JSON.stringify(badFp)})`,
+      ev.ok === false && ev.status === 409 && ev.body.reason_code === 'idempotency_key_intent_unverifiable', JSON.stringify(ev));
+  }
+  assert('altered fp conflicts',
+    evaluateIdempotentReplay([{ ...row, idempotency_intent_fp: 'deadbeef', metadata: { ...row.metadata, idempotency_intent_fp: 'deadbeef' } }], vA.value, 'sunset-somo')
+      .body.reason_code === 'idempotency_key_intent_conflict');
+  const pgLegacy = buildMockPg();
+  const legacyRow = { ...row, idempotency_intent_fp: null, metadata: { ...row.metadata, idempotency_intent_fp: null } };
+  pgLegacy.state.idempotency.set('legacy-k', [legacyRow]); pgLegacy.state.serviceRecords.push(legacyRow);
+  const legacyCreate = await createSunsetScheduleBooking(pgLegacy, {
+    clientSlug: 'sunset', locationId: 'sunset-somo', actor: { source: 'agent_luna_whatsapp_bot' },
+    body: { ...lessonBody('Replay'), idempotency_key: 'legacy-k' },
+  });
+  assert('create fails closed missing fp',
+    legacyCreate.ok === false && legacyCreate.status === 409
+      && legacyCreate.body.reason_code === 'idempotency_key_intent_unverifiable'
+      && pgLegacy.state.serviceRecords.length === 1, JSON.stringify(legacyCreate.body));
+
+  const rentFp = (spec) => {
+    const prep = prepareCanonicalRentalsForCreate({ guest_name: 'Renter', ...spec });
+    const v = validateScheduleBookingBody(prep.body);
+    return v.ok ? buildScheduleBookingIntentFingerprint(v.value, 'sunset-somo', { rentals: prep.rentals }) : null;
+  };
+  const day1 = { date_from: '2026-08-02', date_to: '2026-08-02' };
+  const fpBoard = rentFp({ ...day1, rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }] });
+  assert('rental body validates', !!fpBoard);
+  assert('rental fp ignores client money', fpBoard === buildScheduleBookingIntentFingerprint(
+    validateScheduleBookingBody(prepareCanonicalRentalsForCreate({ guest_name: 'Renter', ...day1, rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }] }).body).value,
+    'sunset-somo', { rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1, total_cents: 99999 }] }));
+  assert('rental qty fp differs', rentFp({ ...day1, rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 2 }] }) !== fpBoard);
+  assert('rental duration/dates fp differs', rentFp({ date_from: '2026-08-02', date_to: '2026-08-03', rentals: [{ offering_key: 'board_rental', duration_key: '2_days', quantity: 1 }] }) !== fpBoard);
+  assert('rental offering fp differs', rentFp({ ...day1, rentals: [{ offering_key: 'wetsuit_rental', duration_key: '1_day', quantity: 1 }] }) !== fpBoard);
+  assert('bundle vs split rental fp differs',
+    rentFp({ ...day1, rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }] })
+      !== rentFp({ ...day1, rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }, { offering_key: 'wetsuit_rental', duration_key: '1_day', quantity: 1 }] }));
+  const plSess = (start, end) => validateScheduleBookingBody({
+    guest_name: 'Coach',
+    components: { private_lesson: { enabled: true, quantity: 1, surfer_count: 1, sessions: [{ date: '2026-08-02', start, end }] } },
+  });
+  const plA = plSess('10:00', '12:00'); const plB = plSess('14:00', '16:00');
+  assert('private session time material to fp', plA.ok && plB.ok
+    && buildScheduleBookingIntentFingerprint(plA.value, 'sunset-somo') !== buildScheduleBookingIntentFingerprint(plB.value, 'sunset-somo'));
+
   const pg = buildMockPg(); pg.state.idempotency.set('k1', [row]); pg.state.serviceRecords.push(row);
-  const replay = await createSunsetScheduleBooking(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', actor: { source: 'agent_luna_whatsapp_bot' }, body: { guest_name: 'Replay', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02', idempotency_key: 'k1' } });
+  const replay = await createSunsetScheduleBooking(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', actor: { source: 'agent_luna_whatsapp_bot' }, body: { ...lessonBody('Replay'), idempotency_key: 'k1' } });
   assert('create replay', replay.ok && replay.body.idempotent && pg.state.serviceRecords.length === 1);
-  const bad = await createSunsetScheduleBooking(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', actor: { source: 'agent_luna_whatsapp_bot' }, body: { guest_name: 'Other', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02', idempotency_key: 'k1' } });
+  const bad = await createSunsetScheduleBooking(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', actor: { source: 'agent_luna_whatsapp_bot' }, body: { ...lessonBody('Other'), idempotency_key: 'k1' } });
   assert('create conflict', bad.ok === false && bad.body.reason_code === 'idempotency_key_intent_conflict' && pg.state.serviceRecords.length === 1);
-  const cross = await createSunsetScheduleBooking(buildMockPg(), { clientSlug: 'wolfhouse', locationId: 'sunset-somo', actor: { email: 'x@t' }, body: { guest_name: 'Replay', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02', idempotency_key: 'k1' } });
+  const cross = await createSunsetScheduleBooking(buildMockPg(), { clientSlug: 'wolfhouse', locationId: 'sunset-somo', actor: { email: 'x@t' }, body: { ...lessonBody('Replay'), idempotency_key: 'k1' } });
   assert('cross-tenant', cross.ok === false && cross.body.error === 'unsupported_client');
   const adv = scheduleBookingIdempotencyAdvisoryKeys('sunset', 'k1');
   assert('advisory keys', adv.length === 2 && scheduleBookingIdempotencyAdvisoryKeys('sunset', 'k1')[0] === adv[0]);
   const crow = { ...row, booking_id: 'bk-c', booking_code: 'SUNSET-C', guest_name: 'Concurrent', idempotency_intent_fp: fpC, metadata: { ...row.metadata, idempotency_key: 'ck', idempotency_intent_fp: fpC } };
   const pgC = buildMockPg(); pgC.state.idempotency.set('ck', [crow]); pgC.state.serviceRecords.push(crow);
-  const bodyC = { guest_name: 'Concurrent', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02', idempotency_key: 'ck' };
+  const bodyC = { ...lessonBody('Concurrent'), idempotency_key: 'ck' };
   const [a, b] = await Promise.all([
     createSunsetScheduleBooking(pgC, { clientSlug: 'sunset', locationId: 'sunset-somo', actor: { email: 's@t' }, body: bodyC }),
     createSunsetScheduleBooking(pgC, { clientSlug: 'sunset', locationId: 'sunset-somo', actor: { email: 's@t' }, body: bodyC }),
