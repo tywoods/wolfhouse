@@ -256,7 +256,6 @@ function scheduleWireDayOpsBoardRows(container){
     node.dataset.psAddWired = '1';
     node.addEventListener('click', function(ev){
       ev.stopPropagation();
-      // slotKey retained on node for markup identity only — no create form time field.
       var dateIso = scheduleActiveDayIso();
       var courseId = node.getAttribute('data-ps-add-course') || '';
       openScheduleCreateModal({

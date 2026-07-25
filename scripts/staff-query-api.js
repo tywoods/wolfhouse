@@ -23771,7 +23771,6 @@ function scheduleApplyCreatePrefill(){
 function openScheduleCreateModal(context){
   var modal = el('ps-create-modal');
   if (!modal) return;
-  // Clean/context owner: schedulePortalPrepareCreateOpen (portal module).
   var prep = typeof schedulePortalPrepareCreateOpen === 'function' ? schedulePortalPrepareCreateOpen(context || null) : null;
   if (prep && prep.preserved){ modal.style.display = 'flex'; modal.setAttribute('aria-hidden', 'false'); return; }
   if (!prep && typeof schedulePortalResetCreateFormRuntime === 'function') schedulePortalResetCreateFormRuntime();

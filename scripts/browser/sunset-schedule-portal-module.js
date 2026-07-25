@@ -120,7 +120,7 @@ function schedulePortalMadridTodayIso(refDate) {
 }
 
 function schedulePortalCanonicalDateIso(raw) {
-  var s = String(raw == null ? '' : raw).slice(0, 10);
+  var s = String(raw == null ? '' : raw);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
   var y = Number(s.slice(0, 4)), m = Number(s.slice(5, 7)), d = Number(s.slice(8, 10));
   var dt = new Date(Date.UTC(y, m - 1, d));
@@ -554,8 +554,10 @@ function schedulePortalRefreshCreateQuote() {
 function schedulePortalPopulateCreateCourseFields() {
   var sel = el('ps-create-course-select');
   if (!sel) return Promise.resolve();
+  var myOpenGen = schedulePortalOpenGen;
   var dates = scheduleCreateSelectedDates();
   return schedulePortalFetchCatalog({ service_dates: dates, method: 'POST' }).then(function(catalogData) {
+    if (myOpenGen !== schedulePortalOpenGen) return;
     var courses = (catalogData && Array.isArray(catalogData.courses)) ? catalogData.courses : [];
     if (typeof scheduleCoursesCache !== 'undefined') scheduleCoursesCache = courses.slice();
     var prev = sel.value;
