@@ -101,6 +101,8 @@ function makeHarness(lib, d1, opts = {}) {
   };
   const stateDir = opts.stateDir || fs.mkdtempSync(path.join(os.tmpdir(), 'messi-2d2-'));
   const isDepListPath = (p) => /\/providers\/Microsoft\.Resources\/deployments(\?|$)/i.test(p);
+  // Offline GREEN: in-worktree node_modules path only (no ambient NODE_PATH / real npm install).
+  const inTreePg = path.join(ROOT, 'node_modules', 'pg', 'lib', 'index.js');
   const deps = lib.createDeps({
     repoRoot: ROOT, stateDir,
     sleep: async (ms) => { clock = new Date(clock.getTime() + (Number(ms) || 0)); },
@@ -110,6 +112,14 @@ function makeHarness(lib, d1, opts = {}) {
     snapshotAdapter: opts.snapshotAdapter || (() => ({ root: ROOT, cleanup: () => {} })),
     bicepBuildBytes: opts.bicepBuildBytes || (() => Buffer.from(TPL_BYTES)),
     randomBytes: (n) => Buffer.alloc(n, 7),
+    requireResolve: opts.requireResolve || ((id) => {
+      if (String(id) === 'pg') return inTreePg;
+      return require.resolve(id, { paths: [ROOT] });
+    }),
+    // Synthetic in-tree paths need not exist on disk for the offline harness.
+    realpath: opts.realpath || ((p) => {
+      try { return fs.realpathSync(p); } catch (_) { return path.resolve(String(p)); }
+    }),
     bootstrapOperator: opts.bootstrapOperator || ((args) => {
       azCmdLog.push(args && args.azCommand);
       return {
@@ -462,7 +472,9 @@ async function main() {
     && !/scheduler|setInterval|cron/i.test(doc) && /monthly_approval_rejected/.test(src)
     && !/--approve-monthly-usd/.test(doc)
     && /\bnpm ci\b/.test(doc) && /local_runtime_dependency_missing/.test(doc)
-    && /Local runtime preflight/.test(doc));
+    && /Local runtime preflight/.test(doc)
+    && /worktree's own `node_modules`|own node_modules install/i.test(doc)
+    && /manually maintained/i.test(doc) && /not auto-complete/i.test(doc));
   ok('d1_handoff_and_lock', /deriveAuthority/.test(src) && /O_NOFOLLOW|nofollow/.test(src)
     && /temporaryDrill/.test(src) && /expiresAt/.test(src)
     && /If-Match/.test(src) && /HEALTH_IDENTITY_PATH/.test(src)
@@ -476,10 +488,14 @@ async function main() {
     && typeof lib.assertLocalApplyRuntimePreflight === 'function'
     && lib.LOCAL_APPLY_RUNTIME_MODULES.includes('pg')
     && lib.LOCAL_APPLY_RUNTIME_PREREQ_CMD === 'npm ci'
+    && /pathIsInside|node_modules/.test(src)
+    && /manually maintained frozen list|not auto-complete under future C2/i.test(src)
     && !/\bnpm install\b/.test(src));
   ok('docs_claim_truth', /assertActiveDrill|SIGINT|pinned absolute|inventory finding|legitimate/i.test(doc)
     && /wall-clock|PHASE_MAX|30m|Retry-After|tag tuple|rollback_failed/i.test(doc)
     && /\bnpm ci\b/.test(doc) && /local_runtime_dependency_missing|before ACR build/i.test(doc)
+    && /NODE_PATH|ancestor|out-of-worktree linked/i.test(doc)
+    && /manually maintained/i.test(doc) && /not auto-complete/i.test(doc)
     && !/scheduler|setInterval|cron|background expiry daemon runs/i.test(doc));
 
   {
@@ -864,6 +880,80 @@ async function main() {
         && !blob.includes(leakAbs) && !/postgresql:\/\//i.test(blob)
         && !blob.includes(leakTok) && !/Require stack/i.test(blob)
         && !/node_modules|process\.env|DATABASE_URL/i.test(blob));
+    }
+    // Hostile: ambient NODE_PATH / global resolve succeeds outside worktree node_modules.
+    {
+      const ambientPg = path.join('/usr', 'lib', 'node_modules', 'pg', 'lib', 'index.js');
+      const h = makeHarness(lib, d1);
+      h.deps.requireResolve = (id) => {
+        if (String(id) === 'pg') return ambientPg;
+        return path.join(ROOT, 'node_modules', String(id));
+      };
+      h.deps.realpath = (p) => path.resolve(String(p));
+      const r = await lib.apply(approvalOpts(), h.deps);
+      ok('ambient_node_path_pg_refused_zero_mutation',
+        zeroMut(h, r, 'local_runtime_dependency_missing')
+        && !JSON.stringify(r).includes(ambientPg)
+        && !JSON.stringify(r).includes('/usr/lib'),
+        JSON.stringify({ errors: r.errors, az: h.azLog.length, arm: h.armLog.length }).slice(0, 280));
+    }
+    // Hostile: ancestor node_modules resolve succeeds (walk-up outside this worktree install).
+    {
+      const ancestorPg = path.join(ROOT, '..', 'node_modules', 'pg', 'lib', 'index.js');
+      const h = makeHarness(lib, d1);
+      h.deps.requireResolve = (id) => {
+        if (String(id) === 'pg') return ancestorPg;
+        return path.join(ROOT, 'node_modules', String(id));
+      };
+      h.deps.realpath = (p) => path.resolve(String(p));
+      const r = await lib.apply(approvalOpts(), h.deps);
+      ok('ancestor_node_modules_pg_refused_zero_mutation',
+        zeroMut(h, r, 'local_runtime_dependency_missing')
+        && !JSON.stringify(r).includes('..')
+        && !JSON.stringify(r).includes(path.resolve(ROOT, '..')),
+        JSON.stringify({ errors: r.errors }).slice(0, 240));
+    }
+    // Hostile: lexical path under worktree node_modules but realpath outside (npm link / external).
+    {
+      const linkedLexical = path.join(ROOT, 'node_modules', 'pg', 'lib', 'index.js');
+      const linkedReal = path.join('/tmp', 'hostile-out-of-worktree-pg', 'lib', 'index.js');
+      const h = makeHarness(lib, d1);
+      h.deps.requireResolve = (id) => {
+        if (String(id) === 'pg') return linkedLexical;
+        return path.join(ROOT, 'node_modules', String(id));
+      };
+      h.deps.realpath = (p) => {
+        const abs = path.resolve(String(p));
+        if (abs === path.resolve(linkedLexical)
+          || abs.includes(`${path.sep}node_modules${path.sep}pg`)) {
+          return linkedReal;
+        }
+        return abs;
+      };
+      const r = await lib.apply(approvalOpts(), h.deps);
+      const blob = JSON.stringify(r);
+      ok('out_of_worktree_linked_pg_refused_zero_mutation',
+        zeroMut(h, r, 'local_runtime_dependency_missing')
+        && !blob.includes(linkedReal) && !blob.includes('hostile-out-of-worktree')
+        && !blob.includes('/tmp/'),
+        JSON.stringify({ errors: r.errors }).slice(0, 240));
+    }
+    // Direct unit: ambient success still yields stable sanitized code (no path echo).
+    {
+      const ambient = '/home/attacker/.node_modules/pg/index.js';
+      const direct = lib.assertLocalApplyRuntimePreflight({
+        repoRoot: ROOT,
+        requireResolve: () => ambient,
+        realpath: (p) => path.resolve(String(p)),
+        fileExists: () => true,
+      });
+      const blob = JSON.stringify(direct);
+      ok('ambient_resolve_sanitized_no_path_echo',
+        direct.ok === false
+        && (direct.errors || []).every((e) => e.code === 'local_runtime_dependency_missing'
+          && e.message === 'missing required module: pg')
+        && !blob.includes(ambient) && !blob.includes('attacker')
+        && !blob.includes('.node_modules') && !/node_modules/i.test(blob));
     }
   }
 
