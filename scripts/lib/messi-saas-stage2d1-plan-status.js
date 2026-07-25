@@ -21,6 +21,13 @@ const SUBS_REL = 'fixtures/factory-client-productization/slice1c-substitutions-s
 const STAGING_SUB_REL = 'config/azure-staging-subscription.json';
 const CLI_REL = 'scripts/messi-saas-stage2d1-plan-status.js';
 const LIB_REL = 'scripts/lib/messi-saas-stage2d1-plan-status.js';
+const LIFECYCLE_TEMPORARY = 'temporary-drill'; const LIFECYCLE_DURABLE = 'durable-staging';
+const STAGING_READINESS_FIELDS = Object.freeze([ // baseline staging_readiness.* only; not live_enabled
+  ['inventory_confirmed', 'inventory_not_ready', 'inventory not confirmed'],
+  ['prices_confirmed', 'prices_not_ready', 'prices not confirmed'],
+  ['channels_provisioned', 'channels_not_ready', 'channels not provisioned'],
+  ['human_staging_approval', 'human_staging_approval_not_ready', 'human staging approval required'],
+]);
 const INTERNAL_FLAG = '--internal-snapshot-worker';
 const CAPABILITY_FD = 3;
 const PINNED_BINS = Object.freeze({
@@ -1825,9 +1832,45 @@ async function runProductionParent(argv, depsIn) {
     return worker.result || { ok: false, errors: worker.errors || [err('snapshot_worker_failed', 'no result')] };
   } finally { snap.cleanup(); }
 }
+function resolveLifecycleMode(opts) {
+  const r = opts && (opts.lifecycleMode != null ? opts.lifecycleMode : opts.lifecycle);
+  if (r == null || r === '' || String(r) === LIFECYCLE_TEMPORARY) return { ok: true, isDurable: false };
+  return String(r) === LIFECYCLE_DURABLE ? { ok: true, isDurable: true }
+    : { ok: false, errors: [err('lifecycle_mode_invalid', 'lifecycleMode must be temporary-drill|durable-staging')] };
+}
+function assessClientReadiness(deps, slug) {
+  // Baseline staging_readiness.* only; caller opts/live_enabled ignored; no free-text heuristics.
+  const blockers = []; const push = (c, m) => { if (!blockers.some((b) => b.code === c)) blockers.push({ code: c, message: m }); };
+  const rf = typeof deps.readFileSync === 'function' ? deps.readFileSync : fs.readFileSync;
+  let base;
+  try { base = JSON.parse(rf(path.join(deps.repoRoot, `config/clients/${String(slug || '')}.baseline.json`), 'utf8')); }
+  catch (_e) { return { ready: false, blockers: [{ code: 'baseline_unreadable', message: 'baseline unreadable' }] }; }
+  if (!base || typeof base !== 'object' || Array.isArray(base)) return { ready: false, blockers: [{ code: 'baseline_unreadable', message: 'baseline unreadable' }] };
+  const sr = (base.staging_readiness && typeof base.staging_readiness === 'object' && !Array.isArray(base.staging_readiness)) ? base.staging_readiness : {};
+  for (const [field, code, message] of STAGING_READINESS_FIELDS) if (sr[field] !== true) push(code, message);
+  return { ready: blockers.length === 0, blockers };
+}
+async function buildDurablePlanEnvelope(opts, deps) {
+  const g = validateSlug(opts && opts.slug); if (!g.ok) return g;
+  let sha = deps.verifiedDeploySha || null;
+  if (!deps.inExactSnapshot) { const pre = assertRepoDeployPreflight(deps); if (!pre.ok) return pre; sha = pre.verifiedDeploySha; }
+  else if (!sha) return { ok: false, errors: [err('verified_sha_required', 'internal mode needs verifiedDeploySha')] };
+  const sub = readStagingSubscriptionAuthority(deps.repoRoot); if (!sub.ok) return sub;
+  const tools = deps.toolAuthority || hashPinnedToolAuthority(deps); const compiled = compileBicepInSnapshot(deps, deps.repoRoot); if (!compiled.ok) return compiled;
+  const names = deriveNames(g.slug, sub.subscriptionId); const skus = estimateMonthlySkus();
+  const core = { schemaVersion: 1, authority: 'repo_durable_staging_plan', stage: STAGE, ownerTag: OWNER, lifecycleMode: LIFECYCLE_DURABLE, durableStaging: true, tenantSlug: names.tenantSlug, resourceGroupName: names.resourceGroupName, subscriptionId: names.subscriptionId, appNamePrefix: names.appNamePrefix, appDbName: names.appDbName, deploySha: String(sha).toLowerCase(), compiledTemplateSha256: compiled.compiledTemplateSha256, compiledTemplateBytes: compiled.templateBytes.length, moduleRel: MODULE_REL, stagingSubscriptionConfigSha256: sub.configSha256, toolAuthority: { gitSha256: tools.gitSha256, tarSha256: tools.tarSha256, nodeSha256: tools.nodeSha256, azSha256: tools.azSha256, bicepSha256: tools.bicepSha256, bicepVersion: tools.bicepVersion }, intendedSkus: skus.intendedSkus, estimatedMonthlyUsd: skus.estimatedMonthlyUsd, approvalCeilingUsd: skus.approvalCeilingUsd };
+  const planDigest = sha256(sortedStringify(core)); const clientReadiness = assessClientReadiness(deps, g.slug);
+  const rgTagContract = { tenant: names.tenantSlug, stage: STAGE, owner: OWNER, planDigest, deploySha: core.deploySha, lifecycleMode: LIFECYCLE_DURABLE, durableStaging: 'true' };
+  const rollbackPolicy = { onSuccess: 'preserve_rg', onFailedPartial: 'canonical_owned_rg_delete_only', destroyAfterSuccess: false, rollbackOnSuccess: false, temporaryDrill: false };
+  const humanAdminPrerequisites = ['register_Microsoft.AlertsManagement_on_staging_subscription', 'human_approval_before_any_future_apply_owner', 'client_readiness_blockers_cleared', 'target_rg_absent_or_exact_durable_tag_tuple'];
+  const plan = { ...core, planDigest, rgTagContract, humanAdminPrerequisites, rollbackPolicy, clientReadiness, applyPath: null, mutationPath: null };
+  return { ok: true, errors: [], lifecycleMode: LIFECYCLE_DURABLE, planDigest, estimatedMonthlyUsd: skus.estimatedMonthlyUsd, rgTagContract, humanAdminPrerequisites, rollbackPolicy, clientReadiness, readiness: clientReadiness.ready, blockers: clientReadiness.blockers, applyPath: null, mutationPath: null, azureDispatches: 0, plan, resourceGroupName: names.resourceGroupName, subscriptionId: names.subscriptionId, tenantSlug: names.tenantSlug, deploySha: core.deploySha };
+}
 async function plan(opts, depsIn) {
   const deps = depsIn || createDeps();
   try {
+    const life = resolveLifecycleMode(opts); if (!life.ok) return life;
+    if (life.isDurable) return buildDurablePlanEnvelope(opts || {}, deps);
     const d = await deriveAuthority(opts || {}, deps);
     if (!d.ok) return d;
     // Fail-closed before PLAN success: App Insights platform Failure-Anomalies needs this provider.
@@ -1857,6 +1900,11 @@ async function plan(opts, depsIn) {
 async function status(opts, depsIn) {
   const deps = depsIn || createDeps();
   try {
+    const life = resolveLifecycleMode(opts); if (!life.ok) return life;
+    if (life.isDurable) {
+      const env = await buildDurablePlanEnvelope(opts || {}, deps); if (!env.ok) return env;
+      return { ...env, ok: env.readiness === true, present: false, errors: env.readiness === true ? [] : (env.blockers || []).map((b) => err(b.code, b.message)) };
+    }
     const d = await deriveAuthority(opts || {}, deps);
     if (!d.ok) return d;
     const planDigest = d.planDigest;
@@ -1920,7 +1968,8 @@ async function status(opts, depsIn) {
 }
 module.exports = Object.freeze({
   STAGE, OWNER, MODULE_REL, STAGING_SUB_REL, SKU_EST, COST_API, HEALTH_IDENTITY_PATH,
-  PINNED_BINS, INTERNAL_FLAG, CAPABILITY_FD, CLI_REL, LIB_REL,
+  PINNED_BINS, INTERNAL_FLAG, CAPABILITY_FD, CLI_REL, LIB_REL, LIFECYCLE_TEMPORARY, LIFECYCLE_DURABLE,
+  STAGING_READINESS_FIELDS,
   ROLE_KV_SECRETS_USER, ROLE_ACR_PULL, ACR_RG, IGNORE_TYPES, DEP_API, PROVIDER_API,
   ALERTS_MANAGEMENT_NAMESPACE, REQUIRED_PROVIDER_REGISTRATION_STATE,
   SMART_DETECTOR_ALERT_RULES_TYPE, SMART_DETECTOR_API,
@@ -1935,7 +1984,7 @@ module.exports = Object.freeze({
   isValidAzureContainerAppsJobName, canonicalBootstrapJobName, deriveBootstrapJobName,
   createDeps, deriveNames, deriveAuthority, deriveHistoricalRollbackAuthority,
   resolveCurrentStagingNames, assertHistoricalDeployShaCandidate, buildAuthorityAtExactSha,
-  plan, status, buildExpectedResourceContract, buildExpectedFailureAnomaliesSmartDetector,
+  resolveLifecycleMode, assessClientReadiness, buildDurablePlanEnvelope, plan, status, buildExpectedResourceContract, buildExpectedFailureAnomaliesSmartDetector,
   isExactPlatformSupplementalSmartDetector, matchPlatformSupplementalResource,
   buildOwnedDeploymentNames, isExactInfraPartialLive, isFullFoundationContract,
   isPermittedAbsentTenantAcrPullFinding,
