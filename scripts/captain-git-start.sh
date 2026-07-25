@@ -27,6 +27,11 @@ fi
 echo "[captain] $(git log -1 --oneline)"
 git status -sb
 
+# After Git ops: ensure object store + tracked files are other-readable (Hermes bind mounts).
+# shellcheck source=lib/normalize-repo-readability.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/normalize-repo-readability.sh"
+normalize_repo_readability "$REPO"
+
 if [ "$branch" = "$BASE" ]; then
   echo "[captain] ⚠ You are on '$BASE'. Before durable edits, branch:  git switch -c captain/<short-name>"
 fi

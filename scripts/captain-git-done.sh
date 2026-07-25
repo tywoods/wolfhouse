@@ -42,4 +42,9 @@ if [[ "$branch" == captain/* ]]; then
   fi
 fi
 
+# After Git ops: ensure object store + tracked files are other-readable (Hermes bind mounts).
+# shellcheck source=lib/normalize-repo-readability.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/normalize-repo-readability.sh"
+normalize_repo_readability "$REPO"
+
 echo "[captain] OK — nothing left uncommitted locally."
