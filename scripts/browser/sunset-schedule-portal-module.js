@@ -13,9 +13,18 @@
  * schedulePopulateCreateCourseTierFields, closeScheduleCreateModal, loadSchedulePage,
  * scheduleFindCachedRowByBookingCode, scheduleResetNavigationAfterBookingCreate, scheduleRequestPageLoad, scheduleTodayIso,
  * scheduleEnumerateDates, scheduleRefreshCreateFullDayAddon, scheduleUpdateFullDayAddonSummary.
+ *
+ * Slice A: debounced preview (gen+abort), single-flight submit, idempotency_key.
  */
 
 var schedulePortalQuoteState = null;
+var schedulePortalQuoteGen = 0;
+var schedulePortalQuoteAbort = null;
+var schedulePortalQuoteTimer = null;
+var schedulePortalQuoteDebounceMs = 400;
+var schedulePortalSubmitInFlight = false;
+var schedulePortalSubmitIdemKey = null;
+var schedulePortalSubmitIdemIntent = null;
 
 function schedulePortalClientQuery() {
   return 'client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix();
@@ -27,7 +36,78 @@ function schedulePortalFetchJson(url, opts) {
     return r.json().then(function(data) {
       return { ok: r.ok, status: r.status, data: data };
     });
+  }).catch(function(err) {
+    if (err && (err.name === 'AbortError' || err.code === 'ABORT_ERR')) {
+      return { ok: false, aborted: true, status: 0, data: { success: false, error: 'aborted' } };
+    }
+    throw err;
   });
+}
+
+/** Abort pending preview timer + in-flight preview request; bump generation. */
+function schedulePortalInvalidatePreviewWork() {
+  if (schedulePortalQuoteTimer != null) {
+    clearTimeout(schedulePortalQuoteTimer);
+    schedulePortalQuoteTimer = null;
+  }
+  if (schedulePortalQuoteAbort) {
+    try { schedulePortalQuoteAbort.abort(); } catch (_e) { /* ignore */ }
+    schedulePortalQuoteAbort = null;
+  }
+  schedulePortalQuoteGen += 1;
+  return schedulePortalQuoteGen;
+}
+
+function schedulePortalNewIdempotencyKey() {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  } catch (_e) { /* ignore */ }
+  return 'scb-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+}
+
+/** Stable intent string for same-form retries (no money fields). */
+function schedulePortalCreateIntentKey(payload) {
+  var p = payload || {};
+  var comps = p.components || {};
+  var ordered = {};
+  Object.keys(comps).sort().forEach(function(k) { ordered[k] = comps[k]; });
+  return JSON.stringify({
+    guest_name: String(p.guest_name || ''),
+    guest_phone: p.guest_phone != null ? String(p.guest_phone) : '',
+    date_from: p.date_from || null,
+    date_to: p.date_to || null,
+    payment_status: p.payment_status || 'unpaid',
+    components: ordered,
+    rentals: Array.isArray(p.rentals) ? p.rentals : [],
+    notes: p.notes != null ? String(p.notes) : '',
+    location_id: typeof getSunsetLocation === 'function' ? getSunsetLocation() : null,
+  });
+}
+
+function schedulePortalEnsureIdempotencyKey(payload) {
+  var intent = schedulePortalCreateIntentKey(payload);
+  if (!schedulePortalSubmitIdemKey || schedulePortalSubmitIdemIntent !== intent) {
+    schedulePortalSubmitIdemKey = schedulePortalNewIdempotencyKey();
+    schedulePortalSubmitIdemIntent = intent;
+  }
+  return schedulePortalSubmitIdemKey;
+}
+
+function schedulePortalClearSubmitIdempotency() {
+  schedulePortalSubmitIdemKey = null;
+  schedulePortalSubmitIdemIntent = null;
+}
+
+/** Reset create-form runtime (call on modal open/close). */
+function schedulePortalResetCreateFormRuntime() {
+  schedulePortalSubmitInFlight = false;
+  schedulePortalClearSubmitIdempotency();
+  schedulePortalInvalidatePreviewWork();
+  schedulePortalQuoteState = null;
+  var submitBtn = el('ps-create-submit');
+  if (submitBtn) submitBtn.disabled = false;
+  var msg = el('ps-create-msg');
+  if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
 }
 
 /** GET/POST /staff/schedule/bookings/catalog — canonical offerings (no config-json price fallback). */
@@ -55,8 +135,14 @@ function schedulePortalFetchCatalog(opts) {
   });
 }
 
-/** POST /staff/schedule/bookings/quote — authoritative price + provenance. */
-function schedulePortalFetchQuote(createPayload) {
+/**
+ * POST /staff/schedule/bookings/quote — authoritative price + provenance.
+ * @param {object} createPayload
+ * @param {{ gen?: number, signal?: AbortSignal, applyState?: boolean }} opts
+ *   applyState: when true (default), write schedulePortalQuoteState if gen still current.
+ */
+function schedulePortalFetchQuote(createPayload, opts) {
+  opts = opts || {};
   var body = {
     location_id: getSunsetLocation(),
     guest_name: createPayload.guest_name,
@@ -66,26 +152,49 @@ function schedulePortalFetchQuote(createPayload) {
     rentals: Array.isArray(createPayload.rentals) ? createPayload.rentals : [],
     service_dates: schedulePortalServiceDatesFromPayload(createPayload),
   };
-  return schedulePortalFetchJson('/staff/schedule/bookings/quote?' + schedulePortalClientQuery(), {
+  var myGen = opts.gen != null ? Number(opts.gen) : schedulePortalQuoteGen;
+  var applyState = opts.applyState !== false;
+  var fetchOpts = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  }).then(function(res) {
+  };
+  if (opts.signal) fetchOpts.signal = opts.signal;
+
+  return schedulePortalFetchJson('/staff/schedule/bookings/quote?' + schedulePortalClientQuery(), fetchOpts).then(function(res) {
+    if (myGen !== schedulePortalQuoteGen) {
+      return { ok: false, superseded: true, error: 'superseded', body: res.data || {} };
+    }
+    if (res.aborted) {
+      return { ok: false, aborted: true, error: 'aborted', body: res.data || {} };
+    }
     var data = res.data || {};
     if (!res.ok || !data.success) {
+      if (applyState && myGen === schedulePortalQuoteGen) {
+        schedulePortalQuoteState = null;
+      }
       return {
         ok: false,
         error: data.error || data.reason || data.reason_code || ('HTTP ' + res.status),
         stale: data.reason_code === 'quote_stale' || data.reason === 'quote_stale',
+        status: res.status,
         body: data,
       };
     }
-    schedulePortalQuoteState = {
-      quote_provenance: data.quote_provenance || null,
-      total_cents: data.total_cents != null ? Number(data.total_cents) : null,
-      fetched_at: Date.now(),
-    };
-    return { ok: true, body: data };
+    if (applyState && myGen === schedulePortalQuoteGen) {
+      schedulePortalQuoteState = {
+        quote_provenance: data.quote_provenance || null,
+        total_cents: data.total_cents != null ? Number(data.total_cents) : null,
+        fetched_at: Date.now(),
+        gen: myGen,
+      };
+    }
+    return { ok: true, body: data, gen: myGen };
+  }).catch(function(err) {
+    if (myGen !== schedulePortalQuoteGen) {
+      return { ok: false, superseded: true, error: 'superseded' };
+    }
+    throw err;
   });
 }
 
@@ -151,22 +260,23 @@ function schedulePortalStripeLinkFromCtx(ctx) {
   };
 }
 
-/** POST /staff/schedule/bookings with quote provenance from last canonical quote. */
-function schedulePortalSubmitCreate(createPayload) {
+/** POST /staff/schedule/bookings with quote provenance + idempotency key. */
+function schedulePortalSubmitCreate(createPayload, opts) {
+  opts = opts || {};
   var body = Object.assign({}, createPayload, {
     location_id: getSunsetLocation(),
   });
   if (schedulePortalQuoteState && schedulePortalQuoteState.quote_provenance) {
     body.quote_provenance = schedulePortalQuoteState.quote_provenance;
   }
+  var idem = opts.idempotency_key || schedulePortalEnsureIdempotencyKey(createPayload);
+  if (idem) body.idempotency_key = idem;
   return schedulePortalFetchJson('/staff/schedule/bookings?' + schedulePortalClientQuery(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }
-
-// ── Drawer access gates (Staff + Luna persisted rows share canonical drawer) ──
 
 function scheduleDrawerTrustedPersistedSource(row) {
   if (!row) return null;
@@ -204,14 +314,17 @@ function scheduleFetchDrawerContext(row) {
 function schedulePortalRenderCreateQuotePreview(result) {
   var box = el('ps-create-quote-preview');
   if (!box) return;
+  if (result && (result.superseded || result.aborted)) return;
   if (!result || !result.ok) {
     var err = (result && result.error) || portalT('schedule.create.quoteFailed') || 'Quote unavailable';
     if (result && result.stale) {
       err = portalT('schedule.create.quoteStale') || 'Price changed — refresh quote before creating.';
     }
+    if (result && result.status === 503) {
+      err = portalT('schedule.create.quoteBusy') || 'Price check is busy — wait a moment and try again.';
+    }
     box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">' + escHtml(String(err)) + '</p>';
     box.style.display = 'block';
-    schedulePortalQuoteState = null;
     return;
   }
   var total = result.body.total_cents != null ? result.body.total_cents : null;
@@ -222,7 +335,25 @@ function schedulePortalRenderCreateQuotePreview(result) {
   box.style.display = 'block';
 }
 
-function schedulePortalRefreshCreateQuote() {
+function schedulePortalSetCreateStatus(text, isError) {
+  var msg = el('ps-create-msg');
+  if (!msg) return;
+  if (!text) {
+    msg.textContent = '';
+    msg.style.display = 'none';
+    return;
+  }
+  msg.textContent = text;
+  msg.style.display = 'block';
+  try {
+    if (isError) msg.classList.add('error');
+    else msg.classList.remove('error');
+  } catch (_e) { /* ignore */ }
+}
+
+/** Run one preview quote for current form (generation-guarded). */
+function schedulePortalRunPreviewQuote() {
+  if (schedulePortalSubmitInFlight) return Promise.resolve(null);
   var payload = scheduleReadCreatePayload();
   if (!Object.keys(payload.components || {}).length) {
     schedulePortalQuoteState = null;
@@ -230,12 +361,61 @@ function schedulePortalRefreshCreateQuote() {
     if (box) { box.innerHTML = ''; box.style.display = 'none'; }
     return Promise.resolve(null);
   }
-  return schedulePortalFetchQuote(payload).then(function(result) {
+
+  if (schedulePortalQuoteAbort) {
+    try { schedulePortalQuoteAbort.abort(); } catch (_e) { /* ignore */ }
+    schedulePortalQuoteAbort = null;
+  }
+  var myGen = ++schedulePortalQuoteGen;
+  var controller = null;
+  if (typeof AbortController !== 'undefined') {
+    controller = new AbortController();
+    schedulePortalQuoteAbort = controller;
+  }
+
+  return schedulePortalFetchQuote(payload, {
+    gen: myGen,
+    signal: controller ? controller.signal : undefined,
+    applyState: true,
+  }).then(function(result) {
+    if (myGen !== schedulePortalQuoteGen || schedulePortalSubmitInFlight) {
+      return { ok: false, superseded: true };
+    }
+    if (result && result.aborted) return result;
     schedulePortalRenderCreateQuotePreview(result);
     return result;
   }).catch(function(err) {
+    if (myGen !== schedulePortalQuoteGen || schedulePortalSubmitInFlight) {
+      return { ok: false, superseded: true };
+    }
     schedulePortalRenderCreateQuotePreview({ ok: false, error: err && err.message });
     return null;
+  }).then(function(result) {
+    if (schedulePortalQuoteAbort === controller) schedulePortalQuoteAbort = null;
+    return result;
+  });
+}
+
+/**
+ * Debounced preview refresh (300–500ms). Rapid edits coalesce to one request.
+ * Superseded responses cannot mutate current quote/error state.
+ */
+function schedulePortalRefreshCreateQuote() {
+  if (schedulePortalSubmitInFlight) return Promise.resolve(null);
+  if (schedulePortalQuoteTimer != null) {
+    clearTimeout(schedulePortalQuoteTimer);
+    schedulePortalQuoteTimer = null;
+  }
+  var wait = Number(schedulePortalQuoteDebounceMs);
+  if (!(wait >= 300 && wait <= 500)) wait = 400;
+  if (Number(schedulePortalQuoteDebounceMs) > 0 && Number(schedulePortalQuoteDebounceMs) < 300) {
+    wait = Number(schedulePortalQuoteDebounceMs);
+  }
+  return new Promise(function(resolve) {
+    schedulePortalQuoteTimer = setTimeout(function() {
+      schedulePortalQuoteTimer = null;
+      schedulePortalRunPreviewQuote().then(resolve, function() { resolve(null); });
+    }, wait);
   });
 }
 
@@ -298,6 +478,8 @@ function scheduleUpdateCreateTotalPreview() {
 }
 
 function submitScheduleManualBooking() {
+  if (schedulePortalSubmitInFlight) return;
+
   var payload = scheduleReadCreatePayload();
   var submitBtn = el('ps-create-submit');
   var msg = el('ps-create-msg');
@@ -334,32 +516,80 @@ function submitScheduleManualBooking() {
       }
     }
   }
-  if (submitBtn) submitBtn.disabled = true;
-  if (msg) msg.style.display = 'none';
 
-  var quoteP = schedulePortalFetchQuote(payload);
+  schedulePortalSubmitInFlight = true;
+  if (submitBtn) submitBtn.disabled = true;
+
+  if (schedulePortalQuoteTimer != null) {
+    clearTimeout(schedulePortalQuoteTimer);
+    schedulePortalQuoteTimer = null;
+  }
+  if (schedulePortalQuoteAbort) {
+    try { schedulePortalQuoteAbort.abort(); } catch (_e) { /* ignore */ }
+    schedulePortalQuoteAbort = null;
+  }
+  var submitGen = ++schedulePortalQuoteGen;
+  var idemKey = schedulePortalEnsureIdempotencyKey(payload);
+
+  schedulePortalSetCreateStatus(
+    portalT('schedule.create.checkingPrice') || 'Checking price…',
+    false
+  );
+
+  var createSent = false;
+  var succeeded = false;
+
+  var quoteP = schedulePortalFetchQuote(payload, {
+    gen: submitGen,
+    applyState: true,
+  });
   quoteP.then(function(quoteResult) {
+    if (!schedulePortalSubmitInFlight || submitGen !== schedulePortalQuoteGen) {
+      return { ok: false, superseded: true };
+    }
     if (!quoteResult || !quoteResult.ok) {
+      if (quoteResult && (quoteResult.superseded || quoteResult.aborted)) {
+        return quoteResult;
+      }
       var qErr = (quoteResult && quoteResult.error) || (portalT('schedule.create.quoteFailed') || 'Could not quote booking');
       if (quoteResult && quoteResult.stale) {
         qErr = portalT('schedule.create.quoteStale') || 'Price changed — refresh and try again.';
       }
+      if (quoteResult && quoteResult.status === 503) {
+        qErr = portalT('schedule.create.quoteBusy') || 'Price check is busy — wait a moment and try again.';
+      }
       throw new Error(qErr);
     }
     schedulePortalRenderCreateQuotePreview(quoteResult);
-    return schedulePortalSubmitCreate(payload);
+    schedulePortalSetCreateStatus(
+      portalT('schedule.create.creating') || 'Creating booking…',
+      false
+    );
+    createSent = true;
+    return schedulePortalSubmitCreate(payload, { idempotency_key: idemKey });
   }).then(function(res) {
+    if (!res || res.superseded) return;
+    if (!createSent) return;
     if (!res.ok || !res.data || res.data.success !== true) {
       var d = res.data || {};
       if (d.reason_code === 'quote_stale' || d.reason === 'quote_stale') {
         throw new Error(portalT('schedule.create.quoteStale') || 'Quote expired — refresh price and try again.');
       }
-      throw new Error(d.error || d.message || ('HTTP ' + res.status));
+      if (d.reason_code === 'idempotency_key_intent_conflict' || d.error === 'idempotency_key_intent_conflict') {
+        throw new Error(portalT('schedule.create.idempotencyConflict') || 'This create request conflicts with a previous booking. Close and start a new create.');
+      }
+      var httpErr = d.error || d.message || ('HTTP ' + res.status);
+      if (res.status === 503) {
+        httpErr = portalT('schedule.create.createBusy') || 'Create is temporarily unavailable — retry with the same form; it will not double-book.';
+      }
+      throw new Error(httpErr);
     }
+    succeeded = true;
     var createdCode = res.data.booking_code || (res.data.bookings && res.data.bookings[0] && res.data.bookings[0].booking_code);
+    schedulePortalClearSubmitIdempotency();
+    schedulePortalQuoteState = null;
     closeScheduleCreateModal();
     scheduleResetNavigationAfterBookingCreate();
-    schedulePortalQuoteState = null;
     scheduleRequestPageLoad();
     if (createdCode) {
       setTimeout(function() {
@@ -369,10 +599,15 @@ function submitScheduleManualBooking() {
     }
   }).catch(function(err) {
     if (msg) {
-      msg.textContent = (portalT('schedule.create.failed') || 'Create failed') + ' ' + (err && err.message ? err.message : String(err));
+      var base = portalT('schedule.create.failed') || 'Create failed';
+      var detail = err && err.message ? err.message : String(err);
+      msg.textContent = base + ' ' + detail;
       msg.style.display = 'block';
+      try { msg.classList.add('error'); } catch (_e) { /* ignore */ }
     }
   }).finally(function() {
-    if (submitBtn) submitBtn.disabled = false;
+    schedulePortalSubmitInFlight = false;
+    // so retry can reuse the same idempotency key for the same intent.
+    if (!succeeded && submitBtn) submitBtn.disabled = false;
   });
 }

@@ -973,7 +973,10 @@ async function findIdempotentBooking(pg, clientSlug, idempotencyKey) {
             sr.metadata->>'course_label' AS course_label,
             sr.metadata->>'component' AS metadata_component,
             sr.metadata->>'bundle_id' AS bundle_id,
-            sr.metadata->>'components' AS metadata_components
+            sr.metadata->>'components' AS metadata_components,
+            sr.metadata->>'location_id' AS location_id,
+            sr.metadata->>'idempotency_intent_fp' AS idempotency_intent_fp,
+            sr.metadata->>'idempotency_key' AS idempotency_key
        FROM booking_service_records sr
       WHERE sr.client_slug = $1
         AND sr.metadata->>'idempotency_key' = $2
@@ -1094,6 +1097,7 @@ async function insertFullDayEquipmentAddonRows(pg, opts) {
       created_by_staff: attribution.createdByStaff || opts.actorEmail || null,
       updated_by_staff: attribution.createdByStaff || opts.actorEmail || null,
       idempotency_key: opts.idempotencyKey || null,
+      idempotency_intent_fp: opts.idempotencyIntentFp || null,
     };
     const ins = await pg.query(
       `INSERT INTO booking_service_records (
@@ -1156,6 +1160,82 @@ function resolveGuestCount(components) {
   return counts.length ? Math.max(...counts) : 1;
 }
 
+function buildScheduleBookingIntentFingerprint(input, locationId) {
+  const components = input && input.components ? input.components : {};
+  const ordered = {};
+  Object.keys(components).sort().forEach((k) => {
+    ordered[k] = components[k];
+  });
+  const payload = {
+    location_id: String(locationId || ''),
+    guest_name: String((input && input.guest_name) || ''),
+    guest_phone: input && input.guest_phone != null ? String(input.guest_phone) : '',
+    payment_status: String((input && input.payment_status) || 'unpaid'),
+    service_dates: ((input && input.service_dates) || []).slice().sort(),
+    components: ordered,
+    notes: String((input && input.notes) || ''),
+    needs_reply: !!(input && input.needs_reply),
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+function scheduleBookingIdempotencyAdvisoryKeys(clientSlug, idempotencyKey) {
+  const h = crypto.createHash('sha256')
+    .update(`sunset-schedule-create\0${String(clientSlug || '')}\0${String(idempotencyKey || '')}`)
+    .digest();
+  return [h.readInt32BE(0), h.readInt32BE(4)];
+}
+
+/**
+ */
+function evaluateIdempotentReplay(existingRows, input, locationId) {
+  if (!existingRows || !existingRows.length) return { replay: false };
+  const first = existingRows[0];
+  const reqLoc = String(locationId || '');
+  const metaLoc = first.location_id != null && first.location_id !== ''
+    ? String(first.location_id)
+    : null;
+  if (metaLoc != null && metaLoc !== reqLoc) {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        success: false,
+        error: 'idempotency_key_location_conflict',
+        reason_code: 'idempotency_key_location_conflict',
+      },
+    };
+  }
+  const storedFp = first.idempotency_intent_fp || null;
+  if (storedFp) {
+    const nextFp = buildScheduleBookingIntentFingerprint(input, locationId);
+    if (storedFp !== nextFp) {
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          success: false,
+          error: 'idempotency_key_intent_conflict',
+          reason_code: 'idempotency_key_intent_conflict',
+        },
+      };
+    }
+  }
+  return {
+    ok: true,
+    replay: true,
+    status: 200,
+    body: {
+      success: true,
+      idempotent: true,
+      booking_code: first.booking_code,
+      booking_id: first.booking_id,
+      records: existingRows.map(scheduleRowFromDb),
+      booking: scheduleRowFromDb(first),
+    },
+  };
+}
+
 async function createSunsetScheduleBooking(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
@@ -1186,22 +1266,19 @@ async function createSunsetScheduleBooking(pg, opts) {
   const canonicalRentals = rentalPrep.present ? rentalPrep.rentals : null;
   const rentalSpanDates = rentalPrep.present ? rentalPrep.rentalSpanDates : null;
   const rentalPricingGroupId = rentalPrep.present ? rentalPrep.pricingGroupId : null;
+  const idempotencyIntentFp = input.idempotency_key
+    ? buildScheduleBookingIntentFingerprint(input, locationId)
+    : null;
 
+  // Fast-path idempotent replay; concurrent first-writes use advisory lock in txn.
   if (input.idempotency_key) {
     const existingRows = await findIdempotentBooking(pg, clientSlug, input.idempotency_key);
     if (existingRows && existingRows.length) {
-      return {
-        ok: true,
-        status: 200,
-        body: {
-          success: true,
-          idempotent: true,
-          booking_code: existingRows[0].booking_code,
-          booking_id: existingRows[0].booking_id,
-          records: existingRows.map(scheduleRowFromDb),
-          booking: scheduleRowFromDb(existingRows[0]),
-        },
-      };
+      const evaluated = evaluateIdempotentReplay(existingRows, input, locationId);
+      if (evaluated.replay) {
+        return { ok: true, status: evaluated.status, body: evaluated.body };
+      }
+      if (evaluated.ok === false) return evaluated;
     }
   }
 
@@ -1357,6 +1434,24 @@ async function createSunsetScheduleBooking(pg, opts) {
 
   await pg.query('BEGIN');
   try {
+    // Concurrent same-key: advisory xact lock + re-check (durable metadata key).
+    if (input.idempotency_key) {
+      const [k1, k2] = scheduleBookingIdempotencyAdvisoryKeys(clientSlug, input.idempotency_key);
+      await pg.query('SELECT pg_advisory_xact_lock($1, $2)', [k1, k2]);
+      const lockedRows = await findIdempotentBooking(pg, clientSlug, input.idempotency_key);
+      if (lockedRows && lockedRows.length) {
+        const evaluated = evaluateIdempotentReplay(lockedRows, input, locationId);
+        if (evaluated.replay) {
+          await pg.query('ROLLBACK');
+          return { ok: true, status: evaluated.status, body: evaluated.body };
+        }
+        if (evaluated.ok === false) {
+          await pg.query('ROLLBACK');
+          return evaluated;
+        }
+      }
+    }
+
     let authoritativeQuote = null;
     if (canonicalRentals) {
       const {
@@ -1472,6 +1567,8 @@ async function createSunsetScheduleBooking(pg, opts) {
           location_id: locationId || null,
           rental_pricing: rentalPricingDescriptor || null,
           rentals: canonicalRentals || null,
+          idempotency_key: input.idempotency_key || null,
+          idempotency_intent_fp: idempotencyIntentFp || null,
         }),
       ],
     );
@@ -1503,6 +1600,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           location_id: locationId || null,
           created_by_staff: attribution.createdByStaff,
           idempotency_key: input.idempotency_key,
+          idempotency_intent_fp: idempotencyIntentFp || null,
         };
         const row = await insertServiceRecord(pg, [
           clientSlug,
@@ -1551,6 +1649,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           location_id: locationId || null,
           created_by_staff: attribution.createdByStaff,
           idempotency_key: input.idempotency_key,
+          idempotency_intent_fp: idempotencyIntentFp || null,
         };
         if (canonicalRentals && (componentKey === 'surfboard' || componentKey === 'wetsuit')) {
           const rental = canonicalRentals.find((r) => {
@@ -1623,6 +1722,7 @@ async function createSunsetScheduleBooking(pg, opts) {
         guestPhone: input.guest_phone,
         actorEmail: attribution.createdByStaff,
         idempotencyKey: input.idempotency_key,
+        idempotencyIntentFp: idempotencyIntentFp || null,
         attribution,
       });
       addonRows.forEach((r) => createdRows.push(r));
@@ -1795,4 +1895,8 @@ module.exports = {
   createSunsetScheduleBooking,
   prepareCanonicalRentalsForCreate,
   applyAuthoritativeQuoteAmounts,
+  findIdempotentBooking,
+  buildScheduleBookingIntentFingerprint,
+  evaluateIdempotentReplay,
+  scheduleBookingIdempotencyAdvisoryKeys,
 };

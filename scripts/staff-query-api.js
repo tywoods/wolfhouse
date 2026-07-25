@@ -23725,6 +23725,7 @@ function scheduleApplyCreatePrefill(){
 function openScheduleCreateModal(){
   var modal = el('ps-create-modal');
   if (!modal) return;
+  if (typeof schedulePortalResetCreateFormRuntime === 'function') schedulePortalResetCreateFormRuntime();
   var today = scheduleTodayIso();
   var df = el('ps-create-date-from');
   var dt = el('ps-create-date-to');
@@ -23754,6 +23755,9 @@ function closeScheduleCreateModal(){
   if (!modal) return;
   modal.style.display = 'none';
   modal.setAttribute('aria-hidden', 'true');
+  // Drop in-flight preview work when the create drawer closes (keep submit idem key
+  // only while the same form remains open for retry-after-response-loss).
+  if (typeof schedulePortalInvalidatePreviewWork === 'function') schedulePortalInvalidatePreviewWork();
 }
 
 function setScheduleFilter(mode){

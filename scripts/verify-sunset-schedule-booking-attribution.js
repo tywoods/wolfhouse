@@ -19,6 +19,10 @@ const {
   DB_SOURCE,
   METADATA_SOURCE_TAG,
   isLunaTrustedActor,
+  buildScheduleBookingIntentFingerprint,
+  evaluateIdempotentReplay,
+  scheduleBookingIdempotencyAdvisoryKeys,
+  validateScheduleBookingBody,
 } = require('./lib/sunset-schedule-booking-writes');
 
 let pass = 0;
@@ -52,6 +56,7 @@ function buildMockPg() {
         return { rows: [{ id: state.clientId }] };
       }
       if (/BEGIN|COMMIT|ROLLBACK/i.test(q)) return { rows: [] };
+      if (/pg_advisory_xact_lock/i.test(q)) return { rows: [{}] };
       if (/information_schema\.tables/i.test(q) && /tenant_surf_pack_rules/i.test(q)) {
         return { rows: [{ '?column?': 1 }] };
       }
@@ -99,9 +104,12 @@ function buildMockPg() {
           quantity: params[6],
           payment_status: params[7],
           record_source: params[8],
+          client_slug: params[0],
           metadata: meta,
           metadata_source: meta.source,
           staff_manual_schedule: meta.staff_manual_schedule,
+          location_id: meta.location_id || null,
+          idempotency_intent_fp: meta.idempotency_intent_fp || null,
         };
         state.serviceRecords.push(row);
         if (meta.idempotency_key) {
@@ -127,8 +135,20 @@ function buildMockPg() {
       }
       if (/metadata->>'idempotency_key'/i.test(q)) {
         const key = params[1];
-        const rows = state.idempotency.get(key) || [];
-        return { rows: rows.length ? rows : [] };
+        // Tenant scope: query is client_slug + key (params[0], params[1]).
+        const clientSlug = params[0];
+        const rows = (state.idempotency.get(key) || []).filter((r) => {
+          if (r.client_slug && clientSlug && r.client_slug !== clientSlug) return false;
+          return true;
+        });
+        return {
+          rows: rows.map((row) => ({
+            ...row,
+            location_id: (row.metadata && row.metadata.location_id) || row.location_id || null,
+            idempotency_intent_fp: (row.metadata && row.metadata.idempotency_intent_fp) || null,
+            idempotency_key: (row.metadata && row.metadata.idempotency_key) || key,
+          })),
+        };
       }
       if (/tenant_price_rules|full_day_equipment/i.test(q)) {
         // Enough for resolveFullDayEquipmentAddonUnitCents / tables_missing fallback paths.
@@ -282,6 +302,43 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
     const ui = scheduleRowFromDb(row);
     assert('staff classifier Staff', rowSourceLabel(ui) === 'Staff', rowSourceLabel(ui));
   }
+
+  console.log('\n[6] Slice A — durable idempotency');
+  const vA = validateScheduleBookingBody({ guest_name: 'Replay', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02' });
+  const vB = validateScheduleBookingBody({ guest_name: 'Other', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02' });
+  const vC = validateScheduleBookingBody({ guest_name: 'Concurrent', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02' });
+  assert('validated fixtures', vA.ok && vB.ok && vC.ok);
+  const fpA = buildScheduleBookingIntentFingerprint(vA.value, 'sunset-somo');
+  const fpB = buildScheduleBookingIntentFingerprint(vB.value, 'sunset-somo');
+  const fpC = buildScheduleBookingIntentFingerprint(vC.value, 'sunset-somo');
+  assert('fp stable/differs', fpA === buildScheduleBookingIntentFingerprint(vA.value, 'sunset-somo') && fpA !== fpB);
+  const row = {
+    service_record_id: 'sr-1', booking_id: 'bk-1', booking_code: 'SUNSET-SEED-1', guest_name: 'Replay',
+    service_type: 'surf_lesson', service_date: '2026-08-02', quantity: 1, payment_status: 'unpaid',
+    record_source: LUNA_DB_SOURCE, client_slug: 'sunset', location_id: 'sunset-somo', idempotency_intent_fp: fpA,
+    metadata: { source: LUNA_METADATA_SOURCE_TAG, location_id: 'sunset-somo', idempotency_key: 'k1', idempotency_intent_fp: fpA, component: 'lesson', staff_ui_service_type: 'lesson' },
+    metadata_source: LUNA_METADATA_SOURCE_TAG, staff_ui_service_type: 'lesson', metadata_component: 'lesson',
+  };
+  assert('replay same intent', evaluateIdempotentReplay([row], vA.value, 'sunset-somo').replay === true);
+  assert('conflict intent', evaluateIdempotentReplay([row], vB.value, 'sunset-somo').body.reason_code === 'idempotency_key_intent_conflict');
+  assert('conflict location', evaluateIdempotentReplay([row], vA.value, 'sunset-sardinero').body.reason_code === 'idempotency_key_location_conflict');
+  const pg = buildMockPg(); pg.state.idempotency.set('k1', [row]); pg.state.serviceRecords.push(row);
+  const replay = await createSunsetScheduleBooking(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', actor: { source: 'agent_luna_whatsapp_bot' }, body: { guest_name: 'Replay', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02', idempotency_key: 'k1' } });
+  assert('create replay', replay.ok && replay.body.idempotent && pg.state.serviceRecords.length === 1);
+  const bad = await createSunsetScheduleBooking(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', actor: { source: 'agent_luna_whatsapp_bot' }, body: { guest_name: 'Other', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02', idempotency_key: 'k1' } });
+  assert('create conflict', bad.ok === false && bad.body.reason_code === 'idempotency_key_intent_conflict' && pg.state.serviceRecords.length === 1);
+  const cross = await createSunsetScheduleBooking(buildMockPg(), { clientSlug: 'wolfhouse', locationId: 'sunset-somo', actor: { email: 'x@t' }, body: { guest_name: 'Replay', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02', idempotency_key: 'k1' } });
+  assert('cross-tenant', cross.ok === false && cross.body.error === 'unsupported_client');
+  const adv = scheduleBookingIdempotencyAdvisoryKeys('sunset', 'k1');
+  assert('advisory keys', adv.length === 2 && scheduleBookingIdempotencyAdvisoryKeys('sunset', 'k1')[0] === adv[0]);
+  const crow = { ...row, booking_id: 'bk-c', booking_code: 'SUNSET-C', guest_name: 'Concurrent', idempotency_intent_fp: fpC, metadata: { ...row.metadata, idempotency_key: 'ck', idempotency_intent_fp: fpC } };
+  const pgC = buildMockPg(); pgC.state.idempotency.set('ck', [crow]); pgC.state.serviceRecords.push(crow);
+  const bodyC = { guest_name: 'Concurrent', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02', idempotency_key: 'ck' };
+  const [a, b] = await Promise.all([
+    createSunsetScheduleBooking(pgC, { clientSlug: 'sunset', locationId: 'sunset-somo', actor: { email: 's@t' }, body: bodyC }),
+    createSunsetScheduleBooking(pgC, { clientSlug: 'sunset', locationId: 'sunset-somo', actor: { email: 's@t' }, body: bodyC }),
+  ]);
+  assert('concurrent idempotent one row', a.ok && b.ok && a.body.idempotent && b.body.idempotent && pgC.state.serviceRecords.length === 1 && a.body.booking_id === b.body.booking_id);
 
   console.log(`\n── verify:sunset-schedule-booking-attribution ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
   if (fail > 0) process.exit(1);
