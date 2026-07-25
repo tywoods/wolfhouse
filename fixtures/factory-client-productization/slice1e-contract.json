@@ -66,16 +66,7 @@
   "findings": "fixtures/factory-client-productization/slice1e-findings.md",
   "operator_handoff": "fixtures/factory-client-productization/slice1e-operator-handoff.md",
   "doc": "docs/FACTORY-CLIENT-PRODUCTIZATION.md",
-  "existing_regression_retained_master_red": [
-    {
-      "gate": "node scripts/verify-staff-tenant-scope.js",
-      "retained_failure": "H3 stripe webhook addon idempotent COUNT filters by client_slug"
-    },
-    {
-      "gate": "node scripts/verify-tenant-business-config.js",
-      "retained_failure": "DB prices used (async DB overlay merges baseline prices; length>1)"
-    }
-  ],
+  "existing_regression_retained_master_red": [],
   "recursion_fence": {
     "1e_invokes": ["1A", "1B", "1C", "1D", "luna-all", "hard_multiclient"],
     "1a_must_not_invoke_1e": true

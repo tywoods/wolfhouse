@@ -73,17 +73,9 @@ const EXISTING_REGRESSION_GATES = Object.freeze([
   'node scripts/verify-meta-whatsapp-tenant-shadow.js',
 ]);
 
-/** Pre-existing master REDs retained (not introduced by 1E; classified, not fail-closed). */
-const EXISTING_REGRESSION_RETAINED_MASTER_RED = Object.freeze([
-  Object.freeze({
-    gate: 'node scripts/verify-staff-tenant-scope.js',
-    retained_failure: 'H3 stripe webhook addon idempotent COUNT filters by client_slug',
-  }),
-  Object.freeze({
-    gate: 'node scripts/verify-tenant-business-config.js',
-    retained_failure: 'DB prices used (async DB overlay merges baseline prices; length>1)',
-  }),
-]);
+/** Pre-existing master REDs retained (not introduced by 1E; classified, not fail-closed).
+ *  Empty when independently verified green on current tip. 1D re-proves both as GREEN. */
+const EXISTING_REGRESSION_RETAINED_MASTER_RED = Object.freeze([]);
 
 const EVIDENCE_CLASSES = Object.freeze({
   required_current_stage: Object.freeze([

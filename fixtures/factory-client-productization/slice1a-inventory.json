@@ -108,6 +108,7 @@
     "scripts/lib/sunset-catalog-tool-executor.js",
     "scripts/lib/sunset-course-lesson-price-lookup.js",
     "scripts/lib/sunset-group-lesson-quote.js",
+    "scripts/lib/sunset-inbox-channel-config.js",
     "scripts/lib/sunset-luna-school-context.js",
     "scripts/lib/sunset-rental-price-lookup.js",
     "scripts/lib/sunset-schedule-booking-drawer.js",
@@ -155,6 +156,7 @@
     "loader_import|scripts/lib/sunset-catalog-tool-executor.js|require|scripts/lib/tenant-business-config.js",
     "loader_import|scripts/lib/sunset-course-lesson-price-lookup.js|require|scripts/lib/tenant-business-config.js",
     "loader_import|scripts/lib/sunset-group-lesson-quote.js|require|scripts/lib/tenant-business-config.js",
+    "loader_import|scripts/lib/sunset-inbox-channel-config.js|require|scripts/lib/tenant-business-config.js",
     "loader_import|scripts/lib/sunset-luna-school-context.js|require|scripts/lib/tenant-business-config.js",
     "loader_import|scripts/lib/sunset-rental-price-lookup.js|require|scripts/lib/tenant-business-config.js",
     "loader_import|scripts/lib/sunset-schedule-booking-drawer.js|require|scripts/lib/tenant-business-config.js",
@@ -202,6 +204,7 @@
       "loader_import|scripts/lib/sunset-catalog-tool-executor.js|require|scripts/lib/tenant-business-config.js",
       "loader_import|scripts/lib/sunset-course-lesson-price-lookup.js|require|scripts/lib/tenant-business-config.js",
       "loader_import|scripts/lib/sunset-group-lesson-quote.js|require|scripts/lib/tenant-business-config.js",
+      "loader_import|scripts/lib/sunset-inbox-channel-config.js|require|scripts/lib/tenant-business-config.js",
       "loader_import|scripts/lib/sunset-luna-school-context.js|require|scripts/lib/tenant-business-config.js",
       "loader_import|scripts/lib/sunset-rental-price-lookup.js|require|scripts/lib/tenant-business-config.js",
       "loader_import|scripts/lib/sunset-schedule-booking-drawer.js|require|scripts/lib/tenant-business-config.js",
@@ -223,7 +226,6 @@
     "docker/hermes-sunset/docker-compose.vm.yml",
     "infra/.env.example",
     "infra/azure/staging/main.bicep",
-    "infra/azure/sunset-staging/main.bicep",
     "infra/docker-compose.local.yml"
   ],
   "existing_verifiers": [

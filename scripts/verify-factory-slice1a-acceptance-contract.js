@@ -381,9 +381,11 @@ ok('primary loaders include portal + tenant-business + channel resolver',
   discovered.pricing_services_schedule_profile_consumers.includes('scripts/lib/staff-portal-clients.js')
   && discovered.pricing_services_schedule_profile_consumers.includes('scripts/lib/tenant-business-config.js')
   && discovered.pricing_services_schedule_profile_consumers.includes('scripts/lib/client-channel-resolver.js'));
-ok('deployment overlays include both staging bicep',
+// sunset-staging/main.bicep is a thin module wrapper without tenant-slug env markers;
+// discovery correctly excludes it (isTenantDeployOverlayPath requires slug markers).
+ok('deployment overlays include wolfhouse staging bicep and exclude thin sunset wrapper',
   discovered.deployment_overlays.includes('infra/azure/staging/main.bicep')
-  && discovered.deployment_overlays.includes('infra/azure/sunset-staging/main.bicep'));
+  && !discovered.deployment_overlays.includes('infra/azure/sunset-staging/main.bicep'));
 ok('existing multiclient verifier present',
   discovered.existing_verifiers.includes('scripts/verify-multiclient-isolation.js'));
 ok('./scripts verifier path normalizes',
