@@ -16523,8 +16523,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-components{display:flex;flex-direction:column;gap:8px;margin:8px 0}
 .portal-schedule-create-components label,.portal-schedule-create-check{font-size:13px;display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);color:var(--text);cursor:pointer;margin:0}
 .portal-schedule-create-components input[type=checkbox],.portal-schedule-create-check input[type=checkbox],.portal-schedule-create-components input[type=radio],.portal-schedule-create-check input[type=radio]{width:18px;height:18px;flex-shrink:0;accent-color:var(--sched-primary, #4E5853);margin:0}
-.portal-schedule-create-activity-hint{margin:8px 0 0;font-size:12px;color:var(--text-muted);line-height:1.4}
-.portal-schedule-create-rentals{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.portal-schedule-create-activity-hint{margin:8px 0 0;font-size:12px;color:var(--text-muted);line-height:1.4}.portal-schedule-create-rentals{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .portal-schedule-create-rental-row{display:flex;flex-wrap:nowrap;align-items:center;gap:10px;width:100%;box-sizing:border-box}
 .portal-schedule-create-rental-row > .portal-schedule-create-check{flex:1 1 auto;min-width:0;margin:0}
 .portal-schedule-create-rental-qty{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex:0 0 auto;margin-left:auto}
@@ -16536,10 +16535,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
   .portal-schedule-create-rental-qty{gap:6px;padding-right:2px}
   .portal-schedule-create-rental-qty label{gap:6px;font-size:10px;letter-spacing:.03em}
   .portal-schedule-create-rental-qty input[type=number]{width:56px;min-width:56px;min-height:36px;padding:6px 6px;font-size:14px;border-radius:8px}
-  .portal-schedule-create-check input[type=checkbox],
-  .portal-schedule-create-components input[type=checkbox],
-  .portal-schedule-create-check input[type=radio],
-  .portal-schedule-create-components input[type=radio]{width:20px;height:20px;accent-color:var(--sched-primary, #4E5853)}
+  .portal-schedule-create-check input[type=checkbox],.portal-schedule-create-components input[type=checkbox],.portal-schedule-create-check input[type=radio],.portal-schedule-create-components input[type=radio]{width:20px;height:20px;accent-color:var(--sched-primary, #4E5853)}
 }
 
 .portal-schedule-create-rentals-empty{margin:0;padding:10px 12px;border:1px dashed var(--border-soft);border-radius:var(--radius-sm);color:var(--text-muted);font-size:13px}
@@ -18410,7 +18406,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
           </div>
           <p id="ps-create-activity-empty-hint" class="portal-schedule-create-activity-hint" data-i18n="schedule.create.emptyNoLessonNoGear">Choose a lesson or add gear — empty bookings are not valid yet.</p>
           <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-live="polite"></div>
-          <p id="ps-create-gear-empty-hint" class="portal-schedule-create-activity-hint" data-i18n="schedule.create.emptyNoLessonNoGear">Choose a lesson or add gear — empty bookings are not valid yet.</p>
         </div>
         <div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-create-addon-fullday-field" style="display:none">
           <div class="portal-schedule-addon-switch-row">
@@ -21746,42 +21741,20 @@ function scheduleGroupIsStandaloneRental(group){
 
 function scheduleOnCreateComponentChange(changedId){
   var course = el('ps-create-comp-course');
-  var privateLesson = el('ps-create-comp-private-lesson');
-  var noLesson = el('ps-create-comp-no-lesson');
-  // Main activity is a radio group (Group / Private / No lesson). Keep legacy
-  // mutual-exclusion side effects so programmatic .checked=true still lands
-  // on exactly one option when the browser does not auto-deselect peers.
+  var privateLesson = el('ps-create-comp-private-lesson'), noLesson = el('ps-create-comp-no-lesson');
   if (changedId === 'ps-create-comp-course' && course && course.checked) {
-    if (privateLesson) privateLesson.checked = false;
-    if (noLesson) noLesson.checked = false;
+    if (privateLesson) privateLesson.checked = false; if (noLesson) noLesson.checked = false;
   }
   if (changedId === 'ps-create-comp-private-lesson' && privateLesson && privateLesson.checked) {
-    if (course) course.checked = false;
-    if (noLesson) noLesson.checked = false;
+    if (course) course.checked = false; if (noLesson) noLesson.checked = false;
   }
-  if (changedId === 'ps-create-comp-no-lesson' && noLesson && noLesson.checked) {
-    if (course) course.checked = false;
-    if (privateLesson) privateLesson.checked = false;
-  }
+  if (changedId === 'ps-create-comp-no-lesson' && noLesson && noLesson.checked) { if (course) course.checked = false; if (privateLesson) privateLesson.checked = false; }
   schedulePopulateCreateComponentFields();
 }
-
-// Soft empty-state guidance: No lesson without gear is not yet a valid booking.
-// Server quote/create validation remains authoritative.
 function scheduleRefreshCreateEmptyGuidance(){
-  var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
-  var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
-  var rentals = typeof scheduleReadCreateRentalSelectionFromDom === 'function'
-    ? scheduleReadCreateRentalSelectionFromDom()
-    : [];
-  var hasGear = rentals.length > 0;
-  var fullday = el('ps-create-comp-fullday');
-  if (fullday && fullday.checked) hasGear = true;
-  var empty = !courseOn && !privateOn && !hasGear;
-  var activityHint = el('ps-create-activity-empty-hint');
-  var gearHint = el('ps-create-gear-empty-hint');
-  if (activityHint) activityHint.style.display = empty ? '' : 'none';
-  if (gearHint) gearHint.style.display = empty ? '' : 'none';
+  var r = typeof scheduleReadCreateRentalSelectionFromDom === 'function' ? scheduleReadCreateRentalSelectionFromDom() : [];
+  var h = el('ps-create-activity-empty-hint'), fd = el('ps-create-comp-fullday');
+  if (h) h.style.display = (!(el('ps-create-comp-course') && el('ps-create-comp-course').checked) && !(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked) && !r.length && !(fd && fd.checked)) ? '' : 'none';
 }
 
 function schedulePrivateLessonDefaultEnd(startHm, durationMin){
@@ -21964,18 +21937,16 @@ function schedulePopulateCreateComponentFields(){
       scheduleSyncPrivateLessonSessions();
       scheduleRenderCreateRentals();
       scheduleRefreshCreateFullDayAddon();
-      scheduleRefreshCreateEmptyGuidance();
     });
   } else {
     scheduleRenderCreateRentals();
   }
   scheduleRefreshCreateFullDayAddon();
-  scheduleRefreshCreateEmptyGuidance();
 }
 
 // Compute eligible dates + default people for the create-drawer full-day add-on, and re-render rows.
 // Add-on only appears after an eligible base component + at least one eligible date exists.
-function scheduleRefreshCreateFullDayAddon(){
+function scheduleRefreshCreateFullDayAddon(){ try {
   var field = el('ps-create-addon-fullday-field');
   if (!field) return;
   var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
@@ -22038,6 +22009,7 @@ function scheduleRefreshCreateFullDayAddon(){
   } else if (summary){
     summary.style.display = 'none';
   }
+  } finally { scheduleRefreshCreateEmptyGuidance(); }
 }
 
 // Live create-drawer total preview — canonical quote API (Slice 11 portal module).
@@ -22209,13 +22181,11 @@ function scheduleWireCreateRentals(wrap){
         : (t.checked ? selected.concat([key]) : selected.filter(function(k){ return k !== key; }));
       scheduleApplyCreateRentalExclusionUi(wrap, next);
       scheduleRefreshCreateFullDayAddon();
-      scheduleRefreshCreateEmptyGuidance();
       scheduleUpdateCreateTotalPreview();
       return;
     }
     if (t.classList && t.classList.contains('ps-create-rental-qty-input')) {
       scheduleRefreshCreateFullDayAddon();
-      scheduleRefreshCreateEmptyGuidance();
       scheduleUpdateCreateTotalPreview();
     }
   });
@@ -22223,7 +22193,6 @@ function scheduleWireCreateRentals(wrap){
     var t = ev && ev.target;
     if (t && t.classList && t.classList.contains('ps-create-rental-qty-input')) {
       scheduleRefreshCreateFullDayAddon();
-      scheduleRefreshCreateEmptyGuidance();
       scheduleUpdateCreateTotalPreview();
     }
   });
@@ -23882,10 +23851,7 @@ function wireScheduleControls(){
   var fulldayToggle = el('ps-create-comp-fullday');
   if (fulldayToggle && !fulldayToggle.dataset.wired){
     fulldayToggle.dataset.wired = '1';
-    fulldayToggle.addEventListener('change', function(){
-      scheduleRefreshCreateFullDayAddon();
-      scheduleRefreshCreateEmptyGuidance();
-    });
+    fulldayToggle.addEventListener('change', scheduleRefreshCreateFullDayAddon);
   }
   ['ps-create-comp-course','ps-create-comp-private-lesson','ps-create-comp-no-lesson','ps-create-date-from','ps-create-date-to','ps-create-course-qty','ps-create-private-lesson-surfers'].forEach(function(id){
     var node = el(id);

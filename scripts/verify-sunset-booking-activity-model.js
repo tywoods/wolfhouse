@@ -102,9 +102,9 @@ assert('course labeled', /data-i18n=["']schedule\.type\.course["']/.test(labelFo
 assert('private labeled', /data-i18n=["']schedule\.type\.privateLesson["']/.test(labelFor(modalHtml, 'ps-create-comp-private-lesson')));
 assert('no-lesson labeled', /data-i18n=["']schedule\.type\.noLesson["']/.test(labelFor(modalHtml, 'ps-create-comp-no-lesson')));
 assert('no div click simulation', !/data-main-activity-click|onclick=["'][^"']*ps-create-comp-course/.test(modalHtml));
-assert('activity empty-hint', /id="ps-create-activity-empty-hint"/.test(modalHtml));
-assert('gear empty-hint', /id="ps-create-gear-empty-hint"/.test(modalHtml));
-assert('empty key on both hints', count(modalHtml, 'data-i18n="schedule.create.emptyNoLessonNoGear"') >= 2);
+assert('activity empty-hint once', count(modalHtml, 'id="ps-create-activity-empty-hint"') === 1);
+assert('no gear empty-hint duplicate', !/id="ps-create-gear-empty-hint"/.test(modalHtml));
+assert('empty key single hint', count(modalHtml, 'data-i18n="schedule.create.emptyNoLessonNoGear"') === 1);
 assert('courseSelect key present', /data-i18n=["']schedule\.create\.courseSelect["']/.test(modalHtml));
 const courseSelectLabel = (modalHtml.match(/for="ps-create-course-select"[^>]*>[\s\S]{0,120}?<\/label>/) || [''])[0];
 assert('no duplicate Group course select label',
@@ -196,7 +196,6 @@ function buildDom() {
     'ps-create-fullday-rows', 'ps-create-fullday-summary'].forEach((id) => box(id, 'none'));
   box('ps-create-date-range', '');
   box('ps-create-activity-empty-hint', '');
-  box('ps-create-gear-empty-hint', '');
   box('ps-create-rentals', '');
   ['ps-create-comp-fullday', 'ps-create-guest', 'ps-create-phone', 'ps-create-notes',
     'ps-create-course-select', 'ps-create-course-tier'].forEach((id) => input(id, ''));
@@ -329,13 +328,11 @@ try {
   sandbox.schedulePopulateCreateComponentFields();
   sandbox.scheduleRefreshCreateEmptyGuidance();
   assert('empty guidance when no lesson+gear',
-    sandbox.el('ps-create-activity-empty-hint').style.display !== 'none'
-    && sandbox.el('ps-create-gear-empty-hint').style.display !== 'none');
+    sandbox.el('ps-create-activity-empty-hint').style.display !== 'none');
   dom.rentalState.board = true;
   sandbox.scheduleRefreshCreateEmptyGuidance();
   assert('empty guidance hidden with gear',
-    sandbox.el('ps-create-activity-empty-hint').style.display === 'none'
-    && sandbox.el('ps-create-gear-empty-hint').style.display === 'none');
+    sandbox.el('ps-create-activity-empty-hint').style.display === 'none');
   select('ps-create-comp-course');
   sandbox.schedulePopulateCreateComponentFields();
   sandbox.scheduleRefreshCreateEmptyGuidance();
