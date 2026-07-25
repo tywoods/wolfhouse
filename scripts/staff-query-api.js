@@ -18388,17 +18388,17 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
           <strong id="ps-create-school-label">—</strong>
         </span>
       </div>
-      <button type="button" class="btn btn-ghost portal-schedule-drawer-close-btn" id="ps-create-close" title="Close" aria-label="Close" data-i18n-title="schedule.drawer.close">&#10005;</button>
+      <button type="button" class="btn btn-ghost portal-schedule-drawer-close-btn" id="ps-create-close" title="Close" aria-label="Close" data-i18n-title="schedule.drawer.close" data-i18n-aria="schedule.drawer.close">&#10005;</button>
     </header>
     <div class="portal-schedule-create-body">
       <div id="ps-create-msg" class="state-msg error" style="display:none;margin-bottom:12px"></div>
       <section class="portal-schedule-create-section" data-create-section="guest" aria-labelledby="ps-create-section-guest-title">
-        <h3 id="ps-create-section-guest-title" class="portal-schedule-create-section-title">Guest</h3>
+        <h3 id="ps-create-section-guest-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.guest">Guest</h3>
         <div class="portal-schedule-create-field"><label for="ps-create-guest" data-i18n="schedule.create.guestName">Guest name</label><input id="ps-create-guest" type="text" autocomplete="off"></div>
         <div class="portal-schedule-create-field"><label for="ps-create-phone" data-i18n="schedule.create.phone">Phone number</label><input id="ps-create-phone" type="tel" autocomplete="tel" inputmode="tel"></div>
       </section>
       <section class="portal-schedule-create-section" data-create-section="what" aria-labelledby="ps-create-section-what-title">
-        <h3 id="ps-create-section-what-title" class="portal-schedule-create-section-title">What</h3>
+        <h3 id="ps-create-section-what-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.what">What</h3>
         <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.components">Booking components</span>
           <div class="portal-schedule-create-components">
             <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="checkbox" checked> <span data-i18n="schedule.type.course">Group course</span></label>
@@ -18436,14 +18436,14 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="99" value="1"></div>
       </section>
       <section class="portal-schedule-create-section" data-create-section="when" aria-labelledby="ps-create-section-when-title">
-        <h3 id="ps-create-section-when-title" class="portal-schedule-create-section-title">When</h3>
+        <h3 id="ps-create-section-when-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.when">When</h3>
         <div id="ps-create-date-range">
         <div class="portal-schedule-create-field"><label for="ps-create-date-from" data-i18n="schedule.create.dateFrom">From date</label><input id="ps-create-date-from" type="date"></div>
         <div class="portal-schedule-create-field"><label for="ps-create-date-to" data-i18n="schedule.create.dateTo">To date</label><input id="ps-create-date-to" type="date"></div>
         </div>
       </section>
       <section class="portal-schedule-create-section" data-create-section="payment" aria-labelledby="ps-create-section-payment-title">
-        <h3 id="ps-create-section-payment-title" class="portal-schedule-create-section-title">Payment &amp; notes</h3>
+        <h3 id="ps-create-section-payment-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.paymentNotes">Payment &amp; notes</h3>
         <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option></select></div>
         <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
       </section>

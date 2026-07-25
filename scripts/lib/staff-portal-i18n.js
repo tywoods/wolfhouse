@@ -948,6 +948,10 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.create.count': 'People / items',
     'schedule.create.payment': 'Payment',
     'schedule.create.paymentStatus': 'Payment status',
+    'schedule.create.section.guest': 'Guest',
+    'schedule.create.section.what': 'What',
+    'schedule.create.section.when': 'When',
+    'schedule.create.section.paymentNotes': 'Payment & notes',
     'schedule.drawer.section.guest': 'Guest',
     'schedule.drawer.section.dates': 'Dates',
     'schedule.drawer.section.booking': 'Booking details',
@@ -1707,6 +1711,10 @@ const STAFF_PORTAL_STRINGS = {
     'drawer.payments.noPayments': 'Nessun pagamento registrato.',
     'drawer.payments.session': 'Sessione',
     'drawer.payments.intent': 'Intent',
+    'schedule.create.section.guest': 'Ospite',
+    'schedule.create.section.what': 'Cosa',
+    'schedule.create.section.when': 'Quando',
+    'schedule.create.section.paymentNotes': 'Pagamento e note',
   },
 };
 

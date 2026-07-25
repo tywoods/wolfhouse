@@ -17,6 +17,14 @@ const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const PORTAL_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
 
+/** Canonical create-drawer section chrome keys (EN owner: staff-portal-i18n). */
+const CREATE_SECTION_KEYS = [
+  { section: 'guest', key: 'schedule.create.section.guest', en: 'Guest' },
+  { section: 'what', key: 'schedule.create.section.what', en: 'What' },
+  { section: 'when', key: 'schedule.create.section.when', en: 'When' },
+  { section: 'payment', key: 'schedule.create.section.paymentNotes', en: 'Payment & notes' },
+];
+
 let pass = 0;
 let fail = 0;
 
@@ -210,6 +218,9 @@ assert('schedule-green accent retained',
 console.log('\n[9] Accessibility');
 assert('title id anchors aria-labelledby', /id="ps-create-title"/.test(modalHtml));
 assert('X has aria-label', /id="ps-create-close"[^>]*aria-label=/.test(modalHtml));
+assert('X close aria-label is locale-safe via data-i18n-aria',
+  /id="ps-create-close"[^>]*data-i18n-aria="schedule\.drawer\.close"/.test(modalHtml)
+  || /data-i18n-aria="schedule\.drawer\.close"[^>]*id="ps-create-close"/.test(modalHtml));
 assert('section headings present', (modalHtml.match(/portal-schedule-create-section-title|data-create-section=/g) || []).length >= 4);
 assert('visible focus style available for close/actions',
   /:focus-visible/.test(apiSrc) || /\.btn:focus/.test(apiSrc) || /outline/.test(apiSrc));
@@ -254,6 +265,45 @@ if (portalSrc.includes('function schedulePortalRenderCreateQuotePreview')) {
 ].forEach((needle) => {
   assert('payload wiring still references ' + needle, apiSrc.includes(needle) || portalSrc.includes(needle));
 });
+
+console.log('\n[11] Section chrome i18n — EN keys + ES/IT parity (no hardcoded-only headings)');
+// Load real locale maps (do not source-launder translations into this verifier).
+const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
+const ES_SUNSET = require('./lib/staff-portal-i18n-es-sunset');
+const enPack = (STAFF_PORTAL_STRINGS && STAFF_PORTAL_STRINGS.en) || {};
+const itPack = (STAFF_PORTAL_STRINGS && STAFF_PORTAL_STRINGS.it) || {};
+const esPack = ES_SUNSET || {};
+
+CREATE_SECTION_KEYS.forEach((row) => {
+  const titleId = 'ps-create-section-' + row.section + '-title';
+  const keyEsc = row.key.replace(/\./g, '\\.');
+  const titleRe = new RegExp(
+    'id="' + titleId + '"[^>]*data-i18n="' + keyEsc + '"'
+    + '|data-i18n="' + keyEsc + '"[^>]*id="' + titleId + '"'
+  );
+  assert('section h3 data-i18n: ' + row.section, titleRe.test(modalHtml));
+  assert('EN catalog has ' + row.key, Object.prototype.hasOwnProperty.call(enPack, row.key));
+  assert('EN value for ' + row.key, enPack[row.key] === row.en, String(enPack[row.key]));
+  assert('ES catalog has ' + row.key, Object.prototype.hasOwnProperty.call(esPack, row.key));
+  assert('IT catalog has ' + row.key, Object.prototype.hasOwnProperty.call(itPack, row.key));
+  const esVal = esPack[row.key];
+  const itVal = itPack[row.key];
+  assert('ES translation non-empty + not EN fallback for ' + row.key,
+    typeof esVal === 'string' && esVal.trim().length > 0 && esVal !== row.en && esVal !== row.key,
+    String(esVal));
+  assert('IT translation non-empty + not EN fallback for ' + row.key,
+    typeof itVal === 'string' && itVal.trim().length > 0 && itVal !== row.en && itVal !== row.key,
+    String(itVal));
+});
+
+// Hardcoded-only chrome would leave English section titles without data-i18n.
+const bareSectionTitles = (modalHtml.match(/class="portal-schedule-create-section-title"[^>]*>/g) || [])
+  .filter((tag) => !/data-i18n=/.test(tag));
+assert('no hardcoded-only section title chrome (all h3 have data-i18n)', bareSectionTitles.length === 0,
+  bareSectionTitles.join(' | '));
+assert('close control keeps data-i18n-title for schedule.drawer.close',
+  /id="ps-create-close"[^>]*data-i18n-title="schedule\.drawer\.close"/.test(modalHtml)
+  || /data-i18n-title="schedule\.drawer\.close"[^>]*id="ps-create-close"/.test(modalHtml));
 
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
