@@ -16638,7 +16638,23 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-week-forecast-slots{margin-top:8px;font-size:11px;color:var(--text-2);line-height:1.4}
 .portal-schedule-week-forecast-reply{margin-top:6px;font-size:11px;font-weight:700;color:#7c3aed}
 .portal-schedule-next30-forecast{display:block;margin-bottom:22px}
-.portal-schedule-create-drawer{position:fixed;top:0;right:0;width:min(440px,94vw);height:100vh;height:100dvh;max-height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9101;padding:20px 22px;padding-bottom:calc(28px + env(safe-area-inset-bottom));overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;box-sizing:border-box}
+.portal-schedule-create-drawer{position:fixed;top:0;right:0;width:min(440px,94vw);height:100vh;height:100dvh;max-height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9101;padding:0;display:flex;flex-direction:column;overflow:hidden;overflow-x:hidden;overscroll-behavior:contain;box-sizing:border-box}
+.portal-schedule-create-header{flex:0 0 auto;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px 12px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid var(--border-soft);background:inherit;z-index:2}
+.portal-schedule-create-header-text{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.portal-schedule-create-title{margin:0;font-size:17px;font-weight:700;line-height:1.25;color:var(--text)}
+.portal-schedule-create-school-chip{display:inline-flex;align-items:center;max-width:100%;padding:3px 10px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface-soft);font-size:11px;font-weight:700;color:var(--text-2);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.portal-schedule-create-school-chip strong{color:var(--text);font-weight:700}
+.portal-schedule-create-body{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px 18px 18px}
+.portal-schedule-create-section{margin:0 0 14px;padding:12px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
+.portal-schedule-create-section:last-child{margin-bottom:0}
+.portal-schedule-create-section-title{margin:0 0 10px;font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--text);line-height:1.2}
+.portal-schedule-create-footer{flex:0 0 auto;border-top:1px solid var(--border-soft);background:inherit;padding:12px 18px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:2;display:flex;flex-direction:column;gap:10px}
+.portal-schedule-create-summary{min-height:18px;font-size:12px;color:var(--text-3);line-height:1.35}
+.portal-schedule-create-summary-placeholder{color:var(--text-3)}
+.portal-schedule-create-footer .portal-schedule-create-actions{margin-top:0;display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.portal-schedule-create-footer .portal-schedule-create-actions .btn{flex:1 1 auto;min-height:44px;padding:10px 14px}
+.portal-schedule-create-footer #ps-create-quote-preview{margin-bottom:0}
+.portal-schedule-create-footer #ps-create-quote-preview.portal-schedule-create-field{margin-bottom:0}
 .portal-schedule-drawer-hero{margin-bottom:16px}
 .portal-schedule-drawer-hero-inner{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .portal-schedule-drawer-hero-text{flex:1;min-width:0}
@@ -18365,61 +18381,83 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div id="ps-create-modal" class="portal-schedule-create-modal" style="display:none" aria-hidden="true">
   <div class="portal-schedule-create-backdrop" id="ps-create-backdrop"></div>
   <div class="portal-schedule-create-drawer" role="dialog" aria-labelledby="ps-create-title">
-    <h3 id="ps-create-title" data-i18n="schedule.create.title">Create booking</h3>
-    <p class="portal-schedule-create-school portal-school-context" id="ps-create-school-context" style="display:none" aria-live="polite">
-      <span data-i18n="schedule.school.createHint">Creating booking for:</span>
-      <strong id="ps-create-school-label">—</strong>
-    </p>
-    <p class="portal-schedule-create-sub" data-i18n="schedule.create.sub">Creates a real Sunset staging booking in the database.</p>
-    <div id="ps-create-msg" class="state-msg error" style="display:none;margin-bottom:12px"></div>
-    <div class="portal-schedule-create-field"><label for="ps-create-guest" data-i18n="schedule.create.guestName">Guest name</label><input id="ps-create-guest" type="text" autocomplete="off"></div>
-    <div class="portal-schedule-create-field"><label for="ps-create-phone" data-i18n="schedule.create.phone">Phone number</label><input id="ps-create-phone" type="tel" autocomplete="tel" inputmode="tel"></div>
-    <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.components">Booking components</span>
-      <div class="portal-schedule-create-components">
-        <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="checkbox" checked> <span data-i18n="schedule.type.course">Group course</span></label>
-        <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="checkbox"> <span data-i18n="schedule.type.privateLesson">Private Course</span></label>
+    <header class="portal-schedule-create-header">
+      <div class="portal-schedule-create-header-text">
+        <h2 id="ps-create-title" class="portal-schedule-create-title" data-i18n="schedule.create.title">Create booking</h2>
+        <span class="portal-schedule-create-school-chip portal-school-context" id="ps-create-school-context" style="display:none" aria-live="polite">
+          <strong id="ps-create-school-label">—</strong>
+        </span>
       </div>
-      <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-live="polite"></div>
-    </div>
-    <div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-create-addon-fullday-field" style="display:none">
-      <div class="portal-schedule-addon-switch-row">
-        <div class="portal-schedule-addon-switch-copy">
-          <span class="portal-schedule-addon-switch-title"><span data-i18n="schedule.type.fullDayEquipment">Full-day gear</span><span class="portal-schedule-addon-pill" data-i18n="schedule.addon.pill">Add-on</span></span>
-          <span class="portal-schedule-addon-price-hint" id="ps-create-fullday-price-hint"></span>
+      <button type="button" class="btn btn-ghost portal-schedule-drawer-close-btn" id="ps-create-close" title="Close" aria-label="Close" data-i18n-title="schedule.drawer.close">&#10005;</button>
+    </header>
+    <div class="portal-schedule-create-body">
+      <div id="ps-create-msg" class="state-msg error" style="display:none;margin-bottom:12px"></div>
+      <section class="portal-schedule-create-section" data-create-section="guest" aria-labelledby="ps-create-section-guest-title">
+        <h3 id="ps-create-section-guest-title" class="portal-schedule-create-section-title">Guest</h3>
+        <div class="portal-schedule-create-field"><label for="ps-create-guest" data-i18n="schedule.create.guestName">Guest name</label><input id="ps-create-guest" type="text" autocomplete="off"></div>
+        <div class="portal-schedule-create-field"><label for="ps-create-phone" data-i18n="schedule.create.phone">Phone number</label><input id="ps-create-phone" type="tel" autocomplete="tel" inputmode="tel"></div>
+      </section>
+      <section class="portal-schedule-create-section" data-create-section="what" aria-labelledby="ps-create-section-what-title">
+        <h3 id="ps-create-section-what-title" class="portal-schedule-create-section-title">What</h3>
+        <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.components">Booking components</span>
+          <div class="portal-schedule-create-components">
+            <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="checkbox" checked> <span data-i18n="schedule.type.course">Group course</span></label>
+            <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="checkbox"> <span data-i18n="schedule.type.privateLesson">Private Course</span></label>
+          </div>
+          <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-live="polite"></div>
         </div>
-        <label class="portal-schedule-addon-switch" for="ps-create-comp-fullday" aria-label="Full-day gear">
-          <input id="ps-create-comp-fullday" type="checkbox">
-          <span class="portal-schedule-addon-switch-slider" aria-hidden="true"></span>
-        </label>
+        <div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-create-addon-fullday-field" style="display:none">
+          <div class="portal-schedule-addon-switch-row">
+            <div class="portal-schedule-addon-switch-copy">
+              <span class="portal-schedule-addon-switch-title"><span data-i18n="schedule.type.fullDayEquipment">Full-day gear</span><span class="portal-schedule-addon-pill" data-i18n="schedule.addon.pill">Add-on</span></span>
+              <span class="portal-schedule-addon-price-hint" id="ps-create-fullday-price-hint"></span>
+            </div>
+            <label class="portal-schedule-addon-switch" for="ps-create-comp-fullday" aria-label="Full-day gear">
+              <input id="ps-create-comp-fullday" type="checkbox">
+              <span class="portal-schedule-addon-switch-slider" aria-hidden="true"></span>
+            </label>
+          </div>
+          <div class="portal-schedule-addon-card" id="ps-create-fullday-card" style="display:none">
+            <p class="portal-schedule-addon-help" data-i18n="schedule.addon.fullDayHelp">Board/suit for the whole day (add-on dates).</p>
+            <div id="ps-create-fullday-rows" class="portal-schedule-addon-rows"></div>
+            <div id="ps-create-fullday-summary" class="portal-schedule-addon-summary" style="display:none" aria-live="polite"></div>
+          </div>
+        </div>
+        <div id="ps-create-private-lesson-fields" style="display:none">
+          <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1"></div>
+          <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-surfers" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-private-lesson-surfers" type="number" min="1" max="99" value="1"></div>
+          <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set date and time for each private course session.</span>
+            <div id="ps-create-private-lesson-sessions" class="portal-schedule-private-sessions"></div>
+            <button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-create-add-session" data-i18n="schedule.create.privateLesson.addSession">+ Add session</button>
+          </div>
+        </div>
+        <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect">Group course</label><select id="ps-create-course-select"></select></div>
+        <div class="portal-schedule-create-field" id="ps-create-course-tier-wrap" style="display:none"><label for="ps-create-course-tier" data-i18n="schedule.create.courseTier">Course duration</label><select id="ps-create-course-tier"></select></div>
+        <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="99" value="1"></div>
+      </section>
+      <section class="portal-schedule-create-section" data-create-section="when" aria-labelledby="ps-create-section-when-title">
+        <h3 id="ps-create-section-when-title" class="portal-schedule-create-section-title">When</h3>
+        <div id="ps-create-date-range">
+        <div class="portal-schedule-create-field"><label for="ps-create-date-from" data-i18n="schedule.create.dateFrom">From date</label><input id="ps-create-date-from" type="date"></div>
+        <div class="portal-schedule-create-field"><label for="ps-create-date-to" data-i18n="schedule.create.dateTo">To date</label><input id="ps-create-date-to" type="date"></div>
+        </div>
+      </section>
+      <section class="portal-schedule-create-section" data-create-section="payment" aria-labelledby="ps-create-section-payment-title">
+        <h3 id="ps-create-section-payment-title" class="portal-schedule-create-section-title">Payment &amp; notes</h3>
+        <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option></select></div>
+        <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
+      </section>
+    </div>
+    <footer class="portal-schedule-create-footer">
+      <div id="ps-create-summary" class="portal-schedule-create-summary" aria-live="polite">
+        <span class="portal-schedule-create-summary-placeholder">—</span>
       </div>
-      <div class="portal-schedule-addon-card" id="ps-create-fullday-card" style="display:none">
-        <p class="portal-schedule-addon-help" data-i18n="schedule.addon.fullDayHelp">Board/suit for the whole day (add-on dates).</p>
-        <div id="ps-create-fullday-rows" class="portal-schedule-addon-rows"></div>
-        <div id="ps-create-fullday-summary" class="portal-schedule-addon-summary" style="display:none" aria-live="polite"></div>
+      <div id="ps-create-quote-preview" class="portal-schedule-create-field" style="display:none" aria-live="polite"></div>
+      <div class="portal-schedule-create-actions">
+        <button type="button" class="btn btn-ghost" id="ps-create-cancel" data-i18n="schedule.create.cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="ps-create-submit" data-i18n="schedule.create.submit">Create booking</button>
       </div>
-    </div>
-    <div id="ps-create-private-lesson-fields" style="display:none">
-      <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1"></div>
-      <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-surfers" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-private-lesson-surfers" type="number" min="1" max="99" value="1"></div>
-      <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set date and time for each private course session.</span>
-        <div id="ps-create-private-lesson-sessions" class="portal-schedule-private-sessions"></div>
-        <button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-create-add-session" data-i18n="schedule.create.privateLesson.addSession">+ Add session</button>
-      </div>
-    </div>
-    <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect">Group course</label><select id="ps-create-course-select"></select></div>
-    <div class="portal-schedule-create-field" id="ps-create-course-tier-wrap" style="display:none"><label for="ps-create-course-tier" data-i18n="schedule.create.courseTier">Course duration</label><select id="ps-create-course-tier"></select></div>
-    <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="99" value="1"></div>
-    <div id="ps-create-date-range">
-    <div class="portal-schedule-create-field"><label for="ps-create-date-from" data-i18n="schedule.create.dateFrom">From date</label><input id="ps-create-date-from" type="date"></div>
-    <div class="portal-schedule-create-field"><label for="ps-create-date-to" data-i18n="schedule.create.dateTo">To date</label><input id="ps-create-date-to" type="date"></div>
-    </div>
-    <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option></select></div>
-    <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
-    <div id="ps-create-quote-preview" class="portal-schedule-create-field" style="display:none" aria-live="polite"></div>
-    <div class="portal-schedule-create-actions">
-      <button type="button" class="btn btn-primary" id="ps-create-submit" data-i18n="schedule.create.submit">Create booking</button>
-      <button type="button" class="btn btn-ghost" id="ps-create-cancel" data-i18n="schedule.create.cancel">Cancel</button>
-    </div>
+    </footer>
   </div>
 </div>
 <div id="ps-drawer-backdrop" class="portal-schedule-drawer-backdrop" style="display:none"></div>
@@ -20676,7 +20714,7 @@ function renderScheduleCreateSchoolContext(){
     return;
   }
   label.textContent = getSunsetLocationLabel();
-  wrap.style.display = 'block';
+  wrap.style.display = 'inline-flex';
 }
 
 function refreshSunsetSchoolContextLabels(channelConfig){
@@ -23772,6 +23810,7 @@ function wireScheduleControls(){
   var ids = [['ps-drawer-close', closeScheduleDetailDrawer],
     ['ps-drawer-refresh', scheduleRefreshDrawer],
     ['ps-create-booking', openScheduleCreateModal],
+    ['ps-create-close', closeScheduleCreateModal],
     ['ps-create-cancel', closeScheduleCreateModal],
     ['ps-create-submit', submitScheduleManualBooking]];
   ids.forEach(function(pair){
