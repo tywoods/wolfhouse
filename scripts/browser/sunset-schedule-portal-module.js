@@ -108,6 +108,106 @@ function schedulePortalClearSubmitIdempotency() {
   schedulePortalSubmitIdemIntent = null;
 }
 
+/** Europe/Madrid YYYY-MM-DD — never browser-UTC-only default for create dates. */
+function schedulePortalMadridTodayIso(refDate) {
+  var d = refDate || new Date();
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  } catch (_e) {
+    return typeof scheduleTodayIso === 'function' ? scheduleTodayIso() : (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+  }
+}
+
+var schedulePortalPendingCourseId = null;
+
+function schedulePortalConsumePendingCourseSelect() {
+  var id = schedulePortalPendingCourseId;
+  schedulePortalPendingCourseId = null;
+  if (!id) return;
+  var sel = el('ps-create-course-select');
+  if (sel) sel.value = String(id);
+}
+
+function schedulePortalResolveCreateDefaultDate(ctx) {
+  var today = schedulePortalMadridTodayIso();
+  if (ctx) {
+    var explicit = String(ctx.date_from || ctx.date || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(explicit)) return explicit;
+  }
+  var active = '';
+  try { if (typeof scheduleActiveDayIso === 'function') active = String(scheduleActiveDayIso() || '').slice(0, 10); } catch (_a) { active = ''; }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(active) && active >= today) return active;
+  return today;
+}
+
+/** Fresh-open only — same-open activity switches must not call this (gear preserved). */
+function schedulePortalClearCreateDraftFields() {
+  var set = function(id, val) { var n = el(id); if (n) n.value = val; };
+  set('ps-create-guest', ''); set('ps-create-phone', ''); set('ps-create-notes', '');
+  var pay = el('ps-create-payment'); if (pay) pay.value = 'unpaid';
+  var course = el('ps-create-comp-course'), priv = el('ps-create-comp-private-lesson'), none = el('ps-create-comp-no-lesson');
+  if (course) course.checked = false; if (priv) priv.checked = false; if (none) none.checked = true;
+  set('ps-create-course-qty', '1'); set('ps-create-private-lesson-qty', '1'); set('ps-create-private-lesson-surfers', '1');
+  var courseSel = el('ps-create-course-select'); if (courseSel) courseSel.value = '';
+  var tier = el('ps-create-course-tier'); if (tier) { try { tier.innerHTML = ''; } catch (_t) {} tier.value = ''; }
+  var sessions = el('ps-create-private-lesson-sessions'); if (sessions) sessions.innerHTML = '';
+  var fd = el('ps-create-comp-fullday'); if (fd) fd.checked = false;
+  var rentals = el('ps-create-rentals'); if (rentals) rentals.innerHTML = '';
+  var quote = el('ps-create-quote-preview'); if (quote) { quote.innerHTML = ''; quote.style.display = 'none'; }
+  var summary = el('ps-create-summary'); if (summary) summary.innerHTML = '<span class="portal-schedule-create-summary-placeholder">—</span>';
+  var msg = el('ps-create-msg'); if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
+  schedulePortalPendingCourseId = null;
+}
+
+function schedulePortalApplyCreateLaunchContext(ctx) {
+  if (!ctx) return;
+  var activity = String(ctx.activity || ctx.main_activity || '').toLowerCase();
+  var pick = null;
+  if (activity === 'group' || activity === 'course') pick = 'ps-create-comp-course';
+  else if (activity === 'private' || activity === 'private_lesson') pick = 'ps-create-comp-private-lesson';
+  else if (activity === 'none' || activity === 'no_lesson' || activity === 'rental') pick = 'ps-create-comp-no-lesson';
+  if (pick) {
+    var node = el(pick);
+    if (node) {
+      node.checked = true;
+      if (typeof scheduleOnCreateComponentChange === 'function') scheduleOnCreateComponentChange(pick);
+    }
+  }
+  var courseId = ctx.course_id != null ? String(ctx.course_id).trim() : '';
+  if (courseId) {
+    schedulePortalPendingCourseId = courseId;
+    var sel = el('ps-create-course-select');
+    if (sel && sel.options && sel.options.length) sel.value = courseId;
+  }
+  // slot_key/time not applied: no create form time field for group launches.
+}
+
+/** Canonical fresh-open owner. In-flight: preserve draft+key (no wipe). Else clean + context. */
+function schedulePortalPrepareCreateOpen(context) {
+  if (schedulePortalSubmitInFlight) {
+    schedulePortalInvalidatePreviewWork();
+    var lockedBtn = el('ps-create-submit');
+    if (lockedBtn) lockedBtn.disabled = true;
+    return { preserved: true };
+  }
+  schedulePortalInvalidatePreviewWork();
+  schedulePortalQuoteState = null;
+  schedulePortalClearCreateDraftFields();
+  var ctx = context || null;
+  var dateIso = schedulePortalResolveCreateDefaultDate(ctx);
+  var dateTo = dateIso;
+  if (ctx) {
+    var toRaw = String(ctx.date_to || ctx.date_from || ctx.date || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(toRaw)) dateTo = toRaw;
+  }
+  var df = el('ps-create-date-from'), dt = el('ps-create-date-to');
+  if (df) df.value = dateIso; if (dt) dt.value = dateTo;
+  schedulePortalApplyCreateLaunchContext(ctx);
+  var submitBtn = el('ps-create-submit');
+  if (submitBtn) submitBtn.disabled = false;
+  return { preserved: false, pending_course_id: schedulePortalPendingCourseId };
+}
+
 function schedulePortalResetCreateFormRuntime() {
   if (schedulePortalSubmitInFlight) {
     schedulePortalInvalidatePreviewWork();
