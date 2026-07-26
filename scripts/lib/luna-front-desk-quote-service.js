@@ -152,6 +152,14 @@ function computeBillableUnits(offering, serviceDates, quantity) {
   const unit = String(
     offering.billing_unit || (offering.price && offering.price.unit) || '',
   ).toLowerCase();
+  // Short rental windows bill unit × qty once (not × multi-day date span).
+  const shortDur = offering.tier_key || offering.duration_key
+    || (offering.item_code && String(offering.item_code).includes('__')
+      ? String(offering.item_code).split('__').slice(1).join('__')
+      : null);
+  if (offering.offering_type === 'rental' && isShortRentalDurationKey(shortDur)) {
+    return quantity;
+  }
   const sessionUnit = /session|single_lesson|person/.test(unit)
     && offering.offering_type !== 'course';
   const courseUnit = offering.offering_type === 'course'
@@ -732,6 +740,14 @@ const CANONICAL_RENTAL_OFFERING_KEYS = Object.freeze([
   'board_and_suit_rental',
 ]);
 
+/** No-lesson short rental windows — independent of inclusive date-span duration. */
+const SHORT_RENTAL_DURATION_KEYS = Object.freeze(['1_hour', 'half_day', '1_day']);
+const SHORT_RENTAL_DURATION_SET = new Set(SHORT_RENTAL_DURATION_KEYS);
+
+function isShortRentalDurationKey(key) {
+  return SHORT_RENTAL_DURATION_SET.has(String(key || '').trim());
+}
+
 function quoteHasNonEmptyComponents(body) {
   return !!(body && body.components && typeof body.components === 'object'
     && Object.keys(body.components).length > 0);
@@ -828,7 +844,10 @@ function normalizeCanonicalRentalsForQuote(transportBody, expectedDurationKey) {
     if (!durationKey) {
       return { ok: false, reason: 'invalid_rental_duration', error: `rentals[${i}].duration_key is required` };
     }
-    if (expectedDurationKey && durationKey !== expectedDurationKey) {
+    // Short No-lesson windows (1_hour / half_day / 1_day) are pebble-selected and
+    // may differ from the inclusive date-span key (which is always 1_day+).
+    // Multi-day bundle path still requires exact date-span duration match.
+    if (expectedDurationKey && durationKey !== expectedDurationKey && !isShortRentalDurationKey(durationKey)) {
       return {
         ok: false,
         reason: 'rental_duration_mismatch',

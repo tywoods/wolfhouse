@@ -200,6 +200,20 @@ async function main() {
     unit: 'day',
     active: true,
   };
+  // Matching active wetsuit short key so re-enable passes board/wetsuit parity gate.
+  const peerWetsuitRow = {
+    id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    tenant_id: 'sunset',
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item_type: 'rental',
+    item_code: 'wetsuit_rental__1_day',
+    display_name: 'Wetsuit',
+    currency: 'EUR',
+    amount_cents: 800,
+    unit: 'day',
+    active: true,
+  };
   let lastUpdate = null;
   const mockPg = {
     async query(sql, params) {
@@ -217,6 +231,11 @@ async function main() {
       }
       if (/information_schema\.columns/i.test(s)) return { rows: [{ '?column?': 1 }] };
       if (/tenant_config_audit_log/i.test(s) && /INSERT/i.test(s)) return { rows: [] };
+      // Short-duration parity snapshot: all rental rows at location.
+      if (/FROM tenant_price_rules/i.test(s) && /item_type = 'rental'/i.test(s)
+        && !/FOR UPDATE/i.test(s) && !/LIKE/i.test(s)) {
+        return { rows: [{ ...inactiveRow }, { ...peerWetsuitRow }] };
+      }
       if (/FROM tenant_price_rules/i.test(s) && /FOR UPDATE/i.test(s)) {
         if (/active = true/i.test(s) && !/id = \$1/i.test(s)) {
           // identity lookup — after fix should also find inactive

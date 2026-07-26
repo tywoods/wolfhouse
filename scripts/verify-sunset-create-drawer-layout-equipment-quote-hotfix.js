@@ -286,6 +286,9 @@ function qtySandbox() {
 }
 
 const qs = qtySandbox();
+// Full-day gear is Group/Private only — enable Group for qty seed checks.
+qs.el('ps-create-comp-course').checked = true;
+qs.el('ps-create-comp-no-lesson').checked = false;
 for (const n of [1, 2, 4]) {
   qs.scheduleSetCreateSurferCount(n);
   assert('surfer count set ' + n, qs.scheduleReadCreateSurferCount() === n);
@@ -298,6 +301,15 @@ for (const n of [1, 2, 4]) {
     rowsHtml.includes('value="' + n + '"') || rowsHtml.includes("value='" + n + "'")
     || rowsHtml.includes('value=' + n));
 }
+// No lesson: full-day must hide and clear (not seed).
+qs.el('ps-create-comp-course').checked = false;
+qs.el('ps-create-comp-no-lesson').checked = true;
+qs.el('ps-create-comp-fullday').checked = true;
+qs.scheduleRefreshCreateFullDayAddon();
+assert('No lesson hides full-day field',
+  qs.el('ps-create-addon-fullday-field').style.display === 'none');
+assert('No lesson clears full-day checkbox',
+  qs.el('ps-create-comp-fullday').checked === false);
 
 // ── 5) Quote mutations ──────────────────────────────────────────────────────
 console.log('\n[5] Server-owned quote mutations (bundle / addon / both / fail-closed)');

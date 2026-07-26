@@ -254,8 +254,10 @@ assert(
 
 console.log('\n[E] VM: real DOM reader + exact quantity serialization');
 const readRentalSrc = extractFunctionSource(apiSrc, 'scheduleReadCreateRentalSelectionFromDom') || '';
+// Payload + rental DOM reader both call the surfer authority (fallback when qty invalid / course qty).
+const readSurferSrc = extractFunctionSource(apiSrc, 'scheduleReadCreateSurferCount') || '';
 const guestPayloadContractOk = (function runPayloadVm() {
-  if (!readSrc || readSrc.indexOf('rentals') < 0 || !readRentalSrc) return false;
+  if (!readSrc || readSrc.indexOf('rentals') < 0 || !readRentalSrc || !readSurferSrc) return false;
 
   function makeRentalRow(offeringKey, checked, qtyValue) {
     const check = {
@@ -309,6 +311,8 @@ const guestPayloadContractOk = (function runPayloadVm() {
     'ps-create-date-to': { value: '2026-07-20' },
     'ps-create-payment': { value: 'unpaid' },
     'ps-create-notes': { value: '' },
+    // Surfer authority used by scheduleReadCreatePayload / rental qty fallback.
+    'ps-create-surfers': { value: '1' },
     'ps-create-comp-course': { checked: true },
     'ps-create-course-select': {
       selectedIndex: 0,
@@ -338,7 +342,7 @@ const guestPayloadContractOk = (function runPayloadVm() {
   vm.createContext(ctx);
   try {
     vm.runInContext(
-      `${readRentalSrc}\n${readSrc}\n`
+      `${readSurferSrc}\n${readRentalSrc}\n${readSrc}\n`
       + 'this.__rentals = scheduleReadCreateRentalSelectionFromDom();\n'
       + 'this.__payload = scheduleReadCreatePayload();\n',
       ctx,
@@ -378,7 +382,8 @@ const guestPayloadContractOk = (function runPayloadVm() {
     JSON.stringify(ctx.__bundleRentals),
   );
 
-  // Invalid quantities must not silently become 1
+  // Invalid equipment qty: never silent parseInt||1.
+  // New contract: blank surfers → omit row; valid surfers → use surfer authority.
   const invalidCases = [
     { label: 'zero', value: '0' },
     { label: 'blank', value: '' },
@@ -386,6 +391,8 @@ const guestPayloadContractOk = (function runPayloadVm() {
     { label: 'non-numeric', value: 'abc' },
   ];
   let invalidOk = true;
+  // Blank surfers: invalid qty must be omitted (not silently 1).
+  dom['ps-create-surfers'].value = '';
   invalidCases.forEach(function(tc) {
     boardRow.querySelector('.ps-create-rental-check').checked = true;
     wetsuitRow.querySelector('.ps-create-rental-check').checked = false;
@@ -402,13 +409,32 @@ const guestPayloadContractOk = (function runPayloadVm() {
     const silentlyOne = got.some((r) => r.offering_key === 'board_rental' && r.quantity === 1);
     const included = got.some((r) => r.offering_key === 'board_rental');
     assert(
-      `invalid qty (${tc.label}) not silently serialized as 1`,
+      `invalid qty (${tc.label}) omitted when surfers blank (not silent 1)`,
       !silentlyOne && !included,
       JSON.stringify(got),
     );
   });
+  // Surfer authority: invalid equipment qty falls back to Number of surfers (2), not silent 1.
+  dom['ps-create-surfers'].value = '2';
+  boardRow.querySelector('.ps-create-rental-check').checked = true;
+  boardRow.querySelector('.ps-create-rental-qty-input').value = '';
+  try {
+    vm.runInContext('this.__fallbackRentals = scheduleReadCreateRentalSelectionFromDom();', ctx);
+  } catch (err) {
+    console.error('  (fallback VM error)', err.message);
+    invalidOk = false;
+  }
+  assert(
+    'blank equipment qty uses surfer authority (2), not silent 1',
+    Array.isArray(ctx.__fallbackRentals)
+      && ctx.__fallbackRentals.length === 1
+      && ctx.__fallbackRentals[0].offering_key === 'board_rental'
+      && ctx.__fallbackRentals[0].quantity === 2,
+    JSON.stringify(ctx.__fallbackRentals),
+  );
 
-  // Restore board=3 / wetsuit=2 for create payload + quote
+  // Restore board=3 / wetsuit=2 + surfers for create payload + quote
+  dom['ps-create-surfers'].value = '1';
   boardRow.querySelector('.ps-create-rental-check').checked = true;
   wetsuitRow.querySelector('.ps-create-rental-check').checked = true;
   bundleRow.querySelector('.ps-create-rental-check').checked = false;
@@ -446,6 +472,7 @@ const guestPayloadContractOk = (function runPayloadVm() {
   const quoteSvcFn = extractFunctionSource(portalSrc, 'schedulePortalServiceDatesFromPayload');
   const clientQFn = extractFunctionSource(portalSrc, 'schedulePortalClientQuery');
   const fetchJsonFn = extractFunctionSource(portalSrc, 'schedulePortalFetchJson');
+  const strictTotalFn = extractFunctionSource(portalSrc, 'schedulePortalStrictQuoteTotalCents');
   if (!quoteFn) return false;
   let quoteBody = null;
   const quoteCtx = {
@@ -454,6 +481,7 @@ const guestPayloadContractOk = (function runPayloadVm() {
     sunsetLocationQuerySuffix: function() { return '&location=sunset-somo'; },
     scheduleEnumerateDates: enumerateDates,
     schedulePortalQuoteState: null,
+    schedulePortalQuoteGen: 0,
     fetch: function() { return Promise.resolve({ ok: true, status: 200, json: function() { return Promise.resolve({ success: true, total_cents: 100 }); } }); },
   };
   vm.createContext(quoteCtx);
@@ -462,6 +490,7 @@ const guestPayloadContractOk = (function runPayloadVm() {
       `${clientQFn || 'function schedulePortalClientQuery(){return "client=sunset";}'}\n`
       + `${fetchJsonFn || ''}\n`
       + `${quoteSvcFn || 'function schedulePortalServiceDatesFromPayload(p){return [];}'}\n`
+      + `${strictTotalFn || 'function schedulePortalStrictQuoteTotalCents(b){return b&&typeof b.total_cents==="number"?b.total_cents:null;}'}\n`
       + `${quoteFn}\n`
       + 'this.__quoteP = schedulePortalFetchQuote(' + JSON.stringify(p) + ');\n',
       quoteCtx,
