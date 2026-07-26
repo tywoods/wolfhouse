@@ -504,9 +504,7 @@ function schedulePortalValidateCreatePayload(payload, opts) {
     var df = schedulePortalCanonicalDateIso(p.date_from);
     var dt = schedulePortalCanonicalDateIso(p.date_to != null ? p.date_to : p.date_from);
     var today = schedulePortalMadridTodayIso();
-    if (!df || !dt) return fail('schedule.create.dateInvalid');
-    if (df < today || dt < today) return fail('schedule.create.datePast');
-    if (df > dt) return fail('schedule.create.dateOrder');
+    if (!df || !dt || df < today || dt < today || df > dt) return fail('calendar.state.invalidDateRange');
   }
 
   if (rentals.length) {
@@ -519,7 +517,7 @@ function schedulePortalValidateCreatePayload(payload, opts) {
       var qty = Number(r.quantity);
       // Nonempty duration (catalog-driven). Canonical offerings.
       if (known.indexOf(off) < 0 || !dur || !(Number.isFinite(qty) && Math.floor(qty) === qty && qty >= 1)) {
-        return fail('schedule.create.rentalIncomplete');
+        return fail('schedule.create.componentsRequired');
       }
     }
   }

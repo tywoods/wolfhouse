@@ -19,17 +19,17 @@ function extractFn(src, name) {
 function extractModal(src){ const s=src.indexOf('id="ps-create-modal"'); const o=src.lastIndexOf('<div',s); const e=src.indexOf('id="ps-drawer-backdrop"',o); const c=src.lastIndexOf('</div>',e); return src.slice(o,c>o?c+6:e); }
 function sleep(ms){ return new Promise((r)=>setTimeout(r,ms)); }
 const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
-const es = require('./lib/staff-portal-i18n-es-sunset');
-const en = STAFF_PORTAL_STRINGS.en || {}, it = STAFF_PORTAL_STRINGS.it || {};
+const en = STAFF_PORTAL_STRINGS.en || {}, it = STAFF_PORTAL_STRINGS.it || {}, es = STAFF_PORTAL_STRINGS.es || {};
 const modal = extractModal(apiSrc);
 // Stable far-future "today" — no business-horizon decay (not rolling calendar).
 const TODAY = '2035-06-15';
-const TK=['guestRequired','componentsRequired','courseRequired','courseTierRequired','dateInvalid','datePast','dateOrder','rentalIncomplete',
+const TK=['guestRequired','componentsRequired','courseRequired','courseTierRequired',
   'privateLesson.sessionIncomplete','privateLesson.sessionDatePast','privateLesson.sessionDuplicate','privateLesson.sessionEndAfterStart',
   'checkingPrice','creating','quoteFailed','quoteStale','quoteBusy','quoteTotal','failed','summary.chooseLessonOrGear','summary.completeSessions',
   'summary.sessions','summary.surfers'];
 const T={}; TK.forEach((k)=>{ const full='schedule.create.'+k; T[full]=en[full]||k; });
 Object.assign(T,{
+  'calendar.state.invalidDateRange':en['calendar.state.invalidDateRange']||'Enter valid dates as DD/MM/YYYY.',
   'schedule.type.course':'Group course','schedule.type.privateLesson':'Private course','schedule.type.noLesson':'No lesson',
   'schedule.type.boardRental':'Board rental','schedule.type.wetsuitRental':'Wetsuit rental','schedule.ops.rentalBoth':'Surfboard + wetsuit',
   'schedule.payment.paid':'Paid','schedule.payment.unpaid':'Unpaid','admin.period.1_day':'1 day','admin.period.2_days':'2 day',
@@ -153,10 +153,14 @@ assert('ps-create ids', ['ps-create-guest', 'ps-create-comp-no-lesson', 'ps-crea
 assert('tenant school + a11y', /id="ps-create-school-label"/.test(modal) && /role="radiogroup"/.test(modal)
   && /for="ps-create-guest"/.test(modal) && /data-i18n-aria="schedule\.create\.privateLesson\.removeSession"/.test(portalSrc));
 [
-  'schedule.create.dateInvalid', 'schedule.create.datePast', 'schedule.create.dateOrder',
-  'schedule.create.rentalIncomplete', 'schedule.create.componentsRequired', 'schedule.create.guestRequired',
+  'calendar.state.invalidDateRange',
+  'schedule.create.componentsRequired', 'schedule.create.guestRequired',
   'schedule.create.courseRequired', 'schedule.create.courseTierRequired',
-].forEach((k) => assert('i18n ' + k, en[k] && es[k] && it[k] && es[k] !== en[k] && it[k] !== en[k]));
+].forEach((k) => assert('i18n ' + k, !!(en[k] && es[k] && it[k]) && es[k] !== en[k] && it[k] !== en[k]
+  && !/^schedule\.create\.|^calendar\.state\./.test(en[k])));
+assert('no dedicated date/rental create keys', !en['schedule.create.dateInvalid'] && !en['schedule.create.datePast']
+  && !en['schedule.create.dateOrder'] && !en['schedule.create.rentalIncomplete']
+  && !it['schedule.create.dateInvalid'] && !it['schedule.create.rentalIncomplete']);
 assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\s*100dvh/.test(apiSrc)
   && /portal-schedule-create-header\{[^}]*flex:\s*0\s+0\s+auto/.test(apiSrc)
   && /portal-schedule-create-body\{[^}]*overflow-y:\s*auto/.test(apiSrc)
@@ -433,11 +437,17 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
 
   console.log('\n[14] Hard gates + full-day');
   let hardOk=true;
-  for (const p of [baseCourse({date_from:'2035-06-01',date_to:'2035-06-01'}), baseCourse({date_from:'2035-06-22',date_to:'2035-06-15'}),
-    rentalOnly({rentals:[{offering_key:'board_rental',duration_key:'',quantity:1}]}), rentalOnly({rentals:[{offering_key:'mystery_rental',duration_key:'1_day',quantity:1}]}),
-    baseCourse({components:{course:{course_id:'',course_label:'G',tier_key:'1_week',quantity:1}}})]) {
+  const hardCases=[
+    [baseCourse({date_from:'2035-06-01',date_to:'2035-06-01'}), 'calendar.state.invalidDateRange'],
+    [baseCourse({date_from:'2035-06-22',date_to:'2035-06-15'}), 'calendar.state.invalidDateRange'],
+    [rentalOnly({rentals:[{offering_key:'board_rental',duration_key:'',quantity:1}]}), 'schedule.create.componentsRequired'],
+    [rentalOnly({rentals:[{offering_key:'mystery_rental',duration_key:'1_day',quantity:1}]}), 'schedule.create.componentsRequired'],
+    [baseCourse({components:{course:{course_id:'',course_label:'G',tier_key:'1_week',quantity:1}}}), 'schedule.create.courseRequired'],
+  ];
+  for (const [p, wantKey] of hardCases) {
     const c=sandbox(); c._setPayload(p); c.submitScheduleManualBooking(); await sleep(8);
-    if (c._qn()!==0||creates(c).length!==0) hardOk=false;
+    const m=msg(c);
+    if (c._qn()!==0||creates(c).length!==0||m!==T[wantKey]||/schedule\.create\.|calendar\.state\./.test(m)) hardOk=false;
   }
   assert('hard date/rental/course blocked', hardOk);
   assert('full-day sellable', sandbox().schedulePortalHasSellableIntent({
