@@ -16562,6 +16562,24 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-rental-pebble.is-selected{border-color:var(--sched-primary,#4E5853);background:var(--sched-primary,#4E5853);color:#fff}
 .portal-schedule-create-rental-pebble:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
 .portal-schedule-create-check.is-disabled,.portal-schedule-create-check:has(input:disabled){opacity:.55;cursor:not-allowed}
+/* Staff custom commercial line mini-section (above Payments) */
+.portal-schedule-create-custom-lines{margin:10px 0 14px;padding:0}
+.portal-schedule-create-custom-lines-list{display:flex;flex-direction:column;gap:6px;margin:0 0 8px}
+.portal-schedule-create-custom-line-row{display:flex;align-items:center;gap:8px;min-height:40px;padding:6px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);font-size:13px}
+.portal-schedule-create-custom-line-row .ps-cl-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.portal-schedule-create-custom-line-row .ps-cl-amount{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:600}
+.portal-schedule-create-custom-line-row .ps-cl-remove{flex:0 0 auto;min-width:40px;min-height:40px;padding:0 8px;border:none;background:transparent;color:var(--text-2);font-size:18px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;border-radius:8px}
+.portal-schedule-create-custom-line-row .ps-cl-remove:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
+.portal-schedule-create-custom-lines-collapsed{display:flex;align-items:center}
+.portal-schedule-create-custom-line-plus{min-width:44px;min-height:44px;width:44px;height:44px;padding:0;border:1px dashed var(--border-soft,#d4d0c8);border-radius:12px;background:var(--surface,#fff);color:var(--text,#222);font-size:22px;font-weight:600;line-height:1;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.portal-schedule-create-custom-line-plus:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
+.portal-schedule-create-custom-lines-editor{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
+.portal-schedule-create-custom-line-price-row{display:flex;align-items:center;gap:8px}
+.portal-schedule-create-custom-line-currency{font-weight:600;color:var(--text-2);min-width:1.2em}
+.portal-schedule-create-custom-line-price-row input{flex:1 1 auto;min-height:40px}
+.portal-schedule-create-custom-line-actions{display:flex;gap:8px;flex-wrap:wrap}
+.portal-schedule-create-custom-line-actions .btn{min-height:40px}
+.portal-schedule-create-custom-line-error{margin:0;font-size:12px;color:var(--danger,#b33)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-field input,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-field select,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-field textarea{background:var(--sched-surface);border-color:var(--sched-border-soft);color:var(--sched-text)}
@@ -18472,6 +18490,30 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         </div>
       </section>
       <section class="portal-schedule-create-section" data-create-section="payment" aria-labelledby="ps-create-section-payment-title">
+        <div id="ps-create-custom-lines" class="portal-schedule-create-custom-lines" data-testid="ps-create-custom-lines">
+          <div id="ps-create-custom-lines-list" class="portal-schedule-create-custom-lines-list" aria-live="polite"></div>
+          <div id="ps-create-custom-lines-collapsed" class="portal-schedule-create-custom-lines-collapsed">
+            <button type="button" id="ps-create-custom-line-add-btn" class="portal-schedule-create-custom-line-plus" data-i18n-aria="schedule.create.customLine.add" aria-label="Add custom line" title="Add custom line">+</button>
+          </div>
+          <div id="ps-create-custom-lines-editor" class="portal-schedule-create-custom-lines-editor" style="display:none" hidden aria-hidden="true">
+            <div class="portal-schedule-create-field">
+              <label for="ps-create-custom-line-label" data-i18n="schedule.create.customLine.label">Label</label>
+              <input id="ps-create-custom-line-label" type="text" maxlength="120" autocomplete="off">
+            </div>
+            <div class="portal-schedule-create-field">
+              <label for="ps-create-custom-line-price" data-i18n="schedule.create.customLine.price">Price</label>
+              <div class="portal-schedule-create-custom-line-price-row">
+                <span id="ps-create-custom-line-currency" class="portal-schedule-create-custom-line-currency" aria-hidden="true">€</span>
+                <input id="ps-create-custom-line-price" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00">
+              </div>
+            </div>
+            <div class="portal-schedule-create-custom-line-actions">
+              <button type="button" class="btn btn-primary" id="ps-create-custom-line-confirm" data-i18n="schedule.create.customLine.confirm">Add</button>
+              <button type="button" class="btn btn-ghost" id="ps-create-custom-line-cancel" data-i18n="schedule.create.customLine.cancel">Cancel</button>
+            </div>
+            <p id="ps-create-custom-line-error" class="portal-schedule-create-custom-line-error" style="display:none" role="alert"></p>
+          </div>
+        </div>
         <h3 id="ps-create-section-payment-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.paymentNotes">Payment &amp; notes</h3>
         <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option></select></div>
         <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
@@ -22008,6 +22050,178 @@ function scheduleUpdateCreateTotalPreview(){
   else scheduleUpdateFullDayAddonSummary('ps-create-fullday-rows', 'ps-create-fullday-summary');
 }
 
+/* Staff custom commercial lines (Create drawer) — not Admin catalog prices. */
+var scheduleCreateCustomLines = [];
+var scheduleCreateCustomLineSeq = 0;
+var scheduleCreateCustomLineEditorOpen = false;
+
+/** Browser-local money parse for Create custom lines (server revalidates with parseLocaleMoneyToCents). */
+function scheduleParseCreateMoneyToCents(raw) {
+  if (raw == null) return { ok: false, error: 'amount_required' };
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw) || !Number.isInteger(raw)) return { ok: false, error: 'amount_invalid' };
+    return { ok: true, amount_cents: raw === 0 || Object.is(raw, -0) ? 0 : raw };
+  }
+  var s = String(raw).trim();
+  if (!s) return { ok: false, error: 'amount_required' };
+  s = s.replace(/[€$£\u00a0\s]/g, '');
+  var neg = false;
+  if (s.charAt(0) === '-') { neg = true; s = s.slice(1); }
+  else if (s.charAt(0) === '+') { s = s.slice(1); }
+  if (!s) return { ok: false, error: 'amount_required' };
+  var lastDot = s.lastIndexOf('.');
+  var lastComma = s.lastIndexOf(',');
+  var normalized = s;
+  if (lastDot >= 0 && lastComma >= 0) {
+    normalized = lastComma > lastDot ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+  } else if (lastComma >= 0) {
+    var fracC = s.slice(lastComma + 1);
+    normalized = (/^\d{1,2}$/.test(fracC) && s.indexOf(',') === lastComma)
+      ? s.replace(',', '.') : s.replace(/,/g, '');
+  }
+  if (!/^\d+(\.\d+)?$/.test(normalized)) return { ok: false, error: 'amount_invalid' };
+  var parts = normalized.split('.');
+  if (parts[1] != null && parts[1].length > 2) return { ok: false, error: 'amount_too_many_decimals' };
+  var whole = parts[0] || '0';
+  var frac = ((parts[1] || '') + '00').slice(0, 2);
+  var cents = parseInt(whole, 10) * 100 + parseInt(frac, 10);
+  if (!Number.isFinite(cents)) return { ok: false, error: 'amount_nan' };
+  if (neg) cents = -cents;
+  if (cents === 0) cents = 0;
+  if (Math.abs(cents) > Number.MAX_SAFE_INTEGER) return { ok: false, error: 'amount_overflow' };
+  return { ok: true, amount_cents: cents };
+}
+
+function scheduleFormatCentsMoney(cents) {
+  var n = Number(cents);
+  if (!Number.isFinite(n)) n = 0;
+  var sign = n < 0 ? '-' : '';
+  var abs = Math.abs(Math.round(n));
+  return sign + '\u20ac' + (abs / 100).toFixed(2);
+}
+
+function scheduleEscapeHtmlLite(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function scheduleSetCustomLineEditorOpen(open) {
+  scheduleCreateCustomLineEditorOpen = !!open;
+  var collapsed = el('ps-create-custom-lines-collapsed');
+  var editor = el('ps-create-custom-lines-editor');
+  var err = el('ps-create-custom-line-error');
+  if (collapsed) collapsed.style.display = open ? 'none' : 'flex';
+  if (editor) {
+    editor.style.display = open ? 'flex' : 'none';
+    if (open) { editor.removeAttribute('hidden'); editor.setAttribute('aria-hidden', 'false'); }
+    else { editor.setAttribute('hidden', ''); editor.setAttribute('aria-hidden', 'true'); }
+  }
+  if (err) { err.style.display = 'none'; err.textContent = ''; }
+  if (open) {
+    var lab = el('ps-create-custom-line-label');
+    var price = el('ps-create-custom-line-price');
+    if (lab) lab.value = '';
+    if (price) price.value = '';
+    try { if (lab) lab.focus(); } catch (_f) { /* ignore */ }
+  }
+}
+
+function scheduleRenderCreateCustomLines() {
+  var list = el('ps-create-custom-lines-list');
+  if (!list) return;
+  if (!scheduleCreateCustomLines.length) {
+    list.innerHTML = '';
+    return;
+  }
+  var removeLab = (typeof portalT === 'function' ? portalT('schedule.create.customLine.remove') : '') || 'Remove';
+  list.innerHTML = scheduleCreateCustomLines.map(function(line) {
+    return '<div class="portal-schedule-create-custom-line-row" data-client-line-id="'
+      + scheduleEscapeHtmlLite(line.client_line_id) + '">'
+      + '<span class="ps-cl-label">' + scheduleEscapeHtmlLite(line.label) + '</span>'
+      + '<span class="ps-cl-amount">' + scheduleEscapeHtmlLite(scheduleFormatCentsMoney(line.amount_cents)) + '</span>'
+      + '<button type="button" class="ps-cl-remove" data-remove-custom-line="'
+      + scheduleEscapeHtmlLite(line.client_line_id) + '" aria-label="'
+      + scheduleEscapeHtmlLite(removeLab) + '">\u00d7</button></div>';
+  }).join('');
+}
+
+function scheduleConfirmCreateCustomLine() {
+  var err = el('ps-create-custom-line-error');
+  function fail(msg) {
+    if (err) { err.textContent = msg; err.style.display = 'block'; }
+  }
+  var labelRaw = el('ps-create-custom-line-label') ? el('ps-create-custom-line-label').value : '';
+  var label = String(labelRaw || '').trim();
+  if (!label) {
+    return fail((typeof portalT === 'function' ? portalT('schedule.create.customLine.labelRequired') : '') || 'Label is required');
+  }
+  if (label.length > 120) {
+    return fail((typeof portalT === 'function' ? portalT('schedule.create.customLine.labelTooLong') : '') || 'Label max 120 characters');
+  }
+  var priceRaw = el('ps-create-custom-line-price') ? el('ps-create-custom-line-price').value : '';
+  var parsed = scheduleParseCreateMoneyToCents(priceRaw);
+  if (!parsed.ok) {
+    return fail((typeof portalT === 'function' ? portalT('schedule.create.customLine.priceInvalid') : '') || 'Enter a valid price (max 2 decimals)');
+  }
+  if (scheduleCreateCustomLines.length >= 20) {
+    return fail((typeof portalT === 'function' ? portalT('schedule.create.customLine.tooMany') : '') || 'Too many custom lines');
+  }
+  scheduleCreateCustomLineSeq += 1;
+  scheduleCreateCustomLines.push({
+    client_line_id: 'cl_' + String(Date.now()) + '_' + String(scheduleCreateCustomLineSeq),
+    label: label,
+    amount_cents: parsed.amount_cents,
+  });
+  scheduleRenderCreateCustomLines();
+  scheduleSetCustomLineEditorOpen(false);
+  if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
+  else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();
+}
+
+function scheduleRemoveCreateCustomLine(clientLineId) {
+  var id = String(clientLineId || '');
+  scheduleCreateCustomLines = scheduleCreateCustomLines.filter(function(l) {
+    return String(l.client_line_id) !== id;
+  });
+  scheduleRenderCreateCustomLines();
+  if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
+  else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent();
+}
+
+function scheduleWireCreateCustomLines() {
+  var plus = el('ps-create-custom-line-add-btn');
+  var confirm = el('ps-create-custom-line-confirm');
+  var cancel = el('ps-create-custom-line-cancel');
+  var list = el('ps-create-custom-lines-list');
+  if (plus && !plus._clBound) {
+    plus._clBound = true;
+    plus.addEventListener('click', function() { scheduleSetCustomLineEditorOpen(true); });
+  }
+  if (confirm && !confirm._clBound) {
+    confirm._clBound = true;
+    confirm.addEventListener('click', function() { scheduleConfirmCreateCustomLine(); });
+  }
+  if (cancel && !cancel._clBound) {
+    cancel._clBound = true;
+    cancel.addEventListener('click', function() { scheduleSetCustomLineEditorOpen(false); });
+  }
+  if (list && !list._clBound) {
+    list._clBound = true;
+    list.addEventListener('click', function(ev) {
+      var t = ev.target;
+      if (!t) return;
+      var btn = t.closest ? t.closest('[data-remove-custom-line]') : null;
+      if (!btn && t.getAttribute) btn = t.getAttribute('data-remove-custom-line') != null ? t : null;
+      if (!btn) return;
+      var rid = btn.getAttribute('data-remove-custom-line');
+      if (rid) scheduleRemoveCreateCustomLine(rid);
+    });
+  }
+  scheduleRenderCreateCustomLines();
+  scheduleSetCustomLineEditorOpen(false);
+}
+
 function scheduleReadCreatePayload(){
   var guest = (el('ps-create-guest') && el('ps-create-guest').value || '').trim();
   var phone = (el('ps-create-phone') && el('ps-create-phone').value || '').trim();
@@ -22064,6 +22278,13 @@ function scheduleReadCreatePayload(){
       components.full_day_equipment_extension = { enabled: true, dates: addonDates };
     }
   }
+  var custom_line_items = (scheduleCreateCustomLines || []).map(function(l) {
+    return {
+      client_line_id: String(l.client_line_id),
+      label: String(l.label),
+      amount_cents: Number(l.amount_cents),
+    };
+  });
   return {
     guest_name: guest,
     guest_phone: phone || null,
@@ -22073,6 +22294,7 @@ function scheduleReadCreatePayload(){
     notes: notes,
     components: components,
     rentals: rentals,
+    custom_line_items: custom_line_items,
   };
 }
 
