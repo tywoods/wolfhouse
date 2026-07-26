@@ -52,8 +52,14 @@ const DURATION_ALIASES = {
   day: '1_day',
   '2 days': '2_days',
   '2_days': '2_days',
+  '3 days': '3_days',
+  '3_days': '3_days',
+  '4 days': '4_days',
+  '4_days': '4_days',
   '5 days': '5_days',
   '5_days': '5_days',
+  '6 days': '6_days',
+  '6_days': '6_days',
   '7 days': '7_days',
   '7_days': '7_days',
   week: '7_days',
@@ -180,7 +186,8 @@ function lookupSunsetRentalPrice(opts) {
 function resolveRentalBillingUnit(durationKey) {
   const key = String(durationKey || '').trim();
   if (/hour|half_day|lesson/i.test(key)) return 'session';
-  if (/^(1|2|5|7)_days?$/.test(key) || key === '1_day') return 'day';
+  // Inclusive 1–7 day windows share billing grain "day" (whole-window price row).
+  if (key === '1_day' || /^[1-7]_days$/.test(key)) return 'day';
   return null;
 }
 
@@ -438,4 +445,7 @@ module.exports = {
   lookupSunsetFullDayEquipmentAddon,
   FULL_DAY_EQUIPMENT_ADDON_KEY,
   ITEM_ALIASES,
+  DURATION_ALIASES,
+  resolveRentalBillingUnit,
+  resolveDurationKey,
 };
