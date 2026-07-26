@@ -165,14 +165,14 @@ function qBody(n,a,b){return{ok:true,body:{success:true,total_cents:n===1?a:b}};
     const c = sandbox({ debounceMs:5, quoteDelay:(n)=>delays[n-1],
       quoteOutcome:(n)=>({ok:true,body:{success:true,total_cents:n===1?11100:22200,quote_provenance:{source:n===1?'A':'B'}}}) });
     c._setPayload(baseCourse()); const r1=c.schedulePortalRunPreviewQuote(); await sleep(delays[0]===5?2:10);
-    c._setPayload(baseCourse({ components:{ course:{ course_id:'c1', course_label:'G', quantity:2 } } }));
+    c._setPayload(baseCourse({ components:{ course:{ course_id:'c1', course_label:'G', tier_key:'1_week', quantity:2 } } }));
     await Promise.all([r1, c.schedulePortalRunPreviewQuote()]);
     assert(label, c.schedulePortalQuoteState && c.schedulePortalQuoteState.total_cents===22200 && /€222\.00/.test(Q(c)) && !/€111/.test(Q(c)));
   }
   await race([60,5],'race B-then-A'); await race([5,40],'race A-then-B');
   const uncoop = sandbox({ debounceMs:5, uncooperative:true, quoteDelay:(n)=>n===1?50:5, quoteOutcome:(n)=>qBody(n,11100,22200) });
   uncoop._setPayload(baseCourse()); const u1=uncoop.schedulePortalRunPreviewQuote(); await sleep(8);
-  uncoop._setPayload(baseCourse({ components:{ course:{ course_id:'c1', course_label:'G', quantity:2 } } }));
+  uncoop._setPayload(baseCourse({ components:{ course:{ course_id:'c1', course_label:'G', tier_key:'1_week', quantity:2 } } }));
   await Promise.all([u1, uncoop.schedulePortalRunPreviewQuote()]);
   assert('uncoop after B', /€222\.00/.test(Q(uncoop)) && !/€111/.test(Q(uncoop)));
   const us = sandbox({ debounceMs:5, uncooperative:true, quoteDelay:40, total_cents:88800 });
@@ -182,7 +182,7 @@ function qBody(n,a,b){return{ok:true,body:{success:true,total_cents:n===1?a:b}};
   assert('uncoop after soft', !/€888/.test(Q(us)) && us.schedulePortalQuoteState==null);
   const deb = sandbox({ debounceMs:350, uncooperative:true, quoteDelay:(n)=>n===1?200:10, quoteOutcome:(n)=>qBody(n,11100,22200) });
   deb._setPayload(baseCourse()); const d1=deb.schedulePortalRefreshCreateQuote(); await sleep(400);
-  deb._setPayload(baseCourse({ components:{ course:{ course_id:'c1', course_label:'G', quantity:2 } } }));
+  deb._setPayload(baseCourse({ components:{ course:{ course_id:'c1', course_label:'G', tier_key:'1_week', quantity:2 } } }));
   const d2=deb.schedulePortalRefreshCreateQuote();
   assert('deb checking', /Checking price/.test(Q(deb))); await sleep(200);
   assert('deb no stale', /Checking price/.test(Q(deb)) && !/€111/.test(Q(deb))
@@ -215,7 +215,7 @@ function qBody(n,a,b){return{ok:true,body:{success:true,total_cents:n===1?a:b}};
   await errS.schedulePortalRunPreviewQuote(); assert('errors+recovery', e409&&e503&&eGen&&/€50\.00/.test(Q(errS)));
   const mut = sandbox({ debounceMs:5, quoteDelay:5, total_cents:7700 });
   mut._setPayload({ guest_name:'M', date_from:'2026-08-20', date_to:'2026-08-20', payment_status:'unpaid',
-    components:{ course:{ course_id:'c1', course_label:'€999 pack', quantity:1, amount_cents:99900 } },
+    components:{ course:{ course_id:'c1', course_label:'€999 pack', tier_key:'1_week', quantity:1, amount_cents:99900 } },
     rentals:[{ offering_key:'board_rental', duration_key:'1_day', quantity:1, total_cents:12345 }] });
   await mut.schedulePortalRunPreviewQuote(); assert('canon', /€77\.00/.test(Q(mut)) && !/€999|12345/.test(Q(mut)));
   const guest = sandbox({ debounceMs:80, quoteDelay:5 });
@@ -234,7 +234,7 @@ function qBody(n,a,b){return{ok:true,body:{success:true,total_cents:n===1?a:b}};
     .replace(/applyState && myGen === schedulePortalQuoteGen/g,'applyState');
   const rGuard = sandMut(stripGen,{ quoteDelay:(n)=>n===1?50:5, quoteOutcome:(n)=>qBody(n,11100,22200) });
   const g1=rGuard.schedulePortalRunPreviewQuote(); await sleep(10);
-  rGuard._setPayload(baseCourse({ components:{ course:{ course_id:'c1', course_label:'G', quantity:2 } } }));
+  rGuard._setPayload(baseCourse({ components:{ course:{ course_id:'c1', course_label:'G', tier_key:'1_week', quantity:2 } } }));
   await Promise.all([g1, rGuard.schedulePortalRunPreviewQuote()]);
   assert('RED gen', /€111\.00/.test(Q(rGuard)) || (rGuard.schedulePortalQuoteState && rGuard.schedulePortalQuoteState.total_cents===11100));
   const rStale = sandMut(portalSrc.replace(/function schedulePortalShowQuoteChecking\(\) \{[\s\S]*?\n\}/,'function schedulePortalShowQuoteChecking(){}'),{ quoteDelay:40 });
@@ -267,7 +267,7 @@ function qBody(n,a,b){return{ok:true,body:{success:true,total_cents:n===1?a:b}};
   assert('RED deb mut', noBump !== portalSrc);
   const rDeb = sandMut(noBump,{ debounceMs:350, uncooperative:true, quoteDelay:(n)=>n===1?200:10, quoteOutcome:(n)=>qBody(n,11100,22200) });
   rDeb._setPayload(baseCourse()); const rd1=rDeb.schedulePortalRefreshCreateQuote(); await sleep(400);
-  rDeb._setPayload(baseCourse({ components:{ course:{ course_id:'c1', course_label:'G', quantity:2 } } }));
+  rDeb._setPayload(baseCourse({ components:{ course:{ course_id:'c1', course_label:'G', tier_key:'1_week', quantity:2 } } }));
   rDeb.schedulePortalRefreshCreateQuote(); await sleep(200);
   assert('RED deb no gen', /€111/.test(Q(rDeb)) || (rDeb.schedulePortalQuoteState && rDeb.schedulePortalQuoteState.total_cents===11100));
   await rd1.catch(()=>null);

@@ -481,14 +481,14 @@ function schedulePortalValidateCreatePayload(payload, opts) {
     return out;
   }
 
-  // Soft: guest+course/tier hard-only; soft owns sellable/private/dates/rentals.
+  // Soft: guest hard-only; course/tier + sellable/private/dates/rentals both modes.
   if (!soft) {
     var guest = p.guest_name != null ? String(p.guest_name).trim() : '';
     if (!guest) return fail('schedule.create.guestRequired');
-    if (comps.course) {
-      if (!String(comps.course.course_id || '').trim()) return fail('schedule.create.courseRequired');
-      if (!String(comps.course.tier_key || '').trim()) return fail('schedule.create.courseTierRequired');
-    }
+  }
+  if (comps.course) {
+    if (!String(comps.course.course_id || '').trim()) return fail('schedule.create.courseRequired');
+    if (!String(comps.course.tier_key || '').trim()) return fail('schedule.create.courseTierRequired');
   }
 
   if (!schedulePortalHasSellableIntent(p)) {

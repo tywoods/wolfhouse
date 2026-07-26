@@ -341,6 +341,8 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
     ['emptyDur', rentalOnly({ rentals: [{ offering_key: 'board_rental', duration_key: '', quantity: 1 }] })],
     ['qty0', rentalOnly({ rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 0 }] })],
     ['frac', rentalOnly({ rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1.5 }] })],
+    ['noCid', baseCourse({ components: { course: { course_id: '', course_label: 'G', tier_key: '1_week', quantity: 1 } } })],
+    ['noTier', baseCourse({ components: { course: { course_id: 'c1', course_label: 'G', tier_key: '', quantity: 1 } } })],
   ];
   for (const [lab, p] of invalids) {
     const c = sandbox({ debounceMs: 30, quoteDelay: 5 });
@@ -364,10 +366,17 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
   assert('valid shows checking', /Checking price/.test(Q(corr)));
   await sleep(40);
   assert('invalid→valid one Ready', corr._qn() === 1 && /€135\.00/.test(Q(corr)));
-  const dir = sandbox({ debounceMs: 5 });
-  dir._setPayload(baseCourse({ date_from: '2035-06-01', date_to: '2035-06-01' }));
-  const dirR = await dir.schedulePortalRunPreviewQuote();
-  assert('direct invalid zero net', dir._qn() === 0 && dirR && dirR.softInvalid && !msg(dir));
+  corr._setPayload(baseCourse({ components: { course: { course_id: 'c1', course_label: 'G', tier_key: '', quantity: 1 } } }));
+  corr.schedulePortalRefreshCreateQuote(); await sleep(40);
+  const missTierClear = corr._qn() === 1 && !/€135/.test(Q(corr)) && !msg(corr);
+  corr._setPayload(baseCourse()); corr.schedulePortalRefreshCreateQuote(); await sleep(40);
+  assert('miss tier→Ready', missTierClear && corr._qn() === 2 && /€135\.00/.test(Q(corr)));
+  let dirOk = true;
+  for (const p of [baseCourse({ date_from: '2035-06-01', date_to: '2035-06-01' }), baseCourse({ components: { course: { course_id: '', course_label: 'G', tier_key: '1_week', quantity: 1 } } }), baseCourse({ components: { course: { course_id: 'c1', course_label: 'G', tier_key: '', quantity: 1 } } })]) {
+    const d = sandbox({ debounceMs: 5 }); d._setPayload(p); const r = await d.schedulePortalRunPreviewQuote();
+    if (!(d._qn() === 0 && r && r.softInvalid && !msg(d))) dirOk = false;
+  }
+  assert('direct invalid/course zero net', dirOk);
   const idle = sandbox({ debounceMs: 5 });
   idle.el('ps-create-quote-preview').innerHTML = 'Quoted total: €9.00'; idle.el('ps-create-quote-preview').style.display = 'block';
   idle._setPayload({ guest_name: '', date_from: TODAY, date_to: TODAY, payment_status: 'unpaid', components: {}, rentals: [] });
@@ -385,13 +394,13 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
   const redRent = sandbox({ portalSrc: stripSellable, debounceMs: 5, quoteDelay: 5 });
   redRent._setPayload(rentalOnly()); redRent.submitScheduleManualBooking(); await sleep(30);
   assert('RED canonical rentals-only reject', creates(redRent).length === 0 && redRent._qn() === 0);
-  // Soft gate bypass: invalid date must quote (true RED).
+  // Soft gate bypass: incomplete course must quote (true RED).
   const noSoft = portalSrc.replace(/schedulePortalValidateCreatePayload\([^)]*,\s*\{\s*soft:\s*true\s*\}\)/g, '({ ok: true }/*mut soft*/)');
   assert('mut soft gate', noSoft !== portalSrc && /\/\*mut soft\*\//.test(noSoft));
   const redSoft = sandbox({ portalSrc: noSoft, debounceMs: 5, quoteDelay: 5 });
-  redSoft._setPayload(baseCourse({ date_from: '2035-06-20', date_to: '2035-06-15' }));
+  redSoft._setPayload(baseCourse({ components: { course: { course_id: '', course_label: 'G', tier_key: '1_week', quantity: 1 } } }));
   await redSoft.schedulePortalRefreshCreateQuote(); await sleep(40);
-  assert('RED soft bypass quotes invalid', redSoft._qn() >= 1, 'qn=' + redSoft._qn());
+  assert('RED soft bypass incomplete course', redSoft._qn() >= 1, 'qn=' + redSoft._qn());
   const greenSoft = sandbox({ debounceMs: 5, quoteDelay: 5 });
   greenSoft._setPayload(baseCourse({ date_from: '2035-06-20', date_to: '2035-06-15' }));
   await greenSoft.schedulePortalRefreshCreateQuote(); await sleep(40);
@@ -425,12 +434,12 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
   console.log('\n[14] Hard gates + full-day');
   let hardOk=true;
   for (const p of [baseCourse({date_from:'2035-06-01',date_to:'2035-06-01'}), baseCourse({date_from:'2035-06-22',date_to:'2035-06-15'}),
-    rentalOnly({rentals:[{offering_key:'board_rental',duration_key:'',quantity:1}]}),
-    rentalOnly({rentals:[{offering_key:'mystery_rental',duration_key:'1_day',quantity:1}]})]) {
+    rentalOnly({rentals:[{offering_key:'board_rental',duration_key:'',quantity:1}]}), rentalOnly({rentals:[{offering_key:'mystery_rental',duration_key:'1_day',quantity:1}]}),
+    baseCourse({components:{course:{course_id:'',course_label:'G',tier_key:'1_week',quantity:1}}})]) {
     const c=sandbox(); c._setPayload(p); c.submitScheduleManualBooking(); await sleep(8);
     if (c._qn()!==0||creates(c).length!==0) hardOk=false;
   }
-  assert('hard date/rental blocked', hardOk);
+  assert('hard date/rental/course blocked', hardOk);
   assert('full-day sellable', sandbox().schedulePortalHasSellableIntent({
     components:{ full_day_equipment_extension:{ enabled:true, dates:{[TODAY]:1} } }, rentals:[] })===true);
 
