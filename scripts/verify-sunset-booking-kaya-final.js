@@ -156,6 +156,7 @@ assert('tenant school + a11y', /id="ps-create-school-label"/.test(modal) && /rol
   'calendar.state.invalidDateRange',
   'schedule.create.componentsRequired', 'schedule.create.guestRequired',
   'schedule.create.courseRequired', 'schedule.create.courseTierRequired',
+  'schedule.create.creating', 'schedule.create.createBusy', 'schedule.create.idempotencyConflict',
 ].forEach((k) => assert('i18n ' + k, !!(en[k] && es[k] && it[k]) && es[k] !== en[k] && it[k] !== en[k]
   && !/^schedule\.create\.|^calendar\.state\./.test(en[k])));
 assert('no dedicated date/rental create keys', !en['schedule.create.dateInvalid'] && !en['schedule.create.datePast']

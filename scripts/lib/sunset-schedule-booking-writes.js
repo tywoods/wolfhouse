@@ -1616,7 +1616,9 @@ async function createSunsetScheduleBooking(pg, opts) {
           service_time_local: session.start,
           service_time_local_end: session.end,
         });
-        createdRows.push(row);
+        // INSERT RETURNING flattens metadata; reattach nested object so
+        // applyAuthoritativeQuoteAmounts / rowMatchesQuoteLine can claim private rows.
+        createdRows.push({ ...row, metadata });
       }
     }
 
