@@ -442,21 +442,23 @@ function scheduleRenderSunsetBookingCardHtml(ctx){
   if (dayCount > 1) {
     var daily = '';
     dayKeys.forEach(function(d) {
+      var dayRows = scheduleDrawerSortItems(items.filter(function(li) {
+        return String(li.service_date || '').slice(0, 10) === d
+          && !(li.service_record_id && hidden[li.service_record_id]);
+      }));
+      // Inventory/zeroed peer rows are not commercial lines — omit entirely
+      // (never label "Included" as a price).
+      if (!dayRows.length) return;
       daily += '<div class="ps-day-group"><div class="ps-day-header">' + escHtml(scheduleDrawerDayHeaderLabel(d)) + '</div>';
-      scheduleDrawerSortItems(items.filter(function(li) { return String(li.service_date || '').slice(0, 10) === d; })).forEach(function(li) {
-        if (li.service_record_id && hidden[li.service_record_id]) {
-          daily += '<div class="ps-day-row ps-day-row-fulfilment"><span>' +
-            escHtml(scheduleDrawerStripLabelDate(li.label)) +
-            '</span><span class="ps-day-amt ps-day-amt-included">' +
-            escHtml(portalT('schedule.drawer.includedInBundle')) + '</span></div>';
-          return;
-        }
+      dayRows.forEach(function(li) {
         daily += '<div class="ps-day-row"><span>' + escHtml(scheduleDrawerStripLabelDate(li.label)) +
           '</span><span class="ps-day-amt">' + escHtml(scheduleDrawerEur(li.line_cents)) + '</span></div>';
       });
       daily += '</div>';
     });
-    body += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.showDaily')) + '</summary>' + daily + '</details>';
+    if (daily) {
+      body += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.showDaily')) + '</summary>' + daily + '</details>';
+    }
   } else if (!commercialLines.length) {
     scheduleDrawerSortItems(items).forEach(function(li) {
       body += '<div class="ps-day-row"><span>' + escHtml(scheduleDrawerStripLabelDate(li.label)) +
