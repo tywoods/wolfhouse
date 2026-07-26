@@ -462,6 +462,69 @@ function schedulePortalHasSellableIntent(payload) {
     || (Array.isArray(p.rentals) && p.rentals.length));
 }
 
+/**
+ * Shared create validation for submit (hard) and quote soft gates.
+ * Sellable intent includes rental-only (No lesson + gear). Does not re-price.
+ * opts.soft: skip guest; return softInvalid/idle rather than hard block.
+ */
+function schedulePortalValidateCreatePayload(payload, opts) {
+  opts = opts || {};
+  var soft = opts.soft === true;
+  var p = payload || {};
+  var comps = p.components || {};
+  var rentals = Array.isArray(p.rentals) ? p.rentals : [];
+  function fail(key, extra) {
+    var out = { ok: false, errorKey: key };
+    if (extra) { for (var k in extra) { if (Object.prototype.hasOwnProperty.call(extra, k)) out[k] = extra[k]; } }
+    // Soft non-idle → softInvalid (no raw keys in UI).
+    if (soft && !out.idle) out.softInvalid = true;
+    return out;
+  }
+
+  // Soft: guest hard-only; course/tier + sellable/private/dates/rentals both modes.
+  if (!soft) {
+    var guest = p.guest_name != null ? String(p.guest_name).trim() : '';
+    if (!guest) return fail('schedule.create.guestRequired');
+  }
+  if (comps.course) {
+    if (!String(comps.course.course_id || '').trim()) return fail('schedule.create.courseRequired');
+    if (!String(comps.course.tier_key || '').trim()) return fail('schedule.create.courseTierRequired');
+  }
+
+  if (!schedulePortalHasSellableIntent(p)) {
+    return fail('schedule.create.componentsRequired', { idle: true });
+  }
+
+  if (comps.private_lesson) {
+    var plCheck = schedulePortalValidatePrivateLessonCreate(comps.private_lesson);
+    if (!plCheck || plCheck.ok !== true) {
+      return fail((plCheck && plCheck.errorKey) || 'schedule.create.privateLesson.sessionIncomplete');
+    }
+  } else {
+    var df = schedulePortalCanonicalDateIso(p.date_from);
+    var dt = schedulePortalCanonicalDateIso(p.date_to != null ? p.date_to : p.date_from);
+    var today = schedulePortalMadridTodayIso();
+    if (!df || !dt || df < today || dt < today || df > dt) return fail('calendar.state.invalidDateRange');
+  }
+
+  if (rentals.length) {
+    var known = (typeof SCHEDULE_CANONICAL_RENTAL_OFFERINGS !== 'undefined' && SCHEDULE_CANONICAL_RENTAL_OFFERINGS)
+      || ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'];
+    for (var i = 0; i < rentals.length; i++) {
+      var r = rentals[i] || {};
+      var off = String(r.offering_key || '').trim();
+      var dur = String(r.duration_key || '').trim();
+      var qty = Number(r.quantity);
+      // Nonempty duration (catalog-driven). Canonical offerings.
+      if (known.indexOf(off) < 0 || !dur || !(Number.isFinite(qty) && Math.floor(qty) === qty && qty >= 1)) {
+        return fail('schedule.create.componentsRequired');
+      }
+    }
+  }
+
+  return { ok: true };
+}
+
 function schedulePortalInvalidateCreateQuoteIntent(result) {
   schedulePortalInvalidatePreviewWork();
   schedulePortalQuoteState = null;
@@ -628,39 +691,27 @@ function schedulePortalClearQuotePreviewUi() {
 function schedulePortalRunPreviewQuote() {
   if (schedulePortalSubmitInFlight) return Promise.resolve(null);
   var payload = scheduleReadCreatePayload();
-  var comps = payload.components || {};
-  var hasComps = Object.keys(comps).length > 0 || (Array.isArray(payload.rentals) && payload.rentals.length > 0);
-  if (!hasComps) {
+  // Shared soft gate; inline abort/clear (Slice 4 harnesses lack Invalidate).
+  var softGate = null;
+  try { softGate = schedulePortalValidateCreatePayload(payload || {}, { soft: true }); }
+  catch (_sg) { softGate = { ok: false, softInvalid: true }; }
+  if (!softGate || softGate.ok !== true) {
     if (schedulePortalQuoteTimer != null) { clearTimeout(schedulePortalQuoteTimer); schedulePortalQuoteTimer = null; }
     if (schedulePortalQuoteAbort) { try { schedulePortalQuoteAbort.abort(); } catch (_i) { /* ignore */ } schedulePortalQuoteAbort = null; }
     schedulePortalQuoteGen += 1;
     schedulePortalClearQuotePreviewUi();
+    if (softGate && softGate.idle === true) {
+      if (typeof schedulePortalRenderCreateQuotePreview === 'function') schedulePortalRenderCreateQuotePreview({ idle: true });
+      return Promise.resolve(null);
+    }
+    if (payload && payload.components && payload.components.private_lesson
+      && typeof schedulePortalRenderCreateIntentSummary === 'function') {
+      schedulePortalRenderCreateIntentSummary(payload);
+    }
     if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
-      schedulePortalRenderCreateQuotePreview({ idle: true });
+      schedulePortalRenderCreateQuotePreview({ ok: false, softInvalid: true });
     }
-    return Promise.resolve(null);
-  }
-  // Private sessions: shared validator gate before quote fetch (soft-invalid, no toast).
-  if (comps.private_lesson) {
-    var plGate = null;
-    try { plGate = schedulePortalValidatePrivateLessonCreate(comps.private_lesson); }
-    catch (_pl) { plGate = { ok: false, errorKey: 'schedule.create.privateLesson.sessionIncomplete' }; }
-    if (!plGate || plGate.ok !== true) {
-      if (schedulePortalQuoteTimer != null) { clearTimeout(schedulePortalQuoteTimer); schedulePortalQuoteTimer = null; }
-      if (schedulePortalQuoteAbort) {
-        try { schedulePortalQuoteAbort.abort(); } catch (_a) { /* ignore */ }
-        schedulePortalQuoteAbort = null;
-      }
-      schedulePortalQuoteGen += 1;
-      schedulePortalClearQuotePreviewUi();
-      if (typeof schedulePortalRenderCreateIntentSummary === 'function') {
-        schedulePortalRenderCreateIntentSummary(payload);
-      }
-      if (typeof schedulePortalRenderCreateQuotePreview === 'function') {
-        schedulePortalRenderCreateQuotePreview({ ok: false, softInvalid: true });
-      }
-      return Promise.resolve({ ok: false, softInvalid: true, errorKey: (plGate && plGate.errorKey) || 'schedule.create.privateLesson.sessionIncomplete' });
-    }
+    return Promise.resolve({ ok: false, softInvalid: true, errorKey: softGate && softGate.errorKey });
   }
 
   if (schedulePortalQuoteAbort) {
@@ -706,19 +757,17 @@ function schedulePortalRefreshCreateQuote() {
   }
   var payload = null;
   try { payload = typeof scheduleReadCreatePayload === 'function' ? scheduleReadCreatePayload() : null; } catch (_r) { payload = null; }
-  if (!payload || !schedulePortalHasSellableIntent(payload)) {
-    schedulePortalInvalidateCreateQuoteIntent({ idle: true });
-    return Promise.resolve(null);
-  }
-  if (payload.components && payload.components.private_lesson) {
-    var soft = false;
-    try { var g = schedulePortalValidatePrivateLessonCreate(payload.components.private_lesson); soft = !g || g.ok !== true; }
-    catch (_g) { soft = true; }
-    if (soft) {
-      schedulePortalInvalidateCreateQuoteIntent({ ok: false, softInvalid: true });
-      schedulePortalRenderCreateIntentSummary(payload);
-      return Promise.resolve(null);
+  // Immediate soft gate: abort, clear Ready, zero network.
+  var softGate = null;
+  try { softGate = schedulePortalValidateCreatePayload(payload || {}, { soft: true }); }
+  catch (_sg) { softGate = { ok: false, softInvalid: true }; }
+  if (!softGate || softGate.ok !== true) {
+    var inv = (softGate && softGate.idle === true) ? { idle: true } : { ok: false, softInvalid: true };
+    schedulePortalInvalidateCreateQuoteIntent(inv);
+    if (!inv.idle && payload && payload.components && payload.components.private_lesson) {
+      try { schedulePortalRenderCreateIntentSummary(payload); } catch (_s) { /* ignore */ }
     }
+    return Promise.resolve(null);
   }
   if (schedulePortalQuoteAbort) {
     try { schedulePortalQuoteAbort.abort(); } catch (_a) { /* ignore */ }
@@ -992,34 +1041,17 @@ function submitScheduleManualBooking() {
   var payload = scheduleReadCreatePayload();
   var submitBtn = el('ps-create-submit');
   var msg = el('ps-create-msg');
-  if (!payload.guest_name) {
-    if (msg) { msg.textContent = portalT('schedule.create.guestRequired'); msg.style.display = 'block'; }
+  // Shared owner: sellable (rental-only ok), guest, course/tier, dates, private
+  // (schedulePortalValidatePrivateLessonCreate), rental rows.
+  var gate = null;
+  try { gate = schedulePortalValidateCreatePayload(payload, { soft: false }); }
+  catch (_g) { gate = { ok: false, errorKey: 'schedule.create.componentsRequired' }; }
+  if (!gate || gate.ok !== true) {
+    if (msg) {
+      msg.textContent = portalT((gate && gate.errorKey) || 'schedule.create.componentsRequired');
+      msg.style.display = 'block';
+    }
     return;
-  }
-  if (!Object.keys(payload.components).length) {
-    if (msg) { msg.textContent = portalT('schedule.create.componentsRequired'); msg.style.display = 'block'; }
-    return;
-  }
-  if (payload.components.course) {
-    var coursePart = payload.components.course;
-    if (!coursePart.course_id) {
-      if (msg) { msg.textContent = portalT('schedule.create.courseRequired') || 'Select a group course.'; msg.style.display = 'block'; }
-      return;
-    }
-    if (!coursePart.tier_key) {
-      if (msg) { msg.textContent = portalT('schedule.create.courseTierRequired') || 'Select a course duration.'; msg.style.display = 'block'; }
-      return;
-    }
-  }
-  if (payload.components.private_lesson) {
-    var plCheck = schedulePortalValidatePrivateLessonCreate(payload.components.private_lesson);
-    if (!plCheck.ok) {
-      if (msg) {
-        msg.textContent = portalT(plCheck.errorKey || 'schedule.create.privateLesson.sessionIncomplete');
-        msg.style.display = 'block';
-      }
-      return;
-    }
   }
 
   schedulePortalSubmitInFlight = true;

@@ -1762,6 +1762,10 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.create.privateLesson.sessionDatePast': 'Le date delle sessioni non possono essere nel passato.',
     'schedule.create.privateLesson.sessionDuplicate': 'Due sessioni hanno la stessa data e ora — modificane una.',
     'schedule.create.privateLesson.sessionMax': 'Troppe sessioni — massimo 30.',
+    'schedule.create.componentsRequired': 'Seleziona almeno un componente.',
+    'schedule.create.guestRequired': 'Il nome ospite è obbligatorio.',
+    'schedule.create.courseRequired': 'Seleziona un corso di gruppo.',
+    'schedule.create.courseTierRequired': 'Seleziona una durata del corso prima di creare la prenotazione.',
   },
 };
 

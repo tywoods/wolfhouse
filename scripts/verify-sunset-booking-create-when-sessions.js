@@ -81,8 +81,8 @@ const CORE = [
   'scheduleUpdatePrivateLessonDateRangeFromSessions', 'scheduleAddPrivateLessonSession', 'scheduleRemovePrivateLessonSession',
   'scheduleOnCreateComponentChange', 'schedulePopulateCreateComponentFields', 'scheduleReadCreatePayload',
   'scheduleRefreshCreateEmptyGuidance', 'schedulePortalMadridTodayIso', 'schedulePortalCanonicalDateIso',
-  'schedulePortalValidatePrivateLessonCreate', 'schedulePortalClearQuotePreviewUi', 'schedulePortalRunPreviewQuote',
-  'scheduleCreateDateSpanForRentals',
+  'schedulePortalValidatePrivateLessonCreate', 'schedulePortalHasSellableIntent', 'schedulePortalValidateCreatePayload',
+  'schedulePortalClearQuotePreviewUi', 'schedulePortalRunPreviewQuote', 'scheduleCreateDateSpanForRentals',
 ];
 function build(opts) {
   opts = opts || {};
@@ -379,8 +379,9 @@ const asyncPass = (async () => {
   assert('past outer empty', sb.el('ps-create-date-from').value === '' && sb.el('ps-create-date-to').value === '');
   setRow(sb, 0, { date: '2026-07-21junk', start: '10:00', end: '12:00' }); sb.scheduleUpdatePrivateLessonDateRangeFromSessions();
   assert('suffix junk outer empty', sb.el('ps-create-date-from').value === '' && sb.el('ps-create-date-to').value === '');
-  const red1Fn = extractFn(portalSrc, 'schedulePortalRunPreviewQuote').replace('if (!plGate || plGate.ok !== true)', 'if (false && (!plGate || plGate.ok !== true))');
-  assert('RED1 mutates gate away', /if \(false && \(!plGate/.test(red1Fn) && /softInvalid:\s*true/.test(extractFn(portalSrc, 'schedulePortalRunPreviewQuote') || ''));
+  const red1Fn = extractFn(portalSrc, 'schedulePortalRunPreviewQuote')
+    .replace('if (!softGate || softGate.ok !== true)', 'if (false && (!softGate || softGate.ok !== true))');
+  assert('RED1 mutates gate away', /if \(false && \(!softGate/.test(red1Fn) && /softInvalid:\s*true/.test(extractFn(portalSrc, 'schedulePortalRunPreviewQuote') || ''));
   const sb1 = build({ today: '2026-07-20' });
   vm.runInContext((extractFn(portalSrc, 'schedulePortalClearQuotePreviewUi') || '') + '\n' + red1Fn, sb1);
   pick(sb1, 'ps-create-comp-private-lesson'); setRow(sb1, 0, { date: '', start: '10:00', end: '12:00' }); sb1._quote.fetch = 0;

@@ -146,7 +146,7 @@ assert(
 );
 
 const formPayload = {
-  guest_name: 'Ada Lovelace', date_from: '2026-07-20', date_to: '2026-07-22',
+  guest_name: 'Ada Lovelace', date_from: '2026-08-20', date_to: '2026-08-22',
   components: { course: { course_id: 'course-beginner', tier_key: '1_week', quantity: 1 } },
   amount_due_cents: 99999, total_cents: 99999,
 };
@@ -155,7 +155,7 @@ function sandbox(opts = {}) {
   const log = [];
   const nodes = {};
   const payload = {
-    guest_name: 'Ada Lovelace', date_from: '2026-07-20', date_to: '2026-07-22', payment_status: 'unpaid',
+    guest_name: 'Ada Lovelace', date_from: '2026-08-20', date_to: '2026-08-22', payment_status: 'unpaid',
     components: { course: { course_id: 'course-beginner', tier_key: '1_week', quantity: 1 } }, rentals: [],
   };
   let qn = 0;
@@ -246,7 +246,7 @@ assert('schedulePortalFetchQuote exported in sandbox', typeof simpleCtx.schedule
     && body.components.course.course_id === formPayload.components.course.course_id
     && body.components.course.tier_key === formPayload.components.course.tier_key
     && body.location_id === 'sunset-somo'
-    && Array.isArray(body.service_dates) && body.service_dates[0] === '2026-07-20' && body.service_dates[1] === '2026-07-22'
+    && Array.isArray(body.service_dates) && body.service_dates[0] === '2026-08-20' && body.service_dates[1] === '2026-08-22'
     && !Object.prototype.hasOwnProperty.call(body, 'amount_due_cents')
     && !Object.prototype.hasOwnProperty.call(body, 'total_cents'));
 
