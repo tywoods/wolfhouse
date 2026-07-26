@@ -827,10 +827,35 @@ function schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo) {
   if (!id) return { ok: false, errorKey: 'schedule.create.courseRequired' };
   var days = schedulePortalInclusiveDateCount(dateFrom, dateTo);
   if (days < 1) return { ok: false, errorKey: 'calendar.state.invalidDateRange' };
+  // Group courses: max 14 inclusive days. Price for 8–14 is server-owned from Admin 7_days.
+  if (days > 14) {
+    return { ok: false, errorKey: 'schedule.create.courseDurationUnavailable', duration_days: days };
+  }
   var course = null;
   var cache = (typeof scheduleCoursesCache !== 'undefined' && scheduleCoursesCache) || [];
   for (var i = 0; i < cache.length; i++) {
     if (String((cache[i] && cache[i].course_id) || '').trim() === id) { course = cache[i]; break; }
+  }
+  // Days 8–14: identity is the Admin 7_days row only (no 8–14 Admin options / no client math).
+  if (days >= 8 && days <= 14) {
+    var tiers814 = Array.isArray(course && course.price_tiers) ? course.price_tiers : [];
+    var seven = null;
+    for (var j = 0; j < tiers814.length; j++) {
+      var t814 = tiers814[j];
+      if (!t814 || t814.bookable === false) continue;
+      if (String(t814.key || '').trim() === '7_days') { seven = t814; break; }
+    }
+    if (!seven) {
+      return { ok: false, errorKey: 'schedule.create.courseDurationUnavailable', duration_days: days };
+    }
+    return {
+      ok: true,
+      tier_key: '7_days',
+      duration_days: days,
+      offering_id: seven.offering_id || ('surf_pack_' + id + '__7_days'),
+      tier_label: seven.label != null ? String(seven.label) : '',
+      pricing_basis: '7_days_prorate',
+    };
   }
   var matches = schedulePortalMatchSellableCourseTiersByDurationDays(course, days);
   if (!matches.length) {

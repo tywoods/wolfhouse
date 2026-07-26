@@ -33,6 +33,11 @@ const {
   isSunsetLocationId,
 } = require('./sunset-school-locations');
 const { isSunsetAdminDbReadEnabled } = require('./tenant-business-config');
+const {
+  MAX_GROUP_COURSE_INCLUSIVE_DAYS,
+  groupCourseAdminTierKeyForInclusiveDays,
+  groupCourseUnitCentsFromSevenDayAdmin,
+} = require('./sunset-admin-duration-keys');
 
 const QUOTE_CHANNELS = Object.freeze({
   MANUAL_STAFF: 'manual_staff',
@@ -318,6 +323,102 @@ function extractServiceDates(transportBody) {
   return [];
 }
 
+/**
+ * Group course unit cents from Admin only:
+ *   days 1–7  → exact Admin duration row for that day count
+ *   days 8–14 → round(Admin 7_days × days / 7); no 8–14 Admin rows
+ *   days >14  → fail closed
+ * No client arithmetic / no fallback tiers.
+ */
+async function resolveGroupCourseUnitAmountCents(pg, command, offering, serviceDates, quantity, requireDb) {
+  const days = Array.isArray(serviceDates) ? serviceDates.length : 0;
+  if (days < 1) {
+    return mapQuoteFailure('invalid_service_dates');
+  }
+  if (days > MAX_GROUP_COURSE_INCLUSIVE_DAYS) {
+    return mapQuoteFailure('course_duration_exceeds_max', {
+      status: 422,
+      detail: { requested_days: days, max_days: MAX_GROUP_COURSE_INCLUSIVE_DAYS },
+    });
+  }
+  const adminTierKey = groupCourseAdminTierKeyForInclusiveDays(days);
+  if (!adminTierKey) {
+    return mapQuoteFailure('course_duration_exceeds_max', {
+      status: 422,
+      detail: { requested_days: days },
+    });
+  }
+  const courseId = offering.course_id;
+  const offeringId = packPriceItemCode(courseId, adminTierKey);
+
+  if (pg && requireDb) {
+    const resolved = await resolveActiveSunsetAdminPrice(pg, {
+      clientSlug: SUNSET_CLIENT_SLUG,
+      locationId: command.locationId,
+      quantity,
+      metadata: {
+        component: 'course',
+        staff_ui_service_type: 'course',
+        course_id: courseId,
+        tier_key: adminTierKey,
+        offering_id: offeringId,
+        location_id: command.locationId,
+      },
+      pgClient: pg,
+    });
+    if (!resolved || !resolved.ok) {
+      return mapQuoteFailure((resolved && resolved.reason) || 'price_not_configured');
+    }
+    let unitAmount = resolved.unit_amount_cents;
+    if (days >= 8) {
+      const prorated = groupCourseUnitCentsFromSevenDayAdmin(unitAmount, days);
+      if (!prorated.ok) {
+        return mapQuoteFailure(prorated.reason || 'price_not_configured');
+      }
+      unitAmount = prorated.unit_amount_cents;
+    }
+    return {
+      ok: true,
+      unit_amount_cents: unitAmount,
+      price_source: resolved.price_source || 'admin_db',
+      price_id: resolved.price_id || offering.price_id,
+      admin_tier_key: adminTierKey,
+      requested_days: days,
+    };
+  }
+
+  // Catalog / offline: require the offering itself to be the Admin owner tier
+  // (exact 1–7, or 7_days for 8–14 proration). Never invent amounts.
+  const catalogTier = String(offering.tier_key || '').trim();
+  if (catalogTier !== adminTierKey) {
+    return mapQuoteFailure('price_not_configured', {
+      detail: { expected_tier: adminTierKey, offering_tier: catalogTier },
+    });
+  }
+  let unitAmount = offering.unit_amount_cents != null
+    ? offering.unit_amount_cents
+    : (offering.price && offering.price.amount_cents);
+  unitAmount = Math.round(Number(unitAmount));
+  if (!Number.isFinite(unitAmount) || unitAmount <= 0) {
+    return mapQuoteFailure('price_missing');
+  }
+  if (days >= 8) {
+    const prorated = groupCourseUnitCentsFromSevenDayAdmin(unitAmount, days);
+    if (!prorated.ok) {
+      return mapQuoteFailure(prorated.reason || 'price_not_configured');
+    }
+    unitAmount = prorated.unit_amount_cents;
+  }
+  return {
+    ok: true,
+    unit_amount_cents: unitAmount,
+    price_source: requireDb ? 'admin_db' : (offering.price_source || 'admin_db'),
+    price_id: offering.price_id || (offering.price && offering.price.price_id),
+    admin_tier_key: adminTierKey,
+    requested_days: days,
+  };
+}
+
 async function quoteOfferingLine(pg, command, offering, serviceDates, quantity, requireDb) {
   if (offering.offering_type === 'course' && serviceDates.length) {
     const scheduleCheck = evaluateSunsetOfferingDates(offering, serviceDates);
@@ -355,6 +456,22 @@ async function quoteOfferingLine(pg, command, offering, serviceDates, quantity, 
     }
   }
 
+  // Group courses: date-count owns the Admin tier (1–7 exact / 8–14 from 7_days).
+  if (offering.offering_type === 'course') {
+    const coursePrice = await resolveGroupCourseUnitAmountCents(
+      pg, command, offering, serviceDates, quantity, requireDb,
+    );
+    if (!coursePrice.ok) return coursePrice;
+    return finalizeQuoteLine(
+      offering,
+      serviceDates,
+      quantity,
+      coursePrice.unit_amount_cents,
+      coursePrice.price_source,
+      coursePrice.price_id,
+    );
+  }
+
   let unitAmount = offering.unit_amount_cents;
   let priceSource = offering.price_source || 'admin_db';
   let priceId = offering.price_id;
@@ -365,7 +482,7 @@ async function quoteOfferingLine(pg, command, offering, serviceDates, quantity, 
       locationId: command.locationId,
       quantity,
       metadata: {
-        component: offering.offering_type === 'course' ? 'course' : offering.offering_type,
+        component: offering.offering_type,
         staff_ui_service_type: offering.offering_type,
         course_id: offering.course_id,
         tier_key: offering.tier_key,
@@ -396,6 +513,39 @@ function quoteOfferingLineSync(command, offering, serviceDates, quantity, requir
         detail: scheduleCheck.detail || null,
       });
     }
+  }
+  if (offering.offering_type === 'course') {
+    // Sync path cannot await; use the pure Admin-tier proration owner.
+    const days = Array.isArray(serviceDates) ? serviceDates.length : 0;
+    if (days < 1) return mapQuoteFailure('invalid_service_dates');
+    if (days > MAX_GROUP_COURSE_INCLUSIVE_DAYS) {
+      return mapQuoteFailure('course_duration_exceeds_max', {
+        status: 422,
+        detail: { requested_days: days, max_days: MAX_GROUP_COURSE_INCLUSIVE_DAYS },
+      });
+    }
+    const adminTierKey = groupCourseAdminTierKeyForInclusiveDays(days);
+    const catalogTier = String(offering.tier_key || '').trim();
+    if (!adminTierKey || catalogTier !== adminTierKey) {
+      return mapQuoteFailure('price_not_configured', {
+        detail: { expected_tier: adminTierKey, offering_tier: catalogTier },
+      });
+    }
+    let unitAmount = offering.unit_amount_cents != null
+      ? offering.unit_amount_cents
+      : (offering.price && offering.price.amount_cents);
+    unitAmount = Math.round(Number(unitAmount));
+    if (!Number.isFinite(unitAmount) || unitAmount <= 0) {
+      return mapQuoteFailure('price_missing');
+    }
+    if (days >= 8) {
+      const prorated = groupCourseUnitCentsFromSevenDayAdmin(unitAmount, days);
+      if (!prorated.ok) return mapQuoteFailure(prorated.reason || 'price_not_configured');
+      unitAmount = prorated.unit_amount_cents;
+    }
+    const priceSource = requireDb ? 'admin_db' : (offering.price_source || 'admin_db');
+    const priceId = offering.price_id || (offering.price && offering.price.price_id);
+    return finalizeQuoteLine(offering, serviceDates, quantity, unitAmount, priceSource, priceId);
   }
   const unitAmount = offering.unit_amount_cents != null
     ? offering.unit_amount_cents
