@@ -12,7 +12,26 @@
 const path = require('path');
 const writesPath = path.join(__dirname, 'lib', 'sunset-schedule-booking-writes.js');
 const drawerPath = path.join(__dirname, 'lib', 'sunset-schedule-booking-drawer.js');
+const linksPath = path.join(__dirname, 'lib', 'sunset-stripe-payment-links.js');
 require(writesPath).resolveFullDayEquipmentAddonUnitCents = async () => 1000;
+// Existing Luna attribution gate stubs pricing owner: authoritative reprice is
+// covered by verify-sunset-edit-authoritative-requote.
+require(writesPath).applyAuthoritativeSchedulePricingInTxn = async (pg, opts) => {
+  const booking = pg.state && pg.state.bookings && pg.state.bookings[0];
+  const services = (pg.state && pg.state.services) || [];
+  let total = 0;
+  services.forEach((s) => {
+    if (!s.amount_due_cents || Number(s.amount_due_cents) <= 0) {
+      s.amount_due_cents = 4500;
+    }
+    total += Number(s.amount_due_cents) || 0;
+  });
+  if (booking) {
+    booking.total_amount_cents = total || 9000;
+    booking.balance_due_cents = Math.max((total || 9000) - Number(booking.amount_paid_cents || 0), 0);
+  }
+  return { ok: true, total_cents: total || 9000, sunset_price_source: 'test_stub' };
+};
 const tenantWritesPath = path.join(__dirname, 'lib', 'tenant-services-writes.js');
 require(tenantWritesPath).ensureBookingServiceGenericType = async () => {};
 delete require.cache[drawerPath];
@@ -22,6 +41,7 @@ const {
   LUNA_METADATA_SOURCE_TAG,
 } = require('./lib/sunset-schedule-booking-writes');
 const { rowSourceLabel } = require('./lib/sunset-schedule-ops');
+void linksPath;
 
 let pass = 0;
 let fail = 0;
@@ -100,11 +120,49 @@ function buildMockPg(opts) {
         state.services = state.services.filter((s) => !sources.includes(s.record_source));
         return { rowCount: state.deletedSources.length };
       }
+      if (/FOR UPDATE/i.test(q) && /FROM bookings/i.test(q)) {
+        const b = state.bookings[0];
+        return {
+          rows: [{
+            booking_id: b.booking_id,
+            client_id: '11111111-1111-4111-8111-111111111111',
+            booking_code: b.booking_code,
+            guest_name: b.guest_name,
+            phone: b.phone,
+            status: b.status,
+            payment_status: b.payment_status,
+            check_in: b.check_in,
+            check_out: b.check_out,
+            guest_count: b.guest_count,
+            amount_paid_cents: b.amount_paid_cents,
+            total_amount_cents: b.total_amount_cents,
+            balance_due_cents: b.balance_due_cents,
+            metadata: b.metadata,
+          }],
+        };
+      }
+      if (/FROM payments/i.test(q) && /FOR UPDATE/i.test(q)) {
+        return { rows: [] };
+      }
+      if (/SUM\(amount_paid_cents\)/i.test(q) && /FROM payments/i.test(q)) {
+        return { rows: [{ paid_total: 0 }] };
+      }
       if (/UPDATE bookings/i.test(q) && /guest_name/i.test(q)) {
-        const meta = parseMeta(params[7]);
+        const metaIdx = params.length >= 9 ? 7 : 5;
+        const meta = parseMeta(params[metaIdx]);
         state.bookings[0].guest_name = params[0];
         state.bookings[0].metadata = { ...state.bookings[0].metadata, ...meta };
-        return { rows: [] };
+        if (params.length >= 9) {
+          state.bookings[0].check_in = params[4];
+          state.bookings[0].check_out = params[5];
+          state.bookings[0].guest_count = params[6];
+        } else {
+          state.bookings[0].guest_count = params[4];
+        }
+        return { rows: [], rowCount: 1 };
+      }
+      if (/UPDATE bookings/i.test(q) && /total_amount_cents|amount_paid_cents/i.test(q)) {
+        return { rows: [], rowCount: 1 };
       }
       if (/INSERT INTO booking_service_records/i.test(q)) {
         if (state.insertFailOnce && !state.insertFailed) {

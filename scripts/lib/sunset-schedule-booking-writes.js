@@ -1160,15 +1160,28 @@ function resolveGuestCount(components) {
   return counts.length ? Math.max(...counts) : 1;
 }
 
+function canonicalRentalCoveredDates(r) {
+  const raw = (r && (r.covered_dates || r.rental_service_dates)) || [];
+  return Array.isArray(raw)
+    ? raw.map((d) => String(d || '').slice(0, 10)).filter(Boolean).sort()
+    : [];
+}
+
 function canonicalRentalsForIntentFingerprint(rentals) {
   if (!Array.isArray(rentals) || !rentals.length) return [];
-  return rentals
-    .map((r) => ({
-      offering_key: String((r && r.offering_key) || '').trim(),
+  return rentals.map((r) => {
+    const offering_key = String((r && r.offering_key) || '').trim();
+    return {
+      offering_key,
       duration_key: String((r && r.duration_key) || '').trim(),
       quantity: Number(r && r.quantity) || 0,
-    }))
-    .filter((r) => r.offering_key)
+      covered_dates: canonicalRentalCoveredDates(r),
+      pricing_group: (
+        offering_key === 'board_and_suit_rental'
+        || (r && (r.pricing_group_id || r.rental_bundle_id))
+      ) ? 'bundle' : 'single',
+    };
+  }).filter((r) => r.offering_key)
     .sort((a, b) => (a.offering_key < b.offering_key ? -1 : (a.offering_key > b.offering_key ? 1 : 0)));
 }
 
@@ -1179,7 +1192,7 @@ function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
   Object.keys(components).sort().forEach((k) => { ordered[k] = components[k]; });
   const rentalsSrc = opts.rentals != null ? opts.rentals
     : (input && input.rentals != null ? input.rentals : []);
-  const payload = {
+  return crypto.createHash('sha256').update(JSON.stringify({
     location_id: String(locationId || ''),
     guest_name: String((input && input.guest_name) || ''),
     guest_phone: input && input.guest_phone != null ? String(input.guest_phone) : '',
@@ -1189,8 +1202,497 @@ function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
     rentals: canonicalRentalsForIntentFingerprint(rentalsSrc),
     notes: String((input && input.notes) || ''),
     needs_reply: !!(input && input.needs_reply),
+  })).digest('hex');
+}
+
+/** Pricing intent only (dates + components + rentals); guest/payment excluded. */
+function buildSchedulePricingIntent(input, opts) {
+  opts = opts || {};
+  const componentsIn = (input && input.components && typeof input.components === 'object')
+    ? input.components : {};
+  const components = {};
+  Object.keys(componentsIn).sort().forEach((key) => {
+    const part = componentsIn[key];
+    if (!part || typeof part !== 'object') return;
+    if (key === 'private_lesson') {
+      const sessions = Array.isArray(part.sessions)
+        ? part.sessions.map((s) => ({
+          date: String((s && s.date) || '').slice(0, 10),
+          start: String((s && s.start) || '').trim(),
+          end: String((s && s.end) || '').trim(),
+        })).sort((a, b) => a.date.localeCompare(b.date)
+          || a.start.localeCompare(b.start)
+          || a.end.localeCompare(b.end))
+        : [];
+      components[key] = {
+        quantity: Number(part.quantity) || sessions.length || 1,
+        surfer_count: Number(part.surfer_count) || 1,
+        sessions,
+      };
+      return;
+    }
+    if (key === FULL_DAY_EQUIPMENT_ADDON_KEY) {
+      const dates = {};
+      const rawDates = (part.dates && typeof part.dates === 'object') ? part.dates : {};
+      Object.keys(rawDates).sort().forEach((iso) => {
+        dates[String(iso).slice(0, 10)] = Number(rawDates[iso]) || 1;
+      });
+      components[key] = { enabled: true, dates };
+      return;
+    }
+    const row = { quantity: Number(part.quantity) || 1 };
+    if (key === 'lesson') {
+      if (part.slot_time) row.slot_time = String(part.slot_time).trim();
+      row.category = String(part.category || DEFAULT_LESSON_CATEGORY).trim() || DEFAULT_LESSON_CATEGORY;
+    }
+    if (key === 'course') {
+      if (part.course_id) row.course_id = String(part.course_id).trim();
+      if (part.tier_key) row.tier_key = String(part.tier_key).trim();
+      if (part.offering_id) row.offering_id = String(part.offering_id).trim();
+      else if (row.course_id && row.tier_key) {
+        try {
+          row.offering_id = require('./sunset-admin-price-identity')
+            .packPriceItemCode(row.course_id, row.tier_key);
+        } catch (_) { /* incomplete → equality fails closed */ }
+      }
+    }
+    components[key] = row;
+  });
+  let rentalsSrc;
+  if (Object.prototype.hasOwnProperty.call(opts, 'rentals')) rentalsSrc = opts.rentals;
+  else if (input && Object.prototype.hasOwnProperty.call(input, 'rentals')) rentalsSrc = input.rentals;
+  else if (opts.preserveExistingRentals != null) rentalsSrc = opts.preserveExistingRentals;
+  else rentalsSrc = [];
+  if (Array.isArray(rentalsSrc) && Array.isArray(opts.rentalCoveredDates) && opts.rentalCoveredDates.length) {
+    rentalsSrc = rentalsSrc.map((r) => {
+      const covered = canonicalRentalCoveredDates(r);
+      return { ...r, covered_dates: covered.length ? covered : opts.rentalCoveredDates.slice() };
+    });
+  }
+  return {
+    service_dates: ((input && input.service_dates) || [])
+      .map((d) => String(d || '').slice(0, 10)).filter(Boolean).sort(),
+    components,
+    rentals: canonicalRentalsForIntentFingerprint(rentalsSrc),
   };
-  return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+function pricingIntentHasCompleteIdentity(intent) {
+  if (!intent || typeof intent !== 'object') return false;
+  const comps = intent.components || {};
+  for (const key of Object.keys(comps)) {
+    const part = comps[key];
+    if (!part || typeof part !== 'object') return false;
+    if (key === 'course') {
+      if (!part.course_id || !part.tier_key || !part.offering_id || !(Number(part.quantity) > 0)) return false;
+    } else if (key === 'lesson') {
+      if (!part.category || !(Number(part.quantity) > 0)) return false;
+    } else if (key === 'private_lesson') {
+      const sessions = part.sessions || [];
+      if (!sessions.length || sessions.some((s) => !s.date || !s.start || !s.end)) return false;
+    } else if (key === FULL_DAY_EQUIPMENT_ADDON_KEY) {
+      if (!part.dates || !Object.keys(part.dates).length) return false;
+    } else if (!(Number(part.quantity) > 0)) return false;
+  }
+  return !(intent.rentals || []).some(
+    (r) => !r.offering_key || !r.duration_key || !(Number(r.quantity) > 0),
+  );
+}
+
+/** Complete semantic equality only — incomplete identity never false-unchanged. */
+function schedulePricingIntentsEqual(a, b) {
+  if (!pricingIntentHasCompleteIdentity(a) || !pricingIntentHasCompleteIdentity(b)) return false;
+  return JSON.stringify(a || null) === JSON.stringify(b || null);
+}
+
+const PAID_BOOKING_REPRICE_REQUIRED = 'paid_booking_reprice_required';
+
+function isSunsetBookingFinanciallyCommitted(bundle) {
+  const booking = (bundle && bundle.booking) || {};
+  if (Number(booking.amount_paid_cents) > 0) return true;
+  if (Number(bundle && bundle.payments_paid_cents) > 0) return true;
+  const ps = String(booking.payment_status || '').toLowerCase();
+  if (ps === 'paid' || ps === 'complete' || ps === 'completed' || ps === 'partially_paid') return true;
+  for (const sr of (bundle && bundle.services) || []) {
+    if (Number(sr && sr.amount_paid_cents) > 0) return true;
+    const sPs = String((sr && sr.payment_status) || '').toLowerCase();
+    if (sPs === 'paid' || sPs === 'complete' || sPs === 'completed') return true;
+  }
+  return false;
+}
+
+function paidBookingRepriceRequiredResult() {
+  return {
+    ok: false,
+    status: 409,
+    body: {
+      success: false,
+      error: PAID_BOOKING_REPRICE_REQUIRED,
+      reason_code: PAID_BOOKING_REPRICE_REQUIRED,
+    },
+  };
+}
+
+async function lockSchedulePaymentsForUpdate(pg, bookingId, clientId) {
+  const res = await pg.query(
+    `SELECT id::text AS payment_id, status::text AS payment_status,
+            amount_due_cents, amount_paid_cents
+       FROM payments
+      WHERE booking_id = $1::uuid AND client_id = $2::uuid
+      FOR UPDATE`,
+    [bookingId, clientId],
+  );
+  const rows = res.rows || [];
+  const paidCents = rows
+    .filter((p) => String(p.payment_status || '').toLowerCase() === 'paid')
+    .reduce((s, p) => s + (Number(p.amount_paid_cents) || 0), 0);
+  return { rows, paidCents };
+}
+
+async function applyEditPaidAmountInTxn(pg, opts) {
+  const { bookingId, clientId, paymentMethod, actorEmail } = opts;
+  let paid = Number(opts.paymentsPaidCents) || 0;
+  if (paid <= 0) {
+    if (!clientId) {
+      return {
+        ok: false, status: 409,
+        body: {
+          success: false,
+          error: 'mark_paid_requires_client_scope',
+          reason_code: 'mark_paid_requires_client_scope',
+        },
+      };
+    }
+    const totalRes = await pg.query(
+      // MULTICLIENT_SCOPE_OK: mark-paid total
+      `SELECT COALESCE(total_amount_cents, 0)::int AS total FROM bookings
+        WHERE id = $1::uuid AND client_id = $2::uuid`,
+      [bookingId, clientId],
+    );
+    if (!totalRes.rows.length) {
+      return { ok: false, status: 409, body: { success: false, error: 'booking_mark_paid_conflict' } };
+    }
+    const total = Number(totalRes.rows[0].total) || 0;
+    if (total <= 0) {
+      return {
+        ok: false, status: 409,
+        body: {
+          success: false,
+          error: 'cannot_mark_paid_zero_total',
+          reason_code: 'cannot_mark_paid_zero_total',
+        },
+      };
+    }
+    await pg.query(
+      `INSERT INTO payments (
+         client_id, booking_id, status, payment_kind, currency,
+         amount_due_cents, amount_paid_cents, metadata
+       ) VALUES (
+         $1::uuid, $2::uuid, 'paid'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
+         $3, $3, $4::jsonb)`,
+      [
+        clientId, bookingId, total,
+        JSON.stringify({
+          source: 'staff_edit_manual_mark_paid',
+          method: paymentMethod || 'in_store',
+          actor: actorEmail || null,
+        }),
+      ],
+    );
+    paid = total;
+  }
+  const upd = await pg.query(
+    // MULTICLIENT_SCOPE_OK: money header
+    `UPDATE bookings SET amount_paid_cents = $1,
+            balance_due_cents = GREATEST(COALESCE(total_amount_cents, 0) - $1, 0)
+      WHERE id = $2::uuid AND client_id = $3::uuid`,
+    [paid, bookingId, clientId],
+  );
+  if (Number(upd && upd.rowCount) !== 1) {
+    return { ok: false, status: 409, body: { success: false, error: 'booking_mark_paid_conflict' } };
+  }
+  return { ok: true, amount_paid_cents: paid };
+}
+
+function throwSunsetPriceFail(status, error, extra) {
+  const err = new Error(error);
+  err.sunsetPriceFail = {
+    ok: false,
+    status,
+    body: { success: false, error, reason_code: error, ...(extra || {}) },
+  };
+  throw err;
+}
+
+async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
+  const clientSlug = String((opts && opts.clientSlug) || '').trim();
+  const locationId = (opts && opts.locationId) != null ? String(opts.locationId) : '';
+  let rentalPricingDescriptor = opts && opts.rentalPricingDescriptor;
+  if (!(opts && opts.canonicalRentals && opts.rentalPrepBody)) {
+    return { authoritativeQuote: null, rentalPricingDescriptor };
+  }
+  const {
+    buildSunsetQuoteCommand, executeSunsetQuote, buildQuoteProvenance, QUOTE_CHANNELS,
+  } = require('./luna-front-desk-quote-service');
+  const { resolveTenantBusinessConfigAsync } = require('./tenant-business-config');
+  const adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, {
+    locationId, pgClient: pg,
+  });
+  if (!adminCfg || adminCfg.ok === false) {
+    throwSunsetPriceFail(422, 'admin_config_unavailable', {
+      reason_code: 'admin_db_expected_unavailable',
+    });
+  }
+  const channel = opts.quoteChannel === 'luna_whatsapp'
+    ? QUOTE_CHANNELS.LUNA_WHATSAPP : QUOTE_CHANNELS.MANUAL_STAFF;
+  const quoteBuilt = buildSunsetQuoteCommand({
+    channel,
+    trustedLocationId: locationId,
+    transportBody: { ...opts.rentalPrepBody, require_db: true },
+    now: opts.now instanceof Date ? opts.now : new Date(),
+  });
+  if (!quoteBuilt.ok) {
+    const err = new Error((quoteBuilt.body && quoteBuilt.body.error) || 'quote_failed');
+    err.sunsetPriceFail = quoteBuilt;
+    throw err;
+  }
+  const freshQuote = await executeSunsetQuote(pg, quoteBuilt.command, { adminCfg });
+  if (!freshQuote.ok) {
+    const msg = (freshQuote.body && (freshQuote.body.error || freshQuote.body.reason)) || 'quote_failed';
+    throwSunsetPriceFail(freshQuote.status || 422, msg, {
+      reason_code: (freshQuote.body && (freshQuote.body.reason_code || freshQuote.body.reason))
+        || 'quote_failed',
+      quote_error: freshQuote.body,
+    });
+  }
+  const provenance = opts.quoteProvenance;
+  if (provenance && typeof provenance === 'object') {
+    const freshProv = buildQuoteProvenance(freshQuote.body);
+    if (String(provenance.quote_fingerprint || '') !== String(freshProv.quote_fingerprint || '')) {
+      throwSunsetPriceFail(409, 'The quoted price is no longer available. Please request a fresh quote.', {
+        reason_code: 'stale_quote',
+        detail: 'quote_fingerprint_mismatch',
+        expected_fingerprint: provenance.quote_fingerprint,
+        current_fingerprint: freshProv.quote_fingerprint,
+      });
+    }
+  }
+  const authoritativeQuote = freshQuote.body;
+  if (rentalPricingDescriptor && rentalPricingDescriptor.offering_key === 'board_and_suit_rental') {
+    const bundleLine = findQuoteLineForRentalOffering(
+      authoritativeQuote.line_items, 'board_and_suit_rental',
+    );
+    if (bundleLine && bundleLine.total_cents != null) {
+      rentalPricingDescriptor = {
+        ...rentalPricingDescriptor,
+        quoted_total_cents: Number(bundleLine.total_cents),
+      };
+    }
+  }
+  return { authoritativeQuote, rentalPricingDescriptor };
+}
+
+/** Exact quote claim or DB price path; requires clientId. Throws sunsetPriceFail. */
+async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
+  const clientSlug = String((opts && opts.clientSlug) || '').trim();
+  const bookingId = opts && opts.bookingId;
+  const clientId = opts && opts.clientId;
+  if (!clientId) throwSunsetPriceFail(500, 'client_id_required_for_pricing');
+  const createdRows = (opts && opts.createdRows) || [];
+  let rentalPricingDescriptor = opts && opts.rentalPricingDescriptor;
+  let authoritativeQuote = opts && opts.authoritativeQuote;
+
+  if (!authoritativeQuote && opts && opts.canonicalRentals && opts.rentalPrepBody) {
+    const resolved = await resolveAuthoritativeScheduleQuoteInTxn(pg, opts);
+    authoritativeQuote = resolved.authoritativeQuote;
+    if (resolved.rentalPricingDescriptor) {
+      rentalPricingDescriptor = resolved.rentalPricingDescriptor;
+    }
+  }
+
+  let priced;
+  if (authoritativeQuote) {
+    const applied = await applyAuthoritativeQuoteAmounts(pg, createdRows, authoritativeQuote, {
+      clientSlug,
+    });
+    if (!applied.ok) throwSunsetPriceFail(422, applied.error || 'quote_amount_apply_failed');
+    const metaPatch = {
+      sunset_priced_at: new Date().toISOString(),
+      sunset_price_source: 'authoritative_quote',
+      quote_fingerprint: authoritativeQuote.quote_provenance
+        && authoritativeQuote.quote_provenance.quote_fingerprint,
+    };
+    const bookingUpd = await pg.query(
+      // MULTICLIENT_SCOPE_OK: same-txn booking header; client_id predicate defense-in-depth
+      `UPDATE bookings
+          SET total_amount_cents = $1,
+              balance_due_cents = GREATEST($1 - COALESCE(amount_paid_cents, 0), 0),
+              metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+        WHERE id = $3::uuid AND client_id = $4::uuid`,
+      [applied.total_cents, JSON.stringify(metaPatch), bookingId, clientId],
+    );
+    if (Number(bookingUpd && bookingUpd.rowCount) !== 1) {
+      throwSunsetPriceFail(422, 'booking_total_update_mismatch');
+    }
+    if (Number(authoritativeQuote.total_cents) !== Number(applied.total_cents)) {
+      throwSunsetPriceFail(422, 'quote_total_mismatch');
+    }
+    priced = {
+      ok: true,
+      total_cents: applied.total_cents,
+      sunset_price_source: 'authoritative_quote',
+      authoritativeQuote,
+      rentalPricingDescriptor,
+    };
+  } else {
+    const { priceSunsetBookingServices } = require('./sunset-stripe-payment-links');
+    priced = await priceSunsetBookingServices(pg, clientSlug, bookingId);
+    if (!priced || !priced.ok) {
+      const { staffFacingSunsetAdminPriceError } = require('./sunset-admin-price-resolve');
+      const faced = staffFacingSunsetAdminPriceError((priced && priced.error) || 'pricing_failed');
+      throwSunsetPriceFail(422, faced.error, { reason_code: faced.reason_code });
+    }
+  }
+  if (opts && Object.prototype.hasOwnProperty.call(opts, 'lockedPaidCents')) {
+    const lockedPaidCents = Math.max(0, Number(opts.lockedPaidCents) || 0);
+    const total = Number(priced.total_cents) || 0;
+    const balance = Math.max(total - lockedPaidCents, 0);
+    const bal = await pg.query(
+      // MULTICLIENT_SCOPE_OK: balance = total - locked ledger paid
+      `UPDATE bookings SET amount_paid_cents = $1, balance_due_cents = $2
+        WHERE id = $3::uuid AND client_id = $4::uuid`,
+      [lockedPaidCents, balance, bookingId, clientId],
+    );
+    if (Number(bal && bal.rowCount) !== 1) {
+      throwSunsetPriceFail(409, 'booking_balance_update_conflict');
+    }
+    priced = { ...priced, amount_paid_cents: lockedPaidCents, balance_due_cents: balance };
+  }
+  return priced;
+}
+
+function decorateRentalServiceMetadata(metadata, opts) {
+  const componentKey = opts.componentKey;
+  if (componentKey !== 'surfboard' && componentKey !== 'wetsuit') return metadata;
+  if (opts.canonicalRentals) {
+    const rental = opts.canonicalRentals.find((r) => {
+      if (r.offering_key === 'board_and_suit_rental') return true;
+      if (componentKey === 'surfboard') return r.offering_key === 'board_rental';
+      return r.offering_key === 'wetsuit_rental';
+    });
+    if (rental) {
+      const quoteLine = opts.authoritativeQuote
+        ? findQuoteLineForRentalOffering(opts.authoritativeQuote.line_items, rental.offering_key)
+        : null;
+      metadata.offering_key = rental.offering_key;
+      metadata.duration_key = rental.duration_key;
+      metadata.quantity = rental.quantity;
+      metadata.rental_service_dates = opts.rentalSpanDates;
+      metadata.offering_id = `${rental.offering_key}__${rental.duration_key}`;
+      if (rental.offering_key === 'board_and_suit_rental') {
+        metadata.pricing_group_id = opts.rentalPricingGroupId;
+        metadata.bundle_part = componentKey;
+        metadata.rental_pricing_role = componentKey;
+        metadata.rental_bundle_id = opts.rentalPricingGroupId;
+      }
+      if (quoteLine) {
+        metadata.price_id = quoteLine.price_id || null;
+        metadata.unit_amount_cents = quoteLine.unit_amount_cents;
+        metadata.price_identity = {
+          price_id: quoteLine.price_id || null,
+          item_code: quoteLine.offering_item_code || quoteLine.offering_id || metadata.offering_id,
+          unit: rental.duration_key,
+        };
+      }
+    }
+    return metadata;
+  }
+  const d = opts.rentalPricingDescriptor;
+  if (d && opts.serviceDate === d.service_date) {
+    metadata.pricing_group_id = d.pricing_group_id;
+    metadata.rental_pricing_role = componentKey;
+  }
+  return metadata;
+}
+
+/** Shared Create/Edit: insert private + dated component rows (not full-day addon). */
+async function insertScheduleComponentServiceRows(pg, opts) {
+  const {
+    clientSlug, bookingId, bookingCode, input, attribution, locationId, srPayment,
+    assignedCourse, canonicalRentals, rentalSpanDates, rentalPricingGroupId,
+    rentalPricingDescriptor, authoritativeQuote, bundleId,
+  } = opts;
+  const wrapMeta = typeof opts.wrapMeta === 'function' ? opts.wrapMeta : (m) => m;
+  const plConfig = opts.privateLessonConfig || defaultPrivateLessonApi();
+  const keys = opts.componentKeys || componentList(input.components);
+  const base = opts.metaBase || {};
+  const createdRows = [];
+  const common = () => ({
+    source: attribution.metadataSource,
+    staff_manual_schedule: attribution.staffManualSchedule,
+    components: keys,
+    bundle_id: bundleId,
+    notes: input.notes || null,
+    needs_reply: input.needs_reply,
+    location_id: locationId || null,
+    ...base,
+  });
+
+  if (input.components.private_lesson) {
+    const pl = input.components.private_lesson;
+    const plLabel = pl.label || plConfig.label || opts.privateLessonDefaultLabel || 'Private lesson';
+    for (const session of pl.sessions) {
+      const metadata = wrapMeta({
+        ...common(),
+        staff_ui_service_type: 'private_lesson',
+        component: 'private_lesson',
+        slot_time: session.start,
+        private_lesson_label: plLabel,
+        private_lesson_session_index: session.index,
+        private_lesson_session_count: pl.quantity,
+        price_basis: plConfig.price_basis || 'per_session',
+        unit_amount_cents: plConfig.amount_cents || 0,
+        default_duration_minutes: plConfig.default_duration_minutes || 120,
+      }, locationId);
+      const row = await insertServiceRecord(pg, [
+        clientSlug, bookingId, bookingCode, input.guest_name,
+        UI_TO_DB_SERVICE_TYPE.private_lesson, session.date, pl.surfer_count,
+        srPayment, attribution.dbSource, JSON.stringify(metadata),
+      ], { service_time_local: session.start, service_time_local_end: session.end });
+      createdRows.push({ ...row, metadata });
+    }
+  }
+
+  for (const serviceDate of input.service_dates) {
+    for (const componentKey of keys) {
+      if (componentKey === 'private_lesson' || componentKey === FULL_DAY_EQUIPMENT_ADDON_KEY) continue;
+      const part = input.components[componentKey];
+      const metadata = wrapMeta({
+        ...common(),
+        staff_ui_service_type: staffUiServiceType(componentKey),
+        component: componentKey,
+        slot_time: componentKey === 'lesson' ? part.slot_time : null,
+        lesson_category: componentKey === 'lesson' ? part.category : null,
+        course_id: componentKey === 'course' ? part.course_id : null,
+        course_label: componentKey === 'course' ? part.course_label : null,
+        tier_key: componentKey === 'course' ? (part.tier_key || null) : null,
+        offering_id: part.offering_id || null,
+        admin_course_assigned: componentKey === 'course' && assignedCourse ? true : undefined,
+        admin_pack_id: componentKey === 'course' && assignedCourse ? assignedCourse.course_id : undefined,
+      }, locationId);
+      decorateRentalServiceMetadata(metadata, {
+        componentKey, serviceDate, canonicalRentals, rentalSpanDates,
+        rentalPricingGroupId, rentalPricingDescriptor, authoritativeQuote,
+      });
+      const row = await insertServiceRecord(pg, [
+        clientSlug, bookingId, bookingCode, input.guest_name,
+        UI_TO_DB_SERVICE_TYPE[componentKey], serviceDate, part.quantity,
+        srPayment, attribution.dbSource, JSON.stringify(metadata),
+      ]);
+      createdRows.push({ ...row, metadata });
+    }
+  }
+  return createdRows;
 }
 
 function scheduleBookingIdempotencyAdvisoryKeys(clientSlug, idempotencyKey) {
@@ -1451,89 +1953,22 @@ async function createSunsetScheduleBooking(pg, opts) {
       }
     }
 
+    // Pre-insert rental quote for insert-time line metadata (Create parity).
     let authoritativeQuote = null;
     if (canonicalRentals) {
-      const {
-        buildSunsetQuoteCommand,
-        executeSunsetQuote,
-        buildQuoteProvenance,
-        QUOTE_CHANNELS,
-      } = require('./luna-front-desk-quote-service');
-      const { resolveTenantBusinessConfigAsync } = require('./tenant-business-config');
-      const adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, {
+      const resolved = await resolveAuthoritativeScheduleQuoteInTxn(pg, {
+        clientSlug,
         locationId,
-        pgClient: pg,
+        canonicalRentals,
+        rentalPrepBody: rentalPrep.present ? rentalPrep.body : null,
+        rentalPricingDescriptor,
+        quoteChannel: opts.quoteChannel,
+        quoteProvenance: opts.quoteProvenance,
+        now: opts.now,
       });
-      if (!adminCfg || adminCfg.ok === false) {
-        const err = new Error('admin_config_unavailable');
-        err.sunsetPriceFail = {
-          ok: false,
-          status: 422,
-          body: { success: false, error: 'admin_config_unavailable', reason_code: 'admin_db_expected_unavailable' },
-        };
-        throw err;
-      }
-      const channel = opts.quoteChannel === 'luna_whatsapp'
-        ? QUOTE_CHANNELS.LUNA_WHATSAPP
-        : QUOTE_CHANNELS.MANUAL_STAFF;
-      const quoteBuilt = buildSunsetQuoteCommand({
-        channel,
-        trustedLocationId: locationId,
-        transportBody: {
-          ...rentalPrep.body,
-          require_db: true,
-        },
-        now: opts.now instanceof Date ? opts.now : new Date(),
-      });
-      if (!quoteBuilt.ok) {
-        const err = new Error((quoteBuilt.body && quoteBuilt.body.error) || 'quote_failed');
-        err.sunsetPriceFail = quoteBuilt;
-        throw err;
-      }
-      const freshQuote = await executeSunsetQuote(pg, quoteBuilt.command, { adminCfg });
-      if (!freshQuote.ok) {
-        const err = new Error((freshQuote.body && (freshQuote.body.error || freshQuote.body.reason)) || 'quote_failed');
-        err.sunsetPriceFail = {
-          ok: false,
-          status: freshQuote.status || 422,
-          body: {
-            success: false,
-            error: (freshQuote.body && (freshQuote.body.error || freshQuote.body.reason)) || 'quote_failed',
-            reason_code: (freshQuote.body && (freshQuote.body.reason_code || freshQuote.body.reason)) || 'quote_failed',
-            quote_error: freshQuote.body,
-          },
-        };
-        throw err;
-      }
-      const provenance = opts.quoteProvenance;
-      if (provenance && typeof provenance === 'object') {
-        const freshProv = buildQuoteProvenance(freshQuote.body);
-        if (String(provenance.quote_fingerprint || '') !== String(freshProv.quote_fingerprint || '')) {
-          const err = new Error('stale_quote');
-          err.sunsetPriceFail = {
-            ok: false,
-            status: 409,
-            body: {
-              success: false,
-              error: 'The quoted price is no longer available. Please request a fresh quote.',
-              reason_code: 'stale_quote',
-              detail: 'quote_fingerprint_mismatch',
-              expected_fingerprint: provenance.quote_fingerprint,
-              current_fingerprint: freshProv.quote_fingerprint,
-            },
-          };
-          throw err;
-        }
-      }
-      authoritativeQuote = freshQuote.body;
-      if (rentalPricingDescriptor && rentalPricingDescriptor.offering_key === 'board_and_suit_rental') {
-        const bundleLine = findQuoteLineForRentalOffering(
-          authoritativeQuote.line_items,
-          'board_and_suit_rental',
-        );
-        if (bundleLine && bundleLine.total_cents != null) {
-          rentalPricingDescriptor.quoted_total_cents = Number(bundleLine.total_cents);
-        }
+      authoritativeQuote = resolved.authoritativeQuote;
+      if (resolved.rentalPricingDescriptor) {
+        rentalPricingDescriptor = resolved.rentalPricingDescriptor;
       }
     }
 
@@ -1572,138 +2007,19 @@ async function createSunsetScheduleBooking(pg, opts) {
       ],
     );
     const bookingId = bookingIns.rows[0].id;
-    const createdRows = [];
-
-    if (input.components.private_lesson) {
-      const pl = input.components.private_lesson;
-      const plLabel = pl.label || privateLessonConfig.label || 'Private lesson';
-      for (const session of pl.sessions) {
-        const metadata = {
-          source: attribution.metadataSource,
-          staff_manual_schedule: attribution.staffManualSchedule,
-          actor_source: attribution.actorSource || null,
-          staff_ui_service_type: 'private_lesson',
-          component: 'private_lesson',
-          components: componentKeys,
-          bundle_id: bundleId,
-          slot_time: session.start,
-          private_lesson_label: plLabel,
-          private_lesson_session_index: session.index,
-          private_lesson_session_count: pl.quantity,
-          price_basis: privateLessonConfig.price_basis || 'per_session',
-          unit_amount_cents: privateLessonConfig.amount_cents || 0,
-          default_duration_minutes: privateLessonConfig.default_duration_minutes || 120,
-          notes: input.notes || null,
-          needs_reply: input.needs_reply,
-          guest_phone: input.guest_phone,
-          location_id: locationId || null,
-          created_by_staff: attribution.createdByStaff,
-          idempotency_key: input.idempotency_key,
-          idempotency_intent_fp: idempotencyIntentFp || null,
-        };
-        const row = await insertServiceRecord(pg, [
-          clientSlug,
-          bookingId,
-          bookingCode,
-          input.guest_name,
-          UI_TO_DB_SERVICE_TYPE.private_lesson,
-          session.date,
-          pl.surfer_count,
-          srPayment,
-          attribution.dbSource,
-          JSON.stringify(metadata),
-        ], {
-          service_time_local: session.start,
-          service_time_local_end: session.end,
-        });
-        // INSERT RETURNING flattens metadata; reattach nested object so
-        // applyAuthoritativeQuoteAmounts / rowMatchesQuoteLine can claim private rows.
-        createdRows.push({ ...row, metadata });
-      }
-    }
-
-    for (const serviceDate of input.service_dates) {
-      for (const componentKey of componentKeys) {
-        if (componentKey === 'private_lesson') continue;
-        if (componentKey === FULL_DAY_EQUIPMENT_ADDON_KEY) continue;
-        const part = input.components[componentKey];
-        const dbServiceType = UI_TO_DB_SERVICE_TYPE[componentKey];
-        const metadata = {
-          source: attribution.metadataSource,
-          staff_manual_schedule: attribution.staffManualSchedule,
-          actor_source: attribution.actorSource || null,
-          staff_ui_service_type: staffUiServiceType(componentKey),
-          component: componentKey,
-          components: componentKeys,
-          bundle_id: bundleId,
-          slot_time: componentKey === 'lesson' ? part.slot_time : null,
-          lesson_category: componentKey === 'lesson' ? part.category : null,
-          course_id: componentKey === 'course' ? part.course_id : null,
-          course_label: componentKey === 'course' ? part.course_label : null,
-          tier_key: componentKey === 'course' ? (part.tier_key || null) : null,
-          offering_id: part.offering_id || null,
-          admin_course_assigned: componentKey === 'course' && assignedCourse ? true : undefined,
-          admin_pack_id: componentKey === 'course' && assignedCourse ? assignedCourse.course_id : undefined,
-          notes: input.notes || null,
-          needs_reply: input.needs_reply,
-          guest_phone: input.guest_phone,
-          location_id: locationId || null,
-          created_by_staff: attribution.createdByStaff,
-          idempotency_key: input.idempotency_key,
-          idempotency_intent_fp: idempotencyIntentFp || null,
-        };
-        if (canonicalRentals && (componentKey === 'surfboard' || componentKey === 'wetsuit')) {
-          const rental = canonicalRentals.find((r) => {
-            if (r.offering_key === 'board_and_suit_rental') return true;
-            if (componentKey === 'surfboard') return r.offering_key === 'board_rental';
-            return r.offering_key === 'wetsuit_rental';
-          });
-          if (rental) {
-            const quoteLine = authoritativeQuote
-              ? findQuoteLineForRentalOffering(authoritativeQuote.line_items, rental.offering_key)
-              : null;
-            metadata.offering_key = rental.offering_key;
-            metadata.duration_key = rental.duration_key;
-            metadata.quantity = rental.quantity;
-            metadata.rental_service_dates = rentalSpanDates;
-            metadata.offering_id = `${rental.offering_key}__${rental.duration_key}`;
-            if (rental.offering_key === 'board_and_suit_rental') {
-              metadata.pricing_group_id = rentalPricingGroupId;
-              metadata.bundle_part = componentKey;
-              metadata.rental_pricing_role = componentKey;
-              metadata.rental_bundle_id = rentalPricingGroupId;
-            }
-            if (quoteLine) {
-              metadata.price_id = quoteLine.price_id || null;
-              metadata.unit_amount_cents = quoteLine.unit_amount_cents;
-              metadata.price_identity = {
-                price_id: quoteLine.price_id || null,
-                item_code: quoteLine.offering_item_code || quoteLine.offering_id || metadata.offering_id,
-                unit: rental.duration_key,
-              };
-            }
-          }
-        } else if (rentalPricingDescriptor
-          && (componentKey === 'surfboard' || componentKey === 'wetsuit')
-          && serviceDate === rentalPricingDescriptor.service_date) {
-          metadata.pricing_group_id = rentalPricingDescriptor.pricing_group_id;
-          metadata.rental_pricing_role = componentKey;
-        }
-        const row = await insertServiceRecord(pg, [
-          clientSlug,
-          bookingId,
-          bookingCode,
-          input.guest_name,
-          dbServiceType,
-          serviceDate,
-          part.quantity,
-          srPayment,
-          attribution.dbSource,
-          JSON.stringify(metadata),
-        ]);
-        createdRows.push({ ...row, metadata });
-      }
-    }
+    const createdRows = await insertScheduleComponentServiceRows(pg, {
+      clientSlug, bookingId, bookingCode, input, componentKeys, attribution,
+      locationId, srPayment, privateLessonConfig, assignedCourse, canonicalRentals,
+      rentalSpanDates, rentalPricingGroupId, rentalPricingDescriptor,
+      authoritativeQuote, bundleId,
+      metaBase: {
+        actor_source: attribution.actorSource || null,
+        guest_phone: input.guest_phone,
+        created_by_staff: attribution.createdByStaff,
+        idempotency_key: input.idempotency_key,
+        idempotency_intent_fp: idempotencyIntentFp || null,
+      },
+    });
 
     // Full-day equipment add-on: one row per selected date, quantity = people, price snapshotted.
     if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
@@ -1729,93 +2045,23 @@ async function createSunsetScheduleBooking(pg, opts) {
       addonRows.forEach((r) => createdRows.push(r));
     }
 
-    let priced;
-    if (authoritativeQuote) {
-      const applied = await applyAuthoritativeQuoteAmounts(pg, createdRows, authoritativeQuote, {
-        clientSlug,
-      });
-      if (!applied.ok) {
-        const err = new Error(applied.error || 'quote_amount_apply_failed');
-        err.sunsetPriceFail = {
-          ok: false,
-          status: 422,
-          body: {
-            success: false,
-            error: applied.error || 'quote_amount_apply_failed',
-            reason_code: applied.error || 'quote_amount_apply_failed',
-          },
-        };
-        throw err;
-      }
-      const bookingUpd = await pg.query(
-        // MULTICLIENT_SCOPE_OK: same-txn booking header; client_id predicate defense-in-depth
-        `UPDATE bookings
-            SET total_amount_cents = $1,
-                balance_due_cents = GREATEST($1 - COALESCE(amount_paid_cents, 0), 0),
-                metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
-          WHERE id = $3::uuid AND client_id = $4::uuid`,
-        [
-          applied.total_cents,
-          JSON.stringify({
-            sunset_priced_at: new Date().toISOString(),
-            sunset_price_source: 'authoritative_quote',
-            quote_fingerprint: authoritativeQuote.quote_provenance
-              && authoritativeQuote.quote_provenance.quote_fingerprint,
-          }),
-          bookingId,
-          clientId,
-        ],
-      );
-      if (Number(bookingUpd && bookingUpd.rowCount) !== 1) {
-        const err = new Error('booking_total_update_mismatch');
-        err.sunsetPriceFail = {
-          ok: false,
-          status: 422,
-          body: {
-            success: false,
-            error: 'booking_total_update_mismatch',
-            reason_code: 'booking_total_update_mismatch',
-          },
-        };
-        throw err;
-      }
-      priced = {
-        ok: true,
-        total_cents: applied.total_cents,
-        sunset_price_source: 'authoritative_quote',
-      };
-      if (Number(authoritativeQuote.total_cents) !== Number(applied.total_cents)) {
-        const err = new Error('quote_total_mismatch');
-        err.sunsetPriceFail = {
-          ok: false,
-          status: 422,
-          body: {
-            success: false,
-            error: 'quote_total_mismatch',
-            reason_code: 'quote_total_mismatch',
-          },
-        };
-        throw err;
-      }
-    } else {
-      // Price inside the same transaction. On failure ROLLBACK — no cancelled leftovers.
-      const { priceSunsetBookingServices } = require('./sunset-stripe-payment-links');
-      priced = await priceSunsetBookingServices(pg, clientSlug, bookingId);
-      if (!priced || !priced.ok) {
-        const { staffFacingSunsetAdminPriceError } = require('./sunset-admin-price-resolve');
-        const faced = staffFacingSunsetAdminPriceError((priced && priced.error) || 'pricing_failed');
-        const err = new Error(faced.error);
-        err.sunsetPriceFail = {
-          ok: false,
-          status: 422,
-          body: {
-            success: false,
-            error: faced.error,
-            reason_code: faced.reason_code,
-          },
-        };
-        throw err;
-      }
+    const priced = await applyAuthoritativeSchedulePricingInTxn(pg, {
+      clientSlug,
+      bookingId,
+      clientId,
+      createdRows,
+      locationId,
+      canonicalRentals,
+      rentalPrepBody: rentalPrep.present ? rentalPrep.body : null,
+      rentalPricingDescriptor,
+      authoritativeQuote,
+      quoteChannel: opts.quoteChannel,
+      quoteProvenance: opts.quoteProvenance,
+      now: opts.now,
+    });
+    authoritativeQuote = priced.authoritativeQuote || authoritativeQuote;
+    if (priced.rentalPricingDescriptor) {
+      rentalPricingDescriptor = priced.rentalPricingDescriptor;
     }
 
     await pg.query('COMMIT');
@@ -1896,6 +2142,16 @@ module.exports = {
   createSunsetScheduleBooking,
   prepareCanonicalRentalsForCreate,
   applyAuthoritativeQuoteAmounts,
+  resolveAuthoritativeScheduleQuoteInTxn,
+  applyAuthoritativeSchedulePricingInTxn,
+  insertScheduleComponentServiceRows,
+  lockSchedulePaymentsForUpdate,
+  applyEditPaidAmountInTxn,
+  paidBookingRepriceRequiredResult,
+  PAID_BOOKING_REPRICE_REQUIRED,
+  buildSchedulePricingIntent,
+  schedulePricingIntentsEqual,
+  isSunsetBookingFinanciallyCommitted,
   findIdempotentBooking,
   buildScheduleBookingIntentFingerprint,
   evaluateIdempotentReplay,

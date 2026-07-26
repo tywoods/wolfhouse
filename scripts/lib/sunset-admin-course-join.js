@@ -42,9 +42,10 @@ function parsePackScheduleKey(value) {
  * Mirrors get_sunset_lesson_availability counting style, filtered by course_id.
  */
 async function countConfirmedCourseSeatsOnDate(pg, {
-  clientSlug, locationId, courseId, serviceDate,
+  clientSlug, locationId, courseId, serviceDate, excludeBookingId,
 }) {
   const loc = normalizeSunsetLocationId(locationId);
+  const excludeId = excludeBookingId ? String(excludeBookingId).trim() : null;
   const sql = `
 SELECT COALESCE(SUM(CASE
          WHEN sr.quantity IS NOT NULL AND sr.quantity > 0 THEN sr.quantity
@@ -62,8 +63,15 @@ SELECT COALESCE(SUM(CASE
    AND LOWER(b.status::text) NOT IN ('cancelled', 'canceled', 'expired', 'hold')
    AND COALESCE(sr.metadata->>'course_id', '') = $3
    AND ${sqlLocationMatch('sr', 'b', 4)}
+   AND ($5::uuid IS NULL OR sr.booking_id <> $5::uuid)
 `;
-  const res = await pg.query(sql, [clientSlug, serviceDate, String(courseId), loc]);
+  const res = await pg.query(sql, [
+    clientSlug,
+    serviceDate,
+    String(courseId),
+    loc,
+    excludeId || null,
+  ]);
   return Number(res.rows[0] && res.rows[0].seats) || 0;
 }
 
@@ -116,7 +124,7 @@ async function loadAdminCourseById(pg, { clientSlug, locationId, courseId }) {
  * Fail closed on unknown course, bad dates, or no remaining capacity.
  */
 async function assertCourseAssignable(pg, {
-  clientSlug, locationId, courseId, serviceDates, quantity,
+  clientSlug, locationId, courseId, serviceDates, quantity, excludeBookingId,
 }) {
   const loaded = await loadAdminCourseById(pg, { clientSlug, locationId, courseId });
   if (!loaded.ok) {
@@ -170,6 +178,7 @@ async function assertCourseAssignable(pg, {
       locationId,
       courseId: pack.pack_id,
       serviceDate: iso,
+      excludeBookingId,
     });
     const remaining = capacity - booked;
     perDate.push({

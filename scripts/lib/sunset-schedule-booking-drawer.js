@@ -27,12 +27,23 @@ const {
   UI_TO_SR_PAYMENT,
   UI_TO_BOOKING_PAYMENT,
   FULL_DAY_EQUIPMENT_ADDON_KEY,
+  DEFAULT_LESSON_CATEGORY,
   validateScheduleBookingBody,
   bookingStatusFromPayment,
   componentList,
-  insertServiceRecord,
   resolveFullDayEquipmentAddonUnitCents,
   insertFullDayEquipmentAddonRows,
+  prepareCanonicalRentalsForCreate,
+  buildSchedulePricingIntent,
+  schedulePricingIntentsEqual,
+  isSunsetBookingFinanciallyCommitted,
+  applyAuthoritativeSchedulePricingInTxn,
+  insertScheduleComponentServiceRows,
+  lockSchedulePaymentsForUpdate,
+  applyEditPaidAmountInTxn,
+  paidBookingRepriceRequiredResult,
+  PAID_BOOKING_REPRICE_REQUIRED,
+  buildRentalPricingDescriptor,
 } = require('./sunset-schedule-booking-writes');
 
 const {
@@ -235,8 +246,10 @@ function aggregateComponentsFromServices(services) {
     if (!components[key]) {
       components[key] = {
         quantity: Number(sr.quantity) || 1,
-        slot_time: sr.slot_time || null,
+        slot_time: sr.slot_time || meta.slot_time || null,
       };
+    } else if (Number(sr.quantity) > Number(components[key].quantity || 0)) {
+      components[key].quantity = Number(sr.quantity) || components[key].quantity;
     }
     if (key === 'course') {
       components[key].course_id = meta.course_id || sr.course_id || components[key].course_id || null;
@@ -244,7 +257,14 @@ function aggregateComponentsFromServices(services) {
       if (meta.tier_key) components[key].tier_key = meta.tier_key;
       if (meta.offering_id) components[key].offering_id = meta.offering_id;
     }
-    if (key === 'lesson') slotTime = sr.slot_time || slotTime;
+    if (key === 'lesson') {
+      const slot = sr.slot_time || meta.slot_time || null;
+      if (slot) components[key].slot_time = slot;
+      const cat = meta.lesson_category || sr.lesson_category || null;
+      components[key].category = String(cat || components[key].category || DEFAULT_LESSON_CATEGORY).trim()
+        || DEFAULT_LESSON_CATEGORY;
+      slotTime = components[key].slot_time || slotTime;
+    }
   });
   if (components.private_lesson) {
     components.private_lesson.sessions = privateSessions.sort((a, b) => a.date.localeCompare(b.date));
@@ -559,6 +579,60 @@ function resolveBookingEditAttribution(bundle, actor) {
   };
 }
 
+
+function pricingIntentFromBundle(bundle) {
+  const services = (bundle && bundle.services) || [];
+  const agg = aggregateComponentsFromServices(services);
+  const meta = parseMeta(bundle && bundle.booking && bundle.booking.metadata);
+  let rentals = Array.isArray(meta.rentals) ? meta.rentals.slice() : [];
+  if (rentals.length) {
+    const cover = {};
+    services.forEach((sr) => {
+      const m = parseMeta(sr.metadata);
+      const ok = String(m.offering_key || '').trim();
+      if (!ok) return;
+      if (!cover[ok]) cover[ok] = new Set();
+      const iso = String(sr.service_date || '').slice(0, 10);
+      if (iso) cover[ok].add(iso);
+      (m.rental_service_dates || []).forEach((d) => {
+        const x = String(d || '').slice(0, 10);
+        if (x) cover[ok].add(x);
+      });
+    });
+    rentals = rentals.map((r) => ({
+      ...r,
+      covered_dates: cover[r.offering_key]
+        ? [...cover[r.offering_key]].sort()
+        : (r.covered_dates || r.rental_service_dates || []),
+      pricing_group_id: r.pricing_group_id
+        || (meta.rental_pricing && meta.rental_pricing.pricing_group_id)
+        || null,
+    }));
+  }
+  return buildSchedulePricingIntent({
+    service_dates: (() => {
+      const dates = new Set();
+      services.forEach((sr) => {
+        const m = parseMeta(sr.metadata);
+        const component = String(m.component || sr.metadata_component || '').toLowerCase();
+        const ui = String(sr.staff_ui_service_type || '').toLowerCase();
+        if (component === FULL_DAY_EQUIPMENT_ADDON_KEY) return;
+        if (component === 'private_lesson' || ui === 'private_lesson') return;
+        if (String(sr.service_type || '').toLowerCase() === 'addon_service') return;
+        const iso = String(sr.service_date || '').slice(0, 10);
+        if (iso) dates.add(iso);
+      });
+      if (!dates.size && agg.date_from) {
+        if (agg.date_from) dates.add(agg.date_from);
+        if (agg.date_to) dates.add(agg.date_to);
+      }
+      return [...dates].sort();
+    })(),
+    components: agg.components,
+    rentals,
+  }, { rentals });
+}
+
 async function updateSunsetScheduleBooking(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
@@ -573,58 +647,260 @@ async function updateSunsetScheduleBooking(pg, opts) {
   if (!bundle) {
     return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
   }
-  const meta = parseMeta(bundle.booking.metadata);
   const activeLocationId = normalizeSunsetLocationId(opts.locationId);
-  const recordLocationId = resolveBundleLocationId(bundle);
-  if (recordLocationId !== activeLocationId) {
+  if (resolveBundleLocationId(bundle) !== activeLocationId) {
     return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
   }
   if (!bundleHasTrustedScheduleDrawerAttribution(bundle)) {
     return { ok: false, status: 403, body: { success: false, error: 'updates_untrusted_booking_source', reason_code: 'updates_untrusted_booking_source' } };
   }
 
+  const rentalPrep = prepareCanonicalRentalsForCreate(opts.body || {});
+  if (!rentalPrep.ok) {
+    return { ok: false, status: 400, body: { success: false, error: rentalPrep.error, reason: rentalPrep.reason, reason_code: rentalPrep.reason } };
+  }
+
   const validated = validateScheduleBookingBody({
-    ...opts.body,
-    guest_name: opts.body?.guest_name ?? bundle.booking.guest_name,
+    ...(rentalPrep.present ? rentalPrep.body : (opts.body || {})),
+    guest_name: (opts.body && opts.body.guest_name) != null
+      ? opts.body.guest_name
+      : bundle.booking.guest_name,
   });
   if (!validated.ok) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
   }
   const input = validated.value;
   const phoneRaw = opts.body?.guest_phone ?? opts.body?.phone_number ?? opts.body?.phone;
-  const guest_phone = phoneRaw != null ? String(phoneRaw).trim().slice(0, 40) : (bundle.booking.phone || '');
+  const guest_phone = phoneRaw != null
+    ? String(phoneRaw).trim().slice(0, 40)
+    : (bundle.booking.phone || '');
+  if (guest_phone) input.guest_phone = guest_phone;
 
   const srPayment = UI_TO_SR_PAYMENT[input.payment_status];
   const bookingPayment = UI_TO_BOOKING_PAYMENT[input.payment_status];
   const bookingStatus = bookingStatusFromPayment(input.payment_status);
-  // Paid-method label (bank_transfer | in_store | link) stored in metadata; null when unpaid.
   const paymentMethod = input.payment_status === 'paid'
     ? normalizePaymentMethod(opts.body && opts.body.payment_method)
     : null;
   const editAttribution = resolveBookingEditAttribution(bundle, opts.actor);
   const componentKeys = componentList(input.components);
   const guestCount = resolveGuestCount(input.components);
-  const bundleId = meta.bundle_id || crypto.randomBytes(8).toString('hex');
   const { firstDate, lastDate } = bookingHeaderDates(input);
-
-  let privateLessonConfig = defaultPrivateLessonApi();
-  if (input.components.private_lesson) {
-    const plLoad = await loadPrivateLessonFromDb(pg, { clientSlug, locationId: recordLocationId });
-    privateLessonConfig = plLoad.api || privateLessonConfig;
-  }
-
-  // Re-snapshot the add-on unit price on edit (new rows get the current admin price).
-  let addonUnitCents = null;
-  if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
-    addonUnitCents = await resolveFullDayEquipmentAddonUnitCents(pg, clientSlug, recordLocationId);
-    if (addonUnitCents == null) {
-      return { ok: false, status: 409, body: { success: false, error: 'full_day_equipment_extension_price_unavailable' } };
-    }
-  }
+  let canonicalRentals = rentalPrep.present ? rentalPrep.rentals : null;
+  let rentalSpanDates = rentalPrep.present ? rentalPrep.rentalSpanDates : null;
+  let rentalPricingGroupId = rentalPrep.present ? rentalPrep.pricingGroupId : null;
+  let rentalPricingDescriptor = buildRentalPricingDescriptor(input.rental_pricing, input.service_dates);
 
   await pg.query('BEGIN');
   try {
-    await pg.query(
+    const rollback = async (result) => { await pg.query('ROLLBACK'); return result; };
+    // Lock booking by client; re-check active location on locked header+services.
+    const lockRes = await pg.query(
+      `SELECT b.id::text AS booking_id, b.client_id::text AS client_id,
+              b.booking_code, b.guest_name, b.phone,
+              b.status::text AS status, b.payment_status::text AS payment_status,
+              b.check_in::text AS check_in, b.check_out::text AS check_out,
+              b.guest_count, b.total_amount_cents, b.amount_paid_cents, b.balance_due_cents,
+              b.metadata
+         FROM bookings b
+         INNER JOIN clients c ON c.id = b.client_id
+        WHERE c.slug = $1 AND b.id = $2::uuid
+        FOR UPDATE OF b`,
+      [clientSlug, bookingId],
+    );
+    if (!lockRes.rows.length) {
+      return rollback({ ok: false, status: 404, body: { success: false, error: 'booking not found' } });
+    }
+    const clientId = lockRes.rows[0].client_id;
+    const svcLockRes = await pg.query(
+      `SELECT id::text AS service_record_id, service_type::text AS service_type,
+              service_date::text AS service_date, quantity,
+              amount_due_cents, amount_paid_cents, payment_status::text AS payment_status,
+              service_time_local, service_time_local_end, metadata, source AS record_source
+         FROM booking_service_records
+        WHERE client_slug = $1 AND booking_id = $2::uuid
+        ORDER BY service_date, id FOR UPDATE`,
+      [clientSlug, bookingId],
+    );
+    // Lock payment ledger (client+booking) before paid/intent decision.
+    const payLock = await lockSchedulePaymentsForUpdate(pg, bookingId, clientId);
+    const lockedServices = svcLockRes.rows.map((sr) => {
+      const m = parseMeta(sr.metadata);
+      return Object.assign({}, sr, {
+        slot_time: m.slot_time || null,
+        staff_ui_service_type: m.staff_ui_service_type || null,
+        metadata_component: m.component || null,
+        location_id: m.location_id || null,
+        metadata_source: m.source || null,
+        course_id: m.course_id || null,
+        course_label: m.course_label || null,
+        lesson_category: m.lesson_category || null,
+      });
+    });
+    const lockedBundle = {
+      booking: lockRes.rows[0],
+      services: lockedServices,
+      payments_paid_cents: payLock.paidCents,
+      locked_payments: payLock.rows,
+    };
+    const recordLocationId = resolveBundleLocationId(lockedBundle);
+    if (recordLocationId !== activeLocationId) {
+      return rollback({ ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } });
+    }
+    if (!bundleHasTrustedScheduleDrawerAttribution(lockedBundle)) {
+      return rollback({ ok: false, status: 403, body: { success: false, error: 'updates_untrusted_booking_source', reason_code: 'updates_untrusted_booking_source' } });
+    }
+
+    const lockedMeta = parseMeta(lockedBundle.booking.metadata);
+    // PATCH rentals omitted → preserve existing (not wipe). Explicit present uses prep.
+    if (!rentalPrep.present) {
+      if (Array.isArray(lockedMeta.rentals) && lockedMeta.rentals.length) {
+        canonicalRentals = lockedMeta.rentals;
+        if (lockedMeta.rental_pricing) rentalPricingDescriptor = lockedMeta.rental_pricing;
+        rentalPricingGroupId = (lockedMeta.rental_pricing && lockedMeta.rental_pricing.pricing_group_id) || null;
+      }
+    } else if (canonicalRentals) {
+      const bundleRental = canonicalRentals.find((r) => r.offering_key === 'board_and_suit_rental');
+      if (bundleRental) {
+        rentalPricingDescriptor = {
+          pricing_group_id: rentalPricingGroupId,
+          offering_key: bundleRental.offering_key,
+          duration: bundleRental.duration_key,
+          quantity: bundleRental.quantity,
+          service_date: (rentalSpanDates && rentalSpanDates[0]) || input.service_dates[0],
+          components: ['surfboard', 'wetsuit'],
+          quoted_total_cents: null,
+          rental_service_dates: rentalSpanDates,
+        };
+      }
+    }
+    const existingIntent = pricingIntentFromBundle(lockedBundle);
+    const requestedIntent = buildSchedulePricingIntent(input, {
+      rentals: rentalPrep.present
+        ? (rentalPrep.rentals || []).map((r) => ({ ...r, covered_dates: rentalSpanDates || [] }))
+        : (canonicalRentals || []),
+      rentalCoveredDates: rentalSpanDates || undefined,
+      preserveExistingRentals: !rentalPrep.present ? (canonicalRentals || []) : undefined,
+    });
+    const pricingChanged = !schedulePricingIntentsEqual(existingIntent, requestedIntent);
+    if (pricingChanged && isSunsetBookingFinanciallyCommitted(lockedBundle)) {
+      return rollback(paidBookingRepriceRequiredResult());
+    }
+
+    const bundleId = lockedMeta.bundle_id || crypto.randomBytes(8).toString('hex');
+    const headerMetaPatch = attachLocationToMetadata({
+      guest_phone: guest_phone || null,
+      bundle_id: bundleId,
+      components: componentKeys,
+      sunset_payment_method: paymentMethod,
+      sunset_stripe_link_stale: true,
+      sunset_updated_at: new Date().toISOString(),
+      source: editAttribution.metadataSource,
+      staff_manual_schedule: editAttribution.staffManualSchedule,
+      luna_guest_booking: editAttribution.lunaGuestBooking,
+      actor_source: editAttribution.actorSource,
+      last_edited_by_staff: editAttribution.lastEditedByStaff,
+      rentals: canonicalRentals || lockedMeta.rentals || null,
+      rental_pricing: rentalPricingDescriptor || lockedMeta.rental_pricing || null,
+      notes: input.notes || null,
+    }, recordLocationId);
+
+    // Non-pricing: keep service rows/totals. Paid: locked ledger / manual payment row.
+    if (!pricingChanged) {
+      const headerUpd = await pg.query(
+        // MULTICLIENT_SCOPE_OK: Edit header matches Create trust boundary
+        `UPDATE bookings
+            SET guest_name = $1,
+                phone = NULLIF($2, ''),
+                status = $3::booking_status,
+                payment_status = $4::payment_status,
+                guest_count = $5,
+                metadata = COALESCE(metadata, '{}'::jsonb) || $6::jsonb
+          WHERE id = $7::uuid AND client_id = $8::uuid`,
+        [
+          input.guest_name, guest_phone, bookingStatus, bookingPayment, guestCount,
+          JSON.stringify(headerMetaPatch), bookingId, clientId,
+        ],
+      );
+      if (Number(headerUpd && headerUpd.rowCount) !== 1) {
+        return rollback({ ok: false, status: 409, body: { success: false, error: 'booking_update_conflict' } });
+      }
+      if (input.payment_status === 'paid') {
+        const paidApply = await applyEditPaidAmountInTxn(pg, {
+          bookingId, clientId, paymentsPaidCents: lockedBundle.payments_paid_cents,
+          paymentMethod, actorEmail: editAttribution.lastEditedByStaff,
+        });
+        if (!paidApply.ok) return rollback(paidApply);
+      }
+      await pg.query('COMMIT');
+      const ctxKeep = await getSunsetScheduleBookingDrawerContext(pg, { clientSlug, bookingId });
+      return {
+        ok: true,
+        status: 200,
+        body: {
+          success: true,
+          booking_id: bookingId,
+          booking_code: lockedBundle.booking.booking_code,
+          records: lockedBundle.services,
+          pricing_intent_unchanged: true,
+          context: ctxKeep.ok ? ctxKeep.body : null,
+          stripe_link_stale: true,
+        },
+      };
+    }
+
+    // Reprice: capacity/config after lock (self-exclusion for course seats).
+    let privateLessonConfig = defaultPrivateLessonApi();
+    if (input.components.private_lesson) {
+      const plLoad = await loadPrivateLessonFromDb(pg, { clientSlug, locationId: recordLocationId });
+      privateLessonConfig = plLoad.api || privateLessonConfig;
+    }
+
+    let addonUnitCents = null;
+    if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+      addonUnitCents = await resolveFullDayEquipmentAddonUnitCents(pg, clientSlug, recordLocationId);
+      if (addonUnitCents == null) {
+        return rollback({ ok: false, status: 409, body: { success: false, error: 'full_day_equipment_extension_price_unavailable' } });
+      }
+    }
+
+    let assignedCourse = null;
+    if (input.components.course) {
+      const { assertCourseAssignable } = require('./sunset-admin-course-join');
+      const { packPriceItemCode } = require('./sunset-admin-price-identity');
+      const gate = await assertCourseAssignable(pg, {
+        clientSlug,
+        locationId: recordLocationId,
+        courseId: input.components.course.course_id,
+        serviceDates: input.service_dates,
+        quantity: input.components.course.quantity,
+        excludeBookingId: bookingId,
+      });
+      if (!gate.ok) return rollback(gate);
+      assignedCourse = gate;
+      if (!input.components.course.course_label
+        || input.components.course.course_label === input.components.course.course_id) {
+        input.components.course.course_label = gate.course_label || input.components.course.course_label;
+      }
+      const tierKey = String(input.components.course.tier_key || '').trim();
+      if (tierKey) {
+        input.components.course.offering_id = packPriceItemCode(
+          input.components.course.course_id,
+          tierKey,
+        );
+      }
+    }
+
+    // Re-lock ledger immediately before delete so concurrent payment insert serializes.
+    const rePay = await lockSchedulePaymentsForUpdate(pg, bookingId, clientId);
+    lockedBundle.payments_paid_cents = rePay.paidCents;
+    lockedBundle.locked_payments = rePay.rows;
+    if (isSunsetBookingFinanciallyCommitted(lockedBundle)) {
+      return rollback(paidBookingRepriceRequiredResult());
+    }
+
+    const headerUpd = await pg.query(
+      // MULTICLIENT_SCOPE_OK: Edit reprice header
       `UPDATE bookings
           SET guest_name = $1,
               phone = NULLIF($2, ''),
@@ -634,31 +910,15 @@ async function updateSunsetScheduleBooking(pg, opts) {
               check_out = ($6::date + INTERVAL '1 day')::date,
               guest_count = $7,
               metadata = COALESCE(metadata, '{}'::jsonb) || $8::jsonb
-        WHERE id = $9::uuid`,
+        WHERE id = $9::uuid AND client_id = $10::uuid`,
       [
-        input.guest_name,
-        guest_phone,
-        bookingStatus,
-        bookingPayment,
-        firstDate,
-        lastDate,
-        guestCount,
-        JSON.stringify(attachLocationToMetadata({
-          guest_phone: guest_phone || null,
-          bundle_id: bundleId,
-          components: componentKeys,
-          sunset_payment_method: paymentMethod,
-          sunset_stripe_link_stale: true,
-          sunset_updated_at: new Date().toISOString(),
-          source: editAttribution.metadataSource,
-          staff_manual_schedule: editAttribution.staffManualSchedule,
-          luna_guest_booking: editAttribution.lunaGuestBooking,
-          actor_source: editAttribution.actorSource,
-          last_edited_by_staff: editAttribution.lastEditedByStaff,
-        }, recordLocationId)),
-        bookingId,
+        input.guest_name, guest_phone, bookingStatus, bookingPayment, firstDate, lastDate,
+        guestCount, JSON.stringify(headerMetaPatch), bookingId, clientId,
       ],
     );
+    if (Number(headerUpd && headerUpd.rowCount) !== 1) {
+      return rollback({ ok: false, status: 409, body: { success: false, error: 'booking_update_conflict' } });
+    }
 
     await pg.query(
       `DELETE FROM booking_service_records
@@ -666,95 +926,25 @@ async function updateSunsetScheduleBooking(pg, opts) {
       [clientSlug, bookingId, [DB_SOURCE, LUNA_DB_SOURCE]],
     );
 
-    const createdRows = [];
+    const bookingCode = lockedBundle.booking.booking_code;
+    const createdRows = await insertScheduleComponentServiceRows(pg, {
+      clientSlug, bookingId, bookingCode, input, componentKeys,
+      attribution: editAttribution, locationId: recordLocationId, srPayment,
+      privateLessonConfig, assignedCourse, canonicalRentals, rentalSpanDates,
+      rentalPricingGroupId, rentalPricingDescriptor, bundleId,
+      privateLessonDefaultLabel: 'Private Course',
+      wrapMeta: (meta, loc) => attachLocationToMetadata(meta, loc),
+      metaBase: {
+        updated_by_staff: editAttribution.lastEditedByStaff,
+        last_edited_by_staff: editAttribution.lastEditedByStaff,
+      },
+    });
 
-    if (input.components.private_lesson) {
-      const pl = input.components.private_lesson;
-      const plLabel = pl.label || privateLessonConfig.label || 'Private Course';
-      for (const session of pl.sessions) {
-        const srMeta = attachLocationToMetadata({
-          source: editAttribution.metadataSource,
-          staff_manual_schedule: editAttribution.staffManualSchedule,
-          staff_ui_service_type: 'private_lesson',
-          component: 'private_lesson',
-          components: componentKeys,
-          bundle_id: bundleId,
-          slot_time: session.start,
-          private_lesson_label: plLabel,
-          private_lesson_session_index: session.index,
-          private_lesson_session_count: pl.quantity,
-          price_basis: privateLessonConfig.price_basis || 'per_session',
-          unit_amount_cents: privateLessonConfig.amount_cents || 0,
-          default_duration_minutes: privateLessonConfig.default_duration_minutes || 120,
-          notes: input.notes || null,
-          needs_reply: input.needs_reply,
-          updated_by_staff: editAttribution.lastEditedByStaff,
-          last_edited_by_staff: editAttribution.lastEditedByStaff,
-        }, recordLocationId);
-        const row = await insertServiceRecord(pg, [
-          clientSlug,
-          bookingId,
-          bundle.booking.booking_code,
-          input.guest_name,
-          UI_TO_DB_SERVICE_TYPE.private_lesson,
-          session.date,
-          pl.surfer_count,
-          srPayment,
-          editAttribution.dbSource,
-          JSON.stringify(srMeta),
-        ], {
-          service_time_local: session.start,
-          service_time_local_end: session.end,
-        });
-        createdRows.push(row);
-      }
-    }
-
-    for (const serviceDate of input.service_dates) {
-      for (const componentKey of componentKeys) {
-        if (componentKey === 'private_lesson') continue;
-        if (componentKey === FULL_DAY_EQUIPMENT_ADDON_KEY) continue;
-        const part = input.components[componentKey];
-        const dbServiceType = UI_TO_DB_SERVICE_TYPE[componentKey];
-        const srMeta = attachLocationToMetadata({
-          source: editAttribution.metadataSource,
-          staff_manual_schedule: editAttribution.staffManualSchedule,
-          staff_ui_service_type: staffUiServiceType(componentKey),
-          component: componentKey,
-          components: componentKeys,
-          bundle_id: bundleId,
-          slot_time: componentKey === 'lesson' ? part.slot_time : null,
-          lesson_category: componentKey === 'lesson' ? part.category : null,
-          course_id: componentKey === 'course' ? part.course_id : null,
-          course_label: componentKey === 'course' ? part.course_label : null,
-          notes: input.notes || null,
-          needs_reply: input.needs_reply,
-          updated_by_staff: editAttribution.lastEditedByStaff,
-          last_edited_by_staff: editAttribution.lastEditedByStaff,
-        }, recordLocationId);
-        const row = await insertServiceRecord(pg, [
-          clientSlug,
-          bookingId,
-          bundle.booking.booking_code,
-          input.guest_name,
-          dbServiceType,
-          serviceDate,
-          part.quantity,
-          srPayment,
-          editAttribution.dbSource,
-          JSON.stringify(srMeta),
-        ]);
-        createdRows.push(row);
-      }
-    }
-
-    // Full-day equipment add-on: re-insert one row per selected date (delete-and-reinsert edit model).
-    // Removing a date simply omits it here, dropping only that date's row. Price re-snapshotted above.
     if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
       const addonRows = await insertFullDayEquipmentAddonRows(pg, {
         clientSlug,
         bookingId,
-        bookingCode: bundle.booking.booking_code,
+        bookingCode,
         guestName: input.guest_name,
         addonDates: input.components[FULL_DAY_EQUIPMENT_ADDON_KEY].dates,
         addonUnitCents,
@@ -772,11 +962,25 @@ async function updateSunsetScheduleBooking(pg, opts) {
       addonRows.forEach((r) => createdRows.push(r));
     }
 
+    // Shared Create dual path: exact claim then total/balance before COMMIT.
+    await applyAuthoritativeSchedulePricingInTxn(pg, {
+      clientSlug, bookingId, clientId, createdRows,
+      locationId: recordLocationId,
+      lockedPaidCents: lockedBundle.payments_paid_cents,
+      canonicalRentals,
+      rentalPrepBody: rentalPrep.present ? rentalPrep.body : null,
+      rentalPricingDescriptor,
+      quoteChannel: opts.quoteChannel,
+      quoteProvenance: opts.quoteProvenance,
+      now: opts.now,
+    });
+
     if (input.payment_status === 'paid') {
-      await pg.query(
-        `UPDATE bookings SET amount_paid_cents = COALESCE(total_amount_cents, 0), balance_due_cents = 0 WHERE id = $1::uuid`,
-        [bookingId],
-      );
+      const paidApply = await applyEditPaidAmountInTxn(pg, {
+        bookingId, clientId, paymentsPaidCents: lockedBundle.payments_paid_cents,
+        paymentMethod, actorEmail: editAttribution.lastEditedByStaff,
+      });
+      if (!paidApply.ok) return rollback(paidApply);
     }
 
     await pg.query('COMMIT');
@@ -787,14 +991,15 @@ async function updateSunsetScheduleBooking(pg, opts) {
       body: {
         success: true,
         booking_id: bookingId,
-        booking_code: bundle.booking.booking_code,
+        booking_code: bookingCode,
         records: createdRows,
         context: ctx.ok ? ctx.body : null,
         stripe_link_stale: true,
       },
     };
   } catch (err) {
-    await pg.query('ROLLBACK');
+    try { await pg.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    if (err && err.sunsetPriceFail) return err.sunsetPriceFail;
     throw err;
   }
 }
@@ -828,13 +1033,18 @@ async function cancelSunsetScheduleBooking(pg, opts) {
         WHERE client_slug = $1 AND booking_id = $2::uuid AND status <> 'cancelled'`,
       [clientSlug, bookingId],
     );
-    await pg.query(
-      `UPDATE bookings
-          SET status = 'cancelled'::booking_status,
-              metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-        WHERE id = $2::uuid`,
-      [JSON.stringify({ cancelled_by_staff: true, cancelled_at: new Date().toISOString() }), bookingId],
+    const cancelUpd = await pg.query(
+      // MULTICLIENT_SCOPE_OK: cancel via client join trust boundary
+      `UPDATE bookings b SET status = 'cancelled'::booking_status,
+              metadata = COALESCE(b.metadata, '{}'::jsonb) || $1::jsonb
+        FROM clients c
+        WHERE b.id = $2::uuid AND c.id = b.client_id AND c.slug = $3`,
+      [JSON.stringify({ cancelled_by_staff: true, cancelled_at: new Date().toISOString() }), bookingId, clientSlug],
     );
+    if (Number(cancelUpd && cancelUpd.rowCount) !== 1) {
+      await pg.query('ROLLBACK');
+      return { ok: false, status: 409, body: { success: false, error: 'booking_cancel_conflict' } };
+    }
     await pg.query('COMMIT');
     return {
       ok: true,
@@ -857,4 +1067,6 @@ module.exports = {
   aggregateComponentsFromServices,
   normalizePaymentMethod,
   formatSunsetDrawerDailyItemLabel,
+  pricingIntentFromBundle,
+  PAID_BOOKING_REPRICE_REQUIRED,
 };
