@@ -352,8 +352,13 @@ function adminRenderPackTierFields(tiers, prefix){
     '</div>';
 }
 function adminRenderPackTierReadout(tiers){
+  // Course cards: commercial rows are only canonical 1_day…7_days.
+  // Legacy keys (e.g. single_class) may remain in DB for old bookings but
+  // never appear on Admin Group course card readouts or editable tier rows.
   var html = '<div class="portal-admin-pill-group"><span class="portal-admin-pill-label">' + escHtml(portalT('admin.packs.priceTiers')) + '</span>';
-  (tiers || []).forEach(function(t){
+  (tiers || []).filter(function(t){
+    return t && ADMIN_CANONICAL_DAY_TIER_KEYS[String(t.key || '').trim()];
+  }).forEach(function(t){
     html += '<div class="portal-admin-pack-tier-row"><span>' + escHtml(t.label || t.key) + '</span><strong>' + escHtml(adminEurosFromAmount((t.amount_cents != null ? t.amount_cents : 0) / 100) + ' EUR ' + portalT('admin.packs.perStudent')) + '</strong></div>';
   });
   return html + '</div>';
@@ -477,6 +482,23 @@ function adminRentalPeriodRank(period){
   return i >= 0 ? i : 999;
 }
 
+/** True when a rental period key is a sellable Admin 1–7 day window. */
+function adminIsCanonicalRentalPeriod(period){
+  return !!ADMIN_CANONICAL_DAY_TIER_KEYS[String(period || '').trim()];
+}
+
+/**
+ * Rental Prices tab: only canonical 1_day…7_days rows are rendered / edited /
+ * submitted. Legacy hour/half_day/week/custom rows stay in DB for old bookings
+ * but are never mapped onto the first select option (that created duplicates).
+ */
+function adminFilterCanonicalRentalPriceRows(items){
+  return (items || []).filter(function(p){
+    var parsed = adminParsePriceRow(p);
+    return adminIsCanonicalRentalPeriod(parsed.periodWindow);
+  });
+}
+
 function adminPriceCategoryLabel(category){
   var c = String(category || '').trim().toLowerCase();
   if (c === 'lesson') return portalT('admin.prices.category.lesson');
@@ -571,7 +593,9 @@ function renderAdminSectionPricesFromConfig(cfg){
   var order = adminRentalGroupOrder();
   var html = '';
   order.forEach(function(key){
-    var items = (groups[key] || []).slice().sort(function(a, b){
+    // Drop noncanonical legacy rental rows before any card render/edit/save.
+    // Do not map them to 1_day — omit entirely so Save cannot invent duplicates.
+    var items = adminFilterCanonicalRentalPriceRows(groups[key] || []).slice().sort(function(a, b){
       return adminRentalPeriodRank(adminParsePriceRow(a).periodWindow) - adminRentalPeriodRank(adminParsePriceRow(b).periodWindow);
     });
     // De-duplicate: one canonical card per duration key (avoids showing stale dup rows).

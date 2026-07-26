@@ -99,12 +99,52 @@ function isSellableAdminPriceForKey(key) {
   return isCanonicalDayDurationKey(key);
 }
 
+/** Max inclusive calendar days for a Group course booking (Create/Edit/quote). */
+const MAX_GROUP_COURSE_INCLUSIVE_DAYS = 14;
+
+/**
+ * Admin price-tier key that owns Group course money for an inclusive day count.
+ *   1–7  → exact canonical 1_day…7_days row
+ *   8–14 → Admin 7_days row (server prorates; no 8–14 Admin rows)
+ *   else → null (fail closed)
+ */
+function groupCourseAdminTierKeyForInclusiveDays(days) {
+  const n = Number(days);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_GROUP_COURSE_INCLUSIVE_DAYS) return null;
+  if (n <= 7) return rentalDurationKeyFromInclusiveDays(n);
+  return '7_days';
+}
+
+/**
+ * Prorate Group course unit cents from the exact Admin 7_days amount for days 8–14.
+ * Formula: round(7_day_amount_cents * requested_days / 7) — day 14 = exactly 2×.
+ * Does not invent fallbacks; caller must supply a positive Admin 7_days amount.
+ */
+function groupCourseUnitCentsFromSevenDayAdmin(sevenDayAmountCents, requestedDays) {
+  const days = Number(requestedDays);
+  const base = Math.round(Number(sevenDayAmountCents));
+  if (!Number.isInteger(days) || days < 8 || days > MAX_GROUP_COURSE_INCLUSIVE_DAYS) {
+    return { ok: false, reason: 'days_out_of_prorate_range' };
+  }
+  if (!Number.isFinite(base) || base <= 0) {
+    return { ok: false, reason: 'price_not_configured' };
+  }
+  return {
+    ok: true,
+    unit_amount_cents: Math.round((base * days) / 7),
+    seven_day_amount_cents: base,
+    requested_days: days,
+    price_basis: '7_days_prorate',
+  };
+}
+
 module.exports = {
   CANONICAL_DAY_DURATION_KEYS,
   CANONICAL_DAY_DURATION_SET,
   LEGACY_TIER_KEY_TO_CANONICAL,
   LEGACY_HIDDEN_DURATION_KEYS,
   LEGACY_WEEK_DURATION_DAYS,
+  MAX_GROUP_COURSE_INCLUSIVE_DAYS,
   isCanonicalDayDurationKey,
   isSellableAdminPriceForKey,
   canonicalTierKey,
@@ -112,4 +152,6 @@ module.exports = {
   durationDaysFromTierKey,
   hoursForDayDurationKey,
   rentalDurationKeyFromInclusiveDays,
+  groupCourseAdminTierKeyForInclusiveDays,
+  groupCourseUnitCentsFromSevenDayAdmin,
 };

@@ -812,6 +812,14 @@ function normalizeServiceDates(body, components) {
   const unique = [...new Set(dates)];
   if (!unique.length) return { ok: false, error: 'at least one service date is required' };
   if (unique.length > 31) return { ok: false, error: 'too many service dates (max 31)' };
+  // Group courses: hard max 14 inclusive days (8–14 priced from Admin 7_days).
+  if (components && components.course && unique.length > 14) {
+    return {
+      ok: false,
+      error: 'group course duration exceeds maximum 14 days',
+      reason: 'course_duration_exceeds_max',
+    };
+  }
   for (const iso of unique) {
     if (!isIsoDate(iso)) return { ok: false, error: 'service_dates must be YYYY-MM-DD' };
   }
