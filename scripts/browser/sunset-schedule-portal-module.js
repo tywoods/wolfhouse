@@ -488,7 +488,8 @@ function schedulePortalValidateCreatePayload(payload, opts) {
   }
   if (comps.course) {
     if (!String(comps.course.course_id || '').trim()) return fail('schedule.create.courseRequired');
-    if (!String(comps.course.tier_key || '').trim()) return fail('schedule.create.courseTierRequired');
+    // Tier is derived data from inclusive dates + sellable catalog match — never free-typed.
+    if (!String(comps.course.tier_key || '').trim()) return fail('schedule.create.courseDurationUnavailable');
   }
 
   if (!schedulePortalHasSellableIntent(p)) {
@@ -496,6 +497,11 @@ function schedulePortalValidateCreatePayload(payload, opts) {
   }
 
   if (comps.private_lesson) {
+    // Fail closed when outer range exceeds session max — do not quote/create partial sets.
+    var plSpan = typeof schedulePortalInclusiveDateCount === 'function'
+      ? schedulePortalInclusiveDateCount(p.date_from, p.date_to != null ? p.date_to : p.date_from)
+      : 0;
+    if (plSpan > 30) return fail('schedule.create.privateLesson.rangeTooLong');
     var plCheck = schedulePortalValidatePrivateLessonCreate(comps.private_lesson);
     if (!plCheck || plCheck.ok !== true) {
       return fail((plCheck && plCheck.errorKey) || 'schedule.create.privateLesson.sessionIncomplete');
@@ -620,9 +626,11 @@ function schedulePortalRenderCreateIntentSummary(payload) {
   if (comps.course) {
     var cBits = [portalT('schedule.type.course') || 'Group course'], cLab = schedulePortalHumanCourseBit(comps.course);
     if (cLab) cBits.push(cLab);
-    var tierSel = el('ps-create-course-tier');
-    var tierLab = (tierSel && tierSel.options && tierSel.selectedIndex >= 0 && tierSel.options[tierSel.selectedIndex])
-      ? String(tierSel.options[tierSel.selectedIndex].textContent || '').trim() : '';
+    // Duration label from derived payload/catalog state only — never hidden #ps-create-course-tier.
+    var tierLab = comps.course.tier_label != null ? String(comps.course.tier_label).trim() : '';
+    if (!tierLab && comps.course.tier_key) {
+      tierLab = schedulePortalDurationLabel(comps.course.tier_key) || '';
+    }
     if (tierLab && tierLab !== String(comps.course.tier_key || '')) cBits.push(tierLab);
     if (comps.course.quantity) cBits.push('\u00d7' + String(comps.course.quantity));
     bits.push(cBits.join(' \u00b7 '));
@@ -788,7 +796,58 @@ function schedulePortalRefreshCreateQuote() {
   });
 }
 
-/* ── Private multi-session editor (Kaya Slice 4; When section) ─────────── */
+/* Date-driven duration + private sessions */
+
+/** Inclusive calendar-day count (DST-safe noon enumeration). */
+function schedulePortalInclusiveDateCount(dateFrom, dateTo) {
+  var df = schedulePortalCanonicalDateIso(dateFrom);
+  var dt = schedulePortalCanonicalDateIso(dateTo != null ? dateTo : dateFrom);
+  if (!df || !dt || df > dt) return 0;
+  if (typeof scheduleEnumerateDates !== 'function') return 0;
+  return (scheduleEnumerateDates(df, dt) || []).length;
+}
+
+/** Exact sellable matches by projected duration_days only (no key guessing/nearest). */
+function schedulePortalMatchSellableCourseTiersByDurationDays(course, durationDays) {
+  var n = Number(durationDays);
+  if (!course || !Number.isFinite(n) || n < 1) return [];
+  var tiers = Array.isArray(course.price_tiers) ? course.price_tiers : [];
+  var out = [];
+  for (var i = 0; i < tiers.length; i++) {
+    var t = tiers[i];
+    if (!t || t.bookable === false) continue;
+    if (Number(t.duration_days) === n) out.push(t);
+  }
+  return out;
+}
+
+/** Resolve tier from inclusive dates + catalog duration_days. 0→unavailable; >1→ambiguous. */
+function schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo) {
+  var id = String(courseId || '').trim();
+  if (!id) return { ok: false, errorKey: 'schedule.create.courseRequired' };
+  var days = schedulePortalInclusiveDateCount(dateFrom, dateTo);
+  if (days < 1) return { ok: false, errorKey: 'calendar.state.invalidDateRange' };
+  var course = null;
+  var cache = (typeof scheduleCoursesCache !== 'undefined' && scheduleCoursesCache) || [];
+  for (var i = 0; i < cache.length; i++) {
+    if (String((cache[i] && cache[i].course_id) || '').trim() === id) { course = cache[i]; break; }
+  }
+  var matches = schedulePortalMatchSellableCourseTiersByDurationDays(course, days);
+  if (!matches.length) {
+    return { ok: false, errorKey: 'schedule.create.courseDurationUnavailable', duration_days: days };
+  }
+  if (matches.length > 1) {
+    return { ok: false, errorKey: 'schedule.create.courseDurationAmbiguous', duration_days: days };
+  }
+  var tier = matches[0];
+  return {
+    ok: true,
+    tier_key: String(tier.key),
+    duration_days: days,
+    offering_id: tier.offering_id || ('surf_pack_' + id + '__' + tier.key),
+    tier_label: tier.label != null ? String(tier.label) : '',
+  };
+}
 
 function schedulePrivateLessonDefaultEnd(startHm, durationMin) {
   var startM = scheduleSlotMinutesFromToken(startHm);
@@ -800,17 +859,21 @@ function scheduleReadPrivateLessonSessionsFromDom() {
   var wrap = el('ps-create-private-lesson-sessions'), sessions = [];
   if (!wrap) return sessions;
   wrap.querySelectorAll('.portal-schedule-private-session-row').forEach(function(row) {
+    var dateAttr = row.getAttribute('data-session-date') || '';
     var dateEl = row.querySelector('.ps-pl-session-date');
     var startEl = row.querySelector('.ps-pl-session-start');
     var endEl = row.querySelector('.ps-pl-session-end');
-    sessions.push({ date: dateEl ? dateEl.value : '', start: startEl ? startEl.value : '', end: endEl ? endEl.value : '' });
+    sessions.push({
+      date: dateAttr || (dateEl ? dateEl.value : ''),
+      start: startEl ? startEl.value : '',
+      end: endEl ? endEl.value : '',
+    });
   });
   return sessions;
 }
 
-/** Outer range → rentals → full-day → one total-preview/quote (after DOM finals). */
+/** After DOM finals: rentals + full-day + one total-preview/quote. Outer dates stay authoritative. */
 function schedulePrivateLessonSessionsRefreshDependents() {
-  scheduleUpdatePrivateLessonDateRangeFromSessions();
   if (typeof scheduleRenderCreateRentals === 'function') scheduleRenderCreateRentals();
   if (typeof scheduleRefreshCreateFullDayAddon === 'function') scheduleRefreshCreateFullDayAddon();
   if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
@@ -825,11 +888,11 @@ function scheduleWirePrivateLessonSessionRow(row) {
     startEl.addEventListener('change', function() {
       if (!endEl) return;
       var curEnd = endEl.value, defEnd = schedulePrivateLessonDefaultEnd(startEl.value);
-      if (!curEnd || curEnd === schedulePrivateLessonDefaultEnd(startEl.defaultValue || '10:00')) endEl.value = defEnd;
+      if (!curEnd || curEnd === schedulePrivateLessonDefaultEnd(startEl.defaultValue || '')) endEl.value = defEnd;
       startEl.defaultValue = startEl.value;
     });
   }
-  ['.ps-pl-session-date', '.ps-pl-session-start', '.ps-pl-session-end'].forEach(function(sel) {
+  ['.ps-pl-session-start', '.ps-pl-session-end'].forEach(function(sel) {
     var f = row.querySelector(sel);
     if (!f || f.dataset.sessionFieldWired) return;
     f.dataset.sessionFieldWired = '1';
@@ -837,96 +900,74 @@ function scheduleWirePrivateLessonSessionRow(row) {
   });
 }
 
+/**
+ * Owner: reconcile private session rows from authoritative top-level From/To.
+ * Preserve times for dates that remain; blank times for new dates; drop outside range.
+ * No Add/Remove controls — rows are date-range-derived only.
+ */
 function scheduleSyncPrivateLessonSessions(opts) {
   opts = opts || {};
   var wrap = el('ps-create-private-lesson-sessions');
   var qtyEl = el('ps-create-private-lesson-qty');
-  if (!wrap || !qtyEl) return;
-  var qty = parseInt(qtyEl.value, 10) || 1;
-  if (qty < 1) qty = 1;
-  if (qty > 30) qty = 30;
-  qtyEl.value = String(qty);
-  var existing = scheduleReadPrivateLessonSessionsFromDom();
-  var dateFrom = (el('ps-create-date-from') && el('ps-create-date-from').value) || scheduleTodayIso();
+  if (!wrap) return;
+  var df = el('ps-create-date-from') && el('ps-create-date-from').value;
+  var dt = el('ps-create-date-to') && el('ps-create-date-to').value;
+  var from = schedulePortalCanonicalDateIso(df);
+  var to = schedulePortalCanonicalDateIso(dt || df);
+  var dates = [];
+  if (from && to && from <= to && typeof scheduleEnumerateDates === 'function') {
+    dates = scheduleEnumerateDates(from, to) || [];
+  }
+  // Fail closed >30: no partial rows; outer From/To preserved for validation.
+  var rangeTooLong = dates.length > 30;
+  if (rangeTooLong) dates = [];
+  var existing = rangeTooLong ? [] : scheduleReadPrivateLessonSessionsFromDom();
+  var byDate = Object.create(null);
+  for (var e = 0; e < existing.length; e++) {
+    var ed = schedulePortalCanonicalDateIso(existing[e] && existing[e].date);
+    if (ed && byDate[ed] == null) byDate[ed] = existing[e];
+  }
   var html = '';
-  var removeLabel = portalT('schedule.create.privateLesson.removeSession') || 'Remove';
-  for (var i = 0; i < qty; i++) {
-    var prev = existing[i] || {};
-    var date = prev.date || dateFrom;
-    var start = prev.start || '10:00';
-    var end = prev.end || schedulePrivateLessonDefaultEnd(start);
-    var removeBtn = qty > 1
-      ? '<button type="button" class="btn btn-ghost portal-schedule-session-remove" data-session-remove="' + String(i) + '" data-i18n="schedule.create.privateLesson.removeSession" data-i18n-aria="schedule.create.privateLesson.removeSession" aria-label="' + escHtml(removeLabel) + '">Remove</button>'
-      : '';
-    html += '<div class="portal-schedule-private-session-row" data-session-index="' + String(i + 1) + '">'
-      + '<p class="portal-schedule-card-sub" style="margin:8px 0 4px">' + escHtml(portalT('schedule.create.privateLesson.sessionLabel')) + ' ' + String(i + 1) + '</p>'
+  for (var i = 0; i < dates.length; i++) {
+    var date = dates[i];
+    var prev = byDate[date] || {};
+    var start = prev.start != null ? String(prev.start) : '';
+    var end = prev.end != null ? String(prev.end) : '';
+    html += '<div class="portal-schedule-private-session-row" data-session-index="' + String(i + 1)
+      + '" data-session-date="' + escHtml(date) + '">'
+      + '<p class="portal-schedule-card-sub" style="margin:8px 0 4px">'
+      + escHtml(portalT('schedule.create.privateLesson.sessionLabel')) + ' '
+      + escHtml(date) + '</p>'
       + '<div class="portal-schedule-private-session-grid">'
-      + '<label><span data-i18n="schedule.create.privateLesson.date">Date</span><input class="ps-pl-session-date" type="date" value="' + escHtml(date) + '"></label>'
-      + '<label><span data-i18n="schedule.create.privateLesson.start">Start</span><input class="ps-pl-session-start" type="time" value="' + escHtml(start) + '"></label>'
-      + '<label><span data-i18n="schedule.create.privateLesson.end">End</span><input class="ps-pl-session-end" type="time" value="' + escHtml(end) + '"></label>'
-      + '</div>' + removeBtn + '</div>';
+      + '<label><span data-i18n="schedule.create.privateLesson.start">Start</span>'
+      + '<input class="ps-pl-session-start" type="time" value="' + escHtml(start) + '"></label>'
+      + '<label><span data-i18n="schedule.create.privateLesson.end">End</span>'
+      + '<input class="ps-pl-session-end" type="time" value="' + escHtml(end) + '"></label>'
+      + '</div></div>';
   }
   wrap.innerHTML = html;
+  try {
+    if (rangeTooLong) wrap.setAttribute('data-range-too-long', '1');
+    else wrap.removeAttribute('data-range-too-long');
+  } catch (_r) { /* ignore */ }
+  if (qtyEl) qtyEl.value = String(dates.length || 0);
   wrap.querySelectorAll('.portal-schedule-private-session-row').forEach(scheduleWirePrivateLessonSessionRow);
-  wrap.querySelectorAll('.portal-schedule-session-remove').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      scheduleRemovePrivateLessonSession(parseInt(btn.getAttribute('data-session-remove'), 10));
-    });
-  });
   var modal = el('ps-create-modal');
   if (modal && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(modal);
   if (!opts.deferSideEffects) schedulePrivateLessonSessionsRefreshDependents();
 }
 
-/** Canonical non-past Madrid dates only; clear outer if none (no stale leak). */
+/** Outer dates are authoritative — sessions never rewrite From/To. */
 function scheduleUpdatePrivateLessonDateRangeFromSessions() {
-  var sessions = scheduleReadPrivateLessonSessionsFromDom(), today = schedulePortalMadridTodayIso(), dates = [];
-  for (var i = 0; i < sessions.length; i++) {
-    var canon = schedulePortalCanonicalDateIso(sessions[i] && sessions[i].date != null ? String(sessions[i].date) : '');
-    if (canon && canon >= today) dates.push(canon);
-  }
-  var df = el('ps-create-date-from'), dt = el('ps-create-date-to');
-  if (!dates.length) { if (df) df.value = ''; if (dt) dt.value = ''; return; }
-  dates.sort();
-  if (df) df.value = dates[0];
-  if (dt) dt.value = dates[dates.length - 1];
+  return;
 }
 
 function scheduleAddPrivateLessonSession() {
-  var qtyEl = el('ps-create-private-lesson-qty');
-  if (!qtyEl) return;
-  var existing = scheduleReadPrivateLessonSessionsFromDom();
-  var last = existing[existing.length - 1] || {};
-  var nextDate = (el('ps-create-date-from') && el('ps-create-date-from').value) || scheduleTodayIso();
-  if (last.date) {
-    var parsed = typeof scheduleParseIso === 'function' ? scheduleParseIso(last.date) : null;
-    if (parsed) nextDate = scheduleIsoDate(scheduleAddDays(parsed, 1));
-  }
-  var nextStart = last.start || '10:00';
-  var nextEnd = last.end || schedulePrivateLessonDefaultEnd(nextStart);
-  qtyEl.value = String(Math.min((parseInt(qtyEl.value, 10) || existing.length || 1) + 1, 30));
-  scheduleSyncPrivateLessonSessions({ deferSideEffects: true });
-  var wrap = el('ps-create-private-lesson-sessions');
-  var row = wrap && wrap.querySelectorAll('.portal-schedule-private-session-row');
-  row = row && row[row.length - 1];
-  if (row) {
-    var dEl = row.querySelector('.ps-pl-session-date'), sEl = row.querySelector('.ps-pl-session-start'), eEl = row.querySelector('.ps-pl-session-end');
-    if (dEl) dEl.value = nextDate;
-    if (sEl) sEl.value = nextStart;
-    if (eEl) eEl.value = nextEnd;
-  }
-  schedulePrivateLessonSessionsRefreshDependents();
+  return;
 }
 
-function scheduleRemovePrivateLessonSession(index) {
-  var qtyEl = el('ps-create-private-lesson-qty'), wrap = el('ps-create-private-lesson-sessions');
-  if (!qtyEl || !wrap) return;
-  var rows = wrap.querySelectorAll('.portal-schedule-private-session-row');
-  if (index < 0 || index >= rows.length || rows.length <= 1) return;
-  var target = rows[index];
-  if (target && target.parentNode) target.parentNode.removeChild(target);
-  qtyEl.value = String(Math.max(wrap.querySelectorAll('.portal-schedule-private-session-row').length, 1));
-  scheduleSyncPrivateLessonSessions();
+function scheduleRemovePrivateLessonSession() {
+  return;
 }
 
 /** Client-side private session validation before quote/create (localized keys). */
@@ -1002,15 +1043,12 @@ function schedulePortalPopulateCreateCourseFields() {
     });
     if (!html) html = '<option value="">' + escHtml(portalT('schedule.courses.noneConfigured')) + '</option>';
     sel.innerHTML = html;
-    if (prev) {
-      sel.value = prev;
-      if (sel.value !== prev) schedulePopulateCreateCourseTierFields('');
-    }
+    if (prev) sel.value = prev;
     schedulePortalApplyDesiredCourseSelect();
     if (!sel._tierBound) {
       sel._tierBound = true;
       sel.addEventListener('change', function() {
-        schedulePopulateCreateCourseTierFields('');
+        // Duration is date-derived; do not rely on hidden tier selector state.
         schedulePortalSyncCreateFooter();
       });
     }
@@ -1021,11 +1059,12 @@ function schedulePortalPopulateCreateCourseFields() {
         if (!node || node._courseEligBound) return;
         node._courseEligBound = true;
         node.addEventListener('change', function() {
+          // Date change: clear Ready immediately via footer soft-gate; re-resolve after catalog.
+          schedulePortalSyncCreateFooter();
           schedulePortalPopulateCreateCourseFields().then(function() { schedulePortalSyncCreateFooter(); });
         });
       });
     }
-    schedulePopulateCreateCourseTierFields();
     return courses;
   });
 }

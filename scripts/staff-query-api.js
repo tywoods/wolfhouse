@@ -18395,6 +18395,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <h3 id="ps-create-section-guest-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.guest">Guest</h3>
         <div class="portal-schedule-create-field"><label for="ps-create-guest" data-i18n="schedule.create.guestName">Guest name</label><input id="ps-create-guest" type="text" autocomplete="off"></div>
         <div class="portal-schedule-create-field"><label for="ps-create-phone" data-i18n="schedule.create.phone">Phone number</label><input id="ps-create-phone" type="tel" autocomplete="tel" inputmode="tel"></div>
+        <div id="ps-create-date-range">
+        <div class="portal-schedule-create-field"><label for="ps-create-date-from" data-i18n="schedule.create.dateFrom">From date</label><input id="ps-create-date-from" type="date"></div>
+        <div class="portal-schedule-create-field"><label for="ps-create-date-to" data-i18n="schedule.create.dateTo">To date</label><input id="ps-create-date-to" type="date"></div>
+        </div>
       </section>
       <section class="portal-schedule-create-section" data-create-section="what" aria-labelledby="ps-create-section-what-title">
         <h3 id="ps-create-section-what-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.what">What</h3>
@@ -18428,20 +18432,16 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
           <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-surfers" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-private-lesson-surfers" type="number" min="1" max="99" value="1"></div>
         </div>
         <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect">Select course</label><select id="ps-create-course-select"></select></div>
-        <div class="portal-schedule-create-field" id="ps-create-course-tier-wrap" style="display:none"><label for="ps-create-course-tier" data-i18n="schedule.create.courseTier">Course duration</label><select id="ps-create-course-tier"></select></div>
+        <div class="portal-schedule-create-field" id="ps-create-course-tier-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-tier" data-i18n="schedule.create.courseTier">Course duration</label><select id="ps-create-course-tier" tabindex="-1"></select></div>
         <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="99" value="1"></div>
       </section>
       <section class="portal-schedule-create-section" data-create-section="when" aria-labelledby="ps-create-section-when-title">
         <h3 id="ps-create-section-when-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.when">When</h3>
-        <div id="ps-create-date-range">
-        <div class="portal-schedule-create-field"><label for="ps-create-date-from" data-i18n="schedule.create.dateFrom">From date</label><input id="ps-create-date-from" type="date"></div>
-        <div class="portal-schedule-create-field"><label for="ps-create-date-to" data-i18n="schedule.create.dateTo">To date</label><input id="ps-create-date-to" type="date"></div>
-        </div>
         <div id="ps-create-private-when" class="portal-schedule-create-private-when" style="display:none">
-          <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1"></div>
-          <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set date and time for each private course session.</span>
+          <div class="portal-schedule-create-field" id="ps-create-private-lesson-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1" tabindex="-1"></div>
+          <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set start and end time for each date in the range.</span>
             <div id="ps-create-private-lesson-sessions" class="portal-schedule-private-sessions"></div>
-            <button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-create-add-session" data-i18n="schedule.create.privateLesson.addSession">+ Add session</button>
+            <button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-create-add-session" style="display:none" hidden aria-hidden="true" tabindex="-1" data-i18n="schedule.create.privateLesson.addSession">+ Add session</button>
           </div>
         </div>
       </section>
@@ -21788,14 +21788,28 @@ function schedulePopulateCreateComponentFields(){
   var cq = el('ps-create-course-qty-wrap');
   var pf = el('ps-create-private-lesson-fields');
   if (cf) cf.style.display = courseOn ? '' : 'none';
-  if (ct) ct.style.display = courseOn ? '' : 'none';
+  // Course duration derived from top dates — never expose selector.
+  if (ct) {
+    ct.style.display = 'none'; ct.hidden = true;
+    try { ct.setAttribute('aria-hidden', 'true'); } catch (_a) { /* ignore */ }
+  }
   if (cq) cq.style.display = courseOn ? '' : 'none';
   if (pf) pf.style.display = privateOn ? '' : 'none';
-  // Private Course uses per-session dates: hide range, show When session editor.
+  // Top-level From/To always authoritative.
   var dateRange = el('ps-create-date-range');
-  if (dateRange) dateRange.style.display = privateOn ? 'none' : '';
+  if (dateRange) dateRange.style.display = '';
   var privateWhen = el('ps-create-private-when');
   if (privateWhen) privateWhen.style.display = privateOn ? '' : 'none';
+  var addSess = el('ps-create-add-session');
+  if (addSess) {
+    addSess.style.display = 'none'; addSess.hidden = true;
+    try { addSess.setAttribute('aria-hidden', 'true'); } catch (_b) { /* ignore */ }
+  }
+  var qtyWrap = el('ps-create-private-lesson-qty-wrap');
+  if (qtyWrap) {
+    qtyWrap.style.display = 'none'; qtyWrap.hidden = true;
+    try { qtyWrap.setAttribute('aria-hidden', 'true'); } catch (_c) { /* ignore */ }
+  }
   if (courseOn) schedulePopulateCreateCourseFields();
   if (privateOn) {
     scheduleFetchLessonTimesConfig(getClient()).then(function(){
@@ -21899,18 +21913,20 @@ function scheduleReadCreatePayload(){
   if (el('ps-create-comp-course') && el('ps-create-comp-course').checked){
     var courseSel = el('ps-create-course-select');
     var courseOpt = courseSel && courseSel.selectedIndex >= 0 ? courseSel.options[courseSel.selectedIndex] : null;
-    var tierSel = el('ps-create-course-tier');
-    var tierKey = tierSel && tierSel.value ? String(tierSel.value).trim() : '';
     var courseId = courseSel ? String(courseSel.value || '').trim() : '';
     components.course = {
       quantity: parseInt((el('ps-create-course-qty') && el('ps-create-course-qty').value) || '1', 10) || 1,
       course_id: courseId,
       course_label: courseOpt ? (courseOpt.getAttribute('data-label') || courseOpt.textContent || '') : '',
     };
-    if (tierKey) {
-      components.course.tier_key = tierKey;
-      // Canonical Admin offering identity (server re-derives; client sends for clarity).
-      components.course.offering_id = 'surf_pack_' + courseId + '__' + tierKey;
+    // Duration from inclusive dates + catalog duration_days match (never hidden selector).
+    var derived = typeof schedulePortalResolveDerivedCourseTier === 'function'
+      ? schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo)
+      : null;
+    if (derived && derived.ok && derived.tier_key) {
+      components.course.tier_key = derived.tier_key;
+      components.course.offering_id = derived.offering_id || ('surf_pack_' + courseId + '__' + derived.tier_key);
+      if (derived.tier_label) components.course.tier_label = derived.tier_label;
     }
   }
   var rentals = typeof scheduleReadCreateRentalSelectionFromDom === 'function'
@@ -21921,21 +21937,14 @@ function scheduleReadCreatePayload(){
     Object.keys(rentalComponents).forEach(function(k){ components[k] = rentalComponents[k]; });
   }
   if (el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked){
-    var plQty = parseInt((el('ps-create-private-lesson-qty') && el('ps-create-private-lesson-qty').value) || '1', 10) || 1;
     var plSurfers = parseInt((el('ps-create-private-lesson-surfers') && el('ps-create-private-lesson-surfers').value) || '1', 10) || 1;
     var plSessions = scheduleReadPrivateLessonSessionsFromDom().map(function(s){
       return { date: s.date, start: s.start, end: s.end };
     });
-    if (plSessions.length) {
-      var plDates = plSessions.map(function(s){ return s.date; }).filter(Boolean).sort();
-      if (plDates.length) {
-        dateFrom = plDates[0];
-        dateTo = plDates[plDates.length - 1];
-      }
-    }
+    // Outer From/To remains authoritative; sessions are range-derived.
     components.private_lesson = {
       enabled: true,
-      quantity: plQty,
+      quantity: plSessions.length,
       surfer_count: plSurfers,
       sessions: plSessions,
     };
@@ -21965,13 +21974,7 @@ var scheduleFullDayAddonEnabled = false;
 var scheduleAdminPricesCache = [];
 
 function scheduleCreateDateSpanForRentals(){
-  var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
-  if (privateOn) {
-    // Outer range is derived from canonical non-past session dates (or cleared).
-    var fromP = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
-    var toP = el('ps-create-date-to') ? el('ps-create-date-to').value : fromP;
-    if (fromP) return { from: fromP, to: toP || fromP };
-  }
+  // Top-level From/To are authoritative for rentals (including private + gear).
   var from = el('ps-create-date-from') ? el('ps-create-date-from').value : scheduleTodayIso();
   var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
   return { from: from, to: to || from };
@@ -22754,6 +22757,19 @@ function scheduleCourseEligibleOnDates(course, dates){
   return { ok: true };
 }
 
+/** Fallback catalog stamp: same duration_days semantics as sunset-bookable-offerings. */
+function scheduleDurationDaysFromTierKey(tierKey){
+  var key = String(tierKey || '').trim();
+  if (!key) return null;
+  if (key === 'single_class' || key === '1_day') return 1;
+  var md = /^(\d+)_days$/.exec(key);
+  if (md) { var n = parseInt(md[1], 10); return (n >= 1) ? n : null; }
+  if (key === '1_week') return 7;
+  var mw = /^(\d+)_weeks$/.exec(key);
+  if (mw) { var w = parseInt(mw[1], 10); return (w >= 1) ? (w * 7) : null; }
+  return null;
+}
+
 function scheduleCoursesFromConfig(prices, surfPacks){
   var seen = {};
   var out = [];
@@ -22761,11 +22777,15 @@ function scheduleCoursesFromConfig(prices, surfPacks){
     var id = String(pack.pack_id || '').trim();
     if (!id || seen[id]) return;
     var tiers = (pack.price_tiers || []).map(function(t){
+      var key = String(t.key || '').trim();
       return {
-        key: String(t.key || '').trim(),
+        key: key,
         label: t.label || t.key || '',
-        offering_item_code: 'surf_pack_' + id + '__' + String(t.key || '').trim(),
+        offering_item_code: 'surf_pack_' + id + '__' + key,
+        offering_id: 'surf_pack_' + id + '__' + key,
         unit_amount_cents: t.amount_cents != null ? Number(t.amount_cents) : null,
+        duration_days: scheduleDurationDaysFromTierKey(key),
+        bookable: true,
       };
     }).filter(function(t){ return !!t.key; });
     // Admin courses without active duration tiers cannot resolve tenant_price_rules —
@@ -22854,27 +22874,12 @@ function schedulePopulateCreateCourseFields(){
   }
 }
 
-function schedulePopulateCreateCourseTierFields(preferredTier){
+/** Legacy hidden duration select — keep empty; Create never reads it for payload/summary. */
+function schedulePopulateCreateCourseTierFields(_preferredTier){
   var tierSel = el('ps-create-course-tier');
   if (!tierSel) return;
-  var courseSel = el('ps-create-course-select');
-  var courseId = courseSel ? String(courseSel.value || '').trim() : '';
-  var course = null;
-  (scheduleCoursesCache || []).forEach(function(c){
-    if (String(c.course_id || '').trim() === courseId) course = c;
-  });
-  var tiers = (course && Array.isArray(course.price_tiers)) ? course.price_tiers : [];
-  var pref = preferredTier != null ? String(preferredTier).trim() : '';
-  var html = '';
-  tiers.forEach(function(t){
-    var key = String(t.key || '').trim();
-    if (!key) return;
-    html += '<option value="' + escHtml(key) + '">' + escHtml(t.label || key) + '</option>';
-  });
-  if (!html) html = '<option value="">' + escHtml(portalT('schedule.create.courseTierNone') || 'No duration configured') + '</option>';
-  tierSel.innerHTML = html;
-  if (pref) tierSel.value = pref;
-  if (!tierSel.value && tiers.length) tierSel.value = String(tiers[0].key || '');
+  try { tierSel.innerHTML = ''; } catch (_e) { /* ignore */ }
+  tierSel.value = '';
 }
 
 function scheduleRenderLessonsTodayBreakdown(rows, todayIso, lessonTimes){
@@ -23716,20 +23721,24 @@ function wireScheduleControls(){
       if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
     });
   }
-  var courseTier = el('ps-create-course-tier');
-  if (courseTier && !courseTier.dataset.quoteWired) {
-    courseTier.dataset.quoteWired = '1';
-    courseTier.addEventListener('change', function(){ if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview(); });
-  }
+  // Hidden #ps-create-course-tier is not wired — duration is date-derived.
   ['ps-create-comp-course','ps-create-comp-private-lesson','ps-create-comp-no-lesson','ps-create-date-from','ps-create-date-to','ps-create-course-qty','ps-create-private-lesson-surfers'].forEach(function(id){
     var node = el(id);
     if (node && !node.dataset.addonWired){
       node.dataset.addonWired = '1';
       var qtyLike = (id === 'ps-create-course-qty' || id === 'ps-create-private-lesson-surfers');
       node.addEventListener('change', function(){
-        if (id === 'ps-create-date-from' || id === 'ps-create-date-to') scheduleRenderCreateRentals();
+        if (id === 'ps-create-date-from' || id === 'ps-create-date-to') {
+          if (el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked
+            && typeof scheduleSyncPrivateLessonSessions === 'function') {
+            scheduleSyncPrivateLessonSessions();
+          }
+          scheduleRenderCreateRentals();
+        }
         scheduleRefreshCreateFullDayAddon();
         if (qtyLike && typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
+        if ((id === 'ps-create-date-from' || id === 'ps-create-date-to')
+          && typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
       });
       node.addEventListener('input', function(){
         scheduleRefreshCreateFullDayAddon();
@@ -23737,17 +23746,8 @@ function wireScheduleControls(){
       });
     }
   });
-  var plQty = el('ps-create-private-lesson-qty');
-  if (plQty && !plQty.dataset.wired) {
-    plQty.dataset.wired = '1';
-    plQty.addEventListener('change', scheduleSyncPrivateLessonSessions);
-    plQty.addEventListener('input', scheduleSyncPrivateLessonSessions);
-  }
   var plAddSession = el('ps-create-add-session');
-  if (plAddSession && !plAddSession.dataset.wired) {
-    plAddSession.dataset.wired = '1';
-    plAddSession.addEventListener('click', scheduleAddPrivateLessonSession);
-  }
+  if (plAddSession) { plAddSession.style.display = 'none'; plAddSession.hidden = true; }
   if (typeof schedulePortalWireCreateFooter === 'function') schedulePortalWireCreateFooter();
 }
 

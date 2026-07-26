@@ -41,7 +41,9 @@ assert('owners', /function schedulePortalRenderCreateIntentSummary/.test(portalS
   && /ps-create-guest/.test(extractFn(portalSrc,'schedulePortalWireCreateFooter')||'')
   && !/ps-create-course-select|ps-create-course-qty/.test(extractFn(portalSrc,'schedulePortalWireCreateFooter')||'')
   && /schedulePortalSyncCreateFooter/.test(extractFn(portalSrc,'schedulePortalPopulateCreateCourseFields')||'')
-  && /ps-create-course-tier/.test(extractFn(apiSrc,'wireScheduleControls')||''));
+  // Duration is date-derived; hidden #ps-create-course-tier is not quote-wired.
+  && !/courseTier\.addEventListener/.test(extractFn(apiSrc,'wireScheduleControls')||'')
+  && /tier_label|schedulePortalDurationLabel/.test(extractFn(portalSrc,'schedulePortalRenderCreateIntentSummary')||''));
 const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
 const es = require('./lib/staff-portal-i18n-es-sunset');
 const en = STAFF_PORTAL_STRINGS.en || {}, it = STAFF_PORTAL_STRINGS.it || {};
@@ -55,6 +57,7 @@ const T = {
   'schedule.type.course':'Group course','schedule.type.privateLesson':'Private course','schedule.type.noLesson':'No lesson',
   'schedule.type.boardRental':'Board rental','schedule.type.wetsuitRental':'Wetsuit rental','schedule.ops.rentalBoth':'Surfboard + wetsuit',
   'schedule.payment.paid':'Paid','schedule.payment.unpaid':'Unpaid','admin.period.2_days':'2 day','admin.period.1_day':'1 day',
+  'admin.period.1_week':'1 week','admin.period.2_weeks':'2 weeks','admin.period.single_class':'Single class',
 };
 const LEAK = /\b(c1|1_week|2_days|duration_key|tier_key|course_id|board_rental|offering_key)\b/;
 function sandbox(opts) {
@@ -134,9 +137,12 @@ function qBody(n,a,b){return{ok:true,body:{success:true,total_cents:n===1?a:b}};
   assert('empty', /Choose a lesson or add gear/.test(S(empty)) && !/\+34000|secret/.test(S(empty)));
   const group = sandbox();
   group._setPayload({ guest_name:'Ada', guest_phone:'+34999', notes:'NOPE', date_from:'2026-08-20', date_to:'2026-08-22', payment_status:'paid',
-    components:{ course:{ course_id:'c1', course_label:'Beginner', tier_key:'1_week', quantity:2 } }, rentals:[] });
+    components:{ course:{ course_id:'c1', course_label:'Beginner', tier_key:'1_week', tier_label:'1 week', quantity:2 } }, rentals:[] });
+  // Poison hidden selector — summary must use derived tier_label, not select text.
+  group.el('ps-create-course-tier').options=[{value:'2_weeks',textContent:'POISONED'}];
+  group.el('ps-create-course-tier').selectedIndex=0; group.el('ps-create-course-tier').value='2_weeks';
   group.schedulePortalRenderCreateIntentSummary();
-  assert('group', /Group course/.test(S(group)) && /Beginner/.test(S(group)) && /1 week/.test(S(group)) && /Paid|Ada/.test(S(group)) && !LEAK.test(S(group)));
+  assert('group', /Group course/.test(S(group)) && /Beginner/.test(S(group)) && /1 week/.test(S(group)) && !/POISONED/.test(S(group)) && /Paid|Ada/.test(S(group)) && !LEAK.test(S(group)));
   const leak = sandbox({ courseOptions:[], tierOptions:[] });
   leak._setPayload({ guest_name:'', date_from:'2026-08-20', date_to:'2026-08-20', payment_status:'unpaid',
     components:{ course:{ course_id:'c1', tier_key:'1_week', quantity:1 } }, rentals:[] });
