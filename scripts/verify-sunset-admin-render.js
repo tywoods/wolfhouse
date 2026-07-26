@@ -108,9 +108,11 @@ function runStaticSourceChecks() {
 
   assert('adminConfigCache block found', admin.length > 500);
   assert('inline admin helper marker present',
-    src.includes('/* sunset-admin-ui-helpers: from scripts/lib/sunset-admin-ui-helpers.js */'));
+    src.includes('sunset-admin-ui-helpers: injected')
+      && src.includes('getSunsetAdminBrowserHelperSource()'));
   assert('inline admin UI marker present',
-    src.includes('/* sunset-admin-ui: from scripts/browser/sunset-admin-ui.js */'));
+    src.includes('sunset-admin-ui: injected')
+      && src.includes('getSunsetAdminUiBrowserSource()'));
   assert('extracted admin UI defines wireAdminTab',
     /function wireAdminTab\s*\(/.test(adminUiSrc));
   assert('extracted admin UI defines adminConfigCache',
@@ -158,7 +160,8 @@ function runStaticSourceChecks() {
   assert('scheduleInvalidateAdminCatalogCache present',
     src.includes('function scheduleInvalidateAdminCatalogCache('));
   assert('adminReloadConfig busts schedule course cache',
-    /function adminReloadConfig\([\s\S]{0,400}scheduleInvalidateAdminCatalogCache/.test(src));
+    /function adminReloadConfig\([\s\S]{0,400}scheduleInvalidateAdminCatalogCache/.test(src)
+      || /function adminReloadConfig\([\s\S]{0,400}scheduleInvalidateAdminCatalogCache/.test(adminUiSrc));
   assert('create modal force-refetches admin courses',
     /scheduleFetchLessonTimesConfig\(getClient\(\),\s*\{\s*force:\s*true\s*\}/.test(src));
 }

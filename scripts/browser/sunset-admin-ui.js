@@ -98,6 +98,9 @@ function adminReloadConfigKeepingEdit(keepTarget){
 function adminReloadConfig(){
   adminEditTarget = null;
   adminSaveBusy = false;
+  // Admin pack/price CRUD must invalidate Schedule create-menu cache immediately —
+  // same SPA session previously kept stale surf_packs until school switch/restart.
+  if (typeof scheduleInvalidateAdminCatalogCache === 'function') scheduleInvalidateAdminCatalogCache();
   loadAdminTab();
 }function adminIsLessonPrice(p){
   return String((p && p.category) || '').toLowerCase() === 'lesson';
@@ -454,12 +457,13 @@ function adminPeriodLabel(period){
 }
 
 function adminRentalPeriodOptions(selected){
-  // Admin → Prices "Price for" / period: exactly 1–7 days for new/canonical rows.
-  // If an existing row still carries a non-canonical period (hour/half_day/…),
-  // keep that value selectable so re-save does not silently migrate the row.
+  // Admin → Prices "Price for" / period: always exactly 1–7 days.
+  // Never reinsert selected legacy keys (hour/half_day/weeks/single_class/custom)
+  // and never derive options from stored tier/price rows. Legacy stored values
+  // remain readable for old bookings but do not appear here; operator must pick
+  // a canonical 1–7 day key before save (server rejects noncanonical).
   var opts = ['1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
   var sel = String(selected || '').trim();
-  if (sel && opts.indexOf(sel) < 0) opts = [sel].concat(opts);
   return opts.map(function(p){
     var isSel = (sel === p) ? ' selected' : '';
     return '<option value="' + escHtml(p) + '"' + isSel + '>' + escHtml(adminPeriodLabel(p)) + '</option>';

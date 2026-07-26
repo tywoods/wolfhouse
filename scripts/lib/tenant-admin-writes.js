@@ -331,8 +331,10 @@ function validatePricePatchBody(body) {
   }
   if (body.period_window != null) {
     const period = String(body.period_window).trim();
-    // Preserve legacy hour/half_day rows on re-save; reject unknown garbage only.
-    if (!RENTAL_PERIOD_WINDOWS_READABLE.has(period)) {
+    // Saves must use canonical 1–7 day keys only. Legacy hour/half_day/week rows
+    // remain readable in storage for old bookings, but the Admin selector does
+    // not offer them and patch rejects noncanonical period_window values.
+    if (!RENTAL_PERIOD_WINDOWS.has(period)) {
       return { ok: false, error: 'invalid period_window' };
     }
     out.period_window = period;
