@@ -52,8 +52,14 @@ const DURATION_ALIASES = {
   day: '1_day',
   '2 days': '2_days',
   '2_days': '2_days',
+  '3 days': '3_days',
+  '3_days': '3_days',
+  '4 days': '4_days',
+  '4_days': '4_days',
   '5 days': '5_days',
   '5_days': '5_days',
+  '6 days': '6_days',
+  '6_days': '6_days',
   '7 days': '7_days',
   '7_days': '7_days',
   week: '7_days',
@@ -180,7 +186,8 @@ function lookupSunsetRentalPrice(opts) {
 function resolveRentalBillingUnit(durationKey) {
   const key = String(durationKey || '').trim();
   if (/hour|half_day|lesson/i.test(key)) return 'session';
-  if (/^(1|2|5|7)_days?$/.test(key) || key === '1_day') return 'day';
+  // Inclusive 1–7 day windows share billing grain "day" (whole-window price row).
+  if (key === '1_day' || /^[1-7]_days$/.test(key)) return 'day';
   return null;
 }
 
@@ -196,16 +203,17 @@ async function defaultLoadRentalRule(params) {
 /**
  * Async, DB-authoritative rental price lookup for LIVE Staff API / tool paths.
  *
- * When SUNSET_ADMIN_DB_READ_ENABLED=true the owner-managed portal rule in
- * tenant_price_rules is the single source of truth:
- *   - DB rule found        → return it (source=db, source_url=null).
+ * Fail-closed ownership for live Admin pricing (ALL prices from Admin tab):
+ *   - SUNSET_ADMIN_DB_READ_ENABLED off → pure baseline/config (bootstrap/offline only).
+ *   - flag on: tenant+location scoped tenant_price_rules row is sole price owner.
+ *   - DB rule found (valid cents) → return it (source=db, source_url=null).
  *   - table exists, no rule → fail closed (price_not_configured); NEVER the
  *                             stale public_site baseline seed.
- *   - tables genuinely absent → documented bootstrap fallback to the baseline.
- *   - DB/query error        → fail closed (price_lookup_failed); NEVER baseline.
- *
- * When the flag is off, this defers to the pure baseline lookup so preview /
- * bootstrap flows keep working exactly as before.
+ *   - null response or tables_missing while DB-read is on → fail closed
+ *     (price_lookup_failed); NEVER baseline/public_site cents. Baseline is
+ *     allowed ONLY when the DB-read feature flag is OFF.
+ *   - location mismatch / invalid location / query error → fail closed;
+ *     never silent baseline merge while live DB-read mode is on.
  *
  * @param {object} opts client_slug, item, duration, location_id, require_confirmed,
  *                       plus optional pgClient / loadRule (test injection).
@@ -248,7 +256,7 @@ async function lookupSunsetRentalPriceAsync(opts) {
     return { ok: false, reason: 'price_not_configured', client_slug: clientSlug, tenant_id: clientSlug, location_id: locationId, item: itemCode, duration };
   }
 
-  // Flag off → baseline/config path (preview & bootstrap only).
+  // Flag off → baseline/config path (preview & bootstrap only). Never a live fallback.
   if (!isSunsetAdminDbReadEnabled()) {
     return lookupSunsetRentalPrice({
       client_slug: clientSlug,
@@ -298,17 +306,18 @@ async function lookupSunsetRentalPriceAsync(opts) {
     };
   }
 
+  // DB-read mode: null / tables_missing fail closed — never baseline/public_site cents.
   if (!dbRes || dbRes.status === 'tables_missing') {
-    // Bootstrap only: the admin tables genuinely do not exist yet.
-    const baseline = lookupSunsetRentalPrice({
+    return {
+      ok: false,
+      reason: 'price_lookup_failed',
       client_slug: clientSlug,
+      tenant_id: clientSlug,
       location_id: locationId,
       item: itemCode,
       duration,
-      require_confirmed: requireConfirmed,
-    });
-    if (baseline.ok) baseline.db_read_warning = 'tables_missing';
-    return baseline;
+      detail: !dbRes ? 'null_response' : 'tables_missing',
+    };
   }
 
   if (dbRes.status !== 'found') {
@@ -375,9 +384,15 @@ async function lookupSunsetRentalPriceAsync(opts) {
 }
 
 const FULL_DAY_EQUIPMENT_ADDON_KEY = 'full_day_equipment_extension';
+const FULL_DAY_EQUIPMENT_ADDON_DURATION = 'day';
+const FULL_DAY_EQUIPMENT_ADDON_BILLING_UNIT = 'day';
+const FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE = `${FULL_DAY_EQUIPMENT_ADDON_KEY}__${FULL_DAY_EQUIPMENT_ADDON_DURATION}`;
 
 // Read the active state + config/DB price for the full-day equipment add-on, school-scoped.
-// Fail-closed on unknown tenant/location, missing/disabled price. Price strictly config/DB-backed.
+// Sync baseline path only — live Staff Create/Edit must use the async DB-authoritative
+// variant when SUNSET_ADMIN_DB_READ_ENABLED is on. Baseline is allowed ONLY when that
+// flag is off; the async path never falls back to this helper under DB-read mode.
+// Fail-closed on unknown tenant/location, missing/disabled price.
 function lookupSunsetFullDayEquipmentAddon(opts) {
   const options = opts || {};
   const rawSlug = options.client_slug;
@@ -397,8 +412,8 @@ function lookupSunsetFullDayEquipmentAddon(opts) {
     if (String(p.category || '').toLowerCase() !== 'rental') return false;
     const key = String(p.offering_key || p.item_code || '');
     const unit = String(p.unit || '');
-    return (key === FULL_DAY_EQUIPMENT_ADDON_KEY && (!unit || unit === 'day'))
-      || key === `${FULL_DAY_EQUIPMENT_ADDON_KEY}__day`;
+    return (key === FULL_DAY_EQUIPMENT_ADDON_KEY && (!unit || unit === FULL_DAY_EQUIPMENT_ADDON_DURATION))
+      || key === FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE;
   });
   if (!rule) {
     return {
@@ -424,7 +439,7 @@ function lookupSunsetFullDayEquipmentAddon(opts) {
     addon_key: FULL_DAY_EQUIPMENT_ADDON_KEY,
     active: true,
     billing_unit: 'person_per_day',
-    unit: 'day',
+    unit: FULL_DAY_EQUIPMENT_ADDON_DURATION,
     amount_cents: amountCents,
     amount_eur: amountCents / 100,
     currency: rule.currency || 'EUR',
@@ -432,10 +447,166 @@ function lookupSunsetFullDayEquipmentAddon(opts) {
   };
 }
 
+/**
+ * Async, DB-authoritative full-day equipment add-on price lookup for LIVE paths.
+ *
+ * Fail-closed ownership for Create/Edit Admin pricing:
+ *   - SUNSET_ADMIN_DB_READ_ENABLED off → pure baseline/config (bootstrap/offline only).
+ *   - flag on: tenant+location scoped tenant_price_rules row is sole price owner.
+ *   - DB found active valid cents → exact cents (source=db); never client/static merge.
+ *   - row missing/disabled/invalid, location mismatch, query error → fail closed;
+ *     never silent baseline/config merge fallback while live DB-read mode is on.
+ *   - null response or tables_missing while DB-read is on → fail closed
+ *     (price_lookup_failed / stable reason); NEVER baseline cents. Baseline is
+ *     allowed ONLY when the DB-read feature flag is OFF.
+ *
+ * Admin row identity: item_type=rental, item_code=full_day_equipment_extension__day,
+ * unit=day (billing grain), location_id exact.
+ */
+async function lookupSunsetFullDayEquipmentAddonAsync(opts) {
+  const options = opts || {};
+  const rawSlug = options.client_slug;
+  const clientSlug = (rawSlug != null) ? String(rawSlug).trim() : EXPECTED_TENANT;
+
+  if (clientSlug !== EXPECTED_TENANT) {
+    return { ok: false, reason: 'tenant_mismatch', client_slug: clientSlug, expected_tenant: EXPECTED_TENANT };
+  }
+
+  // Distinguish omitted location (fixed-ingress Somo default) from explicitly
+  // supplied null/empty/invalid values, which must fail closed.
+  const locationExplicit = Object.prototype.hasOwnProperty.call(options, 'location_id');
+  const rawLoc = options.location_id;
+  if (locationExplicit) {
+    if (rawLoc == null || String(rawLoc).trim() === '' || !isSunsetLocationId(rawLoc)) {
+      return {
+        ok: false,
+        reason: 'unknown_location',
+        client_slug: clientSlug,
+        location_id: rawLoc == null ? rawLoc : String(rawLoc).trim(),
+        addon_key: FULL_DAY_EQUIPMENT_ADDON_KEY,
+      };
+    }
+  }
+  const locationId = locationExplicit
+    ? normalizeSunsetLocationId(rawLoc)
+    : DEFAULT_SUNSET_LOCATION_ID;
+
+  // Flag off → baseline/config path (preview & bootstrap only). Never a live fallback.
+  if (!isSunsetAdminDbReadEnabled()) {
+    return lookupSunsetFullDayEquipmentAddon({
+      client_slug: clientSlug,
+      location_id: locationId,
+    });
+  }
+
+  const loadRule = options.loadRule || defaultLoadRentalRule;
+  let dbRes;
+  try {
+    dbRes = await loadRule({
+      clientSlug,
+      locationId,
+      itemType: 'rental',
+      // Offering key + duration → persisted full_day_equipment_extension__day.
+      itemCode: FULL_DAY_EQUIPMENT_ADDON_KEY,
+      duration: FULL_DAY_EQUIPMENT_ADDON_DURATION,
+      billingUnit: FULL_DAY_EQUIPMENT_ADDON_BILLING_UNIT,
+      pgClient: options.pgClient,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      reason: 'price_lookup_failed',
+      client_slug: clientSlug,
+      tenant_id: clientSlug,
+      location_id: locationId,
+      addon_key: FULL_DAY_EQUIPMENT_ADDON_KEY,
+      detail: (err && err.message) ? err.message : 'db_error',
+    };
+  }
+
+  // DB-read mode: null / tables_missing fail closed — never baseline cents.
+  if (!dbRes || dbRes.status === 'tables_missing') {
+    return {
+      ok: false,
+      reason: 'price_lookup_failed',
+      client_slug: clientSlug,
+      tenant_id: clientSlug,
+      location_id: locationId,
+      addon_key: FULL_DAY_EQUIPMENT_ADDON_KEY,
+      detail: !dbRes ? 'null_response' : 'tables_missing',
+    };
+  }
+
+  if (dbRes.status !== 'found') {
+    const failClosed = dbRes.status === 'billing_unit_required'
+      || dbRes.status === 'location_scope_unavailable'
+      || dbRes.status === 'invalid_location'
+      || dbRes.status === 'not_found';
+    if (!failClosed) {
+      return {
+        ok: false,
+        reason: 'price_lookup_failed',
+        client_slug: clientSlug,
+        tenant_id: clientSlug,
+        location_id: locationId,
+        addon_key: FULL_DAY_EQUIPMENT_ADDON_KEY,
+        detail: dbRes.status,
+      };
+    }
+    return {
+      ok: false,
+      reason: 'price_not_configured',
+      client_slug: clientSlug,
+      tenant_id: clientSlug,
+      location_id: locationId,
+      addon_key: FULL_DAY_EQUIPMENT_ADDON_KEY,
+      source: 'db',
+    };
+  }
+
+  const amountCents = Math.round(Number(dbRes.amount_cents));
+  if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    return {
+      ok: false,
+      reason: 'price_not_configured',
+      client_slug: clientSlug,
+      tenant_id: clientSlug,
+      location_id: locationId,
+      addon_key: FULL_DAY_EQUIPMENT_ADDON_KEY,
+      source: 'db',
+    };
+  }
+
+  const effectiveLoc = dbRes.location_id || locationId;
+  return {
+    ok: true,
+    client_slug: clientSlug,
+    tenant_id: clientSlug,
+    location_id: effectiveLoc,
+    location_label: locationStore.resolveLocationLabel(effectiveLoc),
+    addon_key: FULL_DAY_EQUIPMENT_ADDON_KEY,
+    active: true,
+    billing_unit: 'person_per_day',
+    unit: FULL_DAY_EQUIPMENT_ADDON_DURATION,
+    amount_cents: amountCents,
+    amount_eur: amountCents / 100,
+    currency: dbRes.currency || 'EUR',
+    pricing_status: 'confirmed',
+    live_quote_allowed: true,
+    source: 'db',
+    source_url: null,
+  };
+}
+
 module.exports = {
   lookupSunsetRentalPrice,
   lookupSunsetRentalPriceAsync,
   lookupSunsetFullDayEquipmentAddon,
+  lookupSunsetFullDayEquipmentAddonAsync,
   FULL_DAY_EQUIPMENT_ADDON_KEY,
+  FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE,
   ITEM_ALIASES,
+  DURATION_ALIASES,
+  resolveRentalBillingUnit,
+  resolveDurationKey,
 };

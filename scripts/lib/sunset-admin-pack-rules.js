@@ -9,6 +9,13 @@ const {
   adminConfigTableHasLocationColumn,
 } = require('./tenant-business-config');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
+const {
+  CANONICAL_DAY_DURATION_KEYS,
+  isCanonicalDayDurationKey,
+  durationDaysFromTierKey,
+  hoursForDayDurationKey,
+  LEGACY_TIER_KEY_TO_CANONICAL,
+} = require('./sunset-admin-duration-keys');
 
 const PACK_BEACHES = new Set(['el_sardinero', 'liencres', 'somo']);
 const PACK_AGE_BANDS = new Set(['all_ages', '6_and_up', '6_to_11', '12_and_up']);
@@ -25,21 +32,20 @@ function isValidPackScheduleKey(key) {
   return end > start;
 }
 const PACK_GROUP_SIZES = new Set([8, 12, 16, 20, 24]); // legacy presets (no longer enforced)
-// Duration tiers a course price row may use. Day + week tiers are owner-selectable;
-// single_class kept for backward compatibility with existing packs.
-const PACK_TIER_KEYS = new Set([
-  '1_day', '2_days', '3_days', '5_days', '7_days',
-  '1_week', '2_weeks', '3_weeks', '4_weeks',
+// Admin "Price for" save accepts only 1–7 day keys.
+const PACK_TIER_KEYS = new Set(CANONICAL_DAY_DURATION_KEYS);
+// Existing bookings / stored packs may still carry explicit legacy keys.
+const PACK_TIER_KEYS_READABLE = new Set([
+  ...CANONICAL_DAY_DURATION_KEYS,
   'single_class',
+  '1_week',
+  '2_weeks',
+  '3_weeks',
+  '4_weeks',
 ]);
 
-const DEFAULT_PRICE_TIERS = [
-  { key: '1_week', label: 'Price for 1 week (10 hours)', hours: 10, amount_cents: 18000 },
-  { key: '2_weeks', label: 'Price for 2 weeks (20 hours)', hours: 20, amount_cents: 33500 },
-  { key: '3_weeks', label: 'Price for 3 weeks (30 hours)', hours: 30, amount_cents: 48000 },
-  { key: '4_weeks', label: 'Price for 4 weeks (40 hours)', hours: 40, amount_cents: 60000 },
-  { key: 'single_class', label: 'Price for 1 single class (2 hours)', hours: 2, amount_cents: 4000 },
-];
+// No fabricated commercial amounts — empty until Admin configures each day price.
+const DEFAULT_PRICE_TIERS = [];
 
 function defaultPackConfig() {
   return {
@@ -48,8 +54,17 @@ function defaultPackConfig() {
     beaches: ['el_sardinero', 'liencres', 'somo'],
     weekly: 'mon_fri',
     schedules: ['0930_1130', '1215_1415'],
-    price_tiers: DEFAULT_PRICE_TIERS.map((t) => ({ ...t })),
+    price_tiers: [],
   };
+}
+
+/** Label for a pack tier key without inventing money. */
+function packTierLabel(key) {
+  const k = String(key || '').trim();
+  const days = durationDaysFromTierKey(k);
+  if (days === 1) return '1 day';
+  if (days != null && days > 1) return `${days} days`;
+  return k;
 }
 
 function packPriceItemCode(packId, tierKey) {
@@ -58,6 +73,21 @@ function packPriceItemCode(packId, tierKey) {
 
 function mapPackRow(row) {
   const cfg = row.config_json && typeof row.config_json === 'object' ? row.config_json : {};
+  const rawTiers = Array.isArray(cfg.price_tiers) ? cfg.price_tiers : [];
+  // Preserve stored keys + amounts. Stamp duration_days via explicit mapping only.
+  const price_tiers = rawTiers.map((t) => {
+    if (!t || !t.key) return t;
+    const key = String(t.key).trim();
+    const amount = Number(t.amount_cents);
+    return {
+      key,
+      label: String(t.label || packTierLabel(key)).trim() || packTierLabel(key),
+      hours: Number.isFinite(Number(t.hours)) ? Number(t.hours) : hoursForDayDurationKey(key),
+      amount_cents: Number.isInteger(amount) && amount >= 0 ? amount : 0,
+      duration_days: durationDaysFromTierKey(key),
+      canonical_key: LEGACY_TIER_KEY_TO_CANONICAL[key] || (isCanonicalDayDurationKey(key) ? key : null),
+    };
+  });
   return {
     pack_id: row.id ? String(row.id) : null,
     label: row.label || 'Surf pack',
@@ -66,7 +96,7 @@ function mapPackRow(row) {
     beaches: Array.isArray(cfg.beaches) ? cfg.beaches : [],
     weekly: cfg.weekly || 'mon_fri',
     schedules: Array.isArray(cfg.schedules) ? cfg.schedules : [],
-    price_tiers: Array.isArray(cfg.price_tiers) ? cfg.price_tiers : DEFAULT_PRICE_TIERS,
+    price_tiers,
     source: 'db',
   };
 }
@@ -117,20 +147,30 @@ function validatePackBody(body, { requireLabel } = {}) {
     out.schedules = schedules;
   }
   if (body.price_tiers != null) {
-    if (!Array.isArray(body.price_tiers) || !body.price_tiers.length) {
+    if (!Array.isArray(body.price_tiers)) {
       return { ok: false, error: 'price_tiers required' };
     }
+    // Empty is allowed (fail-closed bookable until Admin sets 1–7 day prices).
     const tiers = [];
+    const seen = new Set();
     for (const t of body.price_tiers) {
       const key = String(t.key || '').trim();
       if (!PACK_TIER_KEYS.has(key)) return { ok: false, error: 'invalid price tier key' };
-      const label = String(t.label || '').trim();
+      if (seen.has(key)) return { ok: false, error: 'duplicate price tier key' };
+      seen.add(key);
+      const label = String(t.label || packTierLabel(key)).trim();
       if (!label) return { ok: false, error: 'price tier label required' };
-      const hours = Number(t.hours);
-      if (!Number.isFinite(hours) || hours < 0) return { ok: false, error: 'invalid tier hours' };
+      const hoursRaw = t.hours != null ? Number(t.hours) : hoursForDayDurationKey(key);
+      if (!Number.isFinite(hoursRaw) || hoursRaw < 0) return { ok: false, error: 'invalid tier hours' };
       const amount = Number(t.amount_cents);
       if (!Number.isInteger(amount) || amount < 0) return { ok: false, error: 'invalid tier amount_cents' };
-      tiers.push({ key, label, hours, amount_cents: amount });
+      tiers.push({
+        key,
+        label,
+        hours: hoursRaw,
+        amount_cents: amount,
+        duration_days: durationDaysFromTierKey(key),
+      });
     }
     out.price_tiers = tiers;
   }
@@ -273,6 +313,18 @@ async function patchSurfPackRule(client, { ruleId, clientSlug, locationId, body,
     const before = existing.rows[0];
     const prevCfg = before.config_json && typeof before.config_json === 'object' ? before.config_json : {};
     const nextCfg = { ...prevCfg, ...validated.patch };
+    // Saving exact 1–7 day tiers must not silently drop/migrate stored legacy
+    // keys (1_week, single_class, …) or invent replacements for them.
+    if (Array.isArray(validated.patch.price_tiers)) {
+      const prevTiers = Array.isArray(prevCfg.price_tiers) ? prevCfg.price_tiers : [];
+      const legacyPreserved = prevTiers.filter((t) => {
+        const key = String((t && t.key) || '').trim();
+        return key && !PACK_TIER_KEYS.has(key);
+      });
+      const seen = new Set(validated.patch.price_tiers.map((t) => String((t && t.key) || '').trim()));
+      const legacyNoDup = legacyPreserved.filter((t) => !seen.has(String((t && t.key) || '').trim()));
+      nextCfg.price_tiers = validated.patch.price_tiers.concat(legacyNoDup);
+    }
     const nextLabel = validated.patch.label || before.label;
     const updated = await client.query(
       `UPDATE tenant_surf_pack_rules
@@ -382,9 +434,11 @@ module.exports = {
   PACK_SCHEDULE_KEYS,
   PACK_GROUP_SIZES,
   PACK_TIER_KEYS,
+  PACK_TIER_KEYS_READABLE,
   DEFAULT_PRICE_TIERS,
   defaultPackConfig,
   packPriceItemCode,
+  packTierLabel,
   mapPackRow,
   validatePackBody,
   loadSurfPacksFromDb,

@@ -795,6 +795,60 @@ async function main() {
   assert('query error → price_lookup_failed', failed.ok === false && failed.reason === 'price_lookup_failed');
   assert('query error does NOT fall back to baseline', failed.amount_cents == null || failed.amount_cents !== BASELINE_BUNDLE_HALFDAY);
 
+  console.log('\n[D2] tables_missing / null while DB-read ON → fail closed (never public_site baseline)');
+  const pgTablesMissing = {
+    query: async (sql) => {
+      if (/to_regclass/i.test(String(sql))) return { rows: [{ reg: null }] };
+      return { rows: [] };
+    },
+  };
+  const tablesMissing = await lookupSunsetRentalPriceAsync({
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgTablesMissing,
+  });
+  assert('tables_missing (DB-read ON) → price_lookup_failed',
+    tablesMissing.ok === false
+      && tablesMissing.reason === 'price_lookup_failed'
+      && tablesMissing.detail === 'tables_missing',
+    JSON.stringify(tablesMissing));
+  assert('tables_missing does NOT return baseline/public_site cents',
+    tablesMissing.amount_cents == null
+      && tablesMissing.db_read_warning == null
+      && tablesMissing.source !== 'public_site'
+      && tablesMissing.source !== 'admin_config',
+    JSON.stringify(tablesMissing));
+  const nullRes = await lookupSunsetRentalPriceAsync({
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    loadRule: async () => null,
+  });
+  assert('null loadRule (DB-read ON) → price_lookup_failed',
+    nullRes.ok === false
+      && nullRes.reason === 'price_lookup_failed'
+      && nullRes.detail === 'null_response'
+      && nullRes.amount_cents == null
+      && nullRes.db_read_warning == null,
+    JSON.stringify(nullRes));
+  // loadRule tables_missing path (injection parity with full-day contract)
+  const injectedMissing = await lookupSunsetRentalPriceAsync({
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    loadRule: async () => ({ status: 'tables_missing' }),
+  });
+  assert('injected tables_missing → price_lookup_failed (no baseline)',
+    injectedMissing.ok === false
+      && injectedMissing.reason === 'price_lookup_failed'
+      && injectedMissing.detail === 'tables_missing'
+      && injectedMissing.amount_cents == null,
+    JSON.stringify(injectedMissing));
+
   console.log('\n[E] DB read disabled → baseline preview path remains available');
   process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'false';
   const preview = await lookupSunsetRentalPriceAsync({
@@ -806,6 +860,19 @@ async function main() {
   });
   assert('DB disabled → baseline seed returned', preview.ok === true && preview.amount_cents === BASELINE_BUNDLE_HALFDAY, JSON.stringify(preview));
   assert('DB disabled source is public_site seed', preview.source === 'public_site');
+  // Flag OFF is the ONLY path that may use baseline even when tables would be missing.
+  const previewTablesMissing = await lookupSunsetRentalPriceAsync({
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    loadRule: async () => ({ status: 'tables_missing' }),
+  });
+  assert('DB disabled ignores loadRule tables_missing → baseline seed',
+    previewTablesMissing.ok === true
+      && previewTablesMissing.amount_cents === BASELINE_BUNDLE_HALFDAY
+      && previewTablesMissing.source === 'public_site',
+    JSON.stringify(previewTablesMissing));
   process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'true';
 
   console.log('\n[F-resolver] Owner DB price flows into the shared bundle-total function');

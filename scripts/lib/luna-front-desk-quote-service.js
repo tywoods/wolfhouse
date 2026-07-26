@@ -938,7 +938,9 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     const offering = nestOfferingForQuote(matches[0]);
     const sessions = pl.sessions || [];
     const dates = sessions.map((s) => String(s.date).slice(0, 10)).filter(Boolean);
-    const qty = Math.max(1, Number(pl.quantity) || 1);
+    // Admin private is per-session × surfers. Session count comes from dates;
+    // quantity must be surfer_count (never session count — that double-bills).
+    const qty = Math.max(1, Number(pl.surfer_count) || 1);
     const lineOut = pg
       ? await quoteOfferingLine(pg, command, offering, dates.length ? dates : serviceDates, qty, requireDb)
       : quoteOfferingLineSync(command, offering, dates.length ? dates : serviceDates, qty, requireDb);
@@ -1066,7 +1068,8 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     const offering = nestOfferingForQuote(matches[0]);
     const sessions = pl.sessions || [];
     const dates = sessions.map((s) => String(s.date).slice(0, 10)).filter(Boolean);
-    const qty = Math.max(1, Number(pl.quantity) || 1);
+    // Admin private is per-session × surfers. Session count comes from dates.
+    const qty = Math.max(1, Number(pl.surfer_count) || 1);
     const lineOut = quoteOfferingLineSync(command, offering, dates.length ? dates : serviceDates, qty, requireDb);
     if (!lineOut.ok) return lineOut;
     lines.push({ ...lineOut.line, component: 'private_lesson' });

@@ -32,21 +32,11 @@ const {
   isSunsetLocationId,
   DEFAULT_SUNSET_LOCATION_ID,
 } = require('./sunset-school-locations');
+const {
+  durationDaysFromTierKey,
+} = require('./sunset-admin-duration-keys');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
-
-/** Inclusive calendar days from tier key: 1_day/single_class=1, N_days=N, N_weeks=7N. */
-function durationDaysFromTierKey(tierKey) {
-  const key = String(tierKey || '').trim();
-  if (!key) return null;
-  if (key === 'single_class' || key === '1_day') return 1;
-  const dayMatch = /^(\d+)_days$/.exec(key);
-  if (dayMatch) { const n = Number(dayMatch[1]); return Number.isInteger(n) && n >= 1 ? n : null; }
-  if (key === '1_week') return 7;
-  const weekMatch = /^(\d+)_weeks$/.exec(key);
-  if (weekMatch) { const w = Number(weekMatch[1]); return Number.isInteger(w) && w >= 1 ? w * 7 : null; }
-  return null;
-}
 
 function parsePackScheduleKey(value) {
   const m = /^([01]\d|2[0-3])([0-5]\d)_([01]\d|2[0-3])([0-5]\d)$/.exec(String(value || '').trim());
@@ -131,15 +121,10 @@ function projectCourseTierFromPack(pack, prices, opts = {}) {
     const itemCode = identity.item_code || packPriceItemCode(pack.pack_id, tierKey);
     const preferredUnit = identity.billing_unit || billingUnitForSurfPackTier(tierKey);
     const found = findConfigPrice(prices, itemCode, asOf, preferredUnit);
-    const allowConfigTierAmount = !opts.requireDb;
-    const amount = found.ok ? centsFromPrice(found.price) : (
-      allowConfigTierAmount && Number.isFinite(Number(tier.amount_cents))
-        ? Math.round(Number(tier.amount_cents))
-        : null
-    );
+    // Commercial truth is Admin price rows only. Never invent from tier JSON
+    // amounts even when requireDb is off (preview still surfaces missing price).
+    const amount = found.ok ? centsFromPrice(found.price) : null;
     const hasOwnerAmount = Number.isFinite(amount) && amount > 0;
-    // Bookable only when a price row exists with positive amount unless legacy
-    // config-json reads are explicitly allowed (requireDb disables that fallback).
     const resolvable = !!(found.ok && hasOwnerAmount);
     const bookable = resolvable && (!scheduleEval || scheduleEval.ok);
     const primary = (schedule.time_slots && schedule.time_slots[0]) || {};
@@ -176,7 +161,7 @@ function projectCourseTierFromPack(pack, prices, opts = {}) {
       billing_unit: preferredUnit,
       unit_amount_cents: hasOwnerAmount ? amount : null,
       currency: (found.ok && found.price.currency) || 'EUR',
-      price_source: found.ok ? 'admin_db' : (allowConfigTierAmount && hasOwnerAmount ? 'admin_config_json' : null),
+      price_source: found.ok ? 'admin_db' : null,
       price_resolve_reason: found.ok ? null : (found.reason || 'price_missing'),
       unit_canonical: found.ok ? found.unit_canonical !== false : false,
       capacity: pack.group_size != null ? Number(pack.group_size) : null,

@@ -152,7 +152,7 @@ function buildMockPg() {
         };
       }
       if (/tenant_price_rules|full_day_equipment/i.test(q)) {
-        // Enough for resolveFullDayEquipmentAddonUnitCents / tables_missing fallback paths.
+        // Enough for resolveFullDayEquipmentAddonUnitCents fail-closed (tables_missing → null).
         if (/to_regclass/i.test(q)) return { rows: [{ reg: null }] };
         return { rows: [] };
       }

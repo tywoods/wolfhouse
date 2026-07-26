@@ -221,13 +221,12 @@ function adminPackWeeklyPillOptions(){
   });
 }
 
-var ADMIN_DEFAULT_PRICE_TIERS = [
-  { key: '1_week', label: 'Price for 1 week (10 hours)', hours: 10, amount_cents: 18000 },
-  { key: '2_weeks', label: 'Price for 2 weeks (20 hours)', hours: 20, amount_cents: 33500 },
-  { key: '3_weeks', label: 'Price for 3 weeks (30 hours)', hours: 30, amount_cents: 48000 },
-  { key: '4_weeks', label: 'Price for 4 weeks (40 hours)', hours: 40, amount_cents: 60000 },
-  { key: 'single_class', label: 'Price for 1 single class (2 hours)', hours: 2, amount_cents: 4000 },
-];
+// No fabricated commercial amounts — Admin configures each 1–7 day price explicitly.
+var ADMIN_DEFAULT_PRICE_TIERS = [];
+var ADMIN_CANONICAL_DAY_TIER_KEYS = {
+  '1_day': true, '2_days': true, '3_days': true, '4_days': true,
+  '5_days': true, '6_days': true, '7_days': true,
+};
 function adminDefaultPackConfigSeed(){
   return {
     age_band: '12_and_up',
@@ -235,7 +234,7 @@ function adminDefaultPackConfigSeed(){
     beaches: ['el_sardinero', 'liencres', 'somo'],
     weekly: 'mon_fri',
     schedules: ['0930_1130', '1215_1415'],
-    price_tiers: ADMIN_DEFAULT_PRICE_TIERS.map(function(t){ return Object.assign({}, t); }),
+    price_tiers: [],
   };
 }
 
@@ -304,13 +303,12 @@ function adminReadPackSchedules(prefix){
   if (w2.key) out.push(w2.key);
   return { ok: true, value: out };
 }
-// Owner-selectable course price durations (key + display label + hours metadata).
+// Admin "Price for" course durations: exactly 1–7 days (no weeks / single_class).
 function adminPackTierDurations(){
   return [
     { key: '1_day', hours: 2 }, { key: '2_days', hours: 4 }, { key: '3_days', hours: 6 },
-    { key: '5_days', hours: 10 }, { key: '7_days', hours: 14 },
-    { key: '1_week', hours: 10 }, { key: '2_weeks', hours: 20 }, { key: '3_weeks', hours: 30 }, { key: '4_weeks', hours: 40 },
-    { key: 'single_class', hours: 2 },
+    { key: '4_days', hours: 8 }, { key: '5_days', hours: 10 }, { key: '6_days', hours: 12 },
+    { key: '7_days', hours: 14 },
   ].map(function(d){ return { key: d.key, hours: d.hours, label: adminPeriodLabel(d.key) }; });
 }
 function adminRenderPackTierRowsHtml(rows){
@@ -337,7 +335,11 @@ function adminReadPackTierRows(prefix){
   });
 }
 function adminRenderPackTierFields(tiers, prefix){
-  var rows = (tiers || []).map(function(t){
+  // Edit form only shows canonical 1–7 day keys. Legacy stored keys are not
+  // rewritten here (server merge preserves them on save).
+  var rows = (tiers || []).filter(function(t){
+    return t && ADMIN_CANONICAL_DAY_TIER_KEYS[String(t.key || '').trim()];
+  }).map(function(t){
     return { key: t.key, amount: adminEurosFromAmount((t.amount_cents != null ? t.amount_cents : 0) / 100) };
   });
   if (!rows.length) rows = [{ key: '1_day', amount: '' }];
@@ -366,7 +368,7 @@ function adminRenderPackEditForm(pid, pack){
     adminRenderPillRow('beaches', adminPackBeachOptions(), p.beaches || [], true) +
     adminRenderPillRow('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false) +
     adminRenderPackScheduleFields(p, prefix) +
-    adminRenderPackTierFields(p.price_tiers || ADMIN_DEFAULT_PRICE_TIERS, prefix) +
+    adminRenderPackTierFields(p.price_tiers || [], prefix) +
     '<div class="portal-admin-price-card-edit-actions">' +
     '<button type="button" class="btn btn-primary" data-admin-action="' + (pid ? 'save-pack' : 'save-new-pack') + '" data-pack-id="' + escHtml(pid || '') + '">' + escHtml(portalT('admin.action.save')) + '</button>' +
     '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
@@ -452,17 +454,21 @@ function adminPeriodLabel(period){
 }
 
 function adminRentalPeriodOptions(selected){
-  var opts = ['1_hour', '2_hours', 'half_day', '1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
+  // Admin → Prices "Price for" / period: exactly 1–7 days for new/canonical rows.
+  // If an existing row still carries a non-canonical period (hour/half_day/…),
+  // keep that value selectable so re-save does not silently migrate the row.
+  var opts = ['1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
+  var sel = String(selected || '').trim();
+  if (sel && opts.indexOf(sel) < 0) opts = [sel].concat(opts);
   return opts.map(function(p){
-    var sel = (selected === p) ? ' selected' : '';
-    return '<option value="' + escHtml(p) + '"' + sel + '>' + escHtml(adminPeriodLabel(p)) + '</option>';
+    var isSel = (sel === p) ? ' selected' : '';
+    return '<option value="' + escHtml(p) + '"' + isSel + '>' + escHtml(adminPeriodLabel(p)) + '</option>';
   }).join('');
 }
 
-// Rank rental durations shortest → longest so prices display in time order
-// (1h, 2h, half day, 1 day, 2 day, …) instead of numeric-then-alphabetical.
+// Rank rental durations shortest → longest (1 day … 7 days).
 function adminRentalPeriodRank(period){
-  var order = ['1_hour', '2_hours', 'half_day', '1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days', '1_week', '2_weeks', '3_weeks', '4_weeks'];
+  var order = ['1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
   var i = order.indexOf(String(period || '').trim());
   return i >= 0 ? i : 999;
 }

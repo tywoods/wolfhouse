@@ -9,25 +9,23 @@ const crypto = require('crypto');
 const { loadPrivateLessonFromDb, defaultPrivateLessonApi } = require('./sunset-admin-private-lesson-rules');
 const { normalizeSunsetBookingDatesInBody } = require('./sunset-guest-date-intake');
 
-// Resolve the per-person-per-day add-on unit price from school-scoped admin config (config/DB backed).
-// Returns integer cents or null when unconfigured/disabled. Never hard-codes €10.
-// Requires are deferred to avoid an eager require cycle with tenant-business-config/stripe-links.
-async function resolveFullDayEquipmentAddonUnitCents(pg, clientSlug, locationId) {
-  const { resolveTenantBusinessConfigAsync } = require('./tenant-business-config');
-  const {
-    findPriceCents,
-    FULL_DAY_EQUIPMENT_ADDON_KEY: addonKey,
-    FULL_DAY_EQUIPMENT_ADDON_UNIT: addonUnit,
-  } = require('./sunset-stripe-payment-links');
-  let adminCfg;
-  try {
-    adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, { pgClient: pg, locationId });
-  } catch (_) {
-    adminCfg = null;
-  }
-  const prices = adminCfg && adminCfg.ok ? (adminCfg.prices || []) : [];
-  const cents = findPriceCents(prices, 'rental', addonKey, addonUnit);
-  return cents != null && cents > 0 ? cents : null;
+// Resolve the per-person-per-day add-on unit price for Create/Edit snapshot.
+// Live Admin DB-read mode: tenant+location tenant_price_rules row is sole owner
+// (lookupSunsetFullDayEquipmentAddonAsync). Never hard-codes euros; never accepts
+// client body amounts; never merges static baseline while DB-read is on (including
+// null response / tables_missing — those fail closed). Returns integer cents or null.
+// Requires deferred to avoid eager require cycles.
+async function resolveFullDayEquipmentAddonUnitCents(pg, clientSlug, locationId, opts) {
+  const { lookupSunsetFullDayEquipmentAddonAsync } = require('./sunset-rental-price-lookup');
+  const lookup = await lookupSunsetFullDayEquipmentAddonAsync({
+    client_slug: clientSlug,
+    location_id: locationId,
+    pgClient: pg,
+    loadRule: opts && opts.loadRule,
+  });
+  if (!lookup || lookup.ok !== true) return null;
+  const cents = Math.round(Number(lookup.amount_cents));
+  return Number.isFinite(cents) && cents > 0 ? cents : null;
 }
 
 const SUNSET_CLIENT_SLUG = 'sunset';
@@ -711,7 +709,7 @@ function normalizeComponents(body) {
           courseId,
           part.course_label || part.label || '',
         );
-        const { PACK_TIER_KEYS, packPriceItemCode } = require('./sunset-admin-pack-rules');
+        const { PACK_TIER_KEYS_READABLE, packPriceItemCode } = require('./sunset-admin-pack-rules');
         let tierKey = '';
         if (part.tier && part.tier.key != null) tierKey = String(part.tier.key).trim();
         else if (part.tier_key != null) tierKey = String(part.tier_key).trim();
@@ -722,7 +720,9 @@ function normalizeComponents(body) {
         if (!tierKey && /^surf_pack_.+__.+$/i.test(offeringIdRaw)) {
           tierKey = offeringIdRaw.split('__').pop() || '';
         }
-        if (tierKey && !PACK_TIER_KEYS.has(tierKey)) {
+        // Readable set includes explicit legacy keys (1_week, single_class, …)
+        // so existing Admin rows still book; Admin UI only saves 1–7 day keys.
+        if (tierKey && !PACK_TIER_KEYS_READABLE.has(tierKey)) {
           return { ok: false, error: `components.course.tier_key invalid: ${tierKey}` };
         }
         if (!tierKey) {
@@ -1428,8 +1428,14 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
   const clientSlug = String((opts && opts.clientSlug) || '').trim();
   const locationId = (opts && opts.locationId) != null ? String(opts.locationId) : '';
   let rentalPricingDescriptor = opts && opts.rentalPricingDescriptor;
-  if (!(opts && opts.canonicalRentals && opts.rentalPrepBody)) {
-    return { authoritativeQuote: null, rentalPricingDescriptor };
+  // Sunset Create/Edit commercial pricing: every mutation requires an Admin-backed
+  // quote transport body (quotePrepBody). Missing body is fail-closed — never
+  // silently fall back to priceSunsetBookingServices or fabricated cents.
+  const transportBody = (opts && (opts.quotePrepBody || opts.rentalPrepBody)) || null;
+  if (!transportBody || typeof transportBody !== 'object') {
+    throwSunsetPriceFail(422, 'authoritative_quote_body_required', {
+      reason_code: 'authoritative_quote_body_required',
+    });
   }
   const {
     buildSunsetQuoteCommand, executeSunsetQuote, buildQuoteProvenance, QUOTE_CHANNELS,
@@ -1448,7 +1454,7 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
   const quoteBuilt = buildSunsetQuoteCommand({
     channel,
     trustedLocationId: locationId,
-    transportBody: { ...opts.rentalPrepBody, require_db: true },
+    transportBody: { ...transportBody, require_db: true },
     now: opts.now instanceof Date ? opts.now : new Date(),
   });
   if (!quoteBuilt.ok) {
@@ -1502,7 +1508,7 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
   let rentalPricingDescriptor = opts && opts.rentalPricingDescriptor;
   let authoritativeQuote = opts && opts.authoritativeQuote;
 
-  if (!authoritativeQuote && opts && opts.canonicalRentals && opts.rentalPrepBody) {
+  if (!authoritativeQuote && opts && (opts.rentalPrepBody || opts.quotePrepBody)) {
     const resolved = await resolveAuthoritativeScheduleQuoteInTxn(pg, opts);
     authoritativeQuote = resolved.authoritativeQuote;
     if (resolved.rentalPricingDescriptor) {
@@ -1510,49 +1516,64 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
     }
   }
 
-  let priced;
-  if (authoritativeQuote) {
-    const applied = await applyAuthoritativeQuoteAmounts(pg, createdRows, authoritativeQuote, {
-      clientSlug,
+  if (!authoritativeQuote) {
+    // Create/Edit reprice path: no silent fallback when quote is absent.
+    // Paid safety remains upstream (isSunsetBookingFinanciallyCommitted / lockedPaidCents).
+    throwSunsetPriceFail(422, 'authoritative_quote_required', {
+      reason_code: 'authoritative_quote_required',
     });
-    if (!applied.ok) throwSunsetPriceFail(422, applied.error || 'quote_amount_apply_failed');
-    const metaPatch = {
-      sunset_priced_at: new Date().toISOString(),
-      sunset_price_source: 'authoritative_quote',
-      quote_fingerprint: authoritativeQuote.quote_provenance
-        && authoritativeQuote.quote_provenance.quote_fingerprint,
-    };
-    const bookingUpd = await pg.query(
-      // MULTICLIENT_SCOPE_OK: same-txn booking header; client_id predicate defense-in-depth
-      `UPDATE bookings
-          SET total_amount_cents = $1,
-              balance_due_cents = GREATEST($1 - COALESCE(amount_paid_cents, 0), 0),
-              metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
-        WHERE id = $3::uuid AND client_id = $4::uuid`,
-      [applied.total_cents, JSON.stringify(metaPatch), bookingId, clientId],
-    );
-    if (Number(bookingUpd && bookingUpd.rowCount) !== 1) {
-      throwSunsetPriceFail(422, 'booking_total_update_mismatch');
-    }
-    if (Number(authoritativeQuote.total_cents) !== Number(applied.total_cents)) {
-      throwSunsetPriceFail(422, 'quote_total_mismatch');
-    }
-    priced = {
-      ok: true,
-      total_cents: applied.total_cents,
-      sunset_price_source: 'authoritative_quote',
-      authoritativeQuote,
-      rentalPricingDescriptor,
-    };
-  } else {
-    const { priceSunsetBookingServices } = require('./sunset-stripe-payment-links');
-    priced = await priceSunsetBookingServices(pg, clientSlug, bookingId);
-    if (!priced || !priced.ok) {
-      const { staffFacingSunsetAdminPriceError } = require('./sunset-admin-price-resolve');
-      const faced = staffFacingSunsetAdminPriceError((priced && priced.error) || 'pricing_failed');
-      throwSunsetPriceFail(422, faced.error, { reason_code: faced.reason_code });
-    }
   }
+
+  // Full-day equipment rows are Admin-snapshotted at insert (unit × people) and
+  // are not commercial quote lines — exclude from claim/apply ownership.
+  const quoteOwnedRows = createdRows.filter((row) => {
+    const meta = rowMetadata(row);
+    const st = String(row.service_type || '').toLowerCase();
+    if (st === 'addon_service') return false;
+    if (meta.component === FULL_DAY_EQUIPMENT_ADDON_KEY) return false;
+    if (meta.service_key === FULL_DAY_EQUIPMENT_ADDON_KEY) return false;
+    return true;
+  });
+  const applied = await applyAuthoritativeQuoteAmounts(pg, quoteOwnedRows, authoritativeQuote, {
+    clientSlug,
+  });
+  if (!applied.ok) throwSunsetPriceFail(422, applied.error || 'quote_amount_apply_failed');
+  if (Number(authoritativeQuote.total_cents) !== Number(applied.total_cents)) {
+    throwSunsetPriceFail(422, 'quote_total_mismatch');
+  }
+  // Pre-snapshotted full-day addon amounts sit outside the quote line list;
+  // booking header total combines quote + addon cents atomically in this UPDATE.
+  const addonSum = createdRows.reduce((sum, row) => {
+    if (quoteOwnedRows.includes(row)) return sum;
+    const due = Number(row.amount_due_cents);
+    return sum + (Number.isFinite(due) && due > 0 ? due : 0);
+  }, 0);
+  const bookingTotal = Number(applied.total_cents) + addonSum;
+  const metaPatch = {
+    sunset_priced_at: new Date().toISOString(),
+    sunset_price_source: 'authoritative_quote',
+    quote_fingerprint: authoritativeQuote.quote_provenance
+      && authoritativeQuote.quote_provenance.quote_fingerprint,
+  };
+  const bookingUpd = await pg.query(
+    // MULTICLIENT_SCOPE_OK: same-txn booking header; client_id predicate defense-in-depth
+    `UPDATE bookings
+        SET total_amount_cents = $1,
+            balance_due_cents = GREATEST($1 - COALESCE(amount_paid_cents, 0), 0),
+            metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+      WHERE id = $3::uuid AND client_id = $4::uuid`,
+    [bookingTotal, JSON.stringify(metaPatch), bookingId, clientId],
+  );
+  if (Number(bookingUpd && bookingUpd.rowCount) !== 1) {
+    throwSunsetPriceFail(422, 'booking_total_update_mismatch');
+  }
+  let priced = {
+    ok: true,
+    total_cents: bookingTotal,
+    sunset_price_source: 'authoritative_quote',
+    authoritativeQuote,
+    rentalPricingDescriptor,
+  };
   if (opts && Object.prototype.hasOwnProperty.call(opts, 'lockedPaidCents')) {
     const lockedPaidCents = Math.max(0, Number(opts.lockedPaidCents) || 0);
     const total = Number(priced.total_cents) || 0;
@@ -1953,14 +1974,15 @@ async function createSunsetScheduleBooking(pg, opts) {
       }
     }
 
-    // Pre-insert rental quote for insert-time line metadata (Create parity).
+    // Authoritative Admin quote for Create (course / private / rental).
     let authoritativeQuote = null;
-    if (canonicalRentals) {
+    {
       const resolved = await resolveAuthoritativeScheduleQuoteInTxn(pg, {
         clientSlug,
         locationId,
         canonicalRentals,
-        rentalPrepBody: rentalPrep.present ? rentalPrep.body : null,
+        rentalPrepBody: rentalPrep.body,
+        quotePrepBody: rentalPrep.body,
         rentalPricingDescriptor,
         quoteChannel: opts.quoteChannel,
         quoteProvenance: opts.quoteProvenance,
@@ -2052,7 +2074,8 @@ async function createSunsetScheduleBooking(pg, opts) {
       createdRows,
       locationId,
       canonicalRentals,
-      rentalPrepBody: rentalPrep.present ? rentalPrep.body : null,
+      rentalPrepBody: rentalPrep.body,
+      quotePrepBody: rentalPrep.body,
       rentalPricingDescriptor,
       authoritativeQuote,
       quoteChannel: opts.quoteChannel,
@@ -2141,6 +2164,7 @@ module.exports = {
   scheduleRowFromDb,
   createSunsetScheduleBooking,
   prepareCanonicalRentalsForCreate,
+  rentalDurationKeyFromDateRange,
   applyAuthoritativeQuoteAmounts,
   resolveAuthoritativeScheduleQuoteInTxn,
   applyAuthoritativeSchedulePricingInTxn,

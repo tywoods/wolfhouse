@@ -48,7 +48,16 @@ const RENTAL_GROUP_DISPLAY = {
   wetsuits: 'Wetsuit',
   sup: 'SUP',
 };
-const RENTAL_PERIOD_WINDOWS = new Set(['1_hour', '2_hours', 'half_day', '1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days']);
+// Admin → Prices "Price for" / period selector (create): exactly 1–7 days.
+const RENTAL_PERIOD_WINDOWS = new Set([
+  '1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days',
+]);
+// Existing rows may still carry legacy periods; patch may preserve them without
+// silent migrate/delete. New creates must use RENTAL_PERIOD_WINDOWS only.
+const RENTAL_PERIOD_WINDOWS_READABLE = new Set([
+  ...RENTAL_PERIOD_WINDOWS,
+  '1_hour', '2_hours', 'half_day',
+]);
 
 
 const LESSON_KINDS = new Set(['lesson', 'pack']);
@@ -322,7 +331,10 @@ function validatePricePatchBody(body) {
   }
   if (body.period_window != null) {
     const period = String(body.period_window).trim();
-    if (!RENTAL_PERIOD_WINDOWS.has(period)) return { ok: false, error: 'invalid period_window' };
+    // Preserve legacy hour/half_day rows on re-save; reject unknown garbage only.
+    if (!RENTAL_PERIOD_WINDOWS_READABLE.has(period)) {
+      return { ok: false, error: 'invalid period_window' };
+    }
     out.period_window = period;
   }
   if (body.unit != null) {
@@ -506,7 +518,7 @@ function mapBaselineUnitToDb(unitKey) {
   const key = String(unitKey || '').trim();
   if (key === 'session') return 'session';
   if (/surfer|person|single_lesson/i.test(key)) return 'person';
-  if (/^(1|2|5|7)_days?$/.test(key) || key === '1_day') return 'day';
+  if (key === '1_day' || /^[1-7]_days$/.test(key)) return 'day';
   if (/hour|half_day|lesson/i.test(key)) return 'session';
   return 'item';
 }
@@ -1680,6 +1692,8 @@ async function setRentalGroupAvailability(client, {
 module.exports = {
   SUNSET_ADMIN_CLIENT,
   ADMIN_WRITE_MIN_ROLE,
+  RENTAL_PERIOD_WINDOWS,
+  RENTAL_PERIOD_WINDOWS_READABLE,
   isSunsetAdminWritesEnabled,
   writesDisabledResponse,
   evaluateAdminWriteGate,
