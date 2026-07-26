@@ -435,6 +435,7 @@
     "verify:luna-front-desk-domain-contract": "node scripts/verify-luna-front-desk-domain-contract.js",
     "verify:luna-front-desk-booking-create-service": "node scripts/verify-luna-front-desk-booking-create-service.js",
     "verify:luna-front-desk-quote-service": "node scripts/verify-luna-front-desk-quote-service.js",
+    "verify:sunset-edit-authoritative-requote": "node scripts/verify-sunset-edit-authoritative-requote.js",
     "verify:luna-front-desk-catalog-service": "node scripts/verify-luna-front-desk-catalog-service.js",
     "verify:luna-front-desk-vertical-adapter": "node scripts/verify-luna-front-desk-vertical-adapter.js",
     "verify:luna-front-desk-accommodation-adapter": "node scripts/verify-luna-front-desk-accommodation-adapter.js",
