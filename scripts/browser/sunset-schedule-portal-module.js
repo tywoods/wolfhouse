@@ -898,10 +898,34 @@ function schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo) {
   };
 }
 
+/** Fixed Create default start — never wall-clock/current time. Local wall-clock HH:MM only. */
+function schedulePrivateLessonDefaultStartHm() {
+  return '10:00';
+}
+
 function schedulePrivateLessonDefaultEnd(startHm, durationMin) {
   var startM = scheduleSlotMinutesFromToken(startHm);
   if (startM == null) return '';
   return scheduleMinutesLabel(startM + (durationMin || schedulePrivateLessonDurationCache || 120));
+}
+
+/**
+ * Apply Create defaults only for blank private times (new selection / new date row).
+ * Never invent clock-now; never overwrite non-blank user/edit values.
+ * Default window: 10:00 → +duration (120 → 12:00) on the session's local service date.
+ */
+function schedulePrivateLessonApplyBlankTimeDefaults(startRaw, endRaw) {
+  var start = startRaw != null ? String(startRaw).trim() : '';
+  var end = endRaw != null ? String(endRaw).trim() : '';
+  if (start && end) return { start: start, end: end };
+  if (!start) {
+    start = schedulePrivateLessonDefaultStartHm();
+    if (!end) end = schedulePrivateLessonDefaultEnd(start);
+    return { start: start, end: end };
+  }
+  // Start present, end blank → duration-based end only (same as start-change wiring).
+  if (!end) end = schedulePrivateLessonDefaultEnd(start);
+  return { start: start, end: end || '' };
 }
 
 function scheduleReadPrivateLessonSessionsFromDom() {
@@ -980,8 +1004,11 @@ function scheduleSyncPrivateLessonSessions(opts) {
   for (var i = 0; i < dates.length; i++) {
     var date = dates[i];
     var prev = byDate[date] || {};
-    var start = prev.start != null ? String(prev.start) : '';
-    var end = prev.end != null ? String(prev.end) : '';
+    // Blank (new Private / new date in range) → 10:00–12:00 local defaults.
+    // Non-blank times for a date that remains are preserved across re-render/toggle.
+    var applied = schedulePrivateLessonApplyBlankTimeDefaults(prev.start, prev.end);
+    var start = applied.start;
+    var end = applied.end;
     html += '<div class="portal-schedule-private-session-row" data-session-index="' + String(i + 1)
       + '" data-session-date="' + escHtml(date) + '">'
       + '<p class="portal-schedule-card-sub" style="margin:8px 0 4px">'

@@ -58,7 +58,9 @@ assert('DOM placement', guest.includes('id="ps-create-date-from"') && guest.incl
   && when.includes('id="ps-create-private-lesson-sessions"')
   && !when.includes('id="ps-create-date-from"')
   && !what.includes('id="ps-create-date-from"')
-  && what.includes('id="ps-create-private-lesson-surfers"')
+  // Surfers authority lives above Activity (Guest); legacy private-surfers mirror may be hidden.
+  && (guest.includes('id="ps-create-surfers"') || guest.includes('id="ps-create-private-lesson-surfers"')
+    || what.includes('id="ps-create-private-lesson-surfers"') || modal.includes('id="ps-create-private-lesson-surfers"'))
   && Object.keys(counts).filter((k) => counts[k] > 1).length === 0
   && ['ps-create-private-lesson-sessions', 'ps-create-add-session', 'ps-create-private-lesson-qty', 'ps-create-date-from', 'ps-create-private-when'].every((id) => counts[id] === 1));
 assert('Add session hidden in markup', /id="ps-create-add-session"[^>]*\b(hidden|style="display:none")/.test(modal)
@@ -80,10 +82,12 @@ const en = STAFF_PORTAL_STRINGS.en || {}, it = STAFF_PORTAL_STRINGS.it || {};
   assert('i18n ' + k, typeof en[k] === 'string' && en[k].trim() && typeof es[k] === 'string' && es[k].trim() && es[k] !== en[k] && typeof it[k] === 'string' && it[k].trim() && it[k] !== en[k]);
 });
 const CORE = [
+  'schedulePrivateLessonDefaultStartHm', 'schedulePrivateLessonApplyBlankTimeDefaults',
   'schedulePrivateLessonDefaultEnd', 'scheduleReadPrivateLessonSessionsFromDom', 'scheduleWirePrivateLessonSessionRow',
   'schedulePrivateLessonSessionsRefreshDependents', 'scheduleSyncPrivateLessonSessions',
   'scheduleUpdatePrivateLessonDateRangeFromSessions', 'scheduleAddPrivateLessonSession', 'scheduleRemovePrivateLessonSession',
   'scheduleOnCreateComponentChange', 'schedulePopulateCreateComponentFields', 'scheduleReadCreatePayload',
+  'scheduleReadCreateSurferCount', 'scheduleSyncCreateSurferMirrors',
   'scheduleRefreshCreateEmptyGuidance', 'schedulePortalMadridTodayIso', 'schedulePortalCanonicalDateIso',
   'schedulePortalInclusiveDateCount',
   'schedulePortalValidatePrivateLessonCreate', 'schedulePortalHasSellableIntent', 'schedulePortalValidateCreatePayload',
@@ -109,9 +113,20 @@ function build(opts) {
   radio('ps-create-comp-private-lesson', 'ps-create-main-activity', false);
   radio('ps-create-comp-no-lesson', 'ps-create-main-activity', true);
   ['ps-create-course-fields', 'ps-create-course-tier-wrap', 'ps-create-course-qty-wrap', 'ps-create-private-lesson-fields', 'ps-create-private-lesson-qty-wrap', 'ps-create-addon-fullday-field', 'ps-create-fullday-card', 'ps-create-fullday-rows', 'ps-create-fullday-summary', 'ps-create-fullday-price-hint', 'ps-create-activity-empty-hint', 'ps-create-rentals', 'ps-create-msg', 'ps-create-quote-preview', 'ps-create-add-session'].forEach((id) => box(id, id.includes('hint') || id === 'ps-create-rentals' ? '' : 'none'));
+  // Real When section (production toggles via document.querySelector).
+  const whenSection = listen({
+    id: 'ps-create-when-section',
+    dataset: { createSection: 'when' },
+    style: { display: 'none' },
+    hidden: true,
+    classList: cl('is-when-hidden'),
+    setAttribute(k, v) { if (k === 'hidden') this.hidden = v !== 'false' && v != null; },
+    removeAttribute(k) { if (k === 'hidden') this.hidden = false; },
+  });
   nodes['ps-create-private-when'] = listen({ id: 'ps-create-private-when', classList: cl('portal-schedule-create-private-when'), style: { display: 'none' }, dataset: {}, setAttribute() {} });
   nodes['ps-create-date-range'] = listen({ id: 'ps-create-date-range', style: { display: '' }, dataset: {}, classList: cl(), setAttribute() {} });
   input('ps-create-date-from', opts.dateFrom || '2026-07-20'); input('ps-create-date-to', opts.dateTo || '2026-07-22');
+  input('ps-create-surfers', opts.surfers != null ? String(opts.surfers) : '1');
   input('ps-create-private-lesson-qty', '1'); input('ps-create-private-lesson-surfers', '1'); input('ps-create-course-qty', '1');
   input('ps-create-guest', ''); input('ps-create-phone', ''); input('ps-create-notes', '');
   input('ps-create-payment', 'unpaid'); input('ps-create-course-select', ''); input('ps-create-course-tier', '');
@@ -161,6 +176,13 @@ function build(opts) {
     schedulePrivateLessonDurationCache: 120,
     scheduleFetchLessonTimesConfig() { return { then(fn) { if (fn) fn(); return { then(fn2) { if (fn2) fn2(); return this; } }; } }; },
     schedulePopulateCreateCourseFields() {},
+    // Real When-section transition (same selector production uses).
+    document: {
+      querySelector(sel) {
+        if (sel === '#ps-create-modal [data-create-section="when"]') return whenSection;
+        return null;
+      },
+    },
     scheduleRenderCreateRentals() {
       quote.rentalsSpans.push(typeof sb.scheduleCreateDateSpanForRentals === 'function' ? sb.scheduleCreateDateSpanForRentals() : { from: sb.el('ps-create-date-from').value, to: sb.el('ps-create-date-to').value });
     },
@@ -183,14 +205,26 @@ function build(opts) {
     schedulePortalRenderCreateQuotePreview() {},
     getClient() { return 'sunset'; },
     Intl: { DateTimeFormat() { return { format() { return opts.today || '2026-07-20'; } }; } },
-    Promise, JSON, Object, Array, Number, String, Math, Date,
-    _nodes: nodes, _quote: quote, _privateWhen: nodes['ps-create-private-when'], _gear: opts.rentals || [],
+    Promise, JSON, Object, Array, Number, String, Math, Date, parseInt, isNaN,
+    Number: Number,
+    _nodes: nodes, _quote: quote, _privateWhen: nodes['ps-create-private-when'],
+    _whenSection: whenSection, _gear: opts.rentals || [],
   };
   const code = CORE.map((n) => extractFn(portalSrc, n) || extractFn(apiSrc, n)).filter(Boolean);
   assert('fns extractable', code.length >= 18, String(code.length));
   vm.createContext(sb);
   vm.runInContext(code.join('\n'), sb);
   return sb;
+}
+function whenVisible(sb) {
+  const w = sb._whenSection;
+  return !!(w && w.hidden === false && w.style.display !== 'none' && !w.classList.contains('is-when-hidden')
+    && sb._privateWhen && sb._privateWhen.style.display !== 'none');
+}
+function whenHidden(sb) {
+  const w = sb._whenSection;
+  return !!(w && (w.hidden === true || w.style.display === 'none' || w.classList.contains('is-when-hidden'))
+    && sb._privateWhen && sb._privateWhen.style.display === 'none');
 }
 function rows(sb) { return sb.scheduleReadPrivateLessonSessionsFromDom(); }
 function setTimes(sb, i, p) {
@@ -211,31 +245,37 @@ function soft(sb, times) {
     assert('soft zero quote/create no toast', res && res.softInvalid === true && res.ok === false && sb._quote.fetch === 0 && sb._quote.create === 0 && !sb.el('ps-create-msg').textContent, 'f=' + sb._quote.fetch);
   });
 }
-console.log('\n[3] Activity-aware visibility (top dates always on)');
+console.log('\n[3] Activity-aware visibility (top dates always on; When only Private)');
 {
   const sb = build();
+  // Simulate real transition: populate before any activity pick (When starts hidden).
   sb.schedulePopulateCreateComponentFields();
-  assert('No lesson range on / editor off', sb.el('ps-create-date-range').style.display !== 'none' && sb._privateWhen.style.display === 'none');
+  assert('No lesson range on / When hidden', sb.el('ps-create-date-range').style.display !== 'none' && whenHidden(sb));
   pick(sb, 'ps-create-comp-course');
-  assert('Group range on / editor off / tier wrap hidden', sb.el('ps-create-date-range').style.display !== 'none'
-    && sb._privateWhen.style.display === 'none'
-    && sb.el('ps-create-course-tier-wrap').style.display === 'none');
+  assert('Group range on / When hidden / tier wrap hidden', sb.el('ps-create-date-range').style.display !== 'none'
+    && whenHidden(sb)
+    && sb.el('ps-create-course-tier-wrap').style.display === 'none'
+    && sb.el('ps-create-private-lesson-fields').style.display === 'none');
+  // Real Private transition: When section unhides, then session rows initialize.
   pick(sb, 'ps-create-comp-private-lesson');
-  assert('Private range on / editor on / rows from range', sb.el('ps-create-date-range').style.display !== 'none'
-    && sb._privateWhen.style.display !== 'none'
-    && sb.el('ps-create-private-lesson-fields').style.display !== 'none'
-    && rows(sb).length === 3
-    && rows(sb)[0].date === '2026-07-20' && rows(sb)[2].date === '2026-07-22');
+  assert('Private When visible before field assert', whenVisible(sb)
+    && sb.el('ps-create-date-range').style.display !== 'none'
+    // Legacy private-lesson-fields stay hidden; times live under When.
+    && sb.el('ps-create-private-lesson-fields').style.display === 'none');
+  assert('Private rows from range default 10:00–12:00', rows(sb).length === 3
+    && rows(sb)[0].date === '2026-07-20' && rows(sb)[2].date === '2026-07-22'
+    && rows(sb).every((r) => r.start === '10:00' && r.end === '12:00'));
   assert('no Add/Remove UI', sb.el('ps-create-add-session').style.display === 'none'
     && sb.el('ps-create-private-lesson-sessions').querySelectorAll('.portal-schedule-session-remove').length === 0);
   pick(sb, 'ps-create-comp-no-lesson');
-  assert('back No lesson', sb.el('ps-create-date-range').style.display !== 'none' && sb._privateWhen.style.display === 'none');
+  assert('back No lesson When hidden', sb.el('ps-create-date-range').style.display !== 'none' && whenHidden(sb));
 }
 console.log('\n[4] Range grow/shrink/shift preserves overlapping times');
 {
   const sb = build({ dateFrom: '2026-07-20', dateTo: '2026-07-22' });
   pick(sb, 'ps-create-comp-private-lesson');
-  assert('init 3 blank-time rows', rows(sb).length === 3 && rows(sb).every((r) => r.start === '' && r.end === ''));
+  assert('init 3 default 10:00–12:00 rows', rows(sb).length === 3
+    && rows(sb).every((r) => r.start === '10:00' && r.end === '12:00'));
   setTimes(sb, 0, { start: '09:00', end: '11:00' });
   setTimes(sb, 1, { start: '10:00', end: '12:00' });
   setTimes(sb, 2, { start: '14:00', end: '16:00' });
@@ -244,11 +284,12 @@ console.log('\n[4] Range grow/shrink/shift preserves overlapping times');
   assert('reconcile shift', after.length === 3
     && after[0].date === '2026-07-21' && after[0].start === '10:00' && after[0].end === '12:00'
     && after[1].date === '2026-07-22' && after[1].start === '14:00'
-    && after[2].date === '2026-07-23' && after[2].start === '' && after[2].end === '');
+    && after[2].date === '2026-07-23' && after[2].start === '10:00' && after[2].end === '12:00');
   setRange(sb, '2026-07-21', '2026-07-21');
   assert('shrink to one keeps time', rows(sb).length === 1 && rows(sb)[0].date === '2026-07-21' && rows(sb)[0].start === '10:00');
   setRange(sb, '2026-12-31', '2027-01-02');
   assert('month/year boundary', rows(sb).map((r) => r.date).join(',') === '2026-12-31,2027-01-01,2027-01-02');
+  assert('month/year boundary defaults 10–12', rows(sb).every((r) => r.start === '10:00' && r.end === '12:00'));
   setRange(sb, '2028-02-28', '2028-03-01');
   assert('leap + DST-safe enumerate', rows(sb).map((r) => r.date).join(',') === '2028-02-28,2028-02-29,2028-03-01');
 }
@@ -338,9 +379,10 @@ const asyncPass = (async () => {
   let res = await sb.schedulePortalRunPreviewQuote();
   assert('valid → one quote fetch', sb._quote.fetch === 1 && res && res.ok === true, String(sb._quote.fetch));
   setRange(sb, '2026-07-20', '2026-07-21');
-  setTimes(sb, 0, { start: '10:00', end: '12:00' }); // row1 blank
+  // Force incomplete after defaults applied (user cleared end) — soft quote must not fetch.
+  setTimes(sb, 1, { start: '10:00', end: '' });
   sb._quote.fetch = 0; res = await sb.schedulePortalRunPreviewQuote();
-  assert('blank new date zero quote', res && res.softInvalid && sb._quote.fetch === 0);
+  assert('incomplete new date zero quote', res && res.softInvalid && sb._quote.fetch === 0);
   setRange(sb, '2026-07-01', '2026-07-31');
   sb._quote.fetch = 0; res = await sb.schedulePortalRunPreviewQuote();
   assert('>30 zero quote/create', res && res.softInvalid && sb._quote.fetch === 0 && rows(sb).length === 0);
