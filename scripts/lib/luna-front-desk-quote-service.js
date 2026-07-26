@@ -1035,7 +1035,13 @@ function findExactRentalCatalogOffering(catalog, offeringKey, durationKey, locat
     const pricedHere = adminCfg.prices.some((p) => {
       if (!p || p.active === false) return false;
       const key = String(p.offering_key || p.item_code || '').trim();
-      if (key !== itemCode) return false;
+      // Accept combined item_code (board_and_suit_rental__4_days) or
+      // offering_key + unit pair from Admin price rows.
+      const unit = String(p.unit || '').trim();
+      const matchesCode = key === itemCode
+        || (key === offeringKey && unit === durationKey)
+        || (key === offeringKey && !unit && String(p.item_code || '') === itemCode);
+      if (!matchesCode) return false;
       if (p.location_id != null && String(p.location_id).trim()
         && loc && String(p.location_id).trim() !== loc) {
         return false;
@@ -1048,6 +1054,181 @@ function findExactRentalCatalogOffering(catalog, offeringKey, durationKey, locat
     if (!pricedHere) return [];
   }
   return matches;
+}
+
+const FULL_DAY_EQUIPMENT_ADDON_KEY = 'full_day_equipment_extension';
+const FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE = 'full_day_equipment_extension__day';
+
+/**
+ * Resolve full-day unit cents from the quote catalog / injected Admin cfg first
+ * (same Admin rows the projection already trusted). Fall back to school config
+ * baseline only when catalog has no active row.
+ */
+function resolveFullDayAddonUnitFromCatalog(catalog) {
+  const offerings = (catalog && catalog.offerings) || [];
+  const hit = offerings.find((o) => {
+    if (!o) return false;
+    const code = String(o.item_code || o.offering_id || o.offering_item_code || '');
+    return code === FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE
+      || code === FULL_DAY_EQUIPMENT_ADDON_KEY
+      || (o.offering_type === 'addon' && /full_day_equipment/i.test(code));
+  });
+  if (hit) {
+    const cents = Math.round(Number(hit.unit_amount_cents));
+    if (Number.isFinite(cents) && cents > 0) {
+      return {
+        ok: true,
+        amount_cents: cents,
+        currency: hit.currency || 'EUR',
+        price_id: (hit.price_identity && hit.price_identity.price_id) || null,
+        source: hit.price_source || 'admin_config',
+      };
+    }
+  }
+  const adminCfg = catalog && catalog._adminCfg;
+  if (adminCfg && Array.isArray(adminCfg.prices)) {
+    const rule = adminCfg.prices.find((p) => {
+      if (!p || p.active === false) return false;
+      const k = String(p.offering_key || p.item_code || '');
+      const unit = String(p.unit || '');
+      return (k === FULL_DAY_EQUIPMENT_ADDON_KEY && (!unit || unit === 'day'))
+        || k === FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE;
+    });
+    if (rule) {
+      const cents = rule.amount_cents != null
+        ? Math.round(Number(rule.amount_cents))
+        : (rule.amount != null ? Math.round(Number(rule.amount) * 100) : null);
+      if (cents != null && Number.isFinite(cents) && cents > 0) {
+        return {
+          ok: true,
+          amount_cents: cents,
+          currency: rule.currency || 'EUR',
+          price_id: rule.id || null,
+          source: rule.source === 'db' ? 'db' : 'admin_config',
+        };
+      }
+    }
+  }
+  return { ok: false };
+}
+
+function buildFullDayEquipmentAddonLine(addonPart, unitLookup) {
+  if (!addonPart || !addonPart.dates || typeof addonPart.dates !== 'object') {
+    return { ok: false, status: 400, body: { success: false, reason: 'invalid_full_day_addon' } };
+  }
+  const dateKeys = Object.keys(addonPart.dates).map((d) => String(d).slice(0, 10)).filter(Boolean).sort();
+  if (!dateKeys.length) {
+    return { ok: false, status: 400, body: { success: false, reason: 'invalid_full_day_addon' } };
+  }
+  if (!unitLookup || unitLookup.ok !== true) {
+    return mapQuoteFailure((unitLookup && unitLookup.reason) || 'price_missing', {
+      reason_code: (unitLookup && unitLookup.reason) || 'full_day_equipment_extension_price_unavailable',
+    });
+  }
+  const unitCents = Math.round(Number(unitLookup.amount_cents));
+  if (!Number.isFinite(unitCents) || unitCents <= 0) {
+    return mapQuoteFailure('price_missing', {
+      reason_code: 'full_day_equipment_extension_price_unavailable',
+    });
+  }
+  let total = 0;
+  let peopleSum = 0;
+  for (const iso of dateKeys) {
+    const qty = Math.max(0, Math.floor(Number(addonPart.dates[iso]) || 0));
+    if (qty < 1) {
+      return { ok: false, status: 400, body: { success: false, reason: 'invalid_full_day_addon_qty' } };
+    }
+    total += unitCents * qty;
+    peopleSum += qty;
+  }
+  if (total <= 0) {
+    return mapQuoteFailure('price_missing');
+  }
+  return {
+    ok: true,
+    line: {
+      component: FULL_DAY_EQUIPMENT_ADDON_KEY,
+      offering_id: FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE,
+      offering_item_code: FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE,
+      label: 'Full-day gear',
+      quantity: peopleSum,
+      service_dates: dateKeys,
+      unit_amount_cents: unitCents,
+      billable_units: peopleSum,
+      total_cents: total,
+      currency: unitLookup.currency || 'EUR',
+      billing_unit: 'person_per_day',
+      billing_mode: 'person_per_day',
+      price_id: unitLookup.price_id || null,
+      price_source: unitLookup.source || 'admin_config',
+      capacity_by_date: null,
+      addon_dates: { ...addonPart.dates },
+    },
+  };
+}
+
+/**
+ * Sync full-day equipment line from catalog/Admin cfg (no await).
+ * Canonical component: components.full_day_equipment_extension.
+ * When quote carries an Admin cfg, a missing full-day row is fail-closed
+ * (no silent baseline merge).
+ */
+function quoteFullDayEquipmentAddonLineSync(command, addonPart, catalog) {
+  let lookup = resolveFullDayAddonUnitFromCatalog(catalog);
+  if (!lookup.ok) {
+    const hasAdminCfg = !!(catalog && catalog._adminCfg && Array.isArray(catalog._adminCfg.prices));
+    if (hasAdminCfg) {
+      return mapQuoteFailure('price_missing', {
+        reason_code: 'full_day_equipment_extension_price_unavailable',
+      });
+    }
+    // Offline path with no Admin cfg: school baseline only.
+    const { lookupSunsetFullDayEquipmentAddon } = require('./sunset-rental-price-lookup');
+    lookup = lookupSunsetFullDayEquipmentAddon({
+      client_slug: SUNSET_CLIENT_SLUG,
+      location_id: command.locationId,
+    });
+  }
+  return buildFullDayEquipmentAddonLine(addonPart, lookup);
+}
+
+/**
+ * Server-owned full-day equipment line: Admin unit cents × per-date people.
+ * Fail-closed when Admin row missing. Never client arithmetic.
+ *
+ * Live path prefers DB async lookup; if that misses, the same-request Admin
+ * catalog/cfg (already projected for this quote) remains commercial truth.
+ * Does not silently merge school baseline when Admin cfg is present.
+ */
+async function quoteFullDayEquipmentAddonLine(pg, command, addonPart, requireDb, catalog) {
+  if (pg && requireDb) {
+    const { lookupSunsetFullDayEquipmentAddonAsync } = require('./sunset-rental-price-lookup');
+    const lookup = await lookupSunsetFullDayEquipmentAddonAsync({
+      client_slug: SUNSET_CLIENT_SLUG,
+      location_id: command.locationId,
+      pgClient: pg,
+    });
+    if (lookup && lookup.ok === true) {
+      const out = buildFullDayEquipmentAddonLine(addonPart, lookup);
+      if (out.ok && out.line) {
+        out.line.price_source = lookup.source || 'admin_db';
+      }
+      return out;
+    }
+    const fromCatalog = resolveFullDayAddonUnitFromCatalog(catalog);
+    if (fromCatalog.ok) {
+      const out = buildFullDayEquipmentAddonLine(addonPart, fromCatalog);
+      if (out.ok && out.line) {
+        out.line.price_source = fromCatalog.source || 'admin_db';
+      }
+      return out;
+    }
+    return buildFullDayEquipmentAddonLine(
+      addonPart,
+      lookup || { ok: false, reason: 'price_not_configured' },
+    );
+  }
+  return quoteFullDayEquipmentAddonLineSync(command, addonPart, catalog);
 }
 
 async function quoteByComponents(pg, command, catalog, requireDb) {
@@ -1146,6 +1327,22 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       totalCents += lineOut.line.total_cents;
       currency = lineOut.line.currency;
     }
+  }
+
+  // Full-day gear is a commercial Admin quote line (person × day × unit cents).
+  // Canonical explicit component — never derived from legacy rental mismatch rules.
+  if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+    const fdOut = pg
+      ? await quoteFullDayEquipmentAddonLine(
+        pg, command, input.components[FULL_DAY_EQUIPMENT_ADDON_KEY], requireDb, catalog,
+      )
+      : quoteFullDayEquipmentAddonLineSync(
+        command, input.components[FULL_DAY_EQUIPMENT_ADDON_KEY], catalog,
+      );
+    if (!fdOut.ok) return fdOut;
+    lines.push(fdOut.line);
+    totalCents += fdOut.line.total_cents;
+    currency = fdOut.line.currency || currency;
   }
 
   if (!lines.length) {
@@ -1268,6 +1465,17 @@ function quoteByComponentsSync(command, catalog, requireDb) {
       totalCents += lineOut.line.total_cents;
       currency = lineOut.line.currency;
     }
+  }
+
+  // Canonical explicit full-day component (Admin unit × people × days).
+  if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+    const fdOut = quoteFullDayEquipmentAddonLineSync(
+      command, input.components[FULL_DAY_EQUIPMENT_ADDON_KEY], catalog,
+    );
+    if (!fdOut.ok) return fdOut;
+    lines.push(fdOut.line);
+    totalCents += fdOut.line.total_cents;
+    currency = fdOut.line.currency || currency;
   }
 
   if (!lines.length) {

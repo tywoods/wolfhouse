@@ -753,7 +753,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.create.quoteStale': 'Price changed — refresh quote before creating.',
     'schedule.create.quoteBusy': 'Price check is busy — wait a moment and try again.',
     'schedule.create.componentsRequired': 'Select at least one component.',
-    'schedule.create.surferCount': 'Surfers',
+    'schedule.create.surferCount': 'Number of surfers',
     'schedule.create.boardQty': 'Boards',
     'schedule.create.wetsuitQty': 'Wetsuits',
     'schedule.create.rentalQty': 'Quantity',
