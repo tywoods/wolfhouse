@@ -1,9 +1,5 @@
 'use strict';
-/**
- * verify:sunset-booking-kaya-final — Kaya Slice 6 offline final acceptance.
- * Real portal module + create owners; no DB/Azure/network. Mutation hostility.
- * Run: node scripts/verify-sunset-booking-kaya-final.js
- */
+/* Kaya Slice 6 offline final; mutation-hostile. node scripts/verify-sunset-booking-kaya-final.js */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -17,59 +13,34 @@ function assert(l, c, d) {
   else { console.error('  FAIL  ' + l + (d ? ' — ' + d : '')); fail += 1; }
 }
 function extractFn(src, name) {
-  const n = 'function ' + name + '(', s = src.indexOf(n); if (s < 0) return null;
-  const b = src.indexOf('{', s); let d = 0;
-  for (let i = b; i < src.length; i += 1) {
-    if (src[i] === '{') d += 1;
-    else if (src[i] === '}') { d -= 1; if (!d) return src.slice(s, i + 1); }
-  }
-  return null;
+  const n='function '+name+'(', s=src.indexOf(n); if(s<0)return null; const b=src.indexOf('{',s); let d=0;
+  for(let i=b;i<src.length;i+=1){ if(src[i]==='{')d+=1; else if(src[i]==='}'){d-=1;if(!d)return src.slice(s,i+1);} } return null;
 }
-function extractModal(src) {
-  const s = src.indexOf('id="ps-create-modal"'); const o = src.lastIndexOf('<div', s);
-  const e = src.indexOf('id="ps-drawer-backdrop"', o); const c = src.lastIndexOf('</div>', e);
-  return src.slice(o, c > o ? c + 6 : e);
-}
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+function extractModal(src){ const s=src.indexOf('id="ps-create-modal"'); const o=src.lastIndexOf('<div',s); const e=src.indexOf('id="ps-drawer-backdrop"',o); const c=src.lastIndexOf('</div>',e); return src.slice(o,c>o?c+6:e); }
+function sleep(ms){ return new Promise((r)=>setTimeout(r,ms)); }
 const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
 const es = require('./lib/staff-portal-i18n-es-sunset');
 const en = STAFF_PORTAL_STRINGS.en || {}, it = STAFF_PORTAL_STRINGS.it || {};
 const modal = extractModal(apiSrc);
-const TODAY = '2026-08-20';
-const T = {
-  'schedule.create.guestRequired': en['schedule.create.guestRequired'],
-  'schedule.create.componentsRequired': en['schedule.create.componentsRequired'],
-  'schedule.create.courseRequired': en['schedule.create.courseRequired'],
-  'schedule.create.courseTierRequired': en['schedule.create.courseTierRequired'],
-  'schedule.create.dateInvalid': en['schedule.create.dateInvalid'],
-  'schedule.create.datePast': en['schedule.create.datePast'],
-  'schedule.create.dateOrder': en['schedule.create.dateOrder'],
-  'schedule.create.rentalIncomplete': en['schedule.create.rentalIncomplete'],
-  'schedule.create.privateLesson.sessionIncomplete': en['schedule.create.privateLesson.sessionIncomplete'],
-  'schedule.create.privateLesson.sessionDatePast': en['schedule.create.privateLesson.sessionDatePast'],
-  'schedule.create.privateLesson.sessionDuplicate': en['schedule.create.privateLesson.sessionDuplicate'],
-  'schedule.create.privateLesson.sessionEndAfterStart': en['schedule.create.privateLesson.sessionEndAfterStart'],
-  'schedule.create.checkingPrice': en['schedule.create.checkingPrice'] || 'Checking price…',
-  'schedule.create.creating': en['schedule.create.creating'] || 'Creating…',
-  'schedule.create.quoteFailed': en['schedule.create.quoteFailed'] || 'Quote unavailable',
-  'schedule.create.quoteStale': en['schedule.create.quoteStale'] || 'Price changed',
-  'schedule.create.quoteBusy': en['schedule.create.quoteBusy'] || 'busy',
-  'schedule.create.quoteTotal': en['schedule.create.quoteTotal'] || 'Quoted total',
-  'schedule.create.failed': en['schedule.create.failed'] || 'Create failed',
-  'schedule.create.summary.chooseLessonOrGear': en['schedule.create.summary.chooseLessonOrGear'],
-  'schedule.create.summary.completeSessions': en['schedule.create.summary.completeSessions'],
-  'schedule.create.summary.sessions': en['schedule.create.summary.sessions'],
-  'schedule.create.summary.surfers': en['schedule.create.summary.surfers'],
-  'schedule.type.course': 'Group course', 'schedule.type.privateLesson': 'Private course',
-  'schedule.type.noLesson': 'No lesson', 'schedule.type.boardRental': 'Board rental',
-  'schedule.type.wetsuitRental': 'Wetsuit rental', 'schedule.ops.rentalBoth': 'Surfboard + wetsuit',
-  'schedule.payment.paid': 'Paid', 'schedule.payment.unpaid': 'Unpaid',
-  'admin.period.1_day': '1 day', 'admin.period.2_days': '2 day',
-  'schedule.create.privateLesson.removeSession': 'Remove',
-  'schedule.create.privateLesson.sessionLabel': 'Session',
-  'schedule.create.privateLesson.date': 'Date', 'schedule.create.privateLesson.start': 'Start',
-  'schedule.create.privateLesson.end': 'End',
-};
+// Stable far-future "today" — no business-horizon decay (not rolling calendar).
+const TODAY = '2035-06-15';
+const TK=['guestRequired','componentsRequired','courseRequired','courseTierRequired','dateInvalid','datePast','dateOrder','rentalIncomplete',
+  'privateLesson.sessionIncomplete','privateLesson.sessionDatePast','privateLesson.sessionDuplicate','privateLesson.sessionEndAfterStart',
+  'checkingPrice','creating','quoteFailed','quoteStale','quoteBusy','quoteTotal','failed','summary.chooseLessonOrGear','summary.completeSessions',
+  'summary.sessions','summary.surfers'];
+const T={}; TK.forEach((k)=>{ const full='schedule.create.'+k; T[full]=en[full]||k; });
+Object.assign(T,{
+  'schedule.type.course':'Group course','schedule.type.privateLesson':'Private course','schedule.type.noLesson':'No lesson',
+  'schedule.type.boardRental':'Board rental','schedule.type.wetsuitRental':'Wetsuit rental','schedule.ops.rentalBoth':'Surfboard + wetsuit',
+  'schedule.payment.paid':'Paid','schedule.payment.unpaid':'Unpaid','admin.period.1_day':'1 day','admin.period.2_days':'2 day',
+  'schedule.create.privateLesson.removeSession':'Remove','schedule.create.privateLesson.sessionLabel':'Session',
+  'schedule.create.privateLesson.date':'Date','schedule.create.privateLesson.start':'Start','schedule.create.privateLesson.end':'End',
+  'schedule.create.checkingPrice':en['schedule.create.checkingPrice']||'Checking price…',
+  'schedule.create.quoteFailed':en['schedule.create.quoteFailed']||'Quote unavailable',
+  'schedule.create.quoteStale':en['schedule.create.quoteStale']||'Price changed',
+  'schedule.create.quoteBusy':en['schedule.create.quoteBusy']||'busy',
+  'schedule.create.quoteTotal':en['schedule.create.quoteTotal']||'Quoted total',
+});
 
 function sandbox(opts) {
   opts = opts || {};
@@ -87,14 +58,14 @@ function sandbox(opts) {
     return nodes[id];
   }
   N('ps-create-summary', { innerHTML: '<span>—</span>', style: { display: '' } });
-  ['ps-create-quote-preview', 'ps-create-msg', 'ps-create-submit', 'ps-create-guest', 'ps-create-phone', 'ps-create-notes', 'ps-create-modal', 'ps-create-private-lesson-sessions', 'ps-create-comp-course', 'ps-create-comp-private-lesson', 'ps-create-comp-fullday'].forEach((id) => N(id));
-  N('ps-create-payment', { value: 'unpaid' }); N('ps-create-date-from', { value: TODAY }); N('ps-create-date-to', { value: TODAY });
-  N('ps-create-comp-no-lesson', { checked: true }); N('ps-create-rentals', { getAttribute: () => '1_day' });
-  N('ps-create-course-qty', { value: '1' }); N('ps-create-private-lesson-qty', { value: '1' }); N('ps-create-private-lesson-surfers', { value: '1' });
-  const cOpts = [{ value: 'c1', textContent: 'Beginner', getAttribute: (k) => (k === 'data-label' ? 'Beginner' : null) }];
-  const tOpts = [{ value: '1_week', textContent: '1 week' }];
-  N('ps-create-course-select', { value: 'c1', options: cOpts, selectedIndex: 0 });
-  N('ps-create-course-tier', { value: '1_week', options: tOpts, selectedIndex: 0 });
+  ['ps-create-quote-preview','ps-create-msg','ps-create-submit','ps-create-guest','ps-create-phone','ps-create-notes','ps-create-modal','ps-create-private-lesson-sessions','ps-create-comp-course','ps-create-comp-private-lesson','ps-create-comp-fullday'].forEach((id)=>N(id));
+  N('ps-create-payment',{value:'unpaid'}); N('ps-create-date-from',{value:TODAY}); N('ps-create-date-to',{value:TODAY});
+  N('ps-create-comp-no-lesson',{checked:true}); N('ps-create-rentals',{getAttribute:()=>'1_day'});
+  N('ps-create-course-qty',{value:'1'}); N('ps-create-private-lesson-qty',{value:'1'}); N('ps-create-private-lesson-surfers',{value:'1'});
+  const cOpts=[{value:'c1',textContent:'Beginner',getAttribute:(k)=>k==='data-label'?'Beginner':null}];
+  const tOpts=[{value:'1_week',textContent:'1 week'}];
+  N('ps-create-course-select',{value:'c1',options:cOpts,selectedIndex:0});
+  N('ps-create-course-tier',{value:'1_week',options:tOpts,selectedIndex:0});
   let payload = opts.payload || { guest_name: '', date_from: TODAY, date_to: TODAY, payment_status: 'unpaid', components: {}, rentals: [] };
   const ctx = {
     console, setTimeout, clearTimeout, Promise, JSON, Object, Array, Number, String, Math, Date, Intl,
@@ -154,23 +125,17 @@ function sandbox(opts) {
   ctx.schedulePortalRefreshCreateQuote = function () { refreshN += 1; return _ref(); };
   return ctx;
 }
-const creates = (c) => c._log.filter((e) => String(e.url).includes('/bookings?') && e.opts && e.opts.method === 'POST');
-const quotes = (c) => c._log.filter((e) => String(e.url).includes('/bookings/quote'));
-const msg = (c) => String(c.el('ps-create-msg').textContent || '');
-const S = (c) => String(c.el('ps-create-summary').innerHTML || '');
-const Q = (c) => String(c.el('ps-create-quote-preview').innerHTML || '');
-const baseCourse = (extra) => Object.assign({
-  guest_name: 'Ada', date_from: TODAY, date_to: TODAY, payment_status: 'unpaid',
-  components: { course: { course_id: 'c1', course_label: 'Beginner', tier_key: '1_week', quantity: 1 } }, rentals: [],
-}, extra || {});
-const rentalOnly = (extra) => Object.assign({
-  guest_name: 'Bo', date_from: TODAY, date_to: '2026-08-21', payment_status: 'unpaid', components: {},
-  rentals: [{ offering_key: 'board_rental', duration_key: '2_days', quantity: 1 }],
-}, extra || {});
-const privatePL = (sessions, extra) => Object.assign({
-  guest_name: 'Pri', date_from: '2026-08-21', date_to: '2026-08-23', payment_status: 'unpaid',
-  components: { private_lesson: { enabled: true, quantity: sessions.length, surfer_count: 2, sessions } }, rentals: [],
-}, extra || {});
+const creates=(c)=>c._log.filter((e)=>String(e.url).includes('/bookings?')&&e.opts&&e.opts.method==='POST');
+const quotes=(c)=>c._log.filter((e)=>String(e.url).includes('/bookings/quote'));
+const msg=(c)=>String(c.el('ps-create-msg').textContent||'');
+const S=(c)=>String(c.el('ps-create-summary').innerHTML||'');
+const Q=(c)=>String(c.el('ps-create-quote-preview').innerHTML||'');
+const baseCourse=(extra)=>Object.assign({guest_name:'Ada',date_from:TODAY,date_to:TODAY,payment_status:'unpaid',
+  components:{course:{course_id:'c1',course_label:'Beginner',tier_key:'1_week',quantity:1}},rentals:[]},extra||{});
+const rentalOnly=(extra)=>Object.assign({guest_name:'Bo',date_from:TODAY,date_to:'2035-06-16',payment_status:'unpaid',components:{},
+  rentals:[{offering_key:'board_rental',duration_key:'2_days',quantity:1}]},extra||{});
+const privatePL=(sessions,extra)=>Object.assign({guest_name:'Pri',date_from:'2035-06-16',date_to:'2035-06-18',payment_status:'unpaid',
+  components:{private_lesson:{enabled:true,quantity:sessions.length,surfer_count:2,sessions}},rentals:[]},extra||{});
 
 console.log('\nverify:sunset-booking-kaya-final — Kaya Slice 6\n');
 console.log('[0] Owners + i18n + mobile');
@@ -180,8 +145,8 @@ assert('submit uses shared validation', (() => {
   const sub = extractFn(portalSrc, 'submitScheduleManualBooking') || '';
   return /schedulePortalValidateCreatePayload/.test(sub) && !/Object\.keys\(payload\.components\)\.length/.test(sub);
 })());
-assert('quote soft sellable/private', /schedulePortalHasSellableIntent|hasComps/.test(extractFn(portalSrc, 'schedulePortalRefreshCreateQuote') || '')
-  && /schedulePortalValidatePrivateLessonCreate/.test(extractFn(portalSrc, 'schedulePortalRunPreviewQuote') || ''));
+assert('quote soft shared gate', /schedulePortalValidateCreatePayload\([^)]*soft:\s*true/.test(extractFn(portalSrc, 'schedulePortalRefreshCreateQuote') || '')
+  && /schedulePortalValidateCreatePayload\([^)]*soft:\s*true/.test(extractFn(portalSrc, 'schedulePortalRunPreviewQuote') || ''));
 assert('ps-create ids', ['ps-create-guest', 'ps-create-comp-no-lesson', 'ps-create-course-select', 'ps-create-course-tier',
   'ps-create-date-from', 'ps-create-rentals', 'ps-create-summary', 'ps-create-quote-preview', 'ps-create-submit']
   .every((id) => modal.includes('id="' + id + '"')));
@@ -210,7 +175,7 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
 
   console.log('\n[2] Group path');
   const group = sandbox({ debounceMs: 5, quoteDelay: 5 });
-  group._setPayload(baseCourse({ payment_status: 'paid', date_to: '2026-08-22' }));
+  group._setPayload(baseCourse({ payment_status: 'paid', date_to: '2035-06-17' }));
   group._resetCounts(); group.schedulePortalSyncCreateFooter();
   assert('group owners 1+1', group._counts().summary === 1 && group._counts().refresh === 1);
   await sleep(40);
@@ -228,8 +193,8 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
   console.log('\n[3] Private');
   const priv = sandbox({ debounceMs: 5, quoteDelay: 5 });
   priv._setPayload(privatePL([
-    { date: '2026-08-21', start: '10:00', end: '12:00' },
-    { date: '2026-08-23', start: '10:00', end: '12:00' },
+    { date: '2035-06-16', start: '10:00', end: '12:00' },
+    { date: '2035-06-18', start: '10:00', end: '12:00' },
   ], { rentals: [{ offering_key: 'wetsuit_rental', duration_key: '1_day', quantity: 1 }] }));
   priv.schedulePortalRenderCreateIntentSummary();
   assert('private summary', /Sessions:\s*2/.test(S(priv)));
@@ -238,9 +203,9 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
     && creates(priv)[0].body.rentals.length === 1);
   for (const row of [
     [{ date: '', start: '10:00', end: '12:00' }],
-    [{ date: '2026-08-01', start: '10:00', end: '12:00' }],
-    [{ date: '2026-08-21', start: '10:00', end: '12:00' }, { date: '2026-08-21', start: '10:00', end: '12:00' }],
-    [{ date: '2026-08-21', start: '12:00', end: '10:00' }],
+    [{ date: '2035-06-01', start: '10:00', end: '12:00' }],
+    [{ date: '2035-06-16', start: '10:00', end: '12:00' }, { date: '2035-06-16', start: '10:00', end: '12:00' }],
+    [{ date: '2035-06-16', start: '12:00', end: '10:00' }],
   ]) {
     const bad = sandbox({ debounceMs: 5 });
     bad._setPayload(privatePL(row, { guest_name: 'X' }));
@@ -248,7 +213,7 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
     assert('private invalid zero', bad._qn() === 0 && creates(bad).length === 0 && !!msg(bad));
   }
 
-  console.log('\n[4] Rental-only');
+  console.log('\n[4] Rental-only (canonical payload)');
   assert('sellable rentals', sandbox().schedulePortalHasSellableIntent(rentalOnly()) === true);
   assert('sellable empty false', sandbox().schedulePortalHasSellableIntent({ components: {}, rentals: [] }) === false);
   const rent = sandbox({ debounceMs: 5, quoteDelay: 5 });
@@ -257,8 +222,39 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
   rent.submitScheduleManualBooking(); await sleep(50);
   assert('rental-only once', rent._qn() === 1 && creates(rent).length === 1, 'q=' + rent._qn() + ' c=' + creates(rent).length + ' ' + msg(rent));
   const rb = creates(rent)[0] && creates(rent)[0].body;
-  assert('rental payload', rb && !rb.components.course && !rb.components.private_lesson
+  assert('rental payload canonical', rb && !rb.components.course && !rb.components.private_lesson
     && rb.rentals[0].offering_key === 'board_rental' && rb.location_id === 'sunset-somo' && rb.idempotency_key);
+
+  console.log('\n[4b] Real DOM rental-only (production readers)');
+  const readPayloadSrc = extractFn(apiSrc, 'scheduleReadCreatePayload');
+  const readRentalsSrc = extractFn(apiSrc, 'scheduleReadCreateRentalSelectionFromDom');
+  assert('prod readers extractable', !!readPayloadSrc && !!readRentalsSrc);
+  const dom = sandbox({ debounceMs: 5, quoteDelay: 5 });
+  const check = { className: 'ps-create-rental-check', checked: true };
+  const qty = { className: 'ps-create-rental-qty-input', value: '1' };
+  const row = { getAttribute: (n) => n === 'data-rental-offering' ? 'board_rental' : null,
+    querySelector: (sel) => sel.includes('rental-check') ? check : sel.includes('qty') ? qty : null };
+  Object.assign(dom._nodes['ps-create-comp-no-lesson'], { checked: true });
+  Object.assign(dom._nodes['ps-create-comp-course'], { checked: false });
+  Object.assign(dom._nodes['ps-create-comp-private-lesson'], { checked: false });
+  dom._nodes['ps-create-guest'].value = 'DomBo';
+  dom._nodes['ps-create-date-from'].value = TODAY; dom._nodes['ps-create-date-to'].value = '2035-06-16';
+  dom._nodes['ps-create-payment'].value = 'unpaid';
+  dom._nodes['ps-create-rentals'] = { getAttribute: (k) => k === 'data-duration-key' ? '2_days' : '',
+    querySelectorAll: (sel) => sel === '[data-rental-offering]' ? [row] : [], querySelector: () => null };
+  vm.runInContext([readRentalsSrc, readPayloadSrc].join('\n'), dom);
+  const domP = dom.scheduleReadCreatePayload();
+  assert('DOM dual rentals+legacy', !!(domP && domP.rentals && domP.rentals[0] && domP.rentals[0].offering_key === 'board_rental'
+    && domP.rentals[0].duration_key === '2_days' && domP.rentals[0].quantity === 1
+    && domP.components && domP.components.surfboard && domP.components.surfboard.quantity === 1
+    && !domP.components.course && !domP.components.private_lesson), JSON.stringify(domP));
+  dom.scheduleReadCreatePayload = function () { return JSON.parse(JSON.stringify(domP)); };
+  await dom.schedulePortalRunPreviewQuote();
+  assert('DOM rental quote ready', dom._qn() === 1 && /€135\.00/.test(Q(dom)));
+  dom.submitScheduleManualBooking(); await sleep(40);
+  const db = creates(dom)[0] && creates(dom)[0].body;
+  assert('DOM rental create once', creates(dom).length === 1 && db && db.rentals[0].offering_key === 'board_rental'
+    && db.components.surfboard && db.location_id === 'sunset-somo' && db.idempotency_key);
 
   console.log('\n[5-6] Combo + empty gear');
   const combo = sandbox({ debounceMs: 5, quoteDelay: 5 });
@@ -272,12 +268,8 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
   assert('no gear fail closed', none._qn() === 0 && creates(none).length === 0 && !!msg(none));
 
   console.log('\n[7] Quote errors + idempotency');
-  const err = sandbox({
-    debounceMs: 5, quoteDelay: 5,
-    quoteOutcome: (n) => (n === 1 ? { ok: false, status: 409, body: { success: false, reason_code: 'quote_stale' } }
-      : n === 2 ? { ok: false, status: 503, body: { success: false } }
-        : { ok: false, status: 200, body: { success: true } }),
-  });
+  const err = sandbox({ debounceMs:5, quoteDelay:5, quoteOutcome:(n)=>n===1?{ok:false,status:409,body:{success:false,reason_code:'quote_stale'}}
+    :n===2?{ok:false,status:503,body:{success:false}}:{ok:false,status:200,body:{success:true}} });
   err._setPayload(baseCourse());
   const k0 = err.schedulePortalEnsureIdempotencyKey(baseCourse());
   err.submitScheduleManualBooking(); await sleep(40);
@@ -306,6 +298,9 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
   amb.submitScheduleManualBooking(); await sleep(50);
   assert('ambiguous create+key', creates(amb).length === 1 && amb.schedulePortalSubmitIdemKey === ak && amb.schedulePortalCreateAmbiguous === true);
   assert('retry same key', amb.schedulePortalEnsureIdempotencyKey(baseCourse()) === ak);
+  amb.schedulePortalSubmitInFlight = false; amb.el('ps-create-submit').disabled = false;
+  amb.submitScheduleManualBooking(); await sleep(50);
+  assert('ambiguous second same key', creates(amb).length === 2 && creates(amb).every((e) => e.body.idempotency_key === ak));
   const ok = sandbox({ debounceMs: 5, quoteDelay: 5 });
   ok._setPayload(baseCourse()); ok.submitScheduleManualBooking(); await sleep(50);
   assert('success clears', ok.schedulePortalSubmitIdemKey == null && ok.schedulePortalCreateAmbiguous === false);
@@ -336,7 +331,51 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
   }
   await race([60, 5], 'race B-then-A'); await race([5, 40], 'race A-then-B');
 
-  console.log('\n[12] Mutation RED');
+  console.log('\n[12] Soft gate — invalid debounce zero net + correction');
+  const invalids = [
+    ['inverted', baseCourse({ date_from: '2035-06-20', date_to: '2035-06-15' })],
+    ['past', baseCourse({ date_from: '2035-06-01', date_to: '2035-06-01' })],
+    ['impossible', baseCourse({ date_from: '2035-02-31', date_to: '2035-02-31' })],
+    ['suffix', baseCourse({ date_from: '2035-06-16junk', date_to: '2035-06-16junk' })],
+    ['unknown', rentalOnly({ rentals: [{ offering_key: 'mystery_rental', duration_key: '1_day', quantity: 1 }] })],
+    ['emptyDur', rentalOnly({ rentals: [{ offering_key: 'board_rental', duration_key: '', quantity: 1 }] })],
+    ['qty0', rentalOnly({ rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 0 }] })],
+    ['frac', rentalOnly({ rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1.5 }] })],
+  ];
+  for (const [lab, p] of invalids) {
+    const c = sandbox({ debounceMs: 30, quoteDelay: 5 });
+    c._setPayload(baseCourse()); await c.schedulePortalRunPreviewQuote();
+    const qn0 = c._qn();
+    assert(lab + ' seed+soft', qn0 === 1 && /€135\.00/.test(Q(c)) && c.schedulePortalQuoteState);
+    c._setPayload(p); c.schedulePortalRefreshCreateQuote();
+    assert(lab + ' sync clear/zero', c.schedulePortalQuoteState == null && !/€135/.test(Q(c)) && !msg(c) && !/schedule\.create\./.test(Q(c)));
+    await sleep(60); assert(lab + ' post-debounce qn', c._qn() === qn0 && !msg(c));
+  }
+  const missG = sandbox({ debounceMs: 5, quoteDelay: 5 });
+  missG._setPayload(baseCourse({ guest_name: '' }));
+  await missG.schedulePortalRefreshCreateQuote(); await sleep(40);
+  assert('missing guest still quotes', missG._qn() === 1 && /€135\.00/.test(Q(missG)) && !msg(missG));
+  const corr = sandbox({ debounceMs: 5, quoteDelay: 5 });
+  corr._setPayload(baseCourse({ date_from: '2035-06-20', date_to: '2035-06-15' }));
+  corr.schedulePortalRefreshCreateQuote(); await sleep(40);
+  assert('invalid pre zero', corr._qn() === 0 && !/€/.test(Q(corr)));
+  corr._setPayload(baseCourse());
+  corr.schedulePortalRefreshCreateQuote();
+  assert('valid shows checking', /Checking price/.test(Q(corr)));
+  await sleep(40);
+  assert('invalid→valid one Ready', corr._qn() === 1 && /€135\.00/.test(Q(corr)));
+  const dir = sandbox({ debounceMs: 5 });
+  dir._setPayload(baseCourse({ date_from: '2035-06-01', date_to: '2035-06-01' }));
+  const dirR = await dir.schedulePortalRunPreviewQuote();
+  assert('direct invalid zero net', dir._qn() === 0 && dirR && dirR.softInvalid && !msg(dir));
+  const idle = sandbox({ debounceMs: 5 });
+  idle.el('ps-create-quote-preview').innerHTML = 'Quoted total: €9.00'; idle.el('ps-create-quote-preview').style.display = 'block';
+  idle._setPayload({ guest_name: '', date_from: TODAY, date_to: TODAY, payment_status: 'unpaid', components: {}, rentals: [] });
+  const idleR = await idle.schedulePortalRunPreviewQuote();
+  assert('empty idle hidden', idleR == null && idle._qn() === 0 && !/€9/.test(Q(idle)) && Q(idle) === '');
+
+  console.log('\n[13] Mutation RED');
+  // Canonical rentals-only regression (payload without legacy components) — sellable owner.
   const stripSellable = portalSrc
     .replace(/function schedulePortalHasSellableIntent\(payload\) \{[\s\S]*?\n\}/,
       'function schedulePortalHasSellableIntent(payload){ var p=payload||{},c=p.components||{}; return !!(c.course||c.private_lesson||c.surfboard||c.wetsuit); }')
@@ -345,7 +384,18 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
   assert('mut sellable', stripSellable !== portalSrc);
   const redRent = sandbox({ portalSrc: stripSellable, debounceMs: 5, quoteDelay: 5 });
   redRent._setPayload(rentalOnly()); redRent.submitScheduleManualBooking(); await sleep(30);
-  assert('RED rental-only', creates(redRent).length === 0 && redRent._qn() === 0);
+  assert('RED canonical rentals-only reject', creates(redRent).length === 0 && redRent._qn() === 0);
+  // Soft gate bypass: invalid date must quote (true RED).
+  const noSoft = portalSrc.replace(/schedulePortalValidateCreatePayload\([^)]*,\s*\{\s*soft:\s*true\s*\}\)/g, '({ ok: true }/*mut soft*/)');
+  assert('mut soft gate', noSoft !== portalSrc && /\/\*mut soft\*\//.test(noSoft));
+  const redSoft = sandbox({ portalSrc: noSoft, debounceMs: 5, quoteDelay: 5 });
+  redSoft._setPayload(baseCourse({ date_from: '2035-06-20', date_to: '2035-06-15' }));
+  await redSoft.schedulePortalRefreshCreateQuote(); await sleep(40);
+  assert('RED soft bypass quotes invalid', redSoft._qn() >= 1, 'qn=' + redSoft._qn());
+  const greenSoft = sandbox({ debounceMs: 5, quoteDelay: 5 });
+  greenSoft._setPayload(baseCourse({ date_from: '2035-06-20', date_to: '2035-06-15' }));
+  await greenSoft.schedulePortalRefreshCreateQuote(); await sleep(40);
+  assert('GREEN soft blocks invalid', greenSoft._qn() === 0);
   const noLock = portalSrc.replace(
     /function submitScheduleManualBooking\(\) \{\n  if \(schedulePortalSubmitInFlight\) return;/,
     'function submitScheduleManualBooking() {\n  if (false && schedulePortalSubmitInFlight) return;'
@@ -372,19 +422,17 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
   assert('RED strict total', creates(redTot).length === 1);
   assert('RED mobile pin', apiSrc.replace(/\.portal-schedule-create-footer\{flex:0 0 auto/, '.portal-schedule-create-footer{flex:1 1 auto') !== apiSrc);
 
-  console.log('\n[13] Date/rental hard gates');
-  for (const [lab, p] of [
-    ['past', baseCourse({ date_from: '2026-08-01', date_to: '2026-08-01' })],
-    ['inverted', baseCourse({ date_from: '2026-08-22', date_to: '2026-08-20' })],
-    ['empty dur', rentalOnly({ rentals: [{ offering_key: 'board_rental', duration_key: '', quantity: 1 }] })],
-    ['unknown', rentalOnly({ rentals: [{ offering_key: 'mystery_rental', duration_key: '1_day', quantity: 1 }] })],
-  ]) {
-    const c = sandbox(); c._setPayload(p); c.submitScheduleManualBooking(); await sleep(10);
-    assert(lab + ' blocked', c._qn() === 0 && creates(c).length === 0);
+  console.log('\n[14] Hard gates + full-day');
+  let hardOk=true;
+  for (const p of [baseCourse({date_from:'2035-06-01',date_to:'2035-06-01'}), baseCourse({date_from:'2035-06-22',date_to:'2035-06-15'}),
+    rentalOnly({rentals:[{offering_key:'board_rental',duration_key:'',quantity:1}]}),
+    rentalOnly({rentals:[{offering_key:'mystery_rental',duration_key:'1_day',quantity:1}]})]) {
+    const c=sandbox(); c._setPayload(p); c.submitScheduleManualBooking(); await sleep(8);
+    if (c._qn()!==0||creates(c).length!==0) hardOk=false;
   }
+  assert('hard date/rental blocked', hardOk);
   assert('full-day sellable', sandbox().schedulePortalHasSellableIntent({
-    components: { full_day_equipment_extension: { enabled: true, dates: { [TODAY]: 1 } } }, rentals: [],
-  }) === true);
+    components:{ full_day_equipment_extension:{ enabled:true, dates:{[TODAY]:1} } }, rentals:[] })===true);
 
   if (fail) { console.error('\nFAILED pass=' + pass + ' fail=' + fail); process.exit(1); }
   console.log('\nverify:sunset-booking-kaya-final — ALL CHECKS PASSED (pass=' + pass + ')\n');
