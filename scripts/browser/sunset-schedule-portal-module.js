@@ -462,6 +462,71 @@ function schedulePortalHasSellableIntent(payload) {
     || (Array.isArray(p.rentals) && p.rentals.length));
 }
 
+/**
+ * Shared create validation for submit (hard) and quote soft gates.
+ * Sellable intent includes rental-only (No lesson + gear). Does not re-price.
+ * opts.soft: skip guest; return softInvalid/idle rather than hard block.
+ */
+function schedulePortalValidateCreatePayload(payload, opts) {
+  opts = opts || {};
+  var soft = opts.soft === true;
+  var p = payload || {};
+  var comps = p.components || {};
+  var rentals = Array.isArray(p.rentals) ? p.rentals : [];
+
+  if (!soft) {
+    var guest = p.guest_name != null ? String(p.guest_name).trim() : '';
+    if (!guest) return { ok: false, errorKey: 'schedule.create.guestRequired' };
+  }
+
+  if (!schedulePortalHasSellableIntent(p)) {
+    return { ok: false, errorKey: 'schedule.create.componentsRequired', idle: true };
+  }
+
+  if (comps.course) {
+    if (!String(comps.course.course_id || '').trim()) {
+      return { ok: false, errorKey: 'schedule.create.courseRequired' };
+    }
+    if (!String(comps.course.tier_key || '').trim()) {
+      return { ok: false, errorKey: 'schedule.create.courseTierRequired' };
+    }
+  }
+
+  if (comps.private_lesson) {
+    var plCheck = schedulePortalValidatePrivateLessonCreate(comps.private_lesson);
+    if (!plCheck || plCheck.ok !== true) {
+      return {
+        ok: false,
+        softInvalid: true,
+        errorKey: (plCheck && plCheck.errorKey) || 'schedule.create.privateLesson.sessionIncomplete',
+      };
+    }
+  } else {
+    var df = schedulePortalCanonicalDateIso(p.date_from);
+    var dt = schedulePortalCanonicalDateIso(p.date_to != null ? p.date_to : p.date_from);
+    var today = schedulePortalMadridTodayIso();
+    if (!df || !dt) return { ok: false, errorKey: 'schedule.create.dateInvalid' };
+    if (df < today || dt < today) return { ok: false, errorKey: 'schedule.create.datePast' };
+    if (df > dt) return { ok: false, errorKey: 'schedule.create.dateOrder' };
+  }
+
+  if (rentals.length) {
+    var known = (typeof SCHEDULE_CANONICAL_RENTAL_OFFERINGS !== 'undefined' && SCHEDULE_CANONICAL_RENTAL_OFFERINGS)
+      || ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'];
+    for (var i = 0; i < rentals.length; i++) {
+      var r = rentals[i] || {};
+      var off = String(r.offering_key || '').trim();
+      var dur = String(r.duration_key || '').trim();
+      var qty = Number(r.quantity);
+      if (known.indexOf(off) < 0 || !dur || !(Number.isFinite(qty) && Math.floor(qty) === qty && qty >= 1)) {
+        return { ok: false, errorKey: 'schedule.create.rentalIncomplete' };
+      }
+    }
+  }
+
+  return { ok: true };
+}
+
 function schedulePortalInvalidateCreateQuoteIntent(result) {
   schedulePortalInvalidatePreviewWork();
   schedulePortalQuoteState = null;
@@ -629,6 +694,7 @@ function schedulePortalRunPreviewQuote() {
   if (schedulePortalSubmitInFlight) return Promise.resolve(null);
   var payload = scheduleReadCreatePayload();
   var comps = payload.components || {};
+  // Soft empty gate: components and/or rentals (rental-only sellable). Full submit gate is shared owner.
   var hasComps = Object.keys(comps).length > 0 || (Array.isArray(payload.rentals) && payload.rentals.length > 0);
   if (!hasComps) {
     if (schedulePortalQuoteTimer != null) { clearTimeout(schedulePortalQuoteTimer); schedulePortalQuoteTimer = null; }
@@ -992,34 +1058,17 @@ function submitScheduleManualBooking() {
   var payload = scheduleReadCreatePayload();
   var submitBtn = el('ps-create-submit');
   var msg = el('ps-create-msg');
-  if (!payload.guest_name) {
-    if (msg) { msg.textContent = portalT('schedule.create.guestRequired'); msg.style.display = 'block'; }
+  // Shared owner: sellable (rental-only ok), guest, course/tier, dates, private
+  // (schedulePortalValidatePrivateLessonCreate), rental rows.
+  var gate = null;
+  try { gate = schedulePortalValidateCreatePayload(payload, { soft: false }); }
+  catch (_g) { gate = { ok: false, errorKey: 'schedule.create.componentsRequired' }; }
+  if (!gate || gate.ok !== true) {
+    if (msg) {
+      msg.textContent = portalT((gate && gate.errorKey) || 'schedule.create.componentsRequired');
+      msg.style.display = 'block';
+    }
     return;
-  }
-  if (!Object.keys(payload.components).length) {
-    if (msg) { msg.textContent = portalT('schedule.create.componentsRequired'); msg.style.display = 'block'; }
-    return;
-  }
-  if (payload.components.course) {
-    var coursePart = payload.components.course;
-    if (!coursePart.course_id) {
-      if (msg) { msg.textContent = portalT('schedule.create.courseRequired') || 'Select a group course.'; msg.style.display = 'block'; }
-      return;
-    }
-    if (!coursePart.tier_key) {
-      if (msg) { msg.textContent = portalT('schedule.create.courseTierRequired') || 'Select a course duration.'; msg.style.display = 'block'; }
-      return;
-    }
-  }
-  if (payload.components.private_lesson) {
-    var plCheck = schedulePortalValidatePrivateLessonCreate(payload.components.private_lesson);
-    if (!plCheck.ok) {
-      if (msg) {
-        msg.textContent = portalT(plCheck.errorKey || 'schedule.create.privateLesson.sessionIncomplete');
-        msg.style.display = 'block';
-      }
-      return;
-    }
   }
 
   schedulePortalSubmitInFlight = true;
