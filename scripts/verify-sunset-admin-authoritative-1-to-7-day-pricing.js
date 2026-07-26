@@ -1087,9 +1087,10 @@ async function main() {
       && /PACK_TIER_KEYS\.has\(key\)/.test(
         fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-admin-pack-rules.js'), 'utf8'),
       ));
-  // Structural: rental cards keep non-canonical period on re-save (no forced 1_day).
-  assert('legacy rental period kept in selector when selected',
-    /opts\.indexOf\(sel\) < 0/.test(uiSrc) && /opts = \[sel\]\.concat\(opts\)/.test(uiSrc));
+  // Structural: never reinsert selected legacy period into the 1–7 day selector.
+  assert('rental selector does not reinsert selected legacy key',
+    !/opts = \[sel\]\.concat\(opts\)/.test(uiSrc)
+      && /var opts = \['1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'\]/.test(uiSrc));
 
   // ── 9. Deployment prerequisites (observed LIVE schema; no amounts baked) ─
   console.log('\n[9] Deployment prerequisites (schema / fail-closed; no Admin data mutated offline)');
