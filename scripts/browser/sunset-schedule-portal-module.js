@@ -185,7 +185,7 @@ function schedulePortalClearCreateDraftFields() {
   var pay = el('ps-create-payment'); if (pay) pay.value = 'unpaid';
   var course = el('ps-create-comp-course'), priv = el('ps-create-comp-private-lesson'), none = el('ps-create-comp-no-lesson');
   if (course) course.checked = false; if (priv) priv.checked = false; if (none) none.checked = true;
-  set('ps-create-course-qty', '1'); set('ps-create-private-lesson-qty', '1'); set('ps-create-private-lesson-surfers', '1');
+  set('ps-create-surfers', '1'); set('ps-create-course-qty', '1'); set('ps-create-private-lesson-qty', '1'); set('ps-create-private-lesson-surfers', '1');
   var courseSel = el('ps-create-course-select'); if (courseSel) courseSel.value = '';
   var tier = el('ps-create-course-tier'); if (tier) { try { tier.innerHTML = ''; } catch (_t) {} tier.value = ''; }
   var sessions = el('ps-create-private-lesson-sessions'); if (sessions) sessions.innerHTML = '';

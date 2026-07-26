@@ -1532,14 +1532,28 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
     });
   }
 
-  // Full-day equipment rows are Admin-snapshotted at insert (unit × people) and
-  // are not commercial quote lines — exclude from claim/apply ownership.
-  const quoteOwnedRows = createdRows.filter((row) => {
+  // Full-day equipment is a commercial quote line when present on the Admin quote.
+  // Claim those rows via quote (no double-add of snapshotted addon cents).
+  // Legacy path: if quote has no full-day line, keep snapshot amounts outside the claim.
+  const quoteLines = Array.isArray(authoritativeQuote.line_items)
+    ? authoritativeQuote.line_items : [];
+  const fullDayInQuote = quoteLines.some((line) => {
+    if (!line) return false;
+    const c = String(line.component || '');
+    const code = String(line.offering_item_code || line.offering_id || '');
+    return c === FULL_DAY_EQUIPMENT_ADDON_KEY || c === 'addon_service'
+      || code === `${FULL_DAY_EQUIPMENT_ADDON_KEY}__day`
+      || code.startsWith(`${FULL_DAY_EQUIPMENT_ADDON_KEY}__`);
+  });
+  function isFullDayServiceRow(row) {
     const meta = rowMetadata(row);
     const st = String(row.service_type || '').toLowerCase();
-    if (st === 'addon_service') return false;
-    if (meta.component === FULL_DAY_EQUIPMENT_ADDON_KEY) return false;
-    if (meta.service_key === FULL_DAY_EQUIPMENT_ADDON_KEY) return false;
+    return st === 'addon_service'
+      || meta.component === FULL_DAY_EQUIPMENT_ADDON_KEY
+      || meta.service_key === FULL_DAY_EQUIPMENT_ADDON_KEY;
+  }
+  const quoteOwnedRows = createdRows.filter((row) => {
+    if (isFullDayServiceRow(row)) return fullDayInQuote;
     return true;
   });
   const applied = await applyAuthoritativeQuoteAmounts(pg, quoteOwnedRows, authoritativeQuote, {
@@ -1549,9 +1563,9 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
   if (Number(authoritativeQuote.total_cents) !== Number(applied.total_cents)) {
     throwSunsetPriceFail(422, 'quote_total_mismatch');
   }
-  // Pre-snapshotted full-day addon amounts sit outside the quote line list;
-  // booking header total combines quote + addon cents atomically in this UPDATE.
-  const addonSum = createdRows.reduce((sum, row) => {
+  // Only add snapshotted full-day cents when they were NOT claimed via the quote
+  // (avoids double-charging). Bundle peers stay zero-valued by applyAuthoritativeQuoteAmounts.
+  const addonSum = fullDayInQuote ? 0 : createdRows.reduce((sum, row) => {
     if (quoteOwnedRows.includes(row)) return sum;
     const due = Number(row.amount_due_cents);
     return sum + (Number.isFinite(due) && due > 0 ? due : 0);
@@ -1562,6 +1576,19 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
     sunset_price_source: 'authoritative_quote',
     quote_fingerprint: authoritativeQuote.quote_provenance
       && authoritativeQuote.quote_provenance.quote_fingerprint,
+    // Persist exact quoted lines + total (server-owned; no client money).
+    quote_total_cents: Number(authoritativeQuote.total_cents),
+    quote_line_items: Array.isArray(authoritativeQuote.line_items)
+      ? authoritativeQuote.line_items.map((line) => ({
+        component: line && line.component,
+        offering_id: line && line.offering_id,
+        offering_item_code: line && (line.offering_item_code || line.item_code),
+        duration_key: line && line.duration_key,
+        quantity: line && line.quantity,
+        unit_amount_cents: line && line.unit_amount_cents,
+        total_cents: line && line.total_cents,
+      }))
+      : [],
   };
   const bookingUpd = await pg.query(
     // MULTICLIENT_SCOPE_OK: same-txn booking header; client_id predicate defense-in-depth

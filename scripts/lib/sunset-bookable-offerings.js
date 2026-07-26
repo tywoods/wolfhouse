@@ -55,6 +55,25 @@ function centsFromPrice(price) {
   return Number.isFinite(amount) ? Math.round(amount * 100) : null;
 }
 
+/**
+ * Period window for a rental Admin price row.
+ *
+ * Real shapes (do not invent aliases):
+ *   - DB-mapped: offering_key/item_code = board_and_suit_rental__4_days, unit = billing grain (day)
+ *   - Config/Admin UI: offering_key = board_and_suit_rental, unit = period window (4_days)
+ *
+ * Preserve offering_key + unit relationship; never default bare keys to 1_day.
+ */
+function rentalPeriodFromAdminPriceRow(key, price) {
+  const k = String(key || '').trim();
+  if (!k) return null;
+  if (k.includes('__')) {
+    return k.split('__').slice(1).join('__') || null;
+  }
+  const unit = String((price && price.unit) || '').trim();
+  return unit || null;
+}
+
 function findConfigPrice(prices, itemCode, asOfDate, preferredUnit) {
   const matches = (prices || []).filter((p) => {
     const key = String(p.offering_key || p.item_code || '');
@@ -265,14 +284,17 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
 
     if (category === 'rental' || /rental|full_day_equipment/i.test(key)) {
       let identity = null;
-      if (key.startsWith('board_and_suit_rental') || key === 'board_and_suit_rental') {
-        const duration = key.includes('__') ? key.split('__').pop() : '1_day';
+      if (key === 'board_and_suit_rental' || key.startsWith('board_and_suit_rental__')) {
+        const duration = rentalPeriodFromAdminPriceRow(key, price);
+        if (!duration) continue;
         identity = rentalIdentity('board_and_suit_rental', duration, locationId);
-      } else if (key.startsWith('board_rental')) {
-        const duration = key.includes('__') ? key.split('__').pop() : '1_day';
+      } else if (key === 'board_rental' || key.startsWith('board_rental__')) {
+        const duration = rentalPeriodFromAdminPriceRow(key, price);
+        if (!duration) continue;
         identity = rentalIdentity('board_rental', duration, locationId);
-      } else if (key.startsWith('wetsuit_rental')) {
-        const duration = key.includes('__') ? key.split('__').pop() : '1_day';
+      } else if (key === 'wetsuit_rental' || key.startsWith('wetsuit_rental__')) {
+        const duration = rentalPeriodFromAdminPriceRow(key, price);
+        if (!duration) continue;
         identity = rentalIdentity('wetsuit_rental', duration, locationId);
       } else if (/full_day_equipment/i.test(key)) {
         identity = fullDayEquipmentIdentity(locationId);
