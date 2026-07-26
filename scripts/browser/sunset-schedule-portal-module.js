@@ -528,6 +528,30 @@ function schedulePortalValidateCreatePayload(payload, opts) {
     }
   }
 
+  // Blank/invalid Number of surfers cannot quote or create (no stale quantity).
+  var needsSurfers = !!(comps.course || comps.private_lesson || rentals.length
+    || comps.full_day_equipment_extension);
+  if (needsSurfers) {
+    var sn = null;
+    if (comps.course && comps.course.quantity != null) sn = Number(comps.course.quantity);
+    else if (comps.private_lesson && comps.private_lesson.surfer_count != null) {
+      sn = Number(comps.private_lesson.surfer_count);
+    } else if (rentals.length && rentals[0] && rentals[0].quantity != null) {
+      sn = Number(rentals[0].quantity);
+    }
+    // Prefer live input when present (payload may omit during soft preview).
+    try {
+      if (typeof scheduleReadCreateSurferCount === 'function') {
+        var live = scheduleReadCreateSurferCount();
+        if (live == null) return fail('schedule.create.surfersRequired');
+        sn = live;
+      }
+    } catch (_s) { /* ignore */ }
+    if (!(Number.isFinite(sn) && Math.floor(sn) === sn && sn >= 1)) {
+      return fail('schedule.create.surfersRequired');
+    }
+  }
+
   return { ok: true };
 }
 

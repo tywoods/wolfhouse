@@ -9,12 +9,41 @@
 
 var SCHEDULE_CANONICAL_RENTAL_OFFERINGS = ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'];
 
+/** No-lesson short rental pebbles only (never 2–7 days). */
+var SCHEDULE_SHORT_RENTAL_DURATION_KEYS = ['1_hour', 'half_day', '1_day'];
+var SCHEDULE_SHORT_RENTAL_DURATION_SET = {
+  '1_hour': true,
+  half_day: true,
+  '1_day': true,
+};
+
 function scheduleRentalOfferingLabelKey(offeringKey) {
   var key = String(offeringKey || '');
   if (key === 'board_rental') return 'schedule.type.boardRental';
   if (key === 'wetsuit_rental') return 'schedule.type.wetsuitRental';
   if (key === 'board_and_suit_rental') return 'schedule.ops.rentalBoth';
   return 'schedule.type.boardRental';
+}
+
+function scheduleIsShortRentalDurationKey(key) {
+  return !!SCHEDULE_SHORT_RENTAL_DURATION_SET[String(key || '').trim()];
+}
+
+/** Pebble label key: 1_day → Full day in short-rental mode. */
+function scheduleShortRentalDurationLabelKey(durationKey) {
+  var k = String(durationKey || '').trim();
+  if (k === '1_day') return 'schedule.create.rentalDuration.fullDay';
+  if (k === '1_hour') return 'schedule.create.rentalDuration.1Hour';
+  if (k === 'half_day') return 'schedule.create.rentalDuration.halfDay';
+  return 'admin.period.' + k;
+}
+
+function scheduleShortRentalDurationFallbackLabel(durationKey) {
+  var k = String(durationKey || '').trim();
+  if (k === '1_day') return 'Full day';
+  if (k === '1_hour') return '1 hour';
+  if (k === 'half_day') return 'Half day';
+  return k;
 }
 
 function scheduleRentalDurationKeyFromDates(dateFrom, dateTo, enumerateDatesFn) {
@@ -61,19 +90,23 @@ function scheduleRentalPriceIsSellable(price) {
   return cents != null && cents > 0;
 }
 
+function scheduleRentalPriceMatchesLocation(price, locationId) {
+  var wantLoc = locationId != null ? String(locationId).trim() : '';
+  if (!wantLoc || !price || price.location_id == null || !String(price.location_id).trim()) {
+    return true;
+  }
+  return String(price.location_id).trim() === wantLoc;
+}
+
 function scheduleActiveRentalsForDuration(prices, durationKey, locationId) {
   var wantDuration = String(durationKey || '').trim();
-  var wantLoc = locationId != null ? String(locationId).trim() : '';
   var out = [];
   var seen = {};
   var list = Array.isArray(prices) ? prices : [];
   for (var i = 0; i < list.length; i++) {
     var p = list[i];
     if (!scheduleRentalPriceIsSellable(p)) continue;
-    if (wantLoc && p.location_id != null && String(p.location_id).trim()
-      && String(p.location_id).trim() !== wantLoc) {
-      continue;
-    }
+    if (!scheduleRentalPriceMatchesLocation(p, locationId)) continue;
     var id = scheduleParseRentalPriceIdentity(p);
     if (SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(id.offering_key) < 0) continue;
     if (!wantDuration || id.duration_key !== wantDuration) continue;
@@ -91,6 +124,86 @@ function scheduleActiveRentalsForDuration(prices, durationKey, locationId) {
       - SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(b.offering_key);
   });
   return out;
+}
+
+/** Active short-duration keys for one offering at a location (hour/half_day/1_day only). */
+function scheduleActiveShortDurationKeysForOffering(prices, offeringKey, locationId) {
+  var want = String(offeringKey || '').trim();
+  var set = {};
+  var list = Array.isArray(prices) ? prices : [];
+  for (var i = 0; i < list.length; i++) {
+    var p = list[i];
+    if (!scheduleRentalPriceIsSellable(p)) continue;
+    if (!scheduleRentalPriceMatchesLocation(p, locationId)) continue;
+    var id = scheduleParseRentalPriceIdentity(p);
+    if (id.offering_key !== want) continue;
+    if (!scheduleIsShortRentalDurationKey(id.duration_key)) continue;
+    set[id.duration_key] = true;
+  }
+  return SCHEDULE_SHORT_RENTAL_DURATION_KEYS.filter(function(k) { return !!set[k]; });
+}
+
+/**
+ * Intersection of active short durations on Surfboard and Wetsuit catalogs.
+ * Used for No-lesson combined Board and wetsuit duration pebbles.
+ */
+function scheduleCommonShortRentalDurationKeys(prices, locationId) {
+  var board = scheduleActiveShortDurationKeysForOffering(prices, 'board_rental', locationId);
+  var suit = scheduleActiveShortDurationKeysForOffering(prices, 'wetsuit_rental', locationId);
+  var suitSet = {};
+  for (var i = 0; i < suit.length; i++) suitSet[suit[i]] = true;
+  return board.filter(function(k) { return !!suitSet[k]; });
+}
+
+/** Offerings that have at least one sellable short row (No-lesson short mode). */
+function scheduleActiveShortRentalOfferings(prices, locationId) {
+  var out = [];
+  var seen = {};
+  for (var i = 0; i < SCHEDULE_CANONICAL_RENTAL_OFFERINGS.length; i++) {
+    var key = SCHEDULE_CANONICAL_RENTAL_OFFERINGS[i];
+    var shorts = scheduleActiveShortDurationKeysForOffering(prices, key, locationId);
+    if (!shorts.length) continue;
+    if (seen[key]) continue;
+    seen[key] = true;
+    out.push({ offering_key: key, duration_keys: shorts });
+  }
+  return out;
+}
+
+/**
+ * Admin fail-closed: board + wetsuit must expose the exact same active short-duration
+ * key set among 1_hour / half_day / 1_day. Amounts may differ. Bundles ignored.
+ * @returns {{ ok: true } | { ok: false, error: string, missing_board: string[], missing_wetsuit: string[] }}
+ */
+function scheduleAssertBoardWetsuitShortDurationParity(prices, locationId) {
+  var board = scheduleActiveShortDurationKeysForOffering(prices, 'board_rental', locationId);
+  var suit = scheduleActiveShortDurationKeysForOffering(prices, 'wetsuit_rental', locationId);
+  var boardSet = {};
+  var suitSet = {};
+  for (var i = 0; i < board.length; i++) boardSet[board[i]] = true;
+  for (var j = 0; j < suit.length; j++) suitSet[suit[j]] = true;
+  var missingBoard = suit.filter(function(k) { return !boardSet[k]; });
+  var missingSuit = board.filter(function(k) { return !suitSet[k]; });
+  if (!missingBoard.length && !missingSuit.length) {
+    return { ok: true, board_keys: board, wetsuit_keys: suit };
+  }
+  var parts = [];
+  if (missingBoard.length) {
+    parts.push('Surfboard missing: ' + missingBoard.join(', '));
+  }
+  if (missingSuit.length) {
+    parts.push('Wetsuit missing: ' + missingSuit.join(', '));
+  }
+  return {
+    ok: false,
+    error: 'Surfboard and Wetsuit short durations must match ('
+      + parts.join('; ')
+      + '). Active short keys among 1_hour/half_day/1_day must be identical.',
+    missing_board: missingBoard,
+    missing_wetsuit: missingSuit,
+    board_keys: board,
+    wetsuit_keys: suit,
+  };
 }
 
 function scheduleRentalOfferingsMode(activeOfferings) {
@@ -126,21 +239,44 @@ function scheduleApplyRentalMutualExclusion(selectedKeys, toggledKey, checked) {
   return Object.keys(next);
 }
 
-function scheduleSerializeRentalsSelection(selection, durationKey) {
+function scheduleSerializeRentalsSelection(selection, durationKey, opts) {
   var dur = String(durationKey || '').trim();
+  var options = opts || {};
+  var expandCombinedShort = options.expandCombinedShort === true
+    && scheduleIsShortRentalDurationKey(dur);
   var rentals = [];
   var list = Array.isArray(selection) ? selection : [];
+  var hasBoard = false;
+  var hasSuit = false;
+  var hasBundle = false;
+  var bundleQty = null;
   for (var i = 0; i < list.length; i++) {
     var row = list[i];
     if (!row || !row.offering_key) continue;
     if (SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(row.offering_key) < 0) continue;
     var qty = parseInt(row.quantity, 10);
     if (!Number.isInteger(qty) || qty < 1) continue;
+    var key = row.offering_key;
+    var rowDur = String(row.duration_key || dur).trim();
+    if (expandCombinedShort && key === 'board_and_suit_rental' && scheduleIsShortRentalDurationKey(rowDur)) {
+      hasBundle = true;
+      bundleQty = qty;
+      continue;
+    }
+    if (key === 'board_rental') hasBoard = true;
+    if (key === 'wetsuit_rental') hasSuit = true;
     rentals.push({
-      offering_key: row.offering_key,
-      duration_key: String(row.duration_key || dur).trim(),
+      offering_key: key,
+      duration_key: rowDur,
       quantity: qty,
     });
+  }
+  // No-lesson combined: one pebble controls both components — quote Surfboard + Wetsuit sum.
+  if (expandCombinedShort && hasBundle && !hasBoard && !hasSuit && bundleQty != null) {
+    rentals.push(
+      { offering_key: 'board_rental', duration_key: dur, quantity: bundleQty },
+      { offering_key: 'wetsuit_rental', duration_key: dur, quantity: bundleQty },
+    );
   }
   return rentals;
 }
@@ -165,12 +301,20 @@ function scheduleRentalsToLegacyComponents(rentals) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     SCHEDULE_CANONICAL_RENTAL_OFFERINGS: SCHEDULE_CANONICAL_RENTAL_OFFERINGS,
+    SCHEDULE_SHORT_RENTAL_DURATION_KEYS: SCHEDULE_SHORT_RENTAL_DURATION_KEYS,
     scheduleRentalOfferingLabelKey: scheduleRentalOfferingLabelKey,
+    scheduleIsShortRentalDurationKey: scheduleIsShortRentalDurationKey,
+    scheduleShortRentalDurationLabelKey: scheduleShortRentalDurationLabelKey,
+    scheduleShortRentalDurationFallbackLabel: scheduleShortRentalDurationFallbackLabel,
     scheduleRentalDurationKeyFromDates: scheduleRentalDurationKeyFromDates,
     scheduleParseRentalPriceIdentity: scheduleParseRentalPriceIdentity,
     scheduleRentalPriceAmountCents: scheduleRentalPriceAmountCents,
     scheduleRentalPriceIsSellable: scheduleRentalPriceIsSellable,
     scheduleActiveRentalsForDuration: scheduleActiveRentalsForDuration,
+    scheduleActiveShortDurationKeysForOffering: scheduleActiveShortDurationKeysForOffering,
+    scheduleCommonShortRentalDurationKeys: scheduleCommonShortRentalDurationKeys,
+    scheduleActiveShortRentalOfferings: scheduleActiveShortRentalOfferings,
+    scheduleAssertBoardWetsuitShortDurationParity: scheduleAssertBoardWetsuitShortDurationParity,
     scheduleRentalOfferingsMode: scheduleRentalOfferingsMode,
     scheduleApplyRentalMutualExclusion: scheduleApplyRentalMutualExclusion,
     scheduleSerializeRentalsSelection: scheduleSerializeRentalsSelection,

@@ -59,6 +59,123 @@ const RENTAL_PERIOD_WINDOWS_READABLE = new Set([
   '1_hour', '2_hours', 'half_day',
 ]);
 
+/** Short No-lesson rental windows shared by Surfboard + Wetsuit catalogs. */
+const RENTAL_SHORT_DURATION_KEYS = Object.freeze(['1_hour', 'half_day', '1_day']);
+const RENTAL_SHORT_DURATION_SET = new Set(RENTAL_SHORT_DURATION_KEYS);
+
+/**
+ * Fail-closed: Surfboard and Wetsuit must expose the exact same active short-
+ * duration key set among 1_hour / half_day / 1_day (amounts may differ).
+ * Bundles / multi-day rows are ignored. Pure — no I/O.
+ *
+ * @param {Array<{offering_key?:string,item_code?:string,unit?:string,active?:boolean,amount_cents?:number,amount?:number,location_id?:string}>} prices
+ * @param {string} [locationId]
+ * @returns {{ ok: true, board_keys: string[], wetsuit_keys: string[] } | { ok: false, error: string, missing_board: string[], missing_wetsuit: string[] }}
+ */
+function assertBoardWetsuitShortDurationParity(prices, locationId) {
+  const wantLoc = locationId != null ? String(locationId).trim() : '';
+  const board = new Set();
+  const suit = new Set();
+  for (const p of prices || []) {
+    if (!p || p.active === false) continue;
+    const cents = p.amount_cents != null
+      ? Number(p.amount_cents)
+      : (p.amount != null ? Math.round(Number(p.amount) * 100) : null);
+    if (!(Number.isFinite(cents) && cents > 0)) continue;
+    if (wantLoc && p.location_id != null && String(p.location_id).trim()
+      && String(p.location_id).trim() !== wantLoc) {
+      continue;
+    }
+    const raw = String(p.offering_key || p.item_code || '').trim();
+    let offering = raw;
+    let period = String(p.unit || p.period_window || '').trim();
+    if (raw.includes('__')) {
+      const parts = raw.split('__');
+      offering = parts[0];
+      period = parts.slice(1).join('__') || period;
+    }
+    if (!RENTAL_SHORT_DURATION_SET.has(period)) continue;
+    if (offering === 'board_rental') board.add(period);
+    else if (offering === 'wetsuit_rental') suit.add(period);
+  }
+  const boardKeys = RENTAL_SHORT_DURATION_KEYS.filter((k) => board.has(k));
+  const suitKeys = RENTAL_SHORT_DURATION_KEYS.filter((k) => suit.has(k));
+  const missingBoard = suitKeys.filter((k) => !board.has(k));
+  const missingSuit = boardKeys.filter((k) => !suit.has(k));
+  if (!missingBoard.length && !missingSuit.length) {
+    return { ok: true, board_keys: boardKeys, wetsuit_keys: suitKeys };
+  }
+  const parts = [];
+  if (missingBoard.length) parts.push(`Surfboard missing: ${missingBoard.join(', ')}`);
+  if (missingSuit.length) parts.push(`Wetsuit missing: ${missingSuit.join(', ')}`);
+  return {
+    ok: false,
+    error: `Surfboard and Wetsuit short durations must match (${parts.join('; ')}). `
+      + 'Active short keys among 1_hour/half_day/1_day must be identical before save.',
+    missing_board: missingBoard,
+    missing_wetsuit: missingSuit,
+    board_keys: boardKeys,
+    wetsuit_keys: suitKeys,
+  };
+}
+
+/**
+ * Apply a hypothetical board/wetsuit short-row mutation to a price list (pure),
+ * then assert parity. Used before Admin create/patch commit (no partial save).
+ */
+function assertBoardWetsuitShortParityAfterMutation(prices, locationId, mutation) {
+  const list = Array.isArray(prices) ? prices.map((p) => ({ ...p })) : [];
+  const m = mutation || {};
+  const offering = String(m.offering_key || '').trim();
+  const period = String(m.period_window || m.unit || '').trim();
+  if ((offering === 'board_rental' || offering === 'wetsuit_rental')
+    && RENTAL_SHORT_DURATION_SET.has(period)) {
+    const loc = locationId != null ? String(locationId).trim() : '';
+    let found = false;
+    for (const p of list) {
+      const raw = String(p.offering_key || p.item_code || '').trim();
+      let off = raw;
+      let per = String(p.unit || '').trim();
+      if (raw.includes('__')) {
+        const parts = raw.split('__');
+        off = parts[0];
+        per = parts.slice(1).join('__') || per;
+      }
+      if (off !== offering || per !== period) continue;
+      if (loc && p.location_id != null && String(p.location_id).trim()
+        && String(p.location_id).trim() !== loc) {
+        continue;
+      }
+      found = true;
+      if (m.active != null) p.active = m.active;
+      if (m.amount_cents != null) p.amount_cents = m.amount_cents;
+      if (m.period_window != null && m.period_window !== period) {
+        p.unit = m.period_window;
+        if (p.item_code && String(p.item_code).includes('__')) {
+          p.item_code = `${offering}__${m.period_window}`;
+        }
+        if (p.offering_key && String(p.offering_key).includes('__')) {
+          p.offering_key = `${offering}__${m.period_window}`;
+        } else if (p.offering_key === offering) {
+          p.unit = m.period_window;
+        }
+      }
+    }
+    if (!found && m.active !== false) {
+      list.push({
+        offering_key: offering,
+        item_code: `${offering}__${period}`,
+        unit: period,
+        amount_cents: m.amount_cents != null ? m.amount_cents : 1,
+        active: m.active !== false,
+        location_id: loc || undefined,
+        category: 'rental',
+      });
+    }
+  }
+  return assertBoardWetsuitShortDurationParity(list, locationId);
+}
+
 
 const LESSON_KINDS = new Set(['lesson', 'pack']);
 const LESSON_AGE_BANDS = new Set(['all_ages', '6_and_up', '6_to_11', '12_and_up']);
@@ -685,6 +802,31 @@ async function upsertLessonSlotPriceRule(client, {
   });
 }
 
+/**
+ * Load location-scoped rental price rows for short-duration parity checks.
+ * Pure projection from DB rows → assertBoardWetsuitShortDurationParity shape.
+ */
+async function loadRentalPricesForShortParity(client, { clientSlug, locationId, hasLoc }) {
+  const loc = normalizeSunsetLocationId(locationId);
+  const sql = hasLoc
+    ? `SELECT item_code, unit, active, amount_cents, location_id
+         FROM tenant_price_rules
+        WHERE client_slug = $1 AND location_id = $2 AND item_type = 'rental'`
+    : `SELECT item_code, unit, active, amount_cents, NULL::text AS location_id
+         FROM tenant_price_rules
+        WHERE client_slug = $1 AND item_type = 'rental'`;
+  const params = hasLoc ? [clientSlug, loc] : [clientSlug];
+  const res = await client.query(sql, params);
+  return (res.rows || []).map((r) => ({
+    offering_key: r.item_code,
+    item_code: r.item_code,
+    unit: r.unit,
+    active: r.active,
+    amount_cents: r.amount_cents,
+    location_id: r.location_id || loc,
+  }));
+}
+
 async function createRentalPriceRule(client, { clientSlug, locationId, patch, actor }) {
   const tablesExist = await adminConfigTablesExist(client);
   if (!tablesExist) {
@@ -732,6 +874,30 @@ async function createRentalPriceRule(client, { clientSlug, locationId, patch, ac
       newRowActive = false;
     }
     // Group is fully ON → newRowActive stays true (amount_cents>0 enforced by validation)
+  }
+
+  // Fail closed: Surfboard/Wetsuit short-duration keys must match after this create.
+  if (patch.offering_key === 'board_rental' || patch.offering_key === 'wetsuit_rental') {
+    const allPrices = await loadRentalPricesForShortParity(client, { clientSlug, locationId: loc, hasLoc });
+    const parity = assertBoardWetsuitShortParityAfterMutation(allPrices, loc, {
+      offering_key: patch.offering_key,
+      period_window: patch.period_window,
+      amount_cents: patch.amount_cents,
+      active: newRowActive,
+    });
+    if (!parity.ok) {
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          success: false,
+          error: parity.error,
+          code: 'short_duration_mismatch',
+          missing_board: parity.missing_board,
+          missing_wetsuit: parity.missing_wetsuit,
+        },
+      };
+    }
   }
 
   return upsertConfigPriceRule(client, {
@@ -1108,6 +1274,55 @@ async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, a
     if (parsedCfg.locationId !== reqLoc) {
       return { ok: false, status: 403, body: { success: false, error: 'location_mismatch' } };
     }
+    // Config-id path: validate short-duration parity before mutation when board/wetsuit.
+    let offeringBase = String(parsedCfg.offering_key || '').trim();
+    let period = String(parsedCfg.unit || '').trim();
+    if (offeringBase.includes('__')) {
+      const parts = offeringBase.split('__');
+      offeringBase = parts[0];
+      period = parts.slice(1).join('__') || period;
+    }
+    if ((offeringBase === 'board_rental' || offeringBase === 'wetsuit_rental')
+      && RENTAL_SHORT_DURATION_SET.has(String(patch.period_window || period))) {
+      // Location-store / config snapshot for pure parity when tables absent.
+      let snapshot = [];
+      if (tablesExist) {
+        const hasLocCol = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
+        snapshot = await loadRentalPricesForShortParity(client, {
+          clientSlug, locationId: reqLoc, hasLoc: hasLocCol,
+        });
+      } else {
+        // No DB tables: project current baseline + location-store overrides.
+        try {
+          const base = resolveFromConfigFile(clientSlug, reqLoc);
+          const prices = (base && base.prices) || [];
+          const applied = locationStore.applyStoreToResolvedConfig(
+            { prices: prices.slice() },
+            reqLoc,
+          );
+          snapshot = (applied && applied.prices) || prices;
+        } catch (_e) { snapshot = []; }
+      }
+      const parity = assertBoardWetsuitShortParityAfterMutation(snapshot, reqLoc, {
+        offering_key: offeringBase,
+        period_window: patch.period_window || period,
+        amount_cents: patch.amount_cents,
+        active: patch.active,
+      });
+      if (!parity.ok) {
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            success: false,
+            error: parity.error,
+            code: 'short_duration_mismatch',
+            missing_board: parity.missing_board,
+            missing_wetsuit: parity.missing_wetsuit,
+          },
+        };
+      }
+    }
     if (tablesExist) {
       return upsertConfigPriceRule(client, {
         clientSlug,
@@ -1151,6 +1366,43 @@ async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, a
       return { ok: false, status: 404, body: { success: false, error: 'not_found' } };
     }
     const before = existing.rows[0];
+    // Fail closed before mutation when board/wetsuit short rows would diverge.
+    {
+      let off = String(before.item_code || '').trim();
+      let per = String(before.unit || '').trim();
+      if (off.includes('__')) {
+        const parts = off.split('__');
+        off = parts[0];
+        per = parts.slice(1).join('__') || per;
+      }
+      const nextPeriod = patch.period_window != null ? String(patch.period_window).trim() : per;
+      if ((off === 'board_rental' || off === 'wetsuit_rental')
+        && (RENTAL_SHORT_DURATION_SET.has(per) || RENTAL_SHORT_DURATION_SET.has(nextPeriod))) {
+        const snapshot = await loadRentalPricesForShortParity(client, {
+          clientSlug, locationId: reqLoc, hasLoc,
+        });
+        const parity = assertBoardWetsuitShortParityAfterMutation(snapshot, reqLoc, {
+          offering_key: off,
+          period_window: nextPeriod,
+          amount_cents: patch.amount_cents != null ? patch.amount_cents : before.amount_cents,
+          active: patch.active != null ? patch.active : before.active,
+        });
+        if (!parity.ok) {
+          await client.query('ROLLBACK');
+          return {
+            ok: false,
+            status: 409,
+            body: {
+              success: false,
+              error: parity.error,
+              code: 'short_duration_mismatch',
+              missing_board: parity.missing_board,
+              missing_wetsuit: parity.missing_wetsuit,
+            },
+          };
+        }
+      }
+    }
     const sets = [];
     const params = [];
     let idx = 3;
@@ -1696,6 +1948,9 @@ module.exports = {
   ADMIN_WRITE_MIN_ROLE,
   RENTAL_PERIOD_WINDOWS,
   RENTAL_PERIOD_WINDOWS_READABLE,
+  RENTAL_SHORT_DURATION_KEYS,
+  assertBoardWetsuitShortDurationParity,
+  assertBoardWetsuitShortParityAfterMutation,
   isSunsetAdminWritesEnabled,
   writesDisabledResponse,
   evaluateAdminWriteGate,
