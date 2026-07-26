@@ -169,7 +169,7 @@ function scheduleRenderDrawerHeroHtml(ctx, row){
     : '';
   html += '<h3 class="portal-schedule-drawer-hero-title"' + titleAttr + '>' + escHtml(name) + '</h3>';
   if (sunset) {
-    // Meta line (school · dates · source) removed — dates live in the booking card; source is rarely needed.
+
     if (code !== '—') {
       html += '<div class="portal-schedule-drawer-booking-code portal-schedule-drawer-booking-code-subtle ps-code-row">' +
         '<span>' + escHtml(code) + '</span>' +
@@ -191,8 +191,8 @@ function scheduleRenderDrawerHeroHtml(ctx, row){
 }
 
 function scheduleDrawerStripLabelDate(label){
-  // NB: regex literals with \d/\s break when this client JS is embedded in the /staff/ui
-  // template bundle (backslashes are eaten). Use [0-9] classes — no backslashes — so it survives.
+
+
   return String(label == null ? '' : label)
     .replace(/[0-9]{4}-[0-9]{2}-[0-9]{2}/g, '')
     .replace(/[^0-9A-Za-z)]+$/, '')
@@ -240,6 +240,84 @@ function scheduleDrawerSortItems(items){
   return (items || []).slice().sort(function(a, b){
     return scheduleDrawerServiceOrder(a.service_type) - scheduleDrawerServiceOrder(b.service_type);
   });
+}
+
+/** Presentation-only: collapse truthful bundle/group peers; never invent money. */
+function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
+  var list = Array.isArray(items) ? items : [], rp = rentalPricing || null;
+  var groups = Object.create(null), order = [], singles = [], hiddenIds = Object.create(null), lines = [];
+  function st(li) { return String((li && li.service_type) || '').toLowerCase(); }
+  function gid(li) { return String((li && (li.pricing_group_id || li.rental_bundle_id)) || '').trim(); }
+  function off(li) { return String((li && li.offering_key) || '').trim(); }
+  function isRent(s) { return s === 'surfboard' || s === 'wetsuit'; }
+  function isLes(s) { return s.indexOf('lesson') >= 0 || s.indexOf('course') >= 0 || s === 'private_lesson'; }
+  function bKey(li) {
+    var g = gid(li); if (!g) return '';
+    if (off(li) === 'board_and_suit_rental') return 'b:' + g;
+    if (li.bundle_part === 'surfboard' || li.bundle_part === 'wetsuit' || li.rental_pricing_role === 'surfboard' || li.rental_pricing_role === 'wetsuit') return 'b:' + g;
+    if (rp && rp.offering_key === 'board_and_suit_rental' && String(rp.pricing_group_id || '') === g && isRent(st(li))) return 'b:' + g;
+    return '';
+  }
+  function pKey(li) {
+    if (bKey(li)) return '';
+    var o = off(li), s = st(li), c = String((li && li.component) || '').toLowerCase();
+    if (o === 'board_rental' || o === 'wetsuit_rental') return 'o:' + o + '|' + String(li.duration_key || (rp && rp.duration) || '');
+    if (c === 'course' || (isLes(s) && c !== 'private_lesson' && s !== 'private_lesson'))
+      return 'c:' + s + '|' + String(Number(li.quantity) || 1) + '|' + String((li && (li.course_id || li.offering_id)) || '').trim() + '|' + String((li && li.tier_key) || '');
+    if (c === 'private_lesson' || s === 'private_lesson') return 'p:' + String(Number(li.quantity) || 1);
+    if (isRent(s) && !o) return 'r:' + s + '|' + String(Number(li.quantity) || 1) + '|' + String(li.duration_key || '');
+    return '';
+  }
+  function itemLab(li, qty) {
+    var s = st(li);
+    if (isRent(s)) return (s === 'wetsuit' ? portalT('schedule.type.wetsuitRental') : portalT('schedule.type.boardRental')) + (qty != null ? (' · ' + String(qty)) : '');
+    return (typeof scheduleDrawerStripLabelDate === 'function') ? scheduleDrawerStripLabelDate(li.label) : li.label;
+  }
+  list.forEach(function(li) {
+    var ik = bKey(li) || pKey(li);
+    if (!ik) { singles.push(li); return; }
+    if (!groups[ik]) { groups[ik] = { items: [], total: 0, qty: 0, dates: {}, duration_key: null, is_bundle: ik.indexOf('b:') === 0 }; order.push(ik); }
+    var g = groups[ik]; g.items.push(li); g.total += Number(li.line_cents || 0);
+    var q = Number(li.quantity) || 0; if (q > g.qty) g.qty = q;
+    if (li.duration_key) g.duration_key = li.duration_key;
+    var d = String(li.service_date || '').slice(0, 10); if (d) g.dates[d] = true;
+    (Array.isArray(li.rental_service_dates) ? li.rental_service_dates : []).forEach(function(x) { var iso = String(x || '').slice(0, 10); if (iso) g.dates[iso] = true; });
+  });
+  function doCollapse(g) {
+    if (g.items.length < 2) return false;
+    if (g.is_bundle) { var t = {}; g.items.forEach(function(li) { t[st(li)] = true; }); return !!(t.surfboard && t.wetsuit); }
+    var z = 0, p = 0; g.items.forEach(function(li) { if (Number(li.line_cents || 0) === 0) z += 1; else p += 1; });
+    return (p >= 1 && z >= 1) || Object.keys(g.dates).length > 1;
+  }
+  order.forEach(function(ik) {
+    var g = groups[ik];
+    if (!doCollapse(g)) { g.items.forEach(function(li) { singles.push(li); }); return; }
+    var dayKeys = Object.keys(g.dates).sort(), n = dayKeys.length || 0, durKey = g.duration_key || (rp && rp.duration) || null, durLab = '';
+    if (durKey && typeof schedulePortalDurationLabel === 'function') durLab = schedulePortalDurationLabel(durKey) || '';
+    if (!durLab && n > 0) durLab = n === 1 ? ('1 ' + portalT('schedule.drawer.dayWordCap')) : (String(n) + ' ' + portalT('schedule.drawer.daysWordCap'));
+    var ids = g.items.map(function(li) { return li.service_record_id; });
+    g.items.forEach(function(li) { if (li.service_record_id) hiddenIds[li.service_record_id] = true; });
+    if (g.is_bundle) {
+      var parts = [portalT('schedule.ops.rentalBoth')];
+      if (g.qty > 1) parts.push(String(g.qty) + ' ' + portalT('schedule.drawer.bundleSets'));
+      else if (g.qty === 1) parts.push(portalT('schedule.drawer.bundleOneSet'));
+      if (durLab) parts.push(durLab);
+      if (dayKeys.length > 1) parts.push(dayKeys[0] + '\u2013' + dayKeys[dayKeys.length - 1]);
+      else if (dayKeys.length === 1) parts.push(dayKeys[0]);
+      lines.push({ label: parts.join(' · '), line_cents: g.total, is_bundle: true, pricing_group_id: ik.slice(2), quantity: g.qty, covered_dates: dayKeys, member_ids: ids });
+      return;
+    }
+    var primary = null;
+    g.items.forEach(function(li) { if (!primary || Number(li.line_cents || 0) > Number(primary.line_cents || 0)) primary = li; });
+    var lab = itemLab(primary, g.qty);
+    if (durLab && !isRent(st(primary)) && String(lab || '').indexOf(durLab) < 0) lab = (lab || '') + (lab ? ' · ' : '') + durLab;
+    lines.push({ label: lab, line_cents: g.total, is_bundle: false, service_type: primary.service_type, quantity: g.qty, covered_dates: dayKeys, member_ids: ids });
+  });
+  singles.forEach(function(li) {
+    if (li.service_record_id && hiddenIds[li.service_record_id]) return;
+    lines.push({ label: itemLab(li, li.quantity), line_cents: Number(li.line_cents || 0), is_bundle: false, service_type: li.service_type, quantity: li.quantity, service_record_id: li.service_record_id });
+  });
+  return { lines: lines, hidden_ids: hiddenIds };
 }
 
 function scheduleDrawerDayHeaderLabel(iso){
@@ -335,7 +413,7 @@ function scheduleRenderSunsetBookingCardHtml(ctx){
   items.forEach(function(li){ var d = String(li.service_date || '').slice(0, 10); if (d) dayMap[d] = true; });
   var dayKeys = Object.keys(dayMap).sort();
   var dayCount = dayKeys.length || 1;
-  // Surfers: course/private/lesson quantity, else max lesson line qty, else guest count.
+
   var surfers = (comps.course && comps.course.quantity)
     || (comps.private_lesson && (comps.private_lesson.surfer_count || comps.private_lesson.quantity))
     || (comps.lesson && comps.lesson.quantity) || 0;
@@ -353,37 +431,37 @@ function scheduleRenderSunsetBookingCardHtml(ctx){
   var head = '<h4 class="portal-schedule-drawer-section-title">' + escHtml(title) + '</h4>' +
     (subtitle ? '<p class="ps-card-subtitle">' + escHtml(subtitle) + '</p>' : '');
   var body = '';
-  if (dayCount <= 1){
-    scheduleDrawerSortItems(items).forEach(function(li){
-      body += '<div class="ps-day-row"><span>' + escHtml(scheduleDrawerStripLabelDate(li.label)) +
-        '</span><span class="ps-day-amt">' + escHtml(scheduleDrawerEur(li.line_cents)) + '</span></div>';
-    });
-  } else {
-    var byType = {}, order = [];
-    items.forEach(function(li){
-      var t = String(li.service_type || '');
-      if (!byType[t]){ byType[t] = { name: scheduleDrawerServiceTypeLabel(t), cents: 0 }; order.push(t); }
-      byType[t].cents += Number(li.line_cents || 0);
-    });
-    order.sort(function(a, b){ return scheduleDrawerServiceOrder(a) - scheduleDrawerServiceOrder(b); });
-    var courseLabel = (comps.course && comps.course.course_label) || '';
-    order.forEach(function(t){
-      var b = byType[t];
-      var detail = String(t).indexOf('lesson') >= 0 && courseLabel ? courseLabel : '';
-      body += '<div class="ps-svc-summary-row"><span class="ps-svc-name">' + escHtml(b.name) +
-        (detail ? ' <span class="ps-svc-detail">· ' + escHtml(detail) + '</span>' : '') +
-        '</span><span class="ps-svc-amt">' + escHtml(scheduleDrawerEur(b.cents)) + '</span></div>';
-    });
+  var commercial = scheduleDrawerBuildCommercialLines(items, (pay && pay.rental_pricing) || (ctx && ctx.rental_pricing) || null);
+  var commercialLines = (commercial && commercial.lines) || [];
+  var hidden = (commercial && commercial.hidden_ids) || {};
+
+  commercialLines.forEach(function(line) {
+    body += '<div class="ps-svc-summary-row' + (line.is_bundle ? ' is-bundle-line' : '') + '"><span class="ps-svc-name">' +
+      escHtml(line.label) + '</span><span class="ps-svc-amt">' + escHtml(scheduleDrawerEur(line.line_cents)) + '</span></div>';
+  });
+  if (dayCount > 1) {
     var daily = '';
-    dayKeys.forEach(function(d){
+    dayKeys.forEach(function(d) {
       daily += '<div class="ps-day-group"><div class="ps-day-header">' + escHtml(scheduleDrawerDayHeaderLabel(d)) + '</div>';
-      scheduleDrawerSortItems(items.filter(function(li){ return String(li.service_date || '').slice(0, 10) === d; })).forEach(function(li){
+      scheduleDrawerSortItems(items.filter(function(li) { return String(li.service_date || '').slice(0, 10) === d; })).forEach(function(li) {
+        if (li.service_record_id && hidden[li.service_record_id]) {
+          daily += '<div class="ps-day-row ps-day-row-fulfilment"><span>' +
+            escHtml(scheduleDrawerStripLabelDate(li.label)) +
+            '</span><span class="ps-day-amt ps-day-amt-included">' +
+            escHtml(portalT('schedule.drawer.includedInBundle')) + '</span></div>';
+          return;
+        }
         daily += '<div class="ps-day-row"><span>' + escHtml(scheduleDrawerStripLabelDate(li.label)) +
           '</span><span class="ps-day-amt">' + escHtml(scheduleDrawerEur(li.line_cents)) + '</span></div>';
       });
       daily += '</div>';
     });
     body += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.showDaily')) + '</summary>' + daily + '</details>';
+  } else if (!commercialLines.length) {
+    scheduleDrawerSortItems(items).forEach(function(li) {
+      body += '<div class="ps-day-row"><span>' + escHtml(scheduleDrawerStripLabelDate(li.label)) +
+        '</span><span class="ps-day-amt">' + escHtml(scheduleDrawerEur(li.line_cents)) + '</span></div>';
+    });
   }
   return '<section class="portal-schedule-drawer-section">' + head + body + '</section>';
 }
@@ -412,7 +490,7 @@ function scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit){
 function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
   if (isSunsetSurfActive()) return scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit);
   var html = scheduleRenderDrawerHeroHtml(ctx, row);
-  // Booking details: phone, dates, booked items (Sunset view mode). Source lives in the hero metadata line.
+
   html += scheduleDrawerSectionHtml('schedule.drawer.section.booking', scheduleRenderDrawerViewBookingDetailsHtml(ctx, row));
   if (ctx.notes) {
     html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
@@ -425,7 +503,7 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
   html += '<div class="portal-schedule-drawer-actions">';
   if (canEdit) html += '<button type="button" class="btn btn-primary" id="ps-drawer-edit">' + escHtml(portalT('schedule.drawer.edit')) + '</button>';
   html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx);
-  // Stripe "Create link" button now lives inside the payment area (see stripe subsection).
+
   html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
   html += '</div>';
   html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
@@ -437,7 +515,6 @@ function scheduleDrawerEur(cents){
   if (cents == null || isNaN(Number(cents))) return '—';
   return '\u20ac' + (Number(cents) / 100).toFixed(2);
 }
-
 
 function scheduleRenderDrawerPaymentSectionViewHtml(ctx){
   if (isSunsetSurfActive()) return scheduleRenderSunsetMoneyCardHtml(ctx);

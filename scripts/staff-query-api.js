@@ -16494,6 +16494,21 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer-section-title{color:var(--sched-text)}
 .portal-schedule-drawer-form .portal-schedule-create-field{margin-bottom:10px}
 .portal-schedule-drawer-form .portal-schedule-create-components label,.portal-schedule-drawer-form .portal-schedule-create-check{margin-bottom:0}
+/* Edit continuity shell */
+.portal-schedule-drawer:has(#ps-drawer-edit-form){padding:0;display:flex;flex-direction:column;overflow:hidden;overflow-x:hidden}
+.portal-schedule-drawer:has(#ps-drawer-edit-form) #ps-drawer-body,#ps-drawer-edit-form.portal-schedule-drawer-edit{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden;overflow-x:hidden;box-sizing:border-box}
+#ps-drawer-edit-form.portal-schedule-drawer-edit{height:100%;max-height:100%}
+.portal-schedule-drawer-edit-header{flex:0 0 auto;position:sticky;top:0;z-index:3}
+.portal-schedule-drawer-edit-body{flex:1 1 auto;min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px 18px 18px;box-sizing:border-box}
+.portal-schedule-drawer-edit-footer{flex:0 0 auto;position:sticky;bottom:0;z-index:3}
+.portal-schedule-drawer-edit .portal-schedule-create-section{min-width:0}
+.portal-schedule-drawer-edit .portal-schedule-create-main-activity{display:flex;flex-direction:column;gap:8px}
+.portal-schedule-drawer-edit .portal-schedule-create-main-activity .portal-schedule-create-check,.portal-schedule-drawer-gear-row .portal-schedule-drawer-gear-check{min-height:44px;display:flex;align-items:center;gap:8px}
+.portal-schedule-drawer-gear-secondary{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border-soft)}
+.portal-schedule-drawer-duration-confirm,.portal-schedule-drawer-when-summary,.portal-schedule-drawer-edit-footer .portal-schedule-create-actions .btn{margin:0 0 8px;min-height:44px;min-width:0}
+.portal-schedule-drawer .is-bundle-line,.portal-schedule-drawer .is-bundle-line .ps-svc-name{font-weight:600}
+.portal-schedule-drawer .ps-day-amt-included{font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.03em}
+@media(max-width:360px){.portal-schedule-drawer-edit-body{padding:12px}.portal-schedule-drawer-edit-footer .portal-schedule-create-actions{flex-wrap:wrap}.portal-schedule-drawer-edit-footer .portal-schedule-create-actions .btn{flex:1 1 calc(50% - 6px)}}
 .portal-schedule-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:8999}
 .portal-schedule-item-card.demo{opacity:.95;border-style:dashed}
 .portal-schedule-item-card.manual{border-style:dashed}
