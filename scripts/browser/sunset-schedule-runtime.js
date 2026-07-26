@@ -566,7 +566,8 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     renderScheduleSchoolContext();
     var mode = loaderNormalizeMode(navSnapshot.mode);
     var forwardOffset = Number(navSnapshot.forwardOffset);
-    if (!isFinite(forwardOffset) || forwardOffset < 0) forwardOffset = 0;
+    if (!isFinite(forwardOffset)) forwardOffset = 0;
+    forwardOffset = Math.trunc(forwardOffset);
     var loadGen = navSnapshot.loadGen != null ? navSnapshot.loadGen : navState.loadGen;
     var snap = Object.assign({}, navSnapshot, { mode: mode, forwardOffset: forwardOffset, loadGen: loadGen });
     var stateNode = el('ps-state');
@@ -634,7 +635,8 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
 
   function rangeStartFromOffset(forwardOffset) {
     var off = Number(forwardOffset);
-    if (!isFinite(off) || off < 0) off = 0;
+    if (!isFinite(off)) off = 0;
+    off = Math.trunc(off);
     return scheduleAddDays(scheduleParseIso(scheduleTodayIso()), off);
   }
 
@@ -645,7 +647,8 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
 
   function getNavigationSnapshot(loadGenOverride) {
     var off = Number(navState.forwardOffset);
-    if (!isFinite(off) || off < 0) off = 0;
+    if (!isFinite(off)) off = 0;
+    off = Math.trunc(off);
     var rangeStart = rangeStartFromOffset(off);
     return {
       mode: normalizeNavigationMode(navState.mode),
@@ -701,26 +704,28 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
   function setView(mode) {
     navState.mode = normalizeNavigationMode(mode);
     navState.forwardOffset = 0;
-    requestPageLoad();
+    return requestPageLoad();
   }
 
   function navigatePrev() {
     var mode = normalizeNavigationMode(navState.mode);
     var step = navigationStep(mode);
-    navState.forwardOffset = Math.max(0, (navState.forwardOffset || 0) - step);
-    requestPageLoad();
+    var cur = Number(navState.forwardOffset);
+    if (!isFinite(cur)) cur = 0;
+    navState.forwardOffset = Math.trunc(cur) - step;
+    return requestPageLoad();
   }
 
   function navigateNext() {
     var mode = normalizeNavigationMode(navState.mode);
     var step = navigationStep(mode);
     navState.forwardOffset = (navState.forwardOffset || 0) + step;
-    requestPageLoad();
+    return requestPageLoad();
   }
 
   function navigateToday() {
     navState.forwardOffset = 0;
-    requestPageLoad();
+    return requestPageLoad();
   }
 
   function openDayDetail(iso) {
@@ -730,7 +735,7 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     if (offset < 0) offset = 0;
     navState.mode = 'day';
     navState.forwardOffset = offset;
-    requestPageLoad();
+    return requestPageLoad();
   }
 
   function wireNavigationControls() {

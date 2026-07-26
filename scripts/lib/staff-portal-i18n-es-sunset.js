@@ -325,6 +325,7 @@ module.exports = {
   'schedule.card.surfboardsToday': 'Tablas',
   'schedule.card.unpaid': 'Sin pagar',
   'schedule.card.unpaidPending': 'Sin pagar / Pendiente',
+  'schedule.card.dayProgress': 'Día {day} de {total}',
   'schedule.card.unpaidPendingSub': 'Reservas pendientes de pago',
   'schedule.card.wetsuitsToday': 'Neoprenos',
   'schedule.card.surfers': 'Surfistas',

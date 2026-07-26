@@ -16621,6 +16621,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-ops-row-guest-col{display:flex;flex-direction:column;gap:2px;min-width:0}
 .portal-schedule-ops-row-guest{font-size:14px;font-weight:700;color:var(--text);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .portal-schedule-ops-row-equip-sub{font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:lowercase;color:var(--text-3);line-height:1.3}
+.portal-schedule-day-progress{display:inline-flex;align-items:center;align-self:flex-start;max-width:100%;margin-top:2px;padding:1px 7px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface-soft);color:var(--text-3);font-size:10px;font-weight:600;letter-spacing:.02em;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .portal-schedule-ops-row-status{display:flex;flex-wrap:nowrap;justify-content:flex-end;align-items:center;gap:5px;text-align:right;font-size:11px}
 .portal-schedule-metric-slots{font-size:13px;line-height:1.6;color:var(--text-2)}
 .portal-schedule-metric-slots .portal-schedule-metric-slot{display:block;font-weight:600}

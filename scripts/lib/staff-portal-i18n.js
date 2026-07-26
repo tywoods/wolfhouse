@@ -872,6 +872,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.card.needReply': 'Need reply',
     'schedule.card.unpaidPending': 'Unpaid / Pending',
     'schedule.card.unpaidPendingSub': 'Bookings awaiting payment',
+    'schedule.card.dayProgress': 'Day {day} of {total}',
     'schedule.type.rental': 'rental-only',
     'schedule.ops.boardTitle': 'Today ops board',
     'schedule.ops.lessonGroup': 'lesson group',
@@ -1794,6 +1795,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.bundleSets': 'kit',
     'schedule.drawer.bundleOneSet': '1 kit',
     'schedule.drawer.includedInBundle': 'Incluso',
+    'schedule.card.dayProgress': 'Giorno {day} di {total}',
   },
 };
 

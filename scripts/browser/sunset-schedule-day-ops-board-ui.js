@@ -29,6 +29,151 @@ function scheduleDayOpsEquipmentPrepLabel(group){
   return portalT('schedule.equipment.none');
 }
 
+/** YYYY-MM-DD token or empty. */
+function scheduleDayOpsIsoDateToken(raw){
+  var s = String(raw == null ? '' : raw).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
+}
+
+function scheduleDayOpsParseMetaBlob(raw){
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(raw); } catch (_) { return {}; }
+}
+
+/**
+ * Canonical sorted unique booked service dates for a Today card group.
+ * Prefer authoritative explicit date arrays; fall back to inclusive from/to.
+ * Never invent a span from course duration alone when date data is missing/conflicting.
+ */
+function scheduleCanonicalBookedServiceDates(group){
+  var explicit = {};
+  var hasExplicit = false;
+  var fromTo = { from: '', to: '' };
+  var singles = {};
+
+  function addExplicit(d){
+    var iso = scheduleDayOpsIsoDateToken(d);
+    if (!iso) return;
+    explicit[iso] = true;
+    hasExplicit = true;
+  }
+  function addExplicitArr(arr){
+    if (!Array.isArray(arr)) return;
+    for (var i = 0; i < arr.length; i += 1) addExplicit(arr[i]);
+  }
+  function absorbObj(obj){
+    if (!obj || typeof obj !== 'object') return;
+    if (Array.isArray(obj.service_dates) && obj.service_dates.length){
+      addExplicitArr(obj.service_dates);
+    }
+    if (Array.isArray(obj.booking_service_dates) && obj.booking_service_dates.length){
+      addExplicitArr(obj.booking_service_dates);
+    }
+    if (Array.isArray(obj.rental_service_dates) && obj.rental_service_dates.length){
+      addExplicitArr(obj.rental_service_dates);
+    }
+    if (Array.isArray(obj.covered_dates) && obj.covered_dates.length){
+      addExplicitArr(obj.covered_dates);
+    }
+    var pl = obj.components && obj.components.private_lesson;
+    if (pl && Array.isArray(pl.sessions)){
+      for (var s = 0; s < pl.sessions.length; s += 1){
+        if (pl.sessions[s]) addExplicit(pl.sessions[s].date);
+      }
+    }
+    var df = scheduleDayOpsIsoDateToken(obj.date_from);
+    var dt = scheduleDayOpsIsoDateToken(obj.date_to || obj.date_from);
+    if (df){
+      if (!fromTo.from || df < fromTo.from) fromTo.from = df;
+      if (!fromTo.to || (dt || df) > fromTo.to) fromTo.to = dt || df;
+    } else if (dt){
+      if (!fromTo.from || dt < fromTo.from) fromTo.from = dt;
+      if (!fromTo.to || dt > fromTo.to) fromTo.to = dt;
+    }
+    var single = scheduleDayOpsIsoDateToken(obj.service_date);
+    if (single) singles[single] = true;
+  }
+
+  absorbObj(group);
+  if (group){
+    absorbObj(scheduleDayOpsParseMetaBlob(group.metadata));
+    absorbObj(scheduleDayOpsParseMetaBlob(group.booking_metadata));
+    absorbObj(scheduleDayOpsParseMetaBlob(group._meta));
+    var recs = group.records || [];
+    for (var r = 0; r < recs.length; r += 1){
+      var row = recs[r];
+      absorbObj(row);
+      absorbObj(scheduleDayOpsParseMetaBlob(row && row.metadata));
+      absorbObj(scheduleDayOpsParseMetaBlob(row && row.booking_metadata));
+      absorbObj(scheduleDayOpsParseMetaBlob(row && row._meta));
+    }
+  }
+
+  var out = [];
+  if (hasExplicit){
+    out = Object.keys(explicit).sort();
+    return out;
+  }
+  if (fromTo.from){
+    if (typeof scheduleEnumerateDates === 'function'){
+      out = (scheduleEnumerateDates(fromTo.from, fromTo.to || fromTo.from) || [])
+        .map(scheduleDayOpsIsoDateToken).filter(Boolean);
+    } else if (typeof scheduleParseIso === 'function' && typeof scheduleAddDays === 'function' && typeof scheduleIsoDate === 'function'){
+      var cur = scheduleParseIso(fromTo.from);
+      var end = scheduleParseIso(fromTo.to || fromTo.from);
+      var guard = 0;
+      while (cur.getTime() <= end.getTime() && guard < 400){
+        out.push(scheduleIsoDate(cur));
+        cur = scheduleAddDays(cur, 1);
+        guard += 1;
+      }
+    } else {
+      out = fromTo.from === (fromTo.to || fromTo.from)
+        ? [fromTo.from]
+        : [fromTo.from, fromTo.to].filter(Boolean);
+    }
+    if (out.length) return out;
+  }
+  return Object.keys(singles).sort();
+}
+
+/**
+ * Day progress for the selected Today date within a multi-day booking.
+ * Returns { day, total } or null when hidden (single-day or selected date out of span).
+ */
+function scheduleBookingDayProgress(selectedIso, group){
+  var selected = scheduleDayOpsIsoDateToken(selectedIso);
+  if (!selected || !group) return null;
+  var dates = scheduleCanonicalBookedServiceDates(group);
+  if (!dates || dates.length <= 1) return null;
+  var idx = dates.indexOf(selected);
+  if (idx < 0) return null;
+  return { day: idx + 1, total: dates.length };
+}
+
+function scheduleBookingDayProgressLabel(progress){
+  if (!progress || !(progress.total > 1)) return '';
+  var vars = { day: String(progress.day), total: String(progress.total) };
+  if (typeof t === 'function') return t('schedule.card.dayProgress', vars);
+  var raw = portalT('schedule.card.dayProgress');
+  return String(raw)
+    .split('{day}').join(vars.day)
+    .split('{total}').join(vars.total);
+}
+
+function scheduleRenderDayProgressMetaHtml(group, selectedIso){
+  var iso = scheduleDayOpsIsoDateToken(selectedIso);
+  if (!iso && typeof scheduleActiveDayIso === 'function') iso = scheduleDayOpsIsoDateToken(scheduleActiveDayIso());
+  if (!iso && group) iso = scheduleDayOpsIsoDateToken(group.service_date);
+  var progress = scheduleBookingDayProgress(iso, group);
+  if (!progress) return '';
+  var label = scheduleBookingDayProgressLabel(progress);
+  if (!label || label === 'schedule.card.dayProgress') return '';
+  return '<span class="portal-schedule-day-progress" data-ps-day-progress="1" aria-label="' +
+    escHtml(label) + '">' + escHtml(label) + '</span>';
+}
+
 function scheduleDayOpsRowStatusHtml(group){
   return scheduleRenderStatusBadgeHtml(group, { row: true });
 }
@@ -104,12 +249,15 @@ function scheduleRenderOpsBookingRow(group){
   var chipLabel = src === 'staff' ? portalT('schedule.legend.staff')
     : src === 'demo' ? portalT('schedule.source.demo')
     : portalT('schedule.legend.luna');
+  var dayProgHtml = scheduleRenderDayProgressMetaHtml(g,
+    (typeof scheduleActiveDayIso === 'function' ? scheduleActiveDayIso() : '') || g.service_date);
   return '<div class="portal-schedule-ops-row' + rowSrcCls + (g._needsReply ? ' needs-reply' : '') + '" data-ps-booking-id="' + escHtml(g._scheduleId) + '" title="' + escHtml(ariaLabel) + '" aria-label="' + escHtml(ariaLabel) + '">' +
     '<span class="portal-schedule-ops-row-rail' + railCls + '" aria-hidden="true"></span>' +
     '<span class="portal-schedule-ops-row-qty">' + escHtml(String(qty) + '×') + '</span>' +
     '<div class="portal-schedule-ops-row-guest-col">' +
     '<span class="portal-schedule-ops-row-guest">' + escHtml(g.guest_name || 'Guest') + '</span>' +
     (equip ? '<span class="portal-schedule-ops-row-equip-sub">' + escHtml(equip) + '</span>' : '') +
+    (dayProgHtml || '') +
     '</div>' +
     '<span class="portal-schedule-src-chip ' + chipCls + '"><i aria-hidden="true"></i>' + escHtml(chipLabel) + '</span>' +
     '<span class="portal-schedule-ops-row-status">' + scheduleDayOpsRowStatusHtml(g) + '</span>' +

@@ -11,13 +11,15 @@ function scheduleNormalizeNavigationMode(mode) { return SunsetScheduleRuntime.na
 function scheduleValidateNavigationIso(iso) { return SunsetScheduleRuntime.nav.validateIso(iso); }
 function scheduleNavigationRangeStartFromOffset(forwardOffset) {
   var off = Number(forwardOffset);
-  if (!isFinite(off) || off < 0) off = 0;
+  if (!isFinite(off)) off = 0;
+  off = Math.trunc(off);
   return scheduleAddDays(scheduleParseIso(scheduleTodayIso()), off);
 }
 function scheduleNavigationRangeStartFromSnapshot(snap) {
   snap = snap || scheduleGetNavigationSnapshot();
   var off = Number(snap.forwardOffset);
-  if (!isFinite(off) || off < 0) off = 0;
+  if (!isFinite(off)) off = 0;
+  off = Math.trunc(off);
   return scheduleAddDays(scheduleParseIso(scheduleTodayIso()), off);
 }
 function scheduleGetNavigationSnapshot(loadGenOverride) {
