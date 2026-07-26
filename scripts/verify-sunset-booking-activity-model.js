@@ -338,7 +338,7 @@ try {
   select(sb, 'ps-create-comp-private-lesson');
   assert('Private hides course', sb.el('ps-create-course-fields').style.display === 'none');
   assert('Private shows private fields', sb.el('ps-create-private-lesson-fields').style.display !== 'none');
-  assert('Private hides date range', sb.el('ps-create-date-range').style.display === 'none');
+  assert('Private keeps date range (authoritative top dates)', sb.el('ps-create-date-range').style.display !== 'none');
   payload = sb.scheduleReadCreatePayload();
   assert('Private payload private only', !payload.components.course && !!payload.components.private_lesson);
   select(sb, 'ps-create-comp-no-lesson');

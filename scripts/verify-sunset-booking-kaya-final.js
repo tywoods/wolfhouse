@@ -23,7 +23,7 @@ const en = STAFF_PORTAL_STRINGS.en || {}, it = STAFF_PORTAL_STRINGS.it || {}, es
 const modal = extractModal(apiSrc);
 // Stable far-future "today" — no business-horizon decay (not rolling calendar).
 const TODAY = '2035-06-15';
-const TK=['guestRequired','componentsRequired','courseRequired','courseTierRequired',
+const TK=['guestRequired','componentsRequired','courseRequired','courseTierRequired','courseDurationUnavailable',
   'privateLesson.sessionIncomplete','privateLesson.sessionDatePast','privateLesson.sessionDuplicate','privateLesson.sessionEndAfterStart',
   'checkingPrice','creating','quoteFailed','quoteStale','quoteBusy','quoteTotal','failed','summary.chooseLessonOrGear','summary.completeSessions',
   'summary.sessions','summary.surfers'];
@@ -151,11 +151,12 @@ assert('ps-create ids', ['ps-create-guest', 'ps-create-comp-no-lesson', 'ps-crea
   'ps-create-date-from', 'ps-create-rentals', 'ps-create-summary', 'ps-create-quote-preview', 'ps-create-submit']
   .every((id) => modal.includes('id="' + id + '"')));
 assert('tenant school + a11y', /id="ps-create-school-label"/.test(modal) && /role="radiogroup"/.test(modal)
-  && /for="ps-create-guest"/.test(modal) && /data-i18n-aria="schedule\.create\.privateLesson\.removeSession"/.test(portalSrc));
+  && /for="ps-create-guest"/.test(modal) && /for="ps-create-date-from"/.test(modal)
+  && /aria-labelledby="ps-create-main-activity-label"/.test(modal));
 [
   'calendar.state.invalidDateRange',
   'schedule.create.componentsRequired', 'schedule.create.guestRequired',
-  'schedule.create.courseRequired', 'schedule.create.courseTierRequired',
+  'schedule.create.courseRequired', 'schedule.create.courseTierRequired', 'schedule.create.courseDurationUnavailable',
   'schedule.create.creating', 'schedule.create.createBusy', 'schedule.create.idempotencyConflict',
 ].forEach((k) => assert('i18n ' + k, !!(en[k] && es[k] && it[k]) && es[k] !== en[k] && it[k] !== en[k]
   && !/^schedule\.create\.|^calendar\.state\./.test(en[k])));

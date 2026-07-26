@@ -35,6 +35,19 @@ const {
 
 const SUNSET_CLIENT_SLUG = 'sunset';
 
+/** Inclusive calendar days from tier key: 1_day/single_class=1, N_days=N, N_weeks=7N. */
+function durationDaysFromTierKey(tierKey) {
+  const key = String(tierKey || '').trim();
+  if (!key) return null;
+  if (key === 'single_class' || key === '1_day') return 1;
+  const dayMatch = /^(\d+)_days$/.exec(key);
+  if (dayMatch) { const n = Number(dayMatch[1]); return Number.isInteger(n) && n >= 1 ? n : null; }
+  if (key === '1_week') return 7;
+  const weekMatch = /^(\d+)_weeks$/.exec(key);
+  if (weekMatch) { const w = Number(weekMatch[1]); return Number.isInteger(w) && w >= 1 ? w * 7 : null; }
+  return null;
+}
+
 function parsePackScheduleKey(value) {
   const m = /^([01]\d|2[0-3])([0-5]\d)_([01]\d|2[0-3])([0-5]\d)$/.exec(String(value || '').trim());
   if (!m) return null;
@@ -368,6 +381,7 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
       offering_item_code: o.offering_item_code,
       unit_amount_cents: o.unit_amount_cents,
       bookable: o.bookable,
+      duration_days: durationDaysFromTierKey(o.tier_key),
     });
     if (o.bookable) course.bookable = true;
     if (o.eligible_on_requested_dates === false) {
@@ -529,14 +543,21 @@ function scheduleCoursesFromBookableProjection(projection) {
     label: c.label,
     slot_time: c.slot_time || '',
     capacity: c.capacity,
-    price_tiers: (c.price_tiers || []).map((t) => ({
-      key: t.key,
-      label: t.label || t.key,
-      offering_id: t.offering_id,
-      offering_item_code: t.offering_item_code,
-      unit_amount_cents: t.unit_amount_cents,
-      bookable: t.bookable !== false,
-    })),
+    price_tiers: (c.price_tiers || []).map((t) => {
+      const key = t.key;
+      const durationDays = t.duration_days != null
+        ? Number(t.duration_days)
+        : durationDaysFromTierKey(key);
+      return {
+        key,
+        label: t.label || t.key,
+        offering_id: t.offering_id,
+        offering_item_code: t.offering_item_code,
+        unit_amount_cents: t.unit_amount_cents,
+        bookable: t.bookable !== false,
+        duration_days: Number.isFinite(durationDays) && durationDays >= 1 ? durationDays : null,
+      };
+    }),
     weekly: c.weekly,
     weekdays: c.weekdays || [],
     schedule_summary: c.schedule_summary,
@@ -549,6 +570,7 @@ function scheduleCoursesFromBookableProjection(projection) {
 module.exports = {
   SUNSET_CLIENT_SLUG,
   packPriceItemCode: packCodeFromRules || packPriceItemCode,
+  durationDaysFromTierKey,
   nestCourseSchedule,
   projectCourseTierFromPack,
   projectSunsetBookableOfferingsFromConfig,

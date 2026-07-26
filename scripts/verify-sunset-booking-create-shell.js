@@ -137,11 +137,12 @@ const cancelPos = idOrder(modalHtml, 'ps-create-cancel');
 const submitPos = idOrder(modalHtml, 'ps-create-submit');
 
 assert('Guest controls before What controls', guestPos >= 0 && phonePos > guestPos && coursePos > phonePos);
+assert('Dates immediately after Name/Phone (before activity)', dateFromPos > phonePos && dateToPos > dateFromPos && coursePos > dateToPos);
 assert('What: course before private before rentals', coursePos >= 0 && privatePos > coursePos && rentalsPos > privatePos);
 assert('What: rentals before fullday before private fields', rentalsPos >= 0 && fulldayPos > rentalsPos && privateFieldsPos > fulldayPos);
 assert('What: private fields before course fields', privateFieldsPos >= 0 && courseFieldsPos > privateFieldsPos);
-assert('When: date-from/to after What', dateFromPos > courseFieldsPos && dateToPos > dateFromPos);
-assert('Payment & notes after When', paymentPos > dateToPos && notesPos > paymentPos);
+assert('Dates not duplicated after What', dateFromPos < coursePos && dateToPos < coursePos);
+assert('Payment & notes after When/activity', paymentPos > courseFieldsPos && notesPos > paymentPos);
 assert('quote preview in footer chrome (after notes)', quotePos > notesPos);
 assert('footer actions after quote', cancelPos > quotePos && submitPos > quotePos);
 
