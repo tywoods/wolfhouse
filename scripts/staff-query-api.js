@@ -16496,13 +16496,13 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer-section-title{color:var(--sched-text)}
 .portal-schedule-drawer-form .portal-schedule-create-field{margin-bottom:10px}
 .portal-schedule-drawer-form .portal-schedule-create-components label,.portal-schedule-drawer-form .portal-schedule-create-check{margin-bottom:0}
-/* Edit continuity shell */
-.portal-schedule-drawer:has(#ps-drawer-edit-form){padding:0;display:flex;flex-direction:column;overflow:hidden;overflow-x:hidden}
-.portal-schedule-drawer:has(#ps-drawer-edit-form) #ps-drawer-body,#ps-drawer-edit-form.portal-schedule-drawer-edit{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden;overflow-x:hidden;box-sizing:border-box}
-#ps-drawer-edit-form.portal-schedule-drawer-edit{height:100%;max-height:100%}
-.portal-schedule-drawer-edit-header{flex:0 0 auto;position:sticky;top:0;z-index:3}
-.portal-schedule-drawer-edit-body{flex:1 1 auto;min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px 18px 18px;box-sizing:border-box}
-.portal-schedule-drawer-edit-footer{flex:0 0 auto;position:sticky;bottom:0;z-index:3}
+/* Edit continuity shell — only drawer body scrolls; header/footer stay reachable */
+.portal-schedule-drawer:has(#ps-drawer-edit-form){padding:0;display:flex;flex-direction:column;overflow:hidden;overflow-x:hidden;overscroll-behavior:contain}
+.portal-schedule-drawer:has(#ps-drawer-edit-form) #ps-drawer-body{flex:1 1 0%;min-height:0;min-width:0;height:100%;max-height:100%;display:flex;flex-direction:column;overflow:hidden;overflow-x:hidden;box-sizing:border-box}
+#ps-drawer-edit-form.portal-schedule-drawer-edit{flex:1 1 0%;min-height:0;min-width:0;height:100%;max-height:100%;display:flex;flex-direction:column;overflow:hidden;overflow-x:hidden;box-sizing:border-box}
+.portal-schedule-drawer-edit-header{flex:0 0 auto;position:sticky;top:0;z-index:3;background:inherit}
+.portal-schedule-drawer-edit-body{flex:1 1 0%;min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;padding:14px 18px 18px;box-sizing:border-box}
+.portal-schedule-drawer-edit-footer{flex:0 0 auto;position:sticky;bottom:0;z-index:3;background:inherit}
 .portal-schedule-drawer-edit .portal-schedule-create-section{min-width:0}
 .portal-schedule-drawer-edit .portal-schedule-create-main-activity{display:flex;flex-direction:column;gap:8px}
 .portal-schedule-drawer-edit .portal-schedule-create-main-activity .portal-schedule-create-check,.portal-schedule-drawer-gear-row .portal-schedule-drawer-gear-check{min-height:44px;display:flex;align-items:center;gap:8px}
@@ -17917,23 +17917,20 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .cc-section-hdr{font-size:14px;font-weight:700;color:var(--text);margin:0 0 4px}
 .cc-section-sub{font-size:11.5px;color:var(--text-2);margin:0 0 14px;line-height:1.45;max-width:640px}
 .cc-role-note{font-size:10.5px;color:var(--text-3);font-style:italic;margin:-6px 0 10px}
-#cc-staff-notification-settings .sns-card-hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}
+#cc-staff-notification-settings .sns-card-hdr{margin-bottom:4px}
 #cc-staff-notification-settings .sns-card-sub{margin-bottom:0}
-#cc-staff-notification-settings .sns-server-pill{flex-shrink:0;margin-top:2px;font-size:10px}
 #cc-staff-notification-settings #sns-error,#cc-staff-notification-settings #sns-status{margin:8px 0 0}
-#cc-staff-notification-settings .sns-global-row{margin:14px 0 16px;padding:12px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
-#cc-staff-notification-settings .sns-toggle-row{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;margin:0;cursor:pointer;font-weight:600;color:var(--text);font-size:13px}
+#cc-staff-notification-settings .sns-toggle-row{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;margin:0;cursor:pointer;font-weight:600;color:var(--text);font-size:13px;min-width:0}
 #cc-staff-notification-settings .sns-toggle-row input[type=checkbox]{width:16px;height:16px;min-width:16px!important;flex-shrink:0;margin:0;accent-color:var(--primary)}
 #cc-staff-notification-settings .sns-toggle-label{line-height:1.35}
-#cc-staff-notification-settings .sns-global-hint{margin:6px 0 0 24px}
-#cc-staff-notification-settings .sns-section{margin-bottom:14px;padding:14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface)}
+#cc-staff-notification-settings .sns-section{margin:14px 0;padding:14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface)}
 #cc-staff-notification-settings .sns-section-hdr{margin-bottom:10px}
-#cc-staff-notification-settings .sns-section-toggle{margin-bottom:4px}
+#cc-staff-notification-settings .sns-section-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px}
+#cc-staff-notification-settings .sns-type-pill{flex-shrink:0;font-size:10px}
 #cc-staff-notification-settings .sns-section-hint{margin:0 0 0 24px}
-#cc-staff-notification-settings .sns-recipient-row{display:grid;grid-template-columns:minmax(100px,1fr) minmax(140px,1.2fr) auto auto;gap:8px;align-items:center;margin-bottom:8px}
+#cc-staff-notification-settings .sns-server-disabled-note{margin:6px 0 0 24px;color:var(--text-3);font-size:12px;line-height:1.4}
+#cc-staff-notification-settings .sns-recipient-row{display:grid;grid-template-columns:minmax(100px,1fr) minmax(140px,1.2fr) auto;gap:8px;align-items:center;margin-bottom:8px}
 #cc-staff-notification-settings .sns-recipient-row input[type=text]{min-width:0!important;width:100%;height:34px;padding:6px 10px;font-size:13px}
-#cc-staff-notification-settings .sns-recipient-enabled{display:flex!important;flex-direction:row!important;align-items:center;gap:6px;margin:0;white-space:nowrap;font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer}
-#cc-staff-notification-settings .sns-recipient-enabled input[type=checkbox]{width:16px;height:16px;min-width:16px!important;margin:0;accent-color:var(--primary)}
 #cc-staff-notification-settings .sns-recipient-remove{padding:6px 10px;font-size:11px;line-height:1.2;white-space:nowrap}
 #cc-staff-notification-settings .sns-empty{padding:10px 12px;border:1px dashed var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);font-size:12px;color:var(--text-3);line-height:1.45;margin-bottom:8px}
 #cc-staff-notification-settings .sns-add-btn{padding:6px 12px;font-size:11px;margin-top:4px}
@@ -18191,8 +18188,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .customers-outreach-drawer.open{transform:translateY(0)}
 #cc-staff-whatsapp-numbers .al-form-row label{width:100%}
 #cc-staff-notification-settings .sns-recipient-row{grid-template-columns:1fr;gap:8px}
-#cc-staff-notification-settings .sns-recipient-enabled{justify-content:flex-start}
 #cc-staff-notification-settings .sns-recipient-remove{width:100%}
+#cc-staff-notification-settings .sns-section-title-row{flex-wrap:wrap;align-items:flex-start}
 #cc-automated-staff-notifications .asn-recipient-row{grid-template-columns:16px 1fr;gap:6px 10px}
 #cc-automated-staff-notifications .asn-recipient-phone{grid-column:2}
 #cc-automated-staff-notifications .asn-recipient-group{grid-column:2;justify-self:start;margin-top:2px}
@@ -19325,30 +19322,23 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
   <div class="card cc-section" id="cc-staff-notification-settings" style="display:none">
     <div class="sns-card-hdr">
-      <div>
-        <div class="cc-section-hdr">Guest Conversation Alerts</div>
-        <div class="cc-section-sub sns-card-sub">Send WhatsApp alerts when Luna starts a guest conversation or needs human help.</div>
-      </div>
-      <span class="pill pill-grey sns-server-pill" id="sns-server-pill" style="display:none"></span>
+      <div class="cc-section-hdr">Guest Conversation Alerts</div>
+      <div class="cc-section-sub sns-card-sub">Send WhatsApp alerts when Luna starts a guest conversation or needs human help.</div>
     </div>
     <div id="sns-error"></div>
     <div id="sns-status"></div>
 
-    <div class="sns-global-row">
-      <label class="sns-toggle-row">
-        <input type="checkbox" id="sns-global-enabled" onchange="staffNotificationGlobalApplyToSections(this.checked)">
-        <span class="sns-toggle-label">Enable staff WhatsApp alerts</span>
-      </label>
-      <div class="al-hint sns-global-hint">When disabled, Luna will not send staff alert messages.</div>
-    </div>
-
     <div class="sns-section">
       <div class="sns-section-hdr">
-        <label class="sns-toggle-row sns-section-toggle">
-          <input type="checkbox" id="sns-new-enabled" onchange="staffNotificationGlobalSyncFromSections()">
-          <span class="sns-toggle-label">New conversation alerts</span>
-        </label>
+        <div class="sns-section-title-row">
+          <label class="sns-toggle-row sns-section-toggle">
+            <input type="checkbox" id="sns-new-enabled" onchange="staffNotificationTypePillSync()">
+            <span class="sns-toggle-label">New conversation alerts</span>
+          </label>
+          <span class="pill pill-grey sns-type-pill" id="sns-new-pill" style="display:none"></span>
+        </div>
         <div class="al-hint sns-section-hint">Notify staff when a guest starts a new Luna conversation.</div>
+        <div class="al-hint sns-server-disabled-note" id="sns-new-server-note" style="display:none">Configured on, but delivery is disabled by the server.</div>
       </div>
       <div class="sns-recipients" id="sns-new-recipients"></div>
       <button type="button" class="btn btn-ghost sns-add-btn" onclick="staffNotificationRecipientAdd('new_conversation')">Add recipient</button>
@@ -19356,11 +19346,15 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
     <div class="sns-section">
       <div class="sns-section-hdr">
-        <label class="sns-toggle-row sns-section-toggle">
-          <input type="checkbox" id="sns-human-enabled" onchange="staffNotificationGlobalSyncFromSections()">
-          <span class="sns-toggle-label">Human needed alerts</span>
-        </label>
+        <div class="sns-section-title-row">
+          <label class="sns-toggle-row sns-section-toggle">
+            <input type="checkbox" id="sns-human-enabled" onchange="staffNotificationTypePillSync()">
+            <span class="sns-toggle-label">Human needed alerts</span>
+          </label>
+          <span class="pill pill-grey sns-type-pill" id="sns-human-pill" style="display:none"></span>
+        </div>
         <div class="al-hint sns-section-hint">Notify staff when Luna hands a conversation to the team.</div>
+        <div class="al-hint sns-server-disabled-note" id="sns-human-server-note" style="display:none">Configured on, but delivery is disabled by the server.</div>
       </div>
       <div class="sns-recipients" id="sns-human-recipients"></div>
       <button type="button" class="btn btn-ghost sns-add-btn" onclick="staffNotificationRecipientAdd('human_needed')">Add recipient</button>
@@ -26007,6 +26001,7 @@ function staffWhatsappNumberRemove(id){
 }
 
 var staffNotificationSettingsCache = { new_conversation: { enabled: false, recipients: [] }, human_needed: { enabled: false, recipients: [] } };
+var staffNotificationServerMeta = { server_notifications_enabled: false, server_notifications_dry_run: true };
 var staffNotificationSettingsFetchInFlight = false;
 
 function isLunaStaffTabActive(){
@@ -26072,45 +26067,48 @@ function staffNotificationRecipientRender(type){
     return '<div class="sns-recipient-row" data-sns-type="' + escHtml(type) + '" data-sns-idx="' + idx + '">' +
       '<input type="text" id="' + id + '-name" placeholder="Name" value="' + escHtml(r.name || '') + '">' +
       '<input type="text" id="' + id + '-phone" placeholder="+34600000000" value="' + escHtml(r.phone || '') + '">' +
-      '<label class="sns-recipient-enabled"><input type="checkbox" id="' + id + '-enabled"' + (r.enabled !== false ? ' checked' : '') + '><span>Enabled</span></label>' +
       '<button type="button" class="btn btn-ghost sns-recipient-remove" onclick="staffNotificationRecipientRemove(' + "'" + type + "'" + ',' + idx + ')">Remove</button>' +
       '</div>';
   }).join('');
 }
 
-function staffNotificationGlobalSyncFromSections(){
-  var globalEl = el('sns-global-enabled');
-  if (!globalEl) return;
-  var ncOn = !!(el('sns-new-enabled') && el('sns-new-enabled').checked);
-  var hnOn = !!(el('sns-human-enabled') && el('sns-human-enabled').checked);
-  globalEl.checked = ncOn || hnOn;
+function staffNotificationTypePillApplyOne(type){
+  var isHuman = type === 'human_needed';
+  var pill = el(isHuman ? 'sns-human-pill' : 'sns-new-pill');
+  var note = el(isHuman ? 'sns-human-server-note' : 'sns-new-server-note');
+  var check = el(isHuman ? 'sns-human-enabled' : 'sns-new-enabled');
+  if (!pill) return;
+  var configuredOn = !!(check && check.checked);
+  var serverOn = !!(staffNotificationServerMeta && staffNotificationServerMeta.server_notifications_enabled);
+  if (!serverOn){
+    pill.textContent = 'Disabled on server';
+    pill.className = 'pill pill-grey sns-type-pill';
+    pill.style.display = '';
+    if (note) note.style.display = configuredOn ? '' : 'none';
+    return;
+  }
+  if (note) note.style.display = 'none';
+  if (configuredOn){
+    pill.textContent = 'Enabled';
+    pill.className = 'pill pill-green sns-type-pill';
+  } else {
+    pill.textContent = 'Disabled';
+    pill.className = 'pill pill-grey sns-type-pill';
+  }
+  pill.style.display = '';
 }
 
-function staffNotificationGlobalApplyToSections(checked){
-  if (el('sns-new-enabled')) el('sns-new-enabled').checked = !!checked;
-  if (el('sns-human-enabled')) el('sns-human-enabled').checked = !!checked;
+function staffNotificationTypePillSync(){
+  staffNotificationTypePillApplyOne('new_conversation');
+  staffNotificationTypePillApplyOne('human_needed');
 }
 
 function staffNotificationServerPillApply(meta){
-  var pill = el('sns-server-pill');
-  if (!pill) return;
-  var enabled = !!(meta && meta.server_notifications_enabled);
-  var dryRun = meta && meta.server_notifications_dry_run !== false;
-  if (!enabled){
-    pill.textContent = 'Disabled on server';
-    pill.className = 'pill pill-grey sns-server-pill';
-    pill.style.display = '';
-    return;
-  }
-  if (dryRun){
-    pill.textContent = 'Dry run';
-    pill.className = 'pill pill-orange sns-server-pill';
-    pill.style.display = '';
-    return;
-  }
-  pill.textContent = 'Live enabled';
-  pill.className = 'pill pill-green sns-server-pill';
-  pill.style.display = '';
+  staffNotificationServerMeta = {
+    server_notifications_enabled: !!(meta && meta.server_notifications_enabled),
+    server_notifications_dry_run: !(meta && meta.server_notifications_dry_run === false),
+  };
+  staffNotificationTypePillSync();
 }
 
 function staffNotificationSettingsApplyToForm(){
@@ -26118,15 +26116,13 @@ function staffNotificationSettingsApplyToForm(){
   var hn = staffNotificationSettingsCache.human_needed || { enabled: false, recipients: [] };
   if (el('sns-new-enabled')) el('sns-new-enabled').checked = !!nc.enabled;
   if (el('sns-human-enabled')) el('sns-human-enabled').checked = !!hn.enabled;
-  staffNotificationGlobalSyncFromSections();
   staffNotificationRecipientRender('new_conversation');
   staffNotificationRecipientRender('human_needed');
+  staffNotificationTypePillSync();
 }
 
 function staffNotificationSettingsCollectFromForm(){
-  if (el('sns-global-enabled') && !el('sns-global-enabled').checked){
-    staffNotificationGlobalApplyToSections(false);
-  }
+  // Type checkboxes are the sole enabled authority. Listed recipients are active.
   function collectType(type, enabledElId){
     var enabled = !!(el(enabledElId) && el(enabledElId).checked);
     var hostId = type === 'human_needed' ? 'sns-human-recipients' : 'sns-new-recipients';
@@ -26140,7 +26136,7 @@ function staffNotificationSettingsCollectFromForm(){
         recipients.push({
           name: (el(id + '-name') && el(id + '-name').value || '').trim() || null,
           phone: (el(id + '-phone') && el(id + '-phone').value || '').trim(),
-          enabled: !!(el(id + '-enabled') && el(id + '-enabled').checked),
+          enabled: true,
         });
       });
     }
@@ -28499,8 +28495,7 @@ window.automatedStaffNotificationsResetForm = automatedStaffNotificationsResetFo
 window.staffNotificationRecipientAdd = staffNotificationRecipientAdd;
 window.staffNotificationRecipientRemove = staffNotificationRecipientRemove;
 window.staffNotificationSettingsSave = staffNotificationSettingsSave;
-window.staffNotificationGlobalApplyToSections = staffNotificationGlobalApplyToSections;
-window.staffNotificationGlobalSyncFromSections = staffNotificationGlobalSyncFromSections;
+window.staffNotificationTypePillSync = staffNotificationTypePillSync;
 
 /* ═══════════════════════════════════════════════════════════════════════════
    QUERY TOOLS TAB — existing staff query interface (unchanged)

@@ -49,7 +49,12 @@ function scheduleDrawerIsRequestActive(openGen, bookingKey){
 function scheduleDrawerShowShell(){
   var drawer = el('ps-detail-drawer');
   var backdrop = el('ps-drawer-backdrop');
-  if (drawer) drawer.style.display = 'block';
+  if (drawer) {
+    // Inline display:block beats CSS display:flex. Edit form needs a flex column
+    // height chain so only .portal-schedule-drawer-edit-body scrolls in-viewport.
+    var editing = !!(drawer.querySelector && drawer.querySelector('#ps-drawer-edit-form'));
+    drawer.style.display = editing ? 'flex' : 'block';
+  }
   if (backdrop) backdrop.style.display = 'block';
 }
 
