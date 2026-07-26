@@ -330,6 +330,7 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
     }
     lineSumCents += lineCents;
     const qty = Number(sr.quantity) || 1;
+    const srMeta = parseMeta(sr.metadata);
     lineItems.push({
       service_record_id: sr.service_record_id,
       service_type: sr.service_type,
@@ -341,6 +342,12 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
       line_cents: lineCents,
       label: lineItemLabel(sr.service_type, sr.quantity, sr.service_date, sr.slot_time, sr),
       priced_live: usedLive,
+      pricing_group_id: srMeta.pricing_group_id || null, rental_bundle_id: srMeta.rental_bundle_id || null,
+      offering_key: srMeta.offering_key || null, bundle_part: srMeta.bundle_part || null,
+      rental_pricing_role: srMeta.rental_pricing_role || null,
+      duration_key: srMeta.duration_key || (rentalPricing && rentalPricing.duration) || null,
+      rental_service_dates: Array.isArray(srMeta.rental_service_dates) ? srMeta.rental_service_dates : null,
+      component: srMeta.component || null, course_id: srMeta.course_id || null, offering_id: srMeta.offering_id || null, tier_key: srMeta.tier_key || null,
     });
   });
   const bookingTotal = readAuthoritativeBookingTotalCents(booking);
@@ -365,7 +372,7 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
     balance_due_cents: balanceDue,
     payment_status: uiStatus,
     price_source: adminSource || bookingMeta.sunset_price_source || 'config',
-    live_pricing: lineItems.some((li) => li.priced_live),
+    live_pricing: lineItems.some((li) => li.priced_live), rental_pricing: rentalPricing || null,
     pricing_note: bookingTotal != null
       ? 'Totals use persisted booking amount_due; line amounts keep create allocation (explicit zeros preserved).'
       : 'Totals use current Admin prices when line amounts are not stored.',
@@ -533,7 +540,8 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       date_from: agg.date_from,
       date_to: agg.date_to,
       components: agg.components,
-      slot_time: agg.slot_time,
+      rentals: Array.isArray(meta.rentals) ? meta.rentals : [],
+      rental_pricing: parseRentalPricingMeta(meta) || meta.rental_pricing || null, slot_time: agg.slot_time,
       payment,
       stripe_link: link ? {
         payment_id: link.payment_id,

@@ -169,6 +169,7 @@ function buildRenderCtx(viewModSrc, portalModSrc, apiSrc) {
     'scheduleDrawerServiceTypeLabel',
     'scheduleDrawerServiceOrder',
     'scheduleDrawerSortItems',
+    'scheduleDrawerBuildCommercialLines',
     'scheduleDrawerDayHeaderLabel',
     'scheduleRenderMoneyHeadlineHtml',
     'scheduleRenderSunsetMoneyActionsHtml',
