@@ -90,6 +90,7 @@ function portalT(key) {
     'schedule.drawer.waiverGroupLabel': 'Group',
     'schedule.drawer.waiverStudents': 'students',
     'schedule.drawer.waiverCompletedProgress': 'Progress',
+    'schedule.drawer.waiverGroupShareHint': 'Share this link with the group. Each student should complete the form once.',
     'schedule.drawer.waiverMigrationPending': 'Migration pending',
     'schedule.drawer.waiverCreated': 'Created',
     'schedule.drawer.waiverCreateFailed': 'Create failed',
@@ -424,7 +425,13 @@ const xssWaiver = ctx.scheduleRenderWaiverBoxInner({
   multi_student_note: '<img onerror=alert(1)>',
 });
 assert('waiver URL escaped in href', xssWaiver.includes('&lt;script&gt;') || !xssWaiver.includes('<script>'));
-assert('group note escaped', xssWaiver.includes('&lt;img'));
+assert('group share hint uses portalT (not server multi_student_note HTML)',
+  !xssWaiver.includes('<img onerror')
+  && !xssWaiver.includes('&lt;img')
+  && xssWaiver.includes('Share this link with the group. Each student should complete the form once.'));
+assert('actions source uses portalT share hint key',
+  actionsSrc.includes("portalT('schedule.drawer.waiverGroupShareHint')")
+  && !/escHtml\(\s*data\.multi_student_note\s*\)/.test(actionsSrc));
 
 const answersHtml = ctx.scheduleRenderWaiverSubmissionBlock({
   raw_answers_json: {

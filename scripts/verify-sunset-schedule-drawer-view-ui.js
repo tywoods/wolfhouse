@@ -94,10 +94,15 @@ function portalT(key) {
     'schedule.drawer.paymentSection': 'Payment',
     'schedule.drawer.noLineItems': 'No line items',
     'schedule.drawer.remaining': 'Remaining',
+    'schedule.drawer.balanceDue': 'Balance due',
+    'schedule.drawer.refundCredit': 'Refund / credit',
+    'schedule.drawer.paymentCredit': 'Payment',
+    'schedule.drawer.otherPayments': 'Other payments',
     'schedule.col.payment': 'Payment',
     'schedule.payment.unpaid': 'Unpaid',
     'schedule.payment.paid': 'Paid',
     'schedule.drawer.methodBankTransfer': 'bank transfer',
+    'schedule.drawer.methodInShop': 'in shop',
     'schedule.drawer.methodCard': 'card',
     'schedule.drawer.openCustomer': 'Open customer',
     'schedule.drawer.recordPayment': 'Record payment',
@@ -111,6 +116,10 @@ function portalT(key) {
     'schedule.drawer.stripeDelete': 'Delete link',
     'schedule.drawer.copyLink': 'Copy link',
     'schedule.drawer.stripeStaleHint': 'Link may be stale',
+    'schedule.ops.rentalBoth': 'Board + wetsuit',
+    'schedule.drawer.bundleSets': 'sets',
+    'schedule.drawer.bundleOneSet': '1 set',
+    'schedule.drawer.invoiceTitle': 'Invoice',
   };
   return map[key] || key;
 }
@@ -170,12 +179,13 @@ function buildRenderCtx(viewModSrc, portalModSrc, apiSrc) {
     'scheduleDrawerServiceOrder',
     'scheduleDrawerSortItems',
     'scheduleDrawerBuildCommercialLines',
+    'scheduleDrawerFormatCommercialMathLabel',
     'scheduleDrawerDayHeaderLabel',
     'scheduleRenderMoneyHeadlineHtml',
     'scheduleRenderSunsetMoneyActionsHtml',
     'scheduleRenderSunsetRecordPaymentHtml',
-    'scheduleRenderSunsetMoneyCardHtml',
-    'scheduleRenderSunsetBookingCardHtml',
+    'scheduleRenderSunsetInvoiceCreditLabel',
+    'scheduleRenderSunsetInvoiceCardHtml',
     'scheduleRenderSunsetViewDrawerHtml',
     'scheduleRenderViewDrawerHtml',
     'scheduleDrawerEur',
@@ -237,23 +247,316 @@ const baseCtx = {
     paid_cents: 0,
     balance_due_cents: 12000,
     payment_status: 'unpaid',
-    line_items: [{ service_date: '2026-07-20', service_type: 'course', label: 'Beginner course', line_cents: 12000, quantity: 2 }],
+    line_items: [{
+      service_date: '2026-07-20',
+      service_type: 'course',
+      label: 'Beginner · 2',
+      line_cents: 12000,
+      quantity: 2,
+      unit_amount_cents: 6000,
+      component: 'course',
+      course_id: 'c1',
+    }],
+    paid_payments: [],
   },
   stripe_available: true,
 };
 
 const staffHtml = ctx.scheduleRenderSunsetViewDrawerHtml(STAFF_ROW, baseCtx, true);
 const lunaHtml = ctx.scheduleRenderSunsetViewDrawerHtml(LUNA_ROW, Object.assign({}, baseCtx, { guest_name: 'Jamie Luna' }), true);
-['ps-drawer-payment-box', 'ps-money-headline', 'Beginner', '€120.00', '2 surfers', 'ps-drawer-edit'].forEach((needle) => {
+['ps-drawer-payment-box', 'ps-invoice-card', 'Beginner', '€120.00', 'ps-drawer-edit'].forEach((needle) => {
   assert(`staff view includes ${needle}`, staffHtml.includes(needle));
   assert(`luna view includes ${needle}`, lunaHtml.includes(needle));
 });
+assert('no separate booking-section + payment-card pair',
+  !staffHtml.includes('schedule.drawer.section.booking')
+  && (staffHtml.match(/ps-drawer-payment-box/g) || []).length === 1);
 
-console.log('\n[5] Course, tier, dates, quantity and € totals');
+console.log('\n[5] Invoice fixtures — arithmetic, credits, no date/service/payment duplication');
 assert('eur formatting from server cents', ctx.scheduleDrawerEur(12000) === '€120.00');
 assert('components summary shows course qty', ctx.scheduleFormatComponentsView(baseCtx.components).includes('× 2'));
-assert('booking card shows line amount', staffHtml.includes('€120.00'));
-assert('money subtotal from payment object', staffHtml.includes('€120.00'));
+
+// Fixture 1: €30 × 2 surfers × 5 days = €300 course
+const courseDays = ['2026-07-20', '2026-07-21', '2026-07-22', '2026-07-23', '2026-07-24'];
+const courseItems = courseDays.map((d, i) => ({
+  service_record_id: 'c-' + i,
+  service_date: d,
+  service_type: 'surf_lesson',
+  label: 'Beginner · 2',
+  line_cents: i === 0 ? 30000 : 0,
+  quantity: 2,
+  unit_amount_cents: 3000,
+  component: 'course',
+  course_id: 'beginner',
+  course_label: 'Beginner',
+}));
+const courseCommercial = ctx.scheduleDrawerBuildCommercialLines(courseItems, null);
+assert('fixture1: one commercial course line €300',
+  courseCommercial.lines.length === 1
+  && courseCommercial.lines[0].line_cents === 30000
+  && courseCommercial.lines[0].math_mode === 'linear'
+  && courseCommercial.lines[0].unit_cents === 3000
+  && courseCommercial.lines[0].quantity === 2
+  && courseCommercial.lines[0].billable_days === 5);
+const courseHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
+  date_from: '2026-07-20',
+  date_to: '2026-07-24',
+  components: { course: { quantity: 2, course_label: 'Beginner' } },
+  payment: {
+    subtotal_cents: 30000,
+    paid_cents: 0,
+    balance_due_cents: 30000,
+    payment_status: 'unpaid',
+    line_items: courseItems,
+    paid_payments: [],
+  },
+  stripe_available: true,
+});
+assert('fixture1: invoice shows unit×surfers×days math',
+  /€30\.00/.test(courseHtml) && /×\s*2/.test(courseHtml) && /×\s*5/.test(courseHtml));
+assert('fixture1: date range once in header, not on service lines',
+  (courseHtml.match(/20-07-26|2026-07-20/g) || []).length <= 2
+  && !/ps-day-group/.test(courseHtml)
+  && !/Show daily/.test(courseHtml));
+assert('fixture1: line total right-aligned class',
+  /ps-svc-amt|ps-invoice-amt/.test(courseHtml) && courseHtml.includes('€300.00'));
+
+// Fixture 2: €20 × 2 sets × 5 days = €200 board+wetsuit
+const bundleItems = [];
+courseDays.forEach((d, i) => {
+  bundleItems.push({
+    service_record_id: 'b-' + i,
+    service_date: d,
+    service_type: 'surfboard',
+    label: 'Surfboard · 2',
+    line_cents: i === 0 ? 20000 : 0,
+    quantity: 2,
+    unit_amount_cents: 2000,
+    offering_key: 'board_and_suit_rental',
+    pricing_group_id: 'pg-bundle',
+    bundle_part: 'surfboard',
+    duration_key: '5_days',
+  });
+  bundleItems.push({
+    service_record_id: 'w-' + i,
+    service_date: d,
+    service_type: 'wetsuit',
+    label: 'Wetsuit · 2',
+    line_cents: 0,
+    quantity: 2,
+    unit_amount_cents: 2000,
+    offering_key: 'board_and_suit_rental',
+    pricing_group_id: 'pg-bundle',
+    bundle_part: 'wetsuit',
+    duration_key: '5_days',
+  });
+});
+const bundleCommercial = ctx.scheduleDrawerBuildCommercialLines(bundleItems, {
+  offering_key: 'board_and_suit_rental',
+  duration: '5_days',
+  pricing_group_id: 'pg-bundle',
+  quantity: 2,
+});
+assert('fixture2: one board+wetsuit commercial line €200',
+  bundleCommercial.lines.length === 1
+  && bundleCommercial.lines[0].is_bundle
+  && bundleCommercial.lines[0].line_cents === 20000
+  && bundleCommercial.lines[0].math_mode === 'linear'
+  && bundleCommercial.lines[0].unit_cents === 2000
+  && bundleCommercial.lines[0].quantity === 2
+  && bundleCommercial.lines[0].billable_days === 5);
+assert('fixture2/9: zero-value inventory peers hidden',
+  Object.keys(bundleCommercial.hidden_ids).length === 10
+  && !bundleCommercial.lines.some((l) => /Wetsuit/.test(l.label) && l.line_cents === 0 && !l.is_bundle));
+
+// Fixture 3: nonlinear six-day package does not fabricate daily math
+const packageItems = [
+  {
+    service_record_id: 'pkg1',
+    service_date: '2026-08-01',
+    service_type: 'surf_lesson',
+    label: 'Six-day package · 1',
+    line_cents: 18000,
+    quantity: 1,
+    unit_amount_cents: 18000,
+    component: 'course',
+    course_id: 'six-day',
+    duration_key: '6_days',
+  },
+  {
+    service_record_id: 'pkg2',
+    service_date: '2026-08-02',
+    service_type: 'surf_lesson',
+    label: 'Six-day package · 1',
+    line_cents: 0,
+    quantity: 1,
+    unit_amount_cents: 18000,
+    component: 'course',
+    course_id: 'six-day',
+    duration_key: '6_days',
+  },
+  {
+    service_record_id: 'pkg3',
+    service_date: '2026-08-03',
+    service_type: 'surf_lesson',
+    label: 'Six-day package · 1',
+    line_cents: 0,
+    quantity: 1,
+    unit_amount_cents: 18000,
+    component: 'course',
+    course_id: 'six-day',
+    duration_key: '6_days',
+  },
+  {
+    service_record_id: 'pkg4',
+    service_date: '2026-08-04',
+    service_type: 'surf_lesson',
+    label: 'Six-day package · 1',
+    line_cents: 0,
+    quantity: 1,
+    unit_amount_cents: 18000,
+    component: 'course',
+    course_id: 'six-day',
+    duration_key: '6_days',
+  },
+  {
+    service_record_id: 'pkg5',
+    service_date: '2026-08-05',
+    service_type: 'surf_lesson',
+    label: 'Six-day package · 1',
+    line_cents: 0,
+    quantity: 1,
+    unit_amount_cents: 18000,
+    component: 'course',
+    course_id: 'six-day',
+    duration_key: '6_days',
+  },
+  {
+    service_record_id: 'pkg6',
+    service_date: '2026-08-06',
+    service_type: 'surf_lesson',
+    label: 'Six-day package · 1',
+    line_cents: 0,
+    quantity: 1,
+    unit_amount_cents: 18000,
+    component: 'course',
+    course_id: 'six-day',
+    duration_key: '6_days',
+  },
+];
+const packageCommercial = ctx.scheduleDrawerBuildCommercialLines(packageItems, null);
+assert('fixture3: package mode (not invented daily)',
+  packageCommercial.lines.length === 1
+  && packageCommercial.lines[0].line_cents === 18000
+  && packageCommercial.lines[0].math_mode === 'package'
+  && packageCommercial.lines[0].unit_cents === 18000
+  && packageCommercial.lines[0].billable_days === 6);
+const packageHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
+  date_from: '2026-08-01',
+  date_to: '2026-08-06',
+  payment: {
+    subtotal_cents: 18000,
+    paid_cents: 0,
+    balance_due_cents: 18000,
+    line_items: packageItems,
+    paid_payments: [],
+  },
+});
+assert('fixture3: no fabricated €3.00 daily unit', !packageHtml.includes('€3.00'));
+
+// Fixture 4: subtotal €500, manual −€100, balance €400
+const partialHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
+  booking_id: '11111111-1111-1111-1111-111111111111',
+  date_from: '2026-07-20',
+  date_to: '2026-07-24',
+  payment: {
+    subtotal_cents: 50000,
+    paid_cents: 10000,
+    balance_due_cents: 40000,
+    payment_status: 'unpaid',
+    line_items: courseItems.map((li, i) => Object.assign({}, li, {
+      line_cents: i === 0 ? 50000 : 0,
+      unit_amount_cents: 5000,
+    })),
+    paid_payments: [{
+      payment_id: 'm1',
+      amount_cents: 10000,
+      method: 'bank_transfer',
+      kind: 'manual',
+    }],
+  },
+  stripe_available: true,
+});
+assert('fixture4: subtotal €500.00', partialHtml.includes('€500.00') && partialHtml.includes('Subtotal'));
+assert('fixture4: negative manual credit −€100.00',
+  /[−\-]\s*€100\.00|€-100\.00|-€100\.00/.test(partialHtml)
+  && /bank transfer/i.test(partialHtml));
+assert('fixture4: balance due €400.00',
+  partialHtml.includes('€400.00')
+  && (partialHtml.includes('Balance due') || partialHtml.includes('due')));
+assert('fixture4: controls inside invoice card',
+  partialHtml.includes('ps-drawer-stripe-link')
+  && partialHtml.includes('ps-drawer-manual-submit')
+  && partialHtml.includes('ps-drawer-payment-box'));
+
+// Fixture 5: multiple paid rows + aggregate remainder fallback
+const multiHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
+  date_from: '2026-07-20',
+  date_to: '2026-07-20',
+  payment: {
+    subtotal_cents: 20000,
+    paid_cents: 15000,
+    balance_due_cents: 5000,
+    payment_status: 'unpaid',
+    line_items: [{ service_date: '2026-07-20', service_type: 'course', label: 'Course · 1', line_cents: 20000, quantity: 1 }],
+    paid_payments: [
+      { payment_id: 'p1', amount_cents: 5000, method: 'in_store', kind: 'manual' },
+      { payment_id: 'p2', amount_cents: 5000, method: 'link', kind: 'card' },
+    ],
+    paid_ledger_remainder_cents: 5000,
+  },
+});
+assert('fixture5: two detailed credit lines + remainder fallback',
+  (multiHtml.match(/[−\-]\s*€50\.00|€-50\.00|-€50\.00/g) || []).length >= 2
+  && multiHtml.includes('Other payments'));
+
+// Fixture 6: fully paid and overpaid/refund
+const paidFullHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
+  date_from: '2026-07-20',
+  date_to: '2026-07-20',
+  payment: {
+    subtotal_cents: 12000,
+    paid_cents: 12000,
+    balance_due_cents: 0,
+    payment_status: 'paid',
+    refund_credit_cents: 0,
+    line_items: baseCtx.payment.line_items,
+    paid_payments: [{ payment_id: 'full', amount_cents: 12000, method: 'link', kind: 'card' }],
+  },
+});
+assert('fixture6a: paid in full state', paidFullHtml.includes('Paid in full'));
+const overpaidHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
+  date_from: '2026-07-20',
+  date_to: '2026-07-20',
+  payment: {
+    subtotal_cents: 10000,
+    paid_cents: 15000,
+    balance_due_cents: 0,
+    payment_status: 'paid',
+    refund_credit_cents: 5000,
+    line_items: [{ service_date: '2026-07-20', service_type: 'course', label: 'Course · 1', line_cents: 10000, quantity: 1 }],
+    paid_payments: [{ payment_id: 'over', amount_cents: 15000, method: 'link', kind: 'card' }],
+  },
+});
+assert('fixture6b: refund/credit state when overpaid',
+  overpaidHtml.includes('Refund / credit') && overpaidHtml.includes('€50.00'));
+
+// Fixture 7: no duplicated date/service/payment cards
+assert('fixture7: single invoice card class', (partialHtml.match(/ps-invoice-card/g) || []).length === 1);
+assert('fixture7: no legacy money-card / daily schedule',
+  !partialHtml.includes('ps-money-card')
+  && !partialHtml.includes('Show daily')
+  && !partialHtml.includes('ps-day-group'));
 
 console.log('\n[6] Payment link display');
 const unpaidCtx = Object.assign({}, baseCtx, {
@@ -269,13 +572,6 @@ const cancelledCtx = Object.assign({}, baseCtx, {
 const cancelledHtml = ctx.scheduleRenderSunsetMoneyActionsHtml(cancelledCtx);
 assert('invalidated link hidden (no checkout anchor)', !cancelledHtml.includes('checkout.stripe.com'));
 assert('create link button when no actionable url', cancelledHtml.includes('ps-drawer-stripe-link'));
-
-const paidCtx = Object.assign({}, baseCtx, {
-  payment: Object.assign({}, baseCtx.payment, { paid_cents: 12000, balance_due_cents: 0, payment_status: 'paid' }),
-  payment_method: 'link',
-});
-const paidHeadline = ctx.scheduleRenderMoneyHeadlineHtml(paidCtx);
-assert('paid status headline', paidHeadline.includes('Paid in full'));
 
 console.log('\n[7] XSS — guest/course labels and notes escaped');
 const xssCtx = Object.assign({}, baseCtx, {
@@ -313,7 +609,7 @@ const whSandbox = {
 vm.createContext(whSandbox);
 vm.runInContext(`function escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}`, whSandbox);
 vm.runInContext(`function portalT(k){return (${portalT.toString()})(k);}`, whSandbox);
-['scheduleRenderViewDrawerHtml', 'scheduleRenderDrawerHeroHtml', 'scheduleRenderDrawerViewBookingDetailsHtml', 'scheduleDrawerSectionHtml', 'scheduleDrawerEur'].forEach((name) => {
+['scheduleRenderViewDrawerHtml', 'scheduleRenderDrawerHeroHtml', 'scheduleRenderDrawerViewBookingDetailsHtml', 'scheduleDrawerSectionHtml', 'scheduleDrawerEur', 'scheduleRenderDrawerPaymentSectionViewHtml'].forEach((name) => {
   const fnSrc = extractFunctionSource(viewModSrc, name);
   if (fnSrc) vm.runInContext(`${fnSrc}\nthis.${name}=${name};`, whSandbox);
 });
@@ -330,7 +626,12 @@ assert('wolfhouse hero booking code', whHtml.includes('portal-schedule-drawer-bo
 console.log('\n[10] Mobile-friendly markup retained');
 assert('drawer hero close aria', staffHtml.includes('aria-label'));
 assert('money link row class', unpaidHtml.includes('ps-money-link-row'));
+assert('invoice amount alignment class', /ps-svc-amt|ps-invoice-amt|text-align:\s*right/.test(staffHtml + partialHtml));
 assert('openScheduleDetailDrawer uses view loading helper', ctrlModSrc.includes('scheduleRenderDrawerLoadingHtml()'));
+assert('canonical remount after manual pay (no optimistic browser money)',
+  payModSrc.includes('paymentRefetchAndRemount')
+  && /record-cash-payment/.test(payModSrc)
+  && !/paid_cents\s*\+\s*|balance_due_cents\s*-\s*/.test(payModSrc));
 
 console.log(`\n── verify:sunset-schedule-drawer-view-ui ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exit(fail ? 1 : 0);

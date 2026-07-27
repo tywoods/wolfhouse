@@ -251,6 +251,31 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
   function off(li) { return String((li && li.offering_key) || '').trim(); }
   function isRent(s) { return s === 'surfboard' || s === 'wetsuit'; }
   function isLes(s) { return s.indexOf('lesson') >= 0 || s.indexOf('course') >= 0 || s === 'private_lesson'; }
+  function readUnit(li) {
+    if (!li) return null;
+    if (li.unit_amount_cents != null && li.unit_amount_cents !== '') {
+      var u = Number(li.unit_amount_cents);
+      if (Number.isFinite(u) && u >= 0) return Math.round(u);
+    }
+    return null;
+  }
+  function attachMath(line) {
+    var total = Math.round(Number(line.line_cents || 0));
+    var qty = Math.max(1, Math.round(Number(line.quantity) || 1));
+    var days = Math.max(1, Math.round(Number(line.billable_days) || (line.covered_dates && line.covered_dates.length) || 1));
+    var unit = line.unit_cents != null ? Math.round(Number(line.unit_cents)) : null;
+    var mathMode = 'total_only';
+    if (unit != null && Number.isFinite(unit) && unit >= 0) {
+      if (unit * qty * days === total) mathMode = 'linear';
+      else if (unit * qty === total) mathMode = 'package';
+      else unit = null;
+    }
+    line.quantity = qty;
+    line.billable_days = days;
+    line.unit_cents = unit;
+    line.math_mode = mathMode;
+    return line;
+  }
   function bKey(li) {
     var g = gid(li); if (!g) return '';
     if (off(li) === 'board_and_suit_rental') return 'b:' + g;
@@ -268,18 +293,37 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
     if (isRent(s) && !o) return 'r:' + s + '|' + String(Number(li.quantity) || 1) + '|' + String(li.duration_key || '');
     return '';
   }
-  function itemLab(li, qty) {
+  function itemBaseName(li, qty) {
     var s = st(li);
-    if (isRent(s)) return (s === 'wetsuit' ? portalT('schedule.type.wetsuitRental') : portalT('schedule.type.boardRental')) + (qty != null ? (' · ' + String(qty)) : '');
-    return (typeof scheduleDrawerStripLabelDate === 'function') ? scheduleDrawerStripLabelDate(li.label) : li.label;
+    if (isRent(s)) return (s === 'wetsuit' ? portalT('schedule.type.wetsuitRental') : portalT('schedule.type.boardRental'));
+    var raw = (typeof scheduleDrawerStripLabelDate === 'function') ? scheduleDrawerStripLabelDate(li.label) : li.label;
+    // Drop trailing " · qty" from compact labels — quantity is shown in math.
+    return String(raw || '')
+      .replace(/\s*·\s*\d+\s*$/, '')
+      .replace(/\s*x\s*\d+\s*$/i, '')
+      .trim() || String(raw || '—');
+  }
+  function itemLab(li, qty) {
+    var base = itemBaseName(li, qty);
+    if (qty != null && isRent(st(li))) return base + ' · ' + String(qty);
+    return base;
   }
   list.forEach(function(li) {
     var ik = bKey(li) || pKey(li);
     if (!ik) { singles.push(li); return; }
-    if (!groups[ik]) { groups[ik] = { items: [], total: 0, qty: 0, dates: {}, duration_key: null, is_bundle: ik.indexOf('b:') === 0 }; order.push(ik); }
+    if (!groups[ik]) {
+      groups[ik] = {
+        items: [], total: 0, qty: 0, dates: {}, duration_key: null,
+        is_bundle: ik.indexOf('b:') === 0, unit_amount_cents: null,
+      };
+      order.push(ik);
+    }
     var g = groups[ik]; g.items.push(li); g.total += Number(li.line_cents || 0);
     var q = Number(li.quantity) || 0; if (q > g.qty) g.qty = q;
     if (li.duration_key) g.duration_key = li.duration_key;
+    var u = readUnit(li);
+    if (u != null && Number(li.line_cents || 0) > 0) g.unit_amount_cents = u;
+    else if (u != null && g.unit_amount_cents == null) g.unit_amount_cents = u;
     var d = String(li.service_date || '').slice(0, 10); if (d) g.dates[d] = true;
     (Array.isArray(li.rental_service_dates) ? li.rental_service_dates : []).forEach(function(x) { var iso = String(x || '').slice(0, 10); if (iso) g.dates[iso] = true; });
   });
@@ -299,25 +343,109 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
     g.items.forEach(function(li) { if (li.service_record_id) hiddenIds[li.service_record_id] = true; });
     if (g.is_bundle) {
       var parts = [portalT('schedule.ops.rentalBoth')];
-      if (g.qty > 1) parts.push(String(g.qty) + ' ' + portalT('schedule.drawer.bundleSets'));
-      else if (g.qty === 1) parts.push(portalT('schedule.drawer.bundleOneSet'));
-      if (durLab) parts.push(durLab);
-      if (dayKeys.length > 1) parts.push(dayKeys[0] + '\u2013' + dayKeys[dayKeys.length - 1]);
-      else if (dayKeys.length === 1) parts.push(dayKeys[0]);
-      lines.push({ label: parts.join(' · '), line_cents: g.total, is_bundle: true, pricing_group_id: ik.slice(2), quantity: g.qty, covered_dates: dayKeys, member_ids: ids });
+      // Name only in label — qty/days/unit go through math presentation (no ISO dates).
+      if (g.qty === 1 && !g.unit_amount_cents) parts.push(portalT('schedule.drawer.bundleOneSet'));
+      lines.push(attachMath({
+        label: parts.join(' · '),
+        line_cents: g.total,
+        is_bundle: true,
+        pricing_group_id: ik.slice(2),
+        quantity: g.qty,
+        billable_days: n || 1,
+        unit_cents: g.unit_amount_cents,
+        covered_dates: dayKeys,
+        member_ids: ids,
+        duration_label: durLab || null,
+      }));
       return;
     }
     var primary = null;
     g.items.forEach(function(li) { if (!primary || Number(li.line_cents || 0) > Number(primary.line_cents || 0)) primary = li; });
-    var lab = itemLab(primary, g.qty);
-    if (durLab && !isRent(st(primary)) && String(lab || '').indexOf(durLab) < 0) lab = (lab || '') + (lab ? ' · ' : '') + durLab;
-    lines.push({ label: lab, line_cents: g.total, is_bundle: false, service_type: primary.service_type, quantity: g.qty, covered_dates: dayKeys, member_ids: ids });
+    var lab = itemBaseName(primary, g.qty);
+    lines.push(attachMath({
+      label: lab,
+      line_cents: g.total,
+      is_bundle: false,
+      service_type: primary.service_type,
+      quantity: g.qty,
+      billable_days: n || 1,
+      unit_cents: g.unit_amount_cents != null ? g.unit_amount_cents : readUnit(primary),
+      covered_dates: dayKeys,
+      member_ids: ids,
+      duration_label: durLab || null,
+    }));
   });
   singles.forEach(function(li) {
     if (li.service_record_id && hiddenIds[li.service_record_id]) return;
-    lines.push({ label: itemLab(li, li.quantity), line_cents: Number(li.line_cents || 0), is_bundle: false, service_type: li.service_type, quantity: li.quantity, service_record_id: li.service_record_id });
+    var days = 1;
+    var cov = [];
+    var d0 = String(li.service_date || '').slice(0, 10);
+    if (d0) cov.push(d0);
+    (Array.isArray(li.rental_service_dates) ? li.rental_service_dates : []).forEach(function(x) {
+      var iso = String(x || '').slice(0, 10); if (iso && cov.indexOf(iso) < 0) cov.push(iso);
+    });
+    if (cov.length) days = cov.length;
+    lines.push(attachMath({
+      label: itemBaseName(li, li.quantity),
+      line_cents: Number(li.line_cents || 0),
+      is_bundle: false,
+      service_type: li.service_type,
+      quantity: li.quantity,
+      billable_days: days,
+      unit_cents: readUnit(li),
+      covered_dates: cov,
+      service_record_id: li.service_record_id,
+    }));
   });
   return { lines: lines, hidden_ids: hiddenIds };
+}
+
+/** Build truthful arithmetic subtitle: linear unit×qty×days, package unit×qty + duration, or empty. */
+function scheduleDrawerFormatCommercialMathLabel(line) {
+  if (!line) return '';
+  var mode = line.math_mode || 'total_only';
+  var unit = line.unit_cents;
+  var qty = Number(line.quantity) || 1;
+  var days = Number(line.billable_days) || 1;
+  var parts = [];
+  if (mode === 'linear' && unit != null) {
+    parts.push(scheduleDrawerEur(unit));
+    if (line.is_bundle) {
+      parts.push(String(qty) + ' ' + (qty === 1 ? portalT('schedule.drawer.bundleOneSet') : portalT('schedule.drawer.bundleSets')));
+    } else if (String(line.service_type || '').toLowerCase().indexOf('lesson') >= 0
+      || String(line.service_type || '').toLowerCase().indexOf('course') >= 0
+      || /surfers?/i.test(String(line.label || ''))) {
+      parts.push(String(qty) + ' ' + (qty === 1 ? portalT('schedule.drawer.surferWord') : portalT('schedule.drawer.surfersWord')));
+    } else {
+      parts.push('\u00d7 ' + String(qty));
+    }
+    if (days > 1) {
+      parts.push(String(days) + ' ' + portalT('schedule.drawer.daysWordCap'));
+    } else if (days === 1 && mode === 'linear') {
+      parts.push(String(days) + ' ' + portalT('schedule.drawer.dayWordCap'));
+    }
+    // Format as €30.00 × 2 surfers × 5 Days
+    if (parts.length >= 2) {
+      var out = parts[0];
+      for (var i = 1; i < parts.length; i++) {
+        var p = parts[i];
+        out += (p.indexOf('\u00d7') === 0 ? ' ' + p : ' \u00d7 ' + p);
+      }
+      return out;
+    }
+    return parts.join(' \u00d7 ');
+  }
+  if (mode === 'package' && unit != null) {
+    var pkg = scheduleDrawerEur(unit);
+    if (qty > 1) pkg += ' \u00d7 ' + String(qty);
+    if (line.duration_label) pkg += ' \u00b7 ' + line.duration_label;
+    else if (days > 1) pkg += ' \u00b7 ' + String(days) + ' ' + portalT('schedule.drawer.daysWordCap');
+    return pkg;
+  }
+  // total_only: optional duration context only — never invent unit math
+  if (line.duration_label) return line.duration_label;
+  if (days > 1) return String(days) + ' ' + portalT('schedule.drawer.daysWordCap');
+  return '';
 }
 
 function scheduleDrawerDayHeaderLabel(iso){
@@ -388,92 +516,136 @@ function scheduleRenderSunsetRecordPaymentHtml(ctx){
   return html;
 }
 
-function scheduleRenderSunsetMoneyCardHtml(ctx){
+function scheduleRenderSunsetInvoiceCreditLabel(row) {
+  var method = scheduleDrawerPaidMethodLabel(row && row.method);
+  var base = portalT('schedule.drawer.paymentCredit');
+  if (method) return base + ' · ' + method;
+  if (row && row.kind === 'card') return base + ' · ' + portalT('schedule.drawer.methodCard');
+  return base;
+}
+
+function scheduleRenderSunsetInvoiceCardHtml(ctx){
   var pay = (ctx && ctx.payment) || {};
-  var html = '<div class="ctx-pay-box ps-money-card" id="ps-drawer-payment-box" style="margin-top:0">';
-  html += '<div class="ps-card-eyebrow">' + escHtml(portalT('schedule.drawer.paymentsTitle')) + '</div>';
-  html += scheduleRenderMoneyHeadlineHtml(ctx);
+  var items = pay.line_items || [];
+  var comps = (ctx && ctx.components) || {};
+  var html = '<div class="ctx-pay-box ps-invoice-card" id="ps-drawer-payment-box" style="margin-top:0">';
+
+  // Header: date range once (no per-line dates)
+  var from = scheduleDrawerDDMMYY(ctx && ctx.date_from);
+  var to = scheduleDrawerDDMMYY((ctx && ctx.date_to) || (ctx && ctx.date_from));
+  var dayMap = {};
+  items.forEach(function(li){ var d = String(li.service_date || '').slice(0, 10); if (d) dayMap[d] = true; });
+  var dayCount = Object.keys(dayMap).length || ((from && to && from !== to) ? 2 : 1);
+  var surfers = (comps.course && comps.course.quantity)
+    || (comps.private_lesson && (comps.private_lesson.surfer_count || comps.private_lesson.quantity))
+    || (comps.lesson && comps.lesson.quantity) || 0;
+  if (!surfers) {
+    items.forEach(function(li) {
+      var t = String(li.service_type || '');
+      if (t.indexOf('lesson') >= 0 || t.indexOf('course') >= 0) surfers = Math.max(surfers, Number(li.quantity) || 0);
+    });
+  }
+  if (!surfers) surfers = Number(ctx && ctx.guest_count) || 0;
+  var hasCourse = !!(comps.course || comps.private_lesson || comps.lesson);
+  if (!hasCourse) {
+    items.forEach(function(li) {
+      var t = String(li.service_type || '');
+      if (t.indexOf('lesson') >= 0 || t.indexOf('course') >= 0) hasCourse = true;
+    });
+  }
+  var daysLabel = dayCount + ' ' + (dayCount === 1 ? portalT('schedule.drawer.dayWordCap') : portalT('schedule.drawer.daysWordCap'));
+  var title = hasCourse && surfers
+    ? (surfers + ' ' + (surfers === 1 ? portalT('schedule.drawer.surferWord') : portalT('schedule.drawer.surfersWord')) + ' · ' + daysLabel)
+    : (portalT('schedule.drawer.invoiceTitle') + (dayCount ? (' · ' + daysLabel) : ''));
+  var subtitle = from ? (from + (to && to !== from ? ' \u2013 ' + to : '')) : '';
+  html += '<div class="ps-invoice-header">';
+  html += '<div class="ps-card-eyebrow">' + escHtml(portalT('schedule.drawer.invoiceTitle')) + '</div>';
+  html += '<h4 class="portal-schedule-drawer-section-title" style="margin:0 0 4px">' + escHtml(title) + '</h4>';
+  if (subtitle) html += '<p class="ps-card-subtitle" style="margin:0 0 10px">' + escHtml(subtitle) + '</p>';
+  html += '</div>';
+
+  var commercial = scheduleDrawerBuildCommercialLines(items, (pay && pay.rental_pricing) || (ctx && ctx.rental_pricing) || null);
+  var commercialLines = (commercial && commercial.lines) || [];
+  if (commercialLines.length) {
+    html += '<div class="ps-invoice-lines">';
+    commercialLines.forEach(function(line) {
+      var math = scheduleDrawerFormatCommercialMathLabel(line);
+      html += '<div class="ps-svc-summary-row ps-invoice-line' + (line.is_bundle ? ' is-bundle-line' : '') + '">';
+      html += '<span class="ps-svc-name">' + escHtml(line.label || '—');
+      if (math) html += '<span class="ps-svc-detail"> · ' + escHtml(math) + '</span>';
+      html += '</span>';
+      html += '<span class="ps-svc-amt ps-invoice-amt">' + escHtml(scheduleDrawerEur(line.line_cents)) + '</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+  } else if (!items.length) {
+    var summary = scheduleFormatComponentsView(comps);
+    if (summary && summary !== '—') {
+      html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 8px">' + escHtml(summary) + '</p>';
+    }
+  }
+
+  // Footer: Subtotal → payment credits (negative) → balance / paid / refund
+  var sub = Number(pay.subtotal_cents || 0);
+  var paid = Number(pay.paid_cents || 0);
+  var due = (pay.balance_due_cents != null) ? Number(pay.balance_due_cents) : null;
+  var refund = Number(pay.refund_credit_cents || 0);
+  if (!(refund > 0) && paid > sub && sub >= 0) refund = paid - sub;
+  var fullyPaid = pay.payment_status === 'paid' || (sub > 0 && due != null && due <= 0 && paid > 0 && refund <= 0);
+  var overpaid = refund > 0;
+
+  html += '<div class="ps-invoice-totals">';
+  html += '<div class="ctx-inv-total-row ps-invoice-total-row"><span class="ctx-inv-total-label">' +
+    escHtml(portalT('schedule.drawer.subtotal')) + '</span><span class="ctx-inv-total-amount ps-invoice-amt" id="ps-drawer-subtotal">' +
+    escHtml(scheduleDrawerEur(sub)) + '</span></div>';
+
+  var credits = Array.isArray(pay.paid_payments) ? pay.paid_payments : [];
+  credits.forEach(function(row) {
+    var amt = Number(row && row.amount_cents) || 0;
+    if (!(amt > 0)) return;
+    html += '<div class="ctx-inv-total-row ps-invoice-total-row ps-invoice-credit"><span class="ctx-inv-total-label">' +
+      escHtml(scheduleRenderSunsetInvoiceCreditLabel(row)) +
+      '</span><span class="ctx-inv-total-amount paid ps-invoice-amt">\u2212' + escHtml(scheduleDrawerEur(amt)) + '</span></div>';
+  });
+  var remainder = Number(pay.paid_ledger_remainder_cents || 0);
+  if (remainder > 0) {
+    html += '<div class="ctx-inv-total-row ps-invoice-total-row ps-invoice-credit"><span class="ctx-inv-total-label">' +
+      escHtml(portalT('schedule.drawer.otherPayments')) +
+      '</span><span class="ctx-inv-total-amount paid ps-invoice-amt">\u2212' + escHtml(scheduleDrawerEur(remainder)) + '</span></div>';
+  }
+
+  if (overpaid) {
+    html += '<div class="ctx-inv-total-row ps-invoice-total-row ps-invoice-balance is-refund"><span class="ctx-inv-total-label">' +
+      escHtml(portalT('schedule.drawer.refundCredit')) +
+      '</span><span class="ctx-inv-total-amount paid ps-invoice-amt" id="ps-drawer-remaining">' +
+      escHtml(scheduleDrawerEur(refund)) + '</span></div>';
+  } else if (fullyPaid) {
+    html += '<div class="ctx-inv-total-row ps-invoice-total-row ps-invoice-balance is-paid"><span class="ctx-inv-total-label">' +
+      escHtml(portalT('schedule.drawer.paidInFull')) +
+      '</span><span class="ctx-inv-total-amount paid ps-invoice-amt" id="ps-drawer-remaining">' +
+      escHtml(scheduleDrawerEur(0)) + '</span></div>';
+  } else {
+    html += '<div class="ctx-inv-total-row ps-invoice-total-row ps-invoice-balance is-due"><span class="ctx-inv-total-label">' +
+      escHtml(portalT('schedule.drawer.balanceDue')) +
+      '</span><span class="ctx-inv-total-amount owing ps-invoice-amt" id="ps-drawer-remaining">' +
+      escHtml(scheduleDrawerEur(due != null ? due : null)) + '</span></div>';
+  }
+  html += '<span id="ps-drawer-paid" class="ps-invoice-paid-sr" style="position:absolute;left:-9999px" aria-hidden="true">' +
+    escHtml(scheduleDrawerEur(paid)) + '</span>';
+  html += '</div>';
+
+  // Payment link + collapsible manual payment stay inside the invoice card
   html += scheduleRenderSunsetMoneyActionsHtml(ctx);
   html += scheduleRenderSunsetRecordPaymentHtml(ctx);
   html += '</div>';
   return html;
 }
 
-function scheduleRenderSunsetBookingCardHtml(ctx){
-  var pay = (ctx && ctx.payment) || {};
-  var items = pay.line_items || [];
-  var comps = (ctx && ctx.components) || {};
-  if (!items.length){
-    var summary = scheduleFormatComponentsView(comps);
-    if (!summary || summary === '—') return '';
-    return scheduleDrawerSectionHtml('schedule.drawer.section.booking',
-      '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(summary) + '</p>');
-  }
-  var dayMap = {};
-  items.forEach(function(li){ var d = String(li.service_date || '').slice(0, 10); if (d) dayMap[d] = true; });
-  var dayKeys = Object.keys(dayMap).sort();
-  var dayCount = dayKeys.length || 1;
-
-  var surfers = (comps.course && comps.course.quantity)
-    || (comps.private_lesson && (comps.private_lesson.surfer_count || comps.private_lesson.quantity))
-    || (comps.lesson && comps.lesson.quantity) || 0;
-  if (!surfers){ items.forEach(function(li){ var t = String(li.service_type || ''); if (t.indexOf('lesson') >= 0 || t.indexOf('course') >= 0) surfers = Math.max(surfers, Number(li.quantity) || 0); }); }
-  if (!surfers) surfers = Number(ctx && ctx.guest_count) || 1;
-  var hasCourse = !!(comps.course || comps.private_lesson || comps.lesson);
-  if (!hasCourse){ items.forEach(function(li){ var t = String(li.service_type || ''); if (t.indexOf('lesson') >= 0 || t.indexOf('course') >= 0) hasCourse = true; }); }
-  var daysLabel = dayCount + ' ' + (dayCount === 1 ? portalT('schedule.drawer.dayWordCap') : portalT('schedule.drawer.daysWordCap'));
-  var title = hasCourse
-    ? (surfers + ' ' + (surfers === 1 ? portalT('schedule.drawer.surferWord') : portalT('schedule.drawer.surfersWord')) + ' · ' + daysLabel)
-    : daysLabel;
-  var from = scheduleDrawerDDMMYY(ctx && ctx.date_from);
-  var to = scheduleDrawerDDMMYY((ctx && ctx.date_to) || (ctx && ctx.date_from));
-  var subtitle = from ? (portalT('schedule.drawer.dateLabel') + ': ' + from + (to && to !== from ? ' - ' + to : '')) : '';
-  var head = '<h4 class="portal-schedule-drawer-section-title">' + escHtml(title) + '</h4>' +
-    (subtitle ? '<p class="ps-card-subtitle">' + escHtml(subtitle) + '</p>' : '');
-  var body = '';
-  var commercial = scheduleDrawerBuildCommercialLines(items, (pay && pay.rental_pricing) || (ctx && ctx.rental_pricing) || null);
-  var commercialLines = (commercial && commercial.lines) || [];
-  var hidden = (commercial && commercial.hidden_ids) || {};
-
-  commercialLines.forEach(function(line) {
-    body += '<div class="ps-svc-summary-row' + (line.is_bundle ? ' is-bundle-line' : '') + '"><span class="ps-svc-name">' +
-      escHtml(line.label) + '</span><span class="ps-svc-amt">' + escHtml(scheduleDrawerEur(line.line_cents)) + '</span></div>';
-  });
-  if (dayCount > 1) {
-    var daily = '';
-    dayKeys.forEach(function(d) {
-      var dayRows = scheduleDrawerSortItems(items.filter(function(li) {
-        return String(li.service_date || '').slice(0, 10) === d
-          && !(li.service_record_id && hidden[li.service_record_id]);
-      }));
-      // Inventory/zeroed peer rows are not commercial lines — omit entirely
-      // (never label "Included" as a price).
-      if (!dayRows.length) return;
-      daily += '<div class="ps-day-group"><div class="ps-day-header">' + escHtml(scheduleDrawerDayHeaderLabel(d)) + '</div>';
-      dayRows.forEach(function(li) {
-        daily += '<div class="ps-day-row"><span>' + escHtml(scheduleDrawerStripLabelDate(li.label)) +
-          '</span><span class="ps-day-amt">' + escHtml(scheduleDrawerEur(li.line_cents)) + '</span></div>';
-      });
-      daily += '</div>';
-    });
-    if (daily) {
-      body += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.showDaily')) + '</summary>' + daily + '</details>';
-    }
-  } else if (!commercialLines.length) {
-    scheduleDrawerSortItems(items).forEach(function(li) {
-      body += '<div class="ps-day-row"><span>' + escHtml(scheduleDrawerStripLabelDate(li.label)) +
-        '</span><span class="ps-day-amt">' + escHtml(scheduleDrawerEur(li.line_cents)) + '</span></div>';
-    });
-  }
-  return '<section class="portal-schedule-drawer-section">' + head + body + '</section>';
-}
-
 function scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit){
   var html = scheduleRenderDrawerHeroHtml(ctx, row);
-  html += scheduleRenderSunsetBookingCardHtml(ctx);
-  html += scheduleRenderDrawerPaymentSectionHtml(ctx);
+  html += scheduleRenderSunsetInvoiceCardHtml(ctx);
   html += scheduleRenderDrawerWaiverSectionHtml(ctx);
-  if (ctx.notes) {
+  if (ctx && ctx.notes) {
     html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
       '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(ctx.notes) + '</p>');
   }
@@ -519,7 +691,7 @@ function scheduleDrawerEur(cents){
 }
 
 function scheduleRenderDrawerPaymentSectionViewHtml(ctx){
-  if (isSunsetSurfActive()) return scheduleRenderSunsetMoneyCardHtml(ctx);
+  if (isSunsetSurfActive()) return scheduleRenderSunsetInvoiceCardHtml(ctx);
   var pay = (ctx && ctx.payment) || {};
   var items = pay.line_items || [];
   var html = '<div class="ctx-pay-box" id="ps-drawer-payment-box" style="margin-top:14px">';

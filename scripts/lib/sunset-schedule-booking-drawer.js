@@ -186,19 +186,36 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode) {
     [clientSlug, booking.booking_id],
   );
   const payRes = await pg.query(
-    `SELECT id::text AS payment_id, status::text AS payment_status,
-            amount_due_cents, amount_paid_cents, checkout_url, created_at
-       FROM payments
-      WHERE booking_id = $1::uuid AND checkout_url IS NOT NULL
-      ORDER BY created_at DESC LIMIT 1`,
-    [booking.booking_id],
+    `SELECT p.id::text AS payment_id, p.status::text AS payment_status,
+            p.amount_due_cents, p.amount_paid_cents, p.checkout_url, p.created_at
+       FROM payments p
+       INNER JOIN bookings b ON b.id = p.booking_id
+       INNER JOIN clients c ON c.id = b.client_id
+      WHERE p.booking_id = $1::uuid AND c.slug = $2
+        AND p.checkout_url IS NOT NULL
+      ORDER BY p.created_at DESC LIMIT 1`,
+    [booking.booking_id, clientSlug],
   );
   const paidSumRes = await pg.query(
-    `SELECT COALESCE(SUM(amount_paid_cents), 0)::int AS paid_total
-       FROM payments
-      WHERE booking_id = $1::uuid
-        AND status = 'paid'::payment_record_status`,
-    [booking.booking_id],
+    `SELECT COALESCE(SUM(p.amount_paid_cents), 0)::int AS paid_total
+       FROM payments p
+       INNER JOIN bookings b ON b.id = p.booking_id
+       INNER JOIN clients c ON c.id = b.client_id
+      WHERE p.booking_id = $1::uuid AND c.slug = $2
+        AND p.status = 'paid'::payment_record_status`,
+    [booking.booking_id, clientSlug],
+  );
+  // Presentation-safe ledger rows: only successful paid payments (exclude unpaid/cancelled/expired/checkout).
+  const paidRowsRes = await pg.query(
+    `SELECT p.id::text AS payment_id, p.status::text AS payment_status,
+            p.amount_paid_cents, p.paid_at, p.created_at, p.metadata
+       FROM payments p
+       INNER JOIN bookings b ON b.id = p.booking_id
+       INNER JOIN clients c ON c.id = b.client_id
+      WHERE p.booking_id = $1::uuid AND c.slug = $2
+        AND p.status = 'paid'::payment_record_status
+      ORDER BY COALESCE(p.paid_at, p.created_at) ASC, p.id ASC`,
+    [booking.booking_id, clientSlug],
   );
   const payments_paid_cents = Number(paidSumRes.rows[0]?.paid_total || 0);
   return {
@@ -206,6 +223,60 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode) {
     services: svcRes.rows,
     payment_link: payRes.rows[0] || null,
     payments_paid_cents,
+    paid_payment_rows: paidRowsRes.rows || [],
+  };
+}
+
+/**
+ * Tenant-safe presentation ledger of successful payments only.
+ * Returns positive amount_cents rows + remainder when detailed rows do not sum to aggregate paid.
+ */
+function buildPaidPaymentLedger(paidRows, paidCentsAggregate) {
+  const rows = [];
+  (Array.isArray(paidRows) ? paidRows : []).forEach((r) => {
+    if (!r) return;
+    const status = String(r.payment_status || r.status || '').toLowerCase();
+    if (status !== 'paid') return;
+    const amount = Math.round(Number(r.amount_paid_cents != null ? r.amount_paid_cents : r.amount_cents) || 0);
+    if (!(amount > 0)) return;
+    const meta = parseMeta(r.metadata);
+    const methodRaw = String(
+      meta.method || meta.payment_method || r.method || '',
+    ).toLowerCase().trim();
+    let method = methodRaw;
+    if (method === 'cash' || method === 'staff_cash' || method === 'staff_in_store') method = 'in_store';
+    if (method === 'staff_bank_transfer') method = 'bank_transfer';
+    if (method === 'card' || method === 'stripe' || method === 'payment_link') method = 'link';
+    if (!method) {
+      const src = String(meta.source || '').toLowerCase();
+      if (src.includes('bank')) method = 'bank_transfer';
+      else if (src.includes('stripe') || src.includes('link') || src.includes('checkout')) method = 'link';
+      else if (src.includes('cash') || src.includes('store') || src.includes('in_store')) method = 'in_store';
+      else method = 'other';
+    }
+    const kind = (method === 'link') ? 'card' : 'manual';
+    rows.push({
+      payment_id: r.payment_id || r.id || null,
+      amount_cents: amount,
+      method,
+      kind,
+      paid_at: r.paid_at || null,
+    });
+  });
+  let detailed_sum_cents = rows.reduce((s, row) => s + Number(row.amount_cents || 0), 0);
+  const aggregate = Math.max(0, Math.round(Number(paidCentsAggregate) || 0));
+  // Aggregate and detail are read independently. If detail exceeds aggregate,
+  // its allocation cannot be trusted for presentation: fall back to one
+  // aggregate credit rather than displaying more paid than the booking ledger.
+  if (detailed_sum_cents > aggregate) {
+    rows.length = 0;
+    detailed_sum_cents = 0;
+  }
+  const remainder_cents = aggregate - detailed_sum_cents;
+  return {
+    rows,
+    detailed_sum_cents,
+    remainder_cents,
   };
 }
 
@@ -325,7 +396,38 @@ function readAuthoritativeBalanceDueCents(booking) {
   return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
 }
 
-function buildPaymentSummary(prices, booking, services, adminSource, paymentsPaidCents, adminCfg) {
+function resolveUnitAmountCentsFromMeta(srMeta, bookingMeta) {
+  const direct = srMeta && srMeta.unit_amount_cents != null ? Number(srMeta.unit_amount_cents) : null;
+  if (Number.isFinite(direct) && direct >= 0) return Math.round(direct);
+  const quoteLines = Array.isArray(bookingMeta && bookingMeta.quote_line_items)
+    ? bookingMeta.quote_line_items.filter(Boolean) : [];
+  if (!quoteLines.length) return null;
+
+  function norm(v) { return String(v || '').trim().toLowerCase(); }
+  const component = norm(srMeta && srMeta.component);
+  const offeringId = norm((srMeta && srMeta.offering_id) || (srMeta && srMeta.course_id));
+  const offeringKey = norm(srMeta && srMeta.offering_key);
+  const durationKey = norm((srMeta && srMeta.duration_key) || (srMeta && srMeta.tier_key));
+
+  let candidates = quoteLines.filter((ql) => !component || norm(ql.component) === component);
+  if (offeringId) {
+    candidates = candidates.filter((ql) => norm(ql.offering_id) === offeringId);
+  } else if (offeringKey) {
+    candidates = candidates.filter((ql) => {
+      const key = norm(ql.offering_item_code || ql.offering_key);
+      return key === offeringKey || key.indexOf(`${offeringKey}__`) === 0;
+    });
+  }
+  if (durationKey) {
+    candidates = candidates.filter((ql) => norm(ql.duration_key) === durationKey);
+  }
+  // Component-only fallback is permitted only when it is unambiguous.
+  if (candidates.length !== 1) return null;
+  const unit = Number(candidates[0].unit_amount_cents);
+  return Number.isFinite(unit) && unit >= 0 ? Math.round(unit) : null;
+}
+
+function buildPaymentSummary(prices, booking, services, adminSource, paymentsPaidCents, adminCfg, opts) {
   const bookingMeta = parseMeta(booking && booking.metadata);
   const rentalPricing = parseRentalPricingMeta(bookingMeta);
   const lineItems = [];
@@ -349,6 +451,7 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
     lineSumCents += lineCents;
     const qty = Number(sr.quantity) || 1;
     const srMeta = parseMeta(sr.metadata);
+    const unitAmountCents = resolveUnitAmountCentsFromMeta(srMeta, bookingMeta);
     lineItems.push({
       service_record_id: sr.service_record_id,
       service_type: sr.service_type,
@@ -357,6 +460,7 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
       unit_cents: (usedLive || persisted != null) && qty
         ? Math.round(lineCents / qty)
         : null,
+      unit_amount_cents: unitAmountCents,
       line_cents: lineCents,
       label: lineItemLabel(sr.service_type, sr.quantity, sr.service_date, sr.slot_time, sr),
       priced_live: usedLive,
@@ -378,10 +482,14 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
     Number.isFinite(ledgerPaid) ? ledgerPaid : 0,
   );
   const uiStatus = deriveDrawerPaymentUiStatus(booking, subtotalCents, paidCents);
-  const storedBalance = readAuthoritativeBalanceDueCents(booking);
-  const balanceDue = uiStatus === 'paid'
-    ? 0
-    : (storedBalance != null ? storedBalance : Math.max(subtotalCents - paidCents, 0));
+  // The invoice must reconcile internally. Persisted balance remains operational
+  // state, but display truth is always subtotal minus the same paid aggregate.
+  const balanceDue = Math.max(subtotalCents - paidCents, 0);
+  const paidRows = (opts && opts.paid_rows)
+    || (opts && opts.paid_payment_rows)
+    || [];
+  const ledger = buildPaidPaymentLedger(paidRows, paidCents);
+  const refundCreditCents = Math.max(0, paidCents - subtotalCents);
   return {
     line_items: lineItems,
     subtotal_cents: subtotalCents,
@@ -389,6 +497,9 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
     paid_cents: paidCents,
     balance_due_cents: balanceDue,
     payment_status: uiStatus,
+    paid_payments: ledger.rows,
+    paid_ledger_remainder_cents: ledger.remainder_cents,
+    refund_credit_cents: refundCreditCents,
     price_source: adminSource || bookingMeta.sunset_price_source || 'config',
     live_pricing: lineItems.some((li) => li.priced_live), rental_pricing: rentalPricing || null,
     pricing_note: bookingTotal != null
@@ -488,6 +599,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
     adminCfg.source,
     bundle.payments_paid_cents,
     adminCfg,
+    { paid_rows: bundle.paid_payment_rows || [] },
   );
 
   let stripeLink = null;
@@ -1176,6 +1288,7 @@ module.exports = {
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,
   buildPaymentSummary,
+  buildPaidPaymentLedger,
   deriveDrawerPaymentUiStatus,
   aggregateComponentsFromServices,
   normalizePaymentMethod,

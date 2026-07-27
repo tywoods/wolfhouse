@@ -400,9 +400,8 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     var targetCount = waiverTargetCount(data);
     var completedCount = waiverCompletedCount(data);
     if (isGroup) {
-      if (data && data.multi_student_note) {
-        html += '<p class="portal-schedule-drawer-hint" style="margin:0 0 8px">' + escHtml(data.multi_student_note) + '</p>';
-      }
+      // Localized share hint — never render server multi_student_note (locale leak).
+      html += '<p class="portal-schedule-drawer-hint" style="margin:0 0 8px">' + escHtml(portalT('schedule.drawer.waiverGroupShareHint')) + '</p>';
       html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 6px"><strong>' + escHtml(portalT('schedule.drawer.waiverGroupLabel')) + ':</strong> ' + escHtml(String(targetCount || (data && data.guest_count) || '—')) + ' ' + escHtml(portalT('schedule.drawer.waiverStudents')) + '</p>';
       if (targetCount != null && targetCount > 0) {
         var pct = Math.max(0, Math.min(100, Math.round((completedCount / targetCount) * 100)));
