@@ -315,9 +315,24 @@ if (modExists) {
 
     fetchCalls.length = 0;
     renders.length = 0;
+    const fetchBeforeNext30 = ctx.fetch;
+    let next30Inflight = 0;
+    let next30MaxInflight = 0;
+    ctx.fetch = (url) => {
+      if (!String(url).includes('/staff/schedule/day')) return fetchBeforeNext30(url);
+      next30Inflight += 1;
+      next30MaxInflight = Math.max(next30MaxInflight, next30Inflight);
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          fetchBeforeNext30(url).then(resolve, reject).finally(() => { next30Inflight -= 1; });
+        }, 5);
+      });
+    };
     await bumpAlignedLoad('next30', 0, '2026-07-15');
     await waitLoads(1);
-    assert('next30 load fans out thirty day requests', fetchCalls.filter((u) => String(u).includes('/staff/schedule/day')).length === 30);
+    assert('next30 load fetches all thirty days', fetchCalls.filter((u) => String(u).includes('/staff/schedule/day')).length === 30);
+    assert('next30 bounds schedule request concurrency', next30MaxInflight > 0 && next30MaxInflight <= 4, `max=${next30MaxInflight}`);
+    ctx.fetch = fetchBeforeNext30;
 
     await bumpAlignedLoad('bogus', 0, '2026-07-15');
     await waitLoads(2);

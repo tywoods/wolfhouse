@@ -547,10 +547,26 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     return Promise.all(days.map(function(d){ return fetchDay(client, scheduleIsoDate(d)); }));
   }
 
+  function fetchDaysBounded(client, days, maxConcurrent) {
+    var result = new Array(days.length);
+    var cursor = 0;
+    var limit = Math.max(1, Math.min(days.length, Math.trunc(Number(maxConcurrent)) || 1));
+    function worker() {
+      if (cursor >= days.length) return Promise.resolve();
+      var index = cursor++;
+      return fetchDay(client, scheduleIsoDate(days[index])).then(function(day) {
+        result[index] = day;
+      }).then(worker);
+    }
+    var workers = [];
+    for (var i = 0; i < limit; i++) workers.push(worker());
+    return Promise.all(workers).then(function() { return result; });
+  }
+
   function fetchNext30(client, startDate) {
     var days = [];
     for (var i = 0; i < 30; i++) days.push(scheduleAddDays(startDate, i));
-    return Promise.all(days.map(function(d){ return fetchDay(client, scheduleIsoDate(d)); }));
+    return fetchDaysBounded(client, days, 4);
   }
 
   function loaderSelectDataPromise(client, mode, rangeStart) {
