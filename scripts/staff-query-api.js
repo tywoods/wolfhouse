@@ -16570,6 +16570,20 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-custom-addon-card .portal-schedule-create-section-title{margin:0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2,#555);line-height:1.2}
 /* Match Guest name field labels (11px uppercase) for Main activity etc. */
 .portal-schedule-create-label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}
+/* Create Main activity drill-down: header + Back + course radio cards */
+.portal-schedule-create-main-activity-header{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;margin:0 0 4px}
+.portal-schedule-create-main-activity-header .portal-schedule-create-label{margin:0;flex:1 1 auto;min-width:0}
+.portal-schedule-create-main-activity-back{flex:0 0 auto;margin-left:auto;min-height:44px;min-width:44px;padding:8px 12px;font-size:13px;font-weight:600;line-height:1.2;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.portal-schedule-create-main-activity-path{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--text-2);line-height:1.35;word-break:break-word}
+.portal-schedule-create-course-list{display:flex;flex-direction:column;gap:8px;margin:8px 0;min-width:0}
+.portal-schedule-create-course-list .portal-schedule-create-check{min-height:44px;display:flex;align-items:center;gap:10px;box-sizing:border-box;width:100%}
+.portal-schedule-create-course-list .portal-schedule-create-check.is-disabled,.portal-schedule-create-course-list .portal-schedule-create-check:has(input:disabled){opacity:.55;cursor:not-allowed}
+@media(max-width:430px){
+  .portal-schedule-create-main-activity-header{gap:8px}
+  .portal-schedule-create-main-activity-back{min-height:44px;padding:8px 10px}
+  .portal-schedule-create-course-list .portal-schedule-create-check{min-height:44px;padding:10px 12px}
+  .portal-schedule-create-main-activity-path{font-size:12px}
+}
 .portal-schedule-create-custom-lines{margin:0;padding:0}
 .portal-schedule-create-custom-lines-list{display:flex;flex-direction:column;gap:6px;margin:0}
 .portal-schedule-create-custom-lines-list:not(:empty){margin:0 0 8px}
@@ -18472,12 +18486,18 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="99" value="1" tabindex="-1"></div>
       </section>
       <section class="portal-schedule-create-section" data-create-section="what" aria-label="What">
-        <div class="portal-schedule-create-field"><span id="ps-create-main-activity-label" class="portal-schedule-create-label" data-i18n="schedule.create.mainActivity">Main activity</span>
-          <div class="portal-schedule-create-components portal-schedule-create-main-activity" role="radiogroup" aria-labelledby="ps-create-main-activity-label">
+        <div class="portal-schedule-create-field" id="ps-create-main-activity-field">
+          <div class="portal-schedule-create-main-activity-header">
+            <span id="ps-create-main-activity-label" class="portal-schedule-create-label" data-i18n="schedule.create.mainActivity">Main activity</span>
+            <button type="button" id="ps-create-main-activity-back" class="btn btn-ghost portal-schedule-create-main-activity-back" style="display:none" hidden aria-hidden="true" data-i18n="schedule.create.mainActivityBack">Back</button>
+          </div>
+          <div id="ps-create-main-activity-path" class="portal-schedule-create-main-activity-path" style="display:none" hidden aria-live="polite"></div>
+          <div id="ps-create-main-activity-choices" class="portal-schedule-create-components portal-schedule-create-main-activity" role="radiogroup" aria-labelledby="ps-create-main-activity-label">
             <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="radio" name="ps-create-main-activity" value="group"> <span data-i18n="schedule.type.course">Group course</span></label>
             <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="radio" name="ps-create-main-activity" value="private"> <span data-i18n="schedule.type.privateLesson">Private Course</span></label>
             <label class="portal-schedule-create-check"><input id="ps-create-comp-no-lesson" type="radio" name="ps-create-main-activity" value="none" checked> <span data-i18n="schedule.type.noLesson">No lesson</span></label>
           </div>
+          <div id="ps-create-course-list" class="portal-schedule-create-components portal-schedule-create-course-list" role="radiogroup" aria-labelledby="ps-create-main-activity-label" style="display:none" hidden aria-hidden="true"></div>
           <p id="ps-create-activity-empty-hint" class="portal-schedule-create-activity-hint" data-i18n="schedule.create.emptyNoLessonNoGear">Choose a lesson or add gear — empty bookings are not valid yet.</p>
           <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-live="polite"></div>
         </div>
@@ -18498,7 +18518,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <div id="ps-create-fullday-summary" class="portal-schedule-addon-summary" style="display:none" aria-live="polite"></div>
           </div>
         </div>
-        <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect">Select course</label><select id="ps-create-course-select"></select></div>
+        <!-- Legacy select kept for payload/verifiers; never shown as a second dropdown (drill-down owns course pick). -->
+        <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect" hidden>Select course</label><select id="ps-create-course-select" tabindex="-1" aria-hidden="true"></select></div>
         <div class="portal-schedule-create-field" id="ps-create-course-tier-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-tier" data-i18n="schedule.create.courseTier">Course duration</label><select id="ps-create-course-tier" tabindex="-1"></select></div>
       </section>
       <section class="portal-schedule-create-section is-when-hidden" data-create-section="when" aria-labelledby="ps-create-section-when-title" hidden>
@@ -21839,11 +21860,23 @@ function scheduleOnCreateComponentChange(changedId){
   var privateLesson = el('ps-create-comp-private-lesson'), noLesson = el('ps-create-comp-no-lesson');
   if (changedId === 'ps-create-comp-course' && course && course.checked) {
     if (privateLesson) privateLesson.checked = false; if (noLesson) noLesson.checked = false;
+    // Single-course drill-down: replace three choices in place with course list.
+    if (typeof schedulePortalEnterGroupCourseDrilldown === 'function') {
+      schedulePortalEnterGroupCourseDrilldown();
+    }
   }
   if (changedId === 'ps-create-comp-private-lesson' && privateLesson && privateLesson.checked) {
     if (course) course.checked = false; if (noLesson) noLesson.checked = false;
+    if (typeof schedulePortalExitGroupCourseDrilldown === 'function') {
+      schedulePortalExitGroupCourseDrilldown({ clearCourse: true, restoreRootOnly: true });
+    }
   }
-  if (changedId === 'ps-create-comp-no-lesson' && noLesson && noLesson.checked) { if (course) course.checked = false; if (privateLesson) privateLesson.checked = false; }
+  if (changedId === 'ps-create-comp-no-lesson' && noLesson && noLesson.checked) {
+    if (course) course.checked = false; if (privateLesson) privateLesson.checked = false;
+    if (typeof schedulePortalExitGroupCourseDrilldown === 'function') {
+      schedulePortalExitGroupCourseDrilldown({ clearCourse: true, restoreRootOnly: true });
+    }
+  }
   schedulePopulateCreateComponentFields();
 }
 function scheduleRefreshCreateEmptyGuidance(){
@@ -21931,7 +21964,11 @@ function schedulePopulateCreateComponentFields(){
   var ct = el('ps-create-course-tier-wrap');
   var cq = el('ps-create-course-qty-wrap');
   var pf = el('ps-create-private-lesson-fields');
-  if (cf) cf.style.display = courseOn ? '' : 'none';
+  // Course pick is the Main activity drill-down list — never show legacy dropdown.
+  if (cf) {
+    cf.style.display = 'none'; cf.hidden = true;
+    try { cf.setAttribute('aria-hidden', 'true'); } catch (_cf) { /* ignore */ }
+  }
   // Course duration derived from top dates — never expose selector.
   if (ct) {
     ct.style.display = 'none'; ct.hidden = true;
@@ -21975,7 +22012,18 @@ function schedulePopulateCreateComponentFields(){
     qtyWrap.style.display = 'none'; qtyWrap.hidden = true;
     try { qtyWrap.setAttribute('aria-hidden', 'true'); } catch (_c) { /* ignore */ }
   }
-  if (courseOn) schedulePopulateCreateCourseFields();
+  if (courseOn) {
+    if (typeof schedulePortalEnterGroupCourseDrilldown === 'function'
+      && typeof schedulePortalIsGroupCourseDrilldown === 'function'
+      && !schedulePortalIsGroupCourseDrilldown()) {
+      schedulePortalEnterGroupCourseDrilldown();
+    }
+    schedulePopulateCreateCourseFields();
+  } else if (typeof schedulePortalIsGroupCourseDrilldown === 'function'
+    && schedulePortalIsGroupCourseDrilldown()
+    && typeof schedulePortalExitGroupCourseDrilldown === 'function') {
+    schedulePortalExitGroupCourseDrilldown({ clearCourse: true, restoreRootOnly: true });
+  }
   if (privateOn) {
     scheduleFetchLessonTimesConfig(getClient()).then(function(){
       scheduleSyncPrivateLessonSessions();
@@ -24267,6 +24315,18 @@ function wireScheduleControls(){
       node.addEventListener('change', function(){ scheduleOnCreateComponentChange(id); });
     }
   });
+  var mainActBack = el('ps-create-main-activity-back');
+  if (mainActBack && !mainActBack.dataset.wired) {
+    mainActBack.dataset.wired = '1';
+    mainActBack.addEventListener('click', function(){
+      if (typeof schedulePortalExitGroupCourseDrilldown === 'function') {
+        schedulePortalExitGroupCourseDrilldown({ clearCourse: true });
+      }
+      if (typeof schedulePopulateCreateComponentFields === 'function') schedulePopulateCreateComponentFields();
+      if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
+      else if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
+    });
+  }
   var fulldayToggle = el('ps-create-comp-fullday');
   if (fulldayToggle && !fulldayToggle.dataset.wired){
     fulldayToggle.dataset.wired = '1';

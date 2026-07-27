@@ -358,6 +358,7 @@ module.exports = {
   'schedule.create.cancel': 'Cancelar',
   'schedule.create.components': 'Componentes',
   'schedule.create.mainActivity': 'Actividad principal',
+  'schedule.create.mainActivityBack': 'Atrás',
   'schedule.create.emptyNoLessonNoGear': 'Elige una clase o añade material — aún no es una reserva válida.',
   'schedule.create.summary.chooseLessonOrGear': 'Elige una clase o añade material',
   'schedule.create.summary.completeSessions': 'Completa los detalles de las sesiones',
