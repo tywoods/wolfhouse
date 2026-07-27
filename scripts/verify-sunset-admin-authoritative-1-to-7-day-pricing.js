@@ -298,17 +298,19 @@ function loadCommercialHelper() {
 
 function renderBookingCardWithPeers(items) {
   const src = loadViewUiSource();
+  const invoiceFn = src.match(/function scheduleRenderSunsetInvoiceCardHtml[\s\S]*?\nfunction /)
+    || src.match(/function scheduleRenderSunsetBookingCardHtml[\s\S]*?\nfunction /);
   assert(
     'view UI omits Included peer labeling',
-    !/includedInBundle/.test(src.match(/function scheduleRenderSunsetBookingCardHtml[\s\S]*?\nfunction /)[0]
-      || '') || !/ps-day-amt-included/.test(src),
-    'expected no Included peer amount markup in booking card',
+    !/includedInBundle/.test((invoiceFn && invoiceFn[0]) || '') || !/ps-day-amt-included/.test(src),
+    'expected no Included peer amount markup in invoice/booking card',
   );
-  // Structural: hidden peers are filtered, not labeled.
+  // Structural: hidden peers are filtered via commercial helper, not labeled "Included".
   assert(
-    'booking card skips hidden peer rows',
-    /hidden\[li\.service_record_id\]/.test(src)
-      && /Inventory\/zeroed peer|omit entirely|not commercial/i.test(src),
+    'invoice commercial path hides zero peers (not Included labels)',
+    /function scheduleDrawerBuildCommercialLines/.test(src)
+      && (/hiddenIds|hidden_ids/.test(src))
+      && !/ps-day-amt-included/.test(src),
   );
   return items;
 }

@@ -200,12 +200,69 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode) {
         AND status = 'paid'::payment_record_status`,
     [booking.booking_id],
   );
+  // Presentation-safe ledger rows: only successful paid payments (exclude unpaid/cancelled/expired/checkout).
+  const paidRowsRes = await pg.query(
+    `SELECT id::text AS payment_id, status::text AS payment_status,
+            amount_paid_cents, paid_at, created_at, metadata
+       FROM payments
+      WHERE booking_id = $1::uuid
+        AND status = 'paid'::payment_record_status
+      ORDER BY COALESCE(paid_at, created_at) ASC, id ASC`,
+    [booking.booking_id],
+  );
   const payments_paid_cents = Number(paidSumRes.rows[0]?.paid_total || 0);
   return {
     booking,
     services: svcRes.rows,
     payment_link: payRes.rows[0] || null,
     payments_paid_cents,
+    paid_payment_rows: paidRowsRes.rows || [],
+  };
+}
+
+/**
+ * Tenant-safe presentation ledger of successful payments only.
+ * Returns positive amount_cents rows + remainder when detailed rows do not sum to aggregate paid.
+ */
+function buildPaidPaymentLedger(paidRows, paidCentsAggregate) {
+  const rows = [];
+  (Array.isArray(paidRows) ? paidRows : []).forEach((r) => {
+    if (!r) return;
+    const status = String(r.payment_status || r.status || '').toLowerCase();
+    if (status !== 'paid') return;
+    const amount = Math.round(Number(r.amount_paid_cents != null ? r.amount_paid_cents : r.amount_cents) || 0);
+    if (!(amount > 0)) return;
+    const meta = parseMeta(r.metadata);
+    const methodRaw = String(
+      meta.method || meta.payment_method || r.method || '',
+    ).toLowerCase().trim();
+    let method = methodRaw;
+    if (method === 'cash' || method === 'staff_cash' || method === 'staff_in_store') method = 'in_store';
+    if (method === 'staff_bank_transfer') method = 'bank_transfer';
+    if (method === 'card' || method === 'stripe' || method === 'payment_link') method = 'link';
+    if (!method) {
+      const src = String(meta.source || '').toLowerCase();
+      if (src.includes('bank')) method = 'bank_transfer';
+      else if (src.includes('stripe') || src.includes('link') || src.includes('checkout')) method = 'link';
+      else if (src.includes('cash') || src.includes('store') || src.includes('in_store')) method = 'in_store';
+      else method = 'other';
+    }
+    const kind = (method === 'link') ? 'card' : 'manual';
+    rows.push({
+      payment_id: r.payment_id || r.id || null,
+      amount_cents: amount,
+      method,
+      kind,
+      paid_at: r.paid_at || null,
+    });
+  });
+  const detailed_sum_cents = rows.reduce((s, row) => s + Number(row.amount_cents || 0), 0);
+  const aggregate = Math.max(0, Math.round(Number(paidCentsAggregate) || 0));
+  const remainder_cents = aggregate > detailed_sum_cents ? (aggregate - detailed_sum_cents) : 0;
+  return {
+    rows,
+    detailed_sum_cents,
+    remainder_cents,
   };
 }
 
@@ -325,7 +382,31 @@ function readAuthoritativeBalanceDueCents(booking) {
   return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
 }
 
-function buildPaymentSummary(prices, booking, services, adminSource, paymentsPaidCents, adminCfg) {
+function resolveUnitAmountCentsFromMeta(srMeta, bookingMeta, lineCents, qty) {
+  const direct = srMeta && srMeta.unit_amount_cents != null ? Number(srMeta.unit_amount_cents) : null;
+  if (Number.isFinite(direct) && direct >= 0) return Math.round(direct);
+  const quoteLines = Array.isArray(bookingMeta && bookingMeta.quote_line_items)
+    ? bookingMeta.quote_line_items : [];
+  if (quoteLines.length) {
+    const component = String((srMeta && srMeta.component) || '').toLowerCase();
+    const offeringKey = String((srMeta && srMeta.offering_key) || '').toLowerCase();
+    const match = quoteLines.find((ql) => {
+      if (!ql) return false;
+      const qc = String(ql.component || '').toLowerCase();
+      const qoff = String(ql.offering_id || ql.offering_item_code || ql.offering_key || '').toLowerCase();
+      if (component && qc && component === qc) return true;
+      if (offeringKey && qoff && qoff.indexOf(offeringKey) >= 0) return true;
+      return false;
+    });
+    if (match && match.unit_amount_cents != null) {
+      const u = Number(match.unit_amount_cents);
+      if (Number.isFinite(u) && u >= 0) return Math.round(u);
+    }
+  }
+  return null;
+}
+
+function buildPaymentSummary(prices, booking, services, adminSource, paymentsPaidCents, adminCfg, opts) {
   const bookingMeta = parseMeta(booking && booking.metadata);
   const rentalPricing = parseRentalPricingMeta(bookingMeta);
   const lineItems = [];
@@ -349,6 +430,7 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
     lineSumCents += lineCents;
     const qty = Number(sr.quantity) || 1;
     const srMeta = parseMeta(sr.metadata);
+    const unitAmountCents = resolveUnitAmountCentsFromMeta(srMeta, bookingMeta, lineCents, qty);
     lineItems.push({
       service_record_id: sr.service_record_id,
       service_type: sr.service_type,
@@ -357,6 +439,7 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
       unit_cents: (usedLive || persisted != null) && qty
         ? Math.round(lineCents / qty)
         : null,
+      unit_amount_cents: unitAmountCents,
       line_cents: lineCents,
       label: lineItemLabel(sr.service_type, sr.quantity, sr.service_date, sr.slot_time, sr),
       priced_live: usedLive,
@@ -382,6 +465,11 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
   const balanceDue = uiStatus === 'paid'
     ? 0
     : (storedBalance != null ? storedBalance : Math.max(subtotalCents - paidCents, 0));
+  const paidRows = (opts && opts.paid_rows)
+    || (opts && opts.paid_payment_rows)
+    || [];
+  const ledger = buildPaidPaymentLedger(paidRows, paidCents);
+  const refundCreditCents = Math.max(0, paidCents - subtotalCents);
   return {
     line_items: lineItems,
     subtotal_cents: subtotalCents,
@@ -389,6 +477,9 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
     paid_cents: paidCents,
     balance_due_cents: balanceDue,
     payment_status: uiStatus,
+    paid_payments: ledger.rows,
+    paid_ledger_remainder_cents: ledger.remainder_cents,
+    refund_credit_cents: refundCreditCents,
     price_source: adminSource || bookingMeta.sunset_price_source || 'config',
     live_pricing: lineItems.some((li) => li.priced_live), rental_pricing: rentalPricing || null,
     pricing_note: bookingTotal != null
@@ -488,6 +579,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
     adminCfg.source,
     bundle.payments_paid_cents,
     adminCfg,
+    { paid_rows: bundle.paid_payment_rows || [] },
   );
 
   let stripeLink = null;
@@ -1176,6 +1268,7 @@ module.exports = {
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,
   buildPaymentSummary,
+  buildPaidPaymentLedger,
   deriveDrawerPaymentUiStatus,
   aggregateComponentsFromServices,
   normalizePaymentMethod,

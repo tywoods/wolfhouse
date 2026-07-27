@@ -16451,8 +16451,18 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-drawer #ps-drawer-manual-pay .portal-schedule-manual-pay-note input,
 .portal-schedule-drawer #ps-drawer-manual-pay select{background:var(--surface-soft);border-color:var(--border-soft);font-size:12px}
 .portal-schedule-drawer #ps-drawer-manual-pay .btn{font-size:12px;padding:6px 12px}
-/* ── Redesigned Sunset booking drawer (money-first, one card per question) ── */
-.portal-schedule-drawer .ps-money-card{margin-bottom:18px}
+/* ── Redesigned Sunset booking drawer (unified invoice card) ── */
+.portal-schedule-drawer .ps-money-card,.portal-schedule-drawer .ps-invoice-card{margin-bottom:18px}
+.ps-invoice-card{position:relative}
+.ps-invoice-header{margin-bottom:4px}
+.ps-invoice-lines{margin:0 0 8px}
+.ps-invoice-totals{margin:10px 0 12px;padding-top:8px;border-top:1px solid var(--border-soft)}
+.ps-invoice-total-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:6px 0}
+.ps-invoice-balance{font-weight:700}
+.ps-invoice-balance.is-due .ctx-inv-total-amount,.ps-invoice-balance.is-due .ps-invoice-amt{color:#9C5742}
+.ps-invoice-balance.is-paid .ctx-inv-total-amount,.ps-invoice-balance.is-refund .ctx-inv-total-amount{color:#3F6B4F}
+.ps-invoice-credit .ctx-inv-total-amount{color:#3F6B4F;font-weight:600}
+.ps-invoice-amt,.ps-svc-amt{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .ps-money-headline{font-size:23px;font-weight:700;letter-spacing:-.015em;line-height:1.1;margin:0 0 2px}
 .ps-money-headline.is-due{color:#B4534A}
 .ps-money-headline.is-partial{color:#9C5742}
@@ -16476,21 +16486,26 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .ps-overflow-row .btn{flex:1 1 auto;font-size:12px;padding:6px 8px;white-space:nowrap}
 .ps-overflow-actions{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 .ps-drawer-details{margin-top:10px}
-.ps-drawer-details>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--text-2);list-style:none;display:inline-flex;align-items:center;gap:6px;user-select:none;padding:2px 0}
+.ps-drawer-details>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--text-2);list-style:none;display:inline-flex;align-items:center;gap:6px;user-select:none;padding:2px 0;min-height:44px}
 .ps-drawer-details>summary::-webkit-details-marker{display:none}
 .ps-drawer-details>summary::before{content:"\\25B8";font-size:10px;color:var(--text-3);transition:transform .15s}
 .ps-drawer-details[open]>summary::before{transform:rotate(90deg)}
 .ps-drawer-details>summary:hover{color:var(--text)}
 .ps-svc-summary-row{display:flex;justify-content:space-between;gap:10px;align-items:baseline;padding:5px 0;font-size:13px}
 .ps-svc-summary-row+.ps-svc-summary-row{border-top:1px solid var(--border-soft)}
-.ps-svc-name{color:var(--text);font-weight:600}
+.ps-svc-name{color:var(--text);font-weight:600;min-width:0;overflow-wrap:anywhere}
 .ps-svc-detail{color:var(--text-3);font-weight:400;font-size:12px}
-.ps-svc-amt{color:var(--text);font-weight:700;white-space:nowrap}
+.ps-svc-amt{color:var(--text);font-weight:700;white-space:nowrap;flex:0 0 auto}
 .ps-day-group{margin-top:8px}
 .ps-day-group:first-child{margin-top:2px}
 .ps-day-header{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin:8px 0 3px}
 .ps-day-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:2px 0;color:var(--text)}
 .ps-day-amt{color:var(--text-2);white-space:nowrap}
+.portal-schedule-drawer #ps-drawer-manual-submit,.portal-schedule-drawer #ps-drawer-stripe-link,.portal-schedule-drawer #ps-drawer-stripe-copy,.portal-schedule-drawer #ps-drawer-stripe-delete{min-height:44px}
+@media(max-width:420px){
+  .portal-schedule-drawer .ps-invoice-card,.portal-schedule-drawer .ps-svc-summary-row,.portal-schedule-drawer .ps-invoice-total-row{max-width:100%}
+  .portal-schedule-drawer .ps-invoice-amt,.portal-schedule-drawer .ps-svc-amt{text-align:right}
+}
 .ps-reg-progress{height:6px;border-radius:999px;background:var(--border-soft);overflow:hidden;margin:2px 0 8px}
 .ps-reg-progress-bar{height:100%;background:#7DA896;border-radius:999px;transition:width .2s}
 .ps-reg-progress-bar.is-complete{background:#5C7350}
