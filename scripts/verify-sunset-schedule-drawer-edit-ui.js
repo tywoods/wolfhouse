@@ -92,7 +92,7 @@ function portalT(key) {
     'schedule.create.surferCount': 'Surfers',
     'schedule.create.boardQty': 'Boards',
     'schedule.create.wetsuitQty': 'Wetsuits',
-    'schedule.create.rentalQty': 'Quantity',
+    'schedule.create.rentalQty': 'Surfers',
     'schedule.drawer.save': 'Save changes',
     'schedule.drawer.cancel': 'Cancel',
     'schedule.drawer.editTitle': 'Edit booking',
@@ -506,6 +506,18 @@ if (editExists) {
     scheduleDrawerSaveInFlight: false,
     scheduleDrawerPriceStale: false,
     scheduleDrawerValidationState: { ok: true },
+    scheduleDrawerQuoteState: null,
+    scheduleDrawerQuoteGen: 0,
+    scheduleDrawerQuoteAbort: null,
+    scheduleDrawerQuoteTimer: null,
+    scheduleDrawerQuoteDebounceMs: 0,
+    setTimeout: (fn) => { try { fn(); } catch (_e) { /* ignore async quote in offline harness */ } return 0; },
+    clearTimeout: () => {},
+    fetch: () => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ success: true, total_cents: 0 }),
+    }),
     scheduleLastDrawerRowId: null,
     scheduleCoursesCache: [{ course_id: 'c1', label: 'Beginner', price_tiers: realTiers() }],
     scheduleAdminPricesCache: [
@@ -579,7 +591,7 @@ if (editExists) {
   vm.createContext(ctx);
   vm.runInContext(`function escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}`, ctx);
   vm.runInContext(`function portalT(k){return (${portalT.toString()})(k);}`, ctx);
-  vm.runInContext('var scheduleDrawerSaveInFlight = false; var scheduleDrawerPriceStale = false; var scheduleDrawerValidationState = { ok: true };', ctx);
+  vm.runInContext('var scheduleDrawerSaveInFlight = false; var scheduleDrawerPriceStale = false; var scheduleDrawerValidationState = { ok: true }; var scheduleDrawerCustomLines = []; var scheduleDrawerCustomLineSeq = 0; var scheduleDrawerCustomLineEditorOpen = false; var scheduleDrawerQuoteState = null; var scheduleDrawerQuoteGen = 0; var scheduleDrawerQuoteAbort = null; var scheduleDrawerQuoteTimer = null; var scheduleDrawerQuoteDebounceMs = 0;', ctx);
 
   // Inject pure helpers from portal + rental + commercial view.
   [
@@ -654,9 +666,20 @@ if (editExists) {
     'scheduleDrawerRefreshDurationConfirm',
     'scheduleDrawerRefreshWhenSummary',
     'scheduleDrawerMarkPriceStale',
+    'scheduleDrawerReadSurferCount',
+    'scheduleDrawerIsCombinedBoardWetsuit',
+    'scheduleDrawerQuotePricingIntentKey',
+    'scheduleDrawerClearQuotePreviewUi',
+    'scheduleDrawerShowQuoteChecking',
+    'scheduleDrawerDropStaleQuoteUi',
+    'scheduleDrawerRenderQuotePreview',
+    'scheduleDrawerHumanCourseBit',
+    'scheduleDrawerRenderIntentSummary',
+    'scheduleDrawerRefreshQuote',
     'scheduleDrawerValidateEditPayload',
     'scheduleDrawerHumanSaveError',
     'scheduleDrawerSyncFooter',
+    'scheduleDrawerResetQuoteRuntime',
     'scheduleEnterDrawerEditMode',
     'scheduleCancelDrawerEditMode',
     'scheduleSaveDrawerBooking',

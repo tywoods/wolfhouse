@@ -16698,13 +16698,16 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-summary-placeholder,.portal-schedule-create-summary-text{color:var(--text-3)}
 .portal-schedule-create-footer .portal-schedule-create-actions{margin-top:0;display:flex;gap:10px;flex-wrap:nowrap;align-items:stretch;flex:0 0 auto;position:relative;min-width:0}
 .portal-schedule-create-footer .portal-schedule-create-actions .btn{flex:1 1 0;min-width:0;min-height:44px;padding:10px 14px}
-.portal-schedule-create-footer #ps-create-quote-preview{margin-bottom:0;flex:0 0 auto;min-width:0;max-height:3.2em;overflow:hidden;color:var(--text);font-size:13px;font-weight:600;line-height:1.35}
-.portal-schedule-create-footer #ps-create-quote-preview.portal-schedule-create-field{margin-bottom:0}
+.portal-schedule-create-footer #ps-create-quote-preview,
+.portal-schedule-create-footer #ps-drawer-quote-preview{margin-bottom:0;flex:0 0 auto;min-width:0;max-height:3.2em;overflow:hidden;color:var(--text);font-size:13px;font-weight:600;line-height:1.35}
+.portal-schedule-create-footer #ps-create-quote-preview.portal-schedule-create-field,
+.portal-schedule-create-footer #ps-drawer-quote-preview.portal-schedule-create-field{margin-bottom:0}
 @media(max-width:640px){
   .portal-schedule-create-footer{gap:8px;padding:10px 14px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
   .portal-schedule-create-summary{max-height:4.6em;gap:3px}
   .portal-schedule-create-summary-primary,.portal-schedule-create-summary-secondary{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2}
-  .portal-schedule-create-footer #ps-create-quote-preview{max-height:none;overflow:visible}
+  .portal-schedule-create-footer #ps-create-quote-preview,
+  .portal-schedule-create-footer #ps-drawer-quote-preview{max-height:none;overflow:visible}
   .portal-schedule-create-footer .portal-schedule-create-actions{flex-wrap:nowrap;gap:8px}
   .portal-schedule-create-footer .portal-schedule-create-actions .btn{flex:1 1 0;min-width:0;min-height:44px}
 }
@@ -22637,7 +22640,7 @@ function scheduleRenderCreateRentals(){
     var qtyHtml = '';
     if (!noLesson) {
       qtyHtml = '<div class="portal-schedule-create-rental-qty"' + (checked ? '' : ' style="display:none"') + '>'
-        + '<label><span data-i18n="schedule.create.rentalQty">Quantity</span>'
+        + '<label><span data-i18n="schedule.create.rentalQty">Surfers</span>'
         + '<input type="number" min="1" max="99" class="ps-create-rental-qty-input" data-qty-owner="'
         + escHtml(owner) + '" value="' + escHtml(String(qty)) + '"></label>'
         + '</div>';
