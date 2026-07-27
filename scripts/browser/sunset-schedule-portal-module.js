@@ -102,6 +102,67 @@ function schedulePortalCreateIntentKey(payload) {
   });
 }
 
+/**
+ * Pricing-relevant fingerprint for quote display/state binding.
+ * Guest name/phone do not affect Admin totals; dates + rentals + components +
+ * surfer_count + custom lines + location do. Stale €40 must not sit beside a
+ * 5-day summary that came from a different payload.
+ */
+function schedulePortalQuotePricingIntentKey(payload) {
+  var p = payload || {};
+  var comps = p.components || {};
+  var ordered = {};
+  Object.keys(comps).sort().forEach(function(k) { ordered[k] = comps[k]; });
+  var custom = Array.isArray(p.custom_line_items) ? p.custom_line_items.map(function(l) {
+    return {
+      client_line_id: String((l && l.client_line_id) || ''),
+      label: String((l && l.label) || ''),
+      amount_cents: Number(l && l.amount_cents),
+    };
+  }).sort(function(a, b) { return a.client_line_id.localeCompare(b.client_line_id); }) : [];
+  var sc = p.surfer_count;
+  if (sc != null && sc !== '') {
+    sc = Number(sc);
+    if (!Number.isFinite(sc)) sc = null;
+  } else {
+    sc = null;
+  }
+  return JSON.stringify({
+    date_from: p.date_from || null,
+    date_to: p.date_to || null,
+    components: ordered,
+    rentals: schedulePortalNormalizeRentalsIntent(p.rentals),
+    custom_line_items: custom,
+    surfer_count: sc,
+    location_id: typeof getSunsetLocation === 'function' ? getSunsetLocation() : null,
+  });
+}
+
+/** True when quote state was produced for the same pricing intent as payload. */
+function schedulePortalQuoteMatchesPricingIntent(payload) {
+  if (!schedulePortalQuoteState || schedulePortalQuoteState.intent_key == null) return false;
+  var key = schedulePortalQuotePricingIntentKey(payload || {});
+  return schedulePortalQuoteState.intent_key === key;
+}
+
+/**
+ * Drop quote state + € display when pricing intent drifted (date/surfer/rental).
+ * Leaves "Checking price…" alone so in-flight requote UI is preserved.
+ */
+function schedulePortalDropStaleQuoteUi(payload) {
+  if (schedulePortalQuoteMatchesPricingIntent(payload)) return false;
+  schedulePortalQuoteState = null;
+  var box = el('ps-create-quote-preview');
+  if (!box) return true;
+  var html = String(box.innerHTML || '');
+  if (/portal-schedule-quote-checking|checkingPrice|Checking price/i.test(html)) return true;
+  if (/€\d|Quoted total|quoteTotal/i.test(html)) {
+    box.innerHTML = '';
+    box.style.display = 'none';
+  }
+  return true;
+}
+
 function schedulePortalEnsureIdempotencyKey(payload) {
   var intent = schedulePortalCreateIntentKey(payload);
   if (!schedulePortalSubmitIdemKey || schedulePortalSubmitIdemIntent !== intent) {
@@ -321,6 +382,9 @@ function schedulePortalFetchQuote(createPayload, opts) {
     // Staff commercial adjustments — server revalidates signed cents; never Admin course/rental prices.
     custom_line_items: Array.isArray(createPayload.custom_line_items) ? createPayload.custom_line_items : [],
   };
+  var intentKey = typeof schedulePortalQuotePricingIntentKey === 'function'
+    ? schedulePortalQuotePricingIntentKey(createPayload)
+    : null;
   var myGen = opts.gen != null ? Number(opts.gen) : schedulePortalQuoteGen;
   var applyState = opts.applyState !== false;
   var fetchOpts = {
@@ -355,10 +419,28 @@ function schedulePortalFetchQuote(createPayload, opts) {
       if (applyState && myGen === schedulePortalQuoteGen) schedulePortalQuoteState = null;
       return { ok: false, error: 'invalid_quote_total', body: data };
     }
-    if (applyState && myGen === schedulePortalQuoteGen) {
-      schedulePortalQuoteState = { quote_provenance: data.quote_provenance || null, total_cents: totalCents, fetched_at: Date.now(), gen: myGen };
+    // Reject apply when pricing intent already drifted (date/surfer/rental changed mid-flight).
+    var liveKey = typeof schedulePortalQuotePricingIntentKey === 'function'
+      && typeof scheduleReadCreatePayload === 'function'
+      ? (function() {
+        try { return schedulePortalQuotePricingIntentKey(scheduleReadCreatePayload()); }
+        catch (_i) { return intentKey; }
+      }())
+      : intentKey;
+    if (intentKey != null && liveKey != null && intentKey !== liveKey) {
+      if (applyState && myGen === schedulePortalQuoteGen) schedulePortalQuoteState = null;
+      return { ok: false, superseded: true, error: 'intent_stale', body: data };
     }
-    return { ok: true, body: data, gen: myGen };
+    if (applyState && myGen === schedulePortalQuoteGen) {
+      schedulePortalQuoteState = {
+        quote_provenance: data.quote_provenance || null,
+        total_cents: totalCents,
+        fetched_at: Date.now(),
+        gen: myGen,
+        intent_key: intentKey,
+      };
+    }
+    return { ok: true, body: data, gen: myGen, intent_key: intentKey };
   }).catch(function(err) {
     if (myGen !== schedulePortalQuoteGen) {
       return { ok: false, superseded: true, error: 'superseded' };
@@ -617,6 +699,22 @@ function schedulePortalRenderCreateQuotePreview(result) {
     box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">' + escHtml(String(err)) + '</p>';
     box.style.display = 'block'; return;
   }
+  // Never paint a total whose pricing intent no longer matches the live Create form.
+  if (result.intent_key != null || (schedulePortalQuoteState && schedulePortalQuoteState.intent_key != null)) {
+    var livePayload = null;
+    try { livePayload = typeof scheduleReadCreatePayload === 'function' ? scheduleReadCreatePayload() : null; } catch (_lp) { livePayload = null; }
+    var liveIntent = typeof schedulePortalQuotePricingIntentKey === 'function' && livePayload
+      ? schedulePortalQuotePricingIntentKey(livePayload) : null;
+    var resultIntent = result.intent_key != null
+      ? result.intent_key
+      : (schedulePortalQuoteState && schedulePortalQuoteState.intent_key);
+    if (liveIntent != null && resultIntent != null && liveIntent !== resultIntent) {
+      schedulePortalQuoteState = null;
+      box.innerHTML = '';
+      box.style.display = 'none';
+      return;
+    }
+  }
   var raw = typeof schedulePortalStrictQuoteTotalCents === 'function' ? schedulePortalStrictQuoteTotalCents(result.body) : (result.body && result.body.total_cents);
   if (raw == null || (typeof schedulePortalStrictQuoteTotalCents !== 'function' && (typeof raw !== 'number' || !Number.isFinite(raw) || Math.floor(raw) !== raw || raw < 0 || raw > Number.MAX_SAFE_INTEGER))) {
     box.innerHTML = '<p class="portal-schedule-drawer-hint" style="margin:0;color:var(--danger,#b33)">'
@@ -738,7 +836,11 @@ function schedulePortalSyncCreateSubmitEnabled() {
 
 function schedulePortalSyncCreateFooter(opts) {
   opts = opts || {};
-  schedulePortalRenderCreateIntentSummary();
+  var payload = null;
+  try { payload = typeof scheduleReadCreatePayload === 'function' ? scheduleReadCreatePayload() : null; } catch (_p) { payload = null; }
+  schedulePortalRenderCreateIntentSummary(payload);
+  // Drop stale € totals before painting summary for a new date/rental intent.
+  if (typeof schedulePortalDropStaleQuoteUi === 'function') schedulePortalDropStaleQuoteUi(payload);
   schedulePortalSyncCreateSubmitEnabled();
   if (opts.quote === false) return;
   if (typeof schedulePortalRefreshCreateQuote === 'function') schedulePortalRefreshCreateQuote();
@@ -858,6 +960,9 @@ function schedulePortalRefreshCreateQuote() {
     schedulePortalQuoteAbort = null;
   }
   schedulePortalQuoteGen += 1;
+  // Invalidate prior total immediately so a 1-day €40 cannot linger beside a
+  // multi-day summary while the debounced requote is in flight.
+  schedulePortalQuoteState = null;
   schedulePortalShowQuoteChecking();
   var wait = Number(schedulePortalQuoteDebounceMs);
   if (!(wait >= 300 && wait <= 500)) wait = 400;
