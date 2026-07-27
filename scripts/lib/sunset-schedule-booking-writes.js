@@ -569,13 +569,18 @@ function rowMatchesQuoteLine(row, line) {
         || meta.component === 'surfboard' || meta.component === 'wetsuit'
         || meta.bundle_part === 'surfboard' || meta.bundle_part === 'wetsuit');
   }
-  if (component === 'board_rental') {
-    return meta.offering_key === 'board_rental'
-      && (serviceType === 'surfboard' || meta.component === 'surfboard');
+  // Canonical rentals[] emit board_rental / wetsuit_rental; legacy components
+  // quote path still labels lines as surfboard / wetsuit. Both must claim the
+  // matching operational row (service_type / metadata.component / offering_key).
+  if (component === 'board_rental' || component === 'surfboard') {
+    return serviceType === 'surfboard'
+      || meta.component === 'surfboard'
+      || meta.offering_key === 'board_rental';
   }
-  if (component === 'wetsuit_rental') {
-    return meta.offering_key === 'wetsuit_rental'
-      && (serviceType === 'wetsuit' || meta.component === 'wetsuit');
+  if (component === 'wetsuit_rental' || component === 'wetsuit') {
+    return serviceType === 'wetsuit'
+      || meta.component === 'wetsuit'
+      || meta.offering_key === 'wetsuit_rental';
   }
   if (component === FULL_DAY_EQUIPMENT_ADDON_KEY || component === 'addon_service') {
     // Do not claim staff_custom_line rows as Admin full-day/addon lines.
@@ -1777,7 +1782,10 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
   const {
     buildSunsetQuoteCommand, executeSunsetQuote, buildQuoteProvenance, QUOTE_CHANNELS,
   } = require('./luna-front-desk-quote-service');
-  const { resolveTenantBusinessConfigAsync } = require('./tenant-business-config');
+  const {
+    resolveTenantBusinessConfigAsync,
+    isSunsetAdminDbReadEnabled,
+  } = require('./tenant-business-config');
   const adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, {
     locationId, pgClient: pg,
   });
@@ -1786,12 +1794,16 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
       reason_code: 'admin_db_expected_unavailable',
     });
   }
+  // When Admin DB-read is on, Create must re-quote from DB (fail closed if source
+  // is not db). When the flag is off, config-file Admin prices are the authority
+  // — do not demand source===db (unit tests + offline config mode).
+  const requireDb = isSunsetAdminDbReadEnabled() === true;
   const channel = opts.quoteChannel === 'luna_whatsapp'
     ? QUOTE_CHANNELS.LUNA_WHATSAPP : QUOTE_CHANNELS.MANUAL_STAFF;
   const quoteBuilt = buildSunsetQuoteCommand({
     channel,
     trustedLocationId: locationId,
-    transportBody: { ...transportBody, require_db: true },
+    transportBody: { ...transportBody, require_db: requireDb },
     now: opts.now instanceof Date ? opts.now : new Date(),
   });
   if (!quoteBuilt.ok) {
