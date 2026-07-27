@@ -34,6 +34,149 @@ const DB_SOURCE = 'staff_manual';
 const LUNA_DB_SOURCE = 'luna_guest';
 const LUNA_METADATA_SOURCE_TAG = 'luna_guest_whatsapp';
 
+/** Staff-authored commercial adjustment (not Admin catalog price). */
+const STAFF_CUSTOM_LINE_SOURCE = 'staff_custom_line';
+const STAFF_CUSTOM_LINE_COMPONENT = 'staff_custom_line';
+const STAFF_CUSTOM_LINE_MAX = 20;
+const STAFF_CUSTOM_LINE_LABEL_MAX = 120;
+const STAFF_CUSTOM_LINE_ID_MAX = 64;
+const STAFF_CUSTOM_LINE_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+/**
+ * Locale-safe money → integer cents. Accepts "12.50", "12,50", "1.234,56",
+ * "-5", "0", "+0". Max 2 fraction digits. Rejects NaN/overflow/>2 decimals.
+ * Normalizes -0 to 0.
+ */
+function parseLocaleMoneyToCents(raw) {
+  if (raw == null) return { ok: false, error: 'amount_required' };
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw)) return { ok: false, error: 'amount_nan' };
+    if (!Number.isInteger(raw)) return { ok: false, error: 'amount_not_integer_cents' };
+    if (Math.abs(raw) > Number.MAX_SAFE_INTEGER) return { ok: false, error: 'amount_overflow' };
+    return { ok: true, amount_cents: raw === 0 || Object.is(raw, -0) ? 0 : raw };
+  }
+  let s = String(raw).trim();
+  if (!s) return { ok: false, error: 'amount_required' };
+  s = s.replace(/[€$£\u00a0\s]/g, '');
+  let neg = false;
+  if (s.charAt(0) === '-') { neg = true; s = s.slice(1); }
+  else if (s.charAt(0) === '+') { s = s.slice(1); }
+  if (!s) return { ok: false, error: 'amount_required' };
+  // Last separator is decimal when both present; single comma with ≤2 trailing digits is decimal.
+  const lastDot = s.lastIndexOf('.');
+  const lastComma = s.lastIndexOf(',');
+  let normalized = s;
+  if (lastDot >= 0 && lastComma >= 0) {
+    if (lastComma > lastDot) {
+      // 1.234,56
+      normalized = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      // 1,234.56
+      normalized = s.replace(/,/g, '');
+    }
+  } else if (lastComma >= 0) {
+    const frac = s.slice(lastComma + 1);
+    if (/^\d{1,2}$/.test(frac) && s.indexOf(',') === lastComma) {
+      normalized = s.replace(',', '.');
+    } else {
+      normalized = s.replace(/,/g, '');
+    }
+  }
+  if (!/^\d+(\.\d+)?$/.test(normalized)) return { ok: false, error: 'amount_invalid' };
+  const parts = normalized.split('.');
+  if (parts[1] != null && parts[1].length > 2) return { ok: false, error: 'amount_too_many_decimals' };
+  const whole = parts[0] || '0';
+  const frac = ((parts[1] || '') + '00').slice(0, 2);
+  // Build cents without floating point.
+  let cents;
+  try {
+    const wholeN = BigInt(whole);
+    const fracN = BigInt(frac);
+    let total = wholeN * 100n + fracN;
+    if (neg) total = -total;
+    if (total > BigInt(Number.MAX_SAFE_INTEGER) || total < BigInt(Number.MIN_SAFE_INTEGER)) {
+      return { ok: false, error: 'amount_overflow' };
+    }
+    cents = Number(total);
+  } catch (_) {
+    return { ok: false, error: 'amount_invalid' };
+  }
+  if (!Number.isFinite(cents) || !Number.isInteger(cents)) return { ok: false, error: 'amount_nan' };
+  if (cents === 0 || Object.is(cents, -0)) cents = 0;
+  return { ok: true, amount_cents: cents };
+}
+
+/**
+ * Normalize staff custom commercial adjustments.
+ * Shape: [{ client_line_id, label, amount_cents }]. Not Admin catalog prices.
+ * Negative = discount. Zero allowed. Aggregate bound enforced at quote (total ≥ 0).
+ * amount_cents revalidated via parseLocaleMoneyToCents (integer or locale decimal string).
+ */
+function normalizeCustomLineItems(raw) {
+  if (raw == null || raw === '') return { ok: true, value: [] };
+  if (!Array.isArray(raw)) return { ok: false, error: 'custom_line_items must be an array' };
+  if (raw.length > STAFF_CUSTOM_LINE_MAX) {
+    return { ok: false, error: `custom_line_items max ${STAFF_CUSTOM_LINE_MAX}` };
+  }
+  const seen = new Set();
+  const out = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    const row = raw[i];
+    if (!row || typeof row !== 'object') {
+      return { ok: false, error: `custom_line_items[${i}] must be an object` };
+    }
+    const clientLineId = String(row.client_line_id != null ? row.client_line_id : '').trim();
+    if (!clientLineId || clientLineId.length > STAFF_CUSTOM_LINE_ID_MAX || !STAFF_CUSTOM_LINE_ID_RE.test(clientLineId)) {
+      return { ok: false, error: `custom_line_items[${i}].client_line_id invalid` };
+    }
+    if (seen.has(clientLineId)) {
+      return { ok: false, error: `custom_line_items duplicate client_line_id: ${clientLineId}` };
+    }
+    seen.add(clientLineId);
+    const label = String(row.label != null ? row.label : '').trim();
+    if (!label) return { ok: false, error: `custom_line_items[${i}].label is required` };
+    if (label.length > STAFF_CUSTOM_LINE_LABEL_MAX) {
+      return { ok: false, error: `custom_line_items[${i}].label max ${STAFF_CUSTOM_LINE_LABEL_MAX} chars` };
+    }
+    const parsed = parseLocaleMoneyToCents(row.amount_cents);
+    if (!parsed.ok) {
+      return { ok: false, error: `custom_line_items[${i}].amount_cents ${parsed.error}` };
+    }
+    out.push({
+      client_line_id: clientLineId,
+      label,
+      amount_cents: parsed.amount_cents,
+    });
+  }
+  return { ok: true, value: out };
+}
+
+function customLinesForIntentFingerprint(lines) {
+  return (Array.isArray(lines) ? lines : []).map((l) => ({
+    client_line_id: String((l && l.client_line_id) || ''),
+    label: String((l && l.label) || ''),
+    amount_cents: Number(l && l.amount_cents),
+  })).sort((a, b) => a.client_line_id.localeCompare(b.client_line_id));
+}
+
+function buildCustomLineQuoteLines(customLines, currency) {
+  const cur = currency || 'EUR';
+  return (customLines || []).map((line) => ({
+    component: STAFF_CUSTOM_LINE_COMPONENT,
+    offering_id: STAFF_CUSTOM_LINE_COMPONENT,
+    offering_item_code: STAFF_CUSTOM_LINE_COMPONENT,
+    client_line_id: line.client_line_id,
+    label: line.label,
+    quantity: 1,
+    unit_amount_cents: line.amount_cents,
+    total_cents: line.amount_cents,
+    currency: cur,
+    price_source: STAFF_CUSTOM_LINE_SOURCE,
+    billing_unit: 'adjustment',
+    billing_mode: 'staff_custom',
+  }));
+}
+
 const LUNA_TRUSTED_ACTOR_SOURCES = new Set([
   'agent_luna_whatsapp_bot',
   'agent_luna_whatsapp',
@@ -415,9 +558,23 @@ function rowMatchesQuoteLine(row, line) {
       && (serviceType === 'wetsuit' || meta.component === 'wetsuit');
   }
   if (component === FULL_DAY_EQUIPMENT_ADDON_KEY || component === 'addon_service') {
+    // Do not claim staff_custom_line rows as Admin full-day/addon lines.
+    if (meta.component === STAFF_CUSTOM_LINE_COMPONENT
+      || meta.source === STAFF_CUSTOM_LINE_SOURCE
+      || meta.staff_custom_line === true) {
+      return false;
+    }
     return meta.component === FULL_DAY_EQUIPMENT_ADDON_KEY
       || serviceType === 'addon_service'
       || meta.service_key === FULL_DAY_EQUIPMENT_ADDON_KEY;
+  }
+  if (component === STAFF_CUSTOM_LINE_COMPONENT) {
+    const lineId = String((line && line.client_line_id) || '').trim();
+    const rowId = String(meta.client_line_id || '').trim();
+    return (meta.component === STAFF_CUSTOM_LINE_COMPONENT
+      || meta.source === STAFF_CUSTOM_LINE_SOURCE
+      || meta.staff_custom_line === true)
+      && !!lineId && lineId === rowId;
   }
   return false;
 }
@@ -437,10 +594,13 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
     return { ok: false, error: 'quote_line_items_required' };
   }
   const quoteTotal = Number(quoteBody && quoteBody.total_cents);
-  if (!Number.isFinite(quoteTotal) || quoteTotal < 0) {
+  if (!Number.isFinite(quoteTotal) || !Number.isInteger(quoteTotal) || quoteTotal < 0) {
     return { ok: false, error: 'invalid_quote_total' };
   }
-  const lineTotalSum = lines.reduce((sum, line) => sum + (Number(line && line.total_cents) || 0), 0);
+  const lineTotalSum = lines.reduce((sum, line) => {
+    const n = Number(line && line.total_cents);
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
   if (lineTotalSum !== quoteTotal) {
     return { ok: false, error: 'quote_line_total_mismatch' };
   }
@@ -491,7 +651,13 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
       return { ok: false, error: 'no_operational_rows_for_' + component };
     }
     const lineTotal = Number(line.total_cents);
-    if (!Number.isFinite(lineTotal) || lineTotal < 0) {
+    const isCustom = String((line && line.component) || '') === STAFF_CUSTOM_LINE_COMPONENT
+      || String((line && line.price_source) || '') === STAFF_CUSTOM_LINE_SOURCE;
+    // Custom lines may be negative (discount) or zero; Admin lines stay non-negative.
+    if (!Number.isFinite(lineTotal) || !Number.isInteger(lineTotal)) {
+      return { ok: false, error: 'invalid_quote_line_total' };
+    }
+    if (!isCustom && lineTotal < 0) {
       return { ok: false, error: 'invalid_quote_line_total' };
     }
     appliedLineTotal += lineTotal;
@@ -499,7 +665,34 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
       const row = matches[i];
       const id = String(row.service_record_id || row.id || '');
       // Primary row carries the line total; remaining bundle/span constituents are explicit zeros.
-      const due = i === 0 ? lineTotal : 0;
+      // amount_due_cents CHECK is >= 0 — store non-negative; signed amount lives in metadata for custom discounts.
+      const signedDue = i === 0 ? lineTotal : 0;
+      const due = signedDue < 0 ? 0 : signedDue;
+      if (isCustom && i === 0) {
+        const meta = rowMetadata(row);
+        const nextMeta = {
+          ...meta,
+          source: STAFF_CUSTOM_LINE_SOURCE,
+          staff_custom_line: true,
+          component: STAFF_CUSTOM_LINE_COMPONENT,
+          client_line_id: line.client_line_id || meta.client_line_id,
+          label: line.label || meta.label,
+          amount_cents: signedDue,
+        };
+        const metaUpd = await pg.query(
+          // MULTICLIENT_SCOPE_OK: same-txn service row
+          `UPDATE booking_service_records
+              SET amount_due_cents = $1,
+                  metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+            WHERE id = $3::uuid AND client_slug = $4`,
+          [due, JSON.stringify(nextMeta), id, clientSlug],
+        );
+        if (Number(metaUpd && metaUpd.rowCount) !== 1) {
+          return { ok: false, error: 'service_amount_update_mismatch' };
+        }
+        persistedAmountSum += signedDue;
+        continue;
+      }
       const upd = await pg.query(
         // MULTICLIENT_SCOPE_OK: same-txn service row; client_slug predicate defense-in-depth
         'UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid AND client_slug = $3',
@@ -508,7 +701,7 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
       if (Number(upd && upd.rowCount) !== 1) {
         return { ok: false, error: 'service_amount_update_mismatch' };
       }
-      persistedAmountSum += due;
+      persistedAmountSum += signedDue;
     }
   }
 
@@ -518,10 +711,13 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
   if (persistedAmountSum !== quoteTotal) {
     return { ok: false, error: 'persisted_amount_sum_mismatch' };
   }
+  if (quoteTotal < 0) {
+    return { ok: false, error: 'booking_total_negative' };
+  }
   if (quoteTotal <= 0) {
     return { ok: false, error: 'booking_total_zero' };
   }
-  return { ok: true, total_cents: persistedAmountSum, applied_line_total_cents: appliedLineTotal };
+  return { ok: true, total_cents: appliedLineTotal, applied_line_total_cents: appliedLineTotal };
 }
 
 function parsePrivateLessonQuantity(raw) {
@@ -868,6 +1064,8 @@ function validateScheduleBookingBody(body, opts) {
   if (!rentalPricing.skip && serviceDates.value.length > 1) {
     return { ok: false, error: 'rental_pricing requires exactly one service date' };
   }
+  const customLines = normalizeCustomLineItems(b.custom_line_items);
+  if (!customLines.ok) return customLines;
 
   return {
     ok: true,
@@ -881,6 +1079,7 @@ function validateScheduleBookingBody(body, opts) {
       needs_reply,
       idempotency_key: idempotency_key || null,
       rental_pricing: rentalPricing.skip ? null : rentalPricing.value,
+      custom_line_items: customLines.value,
     },
   };
 }
@@ -1200,6 +1399,9 @@ function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
   Object.keys(components).sort().forEach((k) => { ordered[k] = components[k]; });
   const rentalsSrc = opts.rentals != null ? opts.rentals
     : (input && input.rentals != null ? input.rentals : []);
+  const customSrc = opts.custom_line_items != null
+    ? opts.custom_line_items
+    : (input && input.custom_line_items);
   return crypto.createHash('sha256').update(JSON.stringify({
     location_id: String(locationId || ''),
     guest_name: String((input && input.guest_name) || ''),
@@ -1208,6 +1410,7 @@ function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
     service_dates: ((input && input.service_dates) || []).slice().sort(),
     components: ordered,
     rentals: canonicalRentalsForIntentFingerprint(rentalsSrc),
+    custom_line_items: customLinesForIntentFingerprint(customSrc),
     notes: String((input && input.notes) || ''),
     needs_reply: !!(input && input.needs_reply),
   })).digest('hex');
@@ -1277,11 +1480,16 @@ function buildSchedulePricingIntent(input, opts) {
       return { ...r, covered_dates: covered.length ? covered : opts.rentalCoveredDates.slice() };
     });
   }
+  const customSrc = opts.custom_line_items != null
+    ? opts.custom_line_items
+    : (input && input.custom_line_items);
   return {
     service_dates: ((input && input.service_dates) || [])
       .map((d) => String(d || '').slice(0, 10)).filter(Boolean).sort(),
     components,
     rentals: canonicalRentalsForIntentFingerprint(rentalsSrc),
+    // Custom adjustments are pricing intent — changes invalidate stale quote / paid reprice.
+    custom_line_items: customLinesForIntentFingerprint(customSrc),
   };
 }
 
@@ -1547,6 +1755,13 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
   });
   function isFullDayServiceRow(row) {
     const meta = rowMetadata(row);
+    // Staff custom commercial lines also use service_type addon_service + own metadata.
+    // Never treat them as full-day snapshot rows or exclude them from quote claim.
+    if (meta.component === STAFF_CUSTOM_LINE_COMPONENT
+      || meta.source === STAFF_CUSTOM_LINE_SOURCE
+      || meta.staff_custom_line === true) {
+      return false;
+    }
     const st = String(row.service_type || '').toLowerCase();
     return st === 'addon_service'
       || meta.component === FULL_DAY_EQUIPMENT_ADDON_KEY
@@ -1579,15 +1794,25 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
     // Persist exact quoted lines + total (server-owned; no client money).
     quote_total_cents: Number(authoritativeQuote.total_cents),
     quote_line_items: Array.isArray(authoritativeQuote.line_items)
-      ? authoritativeQuote.line_items.map((line) => ({
-        component: line && line.component,
-        offering_id: line && line.offering_id,
-        offering_item_code: line && (line.offering_item_code || line.item_code),
-        duration_key: line && line.duration_key,
-        quantity: line && line.quantity,
-        unit_amount_cents: line && line.unit_amount_cents,
-        total_cents: line && line.total_cents,
-      }))
+      ? authoritativeQuote.line_items.map((line) => {
+        const base = {
+          component: line && line.component,
+          offering_id: line && line.offering_id,
+          offering_item_code: line && (line.offering_item_code || line.item_code),
+          duration_key: line && line.duration_key,
+          quantity: line && line.quantity,
+          unit_amount_cents: line && line.unit_amount_cents,
+          total_cents: line && line.total_cents,
+        };
+        // Staff custom lines: keep identity + signed cents for audit/display (amount_due CHECK ≥ 0).
+        if (line && (line.component === STAFF_CUSTOM_LINE_COMPONENT
+          || line.price_source === STAFF_CUSTOM_LINE_SOURCE)) {
+          base.client_line_id = line.client_line_id != null ? line.client_line_id : null;
+          base.label = line.label != null ? line.label : null;
+          base.price_source = STAFF_CUSTOM_LINE_SOURCE;
+        }
+        return base;
+      })
       : [],
   };
   const bookingUpd = await pg.query(
@@ -1751,6 +1976,57 @@ async function insertScheduleComponentServiceRows(pg, opts) {
   return createdRows;
 }
 
+/**
+ * Persist staff custom commercial lines as dedicated auditable service rows.
+ * Column source stays staff_manual (CHECK); metadata.source = staff_custom_line.
+ * amount_due_cents stays non-negative (CHECK); signed amount lives in metadata.amount_cents.
+ */
+async function insertStaffCustomLineServiceRows(pg, opts) {
+  const lines = Array.isArray(opts.customLineItems) ? opts.customLineItems : [];
+  if (!lines.length) return [];
+  const {
+    clientSlug, bookingId, bookingCode, guestName, serviceDate, srPayment,
+    attribution, locationId, componentKeys, bundleId, notes, needsReply, metaBase,
+  } = opts;
+  const created = [];
+  const base = metaBase || {};
+  for (const line of lines) {
+    const metadata = {
+      source: STAFF_CUSTOM_LINE_SOURCE,
+      staff_custom_line: true,
+      staff_manual_schedule: attribution && attribution.staffManualSchedule,
+      staff_ui_service_type: STAFF_CUSTOM_LINE_COMPONENT,
+      component: STAFF_CUSTOM_LINE_COMPONENT,
+      client_line_id: line.client_line_id,
+      label: line.label,
+      amount_cents: line.amount_cents,
+      components: componentKeys || [],
+      bundle_id: bundleId || null,
+      notes: notes || null,
+      needs_reply: !!needsReply,
+      location_id: locationId || null,
+      ...base,
+    };
+    // CHECK amount_due_cents >= 0 — store max(0, cents); signed value is metadata.amount_cents.
+    const dueStore = line.amount_cents < 0 ? 0 : line.amount_cents;
+    const row = await insertServiceRecord(pg, [
+      clientSlug, bookingId, bookingCode, guestName,
+      'addon_service', serviceDate, 1,
+      srPayment, attribution.dbSource, JSON.stringify(metadata),
+    ]);
+    // Seed amount before authoritative claim (claim overwrites + re-writes metadata).
+    if (row && (row.service_record_id || row.id)) {
+      await pg.query(
+        // MULTICLIENT_SCOPE_OK: same-txn seed
+        'UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid AND client_slug = $3',
+        [dueStore, row.service_record_id || row.id, clientSlug],
+      );
+    }
+    created.push({ ...row, metadata, amount_due_cents: dueStore });
+  }
+  return created;
+}
+
 function scheduleBookingIdempotencyAdvisoryKeys(clientSlug, idempotencyKey) {
   const h = crypto.createHash('sha256')
     .update(`sunset-schedule-create\0${String(clientSlug || '')}\0${String(idempotencyKey || '')}`)
@@ -1824,7 +2100,10 @@ async function createSunsetScheduleBooking(pg, opts) {
   const canonicalRentals = rentalPrep.present ? rentalPrep.rentals : null;
   const rentalSpanDates = rentalPrep.present ? rentalPrep.rentalSpanDates : null;
   const rentalPricingGroupId = rentalPrep.present ? rentalPrep.pricingGroupId : null;
-  const intentFpOpts = { rentals: canonicalRentals || [] };
+  const intentFpOpts = {
+    rentals: canonicalRentals || [],
+    custom_line_items: input.custom_line_items || [],
+  };
   const idempotencyIntentFp = input.idempotency_key
     ? buildScheduleBookingIntentFingerprint(input, locationId, intentFpOpts)
     : null;
@@ -2058,6 +2337,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           location_id: locationId || null,
           rental_pricing: rentalPricingDescriptor || null,
           rentals: canonicalRentals || null,
+          custom_line_items: input.custom_line_items || [],
           idempotency_key: input.idempotency_key || null,
           idempotency_intent_fp: idempotencyIntentFp || null,
         }),
@@ -2100,6 +2380,33 @@ async function createSunsetScheduleBooking(pg, opts) {
         attribution,
       });
       addonRows.forEach((r) => createdRows.push(r));
+    }
+
+    // Staff custom commercial adjustments — dedicated auditable rows (not Admin catalog).
+    if (input.custom_line_items && input.custom_line_items.length) {
+      const customRows = await insertStaffCustomLineServiceRows(pg, {
+        clientSlug,
+        bookingId,
+        bookingCode,
+        guestName: input.guest_name,
+        serviceDate: firstDate,
+        srPayment,
+        attribution,
+        locationId,
+        componentKeys,
+        bundleId,
+        notes: input.notes || null,
+        needsReply: input.needs_reply,
+        customLineItems: input.custom_line_items,
+        metaBase: {
+          actor_source: attribution.actorSource || null,
+          guest_phone: input.guest_phone,
+          created_by_staff: attribution.createdByStaff,
+          idempotency_key: input.idempotency_key,
+          idempotency_intent_fp: idempotencyIntentFp || null,
+        },
+      });
+      customRows.forEach((r) => createdRows.push(r));
     }
 
     const priced = await applyAuthoritativeSchedulePricingInTxn(pg, {
@@ -2204,6 +2511,7 @@ module.exports = {
   resolveAuthoritativeScheduleQuoteInTxn,
   applyAuthoritativeSchedulePricingInTxn,
   insertScheduleComponentServiceRows,
+  insertStaffCustomLineServiceRows,
   lockSchedulePaymentsForUpdate,
   applyEditPaidAmountInTxn,
   paidBookingRepriceRequiredResult,
@@ -2215,4 +2523,12 @@ module.exports = {
   buildScheduleBookingIntentFingerprint,
   evaluateIdempotentReplay,
   scheduleBookingIdempotencyAdvisoryKeys,
+  STAFF_CUSTOM_LINE_SOURCE,
+  STAFF_CUSTOM_LINE_COMPONENT,
+  STAFF_CUSTOM_LINE_MAX,
+  STAFF_CUSTOM_LINE_LABEL_MAX,
+  parseLocaleMoneyToCents,
+  normalizeCustomLineItems,
+  buildCustomLineQuoteLines,
+  customLinesForIntentFingerprint,
 };

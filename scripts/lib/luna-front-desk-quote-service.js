@@ -25,6 +25,9 @@ const { packPriceItemCode } = require('./sunset-admin-price-identity');
 const {
   normalizeComponents,
   validateScheduleBookingBody,
+  normalizeCustomLineItems,
+  buildCustomLineQuoteLines,
+  STAFF_CUSTOM_LINE_COMPONENT,
 } = require('./sunset-schedule-booking-writes');
 const { assertCourseAssignable } = require('./sunset-admin-course-join');
 const { staffFacingSunsetPriceError } = require('./sunset-course-lesson-price-lookup');
@@ -225,6 +228,9 @@ function normalizeQuoteLineItemsForFingerprint(lineItems) {
       quantity: line && line.quantity != null ? Number(line.quantity) : null,
       unit_amount_cents: line && line.unit_amount_cents != null ? Number(line.unit_amount_cents) : null,
       total_cents: line && line.total_cents != null ? Number(line.total_cents) : null,
+      // Staff custom lines: identity + label must fingerprint so edits invalidate stale quotes.
+      client_line_id: line && line.client_line_id != null ? String(line.client_line_id) : null,
+      label: line && line.label != null ? String(line.label) : null,
       price_id: line && line.price_id != null
         ? String(line.price_id)
         : (priceIdentity && priceIdentity.price_id != null ? String(priceIdentity.price_id) : null),
@@ -232,6 +238,70 @@ function normalizeQuoteLineItemsForFingerprint(lineItems) {
   });
   rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   return rows;
+}
+
+/**
+ * Append staff custom commercial adjustments to Admin quote lines.
+ * Revalidates amount_cents server-side; fails closed if aggregate total < 0.
+ * Staff channel only — Luna cannot inject custom_line_items.
+ */
+function appendCustomLineItemsToQuote(command, lines, totalCents, currency) {
+  const body = command && command.transportBody;
+  const raw = body && body.custom_line_items;
+  if (raw == null || (Array.isArray(raw) && raw.length === 0)) {
+    return { ok: true, lines, totalCents, currency };
+  }
+  if (command.channel !== QUOTE_CHANNELS.MANUAL_STAFF) {
+    return {
+      ok: false,
+      status: 403,
+      body: {
+        success: false,
+        reason: 'custom_line_items_staff_only',
+        reason_code: 'custom_line_items_staff_only',
+        error: 'Custom lines are staff-only commercial adjustments.',
+      },
+    };
+  }
+  const norm = normalizeCustomLineItems(raw);
+  if (!norm.ok) {
+    return {
+      ok: false,
+      status: 400,
+      body: { success: false, reason: norm.error, reason_code: 'custom_line_items_invalid', error: norm.error },
+    };
+  }
+  const customLines = buildCustomLineQuoteLines(norm.value, currency || 'EUR');
+  let nextTotal = totalCents;
+  for (const cl of customLines) {
+    nextTotal += cl.total_cents;
+    lines.push(cl);
+  }
+  if (!Number.isFinite(nextTotal) || !Number.isInteger(nextTotal)) {
+    return {
+      ok: false,
+      status: 422,
+      body: {
+        success: false,
+        reason: 'custom_line_total_invalid',
+        reason_code: 'custom_line_total_invalid',
+        error: 'Custom line total is invalid.',
+      },
+    };
+  }
+  if (nextTotal < 0) {
+    return {
+      ok: false,
+      status: 422,
+      body: {
+        success: false,
+        reason: 'booking_total_negative',
+        reason_code: 'booking_total_negative',
+        error: 'Booking total cannot be negative after custom lines.',
+      },
+    };
+  }
+  return { ok: true, lines, totalCents: nextTotal, currency: currency || 'EUR' };
 }
 
 function buildQuoteProvenance(quoteBody) {
@@ -1368,7 +1438,13 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     return { ok: false, status: 400, body: { success: false, reason: 'quote_input_required' } };
   }
 
-  const primary = lines[0];
+  // Staff custom commercial adjustments (Admin lines + custom; never client-mutated Admin cents).
+  const withCustom = appendCustomLineItemsToQuote(command, lines, totalCents, currency);
+  if (!withCustom.ok) return withCustom;
+  totalCents = withCustom.totalCents;
+  currency = withCustom.currency;
+
+  const primary = lines.find((l) => l && l.component !== STAFF_CUSTOM_LINE_COMPONENT) || lines[0];
   const quotedAt = command.now.toISOString();
   const quoteBody = {
     success: true,
@@ -1501,7 +1577,12 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     return { ok: false, status: 400, body: { success: false, reason: 'quote_input_required' } };
   }
 
-  const primary = lines[0];
+  const withCustom = appendCustomLineItemsToQuote(command, lines, totalCents, currency);
+  if (!withCustom.ok) return withCustom;
+  totalCents = withCustom.totalCents;
+  currency = withCustom.currency;
+
+  const primary = lines.find((l) => l && l.component !== STAFF_CUSTOM_LINE_COMPONENT) || lines[0];
   const quotedAt = command.now.toISOString();
   const quoteBody = {
     success: true,
@@ -1697,4 +1778,5 @@ module.exports = {
   validateQuoteProvenanceForCreate,
   rejectClientSuppliedMoney,
   computeBillableUnits,
+  appendCustomLineItemsToQuote,
 };

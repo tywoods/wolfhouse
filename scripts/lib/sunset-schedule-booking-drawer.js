@@ -104,6 +104,12 @@ function bookingHeaderDates(input) {
   return { firstDate: sorted[0], lastDate: sorted[sorted.length - 1] };
 }
 function formatSunsetDrawerDailyItemLabel(dbType, qty, sr) {
+  const metaEarly = parseMeta(sr && sr.metadata);
+  if (metaEarly && (metaEarly.source === 'staff_custom_line' || metaEarly.staff_custom_line === true
+    || metaEarly.component === 'staff_custom_line')) {
+    const lab = String(metaEarly.label || '').trim();
+    return lab || 'Custom line';
+  }
   const meta = parseMeta(sr && sr.metadata);
   const component = String(meta.component || sr?.metadata_component || '').toLowerCase();
   const serviceKey = String(meta.service_key || '').toLowerCase();
@@ -290,7 +296,16 @@ function deriveDrawerPaymentUiStatus(booking, subtotalCents, paidCents) {
 
 /** Persisted due amount including explicit 0. null = never stored (live fallback eligible). */
 function readPersistedServiceDueCents(sr) {
-  if (!sr || sr.amount_due_cents == null || sr.amount_due_cents === '') return null;
+  if (!sr) return null;
+  const meta = parseMeta(sr.metadata);
+  // Staff custom commercial lines store signed amount in metadata (DB CHECK amount_due ≥ 0).
+  if (meta && (meta.source === 'staff_custom_line' || meta.staff_custom_line === true
+    || meta.component === 'staff_custom_line')
+    && meta.amount_cents != null && meta.amount_cents !== '') {
+    const signed = Number(meta.amount_cents);
+    if (Number.isFinite(signed) && Number.isInteger(signed)) return signed;
+  }
+  if (sr.amount_due_cents == null || sr.amount_due_cents === '') return null;
   const n = Number(sr.amount_due_cents);
   return Number.isFinite(n) ? Math.round(n) : null;
 }

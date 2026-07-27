@@ -81,6 +81,13 @@ function schedulePortalCreateIntentKey(payload) {
   var comps = p.components || {};
   var ordered = {};
   Object.keys(comps).sort().forEach(function(k) { ordered[k] = comps[k]; });
+  var custom = Array.isArray(p.custom_line_items) ? p.custom_line_items.map(function(l) {
+    return {
+      client_line_id: String((l && l.client_line_id) || ''),
+      label: String((l && l.label) || ''),
+      amount_cents: Number(l && l.amount_cents),
+    };
+  }).sort(function(a, b) { return a.client_line_id.localeCompare(b.client_line_id); }) : [];
   return JSON.stringify({
     guest_name: String(p.guest_name || ''),
     guest_phone: p.guest_phone != null ? String(p.guest_phone) : '',
@@ -89,6 +96,7 @@ function schedulePortalCreateIntentKey(payload) {
     payment_status: p.payment_status || 'unpaid',
     components: ordered,
     rentals: schedulePortalNormalizeRentalsIntent(p.rentals),
+    custom_line_items: custom,
     notes: p.notes != null ? String(p.notes) : '',
     location_id: typeof getSunsetLocation === 'function' ? getSunsetLocation() : null,
   });
@@ -194,6 +202,12 @@ function schedulePortalClearCreateDraftFields() {
   var quote = el('ps-create-quote-preview'); if (quote) { quote.innerHTML = ''; quote.style.display = 'none'; }
   var summary = el('ps-create-summary'); if (summary) summary.innerHTML = '<span class="portal-schedule-create-summary-placeholder">—</span>';
   var msg = el('ps-create-msg'); if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
+  // Reset staff custom commercial lines mini-section.
+  try {
+    if (typeof scheduleCreateCustomLines !== 'undefined') scheduleCreateCustomLines = [];
+    if (typeof scheduleRenderCreateCustomLines === 'function') scheduleRenderCreateCustomLines();
+    if (typeof scheduleSetCustomLineEditorOpen === 'function') scheduleSetCustomLineEditorOpen(false);
+  } catch (_cl) { /* ignore */ }
   schedulePortalQuoteState = null;
   schedulePortalPendingCourseId = null;
   schedulePortalPendingCourseGen = 0;
@@ -241,6 +255,7 @@ function schedulePortalPrepareCreateOpen(context) {
   var submitBtn = el('ps-create-submit');
   if (submitBtn) submitBtn.disabled = false;
   schedulePortalWireCreateFooter();
+  try { if (typeof scheduleWireCreateCustomLines === 'function') scheduleWireCreateCustomLines(); } catch (_w) { /* ignore */ }
   schedulePortalRenderCreateIntentSummary();
   return { preserved: false, pending_course_id: schedulePortalPendingCourseId };
 }
@@ -300,6 +315,8 @@ function schedulePortalFetchQuote(createPayload, opts) {
     components: createPayload.components,
     rentals: Array.isArray(createPayload.rentals) ? createPayload.rentals : [],
     service_dates: schedulePortalServiceDatesFromPayload(createPayload),
+    // Staff commercial adjustments — server revalidates amount_cents; never Admin course/rental cents.
+    custom_line_items: Array.isArray(createPayload.custom_line_items) ? createPayload.custom_line_items : [],
   };
   var myGen = opts.gen != null ? Number(opts.gen) : schedulePortalQuoteGen;
   var applyState = opts.applyState !== false;
