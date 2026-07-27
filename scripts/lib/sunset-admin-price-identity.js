@@ -87,7 +87,13 @@ function rentalIdentity(offeringKey, durationKey, locationId) {
   const offering = String(offeringKey || '').trim();
   const duration = String(durationKey || '').trim();
   if (!offering || !duration) return null;
-  const itemCode = offering.includes('__') ? offering : `${offering}__${duration}`;
+  const compoundIndex = offering.lastIndexOf('__');
+  const compoundDuration = compoundIndex > 0 ? offering.slice(compoundIndex + 2) : '';
+  // A compound catalog identity and explicit duration are independent claims.
+  // Never silently price one when they disagree.
+  if (compoundDuration && compoundDuration !== duration) return null;
+  const itemCode = compoundDuration ? offering : `${offering}__${duration}`;
+  const offeringBase = compoundDuration ? offering.slice(0, compoundIndex) : offering;
   // Rental duration key maps to DB billing grain (same as sunset-rental-price-lookup).
   let billingUnit = 'day';
   if (duration === '1_hour' || duration === 'session') billingUnit = 'session';
@@ -99,7 +105,7 @@ function rentalIdentity(offeringKey, durationKey, locationId) {
     billing_unit: billingUnit,
     location_id: normalizeSunsetLocationId(locationId || DEFAULT_SUNSET_LOCATION_ID),
     duration_key: duration,
-    billing_mode: offering === 'board_and_suit_rental' ? 'whole_offering_x_qty' : 'unit_x_qty',
+    billing_mode: offeringBase === 'board_and_suit_rental' ? 'whole_offering_x_qty' : 'unit_x_qty',
   };
 }
 
@@ -172,16 +178,19 @@ function resolveSunsetPriceIdentity(input) {
   }
 
   if (component === 'surfboard' || component === 'board_rental' || offeringRaw.startsWith('board_rental')) {
-    const duration = meta.duration_key || meta.duration || meta.unit || '1_day';
-    return rentalIdentity('board_rental', duration, locationId);
+    const duration = meta.duration_key || meta.tier_key || meta.duration || meta.unit
+      || (offeringRaw.includes('__') ? offeringRaw.split('__').pop() : '1_day');
+    return rentalIdentity(offeringRaw || 'board_rental', duration, locationId);
   }
   if (component === 'wetsuit' || component === 'wetsuit_rental' || offeringRaw.startsWith('wetsuit_rental')) {
-    const duration = meta.duration_key || meta.duration || meta.unit || '1_day';
-    return rentalIdentity('wetsuit_rental', duration, locationId);
+    const duration = meta.duration_key || meta.tier_key || meta.duration || meta.unit
+      || (offeringRaw.includes('__') ? offeringRaw.split('__').pop() : '1_day');
+    return rentalIdentity(offeringRaw || 'wetsuit_rental', duration, locationId);
   }
   if (component === 'board_and_suit_rental' || offeringRaw.startsWith('board_and_suit_rental')) {
-    const duration = meta.duration_key || meta.duration || meta.unit || '1_day';
-    return rentalIdentity('board_and_suit_rental', duration, locationId);
+    const duration = meta.duration_key || meta.tier_key || meta.duration || meta.unit
+      || (offeringRaw.includes('__') ? offeringRaw.split('__').pop() : '1_day');
+    return rentalIdentity(offeringRaw || 'board_and_suit_rental', duration, locationId);
   }
 
   // Generic future Admin offering: require full item_code ending with __unit grain
