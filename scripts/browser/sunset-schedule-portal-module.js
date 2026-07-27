@@ -233,11 +233,37 @@ var schedulePortalPendingCourseId = null;
 var schedulePortalPendingCourseGen = 0;
 var schedulePortalOpenGen = 0;
 var schedulePortalCreateAmbiguous = false;
-/** Create Main activity view: 'root' (three choices) | 'group-courses' (single-course drill-down). */
+/**
+ * Create Main activity view:
+ *   'root'             — three choices (Group / Private / No lesson)
+ *   'group-courses'    — single-course drill-down
+ *   'private-sessions' — private per-date start/end session editor
+ * One owner for enter/exit/Back across Group and Private branches.
+ */
 var schedulePortalMainActivityView = 'root';
 
 function schedulePortalIsGroupCourseDrilldown() {
   return schedulePortalMainActivityView === 'group-courses';
+}
+
+function schedulePortalIsPrivateSessionsDrilldown() {
+  return schedulePortalMainActivityView === 'private-sessions';
+}
+
+function schedulePortalIsMainActivityDrilldown() {
+  return schedulePortalMainActivityView === 'group-courses'
+    || schedulePortalMainActivityView === 'private-sessions';
+}
+
+/** Clear private session draft so re-entry uses current date-range defaults. */
+function schedulePortalClearPrivateSessionDraft() {
+  var sessions = el('ps-create-private-lesson-sessions');
+  if (sessions) {
+    try { sessions.innerHTML = ''; } catch (_s) { /* ignore */ }
+    try { sessions.removeAttribute('data-range-too-long'); } catch (_r) { /* ignore */ }
+  }
+  var qtyEl = el('ps-create-private-lesson-qty');
+  if (qtyEl) qtyEl.value = '0';
 }
 
 function schedulePortalSetVisible(node, show) {
@@ -343,12 +369,29 @@ function schedulePortalSelectCreateCourse(courseId, courseLabel, opts) {
   return schedulePortalGetSelectedCreateCourseId() === id;
 }
 
+/** Resolve the private panel host (panel wrapper or legacy private-when id). */
+function schedulePortalPrivatePanelNode() {
+  return el('ps-create-private-panel') || el('ps-create-private-when');
+}
+
 function schedulePortalRenderMainActivityPath() {
   var path = el('ps-create-main-activity-path');
   if (!path) return;
   var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
-  var inDrill = schedulePortalIsGroupCourseDrilldown() || courseOn;
-  if (!inDrill) {
+  var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
+  var privateDrill = typeof schedulePortalIsPrivateSessionsDrilldown === 'function'
+    && schedulePortalIsPrivateSessionsDrilldown();
+  var inPrivate = privateDrill || privateOn;
+  if (inPrivate && !courseOn) {
+    var privateLab = (typeof portalT === 'function' ? portalT('schedule.type.privateLesson') : '') || 'Private Course';
+    path.textContent = privateLab;
+    schedulePortalSetVisible(path, true);
+    return;
+  }
+  var groupDrill = typeof schedulePortalIsGroupCourseDrilldown === 'function'
+    && schedulePortalIsGroupCourseDrilldown();
+  var inGroup = groupDrill || courseOn;
+  if (!inGroup) {
     path.textContent = '';
     schedulePortalSetVisible(path, false);
     return;
@@ -379,6 +422,18 @@ function schedulePortalRenderMainActivityPath() {
 }
 
 function schedulePortalEnterGroupCourseDrilldown() {
+  // Leaving private branch: drop session draft so re-entry cannot revive abandoned times.
+  var leavingPrivate = (typeof schedulePortalIsPrivateSessionsDrilldown === 'function'
+    && schedulePortalIsPrivateSessionsDrilldown())
+    || !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
+  if (leavingPrivate) {
+    if (typeof schedulePortalClearPrivateSessionDraft === 'function') {
+      schedulePortalClearPrivateSessionDraft();
+    } else {
+      var sessClear = el('ps-create-private-lesson-sessions');
+      if (sessClear) { try { sessClear.innerHTML = ''; } catch (_sc) { /* ignore */ } }
+    }
+  }
   schedulePortalMainActivityView = 'group-courses';
   var course = el('ps-create-comp-course');
   var priv = el('ps-create-comp-private-lesson');
@@ -388,6 +443,14 @@ function schedulePortalEnterGroupCourseDrilldown() {
   if (none) none.checked = false;
   schedulePortalSetVisible(el('ps-create-main-activity-choices'), false);
   schedulePortalSetVisible(el('ps-create-course-list'), true);
+  var panelHide = (typeof schedulePortalPrivatePanelNode === 'function'
+    ? schedulePortalPrivatePanelNode()
+    : null) || el('ps-create-private-panel') || el('ps-create-private-when');
+  schedulePortalSetVisible(panelHide, false);
+  // Keep legacy private-when hidden when panel wrapper is separate.
+  if (el('ps-create-private-panel') && el('ps-create-private-when')) {
+    schedulePortalSetVisible(el('ps-create-private-when'), false);
+  }
   schedulePortalSetVisible(el('ps-create-main-activity-back'), true);
   // Legacy dropdown must stay hidden.
   var cf = el('ps-create-course-fields');
@@ -400,19 +463,77 @@ function schedulePortalEnterGroupCourseDrilldown() {
 }
 
 /**
- * Exit group-course drill-down.
- * opts.clearCourse — clear selected course id (default true when leaving group).
- * opts.restoreRootOnly — show root choices without forcing No lesson (Private path).
- * Default Back: clear course + restore three choices + No lesson.
+ * Enter private-sessions drill-down: replace three choices in place with the
+ * existing per-date start/end editor (sessionsHelp + session rows).
  */
-function schedulePortalExitGroupCourseDrilldown(opts) {
+function schedulePortalEnterPrivateSessionsDrilldown() {
+  // Leaving group branch: clear course pick so it cannot stick.
+  var leavingGroup = (typeof schedulePortalIsGroupCourseDrilldown === 'function'
+    && schedulePortalIsGroupCourseDrilldown())
+    || !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
+  if (leavingGroup && typeof schedulePortalClearSelectedCreateCourse === 'function') {
+    schedulePortalClearSelectedCreateCourse();
+  }
+  schedulePortalMainActivityView = 'private-sessions';
+  var course = el('ps-create-comp-course');
+  var priv = el('ps-create-comp-private-lesson');
+  var none = el('ps-create-comp-no-lesson');
+  if (course) course.checked = false;
+  if (priv) priv.checked = true;
+  if (none) none.checked = false;
+  schedulePortalSetVisible(el('ps-create-main-activity-choices'), false);
+  schedulePortalSetVisible(el('ps-create-course-list'), false);
+  var panel = (typeof schedulePortalPrivatePanelNode === 'function'
+    ? schedulePortalPrivatePanelNode()
+    : null) || el('ps-create-private-panel') || el('ps-create-private-when');
+  schedulePortalSetVisible(panel, true);
+  // If panel wrapper exists, also show inner private-when (legacy id for readers).
+  if (el('ps-create-private-panel') && el('ps-create-private-when')) {
+    schedulePortalSetVisible(el('ps-create-private-when'), true);
+  }
+  schedulePortalSetVisible(el('ps-create-main-activity-back'), true);
+  var cf = el('ps-create-course-fields');
+  if (cf) {
+    cf.style.display = 'none'; cf.hidden = true;
+    try { cf.setAttribute('aria-hidden', 'true'); } catch (_a) { /* ignore */ }
+  }
+  schedulePortalRenderMainActivityPath();
+  if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
+}
+
+/**
+ * One exit/reset owner for both Group and Private Main activity drill-downs.
+ * opts.clearCourse   — clear selected course id (default true).
+ * opts.clearPrivate  — clear private session draft (default true).
+ * opts.restoreRootOnly — show root choices without forcing No lesson.
+ * Default Back: clear drafts + restore three choices + No lesson.
+ */
+function schedulePortalExitMainActivityDrilldown(opts) {
   opts = opts || {};
   var clearCourse = opts.clearCourse !== false;
+  var clearPrivate = opts.clearPrivate !== false;
   var restoreRootOnly = opts.restoreRootOnly === true;
   schedulePortalMainActivityView = 'root';
-  if (clearCourse) schedulePortalClearSelectedCreateCourse();
+  if (clearCourse && typeof schedulePortalClearSelectedCreateCourse === 'function') {
+    schedulePortalClearSelectedCreateCourse();
+  }
+  if (clearPrivate) {
+    if (typeof schedulePortalClearPrivateSessionDraft === 'function') {
+      schedulePortalClearPrivateSessionDraft();
+    } else {
+      var sessClear = el('ps-create-private-lesson-sessions');
+      if (sessClear) { try { sessClear.innerHTML = ''; } catch (_sc) { /* ignore */ } }
+    }
+  }
   schedulePortalSetVisible(el('ps-create-main-activity-choices'), true);
   schedulePortalSetVisible(el('ps-create-course-list'), false);
+  var panelHide = (typeof schedulePortalPrivatePanelNode === 'function'
+    ? schedulePortalPrivatePanelNode()
+    : null) || el('ps-create-private-panel') || el('ps-create-private-when');
+  schedulePortalSetVisible(panelHide, false);
+  if (el('ps-create-private-panel') && el('ps-create-private-when')) {
+    schedulePortalSetVisible(el('ps-create-private-when'), false);
+  }
   schedulePortalSetVisible(el('ps-create-main-activity-back'), false);
   schedulePortalSetVisible(el('ps-create-main-activity-path'), false);
   var path = el('ps-create-main-activity-path');
@@ -422,6 +543,57 @@ function schedulePortalExitGroupCourseDrilldown(opts) {
     var priv = el('ps-create-comp-private-lesson');
     var none = el('ps-create-comp-no-lesson');
     // Back restores initial three choices with No lesson default.
+    if (course) course.checked = false;
+    if (priv) priv.checked = false;
+    if (none) none.checked = true;
+  }
+  if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
+  if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
+    schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+  }
+}
+
+/**
+ * Backward-compatible group exit name — same single exit/reset owner.
+ * Self-contained for sandboxes that only extract this function.
+ */
+function schedulePortalExitGroupCourseDrilldown(opts) {
+  opts = opts || {};
+  var clearCourse = opts.clearCourse !== false;
+  var clearPrivate = opts.clearPrivate !== false;
+  var restoreRootOnly = opts.restoreRootOnly === true;
+  schedulePortalMainActivityView = 'root';
+  if (clearCourse && typeof schedulePortalClearSelectedCreateCourse === 'function') {
+    schedulePortalClearSelectedCreateCourse();
+  } else if (clearCourse) {
+    var sel = el('ps-create-course-select');
+    if (sel) { sel.value = ''; try { sel.selectedIndex = -1; } catch (_s) { /* ignore */ } }
+  }
+  if (clearPrivate) {
+    if (typeof schedulePortalClearPrivateSessionDraft === 'function') {
+      schedulePortalClearPrivateSessionDraft();
+    } else {
+      var sessions = el('ps-create-private-lesson-sessions');
+      if (sessions) { try { sessions.innerHTML = ''; } catch (_s2) { /* ignore */ } }
+    }
+  }
+  schedulePortalSetVisible(el('ps-create-main-activity-choices'), true);
+  schedulePortalSetVisible(el('ps-create-course-list'), false);
+  var panelHide = (typeof schedulePortalPrivatePanelNode === 'function'
+    ? schedulePortalPrivatePanelNode()
+    : null) || el('ps-create-private-panel') || el('ps-create-private-when');
+  schedulePortalSetVisible(panelHide, false);
+  if (el('ps-create-private-panel') && el('ps-create-private-when')) {
+    schedulePortalSetVisible(el('ps-create-private-when'), false);
+  }
+  schedulePortalSetVisible(el('ps-create-main-activity-back'), false);
+  schedulePortalSetVisible(el('ps-create-main-activity-path'), false);
+  var pathEl = el('ps-create-main-activity-path');
+  if (pathEl) pathEl.textContent = '';
+  if (!restoreRootOnly) {
+    var course = el('ps-create-comp-course');
+    var priv = el('ps-create-comp-private-lesson');
+    var none = el('ps-create-comp-no-lesson');
     if (course) course.checked = false;
     if (priv) priv.checked = false;
     if (none) none.checked = true;
@@ -582,6 +754,13 @@ function schedulePortalClearCreateDraftFields() {
   if (courseList) courseList.innerHTML = '';
   schedulePortalSetVisible(el('ps-create-main-activity-choices'), true);
   schedulePortalSetVisible(courseList, false);
+  var panelReset = (typeof schedulePortalPrivatePanelNode === 'function'
+    ? schedulePortalPrivatePanelNode()
+    : null) || el('ps-create-private-panel') || el('ps-create-private-when');
+  schedulePortalSetVisible(panelReset, false);
+  if (el('ps-create-private-panel') && el('ps-create-private-when')) {
+    schedulePortalSetVisible(el('ps-create-private-when'), false);
+  }
   schedulePortalSetVisible(el('ps-create-main-activity-back'), false);
   schedulePortalSetVisible(el('ps-create-main-activity-path'), false);
   var pathEl = el('ps-create-main-activity-path');

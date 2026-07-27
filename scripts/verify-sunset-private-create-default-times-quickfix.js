@@ -15,7 +15,8 @@
  *  5) 120-minute duration (10→12)
  *  6) 320px layout + runtime inject source parity
  *
- * Visibility rule (production): When section hidden for non-private; visible only Private.
+ * Visibility rule (production): private session panel (Main activity drill-down)
+ * visible only for Private; lower When shell always hidden.
  *
  * Static + vm sandbox only — no DB/Azure/network.
  *
@@ -398,16 +399,24 @@ function pickPrivate(sb) {
   sb.scheduleOnCreateComponentChange('ps-create-comp-private-lesson');
 }
 
+/** Private session editor lives in Main activity panel; lower When shell stays hidden. */
+function privatePanelVisible(sb) {
+  const panel = sb._nodes['ps-create-private-panel'] || sb._privateWhen;
+  if (!panel) return false;
+  return !(panel.hidden === true || panel.style.display === 'none'
+    || (panel.getAttribute && panel.getAttribute('aria-hidden') === 'true'));
+}
+
 function whenVisible(sb) {
-  const w = sb._whenSection;
-  return !!(w && w.hidden === false && w.style.display !== 'none' && !w.classList.contains('is-when-hidden')
-    && sb._privateWhen && sb._privateWhen.style.display !== 'none');
+  // Backward-compatible name: private session panel visible (not lower When shell).
+  return privatePanelVisible(sb);
 }
 
 function whenHidden(sb) {
   const w = sb._whenSection;
-  return !!(w && (w.hidden === true || w.style.display === 'none' || w.classList.contains('is-when-hidden'))
-    && sb._privateWhen && sb._privateWhen.style.display === 'none');
+  const whenShellHidden = !!(w && (w.hidden === true || w.style.display === 'none'
+    || w.classList.contains('is-when-hidden')));
+  return whenShellHidden && !privatePanelVisible(sb);
 }
 
 console.log('\nverify:sunset-private-create-default-times-quickfix\n');
@@ -458,15 +467,15 @@ assert('pure helper: blank → 10/12', (() => {
 })());
 
 // ── 1) Real visibility transition, then defaults at different clocks ────────
-console.log('\n[1] Activity→Private When transition, then 10:00–12:00 (no clock leak)');
+console.log('\n[1] Activity→Private panel transition, then 10:00–12:00 (no clock leak)');
 {
-  // Baseline: non-private keeps When hidden (do not assert session fields yet).
+  // Baseline: non-private keeps private panel hidden (do not assert session fields yet).
   const base = build({ dateFrom: '2026-08-05', dateTo: '2026-08-05' });
   base.schedulePopulateCreateComponentFields();
-  assert('No lesson: When hidden', whenHidden(base));
+  assert('No lesson: private panel hidden', whenHidden(base));
   base.el('ps-create-comp-course').checked = true;
   base.scheduleOnCreateComponentChange('ps-create-comp-course');
-  assert('Group: When hidden (only Private shows When)', whenHidden(base)
+  assert('Group: private panel hidden (only Private shows panel)', whenHidden(base)
     && base.el('ps-create-private-lesson-fields').style.display === 'none');
 }
 [
@@ -482,11 +491,11 @@ console.log('\n[1] Activity→Private When transition, then 10:00–12:00 (no cl
     dateFrom: '2026-08-05',
     dateTo: '2026-08-05',
   });
-  // Start non-private → When hidden, then Private → When visible, then field asserts.
+  // Start non-private → panel hidden, then Private → panel visible, then field asserts.
   sb.schedulePopulateCreateComponentFields();
-  assert('clock case ' + idx + ' pre-Private When hidden', whenHidden(sb));
+  assert('clock case ' + idx + ' pre-Private panel hidden', whenHidden(sb));
   pickPrivate(sb);
-  assert('clock case ' + idx + ' When visible before fields', whenVisible(sb)
+  assert('clock case ' + idx + ' private panel visible before fields', whenVisible(sb)
     && sb.el('ps-create-private-lesson-fields').style.display === 'none');
   const r = rows(sb);
   assert('clock case ' + idx + ' defaults 10–12 on service date',
@@ -506,7 +515,7 @@ console.log('\n[2] Date change before edit → new date keeps 10:00–12:00');
     dateTo: '2026-08-10',
   });
   pickPrivate(sb);
-  assert('When visible after Private pick', whenVisible(sb));
+  assert('private panel visible after Private pick', whenVisible(sb));
   assert('initial date defaults', rows(sb)[0].date === '2026-08-10'
     && rows(sb)[0].start === '10:00' && rows(sb)[0].end === '12:00');
   setRange(sb, '2026-08-15', '2026-08-15');
@@ -526,7 +535,7 @@ console.log('\n[3] Explicit user times preserved on re-render / toggle');
 {
   const sb = build({ dateFrom: '2026-08-01', dateTo: '2026-08-02' });
   pickPrivate(sb);
-  assert('When visible before manual edit', whenVisible(sb));
+  assert('private panel visible before manual edit', whenVisible(sb));
   setTimes(sb, 0, { start: '09:15', end: '10:45' });
   setTimes(sb, 1, { start: '16:00', end: '17:30' });
   sb.scheduleSyncPrivateLessonSessions(); // re-render same range
@@ -536,10 +545,12 @@ console.log('\n[3] Explicit user times preserved on re-render / toggle');
     && after[1].date === '2026-08-02' && after[1].start === '16:00' && after[1].end === '17:30');
   sb.el('ps-create-comp-course').checked = true;
   sb.scheduleOnCreateComponentChange('ps-create-comp-course');
-  assert('Group hides When after leaving Private', whenHidden(sb));
+  assert('Group hides private panel after leaving Private', whenHidden(sb));
   pickPrivate(sb);
-  assert('When visible again after re-Private', whenVisible(sb));
+  assert('private panel visible again after re-Private', whenVisible(sb));
   const back = rows(sb);
+  // Toggle without Back may still preserve DOM times for overlapping dates;
+  // abandoned-value clear is owned by Main activity Back (private drill-down verifier).
   assert('Private→Group→Private preserves explicit', back.length === 2
     && back[0].start === '09:15' && back[0].end === '10:45'
     && back[1].start === '16:00' && back[1].end === '17:30');

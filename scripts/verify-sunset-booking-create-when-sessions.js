@@ -50,12 +50,14 @@ const modal = extractModal(apiSrc);
 const guest = section(modal, 'guest');
 const what = section(modal, 'what');
 const when = section(modal, 'when');
-console.log('[1] DOM + IDs (dates in Guest; private times in When; no Add/Remove exposed)');
+console.log('[1] DOM + IDs (dates in Guest; private times in Main activity; no Add/Remove exposed)');
 const counts = {}; let m; const re = /\bid="(ps-create-[^"]+)"/g;
 while ((m = re.exec(modal))) counts[m[1]] = (counts[m[1]] || 0) + 1;
 assert('DOM placement', guest.includes('id="ps-create-date-from"') && guest.includes('id="ps-create-date-to"')
   && guest.includes('id="ps-create-guest"') && guest.includes('id="ps-create-phone"')
-  && when.includes('id="ps-create-private-lesson-sessions"')
+  // Private sessions live in Main activity drill-down (What), not the lower When shell.
+  && what.includes('id="ps-create-private-lesson-sessions"')
+  && !when.includes('id="ps-create-private-lesson-sessions"')
   && !when.includes('id="ps-create-date-from"')
   && !what.includes('id="ps-create-date-from"')
   // Surfers authority lives above Activity (Guest); legacy private-surfers mirror may be hidden.
@@ -200,6 +202,7 @@ function build(opts) {
     scheduleReadFullDayAddonRows() { return {}; }, scheduleRenderFullDayAddonRows() {},
     scheduleFullDayAddonEnabled: true, scheduleFullDayAddonUnitCents: 2500,
     schedulePortalSubmitInFlight: false, schedulePortalQuoteGen: 0, schedulePortalQuoteAbort: null, schedulePortalQuoteState: null, schedulePortalQuoteTimer: null,
+    scheduleCreateCustomLines: [],
     schedulePortalFetchQuote(payload) { quote.fetch += 1; quote.payloads.push(payload); return Promise.resolve({ ok: true, body: { success: true, total_cents: 100 } }); },
     schedulePortalSubmitCreate() { quote.create += 1; return Promise.resolve({ ok: true, data: { success: true } }); },
     schedulePortalRenderCreateQuotePreview() {},
@@ -216,15 +219,20 @@ function build(opts) {
   vm.runInContext(code.join('\n'), sb);
   return sb;
 }
+function privatePanelVisible(sb) {
+  const panel = (sb._nodes && sb._nodes['ps-create-private-panel']) || sb._privateWhen;
+  if (!panel) return false;
+  return !(panel.hidden === true || panel.style.display === 'none'
+    || (panel.getAttribute && panel.getAttribute('aria-hidden') === 'true'));
+}
 function whenVisible(sb) {
-  const w = sb._whenSection;
-  return !!(w && w.hidden === false && w.style.display !== 'none' && !w.classList.contains('is-when-hidden')
-    && sb._privateWhen && sb._privateWhen.style.display !== 'none');
+  // Name kept: private session panel visible (Main activity drill-down).
+  return privatePanelVisible(sb);
 }
 function whenHidden(sb) {
   const w = sb._whenSection;
-  return !!(w && (w.hidden === true || w.style.display === 'none' || w.classList.contains('is-when-hidden'))
-    && sb._privateWhen && sb._privateWhen.style.display === 'none');
+  const whenShellHidden = !!(w && (w.hidden === true || w.style.display === 'none' || w.classList.contains('is-when-hidden')));
+  return whenShellHidden && !privatePanelVisible(sb);
 }
 function rows(sb) { return sb.scheduleReadPrivateLessonSessionsFromDom(); }
 function setTimes(sb, i, p) {
@@ -245,22 +253,22 @@ function soft(sb, times) {
     assert('soft zero quote/create no toast', res && res.softInvalid === true && res.ok === false && sb._quote.fetch === 0 && sb._quote.create === 0 && !sb.el('ps-create-msg').textContent, 'f=' + sb._quote.fetch);
   });
 }
-console.log('\n[3] Activity-aware visibility (top dates always on; When only Private)');
+console.log('\n[3] Activity-aware visibility (top dates always on; private panel only Private)');
 {
   const sb = build();
-  // Simulate real transition: populate before any activity pick (When starts hidden).
+  // Simulate real transition: populate before any activity pick (panel starts hidden).
   sb.schedulePopulateCreateComponentFields();
-  assert('No lesson range on / When hidden', sb.el('ps-create-date-range').style.display !== 'none' && whenHidden(sb));
+  assert('No lesson range on / private panel hidden', sb.el('ps-create-date-range').style.display !== 'none' && whenHidden(sb));
   pick(sb, 'ps-create-comp-course');
-  assert('Group range on / When hidden / tier wrap hidden', sb.el('ps-create-date-range').style.display !== 'none'
+  assert('Group range on / private panel hidden / tier wrap hidden', sb.el('ps-create-date-range').style.display !== 'none'
     && whenHidden(sb)
     && sb.el('ps-create-course-tier-wrap').style.display === 'none'
     && sb.el('ps-create-private-lesson-fields').style.display === 'none');
-  // Real Private transition: When section unhides, then session rows initialize.
+  // Real Private transition: private panel unhides, then session rows initialize.
   pick(sb, 'ps-create-comp-private-lesson');
-  assert('Private When visible before field assert', whenVisible(sb)
+  assert('Private panel visible before field assert', whenVisible(sb)
     && sb.el('ps-create-date-range').style.display !== 'none'
-    // Legacy private-lesson-fields stay hidden; times live under When.
+    // Legacy private-lesson-fields stay hidden; times live in Main activity panel.
     && sb.el('ps-create-private-lesson-fields').style.display === 'none');
   assert('Private rows from range default 10:00–12:00', rows(sb).length === 3
     && rows(sb)[0].date === '2026-07-20' && rows(sb)[2].date === '2026-07-22'
@@ -268,7 +276,7 @@ console.log('\n[3] Activity-aware visibility (top dates always on; When only Pri
   assert('no Add/Remove UI', sb.el('ps-create-add-session').style.display === 'none'
     && sb.el('ps-create-private-lesson-sessions').querySelectorAll('.portal-schedule-session-remove').length === 0);
   pick(sb, 'ps-create-comp-no-lesson');
-  assert('back No lesson When hidden', sb.el('ps-create-date-range').style.display !== 'none' && whenHidden(sb));
+  assert('back No lesson private panel hidden', sb.el('ps-create-date-range').style.display !== 'none' && whenHidden(sb));
 }
 console.log('\n[4] Range grow/shrink/shift preserves overlapping times');
 {

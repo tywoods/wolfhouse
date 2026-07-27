@@ -440,6 +440,7 @@
     "verify:sunset-create-custom-line": "node scripts/verify-sunset-create-custom-line.js",
     "verify:sunset-create-footer-mobile-compact": "node scripts/verify-sunset-create-footer-mobile-compact.js",
     "verify:sunset-create-course-drilldown": "node scripts/verify-sunset-create-course-drilldown.js",
+    "verify:sunset-create-private-drilldown": "node scripts/verify-sunset-create-private-drilldown.js",
     "verify:sunset-addon-price-duration-hotfix": "node scripts/verify-sunset-addon-price-duration-hotfix.js",
     "verify:sunset-rendered-ui-price-hotfix": "node scripts/verify-sunset-rendered-ui-price-hotfix.js",
     "verify:sunset-rental-quantity-total-hotfix": "node scripts/verify-sunset-rental-quantity-total-hotfix.js",

@@ -16578,11 +16578,20 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-course-list{display:flex;flex-direction:column;gap:8px;margin:8px 0;min-width:0}
 .portal-schedule-create-course-list .portal-schedule-create-check{min-height:44px;display:flex;align-items:center;gap:10px;box-sizing:border-box;width:100%}
 .portal-schedule-create-course-list .portal-schedule-create-check.is-disabled,.portal-schedule-create-course-list .portal-schedule-create-check:has(input:disabled){opacity:.55;cursor:not-allowed}
+/* Private sessions drill-down occupies the same Main activity replacement region as course list. */
+.portal-schedule-create-private-panel{display:flex;flex-direction:column;gap:8px;margin:8px 0;min-width:0;max-width:100%}
+.portal-schedule-create-private-panel .portal-schedule-create-label{margin:0 0 4px}
+.portal-schedule-create-private-panel .portal-schedule-private-sessions{margin-top:4px}
+.portal-schedule-create-private-panel .portal-schedule-private-session-grid{grid-template-columns:1fr 1fr}
+.portal-schedule-create-private-panel .portal-schedule-private-session-grid input[type=time]{min-height:44px;min-width:0}
 @media(max-width:430px){
   .portal-schedule-create-main-activity-header{gap:8px}
-  .portal-schedule-create-main-activity-back{min-height:44px;padding:8px 10px}
+  .portal-schedule-create-main-activity-back{min-height:44px;min-width:44px;padding:8px 10px}
   .portal-schedule-create-course-list .portal-schedule-create-check{min-height:44px;padding:10px 12px}
   .portal-schedule-create-main-activity-path{font-size:12px}
+  .portal-schedule-create-private-panel{margin:6px 0;overflow-x:hidden}
+  .portal-schedule-create-private-panel .portal-schedule-private-session-grid{grid-template-columns:1fr;gap:8px}
+  .portal-schedule-create-private-panel .portal-schedule-private-session-grid input[type=time]{min-height:44px;width:100%}
 }
 .portal-schedule-create-custom-lines{margin:0;padding:0}
 .portal-schedule-create-custom-lines-list{display:flex;flex-direction:column;gap:6px;margin:0}
@@ -18498,6 +18507,17 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <label class="portal-schedule-create-check"><input id="ps-create-comp-no-lesson" type="radio" name="ps-create-main-activity" value="none" checked> <span data-i18n="schedule.type.noLesson">No lesson</span></label>
           </div>
           <div id="ps-create-course-list" class="portal-schedule-create-components portal-schedule-create-course-list" role="radiogroup" aria-labelledby="ps-create-main-activity-label" style="display:none" hidden aria-hidden="true"></div>
+          <!-- Private sessions drill-down: same replacement region as course list (not a second lower editor). -->
+          <div id="ps-create-private-panel" class="portal-schedule-create-private-panel" style="display:none" hidden aria-hidden="true">
+            <div id="ps-create-private-when" class="portal-schedule-create-private-when">
+              <div class="portal-schedule-create-field" style="margin-bottom:0">
+                <span id="ps-create-private-sessions-help" class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set start and end time for each date in the range.</span>
+                <div id="ps-create-private-lesson-sessions" class="portal-schedule-private-sessions"></div>
+                <button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-create-add-session" style="display:none" hidden aria-hidden="true" tabindex="-1" data-i18n="schedule.create.privateLesson.addSession">+ Add session</button>
+              </div>
+              <div class="portal-schedule-create-field" id="ps-create-private-lesson-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1" tabindex="-1"></div>
+            </div>
+          </div>
           <p id="ps-create-activity-empty-hint" class="portal-schedule-create-activity-hint" data-i18n="schedule.create.emptyNoLessonNoGear">Choose a lesson or add gear — empty bookings are not valid yet.</p>
           <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-live="polite"></div>
         </div>
@@ -18522,15 +18542,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect" hidden>Select course</label><select id="ps-create-course-select" tabindex="-1" aria-hidden="true"></select></div>
         <div class="portal-schedule-create-field" id="ps-create-course-tier-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-tier" data-i18n="schedule.create.courseTier">Course duration</label><select id="ps-create-course-tier" tabindex="-1"></select></div>
       </section>
-      <section class="portal-schedule-create-section is-when-hidden" data-create-section="when" aria-labelledby="ps-create-section-when-title" hidden>
+      <!-- When shell retained for section chrome / verifiers; private sessions live in Main activity drill-down only. -->
+      <section class="portal-schedule-create-section is-when-hidden" data-create-section="when" aria-labelledby="ps-create-section-when-title" hidden style="display:none">
         <h3 id="ps-create-section-when-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.when">When</h3>
-        <div id="ps-create-private-when" class="portal-schedule-create-private-when" style="display:none">
-          <div class="portal-schedule-create-field" id="ps-create-private-lesson-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1" tabindex="-1"></div>
-          <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set start and end time for each date in the range.</span>
-            <div id="ps-create-private-lesson-sessions" class="portal-schedule-private-sessions"></div>
-            <button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-create-add-session" style="display:none" hidden aria-hidden="true" tabindex="-1" data-i18n="schedule.create.privateLesson.addSession">+ Add session</button>
-          </div>
-        </div>
       </section>
       <section class="portal-schedule-create-section portal-schedule-create-custom-addon-card" data-create-section="custom-addon" aria-labelledby="ps-create-section-custom-addon-title" data-testid="ps-create-custom-addon-card">
         <div class="portal-schedule-create-custom-addon-header">
@@ -21867,14 +21881,21 @@ function scheduleOnCreateComponentChange(changedId){
   }
   if (changedId === 'ps-create-comp-private-lesson' && privateLesson && privateLesson.checked) {
     if (course) course.checked = false; if (noLesson) noLesson.checked = false;
-    if (typeof schedulePortalExitGroupCourseDrilldown === 'function') {
+    // Private sessions drill-down: replace three choices with per-date start/end editor.
+    if (typeof schedulePortalEnterPrivateSessionsDrilldown === 'function') {
+      schedulePortalEnterPrivateSessionsDrilldown();
+    } else if (typeof schedulePortalExitMainActivityDrilldown === 'function') {
+      schedulePortalExitMainActivityDrilldown({ clearCourse: true, clearPrivate: false, restoreRootOnly: true });
+    } else if (typeof schedulePortalExitGroupCourseDrilldown === 'function') {
       schedulePortalExitGroupCourseDrilldown({ clearCourse: true, restoreRootOnly: true });
     }
   }
   if (changedId === 'ps-create-comp-no-lesson' && noLesson && noLesson.checked) {
     if (course) course.checked = false; if (privateLesson) privateLesson.checked = false;
-    if (typeof schedulePortalExitGroupCourseDrilldown === 'function') {
-      schedulePortalExitGroupCourseDrilldown({ clearCourse: true, restoreRootOnly: true });
+    if (typeof schedulePortalExitMainActivityDrilldown === 'function') {
+      schedulePortalExitMainActivityDrilldown({ clearCourse: true, clearPrivate: true });
+    } else if (typeof schedulePortalExitGroupCourseDrilldown === 'function') {
+      schedulePortalExitGroupCourseDrilldown({ clearCourse: true });
     }
   }
   schedulePopulateCreateComponentFields();
@@ -21987,21 +22008,13 @@ function schedulePopulateCreateComponentFields(){
   // Top-level From/To always authoritative.
   var dateRange = el('ps-create-date-range');
   if (dateRange) dateRange.style.display = '';
-  // When section only for Private (locked date/time rows). Hidden for Group / No lesson.
+  // When section shell always hidden — private sessions live in Main activity drill-down.
   var whenSection = document.querySelector('#ps-create-modal [data-create-section="when"]');
   if (whenSection) {
-    if (privateOn) {
-      whenSection.hidden = false;
-      whenSection.classList.remove('is-when-hidden');
-      whenSection.style.display = '';
-    } else {
-      whenSection.hidden = true;
-      whenSection.classList.add('is-when-hidden');
-      whenSection.style.display = 'none';
-    }
+    whenSection.hidden = true;
+    whenSection.classList.add('is-when-hidden');
+    whenSection.style.display = 'none';
   }
-  var privateWhen = el('ps-create-private-when');
-  if (privateWhen) privateWhen.style.display = privateOn ? '' : 'none';
   var addSess = el('ps-create-add-session');
   if (addSess) {
     addSess.style.display = 'none'; addSess.hidden = true;
@@ -22019,10 +22032,31 @@ function schedulePopulateCreateComponentFields(){
       schedulePortalEnterGroupCourseDrilldown();
     }
     schedulePopulateCreateCourseFields();
+  } else if (privateOn) {
+    if (typeof schedulePortalEnterPrivateSessionsDrilldown === 'function'
+      && typeof schedulePortalIsPrivateSessionsDrilldown === 'function'
+      && !schedulePortalIsPrivateSessionsDrilldown()) {
+      schedulePortalEnterPrivateSessionsDrilldown();
+    }
+  } else if (typeof schedulePortalIsMainActivityDrilldown === 'function'
+    && schedulePortalIsMainActivityDrilldown()
+    && typeof schedulePortalExitMainActivityDrilldown === 'function') {
+    schedulePortalExitMainActivityDrilldown({ clearCourse: true, clearPrivate: true, restoreRootOnly: true });
   } else if (typeof schedulePortalIsGroupCourseDrilldown === 'function'
     && schedulePortalIsGroupCourseDrilldown()
     && typeof schedulePortalExitGroupCourseDrilldown === 'function') {
     schedulePortalExitGroupCourseDrilldown({ clearCourse: true, restoreRootOnly: true });
+  }
+  // Private panel visibility is owned by enter/exit drill-down (same region as course list).
+  var privatePanel = el('ps-create-private-panel') || el('ps-create-private-when');
+  if (privatePanel && typeof schedulePortalSetVisible === 'function') {
+    schedulePortalSetVisible(privatePanel, !!privateOn);
+    if (el('ps-create-private-panel') && el('ps-create-private-when')) {
+      schedulePortalSetVisible(el('ps-create-private-when'), !!privateOn);
+    }
+  } else if (privatePanel) {
+    privatePanel.style.display = privateOn ? '' : 'none';
+    privatePanel.hidden = !privateOn;
   }
   if (privateOn) {
     scheduleFetchLessonTimesConfig(getClient()).then(function(){
@@ -24319,7 +24353,10 @@ function wireScheduleControls(){
   if (mainActBack && !mainActBack.dataset.wired) {
     mainActBack.dataset.wired = '1';
     mainActBack.addEventListener('click', function(){
-      if (typeof schedulePortalExitGroupCourseDrilldown === 'function') {
+      // One Back control + one exit/reset owner for Group and Private branches.
+      if (typeof schedulePortalExitMainActivityDrilldown === 'function') {
+        schedulePortalExitMainActivityDrilldown({ clearCourse: true, clearPrivate: true });
+      } else if (typeof schedulePortalExitGroupCourseDrilldown === 'function') {
         schedulePortalExitGroupCourseDrilldown({ clearCourse: true });
       }
       if (typeof schedulePopulateCreateComponentFields === 'function') schedulePopulateCreateComponentFields();
