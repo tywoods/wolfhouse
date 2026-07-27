@@ -83,6 +83,38 @@ function lessonSlotIdentity(slotId, locationId) {
   };
 }
 
+/** Billing grain on tenant_price_rules.unit — never a guest duration window. */
+const BILLING_UNIT_GRAINS = new Set(['person', 'day', 'session', 'item']);
+
+/**
+ * Resolve rental duration for Admin identity.
+ *
+ * Priority:
+ *   1. explicit duration_key / tier_key / duration
+ *   2. compound offering suffix (board_and_suit_rental__6_days → 6_days)
+ *   3. meta.unit only when it is a duration window (not billing grain)
+ *   4. bare keys without any claim → null (fail closed; never invent 1_day for
+ *      multi-day compound identities)
+ *
+ * Exact compound suffix and explicit duration must agree (enforced in rentalIdentity).
+ */
+function rentalDurationFromMeta(meta, offeringRaw) {
+  const m = meta || {};
+  const explicit = String(
+    m.duration_key || m.tier_key || m.duration || '',
+  ).trim();
+  const raw = String(offeringRaw || '').trim();
+  const compoundIndex = raw.lastIndexOf('__');
+  const compoundDuration = compoundIndex > 0 ? raw.slice(compoundIndex + 2) : '';
+
+  if (explicit) return explicit;
+  if (compoundDuration) return compoundDuration;
+
+  const unit = String(m.unit || '').trim();
+  if (unit && !BILLING_UNIT_GRAINS.has(unit)) return unit;
+  return null;
+}
+
 function rentalIdentity(offeringKey, durationKey, locationId) {
   const offering = String(offeringKey || '').trim();
   const duration = String(durationKey || '').trim();
@@ -178,19 +210,27 @@ function resolveSunsetPriceIdentity(input) {
   }
 
   if (component === 'surfboard' || component === 'board_rental' || offeringRaw.startsWith('board_rental')) {
-    const duration = meta.duration_key || meta.tier_key || meta.duration || meta.unit
-      || (offeringRaw.includes('__') ? offeringRaw.split('__').pop() : '1_day');
+    const duration = rentalDurationFromMeta(meta, offeringRaw || 'board_rental');
     return rentalIdentity(offeringRaw || 'board_rental', duration, locationId);
   }
   if (component === 'wetsuit' || component === 'wetsuit_rental' || offeringRaw.startsWith('wetsuit_rental')) {
-    const duration = meta.duration_key || meta.tier_key || meta.duration || meta.unit
-      || (offeringRaw.includes('__') ? offeringRaw.split('__').pop() : '1_day');
+    const duration = rentalDurationFromMeta(meta, offeringRaw || 'wetsuit_rental');
     return rentalIdentity(offeringRaw || 'wetsuit_rental', duration, locationId);
   }
   if (component === 'board_and_suit_rental' || offeringRaw.startsWith('board_and_suit_rental')) {
-    const duration = meta.duration_key || meta.tier_key || meta.duration || meta.unit
-      || (offeringRaw.includes('__') ? offeringRaw.split('__').pop() : '1_day');
+    const duration = rentalDurationFromMeta(meta, offeringRaw || 'board_and_suit_rental');
     return rentalIdentity(offeringRaw || 'board_and_suit_rental', duration, locationId);
+  }
+  // Staff Create async path sets component/offering_type to generic "rental".
+  // Preserve compound offering_id / item_code duration — never silent 1_day.
+  if (component === 'rental' || component === 'surf_rental') {
+    const raw = offeringRaw
+      || String(meta.offering_item_code || meta.item_code || '').trim();
+    if (raw.startsWith('board_rental') || raw.startsWith('wetsuit_rental')
+      || raw.startsWith('board_and_suit_rental')) {
+      const duration = rentalDurationFromMeta(meta, raw);
+      return rentalIdentity(raw, duration, locationId);
+    }
   }
 
   // Generic future Admin offering: require full item_code ending with __unit grain
@@ -244,6 +284,7 @@ module.exports = {
   privateLessonIdentity,
   courseTierIdentity,
   lessonSlotIdentity,
+  rentalDurationFromMeta,
   rentalIdentity,
   fullDayEquipmentIdentity,
   resolveSunsetPriceIdentity,
