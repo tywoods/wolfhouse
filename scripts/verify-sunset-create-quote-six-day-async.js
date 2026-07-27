@@ -30,6 +30,8 @@ const {
 } = require('./lib/luna-front-desk-quote-service');
 const {
   configuredRentalBundleTotalCents,
+  parseRentalPricingMeta,
+  validateBundleRentalGroup,
   createSunsetScheduleStripeLink,
 } = require('./lib/sunset-stripe-payment-links');
 
@@ -449,6 +451,10 @@ async function main() {
       duration: '6_days',
       quantity: 1,
       service_date: '2026-08-01',
+      rental_service_dates: [
+        '2026-08-01', '2026-08-02', '2026-08-03',
+        '2026-08-04', '2026-08-05', '2026-08-06',
+      ],
       components: ['surfboard', 'wetsuit'],
       quoted_total_cents: quoted,
     };
@@ -460,24 +466,71 @@ async function main() {
       location_id: LOC,
     });
   }
-  const bundleRows = [
+  const rentalDates = [
+    '2026-08-01', '2026-08-02', '2026-08-03',
+    '2026-08-04', '2026-08-05', '2026-08-06',
+  ];
+  const bundleRows = rentalDates.flatMap((serviceDate, index) => [
     {
-      id: 'sr-board-6d',
+      id: `sr-board-6d-${index}`,
       service_type: 'surfboard',
-      service_date: '2026-08-01',
+      service_date: serviceDate,
       quantity: 1,
       amount_due_cents: 0,
       metadata: rowMeta('surfboard'),
     },
     {
-      id: 'sr-suit-6d',
+      id: `sr-suit-6d-${index}`,
       service_type: 'wetsuit',
-      service_date: '2026-08-01',
+      service_date: serviceDate,
       quantity: 1,
       amount_due_cents: 0,
       metadata: rowMeta('wetsuit'),
     },
-  ];
+  ]);
+  const multiDayDescriptor = sixDayDescriptor(SIX_DAY_CENTS);
+  check(
+    'six-day persisted group accepts exactly one board+suit pair per declared date',
+    validateBundleRentalGroup(bundleRows, multiDayDescriptor, LOC).ok === true,
+  );
+  check(
+    'six-day persisted group fails closed when one declared rental row is missing',
+    validateBundleRentalGroup(bundleRows.slice(0, -1), multiDayDescriptor, LOC).error === 'rental_pricing_group_invalid',
+  );
+  check(
+    'six-day persisted group fails closed on an undeclared extra date',
+    validateBundleRentalGroup(bundleRows.concat([{ ...bundleRows[0], id: 'extra-board', service_date: '2026-08-07' }]), multiDayDescriptor, LOC).error === 'rental_pricing_group_invalid',
+  );
+  const duplicateDeclared = parseRentalPricingMeta({ rental_pricing: {
+    ...multiDayDescriptor,
+    rental_service_dates: ['2026-08-01', '2026-08-01', '2026-08-02'],
+  } });
+  check(
+    'duplicate declared rental dates fail closed',
+    validateBundleRentalGroup(bundleRows.slice(0, 4), duplicateDeclared, LOC).error === 'rental_pricing_group_invalid',
+  );
+  const malformedDeclared = parseRentalPricingMeta({ rental_pricing: {
+    ...multiDayDescriptor,
+    rental_service_dates: ['', 'not-a-date'],
+  } });
+  check(
+    'blank or malformed declared rental dates fail closed',
+    validateBundleRentalGroup([
+      { ...bundleRows[0], service_date: 'not-a-date' },
+      { ...bundleRows[1], service_date: 'not-a-date' },
+    ], malformedDeclared, LOC).error === 'rental_pricing_group_invalid',
+  );
+  const missingLocationRows = bundleRows.map((row) => ({
+    ...row,
+    metadata: JSON.stringify({
+      pricing_group_id: GROUP_ID,
+      rental_pricing_role: row.service_type,
+    }),
+  }));
+  check(
+    'missing row locations fail closed against trusted booking location',
+    validateBundleRentalGroup(missingLocationRows, multiDayDescriptor, LOC).error === 'rental_pricing_group_invalid',
+  );
 
   let stripeFetchCount = 0;
   let stripeBody = '';

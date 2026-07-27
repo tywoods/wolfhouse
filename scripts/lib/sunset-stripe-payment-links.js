@@ -8,6 +8,7 @@
 const crypto = require('crypto');
 const {
   normalizeSunsetLocationId,
+  isSunsetLocationId,
   resolveRecordLocationId,
 } = require('./sunset-school-locations');
 const { resolveTenantBusinessConfigAsync, SUNSET_ADMIN_CLIENT } = require('./tenant-business-config');
@@ -227,7 +228,15 @@ function normalizeRentalDuration(raw) {
   return compact;
 }
 
-function parseRentalPricingMeta(meta) {
+function isStrictIsoCalendarDate(value) {
+  const raw = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const parsed = new Date(`${raw}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === raw;
+}
+
+function parseRentalPricingMeta(bookingMeta) {
+  const meta = bookingMeta || {};
   const rp = meta && meta.rental_pricing;
   if (!rp || typeof rp !== 'object') return null;
   const offering_key = String(rp.offering_key || '').trim();
@@ -240,6 +249,15 @@ function parseRentalPricingMeta(meta) {
     : parseInt(String(quotedRaw), 10);
   const pricing_group_id = String(rp.pricing_group_id || '').trim() || null;
   const service_date = String(rp.service_date || '').trim() || null;
+  const rawRentalDates = Array.isArray(rp.rental_service_dates)
+    ? rp.rental_service_dates.map((d) => String(d || '').trim())
+    : [];
+  const rental_service_dates_invalid = Object.prototype.hasOwnProperty.call(rp, 'rental_service_dates')
+    && (!Array.isArray(rp.rental_service_dates)
+      || rawRentalDates.length === 0
+      || rawRentalDates.some((d) => !isStrictIsoCalendarDate(d))
+      || new Set(rawRentalDates).size !== rawRentalDates.length);
+  const rental_service_dates = rawRentalDates.slice().sort();
   const components = Array.isArray(rp.components)
     ? rp.components.map((c) => String(c || '').trim()).filter(Boolean)
     : [];
@@ -249,6 +267,8 @@ function parseRentalPricingMeta(meta) {
     quantity,
     pricing_group_id,
     service_date,
+    rental_service_dates,
+    rental_service_dates_invalid,
     components,
     quoted_total_cents: quoted_total_cents != null && Number.isInteger(quoted_total_cents) && quoted_total_cents >= 0
       ? quoted_total_cents
@@ -281,32 +301,48 @@ function isBundleRentalServiceRow(sr, rentalPricing) {
   return serviceRowPricingGroupId(sr) === groupId;
 }
 
-function validateBundleRentalGroup(svcRows, rentalPricing) {
-  if (!rentalPricing || rentalPricing.offering_key !== BOARD_AND_SUIT_OFFERING_KEY) {
+function validateBundleRentalGroup(svcRows, rentalPricing, expectedLocationId) {
+  if (!rentalPricing
+    || rentalPricing.rental_service_dates_invalid
+    || rentalPricing.offering_key !== BOARD_AND_SUIT_OFFERING_KEY) {
     return { ok: false, error: 'rental_pricing_group_invalid' };
   }
   const groupId = rentalPricing.pricing_group_id;
   if (!groupId) return { ok: false, error: 'rental_pricing_group_invalid' };
   const groupRows = svcRows.filter((sr) => serviceRowPricingGroupId(sr) === groupId);
-  const boards = groupRows.filter((sr) => String(sr.service_type || '').toLowerCase() === 'surfboard');
-  const suits = groupRows.filter((sr) => String(sr.service_type || '').toLowerCase() === 'wetsuit');
-  if (groupRows.length !== 2 || boards.length !== 1 || suits.length !== 1) {
+  const expectedDates = rentalPricing.rental_service_dates && rentalPricing.rental_service_dates.length
+    ? rentalPricing.rental_service_dates
+    : (rentalPricing.service_date ? [String(rentalPricing.service_date)] : []);
+  if (!expectedDates.length || expectedDates.some((date) => !isStrictIsoCalendarDate(date))) {
     return { ok: false, error: 'rental_pricing_group_invalid' };
   }
-  const board = boards[0];
-  const suit = suits[0];
-  if (Number(board.quantity) !== rentalPricing.quantity || Number(suit.quantity) !== rentalPricing.quantity) {
+  if (groupRows.length !== expectedDates.length * 2) {
     return { ok: false, error: 'rental_pricing_group_invalid' };
   }
-  if (rentalPricing.service_date) {
-    const expected = String(rentalPricing.service_date);
-    if (String(board.service_date || '') !== expected || String(suit.service_date || '') !== expected) {
+  const expectedDateSet = new Set(expectedDates);
+  for (const expectedDate of expectedDates) {
+    const dateRows = groupRows.filter((sr) => String(sr.service_date || '') === expectedDate);
+    const boards = dateRows.filter((sr) => String(sr.service_type || '').toLowerCase() === 'surfboard');
+    const suits = dateRows.filter((sr) => String(sr.service_type || '').toLowerCase() === 'wetsuit');
+    if (dateRows.length !== 2 || boards.length !== 1 || suits.length !== 1) {
       return { ok: false, error: 'rental_pricing_group_invalid' };
     }
   }
-  const boardLoc = normalizeSunsetLocationId(parseMeta(board.metadata).location_id);
-  const suitLoc = normalizeSunsetLocationId(parseMeta(suit.metadata).location_id);
-  if (boardLoc !== suitLoc) {
+  if (groupRows.some((sr) => !expectedDateSet.has(String(sr.service_date || '')))) {
+    return { ok: false, error: 'rental_pricing_group_invalid' };
+  }
+  if (groupRows.some((sr) => Number(sr.quantity) !== rentalPricing.quantity)) {
+    return { ok: false, error: 'rental_pricing_group_invalid' };
+  }
+  if (rentalPricing.service_date && !expectedDateSet.has(String(rentalPricing.service_date))) {
+    return { ok: false, error: 'rental_pricing_group_invalid' };
+  }
+  const expectedLocation = String(expectedLocationId || '').trim().toLowerCase();
+  if (!isSunsetLocationId(expectedLocation)) {
+    return { ok: false, error: 'rental_pricing_group_invalid' };
+  }
+  const rowLocations = groupRows.map((sr) => String(parseMeta(sr.metadata).location_id || '').trim().toLowerCase());
+  if (rowLocations.some((location) => !isSunsetLocationId(location) || location !== expectedLocation)) {
     return { ok: false, error: 'rental_pricing_group_invalid' };
   }
   const expectedComponents = rentalPricing.components && rentalPricing.components.length
@@ -315,7 +351,7 @@ function validateBundleRentalGroup(svcRows, rentalPricing) {
   if (expectedComponents.indexOf('surfboard') < 0 || expectedComponents.indexOf('wetsuit') < 0) {
     return { ok: false, error: 'rental_pricing_group_invalid' };
   }
-  return { ok: true, bundleRows: [board, suit] };
+  return { ok: true, bundleRows: groupRows };
 }
 
 function isFullDayEquipmentAddon(sr) {
@@ -395,7 +431,7 @@ async function loadBookingWithServices(pg, clientSlug, bookingId, bookingCode) {
   return { booking, services: svcRes.rows };
 }
 
-async function applyBundleRentalPricing(pg, prices, svcRows, rentalPricing) {
+async function applyBundleRentalPricing(pg, prices, svcRows, rentalPricing, expectedLocationId) {
   const configuredTotal = configuredRentalBundleTotalCents(prices, rentalPricing);
   if (configuredTotal == null) {
     return { ok: false, error: 'rental_bundle_price_unavailable' };
@@ -408,7 +444,7 @@ async function applyBundleRentalPricing(pg, prices, svcRows, rentalPricing) {
       quoted_total_cents: rentalPricing.quoted_total_cents,
     };
   }
-  const validated = validateBundleRentalGroup(svcRows, rentalPricing);
+  const validated = validateBundleRentalGroup(svcRows, rentalPricing, expectedLocationId);
   if (!validated.ok) return validated;
   const bundleRows = validated.bundleRows.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
   let applied = 0;
@@ -522,7 +558,7 @@ async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
   let totalCents = 0;
   const bundleRowIds = new Set();
   if (rentalPricing && rentalPricing.offering_key === BOARD_AND_SUIT_OFFERING_KEY) {
-    const bundlePriced = await applyBundleRentalPricing(pg, prices, svcRes.rows, rentalPricing);
+    const bundlePriced = await applyBundleRentalPricing(pg, prices, svcRes.rows, rentalPricing, locationId);
     if (!bundlePriced.ok) return bundlePriced;
     totalCents += bundlePriced.total_cents;
     (bundlePriced.bundleRowIds || []).forEach((id) => bundleRowIds.add(id));
