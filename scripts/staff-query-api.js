@@ -16563,14 +16563,19 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-rental-pebble:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
 .portal-schedule-create-check.is-disabled,.portal-schedule-create-check:has(input:disabled){opacity:.55;cursor:not-allowed}
 /* Staff Custom add-on card — own thin-outline card above Payment & notes (not nested) */
-.portal-schedule-create-custom-addon-card{margin:0 0 12px;padding:12px 14px;border:1px solid var(--border-soft,#d4d0c8);border-radius:var(--radius-sm,10px);background:transparent;box-shadow:none}
-.portal-schedule-create-custom-addon-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px}
-.portal-schedule-create-custom-addon-header .portal-schedule-create-section-title{margin:0;flex:1 1 auto;min-width:0;font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--text-2,#555)}
+.portal-schedule-create-custom-addon-card{margin:0 0 12px;padding:14px;border:1px solid var(--border-soft,#d4d0c8);border-radius:var(--radius-sm,10px);background:transparent;box-shadow:none;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box}
+.portal-schedule-create-custom-addon-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0;min-height:44px}
+.portal-schedule-create-custom-addon-header .portal-schedule-create-section-title{margin:0;flex:1 1 auto;min-width:0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2,#555);line-height:1.2}
 .portal-schedule-create-custom-addon-header .portal-schedule-create-custom-lines-collapsed{flex:0 0 auto;margin:0;display:flex;align-items:center}
-.portal-schedule-create-custom-addon-card .portal-schedule-create-section-title{margin:0 0 10px;font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--text-2,#555)}
+.portal-schedule-create-custom-addon-card .portal-schedule-create-section-title{margin:0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2,#555);line-height:1.2}
+/* Match Guest name field labels (11px uppercase) for Main activity etc. */
+.portal-schedule-create-label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}
 .portal-schedule-create-custom-lines{margin:0;padding:0}
-.portal-schedule-create-custom-lines-list{display:flex;flex-direction:column;gap:6px;margin:0 0 8px}
+.portal-schedule-create-custom-lines-list{display:flex;flex-direction:column;gap:6px;margin:0}
+.portal-schedule-create-custom-lines-list:not(:empty){margin:0 0 8px}
 .portal-schedule-create-custom-lines-list:empty{margin:0}
+.portal-schedule-create-custom-addon-card:has(.portal-schedule-create-custom-lines-list:not(:empty)) .portal-schedule-create-custom-addon-header,
+.portal-schedule-create-custom-addon-card:has(.portal-schedule-create-custom-lines-editor:not([hidden])) .portal-schedule-create-custom-addon-header{margin:0 0 10px}
 .portal-schedule-create-custom-line-row{display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:transparent;font-size:13px}
 .portal-schedule-create-custom-line-row .ps-cl-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .portal-schedule-create-custom-line-row .ps-cl-amount{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:600}
@@ -18449,8 +18454,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </header>
     <div class="portal-schedule-create-body">
       <div id="ps-create-msg" class="state-msg error" style="display:none;margin-bottom:12px"></div>
-      <section class="portal-schedule-create-section" data-create-section="guest" aria-labelledby="ps-create-section-guest-title">
-        <h3 id="ps-create-section-guest-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.guest">Guest</h3>
+      <section class="portal-schedule-create-section" data-create-section="guest" aria-label="Guest">
         <div class="portal-schedule-create-field"><label for="ps-create-guest" data-i18n="schedule.create.guestName">Guest name</label><input id="ps-create-guest" type="text" autocomplete="off"></div>
         <div class="portal-schedule-create-field"><label for="ps-create-phone" data-i18n="schedule.create.phone">Phone number</label><input id="ps-create-phone" type="tel" autocomplete="tel" inputmode="tel"></div>
         <div id="ps-create-date-range">
@@ -18467,8 +18471,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         </div>
         <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="99" value="1" tabindex="-1"></div>
       </section>
-      <section class="portal-schedule-create-section" data-create-section="what" aria-labelledby="ps-create-section-what-title">
-        <h3 id="ps-create-section-what-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.what">What</h3>
+      <section class="portal-schedule-create-section" data-create-section="what" aria-label="What">
         <div class="portal-schedule-create-field"><span id="ps-create-main-activity-label" class="portal-schedule-create-label" data-i18n="schedule.create.mainActivity">Main activity</span>
           <div class="portal-schedule-create-components portal-schedule-create-main-activity" role="radiogroup" aria-labelledby="ps-create-main-activity-label">
             <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="radio" name="ps-create-main-activity" value="group"> <span data-i18n="schedule.type.course">Group course</span></label>
