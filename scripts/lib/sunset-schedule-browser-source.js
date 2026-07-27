@@ -21,6 +21,7 @@ const RUNTIME_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-ru
 const ROW_NORMALIZER_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-row-normalizer.js');
 const DATA_LOADER_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-data-loader.js');
 const RENTAL_AVAILABILITY_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-rental-availability.js');
+const MONEY_PARSE_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-money-parse.js');
 
 function getSunsetSchedulePortalBrowserSource() {
   return fs.readFileSync(BROWSER_MODULE, 'utf8');
@@ -28,6 +29,10 @@ function getSunsetSchedulePortalBrowserSource() {
 
 function getSunsetScheduleRentalAvailabilityBrowserSource() {
   return fs.readFileSync(RENTAL_AVAILABILITY_MODULE, 'utf8');
+}
+
+function getSunsetScheduleMoneyParseBrowserSource() {
+  return fs.readFileSync(MONEY_PARSE_MODULE, 'utf8');
 }
 
 function getSunsetScheduleDrawerViewBrowserSource() {
@@ -81,6 +86,10 @@ function injectAtMarker(html, marker, moduleJs) {
 }
 
 function injectSunsetSchedulePortalModule(html) {
+  // Money parse first: Create/Edit custom lines call scheduleParseCreateMoneyToCents
+  // as a global. Must not live inside the buildUiHtml template literal (\\d escapes
+  // are consumed → /^d+(.d+)?$/ and amount_invalid for "10").
+  html = injectAtMarker(html, SCHEDULE_MONEY_PARSE_INJECT_MARKER, getSunsetScheduleMoneyParseBrowserSource());
   html = injectAtMarker(html, SCHEDULE_RENTAL_AVAILABILITY_INJECT_MARKER, getSunsetScheduleRentalAvailabilityBrowserSource());
   html = injectAtMarker(html, SCHEDULE_PORTAL_INJECT_MARKER, getSunsetSchedulePortalBrowserSource());
   html = injectAtMarker(html, SCHEDULE_DRAWER_VIEW_INJECT_MARKER, getSunsetScheduleDrawerViewBrowserSource());
@@ -96,6 +105,7 @@ function injectSunsetSchedulePortalModule(html) {
   return injectAtMarker(html, SCHEDULE_DATA_LOADER_INJECT_MARKER, getSunsetScheduleDataLoaderBrowserSource());
 }
 
+const SCHEDULE_MONEY_PARSE_INJECT_MARKER = '/* INJECT:sunset-schedule-money-parse */';
 const SCHEDULE_RENTAL_AVAILABILITY_INJECT_MARKER = '/* INJECT:sunset-schedule-rental-availability */';
 const SCHEDULE_PORTAL_INJECT_MARKER = '/* INJECT:sunset-schedule-portal-module */';
 const SCHEDULE_DRAWER_VIEW_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-view-ui */';
@@ -113,6 +123,7 @@ const SCHEDULE_DATA_LOADER_INJECT_MARKER = '/* INJECT:sunset-schedule-data-loade
 module.exports = {
   getSunsetSchedulePortalBrowserSource,
   getSunsetScheduleRentalAvailabilityBrowserSource,
+  getSunsetScheduleMoneyParseBrowserSource,
   getSunsetScheduleDrawerViewBrowserSource,
   getSunsetScheduleDrawerEditBrowserSource,
   getSunsetScheduleDrawerActionsBrowserSource,
@@ -128,6 +139,7 @@ module.exports = {
   injectAtMarker,
   BROWSER_MODULE,
   RENTAL_AVAILABILITY_MODULE,
+  MONEY_PARSE_MODULE,
   DRAWER_VIEW_MODULE,
   DRAWER_EDIT_MODULE,
   DRAWER_ACTIONS_MODULE,
@@ -139,6 +151,7 @@ module.exports = {
   NAVIGATION_MODULE,
   ROW_NORMALIZER_MODULE,
   DATA_LOADER_MODULE,
+  SCHEDULE_MONEY_PARSE_INJECT_MARKER,
   SCHEDULE_RENTAL_AVAILABILITY_INJECT_MARKER,
   SCHEDULE_PORTAL_INJECT_MARKER,
   SCHEDULE_DRAWER_VIEW_INJECT_MARKER,

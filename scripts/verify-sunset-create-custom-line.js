@@ -149,11 +149,17 @@ ok('float number rejected (strict integer cents for number type)', !parse(12.5).
 ok('overflow rejected', !parse(String(Number.MAX_SAFE_INTEGER) + '0').ok || !parse(Number.MAX_SAFE_INTEGER + 1).ok
   || !parse(String(Number.MAX_SAFE_INTEGER) + '.00').ok);
 
-// Browser parser: VM evaluate bounded function only (no dead Node-bridge path).
-const browserParseFn = extractFn(apiSrc, 'scheduleParseCreateMoneyToCents');
+// Browser parser lives in injected module (not buildUiHtml template — \\d escapes).
+const moneyModSrc = fs.readFileSync(
+  path.join(ROOT, 'scripts/browser/sunset-schedule-money-parse.js'), 'utf8',
+);
+const browserParseFn = extractFn(moneyModSrc, 'scheduleParseCreateMoneyToCents');
 ok('browser parse fn bounded extract', !!browserParseFn);
 ok('browser parse has no dead parseLocaleMoneyToCents bridge',
   !!browserParseFn && !browserParseFn.includes('parseLocaleMoneyToCents'));
+ok('staff-api injects money-parse module (no inline redeclare)',
+  apiSrc.includes('/* INJECT:sunset-schedule-money-parse */')
+  && !apiSrc.includes('function scheduleParseCreateMoneyToCents'));
 let browserParse = null;
 if (browserParseFn) {
   try {

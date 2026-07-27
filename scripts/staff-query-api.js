@@ -19502,6 +19502,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 function el(id){ return document.getElementById(id); }
+/* INJECT:sunset-schedule-money-parse */
 /* INJECT:sunset-schedule-rental-availability */
 /* INJECT:sunset-schedule-portal-module */
 /* INJECT:sunset-schedule-drawer-view-ui */
@@ -22060,42 +22061,9 @@ var scheduleCreateCustomLines = [];
 var scheduleCreateCustomLineSeq = 0;
 var scheduleCreateCustomLineEditorOpen = false;
 
-/** Browser-local money parse for Create custom lines (server revalidates with parseLocaleMoneyToCents). */
-function scheduleParseCreateMoneyToCents(raw) {
-  if (raw == null) return { ok: false, error: 'amount_required' };
-  if (typeof raw === 'number') {
-    if (!Number.isFinite(raw) || !Number.isInteger(raw)) return { ok: false, error: 'amount_invalid' };
-    return { ok: true, amount_cents: raw === 0 || Object.is(raw, -0) ? 0 : raw };
-  }
-  var s = String(raw).trim();
-  if (!s) return { ok: false, error: 'amount_required' };
-  s = s.replace(/[€$£\u00a0\s]/g, '');
-  var neg = false;
-  if (s.charAt(0) === '-') { neg = true; s = s.slice(1); }
-  else if (s.charAt(0) === '+') { s = s.slice(1); }
-  if (!s) return { ok: false, error: 'amount_required' };
-  var lastDot = s.lastIndexOf('.');
-  var lastComma = s.lastIndexOf(',');
-  var normalized = s;
-  if (lastDot >= 0 && lastComma >= 0) {
-    normalized = lastComma > lastDot ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
-  } else if (lastComma >= 0) {
-    var fracC = s.slice(lastComma + 1);
-    normalized = (/^\d{1,2}$/.test(fracC) && s.indexOf(',') === lastComma)
-      ? s.replace(',', '.') : s.replace(/,/g, '');
-  }
-  if (!/^\d+(\.\d+)?$/.test(normalized)) return { ok: false, error: 'amount_invalid' };
-  var parts = normalized.split('.');
-  if (parts[1] != null && parts[1].length > 2) return { ok: false, error: 'amount_too_many_decimals' };
-  var whole = parts[0] || '0';
-  var frac = ((parts[1] || '') + '00').slice(0, 2);
-  var cents = parseInt(whole, 10) * 100 + parseInt(frac, 10);
-  if (!Number.isFinite(cents)) return { ok: false, error: 'amount_nan' };
-  if (neg) cents = -cents;
-  if (cents === 0) cents = 0;
-  if (Math.abs(cents) > Number.MAX_SAFE_INTEGER) return { ok: false, error: 'amount_overflow' };
-  return { ok: true, amount_cents: cents };
-}
+// scheduleParseCreateMoneyToCents is injected (INJECT:sunset-schedule-money-parse).
+// Do NOT redeclare it here — template-literal \\d escapes corrupt regex literals to
+// /^d+(.d+)?$/ which rejects "10" / "10.00" with amount_invalid.
 
 function scheduleFormatCentsMoney(cents) {
   var n = Number(cents);
@@ -22330,8 +22298,25 @@ function scheduleCreateDateSpanForRentals(){
 function scheduleReadCreateRentalSelectionFromDom(){
   var wrap = el('ps-create-rentals');
   if (!wrap) return [];
-  var duration = String(wrap.getAttribute('data-duration-key') || '').trim();
   var shortMode = wrap.getAttribute('data-short-rental') === '1';
+  // Authoritative duration: multi-day always recomputes from From/To (never trust a
+  // stale data-duration-key left from a prior short-mode 1_day pebble). Short mode
+  // keeps the pebble selection on data-duration-key (1_hour / half_day / 1_day).
+  var duration = String(wrap.getAttribute('data-duration-key') || '').trim();
+  if (!shortMode && typeof scheduleRentalDurationKeyFromDates === 'function') {
+    var span = typeof scheduleCreateDateSpanForRentals === 'function'
+      ? scheduleCreateDateSpanForRentals()
+      : null;
+    if (span && span.from) {
+      var dateDur = scheduleRentalDurationKeyFromDates(
+        span.from, span.to || span.from, scheduleEnumerateDates,
+      );
+      if (dateDur) {
+        duration = dateDur;
+        try { wrap.setAttribute('data-duration-key', duration); } catch (_d) { /* ignore */ }
+      }
+    }
+  }
   // No lesson: never trust an independently editable equipment quantity.
   var noLesson = typeof scheduleCreateIsNoLesson === 'function' ? scheduleCreateIsNoLesson() : false;
   var selection = [];
@@ -23300,10 +23285,11 @@ function scheduleDurationDaysFromTierKey(tierKey){
   var key = String(tierKey || '').trim();
   if (!key) return null;
   if (key === 'single_class' || key === '1_day') return 1;
-  var md = /^(\d+)_days$/.exec(key);
+  // RegExp constructor — regex literals with \d break inside the embedded /staff/ui template.
+  var md = new RegExp('^(\\\\d+)_days$').exec(key);
   if (md) { var n = parseInt(md[1], 10); return (n >= 1) ? n : null; }
   if (key === '1_week') return 7;
-  var mw = /^(\d+)_weeks$/.exec(key);
+  var mw = new RegExp('^(\\\\d+)_weeks$').exec(key);
   if (mw) { var w = parseInt(mw[1], 10); return (w >= 1) ? (w * 7) : null; }
   return null;
 }
