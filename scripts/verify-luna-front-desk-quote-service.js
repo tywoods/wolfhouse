@@ -532,7 +532,7 @@ async function run() {
   ]);
 
   function staffRentalBody(extra) {
-    return {
+    const body = {
       guest_name: 'Rental Guest',
       date_from: SATURDAY,
       date_to: SATURDAY,
@@ -541,6 +541,20 @@ async function run() {
       components: {},
       ...extra,
     };
+    // Staff no-lesson equipment requires authoritative surfer_count (qty force owner).
+    // Default from rental/component quantity when the fixture omits it.
+    if (body.surfer_count == null && body.guest_count == null) {
+      if (Array.isArray(body.rentals) && body.rentals[0] && body.rentals[0].quantity != null) {
+        body.surfer_count = Number(body.rentals[0].quantity) || 1;
+      } else if (body.components && body.components.surfboard && body.components.surfboard.quantity != null) {
+        body.surfer_count = Number(body.components.surfboard.quantity) || 1;
+      } else if (body.components && body.components.wetsuit && body.components.wetsuit.quantity != null) {
+        body.surfer_count = Number(body.components.wetsuit.quantity) || 1;
+      } else {
+        body.surfer_count = 1;
+      }
+    }
+    return body;
   }
 
   // 1. Somo bundle 1_day resolves only board_and_suit_rental__1_day
@@ -746,15 +760,43 @@ async function run() {
       && !(bundleQuote.body.total_cents === BUNDLE_1D + BOARD_1D + WETSUIT_1D),
   );
 
-  // 9. Legacy quantity mismatch rejected
-  const legacyMismatch = executeSunsetQuoteSync(
-    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+  // 9. Staff no-lesson without surfer_count fails closed (cannot spoof via mismatched legacy qty).
+  // With authoritative surfer_count, force rewrites legacy qty so mismatch is healed not accepted.
+  const legacyNoSn = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, {
+      guest_name: 'Rental Guest',
+      date_from: SATURDAY,
+      date_to: SATURDAY,
+      service_dates: [SATURDAY],
+      payment_status: 'unpaid',
+      // no surfer_count — staff fail-closed
       rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 2 }],
+      components: { surfboard: { quantity: 1 } },
+    }).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert(
+    '9 staff without surfer_count fails closed (no legacy spoof)',
+    legacyNoSn.ok === false
+      && String((legacyNoSn.body && (legacyNoSn.body.reason_code || legacyNoSn.body.reason || legacyNoSn.body.error)) || '')
+        .includes('surfer_count_required_for_no_lesson_equipment'),
+    JSON.stringify(legacyNoSn.body),
+  );
+  const legacyForced = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      surfer_count: 2,
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 9 }],
       components: { surfboard: { quantity: 1 } },
     })).command,
     { adminCfg: somoRentalCfg },
   );
-  assert('9 legacy quantity mismatch rejected', legacyMismatch.ok === false, JSON.stringify(legacyMismatch.body));
+  assert(
+    '9 staff surfer_count forces spoofed legacy qty to 2',
+    legacyForced.ok === true
+      && legacyForced.body.total_cents === BOARD_1D * 2
+      && (legacyForced.body.line_items || []).every((l) => Number(l.quantity) === 2),
+    JSON.stringify(legacyForced.body),
+  );
 
   // 10. Course + bundle total combines correctly
   const courseBundle = executeSunsetQuoteSync(
@@ -866,6 +908,7 @@ async function run() {
       date_to: '2026-07-20',
       service_dates: ['2026-07-18'],
       payment_status: 'unpaid',
+      surfer_count: 1,
       components: {},
       rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
     }).command,
@@ -884,6 +927,7 @@ async function run() {
       date_to: SATURDAY,
       service_dates: [SATURDAY, '2026-07-19'],
       payment_status: 'unpaid',
+      surfer_count: 1,
       components: {},
       rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
     }).command,
@@ -898,6 +942,7 @@ async function run() {
       date_to: '2026-07-20',
       service_dates: ['2026-07-18', '2026-07-19', '2026-07-20'],
       payment_status: 'unpaid',
+      surfer_count: 1,
       components: {},
       rentals: [{ offering_key: 'board_rental', duration_key: '3_days', quantity: 1 }],
     }).command,

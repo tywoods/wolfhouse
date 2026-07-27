@@ -43,6 +43,11 @@ const STAFF_CUSTOM_LINE_ID_MAX = 64;
 const STAFF_CUSTOM_LINE_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 /** No-lesson equipment present without valid booking surfer_count — fail closed. */
 const NO_LESSON_EQUIPMENT_SURFER_REQUIRED = 'surfer_count_required_for_no_lesson_equipment';
+/**
+ * Trusted Luna no-lesson equipment signals disagree (board vs wetsuit qty, etc.).
+ * Fail closed — never silently pick max/min (attacker-friendly).
+ */
+const NO_LESSON_EQUIPMENT_QTY_INCONSISTENT = 'inconsistent_equipment_quantities_for_no_lesson';
 
 /**
  * Locale-safe money → integer cents. Accepts "12.50", "12,50", "1.234,56",
@@ -387,7 +392,8 @@ function rentalDurationKeyFromDateRange(dateFrom, dateTo) {
  * When canonical rentals[] is present, expand into operational components and
  * capture rental context for authoritative quote application on create.
  */
-function prepareCanonicalRentalsForCreate(body) {
+function prepareCanonicalRentalsForCreate(body, opts) {
+  opts = opts || {};
   const b = body && typeof body === 'object' ? body : {};
   if (!Object.prototype.hasOwnProperty.call(b, 'rentals')) {
     return { ok: true, present: false, body: b, rentals: null };
@@ -508,7 +514,8 @@ function prepareCanonicalRentalsForCreate(body) {
   };
   let rentalsOut = rentals;
   // No-lesson: equipment qty derives from authoritative surfer_count (ignore client override).
-  const forced = applyNoLessonEquipmentQtyFromSurfers(bodyOut, rentals);
+  // Trusted Luna may derive surfer_count from consistent component quantities (opts.actor).
+  const forced = applyNoLessonEquipmentQtyFromSurfers(bodyOut, rentals, opts);
   if (!forced.ok) {
     return {
       ok: false,
@@ -1146,12 +1153,104 @@ function parseAuthoritativeSurferCount(body) {
   return n;
 }
 
+function parseEquipmentQuantitySignal(raw) {
+  if (raw == null || raw === '') return null;
+  const n = parseInt(String(raw), 10);
+  if (!Number.isInteger(n) || n < 1 || n > 99) return null;
+  return n;
+}
+
+/**
+ * Collect no-lesson equipment quantity signals from trusted Luna component /
+ * rentals / rental_pricing shapes. Never invents a count — only reads present qty.
+ */
+function collectNoLessonEquipmentQuantitySignals(body, rentals) {
+  const b = body && typeof body === 'object' ? body : {};
+  const comps = b.components && typeof b.components === 'object' ? b.components : {};
+  const signals = [];
+  if (comps.surfboard && typeof comps.surfboard === 'object') {
+    const q = parseEquipmentQuantitySignal(comps.surfboard.quantity);
+    if (q != null) signals.push({ source: 'components.surfboard', quantity: q });
+  }
+  if (comps.wetsuit && typeof comps.wetsuit === 'object') {
+    const q = parseEquipmentQuantitySignal(comps.wetsuit.quantity);
+    if (q != null) signals.push({ source: 'components.wetsuit', quantity: q });
+  }
+  if (Array.isArray(rentals)) {
+    for (const row of rentals) {
+      const key = String((row && row.offering_key) || '').trim();
+      if (key !== 'board_rental' && key !== 'wetsuit_rental' && key !== 'board_and_suit_rental') {
+        continue;
+      }
+      const q = parseEquipmentQuantitySignal(row && row.quantity);
+      if (q != null) signals.push({ source: `rentals.${key}`, quantity: q });
+    }
+  }
+  const rp = b.rental_pricing && typeof b.rental_pricing === 'object' ? b.rental_pricing : null;
+  if (rp) {
+    const key = String(rp.offering_key || '').trim();
+    if (key === 'board_rental' || key === 'wetsuit_rental' || key === 'board_and_suit_rental') {
+      const q = parseEquipmentQuantitySignal(rp.quantity);
+      if (q != null) signals.push({ source: 'rental_pricing', quantity: q });
+    }
+  }
+  return signals;
+}
+
+/**
+ * Derive ONE canonical surfer_count from trusted no-lesson equipment quantities.
+ * All present signals must agree — inconsistent board vs wetsuit (or rentals)
+ * fails closed. Never silently chooses max/min.
+ *
+ * Call only for isLunaTrustedActor after confirming no authoritative surfer_count.
+ */
+function deriveCanonicalNoLessonSurferCountFromEquipment(body, rentals) {
+  const signals = collectNoLessonEquipmentQuantitySignals(body, rentals);
+  if (!signals.length) {
+    return {
+      ok: false,
+      error: NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+      reason: NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+      reason_code: NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+    };
+  }
+  const first = signals[0].quantity;
+  if (signals.some((s) => s.quantity !== first)) {
+    return {
+      ok: false,
+      error: NO_LESSON_EQUIPMENT_QTY_INCONSISTENT,
+      reason: NO_LESSON_EQUIPMENT_QTY_INCONSISTENT,
+      reason_code: NO_LESSON_EQUIPMENT_QTY_INCONSISTENT,
+      signals,
+    };
+  }
+  return { ok: true, surfer_count: first, signals };
+}
+
+/**
+ * Whether no-lesson equipment qty may be derived from component quantities
+ * when surfer_count is absent. ONLY trusted Luna actors — never staff/manual.
+ */
+function resolveLunaTrustedNoLessonDerivation(opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  if (o.lunaTrusted === true) return true;
+  if (o.actor && isLunaTrustedActor(o.actor)) return true;
+  return false;
+}
+
 /**
  * For no-lesson bookings with equipment, force rental quantities from
  * authoritative surfer count. Group/Private keep independent equipment qty.
- * Fail closed when equipment is present and surfer_count is absent/invalid.
+ * Staff/manual: fail closed when equipment present and surfer_count absent.
+ * Trusted Luna only: when surfer_count absent, derive one canonical count from
+ * consistent equipment quantities (Hermes plugin contract sends component qty
+ * only — no top-level surfer_count). Inconsistent board/wetsuit fails closed.
+ *
+ * @param {object} body
+ * @param {array|null} rentals
+ * @param {object} [opts] — { actor } or { lunaTrusted: true }
  */
-function applyNoLessonEquipmentQtyFromSurfers(body, rentals) {
+function applyNoLessonEquipmentQtyFromSurfers(body, rentals, opts) {
   const b = body && typeof body === 'object' ? body : {};
   const comps = b.components && typeof b.components === 'object' ? b.components : {};
   if (!isNoLessonComponents(comps)) {
@@ -1160,7 +1259,24 @@ function applyNoLessonEquipmentQtyFromSurfers(body, rentals) {
   if (!hasNoLessonEquipment(comps, rentals)) {
     return { ok: true, body: b, rentals: rentals || null, forced: false };
   }
-  const sn = parseAuthoritativeSurferCount(b);
+  let sn = parseAuthoritativeSurferCount(b);
+  let derivedFromEquipment = false;
+  if (sn == null && resolveLunaTrustedNoLessonDerivation(opts)) {
+    const derived = deriveCanonicalNoLessonSurferCountFromEquipment(b, rentals);
+    if (!derived.ok) {
+      return {
+        ok: false,
+        forced: false,
+        error: derived.error || NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+        reason: derived.reason || derived.reason_code || derived.error || NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+        reason_code: derived.reason_code || derived.reason || derived.error || NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+        body: b,
+        rentals: rentals || null,
+      };
+    }
+    sn = derived.surfer_count;
+    derivedFromEquipment = true;
+  }
   if (sn == null) {
     return {
       ok: false,
@@ -1205,6 +1321,7 @@ function applyNoLessonEquipmentQtyFromSurfers(body, rentals) {
     ok: true,
     forced: true,
     surfer_count: sn,
+    derived_from_equipment: derivedFromEquipment,
     rentals: nextRentals,
     body: {
       ...b,
@@ -1270,11 +1387,17 @@ function validateScheduleBookingBody(body, opts) {
   const customLines = normalizeCustomLineItems(b.custom_line_items);
   if (!customLines.ok) return customLines;
   // Shared quote/create owner: no-lesson equipment qty from surfer_count only.
-  // Fail closed when equipment present and surfer_count absent/invalid.
+  // Staff: fail closed when equipment present and surfer_count absent/invalid.
+  // Trusted Luna (opts.actor / opts.lunaTrusted): may derive from consistent component qty.
   const rentalsForForce = Array.isArray(b.rentals) ? b.rentals : null;
+  const forceOpts = {
+    actor: opts.actor || null,
+    lunaTrusted: opts.lunaTrusted === true,
+  };
   const forced = applyNoLessonEquipmentQtyFromSurfers(
     { ...b, components: components.value },
     rentalsForForce,
+    forceOpts,
   );
   if (!forced.ok) {
     return {
@@ -2307,7 +2430,12 @@ async function createSunsetScheduleBooking(pg, opts) {
     return { ok: false, status: 403, body: { success: false, error: 'unsupported_client', client_slug: clientSlug } };
   }
 
-  const rentalPrep = prepareCanonicalRentalsForCreate(opts.body);
+  const locationId = opts.locationId != null ? String(opts.locationId).trim() : '';
+  const attribution = resolveScheduleBookingAttribution(opts.actor);
+  // Actor-gated Luna derivation must run before force/validation so Hermes
+  // component-qty payloads (no top-level surfer_count) stay compatible.
+  const lunaForceOpts = { actor: opts.actor || null };
+  const rentalPrep = prepareCanonicalRentalsForCreate(opts.body, lunaForceOpts);
   if (!rentalPrep.ok) {
     return {
       ok: false,
@@ -2321,12 +2449,11 @@ async function createSunsetScheduleBooking(pg, opts) {
     };
   }
 
-  const locationId = opts.locationId != null ? String(opts.locationId).trim() : '';
-  const attribution = resolveScheduleBookingAttribution(opts.actor);
   // Staff Create: guest name + valid phone required. Luna create keeps phone optional.
   // Quote path never uses this function.
   const validated = validateScheduleBookingBody(rentalPrep.body, {
     requireGuestPhone: attribution.staffManualSchedule === true,
+    actor: opts.actor || null,
   });
   if (!validated.ok) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
@@ -2770,7 +2897,10 @@ module.exports = {
   isNoLessonComponents,
   hasNoLessonEquipment,
   parseAuthoritativeSurferCount,
+  deriveCanonicalNoLessonSurferCountFromEquipment,
+  collectNoLessonEquipmentQuantitySignals,
   applyNoLessonEquipmentQtyFromSurfers,
   NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+  NO_LESSON_EQUIPMENT_QTY_INCONSISTENT,
   rowMatchesQuoteLine,
 };

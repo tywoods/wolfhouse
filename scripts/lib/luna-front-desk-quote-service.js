@@ -966,11 +966,22 @@ function resolveQuoteComponentsAndRentalsInput(command) {
   const body = dateNorm.body;
   const hasComponents = quoteHasNonEmptyComponents(body);
   const hasRentals = quoteHasRentalsArray(body);
+  // Channel is server-owned — Luna bot quote may derive surfer_count from consistent
+  // equipment qty (Hermes plugin sends components only). Staff/manual never derives.
+  const lunaTrusted = command.channel === QUOTE_CHANNELS.LUNA_WHATSAPP;
+  const forceOpts = lunaTrusted
+    ? { lunaTrusted: true, actor: { source: 'agent_luna_whatsapp_bot' } }
+    : { lunaTrusted: false };
 
   let input;
   if (hasComponents) {
     // Quote is not gated on guest name/phone — Create remains fail-closed.
-    const validated = validateScheduleBookingBody(body, { allowBlankGuest: true });
+    // Use command.now as date ref (same as outer dateNorm) — never wall-clock drift.
+    const validated = validateScheduleBookingBody(body, {
+      allowBlankGuest: true,
+      refDate: command.now,
+      ...forceOpts,
+    });
     if (!validated.ok) {
       return { ok: false, status: 400, body: { success: false, error: validated.error, reason: validated.error } };
     }
@@ -1081,13 +1092,14 @@ function resolveQuoteComponentsAndRentalsInput(command) {
     }
     if (rentalsNorm.present) {
       // No-lesson: force equipment qty from surfer_count (ignore client override).
-      // Fail closed when equipment present and surfer_count absent/invalid.
+      // Staff fail-closed without surfer_count; trusted Luna may derive from consistent qty.
       const forced = applyNoLessonEquipmentQtyFromSurfers(
         {
           ...transportForRentals,
           components: input.components,
         },
         rentalsNorm.value,
+        forceOpts,
       );
       if (!forced.ok) {
         return {
@@ -1126,6 +1138,7 @@ function resolveQuoteComponentsAndRentalsInput(command) {
     const forced = applyNoLessonEquipmentQtyFromSurfers(
       { ...body, components: input.components, surfer_count: input.surfer_count },
       null,
+      forceOpts,
     );
     if (!forced.ok) {
       return {

@@ -158,7 +158,11 @@ assert('server prepareCanonical forces no-lesson qty to surfer_count',
 // ── B/E) Quote with blank name/phone + surfer qty authority ─────────────────
 console.log('\n[B/E] Quote without name/phone; surfer qty on requote');
 assert('quote service allowBlankGuest for components path',
-  /validateScheduleBookingBody\(body,\s*\{\s*allowBlankGuest:\s*true\s*\}/.test(quoteSrc));
+  /validateScheduleBookingBody\(body,\s*\{[\s\S]*allowBlankGuest:\s*true/.test(quoteSrc));
+assert('quote service gates Luna derivation on luna_whatsapp channel',
+  /LUNA_WHATSAPP/.test(quoteSrc)
+  && /lunaTrusted:\s*true/.test(quoteSrc)
+  && /agent_luna_whatsapp_bot/.test(quoteSrc));
 assert('rentals-only quote allows blank guest name (no placeholder)',
   /Blank guest name\/phone allowed for authoritative rental quote/.test(quoteSrc)
   || /guestName\.length > 200/.test(quoteSrc)
@@ -503,6 +507,239 @@ assert(
   'Group keeps independent equipment qty (validate does not force)',
   vGroup.ok && vGroup.value.components.surfboard.quantity === 2,
   JSON.stringify(vGroup.value && vGroup.value.components),
+);
+
+// ── Hostile: trusted Luna no-lesson without surfer_count (plugin contract) ───
+console.log('\n[Hostile] Trusted Luna no-lesson equipment vs staff fail-closed');
+const LUNA_ACTOR = { source: 'agent_luna_whatsapp_bot' };
+const lunaEqualBody = {
+  guest_name: 'Luna Guest',
+  guest_phone: '',
+  service_date: '2026-08-20',
+  // Hermes create_sunset_booking shape: component qty only, no surfer_count.
+  components: { surfboard: { quantity: 2 }, wetsuit: { quantity: 2 } },
+};
+const vLunaEqual = writes.validateScheduleBookingBody(lunaEqualBody, { actor: LUNA_ACTOR });
+assert(
+  '1) trusted Luna equal board+wetsuit without surfer_count is create-compatible',
+  vLunaEqual.ok === true
+    && vLunaEqual.value.surfer_count === 2
+    && vLunaEqual.value.components.surfboard.quantity === 2
+    && vLunaEqual.value.components.wetsuit.quantity === 2,
+  JSON.stringify(vLunaEqual),
+);
+const forceLunaEqual = writes.applyNoLessonEquipmentQtyFromSurfers(
+  { components: { surfboard: { quantity: 2 }, wetsuit: { quantity: 2 } } },
+  null,
+  { actor: LUNA_ACTOR },
+);
+assert(
+  '1) trusted Luna derivation canonicalizes surfer_count from component qty',
+  forceLunaEqual.ok
+    && forceLunaEqual.forced
+    && forceLunaEqual.surfer_count === 2
+    && forceLunaEqual.derived_from_equipment === true
+    && forceLunaEqual.body.surfer_count === 2,
+  JSON.stringify(forceLunaEqual),
+);
+
+const vLunaInconsistent = writes.validateScheduleBookingBody(
+  {
+    guest_name: 'Luna Guest',
+    service_date: '2026-08-20',
+    components: { surfboard: { quantity: 2 }, wetsuit: { quantity: 3 } },
+  },
+  { actor: LUNA_ACTOR },
+);
+assert(
+  '2) trusted Luna inconsistent board/wetsuit qty fails closed',
+  vLunaInconsistent.ok === false
+    && String(vLunaInconsistent.error || '').includes('inconsistent_equipment_quantities_for_no_lesson'),
+  JSON.stringify(vLunaInconsistent),
+);
+assert(
+  '2) inconsistent path never silently picks max/min',
+  !vLunaInconsistent.ok
+    && !/surfer_count_required_for_no_lesson_equipment/.test(String(vLunaInconsistent.error || '')),
+  vLunaInconsistent.error,
+);
+
+const vStaffNoSn = writes.validateScheduleBookingBody({
+  guest_name: 'Staff',
+  guest_phone: '+34600111222',
+  service_date: '2026-08-20',
+  components: { surfboard: { quantity: 2 }, wetsuit: { quantity: 2 } },
+});
+assert(
+  '3) staff same payload without surfer_count fails closed',
+  vStaffNoSn.ok === false
+    && String(vStaffNoSn.error || '').includes('surfer_count_required_for_no_lesson_equipment'),
+  vStaffNoSn.error,
+);
+// Explicit non-Luna actor (manual staff) must not unlock derivation.
+const vStaffActor = writes.validateScheduleBookingBody(
+  {
+    guest_name: 'Staff',
+    guest_phone: '+34600111222',
+    service_date: '2026-08-20',
+    components: { surfboard: { quantity: 2 }, wetsuit: { quantity: 2 } },
+  },
+  { actor: { email: 'staff@example.com', staff_user_id: 's1' } },
+);
+assert(
+  '3) staff actor without surfer_count still fails closed (no derivation leak)',
+  vStaffActor.ok === false
+    && String(vStaffActor.error || '').includes('surfer_count_required_for_no_lesson_equipment'),
+  vStaffActor.error,
+);
+
+const vStaffForce = writes.validateScheduleBookingBody({
+  guest_name: 'Staff',
+  guest_phone: '+34600111222',
+  service_date: '2026-08-20',
+  surfer_count: 3,
+  components: { surfboard: { quantity: 9 }, wetsuit: { quantity: 9 } },
+});
+assert(
+  '4) staff with surfer_count forces spoofed equipment qty (9→3)',
+  vStaffForce.ok
+    && vStaffForce.value.surfer_count === 3
+    && vStaffForce.value.components.surfboard.quantity === 3
+    && vStaffForce.value.components.wetsuit.quantity === 3,
+  JSON.stringify(vStaffForce.value && vStaffForce.value.components),
+);
+
+// 5) Plugin is NOT the selected owner: schema has no top-level surfer_count;
+// server derives for isLunaTrustedActor only. Prove both sides of the contract.
+const pluginInitSrc = fs.readFileSync(
+  path.join(ROOT, 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py'),
+  'utf8',
+);
+const createToolIdx = pluginInitSrc.indexOf('("create_sunset_booking"');
+const createToolSlice = createToolIdx >= 0
+  ? pluginInitSrc.slice(createToolIdx, createToolIdx + 4500)
+  : '';
+assert(
+  '5) plugin create_sunset_booking tool schema has no top-level surfer_count',
+  createToolSlice.includes('guest_confirmed_booking')
+    && createToolSlice.includes('"components"')
+    && !/"surfer_count"\s*:/.test(createToolSlice)
+    && !/"guest_count"\s*:/.test(createToolSlice),
+  'unexpected surfer_count/guest_count on create_sunset_booking schema',
+);
+assert(
+  '5) plugin create_sunset_booking body builder does not set surfer_count',
+  (() => {
+    const fnStart = pluginInitSrc.indexOf('def create_sunset_booking(');
+    if (fnStart < 0) return false;
+    const fnEnd = pluginInitSrc.indexOf('\ndef create_sunset_payment_link(', fnStart);
+    const fnSrc = pluginInitSrc.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 8000);
+    return !/body\[["']surfer_count["']\]\s*=/.test(fnSrc)
+      && !/body\[["']guest_count["']\]\s*=/.test(fnSrc);
+  })(),
+);
+assert(
+  '5) server owns Luna derivation (actor-gated) when plugin has component qty only',
+  typeof writes.deriveCanonicalNoLessonSurferCountFromEquipment === 'function'
+    && writesSrc.includes('isLunaTrustedActor')
+    && writesSrc.includes('derived_from_equipment')
+    && writesSrc.includes('resolveLunaTrustedNoLessonDerivation'),
+);
+
+function quoteAs(channel, body) {
+  const built = buildSunsetQuoteCommand({
+    channel,
+    trustedLocationId: 'sunset-somo',
+    transportBody: { ...body, require_db: false },
+    now: new Date('2026-08-01T12:00:00Z'),
+  });
+  if (!built.ok) return built;
+  return executeSunsetQuoteSync(built.command, {
+    adminCfg: { prices, surf_packs: [], lesson_times: [], ok: true },
+  });
+}
+
+const lunaQuoteBody = {
+  guest_name: 'Luna Guest',
+  service_date: '2026-08-20',
+  components: { surfboard: { quantity: 2 }, wetsuit: { quantity: 2 } },
+};
+const lunaQuote = quoteAs(QUOTE_CHANNELS.LUNA_WHATSAPP, lunaQuoteBody);
+assert(
+  '1) trusted Luna quote without surfer_count is compatible and canonicalizes qty',
+  lunaQuote.ok === true
+    && (lunaQuote.body.line_items || []).every((l) => Number(l.quantity) === 2)
+    && Number(lunaQuote.body.total_cents) > 0,
+  JSON.stringify(lunaQuote.body || lunaQuote),
+);
+const staffQuoteSame = quoteAs(QUOTE_CHANNELS.MANUAL_STAFF, lunaQuoteBody);
+assert(
+  '3) staff quote same payload without surfer_count fails closed',
+  staffQuoteSame.ok === false
+    && String((staffQuoteSame.body && (staffQuoteSame.body.reason_code || staffQuoteSame.body.reason || staffQuoteSame.body.error)) || '')
+      .includes('surfer_count_required_for_no_lesson_equipment'),
+  JSON.stringify(staffQuoteSame.body || staffQuoteSame),
+);
+const lunaInconsistQuote = quoteAs(QUOTE_CHANNELS.LUNA_WHATSAPP, {
+  guest_name: 'Luna Guest',
+  service_date: '2026-08-20',
+  components: { surfboard: { quantity: 2 }, wetsuit: { quantity: 5 } },
+});
+assert(
+  '2) trusted Luna quote with inconsistent board/wetsuit fails closed',
+  lunaInconsistQuote.ok === false
+    && String((lunaInconsistQuote.body && (lunaInconsistQuote.body.reason_code || lunaInconsistQuote.body.reason || lunaInconsistQuote.body.error)) || '')
+      .includes('inconsistent_equipment_quantities_for_no_lesson'),
+  JSON.stringify(lunaInconsistQuote.body || lunaInconsistQuote),
+);
+
+// 6) Quote/create fingerprints agree after Luna canonicalization
+const lunaQuoteFp = lunaQuote.ok
+  && lunaQuote.body
+  && lunaQuote.body.quote_provenance
+  && lunaQuote.body.quote_provenance.quote_fingerprint;
+// Re-quote with explicit surfer_count + forced qty (create path after derivation)
+// must match the derived-from-components quote fingerprint.
+const lunaCanonBody = {
+  guest_name: 'Luna Guest',
+  service_date: '2026-08-20',
+  surfer_count: 2,
+  components: { surfboard: { quantity: 2 }, wetsuit: { quantity: 2 } },
+};
+const lunaRequoteExplicit = quoteAs(QUOTE_CHANNELS.LUNA_WHATSAPP, lunaCanonBody);
+const lunaExplicitFp = lunaRequoteExplicit.ok
+  && lunaRequoteExplicit.body
+  && lunaRequoteExplicit.body.quote_provenance
+  && lunaRequoteExplicit.body.quote_provenance.quote_fingerprint;
+assert(
+  '6) quote fingerprint after derivation equals explicit surfer_count=2 fingerprint',
+  !!lunaQuoteFp
+    && !!lunaExplicitFp
+    && lunaQuoteFp === lunaExplicitFp,
+  `derived=${lunaQuoteFp} explicit=${lunaExplicitFp}`,
+);
+// Intent fingerprint (create idempotency) uses forced component quantities.
+const intentA = writes.buildScheduleBookingIntentFingerprint(
+  vLunaEqual.value,
+  'sunset-somo',
+  {},
+);
+const intentB = writes.buildScheduleBookingIntentFingerprint(
+  {
+    ...vLunaEqual.value,
+    surfer_count: 2,
+    components: {
+      surfboard: { quantity: 2 },
+      wetsuit: { quantity: 2 },
+    },
+  },
+  'sunset-somo',
+  {},
+);
+assert(
+  '6) create intent fingerprint stable after canonicalization (quote↔create)',
+  intentA === intentB && !!intentA,
+  `a=${intentA} b=${intentB}`,
 );
 
 // ── Hostile: rowMatchesQuoteLine compound identity + 1:1 claims ──────────────
