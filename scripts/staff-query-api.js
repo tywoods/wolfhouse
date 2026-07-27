@@ -16562,23 +16562,25 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-rental-pebble.is-selected{border-color:var(--sched-primary,#4E5853);background:var(--sched-primary,#4E5853);color:#fff}
 .portal-schedule-create-rental-pebble:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
 .portal-schedule-create-check.is-disabled,.portal-schedule-create-check:has(input:disabled){opacity:.55;cursor:not-allowed}
-/* Staff custom commercial line mini-section (above Payments) */
-.portal-schedule-create-custom-lines{margin:10px 0 14px;padding:0}
+/* Staff Custom add-on card — own thin-outline card above Payment & notes (not nested) */
+.portal-schedule-create-custom-addon-card{margin:0 0 12px;padding:12px 14px;border:1px solid var(--border-soft,#d4d0c8);border-radius:var(--radius-sm,10px);background:transparent;box-shadow:none}
+.portal-schedule-create-custom-addon-card .portal-schedule-create-section-title{margin:0 0 10px;font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--text-2,#555)}
+.portal-schedule-create-custom-lines{margin:0;padding:0}
 .portal-schedule-create-custom-lines-list{display:flex;flex-direction:column;gap:6px;margin:0 0 8px}
-.portal-schedule-create-custom-line-row{display:flex;align-items:center;gap:8px;min-height:40px;padding:6px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);font-size:13px}
+.portal-schedule-create-custom-line-row{display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:transparent;font-size:13px}
 .portal-schedule-create-custom-line-row .ps-cl-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .portal-schedule-create-custom-line-row .ps-cl-amount{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:600}
-.portal-schedule-create-custom-line-row .ps-cl-remove{flex:0 0 auto;min-width:40px;min-height:40px;padding:0 8px;border:none;background:transparent;color:var(--text-2);font-size:18px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;border-radius:8px}
+.portal-schedule-create-custom-line-row .ps-cl-remove{flex:0 0 auto;min-width:44px;min-height:44px;padding:0 8px;border:none;background:transparent;color:var(--text-2);font-size:18px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;border-radius:8px}
 .portal-schedule-create-custom-line-row .ps-cl-remove:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
 .portal-schedule-create-custom-lines-collapsed{display:flex;align-items:center}
-.portal-schedule-create-custom-line-plus{min-width:44px;min-height:44px;width:44px;height:44px;padding:0;border:1px dashed var(--border-soft,#d4d0c8);border-radius:12px;background:var(--surface,#fff);color:var(--text,#222);font-size:22px;font-weight:600;line-height:1;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.portal-schedule-create-custom-line-plus{min-width:44px;min-height:44px;width:44px;height:44px;padding:0;border:1px dashed var(--border-soft,#d4d0c8);border-radius:12px;background:transparent;color:var(--text,#222);font-size:22px;font-weight:600;line-height:1;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .portal-schedule-create-custom-line-plus:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
-.portal-schedule-create-custom-lines-editor{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
+.portal-schedule-create-custom-lines-editor{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:transparent}
 .portal-schedule-create-custom-line-price-row{display:flex;align-items:center;gap:8px}
 .portal-schedule-create-custom-line-currency{font-weight:600;color:var(--text-2);min-width:1.2em}
-.portal-schedule-create-custom-line-price-row input{flex:1 1 auto;min-height:40px}
+.portal-schedule-create-custom-line-price-row input{flex:1 1 auto;min-height:44px}
 .portal-schedule-create-custom-line-actions{display:flex;gap:8px;flex-wrap:wrap}
-.portal-schedule-create-custom-line-actions .btn{min-height:40px}
+.portal-schedule-create-custom-line-actions .btn{min-height:44px}
 .portal-schedule-create-custom-line-error{margin:0;font-size:12px;color:var(--danger,#b33)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-field input,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-field select,
@@ -18489,7 +18491,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
           </div>
         </div>
       </section>
-      <section class="portal-schedule-create-section" data-create-section="payment" aria-labelledby="ps-create-section-payment-title">
+      <section class="portal-schedule-create-section portal-schedule-create-custom-addon-card" data-create-section="custom-addon" aria-labelledby="ps-create-section-custom-addon-title" data-testid="ps-create-custom-addon-card">
+        <h3 id="ps-create-section-custom-addon-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.customAddon">Custom add-on</h3>
         <div id="ps-create-custom-lines" class="portal-schedule-create-custom-lines" data-testid="ps-create-custom-lines">
           <div id="ps-create-custom-lines-list" class="portal-schedule-create-custom-lines-list" aria-live="polite"></div>
           <div id="ps-create-custom-lines-collapsed" class="portal-schedule-create-custom-lines-collapsed">
@@ -18514,6 +18517,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <p id="ps-create-custom-line-error" class="portal-schedule-create-custom-line-error" style="display:none" role="alert"></p>
           </div>
         </div>
+      </section>
+      <section class="portal-schedule-create-section" data-create-section="payment" aria-labelledby="ps-create-section-payment-title">
         <h3 id="ps-create-section-payment-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.paymentNotes">Payment &amp; notes</h3>
         <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option></select></div>
         <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
@@ -22232,6 +22237,16 @@ function scheduleReadCreatePayload(){
   var components = {};
   if (typeof scheduleSyncCreateSurferMirrors === 'function') scheduleSyncCreateSurferMirrors();
   var surferCount = scheduleReadCreateSurferCount();
+  // No-lesson: keep any rental qty mirrors in lockstep with surfers before serialize.
+  if (typeof scheduleCreateIsNoLesson === 'function' && scheduleCreateIsNoLesson()) {
+    var rentWrapSync = el('ps-create-rentals');
+    if (rentWrapSync && surferCount != null) {
+      rentWrapSync.querySelectorAll('input.ps-create-rental-qty-input').forEach(function(inp){
+        inp.value = String(surferCount);
+        inp.setAttribute('data-qty-owner', 'surfers');
+      });
+    }
+  }
   if (el('ps-create-comp-course') && el('ps-create-comp-course').checked){
     var courseSel = el('ps-create-course-select');
     var courseOpt = courseSel && courseSel.selectedIndex >= 0 ? courseSel.options[courseSel.selectedIndex] : null;
@@ -22295,6 +22310,8 @@ function scheduleReadCreatePayload(){
     components: components,
     rentals: rentals,
     custom_line_items: custom_line_items,
+    // Authoritative party size for no-lesson equipment qty (server may force rentals to this).
+    surfer_count: surferCount,
   };
 }
 
@@ -22315,18 +22332,27 @@ function scheduleReadCreateRentalSelectionFromDom(){
   if (!wrap) return [];
   var duration = String(wrap.getAttribute('data-duration-key') || '').trim();
   var shortMode = wrap.getAttribute('data-short-rental') === '1';
+  // No lesson: never trust an independently editable equipment quantity.
+  var noLesson = typeof scheduleCreateIsNoLesson === 'function' ? scheduleCreateIsNoLesson() : false;
   var selection = [];
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row){
     var key = String(row.getAttribute('data-rental-offering') || '').trim();
     var check = row.querySelector('.ps-create-rental-check');
     var qtyEl = row.querySelector('input.ps-create-rental-qty-input');
     if (!check || !check.checked || !key) return;
-    var qty = parseInt(qtyEl && qtyEl.value, 10);
-    if (!Number.isInteger(qty) || qty < 1) {
-      // Equipment waits for valid surfer integer — no stale qty.
-      var sn = scheduleReadCreateSurferCount();
-      if (sn == null) return;
-      qty = sn;
+    var qty;
+    if (noLesson) {
+      var snNo = scheduleReadCreateSurferCount();
+      if (snNo == null) return;
+      qty = snNo;
+    } else {
+      qty = parseInt(qtyEl && qtyEl.value, 10);
+      if (!Number.isInteger(qty) || qty < 1) {
+        // Equipment waits for valid surfer integer — no stale qty.
+        var sn = scheduleReadCreateSurferCount();
+        if (sn == null) return;
+        qty = sn;
+      }
     }
     selection.push({
       offering_key: key,
@@ -22347,6 +22373,8 @@ function scheduleApplyCreateRentalExclusionUi(wrap, selectedKeys){
   var selected = selectedKeys || [];
   var bundleOn = selected.indexOf('board_and_suit_rental') >= 0;
   var separateOn = selected.indexOf('board_rental') >= 0 || selected.indexOf('wetsuit_rental') >= 0;
+  // No lesson: equipment qty is owned by Number of surfers — hide independent Quantity.
+  var noLesson = typeof scheduleCreateIsNoLesson === 'function' ? scheduleCreateIsNoLesson() : false;
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row){
     var key = String(row.getAttribute('data-rental-offering') || '');
     var check = row.querySelector('.ps-create-rental-check');
@@ -22366,7 +22394,15 @@ function scheduleApplyCreateRentalExclusionUi(wrap, selectedKeys){
       if (check.disabled) label.classList.add('is-disabled');
       else label.classList.remove('is-disabled');
     }
-    if (qtyWrap) qtyWrap.style.display = isOn ? '' : 'none';
+    if (qtyWrap) {
+      // Group/Private keep independent gear qty; No lesson never shows it.
+      qtyWrap.style.display = (!noLesson && isOn) ? '' : 'none';
+      try {
+        qtyWrap.setAttribute('aria-hidden', (noLesson || !isOn) ? 'true' : 'false');
+        if (noLesson || !isOn) qtyWrap.setAttribute('hidden', '');
+        else qtyWrap.removeAttribute('hidden');
+      } catch (_q) { /* ignore */ }
+    }
   });
 }
 
@@ -22577,21 +22613,40 @@ function scheduleRenderCreateRentals(){
     var was = prev[key] || {};
     var checked = !!was.checked;
     var surfers = scheduleReadCreateSurferCount();
-    var qty = (was.quantity != null && was.quantity >= 1)
-      ? was.quantity
-      : (surfers != null ? surfers : 1);
-    // Unchecked rows seed to current surfers so first toggle defaults correctly.
-    if (!checked) qty = surfers != null ? surfers : 1;
-    var owner = (checked && was.quantity != null && was.qtyOwner === 'user') ? 'user' : 'surfers';
+    var qty;
+    var owner;
+    if (noLesson) {
+      // No lesson: always derive from Number of surfers; clear stale user-owned qty.
+      qty = surfers != null ? surfers : 1;
+      owner = 'surfers';
+    } else {
+      qty = (was.quantity != null && was.quantity >= 1)
+        ? was.quantity
+        : (surfers != null ? surfers : 1);
+      // Unchecked rows seed to current surfers so first toggle defaults correctly.
+      if (!checked) qty = surfers != null ? surfers : 1;
+      // Group/Private: preserve independent equipment qty when only some surfers need gear.
+      owner = (checked && was.quantity != null && was.qtyOwner === 'user') ? 'user' : 'surfers';
+    }
+    // No lesson: do not render an independent Quantity control (hidden + not user-editable).
+    var qtyHtml = '';
+    if (!noLesson) {
+      qtyHtml = '<div class="portal-schedule-create-rental-qty"' + (checked ? '' : ' style="display:none"') + '>'
+        + '<label><span data-i18n="schedule.create.rentalQty">Quantity</span>'
+        + '<input type="number" min="1" max="99" class="ps-create-rental-qty-input" data-qty-owner="'
+        + escHtml(owner) + '" value="' + escHtml(String(qty)) + '"></label>'
+        + '</div>';
+    } else {
+      // Hidden mirror so any legacy readers still see surfer-derived qty (not user-editable).
+      qtyHtml = '<div class="portal-schedule-create-rental-qty" style="display:none" hidden aria-hidden="true">'
+        + '<input type="number" min="1" max="99" class="ps-create-rental-qty-input" data-qty-owner="surfers" tabindex="-1" value="'
+        + escHtml(String(qty)) + '"></div>';
+    }
     html += '<div class="portal-schedule-create-rental-row" data-rental-offering="' + escHtml(key) + '">'
       + '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-create-rental-check" data-offering-key="'
       + escHtml(key) + '"' + (checked ? ' checked' : '') + '> <span data-i18n="' + escHtml(labelKey) + '">'
       + escHtml(fallback) + '</span></label>'
-      + '<div class="portal-schedule-create-rental-qty"' + (checked ? '' : ' style="display:none"') + '>'
-      + '<label><span data-i18n="schedule.create.rentalQty">Quantity</span>'
-      + '<input type="number" min="1" max="99" class="ps-create-rental-qty-input" data-qty-owner="'
-      + escHtml(owner) + '" value="' + escHtml(String(qty)) + '"></label>'
-      + '</div></div>';
+      + qtyHtml + '</div>';
   });
   // One pebble strip beneath offerings for combined short mode (filled after selection).
   html += '<div data-rental-duration-pebbles class="portal-schedule-create-rental-pebbles-host" style="display:none"></div>';
@@ -24214,8 +24269,11 @@ function wireScheduleControls(){
         var rentWrap = el('ps-create-rentals');
         var sn = scheduleReadCreateSurferCount();
         if (!rentWrap || sn == null) return;
+        var forceAll = typeof scheduleCreateIsNoLesson === 'function' && scheduleCreateIsNoLesson();
         rentWrap.querySelectorAll('input.ps-create-rental-qty-input').forEach(function(inp){
-          if (inp.getAttribute('data-qty-owner') !== 'user') {
+          // No lesson: always force surfer-derived qty (no independent equipment qty).
+          // Group/Private: preserve user-owned independent gear qty.
+          if (forceAll || inp.getAttribute('data-qty-owner') !== 'user') {
             inp.value = String(sn);
             inp.setAttribute('data-qty-owner', 'surfers');
           }
@@ -24227,7 +24285,8 @@ function wireScheduleControls(){
           syncRentalQtyFromSurfers();
         }
         if (id === 'ps-create-comp-no-lesson' || id === 'ps-create-comp-course' || id === 'ps-create-comp-private-lesson') {
-          // Switching main activity: re-render rentals + clear full-day when No lesson; invalidate stale quote.
+          // Switching main activity: re-render rentals (clears stale hidden no-lesson qty),
+          // clear full-day when No lesson; invalidate stale quote.
           scheduleRenderCreateRentals();
           if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
             schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });

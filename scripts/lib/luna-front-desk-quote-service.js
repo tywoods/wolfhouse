@@ -27,6 +27,7 @@ const {
   validateScheduleBookingBody,
   normalizeCustomLineItems,
   buildCustomLineQuoteLines,
+  applyNoLessonEquipmentQtyFromSurfers,
   STAFF_CUSTOM_LINE_COMPONENT,
 } = require('./sunset-schedule-booking-writes');
 const { assertCourseAssignable } = require('./sunset-admin-course-join');
@@ -968,14 +969,16 @@ function resolveQuoteComponentsAndRentalsInput(command) {
 
   let input;
   if (hasComponents) {
-    const validated = validateScheduleBookingBody(body);
+    // Quote is not gated on guest name/phone — Create remains fail-closed.
+    const validated = validateScheduleBookingBody(body, { allowBlankGuest: true });
     if (!validated.ok) {
       return { ok: false, status: 400, body: { success: false, error: validated.error, reason: validated.error } };
     }
     input = validated.value;
   } else if (hasRentals) {
+    // Blank guest name/phone allowed for authoritative rental quote (no placeholders).
     const guestName = String(body.guest_name || '').trim();
-    if (!guestName || guestName.length > 200) {
+    if (guestName.length > 200) {
       return { ok: false, status: 400, body: { success: false, reason: 'guest_name is required (max 200 chars)', error: 'guest_name is required (max 200 chars)' } };
     }
     const dateFrom = String(body.date_from || '').slice(0, 10);
@@ -1007,6 +1010,7 @@ function resolveQuoteComponentsAndRentalsInput(command) {
       rental_pricing: null,
       date_from: dateFrom,
       date_to: dateTo,
+      surfer_count: body.surfer_count != null ? body.surfer_count : null,
     };
   } else {
     return { ok: false, status: 400, body: { success: false, reason: 'quote_input_required' } };
@@ -1054,7 +1058,15 @@ function resolveQuoteComponentsAndRentalsInput(command) {
     input.date_from = dateFrom;
     input.date_to = dateTo;
     const expectedDuration = quoteRentalDurationKeyFromDateRange(dateFrom, dateTo);
-    rentalsNorm = normalizeCanonicalRentalsForQuote(command.transportBody, expectedDuration);
+    // Carry surfer_count for no-lesson qty authority before normalizing rows.
+    const transportForRentals = {
+      ...command.transportBody,
+      surfer_count: input.surfer_count != null
+        ? input.surfer_count
+        : (command.transportBody && command.transportBody.surfer_count),
+      components: input.components,
+    };
+    rentalsNorm = normalizeCanonicalRentalsForQuote(transportForRentals, expectedDuration);
     if (!rentalsNorm.ok) {
       return {
         ok: false,
@@ -1068,6 +1080,19 @@ function resolveQuoteComponentsAndRentalsInput(command) {
       };
     }
     if (rentalsNorm.present) {
+      // No-lesson: force equipment qty from surfer_count (ignore client override).
+      const forced = applyNoLessonEquipmentQtyFromSurfers(
+        {
+          ...transportForRentals,
+          components: input.components,
+        },
+        rentalsNorm.value,
+      );
+      if (forced.forced) {
+        rentalsNorm = { ok: true, present: true, value: forced.rentals };
+        input.components = forced.body.components || input.components;
+        input.surfer_count = forced.surfer_count;
+      }
       const legacyMatch = assertLegacyRentalQuantitiesMatch(rentalsNorm.value, input.components);
       if (!legacyMatch.ok) {
         return {

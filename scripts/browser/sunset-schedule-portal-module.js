@@ -252,11 +252,11 @@ function schedulePortalPrepareCreateOpen(context) {
   var df = el('ps-create-date-from'), dt = el('ps-create-date-to');
   if (df) df.value = dateIso; if (dt) dt.value = dateTo;
   schedulePortalApplyCreateLaunchContext(ctx);
-  var submitBtn = el('ps-create-submit');
-  if (submitBtn) submitBtn.disabled = false;
   schedulePortalWireCreateFooter();
   try { if (typeof scheduleWireCreateCustomLines === 'function') scheduleWireCreateCustomLines(); } catch (_w) { /* ignore */ }
   schedulePortalRenderCreateIntentSummary();
+  // Start disabled until guest name + valid phone (quote may still run blank).
+  schedulePortalSyncCreateSubmitEnabled();
   return { preserved: false, pending_course_id: schedulePortalPendingCourseId };
 }
 
@@ -269,8 +269,7 @@ function schedulePortalResetCreateFormRuntime() {
   }
   schedulePortalInvalidatePreviewWork();
   schedulePortalQuoteState = null;
-  var submitBtn = el('ps-create-submit');
-  if (submitBtn) submitBtn.disabled = false;
+  schedulePortalSyncCreateSubmitEnabled();
   var msg = el('ps-create-msg');
   if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
 }
@@ -309,13 +308,17 @@ function schedulePortalFetchQuote(createPayload, opts) {
   opts = opts || {};
   var body = {
     location_id: getSunsetLocation(),
-    guest_name: createPayload.guest_name,
+    // Quote must not require guest name/phone — send blanks as-is (no fake placeholders).
+    guest_name: createPayload.guest_name != null ? createPayload.guest_name : '',
+    guest_phone: createPayload.guest_phone != null ? createPayload.guest_phone : '',
     date_from: createPayload.date_from,
     date_to: createPayload.date_to,
     components: createPayload.components,
     rentals: Array.isArray(createPayload.rentals) ? createPayload.rentals : [],
     service_dates: schedulePortalServiceDatesFromPayload(createPayload),
-    // Staff commercial adjustments — server revalidates amount_cents; never Admin course/rental cents.
+    // No-lesson equipment qty authority (server forces rentals to this when present).
+    surfer_count: createPayload.surfer_count != null ? createPayload.surfer_count : null,
+    // Staff commercial adjustments — server revalidates signed cents; never Admin course/rental prices.
     custom_line_items: Array.isArray(createPayload.custom_line_items) ? createPayload.custom_line_items : [],
   };
   var myGen = opts.gen != null ? Number(opts.gen) : schedulePortalQuoteGen;
@@ -479,10 +482,19 @@ function schedulePortalHasSellableIntent(payload) {
     || (Array.isArray(p.rentals) && p.rentals.length));
 }
 
+/** Staff Create phone: nonblank + at least 6 digits (matches server isValidStaffCreateGuestPhone). */
+function schedulePortalIsValidCreatePhone(raw) {
+  var phone = raw != null ? String(raw).trim() : '';
+  if (!phone || phone.length > 40) return false;
+  var digits = phone.replace(/\D/g, '');
+  return digits.length >= 6;
+}
+
 /**
  * Shared create validation for submit (hard) and quote soft gates.
  * Sellable intent includes rental-only (No lesson + gear). Does not re-price.
- * opts.soft: skip guest; return softInvalid/idle rather than hard block.
+ * opts.soft: skip guest name/phone; return softInvalid/idle rather than hard block.
+ * Quote recalculates while name/phone are blank; Create stays fail-closed.
  */
 function schedulePortalValidateCreatePayload(payload, opts) {
   opts = opts || {};
@@ -498,10 +510,12 @@ function schedulePortalValidateCreatePayload(payload, opts) {
     return out;
   }
 
-  // Soft: guest hard-only; course/tier + sellable/private/dates/rentals both modes.
+  // Soft (quote): guest name/phone not required. Hard (create): both required + phone valid.
   if (!soft) {
     var guest = p.guest_name != null ? String(p.guest_name).trim() : '';
     if (!guest) return fail('schedule.create.guestRequired');
+    var phone = p.guest_phone != null ? String(p.guest_phone).trim() : '';
+    if (!schedulePortalIsValidCreatePhone(phone)) return fail('schedule.create.phoneRequired');
   }
   if (comps.course) {
     if (!String(comps.course.course_id || '').trim()) return fail('schedule.create.courseRequired');
@@ -709,20 +723,41 @@ function schedulePortalRenderCreateIntentSummary(payload) {
   box.innerHTML = '<span class="portal-schedule-create-summary-text">' + escHtml(bits.join(' \u00b7 ')) + '</span>';
 }
 
+/** Disable Create until guest name nonblank and phone valid; quote may still run while blank. */
+function schedulePortalSyncCreateSubmitEnabled() {
+  var btn = el('ps-create-submit');
+  if (!btn) return;
+  if (schedulePortalSubmitInFlight) {
+    btn.disabled = true;
+    return;
+  }
+  var guest = (el('ps-create-guest') && el('ps-create-guest').value || '').trim();
+  var phone = (el('ps-create-phone') && el('ps-create-phone').value || '').trim();
+  btn.disabled = !guest || !schedulePortalIsValidCreatePhone(phone);
+}
+
 function schedulePortalSyncCreateFooter(opts) {
   opts = opts || {};
   schedulePortalRenderCreateIntentSummary();
+  schedulePortalSyncCreateSubmitEnabled();
   if (opts.quote === false) return;
   if (typeof schedulePortalRefreshCreateQuote === 'function') schedulePortalRefreshCreateQuote();
 }
 
 function schedulePortalWireCreateFooter() {
-  [['ps-create-guest', true], ['ps-create-payment', false]].forEach(function(pair) {
+  // Guest name/phone: summary + Create enable only (quote soft-gate ignores blanks).
+  // Payment: summary only (no quote).
+  [['ps-create-guest', true], ['ps-create-phone', true], ['ps-create-payment', false]].forEach(function(pair) {
     var node = el(pair[0]); if (!node || node.dataset.footerWired === '1') return;
     node.dataset.footerWired = '1';
-    var fire = function() { schedulePortalSyncCreateFooter({ quote: false }); };
-    node.addEventListener('change', fire); if (pair[1]) node.addEventListener('input', fire);
+    var fire = function() {
+      schedulePortalRenderCreateIntentSummary();
+      schedulePortalSyncCreateSubmitEnabled();
+    };
+    node.addEventListener('change', fire);
+    if (pair[1]) node.addEventListener('input', fire);
   });
+  schedulePortalSyncCreateSubmitEnabled();
 }
 
 function schedulePortalSetCreateStatus(text, isError) {
@@ -1279,6 +1314,6 @@ function submitScheduleManualBooking() {
     }
   }).finally(function() {
     schedulePortalSubmitInFlight = false;
-    if (!succeeded && submitBtn) submitBtn.disabled = false;
+    if (!succeeded) schedulePortalSyncCreateSubmitEnabled();
   });
 }

@@ -291,6 +291,7 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
     actor: { email: 'staff@sunset.test' },
     body: {
       guest_name: 'Portal',
+      guest_phone: '+34600111222',
       components: { wetsuit: { quantity: 1 } },
       service_date: '2026-08-02',
     },
@@ -305,7 +306,7 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
   }
 
   console.log('\n[6] Slice A — durable idempotency');
-  const lessonBody = (name) => ({ guest_name: name, components: { lesson: { quantity: 1 } }, service_date: '2026-08-02' });
+  const lessonBody = (name) => ({ guest_name: name, guest_phone: '+34600111222', components: { lesson: { quantity: 1 } }, service_date: '2026-08-02' });
   const vA = validateScheduleBookingBody(lessonBody('Replay'));
   const vB = validateScheduleBookingBody(lessonBody('Other'));
   const vC = validateScheduleBookingBody(lessonBody('Concurrent'));

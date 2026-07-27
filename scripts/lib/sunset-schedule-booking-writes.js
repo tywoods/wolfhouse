@@ -497,19 +497,39 @@ function prepareCanonicalRentalsForCreate(body) {
     }
   }
 
+  let bodyOut = {
+    ...b,
+    components,
+    service_dates: rangeDates,
+    date_from: dateFrom,
+    date_to: dateTo,
+  };
+  let rentalsOut = rentals;
+  // No-lesson: equipment qty derives from authoritative surfer_count (ignore client override).
+  const forced = applyNoLessonEquipmentQtyFromSurfers(bodyOut, rentals);
+  if (forced.forced) {
+    bodyOut = forced.body;
+    rentalsOut = forced.rentals || rentalsOut;
+    // Re-sync expected legacy quantities after force.
+    for (const row of rentalsOut) {
+      if (row.offering_key === 'board_rental') {
+        bodyOut.components.surfboard = { quantity: row.quantity };
+      } else if (row.offering_key === 'wetsuit_rental') {
+        bodyOut.components.wetsuit = { quantity: row.quantity };
+      } else if (row.offering_key === 'board_and_suit_rental') {
+        bodyOut.components.surfboard = { quantity: row.quantity };
+        bodyOut.components.wetsuit = { quantity: row.quantity };
+      }
+    }
+  }
+
   return {
     ok: true,
     present: true,
-    rentals,
+    rentals: rentalsOut,
     rentalSpanDates: rangeDates,
     pricingGroupId: crypto.randomBytes(8).toString('hex'),
-    body: {
-      ...b,
-      components,
-      service_dates: rangeDates,
-      date_from: dateFrom,
-      date_to: dateTo,
-    },
+    body: bodyOut,
   };
 }
 
@@ -1022,6 +1042,94 @@ function normalizeServiceDates(body, components) {
   return { ok: true, value: unique };
 }
 
+/**
+ * Staff Create phone: nonblank, max 40, at least 6 digits (international ok).
+ * Quote path never requires phone.
+ */
+function isValidStaffCreateGuestPhone(raw) {
+  const phone = raw != null ? String(raw).trim().slice(0, 40) : '';
+  if (!phone) return false;
+  if (phone.length > 40) return false;
+  const digits = phone.replace(/\D/g, '');
+  return digits.length >= 6;
+}
+
+/**
+ * No-lesson (rental-only) mode: equipment quantity is owned by Number of surfers.
+ * When surfer_count is present, force rental + legacy component quantities to it
+ * (ignore independent client equipment-qty override). Does not invent Admin prices.
+ */
+function isNoLessonComponents(components) {
+  const c = components && typeof components === 'object' ? components : {};
+  return !c.course && !c.private_lesson && !c.lesson;
+}
+
+function parseAuthoritativeSurferCount(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const raw = b.surfer_count != null ? b.surfer_count
+    : (b.guest_count != null ? b.guest_count : null);
+  if (raw == null || raw === '') return null;
+  const n = parseInt(String(raw), 10);
+  if (!Number.isInteger(n) || n < 1 || n > 99) return null;
+  return n;
+}
+
+/**
+ * For no-lesson bookings with surfer_count, overwrite rental quantities from
+ * authoritative surfer count. Group/Private keep independent equipment qty.
+ */
+function applyNoLessonEquipmentQtyFromSurfers(body, rentals) {
+  const b = body && typeof body === 'object' ? body : {};
+  const comps = b.components && typeof b.components === 'object' ? b.components : {};
+  if (!isNoLessonComponents(comps)) {
+    return { ok: true, body: b, rentals: rentals || null, forced: false };
+  }
+  const sn = parseAuthoritativeSurferCount(b);
+  if (sn == null) {
+    return { ok: true, body: b, rentals: rentals || null, forced: false };
+  }
+  let nextRentals = rentals;
+  if (Array.isArray(rentals) && rentals.length) {
+    nextRentals = rentals.map((r) => ({
+      ...r,
+      quantity: sn,
+    }));
+  }
+  const nextComps = { ...comps };
+  if (nextComps.surfboard) {
+    nextComps.surfboard = { ...nextComps.surfboard, quantity: sn };
+  }
+  if (nextComps.wetsuit) {
+    nextComps.wetsuit = { ...nextComps.wetsuit, quantity: sn };
+  }
+  // If rentals imply legacy components that are missing, seed them at surfer qty.
+  if (Array.isArray(nextRentals)) {
+    for (const row of nextRentals) {
+      if (row.offering_key === 'board_rental' && !nextComps.surfboard) {
+        nextComps.surfboard = { quantity: sn };
+      } else if (row.offering_key === 'wetsuit_rental' && !nextComps.wetsuit) {
+        nextComps.wetsuit = { quantity: sn };
+      } else if (row.offering_key === 'board_and_suit_rental') {
+        if (!nextComps.surfboard) nextComps.surfboard = { quantity: sn };
+        else nextComps.surfboard = { ...nextComps.surfboard, quantity: sn };
+        if (!nextComps.wetsuit) nextComps.wetsuit = { quantity: sn };
+        else nextComps.wetsuit = { ...nextComps.wetsuit, quantity: sn };
+      }
+    }
+  }
+  return {
+    ok: true,
+    forced: true,
+    surfer_count: sn,
+    rentals: nextRentals,
+    body: {
+      ...b,
+      surfer_count: sn,
+      components: nextComps,
+    },
+  };
+}
+
 function validateScheduleBookingBody(body, opts) {
   opts = opts || {};
   const dateBoundary = normalizeSunsetBookingDatesInBody(body, opts.refDate || new Date(), opts);
@@ -1030,10 +1138,21 @@ function validateScheduleBookingBody(body, opts) {
   }
   const b = dateBoundary.body;
   const guest_name = String(b.guest_name || '').trim();
-  if (!guest_name || guest_name.length > 200) {
+  // Quote may run with blank guest name; create remains fail-closed unless allowBlankGuest.
+  if (opts.allowBlankGuest) {
+    if (guest_name.length > 200) {
+      return { ok: false, error: 'guest_name is required (max 200 chars)' };
+    }
+  } else if (!guest_name || guest_name.length > 200) {
     return { ok: false, error: 'guest_name is required (max 200 chars)' };
   }
   const guest_phone = b.guest_phone != null ? String(b.guest_phone).trim().slice(0, 40) : '';
+  // Staff Create requires valid phone; quote + Luna create keep phone optional.
+  if (opts.requireGuestPhone) {
+    if (!isValidStaffCreateGuestPhone(guest_phone)) {
+      return { ok: false, error: 'guest_phone is required' };
+    }
+  }
   const components = normalizeComponents(b);
   if (!components.ok) return components;
   const serviceDates = normalizeServiceDates(b, components.value);
@@ -1066,6 +1185,7 @@ function validateScheduleBookingBody(body, opts) {
   }
   const customLines = normalizeCustomLineItems(b.custom_line_items);
   if (!customLines.ok) return customLines;
+  const surfer_count = parseAuthoritativeSurferCount(b);
 
   return {
     ok: true,
@@ -1080,6 +1200,7 @@ function validateScheduleBookingBody(body, opts) {
       idempotency_key: idempotency_key || null,
       rental_pricing: rentalPricing.skip ? null : rentalPricing.value,
       custom_line_items: customLines.value,
+      surfer_count: surfer_count != null ? surfer_count : null,
     },
   };
 }
@@ -2090,13 +2211,17 @@ async function createSunsetScheduleBooking(pg, opts) {
     };
   }
 
-  const validated = validateScheduleBookingBody(rentalPrep.body);
+  const locationId = opts.locationId != null ? String(opts.locationId).trim() : '';
+  const attribution = resolveScheduleBookingAttribution(opts.actor);
+  // Staff Create: guest name + valid phone required. Luna create keeps phone optional.
+  // Quote path never uses this function.
+  const validated = validateScheduleBookingBody(rentalPrep.body, {
+    requireGuestPhone: attribution.staffManualSchedule === true,
+  });
   if (!validated.ok) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
   }
   const input = validated.value;
-  const locationId = opts.locationId != null ? String(opts.locationId).trim() : '';
-  const attribution = resolveScheduleBookingAttribution(opts.actor);
   const canonicalRentals = rentalPrep.present ? rentalPrep.rentals : null;
   const rentalSpanDates = rentalPrep.present ? rentalPrep.rentalSpanDates : null;
   const rentalPricingGroupId = rentalPrep.present ? rentalPrep.pricingGroupId : null;
@@ -2531,4 +2656,8 @@ module.exports = {
   normalizeCustomLineItems,
   buildCustomLineQuoteLines,
   customLinesForIntentFingerprint,
+  isValidStaffCreateGuestPhone,
+  isNoLessonComponents,
+  parseAuthoritativeSurferCount,
+  applyNoLessonEquipmentQtyFromSurfers,
 };

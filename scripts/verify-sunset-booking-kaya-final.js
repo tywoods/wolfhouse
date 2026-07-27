@@ -130,11 +130,11 @@ const quotes=(c)=>c._log.filter((e)=>String(e.url).includes('/bookings/quote'));
 const msg=(c)=>String(c.el('ps-create-msg').textContent||'');
 const S=(c)=>String(c.el('ps-create-summary').innerHTML||'');
 const Q=(c)=>String(c.el('ps-create-quote-preview').innerHTML||'');
-const baseCourse=(extra)=>Object.assign({guest_name:'Ada',date_from:TODAY,date_to:TODAY,payment_status:'unpaid',
+const baseCourse=(extra)=>Object.assign({guest_name:'Ada',guest_phone:'+34600111222',date_from:TODAY,date_to:TODAY,payment_status:'unpaid',
   components:{course:{course_id:'c1',course_label:'Beginner',tier_key:'1_week',quantity:1}},rentals:[]},extra||{});
-const rentalOnly=(extra)=>Object.assign({guest_name:'Bo',date_from:TODAY,date_to:'2035-06-16',payment_status:'unpaid',components:{},
+const rentalOnly=(extra)=>Object.assign({guest_name:'Bo',guest_phone:'+34600111222',date_from:TODAY,date_to:'2035-06-16',payment_status:'unpaid',components:{},
   rentals:[{offering_key:'board_rental',duration_key:'2_days',quantity:1}]},extra||{});
-const privatePL=(sessions,extra)=>Object.assign({guest_name:'Pri',date_from:'2035-06-16',date_to:'2035-06-18',payment_status:'unpaid',
+const privatePL=(sessions,extra)=>Object.assign({guest_name:'Pri',guest_phone:'+34600111222',date_from:'2035-06-16',date_to:'2035-06-18',payment_status:'unpaid',
   components:{private_lesson:{enabled:true,quantity:sessions.length,surfer_count:2,sessions}},rentals:[]},extra||{});
 
 console.log('\nverify:sunset-booking-kaya-final — Kaya Slice 6\n');
@@ -244,11 +244,18 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
   Object.assign(dom._nodes['ps-create-comp-course'], { checked: false });
   Object.assign(dom._nodes['ps-create-comp-private-lesson'], { checked: false });
   dom._nodes['ps-create-guest'].value = 'DomBo';
+  dom._nodes['ps-create-phone'].value = '+34600111222';
+  dom._nodes['ps-create-surfers'] = { value: '1' };
   dom._nodes['ps-create-date-from'].value = TODAY; dom._nodes['ps-create-date-to'].value = '2035-06-16';
   dom._nodes['ps-create-payment'].value = 'unpaid';
   dom._nodes['ps-create-rentals'] = { getAttribute: (k) => k === 'data-duration-key' ? '2_days' : '',
     querySelectorAll: (sel) => sel === '[data-rental-offering]' ? [row] : [], querySelector: () => null };
-  vm.runInContext([readRentalsSrc, readPayloadSrc].join('\n'), dom);
+  // Production payload now depends on surfer authority + no-lesson + custom lines.
+  const surferSrc = extractFn(apiSrc, 'scheduleReadCreateSurferCount') || '';
+  const syncSrc = extractFn(apiSrc, 'scheduleSyncCreateSurferMirrors') || '';
+  const noLessonSrc = extractFn(apiSrc, 'scheduleCreateIsNoLesson') || '';
+  dom.scheduleCreateCustomLines = [];
+  vm.runInContext([surferSrc, syncSrc, noLessonSrc, readRentalsSrc, readPayloadSrc].filter(Boolean).join('\n'), dom);
   const domP = dom.scheduleReadCreatePayload();
   assert('DOM dual rentals+legacy', !!(domP && domP.rentals && domP.rentals[0] && domP.rentals[0].offering_key === 'board_rental'
     && domP.rentals[0].duration_key === '2_days' && domP.rentals[0].quantity === 1

@@ -70,15 +70,29 @@ function extractCreateModalHtml(src) {
 
 console.log('\nverify:sunset-create-custom-line\n');
 
-// ── 1) UI placement above Payments ──────────────────────────────────────────
-console.log('[1] UI placement above Payments + collapsed +');
+// ── 1) UI placement: own outlined card above Payment & notes ────────────────
+console.log('[1] Custom add-on card above Payment & notes (not nested)');
 const modal = extractCreateModalHtml(apiSrc);
 const customPos = modal.indexOf('id="ps-create-custom-lines"');
+const customCardPos = modal.indexOf('data-create-section="custom-addon"');
+const paymentSectionPos = modal.indexOf('data-create-section="payment"');
 const paymentPos = modal.indexOf('id="ps-create-section-payment-title"');
 const paySelectPos = modal.indexOf('id="ps-create-payment"');
 ok('custom section present', customPos >= 0);
+ok('custom add-on is its own section/card', customCardPos >= 0
+  && /portal-schedule-create-custom-addon-card/.test(modal));
+ok('Custom add-on label exact EN via i18n key',
+  /data-i18n="schedule\.create\.section\.customAddon"/.test(modal)
+  && /Custom add-on/.test(modal));
+ok('custom card above Payment section', customCardPos >= 0 && paymentSectionPos > customCardPos);
 ok('custom section above Payments title', customPos >= 0 && paymentPos > customPos);
 ok('custom section above payment select', customPos >= 0 && paySelectPos > customPos);
+// Not nested inside payment section
+ok('custom lines not nested under payment section', (() => {
+  if (customCardPos < 0 || paymentSectionPos < 0) return false;
+  const payChunk = modal.slice(paymentSectionPos, paymentSectionPos + 1200);
+  return !payChunk.includes('id="ps-create-custom-lines"');
+})());
 ok('collapsed + button present', /id="ps-create-custom-line-add-btn"/.test(modal)
   && /portal-schedule-create-custom-line-plus/.test(modal));
 ok('accessible label Add custom line',
@@ -94,6 +108,9 @@ ok('editor starts collapsed (hidden)',
 ok('touch-friendly + min 44px CSS',
   /\.portal-schedule-create-custom-line-plus\{[^}]*min-width:\s*44px/.test(apiSrc)
   && /\.portal-schedule-create-custom-line-plus\{[^}]*min-height:\s*44px/.test(apiSrc));
+ok('card thin outline CSS (no heavy background)',
+  /\.portal-schedule-create-custom-addon-card\{[^}]*border:\s*1px solid/.test(apiSrc)
+  && /\.portal-schedule-create-custom-addon-card\{[^}]*background:\s*transparent/.test(apiSrc));
 
 const readPayloadFn = extractFn(apiSrc, 'scheduleReadCreatePayload');
 ok('scheduleReadCreatePayload bounded extract', !!readPayloadFn);
@@ -363,12 +380,17 @@ ok('full-day filter excludes staff_custom_line ownership (bounded)',
   // ── 6) i18n EN/ES/IT (key presence only — no broad locale blob match) ─────
   console.log('\n[6] EN/ES/IT labels');
   const keys = [
+    'schedule.create.section.customAddon',
     'schedule.create.customLine.add',
     'schedule.create.customLine.label',
     'schedule.create.customLine.price',
     'schedule.create.customLine.confirm',
     'schedule.create.customLine.cancel',
   ];
+  ok('EN Custom add-on exact copy',
+    /'schedule\.create\.section\.customAddon':\s*'Custom add-on'/.test(
+      fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8'),
+    ));
   const i18nSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');
   const esSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n-es-sunset.js'), 'utf8');
   // Locate EN and IT blocks by fixed markers (brace-bounded), not [\s\S]*.
