@@ -155,19 +155,18 @@ assert('drawer width works at 320px viewport',
 assert('thumb-friendly footer buttons',
   /min-height:\s*44px/.test(apiSrc) && /portal-schedule-create-actions/.test(apiSrc));
 
-// ── 3) When section visibility ──────────────────────────────────────────────
-console.log('\n[3] When section hidden Group/No lesson; shown Private');
+// ── 3) When shell always hidden; private panel only for Private ─────────────
+console.log('\n[3] When shell always hidden; private panel shown for Private');
 assert('when section starts hidden',
   /data-create-section="when"[^>]*(hidden|is-when-hidden)/.test(modal)
   || /is-when-hidden[\s\S]*data-create-section="when"|data-create-section="when"[\s\S]*is-when-hidden/.test(modal));
 const populateFn = extractFn(apiSrc, 'schedulePopulateCreateComponentFields') || '';
-assert('populate hides When for non-private',
+assert('populate keeps When shell hidden',
   populateFn.includes('data-create-section="when"')
-  && /privateOn/.test(populateFn)
-  && (/is-when-hidden|whenSection\.hidden/.test(populateFn)));
-assert('private-when only shown for private',
-  /privateWhen\) privateWhen\.style\.display = privateOn \? '' : 'none'/.test(populateFn)
-  || /privateWhen\.style\.display = privateOn/.test(populateFn));
+  && (/is-when-hidden|whenSection\.hidden\s*=\s*true/.test(populateFn)));
+assert('private panel only shown for private',
+  /privatePanel[\s\S]{0,120}privateOn|schedulePortalSetVisible\(privatePanel,\s*!!privateOn\)|privateWhen\.style\.display\s*=\s*privateOn/.test(populateFn)
+  || /private-panel|private-when/.test(populateFn) && /privateOn/.test(populateFn));
 
 // ── 4) Quantity default/sync for surfers 1/2/4 ──────────────────────────────
 console.log('\n[4] Surfers qty default/sync (1/2/4) for full-day + bundle');
