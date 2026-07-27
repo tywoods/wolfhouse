@@ -22299,23 +22299,31 @@ function scheduleReadCreateRentalSelectionFromDom(){
   var wrap = el('ps-create-rentals');
   if (!wrap) return [];
   var shortMode = wrap.getAttribute('data-short-rental') === '1';
-  // Authoritative duration: multi-day always recomputes from From/To (never trust a
-  // stale data-duration-key left from a prior short-mode 1_day pebble). Short mode
-  // keeps the pebble selection on data-duration-key (1_hour / half_day / 1_day).
+  // Authoritative duration from From/To:
+  // - Multi-day span always wins (never trust a stale short-mode 1_day pebble or a
+  //   sticky data-short-rental=1 left after extending dates without re-render).
+  // - Single-day short mode keeps the pebble selection (1_hour / half_day / 1_day).
   var duration = String(wrap.getAttribute('data-duration-key') || '').trim();
-  if (!shortMode && typeof scheduleRentalDurationKeyFromDates === 'function') {
-    var span = typeof scheduleCreateDateSpanForRentals === 'function'
-      ? scheduleCreateDateSpanForRentals()
-      : null;
-    if (span && span.from) {
-      var dateDur = scheduleRentalDurationKeyFromDates(
-        span.from, span.to || span.from, scheduleEnumerateDates,
-      );
-      if (dateDur) {
-        duration = dateDur;
-        try { wrap.setAttribute('data-duration-key', duration); } catch (_d) { /* ignore */ }
-      }
-    }
+  var span = typeof scheduleCreateDateSpanForRentals === 'function'
+    ? scheduleCreateDateSpanForRentals()
+    : null;
+  var dateDur = null;
+  if (span && span.from && typeof scheduleRentalDurationKeyFromDates === 'function') {
+    dateDur = scheduleRentalDurationKeyFromDates(
+      span.from, span.to || span.from, scheduleEnumerateDates,
+    );
+  }
+  if (dateDur && dateDur !== '1_day') {
+    // Inclusive multi-day identity — clear sticky short-mode state.
+    shortMode = false;
+    duration = dateDur;
+    try {
+      wrap.setAttribute('data-duration-key', duration);
+      wrap.setAttribute('data-short-rental', '0');
+    } catch (_d) { /* ignore */ }
+  } else if (!shortMode && dateDur) {
+    duration = dateDur;
+    try { wrap.setAttribute('data-duration-key', duration); } catch (_d2) { /* ignore */ }
   }
   // No lesson: never trust an independently editable equipment quantity.
   var noLesson = typeof scheduleCreateIsNoLesson === 'function' ? scheduleCreateIsNoLesson() : false;
