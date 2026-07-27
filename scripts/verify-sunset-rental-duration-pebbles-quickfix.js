@@ -210,6 +210,11 @@ function adminPrices(overrides) {
 }
 
 function quoteRentals(rentals, list) {
+  // Staff no-lesson: surfer_count is authoritative equipment qty (PR #248).
+  const qty = Math.max(
+    1,
+    ...((Array.isArray(rentals) ? rentals : []).map((r) => Number(r && r.quantity) || 1)),
+  );
   const built = buildSunsetQuoteCommand({
     channel: QUOTE_CHANNELS.MANUAL_STAFF,
     trustedLocationId: 'sunset-somo',
@@ -220,6 +225,7 @@ function quoteRentals(rentals, list) {
       payment_status: 'unpaid',
       components: {},
       rentals,
+      surfer_count: qty,
       require_db: false,
     },
     now: new Date('2026-08-01T12:00:00Z'),

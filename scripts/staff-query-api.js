@@ -22571,8 +22571,10 @@ function scheduleRenderCreateRentals(){
   var commonShort = (typeof scheduleCommonShortRentalDurationKeys === 'function')
     ? scheduleCommonShortRentalDurationKeys(scheduleAdminPricesCache, locationId)
     : [];
-  // No-lesson short-rental mode: offerings from any short sellable row; duration via pebbles.
-  var shortMode = noLesson && commonShort.length > 0;
+  // No-lesson short-rental pebbles only on a single-day span (1_hour / half_day / 1_day).
+  // Multi-day From/To always uses inclusive date duration (4_days → Admin 4-day row).
+  // Never force short 1_day identity onto a multi-day booking.
+  var shortMode = noLesson && commonShort.length > 0 && dateDuration === '1_day';
   var offerings = [];
   var duration = dateDuration;
   if (shortMode) {

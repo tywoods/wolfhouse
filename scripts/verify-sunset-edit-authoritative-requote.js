@@ -1083,6 +1083,8 @@ async function main() {
         service_dates: ['2026-08-21'],
         rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
         components: { surfboard: { quantity: 1 } },
+        // Staff no-lesson: authoritative party size (PR #248 anti-spoof).
+        surfer_count: 1,
       },
     });
     assert('rental-only ok', result.ok === true, JSON.stringify(result && result.body));

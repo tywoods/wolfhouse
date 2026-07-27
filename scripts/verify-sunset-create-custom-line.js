@@ -166,9 +166,13 @@ if (browserParseFn) {
 }
 ok('browser VM parse loads', typeof browserParse === 'function');
 if (typeof browserParse === 'function') {
+  ok('browser 10 → 1000 (Coffee +€10)', browserParse('10').ok && browserParse('10').amount_cents === 1000);
+  ok('browser 10.0 → 1000', browserParse('10.0').ok && browserParse('10.0').amount_cents === 1000);
+  ok('browser 10.00 → 1000', browserParse('10.00').ok && browserParse('10.00').amount_cents === 1000);
   ok('browser -5 → -500', browserParse('-5').ok && browserParse('-5').amount_cents === -500);
   ok('browser 12,50 → 1250', browserParse('12,50').ok && browserParse('12,50').amount_cents === 1250);
   ok('browser >2 decimals reject', !browserParse('1.234').ok);
+  ok('browser exponent reject', !browserParse('1e2').ok);
 }
 
 // Dead alias must not be re-exported.
