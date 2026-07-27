@@ -181,6 +181,13 @@ assert('buildPaymentSummary returns paid_payments',
   /paid_payments/.test(bookingDrawerLib));
 assert('aggregate remainder/fallback credit when rows do not sum',
   /paid_ledger_remainder|remainder_cents|ledger_remainder/.test(bookingDrawerLib));
+const loadBundleStart = bookingDrawerLib.indexOf('async function loadSunsetBookingBundle');
+const loadBundleEnd = bookingDrawerLib.indexOf('function buildPaidPaymentLedger', loadBundleStart);
+const loadBundleFn = bookingDrawerLib.slice(loadBundleStart, loadBundleEnd);
+assert('all payment reads are explicitly client-scoped',
+  (loadBundleFn.match(/INNER JOIN clients c ON c\.id = b\.client_id/g) || []).length >= 3
+  && (loadBundleFn.match(/c\.slug = \$2/g) || []).length === 3
+  && (loadBundleFn.match(/\[booking\.booking_id, clientSlug\]/g) || []).length === 3);
 
 console.log('\n[6c] Sunset booking-context overview order');
 
@@ -334,6 +341,87 @@ assert('payment summary keeps subtotal/paid/balance truth',
   && paySummary.balance_due_cents === 40000);
 assert('line items carry unit_amount_cents when stored',
   paySummary.line_items[0].unit_amount_cents === 3000);
+
+const staleStoredBalanceLowPaid = buildPaymentSummary(
+  [],
+  {
+    total_amount_cents: 50000,
+    amount_paid_cents: 0,
+    balance_due_cents: 50000,
+    payment_status: 'unpaid',
+    metadata: {},
+  },
+  [], 'config', 10000, null,
+  { paid_rows: [{ payment_status: 'paid', amount_paid_cents: 10000, metadata: {} }] },
+);
+assert('displayed balance reconciles when payment ledger is ahead of booking aggregate',
+  staleStoredBalanceLowPaid.paid_cents === 10000
+  && staleStoredBalanceLowPaid.balance_due_cents === 40000);
+
+const staleStoredBalanceHighPaid = buildPaymentSummary(
+  [],
+  {
+    total_amount_cents: 50000,
+    amount_paid_cents: 30000,
+    balance_due_cents: 50000,
+    payment_status: 'unpaid',
+    metadata: {},
+  },
+  [], 'config', 10000, null,
+  { paid_rows: [{ payment_status: 'paid', amount_paid_cents: 10000, metadata: {} }] },
+);
+assert('displayed balance reconciles when booking paid aggregate is ahead of detail',
+  staleStoredBalanceHighPaid.paid_cents === 30000
+  && staleStoredBalanceHighPaid.balance_due_cents === 20000
+  && staleStoredBalanceHighPaid.paid_ledger_remainder_cents === 20000);
+
+const ambiguousUnit = buildPaymentSummary(
+  [],
+  {
+    total_amount_cents: 6000,
+    amount_paid_cents: 0,
+    balance_due_cents: 6000,
+    payment_status: 'unpaid',
+    metadata: {
+      quote_line_items: [
+        { component: 'course', offering_id: 'course-a', duration_key: '1_day', unit_amount_cents: 3000 },
+        { component: 'course', offering_id: 'course-b', duration_key: '1_day', unit_amount_cents: 4000 },
+      ],
+    },
+  },
+  [{
+    service_record_id: 'ambiguous-course', service_type: 'surf_lesson',
+    service_date: '2026-07-20', quantity: 2, amount_due_cents: 6000,
+    metadata: { component: 'course' },
+  }],
+  'config', 0, null, {},
+);
+assert('ambiguous component-only quote lines do not invent unit math',
+  ambiguousUnit.line_items[0].unit_amount_cents === null);
+
+const exactUnit = buildPaymentSummary(
+  [],
+  {
+    total_amount_cents: 8000,
+    amount_paid_cents: 0,
+    balance_due_cents: 8000,
+    payment_status: 'unpaid',
+    metadata: {
+      quote_line_items: [
+        { component: 'course', offering_id: 'course-a', duration_key: '1_day', unit_amount_cents: 3000 },
+        { component: 'course', offering_id: 'course-b', duration_key: '1_day', unit_amount_cents: 4000 },
+      ],
+    },
+  },
+  [{
+    service_record_id: 'exact-course', service_type: 'surf_lesson',
+    service_date: '2026-07-20', quantity: 2, amount_due_cents: 8000,
+    metadata: { component: 'course', course_id: 'course-b', duration_key: '1_day' },
+  }],
+  'config', 0, null, {},
+);
+assert('exact offering and duration identity selects the matching quote unit',
+  exactUnit.line_items[0].unit_amount_cents === 4000);
 
 const overpaid = buildPaymentSummary(
   [],
