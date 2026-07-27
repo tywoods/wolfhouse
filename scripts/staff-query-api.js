@@ -16564,9 +16564,13 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-check.is-disabled,.portal-schedule-create-check:has(input:disabled){opacity:.55;cursor:not-allowed}
 /* Staff Custom add-on card — own thin-outline card above Payment & notes (not nested) */
 .portal-schedule-create-custom-addon-card{margin:0 0 12px;padding:12px 14px;border:1px solid var(--border-soft,#d4d0c8);border-radius:var(--radius-sm,10px);background:transparent;box-shadow:none}
+.portal-schedule-create-custom-addon-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px}
+.portal-schedule-create-custom-addon-header .portal-schedule-create-section-title{margin:0;flex:1 1 auto;min-width:0;font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--text-2,#555)}
+.portal-schedule-create-custom-addon-header .portal-schedule-create-custom-lines-collapsed{flex:0 0 auto;margin:0;display:flex;align-items:center}
 .portal-schedule-create-custom-addon-card .portal-schedule-create-section-title{margin:0 0 10px;font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--text-2,#555)}
 .portal-schedule-create-custom-lines{margin:0;padding:0}
 .portal-schedule-create-custom-lines-list{display:flex;flex-direction:column;gap:6px;margin:0 0 8px}
+.portal-schedule-create-custom-lines-list:empty{margin:0}
 .portal-schedule-create-custom-line-row{display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:transparent;font-size:13px}
 .portal-schedule-create-custom-line-row .ps-cl-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .portal-schedule-create-custom-line-row .ps-cl-amount{flex:0 0 auto;font-variant-numeric:tabular-nums;font-weight:600}
@@ -18505,12 +18509,14 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         </div>
       </section>
       <section class="portal-schedule-create-section portal-schedule-create-custom-addon-card" data-create-section="custom-addon" aria-labelledby="ps-create-section-custom-addon-title" data-testid="ps-create-custom-addon-card">
-        <h3 id="ps-create-section-custom-addon-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.customAddon">Custom add-on</h3>
-        <div id="ps-create-custom-lines" class="portal-schedule-create-custom-lines" data-testid="ps-create-custom-lines">
-          <div id="ps-create-custom-lines-list" class="portal-schedule-create-custom-lines-list" aria-live="polite"></div>
+        <div class="portal-schedule-create-custom-addon-header">
+          <h3 id="ps-create-section-custom-addon-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.customAddon">Custom add-on</h3>
           <div id="ps-create-custom-lines-collapsed" class="portal-schedule-create-custom-lines-collapsed">
             <button type="button" id="ps-create-custom-line-add-btn" class="portal-schedule-create-custom-line-plus" data-i18n-aria="schedule.create.customLine.add" aria-label="Add custom line" title="Add custom line">+</button>
           </div>
+        </div>
+        <div id="ps-create-custom-lines" class="portal-schedule-create-custom-lines" data-testid="ps-create-custom-lines">
+          <div id="ps-create-custom-lines-list" class="portal-schedule-create-custom-lines-list" aria-live="polite"></div>
           <div id="ps-create-custom-lines-editor" class="portal-schedule-create-custom-lines-editor" style="display:none" hidden aria-hidden="true">
             <div class="portal-schedule-create-field">
               <label for="ps-create-custom-line-label" data-i18n="schedule.create.customLine.label">Label</label>

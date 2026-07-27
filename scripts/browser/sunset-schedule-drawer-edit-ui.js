@@ -202,15 +202,16 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
   html += '</div></section>';
   // Custom add-on card (same Create contract) — editable commercial adjustments.
   html += '<section class="portal-schedule-create-section portal-schedule-create-custom-addon-card" data-edit-section="custom-addon" aria-labelledby="ps-drawer-section-custom-addon-title" data-testid="ps-drawer-custom-addon-card">';
+  html += '<div class="portal-schedule-create-custom-addon-header">';
   html += '<h3 id="ps-drawer-section-custom-addon-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.customAddon">' +
     escHtml(portalT('schedule.create.section.customAddon') || 'Custom add-on') + '</h3>';
-  html += '<div id="ps-drawer-custom-lines" class="portal-schedule-create-custom-lines" data-testid="ps-drawer-custom-lines">';
-  html += '<div id="ps-drawer-custom-lines-list" class="portal-schedule-create-custom-lines-list" aria-live="polite"></div>';
   html += '<div id="ps-drawer-custom-lines-collapsed" class="portal-schedule-create-custom-lines-collapsed">';
   html += '<button type="button" id="ps-drawer-custom-line-add-btn" class="portal-schedule-create-custom-line-plus" data-i18n-aria="schedule.create.customLine.add" aria-label="' +
     escHtml(portalT('schedule.create.customLine.add') || 'Add custom line') + '" title="' +
     escHtml(portalT('schedule.create.customLine.add') || 'Add custom line') + '">+</button>';
-  html += '</div>';
+  html += '</div></div>';
+  html += '<div id="ps-drawer-custom-lines" class="portal-schedule-create-custom-lines" data-testid="ps-drawer-custom-lines">';
+  html += '<div id="ps-drawer-custom-lines-list" class="portal-schedule-create-custom-lines-list" aria-live="polite"></div>';
   html += '<div id="ps-drawer-custom-lines-editor" class="portal-schedule-create-custom-lines-editor" style="display:none" hidden aria-hidden="true">';
   html += '<div class="portal-schedule-create-field"><label for="ps-drawer-custom-line-label" data-i18n="schedule.create.customLine.label">' +
     escHtml(portalT('schedule.create.customLine.label') || 'Label') + '</label>';
