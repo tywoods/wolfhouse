@@ -575,6 +575,7 @@ function quoteCapturedBody(body, adminCfg) {
     'schedulePortalDropStaleQuoteUi',
     'schedulePortalFetchQuote',
     'schedulePortalRenderCreateIntentSummary',
+    'schedulePortalFormatCompactDateRange',
     'schedulePortalRentalLabel',
     'schedulePortalDurationLabel',
     'schedulePortalHumanCourseBit',

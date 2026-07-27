@@ -16691,13 +16691,23 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-section:last-child{margin-bottom:0}
 .portal-schedule-create-section[data-create-section="when"][hidden],.portal-schedule-create-section.is-when-hidden{display:none !important}
 .portal-schedule-create-section-title{margin:0 0 10px;font-size:13px;font-weight:700;letter-spacing:.02em;color:var(--text);line-height:1.2}
-.portal-schedule-create-footer{flex:0 0 auto;border-top:1px solid var(--border-soft);background:inherit;padding:12px 18px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:3;position:relative;display:flex;flex-direction:column;gap:10px;overflow-x:hidden;overflow-y:visible}
-.portal-schedule-create-summary{min-height:18px;max-height:2.7em;font-size:12px;color:var(--text-3);line-height:1.35;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;word-break:break-word}
+.portal-schedule-create-footer{flex:0 0 auto;border-top:1px solid var(--border-soft);background:inherit;padding:12px 18px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:3;position:relative;display:flex;flex-direction:column;gap:10px;overflow-x:hidden;overflow-y:visible;min-width:0}
+.portal-schedule-create-summary{min-height:18px;max-height:4.2em;font-size:12px;color:var(--text-3);line-height:1.35;overflow:hidden;display:flex;flex-direction:column;gap:2px;word-break:break-word;min-width:0}
+.portal-schedule-create-summary-primary{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2);font-weight:600;font-size:12px;line-height:1.35}
+.portal-schedule-create-summary-secondary{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-3);font-weight:400;font-size:11px;line-height:1.35}
 .portal-schedule-create-summary-placeholder,.portal-schedule-create-summary-text{color:var(--text-3)}
-.portal-schedule-create-footer .portal-schedule-create-actions{margin-top:0;display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;flex:0 0 auto;position:relative}
-.portal-schedule-create-footer .portal-schedule-create-actions .btn{flex:1 1 auto;min-height:44px;padding:10px 14px}
-.portal-schedule-create-footer #ps-create-quote-preview{margin-bottom:0;flex:0 0 auto;min-width:0;max-height:3.2em;overflow:hidden}
+.portal-schedule-create-footer .portal-schedule-create-actions{margin-top:0;display:flex;gap:10px;flex-wrap:nowrap;align-items:stretch;flex:0 0 auto;position:relative;min-width:0}
+.portal-schedule-create-footer .portal-schedule-create-actions .btn{flex:1 1 0;min-width:0;min-height:44px;padding:10px 14px}
+.portal-schedule-create-footer #ps-create-quote-preview{margin-bottom:0;flex:0 0 auto;min-width:0;max-height:3.2em;overflow:hidden;color:var(--text);font-size:13px;font-weight:600;line-height:1.35}
 .portal-schedule-create-footer #ps-create-quote-preview.portal-schedule-create-field{margin-bottom:0}
+@media(max-width:640px){
+  .portal-schedule-create-footer{gap:8px;padding:10px 14px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+  .portal-schedule-create-summary{max-height:4.6em;gap:3px}
+  .portal-schedule-create-summary-primary,.portal-schedule-create-summary-secondary{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2}
+  .portal-schedule-create-footer #ps-create-quote-preview{max-height:none;overflow:visible}
+  .portal-schedule-create-footer .portal-schedule-create-actions{flex-wrap:nowrap;gap:8px}
+  .portal-schedule-create-footer .portal-schedule-create-actions .btn{flex:1 1 0;min-width:0;min-height:44px}
+}
 .portal-schedule-drawer-hero{margin-bottom:16px}
 .portal-schedule-drawer-hero-inner{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .portal-schedule-drawer-hero-text{flex:1;min-width:0}
