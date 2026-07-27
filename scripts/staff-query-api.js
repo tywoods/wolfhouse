@@ -16557,6 +16557,29 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-components{display:flex;flex-direction:column;gap:8px;margin:8px 0}
 .portal-schedule-create-components label,.portal-schedule-create-check{font-size:13px;display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);color:var(--text);cursor:pointer;margin:0}
 .portal-schedule-create-components input[type=checkbox],.portal-schedule-create-check input[type=checkbox],.portal-schedule-create-components input[type=radio],.portal-schedule-create-check input[type=radio]{width:18px;height:18px;flex-shrink:0;accent-color:var(--sched-primary, #4E5853);margin:0}
+.portal-schedule-create-components.portal-schedule-create-main-activity,.portal-schedule-create-main-activity{margin:0;gap:8px}
+.portal-schedule-create-activity-btn{min-height:44px;display:flex;align-items:center;justify-content:flex-start;gap:10px;width:100%;padding:10px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font:inherit;font-size:13px;font-weight:600;cursor:pointer;margin:0;box-sizing:border-box;text-align:left;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.portal-schedule-create-activity-btn.is-selected,.portal-schedule-create-activity-btn[aria-pressed="true"]{border-color:var(--sched-primary,#4E5853);background:var(--sched-primary,#4E5853);color:#fff}
+.portal-schedule-create-activity-btn:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
+.portal-schedule-create-visually-hidden,.portal-schedule-create-date-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+.portal-schedule-create-date-range-field{position:relative;margin-bottom:12px}
+.portal-schedule-create-date-range-trigger{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font:inherit;font-size:14px;cursor:pointer;text-align:left;box-sizing:border-box;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.portal-schedule-create-date-range-trigger:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
+.portal-schedule-create-date-range-display{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.portal-schedule-create-date-range-popover{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:30;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-shadow:var(--shadow,0 8px 24px rgba(0,0,0,.12));padding:12px;box-sizing:border-box;max-width:100%;overflow:hidden}
+.portal-schedule-create-date-range-cal-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 10px}
+.portal-schedule-create-date-range-cal-nav button{min-width:44px;min-height:44px;padding:8px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);color:var(--text);font-size:18px;line-height:1;cursor:pointer;touch-action:manipulation}
+.portal-schedule-create-date-range-cal-nav button:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
+.portal-schedule-create-date-range-month{flex:1 1 auto;min-width:0;text-align:center;font-size:13px;font-weight:700;color:var(--text)}
+.portal-schedule-create-date-range-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.portal-schedule-create-date-range-dow{font-size:10px;font-weight:700;text-align:center;color:var(--text-3);padding:4px 0;letter-spacing:.02em}
+.portal-schedule-create-date-range-day{min-height:40px;min-width:0;width:100%;border:none;border-radius:8px;background:transparent;color:var(--text);font:inherit;font-size:13px;cursor:pointer;padding:6px 0;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.portal-schedule-create-date-range-day.is-outside{opacity:.35}
+.portal-schedule-create-date-range-day.is-in-range{background:rgba(78,88,83,.14)}
+.portal-schedule-create-date-range-day.is-selected-start,.portal-schedule-create-date-range-day.is-selected-end,.portal-schedule-create-date-range-day.is-selected{background:var(--sched-primary,#4E5853);color:#fff;font-weight:700}
+.portal-schedule-create-date-range-day:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:1px}
+.portal-schedule-create-date-range-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;justify-content:flex-end}
+.portal-schedule-create-date-range-actions .btn{min-height:44px;min-width:0;flex:1 1 auto}
 .portal-schedule-create-activity-hint{margin:8px 0 0;font-size:12px;color:var(--text-muted);line-height:1.4}.portal-schedule-create-rentals{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .portal-schedule-create-rental-row{display:flex;flex-wrap:nowrap;align-items:center;gap:10px;width:100%;box-sizing:border-box}
 .portal-schedule-create-rental-row > .portal-schedule-create-check{flex:1 1 auto;min-width:0;margin:0}
@@ -16580,7 +16603,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-rental-pebble:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
 .portal-schedule-create-check.is-disabled,.portal-schedule-create-check:has(input:disabled){opacity:.55;cursor:not-allowed}
 /* Staff Custom add-on card — own thin-outline card above Payment & notes (not nested) */
-.portal-schedule-create-custom-addon-card{margin:0 0 12px;padding:14px;border:1px solid var(--border-soft,#d4d0c8);border-radius:var(--radius-sm,10px);background:transparent;box-shadow:none;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box}
+.portal-schedule-create-custom-addon-card{margin:0 0 12px;padding:12px 14px;border:1px solid var(--border-soft,#d4d0c8);border-radius:var(--radius-sm,10px);background:transparent;box-shadow:none;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box}
 .portal-schedule-create-custom-addon-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0;min-height:44px}
 .portal-schedule-create-custom-addon-header .portal-schedule-create-section-title{margin:0;flex:1 1 auto;min-width:0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2,#555);line-height:1.2}
 .portal-schedule-create-custom-addon-header .portal-schedule-create-custom-lines-collapsed{flex:0 0 auto;margin:0;display:flex;align-items:center}
@@ -16730,11 +16753,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-week-forecast-reply{margin-top:6px;font-size:11px;font-weight:700;color:#7c3aed}
 .portal-schedule-next30-forecast{display:block;margin-bottom:22px}
 .portal-schedule-create-drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,94vw);height:100vh;height:100dvh;max-height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9101;padding:0;display:flex;flex-direction:column;overflow:hidden;overflow-x:hidden;overscroll-behavior:contain;box-sizing:border-box}
-.portal-schedule-create-header{flex:0 0 auto;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px 12px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid var(--border-soft);background:inherit;z-index:3;position:relative}
-.portal-schedule-create-header-text{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
-.portal-schedule-create-title{margin:0;font-size:17px;font-weight:700;line-height:1.25;color:var(--text)}
-.portal-schedule-create-school-chip{display:inline-flex;align-items:center;max-width:100%;padding:3px 10px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface-soft);font-size:11px;font-weight:700;color:var(--text-2);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.portal-schedule-create-header{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px 12px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid var(--border-soft);background:inherit;z-index:3;position:relative}
+.portal-schedule-create-header-text{flex:1;min-width:0;display:flex;flex-direction:row;align-items:center;flex-wrap:wrap;gap:8px}
+.portal-schedule-create-title{margin:0;font-size:17px;font-weight:700;line-height:1.25;color:var(--text);flex:0 1 auto;min-width:0}
+.portal-schedule-create-school-chip{display:inline-flex;align-items:center;max-width:100%;padding:3px 10px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface-soft);font-size:11px;font-weight:700;color:var(--text-2);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
 .portal-schedule-create-school-chip strong{color:var(--text);font-weight:700}
+.portal-schedule-create-header #ps-create-close{flex:0 0 auto;min-width:44px;min-height:44px}
 .portal-schedule-create-body{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px 18px 18px}
 .portal-schedule-create-section{margin:0 0 14px;padding:12px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .portal-schedule-create-section:last-child{margin-bottom:0}
@@ -18497,9 +18521,27 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <section class="portal-schedule-create-section" data-create-section="guest" aria-label="Guest">
         <div class="portal-schedule-create-field"><label for="ps-create-guest" data-i18n="schedule.create.guestName">Guest name</label><input id="ps-create-guest" type="text" autocomplete="off"></div>
         <div class="portal-schedule-create-field"><label for="ps-create-phone" data-i18n="schedule.create.phone">Phone number</label><input id="ps-create-phone" type="tel" autocomplete="tel" inputmode="tel"></div>
-        <div id="ps-create-date-range">
-        <div class="portal-schedule-create-field"><label for="ps-create-date-from" data-i18n="schedule.create.dateFrom">From date</label><input id="ps-create-date-from" type="date"></div>
-        <div class="portal-schedule-create-field"><label for="ps-create-date-to" data-i18n="schedule.create.dateTo">To date</label><input id="ps-create-date-to" type="date"></div>
+        <div id="ps-create-date-range" class="portal-schedule-create-date-range-field">
+          <span id="ps-create-date-range-label" class="portal-schedule-create-label" data-i18n="schedule.create.dateRange">Dates</span>
+          <button type="button" id="ps-create-date-range-trigger" class="portal-schedule-create-date-range-trigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="ps-create-date-range-popover">
+            <span id="ps-create-date-range-display" class="portal-schedule-create-date-range-display" data-i18n="schedule.create.dateRange.placeholder">Select dates</span>
+          </button>
+          <div id="ps-create-date-range-popover" class="portal-schedule-create-date-range-popover" role="dialog" aria-modal="false" aria-labelledby="ps-create-date-range-label" hidden style="display:none">
+            <div class="portal-schedule-create-date-range-cal-nav">
+              <button type="button" id="ps-create-date-range-prev" data-i18n-aria="schedule.create.dateRange.prevMonth" aria-label="Previous month">&#8249;</button>
+              <span id="ps-create-date-range-month-label" class="portal-schedule-create-date-range-month" aria-live="polite"></span>
+              <button type="button" id="ps-create-date-range-next" data-i18n-aria="schedule.create.dateRange.nextMonth" aria-label="Next month">&#8250;</button>
+            </div>
+            <div id="ps-create-date-range-grid" class="portal-schedule-create-date-range-grid" role="grid" aria-labelledby="ps-create-date-range-month-label"></div>
+            <div class="portal-schedule-create-date-range-actions">
+              <button type="button" class="btn btn-ghost" id="ps-create-date-range-clear" data-i18n="schedule.create.dateRange.clear">Clear</button>
+              <button type="button" class="btn btn-ghost" id="ps-create-date-range-cancel" data-i18n="schedule.create.dateRange.cancel">Cancel</button>
+              <button type="button" class="btn btn-primary" id="ps-create-date-range-apply" data-i18n="schedule.create.dateRange.apply">Apply</button>
+            </div>
+          </div>
+          <!-- Canonical compatibility state for quote / private sessions / rentals / summary / create payload. -->
+          <input id="ps-create-date-from" type="date" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" hidden>
+          <input id="ps-create-date-to" type="date" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" hidden>
         </div>
         <div class="portal-schedule-create-field" id="ps-create-surfers-field">
           <label for="ps-create-surfers" data-i18n="schedule.create.surferCount">Number of surfers</label>
@@ -18518,10 +18560,19 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <button type="button" id="ps-create-main-activity-back" class="btn btn-ghost portal-schedule-create-main-activity-back" style="display:none" hidden aria-hidden="true" data-i18n="schedule.create.mainActivityBack">Back</button>
           </div>
           <div id="ps-create-main-activity-path" class="portal-schedule-create-main-activity-path" style="display:none" hidden aria-live="polite"></div>
-          <div id="ps-create-main-activity-choices" class="portal-schedule-create-components portal-schedule-create-main-activity" role="radiogroup" aria-labelledby="ps-create-main-activity-label">
-            <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="radio" name="ps-create-main-activity" value="group"> <span data-i18n="schedule.type.course">Group course</span></label>
-            <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="radio" name="ps-create-main-activity" value="private"> <span data-i18n="schedule.type.privateLesson">Private Course</span></label>
-            <label class="portal-schedule-create-check"><input id="ps-create-comp-no-lesson" type="radio" name="ps-create-main-activity" value="none" checked> <span data-i18n="schedule.type.noLesson">No lesson</span></label>
+          <div id="ps-create-main-activity-choices" class="portal-schedule-create-components portal-schedule-create-main-activity" role="group" aria-labelledby="ps-create-main-activity-label">
+            <button type="button" class="portal-schedule-create-activity-btn" data-create-activity="ps-create-comp-course" aria-pressed="false">
+              <span data-i18n="schedule.type.course">Group course</span>
+            </button>
+            <input id="ps-create-comp-course" type="radio" name="ps-create-main-activity" value="group" class="portal-schedule-create-visually-hidden" tabindex="-1" aria-hidden="true">
+            <button type="button" class="portal-schedule-create-activity-btn" data-create-activity="ps-create-comp-private-lesson" aria-pressed="false">
+              <span data-i18n="schedule.type.privateLesson">Private Course</span>
+            </button>
+            <input id="ps-create-comp-private-lesson" type="radio" name="ps-create-main-activity" value="private" class="portal-schedule-create-visually-hidden" tabindex="-1" aria-hidden="true">
+            <button type="button" class="portal-schedule-create-activity-btn is-selected" data-create-activity="ps-create-comp-no-lesson" aria-pressed="true">
+              <span data-i18n="schedule.type.noLesson">No lesson</span>
+            </button>
+            <input id="ps-create-comp-no-lesson" type="radio" name="ps-create-main-activity" value="none" class="portal-schedule-create-visually-hidden" tabindex="-1" aria-hidden="true" checked>
           </div>
           <div id="ps-create-course-list" class="portal-schedule-create-components portal-schedule-create-course-list" role="radiogroup" aria-labelledby="ps-create-main-activity-label" style="display:none" hidden aria-hidden="true"></div>
           <!-- Private sessions drill-down: same replacement region as course list (not a second lower editor). -->
@@ -21915,6 +21966,7 @@ function scheduleOnCreateComponentChange(changedId){
       schedulePortalExitGroupCourseDrilldown({ clearCourse: true });
     }
   }
+  if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
   schedulePopulateCreateComponentFields();
 }
 function scheduleRefreshCreateEmptyGuidance(){
@@ -22408,6 +22460,317 @@ function scheduleReadCreatePayload(){
 var scheduleFullDayAddonUnitCents = null;
 var scheduleFullDayAddonEnabled = false;
 var scheduleAdminPricesCache = [];
+
+/** Pure range day selection: first=start, second=end; earlier second restarts; same-day supported. */
+function scheduleCreateDateRangeSelectDay(state, iso){
+  state = state || {};
+  var start = state.start ? String(state.start).slice(0, 10) : null;
+  var end = state.end ? String(state.end).slice(0, 10) : null;
+  iso = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return { start: start, end: end };
+  // Restart after a complete range, or when no start yet.
+  if (!start || (start && end)) return { start: iso, end: null };
+  // Earlier second selection restarts as the new start (no end yet).
+  if (iso < start) return { start: iso, end: null };
+  // Inclusive same-day and later end.
+  return { start: start, end: iso };
+}
+
+var scheduleCreateDateRangeDraft = { start: null, end: null };
+var scheduleCreateDateRangeViewYm = null; // 'YYYY-MM'
+
+function scheduleCreateDateRangeFormatShort(iso){
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(String(iso).slice(0, 10))) return '';
+  try {
+    var d = scheduleParseIso(String(iso).slice(0, 10));
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch (_e) {
+    return String(iso).slice(0, 10);
+  }
+}
+
+function scheduleCreateDateRangeDisplayText(from, to){
+  from = from ? String(from).slice(0, 10) : '';
+  to = to ? String(to).slice(0, 10) : from;
+  if (!from) return portalT('schedule.create.dateRange.placeholder') || 'Select dates';
+  var a = scheduleCreateDateRangeFormatShort(from);
+  var b = scheduleCreateDateRangeFormatShort(to || from);
+  if (!to || from === to) return a;
+  return a + ' – ' + b;
+}
+
+function scheduleSyncCreateDateRangeUi(){
+  var display = el('ps-create-date-range-display');
+  var from = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
+  var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
+  if (display) display.textContent = scheduleCreateDateRangeDisplayText(from, to || from);
+  var apply = el('ps-create-date-range-apply');
+  if (apply) {
+    var draft = scheduleCreateDateRangeDraft || {};
+    var ready = !!(draft.start && draft.end);
+    apply.disabled = !ready;
+  }
+}
+
+function scheduleCreateDateRangeClosePopover(){
+  var pop = el('ps-create-date-range-popover');
+  var trigger = el('ps-create-date-range-trigger');
+  if (pop) {
+    pop.hidden = true;
+    pop.style.display = 'none';
+  }
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
+}
+
+function scheduleCreateDateRangeOpenPopover(){
+  var from = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
+  var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
+  // Seed draft from applied canonical state (same-day when only one set).
+  if (from && to) scheduleCreateDateRangeDraft = { start: from, end: to };
+  else if (from) scheduleCreateDateRangeDraft = { start: from, end: from };
+  else scheduleCreateDateRangeDraft = { start: null, end: null };
+  var seed = (scheduleCreateDateRangeDraft.start || scheduleTodayIso() || '').slice(0, 7);
+  scheduleCreateDateRangeViewYm = seed || scheduleTodayIso().slice(0, 7);
+  var pop = el('ps-create-date-range-popover');
+  var trigger = el('ps-create-date-range-trigger');
+  if (pop) {
+    pop.hidden = false;
+    pop.style.display = '';
+  }
+  if (trigger) trigger.setAttribute('aria-expanded', 'true');
+  scheduleRenderCreateDateRangeCalendar();
+  scheduleSyncCreateDateRangeUi();
+}
+
+function scheduleCreateDateRangeTogglePopover(){
+  var pop = el('ps-create-date-range-popover');
+  var open = pop && !pop.hidden && pop.style.display !== 'none';
+  if (open) scheduleCreateDateRangeClosePopover();
+  else scheduleCreateDateRangeOpenPopover();
+}
+
+function scheduleRenderCreateDateRangeCalendar(){
+  var grid = el('ps-create-date-range-grid');
+  var monthLabel = el('ps-create-date-range-month-label');
+  if (!grid) return;
+  var ym = scheduleCreateDateRangeViewYm || scheduleTodayIso().slice(0, 7);
+  var parts = ym.split('-');
+  var year = Number(parts[0]) || new Date().getFullYear();
+  var month = Number(parts[1]) || (new Date().getMonth() + 1); // 1-12
+  if (month < 1) { month = 12; year -= 1; }
+  if (month > 12) { month = 1; year += 1; }
+  scheduleCreateDateRangeViewYm = year + '-' + String(month).padStart(2, '0');
+  var first = new Date(year, month - 1, 1);
+  if (monthLabel) {
+    try {
+      monthLabel.textContent = first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    } catch (_e) {
+      monthLabel.textContent = scheduleCreateDateRangeViewYm;
+    }
+  }
+  var startDow = first.getDay(); // 0=Sun
+  var daysInMonth = new Date(year, month, 0).getDate();
+  var prevDays = new Date(year, month - 1, 0).getDate();
+  var draft = scheduleCreateDateRangeDraft || {};
+  var dStart = draft.start || null;
+  var dEnd = draft.end || null;
+  var rangeLo = dStart && dEnd ? (dStart < dEnd ? dStart : dEnd) : dStart;
+  var rangeHi = dStart && dEnd ? (dStart < dEnd ? dEnd : dStart) : dEnd;
+  var html = '';
+  var dows = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  for (var d = 0; d < 7; d += 1) {
+    html += '<span class="portal-schedule-create-date-range-dow" aria-hidden="true">' + escHtml(dows[d]) + '</span>';
+  }
+  var cells = [];
+  for (var i = 0; i < startDow; i += 1) {
+    var pd = prevDays - startDow + i + 1;
+    var pMonth = month - 1;
+    var pYear = year;
+    if (pMonth < 1) { pMonth = 12; pYear -= 1; }
+    cells.push({
+      iso: pYear + '-' + String(pMonth).padStart(2, '0') + '-' + String(pd).padStart(2, '0'),
+      day: pd,
+      outside: true,
+    });
+  }
+  for (var day = 1; day <= daysInMonth; day += 1) {
+    cells.push({
+      iso: year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0'),
+      day: day,
+      outside: false,
+    });
+  }
+  while (cells.length % 7 !== 0) {
+    var nd = cells.length - (startDow + daysInMonth) + 1;
+    var nMonth = month + 1;
+    var nYear = year;
+    if (nMonth > 12) { nMonth = 1; nYear += 1; }
+    cells.push({
+      iso: nYear + '-' + String(nMonth).padStart(2, '0') + '-' + String(nd).padStart(2, '0'),
+      day: nd,
+      outside: true,
+    });
+  }
+  cells.forEach(function(c){
+    var cls = 'portal-schedule-create-date-range-day';
+    if (c.outside) cls += ' is-outside';
+    if (dStart && c.iso === dStart) cls += ' is-selected-start is-selected';
+    if (dEnd && c.iso === dEnd) cls += ' is-selected-end is-selected';
+    // Inclusive highlight between start and end (same-day gets selected classes only).
+    if (rangeLo && rangeHi && c.iso > rangeLo && c.iso < rangeHi) cls += ' is-in-range';
+    if (rangeLo && rangeHi && rangeLo === rangeHi && c.iso === rangeLo) {
+      /* same-day already marked selected */
+    }
+    html += '<button type="button" class="' + cls + '" role="gridcell" data-date="'
+      + escHtml(c.iso) + '" aria-label="' + escHtml(c.iso) + '">' + escHtml(String(c.day)) + '</button>';
+  });
+  grid.innerHTML = html;
+  var apply = el('ps-create-date-range-apply');
+  if (apply) apply.disabled = !(dStart && dEnd);
+}
+
+function scheduleApplyCreateDateRangeDraft(){
+  var draft = scheduleCreateDateRangeDraft || {};
+  if (!draft.start || !draft.end) return false;
+  var df = el('ps-create-date-from');
+  var dt = el('ps-create-date-to');
+  if (df) df.value = draft.start;
+  if (dt) dt.value = draft.end;
+  // Fire change so existing private sessions / rentals / quote wiring stays intact.
+  try {
+    if (df) df.dispatchEvent(new Event('change', { bubbles: true }));
+    if (dt) dt.dispatchEvent(new Event('change', { bubbles: true }));
+  } catch (_e) {
+    if (el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked
+      && typeof scheduleSyncPrivateLessonSessions === 'function') {
+      scheduleSyncPrivateLessonSessions();
+    }
+    if (typeof scheduleRenderCreateRentals === 'function') scheduleRenderCreateRentals();
+    if (typeof scheduleRefreshCreateFullDayAddon === 'function') scheduleRefreshCreateFullDayAddon();
+    if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
+  }
+  scheduleSyncCreateDateRangeUi();
+  scheduleCreateDateRangeClosePopover();
+  return true;
+}
+
+function scheduleClearCreateDateRangeDraft(){
+  scheduleCreateDateRangeDraft = { start: null, end: null };
+  scheduleRenderCreateDateRangeCalendar();
+  scheduleSyncCreateDateRangeUi();
+}
+
+function scheduleWireCreateDateRange(){
+  var trigger = el('ps-create-date-range-trigger');
+  if (!trigger || trigger.dataset.wired === '1') {
+    scheduleSyncCreateDateRangeUi();
+    return;
+  }
+  trigger.dataset.wired = '1';
+  trigger.addEventListener('click', function(ev){
+    if (ev && ev.preventDefault) ev.preventDefault();
+    scheduleCreateDateRangeTogglePopover();
+  });
+  var prev = el('ps-create-date-range-prev');
+  var next = el('ps-create-date-range-next');
+  if (prev && !prev.dataset.wired) {
+    prev.dataset.wired = '1';
+    prev.addEventListener('click', function(){
+      var ym = (scheduleCreateDateRangeViewYm || scheduleTodayIso().slice(0, 7)).split('-');
+      var y = Number(ym[0]); var m = Number(ym[1]) - 1;
+      if (m < 1) { m = 12; y -= 1; }
+      scheduleCreateDateRangeViewYm = y + '-' + String(m).padStart(2, '0');
+      scheduleRenderCreateDateRangeCalendar();
+    });
+  }
+  if (next && !next.dataset.wired) {
+    next.dataset.wired = '1';
+    next.addEventListener('click', function(){
+      var ym = (scheduleCreateDateRangeViewYm || scheduleTodayIso().slice(0, 7)).split('-');
+      var y = Number(ym[0]); var m = Number(ym[1]) + 1;
+      if (m > 12) { m = 1; y += 1; }
+      scheduleCreateDateRangeViewYm = y + '-' + String(m).padStart(2, '0');
+      scheduleRenderCreateDateRangeCalendar();
+    });
+  }
+  var grid = el('ps-create-date-range-grid');
+  if (grid && !grid.dataset.wired) {
+    grid.dataset.wired = '1';
+    grid.addEventListener('click', function(ev){
+      var t = ev && ev.target;
+      var btn = t && t.closest ? t.closest('[data-date]') : null;
+      if (!btn || !grid.contains(btn)) return;
+      var iso = btn.getAttribute('data-date');
+      scheduleCreateDateRangeDraft = scheduleCreateDateRangeSelectDay(scheduleCreateDateRangeDraft, iso);
+      scheduleRenderCreateDateRangeCalendar();
+      scheduleSyncCreateDateRangeUi();
+    });
+  }
+  var clearBtn = el('ps-create-date-range-clear');
+  if (clearBtn && !clearBtn.dataset.wired) {
+    clearBtn.dataset.wired = '1';
+    clearBtn.addEventListener('click', function(){ scheduleClearCreateDateRangeDraft(); });
+  }
+  var cancelBtn = el('ps-create-date-range-cancel');
+  if (cancelBtn && !cancelBtn.dataset.wired) {
+    cancelBtn.dataset.wired = '1';
+    cancelBtn.addEventListener('click', function(){ scheduleCreateDateRangeClosePopover(); });
+  }
+  var applyBtn = el('ps-create-date-range-apply');
+  if (applyBtn && !applyBtn.dataset.wired) {
+    applyBtn.dataset.wired = '1';
+    applyBtn.addEventListener('click', function(){ scheduleApplyCreateDateRangeDraft(); });
+  }
+  scheduleSyncCreateDateRangeUi();
+}
+
+function scheduleSyncCreateMainActivityButtons(){
+  var map = [
+    'ps-create-comp-course',
+    'ps-create-comp-private-lesson',
+    'ps-create-comp-no-lesson',
+  ];
+  var host = el('ps-create-main-activity-choices');
+  if (!host) return;
+  map.forEach(function(id){
+    var radio = el(id);
+    var on = !!(radio && radio.checked);
+    var btn = host.querySelector('[data-create-activity="' + id + '"]');
+    if (!btn) return;
+    try { btn.setAttribute('aria-pressed', on ? 'true' : 'false'); } catch (_a) { /* ignore */ }
+    if (on) btn.classList.add('is-selected');
+    else btn.classList.remove('is-selected');
+  });
+}
+
+function scheduleWireCreateMainActivityButtons(){
+  var host = el('ps-create-main-activity-choices');
+  if (!host || host.dataset.activityBtnsWired === '1') {
+    scheduleSyncCreateMainActivityButtons();
+    return;
+  }
+  host.dataset.activityBtnsWired = '1';
+  host.addEventListener('click', function(ev){
+    var t = ev && ev.target;
+    var btn = t && t.closest ? t.closest('[data-create-activity]') : null;
+    if (!btn || !host.contains(btn)) return;
+    var id = btn.getAttribute('data-create-activity');
+    var radio = el(id);
+    if (!radio) return;
+    radio.checked = true;
+    ['ps-create-comp-course', 'ps-create-comp-private-lesson', 'ps-create-comp-no-lesson'].forEach(function(rid){
+      var r = el(rid);
+      if (r && rid !== id) r.checked = false;
+    });
+    scheduleSyncCreateMainActivityButtons();
+    try {
+      radio.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (_e) {
+      if (typeof scheduleOnCreateComponentChange === 'function') scheduleOnCreateComponentChange(id);
+    }
+  });
+  scheduleSyncCreateMainActivityButtons();
+}
 
 function scheduleCreateDateSpanForRentals(){
   // Top-level From/To are authoritative for rentals (including private + gear).
@@ -24295,13 +24658,23 @@ function openScheduleCreateModal(context){
   var modal = el('ps-create-modal');
   if (!modal) return;
   var prep = typeof schedulePortalPrepareCreateOpen === 'function' ? schedulePortalPrepareCreateOpen(context || null) : null;
-  if (prep && prep.preserved){ modal.style.display = 'flex'; modal.setAttribute('aria-hidden', 'false'); return; }
+  if (prep && prep.preserved){
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
+    if (typeof scheduleSyncCreateDateRangeUi === 'function') scheduleSyncCreateDateRangeUi();
+    if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
+    return;
+  }
   if (!prep && typeof schedulePortalResetCreateFormRuntime === 'function') schedulePortalResetCreateFormRuntime();
   schedulePopulateCreateComponentFields();
   renderScheduleCreateSchoolContext();
   modal.style.display = 'flex';
   modal.setAttribute('aria-hidden', 'false');
   scheduleApplyCreatePrefill();
+  if (typeof scheduleWireCreateDateRange === 'function') scheduleWireCreateDateRange();
+  if (typeof scheduleWireCreateMainActivityButtons === 'function') scheduleWireCreateMainActivityButtons();
+  if (typeof scheduleSyncCreateDateRangeUi === 'function') scheduleSyncCreateDateRangeUi();
+  if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
   scheduleFetchLessonTimesConfig(getClient(), { force: true }).then(function(){
     var done = function(){ scheduleRenderCreateRentals(); scheduleRefreshCreateFullDayAddon(); };
     var p = schedulePopulateCreateCourseFields();
@@ -24320,6 +24693,7 @@ function closeScheduleCreateModal(){
   if (!modal) return;
   modal.style.display = 'none';
   modal.setAttribute('aria-hidden', 'true');
+  if (typeof scheduleCreateDateRangeClosePopover === 'function') scheduleCreateDateRangeClosePopover();
   // Drop in-flight preview work when the create drawer closes (keep submit idem key
   // only while the same form remains open for retry-after-response-loss).
   if (typeof schedulePortalInvalidatePreviewWork === 'function') schedulePortalInvalidatePreviewWork();
@@ -24366,6 +24740,8 @@ function wireScheduleControls(){
       node.addEventListener('change', function(){ scheduleOnCreateComponentChange(id); });
     }
   });
+  if (typeof scheduleWireCreateMainActivityButtons === 'function') scheduleWireCreateMainActivityButtons();
+  if (typeof scheduleWireCreateDateRange === 'function') scheduleWireCreateDateRange();
   var mainActBack = el('ps-create-main-activity-back');
   if (mainActBack && !mainActBack.dataset.wired) {
     mainActBack.dataset.wired = '1';

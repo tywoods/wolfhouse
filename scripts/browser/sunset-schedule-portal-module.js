@@ -805,6 +805,9 @@ function schedulePortalPrepareCreateOpen(context) {
   var dateTo = (ctx && ctx.date_to) ? ctx.date_to : dateIso;
   var df = el('ps-create-date-from'), dt = el('ps-create-date-to');
   if (df) df.value = dateIso; if (dt) dt.value = dateTo;
+  // Keep compact From–To trigger in sync with hidden canonical date inputs.
+  if (typeof scheduleSyncCreateDateRangeUi === 'function') scheduleSyncCreateDateRangeUi();
+  if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
   schedulePortalApplyCreateLaunchContext(ctx);
   schedulePortalWireCreateFooter();
   try { if (typeof scheduleWireCreateCustomLines === 'function') scheduleWireCreateCustomLines(); } catch (_w) { /* ignore */ }
