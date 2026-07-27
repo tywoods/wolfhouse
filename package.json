@@ -709,6 +709,7 @@
     "sunset:portal-slice1-seed": "node scripts/fixtures/sunset-portal-slice1-seed.js",
     "sunset:portal-slice1-cleanup": "node scripts/fixtures/sunset-portal-slice1-cleanup.js",
     "verify:sunset-portal-customers": "node scripts/verify-sunset-portal-customers.js",
+    "verify:sunset-customers-font-parity": "node scripts/verify-sunset-customers-font-parity.js",
     "verify:sunset-admin": "node scripts/verify-sunset-admin-render.js",
     "verify:sunset-admin-i18n": "node scripts/verify-sunset-admin-i18n.js",
     "verify:sunset-admin-pure": "node scripts/verify-sunset-admin-pure.js",

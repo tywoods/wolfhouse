@@ -16916,7 +16916,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 #tab-customers.active{display:flex;flex-direction:column;flex:1;min-height:0;height:auto;overflow:hidden}
 .customers-wrap{max-width:1200px;width:100%;margin:0 auto;padding:16px 20px 12px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
 .customers-header{margin-bottom:12px}
-.customers-school-heading{font-size:26px;font-weight:700;letter-spacing:-.03em;color:var(--text);line-height:1.1;margin:0;font-family:var(--cust-serif,"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif)}
+.customers-school-heading{font-size:26px;font-weight:600;letter-spacing:normal;color:var(--text);line-height:1.1;margin:0;font-family:var(--font-display)}
 .customers-header h2{font-size:17px;font-weight:700;color:var(--text);margin:0 0 3px;letter-spacing:-.01em}
 .customers-header p{font-size:12px;color:var(--text-2);margin:0;line-height:1.45;max-width:640px}
 .customers-promo{font-size:11px;color:var(--text-3);margin:6px 0 0;line-height:1.5;max-width:720px}
@@ -16933,7 +16933,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-filters-group{padding:4px 0 8px;border-bottom:1px solid var(--border-soft)}
 .customers-filters-group:last-child{border-bottom:none;padding-bottom:4px}
 .customers-filters-group-hdr{padding:6px 14px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
-.customers-filters-option{display:inline-flex;align-items:center;max-width:100%;min-width:0;width:auto;margin:0;padding:3px 8px;min-height:22px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft);text-align:left;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;white-space:nowrap;overflow-wrap:normal}
+.customers-filters-option{display:inline-flex;align-items:center;max-width:100%;min-width:0;width:auto;margin:0;padding:3px 8px;min-height:22px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft);text-align:left;font:700 10px/1.2 var(--font-sans);color:var(--text-3);cursor:pointer;white-space:nowrap;overflow-wrap:normal}
 .customers-filters-option:hover{background:transparent;border-color:var(--text-2);color:var(--text-2)}
 .customers-filters-option.active{color:var(--text-2);border-color:#6e6e6e;font-weight:600;background:rgba(255,255,255,.04)}
 .customers-filters-option[data-tag-tone="dnc"].active{color:#d4a0a0;border-color:#a85a5a;background:rgba(180,90,90,.14)}
@@ -16956,7 +16956,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-add-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .customers-tags-grid{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
 .customers-tags-unified-row{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:6px}
-.customers-tag-toggle{display:inline-flex;align-items:center;max-width:100%;min-width:0;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;padding:1px 6px;min-height:18px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft)}
+.customers-tag-toggle{display:inline-flex;align-items:center;max-width:100%;min-width:0;font:700 10px/1.2 var(--font-sans);color:var(--text-3);cursor:pointer;padding:1px 6px;min-height:18px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft)}
 .customers-tag-toggle:has(input:checked){color:var(--text-2);border-color:#6e6e6e;background:rgba(255,255,255,.04)}
 .customers-tag-toggle[data-tag-tone="dnc"]:has(input:checked){color:#d4a0a0;border-color:#a85a5a;background:rgba(180,90,90,.14)}
 .customers-tag-toggle[data-tag-tone="hot"]:has(input:checked){color:#b5cfc0;border-color:#6fa783;background:rgba(111,167,131,.18)}
@@ -17101,14 +17101,14 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-outreach-confirm-preview{white-space:pre-wrap;font-size:13px;line-height:1.5;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:10px 12px;margin:10px 0;max-height:180px;overflow:auto}
 .customers-outreach-confirm-stats{font-size:12px;color:var(--text-2);line-height:1.5;margin-bottom:6px}
 #cust-outreach-confirm-modal{z-index:9300}
-/* ── Customers tab typography (Booking Calendar 2026 serif family) ─────────── */
-#tab-customers{--cust-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--cust-serif);-webkit-font-smoothing:antialiased}
+/* ── Customers tab typography: shared portal families ─────────────────────── */
+#tab-customers{font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
 #tab-customers input,#tab-customers textarea,#tab-customers select{font-family:var(--font-sans)}
 /* Luna Staff (Ask Luna) portal — same serif house style as the rest of the portal. */
 #tab-ask-luna{--luna-staff-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--luna-staff-serif);-webkit-font-smoothing:antialiased}
 #tab-ask-luna input,#tab-ask-luna textarea,#tab-ask-luna select{font-family:var(--font-sans)}
 #tab-customers .customers-header h2{font-weight:600;letter-spacing:.005em}
-#tab-customers .customers-school-heading{font-weight:700;letter-spacing:-.03em}
+#tab-customers .customers-school-heading{font-family:var(--font-display);font-weight:600;letter-spacing:normal}
 #tab-customers .customers-profile-name,#tab-customers .customers-card-name{font-weight:700;letter-spacing:.01em}
 #tab-customers .customers-outreach-drawer-hdr h3{font-weight:700;letter-spacing:.005em}
 #tab-customers .customers-section-hdr,#tab-customers .customers-filters-group-hdr,#tab-customers .customers-profile-field-label,#tab-customers .customers-edit-field span,#tab-customers .customers-tags-system-hdr,#tab-customers .customers-outreach-section-hdr,#tab-customers .customers-msg-dir{letter-spacing:.06em}
