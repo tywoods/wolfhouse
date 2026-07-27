@@ -3,6 +3,9 @@
 var scheduleDrawerSaveInFlight = false;
 var scheduleDrawerPriceStale = false;
 var scheduleDrawerValidationState = { ok: true, errorKey: null };
+var scheduleDrawerCustomLines = [];
+var scheduleDrawerCustomLineSeq = 0;
+var scheduleDrawerCustomLineEditorOpen = false;
 function scheduleDrawerMainActivityValue(){
   if(el('ps-drawer-comp-course')&&el('ps-drawer-comp-course').checked) return 'group';
   if(el('ps-drawer-comp-private-lesson')&&el('ps-drawer-comp-private-lesson').checked) return 'private';
@@ -167,6 +170,35 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
   html += '<span class="portal-schedule-create-label">' + escHtml(portalT('schedule.create.privateLesson.sessionsHelp')) + '</span>';
   html += '<div id="ps-drawer-private-sessions" class="portal-schedule-private-sessions"></div>';
   html += '</div></section>';
+  // Custom add-on card (same Create contract) — editable commercial adjustments.
+  html += '<section class="portal-schedule-create-section portal-schedule-create-custom-addon-card" data-edit-section="custom-addon" aria-labelledby="ps-drawer-section-custom-addon-title" data-testid="ps-drawer-custom-addon-card">';
+  html += '<h3 id="ps-drawer-section-custom-addon-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.customAddon">' +
+    escHtml(portalT('schedule.create.section.customAddon') || 'Custom add-on') + '</h3>';
+  html += '<div id="ps-drawer-custom-lines" class="portal-schedule-create-custom-lines" data-testid="ps-drawer-custom-lines">';
+  html += '<div id="ps-drawer-custom-lines-list" class="portal-schedule-create-custom-lines-list" aria-live="polite"></div>';
+  html += '<div id="ps-drawer-custom-lines-collapsed" class="portal-schedule-create-custom-lines-collapsed">';
+  html += '<button type="button" id="ps-drawer-custom-line-add-btn" class="portal-schedule-create-custom-line-plus" data-i18n-aria="schedule.create.customLine.add" aria-label="' +
+    escHtml(portalT('schedule.create.customLine.add') || 'Add custom line') + '" title="' +
+    escHtml(portalT('schedule.create.customLine.add') || 'Add custom line') + '">+</button>';
+  html += '</div>';
+  html += '<div id="ps-drawer-custom-lines-editor" class="portal-schedule-create-custom-lines-editor" style="display:none" hidden aria-hidden="true">';
+  html += '<div class="portal-schedule-create-field"><label for="ps-drawer-custom-line-label" data-i18n="schedule.create.customLine.label">' +
+    escHtml(portalT('schedule.create.customLine.label') || 'Label') + '</label>';
+  html += '<input id="ps-drawer-custom-line-label" type="text" maxlength="120" autocomplete="off"></div>';
+  html += '<div class="portal-schedule-create-field"><label for="ps-drawer-custom-line-price" data-i18n="schedule.create.customLine.price">' +
+    escHtml(portalT('schedule.create.customLine.price') || 'Price') + '</label>';
+  html += '<div class="portal-schedule-create-custom-line-price-row">';
+  html += '<span class="portal-schedule-create-custom-line-currency" aria-hidden="true">€</span>';
+  html += '<input id="ps-drawer-custom-line-price" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00">';
+  html += '</div></div>';
+  html += '<div class="portal-schedule-create-custom-line-actions">';
+  html += '<button type="button" class="btn btn-primary" id="ps-drawer-custom-line-confirm" data-i18n="schedule.create.customLine.confirm">' +
+    escHtml(portalT('schedule.create.customLine.confirm') || 'Add') + '</button>';
+  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-custom-line-cancel" data-i18n="schedule.create.customLine.cancel">' +
+    escHtml(portalT('schedule.create.customLine.cancel') || 'Cancel') + '</button>';
+  html += '</div>';
+  html += '<p id="ps-drawer-custom-line-error" class="portal-schedule-create-custom-line-error" style="display:none" role="alert"></p>';
+  html += '</div></div></section>';
   html += '<section class="portal-schedule-create-section" data-edit-section="payment" aria-labelledby="ps-drawer-section-payment-title">';
   html += '<h3 id="ps-drawer-section-payment-title" class="portal-schedule-create-section-title">' +
     escHtml(portalT('schedule.create.section.paymentNotes')) + '</h3>';
@@ -694,6 +726,13 @@ function scheduleReadDrawerEditPayload() {
       components.full_day_equipment_extension = { enabled: true, dates: addonDates };
     }
   }
+  var custom_line_items = (scheduleDrawerCustomLines || []).map(function(l) {
+    return {
+      client_line_id: String(l.client_line_id),
+      label: String(l.label),
+      amount_cents: Number(l.amount_cents),
+    };
+  });
   return {
     guest_name: guest,
     guest_phone: phone || null,
@@ -704,7 +743,154 @@ function scheduleReadDrawerEditPayload() {
     notes: notes,
     components: components,
     rentals: rentals,
+    custom_line_items: custom_line_items,
   };
+}
+
+function scheduleDrawerSeedCustomLinesFromCtx(ctx) {
+  scheduleDrawerCustomLines = [];
+  scheduleDrawerCustomLineSeq = 0;
+  scheduleDrawerCustomLineEditorOpen = false;
+  var seed = [];
+  if (ctx && Array.isArray(ctx.custom_line_items) && ctx.custom_line_items.length) {
+    seed = ctx.custom_line_items;
+  } else if (ctx && ctx.payment && Array.isArray(ctx.payment.line_items)) {
+    seed = ctx.payment.line_items.filter(function(li) {
+      return li && (li.component === 'staff_custom_line' || li.price_source === 'staff_custom_line'
+        || (li.client_line_id && String(li.client_line_id).indexOf('cl_') === 0));
+    }).map(function(li) {
+      return {
+        client_line_id: String(li.client_line_id || ('cl_seed_' + String(li.service_record_id || Math.random()).slice(0, 8))),
+        label: String(li.label || 'Custom line'),
+        amount_cents: Number(li.line_cents != null ? li.line_cents : li.total_cents) || 0,
+      };
+    });
+  }
+  seed.forEach(function(l) {
+    if (!l || !l.client_line_id || !l.label) return;
+    scheduleDrawerCustomLineSeq += 1;
+    scheduleDrawerCustomLines.push({
+      client_line_id: String(l.client_line_id),
+      label: String(l.label),
+      amount_cents: Number(l.amount_cents) || 0,
+    });
+  });
+}
+
+function scheduleDrawerSetCustomLineEditorOpen(open) {
+  scheduleDrawerCustomLineEditorOpen = !!open;
+  var collapsed = el('ps-drawer-custom-lines-collapsed');
+  var editor = el('ps-drawer-custom-lines-editor');
+  var err = el('ps-drawer-custom-line-error');
+  if (collapsed) collapsed.style.display = open ? 'none' : 'flex';
+  if (editor) {
+    editor.style.display = open ? 'flex' : 'none';
+    if (open) { editor.removeAttribute('hidden'); editor.setAttribute('aria-hidden', 'false'); }
+    else { editor.setAttribute('hidden', ''); editor.setAttribute('aria-hidden', 'true'); }
+  }
+  if (err) { err.style.display = 'none'; err.textContent = ''; }
+  if (open) {
+    var lab = el('ps-drawer-custom-line-label');
+    var price = el('ps-drawer-custom-line-price');
+    if (lab) lab.value = '';
+    if (price) price.value = '';
+    try { if (lab) lab.focus(); } catch (_f) { /* ignore */ }
+  }
+}
+
+function scheduleDrawerRenderCustomLines() {
+  var list = el('ps-drawer-custom-lines-list');
+  if (!list) return;
+  if (!scheduleDrawerCustomLines.length) {
+    list.innerHTML = '';
+    return;
+  }
+  var removeLab = (typeof portalT === 'function' ? portalT('schedule.create.customLine.remove') : '') || 'Remove';
+  var esc = typeof scheduleEscapeHtmlLite === 'function' ? scheduleEscapeHtmlLite : escHtml;
+  var fmt = typeof scheduleFormatCentsMoney === 'function'
+    ? scheduleFormatCentsMoney
+    : function(c) { return '€' + (Number(c) / 100).toFixed(2); };
+  list.innerHTML = scheduleDrawerCustomLines.map(function(line) {
+    return '<div class="portal-schedule-create-custom-line-row" data-client-line-id="'
+      + esc(line.client_line_id) + '">'
+      + '<span class="ps-cl-label">' + esc(line.label) + '</span>'
+      + '<span class="ps-cl-amount">' + esc(fmt(line.amount_cents)) + '</span>'
+      + '<button type="button" class="ps-cl-remove" data-remove-drawer-custom-line="'
+      + esc(line.client_line_id) + '" aria-label="' + esc(removeLab) + '">\u00d7</button></div>';
+  }).join('');
+}
+
+function scheduleDrawerConfirmCustomLine() {
+  var err = el('ps-drawer-custom-line-error');
+  function fail(msg) {
+    if (err) { err.textContent = msg; err.style.display = 'block'; }
+  }
+  var labelRaw = el('ps-drawer-custom-line-label') ? el('ps-drawer-custom-line-label').value : '';
+  var label = String(labelRaw || '').trim();
+  if (!label) {
+    return fail((typeof portalT === 'function' ? portalT('schedule.create.customLine.labelRequired') : '') || 'Label is required');
+  }
+  if (label.length > 120) {
+    return fail((typeof portalT === 'function' ? portalT('schedule.create.customLine.labelTooLong') : '') || 'Label max 120 characters');
+  }
+  var priceRaw = el('ps-drawer-custom-line-price') ? el('ps-drawer-custom-line-price').value : '';
+  var parsed = typeof scheduleParseCreateMoneyToCents === 'function'
+    ? scheduleParseCreateMoneyToCents(priceRaw)
+    : { ok: false };
+  if (!parsed.ok) {
+    return fail((typeof portalT === 'function' ? portalT('schedule.create.customLine.priceInvalid') : '') || 'Enter a valid price (max 2 decimals)');
+  }
+  if (scheduleDrawerCustomLines.length >= 20) {
+    return fail((typeof portalT === 'function' ? portalT('schedule.create.customLine.tooMany') : '') || 'Too many custom lines');
+  }
+  scheduleDrawerCustomLineSeq += 1;
+  scheduleDrawerCustomLines.push({
+    client_line_id: 'cl_' + String(Date.now()) + '_' + String(scheduleDrawerCustomLineSeq),
+    label: label,
+    amount_cents: parsed.amount_cents,
+  });
+  scheduleDrawerRenderCustomLines();
+  scheduleDrawerSetCustomLineEditorOpen(false);
+  scheduleDrawerMarkPriceStale();
+  scheduleDrawerSyncFooter();
+}
+
+function scheduleDrawerRemoveCustomLine(clientLineId) {
+  var id = String(clientLineId || '');
+  scheduleDrawerCustomLines = scheduleDrawerCustomLines.filter(function(l) {
+    return String(l.client_line_id) !== id;
+  });
+  scheduleDrawerRenderCustomLines();
+  scheduleDrawerMarkPriceStale();
+  scheduleDrawerSyncFooter();
+}
+
+function scheduleWireDrawerCustomLines() {
+  var plus = el('ps-drawer-custom-line-add-btn');
+  var confirm = el('ps-drawer-custom-line-confirm');
+  var cancel = el('ps-drawer-custom-line-cancel');
+  var list = el('ps-drawer-custom-lines-list');
+  if (plus && !plus._clBound) {
+    plus._clBound = true;
+    plus.addEventListener('click', function() { scheduleDrawerSetCustomLineEditorOpen(true); });
+  }
+  if (confirm && !confirm._clBound) {
+    confirm._clBound = true;
+    confirm.addEventListener('click', function() { scheduleDrawerConfirmCustomLine(); });
+  }
+  if (cancel && !cancel._clBound) {
+    cancel._clBound = true;
+    cancel.addEventListener('click', function() { scheduleDrawerSetCustomLineEditorOpen(false); });
+  }
+  if (list && !list._clBound) {
+    list._clBound = true;
+    list.addEventListener('click', function(ev) {
+      var t = ev && ev.target;
+      var btn = t && t.closest ? t.closest('[data-remove-drawer-custom-line]') : null;
+      if (!btn) return;
+      scheduleDrawerRemoveCustomLine(btn.getAttribute('data-remove-drawer-custom-line'));
+    });
+  }
 }
 
 function scheduleParsePaymentSelectValue(val){
@@ -826,6 +1012,10 @@ function scheduleSaveDrawerBooking(row) {
 function scheduleWireEditableDrawer(row, ctx) {
   var group = scheduleFindGroupForRow(row) || row;
   scheduleWireDrawerHeaderActions();
+  scheduleDrawerSeedCustomLinesFromCtx(ctx || {});
+  scheduleDrawerRenderCustomLines();
+  scheduleWireDrawerCustomLines();
+  scheduleDrawerSetCustomLineEditorOpen(false);
   scheduleFetchLessonTimesConfig(getClient()).then(function() {
     scheduleRenderDrawerRentals();
     scheduleRefreshDrawerFullDayAddon();

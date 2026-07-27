@@ -28,11 +28,14 @@ const {
   UI_TO_BOOKING_PAYMENT,
   FULL_DAY_EQUIPMENT_ADDON_KEY,
   DEFAULT_LESSON_CATEGORY,
+  STAFF_CUSTOM_LINE_SOURCE,
+  STAFF_CUSTOM_LINE_COMPONENT,
   validateScheduleBookingBody,
   bookingStatusFromPayment,
   componentList,
   resolveFullDayEquipmentAddonUnitCents,
   insertFullDayEquipmentAddonRows,
+  insertStaffCustomLineServiceRows,
   prepareCanonicalRentalsForCreate,
   buildSchedulePricingIntent,
   schedulePricingIntentsEqual,
@@ -556,6 +559,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       date_to: agg.date_to,
       components: agg.components,
       rentals: Array.isArray(meta.rentals) ? meta.rentals : [],
+      custom_line_items: customLineItemsFromBundle(bundle),
       rental_pricing: parseRentalPricingMeta(meta) || meta.rental_pricing || null, slot_time: agg.slot_time,
       payment,
       stripe_link: link ? {
@@ -603,6 +607,40 @@ function resolveBookingEditAttribution(bundle, actor) {
 }
 
 
+/** Reconstruct staff custom commercial lines from service rows / booking metadata. */
+function customLineItemsFromBundle(bundle) {
+  const services = (bundle && bundle.services) || [];
+  const fromRows = [];
+  const seen = new Set();
+  services.forEach((sr) => {
+    const m = parseMeta(sr.metadata);
+    if (!(m.source === STAFF_CUSTOM_LINE_SOURCE || m.staff_custom_line === true
+      || m.component === STAFF_CUSTOM_LINE_COMPONENT)) {
+      return;
+    }
+    const id = String(m.client_line_id || sr.service_record_id || sr.id || '').trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    let amount = m.amount_cents != null ? Number(m.amount_cents) : Number(sr.amount_due_cents);
+    if (!Number.isFinite(amount) || !Number.isInteger(amount)) amount = 0;
+    fromRows.push({
+      client_line_id: id,
+      label: String(m.label || '').trim() || 'Custom line',
+      amount_cents: amount,
+    });
+  });
+  if (fromRows.length) return fromRows;
+  const meta = parseMeta(bundle && bundle.booking && bundle.booking.metadata);
+  if (Array.isArray(meta.custom_line_items) && meta.custom_line_items.length) {
+    return meta.custom_line_items.map((l) => ({
+      client_line_id: String((l && l.client_line_id) || '').trim(),
+      label: String((l && l.label) || '').trim(),
+      amount_cents: Number(l && l.amount_cents) || 0,
+    })).filter((l) => l.client_line_id && l.label);
+  }
+  return [];
+}
+
 function pricingIntentFromBundle(bundle) {
   const services = (bundle && bundle.services) || [];
   const agg = aggregateComponentsFromServices(services);
@@ -632,6 +670,7 @@ function pricingIntentFromBundle(bundle) {
         || null,
     }));
   }
+  const custom_line_items = customLineItemsFromBundle(bundle);
   return buildSchedulePricingIntent({
     service_dates: (() => {
       const dates = new Set();
@@ -641,6 +680,9 @@ function pricingIntentFromBundle(bundle) {
         const ui = String(sr.staff_ui_service_type || '').toLowerCase();
         if (component === FULL_DAY_EQUIPMENT_ADDON_KEY) return;
         if (component === 'private_lesson' || ui === 'private_lesson') return;
+        if (component === STAFF_CUSTOM_LINE_COMPONENT
+          || m.source === STAFF_CUSTOM_LINE_SOURCE
+          || m.staff_custom_line === true) return;
         if (String(sr.service_type || '').toLowerCase() === 'addon_service') return;
         const iso = String(sr.service_date || '').slice(0, 10);
         if (iso) dates.add(iso);
@@ -653,7 +695,8 @@ function pricingIntentFromBundle(bundle) {
     })(),
     components: agg.components,
     rentals,
-  }, { rentals });
+    custom_line_items,
+  }, { rentals, custom_line_items });
 }
 
 async function updateSunsetScheduleBooking(pg, opts) {
@@ -804,6 +847,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
         : (canonicalRentals || []),
       rentalCoveredDates: rentalSpanDates || undefined,
       preserveExistingRentals: !rentalPrep.present ? (canonicalRentals || []) : undefined,
+      custom_line_items: input.custom_line_items || [],
     });
     const pricingChanged = !schedulePricingIntentsEqual(existingIntent, requestedIntent);
     if (pricingChanged && isSunsetBookingFinanciallyCommitted(lockedBundle)) {
@@ -825,6 +869,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       last_edited_by_staff: editAttribution.lastEditedByStaff,
       rentals: canonicalRentals || lockedMeta.rentals || null,
       rental_pricing: rentalPricingDescriptor || lockedMeta.rental_pricing || null,
+      custom_line_items: input.custom_line_items || [],
       notes: input.notes || null,
     }, recordLocationId);
 
@@ -985,14 +1030,58 @@ async function updateSunsetScheduleBooking(pg, opts) {
       addonRows.forEach((r) => createdRows.push(r));
     }
 
+    // Staff custom commercial adjustments — same Create path (auditable rows + quote claim).
+    if (input.custom_line_items && input.custom_line_items.length) {
+      const customRows = await insertStaffCustomLineServiceRows(pg, {
+        clientSlug,
+        bookingId,
+        bookingCode,
+        guestName: input.guest_name,
+        serviceDate: firstDate,
+        srPayment,
+        attribution: editAttribution,
+        locationId: recordLocationId,
+        componentKeys,
+        bundleId,
+        notes: input.notes || null,
+        needsReply: input.needs_reply,
+        customLineItems: input.custom_line_items,
+        metaBase: {
+          updated_by_staff: editAttribution.lastEditedByStaff,
+          last_edited_by_staff: editAttribution.lastEditedByStaff,
+        },
+      });
+      customRows.forEach((r) => createdRows.push(r));
+    }
+
+    // Authoritative re-quote body must carry custom lines + components/dates/rentals.
+    const quotePrepBody = {
+      ...(rentalPrep.body && typeof rentalPrep.body === 'object' ? rentalPrep.body : {}),
+      guest_name: input.guest_name,
+      guest_phone: guest_phone || null,
+      payment_status: input.payment_status,
+      notes: input.notes || '',
+      components: input.components,
+      custom_line_items: input.custom_line_items || [],
+      surfer_count: input.surfer_count != null ? input.surfer_count : null,
+      date_from: firstDate,
+      date_to: lastDate,
+      service_dates: input.service_dates,
+    };
+    if (rentalPrep.present && rentalPrep.rentals) {
+      quotePrepBody.rentals = rentalPrep.rentals;
+    } else if (canonicalRentals && canonicalRentals.length) {
+      quotePrepBody.rentals = canonicalRentals;
+    }
+
     // Shared Create dual path: exact claim then total/balance before COMMIT.
     await applyAuthoritativeSchedulePricingInTxn(pg, {
       clientSlug, bookingId, clientId, createdRows,
       locationId: recordLocationId,
       lockedPaidCents: lockedBundle.payments_paid_cents,
       canonicalRentals,
-      rentalPrepBody: rentalPrep.body,
-      quotePrepBody: rentalPrep.body,
+      rentalPrepBody: quotePrepBody,
+      quotePrepBody,
       rentalPricingDescriptor,
       quoteChannel: opts.quoteChannel,
       quoteProvenance: opts.quoteProvenance,

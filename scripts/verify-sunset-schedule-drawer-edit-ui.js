@@ -645,6 +645,12 @@ if (editExists) {
     'scheduleDrawerApplyRentalExclusionUi',
     'scheduleWireDrawerRentals',
     'scheduleRenderDrawerRentals',
+    'scheduleDrawerSeedCustomLinesFromCtx',
+    'scheduleDrawerSetCustomLineEditorOpen',
+    'scheduleDrawerRenderCustomLines',
+    'scheduleDrawerConfirmCustomLine',
+    'scheduleDrawerRemoveCustomLine',
+    'scheduleWireDrawerCustomLines',
     'scheduleDrawerRefreshDurationConfirm',
     'scheduleDrawerRefreshWhenSummary',
     'scheduleDrawerMarkPriceStale',
@@ -659,6 +665,17 @@ if (editExists) {
     const fnSrc = extractFunctionSource(editModSrc, name);
     if (fnSrc) vm.runInContext(`${fnSrc}\nthis.${name}=${name};`, ctx);
   });
+  // Custom-line state used by Edit seed/render (same Create contract).
+  vm.runInContext(
+    'var scheduleDrawerCustomLines=[];var scheduleDrawerCustomLineSeq=0;var scheduleDrawerCustomLineEditorOpen=false;'
+    + 'function scheduleParseCreateMoneyToCents(raw){if(raw==null)return{ok:false};var s=String(raw).trim();'
+    + 'if(!s)return{ok:false};s=s.replace(/[€$£\\u00a0\\s]/g,"");var neg=false;if(s.charAt(0)==="-"){neg=true;s=s.slice(1);}'
+    + 'if(!/^\\d+(\\.\\d+)?$/.test(s))return{ok:false};var p=s.split(".");if(p[1]&&p[1].length>2)return{ok:false};'
+    + 'var cents=parseInt(p[0]||"0",10)*100+parseInt(((p[1]||"")+"00").slice(0,2),10);if(neg)cents=-cents;return{ok:true,amount_cents:cents};}'
+    + 'function scheduleFormatCentsMoney(c){var n=Number(c)||0;var sign=n<0?"-":"";return sign+"\\u20ac"+(Math.abs(Math.round(n))/100).toFixed(2);}'
+    + 'function scheduleEscapeHtmlLite(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}',
+    ctx,
+  );
   // scheduleDrawerPopulateCourseTierFields removed (date-derived duration only).
   ['scheduleMountDrawerBody', 'scheduleOpenEditableDrawer', 'scheduleDrawerShowShell', 'scheduleCloneDrawerCtx'].forEach((name) => {
     const fnSrc = extractFunctionSource(ctrlModSrc, name);

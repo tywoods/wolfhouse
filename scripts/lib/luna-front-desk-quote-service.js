@@ -915,15 +915,19 @@ function normalizeCanonicalRentalsForQuote(transportBody, expectedDurationKey) {
     if (!durationKey) {
       return { ok: false, reason: 'invalid_rental_duration', error: `rentals[${i}].duration_key is required` };
     }
-    // Short No-lesson windows (1_hour / half_day / 1_day) are pebble-selected and
-    // may differ from the inclusive date-span key (which is always 1_day+).
-    // Multi-day bundle path still requires exact date-span duration match.
-    if (expectedDurationKey && durationKey !== expectedDurationKey && !isShortRentalDurationKey(durationKey)) {
-      return {
-        ok: false,
-        reason: 'rental_duration_mismatch',
-        error: `rentals[${i}].duration_key must be ${expectedDurationKey} for the selected dates`,
-      };
+    // Short No-lesson windows (1_hour / half_day / 1_day) are pebble-selected only
+    // on a single-day span (expectedDurationKey === '1_day'). Multi-day spans require
+    // exact inclusive date-span identity — never silently accept 1_day for 4 days.
+    if (expectedDurationKey && durationKey !== expectedDurationKey) {
+      const shortOkOnSingleDay = expectedDurationKey === '1_day'
+        && isShortRentalDurationKey(durationKey);
+      if (!shortOkOnSingleDay) {
+        return {
+          ok: false,
+          reason: 'rental_duration_mismatch',
+          error: `rentals[${i}].duration_key must be ${expectedDurationKey} for the selected dates`,
+        };
+      }
     }
     const qty = Number(row.quantity);
     if (!Number.isInteger(qty) || qty < 1) {
@@ -1469,14 +1473,19 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       currency = lineOut.line.currency;
     }
   } else {
-    // Legacy components.surfboard / components.wetsuit (hardcoded __1_day) when rentals absent.
+    // Legacy components.surfboard / components.wetsuit when rentals[] absent.
+    // Duration identity from authoritative inclusive service dates — never hardcode __1_day.
+    const legacyDur = quoteRentalDurationKeyFromDateRange(
+      serviceDates[0],
+      serviceDates[serviceDates.length - 1] || serviceDates[0],
+    ) || '1_day';
     for (const rentalKey of ['surfboard', 'wetsuit']) {
       if (!input.components[rentalKey]) continue;
       const comp = input.components[rentalKey];
-      const rentalOfferingKey = rentalKey === 'surfboard' ? 'board_rental__1_day' : 'wetsuit_rental__1_day';
-      const matches = findCatalogOffering({ offerings: catalog.offerings }, rentalOfferingKey)
-        .concat((catalog.offerings || []).filter((o) => o.offering_type === 'rental'
-          && String(o.item_code || o.offering_id || '').includes(rentalKey === 'surfboard' ? 'board' : 'wetsuit')));
+      const offeringKey = rentalKey === 'surfboard' ? 'board_rental' : 'wetsuit_rental';
+      const matches = findExactRentalCatalogOffering(
+        catalog, offeringKey, legacyDur, command.locationId,
+      );
       if (!matches.length) {
         return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
       }
@@ -1486,7 +1495,7 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
         ? await quoteOfferingLine(pg, command, offering, serviceDates, qty, requireDb)
         : quoteOfferingLineSync(command, offering, serviceDates, qty, requireDb);
       if (!lineOut.ok) return lineOut;
-      lines.push({ ...lineOut.line, component: rentalKey });
+      lines.push({ ...lineOut.line, component: rentalKey, duration_key: legacyDur });
       totalCents += lineOut.line.total_cents;
       currency = lineOut.line.currency;
     }
@@ -1616,13 +1625,18 @@ function quoteByComponentsSync(command, catalog, requireDb) {
       currency = lineOut.line.currency;
     }
   } else {
+    // Legacy components path: duration from inclusive service dates (not hardcoded __1_day).
+    const legacyDur = quoteRentalDurationKeyFromDateRange(
+      serviceDates[0],
+      serviceDates[serviceDates.length - 1] || serviceDates[0],
+    ) || '1_day';
     for (const rentalKey of ['surfboard', 'wetsuit']) {
       if (!input.components[rentalKey]) continue;
       const comp = input.components[rentalKey];
-      const rentalOfferingKey = rentalKey === 'surfboard' ? 'board_rental__1_day' : 'wetsuit_rental__1_day';
-      const matches = findCatalogOffering({ offerings: catalog.offerings }, rentalOfferingKey)
-        .concat((catalog.offerings || []).filter((o) => o.offering_type === 'rental'
-          && String(o.item_code || o.offering_id || '').includes(rentalKey === 'surfboard' ? 'board' : 'wetsuit')));
+      const offeringKey = rentalKey === 'surfboard' ? 'board_rental' : 'wetsuit_rental';
+      const matches = findExactRentalCatalogOffering(
+        catalog, offeringKey, legacyDur, command.locationId,
+      );
       if (!matches.length) {
         return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
       }
@@ -1630,7 +1644,7 @@ function quoteByComponentsSync(command, catalog, requireDb) {
       const qty = Math.max(1, Number(comp.quantity) || 1);
       const lineOut = quoteOfferingLineSync(command, offering, serviceDates, qty, requireDb);
       if (!lineOut.ok) return lineOut;
-      lines.push({ ...lineOut.line, component: rentalKey });
+      lines.push({ ...lineOut.line, component: rentalKey, duration_key: legacyDur });
       totalCents += lineOut.line.total_cents;
       currency = lineOut.line.currency;
     }
