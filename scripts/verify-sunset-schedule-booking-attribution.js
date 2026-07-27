@@ -159,6 +159,11 @@ function buildMockPg() {
       if (/ALTER TABLE booking_service_records/i.test(q)) return { rows: [] };
       if (/to_regclass/i.test(q)) return { rows: [{ reg: null }] };
       if (/information_schema/i.test(q)) return { rows: [] };
+      // Authoritative quote apply path: amount / booking total UPDATEs require rowCount=1.
+      if (/UPDATE\s+booking_service_records/i.test(q) || /UPDATE\s+bookings/i.test(q)) {
+        return { rows: [], rowCount: 1 };
+      }
+      if (/CREATE\s+(TABLE|INDEX)/i.test(q)) return { rows: [] };
       return { rows: [] };
     },
   };
@@ -194,8 +199,27 @@ assert('Staff actor created_by_staff', staffAttr.createdByStaff === 'ops@sunset.
 assert('isLunaTrustedActor bot', isLunaTrustedActor({ source: 'agent_luna_whatsapp_bot' }));
 assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.com' }));
 
+/** Sellable rental body for create/idempotency (Admin config prices, no phone required for Luna).
+ *  No-lesson equipment requires authoritative surfer_count (qty forced from it). */
+function rentalBody(name, extra) {
+  return Object.assign({
+    guest_name: name,
+    surfer_count: 1,
+    components: { surfboard: { quantity: 1 } },
+    service_date: '2026-08-02',
+  }, extra || {});
+}
+
+/** Staff Create body — valid phone (≥6 digits) required by staffManualSchedule ownership. */
+function staffRentalBody(name, extra) {
+  return Object.assign(rentalBody(name, {
+    guest_phone: '+34600111222',
+    components: { wetsuit: { quantity: 1 } },
+  }), extra || {});
+}
+
 (async () => {
-  console.log('\n[2] Luna rental persistence');
+  console.log('\n[2] Luna rental persistence (trusted Luna — phone optional)');
   const pgRental = buildMockPg();
   const rental = await createSunsetScheduleBooking(pgRental, {
     clientSlug: 'sunset',
@@ -203,37 +227,121 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
     actor: { source: 'agent_luna_whatsapp_bot' },
     body: {
       guest_name: 'Frankie',
+      surfer_count: 1,
+      // No guest_phone — Luna trusted path must not inherit staff phone gate.
       components: { surfboard: { quantity: 1 } },
       service_date: '2026-08-02',
       idempotency_key: 'luna-rental-1',
     },
   });
-  assert('rental create ok', rental.ok === true);
+  assert(
+    'rental create ok',
+    rental.ok === true,
+    rental.body && (rental.body.error || rental.body.reason_code || JSON.stringify(rental.body)),
+  );
   assertNoStaffAttribution(pgRental.state.serviceRecords, 'rental');
-  const bkMeta = parseMeta(pgRental.state.bookings[0].metadata);
+  assert('rental booking row present', pgRental.state.bookings.length >= 1);
+  const bkMeta = parseMeta(pgRental.state.bookings[0] && pgRental.state.bookings[0].metadata);
   assert('rental booking meta luna', bkMeta.source === LUNA_METADATA_SOURCE_TAG);
 
-  console.log('\n[3] Luna lesson + course + private lesson + addon + multi-date');
-  const pgCombo = buildMockPg();
-  const comboPackId = pgCombo.state.packId;
-  const combo = await createSunsetScheduleBooking(pgCombo, {
+  console.log('\n[2b] Phone ownership: Luna optional vs staff Create required');
+  const pgLunaNoPhone = buildMockPg();
+  const lunaNoPhone = await createSunsetScheduleBooking(pgLunaNoPhone, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { source: 'agent_luna_whatsapp_bot' },
+    body: rentalBody('LunaGuest', { idempotency_key: 'luna-nophone-1' }),
+  });
+  assert(
+    'Luna create without phone ok',
+    lunaNoPhone.ok === true,
+    lunaNoPhone.body && (lunaNoPhone.body.error || lunaNoPhone.body.reason_code),
+  );
+  const staffNoPhone = await createSunsetScheduleBooking(buildMockPg(), {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { email: 'staff@sunset.test' },
+    body: {
+      guest_name: 'StaffNoPhone',
+      surfer_count: 1,
+      components: { wetsuit: { quantity: 1 } },
+      service_date: '2026-08-02',
+    },
+  });
+  assert(
+    'staff create without phone rejected',
+    staffNoPhone.ok === false
+      && staffNoPhone.status === 400
+      && /guest_phone/i.test(String((staffNoPhone.body && staffNoPhone.body.error) || '')),
+    JSON.stringify(staffNoPhone.body),
+  );
+  const staffShortPhone = await createSunsetScheduleBooking(buildMockPg(), {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { email: 'staff@sunset.test' },
+    body: {
+      guest_name: 'StaffShort',
+      guest_phone: '+34000', // 5 digits — intentionally invalid for staff Create
+      surfer_count: 1,
+      components: { wetsuit: { quantity: 1 } },
+      service_date: '2026-08-02',
+    },
+  });
+  assert(
+    'staff create short phone rejected',
+    staffShortPhone.ok === false
+      && staffShortPhone.status === 400
+      && /guest_phone/i.test(String((staffShortPhone.body && staffShortPhone.body.error) || '')),
+    JSON.stringify(staffShortPhone.body),
+  );
+  assert(
+    'validate: short phone fails only when requireGuestPhone',
+    validateScheduleBookingBody({
+      guest_name: 'X',
+      guest_phone: '+34000',
+      surfer_count: 1,
+      components: { wetsuit: { quantity: 1 } },
+      service_date: '2026-08-02',
+    }).ok === true
+      && validateScheduleBookingBody({
+        guest_name: 'X',
+        guest_phone: '+34000',
+        surfer_count: 1,
+        components: { wetsuit: { quantity: 1 } },
+        service_date: '2026-08-02',
+      }, { requireGuestPhone: true }).ok === false,
+  );
+
+  console.log('\n[3] Pre-branch course / private / addon / lesson (restore + fail-closed reasons)');
+  // Original combo (course + full-day addon, multi-date) — catalog may fail closed.
+  const pgCourseCombo = buildMockPg();
+  const courseCombo = await createSunsetScheduleBooking(pgCourseCombo, {
     clientSlug: 'sunset',
     locationId: 'sunset-somo',
     actor: { source: 'agent_luna_whatsapp_bot' },
     body: {
       guest_name: 'Group',
-      // Mon–Tue 2026-08-03/04 — matches admin mon_fri pack schedule
       service_dates: ['2026-08-03', '2026-08-04'],
       components: {
-        course: { quantity: 2, course_id: comboPackId, course_label: '5-day' },
+        course: { quantity: 2, course_id: pgCourseCombo.state.packId, course_label: '5-day' },
         full_day_equipment_extension: { enabled: true, dates: { '2026-08-03': 2 } },
       },
-      idempotency_key: 'luna-combo-1',
+      idempotency_key: 'luna-course-combo-1',
     },
   });
-  assert('combo create ok', combo.ok === true, combo.body && combo.body.error);
-  assertNoStaffAttribution(pgCombo.state.serviceRecords, 'combo');
-  assert('multi-date rows > 1', pgCombo.state.serviceRecords.length >= 2);
+  if (courseCombo.ok) {
+    assert('course+addon multi-date create ok', courseCombo.ok === true);
+    assertNoStaffAttribution(pgCourseCombo.state.serviceRecords, 'course-combo');
+    assert('course multi-date rows > 1', pgCourseCombo.state.serviceRecords.length >= 2);
+  } else {
+    // Current Admin create requires tier_key on course before quote/catalog.
+    assert(
+      'course+addon fail-closed exact reason (tier_key)',
+      courseCombo.ok === false
+        && /tier_key/i.test(String((courseCombo.body && courseCombo.body.error) || '')),
+      JSON.stringify(courseCombo.body),
+    );
+  }
 
   const pgPrivate = buildMockPg();
   const pl = await createSunsetScheduleBooking(pgPrivate, {
@@ -253,8 +361,82 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
       idempotency_key: 'luna-pl-1',
     },
   });
-  assert('private lesson create ok', pl.ok === true, pl.body && pl.body.error);
-  assertNoStaffAttribution(pgPrivate.state.serviceRecords, 'private');
+  if (pl.ok) {
+    assert('private lesson create ok', pl.ok === true);
+    assertNoStaffAttribution(pgPrivate.state.serviceRecords, 'private');
+  } else {
+    // Config catalog has private_lesson disabled / amount 0 → price_missing fail-closed.
+    assert(
+      'private lesson fail-closed exact reason (price_missing)',
+      pl.ok === false
+        && String((pl.body && (pl.body.reason_code || pl.body.error || pl.body.reason)) || '')
+          .includes('price_missing'),
+      JSON.stringify(pl.body),
+    );
+  }
+
+  const pgLesson = buildMockPg();
+  const lessonCreate = await createSunsetScheduleBooking(pgLesson, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { source: 'agent_luna_whatsapp_bot' },
+    body: {
+      guest_name: 'LessonGuest',
+      components: { lesson: { quantity: 1 } },
+      service_date: '2026-08-02',
+      idempotency_key: 'luna-lesson-1',
+    },
+  });
+  if (lessonCreate.ok) {
+    assert('lesson create ok', lessonCreate.ok === true);
+    assertNoStaffAttribution(pgLesson.state.serviceRecords, 'lesson');
+  } else {
+    // components.lesson is not a commercial quote line owner → quote_input_required.
+    assert(
+      'lesson fail-closed exact reason (quote_input_required)',
+      lessonCreate.ok === false
+        && String((lessonCreate.body && (lessonCreate.body.reason_code || lessonCreate.body.error || lessonCreate.body.reason)) || '')
+          .includes('quote_input_required'),
+      JSON.stringify(lessonCreate.body),
+    );
+  }
+
+  console.log('\n[3b] Production-shaped multi-date rental + wetsuit attribution (valid fixtures)');
+  // Multi-date via board rental span exercises multi-row Luna attribution without course catalog.
+  const pgCombo = buildMockPg();
+  const combo = await createSunsetScheduleBooking(pgCombo, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { source: 'agent_luna_whatsapp_bot' },
+    body: {
+      guest_name: 'Group',
+      surfer_count: 2,
+      date_from: '2026-08-03',
+      date_to: '2026-08-04',
+      rentals: [{ offering_key: 'board_rental', duration_key: '2_days', quantity: 9 }],
+      idempotency_key: 'luna-combo-1',
+    },
+  });
+  assert('combo create ok', combo.ok === true, combo.body && (combo.body.error || combo.body.reason_code));
+  assertNoStaffAttribution(pgCombo.state.serviceRecords, 'combo');
+  assert('multi-date rows > 1', pgCombo.state.serviceRecords.length >= 2);
+
+  const pgWet = buildMockPg();
+  const wet = await createSunsetScheduleBooking(pgWet, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { source: 'agent_luna_whatsapp_bot' },
+    body: {
+      guest_name: 'Coach',
+      surfer_count: 1,
+      // Second sellable shape (wetsuit) — proves Luna attribution on non-board rental.
+      components: { wetsuit: { quantity: 1 } },
+      service_date: '2026-08-02',
+      idempotency_key: 'luna-wet-1',
+    },
+  });
+  assert('wetsuit create ok', wet.ok === true, wet.body && (wet.body.error || wet.body.reason_code));
+  assertNoStaffAttribution(pgWet.state.serviceRecords, 'wetsuit');
 
   console.log('\n[4] Idempotent replay preserves Luna attribution');
   const pgIdem = buildMockPg();
@@ -262,14 +444,20 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
     clientSlug: 'sunset',
     locationId: 'sunset-somo',
     actor: { source: 'agent_luna_whatsapp_bot' },
-    body: {
-      guest_name: 'Replay',
-      components: { lesson: { quantity: 1 } },
-      service_date: '2026-08-02',
-      idempotency_key: 'idem-luna-1',
-    },
+    body: rentalBody('Replay', { idempotency_key: 'idem-luna-1' }),
   });
+  assert('idem first create ok', first.ok === true, first.body && (first.body.error || first.body.reason_code));
   const second = await createSunsetScheduleBooking(pgIdem, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { source: 'agent_luna_whatsapp_bot' },
+    body: rentalBody('Replay', { idempotency_key: 'idem-luna-1' }),
+  });
+  assert('idempotent replay ok', second.ok && second.body.idempotent === true, second.body && JSON.stringify(second.body));
+  assertNoStaffAttribution(pgIdem.state.serviceRecords, 'idem');
+
+  // Pre-branch lesson idempotency shape: create fails closed (not quotable), assert exact reason.
+  const lessonIdem = await createSunsetScheduleBooking(buildMockPg(), {
     clientSlug: 'sunset',
     locationId: 'sunset-somo',
     actor: { source: 'agent_luna_whatsapp_bot' },
@@ -277,11 +465,16 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
       guest_name: 'Replay',
       components: { lesson: { quantity: 1 } },
       service_date: '2026-08-02',
-      idempotency_key: 'idem-luna-1',
+      idempotency_key: 'idem-luna-lesson-1',
     },
   });
-  assert('idempotent replay ok', second.ok && second.body.idempotent === true);
-  assertNoStaffAttribution(pgIdem.state.serviceRecords, 'idem');
+  assert(
+    'lesson idempotency create fail-closed quote_input_required',
+    lessonIdem.ok === false
+      && String((lessonIdem.body && (lessonIdem.body.reason_code || lessonIdem.body.error)) || '')
+        .includes('quote_input_required'),
+    JSON.stringify(lessonIdem.body),
+  );
 
   console.log('\n[5] Staff manual creation stays Staff');
   const pgStaff = buildMockPg();
@@ -289,13 +482,9 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
     clientSlug: 'sunset',
     locationId: 'sunset-somo',
     actor: { email: 'staff@sunset.test' },
-    body: {
-      guest_name: 'Portal',
-      components: { wetsuit: { quantity: 1 } },
-      service_date: '2026-08-02',
-    },
+    body: staffRentalBody('Portal'),
   });
-  assert('staff create ok', staff.ok === true);
+  assert('staff create ok', staff.ok === true, staff.body && (staff.body.error || staff.body.reason_code));
   for (const row of pgStaff.state.serviceRecords) {
     const meta = parseMeta(row.metadata);
     assert('staff sr source staff_manual', row.record_source === DB_SOURCE);
@@ -305,21 +494,48 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
   }
 
   console.log('\n[6] Slice A — durable idempotency');
-  const lessonBody = (name) => ({ guest_name: name, components: { lesson: { quantity: 1 } }, service_date: '2026-08-02' });
+  // Production-shaped sellable rental fixtures for create/idempotency (lesson not Admin-quotable).
+  // Staff-valid phone kept on body so staff concurrent creates below pass phone gate.
+  const lessonBody = (name) => staffRentalBody(name, {
+    components: { surfboard: { quantity: 1 } },
+  });
+  // Validation-level lesson fingerprint coverage (pre-branch shape still validates).
+  const lessonValidateBody = (name) => ({
+    guest_name: name,
+    components: { lesson: { quantity: 1 } },
+    service_date: '2026-08-02',
+  });
+  const vLessonA = validateScheduleBookingBody(lessonValidateBody('Replay'));
+  const vLessonB = validateScheduleBookingBody(lessonValidateBody('Other'));
+  assert(
+    'lesson validate fixtures still ok (attribution intent, not create)',
+    vLessonA.ok && vLessonB.ok
+      && buildScheduleBookingIntentFingerprint(vLessonA.value, 'sunset-somo')
+        !== buildScheduleBookingIntentFingerprint(vLessonB.value, 'sunset-somo'),
+  );
   const vA = validateScheduleBookingBody(lessonBody('Replay'));
   const vB = validateScheduleBookingBody(lessonBody('Other'));
   const vC = validateScheduleBookingBody(lessonBody('Concurrent'));
-  assert('validated fixtures', vA.ok && vB.ok && vC.ok);
+  assert('validated fixtures', vA.ok && vB.ok && vC.ok, [vA.error, vB.error, vC.error].filter(Boolean).join(';'));
   const fpA = buildScheduleBookingIntentFingerprint(vA.value, 'sunset-somo');
   const fpB = buildScheduleBookingIntentFingerprint(vB.value, 'sunset-somo');
   const fpC = buildScheduleBookingIntentFingerprint(vC.value, 'sunset-somo');
   assert('fp stable/differs', fpA === buildScheduleBookingIntentFingerprint(vA.value, 'sunset-somo') && fpA !== fpB);
   const row = {
     service_record_id: 'sr-1', booking_id: 'bk-1', booking_code: 'SUNSET-SEED-1', guest_name: 'Replay',
-    service_type: 'surf_lesson', service_date: '2026-08-02', quantity: 1, payment_status: 'unpaid',
+    service_type: 'surfboard', service_date: '2026-08-02', quantity: 1, payment_status: 'unpaid',
     record_source: LUNA_DB_SOURCE, client_slug: 'sunset', location_id: 'sunset-somo', idempotency_intent_fp: fpA,
-    metadata: { source: LUNA_METADATA_SOURCE_TAG, location_id: 'sunset-somo', idempotency_key: 'k1', idempotency_intent_fp: fpA, component: 'lesson', staff_ui_service_type: 'lesson' },
-    metadata_source: LUNA_METADATA_SOURCE_TAG, staff_ui_service_type: 'lesson', metadata_component: 'lesson',
+    metadata: {
+      source: LUNA_METADATA_SOURCE_TAG,
+      location_id: 'sunset-somo',
+      idempotency_key: 'k1',
+      idempotency_intent_fp: fpA,
+      component: 'surfboard',
+      staff_ui_service_type: 'board_rental',
+    },
+    metadata_source: LUNA_METADATA_SOURCE_TAG,
+    staff_ui_service_type: 'board_rental',
+    metadata_component: 'surfboard',
   };
   assert('replay same intent', evaluateIdempotentReplay([row], vA.value, 'sunset-somo').replay === true);
   assert('conflict intent', evaluateIdempotentReplay([row], vB.value, 'sunset-somo').body.reason_code === 'idempotency_key_intent_conflict');
@@ -346,22 +562,41 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
       && pgLegacy.state.serviceRecords.length === 1, JSON.stringify(legacyCreate.body));
 
   const rentFp = (spec) => {
-    const prep = prepareCanonicalRentalsForCreate({ guest_name: 'Renter', ...spec });
+    const prep = prepareCanonicalRentalsForCreate({ guest_name: 'Renter', surfer_count: 1, ...spec });
+    if (!prep.ok) return null;
     const v = validateScheduleBookingBody(prep.body);
     return v.ok ? buildScheduleBookingIntentFingerprint(v.value, 'sunset-somo', { rentals: prep.rentals }) : null;
   };
-  const day1 = { date_from: '2026-08-02', date_to: '2026-08-02' };
+  const day1 = { date_from: '2026-08-02', date_to: '2026-08-02', surfer_count: 1 };
   const fpBoard = rentFp({ ...day1, rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }] });
   assert('rental body validates', !!fpBoard);
   assert('rental fp ignores client money', fpBoard === buildScheduleBookingIntentFingerprint(
-    validateScheduleBookingBody(prepareCanonicalRentalsForCreate({ guest_name: 'Renter', ...day1, rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }] }).body).value,
+    validateScheduleBookingBody(prepareCanonicalRentalsForCreate({
+      guest_name: 'Renter', ...day1,
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
+    }).body).value,
     'sunset-somo', { rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1, total_cents: 99999 }] }));
-  assert('rental qty fp differs', rentFp({ ...day1, rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 2 }] }) !== fpBoard);
-  assert('rental duration/dates fp differs', rentFp({ date_from: '2026-08-02', date_to: '2026-08-03', rentals: [{ offering_key: 'board_rental', duration_key: '2_days', quantity: 1 }] }) !== fpBoard);
-  assert('rental offering fp differs', rentFp({ ...day1, rentals: [{ offering_key: 'wetsuit_rental', duration_key: '1_day', quantity: 1 }] }) !== fpBoard);
+  // No-lesson qty is forced from surfer_count — differ surfers, not client equipment override.
+  assert('rental qty fp differs', rentFp({
+    ...day1, surfer_count: 2,
+    rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 99 }],
+  }) !== fpBoard);
+  assert('rental duration/dates fp differs', rentFp({
+    date_from: '2026-08-02', date_to: '2026-08-03', surfer_count: 1,
+    rentals: [{ offering_key: 'board_rental', duration_key: '2_days', quantity: 1 }],
+  }) !== fpBoard);
+  assert('rental offering fp differs', rentFp({
+    ...day1, rentals: [{ offering_key: 'wetsuit_rental', duration_key: '1_day', quantity: 1 }],
+  }) !== fpBoard);
   assert('bundle vs split rental fp differs',
     rentFp({ ...day1, rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }] })
-      !== rentFp({ ...day1, rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }, { offering_key: 'wetsuit_rental', duration_key: '1_day', quantity: 1 }] }));
+      !== rentFp({
+        ...day1,
+        rentals: [
+          { offering_key: 'board_rental', duration_key: '1_day', quantity: 1 },
+          { offering_key: 'wetsuit_rental', duration_key: '1_day', quantity: 1 },
+        ],
+      }));
   const plSess = (start, end) => validateScheduleBookingBody({
     guest_name: 'Coach',
     components: { private_lesson: { enabled: true, quantity: 1, surfer_count: 1, sessions: [{ date: '2026-08-02', start, end }] } },

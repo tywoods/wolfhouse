@@ -129,7 +129,7 @@ function sandbox(opts) {
 }
 function S(c){return String(c.el('ps-create-summary').innerHTML||'');}
 function Q(c){return String(c.el('ps-create-quote-preview').innerHTML||'');}
-function baseCourse(extra){return Object.assign({guest_name:'R',date_from:'2026-08-20',date_to:'2026-08-20',payment_status:'unpaid',components:{course:{course_id:'c1',course_label:'G',tier_key:'1_week',quantity:1}},rentals:[]},extra||{});}
+function baseCourse(extra){return Object.assign({guest_name:'R',guest_phone:'+34600111222',date_from:'2026-08-20',date_to:'2026-08-20',payment_status:'unpaid',components:{course:{course_id:'c1',course_label:'G',tier_key:'1_week',quantity:1}},rentals:[]},extra||{});}
 function sandMut(src,o){o=o||{};o.portalSrc=src;o.payload=o.payload||baseCourse();return sandbox(o);}
 function qBody(n,a,b){return{ok:true,body:{success:true,total_cents:n===1?a:b}};}
 (async function run() {

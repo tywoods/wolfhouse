@@ -386,6 +386,7 @@ module.exports = {
   'schedule.drawer.conversationFailed': 'No se pudo abrir la conversación',
 
   'schedule.create.guestRequired': 'El nombre del huésped es obligatorio.',
+  'schedule.create.phoneRequired': 'El teléfono es obligatorio.',
   'schedule.create.lessonCategory': 'Adultos (mayores de 12)',
   'schedule.create.lessonSlot': 'Horario de clase en grupo',
   'schedule.create.privateLesson.sessionCount': 'Número de sesiones',
@@ -411,6 +412,7 @@ module.exports = {
   'schedule.create.section.guest': 'Huésped',
   'schedule.create.section.what': 'Qué',
   'schedule.create.section.when': 'Cuándo',
+  'schedule.create.section.customAddon': 'Complemento personalizado',
   'schedule.create.customLine.add': 'Añadir línea personalizada',
   'schedule.create.customLine.label': 'Etiqueta',
   'schedule.create.customLine.price': 'Precio',
