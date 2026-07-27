@@ -385,13 +385,26 @@ function quoteBody(parts) {
   // Only include rentals[] when the caller supplies it. Empty array is "present"
   // and owns rental pricing (canonical), which must not be defaulted for addon-
   // only / legacy component paths.
+  const comps = parts.components || {};
+  // No-lesson equipment requires authoritative surfer_count (server forces qty).
+  let surferCount = parts.surfer_count;
+  if (surferCount == null) {
+    if (Array.isArray(parts.rentals) && parts.rentals[0] && parts.rentals[0].quantity) {
+      surferCount = Number(parts.rentals[0].quantity) || 1;
+    } else if (comps.surfboard && comps.surfboard.quantity) {
+      surferCount = Number(comps.surfboard.quantity) || 1;
+    } else if (comps.wetsuit && comps.wetsuit.quantity) {
+      surferCount = Number(comps.wetsuit.quantity) || 1;
+    }
+  }
   const body = {
     guest_name: 'Quote Guest',
     date_from: parts.date_from || '2026-08-20',
     date_to: parts.date_to || '2026-08-23', // 4 days
     payment_status: 'unpaid',
-    components: parts.components || {},
+    components: comps,
   };
+  if (surferCount != null) body.surfer_count = surferCount;
   if (Object.prototype.hasOwnProperty.call(parts, 'rentals')) {
     body.rentals = parts.rentals;
   }

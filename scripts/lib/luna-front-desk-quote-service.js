@@ -1081,6 +1081,7 @@ function resolveQuoteComponentsAndRentalsInput(command) {
     }
     if (rentalsNorm.present) {
       // No-lesson: force equipment qty from surfer_count (ignore client override).
+      // Fail closed when equipment present and surfer_count absent/invalid.
       const forced = applyNoLessonEquipmentQtyFromSurfers(
         {
           ...transportForRentals,
@@ -1088,6 +1089,18 @@ function resolveQuoteComponentsAndRentalsInput(command) {
         },
         rentalsNorm.value,
       );
+      if (!forced.ok) {
+        return {
+          ok: false,
+          status: 400,
+          body: {
+            success: false,
+            reason: forced.reason || forced.error,
+            reason_code: forced.reason_code || forced.reason || forced.error,
+            error: forced.error || forced.reason,
+          },
+        };
+      }
       if (forced.forced) {
         rentalsNorm = { ok: true, present: true, value: forced.rentals };
         input.components = forced.body.components || input.components;
@@ -1106,6 +1119,29 @@ function resolveQuoteComponentsAndRentalsInput(command) {
           },
         };
       }
+    }
+  } else if (hasComponents) {
+    // Components path already ran validateScheduleBookingBody (which forces no-lesson
+    // qty). Re-apply when input.components carry equipment so qty authority is shared.
+    const forced = applyNoLessonEquipmentQtyFromSurfers(
+      { ...body, components: input.components, surfer_count: input.surfer_count },
+      null,
+    );
+    if (!forced.ok) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          success: false,
+          reason: forced.reason || forced.error,
+          reason_code: forced.reason_code || forced.reason || forced.error,
+          error: forced.error || forced.reason,
+        },
+      };
+    }
+    if (forced.forced) {
+      input.components = forced.body.components || input.components;
+      input.surfer_count = forced.surfer_count;
     }
   }
 

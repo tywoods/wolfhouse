@@ -418,6 +418,192 @@ assert('I: ES phoneRequired', esSrc.includes("'schedule.create.phoneRequired':")
 assert('D: no-lesson path forces owner=surfers (clears user leak)',
   /if \(noLesson\)[\s\S]*owner = 'surfers'/.test(renderRentalsFn));
 
-console.log(`\n${pass} passed, ${fail} failed\n`);
-if (fail) process.exit(1);
-console.log('OK verify-sunset-create-drawer-ux-followup\n');
+// ── Hostile: components-only qty spoof + fail-closed without surfer_count ────
+console.log('\n[Hostile] No-lesson qty on every accepted representation');
+const hostileNoSn = quoteWithAdmin({
+  guest_name: 'Hostile',
+  guest_phone: '+34600111222',
+  service_date: '2026-08-20',
+  // components-only board+wetsuit — classic spoof shape (qty 9, no surfer_count)
+  components: { surfboard: { quantity: 9 }, wetsuit: { quantity: 9 } },
+});
+assert(
+  'hostile components-only without surfer_count fails closed',
+  hostileNoSn.ok === false
+    && String((hostileNoSn.body && (hostileNoSn.body.reason_code || hostileNoSn.body.reason || hostileNoSn.body.error)) || '')
+      .includes('surfer_count_required_for_no_lesson_equipment'),
+  JSON.stringify(hostileNoSn.body || hostileNoSn),
+);
+assert(
+  'hostile components-only does not accept total 13500 / qty 9',
+  !(hostileNoSn.ok && hostileNoSn.body && Number(hostileNoSn.body.total_cents) === 13500),
+);
+
+const hostileForce = quoteWithAdmin({
+  guest_name: 'Hostile',
+  guest_phone: '+34600111222',
+  service_date: '2026-08-20',
+  surfer_count: 3,
+  components: { surfboard: { quantity: 9 }, wetsuit: { quantity: 9 } },
+});
+assert(
+  'hostile components-only with surfer_count forces qty 3 (not client 9)',
+  hostileForce.ok === true
+    && (hostileForce.body.line_items || []).every((l) => Number(l.quantity) === 3)
+    && hostileForce.body.total_cents !== 22500,
+  String(hostileForce.body && hostileForce.body.total_cents),
+);
+const boardLineHostile = (hostileForce.body && hostileForce.body.line_items || [])
+  .find((l) => l.component === 'surfboard');
+assert(
+  'hostile board line total is not spoofed 13500',
+  boardLineHostile && Number(boardLineHostile.total_cents) !== 13500
+    && Number(boardLineHostile.quantity) === 3,
+  boardLineHostile && String(boardLineHostile.total_cents),
+);
+
+const vNoSn = writes.validateScheduleBookingBody({
+  guest_name: 'X',
+  guest_phone: '+34600111222',
+  service_date: '2026-08-20',
+  components: { surfboard: { quantity: 9 }, wetsuit: { quantity: 9 } },
+});
+assert(
+  'validate components-only without surfer_count fails closed',
+  vNoSn.ok === false
+    && String(vNoSn.error || '').includes('surfer_count_required_for_no_lesson_equipment'),
+  vNoSn.error,
+);
+const vForce = writes.validateScheduleBookingBody({
+  guest_name: 'X',
+  guest_phone: '+34600111222',
+  service_date: '2026-08-20',
+  surfer_count: 3,
+  components: { surfboard: { quantity: 9 }, wetsuit: { quantity: 9 } },
+});
+assert(
+  'validate forces equipment qty from surfer_count on components path',
+  vForce.ok
+    && vForce.value.components.surfboard.quantity === 3
+    && vForce.value.components.wetsuit.quantity === 3
+    && vForce.value.surfer_count === 3,
+  JSON.stringify(vForce.value && vForce.value.components),
+);
+const vGroup = writes.validateScheduleBookingBody({
+  guest_name: 'X',
+  guest_phone: '+34600111222',
+  service_date: '2026-08-20',
+  surfer_count: 4,
+  components: {
+    course: { course_id: 'c', tier_key: '1_day', quantity: 4 },
+    surfboard: { quantity: 2 },
+  },
+});
+assert(
+  'Group keeps independent equipment qty (validate does not force)',
+  vGroup.ok && vGroup.value.components.surfboard.quantity === 2,
+  JSON.stringify(vGroup.value && vGroup.value.components),
+);
+
+// ── Hostile: rowMatchesQuoteLine compound identity + 1:1 claims ──────────────
+console.log('\n[Hostile] Matcher compound identity + one-to-one claims');
+assert('rowMatchesQuoteLine exported', typeof writes.rowMatchesQuoteLine === 'function');
+const match = writes.rowMatchesQuoteLine;
+const bareBoard = {
+  service_record_id: 'sr-board',
+  service_type: 'surfboard',
+  metadata: { component: 'surfboard', offering_key: 'board_rental' },
+};
+const bareWet = {
+  service_record_id: 'sr-wet',
+  service_type: 'wetsuit',
+  metadata: { component: 'wetsuit', offering_key: 'wetsuit_rental' },
+};
+const bundleHalf = {
+  service_record_id: 'sr-half',
+  service_type: 'surfboard',
+  metadata: {
+    component: 'surfboard',
+    offering_key: 'board_and_suit_rental',
+    bundle_part: 'surfboard',
+  },
+};
+const corruptKey = {
+  service_record_id: 'sr-corrupt',
+  service_type: 'surfboard',
+  metadata: { component: 'surfboard', offering_key: 'corrupt_offering' },
+};
+const wrongSide = {
+  service_record_id: 'sr-wrong',
+  service_type: 'wetsuit',
+  metadata: { component: 'wetsuit', offering_key: 'board_rental' },
+};
+assert('matcher: bare board claims board_rental', match(bareBoard, { component: 'board_rental' }));
+assert('matcher: bare board claims legacy surfboard', match(bareBoard, { component: 'surfboard' }));
+assert('matcher: corrupt offering_key rejects board_rental', !match(corruptKey, { component: 'board_rental' }));
+assert('matcher: corrupt offering_key rejects surfboard', !match(corruptKey, { component: 'surfboard' }));
+assert('matcher: bundle half does not claim bare board_rental', !match(bundleHalf, { component: 'board_rental' }));
+assert('matcher: bundle half does not claim bare surfboard', !match(bundleHalf, { component: 'surfboard' }));
+assert('matcher: bundle half claims board_and_suit_rental', match(bundleHalf, { component: 'board_and_suit_rental' }));
+assert('matcher: wrong component/service type rejects',
+  !match(bareWet, { component: 'board_rental' })
+  && !match(bareBoard, { component: 'wetsuit_rental' })
+  && !match(wrongSide, { component: 'board_rental' })
+  && !match(wrongSide, { component: 'surfboard' }));
+
+// Dual lines: one row must not satisfy both board_rental and surfboard simultaneously
+// without exclusive ownership (applyAuthoritativeQuoteAmounts → duplicate_row_claim).
+(async () => {
+  const dualQuote = {
+    total_cents: 4000,
+    line_items: [
+      { component: 'board_rental', total_cents: 2000 },
+      { component: 'surfboard', total_cents: 2000 },
+    ],
+  };
+  const dualPg = {
+    query: async () => ({ rows: [], rowCount: 1 }),
+  };
+  const dual = await writes.applyAuthoritativeQuoteAmounts(
+    dualPg,
+    [bareBoard],
+    dualQuote,
+    { clientSlug: 'sunset' },
+  );
+  assert(
+    'dual lines on one row → duplicate_row_claim (1:1)',
+    dual.ok === false && dual.error === 'duplicate_row_claim',
+    JSON.stringify(dual),
+  );
+
+  // Green 1:1: board_rental line + matching bare board row
+  const one = await writes.applyAuthoritativeQuoteAmounts(
+    { query: async () => ({ rows: [], rowCount: 1 }) },
+    [bareBoard],
+    { total_cents: 2000, line_items: [{ component: 'board_rental', total_cents: 2000 }] },
+    { clientSlug: 'sunset' },
+  );
+  assert('1:1 board_rental claim ok', one.ok === true && one.total_cents === 2000, JSON.stringify(one));
+
+  // Bundle half must not satisfy bare board line
+  const halfBare = await writes.applyAuthoritativeQuoteAmounts(
+    { query: async () => ({ rows: [], rowCount: 1 }) },
+    [bundleHalf],
+    { total_cents: 2000, line_items: [{ component: 'board_rental', total_cents: 2000 }] },
+    { clientSlug: 'sunset' },
+  );
+  assert(
+    'bundle half vs bare board_rental unclaimed/fail-closed',
+    halfBare.ok === false
+      && (halfBare.error === 'unclaimed_service_row_surfboard'
+        || /unclaimed|no_operational/.test(String(halfBare.error || ''))),
+    JSON.stringify(halfBare),
+  );
+
+  console.log(`\n${pass} passed, ${fail} failed\n`);
+  if (fail) process.exit(1);
+  console.log('OK verify-sunset-create-drawer-ux-followup\n');
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -41,6 +41,8 @@ const STAFF_CUSTOM_LINE_MAX = 20;
 const STAFF_CUSTOM_LINE_LABEL_MAX = 120;
 const STAFF_CUSTOM_LINE_ID_MAX = 64;
 const STAFF_CUSTOM_LINE_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+/** No-lesson equipment present without valid booking surfer_count — fail closed. */
+const NO_LESSON_EQUIPMENT_SURFER_REQUIRED = 'surfer_count_required_for_no_lesson_equipment';
 
 /**
  * Locale-safe money → integer cents. Accepts "12.50", "12,50", "1.234,56",
@@ -507,6 +509,13 @@ function prepareCanonicalRentalsForCreate(body) {
   let rentalsOut = rentals;
   // No-lesson: equipment qty derives from authoritative surfer_count (ignore client override).
   const forced = applyNoLessonEquipmentQtyFromSurfers(bodyOut, rentals);
+  if (!forced.ok) {
+    return {
+      ok: false,
+      error: forced.error || NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+      reason: forced.reason || forced.reason_code || NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+    };
+  }
   if (forced.forced) {
     bodyOut = forced.body;
     rentalsOut = forced.rentals || rentalsOut;
@@ -550,6 +559,43 @@ function rowMetadata(row) {
   return {};
 }
 
+/**
+ * Compound identity for bare board/wetsuit rental quote lines.
+ * Rejects bundle halves, opposite-side gear, and corrupt/contradictory offering_key.
+ * board_rental / wetsuit_rental lines require that offering_key; legacy
+ * surfboard / wetsuit lines accept the matching bare offering_key or absent
+ * (pre-canonical rows). Never soft-matches through a partial OR.
+ */
+function rentalRowMatchesBareRentalLine(row, line, spec) {
+  const component = String((line && line.component) || '').trim();
+  if (component !== spec.canonicalComponent && component !== spec.legacyComponent) {
+    return false;
+  }
+  const meta = rowMetadata(row);
+  const serviceType = String(row.service_type || '').trim();
+  const offeringKey = String(meta.offering_key || '').trim();
+  const metaComponent = String(meta.component || '').trim();
+  const bundlePart = String(meta.bundle_part || '').trim();
+
+  // Bundle halves are owned exclusively by board_and_suit_rental lines.
+  if (offeringKey === 'board_and_suit_rental' || bundlePart) return false;
+
+  // Explicit opposite-side / contradictory identity rejects (no soft OR rescue).
+  if (offeringKey && offeringKey !== spec.bareOfferingKey) return false;
+  if (metaComponent && metaComponent !== spec.metaComponent) return false;
+  if (serviceType && serviceType !== spec.serviceType) return false;
+
+  const sideOk = serviceType === spec.serviceType || metaComponent === spec.metaComponent;
+  if (!sideOk) return false;
+
+  // Canonical rentals[] quote line — require explicit bare offering_key.
+  if (component === spec.canonicalComponent) {
+    return offeringKey === spec.bareOfferingKey;
+  }
+  // Legacy components quote line (surfboard / wetsuit).
+  return !offeringKey || offeringKey === spec.bareOfferingKey;
+}
+
 function rowMatchesQuoteLine(row, line) {
   const component = String((line && line.component) || '').trim();
   const meta = rowMetadata(row);
@@ -570,17 +616,26 @@ function rowMatchesQuoteLine(row, line) {
         || meta.bundle_part === 'surfboard' || meta.bundle_part === 'wetsuit');
   }
   // Canonical rentals[] emit board_rental / wetsuit_rental; legacy components
-  // quote path still labels lines as surfboard / wetsuit. Both must claim the
-  // matching operational row (service_type / metadata.component / offering_key).
+  // quote path still labels lines as surfboard / wetsuit. Compound identity only
+  // — never OR-match a half-identity (would claim bundle halves / wrong side /
+  // corrupt offering_key, and let one row satisfy dual lines).
   if (component === 'board_rental' || component === 'surfboard') {
-    return serviceType === 'surfboard'
-      || meta.component === 'surfboard'
-      || meta.offering_key === 'board_rental';
+    return rentalRowMatchesBareRentalLine(row, line, {
+      canonicalComponent: 'board_rental',
+      legacyComponent: 'surfboard',
+      bareOfferingKey: 'board_rental',
+      serviceType: 'surfboard',
+      metaComponent: 'surfboard',
+    });
   }
   if (component === 'wetsuit_rental' || component === 'wetsuit') {
-    return serviceType === 'wetsuit'
-      || meta.component === 'wetsuit'
-      || meta.offering_key === 'wetsuit_rental';
+    return rentalRowMatchesBareRentalLine(row, line, {
+      canonicalComponent: 'wetsuit_rental',
+      legacyComponent: 'wetsuit',
+      bareOfferingKey: 'wetsuit_rental',
+      serviceType: 'wetsuit',
+      metaComponent: 'wetsuit',
+    });
   }
   if (component === FULL_DAY_EQUIPMENT_ADDON_KEY || component === 'addon_service') {
     // Do not claim staff_custom_line rows as Admin full-day/addon lines.
@@ -1061,12 +1116,24 @@ function isValidStaffCreateGuestPhone(raw) {
 
 /**
  * No-lesson (rental-only) mode: equipment quantity is owned by Number of surfers.
- * When surfer_count is present, force rental + legacy component quantities to it
- * (ignore independent client equipment-qty override). Does not invent Admin prices.
+ * When equipment is present, authoritative surfer_count is required and forces
+ * rental + legacy component quantities (ignore client equipment-qty override).
+ * Absent/invalid surfer_count with equipment fails closed. Group/Private keep
+ * independent equipment qty. Does not invent Admin prices.
  */
 function isNoLessonComponents(components) {
   const c = components && typeof components === 'object' ? components : {};
   return !c.course && !c.private_lesson && !c.lesson;
+}
+
+function hasNoLessonEquipment(components, rentals) {
+  const c = components && typeof components === 'object' ? components : {};
+  if (c.surfboard || c.wetsuit) return true;
+  if (!Array.isArray(rentals)) return false;
+  return rentals.some((r) => {
+    const key = String((r && r.offering_key) || '').trim();
+    return key === 'board_rental' || key === 'wetsuit_rental' || key === 'board_and_suit_rental';
+  });
 }
 
 function parseAuthoritativeSurferCount(body) {
@@ -1080,8 +1147,9 @@ function parseAuthoritativeSurferCount(body) {
 }
 
 /**
- * For no-lesson bookings with surfer_count, overwrite rental quantities from
+ * For no-lesson bookings with equipment, force rental quantities from
  * authoritative surfer count. Group/Private keep independent equipment qty.
+ * Fail closed when equipment is present and surfer_count is absent/invalid.
  */
 function applyNoLessonEquipmentQtyFromSurfers(body, rentals) {
   const b = body && typeof body === 'object' ? body : {};
@@ -1089,9 +1157,20 @@ function applyNoLessonEquipmentQtyFromSurfers(body, rentals) {
   if (!isNoLessonComponents(comps)) {
     return { ok: true, body: b, rentals: rentals || null, forced: false };
   }
+  if (!hasNoLessonEquipment(comps, rentals)) {
+    return { ok: true, body: b, rentals: rentals || null, forced: false };
+  }
   const sn = parseAuthoritativeSurferCount(b);
   if (sn == null) {
-    return { ok: true, body: b, rentals: rentals || null, forced: false };
+    return {
+      ok: false,
+      forced: false,
+      error: NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+      reason: NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+      reason_code: NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+      body: b,
+      rentals: rentals || null,
+    };
   }
   let nextRentals = rentals;
   if (Array.isArray(rentals) && rentals.length) {
@@ -1190,14 +1269,33 @@ function validateScheduleBookingBody(body, opts) {
   }
   const customLines = normalizeCustomLineItems(b.custom_line_items);
   if (!customLines.ok) return customLines;
-  const surfer_count = parseAuthoritativeSurferCount(b);
+  // Shared quote/create owner: no-lesson equipment qty from surfer_count only.
+  // Fail closed when equipment present and surfer_count absent/invalid.
+  const rentalsForForce = Array.isArray(b.rentals) ? b.rentals : null;
+  const forced = applyNoLessonEquipmentQtyFromSurfers(
+    { ...b, components: components.value },
+    rentalsForForce,
+  );
+  if (!forced.ok) {
+    return {
+      ok: false,
+      error: forced.error || NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+      reason: forced.reason || forced.reason_code || NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+    };
+  }
+  const forcedComps = forced.forced
+    ? (forced.body.components || components.value)
+    : components.value;
+  const surfer_count = forced.forced
+    ? forced.surfer_count
+    : parseAuthoritativeSurferCount(b);
 
   return {
     ok: true,
     value: {
       guest_name,
       guest_phone: guest_phone || null,
-      components: components.value,
+      components: forcedComps,
       service_dates: serviceDates.value,
       payment_status,
       notes,
@@ -2670,6 +2768,9 @@ module.exports = {
   customLinesForIntentFingerprint,
   isValidStaffCreateGuestPhone,
   isNoLessonComponents,
+  hasNoLessonEquipment,
   parseAuthoritativeSurferCount,
   applyNoLessonEquipmentQtyFromSurfers,
+  NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
+  rowMatchesQuoteLine,
 };
