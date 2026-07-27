@@ -256,9 +256,16 @@ function buildPaidPaymentLedger(paidRows, paidCentsAggregate) {
       paid_at: r.paid_at || null,
     });
   });
-  const detailed_sum_cents = rows.reduce((s, row) => s + Number(row.amount_cents || 0), 0);
+  let detailed_sum_cents = rows.reduce((s, row) => s + Number(row.amount_cents || 0), 0);
   const aggregate = Math.max(0, Math.round(Number(paidCentsAggregate) || 0));
-  const remainder_cents = aggregate > detailed_sum_cents ? (aggregate - detailed_sum_cents) : 0;
+  // Aggregate and detail are read independently. If detail exceeds aggregate,
+  // its allocation cannot be trusted for presentation: fall back to one
+  // aggregate credit rather than displaying more paid than the booking ledger.
+  if (detailed_sum_cents > aggregate) {
+    rows.length = 0;
+    detailed_sum_cents = 0;
+  }
+  const remainder_cents = aggregate - detailed_sum_cents;
   return {
     rows,
     detailed_sum_cents,

@@ -272,6 +272,25 @@ assert('multi paid rows + aggregate remainder',
   && multiLedger.detailed_sum_cents === 7000
   && multiLedger.remainder_cents === 3000);
 
+const excessDetailLedger = buildPaidPaymentLedger([
+  {
+    payment_id: 'over-detail-a',
+    payment_status: 'paid',
+    amount_paid_cents: 7000,
+    metadata: { method: 'in_store' },
+  },
+  {
+    payment_id: 'over-detail-b',
+    payment_status: 'paid',
+    amount_paid_cents: 5000,
+    metadata: { method: 'link' },
+  },
+], 10000);
+assert('ledger fails closed to aggregate credit when detailed rows exceed aggregate',
+  excessDetailLedger.rows.length === 0
+  && excessDetailLedger.detailed_sum_cents === 0
+  && excessDetailLedger.remainder_cents === 10000);
+
 const paySummary = buildPaymentSummary(
   [],
   {
