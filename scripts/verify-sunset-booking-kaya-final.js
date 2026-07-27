@@ -167,7 +167,8 @@ assert('mobile pinned chrome', /portal-schedule-create-drawer\{[^}]*max-height:\
   && /portal-schedule-create-header\{[^}]*flex:\s*0\s+0\s+auto/.test(apiSrc)
   && /portal-schedule-create-body\{[^}]*overflow-y:\s*auto/.test(apiSrc)
   && /portal-schedule-create-footer\{[^}]*flex:\s*0\s+0\s+auto/.test(apiSrc)
-  && /portal-schedule-create-summary\{[^}]*(-webkit-line-clamp:2|line-clamp:2)/.test(apiSrc)
+  && (/\.portal-schedule-create-summary-primary/.test(apiSrc)
+    || /portal-schedule-create-summary\{[^}]*(-webkit-line-clamp:2|line-clamp:2|flex-direction:\s*column)/.test(apiSrc))
   && /min-height:\s*44px/.test(apiSrc) && /safe-area-inset-bottom/.test(apiSrc)
   && /@media\(max-width:640px\)\{\.portal-schedule-private-session-grid\{grid-template-columns:1fr\}/.test(apiSrc));
 

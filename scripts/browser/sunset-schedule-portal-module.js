@@ -755,6 +755,47 @@ function schedulePortalHumanCourseBit(course) {
   return '';
 }
 
+/**
+ * Compact sticky-footer date without years.
+ * Same month: "27–31 Jul"; cross-month: "30 Jul–2 Aug". Never includes YYYY.
+ * Locale via getStaffLocale() when present (en/es/it).
+ */
+function schedulePortalFormatCompactDateRange(fromIso, toIso) {
+  var from = String(fromIso || '').slice(0, 10);
+  var to = String(toIso == null || toIso === '' ? from : toIso).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) to = from;
+  var loc = 'en';
+  try {
+    if (typeof getStaffLocale === 'function') loc = String(getStaffLocale() || 'en');
+  } catch (_l) { loc = 'en'; }
+  var localeTag = loc === 'es' ? 'es' : loc === 'it' ? 'it' : 'en';
+  function part(iso) {
+    var y = Number(iso.slice(0, 4));
+    var m = Number(iso.slice(5, 7));
+    var d = Number(iso.slice(8, 10));
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+    // UTC noon avoids TZ day-shift when formatting calendar dates.
+    var dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+    var mon = '';
+    try {
+      mon = new Intl.DateTimeFormat(localeTag, { month: 'short', timeZone: 'UTC' }).format(dt);
+    } catch (_e) {
+      mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1] || '';
+    }
+    mon = String(mon || '').replace(/\.$/, '');
+    if (mon) mon = mon.charAt(0).toUpperCase() + mon.slice(1);
+    return { day: d, mon: mon, month: m, year: y };
+  }
+  var a = part(from); if (!a || !a.mon) return '';
+  var b = part(to); if (!b || !b.mon) b = a;
+  if (from === to) return String(a.day) + ' ' + a.mon;
+  if (a.month === b.month && a.year === b.year) {
+    return String(a.day) + '\u2013' + String(b.day) + ' ' + a.mon;
+  }
+  return String(a.day) + ' ' + a.mon + '\u2013' + String(b.day) + ' ' + b.mon;
+}
+
 function schedulePortalRenderCreateIntentSummary(payload) {
   var box = el('ps-create-summary'); if (!box) return;
   var p = payload;
@@ -771,54 +812,110 @@ function schedulePortalRenderCreateIntentSummary(payload) {
   }
   var hasLesson = !!(comps.course || comps.private_lesson);
   var hasGear = rentals.length > 0 || !!(comps.surfboard || comps.wetsuit || comps.full_day_equipment_extension);
-  if (!hasLesson && !hasGear) {
+  var customLines = Array.isArray(p.custom_line_items) ? p.custom_line_items : [];
+  var hasCustom = customLines.some(function(l) { return l && String(l.label || '').trim(); });
+  if (!hasLesson && !hasGear && !hasCustom) {
     box.innerHTML = '<span class="portal-schedule-create-summary-placeholder">'
       + escHtml(portalT('schedule.create.summary.chooseLessonOrGear') || 'Choose a lesson or add gear') + '</span>'; return;
   }
-  var bits = [];
+
+  // Two-row sticky summary: primary = identity/qty/gear/custom; secondary = one duration + compact date + guest.
+  // Payment status is owned by the Payment Status control above — never repeated here.
+  var primary = [];
+  var secondary = [];
+  var durationLab = '';
+
   if (comps.course) {
-    var cBits = [portalT('schedule.type.course') || 'Group course'], cLab = schedulePortalHumanCourseBit(comps.course);
-    if (cLab) cBits.push(cLab);
+    var cLab = schedulePortalHumanCourseBit(comps.course);
+    // Prefer the selected course name; only fall back to generic "Group course" when unnamed.
+    if (cLab) primary.push(cLab);
+    else primary.push(portalT('schedule.type.course') || 'Group course');
     // Duration label from derived payload/catalog state only — never hidden #ps-create-course-tier.
     var tierLab = comps.course.tier_label != null ? String(comps.course.tier_label).trim() : '';
     if (!tierLab && comps.course.tier_key) {
       tierLab = schedulePortalDurationLabel(comps.course.tier_key) || '';
     }
-    if (tierLab && tierLab !== String(comps.course.tier_key || '')) cBits.push(tierLab);
-    if (comps.course.quantity) cBits.push('\u00d7' + String(comps.course.quantity));
-    bits.push(cBits.join(' \u00b7 '));
+    if (tierLab && tierLab !== String(comps.course.tier_key || '')) durationLab = tierLab;
+    if (comps.course.quantity) primary.push('\u00d7' + String(comps.course.quantity));
   } else if (comps.private_lesson) {
-    var pl = comps.private_lesson, plBits = [portalT('schedule.type.privateLesson') || 'Private course'];
+    var pl = comps.private_lesson;
+    primary.push(portalT('schedule.type.privateLesson') || 'Private course');
     var sessN = Array.isArray(pl.sessions) ? pl.sessions.length : (pl.quantity || 0);
-    if (sessN) plBits.push((portalT('schedule.create.summary.sessions') || 'Sessions') + ': ' + String(sessN));
+    if (sessN) primary.push((portalT('schedule.create.summary.sessions') || 'Sessions') + ': ' + String(sessN));
+    if (pl.surfer_count) primary.push((portalT('schedule.create.summary.surfers') || 'Surfers') + ': ' + String(pl.surfer_count));
     var dates = (pl.sessions || []).map(function(s) { return s && s.date ? String(s.date).slice(0, 10) : ''; }).filter(Boolean).sort();
-    if (dates.length === 1) plBits.push(dates[0]);
-    else if (dates.length > 1) plBits.push(dates[0] + '\u2013' + dates[dates.length - 1]);
-    if (pl.surfer_count) plBits.push((portalT('schedule.create.summary.surfers') || 'Surfers') + ': ' + String(pl.surfer_count));
-    bits.push(plBits.join(' \u00b7 '));
-  } else bits.push(portalT('schedule.type.noLesson') || 'No lesson');
-  function gearBit(key, q, durKey) {
+    if (dates.length && typeof schedulePortalFormatCompactDateRange === 'function') {
+      var plCompact = schedulePortalFormatCompactDateRange(
+        dates[0],
+        dates.length > 1 ? dates[dates.length - 1] : dates[0],
+      );
+      if (plCompact) secondary.push(plCompact);
+    }
+  } else {
+    primary.push(portalT('schedule.type.noLesson') || 'No lesson');
+  }
+
+  function gearLabelOnly(key, q) {
     var lab = schedulePortalRentalLabel(key); if (!lab) return '';
-    var bit = (Number(q) > 1) ? (lab + ' \u00d7' + q) : lab;
-    var dur = schedulePortalDurationLabel(durKey); return dur ? (bit + ' \u00b7 ' + dur) : bit;
+    return (Number(q) > 1) ? (lab + ' \u00d7' + q) : lab;
   }
   if (rentals.length) {
-    var gearBits = rentals.map(function(r) { return r && r.offering_key ? gearBit(r.offering_key, r.quantity, r.duration_key) : ''; }).filter(Boolean);
-    if (gearBits.length) bits.push(gearBits.join(', '));
+    var gearBits = [];
+    for (var ri = 0; ri < rentals.length; ri++) {
+      var r = rentals[ri];
+      if (!r || !r.offering_key) continue;
+      var gLab = gearLabelOnly(r.offering_key, r.quantity);
+      if (gLab) gearBits.push(gLab);
+      // One shared duration only — do not repeat per gear line or after course duration.
+      if (!durationLab && r.duration_key) {
+        var gDur = schedulePortalDurationLabel(r.duration_key);
+        if (gDur && gDur !== String(r.duration_key)) durationLab = gDur;
+      }
+    }
+    if (gearBits.length) primary.push(gearBits.join(', '));
   } else {
-    if (comps.surfboard) { var sb = gearBit('board_rental', comps.surfboard.quantity); if (sb) bits.push(sb); }
-    if (comps.wetsuit) { var ws = gearBit('wetsuit_rental', comps.wetsuit.quantity); if (ws) bits.push(ws); }
+    if (comps.surfboard) {
+      var sb = gearLabelOnly('board_rental', comps.surfboard.quantity);
+      if (sb) primary.push(sb);
+    }
+    if (comps.wetsuit) {
+      var ws = gearLabelOnly('wetsuit_rental', comps.wetsuit.quantity);
+      if (ws) primary.push(ws);
+    }
   }
-  if (comps.full_day_equipment_extension) bits.push(portalT('schedule.type.fullDayEquipment') || 'Full-day gear');
+  if (comps.full_day_equipment_extension) {
+    primary.push(portalT('schedule.type.fullDayEquipment') || 'Full-day gear');
+  }
+
+  for (var ci = 0; ci < customLines.length; ci++) {
+    var cl = customLines[ci];
+    var clLab = cl && cl.label != null ? String(cl.label).trim() : '';
+    if (clLab) primary.push(clLab);
+  }
+
+  if (durationLab) secondary.push(durationLab);
   if (!comps.private_lesson) {
-    var df = p.date_from ? String(p.date_from).slice(0, 10) : '', dt = p.date_to ? String(p.date_to).slice(0, 10) : df;
-    if (df) bits.push(df === dt ? df : (df + '\u2013' + dt));
+    var df = p.date_from ? String(p.date_from).slice(0, 10) : '';
+    var dt = p.date_to ? String(p.date_to).slice(0, 10) : df;
+    var compact = (df && typeof schedulePortalFormatCompactDateRange === 'function')
+      ? schedulePortalFormatCompactDateRange(df, dt) : '';
+    if (compact) secondary.push(compact);
   }
-  bits.push(String(p.payment_status || 'unpaid').toLowerCase() === 'paid'
-    ? (portalT('schedule.payment.paid') || 'Paid') : (portalT('schedule.payment.unpaid') || 'Unpaid'));
   var guest = p.guest_name != null ? String(p.guest_name).trim() : '';
-  if (guest) bits.push(guest);
-  box.innerHTML = '<span class="portal-schedule-create-summary-text">' + escHtml(bits.join(' \u00b7 ')) + '</span>';
+  if (guest) secondary.push(guest);
+
+  var html = '';
+  if (primary.length) {
+    html += '<span class="portal-schedule-create-summary-primary">' + escHtml(primary.join(' \u00b7 ')) + '</span>';
+  }
+  if (secondary.length) {
+    html += '<span class="portal-schedule-create-summary-secondary">' + escHtml(secondary.join(' \u00b7 ')) + '</span>';
+  }
+  if (!html) {
+    html = '<span class="portal-schedule-create-summary-placeholder">'
+      + escHtml(portalT('schedule.create.summary.chooseLessonOrGear') || 'Choose a lesson or add gear') + '</span>';
+  }
+  box.innerHTML = html;
 }
 
 /** Disable Create until guest name nonblank and phone valid; quote may still run while blank. */

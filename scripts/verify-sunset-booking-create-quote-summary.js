@@ -31,7 +31,8 @@ assert('footer chrome',
   && footer.indexOf('ps-create-quote-preview') < footer.indexOf('ps-create-submit')
   && counts['ps-create-summary']===1 && counts['ps-create-quote-preview']===1 && Object.keys(counts).every((k)=>counts[k]===1)
   && /role="status"/.test(footer) && /aria-live="polite"/.test(footer) && !/overflow-y:\s*auto/.test(footerCss) && /overflow-x:\s*hidden/.test(footerCss)
-  && /portal-schedule-create-summary\{[^}]*(-webkit-line-clamp:2|line-clamp:2)/.test(apiSrc)
+  && (/\.portal-schedule-create-summary-primary/.test(apiSrc)
+    || /portal-schedule-create-summary\{[^}]*(-webkit-line-clamp:2|line-clamp:2|flex-direction:\s*column)/.test(apiSrc))
   && /min-height:\s*44px/.test(apiSrc) && /safe-area-inset-bottom/.test(apiSrc)
   && /portal-schedule-create-actions\{[^}]*flex:\s*0\s+0\s+auto/.test(apiSrc));
 assert('owners', /function schedulePortalRenderCreateIntentSummary/.test(portalSrc)
@@ -142,7 +143,9 @@ function qBody(n,a,b){return{ok:true,body:{success:true,total_cents:n===1?a:b}};
   group.el('ps-create-course-tier').options=[{value:'2_weeks',textContent:'POISONED'}];
   group.el('ps-create-course-tier').selectedIndex=0; group.el('ps-create-course-tier').value='2_weeks';
   group.schedulePortalRenderCreateIntentSummary();
-  assert('group', /Group course/.test(S(group)) && /Beginner/.test(S(group)) && /1 week/.test(S(group)) && !/POISONED/.test(S(group)) && /Paid|Ada/.test(S(group)) && !LEAK.test(S(group)));
+  // Named course omits generic "Group course"; payment status omitted (control owns it); guest retained.
+  assert('group', !/Group course/i.test(S(group)) && /Beginner/.test(S(group)) && /1 week/.test(S(group)) && !/POISONED/.test(S(group))
+    && /Ada/.test(S(group)) && !/\bPaid\b|\bUnpaid\b/.test(S(group)) && !LEAK.test(S(group)));
   const leak = sandbox({ courseOptions:[], tierOptions:[] });
   leak._setPayload({ guest_name:'', date_from:'2026-08-20', date_to:'2026-08-20', payment_status:'unpaid',
     components:{ course:{ course_id:'c1', tier_key:'1_week', quantity:1 } }, rentals:[] });
@@ -253,10 +256,13 @@ function qBody(n,a,b){return{ok:true,body:{success:true,total_cents:n===1?a:b}};
   rSoft.schedulePortalInvalidateCreateQuoteIntent({ idle:true }); await sleep(50);
   assert('RED soft no gen', /€777/.test(Q(rSoft)));
   const stripHuman = portalSrc
-    .replace(/if \(tierLab && tierLab !== String\(comps\.course\.tier_key \|\| ''\)\) cBits\.push\(tierLab\);/,
-      "if (!tierLab && comps.course.tier_key) tierLab = String(comps.course.tier_key); if (tierLab) cBits.push(tierLab);")
+    .replace(
+      /if \(tierLab && tierLab !== String\(comps\.course\.tier_key \|\| ''\)\) durationLab = tierLab;/,
+      "if (!tierLab && comps.course.tier_key) tierLab = String(comps.course.tier_key); if (tierLab) durationLab = tierLab;",
+    )
     .replace(/function schedulePortalHumanCourseBit\(course\) \{[\s\S]*?\n\}/,
       'function schedulePortalHumanCourseBit(course){ return (course&&course.course_id)?String(course.course_id):""; }');
+  assert('RED human mut', stripHuman !== portalSrc);
   const rKey = sandMut(stripHuman,{});
   rKey.el('ps-create-course-select').options=[]; rKey.el('ps-create-course-select').selectedIndex=-1;
   rKey.el('ps-create-course-tier').options=[]; rKey.el('ps-create-course-tier').selectedIndex=-1;

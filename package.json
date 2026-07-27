@@ -438,6 +438,7 @@
     "verify:sunset-edit-authoritative-requote": "node scripts/verify-sunset-edit-authoritative-requote.js",
     "verify:sunset-create-drawer-layout-equipment-quote-hotfix": "node scripts/verify-sunset-create-drawer-layout-equipment-quote-hotfix.js",
     "verify:sunset-create-custom-line": "node scripts/verify-sunset-create-custom-line.js",
+    "verify:sunset-create-footer-mobile-compact": "node scripts/verify-sunset-create-footer-mobile-compact.js",
     "verify:sunset-addon-price-duration-hotfix": "node scripts/verify-sunset-addon-price-duration-hotfix.js",
     "verify:sunset-rendered-ui-price-hotfix": "node scripts/verify-sunset-rendered-ui-price-hotfix.js",
     "verify:sunset-rental-quantity-total-hotfix": "node scripts/verify-sunset-rental-quantity-total-hotfix.js",
