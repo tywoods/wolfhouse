@@ -10,6 +10,7 @@
  *  2. Create board-only and wetsuit-only use same Surfers semantic label
  *  3. Edit board_and_suit hydrated row says Surfers; preserves persisted quantity
  *  4. Edit no-lesson qty mirrors booking surfer count (no independent drift)
+ *  4b. Edit no-lesson has visible booking-level #ps-drawer-surfers (Create parity)
  *  5. Create/Edit row DOM class/order parity + mutual exclusion
  *  6. Edit compact footer: named course, no year/payment/dup duration; quote row
  *  7. Edit rental/date change invalidates stale quote and requotes
@@ -642,6 +643,18 @@ function i18nMaps() {
     nodes['ps-drawer-private-lesson-surfers'] = makeEl('ps-drawer-private-lesson-surfers', {
       value: String(opts.plSurfers || seedSurfers),
     });
+    // Booking-level Surfers authority for no-lesson Edit (Create #ps-create-surfers parity).
+    nodes['ps-drawer-surfers'] = makeEl('ps-drawer-surfers', {
+      value: String(opts.drawerSurfers != null ? opts.drawerSurfers : seedSurfers),
+      type: 'number',
+      min: '1',
+      max: '99',
+      inputMode: 'numeric',
+    });
+    nodes['ps-drawer-surfers-field'] = makeEl('ps-drawer-surfers-field', {
+      style: { display: opts.mode === 'none' || opts.mode == null ? '' : 'none' },
+      className: 'portal-schedule-create-field',
+    });
     nodes['ps-drawer-guest'] = makeEl('ps-drawer-guest', { value: opts.guest || 'Koa' });
     nodes['ps-drawer-phone'] = makeEl('ps-drawer-phone', { value: '+34600' });
     nodes['ps-drawer-payment'] = makeEl('ps-drawer-payment', { value: 'unpaid' });
@@ -915,6 +928,160 @@ function i18nMaps() {
     && noneSel.some((r) => r.offering_key === 'board_and_suit_rental' && r.quantity === 2)
     && !noneSel.some((r) => r.quantity === 9),
     JSON.stringify(noneSel));
+
+  // ── [4b] Edit no-lesson booking-level Surfers (Create #ps-create-surfers parity) ──
+  console.log('\n[4b] Edit no-lesson visible booking-level Surfers field');
+  ok('Edit owner has #ps-drawer-surfers booking-level input',
+    /id="ps-drawer-surfers"/.test(editSrc)
+    || /id='ps-drawer-surfers'/.test(editSrc),
+    'missing #ps-drawer-surfers in edit owner');
+  ok('Edit owner labels booking-level field with schedule.create.surferCount',
+    /ps-drawer-surfers[\s\S]{0,200}schedule\.create\.surferCount|schedule\.create\.surferCount[\s\S]{0,200}ps-drawer-surfers/.test(editSrc));
+  ok('Edit owner uses touch-friendly number input (min 1 max 99 inputmode)',
+    /id="ps-drawer-surfers"[^>]*type="number"/.test(editSrc)
+    && /id="ps-drawer-surfers"[^>]*min="1"/.test(editSrc)
+    && /id="ps-drawer-surfers"[^>]*max="99"/.test(editSrc)
+    && /id="ps-drawer-surfers"[^>]*inputmode="numeric"/.test(editSrc));
+  ok('scheduleDrawerReadSurferCount none-mode reads #ps-drawer-surfers (not only data-seed)',
+    (() => {
+      const fn = extractFn(editSrc, 'scheduleDrawerReadSurferCount') || '';
+      return /ps-drawer-surfers/.test(fn)
+        && !/data-seed-surfers[\s\S]*return 1/.test(fn.replace(/\s+/g, ' '));
+    })(),
+    (extractFn(editSrc, 'scheduleDrawerReadSurferCount') || '').slice(0, 400));
+  ok('/staff/ui ships #ps-drawer-surfers',
+    /id="ps-drawer-surfers"/.test(html));
+  ok('EN/ES/IT schedule.create.surferCount full label present',
+    maps.en['schedule.create.surferCount'] === 'Number of surfers'
+    && (maps.es['schedule.create.surferCount'] === 'Número de surfistas'
+      || /'schedule\.create\.surferCount':\s*'Número de surfistas'/.test(esSrc))
+    && (maps.it['schedule.create.surferCount'] === 'Numero di surfisti'
+      || /'schedule\.create\.surferCount':\s*'Numero di surfisti'/.test(i18nSrc)));
+
+  // Hydrated qty 4 → booking Surfers=4; change to 2 → payload qty 2
+  const editNone4 = sandboxEdit({
+    mode: 'none',
+    qty: 4,
+    surfers: 4,
+    drawerSurfers: 4,
+    rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '5_days', quantity: 4 }],
+  });
+  if (typeof editNone4.ctx.scheduleRenderDrawerRentals === 'function') {
+    editNone4.ctx.scheduleRenderDrawerRentals();
+  }
+  const read4 = typeof editNone4.ctx.scheduleDrawerReadSurferCount === 'function'
+    ? editNone4.ctx.scheduleDrawerReadSurferCount()
+    : null;
+  ok('Edit no-lesson hydrated Surfers reads 4 from #ps-drawer-surfers',
+    read4 === 4,
+    'read=' + String(read4));
+  // Check rental selection uses 4
+  (editNone4.el('ps-drawer-rentals').querySelectorAll('.ps-drawer-rental-check') || []).forEach((c) => {
+    c.checked = c.getAttribute('data-offering-key') === 'board_and_suit_rental';
+  });
+  let sel4 = [];
+  if (typeof editNone4.ctx.scheduleReadDrawerRentalSelectionFromDom === 'function') {
+    sel4 = editNone4.ctx.scheduleReadDrawerRentalSelectionFromDom();
+  }
+  ok('Edit no-lesson payload rentals qty=4 when Surfers=4',
+    Array.isArray(sel4)
+    && sel4.some((r) => r.offering_key === 'board_and_suit_rental' && r.quantity === 4),
+    JSON.stringify(sel4));
+
+  // Change booking-level Surfers 4 → 2: mirrors + payload update
+  editNone4.nodes['ps-drawer-surfers'].value = '2';
+  // Sync mirrors the way wire handlers should (read + force rental qty)
+  const sn2 = editNone4.ctx.scheduleDrawerReadSurferCount();
+  (editNone4.el('ps-drawer-rentals').querySelectorAll('input.ps-drawer-rental-qty-input') || []).forEach((inp) => {
+    if (sn2 != null) {
+      inp.value = String(sn2);
+      inp.setAttribute('data-qty-owner', 'surfers');
+    }
+  });
+  let sel2 = [];
+  if (typeof editNone4.ctx.scheduleReadDrawerRentalSelectionFromDom === 'function') {
+    sel2 = editNone4.ctx.scheduleReadDrawerRentalSelectionFromDom();
+  }
+  ok('Edit no-lesson changing Surfers to 2 emits rentals qty=2',
+    sn2 === 2
+    && Array.isArray(sel2)
+    && sel2.some((r) => r.offering_key === 'board_and_suit_rental' && r.quantity === 2),
+    'sn=' + String(sn2) + ' sel=' + JSON.stringify(sel2));
+
+  // Invalid 0 / blank / fraction: no silent fallback to 1; blocks validate
+  const invCases = ['0', '', '1.5', 'abc', '100'];
+  let invOk = true;
+  const invDetails = [];
+  invCases.forEach((raw) => {
+    editNone4.nodes['ps-drawer-surfers'].value = raw;
+    const sn = editNone4.ctx.scheduleDrawerReadSurferCount();
+    if (sn === 1 || sn === 0) {
+      invOk = false;
+      invDetails.push(raw + '→' + String(sn) + '(silent fallback)');
+    }
+    if (sn != null && !(Number.isInteger(sn) && sn >= 1 && sn <= 99)) {
+      invOk = false;
+      invDetails.push(raw + '→' + String(sn));
+    }
+    // Prefer null for blank/invalid (Create parity)
+    if (sn != null) {
+      invOk = false;
+      invDetails.push(raw + ' expected null got ' + String(sn));
+    }
+  });
+  ok('Edit no-lesson invalid 0/blank/fraction returns null (no silent 1)',
+    invOk, invDetails.join('; '));
+
+  // Restore valid, paint quote, then invalidate via Surfers change
+  editNone4.nodes['ps-drawer-surfers'].value = '4';
+  editNone4.el('ps-drawer-quote-preview').innerHTML =
+    '<p class="portal-schedule-drawer-hint">Quoted total: €40.00</p>';
+  editNone4.el('ps-drawer-quote-preview').style.display = 'block';
+  editNone4.ctx.scheduleDrawerQuoteState = { intent_key: 'stale-surfers', total_cents: 4000 };
+  editNone4.nodes['ps-drawer-surfers'].value = '2';
+  if (typeof editNone4.ctx.scheduleDrawerMarkPriceStale === 'function') {
+    editNone4.ctx.scheduleDrawerMarkPriceStale();
+  }
+  ok('Edit Surfers change marks price stale',
+    editNone4.ctx.scheduleDrawerPriceStale === true
+    || editNone4.ctx.scheduleDrawerQuoteState == null);
+  if (typeof editNone4.ctx.scheduleDrawerDropStaleQuoteUi === 'function') {
+    const p = typeof editNone4.ctx.scheduleReadDrawerEditPayload === 'function'
+      ? editNone4.ctx.scheduleReadDrawerEditPayload()
+      : null;
+    editNone4.ctx.scheduleDrawerDropStaleQuoteUi(p);
+  } else if (typeof editNone4.ctx.scheduleDrawerSyncFooter === 'function') {
+    editNone4.ctx.scheduleDrawerSyncFooter();
+  }
+  const afterSurf = editNone4.el('ps-drawer-quote-preview').innerHTML || '';
+  ok('Edit Surfers change clears stale quote immediately',
+    !/€40\.00/.test(afterSurf)
+    || /Checking price|checkingPrice|portal-schedule-quote-checking/i.test(afterSurf),
+    afterSurf);
+
+  // Wire path: scheduleWireEditableDrawer must listen to #ps-drawer-surfers
+  const wireFn = extractFn(editSrc, 'scheduleWireEditableDrawer') || '';
+  ok('Edit wire path includes #ps-drawer-surfers for requote/stale',
+    /ps-drawer-surfers/.test(wireFn),
+    wireFn.slice(0, 300));
+
+  // Validate blocks invalid surfer for no-lesson with rentals intent
+  editNone4.nodes['ps-drawer-surfers'].value = '0';
+  let gate0 = { ok: true };
+  if (typeof editNone4.ctx.scheduleReadDrawerEditPayload === 'function'
+    && typeof editNone4.ctx.scheduleDrawerValidateEditPayload === 'function') {
+    // Ensure a rental is selected so intent needs surfers
+    (editNone4.el('ps-drawer-rentals').querySelectorAll('.ps-drawer-rental-check') || []).forEach((c) => {
+      if (c.getAttribute('data-offering-key') === 'board_and_suit_rental') c.checked = true;
+    });
+    const payload0 = editNone4.ctx.scheduleReadDrawerEditPayload();
+    gate0 = editNone4.ctx.scheduleDrawerValidateEditPayload(payload0 || {});
+  }
+  ok('Edit no-lesson invalid Surfers blocks Save/quote validation',
+    gate0 && gate0.ok === false
+    && (gate0.errorKey === 'schedule.create.surfersRequired'
+      || gate0.errorKey === 'schedule.create.componentsRequired'),
+    JSON.stringify(gate0));
 
   // ── [5] DOM class/order parity + mutual exclusion ────────────────────────
   console.log('\n[5] Create/Edit row DOM class/order + mutual exclusion');

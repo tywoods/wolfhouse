@@ -1810,6 +1810,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.create.privateLesson.sessionMax': 'Troppe sessioni — massimo 30.',
     'schedule.create.privateLesson.rangeTooLong': 'L\'intervallo del corso privato può essere al massimo di 30 giorni.',
     'schedule.create.componentsRequired': 'Seleziona almeno un componente.',
+    'schedule.create.surferCount': 'Numero di surfisti',
     'schedule.create.surfersRequired': 'Inserisci il numero di surfisti.',
     'schedule.create.rentalQty': 'Surfisti',
     'schedule.create.rentalDuration': 'Durata noleggio',
