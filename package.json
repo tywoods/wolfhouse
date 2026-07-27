@@ -445,6 +445,7 @@
     "verify:sunset-rendered-ui-price-hotfix": "node scripts/verify-sunset-rendered-ui-price-hotfix.js",
     "verify:sunset-rental-quantity-total-hotfix": "node scripts/verify-sunset-rental-quantity-total-hotfix.js",
     "verify:sunset-admin-rental-duration-identity-hotfix": "node scripts/verify-sunset-admin-rental-duration-identity-hotfix.js",
+    "verify:sunset-create-quote-six-day-async": "node scripts/verify-sunset-create-quote-six-day-async.js",
     "verify:sunset-rental-duration-pebbles-quickfix": "node scripts/verify-sunset-rental-duration-pebbles-quickfix.js",
     "verify:sunset-admin-authoritative-1-to-7-day-pricing": "node scripts/verify-sunset-admin-authoritative-1-to-7-day-pricing.js",
     "verify:sunset-admin-pricing-8-to-14-hotfix": "node scripts/verify-sunset-admin-pricing-8-to-14-hotfix.js",

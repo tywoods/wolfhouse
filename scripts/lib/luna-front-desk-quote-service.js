@@ -177,11 +177,18 @@ function computeBillableUnits(offering, serviceDates, quantity) {
 }
 
 function nestOfferingForQuote(raw) {
+  const tierOrDuration = raw.tier_key
+    || (raw.tier && raw.tier.key)
+    || raw.duration_key
+    || null;
   return {
     offering_id: raw.offering_id,
     offering_type: raw.offering_type,
     course_id: raw.course_id || null,
-    tier_key: raw.tier_key || (raw.tier && raw.tier.key) || null,
+    tier_key: tierOrDuration,
+    // Rental windows use duration_key canonically; keep in sync with tier_key so
+    // async Admin re-resolve cannot drop multi-day identity.
+    duration_key: raw.duration_key || tierOrDuration || null,
     label: raw.label,
     billing_unit: raw.billing_unit,
     billing_mode: raw.billing_mode || null,
@@ -556,6 +563,15 @@ async function quoteOfferingLine(pg, command, offering, serviceDates, quantity, 
   let priceId = offering.price_id;
 
   if (pg && requireDb && offering.price_identity) {
+    // Propagate exact rental duration + compound item_code into async Admin
+    // re-resolve. Generic offering_type "rental" alone used to lose 6_days and
+    // silently price board_and_suit_rental__1_day (2000) while keeping the
+    // 6_days catalog label — payment-link reprice then fail-closed correctly.
+    const rentalDuration = offering.duration_key || offering.tier_key || null;
+    const itemCode = offering.item_code
+      || offering.offering_item_code
+      || offering.offering_id
+      || null;
     const resolved = await resolveActiveSunsetAdminPrice(pg, {
       clientSlug: SUNSET_CLIENT_SLUG,
       locationId: command.locationId,
@@ -564,8 +580,11 @@ async function quoteOfferingLine(pg, command, offering, serviceDates, quantity, 
         component: offering.offering_type,
         staff_ui_service_type: offering.offering_type,
         course_id: offering.course_id,
-        tier_key: offering.tier_key,
-        offering_id: offering.offering_id,
+        tier_key: offering.tier_key || rentalDuration,
+        duration_key: rentalDuration,
+        offering_id: offering.offering_id || itemCode,
+        offering_item_code: offering.offering_item_code || itemCode,
+        item_code: itemCode,
         location_id: command.locationId,
       },
       pgClient: pg,
