@@ -240,6 +240,9 @@ function parseRentalPricingMeta(meta) {
     : parseInt(String(quotedRaw), 10);
   const pricing_group_id = String(rp.pricing_group_id || '').trim() || null;
   const service_date = String(rp.service_date || '').trim() || null;
+  const rental_service_dates = Array.isArray(rp.rental_service_dates)
+    ? Array.from(new Set(rp.rental_service_dates.map((d) => String(d || '').trim()).filter(Boolean))).sort()
+    : [];
   const components = Array.isArray(rp.components)
     ? rp.components.map((c) => String(c || '').trim()).filter(Boolean)
     : [];
@@ -249,6 +252,7 @@ function parseRentalPricingMeta(meta) {
     quantity,
     pricing_group_id,
     service_date,
+    rental_service_dates,
     components,
     quoted_total_cents: quoted_total_cents != null && Number.isInteger(quoted_total_cents) && quoted_total_cents >= 0
       ? quoted_total_cents
@@ -288,25 +292,35 @@ function validateBundleRentalGroup(svcRows, rentalPricing) {
   const groupId = rentalPricing.pricing_group_id;
   if (!groupId) return { ok: false, error: 'rental_pricing_group_invalid' };
   const groupRows = svcRows.filter((sr) => serviceRowPricingGroupId(sr) === groupId);
-  const boards = groupRows.filter((sr) => String(sr.service_type || '').toLowerCase() === 'surfboard');
-  const suits = groupRows.filter((sr) => String(sr.service_type || '').toLowerCase() === 'wetsuit');
-  if (groupRows.length !== 2 || boards.length !== 1 || suits.length !== 1) {
+  const expectedDates = rentalPricing.rental_service_dates && rentalPricing.rental_service_dates.length
+    ? rentalPricing.rental_service_dates
+    : (rentalPricing.service_date ? [String(rentalPricing.service_date)] : []);
+  if (!expectedDates.length) return { ok: false, error: 'rental_pricing_group_invalid' };
+  if (groupRows.length !== expectedDates.length * 2) {
     return { ok: false, error: 'rental_pricing_group_invalid' };
   }
-  const board = boards[0];
-  const suit = suits[0];
-  if (Number(board.quantity) !== rentalPricing.quantity || Number(suit.quantity) !== rentalPricing.quantity) {
-    return { ok: false, error: 'rental_pricing_group_invalid' };
-  }
-  if (rentalPricing.service_date) {
-    const expected = String(rentalPricing.service_date);
-    if (String(board.service_date || '') !== expected || String(suit.service_date || '') !== expected) {
+  const expectedDateSet = new Set(expectedDates);
+  for (const expectedDate of expectedDates) {
+    const dateRows = groupRows.filter((sr) => String(sr.service_date || '') === expectedDate);
+    const boards = dateRows.filter((sr) => String(sr.service_type || '').toLowerCase() === 'surfboard');
+    const suits = dateRows.filter((sr) => String(sr.service_type || '').toLowerCase() === 'wetsuit');
+    if (dateRows.length !== 2 || boards.length !== 1 || suits.length !== 1) {
       return { ok: false, error: 'rental_pricing_group_invalid' };
     }
   }
-  const boardLoc = normalizeSunsetLocationId(parseMeta(board.metadata).location_id);
-  const suitLoc = normalizeSunsetLocationId(parseMeta(suit.metadata).location_id);
-  if (boardLoc !== suitLoc) {
+  if (groupRows.some((sr) => !expectedDateSet.has(String(sr.service_date || '')))) {
+    return { ok: false, error: 'rental_pricing_group_invalid' };
+  }
+  if (groupRows.some((sr) => Number(sr.quantity) !== rentalPricing.quantity)) {
+    return { ok: false, error: 'rental_pricing_group_invalid' };
+  }
+  if (rentalPricing.service_date && !expectedDateSet.has(String(rentalPricing.service_date))) {
+    return { ok: false, error: 'rental_pricing_group_invalid' };
+  }
+  const locations = new Set(groupRows.map((sr) => (
+    normalizeSunsetLocationId(parseMeta(sr.metadata).location_id)
+  )));
+  if (locations.size !== 1) {
     return { ok: false, error: 'rental_pricing_group_invalid' };
   }
   const expectedComponents = rentalPricing.components && rentalPricing.components.length
@@ -315,7 +329,7 @@ function validateBundleRentalGroup(svcRows, rentalPricing) {
   if (expectedComponents.indexOf('surfboard') < 0 || expectedComponents.indexOf('wetsuit') < 0) {
     return { ok: false, error: 'rental_pricing_group_invalid' };
   }
-  return { ok: true, bundleRows: [board, suit] };
+  return { ok: true, bundleRows: groupRows };
 }
 
 function isFullDayEquipmentAddon(sr) {
