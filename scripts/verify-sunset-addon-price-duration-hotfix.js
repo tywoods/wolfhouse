@@ -195,8 +195,15 @@ ok('server reject Infinity text', !parseServer('Infinity').ok);
 ok('server zero allowed (product contract)', parseServer('0').ok && parseServer('0').amount_cents === 0);
 ok('server signed discount -5 → -500', parseServer('-5').ok && parseServer('-5').amount_cents === -500);
 
-const browserParseFn = extractFn(apiSrc, 'scheduleParseCreateMoneyToCents');
+// Injected browser module (not template-embedded — avoids \\d escape consumption).
+const moneyModSrc = fs.readFileSync(
+  path.join(ROOT, 'scripts/browser/sunset-schedule-money-parse.js'), 'utf8',
+);
+const browserParseFn = extractFn(moneyModSrc, 'scheduleParseCreateMoneyToCents');
 ok('browser parse fn extract', !!browserParseFn);
+ok('money-parse inject marker present (no inline redeclare)',
+  apiSrc.includes('/* INJECT:sunset-schedule-money-parse */')
+  && !/\bfunction\s+scheduleParseCreateMoneyToCents\s*\(/.test(apiSrc));
 let browserParse = null;
 if (browserParseFn) {
   try {
@@ -221,7 +228,7 @@ if (typeof browserParse === 'function') {
 
 console.log('\n[A2] scheduleConfirmCreateCustomLine behavioral (Coffee + 10 / 10.00)');
 const confirmFn = extractFn(apiSrc, 'scheduleConfirmCreateCustomLine');
-const parseFn = extractFn(apiSrc, 'scheduleParseCreateMoneyToCents');
+const parseFn = browserParseFn;
 const renderFn = extractFn(apiSrc, 'scheduleRenderCreateCustomLines');
 const setEditorFn = extractFn(apiSrc, 'scheduleSetCustomLineEditorOpen');
 const formatFn = extractFn(apiSrc, 'scheduleFormatCentsMoney');
