@@ -99,6 +99,13 @@ function scheduleRentalPriceIsSellable(price) {
 
 function scheduleRentalPriceMatchesLocation(price, locationId) {
   var wantLoc = locationId != null ? String(locationId).trim() : '';
+  var wantClient = (typeof getClient === 'function') ? String(getClient() || '').trim() : '';
+  var rowClientSlug = String((price && price.client_slug) || '').trim();
+  var rowTenant = String((price && price.tenant) || '').trim();
+  // Config payloads are tenant-scoped, but reject hostile/misjoined foreign
+  // identity fields independently instead of allowing one matching alias to
+  // mask the other and become the customer-facing label.
+  if (wantClient && ((rowClientSlug && rowClientSlug !== wantClient) || (rowTenant && rowTenant !== wantClient))) return false;
   if (!wantLoc) return true;
   if (!price || price.location_id == null || !String(price.location_id).trim()) return false;
   return String(price.location_id).trim() === wantLoc;

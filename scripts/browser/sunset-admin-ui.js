@@ -740,7 +740,11 @@ function adminIsCanonicalRentalPeriod(period){
 function adminFilterCanonicalRentalPriceRows(items){
   return (items || []).filter(function(p){
     var parsed = adminParsePriceRow(p);
-    return adminIsCanonicalRentalPeriod(parsed.periodWindow);
+    var period = String(parsed.periodWindow || '').trim();
+    // Known commercial windows are rendered normally. A genuinely unknown
+    // stored value must remain visible so Edit can present the disabled invalid
+    // sentinel and block Save; silently hiding corrupt data defeats that guard.
+    return adminIsCanonicalRentalPeriod(period) || (!!period && period !== '1_day' && adminRentalPeriodRank(period) === 999);
   });
 }
 

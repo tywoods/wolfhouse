@@ -277,7 +277,7 @@ function runCourseCardProofs() {
 }
 
 function runRentalEditFilterProofs() {
-  console.log('\n[2] Rental edit form: exact 10-key periods; pack/legacy rows filtered\n');
+  console.log('\n[2] Rental edit form: 10 valid periods; unknown stored rows visible and fail closed\n');
   const cfg = realisticRentalConfig();
   assert('fixture has 13 rental rows (10 periods + 3 pack/legacy)', cfg.prices.length === 13);
 
@@ -289,86 +289,102 @@ function runRentalEditFilterProofs() {
 
   const html = box.innerHTML;
   const cards = html.match(/data-admin-price-card="/g) || [];
-  assert('edit form renders exactly 10 rental cards', cards.length === 10, `got ${cards.length}`);
+  assert('edit form renders 10 valid cards plus 2 unknown stored rows', cards.length === 12, `got ${cards.length}`);
   assert('edit form keeps half_day card/code', /half_day/.test(html));
   assert('edit form keeps 1_hour and 2_hours', /1_hour/.test(html) && /2_hours/.test(html));
   assert('edit form omits pack-only 1_day', !/__1_day|value="1_day"/.test(html));
-  assert('edit form omits 1_week', !/1_week/.test(html));
-  assert('edit form omits custom period', !/__custom|value="custom"/.test(html));
+  assert('edit form visibly represents unknown 1_week row', /1 week/i.test(html));
+  assert('edit form visibly represents unknown custom row', /Custom/i.test(html));
 
-  // Period selects: each exposes the exact rental contract, selected once each.
+  // Valid selects expose exactly the rental contract. Unknown stored rows expose
+  // one additional, selected+disabled empty sentinel and cannot map to a key.
   const selectRe = /<select[^>]*data-admin-price-field="period"[^>]*>([\s\S]*?)<\/select>/gi;
   const selectedPeriods = [];
+  const invalidSelections = [];
   let m;
   while ((m = selectRe.exec(html))) {
     const inner = m[1];
     const vals = [];
-    const optRe = /<option\b([^>]*) value="([^"]*)"/gi;
-    let om;
     let selected = null;
-    // Also handle value before selected
-    const optRe2 = /<option\b([^>]*)>([\s\S]*?)<\/option>/gi;
-    while ((om = optRe2.exec(inner))) {
+    let selectedAttrs = '';
+    let selectedLabel = '';
+    const optRe = /<option\b([^>]*)>([\s\S]*?)<\/option>/gi;
+    let om;
+    while ((om = optRe.exec(inner))) {
       const attrs = om[1] || '';
       const vmMatch = /value="([^"]*)"/.exec(attrs);
       const value = vmMatch ? vmMatch[1] : '';
       vals.push(value);
-      if (/\bselected\b/i.test(attrs)) selected = value;
+      if (/\bselected\b/i.test(attrs)) {
+        selected = value;
+        selectedAttrs = attrs;
+        selectedLabel = om[2].trim();
+      }
     }
-    assert('period select has 10 options', vals.length === 10, JSON.stringify(vals));
-    assert('period select values exact rental contract',
-      RENTAL_PERIOD_KEYS.every((k, i) => vals[i] === k),
-      JSON.stringify(vals));
-    selectedPeriods.push(selected);
+    if (selected) {
+      assert('valid period select has 10 options', vals.length === 10, JSON.stringify(vals));
+      assert('valid period select values exact rental contract',
+        RENTAL_PERIOD_KEYS.every((k, i) => vals[i] === k), JSON.stringify(vals));
+      selectedPeriods.push(selected);
+    } else {
+      assert('unknown row has selected disabled empty sentinel',
+        selected === '' && /\bdisabled\b/i.test(selectedAttrs) && vals[0] === '', inner);
+      invalidSelections.push({ values: vals, label: selectedLabel });
+    }
   }
-  assert('exactly 10 period selects', selectedPeriods.length === 10, `got ${selectedPeriods.length}`);
+  assert('exactly 10 valid period selects', selectedPeriods.length === 10, `got ${selectedPeriods.length}`);
+  assert('exactly 2 unknown rows have invalid sentinel selections', invalidSelections.length === 2,
+    JSON.stringify(invalidSelections));
+  assert('unknown rows never map to a valid rental duration',
+    invalidSelections.every((row) => row.values[0] === '' && !RENTAL_PERIOD_KEYS.includes(row.values[0])),
+    JSON.stringify(invalidSelections));
   const uniqueSelected = selectedPeriods.slice().sort();
-  assert('selected values match rental contract once each',
+  assert('selected valid values match rental contract once each',
     RENTAL_PERIOD_KEYS.slice().sort().every((k, i) => uniqueSelected[i] === k),
     JSON.stringify(selectedPeriods));
 
-  // Simulate Save body from rendered cards: selected periods (already parsed)
-  // + amount inputs. Only the 10 rental-period cards exist in the form.
+  // Preserve the exact ten valid-card patches. The visible invalid cards retain
+  // empty selections, so real Save validation stops before any request.
   const amountRe = /data-admin-price-field="amount"[^>]*value="([^"]*)"/gi;
   const amounts = [];
   let am;
   while ((am = amountRe.exec(html))) amounts.push(am[1]);
-  assert('submit has 10 amount inputs', amounts.length === 10, JSON.stringify(amounts));
+  assert('render has 12 amount inputs including 2 invalid rows', amounts.length === 12, JSON.stringify(amounts));
   const submitBody = selectedPeriods.map((period, i) => ({
     period_window: period,
     amount_cents: Math.round(Number(amounts[i]) * 100),
   }));
-  assert('submit body has exactly 10 patches', submitBody.length === 10, JSON.stringify(submitBody));
-  assert('submit periods are exact rental contract once each',
+  assert('valid projection has exactly 10 patches', submitBody.length === 10, JSON.stringify(submitBody));
+  assert('valid patch periods are exact rental contract once each',
     RENTAL_PERIOD_KEYS.every((k) => submitBody.some((b) => b.period_window === k)),
     JSON.stringify(submitBody.map((b) => b.period_window)));
-  assert('no duplicate period in submit',
-    new Set(submitBody.map((b) => b.period_window)).size === 10);
+  assert('no duplicate valid patch period', new Set(submitBody.map((b) => b.period_window)).size === 10);
   for (const row of submitBody) {
-    assert(`submit row ${row.period_window} validates`,
-      validatePricePatchBody({
-        period_window: row.period_window,
-        amount_cents: row.amount_cents,
-      }).ok === true,
+    assert(`valid patch row ${row.period_window} validates`,
+      validatePricePatchBody({ period_window: row.period_window, amount_cents: row.amount_cents }).ok === true,
       JSON.stringify(row));
   }
   assert('server accepts half_day save',
     validatePricePatchBody({ period_window: 'half_day', amount_cents: 1000 }).ok === true);
   assert('server accepts 1_hour create',
-    validatePriceCreateBody({
-      rental_group: 'bundles',
-      period_window: '1_hour',
-      amount_cents: 1000,
-    }).ok === true);
+    validatePriceCreateBody({ rental_group: 'bundles', period_window: '1_hour', amount_cents: 1000 }).ok === true);
+  assert('invalid sentinel cannot be saved as a patch',
+    validatePricePatchBody({ period_window: '', amount_cents: 9900 }).ok === false);
+  assert('unknown stored values cannot be saved as rental patches',
+    validatePricePatchBody({ period_window: '1_week', amount_cents: 9900 }).ok === false
+      && validatePricePatchBody({ period_window: 'custom', amount_cents: 3333 }).ok === false);
 
-  // Pure filter helper contract.
+  // Pure filter helper keeps canonical rows and visible unknowns, but still
+  // excludes the pack-only 1_day alias.
   const filtered = sandbox.adminFilterCanonicalRentalPriceRows(cfg.prices);
-  assert('filter helper returns 10', filtered.length === 10);
+  assert('filter helper returns 10 valid plus 2 visible unknown rows', filtered.length === 12);
   assert('filter helper keys match rental contract once',
     RENTAL_PERIOD_KEYS.every((k) => filtered.some((p) => {
       const parsed = sandbox.adminParsePriceRow(p);
       return parsed.periodWindow === k;
     })));
+  assert('filter helper excludes only pack 1_day from fixture',
+    !filtered.some((p) => sandbox.adminParsePriceRow(p).periodWindow === '1_day'));
 }
 
 async function runGroupCourse814Proofs() {
