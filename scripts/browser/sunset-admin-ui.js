@@ -221,23 +221,58 @@ function adminApiRequest(method, path, body){
   });
 }
 
+/**
+ * Ownership gate for in-flight adminReloadConfigKeepingEdit responses.
+ * Shares adminLoadSeq with loadAdminTab so newer loads win (single sequence owner).
+ * Stale responses must not mutate cache/DOM/target/draft.
+ * Generation-stale handlers must not clear busy owned by a newer operation.
+ */
+function adminReloadKeepingEditOwnership(loadSeq, originSchoolKey, originEditTarget){
+  if (loadSeq !== adminLoadSeq) return { apply: false, releaseBusy: false };
+  var curTarget = adminEditTarget != null ? String(adminEditTarget) : '';
+  if (adminPricingDraftSchoolKey() !== originSchoolKey || curTarget !== originEditTarget) {
+    // Same generation but school/edit ownership drifted — discard body, still release our busy.
+    return { apply: false, releaseBusy: true };
+  }
+  return { apply: true, releaseBusy: true };
+}
+
 function adminReloadConfigKeepingEdit(keepTarget){
   var saved = keepTarget || null;
-  adminSaveBusy = false;
+  // Capture full ownership identity at request start (school/client/location, edit target, generation).
+  var originSchoolKey = adminPricingDraftSchoolKey();
+  var originEditTarget = adminEditTarget != null ? String(adminEditTarget) : '';
+  // Share loadAdminTab's monotonic sequence so overlapping loads/reloads race safely.
+  var loadSeq = ++adminLoadSeq;
+  // Keep busy through request completion; only this generation may clear it.
+  adminSaveBusy = true;
   var url = '/staff/admin/config' + adminClientQuery();
   fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
     .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
     .then(function(data){
+      var gate = adminReloadKeepingEditOwnership(loadSeq, originSchoolKey, originEditTarget);
+      if (!gate.apply) {
+        if (gate.releaseBusy) adminSaveBusy = false;
+        return;
+      }
       if (!data || data.success !== true) return Promise.reject(new Error('load failed'));
       adminConfigCache = data;
       adminEditTarget = saved;
       // Keep unsaved Pricing field drafts while re-rendering for a kept edit target.
       renderAdminFromConfig(data, { preserveDraft: true });
+      if (gate.releaseBusy && loadSeq === adminLoadSeq) adminSaveBusy = false;
     })
     .catch(function(e){
+      // Stale error/finally must not clear busy or mutate state owned by a newer operation.
+      var gate = adminReloadKeepingEditOwnership(loadSeq, originSchoolKey, originEditTarget);
+      if (!gate.apply) {
+        if (gate.releaseBusy) adminSaveBusy = false;
+        return;
+      }
       adminEditTarget = saved;
       adminShowMessage('error', portalT('admin.error') + ' ' + e.message);
       if (adminConfigCache) renderAdminFromConfig(adminConfigCache, { preserveDraft: true });
+      if (gate.releaseBusy && loadSeq === adminLoadSeq) adminSaveBusy = false;
     });
 }
 

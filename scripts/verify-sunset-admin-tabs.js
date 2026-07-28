@@ -923,32 +923,22 @@ function realisticPricingCfg(locationId) {
   };
 }
 
-function runPricingDraftRerenderChecks() {
-  console.log('\n[3b] Pricing draft retention across real renderAdminFromConfig\n');
-  const registry = createFormAwareRegistry();
-  const pricesBox = registry.makeBox('admin-prices-body');
-  const timesBox = registry.makeBox('admin-times-body');
-  registry.byId.set('admin-save-msg', { style: {}, textContent: '', className: '' });
-  registry.byId.set('admin-write-banner', { style: {} });
-  registry.byId.set('admin-finance-body', { innerHTML: '' });
-  registry.byId.set('admin-panel-finance', {
-    removeAttribute() {},
-    setAttribute() {},
-    hidden: false,
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
   });
-  registry.byId.set('admin-panel-pricing', {
-    removeAttribute() {},
-    setAttribute() {},
-    hidden: true,
-  });
-  registry.byId.set('admin-subtab-list', {
-    dataset: {},
-    querySelectorAll() { return []; },
-    addEventListener() {},
-  });
-  registry.byId.set('tab-admin', { dataset: {}, addEventListener() {} });
+  return { promise, resolve, reject };
+}
 
-  let location = 'sunset-somo';
+async function flushMicrotasks(times) {
+  const n = times == null ? 8 : times;
+  for (let i = 0; i < n; i++) await Promise.resolve();
+}
+
+function createAdminUiSandbox(registry, locationRef) {
   const sandbox = {
     console,
     document: {
@@ -967,8 +957,10 @@ function runPricingDraftRerenderChecks() {
     },
     el(id) { return registry.getElementById(id); },
     getClient() { return 'sunset'; },
-    getSunsetLocation() { return location; },
-    getSunsetLocationLabel() { return location === 'sunset-sardinero' ? 'elSardi' : 'Sunset'; },
+    getSunsetLocation() { return locationRef.location; },
+    getSunsetLocationLabel() {
+      return locationRef.location === 'sunset-sardinero' ? 'elSardi' : 'Sunset';
+    },
     getPortalProfile() { return { is_surf_vertical: true }; },
     SUNSET_SCHEDULE_LESSON_DAY_CAP: 24,
     scheduleInvalidateAdminCatalogCache() {},
@@ -991,6 +983,57 @@ function runPricingDraftRerenderChecks() {
   vm.createContext(sandbox);
   vm.runInContext(getSunsetAdminBrowserHelperSource(), sandbox);
   vm.runInContext(getSunsetAdminUiBrowserSource(), sandbox);
+  return sandbox;
+}
+
+function seedAdminHarnessDom(registry) {
+  registry.makeBox('admin-prices-body');
+  registry.makeBox('admin-times-body');
+  registry.byId.set('admin-save-msg', { style: {}, textContent: '', className: '' });
+  registry.byId.set('admin-write-banner', { style: {} });
+  registry.byId.set('admin-finance-body', { innerHTML: '' });
+  registry.byId.set('admin-fetch-state', {
+    textContent: '',
+    style: { display: 'none' },
+    className: '',
+    classList: { remove() {}, add() {} },
+  });
+  registry.byId.set('admin-panel-finance', {
+    removeAttribute() {},
+    setAttribute() {},
+    hidden: false,
+  });
+  registry.byId.set('admin-panel-pricing', {
+    removeAttribute() {},
+    setAttribute() {},
+    hidden: true,
+  });
+  registry.byId.set('admin-subtab-list', {
+    dataset: {},
+    querySelectorAll() { return []; },
+    addEventListener() {},
+  });
+  registry.byId.set('tab-admin', { dataset: {}, addEventListener() {} });
+}
+
+function realisticPricingCfgWithMarker(locationId, amountEuros) {
+  const cfg = realisticPricingCfg(locationId);
+  const euros = Number(amountEuros);
+  const cents = Math.round(euros * 100);
+  for (const p of cfg.prices) {
+    p.amount = euros;
+    p.amount_cents = cents;
+  }
+  cfg._marker = `${locationId}:${euros.toFixed(2)}`;
+  return cfg;
+}
+
+async function runPricingDraftRerenderChecks() {
+  console.log('\n[3b] Pricing draft retention across real renderAdminFromConfig\n');
+  const registry = createFormAwareRegistry();
+  seedAdminHarnessDom(registry);
+  const locationRef = { location: 'sunset-somo' };
+  const sandbox = createAdminUiSandbox(registry, locationRef);
 
   assert('production defines renderAdminFromConfig', typeof sandbox.renderAdminFromConfig === 'function');
   assert(
@@ -1002,8 +1045,16 @@ function runPricingDraftRerenderChecks() {
     'adminReloadConfigKeepingEdit passes preserveDraft on success path',
     /renderAdminFromConfig\s*\(\s*data\s*,\s*\{\s*preserveDraft\s*:\s*true\s*\}\s*\)/.test(getSunsetAdminUiBrowserSource()),
   );
+  assert(
+    'production defines adminReloadConfigKeepingEdit',
+    typeof sandbox.adminReloadConfigKeepingEdit === 'function',
+  );
+  assert(
+    'production defines adminReloadConfig (canonical save/reload owner)',
+    typeof sandbox.adminReloadConfig === 'function',
+  );
 
-  const cfg = realisticPricingCfg(location);
+  const cfg = realisticPricingCfg(locationRef.location);
   sandbox.adminEditTarget = 'price-group:bundles';
   sandbox.adminConfigCache = cfg;
   sandbox.renderAdminFromConfig(cfg);
@@ -1026,11 +1077,35 @@ function runPricingDraftRerenderChecks() {
     amountEl ? `got ${amountEl.value}` : 'missing control',
   );
 
-  // Successful save / canonical refresh — server truth, not stale draft
+  // Successful save / canonical refresh — must run production reload owner, not a direct
+  // non-preserving renderAdminFromConfig call (that would be self-fulfilling).
+  amountEl.value = '99.50';
+  sandbox.renderAdminFromConfig(cfg, { preserveDraft: true });
+  amountEl = registry.getElementById(amountId);
+  assert('draft present before production save reload', !!(amountEl && amountEl.value === '99.50'));
+  sandbox.fetch = function adminSaveReloadFetch() {
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(cfg),
+    });
+  };
+  sandbox.adminReloadConfig();
+  await flushMicrotasks(12);
+  assert(
+    'production adminReloadConfig clears stored draft state',
+    sandbox.adminPricingDraftState == null,
+  );
+  assert(
+    'production adminReloadConfig clears edit target',
+    sandbox.adminEditTarget == null,
+  );
+  // Canonical save reload exits edit mode (no amount inputs). Re-enter edit: server truth only.
+  sandbox.adminEditTarget = 'price-group:bundles';
   sandbox.renderAdminFromConfig(cfg);
   amountEl = registry.getElementById(amountId);
   assert(
-    'preserveDraft omitted shows server truth (no stale draft replay)',
+    'production adminReloadConfig/loadAdminTab leaves no stale draft on re-edit',
     !!(amountEl && amountEl.value === '25.00'),
     amountEl ? `got ${amountEl.value}` : 'missing control',
   );
@@ -1041,15 +1116,22 @@ function runPricingDraftRerenderChecks() {
   amountEl = registry.getElementById(amountId);
   assert('draft retained again before reopen clear', !!(amountEl && amountEl.value === '77.25'));
 
-  if (typeof sandbox.adminClearPricingDraftState === 'function') {
-    sandbox.adminClearPricingDraftState();
-  }
-  // Simulate Admin reopen: reset edit + re-render without preserve
+  sandbox.fetch = function adminReopenFetch() {
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(cfg),
+    });
+  };
+  // Production Admin reopen: loadAdminTab({ resetSubTab: true }) clears drafts.
+  sandbox.loadAdminTab({ resetSubTab: true });
+  await flushMicrotasks(12);
+  assert('Admin reopen cleared draft state', sandbox.adminPricingDraftState == null);
   sandbox.adminEditTarget = 'price-group:bundles';
   sandbox.renderAdminFromConfig(cfg);
   amountEl = registry.getElementById(amountId);
   assert(
-    'Admin reopen/full refresh does not restore stale draft',
+    'Admin reopen/full refresh does not restore stale draft on re-edit',
     !!(amountEl && amountEl.value === '25.00'),
     amountEl ? `got ${amountEl.value}` : 'missing control',
   );
@@ -1059,7 +1141,7 @@ function runPricingDraftRerenderChecks() {
     typeof sandbox.adminSnapshotPricingDraftState === 'function');
   assert('adminRestorePricingDraftState exists for school-mismatch gate',
     typeof sandbox.adminRestorePricingDraftState === 'function');
-  location = 'sunset-somo';
+  locationRef.location = 'sunset-somo';
   sandbox.adminEditTarget = 'price-group:bundles';
   sandbox.renderAdminFromConfig(cfg);
   amountEl = registry.getElementById(amountId);
@@ -1067,8 +1149,8 @@ function runPricingDraftRerenderChecks() {
   sandbox.adminSnapshotPricingDraftState();
   assert('snapshot school key recorded',
     !!(sandbox.adminPricingDraftState && sandbox.adminPricingDraftState.schoolKey === 'sunset|sunset-somo'));
-  location = 'sunset-sardinero';
-  const cfgOther = realisticPricingCfg(location);
+  locationRef.location = 'sunset-sardinero';
+  const cfgOther = realisticPricingCfg(locationRef.location);
   sandbox.adminConfigCache = cfgOther;
   sandbox.adminEditTarget = 'price-group:bundles';
   // Section re-render only (avoid renderAdminFromConfig clear) then attempt restore.
@@ -1082,26 +1164,371 @@ function runPricingDraftRerenderChecks() {
   );
   assert('school mismatch clears stored draft state', sandbox.adminPricingDraftState == null);
 
-  // Edit-target mismatch: do not restore onto wrong edit surface
-  location = 'sunset-somo';
+  // Retained-snapshot ownership: mismatched target must not apply draft, but snapshot stays
+  // so a later matching-target restore can still rehydrate (no self-fulfilling clear+rerender).
+  locationRef.location = 'sunset-somo';
   sandbox.adminEditTarget = 'price-group:bundles';
   sandbox.renderAdminFromConfig(cfg);
   amountEl = registry.getElementById(amountId);
   if (amountEl) amountEl.value = '66.66';
   sandbox.adminSnapshotPricingDraftState();
+  assert(
+    'retained snapshot captured for ownership test',
+    !!(sandbox.adminPricingDraftState
+      && sandbox.adminPricingDraftState.editTarget === 'price-group:bundles'
+      && sandbox.adminPricingDraftState.fields
+      && sandbox.adminPricingDraftState.fields[`id:${amountId}`]
+      && sandbox.adminPricingDraftState.fields[`id:${amountId}`].value === '66.66'),
+  );
   sandbox.adminEditTarget = 'private-lesson';
   sandbox.renderAdminSectionPricesFromConfig(cfg);
   sandbox.adminRestorePricingDraftState();
-  // Snap remains (edit target mismatch does not clear) but must not have applied to wrong surface.
-  // Re-enter price-group with a non-preserve render → server truth.
+  assert(
+    'mismatched edit target retains snapshot (does not clear)',
+    !!(sandbox.adminPricingDraftState
+      && sandbox.adminPricingDraftState.editTarget === 'price-group:bundles'
+      && sandbox.adminPricingDraftState.fields[`id:${amountId}`]
+      && sandbox.adminPricingDraftState.fields[`id:${amountId}`].value === '66.66'),
+  );
+  // Re-enter matching target WITHOUT restore first: server truth proves draft was not applied
+  // while ownership mismatched (no self-fulfilling clear via non-preserve full render).
   sandbox.adminEditTarget = 'price-group:bundles';
-  sandbox.renderAdminFromConfig(cfg);
+  sandbox.renderAdminSectionPricesFromConfig(cfg);
   amountEl = registry.getElementById(amountId);
   assert(
-    'draft restore does not replay onto mismatched edit target after surface change',
+    'after mismatched restore attempt, matching surface still server truth before re-restore',
     !!(amountEl && amountEl.value === '25.00'),
     amountEl ? `got ${amountEl.value}` : 'missing control',
   );
+  // Now restore — retained snapshot must rehydrate the draft.
+  sandbox.adminRestorePricingDraftState();
+  amountEl = registry.getElementById(amountId);
+  assert(
+    'retained snapshot restores when edit target matches again',
+    !!(amountEl && amountEl.value === '66.66'),
+    amountEl ? `got ${amountEl.value}` : 'missing control',
+  );
+}
+
+/**
+ * Real async production-source VM tests for in-flight adminReloadConfigKeepingEdit().
+ * Asserts stale responses do not mutate cache/DOM/target/draft; newest load wins;
+ * stale finally cannot clear a newer busy owner.
+ */
+async function runAdminReloadOwnershipRaceChecks() {
+  console.log('\n[3c] adminReloadConfigKeepingEdit ownership / in-flight races\n');
+  const amountId = 'admin-price-amount-r-1_day';
+
+  // ── (1) Delayed response after school/location change ───────────────────
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    const cfgA = realisticPricingCfgWithMarker('sunset-somo', 25);
+    const cfgB = realisticPricingCfgWithMarker('sunset-sardinero', 40);
+    const stalePayload = realisticPricingCfgWithMarker('sunset-somo', 11);
+
+    sandbox.adminEditTarget = 'price-group:bundles';
+    sandbox.adminConfigCache = cfgA;
+    sandbox.adminSaveBusy = true;
+    sandbox.renderAdminFromConfig(cfgA);
+    let amountEl = registry.getElementById(amountId);
+    if (amountEl) amountEl.value = '88.00';
+    sandbox.adminSnapshotPricingDraftState();
+    const draftBefore = sandbox.adminPricingDraftState;
+    const draftJsonBefore = JSON.stringify(draftBefore);
+
+    const d = deferred();
+    let fetchCount = 0;
+    sandbox.fetch = function schoolRaceFetch() {
+      fetchCount += 1;
+      return d.promise.then((body) => ({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(body),
+      }));
+    };
+
+    sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+    assert('school-race: reload issues one fetch', fetchCount === 1, `fetchCount=${fetchCount}`);
+    assert('school-race: busy remains set for in-flight reload', sandbox.adminSaveBusy === true);
+
+    // Ownership changes in flight: school B is now current with its own cache/DOM.
+    locationRef.location = 'sunset-sardinero';
+    sandbox.adminConfigCache = cfgB;
+    sandbox.adminEditTarget = 'price-group:bundles';
+    sandbox.renderAdminFromConfig(cfgB, { preserveDraft: false });
+    amountEl = registry.getElementById(amountId);
+    const htmlBeforeStale = registry.getElementById('admin-prices-body').innerHTML;
+    const targetBeforeStale = sandbox.adminEditTarget;
+    const cacheBeforeStale = sandbox.adminConfigCache;
+
+    d.resolve(stalePayload);
+    await flushMicrotasks(16);
+
+    assert(
+      'school-race: stale response does not install foreign config cache',
+      sandbox.adminConfigCache === cacheBeforeStale
+        && sandbox.adminConfigCache
+        && sandbox.adminConfigCache._marker === cfgB._marker,
+      sandbox.adminConfigCache && sandbox.adminConfigCache._marker,
+    );
+    assert(
+      'school-race: stale response does not mutate edit target',
+      sandbox.adminEditTarget === targetBeforeStale,
+      String(sandbox.adminEditTarget),
+    );
+    assert(
+      'school-race: stale response does not mutate Pricing DOM',
+      registry.getElementById('admin-prices-body').innerHTML === htmlBeforeStale,
+    );
+    amountEl = registry.getElementById(amountId);
+    assert(
+      'school-race: school B server amount remains (no stale A install)',
+      !!(amountEl && amountEl.value === '40.00'),
+      amountEl ? `got ${amountEl.value}` : 'missing',
+    );
+  }
+
+  // ── (2) Delayed response after edit-target change ───────────────────────
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    const cfg = realisticPricingCfgWithMarker('sunset-somo', 25);
+    const stalePayload = realisticPricingCfgWithMarker('sunset-somo', 13);
+
+    sandbox.adminEditTarget = 'price-group:bundles';
+    sandbox.adminConfigCache = cfg;
+    sandbox.renderAdminFromConfig(cfg);
+    let amountEl = registry.getElementById(amountId);
+    if (amountEl) amountEl.value = '77.00';
+    sandbox.adminSnapshotPricingDraftState();
+
+    const d = deferred();
+    sandbox.fetch = function targetRaceFetch() {
+      return d.promise.then((body) => ({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(body),
+      }));
+    };
+
+    sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+    // User switches edit surface while reload is in flight.
+    sandbox.adminEditTarget = 'private-lesson';
+    const cacheBefore = sandbox.adminConfigCache;
+    const htmlBefore = registry.getElementById('admin-prices-body').innerHTML;
+    const draftBefore = JSON.stringify(sandbox.adminPricingDraftState);
+
+    d.resolve(stalePayload);
+    await flushMicrotasks(16);
+
+    assert(
+      'target-race: stale response does not steal edit target back',
+      sandbox.adminEditTarget === 'private-lesson',
+      String(sandbox.adminEditTarget),
+    );
+    assert(
+      'target-race: stale response does not replace config cache',
+      sandbox.adminConfigCache === cacheBefore
+        && sandbox.adminConfigCache
+        && sandbox.adminConfigCache._marker === cfg._marker,
+    );
+    assert(
+      'target-race: stale response does not mutate Pricing DOM',
+      registry.getElementById('admin-prices-body').innerHTML === htmlBefore,
+    );
+    assert(
+      'target-race: draft snapshot not wiped by stale keep-edit response',
+      JSON.stringify(sandbox.adminPricingDraftState) === draftBefore
+        || (sandbox.adminPricingDraftState
+          && sandbox.adminPricingDraftState.fields
+          && sandbox.adminPricingDraftState.fields[`id:${amountId}`]
+          && sandbox.adminPricingDraftState.fields[`id:${amountId}`].value === '77.00'),
+    );
+  }
+
+  // ── (3) Overlapping reloads — newest wins ───────────────────────────────
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    const cfg0 = realisticPricingCfgWithMarker('sunset-somo', 25);
+    const olderPayload = realisticPricingCfgWithMarker('sunset-somo', 17);
+    const newerPayload = realisticPricingCfgWithMarker('sunset-somo', 19);
+
+    sandbox.adminEditTarget = 'price-group:bundles';
+    sandbox.adminConfigCache = cfg0;
+    sandbox.renderAdminFromConfig(cfg0);
+    let amountEl = registry.getElementById(amountId);
+    if (amountEl) amountEl.value = '55.00';
+    sandbox.adminSnapshotPricingDraftState();
+
+    const queue = [];
+    sandbox.fetch = function overlapFetch() {
+      const d = deferred();
+      queue.push(d);
+      return d.promise.then((body) => ({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(body),
+      }));
+    };
+
+    sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+    sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+    assert('overlap: two in-flight reloads', queue.length === 2, `queue=${queue.length}`);
+
+    // Newest completes first.
+    queue[1].resolve(newerPayload);
+    await flushMicrotasks(16);
+    amountEl = registry.getElementById(amountId);
+    assert(
+      'overlap: newest response installs config marker',
+      !!(sandbox.adminConfigCache && sandbox.adminConfigCache._marker === newerPayload._marker),
+      sandbox.adminConfigCache && sandbox.adminConfigCache._marker,
+    );
+    assert(
+      'overlap: newest keep-edit preserves draft amount',
+      !!(amountEl && amountEl.value === '55.00'),
+      amountEl ? `got ${amountEl.value}` : 'missing',
+    );
+    assert('overlap: edit target kept after newest', sandbox.adminEditTarget === 'price-group:bundles');
+    assert('overlap: busy cleared after newest completion', sandbox.adminSaveBusy === false);
+
+    const cacheAfterNewest = sandbox.adminConfigCache;
+    const htmlAfterNewest = registry.getElementById('admin-prices-body').innerHTML;
+    const targetAfterNewest = sandbox.adminEditTarget;
+    const draftAfterNewest = JSON.stringify(sandbox.adminPricingDraftState);
+
+    // Older response arrives late — must be discarded.
+    queue[0].resolve(olderPayload);
+    await flushMicrotasks(16);
+
+    assert(
+      'overlap: older response does not replace newer cache',
+      sandbox.adminConfigCache === cacheAfterNewest
+        && sandbox.adminConfigCache._marker === newerPayload._marker,
+    );
+    assert(
+      'overlap: older response does not mutate DOM after newest',
+      registry.getElementById('admin-prices-body').innerHTML === htmlAfterNewest,
+    );
+    assert('overlap: older response does not change edit target', sandbox.adminEditTarget === targetAfterNewest);
+    assert(
+      'overlap: older response does not mutate draft after newest',
+      JSON.stringify(sandbox.adminPricingDraftState) === draftAfterNewest,
+    );
+    amountEl = registry.getElementById(amountId);
+    assert(
+      'overlap: draft still 55.00 after discarded older response',
+      !!(amountEl && amountEl.value === '55.00'),
+      amountEl ? `got ${amountEl.value}` : 'missing',
+    );
+  }
+
+  // ── (4) Stale finally/error cannot clear newer busy owner ───────────────
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    const cfg = realisticPricingCfgWithMarker('sunset-somo', 25);
+    const newerPayload = realisticPricingCfgWithMarker('sunset-somo', 21);
+
+    sandbox.adminEditTarget = 'price-group:bundles';
+    sandbox.adminConfigCache = cfg;
+    sandbox.renderAdminFromConfig(cfg);
+
+    const queue = [];
+    sandbox.fetch = function busyRaceFetch() {
+      const d = deferred();
+      queue.push(d);
+      return d.promise.then((body) => {
+        if (body && body.__reject) {
+          return Promise.reject(new Error(body.__reject));
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(body),
+        };
+      });
+    };
+
+    sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+    assert('busy-race: first reload sets busy', sandbox.adminSaveBusy === true);
+    sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+    assert('busy-race: second reload keeps busy', sandbox.adminSaveBusy === true);
+    assert('busy-race: two fetches queued', queue.length === 2, `queue=${queue.length}`);
+
+    // Older fails after newer started — must not clear busy owned by newer.
+    queue[0].resolve({ __reject: 'stale network failure' });
+    await flushMicrotasks(16);
+    assert(
+      'busy-race: stale error/finally does not clear newer busy owner',
+      sandbox.adminSaveBusy === true,
+    );
+
+    queue[1].resolve(newerPayload);
+    await flushMicrotasks(16);
+    assert('busy-race: newer success clears busy', sandbox.adminSaveBusy === false);
+    assert(
+      'busy-race: newer success installed marker',
+      !!(sandbox.adminConfigCache && sandbox.adminConfigCache._marker === newerPayload._marker),
+    );
+  }
+
+  // ── (5) Happy path: ownership unchanged keep-edit delete-price refresh ──
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    const cfg = realisticPricingCfgWithMarker('sunset-somo', 25);
+    const refreshed = realisticPricingCfgWithMarker('sunset-somo', 25);
+    // Simulate server removing one row identity while keeping amounts.
+    refreshed.prices = refreshed.prices.filter((p) => p.id !== 'r-7_days');
+    refreshed._marker = 'sunset-somo:kept-edit-refresh';
+
+    sandbox.adminEditTarget = 'price-group:bundles';
+    sandbox.adminConfigCache = cfg;
+    sandbox.renderAdminFromConfig(cfg);
+    let amountEl = registry.getElementById(amountId);
+    if (amountEl) amountEl.value = '33.25';
+    sandbox.adminSnapshotPricingDraftState();
+
+    const d = deferred();
+    sandbox.fetch = function happyFetch() {
+      return d.promise.then((body) => ({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(body),
+      }));
+    };
+
+    sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+    assert('happy keep-edit: busy set for request', sandbox.adminSaveBusy === true);
+    d.resolve(refreshed);
+    await flushMicrotasks(16);
+
+    assert('happy keep-edit: edit target preserved', sandbox.adminEditTarget === 'price-group:bundles');
+    assert(
+      'happy keep-edit: cache installed from response',
+      !!(sandbox.adminConfigCache && sandbox.adminConfigCache._marker === refreshed._marker),
+    );
+    amountEl = registry.getElementById(amountId);
+    assert(
+      'happy keep-edit: draft amount preserved across keep-edit refresh',
+      !!(amountEl && amountEl.value === '33.25'),
+      amountEl ? `got ${amountEl.value}` : 'missing',
+    );
+    assert('happy keep-edit: busy cleared after success', sandbox.adminSaveBusy === false);
+  }
 }
 
 // ── [4] CSS contract for mobile widths (static) ────────────────────────────
@@ -1391,16 +1818,23 @@ async function main() {
     runStaticStructureChecks();
     runI18nChecks();
     runDomBehaviorChecks();
-    runPricingDraftRerenderChecks();
+    await runPricingDraftRerenderChecks();
+    await runAdminReloadOwnershipRaceChecks();
     runMobileCssChecks();
 
+    // Browser execution is mandatory for this verifier — never unconditional-pass on skip.
     const playwright = loadPlaywright();
-    if (playwright) {
-      await runBrowserSmoke(playwright);
-    } else {
-      console.log('\n[5] Playwright not available — browser smoke skipped (static+DOM gates still authoritative)\n');
-      assert('playwright optional skip noted', true);
+    assert(
+      'Playwright resolves for mandatory browser smoke (fail closed if missing)',
+      !!playwright,
+      'playwright module not resolvable under ROOT/node_modules or NODE_PATH',
+    );
+    if (!playwright) {
+      console.error('verify:sunset-admin-tabs — FAILED (Playwright required)');
+      process.exitCode = 1;
+      return;
     }
+    await runBrowserSmoke(playwright);
 
     console.log('\n' + '─'.repeat(48));
     console.log(`Results: ${pass} passed, ${fail} failed`);
