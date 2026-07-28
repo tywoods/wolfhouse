@@ -467,6 +467,10 @@ var ADMIN_CANONICAL_DAY_TIER_KEYS = {
   '2_days': true, '3_days': true, '4_days': true,
   '5_days': true, '6_days': true, '7_days': true,
 };
+var ADMIN_CANONICAL_PACK_TIER_KEYS = {
+  '1_day': true, '2_days': true, '3_days': true, '4_days': true,
+  '5_days': true, '6_days': true, '7_days': true,
+};
 function adminDefaultPackConfigSeed(){
   return {
     equipment_included: false,
@@ -579,7 +583,7 @@ function adminRenderPackTierFields(tiers, prefix){
   // Edit form only shows canonical 1–7 day keys. Legacy stored keys are not
   // rewritten here (server merge preserves them on save).
   var rows = (tiers || []).filter(function(t){
-    return t && ADMIN_CANONICAL_DAY_TIER_KEYS[String(t.key || '').trim()];
+    return t && ADMIN_CANONICAL_PACK_TIER_KEYS[String(t.key || '').trim()];
   }).map(function(t){
     return { key: t.key, amount: adminEurosFromAmount((t.amount_cents != null ? t.amount_cents : 0) / 100) };
   });
@@ -595,7 +599,7 @@ function adminRenderPackTierReadout(tiers){
   // never appear on Admin Group course card readouts or editable tier rows.
   var html = '<div class="portal-admin-pill-group"><span class="portal-admin-pill-label">' + escHtml(portalT('admin.packs.priceTiers')) + '</span>';
   (tiers || []).filter(function(t){
-    return t && ADMIN_CANONICAL_DAY_TIER_KEYS[String(t.key || '').trim()];
+    return t && ADMIN_CANONICAL_PACK_TIER_KEYS[String(t.key || '').trim()];
   }).forEach(function(t){
     html += '<div class="portal-admin-pack-tier-row"><span>' + escHtml(t.label || t.key) + '</span><strong>' + escHtml(adminEurosFromAmount((t.amount_cents != null ? t.amount_cents : 0) / 100) + ' EUR ' + portalT('admin.packs.perStudent')) + '</strong></div>';
   });

@@ -790,7 +790,7 @@ function runSourceContracts() {
     /function adminFilterCanonicalRentalPriceRows/.test(adminUi)
       && /function adminIsCanonicalRentalPeriod/.test(adminUi));
   assert('course readout filters canonical keys',
-    /adminRenderPackTierReadout[\s\S]*ADMIN_CANONICAL_DAY_TIER_KEYS/.test(adminUi));
+    /adminRenderPackTierReadout[\s\S]*ADMIN_CANONICAL_PACK_TIER_KEYS/.test(adminUi));
 }
 
 async function main() {
