@@ -1682,20 +1682,38 @@ async function main() {
     assert('unknown course no mutation', JSON.stringify(pg.state.services) === before);
   }
 
-  // ── Mutation proof: patch real conditions (no production toggles) ──
+  // ── Mutation proof: in-memory Module compile only (never rewrite tracked files) ──
   {
     console.log('\n[mutation proof]');
+    const Module = require('module');
     const originalDrawer = fs.readFileSync(DRAWER_SRC);
     const originalWrites = fs.readFileSync(WRITES_SRC);
-    function restore() {
-      fs.writeFileSync(DRAWER_SRC, originalDrawer);
-      fs.writeFileSync(WRITES_SRC, originalWrites);
+    function trackedStillIdentical(label) {
+      assert(
+        'tracked files byte-identical after ' + label,
+        Buffer.compare(fs.readFileSync(DRAWER_SRC), originalDrawer) === 0
+          && Buffer.compare(fs.readFileSync(WRITES_SRC), originalWrites) === 0,
+      );
+    }
+    function installSource(absPath, source) {
+      delete require.cache[absPath];
+      const m = new Module(absPath, module);
+      m.filename = absPath;
+      m.paths = Module._nodeModulePaths(path.dirname(absPath));
+      m._compile(source, absPath);
+      require.cache[absPath] = m;
+      return m.exports;
+    }
+    function restoreModules() {
       delete require.cache[require.resolve(DRAWER_REQ)];
       delete require.cache[require.resolve(WRITES_REQ)];
     }
-    function loadMutatedDrawer() {
-      delete require.cache[require.resolve(DRAWER_REQ)];
-      delete require.cache[require.resolve(WRITES_REQ)];
+    function loadMutatedDrawer(drawerSrc, writesSrc) {
+      restoreModules();
+      if (writesSrc != null) installSource(require.resolve(WRITES_REQ), writesSrc);
+      if (drawerSrc != null) installSource(require.resolve(DRAWER_REQ), drawerSrc);
+      // Ensure dependent mocks before requiring drawer if not already installed.
+      if (writesSrc == null) require(WRITES_REQ);
       const writes = require(WRITES_REQ);
       writes.resolveFullDayEquipmentAddonUnitCents = async () => GEAR_UNIT_CENTS;
       require(TBC_REQ).resolveTenantBusinessConfigAsync = async () => catalogAdminCfg();
@@ -1703,144 +1721,157 @@ async function main() {
       return require(DRAWER_REQ);
     }
 
-    // 1) Weaken complete pricing-intent equality → offering-only change falsely unchanged
-    {
-      let src = originalWrites.toString('utf8');
-      const mutated = src.replace(
-        /function schedulePricingIntentsEqual\(a, b\) \{\r?\n  if \(!pricingIntentHasCompleteIdentity\(a\) \|\| !pricingIntentHasCompleteIdentity\(b\)\) return false;\r?\n  return JSON\.stringify\(a \|\| null\) === JSON\.stringify\(b \|\| null\);\r?\n\}/,
-        'function schedulePricingIntentsEqual(a, b) {\n'
-        + '  // MUTATION: ignore offering_id / complete identity\n'
-        + '  const weak = (intent) => {\n'
-        + '    const comps = (intent && intent.components) || {};\n'
-        + '    const coarse = {};\n'
-        + '    Object.keys(comps).sort().forEach((k) => {\n'
-        + '      const p = comps[k] || {};\n'
-        + '      if (k === \'course\') coarse[k] = { tier_key: p.tier_key || null };\n'
-        + '      else coarse[k] = { quantity: p.quantity || 1 };\n'
-        + '    });\n'
-        + '    return { service_dates: (intent && intent.service_dates) || [], components: coarse, rentals: [] };\n'
-        + '  };\n'
-        + '  return JSON.stringify(weak(a)) === JSON.stringify(weak(b));\n'
-        + '}',
-      );
-      assert('mutation complete intent equality changed bytes', mutated !== src);
-      fs.writeFileSync(WRITES_SRC, mutated);
-      const drawer = loadMutatedDrawer();
-      const pg = makeStatefulPg({
-        booking: baseBooking(),
-        services: [courseService({ tier_key: TIER_WEEK })],
-      });
-      const result = await drawer.updateSunsetScheduleBooking(pg, {
-        clientSlug: 'sunset',
-        bookingId: BOOKING_ID,
-        locationId: LOC,
-        actor: { email: 'staff@sunset.test' },
-        body: {
-          guest_name: 'Edit Guest',
-          payment_status: 'unpaid',
-          service_dates: ['2026-08-01'],
-          components: {
-            course: {
-              quantity: 1,
-              course_id: PACK_ID,
-              course_label: 'Weekend Course',
-              tier_key: TIER_WEEK,
-              // Different offering_id only — complete mode must reprice; weak mode ignores.
-              offering_id: packPriceItemCode(PACK_ID, TIER_WEEK) + '__other',
+    try {
+      // 1) Weaken complete pricing-intent equality → offering-only change falsely unchanged
+      {
+        let src = originalWrites.toString('utf8');
+        const mutated = src.replace(
+          /function schedulePricingIntentsEqual\(a, b\) \{\r?\n  if \(!pricingIntentHasCompleteIdentity\(a\) \|\| !pricingIntentHasCompleteIdentity\(b\)\) return false;\r?\n  return JSON\.stringify\(a \|\| null\) === JSON\.stringify\(b \|\| null\);\r?\n\}/,
+          'function schedulePricingIntentsEqual(a, b) {\n'
+          + '  // MUTATION: ignore offering_id / complete identity\n'
+          + '  const weak = (intent) => {\n'
+          + '    const comps = (intent && intent.components) || {};\n'
+          + '    const coarse = {};\n'
+          + '    Object.keys(comps).sort().forEach((k) => {\n'
+          + '      const p = comps[k] || {};\n'
+          + '      if (k === \'course\') coarse[k] = { tier_key: p.tier_key || null };\n'
+          + '      else coarse[k] = { quantity: p.quantity || 1 };\n'
+          + '    });\n'
+          + '    return { service_dates: (intent && intent.service_dates) || [], components: coarse, rentals: [] };\n'
+          + '  };\n'
+          + '  return JSON.stringify(weak(a)) === JSON.stringify(weak(b));\n'
+          + '}',
+        );
+        assert('mutation complete intent equality changed bytes', mutated !== src);
+        const drawer = loadMutatedDrawer(null, mutated);
+        trackedStillIdentical('intent-equality mutation');
+        const pg = makeStatefulPg({
+          booking: baseBooking(),
+          services: [courseService({ tier_key: TIER_WEEK })],
+        });
+        const result = await drawer.updateSunsetScheduleBooking(pg, {
+          clientSlug: 'sunset',
+          bookingId: BOOKING_ID,
+          locationId: LOC,
+          actor: { email: 'staff@sunset.test' },
+          body: {
+            guest_name: 'Edit Guest',
+            payment_status: 'unpaid',
+            service_dates: ['2026-08-01'],
+            components: {
+              course: {
+                quantity: 1,
+                course_id: PACK_ID,
+                course_label: 'Weekend Course',
+                tier_key: TIER_WEEK,
+                // Different offering_id only — complete mode must reprice; weak mode ignores.
+                offering_id: packPriceItemCode(PACK_ID, TIER_WEEK) + '__other',
+              },
             },
           },
-        },
-      });
-      assert('mutation intent equality OFF → false unchanged (RED)',
-        result.ok === true && result.body && result.body.pricing_intent_unchanged === true,
-        JSON.stringify(result && result.body));
-      restore();
-    }
+        });
+        assert('mutation intent equality OFF → false unchanged (RED)',
+          result.ok === true && result.body && result.body.pricing_intent_unchanged === true,
+          JSON.stringify(result && result.body));
+        restoreModules();
+        trackedStillIdentical('intent-equality restore');
+      }
 
-    // 2) Disable payment ledger lock + paid guard → concurrent paid ledger allows reprice hazard
-    {
-      let src = originalDrawer.toString('utf8');
-      const mutated = src
-        .replace(
-          /const payLock = await lockSchedulePaymentsForUpdate\(pg, bookingId, clientId\);/,
-          'const payLock = { rows: [], paidCents: 0 };',
-        )
-        .replace(
-          /const rePay = await lockSchedulePaymentsForUpdate\(pg, bookingId, clientId\);\r?\n    lockedBundle\.payments_paid_cents = rePay\.paidCents;\r?\n    lockedBundle\.locked_payments = rePay\.rows;\r?\n    if \(isSunsetBookingFinanciallyCommitted\(lockedBundle\)\) \{\r?\n      return rollback\(paidBookingRepriceRequiredResult\(\)\);\r?\n    \}/,
-          'const rePay = { rows: [], paidCents: 0 };\n'
-          + '    lockedBundle.payments_paid_cents = rePay.paidCents;\n'
-          + '    lockedBundle.locked_payments = rePay.rows;',
-        )
-        .replace(
-          /if \(pricingChanged && isSunsetBookingFinanciallyCommitted\(lockedBundle\)\) \{\r?\n      return rollback\(paidBookingRepriceRequiredResult\(\)\);\r?\n    \}/,
-          'if (false && pricingChanged && isSunsetBookingFinanciallyCommitted(lockedBundle)) {\n'
-          + '      return rollback(paidBookingRepriceRequiredResult());\n'
-          + '    }',
+      // 2) Disable payment ledger lock + paid guard → concurrent paid ledger allows reprice hazard
+      {
+        let src = originalDrawer.toString('utf8');
+        const mutated = src
+          .replace(
+            /const payLock = await lockSchedulePaymentsForUpdate\(pg, bookingId, clientId\);/,
+            'const payLock = { rows: [], paidCents: 0 };',
+          )
+          .replace(
+            /const rePay = await lockSchedulePaymentsForUpdate\(pg, bookingId, clientId\);\r?\n    lockedBundle\.payments_paid_cents = rePay\.paidCents;\r?\n    lockedBundle\.locked_payments = rePay\.rows;\r?\n    if \(isSunsetBookingFinanciallyCommitted\(lockedBundle\)\) \{\r?\n      return rollback\(paidBookingRepriceRequiredResult\(\)\);\r?\n    \}/,
+            'const rePay = { rows: [], paidCents: 0 };\n'
+            + '    lockedBundle.payments_paid_cents = rePay.paidCents;\n'
+            + '    lockedBundle.locked_payments = rePay.rows;',
+          )
+          .replace(
+            /if \(pricingChanged && isSunsetBookingFinanciallyCommitted\(lockedBundle\)\) \{\r?\n      return rollback\(paidBookingRepriceRequiredResult\(\)\);\r?\n    \}/,
+            'if (false && pricingChanged && isSunsetBookingFinanciallyCommitted(lockedBundle)) {\n'
+            + '      return rollback(paidBookingRepriceRequiredResult());\n'
+            + '    }',
+          );
+        assert('mutation payment locking/guard changed bytes', mutated !== src);
+        const drawer = loadMutatedDrawer(mutated, null);
+        trackedStillIdentical('payment-lock mutation');
+        const pg = makeStatefulPg({
+          booking: baseBooking({
+            amount_paid_cents: COURSE_WEEK_CENTS,
+            payment_status: 'paid',
+            balance_due_cents: 0,
+          }),
+          services: [courseService({ amount_paid_cents: COURSE_WEEK_CENTS, payment_status: 'paid' })],
+          payments: [{
+            payment_id: 'pay-mut',
+            status: 'paid',
+            amount_paid_cents: COURSE_WEEK_CENTS,
+          }],
+        });
+        const result = await drawer.updateSunsetScheduleBooking(pg, {
+          clientSlug: 'sunset',
+          bookingId: BOOKING_ID,
+          locationId: LOC,
+          actor: { email: 'staff@sunset.test' },
+          body: courseBody(TIER_DAY, ['2026-08-29']),
+        });
+        assert('mutation payment lock/guard OFF allows reprice (RED hazard)',
+          result.ok === true || pg.state.deleted > 0 || pg.state.inserts > 0,
+          JSON.stringify(result && result.body));
+        assert('mutation payment lock OFF skips FOR UPDATE payments',
+          pg.state.paymentLocks === 0);
+        restoreModules();
+        trackedStillIdentical('payment-lock restore');
+      }
+
+      // 3) Disable authoritative re-quote → zero/stale totals
+      {
+        let src = originalDrawer.toString('utf8');
+        const mutated = src.replace(
+          /await applyAuthoritativeSchedulePricingInTxn\(pg, \{[\s\S]*?now: opts\.now,\r?\n    \}\);/,
+          '/* mutation: skip authoritative re-quote */;',
         );
-      assert('mutation payment locking/guard changed bytes', mutated !== src);
-      fs.writeFileSync(DRAWER_SRC, Buffer.from(mutated.replace(/\n/g, '\r\n').replace(/\r\r\n/g, '\r\n'), 'utf8'));
-      const drawer = loadMutatedDrawer();
-      const pg = makeStatefulPg({
-        booking: baseBooking({
-          amount_paid_cents: COURSE_WEEK_CENTS,
-          payment_status: 'paid',
-          balance_due_cents: 0,
-        }),
-        services: [courseService({ amount_paid_cents: COURSE_WEEK_CENTS, payment_status: 'paid' })],
-        payments: [{
-          payment_id: 'pay-mut',
-          status: 'paid',
-          amount_paid_cents: COURSE_WEEK_CENTS,
-        }],
-      });
-      const result = await drawer.updateSunsetScheduleBooking(pg, {
-        clientSlug: 'sunset',
-        bookingId: BOOKING_ID,
-        locationId: LOC,
-        actor: { email: 'staff@sunset.test' },
-        body: courseBody(TIER_DAY, ['2026-08-29']),
-      });
-      assert('mutation payment lock/guard OFF allows reprice (RED hazard)',
-        result.ok === true || pg.state.deleted > 0 || pg.state.inserts > 0,
-        JSON.stringify(result && result.body));
-      assert('mutation payment lock OFF skips FOR UPDATE payments',
-        pg.state.paymentLocks === 0);
-      restore();
-    }
+        assert('mutation requote changed bytes', mutated !== src);
+        const drawer = loadMutatedDrawer(mutated, null);
+        trackedStillIdentical('requote mutation');
+        const pg = makeStatefulPg({
+          booking: baseBooking({ total_amount_cents: COURSE_WEEK_CENTS, balance_due_cents: COURSE_WEEK_CENTS }),
+          services: [courseService()],
+        });
+        await drawer.updateSunsetScheduleBooking(pg, {
+          clientSlug: 'sunset',
+          bookingId: BOOKING_ID,
+          locationId: LOC,
+          actor: { email: 'staff@sunset.test' },
+          body: courseBody(TIER_DAY, ['2026-08-28']),
+        });
+        const zeroOrStale = pg.state.services.every((s) => Number(s.amount_due_cents) === 0)
+          || Number(pg.state.bookings[0].total_amount_cents) === COURSE_WEEK_CENTS;
+        assert('mutation requote OFF → zero lines or stale total (RED)', zeroOrStale,
+          `amounts=${pg.state.services.map((s) => s.amount_due_cents)} total=${pg.state.bookings[0].total_amount_cents}`);
+        restoreModules();
+        trackedStillIdentical('requote restore');
+      }
 
-    // 3) Disable authoritative re-quote → zero/stale totals
-    {
-      let src = originalDrawer.toString('utf8');
-      const mutated = src.replace(
-        /await applyAuthoritativeSchedulePricingInTxn\(pg, \{[\s\S]*?now: opts\.now,\r?\n    \}\);/,
-        '/* mutation: skip authoritative re-quote */;',
+      const restoredD = fs.readFileSync(DRAWER_SRC);
+      const restoredW = fs.readFileSync(WRITES_SRC);
+      assert('mutation restored exact bytes',
+        Buffer.compare(restoredD, originalDrawer) === 0
+        && Buffer.compare(restoredW, originalWrites) === 0);
+    } catch (err) {
+      assert(
+        'tracked files byte-identical even on mutation failure',
+        Buffer.compare(fs.readFileSync(DRAWER_SRC), originalDrawer) === 0
+          && Buffer.compare(fs.readFileSync(WRITES_SRC), originalWrites) === 0,
       );
-      assert('mutation requote changed bytes', mutated !== src);
-      fs.writeFileSync(DRAWER_SRC, Buffer.from(mutated.replace(/\n/g, '\r\n').replace(/\r\r\n/g, '\r\n'), 'utf8'));
-      const drawer = loadMutatedDrawer();
-      const pg = makeStatefulPg({
-        booking: baseBooking({ total_amount_cents: COURSE_WEEK_CENTS, balance_due_cents: COURSE_WEEK_CENTS }),
-        services: [courseService()],
-      });
-      await drawer.updateSunsetScheduleBooking(pg, {
-        clientSlug: 'sunset',
-        bookingId: BOOKING_ID,
-        locationId: LOC,
-        actor: { email: 'staff@sunset.test' },
-        body: courseBody(TIER_DAY, ['2026-08-28']),
-      });
-      const zeroOrStale = pg.state.services.every((s) => Number(s.amount_due_cents) === 0)
-        || Number(pg.state.bookings[0].total_amount_cents) === COURSE_WEEK_CENTS;
-      assert('mutation requote OFF → zero lines or stale total (RED)', zeroOrStale,
-        `amounts=${pg.state.services.map((s) => s.amount_due_cents)} total=${pg.state.bookings[0].total_amount_cents}`);
-      restore();
+      restoreModules();
+      throw err;
     }
-
-    const restoredD = fs.readFileSync(DRAWER_SRC);
-    const restoredW = fs.readFileSync(WRITES_SRC);
-    assert('mutation restored exact bytes',
-      Buffer.compare(restoredD, originalDrawer) === 0
-      && Buffer.compare(restoredW, originalWrites) === 0);
   }
 
   console.log(`\n── verify:sunset-edit-authoritative-requote ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);

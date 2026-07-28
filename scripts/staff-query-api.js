@@ -16760,6 +16760,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-school-chip{display:inline-flex;align-items:center;max-width:46%;padding:3px 10px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface-soft);font-size:11px;font-weight:700;color:var(--text-2);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
 .portal-schedule-create-school-chip strong{color:var(--text);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .portal-schedule-create-header #ps-create-close{flex:0 0 auto;min-width:44px;min-height:44px}
+.portal-schedule-create-header #ps-drawer-close,.portal-schedule-create-header .portal-schedule-drawer-close-btn{flex:0 0 auto;min-width:44px;min-height:44px}
 .portal-schedule-create-body{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px 18px 18px}
 .portal-schedule-create-section{margin:0 0 14px;padding:12px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .portal-schedule-create-section:last-child{margin-bottom:0}
