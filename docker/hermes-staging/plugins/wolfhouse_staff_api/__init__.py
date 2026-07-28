@@ -2057,6 +2057,16 @@ def create_sunset_booking(params, **kwargs):
             return _json_result({"success": False, "tool": "create_sunset_booking", "error": "quote_provenance_required", "staff_review_needed": False})
     provenance_lines = quote_provenance.get("line_items") if isinstance(quote_provenance, dict) else None
     equipment_lines = [line for line in (provenance_lines or []) if isinstance(line, dict) and line.get("course_equipment") is True]
+    if course_equipment is not None:
+        provenance_selection = quote_provenance.get("course_equipment") if isinstance(quote_provenance, dict) else None
+        line_totals = [line.get("total_cents") for line in (provenance_lines or []) if isinstance(line, dict)]
+        provenance_total = quote_provenance.get("total_cents") if isinstance(quote_provenance, dict) else None
+        if (provenance_selection != course_equipment
+                or not line_totals
+                or any(isinstance(value, bool) or not isinstance(value, int) for value in line_totals)
+                or isinstance(provenance_total, bool) or not isinstance(provenance_total, int)
+                or sum(value for value in line_totals if isinstance(value, int) and not isinstance(value, bool)) != provenance_total):
+            return _json_result({"success": False, "tool": "create_sunset_booking", "error": "course_equipment_quote_mismatch", "staff_review_needed": False})
     if equipment_lines and course_equipment is None:
         return _json_result({"success": False, "tool": "create_sunset_booking", "error": "course_equipment_required_by_quote", "staff_review_needed": False})
     if equipment_lines and ({line.get("course_equipment_mode") for line in equipment_lines} != {course_equipment["mode"]}

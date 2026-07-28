@@ -36,31 +36,53 @@ const includedProjection = projectSunsetBookableOfferingsFromConfig(includedCfg,
 assert.strictEqual(includedProjection.offerings.find((row) => row.offering_id === ITEM).equipment_included, true);
 assert.strictEqual(scheduleCoursesFromBookableProjection(includedProjection)[0].equipment_included, true);
 
-// Quote path uses the canonical one-day identity; the catalog assertions above
-// retain the incident's legacy single_class identity.
+// Exercise the real offering_id route used by get_sunset_offering_quote.
 const quoteCfg = JSON.parse(JSON.stringify(cfg));
 quoteCfg.surf_packs[0].price_tiers[0].key = '1_day';
 quoteCfg.prices[0].offering_key = `surf_pack_${COURSE}__1_day`;
 quoteCfg.prices[0].item_code = quoteCfg.prices[0].offering_key;
 quoteCfg.prices[0].unit = 'day';
 const quoteItem = quoteCfg.prices[0].item_code;
-const quoteInput = {
-  service_dates: ['2026-09-01'],
-  components: { course: { course_id: COURSE, tier_key: '1_day', offering_id: quoteItem, quantity: 1 } },
-  course_equipment: { mode: 'during_course', quantity: 1 },
-};
-const built = buildSunsetQuoteCommand({ channel: QUOTE_CHANNELS.LUNA_WHATSAPP,
-  transportBody: quoteInput, trustedLocationId: 'sunset-somo', now: new Date('2026-07-28T12:00:00Z') });
-assert.equal(built.ok, true);
-const denied = executeSunsetQuoteSync(built.command, { adminCfg: quoteCfg });
+function quote(config, equipment, quantity = 2) {
+  const built = buildSunsetQuoteCommand({ channel: QUOTE_CHANNELS.LUNA_WHATSAPP,
+    transportBody: { offering_id: quoteItem, course_id: COURSE, quantity,
+      service_dates: ['2026-09-01'], ...(equipment === undefined ? {} : { course_equipment: equipment }) },
+    trustedLocationId: 'sunset-somo', now: new Date('2026-07-28T12:00:00Z') });
+  assert.equal(built.ok, true);
+  return executeSunsetQuoteSync(built.command, { adminCfg: config });
+}
+const selection = { mode: 'during_course', quantity: 2 };
+const denied = quote(quoteCfg, selection);
 assert.equal(denied.ok, false);
-assert.equal(denied.body.reason, 'course_equipment_not_included',
-  'Luna quote must not turn the location free policy into free gear for this exact course');
+assert.equal(denied.body.reason, 'course_equipment_not_included');
+const missingFlagCfg = JSON.parse(JSON.stringify(quoteCfg));
+delete missingFlagCfg.surf_packs[0].equipment_included;
+assert.equal(quote(missingFlagCfg, selection).body.reason, 'course_equipment_not_included');
+
 const includedQuoteCfg = JSON.parse(JSON.stringify(quoteCfg));
 includedQuoteCfg.surf_packs[0].equipment_included = true;
-const allowed = executeSunsetQuoteSync(built.command, { adminCfg: includedQuoteCfg });
+const ordinary = quote(includedQuoteCfg, undefined);
+assert.equal(ordinary.ok, true);
+assert.equal(ordinary.body.line_items.length, 1, 'ordinary offering quote must not regress');
+const allowed = quote(includedQuoteCfg, selection);
 assert.equal(allowed.ok, true, JSON.stringify(allowed.body));
-assert.equal(allowed.body.total_cents, 4000);
-assert.equal(allowed.body.line_items.filter((line) => line.course_equipment).length, 2);
+assert.equal(allowed.body.total_cents, 8000);
+assert.deepStrictEqual(allowed.body.course_equipment, selection);
+assert.deepStrictEqual(allowed.body.line_items.filter((line) => line.course_equipment).map((line) => line.component), ['surfboard', 'wetsuit']);
+assert.deepStrictEqual(allowed.body.quote_provenance.course_equipment, selection);
+assert.equal(allowed.body.quote_provenance.line_items.length, 3);
+assert.match(allowed.body.quote_provenance.quote_fingerprint, /^[a-f0-9]{64}$/);
+assert.notEqual(allowed.body.quote_provenance.quote_fingerprint, ordinary.body.quote_provenance.quote_fingerprint);
+
+const allDay = quote(quoteCfg, { mode: 'all_day', quantity: 2 });
+assert.equal(allDay.ok, true, JSON.stringify(allDay.body));
+assert.deepStrictEqual(allDay.body.course_equipment, { mode: 'all_day', quantity: 2 });
+assert.equal(quote(includedQuoteCfg, { mode: 'during_course', quantity: 3 }).body.reason, 'invalid_course_equipment');
+const changedPriceCfg = JSON.parse(JSON.stringify(includedQuoteCfg));
+changedPriceCfg.prices[0].amount_cents = 4500;
+const changedPrice = quote(changedPriceCfg, selection);
+assert.equal(changedPrice.body.total_cents, 9000);
+assert.notEqual(changedPrice.body.quote_provenance.quote_fingerprint, allowed.body.quote_provenance.quote_fingerprint,
+  'authoritative price changes must change provenance');
 
 console.log('verify:luna-future-course-equipment-incident — ALL CHECKS PASSED');

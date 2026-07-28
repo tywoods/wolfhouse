@@ -190,6 +190,7 @@ function nestOfferingForQuote(raw) {
     offering_id: raw.offering_id,
     offering_type: raw.offering_type,
     course_id: raw.course_id || null,
+    equipment_included: raw.equipment_included === true,
     tier_key: tierOrDuration,
     // Rental windows use duration_key canonically; keep in sync with tier_key so
     // async Admin re-resolve cannot drop multi-day identity.
@@ -241,6 +242,9 @@ function normalizeQuoteLineItemsForFingerprint(lineItems) {
       quantity: line && line.quantity != null ? Number(line.quantity) : null,
       unit_amount_cents: line && line.unit_amount_cents != null ? Number(line.unit_amount_cents) : null,
       total_cents: line && line.total_cents != null ? Number(line.total_cents) : null,
+      course_equipment: line && line.course_equipment === true,
+      course_equipment_mode: line && line.course_equipment_mode != null
+        ? String(line.course_equipment_mode) : null,
       // Staff custom lines: identity + label must fingerprint so edits invalidate stale quotes.
       client_line_id: line && line.client_line_id != null ? String(line.client_line_id) : null,
       label: line && line.label != null ? String(line.label) : null,
@@ -746,6 +750,54 @@ function buildOfferingQuoteResult(command, catalog, offering, lineOut) {
   return { ok: true, status: 200, body: quoteBody };
 }
 
+function appendOfferingCourseEquipment(command, offering, result) {
+  const selection = command.transportBody.course_equipment;
+  if (selection == null || !result.ok) return result;
+  if (offering.offering_type !== 'course') {
+    return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
+  }
+  // Entitlement belongs to the exact selected Admin course, never to a
+  // location-wide zero-price policy. Missing and false both fail closed.
+  if (selection && selection.mode === 'during_course' && offering.equipment_included !== true) {
+    return { ok: false, status: 422, body: { success: false, reason: 'course_equipment_not_included' } };
+  }
+  let equipmentQuote;
+  try {
+    equipmentQuote = quoteCourseEquipment({
+      config: getCourseEquipmentPricing(command.locationId),
+      selection,
+      surfers: result.body.quantity,
+      booking_dates: result.body.service_dates,
+    });
+  } catch (err) {
+    return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment', error: String(err.message || err) } };
+  }
+  const equipmentLines = equipmentQuote.lines.map((line) => ({
+    component: line.component,
+    service_date: line.service_date,
+    service_dates: [line.service_date],
+    quantity: line.quantity,
+    unit_amount_cents: line.amount_cents,
+    total_cents: line.total_cents,
+    currency: 'EUR',
+    price_source: 'admin_location_course_equipment',
+    billing_unit: 'person_per_booking_day',
+    course_equipment: true,
+    course_equipment_mode: equipmentQuote.mode,
+    metadata: { ...line.metadata, location_id: command.locationId, price_source: 'admin_location_course_equipment' },
+  }));
+  try {
+    result.body.total_cents = checkedCourseEquipmentAdd(result.body.total_cents, equipmentQuote.total_cents, 'quote total');
+  } catch (err) {
+    return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment', error: String(err.message || err) } };
+  }
+  result.body.line_total_cents = result.body.total_cents;
+  result.body.course_equipment = { mode: equipmentQuote.mode, quantity: equipmentQuote.quantity };
+  result.body.line_items.push(...equipmentLines);
+  result.body.quote_provenance = buildQuoteProvenance(result.body);
+  return result;
+}
+
 function resolveOfferingQuoteInputs(command, catalog) {
   const body = command.transportBody;
   const offeringId = String(body.offering_id || '').trim();
@@ -789,7 +841,8 @@ async function quoteByOfferingId(pg, command, catalog, requireDb) {
     resolved.quantity,
     requireDb,
   );
-  return buildOfferingQuoteResult(command, catalog, resolved.offering, lineOut);
+  return appendOfferingCourseEquipment(command, resolved.offering,
+    buildOfferingQuoteResult(command, catalog, resolved.offering, lineOut));
 }
 
 function quoteByOfferingIdSync(command, catalog, requireDb) {
@@ -802,7 +855,8 @@ function quoteByOfferingIdSync(command, catalog, requireDb) {
     resolved.quantity,
     requireDb,
   );
-  return buildOfferingQuoteResult(command, catalog, resolved.offering, lineOut);
+  return appendOfferingCourseEquipment(command, resolved.offering,
+    buildOfferingQuoteResult(command, catalog, resolved.offering, lineOut));
 }
 
 function quoteUnknownOfferingFallback(catalog, body, offeringId) {
