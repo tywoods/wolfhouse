@@ -86,6 +86,9 @@ const PRIVATE_SESSION = 8000;
 const FULL_DAY_ADDON = 1500; // Admin tab unit cents (≠ baseline seed €10)
 const BASELINE_FULL_DAY_SEED = 1000;
 const LEGACY_WEEK_AMOUNT = 19900;
+const RENTAL_CANONICAL_PERIOD_KEYS = Object.freeze([
+  'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days',
+]);
 
 function loadAdminUiSource() {
   return fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-ui.js'), 'utf8');
@@ -331,7 +334,7 @@ async function main() {
       && !packKeys.includes('2_weeks'));
   assert('rental selector has 7 keys', rentKeys.length === 7, JSON.stringify(rentKeys));
   assert('rental selector exact 1–7',
-    CANONICAL_DAY_DURATION_KEYS.every((k, i) => rentKeys[i] === k),
+    RENTAL_CANONICAL_PERIOD_KEYS.every((k, i) => rentKeys[i] === k),
     JSON.stringify(rentKeys));
   assert('rental selector hides hour/half_day',
     !rentKeys.includes('1_hour') && !rentKeys.includes('half_day'));
@@ -340,7 +343,8 @@ async function main() {
       && CANONICAL_DAY_DURATION_KEYS.every((k) => PACK_TIER_KEYS.has(k)));
   assert('RENTAL_PERIOD_WINDOWS = 1–7 only',
     RENTAL_PERIOD_WINDOWS.size === 7
-      && CANONICAL_DAY_DURATION_KEYS.every((k) => RENTAL_PERIOD_WINDOWS.has(k)));
+      && RENTAL_CANONICAL_PERIOD_KEYS.every((k) => RENTAL_PERIOD_WINDOWS.has(k))
+      && !RENTAL_PERIOD_WINDOWS.has('1_day'));
   assert('DEFAULT_PRICE_TIERS invents no commercial amounts',
     Array.isArray(DEFAULT_PRICE_TIERS) && DEFAULT_PRICE_TIERS.length === 0);
   assert('reject legacy week tier on validate',
@@ -813,7 +817,8 @@ async function main() {
   assert('writes always passes quotePrepBody on Create',
     /quotePrepBody:\s*rentalPrep\.body/.test(writesSrc));
   assert('drawer Edit passes quotePrepBody',
-    /quotePrepBody:\s*rentalPrep\.body/.test(drawerSrc));
+    /course_equipment:\s*input\.course_equipment \|\| null/.test(drawerSrc)
+      && /quotePrepBody:\s*quotePrepBody/.test(drawerSrc));
   assert('resolveAuthoritative no longer rentals-only',
     /quotePrepBody \|\| opts\.rentalPrepBody/.test(writesSrc)
       || /opts\.quotePrepBody \|\| opts\.rentalPrepBody/.test(writesSrc));
@@ -858,12 +863,13 @@ async function main() {
   assert('Create/Edit fail closed when full-day Admin cents unavailable',
     /full_day_equipment_extension_price_unavailable/.test(writesSrc)
       && /resolveFullDayEquipmentAddonUnitCents/.test(writesSrc));
-  assert('apply combines quote total + snapshotted addon cents atomically',
-    /const bookingTotal = Number\(applied\.total_cents\) \+ addonSum/.test(writesSrc)
+  assert('apply combines quote total + any unowned legacy snapshot atomically',
+    /const bookingTotal = checkedMoneyAdd\(applied\.total_cents, addonSum, 'booking_total'\)/.test(writesSrc)
       && /total_amount_cents = \$1/.test(writesSrc)
       && /FULL_DAY_EQUIPMENT_ADDON_KEY/.test(writesSrc));
   assert('writes never trust client amount for full-day snapshot',
-    !/body\.amount|client.*amount_cents|addon_amount_cents/.test(fdResolveSrc));
+    /lookupSunsetFullDayEquipmentAddonAsync/.test(fdResolveSrc)
+      && !/opts\.body|body\.amount|addon_amount_cents/.test(fdResolveSrc));
 
   // GREEN: Admin row found → exact Admin cents (not baseline seed).
   const fdHit = await lookupSunsetFullDayEquipmentAddonAsync({
@@ -1081,7 +1087,7 @@ async function main() {
     /ADMIN_CANONICAL_DAY_TIER_KEYS/.test(uiSrc)
       && /filter\(function\(t\)\{/.test(uiSrc));
   assert('rental selector base options exact 7',
-    /var opts = \['1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'\]/.test(uiSrc));
+    /var opts = \['full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'\]/.test(uiSrc));
   assert('pack patch owner preserves non-canonical legacy tiers',
     /legacyPreserved|legacyNoDup/.test(
       fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-admin-pack-rules.js'), 'utf8'),
@@ -1092,7 +1098,7 @@ async function main() {
   // Structural: never reinsert selected legacy period into the 1–7 day selector.
   assert('rental selector does not reinsert selected legacy key',
     !/opts = \[sel\]\.concat\(opts\)/.test(uiSrc)
-      && /var opts = \['1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'\]/.test(uiSrc));
+      && /var opts = \['full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'\]/.test(uiSrc));
 
   // ── 9. Deployment prerequisites (observed LIVE schema; no amounts baked) ─
   console.log('\n[9] Deployment prerequisites (schema / fail-closed; no Admin data mutated offline)');

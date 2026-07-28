@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 const pricing = require('./lib/sunset-course-equipment-pricing');
 const ops = require('./lib/sunset-schedule-ops');
 const store = require('./lib/sunset-admin-location-store');
+const { formatServiceRecordInvoiceLineText } = require('./lib/service-record-invoice-line');
 
 function child(location, cents) {
   const code = `const s=require(${JSON.stringify(require.resolve('./lib/sunset-admin-location-store'))});s.putCourseEquipmentPricing(${JSON.stringify(location)},{during_course:{policy:'extra',surfboard_cents:${cents},wetsuit_cents:1},all_day:{surfboard_cents:2,wetsuit_cents:3}})`;
@@ -35,6 +36,26 @@ function child(location, cents) {
   const day = ops.aggregateDayOps(rows, '2026-08-01', {});
   assert.strictEqual(day.boardsLesson, 5, 'same booking deduped; different bookings additive');
   assert.strictEqual(day.wetsuitsLesson, 2, 'cancelled demand excluded');
+
+  for (const sample of [
+    { mode: 'during_course', component: 'surfboard', unit: 0, total: 0, label: 'Surfboard' },
+    { mode: 'during_course', component: 'wetsuit', unit: 400, total: 800, label: 'Wetsuit' },
+    { mode: 'all_day', component: 'surfboard', unit: 1200, total: 2400, label: 'Surfboard' },
+  ]) {
+    const text = formatServiceRecordInvoiceLineText({ service_type: sample.component,
+      service_date: '2026-08-01', quantity: 2, amount_due_cents: sample.total,
+      metadata: { course_equipment: true, component: sample.component,
+        course_equipment_mode: sample.mode, unit_amount_cents: sample.unit } });
+    assert(text.includes(sample.label) && text.includes('2026-08-01'));
+    assert(text.endsWith(`€${(sample.total / 100).toFixed(2)}`), text);
+  }
+
+  const cancelOwner = fs.readFileSync(require.resolve('./lib/sunset-schedule-booking-drawer'), 'utf8');
+  const cancelStart = cancelOwner.indexOf('async function cancelSunsetScheduleBooking');
+  const cancelSlice = cancelOwner.slice(cancelStart, cancelStart + 6000);
+  assert(cancelSlice.indexOf("await pg.query('BEGIN')") < cancelSlice.indexOf('loadSunsetBookingBundle'));
+  assert(/loadSunsetBookingBundle\(pg, clientSlug, bookingId, null, true\)/.test(cancelSlice));
+  assert(/paid_booking_cancel_conflict/.test(cancelSlice) && /ROLLBACK/.test(cancelSlice));
 
   const before = fs.existsSync(store.STORE_PATH) ? fs.readFileSync(store.STORE_PATH) : null;
   try {

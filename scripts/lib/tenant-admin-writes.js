@@ -50,8 +50,7 @@ const RENTAL_GROUP_DISPLAY = {
 };
 // Admin → Prices "Price for" / period selector (create): exactly 1–7 days.
 const RENTAL_PERIOD_WINDOWS = new Set([
-  '1_hour', '2_hours', 'half_day', 'full_day',
-  '2_days', '3_days', '4_days', '5_days', '6_days', '7_days',
+  'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days',
 ]);
 // Existing rows may still carry legacy periods; patch may preserve them without
 // silent migrate/delete. New creates must use RENTAL_PERIOD_WINDOWS only.

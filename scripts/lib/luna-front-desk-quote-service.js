@@ -37,6 +37,11 @@ const {
   isSunsetLocationId,
 } = require('./sunset-school-locations');
 const { isSunsetAdminDbReadEnabled } = require('./tenant-business-config');
+const { getCourseEquipmentPricing } = require('./sunset-admin-location-store');
+const {
+  quoteCourseEquipment,
+  checkedAdd: checkedCourseEquipmentAdd,
+} = require('./sunset-course-equipment-pricing');
 const {
   MAX_GROUP_COURSE_INCLUSIVE_DAYS,
   groupCourseAdminTierKeyForInclusiveDays,
@@ -1490,6 +1495,31 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     currency = lineOut.line.currency;
   }
 
+  // Server-authoritative course coverage: validated selection, derived dates,
+  // and active-school Admin prices. Client cents and component dates are ignored.
+  if (input.course_equipment) {
+    const surfers = input.components.private_lesson
+      ? input.components.private_lesson.surfer_count : input.components.course.quantity;
+    const equipmentDates = input.components.private_lesson
+      ? input.components.private_lesson.sessions.map((s) => s.date) : serviceDates;
+    let equipmentQuote;
+    try {
+      equipmentQuote = quoteCourseEquipment({ config: getCourseEquipmentPricing(command.locationId),
+        selection: input.course_equipment, surfers, booking_dates: equipmentDates });
+      totalCents = checkedCourseEquipmentAdd(totalCents, equipmentQuote.total_cents, 'quote total');
+    } catch (err) {
+      return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment', error: String(err.message || err) } };
+    }
+    for (const line of equipmentQuote.lines) lines.push({
+      component: line.component, service_date: line.service_date, service_dates: [line.service_date],
+      quantity: line.quantity, unit_amount_cents: line.amount_cents, total_cents: line.total_cents,
+      currency: 'EUR', price_source: 'admin_location_course_equipment',
+      billing_unit: 'person_per_booking_day', course_equipment: true,
+      course_equipment_mode: equipmentQuote.mode,
+      metadata: { ...line.metadata, location_id: command.locationId, price_source: 'admin_location_course_equipment' },
+    });
+  }
+
   if (rentalsNorm.present) {
     for (const rental of rentalsNorm.value) {
       const matches = findExactRentalCatalogOffering(
@@ -1643,6 +1673,31 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     lines.push({ ...lineOut.line, component: 'private_lesson' });
     totalCents += lineOut.line.total_cents;
     currency = lineOut.line.currency;
+  }
+
+  // Server-authoritative course coverage: validated selection, derived dates,
+  // and active-school Admin prices. Client cents and component dates are ignored.
+  if (input.course_equipment) {
+    const surfers = input.components.private_lesson
+      ? input.components.private_lesson.surfer_count : input.components.course.quantity;
+    const equipmentDates = input.components.private_lesson
+      ? input.components.private_lesson.sessions.map((s) => s.date) : serviceDates;
+    let equipmentQuote;
+    try {
+      equipmentQuote = quoteCourseEquipment({ config: getCourseEquipmentPricing(command.locationId),
+        selection: input.course_equipment, surfers, booking_dates: equipmentDates });
+      totalCents = checkedCourseEquipmentAdd(totalCents, equipmentQuote.total_cents, 'quote total');
+    } catch (err) {
+      return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment', error: String(err.message || err) } };
+    }
+    for (const line of equipmentQuote.lines) lines.push({
+      component: line.component, service_date: line.service_date, service_dates: [line.service_date],
+      quantity: line.quantity, unit_amount_cents: line.amount_cents, total_cents: line.total_cents,
+      currency: 'EUR', price_source: 'admin_location_course_equipment',
+      billing_unit: 'person_per_booking_day', course_equipment: true,
+      course_equipment_mode: equipmentQuote.mode,
+      metadata: { ...line.metadata, location_id: command.locationId, price_source: 'admin_location_course_equipment' },
+    });
   }
 
   if (rentalsNorm.present) {

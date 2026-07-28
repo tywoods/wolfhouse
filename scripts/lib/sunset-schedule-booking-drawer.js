@@ -149,7 +149,7 @@ function lineItemLabel(dbType, qty, dateIso, slotTime, sr) {
   return formatSunsetDrawerDailyItemLabel(dbType, qty, sr);
 }
 
-async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode) {
+async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode, forUpdate = false) {
   const bookingRes = await pg.query(
     `SELECT b.id::text AS booking_id, b.booking_code, b.guest_name, b.phone,
             b.status::text AS status, b.payment_status::text AS payment_status,
@@ -160,7 +160,7 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode) {
        INNER JOIN clients c ON c.id = b.client_id
       WHERE c.slug = $1
         AND ${bookingId ? 'b.id = $2::uuid' : 'b.booking_code = $2'}
-      LIMIT 1`,
+      LIMIT 1${forUpdate ? '\n      FOR UPDATE OF b' : ''}`,
     [clientSlug, bookingId || bookingCode],
   );
   const booking = bookingRes.rows[0];
@@ -183,7 +183,7 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode) {
             metadata
        FROM booking_service_records
       WHERE client_slug = $1 AND booking_id = $2::uuid
-      ORDER BY service_date, id`,
+      ORDER BY service_date, id${forUpdate ? '\n      FOR UPDATE' : ''}`,
     [clientSlug, booking.booking_id],
   );
   const payRes = await pg.query(
@@ -1202,6 +1202,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       date_from: firstDate,
       date_to: lastDate,
       service_dates: input.service_dates,
+      course_equipment: input.course_equipment || null,
     };
     if (rentalPrep.present && rentalPrep.rentals) {
       quotePrepBody.rentals = rentalPrep.rentals;
@@ -1216,7 +1217,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       lockedPaidCents: lockedBundle.payments_paid_cents,
       canonicalRentals,
       rentalPrepBody: quotePrepBody,
-      quotePrepBody,
+      quotePrepBody: quotePrepBody,
       rentalPricingDescriptor,
       quoteChannel: opts.quoteChannel,
       quoteProvenance: opts.quoteProvenance,
@@ -1263,19 +1264,26 @@ async function cancelSunsetScheduleBooking(pg, opts) {
   if (!bookingId || !isUuid(bookingId)) {
     return { ok: false, status: 400, body: { success: false, error: 'booking_id is required' } };
   }
-  const bundle = await loadSunsetBookingBundle(pg, clientSlug, bookingId, null);
-  if (!bundle) {
-    return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
-  }
-  const activeLocationId = normalizeSunsetLocationId(opts.locationId);
-  if (resolveBundleLocationId(bundle) !== activeLocationId) {
-    return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
-  }
-  if (!bundleHasTrustedScheduleDrawerAttribution(bundle)) {
-    return { ok: false, status: 403, body: { success: false, error: 'delete_untrusted_booking_source', reason_code: 'delete_untrusted_booking_source' } };
-  }
   await pg.query('BEGIN');
   try {
+    // Lock then re-read every validation input. Concurrent edit/payment/cancel
+    // commits first or waits; cancellation never acts on a stale preflight.
+    const bundle = await loadSunsetBookingBundle(pg, clientSlug, bookingId, null, true);
+    const reject = async (result) => { await pg.query('ROLLBACK'); return result; };
+    if (!bundle) return reject({ ok: false, status: 404, body: { success: false, error: 'booking not found' } });
+    const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+    if (resolveBundleLocationId(bundle) !== activeLocationId) {
+      return reject({ ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } });
+    }
+    if (!bundleHasTrustedScheduleDrawerAttribution(bundle)) {
+      return reject({ ok: false, status: 403, body: { success: false, error: 'delete_untrusted_booking_source', reason_code: 'delete_untrusted_booking_source' } });
+    }
+    if (String(bundle.booking.status || '').toLowerCase() === 'cancelled') {
+      return reject({ ok: true, status: 200, body: { success: true, deleted: false, idempotent: true, booking_id: bookingId } });
+    }
+    if (Number(bundle.payments_paid_cents || 0) > 0) {
+      return reject({ ok: false, status: 409, body: { success: false, error: 'paid_booking_cancel_conflict' } });
+    }
     await pg.query(
       `UPDATE booking_service_records SET status = 'cancelled'
         WHERE client_slug = $1 AND booking_id = $2::uuid AND status <> 'cancelled'`,

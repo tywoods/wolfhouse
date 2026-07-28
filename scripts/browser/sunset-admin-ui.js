@@ -707,7 +707,7 @@ function adminRentalPeriodOptions(selected){
   // and never derive options from stored tier/price rows. Legacy stored values
   // remain readable for old bookings but do not appear here; operator must pick
   // a canonical 1–7 day key before save (server rejects noncanonical).
-  var opts = ['1_hour', '2_hours', 'half_day', 'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
+  var opts = ['full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
   var sel = String(selected || '').trim();
   return opts.map(function(p){
     var isSel = (sel === p) ? ' selected' : '';

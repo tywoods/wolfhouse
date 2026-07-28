@@ -625,6 +625,14 @@ function rowMatchesQuoteLine(row, line) {
   const component = String((line && line.component) || '').trim();
   const meta = rowMetadata(row);
   const serviceType = String(row.service_type || '').trim();
+  // Course-equipment lines own exactly one component/date row. This prevents
+  // post-insert repricing from claiming legacy rental or included-course rows.
+  if (line && line.course_equipment === true) {
+    return meta.course_equipment === true
+      && meta.component === component
+      && String(row.service_date || '').slice(0, 10) === String(line.service_date || '').slice(0, 10)
+      && meta.course_equipment_mode === line.course_equipment_mode;
+  }
   if (component === 'course') {
     return meta.component === 'course' || serviceType === 'course';
   }
@@ -1441,6 +1449,9 @@ function validateScheduleBookingBody(body, opts) {
       ? Number(forcedComps.private_lesson.surfer_count) : Number(forcedComps.course.quantity);
     try { course_equipment = normalizeSelection(b.course_equipment, surfers); }
     catch (err) { return { ok: false, error: err.message }; }
+    if (course_equipment.mode === 'all_day' && forcedComps[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+      return { ok: false, error: 'course_equipment all_day must not overlap legacy full-day equipment extension' };
+    }
   }
 
   return {
@@ -2156,8 +2167,6 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
   }
   const quoteOwnedRows = createdRows.filter((row) => {
     const meta = rowMetadata(row);
-    // Course equipment is priced from the location-scoped Admin snapshot, never a browser/catalog add-on.
-    if (meta.course_equipment === true) return false;
     // Included gear has its own persisted €0 audit rows and is already commercially
     // represented by the course quote line. Never force it to claim a paid catalog line.
     if (meta.included_equipment === true
@@ -2178,9 +2187,8 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
   for (const row of createdRows) {
     if (quoteOwnedRows.includes(row)) continue;
     const meta = rowMetadata(row);
-    // Course equipment is always outside the generic catalog quote. Legacy full-day
-    // snapshots are outside it only when no matching full-day quote line exists.
-    if (meta.course_equipment !== true && fullDayInQuote) continue;
+    // A legacy full-day snapshot is outside ownership only when no matching quote line exists.
+    if (fullDayInQuote) continue;
     const due = checkedMoneyInteger(row.amount_due_cents || 0, 'addon_sum');
     if (due > 0) addonSum = checkedMoneyAdd(addonSum, due, 'addon_sum');
   }
