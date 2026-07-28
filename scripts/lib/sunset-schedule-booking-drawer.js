@@ -632,6 +632,10 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
           || payStatus.body.lifecycle === 'cancelled'
           || payStatus.body.lifecycle === 'booking_cancelled';
         if (payStatus.body.actionable && payStatus.body.checkout_url) {
+          // The active payment row is authoritative. A replacement link may be
+          // visible before legacy booking invalidation metadata is repaired;
+          // never report that actionable replacement as stale/invalidated.
+          paymentLinkInvalidated = false;
           stripeLink = {
             payment_id: payStatus.body.payment_id,
             payment_status: payStatus.body.payment_status,

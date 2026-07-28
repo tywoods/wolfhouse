@@ -461,7 +461,7 @@ console.log('\nverify:sunset-payment-link-concurrency\n');
     checkout_url: null, metadata: { source: 'stripe_webhook' },
   };
   const pgReplacement = buildConcurrentPg(replacementCalls, {
-    bookingMetadata: { sunset_stripe_link_stale: true }, payments: [oldPayment, paidPayment],
+    bookingMetadata: { sunset_stripe_link_stale: true, payment_link_invalidated: true }, payments: [oldPayment, paidPayment],
   });
   global.fetch = mockStripeFetch(replacementCalls);
   try {
@@ -479,6 +479,9 @@ console.log('\nverify:sunset-payment-link-concurrency\n');
       obsolete.status === 'cancelled' && obsolete.checkout_url === null && obsolete.metadata.payment_link_invalidated === true);
     assert('concurrent and repeat requests leave exactly one active replacement', active.length === 1, `active=${active.length}`);
     assert('replacement amount is only remaining balance', active[0] && active[0].amount_due_cents === 7500);
+    assert('successful replacement clears booking invalidation readback flags',
+      pgReplacement.booking.metadata.sunset_stripe_link_stale === false
+      && pgReplacement.booking.metadata.payment_link_invalidated === false);
     assert('only one replacement Stripe session is created', replacementCalls.length === 1, `calls=${replacementCalls.length}`);
   } finally {
     global.fetch = originalFetch;
