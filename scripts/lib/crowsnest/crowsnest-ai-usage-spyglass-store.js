@@ -24,17 +24,33 @@ const { validateCrowsnestAiUsageEvent } = require('./crowsnest-ai-usage-contract
 const DEFAULT_WINDOW_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Crowsnest-owned store DSN (shared with client-metrics; the ai-usage ledger lives
+// in public.crowsnest_ai_usage_events from migration 050). Never a tenant DB.
+const DSN_ENV = 'CROWSNEST_METRICS_DATABASE_URL';
+const AI_USAGE_TABLE = 'crowsnest_ai_usage_events';
+const POOL_MAX = 4;
+const POOL_IDLE_MS = 30000;
+const POOL_CONNECT_MS = 5000;
+
+const { recordCrowsnestAiUsageEvent } = require('./crowsnest-ai-usage-store');
+
 function isProductionEnv(env = process.env) {
   return String(env.NODE_ENV || '').toLowerCase() === 'production';
 }
 
+function toInt(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
 /**
  * Backend selection:
- *  - non-production            -> 'memory'      (ephemeral; dev/tests/reporters-in-dev)
- *  - production                -> 'fail_closed' (reads return null => "not reporting yet")
- * The Postgres backend is wired in a later slice alongside the injected-db reader.
+ *  - DSN present               -> 'postgres'    (durable ledger; migration 050)
+ *  - no DSN, non-production     -> 'memory'      (ephemeral; dev/tests)
+ *  - no DSN, production         -> 'fail_closed' (reads return null => "not reporting yet")
  */
 function resolveBackend(env = process.env) {
+  if (String((env || process.env)[DSN_ENV] || '').trim()) return 'postgres';
   if (!isProductionEnv(env)) return 'memory';
   return 'fail_closed';
 }
@@ -178,8 +194,91 @@ function createFailClosedRepository() {
   };
 }
 
+let aiUsagePool = null;
+function getAiUsagePool(options = {}) {
+  if (options.pool) return options.pool;
+  if (aiUsagePool) return aiUsagePool;
+  let Pool;
+  try {
+    ({ Pool } = require('pg'));
+  } catch (err) {
+    const wrapped = new Error('pg is required for the Crowsnest AI-usage store but is not installed');
+    wrapped.cause = err;
+    throw wrapped;
+  }
+  const databaseUrl = options.databaseUrl || String((options.env || process.env)[DSN_ENV] || '').trim();
+  if (!databaseUrl) throw new Error(`${DSN_ENV} is required to open the AI-usage pool`);
+  aiUsagePool = new Pool({
+    connectionString: databaseUrl,
+    max: Number(options.max || POOL_MAX),
+    idleTimeoutMillis: Number(options.idleTimeoutMillis || POOL_IDLE_MS),
+    connectionTimeoutMillis: Number(options.connectionTimeoutMillis || POOL_CONNECT_MS),
+    allowExitOnIdle: true,
+  });
+  return aiUsagePool;
+}
+
+function closeAiUsageStore() {
+  if (!aiUsagePool) return Promise.resolve();
+  const p = aiUsagePool;
+  aiUsagePool = null;
+  return p.end();
+}
+
+const AGGREGATE_SELECT_SQL = `
+  SELECT occurred_at, client_slug, provider, status, latency_ms,
+         tokens_availability, input_tokens, output_tokens, total_tokens,
+         cost_state, cost_amount_micros, cost_currency
+    FROM ${AI_USAGE_TABLE}
+   WHERE occurred_at >= $1
+`;
+
+// Rebuild the contract-nested shape aggregateAiUsage() expects from flat ledger columns.
+function rowToEvent(r) {
+  const occurred = r.occurred_at instanceof Date ? r.occurred_at.toISOString() : String(r.occurred_at);
+  const tokens = r.tokens_availability === 'measured'
+    ? { availability: 'measured', input_tokens: toInt(r.input_tokens), output_tokens: toInt(r.output_tokens), total_tokens: toInt(r.total_tokens) }
+    : { availability: 'unavailable' };
+  const cost = (r.cost_state === 'provider_reported' || r.cost_state === 'estimated')
+    ? { state: r.cost_state, amount_micros: toInt(r.cost_amount_micros), currency: r.cost_currency }
+    : { state: r.cost_state || 'unavailable' };
+  return { occurred_at: occurred, client_slug: r.client_slug, provider: r.provider, status: r.status, latency_ms: toInt(r.latency_ms), tokens, cost };
+}
+
+function createPostgresRepository(options = {}) {
+  return {
+    backend: 'postgres',
+    async record(event) {
+      try {
+        const pool = getAiUsagePool(options);
+        return await recordCrowsnestAiUsageEvent({ db: pool, event });
+      } catch {
+        // Missing table / connectivity / privilege: never throw into the ingest
+        // handler (would 500). Fail closed with a safe 503.
+        return { ok: false, status: 503, code: 'ai_usage_store_unavailable' };
+      }
+    },
+    async aggregate(opts = {}) {
+      try {
+        const windowDays = Number(opts.windowDays) > 0 ? Math.floor(opts.windowDays) : DEFAULT_WINDOW_DAYS;
+        const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+        const cutoff = new Date(now - windowDays * DAY_MS).toISOString();
+        const pool = getAiUsagePool(options);
+        const res = await pool.query(AGGREGATE_SELECT_SQL, [cutoff]);
+        const rows = (res && Array.isArray(res.rows)) ? res.rows.map(rowToEvent) : [];
+        return aggregateAiUsage(rows, { windowDays, now, nameFor: opts.nameFor });
+      } catch {
+        return null; // fail-closed => "not reporting yet"
+      }
+    },
+  };
+}
+
 function createRepository(env = process.env) {
-  return resolveBackend(env) === 'memory' ? createMemoryRepository() : createFailClosedRepository();
+  const backend = resolveBackend(env);
+  if (backend === 'postgres') return createPostgresRepository({ env });
+  if (backend === 'memory') return createMemoryRepository();
+  return createFailClosedRepository();
 }
 
 // Process-wide singleton so the HTTP server reuses one repository.
@@ -213,11 +312,15 @@ async function recordAiUsageEvent(event, env = process.env) {
 
 module.exports = {
   DEFAULT_WINDOW_DAYS,
+  DSN_ENV,
   isProductionEnv,
   resolveBackend,
   aggregateAiUsage,
   createMemoryRepository,
   createFailClosedRepository,
+  createPostgresRepository,
+  getAiUsagePool,
+  closeAiUsageStore,
   createRepository,
   getRepository,
   getSpyglassAiUsage,

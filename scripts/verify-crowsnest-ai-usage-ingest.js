@@ -157,6 +157,30 @@ async function partB() {
   const sampleHtml = renderCrowsnestPage({ view: 'spyglass' });
   ok('panel falls back to labelled Sample when no live aggregate', />Sample<\/span>/.test(sampleHtml) && /last 7 days \(sample\)/.test(sampleHtml));
 
+  // ── Part D: durable Postgres backend (fake pg seam, no live DB) ─────────────
+  ok('DSN present => postgres backend selected', store.resolveBackend({ CROWSNEST_METRICS_DATABASE_URL: 'postgres://x' }) === 'postgres');
+  {
+    const calls = [];
+    const base = Date.UTC(2026, 6, 15, 12, 0, 0);
+    const fakePool = {
+      query(sql) {
+        calls.push({ sql });
+        if (/insert into/i.test(sql)) return Promise.resolve({ rowCount: 1 });
+        return Promise.resolve({ rows: [
+          { occurred_at: new Date(base - 86400000), client_slug: 'wolfhouse-somo', provider: 'openai', status: 'succeeded', latency_ms: 600, tokens_availability: 'measured', input_tokens: 100, output_tokens: 100, total_tokens: 200, cost_state: 'estimated', cost_amount_micros: 2_000_000, cost_currency: 'USD' },
+        ] });
+      },
+    };
+    const pg = store.createPostgresRepository({ pool: fakePool });
+    const rec = await pg.record(baseValidEvent());
+    ok('pg record inserts (ok:true)', rec && rec.ok === true, JSON.stringify(rec));
+    const agg = await pg.aggregate({ now: base, windowDays: 7 });
+    ok('pg aggregate reconstructs flat rows + sums (200 tok, $2, 1 req)', agg && agg.totals.total_tokens === 200 && agg.totals.cost_usd === 2 && agg.totals.requests === 1, agg && JSON.stringify(agg.totals));
+    ok('pg aggregate is live (sample:false)', agg && agg.sample === false);
+    const sel = calls.find((c) => /select/i.test(c.sql));
+    ok('pg aggregate reads migration-050 ledger table', !!sel && /crowsnest_ai_usage_events/.test(sel.sql));
+  }
+
   await partA();
   await partB();
   console.log(`\n── verify:crowsnest-ai-usage-ingest: ${pass} passed, ${fail} failed ──`);
