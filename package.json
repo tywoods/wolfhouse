@@ -466,6 +466,7 @@
     "verify:luna-front-desk-accommodation-availability-service": "node scripts/verify-luna-front-desk-accommodation-availability-service.js",
     "verify:luna-front-desk-payment-link-service": "node scripts/verify-luna-front-desk-payment-link-service.js",
     "verify:sunset-schedule-portal-module": "node scripts/verify-sunset-schedule-portal-module.js",
+    "verify:sunset-course-included-equipment-production": "node scripts/verify-sunset-course-included-equipment-production.js",
     "verify:sunset-schedule-drawer-view-ui": "node scripts/verify-sunset-schedule-drawer-view-ui.js",
     "verify:sunset-schedule-drawer-edit-ui": "node scripts/verify-sunset-schedule-drawer-edit-ui.js",
     "verify:sunset-schedule-drawer-actions": "node scripts/verify-sunset-schedule-drawer-actions.js",

@@ -24306,12 +24306,14 @@ function scheduleOpsIsLessonRow(row){
 
 function scheduleOpsIsBoardRow(row){
   var st = String(row.service_type || row.staff_ui_service_type || '').toLowerCase();
-  return /board/.test(st) || st === 'surfboard';
+  var component = String(scheduleOpsParseMetadata(row).component || '').toLowerCase();
+  return /board/.test(st) || st === 'surfboard' || /board/.test(component);
 }
 
 function scheduleOpsIsWetsuitRow(row){
   var st = String(row.service_type || row.staff_ui_service_type || '').toLowerCase();
-  return /wetsuit/.test(st);
+  var component = String(scheduleOpsParseMetadata(row).component || '').toLowerCase();
+  return /wetsuit/.test(st) || /wetsuit/.test(component);
 }
 
 function scheduleOpsBuildGearIndex(rows, dateIso){
@@ -24324,11 +24326,15 @@ function scheduleOpsBuildGearIndex(rows, dateIso){
     var entry = index[code];
     var qty = scheduleOpsRowQty(row);
     if (scheduleOpsIsLessonRow(row)) { entry.hasLesson = true; entry.lessonQty += qty; }
-    else if (scheduleOpsIsBoardRow(row)) entry.boards += qty;
-    else if (scheduleOpsIsWetsuitRow(row)) entry.wetsuits += qty;
     var meta = scheduleOpsParseMetadata(row);
-    if (meta.include_board === true || meta.needs_board === true) entry.boards = Math.max(entry.boards, qty);
-    if (meta.include_wetsuit === true || meta.needs_wetsuit === true) entry.wetsuits = Math.max(entry.wetsuits, qty);
+    var fullDay = meta.component === 'full_day_equipment_extension' || meta.service_key === 'full_day_equipment_extension';
+    if (fullDay) {
+      entry.boards = Math.max(entry.boards, qty);
+      entry.wetsuits = Math.max(entry.wetsuits, qty);
+    } else if (scheduleOpsIsBoardRow(row)) entry.boards = Math.max(entry.boards, qty);
+    else if (scheduleOpsIsWetsuitRow(row)) entry.wetsuits = Math.max(entry.wetsuits, qty);
+    if (meta.included_equipment === true || meta.include_board === true || meta.needs_board === true) entry.boards = Math.max(entry.boards, qty);
+    if (meta.included_equipment === true || meta.include_wetsuit === true || meta.needs_wetsuit === true) entry.wetsuits = Math.max(entry.wetsuits, qty);
   });
   return index;
 }

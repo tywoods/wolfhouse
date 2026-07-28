@@ -49,12 +49,14 @@ function isLessonRow(row) {
 
 function isBoardRow(row) {
   const st = String(row.service_type || row.staff_ui_service_type || '').toLowerCase();
-  return /board/.test(st) || st === 'surfboard';
+  const component = String(parseRowMetadata(row).component || '').toLowerCase();
+  return /board/.test(st) || st === 'surfboard' || /board/.test(component);
 }
 
 function isWetsuitRow(row) {
   const st = String(row.service_type || row.staff_ui_service_type || '').toLowerCase();
-  return /wetsuit/.test(st);
+  const component = String(parseRowMetadata(row).component || '').toLowerCase();
+  return /wetsuit/.test(st) || /wetsuit/.test(component);
 }
 
 function buildBookingGearIndex(rows, dateIso) {
@@ -71,9 +73,15 @@ function buildBookingGearIndex(rows, dateIso) {
     if (isLessonRow(row)) {
       entry.hasLesson = true;
       entry.lessonQty += qty;
-    } else if (isBoardRow(row)) entry.boards += qty;
-    else if (isWetsuitRow(row)) entry.wetsuits += qty;
+    }
     const meta = parseRowMetadata(row);
+    const fullDay = meta.component === 'full_day_equipment_extension'
+      || meta.service_key === 'full_day_equipment_extension';
+    if (fullDay) {
+      entry.boards = Math.max(entry.boards, qty);
+      entry.wetsuits = Math.max(entry.wetsuits, qty);
+    } else if (isBoardRow(row)) entry.boards = Math.max(entry.boards, qty);
+    else if (isWetsuitRow(row)) entry.wetsuits = Math.max(entry.wetsuits, qty);
     if (meta.included_equipment === true || meta.include_board === true || meta.needs_board === true) entry.boards = Math.max(entry.boards, qty);
     if (meta.included_equipment === true || meta.include_wetsuit === true || meta.needs_wetsuit === true) entry.wetsuits = Math.max(entry.wetsuits, qty);
   }
