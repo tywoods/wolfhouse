@@ -91,10 +91,12 @@ print("\ntest_sunset_group_lesson_normalization — group lessons vs courses\n")
 # [0] Tool contract must explicitly forbid group_lesson and list canonical keys.
 tool_desc = None
 tool_components_desc = None
+tool_course_equipment = None
 for name, desc, _handler, props, _req in mod._sunset_write_tools():
     if name == "create_sunset_booking":
         tool_desc = desc
         tool_components_desc = (props.get("components") or {}).get("description")
+        tool_course_equipment = props.get("course_equipment")
 check("[0] create_sunset_booking tool exists", bool(tool_desc))
 check("[0] tool description forbids group_lesson", bool(tool_desc) and "group_lesson" in tool_desc and "never" in tool_desc.lower(), tool_desc)
 check("[0] components description lists canonical keys",
@@ -102,6 +104,35 @@ check("[0] components description lists canonical keys",
       and all(k in tool_components_desc for k in ("lesson", "course", "private_lesson", "surfboard", "wetsuit", "full_day_equipment_addon"))
       and "group_lesson" in tool_components_desc,
       tool_components_desc)
+check("[0] canonical top-level course_equipment contract",
+      bool(tool_course_equipment)
+      and tool_course_equipment.get("type") == "object"
+      and tool_course_equipment.get("required") == ["mode", "quantity"]
+      and tool_course_equipment.get("properties", {}).get("mode", {}).get("enum") == ["during_course", "all_day"]
+      and "top-level" in tool_course_equipment.get("description", ""),
+      tool_course_equipment)
+
+# [0b] The create bridge forwards course_equipment unchanged at top level and
+# does not manufacture ordinary rental components.
+fake = with_fake({"/sunset/booking-create": BOOKING_OK})
+selection = {"mode": "during_course", "quantity": 1}
+mod.create_sunset_booking(base_payload(
+    components={"course": {"course_id": "course-123", "tier_key": "4_day", "quantity": 1}},
+    course_equipment=selection,
+    quote_provenance={"quote_fingerprint": "fp-course", "course_equipment": selection, "total_cents": 0, "line_items": [
+        {"course_equipment": True, "course_equipment_mode": "during_course", "quantity": 1, "total_cents": 0}
+    ]},
+))
+body = fake.body_for("/sunset/booking-create")
+check("[0b] course_equipment forwarded unchanged at top level",
+      bool(body) and body.get("course_equipment") == selection,
+      body)
+check("[0b] course_equipment not nested or converted to rental components",
+      bool(body)
+      and "course_equipment" not in body.get("components", {})
+      and "surfboard" not in body.get("components", {})
+      and "wetsuit" not in body.get("components", {}),
+      body)
 
 # [1] Alias group_lesson → lesson; canonical POST strips time_preference from component.
 fake = with_fake({"/sunset/booking-create": BOOKING_OK})

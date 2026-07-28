@@ -184,6 +184,8 @@ function projectCourseTierFromPack(pack, prices, opts = {}) {
       price_resolve_reason: found.ok ? null : (found.reason || 'price_missing'),
       unit_canonical: found.ok ? found.unit_canonical !== false : false,
       capacity: pack.group_size != null ? Number(pack.group_size) : null,
+      // Course-owned commercial entitlement; explicit false is fail-closed.
+      equipment_included: pack.equipment_included === true,
       age_band: pack.age_band || null,
       beaches: pack.beaches || [],
       tier: { key: tierKey, label: tier.label || tierKey, hours: tier.hours },
@@ -367,6 +369,7 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
         pack_id: o.course_id,
         label: o.course_label || o.guest_description || o.label,
         capacity: o.capacity,
+        equipment_included: o.equipment_included === true,
         weekly: o.schedule && o.schedule.weekly,
         weekdays: (o.schedule && o.schedule.allowed_weekdays) || [],
         schedule_summary: (o.schedule && o.schedule.summary) || null,
@@ -490,6 +493,7 @@ async function loadSunsetBookableOfferings(pg, opts = {}) {
         price_source: resolved.ok ? 'admin_db' : null,
         unit_canonical: true,
         capacity: pack.group_size != null ? Number(pack.group_size) : null,
+        equipment_included: pack.equipment_included === true,
         age_band: pack.age_band || null,
         beaches: pack.beaches || [],
         tier: { key: tierKey, label: tier.label || tierKey, hours: tier.hours },
@@ -550,6 +554,7 @@ function scheduleCoursesFromBookableProjection(projection) {
     label: c.label,
     slot_time: c.slot_time || '',
     capacity: c.capacity,
+    equipment_included: c.equipment_included === true,
     price_tiers: (c.price_tiers || []).map((t) => {
       const key = t.key;
       const durationDays = t.duration_days != null
