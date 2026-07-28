@@ -228,6 +228,22 @@ const FULL_DAY_EQUIPMENT_ADDON_KEY = 'full_day_equipment_extension';
 const FULL_DAY_EQUIPMENT_ADDON_BILLING_UNIT = 'person_per_day';
 const COURSE_EQUIPMENT_KEY = 'course_equipment';
 const { normalizeSelection, quoteCourseEquipment } = require('./sunset-course-equipment-pricing');
+
+function checkedMoneyInteger(value, label) {
+  const n = Number(value);
+  if (!Number.isSafeInteger(n)) throwSunsetPriceFail(422, `${label || 'money'}_overflow`);
+  return n;
+}
+function checkedMoneyAdd(a, b, label) {
+  const sum = BigInt(checkedMoneyInteger(a, label)) + BigInt(checkedMoneyInteger(b, label));
+  if (sum > BigInt(Number.MAX_SAFE_INTEGER) || sum < BigInt(Number.MIN_SAFE_INTEGER)) {
+    throwSunsetPriceFail(422, `${label || 'money'}_overflow`);
+  }
+  return Number(sum);
+}
+function checkedMoneySubtract(a, b, label) {
+  return checkedMoneyAdd(a, -checkedMoneyInteger(b, label), label);
+}
 // Components whose service dates make a booking eligible for the full-day equipment add-on.
 const FULL_DAY_ADDON_ELIGIBLE_COMPONENTS = new Set(['lesson', 'course', 'private_lesson', 'surfboard', 'wetsuit']);
 
@@ -686,10 +702,10 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
   if (!Number.isFinite(quoteTotal) || !Number.isInteger(quoteTotal) || quoteTotal < 0) {
     return { ok: false, error: 'invalid_quote_total' };
   }
-  const lineTotalSum = lines.reduce((sum, line) => {
-    const n = Number(line && line.total_cents);
-    return sum + (Number.isFinite(n) ? n : 0);
-  }, 0);
+  let lineTotalSum = 0;
+  try {
+    for (const line of lines) lineTotalSum = checkedMoneyAdd(lineTotalSum, line && line.total_cents, 'quote_line_total');
+  } catch (_) { return { ok: false, error: 'quote_line_total_overflow' }; }
   if (lineTotalSum !== quoteTotal) {
     return { ok: false, error: 'quote_line_total_mismatch' };
   }
@@ -749,7 +765,8 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
     if (!isCustom && lineTotal < 0) {
       return { ok: false, error: 'invalid_quote_line_total' };
     }
-    appliedLineTotal += lineTotal;
+    try { appliedLineTotal = checkedMoneyAdd(appliedLineTotal, lineTotal, 'applied_line_total'); }
+    catch (_) { return { ok: false, error: 'applied_line_total_overflow' }; }
     for (let i = 0; i < matches.length; i += 1) {
       const row = matches[i];
       const id = String(row.service_record_id || row.id || '');
@@ -779,7 +796,8 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
         if (Number(metaUpd && metaUpd.rowCount) !== 1) {
           return { ok: false, error: 'service_amount_update_mismatch' };
         }
-        persistedAmountSum += signedDue;
+        try { persistedAmountSum = checkedMoneyAdd(persistedAmountSum, signedDue, 'persisted_amount_sum'); }
+        catch (_) { return { ok: false, error: 'persisted_amount_sum_overflow' }; }
         continue;
       }
       const upd = await pg.query(
@@ -790,7 +808,8 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
       if (Number(upd && upd.rowCount) !== 1) {
         return { ok: false, error: 'service_amount_update_mismatch' };
       }
-      persistedAmountSum += signedDue;
+      try { persistedAmountSum = checkedMoneyAdd(persistedAmountSum, signedDue, 'persisted_amount_sum'); }
+      catch (_) { return { ok: false, error: 'persisted_amount_sum_overflow' }; }
     }
   }
 
@@ -1919,9 +1938,10 @@ async function lockSchedulePaymentsForUpdate(pg, bookingId, clientId) {
     [bookingId, clientId],
   );
   const rows = res.rows || [];
-  const paidCents = rows
-    .filter((p) => String(p.payment_status || '').toLowerCase() === 'paid')
-    .reduce((s, p) => s + (Number(p.amount_paid_cents) || 0), 0);
+  let paidCents = 0;
+  for (const p of rows.filter((row) => String(row.payment_status || '').toLowerCase() === 'paid')) {
+    paidCents = checkedMoneyAdd(paidCents, p.amount_paid_cents || 0, 'payments_paid');
+  }
   return { rows, paidCents };
 }
 
@@ -2154,16 +2174,17 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
   }
   // Only add snapshotted full-day cents when they were NOT claimed via the quote
   // (avoids double-charging). Bundle peers stay zero-valued by applyAuthoritativeQuoteAmounts.
-  const addonSum = createdRows.reduce((sum, row) => {
-    if (quoteOwnedRows.includes(row)) return sum;
+  let addonSum = 0;
+  for (const row of createdRows) {
+    if (quoteOwnedRows.includes(row)) continue;
     const meta = rowMetadata(row);
     // Course equipment is always outside the generic catalog quote. Legacy full-day
     // snapshots are outside it only when no matching full-day quote line exists.
-    if (meta.course_equipment !== true && fullDayInQuote) return sum;
-    const due = Number(row.amount_due_cents);
-    return sum + (Number.isFinite(due) && due > 0 ? due : 0);
-  }, 0);
-  const bookingTotal = Number(applied.total_cents) + addonSum;
+    if (meta.course_equipment !== true && fullDayInQuote) continue;
+    const due = checkedMoneyInteger(row.amount_due_cents || 0, 'addon_sum');
+    if (due > 0) addonSum = checkedMoneyAdd(addonSum, due, 'addon_sum');
+  }
+  const bookingTotal = checkedMoneyAdd(applied.total_cents, addonSum, 'booking_total');
   const metaPatch = {
     sunset_priced_at: new Date().toISOString(),
     sunset_price_source: 'authoritative_quote',
@@ -2213,9 +2234,9 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
     rentalPricingDescriptor,
   };
   if (opts && Object.prototype.hasOwnProperty.call(opts, 'lockedPaidCents')) {
-    const lockedPaidCents = Math.max(0, Number(opts.lockedPaidCents) || 0);
-    const total = Number(priced.total_cents) || 0;
-    const balance = Math.max(total - lockedPaidCents, 0);
+    const lockedPaidCents = Math.max(0, checkedMoneyInteger(opts.lockedPaidCents || 0, 'paid'));
+    const total = checkedMoneyInteger(priced.total_cents, 'booking_total');
+    const balance = Math.max(checkedMoneySubtract(total, lockedPaidCents, 'balance'), 0);
     const bal = await pg.query(
       // MULTICLIENT_SCOPE_OK: balance = total - locked ledger paid
       `UPDATE bookings SET amount_paid_cents = $1, balance_due_cents = $2
@@ -2988,4 +3009,7 @@ module.exports = {
   NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
   NO_LESSON_EQUIPMENT_QTY_INCONSISTENT,
   rowMatchesQuoteLine,
+  checkedMoneyInteger,
+  checkedMoneyAdd,
+  checkedMoneySubtract,
 };

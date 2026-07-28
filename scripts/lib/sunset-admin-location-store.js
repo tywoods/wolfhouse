@@ -260,7 +260,7 @@ function applyStoreToResolvedConfig(config, locationId) {
 }
 
 function patchConfigPrice(locationId, category, offeringKey, unit, patch) {
-  const store = readStoreSync();
+  return mutateStoreSync((store) => {
   const bucket = ensureLocationBucket(store, locationId);
   const key = stablePriceKey(category, offeringKey, unit);
   const prev = bucket.prices[key] || {};
@@ -291,7 +291,6 @@ function patchConfigPrice(locationId, category, offeringKey, unit, patch) {
     active: nextActive,
     updated_at: new Date().toISOString(),
   };
-  writeStoreSync(store);
   return {
     ok: true,
     status: 200,
@@ -305,6 +304,7 @@ function patchConfigPrice(locationId, category, offeringKey, unit, patch) {
       storage: 'location_store',
     },
   };
+  });
 }
 
 function putLocationCapacity(locationId, capacity) {
@@ -327,7 +327,7 @@ function putLocationCapacity(locationId, capacity) {
 }
 
 function patchLocationLessonTime(locationId, slotId, patch) {
-  const store = readStoreSync();
+  return mutateStoreSync((store) => {
   const bucket = ensureLocationBucket(store, locationId);
   const sid = configTimeStoreKey(slotId);
   const prev = bucket.lesson_times[sid] || {};
@@ -339,7 +339,6 @@ function patchLocationLessonTime(locationId, slotId, patch) {
     time_local: start,
     updated_at: new Date().toISOString(),
   };
-  writeStoreSync(store);
   return {
     ok: true,
     status: 200,
@@ -349,10 +348,11 @@ function patchLocationLessonTime(locationId, slotId, patch) {
       storage: 'location_store',
     },
   };
+  });
 }
 
 function appendLocationAudit(locationId, entry) {
-  const store = readStoreSync();
+  return mutateStoreSync((store) => {
   const bucket = ensureLocationBucket(store, locationId);
   if (!Array.isArray(bucket.change_history)) bucket.change_history = [];
   bucket.change_history.unshift({
@@ -362,20 +362,21 @@ function appendLocationAudit(locationId, entry) {
     source: 'location_store',
   });
   bucket.change_history = bucket.change_history.slice(0, 50);
-  writeStoreSync(store);
+  return bucket.change_history[0];
+  });
 }
 
 
 function deactivateConfigPrice(locationId, category, offeringKey, unit) {
   const loc = normalizeSunsetLocationId(locationId);
-  const store = readStoreSync();
+  return mutateStoreSync((store) => {
   const bucket = ensureLocationBucket(store, loc);
   const key = stablePriceKey(category, offeringKey, unit);
   if (bucket.prices && bucket.prices[key]) {
     bucket.prices[key].active = false;
-    writeStoreSync(store);
   }
   return { ok: true, body: { price_rule: { id: priceIdFromParts(loc, category, offeringKey, unit), active: false } } };
+  });
 }
 module.exports = {
   STORE_PATH,
@@ -397,4 +398,5 @@ module.exports = {
   hasLocationOverrides,
   getCourseEquipmentPricing,
   putCourseEquipmentPricing,
+  mutateStoreSync,
 };

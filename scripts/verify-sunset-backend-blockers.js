@@ -19,6 +19,9 @@ function child(location, cents) {
     config: { during_course: { policy: 'extra', surfboard_cents: Number.MAX_SAFE_INTEGER, wetsuit_cents: 1 }, all_day: { surfboard_cents: 0, wetsuit_cents: 0 } },
     selection: { mode: 'during_course', quantity: 1 }, surfers: 1, booking_dates: ['2026-08-01'],
   }), /overflow/);
+  assert.strictEqual(require('./lib/sunset-schedule-booking-writes').checkedMoneyAdd(2, 3, 'booking_total'), 5);
+  assert.throws(() => require('./lib/sunset-schedule-booking-writes').checkedMoneyAdd(Number.MAX_SAFE_INTEGER, 1, 'booking_total'), /booking_total_overflow/);
+  assert.throws(() => require('./lib/sunset-schedule-booking-writes').checkedMoneySubtract(Number.MIN_SAFE_INTEGER, 1, 'balance'), /balance_overflow/);
 
   const rows = [
     { booking_id: 'a', service_type: 'surf_lesson', service_date: '2026-08-01', quantity: 2 },

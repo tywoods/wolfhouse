@@ -39695,6 +39695,14 @@ async function handleSunsetScheduleBookingUpdate(query, req, res, user) {
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   let body = {};
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  if (!isSunsetLocationId(query.location)) return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  const trustedLocationId = normalizeSunsetLocationId(query.location);
+  for (const supplied of [body.location_id, body.location]) {
+    if (supplied != null && String(supplied).trim() !== ''
+      && (!isSunsetLocationId(supplied) || normalizeSunsetLocationId(supplied) !== trustedLocationId)) {
+      return sendJSON(res, 409, { success: false, error: 'location_conflict' });
+    }
+  }
   const dateNorm = normalizeSunsetBookingDatesInBody(body, new Date());
   if (!dateNorm.ok) {
     return sendJSON(res, 400, {
@@ -39710,7 +39718,7 @@ async function handleSunsetScheduleBookingUpdate(query, req, res, user) {
       clientSlug,
       bookingId,
       body,
-      locationId: normalizeSunsetLocationId(query.location || body.location_id || body.location),
+      locationId: trustedLocationId,
       actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));
     appendAuditLog({
@@ -39742,12 +39750,20 @@ async function handleSunsetScheduleBookingDelete(query, req, res, user) {
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   let body = {};
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  if (!isSunsetLocationId(query.location)) return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  const trustedLocationId = normalizeSunsetLocationId(query.location);
+  for (const supplied of [body.location_id, body.location]) {
+    if (supplied != null && String(supplied).trim() !== ''
+      && (!isSunsetLocationId(supplied) || normalizeSunsetLocationId(supplied) !== trustedLocationId)) {
+      return sendJSON(res, 409, { success: false, error: 'location_conflict' });
+    }
+  }
   const bookingId = String(body.booking_id || query.booking_id || '').trim();
   try {
     const result = await withPgClient(async (pg) => cancelSunsetScheduleBooking(pg, {
       clientSlug,
       bookingId,
-      locationId: normalizeSunsetLocationId(query.location || body.location_id || body.location),
+      locationId: trustedLocationId,
       actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));
     appendAuditLog({
@@ -40361,7 +40377,16 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
     return send400(res, 'invalid JSON body');
   }
 
-  const trustedLocationId = query.location || body.location_id || body.location;
+  if (!isSunsetLocationId(query.location)) {
+    return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  }
+  const trustedLocationId = normalizeSunsetLocationId(query.location);
+  for (const supplied of [body.location_id, body.location]) {
+    if (supplied != null && String(supplied).trim() !== ''
+      && (!isSunsetLocationId(supplied) || normalizeSunsetLocationId(supplied) !== trustedLocationId)) {
+      return sendJSON(res, 409, { success: false, error: 'location_conflict' });
+    }
+  }
   const resolved = resolveBusinessVertical({ clientSlug: clientSlug, locationId: trustedLocationId });
   if (!resolved.ok) {
     return sendJSON(res, 400, { ...resolved, success: false, elapsed_ms: Date.now() - started });
