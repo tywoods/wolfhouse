@@ -347,6 +347,7 @@ function schedulePortalClearSelectedCreateCourse() {
   schedulePortalPendingCourseId = null;
   schedulePortalPendingCourseGen = 0;
   if (typeof schedulePortalRenderMainActivityPath === 'function') schedulePortalRenderMainActivityPath();
+  if (typeof scheduleRefreshCreateFullDayAddon === 'function') scheduleRefreshCreateFullDayAddon();
 }
 
 function schedulePortalSelectCreateCourse(courseId, courseLabel, opts) {
@@ -409,6 +410,7 @@ function schedulePortalSelectCreateCourse(courseId, courseLabel, opts) {
   schedulePortalPendingCourseId = id;
   schedulePortalPendingCourseGen = schedulePortalOpenGen;
   if (typeof schedulePortalRenderMainActivityPath === 'function') schedulePortalRenderMainActivityPath();
+  if (typeof scheduleRefreshCreateFullDayAddon === 'function') scheduleRefreshCreateFullDayAddon();
   if (!quiet) {
     if (typeof schedulePortalSyncCreateFooter === 'function') {
       schedulePortalSyncCreateFooter();

@@ -595,7 +595,9 @@ function scheduleDrawerClearSelectedCourse() {
   var sel = el('ps-drawer-course-select');
   if (sel) {
     sel.value = '';
-    try { sel.selectedIndex = -1; } catch (_s) { /* ignore */ }
+    try { sel.selectedIndex = -1; 
+  if (typeof scheduleRefreshDrawerFullDayAddon === 'function') scheduleRefreshDrawerFullDayAddon();
+} catch (_s) { /* ignore */ }
     try { sel.setAttribute('data-selected', ''); } catch (_d) { /* ignore */ }
   }
   scheduleDrawerSyncCourseButtons('');
@@ -630,6 +632,7 @@ function scheduleDrawerSelectCourse(courseId, courseLabel, opts) {
   }
   scheduleDrawerSyncCourseButtons(id);
   if (typeof scheduleDrawerRenderMainActivityPath === 'function') scheduleDrawerRenderMainActivityPath();
+  if (typeof scheduleRefreshDrawerFullDayAddon === 'function') scheduleRefreshDrawerFullDayAddon();
   if (!opts.quiet) {
     if (typeof scheduleDrawerMarkPriceStale === 'function') scheduleDrawerMarkPriceStale();
     if (typeof scheduleDrawerRefreshDurationConfirm === 'function') scheduleDrawerRefreshDurationConfirm();
@@ -1130,10 +1133,11 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
   }
   html += '<div class="portal-schedule-course-equipment' + (equipmentSeed ? '' : ' is-off') + '" id="ps-drawer-course-equipment" style="display:none" hidden data-seed="' + escHtml(JSON.stringify(equipmentSeed)) + '">';
   html += '<div class="portal-schedule-course-equipment-row">';
-  html += '<span class="portal-schedule-course-equipment-name">' + escHtml(portalT('schedule.ops.rentalBoth') || 'Surfboard + wetsuit') + '</span>';
-  html += '<div class="portal-schedule-course-equipment-surfers" id="ps-drawer-equipment-surfers-wrap">';
+  html += '<div class="portal-schedule-course-equipment-left">';
   html += '<label class="portal-schedule-course-equipment-check" for="ps-drawer-equipment-enabled" aria-label="' + escHtml(portalT('schedule.ops.rentalBoth') || 'Surfboard + wetsuit') + '">';
   html += '<input id="ps-drawer-equipment-enabled" class="portal-schedule-course-equipment-radial" type="checkbox"' + (equipmentSeed ? ' checked' : '') + '></label>';
+  html += '<span class="portal-schedule-course-equipment-name">' + escHtml(portalT('schedule.ops.rentalBoth') || 'Surfboard + wetsuit') + '</span></div>';
+  html += '<div class="portal-schedule-course-equipment-surfers" id="ps-drawer-equipment-surfers-wrap">';
   html += '<label class="portal-schedule-course-equipment-qty-label" for="ps-drawer-equipment-quantity"><span>' + escHtml(portalT('schedule.create.rentalQty') || 'Surfers') + '</span>';
   html += '<input id="ps-drawer-equipment-quantity" type="number" min="1" max="' + escHtml(String(seedSurfers)) + '" value="' + escHtml(String(equipmentSeed && equipmentSeed.quantity || seedSurfers)) + '" inputmode="numeric"' + (equipmentSeed ? '' : ' disabled aria-disabled="true"') + '></label></div>';
   html += '<div id="ps-drawer-equipment-mode-wrap" class="portal-schedule-course-equipment-modes"' + (equipmentSeed ? '' : ' style="display:none" hidden') + ' role="group" aria-label="Course equipment timing">';
@@ -1695,7 +1699,15 @@ function scheduleRefreshDrawerFullDayAddon() {
   var field = el('ps-drawer-course-equipment');
   if (!field) return;
   var mode = scheduleDrawerMainActivityValue();
-  var show = mode === 'group' || mode === 'private';
+  var selectedCourseId = '';
+  if (typeof scheduleDrawerGetSelectedCourseId === 'function') {
+    selectedCourseId = String(scheduleDrawerGetSelectedCourseId() || '').trim();
+  } else {
+    var dsel = el('ps-drawer-course-select');
+    selectedCourseId = dsel ? String(dsel.value || '').trim() : '';
+  }
+  // Group: only after a concrete course option is picked. Private: when Private course is selected.
+  var show = (mode === 'group' && !!selectedCourseId) || mode === 'private';
   field.style.display = show ? '' : 'none';
   field.hidden = !show;
   var enabledEl = el('ps-drawer-equipment-enabled');
