@@ -338,6 +338,12 @@ function adminReloadConfig(){
   // same SPA session previously kept stale surf_packs until school switch/restart.
   if (typeof scheduleInvalidateAdminCatalogCache === 'function') scheduleInvalidateAdminCatalogCache();
   loadAdminTab();
+  // Live Finance summary loads on admin open/reload (incl. school/location change),
+  // decoupled from the config-load fetch sequence. Sunset-only for now.
+  if (typeof getClient === 'function' && getClient() === 'sunset'
+      && typeof loadAdminFinanceSummary === 'function') {
+    loadAdminFinanceSummary();
+  }
 }function adminIsLessonPrice(p){
   return String((p && p.category) || '').toLowerCase() === 'lesson';
 }function adminLessonKindOptions(selected){
@@ -1220,12 +1226,11 @@ function renderAdminLoadingShell(profile){
 function renderAdminFinanceShell(){
   var body = el('admin-finance-body');
   if (!body) return;
-  if (typeof getClient === 'function' && getClient() !== 'sunset'){
-    body.innerHTML = '<div class="portal-admin-finance-unavailable"><p>' +
-      escHtml(portalT('admin.finance.summaryUnavailable')) + '</p></div>';
-    return;
-  }
-  loadAdminFinanceSummary();
+  // Static, fetch-free placeholder painted during admin config load. The live
+  // summary is loaded separately (loadAdminFinanceSummary) from the admin
+  // open/reload path so it never inflates config-load fetch accounting.
+  body.innerHTML = '<div class="portal-admin-finance-unavailable"><p>' +
+    escHtml(portalT('admin.finance.summaryUnavailable')) + '</p></div>';
 }
 
 // Generation guard: a superseded load (e.g. after a school/location change) must

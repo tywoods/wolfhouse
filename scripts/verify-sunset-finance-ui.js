@@ -76,7 +76,8 @@ ok('loader has a generation/stale guard', /seq !== financeLoadSeq/.test(loader) 
 ok('loader fetches the finance endpoint with client+location', /\/staff\/admin\/finance\/summary' \+ adminClientQuery\(\)/.test(loader));
 ok('loader renders loading + error(+retry) states', /admin\.finance\.loading/.test(loader) && /renderFinanceErrorHtml\(\)/.test(loader));
 ok('retry wiring guards against duplicate listeners', /financeWired/.test(UI_SRC));
-ok('shell defers non-sunset clients to unavailable', /getClient\(\) !== 'sunset'/.test(UI_SRC));
+ok('live load is Sunset-gated + decoupled from config-load fetch accounting', /getClient\(\) === 'sunset'[\s\S]{0,120}loadAdminFinanceSummary\(\)/.test(UI_SRC));
+ok('shell placeholder stays static (fetch-free) during config load', extract('renderAdminFinanceShell').includes('summaryUnavailable') && !extract('renderAdminFinanceShell').includes('loadAdminFinanceSummary('));
 
 // renderer must not do financial arithmetic (only display formatting in financeFmtEur)
 const renderer = extract('renderFinanceSummaryHtml') + extract('financeCard') + extract('financeMetricRow') + extract('renderFinanceTrendHtml');
