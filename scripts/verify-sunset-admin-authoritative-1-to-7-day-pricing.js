@@ -1100,21 +1100,18 @@ async function main() {
     !/opts = \[sel\]\.concat\(opts\)/.test(uiSrc)
       && /var opts = \['full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'\]/.test(uiSrc));
 
-  // ── 9. Deployment prerequisites (observed LIVE schema; no amounts baked) ─
-  console.log('\n[9] Deployment prerequisites (schema / fail-closed; no Admin data mutated offline)');
-  // Observed LIVE Sunset Admin (operator-reported; amounts not hard-coded here):
+  // ── 9. Deployment activation (operator-authoritative seed; not deployed here) ─
+  console.log('\n[9] Deployment activation (git-owned, insert-only Sunset Somo seed)');
+  // Observed LIVE Sunset Admin (operator-reported):
   //   • board_and_suit_rental: exact 1–7 day rows already present.
   //   • separate board_rental / wetsuit_rental: only 1,2,5,7 — but catalog sells
   //     the combined bundle only; code must not require separate 3/4/6 rows.
-  //   • Group course: live has 1/Single, 2, 3; authoritative 4/5/6/7 unknown.
+  //   • Group course: live has 1/Single, 2, 3; operator-authoritative 4/5/6/7
+  //     amounts are git-owned by sunset-somo-group-course-price-seed.js.
   //   • Private: per-session Admin row present.
-  // Real remaining live prerequisites = Group course 4–7 day Admin amounts only.
-  const remainingLivePrereqs = [
-    'group_course__4_days (Admin amount unknown — fail closed until configured)',
-    'group_course__5_days (Admin amount unknown — fail closed until configured)',
-    'group_course__6_days (Admin amount unknown — fail closed until configured)',
-    'group_course__7_days (Admin amount unknown — fail closed until configured)',
-  ];
+  // No unknown pricing prerequisite remains. Activation is a separate guarded,
+  // post-merge staging command; insert-only semantics preserve existing Admin rows.
+  const remainingLivePrereqs = [];
   // Not prerequisites (bundle-only sell path; separate modes not required):
   const notRequired = [
     'board_rental__3_days', 'board_rental__4_days', 'board_rental__6_days',
@@ -1126,9 +1123,8 @@ async function main() {
   console.log(`  remaining_live_admin_prereq_count=${remainingLivePrereqs.length}`);
   remainingLivePrereqs.forEach((m) => console.log(`  REMAINING_PREREQ  ${m}`));
   notRequired.forEach((m) => console.log(`  NOT_REQUIRED  ${m}`));
-  assert('only Group 4–7 remain as live Admin amount prerequisites',
-    remainingLivePrereqs.length === 4
-      && remainingLivePrereqs.every((p) => /group_course__[4-7]_days/.test(p)));
+  assert('no unknown Group 4–7 Admin amount prerequisite remains',
+    remainingLivePrereqs.length === 0);
   assert('tests do not require separate board/wetsuit 3/4/6 rows',
     !/board_rental__3_days.*requires Admin/.test(writesSrc)
       && remainingLivePrereqs.every((p) => !/board_rental|wetsuit_rental/.test(p)));
