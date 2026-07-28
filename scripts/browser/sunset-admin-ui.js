@@ -1130,6 +1130,30 @@ function renderAdminPrivateLessonCard(cfg, writes){
   html += '</article></div>';
   return html;
 }
+function renderAdminCourseEquipment(cfg, writes){
+  var root = cfg && cfg.course_equipment_pricing || {};
+  var during = root.during_course || { policy: 'free_with_course', surfboard_cents: 0, wetsuit_cents: 0 };
+  var allDay = root.all_day || { surfboard_cents: 0, wetsuit_cents: 0 };
+  var free = during.policy !== 'extra';
+  function centsInput(id, label, value, disabled){
+    return '<div class="portal-admin-edit-field"><label for="' + id + '">' + escHtml(label) + '</label>' +
+      '<input id="' + id + '" type="number" inputmode="numeric" min="0" step="1" value="' + escHtml(String(disabled ? 0 : value || 0)) + '"' +
+      (disabled ? ' disabled' : '') + ' aria-describedby="admin-course-equipment-basis"></div>';
+  }
+  var html = '<section class="portal-admin-subsection" data-admin-course-equipment="1" aria-labelledby="admin-course-equipment-title">' +
+    '<h3 id="admin-course-equipment-title" class="portal-admin-subsection-title">' + escHtml(portalT('admin.courseEquipment.title')) + '</h3>' +
+    '<p class="portal-admin-muted">' + escHtml(portalT('admin.courseEquipment.help')) + '</p>' +
+    '<fieldset><legend>' + escHtml(portalT('admin.courseEquipment.during')) + '</legend>' +
+    '<label class="portal-admin-touch"><input type="radio" name="admin-course-equipment-policy" data-admin-action="course-equipment-policy" value="free_with_course"' + (free ? ' checked' : '') + (writes ? '' : ' disabled') + '> ' + escHtml(portalT('admin.courseEquipment.free')) + '</label>' +
+    '<label class="portal-admin-touch"><input type="radio" name="admin-course-equipment-policy" data-admin-action="course-equipment-policy" value="extra"' + (!free ? ' checked' : '') + (writes ? '' : ' disabled') + '> ' + escHtml(portalT('admin.courseEquipment.extra')) + '</label>' +
+    '<div class="portal-admin-course-equipment-grid">' + centsInput('admin-course-during-board', portalT('admin.courseEquipment.surfboard'), during.surfboard_cents, free || !writes) + centsInput('admin-course-during-suit', portalT('admin.courseEquipment.wetsuit'), during.wetsuit_cents, free || !writes) + '</div></fieldset>' +
+    '<fieldset><legend>' + escHtml(portalT('admin.courseEquipment.allDay')) + '</legend><div class="portal-admin-course-equipment-grid">' +
+    centsInput('admin-course-all-day-board', portalT('admin.courseEquipment.surfboard'), allDay.surfboard_cents, !writes) + centsInput('admin-course-all-day-suit', portalT('admin.courseEquipment.wetsuit'), allDay.wetsuit_cents, !writes) + '</div></fieldset>' +
+    '<p id="admin-course-equipment-basis" class="portal-admin-muted">' + escHtml(portalT('admin.courseEquipment.centsBasis')) + '</p>';
+  if (writes) html += '<button type="button" class="btn btn-primary portal-admin-touch" data-admin-action="save-course-equipment">' + escHtml(portalT('admin.action.save')) + '</button>';
+  return html + '</section>';
+}
+
 function renderAdminSectionLessonTimesFromConfig(cfg){
   var box = el('admin-times-body');
   if (!box) return;
@@ -1138,7 +1162,7 @@ function renderAdminSectionLessonTimesFromConfig(cfg){
   var packs = (cfg && cfg.surf_packs) ? cfg.surf_packs : [];
   var defaultCap = (cfg && cfg.lesson_capacity && cfg.lesson_capacity.default_daily_cap != null)
     ? cfg.lesson_capacity.default_daily_cap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
-  box.innerHTML = renderAdminPackCards(packs, writes, defaultCap) + renderAdminPrivateLessonCard(cfg, writes);
+  box.innerHTML = renderAdminPackCards(packs, writes, defaultCap) + renderAdminPrivateLessonCard(cfg, writes) + renderAdminCourseEquipment(cfg, writes);
 }
 
 function renderAdminSectionBusinessInfoFromConfig(cfg){
@@ -1549,6 +1573,29 @@ function wireAdminTab(){
     var cfg = adminConfigCache;
     if (!cfg && action !== 'toggle-pill'){
       adminShowMessage('error', portalT('admin.loading'));
+      return;
+    }
+    if (action === 'course-equipment-policy'){
+      var isFree = btn.value === 'free_with_course';
+      ['admin-course-during-board', 'admin-course-during-suit'].forEach(function(id){
+        var input = el(id); if (input){ input.disabled = isFree; if (isFree) input.value = '0'; }
+      });
+      return;
+    }
+    if (action === 'save-course-equipment'){
+      if (!adminCfgWritesEnabled(cfg)) return;
+      function readCents(id){ var n = Number(el(id) && el(id).value); return Number.isSafeInteger(n) && n >= 0 ? n : null; }
+      var policyEl = root.querySelector('input[name="admin-course-equipment-policy"]:checked');
+      var policy = policyEl && policyEl.value === 'extra' ? 'extra' : 'free_with_course';
+      var payload = { during_course: { policy: policy, surfboard_cents: policy === 'extra' ? readCents('admin-course-during-board') : 0, wetsuit_cents: policy === 'extra' ? readCents('admin-course-during-suit') : 0 }, all_day: { surfboard_cents: readCents('admin-course-all-day-board'), wetsuit_cents: readCents('admin-course-all-day-suit') } };
+      if (payload.during_course.surfboard_cents == null || payload.during_course.wetsuit_cents == null || payload.all_day.surfboard_cents == null || payload.all_day.wetsuit_cents == null){ adminShowMessage('error', portalT('admin.courseEquipment.invalid')); return; }
+      var op = adminBeginOp();
+      adminApiRequest('PATCH', '/staff/admin/config/course-equipment' + adminClientQuery(), payload).then(function(resp){
+        if (!adminOpStillOwns(op)) return;
+        if (resp.status !== 200 || !resp.data || resp.data.success !== true) throw new Error(portalT('admin.courseEquipment.saveError'));
+        adminConfigCache.course_equipment_pricing = resp.data.course_equipment_pricing;
+        renderAdminFromConfig(adminConfigCache); adminShowMessage('success', portalT('admin.courseEquipment.saved')); adminReleaseBusy(op);
+      }).catch(function(){ if (!adminOpStillOwns(op)) return; adminShowMessage('error', portalT('admin.courseEquipment.saveError')); adminReleaseBusy(op); });
       return;
     }
     if (action === 'toggle-pill'){

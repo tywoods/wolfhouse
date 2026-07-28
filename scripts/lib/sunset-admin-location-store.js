@@ -15,6 +15,7 @@ const {
   DEFAULT_SUNSET_LOCATION_ID,
   SUNSET_LOCATIONS,
 } = require('./sunset-school-locations');
+const { normalizeConfig, validateConfig } = require('./sunset-course-equipment-pricing');
 
 const STORE_PATH = path.join(__dirname, '../../config/clients/sunset.location-admin.json');
 const CFG_PREFIX = 'cfg:';
@@ -73,7 +74,9 @@ function readStoreSync() {
 function writeStoreSync(store) {
   const dir = path.dirname(STORE_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(STORE_PATH, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
+  const tmp = `${STORE_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
+  fs.renameSync(tmp, STORE_PATH);
 }
 
 function ensureLocationBucket(store, locationId) {
@@ -90,6 +93,21 @@ function ensureLocationBucket(store, locationId) {
   if (!bucket.prices || typeof bucket.prices !== 'object') bucket.prices = {};
   if (!bucket.lesson_times || typeof bucket.lesson_times !== 'object') bucket.lesson_times = {};
   return bucket;
+}
+
+function getCourseEquipmentPricing(locationId) {
+  const loc = normalizeSunsetLocationId(locationId);
+  const bucket = readStoreSync().locations[loc];
+  return normalizeConfig(bucket && bucket.course_equipment_pricing);
+}
+
+function putCourseEquipmentPricing(locationId, value) {
+  const canonical = validateConfig(value);
+  const store = readStoreSync();
+  const bucket = ensureLocationBucket(store, locationId);
+  bucket.course_equipment_pricing = canonical;
+  writeStoreSync(store);
+  return canonical;
 }
 
 function resolveLocationLabel(locationId) {
@@ -124,6 +142,7 @@ function applyStoreToResolvedConfig(config, locationId) {
     ...config,
     location_id: loc,
     location_label: resolveLocationLabel(loc),
+    course_equipment_pricing: normalizeConfig(bucket && bucket.course_equipment_pricing),
   };
 
   if (next.prices && Array.isArray(next.prices)) {
@@ -329,4 +348,6 @@ module.exports = {
   appendLocationAudit,
   resolveLocationLabel,
   hasLocationOverrides,
+  getCourseEquipmentPricing,
+  putCourseEquipmentPricing,
 };

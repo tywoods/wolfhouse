@@ -389,6 +389,8 @@ const {
   validatePrivateLessonBody,
   putPrivateLessonRule,
 } = require('./lib/sunset-admin-private-lesson-rules');
+const sunsetAdminLocationStore = require('./lib/sunset-admin-location-store');
+const { validateConfig: validateCourseEquipmentPricing } = require('./lib/sunset-course-equipment-pricing');
 const {
   SUNSET_CLIENT_SLUG,
   validateScheduleBookingBody,
@@ -16260,6 +16262,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-edit-field{margin-bottom:0}
 .portal-admin-edit-field label{display:block;font-size:11px;font-weight:700;color:var(--text-2);margin-bottom:4px}
 .portal-admin-edit-field input{width:100%;max-width:240px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)}
+.portal-admin-course-equipment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,240px));gap:12px;max-width:100%}
+.portal-admin-touch{display:inline-flex;align-items:center;min-height:44px;margin-right:12px}
+.portal-admin-subsection fieldset{min-width:0;max-width:100%;border:1px solid var(--border-soft);border-radius:8px;margin:12px 0;padding:12px}
+@media(max-width:520px){.portal-admin-course-equipment-grid{grid-template-columns:minmax(0,1fr)}.portal-admin-edit-field input{min-height:44px;max-width:100%;box-sizing:border-box}}
 .portal-admin-edit-actions{display:flex;gap:8px;margin-top:0;flex-wrap:wrap;align-items:center}
 .portal-admin-row-edit{font-size:11px;padding:4px 10px}
 .portal-admin-danger{color:#9d3b30;border-color:rgba(157,59,48,.35)}
@@ -38510,6 +38516,7 @@ async function handleAdminConfig(query, res, user) {
 
   const writesOn = isSunsetAdminWritesEnabled() && adminWritesGate(clientSlug);
   const { ok, ...payload } = resolved;
+  payload.course_equipment_pricing = sunsetAdminLocationStore.getCourseEquipmentPricing(locationId);
   return sendJSON(res, 200, {
     success: true,
     ...payload,
@@ -39349,6 +39356,36 @@ async function handleAdminConfigLessonCapacityPut(query, req, res, user) {
   } catch (err) {
     console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
     return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
+  }
+}
+
+async function handleAdminConfigCourseEquipmentPatch(query, req, res, user) {
+  const clientSlug = String(query.client || DEFAULT_CLIENT).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  // This write never guesses a location: an absent/foreign identifier must not land in Somo.
+  if (!isSunsetLocationId(query.location)) return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  let body;
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  let canonical;
+  try { canonical = validateCourseEquipmentPricing(body); } catch (_) {
+    return sendJSON(res, 400, { success: false, error: 'invalid_course_equipment_pricing' });
+  }
+  try {
+    const locationId = normalizeSunsetLocationId(query.location);
+    const saved = sunsetAdminLocationStore.putCourseEquipmentPricing(locationId, canonical);
+    try {
+      sunsetAdminLocationStore.appendLocationAudit(locationId, {
+        action: 'update', entity_type: 'course_equipment_pricing', entity_id: locationId,
+        actor_email: user && user.email || 'unknown', after_json: saved,
+      });
+    } catch (auditErr) { console.error('[admin.config.course_equipment] audit failed:', auditErr && auditErr.message); }
+    return sendJSON(res, 200, { success: true, location_id: locationId, course_equipment_pricing: saved });
+  } catch (err) {
+    console.error('[admin.config.course_equipment] write failed:', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
   }
 }
 
@@ -46726,6 +46763,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminConfigLessonCapacityPut(parsed.query, req, res, auth.user);
+  }
+
+  if (pathname === '/staff/admin/config/course-equipment' && method === 'PATCH') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigCourseEquipmentPatch(parsed.query, req, res, auth.user);
   }
 
   if (pathname === '/staff/admin/config/private-lesson' && method === 'PUT') {

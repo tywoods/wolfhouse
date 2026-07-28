@@ -62,6 +62,7 @@
     "verify:staff-query-api": "node scripts/verify-staff-query-api.js",
     "verify:staff-query-ui": "node scripts/verify-staff-query-ui.js",
     "verify:sunset-course-equipment-pricing": "node scripts/verify-sunset-course-equipment-pricing.js",
+    "verify:sunset-admin-course-equipment-production": "node scripts/verify-sunset-admin-course-equipment-production.js",
     "verify:sunset-luna-admin-tab": "node scripts/verify-sunset-luna-admin-tab.js",
     "verify:portal-typography-fonts": "node scripts/verify-portal-typography-fonts.js",
     "verify:staff-write-api": "node scripts/verify-staff-write-api.js",
