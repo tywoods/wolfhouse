@@ -72,10 +72,25 @@ Prices (rentals — 4 hardcoded groups) · Course Equipment · Full-day Equipmen
 - Stand up a **template smoke gate**: run the full admin + booking verify suite for Sunset AND a
   synthetic `template-school` client. This backstops every later phase.
 
-### Phase 1 — De-tenant the pricing spine (high leverage, invisible to UI)
-- Generalize `sunset-admin-price-identity` / `-resolve` to take `client_slug`; drop the
-  `!== 'sunset'` gate. Keep `sunset-*` as thin callers during migration.
-- Add the item_code convention guard test.
+### Phase 1 — De-tenant the vertical→tenant binding + pricing spine
+**Linchpin (do first): `scripts/lib/luna-front-desk-vertical-scope.js`.** Its `VERTICAL_TENANT`
+map is a 1:1 `surf_school -> 'sunset'` binding enforced inside `assertResolvedVerticalScope` (a
+**403 cross-tenant isolation boundary**). To allow multiple surf schools it must become a
+*membership* check: `resolved.clientSlug` must be a valid tenant for the vertical
+(`isSurfSchoolClient(slug)` for surf_school, `isWolfhouseClientSlug` for accommodation) rather
+than `=== THE_ONE_TENANT`. This PRESERVES isolation (a wolfhouse slug still 403s on surf_school)
+while widening surf_school from {sunset} to {configured surf schools}.
+
+⚠️ **This is an audited security boundary.** `scripts/verify-fortress-tenant-identity-boundary-matrix.js`
+(97 checks, pure-logic, currently GREEN) documents isolation verdicts + an assertion floor. Any
+change here must: (a) keep that gate green, (b) extend it to prove a *second* surf school passes
+surf_school scope while a wolfhouse slug still fails, and (c) run the full booking/auth regression
+(needs DB — run on Lunabox/staging, not the laptop). **Requires Skipper review before merge.** Not
+done solo.
+
+Then, lower-risk: generalize `sunset-admin-price-identity` / `-resolve` to take `client_slug`;
+drop the `!== 'sunset'` gate; keep `sunset-*` as thin callers during migration. Add the item_code
+convention guard test.
 
 ### Phase 2 — Rentals become a real catalog (the concrete win)
 - New `tenant_rental_offerings` table (client+location scoped): `offering_key, label, group,
