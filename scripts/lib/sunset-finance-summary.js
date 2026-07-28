@@ -30,13 +30,36 @@
 
 const CUSTOM_LINE_MARKERS = Object.freeze(['staff_custom_line']);
 
-function toInt(value) {
-  if (value == null || (typeof value === 'string' && value.trim() === '')) {
-    throw new TypeError('invalid integer cents');
+class FinanceDataQualityError extends Error {
+  constructor() {
+    super('finance data quality check failed');
+    this.name = 'FinanceDataQualityError';
+    this.code = 'FINANCE_DATA_QUALITY';
   }
-  const n = Number(value);
-  if (!Number.isInteger(n)) throw new TypeError('invalid integer cents');
+  toJSON() { return { name: this.name, code: this.code }; }
+}
+
+function toInt(value) {
+  let n;
+  if (typeof value === 'number') n = value;
+  else if (typeof value === 'string' && /^(?:0|[1-9][0-9]*|-[1-9][0-9]*)$/.test(value)) n = Number(value);
+  else throw new FinanceDataQualityError();
+  if (!Number.isSafeInteger(n)) throw new FinanceDataQualityError();
   return n;
+}
+
+function checkedAdd(a, b) {
+  const left = toInt(a); const right = toInt(b);
+  if ((right > 0 && left > Number.MAX_SAFE_INTEGER - right)
+    || (right < 0 && left < Number.MIN_SAFE_INTEGER - right)) throw new FinanceDataQualityError();
+  return left + right;
+}
+
+function checkedSubtract(a, b) {
+  const left = toInt(a); const right = toInt(b);
+  if ((right < 0 && left > Number.MAX_SAFE_INTEGER + right)
+    || (right > 0 && left < Number.MIN_SAFE_INTEGER + right)) throw new FinanceDataQualityError();
+  return left - right;
 }
 
 function isStaffCustomLine(metadata) {
@@ -63,7 +86,7 @@ function effectiveServiceDueCents(row) {
 function authoritativeTotalByBooking(bookings, bsr) {
   const fallback = new Map();
   for (const row of bsr) {
-    fallback.set(row.booking_id, (fallback.get(row.booking_id) || 0) + effectiveServiceDueCents(row));
+    fallback.set(row.booking_id, checkedAdd(fallback.get(row.booking_id) || 0, effectiveServiceDueCents(row)));
   }
   return new Map(bookings.map((booking) => [
     booking.booking_id,
@@ -139,10 +162,10 @@ function computeSunsetFinanceSummary(args) {
   // Cumulative paid per booking (balance is total − ALL scoped paid, not period-scoped).
   const paidByBooking = new Map();
   for (const p of payments) {
-    paidByBooking.set(p.booking_id, (paidByBooking.get(p.booking_id) || 0) + toInt(p.amount_paid_cents));
+    paidByBooking.set(p.booking_id, checkedAdd(paidByBooking.get(p.booking_id) || 0, p.amount_paid_cents));
   }
   function bookingBalance(bookingId) {
-    return Math.max(0, (totalByBooking.get(bookingId) || 0) - (paidByBooking.get(bookingId) || 0));
+    return Math.max(0, checkedSubtract(totalByBooking.get(bookingId) || 0, paidByBooking.get(bookingId) || 0));
   }
 
   // Pre-index dated BSR rows with their effective due and Madrid payment dates.
@@ -155,16 +178,16 @@ function computeSunsetFinanceSummary(args) {
 
   function summarize(range) {
     let booked = 0;
-    for (const r of datedBsr) if (inRange(r.service_date, range)) booked += r.due;
+    for (const r of datedBsr) if (inRange(r.service_date, range)) booked = checkedAdd(booked, r.due);
 
     let collected = 0;
-    for (const p of datedPayments) if (inRange(p.date, range)) collected += p.amount;
+    for (const p of datedPayments) if (inRange(p.date, range)) collected = checkedAdd(collected, p.amount);
 
     // Distinct bookings with a dated qualifying BSR row inside the range.
     const qualifying = new Set();
     for (const r of datedBsr) if (inRange(r.service_date, range)) qualifying.add(r.booking_id);
     let outstanding = 0;
-    for (const bookingId of qualifying) outstanding += bookingBalance(bookingId);
+    for (const bookingId of qualifying) outstanding = checkedAdd(outstanding, bookingBalance(bookingId));
 
     return {
       booked_cents: booked,
@@ -221,16 +244,16 @@ function reconcileBookingBalances(args) {
 
   const paidByBooking = new Map();
   for (const p of payments) {
-    paidByBooking.set(p.booking_id, (paidByBooking.get(p.booking_id) || 0) + toInt(p.amount_paid_cents));
+    paidByBooking.set(p.booking_id, checkedAdd(paidByBooking.get(p.booking_id) || 0, p.amount_paid_cents));
   }
 
   const discrepancies = [];
   const totalByBooking = authoritativeTotalByBooking(bookings, bsr);
   for (const b of bookings) {
     if (b.balance_due_cents == null) continue; // nothing persisted to reconcile against
-    const computed = Math.max(0, totalByBooking.get(b.booking_id) - (paidByBooking.get(b.booking_id) || 0));
+    const computed = Math.max(0, checkedSubtract(totalByBooking.get(b.booking_id), paidByBooking.get(b.booking_id) || 0));
     const persisted = toInt(b.balance_due_cents);
-    const delta = computed - persisted;
+    const delta = checkedSubtract(computed, persisted);
     if (Math.abs(delta) > tolerance) {
       discrepancies.push({ booking_id: b.booking_id, computed_cents: computed, persisted_cents: persisted, delta_cents: delta });
     }
@@ -246,4 +269,5 @@ module.exports = {
   periodRanges,
   isStaffCustomLine,
   reconcileBookingBalances,
+  FinanceDataQualityError,
 };

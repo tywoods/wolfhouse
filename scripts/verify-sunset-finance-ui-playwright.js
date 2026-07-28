@@ -190,6 +190,17 @@ async function main() {
     await page.locator('#c-client').dispatchEvent('change');
     await waitPortal(page);
     await openAdmin(page);
+    const sunsetBeforeSwitch = await nextPending(pending);
+    await page.locator('#c-client').selectOption('wolfhouse-somo', { force: true });
+    await page.locator('#c-client').dispatchEvent('change');
+    await fulfill(sunsetBeforeSwitch, { success: true, summary: summary(7000) });
+    await sleep(100);
+    check('pending Sunset → non-Sunset switch → fulfill never paints stale Finance', !/€70[.,]00/.test(await text(page)));
+
+    await page.locator('#c-client').selectOption('sunset', { force: true });
+    await page.locator('#c-client').dispatchEvent('change');
+    await waitPortal(page);
+    await openAdmin(page);
     const somo = await nextPending(pending);
     await page.locator('.staff-school-btn[data-school="sunset-sardinero"]').click();
     const sardi = await nextPending(pending);
@@ -236,9 +247,33 @@ async function main() {
         check(`${lang.toUpperCase()} exact production copy: ${phrase}`, (financeText + '\n' + tabText).includes(phrase));
       }
       check(`${lang.toUpperCase()} exposes no raw admin.finance key`, !financeText.includes('admin.finance.'));
+      if (lang !== 'en') {
+        mode = 'pending';
+        await page.locator('button.tab-btn[data-tab="admin"]').click();
+        equal(`${lang.toUpperCase()} loading copy exact`, await text(page), expected.loading);
+        await fulfill(await nextPending(pending), { success:true, summary:emptySummary });
+        await page.waitForSelector('.portal-admin-finance-empty');
+        equal(`${lang.toUpperCase()} empty copy exact`, await page.locator('.portal-admin-finance-empty p').innerText(), expected.empty);
+        mode = 'error';
+        await page.locator('button.tab-btn[data-tab="admin"]').click();
+        await page.waitForSelector('#admin-finance-retry');
+        equal(`${lang.toUpperCase()} error copy exact`, await page.locator('.portal-admin-finance-error p').innerText(), expected.error);
+        equal(`${lang.toUpperCase()} retry copy exact`, await page.locator('#admin-finance-retry').innerText(), expected.retry);
+        mode = 'success';
+        await page.locator('#admin-finance-retry').click();
+        await page.waitForSelector('.pf-card');
+      }
     }
 
     console.log('\n[5] Responsive computed layout and diagnostics\n');
+    mode = 'error';
+    await page.locator('button.tab-btn[data-tab="admin"]').click();
+    await page.waitForSelector('#admin-finance-retry');
+    const retryRect = await page.locator('#admin-finance-retry').evaluate((el) => { const r=el.getBoundingClientRect(); return { width:r.width, height:r.height }; });
+    check('computed retry button is >=44x44 while error state is active', retryRect.width >= 44 && retryRect.height >= 44, JSON.stringify(retryRect));
+    mode = 'success';
+    await page.locator('#admin-finance-retry').click();
+    await page.waitForSelector('.pf-card');
     for (const width of [320, 375, 390, 430, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       await page.locator('#admin-tab-finance').click();

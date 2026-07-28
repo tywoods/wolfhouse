@@ -44,7 +44,22 @@ async function main() {
     ok('real auth gate rejects unauthenticated request', r.status===401 || r.status===403, `${r.status} ${r.body}`);
     ok('auth rejection occurs before PG', !/ECONNREFUSED|connect ECONN/.test(locked.logs()), locked.logs());
   } finally { await stop(locked && locked.child); }
-  ok('data quality failure is safe 503', /err instanceof FinanceDataQualityError[\s\S]*503[\s\S]*FINANCE_DATA_QUALITY/.test(API));
+  process.env.NODE_ENV='test';
+  process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER='1';
+  process.env.STAFF_AUTH_REQUIRED='false';
+  process.env.STAFF_AUTH_ALLOW_OPEN='true';
+  process.env.DEFAULT_CLIENT_SLUG='sunset';
+  const api = require(API_PATH);
+  const { FinanceDataQualityError } = require('./lib/sunset-finance-data');
+  api.setFortress15j3OfflineSeams({ withPgClient: async () => { throw new FinanceDataQualityError(); } });
+  const injected = api.server;
+  await new Promise((resolve,reject)=>{ injected.once('error',reject); injected.listen(0,'127.0.0.1',resolve); });
+  try {
+    const r=await request(injected.address().port,'/staff/admin/finance/summary?client=sunset&location=sunset-somo');
+    let body; try { body=JSON.parse(r.body); } catch (_) { body=null; }
+    ok('real production route returns generic typed data-quality 503', r.status===503 && body && body.success===false && body.error==='finance data unavailable' && body.code==='FINANCE_DATA_QUALITY', `${r.status} ${r.body}`);
+    ok('real production route leaks no typed error message/stack', !/data quality check failed|FinanceDataQualityError|stack|secret/i.test(r.body), r.body);
+  } finally { await new Promise((resolve)=>injected.close(resolve)); api.setFortress15j3OfflineSeams(null); }
   console.log(`\n── verify:sunset-finance-endpoint: ${pass} passed, ${fail} failed ──`);
   if (fail) process.exitCode=1; else console.log('verify:sunset-finance-endpoint — ALL CHECKS PASSED');
 }

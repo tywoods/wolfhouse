@@ -22,6 +22,7 @@ const {
   effectiveServiceDueCents,
   zonedDateString,
   reconcileBookingBalances,
+  FinanceDataQualityError,
 } = require(path.join(ROOT, 'scripts', 'lib', 'sunset-finance-summary.js'));
 
 let pass = 0;
@@ -65,6 +66,27 @@ for (const absent of [null, undefined, '', '   ']) {
   let trapped = false;
   try { effectiveServiceDueCents({ amount_due_cents: absent, metadata: {} }); } catch (_) { trapped = true; }
   ok(`absent/empty ordinary cents fail closed: ${JSON.stringify(absent)}`, trapped);
+}
+for (const accepted of [Number.MAX_SAFE_INTEGER, Number.MIN_SAFE_INTEGER, '9007199254740991', '-9007199254740991', '0']) {
+  eq(`safe canonical cents accepted: ${accepted}`, effectiveServiceDueCents({ amount_due_cents: accepted, metadata: {} }), Number(accepted));
+}
+for (const rejected of [true, false, 'true', Number.MAX_SAFE_INTEGER + 1, Number.MIN_SAFE_INTEGER - 1,
+  '9007199254740992', '-9007199254740992', '01', '-0', '+1', ' 1', '1 ', '1.0', '1e3']) {
+  let err;
+  try { effectiveServiceDueCents({ amount_due_cents: rejected, metadata: {} }); } catch (e) { err = e; }
+  ok(`unsafe/noncanonical cents fail with typed error: ${JSON.stringify(rejected)}`, err instanceof FinanceDataQualityError);
+}
+const overflowFixtures = [
+  { label: 'BSR fallback addition overflow', bookings:[{booking_id:'O',total_amount_cents:null}], bsr:[{booking_id:'O',service_date:'2026-07-15',amount_due_cents:Number.MAX_SAFE_INTEGER,metadata:{}},{booking_id:'O',service_date:'2026-07-15',amount_due_cents:1,metadata:{}}], payments:[] },
+  { label: 'paid-map addition overflow', bookings:[{booking_id:'O',total_amount_cents:Number.MAX_SAFE_INTEGER}], bsr:[{booking_id:'O',service_date:'2026-07-15',amount_due_cents:1,metadata:{}}], payments:[{booking_id:'O',amount_paid_cents:Number.MAX_SAFE_INTEGER,paid_at:'2026-07-15T10:00:00Z'},{booking_id:'O',amount_paid_cents:1,paid_at:'2026-07-15T10:00:00Z'}] },
+  { label: 'booked aggregate addition overflow', bookings:[], bsr:[{booking_id:'A',service_date:'2026-07-15',amount_due_cents:Number.MAX_SAFE_INTEGER,metadata:{}},{booking_id:'B',service_date:'2026-07-15',amount_due_cents:1,metadata:{}}], payments:[] },
+  { label: 'collected aggregate addition overflow', bookings:[], bsr:[], payments:[{booking_id:'A',amount_paid_cents:Number.MAX_SAFE_INTEGER,paid_at:'2026-07-15T10:00:00Z'},{booking_id:'B',amount_paid_cents:1,paid_at:'2026-07-15T10:00:00Z'}] },
+  { label: 'outstanding aggregate addition overflow', bookings:[{booking_id:'A',total_amount_cents:Number.MAX_SAFE_INTEGER},{booking_id:'B',total_amount_cents:1}], bsr:[{booking_id:'A',service_date:'2026-07-15',amount_due_cents:1,metadata:{}},{booking_id:'B',service_date:'2026-07-15',amount_due_cents:1,metadata:{}}], payments:[] },
+];
+for (const fixture of overflowFixtures) {
+  let err;
+  try { computeSunsetFinanceSummary({ now:NOW, timeZone:TZ, ...fixture }); } catch (e) { err=e; }
+  ok(`${fixture.label} throws typed data-quality error`, err instanceof FinanceDataQualityError);
 }
 
 // ── fixtures (already SQL-filtered per the source contract) ──────────────────

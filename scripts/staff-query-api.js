@@ -47267,6 +47267,12 @@ if (require.main === module) {
   });
 }
 
+// Narrow, default-inert seam for browser gates to invoke the exact production UI builder.
+if (String(process.env.NODE_ENV || '').toLowerCase() === 'test'
+  && String(process.env.STAFF_UI_BUILDER_TEST_SEAM || '').trim() === '1') {
+  module.exports.buildUiHtmlForOfflineTest = buildUiHtml;
+}
+
 // FORTRESS 15J3: ZERO seam/factory/counter/router/server test exports unless dual-gated.
 if (fortressOfflineListenerSeamsActive()) {
   Object.assign(module.exports, {

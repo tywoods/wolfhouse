@@ -1,6 +1,6 @@
 'use strict';
 
-const { effectiveServiceDueCents, reconcileBookingBalances } = require('./sunset-finance-summary');
+const { effectiveServiceDueCents, reconcileBookingBalances, FinanceDataQualityError } = require('./sunset-finance-summary');
 
 // Finance excludes transient/terminal non-operational bookings. Gross paid cash is
 // intentionally independent of booking status until an authoritative refund ledger exists.
@@ -49,21 +49,8 @@ const PAYMENTS_SQL = `
 
 function rows(result) { return result && Array.isArray(result.rows) ? result.rows : []; }
 
-class FinanceDataQualityError extends Error {
-  constructor() {
-    super('finance data quality check failed');
-    this.name = 'FinanceDataQualityError';
-    this.code = 'FINANCE_DATA_QUALITY';
-  }
-  toJSON() { return { name: this.name, code: this.code }; }
-}
 function integerCents(value) {
-  if (value == null || (typeof value === 'string' && value.trim() === '')) {
-    throw new FinanceDataQualityError();
-  }
-  const n = Number(value);
-  if (!Number.isInteger(n)) throw new FinanceDataQualityError();
-  return n;
+  return effectiveServiceDueCents({ amount_due_cents: value, metadata: {} });
 }
 
 async function fetchSunsetFinanceData(pg, scope) {
