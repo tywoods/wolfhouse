@@ -50,13 +50,29 @@ for (const expected of [
   'HERMES_ROLE', 'sunset-luna', 'LUNA_TENANT_ID', 'sunset',
   'SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID', 'SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID',
   'WHATSAPP_CLOUD_WEBHOOK_PORT=8092', 'SOUL.md',
-  'CROWSNEST_AI_USAGE_CLIENT_SLUG', 'CROWSNEST_AI_USAGE_TENANT_ID',
 ]) assert.ok(bootstrap.includes(expected), `bootstrap missing ${expected}`);
 const stagingBootstrap = fs.readFileSync(
   path.join(__dirname, '..', 'docker', 'hermes-staging', 'bootstrap.sh'),
   'utf8',
 );
-assert.ok(!stagingBootstrap.includes('CROWSNEST_AI_USAGE_INGEST_TOKEN'), 'write_luna_env must never copy ingest token into HERMES_HOME/.env');
+const aiUsageEnvNames = [
+  'CROWSNEST_AI_USAGE_INGEST_URL', 'CROWSNEST_AI_USAGE_INGEST_TOKEN',
+  'CROWSNEST_AI_USAGE_CLIENT_SLUG', 'CROWSNEST_AI_USAGE_TENANT_ID',
+  'CROWSNEST_AI_USAGE_SOURCE_SERVICE',
+];
+for (const name of aiUsageEnvNames) {
+  assert.ok(!bootstrap.includes(name), `Sunset bootstrap must not persist ${name} in HERMES_HOME/.env`);
+  assert.ok(!stagingBootstrap.includes(name), `staging bootstrap must not persist ${name} in HERMES_HOME/.env`);
+}
+const reporter = fs.readFileSync(
+  path.join(__dirname, '..', 'docker', 'hermes-staging', 'wolfhouse', 'crowsnest_ai_usage_reporter.py'),
+  'utf8',
+);
+const reporterEnvTuple = reporter.match(/ENV_NAMES\s*=\s*\(([\s\S]*?)\n\)/);
+const reporterNames = reporterEnvTuple
+  ? [...reporterEnvTuple[1].matchAll(/"(CROWSNEST_AI_USAGE_[A-Z_]+)"/g)].map((match) => match[1])
+  : [];
+assert.deepStrictEqual(reporterNames, aiUsageEnvNames, 'reporter must read exactly the five protected container env names');
 
 const soul = fs.readFileSync(path.join(runtime, 'SOUL.md'), 'utf8');
 for (const expected of ['Sunset Surf School', 'Your tenant is `sunset`', 'sunset-somo', 'sunset-sardinero']) {

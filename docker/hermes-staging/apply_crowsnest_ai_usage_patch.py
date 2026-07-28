@@ -173,7 +173,8 @@ def _validate_patched(runtime: str, helper: str) -> None:
         "helper marker": (helper, "crowsnest_guest_reply_context_v2", 1),
         "guest context import": (helper, "from wolfhouse.crowsnest_ai_usage_reporter import guest_reply_context", 1),
         "guest context use": (helper, "with guest_reply_context():", 1),
-        "terminal proof": (runtime, 'terminal_event_type="response.completed" if saw_terminal and terminal_status == "completed" else', 1),
+        "authoritative terminal assignments": (runtime, RUNTIME_TERMINAL_REPLACEMENT, 1),
+        "terminal proof": (runtime, RUNTIME_FINAL_REPLACEMENT, 1),
     }
     for label, (text, needle, count) in required.items():
         if text.count(needle) != count:

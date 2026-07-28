@@ -149,6 +149,27 @@ class PatcherTests(unittest.TestCase):
                     patcher.patch_files(*paths)
                 self.assertEqual([p.read_bytes() for p in paths], before)
 
+    def test_each_authoritative_terminal_assignment_corruption_fails_closed_without_write(self):
+        mutations = (
+            ('terminal_status = "completed"', 'terminal_status = "failed"'),
+            ('terminal_status = "incomplete"', 'terminal_status = "completed"'),
+            ('terminal_status = "failed"', 'terminal_status = "incomplete"'),
+            ('"response.completed" if saw_terminal and terminal_status == "completed"',
+             '"response.completed" if terminal_status == "completed"'),
+        )
+        for needle, replacement in mutations:
+            with self.subTest(needle=needle), tempfile.TemporaryDirectory() as d:
+                paths = self.copy_pinned(Path(d))
+                patcher.patch_files(*paths)
+                runtime = paths[1].read_text()
+                self.assertEqual(runtime.count(needle), 1)
+                paths[1].write_text(runtime.replace(needle, replacement, 1))
+                before = [p.read_bytes() for p in paths]
+                with self.assertRaisesRegex(RuntimeError, "corruption"):
+                    result = patcher.patch_files(*paths)
+                    self.assertFalse(result["changed"], "corrupt prepatch must not be accepted unchanged")
+                self.assertEqual([p.read_bytes() for p in paths], before)
+
     def test_patch_marks_only_main_turn_and_instruments_each_real_attempt(self):
         with tempfile.TemporaryDirectory() as d:
             paths = self.copy_pinned(Path(d)); patcher.patch_files(*paths)

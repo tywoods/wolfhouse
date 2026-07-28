@@ -22,6 +22,14 @@ const BOOTSTRAP_SUNSET = path.join(ROOT, 'docker', 'hermes-sunset', 'bootstrap.s
 const PKG_PATH = path.join(ROOT, 'package.json');
 const VERIFY_SCRIPT_REL = 'scripts/verify-crowsnest-sunset-ai-usage-identity.js';
 const PATCH_PATH = path.join(ROOT, 'docker', 'hermes-staging', 'apply_gateway_patches.py');
+const REPORTER_PATH = path.join(ROOT, 'docker', 'hermes-staging', 'wolfhouse', 'crowsnest_ai_usage_reporter.py');
+const AI_USAGE_ENV_NAMES = [
+  'CROWSNEST_AI_USAGE_INGEST_URL',
+  'CROWSNEST_AI_USAGE_INGEST_TOKEN',
+  'CROWSNEST_AI_USAGE_CLIENT_SLUG',
+  'CROWSNEST_AI_USAGE_TENANT_ID',
+  'CROWSNEST_AI_USAGE_SOURCE_SERVICE',
+];
 
 const {
   ENV_CLIENT_SLUG,
@@ -271,13 +279,21 @@ const bootstrapSunset = fs.readFileSync(BOOTSTRAP_SUNSET, 'utf8');
 const archDoc = fs.readFileSync(ARCH_DOC, 'utf8');
 const pkg = readJson(PKG_PATH);
 const patchSrc = fs.readFileSync(PATCH_PATH, 'utf8');
+const reporterSrc = fs.readFileSync(REPORTER_PATH, 'utf8');
 
-ok('compose declares CLIENT_SLUG env name', compose.includes('CROWSNEST_AI_USAGE_CLIENT_SLUG'));
-ok('compose declares TENANT_ID env name', compose.includes('CROWSNEST_AI_USAGE_TENANT_ID'));
-ok('staging bootstrap forwards CLIENT_SLUG name', bootstrapStaging.includes('CROWSNEST_AI_USAGE_CLIENT_SLUG'));
-ok('staging bootstrap forwards TENANT_ID name', bootstrapStaging.includes('CROWSNEST_AI_USAGE_TENANT_ID'));
-ok('sunset bootstrap forwards CLIENT_SLUG name', bootstrapSunset.includes('CROWSNEST_AI_USAGE_CLIENT_SLUG'));
-ok('sunset bootstrap forwards TENANT_ID name', bootstrapSunset.includes('CROWSNEST_AI_USAGE_TENANT_ID'));
+ok('compose loads protected Sunset container env_file',
+  /^\s*env_file:\s*$[\s\S]*?^\s*- \/etc\/hermes-sunset-luna\.env\s*$/m.test(compose));
+for (const name of AI_USAGE_ENV_NAMES) {
+  ok(`compose has no environment override for ${name}`, !compose.includes(name));
+  ok(`staging bootstrap does not persist ${name} in HERMES_HOME`, !bootstrapStaging.includes(name));
+  ok(`sunset bootstrap does not persist ${name} in HERMES_HOME`, !bootstrapSunset.includes(name));
+}
+const reporterEnvTuple = reporterSrc.match(/ENV_NAMES\s*=\s*\(([\s\S]*?)\n\)/);
+const reporterNames = reporterEnvTuple
+  ? [...reporterEnvTuple[1].matchAll(/"(CROWSNEST_AI_USAGE_[A-Z_]+)"/g)].map((match) => match[1])
+  : [];
+ok('reporter reads exactly the five authoritative Crowsnest names',
+  JSON.stringify(reporterNames) === JSON.stringify(AI_USAGE_ENV_NAMES), JSON.stringify(reporterNames));
 ok('compose does not hardcode sunset as AI usage identity value on those keys',
   !/CROWSNEST_AI_USAGE_CLIENT_SLUG:\s*sunset\b/.test(compose)
   && !/CROWSNEST_AI_USAGE_TENANT_ID:\s*sunset\b/.test(compose));
