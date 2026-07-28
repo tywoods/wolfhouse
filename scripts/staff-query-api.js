@@ -22466,7 +22466,7 @@ function scheduleCreateDateRangeSelectDay(state, iso){
   var start = state.start ? String(state.start).slice(0, 10) : null;
   var end = state.end ? String(state.end).slice(0, 10) : null;
   iso = String(iso || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return { start: start, end: end };
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(iso)) return { start: start, end: end };
   // Restart after a complete range, or when no start yet.
   if (!start || (start && end)) return { start: iso, end: null };
   // Earlier second selection restarts as the new start (no end yet).
@@ -22478,7 +22478,7 @@ function scheduleCreateDateRangeSelectDay(state, iso){
 /** Shift an ISO day by delta days (pure; used by roving-grid keyboard nav). */
 function scheduleCreateDateRangeAddDays(iso, delta){
   iso = String(iso || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(iso)) return iso;
   var d = scheduleParseIso(iso);
   d.setDate(d.getDate() + Number(delta || 0));
   return scheduleIsoDate(d);
@@ -22503,8 +22503,8 @@ function scheduleCreateDateRangeWeekEndIso(iso){
 function scheduleCreateDateRangeSeedDraft(){
   var from = el('ps-create-date-from') ? String(el('ps-create-date-from').value || '').slice(0, 10) : '';
   var to = el('ps-create-date-to') ? String(el('ps-create-date-to').value || '').slice(0, 10) : '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) to = from;
+  if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(from)) {
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(to)) to = from;
     return { start: from, end: to };
   }
   var today = scheduleTodayIso();
@@ -22542,7 +22542,7 @@ var scheduleCreateDateRangeRestoreFocus = false;
 var scheduleCreateDateRangeDocWired = false;
 
 function scheduleCreateDateRangeFormatShort(iso){
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(String(iso).slice(0, 10))) return '';
+  if (!iso || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso).slice(0, 10))) return '';
   try {
     var d = scheduleParseIso(String(iso).slice(0, 10));
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -22652,7 +22652,7 @@ function scheduleCreateDateRangeTogglePopover(){
 
 function scheduleCreateDateRangeMoveFocus(iso, key){
   iso = String(iso || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(iso)) return null;
   if (key === 'ArrowLeft') return scheduleCreateDateRangeAddDays(iso, -1);
   if (key === 'ArrowRight') return scheduleCreateDateRangeAddDays(iso, 1);
   if (key === 'ArrowUp') return scheduleCreateDateRangeAddDays(iso, -7);

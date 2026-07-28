@@ -622,6 +622,17 @@ assert('calendar selection owner functions present',
 assert('selection rules documented in owner (start/end, restart, same-day, inclusive)',
   /restart|re-?start|same[- ]?day|inclusive|draftStart|draftEnd|rangeStart|rangeEnd/.test(apiSrc)
   && (/second.*start|earlier|before.*start|draftStart/.test(apiSrc)));
+assert('embedded range validators survive the /staff/ui template layer', (() => {
+  const owners = [
+    extractFn(apiSrc, 'scheduleCreateDateRangeSelectDay'),
+    extractFn(apiSrc, 'scheduleCreateDateRangeAddDays'),
+    extractFn(apiSrc, 'scheduleCreateDateRangeSeedDraft'),
+    extractFn(apiSrc, 'scheduleCreateDateRangeFormatShort'),
+    extractFn(apiSrc, 'scheduleCreateDateRangeMoveFocus'),
+  ].join('\n');
+  return owners.includes('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+    && !owners.includes('\\\\d{4}');
+})());
 assert('a11y keyboard/focus owners present (focus into, Escape, roving move)',
   /function scheduleCreateDateRangeFocusInto/.test(apiSrc)
   && /function scheduleCreateDateRangeMoveFocus/.test(apiSrc)
