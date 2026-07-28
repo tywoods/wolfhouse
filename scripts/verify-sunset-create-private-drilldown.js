@@ -252,11 +252,19 @@ function sandboxFromHtml(html, opts) {
       querySelector(sel) {
         if (!sel) return null;
         if (sel.startsWith('#')) return nodes[sel.slice(1)] || null;
-        if (sel.startsWith('[data-course-id=')) {
+        if (sel.includes('button[data-course-id][aria-pressed="true"]')
+          || sel.includes('button[data-course-id][aria-pressed=\'true\']')) {
+          const rows = this._courseRows || [];
+          for (let i = 0; i < rows.length; i += 1) {
+            if (rows[i].getAttribute && rows[i].getAttribute('aria-pressed') === 'true') return rows[i];
+          }
+          return null;
+        }
+        if (sel.includes('button[data-course-id=') || sel.includes('[data-course-id=')) {
           const idMatch = sel.match(/data-course-id=["']?([^"'\]]+)/);
           if (!idMatch) return null;
           const want = idMatch[1];
-          const all = this.querySelectorAll('[data-course-id]');
+          const all = this.querySelectorAll('button[data-course-id], [data-course-id]');
           for (let i = 0; i < all.length; i += 1) {
             if (String(all[i].getAttribute('data-course-id')) === want) return all[i];
           }
@@ -281,7 +289,11 @@ function sandboxFromHtml(html, opts) {
       querySelectorAll(sel) {
         if (this.id === 'ps-create-course-list') {
           const rows = this._courseRows || [];
-          if (!sel || sel === '*' || sel.includes('label') || sel.includes('portal-schedule-create-check')) {
+          if (!sel || sel === '*' || sel.includes('label')
+            || sel.includes('portal-schedule-create-check')
+            || sel.includes('portal-schedule-create-activity-btn')
+            || sel.includes('button[data-course-id]')
+            || (sel.includes('button') && sel.includes('data-course-id'))) {
             return rows.slice();
           }
           if (sel.includes('input')) {
@@ -471,7 +483,7 @@ function sandboxFromHtml(html, opts) {
     removeAttribute(k) { if (k === 'hidden') this.hidden = false; },
   };
 
-  // Live-ish course list DOM
+  // Live-ish course list DOM (activity buttons + hidden radios; legacy labels accepted)
   const courseList = nodes['ps-create-course-list'];
   Object.defineProperty(courseList, 'innerHTML', {
     get() { return this._innerHTML || ''; },
@@ -479,21 +491,25 @@ function sandboxFromHtml(html, opts) {
       this._innerHTML = String(v || '');
       this._courseRows = [];
       const html = this._innerHTML;
-      const labelRe = /<label[^>]*data-course-id="([^"]*)"[^>]*data-label="([^"]*)"[^>]*>([\s\S]*?)<\/label>/g;
       let m;
-      while ((m = labelRe.exec(html))) {
+      const btnRe = /<button[^>]*data-course-id="([^"]*)"[^>]*data-label="([^"]*)"[^>]*>([\s\S]*?)<\/button>/g;
+      while ((m = btnRe.exec(html))) {
         const cid = m[1];
         const lab = m[2]
           .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
           .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-        const inputMatch = m[3].match(/value="([^"]*)"/);
-        const disabled = /disabled/.test(m[3]);
+        const attrs = m[0].slice(0, m[0].indexOf('>'));
+        const disabled = /\sdisabled(?:\s|=|>|$)/.test(attrs) || /is-disabled/.test(attrs);
+        const pressed = /aria-pressed="true"/.test(attrs) || /is-selected/.test(attrs);
+        const after = html.slice(m.index + m[0].length, m.index + m[0].length + 280);
+        const inputMatch = after.match(/<input[^>]*type="radio"[^>]*>/);
+        const inputTag = inputMatch ? inputMatch[0] : '';
         const input = {
           type: 'radio',
           name: 'ps-create-course-pick',
-          value: inputMatch ? inputMatch[1] : cid,
-          checked: /checked/.test(m[3]),
-          disabled,
+          value: cid,
+          checked: /checked/.test(inputTag) || pressed,
+          disabled: disabled || /disabled/.test(inputTag),
           _ls: {},
           addEventListener(ev, fn) {
             this._ls[ev] = this._ls[ev] || [];
@@ -503,16 +519,40 @@ function sandboxFromHtml(html, opts) {
           getAttribute() { return null; },
         };
         this._courseRows.push({
-          className: 'portal-schedule-create-check',
-          classList: makeClassList(['portal-schedule-create-check']),
+          tagName: 'BUTTON',
+          type: 'button',
+          className: 'portal-schedule-create-activity-btn' + (pressed ? ' is-selected' : ''),
+          classList: makeClassList([
+            'portal-schedule-create-activity-btn',
+            ...(pressed ? ['is-selected'] : []),
+          ]),
+          disabled,
           _input: input,
           textContent: lab,
           dataset: { courseId: cid, label: lab },
-          setAttribute(k, val) { this['_' + k] = val; },
+          _attrs: {
+            'data-course-id': cid,
+            'data-label': lab,
+            'aria-pressed': pressed ? 'true' : 'false',
+          },
+          setAttribute(k, val) {
+            this._attrs[k] = String(val);
+            if (k === 'aria-pressed') {
+              const on = String(val) === 'true';
+              if (on) this.classList.add('is-selected');
+              else this.classList.remove('is-selected');
+            }
+          },
           getAttribute(k) {
             if (k === 'data-course-id') return cid;
             if (k === 'data-label') return lab;
-            return this['_' + k] != null ? this['_' + k] : null;
+            if (k === 'aria-pressed') return this._attrs['aria-pressed'] || 'false';
+            return this._attrs[k] != null ? this._attrs[k] : null;
+          },
+          addEventListener(ev, fn) {
+            this._ls = this._ls || {};
+            this._ls[ev] = this._ls[ev] || [];
+            this._ls[ev].push(fn);
           },
           querySelector(sel) {
             if (!sel || sel.includes('input')) return input;
@@ -523,6 +563,52 @@ function sandboxFromHtml(html, opts) {
             return [];
           },
         });
+      }
+      if (!this._courseRows.length) {
+        const labelRe = /<label[^>]*data-course-id="([^"]*)"[^>]*data-label="([^"]*)"[^>]*>([\s\S]*?)<\/label>/g;
+        while ((m = labelRe.exec(html))) {
+          const cid = m[1];
+          const lab = m[2]
+            .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+          const inputMatch = m[3].match(/value="([^"]*)"/);
+          const disabled = /disabled/.test(m[3]);
+          const input = {
+            type: 'radio',
+            name: 'ps-create-course-pick',
+            value: inputMatch ? inputMatch[1] : cid,
+            checked: /checked/.test(m[3]),
+            disabled,
+            _ls: {},
+            addEventListener(ev, fn) {
+              this._ls[ev] = this._ls[ev] || [];
+              this._ls[ev].push(fn);
+            },
+            setAttribute() {},
+            getAttribute() { return null; },
+          };
+          this._courseRows.push({
+            className: 'portal-schedule-create-check',
+            classList: makeClassList(['portal-schedule-create-check']),
+            _input: input,
+            textContent: lab,
+            dataset: { courseId: cid, label: lab },
+            setAttribute(k, val) { this['_' + k] = val; },
+            getAttribute(k) {
+              if (k === 'data-course-id') return cid;
+              if (k === 'data-label') return lab;
+              return this['_' + k] != null ? this['_' + k] : null;
+            },
+            querySelector(sel) {
+              if (!sel || sel.includes('input')) return input;
+              return null;
+            },
+            querySelectorAll(sel) {
+              if (!sel || sel.includes('input')) return [input];
+              return [];
+            },
+          });
+        }
       }
     },
     configurable: true,
@@ -579,6 +665,7 @@ function sandboxFromHtml(html, opts) {
     'schedulePortalSelectCreateCourse',
     'schedulePortalClearSelectedCreateCourse',
     'schedulePortalGetSelectedCreateCourseId',
+    'schedulePortalSyncCreateCourseButtons',
     'schedulePortalApplyDesiredCourseSelect',
     'schedulePortalPopulateCreateCourseFields',
     'schedulePortalValidateCreatePayload',

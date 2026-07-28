@@ -7,7 +7,8 @@
  *   1. Initial three Main activity choices (Group / Private / No lesson)
  *   2. Group course click replaces that list in place with available courses
  *   3. No legacy bottom dropdown for course select
- *   4. Touch-friendly radio-card list; exactly one course selected
+ *   4. Touch-friendly activity buttons (no radio glyphs); exactly one selected;
+ *      aria-pressed exclusive; 44px targets; hidden radio/select may remain
  *   5. Main activity header Back button (right-aligned)
  *   6. Back clears selected course and restores three choices
  *   7. Compact chosen-path summary at top (Group course · Curso Mañana)
@@ -245,11 +246,19 @@ function sandboxFromHtml(html, opts) {
       querySelector(sel) {
         if (!sel) return null;
         if (sel.startsWith('#')) return nodes[sel.slice(1)] || null;
-        if (sel.startsWith('[data-course-id=')) {
+        if (sel.includes('button[data-course-id][aria-pressed="true"]')
+          || sel.includes('button[data-course-id][aria-pressed=\'true\']')) {
+          const rows = this._courseRows || [];
+          for (let i = 0; i < rows.length; i += 1) {
+            if (rows[i].getAttribute && rows[i].getAttribute('aria-pressed') === 'true') return rows[i];
+          }
+          return null;
+        }
+        if (sel.includes('button[data-course-id=') || sel.includes('[data-course-id=')) {
           const idMatch = sel.match(/data-course-id=["']?([^"'\]]+)/);
           if (!idMatch) return null;
           const want = idMatch[1];
-          const all = this.querySelectorAll('[data-course-id]');
+          const all = this.querySelectorAll('button[data-course-id], [data-course-id]');
           for (let i = 0; i < all.length; i += 1) {
             if (String(all[i].getAttribute('data-course-id')) === want) return all[i];
           }
@@ -271,7 +280,11 @@ function sandboxFromHtml(html, opts) {
       querySelectorAll(sel) {
         if (this.id === 'ps-create-course-list') {
           const rows = this._courseRows || [];
-          if (!sel || sel === '*' || sel.includes('label') || sel.includes('portal-schedule-create-check')) {
+          if (!sel || sel === '*' || sel.includes('label')
+            || sel.includes('portal-schedule-create-check')
+            || sel.includes('portal-schedule-create-activity-btn')
+            || sel.includes('button[data-course-id]')
+            || (sel.includes('button') && sel.includes('data-course-id'))) {
             return rows.slice();
           }
           if (sel.includes('input')) {
@@ -340,32 +353,36 @@ function sandboxFromHtml(html, opts) {
   N('ps-create-course-tier', { value: '', options: [], selectedIndex: -1 });
   N('ps-create-activity-empty-hint', { style: { display: '' } });
 
-  // Live-ish course list DOM: when portal sets innerHTML, rebuild rows.
+  // Live-ish course list DOM: when portal sets innerHTML, rebuild button rows + hidden radios.
   const courseList = nodes['ps-create-course-list'];
   Object.defineProperty(courseList, 'innerHTML', {
     get() { return this._innerHTML || ''; },
     set(v) {
       this._innerHTML = String(v || '');
       this._courseRows = [];
-      // Parse simple radio-card labels: data-course-id + data-label + input value
-      const re = /data-course-id="([^"]*)"[^>]*data-label="([^"]*)"[\s\S]*?<input[^>]*value="([^"]*)"/g;
       let m;
       const html = this._innerHTML;
-      // Prefer data-course-id on label with nested input
-      const labelRe = /<label[^>]*data-course-id="([^"]*)"[^>]*data-label="([^"]*)"[^>]*>([\s\S]*?)<\/label>/g;
-      while ((m = labelRe.exec(html))) {
+      // Prefer real course option buttons (parity with Main activity lesson buttons).
+      const btnRe = /<button[^>]*data-course-id="([^"]*)"[^>]*data-label="([^"]*)"[^>]*>([\s\S]*?)<\/button>/g;
+      while ((m = btnRe.exec(html))) {
         const cid = m[1];
         const lab = m[2]
           .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
           .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-        const inputMatch = m[3].match(/value="([^"]*)"/);
-        const disabled = /disabled/.test(m[3]);
+        const attrs = m[0].slice(0, m[0].indexOf('>'));
+        const disabled = /\sdisabled(?:\s|=|>|$)/.test(attrs) || /is-disabled/.test(attrs);
+        const pressed = /aria-pressed="true"/.test(attrs) || /is-selected/.test(attrs);
+        // Hidden radio sibling after this button (compat state).
+        const after = html.slice(m.index + m[0].length, m.index + m[0].length + 280);
+        const inputMatch = after.match(/<input[^>]*type="radio"[^>]*>/);
+        const inputTag = inputMatch ? inputMatch[0] : '';
         const input = {
           type: 'radio',
           name: 'ps-create-course-pick',
-          value: inputMatch ? inputMatch[1] : cid,
-          checked: /checked/.test(m[3]),
-          disabled,
+          value: cid,
+          checked: /checked/.test(inputTag) || pressed,
+          disabled: disabled || /disabled/.test(inputTag),
+          className: 'portal-schedule-create-visually-hidden',
           _ls: {},
           addEventListener(ev, fn) {
             this._ls[ev] = this._ls[ev] || [];
@@ -375,16 +392,41 @@ function sandboxFromHtml(html, opts) {
           getAttribute() { return null; },
         };
         const row = {
-          className: 'portal-schedule-create-check',
-          classList: makeClassList(['portal-schedule-create-check']),
+          tagName: 'BUTTON',
+          type: 'button',
+          className: 'portal-schedule-create-activity-btn' + (pressed ? ' is-selected' : '') + (disabled ? ' is-disabled' : ''),
+          classList: makeClassList([
+            'portal-schedule-create-activity-btn',
+            ...(pressed ? ['is-selected'] : []),
+            ...(disabled ? ['is-disabled'] : []),
+          ]),
+          disabled,
           _input: input,
           textContent: lab,
           dataset: { courseId: cid, label: lab },
-          setAttribute(k, val) { this['_' + k] = val; },
+          _attrs: {
+            'data-course-id': cid,
+            'data-label': lab,
+            'aria-pressed': pressed ? 'true' : 'false',
+          },
+          setAttribute(k, val) {
+            this._attrs[k] = String(val);
+            if (k === 'aria-pressed') {
+              const on = String(val) === 'true';
+              if (on) this.classList.add('is-selected');
+              else this.classList.remove('is-selected');
+            }
+          },
           getAttribute(k) {
             if (k === 'data-course-id') return cid;
             if (k === 'data-label') return lab;
-            return this['_' + k] != null ? this['_' + k] : null;
+            if (k === 'aria-pressed') return this._attrs['aria-pressed'] || 'false';
+            return this._attrs[k] != null ? this._attrs[k] : null;
+          },
+          addEventListener(ev, fn) {
+            this._ls = this._ls || {};
+            this._ls[ev] = this._ls[ev] || [];
+            this._ls[ev].push(fn);
           },
           querySelector(sel) {
             if (!sel || sel.includes('input')) return input;
@@ -397,18 +439,22 @@ function sandboxFromHtml(html, opts) {
         };
         this._courseRows.push(row);
       }
-      // Fallback looser parse if labelRe found nothing
+      // Legacy label radio-card parse (compat if older markup appears).
       if (!this._courseRows.length) {
-        const loose = /data-course-id="([^"]+)"/g;
-        let lm;
-        while ((lm = loose.exec(html))) {
-          const cid = lm[1];
+        const labelRe = /<label[^>]*data-course-id="([^"]*)"[^>]*data-label="([^"]*)"[^>]*>([\s\S]*?)<\/label>/g;
+        while ((m = labelRe.exec(html))) {
+          const cid = m[1];
+          const lab = m[2]
+            .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+          const inputMatch = m[3].match(/value="([^"]*)"/);
+          const disabled = /disabled/.test(m[3]);
           const input = {
             type: 'radio',
             name: 'ps-create-course-pick',
-            value: cid,
-            checked: false,
-            disabled: false,
+            value: inputMatch ? inputMatch[1] : cid,
+            checked: /checked/.test(m[3]),
+            disabled,
             _ls: {},
             addEventListener(ev, fn) {
               this._ls[ev] = this._ls[ev] || [];
@@ -421,15 +467,22 @@ function sandboxFromHtml(html, opts) {
             className: 'portal-schedule-create-check',
             classList: makeClassList(['portal-schedule-create-check']),
             _input: input,
-            dataset: { courseId: cid },
+            textContent: lab,
+            dataset: { courseId: cid, label: lab },
             setAttribute(k, val) { this['_' + k] = val; },
             getAttribute(k) {
               if (k === 'data-course-id') return cid;
-              if (k === 'data-label') return cid;
+              if (k === 'data-label') return lab;
               return this['_' + k] != null ? this['_' + k] : null;
             },
-            querySelector() { return input; },
-            querySelectorAll() { return [input]; },
+            querySelector(sel) {
+              if (!sel || sel.includes('input')) return input;
+              return null;
+            },
+            querySelectorAll(sel) {
+              if (!sel || sel.includes('input')) return [input];
+              return [];
+            },
           });
         }
       }
@@ -482,6 +535,7 @@ function sandboxFromHtml(html, opts) {
     'schedulePortalSelectCreateCourse',
     'schedulePortalClearSelectedCreateCourse',
     'schedulePortalGetSelectedCreateCourseId',
+    'schedulePortalSyncCreateCourseButtons',
     'schedulePortalApplyDesiredCourseSelect',
     'schedulePortalPopulateCreateCourseFields',
     'schedulePortalValidateCreatePayload',
@@ -779,7 +833,14 @@ function pathText(c) {
     ));
   ok('course list rows ≥44px touch target',
     /\.portal-schedule-create-course-list[\s\S]{0,200}min-height:\s*44px/.test(apiSrc)
+    || /portal-schedule-create-course-list .portal-schedule-create-activity-btn\{[^}]*min-height:\s*44px/.test(apiSrc)
     || /portal-schedule-create-course-list .portal-schedule-create-check\{[^}]*min-height:\s*44px/.test(apiSrc));
+  ok('course options reuse activity-btn style (not visible radio glyphs)',
+    /portal-schedule-create-course-list[\s\S]{0,200}portal-schedule-create-activity-btn/.test(apiSrc)
+    && /function schedulePortalRenderCreateCourseList[\s\S]{0,2200}portal-schedule-create-activity-btn/.test(portalSrc)
+    && /function schedulePortalRenderCreateCourseList[\s\S]{0,2200}aria-pressed/.test(portalSrc));
+  ok('portal owns course button sync helper',
+    /function schedulePortalSyncCreateCourseButtons/.test(portalSrc));
   ok('mobile 375/430 create drawer full-bleed (no overflow)',
     /@media\(max-width:640px\)\{\.portal-schedule-drawer,\.portal-schedule-create-drawer\{width:100vw/.test(apiSrc)
     || /@media\(max-width:640px\)\{[^}]*portal-schedule-create-drawer\{[^}]*width:100vw/.test(apiSrc));
@@ -843,6 +904,11 @@ function pathText(c) {
   ok('/staff/ui CSS Back + course row 44px',
     /portal-schedule-create-main-activity-back[\s\S]{0,120}min-height:\s*44px/.test(html)
     && /portal-schedule-create-course-list[\s\S]{0,240}min-height:\s*44px/.test(html));
+  ok('/staff/ui course list CSS targets activity buttons',
+    /portal-schedule-create-course-list[\s\S]{0,200}portal-schedule-create-activity-btn/.test(html));
+  ok('/staff/ui injects course button sync owner',
+    html.includes('function schedulePortalSyncCreateCourseButtons')
+    && html.includes('function schedulePortalRenderCreateCourseList'));
   ok('/staff/ui no visible Select course label in body flow',
     // Legacy select may exist hidden; visible label "Select course" next to a shown select must not appear
     !(/id="ps-create-course-fields"[^>]*(?!hidden)[^>]*>[\s\S]{0,80}Select course/.test(html)
@@ -893,27 +959,35 @@ function pathText(c) {
   ok('legacy course-fields stay hidden (no second dropdown)',
     !visible(group.el('ps-create-course-fields')));
   const listHtml = String(group.el('ps-create-course-list').innerHTML || '');
-  ok('course list renders radio-card rows',
-    /portal-schedule-create-check/.test(listHtml)
-    && /type="radio"/.test(listHtml)
+  ok('course list renders real activity buttons (no visible radio labels)',
+    /portal-schedule-create-activity-btn/.test(listHtml)
+    && /<button\b[^>]*data-course-id=/.test(listHtml)
+    && /aria-pressed=/.test(listHtml)
     && /Curso Mañana/.test(listHtml)
-    && /Curso Tarde/.test(listHtml),
-    listHtml.slice(0, 200));
+    && /Curso Tarde/.test(listHtml)
+    && !/<label[^>]*portal-schedule-create-check/.test(listHtml),
+    listHtml.slice(0, 280));
+  ok('hidden radio/select compatibility may remain without visible glyphs',
+    (/type="radio"/.test(listHtml)
+      ? /portal-schedule-create-visually-hidden|aria-hidden="true"|tabindex="-1"/.test(listHtml)
+      : true)
+    && !!group.el('ps-create-course-select'));
   ok('course list is NOT a <select> dropdown',
     !/<select[\s>]/i.test(listHtml));
   ok('path summary shows Group course before pick',
     /Group course/i.test(pathText(group)), pathText(group));
 
-  // ── [4] Single selection + checkmark semantics ───────────────────────────
-  console.log('\n[4] Single-selection checkmark / radio-card semantics');
+  // ── [4] Single selection + aria-pressed button semantics ─────────────────
+  console.log('\n[4] Single-selection button / aria-pressed semantics (production owners)');
   if (typeof group.schedulePortalSelectCreateCourse === 'function') {
     group.schedulePortalSelectCreateCourse('c-manana', 'Curso Mañana');
   } else {
-    // Attempt radio click simulation
+    // Attempt button/radio click simulation
     const rows = group.el('ps-create-course-list')._courseRows || [];
     if (rows[0] && rows[0]._input) {
-      rows.forEach((r) => { r._input.checked = false; });
+      rows.forEach((r) => { r._input.checked = false; if (r.setAttribute) r.setAttribute('aria-pressed', 'false'); });
       rows[0]._input.checked = true;
+      if (rows[0].setAttribute) rows[0].setAttribute('aria-pressed', 'true');
       group.el('ps-create-course-select').value = 'c-manana';
     }
   }
@@ -921,6 +995,23 @@ function pathText(c) {
     typeof group.schedulePortalGetSelectedCreateCourseId === 'function'
       ? group.schedulePortalGetSelectedCreateCourseId() === 'c-manana'
       : group.el('ps-create-course-select').value === 'c-manana');
+  {
+    const rows = group.el('ps-create-course-list')._courseRows || [];
+    const pressed = rows.filter((r) => r.getAttribute && r.getAttribute('aria-pressed') === 'true');
+    const selectedCls = rows.filter((r) => r.classList && r.classList.contains('is-selected'));
+    ok('exactly one course button aria-pressed=true after select',
+      pressed.length === 1
+      && pressed[0]
+      && pressed[0].getAttribute('data-course-id') === 'c-manana',
+      'pressed=' + pressed.length);
+    ok('exactly one course button has is-selected',
+      selectedCls.length === 1
+      && selectedCls[0]
+      && selectedCls[0].getAttribute('data-course-id') === 'c-manana');
+    ok('hidden radio mirrors selected id when present',
+      !rows[0]._input
+        || rows.some((r) => r._input && r._input.checked && r.getAttribute('data-course-id') === 'c-manana'));
+  }
   if (typeof group.schedulePortalSelectCreateCourse === 'function') {
     group.schedulePortalSelectCreateCourse('c-tarde', 'Curso Tarde');
   }
@@ -928,6 +1019,14 @@ function pathText(c) {
     typeof group.schedulePortalGetSelectedCreateCourseId === 'function'
       ? group.schedulePortalGetSelectedCreateCourseId() === 'c-tarde'
       : group.el('ps-create-course-select').value === 'c-tarde');
+  {
+    const rows = group.el('ps-create-course-list')._courseRows || [];
+    const pressed = rows.filter((r) => r.getAttribute && r.getAttribute('aria-pressed') === 'true');
+    ok('second select keeps exclusive aria-pressed on c-tarde only',
+      pressed.length === 1
+      && pressed[0]
+      && pressed[0].getAttribute('data-course-id') === 'c-tarde');
+  }
   if (typeof group.schedulePortalSelectCreateCourse === 'function') {
     group.schedulePortalSelectCreateCourse('c-manana', 'Curso Mañana');
   }
@@ -941,7 +1040,6 @@ function pathText(c) {
     pathAfter);
   ok('path does not duplicate bare Group course twice',
     (pathAfter.match(/Group course/gi) || []).length === 1, pathAfter);
-
   // Footer summary prefers named course without generic Group course
   if (typeof group.schedulePortalRenderCreateIntentSummary === 'function') {
     group.schedulePortalRenderCreateIntentSummary();
@@ -1021,6 +1119,14 @@ function pathText(c) {
     (typeof inv.schedulePortalGetSelectedCreateCourseId === 'function'
       ? inv.schedulePortalGetSelectedCreateCourseId()
       : inv.el('ps-create-course-select').value) === 'c-manana');
+  {
+    const rows = inv.el('ps-create-course-list')._courseRows || [];
+    const pressed = rows.filter((r) => r.getAttribute && r.getAttribute('aria-pressed') === 'true');
+    ok('catalog refresh keeps exclusive button pressed on retained course',
+      pressed.length === 1
+      && pressed[0]
+      && pressed[0].getAttribute('data-course-id') === 'c-manana');
+  }
 
   // Becomes unavailable → clear
   inv._setCatalog([
@@ -1044,6 +1150,23 @@ function pathText(c) {
     ? inv.schedulePortalGetSelectedCreateCourseId()
     : inv.el('ps-create-course-select').value;
   ok('clears selection when course no longer available', !afterInv, String(afterInv));
+  {
+    const rows = inv.el('ps-create-course-list')._courseRows || [];
+    const pressed = rows.filter((r) => r.getAttribute && r.getAttribute('aria-pressed') === 'true');
+    ok('stale removal clears all course button pressed states', pressed.length === 0);
+  }
+
+  // Back clears button pressed + hidden radio after a live pick
+  if (typeof inv.schedulePortalSelectCreateCourse === 'function') {
+    inv.schedulePortalSelectCreateCourse('c-tarde', 'Curso Tarde');
+  }
+  if (typeof inv.schedulePortalExitGroupCourseDrilldown === 'function') {
+    inv.schedulePortalExitGroupCourseDrilldown({ clearCourse: true });
+  }
+  ok('Back after stale-removal path: course id cleared',
+    !(typeof inv.schedulePortalGetSelectedCreateCourseId === 'function'
+      ? inv.schedulePortalGetSelectedCreateCourseId()
+      : inv.el('ps-create-course-select').value));
 
   // ── [7] Create disabled without course; quote stale/requote ──────────────
   console.log('\n[7] Create disabled without course + quote clear on selection change');
