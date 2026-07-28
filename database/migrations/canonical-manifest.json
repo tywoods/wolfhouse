@@ -560,6 +560,15 @@
       "inForwardChain": false,
       "rationale": "PROPOSED filename; not approved for forward chain.",
       "legacySha256": "353b60e17533e69d7bacdebc1cdedd439f36c818a54b8603bca8d22feeae2370"
+    },
+    {
+      "id": "051_tenant_rental_offerings",
+      "filename": "051_tenant_rental_offerings.sql",
+      "sha256": "c4fe547156f5a5c016e4a8aa4d8e366a83ba4af22464d2e3165d197219879a5e",
+      "order": 49,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Surf-school template Phase 2: tenant_rental_offerings catalog so rentable items are client+location scoped data (add/rename/delete) instead of the RENTAL_GROUP_* code enum; additive/unwired, pricing stays in tenant_price_rules."
     }
   ]
 }
