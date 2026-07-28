@@ -1,0 +1,111 @@
+# Surf-School Template Plan
+
+**Goal:** Make the Sunset admin panel + booking brain reusable for other surf schools, so a
+new school differs only by `client_slug` + its config. Sunset becomes "the first
+`surf_school_shop` client," not a hardcoded special case.
+
+Owner: Captain. Decisions locked with Earthling 2026-07-28.
+
+## Decisions (locked)
+
+1. **Scope (1a):** Surf-school template first. Architect the seams so any business type can
+   follow later, but do not build the full multi-business-type factory now.
+2. **Catalog model (refined):** Keep the **three offering types first-class** — group lessons,
+   private lessons, rentals. Do **not** flatten them into one generic table; group classes hold
+   rich domain info (schedule, capacity, age band, beaches, tiers) and that stays. Instead:
+   - Items **within** each type become data you can add/delete (rentals get real CRUD).
+   - Hardcoded lists become per-client config (beaches, age bands, group sizes).
+   - Everything gets client-scoped so a new school gets its own set.
+3. **Provisioning (a, Crowsnest-driven):** Crowsnest creates the new client. Build provisioning
+   as a callable "create client + seed catalog" API/seed that Crowsnest triggers. No hand-written
+   per-client config file, no self-serve wizard yet (add later if needed).
+4. **Sunset risk (4a):** Nothing is live on Sunset staging yet (WIP, no real client). So migrate
+   Sunset itself onto the generic layer — one code path, no long-lived fork. A real second school
+   is lined up but will not be added for some time.
+
+## Guiding rules
+
+- Three offering types stay first-class. No flattening.
+- Client-scope everything — remove `EXPECTED_TENANT === 'sunset'` guards; thread `client_slug`.
+- Enums/lists move from code -> per-client config.
+- Fail-closed pricing stays exactly as is (no active positive-amount row = not bookable).
+- Every phase ends **green on both Sunset and a synthetic second client**, and is independently
+  shippable + reversible.
+
+## Phase 0 inventory (measured 2026-07-28, `feat/surf-school-template`)
+
+- **44** files in `scripts/lib` reference `sunset`.
+- **83** hard tenant guards (`clientSlug !== 'sunset'` / `=== EXPECTED_TENANT` / `tenant_mismatch`).
+- **36** rental literals (`board_and_suit_rental` / `board_rental` / `wetsuit_rental` /
+  `RENTAL_GROUP*`) in `scripts/staff-query-api.js` — the trickiest de-hardcode.
+- **14** hardcoded enum-list definitions (`PACK_BEACHES`, `PACK_AGE_BANDS`, `PACK_GROUP_SIZES`,
+  `RENTAL_GROUP_KEYS`, `RENTAL_GROUP_OFFERING`).
+
+Highest-hit files (candidates for careful, non-mechanical work): `sunset-luna-school-context.js`,
+`sunset-stripe-payment-links.js`, `sunset-schedule-booking-writes.js`,
+`sunset-catalog-tool-executor.js`, `luna-front-desk-quote-service.js`, `tenant-business-config.js`.
+
+## Admin panel surface (8 sections, all under `/staff/admin/config`)
+
+Business Info · Surf Packs (courses) · Lesson Times + Capacity (group lessons) · Private Lesson ·
+Prices (rentals — 4 hardcoded groups) · Course Equipment · Full-day Equipment add-on · Change History.
+
+## Current pricing architecture (what we keep)
+
+- Admin-owned DB tables scoped by `client_slug='sunset'` + `location_id`:
+  `tenant_surf_pack_rules` (course defs + `config_json.price_tiers`) and `tenant_price_rules`
+  (authoritative money rows). Nothing quotes/charges off pack JSON.
+- Admin write path syncs pack tiers -> `tenant_price_rules` in the same transaction
+  (`sunset-admin-price-sync.js`).
+- Canonical identity: one active row per `client_slug + location_id + item_type + item_code + unit`.
+  Duration/tier is baked INTO `item_code` (`surf_pack_<id>__<tier>`, `board_rental__1_day`);
+  `unit` is billing grain only (person/day/session/item). **Latent footgun** — querying bare code
+  + `unit=<duration>` returns 0 rows; already broke one branch. Phase 1 adds a guard test.
+- Single resolver `resolveActiveSunsetAdminPrice` -> `loadTenantPriceRuleFromDb`, fail-closed.
+
+## Phases
+
+### Phase 0 — Foundations & safety net (do first, small)
+- Categorize the 44 sunset files into: tenant-guard, enum/list, display-string, item_code convention.
+- Add one `client_config` resolver: `client_slug -> { business_type, beaches, age_bands,
+  group_sizes, currency, locations, offering_types }`. Single source of truth.
+- Stand up a **template smoke gate**: run the full admin + booking verify suite for Sunset AND a
+  synthetic `template-school` client. This backstops every later phase.
+
+### Phase 1 — De-tenant the pricing spine (high leverage, invisible to UI)
+- Generalize `sunset-admin-price-identity` / `-resolve` to take `client_slug`; drop the
+  `!== 'sunset'` gate. Keep `sunset-*` as thin callers during migration.
+- Add the item_code convention guard test.
+
+### Phase 2 — Rentals become a real catalog (the concrete win)
+- New `tenant_rental_offerings` table (client+location scoped): `offering_key, label, group,
+  mutual_exclusion, active`.
+- Panel renders rentals from that table + gains add / rename / delete item actions.
+- Replace hardcoded `RENTAL_GROUP_*` maps and every `if (key === 'board_and_suit_rental')`
+  exclusion in `staff-query-api.js` with data reads.
+- Migration seeds Sunset's current 4 items -> Sunset looks identical; smoke client can add e.g. "kayak".
+
+### Phase 3 — Group + private lessons: keep structure, client-scope + de-enum
+- Keep surf_pack / lesson-times / private-lesson tables and all their fields.
+- Move beaches, age bands, group sizes, schedule presets into archetype-default + per-client config.
+- Client-scope their read/write paths (remove sunset literals).
+
+### Phase 4 — Provisioning API for Crowsnest
+- `POST /internal/clients` (idempotent, fail-closed): creates client_config, locations,
+  starter/empty catalog, staff-portal access. Crowsnest calls this.
+- Phase-1 form is a seed script the endpoint wraps; verify by provisioning a throwaway school in
+  staging, walking the panel, tearing it down.
+
+### Phase 5 — Migrate Sunset fully + retire dead code
+- Flip Sunset to read entirely from client_config; delete dead `sunset-*` hardcoded branches once
+  parity is proven by the smoke gate.
+
+## Risks / notes
+
+- `staff-query-api.js` (~39k lines) is the hard part — 36 rental literals through the booking-drawer
+  logic. Phase 2 must route all of it through data reads carefully.
+- The item_code convention is a latent trap — Phase 1's guard test is non-negotiable.
+- **Delegation:** mechanical sweeps (Phase 0 inventory, Phase 2/3 literal replacement) go to Skipper
+  / cheap subagents. Captain owns schema design, resolver generalization, and review.
+- Related prior groundwork: `config/archetypes/surf_school_shop/` (FACTORY 1B static templates,
+  disabled) and `factory-slice1c-dry-run-generator.js` — reuse where it fits Phase 4.
