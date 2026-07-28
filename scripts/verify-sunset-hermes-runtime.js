@@ -30,8 +30,12 @@ for (const expected of [
   'hermes-sunset-luna:', '"8092:8092"', '/var/lib/hermes-sunset-luna:/opt/data',
   '/etc/hermes-sunset-luna.env', 'HERMES_ROLE: sunset-luna', 'LUNA_TENANT_ID: sunset',
   'WHATSAPP_CLOUD_WEBHOOK_PORT: "8092"', 'SUNSET_INGRESS_LOCATION_ID: sunset-somo',
-  'CROWSNEST_AI_USAGE_CLIENT_SLUG', 'CROWSNEST_AI_USAGE_TENANT_ID',
 ]) assert.ok(compose.includes(expected), `compose missing ${expected}`);
+for (const forbiddenOverride of [
+  'CROWSNEST_AI_USAGE_CLIENT_SLUG:', 'CROWSNEST_AI_USAGE_TENANT_ID:',
+  'CROWSNEST_AI_USAGE_INGEST_URL:', 'CROWSNEST_AI_USAGE_INGEST_TOKEN:',
+  'CROWSNEST_AI_USAGE_SOURCE_SERVICE:',
+]) assert.ok(!compose.includes(forbiddenOverride), `compose environment must not override env_file: ${forbiddenOverride}`);
 assert.ok(
   !/CROWSNEST_AI_USAGE_CLIENT_SLUG:\s*sunset\b/.test(compose)
   && !/CROWSNEST_AI_USAGE_TENANT_ID:\s*sunset\b/.test(compose),
@@ -52,9 +56,7 @@ const stagingBootstrap = fs.readFileSync(
   path.join(__dirname, '..', 'docker', 'hermes-staging', 'bootstrap.sh'),
   'utf8',
 );
-for (const expected of ['CROWSNEST_AI_USAGE_CLIENT_SLUG', 'CROWSNEST_AI_USAGE_TENANT_ID']) {
-  assert.ok(stagingBootstrap.includes(expected), `staging bootstrap missing ${expected}`);
-}
+assert.ok(!stagingBootstrap.includes('CROWSNEST_AI_USAGE_INGEST_TOKEN'), 'write_luna_env must never copy ingest token into HERMES_HOME/.env');
 
 const soul = fs.readFileSync(path.join(runtime, 'SOUL.md'), 'utf8');
 for (const expected of ['Sunset Surf School', 'Your tenant is `sunset`', 'sunset-somo', 'sunset-sardinero']) {

@@ -159,13 +159,6 @@ write_luna_env() {
     [ -n "${LUNA_ALLOWED_LOCATION_IDS:-}" ]               && printf 'LUNA_ALLOWED_LOCATION_IDS=%s\n' "$LUNA_ALLOWED_LOCATION_IDS"
     [ -n "${SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID:-}" ]    && printf 'SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID=%s\n' "$SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID"
     [ -n "${SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID:-}" ] && printf 'SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID=%s\n' "$SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID"
-    # Crowsnest AI-usage canonical identity (Slice B1). Forward only when set.
-    # Values are server-owned via /etc/hermes-sunset-luna.env — never invent here.
-    [ -n "${CROWSNEST_AI_USAGE_CLIENT_SLUG:-}" ]          && printf 'CROWSNEST_AI_USAGE_CLIENT_SLUG=%s\n' "$CROWSNEST_AI_USAGE_CLIENT_SLUG"
-    [ -n "${CROWSNEST_AI_USAGE_TENANT_ID:-}" ]            && printf 'CROWSNEST_AI_USAGE_TENANT_ID=%s\n' "$CROWSNEST_AI_USAGE_TENANT_ID"
-    [ -n "${CROWSNEST_AI_USAGE_INGEST_URL:-}" ]           && printf 'CROWSNEST_AI_USAGE_INGEST_URL=%s\n' "$CROWSNEST_AI_USAGE_INGEST_URL"
-    [ -n "${CROWSNEST_AI_USAGE_INGEST_TOKEN:-}" ]         && printf 'CROWSNEST_AI_USAGE_INGEST_TOKEN=%s\n' "$CROWSNEST_AI_USAGE_INGEST_TOKEN"
-    [ -n "${CROWSNEST_AI_USAGE_SOURCE_SERVICE:-}" ]       && printf 'CROWSNEST_AI_USAGE_SOURCE_SERVICE=%s\n' "$CROWSNEST_AI_USAGE_SOURCE_SERVICE"
     # Anthropic OAuth (Claude Max) for Luna's fallback provider — claude setup-token.
     [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=*** "$ANTHROPIC_TOKEN" || true
   } > "$HERMES_HOME/.env"

@@ -1,40 +1,85 @@
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
 import apply_crowsnest_ai_usage_patch as patcher
 
-FIXTURE = '''from typing import Any
-class A:
-    def _run_codex_stream(self, api_kwargs: dict, client: Any = None, on_first_delta: callable = None):
-        """Run the Codex Responses API call and assemble its response."""
-        _client = client or self.client
-        with _client.responses.stream(**api_kwargs) as stream:
-            response = stream.get_final_response()
-        return response
-'''
+PINNED = Path("/opt/hermes")
+
 
 class PatcherTests(unittest.TestCase):
-    def test_pristine_and_prepatched_are_idempotent_and_compile(self):
-        with tempfile.TemporaryDirectory() as d:
-            p=Path(d)/"run_agent.py"; p.write_text(FIXTURE)
-            first=patcher.patch_file(p); once=p.read_text()
-            second=patcher.patch_file(p)
-            self.assertTrue(first["changed"]); self.assertFalse(second["changed"])
-            self.assertEqual(p.read_text(), once)
-            self.assertEqual(once.count("crowsnest_observe_provider_attempt"), 1)
+    def copy_pinned(self, root):
+        run_agent = root / "run_agent.py"
+        runtime = root / "agent/codex_runtime.py"
+        helper = root / "agent/chat_completion_helpers.py"
+        runtime.parent.mkdir(parents=True)
+        shutil.copy2(PINNED / "run_agent.py", run_agent)
+        shutil.copy2(PINNED / "agent/codex_runtime.py", runtime)
+        shutil.copy2(PINNED / "agent/chat_completion_helpers.py", helper)
+        for path in (run_agent, runtime, helper):
+            path.chmod(0o600)
+        return run_agent, runtime, helper
 
-    def test_upstream_drift_fails_closed_without_modification(self):
+    def test_exact_actual_pinned_sources_patch_and_are_idempotent(self):
         with tempfile.TemporaryDirectory() as d:
-            p=Path(d)/"run_agent.py"; original="def drifted():\n    pass\n"; p.write_text(original)
-            with self.assertRaisesRegex(RuntimeError, "anchor not found"):
-                patcher.patch_file(p)
-            self.assertEqual(p.read_text(), original)
+            paths = self.copy_pinned(Path(d))
+            first = patcher.patch_files(*paths)
+            once = [p.read_bytes() for p in paths]
+            second = patcher.patch_files(*paths)
+            self.assertTrue(first["changed"])
+            self.assertFalse(second["changed"])
+            self.assertEqual([p.read_bytes() for p in paths], once)
 
-    def test_patch_is_role_and_openai_codex_scoped_and_uses_monotonic_daemon(self):
+    def test_corruption_and_drift_fail_closed_without_any_modification(self):
+        for corrupt_index, mutation in ((1, lambda s: s.replace("active_client.responses.create(**stream_kwargs)", "active_client.responses.send(**stream_kwargs)")),
+                                        (2, lambda s: s.replace('result["response"] = agent._run_codex_stream(', 'result["response"] = agent._run_other_stream(', 1))):
+            with self.subTest(corrupt_index=corrupt_index), tempfile.TemporaryDirectory() as d:
+                paths = self.copy_pinned(Path(d))
+                paths[corrupt_index].write_text(mutation(paths[corrupt_index].read_text()))
+                before = [p.read_bytes() for p in paths]
+                with self.assertRaisesRegex(RuntimeError, "anchor"):
+                    patcher.patch_files(*paths)
+                self.assertEqual([p.read_bytes() for p in paths], before)
+
         with tempfile.TemporaryDirectory() as d:
-            p=Path(d)/"run_agent.py"; p.write_text(FIXTURE); patcher.patch_file(p); text=p.read_text()
-            for needle in ("HERMES_ROLE", "sunset-luna", "openai-codex", "monotonic", "report_success_daemon", "report_failure_daemon", "guest_reply"):
-                self.assertIn(needle, text)
+            paths = self.copy_pinned(Path(d)); patcher.patch_files(*paths)
+            paths[1].write_text(paths[1].read_text().replace(
+                "_crowsnest_observe_result(final, _crowsnest_attempt_started)",
+                "_crowsnest_observe_result_corrupted(final, _crowsnest_attempt_started)",
+            ))
+            before = [p.read_bytes() for p in paths]
+            with self.assertRaisesRegex(RuntimeError, "corruption"):
+                patcher.patch_files(*paths)
+            self.assertEqual([p.read_bytes() for p in paths], before)
 
-if __name__ == "__main__": unittest.main()
+    def test_patch_marks_only_main_turn_and_instruments_each_real_attempt(self):
+        with tempfile.TemporaryDirectory() as d:
+            paths = self.copy_pinned(Path(d)); patcher.patch_files(*paths)
+            runtime, helper = paths[1].read_text(), paths[2].read_text()
+            self.assertEqual(helper.count("from wolfhouse.crowsnest_ai_usage_reporter import guest_reply_context"), 1)
+            self.assertEqual(helper.count("with guest_reply_context():"), 1)
+            main = helper.index('reason="codex_stream_request",')
+            marker = helper.index("with guest_reply_context():")
+            summary = helper.index("iteration_limit_summary")
+            self.assertLess(main, marker)
+            self.assertLess(marker, summary)
+            self.assertNotIn("guest_reply_context", helper[summary:])
+            create = runtime.index("active_client.responses.create(**stream_kwargs)")
+            attempt_start = runtime.rindex("monotonic()", 0, create)
+            result_observer = runtime.index("_crowsnest_observe_result(final", create)
+            self.assertLess(attempt_start, create)
+            self.assertGreater(result_observer, create)
+            self.assertEqual(runtime.count("_crowsnest_observe_failure(exc, _crowsnest_attempt_started)"), 2)
+            self.assertIn('terminal_status = "incomplete"', runtime)
+            self.assertIn('terminal_status = "failed"', runtime)
+
+    def test_old_outer_run_agent_wrapper_is_absent(self):
+        with tempfile.TemporaryDirectory() as d:
+            paths = self.copy_pinned(Path(d)); patcher.patch_files(*paths)
+            run_agent = paths[0].read_text()
+            self.assertNotIn("_run_codex_stream_without_crowsnest", run_agent)
+
+
+if __name__ == "__main__":
+    unittest.main()
