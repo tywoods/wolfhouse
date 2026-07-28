@@ -702,14 +702,15 @@ function adminPeriodLabel(period){
 }
 
 function adminRentalPeriodOptions(selected){
-  // Admin → Prices "Price for" / period: always exactly 1–7 days.
-  // Never reinsert selected legacy keys (hour/half_day/weeks/single_class/custom)
-  // and never derive options from stored tier/price rows. Legacy stored values
-  // remain readable for old bookings but do not appear here; operator must pick
-  // a canonical 1–7 day key before save (server rejects noncanonical).
-  var opts = ['full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
+  // One deterministic list shared by every rental category. Never reinsert an
+  // unknown stored key: show an invalid placeholder rather than allowing the
+  // browser to silently select the first option.
+  var opts = ['1_hour', '2_hours', 'half_day', 'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
   var sel = String(selected || '').trim();
-  return opts.map(function(p){
+  var invalid = sel && opts.indexOf(sel) < 0
+    ? '<option value="" selected disabled>' + escHtml(adminPeriodLabel(sel)) + '</option>'
+    : '';
+  return invalid + opts.map(function(p){
     var isSel = (sel === p) ? ' selected' : '';
     return '<option value="' + escHtml(p) + '"' + isSel + '>' + escHtml(adminPeriodLabel(p)) + '</option>';
   }).join('');
@@ -1807,7 +1808,7 @@ function wireAdminTab(){
         var periodInput = card.querySelector('[data-admin-price-field="period"]');
         var amountInput = card.querySelector('[data-admin-price-field="amount"]');
         var period = periodInput ? String(periodInput.value || '').trim() : '';
-        if (!period){ validationError = portalT('admin.edit.periodRequired'); return; }
+        if (!period || !adminIsCanonicalRentalPeriod(period)){ validationError = portalT('admin.edit.periodRequired'); return; }
         var centsParsed = adminParseEurosToCents(amountInput && amountInput.value);
         if (!centsParsed.ok){ validationError = centsParsed.error; return; }
         // availability is now controlled at group level — omit active from per-duration patch

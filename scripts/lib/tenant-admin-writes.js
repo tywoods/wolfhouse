@@ -48,12 +48,13 @@ const RENTAL_GROUP_DISPLAY = {
   wetsuits: 'Wetsuit',
   sup: 'SUP',
 };
-// Admin → Prices "Price for" / period selector (create): exactly 1–7 days.
+// Admin rental period selector/create contract: configured short windows, then 2–7 days.
 const RENTAL_PERIOD_WINDOWS = new Set([
-  'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days',
+  '1_hour', '2_hours', 'half_day', 'full_day',
+  '2_days', '3_days', '4_days', '5_days', '6_days', '7_days',
 ]);
-// Existing rows may still carry legacy periods; patch may preserve them without
-// silent migrate/delete. New creates must use RENTAL_PERIOD_WINDOWS only.
+// Existing rows may still carry unknown legacy periods for read-only display;
+// create/patch validation accepts only RENTAL_PERIOD_WINDOWS.
 const RENTAL_PERIOD_WINDOWS_READABLE = new Set([
   ...RENTAL_PERIOD_WINDOWS,
   '1_hour', '2_hours', 'half_day',

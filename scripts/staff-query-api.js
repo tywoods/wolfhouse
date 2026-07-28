@@ -23318,6 +23318,10 @@ function scheduleRenderCreateRentals(){
       : 'schedule.type.boardRental';
     var fallback = key === 'wetsuit_rental' ? 'Wetsuit'
       : (key === 'board_and_suit_rental' ? 'Board and wetsuit' : 'Surfboard');
+    var catalogLabel = String(o.label || '').trim();
+    var legacyLabel = portalT(labelKey);
+    if (!legacyLabel || legacyLabel === labelKey) legacyLabel = fallback;
+    var offeringLabel = catalogLabel || legacyLabel;
     var was = prev[key] || {};
     var checked = noLesson ? true : !!was.checked;
     var surfers = scheduleReadCreateSurferCount();
@@ -23352,7 +23356,7 @@ function scheduleRenderCreateRentals(){
     }
     html += '<div class="portal-schedule-create-rental-row" data-rental-offering="' + escHtml(key) + '">'
       + (noLesson
-        ? '<h3 class="portal-schedule-create-rental-title" data-i18n="' + escHtml(labelKey) + '">' + escHtml(fallback.toUpperCase()) + '</h3><input type="hidden" class="ps-create-rental-check" data-offering-key="' + escHtml(key) + '" checked>'
+        ? '<h3 class="portal-schedule-create-label">' + escHtml(offeringLabel) + '</h3><input type="hidden" class="ps-create-rental-check" data-offering-key="' + escHtml(key) + '" checked>'
         : '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-create-rental-check" data-offering-key="' + escHtml(key) + '"' + (checked ? ' checked' : '') + '> <span data-i18n="' + escHtml(labelKey) + '">' + escHtml(fallback) + '</span></label>')
       + qtyHtml + '</div>';
   });

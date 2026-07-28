@@ -87,6 +87,10 @@ function scheduleRentalPriceAmountCents(price) {
   return null;
 }
 
+function scheduleRentalOfferingLabelFromPrice(price) {
+  return String((price && (price.label || price.offering_label)) || '').trim();
+}
+
 function scheduleRentalPriceIsSellable(price) {
   if (!price || price.active === false) return false;
   var cents = scheduleRentalPriceAmountCents(price);
@@ -95,9 +99,8 @@ function scheduleRentalPriceIsSellable(price) {
 
 function scheduleRentalPriceMatchesLocation(price, locationId) {
   var wantLoc = locationId != null ? String(locationId).trim() : '';
-  if (!wantLoc || !price || price.location_id == null || !String(price.location_id).trim()) {
-    return true;
-  }
+  if (!wantLoc) return true;
+  if (!price || price.location_id == null || !String(price.location_id).trim()) return false;
   return String(price.location_id).trim() === wantLoc;
 }
 
@@ -119,6 +122,7 @@ function scheduleActiveRentalsForDuration(prices, durationKey, locationId) {
       offering_key: id.offering_key,
       duration_key: id.duration_key,
       amount_cents: scheduleRentalPriceAmountCents(p),
+      label: scheduleRentalOfferingLabelFromPrice(p),
     });
   }
   // Stable order: board, wetsuit, bundle
@@ -162,13 +166,24 @@ function scheduleCommonShortRentalDurationKeys(prices, locationId) {
 function scheduleActiveShortRentalOfferings(prices, locationId) {
   var out = [];
   var seen = {};
+  var list = Array.isArray(prices) ? prices : [];
   for (var i = 0; i < SCHEDULE_CANONICAL_RENTAL_OFFERINGS.length; i++) {
     var key = SCHEDULE_CANONICAL_RENTAL_OFFERINGS[i];
     var shorts = scheduleActiveShortDurationKeysForOffering(prices, key, locationId);
     if (!shorts.length) continue;
     if (seen[key]) continue;
     seen[key] = true;
-    out.push({ offering_key: key, duration_keys: shorts });
+    var label = '';
+    for (var j = 0; j < list.length; j++) {
+      var row = list[j];
+      if (scheduleParseRentalPriceIdentity(row).offering_key === key
+        && scheduleRentalPriceIsSellable(row)
+        && scheduleRentalPriceMatchesLocation(row, locationId)) {
+        label = scheduleRentalOfferingLabelFromPrice(row);
+        if (label) break;
+      }
+    }
+    out.push({ offering_key: key, duration_keys: shorts, label: label });
   }
   return out;
 }

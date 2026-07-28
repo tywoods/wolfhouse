@@ -5,7 +5,7 @@
  *
  * Focused offline verifier for the Sunset staging pricing hotfix:
  *   1) Admin Group course cards hide legacy Single class (canonical 1..7 only)
- *   2) Rental edit form filters noncanonical legacy rows (exactly 7 cards; save body 7)
+ *   2) Rental edit form keeps the exact 10-key rental period contract
  *   3) Group course days 8–14 quote from exact Admin 7_days amount (prorate formula)
  *
  * Run:
@@ -46,6 +46,10 @@ const PACK = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const COURSE_7D = 21000; // €210 — day 14 must be exactly 2×
 const COURSE_7D_ALT = 45000;
 const COURSE_3D = 10500;
+const RENTAL_PERIOD_KEYS = Object.freeze([
+  '1_hour', '2_hours', 'half_day', 'full_day',
+  '2_days', '3_days', '4_days', '5_days', '6_days', '7_days',
+]);
 
 let pass = 0;
 let fail = 0;
@@ -138,11 +142,14 @@ function loadAdminRuntime(opts) {
   return sandbox;
 }
 
-/** Realistic existing rental config: canonical 1..7 + hour/half_day/legacy/custom. */
+/** Realistic existing rental config: exact rental periods + pack-only/legacy rows. */
 function realisticRentalConfig() {
   const prices = [];
-  const centsByDay = {
-    '1_day': 2500,
+  const centsByPeriod = {
+    '1_hour': 1500,
+    '2_hours': 1800,
+    'half_day': 2000,
+    'full_day': 2500,
     '2_days': 4500,
     '3_days': 6500,
     '4_days': 8000,
@@ -150,23 +157,22 @@ function realisticRentalConfig() {
     '6_days': 11000,
     '7_days': 12000,
   };
-  CANONICAL_DAY_DURATION_KEYS.forEach((k, i) => {
+  RENTAL_PERIOD_KEYS.forEach((k) => {
     prices.push({
       id: `r-can-${k}`,
       category: 'rental',
       item_code: `board_and_suit_rental__${k}`,
       offering_key: `board_and_suit_rental__${k}`,
       unit: k,
-      amount_cents: centsByDay[k],
-      amount: centsByDay[k] / 100,
+      amount_cents: centsByPeriod[k],
+      amount: centsByPeriod[k] / 100,
       currency: 'EUR',
       active: true,
     });
   });
-  // Noncanonical legacy rows that previously rendered as duplicate 1 day / 2 day.
+  // Pack-only / legacy rows must not become rental cards.
   [
-    { id: 'r-leg-hour', unit: '1_hour', amount_cents: 1500 },
-    { id: 'r-leg-half', unit: 'half_day', amount_cents: 2000 },
+    { id: 'r-pack-day', unit: '1_day', amount_cents: 2500 },
     { id: 'r-leg-week', unit: '1_week', amount_cents: 9900 },
     { id: 'r-leg-custom', unit: 'custom', amount_cents: 3333 },
   ].forEach((row) => {
@@ -271,9 +277,9 @@ function runCourseCardProofs() {
 }
 
 function runRentalEditFilterProofs() {
-  console.log('\n[2] Rental edit form: filter noncanonical legacy rows (exactly 7)\n');
+  console.log('\n[2] Rental edit form: exact 10-key periods; pack/legacy rows filtered\n');
   const cfg = realisticRentalConfig();
-  assert('fixture has 11 rental rows (7 canonical + 4 legacy)', cfg.prices.length === 11);
+  assert('fixture has 13 rental rows (10 periods + 3 pack/legacy)', cfg.prices.length === 13);
 
   const box = { innerHTML: '' };
   const elements = { 'admin-prices-body': box };
@@ -283,13 +289,14 @@ function runRentalEditFilterProofs() {
 
   const html = box.innerHTML;
   const cards = html.match(/data-admin-price-card="/g) || [];
-  assert('edit form renders exactly 7 cards', cards.length === 7, `got ${cards.length}`);
-  assert('edit form omits half_day card/code', !/half_day/.test(html));
-  assert('edit form omits 1_hour', !/1_hour/.test(html));
+  assert('edit form renders exactly 10 rental cards', cards.length === 10, `got ${cards.length}`);
+  assert('edit form keeps half_day card/code', /half_day/.test(html));
+  assert('edit form keeps 1_hour and 2_hours', /1_hour/.test(html) && /2_hours/.test(html));
+  assert('edit form omits pack-only 1_day', !/__1_day|value="1_day"/.test(html));
   assert('edit form omits 1_week', !/1_week/.test(html));
   assert('edit form omits custom period', !/__custom|value="custom"/.test(html));
 
-  // Period selects: each is exact 1..7, selected matches stored canonical once.
+  // Period selects: each exposes the exact rental contract, selected once each.
   const selectRe = /<select[^>]*data-admin-price-field="period"[^>]*>([\s\S]*?)<\/select>/gi;
   const selectedPeriods = [];
   let m;
@@ -308,35 +315,35 @@ function runRentalEditFilterProofs() {
       vals.push(value);
       if (/\bselected\b/i.test(attrs)) selected = value;
     }
-    assert('period select has 7 options', vals.length === 7, JSON.stringify(vals));
-    assert('period select values exact 1..7',
-      CANONICAL_DAY_DURATION_KEYS.every((k, i) => vals[i] === k),
+    assert('period select has 10 options', vals.length === 10, JSON.stringify(vals));
+    assert('period select values exact rental contract',
+      RENTAL_PERIOD_KEYS.every((k, i) => vals[i] === k),
       JSON.stringify(vals));
     selectedPeriods.push(selected);
   }
-  assert('exactly 7 period selects', selectedPeriods.length === 7, `got ${selectedPeriods.length}`);
+  assert('exactly 10 period selects', selectedPeriods.length === 10, `got ${selectedPeriods.length}`);
   const uniqueSelected = selectedPeriods.slice().sort();
-  assert('selected values 1..7 once each',
-    CANONICAL_DAY_DURATION_KEYS.slice().sort().every((k, i) => uniqueSelected[i] === k),
+  assert('selected values match rental contract once each',
+    RENTAL_PERIOD_KEYS.slice().sort().every((k, i) => uniqueSelected[i] === k),
     JSON.stringify(selectedPeriods));
 
   // Simulate Save body from rendered cards: selected periods (already parsed)
-  // + amount inputs. Only the 7 canonical cards exist in the form.
+  // + amount inputs. Only the 10 rental-period cards exist in the form.
   const amountRe = /data-admin-price-field="amount"[^>]*value="([^"]*)"/gi;
   const amounts = [];
   let am;
   while ((am = amountRe.exec(html))) amounts.push(am[1]);
-  assert('submit has 7 amount inputs', amounts.length === 7, JSON.stringify(amounts));
+  assert('submit has 10 amount inputs', amounts.length === 10, JSON.stringify(amounts));
   const submitBody = selectedPeriods.map((period, i) => ({
     period_window: period,
     amount_cents: Math.round(Number(amounts[i]) * 100),
   }));
-  assert('submit body has exactly 7 patches', submitBody.length === 7, JSON.stringify(submitBody));
-  assert('submit periods are 1..7 once each',
-    CANONICAL_DAY_DURATION_KEYS.every((k) => submitBody.some((b) => b.period_window === k)),
+  assert('submit body has exactly 10 patches', submitBody.length === 10, JSON.stringify(submitBody));
+  assert('submit periods are exact rental contract once each',
+    RENTAL_PERIOD_KEYS.every((k) => submitBody.some((b) => b.period_window === k)),
     JSON.stringify(submitBody.map((b) => b.period_window)));
   assert('no duplicate period in submit',
-    new Set(submitBody.map((b) => b.period_window)).size === 7);
+    new Set(submitBody.map((b) => b.period_window)).size === 10);
   for (const row of submitBody) {
     assert(`submit row ${row.period_window} validates`,
       validatePricePatchBody({
@@ -345,20 +352,20 @@ function runRentalEditFilterProofs() {
       }).ok === true,
       JSON.stringify(row));
   }
-  assert('server still rejects half_day save',
-    validatePricePatchBody({ period_window: 'half_day', amount_cents: 1000 }).ok === false);
-  assert('server still rejects 1_hour create',
+  assert('server accepts half_day save',
+    validatePricePatchBody({ period_window: 'half_day', amount_cents: 1000 }).ok === true);
+  assert('server accepts 1_hour create',
     validatePriceCreateBody({
       rental_group: 'bundles',
       period_window: '1_hour',
       amount_cents: 1000,
-    }).ok === false);
+    }).ok === true);
 
   // Pure filter helper contract.
   const filtered = sandbox.adminFilterCanonicalRentalPriceRows(cfg.prices);
-  assert('filter helper returns 7', filtered.length === 7);
-  assert('filter helper keys 1..7 once',
-    CANONICAL_DAY_DURATION_KEYS.every((k) => filtered.some((p) => {
+  assert('filter helper returns 10', filtered.length === 10);
+  assert('filter helper keys match rental contract once',
+    RENTAL_PERIOD_KEYS.every((k) => filtered.some((p) => {
       const parsed = sandbox.adminParsePriceRow(p);
       return parsed.periodWindow === k;
     })));
