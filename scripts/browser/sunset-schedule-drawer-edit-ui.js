@@ -1130,12 +1130,12 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
   }
   html += '<div class="portal-schedule-course-equipment' + (equipmentSeed ? '' : ' is-off') + '" id="ps-drawer-course-equipment" style="display:none" hidden data-seed="' + escHtml(JSON.stringify(equipmentSeed)) + '">';
   html += '<div class="portal-schedule-course-equipment-row">';
-  html += '<label class="portal-schedule-course-equipment-check" for="ps-drawer-equipment-enabled">';
-  html += '<input id="ps-drawer-equipment-enabled" class="portal-schedule-course-equipment-radial" type="checkbox"' + (equipmentSeed ? ' checked' : '') + '>';
-  html += '<span>' + escHtml(portalT('schedule.ops.rentalBoth') || 'Surfboard + wetsuit') + '</span></label>';
+  html += '<span class="portal-schedule-course-equipment-name">' + escHtml(portalT('schedule.ops.rentalBoth') || 'Surfboard + wetsuit') + '</span>';
   html += '<div class="portal-schedule-course-equipment-surfers" id="ps-drawer-equipment-surfers-wrap">';
-  html += '<label for="ps-drawer-equipment-quantity"><span>' + escHtml(portalT('schedule.create.surferCount') || 'Surfers') + '</span>';
-  html += '<input id="ps-drawer-equipment-quantity" type="number" min="1" max="' + escHtml(String(seedSurfers)) + '" value="' + escHtml(String(equipmentSeed && equipmentSeed.quantity || seedSurfers)) + '" inputmode="numeric"' + (equipmentSeed ? '' : ' disabled aria-disabled="true"') + '></label></div></div>';
+  html += '<label class="portal-schedule-course-equipment-check" for="ps-drawer-equipment-enabled" aria-label="' + escHtml(portalT('schedule.ops.rentalBoth') || 'Surfboard + wetsuit') + '">';
+  html += '<input id="ps-drawer-equipment-enabled" class="portal-schedule-course-equipment-radial" type="checkbox"' + (equipmentSeed ? ' checked' : '') + '></label>';
+  html += '<label class="portal-schedule-course-equipment-qty-label" for="ps-drawer-equipment-quantity"><span>' + escHtml(portalT('schedule.create.rentalQty') || 'Surfers') + '</span>';
+  html += '<input id="ps-drawer-equipment-quantity" type="number" min="1" max="' + escHtml(String(seedSurfers)) + '" value="' + escHtml(String(equipmentSeed && equipmentSeed.quantity || seedSurfers)) + '" inputmode="numeric"' + (equipmentSeed ? '' : ' disabled aria-disabled="true"') + '></label></div>';
   html += '<div id="ps-drawer-equipment-mode-wrap" class="portal-schedule-course-equipment-modes"' + (equipmentSeed ? '' : ' style="display:none" hidden') + ' role="group" aria-label="Course equipment timing">';
   html += '<button type="button" class="portal-schedule-create-activity-btn" data-drawer-course-equipment-mode="during_course" aria-pressed="' + (equipmentSeed && equipmentSeed.mode === 'all_day' ? 'false' : (equipmentSeed ? 'true' : 'false')) + '">' + escHtml(portalT('schedule.courseEquipment.during')) + '</button>';
   html += '<button type="button" class="portal-schedule-create-activity-btn" data-drawer-course-equipment-mode="all_day" aria-pressed="' + (equipmentSeed && equipmentSeed.mode === 'all_day' ? 'true' : 'false') + '">' + escHtml(portalT('schedule.courseEquipment.allDay')) + '</button></div>';
@@ -1428,6 +1428,18 @@ function scheduleWireDrawerRentals(wrap) {
 function scheduleRenderDrawerRentals() {
   var wrap = el('ps-drawer-rentals');
   if (!wrap) return;
+  // Group/Private course gear is owned by #ps-drawer-course-equipment — hide catalog rental rows.
+  var mode = typeof scheduleDrawerMainActivityValue === 'function' ? scheduleDrawerMainActivityValue() : '';
+  if (mode === 'group' || mode === 'private') {
+    wrap.innerHTML = '';
+    wrap.style.display = 'none';
+    wrap.hidden = true;
+    wrap.setAttribute('aria-hidden', 'true');
+    return;
+  }
+  wrap.style.display = '';
+  wrap.hidden = false;
+  wrap.setAttribute('aria-hidden', 'false');
   var prev = {};
   var prevDuration = String(wrap.getAttribute('data-duration-key') || '').trim();
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row) {
