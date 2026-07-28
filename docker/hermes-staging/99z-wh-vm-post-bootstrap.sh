@@ -109,16 +109,17 @@ EOF
 fi
 
 if [ "$HERMES_ROLE" = "deckhand" ]; then
-  # Deckhand: isolated Discord engineering worker. xAI grok-4.5 only — no
-  # Anthropic/OpenAI fallback. Distinct Discord bot + XAI_API_KEY via
-  # /etc/hermes-deckhand.env (never reuse Skipper's discord-bot-token).
+  # Deckhand: isolated Discord engineering worker. xAI grok-4.5 via xai-oauth
+  # (shared auth.json) — no Anthropic/OpenAI fallback, no XAI_API_KEY.
+  # Distinct Discord bot via /etc/hermes-deckhand.env (never reuse Skipper's
+  # discord-bot-token).
   #
   # Water-cooler A2A toolset/plugin only when WATER_COOLER_A2A_ENABLED=true.
   if [ "${WATER_COOLER_A2A_ENABLED:-}" = "true" ]; then
     cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
   default: grok-4.5
-  provider: xai
+  provider: xai-oauth
 agent:
   reasoning_effort: medium
 curator:
@@ -140,7 +141,7 @@ EOF
     cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
   default: grok-4.5
-  provider: xai
+  provider: xai-oauth
 agent:
   reasoning_effort: medium
 curator:
@@ -166,4 +167,3 @@ EOF
   chown hermes:hermes "$HERMES_HOME/config.yaml" 2>/dev/null || true
   chmod 640 "$HERMES_HOME/config.yaml" 2>/dev/null || true
 fi
-

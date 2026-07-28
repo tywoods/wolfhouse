@@ -264,7 +264,13 @@ def main() -> int:
         "overlay_model_grok_45": re.search(
             r"default:\s*grok-4\.5\b", deckhand_yaml
         ) is not None,
-        "overlay_provider_xai": re.search(r"provider:\s*xai\b", deckhand_yaml) is not None,
+        "overlay_provider_xai_oauth": re.search(
+            r"provider:\s*xai-oauth\b", deckhand_yaml
+        ) is not None,
+        # Scan the whole role arm (both A2A on/off heredocs), not just the first EOF body.
+        "overlay_provider_not_api_key_xai": re.search(
+            r"(?m)^\s*provider:\s*xai\s*$", deckhand_role
+        ) is None,
         "overlay_discord_explicitly_enabled": discord_platform_enabled(deckhand_yaml),
         "overlay_no_whatsapp_config": not has_whatsapp_config(deckhand_yaml),
         "overlay_no_anthropic_in_deckhand": "anthropic" not in deckhand_yaml.lower(),
@@ -290,7 +296,12 @@ def main() -> int:
                 "discord-deckhand-bot-token" in deploy
                 or "DISCORD_DECKHAND_BOT_TOKEN" in deploy
             )
-            and ("xai-api-key" in deploy or "XAI_API_KEY" in deploy)
+            and "kvSecret('xai-api-key')" not in deploy
+            and "kvSecret(\"xai-api-key\")" not in deploy
+            and not re.search(
+                r"resolveDeckhandSecrets[\s\S]*?XAI_API_KEY\s*:",
+                deploy,
+            )
         ),
         "deploy_never_reuses_skipper_discord_kv": (
             "discord-deckhand-bot-token" in deploy
@@ -311,6 +322,16 @@ def main() -> int:
             and "luna guest bootstrap" in docs.lower()
             and "cannot be used as a WhatsApp runtime" in docs
         ),
+        "docs_deckhand_uses_xai_oauth": (
+            "xai-oauth" in docs
+            and re.search(
+                r"Deckhand[\s\S]{0,1200}shared.*auth\.json|Deckhand[\s\S]{0,1200}xai-oauth",
+                docs,
+                re.IGNORECASE,
+            )
+            is not None
+            and "xai-api-key" not in docs.lower()
+        ),
         "sunset_compose_has_no_deckhand": not sunset_mentions_deckhand,
         "no_deckhand_under_sunset_tree": not any(
             "deckhand" in p.name.lower()
@@ -323,13 +344,19 @@ def main() -> int:
         "bootstrap_deckhand_bypasses_luna_guest_path": (
             bool(bootstrap_deckhand) and not luna_guest_calls_in(bootstrap_deckhand)
         ),
-        "bootstrap_deckhand_model_xai_grok": (
+        "bootstrap_deckhand_model_xai_oauth_grok": (
             re.search(r"default:\s*grok-4\.5\b", bootstrap_deckhand_yaml) is not None
-            and re.search(r"provider:\s*xai\b", bootstrap_deckhand_yaml) is not None
+            and re.search(r"provider:\s*xai-oauth\b", bootstrap_deckhand_yaml) is not None
+            and re.search(r"(?m)^\s*provider:\s*xai\s*$", deckhand_fn) is None
             and "fallback_providers" not in bootstrap_deckhand_yaml
             and "anthropic" not in bootstrap_deckhand_yaml.lower()
             and "openai" not in bootstrap_deckhand_yaml.lower()
             and "whatsapp" not in bootstrap_deckhand_yaml.lower()
+        ),
+        "bootstrap_deckhand_links_shared_auth": (
+            "link_shared_auth" in bootstrap_deckhand
+            and "XAI_API_KEY" not in bootstrap_deckhand
+            and "No link_shared_auth" not in bootstrap_deckhand
         ),
         "bootstrap_deckhand_discord_explicitly_enabled": discord_platform_enabled(
             bootstrap_deckhand_yaml
@@ -339,6 +366,10 @@ def main() -> int:
             and "WHATSAPP_CLOUD_" not in bootstrap_deckhand
             and "LUNA_BOT_INTERNAL_TOKEN" not in bootstrap_deckhand
             and "write_luna_env" not in bootstrap_deckhand
+        ),
+        "bootstrap_deckhand_env_no_xai_api_key": (
+            "write_deckhand_env" in bootstrap
+            and "XAI_API_KEY" not in extract_function_body(bootstrap, "write_deckhand_env")
         ),
         "bootstrap_deckhand_uses_deckhand_soul": (
             (

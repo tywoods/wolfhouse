@@ -105,12 +105,13 @@ EOF
 }
 
 write_deckhand_config() {
-  # Image-baked Deckhand model. VM overlay 99z rewrites the same xAI-only config
+  # Image-baked Deckhand model. VM overlay 99z rewrites the same xAI OAuth config
   # and ensures the sandbox cwd exists; keep both in sync.
+  # Provider must be xai-oauth (shared auth.json), not xai (XAI_API_KEY).
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
   default: grok-4.5
-  provider: xai
+  provider: xai-oauth
 agent:
   reasoning_effort: medium
 curator:
@@ -180,11 +181,11 @@ write_orchestrator_env() {
 }
 
 write_deckhand_env() {
-  # Discord + xAI only. Never write WhatsApp/Meta, Luna guest, or Staff-API guest tokens.
+  # Discord only. xAI auth is OAuth via shared auth.json (provider xai-oauth),
+  # not XAI_API_KEY. Never write WhatsApp/Meta, Luna guest, or Staff-API guest tokens.
   {
     [ -n "${DISCORD_BOT_TOKEN:-}" ]                       && printf 'DISCORD_BOT_TOKEN=%s\n' "$DISCORD_BOT_TOKEN"
     [ -n "${DISCORD_ALLOWED_USERS:-}" ]                   && printf 'DISCORD_ALLOWED_USERS=%s\n' "$DISCORD_ALLOWED_USERS"
-    [ -n "${XAI_API_KEY:-}" ]                             && printf 'XAI_API_KEY=%s\n' "$XAI_API_KEY"
     printf 'GATEWAY_ALLOW_ALL_USERS=true\n'
     printf 'API_SERVER_ENABLED=false\n'
   } > "$HERMES_HOME/.env"
@@ -314,7 +315,7 @@ if [ "$HERMES_ROLE" = "orchestrator" ]; then
   link_shared_auth
 elif [ "$HERMES_ROLE" = "deckhand" ]; then
   # Discord engineering worker — never Luna guest bootstrap (no SOUL/plugins/WhatsApp
-  # patches/env). Model is xAI grok-4.5 only; auth is XAI_API_KEY from env_file.
+  # patches/env). Model is xAI grok-4.5 via xai-oauth (shared auth.json).
   write_deckhand_config
   if [ -f "$STAGING_DECKHAND_SOUL" ]; then
     cp "$STAGING_DECKHAND_SOUL" "$HERMES_HOME/SOUL.md"
@@ -332,7 +333,8 @@ elif [ "$HERMES_ROLE" = "deckhand" ]; then
   # Gated A2A only (not the Luna guest patch bundle). Image already has gateway
   # patches; this may install the A2A plugin + adapter seams when enabled.
   maybe_activate_water_cooler_a2a
-  # No link_shared_auth: Deckhand uses XAI_API_KEY, not the OAuth shared pool.
+  # xAI via shared OAuth pool (provider xai-oauth) — never XAI_API_KEY.
+  link_shared_auth
 elif [ "$HERMES_ROLE" = "luna" ] \
   || [ "$HERMES_ROLE" = "sunset-luna" ] \
   || [ "$HERMES_ROLE" = "seadog" ]; then

@@ -359,24 +359,17 @@ function envBody(vars) {
 
 /**
  * Resolve Deckhand secrets. Never falls back to Skipper's discord-bot-token.
- * Hermes reads DISCORD_BOT_TOKEN + XAI_API_KEY inside the container; inputs are
- * distinct env vars / Key Vault names so bots cannot be crossed.
+ * Hermes reads DISCORD_BOT_TOKEN inside the container. xAI auth is OAuth via
+ * shared auth.json (provider xai-oauth) — no XAI_API_KEY required.
  */
 function resolveDeckhandSecrets() {
   const discordToken =
     process.env.DISCORD_DECKHAND_BOT_TOKEN
     || kvSecret('discord-deckhand-bot-token')
     || '';
-  const xaiApiKey =
-    process.env.XAI_API_KEY
-    || kvSecret('xai-api-key')
-    || '';
   const missing = [];
   if (!discordToken) {
     missing.push('DISCORD_DECKHAND_BOT_TOKEN env or Key Vault secret discord-deckhand-bot-token');
-  }
-  if (!xaiApiKey) {
-    missing.push('XAI_API_KEY env or Key Vault secret xai-api-key');
   }
   if (missing.length) {
     console.error(
@@ -391,7 +384,6 @@ function resolveDeckhandSecrets() {
     DISCORD_ALLOWED_USERS: process.env.DISCORD_DECKHAND_ALLOWED_USERS
       || process.env.DISCORD_ALLOWED_USERS
       || '',
-    XAI_API_KEY: xaiApiKey,
     WOLFHOUSE_STAFF_API_BASE_URL: HERMES_VM.WOLFHOUSE_STAFF_API_BASE_URL,
   };
 }
@@ -438,7 +430,7 @@ function writeEnvFiles() {
     luna_env: path.join(ENV_OUT, 'hermes-luna.env'),
     wolfhouse_luna_env: path.join(ENV_OUT, 'hermes-wolfhouse-luna.env'),
     deckhand_env: path.join(ENV_OUT, 'hermes-deckhand.env'),
-    note: 'Orchestrator: DISCORD_BOT_TOKEN / KV discord-bot-token. Deckhand: DISCORD_DECKHAND_BOT_TOKEN / KV discord-deckhand-bot-token + XAI_API_KEY / KV xai-api-key (never reuse Skipper token). Luna: OAuth only — no OPENAI_API_KEY in .env. hermes-wolfhouse-luna listens on :8091; no live Meta traffic until a separate Caddy/cutover step.',
+    note: 'Orchestrator: DISCORD_BOT_TOKEN / KV discord-bot-token. Deckhand: DISCORD_DECKHAND_BOT_TOKEN / KV discord-deckhand-bot-token + xai-oauth via shared auth.json (never reuse Skipper token; no XAI_API_KEY). Luna: OAuth only — no OPENAI_API_KEY in .env. hermes-wolfhouse-luna listens on :8091; no live Meta traffic until a separate Caddy/cutover step.',
   }, null, 2));
 }
 
