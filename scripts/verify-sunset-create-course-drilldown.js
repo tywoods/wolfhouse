@@ -4,16 +4,16 @@
  * verify:sunset-create-course-drilldown
  *
  * Single-course Create Booking Main activity drill-down:
- *   1. Initial three Main activity choices (Group / Private / No lesson)
+ *   1. Initial three Main activity choices (Group / Private / Equipment only)
  *   2. Group course click replaces that list in place with available courses
  *   3. No legacy bottom dropdown for course select
  *   4. Touch-friendly activity buttons (no radio glyphs); exactly one selected;
  *      aria-pressed exclusive; 44px targets; hidden radio/select may remain
  *   5. Main activity header Back button (right-aligned)
  *   6. Back clears selected course and restores three choices
- *   7. Compact chosen-path summary at top (Group course · Curso Mañana)
+ *   7. Chosen-path crumb stays hidden (selected activity button is enough)
  *   8. Date range + global surfer count still own the selected course
- *   9. Private / No lesson unchanged
+ *   9. Private / Equipment only unchanged
  *  10. Catalog/date re-render: keep selection only if still available
  *  11. Create disabled until group course selected; quote clears/requotes
  *  12. EN/ES/IT localization; mobile 375/430 CSS (≥44px rows + Back)
@@ -159,7 +159,7 @@ const T_EN = {
   'schedule.create.quoteFailed': 'Quote unavailable',
   'schedule.type.course': 'Group course',
   'schedule.type.privateLesson': 'Private Course',
-  'schedule.type.noLesson': 'No lesson',
+  'schedule.type.noLesson': 'Equipment only',
   'schedule.courses.noneConfigured': 'No group courses configured',
   'admin.period.5_days': '5 days',
 };
@@ -927,7 +927,7 @@ function pathText(c) {
   console.log('\n[2] Initial three-choice view');
   const root = sandboxFromHtml(art);
   ok('sandbox loaded without throw', !root._loadError, root._loadError && root._loadError.message);
-  ok('initial No lesson checked', !!root.el('ps-create-comp-no-lesson').checked);
+  ok('initial Equipment only checked', !!root.el('ps-create-comp-no-lesson').checked);
   ok('initial Group unchecked', !root.el('ps-create-comp-course').checked);
   ok('initial choices visible',
     typeof root.schedulePortalIsGroupCourseDrilldown !== 'function'
@@ -974,8 +974,9 @@ function pathText(c) {
     && !!group.el('ps-create-course-select'));
   ok('course list is NOT a <select> dropdown',
     !/<select[\s>]/i.test(listHtml));
-  ok('path summary shows Group course before pick',
-    /Group course/i.test(pathText(group)), pathText(group));
+  ok('path summary stays hidden before pick (button shows choice)',
+    !visible(group.el('ps-create-main-activity-path'))
+    && !(pathText(group) || '').trim(), pathText(group));
 
   // ── [4] Single selection + aria-pressed button semantics ─────────────────
   console.log('\n[4] Single-selection button / aria-pressed semantics (production owners)');
@@ -1034,12 +1035,12 @@ function pathText(c) {
     group.schedulePortalRenderMainActivityPath();
   }
   const pathAfter = pathText(group);
-  ok('path summary Group course · Curso Mañana',
-    /Group course/i.test(pathAfter) && /Curso Mañana/.test(pathAfter)
-    && /·|\u00b7/.test(pathAfter),
+  ok('path summary stays hidden after pick (selected course button is enough)',
+    !visible(group.el('ps-create-main-activity-path'))
+    && !(pathAfter || '').trim(),
     pathAfter);
-  ok('path does not duplicate bare Group course twice',
-    (pathAfter.match(/Group course/gi) || []).length === 1, pathAfter);
+  ok('path remains empty (no crumb duplication risk)',
+    !(pathAfter || '').trim(), pathAfter);
   // Footer summary prefers named course without generic Group course
   if (typeof group.schedulePortalRenderCreateIntentSummary === 'function') {
     group.schedulePortalRenderCreateIntentSummary();
@@ -1074,7 +1075,7 @@ function pathText(c) {
       : !group.el('ps-create-course-select').value);
   ok('after Back: Group radio unchecked (not stuck in group without course)',
     !group.el('ps-create-comp-course').checked);
-  ok('after Back: No lesson restored', !!group.el('ps-create-comp-no-lesson').checked);
+  ok('after Back: Equipment only restored', !!group.el('ps-create-comp-no-lesson').checked);
 
   // ── [6] Invalidated selection on catalog/date change ─────────────────────
   console.log('\n[6] Retain selection only if still available after catalog/date change');
@@ -1171,13 +1172,13 @@ function pathText(c) {
   // ── [7] Create disabled without course; quote stale/requote ──────────────
   console.log('\n[7] Create disabled without course + quote clear on selection change');
   const gate = sandboxFromHtml(art, { guest: 'Ada', phone: '+34600999888' });
-  // No lesson with guest/phone → Create may enable (no course required)
+  // Equipment only with guest/phone → Create may enable (no course required)
   gate.el('ps-create-comp-no-lesson').checked = true;
   gate.el('ps-create-comp-course').checked = false;
   if (typeof gate.schedulePortalSyncCreateSubmitEnabled === 'function') {
     gate.schedulePortalSyncCreateSubmitEnabled();
   }
-  ok('Create enabled for No lesson with valid guest/phone',
+  ok('Create enabled for Equipment only with valid guest/phone',
     gate.el('ps-create-submit').disabled === false);
 
   // Group without course → disabled
@@ -1239,8 +1240,8 @@ function pathText(c) {
         && gate.schedulePortalQuoteState.intent_key !== 'stale-before-course-change')),
     qAfter);
 
-  // ── [8] Private / No lesson unchanged ────────────────────────────────────
-  console.log('\n[8] Private course and No lesson remain unchanged');
+  // ── [8] Private / Equipment only unchanged ────────────────────────────────────
+  console.log('\n[8] Private course and Equipment only remain unchanged');
   const priv = sandboxFromHtml(art);
   priv.el('ps-create-comp-private-lesson').checked = true;
   priv.el('ps-create-comp-course').checked = false;
@@ -1256,7 +1257,7 @@ function pathText(c) {
   if (typeof none.schedulePortalSyncCreateSubmitEnabled === 'function') {
     none.schedulePortalSyncCreateSubmitEnabled();
   }
-  ok('No lesson Create not blocked by course requirement',
+  ok('Equipment only Create not blocked by course requirement',
     none.el('ps-create-submit').disabled === false);
 
   // ── [9] EN / ES / IT localization of Back + path ─────────────────────────

@@ -235,7 +235,7 @@ var schedulePortalOpenGen = 0;
 var schedulePortalCreateAmbiguous = false;
 /**
  * Create Main activity view:
- *   'root'             — three choices (Group / Private / No lesson)
+ *   'root'             — three choices (Group / Private / Equipment only)
  *   'group-courses'    — single-course drill-down
  *   'private-sessions' — private per-date start/end session editor
  * One owner for enter/exit/Back across Group and Private branches.
@@ -426,50 +426,11 @@ function schedulePortalPrivatePanelNode() {
 }
 
 function schedulePortalRenderMainActivityPath() {
+  // Selected course/private/equipment is already visible on the activity buttons — no path crumb.
   var path = el('ps-create-main-activity-path');
   if (!path) return;
-  var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
-  var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
-  var privateDrill = typeof schedulePortalIsPrivateSessionsDrilldown === 'function'
-    && schedulePortalIsPrivateSessionsDrilldown();
-  var inPrivate = privateDrill || privateOn;
-  if (inPrivate && !courseOn) {
-    var privateLab = (typeof portalT === 'function' ? portalT('schedule.type.privateLesson') : '') || 'Private Course';
-    path.textContent = privateLab;
-    schedulePortalSetVisible(path, true);
-    return;
-  }
-  var groupDrill = typeof schedulePortalIsGroupCourseDrilldown === 'function'
-    && schedulePortalIsGroupCourseDrilldown();
-  var inGroup = groupDrill || courseOn;
-  if (!inGroup) {
-    path.textContent = '';
-    schedulePortalSetVisible(path, false);
-    return;
-  }
-  var groupLab = (typeof portalT === 'function' ? portalT('schedule.type.course') : '') || 'Group course';
-  var courseId = schedulePortalGetSelectedCreateCourseId();
-  var courseLab = '';
-  if (courseId) {
-    var list = el('ps-create-course-list');
-    if (list) {
-      try {
-        var row = list.querySelector('[data-course-id="' + courseId + '"]');
-        if (row) courseLab = String(row.getAttribute('data-label') || '').trim();
-      } catch (_r) { /* ignore */ }
-    }
-    if (!courseLab) {
-      var sel = el('ps-create-course-select');
-      var opt = (sel && sel.options && sel.selectedIndex >= 0) ? sel.options[sel.selectedIndex] : null;
-      if (opt) courseLab = String((opt.getAttribute && opt.getAttribute('data-label')) || opt.textContent || '').trim();
-    }
-    if (!courseLab && typeof scheduleResolveCourseDisplayLabel === 'function') {
-      courseLab = String(scheduleResolveCourseDisplayLabel(courseId, '') || '').trim();
-    }
-    if (courseLab === courseId) courseLab = '';
-  }
-  path.textContent = courseLab ? (groupLab + ' \u00b7 ' + courseLab) : groupLab;
-  schedulePortalSetVisible(path, true);
+  path.textContent = '';
+  schedulePortalSetVisible(path, false);
 }
 
 function schedulePortalEnterGroupCourseDrilldown() {
@@ -556,8 +517,8 @@ function schedulePortalEnterPrivateSessionsDrilldown() {
  * One exit/reset owner for both Group and Private Main activity drill-downs.
  * opts.clearCourse   — clear selected course id (default true).
  * opts.clearPrivate  — clear private session draft (default true).
- * opts.restoreRootOnly — show root choices without forcing No lesson.
- * Default Back: clear drafts + restore three choices + No lesson.
+ * opts.restoreRootOnly — show root choices without forcing Equipment only.
+ * Default Back: clear drafts + restore three choices + Equipment only.
  */
 function schedulePortalExitMainActivityDrilldown(opts) {
   opts = opts || {};
@@ -593,12 +554,12 @@ function schedulePortalExitMainActivityDrilldown(opts) {
     var course = el('ps-create-comp-course');
     var priv = el('ps-create-comp-private-lesson');
     var none = el('ps-create-comp-no-lesson');
-    // Back restores initial three choices with No lesson default.
+    // Back restores initial three choices with Equipment only default.
     if (course) course.checked = false;
     if (priv) priv.checked = false;
     if (none) none.checked = true;
   }
-  // Visible Group/Private/No lesson buttons must mirror hidden radios after any programmatic reset.
+  // Visible Group/Private/Equipment only buttons must mirror hidden radios after any programmatic reset.
   if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
   if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
   if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
@@ -1158,7 +1119,7 @@ function schedulePortalIsValidCreatePhone(raw) {
 
 /**
  * Shared create validation for submit (hard) and quote soft gates.
- * Sellable intent includes rental-only (No lesson + gear). Does not re-price.
+ * Sellable intent includes rental-only (Equipment only + gear). Does not re-price.
  * opts.soft: skip guest name/phone; return softInvalid/idle rather than hard block.
  * Quote recalculates while name/phone are blank; Create stays fail-closed.
  */
@@ -1437,7 +1398,7 @@ function schedulePortalRenderCreateIntentSummary(payload) {
       if (plCompact) secondary.push(plCompact);
     }
   } else {
-    primary.push(portalT('schedule.type.noLesson') || 'No lesson');
+    primary.push(portalT('schedule.type.noLesson') || 'Equipment only');
   }
 
   function gearLabelOnly(key, q) {

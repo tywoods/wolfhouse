@@ -56,15 +56,29 @@ const initial={during_course:{policy:'extra',surfboard_cents:600,wetsuit_cents:4
     await page.locator(`[data-create-activity="${activity}"]`).click();
     if(!idx){await page.locator('#ps-create-course-list button[data-course-id]').first().waitFor();await page.locator('#ps-create-course-list button[data-course-id]').first().click();}
     const field=page.locator('#ps-create-course-equipment'); await field.waitFor({state:'visible'});
+    const enable=page.locator('#ps-create-equipment-enabled');
+    eq(activity+' has enable checkbox',await enable.count(),1);
+    eq(activity+' enable starts off',await enable.isChecked(),false);
     const modes=field.locator('button[data-course-equipment-mode]'); eq(activity+' has two native mode buttons',await modes.count(),2);
+    eq(activity+' modes hidden while off',await page.locator('#ps-create-equipment-mode-wrap').isVisible(),false);
     eq(activity+' initial mode is none',await field.locator('button[data-course-equipment-mode][aria-pressed=true]').count(),0);
+    eq(activity+' surfers qty visible while off',await page.locator('#ps-create-equipment-quantity').isVisible(),true);
+    eq(activity+' surfers qty disabled while off',await page.locator('#ps-create-equipment-quantity').isDisabled(),true);
+    await enable.check();
+    eq(activity+' enable turns on',await enable.isChecked(),true);
+    eq(activity+' modes visible when on',await page.locator('#ps-create-equipment-mode-wrap').isVisible(),true);
+    eq(activity+' during course default on enable',await page.locator('#ps-create-equipment-during').getAttribute('aria-pressed'),'true');
+    eq(activity+' equipment sets hidden on during',await page.locator('#ps-create-equipment-quantity-wrap').isVisible(),false);
     ok(activity+' copy says every booking day',(await field.innerText()).toLowerCase().includes('every booking day'));
     await page.locator('#ps-create-surfers').fill('4'); await page.locator('#ps-create-surfers').blur();
     await modes.first().click(); eq(activity+' pointer selects During Course',await modes.first().getAttribute('aria-pressed'),'true');
     eq(activity+' qty defaults to surfers',await page.locator('#ps-create-equipment-quantity').inputValue(),'4');
+    await modes.nth(1).click();
+    eq(activity+' equipment sets visible on all day',await page.locator('#ps-create-equipment-quantity-wrap').isVisible(),true);
+    await modes.nth(0).click();
     await modes.nth(1).click();eq(activity+' mode selection is mutually exclusive',await field.locator('button[data-course-equipment-mode][aria-pressed=true]').count(),1);
     ok(activity+' selected button retains focus',await modes.nth(1).evaluate(b=>document.activeElement===b));
-    await modes.nth(1).click();eq(activity+' selected click clears mode',await field.locator('button[data-course-equipment-mode][aria-pressed=true]').count(),0);
+    await enable.uncheck();eq(activity+' disable clears mode',await field.locator('button[data-course-equipment-mode][aria-pressed=true]').count(),0);await enable.check();
     await modes.first().click();await page.locator('#ps-create-equipment-quantity').fill('3');
     const beforePosts=createPosts.length,beforeQuotes=editQuotes.length;
     await page.locator('#ps-create-submit').waitFor({state:'visible'});eq(activity+' actual Create enabled',await page.locator('#ps-create-submit').isEnabled(),true);
@@ -83,7 +97,8 @@ const initial={during_course:{policy:'extra',surfboard_cents:600,wetsuit_cents:4
     await page.locator('#ps-drawer-cancel').click();await page.locator('#ps-drawer-close').click();
   }
   await page.locator('#ps-create-booking').click();await page.locator('[data-create-activity="ps-create-comp-course"]').click();await page.locator('#ps-create-course-equipment').waitFor();
-  await page.locator('#ps-create-equipment-during').click();await page.locator('#ps-create-equipment-during').click();eq('Create explicit none clears canonical selection',await page.locator('#ps-create-course-equipment [aria-pressed=true]').count(),0);
+  await page.locator('#ps-create-equipment-enabled').uncheck();eq('Create explicit none clears canonical selection',await page.locator('#ps-create-course-equipment [aria-pressed=true]').count(),0);
+  await page.locator('#ps-create-equipment-enabled').check();
   await page.locator('#ps-create-equipment-during').click();
   for(const locale of ['en','es','it']){await page.evaluate(l=>window.setStaffLocale(l),locale);const text=await page.locator('#ps-create-course-equipment').innerText();ok(locale.toUpperCase()+' Create equipment localized',!text.includes('schedule.courseEquipment.'),text);}
   for(const width of [320,375,390,430]){await page.setViewportSize({width,height:900});const shape=await page.locator('#ps-create-course-equipment').evaluate(el=>({overflow:el.scrollWidth>el.clientWidth+1,targets:[...el.querySelectorAll('button,input')].map(x=>x.getBoundingClientRect().height)}));ok(width+'px Create equipment no overflow',!shape.overflow,JSON.stringify(shape));ok(width+'px Create equipment 44px targets',shape.targets.every(h=>h>=44),JSON.stringify(shape.targets));}
@@ -98,6 +113,7 @@ const initial={during_course:{policy:'extra',surfboard_cents:600,wetsuit_cents:4
   const editField=page.locator('#ps-drawer-course-equipment'); await editField.waitFor({state:'visible'});
   const editModes=editField.locator('[data-drawer-course-equipment-mode]');
   eq('Edit uses During/All Day buttons',await editModes.count(),2); eq('Edit has no old equipment menu',await editField.locator('select').count(),0);
+  eq('Edit enable seeded on',await page.locator('#ps-drawer-equipment-enabled').isChecked(),true);
   eq('Edit canonical mode is seeded',await editModes.first().getAttribute('aria-pressed'),'true');eq('Edit canonical quantity is seeded',await page.locator('#ps-drawer-equipment-quantity').inputValue(),'2');
   await page.locator('#ps-drawer-equipment-quantity').fill('1');await page.evaluate(()=>{const d=document.getElementById('ps-drawer-date-to');d.value='2026-08-06';d.dispatchEvent(new Event('change',{bubbles:true}));});await page.locator('#ps-drawer-course-qty').fill('2');
   eq('Edit quantity change is retained',await page.locator('#ps-drawer-equipment-quantity').inputValue(),'1');eq('Edit date change is retained',await page.locator('#ps-drawer-date-to').inputValue(),'2026-08-06');eq('Edit surfer change is retained',await page.locator('#ps-drawer-course-qty').inputValue(),'2');

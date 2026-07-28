@@ -124,7 +124,7 @@ const enPack = STAFF_PORTAL_STRINGS.en || {};
 const itPack = STAFF_PORTAL_STRINGS.it || {};
 [
   { key: 'schedule.create.mainActivity', en: 'Main activity' },
-  { key: 'schedule.type.noLesson', en: 'No lesson' },
+  { key: 'schedule.type.noLesson', en: 'Equipment only' },
   { key: 'schedule.create.emptyNoLessonNoGear', enRe: /lesson|gear|rental|booking/i },
   { key: 'schedule.create.courseSelect', enNot: /^Group\s*course$/i },
   { key: 'schedule.type.course' },

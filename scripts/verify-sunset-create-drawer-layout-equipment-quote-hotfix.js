@@ -6,9 +6,9 @@
  * Production-shaped offline gate for Create drawer hotfix:
  *  1) Field order: Date(s) → Number of surfers → Activity
  *  2) Only body scrolls; header/footer pinned (320px-safe)
- *  3) When section hidden for Group/No lesson; shown for Private
+ *  3) When section hidden for Group/Equipment only; shown for Private
  *  4) Surfers qty default/sync 1/2/4 for full-day + board_and_suit
- *  5) Server quote: No lesson bundle/addon/both; qty×days; toggle-off stale;
+ *  5) Server quote: Equipment only bundle/addon/both; qty×days; toggle-off stale;
  *     Group+gear; missing Admin row fail-closed; line sum = persisted total
  *
  * Static + pure quote functions only — no DB/Azure/network.
@@ -299,15 +299,17 @@ for (const n of [1, 2, 4]) {
   assert('canonical course equipment qty owner present for surfers=' + n,
     /ps-create-equipment-quantity/.test(apiSrc) && /scheduleReadCreateSurferCount/.test(apiSrc));
 }
-// No lesson: full-day must hide and clear (not seed).
+// Equipment only: full-day must hide and clear (not seed).
 qs.el('ps-create-comp-course').checked = false;
 qs.el('ps-create-comp-no-lesson').checked = true;
 qs.el('ps-create-comp-fullday').checked = true;
 qs.scheduleRefreshCreateFullDayAddon();
-assert('No lesson hides full-day field',
+assert('Equipment only hides full-day field',
   qs.el('ps-create-addon-fullday-field').style.display === 'none');
-assert('No lesson clears canonical mode buttons',
-  /if \(!show\) document\.querySelectorAll\('\[data-course-equipment-mode\]'\)/.test(apiSrc));
+assert('Equipment only clears canonical mode buttons',
+  /if \(!show\) \{/.test(apiSrc)
+  && /ps-create-equipment-enabled/.test(apiSrc)
+  && /data-course-equipment-mode/.test(apiSrc));
 
 // ── 5) Quote mutations ──────────────────────────────────────────────────────
 console.log('\n[5] Server-owned quote mutations (bundle / addon / both / fail-closed)');
