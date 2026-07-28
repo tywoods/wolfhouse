@@ -62,9 +62,12 @@ function isWetsuitRow(row) {
 function buildBookingGearIndex(rows, dateIso) {
   const index = new Map();
   for (const row of rows || []) {
+    const serviceStatus = String(row.service_status || row.status || '').toLowerCase();
+    const bookingStatus = String(row.booking_status || '').toLowerCase();
+    if (serviceStatus === 'cancelled' || bookingStatus === 'cancelled') continue;
     const iso = String(row.service_date || row.date || '').slice(0, 10);
     if (iso !== dateIso) continue;
-    const code = row.booking_code || row._scheduleId || 'unknown';
+    const code = row.booking_code || row.booking_id || row._scheduleId || 'unknown';
     if (!index.has(code)) {
       index.set(code, { boards: 0, wetsuits: 0, lessonQty: 0, hasLesson: false });
     }
@@ -89,7 +92,7 @@ function buildBookingGearIndex(rows, dateIso) {
 }
 
 function equipmentLabelForLessonRow(row, gearIndex) {
-  const code = row.booking_code || row._scheduleId;
+  const code = row.booking_code || row.booking_id || row._scheduleId;
   const meta = parseRowMetadata(row);
   let boards = 0;
   let wetsuits = 0;

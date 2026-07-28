@@ -24319,6 +24319,9 @@ function scheduleOpsIsWetsuitRow(row){
 function scheduleOpsBuildGearIndex(rows, dateIso){
   var index = {};
   (rows || []).forEach(function(row){
+    var serviceStatus = String(row.service_status || row.status || '').toLowerCase();
+    var bookingStatus = String(row.booking_status || '').toLowerCase();
+    if (serviceStatus === 'cancelled' || bookingStatus === 'cancelled') return;
     var iso = String(row.service_date || row.date || '').slice(0, 10);
     if (iso !== dateIso) return;
     // Persisted service rows always carry booking_id, while booking_code is not
@@ -24342,7 +24345,7 @@ function scheduleOpsBuildGearIndex(rows, dateIso){
 }
 
 function scheduleOpsEquipmentLabel(row, gearIndex){
-  var code = row.booking_code || row._scheduleId;
+  var code = row.booking_code || row.booking_id || row._scheduleId;
   var meta = scheduleOpsParseMetadata(row);
   var boards = 0;
   var wetsuits = 0;
