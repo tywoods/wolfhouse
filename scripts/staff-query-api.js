@@ -16313,12 +16313,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .pf-cards{display:grid;grid-template-columns:1fr;gap:12px}
 @media(min-width:720px){.pf-cards{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .pf-card{background:var(--surface-raised,#fff);border:1px solid var(--border-soft);border-radius:var(--radius-sm,10px);padding:12px 14px;min-width:0}
-.pf-card-title{margin:0 0 8px;font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3)}
+.pf-card-title{margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3)}
 .pf-metric{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:3px 0;min-width:0}
 .pf-metric-label{font-size:13px;color:var(--text-2);min-width:0}
 .pf-metric-value{font-size:14px;font-weight:700;color:var(--navy,#1E2A36);font-variant-numeric:tabular-nums;white-space:nowrap}
 .pf-trend{margin:0}
-.pf-trend-title{margin:0 0 8px;font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3)}
+.pf-trend-title{margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3)}
 .pf-trend-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;max-height:320px;overflow-y:auto}
 .pf-trend-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:baseline;padding:6px 8px;border-radius:8px;font-size:13px}
 .pf-trend-row:nth-child(odd){background:var(--border-soft)}
@@ -18031,7 +18031,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .bc-rr-purpose{font-size:11px;color:var(--text-2);background:#f7f9fb;border-left:3px solid #b8ccd8;padding:8px 10px;border-radius:4px;margin-bottom:10px;line-height:1.5}
 .to-form-hint{font-size:11px;color:var(--text-3);font-style:italic;margin:2px 0 6px;max-width:480px;line-height:1.45}
 /* Stage 8.6.2 — Ask Luna panel */
-#al-wrap{max-width:720px;margin:0 auto;padding:26px 20px}
+#al-wrap{max-width:1100px;margin:0 auto;padding:24px 20px 32px}
 .al-hero{background:linear-gradient(135deg,#EBF1E5 0%,#E3EEF4 100%);border:1px solid #C9D9BE;border-radius:var(--radius);padding:18px 22px;margin-bottom:24px;display:flex;align-items:flex-start;gap:14px}
 .al-hero-icon{font-size:28px;line-height:1;flex-shrink:0}
 .al-hero-title{font-size:15px;font-weight:700;color:var(--text)}
