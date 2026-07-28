@@ -465,6 +465,8 @@
     "verify:luna-front-desk-accommodation-booking-create-service": "node scripts/verify-luna-front-desk-accommodation-booking-create-service.js",
     "verify:luna-front-desk-accommodation-availability-service": "node scripts/verify-luna-front-desk-accommodation-availability-service.js",
     "verify:luna-front-desk-payment-link-service": "node scripts/verify-luna-front-desk-payment-link-service.js",
+    "verify:issue274-payment-link-replacement": "node scripts/verify-issue274-payment-link-replacement.js",
+    "verify:sunset-payment-link-concurrency": "node scripts/verify-sunset-payment-link-concurrency.js",
     "verify:sunset-schedule-portal-module": "node scripts/verify-sunset-schedule-portal-module.js",
     "verify:sunset-schedule-drawer-view-ui": "node scripts/verify-sunset-schedule-drawer-view-ui.js",
     "verify:sunset-schedule-drawer-edit-ui": "node scripts/verify-sunset-schedule-drawer-edit-ui.js",

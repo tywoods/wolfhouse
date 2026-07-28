@@ -165,7 +165,8 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin-bottom:8px">' +
       escHtml(portalT('schedule.drawer.stripeSection')) + '</div>';
     var stripeAvail = ctx && ctx.stripe_available;
-    var stripeBtnLabel = (url && !stale) ? portalT('schedule.drawer.stripeRegenerate') : portalT('schedule.drawer.stripeLink');
+    var stripeBtnLabel = stale ? portalT('schedule.drawer.createNewPaymentLink')
+      : ((url && !stale) ? portalT('schedule.drawer.stripeRegenerate') : portalT('schedule.drawer.stripeLink'));
     if (!fullyPaid) {
       if (stripeAvail) {
         html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link" style="margin-bottom:10px">' + escHtml(stripeBtnLabel) + '</button>';

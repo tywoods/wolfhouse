@@ -8455,8 +8455,8 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
   }
 
   if (amountDueCents == null || amountDueCents <= 0) {
-    return sendJSON(res, 200, {
-      success: true,
+    return sendJSON(res, 422, {
+      success: false,
       created: false,
       idempotent: false,
       error: 'no_payment_due',
@@ -39783,12 +39783,18 @@ async function handleSunsetScheduleStripeLinkCreate(query, req, res, user) {
   const bookingId = String(body.booking_id || query.booking_id || '').trim();
   const bookingCode = String(body.booking_code || query.booking_code || '').trim();
   const idempotencyKey = String(body.idempotency_key || '').trim();
+  const suppliedLocationId = String(query.location || body.location_id || body.location || '');
+  const locationId = suppliedLocationId.trim();
+  if (!locationId || suppliedLocationId !== locationId || !isSunsetLocationId(locationId)
+    || locationId !== normalizeSunsetLocationId(locationId)) {
+    return sendJSON(res, 400, { success: false, error: 'unsupported_location' });
+  }
   try {
     const result = await withPgClient(async (pg) => createSunsetScheduleStripeLink(pg, {
       clientSlug,
       bookingId,
       bookingCode,
-      locationId: normalizeSunsetLocationId(query.location || body.location_id || body.location),
+      locationId,
       idempotencyKey,
       actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
       staffActionsEnabled: STAFF_ACTIONS_ENABLED,
@@ -39809,7 +39815,7 @@ async function handleSunsetScheduleStripeLinkCreate(query, req, res, user) {
     if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'stripe link create failed', detail: err.message });
+    return sendJSON(res, 500, { success: false, error: 'payment_link_create_failed' });
   }
 }
 
@@ -39825,12 +39831,18 @@ async function handleSunsetScheduleStripeLinkDelete(query, req, res, user) {
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
   const bookingId = String(body.booking_id || query.booking_id || '').trim();
   const bookingCode = String(body.booking_code || query.booking_code || '').trim();
+  const suppliedLocationId = String(query.location || body.location_id || body.location || '');
+  const locationId = suppliedLocationId.trim();
+  if (!locationId || suppliedLocationId !== locationId || !isSunsetLocationId(locationId)
+    || locationId !== normalizeSunsetLocationId(locationId)) {
+    return sendJSON(res, 400, { success: false, error: 'unsupported_location' });
+  }
   try {
     const result = await withPgClient(async (pg) => deleteSunsetScheduleStripeLink(pg, {
       clientSlug,
       bookingId,
       bookingCode,
-      locationId: normalizeSunsetLocationId(query.location || body.location_id || body.location),
+      locationId,
       actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));
     appendAuditLog({
@@ -39844,7 +39856,7 @@ async function handleSunsetScheduleStripeLinkDelete(query, req, res, user) {
     });
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'stripe link delete failed', detail: err.message });
+    return sendJSON(res, 500, { success: false, error: 'payment_link_delete_failed' });
   }
 }
 

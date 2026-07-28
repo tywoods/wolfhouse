@@ -574,6 +574,7 @@ async function createPaymentLink(pg, command, execOpts = {}) {
       stripeCancelUrl: execOpts.cancelUrl,
       publicPaymentBaseUrl: execOpts.publicPaymentBaseUrl,
       env: execOpts.env,
+      authoritativeBalanceDueCents: command.authoritativeBalanceDueCents,
     });
   }
 
@@ -747,10 +748,10 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
   }
   if (amountDueCents <= 0) {
     return {
-      ok: true,
-      status: 200,
+      ok: false,
+      status: 422,
       body: {
-        success: true,
+        success: false,
         created: false,
         error: 'no_payment_due',
         booking_code: booking.booking_code,

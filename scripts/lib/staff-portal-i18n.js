@@ -802,6 +802,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.invoiceTitle': 'Invoice',
     'schedule.drawer.copyPaymentLink': 'Copy payment link',
     'schedule.drawer.createPaymentLink': 'Create payment link',
+    'schedule.drawer.createNewPaymentLink': 'Create new payment link',
     'schedule.drawer.paymentLinkActive': 'Payment link active',
     'schedule.drawer.moreActions': 'More payment options',
     'schedule.drawer.recordPayment': 'Record a manual payment',

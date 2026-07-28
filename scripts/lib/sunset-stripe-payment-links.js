@@ -177,8 +177,9 @@ function buildAuthoritativePaymentIntentKey(opts) {
   const paymentKind = String(opts.paymentKind || 'full_amount').trim();
   const amountDueCents = Number(opts.amountDueCents || 0);
   const currency = String(opts.currency || 'EUR').trim().toUpperCase();
+  const generation = String(opts.generation || 'initial').trim();
   const digest = crypto.createHash('sha256')
-    .update([clientSlug, bookingId, paymentKind, String(amountDueCents), currency].join('|'))
+    .update([clientSlug, bookingId, paymentKind, String(amountDueCents), currency, generation].join('|'))
     .digest('hex')
     .slice(0, 32);
   return `sunset-checkout-${digest}`;
@@ -186,6 +187,18 @@ function buildAuthoritativePaymentIntentKey(opts) {
 
 function buildStripeCheckoutIdempotencyKey(opts) {
   return buildAuthoritativePaymentIntentKey(opts);
+}
+
+function resolveAuthoritativeOutstandingCents(totalCents, authoritativeBalanceDueCents) {
+  if (authoritativeBalanceDueCents == null || !Number.isInteger(Number(authoritativeBalanceDueCents))) {
+    throw new Error('authoritative balance due cents required');
+  }
+  const total = Number(totalCents);
+  const remaining = Number(authoritativeBalanceDueCents);
+  if (!Number.isInteger(total) || total < 0 || remaining < 0 || remaining > total) {
+    throw new Error('authoritative balance due cents invalid');
+  }
+  return remaining;
 }
 
 async function createStripeCheckoutSessionViaFetch(opts) {
@@ -705,20 +718,14 @@ function stripeEnv(opts) {
 }
 
 function assertStripeEnv(env) {
-  if (!env.staffActions) {
-    return { ok: false, status: 403, error: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true.' };
-  }
-  if (!env.stripeLinks) {
-    return { ok: false, status: 403, error: 'Stripe link creation is disabled. Set STRIPE_LINKS_ENABLED=true.' };
-  }
-  if (!env.secretKey) {
-    return { ok: false, status: 503, error: 'STRIPE_SECRET_KEY not configured.' };
-  }
+  if (!env.staffActions) return { ok: false, status: 403, error: 'staff_actions_disabled' };
+  if (!env.stripeLinks) return { ok: false, status: 403, error: 'stripe_links_disabled' };
+  if (!env.secretKey) return { ok: false, status: 503, error: 'payment_provider_unavailable' };
   if (String(env.secretKey).startsWith('sk_live_')) {
-    return { ok: false, status: 403, error: 'Live Stripe keys are blocked for Sunset staging payment links.' };
+    return { ok: false, status: 403, error: 'payment_provider_not_allowed' };
   }
   if (!env.successUrl || !env.cancelUrl) {
-    return { ok: false, status: 503, error: 'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set.' };
+    return { ok: false, status: 503, error: 'payment_provider_unavailable' };
   }
   return { ok: true };
 }
@@ -759,7 +766,7 @@ async function findIdempotentPaymentRow(pg, bookingId, idempotencyKey) {
 
 async function lockBookingForPaymentLink(pg, clientSlug, bookingId) {
   const res = await pg.query(
-    `SELECT b.id::text AS booking_id
+    `SELECT b.id::text AS booking_id, b.metadata
        FROM bookings b
        INNER JOIN clients c ON c.id = b.client_id
       WHERE c.slug = $1
@@ -770,10 +777,37 @@ async function lockBookingForPaymentLink(pg, clientSlug, bookingId) {
   return res.rows[0] || null;
 }
 
+async function invalidateObsoleteActivePaymentRows(pg, bookingId, amountDueCents, invalidateAll) {
+  return pg.query(
+    `UPDATE payments
+        SET status = 'cancelled'::payment_record_status,
+            checkout_url = NULL,
+            expires_at = COALESCE(expires_at, NOW()),
+            metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
+      WHERE booking_id = $1::uuid
+        AND metadata->>'source' = 'sunset_schedule_stripe_link'
+        AND status IN ('draft'::payment_record_status, 'checkout_created'::payment_record_status)
+        AND ($2::boolean OR amount_due_cents <> $4)`,
+    [bookingId, invalidateAll === true, JSON.stringify({
+      payment_link_invalidated: true,
+      invalidation_reason: 'authoritative_balance_replacement',
+    }), amountDueCents],
+  );
+}
+
 async function createSunsetScheduleStripeLink(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
     return { ok: false, status: 403, body: { success: false, error: 'unsupported_client' } };
+  }
+
+  // Location is an authorization input, never a default. Reject before env,
+  // normalization, database, or provider work.
+  const suppliedLocationId = typeof opts.locationId === 'string' ? opts.locationId : '';
+  const rawLocationId = suppliedLocationId.trim();
+  if (!rawLocationId || suppliedLocationId !== rawLocationId || !isSunsetLocationId(rawLocationId)
+    || rawLocationId !== normalizeSunsetLocationId(rawLocationId)) {
+    return { ok: false, status: 400, body: { success: false, error: 'unsupported_location' } };
   }
 
   const envCheck = assertStripeEnv(stripeEnv(opts));
@@ -798,7 +832,7 @@ async function createSunsetScheduleStripeLink(pg, opts) {
   }
   const { booking, services } = loaded;
   const meta = parseMeta(booking.metadata);
-  const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+  const activeLocationId = rawLocationId;
   const recordLocationId = resolveRecordLocationId(
     parseMeta((services[0] && services[0].metadata) || {}),
     meta,
@@ -830,20 +864,50 @@ async function createSunsetScheduleStripeLink(pg, opts) {
       return { ok: false, status: 422, body: failBody };
     }
 
-    const amountDueCents = priced.total_cents;
+    let authoritativeBalanceDueCents = opts.authoritativeBalanceDueCents;
+    if (authoritativeBalanceDueCents == null) {
+      const paidRes = await pg.query(
+        `SELECT COALESCE(SUM(p.amount_paid_cents), 0)::bigint AS paid_cents
+           FROM payments p
+          WHERE p.booking_id = $1::uuid
+            AND p.status = 'paid'::payment_record_status`,
+        [booking.booking_id],
+      );
+      const paidCents = Number(paidRes.rows[0] && paidRes.rows[0].paid_cents || 0);
+      authoritativeBalanceDueCents = Math.max(0, priced.total_cents - paidCents);
+    }
+    let amountDueCents;
+    try {
+      amountDueCents = resolveAuthoritativeOutstandingCents(
+        priced.total_cents,
+        authoritativeBalanceDueCents,
+      );
+    } catch (err) {
+      await pg.query('ROLLBACK');
+      return { ok: false, status: 409, body: { success: false, error: 'authoritative_balance_unavailable' } };
+    }
+    if (amountDueCents <= 0) {
+      await pg.query('ROLLBACK');
+      return { ok: false, status: 422, body: { success: false, error: 'no_payment_due', message: 'No outstanding balance due.', amount_due_cents: 0 } };
+    }
+    const lockedMeta = parseMeta(locked.metadata);
     const stripeIdempotencyKey = buildStripeCheckoutIdempotencyKey({
       clientSlug,
       bookingId: booking.booking_id,
       paymentKind,
       amountDueCents,
       currency,
+      generation: lockedMeta.payment_link_generation || 'initial',
     });
 
-    const metaStale = !!meta.sunset_stripe_link_stale;
+    // Re-read metadata from the row locked after any concurrent request. A
+    // pre-lock drawer snapshot must never force a second replacement.
+    const metaStale = !!lockedMeta.sunset_stripe_link_stale;
+    await invalidateObsoleteActivePaymentRows(pg, booking.booking_id, amountDueCents, metaStale);
     const idemRow = await findActiveCompatiblePaymentRow(
       pg, booking.booking_id, paymentKind, amountDueCents, currency,
     );
-    if (!metaStale && idemRow && idemRow.checkout_url) {
+    if (idemRow && idemRow.checkout_url) {
       await pg.query('COMMIT');
       return {
         ok: true,
@@ -1018,26 +1082,18 @@ async function createSunsetScheduleStripeLink(pg, opts) {
       ],
     );
 
+    await pg.query(
+      `UPDATE bookings
+          SET payment_status = 'payment_link_sent'::payment_status,
+              metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+        WHERE id = $2::uuid`,
+      [JSON.stringify({
+        last_stripe_payment_id: paymentId,
+        last_payment_link_url: session.url,
+        sunset_stripe_link_stale: false,
+      }), booking.booking_id],
+    );
     await pg.query('COMMIT');
-
-    await pg.query('BEGIN');
-    try {
-      await pg.query(
-        `UPDATE bookings
-            SET payment_status = 'payment_link_sent'::payment_status,
-                metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-          WHERE id = $2::uuid`,
-        [JSON.stringify({
-          last_stripe_payment_id: paymentId,
-          last_payment_link_url: session.url,
-          sunset_stripe_link_stale: false,
-        }), booking.booking_id],
-      );
-      await pg.query('COMMIT');
-    } catch (err) {
-      await pg.query('ROLLBACK');
-      throw err;
-    }
 
     return {
       ok: true,
@@ -1066,6 +1122,12 @@ async function deleteSunsetScheduleStripeLink(pg, opts) {
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
     return { ok: false, status: 403, body: { success: false, error: 'unsupported_client' } };
   }
+  const suppliedLocationId = typeof opts.locationId === 'string' ? opts.locationId : '';
+  const rawLocationId = suppliedLocationId.trim();
+  if (!rawLocationId || suppliedLocationId !== rawLocationId || !isSunsetLocationId(rawLocationId)
+    || rawLocationId !== normalizeSunsetLocationId(rawLocationId)) {
+    return { ok: false, status: 400, body: { success: false, error: 'unsupported_location' } };
+  }
   const bookingId = String(opts.bookingId || '').trim();
   const bookingCode = String(opts.bookingCode || '').trim();
   if (!bookingId && !bookingCode) {
@@ -1080,7 +1142,7 @@ async function deleteSunsetScheduleStripeLink(pg, opts) {
   }
   const { booking, services } = loaded;
   const meta = parseMeta(booking.metadata);
-  const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+  const activeLocationId = rawLocationId;
   const recordLocationId = resolveRecordLocationId(
     parseMeta((services[0] && services[0].metadata) || {}),
     meta,
@@ -1107,7 +1169,12 @@ async function deleteSunsetScheduleStripeLink(pg, opts) {
     `UPDATE bookings
         SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
       WHERE id = $2::uuid`,
-    [JSON.stringify({ sunset_stripe_link_stale: true, last_payment_link_url: null, payment_link_invalidated: true }), booking.booking_id],
+    [JSON.stringify({
+      sunset_stripe_link_stale: true,
+      last_payment_link_url: null,
+      payment_link_invalidated: true,
+      payment_link_generation: crypto.randomUUID(),
+    }), booking.booking_id],
   );
   return {
     ok: true,
@@ -1162,6 +1229,7 @@ module.exports = {
   attachGuestPaymentFields,
   buildAuthoritativePaymentIntentKey,
   buildStripeCheckoutIdempotencyKey,
+  resolveAuthoritativeOutstandingCents,
   findActiveCompatiblePaymentRow,
   findIdempotentPaymentRow,
   lockBookingForPaymentLink,
