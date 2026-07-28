@@ -147,3 +147,22 @@ Groundwork already landed (additive, unwired): migration `051_tenant_rental_offe
 **Gate:** extend the template smoke gate to prove a NEW item (e.g. `kayak_rental`) added to
 `tenant_rental_offerings` renders + books + honours exclusions, with Sunset's 4-item catalog
 byte-identical. Needs DB (run on Lunabox/staging) → Skipper.
+
+## Phase 1 pricing-resolver spec (exact de-tenant sites, lower-risk half)
+
+Separate from the linchpin boundary above. The pricing resolver is fail-closed (not a 403
+isolation gate), and its tenant coupling is small and contained:
+- `scripts/lib/sunset-admin-price-identity.js:21` — `const EXPECTED_TENANT = 'sunset'`.
+- `scripts/lib/sunset-admin-price-resolve.js:39-45` — defaults `clientSlug` to `EXPECTED_TENANT`
+  and returns `tenant_mismatch` when `clientSlug !== EXPECTED_TENANT`.
+- `scripts/lib/sunset-bookable-offerings.js:422` — `tenant_mismatch` guard.
+
+**Change:** accept `client_slug` as an input; replace the `=== EXPECTED_TENANT` equality with a
+membership check (`isSurfSchoolClient(slug)` from `surf-school-config.js`), keeping the fail-closed
+default. Identity building already keys on `client_slug + location_id`, so no schema change.
+
+**Blast radius:** 13 importers of `resolveActiveSunsetAdminPrice` — mostly verify scripts, plus
+`sunset-bookable-offerings.js`, `sunset-course-lesson-price-lookup.js`,
+`sunset-schedule-booking-writes.js`. Thread the resolved slug through; keep `sunset` behaviour
+byte-identical (parity gate), then prove a second surf school resolves prices from its own rows.
+Needs the DB pricing regression → Skipper.
