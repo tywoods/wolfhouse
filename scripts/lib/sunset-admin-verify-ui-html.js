@@ -23,6 +23,8 @@ function buildVerifyStaffUiHtml() {
     getStaffPortalI18nBootstrapScript,
   } = loadStaffPortalI18n();
   const { getWolfhouseServicesAdminSource } = loadWolfhouseServicesAdmin();
+  const { getSunsetAdminBrowserHelperSource } = require('./sunset-admin-ui-helpers');
+  const { getSunsetAdminUiBrowserSource } = require('./sunset-admin-browser-source');
   const { staffPortalDevTabsEnabled } = require('./staff-portal-clients');
   const { MESSAGE_MIN: OUTREACH_MESSAGE_MIN } = require('./staff-customer-outreach-send');
   const {
@@ -33,7 +35,8 @@ function buildVerifyStaffUiHtml() {
 
   const apiPath = path.join(__dirname, '..', 'staff-query-api.js');
   const apiSrc = fs.readFileSync(apiPath, 'utf8');
-  const fnStart = apiSrc.indexOf('function buildUiHtml(port)');
+  // Signature may include portalDeployClient and other args — match the declaration only.
+  const fnStart = apiSrc.search(/function buildUiHtml\s*\(/);
   const htmlStart = apiSrc.indexOf('<!DOCTYPE html>', fnStart);
   const htmlEnd = apiSrc.indexOf('</html>`;', htmlStart);
   if (fnStart < 0 || htmlStart < 0 || htmlEnd < 0) {
@@ -52,11 +55,15 @@ function buildVerifyStaffUiHtml() {
   const bookUiClass = String(process.env.STAFF_PORTAL_BOOK_UI || 'true').trim().toLowerCase() === 'false'
     ? ''
     : ' book-ui';
+  const portalDefaultClient = String(process.env.DEFAULT_CLIENT_SLUG || 'sunset').trim() || 'sunset';
 
   const replacements = [
     ['${getStaffPortalThemeEarlyScript()}', getStaffPortalThemeEarlyScript()],
     ['${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}', getStaffPortalI18nBootstrapScript(locales)],
     ['${getWolfhouseServicesAdminSource()}', getWolfhouseServicesAdminSource()],
+    ['${getSunsetAdminBrowserHelperSource()}', getSunsetAdminBrowserHelperSource()],
+    ['${getSunsetAdminUiBrowserSource()}', getSunsetAdminUiBrowserSource()],
+    ['${JSON.stringify(portalDefaultClient)}', JSON.stringify(portalDefaultClient)],
     ['${portalBodyOpen}', portalBodyOpen],
     ['${bookUiClass}', bookUiClass],
     ['${OUTREACH_MESSAGE_MIN}', String(OUTREACH_MESSAGE_MIN)],

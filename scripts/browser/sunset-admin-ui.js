@@ -1,5 +1,150 @@
 var adminConfigCache = null;
 var adminEditTarget = null;
+/** In-memory Admin sub-tab: 'finance' | 'pricing'. Reset only on Admin reload (loadAdminTab). */
+var adminActiveSubTab = 'finance';
+/**
+ * In-memory Pricing draft snapshot for preserveDraft re-renders.
+ * Shape: { schoolKey, editTarget, fields: { [stableKey]: { kind:'value'|'check', value?, checked? } } }
+ * Cleared on non-preserve re-renders and deliberate Admin reopen.
+ */
+var adminPricingDraftState = null;
+
+function adminPricingDraftSchoolKey(){
+  try {
+    var client = (typeof getClient === 'function') ? String(getClient() || '') : '';
+    var loc = '';
+    if (client === 'sunset' && typeof getSunsetLocation === 'function') {
+      loc = String(getSunsetLocation() || '');
+    }
+    return client + '|' + loc;
+  } catch (_e) {
+    return '';
+  }
+}
+
+function adminClearPricingDraftState(){
+  adminPricingDraftState = null;
+}
+
+function adminPricingDraftFieldKey(node){
+  if (!node) return '';
+  var id = node.id ? String(node.id) : '';
+  if (id) return 'id:' + id;
+  var field = (node.getAttribute && node.getAttribute('data-admin-price-field')) || '';
+  if (field) {
+    var card = (node.closest && node.closest('[data-admin-price-card]')) || null;
+    var cardId = (card && card.getAttribute) ? String(card.getAttribute('data-admin-price-card') || '') : '';
+    if (cardId) return 'price:' + cardId + ':' + field;
+  }
+  var cls = (node.className && String(node.className)) || '';
+  if (/\bportal-admin-group-avail-toggle\b/.test(cls) || (node.classList && node.classList.contains('portal-admin-group-avail-toggle'))) {
+    var g = (node.getAttribute && node.getAttribute('data-rental-group')) || '';
+    if (g) return 'avail:' + g;
+  }
+  if (/\bpack-tier-amount\b/.test(cls) || (node.classList && node.classList.contains('pack-tier-amount'))) {
+    var form = (node.closest && node.closest('[data-admin-pack-form]')) || null;
+    var formId = (form && form.getAttribute) ? String(form.getAttribute('data-admin-pack-form') || '') : '';
+    var row = (node.closest && node.closest('[data-pack-tier-row]')) || null;
+    var rows = form ? form.querySelectorAll('[data-pack-tier-row]') : null;
+    var idx = -1;
+    if (rows && row) {
+      for (var ri = 0; ri < rows.length; ri++) {
+        if (rows[ri] === row) { idx = ri; break; }
+      }
+    }
+    if (formId && idx >= 0) return 'pack-tier-amount:' + formId + ':' + idx;
+  }
+  if (/\bpack-tier-key\b/.test(cls) || (node.classList && node.classList.contains('pack-tier-key'))) {
+    var formK = (node.closest && node.closest('[data-admin-pack-form]')) || null;
+    var formIdK = (formK && formK.getAttribute) ? String(formK.getAttribute('data-admin-pack-form') || '') : '';
+    var rowK = (node.closest && node.closest('[data-pack-tier-row]')) || null;
+    var rowsK = formK ? formK.querySelectorAll('[data-pack-tier-row]') : null;
+    var idxK = -1;
+    if (rowsK && rowK) {
+      for (var rj = 0; rj < rowsK.length; rj++) {
+        if (rowsK[rj] === rowK) { idxK = rj; break; }
+      }
+    }
+    if (formIdK && idxK >= 0) return 'pack-tier-key:' + formIdK + ':' + idxK;
+  }
+  var name = (node.getAttribute && node.getAttribute('name')) || '';
+  if (name) return 'name:' + name;
+  return '';
+}
+
+function adminPricingDraftRoots(){
+  var roots = [];
+  var prices = (typeof el === 'function') ? el('admin-prices-body') : null;
+  var times = (typeof el === 'function') ? el('admin-times-body') : null;
+  if (prices) roots.push(prices);
+  if (times) roots.push(times);
+  return roots;
+}
+
+function adminSnapshotPricingDraftState(){
+  var fields = {};
+  var roots = adminPricingDraftRoots();
+  for (var r = 0; r < roots.length; r++) {
+    var root = roots[r];
+    if (!root || !root.querySelectorAll) continue;
+    var nodes = root.querySelectorAll('input, select, textarea');
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      var key = adminPricingDraftFieldKey(node);
+      if (!key) continue;
+      var tag = String(node.tagName || '').toUpperCase();
+      var type = String(node.type || '').toLowerCase();
+      if (type === 'checkbox' || type === 'radio') {
+        fields[key] = { kind: 'check', checked: !!node.checked };
+      } else if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+        fields[key] = { kind: 'value', value: node.value != null ? String(node.value) : '' };
+      }
+    }
+  }
+  adminPricingDraftState = {
+    schoolKey: adminPricingDraftSchoolKey(),
+    editTarget: adminEditTarget != null ? String(adminEditTarget) : '',
+    fields: fields,
+  };
+}
+
+function adminRestorePricingDraftState(){
+  var snap = adminPricingDraftState;
+  if (!snap || !snap.fields) return;
+  if (snap.schoolKey !== adminPricingDraftSchoolKey()) {
+    adminClearPricingDraftState();
+    return;
+  }
+  var curTarget = adminEditTarget != null ? String(adminEditTarget) : '';
+  if (snap.editTarget !== curTarget) {
+    // Mismatched edit surface — do not restore onto wrong controls.
+    return;
+  }
+  var roots = adminPricingDraftRoots();
+  for (var r = 0; r < roots.length; r++) {
+    var root = roots[r];
+    if (!root || !root.querySelectorAll) continue;
+    var nodes = root.querySelectorAll('input, select, textarea');
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      var key = adminPricingDraftFieldKey(node);
+      if (!key || !Object.prototype.hasOwnProperty.call(snap.fields, key)) continue;
+      var entry = snap.fields[key];
+      if (!entry) continue;
+      var tag = String(node.tagName || '').toUpperCase();
+      var type = String(node.type || '').toLowerCase();
+      if (entry.kind === 'check') {
+        if (type !== 'checkbox' && type !== 'radio') continue;
+        node.checked = !!entry.checked;
+      } else if (entry.kind === 'value') {
+        if (type === 'checkbox' || type === 'radio') continue;
+        if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') continue;
+        node.value = entry.value != null ? String(entry.value) : '';
+      }
+    }
+  }
+}
+
 function adminPriceGroupBusy(groupKey){
   if (!adminEditTarget) return false;
   var t = String(adminEditTarget);
@@ -23,6 +168,51 @@ function adminPrivateLessonSectionEditing(){
 
 var adminSaveBusy = false;
 var adminLoadSeq = 0;
+/** Generation that currently owns adminSaveBusy (0 = none). Shared by all Admin loads/mutations. */
+var adminBusyOwnerSeq = 0;
+
+/**
+ * Claim busy for a specific operation token. Newer claims supersede prior owners so stale
+ * handlers cannot leave Admin permanently blocked.
+ * Only adminClaimBusy / adminReleaseBusy / adminClearBusy may assign adminSaveBusy.
+ */
+function adminClaimBusy(opSeq){
+  adminSaveBusy = true;
+  adminBusyOwnerSeq = opSeq;
+}
+
+/**
+ * Release busy only if opSeq still owns it. Stale success/error/finally no-ops.
+ */
+function adminReleaseBusy(opSeq){
+  if (adminBusyOwnerSeq === opSeq){
+    adminSaveBusy = false;
+    adminBusyOwnerSeq = 0;
+  }
+}
+
+/** Deliberate busy clear (canonical save/reload exit) — drops any owner. */
+function adminClearBusy(){
+  adminSaveBusy = false;
+  adminBusyOwnerSeq = 0;
+}
+
+/**
+ * Begin a new Admin operation: allocate a monotonic token and claim busy.
+ * All loads, keep-edit reloads, and wireAdminTab mutations must use this (or
+ * claim via adminClaimBusy after ++adminLoadSeq) — no naked adminSaveBusy writes.
+ * @returns {number} operation token
+ */
+function adminBeginOp(){
+  var opSeq = ++adminLoadSeq;
+  adminClaimBusy(opSeq);
+  return opSeq;
+}
+
+/** True when opSeq still owns the current busy generation. */
+function adminOpStillOwns(opSeq){
+  return adminBusyOwnerSeq === opSeq;
+}
 
 function adminCfgWritesEnabled(cfg){
   return !!(cfg && cfg.writes_enabled === true);
@@ -76,28 +266,74 @@ function adminApiRequest(method, path, body){
   });
 }
 
+/**
+ * Ownership gate for in-flight adminReloadConfigKeepingEdit responses.
+ * Shares adminLoadSeq with loadAdminTab so newer loads win (single sequence owner).
+ * Stale responses must not mutate cache/DOM/target/draft.
+ * Busy release is generation-token based via adminReleaseBusy (not a naked boolean).
+ */
+function adminReloadKeepingEditOwnership(loadSeq, originSchoolKey, originEditTarget){
+  if (loadSeq !== adminLoadSeq) return { apply: false };
+  var curTarget = adminEditTarget != null ? String(adminEditTarget) : '';
+  if (adminPricingDraftSchoolKey() !== originSchoolKey || curTarget !== originEditTarget) {
+    // Same generation but school/edit ownership drifted — discard body.
+    return { apply: false };
+  }
+  return { apply: true };
+}
+
 function adminReloadConfigKeepingEdit(keepTarget){
   var saved = keepTarget || null;
-  adminSaveBusy = false;
+  // Capture full ownership identity at request start (school/client/location, edit target, generation).
+  var originSchoolKey = adminPricingDraftSchoolKey();
+  var originEditTarget = adminEditTarget != null ? String(adminEditTarget) : '';
+  // Shared monotonic token with loads + mutations; only owner may release/mutate.
+  var loadSeq = adminBeginOp();
   var url = '/staff/admin/config' + adminClientQuery();
-  fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
-    .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
-    .then(function(data){
-      if (!data || data.success !== true) return Promise.reject(new Error('load failed'));
-      adminConfigCache = data;
+  // try/catch around sync fetch throw: direct throw bypasses promise catch/finally and
+  // would leave this token owning busy forever. Owning sync failure must release.
+  try {
+    fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+      .then(function(data){
+        var gate = adminReloadKeepingEditOwnership(loadSeq, originSchoolKey, originEditTarget);
+        if (!gate.apply) {
+          adminReleaseBusy(loadSeq);
+          return;
+        }
+        if (!data || data.success !== true) return Promise.reject(new Error('load failed'));
+        adminConfigCache = data;
+        adminEditTarget = saved;
+        // Keep unsaved Pricing field drafts while re-rendering for a kept edit target.
+        renderAdminFromConfig(data, { preserveDraft: true });
+        adminReleaseBusy(loadSeq);
+      })
+      .catch(function(e){
+        // Stale error/finally must not clear busy or mutate state owned by a newer operation.
+        var gate = adminReloadKeepingEditOwnership(loadSeq, originSchoolKey, originEditTarget);
+        if (!gate.apply) {
+          adminReleaseBusy(loadSeq);
+          return;
+        }
+        adminEditTarget = saved;
+        adminShowMessage('error', portalT('admin.error') + ' ' + e.message);
+        if (adminConfigCache) renderAdminFromConfig(adminConfigCache, { preserveDraft: true });
+        adminReleaseBusy(loadSeq);
+      });
+  } catch (syncErr) {
+    if (adminOpStillOwns(loadSeq)) {
       adminEditTarget = saved;
-      renderAdminFromConfig(data);
-    })
-    .catch(function(e){
-      adminEditTarget = saved;
-      adminShowMessage('error', portalT('admin.error') + ' ' + e.message);
-      if (adminConfigCache) renderAdminFromConfig(adminConfigCache);
-    });
+      adminShowMessage('error', portalT('admin.error') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      if (adminConfigCache) renderAdminFromConfig(adminConfigCache, { preserveDraft: true });
+      adminReleaseBusy(loadSeq);
+    }
+  }
 }
 
 function adminReloadConfig(){
   adminEditTarget = null;
-  adminSaveBusy = false;
+  adminClearBusy();
+  adminClearPricingDraftState();
   // Admin pack/price CRUD must invalidate Schedule create-menu cache immediately —
   // same SPA session previously kept stale surf_packs until school switch/restart.
   if (typeof scheduleInvalidateAdminCatalogCache === 'function') scheduleInvalidateAdminCatalogCache();
@@ -935,15 +1171,29 @@ function renderAdminWriteState(cfg){
   if (banner) banner.style.display = 'none';
 }
 
-function renderAdminFromConfig(cfg){
+/**
+ * Re-render Pricing sections from config.
+ * @param {object} cfg
+ * @param {{preserveDraft?: boolean}} [opts] When preserveDraft is true, snapshot form
+ *   field values before replace and restore onto matching controls after render.
+ *   Call sites must pass this explicitly (never guessed). Successful save / canonical
+ *   refresh / Admin reopen omit it so server truth wins and stale drafts are cleared.
+ */
+function renderAdminFromConfig(cfg, opts){
+  opts = opts || {};
+  var preserve = !!(opts && opts.preserveDraft);
+  if (preserve) adminSnapshotPricingDraftState();
+  else adminClearPricingDraftState();
   renderAdminWriteState(cfg);
   if (typeof renderAdminSchoolContext === 'function') renderAdminSchoolContext(cfg);
   try { renderAdminSectionLessonTimesFromConfig(cfg); } catch (err) { console.error('admin lessons render failed', err); }
   try { renderAdminSectionPricesFromConfig(cfg); } catch (err) { console.error('admin prices render failed', err); }
+  if (preserve) adminRestorePricingDraftState();
 }
 
 function renderAdminFallback(profile){
   adminEditTarget = null;
+  adminClearPricingDraftState();
   renderAdminWriteState(null);
   var fallbackLocation = getClient() === 'sunset' ? getSunsetLocation() : null;
   if (typeof renderAdminSchoolContext === 'function') {
@@ -962,40 +1212,179 @@ function renderAdminLoadingShell(profile){
   renderAdminFallback(profile);
 }
 
-function loadAdminTab(){
+/** Honest Finance shell — no fake revenue, totals, or money arithmetic. */
+function renderAdminFinanceShell(){
+  var body = el('admin-finance-body');
+  if (!body) return;
+  body.innerHTML = '<div class="portal-admin-finance-unavailable"><p>' +
+    escHtml(portalT('admin.finance.summaryUnavailable')) +
+    '</p></div>';
+}
+
+/**
+ * Switch Admin sub-tab (finance | pricing). Does not re-render Pricing content —
+ * in-memory draft state is retained until Admin reload.
+ * @param {string} key
+ * @param {{focus?: boolean}} [opts]
+ */
+function adminSelectSubTab(key, opts){
+  var next = (key === 'pricing') ? 'pricing' : 'finance';
+  adminActiveSubTab = next;
+  var tabs = document.querySelectorAll('#admin-subtab-list [data-admin-tab]');
+  var i;
+  for (i = 0; i < tabs.length; i++){
+    var tab = tabs[i];
+    var tabKey = tab.getAttribute('data-admin-tab');
+    var selected = tabKey === next;
+    tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+    tab.setAttribute('tabindex', selected ? '0' : '-1');
+    tab.classList.toggle('is-selected', selected);
+    if (selected && opts && opts.focus && typeof tab.focus === 'function') tab.focus();
+  }
+  var finPanel = el('admin-panel-finance');
+  var prPanel = el('admin-panel-pricing');
+  if (finPanel){
+    if (next === 'finance') finPanel.removeAttribute('hidden');
+    else finPanel.setAttribute('hidden', '');
+  }
+  if (prPanel){
+    if (next === 'pricing') prPanel.removeAttribute('hidden');
+    else prPanel.setAttribute('hidden', '');
+  }
+}
+
+function wireAdminSubTabs(){
+  var list = el('admin-subtab-list');
+  if (!list || list.dataset.adminSubtabsWired === '1') return;
+  list.dataset.adminSubtabsWired = '1';
+
+  function tabButtons(){
+    return Array.prototype.slice.call(list.querySelectorAll('[role="tab"][data-admin-tab]'));
+  }
+
+  function selectByIndex(idx, focus){
+    var tabs = tabButtons();
+    if (!tabs.length) return;
+    var n = ((idx % tabs.length) + tabs.length) % tabs.length;
+    var key = tabs[n].getAttribute('data-admin-tab') || 'finance';
+    adminSelectSubTab(key, { focus: !!focus });
+  }
+
+  list.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest ? ev.target.closest('[data-admin-tab]') : null;
+    if (!btn || !list.contains(btn)) return;
+    ev.preventDefault();
+    adminSelectSubTab(btn.getAttribute('data-admin-tab') || 'finance', { focus: true });
+  });
+
+  list.addEventListener('keydown', function(ev){
+    var target = ev.target;
+    if (!target || !target.getAttribute || !target.getAttribute('data-admin-tab')) return;
+    if (!list.contains(target)) return;
+    var tabs = tabButtons();
+    if (!tabs.length) return;
+    var idx = tabs.indexOf(target);
+    if (idx < 0) idx = 0;
+    var key = ev.key;
+    if (key === 'ArrowRight' || key === 'ArrowLeft' || key === 'Home' || key === 'End'){
+      ev.preventDefault();
+      if (key === 'ArrowRight') selectByIndex(idx + 1, true);
+      else if (key === 'ArrowLeft') selectByIndex(idx - 1, true);
+      else if (key === 'Home') selectByIndex(0, true);
+      else if (key === 'End') selectByIndex(tabs.length - 1, true);
+    }
+  });
+}
+
+/**
+ * Load Admin config into Pricing panels.
+ * @param {{resetSubTab?: boolean}} [opts] resetSubTab=true when Admin is opened/re-entered
+ *   (Finance default). Config save reloads keep the current sub-tab so Pricing drafts are not
+ *   silently discarded by a forced Finance switch.
+ */
+function loadAdminTab(opts){
+  opts = opts || {};
   wireAdminTab();
+  wireAdminSubTabs();
+  if (opts.resetSubTab) {
+    adminActiveSubTab = 'finance';
+    // Deliberate Admin reopen/reload — drop any in-memory Pricing drafts.
+    adminClearPricingDraftState();
+  }
+  if (adminActiveSubTab !== 'pricing' && adminActiveSubTab !== 'finance') adminActiveSubTab = 'finance';
+  adminSelectSubTab(adminActiveSubTab);
+  renderAdminFinanceShell();
   var profile = getPortalProfile(getClient());
-  if (!profile.is_surf_vertical) return;
+  // Canonical load generation: supersede prior keep-edit/load/mutation and own busy so a
+  // stale handler cannot leave Admin permanently blocked when it cannot release.
+  var loadSeq = adminBeginOp();
+  if (!profile.is_surf_vertical) {
+    adminReleaseBusy(loadSeq);
+    return;
+  }
   var state = el('admin-fetch-state');
-  var loadSeq = ++adminLoadSeq;
   renderAdminLoadingShell(profile);
   if (state){ state.textContent = portalT('admin.loading'); state.style.display = 'none'; state.classList.remove('error'); }
   var url = '/staff/admin/config' + adminClientQuery();
+  // Cancellable timeout: a settled race must not leave a late reject as unhandled.
+  var timeoutId = null;
   var timeout = new Promise(function(_, reject){
-    setTimeout(function(){ reject(new Error('request timeout')); }, 8000);
+    timeoutId = setTimeout(function(){ reject(new Error('request timeout')); }, 8000);
   });
-  var request = fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
-    .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); });
-  Promise.race([request, timeout])
-    .then(function(data){
-      if (loadSeq !== adminLoadSeq) return;
-      if (!data || data.success !== true) return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
-      adminConfigCache = data;
-      if (!adminCfgWritesEnabled(data)) adminEditTarget = null;
-      renderAdminFromConfig(data);
-      if (state) state.style.display = 'none';
-    })
-    .catch(function(e){
-      if (loadSeq !== adminLoadSeq) return;
-      adminConfigCache = null;
-      adminEditTarget = null;
-      renderAdminFallback(profile);
-      if (state){
-        state.textContent = portalT('admin.error') + ' ' + e.message;
-        state.className = 'state-msg error';
-        state.style.display = 'block';
-      }
-    });
+  function clearAdminLoadTimeout(){
+    if (timeoutId != null){
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  }
+  // try/catch: synchronous fetch throw bypasses Promise.race .catch and would leave
+  // this load owning busy permanently. Only the owning token may release.
+  try {
+    var request = fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); });
+    Promise.race([request, timeout])
+      .then(function(data){
+        clearAdminLoadTimeout();
+        if (loadSeq !== adminLoadSeq) return;
+        if (!data || data.success !== true) return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
+        adminConfigCache = data;
+        if (!adminCfgWritesEnabled(data)) adminEditTarget = null;
+        // Canonical config load — server truth, no draft replay.
+        renderAdminFromConfig(data);
+        adminSelectSubTab(adminActiveSubTab || 'finance');
+        if (state) state.style.display = 'none';
+        adminReleaseBusy(loadSeq);
+      })
+      .catch(function(e){
+        clearAdminLoadTimeout();
+        if (loadSeq !== adminLoadSeq) return;
+        adminConfigCache = null;
+        adminEditTarget = null;
+        adminClearPricingDraftState();
+        renderAdminFallback(profile);
+        adminSelectSubTab(adminActiveSubTab || 'finance');
+        if (state){
+          state.textContent = portalT('admin.error') + ' ' + e.message;
+          state.className = 'state-msg error';
+          state.style.display = 'block';
+        }
+        adminReleaseBusy(loadSeq);
+      });
+  } catch (syncErr) {
+    clearAdminLoadTimeout();
+    if (loadSeq !== adminLoadSeq) return;
+    adminConfigCache = null;
+    adminEditTarget = null;
+    adminClearPricingDraftState();
+    renderAdminFallback(profile);
+    adminSelectSubTab(adminActiveSubTab || 'finance');
+    if (state){
+      state.textContent = portalT('admin.error') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr));
+      state.className = 'state-msg error';
+      state.style.display = 'block';
+    }
+    adminReleaseBusy(loadSeq);
+  }
 }
 
 function wireAdminTab(){
@@ -1049,25 +1438,36 @@ function wireAdminTab(){
       var toggleRentalGroup = String(btn.getAttribute('data-rental-group') || '');
       var toggleActive = !!(btn.checked);
       if (!toggleRentalGroup){ adminShowMessage('error', portalT('admin.edit.saveFailed')); return; }
-      adminSaveBusy = true;
+      var toggleOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      adminApiRequest('POST', '/staff/admin/config/prices/group-availability' + adminClientQuery(), {
-        rental_group: toggleRentalGroup,
-        active: toggleActive,
-      }).then(function(res){
-        adminSaveBusy = false;
-        if (res.status !== 200 || !res.data || res.data.success !== true){
-          adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+      try {
+        adminApiRequest('POST', '/staff/admin/config/prices/group-availability' + adminClientQuery(), {
+            rental_group: toggleRentalGroup,
+            active: toggleActive,
+          })
+        .then(function(res){
+          if (!adminOpStillOwns(toggleOpSeq)) return;
+          if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminReleaseBusy(toggleOpSeq);
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            adminReloadConfig();
+            return;
+          }
+          adminShowMessage('success', portalT('admin.edit.savedPrice'));
+          adminReleaseBusy(toggleOpSeq);
           adminReloadConfig();
-          return;
-        }
-        adminShowMessage('success', portalT('admin.edit.savedPrice'));
+        }).catch(function(err){
+          if (!adminOpStillOwns(toggleOpSeq)) return;
+          adminReleaseBusy(toggleOpSeq);
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+          adminReloadConfig();
+        });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(toggleOpSeq)) return;
+        adminReleaseBusy(toggleOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
         adminReloadConfig();
-      }).catch(function(err){
-        adminSaveBusy = false;
-        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
-        adminReloadConfig();
-      });
+      }
       return;
     }
     if (action === 'edit-capacity'){
@@ -1098,21 +1498,30 @@ function wireAdminTab(){
       var deletePriceId = String(btn.getAttribute('data-price-id') || '');
       if (!deletePriceId || !window.confirm(portalT('admin.edit.confirmRemovePrice'))) return;
       var keepGroupEdit = adminEditTarget && String(adminEditTarget).indexOf('price-group:') === 0 ? adminEditTarget : null;
-      adminSaveBusy = true;
+      var deletePriceOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      adminApiRequest('DELETE', '/staff/admin/config/prices/' + encodeURIComponent(deletePriceId) + adminClientQuery(), {})
+      try {
+        adminApiRequest('DELETE', '/staff/admin/config/prices/' + encodeURIComponent(deletePriceId) + adminClientQuery(), {})
         .then(function(res){
-          adminSaveBusy = false;
+          if (!adminOpStillOwns(deletePriceOpSeq)) return;
           if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminReleaseBusy(deletePriceOpSeq);
             adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
             return;
           }
           adminShowMessage('success', portalT('admin.edit.removedPrice'));
+          adminReleaseBusy(deletePriceOpSeq);
           adminReloadConfigKeepingEdit(keepGroupEdit);
         }).catch(function(err){
-          adminSaveBusy = false;
+          if (!adminOpStillOwns(deletePriceOpSeq)) return;
+          adminReleaseBusy(deletePriceOpSeq);
           adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
         });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(deletePriceOpSeq)) return;
+        adminReleaseBusy(deletePriceOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
       return;
     }
     if (action === 'edit-time'){
@@ -1130,42 +1539,60 @@ function wireAdminTab(){
     if (action === 'delete-time'){
       var deleteTimeId = String(btn.getAttribute('data-time-id') || '');
       if (!deleteTimeId || !window.confirm(portalT('admin.edit.confirmRemoveLesson'))) return;
-      adminSaveBusy = true;
+      var deleteTimeOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      adminApiRequest('DELETE', '/staff/admin/config/lesson-times/' + encodeURIComponent(deleteTimeId) + adminClientQuery(), {})
+      try {
+        adminApiRequest('DELETE', '/staff/admin/config/lesson-times/' + encodeURIComponent(deleteTimeId) + adminClientQuery(), {})
         .then(function(res){
-          adminSaveBusy = false;
+          if (!adminOpStillOwns(deleteTimeOpSeq)) return;
           if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminReleaseBusy(deleteTimeOpSeq);
             adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
             return;
           }
           adminShowMessage('success', portalT('admin.edit.removedTime'));
+          adminReleaseBusy(deleteTimeOpSeq);
           adminReloadConfig();
         }).catch(function(err){
-          adminSaveBusy = false;
+          if (!adminOpStillOwns(deleteTimeOpSeq)) return;
+          adminReleaseBusy(deleteTimeOpSeq);
           adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
         });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(deleteTimeOpSeq)) return;
+        adminReleaseBusy(deleteTimeOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
       return;
     }
     if (action === 'save-capacity'){
       var capInput = el('admin-capacity-input');
       var capParsed = adminParseCapacity(capInput && capInput.value);
       if (!capParsed.ok){ adminShowMessage('error', capParsed.error); return; }
-      adminSaveBusy = true;
+      var saveCapOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      adminApiRequest('PUT', '/staff/admin/config/lesson-capacity' + adminClientQuery(), { default_daily_cap: capParsed.value })
+      try {
+        adminApiRequest('PUT', '/staff/admin/config/lesson-capacity' + adminClientQuery(), { default_daily_cap: capParsed.value })
         .then(function(res){
-          adminSaveBusy = false;
+          if (!adminOpStillOwns(saveCapOpSeq)) return;
           if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminReleaseBusy(saveCapOpSeq);
             adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
             return;
           }
           adminShowMessage('success', portalT('admin.edit.savedCapacity'));
+          adminReleaseBusy(saveCapOpSeq);
           adminReloadConfig();
         }).catch(function(err){
-          adminSaveBusy = false;
+          if (!adminOpStillOwns(saveCapOpSeq)) return;
+          adminReleaseBusy(saveCapOpSeq);
           adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
         });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(saveCapOpSeq)) return;
+        adminReleaseBusy(saveCapOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
       return;
     }
     if (action === 'save-price-group'){
@@ -1192,21 +1619,31 @@ function wireAdminTab(){
       });
       if (validationError){ adminShowMessage('error', validationError); return; }
       if (!jobs.length){ adminShowMessage('error', portalT('admin.prices.emptyCategory')); return; }
-      adminSaveBusy = true;
+      var saveGroupOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      Promise.all(jobs).then(function(results){
-        adminSaveBusy = false;
-        var failed = results.find(function(res){ return res.status !== 200 || !res.data || res.data.success !== true; });
-        if (failed){
-          adminShowMessage('error', (failed.data && (failed.data.message || failed.data.error)) || ('HTTP ' + failed.status));
-          return;
-        }
-        adminShowMessage('success', portalT('admin.edit.savedPrice'));
-        adminReloadConfig();
-      }).catch(function(err){
-        adminSaveBusy = false;
-        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
-      });
+      try {
+        Promise.all(jobs)
+        .then(function(results){
+          if (!adminOpStillOwns(saveGroupOpSeq)) return;
+          var failed = results.find(function(res){ return res.status !== 200 || !res.data || res.data.success !== true; });
+          if (failed){
+            adminReleaseBusy(saveGroupOpSeq);
+            adminShowMessage('error', (failed.data && (failed.data.message || failed.data.error)) || ('HTTP ' + failed.status));
+            return;
+          }
+          adminShowMessage('success', portalT('admin.edit.savedPrice'));
+          adminReleaseBusy(saveGroupOpSeq);
+          adminReloadConfig();
+        }).catch(function(err){
+          if (!adminOpStillOwns(saveGroupOpSeq)) return;
+          adminReleaseBusy(saveGroupOpSeq);
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(saveGroupOpSeq)) return;
+        adminReleaseBusy(saveGroupOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
       return;
     }
 
@@ -1224,24 +1661,34 @@ function wireAdminTab(){
         adminShowMessage('error', portalT('admin.edit.amountRequiredToEnable'));
         return;
       }
-      adminSaveBusy = true;
+      var savePriceOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      adminApiRequest('PATCH', '/staff/admin/config/prices/' + encodeURIComponent(priceId) + adminClientQuery(), {
-        period_window: period,
-        amount_cents: centsParsed.value,
-        active: available,
-      }).then(function(res){
-        adminSaveBusy = false;
-        if (res.status !== 200 || !res.data || res.data.success !== true){
-          adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
-          return;
-        }
-        adminShowMessage('success', portalT('admin.edit.savedPrice'));
-        adminReloadConfig();
-      }).catch(function(err){
-        adminSaveBusy = false;
-        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
-      });
+      try {
+        adminApiRequest('PATCH', '/staff/admin/config/prices/' + encodeURIComponent(priceId) + adminClientQuery(), {
+            period_window: period,
+            amount_cents: centsParsed.value,
+            active: available,
+          })
+        .then(function(res){
+          if (!adminOpStillOwns(savePriceOpSeq)) return;
+          if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminReleaseBusy(savePriceOpSeq);
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminShowMessage('success', portalT('admin.edit.savedPrice'));
+          adminReleaseBusy(savePriceOpSeq);
+          adminReloadConfig();
+        }).catch(function(err){
+          if (!adminOpStillOwns(savePriceOpSeq)) return;
+          adminReleaseBusy(savePriceOpSeq);
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(savePriceOpSeq)) return;
+        adminReleaseBusy(savePriceOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
       return;
     }
     if (action === 'save-new-price'){
@@ -1256,24 +1703,34 @@ function wireAdminTab(){
         adminShowMessage('error', portalT('admin.edit.amountRequiredToEnable'));
         return;
       }
-      adminSaveBusy = true;
+      var saveNewPriceOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      adminApiRequest('POST', '/staff/admin/config/prices' + adminClientQuery(), {
-        rental_group: rentalGroup,
-        period_window: newPeriod,
-        amount_cents: newCents.value,
-      }).then(function(res){
-        adminSaveBusy = false;
-        if ((res.status !== 201 && res.status !== 200) || !res.data || res.data.success !== true){
-          adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
-          return;
-        }
-        adminShowMessage('success', portalT('admin.edit.addedPrice'));
-        adminReloadConfig();
-      }).catch(function(err){
-        adminSaveBusy = false;
-        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
-      });
+      try {
+        adminApiRequest('POST', '/staff/admin/config/prices' + adminClientQuery(), {
+            rental_group: rentalGroup,
+            period_window: newPeriod,
+            amount_cents: newCents.value,
+          })
+        .then(function(res){
+          if (!adminOpStillOwns(saveNewPriceOpSeq)) return;
+          if ((res.status !== 201 && res.status !== 200) || !res.data || res.data.success !== true){
+            adminReleaseBusy(saveNewPriceOpSeq);
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminShowMessage('success', portalT('admin.edit.addedPrice'));
+          adminReleaseBusy(saveNewPriceOpSeq);
+          adminReloadConfig();
+        }).catch(function(err){
+          if (!adminOpStillOwns(saveNewPriceOpSeq)) return;
+          adminReleaseBusy(saveNewPriceOpSeq);
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(saveNewPriceOpSeq)) return;
+        adminReleaseBusy(saveNewPriceOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
       return;
     }
     if (action === 'save-time'){
@@ -1310,20 +1767,30 @@ function wireAdminTab(){
         amount_cents: costParsed.value,
       };
       if (endParsed.value) timePayload.time_local_end = endParsed.value;
-      adminSaveBusy = true;
+      var saveTimeOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      adminApiRequest('PATCH', '/staff/admin/config/lesson-times/' + encodeURIComponent(timeId) + adminClientQuery(), timePayload).then(function(res){
-        adminSaveBusy = false;
-        if (res.status !== 200 || !res.data || res.data.success !== true){
-          adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
-          return;
-        }
-        adminShowMessage('success', portalT('admin.edit.savedTime'));
-        adminReloadConfig();
-      }).catch(function(err){
-        adminSaveBusy = false;
-        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
-      });
+      try {
+        adminApiRequest('PATCH', '/staff/admin/config/lesson-times/' + encodeURIComponent(timeId) + adminClientQuery(), timePayload)
+        .then(function(res){
+          if (!adminOpStillOwns(saveTimeOpSeq)) return;
+          if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminReleaseBusy(saveTimeOpSeq);
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminShowMessage('success', portalT('admin.edit.savedTime'));
+          adminReleaseBusy(saveTimeOpSeq);
+          adminReloadConfig();
+        }).catch(function(err){
+          if (!adminOpStillOwns(saveTimeOpSeq)) return;
+          adminReleaseBusy(saveTimeOpSeq);
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(saveTimeOpSeq)) return;
+        adminReleaseBusy(saveTimeOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
       return;
     }
 
@@ -1369,42 +1836,60 @@ function wireAdminTab(){
         default_duration_minutes: durationVal,
         notes: String((notesEl && notesEl.value) || '').trim(),
       };
-      adminSaveBusy = true;
+      var savePrivateOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      adminApiRequest('PUT', '/staff/admin/config/private-lesson' + adminClientQuery(), payload)
+      try {
+        adminApiRequest('PUT', '/staff/admin/config/private-lesson' + adminClientQuery(), payload)
         .then(function(res){
-          adminSaveBusy = false;
+          if (!adminOpStillOwns(savePrivateOpSeq)) return;
           if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminReleaseBusy(savePrivateOpSeq);
             adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
             return;
           }
           adminEditTarget = null;
           adminShowMessage('success', portalT('admin.edit.savedPrivateLesson'));
+          adminReleaseBusy(savePrivateOpSeq);
           adminReloadConfig();
         }).catch(function(err){
-          adminSaveBusy = false;
+          if (!adminOpStillOwns(savePrivateOpSeq)) return;
+          adminReleaseBusy(savePrivateOpSeq);
           adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
         });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(savePrivateOpSeq)) return;
+        adminReleaseBusy(savePrivateOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
       return;
     }
     if (action === 'delete-pack'){
       var deletePackId = String(btn.getAttribute('data-pack-id') || '');
       if (!deletePackId || !window.confirm(portalT('admin.edit.confirmRemovePack'))) return;
-      adminSaveBusy = true;
+      var deletePackOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      adminApiRequest('DELETE', '/staff/admin/config/surf-packs/' + encodeURIComponent(deletePackId) + adminClientQuery(), {})
+      try {
+        adminApiRequest('DELETE', '/staff/admin/config/surf-packs/' + encodeURIComponent(deletePackId) + adminClientQuery(), {})
         .then(function(res){
-          adminSaveBusy = false;
+          if (!adminOpStillOwns(deletePackOpSeq)) return;
           if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminReleaseBusy(deletePackOpSeq);
             adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
             return;
           }
           adminShowMessage('success', portalT('admin.edit.removedPack'));
+          adminReleaseBusy(deletePackOpSeq);
           adminReloadConfig();
         }).catch(function(err){
-          adminSaveBusy = false;
+          if (!adminOpStillOwns(deletePackOpSeq)) return;
+          adminReleaseBusy(deletePackOpSeq);
           adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
         });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(deletePackOpSeq)) return;
+        adminReleaseBusy(deletePackOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
       return;
     }
     if (action === 'save-pack' || action === 'save-new-pack'){
@@ -1413,23 +1898,32 @@ function wireAdminTab(){
       if (payload._scheduleError){ adminShowMessage('error', payload._scheduleError); return; }
       delete payload._scheduleError;
       if (!payload.label){ adminShowMessage('error', portalT('admin.edit.nameRequired')); return; }
-      adminSaveBusy = true;
+      var savePackOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      var packReq = packId
-        ? adminApiRequest('PATCH', '/staff/admin/config/surf-packs/' + encodeURIComponent(packId) + adminClientQuery(), payload)
-        : adminApiRequest('POST', '/staff/admin/config/surf-packs' + adminClientQuery(), payload);
-      packReq.then(function(res){
-        adminSaveBusy = false;
-        if ((res.status !== 200 && res.status !== 201) || !res.data || res.data.success !== true){
-          adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
-          return;
-        }
-        adminShowMessage('success', packId ? portalT('admin.edit.savedPack') : portalT('admin.edit.addedPack'));
-        adminReloadConfig();
-      }).catch(function(err){
-        adminSaveBusy = false;
-        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
-      });
+      try {
+        (packId
+            ? adminApiRequest('PATCH', '/staff/admin/config/surf-packs/' + encodeURIComponent(packId) + adminClientQuery(), payload)
+            : adminApiRequest('POST', '/staff/admin/config/surf-packs' + adminClientQuery(), payload))
+        .then(function(res){
+          if (!adminOpStillOwns(savePackOpSeq)) return;
+          if ((res.status !== 200 && res.status !== 201) || !res.data || res.data.success !== true){
+            adminReleaseBusy(savePackOpSeq);
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminShowMessage('success', packId ? portalT('admin.edit.savedPack') : portalT('admin.edit.addedPack'));
+          adminReleaseBusy(savePackOpSeq);
+          adminReloadConfig();
+        }).catch(function(err){
+          if (!adminOpStillOwns(savePackOpSeq)) return;
+          adminReleaseBusy(savePackOpSeq);
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(savePackOpSeq)) return;
+        adminReleaseBusy(savePackOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
       return;
     }
 
@@ -1467,21 +1961,30 @@ function wireAdminTab(){
         if (newEnd.value <= newStart.value){ adminShowMessage('error', portalT('admin.edit.endAfterStart')); return; }
         payload.time_local_end = newEnd.value;
       }
-      adminSaveBusy = true;
+      var saveNewTimeOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      adminApiRequest('POST', '/staff/admin/config/lesson-times' + adminClientQuery(), payload)
+      try {
+        adminApiRequest('POST', '/staff/admin/config/lesson-times' + adminClientQuery(), payload)
         .then(function(res){
-          adminSaveBusy = false;
+          if (!adminOpStillOwns(saveNewTimeOpSeq)) return;
           if (res.status !== 201 || !res.data || res.data.success !== true){
+            adminReleaseBusy(saveNewTimeOpSeq);
             adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
             return;
           }
           adminShowMessage('success', portalT('admin.edit.addedTime'));
+          adminReleaseBusy(saveNewTimeOpSeq);
           adminReloadConfig();
         }).catch(function(err){
-          adminSaveBusy = false;
+          if (!adminOpStillOwns(saveNewTimeOpSeq)) return;
+          adminReleaseBusy(saveNewTimeOpSeq);
           adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
         });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(saveNewTimeOpSeq)) return;
+        adminReleaseBusy(saveNewTimeOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
       return;
     }
   });

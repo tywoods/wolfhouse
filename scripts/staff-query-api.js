@@ -16298,6 +16298,18 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 #tab-admin .portal-admin-pack-title{font-family:var(--font-display);font-weight:600}
 #tab-admin .portal-admin-lesson-title{font-family:var(--font-display);font-weight:600}
 #tab-admin .btn,#tab-admin .portal-admin-pill{font-family:inherit}
+.portal-admin-subtabs{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;margin:0 0 16px;max-width:100%;overflow-x:hidden;box-sizing:border-box}
+.portal-admin-subtab{appearance:none;-webkit-appearance:none;flex:1 1 auto;min-width:44px;min-height:44px;padding:10px 14px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);color:var(--text-2);font:inherit;font-size:14px;font-weight:600;line-height:1.2;cursor:pointer;box-sizing:border-box;text-align:center}
+.portal-admin-subtab[aria-selected="true"]{background:var(--surface);color:var(--text);border-color:var(--text-2);box-shadow:var(--shadow-soft)}
+.portal-admin-subtab:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
+.portal-admin-tabpanel{max-width:100%}
+.portal-admin-tabpanel[hidden]{display:none!important}
+.portal-admin-finance-shell{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 16px;box-shadow:var(--shadow-soft)}
+.portal-admin-finance-shell p{margin:0;font-size:14px;line-height:1.5;color:var(--text-2)}
+@media(max-width:430px){
+  .portal-admin-subtabs{gap:8px;margin-bottom:12px}
+  .portal-admin-subtab{flex:1 1 calc(50% - 4px);min-width:44px;min-height:44px;padding:12px 10px;font-size:13px}
+}
 
 .portal-schedule-wrap{max-width:1240px;margin:0 auto;padding:24px 20px 32px}
 .portal-schedule-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:18px}
@@ -18740,21 +18752,30 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 </div>
 </div><!-- /tab-customers -->
 
-<!-- ── Admin tab (Sunset read-only skeleton) ─────────────────────────────── -->
+<!-- ── Admin tab (Sunset: Finance shell + Pricing) ───────────────────────── -->
 <div id="tab-admin" class="tab-panel">
 <div class="portal-admin-wrap">
   <header class="portal-admin-header">
     <h1 class="portal-admin-school-heading" id="admin-school-heading" style="display:none" aria-live="polite">—</h1>
     <div id="admin-fetch-state" class="state-msg" style="display:none;margin-bottom:12px"></div>
   </header>
-  <div class="portal-admin-sections">
-    <section class="portal-admin-section" id="admin-sec-times">
-      <div class="portal-admin-section-body" id="admin-times-body"></div>
-    </section>
-    <section class="portal-admin-section" id="admin-sec-prices">
-      <div class="portal-admin-section-hdr" data-i18n="admin.section.prices">Rental prices</div>
-      <div class="portal-admin-section-body" id="admin-prices-body"></div>
-    </section>
+  <div class="portal-admin-subtabs" id="admin-subtab-list" role="tablist" data-i18n-aria="admin.tabs.listLabel" aria-label="Admin sections">
+    <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-finance" data-admin-tab="finance" aria-controls="admin-panel-finance" aria-selected="true" tabindex="0" data-i18n="admin.tabs.finance">Finance</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-pricing" data-admin-tab="pricing" aria-controls="admin-panel-pricing" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.pricing">Pricing</button>
+  </div>
+  <div id="admin-panel-finance" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="finance" aria-labelledby="admin-tab-finance">
+    <div id="admin-finance-body" class="portal-admin-finance-shell"></div>
+  </div>
+  <div id="admin-panel-pricing" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="pricing" aria-labelledby="admin-tab-pricing" hidden>
+    <div class="portal-admin-sections">
+      <section class="portal-admin-section" id="admin-sec-times">
+        <div class="portal-admin-section-body" id="admin-times-body"></div>
+      </section>
+      <section class="portal-admin-section" id="admin-sec-prices">
+        <div class="portal-admin-section-hdr" data-i18n="admin.section.prices">Rental prices</div>
+        <div class="portal-admin-section-body" id="admin-prices-body"></div>
+      </section>
+    </div>
   </div>
   <div id="admin-save-msg" class="state-msg portal-admin-save-msg" style="display:none;margin-top:12px" aria-live="polite"></div>
 </div>
@@ -19925,7 +19946,7 @@ function switchToTab(tab, subtab){
   }
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'customers') loadCustomersTab();
-  if (tab === 'admin') loadAdminTab();
+  if (tab === 'admin') loadAdminTab({ resetSubTab: true });
   if (tab === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
@@ -20092,7 +20113,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'ask-luna') wireLunaStaffTabCards();
     if (target === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
     if (target === 'customers') loadCustomersTab();
-    if (target === 'admin') loadAdminTab();
+    if (target === 'admin') loadAdminTab({ resetSubTab: true });
     if (target === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
     if (target === 'day-schedule') loadDaySchedule();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();

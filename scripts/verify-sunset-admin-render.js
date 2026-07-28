@@ -374,8 +374,35 @@ async function runBrowserChecks(playwright) {
         && cfgResp.json.lesson_times.length > 0);
       assert(`${loc.id} GET location_id matches`, cfgResp.json.location_id === loc.id);
 
+      // Stage 2: Finance is the default sub-tab; Pricing holds existing Admin content (may be hidden).
+      const defaultSub = await page.evaluate(() => ({
+        financeSelected: document.getElementById('admin-tab-finance')?.getAttribute('aria-selected') === 'true',
+        pricingHidden: document.getElementById('admin-panel-pricing')?.hidden === true
+          || document.getElementById('admin-panel-pricing')?.hasAttribute('hidden'),
+        tabKeys: Array.from(document.querySelectorAll('#admin-subtab-list [data-admin-tab]'))
+          .map((t) => t.getAttribute('data-admin-tab')),
+      }));
+      assert(`${loc.id} Admin sub-tabs Finance then Pricing`,
+        defaultSub.tabKeys[0] === 'finance' && defaultSub.tabKeys[1] === 'pricing',
+        defaultSub.tabKeys.join(','));
+      assert(`${loc.id} Finance sub-tab default selected`, defaultSub.financeSelected);
+      assert(`${loc.id} Pricing panel hidden by default`, defaultSub.pricingHidden);
+
+      // Reveal Pricing so visible-text gates still exercise the full Admin catalog UI.
+      const pricingTab = page.locator('[data-admin-tab="pricing"]');
+      if (await pricingTab.count()) {
+        await pricingTab.click();
+        await page.waitForFunction(() => {
+          return document.getElementById('admin-tab-pricing')?.getAttribute('aria-selected') === 'true';
+        }, null, { timeout: 5000 });
+      }
+
       const snapshot = await page.evaluate(() => {
-        const text = (document.body && document.body.innerText) || '';
+        const pricingPanel = document.getElementById('admin-panel-pricing');
+        // Prefer Pricing panel text (visible after switch); fall back to full body.
+        const text = (pricingPanel && pricingPanel.innerText)
+          || (document.body && document.body.innerText)
+          || '';
         const activeAdmin = !!document.querySelector('button.tab-btn[data-tab="admin"].active');
         const times = document.querySelector('#admin-times-body');
         const prices = document.querySelector('#admin-prices-body');
@@ -389,8 +416,8 @@ async function runBrowserChecks(playwright) {
         const schoolHeading = document.querySelector('#admin-school-heading');
         return {
           activeAdmin,
-          timesText: times ? times.innerText.trim() : '',
-          pricesText: prices ? prices.innerText.trim() : '',
+          timesText: times ? (times.innerText || times.textContent || '').trim() : '',
+          pricesText: prices ? (prices.innerText || prices.textContent || '').trim() : '',
           packCards,
           priceCards,
           privateCard,
