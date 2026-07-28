@@ -1498,6 +1498,18 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
   // Server-authoritative course coverage: validated selection, derived dates,
   // and active-school Admin prices. Client cents and component dates are ignored.
   if (input.course_equipment) {
+    // A location-level zero price is not a course entitlement. Luna may only
+    // quote free during-course gear when this exact catalog course explicitly
+    // includes it; missing/legacy flags fail closed.
+    if (input.components.course && input.course_equipment.mode === 'during_course') {
+      const identity = resolveCourseOfferingIdentity(input.components.course);
+      const match = identity.ok
+        ? findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0]
+        : null;
+      if (!match || match.equipment_included !== true) {
+        return { ok: false, status: 422, body: { success: false, reason: 'course_equipment_not_included' } };
+      }
+    }
     const surfers = input.components.private_lesson
       ? input.components.private_lesson.surfer_count : input.components.course.quantity;
     const equipmentDates = input.components.private_lesson
@@ -1678,6 +1690,18 @@ function quoteByComponentsSync(command, catalog, requireDb) {
   // Server-authoritative course coverage: validated selection, derived dates,
   // and active-school Admin prices. Client cents and component dates are ignored.
   if (input.course_equipment) {
+    // A location-level zero price is not a course entitlement. Luna may only
+    // quote free during-course gear when this exact catalog course explicitly
+    // includes it; missing/legacy flags fail closed.
+    if (input.components.course && input.course_equipment.mode === 'during_course') {
+      const identity = resolveCourseOfferingIdentity(input.components.course);
+      const match = identity.ok
+        ? findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0]
+        : null;
+      if (!match || match.equipment_included !== true) {
+        return { ok: false, status: 422, body: { success: false, reason: 'course_equipment_not_included' } };
+      }
+    }
     const surfers = input.components.private_lesson
       ? input.components.private_lesson.surfer_count : input.components.course.quantity;
     const equipmentDates = input.components.private_lesson
