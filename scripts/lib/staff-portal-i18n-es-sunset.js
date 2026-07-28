@@ -171,6 +171,7 @@ module.exports = {
   'admin.title': 'Configuración de Sunset',
   'admin.tabs.finance': 'Finanzas',
   'admin.tabs.pricing': 'Precios',
+  'admin.tabs.lunaStaff': 'Luna Staff',
   'admin.tabs.listLabel': 'Secciones de administración',
   'admin.finance.summaryUnavailable': 'El resumen financiero aún no está disponible.',
   'admin.finance.today': 'Hoy',
