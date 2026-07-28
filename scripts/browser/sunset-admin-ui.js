@@ -1595,7 +1595,8 @@ function wireAdminTab(){
         if (!adminOpStillOwns(op)) return;
         if (resp.status !== 200 || !resp.data || resp.data.success !== true) throw new Error(portalT('admin.courseEquipment.saveError'));
         adminConfigCache.course_equipment_pricing = resp.data.course_equipment_pricing;
-        renderAdminFromConfig(adminConfigCache); adminShowMessage('success', portalT('admin.courseEquipment.saved')); adminReleaseBusy(op);
+        // This focused save must not discard unrelated unsaved Pricing edits.
+        renderAdminFromConfig(adminConfigCache, { preserveDraft: true }); adminShowMessage('success', portalT('admin.courseEquipment.saved')); adminReleaseBusy(op);
       }).catch(function(){ if (!adminOpStillOwns(op)) return; adminShowMessage('error', portalT('admin.courseEquipment.saveError')); adminReleaseBusy(op); });
       return;
     }
