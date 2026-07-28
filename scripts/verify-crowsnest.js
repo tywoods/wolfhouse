@@ -153,8 +153,8 @@ ok('Spyglass renders expandable client rows with names', uiHtml.includes('client
 ok('default Spyglass does not render onboarding form', !uiHtml.includes('New client onboarding'));
 ok('spyglass alias matches default with client rows', /Spyglass/i.test(spyglassAliasHtml) && spyglassAliasHtml.includes('client-row'));
 ok('Spyglass renders full-width AI usage panel', /ai-usage-panel/.test(uiHtml) && /AI usage/i.test(uiHtml));
-ok('Spyglass AI usage panel still clearly labelled sample', /sample data/i.test(uiHtml) && uiHtml.includes('sample-badge'));
-ok('Spyglass AI usage stated not live telemetry', /not live telemetry/i.test(uiHtml));
+ok('Spyglass AI usage panel shows honest empty state (no sample)', /not reporting yet/i.test(uiHtml) && !/sample data/i.test(uiHtml) && !/class="sample-badge/.test(uiHtml));
+ok('Spyglass AI usage states no sample/fabricated telemetry', /no sample or fabricated telemetry/i.test(uiHtml));
 // Client metrics now come from the Crowsnest-owned store — with no store data the page must be honest.
 ok('Spyglass client rows are live-sourced (honest "not reporting yet" when empty)', /not reporting yet/i.test(uiHtml));
 ok('Spyglass default shows 0 reporting, no fabricated client numbers', /0\/3 reporting|0 reporting/.test(uiHtml));

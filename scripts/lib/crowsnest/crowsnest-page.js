@@ -9,7 +9,6 @@ const path = require('path');
 
 const { getCrowsnestClients, getCrowsnestTemplates } = require('./crowsnest-clients');
 const { renderCrowsnestOnboardingSection } = require('./crowsnest-onboarding');
-const { getSampleAiUsage } = require('./crowsnest-sample-telemetry');
 
 const SUNSET_LOGIN_CSS = fs.readFileSync(
   path.join(__dirname, '..', '..', '..', 'config', 'staff-portal', 'staff-login-page.css'),
@@ -1300,7 +1299,7 @@ function renderAiUsagePanel(usage) {
   return `<section class="panel ai-usage-panel" aria-labelledby="ai-usage-title">
         <header class="panel-head">
           <h2 class="panel-title" id="ai-usage-title">AI usage</h2>
-          ${usage.sample ? '<span class="sample-badge">Sample</span>' : '<span class="sample-badge sample-badge--live">Live</span>'}
+          <span class="sample-badge sample-badge--live">Live</span>
           <span class="panel-window">${escapeHtml(usage.window_label)}</span>
         </header>
         <div class="metric-tiles">
@@ -1321,9 +1320,22 @@ function renderAiUsagePanel(usage) {
           </div>
         </div>
         <div class="spark-wrap">
-          <span class="spark-caption">Requests · last 7 days${usage.sample ? ' (sample)' : ''}</span>
+          <span class="spark-caption">Requests · last 7 days</span>
           ${renderSparkline(usage.daily_requests)}
         </div>
+      </section>`;
+}
+
+// Honest empty state: the AI-usage store is wired but no source has reported a
+// receipt in the window yet. Mirrors the client-rows "not reporting yet" pattern —
+// no sample/demo data. The panel flips to live automatically once receipts land.
+function renderAiUsageEmpty() {
+  return `<section class="panel ai-usage-panel" aria-labelledby="ai-usage-title">
+        <header class="panel-head">
+          <h2 class="panel-title" id="ai-usage-title">AI usage</h2>
+          <span class="cr-chip cr-chip--muted">not reporting yet</span>
+        </header>
+        <p class="spark-caption">No AI-usage receipts in the window yet — this panel goes live automatically once a source's reporter is turned on.</p>
       </section>`;
 }
 
@@ -1444,9 +1456,9 @@ function renderSpyglassMain(clients, options = {}) {
   const clientMetrics = options.clientMetrics || {};
   const refreshCoverage = options.refreshCoverage || null;
   const stats = countStaticEnvironmentStats(clients);
-  // Prefer the live Crowsnest AI-usage aggregate when the store has data; fall back
-  // to clearly-labelled sample telemetry until a source is reporting (fail-closed).
-  const usage = options.aiUsage || getSampleAiUsage();
+  // Live Crowsnest AI-usage aggregate when the store has data; otherwise null so the
+  // panel renders an honest "not reporting yet" empty state (no sample/demo data).
+  const usage = options.aiUsage || null;
   const reporting = clients
     .map((c) => readClientMetrics(clientMetrics[c.client_slug]))
     .filter(Boolean);
@@ -1460,7 +1472,7 @@ function renderSpyglassMain(clients, options = {}) {
   return `<section id="spyglass" aria-labelledby="spyglass-title">
       <div class="sample-banner">
         <span class="sample-dot" aria-hidden="true"></span>
-        <span><strong>Client metrics are live.</strong> Clients report snapshots into Crowsnest's own store — rows show <em>&ldquo;not reporting yet&rdquo;</em> until a client's reporter is turned on. The <strong>AI usage</strong> panel below is still sample data.</span>
+        <span><strong>Client metrics and AI usage are live.</strong> Sources report into Crowsnest's own store — client rows and the <strong>AI usage</strong> panel show <em>&ldquo;not reporting yet&rdquo;</em> until a source's reporter is turned on.</span>
       </div>
       <div class="kpi-strip">
         <div class="kpi">
@@ -1487,7 +1499,7 @@ function renderSpyglassMain(clients, options = {}) {
 
       ${renderSpyglassRefreshPanel(clients, refreshCoverage)}
 
-      ${renderAiUsagePanel(usage)}
+      ${usage ? renderAiUsagePanel(usage) : renderAiUsageEmpty()}
 
       <section class="panel clients-panel" aria-labelledby="clients-overview-title">
         <header class="panel-head">
@@ -1499,7 +1511,7 @@ function renderSpyglassMain(clients, options = {}) {
         </div>
       </section>
 
-      <div class="safety"><strong>Safety:</strong> Read-only Spyglass. Client metrics are read from Crowsnest's own metrics store (clients push snapshots in) — no direct access to tenant databases and no writes. Refresh all only requests reports from configured clients and never claims metrics are refreshed. The AI usage panel is still clearly-labelled <strong>sample data</strong>, not live telemetry.</div>
+      <div class="safety"><strong>Safety:</strong> Read-only Spyglass. Client metrics are read from Crowsnest's own metrics store (clients push snapshots in) — no direct access to tenant databases and no writes. Refresh all only requests reports from configured clients and never claims metrics are refreshed. The AI usage panel reads only Crowsnest's own receipt store and shows <strong>&ldquo;not reporting yet&rdquo;</strong> until a source's reporter is turned on — no sample or fabricated telemetry.</div>
     </section>`;
 }
 

@@ -154,8 +154,8 @@ async function partB() {
   const liveHtml = renderCrowsnestPage({ view: 'spyglass', aiUsage: liveUsage });
   ok('panel renders LIVE aggregate when provided (no Sample badge)', /class="sample-badge sample-badge--live"/.test(liveHtml) && !/>Sample<\/span>/.test(liveHtml) && /\$1\.23/.test(liveHtml));
   ok('live panel spark caption drops "(sample)"', /Requests · last 7 days<\/span>/.test(liveHtml));
-  const sampleHtml = renderCrowsnestPage({ view: 'spyglass' });
-  ok('panel falls back to labelled Sample when no live aggregate', />Sample<\/span>/.test(sampleHtml) && /last 7 days \(sample\)/.test(sampleHtml));
+  const emptyHtml = renderCrowsnestPage({ view: 'spyglass' });
+  ok('panel shows honest "not reporting yet" when no live aggregate (no sample)', /not reporting yet/i.test(emptyHtml) && !/>Sample<\/span>/.test(emptyHtml) && !/\(sample\)/.test(emptyHtml));
 
   // ── Part D: durable Postgres backend (fake pg seam, no live DB) ─────────────
   ok('DSN present => postgres backend selected', store.resolveBackend({ CROWSNEST_METRICS_DATABASE_URL: 'postgres://x' }) === 'postgres');
