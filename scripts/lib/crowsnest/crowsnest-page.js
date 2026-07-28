@@ -1005,6 +1005,36 @@ h2.section{
 .bar-w-25{--w:25%}.bar-w-30{--w:30%}.bar-w-35{--w:35%}.bar-w-40{--w:40%}.bar-w-45{--w:45%}
 .bar-w-50{--w:50%}.bar-w-55{--w:55%}.bar-w-60{--w:60%}.bar-w-65{--w:65%}.bar-w-70{--w:70%}
 .bar-w-75{--w:75%}.bar-w-80{--w:80%}.bar-w-85{--w:85%}.bar-w-90{--w:90%}.bar-w-95{--w:95%}.bar-w-100{--w:100%}
+
+/* ── Dark mode: components that bake in light surfaces (text already uses vars) ── */
+html[data-theme="dark"] .metric-tile,
+html[data-theme="dark"] .client-row,
+html[data-theme="dark"] .env-row{
+  background:var(--surface-raised);
+  border-color:var(--border);
+}
+html[data-theme="dark"] .cr-chip,
+html[data-theme="dark"] .pill--neutral,
+html[data-theme="dark"] .meta-chip{
+  background:rgba(255,255,255,.05);
+  border-color:var(--border);
+}
+html[data-theme="dark"] .bar-track{background:rgba(255,255,255,.10)}
+html[data-theme="dark"] .safety,
+html[data-theme="dark"] .safety-badge,
+html[data-theme="dark"] .contextual-safety,
+html[data-theme="dark"] .sample-banner{
+  background:var(--amber-soft);
+  border-color:rgba(214,167,90,.28);
+  color:var(--amber);
+}
+html[data-theme="dark"] .onboarding-form input,
+html[data-theme="dark"] .onboarding-form select,
+html[data-theme="dark"] .onboarding-form textarea{
+  background:var(--surface-raised);
+  border-color:var(--border);
+  color:var(--navy);
+}
 `;
 
 const CROWSNEST_LOGIN_CSS = `
