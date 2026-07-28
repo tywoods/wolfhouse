@@ -2,6 +2,149 @@ var adminConfigCache = null;
 var adminEditTarget = null;
 /** In-memory Admin sub-tab: 'finance' | 'pricing'. Reset only on Admin reload (loadAdminTab). */
 var adminActiveSubTab = 'finance';
+/**
+ * In-memory Pricing draft snapshot for preserveDraft re-renders.
+ * Shape: { schoolKey, editTarget, fields: { [stableKey]: { kind:'value'|'check', value?, checked? } } }
+ * Cleared on non-preserve re-renders and deliberate Admin reopen.
+ */
+var adminPricingDraftState = null;
+
+function adminPricingDraftSchoolKey(){
+  try {
+    var client = (typeof getClient === 'function') ? String(getClient() || '') : '';
+    var loc = '';
+    if (client === 'sunset' && typeof getSunsetLocation === 'function') {
+      loc = String(getSunsetLocation() || '');
+    }
+    return client + '|' + loc;
+  } catch (_e) {
+    return '';
+  }
+}
+
+function adminClearPricingDraftState(){
+  adminPricingDraftState = null;
+}
+
+function adminPricingDraftFieldKey(node){
+  if (!node) return '';
+  var id = node.id ? String(node.id) : '';
+  if (id) return 'id:' + id;
+  var field = (node.getAttribute && node.getAttribute('data-admin-price-field')) || '';
+  if (field) {
+    var card = (node.closest && node.closest('[data-admin-price-card]')) || null;
+    var cardId = (card && card.getAttribute) ? String(card.getAttribute('data-admin-price-card') || '') : '';
+    if (cardId) return 'price:' + cardId + ':' + field;
+  }
+  var cls = (node.className && String(node.className)) || '';
+  if (/\bportal-admin-group-avail-toggle\b/.test(cls) || (node.classList && node.classList.contains('portal-admin-group-avail-toggle'))) {
+    var g = (node.getAttribute && node.getAttribute('data-rental-group')) || '';
+    if (g) return 'avail:' + g;
+  }
+  if (/\bpack-tier-amount\b/.test(cls) || (node.classList && node.classList.contains('pack-tier-amount'))) {
+    var form = (node.closest && node.closest('[data-admin-pack-form]')) || null;
+    var formId = (form && form.getAttribute) ? String(form.getAttribute('data-admin-pack-form') || '') : '';
+    var row = (node.closest && node.closest('[data-pack-tier-row]')) || null;
+    var rows = form ? form.querySelectorAll('[data-pack-tier-row]') : null;
+    var idx = -1;
+    if (rows && row) {
+      for (var ri = 0; ri < rows.length; ri++) {
+        if (rows[ri] === row) { idx = ri; break; }
+      }
+    }
+    if (formId && idx >= 0) return 'pack-tier-amount:' + formId + ':' + idx;
+  }
+  if (/\bpack-tier-key\b/.test(cls) || (node.classList && node.classList.contains('pack-tier-key'))) {
+    var formK = (node.closest && node.closest('[data-admin-pack-form]')) || null;
+    var formIdK = (formK && formK.getAttribute) ? String(formK.getAttribute('data-admin-pack-form') || '') : '';
+    var rowK = (node.closest && node.closest('[data-pack-tier-row]')) || null;
+    var rowsK = formK ? formK.querySelectorAll('[data-pack-tier-row]') : null;
+    var idxK = -1;
+    if (rowsK && rowK) {
+      for (var rj = 0; rj < rowsK.length; rj++) {
+        if (rowsK[rj] === rowK) { idxK = rj; break; }
+      }
+    }
+    if (formIdK && idxK >= 0) return 'pack-tier-key:' + formIdK + ':' + idxK;
+  }
+  var name = (node.getAttribute && node.getAttribute('name')) || '';
+  if (name) return 'name:' + name;
+  return '';
+}
+
+function adminPricingDraftRoots(){
+  var roots = [];
+  var prices = (typeof el === 'function') ? el('admin-prices-body') : null;
+  var times = (typeof el === 'function') ? el('admin-times-body') : null;
+  if (prices) roots.push(prices);
+  if (times) roots.push(times);
+  return roots;
+}
+
+function adminSnapshotPricingDraftState(){
+  var fields = {};
+  var roots = adminPricingDraftRoots();
+  for (var r = 0; r < roots.length; r++) {
+    var root = roots[r];
+    if (!root || !root.querySelectorAll) continue;
+    var nodes = root.querySelectorAll('input, select, textarea');
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      var key = adminPricingDraftFieldKey(node);
+      if (!key) continue;
+      var tag = String(node.tagName || '').toUpperCase();
+      var type = String(node.type || '').toLowerCase();
+      if (type === 'checkbox' || type === 'radio') {
+        fields[key] = { kind: 'check', checked: !!node.checked };
+      } else if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+        fields[key] = { kind: 'value', value: node.value != null ? String(node.value) : '' };
+      }
+    }
+  }
+  adminPricingDraftState = {
+    schoolKey: adminPricingDraftSchoolKey(),
+    editTarget: adminEditTarget != null ? String(adminEditTarget) : '',
+    fields: fields,
+  };
+}
+
+function adminRestorePricingDraftState(){
+  var snap = adminPricingDraftState;
+  if (!snap || !snap.fields) return;
+  if (snap.schoolKey !== adminPricingDraftSchoolKey()) {
+    adminClearPricingDraftState();
+    return;
+  }
+  var curTarget = adminEditTarget != null ? String(adminEditTarget) : '';
+  if (snap.editTarget !== curTarget) {
+    // Mismatched edit surface — do not restore onto wrong controls.
+    return;
+  }
+  var roots = adminPricingDraftRoots();
+  for (var r = 0; r < roots.length; r++) {
+    var root = roots[r];
+    if (!root || !root.querySelectorAll) continue;
+    var nodes = root.querySelectorAll('input, select, textarea');
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      var key = adminPricingDraftFieldKey(node);
+      if (!key || !Object.prototype.hasOwnProperty.call(snap.fields, key)) continue;
+      var entry = snap.fields[key];
+      if (!entry) continue;
+      var tag = String(node.tagName || '').toUpperCase();
+      var type = String(node.type || '').toLowerCase();
+      if (entry.kind === 'check') {
+        if (type !== 'checkbox' && type !== 'radio') continue;
+        node.checked = !!entry.checked;
+      } else if (entry.kind === 'value') {
+        if (type === 'checkbox' || type === 'radio') continue;
+        if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') continue;
+        node.value = entry.value != null ? String(entry.value) : '';
+      }
+    }
+  }
+}
+
 function adminPriceGroupBusy(groupKey){
   if (!adminEditTarget) return false;
   var t = String(adminEditTarget);
@@ -88,18 +231,20 @@ function adminReloadConfigKeepingEdit(keepTarget){
       if (!data || data.success !== true) return Promise.reject(new Error('load failed'));
       adminConfigCache = data;
       adminEditTarget = saved;
-      renderAdminFromConfig(data);
+      // Keep unsaved Pricing field drafts while re-rendering for a kept edit target.
+      renderAdminFromConfig(data, { preserveDraft: true });
     })
     .catch(function(e){
       adminEditTarget = saved;
       adminShowMessage('error', portalT('admin.error') + ' ' + e.message);
-      if (adminConfigCache) renderAdminFromConfig(adminConfigCache);
+      if (adminConfigCache) renderAdminFromConfig(adminConfigCache, { preserveDraft: true });
     });
 }
 
 function adminReloadConfig(){
   adminEditTarget = null;
   adminSaveBusy = false;
+  adminClearPricingDraftState();
   // Admin pack/price CRUD must invalidate Schedule create-menu cache immediately —
   // same SPA session previously kept stale surf_packs until school switch/restart.
   if (typeof scheduleInvalidateAdminCatalogCache === 'function') scheduleInvalidateAdminCatalogCache();
@@ -937,15 +1082,29 @@ function renderAdminWriteState(cfg){
   if (banner) banner.style.display = 'none';
 }
 
-function renderAdminFromConfig(cfg){
+/**
+ * Re-render Pricing sections from config.
+ * @param {object} cfg
+ * @param {{preserveDraft?: boolean}} [opts] When preserveDraft is true, snapshot form
+ *   field values before replace and restore onto matching controls after render.
+ *   Call sites must pass this explicitly (never guessed). Successful save / canonical
+ *   refresh / Admin reopen omit it so server truth wins and stale drafts are cleared.
+ */
+function renderAdminFromConfig(cfg, opts){
+  opts = opts || {};
+  var preserve = !!(opts && opts.preserveDraft);
+  if (preserve) adminSnapshotPricingDraftState();
+  else adminClearPricingDraftState();
   renderAdminWriteState(cfg);
   if (typeof renderAdminSchoolContext === 'function') renderAdminSchoolContext(cfg);
   try { renderAdminSectionLessonTimesFromConfig(cfg); } catch (err) { console.error('admin lessons render failed', err); }
   try { renderAdminSectionPricesFromConfig(cfg); } catch (err) { console.error('admin prices render failed', err); }
+  if (preserve) adminRestorePricingDraftState();
 }
 
 function renderAdminFallback(profile){
   adminEditTarget = null;
+  adminClearPricingDraftState();
   renderAdminWriteState(null);
   var fallbackLocation = getClient() === 'sunset' ? getSunsetLocation() : null;
   if (typeof renderAdminSchoolContext === 'function') {
@@ -1058,7 +1217,11 @@ function loadAdminTab(opts){
   opts = opts || {};
   wireAdminTab();
   wireAdminSubTabs();
-  if (opts.resetSubTab) adminActiveSubTab = 'finance';
+  if (opts.resetSubTab) {
+    adminActiveSubTab = 'finance';
+    // Deliberate Admin reopen/reload — drop any in-memory Pricing drafts.
+    adminClearPricingDraftState();
+  }
   if (adminActiveSubTab !== 'pricing' && adminActiveSubTab !== 'finance') adminActiveSubTab = 'finance';
   adminSelectSubTab(adminActiveSubTab);
   renderAdminFinanceShell();
@@ -1080,6 +1243,7 @@ function loadAdminTab(opts){
       if (!data || data.success !== true) return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
       adminConfigCache = data;
       if (!adminCfgWritesEnabled(data)) adminEditTarget = null;
+      // Canonical config load — server truth, no draft replay.
       renderAdminFromConfig(data);
       adminSelectSubTab(adminActiveSubTab || 'finance');
       if (state) state.style.display = 'none';
@@ -1088,6 +1252,7 @@ function loadAdminTab(opts){
       if (loadSeq !== adminLoadSeq) return;
       adminConfigCache = null;
       adminEditTarget = null;
+      adminClearPricingDraftState();
       renderAdminFallback(profile);
       adminSelectSubTab(adminActiveSubTab || 'finance');
       if (state){

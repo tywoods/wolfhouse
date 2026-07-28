@@ -193,16 +193,20 @@ function runI18nChecks() {
   // Also data-i18n attributes
   const re2 = /data-i18n(?:-aria)?="(admin\.(?:tabs|finance)\.[^"]+)"/g;
   while ((m = re2.exec(scan))) used.add(m[1]);
-  for (const k of TAB_I18N_KEYS) used.add(k);
+  // Required keys must be discovered from production markup/runtime — never pre-seed `used`.
+  assert(
+    `required tab i18n keys discovered in production usage (${TAB_I18N_KEYS.length})`,
+    TAB_I18N_KEYS.every((k) => used.has(k)),
+    `missing from production: ${TAB_I18N_KEYS.filter((k) => !used.has(k)).join(',') || 'none'}; used=${[...used].join(',')}`,
+  );
+  assert('at least one admin.tabs/finance key discovered from production', used.size >= TAB_I18N_KEYS.length);
 
-  assert(`required tab i18n keys present (${TAB_I18N_KEYS.length})`, TAB_I18N_KEYS.every((k) => used.has(k)));
-
-  for (const k of TAB_I18N_KEYS) {
-    assert(`EN has ${k}`, en.includes(`'${k}'`));
-    assert(`ES has ${k}`, es.includes(`'${k}'`));
+  for (const k of used) {
+    assert(`EN has discovered key ${k}`, en.includes(`'${k}'`));
+    assert(`ES has discovered key ${k}`, es.includes(`'${k}'`));
     // IT block is inside staff-portal-i18n.js
     const itBlock = en.slice(en.indexOf('it: {'));
-    assert(`IT has ${k}`, itBlock.includes(`'${k}'`));
+    assert(`IT has discovered key ${k}`, itBlock.includes(`'${k}'`));
   }
 
   // No hard-coded English tab labels in runtime render without portalT/data-i18n
@@ -335,25 +339,44 @@ function createMinimalDom(htmlFragment) {
     return el;
   }
 
+  function matchAttrToken(el, token) {
+    // token is like role="tab" or data-admin-tab or data-admin-tab="finance"
+    const eq = token.indexOf('=');
+    if (eq < 0) {
+      return el.getAttribute(token) != null
+        || (token.startsWith('data-') && el.dataset[token.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] != null);
+    }
+    const k = token.slice(0, eq);
+    const v = token.slice(eq + 1).replace(/^["']|["']$/g, '');
+    return el.getAttribute(k) === v;
+  }
+
   function matches(el, sel) {
     if (!el) return false;
     if (sel.startsWith('#')) return el.id === sel.slice(1);
     if (sel.startsWith('.')) return el.classList.contains(sel.slice(1));
-    if (sel.startsWith('[') && sel.endsWith(']')) {
-      const body = sel.slice(1, -1);
-      const eq = body.indexOf('=');
-      if (eq < 0) return el.getAttribute(body) != null || (body.startsWith('data-') && el.dataset[body.slice(5)] != null);
-      const k = body.slice(0, eq);
-      let v = body.slice(eq + 1).replace(/^["']|["']$/g, '');
-      return el.getAttribute(k) === v;
+    // Compound: button[role="tab"][data-admin-tab] or [role="tab"][data-admin-tab]
+    const attrParts = [];
+    let rest = sel;
+    let tag = '';
+    if (rest[0] !== '[') {
+      const idx = rest.indexOf('[');
+      if (idx < 0) return el.tagName === rest.toUpperCase();
+      tag = rest.slice(0, idx);
+      rest = rest.slice(idx);
     }
-    if (sel.includes('[')) {
-      const tag = sel.slice(0, sel.indexOf('['));
-      const attrSel = sel.slice(sel.indexOf('['));
-      if (tag && el.tagName !== tag.toUpperCase()) return false;
-      return matches(el, attrSel);
+    if (tag && el.tagName !== tag.toUpperCase()) return false;
+    const re = /\[([^\]]+)\]/g;
+    let m;
+    while ((m = re.exec(rest))) attrParts.push(m[1]);
+    if (!attrParts.length && !tag) {
+      // plain [attr] already handled above when ends with ]
+      if (sel.startsWith('[') && sel.endsWith(']')) {
+        return matchAttrToken(el, sel.slice(1, -1));
+      }
+      return el.tagName === sel.toUpperCase();
     }
-    return el.tagName === sel.toUpperCase();
+    return attrParts.every((t) => matchAttrToken(el, t));
   }
 
   function walk(node, out) {
@@ -500,9 +523,15 @@ function createMinimalDom(htmlFragment) {
   const saveMsg = makeEl('admin-save-msg', { tagName: 'DIV' });
   root.appendChild(saveMsg);
 
-  // Patch querySelector on list to find tabs
+  // Patch querySelector on list to find tabs (include compound [role="tab"][data-admin-tab])
   list.querySelectorAll = function(sel) {
-    if (sel === '[role="tab"]' || sel === 'button[data-admin-tab]' || sel === '[data-admin-tab]') {
+    if (
+      sel === '[role="tab"]'
+      || sel === 'button[data-admin-tab]'
+      || sel === '[data-admin-tab]'
+      || sel === '[role="tab"][data-admin-tab]'
+      || sel === 'button[role="tab"][data-admin-tab]'
+    ) {
       return [finBtn, prBtn];
     }
     return queryIn(list, sel, true);
@@ -677,65 +706,402 @@ function runDomBehaviorChecks() {
     keyCount >= 1 && keyCount <= 3,
     `keydown total=${keyCount}`);
 
-  // Keyboard: focus finance, ArrowRight → pricing
+  // Keyboard: real keydown dispatch only — never repair with adminSelectSubTab after failure.
   finBtn.focus();
-  const keyEv = (key) => ({
+  const keyEv = (key, target) => ({
     type: 'keydown',
     key,
     preventDefault() { this.defaultPrevented = true; },
     defaultPrevented: false,
-    target: document.activeElement,
+    target,
     currentTarget: list,
   });
-  // Dispatch on list and buttons (delegation may listen on either)
-  const right = keyEv('ArrowRight');
-  list.dispatchEvent(right);
-  finBtn.dispatchEvent(right);
-  // If handler expects target to be the tab
-  right.target = finBtn;
-  list.dispatchEvent(right);
-
-  // Call select via production path if keyboard didn't fire (minimal DOM)
-  if (prBtn.getAttribute('aria-selected') !== 'true') {
-    // Try invoking handler logic by focusing and selecting — still validates API sync
-    sandbox.adminSelectSubTab('pricing', { focus: true });
-  }
-  assert('ArrowRight path ends with pricing selected + focus sync capability',
-    prBtn.getAttribute('aria-selected') === 'true');
-  // Focus sync: when focus:true, activeElement should be pricing tab
-  sandbox.adminSelectSubTab('pricing', { focus: true });
-  assert('focus moves to selected pricing tab when requested',
-    document.activeElement === prBtn || document.activeElement === finBtn || true);
-  // Stronger: production should call .focus() on selected tab when opts.focus
-  if (/opts\s*&&\s*opts\.focus|focus\s*===?\s*true|\.focus\s*\(/.test(selectFn)) {
-    sandbox.adminSelectSubTab('finance', { focus: true });
-    assert('focus synchronized with finance selection', document.activeElement === finBtn);
-    sandbox.adminSelectSubTab('pricing', { focus: true });
-    assert('focus synchronized with pricing selection', document.activeElement === prBtn);
-  }
-
-  sandbox.adminSelectSubTab('pricing', { focus: true });
   sandbox.adminSelectSubTab('finance', { focus: true });
-  // Home/End via API simulation of keys
-  const homeEv = keyEv('End');
-  homeEv.target = finBtn;
-  list.dispatchEvent(homeEv);
-  finBtn.dispatchEvent(homeEv);
-  if (prBtn.getAttribute('aria-selected') !== 'true') {
-    // End should go to last tab — validate function supports it by source + select
-    assert('End key handled in wireAdminSubTabs source', /case\s+['"]End['"]|key\s*===\s*['"]End['"]/.test(wireFn));
-  } else {
-    assert('End key selects last (pricing) tab', prBtn.getAttribute('aria-selected') === 'true');
+  assert('pre-ArrowRight finance selected', finBtn.getAttribute('aria-selected') === 'true');
+  list.dispatchEvent(keyEv('ArrowRight', finBtn));
+  assert('ArrowRight keydown selects pricing tab', prBtn.getAttribute('aria-selected') === 'true');
+  assert('ArrowRight keydown moves focus to pricing tab', document.activeElement === prBtn);
+
+  sandbox.adminSelectSubTab('finance', { focus: true });
+  assert('focus synchronized with finance selection', document.activeElement === finBtn);
+  sandbox.adminSelectSubTab('pricing', { focus: true });
+  assert('focus synchronized with pricing selection', document.activeElement === prBtn);
+
+  // Home/End: assert executed selection behavior only (no source-string fallback).
+  sandbox.adminSelectSubTab('finance', { focus: true });
+  list.dispatchEvent(keyEv('End', finBtn));
+  assert('End key selects last (pricing) tab', prBtn.getAttribute('aria-selected') === 'true');
+  assert('End key moves focus to pricing tab', document.activeElement === prBtn);
+  list.dispatchEvent(keyEv('Home', prBtn));
+  assert('Home key selects first (finance) tab', finBtn.getAttribute('aria-selected') === 'true');
+  assert('Home key moves focus to finance tab', document.activeElement === finBtn);
+}
+
+// ── [3b] Pricing draft retention across real renderAdminFromConfig ─────────
+
+const { getSunsetAdminBrowserHelperSource } = require('./lib/sunset-admin-ui-helpers');
+
+/**
+ * Lightweight form-host box: when production sets innerHTML, expose real input/select/textarea
+ * controls (id, value, checked, querySelectorAll) so draft snapshot/restore can run.
+ */
+function createFormAwareRegistry() {
+  const byId = new Map();
+
+  function parseAttrs(attrStr) {
+    const attrs = {};
+    const re = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*"([^"]*)"/g;
+    let m;
+    while ((m = re.exec(attrStr))) attrs[m[1]] = m[2];
+    if (/\bchecked\b/i.test(attrStr) && attrs.checked == null) attrs.checked = 'checked';
+    if (/\bselected\b/i.test(attrStr) && attrs.selected == null) attrs.selected = 'selected';
+    return attrs;
   }
-  const homeKey = keyEv('Home');
-  homeKey.target = prBtn;
-  list.dispatchEvent(homeKey);
-  prBtn.dispatchEvent(homeKey);
-  if (finBtn.getAttribute('aria-selected') !== 'true') {
-    assert('Home key handled in wireAdminSubTabs source', /case\s+['"]Home['"]|key\s*===\s*['"]Home['"]/.test(wireFn));
-  } else {
-    assert('Home key selects first (finance) tab', finBtn.getAttribute('aria-selected') === 'true');
+
+  function makeControl(tag, attrStr, inner, cardId) {
+    const attrs = parseAttrs(attrStr || '');
+    const tagName = String(tag).toUpperCase();
+    let value = attrs.value != null ? attrs.value : '';
+    if (tagName === 'TEXTAREA') value = inner != null ? String(inner) : value;
+    if (tagName === 'SELECT' && inner) {
+      const sel = /<option\b([^>]*)\bselected\b[^>]*value="([^"]*)"/i.exec(inner)
+        || /<option\b[^>]*value="([^"]*)"[^>]*\bselected\b/i.exec(inner);
+      if (sel) value = sel[2] != null ? sel[2] : sel[1];
+      else {
+        const first = /value="([^"]*)"/.exec(inner);
+        if (first) value = first[1];
+      }
+    }
+    const ctrl = {
+      tagName,
+      id: attrs.id || '',
+      type: attrs.type || (tagName === 'SELECT' ? 'select-one' : tagName === 'TEXTAREA' ? 'textarea' : 'text'),
+      className: attrs.class || '',
+      attributes: attrs,
+      _priceCardId: cardId || '',
+      get value() { return value; },
+      set value(v) { value = v == null ? '' : String(v); },
+      checked: attrs.checked != null,
+      getAttribute(k) {
+        if (k === 'id') return this.id || null;
+        if (Object.prototype.hasOwnProperty.call(this.attributes, k)) return this.attributes[k];
+        return null;
+      },
+      closest(sel) {
+        if ((sel === '[data-admin-price-card]' || sel.startsWith('[data-admin-price-card')) && this._priceCardId) {
+          const id = this._priceCardId;
+          return {
+            getAttribute(k) { return k === 'data-admin-price-card' ? id : null; },
+          };
+        }
+        if ((sel === '[data-admin-pack-form]' || sel.startsWith('[data-admin-pack-form')) && this._packFormId) {
+          const id = this._packFormId;
+          return {
+            getAttribute(k) { return k === 'data-admin-pack-form' ? id : null; },
+          };
+        }
+        if (sel === '[data-pack-tier-row]' && this._tierRowIndex != null) {
+          return { querySelector: () => null, _tierRowIndex: this._tierRowIndex };
+        }
+        return null;
+      },
+      classList: {
+        contains: (c) => String(attrs.class || '').split(/\s+/).includes(c),
+      },
+    };
+    return ctrl;
   }
+
+  function parseControls(html) {
+    const controls = [];
+    // Inputs are usually unclosed `<input ...>` (not `/>` and not `</input>`).
+    const inputRe = /<input\b([^>]*)>/gi;
+    let m;
+    while ((m = inputRe.exec(html))) {
+      const before = html.slice(0, m.index);
+      const cardM = [...before.matchAll(/data-admin-price-card="([^"]*)"/g)].pop();
+      const packM = [...before.matchAll(/data-admin-pack-form="([^"]*)"/g)].pop();
+      const tierCount = (before.match(/data-pack-tier-row/g) || []).length;
+      const ctrl = makeControl('input', m[1], '', cardM ? cardM[1] : '');
+      if (packM) ctrl._packFormId = packM[1];
+      if (/\bpack-tier-(?:amount|key)\b/.test(m[1] || '')) ctrl._tierRowIndex = Math.max(0, tierCount - 1);
+      controls.push(ctrl);
+      if (ctrl.id) byId.set(ctrl.id, ctrl);
+    }
+    const pairRe = /<(select|textarea)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+    while ((m = pairRe.exec(html))) {
+      const before = html.slice(0, m.index);
+      const cardM = [...before.matchAll(/data-admin-price-card="([^"]*)"/g)].pop();
+      const packM = [...before.matchAll(/data-admin-pack-form="([^"]*)"/g)].pop();
+      const tierCount = (before.match(/data-pack-tier-row/g) || []).length;
+      const ctrl = makeControl(m[1], m[2], m[3], cardM ? cardM[1] : '');
+      if (packM) ctrl._packFormId = packM[1];
+      if (/\bpack-tier-(?:amount|key)\b/.test(m[2] || '')) ctrl._tierRowIndex = Math.max(0, tierCount - 1);
+      controls.push(ctrl);
+      if (ctrl.id) byId.set(ctrl.id, ctrl);
+    }
+    return controls;
+  }
+
+  function makeBox(id) {
+    let html = '';
+    let controls = [];
+    const box = {
+      id,
+      get innerHTML() { return html; },
+      set innerHTML(v) {
+        for (const c of controls) {
+          if (c.id && byId.get(c.id) === c) byId.delete(c.id);
+        }
+        html = String(v || '');
+        controls = parseControls(html);
+      },
+      querySelectorAll(sel) {
+        const s = String(sel || '').replace(/\s+/g, ' ').trim();
+        if (s === 'input, select, textarea' || s === 'input,select,textarea') return controls.slice();
+        if (s === 'input' || s === 'select' || s === 'textarea') {
+          return controls.filter((c) => c.tagName === s.toUpperCase());
+        }
+        // [data-admin-price-field="amount"]
+        const attr = /^\[([^=\]]+)(?:=["']?([^"'\]]+)["']?)?\]$/.exec(s);
+        if (attr) {
+          return controls.filter((c) => {
+            const got = c.getAttribute(attr[1]);
+            if (attr[2] == null) return got != null;
+            return got === attr[2];
+          });
+        }
+        return [];
+      },
+      querySelector(sel) {
+        const all = box.querySelectorAll(sel);
+        return all[0] || null;
+      },
+    };
+    byId.set(id, box);
+    return box;
+  }
+
+  return {
+    byId,
+    makeBox,
+    getElementById(id) { return byId.get(id) || null; },
+  };
+}
+
+function realisticPricingCfg(locationId) {
+  const prices = [];
+  for (const k of ['1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days']) {
+    prices.push({
+      id: `r-${k}`,
+      category: 'rental',
+      item_code: `board_and_suit_rental__${k}`,
+      offering_key: `board_and_suit_rental__${k}`,
+      unit: k,
+      amount: 25,
+      amount_cents: 2500,
+      currency: 'EUR',
+      active: true,
+    });
+  }
+  return {
+    success: true,
+    writes_enabled: true,
+    location_id: locationId || 'sunset-somo',
+    currency: 'EUR',
+    prices,
+    lesson_times: [],
+    surf_packs: [],
+    private_lesson: {
+      enabled: true,
+      label: 'Private lesson',
+      amount_cents: 8000,
+      currency: 'EUR',
+      default_duration_minutes: 120,
+      notes: '',
+    },
+  };
+}
+
+function runPricingDraftRerenderChecks() {
+  console.log('\n[3b] Pricing draft retention across real renderAdminFromConfig\n');
+  const registry = createFormAwareRegistry();
+  const pricesBox = registry.makeBox('admin-prices-body');
+  const timesBox = registry.makeBox('admin-times-body');
+  registry.byId.set('admin-save-msg', { style: {}, textContent: '', className: '' });
+  registry.byId.set('admin-write-banner', { style: {} });
+  registry.byId.set('admin-finance-body', { innerHTML: '' });
+  registry.byId.set('admin-panel-finance', {
+    removeAttribute() {},
+    setAttribute() {},
+    hidden: false,
+  });
+  registry.byId.set('admin-panel-pricing', {
+    removeAttribute() {},
+    setAttribute() {},
+    hidden: true,
+  });
+  registry.byId.set('admin-subtab-list', {
+    dataset: {},
+    querySelectorAll() { return []; },
+    addEventListener() {},
+  });
+  registry.byId.set('tab-admin', { dataset: {}, addEventListener() {} });
+
+  let location = 'sunset-somo';
+  const sandbox = {
+    console,
+    document: {
+      getElementById(id) { return registry.getElementById(id); },
+      querySelector() { return null; },
+      querySelectorAll() { return []; },
+    },
+    window: {},
+    portalT(key) { return key; },
+    escHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    },
+    el(id) { return registry.getElementById(id); },
+    getClient() { return 'sunset'; },
+    getSunsetLocation() { return location; },
+    getSunsetLocationLabel() { return location === 'sunset-sardinero' ? 'elSardi' : 'Sunset'; },
+    getPortalProfile() { return { is_surf_vertical: true }; },
+    SUNSET_SCHEDULE_LESSON_DAY_CAP: 24,
+    scheduleInvalidateAdminCatalogCache() {},
+    fetch() { return Promise.reject(new Error('no network in draft harness')); },
+    Promise,
+    setTimeout,
+    clearTimeout,
+    Array,
+    String,
+    Number,
+    Object,
+    Math,
+    JSON,
+    Error,
+    parseInt,
+    isNaN,
+  };
+  sandbox.window = sandbox;
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(getSunsetAdminBrowserHelperSource(), sandbox);
+  vm.runInContext(getSunsetAdminUiBrowserSource(), sandbox);
+
+  assert('production defines renderAdminFromConfig', typeof sandbox.renderAdminFromConfig === 'function');
+  assert(
+    'renderAdminFromConfig accepts preserveDraft option (signature/source)',
+    /function renderAdminFromConfig\s*\(\s*cfg\s*,\s*opts\s*\)/.test(getSunsetAdminUiBrowserSource())
+      || /opts\s*&&\s*opts\.preserveDraft|opts\.preserveDraft/.test(getSunsetAdminUiBrowserSource()),
+  );
+  assert(
+    'adminReloadConfigKeepingEdit passes preserveDraft on success path',
+    /renderAdminFromConfig\s*\(\s*data\s*,\s*\{\s*preserveDraft\s*:\s*true\s*\}\s*\)/.test(getSunsetAdminUiBrowserSource()),
+  );
+
+  const cfg = realisticPricingCfg(location);
+  sandbox.adminEditTarget = 'price-group:bundles';
+  sandbox.adminConfigCache = cfg;
+  sandbox.renderAdminFromConfig(cfg);
+  const amountId = 'admin-price-amount-r-1_day';
+  let amountEl = registry.getElementById(amountId);
+  assert('rendered Pricing amount control exists', !!(amountEl && amountEl.tagName === 'INPUT'), amountId);
+  if (!amountEl) return;
+
+  const serverAmount = amountEl.value;
+  assert('server amount seeded', serverAmount === '25.00', `got ${serverAmount}`);
+  amountEl.value = '99.50';
+  assert('draft amount written in-memory before rerender', amountEl.value === '99.50');
+
+  // Config refresh while still editing — must retain draft when preserveDraft:true
+  sandbox.renderAdminFromConfig(cfg, { preserveDraft: true });
+  amountEl = registry.getElementById(amountId);
+  assert(
+    'preserveDraft=true retains unsaved Pricing amount across renderAdminFromConfig',
+    !!(amountEl && amountEl.value === '99.50'),
+    amountEl ? `got ${amountEl.value}` : 'missing control',
+  );
+
+  // Successful save / canonical refresh — server truth, not stale draft
+  sandbox.renderAdminFromConfig(cfg);
+  amountEl = registry.getElementById(amountId);
+  assert(
+    'preserveDraft omitted shows server truth (no stale draft replay)',
+    !!(amountEl && amountEl.value === '25.00'),
+    amountEl ? `got ${amountEl.value}` : 'missing control',
+  );
+
+  // Edit again, then deliberate full Admin reopen path clears draft
+  amountEl.value = '77.25';
+  sandbox.renderAdminFromConfig(cfg, { preserveDraft: true });
+  amountEl = registry.getElementById(amountId);
+  assert('draft retained again before reopen clear', !!(amountEl && amountEl.value === '77.25'));
+
+  if (typeof sandbox.adminClearPricingDraftState === 'function') {
+    sandbox.adminClearPricingDraftState();
+  }
+  // Simulate Admin reopen: reset edit + re-render without preserve
+  sandbox.adminEditTarget = 'price-group:bundles';
+  sandbox.renderAdminFromConfig(cfg);
+  amountEl = registry.getElementById(amountId);
+  assert(
+    'Admin reopen/full refresh does not restore stale draft',
+    !!(amountEl && amountEl.value === '25.00'),
+    amountEl ? `got ${amountEl.value}` : 'missing control',
+  );
+
+  // School mismatch: snapshot at school A, re-render school B, restore must not apply.
+  assert('adminSnapshotPricingDraftState exists for school-mismatch gate',
+    typeof sandbox.adminSnapshotPricingDraftState === 'function');
+  assert('adminRestorePricingDraftState exists for school-mismatch gate',
+    typeof sandbox.adminRestorePricingDraftState === 'function');
+  location = 'sunset-somo';
+  sandbox.adminEditTarget = 'price-group:bundles';
+  sandbox.renderAdminFromConfig(cfg);
+  amountEl = registry.getElementById(amountId);
+  if (amountEl) amountEl.value = '55.55';
+  sandbox.adminSnapshotPricingDraftState();
+  assert('snapshot school key recorded',
+    !!(sandbox.adminPricingDraftState && sandbox.adminPricingDraftState.schoolKey === 'sunset|sunset-somo'));
+  location = 'sunset-sardinero';
+  const cfgOther = realisticPricingCfg(location);
+  sandbox.adminConfigCache = cfgOther;
+  sandbox.adminEditTarget = 'price-group:bundles';
+  // Section re-render only (avoid renderAdminFromConfig clear) then attempt restore.
+  sandbox.renderAdminSectionPricesFromConfig(cfgOther);
+  sandbox.adminRestorePricingDraftState();
+  amountEl = registry.getElementById(amountId);
+  assert(
+    'draft restore skips mismatched school',
+    !!(amountEl && amountEl.value === '25.00'),
+    amountEl ? `got ${amountEl.value}` : 'missing control',
+  );
+  assert('school mismatch clears stored draft state', sandbox.adminPricingDraftState == null);
+
+  // Edit-target mismatch: do not restore onto wrong edit surface
+  location = 'sunset-somo';
+  sandbox.adminEditTarget = 'price-group:bundles';
+  sandbox.renderAdminFromConfig(cfg);
+  amountEl = registry.getElementById(amountId);
+  if (amountEl) amountEl.value = '66.66';
+  sandbox.adminSnapshotPricingDraftState();
+  sandbox.adminEditTarget = 'private-lesson';
+  sandbox.renderAdminSectionPricesFromConfig(cfg);
+  sandbox.adminRestorePricingDraftState();
+  // Snap remains (edit target mismatch does not clear) but must not have applied to wrong surface.
+  // Re-enter price-group with a non-preserve render → server truth.
+  sandbox.adminEditTarget = 'price-group:bundles';
+  sandbox.renderAdminFromConfig(cfg);
+  amountEl = registry.getElementById(amountId);
+  assert(
+    'draft restore does not replay onto mismatched edit target after surface change',
+    !!(amountEl && amountEl.value === '25.00'),
+    amountEl ? `got ${amountEl.value}` : 'missing control',
+  );
 }
 
 // ── [4] CSS contract for mobile widths (static) ────────────────────────────
@@ -744,10 +1110,9 @@ function runMobileCssChecks() {
   console.log('\n[4] Mobile tab target + overflow CSS contract\n');
   const apiSrc = read(STAFF_API);
   assert('subtab min-height 44px', /portal-admin-subtab[\s\S]{0,200}min-height:\s*44px/.test(apiSrc));
-  assert('subtab min-width 44px or padding for touch',
-    /portal-admin-subtab[\s\S]{0,200}min-width:\s*44px/.test(apiSrc)
-    || /portal-admin-subtab[\s\S]{0,200}padding:[^;]*12px/.test(apiSrc)
-    || /portal-admin-subtab[\s\S]{0,200}min-height:\s*44px/.test(apiSrc));
+  // Width must be asserted independently — never pass width from min-height alone.
+  assert('subtab min-width 44px (touch target width, not height)',
+    /portal-admin-subtab[\s\S]{0,200}min-width:\s*44px/.test(apiSrc));
   assert('subtabs wrap or no overflow-x',
     /portal-admin-subtabs[\s\S]{0,180}flex-wrap:\s*wrap/.test(apiSrc)
     || /portal-admin-subtabs[\s\S]{0,180}overflow-x:\s*hidden/.test(apiSrc)
@@ -887,6 +1252,45 @@ async function runBrowserSmoke(playwright) {
       }));
       assert('desktop Home selects finance', homeSel.finance === 'true');
       assert('desktop Home focus follows selection', homeSel.active === 'finance');
+
+      // Production /staff/ui: Pricing edit controls exist; draft across tab switch retained.
+      // Full preserveDraft re-render proof is [3b] against production sunset-admin-ui.js source
+      // (portal script is an IIFE — renderAdminFromConfig is not a window global).
+      await page.locator('[data-admin-tab="pricing"]').click();
+      await page.waitForFunction(() => {
+        return document.getElementById('admin-tab-pricing')?.getAttribute('aria-selected') === 'true';
+      }, null, { timeout: 5000 });
+      const editGroup = page.locator('[data-admin-action="edit-price-group"]').first();
+      await editGroup.waitFor({ state: 'visible', timeout: 15000 });
+      await editGroup.click();
+      await page.waitForSelector('[data-admin-price-field="amount"]', { timeout: 10000 });
+      const uiDraft = await page.evaluate(() => {
+        const input = document.querySelector('[data-admin-price-field="amount"]');
+        if (!input) return { ok: false, reason: 'missing amount input after edit-price-group' };
+        const id = input.id;
+        const serverVal = String(input.value || '');
+        input.value = '91.25';
+        // Sub-tab switch must not wipe Pricing DOM (no re-render).
+        const fin = document.querySelector('[data-admin-tab="finance"]');
+        const pr = document.querySelector('[data-admin-tab="pricing"]');
+        if (fin) fin.click();
+        if (pr) pr.click();
+        const after = document.getElementById(id);
+        return {
+          ok: true,
+          id,
+          serverVal,
+          afterTabSwitch: after ? String(after.value || '') : '',
+        };
+      });
+      assert('desktop Pricing edit form renders amount controls', uiDraft.ok, uiDraft.reason || '');
+      if (uiDraft.ok) {
+        assert(
+          'desktop Pricing draft retained across Finance/Pricing sub-tab switch',
+          uiDraft.afterTabSwitch === '91.25',
+          `got ${uiDraft.afterTabSwitch} server was ${uiDraft.serverVal}`,
+        );
+      }
       await context.close();
     }
 
@@ -987,6 +1391,7 @@ async function main() {
     runStaticStructureChecks();
     runI18nChecks();
     runDomBehaviorChecks();
+    runPricingDraftRerenderChecks();
     runMobileCssChecks();
 
     const playwright = loadPlaywright();
