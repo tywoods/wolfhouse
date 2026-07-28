@@ -30,8 +30,12 @@ for (const expected of [
   'hermes-sunset-luna:', '"8092:8092"', '/var/lib/hermes-sunset-luna:/opt/data',
   '/etc/hermes-sunset-luna.env', 'HERMES_ROLE: sunset-luna', 'LUNA_TENANT_ID: sunset',
   'WHATSAPP_CLOUD_WEBHOOK_PORT: "8092"', 'SUNSET_INGRESS_LOCATION_ID: sunset-somo',
-  'CROWSNEST_AI_USAGE_CLIENT_SLUG', 'CROWSNEST_AI_USAGE_TENANT_ID',
 ]) assert.ok(compose.includes(expected), `compose missing ${expected}`);
+for (const forbiddenOverride of [
+  'CROWSNEST_AI_USAGE_CLIENT_SLUG:', 'CROWSNEST_AI_USAGE_TENANT_ID:',
+  'CROWSNEST_AI_USAGE_INGEST_URL:', 'CROWSNEST_AI_USAGE_INGEST_TOKEN:',
+  'CROWSNEST_AI_USAGE_SOURCE_SERVICE:',
+]) assert.ok(!compose.includes(forbiddenOverride), `compose environment must not override env_file: ${forbiddenOverride}`);
 assert.ok(
   !/CROWSNEST_AI_USAGE_CLIENT_SLUG:\s*sunset\b/.test(compose)
   && !/CROWSNEST_AI_USAGE_TENANT_ID:\s*sunset\b/.test(compose),
@@ -46,15 +50,38 @@ for (const expected of [
   'HERMES_ROLE', 'sunset-luna', 'LUNA_TENANT_ID', 'sunset',
   'SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID', 'SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID',
   'WHATSAPP_CLOUD_WEBHOOK_PORT=8092', 'SOUL.md',
-  'CROWSNEST_AI_USAGE_CLIENT_SLUG', 'CROWSNEST_AI_USAGE_TENANT_ID',
 ]) assert.ok(bootstrap.includes(expected), `bootstrap missing ${expected}`);
 const stagingBootstrap = fs.readFileSync(
   path.join(__dirname, '..', 'docker', 'hermes-staging', 'bootstrap.sh'),
   'utf8',
 );
-for (const expected of ['CROWSNEST_AI_USAGE_CLIENT_SLUG', 'CROWSNEST_AI_USAGE_TENANT_ID']) {
-  assert.ok(stagingBootstrap.includes(expected), `staging bootstrap missing ${expected}`);
+assert.ok(
+  stagingBootstrap.includes('if [ "$HERMES_ROLE" = "sunset-luna" ]; then')
+    && stagingBootstrap.includes("sed -i 's/^  default: gpt-5\\.5$/  default: gpt-5.6-sol/' \"$HERMES_HOME/config.yaml\""),
+  'Sunset Luna must upgrade only its generated config to openai-codex/gpt-5.6-sol',
+);
+assert.ok(
+  stagingBootstrap.includes('default: gpt-5.5'),
+  'shared Wolfhouse Luna default must remain gpt-5.5',
+);
+const aiUsageEnvNames = [
+  'CROWSNEST_AI_USAGE_INGEST_URL', 'CROWSNEST_AI_USAGE_INGEST_TOKEN',
+  'CROWSNEST_AI_USAGE_CLIENT_SLUG', 'CROWSNEST_AI_USAGE_TENANT_ID',
+  'CROWSNEST_AI_USAGE_SOURCE_SERVICE',
+];
+for (const name of aiUsageEnvNames) {
+  assert.ok(!bootstrap.includes(name), `Sunset bootstrap must not persist ${name} in HERMES_HOME/.env`);
+  assert.ok(!stagingBootstrap.includes(name), `staging bootstrap must not persist ${name} in HERMES_HOME/.env`);
 }
+const reporter = fs.readFileSync(
+  path.join(__dirname, '..', 'docker', 'hermes-staging', 'wolfhouse', 'crowsnest_ai_usage_reporter.py'),
+  'utf8',
+);
+const reporterEnvTuple = reporter.match(/ENV_NAMES\s*=\s*\(([\s\S]*?)\n\)/);
+const reporterNames = reporterEnvTuple
+  ? [...reporterEnvTuple[1].matchAll(/"(CROWSNEST_AI_USAGE_[A-Z_]+)"/g)].map((match) => match[1])
+  : [];
+assert.deepStrictEqual(reporterNames, aiUsageEnvNames, 'reporter must read exactly the five protected container env names');
 
 const soul = fs.readFileSync(path.join(runtime, 'SOUL.md'), 'utf8');
 for (const expected of ['Sunset Surf School', 'Your tenant is `sunset`', 'sunset-somo', 'sunset-sardinero']) {

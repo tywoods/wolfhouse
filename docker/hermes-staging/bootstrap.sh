@@ -159,10 +159,6 @@ write_luna_env() {
     [ -n "${LUNA_ALLOWED_LOCATION_IDS:-}" ]               && printf 'LUNA_ALLOWED_LOCATION_IDS=%s\n' "$LUNA_ALLOWED_LOCATION_IDS"
     [ -n "${SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID:-}" ]    && printf 'SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID=%s\n' "$SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID"
     [ -n "${SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID:-}" ] && printf 'SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID=%s\n' "$SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID"
-    # Crowsnest AI-usage canonical identity (Slice B1). Forward only when set.
-    # Values are server-owned via /etc/hermes-sunset-luna.env — never invent here.
-    [ -n "${CROWSNEST_AI_USAGE_CLIENT_SLUG:-}" ]          && printf 'CROWSNEST_AI_USAGE_CLIENT_SLUG=%s\n' "$CROWSNEST_AI_USAGE_CLIENT_SLUG"
-    [ -n "${CROWSNEST_AI_USAGE_TENANT_ID:-}" ]            && printf 'CROWSNEST_AI_USAGE_TENANT_ID=%s\n' "$CROWSNEST_AI_USAGE_TENANT_ID"
     # Anthropic OAuth (Claude Max) for Luna's fallback provider — claude setup-token.
     [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=*** "$ANTHROPIC_TOKEN" || true
   } > "$HERMES_HOME/.env"
@@ -229,6 +225,12 @@ apply_patches() {
   if [ -f /etc/hermes-staging/apply_guest_send_guard_patches.py ]; then
     python /etc/hermes-staging/apply_guest_send_guard_patches.py || {
       echo "apply_guest_send_guard_patches failed — guest send guard may be missing" >&2
+      exit 1
+    }
+  fi
+  if [ -f /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py ]; then
+    python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py || {
+      echo "apply_crowsnest_ai_usage_patch failed — refusing upstream drift" >&2
       exit 1
     }
   fi
@@ -308,6 +310,11 @@ elif [ "$HERMES_ROLE" = "luna" ] \
     [ "$SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID" != "$SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID" ] || { echo "Sunset phone IDs must be unique" >&2; exit 1; }
   fi
   write_luna_config
+  if [ "$HERMES_ROLE" = "sunset-luna" ]; then
+    # Sunset-only model upgrade. Keep Wolfhouse Luna and other shared-image roles
+    # on their proven defaults while Sunset validates GPT-5.6 Sol in staging.
+    sed -i 's/^  default: gpt-5\.5$/  default: gpt-5.6-sol/' "$HERMES_HOME/config.yaml"
+  fi
   if [ "$HERMES_ROLE" = "sunset-luna" ] && [ -f "$SUNSET_LUNA_SOUL" ]; then
     cp "$SUNSET_LUNA_SOUL" "$HERMES_HOME/SOUL.md"
   elif [ -f "$STAGING_LUNA_SOUL" ]; then
