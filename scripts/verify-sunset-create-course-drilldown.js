@@ -1288,6 +1288,88 @@ function pathText(c) {
     ok(loc + ' path uses localized Group label', pathOk, p || locCtx.portalT('schedule.type.course'));
   }
 
+  // ── [10] One-day canonical tier wins over legacy alias ────────────────────
+  console.log('\n[10] One-day canonical duration identity');
+  const durationCtx = sandboxFromHtml(art);
+  const oneDayCanonical = {
+    key: '1_day', duration_days: 1, bookable: true,
+    offering_id: 'surf_pack_c-manana__1_day', label: '1 day',
+  };
+  const oneDayLegacy = {
+    key: 'single_class', duration_days: 1, bookable: true,
+    offering_id: 'surf_pack_c-manana__single_class', label: 'Single class',
+  };
+  durationCtx._setCatalog([{
+    course_id: 'c-manana', label: 'Curso Mañana',
+    price_tiers: [oneDayCanonical, oneDayLegacy],
+  }]);
+  const canonicalResult = durationCtx.schedulePortalResolveDerivedCourseTier(
+    'c-manana', '2026-08-05', '2026-08-05');
+  ok('one-day exact canonical 1_day wins when legacy single_class also exists',
+    canonicalResult && canonicalResult.ok === true
+    && canonicalResult.tier_key === '1_day'
+    && canonicalResult.offering_id === 'surf_pack_c-manana__1_day',
+    JSON.stringify(canonicalResult));
+  durationCtx._setCatalog([{
+    course_id: 'c-manana', label: 'Curso Mañana', price_tiers: [oneDayLegacy],
+  }]);
+  const legacyOnlyResult = durationCtx.schedulePortalResolveDerivedCourseTier(
+    'c-manana', '2026-08-05', '2026-08-05');
+  ok('legacy-only single_class remains readable for unmigrated catalogs',
+    legacyOnlyResult && legacyOnlyResult.ok === true
+    && legacyOnlyResult.tier_key === 'single_class',
+    JSON.stringify(legacyOnlyResult));
+  durationCtx._setCatalog([{
+    course_id: 'c-manana', label: 'Curso Mañana',
+    price_tiers: [oneDayCanonical, Object.assign({}, oneDayCanonical, {
+      offering_id: 'surf_pack_c-manana__1_day_duplicate',
+    })],
+  }]);
+  const duplicateCanonicalResult = durationCtx.schedulePortalResolveDerivedCourseTier(
+    'c-manana', '2026-08-05', '2026-08-05');
+  ok('duplicate canonical one-day rows still fail closed as ambiguous',
+    duplicateCanonicalResult && duplicateCanonicalResult.ok === false
+    && duplicateCanonicalResult.errorKey === 'schedule.create.courseDurationAmbiguous',
+    JSON.stringify(duplicateCanonicalResult));
+
+  const quoteService = require('./lib/luna-front-desk-quote-service');
+  const alignedCanonical = quoteService.resolveCourseOfferingIdentity({
+    course_id: 'c-manana', tier_key: '1_day',
+    offering_id: 'surf_pack_c-manana__1_day',
+  });
+  ok('server accepts aligned canonical course/tier/offering identity',
+    alignedCanonical.ok === true
+    && alignedCanonical.offering_id === 'surf_pack_c-manana__1_day',
+    JSON.stringify(alignedCanonical));
+  const derivedCanonical = quoteService.resolveCourseOfferingIdentity({
+    course_id: 'c-manana', tier_key: '1_day',
+  });
+  ok('server derives canonical offering when browser omits offering_id',
+    derivedCanonical.ok === true
+    && derivedCanonical.offering_id === 'surf_pack_c-manana__1_day',
+    JSON.stringify(derivedCanonical));
+  const mismatchedIdentity = quoteService.resolveCourseOfferingIdentity({
+    course_id: 'c-manana', tier_key: '1_day',
+    offering_id: 'surf_pack_c-manana__single_class',
+  });
+  ok('server rejects canonical tier paired with legacy offering identity',
+    mismatchedIdentity.ok === false
+    && mismatchedIdentity.status === 422
+    && mismatchedIdentity.body.reason === 'course_offering_identity_mismatch',
+    JSON.stringify(mismatchedIdentity));
+  const alignedLegacy = quoteService.resolveCourseOfferingIdentity({
+    course_id: 'c-manana', tier_key: 'single_class',
+    offering_id: 'surf_pack_c-manana__single_class',
+  });
+  ok('server retains aligned legacy-only identity',
+    alignedLegacy.ok === true
+    && alignedLegacy.offering_id === 'surf_pack_c-manana__single_class',
+    JSON.stringify(alignedLegacy));
+  const quoteServiceSrc = fs.readFileSync(
+    path.join(ROOT, 'scripts/lib/luna-front-desk-quote-service.js'), 'utf8');
+  ok('both async and sync component quote paths enforce server identity owner',
+    (quoteServiceSrc.match(/const identity = resolveCourseOfferingIdentity\(comp\);/g) || []).length === 2);
+
   // ── Summary ──────────────────────────────────────────────────────────────
   console.log('');
   if (fail > 0) {

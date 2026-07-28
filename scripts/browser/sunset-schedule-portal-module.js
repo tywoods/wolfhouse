@@ -1680,12 +1680,21 @@ function schedulePortalMatchSellableCourseTiersByDurationDays(course, durationDa
   if (!course || !Number.isFinite(n) || n < 1) return [];
   var tiers = Array.isArray(course.price_tiers) ? course.price_tiers : [];
   var out = [];
+  var canonical = [];
+  // Admin's sellable Price-for identity is canonical 1_day…7_days. A legacy
+  // single_class row may still coexist in storage with 1_day; it must not make
+  // an otherwise exact one-day booking ambiguous. Preserve legacy-only tenants,
+  // but prefer the canonical row whenever it exists.
+  var canonicalKey = n === 1 ? '1_day' : (String(n) + '_days');
   for (var i = 0; i < tiers.length; i++) {
     var t = tiers[i];
     if (!t || t.bookable === false) continue;
-    if (Number(t.duration_days) === n) out.push(t);
+    if (Number(t.duration_days) === n) {
+      out.push(t);
+      if (String(t.key || '').trim() === canonicalKey) canonical.push(t);
+    }
   }
-  return out;
+  return canonical.length ? canonical : out;
 }
 
 /** Resolve tier from inclusive dates + catalog duration_days. 0→unavailable; >1→ambiguous. */
