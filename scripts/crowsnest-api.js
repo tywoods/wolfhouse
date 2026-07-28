@@ -114,6 +114,10 @@ const {
   putClientMetricsSnapshot,
 } = require('./lib/crowsnest/crowsnest-client-metrics-store');
 const {
+  getSpyglassAiUsage,
+  recordAiUsageEvent,
+} = require('./lib/crowsnest/crowsnest-ai-usage-spyglass-store');
+const {
   SUNSET_SOMO_STAGING_TARGET,
   createUnavailableJobStartTransport,
   requestSpyglassRefreshAll,
@@ -128,14 +132,16 @@ const {
 
 const METRICS_INGEST_TOKEN_ENV = 'CROWSNEST_METRICS_INGEST_TOKEN';
 const METRICS_INGEST_MAX_BODY = 64 * 1024; // snapshots are tiny; cap the surface
+const AI_USAGE_INGEST_TOKEN_ENV = 'CROWSNEST_AI_USAGE_INGEST_TOKEN';
+const AI_USAGE_INGEST_MAX_BODY = 64 * 1024; // per-call receipts are tiny; cap the surface
 
 function metricsIngestConfigured() {
   return String(process.env[METRICS_INGEST_TOKEN_ENV] || '').trim().length > 0;
 }
 
-// Constant-time bearer-token check for the machine reporter. False on any mismatch.
-function metricsIngestAuthorized(req) {
-  const expected = String(process.env[METRICS_INGEST_TOKEN_ENV] || '').trim();
+// Constant-time bearer-token check for a machine reporter. False on any mismatch.
+function bearerTokenAuthorized(req, expectedRaw) {
+  const expected = String(expectedRaw || '').trim();
   if (!expected) return false;
   const header = String((req && req.headers && req.headers.authorization) || '');
   const m = header.match(/^Bearer\s+(.+)$/i);
@@ -144,6 +150,18 @@ function metricsIngestAuthorized(req) {
   const expectedBuf = Buffer.from(expected);
   if (provided.length !== expectedBuf.length) return false;
   return crypto.timingSafeEqual(provided, expectedBuf);
+}
+
+function metricsIngestAuthorized(req) {
+  return bearerTokenAuthorized(req, process.env[METRICS_INGEST_TOKEN_ENV]);
+}
+
+function aiUsageIngestConfigured() {
+  return String(process.env[AI_USAGE_INGEST_TOKEN_ENV] || '').trim().length > 0;
+}
+
+function aiUsageIngestAuthorized(req) {
+  return bearerTokenAuthorized(req, process.env[AI_USAGE_INGEST_TOKEN_ENV]);
 }
 
 // POST /api/client-metrics — machine reporters push crowsnest.client_metrics.v1
@@ -173,6 +191,45 @@ async function handleClientMetricsIngest(req, res, method) {
     return sendJSON(res, 400, { ok: false, code: 'invalid_json' }, { 'Cache-Control': 'no-store' });
   }
   const result = await putClientMetricsSnapshot(event);
+  if (result && result.ok) {
+    return sendJSON(res, 200, { ok: true }, { 'Cache-Control': 'no-store' });
+  }
+  const status = result && result.status === 503 ? 503 : 400;
+  return sendJSON(res, status, {
+    ok: false,
+    code: (result && result.code) || 'rejected',
+    errors: (result && result.errors) || undefined,
+  }, { 'Cache-Control': 'no-store' });
+}
+
+// POST /api/ai-usage — machine reporters push crowsnest.ai_usage.v1 per-call
+// receipts (tokens/latency/cost — never prompt/response content). Invisible (404)
+// unless a token is configured; the contract validates every event; the store is
+// memory in dev and fails closed (503) in production until the durable reader
+// slice lands. No writes to any tenant/prod system — only Crowsnest's own store.
+async function handleAiUsageIngest(req, res, method) {
+  if (!aiUsageIngestConfigured()) {
+    return sendJSON(res, 404, { error: 'not found' }, { 'Cache-Control': 'no-store' });
+  }
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!aiUsageIngestAuthorized(req)) {
+    return sendJSON(res, 401, { error: 'unauthorized' }, { 'Cache-Control': 'no-store', 'WWW-Authenticate': 'Bearer' });
+  }
+  let raw;
+  try {
+    raw = await readLimitedBody(req, AI_USAGE_INGEST_MAX_BODY);
+  } catch {
+    return sendPayloadTooLarge(res);
+  }
+  let event;
+  try {
+    event = JSON.parse(raw || '');
+  } catch {
+    return sendJSON(res, 400, { ok: false, code: 'invalid_json' }, { 'Cache-Control': 'no-store' });
+  }
+  const result = await recordAiUsageEvent(event);
   if (result && result.ok) {
     return sendJSON(res, 200, { ok: true }, { 'Cache-Control': 'no-store' });
   }
@@ -2263,6 +2320,10 @@ async function router(req, res) {
 
   if (pathname === '/api/client-metrics') {
     return handleClientMetricsIngest(req, res, method);
+  }
+
+  if (pathname === '/api/ai-usage') {
+    return handleAiUsageIngest(req, res, method);
   }
 
   if (pathname === '/spyglass/refresh-all') {
