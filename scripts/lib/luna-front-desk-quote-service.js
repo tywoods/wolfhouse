@@ -1417,6 +1417,28 @@ async function quoteFullDayEquipmentAddonLine(pg, command, addonPart, requireDb,
   return quoteFullDayEquipmentAddonLineSync(command, addonPart, catalog);
 }
 
+function resolveCourseOfferingIdentity(comp) {
+  const courseId = String(comp && comp.course_id || '').trim();
+  const tierKey = String(comp && comp.tier_key || '').trim();
+  if (!courseId || !tierKey) {
+    return {
+      ok: false,
+      status: 422,
+      body: { success: false, reason: 'course_offering_identity_required' },
+    };
+  }
+  const expectedOfferingId = packPriceItemCode(courseId, tierKey);
+  const suppliedOfferingId = String(comp && comp.offering_id || '').trim();
+  if (suppliedOfferingId && suppliedOfferingId !== expectedOfferingId) {
+    return {
+      ok: false,
+      status: 422,
+      body: { success: false, reason: 'course_offering_identity_mismatch' },
+    };
+  }
+  return { ok: true, offering_id: expectedOfferingId };
+}
+
 async function quoteByComponents(pg, command, catalog, requireDb) {
   const resolved = resolveQuoteComponentsAndRentalsInput(command);
   if (!resolved.ok) return resolved;
@@ -1429,8 +1451,9 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
 
   if (input.components.course) {
     const comp = input.components.course;
-    const tierKey = String(comp.tier_key || '').trim();
-    const offeringId = comp.offering_id || packPriceItemCode(comp.course_id, tierKey);
+    const identity = resolveCourseOfferingIdentity(comp);
+    if (!identity.ok) return identity;
+    const offeringId = identity.offering_id;
     const matches = findCatalogOffering({ offerings: catalog.offerings }, offeringId);
     if (!matches.length) {
       return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
@@ -1588,8 +1611,9 @@ function quoteByComponentsSync(command, catalog, requireDb) {
 
   if (input.components.course) {
     const comp = input.components.course;
-    const tierKey = String(comp.tier_key || '').trim();
-    const offeringId = comp.offering_id || packPriceItemCode(comp.course_id, tierKey);
+    const identity = resolveCourseOfferingIdentity(comp);
+    if (!identity.ok) return identity;
+    const offeringId = identity.offering_id;
     const matches = findCatalogOffering({ offerings: catalog.offerings }, offeringId);
     if (!matches.length) {
       return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
@@ -1886,4 +1910,5 @@ module.exports = {
   rejectClientSuppliedMoney,
   computeBillableUnits,
   appendCustomLineItemsToQuote,
+  resolveCourseOfferingIdentity,
 };
