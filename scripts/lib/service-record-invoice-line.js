@@ -167,6 +167,20 @@ function formatServiceRecordInvoiceLineText(sr, opts = {}) {
     return `${label} \u2014 Not available`;
   }
 
+  // Dedicated persisted course-equipment rows are already one component/date.
+  // Render their snapshotted Admin unit and exact row total; never collapse board
+  // and wetsuit or infer a legacy rental duration/rate.
+  if (meta.course_equipment === true
+    && (meta.component === 'surfboard' || meta.component === 'wetsuit')) {
+    const componentLabel = meta.component === 'surfboard' ? 'Surfboard' : 'Wetsuit';
+    const modeLabel = meta.course_equipment_mode === 'all_day' ? 'All Day' : 'During Course';
+    const date = String(sr.service_date || '').slice(0, 10);
+    const qty = Math.max(1, Number(sr.quantity) || 1);
+    const unit = Number(meta.unit_amount_cents);
+    const safeUnit = Number.isSafeInteger(unit) && unit >= 0 ? unit : null;
+    return `${componentLabel} — ${modeLabel} — ${date} — ${qty} × ${formatEurCents(safeUnit)} = ${formatEurCents(totalCents)}`;
+  }
+
   if (meta.catalog_service) {
     const name = meta.service_name || label;
     const cg = Math.max(1, Number(meta.guests_charged || meta.quantity || 1));

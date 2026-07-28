@@ -389,6 +389,8 @@ const {
   validatePrivateLessonBody,
   putPrivateLessonRule,
 } = require('./lib/sunset-admin-private-lesson-rules');
+const sunsetAdminLocationStore = require('./lib/sunset-admin-location-store');
+const { validateConfig: validateCourseEquipmentPricing } = require('./lib/sunset-course-equipment-pricing');
 const {
   SUNSET_CLIENT_SLUG,
   validateScheduleBookingBody,
@@ -16260,6 +16262,11 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-edit-field{margin-bottom:0}
 .portal-admin-edit-field label{display:block;font-size:11px;font-weight:700;color:var(--text-2);margin-bottom:4px}
 .portal-admin-edit-field input{width:100%;max-width:240px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)}
+.portal-admin-course-equipment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,240px));gap:12px;max-width:100%}
+.portal-admin-touch{display:inline-flex;align-items:center;min-height:44px;margin-right:12px}
+.portal-admin-subsection fieldset{min-width:0;max-width:100%;border:1px solid var(--border-soft);border-radius:8px;margin:12px 0;padding:12px}
+.portal-schedule-course-equipment input[type="number"]{min-height:44px;box-sizing:border-box}
+@media(max-width:520px){.portal-admin-course-equipment-grid{grid-template-columns:minmax(0,1fr)}.portal-admin-edit-field input{min-height:44px;max-width:100%;box-sizing:border-box}}
 .portal-admin-edit-actions{display:flex;gap:8px;margin-top:0;flex-wrap:wrap;align-items:center}
 .portal-admin-row-edit{font-size:11px;padding:4px 10px}
 .portal-admin-danger{color:#9d3b30;border-color:rgba(157,59,48,.35)}
@@ -18623,26 +18630,20 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
               <div class="portal-schedule-create-field" id="ps-create-private-lesson-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1" tabindex="-1"></div>
             </div>
           </div>
-          <p id="ps-create-activity-empty-hint" class="portal-schedule-create-activity-hint" data-i18n="schedule.create.emptyNoLessonNoGear">Choose a lesson or add gear — empty bookings are not valid yet.</p>
           <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-live="polite"></div>
         </div>
-        <div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-create-addon-fullday-field" style="display:none">
-          <div class="portal-schedule-addon-switch-row">
-            <div class="portal-schedule-addon-switch-copy">
-              <span class="portal-schedule-addon-switch-title"><span data-i18n="schedule.type.fullDayEquipment">Full-day gear</span><span class="portal-schedule-addon-pill" data-i18n="schedule.addon.pill">Add-on</span></span>
-              <span class="portal-schedule-addon-price-hint" id="ps-create-fullday-price-hint"></span>
-            </div>
-            <label class="portal-schedule-addon-switch" for="ps-create-comp-fullday" aria-label="Full-day gear">
-              <input id="ps-create-comp-fullday" type="checkbox">
-              <span class="portal-schedule-addon-switch-slider" aria-hidden="true"></span>
-            </label>
+        <fieldset class="portal-schedule-course-equipment" id="ps-create-course-equipment" style="display:none" aria-labelledby="ps-create-course-equipment-label">
+          <legend id="ps-create-course-equipment-label" data-i18n="schedule.courseEquipment.title">Course equipment</legend>
+          <div role="group" aria-labelledby="ps-create-course-equipment-label">
+            <button type="button" class="portal-schedule-create-activity-btn" id="ps-create-equipment-during" data-course-equipment-mode="during_course" aria-pressed="false" data-i18n="schedule.courseEquipment.during">During Course</button>
+            <button type="button" class="portal-schedule-create-activity-btn" id="ps-create-equipment-all-day" data-course-equipment-mode="all_day" aria-pressed="false" data-i18n="schedule.courseEquipment.allDay">All Day</button>
           </div>
-          <div class="portal-schedule-addon-card" id="ps-create-fullday-card" style="display:none">
-            <p class="portal-schedule-addon-help" data-i18n="schedule.addon.fullDayHelp">Board/suit for the whole day (add-on dates).</p>
-            <div id="ps-create-fullday-rows" class="portal-schedule-addon-rows"></div>
-            <div id="ps-create-fullday-summary" class="portal-schedule-addon-summary" style="display:none" aria-live="polite"></div>
+          <div id="ps-create-equipment-quantity-wrap" style="display:none">
+            <label for="ps-create-equipment-quantity" data-i18n="schedule.courseEquipment.quantity">Equipment sets</label>
+            <input id="ps-create-equipment-quantity" type="number" min="1" value="1" inputmode="numeric">
           </div>
-        </div>
+          <p class="portal-admin-muted" data-i18n="schedule.courseEquipment.everyDay">Applies on every booking day.</p>
+        </fieldset>
         <!-- Legacy select kept for payload/verifiers; never shown as a second dropdown (drill-down owns course pick). -->
         <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect" hidden>Select course</label><select id="ps-create-course-select" tabindex="-1" aria-hidden="true"></select></div>
         <div class="portal-schedule-create-field" id="ps-create-course-tier-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-tier" data-i18n="schedule.create.courseTier">Course duration</label><select id="ps-create-course-tier" tabindex="-1"></select></div>
@@ -22037,9 +22038,8 @@ function scheduleOnCreateComponentChange(changedId){
   schedulePopulateCreateComponentFields();
 }
 function scheduleRefreshCreateEmptyGuidance(){
-  var r = typeof scheduleReadCreateRentalSelectionFromDom === 'function' ? scheduleReadCreateRentalSelectionFromDom() : [];
-  var h = el('ps-create-activity-empty-hint'), fd = el('ps-create-comp-fullday');
-  if (h) h.style.display = (!(el('ps-create-comp-course') && el('ps-create-comp-course').checked) && !(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked) && !r.length && !(fd && fd.checked)) ? '' : 'none';
+  // Intentionally empty: No Lesson uses only configured rental buttons; there
+  // is no legacy empty hint or separate full-day checkbox to synchronize.
 }
 
 function scheduleRowBookingRef(row, group){
@@ -22211,81 +22211,23 @@ function schedulePopulateCreateComponentFields(){
 // Full-day gear extension appears ONLY for Group or Private (never No lesson).
 // Quantity authority: Number of surfers, unless a row was marked independent (data-qty-owner=user).
 function scheduleRefreshCreateFullDayAddon(){ try {
-  var field = el('ps-create-addon-fullday-field');
+  var field = el('ps-create-course-equipment');
   if (!field) return;
   var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
   var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
-  var lessonOn = courseOn || privateOn;
-  var rentals = typeof scheduleReadCreateRentalSelectionFromDom === 'function'
-    ? scheduleReadCreateRentalSelectionFromDom()
-    : [];
-  var boardOn = rentals.some(function(r){ return r.offering_key === 'board_rental' || r.offering_key === 'board_and_suit_rental'; });
-  var wetsuitOn = rentals.some(function(r){ return r.offering_key === 'wetsuit_rental' || r.offering_key === 'board_and_suit_rental'; });
-  // Full-day gear only when Group/Private + both board + wetsuit (board_and_suit counts as both).
-  var hasEligibleBase = lessonOn && boardOn && wetsuitOn;
-  var eligibleDates = [];
-  var defaultQty = scheduleReadCreateSurferCount();
-  if (defaultQty == null) defaultQty = 1;
-  if (privateOn){
-    var sessions = scheduleReadPrivateLessonSessionsFromDom();
-    var seen = {}, todayFd = typeof schedulePortalMadridTodayIso === 'function' ? schedulePortalMadridTodayIso() : '';
-    for (var i=0;i<sessions.length;i++){
-      var d = typeof schedulePortalCanonicalDateIso === 'function' ? schedulePortalCanonicalDateIso(sessions[i] && sessions[i].date) : null;
-      if (d && (!todayFd || d >= todayFd) && !seen[d]){ seen[d]=1; eligibleDates.push(d); }
-    }
-    eligibleDates.sort();
-  } else {
-    var from = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
-    var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
-    eligibleDates = scheduleEnumerateDates(from, to || from);
-  }
-  var show = scheduleFullDayAddonEnabled && hasEligibleBase && eligibleDates.length > 0;
+  var show = courseOn || privateOn;
   field.style.display = show ? '' : 'none';
-  var checkbox = el('ps-create-comp-fullday');
-  var rows = el('ps-create-fullday-rows');
-  var summary = el('ps-create-fullday-summary');
-  if (!show){
-    if (checkbox) checkbox.checked = false;
-    try { field.classList.remove('is-open'); } catch (_c) {}
-    var cardHide = el('ps-create-fullday-card');
-    if (cardHide) cardHide.style.display = 'none';
-    if (rows) rows.style.display = 'none';
-    if (summary) summary.style.display = 'none';
-    return;
+  var qty = el('ps-create-equipment-quantity');
+  var qtyWrap = el('ps-create-equipment-quantity-wrap');
+  var selected = document.querySelector('[data-course-equipment-mode][aria-pressed="true"]');
+  if (qtyWrap) qtyWrap.style.display = show && selected ? '' : 'none';
+  var surfers = scheduleReadCreateSurferCount() || 1;
+  if (qty) {
+    qty.max = String(surfers);
+    if (!qty.dataset.userOwned) qty.value = String(surfers);
+    else qty.value = String(Math.max(1, Math.min(surfers, parseInt(qty.value || surfers, 10))));
   }
-  var on = !!(checkbox && checkbox.checked);
-  var card = el('ps-create-fullday-card');
-  var priceHint = el('ps-create-fullday-price-hint');
-  try { field.classList.toggle('is-open', !!on); } catch (_cls) {}
-  if (priceHint){
-    if (scheduleFullDayAddonUnitCents != null){
-      priceHint.textContent = scheduleAddonEur(scheduleFullDayAddonUnitCents) + (portalT('schedule.addon.perDaySuffix') || '/day');
-      priceHint.style.display = '';
-    } else {
-      priceHint.textContent = '';
-      priceHint.style.display = 'none';
-    }
-  }
-  if (card) card.style.display = on ? '' : 'none';
-  if (rows) rows.style.display = on ? '' : 'none';
-  if (on){
-    // Preserve only user-owned independent quantities; otherwise sync to surfers.
-    var preserve = {};
-    if (rows) {
-      rows.querySelectorAll('[data-addon-date]').forEach(function(row){
-        var iso = row.getAttribute('data-addon-date');
-        var input = row.querySelector('[data-addon-qty]');
-        if (!iso || !input) return;
-        if (input.getAttribute('data-qty-owner') === 'user') {
-          var q = parseInt(input.value, 10);
-          if (Number.isInteger(q) && q >= 1) preserve[iso] = q;
-        }
-      });
-    }
-    scheduleRenderFullDayAddonRows('ps-create-fullday-rows', 'ps-create-fullday-summary', eligibleDates, defaultQty, preserve, scheduleUpdateCreateTotalPreview);
-  } else if (summary){
-    summary.style.display = 'none';
-  }
+  if (!show) document.querySelectorAll('[data-course-equipment-mode]').forEach(function(b){ b.setAttribute('aria-pressed','false'); });
   } finally { scheduleRefreshCreateEmptyGuidance(); }
 }
 
@@ -22435,6 +22377,16 @@ function scheduleWireCreateCustomLines() {
   scheduleSetCustomLineEditorOpen(false);
 }
 
+function scheduleReadCreateCustomLineItems(){
+  return (scheduleCreateCustomLines || []).map(function(l) {
+    return {
+      client_line_id: String(l.client_line_id),
+      label: String(l.label),
+      amount_cents: Number(l.amount_cents),
+    };
+  });
+}
+
 function scheduleReadCreatePayload(){
   var guest = (el('ps-create-guest') && el('ps-create-guest').value || '').trim();
   var phone = (el('ps-create-phone') && el('ps-create-phone').value || '').trim();
@@ -22494,20 +22446,13 @@ function scheduleReadCreatePayload(){
       sessions: plSessions,
     };
   }
-  // Full-day equipment add-on: per-date people map read from the stepper rows.
-  if (el('ps-create-comp-fullday') && el('ps-create-comp-fullday').checked){
-    var addonDates = scheduleReadFullDayAddonRows('ps-create-fullday-rows');
-    if (Object.keys(addonDates).length){
-      components.full_day_equipment_extension = { enabled: true, dates: addonDates };
-    }
+  var selectedEquipment = document.querySelector('[data-course-equipment-mode][aria-pressed="true"]');
+  var course_equipment = null;
+  if (selectedEquipment && (components.course || components.private_lesson)) {
+    var equipmentQty = Math.max(1, Math.min(surferCount || 1,
+      parseInt((el('ps-create-equipment-quantity') || {}).value || surferCount || 1, 10)));
+    course_equipment = { mode: selectedEquipment.getAttribute('data-course-equipment-mode'), quantity: equipmentQty };
   }
-  var custom_line_items = (scheduleCreateCustomLines || []).map(function(l) {
-    return {
-      client_line_id: String(l.client_line_id),
-      label: String(l.label),
-      amount_cents: Number(l.amount_cents),
-    };
-  });
   return {
     guest_name: guest,
     guest_phone: phone || null,
@@ -22516,8 +22461,9 @@ function scheduleReadCreatePayload(){
     payment_status: payment,
     notes: notes,
     components: components,
+    course_equipment: course_equipment,
     rentals: rentals,
-    custom_line_items: custom_line_items,
+    custom_line_items: scheduleReadCreateCustomLineItems(),
     // Authoritative party size for no-lesson equipment qty (server may force rentals to this).
     surfer_count: surferCount,
   };
@@ -22652,7 +22598,7 @@ function scheduleSyncCreateDateRangeUi(){
   var apply = el('ps-create-date-range-apply');
   if (apply) {
     var draft = scheduleCreateDateRangeDraft || {};
-    // One-day bookings: a valid start alone is enough (Apply commits from=to=start).
+    // One-day reservations: a valid start alone is enough (Apply commits from=to=start).
     // Multi-day still uses second-click end when present.
     var ready = !!(scheduleCreateDateRangeIsValidIso(draft.start)
       && (!draft.end || scheduleCreateDateRangeIsValidIso(draft.end)));
@@ -23186,7 +23132,7 @@ function scheduleRenderCreateRentalDurationPebbles(wrap, commonKeys, selectedDur
     return;
   }
   var sel = String(selectedDuration || '').trim();
-  if (!sel || keys.indexOf(sel) < 0) sel = keys[0];
+  if (sel && keys.indexOf(sel) < 0) sel = '';
   wrap.setAttribute('data-duration-key', sel);
   var html = '<div class="portal-schedule-create-rental-pebbles" role="radiogroup" aria-label="'
     + escHtml(portalT('schedule.create.rentalDuration') || 'Rental duration') + '">';
@@ -23216,9 +23162,11 @@ function scheduleWireCreateRentals(wrap){
     if (!btn || !wrap.contains(btn)) return;
     var dur = String(btn.getAttribute('data-rental-duration') || '').trim();
     if (!dur) return;
-    wrap.setAttribute('data-duration-key', dur);
+    var wasOn = btn.getAttribute('aria-checked') === 'true';
+    var nextDur = wasOn ? '' : dur;
+    wrap.setAttribute('data-duration-key', nextDur);
     wrap.querySelectorAll('[data-rental-duration]').forEach(function(b){
-      var on = String(b.getAttribute('data-rental-duration') || '') === dur;
+      var on = !!nextDur && String(b.getAttribute('data-rental-duration') || '') === nextDur;
       if (on) b.classList.add('is-selected'); else b.classList.remove('is-selected');
       try { b.setAttribute('aria-checked', on ? 'true' : 'false'); } catch (_a) { /* ignore */ }
     });
@@ -23328,6 +23276,13 @@ function scheduleRenderCreateRentals(){
     offerings = (typeof scheduleActiveShortRentalOfferings === 'function')
       ? scheduleActiveShortRentalOfferings(scheduleAdminPricesCache, locationId)
       : [];
+    // Create No lesson intentionally sells the configured bundle only. A missing
+    // active bundle card produces no control; individual Admin cards are not invented.
+    offerings = offerings.filter(function(o){ return o.offering_key === 'board_and_suit_rental'; });
+    commonShort = offerings.length && typeof scheduleActiveShortDurationKeysForOffering === 'function'
+      ? scheduleActiveShortDurationKeysForOffering(
+        scheduleAdminPricesCache, 'board_and_suit_rental', locationId,
+      ) : [];
     // Prefer prior short pebble; else first common short key (never date 2–7).
     if (prevDuration && commonShort.indexOf(prevDuration) >= 0) duration = prevDuration;
     else duration = commonShort[0] || '';
@@ -23360,7 +23315,7 @@ function scheduleRenderCreateRentals(){
     var fallback = key === 'wetsuit_rental' ? 'Wetsuit'
       : (key === 'board_and_suit_rental' ? 'Board and wetsuit' : 'Surfboard');
     var was = prev[key] || {};
-    var checked = !!was.checked;
+    var checked = noLesson ? true : !!was.checked;
     var surfers = scheduleReadCreateSurferCount();
     var qty;
     var owner;
@@ -23392,9 +23347,9 @@ function scheduleRenderCreateRentals(){
         + escHtml(String(qty)) + '"></div>';
     }
     html += '<div class="portal-schedule-create-rental-row" data-rental-offering="' + escHtml(key) + '">'
-      + '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-create-rental-check" data-offering-key="'
-      + escHtml(key) + '"' + (checked ? ' checked' : '') + '> <span data-i18n="' + escHtml(labelKey) + '">'
-      + escHtml(fallback) + '</span></label>'
+      + (noLesson
+        ? '<h3 class="portal-schedule-create-rental-title" data-i18n="' + escHtml(labelKey) + '">' + escHtml(fallback.toUpperCase()) + '</h3><input type="hidden" class="ps-create-rental-check" data-offering-key="' + escHtml(key) + '" checked>'
+        : '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-create-rental-check" data-offering-key="' + escHtml(key) + '"' + (checked ? ' checked' : '') + '> <span data-i18n="' + escHtml(labelKey) + '">' + escHtml(fallback) + '</span></label>')
       + qtyHtml + '</div>';
   });
   // One pebble strip beneath offerings for combined short mode (filled after selection).
@@ -23411,7 +23366,7 @@ function scheduleRenderCreateRentals(){
       : ['board_and_suit_rental'];
   }
   scheduleApplyCreateRentalExclusionUi(wrap, selected);
-  if (shortMode && scheduleCreateIsCombinedBoardWetsuit(selected) && commonShort.length) {
+  if (shortMode && commonShort.length) {
     scheduleRenderCreateRentalDurationPebbles(wrap, commonShort, duration);
   }
   scheduleWireCreateRentals(wrap);
@@ -25041,14 +24996,29 @@ function wireScheduleControls(){
       else if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
     });
   }
-  var fulldayToggle = el('ps-create-comp-fullday');
-  if (fulldayToggle && !fulldayToggle.dataset.wired){
-    fulldayToggle.dataset.wired = '1';
-    fulldayToggle.addEventListener('change', function(){
+  var equipmentButtons = document.querySelectorAll('[data-course-equipment-mode]');
+  for (var eb = 0; eb < equipmentButtons.length; eb++) if (!equipmentButtons[eb].dataset.wired) {
+    equipmentButtons[eb].dataset.wired = '1';
+    equipmentButtons[eb].addEventListener('click', function(){
+      var deselect = this.getAttribute('aria-pressed') === 'true';
+      for (var i = 0; i < equipmentButtons.length; i++) equipmentButtons[i].setAttribute('aria-pressed', !deselect && equipmentButtons[i] === this ? 'true' : 'false');
+      var surfers = Math.max(1, parseInt((el('ps-create-surfers') || {}).value || '1', 10));
+      var qty = el('ps-create-equipment-quantity');
+      if (qty) { qty.max = String(surfers); qty.value = String(Math.max(1, Math.min(surfers, parseInt(qty.value || surfers, 10)))); }
       scheduleRefreshCreateFullDayAddon();
-      if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
+      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+      scheduleUpdateCreateTotalPreview();
     });
   }
+  var equipmentQtyInput = el('ps-create-equipment-quantity');
+  if (equipmentQtyInput && !equipmentQtyInput.dataset.wired) {
+    equipmentQtyInput.dataset.wired = '1';
+    equipmentQtyInput.addEventListener('input', function(){
+      this.dataset.userOwned = '1'; scheduleRefreshCreateFullDayAddon();
+      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+    });
+  }
+
   // Hidden #ps-create-course-tier is not wired — duration is date-derived.
   // #ps-create-surfers is the one authority for course/private qty + rental/addon defaults.
   // Surfers: allow transient empty on input (do not reinsert 1); normalize on blur; equip waits for valid int.
@@ -25077,6 +25047,8 @@ function wireScheduleControls(){
           syncRentalQtyFromSurfers();
         }
         if (id === 'ps-create-comp-no-lesson' || id === 'ps-create-comp-course' || id === 'ps-create-comp-private-lesson') {
+          var courseEquipmentQty = el('ps-create-equipment-quantity');
+          if (courseEquipmentQty) delete courseEquipmentQty.dataset.userOwned;
           // Switching main activity: re-render rentals (clears stale hidden no-lesson qty),
           // clear full-day when No lesson; invalidate stale quote.
           scheduleRenderCreateRentals();
@@ -38463,6 +38435,11 @@ async function handleAdminConfig(query, res, user) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
+  // Match write routes: never let the normalizer turn absent/unknown input into
+  // the default school. Admin reads are a tenant boundary too.
+  if (!isSunsetLocationId(query.location)) {
+    return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  }
   const locationId = normalizeSunsetLocationId(query.location);
   const resolved = adminDbReadGate(clientSlug)
     ? await resolveTenantBusinessConfigAsync(clientSlug, {
@@ -38504,6 +38481,7 @@ async function handleAdminConfig(query, res, user) {
 
   const writesOn = isSunsetAdminWritesEnabled() && adminWritesGate(clientSlug);
   const { ok, ...payload } = resolved;
+  payload.course_equipment_pricing = sunsetAdminLocationStore.getCourseEquipmentPricing(locationId);
   return sendJSON(res, 200, {
     success: true,
     ...payload,
@@ -39346,6 +39324,36 @@ async function handleAdminConfigLessonCapacityPut(query, req, res, user) {
   }
 }
 
+async function handleAdminConfigCourseEquipmentPatch(query, req, res, user) {
+  const clientSlug = String(query.client || DEFAULT_CLIENT).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  // This write never guesses a location: an absent/foreign identifier must not land in Somo.
+  if (!isSunsetLocationId(query.location)) return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  let body;
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  let canonical;
+  try { canonical = validateCourseEquipmentPricing(body); } catch (_) {
+    return sendJSON(res, 400, { success: false, error: 'invalid_course_equipment_pricing' });
+  }
+  try {
+    const locationId = normalizeSunsetLocationId(query.location);
+    const saved = sunsetAdminLocationStore.putCourseEquipmentPricing(locationId, canonical);
+    try {
+      sunsetAdminLocationStore.appendLocationAudit(locationId, {
+        action: 'update', entity_type: 'course_equipment_pricing', entity_id: locationId,
+        actor_email: user && user.email || 'unknown', after_json: saved,
+      });
+    } catch (auditErr) { console.error('[admin.config.course_equipment] audit failed:', auditErr && auditErr.message); }
+    return sendJSON(res, 200, { success: true, location_id: locationId, course_equipment_pricing: saved });
+  } catch (err) {
+    console.error('[admin.config.course_equipment] write failed:', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
+}
+
 async function handleAdminConfigPrivateLessonPut(query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -39700,6 +39708,14 @@ async function handleSunsetScheduleBookingUpdate(query, req, res, user) {
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   let body = {};
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  if (!isSunsetLocationId(query.location)) return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  const trustedLocationId = normalizeSunsetLocationId(query.location);
+  for (const supplied of [body.location_id, body.location]) {
+    if (supplied != null && String(supplied).trim() !== ''
+      && (!isSunsetLocationId(supplied) || normalizeSunsetLocationId(supplied) !== trustedLocationId)) {
+      return sendJSON(res, 409, { success: false, error: 'location_conflict' });
+    }
+  }
   const dateNorm = normalizeSunsetBookingDatesInBody(body, new Date());
   if (!dateNorm.ok) {
     return sendJSON(res, 400, {
@@ -39715,7 +39731,7 @@ async function handleSunsetScheduleBookingUpdate(query, req, res, user) {
       clientSlug,
       bookingId,
       body,
-      locationId: normalizeSunsetLocationId(query.location || body.location_id || body.location),
+      locationId: trustedLocationId,
       actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));
     appendAuditLog({
@@ -39747,12 +39763,20 @@ async function handleSunsetScheduleBookingDelete(query, req, res, user) {
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   let body = {};
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  if (!isSunsetLocationId(query.location)) return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  const trustedLocationId = normalizeSunsetLocationId(query.location);
+  for (const supplied of [body.location_id, body.location]) {
+    if (supplied != null && String(supplied).trim() !== ''
+      && (!isSunsetLocationId(supplied) || normalizeSunsetLocationId(supplied) !== trustedLocationId)) {
+      return sendJSON(res, 409, { success: false, error: 'location_conflict' });
+    }
+  }
   const bookingId = String(body.booking_id || query.booking_id || '').trim();
   try {
     const result = await withPgClient(async (pg) => cancelSunsetScheduleBooking(pg, {
       clientSlug,
       bookingId,
-      locationId: normalizeSunsetLocationId(query.location || body.location_id || body.location),
+      locationId: trustedLocationId,
       actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));
     appendAuditLog({
@@ -40099,7 +40123,18 @@ async function handleSunsetScheduleBookingQuote(query, req, res, user) {
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   let body = {};
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
-  const trustedLocationId = query.location || body.location_id || body.location;
+  // The authenticated route/session selection is authoritative. A request body
+  // can repeat it for compatibility but can never select or switch schools.
+  if (!isSunsetLocationId(query.location)) {
+    return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  }
+  const trustedLocationId = normalizeSunsetLocationId(query.location);
+  for (const supplied of [body.location_id, body.location]) {
+    if (supplied != null && String(supplied).trim() !== ''
+      && (!isSunsetLocationId(supplied) || normalizeSunsetLocationId(supplied) !== trustedLocationId)) {
+      return sendJSON(res, 409, { success: false, error: 'location_conflict' });
+    }
+  }
   const resolved = resolveBusinessVertical({ clientSlug: clientSlug, locationId: trustedLocationId });
   if (!resolved.ok) {
     return sendJSON(res, 400, { ...resolved, success: false, elapsed_ms: 0 });
@@ -40355,7 +40390,16 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
     return send400(res, 'invalid JSON body');
   }
 
-  const trustedLocationId = query.location || body.location_id || body.location;
+  if (!isSunsetLocationId(query.location)) {
+    return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  }
+  const trustedLocationId = normalizeSunsetLocationId(query.location);
+  for (const supplied of [body.location_id, body.location]) {
+    if (supplied != null && String(supplied).trim() !== ''
+      && (!isSunsetLocationId(supplied) || normalizeSunsetLocationId(supplied) !== trustedLocationId)) {
+      return sendJSON(res, 409, { success: false, error: 'location_conflict' });
+    }
+  }
   const resolved = resolveBusinessVertical({ clientSlug: clientSlug, locationId: trustedLocationId });
   if (!resolved.ok) {
     return sendJSON(res, 400, { ...resolved, success: false, elapsed_ms: Date.now() - started });
@@ -46720,6 +46764,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminConfigLessonCapacityPut(parsed.query, req, res, auth.user);
+  }
+
+  if (pathname === '/staff/admin/config/course-equipment' && method === 'PATCH') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigCourseEquipmentPatch(parsed.query, req, res, auth.user);
   }
 
   if (pathname === '/staff/admin/config/private-lesson' && method === 'PUT') {

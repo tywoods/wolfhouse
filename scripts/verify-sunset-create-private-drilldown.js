@@ -704,6 +704,13 @@ function sandboxFromHtml(html, opts) {
     }));
   }
 
+  const FixedDate = class extends Date {
+    constructor(...args) {
+      super(...(args.length ? args : ['2026-07-01T12:00:00Z']));
+    }
+    static now() { return Date.parse('2026-07-01T12:00:00Z'); }
+  };
+
   const ctx = {
     console,
     setTimeout,
@@ -715,7 +722,7 @@ function sandboxFromHtml(html, opts) {
     Number,
     String,
     Math,
-    Date,
+    Date: FixedDate,
     Intl,
     AbortController: typeof AbortController !== 'undefined' ? AbortController : undefined,
     getClient: () => 'sunset',

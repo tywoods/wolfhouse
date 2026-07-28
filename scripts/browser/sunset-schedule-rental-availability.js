@@ -10,11 +10,12 @@
 var SCHEDULE_CANONICAL_RENTAL_OFFERINGS = ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'];
 
 /** No-lesson short rental pebbles only (never 2–7 days). */
-var SCHEDULE_SHORT_RENTAL_DURATION_KEYS = ['1_hour', 'half_day', '1_day'];
+var SCHEDULE_SHORT_RENTAL_DURATION_KEYS = ['1_hour', '2_hours', 'half_day', 'full_day'];
 var SCHEDULE_SHORT_RENTAL_DURATION_SET = {
   '1_hour': true,
+  '2_hours': true,
   half_day: true,
-  '1_day': true,
+  full_day: true,
 };
 
 function scheduleRentalOfferingLabelKey(offeringKey) {
@@ -32,16 +33,18 @@ function scheduleIsShortRentalDurationKey(key) {
 /** Pebble label key: 1_day → Full day in short-rental mode. */
 function scheduleShortRentalDurationLabelKey(durationKey) {
   var k = String(durationKey || '').trim();
-  if (k === '1_day') return 'schedule.create.rentalDuration.fullDay';
+  if (k === 'full_day') return 'schedule.create.rentalDuration.fullDay';
   if (k === '1_hour') return 'schedule.create.rentalDuration.1Hour';
+  if (k === '2_hours') return 'schedule.create.rentalDuration.2Hours';
   if (k === 'half_day') return 'schedule.create.rentalDuration.halfDay';
   return 'admin.period.' + k;
 }
 
 function scheduleShortRentalDurationFallbackLabel(durationKey) {
   var k = String(durationKey || '').trim();
-  if (k === '1_day') return 'Full day';
+  if (k === 'full_day') return 'Full day';
   if (k === '1_hour') return '1 hour';
+  if (k === '2_hours') return '2 hours';
   if (k === 'half_day') return 'Half day';
   return k;
 }

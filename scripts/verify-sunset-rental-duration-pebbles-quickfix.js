@@ -110,8 +110,7 @@ assert('mirrors sync to 2',
 console.log('\n[2] Full-day gear only Group/Private; clear on No lesson');
 const fdFn = extractFn(apiSrc, 'scheduleRefreshCreateFullDayAddon') || '';
 assert('full-day requires course or private (lessonOn)',
-  /lessonOn|courseOn \|\| privateOn/.test(fdFn)
-  && /hasEligibleBase = lessonOn && boardOn && wetsuitOn/.test(fdFn));
+  /courseOn \|\| privateOn/.test(fdFn) && /field\.style\.display = show/.test(fdFn));
 assert('no-lesson activity switch re-renders rentals + invalidates quote',
   /ps-create-comp-no-lesson/.test(apiSrc)
   && /scheduleRenderCreateRentals/.test(apiSrc)
@@ -131,7 +130,7 @@ const matched = [
 ];
 const okParity = assertBoardWetsuitShortDurationParity(matched, 'sunset-somo');
 assert('matching short keys pass', okParity.ok === true
-  && okParity.board_keys.join(',') === '1_hour,half_day,1_day');
+  && okParity.board_keys.join(',') === '1_hour,half_day');
 
 const mismatched = matched.filter((p) => !(p.offering_key === 'wetsuit_rental' && p.unit === 'half_day'));
 const badParity = assertBoardWetsuitShortDurationParity(mismatched, 'sunset-somo');
@@ -161,13 +160,11 @@ const prices = matched.concat([
   { offering_key: 'board_rental', unit: '7_days', amount_cents: 7000, active: true, location_id: 'sunset-somo' },
 ]);
 const common = rentalMod.scheduleCommonShortRentalDurationKeys(prices, 'sunset-somo');
-assert('common keys exactly hour/half/1_day',
-  common.join(',') === '1_hour,half_day,1_day');
+assert('common keys exactly configured hour/half-day (1-day absent)',
+  common.join(',') === '1_hour,half_day');
 assert('no 2–7 in short keys',
   !common.some((k) => /^(2|3|4|5|6|7)_days$/.test(k)));
-assert('1_day label key is Full day',
-  rentalMod.scheduleShortRentalDurationLabelKey('1_day') === 'schedule.create.rentalDuration.fullDay'
-  && rentalMod.scheduleShortRentalDurationFallbackLabel('1_day') === 'Full day');
+assert('1_day is not an offered short-rental key', !common.includes('1_day'));
 assert('create UI renders pebble host + short mode',
   /data-rental-duration-pebbles/.test(apiSrc)
   && /data-short-rental/.test(apiSrc)

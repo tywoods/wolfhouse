@@ -226,6 +226,24 @@ const PRIVATE_LESSON_MAX_SESSIONS = 30;
 // and eligibility is derived from the eligible course/rental dates on the booking.
 const FULL_DAY_EQUIPMENT_ADDON_KEY = 'full_day_equipment_extension';
 const FULL_DAY_EQUIPMENT_ADDON_BILLING_UNIT = 'person_per_day';
+const COURSE_EQUIPMENT_KEY = 'course_equipment';
+const { normalizeSelection, quoteCourseEquipment } = require('./sunset-course-equipment-pricing');
+
+function checkedMoneyInteger(value, label) {
+  const n = Number(value);
+  if (!Number.isSafeInteger(n)) throwSunsetPriceFail(422, `${label || 'money'}_overflow`);
+  return n;
+}
+function checkedMoneyAdd(a, b, label) {
+  const sum = BigInt(checkedMoneyInteger(a, label)) + BigInt(checkedMoneyInteger(b, label));
+  if (sum > BigInt(Number.MAX_SAFE_INTEGER) || sum < BigInt(Number.MIN_SAFE_INTEGER)) {
+    throwSunsetPriceFail(422, `${label || 'money'}_overflow`);
+  }
+  return Number(sum);
+}
+function checkedMoneySubtract(a, b, label) {
+  return checkedMoneyAdd(a, -checkedMoneyInteger(b, label), label);
+}
 // Components whose service dates make a booking eligible for the full-day equipment add-on.
 const FULL_DAY_ADDON_ELIGIBLE_COMPONENTS = new Set(['lesson', 'course', 'private_lesson', 'surfboard', 'wetsuit']);
 
@@ -607,6 +625,14 @@ function rowMatchesQuoteLine(row, line) {
   const component = String((line && line.component) || '').trim();
   const meta = rowMetadata(row);
   const serviceType = String(row.service_type || '').trim();
+  // Course-equipment lines own exactly one component/date row. This prevents
+  // post-insert repricing from claiming legacy rental or included-course rows.
+  if (line && line.course_equipment === true) {
+    return meta.course_equipment === true
+      && meta.component === component
+      && String(row.service_date || '').slice(0, 10) === String(line.service_date || '').slice(0, 10)
+      && meta.course_equipment_mode === line.course_equipment_mode;
+  }
   if (component === 'course') {
     return meta.component === 'course' || serviceType === 'course';
   }
@@ -684,10 +710,10 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
   if (!Number.isFinite(quoteTotal) || !Number.isInteger(quoteTotal) || quoteTotal < 0) {
     return { ok: false, error: 'invalid_quote_total' };
   }
-  const lineTotalSum = lines.reduce((sum, line) => {
-    const n = Number(line && line.total_cents);
-    return sum + (Number.isFinite(n) ? n : 0);
-  }, 0);
+  let lineTotalSum = 0;
+  try {
+    for (const line of lines) lineTotalSum = checkedMoneyAdd(lineTotalSum, line && line.total_cents, 'quote_line_total');
+  } catch (_) { return { ok: false, error: 'quote_line_total_overflow' }; }
   if (lineTotalSum !== quoteTotal) {
     return { ok: false, error: 'quote_line_total_mismatch' };
   }
@@ -747,7 +773,8 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
     if (!isCustom && lineTotal < 0) {
       return { ok: false, error: 'invalid_quote_line_total' };
     }
-    appliedLineTotal += lineTotal;
+    try { appliedLineTotal = checkedMoneyAdd(appliedLineTotal, lineTotal, 'applied_line_total'); }
+    catch (_) { return { ok: false, error: 'applied_line_total_overflow' }; }
     for (let i = 0; i < matches.length; i += 1) {
       const row = matches[i];
       const id = String(row.service_record_id || row.id || '');
@@ -777,7 +804,8 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
         if (Number(metaUpd && metaUpd.rowCount) !== 1) {
           return { ok: false, error: 'service_amount_update_mismatch' };
         }
-        persistedAmountSum += signedDue;
+        try { persistedAmountSum = checkedMoneyAdd(persistedAmountSum, signedDue, 'persisted_amount_sum'); }
+        catch (_) { return { ok: false, error: 'persisted_amount_sum_overflow' }; }
         continue;
       }
       const upd = await pg.query(
@@ -788,7 +816,8 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
       if (Number(upd && upd.rowCount) !== 1) {
         return { ok: false, error: 'service_amount_update_mismatch' };
       }
-      persistedAmountSum += signedDue;
+      try { persistedAmountSum = checkedMoneyAdd(persistedAmountSum, signedDue, 'persisted_amount_sum'); }
+      catch (_) { return { ok: false, error: 'persisted_amount_sum_overflow' }; }
     }
   }
 
@@ -1239,7 +1268,7 @@ function resolveLunaTrustedNoLessonDerivation(opts) {
 }
 
 /**
- * For no-lesson bookings with equipment, force rental quantities from
+ * For no-lesson reservations with equipment, force rental quantities from
  * authoritative surfer count. Group/Private keep independent equipment qty.
  * Staff/manual: fail closed when equipment present and surfer_count absent.
  * Trusted Luna only: when surfer_count absent, derive one canonical count from
@@ -1412,6 +1441,18 @@ function validateScheduleBookingBody(body, opts) {
   const surfer_count = forced.forced
     ? forced.surfer_count
     : parseAuthoritativeSurferCount(b);
+  let course_equipment = null;
+  if (b.course_equipment != null) {
+    const coursePart = forcedComps.course || forcedComps.private_lesson;
+    if (!coursePart) return { ok: false, error: 'course_equipment requires a group or private course' };
+    const surfers = forcedComps.private_lesson
+      ? Number(forcedComps.private_lesson.surfer_count) : Number(forcedComps.course.quantity);
+    try { course_equipment = normalizeSelection(b.course_equipment, surfers); }
+    catch (err) { return { ok: false, error: err.message }; }
+    if (course_equipment.mode === 'all_day' && forcedComps[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+      return { ok: false, error: 'course_equipment all_day must not overlap legacy full-day equipment extension' };
+    }
+  }
 
   return {
     ok: true,
@@ -1427,6 +1468,7 @@ function validateScheduleBookingBody(body, opts) {
       rental_pricing: rentalPricing.skip ? null : rentalPricing.value,
       custom_line_items: customLines.value,
       surfer_count: surfer_count != null ? surfer_count : null,
+      course_equipment,
     },
   };
 }
@@ -1837,6 +1879,7 @@ function buildSchedulePricingIntent(input, opts) {
     rentals: canonicalRentalsForIntentFingerprint(rentalsSrc),
     // Custom adjustments are pricing intent — changes invalidate stale quote / paid reprice.
     custom_line_items: customLinesForIntentFingerprint(customSrc),
+    course_equipment: input && input.course_equipment ? { ...input.course_equipment } : null,
   };
 }
 
@@ -1906,9 +1949,10 @@ async function lockSchedulePaymentsForUpdate(pg, bookingId, clientId) {
     [bookingId, clientId],
   );
   const rows = res.rows || [];
-  const paidCents = rows
-    .filter((p) => String(p.payment_status || '').toLowerCase() === 'paid')
-    .reduce((s, p) => s + (Number(p.amount_paid_cents) || 0), 0);
+  let paidCents = 0;
+  for (const p of rows.filter((row) => String(row.payment_status || '').toLowerCase() === 'paid')) {
+    paidCents = checkedMoneyAdd(paidCents, p.amount_paid_cents || 0, 'payments_paid');
+  }
   return { rows, paidCents };
 }
 
@@ -2139,12 +2183,16 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
   }
   // Only add snapshotted full-day cents when they were NOT claimed via the quote
   // (avoids double-charging). Bundle peers stay zero-valued by applyAuthoritativeQuoteAmounts.
-  const addonSum = fullDayInQuote ? 0 : createdRows.reduce((sum, row) => {
-    if (quoteOwnedRows.includes(row)) return sum;
-    const due = Number(row.amount_due_cents);
-    return sum + (Number.isFinite(due) && due > 0 ? due : 0);
-  }, 0);
-  const bookingTotal = Number(applied.total_cents) + addonSum;
+  let addonSum = 0;
+  for (const row of createdRows) {
+    if (quoteOwnedRows.includes(row)) continue;
+    const meta = rowMetadata(row);
+    // A legacy full-day snapshot is outside ownership only when no matching quote line exists.
+    if (fullDayInQuote) continue;
+    const due = checkedMoneyInteger(row.amount_due_cents || 0, 'addon_sum');
+    if (due > 0) addonSum = checkedMoneyAdd(addonSum, due, 'addon_sum');
+  }
+  const bookingTotal = checkedMoneyAdd(applied.total_cents, addonSum, 'booking_total');
   const metaPatch = {
     sunset_priced_at: new Date().toISOString(),
     sunset_price_source: 'authoritative_quote',
@@ -2194,9 +2242,9 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
     rentalPricingDescriptor,
   };
   if (opts && Object.prototype.hasOwnProperty.call(opts, 'lockedPaidCents')) {
-    const lockedPaidCents = Math.max(0, Number(opts.lockedPaidCents) || 0);
-    const total = Number(priced.total_cents) || 0;
-    const balance = Math.max(total - lockedPaidCents, 0);
+    const lockedPaidCents = Math.max(0, checkedMoneyInteger(opts.lockedPaidCents || 0, 'paid'));
+    const total = checkedMoneyInteger(priced.total_cents, 'booking_total');
+    const balance = Math.max(checkedMoneySubtract(total, lockedPaidCents, 'balance'), 0);
     const bal = await pg.query(
       // MULTICLIENT_SCOPE_OK: balance = total - locked ledger paid
       `UPDATE bookings SET amount_paid_cents = $1, balance_due_cents = $2
@@ -2354,6 +2402,32 @@ async function insertScheduleComponentServiceRows(pg, opts) {
     }
   }
   return createdRows;
+}
+
+/** Server-priced board and wetsuit audit rows, one of each per booking date. */
+async function insertCourseEquipmentRows(pg, opts) {
+  if (!opts.selection) return [];
+  const quote = quoteCourseEquipment({ config: opts.config, selection: opts.selection,
+    surfers: opts.surfers, booking_dates: opts.bookingDates });
+  const rows = [];
+  for (const line of quote.lines) {
+    const metadata = {
+      source: opts.attribution.metadataSource, staff_manual_schedule: opts.attribution.staffManualSchedule,
+      component: line.component, staff_ui_service_type: line.component, course_equipment: true,
+      course_equipment_mode: quote.mode, price_basis: 'per_person_per_booking_day',
+      unit_amount_cents: line.amount_cents, amount_cents: line.total_cents,
+      location_id: opts.locationId || null, bundle_id: opts.bundleId || null,
+    };
+    const row = await insertServiceRecord(pg, [opts.clientSlug, opts.bookingId, opts.bookingCode,
+      opts.guestName, UI_TO_DB_SERVICE_TYPE[line.component], line.service_date, line.quantity,
+      opts.srPayment, opts.attribution.dbSource, JSON.stringify(metadata)]);
+    const id = row && (row.service_record_id || row.id);
+    if (id) await pg.query(
+      'UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid AND client_slug = $3',
+      [line.total_cents, id, opts.clientSlug]);
+    rows.push({ ...row, metadata, amount_due_cents: line.total_cents });
+  }
+  return rows;
 }
 
 /**
@@ -2746,6 +2820,19 @@ async function createSunsetScheduleBooking(pg, opts) {
       },
     });
 
+    if (input.course_equipment) {
+      const equipmentRows = await insertCourseEquipmentRows(pg, {
+        clientSlug, bookingId, bookingCode, guestName: input.guest_name,
+        selection: input.course_equipment,
+        surfers: input.components.private_lesson ? input.components.private_lesson.surfer_count : input.components.course.quantity,
+        bookingDates: input.components.private_lesson
+          ? input.components.private_lesson.sessions.map((s) => s.date) : input.service_dates,
+        config: require('./sunset-admin-location-store').getCourseEquipmentPricing(locationId),
+        attribution, locationId, bundleId, srPayment,
+      });
+      equipmentRows.forEach((r) => createdRows.push(r));
+    }
+
     // Full-day equipment add-on: one row per selected date, quantity = people, price snapshotted.
     if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
       const addonRows = await insertFullDayEquipmentAddonRows(pg, {
@@ -2899,6 +2986,7 @@ module.exports = {
   resolveAuthoritativeScheduleQuoteInTxn,
   applyAuthoritativeSchedulePricingInTxn,
   insertScheduleComponentServiceRows,
+  insertCourseEquipmentRows,
   insertStaffCustomLineServiceRows,
   lockSchedulePaymentsForUpdate,
   applyEditPaidAmountInTxn,
@@ -2929,4 +3017,7 @@ module.exports = {
   NO_LESSON_EQUIPMENT_SURFER_REQUIRED,
   NO_LESSON_EQUIPMENT_QTY_INCONSISTENT,
   rowMatchesQuoteLine,
+  checkedMoneyInteger,
+  checkedMoneyAdd,
+  checkedMoneySubtract,
 };

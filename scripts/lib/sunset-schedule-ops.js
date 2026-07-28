@@ -136,7 +136,12 @@ function slotForLessonRow(row, slotTimes) {
 
 function aggregateDayOps(rows, dateIso, profile) {
   const slotTimes = configuredLessonSlotTimes(profile, dateIso);
-  const dayRows = (rows || []).filter((r) => String(r.service_date || r.date || '').slice(0, 10) === dateIso);
+  const dayRows = (rows || []).filter((r) => {
+    if (String(r.service_date || r.date || '').slice(0, 10) !== dateIso) return false;
+    const serviceStatus = String(r.service_status || r.status || '').toLowerCase();
+    const bookingStatus = String(r.booking_status || '').toLowerCase();
+    return serviceStatus !== 'cancelled' && bookingStatus !== 'cancelled';
+  });
   const gearIndex = buildBookingGearIndex(dayRows, dateIso);
   const slots = slotTimes.map((time) => ({
     time,
@@ -152,6 +157,7 @@ function aggregateDayOps(rows, dateIso, profile) {
   let wetsuitsLesson = 0;
   let boardsRental = 0;
   let wetsuitsRental = 0;
+  const countedLessonGear = new Set();
 
   for (const row of dayRows) {
     if (isLessonRow(row)) {
@@ -161,13 +167,15 @@ function aggregateDayOps(rows, dateIso, profile) {
       const qty = rowQuantity(row);
       bucket.booked += qty;
       bucket.rows.push(row);
-      const code = row.booking_code || row._scheduleId;
+      const code = row.booking_code || row.booking_id || row._scheduleId;
       const gear = code && gearIndex.get(code);
-      if (gear) {
+      const inventoryOwner = code ? `${code}|${dateIso}` : null;
+      if (gear && (!inventoryOwner || !countedLessonGear.has(inventoryOwner))) {
         bucket.boards += gear.boards;
         bucket.wetsuits += gear.wetsuits;
         boardsLesson += gear.boards;
         wetsuitsLesson += gear.wetsuits;
+        if (inventoryOwner) countedLessonGear.add(inventoryOwner);
       }
     } else if (isBoardRow(row)) {
       const code = row.booking_code;
