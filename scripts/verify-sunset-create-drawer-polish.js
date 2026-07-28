@@ -579,6 +579,9 @@ assert('range trigger present',
   || /id="ps-create-date-range-btn"/.test(modal));
 assert('range display present',
   /id="ps-create-date-range-display"/.test(modal));
+assert('dynamic range display is JS-owned, not overwritten by generic i18n',
+  /id="ps-create-date-range-display"/.test(modal)
+  && !/id="ps-create-date-range-display"[^>]*data-i18n=/.test(modal));
 assert('range popover/calendar host present',
   /id="ps-create-date-range-popover"/.test(modal)
   || /id="ps-create-date-range-calendar"/.test(modal));
