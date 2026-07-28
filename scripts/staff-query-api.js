@@ -18524,7 +18524,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <div id="ps-create-date-range" class="portal-schedule-create-date-range-field">
           <span id="ps-create-date-range-label" class="portal-schedule-create-label" data-i18n="schedule.create.dateRange">Dates</span>
           <button type="button" id="ps-create-date-range-trigger" class="portal-schedule-create-date-range-trigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="ps-create-date-range-popover">
-            <span id="ps-create-date-range-display" class="portal-schedule-create-date-range-display" data-i18n="schedule.create.dateRange.placeholder">Select dates</span>
+            <span id="ps-create-date-range-display" class="portal-schedule-create-date-range-display">Select dates</span>
           </button>
           <div id="ps-create-date-range-popover" class="portal-schedule-create-date-range-popover" role="dialog" aria-modal="false" aria-labelledby="ps-create-date-range-label" hidden style="display:none">
             <div class="portal-schedule-create-date-range-cal-nav">
