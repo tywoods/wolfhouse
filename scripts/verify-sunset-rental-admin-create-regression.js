@@ -30,7 +30,7 @@ function rows() {
     label: off === 'board_and_suit_rental' ? bundleLabel : '',
     unit: unit === 'full_day' ? 'item' : (unit.endsWith('day') || unit.endsWith('days') ? 'day' : 'session'),
     amount: cents[off][pi] / 100, currency: 'EUR',
-    location_id: 'sunset-somo', client_slug: 'sunset', tenant: 'sunset', active: true,
+    location_id: 'sunset-somo', client_slug: 'sunset', tenant: 'sunset', active: off === 'board_and_suit_rental',
   })));
   out.push(
     { ...out[22], id: '90000000-0000-4000-8000-000000000001', label: 'WRONG LOCATION LABEL', location_id: 'sunset-sardinero' },
@@ -128,8 +128,8 @@ function euros(text) { const m = String(text).match(/(?:€\s*)?(\d+(?:[.,]\d{1,
     })));
     eq('rendered bundle Create controls independently associate exact literal duration/amount data', renderedCreateCards.map((x) => ({ offering: x.offering, duration: x.duration, cents: x.cents })), Object.entries(expectedBundleCreate).map(([duration, price]) => ({ offering: 'board_and_suit_rental', duration, cents: price.cents })));
     ok('rendered bundle Create controls visibly associate exact literal euro text', renderedCreateCards.every((x) => x.visible && x.text.includes(expectedBundleCreate[x.duration].text)), JSON.stringify(renderedCreateCards));
-    eq('Surfboard rendered Create duration controls include every active configured short duration', await rentalWrap.getAttribute('data-board-short-keys').then((v) => JSON.parse(v || '[]')), ['1_hour', '2_hours', 'half_day', 'full_day']);
-    eq('Wetsuit rendered Create duration controls include every active configured short duration', await rentalWrap.getAttribute('data-wetsuit-short-keys').then((v) => JSON.parse(v || '[]')), ['1_hour', '2_hours', 'half_day', 'full_day']);
+    eq('inactive standalone Surfboard rows stay absent from Create', await rentalWrap.getAttribute('data-board-short-keys').then((v) => JSON.parse(v || '[]')), []);
+    eq('inactive standalone Wetsuit rows stay absent from Create', await rentalWrap.getAttribute('data-wetsuit-short-keys').then((v) => JSON.parse(v || '[]')), []);
     ok('rendered Create duration controls contain no fabricated inactive duration', renderedCreateCards.every((x) => Object.hasOwn(expectedBundleCreate, x.duration)) && !/moon_cycle/.test(await rentalWrap.innerText()), JSON.stringify(renderedCreateCards));
     for (const [duration, price] of Object.entries(expectedBundleCreate)) {
       if (await page.locator(`[data-rental-duration="${duration}"]`).getAttribute('aria-checked') === 'true') {

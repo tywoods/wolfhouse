@@ -23285,9 +23285,10 @@ function scheduleRenderCreateRentals(){
     : null;
   var locationId = typeof getSunsetLocation === 'function' ? getSunsetLocation() : '';
   var noLesson = scheduleCreateIsNoLesson();
-  var commonShort = (typeof scheduleCommonShortRentalDurationKeys === 'function')
-    ? scheduleCommonShortRentalDurationKeys(scheduleAdminPricesCache, locationId)
-    : [];
+  var commonShort = (typeof scheduleActiveShortDurationKeysForOffering === 'function')
+    ? scheduleActiveShortDurationKeysForOffering(
+      scheduleAdminPricesCache, 'board_and_suit_rental', locationId,
+    ) : [];
   // No-lesson short-rental pebbles only on a single-day span (1_hour / half_day / 1_day).
   // Multi-day From/To always uses inclusive date duration (4_days → Admin 4-day row).
   // Never force short 1_day identity onto a multi-day booking.
