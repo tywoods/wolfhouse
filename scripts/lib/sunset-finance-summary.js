@@ -178,10 +178,48 @@ function computeSunsetFinanceSummary(args) {
   };
 }
 
+/**
+ * Data-quality reconciliation: the paid-payment ledger is the cash authority, so
+ * Outstanding is computed as GREATEST(total_amount_cents − Σpaid, 0). Persisted
+ * bookings.balance_due_cents is operational state that SHOULD equal that. This
+ * surfaces any material disagreement so the staging reconciliation (and a
+ * fail-closed test) can catch drift before it reaches money figures.
+ *
+ * @param {object} args
+ * @param {Array<{booking_id,total_amount_cents,balance_due_cents}>} args.bookings
+ * @param {Array<{booking_id,amount_paid_cents}>} args.payments  (scoped paid payments)
+ * @param {number} [args.toleranceCents=0]  materiality threshold (integer cents)
+ * @returns {{ checked:number, discrepancies:Array, material:boolean }}
+ */
+function reconcileBookingBalances(args) {
+  const bookings = Array.isArray(args && args.bookings) ? args.bookings : [];
+  const payments = Array.isArray(args && args.payments) ? args.payments : [];
+  const tolerance = Number.isFinite(args && args.toleranceCents) ? Math.abs(Math.trunc(args.toleranceCents)) : 0;
+
+  const paidByBooking = new Map();
+  for (const p of payments) {
+    paidByBooking.set(p.booking_id, (paidByBooking.get(p.booking_id) || 0) + toInt(p.amount_paid_cents));
+  }
+
+  const discrepancies = [];
+  for (const b of bookings) {
+    if (b.balance_due_cents == null) continue; // nothing persisted to reconcile against
+    const computed = Math.max(0, toInt(b.total_amount_cents) - (paidByBooking.get(b.booking_id) || 0));
+    const persisted = toInt(b.balance_due_cents);
+    const delta = computed - persisted;
+    if (Math.abs(delta) > tolerance) {
+      discrepancies.push({ booking_id: b.booking_id, computed_cents: computed, persisted_cents: persisted, delta_cents: delta });
+    }
+  }
+
+  return { checked: bookings.length, discrepancies, material: discrepancies.length > 0 };
+}
+
 module.exports = {
   computeSunsetFinanceSummary,
   effectiveServiceDueCents,
   zonedDateString,
   periodRanges,
   isStaffCustomLine,
+  reconcileBookingBalances,
 };

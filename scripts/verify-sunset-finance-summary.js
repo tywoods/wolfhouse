@@ -21,6 +21,7 @@ const {
   computeSunsetFinanceSummary,
   effectiveServiceDueCents,
   zonedDateString,
+  reconcileBookingBalances,
 } = require(path.join(ROOT, 'scripts', 'lib', 'sunset-finance-summary.js'));
 
 let pass = 0;
@@ -102,6 +103,21 @@ ok('empty period all zeros', empty.periods.today.booked_cents === 0 && empty.per
 ok('surfaces net-collected-unavailable limitation', s.limitations && s.limitations.net_collected_available === false && typeof s.limitations.note === 'string');
 eq('currency is EUR', s.currency, 'EUR');
 eq('timeZone echoed', s.time_zone, TZ);
+
+// ── Reconciliation data-quality (computed balance vs persisted balance_due_cents) ──
+const recOk = reconcileBookingBalances({
+  bookings: [{ booking_id: 'B1', total_amount_cents: 10000, balance_due_cents: 6000 }],
+  payments: [{ booking_id: 'B1', amount_paid_cents: 4000 }],
+});
+ok('reconcile: matching persisted balance → not material', recOk.material === false && recOk.discrepancies.length === 0 && recOk.checked === 1);
+const recBad = reconcileBookingBalances({
+  bookings: [{ booking_id: 'B1', total_amount_cents: 10000, balance_due_cents: 9999 }],
+  payments: [{ booking_id: 'B1', amount_paid_cents: 4000 }],
+});
+ok('reconcile: drift flagged as material with delta', recBad.material === true && recBad.discrepancies[0].delta_cents === -3999);
+ok('reconcile: computed clamps at 0 (never negative)', reconcileBookingBalances({ bookings: [{ booking_id: 'B2', total_amount_cents: 1000, balance_due_cents: 0 }], payments: [{ booking_id: 'B2', amount_paid_cents: 5000 }] }).material === false);
+ok('reconcile: null persisted balance is skipped', reconcileBookingBalances({ bookings: [{ booking_id: 'B3', total_amount_cents: 1000, balance_due_cents: null }], payments: [] }).discrepancies.length === 0);
+ok('reconcile: tolerance suppresses immaterial drift', reconcileBookingBalances({ bookings: [{ booking_id: 'B4', total_amount_cents: 1000, balance_due_cents: 999 }], payments: [], toleranceCents: 5 }).material === false);
 
 console.log(`\n── verify:sunset-finance-summary: ${pass} passed, ${fail} failed ──`);
 if (fail === 0) console.log('verify:sunset-finance-summary — ALL CHECKS PASSED');
