@@ -18637,8 +18637,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <button type="button" class="portal-schedule-create-activity-btn" id="ps-create-equipment-during" data-course-equipment-mode="during_course" aria-pressed="false" data-i18n="schedule.courseEquipment.during">During Course</button>
             <button type="button" class="portal-schedule-create-activity-btn" id="ps-create-equipment-all-day" data-course-equipment-mode="all_day" aria-pressed="false" data-i18n="schedule.courseEquipment.allDay">All Day</button>
           </div>
-          <label for="ps-create-equipment-quantity" data-i18n="schedule.courseEquipment.quantity">Equipment sets</label>
-          <input id="ps-create-equipment-quantity" type="number" min="1" value="1" inputmode="numeric">
+          <div id="ps-create-equipment-quantity-wrap" style="display:none">
+            <label for="ps-create-equipment-quantity" data-i18n="schedule.courseEquipment.quantity">Equipment sets</label>
+            <input id="ps-create-equipment-quantity" type="number" min="1" value="1" inputmode="numeric">
+          </div>
         </fieldset>
         <!-- Legacy select kept for payload/verifiers; never shown as a second dropdown (drill-down owns course pick). -->
         <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect" hidden>Select course</label><select id="ps-create-course-select" tabindex="-1" aria-hidden="true"></select></div>
@@ -22034,9 +22036,8 @@ function scheduleOnCreateComponentChange(changedId){
   schedulePopulateCreateComponentFields();
 }
 function scheduleRefreshCreateEmptyGuidance(){
-  var r = typeof scheduleReadCreateRentalSelectionFromDom === 'function' ? scheduleReadCreateRentalSelectionFromDom() : [];
-  var h = el('ps-create-activity-empty-hint'), fd = el('ps-create-comp-fullday');
-  if (h) h.style.display = (!(el('ps-create-comp-course') && el('ps-create-comp-course').checked) && !(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked) && !r.length && !(fd && fd.checked)) ? '' : 'none';
+  // Intentionally empty: No Lesson uses only configured rental buttons; there
+  // is no legacy empty hint or separate full-day checkbox to synchronize.
 }
 
 function scheduleRowBookingRef(row, group){
@@ -22215,6 +22216,9 @@ function scheduleRefreshCreateFullDayAddon(){ try {
   var show = courseOn || privateOn;
   field.style.display = show ? '' : 'none';
   var qty = el('ps-create-equipment-quantity');
+  var qtyWrap = el('ps-create-equipment-quantity-wrap');
+  var selected = document.querySelector('[data-course-equipment-mode][aria-pressed="true"]');
+  if (qtyWrap) qtyWrap.style.display = show && selected ? '' : 'none';
   var surfers = scheduleReadCreateSurferCount() || 1;
   if (qty) {
     qty.max = String(surfers);
@@ -24989,10 +24993,12 @@ function wireScheduleControls(){
   for (var eb = 0; eb < equipmentButtons.length; eb++) if (!equipmentButtons[eb].dataset.wired) {
     equipmentButtons[eb].dataset.wired = '1';
     equipmentButtons[eb].addEventListener('click', function(){
-      for (var i = 0; i < equipmentButtons.length; i++) equipmentButtons[i].setAttribute('aria-pressed', equipmentButtons[i] === this ? 'true' : 'false');
+      var deselect = this.getAttribute('aria-pressed') === 'true';
+      for (var i = 0; i < equipmentButtons.length; i++) equipmentButtons[i].setAttribute('aria-pressed', !deselect && equipmentButtons[i] === this ? 'true' : 'false');
       var surfers = Math.max(1, parseInt((el('ps-create-surfers') || {}).value || '1', 10));
       var qty = el('ps-create-equipment-quantity');
       if (qty) { qty.max = String(surfers); qty.value = String(Math.max(1, Math.min(surfers, parseInt(qty.value || surfers, 10)))); }
+      scheduleRefreshCreateFullDayAddon();
       scheduleInvalidateCreateQuote(); scheduleUpdateCreateTotalPreview();
     });
   }
@@ -25001,14 +25007,7 @@ function wireScheduleControls(){
     equipmentQtyInput.dataset.wired = '1';
     equipmentQtyInput.addEventListener('input', function(){ this.dataset.userOwned = '1'; scheduleRefreshCreateFullDayAddon(); scheduleInvalidateCreateQuote(); });
   }
-  var fulldayToggle = el('ps-create-comp-fullday');
-  if (fulldayToggle && !fulldayToggle.dataset.wired){
-    fulldayToggle.dataset.wired = '1';
-    fulldayToggle.addEventListener('change', function(){
-      scheduleRefreshCreateFullDayAddon();
-      if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
-    });
-  }
+
   // Hidden #ps-create-course-tier is not wired — duration is date-derived.
   // #ps-create-surfers is the one authority for course/private qty + rental/addon defaults.
   // Surfers: allow transient empty on input (do not reinsert 1); normalize on blur; equip waits for valid int.

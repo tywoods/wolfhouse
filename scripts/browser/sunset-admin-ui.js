@@ -1568,8 +1568,8 @@ function wireAdminTab(){
   root.addEventListener('click', function(ev){
     var btn = ev.target && ev.target.closest ? ev.target.closest('[data-admin-action]') : null;
     if (!btn || adminSaveBusy) return;
-    ev.preventDefault();
     var action = btn.getAttribute('data-admin-action');
+    if (action !== 'course-equipment-policy') ev.preventDefault();
     var cfg = adminConfigCache;
     if (!cfg && action !== 'toggle-pill'){
       adminShowMessage('error', portalT('admin.loading'));
@@ -1577,6 +1577,7 @@ function wireAdminTab(){
     }
     if (action === 'course-equipment-policy'){
       var isFree = btn.value === 'free_with_course';
+      root.querySelectorAll('input[name="admin-course-equipment-policy"]').forEach(function(radio){ radio.checked = radio === btn; });
       ['admin-course-during-board', 'admin-course-during-suit'].forEach(function(id){
         var input = el(id); if (input){ input.disabled = isFree; if (isFree) input.value = '0'; }
       });

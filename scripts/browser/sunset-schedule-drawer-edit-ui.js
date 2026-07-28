@@ -1160,15 +1160,19 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
   html += ' data-seed-wetsuit-qty="' + escHtml(String((comps.wetsuit && comps.wetsuit.quantity) || 1)) + '"';
   html += ' data-seed-surfers="' + escHtml(String(seedSurfers)) + '"';
   html += ' data-seed-rentals="' + escHtml(JSON.stringify(Array.isArray(ctx.rentals) ? ctx.rentals : [])) + '"></div>';
-  var addonSeed = (comps.full_day_equipment_extension && comps.full_day_equipment_extension.dates) || {};
-  var addonOn = Object.keys(addonSeed).length > 0;
-  html += '<div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-drawer-addon-fullday-field" style="display:none" data-addon-seed="' +
-    escHtml(JSON.stringify(addonSeed)) + '">';
-  html += '<label class="portal-schedule-create-check portal-schedule-addon-toggle" style="min-height:44px;display:flex;align-items:center">' +
-    '<input type="checkbox" id="ps-drawer-comp-fullday"' + (addonOn ? ' checked' : '') + '> ' +
-    escHtml(portalT('schedule.type.fullDayEquipment')) + '</label>';
-  html += '<div id="ps-drawer-fullday-rows" class="portal-schedule-addon-rows" style="display:none"></div>';
-  html += '<div id="ps-drawer-fullday-summary" class="portal-schedule-addon-summary" style="display:none" aria-live="polite"></div>';
+  var equipmentSeed = ctx.course_equipment || null;
+  /* Legacy full-day rows remain read-compatible, but the obsolete checkbox/menu is not rendered. */
+  if (!equipmentSeed && comps.full_day_equipment_extension && comps.full_day_equipment_extension.dates) {
+    var legacyQtys = Object.keys(comps.full_day_equipment_extension.dates).map(function(d){ return parseInt(comps.full_day_equipment_extension.dates[d], 10) || 1; });
+    equipmentSeed = { mode: 'all_day', quantity: legacyQtys.length ? Math.max.apply(null, legacyQtys) : seedSurfers };
+  }
+  html += '<fieldset class="portal-schedule-course-equipment" id="ps-drawer-course-equipment" style="display:none" data-seed="' + escHtml(JSON.stringify(equipmentSeed)) + '" aria-labelledby="ps-drawer-course-equipment-label">';
+  html += '<legend id="ps-drawer-course-equipment-label">' + escHtml(portalT('schedule.courseEquipment.title')) + '</legend>';
+  html += '<div role="group" aria-labelledby="ps-drawer-course-equipment-label">';
+  html += '<button type="button" class="portal-schedule-create-activity-btn" data-drawer-course-equipment-mode="during_course" aria-pressed="' + (equipmentSeed && equipmentSeed.mode === 'during_course' ? 'true' : 'false') + '">' + escHtml(portalT('schedule.courseEquipment.during')) + '</button>';
+  html += '<button type="button" class="portal-schedule-create-activity-btn" data-drawer-course-equipment-mode="all_day" aria-pressed="' + (equipmentSeed && equipmentSeed.mode === 'all_day' ? 'true' : 'false') + '">' + escHtml(portalT('schedule.courseEquipment.allDay')) + '</button></div>';
+  html += '<div id="ps-drawer-equipment-quantity-wrap"' + (equipmentSeed ? '' : ' style="display:none"') + '><label for="ps-drawer-equipment-quantity">' + escHtml(portalT('schedule.courseEquipment.quantity')) + '</label>';
+  html += '<input id="ps-drawer-equipment-quantity" type="number" min="1" max="' + escHtml(String(seedSurfers)) + '" value="' + escHtml(String(equipmentSeed && equipmentSeed.quantity || seedSurfers)) + '" inputmode="numeric"></div></fieldset>';
   html += '</div></section>';
   // When shell: non-private date summary (private sessions live in Main activity drill-down).
   html += '<section class="portal-schedule-create-section" data-edit-section="when" aria-labelledby="ps-drawer-section-when-title">';
@@ -1707,70 +1711,21 @@ function scheduleDrawerRefreshWhenSummary(){
 }
 
 function scheduleRefreshDrawerFullDayAddon() {
-  var field = el('ps-drawer-addon-fullday-field');
+  var field = el('ps-drawer-course-equipment');
   if (!field) return;
   var mode = scheduleDrawerMainActivityValue();
-  var courseOn = mode === 'group';
-  var privateOn = mode === 'private';
-  var rentals = scheduleReadDrawerRentalSelectionFromDom();
-  var boardOn = rentals.some(function(r) {
-    return r.offering_key === 'board_rental' || r.offering_key === 'board_and_suit_rental';
-  });
-  var wetsuitOn = rentals.some(function(r) {
-    return r.offering_key === 'wetsuit_rental' || r.offering_key === 'board_and_suit_rental';
-  });
-  var hasEligibleBase = courseOn || privateOn || boardOn || wetsuitOn;
-  var eligibleDates = [];
-  var defaultQty = 1;
-  if (privateOn) {
-    var sessions = scheduleDrawerReadPrivateSessionsFromDom();
-    var seen = {};
-    for (var i = 0; i < sessions.length; i++) {
-      var d = sessions[i].date;
-      if (d && !seen[d]) { seen[d] = 1; eligibleDates.push(d); }
-    }
-    eligibleDates.sort();
-    defaultQty = parseInt((el('ps-drawer-private-lesson-surfers') && el('ps-drawer-private-lesson-surfers').value) || '1', 10) || 1;
-  } else {
-    var span = scheduleDrawerDateSpan();
-    eligibleDates = typeof scheduleEnumerateDates === 'function'
-      ? (scheduleEnumerateDates(span.from, span.to || span.from) || []) : [];
-    var qtys = [];
-    if (courseOn) qtys.push(parseInt((el('ps-drawer-course-qty') && el('ps-drawer-course-qty').value) || '1', 10) || 1);
-    rentals.forEach(function(r) { qtys.push(parseInt(r.quantity, 10) || 1); });
-    defaultQty = qtys.length ? Math.max.apply(null, qtys) : 1;
-  }
-  var show = scheduleFullDayAddonEnabled && hasEligibleBase && eligibleDates.length > 0;
-  var checkbox = el('ps-drawer-comp-fullday');
-  var rows = el('ps-drawer-fullday-rows');
-  var summary = el('ps-drawer-fullday-summary');
-  var seed = null;
-  var domSeed = scheduleReadFullDayAddonRows('ps-drawer-fullday-rows');
-  if (Object.keys(domSeed).length) seed = domSeed;
-  else {
-    try { seed = JSON.parse(field.getAttribute('data-addon-seed') || '{}'); } catch (_e) { seed = {}; }
-  }
-  var seedDates = seed ? Object.keys(seed) : [];
-  if (!scheduleFullDayAddonEnabled && seedDates.length) show = true;
-  var mergedDates = eligibleDates.slice();
-  for (var s = 0; s < seedDates.length; s++) {
-    if (mergedDates.indexOf(seedDates[s]) < 0) mergedDates.push(seedDates[s]);
-  }
-  mergedDates.sort();
+  var show = mode === 'group' || mode === 'private';
   field.style.display = show ? '' : 'none';
   if (!show) {
-    if (checkbox) checkbox.checked = false;
-    if (rows) rows.style.display = 'none';
-    if (summary) summary.style.display = 'none';
+    field.querySelectorAll('[data-drawer-course-equipment-mode]').forEach(function(b){ b.setAttribute('aria-pressed', 'false'); });
     return;
   }
-  var on = !!(checkbox && checkbox.checked);
-  if (rows) rows.style.display = on ? '' : 'none';
-  if (on) {
-    scheduleRenderFullDayAddonRows('ps-drawer-fullday-rows', 'ps-drawer-fullday-summary', mergedDates, defaultQty, seed, scheduleUpdateDrawerTotalPreview);
-  } else if (summary) {
-    summary.style.display = 'none';
-  }
+  var selected = field.querySelector('[data-drawer-course-equipment-mode][aria-pressed="true"]');
+  var surfers = scheduleDrawerReadSurferCount() || 1;
+  var qty = el('ps-drawer-equipment-quantity');
+  var wrap = el('ps-drawer-equipment-quantity-wrap');
+  if (qty) { qty.max = String(surfers); qty.value = String(Math.max(1, Math.min(surfers, parseInt(qty.value || surfers, 10)))); }
+  if (wrap) wrap.style.display = selected ? '' : 'none';
 }
 
 function scheduleUpdateDrawerTotalPreview(){
@@ -2509,11 +2464,13 @@ function scheduleReadDrawerEditPayload() {
     var rentalComponents = scheduleRentalsToLegacyComponents(rentals);
     Object.keys(rentalComponents).forEach(function(k) { components[k] = rentalComponents[k]; });
   }
-  if (el('ps-drawer-comp-fullday') && el('ps-drawer-comp-fullday').checked) {
-    var addonDates = scheduleReadFullDayAddonRows('ps-drawer-fullday-rows');
-    if (Object.keys(addonDates).length) {
-      components.full_day_equipment_extension = { enabled: true, dates: addonDates };
-    }
+  var equipmentField = el('ps-drawer-course-equipment');
+  var selectedEquipment = equipmentField ? equipmentField.querySelector('[data-drawer-course-equipment-mode][aria-pressed="true"]') : null;
+  var course_equipment = null;
+  if (selectedEquipment && (components.course || components.private_lesson)) {
+    var eqSurfers = scheduleDrawerReadSurferCount() || 1;
+    var eqQty = Math.max(1, Math.min(eqSurfers, parseInt((el('ps-drawer-equipment-quantity') || {}).value || eqSurfers, 10)));
+    course_equipment = { mode: selectedEquipment.getAttribute('data-drawer-course-equipment-mode'), quantity: eqQty };
   }
   var custom_line_items = (scheduleDrawerCustomLines || []).map(function(l) {
     return {
@@ -2536,6 +2493,7 @@ function scheduleReadDrawerEditPayload() {
     custom_line_items: custom_line_items,
     // No-lesson equipment qty authority (server forces rentals to this when present).
     surfer_count: surferCount,
+    course_equipment: course_equipment,
   };
 }
 
@@ -2855,12 +2813,32 @@ function scheduleWireEditableDrawer(row, ctx) {
       scheduleDrawerPopulateComponentFields();
     });
   }
-  var drawerFulldayToggle = el('ps-drawer-comp-fullday');
-  if (drawerFulldayToggle) drawerFulldayToggle.addEventListener('change', function() {
-    scheduleDrawerMarkPriceStale();
-    scheduleRefreshDrawerFullDayAddon();
-    scheduleDrawerSyncFooter();
+  var equipmentField = el('ps-drawer-course-equipment');
+  var equipmentButtons = equipmentField ? equipmentField.querySelectorAll('[data-drawer-course-equipment-mode]') : [];
+  equipmentButtons.forEach(function(button) {
+    if (button.dataset.wired) return;
+    button.dataset.wired = '1';
+    button.addEventListener('click', function() {
+      if (!editMountStillActive()) return;
+      var deselect = button.getAttribute('aria-pressed') === 'true';
+      equipmentButtons.forEach(function(peer) {
+        peer.setAttribute('aria-pressed', !deselect && peer === button ? 'true' : 'false');
+      });
+      scheduleDrawerMarkPriceStale();
+      scheduleRefreshDrawerFullDayAddon();
+      scheduleDrawerSyncFooter();
+    });
   });
+  var equipmentQty = el('ps-drawer-equipment-quantity');
+  if (equipmentQty && !equipmentQty.dataset.wired) {
+    equipmentQty.dataset.wired = '1';
+    var equipmentChanged = function() {
+      if (!editMountStillActive()) return;
+      scheduleDrawerMarkPriceStale(); scheduleRefreshDrawerFullDayAddon(); scheduleDrawerSyncFooter();
+    };
+    equipmentQty.addEventListener('input', equipmentChanged);
+    equipmentQty.addEventListener('change', equipmentChanged);
+  }
   ['ps-drawer-date-from', 'ps-drawer-date-to', 'ps-drawer-course-qty', 'ps-drawer-private-lesson-surfers', 'ps-drawer-surfers'].forEach(function(id) {
     var node = el(id);
     if (!node) return;
