@@ -14,7 +14,7 @@ mkdir -p "$HERMES_HOME/sessions"
 cp /etc/hermes-sunset/SOUL.md "$HERMES_HOME/SOUL.md"
 cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: gpt-5.5
+  default: gpt-5.6-sol
   provider: openai-codex
 agent:
   reasoning_effort: none

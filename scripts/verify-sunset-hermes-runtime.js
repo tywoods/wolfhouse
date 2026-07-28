@@ -55,6 +55,15 @@ const stagingBootstrap = fs.readFileSync(
   path.join(__dirname, '..', 'docker', 'hermes-staging', 'bootstrap.sh'),
   'utf8',
 );
+assert.ok(
+  stagingBootstrap.includes('if [ "$HERMES_ROLE" = "sunset-luna" ]; then')
+    && stagingBootstrap.includes("sed -i 's/^  default: gpt-5\\.5$/  default: gpt-5.6-sol/' \"$HERMES_HOME/config.yaml\""),
+  'Sunset Luna must upgrade only its generated config to openai-codex/gpt-5.6-sol',
+);
+assert.ok(
+  stagingBootstrap.includes('default: gpt-5.5'),
+  'shared Wolfhouse Luna default must remain gpt-5.5',
+);
 const aiUsageEnvNames = [
   'CROWSNEST_AI_USAGE_INGEST_URL', 'CROWSNEST_AI_USAGE_INGEST_TOKEN',
   'CROWSNEST_AI_USAGE_CLIENT_SLUG', 'CROWSNEST_AI_USAGE_TENANT_ID',

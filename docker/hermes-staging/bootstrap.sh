@@ -310,6 +310,11 @@ elif [ "$HERMES_ROLE" = "luna" ] \
     [ "$SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID" != "$SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID" ] || { echo "Sunset phone IDs must be unique" >&2; exit 1; }
   fi
   write_luna_config
+  if [ "$HERMES_ROLE" = "sunset-luna" ]; then
+    # Sunset-only model upgrade. Keep Wolfhouse Luna and other shared-image roles
+    # on their proven defaults while Sunset validates GPT-5.6 Sol in staging.
+    sed -i 's/^  default: gpt-5\.5$/  default: gpt-5.6-sol/' "$HERMES_HOME/config.yaml"
+  fi
   if [ "$HERMES_ROLE" = "sunset-luna" ] && [ -f "$SUNSET_LUNA_SOUL" ]; then
     cp "$SUNSET_LUNA_SOUL" "$HERMES_HOME/SOUL.md"
   elif [ -f "$STAGING_LUNA_SOUL" ]; then
