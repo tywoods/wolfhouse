@@ -24321,7 +24321,9 @@ function scheduleOpsBuildGearIndex(rows, dateIso){
   (rows || []).forEach(function(row){
     var iso = String(row.service_date || row.date || '').slice(0, 10);
     if (iso !== dateIso) return;
-    var code = row.booking_code || row._scheduleId || 'unknown';
+    // Persisted service rows always carry booking_id, while booking_code is not
+    // guaranteed on every schedule projection. Keep deduplication per booking.
+    var code = row.booking_code || row.booking_id || row._scheduleId || 'unknown';
     if (!index[code]) index[code] = { boards: 0, wetsuits: 0, lessonQty: 0, hasLesson: false };
     var entry = index[code];
     var qty = scheduleOpsRowQty(row);

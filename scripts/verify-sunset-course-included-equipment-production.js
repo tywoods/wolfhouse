@@ -2,6 +2,8 @@
 const assert = require('assert');
 const writes = require('./lib/sunset-schedule-booking-writes');
 const ops = require('./lib/sunset-schedule-ops');
+const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
+const { formatServiceRecordInvoiceLineText } = require('./lib/service-record-invoice-line');
 
 function memoryPg() {
   const rows = [];
@@ -15,8 +17,8 @@ function memoryPg() {
       const addon = /'addon_service'/.test(sql);
       const metadata = JSON.parse(addon ? params[9] : params[9]);
       const row = addon
-        ? { id: `sr-${rows.length + 1}`, service_record_id: `sr-${rows.length + 1}`, booking_id: params[1], booking_code: params[2], guest_name: params[3], service_type: 'addon_service', service_date: params[4], quantity: params[5], amount_due_cents: params[6], payment_status: params[7], record_source: params[8], metadata }
-        : { id: `sr-${rows.length + 1}`, service_record_id: `sr-${rows.length + 1}`, booking_id: params[1], booking_code: params[2], guest_name: params[3], service_type: params[4], service_date: params[5], quantity: params[6], payment_status: params[7], record_source: params[8], metadata, amount_due_cents: 0 };
+        ? { id: `sr-${rows.length + 1}`, service_record_id: `sr-${rows.length + 1}`, client_slug: params[0], booking_id: params[1], booking_code: params[2], guest_name: params[3], service_type: 'addon_service', service_date: params[4], quantity: params[5], amount_due_cents: params[6], payment_status: params[7], record_source: params[8], metadata }
+        : { id: `sr-${rows.length + 1}`, service_record_id: `sr-${rows.length + 1}`, client_slug: params[0], booking_id: params[1], booking_code: params[2], guest_name: params[3], service_type: params[4], service_date: params[5], quantity: params[6], payment_status: params[7], record_source: params[8], metadata, amount_due_cents: 0 };
       rows.push(row);
       return { rows: [row], rowCount: 1 };
     },
@@ -45,6 +47,23 @@ async function persist(pg, { dates, people, included, paid = false }) {
   const paid = pg.rows.filter(r => r.metadata.component === writes.FULL_DAY_EQUIPMENT_ADDON_KEY);
   assert.strictEqual(paid.length, 2, 'paid extension remains separately persisted');
   assert(paid.every(r => r.amount_due_cents > 0 || r.metadata.unit_amount_cents === 1500), 'paid extension remains billable');
+  assert(included.every(r => r.client_slug === 'sunset'
+    && r.metadata.location_id === 'sunset-somo'
+    && r.metadata.included_course_id === 'pack-1'), 'persisted included rows retain tenant/location/course attribution');
+
+  // Execute the persisted-row finance and invoice owners, rather than inferring
+  // commercial behaviour from SQL text. Included lines remain visible at €0,
+  // while the paid extension is the only equipment amount in booked revenue.
+  const finance = computeSunsetFinanceSummary({
+    now: '2026-08-10T12:00:00.000Z', bsr: pg.rows, payments: [], bookings: [],
+  });
+  assert.strictEqual(finance.periods.today.booked_cents, 4500,
+    'authoritative persisted-row summary excludes included €0 rows and bills paid extension');
+  const includedInvoice = formatServiceRecordInvoiceLineText(included[0]);
+  const paidInvoice = formatServiceRecordInvoiceLineText(paid[0]);
+  assert(/Included equipment/.test(includedInvoice) && /€0/.test(includedInvoice),
+    'invoice owner renders included equipment at €0');
+  assert(/€45\.00/.test(paidInvoice), 'invoice owner renders paid extension as billable');
 
   // Edit reconciliation uses the production replacement writer: old owned rows are deleted in the same txn,
   // then this shared Create/Edit persistence owner rebuilds exactly the requested dates/quantity.
