@@ -16193,7 +16193,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 [data-theme="dark"] #tab-portal-home .btn-ghost:hover{background:var(--surface-soft);border-color:var(--tan)}
 [data-theme="dark"] #tab-portal-home .portal-schedule-status.is-unpaid,
 [data-theme="dark"] #tab-portal-home .portal-schedule-status.is-pending{color:#ffb896}
-[data-theme="dark"] #tab-portal-home .portal-schedule-status.is-paid{color:#9ee0a8}
+[data-theme="dark"] #tab-portal-home .portal-schedule-status.is-paid{background:rgba(90,190,120,.16);color:#9ee0a8}
 [data-theme="dark"] #tab-portal-home .portal-schedule-drawer,
 [data-theme="dark"] #tab-portal-home .portal-schedule-create-drawer{background:var(--surface);border-color:var(--border-soft)}
 
@@ -16858,6 +16858,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-status.is-paid{background:#E3F0E7;color:#3F6B4F;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
 .portal-schedule-status.is-waiver{background:#D8EDDB;color:#256B41;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
 [data-theme="dark"] .portal-schedule-status.is-waiver{background:rgba(90,190,120,.16);color:#8fe0a5}
+[data-theme="dark"] .portal-schedule-status.is-paid{background:rgba(90,190,120,.16);color:#9ee0a8}
 .portal-schedule-status.is-needs-reply{background:#EDE7F4;color:#6B5080;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
 .portal-schedule-empty-slot-group{border-style:dashed;box-shadow:none;background:transparent}
 .portal-schedule-empty-slot-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px}
@@ -16944,6 +16945,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 [data-theme="dark"] #tab-portal-home .portal-schedule-src-chip.is-luna{background:rgba(111,147,184,.16);color:#a9c4e0}
 [data-theme="dark"] #tab-portal-home .portal-schedule-src-chip.is-luna i{background:#6f93b8}
 [data-theme="dark"] #tab-portal-home .portal-schedule-status.is-unpaid,[data-theme="dark"] #tab-portal-home .portal-schedule-status.is-pending{background:rgba(255,140,110,.14);color:#ffb896}
+[data-theme="dark"] #tab-portal-home .portal-schedule-status.is-paid{background:rgba(90,190,120,.16);color:#9ee0a8}
 [data-theme="dark"] #tab-portal-home .portal-schedule-status.is-needs-reply{background:rgba(154,138,184,.16);color:#b7a5d6}
 [data-theme="dark"] #tab-portal-home .portal-schedule-hdr-badge.is-course{background:rgba(214,178,110,.16);color:#d9bd8c}
 [data-theme="dark"] #tab-portal-home .portal-schedule-hdr-badge.is-done{background:rgba(255,255,255,.06);color:var(--text-3)}
@@ -20099,6 +20101,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
     const target = this.dataset.tab;
     if (isTabHiddenForClient(target, getClient())) return;
+    try { if (window.__closeStaffNavMenu) window.__closeStaffNavMenu(); } catch (_navClose) {}
     document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
     document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
     this.classList.add('active');
@@ -20119,6 +20122,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
     if (target !== 'conversations') hideInboxMobileThread();
     staffNotificationSettingsApplyVisibility();
+    try { if (window.__syncNavQuickFlip) window.__syncNavQuickFlip(target); } catch (_flip) {}
   });
 });
 
