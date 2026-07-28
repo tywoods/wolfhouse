@@ -247,13 +247,18 @@ function sendJSON(res, status, body, extraHeaders = {}) {
 }
 
 function sendHTML(res, status, html, extraHeaders = {}, cspNonce = '') {
+  // Apply the operator's saved theme (server cookie; CSP forbids client JS) to the root element.
+  const theme = res && res.crowsnestTheme === 'dark' ? 'dark' : 'light';
+  const themed = typeof html === 'string'
+    ? html.replace('<html lang="en">', `<html lang="en" data-theme="${theme}">`)
+    : html;
   res.writeHead(status, {
     'Content-Type': 'text/html; charset=utf-8',
-    'Content-Length': Buffer.byteLength(html, 'utf8'),
+    'Content-Length': Buffer.byteLength(themed, 'utf8'),
     ...extraHeaders,
     ...getBrowserSecurityHeaders(cspNonce),
   });
-  res.end(html);
+  res.end(themed);
 }
 
 function sendImage(res, status, buffer, contentType, extraHeaders = {}) {
@@ -446,6 +451,61 @@ function getSessionCookieHeader(token) {
 
 function getClearedSessionCookieHeader() {
   return buildCrowsnestClearedSessionCookie({ secure: isProduction() });
+}
+
+const CROWSNEST_THEME_COOKIE = 'crowsnest_theme';
+const CROWSNEST_THEME_MAX_AGE = 60 * 60 * 24 * 365;
+
+function parseRequestCookies(req) {
+  const out = new Map();
+  const raw = String((req && req.headers && req.headers.cookie) || '');
+  for (const part of raw.split(';')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+    out.set(trimmed.slice(0, eq), trimmed.slice(eq + 1));
+  }
+  return out;
+}
+
+function readCrowsnestTheme(req) {
+  return parseRequestCookies(req).get(CROWSNEST_THEME_COOKIE) === 'dark' ? 'dark' : 'light';
+}
+
+function buildCrowsnestThemeCookie(theme) {
+  const parts = [
+    `${CROWSNEST_THEME_COOKIE}=${theme === 'dark' ? 'dark' : 'light'}`,
+    'HttpOnly',
+    'SameSite=Lax',
+    'Path=/',
+    `Max-Age=${CROWSNEST_THEME_MAX_AGE}`,
+  ];
+  if (isProduction()) parts.push('Secure');
+  return parts.join('; ');
+}
+
+// Only same-origin absolute paths are honored (no open redirect, no protocol-relative).
+function sanitizeThemeReturnPath(raw) {
+  const value = String(raw || '');
+  if (!value.startsWith('/') || value.startsWith('//')) return '/';
+  if (!/^\/[A-Za-z0-9/_\-?=&.%]*$/.test(value)) return '/';
+  return value;
+}
+
+function handleThemeToggle(req, res, method) {
+  if (method !== 'GET') {
+    return sendMethodNotAllowed(res, 'GET');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendRedirect(res, '/login', { 'Cache-Control': 'no-store' });
+  }
+  const next = readCrowsnestTheme(req) === 'dark' ? 'light' : 'dark';
+  const location = sanitizeThemeReturnPath(getRequestSearchParams(req).get('r') || '/');
+  return sendRedirect(res, location, {
+    'Cache-Control': 'no-store',
+    'Set-Cookie': buildCrowsnestThemeCookie(next),
+  });
 }
 
 function resolveOperatorActor(req) {
@@ -2171,6 +2231,7 @@ async function handleSalesOutreachDraft(req, res, method, prospectId) {
 
 async function router(req, res) {
   clearExpiredCrowsnestSessions();
+  res.crowsnestTheme = readCrowsnestTheme(req);
   const pathname = getRequestPath(req);
   const method = getRequestMethod(req);
   const authEnabled = isCrowsnestAuthEnabled();
@@ -2190,6 +2251,10 @@ async function router(req, res) {
 
   if (pathname === '/logout') {
     return handleLogout(req, res, method);
+  }
+
+  if (pathname === '/theme') {
+    return handleThemeToggle(req, res, method);
   }
 
   if (ASSETS.has(pathname)) {

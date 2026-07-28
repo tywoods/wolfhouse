@@ -136,6 +136,41 @@ const CROWSNEST_CSS = `
   --focus:0 0 0 3px rgba(74,124,148,.28);
   --max:1120px;
 }
+html{color-scheme:light}
+html[data-theme="dark"]{
+  color-scheme:dark;
+  --sand:#12171C;
+  --sand-deep:#0C1013;
+  --surface:#1A2027;
+  --surface-raised:#212932;
+  --navy:#EAF0F5;
+  --charcoal:#DCE4EA;
+  --text-2:#AEB9C4;
+  --text-3:#8A97A3;
+  --sea:#6FA8C4;
+  --sea-soft:#22333F;
+  --sea-link:#8FC4DE;
+  --amber:#D6A75A;
+  --amber-soft:#3A2F1A;
+  --green:#7FC9A8;
+  --green-soft:#1E3329;
+  --red:#E39191;
+  --red-soft:#3A2020;
+  --border:#2C3742;
+  --border-soft:#242D36;
+  --shadow:0 10px 30px rgba(0,0,0,.45);
+  --shadow-soft:0 2px 10px rgba(0,0,0,.35);
+  --focus:0 0 0 3px rgba(111,168,196,.36);
+}
+html[data-theme="dark"] body{
+  background:
+    radial-gradient(circle at 12% 0%,rgba(111,168,196,.10),transparent 34%),
+    radial-gradient(circle at 88% 8%,rgba(74,124,148,.12),transparent 30%),
+    linear-gradient(180deg,var(--sand) 0%,#0F1519 42%,var(--sand-deep) 100%);
+}
+html[data-theme="dark"] .page-header{
+  background:linear-gradient(135deg,rgba(33,41,50,.96),rgba(26,32,39,.9));
+}
 html{font-size:16px}
 body{
   min-height:100vh;
@@ -200,27 +235,55 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   max-width:min(200px,42vw);
   object-fit:contain;
 }
-.logout-form{
+.page-header-controls{
+  display:flex;
+  align-items:center;
+  gap:8px;
   margin-left:auto;
   flex:0 0 auto;
 }
+.logout-form{
+  display:inline-flex;
+  flex:0 0 auto;
+}
+.theme-toggle{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:38px;
+  height:38px;
+  flex:0 0 auto;
+  border-radius:var(--radius-pill);
+  border:1px solid var(--border);
+  background:var(--surface-raised);
+  color:var(--text-2);
+  box-shadow:var(--shadow-soft);
+  cursor:pointer;
+}
+.theme-toggle:hover{color:var(--navy);border-color:var(--sea);background:var(--sea-soft)}
+.theme-toggle svg{width:18px;height:18px;display:block}
+.theme-toggle .icon-sun{display:none}
+.theme-toggle .icon-moon{display:block}
+html[data-theme="dark"] .theme-toggle .icon-moon{display:none}
+html[data-theme="dark"] .theme-toggle .icon-sun{display:block}
 .logout-button{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  min-height:40px;
-  padding:0 14px;
-  border-radius:var(--radius-sm);
-  border:1px solid rgba(155,69,69,.22);
-  background:linear-gradient(180deg,#F6E7E7 0%,#EFD8D8 100%);
-  color:#7B3030;
-  font-size:14px;
-  font-weight:800;
+  gap:7px;
+  min-height:38px;
+  padding:0 15px;
+  border-radius:var(--radius-pill);
+  border:1px solid var(--border);
+  background:var(--surface-raised);
+  color:var(--text-2);
+  font-size:13px;
+  font-weight:700;
   cursor:pointer;
   box-shadow:var(--shadow-soft);
   white-space:nowrap;
 }
-.logout-button:hover{background:linear-gradient(180deg,#F4E0E0 0%,#E8CCCC 100%)}
+.logout-button:hover{color:var(--navy);border-color:var(--sea);background:var(--sea-soft)}
 .top-nav{
   display:flex;
   flex-wrap:wrap;
@@ -236,7 +299,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 @media(min-width:900px){
   .page-header-top{flex-wrap:nowrap}
   .top-nav{justify-content:center}
-  .logout-form{margin-left:0}
+  .page-header-controls{margin-left:0}
 }
 .top-nav-link{
   display:inline-flex;
@@ -574,6 +637,36 @@ h1.page-title{
   margin:0;
   font-size:15px;
   max-width:52ch;
+}
+/* When the page title only repeats the active nav tab, keep it for a11y/SEO but hide it visually. */
+.page-title--section{
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;
+  border:0;
+}
+.page-title--section + .sub{margin-top:2px}
+html[data-theme="dark"] .sales-form input,
+html[data-theme="dark"] .sales-form textarea,
+html[data-theme="dark"] .sales-form select,
+html[data-theme="dark"] .audit-list li{
+  background:var(--surface-raised);
+  border-color:var(--border);
+}
+html[data-theme="dark"] .sales-form input,
+html[data-theme="dark"] .sales-form textarea,
+html[data-theme="dark"] .sales-form select{
+  color:var(--navy);
+}
+html[data-theme="dark"] .sales-error{
+  background:var(--red-soft);
+  border-color:var(--red);
+  color:var(--red);
 }
 section{margin-bottom:24px}
 h2.section{
@@ -2951,12 +3044,42 @@ function viewSubtitle(view) {
   return 'Internal Luna Front Desk overview dashboard';
 }
 
+const CROWSNEST_SECTION_PATH = {
+  spyglass: '/',
+  clients: '/clients',
+  billing: '/billing',
+  communications: '/communications',
+  sales: '/sales',
+};
+
+function crowsnestSectionPath(view) {
+  return CROWSNEST_SECTION_PATH[navActiveView(view)] || '/';
+}
+
+function crowsnestNavLabel(view) {
+  const active = navActiveView(view);
+  const item = CROWSNEST_NAV_ITEMS.find((entry) => entry.view === active);
+  return item ? item.label : '';
+}
+
+// Theme toggle is a GET link (not a form) so read-only surfaces stay form-free,
+// and JS-free (CSP script-src 'none') — persistence is a server cookie via /theme.
+function renderCrowsnestThemeToggle(view) {
+  const ret = encodeURIComponent(crowsnestSectionPath(view));
+  return `<a class="theme-toggle" href="/theme?r=${ret}" role="button" aria-label="Toggle light or dark theme" title="Toggle light / dark theme">
+          <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="currentColor"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 2.4v2.4"/><path d="M12 19.2v2.4"/><path d="M4.2 4.2l1.7 1.7"/><path d="M18.1 18.1l1.7 1.7"/><path d="M2.4 12h2.4"/><path d="M19.2 12h2.4"/><path d="M4.2 19.8l1.7-1.7"/><path d="M18.1 5.9l1.7-1.7"/></g></svg>
+        </a>`;
+}
+
 function renderCrowsnestPage(options = {}) {
   const nonce = options.cspNonce ? String(options.cspNonce) : '';
   const view = normalizeCrowsnestView(options.view != null ? options.view : options.route);
   const clients = getCrowsnestClients();
   const templates = getCrowsnestTemplates();
   const title = viewPageTitle(view);
+  // Suppress the big page title when it only echoes the active nav tab (kept in DOM for a11y).
+  const pageTitleClass = title === crowsnestNavLabel(view) ? 'page-title page-title--section' : 'page-title';
   const main = renderViewMain(view, clients, templates, options);
 
   return `<!DOCTYPE html>
@@ -2975,11 +3098,14 @@ function renderCrowsnestPage(options = {}) {
           <img class="page-header-logo" src="/crowsnest/assets/logo.png" alt="Crowsnest" width="2172" height="724">
         </a>
         ${renderCrowsnestNav(view)}
-        <form class="logout-form" method="post" action="/logout">
-          <button class="logout-button" type="submit" aria-label="Sign out of Crowsnest">Sign out</button>
-        </form>
+        <div class="page-header-controls">
+          ${renderCrowsnestThemeToggle(view)}
+          <form class="logout-form" method="post" action="/logout">
+            <button class="logout-button" type="submit" aria-label="Sign out of Crowsnest">Sign out</button>
+          </form>
+        </div>
       </div>
-      <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_analytics' ? 'sales-analytics' : (view === 'sales_governance' ? 'sales-governance' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : (view === 'sales_outreach_draft' ? 'sales-outreach-draft' : (view === 'sales_discovery' ? 'sales-discovery' : view)))))))}-title">${escapeHtml(title)}</h1>
+      <h1 class="${pageTitleClass}" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_analytics' ? 'sales-analytics' : (view === 'sales_governance' ? 'sales-governance' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : (view === 'sales_outreach_draft' ? 'sales-outreach-draft' : (view === 'sales_discovery' ? 'sales-discovery' : view)))))))}-title">${escapeHtml(title)}</h1>
       <p class="sub">${escapeHtml(viewSubtitle(view))}</p>
     </header>
 
