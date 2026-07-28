@@ -8455,8 +8455,8 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
   }
 
   if (amountDueCents == null || amountDueCents <= 0) {
-    return sendJSON(res, 200, {
-      success: true,
+    return sendJSON(res, 422, {
+      success: false,
       created: false,
       idempotent: false,
       error: 'no_payment_due',
