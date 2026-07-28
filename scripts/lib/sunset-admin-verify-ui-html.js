@@ -25,6 +25,7 @@ function buildVerifyStaffUiHtml() {
   const { getWolfhouseServicesAdminSource } = loadWolfhouseServicesAdmin();
   const { getSunsetAdminBrowserHelperSource } = require('./sunset-admin-ui-helpers');
   const { getSunsetAdminUiBrowserSource } = require('./sunset-admin-browser-source');
+  const { injectSunsetSchedulePortalModule } = require('./sunset-schedule-browser-source');
   const { staffPortalDevTabsEnabled } = require('./staff-portal-clients');
   const { MESSAGE_MIN: OUTREACH_MESSAGE_MIN } = require('./staff-customer-outreach-send');
   const {
@@ -82,6 +83,10 @@ function buildVerifyStaffUiHtml() {
   for (const [needle, value] of replacements) {
     html = html.split(needle).join(value);
   }
+  // Match the production buildUiHtml post-processing pipeline. Without this,
+  // the extracted template contains unresolved owner markers and can throw as
+  // soon as a real top-level scope change invokes Schedule cleanup.
+  html = injectSunsetSchedulePortalModule(html);
 
   const unresolved = [...html.matchAll(/\$\{[^}]+\}/g)].map((m) => m[0]);
   if (unresolved.length) {

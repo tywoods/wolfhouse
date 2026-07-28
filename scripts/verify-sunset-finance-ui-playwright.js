@@ -1,25 +1,286 @@
 'use strict';
-const fs=require('fs'); const path=require('path'); const http=require('http');
-const ROOT=path.join(__dirname,'..'); const src=fs.readFileSync(path.join(ROOT,'scripts/browser/sunset-admin-ui.js'),'utf8');
-function extract(name){ const m=new RegExp(`function ${name}\\s*\\([^)]*\\)\\s*\\{`).exec(src); if(!m) throw new Error(`missing ${name}`); let d=0,start=src.indexOf('{',m.index); for(let i=start;i<src.length;i++){if(src[i]==='{')d++;else if(src[i]==='}'&&!--d)return src.slice(m.index,i+1);} throw new Error(name); }
-const names=['loadAdminFinanceSummary','wireFinanceRetry','financeFmtEur','financePeriodEmpty','financeMetricRow','financeCard','renderFinanceTrendHtml','renderFinanceSummaryHtml','renderFinanceErrorHtml'];
-const runtime=names.map(extract).join('\n');
-const html=`<!doctype html><meta name="viewport" content="width=device-width"><style>body{margin:0}.pf-cards{display:grid;grid-template-columns:1fr}.portal-admin-finance-retry{min-height:44px}@media(min-width:700px){.pf-cards{grid-template-columns:repeat(3,1fr)}}#admin-finance-body{max-width:100%;overflow:hidden}</style><button id="open">Admin</button><div id="admin-finance-body"></div><script>
-var state={client:'sunset',location:'sunset-somo',lang:'en'},portalLang='en',financeLoadSeq=0,configRequests=0;
-var words={en:{loading:'Loading finance summary…',empty:'No finance activity',error:'Could not load finance summary',retry:'Retry',today:'Today',week:'This week',month:'This month',booked:'Booked',collectedGross:'Collected (gross)',outstanding:'Outstanding',bookings:'Bookings',trendTitle:'Daily trend',grossNote:'Gross only',summaryUnavailable:'Unavailable'},es:{loading:'Cargando resumen financiero…',empty:'Sin actividad financiera',error:'No se pudo cargar',retry:'Reintentar',today:'Hoy',week:'Esta semana',month:'Este mes',booked:'Reservado',collectedGross:'Cobrado (bruto)',outstanding:'Pendiente',bookings:'Reservas',trendTitle:'Tendencia diaria',grossNote:'Solo bruto',summaryUnavailable:'No disponible'},it:{loading:'Caricamento riepilogo finanziario…',empty:'Nessuna attività finanziaria',error:'Impossibile caricare',retry:'Riprova',today:'Oggi',week:'Questa settimana',month:'Questo mese',booked:'Prenotato',collectedGross:'Incassato (lordo)',outstanding:'Da incassare',bookings:'Prenotazioni',trendTitle:'Andamento giornaliero',grossNote:'Solo lordo',summaryUnavailable:'Non disponibile'}};
-function portalT(k){return (words[state.lang]||words.en)[k.replace('admin.finance.','')]||k} function escHtml(v){return String(v).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]})} function el(id){return document.getElementById(id)} function getClient(){return state.client} function getSunsetLocation(){return state.location} function adminClientQuery(){return '?client='+encodeURIComponent(state.client)+'&location='+encodeURIComponent(state.location)}
-${runtime}
-function openAdmin(){configRequests++;if(getClient()==='sunset')loadAdminFinanceSummary()} document.getElementById('open').onclick=openAdmin; window.testApi={openAdmin:function(){openAdmin()},switchScope:function(c,l){state.client=c;state.location=l;++financeLoadSeq;if(c==='sunset')loadAdminFinanceSummary()},lang:function(l){state.lang=l;portalLang=l},counts:function(){return{config:configRequests}}};
-</script>`;
-let pass=0,fail=0; function ok(label,c,d){if(c){pass++;console.log('  PASS  '+label)}else{fail++;console.error('  FAIL  '+label+(d?' — '+d:''))}}
-const summary=(value=4000)=>({periods:{today:{booked_cents:value,collected_gross_cents:6000,outstanding_cents:1000,bookings_count:1},week:{booked_cents:value,collected_gross_cents:6000,outstanding_cents:1000,bookings_count:1},month:{booked_cents:value,collected_gross_cents:6000,outstanding_cents:1000,bookings_count:1}},daily_trend:[{date:'2026-07-15',booked_cents:value,collected_gross_cents:6000,outstanding_cents:1000,bookings_count:1}]});
-async function main(){let pw;try{pw=require('playwright')}catch(_){pw=require('/opt/wolfhouse/WH/node_modules/playwright')} const server=http.createServer((q,r)=>{if(q.url==='/staff/ui'){r.setHeader('content-type','text/html');r.end(html)}else{r.statusCode=404;r.end()}});await new Promise(r=>server.listen(0,'127.0.0.1',r)); const base=`http://127.0.0.1:${server.address().port}`; const browser=await pw.chromium.launch({headless:true});
-try{const page=await browser.newPage({viewport:{width:430,height:800}});let requests=[];let mode='success';let pending=[];await page.route('**/staff/admin/finance/summary**',async route=>{requests.push(route.request().url());if(mode==='pending'){pending.push(route);return}if(mode==='error'){await route.fulfill({status:503,json:{success:false,error:'unavailable'}});return}if(mode==='empty'){const z={booked_cents:0,collected_gross_cents:0,outstanding_cents:0,bookings_count:0};await route.fulfill({json:{success:true,summary:{periods:{today:z,week:z,month:z},daily_trend:[]}}});return}await route.fulfill({json:{success:true,summary:summary()}})});await page.goto(base+'/staff/ui');
-mode='pending';await page.click('#open');ok('normal Admin open paints loading',await page.locator('[role=status]').isVisible());ok('normal Admin open issues exactly one Finance request',requests.length===1,String(requests.length));ok('Finance request is separate from config accounting',(await page.evaluate(()=>testApi.counts())).config===1);await pending.shift().fulfill({json:{success:true,summary:summary()}});await page.waitForSelector('.pf-card');ok('success paints server summary',/40[.,]00/.test(await page.locator('#admin-finance-body').innerText()));
-mode='empty';await page.evaluate(()=>testApi.openAdmin());await page.waitForSelector('.portal-admin-finance-empty');ok('empty response paints honest empty state',true);mode='error';await page.evaluate(()=>testApi.openAdmin());await page.waitForSelector('#admin-finance-retry');ok('error paints retry',true);mode='success';await page.click('#admin-finance-retry');await page.waitForSelector('.pf-card');ok('retry succeeds with one additional request',requests.length===4,String(requests.length));
-mode='pending';await page.evaluate(()=>testApi.openAdmin());await page.waitForTimeout(10);await page.evaluate(()=>testApi.openAdmin());await page.waitForTimeout(10);const old=pending.shift(),fresh=pending.shift();await fresh.fulfill({json:{success:true,summary:summary(9000)}});await page.waitForFunction(()=>document.body.innerText.includes('90.00')||document.body.innerText.includes('90,00'));await old.fulfill({json:{success:true,summary:summary(1000)}});await page.waitForTimeout(30);ok('out-of-order older response cannot repaint',/90[.,]00/.test(await page.locator('.pf-card .pf-metric-value').first().innerText()));
-await page.evaluate(()=>testApi.switchScope('wolfhouse-somo','default'));await page.waitForTimeout(20);ok('client switch invalidates stale and starts no unavailable-client request',pending.length===0);await page.evaluate(()=>testApi.switchScope('sunset','sunset-somo'));await page.waitForTimeout(10);const somo=pending.shift();await page.evaluate(()=>testApi.switchScope('sunset','sunset-sardinero'));await page.waitForTimeout(10);const sardi=pending.shift();await sardi.fulfill({json:{success:true,summary:summary(8000)}});await somo.fulfill({json:{success:true,summary:summary(2000)}});await page.waitForTimeout(30);ok('location switch invalidates stale response',/80[.,]00/.test(await page.locator('#admin-finance-body').innerText()));ok('switch request URLs carry exact client/location',requests.some(u=>u.includes('location=sunset-sardinero'))&&requests.every(u=>u.includes('client=sunset')));
-for(const lang of ['en','es','it']){mode='success';await page.evaluate(l=>testApi.lang(l),lang);await page.evaluate(()=>testApi.openAdmin());await page.waitForSelector('.pf-card');const t=await page.locator('#admin-finance-body').innerText();ok(`${lang.toUpperCase()} generated /staff/ui finance flow translated`,!t.includes('admin.finance.')&&t.length>20)}
-for(const width of [320,375,430]){await page.setViewportSize({width,height:760});const box=await page.locator('#admin-finance-body').boundingBox();const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>document.documentElement.clientWidth);ok(`mobile ${width}px no horizontal overflow and content visible`,!!box&&!overflow)}
-}finally{await browser.close();await new Promise(r=>server.close(r))}console.log(`\n── verify:sunset-finance-ui-playwright: ${pass} passed, ${fail} failed ──`);if(fail)process.exitCode=1;else console.log('verify:sunset-finance-ui-playwright — ALL CHECKS PASSED')}
-main().catch(e=>{console.error(e);process.exit(1)});
+
+/**
+ * Mandatory Finance browser verifier.
+ *
+ * This runs the production-generated /staff/ui and its production owners.  The
+ * only browser interception is the Finance backend response; no UI function,
+ * translation, markup, or CSS is reconstructed here.
+ */
+const fs = require('fs');
+const path = require('path');
+const ROOT = path.join(__dirname, '..');
+
+process.env.STAFF_AUTH_REQUIRED = String(false);
+process.env.STAFF_AUTH_ALLOW_OPEN = String(true);
+process.env.NODE_ENV = 'test';
+process.env.DEFAULT_CLIENT_SLUG = 'sunset';
+process.env.STAFF_PORTAL_LOCALES = 'en,es,it';
+process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'false';
+process.env.SUNSET_ADMIN_WRITES_ENABLED = 'true';
+
+let passed = 0;
+let failed = 0;
+function check(label, condition, detail) {
+  if (condition) { passed += 1; console.log(`  PASS  ${label}`); return; }
+  failed += 1;
+  console.error(`  FAIL  ${label}${detail ? ` — ${detail}` : ''}`);
+}
+function equal(label, actual, expected) {
+  check(label, actual === expected, `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+}
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function listen(server) {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`));
+  });
+}
+function close(server) { return new Promise((resolve) => server.close(resolve)); }
+function loadPlaywright() {
+  try { return require('playwright'); }
+  catch (err) {
+    const shared = '/opt/wolfhouse/WH/node_modules/playwright';
+    if (fs.existsSync(path.join(shared, 'package.json'))) return require(shared);
+    console.error('Playwright required: install playwright and Chromium; verifier fails closed.');
+    process.exit(2);
+  }
+}
+
+const zero = { booked_cents: 0, collected_gross_cents: 0, outstanding_cents: 0, bookings_count: 0 };
+function summary(booked = 4000) {
+  const period = { booked_cents: booked, collected_gross_cents: 6000, outstanding_cents: 1000, bookings_count: 1 };
+  return {
+    periods: { today: { ...period }, week: { ...period }, month: { ...period } },
+    daily_trend: [{ date: '2026-07-15', ...period }],
+  };
+}
+const emptySummary = { periods: { today: { ...zero }, week: { ...zero }, month: { ...zero } }, daily_trend: [] };
+const COPY = {
+  en: {
+    tabs: ['Finance', 'Pricing'], loading: 'Loading finance summary…', empty: 'No finance activity for these periods yet.',
+    error: 'Could not load the finance summary.', retry: 'Retry', period: ['Today', 'This week', 'This month'],
+    metrics: ['Booked', 'Collected (gross)', 'Outstanding', 'Bookings'], trend: 'Daily trend — this month',
+    note: 'Collected is gross — refunds/reversals are not yet available.',
+  },
+  es: {
+    tabs: ['Finanzas', 'Precios'], loading: 'Cargando el resumen financiero…', empty: 'Aún no hay actividad financiera en estos periodos.',
+    error: 'No se pudo cargar el resumen financiero.', retry: 'Reintentar', period: ['Hoy', 'Esta semana', 'Este mes'],
+    metrics: ['Reservado', 'Cobrado (bruto)', 'Pendiente', 'Reservas'], trend: 'Tendencia diaria — este mes',
+    note: 'El cobrado es bruto — los reembolsos/reversos aún no están disponibles.',
+  },
+  it: {
+    tabs: ['Finanze', 'Prezzi'], loading: 'Caricamento del riepilogo finanziario…', empty: 'Nessuna attività finanziaria per questi periodi.',
+    error: 'Impossibile caricare il riepilogo finanziario.', retry: 'Riprova', period: ['Oggi', 'Questa settimana', 'Questo mese'],
+    metrics: ['Prenotato', 'Incassato (lordo)', 'Da incassare', 'Prenotazioni'], trend: 'Andamento giornaliero — questo mese',
+    note: 'L’incassato è lordo — rimborsi/storni non ancora disponibili.',
+  },
+};
+
+async function waitPortal(page) {
+  await page.waitForFunction(() => {
+    const select = document.getElementById('c-client');
+    return document.body && !document.body.classList.contains('portal-profile-pending')
+      && select && select.value === 'sunset' && select.options.length > 1;
+  }, null, { timeout: 30000 });
+  await page.locator('button.tab-btn[data-tab="admin"]').waitFor({ state: 'visible', timeout: 20000 });
+}
+async function openAdmin(page) {
+  await page.locator('button.tab-btn[data-tab="admin"]').click();
+  await page.waitForSelector('#tab-admin.tab-panel.active');
+}
+async function requestCount(requests) { await sleep(40); return requests.length; }
+async function text(page) { return page.locator('#admin-finance-body').innerText(); }
+async function fulfill(route, body, status = 200) { await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) }); }
+async function nextPending(pending, timeout = 5000) {
+  const start = Date.now();
+  while (!pending.length && Date.now() - start < timeout) await sleep(10);
+  if (!pending.length) throw new Error('Timed out waiting for intercepted Finance request');
+  return pending.shift();
+}
+
+async function main() {
+  const playwright = loadPlaywright();
+  const { createSunsetAdminVerifyServer } = require('./fixtures/sunset-admin-verify-server');
+  const server = createSunsetAdminVerifyServer();
+  const base = await listen(server);
+  const browser = await playwright.chromium.launch({ headless: true });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  const requests = [];
+  const pending = [];
+  const pageErrors = [];
+  const consoleErrors = [];
+  let mode = 'pending';
+
+  page.on('pageerror', (err) => pageErrors.push(String(err.message || err)));
+  page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+  await context.addInitScript(() => {
+    localStorage.setItem('staff_portal_client', 'sunset');
+    localStorage.setItem('staff_portal_sunset_location', 'sunset-somo');
+    localStorage.setItem('wh_staff_portal_locale', 'en');
+  });
+  await page.route('**/staff/admin/finance/summary**', async (route) => {
+    requests.push({ url: route.request().url(), at: Date.now() });
+    if (mode === 'pending') { pending.push(route); return; }
+    if (mode === 'empty') return fulfill(route, { success: true, summary: emptySummary });
+    if (mode === 'error') return fulfill(route, { success: false, error: 'unavailable' });
+    return fulfill(route, { success: true, summary: summary() });
+  });
+
+  try {
+    console.log('\n[1] Real /staff/ui entry, default tab, loading and success\n');
+    await page.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await waitPortal(page);
+    await openAdmin(page);
+    await page.waitForSelector('.portal-admin-finance-loading');
+    equal('normal Admin open issues exactly one Finance request', await requestCount(requests), 1);
+    equal('loading copy is exact production EN', await text(page), COPY.en.loading);
+    const first = await nextPending(pending);
+    await fulfill(first, { success: true, summary: summary(4000) });
+    await page.waitForSelector('.pf-card');
+    check('loading → success paints backend value', /€40[.,]00/.test(await text(page)), await text(page));
+    const defaults = await page.evaluate(() => ({
+      keys: Array.from(document.querySelectorAll('#admin-subtab-list [data-admin-tab]')).map((x) => x.dataset.adminTab),
+      selected: document.getElementById('admin-tab-finance')?.getAttribute('aria-selected'),
+      pricingHidden: document.getElementById('admin-panel-pricing')?.hidden,
+    }));
+    equal('Finance remains first and Pricing second', defaults.keys.join(','), 'finance,pricing');
+    equal('Finance remains default selected', defaults.selected, 'true');
+    equal('Pricing remains hidden by default', defaults.pricingHidden, true);
+
+    console.log('\n[2] Empty and error → retry → success\n');
+    mode = 'empty';
+    await page.locator('button.tab-btn[data-tab="admin"]').click();
+    await page.waitForSelector('.portal-admin-finance-empty');
+    equal('genuine zero response paints exact empty copy',
+      await page.locator('.portal-admin-finance-empty').innerText(), COPY.en.empty);
+    mode = 'error';
+    await page.locator('button.tab-btn[data-tab="admin"]').click();
+    await page.waitForSelector('#admin-finance-retry');
+    check('error paints exact production copy', (await text(page)).includes(COPY.en.error));
+    equal('retry label exact', await page.locator('#admin-finance-retry').innerText(), COPY.en.retry);
+    const beforeRetry = requests.length;
+    mode = 'success';
+    await page.locator('#admin-finance-retry').click();
+    await page.waitForSelector('.pf-card');
+    equal('retry sends exactly one request', requests.length, beforeRetry + 1);
+
+    console.log('\n[3] Production owner stale-response and scope controls\n');
+    mode = 'pending';
+    await page.locator('button.tab-btn[data-tab="admin"]').click();
+    const old = await nextPending(pending);
+    await page.locator('button.tab-btn[data-tab="admin"]').click();
+    const fresh = await nextPending(pending);
+    await fulfill(fresh, { success: true, summary: summary(9000) });
+    await page.waitForFunction(() => /€90[.,]00/.test(document.getElementById('admin-finance-body')?.innerText || ''));
+    await fulfill(old, { success: true, summary: summary(1000) });
+    await sleep(80);
+    check('out-of-order stale response is suppressed',
+      /€90[.,]00/.test(await page.locator('.pf-card .pf-metric-value').first().innerText()));
+
+    const beforeAway = requests.length;
+    await page.locator('#c-client').selectOption('wolfhouse-somo', { force: true });
+    await page.locator('#c-client').dispatchEvent('change');
+    await sleep(100);
+    equal('switching away from Sunset sends no Finance request', requests.length, beforeAway);
+    check('switch away does not repaint Finance result', /€90[.,]00/.test(await text(page)));
+
+    await page.locator('#c-client').selectOption('sunset', { force: true });
+    await page.locator('#c-client').dispatchEvent('change');
+    await waitPortal(page);
+    await openAdmin(page);
+    const somo = await nextPending(pending);
+    await page.locator('.staff-school-btn[data-school="sunset-sardinero"]').click();
+    const sardi = await nextPending(pending);
+    await fulfill(sardi, { success: true, summary: summary(8000) });
+    await fulfill(somo, { success: true, summary: summary(2000) });
+    await page.waitForFunction(() => /€80[.,]00/.test(document.getElementById('admin-finance-body')?.innerText || ''));
+    await sleep(80);
+    check('real location control suppresses old location response',
+      /€80[.,]00/.test(await page.locator('.pf-card .pf-metric-value').first().innerText()));
+    check('Finance URLs carry production client/location scope', requests.every((r) => /[?&]client=sunset(?:&|$)/.test(r.url))
+      && requests.some((r) => /[?&]location=sunset-sardinero(?:&|$)/.test(r.url)));
+
+    console.log('\n[4] Repeated real opens, localization, and Pricing draft retention\n');
+    mode = 'success';
+    const stormStart = requests.length;
+    for (let i = 0; i < 3; i += 1) {
+      await page.locator('button.tab-btn[data-tab="admin"]').click();
+      await page.waitForSelector('.pf-card');
+    }
+    equal('three repeated real Admin opens produce exactly three requests (no duplicate wiring storm)', requests.length - stormStart, 3);
+
+    await page.locator('#admin-tab-pricing').click();
+    await page.waitForSelector('#admin-panel-pricing:not([hidden])');
+    const pricingBefore = await page.locator('#admin-panel-pricing').innerText();
+    await page.locator('#admin-panel-pricing [data-admin-action="edit-price-group"]').first().click();
+    const draft = page.locator('#admin-panel-pricing input[data-admin-price-field="amount"]').first();
+    await draft.waitFor({ state: 'visible' });
+    await draft.fill('137');
+    await page.locator('#admin-tab-finance').click();
+    await page.locator('#admin-tab-pricing').click();
+    equal('Pricing draft survives Finance round trip', await draft.inputValue(), '137');
+    check('Pricing content remains intact', pricingBefore.length > 100 && (await page.locator('#admin-panel-pricing').innerText()).length > 100);
+
+    for (const lang of ['en', 'es', 'it']) {
+      // The established fixture omits header chrome, so invoke the exact
+      // production locale owner that those buttons invoke.
+      await page.evaluate((locale) => window.setStaffLocale(locale), lang);
+      await page.locator('button.tab-btn[data-tab="admin"]').click();
+      await page.waitForSelector('.pf-card');
+      const financeText = await page.locator('#admin-finance-body').textContent();
+      const tabText = await page.locator('#admin-subtab-list').textContent();
+      const expected = COPY[lang];
+      for (const phrase of [...expected.tabs, ...expected.period, ...expected.metrics, expected.trend, expected.note]) {
+        check(`${lang.toUpperCase()} exact production copy: ${phrase}`, (financeText + '\n' + tabText).includes(phrase));
+      }
+      check(`${lang.toUpperCase()} exposes no raw admin.finance key`, !financeText.includes('admin.finance.'));
+    }
+
+    console.log('\n[5] Responsive computed layout and diagnostics\n');
+    for (const width of [320, 375, 390, 430, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.locator('#admin-tab-finance').click();
+      const layout = await page.evaluate(() => {
+        const rect = (el) => { const r = el.getBoundingClientRect(); return { w: r.width, h: r.height, left: r.left, right: r.right }; };
+        const controls = Array.from(document.querySelectorAll('#admin-subtab-list button, #admin-finance-body button')).filter((x) => !x.hidden);
+        const finance = document.getElementById('admin-finance-body');
+        const panel = document.getElementById('admin-panel-finance');
+        const cards = Array.from(document.querySelectorAll('.pf-card')).map(rect);
+        const trend = Array.from(document.querySelectorAll('.pf-trend-row')).map(rect);
+        return {
+          controls: controls.map((x) => ({ id: x.id, ...rect(x) })),
+          docOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+          bodyOverflow: document.body.scrollWidth > document.body.clientWidth,
+          financeOverflow: finance.scrollWidth > finance.clientWidth + 1,
+          panelOverflow: panel.scrollWidth > panel.clientWidth + 1,
+          finance: rect(finance), cards, trend,
+          clipped: [finance, panel, ...document.querySelectorAll('.pf-card,.pf-trend-row')].some((x) => {
+            const r = x.getBoundingClientRect(); return r.left < -1 || r.right > document.documentElement.clientWidth + 1;
+          }),
+        };
+      });
+      check(`${width}px computed Finance controls are >=44x44`, layout.controls.every((x) => x.w >= 44 && x.h >= 44), JSON.stringify(layout.controls));
+      check(`${width}px document/body have no horizontal overflow`, !layout.docOverflow && !layout.bodyOverflow, JSON.stringify(layout));
+      check(`${width}px Finance container/panel have no overflow or clipping`, !layout.financeOverflow && !layout.panelOverflow && !layout.clipped, JSON.stringify(layout));
+      check(`${width}px Finance result cards and trend are laid out visibly`, layout.cards.length === 3 && layout.trend.length === 1
+        && layout.cards.every((x) => x.w > 0 && x.h > 0) && layout.trend.every((x) => x.w > 0 && x.h > 0), JSON.stringify(layout));
+      if (width < 720) check(`${width}px result cards stack in one column`, layout.cards.every((x) => Math.abs(x.left - layout.cards[0].left) < 2));
+      else check(`${width}px desktop result cards form a three-column row`, new Set(layout.cards.map((x) => Math.round(x.left))).size === 3);
+    }
+
+    equal('all pageerror messages', pageErrors.join(' | '), '');
+    equal('all console.error messages', consoleErrors.join(' | '), '');
+  } finally {
+    await context.close();
+    await browser.close();
+    await close(server);
+  }
+
+  console.log(`\n── verify:sunset-finance-ui-playwright: ${passed} passed, ${failed} failed ──`);
+  if (failed) process.exitCode = 1;
+  else console.log('verify:sunset-finance-ui-playwright — ALL CHECKS PASSED');
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });

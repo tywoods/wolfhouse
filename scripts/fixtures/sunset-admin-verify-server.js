@@ -97,11 +97,6 @@ function createSunsetAdminVerifyServer() {
     const parsed = url.parse(req.url, true);
     const pathname = parsed.pathname || '/';
 
-    if (req.method !== 'GET' && !(req.method === 'POST' && pathname === '/staff/auth/login')) {
-      res.writeHead(405, { Allow: 'GET' });
-      return res.end('method not allowed');
-    }
-
     if (pathname === '/staff/auth/session') return handleSession(res);
     if (pathname === '/staff/ui') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -124,6 +119,16 @@ function createSunsetAdminVerifyServer() {
     if (pathname === '/staff/schedule/surf-pack-counts') return handleSchedulePackCounts(res);
     if (pathname.startsWith('/staff/schedule/')) {
       return sendJson(res, 200, { success: true, rows: [], days: [] });
+    }
+    // Production /staff/ui starts several optional backend owners. Keep this
+    // offline fixture fail-quiet with safe API responses; browser tests may
+    // still intercept the one endpoint whose behavior they are exercising.
+    if (pathname.startsWith('/staff/assets/')) {
+      res.writeHead(204);
+      return res.end();
+    }
+    if (pathname.startsWith('/staff/')) {
+      return sendJson(res, 200, { success: true, rows: [], conversations: [] });
     }
 
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
