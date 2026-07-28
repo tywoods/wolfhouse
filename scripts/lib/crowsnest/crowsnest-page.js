@@ -181,13 +181,28 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 }
 .page-header-top{
   display:flex;
-  align-items:flex-start;
+  align-items:center;
   justify-content:space-between;
-  gap:14px;
+  gap:12px 16px;
   flex-wrap:wrap;
+}
+.page-header-brand{
+  display:inline-flex;
+  align-items:center;
+  flex:0 0 auto;
+  line-height:0;
+}
+.page-header-brand:hover{opacity:.92}
+.page-header-logo{
+  display:block;
+  height:40px;
+  width:auto;
+  max-width:min(200px,42vw);
+  object-fit:contain;
 }
 .logout-form{
   margin-left:auto;
+  flex:0 0 auto;
 }
 .logout-button{
   display:inline-flex;
@@ -211,10 +226,17 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   flex-wrap:wrap;
   gap:8px;
   align-items:center;
-  margin:14px 0 4px;
-  padding-bottom:2px;
+  flex:1 1 auto;
+  min-width:0;
+  margin:0;
+  padding:0;
   overflow-x:auto;
   -webkit-overflow-scrolling:touch;
+}
+@media(min-width:900px){
+  .page-header-top{flex-wrap:nowrap}
+  .top-nav{justify-content:center}
+  .logout-form{margin-left:0}
 }
 .top-nav-link{
   display:inline-flex;
@@ -540,7 +562,7 @@ a.btn-primary:hover{text-decoration:none;color:#fff}
 }
 .ops-badge-dot{width:6px;height:6px;border-radius:50%;background:var(--sea)}
 h1.page-title{
-  margin:0 0 6px;
+  margin:16px 0 6px;
   font-size:clamp(1.75rem,4vw,2.2rem);
   font-weight:800;
   letter-spacing:-.03em;
@@ -2949,14 +2971,14 @@ function renderCrowsnestPage(options = {}) {
   <div class="wrap">
     <header class="page-header">
       <div class="page-header-top">
-        <div class="eyebrow-row">
-          <span class="ops-badge"><span class="ops-badge-dot" aria-hidden="true"></span>Internal Ops</span>
-        </div>
+        <a class="page-header-brand" href="/" aria-label="Crowsnest home">
+          <img class="page-header-logo" src="/crowsnest/assets/logo.png" alt="Crowsnest" width="2172" height="724">
+        </a>
+        ${renderCrowsnestNav(view)}
         <form class="logout-form" method="post" action="/logout">
           <button class="logout-button" type="submit" aria-label="Sign out of Crowsnest">Sign out</button>
         </form>
       </div>
-      ${renderCrowsnestNav(view)}
       <h1 class="page-title" id="${escapeHtml(view === 'sales_detail' ? 'sales' : (view === 'sales_review' ? 'sales-review' : (view === 'sales_analytics' ? 'sales-analytics' : (view === 'sales_governance' ? 'sales-governance' : (view === 'sales_crm_preview' ? 'sales-crm-preview' : (view === 'sales_outreach_draft' ? 'sales-outreach-draft' : (view === 'sales_discovery' ? 'sales-discovery' : view)))))))}-title">${escapeHtml(title)}</h1>
       <p class="sub">${escapeHtml(viewSubtitle(view))}</p>
     </header>
