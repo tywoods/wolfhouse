@@ -379,7 +379,6 @@ module.exports = {
   'schedule.create.dateTo': 'Hasta',
   'schedule.create.dateRange': 'Fechas',
   'schedule.create.dateRange.placeholder': 'Seleccionar fechas',
-  'schedule.create.dateRange.clear': 'Borrar',
   'schedule.create.dateRange.cancel': 'Cancelar',
   'schedule.create.dateRange.apply': 'Aplicar',
   'schedule.create.dateRange.done': 'Listo',

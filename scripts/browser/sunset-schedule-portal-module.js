@@ -547,6 +547,8 @@ function schedulePortalExitMainActivityDrilldown(opts) {
     if (priv) priv.checked = false;
     if (none) none.checked = true;
   }
+  // Visible Group/Private/No lesson buttons must mirror hidden radios after any programmatic reset.
+  if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
   if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
   if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
     schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
@@ -598,6 +600,7 @@ function schedulePortalExitGroupCourseDrilldown(opts) {
     if (priv) priv.checked = false;
     if (none) none.checked = true;
   }
+  if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
   if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
   if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
     schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
@@ -730,6 +733,7 @@ function schedulePortalClearCreateDraftFields() {
   var pay = el('ps-create-payment'); if (pay) pay.value = 'unpaid';
   var course = el('ps-create-comp-course'), priv = el('ps-create-comp-private-lesson'), none = el('ps-create-comp-no-lesson');
   if (course) course.checked = false; if (priv) priv.checked = false; if (none) none.checked = true;
+  if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
   set('ps-create-surfers', '1'); set('ps-create-course-qty', '1'); set('ps-create-private-lesson-qty', '1'); set('ps-create-private-lesson-surfers', '1');
   var courseSel = el('ps-create-course-select'); if (courseSel) courseSel.value = '';
   var tier = el('ps-create-course-tier'); if (tier) { try { tier.innerHTML = ''; } catch (_t) {} tier.value = ''; }

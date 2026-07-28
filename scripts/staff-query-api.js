@@ -16753,11 +16753,11 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-week-forecast-reply{margin-top:6px;font-size:11px;font-weight:700;color:#7c3aed}
 .portal-schedule-next30-forecast{display:block;margin-bottom:22px}
 .portal-schedule-create-drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,94vw);height:100vh;height:100dvh;max-height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9101;padding:0;display:flex;flex-direction:column;overflow:hidden;overflow-x:hidden;overscroll-behavior:contain;box-sizing:border-box}
-.portal-schedule-create-header{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px 12px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid var(--border-soft);background:inherit;z-index:3;position:relative}
-.portal-schedule-create-header-text{flex:1;min-width:0;display:flex;flex-direction:row;align-items:center;flex-wrap:wrap;gap:8px}
-.portal-schedule-create-title{margin:0;font-size:17px;font-weight:700;line-height:1.25;color:var(--text);flex:0 1 auto;min-width:0}
-.portal-schedule-create-school-chip{display:inline-flex;align-items:center;max-width:100%;padding:3px 10px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface-soft);font-size:11px;font-weight:700;color:var(--text-2);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
-.portal-schedule-create-school-chip strong{color:var(--text);font-weight:700}
+.portal-schedule-create-header{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px 12px;padding-top:calc(16px + env(safe-area-inset-top,0px));border-bottom:1px solid var(--border-soft);background:inherit;z-index:3;position:relative;min-width:0}
+.portal-schedule-create-header-text{flex:1 1 auto;min-width:0;display:flex;flex-direction:row;align-items:center;flex-wrap:nowrap;gap:8px;overflow:hidden}
+.portal-schedule-create-title{margin:0;font-size:17px;font-weight:700;line-height:1.25;color:var(--text);flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.portal-schedule-create-school-chip{display:inline-flex;align-items:center;max-width:46%;padding:3px 10px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface-soft);font-size:11px;font-weight:700;color:var(--text-2);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
+.portal-schedule-create-school-chip strong{color:var(--text);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .portal-schedule-create-header #ps-create-close{flex:0 0 auto;min-width:44px;min-height:44px}
 .portal-schedule-create-body{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px 18px 18px}
 .portal-schedule-create-section{margin:0 0 14px;padding:12px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
@@ -18532,9 +18532,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
               <span id="ps-create-date-range-month-label" class="portal-schedule-create-date-range-month" aria-live="polite"></span>
               <button type="button" id="ps-create-date-range-next" data-i18n-aria="schedule.create.dateRange.nextMonth" aria-label="Next month">&#8250;</button>
             </div>
-            <div id="ps-create-date-range-grid" class="portal-schedule-create-date-range-grid" role="grid" aria-labelledby="ps-create-date-range-month-label"></div>
+            <div id="ps-create-date-range-grid" class="portal-schedule-create-date-range-grid" role="group" aria-labelledby="ps-create-date-range-month-label"></div>
             <div class="portal-schedule-create-date-range-actions">
-              <button type="button" class="btn btn-ghost" id="ps-create-date-range-clear" data-i18n="schedule.create.dateRange.clear">Clear</button>
               <button type="button" class="btn btn-ghost" id="ps-create-date-range-cancel" data-i18n="schedule.create.dateRange.cancel">Cancel</button>
               <button type="button" class="btn btn-primary" id="ps-create-date-range-apply" data-i18n="schedule.create.dateRange.apply">Apply</button>
             </div>
@@ -22476,8 +22475,71 @@ function scheduleCreateDateRangeSelectDay(state, iso){
   return { start: start, end: iso };
 }
 
+/** Shift an ISO day by delta days (pure; used by roving-grid keyboard nav). */
+function scheduleCreateDateRangeAddDays(iso, delta){
+  iso = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  var d = scheduleParseIso(iso);
+  d.setDate(d.getDate() + Number(delta || 0));
+  return scheduleIsoDate(d);
+}
+
+/** Sunday-start week bounds matching the Su–Sa date grid. */
+function scheduleCreateDateRangeWeekStartIso(iso){
+  var d = scheduleParseIso(String(iso || '').slice(0, 10));
+  d.setDate(d.getDate() - d.getDay());
+  return scheduleIsoDate(d);
+}
+function scheduleCreateDateRangeWeekEndIso(iso){
+  var d = scheduleParseIso(String(iso || '').slice(0, 10));
+  d.setDate(d.getDate() + (6 - d.getDay()));
+  return scheduleIsoDate(d);
+}
+
+/**
+ * Default draft seed for Clear / open: currently applied booking dates
+ * (hidden from/to), else today/today. Booking dates cannot validly be empty.
+ */
+function scheduleCreateDateRangeSeedDraft(){
+  var from = el('ps-create-date-from') ? String(el('ps-create-date-from').value || '').slice(0, 10) : '';
+  var to = el('ps-create-date-to') ? String(el('ps-create-date-to').value || '').slice(0, 10) : '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) to = from;
+    return { start: from, end: to };
+  }
+  var today = scheduleTodayIso();
+  return { start: today, end: today };
+}
+
+/**
+ * Pure layout contract: title + school chip share one nowrap row with close at
+ * far right; min-width:0 allows truncation so 390px never overflows.
+ */
+function scheduleCreateHeaderRowContract(opts){
+  opts = opts || {};
+  var width = Number(opts.width != null ? opts.width : 390);
+  var closeW = Number(opts.closeWidth != null ? opts.closeWidth : 44);
+  var headerGap = Number(opts.headerGap != null ? opts.headerGap : 12);
+  var textGap = Number(opts.textGap != null ? opts.textGap : 8);
+  var padX = Number(opts.padX != null ? opts.padX : 36); // 18+18
+  var available = width - padX - closeW - headerGap;
+  var titleAndChip = Math.max(0, available - textGap);
+  return {
+    width: width,
+    singleRow: true,
+    noWrap: true,
+    closePreserved: closeW >= 44,
+    titleChipShare: titleAndChip,
+    fitsWithoutOverflow: available > 0 && titleAndChip >= 0,
+    minWidthZero: true,
+  };
+}
+
 var scheduleCreateDateRangeDraft = { start: null, end: null };
 var scheduleCreateDateRangeViewYm = null; // 'YYYY-MM'
+var scheduleCreateDateRangeFocusIso = null;
+var scheduleCreateDateRangeRestoreFocus = false;
+var scheduleCreateDateRangeDocWired = false;
 
 function scheduleCreateDateRangeFormatShort(iso){
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(String(iso).slice(0, 10))) return '';
@@ -22499,6 +22561,11 @@ function scheduleCreateDateRangeDisplayText(from, to){
   return a + ' – ' + b;
 }
 
+function scheduleCreateDateRangeIsOpen(){
+  var pop = el('ps-create-date-range-popover');
+  return !!(pop && !pop.hidden && pop.style && pop.style.display !== 'none');
+}
+
 function scheduleSyncCreateDateRangeUi(){
   var display = el('ps-create-date-range-display');
   var from = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
@@ -22512,41 +22579,87 @@ function scheduleSyncCreateDateRangeUi(){
   }
 }
 
-function scheduleCreateDateRangeClosePopover(){
+function scheduleCreateDateRangeClosePopover(opts){
+  opts = opts || {};
   var pop = el('ps-create-date-range-popover');
   var trigger = el('ps-create-date-range-trigger');
   if (pop) {
     pop.hidden = true;
-    pop.style.display = 'none';
+    if (pop.style) pop.style.display = 'none';
   }
   if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  // Discard draft mutations unless Apply already wrote canonical from/to.
+  // Re-seed from committed hidden state so re-open is honest.
+  if (opts.discard !== false && opts.applied !== true) {
+    scheduleCreateDateRangeDraft = scheduleCreateDateRangeSeedDraft();
+  }
+  var shouldRestore = opts.restoreFocus !== false && scheduleCreateDateRangeRestoreFocus;
+  scheduleCreateDateRangeRestoreFocus = false;
+  if (shouldRestore && trigger && typeof trigger.focus === 'function') {
+    try { trigger.focus(); } catch (_f) { /* ignore */ }
+  }
+}
+
+function scheduleCreateDateRangeFocusInto(){
+  var grid = el('ps-create-date-range-grid');
+  var focusIso = scheduleCreateDateRangeFocusIso
+    || (scheduleCreateDateRangeDraft && scheduleCreateDateRangeDraft.start)
+    || null;
+  var btn = null;
+  if (grid && focusIso && typeof grid.querySelector === 'function') {
+    try { btn = grid.querySelector('[data-date="' + focusIso + '"]'); } catch (_q) { btn = null; }
+  }
+  if (!btn && grid && typeof grid.querySelector === 'function') {
+    btn = grid.querySelector('.portal-schedule-create-date-range-day:not(.is-outside)')
+      || grid.querySelector('[data-date]');
+  }
+  if (btn && typeof btn.focus === 'function') {
+    try { btn.focus(); } catch (_f) { /* ignore */ }
+    return;
+  }
+  var pop = el('ps-create-date-range-popover');
+  var first = pop && typeof pop.querySelector === 'function'
+    ? (pop.querySelector('#ps-create-date-range-prev') || pop.querySelector('button'))
+    : null;
+  if (first && typeof first.focus === 'function') {
+    try { first.focus(); } catch (_f2) { /* ignore */ }
+  }
 }
 
 function scheduleCreateDateRangeOpenPopover(){
-  var from = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
-  var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
-  // Seed draft from applied canonical state (same-day when only one set).
-  if (from && to) scheduleCreateDateRangeDraft = { start: from, end: to };
-  else if (from) scheduleCreateDateRangeDraft = { start: from, end: from };
-  else scheduleCreateDateRangeDraft = { start: null, end: null };
-  var seed = (scheduleCreateDateRangeDraft.start || scheduleTodayIso() || '').slice(0, 7);
+  // Seed draft from applied canonical state (default booking range).
+  scheduleCreateDateRangeDraft = scheduleCreateDateRangeSeedDraft();
+  scheduleCreateDateRangeFocusIso = scheduleCreateDateRangeDraft.start || scheduleTodayIso();
+  var seed = (scheduleCreateDateRangeFocusIso || scheduleTodayIso() || '').slice(0, 7);
   scheduleCreateDateRangeViewYm = seed || scheduleTodayIso().slice(0, 7);
   var pop = el('ps-create-date-range-popover');
   var trigger = el('ps-create-date-range-trigger');
   if (pop) {
     pop.hidden = false;
-    pop.style.display = '';
+    if (pop.style) pop.style.display = '';
   }
   if (trigger) trigger.setAttribute('aria-expanded', 'true');
+  scheduleCreateDateRangeRestoreFocus = true;
   scheduleRenderCreateDateRangeCalendar();
   scheduleSyncCreateDateRangeUi();
+  scheduleCreateDateRangeFocusInto();
 }
 
 function scheduleCreateDateRangeTogglePopover(){
-  var pop = el('ps-create-date-range-popover');
-  var open = pop && !pop.hidden && pop.style.display !== 'none';
-  if (open) scheduleCreateDateRangeClosePopover();
+  if (scheduleCreateDateRangeIsOpen()) scheduleCreateDateRangeClosePopover({ restoreFocus: true, discard: true });
   else scheduleCreateDateRangeOpenPopover();
+}
+
+function scheduleCreateDateRangeMoveFocus(iso, key){
+  iso = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  if (key === 'ArrowLeft') return scheduleCreateDateRangeAddDays(iso, -1);
+  if (key === 'ArrowRight') return scheduleCreateDateRangeAddDays(iso, 1);
+  if (key === 'ArrowUp') return scheduleCreateDateRangeAddDays(iso, -7);
+  if (key === 'ArrowDown') return scheduleCreateDateRangeAddDays(iso, 7);
+  if (key === 'Home') return scheduleCreateDateRangeWeekStartIso(iso);
+  if (key === 'End') return scheduleCreateDateRangeWeekEndIso(iso);
+  return null;
 }
 
 function scheduleRenderCreateDateRangeCalendar(){
@@ -22579,7 +22692,9 @@ function scheduleRenderCreateDateRangeCalendar(){
   var html = '';
   var dows = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
   for (var d = 0; d < 7; d += 1) {
-    html += '<span class="portal-schedule-create-date-range-dow" aria-hidden="true">' + escHtml(dows[d]) + '</span>';
+    // Decorative DOW labels only (not ARIA columnheaders — host is a labelled group of buttons).
+    html += '<span class="portal-schedule-create-date-range-dow" aria-hidden="true">'
+      + escHtml(dows[d]) + '</span>';
   }
   var cells = [];
   for (var i = 0; i < startDow; i += 1) {
@@ -22611,20 +22726,37 @@ function scheduleRenderCreateDateRangeCalendar(){
       outside: true,
     });
   }
+  // Roving tabindex target: current focus, else draft start, else first in-month day.
+  var focusIso = scheduleCreateDateRangeFocusIso;
+  var hasFocusCell = focusIso && cells.some(function(c){ return c.iso === focusIso; });
+  if (!hasFocusCell) {
+    focusIso = null;
+    if (dStart && cells.some(function(c){ return c.iso === dStart; })) focusIso = dStart;
+    else {
+      for (var fi = 0; fi < cells.length; fi += 1) {
+        if (!cells[fi].outside) { focusIso = cells[fi].iso; break; }
+      }
+    }
+    scheduleCreateDateRangeFocusIso = focusIso;
+  }
   cells.forEach(function(c){
     var cls = 'portal-schedule-create-date-range-day';
+    var selected = false;
     if (c.outside) cls += ' is-outside';
-    if (dStart && c.iso === dStart) cls += ' is-selected-start is-selected';
-    if (dEnd && c.iso === dEnd) cls += ' is-selected-end is-selected';
+    if (dStart && c.iso === dStart) { cls += ' is-selected-start is-selected'; selected = true; }
+    if (dEnd && c.iso === dEnd) { cls += ' is-selected-end is-selected'; selected = true; }
     // Inclusive highlight between start and end (same-day gets selected classes only).
     if (rangeLo && rangeHi && c.iso > rangeLo && c.iso < rangeHi) cls += ' is-in-range';
-    if (rangeLo && rangeHi && rangeLo === rangeHi && c.iso === rangeLo) {
-      /* same-day already marked selected */
-    }
-    html += '<button type="button" class="' + cls + '" role="gridcell" data-date="'
-      + escHtml(c.iso) + '" aria-label="' + escHtml(c.iso) + '">' + escHtml(String(c.day)) + '</button>';
+    var tab = (focusIso && c.iso === focusIso) ? '0' : '-1';
+    // Real date buttons (no gridcell): roving tabindex + aria-pressed selected state.
+    html += '<button type="button" class="' + cls + '" tabindex="' + tab
+      + '" data-date="' + escHtml(c.iso) + '" aria-label="' + escHtml(c.iso)
+      + '" aria-pressed="' + (selected ? 'true' : 'false') + '">'
+      + escHtml(String(c.day)) + '</button>';
   });
   grid.innerHTML = html;
+  // Expose parsed cells for lightweight runtime behavioral tests / focus helpers.
+  grid._dateRangeCells = cells;
   var apply = el('ps-create-date-range-apply');
   if (apply) apply.disabled = !(dStart && dEnd);
 }
@@ -22650,14 +22782,30 @@ function scheduleApplyCreateDateRangeDraft(){
     if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
   }
   scheduleSyncCreateDateRangeUi();
-  scheduleCreateDateRangeClosePopover();
+  scheduleCreateDateRangeClosePopover({ restoreFocus: true, applied: true, discard: false });
   return true;
 }
 
-function scheduleClearCreateDateRangeDraft(){
-  scheduleCreateDateRangeDraft = { start: null, end: null };
-  scheduleRenderCreateDateRangeCalendar();
-  scheduleSyncCreateDateRangeUi();
+function scheduleCreateDateRangeOnDocumentKeydown(ev){
+  if (!ev) return;
+  if (ev.key !== 'Escape' && ev.key !== 'Esc') return;
+  if (!scheduleCreateDateRangeIsOpen()) return;
+  if (ev.preventDefault) ev.preventDefault();
+  // Escape closes without applying and restores trigger focus.
+  scheduleCreateDateRangeClosePopover({ restoreFocus: true, discard: true });
+}
+
+function scheduleCreateDateRangeOnDocumentPointer(ev){
+  if (!scheduleCreateDateRangeIsOpen()) return;
+  var t = ev && ev.target;
+  var field = el('ps-create-date-range');
+  var pop = el('ps-create-date-range-popover');
+  var trigger = el('ps-create-date-range-trigger');
+  if (field && t && field.contains && field.contains(t)) return;
+  if (pop && t && pop.contains && pop.contains(t)) return;
+  if (trigger && t && (t === trigger || (trigger.contains && trigger.contains(t)))) return;
+  // Outside click dismisses without applying.
+  scheduleCreateDateRangeClosePopover({ restoreFocus: true, discard: true });
 }
 
 function scheduleWireCreateDateRange(){
@@ -22699,27 +22847,61 @@ function scheduleWireCreateDateRange(){
     grid.addEventListener('click', function(ev){
       var t = ev && ev.target;
       var btn = t && t.closest ? t.closest('[data-date]') : null;
-      if (!btn || !grid.contains(btn)) return;
+      if (!btn || !(grid.contains ? grid.contains(btn) : true)) return;
       var iso = btn.getAttribute('data-date');
       scheduleCreateDateRangeDraft = scheduleCreateDateRangeSelectDay(scheduleCreateDateRangeDraft, iso);
+      scheduleCreateDateRangeFocusIso = iso;
       scheduleRenderCreateDateRangeCalendar();
       scheduleSyncCreateDateRangeUi();
+      scheduleCreateDateRangeFocusInto();
     });
-  }
-  var clearBtn = el('ps-create-date-range-clear');
-  if (clearBtn && !clearBtn.dataset.wired) {
-    clearBtn.dataset.wired = '1';
-    clearBtn.addEventListener('click', function(){ scheduleClearCreateDateRangeDraft(); });
+    // Roving tabindex keyboard nav across date buttons (group, not ARIA grid).
+    grid.addEventListener('keydown', function(ev){
+      if (!ev) return;
+      var t = ev.target;
+      var btn = t && t.closest ? t.closest('[data-date]') : null;
+      if (!btn || !(grid.contains ? grid.contains(btn) : true)) return;
+      var iso = btn.getAttribute('data-date');
+      var key = ev.key || ev.code;
+      if (key === 'Enter' || key === ' ' || key === 'Spacebar' || key === 'Space') {
+        if (ev.preventDefault) ev.preventDefault();
+        scheduleCreateDateRangeDraft = scheduleCreateDateRangeSelectDay(scheduleCreateDateRangeDraft, iso);
+        scheduleCreateDateRangeFocusIso = iso;
+        scheduleRenderCreateDateRangeCalendar();
+        scheduleSyncCreateDateRangeUi();
+        scheduleCreateDateRangeFocusInto();
+        return;
+      }
+      var next = scheduleCreateDateRangeMoveFocus(iso, key);
+      if (!next) return;
+      if (ev.preventDefault) ev.preventDefault();
+      scheduleCreateDateRangeFocusIso = next;
+      var nextYm = String(next).slice(0, 7);
+      if (nextYm && nextYm !== scheduleCreateDateRangeViewYm) {
+        scheduleCreateDateRangeViewYm = nextYm;
+      }
+      scheduleRenderCreateDateRangeCalendar();
+      scheduleCreateDateRangeFocusInto();
+    });
   }
   var cancelBtn = el('ps-create-date-range-cancel');
   if (cancelBtn && !cancelBtn.dataset.wired) {
     cancelBtn.dataset.wired = '1';
-    cancelBtn.addEventListener('click', function(){ scheduleCreateDateRangeClosePopover(); });
+    cancelBtn.addEventListener('click', function(){
+      scheduleCreateDateRangeClosePopover({ restoreFocus: true, discard: true });
+    });
   }
   var applyBtn = el('ps-create-date-range-apply');
   if (applyBtn && !applyBtn.dataset.wired) {
     applyBtn.dataset.wired = '1';
     applyBtn.addEventListener('click', function(){ scheduleApplyCreateDateRangeDraft(); });
+  }
+  if (!scheduleCreateDateRangeDocWired) {
+    scheduleCreateDateRangeDocWired = true;
+    try {
+      document.addEventListener('keydown', scheduleCreateDateRangeOnDocumentKeydown);
+      document.addEventListener('mousedown', scheduleCreateDateRangeOnDocumentPointer);
+    } catch (_doc) { /* non-DOM sandbox */ }
   }
   scheduleSyncCreateDateRangeUi();
 }
@@ -24752,7 +24934,10 @@ function wireScheduleControls(){
       } else if (typeof schedulePortalExitGroupCourseDrilldown === 'function') {
         schedulePortalExitGroupCourseDrilldown({ clearCourse: true });
       }
+      // Defense in depth: exit owners sync visible activity buttons; re-sync after populate.
+      if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
       if (typeof schedulePopulateCreateComponentFields === 'function') schedulePopulateCreateComponentFields();
+      if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
       if (typeof schedulePortalSyncCreateFooter === 'function') schedulePortalSyncCreateFooter();
       else if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
     });
