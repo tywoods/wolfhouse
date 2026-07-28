@@ -74,8 +74,8 @@ function buildBookingGearIndex(rows, dateIso) {
     } else if (isBoardRow(row)) entry.boards += qty;
     else if (isWetsuitRow(row)) entry.wetsuits += qty;
     const meta = parseRowMetadata(row);
-    if (meta.include_board === true || meta.needs_board === true) entry.boards = Math.max(entry.boards, qty);
-    if (meta.include_wetsuit === true || meta.needs_wetsuit === true) entry.wetsuits = Math.max(entry.wetsuits, qty);
+    if (meta.included_equipment === true || meta.include_board === true || meta.needs_board === true) entry.boards = Math.max(entry.boards, qty);
+    if (meta.included_equipment === true || meta.include_wetsuit === true || meta.needs_wetsuit === true) entry.wetsuits = Math.max(entry.wetsuits, qty);
   }
   return index;
 }

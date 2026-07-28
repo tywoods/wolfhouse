@@ -2314,6 +2314,10 @@ async function insertScheduleComponentServiceRows(pg, opts) {
         offering_id: part.offering_id || null,
         admin_course_assigned: componentKey === 'course' && assignedCourse ? true : undefined,
         admin_pack_id: componentKey === 'course' && assignedCourse ? assignedCourse.course_id : undefined,
+        included_equipment: componentKey === 'course' && assignedCourse && assignedCourse.pack && assignedCourse.pack.equipment_included === true ? true : undefined,
+        include_board: componentKey === 'course' && assignedCourse && assignedCourse.pack && assignedCourse.pack.equipment_included === true ? true : undefined,
+        include_wetsuit: componentKey === 'course' && assignedCourse && assignedCourse.pack && assignedCourse.pack.equipment_included === true ? true : undefined,
+        included_equipment_amount_cents: componentKey === 'course' && assignedCourse && assignedCourse.pack && assignedCourse.pack.equipment_included === true ? 0 : undefined,
       }, locationId);
       decorateRentalServiceMetadata(metadata, {
         componentKey, serviceDate, canonicalRentals, rentalSpanDates,

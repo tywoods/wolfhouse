@@ -468,6 +468,7 @@ var ADMIN_CANONICAL_DAY_TIER_KEYS = {
 };
 function adminDefaultPackConfigSeed(){
   return {
+    equipment_included: false,
     age_band: '12_and_up',
     group_size: 16,
     beaches: ['el_sardinero', 'liencres', 'somo'],
@@ -479,7 +480,7 @@ function adminDefaultPackConfigSeed(){
 
 function adminDefaultPackSeed(){
   var d = adminDefaultPackConfigSeed();
-  return { label: portalT('admin.packs.defaultName'), age_band: d.age_band, group_size: d.group_size, beaches: d.beaches.slice(), weekly: d.weekly, schedules: d.schedules.slice(), price_tiers: d.price_tiers.map(function(t){ return Object.assign({}, t); }) };
+  return { label: portalT('admin.packs.defaultName'), equipment_included: false, age_band: d.age_band, group_size: d.group_size, beaches: d.beaches.slice(), weekly: d.weekly, schedules: d.schedules.slice(), price_tiers: d.price_tiers.map(function(t){ return Object.assign({}, t); }) };
 }
 
 function adminTimesFromScheduleKey(key){
@@ -609,6 +610,7 @@ function adminRenderPackEditForm(pid, pack){
     adminRenderPillRow('age_band', adminPackAgeOptions(), p.age_band || '12_and_up', false) +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.packs.groupSize')) + '</label>' +
     '<input type="number" id="' + prefix + '-group-size" min="1" max="999" step="1" value="' + escHtml(String(p.group_size || 16)) + '"></div>' +
+    '<label class="portal-admin-edit-field"><input type="checkbox" id="' + prefix + '-equipment-included"' + (p.equipment_included === true ? ' checked' : '') + '> Equipment included <span class="portal-admin-muted">(board + wetsuit, €0, per participant/course day)</span></label>' +
     adminRenderPillRow('beaches', adminPackBeachOptions(), p.beaches || [], true) +
     adminRenderPillRow('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false) +
     adminRenderPackScheduleFields(p, prefix) +
@@ -641,6 +643,7 @@ function adminReadPackFormPayload(pid){
     label: labelEl ? String(labelEl.value || '').trim() : '',
     age_band: adminCollectSinglePill('age_band', '12_and_up', root),
     group_size: (function(){ var g = el(prefix + '-group-size'); var n = parseInt(g && g.value, 10); return (isFinite(n) && n > 0) ? n : 16; })(),
+    equipment_included: !!(el(prefix + '-equipment-included') && el(prefix + '-equipment-included').checked),
     beaches: adminCollectPillValues('beaches', root),
     weekly: adminCollectSinglePill('weekly', 'mon_fri', root),
     schedules: schedulesParsed.ok ? schedulesParsed.value : [],
