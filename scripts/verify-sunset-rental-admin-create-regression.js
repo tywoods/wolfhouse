@@ -103,8 +103,45 @@ function euros(text) { const m = String(text).match(/(?:€\s*)?(\d+(?:[.,]\d{1,
     const styleProps = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textTransform', 'color'];
     const styles = await page.evaluate(({ props }) => { const pick = (id) => { const s = getComputedStyle(document.querySelector(id)); return Object.fromEntries(props.map((p) => [p, s[p]])); }; return { main: pick('#ps-create-main-activity-label'), title: pick('#ps-create-rentals h3') }; }, { props: styleProps });
     eq('dynamic bundle title computed typography/color exactly matches MAIN ACTIVITY', styles.title, styles.main);
-    const buttons = page.locator('#ps-create-rentals [data-rental-duration]');
-    eq('screenshot bundle duration identities from rendered controls', await buttons.evaluateAll((bs) => bs.map((b) => b.dataset.rentalDuration)), ['1_hour', '2_hours', 'half_day', 'full_day']);
+    const rentalWrap = page.locator('#ps-create-rentals');
+    const buttons = rentalWrap.locator('[data-rental-duration]');
+    const expectedBundleCreate = {
+      '1_hour': { text: '€15', cents: 1500 },
+      '2_hours': { text: '€30', cents: 3000 },
+      half_day: { text: '€20', cents: 2000 },
+      full_day: { text: '€30', cents: 3000 },
+    };
+    eq('screenshot bundle duration identities from rendered controls', await buttons.evaluateAll((bs) => bs.map((b) => b.dataset.rentalDuration)), Object.keys(expectedBundleCreate));
+    eq('actual rendered Create row is the canonical bundle offering', await rentalWrap.locator('div[data-rental-offering]').evaluateAll((rs) => rs.map((r) => r.dataset.rentalOffering)), ['board_and_suit_rental']);
+    const renderedCreateCards = await buttons.evaluateAll((bs) => bs.map((b) => ({
+      offering: b.dataset.rentalOffering,
+      duration: b.dataset.rentalDuration,
+      cents: Number(b.dataset.amountCents),
+      text: b.innerText.trim(),
+      visible: !!(b.offsetWidth || b.offsetHeight || b.getClientRects().length),
+    })));
+    eq('rendered bundle Create controls independently associate exact literal duration/amount data', renderedCreateCards.map((x) => ({ offering: x.offering, duration: x.duration, cents: x.cents })), Object.entries(expectedBundleCreate).map(([duration, price]) => ({ offering: 'board_and_suit_rental', duration, cents: price.cents })));
+    ok('rendered bundle Create controls visibly associate exact literal euro text', renderedCreateCards.every((x) => x.visible && x.text.includes(expectedBundleCreate[x.duration].text)), JSON.stringify(renderedCreateCards));
+    eq('Surfboard rendered Create duration controls include every active configured short duration', await rentalWrap.getAttribute('data-board-short-keys').then((v) => JSON.parse(v || '[]')), ['1_hour', '2_hours', 'half_day', 'full_day']);
+    eq('Wetsuit rendered Create duration controls include every active configured short duration', await rentalWrap.getAttribute('data-wetsuit-short-keys').then((v) => JSON.parse(v || '[]')), ['1_hour', '2_hours', 'half_day', 'full_day']);
+    ok('rendered Create duration controls contain no fabricated inactive duration', renderedCreateCards.every((x) => Object.hasOwn(expectedBundleCreate, x.duration)) && !/moon_cycle/.test(await rentalWrap.innerText()), JSON.stringify(renderedCreateCards));
+    for (const [duration, price] of Object.entries(expectedBundleCreate)) {
+      if (await page.locator(`[data-rental-duration="${duration}"]`).getAttribute('aria-checked') === 'true') {
+        const other = duration === '1_hour' ? '2_hours' : '1_hour';
+        await page.locator(`[data-rental-duration="${other}"]`).click({ force: true });
+      }
+      await page.locator(`[data-rental-duration="${duration}"]`).click({ force: true });
+      eq(`pointer selection keeps ${duration} canonical duration and displayed price amount matched`, await page.evaluate(() => {
+        const selected = document.querySelector('#ps-create-rentals [data-rental-duration][aria-checked="true"]');
+        return {
+          canonical: document.querySelector('#ps-create-rentals')?.dataset.durationKey,
+          selected: selected?.dataset.rentalDuration,
+          cents: Number(selected?.dataset.amountCents),
+          visibleText: selected?.innerText.trim(),
+          visible: !!(selected && (selected.offsetWidth || selected.offsetHeight || selected.getClientRects().length)),
+        };
+      }), { canonical: duration, selected: duration, cents: price.cents, visibleText: `${duration === '1_hour' ? '1 hour' : duration === '2_hours' ? '2 hours' : duration === 'half_day' ? 'Half day' : 'Full day'} ${price.text}`, visible: true });
+    }
     ok('screenshot bundle amounts came from every rendered Admin display card', renderedAmounts.bundles.length === 10 && renderedAmounts.bundles.every(Number.isFinite), JSON.stringify(renderedAmounts.bundles));
 
     bundleLabel = 'RENAMED AUTHORITATIVE BUNDLE'; await page.reload({ waitUntil: 'domcontentloaded' }); await ready(page); await openCreate(page); eq('authoritative label change appears after production rerender', await page.locator('#ps-create-rentals h3').innerText(), bundleLabel);
@@ -117,6 +154,7 @@ function euros(text) { const m = String(text).match(/(?:€\s*)?(\d+(?:[.,]\d{1,
     }
     const body = await page.locator('body').innerText();
     ok('wrong-location/inactive/wrong-offering/foreign-client-or-tenant labels cannot supply title', !/WRONG LOCATION LABEL|INACTIVE LABEL|WRONG OFFERING LABEL|HOSTILE FOREIGN (?:BOTH|CLIENT|TENANT) LABEL/.test(body), body);
+    ok('duration pointer proof sends no booking write/create request', !writes.some((r) => /\/staff\/schedule\/bookings(?:\?|$)/.test(r.url)), JSON.stringify(writes));
     eq('no browser errors', errors, []);
   } finally { await context.close(); await browser.close(); await close(server); }
   console.log(`\nverify:sunset-rental-admin-create-regression — ${pass} passed, ${fail} failed`); if (fail) process.exitCode = 1;

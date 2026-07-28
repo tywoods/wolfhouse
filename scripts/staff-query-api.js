@@ -23124,7 +23124,7 @@ function scheduleCreateIsCombinedBoardWetsuit(selectedKeys){
   return sel.indexOf('board_rental') >= 0 && sel.indexOf('wetsuit_rental') >= 0;
 }
 
-function scheduleRenderCreateRentalDurationPebbles(wrap, commonKeys, selectedDuration){
+function scheduleRenderCreateRentalDurationPebbles(wrap, commonKeys, selectedDuration, offeringKey){
   if (!wrap) return;
   var host = wrap.querySelector('[data-rental-duration-pebbles]');
   if (!host) return;
@@ -23136,6 +23136,7 @@ function scheduleRenderCreateRentalDurationPebbles(wrap, commonKeys, selectedDur
     return;
   }
   var sel = String(selectedDuration || '').trim();
+  var offering = String(offeringKey || 'board_and_suit_rental').trim();
   if (sel && keys.indexOf(sel) < 0) sel = '';
   wrap.setAttribute('data-duration-key', sel);
   var html = '<div class="portal-schedule-create-rental-pebbles" role="radiogroup" aria-label="'
@@ -23146,10 +23147,27 @@ function scheduleRenderCreateRentalDurationPebbles(wrap, commonKeys, selectedDur
     var fallback = typeof scheduleShortRentalDurationFallbackLabel === 'function'
       ? scheduleShortRentalDurationFallbackLabel(k) : k;
     var on = k === sel;
+    var amountCents = null;
+    var prices = Array.isArray(scheduleAdminPricesCache) ? scheduleAdminPricesCache : [];
+    for (var pi = 0; pi < prices.length; pi++) {
+      var price = prices[pi];
+      var identity = typeof scheduleParseRentalPriceIdentity === 'function'
+        ? scheduleParseRentalPriceIdentity(price) : null;
+      if (!identity || identity.offering_key !== offering || identity.duration_key !== k) continue;
+      if (typeof scheduleRentalPriceIsSellable === 'function' && !scheduleRentalPriceIsSellable(price)) continue;
+      if (typeof scheduleRentalPriceMatchesLocation === 'function'
+        && !scheduleRentalPriceMatchesLocation(price, typeof getSunsetLocation === 'function' ? getSunsetLocation() : '')) continue;
+      amountCents = typeof scheduleRentalPriceAmountCents === 'function'
+        ? scheduleRentalPriceAmountCents(price) : null;
+      break;
+    }
+    var euro = amountCents == null ? '' : ' <span class="portal-schedule-create-rental-price">€'
+      + escHtml((amountCents / 100).toFixed(amountCents % 100 ? 2 : 0)) + '</span>';
     html += '<button type="button" class="portal-schedule-create-rental-pebble'
       + (on ? ' is-selected' : '') + '" role="radio" aria-checked="' + (on ? 'true' : 'false')
-      + '" data-rental-duration="' + escHtml(k) + '"><span data-i18n="' + escHtml(labKey) + '">'
-      + escHtml(fallback) + '</span></button>';
+      + '" data-rental-offering="' + escHtml(offering) + '" data-amount-cents="'
+      + escHtml(String(amountCents == null ? '' : amountCents)) + '" data-rental-duration="' + escHtml(k)
+      + '"><span data-i18n="' + escHtml(labKey) + '">' + escHtml(fallback) + '</span>' + euro + '</button>';
   });
   html += '</div>';
   host.innerHTML = html;
@@ -23210,7 +23228,7 @@ function scheduleWireCreateRentals(wrap){
         } catch (_j) { common = []; }
         if (scheduleCreateIsCombinedBoardWetsuit(next) && common.length) {
           scheduleRenderCreateRentalDurationPebbles(
-            wrap, common, wrap.getAttribute('data-duration-key'),
+            wrap, common, wrap.getAttribute('data-duration-key'), 'board_and_suit_rental',
           );
         } else {
           var host = wrap.querySelector('[data-rental-duration-pebbles]');
@@ -23303,6 +23321,12 @@ function scheduleRenderCreateRentals(){
   wrap.setAttribute('data-rental-mode', mode);
   wrap.setAttribute('data-short-rental', shortMode ? '1' : '0');
   wrap.setAttribute('data-common-short-keys', JSON.stringify(commonShort));
+  var boardShort = typeof scheduleActiveShortDurationKeysForOffering === 'function'
+    ? scheduleActiveShortDurationKeysForOffering(scheduleAdminPricesCache, 'board_rental', locationId) : [];
+  var wetsuitShort = typeof scheduleActiveShortDurationKeysForOffering === 'function'
+    ? scheduleActiveShortDurationKeysForOffering(scheduleAdminPricesCache, 'wetsuit_rental', locationId) : [];
+  wrap.setAttribute('data-board-short-keys', JSON.stringify(boardShort));
+  wrap.setAttribute('data-wetsuit-short-keys', JSON.stringify(wetsuitShort));
   wrap.dataset.rentalWired = '';
   if (!offerings.length || mode === 'none') {
     wrap.innerHTML = '<p class="portal-schedule-create-rentals-empty" data-i18n="schedule.create.noRentalsAvailable">No equipment rentals available for these dates</p>';
@@ -23375,7 +23399,7 @@ function scheduleRenderCreateRentals(){
   }
   scheduleApplyCreateRentalExclusionUi(wrap, selected);
   if (shortMode && commonShort.length) {
-    scheduleRenderCreateRentalDurationPebbles(wrap, commonShort, duration);
+    scheduleRenderCreateRentalDurationPebbles(wrap, commonShort, duration, 'board_and_suit_rental');
   }
   scheduleWireCreateRentals(wrap);
   var modal = el('ps-create-modal');
