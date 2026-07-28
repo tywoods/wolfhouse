@@ -908,6 +908,18 @@ async function createSunsetScheduleStripeLink(pg, opts) {
       pg, booking.booking_id, paymentKind, amountDueCents, currency,
     );
     if (idemRow && idemRow.checkout_url) {
+      await pg.query(
+        `UPDATE bookings
+            SET payment_status = 'payment_link_sent'::payment_status,
+                metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+          WHERE id = $2::uuid`,
+        [JSON.stringify({
+          last_stripe_payment_id: idemRow.payment_id,
+          last_payment_link_url: idemRow.checkout_url,
+          sunset_stripe_link_stale: false,
+          payment_link_invalidated: false,
+        }), booking.booking_id],
+      );
       await pg.query('COMMIT');
       return {
         ok: true,
@@ -965,6 +977,7 @@ async function createSunsetScheduleStripeLink(pg, opts) {
             last_stripe_payment_id: idemRow.payment_id,
             last_payment_link_url: recoveredUrl,
             sunset_stripe_link_stale: false,
+            payment_link_invalidated: false,
           }), booking.booking_id],
         );
         await pg.query('COMMIT');
@@ -1091,6 +1104,7 @@ async function createSunsetScheduleStripeLink(pg, opts) {
         last_stripe_payment_id: paymentId,
         last_payment_link_url: session.url,
         sunset_stripe_link_stale: false,
+        payment_link_invalidated: false,
       }), booking.booking_id],
     );
     await pg.query('COMMIT');
