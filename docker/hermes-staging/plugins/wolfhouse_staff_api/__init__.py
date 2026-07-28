@@ -2150,6 +2150,12 @@ def create_sunset_booking(params, **kwargs):
         course_part["offering_id"] = f"surf_pack_{course_id}__{tier_key}"
         raw_components = dict(raw_components)
         raw_components["course"] = course_part
+        # Every configured-course create must carry its authoritative quote.
+        # Otherwise Luna could drop both an accepted equipment selection and
+        # its provenance, silently degrading to a notes-only booking.
+        if (not isinstance(quote_provenance, dict)
+                or not _clean(quote_provenance.get("quote_fingerprint"))):
+            return _json_result({"success": False, "tool": "create_sunset_booking", "error": "quote_provenance_required", "staff_review_needed": False})
     rp_in = payload.get("rental_pricing") if isinstance(payload.get("rental_pricing"), dict) else None
     combined = raw_components.get("board_and_suit_rental") if isinstance(raw_components.get("board_and_suit_rental"), dict) else None
     board = raw_components.get("surfboard") if isinstance(raw_components.get("surfboard"), dict) else None

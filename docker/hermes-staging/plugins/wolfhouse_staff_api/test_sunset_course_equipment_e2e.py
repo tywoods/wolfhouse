@@ -73,6 +73,7 @@ bad_cases=[
  {"course_equipment":{"mode":"all_day","quantity":2},"quote_provenance":changed_mode},
  {"course_equipment":SELECTION,"quote_provenance":changed_price},
  {"quote_provenance":quote["quote_provenance"]},
+ {},  # Dropping both selection and provenance must not degrade to notes-only.
 ]
 for index, case in enumerate(bad_cases):
     result=json.loads(mod.create_sunset_booking(base(**case)))
