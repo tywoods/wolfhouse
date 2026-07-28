@@ -437,6 +437,8 @@
     "verify:luna-front-desk-quote-service": "node scripts/verify-luna-front-desk-quote-service.js",
     "verify:sunset-edit-authoritative-requote": "node scripts/verify-sunset-edit-authoritative-requote.js",
     "verify:sunset-finance-summary": "node scripts/verify-sunset-finance-summary.js",
+    "verify:sunset-finance-data": "node scripts/verify-sunset-finance-data.js",
+    "verify:sunset-finance-endpoint": "node scripts/verify-sunset-finance-endpoint.js",
     "verify:sunset-edit-drawer-parity": "node scripts/verify-sunset-edit-drawer-parity.js",
     "verify:sunset-create-drawer-layout-equipment-quote-hotfix": "node scripts/verify-sunset-create-drawer-layout-equipment-quote-hotfix.js",
     "verify:sunset-create-drawer-polish": "node scripts/verify-sunset-create-drawer-polish.js",

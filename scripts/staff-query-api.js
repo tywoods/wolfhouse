@@ -72,6 +72,8 @@ const {
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
 const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
+const { fetchSunsetFinanceData } = require('./lib/sunset-finance-data');
+const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
 const {
   READYZ_PATH,
   handleStaffApiReadyz,
@@ -38931,6 +38933,37 @@ async function handleAdminConfigPricePatch(ruleIdRaw, query, req, res, user) {
 }
 
 
+// GET /staff/admin/finance/summary — read-only owner/admin finance summary.
+// Stage 3 V1: Sunset only, location sunset-somo. Server computes all money math
+// (pure lib); browser only renders. Fails closed on any other tenant/location.
+async function handleAdminFinanceSummaryGet(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = String(query.client || query.client_slug || '').trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (clientSlug !== 'sunset') {
+    return sendJSON(res, 403, { success: false, error: 'finance_unavailable_for_client' });
+  }
+  const locationId = normalizeSunsetLocationId(query.location);
+  if (locationId !== 'sunset-somo') {
+    return sendJSON(res, 403, { success: false, error: 'finance_unavailable_for_location' });
+  }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  try {
+    const data = await withPgClient((pg) => fetchSunsetFinanceData(pg, { clientSlug, locationId }));
+    const summary = computeSunsetFinanceSummary({ now: new Date(), timeZone: 'Europe/Madrid', ...data });
+    return sendJSON(res, 200, {
+      success: true,
+      client: clientSlug,
+      location_id: locationId,
+      summary,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    console.error('[admin.finance.summary] read failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'read failed' });
+  }
+}
+
 async function handleAdminConfigPricePost(query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -46515,6 +46548,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return sendJSON(res, 200, { success: true, ...getAeroDataBoxStatus() });
+  }
+
+  if (pathname === '/staff/admin/finance/summary' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminFinanceSummaryGet(parsed.query, req, res, auth.user);
   }
 
   if (pathname === '/staff/admin/config/prices' && method === 'POST') {
