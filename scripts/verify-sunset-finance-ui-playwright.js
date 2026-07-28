@@ -58,19 +58,19 @@ function summary(booked = 4000) {
 const emptySummary = { periods: { today: { ...zero }, week: { ...zero }, month: { ...zero } }, daily_trend: [] };
 const COPY = {
   en: {
-    tabs: ['Finance', 'Pricing'], loading: 'Loading finance summary…', empty: 'No finance activity for these periods yet.',
+    tabs: ['Finance', 'Pricing', 'Luna Staff'], loading: 'Loading finance summary…', empty: 'No finance activity for these periods yet.',
     error: 'Could not load the finance summary.', retry: 'Retry', period: ['Today', 'This week', 'This month'],
     metrics: ['Booked', 'Collected (gross)', 'Outstanding', 'Bookings'], trend: 'Daily trend — this month',
     note: 'Collected is gross — refunds/reversals are not yet available.',
   },
   es: {
-    tabs: ['Finanzas', 'Precios'], loading: 'Cargando el resumen financiero…', empty: 'Aún no hay actividad financiera en estos periodos.',
+    tabs: ['Finanzas', 'Precios', 'Luna Staff'], loading: 'Cargando el resumen financiero…', empty: 'Aún no hay actividad financiera en estos periodos.',
     error: 'No se pudo cargar el resumen financiero.', retry: 'Reintentar', period: ['Hoy', 'Esta semana', 'Este mes'],
     metrics: ['Reservado', 'Cobrado (bruto)', 'Pendiente', 'Reservas'], trend: 'Tendencia diaria — este mes',
     note: 'El cobrado es bruto — los reembolsos/reversos aún no están disponibles.',
   },
   it: {
-    tabs: ['Finanze', 'Prezzi'], loading: 'Caricamento del riepilogo finanziario…', empty: 'Nessuna attività finanziaria per questi periodi.',
+    tabs: ['Finanze', 'Prezzi', 'Luna Staff'], loading: 'Caricamento del riepilogo finanziario…', empty: 'Nessuna attività finanziaria per questi periodi.',
     error: 'Impossibile caricare il riepilogo finanziario.', retry: 'Riprova', period: ['Oggi', 'Questa settimana', 'Questo mese'],
     metrics: ['Prenotato', 'Incassato (lordo)', 'Da incassare', 'Prenotazioni'], trend: 'Andamento giornaliero — questo mese',
     note: 'L’incassato è lordo — rimborsi/storni non ancora disponibili.',
@@ -145,7 +145,7 @@ async function main() {
       selected: document.getElementById('admin-tab-finance')?.getAttribute('aria-selected'),
       pricingHidden: document.getElementById('admin-panel-pricing')?.hidden,
     }));
-    equal('Finance remains first and Pricing second', defaults.keys.join(','), 'finance,pricing');
+    equal('Finance, Pricing, Luna Staff order remains stable', defaults.keys.join(','), 'finance,pricing,luna-staff');
     equal('Finance remains default selected', defaults.selected, 'true');
     equal('Pricing remains hidden by default', defaults.pricingHidden, true);
 

@@ -18786,6 +18786,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div class="portal-admin-subtabs" id="admin-subtab-list" role="tablist" data-i18n-aria="admin.tabs.listLabel" aria-label="Admin sections">
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-finance" data-admin-tab="finance" aria-controls="admin-panel-finance" aria-selected="true" tabindex="0" data-i18n="admin.tabs.finance">Finance</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-pricing" data-admin-tab="pricing" aria-controls="admin-panel-pricing" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.pricing">Pricing</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="admin-tab-luna-staff" data-admin-tab="luna-staff" aria-controls="admin-panel-luna-staff" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.lunaStaff" hidden>Luna Staff</button>
   </div>
   <div id="admin-panel-finance" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="finance" aria-labelledby="admin-tab-finance">
     <div id="admin-finance-body" class="portal-admin-finance-shell"></div>
@@ -18801,6 +18802,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </section>
     </div>
   </div>
+  <div id="admin-panel-luna-staff" class="portal-admin-tabpanel" role="tabpanel" data-admin-tab-panel="luna-staff" aria-labelledby="admin-tab-luna-staff" hidden></div>
   <div id="admin-save-msg" class="state-msg portal-admin-save-msg" style="display:none;margin-top:12px" aria-live="polite"></div>
 </div>
 </div><!-- /tab-admin -->
@@ -21241,6 +21243,19 @@ function applyCustomersFilterVisibility(profile){
 
 function applyClientPortalProfile(clientSlug){
   var profile = getPortalProfile(clientSlug);
+  var sunsetLunaInAdmin = clientSlug === 'sunset' && !!profile.is_surf_vertical;
+  var lunaNav = document.querySelector('.tab-btn[data-tab="ask-luna"]');
+  var lunaAdminTab = el('admin-tab-luna-staff');
+  var lunaAdminPanel = el('admin-panel-luna-staff');
+  var lunaPanel = el('tab-ask-luna');
+  if (lunaNav) lunaNav.style.display = sunsetLunaInAdmin ? 'none' : '';
+  if (lunaAdminTab) lunaAdminTab.hidden = !sunsetLunaInAdmin;
+  // Move, rather than clone, the production Luna panel and its existing owners.
+  if (lunaPanel && lunaAdminPanel && sunsetLunaInAdmin && lunaPanel.parentElement !== lunaAdminPanel) {
+    lunaAdminPanel.appendChild(lunaPanel);
+  } else if (lunaPanel && !sunsetLunaInAdmin && lunaPanel.parentElement === lunaAdminPanel) {
+    el('tab-admin').insertAdjacentElement('afterend', lunaPanel);
+  }
   wireSunsetSchoolSwitcher();
   refreshSunsetSchoolContextLabels();
   try { if (window.__syncNavQuickFlip) window.__syncNavQuickFlip(); } catch (_sf) {}
@@ -21257,6 +21272,10 @@ function applyClientPortalProfile(clientSlug){
     }
     if (tab === 'admin') {
       btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      return;
+    }
+    if (tab === 'ask-luna' && sunsetLunaInAdmin) {
+      btn.style.display = 'none';
       return;
     }
     if (tab === 'services') {

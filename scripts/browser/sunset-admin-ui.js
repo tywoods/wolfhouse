@@ -1363,13 +1363,13 @@ function renderFinanceSummaryHtml(summary){
 }
 
 /**
- * Switch Admin sub-tab (finance | pricing). Does not re-render Pricing content —
+ * Switch Admin sub-tab (finance | pricing | luna-staff). Does not re-render Pricing content —
  * in-memory draft state is retained until Admin reload.
  * @param {string} key
  * @param {{focus?: boolean}} [opts]
  */
 function adminSelectSubTab(key, opts){
-  var next = (key === 'pricing') ? 'pricing' : 'finance';
+  var next = (key === 'pricing' || key === 'luna-staff') ? key : 'finance';
   adminActiveSubTab = next;
   var tabs = document.querySelectorAll('#admin-subtab-list [data-admin-tab]');
   var i;
@@ -1384,6 +1384,8 @@ function adminSelectSubTab(key, opts){
   }
   var finPanel = el('admin-panel-finance');
   var prPanel = el('admin-panel-pricing');
+  var lunaAdminPanel = el('admin-panel-luna-staff');
+  var lunaPanel = el('tab-ask-luna');
   if (finPanel){
     if (next === 'finance') finPanel.removeAttribute('hidden');
     else finPanel.setAttribute('hidden', '');
@@ -1392,6 +1394,12 @@ function adminSelectSubTab(key, opts){
     if (next === 'pricing') prPanel.removeAttribute('hidden');
     else prPanel.setAttribute('hidden', '');
   }
+  if (lunaAdminPanel){
+    if (next === 'luna-staff') lunaAdminPanel.removeAttribute('hidden');
+    else lunaAdminPanel.setAttribute('hidden', '');
+  }
+  if (lunaPanel) lunaPanel.classList.toggle('active', next === 'luna-staff');
+  if (next === 'luna-staff' && typeof wireLunaStaffTabCards === 'function') wireLunaStaffTabCards();
 }
 
 function wireAdminSubTabs(){
@@ -1452,7 +1460,7 @@ function loadAdminTab(opts){
     // Deliberate Admin reopen/reload — drop any in-memory Pricing drafts.
     adminClearPricingDraftState();
   }
-  if (adminActiveSubTab !== 'pricing' && adminActiveSubTab !== 'finance') adminActiveSubTab = 'finance';
+  if (adminActiveSubTab !== 'pricing' && adminActiveSubTab !== 'finance' && adminActiveSubTab !== 'luna-staff') adminActiveSubTab = 'finance';
   adminSelectSubTab(adminActiveSubTab);
   renderAdminFinanceShell();
   var profile = getPortalProfile(getClient());
