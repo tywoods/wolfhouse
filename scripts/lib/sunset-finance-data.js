@@ -1,5 +1,7 @@
 'use strict';
 
+const { effectiveServiceDueCents, reconcileBookingBalances } = require('./sunset-finance-summary');
+
 // Finance excludes transient/terminal non-operational bookings. Gross paid cash is
 // intentionally independent of booking status until an authoritative refund ledger exists.
 const BOOKING_EXCLUSIONS = "('cancelled', 'canceled', 'expired', 'hold')";
@@ -56,6 +58,9 @@ class FinanceDataQualityError extends Error {
   toJSON() { return { name: this.name, code: this.code }; }
 }
 function integerCents(value) {
+  if (value == null || (typeof value === 'string' && value.trim() === '')) {
+    throw new FinanceDataQualityError();
+  }
   const n = Number(value);
   if (!Number.isInteger(n)) throw new FinanceDataQualityError();
   return n;
@@ -71,12 +76,19 @@ async function fetchSunsetFinanceData(pg, scope) {
     bsrRes = await pg.query(BSR_SQL, params);
     bookingsRes = await pg.query(BOOKINGS_SQL, params);
     paymentsRes = await pg.query(PAYMENTS_SQL, params);
-    const paid = new Map();
-    for (const p of rows(paymentsRes)) paid.set(p.booking_id, (paid.get(p.booking_id) || 0) + integerCents(p.amount_paid_cents));
-    for (const b of rows(bookingsRes)) {
-      if (b.balance_due_cents == null) throw new FinanceDataQualityError();
-      const expected = Math.max(0, integerCents(b.total_amount_cents) - (paid.get(b.booking_id) || 0));
-      if (expected !== integerCents(b.balance_due_cents)) throw new FinanceDataQualityError();
+    const bsr = rows(bsrRes).map((r) => ({ booking_id:r.booking_id, service_date:r.service_date, amount_due_cents:r.amount_due_cents, metadata:r.metadata || {} }));
+    const bookings = rows(bookingsRes).map((r) => ({ booking_id:r.booking_id, total_amount_cents:r.total_amount_cents, balance_due_cents:r.balance_due_cents }));
+    const payments = rows(paymentsRes).map((r) => ({ booking_id:r.booking_id, amount_paid_cents:r.amount_paid_cents, paid_at:r.paid_at }));
+    try {
+      for (const row of bsr) effectiveServiceDueCents(row);
+      for (const payment of payments) integerCents(payment.amount_paid_cents);
+      for (const booking of bookings) {
+        if (booking.total_amount_cents != null) integerCents(booking.total_amount_cents);
+        if (booking.balance_due_cents != null) integerCents(booking.balance_due_cents);
+      }
+      if (reconcileBookingBalances({ bookings, bsr, payments }).material) throw new FinanceDataQualityError();
+    } catch (err) {
+      throw err instanceof FinanceDataQualityError ? err : new FinanceDataQualityError();
     }
     await pg.query('COMMIT');
   } catch (err) {

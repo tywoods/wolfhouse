@@ -15,8 +15,10 @@
  *  - Collected   = GROSS only (no proven refund ledger): Σ payments.amount_paid_cents
  *                  (status='paid', paid_at not null) bucketed by Madrid date of paid_at.
  *                  Independent of booking status.
- *  - Outstanding = Σ GREATEST(booking.total_amount_cents − Σpaid, 0) over DISTINCT
+ *  - Outstanding = Σ GREATEST(authoritative booking total − Σpaid, 0) over DISTINCT
  *                  bookings that have ≥1 dated qualifying BSR row in the period.
+ *                  The persisted booking total wins when present; legacy null totals
+ *                  fall back to every qualifying effective BSR commercial row once.
  *                  NON-ADDITIVE across days (never sum daily to get the month).
  *  - Count       = number of distinct qualifying bookings.
  *  - Undated BSR rows never enter a dated period.
@@ -29,6 +31,9 @@
 const CUSTOM_LINE_MARKERS = Object.freeze(['staff_custom_line']);
 
 function toInt(value) {
+  if (value == null || (typeof value === 'string' && value.trim() === '')) {
+    throw new TypeError('invalid integer cents');
+  }
   const n = Number(value);
   if (!Number.isInteger(n)) throw new TypeError('invalid integer cents');
   return n;
@@ -50,11 +55,22 @@ function isStaffCustomLine(metadata) {
 function effectiveServiceDueCents(row) {
   const md = (row && row.metadata) || {};
   if (isStaffCustomLine(md) && md.amount_cents != null) {
-    const signed = Number(md.amount_cents);
-    if (!Number.isInteger(signed)) throw new TypeError('invalid integer cents');
-    return signed;
+    return toInt(md.amount_cents);
   }
   return toInt(row && row.amount_due_cents);
+}
+
+function authoritativeTotalByBooking(bookings, bsr) {
+  const fallback = new Map();
+  for (const row of bsr) {
+    fallback.set(row.booking_id, (fallback.get(row.booking_id) || 0) + effectiveServiceDueCents(row));
+  }
+  return new Map(bookings.map((booking) => [
+    booking.booking_id,
+    booking.total_amount_cents == null
+      ? (fallback.get(booking.booking_id) || 0)
+      : toInt(booking.total_amount_cents),
+  ]));
 }
 
 /** Calendar date (YYYY-MM-DD) of an instant in the given IANA time zone. DST-safe. */
@@ -118,7 +134,7 @@ function computeSunsetFinanceSummary(args) {
   const payments = Array.isArray(args && args.payments) ? args.payments : [];
   const bookings = Array.isArray(args && args.bookings) ? args.bookings : [];
 
-  const totalByBooking = new Map(bookings.map((b) => [b.booking_id, toInt(b.total_amount_cents)]));
+  const totalByBooking = authoritativeTotalByBooking(bookings, bsr);
 
   // Cumulative paid per booking (balance is total − ALL scoped paid, not period-scoped).
   const paidByBooking = new Map();
@@ -183,19 +199,23 @@ function computeSunsetFinanceSummary(args) {
 
 /**
  * Data-quality reconciliation: the paid-payment ledger is the cash authority, so
- * Outstanding is computed as GREATEST(total_amount_cents − Σpaid, 0). Persisted
+ * Outstanding is computed from the persisted total, or the full effective BSR-line
+ * total only when that aggregate is absent, then subtracts the authoritative paid
+ * ledger and clamps at zero. Persisted
  * bookings.balance_due_cents is operational state that SHOULD equal that. This
  * surfaces any material disagreement so the staging reconciliation (and a
  * fail-closed test) can catch drift before it reaches money figures.
  *
  * @param {object} args
  * @param {Array<{booking_id,total_amount_cents,balance_due_cents}>} args.bookings
+ * @param {Array<{booking_id,amount_due_cents,metadata}>} args.bsr
  * @param {Array<{booking_id,amount_paid_cents}>} args.payments  (scoped paid payments)
  * @param {number} [args.toleranceCents=0]  materiality threshold (integer cents)
  * @returns {{ checked:number, discrepancies:Array, material:boolean }}
  */
 function reconcileBookingBalances(args) {
   const bookings = Array.isArray(args && args.bookings) ? args.bookings : [];
+  const bsr = Array.isArray(args && args.bsr) ? args.bsr : [];
   const payments = Array.isArray(args && args.payments) ? args.payments : [];
   const tolerance = Number.isFinite(args && args.toleranceCents) ? Math.abs(Math.trunc(args.toleranceCents)) : 0;
 
@@ -205,9 +225,10 @@ function reconcileBookingBalances(args) {
   }
 
   const discrepancies = [];
+  const totalByBooking = authoritativeTotalByBooking(bookings, bsr);
   for (const b of bookings) {
     if (b.balance_due_cents == null) continue; // nothing persisted to reconcile against
-    const computed = Math.max(0, toInt(b.total_amount_cents) - (paidByBooking.get(b.booking_id) || 0));
+    const computed = Math.max(0, totalByBooking.get(b.booking_id) - (paidByBooking.get(b.booking_id) || 0));
     const persisted = toInt(b.balance_due_cents);
     const delta = computed - persisted;
     if (Math.abs(delta) > tolerance) {

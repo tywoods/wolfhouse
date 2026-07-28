@@ -93,6 +93,34 @@ ok('payments do NOT filter booking status (cancelled cash stays gross)', !/b\.st
   try { await fetchSunsetFinanceData(driftPg, { clientSlug:'sunset', locationId:'sunset-somo' }); } catch (e) { drift = e; }
   ok('material persisted-balance drift fails closed with typed generic error', drift instanceof FinanceDataQualityError && drift.code === 'FINANCE_DATA_QUALITY' && !JSON.stringify(drift).includes('secret'));
 
+  const legacyPg = { query(sql) {
+    const s = norm(sql);
+    if (/from booking_service_records/.test(s)) return Promise.resolve({ rows: [
+      { booking_id:'LEGACY', service_date:'2026-07-15', amount_due_cents:4000, metadata:{} },
+      { booking_id:'LEGACY', service_date:'2026-07-16', amount_due_cents:3000, metadata:{} },
+      { booking_id:'LEGACY', service_date:'2026-07-16', amount_due_cents:0, metadata:{source:'staff_custom_line',amount_cents:-1000} },
+    ] });
+    if (/from payments/.test(s)) return Promise.resolve({ rows:[{booking_id:'LEGACY',amount_paid_cents:1500,paid_at:'2026-07-15T09:00:00Z'}] });
+    if (/select distinct/.test(s)) return Promise.resolve({ rows:[{booking_id:'LEGACY',total_amount_cents:null,balance_due_cents:null}] });
+    return Promise.resolve({rows:[]});
+  } };
+  const legacyData = await fetchSunsetFinanceData(legacyPg, { clientSlug:'sunset', locationId:'sunset-somo' });
+  ok('legacy null total/balance does not fail the complete fetch', legacyData.bookings.length === 1);
+  ok('legacy fetch preserves each qualifying commercial BSR row exactly once', legacyData.bsr.length === 3);
+  const legacySummary = computeSunsetFinanceSummary({ now:new Date('2026-07-15T10:00:00Z'), timeZone:'Europe/Madrid', ...legacyData });
+  ok('legacy data mapping yields authoritative full-line fallback outstanding', legacySummary.periods.today.outstanding_cents === 4500, legacySummary.periods.today.outstanding_cents);
+
+  const legacyDriftPg = { query(sql) {
+    const s = norm(sql);
+    if (/from booking_service_records/.test(s)) return Promise.resolve({rows:[{booking_id:'LEGACY',service_date:'2026-07-15',amount_due_cents:6000,metadata:{}}]});
+    if (/from payments/.test(s)) return Promise.resolve({rows:[{booking_id:'LEGACY',amount_paid_cents:1500,paid_at:'2026-07-15T09:00:00Z'}]});
+    if (/select distinct/.test(s)) return Promise.resolve({rows:[{booking_id:'LEGACY',total_amount_cents:null,balance_due_cents:4499}]});
+    return Promise.resolve({rows:[]});
+  } };
+  let legacyDrift;
+  try { await fetchSunsetFinanceData(legacyDriftPg, { clientSlug:'sunset', locationId:'sunset-somo' }); } catch (e) { legacyDrift = e; }
+  ok('present legacy persisted balance still fails closed on one-cent mismatch', legacyDrift instanceof FinanceDataQualityError);
+
   console.log(`\n── verify:sunset-finance-data: ${pass} passed, ${fail} failed ──`);
   if (fail === 0) console.log('verify:sunset-finance-data — ALL CHECKS PASSED');
   process.exit(fail ? 1 : 0);

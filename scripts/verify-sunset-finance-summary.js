@@ -61,6 +61,11 @@ for (const fixture of [
   try { computeSunsetFinanceSummary({ now: new Date('2026-07-15T12:00:00Z'), timeZone: 'Europe/Madrid', ...fixture.args }); } catch (_) { trapped = true; }
   ok(`${fixture.label} malformed/fractional cents fail closed`, trapped);
 }
+for (const absent of [null, undefined, '', '   ']) {
+  let trapped = false;
+  try { effectiveServiceDueCents({ amount_due_cents: absent, metadata: {} }); } catch (_) { trapped = true; }
+  ok(`absent/empty ordinary cents fail closed: ${JSON.stringify(absent)}`, trapped);
+}
 
 // ── fixtures (already SQL-filtered per the source contract) ──────────────────
 const bookings = [
@@ -97,6 +102,20 @@ eq('Outstanding today = B1 balance', s.periods.today.outstanding_cents, 6000);
 eq('Outstanding week = B1+B2', s.periods.week.outstanding_cents, 9000);
 eq('Outstanding month = B1+B2 (B3 zeroed/June)', s.periods.month.outstanding_cents, 9000);
 
+const legacy = computeSunsetFinanceSummary({
+  now: NOW,
+  timeZone: TZ,
+  bookings: [{ booking_id: 'LEGACY', total_amount_cents: null, balance_due_cents: null }],
+  bsr: [
+    { booking_id: 'LEGACY', service_date: '2026-07-15', amount_due_cents: 4000, metadata: {} },
+    { booking_id: 'LEGACY', service_date: '2026-07-16', amount_due_cents: 3000, metadata: {} },
+    { booking_id: 'LEGACY', service_date: '2026-07-16', amount_due_cents: 0, metadata: { source: 'staff_custom_line', amount_cents: -1000 } },
+  ],
+  payments: [{ booking_id: 'LEGACY', amount_paid_cents: 1500, paid_at: '2026-07-15T09:00:00Z' }],
+});
+eq('legacy null total falls back to every effective commercial BSR row exactly once', legacy.periods.today.outstanding_cents, 4500);
+eq('fallback remains full-booking total in a period containing multiple rows', legacy.periods.week.outstanding_cents, 4500);
+
 // ── Bookings count = distinct qualifying bookings ───────────────────────────
 eq('count today = 1 (B1)', s.periods.today.bookings_count, 1);
 eq('count week = 2 (B1,B2)', s.periods.week.bookings_count, 2);
@@ -131,6 +150,24 @@ const recBad = reconcileBookingBalances({
 ok('reconcile: drift flagged as material with delta', recBad.material === true && recBad.discrepancies[0].delta_cents === -3999);
 ok('reconcile: computed clamps at 0 (never negative)', reconcileBookingBalances({ bookings: [{ booking_id: 'B2', total_amount_cents: 1000, balance_due_cents: 0 }], payments: [{ booking_id: 'B2', amount_paid_cents: 5000 }] }).material === false);
 ok('reconcile: null persisted balance is skipped', reconcileBookingBalances({ bookings: [{ booking_id: 'B3', total_amount_cents: 1000, balance_due_cents: null }], payments: [] }).discrepancies.length === 0);
+const legacyRec = reconcileBookingBalances({
+  bookings: [{ booking_id: 'B5', total_amount_cents: null, balance_due_cents: 4500 }],
+  bsr: [
+    { booking_id: 'B5', service_date: '2026-07-15', amount_due_cents: 4000, metadata: {} },
+    { booking_id: 'B5', service_date: '2026-07-16', amount_due_cents: 3000, metadata: {} },
+    { booking_id: 'B5', service_date: '2026-07-16', amount_due_cents: 0, metadata: { staff_custom_line: true, amount_cents: -1000 } },
+  ],
+  payments: [{ booking_id: 'B5', amount_paid_cents: 1500 }],
+});
+ok('reconcile: present persisted balance uses legacy full-BSR fallback and still matches exactly', legacyRec.material === false && legacyRec.discrepancies.length === 0);
+ok('reconcile: one-cent mismatch with fallback still fails closed', reconcileBookingBalances({
+  bookings: [{ booking_id: 'B6', total_amount_cents: null, balance_due_cents: 4499 }],
+  bsr: [
+    { booking_id: 'B6', service_date: '2026-07-15', amount_due_cents: 4000, metadata: {} },
+    { booking_id: 'B6', service_date: '2026-07-16', amount_due_cents: 2000, metadata: {} },
+  ],
+  payments: [{ booking_id: 'B6', amount_paid_cents: 1500 }],
+}).material === true);
 ok('reconcile: tolerance suppresses immaterial drift', reconcileBookingBalances({ bookings: [{ booking_id: 'B4', total_amount_cents: 1000, balance_due_cents: 999 }], payments: [], toleranceCents: 5 }).material === false);
 
 console.log(`\n── verify:sunset-finance-summary: ${pass} passed, ${fail} failed ──`);
