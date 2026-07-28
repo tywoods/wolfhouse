@@ -202,7 +202,13 @@ assert('buildUiHtml inject includes view module body', htmlSample.includes('func
 assert('buildUiHtml inject includes portal module body', htmlSample.includes('function schedulePortalFetchDrawerDetail('));
 
 console.log('\n[2] Continuity source contracts (no legacy authority)');
-assert('radiogroup main activity in edit owner', /role="radiogroup"/.test(editModSrc) && /ps-drawer-comp-no-lesson/.test(editModSrc));
+// Stage 1 Create parity: visible activity buttons + hidden radios (role=group), not labeled radiogroup glyphs.
+assert('main activity Create-parity buttons + hidden radios',
+  /role="group"/.test(editModSrc)
+  && /portal-schedule-create-activity-btn/.test(editModSrc)
+  && /data-edit-activity=/.test(editModSrc)
+  && /ps-drawer-comp-no-lesson/.test(editModSrc)
+  && /portal-schedule-create-visually-hidden/.test(editModSrc));
 assert('no visible course tier select authority', !/id="ps-drawer-course-tier"/.test(editModSrc));
 assert('uses catalog duration resolver', /schedulePortalResolveDerivedCourseTier/.test(editModSrc));
 assert('private rows date-derived owner', /scheduleDrawerSyncPrivateSessions/.test(editModSrc) && /data-session-date/.test(editModSrc));
@@ -635,6 +641,36 @@ if (editExists) {
   if (stripFn) vm.runInContext(`${stripFn}\nthis.scheduleDrawerStripLabelDate=scheduleDrawerStripLabelDate;`, ctx);
 
   [
+    'scheduleDrawerSetVisible',
+    'scheduleDrawerDateRangeSeedDraft',
+    'scheduleDrawerDateRangeIsOpen',
+    'scheduleSyncDrawerDateRangeUi',
+    'scheduleDrawerDateRangeClosePopover',
+    'scheduleDrawerDateRangeFocusInto',
+    'scheduleDrawerDateRangeOpenPopover',
+    'scheduleDrawerDateRangeTogglePopover',
+    'scheduleDrawerDateRangeMoveFocus',
+    'scheduleRenderDrawerDateRangeCalendar',
+    'scheduleApplyDrawerDateRangeDraft',
+    'scheduleDrawerDateRangeOnDocumentKeydown',
+    'scheduleDrawerDateRangeOnDocumentPointer',
+    'scheduleWireDrawerDateRange',
+    'scheduleSyncDrawerMainActivityButtons',
+    'scheduleWireDrawerMainActivityButtons',
+    'scheduleDrawerIsGroupCourseDrilldown',
+    'scheduleDrawerIsPrivateSessionsDrilldown',
+    'scheduleDrawerPrivatePanelNode',
+    'scheduleDrawerClearPrivateSessionDraft',
+    'scheduleDrawerGetSelectedCourseId',
+    'scheduleDrawerSyncCourseButtons',
+    'scheduleDrawerClearSelectedCourse',
+    'scheduleDrawerSelectCourse',
+    'scheduleDrawerRenderMainActivityPath',
+    'scheduleDrawerEnterGroupCourseDrilldown',
+    'scheduleDrawerEnterPrivateSessionsDrilldown',
+    'scheduleDrawerExitMainActivityDrilldown',
+    'scheduleDrawerRenderCourseList',
+    'scheduleDrawerSeedMainActivityView',
     'scheduleParsePaymentSelectValue',
     'scheduleDrawerPaymentSelectValue',
     'scheduleDrawerMainActivityValue',
@@ -688,6 +724,16 @@ if (editExists) {
     const fnSrc = extractFunctionSource(editModSrc, name);
     if (fnSrc) vm.runInContext(`${fnSrc}\nthis.${name}=${name};`, ctx);
   });
+  // Edit date-range + drill-down runtime state used by Stage 1 parity owners.
+  vm.runInContext(
+    'var scheduleDrawerDateRangeDraft={start:null,end:null};'
+    + 'var scheduleDrawerDateRangeViewYm=null;'
+    + 'var scheduleDrawerDateRangeFocusIso=null;'
+    + 'var scheduleDrawerDateRangeRestoreFocus=false;'
+    + 'var scheduleDrawerDateRangeDocWired=false;'
+    + 'var scheduleDrawerMainActivityView="root";',
+    ctx,
+  );
   // Custom-line state used by Edit seed/render (same Create contract).
   vm.runInContext(
     'var scheduleDrawerCustomLines=[];var scheduleDrawerCustomLineSeq=0;var scheduleDrawerCustomLineEditorOpen=false;'
@@ -789,7 +835,10 @@ if (editExists) {
   assert('booking code in header chip', /SUN-1/.test(staffHtml));
   assert('no second oversized Edit booking body title',
     (staffHtml.match(/Edit booking/g) || []).length === 1);
-  assert('radiogroup present', /role="radiogroup"/.test(staffHtml));
+  assert('main activity group + activity buttons present',
+    /role="group"/.test(staffHtml)
+    && /portal-schedule-create-activity-btn/.test(staffHtml)
+    && /data-edit-activity=/.test(staffHtml));
   assert('no-lesson radio present', /ps-drawer-comp-no-lesson/.test(staffHtml));
   assert('no course tier select', !/ps-drawer-course-tier/.test(staffHtml));
   assert('no private date input', !/ps-pl-session-date" type="date"/.test(staffHtml));
@@ -903,6 +952,62 @@ if (editExists) {
     dom['ps-drawer-private-lesson-fields'] = makeNode({ style: { display: 'none' } });
     dom['ps-drawer-course-section'] = makeNode({ style: {} });
     dom['ps-drawer-date-range'] = makeNode({ style: {} });
+    // Stage 1 Create-parity hosts used by date-range + drill-down owners.
+    dom['ps-drawer-date-range-trigger'] = makeNode({
+      dataset: {},
+      attributes: { 'aria-expanded': 'false' },
+      setAttribute(k, v) { this.attributes[k] = String(v); },
+      getAttribute(k) { return this.attributes[k] != null ? this.attributes[k] : null; },
+    });
+    dom['ps-drawer-date-range-display'] = makeNode({ textContent: '' });
+    dom['ps-drawer-date-range-popover'] = makeNode({ hidden: true, style: { display: 'none' } });
+    dom['ps-drawer-date-range-grid'] = makeNode({ dataset: {}, innerHTML: '', _dayButtons: [] });
+    dom['ps-drawer-date-range-month-label'] = makeNode({ textContent: '' });
+    dom['ps-drawer-date-range-prev'] = makeNode({ dataset: {} });
+    dom['ps-drawer-date-range-next'] = makeNode({ dataset: {} });
+    dom['ps-drawer-date-range-cancel'] = makeNode({ dataset: {} });
+    dom['ps-drawer-date-range-apply'] = makeNode({ dataset: {}, disabled: true });
+    dom['ps-drawer-main-activity-choices'] = makeNode({
+      dataset: {},
+      style: {},
+      querySelector(sel) {
+        if (sel && sel.includes('ps-drawer-comp-course')) return dom['btn-course'] || null;
+        if (sel && sel.includes('ps-drawer-comp-private')) return dom['btn-priv'] || null;
+        if (sel && sel.includes('ps-drawer-comp-no-lesson')) return dom['btn-none'] || null;
+        return null;
+      },
+      contains() { return true; },
+    });
+    dom['btn-course'] = makeNode({
+      attributes: { 'data-edit-activity': 'ps-drawer-comp-course', 'aria-pressed': 'true' },
+      classList: { add() {}, remove() {}, contains() { return false; } },
+      getAttribute(k) { return this.attributes[k] != null ? this.attributes[k] : null; },
+      setAttribute(k, v) { this.attributes[k] = String(v); },
+    });
+    dom['btn-priv'] = makeNode({
+      attributes: { 'data-edit-activity': 'ps-drawer-comp-private-lesson', 'aria-pressed': 'false' },
+      classList: { add() {}, remove() {}, contains() { return false; } },
+      getAttribute(k) { return this.attributes[k] != null ? this.attributes[k] : null; },
+      setAttribute(k, v) { this.attributes[k] = String(v); },
+    });
+    dom['btn-none'] = makeNode({
+      attributes: { 'data-edit-activity': 'ps-drawer-comp-no-lesson', 'aria-pressed': 'false' },
+      classList: { add() {}, remove() {}, contains() { return false; } },
+      getAttribute(k) { return this.attributes[k] != null ? this.attributes[k] : null; },
+      setAttribute(k, v) { this.attributes[k] = String(v); },
+    });
+    dom['ps-drawer-main-activity-back'] = makeNode({ dataset: {}, style: { display: 'none' }, hidden: true });
+    dom['ps-drawer-main-activity-path'] = makeNode({ style: { display: 'none' }, hidden: true, textContent: '' });
+    dom['ps-drawer-course-list'] = makeNode({
+      style: { display: 'none' },
+      hidden: true,
+      innerHTML: '',
+      querySelector() { return null; },
+      querySelectorAll() { return []; },
+    });
+    dom['ps-drawer-private-panel'] = makeNode({ style: { display: 'none' }, hidden: true });
+    dom['ps-drawer-surfers-field'] = makeNode({ style: { display: 'none' } });
+    dom['ps-drawer-surfers'] = makeNode({ value: '1' });
     dom['ps-drawer-addon-fullday-field'] = makeNode({ style: { display: 'none' }, attributes: { 'data-addon-seed': '{}' } });
     dom['ps-drawer-fullday-rows'] = makeNode({ style: {} });
     dom['ps-drawer-fullday-summary'] = makeNode({ style: {} });
