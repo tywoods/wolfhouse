@@ -600,6 +600,7 @@ module.exports = {
     'schedule.drawer.invoiceTitle': 'Factura',
     'schedule.drawer.copyPaymentLink': 'Copiar enlace de pago',
     'schedule.drawer.createPaymentLink': 'Crear enlace de pago',
+    'schedule.drawer.createNewPaymentLink': 'Crear nuevo enlace de pago',
     'schedule.drawer.paymentLinkActive': 'Enlace de pago activo',
     'schedule.drawer.moreActions': 'Más opciones de pago',
     'schedule.drawer.recordPayment': 'Registrar un pago manual',
