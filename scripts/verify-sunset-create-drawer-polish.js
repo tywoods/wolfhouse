@@ -14,7 +14,8 @@
  *  F) Mobile width constraints
  *  G) Behavioral: Back/exit path resets visible activity to No lesson
  *  H) Behavioral: honest calendar a11y (focus, Escape, Cancel/Apply, outside, roving keys)
- *  I) Behavioral: no Clear action; Cancel remains non-mutating; Apply requires valid range
+ *  I) Behavioral: no Clear action; Cancel remains non-mutating; Apply needs a start
+ *     (one-day: start-only Apply commits date_from=date_to=start; multi-day still 2-click)
  *  J) Calendar is labelled group of real date buttons (no invalid grid roles);
  *     selected days expose truthful aria-pressed
  *
@@ -401,6 +402,7 @@ function buildPolishRuntime() {
   }
 
   const fnNames = [
+    'scheduleCreateDateRangeIsValidIso',
     'scheduleCreateDateRangeSelectDay',
     'scheduleCreateDateRangeAddDays',
     'scheduleCreateDateRangeWeekStartIso',
@@ -626,6 +628,7 @@ assert('selection rules documented in owner (start/end, restart, same-day, inclu
   /restart|re-?start|same[- ]?day|inclusive|draftStart|draftEnd|rangeStart|rangeEnd/.test(apiSrc)
   && (/second.*start|earlier|before.*start|draftStart/.test(apiSrc)));
 assert('embedded range validators survive the /staff/ui template layer', (() => {
+  const validator = extractFn(apiSrc, 'scheduleCreateDateRangeIsValidIso');
   const owners = [
     extractFn(apiSrc, 'scheduleCreateDateRangeSelectDay'),
     extractFn(apiSrc, 'scheduleCreateDateRangeAddDays'),
@@ -633,8 +636,9 @@ assert('embedded range validators survive the /staff/ui template layer', (() => 
     extractFn(apiSrc, 'scheduleCreateDateRangeFormatShort'),
     extractFn(apiSrc, 'scheduleCreateDateRangeMoveFocus'),
   ].join('\n');
-  return owners.includes('[0-9]{4}-[0-9]{2}-[0-9]{2}')
-    && !owners.includes('\\\\d{4}');
+  return validator.includes('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+    && owners.includes('scheduleCreateDateRangeIsValidIso')
+    && !validator.includes('\\\\d{4}');
 })());
 assert('a11y keyboard/focus owners present (focus into, Escape, roving move)',
   /function scheduleCreateDateRangeFocusInto/.test(apiSrc)
@@ -664,10 +668,20 @@ assert('roving keyboard behavior owners present (no grid role required)',
     'scheduleApplyDateRangeDaySelection',
   ].find((n) => extractFn(apiSrc, n));
   if (pureName) {
+    const validatorSrc = extractFn(apiSrc, 'scheduleCreateDateRangeIsValidIso');
     const fnSrc = extractFn(apiSrc, pureName);
-    const sandbox = { result: null };
+    const sandbox = {
+      result: null,
+      scheduleParseIso(s) {
+        const p = String(s || '').split('-');
+        return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+      },
+      scheduleIsoDate(d) {
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      },
+    };
     vm.runInNewContext(
-      fnSrc + '; result = ' + pureName + ';',
+      validatorSrc + '\n' + fnSrc + '; result = ' + pureName + ';',
       sandbox
     );
     const select = sandbox.result;
@@ -700,7 +714,8 @@ assert('roving keyboard behavior owners present (no grid role required)',
         return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
       },
     };
-    vm.runInNewContext(need.join('\n') + '; this.add = scheduleCreateDateRangeAddDays; this.ws = scheduleCreateDateRangeWeekStartIso; this.we = scheduleCreateDateRangeWeekEndIso;', sandbox);
+    const validatorSrc = extractFn(apiSrc, 'scheduleCreateDateRangeIsValidIso');
+    vm.runInNewContext(validatorSrc + '\n' + need.join('\n') + '; this.add = scheduleCreateDateRangeAddDays; this.ws = scheduleCreateDateRangeWeekStartIso; this.we = scheduleCreateDateRangeWeekEndIso;', sandbox);
     assert('addDays +1', sandbox.add('2026-07-27', 1) === '2026-07-28');
     assert('addDays -7', sandbox.add('2026-07-27', -7) === '2026-07-20');
     assert('week start Sunday for Monday 2026-07-27', sandbox.ws('2026-07-27') === '2026-07-26');
@@ -949,14 +964,30 @@ console.log('\n[H] Behavioral: calendar focus / Escape / Cancel / Apply / outsid
       && el('ps-create-date-to').value === '2026-07-29');
     assert('Cancel: trigger focus restored', getFocused() === el('ps-create-date-range-trigger'));
 
-    // Apply writes canonical + restores focus
+    // One-day: first start click enables Apply; Apply commits from=to=start (production owner)
+    sandbox.scheduleCreateDateRangeOpenPopover();
+    fireGridClick('2026-07-18');
+    assert('one-day draft: start only after first click',
+      sandbox.scheduleCreateDateRangeDraft.start === '2026-07-18'
+      && !sandbox.scheduleCreateDateRangeDraft.end);
+    assert('Apply enabled after one valid start click (one-day)',
+      el('ps-create-date-range-apply').disabled === false);
+    const appliedOneDay = sandbox.scheduleApplyCreateDateRangeDraft();
+    assert('Apply one-day returns true', appliedOneDay === true);
+    assert('Apply one-day writes date_from=date_to=start',
+      el('ps-create-date-from').value === '2026-07-18'
+      && el('ps-create-date-to').value === '2026-07-18');
+    assert('Apply one-day closes popover', !sandbox.scheduleCreateDateRangeIsOpen());
+    assert('Apply one-day restores trigger focus', getFocused() === el('ps-create-date-range-trigger'));
+
+    // Multi-day: second later click still expands range; Apply writes both
     sandbox.scheduleCreateDateRangeOpenPopover();
     fireGridClick('2026-07-20');
     fireGridClick('2026-07-22');
-    assert('draft ready for apply',
+    assert('draft ready for multi-day apply',
       sandbox.scheduleCreateDateRangeDraft.start === '2026-07-20'
       && sandbox.scheduleCreateDateRangeDraft.end === '2026-07-22');
-    assert('Apply enabled when valid range', el('ps-create-date-range-apply').disabled === false);
+    assert('Apply enabled when multi-day range complete', el('ps-create-date-range-apply').disabled === false);
     const applied = sandbox.scheduleApplyCreateDateRangeDraft();
     assert('Apply returns true', applied === true);
     assert('Apply writes hidden from/to',
@@ -964,6 +995,27 @@ console.log('\n[H] Behavioral: calendar focus / Escape / Cancel / Apply / outsid
       && el('ps-create-date-to').value === '2026-07-22');
     assert('Apply closes popover', !sandbox.scheduleCreateDateRangeIsOpen());
     assert('Apply restores trigger focus', getFocused() === el('ps-create-date-range-trigger'));
+
+    // After start-only, second later click expands; earlier second restarts (range semantics preserved)
+    sandbox.scheduleCreateDateRangeOpenPopover();
+    fireGridClick('2026-07-12');
+    assert('restart start-only before second click',
+      sandbox.scheduleCreateDateRangeDraft.start === '2026-07-12'
+      && !sandbox.scheduleCreateDateRangeDraft.end);
+    fireGridClick('2026-07-14');
+    assert('second later click expands end',
+      sandbox.scheduleCreateDateRangeDraft.start === '2026-07-12'
+      && sandbox.scheduleCreateDateRangeDraft.end === '2026-07-14');
+    fireGridClick('2026-07-10');
+    assert('click after complete range restarts as new start',
+      sandbox.scheduleCreateDateRangeDraft.start === '2026-07-10'
+      && !sandbox.scheduleCreateDateRangeDraft.end);
+    fireGridClick('2026-07-08');
+    assert('earlier second click restarts as new start (no end)',
+      sandbox.scheduleCreateDateRangeDraft.start === '2026-07-08'
+      && !sandbox.scheduleCreateDateRangeDraft.end);
+    // leave open state closed for subsequent outside-click case
+    sandbox.scheduleCreateDateRangeClosePopover({ restoreFocus: false, discard: true });
 
     // Outside click dismisses without applying pending draft
     sandbox.scheduleCreateDateRangeOpenPopover();
@@ -1022,8 +1074,8 @@ console.log('\n[H] Behavioral: calendar focus / Escape / Cancel / Apply / outsid
   }
 }
 
-// ── I) Behavioral: no Clear; Cancel non-mutating; Apply needs valid range ──
-console.log('\n[I] Behavioral: no Clear action; Cancel non-mutating; Apply needs range');
+// ── I) Behavioral: no Clear; Cancel non-mutating; Apply needs start (one-day ok) ──
+console.log('\n[I] Behavioral: no Clear action; Cancel non-mutating; Apply needs start');
 {
   let rt;
   try {
@@ -1057,13 +1109,44 @@ console.log('\n[I] Behavioral: no Clear action; Cancel non-mutating; Apply needs
     assert('Cancel closes popover without Apply',
       !sandbox.scheduleCreateDateRangeIsOpen());
 
-    // Apply still requires valid range (incomplete draft blocked)
-    sandbox.scheduleCreateDateRangeDraft = { start: '2026-07-10', end: null };
+    // Apply blocked only when no start at all (start-only is a valid one-day range)
+    sandbox.scheduleCreateDateRangeDraft = { start: null, end: null };
+    sandbox.scheduleSyncCreateDateRangeUi();
+    assert('Apply disabled with empty draft', el('ps-create-date-range-apply').disabled === true);
     const blocked = sandbox.scheduleApplyCreateDateRangeDraft();
-    assert('Apply blocked without complete range', blocked === false);
+    assert('Apply blocked without start', blocked === false);
     assert('Apply blocked leaves canonical intact',
       el('ps-create-date-from').value === '2026-07-27'
       && el('ps-create-date-to').value === '2026-07-29');
+
+    sandbox.scheduleCreateDateRangeDraft = { start: '2026-02-30', end: null };
+    sandbox.scheduleSyncCreateDateRangeUi();
+    assert('Apply disabled for impossible start date',
+      el('ps-create-date-range-apply').disabled === true);
+    assert('Apply rejects impossible start date without mutating canonical',
+      sandbox.scheduleApplyCreateDateRangeDraft() === false
+      && el('ps-create-date-from').value === '2026-07-27'
+      && el('ps-create-date-to').value === '2026-07-29');
+
+    sandbox.scheduleCreateDateRangeDraft = { start: '2026-07-10', end: '2026-99-99' };
+    sandbox.scheduleSyncCreateDateRangeUi();
+    assert('Apply disabled for impossible supplied end date',
+      el('ps-create-date-range-apply').disabled === true);
+    assert('Apply rejects impossible supplied end instead of silently using start',
+      sandbox.scheduleApplyCreateDateRangeDraft() === false
+      && el('ps-create-date-from').value === '2026-07-27'
+      && el('ps-create-date-to').value === '2026-07-29');
+
+    // Production owner: start-only draft enables Apply and commits same-day from/to
+    sandbox.scheduleCreateDateRangeDraft = { start: '2026-07-10', end: null };
+    sandbox.scheduleSyncCreateDateRangeUi();
+    assert('Apply enabled for start-only draft (one-day)',
+      el('ps-create-date-range-apply').disabled === false);
+    const oneDayOk = sandbox.scheduleApplyCreateDateRangeDraft();
+    assert('Apply start-only commits one-day from/to',
+      oneDayOk === true
+      && el('ps-create-date-from').value === '2026-07-10'
+      && el('ps-create-date-to').value === '2026-07-10');
 
     // Selected day buttons expose truthful aria-pressed (no gridcell role)
     sandbox.scheduleCreateDateRangeDraft = { start: '2026-07-27', end: '2026-07-29' };

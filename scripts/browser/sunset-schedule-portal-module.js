@@ -290,7 +290,36 @@ function schedulePortalGetSelectedCreateCourseId() {
   var checked = null;
   try { checked = list.querySelector('input[type="radio"]:checked'); } catch (_q) { checked = null; }
   if (checked && checked.value) return String(checked.value).trim();
+  // Visible button selected state (aria-pressed) is authoritative when radios lag.
+  try {
+    var pressed = list.querySelector('button[data-course-id][aria-pressed="true"]');
+    if (pressed) {
+      var pid = pressed.getAttribute('data-course-id');
+      if (pid) return String(pid).trim();
+    }
+  } catch (_b) { /* ignore */ }
   return '';
+}
+
+/** Keep visible course buttons + hidden radios exclusive with selected id. */
+function schedulePortalSyncCreateCourseButtons(selectedId) {
+  var list = el('ps-create-course-list');
+  if (!list) return;
+  var id = selectedId != null ? String(selectedId).trim() : '';
+  try {
+    list.querySelectorAll('button[data-course-id]').forEach(function(btn) {
+      var cid = String(btn.getAttribute('data-course-id') || '').trim();
+      var on = !!(id && cid === id);
+      try { btn.setAttribute('aria-pressed', on ? 'true' : 'false'); } catch (_a) { /* ignore */ }
+      if (on) btn.classList.add('is-selected');
+      else btn.classList.remove('is-selected');
+    });
+  } catch (_bt) { /* ignore */ }
+  try {
+    list.querySelectorAll('input[type="radio"]').forEach(function(r) {
+      r.checked = !!(id && String(r.value) === id);
+    });
+  } catch (_r) { /* ignore */ }
 }
 
 function schedulePortalClearSelectedCreateCourse() {
@@ -304,6 +333,16 @@ function schedulePortalClearSelectedCreateCourse() {
     try {
       list.querySelectorAll('input[type="radio"]').forEach(function(r) { r.checked = false; });
     } catch (_r) { /* ignore */ }
+    if (typeof schedulePortalSyncCreateCourseButtons === 'function') {
+      schedulePortalSyncCreateCourseButtons('');
+    } else {
+      try {
+        list.querySelectorAll('button[data-course-id]').forEach(function(btn) {
+          try { btn.setAttribute('aria-pressed', 'false'); } catch (_a) { /* ignore */ }
+          btn.classList.remove('is-selected');
+        });
+      } catch (_b) { /* ignore */ }
+    }
   }
   schedulePortalPendingCourseId = null;
   schedulePortalPendingCourseGen = 0;
@@ -347,13 +386,25 @@ function schedulePortalSelectCreateCourse(courseId, courseLabel, opts) {
     }
     sel.value = id;
   }
-  var list = el('ps-create-course-list');
-  if (list) {
-    try {
-      list.querySelectorAll('input[type="radio"]').forEach(function(r) {
-        r.checked = String(r.value) === id;
-      });
-    } catch (_c) { /* ignore */ }
+  if (typeof schedulePortalSyncCreateCourseButtons === 'function') {
+    schedulePortalSyncCreateCourseButtons(id);
+  } else {
+    var list = el('ps-create-course-list');
+    if (list) {
+      try {
+        list.querySelectorAll('input[type="radio"]').forEach(function(r) {
+          r.checked = String(r.value) === id;
+        });
+      } catch (_c) { /* ignore */ }
+      try {
+        list.querySelectorAll('button[data-course-id]').forEach(function(btn) {
+          var on = String(btn.getAttribute('data-course-id') || '') === id;
+          try { btn.setAttribute('aria-pressed', on ? 'true' : 'false'); } catch (_a) { /* ignore */ }
+          if (on) btn.classList.add('is-selected');
+          else btn.classList.remove('is-selected');
+        });
+      } catch (_b) { /* ignore */ }
+    }
   }
   schedulePortalPendingCourseId = id;
   schedulePortalPendingCourseGen = schedulePortalOpenGen;
@@ -611,7 +662,7 @@ function schedulePortalRenderCreateCourseList(courses, opts) {
   opts = opts || {};
   var list = el('ps-create-course-list');
   var sel = el('ps-create-course-select');
-  // List host is preferred UI; hidden select still mirrors for payload / older sandboxes.
+  // List host is preferred UI; hidden select + radios still mirror for payload / older sandboxes.
   if (!list && !sel) return;
   var dates = opts.dates || (typeof scheduleCreateSelectedDates === 'function' ? scheduleCreateSelectedDates() : []);
   var prev = opts.selectedId != null
@@ -632,14 +683,22 @@ function schedulePortalRenderCreateCourseList(courses, opts) {
       ? (' (' + (portalT('schedule.create.courseNotOnSelectedDates') || 'not available on selected dates') + ')')
       : '');
     var checked = !disabled && prev && String(prev) === id;
-    html += '<label class="portal-schedule-create-check' + (disabled ? ' is-disabled' : '') + '"'
+    // Visible options match top-level Main activity: real buttons, no radio glyphs,
+    // exclusive aria-pressed / is-selected. Hidden radios keep payload contracts.
+    html += '<button type="button" class="portal-schedule-create-activity-btn'
+      + (checked ? ' is-selected' : '')
+      + (disabled ? ' is-disabled' : '') + '"'
       + ' data-course-id="' + escHtml(id) + '"'
       + ' data-label="' + escHtml(baseLabel) + '"'
-      + ' data-eligible="' + (eligible ? '1' : '0') + '">'
+      + ' data-eligible="' + (eligible ? '1' : '0') + '"'
+      + ' aria-pressed="' + (checked ? 'true' : 'false') + '"'
+      + (disabled ? ' disabled' : '')
+      + '><span>' + escHtml(showLabel) + '</span></button>'
       + '<input type="radio" name="ps-create-course-pick" value="' + escHtml(id) + '"'
+      + ' class="portal-schedule-create-visually-hidden" tabindex="-1" aria-hidden="true"'
       + (checked ? ' checked' : '')
       + (disabled ? ' disabled' : '')
-      + '> <span>' + escHtml(showLabel) + '</span></label>';
+      + '>';
     selHtml += '<option value="' + escHtml(id) + '" data-label="' + escHtml(baseLabel) + '"'
       + (disabled ? ' disabled' : '')
       + ' data-eligible="' + (eligible ? '1' : '0') + '">'
@@ -659,7 +718,9 @@ function schedulePortalRenderCreateCourseList(courses, opts) {
   // (cold→warm race: open with course_id before courses arrive).
   if (prev && availableIds[prev]) {
     if (sel) sel.value = prev;
-    if (list) {
+    if (typeof schedulePortalSyncCreateCourseButtons === 'function') {
+      schedulePortalSyncCreateCourseButtons(prev);
+    } else if (list) {
       try {
         list.querySelectorAll('input[type="radio"]').forEach(function(r) {
           r.checked = String(r.value) === String(prev);
@@ -671,19 +732,37 @@ function schedulePortalRenderCreateCourseList(courses, opts) {
     schedulePortalClearSelectedCreateCourse();
   } else if (!prev) {
     if (sel) sel.value = '';
+    if (typeof schedulePortalSyncCreateCourseButtons === 'function') {
+      schedulePortalSyncCreateCourseButtons('');
+    }
   } else if (sel) {
     // prev set, catalog empty: leave pending; clear only the select display value.
     sel.value = '';
   }
-  // Wire radio changes once per render (rebind after innerHTML).
+  // Wire visible button clicks + hidden radio changes once per render (rebind after innerHTML).
   if (list) {
+    try {
+      list.querySelectorAll('button[data-course-id]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          if (btn.disabled || btn.classList.contains('is-disabled')) return;
+          var cid = String(btn.getAttribute('data-course-id') || '').trim();
+          if (!cid) return;
+          var lab = String(btn.getAttribute('data-label') || '').trim();
+          schedulePortalSelectCreateCourse(cid, lab);
+        });
+      });
+    } catch (_wb) { /* ignore */ }
     try {
       list.querySelectorAll('input[type="radio"]').forEach(function(radio) {
         radio.addEventListener('change', function() {
           if (!radio.checked || radio.disabled) return;
-          var row = radio.closest ? radio.closest('[data-course-id]') : null;
-          var lab = row ? String(row.getAttribute('data-label') || '').trim() : '';
-          schedulePortalSelectCreateCourse(radio.value, lab);
+          var cid = String(radio.value || '').trim();
+          var lab = '';
+          try {
+            var row = list.querySelector('button[data-course-id="' + cid + '"]');
+            if (row) lab = String(row.getAttribute('data-label') || '').trim();
+          } catch (_l) { /* ignore */ }
+          schedulePortalSelectCreateCourse(cid, lab);
         });
       });
     } catch (_w) { /* ignore */ }
@@ -708,10 +787,15 @@ function schedulePortalApplyDesiredCourseSelect() {
   var list = el('ps-create-course-list');
   if (!match && list) {
     try {
-      var row = list.querySelector('[data-course-id="' + String(id) + '"]');
-      if (row && row.getAttribute('data-eligible') !== '0') {
-        var inp = row.querySelector('input[type="radio"]');
-        if (inp && !inp.disabled) match = true;
+      var row = list.querySelector('button[data-course-id="' + String(id) + '"], [data-course-id="' + String(id) + '"]');
+      if (row && row.getAttribute('data-eligible') !== '0' && !row.disabled) {
+        // Button row: disabled attr; legacy label row may host a radio child.
+        var inp = null;
+        try { inp = row.querySelector && row.querySelector('input[type="radio"]'); } catch (_i) { inp = null; }
+        if (!inp) {
+          try { inp = list.querySelector('input[type="radio"][value="' + String(id) + '"]'); } catch (_i2) { inp = null; }
+        }
+        if (!inp || !inp.disabled) match = true;
       }
     } catch (_m) { /* ignore */ }
   }
@@ -719,7 +803,7 @@ function schedulePortalApplyDesiredCourseSelect() {
   var label = '';
   if (list) {
     try {
-      var r2 = list.querySelector('[data-course-id="' + String(id) + '"]');
+      var r2 = list.querySelector('button[data-course-id="' + String(id) + '"], [data-course-id="' + String(id) + '"]');
       if (r2) label = String(r2.getAttribute('data-label') || '').trim();
     } catch (_l) { /* ignore */ }
   }

@@ -16610,14 +16610,15 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-custom-addon-card .portal-schedule-create-section-title{margin:0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2,#555);line-height:1.2}
 /* Match Guest name field labels (11px uppercase) for Main activity etc. */
 .portal-schedule-create-label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}
-/* Create Main activity drill-down: header + Back + course radio cards */
+/* Create Main activity drill-down: header + Back + course option buttons (parity with top-level lesson buttons) */
 .portal-schedule-create-main-activity-header{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;margin:0 0 4px}
 .portal-schedule-create-main-activity-header .portal-schedule-create-label{margin:0;flex:1 1 auto;min-width:0}
 .portal-schedule-create-main-activity-back{flex:0 0 auto;margin-left:auto;min-height:44px;min-width:44px;padding:8px 12px;font-size:13px;font-weight:600;line-height:1.2;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .portal-schedule-create-main-activity-path{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--text-2);line-height:1.35;word-break:break-word}
 .portal-schedule-create-course-list{display:flex;flex-direction:column;gap:8px;margin:8px 0;min-width:0}
-.portal-schedule-create-course-list .portal-schedule-create-check{min-height:44px;display:flex;align-items:center;gap:10px;box-sizing:border-box;width:100%}
-.portal-schedule-create-course-list .portal-schedule-create-check.is-disabled,.portal-schedule-create-course-list .portal-schedule-create-check:has(input:disabled){opacity:.55;cursor:not-allowed}
+.portal-schedule-create-course-list .portal-schedule-create-activity-btn{min-height:44px;display:flex;align-items:center;justify-content:flex-start;gap:10px;box-sizing:border-box;width:100%;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.portal-schedule-create-course-list .portal-schedule-create-activity-btn.is-disabled,.portal-schedule-create-course-list .portal-schedule-create-activity-btn:disabled{opacity:.55;cursor:not-allowed}
+.portal-schedule-create-course-list .portal-schedule-create-activity-btn:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:2px}
 /* Private sessions drill-down occupies the same Main activity replacement region as course list. */
 .portal-schedule-create-private-panel{display:flex;flex-direction:column;gap:8px;margin:8px 0;min-width:0;max-width:100%}
 .portal-schedule-create-private-panel .portal-schedule-create-label{margin:0 0 4px}
@@ -16627,7 +16628,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 @media(max-width:430px){
   .portal-schedule-create-main-activity-header{gap:8px}
   .portal-schedule-create-main-activity-back{min-height:44px;min-width:44px;padding:8px 10px}
-  .portal-schedule-create-course-list .portal-schedule-create-check{min-height:44px;padding:10px 12px}
+  .portal-schedule-create-course-list .portal-schedule-create-activity-btn{min-height:44px;padding:10px 12px}
   .portal-schedule-create-main-activity-path{font-size:12px}
   .portal-schedule-create-private-panel{margin:6px 0;overflow-x:hidden}
   .portal-schedule-create-private-panel .portal-schedule-private-session-grid{grid-template-columns:1fr;gap:8px}
@@ -18573,7 +18574,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             </button>
             <input id="ps-create-comp-no-lesson" type="radio" name="ps-create-main-activity" value="none" class="portal-schedule-create-visually-hidden" tabindex="-1" aria-hidden="true" checked>
           </div>
-          <div id="ps-create-course-list" class="portal-schedule-create-components portal-schedule-create-course-list" role="radiogroup" aria-labelledby="ps-create-main-activity-label" style="display:none" hidden aria-hidden="true"></div>
+          <div id="ps-create-course-list" class="portal-schedule-create-components portal-schedule-create-course-list" role="group" aria-labelledby="ps-create-main-activity-label" style="display:none" hidden aria-hidden="true"></div>
           <!-- Private sessions drill-down: same replacement region as course list (not a second lower editor). -->
           <div id="ps-create-private-panel" class="portal-schedule-create-private-panel" style="display:none" hidden aria-hidden="true">
             <div id="ps-create-private-when" class="portal-schedule-create-private-when">
@@ -22461,12 +22462,22 @@ var scheduleFullDayAddonEnabled = false;
 var scheduleAdminPricesCache = [];
 
 /** Pure range day selection: first=start, second=end; earlier second restarts; same-day supported. */
+function scheduleCreateDateRangeIsValidIso(iso){
+  iso = String(iso || '').slice(0, 10);
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(iso)) return false;
+  try {
+    return scheduleIsoDate(scheduleParseIso(iso)) === iso;
+  } catch (_e) {
+    return false;
+  }
+}
+
 function scheduleCreateDateRangeSelectDay(state, iso){
   state = state || {};
   var start = state.start ? String(state.start).slice(0, 10) : null;
   var end = state.end ? String(state.end).slice(0, 10) : null;
   iso = String(iso || '').slice(0, 10);
-  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(iso)) return { start: start, end: end };
+  if (!scheduleCreateDateRangeIsValidIso(iso)) return { start: start, end: end };
   // Restart after a complete range, or when no start yet.
   if (!start || (start && end)) return { start: iso, end: null };
   // Earlier second selection restarts as the new start (no end yet).
@@ -22478,7 +22489,7 @@ function scheduleCreateDateRangeSelectDay(state, iso){
 /** Shift an ISO day by delta days (pure; used by roving-grid keyboard nav). */
 function scheduleCreateDateRangeAddDays(iso, delta){
   iso = String(iso || '').slice(0, 10);
-  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(iso)) return iso;
+  if (!scheduleCreateDateRangeIsValidIso(iso)) return iso;
   var d = scheduleParseIso(iso);
   d.setDate(d.getDate() + Number(delta || 0));
   return scheduleIsoDate(d);
@@ -22503,8 +22514,8 @@ function scheduleCreateDateRangeWeekEndIso(iso){
 function scheduleCreateDateRangeSeedDraft(){
   var from = el('ps-create-date-from') ? String(el('ps-create-date-from').value || '').slice(0, 10) : '';
   var to = el('ps-create-date-to') ? String(el('ps-create-date-to').value || '').slice(0, 10) : '';
-  if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(from)) {
-    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(to)) to = from;
+  if (scheduleCreateDateRangeIsValidIso(from)) {
+    if (!scheduleCreateDateRangeIsValidIso(to)) to = from;
     return { start: from, end: to };
   }
   var today = scheduleTodayIso();
@@ -22542,7 +22553,7 @@ var scheduleCreateDateRangeRestoreFocus = false;
 var scheduleCreateDateRangeDocWired = false;
 
 function scheduleCreateDateRangeFormatShort(iso){
-  if (!iso || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso).slice(0, 10))) return '';
+  if (!scheduleCreateDateRangeIsValidIso(iso)) return '';
   try {
     var d = scheduleParseIso(String(iso).slice(0, 10));
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -22574,7 +22585,10 @@ function scheduleSyncCreateDateRangeUi(){
   var apply = el('ps-create-date-range-apply');
   if (apply) {
     var draft = scheduleCreateDateRangeDraft || {};
-    var ready = !!(draft.start && draft.end);
+    // One-day bookings: a valid start alone is enough (Apply commits from=to=start).
+    // Multi-day still uses second-click end when present.
+    var ready = !!(scheduleCreateDateRangeIsValidIso(draft.start)
+      && (!draft.end || scheduleCreateDateRangeIsValidIso(draft.end)));
     apply.disabled = !ready;
   }
 }
@@ -22652,7 +22666,7 @@ function scheduleCreateDateRangeTogglePopover(){
 
 function scheduleCreateDateRangeMoveFocus(iso, key){
   iso = String(iso || '').slice(0, 10);
-  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(iso)) return null;
+  if (!scheduleCreateDateRangeIsValidIso(iso)) return null;
   if (key === 'ArrowLeft') return scheduleCreateDateRangeAddDays(iso, -1);
   if (key === 'ArrowRight') return scheduleCreateDateRangeAddDays(iso, 1);
   if (key === 'ArrowUp') return scheduleCreateDateRangeAddDays(iso, -7);
@@ -22758,16 +22772,23 @@ function scheduleRenderCreateDateRangeCalendar(){
   // Expose parsed cells for lightweight runtime behavioral tests / focus helpers.
   grid._dateRangeCells = cells;
   var apply = el('ps-create-date-range-apply');
-  if (apply) apply.disabled = !(dStart && dEnd);
+  // Enable Apply once a valid start exists (one-day = start-only; multi-day = start+end).
+  if (apply) apply.disabled = !(scheduleCreateDateRangeIsValidIso(dStart)
+    && (!dEnd || scheduleCreateDateRangeIsValidIso(dEnd)));
 }
 
 function scheduleApplyCreateDateRangeDraft(){
   var draft = scheduleCreateDateRangeDraft || {};
-  if (!draft.start || !draft.end) return false;
+  var start = draft.start ? String(draft.start).slice(0, 10) : '';
+  if (!scheduleCreateDateRangeIsValidIso(start)) return false;
+  // One-day: start-only draft commits date_from = date_to = start.
+  // Multi-day: second-click end (or same-day second click) when present.
+  var end = draft.end ? String(draft.end).slice(0, 10) : start;
+  if (!scheduleCreateDateRangeIsValidIso(end)) return false;
   var df = el('ps-create-date-from');
   var dt = el('ps-create-date-to');
-  if (df) df.value = draft.start;
-  if (dt) dt.value = draft.end;
+  if (df) df.value = start;
+  if (dt) dt.value = end;
   // Fire change so existing private sessions / rentals / quote wiring stays intact.
   try {
     if (df) df.dispatchEvent(new Event('change', { bubbles: true }));
