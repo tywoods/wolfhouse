@@ -1117,6 +1117,10 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.waiverMigrationPending': 'Form tables are not applied on this database yet.',
     'nav.tab.admin': 'Admin',
     'admin.title': 'Admin',
+    'admin.tabs.finance': 'Finance',
+    'admin.tabs.pricing': 'Pricing',
+    'admin.tabs.listLabel': 'Admin sections',
+    'admin.finance.summaryUnavailable': 'Finance summary is not available yet.',
     'admin.banner.readOnly': 'Read-only preview',
     'admin.banner.writesApiOnly': 'Writes enabled (API only)',
     'admin.banner.writesApiOnlySub': 'Use Admin write API endpoints; UI editing is not available yet.',
@@ -1858,6 +1862,10 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.bundleOneSet': '1 kit',
     'schedule.drawer.includedInBundle': 'Incluso',
     'schedule.card.dayProgress': 'Giorno {day} di {total}',
+    'admin.tabs.finance': 'Finanze',
+    'admin.tabs.pricing': 'Prezzi',
+    'admin.tabs.listLabel': 'Sezioni amministrazione',
+    'admin.finance.summaryUnavailable': 'Il riepilogo finanziario non è ancora disponibile.',
   },
 };
 

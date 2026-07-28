@@ -1,5 +1,7 @@
 var adminConfigCache = null;
 var adminEditTarget = null;
+/** In-memory Admin sub-tab: 'finance' | 'pricing'. Reset only on Admin reload (loadAdminTab). */
+var adminActiveSubTab = 'finance';
 function adminPriceGroupBusy(groupKey){
   if (!adminEditTarget) return false;
   var t = String(adminEditTarget);
@@ -962,8 +964,104 @@ function renderAdminLoadingShell(profile){
   renderAdminFallback(profile);
 }
 
-function loadAdminTab(){
+/** Honest Finance shell — no fake revenue, totals, or money arithmetic. */
+function renderAdminFinanceShell(){
+  var body = el('admin-finance-body');
+  if (!body) return;
+  body.innerHTML = '<div class="portal-admin-finance-unavailable"><p>' +
+    escHtml(portalT('admin.finance.summaryUnavailable')) +
+    '</p></div>';
+}
+
+/**
+ * Switch Admin sub-tab (finance | pricing). Does not re-render Pricing content —
+ * in-memory draft state is retained until Admin reload.
+ * @param {string} key
+ * @param {{focus?: boolean}} [opts]
+ */
+function adminSelectSubTab(key, opts){
+  var next = (key === 'pricing') ? 'pricing' : 'finance';
+  adminActiveSubTab = next;
+  var tabs = document.querySelectorAll('#admin-subtab-list [data-admin-tab]');
+  var i;
+  for (i = 0; i < tabs.length; i++){
+    var tab = tabs[i];
+    var tabKey = tab.getAttribute('data-admin-tab');
+    var selected = tabKey === next;
+    tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+    tab.setAttribute('tabindex', selected ? '0' : '-1');
+    tab.classList.toggle('is-selected', selected);
+    if (selected && opts && opts.focus && typeof tab.focus === 'function') tab.focus();
+  }
+  var finPanel = el('admin-panel-finance');
+  var prPanel = el('admin-panel-pricing');
+  if (finPanel){
+    if (next === 'finance') finPanel.removeAttribute('hidden');
+    else finPanel.setAttribute('hidden', '');
+  }
+  if (prPanel){
+    if (next === 'pricing') prPanel.removeAttribute('hidden');
+    else prPanel.setAttribute('hidden', '');
+  }
+}
+
+function wireAdminSubTabs(){
+  var list = el('admin-subtab-list');
+  if (!list || list.dataset.adminSubtabsWired === '1') return;
+  list.dataset.adminSubtabsWired = '1';
+
+  function tabButtons(){
+    return Array.prototype.slice.call(list.querySelectorAll('[role="tab"][data-admin-tab]'));
+  }
+
+  function selectByIndex(idx, focus){
+    var tabs = tabButtons();
+    if (!tabs.length) return;
+    var n = ((idx % tabs.length) + tabs.length) % tabs.length;
+    var key = tabs[n].getAttribute('data-admin-tab') || 'finance';
+    adminSelectSubTab(key, { focus: !!focus });
+  }
+
+  list.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest ? ev.target.closest('[data-admin-tab]') : null;
+    if (!btn || !list.contains(btn)) return;
+    ev.preventDefault();
+    adminSelectSubTab(btn.getAttribute('data-admin-tab') || 'finance', { focus: true });
+  });
+
+  list.addEventListener('keydown', function(ev){
+    var target = ev.target;
+    if (!target || !target.getAttribute || !target.getAttribute('data-admin-tab')) return;
+    if (!list.contains(target)) return;
+    var tabs = tabButtons();
+    if (!tabs.length) return;
+    var idx = tabs.indexOf(target);
+    if (idx < 0) idx = 0;
+    var key = ev.key;
+    if (key === 'ArrowRight' || key === 'ArrowLeft' || key === 'Home' || key === 'End'){
+      ev.preventDefault();
+      if (key === 'ArrowRight') selectByIndex(idx + 1, true);
+      else if (key === 'ArrowLeft') selectByIndex(idx - 1, true);
+      else if (key === 'Home') selectByIndex(0, true);
+      else if (key === 'End') selectByIndex(tabs.length - 1, true);
+    }
+  });
+}
+
+/**
+ * Load Admin config into Pricing panels.
+ * @param {{resetSubTab?: boolean}} [opts] resetSubTab=true when Admin is opened/re-entered
+ *   (Finance default). Config save reloads keep the current sub-tab so Pricing drafts are not
+ *   silently discarded by a forced Finance switch.
+ */
+function loadAdminTab(opts){
+  opts = opts || {};
   wireAdminTab();
+  wireAdminSubTabs();
+  if (opts.resetSubTab) adminActiveSubTab = 'finance';
+  if (adminActiveSubTab !== 'pricing' && adminActiveSubTab !== 'finance') adminActiveSubTab = 'finance';
+  adminSelectSubTab(adminActiveSubTab);
+  renderAdminFinanceShell();
   var profile = getPortalProfile(getClient());
   if (!profile.is_surf_vertical) return;
   var state = el('admin-fetch-state');
@@ -983,6 +1081,7 @@ function loadAdminTab(){
       adminConfigCache = data;
       if (!adminCfgWritesEnabled(data)) adminEditTarget = null;
       renderAdminFromConfig(data);
+      adminSelectSubTab(adminActiveSubTab || 'finance');
       if (state) state.style.display = 'none';
     })
     .catch(function(e){
@@ -990,6 +1089,7 @@ function loadAdminTab(){
       adminConfigCache = null;
       adminEditTarget = null;
       renderAdminFallback(profile);
+      adminSelectSubTab(adminActiveSubTab || 'finance');
       if (state){
         state.textContent = portalT('admin.error') + ' ' + e.message;
         state.className = 'state-msg error';
