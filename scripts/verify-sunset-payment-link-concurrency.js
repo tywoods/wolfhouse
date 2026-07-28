@@ -45,7 +45,11 @@ function buildConcurrentPg(stripeCalls, fixture) {
   const setup = fixture || {};
   let lockHolder = null;
   const waiters = [];
-  const payments = (setup.payments || []).map((row) => ({ ...row, metadata: { ...(row.metadata || {}) } }));
+  const cloneMeta = (raw) => {
+    if (raw && typeof raw === 'object') return { ...raw };
+    try { return JSON.parse(raw || '{}'); } catch (_) { return {}; }
+  };
+  const payments = (setup.payments || []).map((row) => ({ ...row, metadata: cloneMeta(row.metadata) }));
   const booking = {
     booking_id: BOOKING_ID,
     booking_code: 'SUNSET-20260802-CONC',
@@ -54,8 +58,9 @@ function buildConcurrentPg(stripeCalls, fixture) {
     payment_status: 'waiting_payment',
     check_in: '2026-08-02',
     check_out: '2026-08-03',
-    metadata: { source: 'luna_guest_whatsapp', luna_guest_booking: true, location_id: 'sunset-somo', ...(setup.bookingMetadata || {}) },
+    metadata: { source: 'luna_guest_whatsapp', luna_guest_booking: true, location_id: 'sunset-somo', ...cloneMeta(setup.bookingMetadata) },
   };
+  let transactionSnapshot = null;
   const services = [{
     id: 'service-1',
     service_type: 'surf_lesson',
@@ -81,14 +86,28 @@ function buildConcurrentPg(stripeCalls, fixture) {
 
   const pg = {
     payments,
+    booking,
     stripeCalls,
     query: async (sql, params) => {
       const q = String(sql);
       if (/BEGIN/i.test(q)) return { rows: [] };
-      if (/COMMIT/i.test(q)) { releaseLock(); return { rows: [] }; }
-      if (/ROLLBACK/i.test(q)) { releaseLock(); return { rows: [] }; }
+      if (/COMMIT/i.test(q)) { transactionSnapshot = null; releaseLock(); return { rows: [] }; }
+      if (/ROLLBACK/i.test(q)) {
+        if (transactionSnapshot) {
+          payments.splice(0, payments.length,
+            ...transactionSnapshot.payments.map((p) => ({ ...p, metadata: { ...(p.metadata || {}) } })));
+          booking.metadata = { ...transactionSnapshot.bookingMetadata };
+        }
+        transactionSnapshot = null;
+        releaseLock();
+        return { rows: [] };
+      }
       if (/FROM bookings b[\s\S]*FOR UPDATE/i.test(q)) {
         await acquireLock();
+        transactionSnapshot = {
+          payments: payments.map((p) => ({ ...p, metadata: { ...(p.metadata || {}) } })),
+          bookingMetadata: { ...booking.metadata },
+        };
         return { rows: [{ booking_id: BOOKING_ID, metadata: { ...booking.metadata } }] };
       }
       if (/FROM bookings b[\s\S]*INNER JOIN clients/i.test(q) && !/FOR UPDATE/i.test(q)) {
@@ -104,7 +123,7 @@ function buildConcurrentPg(stripeCalls, fixture) {
       if (/UPDATE booking_service_records SET amount_due_cents/i.test(q)) return { rows: [] };
       if (/UPDATE bookings[\s\S]*total_amount_cents/i.test(q)) return { rows: [] };
       if (/SUM\(p\.amount_paid_cents\)/i.test(q)) {
-        const paid = payments.filter((p) => p.status === 'paid')
+        const paid = payments.filter((p) => (p.status || p.payment_status) === 'paid')
           .reduce((sum, p) => sum + Number(p.amount_paid_cents || 0), 0);
         return { rows: [{ paid_cents: paid }] };
       }
@@ -113,7 +132,7 @@ function buildConcurrentPg(stripeCalls, fixture) {
         payments.forEach((p) => {
           if (p.booking_id === params[0]
             && p.metadata && p.metadata.source === 'sunset_schedule_stripe_link'
-            && ['draft', 'checkout_created'].includes(p.status)
+            && ['draft', 'checkout_created'].includes(p.status || p.payment_status)
             && (params[1] === true || Number(p.amount_due_cents) !== Number(params[3]))) {
             p.status = 'cancelled';
             p.payment_status = 'cancelled';
@@ -295,11 +314,20 @@ console.log('\nverify:sunset-payment-link-concurrency\n');
       first = { ok: false, error: err };
     }
     assert('first attempt reaches Stripe', stripeCallsRetry.length >= 1, `calls=${stripeCallsRetry.length}`);
+    assert('failed transaction restores inserted payment rows', pgRetry.payments.length === 0);
+    assert('failed transaction restores booking metadata', !pgRetry.booking.metadata.last_payment_link_url);
     const second = await createSunsetScheduleStripeLink(pgRetry, baseOpts({ idempotencyKey: 'idem-retry-001' }));
     assert('retry succeeds', second.ok === true);
-    assert('retry does not create second Stripe session', stripeCallsRetry.length === 1,
-      `calls=${stripeCallsRetry.length}`);
+    const retrySessionIds = new Set(stripeCallsRetry.map((call) => {
+      const key = call.headers && call.headers['Idempotency-Key'];
+      return key;
+    }));
+    assert('retry reuses one provider idempotency identity', retrySessionIds.size === 1,
+      `requests=${stripeCallsRetry.length} identities=${retrySessionIds.size}`);
     assert('retry returns checkout url', !!second.body.checkout_url);
+    const retryActive = pgRetry.payments.filter((p) => ['draft', 'checkout_created'].includes(p.status || p.payment_status));
+    assert('rollback restores payment rows before retry', retryActive.length === 1, `rows=${retryActive.length}`);
+    assert('retry persists exactly one valid link', retryActive[0] && retryActive[0].checkout_url === second.body.checkout_url);
   } finally {
     global.fetch = originalFetch;
   }
@@ -412,8 +440,13 @@ console.log('\nverify:sunset-payment-link-concurrency\n');
     clientSlug: CLIENT_SLUG, bookingId: BOOKING_ID, paymentKind: 'full_amount', amountDueCents: 5000, currency: 'EUR',
   });
   assert('different amounts → different authoritative keys', key4500 !== key5000);
+  const recreatedKey = buildAuthoritativePaymentIntentKey({
+    clientSlug: CLIENT_SLUG, bookingId: BOOKING_ID, paymentKind: 'full_amount', amountDueCents: 4500,
+    currency: 'EUR', generation: 'after-delete',
+  });
+  assert('create → delete → recreate uses a fresh provider identity', recreatedKey !== key4500);
 
-  console.log('\n[8] Partial-payment stale replacement is stateful and concurrency-safe');
+  console.log('\n[8] Create → delete → recreate after partial payment is stateful and concurrency-safe');
   const replacementCalls = [];
   const oldPayment = {
     payment_id: 'pay-obsolete', booking_id: BOOKING_ID, status: 'checkout_created',
@@ -461,6 +494,30 @@ console.log('\nverify:sunset-payment-link-concurrency\n');
     const zero = await createSunsetScheduleStripeLink(pgZero, baseOpts());
     assert('zero balance returns 422 no_payment_due', zero.status === 422 && zero.body.error === 'no_payment_due');
     assert('zero balance never calls Stripe', zeroCalls.length === 0);
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  console.log('\n[10] Location authorization fails before DB/provider work');
+  for (const locationId of [undefined, '', 'unknown', 'SUNSET-SOMO', ' sunset-somo ']) {
+    let dbCalls = 0;
+    const rejected = await createSunsetScheduleStripeLink({ query: async () => { dbCalls += 1; throw new Error('must not query'); } },
+      baseOpts({ locationId }));
+    assert(`location ${JSON.stringify(locationId)} rejected closed`,
+      rejected.status === 400 && rejected.body.error === 'unsupported_location' && dbCalls === 0);
+  }
+
+  console.log('\n[11] Legacy booking/payment JSON shapes remain compatible');
+  const legacyCalls = [];
+  const pgLegacy = buildConcurrentPg(legacyCalls, {
+    bookingMetadata: JSON.stringify({ source: 'luna_guest_whatsapp', luna_guest_booking: true, location_id: 'sunset-somo' }),
+    payments: [{ ...oldPayment, status: undefined, payment_status: 'checkout_created', metadata: JSON.stringify(oldPayment.metadata) }],
+  });
+  global.fetch = mockStripeFetch(legacyCalls);
+  try {
+    const legacy = await createSunsetScheduleStripeLink(pgLegacy, baseOpts());
+    assert('legacy payment_status/JSON metadata returns existing valid link', legacy.ok && legacy.status === 200);
+    assert('legacy valid link does not call Stripe', legacyCalls.length === 0);
   } finally {
     global.fetch = originalFetch;
   }

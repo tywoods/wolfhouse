@@ -177,8 +177,9 @@ function buildAuthoritativePaymentIntentKey(opts) {
   const paymentKind = String(opts.paymentKind || 'full_amount').trim();
   const amountDueCents = Number(opts.amountDueCents || 0);
   const currency = String(opts.currency || 'EUR').trim().toUpperCase();
+  const generation = String(opts.generation || 'initial').trim();
   const digest = crypto.createHash('sha256')
-    .update([clientSlug, bookingId, paymentKind, String(amountDueCents), currency].join('|'))
+    .update([clientSlug, bookingId, paymentKind, String(amountDueCents), currency, generation].join('|'))
     .digest('hex')
     .slice(0, 32);
   return `sunset-checkout-${digest}`;
@@ -717,20 +718,14 @@ function stripeEnv(opts) {
 }
 
 function assertStripeEnv(env) {
-  if (!env.staffActions) {
-    return { ok: false, status: 403, error: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true.' };
-  }
-  if (!env.stripeLinks) {
-    return { ok: false, status: 403, error: 'Stripe link creation is disabled. Set STRIPE_LINKS_ENABLED=true.' };
-  }
-  if (!env.secretKey) {
-    return { ok: false, status: 503, error: 'STRIPE_SECRET_KEY not configured.' };
-  }
+  if (!env.staffActions) return { ok: false, status: 403, error: 'staff_actions_disabled' };
+  if (!env.stripeLinks) return { ok: false, status: 403, error: 'stripe_links_disabled' };
+  if (!env.secretKey) return { ok: false, status: 503, error: 'payment_provider_unavailable' };
   if (String(env.secretKey).startsWith('sk_live_')) {
-    return { ok: false, status: 403, error: 'Live Stripe keys are blocked for Sunset staging payment links.' };
+    return { ok: false, status: 403, error: 'payment_provider_not_allowed' };
   }
   if (!env.successUrl || !env.cancelUrl) {
-    return { ok: false, status: 503, error: 'STRIPE_CHECKOUT_SUCCESS_URL and STRIPE_CHECKOUT_CANCEL_URL must be set.' };
+    return { ok: false, status: 503, error: 'payment_provider_unavailable' };
   }
   return { ok: true };
 }
@@ -806,6 +801,15 @@ async function createSunsetScheduleStripeLink(pg, opts) {
     return { ok: false, status: 403, body: { success: false, error: 'unsupported_client' } };
   }
 
+  // Location is an authorization input, never a default. Reject before env,
+  // normalization, database, or provider work.
+  const suppliedLocationId = typeof opts.locationId === 'string' ? opts.locationId : '';
+  const rawLocationId = suppliedLocationId.trim();
+  if (!rawLocationId || suppliedLocationId !== rawLocationId || !isSunsetLocationId(rawLocationId)
+    || rawLocationId !== normalizeSunsetLocationId(rawLocationId)) {
+    return { ok: false, status: 400, body: { success: false, error: 'unsupported_location' } };
+  }
+
   const envCheck = assertStripeEnv(stripeEnv(opts));
   if (!envCheck.ok) {
     return { ok: false, status: envCheck.status, body: { success: false, error: envCheck.error } };
@@ -828,7 +832,7 @@ async function createSunsetScheduleStripeLink(pg, opts) {
   }
   const { booking, services } = loaded;
   const meta = parseMeta(booking.metadata);
-  const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+  const activeLocationId = rawLocationId;
   const recordLocationId = resolveRecordLocationId(
     parseMeta((services[0] && services[0].metadata) || {}),
     meta,
@@ -880,23 +884,24 @@ async function createSunsetScheduleStripeLink(pg, opts) {
       );
     } catch (err) {
       await pg.query('ROLLBACK');
-      return { ok: false, status: 409, body: { success: false, error: 'authoritative_balance_unavailable', message: err.message } };
+      return { ok: false, status: 409, body: { success: false, error: 'authoritative_balance_unavailable' } };
     }
     if (amountDueCents <= 0) {
       await pg.query('ROLLBACK');
       return { ok: false, status: 422, body: { success: false, error: 'no_payment_due', message: 'No outstanding balance due.', amount_due_cents: 0 } };
     }
+    const lockedMeta = parseMeta(locked.metadata);
     const stripeIdempotencyKey = buildStripeCheckoutIdempotencyKey({
       clientSlug,
       bookingId: booking.booking_id,
       paymentKind,
       amountDueCents,
       currency,
+      generation: lockedMeta.payment_link_generation || 'initial',
     });
 
     // Re-read metadata from the row locked after any concurrent request. A
     // pre-lock drawer snapshot must never force a second replacement.
-    const lockedMeta = parseMeta(locked.metadata);
     const metaStale = !!lockedMeta.sunset_stripe_link_stale;
     await invalidateObsoleteActivePaymentRows(pg, booking.booking_id, amountDueCents, metaStale);
     const idemRow = await findActiveCompatiblePaymentRow(
@@ -1117,6 +1122,12 @@ async function deleteSunsetScheduleStripeLink(pg, opts) {
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
     return { ok: false, status: 403, body: { success: false, error: 'unsupported_client' } };
   }
+  const suppliedLocationId = typeof opts.locationId === 'string' ? opts.locationId : '';
+  const rawLocationId = suppliedLocationId.trim();
+  if (!rawLocationId || suppliedLocationId !== rawLocationId || !isSunsetLocationId(rawLocationId)
+    || rawLocationId !== normalizeSunsetLocationId(rawLocationId)) {
+    return { ok: false, status: 400, body: { success: false, error: 'unsupported_location' } };
+  }
   const bookingId = String(opts.bookingId || '').trim();
   const bookingCode = String(opts.bookingCode || '').trim();
   if (!bookingId && !bookingCode) {
@@ -1131,7 +1142,7 @@ async function deleteSunsetScheduleStripeLink(pg, opts) {
   }
   const { booking, services } = loaded;
   const meta = parseMeta(booking.metadata);
-  const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+  const activeLocationId = rawLocationId;
   const recordLocationId = resolveRecordLocationId(
     parseMeta((services[0] && services[0].metadata) || {}),
     meta,
@@ -1158,7 +1169,12 @@ async function deleteSunsetScheduleStripeLink(pg, opts) {
     `UPDATE bookings
         SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
       WHERE id = $2::uuid`,
-    [JSON.stringify({ sunset_stripe_link_stale: true, last_payment_link_url: null, payment_link_invalidated: true }), booking.booking_id],
+    [JSON.stringify({
+      sunset_stripe_link_stale: true,
+      last_payment_link_url: null,
+      payment_link_invalidated: true,
+      payment_link_generation: crypto.randomUUID(),
+    }), booking.booking_id],
   );
   return {
     ok: true,
