@@ -74,9 +74,53 @@ function readStoreSync() {
 function writeStoreSync(store) {
   const dir = path.dirname(STORE_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  const tmp = `${STORE_PATH}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
-  fs.renameSync(tmp, STORE_PATH);
+  const tmp = `${STORE_PATH}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+  let fd;
+  try {
+    fd = fs.openSync(tmp, 'wx', 0o600);
+    fs.writeFileSync(fd, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd); fd = null;
+    fs.renameSync(tmp, STORE_PATH);
+    const dirFd = fs.openSync(dir, 'r');
+    try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+  } finally {
+    if (fd != null) try { fs.closeSync(fd); } catch (_) {}
+    try { fs.unlinkSync(tmp); } catch (_) {}
+  }
+}
+
+const LOCK_PATH = `${STORE_PATH}.lock`;
+function mutateStoreSync(mutator) {
+  const dir = path.dirname(STORE_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  let lockFd;
+  const deadline = Date.now() + 5000;
+  while (lockFd == null) {
+    try {
+      lockFd = fs.openSync(LOCK_PATH, 'wx', 0o600);
+      fs.writeFileSync(lockFd, `${process.pid}\n`, 'utf8');
+    } catch (err) {
+      if (!err || err.code !== 'EEXIST') throw err;
+      // Recover only demonstrably stale locks; otherwise bounded synchronous wait.
+      try {
+        const age = Date.now() - fs.statSync(LOCK_PATH).mtimeMs;
+        if (age > 30000) { fs.unlinkSync(LOCK_PATH); continue; }
+      } catch (_) { continue; }
+      if (Date.now() >= deadline) throw new Error('location store lock timeout');
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+  try {
+    const store = readStoreSync();
+    const result = mutator(store); // exceptions are rollback: no replace occurs
+    store.revision = Number.isSafeInteger(store.revision) ? store.revision + 1 : 1;
+    writeStoreSync(store);
+    return result;
+  } finally {
+    try { fs.closeSync(lockFd); } catch (_) {}
+    try { fs.unlinkSync(LOCK_PATH); } catch (_) {}
+  }
 }
 
 function ensureLocationBucket(store, locationId) {
@@ -103,11 +147,11 @@ function getCourseEquipmentPricing(locationId) {
 
 function putCourseEquipmentPricing(locationId, value) {
   const canonical = validateConfig(value);
-  const store = readStoreSync();
-  const bucket = ensureLocationBucket(store, locationId);
-  bucket.course_equipment_pricing = canonical;
-  writeStoreSync(store);
-  return canonical;
+  return mutateStoreSync((store) => {
+    const bucket = ensureLocationBucket(store, locationId);
+    bucket.course_equipment_pricing = canonical;
+    return canonical;
+  });
 }
 
 function resolveLocationLabel(locationId) {
@@ -150,13 +194,16 @@ function applyStoreToResolvedConfig(config, locationId) {
       const withId = assignConfigPriceId(p, loc);
       const key = stablePriceKey(withId.category, withId.offering_key, withId.unit);
       const ov = bucket && bucket.prices ? bucket.prices[key] : null;
-      if (!ov) return withId;
+      const projected = withId.unit === '1_day'
+        ? { ...withId, unit: 'full_day', legacy_unit: undefined }
+        : withId;
+      if (!ov) return projected;
       return {
-        ...withId,
-        label: ov.label || ov.display_name || withId.label,
-        amount: ov.amount != null ? Number(ov.amount) : withId.amount,
-        currency: ov.currency || withId.currency,
-        active: ov.active != null ? ov.active !== false : withId.active,
+        ...projected,
+        label: ov.label || ov.display_name || projected.label,
+        amount: ov.amount != null ? Number(ov.amount) : projected.amount,
+        currency: ov.currency || projected.currency,
+        active: ov.active != null ? ov.active !== false : projected.active,
         effective_state: 'location_override',
         source: 'location_store',
       };
@@ -261,22 +308,22 @@ function patchConfigPrice(locationId, category, offeringKey, unit, patch) {
 }
 
 function putLocationCapacity(locationId, capacity) {
-  const store = readStoreSync();
-  const bucket = ensureLocationBucket(store, locationId);
-  bucket.lesson_capacity = {
-    default_daily_cap: Number(capacity),
-    updated_at: new Date().toISOString(),
-  };
-  writeStoreSync(store);
-  return {
-    ok: true,
-    status: 200,
-    body: {
-      success: true,
-      lesson_capacity: bucket.lesson_capacity,
-      storage: 'location_store',
-    },
-  };
+  return mutateStoreSync((store) => {
+    const bucket = ensureLocationBucket(store, locationId);
+    bucket.lesson_capacity = {
+      default_daily_cap: Number(capacity),
+      updated_at: new Date().toISOString(),
+    };
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        lesson_capacity: bucket.lesson_capacity,
+        storage: 'location_store',
+      },
+    };
+  });
 }
 
 function patchLocationLessonTime(locationId, slotId, patch) {

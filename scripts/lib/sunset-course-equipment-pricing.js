@@ -18,6 +18,14 @@ function cents(value, name) {
   if (!Number.isSafeInteger(value) || value < 0) throw new TypeError(`${name} must be a non-negative safe integer`);
   return value;
 }
+function checkedAdd(a, b, name = 'money total') {
+  if (!Number.isSafeInteger(a) || !Number.isSafeInteger(b) || !Number.isSafeInteger(a + b)) throw new RangeError(`${name} overflow`);
+  return a + b;
+}
+function checkedMultiply(a, b, name = 'money total') {
+  if (!Number.isSafeInteger(a) || !Number.isSafeInteger(b) || !Number.isSafeInteger(a * b)) throw new RangeError(`${name} overflow`);
+  return a * b;
+}
 /** Strict write validator. Free policy canonicalizes both during-course prices to zero. */
 function validateConfig(value) {
   strictObject(value, ['during_course', 'all_day'], 'course_equipment_pricing');
@@ -63,20 +71,22 @@ function quoteCourseEquipment({ config, selection, surfers, booking_dates: dates
   const cfg = normalizeConfig(config);
   const bookingDates = normalizeDates(dates);
   const prices = selected.mode === 'during_course' ? cfg.during_course : cfg.all_day;
-  const unit = cents(prices.surfboard_cents, 'surfboard_cents') + cents(prices.wetsuit_cents, 'wetsuit_cents');
+  const unit = checkedAdd(cents(prices.surfboard_cents, 'surfboard_cents'), cents(prices.wetsuit_cents, 'wetsuit_cents'), 'course equipment unit');
   const lines = [];
   const inventory = [];
   for (const service_date of bookingDates) {
     for (const component of COMPONENTS) {
       const amount_cents = prices[`${component}_cents`];
       lines.push({ component, service_date, quantity: selected.quantity, amount_cents,
-        total_cents: amount_cents * selected.quantity,
+        total_cents: checkedMultiply(amount_cents, selected.quantity, 'course equipment line'),
         metadata: { component, course_equipment_mode: selected.mode, price_basis: 'per_person_per_booking_day' } });
       inventory.push({ component, service_date, quantity: selected.quantity, source: 'course_equipment' });
     }
   }
   return { mode: selected.mode, quantity: selected.quantity, booking_dates: bookingDates,
-    unit_cents: unit, total_cents: unit * selected.quantity * bookingDates.length, lines, inventory };
+    unit_cents: unit,
+    total_cents: checkedMultiply(checkedMultiply(unit, selected.quantity, 'course equipment quantity'), bookingDates.length, 'course equipment booking'),
+    lines, inventory };
 }
 /** Physical demand is deduped by component/date using max, never additive double inventory. */
 function dedupeInventory(rows) {
@@ -97,4 +107,4 @@ function invoiceLines(quote) {
     quantity: line.quantity, unit_amount_cents: line.amount_cents, total_cents: line.total_cents,
   }));
 }
-module.exports = { MODES, COMPONENTS, DEFAULT_CONFIG, validateConfig, normalizeConfig, normalizeSelection, clampSelection, quoteCourseEquipment, dedupeInventory, invoiceLines };
+module.exports = { MODES, COMPONENTS, DEFAULT_CONFIG, validateConfig, normalizeConfig, normalizeSelection, clampSelection, checkedAdd, checkedMultiply, quoteCourseEquipment, dedupeInventory, invoiceLines };

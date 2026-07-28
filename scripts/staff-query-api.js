@@ -38423,6 +38423,11 @@ async function handleAdminConfig(query, res, user) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
+  // Match write routes: never let the normalizer turn absent/unknown input into
+  // the default school. Admin reads are a tenant boundary too.
+  if (!isSunsetLocationId(query.location)) {
+    return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  }
   const locationId = normalizeSunsetLocationId(query.location);
   const resolved = adminDbReadGate(clientSlug)
     ? await resolveTenantBusinessConfigAsync(clientSlug, {
@@ -40090,7 +40095,18 @@ async function handleSunsetScheduleBookingQuote(query, req, res, user) {
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   let body = {};
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
-  const trustedLocationId = query.location || body.location_id || body.location;
+  // The authenticated route/session selection is authoritative. A request body
+  // can repeat it for compatibility but can never select or switch schools.
+  if (!isSunsetLocationId(query.location)) {
+    return sendJSON(res, 400, { success: false, error: 'invalid_location' });
+  }
+  const trustedLocationId = normalizeSunsetLocationId(query.location);
+  for (const supplied of [body.location_id, body.location]) {
+    if (supplied != null && String(supplied).trim() !== ''
+      && (!isSunsetLocationId(supplied) || normalizeSunsetLocationId(supplied) !== trustedLocationId)) {
+      return sendJSON(res, 409, { success: false, error: 'location_conflict' });
+    }
+  }
   const resolved = resolveBusinessVertical({ clientSlug: clientSlug, locationId: trustedLocationId });
   if (!resolved.ok) {
     return sendJSON(res, 400, { ...resolved, success: false, elapsed_ms: 0 });
