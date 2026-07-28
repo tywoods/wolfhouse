@@ -131,7 +131,9 @@ function formatLessonSlotTime(timeLocal, timeLocalEnd) {
   return end ? `${start}-${end}` : start;
 }
 
-function mapPriceRows(rows) {
+function mapPriceRows(rows, scope = {}) {
+  const clientSlug = String(scope.clientSlug || '').trim();
+  const locationId = String(scope.locationId || '').trim();
   return rows.map((row) => ({
     id: row.id ? String(row.id) : null,
     category: row.item_type,
@@ -145,6 +147,11 @@ function mapPriceRows(rows) {
     effective_from: formatPgDate(row.effective_from),
     effective_to: formatPgDate(row.effective_to),
     source: 'db',
+    // The database query is already tenant/location scoped. Preserve that
+    // canonical identity for fail-closed browser rental selection.
+    client_slug: clientSlug || null,
+    tenant: clientSlug || null,
+    location_id: locationId || null,
   }));
 }
 
@@ -469,7 +476,10 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId, op
     return [priceRes, capacityRes, timeRes, auditRes];
   })();
 
-  const prices = mapPriceRows(priceRes.rows);
+  const prices = mapPriceRows(priceRes.rows, {
+    clientSlug: slug,
+    locationId: priceHasLoc ? loc : null,
+  });
   const lessonCapacityRaw = mapCapacityRows(capacityRes.rows);
   const lesson_times = attachLessonPrices(mapLessonTimeRows(timeRes.rows), prices);
   const { loadSurfPacksFromDb } = require('./sunset-admin-pack-rules');
@@ -1073,6 +1083,7 @@ function authorizeAuthenticatedStaffRoute(opts) {
 }
 
 module.exports = {
+  mapPriceRows,
   attachLessonPrices,
   parseAdminLessonType,
 

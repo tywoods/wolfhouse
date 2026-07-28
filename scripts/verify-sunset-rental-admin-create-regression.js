@@ -15,6 +15,7 @@ const periods = ['1_hour', '2_hours', 'half_day', 'full_day', '1_day', '2_days',
 const dayTiers = ['1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
 const offerings = ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'];
 const groupByOffering = { board_rental: 'boards', wetsuit_rental: 'wetsuits', board_and_suit_rental: 'bundles' };
+const { mapPriceRows } = require('./lib/tenant-business-config');
 const cents = {
   board_rental: [900, 1600, 1800, 2500, 2500, 4100, 5600, 7000, 8200, 9300, 10400],
   wetsuit_rental: [600, 1100, 1400, 1900, 1900, 3000, 4100, 5100, 6000, 6800, 7600],
@@ -25,9 +26,10 @@ function rows() {
   const out = [];
   offerings.forEach((off, oi) => periods.forEach((unit, pi) => out.push({
     id: `${oi + 1}0000000-0000-4000-8000-${String(pi + 1).padStart(12, '0')}`,
-    category: 'rental', offering_key: off, item_code: `${off}__${unit}`,
-    label: off === 'board_and_suit_rental' ? bundleLabel : '', unit,
-    amount_cents: cents[off][pi], amount: cents[off][pi] / 100, currency: 'EUR',
+    category: 'rental', offering_key: `${off}__${unit}`,
+    label: off === 'board_and_suit_rental' ? bundleLabel : '',
+    unit: unit === 'full_day' ? 'item' : (unit.endsWith('day') || unit.endsWith('days') ? 'day' : 'session'),
+    amount: cents[off][pi] / 100, currency: 'EUR',
     location_id: 'sunset-somo', client_slug: 'sunset', tenant: 'sunset', active: true,
   })));
   out.push(
@@ -46,6 +48,10 @@ async function openAdmin(page) { await page.locator('button.tab-btn[data-tab="ad
 async function openCreate(page) { await page.locator('button.tab-btn[data-tab="portal-home"]').evaluate((b) => b.click()); await page.locator('#ps-create-booking').click(); await page.locator('#ps-create-modal').waitFor({ state: 'visible' }); await page.locator('#ps-create-rentals h3').waitFor(); }
 function euros(text) { const m = String(text).match(/(?:€\s*)?(\d+(?:[.,]\d{1,2})?)/); return m ? Math.round(Number(m[1].replace(',', '.')) * 100) : NaN; }
 (async () => {
+  const projected = mapPriceRows([{ id: 'live-row', item_type: 'rental', item_code: 'board_and_suit_rental__1_hour', display_name: 'Surfboard + Wetsuit', currency: 'EUR', unit: 'session', amount_cents: 1500, active: true }], { clientSlug: 'sunset', locationId: 'sunset-somo' })[0];
+  eq('DB price projection preserves canonical tenant/location identity', { client_slug: projected.client_slug, tenant: projected.tenant, location_id: projected.location_id, offering_key: projected.offering_key }, { client_slug: 'sunset', tenant: 'sunset', location_id: 'sunset-somo', offering_key: 'board_and_suit_rental__1_hour' });
+  const legacyProjected = mapPriceRows([{ item_type: 'rental', item_code: 'board_and_suit_rental__1_hour', amount_cents: 1500, active: true }], { clientSlug: 'sunset', locationId: null })[0];
+  eq('legacy tenant-only price projection does not manufacture location identity', { client_slug: legacyProjected.client_slug, tenant: legacyProjected.tenant, location_id: legacyProjected.location_id }, { client_slug: 'sunset', tenant: 'sunset', location_id: null });
   const { chromium } = require('playwright');
   const { createSunsetAdminVerifyServer } = require('./fixtures/sunset-admin-verify-server');
   const server = createSunsetAdminVerifyServer(); const base = await listen(server);
