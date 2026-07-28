@@ -1341,13 +1341,11 @@ async function runAdminReloadOwnershipRaceChecks() {
       'target-race: stale response does not mutate Pricing DOM',
       registry.getElementById('admin-prices-body').innerHTML === htmlBefore,
     );
+    // Exact retained draft identity — no content-fallback that would hide a wipe+rebuild.
     assert(
-      'target-race: draft snapshot not wiped by stale keep-edit response',
-      JSON.stringify(sandbox.adminPricingDraftState) === draftBefore
-        || (sandbox.adminPricingDraftState
-          && sandbox.adminPricingDraftState.fields
-          && sandbox.adminPricingDraftState.fields[`id:${amountId}`]
-          && sandbox.adminPricingDraftState.fields[`id:${amountId}`].value === '77.00'),
+      'target-race: draft snapshot identity retained (exact, no fallback)',
+      JSON.stringify(sandbox.adminPricingDraftState) === draftBefore,
+      `before=${draftBefore} after=${JSON.stringify(sandbox.adminPricingDraftState)}`,
     );
   }
 
@@ -1528,6 +1526,350 @@ async function runAdminReloadOwnershipRaceChecks() {
       amountEl ? `got ${amountEl.value}` : 'missing',
     );
     assert('happy keep-edit: busy cleared after success', sandbox.adminSaveBusy === false);
+  }
+
+  // ── (6) keep-edit → newer loadAdminTab: no permanent busy deadlock ───────
+  // Bug: keep-edit sets busy + loadSeq; loadAdminTab bumps loadSeq only; stale
+  // keep-edit cannot release; canonical never owns/releases → busy stuck true.
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    const cfg0 = realisticPricingCfgWithMarker('sunset-somo', 25);
+    const keepPayload = realisticPricingCfgWithMarker('sunset-somo', 31);
+    const canonPayload = realisticPricingCfgWithMarker('sunset-somo', 42);
+
+    sandbox.adminEditTarget = 'price-group:bundles';
+    sandbox.adminConfigCache = cfg0;
+    sandbox.renderAdminFromConfig(cfg0);
+    let amountEl = registry.getElementById(amountId);
+    if (amountEl) amountEl.value = '12.34';
+    sandbox.adminSnapshotPricingDraftState();
+
+    const queue = [];
+    sandbox.fetch = function keepThenCanonFetch() {
+      const d = deferred();
+      queue.push(d);
+      return d.promise.then((body) => {
+        if (body && body.__reject) return Promise.reject(new Error(body.__reject));
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(body),
+        };
+      });
+    };
+
+    sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+    assert('deadlock-seq: keep-edit sets busy', sandbox.adminSaveBusy === true);
+    assert('deadlock-seq: keep-edit queued fetch', queue.length === 1, `q=${queue.length}`);
+    const keepSeq = sandbox.adminLoadSeq;
+
+    // Newer canonical load supersedes keep-edit generation.
+    sandbox.loadAdminTab();
+    assert('deadlock-seq: loadAdminTab issued second fetch', queue.length === 2, `q=${queue.length}`);
+    assert(
+      'deadlock-seq: loadAdminTab advanced generation past keep-edit',
+      sandbox.adminLoadSeq > keepSeq,
+      `loadSeq=${sandbox.adminLoadSeq} keepSeq=${keepSeq}`,
+    );
+
+    // Stale keep-edit success first — must not install under newer ownership, must not
+    // leave busy stuck if canonical later owns/releases.
+    queue[0].resolve(keepPayload);
+    await flushMicrotasks(16);
+    assert(
+      'deadlock-seq: stale keep-edit does not install keep payload under newer load',
+      !(sandbox.adminConfigCache && sandbox.adminConfigCache._marker === keepPayload._marker),
+      sandbox.adminConfigCache && sandbox.adminConfigCache._marker,
+    );
+
+    queue[1].resolve(canonPayload);
+    await flushMicrotasks(16);
+
+    assert(
+      'deadlock-seq: canonical success installs marker',
+      !!(sandbox.adminConfigCache && sandbox.adminConfigCache._marker === canonPayload._marker),
+      sandbox.adminConfigCache && sandbox.adminConfigCache._marker,
+    );
+    assert(
+      'deadlock-seq: final busy false after keep-edit + canonical success',
+      sandbox.adminSaveBusy === false,
+      `busy=${sandbox.adminSaveBusy}`,
+    );
+    // Canonical load must not leave keep-edit draft identity as active edit surface
+    // without preserveDraft — edit target may clear when writes disabled only; with
+    // writes_enabled true target may remain unless reopen. Assert actions unblocked.
+    assert(
+      'deadlock-seq: actions not permanently rejected (busy gate open)',
+      sandbox.adminSaveBusy === false,
+    );
+  }
+
+  // ── (7) keep-edit → newer loadAdminTab failure/abort: busy false if owner ─
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    const cfg0 = realisticPricingCfgWithMarker('sunset-somo', 25);
+    const keepPayload = realisticPricingCfgWithMarker('sunset-somo', 31);
+
+    sandbox.adminEditTarget = 'price-group:bundles';
+    sandbox.adminConfigCache = cfg0;
+    sandbox.renderAdminFromConfig(cfg0);
+
+    const queue = [];
+    sandbox.fetch = function keepThenCanonFailFetch() {
+      const d = deferred();
+      queue.push(d);
+      return d.promise.then((body) => {
+        if (body && body.__reject) return Promise.reject(new Error(body.__reject));
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(body),
+        };
+      });
+    };
+
+    sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+    sandbox.loadAdminTab();
+    assert('canon-fail-seq: two fetches', queue.length === 2, `q=${queue.length}`);
+
+    queue[0].resolve(keepPayload);
+    await flushMicrotasks(16);
+    queue[1].resolve({ __reject: 'canonical network abort' });
+    await flushMicrotasks(16);
+
+    assert(
+      'canon-fail-seq: busy false after owning canonical failure/abort',
+      sandbox.adminSaveBusy === false,
+      `busy=${sandbox.adminSaveBusy}`,
+    );
+    assert(
+      'canon-fail-seq: stale keep-edit did not leave success cache marker',
+      !(sandbox.adminConfigCache && sandbox.adminConfigCache._marker === keepPayload._marker),
+    );
+  }
+
+  // ── (8) canonical load → newer keep-edit: stale canonical cannot clear busy ─
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    const cfg0 = realisticPricingCfgWithMarker('sunset-somo', 25);
+    const keepPayload = realisticPricingCfgWithMarker('sunset-somo', 27);
+    const staleCanon = realisticPricingCfgWithMarker('sunset-somo', 18);
+
+    sandbox.adminEditTarget = 'price-group:bundles';
+    sandbox.adminConfigCache = cfg0;
+    sandbox.renderAdminFromConfig(cfg0);
+
+    const queue = [];
+    sandbox.fetch = function canonThenKeepFetch() {
+      const d = deferred();
+      queue.push(d);
+      return d.promise.then((body) => {
+        if (body && body.__reject) return Promise.reject(new Error(body.__reject));
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(body),
+        };
+      });
+    };
+
+    sandbox.loadAdminTab();
+    assert('canon-then-keep: first fetch is canonical', queue.length === 1);
+    const canonSeq = sandbox.adminLoadSeq;
+
+    // Re-establish edit surface + draft after loading shell so keep-edit preserveDraft is real
+    // (canonical load may wipe Pricing DOM; this is not testing loading-shell draft survival).
+    sandbox.adminEditTarget = 'price-group:bundles';
+    sandbox.adminConfigCache = cfg0;
+    sandbox.renderAdminFromConfig(cfg0);
+    let amountEl = registry.getElementById(amountId);
+    if (amountEl) amountEl.value = '44.00';
+    sandbox.adminSnapshotPricingDraftState();
+
+    sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+    assert('canon-then-keep: keep-edit sets busy', sandbox.adminSaveBusy === true);
+    assert(
+      'canon-then-keep: keep-edit advanced generation',
+      sandbox.adminLoadSeq > canonSeq,
+      `loadSeq=${sandbox.adminLoadSeq} canonSeq=${canonSeq}`,
+    );
+    assert('canon-then-keep: two fetches', queue.length === 2, `q=${queue.length}`);
+
+    // Stale canonical success — must not clear keep-edit busy or steal keep-edit state.
+    queue[0].resolve(staleCanon);
+    await flushMicrotasks(16);
+    assert(
+      'canon-then-keep: stale canonical success does not clear newer keep-edit busy',
+      sandbox.adminSaveBusy === true,
+      `busy=${sandbox.adminSaveBusy}`,
+    );
+    assert(
+      'canon-then-keep: stale canonical does not install its marker under keep-edit',
+      !(sandbox.adminConfigCache && sandbox.adminConfigCache._marker === staleCanon._marker),
+    );
+
+    queue[1].resolve(keepPayload);
+    await flushMicrotasks(16);
+    assert('canon-then-keep: keep-edit success clears its busy', sandbox.adminSaveBusy === false);
+    assert(
+      'canon-then-keep: keep-edit installed marker',
+      !!(sandbox.adminConfigCache && sandbox.adminConfigCache._marker === keepPayload._marker),
+    );
+    amountEl = registry.getElementById(amountId);
+    assert(
+      'canon-then-keep: keep-edit preserves draft amount',
+      !!(amountEl && amountEl.value === '44.00'),
+      amountEl ? `got ${amountEl.value}` : 'missing',
+    );
+  }
+
+  // ── (9) Multiple canonical loads: newest owns; stale cannot mutate/release ─
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    const olderPayload = realisticPricingCfgWithMarker('sunset-somo', 10);
+    const midPayload = realisticPricingCfgWithMarker('sunset-somo', 20);
+    const newestPayload = realisticPricingCfgWithMarker('sunset-somo', 30);
+
+    const queue = [];
+    sandbox.fetch = function multiCanonFetch() {
+      const d = deferred();
+      queue.push(d);
+      return d.promise.then((body) => {
+        if (body && body.__reject) return Promise.reject(new Error(body.__reject));
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(body),
+        };
+      });
+    };
+
+    sandbox.loadAdminTab();
+    sandbox.loadAdminTab();
+    sandbox.loadAdminTab();
+    assert('multi-canon: three in-flight loads', queue.length === 3, `q=${queue.length}`);
+    const newestSeq = sandbox.adminLoadSeq;
+
+    // Older success while newer still in flight — discard, do not clear newest busy.
+    queue[0].resolve(olderPayload);
+    await flushMicrotasks(16);
+    assert(
+      'multi-canon: stale older success does not install marker',
+      !(sandbox.adminConfigCache && sandbox.adminConfigCache._marker === olderPayload._marker),
+    );
+    assert(
+      'multi-canon: stale older success does not release newer busy owner',
+      sandbox.adminSaveBusy === true,
+      `busy=${sandbox.adminSaveBusy}`,
+    );
+
+    // Mid fails while newest still owner.
+    queue[1].resolve({ __reject: 'mid canonical fail' });
+    await flushMicrotasks(16);
+    assert(
+      'multi-canon: stale mid error does not release newest busy',
+      sandbox.adminSaveBusy === true,
+    );
+    assert(
+      'multi-canon: generation still newest after stale completions',
+      sandbox.adminLoadSeq === newestSeq,
+    );
+
+    queue[2].resolve(newestPayload);
+    await flushMicrotasks(16);
+    assert(
+      'multi-canon: newest success installs marker',
+      !!(sandbox.adminConfigCache && sandbox.adminConfigCache._marker === newestPayload._marker),
+    );
+    assert('multi-canon: newest success clears busy', sandbox.adminSaveBusy === false);
+  }
+
+  // ── (10) wireAdminTab action after keep-edit→loadAdminTab is not rejected ─
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const locationRef = { location: 'sunset-somo' };
+    // Capture Admin click handler so we can exercise the busy gate for real.
+    let adminClickHandler = null;
+    registry.byId.set('tab-admin', {
+      dataset: {},
+      addEventListener(type, fn) {
+        if (type === 'click') adminClickHandler = fn;
+      },
+    });
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    const cfg0 = realisticPricingCfgWithMarker('sunset-somo', 25);
+    const keepPayload = realisticPricingCfgWithMarker('sunset-somo', 31);
+    const canonPayload = realisticPricingCfgWithMarker('sunset-somo', 42);
+
+    sandbox.adminEditTarget = 'price-group:bundles';
+    sandbox.adminConfigCache = cfg0;
+    sandbox.renderAdminFromConfig(cfg0);
+
+    const queue = [];
+    sandbox.fetch = function actionAfterSeqFetch() {
+      const d = deferred();
+      queue.push(d);
+      return d.promise.then((body) => ({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(body),
+      }));
+    };
+
+    sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+    sandbox.loadAdminTab();
+    queue[0].resolve(keepPayload);
+    await flushMicrotasks(16);
+    queue[1].resolve(canonPayload);
+    await flushMicrotasks(16);
+
+    assert('action-after-seq: busy false', sandbox.adminSaveBusy === false);
+    assert(
+      'action-after-seq: wireAdminTab registered click handler',
+      typeof adminClickHandler === 'function',
+    );
+
+    // Prove the production busy gate does not permanently reject: with busy false,
+    // a non-toggle action without cache reaches adminShowMessage (loading), not early return.
+    // If busy were stuck true, handler would return before touching the message box.
+    const msg = registry.getElementById('admin-save-msg');
+    msg.textContent = '';
+    msg.style.display = 'none';
+    msg.className = '';
+    sandbox.adminConfigCache = null;
+    const fakeBtn = {
+      getAttribute(name) {
+        return name === 'data-admin-action' ? 'edit-price' : null;
+      },
+      closest(sel) {
+        if (sel === '[data-admin-action]') return fakeBtn;
+        return null;
+      },
+    };
+    const fakeEv = {
+      target: fakeBtn,
+      preventDefault() {},
+    };
+    adminClickHandler(fakeEv);
+    assert(
+      'action-after-seq: wireAdminTab action not permanently rejected by stuck busy',
+      msg.style.display === 'block'
+        && String(msg.textContent || '').length > 0,
+      `display=${msg.style.display} text=${msg.textContent}`,
+    );
   }
 }
 

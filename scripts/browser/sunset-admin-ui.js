@@ -168,6 +168,33 @@ function adminPrivateLessonSectionEditing(){
 
 var adminSaveBusy = false;
 var adminLoadSeq = 0;
+/** Generation that currently owns adminSaveBusy (0 = none). Shared by keep-edit + loadAdminTab. */
+var adminBusyOwnerSeq = 0;
+
+/**
+ * Claim busy for a load/reload generation. Newer claims supersede prior owners so stale
+ * handlers cannot leave Admin permanently blocked.
+ */
+function adminClaimBusy(loadSeq){
+  adminSaveBusy = true;
+  adminBusyOwnerSeq = loadSeq;
+}
+
+/**
+ * Release busy only if loadSeq still owns it. Stale success/error/finally no-ops.
+ */
+function adminReleaseBusy(loadSeq){
+  if (adminBusyOwnerSeq === loadSeq){
+    adminSaveBusy = false;
+    adminBusyOwnerSeq = 0;
+  }
+}
+
+/** Deliberate busy clear (canonical save/reload exit) — drops any owner. */
+function adminClearBusy(){
+  adminSaveBusy = false;
+  adminBusyOwnerSeq = 0;
+}
 
 function adminCfgWritesEnabled(cfg){
   return !!(cfg && cfg.writes_enabled === true);
@@ -225,16 +252,16 @@ function adminApiRequest(method, path, body){
  * Ownership gate for in-flight adminReloadConfigKeepingEdit responses.
  * Shares adminLoadSeq with loadAdminTab so newer loads win (single sequence owner).
  * Stale responses must not mutate cache/DOM/target/draft.
- * Generation-stale handlers must not clear busy owned by a newer operation.
+ * Busy release is generation-token based via adminReleaseBusy (not a naked boolean).
  */
 function adminReloadKeepingEditOwnership(loadSeq, originSchoolKey, originEditTarget){
-  if (loadSeq !== adminLoadSeq) return { apply: false, releaseBusy: false };
+  if (loadSeq !== adminLoadSeq) return { apply: false };
   var curTarget = adminEditTarget != null ? String(adminEditTarget) : '';
   if (adminPricingDraftSchoolKey() !== originSchoolKey || curTarget !== originEditTarget) {
-    // Same generation but school/edit ownership drifted — discard body, still release our busy.
-    return { apply: false, releaseBusy: true };
+    // Same generation but school/edit ownership drifted — discard body.
+    return { apply: false };
   }
-  return { apply: true, releaseBusy: true };
+  return { apply: true };
 }
 
 function adminReloadConfigKeepingEdit(keepTarget){
@@ -244,15 +271,15 @@ function adminReloadConfigKeepingEdit(keepTarget){
   var originEditTarget = adminEditTarget != null ? String(adminEditTarget) : '';
   // Share loadAdminTab's monotonic sequence so overlapping loads/reloads race safely.
   var loadSeq = ++adminLoadSeq;
-  // Keep busy through request completion; only this generation may clear it.
-  adminSaveBusy = true;
+  // Own busy for this generation; only adminReleaseBusy(loadSeq) may clear it.
+  adminClaimBusy(loadSeq);
   var url = '/staff/admin/config' + adminClientQuery();
   fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
     .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
     .then(function(data){
       var gate = adminReloadKeepingEditOwnership(loadSeq, originSchoolKey, originEditTarget);
       if (!gate.apply) {
-        if (gate.releaseBusy) adminSaveBusy = false;
+        adminReleaseBusy(loadSeq);
         return;
       }
       if (!data || data.success !== true) return Promise.reject(new Error('load failed'));
@@ -260,25 +287,25 @@ function adminReloadConfigKeepingEdit(keepTarget){
       adminEditTarget = saved;
       // Keep unsaved Pricing field drafts while re-rendering for a kept edit target.
       renderAdminFromConfig(data, { preserveDraft: true });
-      if (gate.releaseBusy && loadSeq === adminLoadSeq) adminSaveBusy = false;
+      adminReleaseBusy(loadSeq);
     })
     .catch(function(e){
       // Stale error/finally must not clear busy or mutate state owned by a newer operation.
       var gate = adminReloadKeepingEditOwnership(loadSeq, originSchoolKey, originEditTarget);
       if (!gate.apply) {
-        if (gate.releaseBusy) adminSaveBusy = false;
+        adminReleaseBusy(loadSeq);
         return;
       }
       adminEditTarget = saved;
       adminShowMessage('error', portalT('admin.error') + ' ' + e.message);
       if (adminConfigCache) renderAdminFromConfig(adminConfigCache, { preserveDraft: true });
-      if (gate.releaseBusy && loadSeq === adminLoadSeq) adminSaveBusy = false;
+      adminReleaseBusy(loadSeq);
     });
 }
 
 function adminReloadConfig(){
   adminEditTarget = null;
-  adminSaveBusy = false;
+  adminClearBusy();
   adminClearPricingDraftState();
   // Admin pack/price CRUD must invalidate Schedule create-menu cache immediately —
   // same SPA session previously kept stale surf_packs until school switch/restart.
@@ -1261,9 +1288,15 @@ function loadAdminTab(opts){
   adminSelectSubTab(adminActiveSubTab);
   renderAdminFinanceShell();
   var profile = getPortalProfile(getClient());
-  if (!profile.is_surf_vertical) return;
-  var state = el('admin-fetch-state');
+  // Canonical load generation: supersede prior keep-edit/load and own busy so a stale
+  // keep-edit handler cannot leave Admin permanently blocked when it cannot release.
   var loadSeq = ++adminLoadSeq;
+  adminClaimBusy(loadSeq);
+  if (!profile.is_surf_vertical) {
+    adminReleaseBusy(loadSeq);
+    return;
+  }
+  var state = el('admin-fetch-state');
   renderAdminLoadingShell(profile);
   if (state){ state.textContent = portalT('admin.loading'); state.style.display = 'none'; state.classList.remove('error'); }
   var url = '/staff/admin/config' + adminClientQuery();
@@ -1282,6 +1315,7 @@ function loadAdminTab(opts){
       renderAdminFromConfig(data);
       adminSelectSubTab(adminActiveSubTab || 'finance');
       if (state) state.style.display = 'none';
+      adminReleaseBusy(loadSeq);
     })
     .catch(function(e){
       if (loadSeq !== adminLoadSeq) return;
@@ -1295,6 +1329,7 @@ function loadAdminTab(opts){
         state.className = 'state-msg error';
         state.style.display = 'block';
       }
+      adminReleaseBusy(loadSeq);
     });
 }
 
