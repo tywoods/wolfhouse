@@ -16265,6 +16265,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-course-equipment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,240px));gap:12px;max-width:100%}
 .portal-admin-touch{display:inline-flex;align-items:center;min-height:44px;margin-right:12px}
 .portal-admin-subsection fieldset{min-width:0;max-width:100%;border:1px solid var(--border-soft);border-radius:8px;margin:12px 0;padding:12px}
+.portal-schedule-course-equipment input[type="number"]{min-height:44px;box-sizing:border-box}
 @media(max-width:520px){.portal-admin-course-equipment-grid{grid-template-columns:minmax(0,1fr)}.portal-admin-edit-field input{min-height:44px;max-width:100%;box-sizing:border-box}}
 .portal-admin-edit-actions{display:flex;gap:8px;margin-top:0;flex-wrap:wrap;align-items:center}
 .portal-admin-row-edit{font-size:11px;padding:4px 10px}
@@ -18641,6 +18642,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <label for="ps-create-equipment-quantity" data-i18n="schedule.courseEquipment.quantity">Equipment sets</label>
             <input id="ps-create-equipment-quantity" type="number" min="1" value="1" inputmode="numeric">
           </div>
+          <p class="portal-admin-muted" data-i18n="schedule.courseEquipment.everyDay">Applies on every booking day.</p>
         </fieldset>
         <!-- Legacy select kept for payload/verifiers; never shown as a second dropdown (drill-down owns course pick). -->
         <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect" hidden>Select course</label><select id="ps-create-course-select" tabindex="-1" aria-hidden="true"></select></div>
@@ -23127,7 +23129,7 @@ function scheduleRenderCreateRentalDurationPebbles(wrap, commonKeys, selectedDur
     return;
   }
   var sel = String(selectedDuration || '').trim();
-  if (!sel || keys.indexOf(sel) < 0) sel = keys[0];
+  if (sel && keys.indexOf(sel) < 0) sel = '';
   wrap.setAttribute('data-duration-key', sel);
   var html = '<div class="portal-schedule-create-rental-pebbles" role="radiogroup" aria-label="'
     + escHtml(portalT('schedule.create.rentalDuration') || 'Rental duration') + '">';
@@ -23157,9 +23159,11 @@ function scheduleWireCreateRentals(wrap){
     if (!btn || !wrap.contains(btn)) return;
     var dur = String(btn.getAttribute('data-rental-duration') || '').trim();
     if (!dur) return;
-    wrap.setAttribute('data-duration-key', dur);
+    var wasOn = btn.getAttribute('aria-checked') === 'true';
+    var nextDur = wasOn ? '' : dur;
+    wrap.setAttribute('data-duration-key', nextDur);
     wrap.querySelectorAll('[data-rental-duration]').forEach(function(b){
-      var on = String(b.getAttribute('data-rental-duration') || '') === dur;
+      var on = !!nextDur && String(b.getAttribute('data-rental-duration') || '') === nextDur;
       if (on) b.classList.add('is-selected'); else b.classList.remove('is-selected');
       try { b.setAttribute('aria-checked', on ? 'true' : 'false'); } catch (_a) { /* ignore */ }
     });
@@ -24999,13 +25003,17 @@ function wireScheduleControls(){
       var qty = el('ps-create-equipment-quantity');
       if (qty) { qty.max = String(surfers); qty.value = String(Math.max(1, Math.min(surfers, parseInt(qty.value || surfers, 10)))); }
       scheduleRefreshCreateFullDayAddon();
-      scheduleInvalidateCreateQuote(); scheduleUpdateCreateTotalPreview();
+      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+      scheduleUpdateCreateTotalPreview();
     });
   }
   var equipmentQtyInput = el('ps-create-equipment-quantity');
   if (equipmentQtyInput && !equipmentQtyInput.dataset.wired) {
     equipmentQtyInput.dataset.wired = '1';
-    equipmentQtyInput.addEventListener('input', function(){ this.dataset.userOwned = '1'; scheduleRefreshCreateFullDayAddon(); scheduleInvalidateCreateQuote(); });
+    equipmentQtyInput.addEventListener('input', function(){
+      this.dataset.userOwned = '1'; scheduleRefreshCreateFullDayAddon();
+      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+    });
   }
 
   // Hidden #ps-create-course-tier is not wired — duration is date-derived.
@@ -25036,6 +25044,8 @@ function wireScheduleControls(){
           syncRentalQtyFromSurfers();
         }
         if (id === 'ps-create-comp-no-lesson' || id === 'ps-create-comp-course' || id === 'ps-create-comp-private-lesson') {
+          var courseEquipmentQty = el('ps-create-equipment-quantity');
+          if (courseEquipmentQty) delete courseEquipmentQty.dataset.userOwned;
           // Switching main activity: re-render rentals (clears stale hidden no-lesson qty),
           // clear full-day when No lesson; invalidate stale quote.
           scheduleRenderCreateRentals();

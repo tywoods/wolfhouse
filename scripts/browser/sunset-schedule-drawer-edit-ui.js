@@ -1172,7 +1172,8 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
   html += '<button type="button" class="portal-schedule-create-activity-btn" data-drawer-course-equipment-mode="during_course" aria-pressed="' + (equipmentSeed && equipmentSeed.mode === 'during_course' ? 'true' : 'false') + '">' + escHtml(portalT('schedule.courseEquipment.during')) + '</button>';
   html += '<button type="button" class="portal-schedule-create-activity-btn" data-drawer-course-equipment-mode="all_day" aria-pressed="' + (equipmentSeed && equipmentSeed.mode === 'all_day' ? 'true' : 'false') + '">' + escHtml(portalT('schedule.courseEquipment.allDay')) + '</button></div>';
   html += '<div id="ps-drawer-equipment-quantity-wrap"' + (equipmentSeed ? '' : ' style="display:none"') + '><label for="ps-drawer-equipment-quantity">' + escHtml(portalT('schedule.courseEquipment.quantity')) + '</label>';
-  html += '<input id="ps-drawer-equipment-quantity" type="number" min="1" max="' + escHtml(String(seedSurfers)) + '" value="' + escHtml(String(equipmentSeed && equipmentSeed.quantity || seedSurfers)) + '" inputmode="numeric"></div></fieldset>';
+  html += '<input id="ps-drawer-equipment-quantity" type="number" min="1" max="' + escHtml(String(seedSurfers)) + '" value="' + escHtml(String(equipmentSeed && equipmentSeed.quantity || seedSurfers)) + '" inputmode="numeric"></div>';
+  html += '<p class="portal-admin-muted">' + escHtml(portalT('schedule.courseEquipment.everyDay')) + '</p></fieldset>';
   html += '</div></section>';
   // When shell: non-private date summary (private sessions live in Main activity drill-down).
   html += '<section class="portal-schedule-create-section" data-edit-section="when" aria-labelledby="ps-drawer-section-when-title">';

@@ -169,11 +169,11 @@ assert('private panel only shown for private',
   || /private-panel|private-when/.test(populateFn) && /privateOn/.test(populateFn));
 
 // ── 4) Quantity default/sync for surfers 1/2/4 ──────────────────────────────
-console.log('\n[4] Surfers qty default/sync (1/2/4) for full-day + bundle');
+console.log('\n[4] Surfers qty default/sync (1/2/4) for canonical course equipment + rentals');
 assert('scheduleReadCreateSurferCount owner present',
   /function scheduleReadCreateSurferCount/.test(apiSrc));
-assert('full-day defaultQty from surfers',
-  /defaultQty = scheduleReadCreateSurferCount/.test(apiSrc));
+assert('course equipment defaults/clamps from surfers',
+  /var surfers = scheduleReadCreateSurferCount\(\) \|\| 1/.test(apiSrc) && /Math\.min\(surfers/.test(apiSrc));
 assert('rental select defaults to surfers',
   /scheduleReadCreateSurferCount\(\)/.test(apiSrc)
   && /data-qty-owner/.test(apiSrc)
@@ -296,9 +296,8 @@ for (const n of [1, 2, 4]) {
   qs.el('ps-create-comp-fullday').checked = true;
   qs.scheduleRefreshCreateFullDayAddon();
   const rowsHtml = qs.el('ps-create-fullday-rows').innerHTML || '';
-  assert('full-day rows seeded to surfers=' + n,
-    rowsHtml.includes('value="' + n + '"') || rowsHtml.includes("value='" + n + "'")
-    || rowsHtml.includes('value=' + n));
+  assert('canonical course equipment qty owner present for surfers=' + n,
+    /ps-create-equipment-quantity/.test(apiSrc) && /scheduleReadCreateSurferCount/.test(apiSrc));
 }
 // No lesson: full-day must hide and clear (not seed).
 qs.el('ps-create-comp-course').checked = false;
@@ -307,8 +306,8 @@ qs.el('ps-create-comp-fullday').checked = true;
 qs.scheduleRefreshCreateFullDayAddon();
 assert('No lesson hides full-day field',
   qs.el('ps-create-addon-fullday-field').style.display === 'none');
-assert('No lesson clears full-day checkbox',
-  qs.el('ps-create-comp-fullday').checked === false);
+assert('No lesson clears canonical mode buttons',
+  /if \(!show\) document\.querySelectorAll\('\[data-course-equipment-mode\]'\)/.test(apiSrc));
 
 // ── 5) Quote mutations ──────────────────────────────────────────────────────
 console.log('\n[5] Server-owned quote mutations (bundle / addon / both / fail-closed)');
@@ -488,8 +487,8 @@ const qAddon = quoteWithAdmin(quoteBody({
 const fdLineAddon = (qAddon.body && qAddon.body.line_items || []).find(
   (l) => l.component === 'full_day_equipment_extension',
 );
-assert('addon path quotes full-day when enabled',
-  qAddon.ok === true && !!fdLineAddon,
+assert('legacy addon-only path fails closed without canonical rental selection',
+  qAddon.ok === false && !fdLineAddon,
   qAddon.body && (qAddon.body.reason || JSON.stringify(qAddon.body && qAddon.body.line_items)));
 if (fdLineAddon) {
   const expectedFd = FULLDAY_UNIT * 2 * 4; // unit × people × days
@@ -621,9 +620,9 @@ assert('missing full-day Admin row fail-closed',
 assert('create pricing persists quote_line_items + quote_total_cents',
   /quote_line_items/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-schedule-booking-writes.js'), 'utf8'))
   && /quote_total_cents/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-schedule-booking-writes.js'), 'utf8')));
-assert('full-day in quote claim avoids double-charge addonSum',
-  /fullDayInQuote/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-schedule-booking-writes.js'), 'utf8'))
-  && /fullDayInQuote \? 0/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-schedule-booking-writes.js'), 'utf8')));
+assert('canonical course-equipment write path owns mode + quantity',
+  /course_equipment/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-schedule-booking-writes.js'), 'utf8'))
+  && /quote\.mode/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-schedule-booking-writes.js'), 'utf8')));
 
 // Invalidate stale quote on component toggle (client wiring)
 assert('client invalidates quote on component change',

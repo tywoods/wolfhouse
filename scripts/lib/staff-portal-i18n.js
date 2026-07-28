@@ -916,6 +916,11 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.equipment.board': 'board',
     'schedule.equipment.wetsuit': 'wetsuit',
     'schedule.equipment.none': 'no equipment',
+    'schedule.courseEquipment.title': 'Course equipment',
+    'schedule.courseEquipment.during': 'During Course',
+    'schedule.courseEquipment.allDay': 'All Day',
+    'schedule.courseEquipment.quantity': 'Equipment sets',
+    'schedule.courseEquipment.everyDay': 'Applies on every booking day.',
 
 
     'schedule.view.week': 'Week',
@@ -1349,6 +1354,11 @@ const STAFF_PORTAL_STRINGS = {
   it: {
     'app.brand': 'Luna Front Desk',
     'app.signOut': 'Esci',
+    'schedule.courseEquipment.title': 'Attrezzatura del corso',
+    'schedule.courseEquipment.during': 'Durante il corso',
+    'schedule.courseEquipment.allDay': 'Tutto il giorno',
+    'schedule.courseEquipment.quantity': 'Set di attrezzatura',
+    'schedule.courseEquipment.everyDay': 'Si applica a ogni giorno della prenotazione.',
     'admin.courseEquipment.title': 'Attrezzatura del corso',
     'admin.courseEquipment.help': 'Impostazione condivisa da tutti i corsi di gruppo e privati di questa scuola.',
     'admin.courseEquipment.during': 'Durante il corso',
