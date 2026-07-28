@@ -119,6 +119,9 @@ selection = {"mode": "during_course", "quantity": 1}
 mod.create_sunset_booking(base_payload(
     components={"course": {"course_id": "course-123", "tier_key": "4_day", "quantity": 1}},
     course_equipment=selection,
+    quote_provenance={"quote_fingerprint": "fp-course", "line_items": [
+        {"course_equipment": True, "course_equipment_mode": "during_course", "quantity": 1}
+    ]},
 ))
 body = fake.body_for("/sunset/booking-create")
 check("[0b] course_equipment forwarded unchanged at top level",

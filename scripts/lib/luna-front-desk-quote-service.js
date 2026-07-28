@@ -334,6 +334,7 @@ function buildQuoteProvenance(quoteBody) {
     currency: quoteBody.currency,
     price_source: quoteBody.price_source,
     capacity_by_date: quoteBody.capacity_by_date || null,
+    course_equipment: quoteBody.course_equipment || null,
     line_items: normalizeQuoteLineItemsForFingerprint(quoteBody.line_items),
   };
 }
@@ -355,6 +356,7 @@ function computeQuoteFingerprint(quoteBody) {
     price_source: quoteBody.price_source,
     billing_unit: quoteBody.billing_unit,
     capacity_by_date: quoteBody.capacity_by_date || null,
+    course_equipment: quoteBody.course_equipment || null,
     line_items: normalizeQuoteLineItemsForFingerprint(quoteBody.line_items),
   };
   return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
@@ -481,7 +483,11 @@ async function resolveGroupCourseUnitAmountCents(pg, command, offering, serviceD
   // Catalog / offline: require the offering itself to be the Admin owner tier
   // (exact 1–7, or 7_days for 8–14 proration). Never invent amounts.
   const catalogTier = String(offering.tier_key || '').trim();
-  if (catalogTier !== adminTierKey) {
+  // Legacy Admin catalogs may expose the historical 1_week identity while a
+  // one-date quote resolves through the canonical 1_day owner. Preserve that
+  // real catalog row; do not rewrite its identity or fabricate an amount.
+  const legacyOneWeekOneDay = catalogTier === '1_week' && adminTierKey === '1_day';
+  if (catalogTier !== adminTierKey && !legacyOneWeekOneDay) {
     return mapQuoteFailure('price_not_configured', {
       detail: { expected_tier: adminTierKey, offering_tier: catalogTier },
     });
@@ -629,7 +635,8 @@ function quoteOfferingLineSync(command, offering, serviceDates, quantity, requir
     }
     const adminTierKey = groupCourseAdminTierKeyForInclusiveDays(days);
     const catalogTier = String(offering.tier_key || '').trim();
-    if (!adminTierKey || catalogTier !== adminTierKey) {
+    const legacyOneWeekOneDay = catalogTier === '1_week' && adminTierKey === '1_day';
+    if (!adminTierKey || (catalogTier !== adminTierKey && !legacyOneWeekOneDay)) {
       return mapQuoteFailure('price_not_configured', {
         detail: { expected_tier: adminTierKey, offering_tier: catalogTier },
       });
@@ -1618,6 +1625,7 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     client_slug: SUNSET_CLIENT_SLUG,
     location_id: command.locationId,
     channel: command.channel,
+    course_equipment: input.course_equipment || null,
     line_items: lines,
     offering_id: primary.offering_id,
     course_id: primary.course_id,
@@ -1799,6 +1807,7 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     client_slug: SUNSET_CLIENT_SLUG,
     location_id: command.locationId,
     channel: command.channel,
+    course_equipment: input.course_equipment || null,
     line_items: lines,
     offering_id: primary.offering_id,
     course_id: primary.course_id,
