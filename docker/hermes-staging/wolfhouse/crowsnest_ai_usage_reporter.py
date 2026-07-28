@@ -28,6 +28,7 @@ MAX_SAFE_INTEGER = 9007199254740991
 QUEUE_SIZE = 128
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _SAFE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,191}$")
+_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$")
 _SECRET_SHAPES = (
     re.compile(r"^sk-[A-Za-z0-9]{10,}"),
     re.compile(r"^sk-ant-[A-Za-z0-9_-]{10,}"),
@@ -91,7 +92,7 @@ def _tokens(raw: Any):
 
 def _base(model: str, latency_ms: int, env: Mapping[str, str]):
     cfg = read_config(env)
-    if cfg is None or not _safe_text(model, _SAFE_LABEL) or not _safe_int(latency_ms):
+    if cfg is None or not _safe_text(model, _MODEL) or not _safe_int(latency_ms):
         return None
     return {
         "schema_version": "crowsnest.ai_usage.v1",
@@ -128,11 +129,15 @@ def build_failure_event(model: str, latency_ms: int, error_code: str, *, env=os.
 
 def build_attempt_event(*, response: Any, configured_model: str, latency_ms: int, env=os.environ):
     status = _own(response, "status")
-    if status == "completed":
+    terminal_event_type = _own(response, "terminal_event_type")
+    if status == "completed" and terminal_event_type == "response.completed":
         return build_success_event(response, latency_ms, env=env)
-    code = "provider_response_incomplete" if status == "incomplete" else "provider_response_failed"
+    if terminal_event_type is None:
+        code = "provider_response_no_terminal"
+    else:
+        code = "provider_response_incomplete" if status == "incomplete" else "provider_response_failed"
     model = _own(response, "model")
-    if not _safe_text(model, _SAFE_LABEL):
+    if not _safe_text(model, _MODEL):
         model = configured_model
     return build_failure_event(model, latency_ms, code, env=env)
 
@@ -176,7 +181,7 @@ def enqueue_event(event, *, env=os.environ):
     if cfg is None or event is None:
         return None
     try:
-        _queue.put_nowait((event, dict(env)))
+        _queue.put_nowait((event, cfg))
     except queue.Full:
         return None
     with _worker_lock:

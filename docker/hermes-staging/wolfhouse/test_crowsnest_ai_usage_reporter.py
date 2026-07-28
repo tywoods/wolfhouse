@@ -17,7 +17,7 @@ ENV = {
     "CROWSNEST_AI_USAGE_TENANT_ID": "tenant_opaque_456",
     "CROWSNEST_AI_USAGE_SOURCE_SERVICE": "sunset-hermes",
 }
-RAW = SimpleNamespace(model="configured-model", status="completed", usage=SimpleNamespace(input_tokens=11, output_tokens=7, total_tokens=18))
+RAW = SimpleNamespace(model="configured-model", status="completed", terminal_event_type="response.completed", usage=SimpleNamespace(input_tokens=11, output_tokens=7, total_tokens=18))
 
 
 class ReporterTests(unittest.TestCase):
@@ -64,17 +64,26 @@ class ReporterTests(unittest.TestCase):
 
     def test_terminal_failed_and_incomplete_are_failures_with_closed_codes(self):
         for status, code in (("failed", "provider_response_failed"), ("incomplete", "provider_response_incomplete")):
-            response = SimpleNamespace(model="actual-model", status=status, usage=None, error="SECRET")
+            response = SimpleNamespace(model="actual-model", status=status, terminal_event_type=f"response.{status}", usage=None, error="SECRET")
             event = reporter.build_attempt_event(response=response, configured_model="configured-model", latency_ms=4, env=ENV)
             self.assertEqual(event["status"], "failed")
             self.assertEqual(event["error_code"], code)
             self.assertNotIn("SECRET", json.dumps(event))
 
     def test_completed_uses_actual_model_and_success(self):
-        response = SimpleNamespace(model="actual-model", status="completed", usage=RAW.usage)
+        response = SimpleNamespace(model="actual-model", status="completed", terminal_event_type="response.completed", usage=RAW.usage)
         event = reporter.build_attempt_event(response=response, configured_model="configured-model", latency_ms=4, env=ENV)
         self.assertEqual(event["status"], "succeeded")
         self.assertEqual(event["model"], "actual-model")
+
+    def test_completed_status_without_completed_terminal_event_fails_closed(self):
+        response = SimpleNamespace(model="actual-model", status="completed", usage=RAW.usage, output_text="usable partial")
+        event = reporter.build_attempt_event(response=response, configured_model="configured-model", latency_ms=4, env=ENV)
+        self.assertEqual(event["status"], "failed")
+        self.assertEqual(event["error_code"], "provider_response_no_terminal")
+
+    def test_model_validation_matches_canonical_js_and_rejects_slash(self):
+        self.assertIsNone(reporter.build_failure_event("openai/gpt-malicious", 1, "provider_error", env=ENV))
 
     def test_marker_role_and_provider_scope_attempt_observation(self):
         emitted = []
@@ -114,6 +123,16 @@ class ReporterTests(unittest.TestCase):
             self.assertIsNone(reporter.enqueue_event(reporter.build_success_event(RAW, 1, env=ENV), env=ENV))
             self.assertLess(time.monotonic() - started, 0.1)
             thread.assert_not_called()
+
+    def test_queue_copies_only_minimal_transport_config_not_full_environment(self):
+        event = reporter.build_success_event(RAW, 1, env=ENV)
+        env = {**ENV, "UNRELATED_SECRET": "must-not-be-copied"}
+        with patch("threading.Thread"):
+            reporter.enqueue_event(event, env=env)
+        queued_event, queued_config = reporter._queue.get_nowait()
+        self.assertIs(queued_event, event)
+        self.assertEqual(set(queued_config), set(reporter.ENV_NAMES))
+        self.assertNotIn("UNRELATED_SECRET", queued_config)
 
     def test_post_disables_redirects_and_never_returns_body_or_error(self):
         event = reporter.build_success_event(RAW, 1, env=ENV)

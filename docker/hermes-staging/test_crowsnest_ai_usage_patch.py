@@ -1,7 +1,10 @@
 import shutil
 import tempfile
 import unittest
+import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import apply_crowsnest_ai_usage_patch as patcher
 
@@ -20,6 +23,85 @@ class PatcherTests(unittest.TestCase):
         for path in (run_agent, runtime, helper):
             path.chmod(0o600)
         return run_agent, runtime, helper
+
+    def load_patched_runtime(self, root):
+        paths = self.copy_pinned(root)
+        patcher.patch_files(*paths)
+        spec = importlib.util.spec_from_file_location("crowsnest_patched_codex_runtime", paths[1])
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    @staticmethod
+    def fake_agent():
+        return SimpleNamespace(provider="openai-codex", _interrupt_requested=False,
+            _fire_stream_delta=lambda _text: None, _fire_reasoning_delta=lambda _text: None,
+            _touch_activity=lambda _reason: None, _client_log_context=lambda: "test")
+
+    def test_realistic_attempt_sequences_emit_once_and_preserve_semantics(self):
+        class Responses:
+            def __init__(self, outcomes): self.outcomes = iter(outcomes)
+            def create(self, **_kwargs):
+                outcome = next(self.outcomes)
+                if isinstance(outcome, BaseException): raise outcome
+                return outcome
+        class BrokenIterator:
+            def __init__(self, exc): self.exc = exc
+            def __iter__(self): return self
+            def __next__(self): raise self.exc
+
+        completed = [{"type": "response.completed", "response": {"status": "completed"}}]
+        partial = [{"type": "response.output_text.delta", "delta": "usable"}]
+        with tempfile.TemporaryDirectory() as d:
+            runtime = self.load_patched_runtime(Path(d))
+            from wolfhouse import crowsnest_ai_usage_reporter as reporter
+
+            def exercise(outcomes):
+                seen = []
+                client = SimpleNamespace(responses=Responses(outcomes))
+                with patch.object(reporter, "observe_attempt_failure", side_effect=lambda exc, *_a, **_k: seen.append(("failure", exc))), patch.object(reporter, "observe_attempt_result", side_effect=lambda result, *_a, **_k: seen.append(("result", result))):
+                    result = runtime.run_codex_stream(self.fake_agent(), {"model": "gpt-test"}, client=client)
+                return result, seen
+
+            result, seen = exercise([ConnectionError("first"), completed])
+            self.assertEqual([kind for kind, _ in seen], ["failure", "result"])
+            self.assertIs(seen[-1][1], result)
+
+            for stream, status, terminal in (
+                (partial, "failed", None),
+                ([{"type": "response.failed", "response": {"status": "failed"}}], "failed", "response.failed"),
+                ([{"type": "response.incomplete", "response": {"status": "incomplete"}}], "incomplete", "response.incomplete"),
+            ):
+                result, seen = exercise([stream])
+                self.assertEqual(len(seen), 1)
+                self.assertIs(seen[0][1], result)
+                self.assertEqual((result.status, result.terminal_event_type), (status, terminal))
+
+            broken = RuntimeError("malformed iterator")
+            with patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(RuntimeError) as raised:
+                runtime.run_codex_stream(self.fake_agent(), {"model": "gpt-test"}, client=SimpleNamespace(responses=Responses([BrokenIterator(broken)])))
+            self.assertIs(raised.exception, broken)
+            observe.assert_called_once()
+
+            with patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(RuntimeError):
+                runtime.run_codex_stream(self.fake_agent(), {"model": "gpt-test"}, client=SimpleNamespace(responses=Responses([[]])))
+            observe.assert_called_once()
+
+            with patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(Exception):
+                runtime.run_codex_stream(self.fake_agent(), {"model": "gpt-test"}, client=SimpleNamespace(responses=Responses([[{"type": "error", "message": "provider rejected"}]])))
+            observe.assert_called_once()
+
+            failures = [ConnectionError("first"), ConnectionError("second")]
+            with patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(ConnectionError) as raised:
+                runtime.run_codex_stream(self.fake_agent(), {"model": "gpt-test"}, client=SimpleNamespace(responses=Responses(failures)))
+            self.assertIs(raised.exception, failures[1])
+            self.assertEqual(observe.call_count, 2)
+
+            for interrupt in (KeyboardInterrupt(), SystemExit(7)):
+                with patch.object(reporter, "observe_attempt_failure") as observe, self.assertRaises(type(interrupt)) as raised:
+                    runtime.run_codex_stream(self.fake_agent(), {"model": "gpt-test"}, client=SimpleNamespace(responses=Responses([interrupt])))
+                self.assertIs(raised.exception, interrupt)
+                observe.assert_not_called()
 
     def test_exact_actual_pinned_sources_patch_and_are_idempotent(self):
         with tempfile.TemporaryDirectory() as d:
@@ -53,6 +135,20 @@ class PatcherTests(unittest.TestCase):
                 patcher.patch_files(*paths)
             self.assertEqual([p.read_bytes() for p in paths], before)
 
+        for needle, replacement in (
+            ("active_client.responses.create(**stream_kwargs)", "active_client.responses.send(**stream_kwargs)"),
+            ("with guest_reply_context():", "with other_context():"),
+            ("crowsnest_guest_reply_context_v2", "crowsnest_guest_reply_context_changed"),
+        ):
+            with self.subTest(post_patch_drift=needle), tempfile.TemporaryDirectory() as d:
+                paths = self.copy_pinned(Path(d)); patcher.patch_files(*paths)
+                target = paths[1] if "responses.create" in needle else paths[2]
+                target.write_text(target.read_text().replace(needle, replacement, 1))
+                before = [p.read_bytes() for p in paths]
+                with self.assertRaisesRegex(RuntimeError, "corruption"):
+                    patcher.patch_files(*paths)
+                self.assertEqual([p.read_bytes() for p in paths], before)
+
     def test_patch_marks_only_main_turn_and_instruments_each_real_attempt(self):
         with tempfile.TemporaryDirectory() as d:
             paths = self.copy_pinned(Path(d)); patcher.patch_files(*paths)
@@ -70,7 +166,10 @@ class PatcherTests(unittest.TestCase):
             result_observer = runtime.index("_crowsnest_observe_result(final", create)
             self.assertLess(attempt_start, create)
             self.assertGreater(result_observer, create)
-            self.assertEqual(runtime.count("_crowsnest_observe_failure(exc, _crowsnest_attempt_started)"), 2)
+            self.assertEqual(runtime.count("_crowsnest_observe_failure(exc, _crowsnest_attempt_started)"), 4)
+            self.assertEqual(runtime.count("except Exception as exc:\n            _crowsnest_observe_failure(exc, _crowsnest_attempt_started)"), 1)
+            self.assertEqual(runtime.count("except Exception as exc:\n                _crowsnest_observe_failure(exc, _crowsnest_attempt_started)"), 1)
+            self.assertIn('terminal_event_type="response.completed" if saw_terminal and terminal_status == "completed" else (', runtime)
             self.assertIn('terminal_status = "incomplete"', runtime)
             self.assertIn('terminal_status = "failed"', runtime)
 

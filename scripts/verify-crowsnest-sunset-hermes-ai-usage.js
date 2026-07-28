@@ -17,9 +17,9 @@ env={
 'CROWSNEST_AI_USAGE_TENANT_ID':'tenant_opaque_456',
 'CROWSNEST_AI_USAGE_SOURCE_SERVICE':'sunset-hermes'}
 usage=SimpleNamespace(input_tokens=12,output_tokens=8,total_tokens=20)
-completed=SimpleNamespace(model='runtime-model',status='completed',usage=usage,output_text='FORBIDDEN COMPLETION')
-failed=SimpleNamespace(model='runtime-model',status='failed',usage=None,error='FORBIDDEN ERROR BODY')
-incomplete=SimpleNamespace(model='runtime-model',status='incomplete',usage=None,incomplete_details='FORBIDDEN DETAILS')
+completed=SimpleNamespace(model='runtime-model',status='completed',terminal_event_type='response.completed',usage=usage,output_text='FORBIDDEN COMPLETION')
+failed=SimpleNamespace(model='runtime-model',status='failed',terminal_event_type='response.failed',usage=None,error='FORBIDDEN ERROR BODY')
+incomplete=SimpleNamespace(model='runtime-model',status='incomplete',terminal_event_type='response.incomplete',usage=None,incomplete_details='FORBIDDEN DETAILS')
 events=[
  build_success_event(completed,31,env=env),
  build_failure_event('configured-model',17,'provider_timeout',env=env),
@@ -30,6 +30,7 @@ malicious=[]
 for key in ('CROWSNEST_AI_USAGE_CLIENT_SLUG','CROWSNEST_AI_USAGE_TENANT_ID','CROWSNEST_AI_USAGE_SOURCE_SERVICE'):
  bad=dict(env); bad[key]='sk-abcdefghijklmno'; malicious.append(build_success_event(completed,1,env=bad))
 for latency in (True,'1',-1,9007199254740992): malicious.append(build_success_event(completed,latency,env=env))
+malicious.append(build_failure_event('openai/gpt-malicious',1,'provider_error',env=env))
 print(json.dumps({'events':events,'malicious':malicious}))
 `;
 const run = spawnSync('python3', ['-c', py], { encoding: 'utf8' });

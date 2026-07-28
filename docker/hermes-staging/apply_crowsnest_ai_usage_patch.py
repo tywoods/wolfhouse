@@ -55,12 +55,40 @@ RUNTIME_ATTEMPT_REPLACEMENT = '''        _crowsnest_attempt_started = time.monot
             _crowsnest_observe_failure(exc, _crowsnest_attempt_started)
             if attempt < max_stream_retries:
 '''
+RUNTIME_ATTEMPT_EXCEPTION_ANCHOR = '''                continue
+            raise
+
+        try:
+            # Compatibility: some mocks/providers return a concrete response
+'''
+RUNTIME_ATTEMPT_EXCEPTION_REPLACEMENT = '''                continue
+            raise
+        except Exception as exc:
+            _crowsnest_observe_failure(exc, _crowsnest_attempt_started)
+            raise
+
+        try:
+            # Compatibility: some mocks/providers return a concrete response
+'''
 RUNTIME_ITERATION_ANCHOR = '''            except (_httpx.RemoteProtocolError, _httpx.ReadTimeout, _httpx.ConnectError, ConnectionError) as exc:
                 if attempt < max_stream_retries:
 '''
 RUNTIME_ITERATION_REPLACEMENT = '''            except (_httpx.RemoteProtocolError, _httpx.ReadTimeout, _httpx.ConnectError, ConnectionError) as exc:
                 _crowsnest_observe_failure(exc, _crowsnest_attempt_started)
                 if attempt < max_stream_retries:
+'''
+RUNTIME_ITERATION_EXCEPTION_ANCHOR = '''                    continue
+                raise
+
+            if final.status in {"incomplete", "failed"}:
+'''
+RUNTIME_ITERATION_EXCEPTION_REPLACEMENT = '''                    continue
+                raise
+            except Exception as exc:
+                _crowsnest_observe_failure(exc, _crowsnest_attempt_started)
+                raise
+
+            if final.status in {"incomplete", "failed"}:
 '''
 RUNTIME_CONCRETE_ANCHOR = '''            if hasattr(event_stream, "output") and not hasattr(event_stream, "__iter__"):
                 return event_stream
@@ -89,6 +117,23 @@ RUNTIME_TERMINAL_REPLACEMENT = '''            if event_type == "response.complet
                 terminal_status = "incomplete"
             elif event_type == "response.failed":
                 terminal_status = "failed"
+'''
+RUNTIME_DEFAULT_STATUS_ANCHOR = '''    terminal_status: str = "completed"
+'''
+RUNTIME_DEFAULT_STATUS_REPLACEMENT = '''    terminal_status: str = "failed"
+'''
+RUNTIME_FINAL_ANCHOR = '''        incomplete_details=terminal_incomplete_details,
+        error=terminal_error,
+    )
+'''
+RUNTIME_FINAL_REPLACEMENT = '''        incomplete_details=terminal_incomplete_details,
+        error=terminal_error,
+        terminal_event_type="response.completed" if saw_terminal and terminal_status == "completed" else (
+            "response.incomplete" if saw_terminal and terminal_status == "incomplete" else (
+                "response.failed" if saw_terminal else None
+            )
+        ),
+    )
 '''
 
 HELPER_ANCHOR = '''                result["response"] = agent._run_codex_stream(
@@ -119,12 +164,16 @@ def _validate_patched(runtime: str, helper: str) -> None:
     required = {
         "runtime marker": (runtime, MARKER, 1),
         "attempt start": (runtime, "_crowsnest_attempt_started = time.monotonic()", 1),
-        "transport observers": (runtime, "_crowsnest_observe_failure(exc, _crowsnest_attempt_started)", 2),
+        "failure observers": (runtime, "_crowsnest_observe_failure(exc, _crowsnest_attempt_started)", 4),
+        "responses create seam": (runtime, "active_client.responses.create(**stream_kwargs)", 1),
+        "generic create wrapper": (runtime, "except Exception as exc:\n            _crowsnest_observe_failure(exc, _crowsnest_attempt_started)", 1),
+        "generic iteration wrapper": (runtime, "except Exception as exc:\n                _crowsnest_observe_failure(exc, _crowsnest_attempt_started)", 1),
         "stream result observer": (runtime, "_crowsnest_observe_result(final, _crowsnest_attempt_started)", 1),
         "concrete result observer": (runtime, "_crowsnest_observe_result(event_stream, _crowsnest_attempt_started)", 1),
         "helper marker": (helper, "crowsnest_guest_reply_context_v2", 1),
         "guest context import": (helper, "from wolfhouse.crowsnest_ai_usage_reporter import guest_reply_context", 1),
         "guest context use": (helper, "with guest_reply_context():", 1),
+        "terminal proof": (runtime, 'terminal_event_type="response.completed" if saw_terminal and terminal_status == "completed" else', 1),
     }
     for label, (text, needle, count) in required.items():
         if text.count(needle) != count:
@@ -145,9 +194,13 @@ def patch_files(run_agent_path: Path, runtime_path: Path, helper_path: Path):
         return {"changed": False, "paths": [str(runtime_path), str(helper_path)]}
 
     patched_runtime = _replace_once(runtime, RUNTIME_TERMINAL_ANCHOR, RUNTIME_TERMINAL_REPLACEMENT, "terminal event status")
+    patched_runtime = _replace_once(patched_runtime, RUNTIME_DEFAULT_STATUS_ANCHOR, RUNTIME_DEFAULT_STATUS_REPLACEMENT, "default terminal status")
+    patched_runtime = _replace_once(patched_runtime, RUNTIME_FINAL_ANCHOR, RUNTIME_FINAL_REPLACEMENT, "terminal proof")
     patched_runtime = _replace_once(patched_runtime, RUNTIME_SETUP_ANCHOR, RUNTIME_SETUP_REPLACEMENT, "codex runtime setup")
     patched_runtime = _replace_once(patched_runtime, RUNTIME_ATTEMPT_ANCHOR, RUNTIME_ATTEMPT_REPLACEMENT, "responses.create attempt")
+    patched_runtime = _replace_once(patched_runtime, RUNTIME_ATTEMPT_EXCEPTION_ANCHOR, RUNTIME_ATTEMPT_EXCEPTION_REPLACEMENT, "responses.create generic exception")
     patched_runtime = _replace_once(patched_runtime, RUNTIME_ITERATION_ANCHOR, RUNTIME_ITERATION_REPLACEMENT, "response iteration attempt")
+    patched_runtime = _replace_once(patched_runtime, RUNTIME_ITERATION_EXCEPTION_ANCHOR, RUNTIME_ITERATION_EXCEPTION_REPLACEMENT, "response iteration generic exception")
     patched_runtime = _replace_once(patched_runtime, RUNTIME_CONCRETE_ANCHOR, RUNTIME_CONCRETE_REPLACEMENT, "concrete response result")
     patched_runtime = _replace_once(patched_runtime, RUNTIME_RESULT_ANCHOR, RUNTIME_RESULT_REPLACEMENT, "terminal result")
     patched_helper = _replace_once(helper, HELPER_ANCHOR, HELPER_REPLACEMENT, "approved main Luna turn")
