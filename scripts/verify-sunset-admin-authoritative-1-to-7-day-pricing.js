@@ -86,8 +86,9 @@ const PRIVATE_SESSION = 8000;
 const FULL_DAY_ADDON = 1500; // Admin tab unit cents (≠ baseline seed €10)
 const BASELINE_FULL_DAY_SEED = 1000;
 const LEGACY_WEEK_AMOUNT = 19900;
-const RENTAL_CANONICAL_PERIOD_KEYS = Object.freeze([
-  'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days',
+const RENTAL_PERIOD_KEYS = Object.freeze([
+  '1_hour', '2_hours', 'half_day', 'full_day',
+  '2_days', '3_days', '4_days', '5_days', '6_days', '7_days',
 ]);
 
 function loadAdminUiSource() {
@@ -322,7 +323,7 @@ async function main() {
   console.log('\nverify:sunset-admin-authoritative-1-to-7-day-pricing\n');
 
   // ── 1. Admin Price-for selector ──────────────────────────────────────────
-  console.log('[1] Admin Price-for selector = exactly 1–7 days');
+  console.log('[1] Admin Price-for selectors = pack 1–7-day tiers + rental 10-key periods');
   const uiSrc = loadAdminUiSource();
   const { packKeys, rentKeys } = extractAdminSelectorKeys(uiSrc);
   assert('pack selector has 7 keys', packKeys.length === 7, JSON.stringify(packKeys));
@@ -332,18 +333,19 @@ async function main() {
   assert('pack selector hides weeks/single_class',
     !packKeys.includes('1_week') && !packKeys.includes('single_class')
       && !packKeys.includes('2_weeks'));
-  assert('rental selector has 7 keys', rentKeys.length === 7, JSON.stringify(rentKeys));
-  assert('rental selector exact 1–7',
-    RENTAL_CANONICAL_PERIOD_KEYS.every((k, i) => rentKeys[i] === k),
+  assert('rental selector has exactly 10 period keys', rentKeys.length === 10, JSON.stringify(rentKeys));
+  assert('rental selector exact hour/day period contract',
+    RENTAL_PERIOD_KEYS.every((k, i) => rentKeys[i] === k),
     JSON.stringify(rentKeys));
-  assert('rental selector hides hour/half_day',
-    !rentKeys.includes('1_hour') && !rentKeys.includes('half_day'));
+  assert('rental selector includes short periods and excludes pack-only 1_day',
+    rentKeys.includes('1_hour') && rentKeys.includes('2_hours')
+      && rentKeys.includes('half_day') && !rentKeys.includes('1_day'));
   assert('PACK_TIER_KEYS = 1–7 only',
     PACK_TIER_KEYS.size === 7
       && CANONICAL_DAY_DURATION_KEYS.every((k) => PACK_TIER_KEYS.has(k)));
-  assert('RENTAL_PERIOD_WINDOWS = 1–7 only',
-    RENTAL_PERIOD_WINDOWS.size === 7
-      && RENTAL_CANONICAL_PERIOD_KEYS.every((k) => RENTAL_PERIOD_WINDOWS.has(k))
+  assert('RENTAL_PERIOD_WINDOWS = exact 10-key rental contract',
+    RENTAL_PERIOD_WINDOWS.size === 10
+      && RENTAL_PERIOD_KEYS.every((k) => RENTAL_PERIOD_WINDOWS.has(k))
       && !RENTAL_PERIOD_WINDOWS.has('1_day'));
   assert('DEFAULT_PRICE_TIERS invents no commercial amounts',
     Array.isArray(DEFAULT_PRICE_TIERS) && DEFAULT_PRICE_TIERS.length === 0);
@@ -1086,8 +1088,8 @@ async function main() {
   assert('pack form filters to canonical keys only',
     /ADMIN_CANONICAL_DAY_TIER_KEYS/.test(uiSrc)
       && /filter\(function\(t\)\{/.test(uiSrc));
-  assert('rental selector base options exact 7',
-    /var opts = \['full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'\]/.test(uiSrc));
+  assert('rental selector base options exact 10-key period contract',
+    /var opts = \['1_hour', '2_hours', 'half_day', 'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'\]/.test(uiSrc));
   assert('pack patch owner preserves non-canonical legacy tiers',
     /legacyPreserved|legacyNoDup/.test(
       fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-admin-pack-rules.js'), 'utf8'),
@@ -1095,10 +1097,10 @@ async function main() {
       && /PACK_TIER_KEYS\.has\(key\)/.test(
         fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-admin-pack-rules.js'), 'utf8'),
       ));
-  // Structural: never reinsert selected legacy period into the 1–7 day selector.
+  // Structural: never reinsert a selected key outside the rental period contract.
   assert('rental selector does not reinsert selected legacy key',
     !/opts = \[sel\]\.concat\(opts\)/.test(uiSrc)
-      && /var opts = \['full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'\]/.test(uiSrc));
+      && /var opts = \['1_hour', '2_hours', 'half_day', 'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'\]/.test(uiSrc));
 
   // ── 9. Deployment activation (operator-authoritative seed; not deployed here) ─
   console.log('\n[9] Deployment activation (git-owned, insert-only Sunset Somo seed)');

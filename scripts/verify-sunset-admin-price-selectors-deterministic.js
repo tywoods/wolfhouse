@@ -1,18 +1,19 @@
 'use strict';
 
 /**
- * verify:sunset-admin-price-selector-exact-seven
+ * verify:sunset-admin-price-selectors-deterministic
  *
  * Focused offline browser VM/DOM proof that Admin "Price for" dropdowns
- * (pack tiers + rental periods) always expose exactly seven options
- * 1_day…7_days — including when editing realistic legacy Admin config.
+ * expose deterministic, context-specific options even with realistic legacy
+ * config: packs use 1_day…7_days; rentals use ten supported short/day windows
+ * and fail closed for unknown selected keys.
  *
  * Audits:
  *   1) scripts/browser/sunset-admin-ui.js runtime functions (HTML/DOM options)
  *   2) staff-query-api.js server-injected bundle wiring (no stale embedded list)
  *
  * Run:
- *   node scripts/verify-sunset-admin-price-selector-exact-seven.js
+ *   node scripts/verify-sunset-admin-price-selectors-deterministic.js
  */
 
 const fs = require('fs');
@@ -34,6 +35,14 @@ const {
 const EXPECTED_VALUES = CANONICAL_DAY_DURATION_KEYS.slice();
 const EXPECTED_LABELS = [
   '1 day', '2 days', '3 days', '4 days', '5 days', '6 days', '7 days',
+];
+const EXPECTED_RENTAL_VALUES = [
+  '1_hour', '2_hours', 'half_day', 'full_day', '2_days',
+  '3_days', '4_days', '5_days', '6_days', '7_days',
+];
+const EXPECTED_RENTAL_LABELS = [
+  '1h', '2h', 'Half day', 'Full day', '2 days',
+  '3 days', '4 days', '5 days', '6 days', '7 days',
 ];
 const LEGACY_KEYS = [
   'single_class', '1_week', '2_weeks', '3_weeks', '4_weeks',
@@ -214,6 +223,16 @@ function assertExactSeven(label, snap) {
   }
 }
 
+function assertExactRentalWindows(label, snap) {
+  assert(`${label}: exactly 10 supported options`, snap.values.length === 10, JSON.stringify(snap.values));
+  assert(`${label}: values exact and ordered`,
+    EXPECTED_RENTAL_VALUES.every((k, i) => snap.values[i] === k), JSON.stringify(snap.values));
+  assert(`${label}: labels exact and ordered`,
+    EXPECTED_RENTAL_LABELS.every((t, i) => snap.labels[i] === t), JSON.stringify(snap.labels));
+  assert(`${label}: no unsupported day/week/class key`,
+    !snap.values.includes('1_day') && !snap.values.includes('1_week') && !snap.values.includes('single_class'));
+}
+
 function runDomProofs() {
   console.log('\n[1] Browser VM/DOM: pack + rental selectors with legacy Admin config\n');
   const cfg = legacyAdminConfig();
@@ -254,26 +273,31 @@ function runDomProofs() {
     durs.every((d, i) => d.key === EXPECTED_VALUES[i]),
     JSON.stringify(durs.map((d) => d.key)));
 
-  // Rental "Price for" — new row, canonical row, and legacy half_day / 1_week.
+  // Rental "Price for" — supported windows select exactly; unknowns get a
+  // disabled empty-value sentinel so the browser cannot choose option one.
   const rentalCases = [
-    { label: 'new rental', selected: '1_day' },
-    { label: 'canonical 3_days', selected: '3_days' },
-    { label: 'legacy half_day', selected: 'half_day' },
-    { label: 'legacy 1_week', selected: '1_week' },
-    { label: 'legacy single_class', selected: 'single_class' },
+    ...EXPECTED_RENTAL_VALUES.map((selected) => ({ label: `supported ${selected}`, selected, supported: true })),
+    { label: 'unknown 1_day', selected: '1_day', supported: false },
+    { label: 'unknown 1_week', selected: '1_week', supported: false },
+    { label: 'unknown single_class', selected: 'single_class', supported: false },
   ];
   for (const c of rentalCases) {
     const html = `<select id="rental-sel">${sandbox.adminRentalPeriodOptions(c.selected)}</select>`;
     const snaps = parseSelects(html);
     assert(`rental ${c.label} rendered one select`, snaps.length === 1);
-    assertExactSeven(`rental ${c.label}`, snaps[0]);
-    if (EXPECTED_VALUES.includes(c.selected)) {
+    if (c.supported) {
+      assertExactRentalWindows(`rental ${c.label}`, snaps[0]);
       assert(`rental ${c.label} selects ${c.selected}`,
-        snaps[0].selected[0] === c.selected);
+        snaps[0].selected.length === 1 && snaps[0].selected[0] === c.selected);
     } else {
-      assert(`rental ${c.label} does not reinsert ${c.selected}`,
-        !snaps[0].values.includes(c.selected)
-          && !snaps[0].selected.includes(c.selected));
+      assert(`rental ${c.label} has sentinel then exact options`,
+        snaps[0].values[0] === ''
+          && snaps[0].values.length === 11
+          && EXPECTED_RENTAL_VALUES.every((k, i) => snaps[0].values[i + 1] === k),
+        JSON.stringify(snaps[0].values));
+      assert(`rental ${c.label} does not reinsert unknown key`, !snaps[0].values.includes(c.selected));
+      assert(`rental ${c.label} selects only sentinel (no first-option fallback)`,
+        snaps[0].selected.length === 1 && snaps[0].selected[0] === '');
     }
   }
 
@@ -286,20 +310,18 @@ function runDomProofs() {
     assertExactSeven(`pack form select[${idx}]`, snap);
   });
 
-  // Rental edit card path for a legacy half_day price row (Prices tab).
+  // Rental edit card path for a supported half_day price row (Prices tab).
   const editHtml = sandbox.renderAdminPriceCardEditForm
     ? sandbox.renderAdminPriceCardEditForm('r-legacy-half', cfg.prices[0], 'bundles')
     : null;
   if (editHtml) {
     const rentSels = parseSelects(editHtml);
     assert('rental edit form has period select', rentSels.length >= 1);
-    assertExactSeven('rental edit form period', rentSels[0]);
-    assert('rental edit form omits half_day option',
-      !rentSels[0].values.includes('half_day'));
+    assertExactRentalWindows('rental edit form period', rentSels[0]);
+    assert('rental edit form selects half_day', rentSels[0].selected[0] === 'half_day');
   } else {
-    // Fallback: period options helper used by renderAdminPriceCardEditForm.
     const snap = parseOptions(sandbox.adminRentalPeriodOptions('half_day'));
-    assertExactSeven('rental edit via helper (legacy half_day)', snap);
+    assertExactRentalWindows('rental edit via helper (supported half_day)', snap);
   }
 }
 
@@ -317,8 +339,8 @@ function runServerBundleAudit() {
       && apiSrc.includes('sunset-admin-ui-helpers: injected'));
   assert('no stale embedded adminPackTierDurations with 1_week in staff-query-api',
     !/function adminPackTierDurations\(\)\{[\s\S]{0,400}1_week/.test(apiSrc));
-  assert('no stale embedded rental opts with 1_hour in staff-query-api',
-    !/function adminRentalPeriodOptions\([\s\S]{0,200}1_hour/.test(apiSrc));
+  assert('no stale embedded rental options function in staff-query-api',
+    !/function adminRentalPeriodOptions\(/.test(apiSrc));
   assert('no selected-key reinsertion in browser source',
     !/opts = \[sel\]\.concat\(opts\)/.test(browserSrc));
   const packFn = browserSrc.match(/function adminPackTierDurations\(\)\{[\s\S]*?return \[([\s\S]*?)\];/);
@@ -349,7 +371,11 @@ function runServerBundleAudit() {
   assert('injected pack keys exact 7',
     packKeys.length === 7 && packKeys.every((k, i) => k === EXPECTED_VALUES[i]),
     JSON.stringify(packKeys));
-  assertExactSeven('injected rental options (legacy selected)', rentSnap);
+  assert('injected unknown rental key gets empty selected sentinel',
+    rentSnap.values[0] === '' && rentSnap.selected.length === 1 && rentSnap.selected[0] === '');
+  assertExactRentalWindows('injected rental options after sentinel', {
+    values: rentSnap.values.slice(1), labels: rentSnap.labels.slice(1), selected: [],
+  });
 }
 
 function runValidationProofs() {
@@ -371,10 +397,16 @@ function runValidationProofs() {
       price_tiers: [{ key: '6_days', label: '6 days', hours: 12, amount_cents: 18000 }],
     }).ok === true);
 
-  assert('rental create rejects half_day',
+  for (const period_window of EXPECTED_RENTAL_VALUES) {
+    assert(`rental create accepts ${period_window}`,
+      validatePriceCreateBody({ rental_group: 'bundles', period_window, amount_cents: 2500 }).ok === true);
+    assert(`rental patch accepts ${period_window}`,
+      validatePricePatchBody({ period_window }).ok === true);
+  }
+  assert('rental create rejects unknown 1_day',
     validatePriceCreateBody({
       rental_group: 'bundles',
-      period_window: 'half_day',
+      period_window: '1_day',
       amount_cents: 2500,
     }).ok === false);
   assert('rental create accepts 4_days',
@@ -383,8 +415,8 @@ function runValidationProofs() {
       period_window: '4_days',
       amount_cents: 7000,
     }).ok === true);
-  assert('rental patch rejects half_day',
-    validatePricePatchBody({ period_window: 'half_day' }).ok === false);
+  assert('rental patch rejects arbitrary key',
+    validatePricePatchBody({ period_window: 'anything_client_sent' }).ok === false);
   assert('rental patch rejects 1_week',
     validatePricePatchBody({ period_window: '1_week' }).ok === false);
   assert('rental patch accepts 6_days',
@@ -392,7 +424,7 @@ function runValidationProofs() {
 }
 
 function main() {
-  console.log('\nverify:sunset-admin-price-selector-exact-seven\n');
+  console.log('\nverify:sunset-admin-price-selectors-deterministic\n');
   runDomProofs();
   runServerBundleAudit();
   runValidationProofs();

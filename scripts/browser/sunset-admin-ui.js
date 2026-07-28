@@ -467,6 +467,10 @@ var ADMIN_CANONICAL_DAY_TIER_KEYS = {
   '2_days': true, '3_days': true, '4_days': true,
   '5_days': true, '6_days': true, '7_days': true,
 };
+var ADMIN_CANONICAL_PACK_TIER_KEYS = {
+  '1_day': true, '2_days': true, '3_days': true, '4_days': true,
+  '5_days': true, '6_days': true, '7_days': true,
+};
 function adminDefaultPackConfigSeed(){
   return {
     equipment_included: false,
@@ -579,7 +583,7 @@ function adminRenderPackTierFields(tiers, prefix){
   // Edit form only shows canonical 1–7 day keys. Legacy stored keys are not
   // rewritten here (server merge preserves them on save).
   var rows = (tiers || []).filter(function(t){
-    return t && ADMIN_CANONICAL_DAY_TIER_KEYS[String(t.key || '').trim()];
+    return t && ADMIN_CANONICAL_PACK_TIER_KEYS[String(t.key || '').trim()];
   }).map(function(t){
     return { key: t.key, amount: adminEurosFromAmount((t.amount_cents != null ? t.amount_cents : 0) / 100) };
   });
@@ -595,7 +599,7 @@ function adminRenderPackTierReadout(tiers){
   // never appear on Admin Group course card readouts or editable tier rows.
   var html = '<div class="portal-admin-pill-group"><span class="portal-admin-pill-label">' + escHtml(portalT('admin.packs.priceTiers')) + '</span>';
   (tiers || []).filter(function(t){
-    return t && ADMIN_CANONICAL_DAY_TIER_KEYS[String(t.key || '').trim()];
+    return t && ADMIN_CANONICAL_PACK_TIER_KEYS[String(t.key || '').trim()];
   }).forEach(function(t){
     html += '<div class="portal-admin-pack-tier-row"><span>' + escHtml(t.label || t.key) + '</span><strong>' + escHtml(adminEurosFromAmount((t.amount_cents != null ? t.amount_cents : 0) / 100) + ' EUR ' + portalT('admin.packs.perStudent')) + '</strong></div>';
   });
@@ -702,14 +706,15 @@ function adminPeriodLabel(period){
 }
 
 function adminRentalPeriodOptions(selected){
-  // Admin → Prices "Price for" / period: always exactly 1–7 days.
-  // Never reinsert selected legacy keys (hour/half_day/weeks/single_class/custom)
-  // and never derive options from stored tier/price rows. Legacy stored values
-  // remain readable for old bookings but do not appear here; operator must pick
-  // a canonical 1–7 day key before save (server rejects noncanonical).
-  var opts = ['full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
+  // One deterministic list shared by every rental category. Never reinsert an
+  // unknown stored key: show an invalid placeholder rather than allowing the
+  // browser to silently select the first option.
+  var opts = ['1_hour', '2_hours', 'half_day', 'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
   var sel = String(selected || '').trim();
-  return opts.map(function(p){
+  var invalid = sel && opts.indexOf(sel) < 0
+    ? '<option value="" selected disabled>' + escHtml(adminPeriodLabel(sel)) + '</option>'
+    : '';
+  return invalid + opts.map(function(p){
     var isSel = (sel === p) ? ' selected' : '';
     return '<option value="' + escHtml(p) + '"' + isSel + '>' + escHtml(adminPeriodLabel(p)) + '</option>';
   }).join('');
@@ -735,7 +740,11 @@ function adminIsCanonicalRentalPeriod(period){
 function adminFilterCanonicalRentalPriceRows(items){
   return (items || []).filter(function(p){
     var parsed = adminParsePriceRow(p);
-    return adminIsCanonicalRentalPeriod(parsed.periodWindow);
+    var period = String(parsed.periodWindow || '').trim();
+    // Known commercial windows are rendered normally. A genuinely unknown
+    // stored value must remain visible so Edit can present the disabled invalid
+    // sentinel and block Save; silently hiding corrupt data defeats that guard.
+    return adminIsCanonicalRentalPeriod(period) || (!!period && period !== '1_day' && adminRentalPeriodRank(period) === 999);
   });
 }
 
@@ -1807,7 +1816,7 @@ function wireAdminTab(){
         var periodInput = card.querySelector('[data-admin-price-field="period"]');
         var amountInput = card.querySelector('[data-admin-price-field="amount"]');
         var period = periodInput ? String(periodInput.value || '').trim() : '';
-        if (!period){ validationError = portalT('admin.edit.periodRequired'); return; }
+        if (!period || !adminIsCanonicalRentalPeriod(period)){ validationError = portalT('admin.edit.periodRequired'); return; }
         var centsParsed = adminParseEurosToCents(amountInput && amountInput.value);
         if (!centsParsed.ok){ validationError = centsParsed.error; return; }
         // availability is now controlled at group level — omit active from per-duration patch
