@@ -256,6 +256,7 @@ console.log('\n[E] VM: real DOM reader + exact quantity serialization');
 const readRentalSrc = extractFunctionSource(apiSrc, 'scheduleReadCreateRentalSelectionFromDom') || '';
 // Payload + rental DOM reader both call the surfer authority (fallback when qty invalid / course qty).
 const readSurferSrc = extractFunctionSource(apiSrc, 'scheduleReadCreateSurferCount') || '';
+const readCustomLinesSrc = extractFunctionSource(apiSrc, 'scheduleReadCreateCustomLineItems') || '';
 const guestPayloadContractOk = (function runPayloadVm() {
   if (!readSrc || readSrc.indexOf('rentals') < 0 || !readRentalSrc || !readSurferSrc) return false;
 
@@ -327,6 +328,14 @@ const guestPayloadContractOk = (function runPayloadVm() {
   };
 
   const ctx = {
+    document: {
+      querySelector: function(sel) {
+        if (sel === '[data-course-equipment-mode][aria-pressed="true"]') {
+          return { getAttribute: function(n) { return n === 'data-course-equipment-mode' ? 'during_course' : null; } };
+        }
+        return null;
+      },
+    },
     el: function(id) {
       if (dom[id]) return dom[id];
       return null;
@@ -338,11 +347,12 @@ const guestPayloadContractOk = (function runPayloadVm() {
     scheduleRentalDurationKeyFromDates: mod.scheduleRentalDurationKeyFromDates,
     scheduleSerializeRentalsSelection: mod.scheduleSerializeRentalsSelection,
     scheduleRentalsToLegacyComponents: mod.scheduleRentalsToLegacyComponents,
+    scheduleCreateCustomLines: [],
   };
   vm.createContext(ctx);
   try {
     vm.runInContext(
-      `${readSurferSrc}\n${readRentalSrc}\n${readSrc}\n`
+      `${readSurferSrc}\n${readRentalSrc}\n${readCustomLinesSrc}\n${readSrc}\n`
       + 'this.__rentals = scheduleReadCreateRentalSelectionFromDom();\n'
       + 'this.__payload = scheduleReadCreatePayload();\n',
       ctx,

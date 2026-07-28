@@ -22377,6 +22377,16 @@ function scheduleWireCreateCustomLines() {
   scheduleSetCustomLineEditorOpen(false);
 }
 
+function scheduleReadCreateCustomLineItems(){
+  return (scheduleCreateCustomLines || []).map(function(l) {
+    return {
+      client_line_id: String(l.client_line_id),
+      label: String(l.label),
+      amount_cents: Number(l.amount_cents),
+    };
+  });
+}
+
 function scheduleReadCreatePayload(){
   var guest = (el('ps-create-guest') && el('ps-create-guest').value || '').trim();
   var phone = (el('ps-create-phone') && el('ps-create-phone').value || '').trim();
@@ -22443,13 +22453,6 @@ function scheduleReadCreatePayload(){
       parseInt((el('ps-create-equipment-quantity') || {}).value || surferCount || 1, 10)));
     course_equipment = { mode: selectedEquipment.getAttribute('data-course-equipment-mode'), quantity: equipmentQty };
   }
-  var custom_line_items = (scheduleCreateCustomLines || []).map(function(l) {
-    return {
-      client_line_id: String(l.client_line_id),
-      label: String(l.label),
-      amount_cents: Number(l.amount_cents),
-    };
-  });
   return {
     guest_name: guest,
     guest_phone: phone || null,
@@ -22460,7 +22463,7 @@ function scheduleReadCreatePayload(){
     components: components,
     course_equipment: course_equipment,
     rentals: rentals,
-    custom_line_items: custom_line_items,
+    custom_line_items: scheduleReadCreateCustomLineItems(),
     // Authoritative party size for no-lesson equipment qty (server may force rentals to this).
     surfer_count: surferCount,
   };
@@ -22595,7 +22598,7 @@ function scheduleSyncCreateDateRangeUi(){
   var apply = el('ps-create-date-range-apply');
   if (apply) {
     var draft = scheduleCreateDateRangeDraft || {};
-    // One-day bookings: a valid start alone is enough (Apply commits from=to=start).
+    // One-day reservations: a valid start alone is enough (Apply commits from=to=start).
     // Multi-day still uses second-click end when present.
     var ready = !!(scheduleCreateDateRangeIsValidIso(draft.start)
       && (!draft.end || scheduleCreateDateRangeIsValidIso(draft.end)));

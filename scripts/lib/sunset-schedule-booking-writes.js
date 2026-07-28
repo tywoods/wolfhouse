@@ -1268,7 +1268,7 @@ function resolveLunaTrustedNoLessonDerivation(opts) {
 }
 
 /**
- * For no-lesson bookings with equipment, force rental quantities from
+ * For no-lesson reservations with equipment, force rental quantities from
  * authoritative surfer count. Group/Private keep independent equipment qty.
  * Staff/manual: fail closed when equipment present and surfer_count absent.
  * Trusted Luna only: when surfer_count absent, derive one canonical count from

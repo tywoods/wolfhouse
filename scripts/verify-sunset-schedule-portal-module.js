@@ -155,8 +155,9 @@ function sandbox(opts = {}) {
   const log = [];
   const nodes = {};
   const payload = {
-    guest_name: 'Ada Lovelace', date_from: '2026-08-20', date_to: '2026-08-22', payment_status: 'unpaid',
-    components: { course: { course_id: 'course-beginner', tier_key: '1_week', quantity: 1 } }, rentals: [],
+    guest_name: 'Ada Lovelace', guest_phone: '+34 600 123 456', date_from: '2026-08-20', date_to: '2026-08-22', payment_status: 'unpaid',
+    components: { course: { course_id: 'course-beginner', tier_key: '3_days', quantity: 1 } },
+    course_equipment: { mode: 'during_course', quantity: 1 }, rentals: [],
   };
   let qn = 0;
   let cn = 0;
