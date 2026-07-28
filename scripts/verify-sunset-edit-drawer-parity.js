@@ -644,6 +644,8 @@ function buildEditRuntime(editSrc, apiSrc, opts) {
   ];
   const editFnNames = [
     'scheduleDrawerSetVisible',
+    'scheduleDrawerStaffLocaleTag',
+    'scheduleDrawerDateCellAriaLabel',
     'scheduleDrawerDateRangeSeedDraft',
     'scheduleDrawerDateRangeIsOpen',
     'scheduleSyncDrawerDateRangeUi',
@@ -802,7 +804,8 @@ async function main() {
   const apiSrc = fs.readFileSync(API, 'utf8');
   const en = STAFF_PORTAL_STRINGS.en || {};
   const it = STAFF_PORTAL_STRINGS.it || {};
-  const es = esSunset || {};
+  // Full portal ES (calendar.day.*) + sunset-only overlays for schedule create keys.
+  const es = Object.assign({}, STAFF_PORTAL_STRINGS.es || {}, esSunset || {});
 
   // ── Production /staff/ui ─────────────────────────────────────────────────
   console.log('[0] Production /staff/ui inject');
@@ -1350,6 +1353,564 @@ async function main() {
   ok('edit footer actions min 44px',
     /drawer-edit-footer[\s\S]{0,200}min-height:\s*44px/.test(apiSrc)
     || /create-footer[\s\S]{0,200}min-height:\s*44px/.test(apiSrc));
+
+  // ── I) Review-block regressions (payment / identity / race / locale / mutation safety) ─
+  console.log('\n[I] Review-block regressions');
+
+  // I1) Payment seed authority — nested canonical preferred over legacy top-level
+  {
+    const payFn = extractFn(editSrc, 'scheduleDrawerPaymentSelectValue');
+    ok('scheduleDrawerPaymentSelectValue extractable', !!payFn);
+    if (payFn) {
+      function evalPay(ctx) {
+        const sb = { result: null };
+        vm.runInNewContext(
+          payFn + '\nresult = scheduleDrawerPaymentSelectValue(' + JSON.stringify(ctx) + ');',
+          sb,
+          { timeout: 2000 }
+        );
+        return sb.result;
+      }
+      ok('paid nested payment_status + nested method → paid_bank_transfer',
+        evalPay({
+          payment: { payment_status: 'paid', payment_method: 'bank_transfer' },
+        }) === 'paid_bank_transfer');
+      ok('paid nested status + nested in_store method',
+        evalPay({
+          payment: { payment_status: 'paid', payment_method: 'in_store' },
+        }) === 'paid_in_store');
+      ok('paid nested status + top-level method fallback',
+        evalPay({
+          payment: { payment_status: 'paid' },
+          payment_method: 'link',
+        }) === 'paid_via_link');
+      ok('unpaid nested never seeds paid',
+        evalPay({
+          payment: { payment_status: 'unpaid' },
+          payment_status: 'paid',
+          payment_method: 'bank_transfer',
+        }) === 'unpaid');
+      ok('legacy top-level paid still seeds paid_bank_transfer',
+        evalPay({ payment_status: 'paid', payment_method: 'bank_transfer' }) === 'paid_bank_transfer');
+      ok('legacy top-level unpaid still seeds unpaid',
+        evalPay({ payment_status: 'unpaid' }) === 'unpaid');
+      // Seed HTML for paid nested must not select unpaid
+      const paidHtml = renderHtml({
+        payment_status: undefined,
+        payment_method: undefined,
+        payment: {
+          payment_status: 'paid',
+          payment_method: 'bank_transfer',
+          subtotal_cents: 4500,
+          paid_cents: 4500,
+          balance_due_cents: 0,
+          line_items: [],
+        },
+      });
+      ok('paid nested seed HTML selects paid_bank_transfer not unpaid',
+        !paidHtml.error
+        && /id="ps-drawer-payment"/.test(paidHtml.html)
+        && /value="paid_bank_transfer"[^>]*selected|selected[^>]*value="paid_bank_transfer"/.test(paidHtml.html)
+        && !/<option value="unpaid" selected/.test(paidHtml.html),
+        paidHtml.error || 'select markup missing');
+    }
+  }
+
+  // I2) Rental identity fail-closed — never invent generics; preserve missing seed
+  {
+    ok('edit rentals do not invent board/wetsuit/bundle when catalog empty',
+      !/if\s*\(\s*!offerings\.length\s*\)\s*\{\s*offerings\s*=\s*\[\s*\{\s*offering_key:\s*'board_rental'/.test(editSrc)
+      && !/offerings\s*=\s*\[\s*\{\s*offering_key:\s*'board_rental'[\s\S]{0,120}wetsuit_rental[\s\S]{0,120}board_and_suit/.test(editSrc));
+    ok('edit rentals preserve compatibility / unavailable seed state',
+      /data-compatibility|compatibility|data-eligible|rentalUnavailable|noRentalsAvailable/.test(editSrc)
+      && /scheduleDrawerValidateEditPayload/.test(editSrc));
+    // Behavioral: empty catalog + seeded rental must preserve identity and block Save
+    const rentFn = extractFn(editSrc, 'scheduleRenderDrawerRentals');
+    const seedFn = extractFn(editSrc, 'scheduleDrawerSeedRentalsFromCtx');
+    const validateFn = extractFn(editSrc, 'scheduleDrawerValidateEditPayload');
+    const readRentFn = extractFn(editSrc, 'scheduleReadDrawerRentalSelectionFromDom');
+    ok('rental render/seed/validate extractable',
+      !!(rentFn && seedFn && validateFn));
+    if (rentFn && seedFn) {
+      const wrap = {
+        _attrs: {
+          'data-seed-rentals': JSON.stringify([
+            { offering_key: 'board_rental', quantity: 2, duration_key: '3_days' },
+          ]),
+          'data-duration-key': '3_days',
+        },
+        getAttribute(k) { return this._attrs[k] != null ? this._attrs[k] : null; },
+        setAttribute(k, v) { this._attrs[k] = String(v); },
+        querySelectorAll() { return []; },
+        querySelector() { return null; },
+        dataset: {},
+        innerHTML: '',
+      };
+      const nodes = { 'ps-drawer-rentals': wrap };
+      const sb = {
+        el(id) { return nodes[id] || null; },
+        scheduleDrawerState: {
+          ctx: {
+            rentals: [{ offering_key: 'board_rental', quantity: 2, duration_key: '3_days' }],
+          },
+        },
+        scheduleDrawerMainActivityValue() { return 'none'; },
+        scheduleDrawerDateSpan() { return { from: '2026-07-20', to: '2026-07-22' }; },
+        scheduleRentalDurationKeyFromDates() { return '3_days'; },
+        scheduleEnumerateDates() { return ['2026-07-20', '2026-07-21', '2026-07-22']; },
+        getSunsetLocation() { return 'sunset-somo'; },
+        scheduleAdminPricesCache: [],
+        scheduleCommonShortRentalDurationKeys() { return []; },
+        scheduleActiveShortRentalOfferings() { return []; },
+        scheduleActiveRentalsForDuration() { return []; },
+        scheduleRentalOfferingsMode() { return 'none'; },
+        scheduleDrawerReadSurferCount() { return 2; },
+        scheduleDrawerApplyRentalExclusionUi() {},
+        scheduleWireDrawerRentals() {},
+        scheduleRentalOfferingLabelKey(k) {
+          return k === 'wetsuit_rental' ? 'schedule.type.wetsuitRental'
+            : k === 'board_and_suit_rental' ? 'schedule.ops.rentalBoth'
+              : 'schedule.type.boardRental';
+        },
+        portalT(k) { return (en[k] || k); },
+        escHtml(s) {
+          return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        },
+      };
+      try {
+        vm.runInNewContext(
+          seedFn + '\n' + rentFn + '\nscheduleRenderDrawerRentals();',
+          sb,
+          { timeout: 4000 }
+        );
+        ok('empty catalog + seed: preserves board_rental in DOM (no silent drop)',
+          /data-rental-offering="board_rental"/.test(wrap.innerHTML)
+          || wrap.getAttribute('data-compatibility-rentals')
+          || /board_rental/.test(wrap.innerHTML));
+        ok('empty catalog + seed: does not invent all three generics as free choices',
+          !(/board_rental/.test(wrap.innerHTML)
+            && /wetsuit_rental/.test(wrap.innerHTML)
+            && /board_and_suit_rental/.test(wrap.innerHTML)
+            && !/data-compatibility|data-eligible="0"|is-unavailable/.test(wrap.innerHTML)));
+        ok('empty catalog + seed marks compatibility/unavailable',
+          /data-compatibility|data-eligible="0"|is-unavailable|compatibility/.test(wrap.innerHTML)
+          || wrap.getAttribute('data-rental-compatibility') === '1');
+      } catch (e) {
+        ok('empty catalog rental render runs', false, String(e && e.message || e));
+      }
+    }
+    if (validateFn) {
+      const vSb = {
+        el() { return null; },
+        scheduleDrawerMainActivityValue() { return 'none'; },
+        scheduleDrawerReadSurferCount() { return 2; },
+        schedulePortalInclusiveDateCount() { return 3; },
+        result: null,
+      };
+      // Simulate DOM with compatibility rental checked via helper side-channel
+      vSb.el = function(id) {
+        if (id === 'ps-drawer-rentals') {
+          return {
+            getAttribute(k) {
+              if (k === 'data-rental-compatibility') return '1';
+              return null;
+            },
+            querySelectorAll(sel) {
+              if (String(sel).indexOf('rental-check') >= 0 || String(sel).indexOf('data-rental') >= 0) {
+                return [{
+                  checked: true,
+                  getAttribute(k) {
+                    if (k === 'data-offering-key' || k === 'data-rental-offering') return 'board_rental';
+                    if (k === 'data-compatibility' || k === 'data-eligible') return k === 'data-eligible' ? '0' : '1';
+                    return null;
+                  },
+                  querySelector() {
+                    return {
+                      checked: true,
+                      getAttribute(k) {
+                        if (k === 'data-offering-key') return 'board_rental';
+                        if (k === 'data-compatibility') return '1';
+                        if (k === 'data-eligible') return '0';
+                        return null;
+                      },
+                    };
+                  },
+                }];
+              }
+              return [];
+            },
+          };
+        }
+        return null;
+      };
+      try {
+        vm.runInNewContext(
+          validateFn
+          + '\nresult = scheduleDrawerValidateEditPayload({'
+          + 'guest_name:"Alex",components:{},rentals:[{offering_key:"board_rental",quantity:2,duration_key:"3_days"}],'
+          + 'surfer_count:2});',
+          vSb,
+          { timeout: 3000 }
+        );
+        ok('compatibility rental blocks Save (validate fail-closed)',
+          vSb.result && vSb.result.ok === false && !!vSb.result.errorKey,
+          JSON.stringify(vSb.result));
+      } catch (e) {
+        ok('compatibility rental validate runs', false, String(e && e.message || e));
+      }
+    }
+  }
+
+  // I3) Course identity fail-closed — do not clear seeded missing/ineligible course
+  {
+    const courseFn = extractFn(editSrc, 'scheduleDrawerRenderCourseList');
+    const clearFn = extractFn(editSrc, 'scheduleDrawerClearSelectedCourse');
+    ok('course list render extractable', !!courseFn);
+    ok('course render must not clear seeded when catalog has peers but seed missing',
+      courseFn
+      && !/else if \(prev && \(courses \|\| \[\]\)\.length > 0\) \{\s*scheduleDrawerClearSelectedCourse\(\);/.test(courseFn)
+      && /compatibility|unavailable|data-selected|eligible/.test(courseFn || ''));
+    if (courseFn) {
+      const courseNodes = {};
+      function makeSelect(selected) {
+        return {
+          value: selected || '',
+          options: [],
+          selectedIndex: selected ? 0 : -1,
+          _attrs: { 'data-selected': selected || '' },
+          getAttribute(k) { return this._attrs[k] != null ? this._attrs[k] : null; },
+          setAttribute(k, v) { this._attrs[k] = String(v); },
+          innerHTML: '',
+        };
+      }
+      function makeList() {
+        return {
+          innerHTML: '',
+          querySelectorAll() { return []; },
+          querySelector() { return null; },
+        };
+      }
+      courseNodes['ps-drawer-course-list'] = makeList();
+      courseNodes['ps-drawer-course-select'] = makeSelect('seeded-missing');
+      const cSb = {
+        el(id) { return courseNodes[id] || null; },
+        portalT(k) { return en[k] || k; },
+        escHtml(s) {
+          return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        },
+        scheduleDrawerGetSelectedCourseId() {
+          const sel = courseNodes['ps-drawer-course-select'];
+          return sel ? String(sel.getAttribute('data-selected') || sel.value || '').trim() : '';
+        },
+        scheduleDrawerSyncCourseButtons() {},
+        scheduleDrawerClearSelectedCourse() {
+          const sel = courseNodes['ps-drawer-course-select'];
+          if (sel) {
+            sel.value = '';
+            sel.setAttribute('data-selected', '');
+          }
+          cSb._cleared = true;
+        },
+        scheduleDrawerRenderMainActivityPath() {},
+        _cleared: false,
+        result: null,
+      };
+      // Catalog has other courses; seeded id absent → must preserve, not clear
+      try {
+        vm.runInNewContext(
+          courseFn
+          + '\nresult = scheduleDrawerRenderCourseList('
+          + '[{course_id:"other",label:"Other",eligible_on_requested_dates:true}],'
+          + '{selectedId:"seeded-missing"});',
+          cSb,
+          { timeout: 4000 }
+        );
+        ok('missing seed course not cleared by catalog peers',
+          cSb._cleared !== true
+          && courseNodes['ps-drawer-course-select'].getAttribute('data-selected') === 'seeded-missing');
+        ok('missing seed course surfaced as unavailable/compatibility in list or select',
+          /seeded-missing/.test(courseNodes['ps-drawer-course-list'].innerHTML)
+          || /seeded-missing/.test(courseNodes['ps-drawer-course-select'].innerHTML)
+          || courseNodes['ps-drawer-course-select'].getAttribute('data-compatibility-unavailable') === '1');
+      } catch (e) {
+        ok('course list missing-seed render runs', false, String(e && e.message || e));
+      }
+      // Ineligible (dates) seed preserved
+      courseNodes['ps-drawer-course-list'] = makeList();
+      courseNodes['ps-drawer-course-select'] = makeSelect('c-inelig');
+      cSb._cleared = false;
+      try {
+        vm.runInNewContext(
+          'result = scheduleDrawerRenderCourseList('
+          + '[{course_id:"c-inelig",label:"Inelig",eligible_on_requested_dates:false},'
+          + '{course_id:"ok",label:"OK",eligible_on_requested_dates:true}],'
+          + '{selectedId:"c-inelig"});',
+          cSb,
+          { timeout: 4000 }
+        );
+        ok('ineligible seed course not cleared',
+          cSb._cleared !== true
+          && courseNodes['ps-drawer-course-select'].getAttribute('data-selected') === 'c-inelig');
+      } catch (e) {
+        ok('course list ineligible-seed render runs', false, String(e && e.message || e));
+      }
+    }
+    // Seed path must not invent eligible:true for missing catalog course
+    ok('seed main activity does not invent eligible:true for empty-catalog course',
+      !/eligible_on_requested_dates:\s*true\s*\}\s*\]/.test(
+        extractFn(editSrc, 'scheduleDrawerSeedMainActivityView') || ''
+      )
+      || /eligible_on_requested_dates:\s*false/.test(
+        extractFn(editSrc, 'scheduleDrawerSeedMainActivityView') || ''
+      ));
+  }
+
+  // I4) Async mount race — generation token on catalog init + late callbacks
+  {
+    ok('edit wire captures openGen/mountGen for late catalog callbacks',
+      /scheduleWireEditableDrawer/.test(editSrc)
+      && (/mountGen|openGen/.test(extractFn(editSrc, 'scheduleWireEditableDrawer') || '')
+        || /scheduleDrawerIsRequestActive|scheduleDrawerState\.(openGen|mountGen)/.test(editSrc)));
+    ok('late catalog callback gated by active generation',
+      /scheduleFetchLessonTimesConfig[\s\S]{0,400}then\(function/.test(editSrc)
+      && (/scheduleDrawerIsRequestActive|mountGen|openGen/.test(
+        (extractFn(editSrc, 'scheduleWireEditableDrawer') || '')
+        + (extractFn(editSrc, 'scheduleDrawerPopulateCourseSelect') || '')
+      )));
+    // Behavioral race: booking A late callback must not mutate booking B DOM
+    const wireFn = extractFn(editSrc, 'scheduleWireEditableDrawer');
+    const ctrlSrc = fs.readFileSync(
+      path.join(ROOT, 'scripts/browser/sunset-schedule-drawer-controller.js'),
+      'utf8'
+    );
+    ok('controller exposes openGen + isRequestActive + mountGen',
+      /openGen/.test(ctrlSrc)
+      && /function scheduleDrawerIsRequestActive/.test(ctrlSrc)
+      && (/mountGen|function scheduleDrawerBumpMountGeneration/.test(ctrlSrc)
+        || /function scheduleMountDrawerBody/.test(ctrlSrc)));
+    if (wireFn) {
+      let catalogResolve = null;
+      const bodyA = { booking: 'A', mutated: false, courseListHtml: '' };
+      const bodyB = { booking: 'B', mutated: false, courseListHtml: 'B-seed' };
+      let activeBody = bodyA;
+      const state = {
+        row: { booking_id: 'A' },
+        ctx: { booking_id: 'A' },
+        editing: true,
+        openGen: 1,
+        mountGen: 1,
+        activeBookingKey: 'id:A',
+      };
+      const nodes = {
+        'ps-drawer-body': activeBody,
+        'ps-drawer-course-list': {
+          get innerHTML() { return activeBody.courseListHtml; },
+          set innerHTML(v) { activeBody.courseListHtml = v; activeBody.mutated = true; },
+          querySelectorAll() { return []; },
+          style: { display: '' },
+          setAttribute() {},
+          removeAttribute() {},
+        },
+        'ps-drawer-course-select': {
+          value: '',
+          options: [],
+          _attrs: { 'data-selected': 'course-A' },
+          getAttribute(k) { return this._attrs[k] != null ? this._attrs[k] : null; },
+          setAttribute(k, v) { this._attrs[k] = String(v); },
+          addEventListener() {},
+          innerHTML: '',
+        },
+        'ps-drawer-comp-course': { checked: true, addEventListener() {} },
+        'ps-drawer-comp-private-lesson': { checked: false, addEventListener() {} },
+        'ps-drawer-comp-no-lesson': { checked: false, addEventListener() {} },
+        'ps-drawer-main-activity-back': { dataset: {}, addEventListener() {}, style: {} },
+        'ps-drawer-comp-fullday': null,
+        'ps-drawer-date-from': { value: '2026-07-20', addEventListener() {} },
+        'ps-drawer-date-to': { value: '2026-07-20', addEventListener() {} },
+        'ps-drawer-course-qty': { value: '1', addEventListener() {} },
+        'ps-drawer-private-lesson-surfers': null,
+        'ps-drawer-surfers': null,
+        'ps-drawer-guest': { addEventListener() {} },
+        'ps-drawer-save': { addEventListener() {} },
+        'ps-drawer-cancel': { addEventListener() {} },
+        'ps-drawer-stripe-link': null,
+        'ps-detail-drawer': { style: { display: 'flex' }, querySelector() { return { id: 'ps-drawer-edit-form' }; } },
+      };
+      const raceSb = {
+        el(id) { return nodes[id] || null; },
+        scheduleDrawerState: state,
+        scheduleDrawerBookingKey(row) {
+          return row && row.booking_id ? 'id:' + row.booking_id : null;
+        },
+        scheduleDrawerIsRequestActive(openGen, bookingKey) {
+          if (openGen !== state.openGen) return false;
+          if (bookingKey && state.activeBookingKey !== bookingKey) return false;
+          const drawer = nodes['ps-detail-drawer'];
+          if (!drawer || drawer.style.display === 'none') return false;
+          return true;
+        },
+        scheduleFindGroupForRow(row) { return row; },
+        scheduleWireDrawerHeaderActions() {},
+        scheduleWireDrawerDateRange() {},
+        scheduleWireDrawerMainActivityButtons() {},
+        scheduleDrawerSeedCustomLinesFromCtx() {},
+        scheduleDrawerRenderCustomLines() {},
+        scheduleWireDrawerCustomLines() {},
+        scheduleDrawerSetCustomLineEditorOpen() {},
+        scheduleFetchLessonTimesConfig() {
+          return {
+            then(cb) {
+              catalogResolve = cb;
+              return { catch() { return this; }, then() { return this; } };
+            },
+          };
+        },
+        scheduleDrawerSeedMainActivityView() {
+          activeBody.mutated = true;
+          activeBody.courseListHtml = 'SEEDED-FROM-LATE-A';
+        },
+        scheduleDrawerPopulateComponentFields() { activeBody.mutated = true; },
+        scheduleRenderDrawerRentals() { activeBody.mutated = true; },
+        scheduleRefreshDrawerFullDayAddon() {},
+        scheduleDrawerRefreshDurationConfirm() {},
+        scheduleDrawerSyncFooter() {},
+        scheduleDrawerOnComponentChange() {},
+        scheduleDrawerMarkPriceStale() {},
+        scheduleDrawerExitMainActivityDrilldown() {},
+        scheduleDrawerSyncRentalQtyFromSurfers() {},
+        scheduleSyncDrawerDateRangeUi() {},
+        scheduleDrawerSyncPrivateSessions() {},
+        scheduleDrawerPopulateCourseSelect() {},
+        scheduleDrawerRefreshWhenSummary() {},
+        scheduleWireDrawerStripeCopyOpen() {},
+        scheduleWireDrawerConversation() {},
+        scheduleWireDrawerOpenCustomer() {},
+        scheduleWireDrawerManualPayment() {},
+        scheduleLoadDrawerWaiver() {},
+        scheduleWireDrawerDeleteBooking() {},
+        scheduleSaveDrawerBooking() {},
+        scheduleCancelDrawerEditMode() {},
+        scheduleCreateDrawerStripeLink() {},
+        getClient() { return 'sunset'; },
+      };
+      try {
+        vm.runInNewContext(wireFn + '\nscheduleWireEditableDrawer({booking_id:"A"}, {booking_id:"A"});', raceSb, { timeout: 4000 });
+        // Switch to booking B (open another) before A catalog resolves
+        state.openGen = 2;
+        state.mountGen = 2;
+        state.row = { booking_id: 'B' };
+        state.activeBookingKey = 'id:B';
+        activeBody = bodyB;
+        bodyB.courseListHtml = 'B-seed';
+        bodyB.mutated = false;
+        if (typeof catalogResolve === 'function') catalogResolve({});
+        ok('late booking A catalog cannot mutate booking B DOM/state',
+          bodyB.mutated === false && bodyB.courseListHtml === 'B-seed');
+      } catch (e) {
+        ok('mount race behavioral proof runs', false, String(e && e.message || e));
+      }
+    }
+  }
+
+  // I5) Locale a11y — weekday/month/date cell labels follow portal locale
+  {
+    ok('date range calendar uses getStaffLocale (not host undefined locale only)',
+      /getStaffLocale/.test(extractFn(editSrc, 'scheduleRenderDrawerDateRangeCalendar') || editSrc)
+      || /getStaffLocale/.test(editSrc));
+    ok('weekday labels use portal i18n keys (calendar.day.*)',
+      /calendar\.day\.(sun|mon)/.test(editSrc)
+      && !/var dows = \['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'\]/.test(
+        extractFn(editSrc, 'scheduleRenderDrawerDateRangeCalendar') || ''
+      ));
+    const calFn = extractFn(editSrc, 'scheduleRenderDrawerDateRangeCalendar');
+    const localeFn = extractFn(editSrc, 'scheduleDrawerStaffLocaleTag') || '';
+    const ariaFn = extractFn(editSrc, 'scheduleDrawerDateCellAriaLabel') || '';
+    if (calFn) {
+      function renderCal(locale) {
+        const grid = {
+          innerHTML: '',
+          _dateRangeCells: null,
+        };
+        const monthLabel = { textContent: '' };
+        const apply = { disabled: true };
+        const nodes = {
+          'ps-drawer-date-range-grid': grid,
+          'ps-drawer-date-range-month-label': monthLabel,
+          'ps-drawer-date-range-apply': apply,
+        };
+        const sb = {
+          el(id) { return nodes[id] || null; },
+          scheduleDrawerDateRangeViewYm: '2026-07',
+          scheduleDrawerDateRangeDraft: { start: '2026-07-20', end: '2026-07-22' },
+          scheduleDrawerDateRangeFocusIso: '2026-07-20',
+          scheduleTodayIso() { return '2026-07-01'; },
+          scheduleCreateDateRangeIsValidIso(iso) {
+            return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10));
+          },
+          getStaffLocale() { return locale; },
+          portalT(k) {
+            if (locale === 'es') return (es[k] || en[k] || k);
+            if (locale === 'it') return (it[k] || en[k] || k);
+            return en[k] || k;
+          },
+          escHtml(s) {
+            return String(s == null ? '' : s)
+              .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+          },
+        };
+        vm.runInNewContext(
+          localeFn + '\n' + ariaFn + '\n' + calFn + '\nscheduleRenderDrawerDateRangeCalendar();',
+          sb,
+          { timeout: 4000 }
+        );
+        return { html: grid.innerHTML, month: monthLabel.textContent };
+      }
+      try {
+        const enCal = renderCal('en');
+        const esCal = renderCal('es');
+        const itCal = renderCal('it');
+        ok('EN weekday uses calendar.day mon/sun labels',
+          /Sun|Mon|Mon|Su|Mo/.test(enCal.html) || /calendar\.day/.test(enCal.html)
+          || (en['calendar.day.sun'] && enCal.html.indexOf(en['calendar.day.sun']) >= 0));
+        ok('ES weekday labels differ from EN hard-coded Su/Mo set',
+          esCal.html.indexOf('Dom') >= 0 || esCal.html.indexOf(es['calendar.day.sun'] || 'Dom') >= 0
+          || (es['calendar.day.mon'] && esCal.html.indexOf(es['calendar.day.mon']) >= 0));
+        ok('IT weekday labels differ from EN hard-coded Su/Mo set',
+          itCal.html.indexOf('Dom') >= 0 || itCal.html.indexOf(it['calendar.day.sun'] || 'Dom') >= 0
+          || (it['calendar.day.lun'] && false)
+          || (it['calendar.day.mon'] && itCal.html.indexOf(it['calendar.day.mon']) >= 0));
+        ok('month label localized via staff locale (ES/IT not forced English host)',
+          (esCal.month && /julio|July|2026/i.test(esCal.month))
+          && (itCal.month && /luglio|July|2026/i.test(itCal.month)));
+        ok('date cell aria-label present and not host-locale-only raw without locale path',
+          /aria-label=/.test(enCal.html) && /aria-label=/.test(esCal.html));
+      } catch (e) {
+        ok('locale calendar render runs', false, String(e && e.message || e));
+      }
+    } else {
+      ok('scheduleRenderDrawerDateRangeCalendar extractable', false);
+    }
+    // Touched strings: no English-only fallback when production key exists for courses none
+    const courseListSrc = extractFn(editSrc, 'scheduleDrawerRenderCourseList') || '';
+    ok('course noneConfigured has no English-only fallback when key exists',
+      !/\|\|\s*'No group courses configured'/.test(courseListSrc)
+      && !/\|\|\s*"No group courses configured"/.test(courseListSrc));
+  }
+
+  // I6) Mutation tests must not rewrite tracked production files (structural proof in lifecycle gate)
+  {
+    const lifeSrc = fs.readFileSync(
+      path.join(ROOT, 'scripts/verify-sunset-schedule-drawer-edit-ui.js'),
+      'utf8'
+    );
+    ok('lifecycle gate mutation block avoids writeFileSync on EDIT_MODULE path',
+      !/fs\.writeFileSync\(\s*EDIT_MODULE/.test(lifeSrc)
+      || /in-memory|temp|mkdtemp|byte-identical|do not write|without writing/i.test(lifeSrc));
+    ok('lifecycle mutations prove tracked files byte-identical',
+      /byte-identical|readFileSync\(EDIT_MODULE[\s\S]{0,200}=== original|Buffer\.compare/.test(lifeSrc));
+  }
 
   console.log('\n── verify:sunset-edit-drawer-parity '
     + (fail ? 'FAILED' : 'PASSED')

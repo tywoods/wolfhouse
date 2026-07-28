@@ -184,6 +184,34 @@ function scheduleDrawerDateRangeMoveFocus(iso, key){
   return null;
 }
 
+function scheduleDrawerStaffLocaleTag(){
+  var loc = 'en';
+  try {
+    if (typeof getStaffLocale === 'function') loc = String(getStaffLocale() || 'en');
+  } catch (_l) { loc = 'en'; }
+  loc = String(loc || 'en').toLowerCase();
+  if (loc.indexOf('es') === 0) return 'es';
+  if (loc.indexOf('it') === 0) return 'it';
+  return 'en';
+}
+
+function scheduleDrawerDateCellAriaLabel(iso, localeTag){
+  var s = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  var y = Number(s.slice(0, 4));
+  var m = Number(s.slice(5, 7));
+  var d = Number(s.slice(8, 10));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return s;
+  try {
+    var dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+    return new Intl.DateTimeFormat(localeTag || 'en', {
+      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+    }).format(dt);
+  } catch (_e) {
+    return s;
+  }
+}
+
 function scheduleRenderDrawerDateRangeCalendar(){
   var grid = el('ps-drawer-date-range-grid');
   var monthLabel = el('ps-drawer-date-range-month-label');
@@ -196,10 +224,11 @@ function scheduleRenderDrawerDateRangeCalendar(){
   if (month < 1) { month = 12; year -= 1; }
   if (month > 12) { month = 1; year += 1; }
   scheduleDrawerDateRangeViewYm = year + '-' + String(month).padStart(2, '0');
+  var localeTag = scheduleDrawerStaffLocaleTag();
   var first = new Date(year, month - 1, 1);
   if (monthLabel) {
     try {
-      monthLabel.textContent = first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      monthLabel.textContent = first.toLocaleDateString(localeTag, { month: 'long', year: 'numeric' });
     } catch (_e) {
       monthLabel.textContent = scheduleDrawerDateRangeViewYm;
     }
@@ -213,10 +242,14 @@ function scheduleRenderDrawerDateRangeCalendar(){
   var rangeLo = dStart && dEnd ? (dStart < dEnd ? dStart : dEnd) : dStart;
   var rangeHi = dStart && dEnd ? (dStart < dEnd ? dEnd : dStart) : dEnd;
   var html = '';
-  var dows = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  var dayKeys = [
+    'calendar.day.sun', 'calendar.day.mon', 'calendar.day.tue', 'calendar.day.wed',
+    'calendar.day.thu', 'calendar.day.fri', 'calendar.day.sat',
+  ];
   for (var d = 0; d < 7; d += 1) {
+    var dowLabel = typeof portalT === 'function' ? portalT(dayKeys[d]) : dayKeys[d];
     html += '<span class="portal-schedule-create-date-range-dow" aria-hidden="true">'
-      + escHtml(dows[d]) + '</span>';
+      + escHtml(dowLabel) + '</span>';
   }
   var cells = [];
   for (var i = 0; i < startDow; i += 1) {
@@ -271,8 +304,9 @@ function scheduleRenderDrawerDateRangeCalendar(){
     if (dEnd && c.iso === dEnd) { cls += ' is-selected-end is-selected'; selected = true; }
     if (rangeLo && rangeHi && c.iso > rangeLo && c.iso < rangeHi) cls += ' is-in-range';
     var tab = (focusIso && c.iso === focusIso) ? '0' : '-1';
+    var cellAria = scheduleDrawerDateCellAriaLabel(c.iso, localeTag);
     html += '<button type="button" class="' + cls + '" tabindex="' + tab
-      + '" data-date="' + escHtml(c.iso) + '" aria-label="' + escHtml(c.iso)
+      + '" data-date="' + escHtml(c.iso) + '" aria-label="' + escHtml(cellAria)
       + '" aria-pressed="' + (selected ? 'true' : 'false') + '">'
       + escHtml(String(c.day)) + '</button>';
   });
@@ -518,6 +552,9 @@ function scheduleDrawerGetSelectedCourseId() {
   var sel = el('ps-drawer-course-select');
   var fromSel = sel ? String(sel.value || '').trim() : '';
   if (fromSel) return fromSel;
+  // Compatibility seed authority when select value blanked (disabled option).
+  var fromData = sel ? String(sel.getAttribute('data-selected') || '').trim() : '';
+  if (fromData) return fromData;
   var list = el('ps-drawer-course-list');
   if (!list) return '';
   try {
@@ -581,12 +618,15 @@ function scheduleDrawerSelectCourse(courseId, courseLabel, opts) {
     if (!found) {
       try {
         sel.innerHTML = (sel.innerHTML || '')
-          + '<option value="' + escHtml(id) + '" data-label="' + escHtml(label || id) + '">'
+          + '<option value="' + escHtml(id) + '" data-label="' + escHtml(label || id) + '"'
+          + ' data-eligible="1">'
           + escHtml(label || id) + '</option>';
       } catch (_i) { /* ignore */ }
     }
     sel.value = id;
     try { sel.setAttribute('data-selected', id); } catch (_ds) { /* ignore */ }
+    // Explicit staff pick replaces compatibility unavailable state.
+    try { sel.removeAttribute('data-compatibility-unavailable'); } catch (_rc) { /* ignore */ }
   }
   scheduleDrawerSyncCourseButtons(id);
   if (typeof scheduleDrawerRenderMainActivityPath === 'function') scheduleDrawerRenderMainActivityPath();
@@ -723,20 +763,27 @@ function scheduleDrawerRenderCourseList(courses, opts) {
   var prev = opts.selectedId != null
     ? String(opts.selectedId).trim()
     : scheduleDrawerGetSelectedCourseId();
+  if (!prev && sel) {
+    prev = String(sel.getAttribute('data-selected') || '').trim();
+  }
   var html = '';
   var selHtml = '';
   var availableIds = {};
+  var catalogIds = {};
+  var unavailSuffix = portalT('schedule.create.courseNotOnSelectedDates');
   (courses || []).forEach(function(c) {
     var id = String((c && c.course_id) || '').trim();
     if (!id) return;
+    catalogIds[id] = true;
     var eligible = c.eligible_on_requested_dates !== false;
     var disabled = c.eligible_on_requested_dates === false;
     if (!disabled) availableIds[id] = true;
     var summary = c.schedule_summary ? (' — ' + c.schedule_summary) : '';
     var baseLabel = c.label || id;
     var showLabel = baseLabel + summary + (disabled
-      ? (' (' + (portalT('schedule.create.courseNotOnSelectedDates') || 'not available on selected dates') + ')')
+      ? (' (' + unavailSuffix + ')')
       : '');
+    // Eligible checked only; unavailable seed stays as compatibility (data-selected), not pressed.
     var checked = !disabled && prev && String(prev) === id;
     html += '<button type="button" class="portal-schedule-create-activity-btn'
       + (checked ? ' is-selected' : '')
@@ -744,6 +791,7 @@ function scheduleDrawerRenderCourseList(courses, opts) {
       + ' data-course-id="' + escHtml(id) + '"'
       + ' data-label="' + escHtml(baseLabel) + '"'
       + ' data-eligible="' + (eligible ? '1' : '0') + '"'
+      + (disabled ? ' data-compatibility="1"' : '')
       + ' aria-pressed="' + (checked ? 'true' : 'false') + '"'
       + (disabled ? ' disabled' : '')
       + '><span>' + escHtml(showLabel) + '</span></button>'
@@ -754,32 +802,71 @@ function scheduleDrawerRenderCourseList(courses, opts) {
       + '>';
     selHtml += '<option value="' + escHtml(id) + '" data-label="' + escHtml(baseLabel) + '"'
       + (disabled ? ' disabled' : '')
-      + ' data-eligible="' + (eligible ? '1' : '0') + '">'
-      + escHtml(baseLabel) + '</option>';
+      + ' data-eligible="' + (eligible ? '1' : '0') + '"'
+      + (disabled ? ' data-compatibility="1"' : '')
+      + '>'
+      + escHtml(baseLabel + (disabled ? (' (' + unavailSuffix + ')') : '')) + '</option>';
   });
+  // Fail-closed Edit: preserve seeded canonical course missing from catalog as compatibility state.
+  // Never silently clear/replace — staff must explicitly pick a catalog course.
+  var compatibilityUnavailable = !!(prev && !availableIds[prev]);
+  if (prev && !catalogIds[prev]) {
+    var seedLab = prev;
+    try {
+      if (sel) {
+        var prior = sel.getAttribute('data-label') || '';
+        if (prior && prior !== prev) seedLab = prior;
+      }
+    } catch (_sl) { /* ignore */ }
+    html += '<button type="button" class="portal-schedule-create-activity-btn is-disabled is-unavailable"'
+      + ' data-course-id="' + escHtml(prev) + '"'
+      + ' data-label="' + escHtml(seedLab) + '"'
+      + ' data-eligible="0" data-compatibility="1"'
+      + ' aria-pressed="false" disabled'
+      + '><span>' + escHtml(seedLab + ' (' + unavailSuffix + ')') + '</span></button>';
+    selHtml += '<option value="' + escHtml(prev) + '" data-label="' + escHtml(seedLab) + '"'
+      + ' data-eligible="0" data-compatibility="1" disabled>'
+      + escHtml(seedLab + ' (' + unavailSuffix + ')') + '</option>';
+  }
   if (!html) {
     html = '<p class="portal-schedule-create-activity-hint" style="margin:0">'
-      + escHtml(portalT('schedule.courses.noneConfigured') || 'No group courses configured')
+      + escHtml(portalT('schedule.courses.noneConfigured'))
       + '</p>';
   }
   if (!selHtml) {
-    selHtml = '<option value="">' + escHtml(portalT('schedule.courses.noneConfigured') || '') + '</option>';
+    selHtml = '<option value="">' + escHtml(portalT('schedule.courses.noneConfigured')) + '</option>';
   }
   if (list) list.innerHTML = html;
-  if (sel) sel.innerHTML = selHtml;
+  if (sel) {
+    sel.innerHTML = selHtml;
+    try {
+      if (compatibilityUnavailable) sel.setAttribute('data-compatibility-unavailable', '1');
+      else sel.removeAttribute('data-compatibility-unavailable');
+    } catch (_cu) { /* ignore */ }
+  }
   if (prev && availableIds[prev]) {
     if (sel) {
       sel.value = prev;
       try { sel.setAttribute('data-selected', prev); } catch (_d) { /* ignore */ }
     }
     scheduleDrawerSyncCourseButtons(prev);
-  } else if (prev && (courses || []).length > 0) {
-    scheduleDrawerClearSelectedCourse();
-  } else if (!prev) {
-    if (sel) sel.value = '';
+  } else if (prev) {
+    // Missing or ineligible: keep data-selected identity; do not clear.
+    if (sel) {
+      try { sel.setAttribute('data-selected', prev); } catch (_p) { /* ignore */ }
+      try {
+        // Prefer keeping value when option exists (even if disabled browsers may blank it).
+        sel.value = prev;
+      } catch (_v) { /* ignore */ }
+    }
     scheduleDrawerSyncCourseButtons('');
-  } else if (sel) {
-    sel.value = '';
+  } else if (!prev) {
+    if (sel) {
+      sel.value = '';
+      try { sel.setAttribute('data-selected', ''); } catch (_e) { /* ignore */ }
+      try { sel.removeAttribute('data-compatibility-unavailable'); } catch (_r) { /* ignore */ }
+    }
+    scheduleDrawerSyncCourseButtons('');
   }
   if (list) {
     try {
@@ -809,7 +896,11 @@ function scheduleDrawerRenderCourseList(courses, opts) {
     } catch (_w) { /* ignore */ }
   }
   scheduleDrawerRenderMainActivityPath();
-  return { availableIds: availableIds, selectedId: scheduleDrawerGetSelectedCourseId() };
+  return {
+    availableIds: availableIds,
+    selectedId: scheduleDrawerGetSelectedCourseId(),
+    compatibilityUnavailable: compatibilityUnavailable,
+  };
 }
 
 /** Seed drill-down view from current radios / selected course (Edit open only). */
@@ -822,11 +913,17 @@ function scheduleDrawerSeedMainActivityView() {
       ? String(sel.getAttribute('data-selected') || sel.value || '').trim()
       : '';
     var courses = scheduleCoursesCache || [];
+    // Empty catalog: preserve seeded identity as unavailable compatibility — never invent eligible:true.
     if (!courses.length && selected) {
-      courses = [{ course_id: selected, label: selected, eligible_on_requested_dates: true }];
+      courses = [{ course_id: selected, label: selected, eligible_on_requested_dates: false }];
     }
     scheduleDrawerRenderCourseList(courses, { selectedId: selected });
-    if (selected) scheduleDrawerSelectCourse(selected, '', { quiet: true });
+    // Only quiet-select when the seed is still catalog-eligible.
+    if (selected && courses.some(function(c) {
+      return c && String(c.course_id) === selected && c.eligible_on_requested_dates !== false;
+    })) {
+      scheduleDrawerSelectCourse(selected, '', { quiet: true });
+    }
   } else if (mode === 'private') {
     scheduleDrawerEnterPrivateSessionsDrilldown();
   } else {
@@ -840,10 +937,19 @@ function scheduleDrawerSeedMainActivityView() {
   }
 }
 function scheduleDrawerPaymentSelectValue(ctx){
-  if(!ctx||ctx.payment_status!=='paid') return 'unpaid';
-  if(ctx.payment_method==='bank_transfer') return 'paid_bank_transfer';
-  if(ctx.payment_method==='in_store') return 'paid_in_store';
-  if(ctx.payment_method==='link') return 'paid_via_link';
+  if (!ctx) return 'unpaid';
+  // Prefer nested canonical payment truth; legacy top-level is fallback only.
+  var pay = ctx.payment && typeof ctx.payment === 'object' ? ctx.payment : null;
+  var status = pay && pay.payment_status != null && String(pay.payment_status).trim() !== ''
+    ? String(pay.payment_status).trim()
+    : (ctx.payment_status != null ? String(ctx.payment_status).trim() : '');
+  if (String(status).toLowerCase() !== 'paid') return 'unpaid';
+  var method = pay && pay.payment_method != null && String(pay.payment_method).trim() !== ''
+    ? String(pay.payment_method).trim()
+    : (ctx.payment_method != null ? String(ctx.payment_method).trim() : '');
+  if (method === 'bank_transfer') return 'paid_bank_transfer';
+  if (method === 'in_store') return 'paid_in_store';
+  if (method === 'link') return 'paid_via_link';
   return 'paid_bank_transfer';
 }
 function scheduleRenderDrawerPaymentSelectHtml(ctx) {
@@ -1361,6 +1467,8 @@ function scheduleRenderDrawerRentals() {
       checked: !!(check && check.checked),
       quantity: (Number.isInteger(qty) && qty >= 1) ? qty : null,
       qtyOwner: qtyEl ? String(qtyEl.getAttribute('data-qty-owner') || '') : '',
+      compatibility: row.getAttribute('data-compatibility') === '1'
+        || (check && check.getAttribute('data-compatibility') === '1'),
     };
   });
   if (!Object.keys(prev).length) {
@@ -1370,6 +1478,8 @@ function scheduleRenderDrawerRentals() {
         checked: true,
         quantity: parseInt(r.quantity, 10) || 1,
         qtyOwner: 'surfers',
+        duration_key: r.duration_key || r.duration || null,
+        compatibility: false,
       };
     });
   }
@@ -1399,31 +1509,55 @@ function scheduleRenderDrawerRentals() {
       : [];
     duration = dateDuration;
   }
-  if (!offerings.length) {
-    offerings = [
-      { offering_key: 'board_rental', duration_key: duration || '1_day' },
-      { offering_key: 'wetsuit_rental', duration_key: duration || '1_day' },
-      { offering_key: 'board_and_suit_rental', duration_key: duration || '1_day' },
-    ];
-  }
+  // Fail-closed: never invent generic board/wetsuit/bundle when catalog is empty.
+  var catalogKeys = {};
+  (offerings || []).forEach(function(o) {
+    if (o && o.offering_key) catalogKeys[String(o.offering_key)] = true;
+  });
+  // Preserve seeded/prev checked rentals missing from refreshed catalog as compatibility rows.
+  var compatibilityKeys = [];
+  Object.keys(prev).forEach(function(key) {
+    if (!prev[key] || !prev[key].checked) return;
+    if (!catalogKeys[key]) {
+      compatibilityKeys.push(key);
+      offerings = offerings.concat([{
+        offering_key: key,
+        duration_key: duration || prev[key].duration_key || prevDuration || '',
+        _compatibility: true,
+      }]);
+    }
+  });
   var mode = typeof scheduleRentalOfferingsMode === 'function'
-    ? scheduleRentalOfferingsMode(offerings)
-    : (offerings.length ? 'all_three' : 'none');
+    ? scheduleRentalOfferingsMode(offerings.filter(function(o) { return !o._compatibility; }))
+    : (Object.keys(catalogKeys).length ? 'all_three' : 'none');
   wrap.setAttribute('data-duration-key', duration || '');
   wrap.setAttribute('data-rental-mode', mode);
   wrap.setAttribute('data-short-rental', shortMode ? '1' : '0');
   wrap.setAttribute('data-common-short-keys', JSON.stringify(commonShort));
+  wrap.setAttribute('data-rental-compatibility', compatibilityKeys.length ? '1' : '0');
+  if (compatibilityKeys.length) {
+    try {
+      wrap.setAttribute('data-compatibility-rentals', JSON.stringify(compatibilityKeys));
+    } catch (_cr) { /* ignore */ }
+  } else {
+    try { wrap.removeAttribute('data-compatibility-rentals'); } catch (_rr) { /* ignore */ }
+  }
   wrap.dataset.rentalWired = '';
+  if (!offerings.length) {
+    wrap.innerHTML = '<p class="portal-schedule-create-rentals-empty" data-i18n="schedule.create.noRentalsAvailable">'
+      + escHtml(portalT('schedule.create.noRentalsAvailable')) + '</p>';
+    return;
+  }
   var surfers = scheduleDrawerReadSurferCount();
   var html = '';
+  var unavailHint = portalT('schedule.create.noRentalsAvailable');
   offerings.forEach(function(o) {
     var key = o.offering_key;
+    var isCompat = !!o._compatibility;
     var labelKey = typeof scheduleRentalOfferingLabelKey === 'function'
       ? scheduleRentalOfferingLabelKey(key) : 'schedule.type.boardRental';
-    var fallback = key === 'wetsuit_rental' ? 'Wetsuit'
-      : (key === 'board_and_suit_rental' ? 'Board and wetsuit' : 'Surfboard');
     var was = prev[key] || {};
-    var checked = !!was.checked;
+    var checked = !!was.checked || isCompat;
     var qty;
     var owner;
     if (noLesson) {
@@ -1441,6 +1575,7 @@ function scheduleRenderDrawerRentals() {
     // Same anatomy as Create: checkbox offering card + Surfers numeric (hidden for no-lesson).
     var qtyHtml = '';
     if (!noLesson) {
+      // data-i18n seed "Surfers" matches Create hydration contract (never Quantity).
       qtyHtml = '<div class="portal-schedule-create-rental-qty"' + (checked ? '' : ' style="display:none"') + '>'
         + '<label><span data-i18n="schedule.create.rentalQty">'
         + escHtml(portalT('schedule.create.rentalQty') || 'Surfers') + '</span>'
@@ -1453,10 +1588,17 @@ function scheduleRenderDrawerRentals() {
         + '<input type="number" min="1" max="99" class="ps-drawer-rental-qty-input" data-qty-owner="surfers" tabindex="-1" value="'
         + escHtml(String(qty)) + '"></div>';
     }
-    html += '<div class="portal-schedule-create-rental-row" data-rental-offering="' + escHtml(key) + '">'
+    var labelText = portalT(labelKey) + (isCompat ? (' (' + unavailHint + ')') : '');
+    html += '<div class="portal-schedule-create-rental-row'
+      + (isCompat ? ' is-unavailable' : '') + '" data-rental-offering="' + escHtml(key) + '"'
+      + ' data-eligible="' + (isCompat ? '0' : '1') + '"'
+      + (isCompat ? ' data-compatibility="1"' : '') + '>'
       + '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-drawer-rental-check" data-offering-key="'
-      + escHtml(key) + '"' + (checked ? ' checked' : '') + '> <span data-i18n="' + escHtml(labelKey) + '">'
-      + escHtml(portalT(labelKey) || fallback) + '</span></label>'
+      + escHtml(key) + '"' + (checked ? ' checked' : '')
+      + ' data-eligible="' + (isCompat ? '0' : '1') + '"'
+      + (isCompat ? ' data-compatibility="1"' : '')
+      + '> <span data-i18n="' + escHtml(labelKey) + '">'
+      + escHtml(labelText) + '</span></label>'
       + qtyHtml + '</div>';
   });
   // One pebble strip beneath offerings for combined short mode (filled after selection).
@@ -1465,6 +1607,7 @@ function scheduleRenderDrawerRentals() {
   var selected = [];
   offerings.forEach(function(o) {
     if (prev[o.offering_key] && prev[o.offering_key].checked) selected.push(o.offering_key);
+    else if (o._compatibility) selected.push(o.offering_key);
   });
   if (selected.indexOf('board_and_suit_rental') >= 0
     && (selected.indexOf('board_rental') >= 0 || selected.indexOf('wetsuit_rental') >= 0)) {
@@ -1677,7 +1820,16 @@ function scheduleDrawerPopulateCourseSelect() {
   var sel = el('ps-drawer-course-select');
   if (!sel) return Promise.resolve();
   var selected = sel.getAttribute('data-selected') || sel.value || '';
+  var openGen = scheduleDrawerState && scheduleDrawerState.openGen;
+  var mountGen = scheduleDrawerState && scheduleDrawerState.mountGen;
+  var bookingKey = (typeof scheduleDrawerBookingKey === 'function' && scheduleDrawerState)
+    ? scheduleDrawerBookingKey(scheduleDrawerState.row)
+    : (scheduleDrawerState && scheduleDrawerState.activeBookingKey) || null;
   return scheduleFetchLessonTimesConfig(getClient()).then(function() {
+    if (typeof scheduleDrawerIsRequestActive === 'function'
+      && !scheduleDrawerIsRequestActive(openGen, bookingKey)) return sel;
+    if (scheduleDrawerState && mountGen != null
+      && scheduleDrawerState.mountGen !== mountGen) return sel;
     var courses = scheduleCoursesCache || [];
     // Prefer drill-down course list (Create parity); keep hidden select synchronized.
     if (typeof scheduleDrawerRenderCourseList === 'function'
@@ -1693,11 +1845,15 @@ function scheduleDrawerPopulateCourseSelect() {
       });
       if (!html) html = '<option value="">' + escHtml(portalT('schedule.courses.noneConfigured')) + '</option>';
       sel.innerHTML = html;
-      if (selected) sel.value = selected;
+      if (selected) {
+        try { sel.setAttribute('data-selected', selected); } catch (_s) { /* ignore */ }
+        sel.value = selected;
+      }
     }
     if (!sel._editBound) {
       sel._editBound = true;
       sel.addEventListener('change', function() {
+        try { sel.removeAttribute('data-compatibility-unavailable'); } catch (_c) { /* ignore */ }
         scheduleDrawerMarkPriceStale();
         if (typeof scheduleDrawerSyncCourseButtons === 'function') {
           scheduleDrawerSyncCourseButtons(sel.value);
@@ -2187,6 +2343,37 @@ function scheduleDrawerValidateEditPayload(payload) {
   if (!Object.keys(comps).length && !(Array.isArray(p.rentals) && p.rentals.length)) return { ok: false, errorKey: 'schedule.create.componentsRequired' };
   if (comps.course) {
     if (!String(comps.course.course_id || '').trim()) return { ok: false, errorKey: 'schedule.create.courseRequired' };
+    // Seeded course missing/ineligible in catalog: preserve identity but block Save until staff re-picks.
+    try {
+      var courseSel = el('ps-drawer-course-select');
+      if (courseSel && courseSel.getAttribute('data-compatibility-unavailable') === '1') {
+        return { ok: false, errorKey: 'schedule.create.courseNotOnSelectedDates' };
+      }
+      var courseId = String(comps.course.course_id || '').trim();
+      if (courseSel && courseId) {
+        var opt = null;
+        if (courseSel.options) {
+          for (var oi = 0; oi < courseSel.options.length; oi++) {
+            if (String(courseSel.options[oi].value) === courseId) { opt = courseSel.options[oi]; break; }
+          }
+        }
+        if (opt && (opt.getAttribute && (opt.getAttribute('data-eligible') === '0'
+          || opt.getAttribute('data-compatibility') === '1' || opt.disabled))) {
+          return { ok: false, errorKey: 'schedule.create.courseNotOnSelectedDates' };
+        }
+      }
+      var courseList = el('ps-drawer-course-list');
+      if (courseList && courseId) {
+        var crow = courseList.querySelector
+          ? courseList.querySelector('button[data-course-id="' + courseId + '"]')
+          : null;
+        if (crow && (crow.getAttribute('data-eligible') === '0'
+          || crow.getAttribute('data-compatibility') === '1'
+          || crow.disabled || crow.classList.contains('is-disabled'))) {
+          return { ok: false, errorKey: 'schedule.create.courseNotOnSelectedDates' };
+        }
+      }
+    } catch (_cu) { /* ignore DOM probe */ }
     if (!String(comps.course.tier_key || '').trim()) return { ok: false, errorKey: 'schedule.create.courseDurationUnavailable' };
   }
   if (comps.private_lesson) {
@@ -2207,15 +2394,48 @@ function scheduleDrawerValidateEditPayload(payload) {
     // still block when the live input is invalid and a rental is checked.
     try {
       if (scheduleDrawerMainActivityValue() === 'none') {
-        var wrap = el('ps-drawer-rentals');
-        if (wrap) {
-          wrap.querySelectorAll('.ps-drawer-rental-check').forEach(function(c) {
+        var wrapNeed = el('ps-drawer-rentals');
+        if (wrapNeed) {
+          wrapNeed.querySelectorAll('.ps-drawer-rental-check').forEach(function(c) {
             if (c && c.checked) needsSurfers = true;
           });
         }
       }
     } catch (_n) { /* ignore */ }
   }
+  // Compatibility rentals (seeded missing from catalog) block Save until staff resolves.
+  try {
+    var rentWrap = el('ps-drawer-rentals');
+    if (rentWrap) {
+      var blockedCompat = false;
+      rentWrap.querySelectorAll('.ps-drawer-rental-check').forEach(function(c) {
+        if (c && c.checked && (c.getAttribute('data-compatibility') === '1'
+          || c.getAttribute('data-eligible') === '0')) blockedCompat = true;
+      });
+      if (!blockedCompat) {
+        // Single-attr selector (avoid compound attr selectors) then filter.
+        rentWrap.querySelectorAll('[data-rental-offering]').forEach(function(row) {
+          if (row.getAttribute('data-compatibility') !== '1'
+            && row.getAttribute('data-eligible') !== '0') return;
+          var chk2 = row.querySelector ? row.querySelector('.ps-drawer-rental-check') : null;
+          if (chk2 && chk2.checked) blockedCompat = true;
+        });
+      }
+      // Wrap-level flag only blocks when a compatibility seed is still selected in payload.
+      if (!blockedCompat && rentWrap.getAttribute('data-rental-compatibility') === '1') {
+        var compatKeys = [];
+        try {
+          compatKeys = JSON.parse(rentWrap.getAttribute('data-compatibility-rentals') || '[]') || [];
+        } catch (_jk) { compatKeys = []; }
+        if (compatKeys.length && rentals.some(function(r) {
+          return r && compatKeys.indexOf(String(r.offering_key || '')) >= 0;
+        })) {
+          blockedCompat = true;
+        }
+      }
+      if (blockedCompat) return { ok: false, errorKey: 'schedule.create.noRentalsAvailable' };
+    }
+  } catch (_rc) { /* ignore */ }
   if (needsSurfers) {
     var sn = null;
     try { sn = scheduleDrawerReadSurferCount(); } catch (_s) { sn = null; }
@@ -2245,8 +2465,21 @@ function scheduleReadDrawerEditPayload() {
   var mode = scheduleDrawerMainActivityValue();
   if (mode === 'group') {
     var courseSel = el('ps-drawer-course-select');
-    var courseOpt = courseSel && courseSel.selectedIndex >= 0 ? courseSel.options[courseSel.selectedIndex] : null;
-    var courseId = courseSel ? String(courseSel.value || '').trim() : '';
+    var courseId = '';
+    if (typeof scheduleDrawerGetSelectedCourseId === 'function') {
+      courseId = scheduleDrawerGetSelectedCourseId();
+    } else if (courseSel) {
+      courseId = String(courseSel.value || courseSel.getAttribute('data-selected') || '').trim();
+    }
+    var courseOpt = null;
+    if (courseSel && courseSel.options) {
+      for (var ci = 0; ci < courseSel.options.length; ci++) {
+        if (String(courseSel.options[ci].value) === courseId) { courseOpt = courseSel.options[ci]; break; }
+      }
+    }
+    if (!courseOpt && courseSel && courseSel.selectedIndex >= 0) {
+      courseOpt = courseSel.options[courseSel.selectedIndex];
+    }
     components.course = {
       quantity: parseInt((el('ps-drawer-course-qty') && el('ps-drawer-course-qty').value) || '1', 10) || 1,
       course_id: courseId,
@@ -2497,6 +2730,18 @@ function scheduleDrawerSyncFooter(opts) {
 function scheduleSaveDrawerBooking(row) {
   if (!row || !row.booking_id) return;
   if (scheduleDrawerSaveInFlight) return;
+  var openGen = scheduleDrawerState && scheduleDrawerState.openGen;
+  var mountGen = scheduleDrawerState && scheduleDrawerState.mountGen;
+  var bookingKey = (typeof scheduleDrawerBookingKey === 'function')
+    ? scheduleDrawerBookingKey(row)
+    : (scheduleDrawerState && scheduleDrawerState.activeBookingKey) || null;
+  function saveStillActive() {
+    if (typeof scheduleDrawerIsRequestActive === 'function'
+      && !scheduleDrawerIsRequestActive(openGen, bookingKey)) return false;
+    if (scheduleDrawerState && mountGen != null
+      && scheduleDrawerState.mountGen !== mountGen) return false;
+    return true;
+  }
   var payload = scheduleReadDrawerEditPayload();
   var saveBtn = el('ps-drawer-save');
   var msg = el('ps-drawer-save-msg');
@@ -2520,6 +2765,7 @@ function scheduleSaveDrawerBooking(row) {
   }).then(function(r) {
     return r.json().then(function(data) { return { ok: r.ok, data: data }; });
   }).then(function(res) {
+    if (!saveStillActive()) return null;
     if (!res.ok || !res.data || res.data.success !== true) {
       var human = scheduleDrawerHumanSaveError(res.data, 'Save failed');
       throw new Error(human);
@@ -2529,6 +2775,7 @@ function scheduleSaveDrawerBooking(row) {
       ? scheduleFetchDrawerContext(row)
       : schedulePortalFetchDrawerDetail(row);
     return refetch.then(function(detail) {
+      if (!saveStillActive()) return null;
       if (!detail || !detail.success) throw new Error((detail && (detail.error || detail.reason_code)) || 'Refetch failed');
       scheduleDrawerState.ctx = scheduleCloneDrawerCtx(detail);
       scheduleDrawerState.editing = false;
@@ -2541,6 +2788,7 @@ function scheduleSaveDrawerBooking(row) {
       loadSchedulePage();
     });
   }).catch(function(err) {
+    if (!saveStillActive()) return;
     if (msg) {
       msg.className = 'state-msg error';
       msg.textContent = portalT('schedule.drawer.saveFailed') + ' ' + String(err.message || err);
@@ -2551,12 +2799,25 @@ function scheduleSaveDrawerBooking(row) {
     }
   }).finally(function() {
     scheduleDrawerSaveInFlight = false;
-    scheduleDrawerSyncFooter();
+    if (saveStillActive()) scheduleDrawerSyncFooter();
   });
 }
 
 function scheduleWireEditableDrawer(row, ctx) {
   var group = scheduleFindGroupForRow(row) || row;
+  // Capture booking/mount generation so late catalog callbacks cannot mutate another booking.
+  var openGen = scheduleDrawerState && scheduleDrawerState.openGen;
+  var mountGen = scheduleDrawerState && scheduleDrawerState.mountGen;
+  var bookingKey = (typeof scheduleDrawerBookingKey === 'function')
+    ? scheduleDrawerBookingKey(row)
+    : (scheduleDrawerState && scheduleDrawerState.activeBookingKey) || null;
+  function editMountStillActive() {
+    if (typeof scheduleDrawerIsRequestActive === 'function'
+      && !scheduleDrawerIsRequestActive(openGen, bookingKey)) return false;
+    if (scheduleDrawerState && mountGen != null
+      && scheduleDrawerState.mountGen !== mountGen) return false;
+    return true;
+  }
   scheduleWireDrawerHeaderActions();
   // Create-parity chrome: compact date range + activity buttons + drill-down.
   if (typeof scheduleWireDrawerDateRange === 'function') scheduleWireDrawerDateRange();
@@ -2566,6 +2827,7 @@ function scheduleWireEditableDrawer(row, ctx) {
   scheduleWireDrawerCustomLines();
   scheduleDrawerSetCustomLineEditorOpen(false);
   scheduleFetchLessonTimesConfig(getClient()).then(function() {
+    if (!editMountStillActive()) return;
     // After catalog load: seed drill-down view + course list from booking.
     if (typeof scheduleDrawerSeedMainActivityView === 'function') scheduleDrawerSeedMainActivityView();
     scheduleDrawerPopulateComponentFields();
@@ -2603,6 +2865,7 @@ function scheduleWireEditableDrawer(row, ctx) {
     var node = el(id);
     if (!node) return;
     var fire = function() {
+      if (!editMountStillActive()) return;
       scheduleDrawerMarkPriceStale();
       if (id === 'ps-drawer-surfers' || id === 'ps-drawer-course-qty' || id === 'ps-drawer-private-lesson-surfers') {
         // Keep hidden rental mirrors + serialized qty in lockstep with booking Surfers.
@@ -2637,11 +2900,17 @@ function scheduleWireEditableDrawer(row, ctx) {
   scheduleLoadDrawerWaiver(ctx);
   scheduleWireDrawerDeleteBooking();
   var saveBtn = el('ps-drawer-save');
-  if (saveBtn) saveBtn.addEventListener('click', function() { scheduleSaveDrawerBooking(row); });
+  if (saveBtn) saveBtn.addEventListener('click', function() {
+    if (!editMountStillActive()) return;
+    scheduleSaveDrawerBooking(row);
+  });
   var cancelBtn = el('ps-drawer-cancel');
   if (cancelBtn) cancelBtn.addEventListener('click', function() { scheduleCancelDrawerEditMode(); });
   var stripeBtn = el('ps-drawer-stripe-link');
-  if (stripeBtn) stripeBtn.addEventListener('click', function() { scheduleCreateDrawerStripeLink(row); });
+  if (stripeBtn) stripeBtn.addEventListener('click', function() {
+    if (!editMountStillActive()) return;
+    scheduleCreateDrawerStripeLink(row);
+  });
   scheduleDrawerSyncFooter();
 }
 

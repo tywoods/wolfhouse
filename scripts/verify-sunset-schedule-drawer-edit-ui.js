@@ -746,11 +746,19 @@ if (editExists) {
     ctx,
   );
   // scheduleDrawerPopulateCourseTierFields removed (date-derived duration only).
-  ['scheduleMountDrawerBody', 'scheduleOpenEditableDrawer', 'scheduleDrawerShowShell', 'scheduleCloneDrawerCtx'].forEach((name) => {
+  [
+    'scheduleDrawerBumpMountGeneration',
+    'scheduleDrawerBumpOpenGeneration',
+    'scheduleDrawerIsRequestActive',
+    'scheduleMountDrawerBody',
+    'scheduleOpenEditableDrawer',
+    'scheduleDrawerShowShell',
+    'scheduleCloneDrawerCtx',
+  ].forEach((name) => {
     const fnSrc = extractFunctionSource(ctrlModSrc, name);
     if (fnSrc) vm.runInContext(`${fnSrc}\nthis.${name}=${name};`, ctx);
   });
-  vm.runInContext('if(typeof scheduleDrawerState==="undefined"){var scheduleDrawerState={row:null,ctx:null,editing:false,openGen:0,refreshGen:0,activeBookingKey:null};}', ctx);
+  vm.runInContext('if(typeof scheduleDrawerState==="undefined"){var scheduleDrawerState={row:null,ctx:null,editing:false,openGen:0,mountGen:0,refreshGen:0,activeBookingKey:null};}else{if(scheduleDrawerState.mountGen==null)scheduleDrawerState.mountGen=0;}', ctx);
   vm.runInContext('function scheduleWireDrawerDeleteBooking(){}', ctx);
 
   dom['ps-detail-drawer'] = makeNode({ style: {} });
@@ -1193,36 +1201,45 @@ if (editExists) {
   assert('overflow-x hidden on edit shell', /overflow-x:hidden/.test(apiSrc) && /portal-schedule-drawer-edit-body/.test(apiSrc));
 }
 
-console.log('\n[7] Independent source mutations (must RED then restore)');
+console.log('\n[7] Independent source mutations (in-memory only — tracked files stay byte-identical)');
 {
   const original = fs.readFileSync(EDIT_MODULE, 'utf8');
   const viewOriginal = fs.readFileSync(VIEW_MODULE, 'utf8');
+  const i18nOrig = fs.readFileSync(I18N, 'utf8');
+  const editBefore = Buffer.from(original, 'utf8');
+  const viewBefore = Buffer.from(viewOriginal, 'utf8');
+  const i18nBefore = Buffer.from(i18nOrig, 'utf8');
+  function trackedStillIdentical(label) {
+    const editNow = fs.readFileSync(EDIT_MODULE);
+    const viewNow = fs.readFileSync(VIEW_MODULE);
+    const i18nNow = fs.readFileSync(I18N);
+    assert(
+      'tracked files byte-identical after ' + label,
+      Buffer.compare(editNow, editBefore) === 0
+        && Buffer.compare(viewNow, viewBefore) === 0
+        && Buffer.compare(i18nNow, i18nBefore) === 0,
+    );
+  }
   try {
-    // 1) Hidden duration authority: break resolver call
+    // 1) Hidden duration authority: break resolver call (in-memory source only)
     let mutated = original.replace(
       'schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo)',
       'null /* mutated duration */',
     );
     assert('mutation duration authority changed bytes', mutated !== original);
-    fs.writeFileSync(EDIT_MODULE, mutated);
-    {
-      // Re-eval payload derivation quickly
-      const src = fs.readFileSync(EDIT_MODULE, 'utf8');
-      assert('mutation: payload no longer calls resolver', !/schedulePortalResolveDerivedCourseTier\(courseId, dateFrom, dateTo\)/.test(src));
-    }
-    fs.writeFileSync(EDIT_MODULE, original);
+    assert('mutation: payload no longer calls resolver', !/schedulePortalResolveDerivedCourseTier\(courseId, dateFrom, dateTo\)/.test(mutated));
+    trackedStillIdentical('duration mutation');
 
-    // 2) Re-introduce dead Add session control → RED
+    // 2) Re-introduce dead Add session control → RED (in-memory)
     mutated = original.replace(
       'html += \'<div id="ps-drawer-private-sessions" class="portal-schedule-private-sessions"></div>\';',
       'html += \'<div id="ps-drawer-private-sessions" class="portal-schedule-private-sessions"></div>\';\n'
       + '  html += \'<button type="button" id="ps-drawer-add-session" hidden>Add</button>\';',
     );
     assert('mutation dead Add session changed bytes', mutated !== original);
-    fs.writeFileSync(EDIT_MODULE, mutated);
-    assert('mutation Add session reintroduced (RED)', /ps-drawer-add-session/.test(fs.readFileSync(EDIT_MODULE, 'utf8')));
-    fs.writeFileSync(EDIT_MODULE, original);
-    assert('mutation Add session restored absent', !/ps-drawer-add-session/.test(fs.readFileSync(EDIT_MODULE, 'utf8')));
+    assert('mutation Add session reintroduced (RED)', /ps-drawer-add-session/.test(mutated));
+    assert('mutation Add session restored absent on disk', !/ps-drawer-add-session/.test(fs.readFileSync(EDIT_MODULE, 'utf8')));
+    trackedStillIdentical('add-session mutation');
 
     // 3) Bundle/peer collapse: force identity always empty (old zero-peer algorithm OFF)
     let vMut = viewOriginal.replace(
@@ -1246,9 +1263,8 @@ console.log('\n[7] Independent source mutations (must RED then restore)');
       );
     }
     assert('mutation zero-peer algorithm changed bytes', vMut !== viewOriginal);
-    fs.writeFileSync(VIEW_MODULE, vMut);
     {
-      const fn = extractFunctionSource(fs.readFileSync(VIEW_MODULE, 'utf8'), 'scheduleDrawerBuildCommercialLines');
+      const fn = extractFunctionSource(vMut, 'scheduleDrawerBuildCommercialLines');
       const sandbox = { portalT, schedulePortalDurationLabel: () => '', scheduleDrawerStripLabelDate: (s) => s };
       vm.createContext(sandbox);
       vm.runInContext(fn + '\nthis.out=scheduleDrawerBuildCommercialLines', sandbox);
@@ -1263,31 +1279,20 @@ console.log('\n[7] Independent source mutations (must RED then restore)');
         res.lines.filter((l) => /Beginner/.test(String(l.label || ''))).length >= 2
         || res.lines.some((l) => Number(l.line_cents) === 0 && /Beginner/.test(String(l.label || ''))));
     }
-    fs.writeFileSync(VIEW_MODULE, viewOriginal);
+    trackedStillIdentical('peer-collapse mutation');
 
-    // 3b) Missing production whenPickDates/whenRange keys → RED catalog check
+    // 3b) Missing production whenPickDates/whenRange keys → RED catalog check (in-memory object)
     {
-      const i18nPath = I18N;
-      const i18nOrig = fs.readFileSync(i18nPath, 'utf8');
-      let i18nMut = i18nOrig
-        .replace(/'schedule\.drawer\.whenPickDates':\s*'[^']*',?\n/g, '')
-        .replace(/'schedule\.drawer\.whenRange':\s*'[^']*',?\n/g, '');
-      assert('mutation production when keys removed', i18nMut !== i18nOrig && !/'schedule\.drawer\.whenPickDates'/.test(i18nMut));
-      fs.writeFileSync(i18nPath, i18nMut);
-      try {
-        delete require.cache[require.resolve('./lib/staff-portal-i18n')];
-        const mutStrings = require('./lib/staff-portal-i18n').STAFF_PORTAL_STRINGS;
-        const mutEn = mutStrings.en || {};
-        assert('mutation missing whenPickDates production key (RED)', !mutEn['schedule.drawer.whenPickDates']);
-        assert('mutation missing whenRange production key (RED)', !mutEn['schedule.drawer.whenRange']);
-      } finally {
-        fs.writeFileSync(i18nPath, i18nOrig);
-        delete require.cache[require.resolve('./lib/staff-portal-i18n')];
-      }
+      const mutEn = Object.assign({}, require('./lib/staff-portal-i18n').STAFF_PORTAL_STRINGS.en || {});
+      delete mutEn['schedule.drawer.whenPickDates'];
+      delete mutEn['schedule.drawer.whenRange'];
+      assert('mutation missing whenPickDates production key (RED)', !mutEn['schedule.drawer.whenPickDates']);
+      assert('mutation missing whenRange production key (RED)', !mutEn['schedule.drawer.whenRange']);
       const restored = require('./lib/staff-portal-i18n').STAFF_PORTAL_STRINGS.en || {};
-      assert('mutation production when keys restored (GREEN)',
+      assert('mutation production when keys still present on disk (GREEN)',
         !!restored['schedule.drawer.whenPickDates'] && !!restored['schedule.drawer.whenRange']);
     }
+    trackedStillIdentical('i18n key mutation');
 
     // 4) Exact date derivation private: empty dates always
     mutated = original.replace(
@@ -1295,9 +1300,8 @@ console.log('\n[7] Independent source mutations (must RED then restore)');
       'dates = []; /* mutated private dates */',
     );
     assert('mutation private date derivation changed bytes', mutated !== original);
-    fs.writeFileSync(EDIT_MODULE, mutated);
-    assert('mutation private dates emptied', /dates = \[\]; \/\* mutated private dates \*\//.test(fs.readFileSync(EDIT_MODULE, 'utf8')));
-    fs.writeFileSync(EDIT_MODULE, original);
+    assert('mutation private dates emptied', /dates = \[\]; \/\* mutated private dates \*\//.test(mutated));
+    trackedStillIdentical('private-dates mutation');
 
     // 5) Paid conflict message broken
     mutated = original.replace(
@@ -1311,16 +1315,15 @@ console.log('\n[7] Independent source mutations (must RED then restore)');
       );
     }
     assert('mutation paid conflict changed bytes', mutated !== original);
-    fs.writeFileSync(EDIT_MODULE, mutated);
     {
-      const fn = extractFunctionSource(fs.readFileSync(EDIT_MODULE, 'utf8'), 'scheduleDrawerHumanSaveError');
+      const fn = extractFunctionSource(mutated, 'scheduleDrawerHumanSaveError');
       const sandbox = { portalT };
       vm.createContext(sandbox);
       vm.runInContext(fn + '\nthis.fn=scheduleDrawerHumanSaveError;', sandbox);
       const msg = sandbox.fn({ reason_code: 'paid_booking_reprice_required' }, 'Save failed');
       assert('mutation paid conflict OFF → raw/fallback (RED)', !/already paid|payment adjustment/i.test(String(msg)));
     }
-    fs.writeFileSync(EDIT_MODULE, original);
+    trackedStillIdentical('paid-conflict mutation');
 
     // 6) Duplicate save guard removed
     mutated = original.replace(
@@ -1328,15 +1331,23 @@ console.log('\n[7] Independent source mutations (must RED then restore)');
       '/* mutated: no duplicate guard */',
     );
     assert('mutation duplicate save changed bytes', mutated !== original);
-    fs.writeFileSync(EDIT_MODULE, mutated);
-    assert('mutation duplicate guard gone', !/if \(scheduleDrawerSaveInFlight\) return;/.test(fs.readFileSync(EDIT_MODULE, 'utf8')));
-    fs.writeFileSync(EDIT_MODULE, original);
+    assert('mutation duplicate guard gone', !/if \(scheduleDrawerSaveInFlight\) return;/.test(mutated));
+    trackedStillIdentical('duplicate-guard mutation');
 
     assert('mutation restored exact edit bytes', fs.readFileSync(EDIT_MODULE, 'utf8') === original);
     assert('mutation restored exact view bytes', fs.readFileSync(VIEW_MODULE, 'utf8') === viewOriginal);
+    assert('mutations never wrote tracked production files',
+      Buffer.compare(fs.readFileSync(EDIT_MODULE), editBefore) === 0
+      && Buffer.compare(fs.readFileSync(VIEW_MODULE), viewBefore) === 0
+      && Buffer.compare(fs.readFileSync(I18N), i18nBefore) === 0);
   } catch (err) {
-    fs.writeFileSync(EDIT_MODULE, original);
-    fs.writeFileSync(VIEW_MODULE, viewOriginal);
+    // Even on failure, prove tracked files remain byte-identical (no in-place rewrite).
+    assert(
+      'tracked files byte-identical even on mutation failure',
+      Buffer.compare(fs.readFileSync(EDIT_MODULE), editBefore) === 0
+        && Buffer.compare(fs.readFileSync(VIEW_MODULE), viewBefore) === 0
+        && Buffer.compare(fs.readFileSync(I18N), i18nBefore) === 0,
+    );
     assert('mutation block threw', false, String(err && err.message || err));
   }
 }

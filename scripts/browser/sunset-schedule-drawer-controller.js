@@ -16,6 +16,7 @@ var scheduleDrawerState = {
   ctx: null,
   editing: false,
   openGen: 0,
+  mountGen: 0,
   refreshGen: 0,
   activeBookingKey: null,
 };
@@ -36,6 +37,11 @@ function scheduleDrawerBookingKey(row){
 function scheduleDrawerBumpOpenGeneration(){
   scheduleDrawerState.openGen = (scheduleDrawerState.openGen || 0) + 1;
   return scheduleDrawerState.openGen;
+}
+
+function scheduleDrawerBumpMountGeneration(){
+  scheduleDrawerState.mountGen = (scheduleDrawerState.mountGen || 0) + 1;
+  return scheduleDrawerState.mountGen;
 }
 
 function scheduleDrawerIsRequestActive(openGen, bookingKey){
@@ -151,6 +157,8 @@ function scheduleMountDrawerBody(row, ctx, editing){
   var backdrop = el('ps-drawer-backdrop');
   var body = el('ps-drawer-body');
   if (!drawer || !body) return;
+  // Invalidate any in-flight catalog/edit callbacks from a prior mount.
+  scheduleDrawerBumpMountGeneration();
   var canEdit = scheduleDrawerCanEdit(row);
   body.innerHTML = editing ? scheduleRenderEditableDrawerHtml(row, ctx) : scheduleRenderViewDrawerHtml(row, ctx, canEdit);
   scheduleDrawerShowShell();
