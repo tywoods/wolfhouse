@@ -2122,6 +2122,11 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
       || meta.service_key === FULL_DAY_EQUIPMENT_ADDON_KEY;
   }
   const quoteOwnedRows = createdRows.filter((row) => {
+    const meta = rowMetadata(row);
+    // Included gear has its own persisted €0 audit rows and is already commercially
+    // represented by the course quote line. Never force it to claim a paid catalog line.
+    if (meta.included_equipment === true
+      && (meta.component === 'surfboard' || meta.component === 'wetsuit')) return false;
     if (isFullDayServiceRow(row)) return fullDayInQuote;
     return true;
   });
@@ -2314,6 +2319,10 @@ async function insertScheduleComponentServiceRows(pg, opts) {
         offering_id: part.offering_id || null,
         admin_course_assigned: componentKey === 'course' && assignedCourse ? true : undefined,
         admin_pack_id: componentKey === 'course' && assignedCourse ? assignedCourse.course_id : undefined,
+        included_equipment: componentKey === 'course' && assignedCourse && assignedCourse.pack && assignedCourse.pack.equipment_included === true ? true : undefined,
+        include_board: componentKey === 'course' && assignedCourse && assignedCourse.pack && assignedCourse.pack.equipment_included === true ? true : undefined,
+        include_wetsuit: componentKey === 'course' && assignedCourse && assignedCourse.pack && assignedCourse.pack.equipment_included === true ? true : undefined,
+        included_equipment_amount_cents: componentKey === 'course' && assignedCourse && assignedCourse.pack && assignedCourse.pack.equipment_included === true ? 0 : undefined,
       }, locationId);
       decorateRentalServiceMetadata(metadata, {
         componentKey, serviceDate, canonicalRentals, rentalSpanDates,
@@ -2325,6 +2334,23 @@ async function insertScheduleComponentServiceRows(pg, opts) {
         srPayment, attribution.dbSource, JSON.stringify(metadata),
       ]);
       createdRows.push({ ...row, metadata });
+      if (componentKey === 'course' && assignedCourse && assignedCourse.pack
+        && assignedCourse.pack.equipment_included === true) {
+        for (const gearComponent of ['surfboard', 'wetsuit']) {
+          const gearMetadata = wrapMeta({
+            ...common(), staff_ui_service_type: gearComponent, component: gearComponent,
+            included_equipment: true, included_course_id: assignedCourse.course_id,
+            included_course_service_date: serviceDate, price_basis: 'included_in_course',
+            unit_amount_cents: 0, amount_cents: 0,
+          }, locationId);
+          const gearRow = await insertServiceRecord(pg, [
+            clientSlug, bookingId, bookingCode, input.guest_name,
+            UI_TO_DB_SERVICE_TYPE[gearComponent], serviceDate, part.quantity,
+            srPayment, attribution.dbSource, JSON.stringify(gearMetadata),
+          ]);
+          createdRows.push({ ...gearRow, metadata: gearMetadata, amount_due_cents: 0 });
+        }
+      }
     }
   }
   return createdRows;

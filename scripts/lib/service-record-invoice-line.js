@@ -159,6 +159,9 @@ function formatServiceRecordInvoiceLineText(sr, opts = {}) {
   const totalCents = billable;
   const rentalPeople = resolveRentalPeopleFromMeta(meta, sr.quantity, sr.service_type);
   const rentalDays = meta.rental_days != null ? Number(meta.rental_days) : displayQty;
+  const includedGearSuffix = meta.included_equipment === true
+    ? ' · Included equipment — surfboard + wetsuit (€0)'
+    : '';
 
   if (totalCents == null || (totalCents === 0 && sr.amount_due_cents == null)) {
     return `${label} \u2014 Not available`;
@@ -214,11 +217,11 @@ function formatServiceRecordInvoiceLineText(sr, opts = {}) {
 
   if (displayQty != null && displayQty > 0 && totalCents >= 0) {
     if (unitLabel && unitCents != null) {
-      return `${label} \u2014 ${displayQty} ${unitLabel} \u00d7 ${formatEurCents(unitCents)} = ${formatEurCents(totalCents)}`;
+      return `${label} \u2014 ${displayQty} ${unitLabel} \u00d7 ${formatEurCents(unitCents)} = ${formatEurCents(totalCents)}${includedGearSuffix}`;
     }
-    return `${label} \u2014 ${displayQty} \u00d7 ${formatEurCents(totalCents)} = ${formatEurCents(totalCents)}`;
+    return `${label} \u2014 ${displayQty} \u00d7 ${formatEurCents(totalCents)} = ${formatEurCents(totalCents)}${includedGearSuffix}`;
   }
-  return `${label} \u2014 ${formatEurCents(totalCents)}`;
+  return `${label} \u2014 ${formatEurCents(totalCents)}${includedGearSuffix}`;
 }
 
 module.exports = {

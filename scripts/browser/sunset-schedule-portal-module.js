@@ -1421,6 +1421,7 @@ function schedulePortalRenderCreateIntentSummary(payload) {
     }
     if (tierLab && tierLab !== String(comps.course.tier_key || '')) durationLab = tierLab;
     if (comps.course.quantity) primary.push('\u00d7' + String(comps.course.quantity));
+    if (comps.course.equipment_included === true) primary.push('Equipment included — board + wetsuit (€0)');
   } else if (comps.private_lesson) {
     var pl = comps.private_lesson;
     primary.push(portalT('schedule.type.privateLesson') || 'Private course');

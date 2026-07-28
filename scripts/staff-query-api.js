@@ -24306,35 +24306,46 @@ function scheduleOpsIsLessonRow(row){
 
 function scheduleOpsIsBoardRow(row){
   var st = String(row.service_type || row.staff_ui_service_type || '').toLowerCase();
-  return /board/.test(st) || st === 'surfboard';
+  var component = String(scheduleOpsParseMetadata(row).component || '').toLowerCase();
+  return /board/.test(st) || st === 'surfboard' || /board/.test(component);
 }
 
 function scheduleOpsIsWetsuitRow(row){
   var st = String(row.service_type || row.staff_ui_service_type || '').toLowerCase();
-  return /wetsuit/.test(st);
+  var component = String(scheduleOpsParseMetadata(row).component || '').toLowerCase();
+  return /wetsuit/.test(st) || /wetsuit/.test(component);
 }
 
 function scheduleOpsBuildGearIndex(rows, dateIso){
   var index = {};
   (rows || []).forEach(function(row){
+    var serviceStatus = String(row.service_status || row.status || '').toLowerCase();
+    var bookingStatus = String(row.booking_status || '').toLowerCase();
+    if (serviceStatus === 'cancelled' || bookingStatus === 'cancelled') return;
     var iso = String(row.service_date || row.date || '').slice(0, 10);
     if (iso !== dateIso) return;
-    var code = row.booking_code || row._scheduleId || 'unknown';
+    // Persisted service rows always carry booking_id, while booking_code is not
+    // guaranteed on every schedule projection. Keep deduplication per booking.
+    var code = row.booking_code || row.booking_id || row._scheduleId || 'unknown';
     if (!index[code]) index[code] = { boards: 0, wetsuits: 0, lessonQty: 0, hasLesson: false };
     var entry = index[code];
     var qty = scheduleOpsRowQty(row);
     if (scheduleOpsIsLessonRow(row)) { entry.hasLesson = true; entry.lessonQty += qty; }
-    else if (scheduleOpsIsBoardRow(row)) entry.boards += qty;
-    else if (scheduleOpsIsWetsuitRow(row)) entry.wetsuits += qty;
     var meta = scheduleOpsParseMetadata(row);
-    if (meta.include_board === true || meta.needs_board === true) entry.boards = Math.max(entry.boards, qty);
-    if (meta.include_wetsuit === true || meta.needs_wetsuit === true) entry.wetsuits = Math.max(entry.wetsuits, qty);
+    var fullDay = meta.component === 'full_day_equipment_extension' || meta.service_key === 'full_day_equipment_extension';
+    if (fullDay) {
+      entry.boards = Math.max(entry.boards, qty);
+      entry.wetsuits = Math.max(entry.wetsuits, qty);
+    } else if (scheduleOpsIsBoardRow(row)) entry.boards = Math.max(entry.boards, qty);
+    else if (scheduleOpsIsWetsuitRow(row)) entry.wetsuits = Math.max(entry.wetsuits, qty);
+    if (meta.included_equipment === true || meta.include_board === true || meta.needs_board === true) entry.boards = Math.max(entry.boards, qty);
+    if (meta.included_equipment === true || meta.include_wetsuit === true || meta.needs_wetsuit === true) entry.wetsuits = Math.max(entry.wetsuits, qty);
   });
   return index;
 }
 
 function scheduleOpsEquipmentLabel(row, gearIndex){
-  var code = row.booking_code || row._scheduleId;
+  var code = row.booking_code || row.booking_id || row._scheduleId;
   var meta = scheduleOpsParseMetadata(row);
   var boards = 0;
   var wetsuits = 0;

@@ -49,20 +49,25 @@ function isLessonRow(row) {
 
 function isBoardRow(row) {
   const st = String(row.service_type || row.staff_ui_service_type || '').toLowerCase();
-  return /board/.test(st) || st === 'surfboard';
+  const component = String(parseRowMetadata(row).component || '').toLowerCase();
+  return /board/.test(st) || st === 'surfboard' || /board/.test(component);
 }
 
 function isWetsuitRow(row) {
   const st = String(row.service_type || row.staff_ui_service_type || '').toLowerCase();
-  return /wetsuit/.test(st);
+  const component = String(parseRowMetadata(row).component || '').toLowerCase();
+  return /wetsuit/.test(st) || /wetsuit/.test(component);
 }
 
 function buildBookingGearIndex(rows, dateIso) {
   const index = new Map();
   for (const row of rows || []) {
+    const serviceStatus = String(row.service_status || row.status || '').toLowerCase();
+    const bookingStatus = String(row.booking_status || '').toLowerCase();
+    if (serviceStatus === 'cancelled' || bookingStatus === 'cancelled') continue;
     const iso = String(row.service_date || row.date || '').slice(0, 10);
     if (iso !== dateIso) continue;
-    const code = row.booking_code || row._scheduleId || 'unknown';
+    const code = row.booking_code || row.booking_id || row._scheduleId || 'unknown';
     if (!index.has(code)) {
       index.set(code, { boards: 0, wetsuits: 0, lessonQty: 0, hasLesson: false });
     }
@@ -71,17 +76,23 @@ function buildBookingGearIndex(rows, dateIso) {
     if (isLessonRow(row)) {
       entry.hasLesson = true;
       entry.lessonQty += qty;
-    } else if (isBoardRow(row)) entry.boards += qty;
-    else if (isWetsuitRow(row)) entry.wetsuits += qty;
+    }
     const meta = parseRowMetadata(row);
-    if (meta.include_board === true || meta.needs_board === true) entry.boards = Math.max(entry.boards, qty);
-    if (meta.include_wetsuit === true || meta.needs_wetsuit === true) entry.wetsuits = Math.max(entry.wetsuits, qty);
+    const fullDay = meta.component === 'full_day_equipment_extension'
+      || meta.service_key === 'full_day_equipment_extension';
+    if (fullDay) {
+      entry.boards = Math.max(entry.boards, qty);
+      entry.wetsuits = Math.max(entry.wetsuits, qty);
+    } else if (isBoardRow(row)) entry.boards = Math.max(entry.boards, qty);
+    else if (isWetsuitRow(row)) entry.wetsuits = Math.max(entry.wetsuits, qty);
+    if (meta.included_equipment === true || meta.include_board === true || meta.needs_board === true) entry.boards = Math.max(entry.boards, qty);
+    if (meta.included_equipment === true || meta.include_wetsuit === true || meta.needs_wetsuit === true) entry.wetsuits = Math.max(entry.wetsuits, qty);
   }
   return index;
 }
 
 function equipmentLabelForLessonRow(row, gearIndex) {
-  const code = row.booking_code || row._scheduleId;
+  const code = row.booking_code || row.booking_id || row._scheduleId;
   const meta = parseRowMetadata(row);
   let boards = 0;
   let wetsuits = 0;
