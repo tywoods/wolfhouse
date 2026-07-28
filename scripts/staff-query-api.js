@@ -17067,10 +17067,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-card.selected{border-color:var(--border);background:var(--surface-soft);box-shadow:inset 3px 0 0 var(--tan)}
 .customers-card.bulk-selected{background:rgba(180,160,130,.08);border-color:rgba(180,160,130,.35)}
 .customers-card.selected.bulk-selected{box-shadow:inset 3px 0 0 var(--tan)}
-.customers-card-check{position:absolute;top:50%;right:10px;transform:translateY(-50%);margin:0;cursor:pointer;z-index:1;line-height:0;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px}
-.customers-card-check input{-webkit-appearance:none;appearance:none;margin:0;width:18px;height:18px;border-radius:50%;border:1.5px solid var(--border);background:var(--surface);box-sizing:border-box;cursor:pointer;transition:border-color .15s,background .15s,box-shadow .15s}
-.customers-card-check input:hover{border-color:var(--text-3)}
-.customers-card-check input:checked{border-color:var(--primary);background-color:var(--surface);background-image:radial-gradient(circle,var(--primary) 0 5px,transparent 5.5px);box-shadow:0 0 0 1px rgba(78,88,83,.08)}
+.customers-card-check{position:absolute;top:50%;right:10px;transform:translateY(-50%);margin:0;cursor:pointer;z-index:1;line-height:0;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;flex:0 0 22px}
+.customers-card-check input{-webkit-appearance:none;appearance:none;margin:0!important;padding:0!important;width:18px!important;height:18px!important;min-width:18px!important;max-width:18px!important;min-height:18px!important;max-height:18px!important;flex:0 0 18px;aspect-ratio:1/1;border-radius:50%!important;border:1.5px solid var(--border)!important;background:var(--surface)!important;box-sizing:border-box!important;cursor:pointer;vertical-align:middle;transition:border-color .15s,background .15s,box-shadow .15s}
+.customers-card-check input:hover{border-color:var(--text-3)!important}
+.customers-card-check input:checked{border-color:var(--primary)!important;background-color:var(--surface)!important;background-image:radial-gradient(circle,var(--primary) 0 5px,transparent 5.5px)!important;box-shadow:none}
 .customers-card-check input:focus{outline:none}
 .customers-card-check input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .customers-card-body{min-width:0}
