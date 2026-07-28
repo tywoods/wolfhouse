@@ -124,3 +124,26 @@ convention guard test.
   / cheap subagents. Captain owns schema design, resolver generalization, and review.
 - Related prior groundwork: `config/archetypes/surf_school_shop/` (FACTORY 1B static templates,
   disabled) and `factory-slice1c-dry-run-generator.js` — reuse where it fits Phase 4.
+
+## Phase 2 wiring spec (exact call-sites to swap onto `tenant_rental_offerings`)
+
+Groundwork already landed (additive, unwired): migration `051_tenant_rental_offerings.sql`,
+`scripts/lib/tenant-rental-offerings-seed.js` (+ its gate). Remaining wiring:
+
+**Admin write path — `scripts/lib/tenant-admin-writes.js`:**
+- `RENTAL_GROUP_KEYS`/`RENTAL_GROUP_OFFERING`/`RENTAL_GROUP_DISPLAY` (lines 38-50) become reads
+  from `tenant_rental_offerings` for the client+location.
+- `resolveRentalGroupOffering` (389) resolves against the table, not the frozen map.
+- display-name resolution (761-762, 840) reads the row `label`.
+- Add create/rename/delete-item endpoints (today only price add/edit exists).
+
+**Booking drawer exclusion logic — `scripts/staff-query-api.js`:** replace hardcoded
+`board_and_suit_rental` checks + `scheduleApplyRentalMutualExclusion` with reads of each row's
+`excludes[]`:
+- 22135-22136 (board/wetsuit-on derivation), 23148/23160/23201/23217 (bundle detection),
+  23287-23288 & 23513-23517 (mutual-exclusion apply), 23400/23414-23417 (bundle-only filter),
+  23455 (label fallback).
+
+**Gate:** extend the template smoke gate to prove a NEW item (e.g. `kayak_rental`) added to
+`tenant_rental_offerings` renders + books + honours exclusions, with Sunset's 4-item catalog
+byte-identical. Needs DB (run on Lunabox/staging) → Skipper.
