@@ -72,6 +72,8 @@ const {
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
 const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
+const { fetchSunsetFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
+const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
 const {
   READYZ_PATH,
   handleStaffApiReadyz,
@@ -16306,6 +16308,26 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-tabpanel[hidden]{display:none!important}
 .portal-admin-finance-shell{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 16px;box-shadow:var(--shadow-soft)}
 .portal-admin-finance-shell p{margin:0;font-size:14px;line-height:1.5;color:var(--text-2)}
+.portal-admin-finance{display:flex;flex-direction:column;gap:14px;max-width:100%}
+.pf-gross-note{margin:0;font-size:12px;line-height:1.45;color:var(--text-3)}
+.pf-cards{display:grid;grid-template-columns:1fr;gap:12px}
+@media(min-width:720px){.pf-cards{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.pf-card{background:var(--surface-raised,#fff);border:1px solid var(--border-soft);border-radius:var(--radius-sm,10px);padding:12px 14px;min-width:0}
+.pf-card-title{margin:0 0 8px;font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3)}
+.pf-metric{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:3px 0;min-width:0}
+.pf-metric-label{font-size:13px;color:var(--text-2);min-width:0}
+.pf-metric-value{font-size:14px;font-weight:700;color:var(--navy,#1E2A36);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pf-trend{margin:0}
+.pf-trend-title{margin:0 0 8px;font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3)}
+.pf-trend-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;max-height:320px;overflow-y:auto}
+.pf-trend-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:baseline;padding:6px 8px;border-radius:8px;font-size:13px}
+.pf-trend-row:nth-child(odd){background:var(--border-soft)}
+.pf-trend-date{color:var(--text-2);font-variant-numeric:tabular-nums;min-width:0}
+.pf-trend-booked,.pf-trend-collected{font-weight:600;color:var(--navy,#1E2A36);font-variant-numeric:tabular-nums;white-space:nowrap}
+.portal-admin-finance-loading,.portal-admin-finance-empty,.portal-admin-finance-error{padding:16px;color:var(--text-2);font-size:14px;line-height:1.5}
+.portal-admin-finance-error p{margin:0 0 12px}
+.portal-admin-finance-retry{min-height:44px;padding:0 18px;border-radius:var(--radius-pill,999px);border:1px solid var(--border);background:var(--surface-raised,#fff);color:var(--navy,#1E2A36);font-size:14px;font-weight:700;cursor:pointer}
+.portal-admin-finance-retry:hover{border-color:var(--sea,#4A7C94)}
 @media(max-width:430px){
   .portal-admin-subtabs{gap:8px;margin-bottom:12px}
   .portal-admin-subtab{flex:1 1 calc(50% - 4px);min-width:44px;min-height:44px;padding:12px 10px;font-size:13px}
@@ -19948,7 +19970,7 @@ function switchToTab(tab, subtab){
   }
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'customers') loadCustomersTab();
-  if (tab === 'admin') loadAdminTab({ resetSubTab: true });
+  if (tab === 'admin') { loadAdminTab({ resetSubTab: true }); loadAdminFinanceForCurrentScope(); }
   if (tab === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
@@ -20116,7 +20138,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'ask-luna') wireLunaStaffTabCards();
     if (target === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
     if (target === 'customers') loadCustomersTab();
-    if (target === 'admin') loadAdminTab({ resetSubTab: true });
+    if (target === 'admin') { loadAdminTab({ resetSubTab: true }); loadAdminFinanceForCurrentScope(); }
     if (target === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
     if (target === 'day-schedule') loadDaySchedule();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
@@ -21015,7 +21037,7 @@ function setSunsetLocation(locationId){
   if (getPortalProfile(getClient()).is_surf_vertical) {
     if (el('tab-portal-home') && el('tab-portal-home').classList.contains('active')) loadSchedulePage();
     if (el('tab-customers') && el('tab-customers').classList.contains('active')) loadCustomersTab();
-    if (el('tab-admin') && el('tab-admin').classList.contains('active')) loadAdminTab();
+    if (el('tab-admin') && el('tab-admin').classList.contains('active')) { loadAdminTab(); loadAdminFinanceForCurrentScope(); }
     if (el('tab-conversations') && el('tab-conversations').classList.contains('active')) {
       inboxConversationsCache = null;
       selectedConvId = null;
@@ -38935,6 +38957,42 @@ async function handleAdminConfigPricePatch(ruleIdRaw, query, req, res, user) {
 }
 
 
+// GET /staff/admin/finance/summary — read-only owner/admin finance summary.
+// Stage 3 V1: Sunset only, location sunset-somo. Server computes all money math
+// (pure lib); browser only renders. Fails closed on any other tenant/location.
+async function handleAdminFinanceSummaryGet(query, req, res, user) {
+  const started = Date.now();
+  const rawClient = query.client != null ? query.client : query.client_slug;
+  const clientSlug = typeof rawClient === 'string' ? rawClient.trim() : '';
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid request');
+  if (clientSlug !== 'sunset') {
+    return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
+  }
+  const locationId = typeof query.location === 'string' ? query.location.trim() : '';
+  if (locationId !== 'sunset-somo') {
+    return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
+  }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  try {
+    const data = await withPgClient((pg) => fetchSunsetFinanceData(pg, { clientSlug, locationId }));
+    const summary = computeSunsetFinanceSummary({ now: new Date(), timeZone: 'Europe/Madrid', ...data });
+    return sendJSON(res, 200, {
+      success: true,
+      client: clientSlug,
+      location_id: locationId,
+      summary,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    if (err instanceof FinanceDataQualityError) {
+      console.error('[admin.finance.summary] data quality check failed');
+      return sendJSON(res, 503, { success: false, error: 'finance data unavailable', code: 'FINANCE_DATA_QUALITY' });
+    }
+    console.error('[admin.finance.summary] read failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'read failed' });
+  }
+}
+
 async function handleAdminConfigPricePost(query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -46521,6 +46579,12 @@ async function router(req, res) {
     return sendJSON(res, 200, { success: true, ...getAeroDataBoxStatus() });
   }
 
+  if (pathname === '/staff/admin/finance/summary' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminFinanceSummaryGet(parsed.query, req, res, auth.user);
+  }
+
   if (pathname === '/staff/admin/config/prices' && method === 'POST') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
@@ -47205,6 +47269,12 @@ if (require.main === module) {
     console.error(`Server error: ${err.message}`);
     process.exit(1);
   });
+}
+
+// Narrow, default-inert seam for browser gates to invoke the exact production UI builder.
+if (String(process.env.NODE_ENV || '').toLowerCase() === 'test'
+  && String(process.env.STAFF_UI_BUILDER_TEST_SEAM || '').trim() === '1') {
+  module.exports.buildUiHtmlForOfflineTest = buildUiHtml;
 }
 
 // FORTRESS 15J3: ZERO seam/factory/counter/router/server test exports unless dual-gated.

@@ -1212,13 +1212,151 @@ function renderAdminLoadingShell(profile){
   renderAdminFallback(profile);
 }
 
-/** Honest Finance shell — no fake revenue, totals, or money arithmetic. */
+/**
+ * Finance shell — Sunset-only V1. All money math is server-computed; the browser
+ * only formats cents for display (no client-side financial calculations). Other
+ * clients keep the honest "not available" message.
+ */
 function renderAdminFinanceShell(){
   var body = el('admin-finance-body');
   if (!body) return;
+  // Static, fetch-free placeholder painted during admin config load. The live
+  // summary is loaded separately (loadAdminFinanceSummary) from the admin
+  // open/reload path so it never inflates config-load fetch accounting.
   body.innerHTML = '<div class="portal-admin-finance-unavailable"><p>' +
-    escHtml(portalT('admin.finance.summaryUnavailable')) +
-    '</p></div>';
+    escHtml(portalT('admin.finance.summaryUnavailable')) + '</p></div>';
+}
+
+// Generation guard: a superseded load (e.g. after a school/location change) must
+// never paint stale numbers over a newer request.
+var financeLoadSeq = 0;
+
+function loadAdminFinanceSummary(){
+  var body = el('admin-finance-body');
+  if (!body) return;
+  var seq = ++financeLoadSeq;
+  var originClient = getClient();
+  var originLocation = originClient === 'sunset' ? getSunsetLocation() : '';
+  body.innerHTML = '<div class="portal-admin-finance-loading" role="status">' +
+    escHtml(portalT('admin.finance.loading')) + '</div>';
+  var url = '/staff/admin/finance/summary' + adminClientQuery();
+  var timeoutId = null;
+  var timeout = new Promise(function(_, reject){
+    timeoutId = setTimeout(function(){ reject(new Error('timeout')); }, 8000);
+  });
+  function clearFinanceTimeout(){ if (timeoutId != null){ clearTimeout(timeoutId); timeoutId = null; } }
+  try {
+    var request = fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); });
+    Promise.race([request, timeout])
+      .then(function(data){
+        clearFinanceTimeout();
+        if (seq !== financeLoadSeq || getClient() !== originClient || (originClient === 'sunset' && getSunsetLocation() !== originLocation)) return; // stale response, ignore
+        if (!data || data.success !== true || !data.summary){
+          return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
+        }
+        body.innerHTML = renderFinanceSummaryHtml(data.summary);
+      })
+      .catch(function(e){
+        clearFinanceTimeout();
+        if (seq !== financeLoadSeq || getClient() !== originClient || (originClient === 'sunset' && getSunsetLocation() !== originLocation)) return; // stale
+        body.innerHTML = renderFinanceErrorHtml();
+        wireFinanceRetry();
+      });
+  } catch (syncErr){
+    clearFinanceTimeout();
+    if (seq !== financeLoadSeq || getClient() !== originClient || (originClient === 'sunset' && getSunsetLocation() !== originLocation)) return;
+    body.innerHTML = renderFinanceErrorHtml();
+    wireFinanceRetry();
+  }
+}
+
+function loadAdminFinanceForCurrentScope(){
+  // Scope changes invalidate any in-flight response even when the destination
+  // tenant has no Finance endpoint. This request is separate from config loads.
+  ++financeLoadSeq;
+  if (getClient() === 'sunset') loadAdminFinanceSummary();
+}
+
+function wireFinanceRetry(){
+  var btn = el('admin-finance-retry');
+  if (btn && btn.dataset.financeWired !== '1'){
+    btn.dataset.financeWired = '1';
+    btn.addEventListener('click', function(){ loadAdminFinanceSummary(); });
+  }
+}
+
+// Display-only: format integer cents as EUR. Not a financial calculation (no
+// deriving totals) — /100 is currency unit display.
+function financeFmtEur(cents){
+  var n = (typeof cents === 'number' && isFinite(cents)) ? cents : 0;
+  var lang = (typeof portalLang === 'string' && portalLang) ? portalLang : 'en';
+  try {
+    return new Intl.NumberFormat(lang, { style: 'currency', currency: 'EUR' }).format(n / 100);
+  } catch (_){
+    return '€' + (n / 100).toFixed(2);
+  }
+}
+
+function financePeriodEmpty(p){
+  return !p || (p.booked_cents === 0 && p.collected_gross_cents === 0 && p.outstanding_cents === 0 && p.bookings_count === 0);
+}
+
+function financeMetricRow(label, valueHtml){
+  return '<div class="pf-metric"><span class="pf-metric-label">' + escHtml(label) +
+    '</span><span class="pf-metric-value">' + valueHtml + '</span></div>';
+}
+
+function financeCard(titleKey, period){
+  var p = period || { booked_cents: 0, collected_gross_cents: 0, outstanding_cents: 0, bookings_count: 0 };
+  return '<section class="pf-card"><h4 class="pf-card-title">' + escHtml(portalT(titleKey)) + '</h4>' +
+    financeMetricRow(portalT('admin.finance.booked'), escHtml(financeFmtEur(p.booked_cents))) +
+    financeMetricRow(portalT('admin.finance.collectedGross'), escHtml(financeFmtEur(p.collected_gross_cents))) +
+    financeMetricRow(portalT('admin.finance.outstanding'), escHtml(financeFmtEur(p.outstanding_cents))) +
+    financeMetricRow(portalT('admin.finance.bookings'), escHtml(String(p.bookings_count || 0))) +
+    '</section>';
+}
+
+function renderFinanceTrendHtml(trend){
+  if (!trend || !trend.length) return '';
+  var rows = '';
+  for (var i = 0; i < trend.length; i++){
+    var d = trend[i];
+    rows += '<li class="pf-trend-row"><span class="pf-trend-date">' + escHtml(String(d.date)) + '</span>' +
+      '<span class="pf-trend-booked">' + escHtml(financeFmtEur(d.booked_cents)) + '</span>' +
+      '<span class="pf-trend-collected">' + escHtml(financeFmtEur(d.collected_gross_cents)) + '</span></li>';
+  }
+  return '<section class="pf-trend"><h4 class="pf-trend-title">' + escHtml(portalT('admin.finance.trendTitle')) +
+    '</h4><ul class="pf-trend-list">' + rows + '</ul></section>';
+}
+
+function renderFinanceErrorHtml(){
+  return '<div class="portal-admin-finance-error" role="alert"><p>' + escHtml(portalT('admin.finance.error')) + '</p>' +
+    '<button type="button" id="admin-finance-retry" class="portal-admin-finance-retry">' +
+    escHtml(portalT('admin.finance.retry')) + '</button></div>';
+}
+
+/** Pure renderer for a server-computed summary. No money arithmetic here. */
+function renderFinanceSummaryHtml(summary){
+  if (!summary || !summary.periods){
+    return '<div class="portal-admin-finance-unavailable"><p>' +
+      escHtml(portalT('admin.finance.summaryUnavailable')) + '</p></div>';
+  }
+  var p = summary.periods;
+  var html = '<div class="portal-admin-finance">';
+  html += '<p class="pf-gross-note">' + escHtml(portalT('admin.finance.grossNote')) + '</p>';
+  if (financePeriodEmpty(p.today) && financePeriodEmpty(p.week) && financePeriodEmpty(p.month)){
+    html += '<div class="portal-admin-finance-empty"><p>' + escHtml(portalT('admin.finance.empty')) + '</p></div>';
+  } else {
+    html += '<div class="pf-cards">' +
+      financeCard('admin.finance.today', p.today) +
+      financeCard('admin.finance.week', p.week) +
+      financeCard('admin.finance.month', p.month) +
+      '</div>';
+    html += renderFinanceTrendHtml(summary.daily_trend);
+  }
+  html += '</div>';
+  return html;
 }
 
 /**
