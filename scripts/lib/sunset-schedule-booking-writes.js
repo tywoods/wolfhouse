@@ -226,6 +226,8 @@ const PRIVATE_LESSON_MAX_SESSIONS = 30;
 // and eligibility is derived from the eligible course/rental dates on the booking.
 const FULL_DAY_EQUIPMENT_ADDON_KEY = 'full_day_equipment_extension';
 const FULL_DAY_EQUIPMENT_ADDON_BILLING_UNIT = 'person_per_day';
+const COURSE_EQUIPMENT_KEY = 'course_equipment';
+const { normalizeSelection, quoteCourseEquipment } = require('./sunset-course-equipment-pricing');
 // Components whose service dates make a booking eligible for the full-day equipment add-on.
 const FULL_DAY_ADDON_ELIGIBLE_COMPONENTS = new Set(['lesson', 'course', 'private_lesson', 'surfboard', 'wetsuit']);
 
@@ -1412,6 +1414,15 @@ function validateScheduleBookingBody(body, opts) {
   const surfer_count = forced.forced
     ? forced.surfer_count
     : parseAuthoritativeSurferCount(b);
+  let course_equipment = null;
+  if (b.course_equipment != null) {
+    const coursePart = forcedComps.course || forcedComps.private_lesson;
+    if (!coursePart) return { ok: false, error: 'course_equipment requires a group or private course' };
+    const surfers = forcedComps.private_lesson
+      ? Number(forcedComps.private_lesson.surfer_count) : Number(forcedComps.course.quantity);
+    try { course_equipment = normalizeSelection(b.course_equipment, surfers); }
+    catch (err) { return { ok: false, error: err.message }; }
+  }
 
   return {
     ok: true,
@@ -1427,6 +1438,7 @@ function validateScheduleBookingBody(body, opts) {
       rental_pricing: rentalPricing.skip ? null : rentalPricing.value,
       custom_line_items: customLines.value,
       surfer_count: surfer_count != null ? surfer_count : null,
+      course_equipment,
     },
   };
 }
@@ -1837,6 +1849,7 @@ function buildSchedulePricingIntent(input, opts) {
     rentals: canonicalRentalsForIntentFingerprint(rentalsSrc),
     // Custom adjustments are pricing intent — changes invalidate stale quote / paid reprice.
     custom_line_items: customLinesForIntentFingerprint(customSrc),
+    course_equipment: input && input.course_equipment ? { ...input.course_equipment } : null,
   };
 }
 
@@ -2123,6 +2136,8 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
   }
   const quoteOwnedRows = createdRows.filter((row) => {
     const meta = rowMetadata(row);
+    // Course equipment is priced from the location-scoped Admin snapshot, never a browser/catalog add-on.
+    if (meta.course_equipment === true) return false;
     // Included gear has its own persisted €0 audit rows and is already commercially
     // represented by the course quote line. Never force it to claim a paid catalog line.
     if (meta.included_equipment === true
@@ -2139,8 +2154,12 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
   }
   // Only add snapshotted full-day cents when they were NOT claimed via the quote
   // (avoids double-charging). Bundle peers stay zero-valued by applyAuthoritativeQuoteAmounts.
-  const addonSum = fullDayInQuote ? 0 : createdRows.reduce((sum, row) => {
+  const addonSum = createdRows.reduce((sum, row) => {
     if (quoteOwnedRows.includes(row)) return sum;
+    const meta = rowMetadata(row);
+    // Course equipment is always outside the generic catalog quote. Legacy full-day
+    // snapshots are outside it only when no matching full-day quote line exists.
+    if (meta.course_equipment !== true && fullDayInQuote) return sum;
     const due = Number(row.amount_due_cents);
     return sum + (Number.isFinite(due) && due > 0 ? due : 0);
   }, 0);
@@ -2354,6 +2373,32 @@ async function insertScheduleComponentServiceRows(pg, opts) {
     }
   }
   return createdRows;
+}
+
+/** Server-priced board and wetsuit audit rows, one of each per booking date. */
+async function insertCourseEquipmentRows(pg, opts) {
+  if (!opts.selection) return [];
+  const quote = quoteCourseEquipment({ config: opts.config, selection: opts.selection,
+    surfers: opts.surfers, booking_dates: opts.bookingDates });
+  const rows = [];
+  for (const line of quote.lines) {
+    const metadata = {
+      source: opts.attribution.metadataSource, staff_manual_schedule: opts.attribution.staffManualSchedule,
+      component: line.component, staff_ui_service_type: line.component, course_equipment: true,
+      course_equipment_mode: quote.mode, price_basis: 'per_person_per_booking_day',
+      unit_amount_cents: line.amount_cents, amount_cents: line.total_cents,
+      location_id: opts.locationId || null, bundle_id: opts.bundleId || null,
+    };
+    const row = await insertServiceRecord(pg, [opts.clientSlug, opts.bookingId, opts.bookingCode,
+      opts.guestName, UI_TO_DB_SERVICE_TYPE[line.component], line.service_date, line.quantity,
+      opts.srPayment, opts.attribution.dbSource, JSON.stringify(metadata)]);
+    const id = row && (row.service_record_id || row.id);
+    if (id) await pg.query(
+      'UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid AND client_slug = $3',
+      [line.total_cents, id, opts.clientSlug]);
+    rows.push({ ...row, metadata, amount_due_cents: line.total_cents });
+  }
+  return rows;
 }
 
 /**
@@ -2746,6 +2791,19 @@ async function createSunsetScheduleBooking(pg, opts) {
       },
     });
 
+    if (input.course_equipment) {
+      const equipmentRows = await insertCourseEquipmentRows(pg, {
+        clientSlug, bookingId, bookingCode, guestName: input.guest_name,
+        selection: input.course_equipment,
+        surfers: input.components.private_lesson ? input.components.private_lesson.surfer_count : input.components.course.quantity,
+        bookingDates: input.components.private_lesson
+          ? input.components.private_lesson.sessions.map((s) => s.date) : input.service_dates,
+        config: require('./sunset-admin-location-store').getCourseEquipmentPricing(locationId),
+        attribution, locationId, bundleId, srPayment,
+      });
+      equipmentRows.forEach((r) => createdRows.push(r));
+    }
+
     // Full-day equipment add-on: one row per selected date, quantity = people, price snapshotted.
     if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
       const addonRows = await insertFullDayEquipmentAddonRows(pg, {
@@ -2899,6 +2957,7 @@ module.exports = {
   resolveAuthoritativeScheduleQuoteInTxn,
   applyAuthoritativeSchedulePricingInTxn,
   insertScheduleComponentServiceRows,
+  insertCourseEquipmentRows,
   insertStaffCustomLineServiceRows,
   lockSchedulePaymentsForUpdate,
   applyEditPaidAmountInTxn,

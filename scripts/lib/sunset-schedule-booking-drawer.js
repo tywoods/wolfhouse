@@ -42,6 +42,7 @@ const {
   isSunsetBookingFinanciallyCommitted,
   applyAuthoritativeSchedulePricingInTxn,
   insertScheduleComponentServiceRows,
+  insertCourseEquipmentRows,
   lockSchedulePaymentsForUpdate,
   applyEditPaidAmountInTxn,
   paidBookingRepriceRequiredResult,
@@ -290,6 +291,12 @@ function aggregateComponentsFromServices(services) {
     const meta = parseMeta(sr.metadata);
     const component = String(meta.component || sr.metadata_component || '').toLowerCase();
     const serviceKey = String(meta.service_key || '').toLowerCase();
+    if (meta.course_equipment === true && (component === 'surfboard' || component === 'wetsuit')) {
+      if (!components.course_equipment) components.course_equipment = {
+        mode: meta.course_equipment_mode, quantity: Number(sr.quantity) || 1,
+      };
+      return;
+    }
     // Full-day equipment add-on: per-date quantity map; its dates do NOT expand the booking date range.
     if (dbType === 'addon_service'
       && (component === FULL_DAY_EQUIPMENT_ADDON_KEY || serviceKey === FULL_DAY_EQUIPMENT_ADDON_KEY)) {
@@ -783,6 +790,8 @@ function pricingIntentFromBundle(bundle) {
     }));
   }
   const custom_line_items = customLineItemsFromBundle(bundle);
+  const course_equipment = agg.components.course_equipment || null;
+  if (course_equipment) delete agg.components.course_equipment;
   return buildSchedulePricingIntent({
     service_dates: (() => {
       const dates = new Set();
@@ -806,6 +815,7 @@ function pricingIntentFromBundle(bundle) {
       return [...dates].sort();
     })(),
     components: agg.components,
+    course_equipment,
     rentals,
     custom_line_items,
   }, { rentals, custom_line_items });
@@ -1119,6 +1129,19 @@ async function updateSunsetScheduleBooking(pg, opts) {
         last_edited_by_staff: editAttribution.lastEditedByStaff,
       },
     });
+
+    if (input.course_equipment) {
+      const equipmentRows = await insertCourseEquipmentRows(pg, {
+        clientSlug, bookingId, bookingCode, guestName: input.guest_name,
+        selection: input.course_equipment,
+        surfers: input.components.private_lesson ? input.components.private_lesson.surfer_count : input.components.course.quantity,
+        bookingDates: input.components.private_lesson
+          ? input.components.private_lesson.sessions.map((s) => s.date) : input.service_dates,
+        config: require('./sunset-admin-location-store').getCourseEquipmentPricing(recordLocationId),
+        attribution: editAttribution, locationId: recordLocationId, bundleId, srPayment,
+      });
+      equipmentRows.forEach((r) => createdRows.push(r));
+    }
 
     if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
       const addonRows = await insertFullDayEquipmentAddonRows(pg, {
