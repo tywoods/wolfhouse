@@ -83,13 +83,14 @@ EOF
 fi
 
 if [ "$HERMES_ROLE" = "deckhand" ]; then
-  # Deckhand: isolated Discord engineering worker. xAI grok-4.5 only — no
-  # Anthropic/OpenAI fallback. Distinct Discord bot + XAI_API_KEY via
-  # /etc/hermes-deckhand.env (never reuse Skipper's discord-bot-token).
+  # Deckhand: isolated Discord engineering worker. xAI grok-4.5 via xai-oauth
+  # (shared auth.json) — no Anthropic/OpenAI fallback, no XAI_API_KEY.
+  # Distinct Discord bot via /etc/hermes-deckhand.env (never reuse Skipper's
+  # discord-bot-token).
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
   default: grok-4.5
-  provider: xai
+  provider: xai-oauth
 agent:
   reasoning_effort: medium
 curator:
