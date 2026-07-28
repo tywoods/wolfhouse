@@ -18623,7 +18623,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
               <div class="portal-schedule-create-field" id="ps-create-private-lesson-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1" tabindex="-1"></div>
             </div>
           </div>
-          <p id="ps-create-activity-empty-hint" class="portal-schedule-create-activity-hint" data-i18n="schedule.create.emptyNoLessonNoGear">Choose a lesson or add gear — empty bookings are not valid yet.</p>
           <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-live="polite"></div>
         </div>
         <div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-create-addon-fullday-field" style="display:none">
@@ -23328,6 +23327,13 @@ function scheduleRenderCreateRentals(){
     offerings = (typeof scheduleActiveShortRentalOfferings === 'function')
       ? scheduleActiveShortRentalOfferings(scheduleAdminPricesCache, locationId)
       : [];
+    // Create No lesson intentionally sells the configured bundle only. A missing
+    // active bundle card produces no control; individual Admin cards are not invented.
+    offerings = offerings.filter(function(o){ return o.offering_key === 'board_and_suit_rental'; });
+    commonShort = offerings.length && typeof scheduleActiveShortDurationKeysForOffering === 'function'
+      ? scheduleActiveShortDurationKeysForOffering(
+        scheduleAdminPricesCache, 'board_and_suit_rental', locationId,
+      ) : [];
     // Prefer prior short pebble; else first common short key (never date 2–7).
     if (prevDuration && commonShort.indexOf(prevDuration) >= 0) duration = prevDuration;
     else duration = commonShort[0] || '';
@@ -23360,7 +23366,7 @@ function scheduleRenderCreateRentals(){
     var fallback = key === 'wetsuit_rental' ? 'Wetsuit'
       : (key === 'board_and_suit_rental' ? 'Board and wetsuit' : 'Surfboard');
     var was = prev[key] || {};
-    var checked = !!was.checked;
+    var checked = noLesson ? true : !!was.checked;
     var surfers = scheduleReadCreateSurferCount();
     var qty;
     var owner;
@@ -23392,9 +23398,9 @@ function scheduleRenderCreateRentals(){
         + escHtml(String(qty)) + '"></div>';
     }
     html += '<div class="portal-schedule-create-rental-row" data-rental-offering="' + escHtml(key) + '">'
-      + '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-create-rental-check" data-offering-key="'
-      + escHtml(key) + '"' + (checked ? ' checked' : '') + '> <span data-i18n="' + escHtml(labelKey) + '">'
-      + escHtml(fallback) + '</span></label>'
+      + (noLesson
+        ? '<h3 class="portal-schedule-create-rental-title" data-i18n="' + escHtml(labelKey) + '">' + escHtml(fallback.toUpperCase()) + '</h3><input type="hidden" class="ps-create-rental-check" data-offering-key="' + escHtml(key) + '" checked>'
+        : '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-create-rental-check" data-offering-key="' + escHtml(key) + '"' + (checked ? ' checked' : '') + '> <span data-i18n="' + escHtml(labelKey) + '">' + escHtml(fallback) + '</span></label>')
       + qtyHtml + '</div>';
   });
   // One pebble strip beneath offerings for combined short mode (filled after selection).
@@ -23411,7 +23417,7 @@ function scheduleRenderCreateRentals(){
       : ['board_and_suit_rental'];
   }
   scheduleApplyCreateRentalExclusionUi(wrap, selected);
-  if (shortMode && scheduleCreateIsCombinedBoardWetsuit(selected) && commonShort.length) {
+  if (shortMode && commonShort.length) {
     scheduleRenderCreateRentalDurationPebbles(wrap, commonShort, duration);
   }
   scheduleWireCreateRentals(wrap);

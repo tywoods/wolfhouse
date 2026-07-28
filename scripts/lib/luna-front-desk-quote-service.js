@@ -831,7 +831,7 @@ const CANONICAL_RENTAL_OFFERING_KEYS = Object.freeze([
 ]);
 
 /** No-lesson short rental windows — independent of inclusive date-span duration. */
-const SHORT_RENTAL_DURATION_KEYS = Object.freeze(['1_hour', 'half_day', '1_day']);
+const SHORT_RENTAL_DURATION_KEYS = Object.freeze(['1_hour', '2_hours', 'half_day', 'full_day']);
 const SHORT_RENTAL_DURATION_SET = new Set(SHORT_RENTAL_DURATION_KEYS);
 
 function isShortRentalDurationKey(key) {

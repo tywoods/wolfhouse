@@ -463,7 +463,8 @@ function adminPackWeeklyPillOptions(){
 // No fabricated commercial amounts — Admin configures each 1–7 day price explicitly.
 var ADMIN_DEFAULT_PRICE_TIERS = [];
 var ADMIN_CANONICAL_DAY_TIER_KEYS = {
-  '1_day': true, '2_days': true, '3_days': true, '4_days': true,
+  '1_hour': true, '2_hours': true, 'half_day': true, 'full_day': true,
+  '2_days': true, '3_days': true, '4_days': true,
   '5_days': true, '6_days': true, '7_days': true,
 };
 function adminDefaultPackConfigSeed(){
@@ -706,7 +707,7 @@ function adminRentalPeriodOptions(selected){
   // and never derive options from stored tier/price rows. Legacy stored values
   // remain readable for old bookings but do not appear here; operator must pick
   // a canonical 1–7 day key before save (server rejects noncanonical).
-  var opts = ['1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
+  var opts = ['1_hour', '2_hours', 'half_day', 'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
   var sel = String(selected || '').trim();
   return opts.map(function(p){
     var isSel = (sel === p) ? ' selected' : '';
@@ -716,7 +717,7 @@ function adminRentalPeriodOptions(selected){
 
 // Rank rental durations shortest → longest (1 day … 7 days).
 function adminRentalPeriodRank(period){
-  var order = ['1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
+  var order = ['1_hour', '2_hours', 'half_day', 'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
   var i = order.indexOf(String(period || '').trim());
   return i >= 0 ? i : 999;
 }
