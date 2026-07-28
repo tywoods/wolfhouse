@@ -163,6 +163,9 @@ write_luna_env() {
     # Values are server-owned via /etc/hermes-sunset-luna.env — never invent here.
     [ -n "${CROWSNEST_AI_USAGE_CLIENT_SLUG:-}" ]          && printf 'CROWSNEST_AI_USAGE_CLIENT_SLUG=%s\n' "$CROWSNEST_AI_USAGE_CLIENT_SLUG"
     [ -n "${CROWSNEST_AI_USAGE_TENANT_ID:-}" ]            && printf 'CROWSNEST_AI_USAGE_TENANT_ID=%s\n' "$CROWSNEST_AI_USAGE_TENANT_ID"
+    [ -n "${CROWSNEST_AI_USAGE_INGEST_URL:-}" ]           && printf 'CROWSNEST_AI_USAGE_INGEST_URL=%s\n' "$CROWSNEST_AI_USAGE_INGEST_URL"
+    [ -n "${CROWSNEST_AI_USAGE_INGEST_TOKEN:-}" ]         && printf 'CROWSNEST_AI_USAGE_INGEST_TOKEN=%s\n' "$CROWSNEST_AI_USAGE_INGEST_TOKEN"
+    [ -n "${CROWSNEST_AI_USAGE_SOURCE_SERVICE:-}" ]       && printf 'CROWSNEST_AI_USAGE_SOURCE_SERVICE=%s\n' "$CROWSNEST_AI_USAGE_SOURCE_SERVICE"
     # Anthropic OAuth (Claude Max) for Luna's fallback provider — claude setup-token.
     [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=*** "$ANTHROPIC_TOKEN" || true
   } > "$HERMES_HOME/.env"
@@ -229,6 +232,12 @@ apply_patches() {
   if [ -f /etc/hermes-staging/apply_guest_send_guard_patches.py ]; then
     python /etc/hermes-staging/apply_guest_send_guard_patches.py || {
       echo "apply_guest_send_guard_patches failed — guest send guard may be missing" >&2
+      exit 1
+    }
+  fi
+  if [ -f /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py ]; then
+    python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py || {
+      echo "apply_crowsnest_ai_usage_patch failed — refusing upstream drift" >&2
       exit 1
     }
   fi

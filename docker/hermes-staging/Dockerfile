@@ -27,6 +27,8 @@ COPY apply_whatsapp_fresh_start_route.py /etc/hermes-staging/apply_whatsapp_fres
 COPY apply_whatsapp_simulate_route.py /etc/hermes-staging/apply_whatsapp_simulate_route.py
 COPY apply_stt_patches.py /etc/hermes-staging/apply_stt_patches.py
 COPY apply_guest_send_guard_patches.py /etc/hermes-staging/apply_guest_send_guard_patches.py
+COPY apply_crowsnest_ai_usage_patch.py /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py
+COPY test_crowsnest_ai_usage_patch.py /etc/hermes-staging/test_crowsnest_ai_usage_patch.py
 COPY verify_stt_patches.py /etc/hermes-staging/verify_stt_patches.py
 COPY verify_guest_send_guard_patches.py /etc/hermes-staging/verify_guest_send_guard_patches.py
 COPY verify_gateway_patch_idempotency.py /etc/hermes-staging/verify_gateway_patch_idempotency.py
@@ -42,9 +44,13 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/apply_stt_patches.py \
  && python /etc/hermes-staging/apply_gateway_patches.py \
  && python /etc/hermes-staging/apply_guest_send_guard_patches.py \
+ && python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py \
  && python /etc/hermes-staging/verify_stt_patches.py \
  && python /etc/hermes-staging/verify_guest_send_guard_patches.py \
  && python /etc/hermes-staging/verify_plain_reply_patches.py \
  && python /etc/hermes-staging/verify_gateway_patch_idempotency.py \
  && python /etc/hermes-staging/verify_discord_session_continuity.py \
- && python /etc/hermes-staging/verify_wolfhouse_luna_instance.py
+ && python /etc/hermes-staging/verify_wolfhouse_luna_instance.py \
+ && cd /etc/hermes-staging \
+ && python -m unittest wolfhouse.test_crowsnest_ai_usage_reporter test_crowsnest_ai_usage_patch -v \
+ && python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py

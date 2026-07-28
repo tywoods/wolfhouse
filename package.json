@@ -73,6 +73,7 @@
     "verify:crowsnest-ai-usage-ingest": "node scripts/verify-crowsnest-ai-usage-ingest.js",
     "verify:crowsnest-ai-usage-reporter": "node scripts/verify-crowsnest-ai-usage-reporter.js",
     "verify:crowsnest-sunset-ai-usage-identity": "node scripts/verify-crowsnest-sunset-ai-usage-identity.js",
+    "verify:crowsnest-sunset-hermes-ai-usage": "cd docker/hermes-staging && python3 -m unittest wolfhouse.test_crowsnest_ai_usage_reporter test_crowsnest_ai_usage_patch -v && cd ../.. && node scripts/verify-crowsnest-sunset-hermes-ai-usage.js",
     "verify:crowsnest-client-metrics-contract": "node scripts/verify-crowsnest-client-metrics-contract.js",
     "verify:crowsnest-client-metrics-store": "node scripts/verify-crowsnest-client-metrics-store.js",
     "verify:crowsnest-client-metrics-ingest": "node scripts/verify-crowsnest-client-metrics-ingest.js",
