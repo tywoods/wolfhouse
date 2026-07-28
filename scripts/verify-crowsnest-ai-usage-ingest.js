@@ -14,6 +14,7 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const store = require(path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-ai-usage-spyglass-store.js'));
+const { renderCrowsnestPage } = require(path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-page.js'));
 
 let pass = 0;
 let fail = 0;
@@ -142,6 +143,20 @@ async function partB() {
 }
 
 (async () => {
+  // ── Part C: Spyglass panel prefers live aggregate, falls back to sample ──────
+  const liveUsage = {
+    sample: false, live: true, window_label: 'Last 7 days',
+    totals: { requests: 3, input_tokens: 100, output_tokens: 50, total_tokens: 150, cost_usd: 1.23, avg_latency_ms: 500, success_rate: 1 },
+    by_provider: [{ provider: 'openai', requests: 3, total_tokens: 150, cost_usd: 1.23, share: 1 }],
+    by_client: [{ id: 'wolfhouse-somo', name: 'Wolfhouse Somo', requests: 3, total_tokens: 150, cost_usd: 1.23 }],
+    daily_requests: [0, 0, 0, 0, 0, 0, 3],
+  };
+  const liveHtml = renderCrowsnestPage({ view: 'spyglass', aiUsage: liveUsage });
+  ok('panel renders LIVE aggregate when provided (no Sample badge)', /class="sample-badge sample-badge--live"/.test(liveHtml) && !/>Sample<\/span>/.test(liveHtml) && /\$1\.23/.test(liveHtml));
+  ok('live panel spark caption drops "(sample)"', /Requests · last 7 days<\/span>/.test(liveHtml));
+  const sampleHtml = renderCrowsnestPage({ view: 'spyglass' });
+  ok('panel falls back to labelled Sample when no live aggregate', />Sample<\/span>/.test(sampleHtml) && /last 7 days \(sample\)/.test(sampleHtml));
+
   await partA();
   await partB();
   console.log(`\n── verify:crowsnest-ai-usage-ingest: ${pass} passed, ${fail} failed ──`);

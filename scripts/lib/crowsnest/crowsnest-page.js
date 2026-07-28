@@ -934,6 +934,7 @@ h2.section{
   font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
   color:var(--amber);background:var(--amber-soft);border:1px solid rgba(154,107,27,.25);
 }
+.sample-badge--live{color:var(--green);background:var(--green-soft);border-color:rgba(47,107,82,.28)}
 .panel-window{margin-left:auto;font-size:12px;color:var(--text-3)}
 
 /* ── Iris: AI usage metric tiles ── */
@@ -1299,7 +1300,7 @@ function renderAiUsagePanel(usage) {
   return `<section class="panel ai-usage-panel" aria-labelledby="ai-usage-title">
         <header class="panel-head">
           <h2 class="panel-title" id="ai-usage-title">AI usage</h2>
-          <span class="sample-badge">Sample</span>
+          ${usage.sample ? '<span class="sample-badge">Sample</span>' : '<span class="sample-badge sample-badge--live">Live</span>'}
           <span class="panel-window">${escapeHtml(usage.window_label)}</span>
         </header>
         <div class="metric-tiles">
@@ -1320,7 +1321,7 @@ function renderAiUsagePanel(usage) {
           </div>
         </div>
         <div class="spark-wrap">
-          <span class="spark-caption">Requests · last 7 days (sample)</span>
+          <span class="spark-caption">Requests · last 7 days${usage.sample ? ' (sample)' : ''}</span>
           ${renderSparkline(usage.daily_requests)}
         </div>
       </section>`;
@@ -1443,7 +1444,9 @@ function renderSpyglassMain(clients, options = {}) {
   const clientMetrics = options.clientMetrics || {};
   const refreshCoverage = options.refreshCoverage || null;
   const stats = countStaticEnvironmentStats(clients);
-  const usage = getSampleAiUsage();
+  // Prefer the live Crowsnest AI-usage aggregate when the store has data; fall back
+  // to clearly-labelled sample telemetry until a source is reporting (fail-closed).
+  const usage = options.aiUsage || getSampleAiUsage();
   const reporting = clients
     .map((c) => readClientMetrics(clientMetrics[c.client_slug]))
     .filter(Boolean);

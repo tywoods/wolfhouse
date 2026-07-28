@@ -1156,6 +1156,7 @@ async function handleSpyglassRefreshAll(req, res, method) {
   };
   try {
     pageOptions.clientMetrics = await getSpyglassClientMetricsMap();
+    pageOptions.aiUsage = await getSpyglassAiUsage(); // null => panel falls back to sample
     return sendHTML(res, 200, renderCrowsnestPage(pageOptions), { 'Cache-Control': 'no-store' }, cspNonce);
   } catch (err) {
     if (isSalesUnavailableFailure(err)) {
@@ -1190,6 +1191,7 @@ async function handleProtectedUi(req, res, method, pathname) {
     if (view === 'spyglass') {
       // Fail-soft reader: returns {} on any failure so Spyglass renders "not reporting yet".
       pageOptions.clientMetrics = await getSpyglassClientMetricsMap();
+      pageOptions.aiUsage = await getSpyglassAiUsage(); // null => panel falls back to sample
     }
     return sendHTML(res, 200, renderCrowsnestPage(pageOptions), { 'Cache-Control': 'no-store' }, cspNonce);
   } catch (err) {
