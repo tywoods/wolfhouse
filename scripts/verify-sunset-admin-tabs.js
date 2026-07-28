@@ -1873,6 +1873,597 @@ async function runAdminReloadOwnershipRaceChecks() {
   }
 }
 
+/**
+ * Unified Admin busy ownership across loads AND mutations (production-source VM).
+ * Covers sync fetch throw release, mutation↔load races, overlapping mutations,
+ * representative operation families, and static naked adminSaveBusy audit.
+ */
+async function runAdminUnifiedBusyOwnershipChecks() {
+  console.log('\n[3d] Unified Admin busy ownership (loads + mutations + sync throw)\n');
+
+  function installClickCapture(registry) {
+    let adminClickHandler = null;
+    registry.byId.set('tab-admin', {
+      dataset: {},
+      addEventListener(type, fn) {
+        if (type === 'click') adminClickHandler = fn;
+      },
+    });
+    return {
+      getHandler() { return adminClickHandler; },
+      fire(action, attrs) {
+        attrs = attrs || {};
+        const fakeBtn = {
+          checked: !!attrs.checked,
+          getAttribute(name) {
+            if (name === 'data-admin-action') return action;
+            if (Object.prototype.hasOwnProperty.call(attrs, name)) return attrs[name];
+            return null;
+          },
+          closest(sel) {
+            if (sel === '[data-admin-action]') return fakeBtn;
+            return null;
+          },
+        };
+        adminClickHandler({
+          target: fakeBtn,
+          preventDefault() {},
+        });
+      },
+    };
+  }
+
+  function partitionFetch(sandbox) {
+    const configQueue = [];
+    const mutationQueue = [];
+    sandbox.fetch = function partitionedFetch(url, opts) {
+      const path = String(url || '');
+      const method = String((opts && opts.method) || 'GET').toUpperCase();
+      // Config loads (keep-edit / loadAdminTab) use GET /staff/admin/config
+      if (method === 'GET' && path.indexOf('/staff/admin/config') === 0 && path.indexOf('/staff/admin/config/') < 0) {
+        const d = deferred();
+        configQueue.push(d);
+        return d.promise.then((body) => {
+          if (body && body.__throwSync) throw new Error(body.__throwSync);
+          if (body && body.__reject) return Promise.reject(new Error(body.__reject));
+          return {
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve(body),
+          };
+        });
+      }
+      // Mutations use POST/PUT/PATCH/DELETE under /staff/admin/config/...
+      const d = deferred();
+      mutationQueue.push({ d, path, method });
+      return d.promise.then((body) => {
+        if (body && body.__throwSync) throw new Error(body.__throwSync);
+        if (body && body.__reject) return Promise.reject(new Error(body.__reject));
+        const status = (body && body.__status) || 200;
+        return {
+          ok: status >= 200 && status < 300,
+          status,
+          json: () => Promise.resolve(body && body.__data != null ? body.__data : (body || { success: true })),
+        };
+      });
+    };
+    return { configQueue, mutationQueue };
+  }
+
+  function seedWritesEnabled(sandbox, registry, locationRef) {
+    const cfg = realisticPricingCfgWithMarker(locationRef.location, 25);
+    cfg.writes_enabled = true;
+    sandbox.adminConfigCache = cfg;
+    sandbox.adminEditTarget = null;
+    sandbox.renderAdminFromConfig(cfg);
+    return cfg;
+  }
+
+  // ── Static: no naked adminSaveBusy writes outside init + centralized helpers ─
+  {
+    const src = getSunsetAdminUiBrowserSource();
+    // Strip comments lightly to avoid false positives from doc lines.
+    const stripped = src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    const lines = stripped.split('\n');
+    const naked = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!/adminSaveBusy\s*=\s*(true|false)\s*;?/.test(line)) continue;
+      // Allowed: var adminSaveBusy = false; and bodies of claim/release/clear helpers.
+      if (/^\s*var\s+adminSaveBusy\s*=\s*false\s*;?\s*$/.test(line)) continue;
+      naked.push({ line: i + 1, text: line.trim() });
+    }
+    // Helpers themselves assign — detect by requiring every remaining assignment to live
+    // inside adminClaimBusy / adminReleaseBusy / adminClearBusy function bodies only.
+    // Re-scan with function-scope awareness on original source.
+    function extractFnBody(name) {
+      const re = new RegExp(`function\\s+${name}\\s*\\(`);
+      const m = re.exec(src);
+      if (!m) return '';
+      const braceStart = src.indexOf('{', m.index);
+      let depth = 0;
+      for (let j = braceStart; j < src.length; j++) {
+        if (src[j] === '{') depth++;
+        else if (src[j] === '}') {
+          depth--;
+          if (depth === 0) return src.slice(braceStart, j + 1);
+        }
+      }
+      return '';
+    }
+    const helperBodies = ['adminClaimBusy', 'adminReleaseBusy', 'adminClearBusy']
+      .map(extractFnBody)
+      .join('\n');
+    const helperAssignCount = (helperBodies.match(/adminSaveBusy\s*=\s*(true|false)/g) || []).length;
+    const totalAssign = (stripped.match(/adminSaveBusy\s*=\s*(true|false)/g) || []).length;
+    // init (1) + helper assigns; nothing else.
+    const initCount = /^\s*var\s+adminSaveBusy\s*=\s*false\s*;?\s*$/m.test(stripped) ? 1 : 0;
+    assert(
+      'static: adminSaveBusy init present once',
+      initCount === 1,
+    );
+    assert(
+      'static: all adminSaveBusy true/false assigns are init or claim/release/clear helpers',
+      totalAssign === initCount + helperAssignCount && helperAssignCount >= 3,
+      `total=${totalAssign} init=${initCount} helper=${helperAssignCount} nakedLines=${naked.length}`,
+    );
+    // Explicit ban on wireAdminTab / mutation style direct assigns.
+    assert(
+      'static: no direct adminSaveBusy=true outside helpers (wireAdminTab migrated)',
+      !/adminSaveBusy\s*=\s*true/.test(
+        stripped.replace(/function\s+adminClaimBusy\s*\([\s\S]*?\n\}/, ''),
+      ),
+    );
+    assert(
+      'static: production exposes adminBeginOp for shared token ownership',
+      typeof getSunsetAdminUiBrowserSource === 'function'
+        && /function\s+adminBeginOp\s*\(/.test(src),
+    );
+    assert(
+      'static: production exposes adminOpStillOwns ownership gate',
+      /function\s+adminOpStillOwns\s*\(/.test(src),
+    );
+  }
+
+  // ── (1) Sync fetch throw: loadAdminTab releases busy; later action accepted ─
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const click = installClickCapture(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    sandbox.fetch = function syncThrowFetch() {
+      throw new Error('sync fetch boom loadAdminTab');
+    };
+
+    let threw = false;
+    try {
+      sandbox.loadAdminTab();
+    } catch (e) {
+      threw = true;
+    }
+    await flushMicrotasks(20);
+
+    assert(
+      'sync-load: loadAdminTab does not permanently throw out of band',
+      threw === false,
+      `threw=${threw}`,
+    );
+    assert(
+      'sync-load: busy false after synchronous fetch throw',
+      sandbox.adminSaveBusy === false,
+      `busy=${sandbox.adminSaveBusy} owner=${sandbox.adminBusyOwnerSeq}`,
+    );
+
+    // Later Admin action must not be permanently rejected by stuck busy.
+    seedWritesEnabled(sandbox, registry, locationRef);
+    registry.byId.set('admin-capacity-input', { value: '12', tagName: 'INPUT' });
+    const queues = partitionFetch(sandbox);
+    // loadAdminTab already wired; re-assert handler for later mutation acceptance.
+    if (typeof sandbox.wireAdminTab === 'function') sandbox.wireAdminTab();
+    assert('sync-load: wireAdminTab handler present', typeof click.getHandler() === 'function');
+    click.fire('save-capacity');
+    assert(
+      'sync-load: later save-capacity accepted (busy claimed for mutation)',
+      sandbox.adminSaveBusy === true && queues.mutationQueue.length === 1,
+      `busy=${sandbox.adminSaveBusy} mutQ=${queues.mutationQueue.length}`,
+    );
+    queues.mutationQueue[0].d.resolve({ success: true });
+    await flushMicrotasks(16);
+  }
+
+  // ── (2) Sync fetch throw: keep-edit releases busy; later action accepted ─
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const click = installClickCapture(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    sandbox.adminEditTarget = 'price-group:bundles';
+    sandbox.fetch = function syncThrowKeepFetch() {
+      throw new Error('sync fetch boom keep-edit');
+    };
+
+    let threw = false;
+    try {
+      sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+    } catch (e) {
+      threw = true;
+    }
+    await flushMicrotasks(20);
+
+    assert('sync-keep: keep-edit does not throw out of band', threw === false, `threw=${threw}`);
+    assert(
+      'sync-keep: busy false after synchronous fetch throw',
+      sandbox.adminSaveBusy === false,
+      `busy=${sandbox.adminSaveBusy}`,
+    );
+
+    seedWritesEnabled(sandbox, registry, locationRef);
+    const queues = partitionFetch(sandbox);
+    if (typeof sandbox.wireAdminTab === 'function') sandbox.wireAdminTab();
+    assert('sync-keep: wireAdminTab handler present', typeof click.getHandler() === 'function');
+    // toggle-group-availability is a lightweight mutation family representative.
+    click.fire('toggle-group-availability', {
+      'data-rental-group': 'board',
+      checked: true,
+    });
+    assert(
+      'sync-keep: later toggle-group-availability accepted',
+      sandbox.adminSaveBusy === true && queues.mutationQueue.length === 1,
+      `busy=${sandbox.adminSaveBusy} mutQ=${queues.mutationQueue.length}`,
+    );
+    queues.mutationQueue[0].d.resolve({ success: true });
+    await flushMicrotasks(16);
+  }
+
+  // ── (3) Mutation → newer canonical load: stale mutation cannot clear/overwrite ─
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const click = installClickCapture(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    seedWritesEnabled(sandbox, registry, locationRef);
+    registry.byId.set('admin-capacity-input', { value: '18', tagName: 'INPUT' });
+    const queues = partitionFetch(sandbox);
+    const msg = registry.getElementById('admin-save-msg');
+    if (typeof sandbox.wireAdminTab === 'function') sandbox.wireAdminTab();
+
+    click.fire('save-capacity');
+    assert('mut-then-load: capacity mutation owns busy', sandbox.adminSaveBusy === true);
+    assert('mut-then-load: mutation fetch queued', queues.mutationQueue.length === 1);
+    const mutSeq = sandbox.adminBusyOwnerSeq;
+
+    // Newer canonical load supersedes mutation ownership.
+    sandbox.loadAdminTab();
+    assert('mut-then-load: load fetch queued', queues.configQueue.length === 1);
+    assert(
+      'mut-then-load: load advanced owner past mutation',
+      sandbox.adminBusyOwnerSeq !== mutSeq && sandbox.adminSaveBusy === true,
+      `owner=${sandbox.adminBusyOwnerSeq} mutSeq=${mutSeq}`,
+    );
+    const loadOwner = sandbox.adminBusyOwnerSeq;
+    const canonPayload = realisticPricingCfgWithMarker('sunset-somo', 42);
+
+    // Stale mutation success — must not clear load busy, must not show success, must not reload.
+    msg.textContent = '';
+    msg.style.display = 'none';
+    queues.mutationQueue[0].d.resolve({ success: true });
+    await flushMicrotasks(16);
+    assert(
+      'mut-then-load: stale mutation success does not clear newer load busy',
+      sandbox.adminSaveBusy === true && sandbox.adminBusyOwnerSeq === loadOwner,
+      `busy=${sandbox.adminSaveBusy} owner=${sandbox.adminBusyOwnerSeq}`,
+    );
+    assert(
+      'mut-then-load: stale mutation does not show success UI',
+      !(msg.style.display === 'block' && /savedCapacity|admin\.edit\.savedCapacity/i.test(String(msg.textContent || ''))),
+      `msg=${msg.textContent}`,
+    );
+
+    queues.configQueue[0].resolve(canonPayload);
+    await flushMicrotasks(16);
+    assert(
+      'mut-then-load: canonical load installs marker',
+      !!(sandbox.adminConfigCache && sandbox.adminConfigCache._marker === canonPayload._marker),
+    );
+    assert('mut-then-load: load clears its own busy', sandbox.adminSaveBusy === false);
+  }
+
+  // ── (4) Canonical load → newer mutation: stale load cannot clear/overwrite ─
+  // UI click gate blocks new clicks while busy; production mutations still share
+  // adminBeginOp with loads, so a newer mutation token can supersede an in-flight load
+  // (same API keep-edit/load already use). Prove stale load cannot clobber newer owner.
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const click = installClickCapture(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    const queues = partitionFetch(sandbox);
+    const staleCanon = realisticPricingCfgWithMarker('sunset-somo', 11);
+    const cfgHeld = realisticPricingCfgWithMarker('sunset-somo', 25);
+
+    sandbox.adminConfigCache = cfgHeld;
+    sandbox.loadAdminTab();
+    assert('load-then-mut: load owns busy', sandbox.adminSaveBusy === true);
+    assert('load-then-mut: config queued', queues.configQueue.length === 1);
+    const loadSeq = sandbox.adminBusyOwnerSeq;
+
+    // Newer mutation claims via the shared production token API.
+    assert('load-then-mut: adminBeginOp available', typeof sandbox.adminBeginOp === 'function');
+    const mutOwner = sandbox.adminBeginOp();
+    assert('load-then-mut: mutation owns busy', sandbox.adminSaveBusy === true);
+    assert(
+      'load-then-mut: mutation superseded load owner',
+      sandbox.adminBusyOwnerSeq === mutOwner && mutOwner !== loadSeq,
+      `owner=${sandbox.adminBusyOwnerSeq} loadSeq=${loadSeq} mut=${mutOwner}`,
+    );
+    // Restore a known cache so we can detect stale load apply (loading shell may have wiped DOM).
+    sandbox.adminConfigCache = cfgHeld;
+    const cacheBeforeStale = sandbox.adminConfigCache;
+
+    queues.configQueue[0].resolve(staleCanon);
+    await flushMicrotasks(16);
+    assert(
+      'load-then-mut: stale load does not clear mutation busy',
+      sandbox.adminSaveBusy === true && sandbox.adminBusyOwnerSeq === mutOwner,
+      `busy=${sandbox.adminSaveBusy} owner=${sandbox.adminBusyOwnerSeq}`,
+    );
+    assert(
+      'load-then-mut: stale load does not install its marker under mutation',
+      !(sandbox.adminConfigCache && sandbox.adminConfigCache._marker === staleCanon._marker),
+    );
+    assert(
+      'load-then-mut: cache identity retained against stale load apply',
+      sandbox.adminConfigCache === cacheBeforeStale
+        || (sandbox.adminConfigCache && sandbox.adminConfigCache._marker !== staleCanon._marker),
+    );
+
+    // Owning mutation finishes (release only own token).
+    sandbox.adminReleaseBusy(mutOwner);
+    assert('load-then-mut: owning mutation release clears busy', sandbox.adminSaveBusy === false);
+
+    // After load+mutation ownership settles, a real wireAdminTab mutation is accepted.
+    seedWritesEnabled(sandbox, registry, locationRef);
+    registry.byId.set('admin-capacity-input', { value: '9', tagName: 'INPUT' });
+    if (typeof sandbox.wireAdminTab === 'function') sandbox.wireAdminTab();
+    click.fire('save-capacity');
+    assert(
+      'load-then-mut: later real capacity mutation accepted',
+      sandbox.adminSaveBusy === true && queues.mutationQueue.length === 1,
+      `busy=${sandbox.adminSaveBusy} mutQ=${queues.mutationQueue.length}`,
+    );
+    queues.mutationQueue[0].d.resolve({ success: true });
+    await flushMicrotasks(20);
+  }
+
+  // ── (5) Two overlapping mutations: newest owns; stale cannot release/show ─
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const click = installClickCapture(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    seedWritesEnabled(sandbox, registry, locationRef);
+    registry.byId.set('admin-capacity-input', { value: '7', tagName: 'INPUT' });
+    const queues = partitionFetch(sandbox);
+    const msg = registry.getElementById('admin-save-msg');
+    if (typeof sandbox.wireAdminTab === 'function') sandbox.wireAdminTab();
+
+    click.fire('save-capacity');
+    assert('overlap-mut: first mutation queued', queues.mutationQueue.length === 1);
+    const firstOwner = sandbox.adminBusyOwnerSeq;
+
+    // Second mutation family: toggle availability (different endpoint).
+    click.fire('toggle-group-availability', {
+      'data-rental-group': 'wetsuit',
+      checked: false,
+    });
+    // First still in flight — busy gate may block second if busy true.
+    // Ownership API requires newest to own when both start; if busy gate blocks second,
+    // force second begin by clearing only after proving gate, then re-fire is not the race.
+    // Real race: two mutations that both passed the gate before either claimed — simulate by
+    // direct second claim path via adminBeginOp if first blocked second.
+    if (queues.mutationQueue.length < 2) {
+      // Busy gate correctly blocked second click. Prove token ownership by starting a second
+      // op through the shared API (as a concurrent owner would after any gate window).
+      assert(
+        'overlap-mut: busy gate held after first mutation (expected single-flight UI)',
+        sandbox.adminSaveBusy === true,
+      );
+      // Simulate a second operation that claimed via the same token API (e.g. load or
+      // a code path that begins without the click gate) — use adminBeginOp if present,
+      // else a keep-edit which always begins.
+      if (typeof sandbox.adminBeginOp === 'function') {
+        const newer = sandbox.adminBeginOp();
+        assert('overlap-mut: adminBeginOp returned newer token', newer > firstOwner);
+      } else {
+        sandbox.adminReloadConfigKeepingEdit('price-group:bundles');
+      }
+      assert(
+        'overlap-mut: newer op owns busy after supersede',
+        sandbox.adminSaveBusy === true && sandbox.adminBusyOwnerSeq !== firstOwner,
+      );
+      const newerOwner = sandbox.adminBusyOwnerSeq;
+      msg.textContent = 'stale-should-not-stick';
+      msg.style.display = 'block';
+      queues.mutationQueue[0].d.resolve({ success: true });
+      await flushMicrotasks(16);
+      assert(
+        'overlap-mut: stale first mutation success does not release newer busy',
+        sandbox.adminSaveBusy === true && sandbox.adminBusyOwnerSeq === newerOwner,
+        `busy=${sandbox.adminSaveBusy} owner=${sandbox.adminBusyOwnerSeq}`,
+      );
+      assert(
+        'overlap-mut: stale first mutation does not show its success copy',
+        !/savedCapacity|admin\.edit\.savedCapacity/i.test(String(msg.textContent || '')),
+        `msg=${msg.textContent}`,
+      );
+    } else {
+      const secondOwner = sandbox.adminBusyOwnerSeq;
+      assert('overlap-mut: second mutation owns', secondOwner !== firstOwner);
+      msg.textContent = '';
+      msg.style.display = 'none';
+      queues.mutationQueue[0].d.resolve({ success: true });
+      await flushMicrotasks(16);
+      assert(
+        'overlap-mut: stale first cannot release second busy',
+        sandbox.adminSaveBusy === true && sandbox.adminBusyOwnerSeq === secondOwner,
+      );
+      queues.mutationQueue[1].d.resolve({ success: true });
+      await flushMicrotasks(20);
+    }
+  }
+
+  // ── (6) Representative families dynamically exercise token ownership ─────
+  {
+    const families = [
+      {
+        name: 'capacity',
+        setup(registry) {
+          registry.byId.set('admin-capacity-input', { value: '14', tagName: 'INPUT' });
+        },
+        fire(click) { click.fire('save-capacity'); },
+        successBody: { success: true },
+        successCopyRe: /savedCapacity|admin\.edit\.savedCapacity/i,
+      },
+      {
+        name: 'availability/rental',
+        setup() {},
+        fire(click) {
+          click.fire('toggle-group-availability', {
+            'data-rental-group': 'board',
+            checked: true,
+          });
+        },
+        successBody: { success: true },
+        successCopyRe: /savedPrice|admin\.edit\.savedPrice/i,
+      },
+      {
+        name: 'lesson',
+        setup() {},
+        fire(click) {
+          click.fire('delete-time', { 'data-time-id': 'lt-1' });
+        },
+        successBody: { success: true },
+        successCopyRe: /removedTime|admin\.edit\.removedTime/i,
+      },
+      {
+        name: 'private-lesson',
+        setup(registry) {
+          registry.byId.set('admin-private-enabled', { checked: true });
+          registry.byId.set('admin-private-label', { value: 'Private' });
+          registry.byId.set('admin-private-price', { value: '80.00' });
+          registry.byId.set('admin-private-duration', { value: '120' });
+          registry.byId.set('admin-private-notes', { value: '' });
+        },
+        fire(click) { click.fire('save-private-lesson'); },
+        successBody: { success: true },
+        successCopyRe: /savedPrivateLesson|admin\.edit\.savedPrivateLesson/i,
+      },
+      {
+        name: 'pack',
+        setup() {},
+        fire(click) {
+          click.fire('delete-pack', { 'data-pack-id': 'pack-1' });
+        },
+        successBody: { success: true },
+        successCopyRe: /removedPack|admin\.edit\.removedPack/i,
+      },
+      {
+        name: 'price',
+        setup() {},
+        fire(click) {
+          click.fire('delete-price', { 'data-price-id': 'r-1_day' });
+        },
+        successBody: { success: true },
+        successCopyRe: /removedPrice|admin\.edit\.removedPrice/i,
+      },
+    ];
+
+    for (const fam of families) {
+      const registry = createFormAwareRegistry();
+      seedAdminHarnessDom(registry);
+      const click = installClickCapture(registry);
+      const locationRef = { location: 'sunset-somo' };
+      const sandbox = createAdminUiSandbox(registry, locationRef);
+      sandbox.window.confirm = function() { return true; };
+      seedWritesEnabled(sandbox, registry, locationRef);
+      fam.setup(registry, sandbox);
+      const queues = partitionFetch(sandbox);
+      if (typeof sandbox.wireAdminTab === 'function') sandbox.wireAdminTab();
+
+      fam.fire(click);
+      assert(
+        `family-${fam.name}: claims busy via token owner`,
+        sandbox.adminSaveBusy === true && sandbox.adminBusyOwnerSeq > 0,
+        `busy=${sandbox.adminSaveBusy} owner=${sandbox.adminBusyOwnerSeq}`,
+      );
+      assert(
+        `family-${fam.name}: issued mutation request`,
+        queues.mutationQueue.length >= 1,
+        `mutQ=${queues.mutationQueue.length}`,
+      );
+      const owner = sandbox.adminBusyOwnerSeq;
+
+      // Supersede with canonical load; stale mutation success must not release.
+      sandbox.loadAdminTab();
+      assert(
+        `family-${fam.name}: load supersedes mutation owner`,
+        sandbox.adminBusyOwnerSeq !== owner && sandbox.adminSaveBusy === true,
+      );
+      const loadOwner = sandbox.adminBusyOwnerSeq;
+      queues.mutationQueue[0].d.resolve(fam.successBody);
+      await flushMicrotasks(16);
+      assert(
+        `family-${fam.name}: stale success does not release load busy`,
+        sandbox.adminSaveBusy === true && sandbox.adminBusyOwnerSeq === loadOwner,
+        `busy=${sandbox.adminSaveBusy} owner=${sandbox.adminBusyOwnerSeq}`,
+      );
+
+      // Complete load cleanly.
+      queues.configQueue[0].resolve(realisticPricingCfgWithMarker('sunset-somo', 25));
+      await flushMicrotasks(16);
+      assert(
+        `family-${fam.name}: load owner releases busy on success`,
+        sandbox.adminSaveBusy === false,
+      );
+    }
+  }
+
+  // ── (7) Owning mutation error releases only its token; no permanent busy ─
+  {
+    const registry = createFormAwareRegistry();
+    seedAdminHarnessDom(registry);
+    const click = installClickCapture(registry);
+    const locationRef = { location: 'sunset-somo' };
+    const sandbox = createAdminUiSandbox(registry, locationRef);
+    seedWritesEnabled(sandbox, registry, locationRef);
+    registry.byId.set('admin-capacity-input', { value: '5', tagName: 'INPUT' });
+    const queues = partitionFetch(sandbox);
+    const msg = registry.getElementById('admin-save-msg');
+    if (typeof sandbox.wireAdminTab === 'function') sandbox.wireAdminTab();
+
+    click.fire('save-capacity');
+    queues.mutationQueue[0].d.resolve({ __reject: 'network down' });
+    await flushMicrotasks(16);
+    assert(
+      'owning-mut-error: busy released after owning mutation error',
+      sandbox.adminSaveBusy === false,
+      `busy=${sandbox.adminSaveBusy}`,
+    );
+    assert(
+      'owning-mut-error: error UI shown for owning failure',
+      msg.style.display === 'block' && String(msg.textContent || '').length > 0,
+      `msg=${msg.textContent}`,
+    );
+  }
+}
+
 // ── [4] CSS contract for mobile widths (static) ────────────────────────────
 
 function runMobileCssChecks() {
@@ -2162,6 +2753,7 @@ async function main() {
     runDomBehaviorChecks();
     await runPricingDraftRerenderChecks();
     await runAdminReloadOwnershipRaceChecks();
+    await runAdminUnifiedBusyOwnershipChecks();
     runMobileCssChecks();
 
     // Browser execution is mandatory for this verifier — never unconditional-pass on skip.
