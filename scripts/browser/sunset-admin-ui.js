@@ -338,12 +338,6 @@ function adminReloadConfig(){
   // same SPA session previously kept stale surf_packs until school switch/restart.
   if (typeof scheduleInvalidateAdminCatalogCache === 'function') scheduleInvalidateAdminCatalogCache();
   loadAdminTab();
-  // Live Finance summary loads on admin open/reload (incl. school/location change),
-  // decoupled from the config-load fetch sequence. Sunset-only for now.
-  if (typeof getClient === 'function' && getClient() === 'sunset'
-      && typeof loadAdminFinanceSummary === 'function') {
-    loadAdminFinanceSummary();
-  }
 }function adminIsLessonPrice(p){
   return String((p && p.category) || '').toLowerCase() === 'lesson';
 }function adminLessonKindOptions(selected){
@@ -1241,6 +1235,8 @@ function loadAdminFinanceSummary(){
   var body = el('admin-finance-body');
   if (!body) return;
   var seq = ++financeLoadSeq;
+  var originClient = getClient();
+  var originLocation = originClient === 'sunset' ? getSunsetLocation() : '';
   body.innerHTML = '<div class="portal-admin-finance-loading" role="status">' +
     escHtml(portalT('admin.finance.loading')) + '</div>';
   var url = '/staff/admin/finance/summary' + adminClientQuery();
@@ -1255,7 +1251,7 @@ function loadAdminFinanceSummary(){
     Promise.race([request, timeout])
       .then(function(data){
         clearFinanceTimeout();
-        if (seq !== financeLoadSeq) return; // stale response, ignore
+        if (seq !== financeLoadSeq || getClient() !== originClient || (originClient === 'sunset' && getSunsetLocation() !== originLocation)) return; // stale response, ignore
         if (!data || data.success !== true || !data.summary){
           return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
         }
@@ -1263,16 +1259,23 @@ function loadAdminFinanceSummary(){
       })
       .catch(function(e){
         clearFinanceTimeout();
-        if (seq !== financeLoadSeq) return; // stale
+        if (seq !== financeLoadSeq || getClient() !== originClient || (originClient === 'sunset' && getSunsetLocation() !== originLocation)) return; // stale
         body.innerHTML = renderFinanceErrorHtml();
         wireFinanceRetry();
       });
   } catch (syncErr){
     clearFinanceTimeout();
-    if (seq !== financeLoadSeq) return;
+    if (seq !== financeLoadSeq || getClient() !== originClient || (originClient === 'sunset' && getSunsetLocation() !== originLocation)) return;
     body.innerHTML = renderFinanceErrorHtml();
     wireFinanceRetry();
   }
+}
+
+function loadAdminFinanceForCurrentScope(){
+  // Scope changes invalidate any in-flight response even when the destination
+  // tenant has no Finance endpoint. This request is separate from config loads.
+  ++financeLoadSeq;
+  if (getClient() === 'sunset') loadAdminFinanceSummary();
 }
 
 function wireFinanceRetry(){

@@ -47,6 +47,20 @@ eq('ordinary row uses amount_due_cents', effectiveServiceDueCents({ amount_due_c
 eq('custom line (source) uses signed metadata.amount_cents', effectiveServiceDueCents({ amount_due_cents: 0, metadata: { source: 'staff_custom_line', amount_cents: -1000 } }), -1000);
 eq('custom line (flag) honored', effectiveServiceDueCents({ amount_due_cents: 0, metadata: { staff_custom_line: true, amount_cents: 2500 } }), 2500);
 eq('custom line (component) honored', effectiveServiceDueCents({ amount_due_cents: 0, metadata: { component: 'staff_custom_line', amount_cents: 700 } }), 700);
+for (const malformed of [1.5, '1.5', NaN, Infinity]) {
+  let trapped = false;
+  try { effectiveServiceDueCents({ amount_due_cents: 0, metadata: { source:'staff_custom_line', amount_cents: malformed } }); } catch (_) { trapped = true; }
+  ok('fractional/malformed signed metadata cents fail closed: ' + String(malformed), trapped);
+}
+for (const fixture of [
+  { label: 'ordinary due', args: { bsr: [{ booking_id: 'B', service_date: '2026-07-15', amount_due_cents: 1.5 }], payments: [], bookings: [] } },
+  { label: 'payment', args: { bsr: [], payments: [{ booking_id: 'B', amount_paid_cents: '1.5', paid_at: '2026-07-15T10:00:00Z' }], bookings: [] } },
+  { label: 'booking total', args: { bsr: [], payments: [], bookings: [{ booking_id: 'B', total_amount_cents: Infinity }] } },
+]) {
+  let trapped = false;
+  try { computeSunsetFinanceSummary({ now: new Date('2026-07-15T12:00:00Z'), timeZone: 'Europe/Madrid', ...fixture.args }); } catch (_) { trapped = true; }
+  ok(`${fixture.label} malformed/fractional cents fail closed`, trapped);
+}
 
 // ── fixtures (already SQL-filtered per the source contract) ──────────────────
 const bookings = [

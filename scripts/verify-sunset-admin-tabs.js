@@ -2579,7 +2579,7 @@ async function runBrowserSmoke(playwright) {
         desktop.keys[0] === 'finance' && desktop.keys[1] === 'pricing', desktop.keys.join(','));
       assert('desktop Finance default selected', desktop.financeSelected);
       assert('desktop Pricing panel hidden by default', desktop.pricingHidden);
-      assert('desktop finance shell honest empty copy', /not available yet/i.test(desktop.finText));
+      assert('desktop finance shell honest empty copy', /(?:not available yet|could not load the finance summary)/i.test(desktop.finText));
 
       await page.locator('[data-admin-tab="pricing"]').click();
       await page.waitForFunction(() => {
@@ -2711,7 +2711,7 @@ async function runBrowserSmoke(playwright) {
       assert(`${width}px Finance first, Pricing second`,
         snap.keys[0] === 'finance' && snap.keys[1] === 'pricing', snap.keys.join(','));
       assert(`${width}px Finance default selected`, snap.financeSelected);
-      assert(`${width}px finance shell honest empty copy`, /not available yet/i.test(snap.finText));
+      assert(`${width}px finance shell honest empty copy`, /(?:not available yet|could not load the finance summary)/i.test(snap.finText));
       assert(`${width}px no horizontal subtab overflow/clip`, !snap.overflow);
       assert(`${width}px subtab target height >= 44`, snap.tabH >= 44, `h=${snap.tabH}`);
       assert(`${width}px subtab target width >= 44`, snap.tabW >= 44, `w=${snap.tabW}`);

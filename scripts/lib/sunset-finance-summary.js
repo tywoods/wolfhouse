@@ -30,7 +30,8 @@ const CUSTOM_LINE_MARKERS = Object.freeze(['staff_custom_line']);
 
 function toInt(value) {
   const n = Number(value);
-  return Number.isFinite(n) ? Math.trunc(n) : 0;
+  if (!Number.isInteger(n)) throw new TypeError('invalid integer cents');
+  return n;
 }
 
 function isStaffCustomLine(metadata) {
@@ -48,8 +49,10 @@ function isStaffCustomLine(metadata) {
  */
 function effectiveServiceDueCents(row) {
   const md = (row && row.metadata) || {};
-  if (isStaffCustomLine(md) && md.amount_cents != null && Number.isFinite(Number(md.amount_cents))) {
-    return toInt(md.amount_cents);
+  if (isStaffCustomLine(md) && md.amount_cents != null) {
+    const signed = Number(md.amount_cents);
+    if (!Number.isInteger(signed)) throw new TypeError('invalid integer cents');
+    return signed;
   }
   return toInt(row && row.amount_due_cents);
 }

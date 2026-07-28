@@ -72,7 +72,7 @@ const {
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
 const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
-const { fetchSunsetFinanceData } = require('./lib/sunset-finance-data');
+const { fetchSunsetFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
 const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
 const {
   READYZ_PATH,
@@ -19968,7 +19968,7 @@ function switchToTab(tab, subtab){
   }
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'customers') loadCustomersTab();
-  if (tab === 'admin') loadAdminTab({ resetSubTab: true });
+  if (tab === 'admin') { loadAdminTab({ resetSubTab: true }); loadAdminFinanceForCurrentScope(); }
   if (tab === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
@@ -20135,7 +20135,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'ask-luna') wireLunaStaffTabCards();
     if (target === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
     if (target === 'customers') loadCustomersTab();
-    if (target === 'admin') loadAdminTab({ resetSubTab: true });
+    if (target === 'admin') { loadAdminTab({ resetSubTab: true }); loadAdminFinanceForCurrentScope(); }
     if (target === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
     if (target === 'day-schedule') loadDaySchedule();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
@@ -21033,7 +21033,7 @@ function setSunsetLocation(locationId){
   if (getPortalProfile(getClient()).is_surf_vertical) {
     if (el('tab-portal-home') && el('tab-portal-home').classList.contains('active')) loadSchedulePage();
     if (el('tab-customers') && el('tab-customers').classList.contains('active')) loadCustomersTab();
-    if (el('tab-admin') && el('tab-admin').classList.contains('active')) loadAdminTab();
+    if (el('tab-admin') && el('tab-admin').classList.contains('active')) { loadAdminTab(); loadAdminFinanceForCurrentScope(); }
     if (el('tab-conversations') && el('tab-conversations').classList.contains('active')) {
       inboxConversationsCache = null;
       selectedConvId = null;
@@ -38958,14 +38958,15 @@ async function handleAdminConfigPricePatch(ruleIdRaw, query, req, res, user) {
 // (pure lib); browser only renders. Fails closed on any other tenant/location.
 async function handleAdminFinanceSummaryGet(query, req, res, user) {
   const started = Date.now();
-  const clientSlug = String(query.client || query.client_slug || '').trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const rawClient = query.client != null ? query.client : query.client_slug;
+  const clientSlug = typeof rawClient === 'string' ? rawClient.trim() : '';
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid request');
   if (clientSlug !== 'sunset') {
-    return sendJSON(res, 403, { success: false, error: 'finance_unavailable_for_client' });
+    return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
   }
-  const locationId = normalizeSunsetLocationId(query.location);
+  const locationId = typeof query.location === 'string' ? query.location.trim() : '';
   if (locationId !== 'sunset-somo') {
-    return sendJSON(res, 403, { success: false, error: 'finance_unavailable_for_location' });
+    return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
   }
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   try {
@@ -38979,6 +38980,10 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
       elapsed_ms: Date.now() - started,
     });
   } catch (err) {
+    if (err instanceof FinanceDataQualityError) {
+      console.error('[admin.finance.summary] data quality check failed');
+      return sendJSON(res, 503, { success: false, error: 'finance data unavailable', code: 'FINANCE_DATA_QUALITY' });
+    }
     console.error('[admin.finance.summary] read failed:', err && err.code, '|', err && err.message);
     return sendJSON(res, 500, { success: false, error: 'read failed' });
   }

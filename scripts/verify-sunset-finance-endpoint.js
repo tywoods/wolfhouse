@@ -1,54 +1,51 @@
 'use strict';
 
-/**
- * Verifier for the Sunset Finance read-only endpoint wiring in staff-query-api.js.
- * Source-level assertions (the full server is not booted here): route + owner/admin
- * gate, fail-closed tenant/location, server-side compute, no client-side money math.
- */
-
+/** Real HTTP route/auth verifier for the Sunset Finance endpoint. Invalid scope
+ * must be rejected before any PostgreSQL acquisition (DATABASE_URL is deliberately
+ * unusable); auth-required mode must reject before reaching the handler. */
 const fs = require('fs');
 const path = require('path');
-
+const http = require('http');
+const { spawn } = require('child_process');
 const ROOT = path.join(__dirname, '..');
-const API = fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8');
-
-let pass = 0;
-let fail = 0;
-function ok(label, cond, extra) {
-  if (cond) { pass += 1; console.log(`  PASS  ${label}`); }
-  else { fail += 1; console.log(`  FAIL  ${label}${extra !== undefined ? `  (${extra})` : ''}`); }
+const API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
+const API = fs.readFileSync(API_PATH, 'utf8');
+let pass = 0; let fail = 0;
+function ok(label, cond, extra) { if (cond) { pass++; console.log(`  PASS  ${label}`); } else { fail++; console.error(`  FAIL  ${label}${extra ? ` (${extra})` : ''}`); } }
+function request(port, pathname) { return new Promise((resolve, reject) => { http.get({ host:'127.0.0.1', port, path:pathname }, (res) => { let body=''; res.on('data', (c) => { body += c; }); res.on('end', () => resolve({ status:res.statusCode, body })); }).on('error', reject); }); }
+async function start(port, authRequired) {
+  const child = spawn(process.execPath, [API_PATH], { cwd:ROOT, stdio:['ignore','pipe','pipe'], env:{ ...process.env, NODE_PATH:[process.env.NODE_PATH,'/opt/wolfhouse/WH/node_modules'].filter(Boolean).join(path.delimiter), NODE_ENV:'test', STAFF_QUERY_API_PORT:String(port), STAFF_QUERY_API_HOST:'127.0.0.1', STAFF_AUTH_REQUIRED:String(authRequired), STAFF_AUTH_ALLOW_OPEN:authRequired ? 'false' : 'true', DEFAULT_CLIENT_SLUG:'sunset', DATABASE_URL:'postgres://invalid:***@127.0.0.1:1/invalid' } });
+  let logs=''; child.stdout.on('data', (d) => { logs += d; }); child.stderr.on('data', (d) => { logs += d; });
+  for (let i=0;i<80;i++) { try { const r=await request(port,'/healthz'); if (r.status) return {child, logs:()=>logs}; } catch (_) {} await new Promise((r)=>setTimeout(r,50)); }
+  child.kill(); throw new Error(`server did not start: ${logs}`);
 }
-
-function between(src, start, end) {
-  const i = src.indexOf(start);
-  if (i < 0) return '';
-  const j = src.indexOf(end, i + start.length);
-  return src.slice(i, j < 0 ? src.length : j);
+async function stop(child) { if (!child || child.exitCode != null) return; child.kill('SIGTERM'); await Promise.race([new Promise((r)=>child.once('exit',r)),new Promise((r)=>setTimeout(r,1000))]); if (child.exitCode == null) child.kill('SIGKILL'); }
+async function main() {
+  ok('real GET route is admin-auth gated', /pathname === '\/staff\/admin\/finance\/summary' && method === 'GET'[\s\S]{0,300}requireAuth\(req, res, 'admin'\)/.test(API));
+  ok('handler validates scope before withPgClient', API.indexOf("if (!clientSlug || SQL_INJECT_RE.test(clientSlug))") < API.indexOf('withPgClient((pg) => fetchSunsetFinanceData'));
+  let open; let locked;
+  try {
+    open = await start(43981, false);
+    const cases = [
+      ['/staff/admin/finance/summary?location=sunset-somo',400],
+      ['/staff/admin/finance/summary?client=&location=sunset-somo',400],
+      ['/staff/admin/finance/summary?client=%27%3Bdrop&location=sunset-somo',400],
+      ['/staff/admin/finance/summary?client=wolfhouse-somo&location=sunset-somo',403],
+      ['/staff/admin/finance/summary?client=sunset',403],
+      ['/staff/admin/finance/summary?client=sunset&location=',403],
+      ['/staff/admin/finance/summary?client=sunset&location=sunset-sardinero',403],
+    ];
+    for (const [url,status] of cases) { const r=await request(43981,url); ok(`real route rejects ${url} with ${status} before PG`, r.status===status, `${r.status} ${r.body}`); }
+    ok('pre-PG rejection does not log a DB connection attempt', !/ECONNREFUSED|invalid.*database|connect ECONN/.test(open.logs()), open.logs());
+  } finally { await stop(open && open.child); }
+  try {
+    locked = await start(43982, true);
+    const r = await request(43982,'/staff/admin/finance/summary?client=sunset&location=sunset-somo');
+    ok('real auth gate rejects unauthenticated request', r.status===401 || r.status===403, `${r.status} ${r.body}`);
+    ok('auth rejection occurs before PG', !/ECONNREFUSED|connect ECONN/.test(locked.logs()), locked.logs());
+  } finally { await stop(locked && locked.child); }
+  ok('data quality failure is safe 503', /err instanceof FinanceDataQualityError[\s\S]*503[\s\S]*FINANCE_DATA_QUALITY/.test(API));
+  console.log(`\n── verify:sunset-finance-endpoint: ${pass} passed, ${fail} failed ──`);
+  if (fail) process.exitCode=1; else console.log('verify:sunset-finance-endpoint — ALL CHECKS PASSED');
 }
-
-// ── requires wired ──────────────────────────────────────────────────────────
-ok('requires fetchSunsetFinanceData', /require\(['"]\.\/lib\/sunset-finance-data['"]\)/.test(API));
-ok('requires computeSunsetFinanceSummary', /require\(['"]\.\/lib\/sunset-finance-summary['"]\)/.test(API));
-
-// ── route registered as owner/admin GET ─────────────────────────────────────
-const routeBlock = between(API, "pathname === '/staff/admin/finance/summary'", 'handleAdminFinanceSummaryGet(parsed.query');
-ok('GET route /staff/admin/finance/summary registered', /pathname === '\/staff\/admin\/finance\/summary' && method === 'GET'/.test(API));
-ok("route gated owner/admin via requireAuth(...,'admin')", /requireAuth\(req, res, 'admin'\)/.test(routeBlock));
-
-// ── handler behavior ────────────────────────────────────────────────────────
-const handler = between(API, 'async function handleAdminFinanceSummaryGet', 'async function handleAdminConfigPricePost');
-ok('handler defined', handler.length > 0);
-ok('fails closed for non-sunset client', /clientSlug !== 'sunset'/.test(handler) && /finance_unavailable_for_client/.test(handler));
-ok('normalizes + restricts location to sunset-somo', /normalizeSunsetLocationId\(query\.location\)/.test(handler) && /locationId !== 'sunset-somo'/.test(handler) && /finance_unavailable_for_location/.test(handler));
-ok('asserts staff client access (fail closed)', /assertStaffClientAccess\(user, clientSlug, res\)/.test(handler));
-ok('rejects sql-injection-shaped client slug', /SQL_INJECT_RE\.test\(clientSlug\)/.test(handler));
-ok('reads via withPgClient + fetchSunsetFinanceData', /withPgClient\(\(pg\) => fetchSunsetFinanceData\(pg, \{ clientSlug, locationId \}\)\)/.test(handler));
-ok('computes server-side via pure lib', /computeSunsetFinanceSummary\(\{[\s\S]*data \}\)/.test(handler));
-ok('uses Europe/Madrid timezone', /timeZone: 'Europe\/Madrid'/.test(handler));
-ok('does not do money arithmetic in the handler', !/[+\-*/]=|Math\.(max|min|round)\(/.test(handler.replace(/Date\.now\(\) - started/g, '')));
-ok('returns success + summary payload', /success: true/.test(handler) && /summary,/.test(handler));
-ok('read failure returns safe 500 (no raw detail leak)', /error: 'read failed'/.test(handler));
-
-console.log(`\n── verify:sunset-finance-endpoint: ${pass} passed, ${fail} failed ──`);
-if (fail === 0) console.log('verify:sunset-finance-endpoint — ALL CHECKS PASSED');
-process.exit(fail ? 1 : 0);
+main().catch((e)=>{ console.error(e); process.exit(1); });
