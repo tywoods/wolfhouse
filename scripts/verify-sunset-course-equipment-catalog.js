@@ -109,6 +109,9 @@ function fakePg(locationId) {
     assert.deepStrictEqual(asyncCatalog.offerings.find((x) => x.offering_type === 'course').equipment_options.map((x) => x.offering_key), ['kayak_rental', 'helmet_rental']);
     assert.deepStrictEqual(asyncCatalog.offerings.find((x) => x.offering_type === 'private_lesson').equipment_options.map((x) => x.offering_key), ['kayak_rental', 'helmet_rental']);
     assert.deepStrictEqual(asyncCatalog.courses[0].equipment_options.map((x) => x.label), ['Same label', 'Same label']);
+    const coursesOnly = await loadSunsetBookableOfferings(pg, { locationId, coursesOnly: true });
+    assert.strictEqual(coursesOnly.offerings.some((x) => x.offering_type === 'private_lesson'), false,
+      'coursesOnly projection must not leak the asynchronously loaded Private Course');
   }
   console.log('PASS sunset course-owned equipment catalog');
 })().catch((err) => { console.error(err); process.exitCode = 1; });

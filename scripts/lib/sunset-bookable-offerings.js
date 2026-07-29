@@ -565,7 +565,9 @@ async function loadSunsetBookableOfferings(pg, opts = {}) {
     location_id: locationId,
     source: 'admin_db',
     requested_dates: requestedDates,
-    offerings: filtered.concat(projected.offerings.filter((o) => o.offering_type === 'private_lesson')),
+    offerings: filtered.concat(opts.coursesOnly
+      ? []
+      : projected.offerings.filter((o) => o.offering_type === 'private_lesson')),
     courses: projected.courses,
   };
 }
