@@ -382,6 +382,7 @@ const {
   createRentalOffering,
   updateRentalOffering,
   deleteRentalOffering,
+  setRentalOfferingActive,
 } = require('./lib/tenant-rental-offerings');
 const {
   defaultPackConfig,
@@ -16274,11 +16275,23 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-edit-field label{display:block;font-size:11px;font-weight:700;color:var(--text-2);margin-bottom:4px}
 .portal-admin-edit-field input{width:100%;max-width:240px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)}
 .portal-admin-course-equipment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,240px));gap:12px;max-width:100%}
-.portal-admin-equipment-editor{grid-column:1/-1;min-width:0}.portal-admin-equipment-editor h4{margin:4px 0 8px}.portal-admin-equipment-option-row{display:grid;grid-template-columns:minmax(140px,2fr) minmax(110px,1fr) minmax(110px,1fr) auto;gap:8px;align-items:end;margin-bottom:8px;min-width:0}.portal-admin-equipment-option-row label{display:flex;flex-direction:column;min-width:0;font-size:11px;font-weight:700;color:var(--text-2)}.portal-admin-equipment-option-row select,.portal-admin-equipment-option-row input{width:100%;min-width:0;min-height:44px;box-sizing:border-box}
+.portal-admin-equipment-editor{grid-column:1/-1;min-width:0}.portal-admin-equipment-editor h4{margin:4px 0 8px}
+.portal-admin-equipment-option-row{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;min-width:0;max-width:100%}
+.portal-admin-equipment-option-fields{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr);gap:8px;align-items:end;min-width:0}
+.portal-admin-equipment-option-row label{display:flex;flex-direction:column;min-width:0;font-size:11px;font-weight:700;color:var(--text-2)}
+.portal-admin-equipment-option-row select,.portal-admin-equipment-option-row input{width:100%;min-width:0;min-height:44px;box-sizing:border-box}
+.portal-admin-equipment-option-actions{display:flex;width:100%;min-width:0}
+.portal-admin-equipment-option-actions .btn{width:100%;justify-content:center;min-height:44px;margin:0}
 .portal-admin-touch{display:inline-flex;align-items:center;min-height:44px;margin-right:12px}
+.portal-admin-equip-header{align-items:flex-start}
+.portal-admin-equip-enabled{display:inline-flex;align-items:center;gap:6px;margin-top:4px;font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer;user-select:none}
+.portal-admin-equip-enabled input{width:16px;height:16px;margin:0;accent-color:var(--sched-primary,#4E5853)}
+.portal-admin-subsection.is-equip-disabled{opacity:.72}
+.portal-admin-subsection.is-equip-disabled .portal-admin-subsection-title{color:var(--text-2)}
+.portal-admin-equip-price-grid{gap:8px}
 .portal-admin-subsection fieldset{min-width:0;max-width:100%;border:1px solid var(--border-soft);border-radius:8px;margin:12px 0;padding:12px}
 .portal-schedule-course-equipment{border:0;margin:10px 0 0;padding:0;min-width:0;max-width:100%}.portal-schedule-course-equipment-list{display:grid;gap:10px;min-width:0}.portal-schedule-course-equipment-item{border:1px solid var(--border-soft);border-radius:10px;padding:10px;min-width:0;max-width:100%;box-sizing:border-box}.portal-schedule-course-equipment-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px}.portal-schedule-course-equipment-left{display:inline-flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0}.portal-schedule-course-equipment-name{flex:0 1 auto;min-width:0;margin:0;padding:0;font-size:14px;font-weight:600;color:var(--text);line-height:1.25}.portal-schedule-course-equipment-check{display:inline-flex;align-items:center;justify-content:center;flex:0 0 44px;width:44px;height:44px;margin:0;cursor:pointer;line-height:0;opacity:1!important}.portal-schedule-course-equipment-check input.portal-schedule-course-equipment-radial,.portal-schedule-course-equipment-check input[type=checkbox]{-webkit-appearance:none;appearance:none;margin:0!important;padding:0!important;width:18px!important;height:18px!important;min-width:18px!important;max-width:18px!important;min-height:18px!important;max-height:18px!important;flex:0 0 18px;aspect-ratio:1/1;border-radius:50%!important;border:2px solid var(--text-2,#6b7280)!important;background:var(--surface,#1a1a1a)!important;box-sizing:border-box!important;cursor:pointer;opacity:1!important;vertical-align:middle;accent-color:var(--sched-primary,#4E5853);box-shadow:0 0 0 1px rgba(0,0,0,.04);transition:border-color .15s,background .15s,box-shadow .15s}.portal-schedule-course-equipment-check input:hover{border-color:var(--text,#e8e8e8)!important}.portal-schedule-course-equipment-check input:checked{border-color:var(--sched-primary,#4E5853)!important;background-color:var(--surface,#1a1a1a)!important;background-image:radial-gradient(circle,var(--sched-primary,#4E5853) 0 5px,transparent 5.5px)!important}.portal-schedule-course-equipment-check input:focus{outline:none}.portal-schedule-course-equipment-check input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}.portal-schedule-course-equipment-surfers{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:0 0 auto;margin-left:auto}.portal-schedule-course-equipment-surfers .portal-schedule-course-equipment-qty-label{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);white-space:nowrap}.portal-schedule-course-equipment-surfers input[type=number]{width:64px;min-width:64px;min-height:36px;padding:6px 8px;text-align:center;box-sizing:border-box;font-variant-numeric:tabular-nums}.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-qty-label,.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-qty-label input{opacity:.45;color:var(--text-3)}.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-qty-label{pointer-events:none}.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-check,.portal-schedule-course-equipment.is-off .portal-schedule-course-equipment-check input{opacity:1!important;pointer-events:auto!important}.portal-schedule-course-equipment-modes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.portal-schedule-course-equipment-modes .portal-schedule-create-activity-btn{flex:1 1 auto;min-width:120px}.portal-schedule-course-equipment-sets{margin-top:10px}.portal-schedule-course-equipment-sets label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}.portal-schedule-course-equipment-sets input[type=number]{min-height:44px;box-sizing:border-box;width:100%;max-width:160px}.portal-schedule-create-main-activity-path{display:none!important}.portal-schedule-create-rental-price{margin-left:auto;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}.portal-schedule-create-rental-row.is-off .portal-schedule-create-rental-price{opacity:.45}
-@media(max-width:520px){.portal-admin-course-equipment-grid,.portal-admin-equipment-option-row{grid-template-columns:minmax(0,1fr)}.portal-admin-edit-field input{min-height:44px;max-width:100%;box-sizing:border-box}.portal-admin-equipment-option-row .portal-admin-touch{width:100%;justify-content:center}}
+@media(max-width:520px){.portal-admin-course-equipment-grid,.portal-admin-equipment-option-fields{grid-template-columns:minmax(0,1fr)}.portal-admin-edit-field input{min-height:44px;max-width:100%;box-sizing:border-box}.portal-admin-equipment-option-row .portal-admin-touch{width:100%;justify-content:center}}
 .portal-admin-edit-actions{display:flex;gap:8px;margin-top:0;flex-wrap:wrap;align-items:center}
 /* Groupless Equipment Pricing tab — cleaner add/edit form + duration control. */
 .portal-admin-equip-form{grid-template-columns:none;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
@@ -39331,6 +39344,7 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
     if (!body || typeof body !== 'object') return send400(res, 'invalid body');
   }
 
+  const actorId = user && user.staff_user_id ? user.staff_user_id : null;
   const params = {
     clientSlug,
     locationId: loc.locationId,
@@ -39339,14 +39353,61 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
     group_key: body.group_key,
     excludes: body.excludes,
     sort_order: body.sort_order,
-    actorId: user && user.staff_user_id ? user.staff_user_id : null,
+    actorId,
   };
+
+  // Smallest active-state path: PATCH with boolean `active` (optionally alone).
+  const wantsActiveToggle = op === 'update' && Object.prototype.hasOwnProperty.call(body, 'active');
+  if (wantsActiveToggle && body.active !== true && body.active !== false) {
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'active must be a boolean',
+      elapsed_ms: Date.now() - started,
+    });
+  }
 
   try {
     const result = await withPgClient(async (pg) => {
       if (op === 'create') return createRentalOffering(pg, params);
-      if (op === 'update') return updateRentalOffering(pg, params);
-      return deleteRentalOffering(pg, params);
+      if (op === 'delete') return deleteRentalOffering(pg, params);
+      if (wantsActiveToggle) {
+        if (body.active === true) {
+          // Fail closed: do not re-enable an unpriced offering into the bookable catalog.
+          const hasLoc = loc.locationId != null;
+          const priceCheck = await pg.query(
+            // MULTICLIENT_SCOPE_OK: client + location scoped active positive prices for offering
+            hasLoc
+              ? `SELECT 1 FROM tenant_price_rules
+                  WHERE client_slug = $1 AND location_id = $2 AND item_type = 'rental'
+                    AND active = true AND amount_cents > 0
+                    AND (item_code = $3 OR item_code LIKE $4)
+                  LIMIT 1`
+              : `SELECT 1 FROM tenant_price_rules
+                  WHERE client_slug = $1 AND item_type = 'rental'
+                    AND active = true AND amount_cents > 0
+                    AND (item_code = $2 OR item_code LIKE $3)
+                  LIMIT 1`,
+            hasLoc
+              ? [clientSlug, loc.locationId, offeringKey, `${offeringKey}__%`]
+              : [clientSlug, offeringKey, `${offeringKey}__%`],
+          );
+          if (!priceCheck.rows.length) {
+            return {
+              ok: false,
+              error: 'cannot_enable_unpriced_offering',
+              message: 'Enable requires at least one active positive price for this rental item.',
+            };
+          }
+        }
+        return setRentalOfferingActive(pg, {
+          clientSlug,
+          locationId: loc.locationId,
+          offering_key: offeringKey,
+          active: body.active,
+          actorId,
+        });
+      }
+      return updateRentalOffering(pg, params);
     });
     appendAuditLog({
       ts: new Date().toISOString(),
@@ -39358,7 +39419,15 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
       elapsed_ms: Date.now() - started,
     });
     if (!result.ok) {
-      return sendJSON(res, op === 'delete' ? 404 : 409, { success: false, error: result.error || 'not found', elapsed_ms: Date.now() - started });
+      const status = op === 'delete' || /not found/i.test(String(result.error || ''))
+        ? 404
+        : (result.error === 'cannot_enable_unpriced_offering' || /boolean/i.test(String(result.error || '')) ? 400 : 409);
+      return sendJSON(res, status, {
+        success: false,
+        error: result.error || 'not found',
+        message: result.message || result.error || 'not found',
+        elapsed_ms: Date.now() - started,
+      });
     }
     return sendJSON(res, op === 'create' ? 201 : 200, { success: true, ...result, elapsed_ms: Date.now() - started });
   } catch (err) {

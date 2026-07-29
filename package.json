@@ -68,6 +68,7 @@
     "verify:sunset-admin-course-equipment-production": "node scripts/verify-sunset-admin-course-equipment-production.js",
     "verify:sunset-course-equipment-ui-playwright": "node scripts/verify-sunset-course-equipment-ui-playwright.js",
     "verify:sunset-course-equipment-admin-ui-playwright": "node scripts/verify-sunset-course-equipment-admin-ui-playwright.js",
+    "verify:sunset-admin-equipment-rental-fixes": "node scripts/verify-sunset-admin-equipment-rental-fixes.js",
     "verify:sunset-backend-blockers": "node scripts/verify-sunset-backend-blockers.js",
     "verify:sunset-luna-admin-tab": "node scripts/verify-sunset-luna-admin-tab.js",
     "verify:portal-typography-fonts": "node scripts/verify-portal-typography-fonts.js",

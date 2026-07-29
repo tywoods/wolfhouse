@@ -16,7 +16,7 @@ const {
 } = require('./tenant-business-config');
 const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const locationStore = require('./sunset-admin-location-store');
-const { isValidOfferingKey } = require('./tenant-rental-offerings');
+const { isValidOfferingKey, setRentalOfferingActive } = require('./tenant-rental-offerings');
 const { parseRentalDurationKey } = require('../browser/sunset-rental-duration-model');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1076,8 +1076,56 @@ async function deactivatePriceRule(client, { ruleId, clientSlug, locationId, act
       beforeJson: rowToAuditJson(before),
       afterJson: rowToAuditJson(after),
     });
+
+    // Last active positive price for a rental offering → soft-disable the offering
+    // identity so it cannot remain bookable/selectable without a live price.
+    // Prices/history rows stay; only tenant_rental_offerings.active flips.
+    let offeringDisabled = false;
+    if (String(before.item_type || '') === 'rental') {
+      const parts = parseItemCodeParts(before.item_code || before.offering_key || '');
+      const offeringKey = parts && parts.offering_key
+        ? parts.offering_key
+        : String(before.item_code || '').split('__')[0];
+      if (offeringKey && isValidOfferingKey(offeringKey)) {
+        const remainSql = hasLoc
+          ? `SELECT 1 FROM tenant_price_rules
+              WHERE client_slug = $1 AND location_id = $2 AND item_type = 'rental'
+                AND active = true AND amount_cents > 0
+                AND (item_code = $3 OR item_code LIKE $4)
+              LIMIT 1`
+          : `SELECT 1 FROM tenant_price_rules
+              WHERE client_slug = $1 AND item_type = 'rental'
+                AND active = true AND amount_cents > 0
+                AND (item_code = $2 OR item_code LIKE $3)
+              LIMIT 1`;
+        const remainParams = hasLoc
+          ? [clientSlug, loc, offeringKey, `${offeringKey}__%`]
+          : [clientSlug, offeringKey, `${offeringKey}__%`];
+        const remaining = await client.query(remainSql, remainParams);
+        if (!remaining.rows.length) {
+          const offRes = await setRentalOfferingActive(client, {
+            clientSlug,
+            locationId: loc,
+            offering_key: offeringKey,
+            active: false,
+            actorId: actor && actor.staff_user_id ? actor.staff_user_id : null,
+          });
+          offeringDisabled = !!(offRes && offRes.ok);
+        }
+      }
+    }
+
     await client.query('COMMIT');
-    return { ok: true, status: 200, body: { success: true, price_rule: after, storage: 'db' } };
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        price_rule: after,
+        storage: 'db',
+        offering_disabled: offeringDisabled,
+      },
+    };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

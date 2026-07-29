@@ -22,7 +22,11 @@ const apiSrc = read('staff-query-api.js');
 console.log('\nverify:sunset-equipment-pricing-tab\n');
 
 console.log('[render] flat, data-driven, groupless');
-assert('render builds from buildEquipmentPricingList', /renderAdminSectionPricesFromConfig[\s\S]{0,400}buildEquipmentPricingList\(prices\)/.test(adminUi));
+assert('render builds from buildEquipmentPricingList (direct or via merge helper)',
+  /renderAdminSectionPricesFromConfig[\s\S]{0,400}buildEquipmentPricingList\(prices\)/.test(adminUi)
+  || (/adminMergeEquipmentPricingItems/.test(adminUi)
+    && /function adminMergeEquipmentPricingItems[\s\S]{0,400}buildEquipmentPricingList\(prices\)/.test(adminUi)
+    && /renderAdminSectionPricesFromConfig[\s\S]{0,400}adminMergeEquipmentPricingItems/.test(adminUi)));
 assert('no group-order iteration in the new render', !/renderAdminSectionPricesFromConfig[\s\S]{0,900}adminRentalGroupOrder\(\)/.test(adminUi));
 assert('renders equipment items (data-admin-equip)', adminUi.includes('data-admin-equip="'));
 assert('Add-equipment button present', adminUi.includes("data-admin-action=\"add-equipment\""));
