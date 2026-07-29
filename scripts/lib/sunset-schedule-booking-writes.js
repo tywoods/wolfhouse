@@ -419,9 +419,10 @@ async function prepareGenericRentalsForCreate(opts) {
     const isHourDuration = /hour|half_day/i.test(selectedDuration);
     let priced;
     if (Number.isInteger(dayCount) && dayCount > 1) {
-      // Multi-day commercial rule:
-      //  - exact active N_days package when selected duration matches the span
-      //  - otherwise active 1_day repeated once per selected date
+      // Multi-day commercial rule (server-authoritative, fail-closed):
+      //  - if exact active N_days package exists, it is the ONLY accepted duration
+      //  - only when exact N_days is absent may active 1_day be selected and
+      //    repeated once per selected date
       //  - hour packages are never offered/accepted across multi-day ranges
       if (isHourDuration) {
         return { ok: false, reason: 'rental_duration_not_compatible' };
@@ -438,6 +439,11 @@ async function prepareGenericRentalsForCreate(opts) {
           };
         }
       } else if (selectedDuration === '1_day' || selectedDuration === 'full_day') {
+        // Reject malicious/stale 1_day when exact active N_days exists for this rental.
+        const exactProbe = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: exactKey });
+        if (exactProbe.ok) {
+          return { ok: false, reason: 'rental_duration_not_compatible' };
+        }
         const baseKey = selectedDuration === 'full_day' ? '1_day' : selectedDuration;
         priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: baseKey });
         if (priced.ok) {

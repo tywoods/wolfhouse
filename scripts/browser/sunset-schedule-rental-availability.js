@@ -193,8 +193,9 @@ function scheduleRentalPriceMatchesLocation(price, locationId) {
 /**
  * Compatible duration packages for a calendar span.
  * - One day (1_day): all active N_hours (+ legacy half/1h/2h) plus 1_day.
- * - Multi-day (N_days): exact active N_days if present, else/also active 1_day.
- *   Hour packages are never offered across multi-day ranges.
+ * - Multi-day (N_days): exact active N_days is the ONLY selectable duration when
+ *   present; only when exact is absent may active 1_day be offered for per-date
+ *   repeat. Hour packages are never offered across multi-day ranges.
  */
 function scheduleCompatibleRentalDurationKeys(activeDurationKeys, dateDurationKey) {
   var want = String(dateDurationKey || '').trim();
@@ -215,11 +216,12 @@ function scheduleCompatibleRentalDurationKeys(activeDurationKeys, dateDurationKe
       }
     });
   } else {
-    // Prefer exact N_days when active (listed first); also offer 1_day for per-date
-    // repeat when active. Never offer hour packages on multi-day spans.
-    if (set[want]) out.push(want);
-    if (set['1_day'] || set.full_day) {
-      if (out.indexOf('1_day') < 0) out.push('1_day');
+    // Exact active N_days is exclusive. Only when it is absent may 1_day be
+    // selected (and repeated once per date on the server). Never hour packages.
+    if (set[want]) {
+      out.push(want);
+    } else if (set['1_day'] || set.full_day) {
+      out.push('1_day');
     }
   }
   out.sort(function(a, b) {

@@ -88,7 +88,8 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
       },
     });
     assert.strictEqual(got.ok, true);
-    assert.deepStrictEqual(calls, ['1_day']);
+    // Server probes exact N_days first; only after absence may 1_day be accepted/repeated.
+    assert.deepStrictEqual(calls, ['3_days', '1_day']);
     assert.strictEqual(got.records[0].amount_due_cents, 15000);
     assert.strictEqual(got.records[0].metadata.duration_key, '1_day');
     assert.strictEqual(got.records[0].metadata.pricing_mode, 'repeated_base_package');
@@ -96,6 +97,33 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
     const quote = buildGenericRentalAuthoritativeQuote(got.records);
     assert.strictEqual(quote.total_cents, 15000);
     assert.strictEqual(quote.line_items[0].package_repeat_count, 3);
+  });
+  await expect('stale/malicious 1_day fails closed when exact active N_days package exists', async () => {
+    const calls = [];
+    const got = await prepareGenericRentalsForCreate({
+      ...base,
+      rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 2 }],
+      calendarDayCount: 3,
+      bookingDurationKey: '3_days',
+      listOfferings: loadCatalog,
+      loadRule: async (args) => {
+        calls.push(args.duration);
+        if (args.duration === '3_days') {
+          return {
+            status: 'found', amount_cents: 6000, currency: 'EUR',
+            item_code: 'kayak_rental__3_days', unit: 'day', location_id: 'sunset-somo',
+          };
+        }
+        return {
+          status: 'found', amount_cents: 2500, currency: 'EUR',
+          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
+        };
+      },
+    });
+    assert.strictEqual(got.ok, false);
+    assert.strictEqual(got.reason, 'rental_duration_not_compatible');
+    // Exact package presence alone is enough to reject; must not price/repeat 1_day.
+    assert.deepStrictEqual(calls, ['3_days']);
   });
   await expect('unknown and deactivated catalog offerings fail closed', async () => {
     for (const rows of [[], [{ ...catalog[0], active: false }]]) {

@@ -11,6 +11,12 @@ function projectStandaloneRentalCatalog(opts) {
   return rental.scheduleProjectStandaloneRentals(opts || {});
 }
 
+/**
+ * Shape-level duration/dayCount compatibility (no catalog).
+ * Multi-day: exact N_days or 1_day shapes only — never hours.
+ * Commercial exclusivity (exact active N_days blocks 1_day) is enforced by
+ * scheduleCompatibleRentalDurationKeys + server prepareGenericRentalsForCreate.
+ */
 function isDurationCompatibleWithDayCount(durationKey, dayCount) {
   const k = String(durationKey || '').trim();
   const n = Number(dayCount);
@@ -19,7 +25,7 @@ function isDurationCompatibleWithDayCount(durationKey, dayCount) {
     return rental.scheduleIsHourRentalDurationKey(k) || k === '1_day' || k === 'full_day';
   }
   if (k === `${days}_days`) return true;
-  if (k === '1_day') return true;
+  if (k === '1_day' || k === 'full_day') return true;
   return false;
 }
 

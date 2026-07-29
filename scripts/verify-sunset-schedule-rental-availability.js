@@ -117,9 +117,10 @@ assert(
 );
 const threeDay = mod.scheduleActiveRentalsForDuration(somoPrices, '3_days', 'sunset-somo');
 assert(
-  'exact-duration: 3_days prefers exact package when present (1_day only as multi-day fallback)',
+  'exact-duration: 3_days is the ONLY selectable duration when exact package is active (1_day only as multi-day fallback when exact absent)',
   threeDay.some((o) => o.offering_key === 'board_rental' && o.duration_key === '3_days')
-    && threeDay.every((o) => o.duration_key === '3_days' || o.duration_key === '1_day')
+    && threeDay.filter((o) => o.offering_key === 'board_rental').every((o) => o.duration_key === '3_days')
+    && !threeDay.some((o) => o.offering_key === 'board_rental' && o.duration_key === '1_day')
     && !threeDay.some((o) => /hour|half_day/i.test(o.duration_key)),
   JSON.stringify(threeDay),
 );

@@ -258,8 +258,10 @@ const projectedExact2 = rental.scheduleProjectStandaloneRentals({
   dateDurationKey: '2_days',
 });
 ok(
-  'two-day with active exact package offers 2_days + 1_day (no hours)',
-  projectedExact2[0].durations.map((d) => d.duration_key).sort().join(',') === '1_day,2_days'
+  'two-day with active exact package offers ONLY 2_days (1_day excluded when exact exists; no hours)',
+  projectedExact2[0].durations.map((d) => d.duration_key).join(',') === '2_days'
+    && projectedExact2[0].durations.length === 1
+    && !projectedExact2[0].durations.some((d) => d.duration_key === '1_day')
     && !projectedExact2[0].durations.some((d) => /hour/i.test(d.duration_key)),
   JSON.stringify(projectedExact2[0] && projectedExact2[0].durations),
 );
@@ -350,14 +352,20 @@ const baseOpts = {
   ok('quote 1_day = €8 exact', q1d.ok === true && q1d.records[0].amount_due_cents === 800
     && q1d.records[0].metadata.duration_key === '1_day', JSON.stringify(q1d));
 
+  // 1_day repeat is only legal when exact N_days is absent for this rental.
+  const towelRuleNoExact2 = async ({ itemCode, duration }) => {
+    if (itemCode === 'towel_rental' && duration === '2_days') return { status: 'not_found' };
+    return towelRule({ itemCode, duration });
+  };
   const qMulti1d = await prepareGenericRentalsForCreate({
     ...baseOpts,
     rentals: [{ offering_key: 'towel_rental', duration_key: '1_day', quantity: 1 }],
     calendarDayCount: 2,
     bookingDurationKey: '2_days',
+    loadRule: towelRuleNoExact2,
   });
   ok(
-    'multi-day with selected 1_day repeats once per date (800×2) preserving base duration identity',
+    'multi-day with selected 1_day repeats once per date (800×2) only when exact N_days absent',
     qMulti1d.ok === true
       && qMulti1d.records[0].amount_due_cents === 1600
       && qMulti1d.records[0].metadata.duration_key === '1_day'
@@ -379,6 +387,20 @@ const baseOpts = {
       && qExact2.records[0].metadata.pricing_mode === 'exact_duration_package'
       && qExact2.records[0].metadata.package_repeat_count === 1,
     JSON.stringify(qExact2),
+  );
+
+  // Malicious/stale UI: 1_day submitted while exact active N_days exists must fail closed server-side.
+  const qStale1dWhenExact = await prepareGenericRentalsForCreate({
+    ...baseOpts,
+    rentals: [{ offering_key: 'towel_rental', duration_key: '1_day', quantity: 1 }],
+    calendarDayCount: 2,
+    bookingDurationKey: '2_days',
+  });
+  ok(
+    'server rejects 1_day on multi-day when exact active N_days package exists (not UI-only)',
+    qStale1dWhenExact.ok === false
+      && qStale1dWhenExact.reason === 'rental_duration_not_compatible',
+    JSON.stringify(qStale1dWhenExact),
   );
 
   const qHourMulti = await prepareGenericRentalsForCreate({
