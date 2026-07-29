@@ -539,6 +539,62 @@ assert(
   /function schedulePortalFetchQuote\([\s\S]*?guest_name:\s*createPayload\.guest_name/.test(portalSrc),
 );
 
+console.log('\n[G] Generic (non-canonical) catalog rental support (#5)');
+assert(
+  'discriminator: rental-category generic offering → true',
+  mod.scheduleIsGenericRentalOffering({ category: 'rental' }, 'kayak_rental') === true,
+);
+assert(
+  'discriminator: canonical / full-day / non-rental → false',
+  mod.scheduleIsGenericRentalOffering({ category: 'rental' }, 'board_rental') === false
+    && mod.scheduleIsGenericRentalOffering({ category: 'rental' }, 'full_day_equipment_extension') === false
+    && mod.scheduleIsGenericRentalOffering({ category: 'lesson' }, 'kayak_rental') === false,
+);
+const genPrices = [
+  { category: 'rental', offering_key: 'board_rental__1_day', amount: 15, active: true, location_id: 'sunset-somo' },
+  { category: 'rental', offering_key: 'kayak_rental__1_day', amount: 25, active: true, location_id: 'sunset-somo' },
+  { category: 'lesson', offering_key: 'surf_pack_x__1_day', amount: 99, active: true, location_id: 'sunset-somo' },
+  { category: 'rental', offering_key: 'full_day_equipment_extension__day', amount: 10, active: true, location_id: 'sunset-somo' },
+];
+const genDay = mod.scheduleActiveRentalsForDuration(genPrices, '1_day', 'sunset-somo');
+assert(
+  'picker includes generic kayak_rental, excludes lesson + full-day',
+  genDay.some((o) => o.offering_key === 'kayak_rental')
+    && genDay.some((o) => o.offering_key === 'board_rental')
+    && !genDay.some((o) => o.offering_key === 'surf_pack_x')
+    && !genDay.some((o) => String(o.offering_key).indexOf('full_day') >= 0),
+  JSON.stringify(genDay),
+);
+assert(
+  'canonical sorts before generic',
+  genDay[0].offering_key === 'board_rental' && genDay[genDay.length - 1].offering_key === 'kayak_rental',
+  JSON.stringify(genDay.map((o) => o.offering_key)),
+);
+assert(
+  'generic-only offerings still render (mode separate_only, not none)',
+  mod.scheduleRentalOfferingsMode([{ offering_key: 'kayak_rental' }]) === 'separate_only'
+    && mod.scheduleRentalOfferingsMode([]) === 'none',
+);
+const genSel = [
+  { offering_key: 'board_rental', duration_key: '1_day', quantity: 1 },
+  { offering_key: 'kayak_rental', duration_key: '1_day', quantity: 2 },
+  { offering_key: 'jetski_rental', duration_key: '1_day', quantity: 1 },
+];
+const withAllow = mod.scheduleSerializeRentalsSelection(genSel, '1_day', { genericOfferingKeys: ['kayak_rental'] });
+assert(
+  'serialize passes allowlisted generic, drops non-allowlisted',
+  withAllow.some((r) => r.offering_key === 'kayak_rental' && r.quantity === 2)
+    && withAllow.some((r) => r.offering_key === 'board_rental')
+    && !withAllow.some((r) => r.offering_key === 'jetski_rental'),
+  JSON.stringify(withAllow),
+);
+const noAllow = mod.scheduleSerializeRentalsSelection(genSel, '1_day');
+assert(
+  'serialize without allowlist drops ALL generics (fail-closed, back-compat)',
+  noAllow.length === 1 && noAllow[0].offering_key === 'board_rental',
+  JSON.stringify(noAllow),
+);
+
 console.log(`\n${'─'.repeat(48)}`);
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {

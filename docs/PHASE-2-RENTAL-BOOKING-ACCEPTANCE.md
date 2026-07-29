@@ -22,8 +22,19 @@ order. No behavior change ships from this file.
     `resolveGenericRentalPrice` + `buildGenericRentalServiceRecord` +
     `insertServiceRecord`, preserving idempotency + 409-on-conflict. Generic rows
     must NOT go through the canonical component mapping (lines 500–524).
-- ☐ Step 4 — retire frozen browser keys (#5) in the template literal.
-- Combined verifier: **54/54** offline.
+- ✅ Step 3 — generic-rental create wiring is live-verified and merged (commit
+  `bc9c166`): partition at `:468`, generic lane priced by `resolveGenericRentalPrice`,
+  persisted as `addon_service`, own authoritative quote lines (claimed, counted
+  once), idempotency + 409. Flag stays default OFF.
+- ✅ Step 4 (#5) — frozen browser keys retired in
+  `scripts/browser/sunset-schedule-rental-availability.js`:
+  `scheduleActiveRentalsForDuration` now includes generic rental-category
+  offerings (excludes the full-day add-on), `scheduleRentalOfferingsMode` renders
+  generic-only sets, and `scheduleSerializeRentalsSelection` passes allowlisted
+  generic keys through to the submit payload (unknown keys still dropped; server
+  re-validates). Drawer caller passes the rendered catalog keys as the allowlist.
+  Verifier: **49/49** (incl. 7 generic cases); served-page inline scripts parse 6/6.
+- Combined resolver verifier: **54/54** offline.
 
 ### Note on the create coupling (why the generic lane is separate)
 `prepareCanonicalRentalsForCreate()` maps every rental into legacy

@@ -23142,8 +23142,13 @@ function scheduleReadCreateRentalSelectionFromDom(){
     });
   });
   if (typeof scheduleSerializeRentalsSelection === 'function') {
+    // Allowlist = the offering keys the drawer actually rendered from the catalog
+    // (data-rental-offering is set only from catalog offerings), so generic
+    // rentals pass through while junk keys are dropped. Server re-validates.
+    var genericOfferingKeys = selection.map(function(s){ return s.offering_key; });
     return scheduleSerializeRentalsSelection(selection, duration, {
       expandCombinedShort: shortMode,
+      genericOfferingKeys: genericOfferingKeys,
     });
   }
   return selection;

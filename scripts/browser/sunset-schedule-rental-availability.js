@@ -9,6 +9,22 @@
 
 var SCHEDULE_CANONICAL_RENTAL_OFFERINGS = ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'];
 
+// The full-day equipment extension is a rental-category price row but a dedicated
+// add-on flow, never a picker offering — always excluded from the generic lane.
+var SCHEDULE_FULL_DAY_EQUIPMENT_OFFERING = 'full_day_equipment_extension';
+
+// A price-cache row is a generic (non-canonical) rentable offering when it is
+// item_type/category 'rental' and not the full-day add-on. Data-driven so admin
+// catalog offerings (e.g. kayak_rental) appear without a code change. The server
+// GENERIC_RENTAL_CREATE_ENABLED flag remains the authority on submit.
+function scheduleIsGenericRentalOffering(price, offeringKey) {
+  var key = String(offeringKey || '').trim();
+  if (!key || SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(key) >= 0) return false;
+  if (key === SCHEDULE_FULL_DAY_EQUIPMENT_OFFERING) return false;
+  var category = String((price && price.category) || '').trim().toLowerCase();
+  return category === 'rental';
+}
+
 /** No-lesson short rental pebbles only (never 2–7 days). */
 var SCHEDULE_SHORT_RENTAL_DURATION_KEYS = ['1_hour', '2_hours', 'half_day', 'full_day'];
 var SCHEDULE_SHORT_RENTAL_DURATION_SET = {
@@ -121,7 +137,10 @@ function scheduleActiveRentalsForDuration(prices, durationKey, locationId) {
     if (!scheduleRentalPriceIsSellable(p)) continue;
     if (!scheduleRentalPriceMatchesLocation(p, locationId)) continue;
     var id = scheduleParseRentalPriceIdentity(p);
-    if (SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(id.offering_key) < 0) continue;
+    var isCanonical = SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(id.offering_key) >= 0;
+    // Canonical always; generic catalog rentals (data-driven) when priced. The
+    // full-day add-on and non-rental rows (lessons/packages) never qualify.
+    if (!isCanonical && !scheduleIsGenericRentalOffering(p, id.offering_key)) continue;
     if (!wantDuration || id.duration_key !== wantDuration) continue;
     if (seen[id.offering_key]) continue;
     seen[id.offering_key] = true;
@@ -132,10 +151,15 @@ function scheduleActiveRentalsForDuration(prices, durationKey, locationId) {
       label: scheduleRentalOfferingLabelFromPrice(p),
     });
   }
-  // Stable order: board, wetsuit, bundle
+  // Stable order: canonical first (board, wetsuit, bundle), then generic
+  // offerings alphabetically after them.
   out.sort(function(a, b) {
-    return SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(a.offering_key)
-      - SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(b.offering_key);
+    var ai = SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(a.offering_key);
+    var bi = SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(b.offering_key);
+    var ar = ai < 0 ? SCHEDULE_CANONICAL_RENTAL_OFFERINGS.length : ai;
+    var br = bi < 0 ? SCHEDULE_CANONICAL_RENTAL_OFFERINGS.length : bi;
+    if (ar !== br) return ar - br;
+    return String(a.offering_key).localeCompare(String(b.offering_key));
   });
   return out;
 }
@@ -239,8 +263,15 @@ function scheduleRentalOfferingsMode(activeOfferings) {
   var board = !!set.board_rental;
   var wetsuit = !!set.wetsuit_rental;
   var bundle = !!set.board_and_suit_rental;
+  var genericCount = 0;
+  Object.keys(set).forEach(function(k) {
+    if (SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(k) < 0) genericCount += 1;
+  });
   var count = (board ? 1 : 0) + (wetsuit ? 1 : 0) + (bundle ? 1 : 0);
-  if (count === 0) return 'none';
+  // No canonical offerings: generic-only renders as an independent checklist
+  // ('separate_only'); truly empty stays 'none'. Canonical modes below are
+  // unchanged, so generic offerings ride alongside without altering bundle UX.
+  if (count === 0) return genericCount > 0 ? 'separate_only' : 'none';
   if (bundle && !board && !wetsuit) return 'bundle_only';
   if (!bundle && (board || wetsuit)) return 'separate_only';
   return 'all_three';
@@ -269,6 +300,14 @@ function scheduleSerializeRentalsSelection(selection, durationKey, opts) {
   var options = opts || {};
   var expandCombinedShort = options.expandCombinedShort === true
     && scheduleIsShortRentalDurationKey(dur);
+  // Allowlist of known generic catalog offering_keys the drawer rendered. Only
+  // these pass through; unknown non-canonical keys are dropped (fail-closed).
+  var genericAllow = {};
+  var allowList = Array.isArray(options.genericOfferingKeys) ? options.genericOfferingKeys : [];
+  for (var gi = 0; gi < allowList.length; gi++) {
+    var gk = String(allowList[gi] || '').trim();
+    if (gk) genericAllow[gk] = true;
+  }
   var rentals = [];
   var list = Array.isArray(selection) ? selection : [];
   var hasBoard = false;
@@ -278,11 +317,19 @@ function scheduleSerializeRentalsSelection(selection, durationKey, opts) {
   for (var i = 0; i < list.length; i++) {
     var row = list[i];
     if (!row || !row.offering_key) continue;
-    if (SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(row.offering_key) < 0) continue;
     var qty = parseInt(row.quantity, 10);
     if (!Number.isInteger(qty) || qty < 1) continue;
     var key = row.offering_key;
     var rowDur = String(row.duration_key || dur).trim();
+    // Generic (non-canonical) catalog offerings pass through verbatim — no legacy
+    // board/wetsuit component expansion — but only when allowlisted by the drawer.
+    // Unknown keys are dropped; the server prices + persists the accepted ones.
+    if (SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(key) < 0) {
+      if (key !== SCHEDULE_FULL_DAY_EQUIPMENT_OFFERING && genericAllow[key]) {
+        rentals.push({ offering_key: key, duration_key: rowDur, quantity: qty });
+      }
+      continue;
+    }
     if (expandCombinedShort && key === 'board_and_suit_rental' && scheduleIsShortRentalDurationKey(rowDur)) {
       hasBundle = true;
       bundleQty = qty;
@@ -326,7 +373,9 @@ function scheduleRentalsToLegacyComponents(rentals) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     SCHEDULE_CANONICAL_RENTAL_OFFERINGS: SCHEDULE_CANONICAL_RENTAL_OFFERINGS,
+    SCHEDULE_FULL_DAY_EQUIPMENT_OFFERING: SCHEDULE_FULL_DAY_EQUIPMENT_OFFERING,
     SCHEDULE_SHORT_RENTAL_DURATION_KEYS: SCHEDULE_SHORT_RENTAL_DURATION_KEYS,
+    scheduleIsGenericRentalOffering: scheduleIsGenericRentalOffering,
     scheduleRentalOfferingLabelKey: scheduleRentalOfferingLabelKey,
     scheduleIsShortRentalDurationKey: scheduleIsShortRentalDurationKey,
     scheduleShortRentalDurationLabelKey: scheduleShortRentalDurationLabelKey,
