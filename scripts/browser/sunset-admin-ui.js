@@ -586,11 +586,11 @@ function adminReadEquipmentOptions(root){
   });
   return {ok:!error,value:out,error:error};
 }
-/** Read-only card cents: exact 0 => localized Included; nonzero uses Admin EUR format. */
+/** Read-only card cents: exact 0 => localized Included; nonzero uses leading € (no trailing EUR). */
 function adminEquipmentCentsText(cents){
   var n = Number(cents);
   if (n === 0) return portalT('admin.courseEquipment.included');
-  return adminEurosFromAmount((Number.isFinite(n) ? n : 0) / 100) + ' EUR';
+  return '€' + adminEurosFromAmount((Number.isFinite(n) ? n : 0) / 100);
 }
 /** Active catalog label, else stored key for historical/unavailable items. */
 function adminEquipmentLabelForKey(key){
