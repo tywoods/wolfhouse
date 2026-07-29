@@ -864,66 +864,11 @@ async function createRentalPriceRule(client, { clientSlug, locationId, patch, ac
   const displayName = RENTAL_GROUP_DISPLAY[patch.rental_group] || patch.offering_key;
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
 
-  // Derive group availability state from existing rows to decide new row's active value.
-  // MIXED → reject (admin must normalise first); OFF → insert inactive; ON → active if amount>0.
-  const existingSql = hasLoc
-    ? `SELECT active, amount_cents FROM tenant_price_rules
-        WHERE client_slug = $1 AND location_id = $2 AND item_type = 'rental'
-          AND item_code LIKE $3`
-    : `SELECT active, amount_cents FROM tenant_price_rules
-        WHERE client_slug = $1 AND item_type = 'rental'
-          AND item_code LIKE $2`;
-  const existingParams = hasLoc
-    ? [clientSlug, loc, `${patch.offering_key}__%`]
-    : [clientSlug, `${patch.offering_key}__%`];
-  const existingRows = await client.query(existingSql, existingParams);
-  const existingList = existingRows.rows;
-
-  let newRowActive = true; // default: ON (amount_cents>0 is enforced by validatePriceCreateBody)
-  if (existingList.length > 0) {
-    const activeCount = existingList.filter((r) => r.active !== false).length;
-    if (activeCount > 0 && activeCount < existingList.length) {
-      // MIXED state — reject
-      return {
-        ok: false,
-        status: 409,
-        body: {
-          success: false,
-          error: 'normalize group availability before adding a duration',
-          code: 'group_mixed',
-        },
-      };
-    }
-    if (activeCount === 0) {
-      // Group is fully OFF — insert inactive
-      newRowActive = false;
-    }
-    // Group is fully ON → newRowActive stays true (amount_cents>0 enforced by validation)
-  }
-
-  // Fail closed: Surfboard/Wetsuit short-duration keys must match after this create.
-  if (patch.offering_key === 'board_rental' || patch.offering_key === 'wetsuit_rental') {
-    const allPrices = await loadRentalPricesForShortParity(client, { clientSlug, locationId: loc, hasLoc });
-    const parity = assertBoardWetsuitShortParityAfterMutation(allPrices, loc, {
-      offering_key: patch.offering_key,
-      period_window: patch.period_window,
-      amount_cents: patch.amount_cents,
-      active: newRowActive,
-    });
-    if (!parity.ok) {
-      return {
-        ok: false,
-        status: 409,
-        body: {
-          success: false,
-          error: parity.error,
-          code: 'short_duration_mismatch',
-          missing_board: parity.missing_board,
-          missing_wetsuit: parity.missing_wetsuit,
-        },
-      };
-    }
-  }
+  // The groupless Equipment Pricing tab has no availability state. Saving an
+  // exact equipment price is an explicit operator action to make that price
+  // sellable. Historical inactive sibling durations must not silently make the
+  // newly saved row inactive (deleted-then-re-added Kayak/Wetsuit regression).
+  const newRowActive = true;
 
   return upsertConfigPriceRule(client, {
     clientSlug,

@@ -834,8 +834,8 @@ async function main() {
     staffApi.includes('handleAdminConfigPriceGroupAvailabilityPost'));
   assert('adminDeriveGroupAvailState defined in browser UI',
     adminUi.includes('adminDeriveGroupAvailState'));
-  assert('adminDeriveGroupAvailState defined in monolith',
-    staffApi.includes('adminDeriveGroupAvailState'));
+  assert('adminDeriveGroupAvailState owned by extracted Admin UI module',
+    adminUi.includes('adminDeriveGroupAvailState') && staffApi.includes('sunset-admin-ui.js'));
   assert('MIXED state is only derived, never persisted (no mixed column)',
     !/column.*mixed|mixed.*column/i.test(writesSrc) && !writesSrc.includes("'mixed'"));
 
@@ -1008,42 +1008,12 @@ async function main() {
     assert('board_rental row unaffected by bundle OFF', mixedGroupRows[1].active === true);
   }
 
-  // createRentalPriceRule respects group state: MIXED → reject
-  {
-    const mixedState = [
-      { client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental', item_code: 'board_rental__half_day', active: true, amount_cents: 2000 },
-      { client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental', item_code: 'board_rental__1_day', active: false, amount_cents: 1500 },
-    ];
-    const mockPg = {
-      async query(sql, params) {
-        const s = String(sql);
-        if (s === 'BEGIN' || s === 'COMMIT' || s === 'ROLLBACK' || /SAVEPOINT/i.test(s)) return { rows: [] };
-        if (/information_schema\.tables/i.test(s)) return { rows: [
-          { table_name: 'tenant_price_rules' },
-          { table_name: 'tenant_lesson_capacity_rules' },
-          { table_name: 'tenant_lesson_time_rules' },
-          { table_name: 'tenant_config_audit_log' },
-        ]};
-        if (/information_schema\.columns/i.test(s)) return { rows: [{ '?column?': 1 }] };
-        if (/item_code LIKE/i.test(s) && !/FOR UPDATE/i.test(s)) {
-          return { rows: mixedState.filter((r) => r.location_id === (params[1] || params[1])) };
-        }
-        if (/FROM tenant_price_rules/i.test(s)) return { rows: [] };
-        if (/tenant_config_audit_log/i.test(s)) return { rows: [] };
-        return { rows: [] };
-      },
-    };
-    const { createRentalPriceRule: createFn } = require('./lib/tenant-admin-writes');
-    const res = await createFn(mockPg, {
-      clientSlug: 'sunset',
-      locationId: 'sunset-somo',
-      patch: { rental_group: 'boards', offering_key: 'board_rental', period_window: '2_days', amount_cents: 3000, currency: 'EUR' },
-      actor,
-    });
-    assert('create with MIXED group state rejected (code=group_mixed)',
-      res.ok === false && res.body && res.body.code === 'group_mixed',
-      JSON.stringify(res));
-  }
+  // Groupless Equipment Pricing save is exact-row authority. Retired group state
+  // must not make a newly saved duration inactive or reject it as MIXED.
+  assert('createRentalPriceRule activates the exact saved equipment price',
+    /async function createRentalPriceRule[\s\S]*const newRowActive = true;/.test(writesSrc));
+  assert('createRentalPriceRule no longer inherits retired group_mixed state',
+    !/normalize group availability before adding a duration/.test(writesSrc));
 
   // Lessons/packages rows untouched by group availability ops (static check)
   assert('setRentalGroupAvailability only targets item_type=rental in SQL',
