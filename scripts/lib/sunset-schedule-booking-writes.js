@@ -382,6 +382,68 @@ const CLIENT_RENTAL_MONEY_FIELDS = Object.freeze([
   'amount', 'price', 'label',
 ]);
 
+async function prepareGenericRentalsForCreate(opts) {
+  const { listRentalOfferings, applyRentalMutualExclusion } = require('./tenant-rental-offerings');
+  const { resolveGenericRentalPrice, buildGenericRentalServiceRecord } = require('./tenant-rental-price-resolver');
+  const { isGenericRentalCreateEnabled } = require('./tenant-business-config');
+  const o = opts || {};
+  const rows = Array.isArray(o.rentals) ? o.rentals : [];
+  const generic = rows.filter((r) => !CANONICAL_RENTAL_OFFERING_KEYS.includes(String(r && r.offering_key || '').trim()));
+  if (!generic.length) return { ok: true, records: [], genericRentals: [] };
+  if (!isGenericRentalCreateEnabled()) {
+    return { ok: false, reason: 'invalid_rental_offering' };
+  }
+  const seenGenericIdentities = new Set();
+  for (const row of generic) {
+    const identity = `${String(row && row.offering_key || '').trim()}::${String(row && row.duration_key || '').trim()}`;
+    if (seenGenericIdentities.has(identity)) return { ok: false, reason: 'duplicate_rental_offering' };
+    seenGenericIdentities.add(identity);
+  }
+  for (const row of generic) for (const key of CLIENT_RENTAL_MONEY_FIELDS) {
+    if (row && row[key] !== undefined && row[key] !== null && row[key] !== '') return { ok: false, reason: 'client_money_rejected' };
+  }
+  let catalog;
+  try {
+    catalog = await (o.listOfferings || listRentalOfferings)(o.pgClient, { clientSlug: o.clientSlug, locationId: o.locationId, includeInactive: false });
+  } catch (_) { return { ok: false, reason: 'rental_catalog_unavailable' }; }
+  const active = new Map((catalog || []).filter((x) => x && x.active !== false).map((x) => [x.offering_key, x]));
+  for (const row of generic) if (!active.has(String(row.offering_key || '').trim())) return { ok: false, reason: 'rental_offering_not_active' };
+  const exclusion = applyRentalMutualExclusion(rows.map((r) => r.offering_key), catalog || []);
+  if (exclusion.blocked.length) return { ok: false, reason: 'rental_catalog_conflict' };
+  const records = [];
+  for (const row of generic) {
+    const priced = await resolveGenericRentalPrice({ clientSlug: o.clientSlug, locationId: o.locationId, offeringKey: row.offering_key, durationKey: row.duration_key, quantity: row.quantity, pgClient: o.pgClient, loadRule: o.loadRule });
+    if (!priced.ok) return priced;
+    const mapped = buildGenericRentalServiceRecord(priced, { serviceDate: o.serviceDate, source: o.source });
+    if (!mapped.ok) return mapped;
+    records.push(mapped.record);
+  }
+  return { ok: true, records, genericRentals: generic.map((r) => ({ offering_key: r.offering_key, duration_key: r.duration_key, quantity: r.quantity })) };
+}
+
+// Build server-owned quote lines directly from records already priced by the
+// exact tenant_price_rules resolver; generic keys must not re-enter the closed
+// canonical quote parser.
+function buildGenericRentalAuthoritativeQuote(records) {
+  const lineItems = (Array.isArray(records) ? records : []).map((record) => {
+    const meta = rowMetadata(record);
+    const total = checkedMoneyInteger(record.amount_due_cents, 'generic_rental_total');
+    const quantity = checkedMoneyInteger(record.quantity, 'generic_rental_quantity');
+    const offeringKey = String(meta.offering_key || '').trim();
+    const itemCode = String(meta.item_code || '').trim();
+    if (!offeringKey || !itemCode || quantity < 1 || total < 0) throw new Error('invalid_generic_rental_quote_record');
+    return {
+      component: 'addon_service', generic_rental: true,
+      offering_id: offeringKey, offering_item_code: itemCode,
+      duration_key: meta.duration_key, quantity,
+      unit_amount_cents: checkedMoneyInteger(meta.unit_cents, 'generic_rental_unit'),
+      total_cents: total, price_source: 'tenant_price_rules',
+    };
+  });
+  const totalCents = lineItems.reduce((sum, line) => checkedMoneyAdd(sum, line.total_cents, 'generic_rental_quote_total'), 0);
+  return { total_cents: totalCents, currency: 'EUR', line_items: lineItems };
+}
+
 function inclusiveIsoDatesFromRange(dateFrom, dateTo) {
   const from = String(dateFrom || '').slice(0, 10);
   const to = String(dateTo || dateFrom || '').slice(0, 10);
@@ -625,6 +687,14 @@ function rowMatchesQuoteLine(row, line) {
   const component = String((line && line.component) || '').trim();
   const meta = rowMetadata(row);
   const serviceType = String(row.service_type || '').trim();
+  if (line && line.generic_rental === true) {
+    const offeringKey = String(line.offering_id || '').trim();
+    const itemCode = String(line.offering_item_code || line.item_code || '').trim();
+    return serviceType === 'addon_service'
+      && meta.rental_offering === true
+      && !!offeringKey && String(meta.offering_key || '').trim() === offeringKey
+      && !!itemCode && String(meta.item_code || '').trim() === itemCode;
+  }
   // Course-equipment lines own exactly one component/date row. This prevents
   // post-insert repricing from claiming legacy rental or included-course rows.
   if (line && line.course_equipment === true) {
@@ -969,7 +1039,7 @@ function applyExactComponentAliases(components) {
   return { ok: true, value: out };
 }
 
-function normalizeComponents(body) {
+function normalizeComponents(body, allowEmpty) {
   const b = body && typeof body === 'object' ? body : {};
   if (b.components && typeof b.components === 'object') {
     const aliased = applyExactComponentAliases(b.components);
@@ -1054,7 +1124,7 @@ function normalizeComponents(body) {
       if (!pl.ok) return pl;
       if (!pl.skip) out.private_lesson = pl.value;
     }
-    if (!Object.keys(out).length) {
+    if (!Object.keys(out).length && !allowEmpty) {
       return { ok: false, error: 'components must include at least one of lesson, course, private_lesson, surfboard, wetsuit' };
     }
     // Full-day equipment add-on is only valid alongside an eligible base component.
@@ -1383,7 +1453,7 @@ function validateScheduleBookingBody(body, opts) {
       return { ok: false, error: 'guest_phone is required' };
     }
   }
-  const components = normalizeComponents(b);
+  const components = normalizeComponents(b, opts.allowEmptyComponents === true);
   if (!components.ok) return components;
   const serviceDates = normalizeServiceDates(b, components.value);
   if (!serviceDates.ok) return serviceDates;
@@ -2035,6 +2105,10 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
   const clientSlug = String((opts && opts.clientSlug) || '').trim();
   const locationId = (opts && opts.locationId) != null ? String(opts.locationId) : '';
   let rentalPricingDescriptor = opts && opts.rentalPricingDescriptor;
+  const genericQuote = buildGenericRentalAuthoritativeQuote(opts && opts.genericRentalRecords);
+  const genericOnly = genericQuote.line_items.length > 0
+    && !(opts && Array.isArray(opts.canonicalRentals) && opts.canonicalRentals.length);
+  if (genericOnly) return { authoritativeQuote: genericQuote, rentalPricingDescriptor };
   // Sunset Create/Edit commercial pricing: every mutation requires an Admin-backed
   // quote transport body (quotePrepBody). Missing body is fail-closed — never
   // silently fall back to priceSunsetBookingServices or fabricated cents.
@@ -2097,7 +2171,14 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
       });
     }
   }
-  const authoritativeQuote = freshQuote.body;
+  let authoritativeQuote = freshQuote.body;
+  if (genericQuote.line_items.length) {
+    authoritativeQuote = {
+      ...authoritativeQuote,
+      line_items: [...(authoritativeQuote.line_items || []), ...genericQuote.line_items],
+      total_cents: checkedMoneyAdd(authoritativeQuote.total_cents, genericQuote.total_cents, 'mixed_quote_total'),
+    };
+  }
   if (rentalPricingDescriptor && rentalPricingDescriptor.offering_key === 'board_and_suit_rental') {
     const bundleLine = findQuoteLineForRentalOffering(
       authoritativeQuote.line_items, 'board_and_suit_rental',
@@ -2535,7 +2616,26 @@ async function createSunsetScheduleBooking(pg, opts) {
   // Actor-gated Luna derivation must run before force/validation so Hermes
   // component-qty payloads (no top-level surfer_count) stay compatible.
   const lunaForceOpts = { actor: opts.actor || null };
-  const rentalPrep = prepareCanonicalRentalsForCreate(opts.body, lunaForceOpts);
+  const requestedRentals = Array.isArray(opts.body && opts.body.rentals) ? opts.body.rentals : [];
+  const genericPrep = await prepareGenericRentalsForCreate({
+    clientSlug, locationId, pgClient: pg, rentals: requestedRentals,
+    serviceDate: String(opts.body && opts.body.date_from || '').slice(0, 10), source: attribution.dbSource,
+  });
+  if (!genericPrep.ok) {
+    const badCatalogKey = genericPrep.reason === 'rental_offering_not_active'
+      || genericPrep.reason === 'invalid_rental_offering';
+    return {
+      ok: false,
+      status: badCatalogKey ? 400 : 409,
+      body: { success: false, error: genericPrep.reason, reason_code: genericPrep.reason },
+    };
+  }
+  const canonicalRequested = requestedRentals.filter((r) => CANONICAL_RENTAL_OFFERING_KEYS.includes(String(r && r.offering_key || '').trim()));
+  const prepBody = genericPrep.genericRentals.length
+    ? { ...opts.body, rentals: canonicalRequested, components: opts.body.components || {} }
+    : opts.body;
+  if (genericPrep.genericRentals.length && !canonicalRequested.length) delete prepBody.rentals;
+  const rentalPrep = prepareCanonicalRentalsForCreate(prepBody, lunaForceOpts);
   if (!rentalPrep.ok) {
     return {
       ok: false,
@@ -2554,6 +2654,7 @@ async function createSunsetScheduleBooking(pg, opts) {
   const validated = validateScheduleBookingBody(rentalPrep.body, {
     requireGuestPhone: attribution.staffManualSchedule === true,
     actor: opts.actor || null,
+    allowEmptyComponents: genericPrep.genericRentals.length > 0,
   });
   if (!validated.ok) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
@@ -2562,8 +2663,12 @@ async function createSunsetScheduleBooking(pg, opts) {
   const canonicalRentals = rentalPrep.present ? rentalPrep.rentals : null;
   const rentalSpanDates = rentalPrep.present ? rentalPrep.rentalSpanDates : null;
   const rentalPricingGroupId = rentalPrep.present ? rentalPrep.pricingGroupId : null;
+  const allRequestedRentals = [
+    ...(canonicalRentals || []),
+    ...genericPrep.genericRentals,
+  ];
   const intentFpOpts = {
-    rentals: canonicalRentals || [],
+    rentals: allRequestedRentals,
     custom_line_items: input.custom_line_items || [],
   };
   const idempotencyIntentFp = input.idempotency_key
@@ -2757,6 +2862,7 @@ async function createSunsetScheduleBooking(pg, opts) {
         clientSlug,
         locationId,
         canonicalRentals,
+        genericRentalRecords: genericPrep.records,
         rentalPrepBody: rentalPrep.body,
         quotePrepBody: rentalPrep.body,
         rentalPricingDescriptor,
@@ -2798,7 +2904,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           guest_phone: input.guest_phone,
           location_id: locationId || null,
           rental_pricing: rentalPricingDescriptor || null,
-          rentals: canonicalRentals || null,
+          rentals: allRequestedRentals.length ? allRequestedRentals : null,
           custom_line_items: input.custom_line_items || [],
           idempotency_key: input.idempotency_key || null,
           idempotency_intent_fp: idempotencyIntentFp || null,
@@ -2819,6 +2925,32 @@ async function createSunsetScheduleBooking(pg, opts) {
         idempotency_intent_fp: idempotencyIntentFp || null,
       },
     });
+
+    for (const descriptor of genericPrep.records) {
+      const meta = {
+        ...descriptor.metadata,
+        source: attribution.metadataSource,
+        bundle_id: bundleId,
+        idempotency_key: input.idempotency_key || null,
+        idempotency_intent_fp: idempotencyIntentFp || null,
+      };
+      const ins = await pg.query(
+        `INSERT INTO booking_service_records
+           (client_slug, booking_id, booking_code, guest_name, service_type, service_date,
+            quantity, status, amount_due_cents, amount_paid_cents, payment_status, source, metadata)
+         VALUES ($1, $2::uuid, $3, $4, $5, $6::date, $7, 'confirmed', $8, 0, $9, $10, $11::jsonb)
+         RETURNING id::text AS service_record_id, booking_id::text AS booking_id, booking_code,
+           guest_name, service_type::text AS service_type, service_date::text AS service_date,
+           quantity, amount_due_cents, amount_paid_cents, payment_status::text AS payment_status,
+           source AS record_source, metadata,
+           metadata->>'offering_key' AS offering_key,
+           metadata->>'staff_ui_service_type' AS staff_ui_service_type`,
+        [clientSlug, bookingId, bookingCode, input.guest_name, descriptor.service_type,
+          descriptor.service_date, descriptor.quantity, descriptor.amount_due_cents, srPayment,
+          attribution.dbSource, JSON.stringify(meta)],
+      );
+      createdRows.push(ins.rows[0]);
+    }
 
     if (input.course_equipment) {
       const equipmentRows = await insertCourseEquipmentRows(pg, {
@@ -2891,6 +3023,7 @@ async function createSunsetScheduleBooking(pg, opts) {
       createdRows,
       locationId,
       canonicalRentals,
+      genericRentalRecords: genericPrep.records,
       rentalPrepBody: rentalPrep.body,
       quotePrepBody: rentalPrep.body,
       rentalPricingDescriptor,
@@ -2980,6 +3113,8 @@ module.exports = {
   generateSunsetManualBookingCode,
   scheduleRowFromDb,
   createSunsetScheduleBooking,
+  prepareGenericRentalsForCreate,
+  buildGenericRentalAuthoritativeQuote,
   prepareCanonicalRentalsForCreate,
   rentalDurationKeyFromDateRange,
   applyAuthoritativeQuoteAmounts,
