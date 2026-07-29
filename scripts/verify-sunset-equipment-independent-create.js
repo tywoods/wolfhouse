@@ -19,6 +19,8 @@ assert(!/\? '<h3 class="portal-schedule-create-label">'[^\n]+checked>/.test(src)
   'equipment-only state must not replace checkboxes with forced hidden selections');
 assert(/escHtml\(offeringLabel\)/.test(src),
   'catalog-owned labels such as Towel and Test must render');
+assert(/replace\(\/_rental\$\//.test(src),
+  'identity-shaped catalog fallbacks must render as human item names');
 assert(/data-rental-duration-key=/.test(src),
   'each equipment row must retain its own Admin duration identity');
 assert(/row\.getAttribute\('data-rental-duration-key'\)/.test(src),
@@ -38,4 +40,4 @@ assert.deepStrictEqual(testItems.map((x) => ({ key: x.offering_key, durations: x
   { key: 'towel_rental', durations: ['4_hours'] },
 ], 'live-shaped Test and Towel rows must both project on a one-day drawer');
 
-console.log('verify:sunset-equipment-independent-create PASSED (12/12)');
+console.log('verify:sunset-equipment-independent-create PASSED (13/13)');

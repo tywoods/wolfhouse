@@ -23453,6 +23453,10 @@ function scheduleRenderCreateRentals(){
     var fallback = key === 'wetsuit_rental' ? 'Wetsuit'
       : (key === 'board_and_suit_rental' ? 'Board and wetsuit' : 'Surfboard');
     var catalogLabel = String(o.label || '').trim();
+    if (catalogLabel === key || catalogLabel.indexOf(key + '__') === 0) catalogLabel = '';
+    if (!catalogLabel && key && ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'].indexOf(key) < 0) {
+      catalogLabel = key.replace(/_rental$/, '').replace(/_/g, ' ').replace(/\b\w/g, function(ch){ return ch.toUpperCase(); });
+    }
     var legacyLabel = portalT(labelKey);
     if (!legacyLabel || legacyLabel === labelKey) legacyLabel = fallback;
     var offeringLabel = catalogLabel || legacyLabel;
