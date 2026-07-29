@@ -178,6 +178,36 @@ async function run() {
   ok('bundle blocks wetsuit (symmetric from real config)', exclSuit.blocked.length === 1 && exclSuit.blocked[0].key === 'wetsuit_rental');
   ok('sup co-exists with everything', applyRentalMutualExclusion(['sup_rental', 'board_and_suit_rental'], parity).blocked.length === 0);
 
+  console.log('\n── G. New-item add + delete parity (Step 5 template promise, offline half) ──');
+  // Add a brand-new rentable item to the live Sunset catalog with its own
+  // exclusion, then prove the resolver honors it symmetrically and that deleting
+  // it drops it from resolution without disturbing the remaining catalog.
+  const addKayak = await createRentalOffering(parityPg, {
+    clientSlug: 'sunset', locationId: 'sunset-somo', offering_key: 'kayak_rental',
+    label: 'Sea Kayak', group_key: 'sup', excludes: ['board_rental'], sort_order: 4, actorId: null,
+  });
+  ok('new kayak item created into live catalog', addKayak.ok && addKayak.offering.offering_key === 'kayak_rental', JSON.stringify(addKayak));
+  const withKayak = await listRentalOfferings(parityPg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
+  ok('catalog now renders 5 items', withKayak.length === 5, JSON.stringify(withKayak.map((r) => r.offering_key)));
+  // New item's exclusion is honored even though only kayak declares it (the
+  // seeded board_rental row does NOT list kayak back). One-directional excludes
+  // are sufficient to block co-selection — the "add item" UI needn't write a
+  // symmetric back-reference. Winner/loser is deterministic by key sort order.
+  const kayakVsBoard = applyRentalMutualExclusion(['kayak_rental', 'board_rental'], withKayak);
+  ok('one-directional exclude still blocks co-selection (exactly one)', kayakVsBoard.blocked.length === 1, JSON.stringify(kayakVsBoard.blocked));
+  ok('block is deterministic by key sort (kayak_rental loses to board_rental)',
+    kayakVsBoard.blocked[0].key === 'kayak_rental' && kayakVsBoard.blocked[0].excludedBy === 'board_rental', JSON.stringify(kayakVsBoard.blocked));
+  ok('new item coexists with unrelated item',
+    applyRentalMutualExclusion(['kayak_rental', 'sup_rental'], withKayak).blocked.length === 0);
+  // Delete it: back to the canonical 4, and resolution over the rest is unchanged.
+  const delKayak = await deleteRentalOffering(parityPg, { clientSlug: 'sunset', locationId: 'sunset-somo', offering_key: 'kayak_rental' });
+  ok('new item soft-deleted', delKayak.ok === true && delKayak.deleted === true);
+  const afterKayak = await listRentalOfferings(parityPg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
+  ok('delete restores the canonical 4', afterKayak.length === 4 && !afterKayak.some((r) => r.offering_key === 'kayak_rental'), JSON.stringify(afterKayak.map((r) => r.offering_key)));
+  const postDelExcl = applyRentalMutualExclusion(['board_and_suit_rental', 'board_rental'], afterKayak);
+  ok('remaining catalog resolves unchanged after delete',
+    postDelExcl.blocked.length === 1 && postDelExcl.blocked[0].key === 'board_rental', JSON.stringify(postDelExcl.blocked));
+
   console.log(`\nverify-tenant-rental-offerings-crud  pass=${pass}  fail=${fail}`);
   if (fail === 0) console.log('verify-tenant-rental-offerings-crud — ALL CHECKS PASSED');
   process.exit(fail ? 1 : 0);
