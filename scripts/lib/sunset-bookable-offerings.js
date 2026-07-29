@@ -35,6 +35,9 @@ const {
 const {
   durationDaysFromTierKey,
 } = require('./sunset-admin-duration-keys');
+const { projectEquipmentOptions } = require('./sunset-course-equipment-options');
+const { listRentalOfferings } = require('./tenant-rental-offerings');
+const { loadPrivateLessonFromDb } = require('./sunset-admin-private-lesson-rules');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
 
@@ -184,7 +187,10 @@ function projectCourseTierFromPack(pack, prices, opts = {}) {
       price_resolve_reason: found.ok ? null : (found.reason || 'price_missing'),
       unit_canonical: found.ok ? found.unit_canonical !== false : false,
       capacity: pack.group_size != null ? Number(pack.group_size) : null,
-      equipment_options: Array.isArray(pack.equipment_options) ? pack.equipment_options.map((x) => ({ ...x })) : [],
+      equipment_options: projectEquipmentOptions(pack.equipment_options, opts.rentalOfferings, {
+        clientSlug: opts.clientSlug || SUNSET_CLIENT_SLUG,
+        locationId,
+      }),
       age_band: pack.age_band || null,
       beaches: pack.beaches || [],
       tier: { key: tierKey, label: tier.label || tierKey, hours: tier.hours },
@@ -213,6 +219,7 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
   }
 
   const prices = adminCfg.prices || [];
+  const rentalOfferings = opts.rentalOfferings || adminCfg.rental_offerings || [];
   const asOf = opts.asOf || opts.asOfDate || null;
   const requestedDates = opts.requestedDates || (
     opts.date ? [String(opts.date).slice(0, 10)] : null
@@ -226,6 +233,8 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
       requestedDates,
       timezone: opts.timezone,
       requireDb: opts.requireDb,
+      clientSlug: SUNSET_CLIENT_SLUG,
+      rentalOfferings,
     }));
   }
 
@@ -267,7 +276,10 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
       price_source: 'admin_db',
       unit_canonical: true,
       capacity: null,
-      equipment_options: Array.isArray(privateLesson.equipment_options) ? privateLesson.equipment_options.map((x) => ({ ...x })) : [],
+      equipment_options: projectEquipmentOptions(privateLesson.equipment_options, rentalOfferings, {
+        clientSlug: SUNSET_CLIENT_SLUG,
+        locationId,
+      }),
       offering_item_code: identity.item_code,
       item_code: identity.item_code,
       guest_description: privateLesson.label || privateLesson.name || 'Private lesson',
@@ -427,6 +439,17 @@ async function loadSunsetBookableOfferings(pg, opts = {}) {
   }
 
   const packs = await loadSurfPacksFromDb(pg, clientSlug, locationId);
+  const rentalOfferings = (await listRentalOfferings(pg, {
+    clientSlug,
+    locationId,
+    includeInactive: false,
+  })).filter((row) => row && row.active !== false
+    && String(row.client_slug) === clientSlug
+    && String(row.location_id) === locationId);
+  const privateLessonResult = await loadPrivateLessonFromDb(pg, clientSlug, locationId);
+  const privateLesson = privateLessonResult && privateLessonResult.api
+    ? privateLessonResult.api
+    : null;
   const requestedDates = opts.requestedDates || (opts.date ? [String(opts.date).slice(0, 10)] : null);
   const asOf = opts.asOf || opts.asOfDate || null;
   const offerings = [];
@@ -493,7 +516,10 @@ async function loadSunsetBookableOfferings(pg, opts = {}) {
         price_source: resolved.ok ? 'admin_db' : null,
         unit_canonical: true,
         capacity: pack.group_size != null ? Number(pack.group_size) : null,
-        equipment_options: Array.isArray(pack.equipment_options) ? pack.equipment_options.map((x) => ({ ...x })) : [],
+        equipment_options: projectEquipmentOptions(pack.equipment_options, rentalOfferings, {
+          clientSlug,
+          locationId,
+        }),
         age_band: pack.age_band || null,
         beaches: pack.beaches || [],
         tier: { key: tierKey, label: tier.label || tierKey, hours: tier.hours },
@@ -523,7 +549,8 @@ async function loadSunsetBookableOfferings(pg, opts = {}) {
       active: true,
       currency: o.currency,
     })),
-    private_lesson: null,
+    private_lesson: privateLesson,
+    rental_offerings: rentalOfferings,
   }, {
     locationId,
     asOf,
@@ -538,7 +565,7 @@ async function loadSunsetBookableOfferings(pg, opts = {}) {
     location_id: locationId,
     source: 'admin_db',
     requested_dates: requestedDates,
-    offerings: filtered,
+    offerings: filtered.concat(projected.offerings.filter((o) => o.offering_type === 'private_lesson')),
     courses: projected.courses,
   };
 }
@@ -554,7 +581,7 @@ function scheduleCoursesFromBookableProjection(projection) {
     label: c.label,
     slot_time: c.slot_time || '',
     capacity: c.capacity,
-    equipment_included: c.equipment_included === true,
+    equipment_options: Array.isArray(c.equipment_options) ? c.equipment_options.map((x) => ({ ...x })) : [],
     price_tiers: (c.price_tiers || []).map((t) => {
       const key = t.key;
       const durationDays = t.duration_days != null

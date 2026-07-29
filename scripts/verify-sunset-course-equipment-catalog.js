@@ -10,7 +10,7 @@ const {
 const { quoteCourseEquipment, invoiceLines } = require('./lib/sunset-course-equipment-pricing');
 const { validatePackBody, mapPackRow } = require('./lib/sunset-admin-pack-rules');
 const { validatePrivateLessonBody, mapPrivateLessonRow } = require('./lib/sunset-admin-private-lesson-rules');
-const { projectSunsetBookableOfferingsFromConfig } = require('./lib/sunset-bookable-offerings');
+const { projectSunsetBookableOfferingsFromConfig, loadSunsetBookableOfferings, scheduleCoursesFromBookableProjection } = require('./lib/sunset-bookable-offerings');
 
 const catalog = [
   { offering_key: 'kayak_rental', label: 'Kayak', active: true, client_slug: 'sunset', location_id: 'somo' },
@@ -53,10 +53,62 @@ assert.strictEqual(quote.lines.length, 2);
 assert.strictEqual(quote.lines[0].metadata.price_basis, 'per_person_per_course');
 assert.strictEqual(invoiceLines(quote).length, 2);
 
-const cfg = { ok: true, source: 'db', prices: [{ category: 'package', offering_key: 'surf_pack_p__1_day', unit: 'day', amount_cents: 1000, active: true }], surf_packs: [{ pack_id: 'p', label: 'G', equipment_options: options, price_tiers: [{ key: '1_day', label: '1 day', amount_cents: 1000 }], schedules: [], weekly: 'daily' }], private_lesson: { enabled: false } };
+const rentalRows = [
+  { offering_key: 'kayak_rental', label: 'Same label', active: true, client_slug: 'sunset', location_id: 'sunset-somo' },
+  { offering_key: 'helmet_rental', label: 'Same label', active: true, client_slug: 'sunset', location_id: 'sunset-somo' },
+  { offering_key: 'inactive_rental', label: 'Inactive', active: false, client_slug: 'sunset', location_id: 'sunset-somo' },
+  { offering_key: 'foreign_location', label: 'Foreign location', active: true, client_slug: 'sunset', location_id: 'sunset-sardinero' },
+  { offering_key: 'foreign_tenant', label: 'Foreign tenant', active: true, client_slug: 'other', location_id: 'sunset-somo' },
+];
+const configured = options.concat([
+  { offering_key: 'inactive_rental', equipment_price_cents: 1, all_day_surcharge_cents: 0 },
+  { offering_key: 'foreign_location', equipment_price_cents: 1, all_day_surcharge_cents: 0 },
+  { offering_key: 'foreign_tenant', equipment_price_cents: 1, all_day_surcharge_cents: 0 },
+]);
+const cfg = { ok: true, source: 'db', prices: [{ category: 'package', offering_key: 'surf_pack_p__1_day', unit: 'day', amount_cents: 1000, active: true }], rental_offerings: rentalRows, surf_packs: [{ pack_id: 'p', label: 'G', equipment_options: configured, price_tiers: [{ key: '1_day', label: '1 day', amount_cents: 1000 }], schedules: [], weekly: 'daily' }], private_lesson: { enabled: true, label: 'Private', amount_cents: 2000, equipment_options: configured } };
 const catalogProjection = projectSunsetBookableOfferingsFromConfig(cfg, { locationId: 'somo' });
-assert.deepStrictEqual(catalogProjection.offerings[0].equipment_options, options);
-assert.deepStrictEqual(catalogProjection.courses[0].equipment_options, options);
-assert.ok(!Object.prototype.hasOwnProperty.call(catalogProjection.offerings[0], 'equipment_included'));
+const exact = configured.slice(0, 2).map((row) => ({ ...row, label: 'Same label', location_id: 'sunset-somo' }));
+assert.deepStrictEqual(catalogProjection.offerings.find((x) => x.offering_type === 'course').equipment_options, exact);
+assert.deepStrictEqual(catalogProjection.offerings.find((x) => x.offering_type === 'private_lesson').equipment_options, exact);
+assert.deepStrictEqual(catalogProjection.courses[0].equipment_options, exact);
+const scheduled = scheduleCoursesFromBookableProjection(catalogProjection)[0];
+assert.deepStrictEqual(scheduled.equipment_options, exact);
+assert.ok(!Object.prototype.hasOwnProperty.call(scheduled, 'equipment_included'));
+assert.ok(!Object.prototype.hasOwnProperty.call(scheduled, 'equipment_price_cents'));
 
-console.log('PASS sunset course-owned equipment catalog');
+function fakePg(locationId) {
+  return { query: async (sql, params = []) => {
+    const text = String(sql);
+    if (/information_schema\.columns/.test(text)) return { rows: [{ exists: 1 }] };
+    if (/FROM tenant_surf_pack_rules/.test(text)) return { rows: [{ id: 'p', label: 'Async Group', active: true, config_json: { equipment_options: configured, group_size: 8, price_tiers: [{ key: '1_day', label: '1 day' }], schedules: [], weekly: 'daily' } }] };
+    if (/FROM tenant_rental_offerings/.test(text)) return { rows: rentalRows.concat([{ offering_key: 'price_free_identity', label: 'No standalone price', active: true, client_slug: 'sunset', location_id: locationId }]) };
+    if (/FROM tenant_private_lesson_rules/.test(text)) return { rows: [{ id: 'private', label: 'Async Private', active: true, config_json: { amount_cents: 2500, equipment_options: configured } }] };
+    if (/FROM tenant_price_rules/.test(text)) return { rows: [{ id: 'price', amount_cents: 1000, currency: 'EUR', item_type: 'package', item_code: params[2], unit: 'day', location_id: locationId }] };
+    return { rows: [] };
+  } };
+}
+
+(async () => {
+  for (const locationId of ['sunset-somo', 'sunset-sardinero']) {
+    const rows = locationId === 'sunset-somo' ? rentalRows : rentalRows.map((r, index) => ({
+      ...r,
+      location_id: index < 2 ? 'sunset-sardinero' : 'sunset-somo',
+    }));
+    const pg = fakePg(locationId);
+    if (locationId === 'sunset-sardinero') pg.query = async (sql, params = []) => {
+      const text = String(sql);
+      if (/FROM tenant_rental_offerings/.test(text)) return { rows };
+      if (/information_schema\.columns/.test(text)) return { rows: [{ exists: 1 }] };
+      if (/FROM tenant_surf_pack_rules/.test(text)) return { rows: [{ id: 'p', label: 'Async Group', active: true, config_json: { equipment_options: configured, group_size: 8, price_tiers: [{ key: '1_day', label: '1 day' }], schedules: [], weekly: 'daily' } }] };
+      if (/FROM tenant_private_lesson_rules/.test(text)) return { rows: [{ id: 'private', label: 'Async Private', active: true, config_json: { amount_cents: 2500, equipment_options: configured } }] };
+      if (/FROM tenant_price_rules/.test(text)) return { rows: [{ id: 'price', amount_cents: 1000, currency: 'EUR', item_type: 'package', item_code: params[2], unit: 'day', location_id: locationId }] };
+      return { rows: [] };
+    };
+    const asyncCatalog = await loadSunsetBookableOfferings(pg, { locationId });
+    assert.strictEqual(asyncCatalog.ok, true);
+    assert.deepStrictEqual(asyncCatalog.offerings.find((x) => x.offering_type === 'course').equipment_options.map((x) => x.offering_key), ['kayak_rental', 'helmet_rental']);
+    assert.deepStrictEqual(asyncCatalog.offerings.find((x) => x.offering_type === 'private_lesson').equipment_options.map((x) => x.offering_key), ['kayak_rental', 'helmet_rental']);
+    assert.deepStrictEqual(asyncCatalog.courses[0].equipment_options.map((x) => x.label), ['Same label', 'Same label']);
+  }
+  console.log('PASS sunset course-owned equipment catalog');
+})().catch((err) => { console.error(err); process.exitCode = 1; });
