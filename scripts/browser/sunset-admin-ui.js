@@ -854,22 +854,22 @@ function adminReadDurationControl(prefix){
 function renderAdminDurationControl(prefix, unit, count){
   var u = unit || 'days';
   var c = count || 1;
-  return '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.prices.duration') || 'Duration') + '</label>' +
-    '<div class="portal-admin-duration-row" style="display:flex;gap:8px;align-items:center">' +
-    '<input type="number" id="' + prefix + '-count" min="1" max="999" step="1" value="' + escHtml(String(c)) + '" style="width:88px">' +
-    '<select id="' + prefix + '-unit">' +
+  return '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.prices.duration') || 'Duration') + '</label>' +
+    '<div class="portal-admin-duration-row">' +
+    '<input type="number" class="portal-admin-duration-count" id="' + prefix + '-count" min="1" max="999" step="1" value="' + escHtml(String(c)) + '">' +
+    '<select class="portal-admin-duration-unit" id="' + prefix + '-unit">' +
     '<option value="hours"' + (u === 'hours' ? ' selected' : '') + '>' + escHtml(portalT('admin.prices.hours') || 'Hours') + '</option>' +
     '<option value="days"' + (u === 'days' ? ' selected' : '') + '>' + escHtml(portalT('admin.prices.days') || 'Days') + '</option>' +
     '</select></div></div>';
 }
 
 function renderAdminAddEquipmentForm(){
-  return '<div class="portal-admin-edit-form" id="admin-add-equip-form">' +
-    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.prices.equipmentName') || 'Equipment name') + '</label>' +
+  return '<div class="portal-admin-edit-form portal-admin-equip-form" id="admin-add-equip-form">' +
+    '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.prices.equipmentName') || 'Equipment name') + '</label>' +
     '<input type="text" id="admin-new-equip-name" placeholder="Kayak"></div>' +
     renderAdminDurationControl('admin-new-equip', 'days', 1) +
-    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
-    '<input type="text" id="admin-new-equip-amount" inputmode="decimal" placeholder="0.00"></div>' +
+    '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
+    '<input type="text" class="portal-admin-equip-amount" id="admin-new-equip-amount" inputmode="decimal" placeholder="0.00"></div>' +
     '<div class="portal-admin-edit-actions">' +
     '<button type="button" class="btn btn-primary" data-admin-action="save-new-equipment">' + escHtml(portalT('admin.action.save')) + '</button>' +
     '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
@@ -877,10 +877,10 @@ function renderAdminAddEquipmentForm(){
 }
 
 function renderAdminAddEquipPriceForm(offeringKey){
-  return '<div class="portal-admin-edit-form" id="admin-add-price-form">' +
+  return '<div class="portal-admin-edit-form portal-admin-equip-form" id="admin-add-price-form">' +
     renderAdminDurationControl('admin-new-price', 'days', 1) +
-    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
-    '<input type="text" id="admin-new-price-amount" inputmode="decimal" placeholder="0.00"></div>' +
+    '<div class="portal-admin-edit-field portal-admin-equip-field"><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
+    '<input type="text" class="portal-admin-equip-amount" id="admin-new-price-amount" inputmode="decimal" placeholder="0.00"></div>' +
     '<div class="portal-admin-edit-actions">' +
     '<button type="button" class="btn btn-primary" data-admin-action="save-new-price" data-equip-key="' + escHtml(offeringKey) + '">' + escHtml(portalT('admin.action.save')) + '</button>' +
     '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +

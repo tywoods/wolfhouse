@@ -19,7 +19,8 @@ const prices = [
   { category: 'rental', offering_key: 'board_rental__3_days', amount_cents: 4000, active: true },
   { category: 'rental', offering_key: 'wetsuit_rental__half_day', amount_cents: 800, active: true, label: 'Wetsuit' },
   { category: 'rental', offering_key: 'kayak_rental__3_hours', amount_cents: 1500, active: true, label: 'Kayak' },
-  { category: 'rental', offering_key: 'kayak_rental__2_days', amount_cents: 4000, active: false, label: 'Kayak' },
+  { category: 'rental', offering_key: 'kayak_rental__2_days', amount_cents: 4000, active: true, label: 'Kayak' },
+  { category: 'rental', offering_key: 'kayak_rental__5_days', amount_cents: 9000, active: false, label: 'Kayak' }, // deleted → dropped
   { category: 'rental', offering_key: 'full_day_equipment_extension__day', amount_cents: 1000, active: true }, // excluded
   { category: 'lesson', offering_key: 'surf_pack_x__1_day', amount_cents: 9000, active: true }, // not rental
 ];
@@ -36,7 +37,8 @@ assert('lesson category excluded', !items.some((i) => i.offering_key.indexOf('su
 console.log('\n[labels] hours/days duration model');
 const kRows = byKey.kayak_rental.rows;
 assert('kayak 3_hours → "3 hours"', kRows.some((r) => r.duration_key === '3_hours' && r.duration_label === '3 hours'), JSON.stringify(kRows));
-assert('kayak 2_days → "2 days", inactive preserved', kRows.some((r) => r.duration_key === '2_days' && r.duration_label === '2 days' && r.active === false));
+assert('inactive kayak 5_days dropped (deleted = gone, uniform)', !kRows.some((r) => r.duration_key === '5_days'), JSON.stringify(kRows));
+assert('active kayak 2_days kept', kRows.some((r) => r.duration_key === '2_days' && r.active === true));
 assert('wetsuit half_day → "12 hours"', byKey.wetsuit_rental.rows.some((r) => r.duration_label === '12 hours'), JSON.stringify(byKey.wetsuit_rental.rows));
 assert('board full_day → "1 day"', byKey.board_rental.rows.some((r) => r.duration_label === '1 day'));
 assert('amount_cents surfaced', kRows.every((r) => typeof r.amount_cents === 'number'));

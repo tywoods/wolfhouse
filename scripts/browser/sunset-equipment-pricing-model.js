@@ -72,6 +72,10 @@ function buildEquipmentPricingList(prices) {
   for (var i = 0; i < list.length; i++) {
     var p = list[i];
     if (!equipmentIsRentalCategory(p)) continue;
+    // Inactive rows are treated as removed — the groupless tab has no "availability"
+    // concept, so a deleted price disappears uniformly (canonical items no longer
+    // linger grayed-out the way the old group UI kept them).
+    if (p && p.active === false) continue;
     var key = equipmentPriceOfferingKey(p);
     if (!key || EQUIPMENT_EXCLUDED_OFFERING_KEYS[key]) continue;
     if (!byKey[key]) { byKey[key] = { offering_key: key, label: '', rows: [] }; order.push(key); }
