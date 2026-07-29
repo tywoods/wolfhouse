@@ -1,28 +1,36 @@
-"""Water-cooler A2A policy foundation (pure, fail-closed).
+"""Water-cooler A2A policy foundation (pure, fail-closed, mirrored).
 
 Deterministic state machine that classifies a Discord message as:
 
-- ignore (casual / wrong channel / disabled / non-protocol)
+- ignore (casual / wrong channel / disabled / non-protocol / mirrored non-dispatch)
 - reject (unauthorized, malformed, wrong role/order, duplicate, expired, limit)
-- human-started task
+- human-started task (dispatchable only on the named worker instance)
 - allowed peer handoff
 - allowed peer review
 
+Seadog and Deckhand run in separate processes. Both role-local policy
+instances observe the same human TASK and deterministically create the same
+task id/state from the inbound Discord message (no shared memory, volume,
+database, or secret). Only the worker returns HUMAN_TASK; the reviewer
+records a mirror and returns a non-dispatch ignore. Both validate peer
+envelopes against local mirror state.
+
 No model calls, no tool invocation, no ambient env reads, no Discord adapter
 wiring. Configuration and bot/human IDs are injected. State never stores raw
-task text or peer/model output.
+task text or peer/model output. Restart empties local state — peer envelopes
+are rejected (fail closed), never replayed from Discord history.
 
 Later runtime hook may call :meth:`WaterCoolerA2APolicy.evaluate` only.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
-import secrets
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Dict, FrozenSet, Iterable, Optional, Set
+from typing import Dict, FrozenSet, Iterable, Optional, Set
 
 # ---------------------------------------------------------------------------
 # Protocol constants (markers only; identities come from config)
@@ -110,25 +118,33 @@ class PolicyDecision:
     task_state: Optional[TaskState] = None
 
 
-IdGenerator = Callable[[], str]
+def derive_task_id(channel_id: str, message_id: str) -> str:
+    """Deterministic opaque task id from the human Discord message identity.
 
-
-def default_id_generator() -> str:
-    """Opaque task id via secrets (standard library)."""
-    return secrets.token_urlsafe(16)
+    Both Seadog and Deckhand process instances must produce the same id for
+    the same inbound human message without shared memory or secrets.
+    """
+    material = f"{channel_id}:{message_id}".encode("utf-8")
+    # 32 hex chars fit [A-Za-z0-9_-]{8,64}; stable across processes/restarts
+    # of derivation (state itself remains in-memory only).
+    return hashlib.sha256(material).hexdigest()[:32]
 
 
 @dataclass(frozen=True)
 class WaterCoolerA2AConfig:
-    """Injected configuration. Default enabled=False; invalid fails closed."""
+    """Injected configuration. Default enabled=False; invalid fails closed.
+
+    ``local_bot_id`` must be exactly the Seadog or Deckhand bot id so each
+    process knows its role (worker vs reviewer) for dispatch decisions.
+    """
 
     enabled: bool = False
     channel_id: str = WATER_COOLER_CHANNEL_ID
     allowed_human_starter_ids: FrozenSet[str] = field(default_factory=frozenset)
     seadog_bot_id: str = ""
     deckhand_bot_id: str = ""
+    local_bot_id: str = ""
     task_ttl_seconds: float = DEFAULT_TTL_SECONDS
-    id_generator: IdGenerator = field(default=default_id_generator, repr=False)
     max_content_length: int = MAX_CONTENT_LENGTH
 
     @property
@@ -137,6 +153,25 @@ class WaterCoolerA2AConfig:
         if not self.enabled:
             return False
         return _config_valid(self)
+
+    @property
+    def local_role(self) -> Optional[str]:
+        """ROLE_WORKER, ROLE_REVIEWER, or None if local_bot_id is not a peer."""
+        if not self.local_bot_id:
+            return None
+        if self.local_bot_id == self.seadog_bot_id:
+            return ROLE_WORKER
+        if self.local_bot_id == self.deckhand_bot_id:
+            return ROLE_REVIEWER
+        return None
+
+    @property
+    def is_local_worker(self) -> bool:
+        return self.local_role == ROLE_WORKER
+
+    @property
+    def is_local_reviewer(self) -> bool:
+        return self.local_role == ROLE_REVIEWER
 
 
 def _is_snowflake(value: str) -> bool:
@@ -156,6 +191,11 @@ def _config_valid(cfg: WaterCoolerA2AConfig) -> bool:
         return False
     if cfg.seadog_bot_id == cfg.deckhand_bot_id:
         return False
+    if not _is_snowflake(cfg.local_bot_id):
+        return False
+    # local_bot_id must be exactly Seadog or Deckhand — no third identity.
+    if cfg.local_bot_id not in (cfg.seadog_bot_id, cfg.deckhand_bot_id):
+        return False
     if not cfg.allowed_human_starter_ids:
         return False
     for hid in cfg.allowed_human_starter_ids:
@@ -170,8 +210,6 @@ def _config_valid(cfg: WaterCoolerA2AConfig) -> bool:
         return False
     if cfg.max_content_length < 64 or cfg.max_content_length > MAX_CONTENT_LENGTH:
         return False
-    if not callable(cfg.id_generator):
-        return False
     return True
 
 
@@ -182,8 +220,8 @@ def build_config(
     allowed_human_starter_ids: Optional[Iterable[str]] = None,
     seadog_bot_id: str = "",
     deckhand_bot_id: str = "",
+    local_bot_id: str = "",
     task_ttl_seconds: float = DEFAULT_TTL_SECONDS,
-    id_generator: Optional[IdGenerator] = None,
     max_content_length: int = MAX_CONTENT_LENGTH,
 ) -> WaterCoolerA2AConfig:
     """Construct config from injected values (no env reads)."""
@@ -194,8 +232,8 @@ def build_config(
         allowed_human_starter_ids=humans,
         seadog_bot_id=str(seadog_bot_id or "").strip(),
         deckhand_bot_id=str(deckhand_bot_id or "").strip(),
+        local_bot_id=str(local_bot_id or "").strip(),
         task_ttl_seconds=float(task_ttl_seconds) if not isinstance(task_ttl_seconds, bool) else -1.0,
-        id_generator=id_generator or default_id_generator,
         max_content_length=int(max_content_length),
     )
 
@@ -281,8 +319,9 @@ def _safe_ids(*values: object) -> bool:
 class WaterCoolerA2APolicy:
     """In-memory fail-closed A2A gate for the Water-cooler channel.
 
-    Safe to call from a later Discord adapter hook. Does not touch sessions,
-    models, tools, or network.
+    Each process (Seadog worker / Deckhand reviewer) holds its own mirror of
+    task state. Safe to call from a later Discord adapter hook. Does not touch
+    sessions, models, tools, network, or shared storage.
     """
 
     def __init__(self, config: WaterCoolerA2AConfig) -> None:
@@ -356,7 +395,21 @@ class WaterCoolerA2APolicy:
         if event.author_id not in cfg.allowed_human_starter_ids:
             return PolicyDecision(DecisionKind.REJECT, "unknown_human")
 
-        task_id = self._new_task_id()
+        # Deterministic id from the human message so worker + reviewer mirrors match.
+        task_id = derive_task_id(event.channel_id, event.message_id)
+        if not _TASK_ID_RE.fullmatch(task_id):
+            # Defensive: derivation must always yield a protocol-safe id.
+            return PolicyDecision(DecisionKind.REJECT, "unable_to_derive_task_id")
+
+        if task_id in self._tasks:
+            # Same message should be caught by seen_message_ids; other collisions fail closed.
+            return PolicyDecision(
+                DecisionKind.REJECT,
+                "duplicate_or_conflicting_task_id",
+                task_id=task_id,
+                task_state=self._tasks.get(task_id),
+            )
+
         state = TaskState(
             task_id=task_id,
             stage=TaskStage.AWAITING_WORKER_HANDOFF,
@@ -372,9 +425,20 @@ class WaterCoolerA2APolicy:
         # Intentionally never store `body` / event.content.
         self._tasks[task_id] = state
         self._seen_message_ids.add(event.message_id)
+
+        if cfg.is_local_worker:
+            # Only the named worker is dispatched to its model.
+            return PolicyDecision(
+                DecisionKind.HUMAN_TASK,
+                "human_task_accepted",
+                task_id=task_id,
+                task_state=state,
+            )
+
+        # Reviewer (or any non-worker local role) mirrors state but must not work the task.
         return PolicyDecision(
-            DecisionKind.HUMAN_TASK,
-            "human_task_accepted",
+            DecisionKind.IGNORE,
+            "mirrored_task_non_dispatch",
             task_id=task_id,
             task_state=state,
         )
@@ -404,6 +468,7 @@ class WaterCoolerA2APolicy:
 
         state = self._tasks.get(task_id)
         if state is None:
+            # Restart / empty local mirror: fail closed — never replay from history.
             return PolicyDecision(DecisionKind.REJECT, "unknown_or_forged_task_id", task_id=task_id)
 
         if clock > state.expires_at or state.stage == TaskStage.TERMINAL:
@@ -520,14 +585,6 @@ class WaterCoolerA2APolicy:
             task_state=new_state,
         )
 
-    def _new_task_id(self) -> str:
-        for _ in range(8):
-            candidate = str(self._config.id_generator())
-            if _TASK_ID_RE.fullmatch(candidate) and candidate not in self._tasks:
-                return candidate
-        # Extremely unlikely; still fail closed rather than accept weak id.
-        raise RuntimeError("unable_to_allocate_opaque_task_id")
-
     def _expire_tasks(self, clock: float) -> None:
         for tid, state in list(self._tasks.items()):
             if state.stage != TaskStage.TERMINAL and clock > state.expires_at:
@@ -565,6 +622,8 @@ __all__ = [
     "MAX_TTL_SECONDS",
     "DEFAULT_TTL_SECONDS",
     "MAX_CONTENT_LENGTH",
+    "ROLE_WORKER",
+    "ROLE_REVIEWER",
     "DecisionKind",
     "TaskStage",
     "DiscordMessageEvent",
@@ -573,5 +632,5 @@ __all__ = [
     "WaterCoolerA2AConfig",
     "WaterCoolerA2APolicy",
     "build_config",
-    "default_id_generator",
+    "derive_task_id",
 ]

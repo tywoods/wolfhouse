@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Unit tests for Water-cooler A2A policy foundation (stdlib only)."""
+"""Unit tests for Water-cooler A2A policy foundation (stdlib only).
+
+Includes dual-instance (worker + reviewer process) mirror contract tests:
+separate policy objects, shared task identity, dispatch asymmetry, peer
+validation against local mirrors, and restart fail-closed.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +13,7 @@ import sys
 import unittest
 from dataclasses import asdict, fields
 from pathlib import Path
-from typing import List
+from typing import Tuple
 
 ROOT = Path(__file__).resolve().parent
 MOD_PATH = ROOT / "water_cooler_a2a_policy.py"
@@ -28,31 +33,6 @@ UNKNOWN_HUMAN = "100000000000000099"
 UNKNOWN_BOT = "400000000000000001"
 OTHER_CHANNEL = "1530209175861199000"
 
-# Deterministic opaque IDs for tests.
-_ID_SEQ: List[str] = []
-_ID_I = 0
-
-
-def _reset_ids(*ids: str) -> None:
-    global _ID_SEQ, _ID_I
-    _ID_SEQ = list(ids) if ids else [
-        "taskid_round_aaa01",
-        "taskid_round_bbb02",
-        "taskid_round_ccc03",
-        "taskid_round_ddd04",
-        "taskid_round_eee05",
-    ]
-    _ID_I = 0
-
-
-def _next_id() -> str:
-    global _ID_I
-    if _ID_I >= len(_ID_SEQ):
-        raise AssertionError("test id generator exhausted")
-    value = _ID_SEQ[_ID_I]
-    _ID_I += 1
-    return value
-
 
 def _cfg(**overrides):
     base = dict(
@@ -61,11 +41,18 @@ def _cfg(**overrides):
         allowed_human_starter_ids={HUMAN},
         seadog_bot_id=SEADOG,
         deckhand_bot_id=DECKHAND,
+        local_bot_id=SEADOG,
         task_ttl_seconds=600.0,
-        id_generator=_next_id,
     )
     base.update(overrides)
     return mod.build_config(**base)
+
+
+def _pair() -> Tuple["mod.WaterCoolerA2APolicy", "mod.WaterCoolerA2APolicy"]:
+    """Independent worker (Seadog) and reviewer (Deckhand) process instances."""
+    worker = mod.WaterCoolerA2APolicy(_cfg(local_bot_id=SEADOG))
+    reviewer = mod.WaterCoolerA2APolicy(_cfg(local_bot_id=DECKHAND))
+    return worker, reviewer
 
 
 def _event(
@@ -99,33 +86,37 @@ def _review(task_id: str, extra: str = "lgtm with nits") -> str:
     return f"A2A-REVIEW v1\ntask_id: {task_id}\n{extra}"
 
 
+def _expected_task_id(message_id: str, channel_id: str = CHANNEL) -> str:
+    return mod.derive_task_id(channel_id, message_id)
+
+
 class TestWaterCoolerA2APolicy(unittest.TestCase):
     def setUp(self) -> None:
-        _reset_ids()
         self.policy = mod.WaterCoolerA2APolicy(_cfg())
         self.t0 = 1_000.0
 
     def test_valid_human_task(self) -> None:
         secret_body = "SECRET_TASK_BODY_SHOULD_NOT_PERSIST"
+        msg_id = "9001"
         decision = self.policy.evaluate(
             _event(
                 author_id=HUMAN,
                 content=_task_msg(secret_body),
                 is_bot=False,
-                message_id="9001",
+                message_id=msg_id,
                 created_at=self.t0,
             ),
             now=self.t0,
         )
         self.assertEqual(decision.kind, mod.DecisionKind.HUMAN_TASK)
-        self.assertEqual(decision.task_id, "taskid_round_aaa01")
+        self.assertEqual(decision.task_id, _expected_task_id(msg_id))
         self.assertIsNotNone(decision.task_state)
         assert decision.task_state is not None
         self.assertEqual(decision.task_state.stage, mod.TaskStage.AWAITING_WORKER_HANDOFF)
         self.assertEqual(decision.task_state.worker_bot_id, SEADOG)
         self.assertEqual(decision.task_state.reviewer_bot_id, DECKHAND)
         self.assertEqual(decision.task_state.round_count, 0)
-        self.assertEqual(decision.task_state.source_message_id, "9001")
+        self.assertEqual(decision.task_state.source_message_id, msg_id)
         self.assertEqual(decision.task_state.expires_at, self.t0 + 600.0)
 
     def test_casual_water_cooler_chat_ignored(self) -> None:
@@ -488,6 +479,7 @@ class TestWaterCoolerA2APolicy(unittest.TestCase):
                 allowed_human_starter_ids=set(),
                 seadog_bot_id=SEADOG,
                 deckhand_bot_id=DECKHAND,
+                local_bot_id=SEADOG,
             )
         )
         d2 = incomplete.evaluate(
@@ -509,6 +501,7 @@ class TestWaterCoolerA2APolicy(unittest.TestCase):
             allowed_human_starter_ids={HUMAN},
             seadog_bot_id=SEADOG,
             deckhand_bot_id=DECKHAND,
+            local_bot_id=SEADOG,
             task_ttl_seconds=999_999.0,
         )
         self.assertFalse(bad_ttl.is_active)
@@ -519,6 +512,7 @@ class TestWaterCoolerA2APolicy(unittest.TestCase):
             allowed_human_starter_ids={HUMAN},
             seadog_bot_id=SEADOG,
             deckhand_bot_id=SEADOG,
+            local_bot_id=SEADOG,
         )
         self.assertFalse(same_bots.is_active)
 
@@ -585,7 +579,7 @@ class TestWaterCoolerA2APolicy(unittest.TestCase):
         cases = [
             "TASK [target=deckhand] [reviewer=seadog]\nnope",
             "TASK [target=seadog]\nmissing reviewer",
-            "A2A-HANDOFF v2\ntask_id: taskid_round_aaa01",
+            "A2A-HANDOFF v2\ntask_id: " + _expected_task_id("2300"),
             "A2A-REVIEW v1 task_id: embedded",
         ]
         for i, content in enumerate(cases):
@@ -610,6 +604,7 @@ class TestWaterCoolerA2APolicy(unittest.TestCase):
                 allowed_human_starter_ids={HUMAN},
                 seadog_bot_id=SEADOG,
                 deckhand_bot_id=DECKHAND,
+                local_bot_id=SEADOG,
                 task_ttl_seconds=mod.MIN_TTL_SECONDS,
             ).is_active
         )
@@ -620,6 +615,7 @@ class TestWaterCoolerA2APolicy(unittest.TestCase):
                 allowed_human_starter_ids={HUMAN},
                 seadog_bot_id=SEADOG,
                 deckhand_bot_id=DECKHAND,
+                local_bot_id=DECKHAND,
                 task_ttl_seconds=mod.MAX_TTL_SECONDS,
             ).is_active
         )
@@ -630,6 +626,7 @@ class TestWaterCoolerA2APolicy(unittest.TestCase):
                 allowed_human_starter_ids={HUMAN},
                 seadog_bot_id=SEADOG,
                 deckhand_bot_id=DECKHAND,
+                local_bot_id=SEADOG,
                 task_ttl_seconds=mod.MIN_TTL_SECONDS - 0.1,
             ).is_active
         )
@@ -643,6 +640,297 @@ class TestWaterCoolerA2APolicy(unittest.TestCase):
         # Module under test must not pull ambient env inside pure logic.
         self.assertNotIn("os.environ", src)
         self.assertNotIn("os.getenv", src)
+        # No shared-secret / signed-token machinery in this slice.
+        self.assertNotIn("hmac", src.lower())
+        self.assertNotIn("shared_secret", src.lower())
+
+    # ------------------------------------------------------------------
+    # Dual-instance mirror contract (cross-process without shared memory)
+    # ------------------------------------------------------------------
+
+    def test_dual_instance_same_task_identity_without_shared_memory(self) -> None:
+        """(1) Both instances observe the same human task; same task_id/state."""
+        worker, reviewer = _pair()
+        # Prove separate process-local stores (no shared dict).
+        self.assertIsNot(worker, reviewer)
+        self.assertIsNot(worker._tasks, reviewer._tasks)
+
+        msg_id = "5001"
+        human_ev = _event(
+            author_id=HUMAN,
+            content=_task_msg("shared identity work"),
+            is_bot=False,
+            message_id=msg_id,
+            created_at=self.t0,
+        )
+        dw = worker.evaluate(human_ev, now=self.t0)
+        dr = reviewer.evaluate(human_ev, now=self.t0)
+
+        expected = _expected_task_id(msg_id)
+        self.assertEqual(dw.task_id, expected)
+        self.assertEqual(dr.task_id, expected)
+        self.assertEqual(dw.task_id, dr.task_id)
+
+        sw = worker.get_task(expected)
+        sr = reviewer.get_task(expected)
+        self.assertIsNotNone(sw)
+        self.assertIsNotNone(sr)
+        assert sw is not None and sr is not None
+        # Value identity (same facts), not object identity.
+        self.assertEqual(sw, sr)
+        self.assertIsNot(sw, sr)
+        self.assertEqual(sw.stage, mod.TaskStage.AWAITING_WORKER_HANDOFF)
+        self.assertEqual(sw.worker_bot_id, SEADOG)
+        self.assertEqual(sw.reviewer_bot_id, DECKHAND)
+        self.assertEqual(sw.source_message_id, msg_id)
+        self.assertEqual(sw.round_count, 0)
+
+    def test_only_worker_gets_dispatchable_human_task(self) -> None:
+        """(2) Only worker receives HUMAN_TASK; reviewer mirrors with ignore."""
+        worker, reviewer = _pair()
+        human_ev = _event(
+            author_id=HUMAN,
+            content=_task_msg("dispatch asymmetry"),
+            is_bot=False,
+            message_id="5002",
+            created_at=self.t0,
+        )
+        dw = worker.evaluate(human_ev, now=self.t0)
+        dr = reviewer.evaluate(human_ev, now=self.t0)
+
+        self.assertEqual(dw.kind, mod.DecisionKind.HUMAN_TASK)
+        self.assertEqual(dw.reason, "human_task_accepted")
+        self.assertEqual(dr.kind, mod.DecisionKind.IGNORE)
+        self.assertEqual(dr.reason, "mirrored_task_non_dispatch")
+        # Reviewer still recorded mirror state (non-dispatch).
+        self.assertIsNotNone(dr.task_state)
+        self.assertEqual(dr.task_id, dw.task_id)
+        self.assertEqual(worker.active_task_ids(), reviewer.active_task_ids())
+
+    def test_reviewer_validates_first_worker_handoff_via_mirror(self) -> None:
+        """(3) Reviewer validates first handoff using its local mirror only."""
+        worker, reviewer = _pair()
+        human_ev = _event(
+            author_id=HUMAN,
+            content=_task_msg("handoff via mirror"),
+            is_bot=False,
+            message_id="5003",
+            created_at=self.t0,
+        )
+        dw = worker.evaluate(human_ev, now=self.t0)
+        reviewer.evaluate(human_ev, now=self.t0)
+        tid = dw.task_id
+        assert tid is not None
+
+        handoff_ev = _event(
+            author_id=SEADOG,
+            content=_handoff(tid, "first handoff body"),
+            is_bot=True,
+            message_id="5004",
+            created_at=self.t0 + 1,
+        )
+        # Reviewer alone can accept — its mirror is sufficient.
+        dh_r = reviewer.evaluate(handoff_ev, now=self.t0 + 1)
+        self.assertEqual(dh_r.kind, mod.DecisionKind.PEER_HANDOFF, msg=dh_r.reason)
+        assert dh_r.task_state is not None
+        self.assertEqual(dh_r.task_state.stage, mod.TaskStage.AWAITING_REVIEWER_REVIEW)
+
+        # Worker also advances independently from the same envelope.
+        dh_w = worker.evaluate(handoff_ev, now=self.t0 + 1)
+        self.assertEqual(dh_w.kind, mod.DecisionKind.PEER_HANDOFF)
+        self.assertEqual(worker.get_task(tid), reviewer.get_task(tid))
+
+    def test_dual_instance_three_rounds_through_terminal(self) -> None:
+        """(4) Worker validates reviews; both stay in sync through third round."""
+        worker, reviewer = _pair()
+        human_ev = _event(
+            author_id=HUMAN,
+            content=_task_msg("three round dual"),
+            is_bot=False,
+            message_id="5100",
+            created_at=self.t0,
+        )
+        dw = worker.evaluate(human_ev, now=self.t0)
+        reviewer.evaluate(human_ev, now=self.t0)
+        tid = dw.task_id
+        assert tid is not None
+
+        now = self.t0
+        for round_i in range(1, mod.MAX_ROUNDS + 1):
+            now += 1
+            handoff_ev = _event(
+                author_id=SEADOG,
+                content=_handoff(tid, f"handoff-{round_i}"),
+                is_bot=True,
+                message_id=str(5200 + round_i),
+                created_at=now,
+            )
+            dh_w = worker.evaluate(handoff_ev, now=now)
+            dh_r = reviewer.evaluate(handoff_ev, now=now)
+            self.assertEqual(dh_w.kind, mod.DecisionKind.PEER_HANDOFF, msg=dh_w.reason)
+            self.assertEqual(dh_r.kind, mod.DecisionKind.PEER_HANDOFF, msg=dh_r.reason)
+
+            now += 1
+            review_ev = _event(
+                author_id=DECKHAND,
+                content=_review(tid, f"review-{round_i}"),
+                is_bot=True,
+                message_id=str(5300 + round_i),
+                created_at=now,
+            )
+            # Worker validates review against its mirror.
+            dr_w = worker.evaluate(review_ev, now=now)
+            dr_r = reviewer.evaluate(review_ev, now=now)
+            self.assertEqual(dr_w.kind, mod.DecisionKind.PEER_REVIEW, msg=dr_w.reason)
+            self.assertEqual(dr_r.kind, mod.DecisionKind.PEER_REVIEW, msg=dr_r.reason)
+            self.assertEqual(worker.get_task(tid), reviewer.get_task(tid))
+            st = worker.get_task(tid)
+            assert st is not None
+            self.assertEqual(st.round_count, round_i)
+            if round_i < mod.MAX_ROUNDS:
+                self.assertEqual(st.stage, mod.TaskStage.AWAITING_WORKER_HANDOFF)
+            else:
+                self.assertEqual(st.stage, mod.TaskStage.TERMINAL)
+
+        # Fourth handoff rejected on both.
+        now += 1
+        fourth = _event(
+            author_id=SEADOG,
+            content=_handoff(tid, "handoff-4"),
+            is_bot=True,
+            message_id="5299",
+            created_at=now,
+        )
+        self.assertEqual(worker.evaluate(fourth, now=now).kind, mod.DecisionKind.REJECT)
+        self.assertEqual(reviewer.evaluate(fourth, now=now).kind, mod.DecisionKind.REJECT)
+
+    def test_restart_or_empty_instance_rejects_peer_fail_closed(self) -> None:
+        """(5) Fresh/restarted instance has no mirror — peer envelopes rejected."""
+        worker, reviewer = _pair()
+        human_ev = _event(
+            author_id=HUMAN,
+            content=_task_msg("pre-restart task"),
+            is_bot=False,
+            message_id="5400",
+            created_at=self.t0,
+        )
+        dw = worker.evaluate(human_ev, now=self.t0)
+        reviewer.evaluate(human_ev, now=self.t0)
+        tid = dw.task_id
+        assert tid is not None
+
+        # Worker "restarts" — empty local state.
+        restarted_worker = mod.WaterCoolerA2APolicy(_cfg(local_bot_id=SEADOG))
+        self.assertEqual(restarted_worker.active_task_ids(), frozenset())
+        peer = _event(
+            author_id=SEADOG,
+            content=_handoff(tid),
+            is_bot=True,
+            message_id="5401",
+            created_at=self.t0 + 1,
+        )
+        bad_w = restarted_worker.evaluate(peer, now=self.t0 + 1)
+        self.assertEqual(bad_w.kind, mod.DecisionKind.REJECT)
+        self.assertEqual(bad_w.reason, "unknown_or_forged_task_id")
+
+        # Reviewer restart after handoff exists only on the other side.
+        worker.evaluate(peer, now=self.t0 + 1)
+        restarted_reviewer = mod.WaterCoolerA2APolicy(_cfg(local_bot_id=DECKHAND))
+        review_peer = _event(
+            author_id=DECKHAND,
+            content=_review(tid),
+            is_bot=True,
+            message_id="5402",
+            created_at=self.t0 + 2,
+        )
+        bad_r = restarted_reviewer.evaluate(review_peer, now=self.t0 + 2)
+        self.assertEqual(bad_r.kind, mod.DecisionKind.REJECT)
+        self.assertEqual(bad_r.reason, "unknown_or_forged_task_id")
+
+        # Brand-new empty pair never accepts a peer for an unknown task_id.
+        empty_w, empty_r = _pair()
+        ghost = _event(
+            author_id=SEADOG,
+            content=_handoff(_expected_task_id("9999")),
+            is_bot=True,
+            message_id="5499",
+            created_at=self.t0,
+        )
+        self.assertEqual(empty_w.evaluate(ghost, now=self.t0).reason, "unknown_or_forged_task_id")
+        self.assertEqual(empty_r.evaluate(ghost, now=self.t0).reason, "unknown_or_forged_task_id")
+
+    def test_wrong_local_bot_config_fails_closed(self) -> None:
+        """(6) local_bot_id must be exactly Seadog or Deckhand."""
+        missing_local = mod.build_config(
+            enabled=True,
+            channel_id=CHANNEL,
+            allowed_human_starter_ids={HUMAN},
+            seadog_bot_id=SEADOG,
+            deckhand_bot_id=DECKHAND,
+            local_bot_id="",
+        )
+        self.assertFalse(missing_local.is_active)
+        self.assertIsNone(missing_local.local_role)
+
+        wrong_local = mod.build_config(
+            enabled=True,
+            channel_id=CHANNEL,
+            allowed_human_starter_ids={HUMAN},
+            seadog_bot_id=SEADOG,
+            deckhand_bot_id=DECKHAND,
+            local_bot_id=UNKNOWN_BOT,
+        )
+        self.assertFalse(wrong_local.is_active)
+        self.assertIsNone(wrong_local.local_role)
+
+        policy = mod.WaterCoolerA2APolicy(wrong_local)
+        d = policy.evaluate(
+            _event(
+                author_id=HUMAN,
+                content=_task_msg(),
+                is_bot=False,
+                message_id="5500",
+                created_at=self.t0,
+            ),
+            now=self.t0,
+        )
+        self.assertEqual(d.kind, mod.DecisionKind.IGNORE)
+        self.assertEqual(d.reason, "policy_disabled_or_invalid_config")
+        self.assertEqual(policy.active_task_ids(), frozenset())
+
+        ok_worker = mod.build_config(
+            enabled=True,
+            channel_id=CHANNEL,
+            allowed_human_starter_ids={HUMAN},
+            seadog_bot_id=SEADOG,
+            deckhand_bot_id=DECKHAND,
+            local_bot_id=SEADOG,
+        )
+        ok_reviewer = mod.build_config(
+            enabled=True,
+            channel_id=CHANNEL,
+            allowed_human_starter_ids={HUMAN},
+            seadog_bot_id=SEADOG,
+            deckhand_bot_id=DECKHAND,
+            local_bot_id=DECKHAND,
+        )
+        self.assertTrue(ok_worker.is_active)
+        self.assertEqual(ok_worker.local_role, mod.ROLE_WORKER)
+        self.assertTrue(ok_worker.is_local_worker)
+        self.assertTrue(ok_reviewer.is_active)
+        self.assertEqual(ok_reviewer.local_role, mod.ROLE_REVIEWER)
+        self.assertTrue(ok_reviewer.is_local_reviewer)
+
+    def test_derive_task_id_stable_and_opaque(self) -> None:
+        a = mod.derive_task_id(CHANNEL, "9001")
+        b = mod.derive_task_id(CHANNEL, "9001")
+        c = mod.derive_task_id(CHANNEL, "9002")
+        self.assertEqual(a, b)
+        self.assertNotEqual(a, c)
+        self.assertRegex(a, r"^[A-Za-z0-9_-]{8,64}$")
+        # Must not embed raw message content or snowflake as the sole id form
+        # in a way that stores task body (derivation uses ids only).
+        self.assertNotIn("TASK", a)
 
 
 if __name__ == "__main__":

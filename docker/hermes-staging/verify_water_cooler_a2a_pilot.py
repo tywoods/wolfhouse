@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Static + light runtime checks for Water-cooler A2A policy foundation.
 
-Proves the policy/test files exist and encode fail-closed, channel, and
-round-limit concepts. Avoids brittle whole-file hashes.
+Proves the policy/test files exist and encode fail-closed, channel,
+round-limit, local_bot_id, and dual-instance mirror concepts. Avoids
+brittle whole-file hashes.
 """
 
 from __future__ import annotations
@@ -68,14 +69,20 @@ def main() -> int:
     check("no session routing coupling", "discord_session_routing" not in src and "build_discord_session_key" not in src)
     check("TTL bounds present", "MIN_TTL_SECONDS" in src and "MAX_TTL_SECONDS" in src)
     check("state forbids content field language", "never" in src.lower() and ("task body" in src.lower() or "raw" in src.lower()))
-    check("injectable id generator", "id_generator" in src and "secrets" in src)
+    check("local_bot_id injected", "local_bot_id" in src)
+    check("deterministic task id derivation", "derive_task_id" in src and "sha256" in src.lower())
+    check("mirrored non-dispatch reason", "mirrored_task_non_dispatch" in src)
+    check("no shared secret / hmac machinery", "hmac" not in src.lower() and "shared_secret" not in src.lower())
 
     check("tests cover round limit", "MAX_ROUNDS" in test_src and "fourth" in test_src.lower())
     check("tests cover fail closed / disabled", "disabled" in test_src.lower() or "fail" in test_src.lower())
     check("tests cover wrong channel", "wrong_channel" in test_src or "OTHER_CHANNEL" in test_src)
     check("tests cover no raw content in state", "no_raw_content" in test_src or "UNIQUE_RAW" in test_src)
+    check("tests cover dual-instance mirror", "dual_instance" in test_src and "mirrored_task_non_dispatch" in test_src)
+    check("tests cover restart fail closed", "restart" in test_src.lower() and "unknown_or_forged_task_id" in test_src)
+    check("tests cover wrong local bot", "wrong_local_bot" in test_src or "local_bot_id" in test_src)
 
-    # Light runtime smoke: disabled config ignores TASK; active accepts TASK shape.
+    # Light runtime smoke: disabled config ignores TASK; dual mirror accepts TASK.
     try:
         m = _load_policy()
         inactive = m.WaterCoolerA2APolicy(m.build_config(enabled=False))
@@ -91,21 +98,43 @@ def main() -> int:
         d = inactive.evaluate(ev, now=1.0)
         check("runtime disabled fails closed (ignore)", d.kind == m.DecisionKind.IGNORE)
 
-        ids = iter(["pilot_task_id_aabb01"])
-        active = m.WaterCoolerA2APolicy(
+        seadog = "200000000000000001"
+        deckhand = "300000000000000001"
+        human = "100000000000000001"
+        worker = m.WaterCoolerA2APolicy(
             m.build_config(
                 enabled=True,
                 channel_id=m.WATER_COOLER_CHANNEL_ID,
-                allowed_human_starter_ids={"100000000000000001"},
-                seadog_bot_id="200000000000000001",
-                deckhand_bot_id="300000000000000001",
+                allowed_human_starter_ids={human},
+                seadog_bot_id=seadog,
+                deckhand_bot_id=deckhand,
+                local_bot_id=seadog,
                 task_ttl_seconds=60.0,
-                id_generator=lambda: next(ids),
             )
         )
-        d2 = active.evaluate(ev, now=1.0)
-        check("runtime valid task accepted", d2.kind == m.DecisionKind.HUMAN_TASK)
-        st = d2.task_state
+        reviewer = m.WaterCoolerA2APolicy(
+            m.build_config(
+                enabled=True,
+                channel_id=m.WATER_COOLER_CHANNEL_ID,
+                allowed_human_starter_ids={human},
+                seadog_bot_id=seadog,
+                deckhand_bot_id=deckhand,
+                local_bot_id=deckhand,
+                task_ttl_seconds=60.0,
+            )
+        )
+        dw = worker.evaluate(ev, now=1.0)
+        dr = reviewer.evaluate(ev, now=1.0)
+        check("runtime worker valid task accepted", dw.kind == m.DecisionKind.HUMAN_TASK)
+        check(
+            "runtime reviewer mirrors without dispatch",
+            dr.kind == m.DecisionKind.IGNORE and dr.reason == "mirrored_task_non_dispatch",
+        )
+        check(
+            "runtime dual task_id identity",
+            dw.task_id is not None and dw.task_id == dr.task_id == m.derive_task_id(ev.channel_id, ev.message_id),
+        )
+        st = dw.task_state
         check(
             "runtime state has no content attrs",
             st is not None
@@ -114,6 +143,40 @@ def main() -> int:
             and secret_body not in repr(st),
         )
         check("MAX_ROUNDS runtime is 3", m.MAX_ROUNDS == 3)
+
+        wrong = m.build_config(
+            enabled=True,
+            channel_id=m.WATER_COOLER_CHANNEL_ID,
+            allowed_human_starter_ids={human},
+            seadog_bot_id=seadog,
+            deckhand_bot_id=deckhand,
+            local_bot_id="400000000000000001",
+        )
+        check("runtime wrong local_bot_id inactive", not wrong.is_active)
+
+        empty = m.WaterCoolerA2APolicy(
+            m.build_config(
+                enabled=True,
+                channel_id=m.WATER_COOLER_CHANNEL_ID,
+                allowed_human_starter_ids={human},
+                seadog_bot_id=seadog,
+                deckhand_bot_id=deckhand,
+                local_bot_id=seadog,
+            )
+        )
+        peer = m.DiscordMessageEvent(
+            channel_id=m.WATER_COOLER_CHANNEL_ID,
+            message_id="2",
+            author_id=seadog,
+            content=f"A2A-HANDOFF v1\ntask_id: {dw.task_id}\nnotes",
+            is_bot=True,
+            created_at=2.0,
+        )
+        dp = empty.evaluate(peer, now=2.0)
+        check(
+            "runtime empty instance rejects peer (fail closed)",
+            dp.kind == m.DecisionKind.REJECT and dp.reason == "unknown_or_forged_task_id",
+        )
     except Exception as exc:  # pragma: no cover - verifier diagnostics
         check("runtime smoke import/evaluate", False, detail=type(exc).__name__ + ": " + str(exc))
 
