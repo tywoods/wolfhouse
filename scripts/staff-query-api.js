@@ -376,7 +376,6 @@ const {
   patchLessonTimeRule,
   deactivateLessonTimeRule,
   setRentalGroupAvailability,
-  buildActivePositivePriceForOfferingSql,
 } = require('./lib/tenant-admin-writes');
 const {
   listRentalOfferings,
@@ -39370,28 +39369,25 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
   try {
     const result = await withPgClient(async (pg) => {
       if (op === 'create') return createRentalOffering(pg, params);
-      if (op === 'delete') return deleteRentalOffering(pg, params);
+      if (op === 'delete') {
+        // TRUE hard delete — transactional identity + prices + course links.
+        // Catalog active state is independent of price existence; this path
+        // permanently removes the rental item (not soft-disable).
+        return deleteRentalOffering(pg, {
+          clientSlug,
+          locationId: loc.locationId,
+          offering_key: offeringKey,
+          actorId,
+          actor: {
+            staff_user_id: actorId,
+            email: user && user.email ? user.email : 'unknown',
+          },
+        });
+      }
       if (wantsActiveToggle) {
-        if (body.active === true) {
-          // Fail closed: do not re-enable an unpriced offering into the bookable catalog.
-          // Exact ownership via split_part — never unescaped LIKE (`_` is a wildcard).
-          const hasLoc = loc.locationId != null;
-          const priceQ = buildActivePositivePriceForOfferingSql({ hasLocation: hasLoc });
-          const priceCheck = await pg.query(
-            // MULTICLIENT_SCOPE_OK: client + location scoped active positive prices for offering
-            priceQ.sql,
-            hasLoc
-              ? [clientSlug, loc.locationId, offeringKey]
-              : [clientSlug, offeringKey],
-          );
-          if (!priceCheck.rows.length) {
-            return {
-              ok: false,
-              error: 'cannot_enable_unpriced_offering',
-              message: 'Enable requires at least one active positive price for this rental item.',
-            };
-          }
-        }
+        // Enable/disable is independent of standalone rental prices.
+        // Staff may enable an unpriced identity; booking/quote still fails closed
+        // without an authoritative price (commercial pricing unchanged).
         return setRentalOfferingActive(pg, {
           clientSlug,
           locationId: loc.locationId,
@@ -39407,14 +39403,26 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
       intent: `api:admin.config.rental_offering.${op}`,
       category: 'admin_api',
       client_slug: clientSlug,
-      success: result.ok,
+      location_id: loc.locationId,
+      offering_key: offeringKey || params.offering_key || null,
+      success: result.ok !== false,
       staff_user_id: user ? user.staff_user_id : null,
       elapsed_ms: Date.now() - started,
+      // Sanitized hard-delete counts (no secrets / no full row dumps).
+      offerings_deleted: result.offerings_deleted,
+      prices_deleted: result.prices_deleted,
+      surf_packs_updated: result.surf_packs_updated,
+      private_lessons_updated: result.private_lessons_updated,
+      noop: result.noop === true,
+      audit_summary: result.audit_summary || undefined,
     });
     if (!result.ok) {
-      const status = op === 'delete' || /not found/i.test(String(result.error || ''))
-        ? 404
-        : (result.error === 'cannot_enable_unpriced_offering' || /boolean/i.test(String(result.error || '')) ? 400 : 409);
+      const missingTables = result.error === 'admin_db_tables_missing';
+      const status = missingTables
+        ? 503
+        : (op === 'delete' || /not found/i.test(String(result.error || ''))
+          ? 404
+          : (/boolean/i.test(String(result.error || '')) ? 400 : 409));
       return sendJSON(res, status, {
         success: false,
         error: result.error || 'not found',
@@ -39422,7 +39430,12 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
         elapsed_ms: Date.now() - started,
       });
     }
-    return sendJSON(res, op === 'create' ? 201 : 200, { success: true, ...result, elapsed_ms: Date.now() - started });
+    // Hard-delete idempotent retry returns 200 with zero counts (not 404).
+    return sendJSON(res, op === 'create' ? 201 : 200, {
+      success: true,
+      ...result,
+      elapsed_ms: Date.now() - started,
+    });
   } catch (err) {
     console.error(`[admin.config.rental_offering.${op}] write failed:`, err && err.code, '|', err && err.message);
     return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });

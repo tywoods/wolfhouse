@@ -205,24 +205,262 @@ async function updateRentalOffering(pg, params = {}) {
   return { ok: true, offering: rowToOffering(res.rows[0]) };
 }
 
-/** Soft-delete (active=false) so history + prices are preserved. */
+/**
+ * Fail closed when hard-delete cannot be authoritative (required tables absent).
+ * Does not fall back to config-memory soft-disable.
+ */
+async function assertHardDeleteTablesReady(pg) {
+  const needed = [
+    'tenant_rental_offerings',
+    'tenant_price_rules',
+    'tenant_surf_pack_rules',
+    'tenant_private_lesson_rules',
+  ];
+  for (const table of needed) {
+    // MULTICLIENT_SCOPE_OK: catalog existence probe, no tenant data
+    const reg = await pg.query('SELECT to_regclass($1) AS reg', [`public.${table}`]);
+    if (!reg.rows[0] || !reg.rows[0].reg) {
+      return { ok: false, error: 'admin_db_tables_missing', message: `required table missing: ${table}` };
+    }
+  }
+  return { ok: true };
+}
+
+async function tableHasLocationColumn(pg, tableName) {
+  // MULTICLIENT_SCOPE_OK: schema probe only
+  const res = await pg.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'location_id'
+      LIMIT 1`,
+    [tableName],
+  );
+  return res.rows.length > 0;
+}
+
+function locPredicateSql(hasLocCol, loc, paramStart) {
+  if (!hasLocCol) return { clause: 'TRUE', params: [] };
+  if (loc == null) return { clause: 'location_id IS NULL', params: [] };
+  return { clause: `location_id = $${paramStart}`, params: [loc] };
+}
+
+function stripEquipmentOptionKey(configJson, offeringKey) {
+  let cfg = configJson;
+  if (typeof cfg === 'string') {
+    try { cfg = JSON.parse(cfg); } catch (_) { cfg = {}; }
+  }
+  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) cfg = {};
+  const before = Array.isArray(cfg.equipment_options) ? cfg.equipment_options : [];
+  const after = before.filter((row) => {
+    if (!row || typeof row !== 'object') return true;
+    return String(row.offering_key || '').trim() !== offeringKey;
+  });
+  if (after.length === before.length) return { changed: false, config: cfg };
+  return { changed: true, config: { ...cfg, equipment_options: after } };
+}
+
+/**
+ * TRUE transactional hard delete for one client+location+offering identity.
+ *
+ * In ONE transaction: lock scoped offering row(s) → hard-delete matching rental
+ * price rows (active+inactive, exact split_part ownership, never LIKE) → strip
+ * the key from Group (surf pack) + Private course equipment_options → delete
+ * all exact scoped offering identities (active or inactive) → audit price
+ * removals. Booking rows / historical booking snapshots are never touched.
+ *
+ * Idempotent: when the identity is already gone, returns success with noop
+ * zero counts rather than 404.
+ *
+ * Fail closed when required tables are missing — never soft-disable as a fallback.
+ */
 async function deleteRentalOffering(pg, params = {}) {
   const slug = String(params.clientSlug || '').trim();
-  const key = String(params.offering_key || '').trim();
+  const key = String(params.offering_key || params.offeringKey || '').trim();
   if (!slug || !key) return { ok: false, error: 'clientSlug and offering_key are required' };
+  if (!isValidOfferingKey(key)) return { ok: false, error: 'invalid offering_key' };
   const loc = normLoc(params.locationId);
-  const vals = [slug, key, params.actorId || null];
-  let locClause = 'location_id IS NULL';
-  if (loc != null) { vals.push(loc); locClause = `location_id = $${vals.length}`; }
-  const res = await pg.query(
-    // MULTICLIENT_SCOPE_OK: client_slug + offering_key + location predicate
-    `UPDATE tenant_rental_offerings
-        SET active = false, updated_by = $3
-      WHERE client_slug = $1 AND offering_key = $2 AND ${locClause} AND active = true
-      RETURNING offering_key`,
-    vals,
-  );
-  return { ok: res.rows.length > 0, deleted: res.rows.length > 0 };
+  const actor = params.actor || {
+    staff_user_id: params.actorId || null,
+    email: params.actorEmail || 'unknown',
+  };
+
+  const ready = await assertHardDeleteTablesReady(pg);
+  if (!ready.ok) return ready;
+
+  const priceHasLoc = await tableHasLocationColumn(pg, 'tenant_price_rules');
+  const offeringHasLoc = await tableHasLocationColumn(pg, 'tenant_rental_offerings');
+  const packHasLoc = await tableHasLocationColumn(pg, 'tenant_surf_pack_rules');
+  const privateHasLoc = await tableHasLocationColumn(pg, 'tenant_private_lesson_rules');
+  const auditExists = await (async () => {
+    const reg = await pg.query("SELECT to_regclass('public.tenant_config_audit_log') AS reg");
+    return !!(reg.rows[0] && reg.rows[0].reg);
+  })();
+
+  const emptyCounts = {
+    offerings_deleted: 0,
+    prices_deleted: 0,
+    surf_packs_updated: 0,
+    private_lessons_updated: 0,
+  };
+
+  await pg.query('BEGIN');
+  try {
+    // 1) Lock + verify exact scoped identity (active or inactive; all historical dups).
+    const offLoc = locPredicateSql(offeringHasLoc, loc, 3);
+    const lockParams = [slug, key, ...offLoc.params];
+    const locked = await pg.query(
+      // MULTICLIENT_SCOPE_OK: client_slug + offering_key + exact location
+      `SELECT * FROM tenant_rental_offerings
+        WHERE client_slug = $1 AND offering_key = $2 AND ${offLoc.clause}
+        FOR UPDATE`,
+      lockParams,
+    );
+
+    if (!locked.rows.length) {
+      await pg.query('COMMIT');
+      return {
+        ok: true,
+        deleted: false,
+        noop: true,
+        offering_key: key,
+        ...emptyCounts,
+      };
+    }
+
+    const tenantId = locked.rows[0].tenant_id || 'sunset';
+    const offeringSnapshot = locked.rows.map((r) => rowToOffering(r));
+
+    // 2) Hard-delete all rental price rows owned by this exact key (active+inactive).
+    // Exact ownership: split_part(item_code,'__',1) = key (legacy bare key included).
+    // NEVER unescaped LIKE — `_` is a one-char wildcard (soft_board vs softxboard).
+    const priceLoc = locPredicateSql(priceHasLoc, loc, 3);
+    const priceParams = [slug, key, ...priceLoc.params];
+    const priceDel = await pg.query(
+      // MULTICLIENT_SCOPE_OK: client + location + item_type + exact offering ownership
+      `DELETE FROM tenant_price_rules
+        WHERE client_slug = $1
+          AND item_type = 'rental'
+          AND split_part(item_code, '__', 1) = $2
+          AND ${priceLoc.clause}
+        RETURNING *`,
+      priceParams,
+    );
+    const deletedPrices = priceDel.rows || [];
+
+    // 3) Strip offering_key from every scoped surf-pack equipment_options (active+inactive).
+    const packLoc = locPredicateSql(packHasLoc, loc, 2);
+    const packs = await pg.query(
+      // MULTICLIENT_SCOPE_OK: client + exact location, any active state
+      `SELECT id, tenant_id, client_slug, location_id, config_json, active
+         FROM tenant_surf_pack_rules
+        WHERE client_slug = $1 AND ${packLoc.clause}
+        FOR UPDATE`,
+      [slug, ...packLoc.params],
+    );
+    let surfPacksUpdated = 0;
+    for (const pack of packs.rows) {
+      const stripped = stripEquipmentOptionKey(pack.config_json, key);
+      if (!stripped.changed) continue;
+      await pg.query(
+        // MULTICLIENT_SCOPE_OK: id-targeted after scoped lock
+        `UPDATE tenant_surf_pack_rules
+            SET config_json = $2::jsonb, updated_by = $3::uuid
+          WHERE id = $1::uuid`,
+        [pack.id, JSON.stringify(stripped.config), actor.staff_user_id || null],
+      );
+      surfPacksUpdated += 1;
+    }
+
+    // 4) Strip from private-lesson equipment_options (active+inactive).
+    const privLoc = locPredicateSql(privateHasLoc, loc, 2);
+    const privRows = await pg.query(
+      // MULTICLIENT_SCOPE_OK: client + exact location, any active state
+      `SELECT id, tenant_id, client_slug, location_id, config_json, active
+         FROM tenant_private_lesson_rules
+        WHERE client_slug = $1 AND ${privLoc.clause}
+        FOR UPDATE`,
+      [slug, ...privLoc.params],
+    );
+    let privateLessonsUpdated = 0;
+    for (const pl of privRows.rows) {
+      const stripped = stripEquipmentOptionKey(pl.config_json, key);
+      if (!stripped.changed) continue;
+      await pg.query(
+        // MULTICLIENT_SCOPE_OK: id-targeted after scoped lock
+        `UPDATE tenant_private_lesson_rules
+            SET config_json = $2::jsonb, updated_by = $3::uuid
+          WHERE id = $1::uuid`,
+        [pl.id, JSON.stringify(stripped.config), actor.staff_user_id || null],
+      );
+      privateLessonsUpdated += 1;
+    }
+
+    // 5) Delete exact scoped offering identity rows (all active/inactive dups).
+    const delOff = await pg.query(
+      // MULTICLIENT_SCOPE_OK: client_slug + offering_key + exact location
+      `DELETE FROM tenant_rental_offerings
+        WHERE client_slug = $1 AND offering_key = $2 AND ${offLoc.clause}
+        RETURNING id, offering_key, active`,
+      lockParams,
+    );
+    const offeringsDeleted = (delOff.rows || []).length;
+
+    // 6) Audit deleted prices (entity_type constrained to price_rule; offering summary
+    // is returned to the API layer for appendAuditLog accountability).
+    if (auditExists) {
+      for (const price of deletedPrices) {
+        await pg.query(
+          `INSERT INTO tenant_config_audit_log (
+             tenant_id, client_slug, actor_user_id, actor_email, action,
+             entity_type, entity_id, before_json, after_json
+           ) VALUES ($1, $2, $3::uuid, $4, 'deactivate', 'price_rule', $5::uuid, $6::jsonb, $7::jsonb)`,
+          [
+            price.tenant_id || tenantId,
+            slug,
+            actor.staff_user_id || null,
+            actor.email || 'unknown',
+            price.id,
+            JSON.stringify(price),
+            JSON.stringify({
+              hard_deleted: true,
+              reason: 'rental_offering_hard_delete',
+              offering_key: key,
+            }),
+          ],
+        );
+      }
+    }
+
+    await pg.query('COMMIT');
+    return {
+      ok: true,
+      deleted: true,
+      noop: false,
+      offering_key: key,
+      offerings_deleted: offeringsDeleted,
+      prices_deleted: deletedPrices.length,
+      surf_packs_updated: surfPacksUpdated,
+      private_lessons_updated: privateLessonsUpdated,
+      // Sanitized identity snapshot for operator audit (not full row dumps in response).
+      audit_summary: {
+        offering_key: key,
+        client_slug: slug,
+        location_id: loc,
+        offerings: offeringSnapshot.map((o) => ({
+          id: o.id,
+          offering_key: o.offering_key,
+          label: o.label,
+          active: o.active,
+        })),
+        prices_deleted: deletedPrices.length,
+        price_ids: deletedPrices.map((p) => p.id).filter(Boolean),
+        surf_packs_updated: surfPacksUpdated,
+        private_lessons_updated: privateLessonsUpdated,
+      },
+    };
+  } catch (err) {
+    try { await pg.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    throw err;
+  }
 }
 
 /**

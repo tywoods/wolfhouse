@@ -6,11 +6,12 @@
  * Focused RED→GREEN gate for Admin course equipment + rental availability UX:
  *  - course equipment Remove affordance + layout
  *  - active-only equipment dropdown with historical disabled fallback
- *  - per-item Enabled toggle (offering soft-disable / re-enable)
+ *  - per-item Enabled toggle (soft-disable / re-enable; price-independent)
  *  - duration-row × is price-duration delete (not item delete)
- *  - last active price delete soft-disables the offering server-side
- *  - enable requires at least one active positive price
+ *  - last price delete does NOT auto-disable the offering
+ *  - enable works with zero/no prices
  *
+ * Companion hard-delete gate: verify-sunset-rental-hard-delete.js
  * Offline: source contracts + in-memory CRUD/write behavior. No network/deploy.
  *
  * Run: node scripts/verify-sunset-admin-equipment-rental-fixes.js
@@ -205,14 +206,14 @@ async function main() {
   assert('ES Remove copy', es.includes("'admin.action.remove': 'Quitar'"));
 
   console.log('\n[B] Course equipment selector authority (active only + historical fallback)');
+  const equipFn = (adminUi.match(/function adminEquipmentOfferings\(\)\{[\s\S]*?\n\}/) || [])[0] || '';
   assert(
     'adminEquipmentOfferings filters active !== false',
-    /function adminEquipmentOfferings\(\)\{[\s\S]*?active === false[\s\S]*?\}/.test(adminUi)
-      || /function adminEquipmentOfferings\(\)\{[^}]*active !== false/.test(adminUi),
+    /active === false|active !== false/.test(equipFn),
   );
   assert(
-    'adminEquipmentOfferings also requires active positive price',
-    /function adminEquipmentOfferings\(\)\{[\s\S]*?adminOfferingHasActivePositivePrice/.test(adminUi),
+    'adminEquipmentOfferings does NOT require active positive price',
+    !/adminOfferingHasActivePositivePrice/.test(equipFn),
   );
   assert(
     'historical disabled selected fallback option present',
@@ -247,9 +248,6 @@ async function main() {
   assert('EN removeDuration copy', /admin\.prices\.removeDuration['"]:\s*['"]Remove duration price/.test(en)
     || en.includes("'admin.prices.removeDuration': 'Remove duration price'"));
   assert('ES removeDuration copy', es.includes('admin.prices.removeDuration'));
-  assert('EN cannot enable unpriced', en.includes('admin.prices.cannotEnableUnpriced')
-    || en.includes("'admin.prices.cannotEnableUnpriced'"));
-  assert('ES cannot enable unpriced', es.includes('admin.prices.cannotEnableUnpriced'));
   assert('EN Enabled/Disabled present', en.includes("'admin.prices.enabled'") && en.includes("'admin.prices.disabled'"));
   assert(
     'Done stays in item header while editing equipment',
@@ -281,14 +279,16 @@ async function main() {
     /handleAdminConfigRentalOfferingWrite[\s\S]{0,900}active:\s*body\.active|params\.active|setRentalOfferingActive/.test(apiSrc),
   );
 
-  console.log('\n[E] Last-price delete soft-disables offering + enable requires price');
+  console.log('\n[E] Last-price delete does NOT auto-disable; enable independent of price');
   assert(
-    'deactivatePriceRule soft-disables offering when no remaining active prices',
-    /deactivatePriceRule[\s\S]{0,3500}(setRentalOfferingActive|deleteRentalOffering|active = false)[\s\S]{0,800}(item_code|offering)/.test(writesSrc),
+    'deactivatePriceRule does not soft-disable offering on last price',
+    !/Last active positive price for a rental offering[\s\S]{0,500}setRentalOfferingActive/.test(writesSrc)
+      && /must NOT auto-disable the rental offering identity|Catalog active state is independent/.test(writesSrc),
   );
   assert(
-    'enable path rejects unpriced offering',
-    /cannot_enable_unpriced|cannotEnableUnpriced|no active positive/.test(apiSrc + offeringsSrc + writesSrc),
+    'enable path does not reject unpriced offering',
+    !/cannot_enable_unpriced_offering/.test(apiSrc)
+      && !/body\.active === true[\s\S]{0,600}buildActivePositivePriceForOfferingSql/.test(apiSrc),
   );
   const ownershipSqlFn = (writesSrc.match(/function buildActivePositivePriceForOfferingSql\([\s\S]*?\n\}/) || [])[0] || '';
   assert(
@@ -297,23 +297,11 @@ async function main() {
       && !/LIKE/i.test(ownershipSqlFn)
       && !/\$\{[^}]+\}__%/.test(ownershipSqlFn),
   );
+  // Hard-delete ownership (split_part) lives on the rental offerings delete path.
   assert(
-    'deactivatePriceRule remaining check uses shared exact-ownership SQL builder',
-    /deactivatePriceRule[\s\S]{0,2500}buildActivePositivePriceForOfferingSql/.test(writesSrc),
-  );
-  // Handler body is large; require builder import + call site near active=true re-enable.
-  assert(
-    'API re-enable check uses shared exact-ownership SQL builder',
-    /buildActivePositivePriceForOfferingSql/.test(apiSrc)
-      && /body\.active === true[\s\S]{0,500}buildActivePositivePriceForOfferingSql/.test(apiSrc),
-  );
-  const remainBlock = (writesSrc.match(/Last active positive price for a rental offering[\s\S]{0,900}/) || [])[0] || '';
-  const enableBlock = (apiSrc.match(/body\.active === true[\s\S]{0,700}/) || [])[0] || '';
-  assert(
-    'no unescaped LIKE ownership in remaining/enable blocks',
-    !/item_code LIKE/i.test(remainBlock)
-      && !/item_code LIKE/i.test(enableBlock)
-      && !/\$\{offeringKey\}__%/.test(remainBlock + enableBlock),
+    'hard delete price ownership uses split_part (not LIKE)',
+    /DELETE FROM tenant_price_rules[\s\S]{0,300}split_part\(item_code,\s*'__',\s*1\)/.test(offeringsSrc)
+      && !/DELETE FROM tenant_price_rules[\s\S]{0,300}LIKE/i.test(offeringsSrc),
   );
 
   console.log('\n[F] Behavioral: disable / re-enable exact row + validation');
@@ -416,20 +404,28 @@ async function main() {
   });
   assert('cross-tenant denied (not found)', crossTenant.ok === false, JSON.stringify(crossTenant));
 
-  const softDel = await deleteRentalOffering(pg, {
+  // Hard-delete requires multi-table readiness; the offerings-only fake fails closed
+  // (authoritative hard-delete lives in verify-sunset-rental-hard-delete.js).
+  const hardDel = await deleteRentalOffering(pg, {
     clientSlug: 'sunset',
     locationId: 'sunset-somo',
     offering_key: 'kayak_rental',
   });
-  assert('legacy soft-delete still works', softDel.ok === true);
-  const reAfterDel = await setRentalOfferingActive(pg, {
+  assert(
+    'offerings-only fake fails closed for hard delete (missing tables)',
+    hardDel.ok === false && hardDel.error === 'admin_db_tables_missing',
+    JSON.stringify(hardDel),
+  );
+  // Enable/disable still works without prices on the same identity.
+  const stillThere = await setRentalOfferingActive(pg, {
     clientSlug: 'sunset',
     locationId: 'sunset-somo',
     offering_key: 'kayak_rental',
     active: true,
   });
-  assert('can re-enable after DELETE soft-disable', reAfterDel.ok === true && reAfterDel.offering.active === true
-    && reAfterDel.offering.id === rowId, JSON.stringify(reAfterDel));
+  assert('can still enable unpriced identity after failed hard-delete probe',
+    stillThere.ok === true && stillThere.offering.active === true
+    && stillThere.offering.id === rowId, JSON.stringify(stillThere));
 
   console.log('\n[G] Source gates for equipment pricing model inactive skip still documented');
   assert(
@@ -476,7 +472,8 @@ async function main() {
     itemCodeBelongsToRentalOffering(siblingPriceCode, SIBLING_KEY) === true,
   );
 
-  // (1) Sibling price must not prevent soft-disable after target's last price is gone.
+  // Exact ownership helper still correct for commercial price resolution
+  // (booking/quote fail-closed). Catalog enable is independent of this helper.
   const afterLastTargetDeleted = [
     {
       client_slug: 'sunset',
@@ -501,9 +498,9 @@ async function main() {
     offeringKey: TARGET_KEY,
   });
   assert(
-    'sibling price cannot block last-price soft-disable of target',
+    'sibling price does not count as target active positive price',
     targetStillPriced === false,
-    'target must appear unpriced so soft-disable proceeds',
+    'target must appear unpriced under exact ownership',
   );
   assert(
     'sibling remains priced under its own key after target last-price delete',
@@ -514,7 +511,6 @@ async function main() {
     }) === true,
   );
 
-  // (2) Sibling price must not authorize re-enabling an unpriced target.
   const unpricedTargetWithSibling = [
     {
       client_slug: 'sunset',
@@ -526,7 +522,7 @@ async function main() {
     },
   ];
   assert(
-    'sibling price cannot authorize re-enable of unpriced target',
+    'sibling price is not target ownership for commercial checks',
     hasActivePositiveRentalPriceForOffering(unpricedTargetWithSibling, {
       clientSlug: 'sunset',
       locationId: 'sunset-somo',
@@ -534,7 +530,7 @@ async function main() {
     }) === false,
   );
   assert(
-    'true target price does authorize enable',
+    'true target price still resolves under exact ownership',
     hasActivePositiveRentalPriceForOffering([
       {
         client_slug: 'sunset',

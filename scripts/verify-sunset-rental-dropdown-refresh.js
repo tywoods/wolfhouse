@@ -4,11 +4,12 @@
  * verify:sunset-rental-dropdown-refresh
  *
  * Focused RED→GREEN gate for:
- *  A) Course equipment dropdown: active + active-positive-priced only
- *  B) Dead/empty rental cards: visible localized "Delete rental" (soft-delete)
+ *  A) Course equipment dropdown: active offering identities (price-independent)
+ *  B) Delete rental only in pencil Edit mode (hard delete; priced + unpriced)
  *  C) Immediate catalog refresh after create/delete without full page.reload
  *
  * Offline browser fixture via generated /staff/ui. No network/deploy/production.
+ * Companion: verify-sunset-rental-hard-delete.js (transactional hard-delete deep gate).
  *
  * Run: node scripts/verify-sunset-rental-dropdown-refresh.js
  */
@@ -51,13 +52,13 @@ function sourceContracts() {
     fail += 1;
   }
 
-  console.log('\n[source] Course dropdown projection + dead Delete + refresh contracts\n');
+  console.log('\n[source] Course dropdown projection + edit-mode Delete + refresh contracts\n');
 
+  const equipFn = (adminUi.match(/function adminEquipmentOfferings\(\)\{[\s\S]*?\n\}/) || [])[0] || '';
   ok(
-    'adminEquipmentOfferings requires active and positive-priced helper',
-    /function adminEquipmentOfferings\(\)\{[\s\S]*?active !== false[\s\S]*?adminOfferingHasActivePositivePrice|function adminEquipmentOfferings\(\)\{[\s\S]{0,400}adminOfferingHasActivePositivePrice/.test(
-      adminUi,
-    ),
+    'adminEquipmentOfferings is active-only (not price-backed)',
+    /active !== false|active === false/.test(equipFn)
+      && !/adminOfferingHasActivePositivePrice/.test(equipFn),
   );
   ok(
     'adminOfferingHasActivePositivePrice uses exact key before __ (no LIKE)',
@@ -70,10 +71,16 @@ function sourceContracts() {
     /admin\.courseEquipment\.unavailable/.test(adminUi) && /selected disabled/.test(adminUi),
   );
   ok(
-    'dead card renders Delete rental action (not duration ×)',
+    'Delete rental action exists; duration × stays removeDuration',
     /data-admin-action="delete-rental-offering"/.test(adminUi)
       && /admin\.prices\.deleteRental/.test(adminUi)
       && /delete-price[\s\S]{0,200}removeDuration/.test(adminUi),
+  );
+  ok(
+    'Delete rental only in edit mode (not collapsed card)',
+    /editing[\s\S]{0,800}delete-rental-offering|Edit mode:[\s\S]{0,300}delete-rental-offering|NEVER on the collapsed/.test(
+      adminUi,
+    ),
   );
   ok(
     'Delete rental posts DELETE to rental-offerings/:key',
@@ -94,8 +101,9 @@ function sourceContracts() {
   );
   ok(
     'save-new-equipment reloads config after create (no page.reload)',
-    /save-new-equipment[\s\S]{0,2500}adminReloadConfig\(\)/.test(adminUi)
-      && !/save-new-equipment[\s\S]{0,2500}location\.reload|page\.reload/.test(adminUi),
+    /action === ['"]save-new-equipment['"][\s\S]{0,3500}adminReloadConfig\(\)/.test(adminUi)
+      && !/action === ['"]save-new-equipment['"][\s\S]{0,3500}location\.reload\s*\(/.test(adminUi)
+      && !/action === ['"]save-new-equipment['"][\s\S]{0,3500}window\.location\.reload\s*\(/.test(adminUi),
   );
   ok(
     'delete-rental-offering reloads config after success',
@@ -130,10 +138,10 @@ async function browserFixture() {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
 
-  // Mutable fixture state — simulates soft-delete + create without physical delete.
+  // Mutable fixture — hard-delete removes identity; create adds it back.
   let offerings = [
     { offering_key: 'softboard', label: 'Soft board', active: true },
-    { offering_key: 'ghost_fins', label: 'Ghost fins (dead)', active: true },
+    { offering_key: 'ghost_fins', label: 'Ghost fins (unpriced)', active: true },
     { offering_key: 'zero_price_pad', label: 'Zero pad', active: true },
     { offering_key: 'retired_board', label: 'Retired board', active: false },
   ];
@@ -188,7 +196,8 @@ async function browserFixture() {
     schedules: ['0930_1130'],
     price_tiers: [],
     equipment_options: [
-      { offering_key: 'ghost_fins', equipment_price_cents: 0, all_day_surcharge_cents: 0 },
+      // Historical disabled reference retained as unavailable until edited/removed.
+      { offering_key: 'retired_board', equipment_price_cents: 0, all_day_surcharge_cents: 0 },
     ],
   };
   let privateLesson = {
@@ -258,12 +267,28 @@ async function browserFixture() {
     }
     if (method === 'DELETE' && key) {
       deletes.push(key);
-      const off = offerings.find((o) => o.offering_key === key);
-      if (off) off.active = false;
+      offerings = offerings.filter((o) => o.offering_key !== key);
+      rentalPrices = rentalPrices.filter(
+        (p) => String(p.item_code || p.offering_key || '').split('__')[0] !== key,
+      );
+      if (Array.isArray(pack.equipment_options)) {
+        pack = {
+          ...pack,
+          equipment_options: pack.equipment_options.filter((e) => e.offering_key !== key),
+        };
+      }
       await r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, deleted: true, offering_key: key }),
+        body: JSON.stringify({
+          success: true,
+          deleted: true,
+          offering_key: key,
+          offerings_deleted: 1,
+          prices_deleted: 1,
+          surf_packs_updated: 0,
+          private_lessons_updated: 0,
+        }),
       });
       return;
     }
@@ -345,75 +370,73 @@ async function browserFixture() {
     await page.locator('#admin-tab-pricing').click();
     await page.locator('#admin-course-equipment-title').waitFor();
 
-    // ── A) Course dropdown projection ──
+    // ── A) Course dropdown projection (active identity, price-independent) ──
     await page.locator('[data-admin-action="edit-pack"]').click();
     let ed = page.locator('[data-admin-pack-form] [data-admin-equipment-editor]');
     await ed.locator('[data-admin-action="add-equipment-option"]').click();
-    const newRow = ed.locator('[data-equipment-option-row]').nth(1); // first row is historical ghost_fins
+    const newRow = ed.locator('[data-equipment-option-row]').nth(1); // first row is historical retired_board
     const optionValues = await newRow.locator('select option').evaluateAll((opts) =>
       opts.map((o) => o.value).filter(Boolean),
     );
-    assert.ok(optionValues.includes('softboard'), 'active+positive priced offering selectable');
-    assert.ok(!optionValues.includes('ghost_fins'), 'active dead (unpriced) absent from new row options');
-    assert.ok(!optionValues.includes('zero_price_pad'), 'zero-price offering absent from new options');
+    assert.ok(optionValues.includes('softboard'), 'active priced offering selectable');
+    assert.ok(optionValues.includes('ghost_fins'), 'active unpriced offering selectable');
+    assert.ok(optionValues.includes('zero_price_pad'), 'active zero-price offering selectable');
     assert.ok(!optionValues.includes('retired_board'), 'disabled offering absent from new options');
 
-    // Historical selected dead key retained as disabled Unavailable on its row only
+    // Historical selected disabled key retained as Unavailable on its row only
     const histRow = ed.locator('[data-equipment-option-row]').first();
     const histSelected = await histRow.locator('select').inputValue();
-    assert.strictEqual(histSelected, 'ghost_fins', 'historical selected dead key retained');
+    assert.strictEqual(histSelected, 'retired_board', 'historical selected disabled key retained');
     const histHtml = await histRow.locator('select').innerHTML();
     assert.ok(
-      /ghost_fins[\s\S]*Unavailable|value="ghost_fins"[^>]*selected[^>]*disabled|value="ghost_fins"[^>]*disabled[^>]*selected/i.test(
+      /retired_board[\s\S]*Unavailable|value="retired_board"[^>]*selected[^>]*disabled|value="retired_board"[^>]*disabled[^>]*selected/i.test(
         histHtml,
       ) || /Unavailable/i.test(await histRow.innerText()),
       'historical row shows Unavailable disabled option',
     );
-    // Other row must not list ghost_fins as a normal selectable option
     assert.ok(
-      !(await newRow.locator('option[value="ghost_fins"]:not([disabled])').count()),
-      'dead key not freely selectable on other rows',
+      !(await newRow.locator('option[value="retired_board"]:not([disabled])').count()),
+      'disabled key not freely selectable on other rows',
     );
 
     await page.locator('[data-admin-action="cancel-edit"]').click();
 
-    // ── B) Dead rental Delete action ──
-    const deadCard = page.locator('[data-admin-equip="ghost_fins"]');
-    assert.strictEqual(await deadCard.count(), 1, 'dead/empty rental remains visible in Rental Admin');
-    const delBtn = deadCard.locator('[data-admin-action="delete-rental-offering"]');
-    assert.strictEqual(await delBtn.count(), 1, 'dead card has Delete rental control');
+    // ── B) Delete rental only after pencil Edit (hard delete) ──
+    const softCard = page.locator('[data-admin-equip="softboard"]');
+    const ghostCard = page.locator('[data-admin-equip="ghost_fins"]');
+    assert.strictEqual(await ghostCard.count(), 1, 'unpriced rental remains visible in Rental Admin');
+    assert.strictEqual(
+      await softCard.locator('[data-admin-action="delete-rental-offering"]').count(),
+      0,
+      'collapsed priced card has no Delete rental',
+    );
+    assert.strictEqual(
+      await ghostCard.locator('[data-admin-action="delete-rental-offering"]').count(),
+      0,
+      'collapsed unpriced card has no Delete rental',
+    );
+
+    await ghostCard.locator('[data-admin-action="edit-equipment"]').click();
+    const delBtn = page.locator('[data-admin-equip="ghost_fins"] [data-admin-action="delete-rental-offering"]');
+    assert.strictEqual(await delBtn.count(), 1, 'edit mode shows Delete rental');
     assert.ok(
       /delete rental/i.test(await delBtn.innerText()),
       'Delete rental uses visible localized label, not bare ×',
     );
-    // Priced active item must NOT expose Delete rental (only duration remove when editing)
-    const softCard = page.locator('[data-admin-equip="softboard"]');
-    assert.strictEqual(
-      await softCard.locator('[data-admin-action="delete-rental-offering"]').count(),
-      0,
-      'priced active rental does not show Delete rental',
-    );
 
     page.once('dialog', async (d) => {
-      assert.ok(/delete|remove|disable/i.test(d.message()), 'confirm dialog mentions delete');
+      assert.ok(/permanent|delete|duration|course/i.test(d.message()), 'confirm dialog mentions hard delete');
       await d.accept();
     });
     const configBeforeDelete = configGets.length;
     const catalogBeforeDelete = catalogGets.length;
     await delBtn.click();
-    // Wait for soft-delete + full config/catalog refresh (not just loading shell wipe).
+    // Wait for hard-delete + full config/catalog refresh (card removed).
     await page.waitForFunction(
-      () => {
-        const card = document.querySelector('[data-admin-equip="ghost_fins"]');
-        if (!card) return false;
-        const noDelete = card.querySelectorAll('[data-admin-action="delete-rental-offering"]').length === 0;
-        const disabled = card.classList.contains('is-equip-disabled') || card.getAttribute('data-equip-active') === '0';
-        return noDelete && disabled;
-      },
+      () => !document.querySelector('[data-admin-equip="ghost_fins"]'),
       null,
       { timeout: 8000 },
     );
-    // Allow in-flight catalog GET to settle if DOM updated mid-chain.
     for (let i = 0; i < 40 && (catalogGets.length <= catalogBeforeDelete || configGets.length <= configBeforeDelete); i++) {
       await page.waitForTimeout(50);
     }
@@ -421,21 +444,9 @@ async function browserFixture() {
     assert.deepStrictEqual(deletes, ['ghost_fins'], 'DELETE rental-offerings/ghost_fins called');
     assert.ok(configGets.length > configBeforeDelete, 'config reloaded after delete');
     assert.ok(catalogGets.length > catalogBeforeDelete, 'rental catalog reloaded after delete');
+    assert.strictEqual(await page.locator('[data-admin-equip="ghost_fins"]').count(), 0, 'hard-deleted card gone');
 
-    const deadAfter = page.locator('[data-admin-equip="ghost_fins"]');
-    if ((await deadAfter.count()) >= 1) {
-      assert.ok(
-        await deadAfter.evaluate((n) => n.classList.contains('is-equip-disabled') || n.getAttribute('data-equip-active') === '0'),
-        'after soft-delete, item shows disabled state if still listed',
-      );
-      assert.strictEqual(
-        await deadAfter.locator('[data-admin-action="delete-rental-offering"]').count(),
-        0,
-        'Delete rental not offered repeatedly after soft-delete',
-      );
-    }
-
-    // Dropdown after delete (no page.reload): ghost_fins still only as historical Unavailable if selected
+    // Dropdown after delete (no page.reload)
     await page.locator('[data-admin-action="edit-pack"]').click();
     ed = page.locator('[data-admin-pack-form] [data-admin-equipment-editor]');
     await ed.locator('[data-admin-action="add-equipment-option"]').click();
@@ -444,8 +455,9 @@ async function browserFixture() {
       .nth(1)
       .locator('select option')
       .evaluateAll((opts) => opts.map((o) => o.value).filter(Boolean));
-    assert.ok(!afterDelOpts.includes('ghost_fins'), 'after Delete, dropdown excludes dead item without page.reload');
+    assert.ok(!afterDelOpts.includes('ghost_fins'), 'after Delete, dropdown excludes item without page.reload');
     assert.ok(afterDelOpts.includes('softboard'), 'softboard still selectable after delete refresh');
+    assert.ok(afterDelOpts.includes('zero_price_pad'), 'active unpriced/zero still selectable');
     await page.locator('[data-admin-action="cancel-edit"]').click();
 
     // ── C) Create offering + positive price → immediately selectable ──
@@ -484,7 +496,7 @@ async function browserFixture() {
       .evaluateAll((opts) => opts.map((o) => o.value).filter(Boolean));
     assert.ok(
       createOpts.includes('kayak_rental') || createOpts.some((v) => /kayak/.test(v)),
-      'new offering+price appears in dropdown immediately: ' + JSON.stringify(createOpts),
+      'new offering appears in dropdown immediately: ' + JSON.stringify(createOpts),
     );
 
     // Prefer cache no-store on at least one post-mutation catalog/config get
