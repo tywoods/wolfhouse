@@ -35,6 +35,79 @@ function normLoc(locationId) {
 }
 
 /**
+ * Normalize a rental display name for uniqueness comparison.
+ * Unicode-safe trim, collapse internal whitespace, locale-independent lower case.
+ * " Surfboard  + Wetsuit " → "surfboard + wetsuit"
+ */
+function normalizeRentalDisplayName(label) {
+  return String(label == null ? '' : label)
+    .replace(/^\s+|\s+$/gu, '')
+    .replace(/\s+/gu, ' ')
+    .toLowerCase();
+}
+
+/** Collapse whitespace for storage (preserve case). */
+function collapseRentalLabelWhitespace(label) {
+  return String(label == null ? '' : label)
+    .replace(/^\s+|\s+$/gu, '')
+    .replace(/\s+/gu, ' ');
+}
+
+/**
+ * Transaction-scoped advisory lock + existence check for normalized display names.
+ * Locks exact client + location + normalized label so concurrent creates cannot race.
+ * Includes inactive rows (disabled identities still reserve the name).
+ * @returns {{ ok:true } | { ok:false, error:'rental_name_already_exists' }}
+ */
+async function assertRentalDisplayNameAvailable(pg, {
+  clientSlug, locationId, label, excludeOfferingKey = null,
+} = {}) {
+  const slug = String(clientSlug || '').trim();
+  const loc = normLoc(locationId);
+  const normalized = normalizeRentalDisplayName(label);
+  if (!slug || !normalized) return { ok: true };
+
+  const lockKey = `rental-name:${slug}:${loc == null ? '' : loc}:${normalized}`;
+  // MULTICLIENT_SCOPE_OK: advisory lock keyed by client slug + scoped name
+  await pg.query(
+    'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',
+    [slug, lockKey],
+  );
+
+  const params = [slug];
+  let locClause = 'location_id IS NULL';
+  if (loc != null) {
+    params.push(loc);
+    locClause = `location_id = $${params.length}`;
+  }
+  params.push(normalized);
+  const normIdx = params.length;
+  let excludeClause = '';
+  if (excludeOfferingKey) {
+    params.push(String(excludeOfferingKey).trim());
+    excludeClause = ` AND offering_key <> $${params.length}`;
+  }
+
+  // PostgreSQL lower + regexp_replace mirrors normalizeRentalDisplayName.
+  // Active and inactive both reserve the name; hard-deleted rows are gone.
+  const res = await pg.query(
+    // MULTICLIENT_SCOPE_OK: client_slug + exact location + normalized label
+    `SELECT id, offering_key, label, active
+       FROM tenant_rental_offerings
+      WHERE client_slug = $1
+        AND ${locClause}
+        AND lower(regexp_replace(btrim(label), '[[:space:]]+', ' ', 'g')) = $${normIdx}
+        ${excludeClause}
+      LIMIT 1`,
+    params,
+  );
+  if (res.rows.length) {
+    return { ok: false, error: 'rental_name_already_exists' };
+  }
+  return { ok: true };
+}
+
+/**
  * Validate a create/patch body. Pure — no DB. Returns {ok, value} | {ok:false,error}.
  * `mode` = 'create' requires the full identity; 'rename' allows label only.
  */
@@ -45,7 +118,7 @@ function validateRentalOfferingBody(body, mode = 'create') {
     return { ok: false, error: 'invalid offering_key (lowercase, no "__", <=64 chars)' };
   }
 
-  const label = String(b.label == null ? '' : b.label).trim();
+  const label = collapseRentalLabelWhitespace(b.label == null ? '' : b.label);
   if (mode !== 'rename' || b.label !== undefined) {
     if (!label || label.length > MAX_LABEL) {
       return { ok: false, error: `label is required (1-${MAX_LABEL} chars)` };
@@ -141,14 +214,31 @@ async function listRentalOfferings(pg, { clientSlug, locationId, includeInactive
   return res.rows.map(rowToOffering);
 }
 
-/** Create a rental item. Fails on duplicate active offering_key (unique index). */
+/**
+ * Create a rental item.
+ * Owns BEGIN/COMMIT/ROLLBACK so pg_advisory_xact_lock is race-safe.
+ * Callers (API, seed/reconcile) must NOT wrap this in an outer transaction.
+ * Fails on duplicate active offering_key (unique index) or normalized display name.
+ */
 async function createRentalOffering(pg, params = {}) {
   const slug = String(params.clientSlug || '').trim();
   if (!slug) return { ok: false, error: 'clientSlug is required' };
   const v = validateRentalOfferingBody(params, 'create');
   if (!v.ok) return v;
   const loc = normLoc(params.locationId);
+
+  await pg.query('BEGIN');
   try {
+    const nameOk = await assertRentalDisplayNameAvailable(pg, {
+      clientSlug: slug,
+      locationId: loc,
+      label: v.value.label,
+    });
+    if (!nameOk.ok) {
+      await pg.query('ROLLBACK');
+      return nameOk;
+    }
+
     const res = await pg.query(
       // MULTICLIENT_SCOPE_OK: explicit client_slug column on insert
       `INSERT INTO tenant_rental_offerings
@@ -158,8 +248,10 @@ async function createRentalOffering(pg, params = {}) {
       [slug, loc, v.value.offering_key, v.value.label, v.value.group_key,
         JSON.stringify(v.value.excludes || []), v.value.sort_order || 0, params.actorId || null],
     );
+    await pg.query('COMMIT');
     return { ok: true, offering: rowToOffering(res.rows[0]) };
   } catch (err) {
+    try { await pg.query('ROLLBACK'); } catch (_) { /* ignore */ }
     if (/duplicate key|uq_tenant_rental_offerings_active/i.test(String(err && err.message))) {
       return { ok: false, error: 'a rental item with this offering_key already exists' };
     }
@@ -167,7 +259,11 @@ async function createRentalOffering(pg, params = {}) {
   }
 }
 
-/** Patch label / group_key / excludes / sort_order of an active item. */
+/**
+ * Patch label / group_key / excludes / sort_order of an active item.
+ * Owns BEGIN/COMMIT/ROLLBACK when label changes so name uniqueness is race-safe.
+ * Callers must NOT wrap this in an outer transaction.
+ */
 async function updateRentalOffering(pg, params = {}) {
   const slug = String(params.clientSlug || '').trim();
   const key = String(params.offering_key || '').trim();
@@ -186,23 +282,49 @@ async function updateRentalOffering(pg, params = {}) {
   if (params.actorId !== undefined) push('updated_by = $$', params.actorId || null);
   if (!sets.length) return { ok: false, error: 'nothing to update' };
 
-  vals.push(slug);
-  const slugIdx = vals.length;
-  vals.push(key);
-  const keyIdx = vals.length;
-  let locClause = 'location_id IS NULL';
-  if (loc != null) { vals.push(loc); locClause = `location_id = $${vals.length}`; }
+  const needsNameLock = v.value.label !== undefined;
+  if (needsNameLock) await pg.query('BEGIN');
+  try {
+    if (needsNameLock) {
+      const nameOk = await assertRentalDisplayNameAvailable(pg, {
+        clientSlug: slug,
+        locationId: loc,
+        label: v.value.label,
+        excludeOfferingKey: key,
+      });
+      if (!nameOk.ok) {
+        await pg.query('ROLLBACK');
+        return nameOk;
+      }
+    }
 
-  const res = await pg.query(
-    // MULTICLIENT_SCOPE_OK: client_slug + offering_key + location predicate
-    `UPDATE tenant_rental_offerings
-        SET ${sets.join(', ')}
-      WHERE client_slug = $${slugIdx} AND offering_key = $${keyIdx} AND ${locClause} AND active = true
-      RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active`,
-    vals,
-  );
-  if (!res.rows.length) return { ok: false, error: 'rental item not found' };
-  return { ok: true, offering: rowToOffering(res.rows[0]) };
+    vals.push(slug);
+    const slugIdx = vals.length;
+    vals.push(key);
+    const keyIdx = vals.length;
+    let locClause = 'location_id IS NULL';
+    if (loc != null) { vals.push(loc); locClause = `location_id = $${vals.length}`; }
+
+    const res = await pg.query(
+      // MULTICLIENT_SCOPE_OK: client_slug + offering_key + location predicate
+      `UPDATE tenant_rental_offerings
+          SET ${sets.join(', ')}
+        WHERE client_slug = $${slugIdx} AND offering_key = $${keyIdx} AND ${locClause} AND active = true
+        RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active`,
+      vals,
+    );
+    if (!res.rows.length) {
+      if (needsNameLock) await pg.query('ROLLBACK');
+      return { ok: false, error: 'rental item not found' };
+    }
+    if (needsNameLock) await pg.query('COMMIT');
+    return { ok: true, offering: rowToOffering(res.rows[0]) };
+  } catch (err) {
+    if (needsNameLock) {
+      try { await pg.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    }
+    throw err;
+  }
 }
 
 /**
@@ -590,6 +712,8 @@ function applyRentalMutualExclusion(selectedKeys, offerings) {
 module.exports = {
   OFFERING_KEY_RE,
   isValidOfferingKey,
+  normalizeRentalDisplayName,
+  collapseRentalLabelWhitespace,
   validateRentalOfferingBody,
   rowToOffering,
   listRentalOfferings,
@@ -599,4 +723,5 @@ module.exports = {
   setRentalOfferingActive,
   seedRentalOfferings,
   applyRentalMutualExclusion,
+  assertRentalDisplayNameAvailable,
 };

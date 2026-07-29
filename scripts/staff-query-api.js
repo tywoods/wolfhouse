@@ -16306,10 +16306,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-history-table th,.portal-admin-history-table td{padding:6px 8px;border-bottom:1px solid var(--border-soft);text-align:left}
 .portal-admin-history-table th{font-weight:700;color:var(--text-2);font-size:11px;text-transform:uppercase}
 
-.portal-admin-price-card.is-editing{min-width:148px}
-.portal-admin-price-card-edit{display:flex;flex-direction:column;gap:5px;width:100%}
+/* Editing price cards: never overflow parent at narrow/mobile widths. */
+.portal-admin-price-card.is-editing{min-width:0;max-width:100%;width:100%;box-sizing:border-box;overflow:hidden}
+.portal-admin-price-card-edit{display:flex;flex-direction:column;gap:5px;width:100%;max-width:100%;min-width:0;box-sizing:border-box}
+.portal-admin-price-card-edit > div{min-width:0;max-width:100%;width:100%;box-sizing:border-box}
 .portal-admin-price-card-edit label{font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:2px}
-.portal-admin-price-card-edit select,.portal-admin-price-card-edit input{width:100%;padding:3px 6px;font-size:12px;height:26px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface);color:var(--text);box-sizing:border-box}
+.portal-admin-price-card-edit select,.portal-admin-price-card-edit input{width:100%;max-width:100%;min-width:0;padding:3px 6px;font-size:12px;height:26px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface);color:var(--text);box-sizing:border-box}
 .portal-admin-price-card-edit-actions{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px}
 .portal-admin-price-card-edit-actions .btn{font-size:10px;padding:3px 8px}
 .portal-admin-pack-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:8px}
@@ -39418,11 +39420,14 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
     });
     if (!result.ok) {
       const missingTables = result.error === 'admin_db_tables_missing';
+      const errStr = String(result.error || '');
+      // rental_name_already_exists is a stable 409 code (duplicate display name).
       const status = missingTables
         ? 503
-        : (op === 'delete' || /not found/i.test(String(result.error || ''))
+        : (op === 'delete' || /not found/i.test(errStr)
           ? 404
-          : (/boolean/i.test(String(result.error || '')) ? 400 : 409));
+          : (/boolean/i.test(errStr) ? 400
+            : (errStr === 'rental_name_already_exists' || /already exists|duplicate/i.test(errStr) ? 409 : 409)));
       return sendJSON(res, status, {
         success: false,
         error: result.error || 'not found',
