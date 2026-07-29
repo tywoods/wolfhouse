@@ -47,8 +47,20 @@ const PACK_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const TIER = '1_week';
 const ITEM = packPriceItemCode(PACK_ID, TIER);
 const AMOUNT = 19900;
-const FRIDAY = '2026-07-17';
-const SATURDAY = '2026-07-18';
+// Dates must stay in the future so create-path past-date guards don't reject
+// the fixture. Compute the next Friday/Saturday (weekdays the sat_sun pack
+// schedule uses) instead of hard-coding, so the gate doesn't rot over time.
+function nextFutureWeekday(targetDow, minDaysAhead) {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() + minDaysAhead);
+  while (d.getUTCDay() !== targetDow) {
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return d.toISOString().slice(0, 10);
+}
+const FRIDAY = nextFutureWeekday(5, 3); // a Friday (not in sat_sun schedule)
+const SATURDAY = nextFutureWeekday(6, 3); // a Saturday (matches sat_sun schedule)
 const LOC = 'sunset-somo';
 
 function adminCfg() {
@@ -89,7 +101,13 @@ function makePg(opts = {}) {
       if (/^COMMIT/i.test(s)) return { rows: [] };
       if (/^ROLLBACK/i.test(s)) return { rows: [] };
       if (/SELECT id FROM clients WHERE slug/i.test(s)) return { rows: [{ id: 'client-sunset' }] };
-      if (/information_schema\.(tables|columns)/i.test(s)) return { rows: [{ '?column?': 1 }] };
+      // adminConfigTablesExist expects one row per ADMIN_CONFIG_TABLES entry
+      // (length-equality check); column probes just need a single row present.
+      if (/information_schema\.tables/i.test(s)) {
+        const names = Array.isArray(params && params[0]) ? params[0] : [];
+        return { rows: names.map((t) => ({ table_name: t })) };
+      }
+      if (/information_schema\.columns/i.test(s)) return { rows: [{ '?column?': 1 }] };
       if (/to_regclass/i.test(s)) return { rows: [{ reg: 'tenant_price_rules' }] };
       if (/FROM tenant_surf_pack_rules/i.test(s)) {
         return {
@@ -110,6 +128,13 @@ function makePg(opts = {}) {
         return { rows: [{ seats: seats[key] != null ? seats[key] : 0 }] };
       }
       if (/FROM tenant_price_rules/i.test(s)) {
+        // Bulk admin-config load (defaultLoadFromDb): selects display_name and
+        // filters by [slug, loc] with no item_code param. Must return the pack
+        // price so the resolved config is source:'db' and the pack is priceable
+        // (the staff-create path re-quotes from this DB-backed config).
+        if (/display_name/i.test(s)) {
+          return { rows: [{ id: 'price-1', item_type: 'package', item_code: ITEM, display_name: 'Weekend Course', currency: 'EUR', amount_cents: AMOUNT, unit: 'day', active: true, effective_from: null, effective_to: null }] };
+        }
         const itemCode = params[2];
         if (String(itemCode || '').startsWith('surf_pack_')) {
           return { rows: [{ id: 'price-1', amount_cents: AMOUNT, currency: 'EUR', item_type: 'package', item_code: itemCode, unit: 'day', location_id: LOC }] };
@@ -135,7 +160,8 @@ function makePg(opts = {}) {
           metadata: typeof row.params[9] === 'string' ? JSON.parse(row.params[9]) : row.params[9],
         })) };
       }
-      if (/UPDATE booking_service_records/i.test(s) || /UPDATE bookings SET/i.test(s)) return { rows: [] };
+      // Write path asserts rowCount === 1 on service-amount/booking updates.
+      if (/UPDATE booking_service_records/i.test(s) || /UPDATE bookings\b/i.test(s)) return { rows: [], rowCount: 1 };
       return { rows: [] };
     },
   };
@@ -295,6 +321,7 @@ async function run() {
 
   const createBody = {
     guest_name: 'Vertical Guest',
+    guest_phone: '+34 600 123 456', // staff-create requires a valid phone (>=6 digits)
     payment_status: 'unpaid',
     service_dates: [SATURDAY],
     components: { course: { quantity: 1, course_id: PACK_ID, tier_key: TIER } },
