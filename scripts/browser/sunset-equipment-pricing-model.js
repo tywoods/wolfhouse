@@ -49,13 +49,6 @@ function humanizeOfferingKey(key) {
     .replace(/\b\w/g, function (c) { return c.toUpperCase(); }).trim();
 }
 
-// Canonical items float to the top in a friendly order; everything else sorts
-// alphabetically after them. NO groups — display order only.
-var EQUIPMENT_CANONICAL_ORDER = ['board_rental', 'wetsuit_rental', 'board_and_suit_rental', 'sup_rental'];
-function equipmentOfferingRank(key) {
-  var i = EQUIPMENT_CANONICAL_ORDER.indexOf(key);
-  return i < 0 ? EQUIPMENT_CANONICAL_ORDER.length : i;
-}
 function equipmentDurationSortValue(unit, count) {
   if (!unit) return Number.MAX_SAFE_INTEGER;
   return (unit === 'days' ? 100000 : 0) + count; // hours before days, then count
@@ -105,9 +98,8 @@ function buildEquipmentPricingList(prices) {
     out.push(it);
   }
   out.sort(function (a, b) {
-    var ra = equipmentOfferingRank(a.offering_key), rb = equipmentOfferingRank(b.offering_key);
-    if (ra !== rb) return ra - rb;
-    return String(a.label).localeCompare(String(b.label));
+    var byLabel = String(a.label).localeCompare(String(b.label));
+    return byLabel || String(a.offering_key).localeCompare(String(b.offering_key));
   });
   return out;
 }

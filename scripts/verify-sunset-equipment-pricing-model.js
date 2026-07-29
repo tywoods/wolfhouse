@@ -43,8 +43,10 @@ assert('wetsuit half_day → "12 hours"', byKey.wetsuit_rental.rows.some((r) => 
 assert('board full_day → "1 day"', byKey.board_rental.rows.some((r) => r.duration_label === '1 day'));
 assert('amount_cents surfaced', kRows.every((r) => typeof r.amount_cents === 'number'));
 
-console.log('\n[order] canonical first, then alpha; rows hours-before-days');
-assert('board_rental sorts before kayak_rental', items.findIndex((i) => i.offering_key === 'board_rental') < items.findIndex((i) => i.offering_key === 'kayak_rental'));
+console.log('\n[order] all catalog items sort uniformly by display label; rows hours-before-days');
+assert('equipment order has no legacy-key priority',
+  items.map((i) => i.offering_key).join(',') === 'kayak_rental,board_rental,wetsuit_rental',
+  JSON.stringify(items.map((i) => ({ key: i.offering_key, label: i.label }))));
 assert('kayak rows: hours (3h) before days (2d)', kRows[0].duration_key === '3_hours' && kRows[kRows.length - 1].duration_key === '2_days', JSON.stringify(kRows.map((r) => r.duration_key)));
 
 console.log('\n[labels fallback] humanize offering_key when no label given');
