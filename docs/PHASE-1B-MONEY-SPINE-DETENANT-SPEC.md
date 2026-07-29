@@ -1,9 +1,33 @@
 # Phase 1b — De-tenant the pricing/booking (money) spine
 
-**Status:** SPEC / not implemented. **Supervised change** — money layer, higher
-blast radius than 1a. Land only after review.
+**Status:** SPEC / **BLOCKED — do not implement yet.** Money layer, higher blast
+radius than 1a. Land only after review AND after the prerequisite below is met.
 **Precondition:** Phase 1a landed (`187cb5d`) — membership boundary + adapter
 fail-closed wall. See `docs/PHASE-1-VERTICAL-TENANT-ISOLATION-SLICE.md`.
+
+## ⛔ Hard prerequisite (verified 2026-07-29): no provisioned second tenant exists
+
+1b's whole point is to let a *provisioned* second school transact. Today there is
+none. The only configured second surf school, `lawave`
+(`config/clients/lawave.baseline.json`), is a **non-live skeleton**:
+
+- `deployment.enabled: false`, `_meta.status: "config_skeleton"`, `version: 0.1`
+- `catalog.offerings: {}` — **zero** priced offerings
+- its own `pricing_policy` mandates: `on_unverified_seed_in_live:
+  "block_do_not_quote"`, `on_provisional_in_live:
+  "handoff_or_block_do_not_autocharge"`, and `live_autonomous_charge_requires:
+  "pricing_status_confirmed"`.
+
+De-tenanting the money spine now would open a quote/charge path for a tenant
+whose own config says **do not quote**. The **Phase 1a fail-closed wall is the
+correct, policy-compliant terminal state** for such a tenant: recognized, walled,
+no money path.
+
+**Unblock 1b only when** a second tenant is (a) `deployment.enabled: true`,
+(b) has owner-confirmed `pricing_status_confirmed` offerings (not skeleton /
+provisional / TODO), and (c) has real per-tenant pricing rows/config. Until then,
+leave every gate below intact — they are correctly protecting, not merely
+single-tenant debt.
 
 ## Goal
 
