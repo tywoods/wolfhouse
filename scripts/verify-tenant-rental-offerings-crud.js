@@ -156,6 +156,28 @@ async function run() {
   const solo = applyRentalMutualExclusion(['board_and_suit_rental'], catalog);
   ok('single bundle selection allowed', solo.blocked.length === 0 && solo.allowed.length === 1);
 
+  console.log('\n── F. Sunset real-config parity (handoff Step 1 de-risk) ──');
+  const { buildRentalOfferingRows } = require('./lib/tenant-rental-offerings-seed');
+  const sunsetRows = buildRentalOfferingRows('sunset');
+  ok('sunset seed builds 4 items', Array.isArray(sunsetRows) && sunsetRows.length === 4, JSON.stringify(sunsetRows && sunsetRows.map((r) => r.offering_key)));
+  const parityPg = makePg();
+  await seedRentalOfferings(parityPg, { clientSlug: 'sunset', locationId: 'sunset-somo', rows: sunsetRows });
+  const parity = await listRentalOfferings(parityPg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
+  const keys = parity.map((r) => r.offering_key).sort();
+  ok('seeded catalog has the 4 canonical keys',
+    JSON.stringify(keys) === JSON.stringify(['board_and_suit_rental', 'board_rental', 'sup_rental', 'wetsuit_rental']),
+    JSON.stringify(keys));
+  const bundle = parity.find((r) => r.offering_key === 'board_and_suit_rental');
+  ok('bundle excludes its two components',
+    bundle && JSON.stringify(bundle.excludes.slice().sort()) === JSON.stringify(['board_rental', 'wetsuit_rental']),
+    JSON.stringify(bundle && bundle.excludes));
+  // Symmetry: selecting the bundle with either component blocks the component.
+  const exclBoard = applyRentalMutualExclusion(['board_and_suit_rental', 'board_rental'], parity);
+  const exclSuit = applyRentalMutualExclusion(['board_and_suit_rental', 'wetsuit_rental'], parity);
+  ok('bundle blocks board (symmetric from real config)', exclBoard.blocked.length === 1 && exclBoard.blocked[0].key === 'board_rental');
+  ok('bundle blocks wetsuit (symmetric from real config)', exclSuit.blocked.length === 1 && exclSuit.blocked[0].key === 'wetsuit_rental');
+  ok('sup co-exists with everything', applyRentalMutualExclusion(['sup_rental', 'board_and_suit_rental'], parity).blocked.length === 0);
+
   console.log(`\nverify-tenant-rental-offerings-crud  pass=${pass}  fail=${fail}`);
   if (fail === 0) console.log('verify-tenant-rental-offerings-crud — ALL CHECKS PASSED');
   process.exit(fail ? 1 : 0);
