@@ -181,6 +181,8 @@ module.exports = {
   'admin.prices.deleteRental': 'Eliminar alquiler',
   'admin.prices.deleteRentalConfirm': '¿Eliminar permanentemente este alquiler? Se borrarán el artículo, todos los precios de duración y los enlaces de material de cursos de Grupo/Privado. Se conservan las reservas y los registros históricos. Esta acción no se puede deshacer.',
   'admin.prices.deletedRental': 'Alquiler eliminado permanentemente.',
+  'admin.prices.newTimePrice': 'Nuevo tiempo + precio',
+  'admin.prices.rentalNameExists': 'Ya existe un alquiler con este nombre en esta ubicación. Elige un nombre distinto.',
   'admin.prices.cannotDeletePriced': 'Quita todos los precios de duración antes de eliminar este alquiler.',
   'admin.prices.cannotEnableUnpriced': 'Añade al menos un precio activo antes de activar este alquiler.',
   'admin.lessonTimes.help': 'Gestiona los horarios de clases en grupo que aparecen en Schedule y usa el equipo.',

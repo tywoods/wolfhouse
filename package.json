@@ -71,6 +71,7 @@
     "verify:sunset-admin-equipment-rental-fixes": "node scripts/verify-sunset-admin-equipment-rental-fixes.js",
     "verify:sunset-rental-dropdown-refresh": "node scripts/verify-sunset-rental-dropdown-refresh.js",
     "verify:sunset-rental-hard-delete": "node scripts/verify-sunset-rental-hard-delete.js",
+    "verify:sunset-rental-edit-functionality": "node scripts/verify-sunset-rental-edit-functionality.js",
     "verify:sunset-backend-blockers": "node scripts/verify-sunset-backend-blockers.js",
     "verify:sunset-luna-admin-tab": "node scripts/verify-sunset-luna-admin-tab.js",
     "verify:portal-typography-fonts": "node scripts/verify-portal-typography-fonts.js",

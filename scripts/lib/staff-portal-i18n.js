@@ -1187,6 +1187,8 @@ const STAFF_PORTAL_STRINGS = {
     'admin.prices.deleteRental': 'Delete rental',
     'admin.prices.deleteRentalConfirm': 'Permanently delete this rental item? This removes the item, all duration prices, and any Group/Private course equipment links. Bookings and historical booking records are kept. This cannot be undone.',
     'admin.prices.deletedRental': 'Rental item permanently deleted.',
+    'admin.prices.newTimePrice': 'New time + price',
+    'admin.prices.rentalNameExists': 'A rental with this name already exists at this location. Choose a different name.',
     'admin.prices.cannotDeletePriced': 'Remove all duration prices before deleting this rental item.',
     'admin.prices.cannotEnableUnpriced': 'Add at least one active price before enabling this rental item.',
     'admin.lessonTimes.col.date': 'Date',

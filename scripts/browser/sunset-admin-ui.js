@@ -1062,8 +1062,10 @@ function renderAdminSectionPricesFromConfig(cfg){
   items.forEach(function(item){
     var key = item.offering_key;
     var itemActive = item.active !== false;
-    var editing = writes && adminEditTarget === ('equip:' + key);
+    // Nested edit: equip-add-price:KEY is item edit with the duration form open.
+    // Delete/Done remain available; New time + price is hidden while already adding.
     var adding = writes && adminEditTarget === ('equip-add-price:' + key);
+    var editing = writes && (adminEditTarget === ('equip:' + key) || adding);
     // Disabled items remain fully manageable: edit, add price, enable, hard-delete.
     html += '<div class="portal-admin-subsection' + (itemActive ? '' : ' is-equip-disabled') + '" data-admin-equip="' + escHtml(key) + '" data-equip-active="' + (itemActive ? '1' : '0') + '">';
     html += '<div class="portal-admin-subsection-title-row portal-admin-equip-header">';
@@ -1085,20 +1087,23 @@ function renderAdminSectionPricesFromConfig(cfg){
       if (!editing){
         html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-equipment" data-equip-key="' +
           escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.edit')) + '">✎</button>';
-        // Add duration price available for active AND disabled items (not while another add form is open).
-        if (!adding){
-          html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-equip-price" data-equip-key="' +
-            escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button>';
-        }
+        // Compact + for collapsed cards (not the labeled New time + price — that is edit-only).
+        html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-equip-price" data-equip-key="' +
+          escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button>';
         // Delete rental is NEVER on the collapsed/read-only card — only in pencil Edit mode.
       } else {
-        // Edit mode: duration-row × stays on price cards; item hard-delete is a separate labeled button.
+        // Edit mode (incl. nested add-price): duration-row × on cards; item hard-delete labeled.
         html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-danger portal-admin-touch" data-admin-action="delete-rental-offering" data-equip-key="' +
           escHtml(key) + '" aria-label="' + escHtml(portalT('admin.prices.deleteRental')) + '">' +
           escHtml(portalT('admin.prices.deleteRental')) + '</button>';
         // Done stays in item header (not detached under the price grid).
         html += '<button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="cancel-edit">' +
           escHtml(portalT('admin.action.done') || 'Done') + '</button>';
+        // New time + price only inside item edit, and only when the form is not already open.
+        if (!adding){
+          html += '<button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="add-equip-price" data-equip-key="' +
+            escHtml(key) + '">' + escHtml(portalT('admin.prices.newTimePrice') || 'New time + price') + '</button>';
+        }
       }
       html += '</div>';
     }
@@ -2242,7 +2247,8 @@ function wireAdminTab(){
           }
           adminShowMessage('success', portalT('admin.edit.addedPrice'));
           adminReleaseBusy(saveNewPriceOpSeq);
-          adminReloadConfig();
+          // Stay in item pencil mode after nested add (no page.reload).
+          adminReloadConfigKeepingEdit('equip:' + addPriceKey);
         }).catch(function(err){
           if (!adminOpStillOwns(saveNewPriceOpSeq)) return;
           adminReleaseBusy(saveNewPriceOpSeq);
@@ -2305,12 +2311,22 @@ function wireAdminTab(){
       var eqOpSeq = adminBeginOp();
       adminShowMessage('', '');
       // 1) create the catalog offering (so it can also be booked), then 2) its first price.
+      // Do NOT append random suffixes to bypass name uniqueness. Preserve input on error.
       var createOffering = adminApiRequest('POST', '/staff/admin/config/rental-offerings' + adminClientQuery(), {
         offering_key: eqKey, label: eqName, group_key: 'equipment', excludes: [],
       });
       createOffering.then(function(offRes){
         if (!adminOpStillOwns(eqOpSeq)) return null;
-        // 409 = offering already exists — fine, proceed to add the price.
+        var offErr = offRes && offRes.data
+          ? String(offRes.data.error || offRes.data.message || '')
+          : '';
+        // Display-name conflict: stop before any price side effect; keep form values.
+        if (offRes.status === 409 && /rental_name_already_exists/i.test(offErr)){
+          adminReleaseBusy(eqOpSeq);
+          adminShowMessage('error', portalT('admin.prices.rentalNameExists') || offErr);
+          return null;
+        }
+        // 409 on offering_key only = same key already exists — proceed to add the price.
         if (offRes.status !== 201 && offRes.status !== 200 && offRes.status !== 409){
           adminReleaseBusy(eqOpSeq);
           adminShowMessage('error', (offRes.data && (offRes.data.error || offRes.data.message)) || ('HTTP ' + offRes.status));
