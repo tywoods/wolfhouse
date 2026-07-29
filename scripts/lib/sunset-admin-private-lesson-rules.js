@@ -5,6 +5,7 @@
  */
 
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
+const { validateEquipmentOptions, normalizeEquipmentOptions } = require('./sunset-course-equipment-options');
 
 async function adminConfigTableHasLocationColumn(client, tableName) {
   const result = await client.query(
@@ -29,8 +30,7 @@ function defaultPrivateLessonApi(overrides) {
     enabled: false,
     label: DEFAULT_LABEL,
     amount_cents: 0,
-    equipment_included: false,
-    equipment_price_cents: 0,
+    equipment_options: [],
     currency: 'EUR',
     price_basis: 'per_session',
     default_duration_minutes: DEFAULT_DURATION_MINUTES,
@@ -66,8 +66,7 @@ function mapPrivateLessonRow(row) {
     enabled: row.active !== false,
     label: row.label || DEFAULT_LABEL,
     amount_cents: Number.isInteger(amount) && amount >= 0 ? amount : 0,
-    equipment_included: cfg.equipment_included === true,
-    equipment_price_cents: Number.isSafeInteger(Number(cfg.equipment_price_cents)) && Number(cfg.equipment_price_cents) >= 0 ? Number(cfg.equipment_price_cents) : 0,
+    equipment_options: normalizeEquipmentOptions(cfg.equipment_options),
     currency: String(cfg.currency || 'EUR').trim().toUpperCase() || 'EUR',
     price_basis: PRICE_BASIS_VALUES.has(String(cfg.price_basis || '').trim())
       ? String(cfg.price_basis).trim()
@@ -103,14 +102,10 @@ function validatePrivateLessonBody(body) {
     if (!Number.isInteger(n) || n < 0) return { ok: false, error: 'amount_cents must be integer >= 0' };
     out.amount_cents = n;
   }
-  if (body.equipment_included != null) {
-    if (typeof body.equipment_included !== 'boolean') return { ok: false, error: 'equipment_included must be boolean' };
-    out.equipment_included = body.equipment_included;
-  }
-  if (body.equipment_price_cents != null) {
-    const n = Number(body.equipment_price_cents);
-    if (!Number.isSafeInteger(n) || n < 0) return { ok: false, error: 'equipment_price_cents must be integer >= 0' };
-    out.equipment_price_cents = n;
+  if (body.equipment_included != null || body.equipment_price_cents != null) return { ok: false, error: 'obsolete equipment fields are not accepted' };
+  if (body.equipment_options != null) {
+    try { out.equipment_options = validateEquipmentOptions(body.equipment_options); }
+    catch (err) { return { ok: false, error: err.message }; }
   }
   if (body.currency != null) {
     const cur = String(body.currency).trim().toUpperCase();
@@ -239,8 +234,7 @@ async function putPrivateLessonRule(client, { clientSlug, locationId, body, acto
     enabled: patch.enabled != null ? patch.enabled : prev.enabled,
     label: patch.label != null ? patch.label : prev.label,
     amount_cents: patch.amount_cents != null ? patch.amount_cents : prev.amount_cents,
-    equipment_included: patch.equipment_included != null ? patch.equipment_included : prev.equipment_included,
-    equipment_price_cents: patch.equipment_price_cents != null ? patch.equipment_price_cents : prev.equipment_price_cents,
+    equipment_options: patch.equipment_options != null ? patch.equipment_options : prev.equipment_options,
     currency: patch.currency != null ? patch.currency : prev.currency,
     price_basis: patch.price_basis != null ? patch.price_basis : prev.price_basis,
     default_duration_minutes: patch.default_duration_minutes != null
@@ -251,8 +245,7 @@ async function putPrivateLessonRule(client, { clientSlug, locationId, body, acto
 
   const configJson = {
     amount_cents: next.amount_cents,
-    equipment_included: next.equipment_included,
-    equipment_price_cents: next.equipment_price_cents,
+    equipment_options: next.equipment_options,
     currency: next.currency,
     price_basis: next.price_basis,
     default_duration_minutes: next.default_duration_minutes,

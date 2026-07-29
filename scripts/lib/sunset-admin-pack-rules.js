@@ -9,6 +9,7 @@ const {
   adminConfigTableHasLocationColumn,
 } = require('./tenant-business-config');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
+const { validateEquipmentOptions, normalizeEquipmentOptions } = require('./sunset-course-equipment-options');
 const {
   CANONICAL_DAY_DURATION_KEYS,
   isCanonicalDayDurationKey,
@@ -49,8 +50,7 @@ const DEFAULT_PRICE_TIERS = [];
 
 function defaultPackConfig() {
   return {
-    equipment_included: false,
-    equipment_price_cents: 0,
+    equipment_options: [],
     age_band: '12_and_up',
     group_size: 16,
     beaches: ['el_sardinero', 'liencres', 'somo'],
@@ -98,8 +98,7 @@ function mapPackRow(row) {
     beaches: Array.isArray(cfg.beaches) ? cfg.beaches : [],
     weekly: cfg.weekly || 'mon_fri',
     schedules: Array.isArray(cfg.schedules) ? cfg.schedules : [],
-    equipment_included: cfg.equipment_included === true,
-    equipment_price_cents: Number.isSafeInteger(Number(cfg.equipment_price_cents)) && Number(cfg.equipment_price_cents) >= 0 ? Number(cfg.equipment_price_cents) : 0,
+    equipment_options: normalizeEquipmentOptions(cfg.equipment_options),
     price_tiers,
     source: 'db',
   };
@@ -125,14 +124,10 @@ function validatePackBody(body, { requireLabel } = {}) {
     if (!Number.isInteger(n) || n < 1 || n > 999) return { ok: false, error: 'invalid group_size' };
     out.group_size = n;
   }
-  if (body.equipment_included != null) {
-    if (typeof body.equipment_included !== 'boolean') return { ok: false, error: 'equipment_included must be boolean' };
-    out.equipment_included = body.equipment_included;
-  }
-  if (body.equipment_price_cents != null) {
-    const n = Number(body.equipment_price_cents);
-    if (!Number.isSafeInteger(n) || n < 0) return { ok: false, error: 'equipment_price_cents must be integer >= 0' };
-    out.equipment_price_cents = n;
+  if (body.equipment_included != null || body.equipment_price_cents != null) return { ok: false, error: 'obsolete equipment fields are not accepted' };
+  if (body.equipment_options != null) {
+    try { out.equipment_options = validateEquipmentOptions(body.equipment_options); }
+    catch (err) { return { ok: false, error: err.message }; }
   }
   if (body.beaches != null) {
     if (!Array.isArray(body.beaches)) return { ok: false, error: 'beaches must be array' };
