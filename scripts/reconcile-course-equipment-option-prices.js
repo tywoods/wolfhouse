@@ -52,6 +52,38 @@ function parseConfigJson(configJson) {
 }
 
 /**
+ * Semantic equality for equipment_options arrays.
+ *
+ * Compares ordered option identities + integer amounts, independent of object
+ * key insertion order (Postgres JSONB returns keys alphabetically; the
+ * normalizer emits insertion order). Array order is semantic and preserved.
+ * Legacy field names are never treated as equal to canonical (must rewrite).
+ */
+function equipmentOptionsSemanticallyEqual(raw, normalized) {
+  if (!Array.isArray(raw) || !Array.isArray(normalized)) return false;
+  if (raw.length !== normalized.length) return false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const a = raw[i];
+    const b = normalized[i];
+    if (!a || typeof a !== 'object' || Array.isArray(a)) return false;
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return false;
+    // Still on legacy pair → field-name rewrite required.
+    if (hasLegacyFields(a)) return false;
+    if (!hasCanonicalFields(a)) return false;
+    let resolved;
+    try {
+      resolved = resolveEquipmentOptionMoney(a);
+    } catch (_) {
+      return false;
+    }
+    if (resolved.offering_key !== b.offering_key) return false;
+    if (resolved.during_course_price_cents !== b.during_course_price_cents) return false;
+    if (resolved.all_day_price_cents !== b.all_day_price_cents) return false;
+  }
+  return true;
+}
+
+/**
  * Pure transform for one equipment_options array.
  * Fail-closed: if ANY row error / mixed schema / invalid option / normalize
  * mismatch occurs, return errors and changed:false with the original array
@@ -122,7 +154,9 @@ function reconcileEquipmentOptionsArray(raw) {
     };
   }
 
-  const changed = JSON.stringify(raw) !== JSON.stringify(normalized);
+  // Semantic compare (not JSON.stringify): ignore object key insertion order
+  // so already-canonical JSONB rows do not false-positive as changed.
+  const changed = !equipmentOptionsSemanticallyEqual(raw, normalized);
   return {
     changed,
     options: changed ? normalized : raw,
@@ -324,6 +358,53 @@ function selfCheck() {
   if (canonResult.options !== canonical) throw new Error('canonical clean must keep original ref');
   if (canonResult.errors.length) throw new Error('canonical clean must have no errors');
 
+  // Postgres JSONB returns object keys alphabetically — must still be idempotent.
+  // JSON.stringify(raw) !== JSON.stringify(normalized) is a false positive here.
+  const jsonbCanonical = [JSON.parse(
+    '{"all_day_price_cents":1000,"during_course_price_cents":500,"offering_key":"softboard"}',
+  )];
+  if (JSON.stringify(jsonbCanonical) === JSON.stringify(canonical)) {
+    throw new Error('jsonb fixture must differ in key order from insertion-order canonical');
+  }
+  const jsonbResult = reconcileEquipmentOptionsArray(jsonbCanonical);
+  if (jsonbResult.changed) {
+    throw new Error('jsonb-key-order canonical must be unchanged (idempotent)');
+  }
+  if (jsonbResult.options !== jsonbCanonical) {
+    throw new Error('jsonb-key-order canonical must keep original ref');
+  }
+  if (jsonbResult.errors.length) {
+    throw new Error('jsonb-key-order canonical must have no errors');
+  }
+
+  // Array order is semantic: swapped identities must report changed.
+  const swapped = [
+    {
+      offering_key: 'wetsuit',
+      during_course_price_cents: 700,
+      all_day_price_cents: 1200,
+    },
+    {
+      offering_key: 'softboard',
+      during_course_price_cents: 500,
+      all_day_price_cents: 1000,
+    },
+  ];
+  const ordered = [
+    {
+      offering_key: 'softboard',
+      during_course_price_cents: 500,
+      all_day_price_cents: 1000,
+    },
+    {
+      offering_key: 'wetsuit',
+      during_course_price_cents: 700,
+      all_day_price_cents: 1200,
+    },
+  ];
+  const swappedEq = equipmentOptionsSemanticallyEqual(swapped, ordered);
+  if (swappedEq) throw new Error('swapped option order must not be semantically equal');
+
   console.log('reconcile-course-equipment-option-prices self-check OK (no DB mutation)');
 }
 
@@ -359,6 +440,7 @@ if (require.main === module) {
 
 module.exports = {
   reconcileEquipmentOptionsArray,
+  equipmentOptionsSemanticallyEqual,
   dryRunOrApply,
   hasLegacyFields,
   hasCanonicalFields,

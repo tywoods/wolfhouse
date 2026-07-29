@@ -11,11 +11,13 @@
  *   3. Mid-update failure rolls back prior updates in the same transaction.
  *   4. Clean apply updates both pack + private tables and commits.
  *   5. Second apply is idempotent (zero changes).
+ *   6. Already-canonical JSONB key order is idempotent (no false changed).
  */
 
 const assert = require('assert');
 const {
   reconcileEquipmentOptionsArray,
+  equipmentOptionsSemanticallyEqual,
   dryRunOrApply,
   selfCheck,
 } = require('./reconcile-course-equipment-option-prices');
@@ -30,6 +32,13 @@ const CANONICAL_SOFTBOARD = {
   during_course_price_cents: 500,
   all_day_price_cents: 1000,
 };
+/** Postgres JSONB key order (alphabetical) — differs from normalizer insertion order. */
+const JSONB_CANONICAL_SOFTBOARD = JSON.parse(
+  '{"all_day_price_cents":1000,"during_course_price_cents":500,"offering_key":"softboard"}',
+);
+const JSONB_CANONICAL_WETSUIT = JSON.parse(
+  '{"all_day_price_cents":1200,"during_course_price_cents":700,"offering_key":"wetsuit"}',
+);
 const MIXED_ROW = {
   offering_key: 'broken',
   equipment_price_cents: 1,
@@ -197,6 +206,54 @@ function testPureTransform() {
   assert.strictEqual(badType.changed, false);
   assert.strictEqual(badType.options, rawObj);
   assert.deepStrictEqual(badType.errors, ['not_an_array']);
+
+  // JSONB alphabetical key order must not false-positive as changed.
+  assert.notStrictEqual(
+    JSON.stringify([JSONB_CANONICAL_SOFTBOARD]),
+    JSON.stringify([CANONICAL_SOFTBOARD]),
+    'fixture must demonstrate key-order divergence from insertion-order canonical',
+  );
+  const jsonbArr = [deepClone(JSONB_CANONICAL_SOFTBOARD), deepClone(JSONB_CANONICAL_WETSUIT)];
+  const jsonbResult = reconcileEquipmentOptionsArray(jsonbArr);
+  assert.strictEqual(jsonbResult.changed, false, 'jsonb-key-order canonical: changed false');
+  assert.strictEqual(jsonbResult.options, jsonbArr, 'jsonb-key-order: keep original ref');
+  assert.deepStrictEqual(jsonbResult.errors, []);
+  assert.ok(
+    equipmentOptionsSemanticallyEqual(jsonbArr, [
+      CANONICAL_SOFTBOARD,
+      {
+        offering_key: 'wetsuit',
+        during_course_price_cents: 700,
+        all_day_price_cents: 1200,
+      },
+    ]),
+    'jsonb and insertion-order canonical must be semantically equal',
+  );
+
+  // Array order is semantic — different order is not equal.
+  assert.strictEqual(
+    equipmentOptionsSemanticallyEqual(
+      [JSONB_CANONICAL_WETSUIT, JSONB_CANONICAL_SOFTBOARD],
+      [CANONICAL_SOFTBOARD, {
+        offering_key: 'wetsuit',
+        during_course_price_cents: 700,
+        all_day_price_cents: 1200,
+      }],
+    ),
+    false,
+    'swapped option order must not be semantically equal',
+  );
+
+  // Amount difference is meaningful.
+  const amountDiff = reconcileEquipmentOptionsArray([{
+    offering_key: 'softboard',
+    during_course_price_cents: 999,
+    all_day_price_cents: 1000,
+  }]);
+  // Already-canonical with different amounts still "unchanged" vs its own normalize
+  // (idempotent: rewrite only when schema/order/identity/amounts need transform).
+  assert.strictEqual(amountDiff.changed, false, 'pure canonical amount is stable vs self');
+  assert.strictEqual(amountDiff.errors.length, 0);
 
   console.log('  pure transform: OK');
 }
@@ -381,6 +438,125 @@ async function testCleanApplyAndIdempotentSecond() {
   console.log('  clean apply + idempotent second: OK');
 }
 
+/**
+ * Regression: live staging false idempotence — after apply, Postgres returns
+ * already-canonical rows with alphabetical JSONB key order. Dry-run and second
+ * apply must report zero updates (not all-changed).
+ */
+async function testJsonbKeyOrderIdempotentDryAndSecondRun() {
+  // Seed 3 pack + 1 private already-canonical rows with JSONB-style key order
+  // (alphabetical), matching the live post-apply shape.
+  const packs = [
+    {
+      id: 'e1111111-1111-4111-8111-111111111111',
+      config_json: {
+        label: 'Pack A',
+        equipment_options: [deepClone(JSONB_CANONICAL_SOFTBOARD)],
+      },
+    },
+    {
+      id: 'e2222222-2222-4222-8222-222222222222',
+      config_json: {
+        label: 'Pack B',
+        equipment_options: [
+          deepClone(JSONB_CANONICAL_SOFTBOARD),
+          deepClone(JSONB_CANONICAL_WETSUIT),
+        ],
+      },
+    },
+    {
+      id: 'e3333333-3333-4333-8333-333333333333',
+      config_json: {
+        label: 'Pack C',
+        equipment_options: [deepClone(JSONB_CANONICAL_WETSUIT)],
+      },
+    },
+  ];
+  const privates = [
+    {
+      id: 'e4444444-4444-4444-8444-444444444444',
+      config_json: {
+        label: 'Private A',
+        amount_cents: 8000,
+        equipment_options: [deepClone(JSONB_CANONICAL_SOFTBOARD)],
+      },
+    },
+  ];
+
+  const pg = makeFakePg({ packs, privates });
+
+  // Dry-run on stored canonical JSONB: zero changes.
+  const dry = await dryRunOrApply(pg, { apply: false });
+  assert.strictEqual(dry.blocked, false, 'jsonb dry-run: not blocked');
+  assert.strictEqual(dry.packs_scanned, 3);
+  assert.strictEqual(dry.private_scanned, 1);
+  assert.strictEqual(dry.packs_changed, 0, 'jsonb dry-run: packs_changed 0');
+  assert.strictEqual(dry.private_changed, 0, 'jsonb dry-run: private_changed 0');
+  assert.strictEqual(pg.state.updates, 0);
+  assert.strictEqual(pg.state.begins, 0);
+
+  // Apply on already-canonical JSONB: commit path with zero UPDATEs.
+  const apply1 = await dryRunOrApply(pg, { apply: true });
+  assert.strictEqual(apply1.blocked, false);
+  assert.strictEqual(apply1.committed, true);
+  assert.strictEqual(apply1.packs_changed, 0, 'jsonb apply: packs_changed 0');
+  assert.strictEqual(apply1.private_changed, 0, 'jsonb apply: private_changed 0');
+  assert.strictEqual(pg.state.updates, 0, 'jsonb apply issues zero UPDATEs');
+  // Original JSONB key order preserved (no rewrite).
+  assert.deepStrictEqual(
+    Object.keys(pg.state.packs[0].config_json.equipment_options[0]),
+    ['all_day_price_cents', 'during_course_price_cents', 'offering_key'],
+  );
+
+  // Second dry + apply still zero.
+  const dry2 = await dryRunOrApply(pg, { apply: false });
+  assert.strictEqual(dry2.packs_changed, 0);
+  assert.strictEqual(dry2.private_changed, 0);
+  const apply2 = await dryRunOrApply(pg, { apply: true });
+  assert.strictEqual(apply2.packs_changed, 0);
+  assert.strictEqual(apply2.private_changed, 0);
+  assert.strictEqual(pg.state.updates, 0);
+
+  console.log('  jsonb key-order idempotent dry/second: OK');
+}
+
+/**
+ * Prove legacy still rewrites under the semantic comparator, then the
+ * post-apply (insertion-order) shape is stable on second dry-run.
+ */
+async function testLegacyStillChangesThenStable() {
+  const pack = {
+    id: 'f1111111-1111-4111-8111-111111111111',
+    config_json: { equipment_options: [deepClone(LEGACY_SOFTBOARD)] },
+  };
+  const pg = makeFakePg({ packs: [pack], privates: [] });
+
+  const dryLegacy = await dryRunOrApply(pg, { apply: false });
+  assert.strictEqual(dryLegacy.packs_changed, 1, 'legacy dry-run must report changed');
+
+  const apply1 = await dryRunOrApply(pg, { apply: true });
+  assert.strictEqual(apply1.packs_changed, 1);
+  assert.strictEqual(apply1.committed, true);
+  assert.deepStrictEqual(
+    pg.state.packs[0].config_json.equipment_options,
+    [CANONICAL_SOFTBOARD],
+  );
+
+  // Simulate Postgres re-read: rewrite stored options with JSONB key order.
+  pg.state.packs[0].config_json.equipment_options = [
+    deepClone(JSONB_CANONICAL_SOFTBOARD),
+  ];
+
+  const dryAfter = await dryRunOrApply(pg, { apply: false });
+  assert.strictEqual(dryAfter.packs_changed, 0, 'post-apply jsonb re-read: zero changes');
+  assert.strictEqual(dryAfter.private_changed, 0);
+  const apply2 = await dryRunOrApply(pg, { apply: true });
+  assert.strictEqual(apply2.packs_changed, 0, 'second apply after jsonb re-read: zero');
+  assert.strictEqual(apply2.committed, true);
+
+  console.log('  legacy rewrite then jsonb-stable second: OK');
+}
+
 async function main() {
   console.log('verify-reconcile-course-equipment-option-prices');
   selfCheck();
@@ -388,6 +564,8 @@ async function main() {
   await testBadConfigBlocksGood();
   await testMidUpdateRollback();
   await testCleanApplyAndIdempotentSecond();
+  await testJsonbKeyOrderIdempotentDryAndSecondRun();
+  await testLegacyStillChangesThenStable();
   console.log('ALL GREEN — reconcile fail-closed contract holds (no real DB)');
 }
 
