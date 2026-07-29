@@ -527,6 +527,47 @@ function reconstructLessonsFromServiceRows(services) {
   return normalizeCanonicalLessons({ lessons });
 }
 
+/**
+ * Canonical selected existing Group courses from components.course.
+ * Prefer selected_courses (multi product buttons); fall back to single course_id.
+ * Returns ordered { course_id, tier_key?, offering_id?, course_label? } only — no money/dates/times.
+ */
+function normalizeSelectedCourses(courseComp) {
+  if (!courseComp || typeof courseComp !== 'object') return [];
+  const out = [];
+  const seen = new Set();
+  const rawList = Array.isArray(courseComp.selected_courses) ? courseComp.selected_courses : null;
+  if (rawList && rawList.length) {
+    for (const raw of rawList) {
+      if (!raw || typeof raw !== 'object') continue;
+      const courseId = String(raw.course_id || '').trim();
+      if (!courseId || seen.has(courseId)) continue;
+      seen.add(courseId);
+      const row = { course_id: courseId };
+      const tierKey = String(raw.tier_key || '').trim();
+      if (tierKey) row.tier_key = tierKey;
+      const label = String(raw.course_label || raw.label || '').trim();
+      if (label) row.course_label = label;
+      const oid = String(raw.offering_id || '').trim();
+      if (oid) row.offering_id = oid;
+      out.push(row);
+    }
+  }
+  if (!out.length) {
+    const courseId = String(courseComp.course_id || '').trim();
+    if (!courseId) return [];
+    const row = { course_id: courseId };
+    const tierKey = String(courseComp.tier_key || '').trim();
+    if (tierKey) row.tier_key = tierKey;
+    const label = String(courseComp.course_label || courseComp.label || '').trim();
+    if (label) row.course_label = label;
+    const oid = String(courseComp.offering_id || '').trim();
+    if (oid) row.offering_id = oid;
+    out.push(row);
+  }
+  return out;
+}
+
 module.exports = {
   MAX_LESSONS,
   isIsoDate,
@@ -542,4 +583,5 @@ module.exports = {
   canUsePackMultiDatePath,
   shouldPriceGroupLessonsIndividually,
   reconstructLessonsFromServiceRows,
+  normalizeSelectedCourses,
 };

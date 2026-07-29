@@ -47,6 +47,7 @@ const {
   shouldPriceGroupLessonsIndividually,
   lessonIdentity,
   uniqueCalendarDates,
+  normalizeSelectedCourses,
 } = require('./sunset-schedule-lessons');
 const {
   MAX_GROUP_COURSE_INCLUSIVE_DAYS,
@@ -300,6 +301,115 @@ function buildCourseEquipmentQuoteLines({
     total_cents: equipmentQuote.total_cents,
     course_equipment: equipmentQuote.course_equipment,
   };
+}
+
+/**
+ * Multi product-button Group pricing: each selected course resolves its own Admin
+ * catalog tier for the full booking span. Never uses first-course price for peers.
+ */
+function quoteSelectedCoursesIndependentlySync(command, catalog, requireDb, selectedCourses, serviceDates, surfers) {
+  const lines = [];
+  let totalCents = 0;
+  let currency = 'EUR';
+  const qty = Math.max(1, Number(surfers) || 1);
+  const dates = Array.isArray(serviceDates) ? serviceDates.slice() : [];
+
+  for (let i = 0; i < selectedCourses.length; i += 1) {
+    const sc = selectedCourses[i];
+    if (!sc || !sc.course_id) {
+      return {
+        ok: false,
+        status: 422,
+        body: { success: false, reason: 'invalid_selected_courses', error: `selected_courses[${i}] requires course_id` },
+      };
+    }
+    const identity = resolveCourseOfferingIdentity(sc);
+    if (!identity.ok) return identity;
+    const matches = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id);
+    if (!matches.length) {
+      return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering', course_id: sc.course_id } };
+    }
+    const offering = nestOfferingForQuote(matches[0]);
+    const lineOut = quoteOfferingLineSync(command, offering, dates, qty, requireDb);
+    if (!lineOut.ok) return lineOut;
+    lines.push({
+      ...lineOut.line,
+      component: 'course',
+      course_id: sc.course_id,
+      tier_key: String(sc.tier_key || '').trim() || null,
+      service_dates: dates.slice(),
+      selected_course_index: i,
+    });
+    totalCents += lineOut.line.total_cents;
+    currency = lineOut.line.currency || currency;
+  }
+  return { ok: true, lines, totalCents, currency };
+}
+
+async function quoteSelectedCoursesIndependently(pg, command, catalog, requireDb, selectedCourses, serviceDates, surfers) {
+  if (!pg) {
+    return quoteSelectedCoursesIndependentlySync(
+      command, catalog, requireDb, selectedCourses, serviceDates, surfers,
+    );
+  }
+  const lines = [];
+  let totalCents = 0;
+  let currency = 'EUR';
+  const qty = Math.max(1, Number(surfers) || 1);
+  const dates = Array.isArray(serviceDates) ? serviceDates.slice() : [];
+
+  for (let i = 0; i < selectedCourses.length; i += 1) {
+    const sc = selectedCourses[i];
+    if (!sc || !sc.course_id) {
+      return {
+        ok: false,
+        status: 422,
+        body: { success: false, reason: 'invalid_selected_courses', error: `selected_courses[${i}] requires course_id` },
+      };
+    }
+    const identity = resolveCourseOfferingIdentity(sc);
+    if (!identity.ok) return identity;
+    const matches = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id);
+    if (!matches.length) {
+      return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering', course_id: sc.course_id } };
+    }
+    const offering = nestOfferingForQuote(matches[0]);
+    const cap = await assertCourseAssignable(pg, {
+      clientSlug: SUNSET_CLIENT_SLUG,
+      locationId: command.locationId,
+      courseId: sc.course_id,
+      serviceDates: dates,
+      quantity: qty,
+    });
+    if (!cap.ok) {
+      return {
+        ok: false,
+        status: cap.status || 409,
+        body: {
+          success: false,
+          reason: cap.body && cap.body.error,
+          reason_code: cap.body && (cap.body.reason_code || cap.body.error),
+          error: cap.body && cap.body.error,
+          course_id: sc.course_id,
+          capacity_by_date: cap.body && cap.body.capacity_by_date,
+        },
+      };
+    }
+    offering._capacity_by_date = cap.capacity_by_date;
+    const lineOut = await quoteOfferingLine(pg, command, offering, dates, qty, requireDb);
+    if (!lineOut.ok) return lineOut;
+    lines.push({
+      ...lineOut.line,
+      component: 'course',
+      course_id: sc.course_id,
+      tier_key: String(sc.tier_key || '').trim() || null,
+      service_dates: dates.slice(),
+      selected_course_index: i,
+    });
+    totalCents += lineOut.line.total_cents;
+    currency = lineOut.line.currency || currency;
+  }
+  return { ok: true, lines, totalCents, currency };
 }
 
 /**
@@ -1758,6 +1868,9 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
   const canonicalLessons = Array.isArray(input.lessons) ? input.lessons : [];
   const groupLessons = canonicalLessons.filter((l) => l && l.kind === 'group');
   const priceGroupPerLesson = shouldPriceGroupLessonsIndividually(groupLessons);
+  const selectedCourses = input.components && input.components.course
+    ? normalizeSelectedCourses(input.components.course)
+    : [];
 
   const lines = [];
   let totalCents = 0;
@@ -1774,9 +1887,21 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     lines.push(...multi.lines);
     totalCents += multi.totalCents;
     currency = multi.currency || currency;
+  } else if (selectedCourses.length > 1) {
+    // Multi product buttons: each selected course × booking span (no first-course shortcut).
+    const surfers = input.surfer_count != null
+      ? Math.max(1, Number(input.surfer_count) || 1)
+      : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
+    const multi = await quoteSelectedCoursesIndependently(
+      pg, command, catalog, requireDb, selectedCourses, serviceDates, surfers,
+    );
+    if (!multi.ok) return multi;
+    lines.push(...multi.lines);
+    totalCents += multi.totalCents;
+    currency = multi.currency || currency;
   } else if (input.components.course) {
     // Legacy / pack multi-date: single course, at most one lesson per day.
-    const comp = input.components.course;
+    const comp = selectedCourses[0] || input.components.course;
     const identity = resolveCourseOfferingIdentity(comp);
     if (!identity.ok) return identity;
     const offeringId = identity.offering_id;
@@ -1785,12 +1910,16 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
     }
     const offering = nestOfferingForQuote(matches[0]);
-    const qty = Math.max(1, Number(comp.quantity) || 1);
+    const qty = Math.max(1, Number(input.components.course.quantity) || 1);
     const lineOut = pg
       ? await quoteOfferingLine(pg, command, offering, serviceDates, qty, requireDb)
       : quoteOfferingLineSync(command, offering, serviceDates, qty, requireDb);
     if (!lineOut.ok) return lineOut;
-    lines.push({ ...lineOut.line, component: 'course' });
+    lines.push({
+      ...lineOut.line,
+      component: 'course',
+      course_id: comp.course_id || input.components.course.course_id,
+    });
     totalCents += lineOut.line.total_cents;
     currency = lineOut.line.currency;
   }
@@ -1828,18 +1957,29 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     let coursesForEquipment = [];
     let surfers = null;
     let equipmentDates = serviceDates;
-    if (groupLessons.length) {
-      const courseIds = [...new Set(groupLessons.map((l) => String(l.course_id || '').trim()).filter(Boolean))];
+    if (groupLessons.length || selectedCourses.length > 1) {
+      const courseSource = groupLessons.length
+        ? [...new Set(groupLessons.map((l) => String(l.course_id || '').trim()).filter(Boolean))]
+            .map((courseId) => {
+              const lesson = groupLessons.find((l) => l.course_id === courseId) || {};
+              return {
+                course_id: courseId,
+                tier_key: String(
+                  lesson.tier_key
+                  || (canUsePackMultiDatePath(groupLessons) && input.components.course
+                    && input.components.course.tier_key)
+                  || '1_day',
+                ).trim() || '1_day',
+              };
+            })
+        : selectedCourses;
       const adminPacks = (catalog && catalog._adminCfg && catalog._adminCfg.surf_packs)
         || (catalog && catalog.surf_packs)
         || [];
-      for (const courseId of courseIds) {
+      for (const sc of courseSource) {
+        const courseId = String(sc.course_id || '').trim();
         const pack = adminPacks.find((p) => String(p.pack_id || p.course_id || '') === courseId);
-        const tierKey = String(
-          (groupLessons.find((l) => l.course_id === courseId) || {}).tier_key
-          || (canUsePackMultiDatePath(groupLessons) && input.components.course && input.components.course.tier_key)
-          || '1_day',
-        ).trim() || '1_day';
+        const tierKey = String(sc.tier_key || '1_day').trim() || '1_day';
         const identity = resolveCourseOfferingIdentity({ course_id: courseId, tier_key: tierKey });
         if (!identity.ok) return identity;
         const match = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0];
@@ -1862,9 +2002,9 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       surfers = input.surfer_count != null
         ? Math.max(1, Number(input.surfer_count) || 1)
         : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
-      equipmentDates = uniqueCalendarDates(groupLessons);
+      equipmentDates = groupLessons.length ? uniqueCalendarDates(groupLessons) : serviceDates;
     } else if (input.components.course) {
-      const identity = resolveCourseOfferingIdentity(input.components.course);
+      const identity = resolveCourseOfferingIdentity(selectedCourses[0] || input.components.course);
       if (!identity.ok) return identity;
       const match = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0];
       if (!match) {
@@ -1875,7 +2015,9 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
         || (catalog && catalog.surf_packs)
         || [];
       const pack = adminPacks.find(
-        (p) => String(p.pack_id || p.course_id || '') === String(input.components.course.course_id),
+        (p) => String(p.pack_id || p.course_id || '') === String(
+          (selectedCourses[0] && selectedCourses[0].course_id) || input.components.course.course_id,
+        ),
       );
       if (pack && Array.isArray(pack.equipment_options)) {
         nested.equipment_options = pack.equipment_options;
@@ -2049,6 +2191,9 @@ function quoteByComponentsSync(command, catalog, requireDb) {
   const canonicalLessons = Array.isArray(input.lessons) ? input.lessons : [];
   const groupLessons = canonicalLessons.filter((l) => l && l.kind === 'group');
   const priceGroupPerLesson = shouldPriceGroupLessonsIndividually(groupLessons);
+  const selectedCourses = input.components && input.components.course
+    ? normalizeSelectedCourses(input.components.course)
+    : [];
 
   const lines = [];
   let totalCents = 0;
@@ -2065,8 +2210,19 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     lines.push(...multi.lines);
     totalCents += multi.totalCents;
     currency = multi.currency || currency;
+  } else if (selectedCourses.length > 1) {
+    const surfers = input.surfer_count != null
+      ? Math.max(1, Number(input.surfer_count) || 1)
+      : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
+    const multi = quoteSelectedCoursesIndependentlySync(
+      command, catalog, requireDb, selectedCourses, serviceDates, surfers,
+    );
+    if (!multi.ok) return multi;
+    lines.push(...multi.lines);
+    totalCents += multi.totalCents;
+    currency = multi.currency || currency;
   } else if (input.components.course) {
-    const comp = input.components.course;
+    const comp = selectedCourses[0] || input.components.course;
     const identity = resolveCourseOfferingIdentity(comp);
     if (!identity.ok) return identity;
     const offeringId = identity.offering_id;
@@ -2075,10 +2231,14 @@ function quoteByComponentsSync(command, catalog, requireDb) {
       return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
     }
     const offering = nestOfferingForQuote(matches[0]);
-    const qty = Math.max(1, Number(comp.quantity) || 1);
+    const qty = Math.max(1, Number(input.components.course.quantity) || 1);
     const lineOut = quoteOfferingLineSync(command, offering, serviceDates, qty, requireDb);
     if (!lineOut.ok) return lineOut;
-    lines.push({ ...lineOut.line, component: 'course' });
+    lines.push({
+      ...lineOut.line,
+      component: 'course',
+      course_id: comp.course_id || input.components.course.course_id,
+    });
     totalCents += lineOut.line.total_cents;
     currency = lineOut.line.currency;
   }
@@ -2108,18 +2268,29 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     let coursesForEquipment = [];
     let surfers = null;
     let equipmentDates = serviceDates;
-    if (groupLessons.length) {
-      const courseIds = [...new Set(groupLessons.map((l) => String(l.course_id || '').trim()).filter(Boolean))];
+    if (groupLessons.length || selectedCourses.length > 1) {
+      const courseSource = groupLessons.length
+        ? [...new Set(groupLessons.map((l) => String(l.course_id || '').trim()).filter(Boolean))]
+            .map((courseId) => {
+              const lesson = groupLessons.find((l) => l.course_id === courseId) || {};
+              return {
+                course_id: courseId,
+                tier_key: String(
+                  lesson.tier_key
+                  || (canUsePackMultiDatePath(groupLessons) && input.components.course
+                    && input.components.course.tier_key)
+                  || '1_day',
+                ).trim() || '1_day',
+              };
+            })
+        : selectedCourses;
       const adminPacks = (catalog && catalog._adminCfg && catalog._adminCfg.surf_packs)
         || (catalog && catalog.surf_packs)
         || [];
-      for (const courseId of courseIds) {
+      for (const sc of courseSource) {
+        const courseId = String(sc.course_id || '').trim();
         const pack = adminPacks.find((p) => String(p.pack_id || p.course_id || '') === courseId);
-        const tierKey = String(
-          (groupLessons.find((l) => l.course_id === courseId) || {}).tier_key
-          || (canUsePackMultiDatePath(groupLessons) && input.components.course && input.components.course.tier_key)
-          || '1_day',
-        ).trim() || '1_day';
+        const tierKey = String(sc.tier_key || '1_day').trim() || '1_day';
         const identity = resolveCourseOfferingIdentity({ course_id: courseId, tier_key: tierKey });
         if (!identity.ok) return identity;
         const match = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0];
@@ -2141,9 +2312,9 @@ function quoteByComponentsSync(command, catalog, requireDb) {
       surfers = input.surfer_count != null
         ? Math.max(1, Number(input.surfer_count) || 1)
         : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
-      equipmentDates = uniqueCalendarDates(groupLessons);
+      equipmentDates = groupLessons.length ? uniqueCalendarDates(groupLessons) : serviceDates;
     } else if (input.components.course) {
-      const identity = resolveCourseOfferingIdentity(input.components.course);
+      const identity = resolveCourseOfferingIdentity(selectedCourses[0] || input.components.course);
       if (!identity.ok) return identity;
       const match = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0];
       if (!match) {
@@ -2154,7 +2325,9 @@ function quoteByComponentsSync(command, catalog, requireDb) {
         || (catalog && catalog.surf_packs)
         || [];
       const pack = adminPacks.find(
-        (p) => String(p.pack_id || p.course_id || '') === String(input.components.course.course_id),
+        (p) => String(p.pack_id || p.course_id || '') === String(
+          (selectedCourses[0] && selectedCourses[0].course_id) || input.components.course.course_id,
+        ),
       );
       if (pack && Array.isArray(pack.equipment_options)) {
         nested.equipment_options = pack.equipment_options;

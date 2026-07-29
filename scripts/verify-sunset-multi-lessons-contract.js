@@ -15,11 +15,18 @@ const {
   canUsePackMultiDatePath,
   canonicalLessonsForIntentFingerprint,
   lessonIdentity,
+  normalizeSelectedCourses,
 } = require('./lib/sunset-schedule-lessons');
 const {
   prepareCanonicalRentalsForCreate,
   validateScheduleBookingBody,
 } = require('./lib/sunset-schedule-booking-writes');
+const {
+  buildSunsetQuoteCommand,
+  executeSunsetQuoteSync,
+  QUOTE_CHANNELS,
+} = require('./lib/luna-front-desk-quote-service');
+const { packPriceItemCode } = require('./lib/sunset-admin-price-identity');
 const drawer = require('./lib/sunset-schedule-booking-drawer');
 const { formatServiceRecordInvoiceLineText } = require('./lib/service-record-invoice-line');
 
@@ -413,6 +420,180 @@ const COURSE_2 = 'course-beta';
   ok('validate rejects mixed lessons', mixedBody.ok === false, JSON.stringify(mixedBody));
 }
 
+// ── multi product-button selected_courses quote + persist contract ──────
+{
+  const multiNorm = normalizeSelectedCourses({
+    course_id: COURSE_1,
+    tier_key: '1_day',
+    selected_courses: [
+      { course_id: COURSE_2, tier_key: '1_day', course_label: 'Beta' },
+      { course_id: COURSE_1, tier_key: '1_day', course_label: 'Alpha' },
+      { course_id: COURSE_1, tier_key: '2_day' }, // dup id dropped
+    ],
+  });
+  ok('normalizeSelectedCourses keeps ordered unique product ids',
+    multiNorm.length === 2
+    && multiNorm[0].course_id === COURSE_2
+    && multiNorm[1].course_id === COURSE_1
+    && multiNorm.every((r) => r.tier_key === '1_day')
+    && !multiNorm.some((r) => Object.prototype.hasOwnProperty.call(r, 'amount_cents')),
+    JSON.stringify(multiNorm));
+
+  // Create transport: lessons[] empty (no Group schedule invent) + selected_courses.
+  const multiBody = validateScheduleBookingBody({
+    guest_name: 'Multi Course Guest',
+    guest_phone: '+34911111111',
+    payment_status: 'unpaid',
+    surfer_count: 2,
+    date_from: DATE_A,
+    date_to: DATE_A,
+    service_dates: [DATE_A],
+    lessons: [],
+    components: {
+      course: {
+        quantity: 2,
+        course_id: COURSE_1,
+        tier_key: '1_day',
+        selected_courses: [
+          { course_id: COURSE_1, tier_key: '1_day', course_label: 'Alpha' },
+          { course_id: COURSE_2, tier_key: '1_day', course_label: 'Beta' },
+        ],
+      },
+    },
+  }, { requireGuestPhone: false, refDate: new Date('2026-08-01T12:00:00Z') });
+  ok('validateScheduleBookingBody accepts multi selected_courses',
+    multiBody.ok === true
+    && Array.isArray(multiBody.value.components.course.selected_courses)
+    && multiBody.value.components.course.selected_courses.length === 2
+    && multiBody.value.components.course.selected_courses.map((c) => c.course_id).join(',')
+      === `${COURSE_1},${COURSE_2}`
+    && multiBody.value.components.course.course_id === COURSE_1
+    && multiBody.value.components.course.selected_courses.every((c) => c.tier_key === '1_day'
+      && c.offering_id === packPriceItemCode(c.course_id, '1_day'))
+    && (!multiBody.value.lessons || multiBody.value.lessons.length === 0),
+    JSON.stringify(multiBody));
+
+  const moneyBody = validateScheduleBookingBody({
+    guest_name: 'Money Guest',
+    payment_status: 'unpaid',
+    surfer_count: 1,
+    date_from: DATE_A,
+    date_to: DATE_A,
+    service_dates: [DATE_A],
+    lessons: [],
+    components: {
+      course: {
+        quantity: 1,
+        selected_courses: [
+          { course_id: COURSE_1, tier_key: '1_day', amount_cents: 9999 },
+          { course_id: COURSE_2, tier_key: '1_day' },
+        ],
+      },
+    },
+  }, { requireGuestPhone: false, refDate: new Date('2026-08-01T12:00:00Z') });
+  ok('validate rejects client money on selected_courses',
+    moneyBody.ok === false,
+    JSON.stringify(moneyBody));
+
+  const itemA = packPriceItemCode(COURSE_1, '1_day');
+  const itemB = packPriceItemCode(COURSE_2, '1_day');
+  const multiCfg = {
+    ok: true,
+    source: 'db',
+    currency: 'EUR',
+    rental_offerings: [],
+    surf_packs: [
+      {
+        pack_id: COURSE_1,
+        label: 'Alpha',
+        active: true,
+        group_size: 8,
+        weekly: 'daily',
+        schedules: ['0930_1130'],
+        equipment_options: [],
+        price_tiers: [{ key: '1_day', label: '1 day', hours: 2, amount_cents: 3500 }],
+      },
+      {
+        pack_id: COURSE_2,
+        label: 'Beta',
+        active: true,
+        group_size: 8,
+        weekly: 'daily',
+        schedules: ['0930_1130'],
+        equipment_options: [],
+        price_tiers: [{ key: '1_day', label: '1 day', hours: 2, amount_cents: 4500 }],
+      },
+    ],
+    prices: [
+      {
+        id: 'price-a',
+        category: 'package',
+        offering_key: itemA,
+        item_code: itemA,
+        amount_cents: 3500,
+        unit: 'day',
+        active: true,
+        currency: 'EUR',
+        location_id: 'sunset-somo',
+      },
+      {
+        id: 'price-b',
+        category: 'package',
+        offering_key: itemB,
+        item_code: itemB,
+        amount_cents: 4500,
+        unit: 'day',
+        active: true,
+        currency: 'EUR',
+        location_id: 'sunset-somo',
+      },
+    ],
+    private_lesson: { enabled: false },
+  };
+  const quoteBuilt = buildSunsetQuoteCommand({
+    channel: QUOTE_CHANNELS.MANUAL_STAFF,
+    transportBody: {
+      guest_name: 'Quote Multi',
+      guest_phone: '+34911111111',
+      date_from: DATE_A,
+      date_to: DATE_A,
+      service_dates: [DATE_A],
+      payment_status: 'unpaid',
+      surfer_count: 2,
+      components: {
+        course: {
+          quantity: 2,
+          course_id: COURSE_1,
+          tier_key: '1_day',
+          selected_courses: [
+            { course_id: COURSE_1, tier_key: '1_day' },
+            { course_id: COURSE_2, tier_key: '1_day' },
+          ],
+        },
+      },
+      lessons: [],
+    },
+    trustedLocationId: 'sunset-somo',
+    now: new Date('2026-08-01T12:00:00Z'),
+  });
+  ok('multi selected_courses quote command builds', quoteBuilt.ok === true, JSON.stringify(quoteBuilt));
+  const quoted = executeSunsetQuoteSync(quoteBuilt.command, { adminCfg: multiCfg });
+  const courseLines = (quoted.ok && quoted.body && Array.isArray(quoted.body.line_items))
+    ? quoted.body.line_items.filter((l) => l && l.component === 'course')
+    : [];
+  ok('multi selected_courses quote prices each course independently (server-owned)',
+    quoted.ok === true
+    && courseLines.length === 2
+    && courseLines.some((l) => l.course_id === COURSE_1 && Number(l.total_cents) === 7000)
+    && courseLines.some((l) => l.course_id === COURSE_2 && Number(l.total_cents) === 9000)
+    && Number(quoted.body.total_cents) === 16000,
+    JSON.stringify(quoted && quoted.body ? {
+      total: quoted.body.total_cents,
+      lines: courseLines,
+      err: quoted.body,
+    } : quoted));
+}
+
 // ── owners present for multi-lesson pricing / transport ─────────────────
 {
   const quoteSrc = fs.readFileSync(
@@ -423,6 +604,8 @@ const COURSE_2 = 'course-beta';
     /shouldPriceGroupLessonsIndividually|quoteGroupLessonsIndividually/.test(quoteSrc));
   ok('quote service multi-course CE equal-price authority',
     /quoteCourseEquipmentForLessonSet|course_equipment_price_conflict/.test(quoteSrc));
+  ok('quote service owns multi selected_courses independent pricing',
+    /quoteSelectedCoursesIndependently|normalizeSelectedCourses/.test(quoteSrc));
   const portalSrc = fs.readFileSync(
     path.join(__dirname, 'browser/sunset-schedule-portal-module.js'),
     'utf8',
@@ -431,12 +614,25 @@ const COURSE_2 = 'course-beta';
     /function schedulePortalFetchQuote[\s\S]{0,800}lessons:\s*Array\.isArray\(createPayload\.lessons\)/.test(portalSrc));
   ok('portal intent keys include lessons',
     /schedulePortalNormalizeLessonsIntent/.test(portalSrc));
+  ok('portal owns multi course product button selection',
+    /function schedulePortalGetSelectedCreateCourseIds/.test(portalSrc)
+    && /function schedulePortalToggleCreateCourse/.test(portalSrc));
   const writesSrc = fs.readFileSync(
     path.join(__dirname, 'lib/sunset-schedule-booking-writes.js'),
     'utf8',
   );
   ok('create insert path owns per-lesson service rows',
     /useCanonicalGroupLessonRows|lesson_identity/.test(writesSrc));
+  ok('create insert path owns multi selected_courses rows',
+    /useSelectedCoursesRows/.test(writesSrc)
+    && /normalizeSelectedCourses/.test(writesSrc));
+  const apiSrc = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+  ok('Create UI removes Group lessons section (groupLessons..addLesson)',
+    !/ps-create-group-lessons-wrap/.test(apiSrc)
+    && !/schedule\.create\.groupLessons/.test(apiSrc)
+    && !/schedule\.create\.addLesson/.test(apiSrc)
+    && !/scheduleReadCreateGroupLessonRows/.test(apiSrc)
+    && /selected_courses:\s*selectedCourses/.test(apiSrc));
 }
 
 // ── stepper source contract (Create/Edit scoped) ────────────────────────
