@@ -613,26 +613,33 @@ function adminEquipmentOptionPrices(r){
     allDay: Number(r.all_day_surcharge_cents) || 0,
   };
 }
-/** Group/Private read-only Equipment section — course-owned options only, no invented defaults. */
+/** Group/Private read-only Equipment section — course-owned options only, no invented defaults.
+ *  Prices stack vertically (During Course above All Day) in the same fact-card chrome as
+ *  Capacity / Price / Display name. */
 function adminRenderEquipmentReadout(options){
   var rows = Array.isArray(options) ? options : [];
-  var html = '<div class="portal-admin-pill-group" data-admin-equipment-readout="1">' +
+  var html = '<div class="portal-admin-pill-group portal-admin-equipment-readout" data-admin-equipment-readout="1">' +
     '<span class="portal-admin-pill-label">' + escHtml(portalT('admin.courseEquipment.editorTitle')) + '</span>';
   if (!rows.length){
     return html + '<div class="portal-admin-muted" data-admin-equipment-empty="1">' +
       escHtml(portalT('admin.courseEquipment.empty')) + '</div></div>';
   }
+  html += '<div class="portal-admin-lesson-facts portal-admin-equipment-facts">';
   rows.forEach(function(r){
     if (!r) return;
     var key = String(r.offering_key || '');
     var label = adminEquipmentLabelForKey(key);
     var prices = adminEquipmentOptionPrices(r);
-    var line = portalT('admin.courseEquipment.during') + ' ' + adminEquipmentCentsText(prices.during) + ' · ' +
-      portalT('admin.courseEquipment.allDay') + ' ' + adminEquipmentCentsText(prices.allDay);
-    html += '<div class="portal-admin-pack-tier-row" data-equipment-readout-row="' + escHtml(key) + '">' +
-      '<span>' + escHtml(label) + '</span><strong>' + escHtml(line) + '</strong></div>';
+    var duringLine = portalT('admin.courseEquipment.during') + ' ' + adminEquipmentCentsText(prices.during);
+    var allDayLine = portalT('admin.courseEquipment.allDay') + ' ' + adminEquipmentCentsText(prices.allDay);
+    html += '<div class="portal-admin-lesson-fact" data-equipment-readout-row="' + escHtml(key) + '">' +
+      escHtml(label) +
+      '<strong class="portal-admin-equipment-price-stack" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;margin-top:2px">' +
+      '<span class="portal-admin-equipment-price-line" data-equipment-price="during">' + escHtml(duringLine) + '</span>' +
+      '<span class="portal-admin-equipment-price-line" data-equipment-price="all_day">' + escHtml(allDayLine) + '</span>' +
+      '</strong></div>';
   });
-  return html + '</div>';
+  return html + '</div></div>';
 }
 
 function adminTimesFromScheduleKey(key){
@@ -1374,12 +1381,11 @@ function renderAdminPrivateLessonEditForm(pl){
 }
 function renderAdminPrivateLessonReadout(pl){
   var p = pl || {};
-  var enabledText = p.enabled ? portalT('admin.privateLessons.enabledYes') : portalT('admin.privateLessons.enabledNo');
+  // Enabled lives only in the edit form (✎) — keep the card tidy for day-to-day reading.
   var priceText = adminEurosFromAmount((p.amount_cents || 0) / 100) + ' ' + (p.currency || 'EUR') +
     ' · ' + portalT('admin.privateLessons.perSession');
   var durationText = String(p.default_duration_minutes != null ? p.default_duration_minutes : 120) + ' ' + portalT('admin.privateLessons.minutes');
   var html = '<div class="portal-admin-lesson-facts">' +
-    '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.privateLessons.enabled')) + '<strong>' + escHtml(enabledText) + '</strong></div>' +
     '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.edit.displayName')) + '<strong>' + escHtml(p.label || '—') + '</strong></div>' +
     '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.privateLessons.price')) + '<strong>' + escHtml(priceText) + '</strong></div>' +
     '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.privateLessons.duration')) + '<strong>' + escHtml(durationText) + '</strong></div>';
@@ -1388,6 +1394,7 @@ function renderAdminPrivateLessonReadout(pl){
       '<strong>' + escHtml(p.notes) + '</strong></div>';
   }
   html += '</div>';
+  // Same fact-card chrome as Display name / Price (via adminRenderEquipmentReadout).
   html += adminRenderEquipmentReadout(p.equipment_options || []);
   return html;
 }
