@@ -121,6 +121,8 @@ module.exports = {
   'admin.courseEquipment.allDay': 'Todo el día',
   'admin.courseEquipment.free': 'Gratis con el curso',
   'admin.courseEquipment.extra': 'Extra',
+  'admin.courseEquipment.included': 'Incluido',
+  'admin.courseEquipment.empty': 'Sin material configurado',
   'admin.courseEquipment.surfboard': 'Precio de tabla (céntimos)',
   'admin.courseEquipment.wetsuit': 'Precio de neopreno (céntimos)',
   'admin.courseEquipment.centsBasis': 'Céntimos enteros por persona y día de reserva.',

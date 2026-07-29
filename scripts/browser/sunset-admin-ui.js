@@ -506,6 +506,39 @@ function adminReadEquipmentOptions(root){
   Array.prototype.slice.call(root.querySelectorAll('[data-equipment-option-row]')).forEach(function(row){var key=String(row.querySelector('.admin-equipment-offering').value||'').trim(),p=adminParseEurosToCents(row.querySelector('.admin-equipment-price').value),s=adminParseEurosToCents(row.querySelector('.admin-equipment-surcharge').value);if(!key||seen[key])error=portalT('admin.courseEquipment.duplicate');else if(!p.ok||!s.ok)error=portalT('admin.edit.amountInvalid');else{seen[key]=true;out.push({offering_key:key,equipment_price_cents:p.value,all_day_surcharge_cents:s.value});}});
   return {ok:!error,value:out,error:error};
 }
+/** Read-only card cents: exact 0 => localized Included; nonzero uses Admin EUR format. */
+function adminEquipmentCentsText(cents){
+  var n = Number(cents);
+  if (n === 0) return portalT('admin.courseEquipment.included');
+  return adminEurosFromAmount((Number.isFinite(n) ? n : 0) / 100) + ' EUR';
+}
+/** Active catalog label, else stored key for historical/unavailable items. */
+function adminEquipmentLabelForKey(key){
+  var k = String(key || '');
+  var found = adminEquipmentOfferings().find(function(o){ return String(o.offering_key || '') === k; });
+  if (found) return String(found.label || found.display_name || k);
+  return k;
+}
+/** Group/Private read-only Equipment section — course-owned options only, no invented defaults. */
+function adminRenderEquipmentReadout(options){
+  var rows = Array.isArray(options) ? options : [];
+  var html = '<div class="portal-admin-pill-group" data-admin-equipment-readout="1">' +
+    '<span class="portal-admin-pill-label">' + escHtml(portalT('admin.courseEquipment.editorTitle')) + '</span>';
+  if (!rows.length){
+    return html + '<div class="portal-admin-muted" data-admin-equipment-empty="1">' +
+      escHtml(portalT('admin.courseEquipment.empty')) + '</div></div>';
+  }
+  rows.forEach(function(r){
+    if (!r) return;
+    var key = String(r.offering_key || '');
+    var label = adminEquipmentLabelForKey(key);
+    var line = adminEquipmentCentsText(r.equipment_price_cents) + ' · ' +
+      portalT('admin.courseEquipment.allDay') + ' ' + adminEquipmentCentsText(r.all_day_surcharge_cents);
+    html += '<div class="portal-admin-pack-tier-row" data-equipment-readout-row="' + escHtml(key) + '">' +
+      '<span>' + escHtml(label) + '</span><strong>' + escHtml(line) + '</strong></div>';
+  });
+  return html + '</div>';
+}
 
 function adminTimesFromScheduleKey(key){
   var parts = String(key || '').split('_');
@@ -1144,6 +1177,7 @@ function renderAdminPackCards(packs, writes, defaultCap){
       html += adminRenderPackPillReadout('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false);
       html += adminRenderPackScheduleReadout(p.schedules || []);
       html += adminRenderPackTierReadout(p.price_tiers || []);
+      html += adminRenderEquipmentReadout(p.equipment_options || []);
     }
     html += '</article>';
   });
@@ -1184,7 +1218,9 @@ function renderAdminPrivateLessonReadout(pl){
     html += '<div class="portal-admin-lesson-fact" style="grid-column:1 / -1">' + escHtml(portalT('admin.privateLessons.notes')) +
       '<strong>' + escHtml(p.notes) + '</strong></div>';
   }
-  return html + '</div>';
+  html += '</div>';
+  html += adminRenderEquipmentReadout(p.equipment_options || []);
+  return html;
 }
 function renderAdminPrivateLessonCard(cfg, writes){
   var pl = (cfg && cfg.private_lesson) ? cfg.private_lesson : { enabled: false, label: portalT('admin.privateLessons.defaultName'), amount_cents: 0, currency: 'EUR', default_duration_minutes: 120, notes: '' };
