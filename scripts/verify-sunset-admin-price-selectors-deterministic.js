@@ -403,12 +403,20 @@ function runValidationProofs() {
     assert(`rental patch accepts ${period_window}`,
       validatePricePatchBody({ period_window }).ok === true);
   }
-  assert('rental create rejects unknown 1_day',
+  // Generic duration model: 1_day is a first-class write key (not only full_day).
+  // Historical fixed-window dropdown still omits 1_day; create/patch accept it.
+  assert('rental create accepts canonical 1_day',
     validatePriceCreateBody({
       rental_group: 'bundles',
       period_window: '1_day',
       amount_cents: 2500,
-    }).ok === false);
+    }).ok === true);
+  assert('rental create accepts 12_hours (generic, not half_day)',
+    validatePriceCreateBody({
+      rental_group: 'boards',
+      period_window: '12_hours',
+      amount_cents: 500,
+    }).ok === true);
   assert('rental create accepts 4_days',
     validatePriceCreateBody({
       rental_group: 'bundles',
