@@ -466,10 +466,15 @@ function slugsWithAccessFileV1(accessFile, email) {
   return [];
 }
 
-const whSlugsDefault = slugsWithAccessFileV1(ACCESS_PATH_V1, 'tywoods@gmail.com');
-assert('Default access config scopes tywoods@gmail.com to wolfhouse-somo only',
-  whSlugsDefault.length === 1 && whSlugsDefault[0] === 'wolfhouse-somo',
-  JSON.stringify(whSlugsDefault));
+const ownerSlugsDefault = slugsWithAccessFileV1(ACCESS_PATH_V1, 'tywoods@gmail.com');
+assert('Default access config scopes sunset owner to sunset only',
+  ownerSlugsDefault.length === 1 && ownerSlugsDefault[0] === 'sunset',
+  JSON.stringify(ownerSlugsDefault));
+assert('Default access config denies sunset owner wolfhouse/other tenants',
+  !ownerSlugsDefault.includes('wolfhouse-somo')
+  && !ownerSlugsDefault.includes('mirleft')
+  && !ownerSlugsDefault.includes('lawave'),
+  JSON.stringify(ownerSlugsDefault));
 
 assert('Wolfhouse profile default_tab is bed-calendar',
   loadClientPortalProfile('wolfhouse-somo').default_tab === 'bed-calendar');
