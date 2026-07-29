@@ -16,7 +16,7 @@ const {
 } = require('./tenant-business-config');
 const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const locationStore = require('./sunset-admin-location-store');
-const { isValidOfferingKey, setRentalOfferingActive } = require('./tenant-rental-offerings');
+const { isValidOfferingKey } = require('./tenant-rental-offerings');
 const { parseRentalDurationKey } = require('../browser/sunset-rental-duration-model');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1148,35 +1148,9 @@ async function deactivatePriceRule(client, { ruleId, clientSlug, locationId, act
       afterJson: rowToAuditJson(after),
     });
 
-    // Last active positive price for a rental offering → soft-disable the offering
-    // identity so it cannot remain bookable/selectable without a live price.
-    // Prices/history rows stay; only tenant_rental_offerings.active flips.
-    let offeringDisabled = false;
-    if (String(before.item_type || '') === 'rental') {
-      const parts = parseItemCodeParts(before.item_code || before.offering_key || '');
-      const offeringKey = parts && parts.offering_key
-        ? parts.offering_key
-        : String(before.item_code || '').split('__')[0];
-      if (offeringKey && isValidOfferingKey(offeringKey)) {
-        // Exact ownership via split_part — never unescaped LIKE ( `_` is a wildcard).
-        const remainQ = buildActivePositivePriceForOfferingSql({ hasLocation: hasLoc });
-        const remainParams = hasLoc
-          ? [clientSlug, loc, offeringKey]
-          : [clientSlug, offeringKey];
-        const remaining = await client.query(remainQ.sql, remainParams);
-        if (!remaining.rows.length) {
-          const offRes = await setRentalOfferingActive(client, {
-            clientSlug,
-            locationId: loc,
-            offering_key: offeringKey,
-            active: false,
-            actorId: actor && actor.staff_user_id ? actor.staff_user_id : null,
-          });
-          offeringDisabled = !!(offRes && offRes.ok);
-        }
-      }
-    }
-
+    // Catalog active state is independent of standalone rental prices.
+    // Removing the last duration price deletes/deactivates only that price row —
+    // it must NOT auto-disable the rental offering identity.
     await client.query('COMMIT');
     return {
       ok: true,
@@ -1185,7 +1159,7 @@ async function deactivatePriceRule(client, { ruleId, clientSlug, locationId, act
         success: true,
         price_rule: after,
         storage: 'db',
-        offering_disabled: offeringDisabled,
+        offering_disabled: false,
       },
     };
   } catch (err) {

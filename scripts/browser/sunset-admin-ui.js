@@ -511,7 +511,8 @@ function adminPriceOfferingKey(p){
 
 /**
  * True when cfg prices contain at least one active positive rental price for
- * the exact offering key (dead/empty = no such row).
+ * the exact offering key. Used for commercial/bookable hints only — catalog
+ * active state and course-equipment dropdown do NOT require a price.
  */
 function adminOfferingHasActivePositivePrice(offeringKey, cfg){
   var key = String(offeringKey || '').trim();
@@ -530,20 +531,15 @@ function adminOfferingHasActivePositivePrice(offeringKey, cfg){
   return false;
 }
 
-/** Dead/empty rental: no active positive price rows for exact offering identity. */
-function adminIsDeadEmptyRental(offeringKey, cfg){
-  return !adminOfferingHasActivePositivePrice(offeringKey, cfg);
-}
-
 /**
- * Course dropdown catalog: active/enabled offering identity AND at least one
- * active positive tenant/location rental price for that exact key.
- * Dead/unpriced/zero/inactive-price/disabled offerings are absent.
+ * Course dropdown catalog: active rental offering identities for exact tenant/
+ * location, regardless of standalone rental price rows. Course equipment owns
+ * its own during-course/all-day prices. Disabled/deleted items absent.
+ * No hardcoded item names/order — projection follows catalog order.
  */
 function adminEquipmentOfferings(){
   return (adminConfigCache && adminConfigCache._equipment_offerings || adminConfigCache && adminConfigCache.rental_offerings || []).filter(function(o){
-    if (!o || o.active === false) return false;
-    return adminOfferingHasActivePositivePrice(o.offering_key, adminConfigCache);
+    return !!(o && o.active !== false);
   });
 }
 function adminAllEquipmentOfferings(){ return (adminConfigCache && adminConfigCache._equipment_offerings || adminConfigCache && adminConfigCache.rental_offerings || []).filter(function(o){ return !!o; }); }
@@ -1066,11 +1062,10 @@ function renderAdminSectionPricesFromConfig(cfg){
   items.forEach(function(item){
     var key = item.offering_key;
     var itemActive = item.active !== false;
-    var isDeadEmpty = adminIsDeadEmptyRental(key, cfg);
     var editing = writes && adminEditTarget === ('equip:' + key);
     var adding = writes && adminEditTarget === ('equip-add-price:' + key);
-    html += '<div class="portal-admin-subsection' + (itemActive ? '' : ' is-equip-disabled') + '" data-admin-equip="' + escHtml(key) + '" data-equip-active="' + (itemActive ? '1' : '0') + '"' +
-      (isDeadEmpty ? ' data-equip-dead="1"' : '') + '>';
+    // Disabled items remain fully manageable: edit, add price, enable, hard-delete.
+    html += '<div class="portal-admin-subsection' + (itemActive ? '' : ' is-equip-disabled') + '" data-admin-equip="' + escHtml(key) + '" data-equip-active="' + (itemActive ? '1' : '0') + '">';
     html += '<div class="portal-admin-subsection-title-row portal-admin-equip-header">';
     html += '<div class="portal-admin-subsection-title-group">';
     html += '<h3 class="portal-admin-subsection-title">' + escHtml(item.label) + '</h3>';
@@ -1090,18 +1085,17 @@ function renderAdminSectionPricesFromConfig(cfg){
       if (!editing){
         html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-equipment" data-equip-key="' +
           escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.edit')) + '">✎</button>';
-        if (!adding && itemActive){
+        // Add duration price available for active AND disabled items (not while another add form is open).
+        if (!adding){
           html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-equip-price" data-equip-key="' +
             escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button>';
         }
-        // Dead/empty active identities: clear "Delete rental" soft-delete (not duration ×).
-        // Already-disabled historical items stay visible but do not offer Delete again.
-        if (isDeadEmpty && itemActive){
-          html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-danger portal-admin-touch" data-admin-action="delete-rental-offering" data-equip-key="' +
-            escHtml(key) + '" aria-label="' + escHtml(portalT('admin.prices.deleteRental')) + '">' +
-            escHtml(portalT('admin.prices.deleteRental')) + '</button>';
-        }
+        // Delete rental is NEVER on the collapsed/read-only card — only in pencil Edit mode.
       } else {
+        // Edit mode: duration-row × stays on price cards; item hard-delete is a separate labeled button.
+        html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-danger portal-admin-touch" data-admin-action="delete-rental-offering" data-equip-key="' +
+          escHtml(key) + '" aria-label="' + escHtml(portalT('admin.prices.deleteRental')) + '">' +
+          escHtml(portalT('admin.prices.deleteRental')) + '</button>';
         // Done stays in item header (not detached under the price grid).
         html += '<button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="cancel-edit">' +
           escHtml(portalT('admin.action.done') || 'Done') + '</button>';
@@ -1802,7 +1796,9 @@ function wireAdminTab(){
     var btn = ev.target && ev.target.closest ? ev.target.closest('[data-admin-action]') : null;
     if (!btn || adminSaveBusy) return;
     var action = btn.getAttribute('data-admin-action');
-    if (action !== 'course-equipment-policy') ev.preventDefault();
+    // Do not preventDefault on native checkboxes — that blocks Enabled/Disabled flips.
+    // (course-equipment-policy is a non-submit control that also must keep default.)
+    if (action !== 'course-equipment-policy' && action !== 'toggle-equip-enabled') ev.preventDefault();
     var cfg = adminConfigCache;
     if (!cfg && action !== 'toggle-pill'){
       adminShowMessage('error', portalT('admin.loading'));
@@ -1873,11 +1869,8 @@ function wireAdminTab(){
     if (action === 'delete-rental-offering'){
       var delEquipKey = String(btn.getAttribute('data-equip-key') || '').trim();
       if (!delEquipKey){ adminShowMessage('error', portalT('admin.edit.saveFailed')); return; }
-      // Only dead/empty identities — never confuse with duration-price × remove.
-      if (!adminIsDeadEmptyRental(delEquipKey, cfg)){
-        adminShowMessage('error', portalT('admin.prices.cannotDeletePriced') || portalT('admin.edit.saveFailed'));
-        return;
-      }
+      // Hard delete: rental identity + all duration prices + course links permanently.
+      // Duration-row × is a separate action (delete-price / removeDuration).
       if (!window.confirm(portalT('admin.prices.deleteRentalConfirm'))) return;
       var delEquipOpSeq = adminBeginOp();
       adminShowMessage('', '');
@@ -1892,7 +1885,9 @@ function wireAdminTab(){
           }
           adminShowMessage('success', portalT('admin.prices.deletedRental') || portalT('admin.edit.savedPrice'));
           adminReleaseBusy(delEquipOpSeq);
-          // Fresh config + offering catalog so course dropdowns drop this key immediately.
+          // Clear edit target so the deleted card does not re-open edit mode after reload.
+          adminEditTarget = null;
+          // Fresh config + offering catalog so cards/dropdowns drop this key immediately (no page.reload).
           adminReloadConfig();
         }).catch(function(err){
           if (!adminOpStillOwns(delEquipOpSeq)) return;

@@ -5,8 +5,9 @@
  *
  * Offline unit coverage for the tenant_rental_offerings data-access + CRUD engine
  * (scripts/lib/tenant-rental-offerings.js) — validation, client+location scoping,
- * duplicate handling, exclusion symmetry, soft-delete. Uses an in-memory mock pg;
+ * duplicate handling, exclusion symmetry, hard-delete. Uses an in-memory mock pg;
  * DB-backed render/book parity is the staging smoke gate (Skipper).
+ * Deep transactional hard-delete: verify-sunset-rental-hard-delete.js
  */
 
 const {
@@ -28,15 +29,34 @@ function ok(label, cond, detail) {
   fail += 1;
 }
 
-// Minimal in-memory tenant_rental_offerings backing the SQL the engine emits.
+// Minimal in-memory multi-table backing for CRUD + hard-delete SQL the engine emits.
 function makePg() {
   const rows = [];
   let seq = 0;
   const matchLoc = (row, loc) => (loc == null ? row.location_id == null : row.location_id === loc);
   return {
     rows,
-    query: async (sql, params) => {
+    query: async (sql, params = []) => {
       const s = String(sql);
+      if (/^\s*BEGIN\s*$/i.test(s.trim()) || /^\s*COMMIT\s*$/i.test(s.trim()) || /^\s*ROLLBACK\s*$/i.test(s.trim())) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (/to_regclass/i.test(s)) {
+        const fromParam = params && params[0] != null ? String(params[0]) : '';
+        const fromLiteral = (s.match(/to_regclass\(\s*'([^']+)'\s*\)/i) || [])[1] || '';
+        const name = (fromParam || fromLiteral).replace(/^public\./, '');
+        const known = new Set([
+          'tenant_rental_offerings',
+          'tenant_price_rules',
+          'tenant_surf_pack_rules',
+          'tenant_private_lesson_rules',
+          'tenant_config_audit_log',
+        ]);
+        return { rows: [{ reg: known.has(name) ? name : null }], rowCount: 1 };
+      }
+      if (/information_schema\.columns/i.test(s)) {
+        return { rows: [{ '?column?': 1 }], rowCount: 1 };
+      }
       if (/INSERT INTO tenant_rental_offerings/i.test(s)) {
         const [client_slug, location_id, offering_key, label, group_key, excludesJson, sort_order, updated_by] = params;
         const dup = rows.find((r) => r.active && r.client_slug === client_slug
@@ -45,10 +65,17 @@ function makePg() {
         seq += 1;
         const row = {
           id: `ro-${seq}`, client_slug, location_id, offering_key, label, group_key,
-          excludes: JSON.parse(excludesJson), sort_order, active: true, updated_by,
+          excludes: JSON.parse(excludesJson), sort_order, active: true, updated_by, tenant_id: 'sunset',
         };
         rows.push(row);
         return { rows: [row], rowCount: 1 };
+      }
+      if (/SELECT \* FROM tenant_rental_offerings/i.test(s) && /FOR UPDATE/i.test(s)) {
+        const slug = params[0];
+        const key = params[1];
+        const loc = /location_id = \$/i.test(s) ? params[2] : null;
+        const out = rows.filter((r) => r.client_slug === slug && r.offering_key === key && matchLoc(r, loc));
+        return { rows: out.map((r) => ({ ...r })), rowCount: out.length };
       }
       if (/SELECT[\s\S]*FROM tenant_rental_offerings/i.test(s)) {
         const slug = params[0];
@@ -59,21 +86,37 @@ function makePg() {
         out = out.slice().sort((a, b) => (a.sort_order - b.sort_order) || a.offering_key.localeCompare(b.offering_key));
         return { rows: out, rowCount: out.length };
       }
-      if (/UPDATE tenant_rental_offerings/i.test(s)) {
-        // last params: ...sets, slug, key, [loc]
-        const isDelete = /SET active = false/.test(s);
-        let slug; let key; let loc = null;
-        if (isDelete) { [slug, key] = [params[0], params[1]]; loc = params.length > 3 ? params[3] : null; }
-        else {
-          // client_slug is 3rd-from-... find by the WHERE ordering we built
-          const locProvided = /location_id = \$/.test(s);
-          key = params[params.length - (locProvided ? 2 : 1)];
-          slug = params[params.length - (locProvided ? 3 : 2)];
-          loc = locProvided ? params[params.length - 1] : null;
+      if (/DELETE FROM tenant_rental_offerings/i.test(s)) {
+        const slug = params[0];
+        const key = params[1];
+        const loc = /location_id = \$/i.test(s) ? params[2] : null;
+        const kept = [];
+        const deleted = [];
+        for (const r of rows) {
+          if (r.client_slug === slug && r.offering_key === key && matchLoc(r, loc)) {
+            deleted.push({ id: r.id, offering_key: r.offering_key, active: r.active });
+          } else kept.push(r);
         }
+        rows.length = 0;
+        kept.forEach((r) => rows.push(r));
+        return { rows: deleted, rowCount: deleted.length };
+      }
+      if (/DELETE FROM tenant_price_rules/i.test(s)) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (/SELECT[\s\S]*FROM tenant_surf_pack_rules/i.test(s) || /SELECT[\s\S]*FROM tenant_private_lesson_rules/i.test(s)) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (/INSERT INTO tenant_config_audit_log/i.test(s)) {
+        return { rows: [], rowCount: 1 };
+      }
+      if (/UPDATE tenant_rental_offerings/i.test(s)) {
+        const locProvided = /location_id = \$/.test(s);
+        const key = params[params.length - (locProvided ? 2 : 1)];
+        const slug = params[params.length - (locProvided ? 3 : 2)];
+        const loc = locProvided ? params[params.length - 1] : null;
         const target = rows.find((r) => r.active && r.client_slug === slug && r.offering_key === key && matchLoc(r, loc));
         if (!target) return { rows: [], rowCount: 0 };
-        if (isDelete) { target.active = false; return { rows: [{ offering_key: key }], rowCount: 1 }; }
         if (/label = \$1/.test(s)) target.label = params[0];
         if (/group_key = /.test(s)) { const m = s.match(/group_key = \$(\d)/); if (m) target.group_key = params[Number(m[1]) - 1]; }
         if (/excludes = /.test(s)) { const m = s.match(/excludes = \$(\d)/); if (m) target.excludes = JSON.parse(params[Number(m[1]) - 1]); }
@@ -126,11 +169,13 @@ async function run() {
   ok('update excludes persists', excl.ok && excl.offering.excludes.includes('board_rental'));
 
   const del = await deleteRentalOffering(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', offering_key: 'kayak_rental' });
-  ok('soft-delete ok', del.ok === true && del.deleted === true);
+  ok('hard-delete ok', del.ok === true && del.deleted === true && del.offerings_deleted >= 1, JSON.stringify(del));
   const afterDel = await listRentalOfferings(pg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
   ok('deleted item gone from active list', !afterDel.some((r) => r.offering_key === 'kayak_rental'));
+  const afterDelAll = await listRentalOfferings(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', includeInactive: true });
+  ok('hard-deleted item gone even with includeInactive', !afterDelAll.some((r) => r.offering_key === 'kayak_rental'));
   const delMissing = await deleteRentalOffering(pg, { clientSlug: 'sunset', locationId: 'sunset-somo', offering_key: 'nope' });
-  ok('delete missing item -> not deleted', delMissing.ok === false);
+  ok('delete missing item -> idempotent noop', delMissing.ok === true && delMissing.noop === true, JSON.stringify(delMissing));
 
   console.log('\n── D. Idempotent seed/reconcile ──');
   const seedPg = makePg();
@@ -201,7 +246,7 @@ async function run() {
     applyRentalMutualExclusion(['kayak_rental', 'sup_rental'], withKayak).blocked.length === 0);
   // Delete it: back to the canonical 4, and resolution over the rest is unchanged.
   const delKayak = await deleteRentalOffering(parityPg, { clientSlug: 'sunset', locationId: 'sunset-somo', offering_key: 'kayak_rental' });
-  ok('new item soft-deleted', delKayak.ok === true && delKayak.deleted === true);
+  ok('new item hard-deleted', delKayak.ok === true && delKayak.deleted === true, JSON.stringify(delKayak));
   const afterKayak = await listRentalOfferings(parityPg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
   ok('delete restores the canonical 4', afterKayak.length === 4 && !afterKayak.some((r) => r.offering_key === 'kayak_rental'), JSON.stringify(afterKayak.map((r) => r.offering_key)));
   const postDelExcl = applyRentalMutualExclusion(['board_and_suit_rental', 'board_rental'], afterKayak);
