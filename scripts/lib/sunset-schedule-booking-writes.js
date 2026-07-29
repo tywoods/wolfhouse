@@ -227,7 +227,11 @@ const PRIVATE_LESSON_MAX_SESSIONS = 30;
 const FULL_DAY_EQUIPMENT_ADDON_KEY = 'full_day_equipment_extension';
 const FULL_DAY_EQUIPMENT_ADDON_BILLING_UNIT = 'person_per_day';
 const COURSE_EQUIPMENT_KEY = 'course_equipment';
-const { normalizeSelection, quoteCourseEquipment } = require('./sunset-course-equipment-pricing');
+const {
+  normalizeSelection,
+  quoteCourseEquipment,
+  quoteCourseEquipmentForLessonSet,
+} = require('./sunset-course-equipment-pricing');
 const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
 
 function checkedMoneyInteger(value, label) {
@@ -770,7 +774,36 @@ function rowMatchesQuoteLine(row, line) {
       && meta.course_equipment_mode === line.course_equipment_mode;
   }
   if (component === 'course') {
-    return meta.component === 'course' || serviceType === 'course';
+    // Course lines own course-component rows only. DB type is surf_lesson for
+    // course/private/lesson alike — never claim by service_type alone (would
+    // swallow bare lesson / private rows and green-path "unclaimed fails closed").
+    if (!(meta.component === 'course' || serviceType === 'course')) {
+      return false;
+    }
+    // Per-lesson quote lines carry identity — claim exact physical lesson rows only.
+    const lineCourseId = String((line && line.course_id) || '').trim();
+    const rowCourseId = String(meta.course_id || row.course_id || '').trim();
+    if (lineCourseId && rowCourseId && lineCourseId !== rowCourseId) return false;
+
+    const lineIdentity = String((line && line.lesson_identity) || '').trim();
+    const rowIdentity = String(meta.lesson_identity || '').trim();
+    if (lineIdentity && rowIdentity) return lineIdentity === rowIdentity;
+    if (lineIdentity && !rowIdentity) return false;
+
+    const lineSk = String((line && line.schedule_key) || '').trim();
+    const rowSk = String(meta.schedule_key || '').trim();
+    if (lineSk || rowSk) {
+      if (lineSk !== rowSk) return false;
+    }
+
+    const lineDates = Array.isArray(line && line.service_dates)
+      ? line.service_dates.map((d) => String(d || '').slice(0, 10)).filter(Boolean)
+      : [];
+    if (lineDates.length === 1) {
+      const rowDate = String(row.service_date || meta.service_date || '').slice(0, 10);
+      if (rowDate && rowDate !== lineDates[0]) return false;
+    }
+    return true;
   }
   if (component === 'private_lesson') {
     return meta.component === 'private_lesson' || serviceType === 'private_lesson';
@@ -942,6 +975,41 @@ async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts =
           return { ok: false, error: 'service_amount_update_mismatch' };
         }
         try { persistedAmountSum = checkedMoneyAdd(persistedAmountSum, perDate, 'persisted_amount_sum'); }
+        catch (_) { return { ok: false, error: 'persisted_amount_sum_overflow' }; }
+      }
+      continue;
+    }
+
+    // Private multi-session: one auditable row per session. Aggregate quote line
+    // is unit × surfers × sessions — split evenly so every session carries its
+    // authoritative amount (never dump full total onto the first row / zero peers).
+    // Dedupe does not apply to lesson price (same calendar day still bills each session).
+    if (String((line && line.component) || '') === 'private_lesson' && matches.length > 1) {
+      const unit = Number(line.unit_amount_cents != null ? line.unit_amount_cents : line.amount_cents);
+      const qty = Number(line.quantity); // surfer_count on private quote lines
+      let perSession = null;
+      if (Number.isSafeInteger(unit) && unit >= 0 && Number.isSafeInteger(qty) && qty >= 1
+        && Number.isSafeInteger(unit * qty)
+        && unit * qty * matches.length === lineTotal) {
+        perSession = unit * qty;
+      } else if (Number.isSafeInteger(lineTotal) && matches.length > 0
+        && lineTotal % matches.length === 0) {
+        perSession = lineTotal / matches.length;
+      }
+      if (perSession == null || !Number.isSafeInteger(perSession) || perSession < 0) {
+        return { ok: false, error: 'private_lesson_session_split_mismatch' };
+      }
+      for (const row of matches) {
+        const id = String(row.service_record_id || row.id || '');
+        const upd = await pg.query(
+          // MULTICLIENT_SCOPE_OK: same-txn service row; client_slug predicate defense-in-depth
+          'UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid AND client_slug = $3',
+          [perSession, id, clientSlug],
+        );
+        if (Number(upd && upd.rowCount) !== 1) {
+          return { ok: false, error: 'service_amount_update_mismatch' };
+        }
+        try { persistedAmountSum = checkedMoneyAdd(persistedAmountSum, perSession, 'persisted_amount_sum'); }
         catch (_) { return { ok: false, error: 'persisted_amount_sum_overflow' }; }
       }
       continue;
@@ -1555,9 +1623,59 @@ function validateScheduleBookingBody(body, opts) {
       return { ok: false, error: 'guest_phone is required' };
     }
   }
-  const components = normalizeComponents(b, opts.allowEmptyComponents === true);
+
+  // Canonical multi-lesson array (preferred) with legacy single-course/private expand.
+  const {
+    normalizeCanonicalLessons,
+    expandLessonsToLegacyComponents,
+  } = require('./sunset-schedule-lessons');
+  const lessonsNorm = normalizeCanonicalLessons(b);
+  if (!lessonsNorm.ok) {
+    return {
+      ok: false,
+      error: lessonsNorm.error || 'invalid_lessons',
+      reason: lessonsNorm.reason || lessonsNorm.error,
+    };
+  }
+  // When lessons[] present, expand into components/service_dates for legacy paths
+  // (homogeneous single-course multi-date / private sessions). Multi-course group
+  // keeps lessons[] for insert; still seeds service_dates from unique calendar days.
+  let bodyForComponents = b;
+  if (lessonsNorm.present) {
+    const surferHint = parseAuthoritativeSurferCount(b)
+      || (b.components && b.components.course && Number(b.components.course.quantity))
+      || (b.components && b.components.private_lesson
+        && Number(b.components.private_lesson.surfer_count))
+      || 1;
+    const expanded = expandLessonsToLegacyComponents(lessonsNorm.lessons, surferHint);
+    if (!expanded.ok) {
+      return { ok: false, error: expanded.error || 'invalid_lessons', reason: expanded.reason };
+    }
+    const nextComponents = { ...(b.components && typeof b.components === 'object' ? b.components : {}) };
+    // Drop legacy class keys before re-seeding from lessons (never mix).
+    delete nextComponents.course;
+    delete nextComponents.private_lesson;
+    delete nextComponents.lesson;
+    Object.assign(nextComponents, expanded.components || {});
+    bodyForComponents = {
+      ...b,
+      components: nextComponents,
+      service_dates: expanded.service_dates && expanded.service_dates.length
+        ? expanded.service_dates
+        : lessonsNorm.unique_dates,
+      date_from: (expanded.service_dates && expanded.service_dates[0])
+        || lessonsNorm.unique_dates[0]
+        || b.date_from,
+      date_to: (expanded.service_dates && expanded.service_dates[expanded.service_dates.length - 1])
+        || lessonsNorm.unique_dates[lessonsNorm.unique_dates.length - 1]
+        || b.date_to,
+      lessons: lessonsNorm.lessons,
+    };
+  }
+
+  const components = normalizeComponents(bodyForComponents, opts.allowEmptyComponents === true);
   if (!components.ok) return components;
-  const serviceDates = normalizeServiceDates(b, components.value);
+  const serviceDates = normalizeServiceDates(bodyForComponents, components.value);
   if (!serviceDates.ok) return serviceDates;
   // Add-on dates must be a subset of the booking's eligible service dates (course/rental/lesson dates,
   // plus any private-lesson session dates). Server-side revalidation — never trust the browser.
@@ -1590,13 +1708,13 @@ function validateScheduleBookingBody(body, opts) {
   // Shared quote/create owner: no-lesson equipment qty from surfer_count only.
   // Staff: fail closed when equipment present and surfer_count absent/invalid.
   // Trusted Luna (opts.actor / opts.lunaTrusted): may derive from consistent component qty.
-  const rentalsForForce = Array.isArray(b.rentals) ? b.rentals : null;
+  const rentalsForForce = Array.isArray(bodyForComponents.rentals) ? bodyForComponents.rentals : null;
   const forceOpts = {
     actor: opts.actor || null,
     lunaTrusted: opts.lunaTrusted === true,
   };
   const forced = applyNoLessonEquipmentQtyFromSurfers(
-    { ...b, components: components.value },
+    { ...bodyForComponents, components: components.value },
     rentalsForForce,
     forceOpts,
   );
@@ -1610,19 +1728,30 @@ function validateScheduleBookingBody(body, opts) {
   const forcedComps = forced.forced
     ? (forced.body.components || components.value)
     : components.value;
-  const surfer_count = forced.forced
+  let surfer_count = forced.forced
     ? forced.surfer_count
-    : parseAuthoritativeSurferCount(b);
+    : parseAuthoritativeSurferCount(bodyForComponents);
+  // When lessons[] owns class identity, surfer_count is shared across all lessons.
+  if (surfer_count == null && lessonsNorm.present) {
+    if (forcedComps.course && Number(forcedComps.course.quantity) >= 1) {
+      surfer_count = Number(forcedComps.course.quantity);
+    } else if (forcedComps.private_lesson && Number(forcedComps.private_lesson.surfer_count) >= 1) {
+      surfer_count = Number(forcedComps.private_lesson.surfer_count);
+    }
+  }
   // Absent wire forms (undefined / null / []) mean no course equipment selected.
   // Browser Create always serializes course_equipment: [] for rental-only; do not
   // treat that empty array as a supplied selection requiring Group/Private.
   let course_equipment = null;
-  if (isPresentCourseEquipmentSelection(b.course_equipment)) {
-    const coursePart = forcedComps.course || forcedComps.private_lesson;
+  if (isPresentCourseEquipmentSelection(bodyForComponents.course_equipment)) {
+    const coursePart = forcedComps.course || forcedComps.private_lesson || lessonsNorm.present;
     if (!coursePart) return { ok: false, error: 'course_equipment requires a group or private course' };
     const surfers = forcedComps.private_lesson
-      ? Number(forcedComps.private_lesson.surfer_count) : Number(forcedComps.course.quantity);
-    try { course_equipment = normalizeSelection(b.course_equipment, surfers); }
+      ? Number(forcedComps.private_lesson.surfer_count)
+      : (forcedComps.course
+        ? Number(forcedComps.course.quantity)
+        : (surfer_count != null ? surfer_count : 1));
+    try { course_equipment = normalizeSelection(bodyForComponents.course_equipment, surfers); }
     catch (err) {
       return {
         ok: false,
@@ -1637,6 +1766,18 @@ function validateScheduleBookingBody(body, opts) {
       && forcedComps[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
       return { ok: false, error: 'course_equipment all_day must not overlap legacy full-day equipment extension' };
     }
+  }
+
+  // Always echo canonical lessons (from wire or legacy expand) for readback/fingerprint.
+  let lessonsOut = null;
+  if (lessonsNorm.present) {
+    lessonsOut = lessonsNorm.lessons;
+  } else if (forcedComps.course || forcedComps.private_lesson) {
+    const expandedBack = normalizeCanonicalLessons({
+      components: forcedComps,
+      service_dates: serviceDates.value,
+    });
+    if (expandedBack.ok && expandedBack.present) lessonsOut = expandedBack.lessons;
   }
 
   return {
@@ -1654,6 +1795,7 @@ function validateScheduleBookingBody(body, opts) {
       custom_line_items: customLines.value,
       surfer_count: surfer_count != null ? surfer_count : null,
       course_equipment,
+      lessons: lessonsOut,
     },
   };
 }
@@ -1982,6 +2124,12 @@ function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
   const customSrc = opts.custom_line_items != null
     ? opts.custom_line_items
     : (input && input.custom_line_items);
+  const {
+    canonicalLessonsForIntentFingerprint,
+  } = require('./sunset-schedule-lessons');
+  const lessonsSrc = opts.lessons != null
+    ? opts.lessons
+    : (input && input.lessons != null ? input.lessons : []);
   return crypto.createHash('sha256').update(JSON.stringify({
     location_id: String(locationId || ''),
     guest_name: String((input && input.guest_name) || ''),
@@ -1989,6 +2137,7 @@ function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
     payment_status: String((input && input.payment_status) || 'unpaid'),
     service_dates: ((input && input.service_dates) || []).slice().sort(),
     components: ordered,
+    lessons: canonicalLessonsForIntentFingerprint(lessonsSrc),
     rentals: canonicalRentalsForIntentFingerprint(rentalsSrc),
     custom_line_items: customLinesForIntentFingerprint(customSrc),
     notes: String((input && input.notes) || ''),
@@ -2063,10 +2212,17 @@ function buildSchedulePricingIntent(input, opts) {
   const customSrc = opts.custom_line_items != null
     ? opts.custom_line_items
     : (input && input.custom_line_items);
+  const {
+    canonicalLessonsForIntentFingerprint,
+  } = require('./sunset-schedule-lessons');
+  const lessonsSrc = opts.lessons != null
+    ? opts.lessons
+    : (input && input.lessons != null ? input.lessons : []);
   return {
     service_dates: ((input && input.service_dates) || [])
       .map((d) => String(d || '').slice(0, 10)).filter(Boolean).sort(),
     components,
+    lessons: canonicalLessonsForIntentFingerprint(lessonsSrc),
     rentals: canonicalRentalsForIntentFingerprint(rentalsSrc),
     // Custom adjustments are pricing intent — changes invalidate stale quote / paid reprice.
     custom_line_items: customLinesForIntentFingerprint(customSrc),
@@ -2536,6 +2692,7 @@ async function insertScheduleComponentServiceRows(pg, opts) {
     assignedCourse, canonicalRentals, rentalSpanDates, rentalPricingGroupId,
     rentalPricingDescriptor, authoritativeQuote, bundleId,
   } = opts;
+  const assignedCoursesById = opts.assignedCoursesById || null;
   const wrapMeta = typeof opts.wrapMeta === 'function' ? opts.wrapMeta : (m) => m;
   const plConfig = opts.privateLessonConfig || defaultPrivateLessonApi();
   const keys = opts.componentKeys || componentList(input.components);
@@ -2551,19 +2708,48 @@ async function insertScheduleComponentServiceRows(pg, opts) {
     location_id: locationId || null,
     ...base,
   });
+  const {
+    lessonIdentity,
+  } = require('./sunset-schedule-lessons');
+  const { packPriceItemCode } = require('./sunset-admin-price-identity');
+  const groupLessons = Array.isArray(input.lessons)
+    ? input.lessons.filter((l) => l && l.kind === 'group')
+    : [];
+  // Always prefer one physical row per canonical group lesson when lessons[] owns identity.
+  // Pack multi-date without schedule identity still expands via service_dates × course below
+  // only when lessons[] is absent (legacy). When lessons[] is present, always one row each.
+  const useCanonicalGroupLessonRows = groupLessons.length > 0;
 
   if (input.components.private_lesson) {
     const pl = input.components.private_lesson;
     const plLabel = pl.label || plConfig.label || opts.privateLessonDefaultLabel || 'Private lesson';
-    for (const session of pl.sessions) {
+    // Prefer canonical private lessons when present (preserves same-day multi sessions).
+    const privateLessons = Array.isArray(input.lessons)
+      ? input.lessons.filter((l) => l && l.kind === 'private')
+      : [];
+    const sessions = privateLessons.length
+      ? privateLessons.map((l, i) => ({
+        date: l.date,
+        start: l.start,
+        end: l.end,
+        index: i + 1,
+      }))
+      : (pl.sessions || []);
+    for (const session of sessions) {
+      const lid = lessonIdentity({
+        kind: 'private', date: session.date, start: session.start, end: session.end,
+      });
       const metadata = wrapMeta({
         ...common(),
         staff_ui_service_type: 'private_lesson',
         component: 'private_lesson',
         slot_time: session.start,
+        start: session.start,
+        end: session.end,
+        lesson_identity: lid,
         private_lesson_label: plLabel,
         private_lesson_session_index: session.index,
-        private_lesson_session_count: pl.quantity,
+        private_lesson_session_count: sessions.length || pl.quantity,
         price_basis: plConfig.price_basis || 'per_session',
         unit_amount_cents: plConfig.amount_cents || 0,
         default_duration_minutes: plConfig.default_duration_minutes || 120,
@@ -2577,10 +2763,80 @@ async function insertScheduleComponentServiceRows(pg, opts) {
     }
   }
 
+  if (useCanonicalGroupLessonRows) {
+    const surfers = input.surfer_count != null
+      ? Math.max(1, Number(input.surfer_count) || 1)
+      : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
+    for (const lesson of groupLessons) {
+      const courseId = String(lesson.course_id || '').trim();
+      const tierKey = String(lesson.tier_key || '1_day').trim() || '1_day';
+      const assigned = (assignedCoursesById && assignedCoursesById[courseId])
+        || (assignedCourse && String(assignedCourse.course_id || assignedCourse.pack_id || '') === courseId
+          ? assignedCourse
+          : null)
+        || assignedCourse;
+      const pack = assigned && assigned.pack ? assigned.pack : null;
+      const courseLabel = lesson.course_label
+        || (pack && pack.label)
+        || (assigned && assigned.course_label)
+        || (input.components.course && input.components.course.course_label)
+        || courseId;
+      const offeringId = packPriceItemCode(courseId, tierKey);
+      const lid = lessonIdentity(lesson);
+      const metadata = wrapMeta({
+        ...common(),
+        staff_ui_service_type: 'course',
+        component: 'course',
+        course_id: courseId,
+        course_label: courseLabel,
+        tier_key: tierKey,
+        offering_id: offeringId,
+        schedule_key: lesson.schedule_key || null,
+        start: lesson.start || null,
+        end: lesson.end || null,
+        slot_time: lesson.start || null,
+        lesson_identity: lid,
+        admin_course_assigned: !!assigned,
+        admin_pack_id: assigned ? (assigned.course_id || courseId) : undefined,
+        included_equipment: pack && pack.equipment_included === true ? true : undefined,
+        include_board: pack && pack.equipment_included === true ? true : undefined,
+        include_wetsuit: pack && pack.equipment_included === true ? true : undefined,
+        included_equipment_amount_cents: pack && pack.equipment_included === true ? 0 : undefined,
+      }, locationId);
+      const row = await insertServiceRecord(pg, [
+        clientSlug, bookingId, bookingCode, input.guest_name,
+        UI_TO_DB_SERVICE_TYPE.course, lesson.date, surfers,
+        srPayment, attribution.dbSource, JSON.stringify(metadata),
+      ], lesson.start || lesson.end
+        ? { service_time_local: lesson.start || null, service_time_local_end: lesson.end || null }
+        : undefined);
+      createdRows.push({ ...row, metadata });
+      if (pack && pack.equipment_included === true) {
+        for (const gearComponent of ['surfboard', 'wetsuit']) {
+          const gearMetadata = wrapMeta({
+            ...common(), staff_ui_service_type: gearComponent, component: gearComponent,
+            included_equipment: true, included_course_id: courseId,
+            included_course_service_date: lesson.date, price_basis: 'included_in_course',
+            unit_amount_cents: 0, amount_cents: 0,
+          }, locationId);
+          const gearRow = await insertServiceRecord(pg, [
+            clientSlug, bookingId, bookingCode, input.guest_name,
+            UI_TO_DB_SERVICE_TYPE[gearComponent], lesson.date, surfers,
+            srPayment, attribution.dbSource, JSON.stringify(gearMetadata),
+          ]);
+          createdRows.push({ ...gearRow, metadata: gearMetadata, amount_due_cents: 0 });
+        }
+      }
+    }
+  }
+
   for (const serviceDate of input.service_dates) {
     for (const componentKey of keys) {
       if (componentKey === 'private_lesson' || componentKey === FULL_DAY_EQUIPMENT_ADDON_KEY) continue;
+      // Canonical lessons own physical course rows — never also expand date-range course.
+      if (componentKey === 'course' && useCanonicalGroupLessonRows) continue;
       const part = input.components[componentKey];
+      if (!part) continue;
       const metadata = wrapMeta({
         ...common(),
         staff_ui_service_type: staffUiServiceType(componentKey),
@@ -2649,8 +2905,11 @@ async function insertCourseEquipmentRows(pg, opts) {
   if (!bookingDates.length) throw new TypeError('course equipment requires a booking service date');
 
   const courseId = (opts.course && (opts.course.course_id || opts.course.pack_id || opts.course.id)) || null;
-  const quote = quoteCourseEquipment({
-    course: opts.course,
+  const courseList = Array.isArray(opts.courses) && opts.courses.length
+    ? opts.courses
+    : (opts.course ? [opts.course] : []);
+  const quote = quoteCourseEquipmentForLessonSet({
+    courses: courseList,
     selection,
     surfers: opts.surfers,
     offerings: opts.offerings,
@@ -2939,9 +3198,140 @@ async function createSunsetScheduleBooking(pg, opts) {
 
   // Course bookings must join an existing admin-configured surf pack — never mint
   // invented course_ids or arbitrary dates outside that pack's schedule/capacity.
+  // Multi-lesson sets assign every distinct course_id (not only the primary expand).
   let assignedCourse = null;
+  let assignedCoursesById = null;
   let coursePricePreflight = null;
-  if (input.components.course) {
+  const {
+    shouldPriceGroupLessonsIndividually,
+  } = require('./sunset-schedule-lessons');
+  const groupLessonsForAssign = Array.isArray(input.lessons)
+    ? input.lessons.filter((l) => l && l.kind === 'group')
+    : [];
+  const multiCourseAssign = groupLessonsForAssign.length > 0
+    && shouldPriceGroupLessonsIndividually(groupLessonsForAssign);
+
+  if (multiCourseAssign || (input.components.course && groupLessonsForAssign.length > 1)) {
+    const { assertCourseAssignable } = require('./sunset-admin-course-join');
+    const { packPriceItemCode } = require('./sunset-admin-price-identity');
+    const { resolveActiveSunsetAdminPrice, staffFacingSunsetAdminPriceError } = require('./sunset-admin-price-resolve');
+    assignedCoursesById = {};
+    const surfers = input.surfer_count != null
+      ? Math.max(1, Number(input.surfer_count) || 1)
+      : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
+    const byCourse = new Map();
+    for (const lesson of groupLessonsForAssign) {
+      const cid = String(lesson.course_id || '').trim();
+      if (!cid) continue;
+      if (!byCourse.has(cid)) byCourse.set(cid, []);
+      byCourse.get(cid).push(lesson);
+    }
+    for (const [courseId, lessonsForCourse] of byCourse.entries()) {
+      const dates = [...new Set(lessonsForCourse.map((l) => String(l.date).slice(0, 10)))].sort();
+      const gate = await assertCourseAssignable(pg, {
+        clientSlug,
+        locationId,
+        courseId,
+        serviceDates: dates,
+        quantity: surfers,
+      });
+      if (!gate.ok) return gate;
+      assignedCoursesById[courseId] = gate;
+      if (!assignedCourse) assignedCourse = gate;
+      // Stamp each lesson's tier (default 1_day for multi same-day / multi-course).
+      for (const lesson of lessonsForCourse) {
+        if (!lesson.tier_key) lesson.tier_key = '1_day';
+        lesson.offering_id = packPriceItemCode(courseId, lesson.tier_key);
+      }
+      const tierKey = String(lessonsForCourse[0].tier_key || '1_day').trim() || '1_day';
+      const packTiers = ((gate.pack && gate.pack.price_tiers) || [])
+        .map((t) => String((t && t.key) || '').trim())
+        .filter(Boolean);
+      // Per-lesson multi path always needs the resolved tier (usually 1_day).
+      const tiersNeeded = [...new Set(lessonsForCourse.map((l) => String(l.tier_key || '1_day').trim() || '1_day'))];
+      for (const tk of tiersNeeded) {
+        if (packTiers.length && !packTiers.includes(tk)) {
+          return {
+            ok: false,
+            status: 400,
+            body: {
+              success: false,
+              error: 'Select a course duration that belongs to the selected course.',
+              reason_code: 'course_tier_mismatch',
+              course_id: courseId,
+              tier_key: tk,
+            },
+          };
+        }
+        const lookupArgs = {
+          clientSlug,
+          locationId,
+          quantity: surfers,
+          metadata: {
+            component: 'course',
+            staff_ui_service_type: 'course',
+            course_id: courseId,
+            tier_key: tk,
+            offering_id: packPriceItemCode(courseId, tk),
+            location_id: locationId,
+          },
+          pgClient: pg,
+        };
+        let pre = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
+        if (!pre || pre.ok !== true) {
+          try {
+            const { syncPackTierToPriceRules } = require('./sunset-admin-price-sync');
+            const pack = gate.pack || {};
+            await syncPackTierToPriceRules(pg, {
+              clientSlug,
+              locationId,
+              packId: pack.pack_id || courseId,
+              packLabel: pack.label || 'Course',
+              tiers: pack.price_tiers || [],
+              actor: opts.actor || {},
+              skipTransaction: true,
+            });
+            pre = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
+          } catch (_) { /* keep original */ }
+        }
+        if (!pre || pre.ok !== true || !(pre.amount_cents > 0)) {
+          const faced = staffFacingSunsetAdminPriceError(
+            (pre && pre.reason) || 'no_price_for_surf_lesson',
+            pre && pre.identity,
+          );
+          return {
+            ok: false,
+            status: 422,
+            body: {
+              success: false,
+              error: faced.error,
+              reason_code: faced.reason_code,
+              detail: (pre && pre.reason) || 'price_not_configured',
+              course_id: courseId,
+              tier_key: tk,
+            },
+          };
+        }
+        coursePricePreflight = pre;
+      }
+      void tierKey;
+    }
+    // Seed components.course from primary for legacy fields when multi.
+    if (input.components.course && assignedCourse) {
+      if (!input.components.course.course_label
+        || input.components.course.course_label === input.components.course.course_id) {
+        input.components.course.course_label = assignedCourse.course_label
+          || input.components.course.course_label;
+      }
+      if (!input.components.course.tier_key) {
+        input.components.course.tier_key = '1_day';
+      }
+      input.components.course.offering_id = packPriceItemCode(
+        input.components.course.course_id,
+        input.components.course.tier_key,
+      );
+    }
+  } else if (input.components.course) {
     const { assertCourseAssignable } = require('./sunset-admin-course-join');
     const gate = await assertCourseAssignable(pg, {
       clientSlug,
@@ -3086,15 +3476,34 @@ async function createSunsetScheduleBooking(pg, opts) {
     }
 
     // Authoritative Admin quote for Create (course / private / rental).
+    // Prefer validated input (canonical lessons[]) over raw rental prep body.
     let authoritativeQuote = null;
     {
+      const quoteTransport = {
+        ...(rentalPrep.body && typeof rentalPrep.body === 'object' ? rentalPrep.body : {}),
+        guest_name: input.guest_name,
+        guest_phone: input.guest_phone,
+        date_from: input.date_from || (input.service_dates && input.service_dates[0]),
+        date_to: input.date_to
+          || (input.service_dates && input.service_dates[input.service_dates.length - 1]),
+        service_dates: input.service_dates,
+        components: input.components,
+        lessons: input.lessons || null,
+        surfer_count: input.surfer_count,
+        course_equipment: input.course_equipment,
+        custom_line_items: input.custom_line_items || [],
+        rentals: Array.isArray(rentalPrep.body && rentalPrep.body.rentals)
+          ? rentalPrep.body.rentals
+          : (input.rentals || undefined),
+        payment_status: input.payment_status,
+      };
       const resolved = await resolveAuthoritativeScheduleQuoteInTxn(pg, {
         clientSlug,
         locationId,
         canonicalRentals,
         genericRentalRecords: genericPrep.records,
-        rentalPrepBody: rentalPrep.body,
-        quotePrepBody: rentalPrep.body,
+        rentalPrepBody: quoteTransport,
+        quotePrepBody: quoteTransport,
         rentalPricingDescriptor,
         quoteChannel: opts.quoteChannel,
         quoteProvenance: opts.quoteProvenance,
@@ -3136,6 +3545,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           rental_pricing: rentalPricingDescriptor || null,
           rentals: allRequestedRentals.length ? allRequestedRentals : null,
           custom_line_items: input.custom_line_items || [],
+          lessons: Array.isArray(input.lessons) ? input.lessons : null,
           idempotency_key: input.idempotency_key || null,
           idempotency_intent_fp: idempotencyIntentFp || null,
         }),
@@ -3144,7 +3554,8 @@ async function createSunsetScheduleBooking(pg, opts) {
     const bookingId = bookingIns.rows[0].id;
     const createdRows = await insertScheduleComponentServiceRows(pg, {
       clientSlug, bookingId, bookingCode, input, componentKeys, attribution,
-      locationId, srPayment, privateLessonConfig, assignedCourse, canonicalRentals,
+      locationId, srPayment, privateLessonConfig, assignedCourse, assignedCoursesById,
+      canonicalRentals,
       rentalSpanDates, rentalPricingGroupId, rentalPricingDescriptor,
       authoritativeQuote, bundleId,
       metaBase: {
@@ -3187,19 +3598,67 @@ async function createSunsetScheduleBooking(pg, opts) {
       const rentalOfferings = await listRentalOfferings(pg, {
         clientSlug, locationId, includeInactive: false,
       });
-      const equipmentCourse = input.components.private_lesson
-        ? privateLessonConfig
-        : (assignedCourse && assignedCourse.pack);
+      const groupLessonsCE = Array.isArray(input.lessons)
+        ? input.lessons.filter((l) => l && l.kind === 'group')
+        : [];
+      let equipmentCourses = null;
+      let equipmentCourse = null;
+      let equipmentSurfers = null;
+      let equipmentDates = null;
+      if (input.components.private_lesson) {
+        equipmentCourse = privateLessonConfig;
+        equipmentSurfers = input.components.private_lesson.surfer_count;
+        equipmentDates = (input.components.private_lesson.sessions || []).map((s) => s.date);
+      } else if (groupLessonsCE.length) {
+        const { uniqueCalendarDates } = require('./sunset-schedule-lessons');
+        const courseIds = [...new Set(groupLessonsCE.map((l) => String(l.course_id).trim()))];
+        equipmentCourses = courseIds.map((cid) => {
+          const assigned = (assignedCoursesById && assignedCoursesById[cid])
+            || (assignedCourse && String(assignedCourse.course_id || '') === cid ? assignedCourse : null);
+          return assigned && assigned.pack
+            ? { ...assigned.pack, course_id: cid, pack_id: assigned.pack.pack_id || cid }
+            : null;
+        }).filter(Boolean);
+        if (equipmentCourses.length !== courseIds.length) {
+          // Fall back to primary pack only when single course; multi missing pack fails closed.
+          if (courseIds.length === 1 && assignedCourse && assignedCourse.pack) {
+            equipmentCourses = [{
+              ...assignedCourse.pack,
+              course_id: courseIds[0],
+              pack_id: assignedCourse.pack.pack_id || courseIds[0],
+            }];
+          } else {
+            throw Object.assign(new Error('course equipment requires pack config for every selected course'), {
+              sunsetPriceFail: {
+                ok: false,
+                status: 422,
+                body: {
+                  success: false,
+                  reason: 'course_equipment_not_authorized_for_all_courses',
+                  reason_code: 'course_equipment_not_authorized_for_all_courses',
+                  error: 'course equipment requires pack config for every selected course',
+                },
+              },
+            });
+          }
+        }
+        equipmentSurfers = input.surfer_count != null
+          ? input.surfer_count
+          : (input.components.course && input.components.course.quantity);
+        equipmentDates = uniqueCalendarDates(groupLessonsCE);
+        equipmentCourse = equipmentCourses[0];
+      } else {
+        equipmentCourse = assignedCourse && assignedCourse.pack;
+        equipmentSurfers = input.components.course && input.components.course.quantity;
+        equipmentDates = input.service_dates;
+      }
       const equipmentRows = await insertCourseEquipmentRows(pg, {
         clientSlug, bookingId, bookingCode, guestName: input.guest_name,
         selection: input.course_equipment,
-        surfers: input.components.private_lesson
-          ? input.components.private_lesson.surfer_count
-          : input.components.course.quantity,
-        bookingDates: input.components.private_lesson
-          ? input.components.private_lesson.sessions.map((s) => s.date)
-          : input.service_dates,
+        surfers: equipmentSurfers,
+        bookingDates: equipmentDates,
         course: equipmentCourse,
+        courses: equipmentCourses,
         offerings: rentalOfferings,
         attribution, locationId, bundleId, srPayment,
       });
@@ -3358,6 +3817,7 @@ module.exports = {
   buildGenericRentalAuthoritativeQuote,
   prepareCanonicalRentalsForCreate,
   rentalDurationKeyFromDateRange,
+  inclusiveIsoDatesFromRange,
   applyAuthoritativeQuoteAmounts,
   resolveAuthoritativeScheduleQuoteInTxn,
   applyAuthoritativeSchedulePricingInTxn,

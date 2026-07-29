@@ -16479,6 +16479,35 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-addon-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft)}
 .portal-schedule-addon-row .portal-schedule-addon-date{flex:1 1 auto;min-width:0;font-size:13px;font-weight:600;color:var(--text)}
 .portal-schedule-addon-people-label{display:none;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3)}
+/* Compact integer steppers — Booking Create/Edit only (− N +). Not Admin/money. */
+.portal-schedule-int-stepper{display:inline-flex;align-items:center;flex:0 0 auto;border:1px solid var(--border-soft);border-radius:8px;overflow:hidden;background:var(--surface);max-width:100%;vertical-align:middle}
+.portal-schedule-int-step{width:32px;height:32px;min-width:32px;min-height:32px;padding:0;border:none;background:var(--surface-soft);color:var(--text-2);font-size:16px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box}
+.portal-schedule-int-step:hover{background:var(--border-soft);color:var(--text)}
+.portal-schedule-int-step:disabled{opacity:.4;cursor:not-allowed}
+.portal-schedule-int-stepper input[type=number],
+.portal-schedule-int-stepper input.portal-schedule-int-stepper-input{width:36px;height:32px;min-width:36px;padding:0;border:none;border-left:1px solid var(--border-soft);border-right:1px solid var(--border-soft);text-align:center;font-size:13px;font-weight:700;color:var(--text);background:var(--surface);-moz-appearance:textfield;appearance:textfield;box-sizing:border-box;font-variant-numeric:tabular-nums;margin:0}
+.portal-schedule-int-stepper input::-webkit-outer-spin-button,
+.portal-schedule-int-stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+/* Scope: hide native spinners only inside Create/Edit integer steppers */
+#ps-create-modal .portal-schedule-int-stepper input[type=number],
+.portal-schedule-drawer-edit .portal-schedule-int-stepper input[type=number],
+.portal-schedule-create-drawer .portal-schedule-int-stepper input[type=number]{-moz-appearance:textfield;appearance:textfield}
+#ps-create-modal .portal-schedule-int-stepper input[type=number]::-webkit-outer-spin-button,
+#ps-create-modal .portal-schedule-int-stepper input[type=number]::-webkit-inner-spin-button,
+.portal-schedule-drawer-edit .portal-schedule-int-stepper input[type=number]::-webkit-outer-spin-button,
+.portal-schedule-drawer-edit .portal-schedule-int-stepper input[type=number]::-webkit-inner-spin-button,
+.portal-schedule-create-drawer .portal-schedule-int-stepper input[type=number]::-webkit-outer-spin-button,
+.portal-schedule-create-drawer .portal-schedule-int-stepper input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+@media(max-width:430px){
+  .portal-schedule-int-step{width:36px;height:36px;min-width:36px;min-height:36px}
+  .portal-schedule-int-stepper input[type=number],
+  .portal-schedule-int-stepper input.portal-schedule-int-stepper-input{width:40px;height:36px}
+}
+.portal-schedule-group-lessons{display:grid;gap:8px;margin:8px 0 0;min-width:0;max-width:100%}
+.portal-schedule-group-lesson-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;border:1px solid var(--border-soft);border-radius:10px;padding:10px;box-sizing:border-box;min-width:0;max-width:100%}
+.portal-schedule-group-lesson-row .portal-schedule-create-field{margin:0;flex:1 1 120px;min-width:0}
+.portal-schedule-group-lesson-row select,.portal-schedule-group-lesson-row input[type=date]{width:100%;max-width:100%;box-sizing:border-box;min-height:40px}
+.portal-schedule-group-lesson-remove{flex:0 0 auto;min-height:40px}
 .portal-schedule-addon-stepper{display:inline-flex;align-items:center;flex:0 0 auto;border:1px solid var(--border-soft);border-radius:8px;overflow:hidden;background:var(--surface)}
 .portal-schedule-addon-step{width:30px;height:30px;padding:0;border:none;background:var(--surface-soft);color:var(--text-2);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .portal-schedule-addon-step:hover{background:var(--sched-primary, #4E5853);color:#fff}
@@ -18663,6 +18692,11 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
               </div>
               <div class="portal-schedule-create-field" id="ps-create-private-lesson-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1" tabindex="-1"></div>
             </div>
+          </div>
+          <div id="ps-create-group-lessons-wrap" class="portal-schedule-create-field" style="display:none" hidden aria-hidden="true">
+            <span class="portal-schedule-create-label" data-i18n="schedule.create.groupLessons">Lessons</span>
+            <div id="ps-create-group-lessons" class="portal-schedule-group-lessons" aria-live="polite"></div>
+            <button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-create-add-group-lesson" data-i18n="schedule.create.addLesson">+ Add lesson</button>
           </div>
           <div class="portal-schedule-course-equipment" id="ps-create-course-equipment" style="display:none" hidden>
             <div id="ps-create-course-equipment-list" class="portal-schedule-course-equipment-list"></div>
@@ -22090,6 +22124,90 @@ function scheduleRowBookingRef(row, group){
 }
 
 /**
+ * Compact − N + integer stepper for Booking Create/Edit only.
+ * Wraps an existing whole-number input; keeps id/value/min/max/disabled in sync.
+ * Does not touch Admin or money/decimal fields.
+ */
+function scheduleEnhanceIntStepper(input, opts){
+  opts = opts || {};
+  if (!input || !input.parentNode) return null;
+  if (input.closest && input.closest('.portal-schedule-int-stepper')) return input.closest('.portal-schedule-int-stepper');
+  // Skip money/decimal and Admin surfaces.
+  if (input.step && String(input.step).indexOf('.') >= 0) return null;
+  if (input.classList && (input.classList.contains('bk-input') || input.classList.contains('bc-transfer-override-amount'))) return null;
+  var wrap = document.createElement('span');
+  wrap.className = 'portal-schedule-int-stepper';
+  wrap.setAttribute('role', 'group');
+  var label = opts.label || input.getAttribute('aria-label') || input.id || 'Quantity';
+  wrap.setAttribute('aria-label', label);
+  var dec = document.createElement('button');
+  dec.type = 'button';
+  dec.className = 'portal-schedule-int-step';
+  dec.setAttribute('data-int-step', 'dec');
+  dec.setAttribute('aria-label', 'Decrease ' + label);
+  dec.textContent = '\u2212';
+  var inc = document.createElement('button');
+  inc.type = 'button';
+  inc.className = 'portal-schedule-int-step';
+  inc.setAttribute('data-int-step', 'inc');
+  inc.setAttribute('aria-label', 'Increase ' + label);
+  inc.textContent = '+';
+  input.classList.add('portal-schedule-int-stepper-input');
+  input.setAttribute('inputmode', 'numeric');
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(dec);
+  wrap.appendChild(input);
+  wrap.appendChild(inc);
+  function readMin(){ var m = parseInt(input.min, 10); return Number.isInteger(m) ? m : 1; }
+  function readMax(){ var m = parseInt(input.max, 10); return Number.isInteger(m) ? m : 99; }
+  function syncDisabled(){
+    var n = parseInt(input.value, 10);
+    var empty = input.value === '' || input.value == null || !Number.isInteger(n);
+    dec.disabled = !!input.disabled || empty || (!empty && n <= readMin());
+    inc.disabled = !!input.disabled || empty || (!empty && n >= readMax());
+  }
+  function step(delta){
+    if (input.disabled) return;
+    var min = readMin(), max = readMax();
+    var n = parseInt(input.value, 10);
+    if (!Number.isInteger(n)) n = min;
+    n = Math.max(min, Math.min(max, n + delta));
+    input.value = String(n);
+    try {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (_e) { /* ignore */ }
+    syncDisabled();
+  }
+  dec.addEventListener('click', function(ev){ ev.preventDefault(); step(-1); });
+  inc.addEventListener('click', function(ev){ ev.preventDefault(); step(1); });
+  input.addEventListener('input', syncDisabled);
+  input.addEventListener('change', syncDisabled);
+  syncDisabled();
+  return wrap;
+}
+
+/** Enhance all whole-number counters inside a Create/Edit root (scoped). */
+function scheduleEnhanceIntSteppersIn(root){
+  if (!root) return;
+  var nodes = root.querySelectorAll(
+    'input[type=number]:not([step="0.01"]):not([data-no-int-stepper]):not(.portal-schedule-int-stepper-input)'
+  );
+  nodes.forEach(function(inp){
+    // Skip money / decimal
+    if (inp.step && String(inp.step).indexOf('.') >= 0) return;
+    if (inp.inputMode === 'decimal') return;
+    if (inp.id && /amount|price|cents|money|eur/i.test(inp.id)) return;
+    scheduleEnhanceIntStepper(inp, {
+      label: (inp.labels && inp.labels[0] && inp.labels[0].textContent)
+        || inp.getAttribute('aria-label')
+        || inp.id
+        || 'Quantity',
+    });
+  });
+}
+
+/**
  * One-authority surfer count for Create: Date(s) → Number of surfers → Activity.
  * Allows transient empty editing: blank/invalid returns null (no clamp to 1 on read).
  * Equipment sync and quote/create wait for a valid integer.
@@ -22172,6 +22290,9 @@ function schedulePopulateCreateComponentFields(){
     try { pf.setAttribute('aria-hidden', 'true'); } catch (_pf) { /* ignore */ }
   }
   scheduleSyncCreateSurferMirrors();
+  if (typeof scheduleSyncCreateGroupLessonsVisibility === 'function') {
+    scheduleSyncCreateGroupLessonsVisibility();
+  }
   // Top-level From/To always authoritative.
   var dateRange = el('ps-create-date-range');
   if (dateRange) dateRange.style.display = '';
@@ -22522,6 +22643,71 @@ function scheduleReadCreatePayload(){
       : surferCount;
     course_equipment.push({ offering_key: item.dataset.offeringKey, mode: modeKey, quantity: equipmentQty });
   });
+  // Canonical lessons[] for multi-lesson identity (server also expands legacy components).
+  var lessons = [];
+  if (components.course && components.course.course_id) {
+    var lessonDates = [];
+    if (typeof schedulePortalInclusiveIsoDates === 'function') {
+      try { lessonDates = schedulePortalInclusiveIsoDates(dateFrom, dateTo) || []; } catch (_ld) { lessonDates = []; }
+    }
+    if (!lessonDates.length && dateFrom) {
+      // Inclusive walk fallback (max 31).
+      var cur = String(dateFrom).slice(0, 10);
+      var endIso = String(dateTo || dateFrom).slice(0, 10);
+      var guard = 0;
+      while (cur && cur <= endIso && guard < 31) {
+        lessonDates.push(cur);
+        var dObj = new Date(cur + 'T12:00:00Z');
+        dObj.setUTCDate(dObj.getUTCDate() + 1);
+        cur = dObj.toISOString().slice(0, 10);
+        guard += 1;
+      }
+    }
+    // Explicit multi-lesson rows win when staff added same-day/time/course variants.
+    // A single unscheduled default row still expands from the inclusive date range
+    // so multi-day packs keep working.
+    var extraRows = typeof scheduleReadCreateGroupLessonRows === 'function'
+      ? scheduleReadCreateGroupLessonRows()
+      : [];
+    var useExplicitRows = false;
+    if (extraRows && extraRows.length) {
+      if (extraRows.length > 1) useExplicitRows = true;
+      else if (extraRows[0] && extraRows[0].schedule_key) useExplicitRows = true;
+      else if (extraRows[0] && String(extraRows[0].course_id) !== String(components.course.course_id)) {
+        useExplicitRows = true;
+      } else if (extraRows[0] && lessonDates.length <= 1
+        && String(extraRows[0].date) === String(lessonDates[0] || dateFrom)) {
+        // Single same-day default row — expand still fine (0 or 1 date).
+        useExplicitRows = false;
+      }
+    }
+    if (useExplicitRows) {
+      extraRows.forEach(function(row) {
+        if (!row || !row.course_id || !row.date) return;
+        var L = { kind: 'group', course_id: row.course_id, date: row.date };
+        if (row.schedule_key) L.schedule_key = row.schedule_key;
+        if (row.course_label) L.course_label = row.course_label;
+        if (components.course.tier_key) L.tier_key = components.course.tier_key;
+        lessons.push(L);
+      });
+    } else {
+      lessonDates.forEach(function(iso) {
+        var L = {
+          kind: 'group',
+          course_id: components.course.course_id,
+          date: iso,
+        };
+        if (components.course.course_label) L.course_label = components.course.course_label;
+        if (components.course.tier_key) L.tier_key = components.course.tier_key;
+        lessons.push(L);
+      });
+    }
+  } else if (components.private_lesson && Array.isArray(components.private_lesson.sessions)) {
+    components.private_lesson.sessions.forEach(function(s) {
+      if (!s || !s.date) return;
+      lessons.push({ kind: 'private', date: s.date, start: s.start, end: s.end });
+    });
+  }
   return {
     guest_name: guest,
     guest_phone: phone || null,
@@ -22535,7 +22721,149 @@ function scheduleReadCreatePayload(){
     custom_line_items: scheduleReadCreateCustomLineItems(),
     // Authoritative party size for no-lesson equipment qty (server may force rentals to this).
     surfer_count: surferCount,
+    lessons: lessons,
   };
+}
+
+/** Optional multi group-lesson rows (same-day / multi-course). Empty → date-range expand. */
+function scheduleReadCreateGroupLessonRows(){
+  var box = el('ps-create-group-lessons');
+  if (!box) return [];
+  var rows = [];
+  box.querySelectorAll('.portal-schedule-group-lesson-row').forEach(function(row){
+    var dateEl = row.querySelector('[data-group-lesson-date]');
+    var courseEl = row.querySelector('[data-group-lesson-course]');
+    var schedEl = row.querySelector('[data-group-lesson-schedule]');
+    var date = dateEl ? String(dateEl.value || '').slice(0, 10) : '';
+    var courseId = courseEl ? String(courseEl.value || '').trim() : '';
+    if (!date || !courseId) return;
+    var out = { course_id: courseId, date: date };
+    if (courseEl && courseEl.selectedOptions && courseEl.selectedOptions[0]) {
+      out.course_label = courseEl.selectedOptions[0].getAttribute('data-label')
+        || courseEl.selectedOptions[0].textContent || '';
+    }
+    if (schedEl && schedEl.value) out.schedule_key = String(schedEl.value).trim();
+    rows.push(out);
+  });
+  return rows;
+}
+
+function scheduleCreateGroupLessonCourseOptionsHtml(selectedId){
+  var courses = (typeof scheduleCoursesCache !== 'undefined' && scheduleCoursesCache) || [];
+  var html = '';
+  courses.forEach(function(c){
+    var id = String(c && c.course_id || '').trim();
+    if (!id) return;
+    var lab = String(c.label || id);
+    html += '<option value="' + escHtml(id) + '" data-label="' + escHtml(lab) + '"'
+      + (id === selectedId ? ' selected' : '') + '>' + escHtml(lab) + '</option>';
+  });
+  return html || '<option value="">—</option>';
+}
+
+function scheduleCreateGroupLessonScheduleOptionsHtml(courseId, selectedKey){
+  var courses = (typeof scheduleCoursesCache !== 'undefined' && scheduleCoursesCache) || [];
+  var course = null;
+  for (var i = 0; i < courses.length; i++) {
+    if (String(courses[i] && courses[i].course_id || '') === String(courseId || '')) {
+      course = courses[i]; break;
+    }
+  }
+  var keys = [];
+  if (course && Array.isArray(course.schedules)) keys = course.schedules.slice();
+  else if (course && course.schedule && Array.isArray(course.schedule.time_slots)) {
+    keys = course.schedule.time_slots.map(function(s){ return s && (s.key || s.schedule_key); }).filter(Boolean);
+  }
+  var html = '<option value="">—</option>';
+  keys.forEach(function(k){
+    var key = String(k || '').trim();
+    if (!key) return;
+    html += '<option value="' + escHtml(key) + '"' + (key === selectedKey ? ' selected' : '') + '>'
+      + escHtml(key.replace('_', '–')) + '</option>';
+  });
+  return html;
+}
+
+function scheduleAppendCreateGroupLessonRow(seed){
+  var box = el('ps-create-group-lessons');
+  if (!box) return;
+  seed = seed || {};
+  var dateFrom = el('ps-create-date-from') ? String(el('ps-create-date-from').value || '').slice(0, 10) : '';
+  var selectedCourse = '';
+  if (typeof schedulePortalGetSelectedCreateCourseId === 'function') {
+    selectedCourse = schedulePortalGetSelectedCreateCourseId() || '';
+  }
+  var date = seed.date || dateFrom;
+  var courseId = seed.course_id || selectedCourse;
+  var row = document.createElement('div');
+  row.className = 'portal-schedule-group-lesson-row';
+  row.innerHTML = ''
+    + '<div class="portal-schedule-create-field"><label>Date</label>'
+    + '<input type="date" data-group-lesson-date value="' + escHtml(date) + '"></div>'
+    + '<div class="portal-schedule-create-field"><label>Course</label>'
+    + '<select data-group-lesson-course>' + scheduleCreateGroupLessonCourseOptionsHtml(courseId) + '</select></div>'
+    + '<div class="portal-schedule-create-field"><label>Time</label>'
+    + '<select data-group-lesson-schedule>' + scheduleCreateGroupLessonScheduleOptionsHtml(courseId, seed.schedule_key || '') + '</select></div>'
+    + '<button type="button" class="btn btn-ghost portal-schedule-group-lesson-remove" data-group-lesson-remove aria-label="Remove lesson">\u2212</button>';
+  box.appendChild(row);
+  var courseSel = row.querySelector('[data-group-lesson-course]');
+  var schedSel = row.querySelector('[data-group-lesson-schedule]');
+  if (courseSel) {
+    courseSel.addEventListener('change', function(){
+      if (schedSel) schedSel.innerHTML = scheduleCreateGroupLessonScheduleOptionsHtml(courseSel.value, '');
+      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
+        schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+      }
+      if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
+    });
+  }
+  row.querySelectorAll('input,select').forEach(function(node){
+    node.addEventListener('change', function(){
+      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
+        schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+      }
+      if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
+    });
+  });
+  var rem = row.querySelector('[data-group-lesson-remove]');
+  if (rem) {
+    rem.addEventListener('click', function(){
+      if (box.querySelectorAll('.portal-schedule-group-lesson-row').length <= 1) return;
+      row.remove();
+      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
+        schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+      }
+      if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
+    });
+  }
+}
+
+function scheduleSyncCreateGroupLessonsVisibility(){
+  var wrap = el('ps-create-group-lessons-wrap');
+  var box = el('ps-create-group-lessons');
+  if (!wrap || !box) return;
+  var groupOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
+  wrap.style.display = groupOn ? '' : 'none';
+  wrap.hidden = !groupOn;
+  wrap.setAttribute('aria-hidden', groupOn ? 'false' : 'true');
+  if (!groupOn) { box.innerHTML = ''; return; }
+  if (!box.querySelector('.portal-schedule-group-lesson-row')) {
+    scheduleAppendCreateGroupLessonRow({});
+  }
+}
+
+function scheduleWireCreateGroupLessons(){
+  var addBtn = el('ps-create-add-group-lesson');
+  if (addBtn && !addBtn.dataset.wired) {
+    addBtn.dataset.wired = '1';
+    addBtn.addEventListener('click', function(){
+      scheduleAppendCreateGroupLessonRow({});
+      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
+        schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+      }
+    });
+  }
+  scheduleSyncCreateGroupLessonsVisibility();
 }
 
 // Full-day equipment add-on unit price (cents), set from admin config on drawer open. Never hard-coded.
@@ -25048,10 +25376,20 @@ function openScheduleCreateModal(context){
   if (typeof scheduleSyncCreateDateRangeUi === 'function') scheduleSyncCreateDateRangeUi();
   if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
   scheduleFetchLessonTimesConfig(getClient(), { force: true }).then(function(){
-    var done = function(){ scheduleRenderCreateRentals(); scheduleRefreshCreateFullDayAddon(); };
+    var done = function(){
+      scheduleRenderCreateRentals();
+      scheduleRefreshCreateFullDayAddon();
+      if (typeof scheduleEnhanceIntSteppersIn === 'function') {
+        scheduleEnhanceIntSteppersIn(el('ps-create-modal') || el('ps-create-body'));
+      }
+    };
     var p = schedulePopulateCreateCourseFields();
     if (p && typeof p.then === 'function') p.then(done, done); else done();
   });
+  if (typeof scheduleEnhanceIntSteppersIn === 'function') {
+    scheduleEnhanceIntSteppersIn(modal);
+  }
+  if (typeof scheduleWireCreateGroupLessons === 'function') scheduleWireCreateGroupLessons();
 }
 
 function scheduleUpdateCreateLessonExtras(){
