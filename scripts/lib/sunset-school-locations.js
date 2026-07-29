@@ -37,6 +37,22 @@ function sqlLocationMatch(srAlias, bookingAlias, paramIndex) {
   return `COALESCE(${sr}.metadata->>'location_id', ${b}.metadata->>'location_id', '${DEFAULT_SUNSET_LOCATION_ID}') = $${paramIndex}`;
 }
 
+/**
+ * Resolve + validate the location scope for a tenant rental-offerings catalog
+ * write/read. Multi-location tenants (Sunset) MUST supply a known location;
+ * single-site tenants keep a client-wide (NULL) catalog and must not carry a
+ * stray location. Pure — no DB. Returns {ok:true, locationId} | {ok:false, error}.
+ */
+function resolveRentalOfferingLocationScope(clientSlug, rawLocation) {
+  const raw = rawLocation == null ? '' : String(rawLocation).trim();
+  if (String(clientSlug || '').trim() === SUNSET_CLIENT_SLUG) {
+    if (!isSunsetLocationId(raw)) return { ok: false, error: 'invalid_location' };
+    return { ok: true, locationId: normalizeSunsetLocationId(raw) };
+  }
+  if (raw) return { ok: false, error: 'invalid_location' };
+  return { ok: true, locationId: null };
+}
+
 function attachLocationToMetadata(metadata, locationId) {
   const meta = metadata && typeof metadata === 'object' ? { ...metadata } : {};
   meta.location_id = normalizeSunsetLocationId(locationId);
@@ -72,6 +88,7 @@ module.exports = {
   normalizeSunsetLocationId,
   isSunsetLocationId,
   resolveRecordLocationId,
+  resolveRentalOfferingLocationScope,
   resolveConversationLocationId,
   sqlLocationMatch,
   sqlConversationLocationExpr,

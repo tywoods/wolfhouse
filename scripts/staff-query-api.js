@@ -434,6 +434,7 @@ const {
   normalizeSunsetLocationId,
   isSunsetLocationId,
   resolveRecordLocationId,
+  resolveRentalOfferingLocationScope,
 } = require('./lib/sunset-school-locations');
 const {
   getSunsetScheduleLessonsOnDateQuery,
@@ -39299,19 +39300,25 @@ async function handleAdminConfigPriceGroupAvailabilityPost(query, req, res, user
 // ── Rental offerings catalog CRUD (data-driven rentable items; identity only) ──
 // Money (price-per-period) stays on /staff/admin/config/prices. These endpoints
 // own rentable-item identity/grouping/exclusion in tenant_rental_offerings.
-function rentalOfferingLocation(query) {
-  const raw = query.location != null ? String(query.location).trim() : '';
-  return raw || null;
+// Validate the rental-offerings location against the tenant's known locations.
+// Multi-location tenants (Sunset) MUST supply a real location; single-site
+// tenants must not carry a stray one. Mirrors the invalid_location guard the
+// sibling /staff/admin/config/* endpoints already apply, closing the gap where
+// a missing/arbitrary ?location silently created a mis-scoped or client-wide row.
+function resolveRentalOfferingLocation(clientSlug, query) {
+  return resolveRentalOfferingLocationScope(clientSlug, query && query.location);
 }
 
 async function handleAdminConfigRentalOfferingsGet(query, req, res, user) {
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const loc = resolveRentalOfferingLocation(clientSlug, query);
+  if (!loc.ok) return sendJSON(res, 400, { success: false, error: loc.error });
   try {
     const offerings = await withPgClient((pg) => listRentalOfferings(pg, {
       clientSlug,
-      locationId: rentalOfferingLocation(query),
+      locationId: loc.locationId,
       includeInactive: String(query.include_inactive || '') === 'true',
     }));
     return sendJSON(res, 200, { success: true, client_slug: clientSlug, offerings });
@@ -39330,6 +39337,8 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
   });
   if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const loc = resolveRentalOfferingLocation(clientSlug, query);
+  if (!loc.ok) return sendJSON(res, 400, { success: false, error: loc.error });
 
   let body = {};
   if (op !== 'delete') {
@@ -39339,7 +39348,7 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
 
   const params = {
     clientSlug,
-    locationId: rentalOfferingLocation(query),
+    locationId: loc.locationId,
     offering_key: op === 'create' ? body.offering_key : offeringKey,
     label: body.label,
     group_key: body.group_key,
