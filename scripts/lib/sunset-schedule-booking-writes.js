@@ -2523,7 +2523,7 @@ async function insertScheduleComponentServiceRows(pg, opts) {
 /** Server-priced board and wetsuit audit rows, one of each per booking date. */
 async function insertCourseEquipmentRows(pg, opts) {
   if (!opts.selection) return [];
-  const quote = quoteCourseEquipment({ config: opts.config, selection: opts.selection,
+  const quote = quoteCourseEquipment({ config: opts.config, course: opts.course, selection: opts.selection,
     surfers: opts.surfers, booking_dates: opts.bookingDates });
   const rows = [];
   for (const line of quote.lines) {
@@ -2997,6 +2997,7 @@ async function createSunsetScheduleBooking(pg, opts) {
         bookingDates: input.components.private_lesson
           ? input.components.private_lesson.sessions.map((s) => s.date) : input.service_dates,
         config: require('./sunset-admin-location-store').getCourseEquipmentPricing(locationId),
+        course: input.components.private_lesson ? privateLessonConfig : (assignedCourse && assignedCourse.pack),
         attribution, locationId, bundleId, srPayment,
       });
       equipmentRows.forEach((r) => createdRows.push(r));

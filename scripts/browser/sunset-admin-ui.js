@@ -615,7 +615,8 @@ function adminRenderPackEditForm(pid, pack){
     adminRenderPillRow('age_band', adminPackAgeOptions(), p.age_band || '12_and_up', false) +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.packs.groupSize')) + '</label>' +
     '<input type="number" id="' + prefix + '-group-size" min="1" max="999" step="1" value="' + escHtml(String(p.group_size || 16)) + '"></div>' +
-    '<label class="portal-admin-edit-field"><input type="checkbox" id="' + prefix + '-equipment-included"' + (p.equipment_included === true ? ' checked' : '') + '> Equipment included <span class="portal-admin-muted">(board + wetsuit, €0, per participant/course day)</span></label>' +
+    '<label class="portal-admin-edit-field"><input type="checkbox" id="' + prefix + '-equipment-included"' + (p.equipment_included === true ? ' checked' : '') + '> Equipment included <span class="portal-admin-muted">(board + wetsuit, per participant/course day)</span></label>' +
+    '<div class="portal-admin-edit-field"><label>Equipment price (€)</label><input class="admin-pack-equipment-price" type="text" id="' + prefix + '-equipment-price" inputmode="decimal" value="' + escHtml(adminEurosFromAmount((p.equipment_price_cents || 0) / 100)) + '" placeholder="0.00"></div>' +
     adminRenderPillRow('beaches', adminPackBeachOptions(), p.beaches || [], true) +
     adminRenderPillRow('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false) +
     adminRenderPackScheduleFields(p, prefix) +
@@ -649,6 +650,7 @@ function adminReadPackFormPayload(pid){
     age_band: adminCollectSinglePill('age_band', '12_and_up', root),
     group_size: (function(){ var g = el(prefix + '-group-size'); var n = parseInt(g && g.value, 10); return (isFinite(n) && n > 0) ? n : 16; })(),
     equipment_included: !!(el(prefix + '-equipment-included') && el(prefix + '-equipment-included').checked),
+    equipment_price_cents: (function(){ var parsed = adminParseEurosToCents(el(prefix + '-equipment-price') && el(prefix + '-equipment-price').value); return parsed.ok ? parsed.value : null; })(),
     beaches: adminCollectPillValues('beaches', root),
     weekly: adminCollectSinglePill('weekly', 'mon_fri', root),
     schedules: schedulesParsed.ok ? schedulesParsed.value : [],
@@ -1138,6 +1140,8 @@ function renderAdminPrivateLessonEditForm(pl){
     '<input type="text" id="admin-private-label" value="' + escHtml(p.label || '') + '" maxlength="120"></div>' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.privateLessons.price')) + '</label>' +
     '<input type="text" id="admin-private-price" value="' + escHtml(adminEurosFromAmount((p.amount_cents || 0) / 100)) + '" inputmode="decimal" placeholder="0.00"></div>' +
+    '<label class="portal-admin-edit-field"><input type="checkbox" id="admin-private-equipment-included"' + (p.equipment_included === true ? ' checked' : '') + '> Equipment included <span class="portal-admin-muted">(board + wetsuit, per participant/course day)</span></label>' +
+    '<div class="portal-admin-edit-field"><label>Equipment price (€)</label><input type="text" id="admin-private-equipment-price" value="' + escHtml(adminEurosFromAmount((p.equipment_price_cents || 0) / 100)) + '" inputmode="decimal" placeholder="0.00"></div>' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.privateLessons.duration')) + '</label>' +
     '<input type="number" id="admin-private-duration" min="15" max="480" step="1" value="' +
     escHtml(String(p.default_duration_minutes != null ? p.default_duration_minutes : 120)) + '"></div>' +
@@ -1182,24 +1186,18 @@ function renderAdminPrivateLessonCard(cfg, writes){
 }
 function renderAdminCourseEquipment(cfg, writes){
   var root = cfg && cfg.course_equipment_pricing || {};
-  var during = root.during_course || { policy: 'free_with_course', surfboard_cents: 0, wetsuit_cents: 0 };
-  var allDay = root.all_day || { surfboard_cents: 0, wetsuit_cents: 0 };
-  var free = during.policy !== 'extra';
-  function centsInput(id, label, value, disabled){
+  var allDay = root.all_day || { enabled: false, surfboard_cents: 0, wetsuit_cents: 0 };
+  function euroInput(id, label, value, disabled){
     return '<div class="portal-admin-edit-field"><label for="' + id + '">' + escHtml(label) + '</label>' +
-      '<input id="' + id + '" type="number" inputmode="numeric" min="0" step="1" value="' + escHtml(String(disabled ? 0 : value || 0)) + '"' +
+      '<input id="' + id + '" type="text" inputmode="decimal" value="' + escHtml(adminEurosFromAmount((value || 0) / 100)) + '"' +
       (disabled ? ' disabled' : '') + ' aria-describedby="admin-course-equipment-basis"></div>';
   }
   var html = '<section class="portal-admin-subsection" data-admin-course-equipment="1" aria-labelledby="admin-course-equipment-title">' +
     '<h3 id="admin-course-equipment-title" class="portal-admin-subsection-title">' + escHtml(portalT('admin.courseEquipment.title')) + '</h3>' +
-    '<p class="portal-admin-muted">' + escHtml(portalT('admin.courseEquipment.help')) + '</p>' +
-    '<fieldset><legend>' + escHtml(portalT('admin.courseEquipment.during')) + '</legend>' +
-    '<label class="portal-admin-touch"><input type="radio" name="admin-course-equipment-policy" data-admin-action="course-equipment-policy" value="free_with_course"' + (free ? ' checked' : '') + (writes ? '' : ' disabled') + '> ' + escHtml(portalT('admin.courseEquipment.free')) + '</label>' +
-    '<label class="portal-admin-touch"><input type="radio" name="admin-course-equipment-policy" data-admin-action="course-equipment-policy" value="extra"' + (!free ? ' checked' : '') + (writes ? '' : ' disabled') + '> ' + escHtml(portalT('admin.courseEquipment.extra')) + '</label>' +
-    '<div class="portal-admin-course-equipment-grid">' + centsInput('admin-course-during-board', portalT('admin.courseEquipment.surfboard'), during.surfboard_cents, free || !writes) + centsInput('admin-course-during-suit', portalT('admin.courseEquipment.wetsuit'), during.wetsuit_cents, free || !writes) + '</div></fieldset>' +
-    '<fieldset><legend>' + escHtml(portalT('admin.courseEquipment.allDay')) + '</legend><div class="portal-admin-course-equipment-grid">' +
-    centsInput('admin-course-all-day-board', portalT('admin.courseEquipment.surfboard'), allDay.surfboard_cents, !writes) + centsInput('admin-course-all-day-suit', portalT('admin.courseEquipment.wetsuit'), allDay.wetsuit_cents, !writes) + '</div></fieldset>' +
-    '<p id="admin-course-equipment-basis" class="portal-admin-muted">' + escHtml(portalT('admin.courseEquipment.centsBasis')) + '</p>';
+    '<fieldset><legend>' + escHtml(portalT('admin.courseEquipment.allDay')) + '</legend>' +
+    '<label class="portal-admin-touch"><input id="admin-course-all-day-enabled" type="checkbox"' + (allDay.enabled === true ? ' checked' : '') + (writes ? '' : ' disabled') + '> Enabled</label><div class="portal-admin-course-equipment-grid">' +
+    euroInput('admin-course-all-day-board', portalT('admin.courseEquipment.surfboard'), allDay.surfboard_cents, !writes) + euroInput('admin-course-all-day-suit', portalT('admin.courseEquipment.wetsuit'), allDay.wetsuit_cents, !writes) + '</div></fieldset>' +
+    '<p id="admin-course-equipment-basis" class="portal-admin-muted">Prices in euros per person and booking day.</p>';
   if (writes) html += '<button type="button" class="btn btn-primary portal-admin-touch" data-admin-action="save-course-equipment">' + escHtml(portalT('admin.action.save')) + '</button>';
   return html + '</section>';
 }
@@ -1625,21 +1623,11 @@ function wireAdminTab(){
       adminShowMessage('error', portalT('admin.loading'));
       return;
     }
-    if (action === 'course-equipment-policy'){
-      var isFree = btn.value === 'free_with_course';
-      root.querySelectorAll('input[name="admin-course-equipment-policy"]').forEach(function(radio){ radio.checked = radio === btn; });
-      ['admin-course-during-board', 'admin-course-during-suit'].forEach(function(id){
-        var input = el(id); if (input){ input.disabled = isFree; if (isFree) input.value = '0'; }
-      });
-      return;
-    }
     if (action === 'save-course-equipment'){
       if (!adminCfgWritesEnabled(cfg)) return;
-      function readCents(id){ var n = Number(el(id) && el(id).value); return Number.isSafeInteger(n) && n >= 0 ? n : null; }
-      var policyEl = root.querySelector('input[name="admin-course-equipment-policy"]:checked');
-      var policy = policyEl && policyEl.value === 'extra' ? 'extra' : 'free_with_course';
-      var payload = { during_course: { policy: policy, surfboard_cents: policy === 'extra' ? readCents('admin-course-during-board') : 0, wetsuit_cents: policy === 'extra' ? readCents('admin-course-during-suit') : 0 }, all_day: { surfboard_cents: readCents('admin-course-all-day-board'), wetsuit_cents: readCents('admin-course-all-day-suit') } };
-      if (payload.during_course.surfboard_cents == null || payload.during_course.wetsuit_cents == null || payload.all_day.surfboard_cents == null || payload.all_day.wetsuit_cents == null){ adminShowMessage('error', portalT('admin.courseEquipment.invalid')); return; }
+      function readEuros(id){ var parsed = adminParseEurosToCents(el(id) && el(id).value); return parsed.ok ? parsed.value : null; }
+      var payload = { all_day: { enabled: !!(el('admin-course-all-day-enabled') && el('admin-course-all-day-enabled').checked), surfboard_cents: readEuros('admin-course-all-day-board'), wetsuit_cents: readEuros('admin-course-all-day-suit') } };
+      if (payload.all_day.surfboard_cents == null || payload.all_day.wetsuit_cents == null){ adminShowMessage('error', portalT('admin.courseEquipment.invalid')); return; }
       var op = adminBeginOp();
       adminApiRequest('PATCH', '/staff/admin/config/course-equipment' + adminClientQuery(), payload).then(function(resp){
         if (!adminOpStillOwns(op)) return;
@@ -2164,10 +2152,12 @@ function wireAdminTab(){
       var priceEl = el('admin-private-price');
       var durationEl = el('admin-private-duration');
       var notesEl = el('admin-private-notes');
+      var equipmentPriceParsed = adminParseEurosToCents(el('admin-private-equipment-price') && el('admin-private-equipment-price').value);
       var labelText = String((labelEl && labelEl.value) || '').trim();
       if (!labelText){ adminShowMessage('error', portalT('admin.edit.nameRequired')); return; }
       var priceParsed = adminParseEurosToCents(priceEl && priceEl.value);
       if (!priceParsed.ok){ adminShowMessage('error', priceParsed.error || portalT('admin.edit.amountInvalid')); return; }
+      if (!equipmentPriceParsed.ok){ adminShowMessage('error', equipmentPriceParsed.error || portalT('admin.edit.amountInvalid')); return; }
       var durationVal = parseInt(String((durationEl && durationEl.value) || '120'), 10);
       if (!Number.isInteger(durationVal) || durationVal < 15 || durationVal > 480){
         adminShowMessage('error', portalT('admin.privateLessons.durationInvalid'));
@@ -2177,6 +2167,8 @@ function wireAdminTab(){
         enabled: !!(enabledEl && enabledEl.checked),
         label: labelText,
         amount_cents: priceParsed.value,
+        equipment_included: !!(el('admin-private-equipment-included') && el('admin-private-equipment-included').checked),
+        equipment_price_cents: equipmentPriceParsed.value,
         currency: 'EUR',
         price_basis: 'per_session',
         default_duration_minutes: durationVal,
@@ -2243,6 +2235,7 @@ function wireAdminTab(){
       var payload = adminReadPackFormPayload(packId || null);
       if (payload._scheduleError){ adminShowMessage('error', payload._scheduleError); return; }
       delete payload._scheduleError;
+      if (payload.equipment_price_cents == null){ adminShowMessage('error', portalT('admin.edit.amountInvalid')); return; }
       if (!payload.label){ adminShowMessage('error', portalT('admin.edit.nameRequired')); return; }
       var savePackOpSeq = adminBeginOp();
       adminShowMessage('', '');

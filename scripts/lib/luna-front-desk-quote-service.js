@@ -765,6 +765,7 @@ function appendOfferingCourseEquipment(command, offering, result) {
   try {
     equipmentQuote = quoteCourseEquipment({
       config: getCourseEquipmentPricing(command.locationId),
+      course: offering,
       selection,
       surfers: result.body.quantity,
       booking_dates: result.body.service_dates,
