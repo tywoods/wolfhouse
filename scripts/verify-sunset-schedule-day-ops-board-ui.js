@@ -522,13 +522,22 @@ if (modExists) {
       duration_key: '4_hours',
     },
   };
+  const genericRow2 = {
+    ...genericRow,
+    _scheduleId: 'sr-rental-poncho', service_record_id: 'sr-rental-poncho',
+    metadata: { ...genericRow.metadata, offering_key: 'poncho_rental' },
+    _meta: { ...genericRow._meta, offering_key: 'poncho_rental' },
+  };
   const genericGroup = {
     _scheduleId: 'sr-rental-towel', booking_id: genericRow.booking_id,
     guest_name: genericRow.guest_name, service_date: genericRow.service_date,
     record_source: 'staff_manual', _isDbManual: true,
     payment_status: 'unpaid', quantity: 0,
-    components: { 'rental:towel_rental': true }, records: [genericRow],
+    components: { 'rental:towel_rental': true, 'rental:poncho_rental': true }, records: [genericRow, genericRow2],
   };
+  const descriptors = ctx.scheduleGenericRentalDescriptors(genericGroup);
+  assert('generic rental descriptors preserve stable offering identities even when labels collide',
+    descriptors.length === 2 && descriptors.map((d) => d.offering_key).sort().join(',') === 'poncho_rental,towel_rental');
   ctx.scheduleBuildDisplayGroups = () => [genericGroup];
   ctx.scheduleGroupIsStandaloneRental = () => true;
   ctx.scheduleRentalPickupKind = () => null;
@@ -546,6 +555,10 @@ if (modExists) {
       && genericHtml.includes('Towel')
       && genericHtml.includes('Generic Towel Guest')
       && genericHtml.includes('2×'));
+  assert('same-label offerings render as separate stable pickup sections',
+    (genericHtml.match(/data-rental-offering=/g) || []).length === 2
+      && genericHtml.includes('data-rental-offering="towel_rental"')
+      && genericHtml.includes('data-rental-offering="poncho_rental"'));
 
   ctx.scheduleBuildDaySessions = prevBuildSessions;
   ctx.scheduleBuildDisplayGroups = prevBuildGroups;

@@ -191,6 +191,7 @@ function nestOfferingForQuote(raw) {
     offering_type: raw.offering_type,
     course_id: raw.course_id || null,
     equipment_included: raw.equipment_included === true,
+    equipment_price_cents: Number.isSafeInteger(Number(raw.equipment_price_cents)) ? Number(raw.equipment_price_cents) : 0,
     tier_key: tierOrDuration,
     // Rental windows use duration_key canonically; keep in sync with tier_key so
     // async Admin re-resolve cannot drop multi-day identity.
@@ -753,7 +754,7 @@ function buildOfferingQuoteResult(command, catalog, offering, lineOut) {
 function appendOfferingCourseEquipment(command, offering, result) {
   const selection = command.transportBody.course_equipment;
   if (selection == null || !result.ok) return result;
-  if (offering.offering_type !== 'course') {
+  if (offering.offering_type !== 'course' && offering.offering_type !== 'private_lesson') {
     return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
   }
   // Entitlement belongs to the exact selected Admin course, never to a

@@ -291,7 +291,8 @@ function scheduleRenderOpsBookingRow(group){
 function scheduleRenderRentalPickupBlock(groups, titleKey, emptyKey, opts){
   opts = opts || {};
   var title = opts.literalTitle ? String(titleKey || '') : portalT(titleKey);
-  var html = '<div class="portal-schedule-ops-rental-pickups-block">' +
+  var offeringAttr = opts.offeringKey ? ' data-rental-offering="' + escHtml(String(opts.offeringKey)) + '"' : '';
+  var html = '<div class="portal-schedule-ops-rental-pickups-block"' + offeringAttr + '>' +
     '<div class="portal-schedule-ops-rental-pickups-subhdr">' + escHtml(title + ' — ' + String((groups || []).length)) + '</div>';
   if (groups && groups.length){
     html += '<div class="portal-schedule-ops-lesson-rows">' + scheduleRenderOpsColumnHeader();
@@ -385,12 +386,12 @@ function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
   var bothRentals = gearGroups.filter(function(g){ return scheduleRentalPickupKind(g) === 'both'; });
   var boardOnlyRentals = gearGroups.filter(function(g){ return scheduleRentalPickupKind(g) === 'board'; });
   var wetsuitOnlyRentals = gearGroups.filter(function(g){ return scheduleRentalPickupKind(g) === 'wetsuit'; });
-  var genericByLabel = {};
+  var genericByOffering = {};
   gearGroups.forEach(function(g){
     scheduleGenericRentalDescriptors(g).forEach(function(desc){
-      var label = desc.label || desc.offering_key;
-      if (!genericByLabel[label]) genericByLabel[label] = [];
-      genericByLabel[label].push(Object.assign({}, g, {
+      var offeringKey = desc.offering_key;
+      if (!genericByOffering[offeringKey]) genericByOffering[offeringKey] = { label: desc.label || offeringKey, groups: [] };
+      genericByOffering[offeringKey].groups.push(Object.assign({}, g, {
         quantity: desc.quantity,
         _genericRentalDescriptor: desc,
       }));
@@ -408,8 +409,9 @@ function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
       (bothRentals.length ? scheduleRenderRentalPickupBlock(bothRentals, 'schedule.ops.rentalBoth', 'schedule.ops.rentalNothingScheduled') : '') +
       (boardOnlyRentals.length ? scheduleRenderRentalPickupBlock(boardOnlyRentals, 'schedule.ops.rentalBoardsOnly', 'schedule.ops.rentalNothingScheduled') : '') +
       (wetsuitOnlyRentals.length ? scheduleRenderRentalPickupBlock(wetsuitOnlyRentals, 'schedule.ops.rentalWetsuitsOnly', 'schedule.ops.rentalNothingScheduled') : '') +
-      Object.keys(genericByLabel).sort().map(function(label){
-        return scheduleRenderRentalPickupBlock(genericByLabel[label], label, 'schedule.ops.rentalNothingScheduled', { literalTitle: true });
+      Object.keys(genericByOffering).sort().map(function(offeringKey){
+        var bucket = genericByOffering[offeringKey];
+        return scheduleRenderRentalPickupBlock(bucket.groups, bucket.label, 'schedule.ops.rentalNothingScheduled', { literalTitle: true, offeringKey: offeringKey });
       }).join('') +
       '</section>';
   }

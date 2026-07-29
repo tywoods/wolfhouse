@@ -88,6 +88,7 @@ function nestCatalogOffering(raw) {
     },
     course_id: raw.course_id || null,
     equipment_included: raw.equipment_included === true,
+    equipment_price_cents: Number.isSafeInteger(Number(raw.equipment_price_cents)) ? Number(raw.equipment_price_cents) : 0,
     included_items: Array.isArray(raw.included_items) ? raw.included_items : [],
     unit_amount_cents: raw.unit_amount_cents,
     billing_unit: raw.billing_unit,

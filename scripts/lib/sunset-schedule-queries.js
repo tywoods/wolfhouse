@@ -85,7 +85,14 @@ INNER JOIN clients c ON c.id = b.client_id
 WHERE c.slug = $1
   AND sr.client_slug = $1
   AND sr.service_date = $2::date
-  AND sr.service_type IN ('wetsuit', 'surfboard')
+  AND (
+    sr.service_type IN ('wetsuit', 'surfboard')
+    OR (
+      sr.service_type = 'addon_service'
+      AND sr.metadata->>'rental_offering' = 'true'
+      AND NULLIF(BTRIM(sr.metadata->>'offering_key'), '') IS NOT NULL
+    )
+  )
   AND sr.booking_id IS NOT NULL
   AND sr.status <> 'cancelled'
   AND LOWER(b.status::text) NOT IN ('cancelled', 'canceled', 'expired', 'hold')

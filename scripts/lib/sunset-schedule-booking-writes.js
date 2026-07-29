@@ -2731,7 +2731,7 @@ async function createSunsetScheduleBooking(pg, opts) {
 
   let privateLessonConfig = defaultPrivateLessonApi();
   if (input.components.private_lesson) {
-    const plLoad = await loadPrivateLessonFromDb(pg, { clientSlug, locationId });
+    const plLoad = await loadPrivateLessonFromDb(pg, clientSlug, locationId);
     privateLessonConfig = plLoad.api || privateLessonConfig;
   }
 
