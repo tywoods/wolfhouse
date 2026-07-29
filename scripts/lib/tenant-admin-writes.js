@@ -50,19 +50,22 @@ const RENTAL_GROUP_DISPLAY = {
   wetsuits: 'Wetsuit',
   sup: 'SUP',
 };
-// Admin rental period selector/create contract: configured short windows, then 2–7 days.
+// HISTORICAL fixed-window set retained for legacy group Prices UI helpers and
+// board/wetsuit short-parity. NEW Equipment Admin + generic rental writes accept
+// any key parseRentalDurationKey understands (1_hour / N_hours / 1_day / N_days
+// plus historical half_day / full_day reads). Never fold 12 hours → half_day
+// on write — see scripts/browser/sunset-rental-duration-model.js.
 const RENTAL_PERIOD_WINDOWS = new Set([
   '1_hour', '2_hours', 'half_day', 'full_day',
   '2_days', '3_days', '4_days', '5_days', '6_days', '7_days',
 ]);
-// Existing rows may still carry unknown legacy periods for read-only display;
-// create/patch validation accepts only RENTAL_PERIOD_WINDOWS.
+// Existing rows may still carry unknown legacy periods for read-only display.
 const RENTAL_PERIOD_WINDOWS_READABLE = new Set([
   ...RENTAL_PERIOD_WINDOWS,
   '1_hour', '2_hours', 'half_day',
 ]);
 
-/** Short No-lesson rental windows shared by Surfboard + Wetsuit catalogs. */
+/** Historical short No-lesson keys for board/wetsuit parity (read/legacy only). */
 const RENTAL_SHORT_DURATION_KEYS = Object.freeze(['1_hour', '2_hours', 'half_day', 'full_day']);
 const RENTAL_SHORT_DURATION_SET = new Set(RENTAL_SHORT_DURATION_KEYS);
 
@@ -544,10 +547,10 @@ function validatePricePatchBody(body) {
   }
   if (body.period_window != null) {
     const period = String(body.period_window).trim();
-    // Saves must use canonical 1–7 day keys only. Legacy hour/half_day/week rows
-    // remain readable in storage for old bookings, but the Admin selector does
-    // not offer them and patch rejects noncanonical period_window values.
-    if (!RENTAL_PERIOD_WINDOWS.has(period)) {
+    // Equipment Admin + generic rentals: any parseable duration key (N_hours /
+    // N_days / 1_hour / 1_day) plus historical half_day / full_day. Course pack
+    // tiers stay on their own 1–7 day allowlist elsewhere.
+    if (!isValidRentalPeriod(period)) {
       return { ok: false, error: 'invalid period_window' };
     }
     out.period_window = period;
@@ -733,7 +736,10 @@ function mapBaselineUnitToDb(unitKey) {
   const key = String(unitKey || '').trim();
   if (key === 'session') return 'session';
   if (/surfer|person|single_lesson/i.test(key)) return 'person';
-  if (key === '1_day' || /^[1-7]_days$/.test(key)) return 'day';
+  // Generic positive N_days (+ 1_day / full_day) share billing grain "day".
+  // Do not cap at 7 — Equipment Admin may price 8_days…999_days.
+  if (key === '1_day' || key === 'full_day' || /^[1-9][0-9]*_days$/.test(key)) return 'day';
+  // Hour packages (generic N_hours + legacy 1_hour/2_hours/half_day) → session.
   if (/hour|half_day|lesson/i.test(key)) return 'session';
   return 'item';
 }

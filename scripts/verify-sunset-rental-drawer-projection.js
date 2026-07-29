@@ -296,6 +296,77 @@ ok(
     || typeof rental.scheduleProjectStandaloneRentals === 'function',
 );
 
+// Arbitrary canonical keys (36_hours, 8_days, 999_hours) + historical half_day read.
+const GENERIC_KEYS_PRICES = [
+  {
+    category: 'rental',
+    offering_key: 'towel_rental__36_hours',
+    item_code: 'towel_rental__36_hours',
+    amount_cents: 900,
+    active: true,
+    location_id: 'sunset-somo',
+  },
+  {
+    category: 'rental',
+    offering_key: 'towel_rental__999_hours',
+    item_code: 'towel_rental__999_hours',
+    amount_cents: 100,
+    active: true,
+    location_id: 'sunset-somo',
+  },
+  {
+    category: 'rental',
+    offering_key: 'towel_rental__8_days',
+    item_code: 'towel_rental__8_days',
+    amount_cents: 4000,
+    active: true,
+    location_id: 'sunset-somo',
+  },
+  {
+    category: 'rental',
+    offering_key: 'towel_rental__half_day',
+    item_code: 'towel_rental__half_day',
+    amount_cents: 450,
+    active: true,
+    location_id: 'sunset-somo',
+  },
+];
+const generic1d = rental.scheduleProjectStandaloneRentals({
+  offerings: TOWEL_OFFERINGS,
+  prices: GENERIC_KEYS_PRICES,
+  locationId: 'sunset-somo',
+  dateDurationKey: '1_day',
+});
+const gKeys = (generic1d[0] && generic1d[0].durations || []).map((d) => d.duration_key).sort();
+ok(
+  'Create/Edit one-day options accept 36_hours + 999_hours + historical half_day',
+  gKeys.includes('36_hours')
+    && gKeys.includes('999_hours')
+    && gKeys.includes('half_day')
+    && !gKeys.includes('8_days'),
+  JSON.stringify(gKeys),
+);
+const generic8d = rental.scheduleProjectStandaloneRentals({
+  offerings: TOWEL_OFFERINGS,
+  prices: GENERIC_KEYS_PRICES,
+  locationId: 'sunset-somo',
+  dateDurationKey: '8_days',
+});
+ok(
+  'Create/Edit 8_days span offers exact 8_days package option value',
+  generic8d[0]
+    && generic8d[0].durations.map((d) => d.duration_key).join(',') === '8_days'
+    && generic8d[0].durations[0].amount_cents === 4000,
+  JSON.stringify(generic8d[0] && generic8d[0].durations),
+);
+// Production writer must not fold 12 → half_day (source gate).
+ok(
+  'no 12→half_day in production rentalDurationKeyFromUnitCount',
+  !/n\s*===\s*12\s*\)\s*return\s*['"]half_day['"]/.test(
+    read('scripts/browser/sunset-rental-duration-model.js'),
+  ),
+);
+
 // ── [B] Server quote authority ───────────────────────────────────────────────
 console.log('\n[B] Server quote/save — exact prices, no client money, multi-day rules');
 process.env.GENERIC_RENTAL_CREATE_ENABLED = 'true';

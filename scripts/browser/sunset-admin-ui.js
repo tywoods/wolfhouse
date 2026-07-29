@@ -854,9 +854,10 @@ function adminPeriodLabel(period){
 }
 
 function adminRentalPeriodOptions(selected){
-  // One deterministic list shared by every rental category. Never reinsert an
-  // unknown stored key: show an invalid placeholder rather than allowing the
-  // browser to silently select the first option.
+  // HISTORICAL helper for the legacy group Prices UI only. Equipment Admin
+  // (Add equipment / New time-price) uses renderAdminDurationControl +
+  // rentalDurationKeyFromUnitCount and writes generic N_hours / N_days keys —
+  // never this fixed product-window list (and never 12 → half_day).
   var opts = ['1_hour', '2_hours', 'half_day', 'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
   var sel = String(selected || '').trim();
   var invalid = sel && opts.indexOf(sel) < 0
@@ -868,11 +869,21 @@ function adminRentalPeriodOptions(selected){
   }).join('');
 }
 
-// Rank rental durations shortest → longest (1 day … 7 days).
+// Rank rental durations shortest → longest. Historical fixed windows first;
+// generic N_hours / N_days sort by count via the duration model when present.
 function adminRentalPeriodRank(period){
   var order = ['1_hour', '2_hours', 'half_day', 'full_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
-  var i = order.indexOf(String(period || '').trim());
-  return i >= 0 ? i : 999;
+  var key = String(period || '').trim();
+  var i = order.indexOf(key);
+  if (i >= 0) return i;
+  if (typeof parseRentalDurationKey === 'function') {
+    var uc = parseRentalDurationKey(key);
+    if (uc) {
+      // hours: 0 + count; days: 1000 + count (hours before multi-day).
+      return (uc.unit === 'days' ? 1000 : 0) + uc.count;
+    }
+  }
+  return 9999;
 }
 
 /** True when a rental period key is a sellable Admin 1–7 day window. */
