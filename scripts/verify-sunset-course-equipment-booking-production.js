@@ -1242,6 +1242,54 @@ function seedEditBooking() {
       /active scoped|not an active|not configured|equipment/i,
     );
 
+    // Hostile: full-day/addon quote lines must never claim course-equipment rows
+    // (both use service_type=addon_service). Without the exclusion, During + full-day
+    // co-presence yields duplicate_row_claim and blocks valid money writes.
+    assert.strictEqual(typeof w2.rowMatchesQuoteLine, 'function', 'rowMatchesQuoteLine exported');
+    const equipRow = {
+      service_type: 'addon_service',
+      service_date: '2026-08-03',
+      quantity: 2,
+      metadata: {
+        course_equipment: true,
+        offering_key: 'softboard',
+        course_equipment_mode: 'during_course',
+        component: 'course_equipment',
+      },
+    };
+    const fullDayRow = {
+      service_type: 'addon_service',
+      service_date: '2026-08-03',
+      quantity: 2,
+      metadata: {
+        component: 'full_day_equipment_extension',
+        service_key: 'full_day_equipment_extension',
+      },
+    };
+    const equipLine = {
+      course_equipment: true,
+      offering_key: 'softboard',
+      course_equipment_mode: 'during_course',
+      quantity: 2,
+      total_cents: 1000,
+    };
+    const fullDayLine = {
+      component: 'full_day_equipment_extension',
+      quantity: 2,
+      total_cents: 2000,
+    };
+    assert.strictEqual(w2.rowMatchesQuoteLine(equipRow, equipLine), true, 'equipment line owns equipment row');
+    assert.strictEqual(w2.rowMatchesQuoteLine(equipRow, fullDayLine), false, 'full-day line must not claim equipment row');
+    assert.strictEqual(w2.rowMatchesQuoteLine(fullDayRow, fullDayLine), true, 'full-day line owns full-day row');
+    assert.strictEqual(w2.rowMatchesQuoteLine(fullDayRow, equipLine), false, 'equipment line must not claim full-day row');
+    // Multi-item: distinct offering_key never cross-claim.
+    assert.strictEqual(w2.rowMatchesQuoteLine(equipRow, {
+      course_equipment: true,
+      offering_key: 'carbon_fins',
+      course_equipment_mode: 'during_course',
+      total_cents: 200,
+    }), false, 'different offering_key must not claim');
+
     // Historical singleton readback
     const historical = d2.aggregateComponentsFromServices([{
       service_type: 'surfboard', service_date: '2026-07-01', quantity: 2, amount_due_cents: 2400,

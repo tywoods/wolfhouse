@@ -1696,7 +1696,7 @@ function scheduleRefreshDrawerFullDayAddon() {
     var dsel = el('ps-drawer-course-select');
     selectedCourseId = dsel ? String(dsel.value || '').trim() : '';
   }
-  // Stage 3B Group equipment is catalog-owned and always serialized as a list.
+  // Stage 3B Group equipment is catalog-owned + historical unavailable/removable.
   if (mode === 'group') {
     var options = [];
     (scheduleCoursesCache || []).some(function(course) {
@@ -1704,28 +1704,109 @@ function scheduleRefreshDrawerFullDayAddon() {
       options = Array.isArray(course.equipment_options) ? course.equipment_options : [];
       return true;
     });
-    var showGroup = !!selectedCourseId && options.length > 0;
-    field.style.display = showGroup ? '' : 'none'; field.hidden = !showGroup;
-    if (!showGroup) { field.innerHTML = ''; return; }
+    var seedG = [];
+    try { seedG = JSON.parse(field.getAttribute('data-seed') || '[]'); } catch (_ge) { seedG = []; }
+    if (!Array.isArray(seedG)) seedG = seedG && seedG.mode ? [seedG] : [];
     var state = {};
+    var knownHistoricalG = {};
     field.querySelectorAll('.portal-schedule-course-equipment-item').forEach(function(item) {
+      var key = item.getAttribute('data-offering-key');
+      if (key == null) key = '';
       var check = item.querySelector('[data-course-equipment-enabled]');
       var pressed = item.querySelector('[data-drawer-course-equipment-mode][aria-pressed="true"]');
       var qty = item.querySelector('[data-course-equipment-quantity]');
-      if (check && check.checked) state[item.getAttribute('data-offering-key')] = { mode: pressed ? pressed.getAttribute('data-drawer-course-equipment-mode') : 'during_course', quantity: parseInt(qty && qty.value, 10) || 1 };
+      var unavailable = item.classList.contains('is-unavailable');
+      if (unavailable) {
+        knownHistoricalG[key] = {
+          offering_key: key,
+          label: (item.querySelector('.portal-schedule-course-equipment-name') || {}).textContent || '',
+        };
+      }
+      if (check && check.checked) {
+        state[key] = {
+          mode: pressed ? pressed.getAttribute('data-drawer-course-equipment-mode') : 'during_course',
+          quantity: parseInt(qty && qty.value, 10) || 1,
+          label: (item.querySelector('.portal-schedule-course-equipment-name') || {}).textContent || '',
+        };
+      }
     });
     if (!field.children.length) {
-      var seed = []; try { seed = JSON.parse(field.getAttribute('data-seed') || '[]'); } catch (_e) { seed = []; }
-      if (!Array.isArray(seed)) seed = seed && seed.mode ? [seed] : [];
-      seed.forEach(function(s) { if (s && s.offering_key) state[String(s.offering_key)] = s; });
+      seedG.forEach(function(s) {
+        if (s && s.offering_key) state[String(s.offering_key)] = s;
+      });
     }
+    var configuredKeysG = {};
+    options.forEach(function(option) {
+      var k = String(option && option.offering_key || '').trim();
+      if (k) configuredKeysG[k] = true;
+    });
+    var historicalG = [];
+    var seenHistoricalG = {};
+    function pushHistoricalG(s) {
+      if (!s) return;
+      var k = s.offering_key != null ? String(s.offering_key) : '';
+      if (!k || configuredKeysG[k] || seenHistoricalG[k]) return;
+      seenHistoricalG[k] = true;
+      historicalG.push(s);
+    }
+    seedG.forEach(pushHistoricalG);
+    Object.keys(knownHistoricalG).forEach(function(k) { pushHistoricalG(knownHistoricalG[k]); });
+    var showGroup = !!selectedCourseId && (options.length > 0 || historicalG.length > 0);
+    field.style.display = showGroup ? '' : 'none'; field.hidden = !showGroup;
+    if (!showGroup) { field.innerHTML = ''; return; }
     var maxQty = scheduleDrawerReadSurferCount() || 1;
-    field.innerHTML = options.map(function(option) {
-      var key = String(option.offering_key || ''), selected = state[key] || null;
+    var unavailLabelG = portalT('schedule.courseEquipment.unavailable')
+      || portalT('admin.courseEquipment.unavailable') || 'Unavailable';
+    function renderGroupEquipmentItem(option, selected, flags) {
+      flags = flags || {};
+      var key = String(option.offering_key != null ? option.offering_key : '');
+      var unavailable = !!flags.unavailable;
+      var checked = !!selected;
       var eqMode = selected && selected.mode === 'all_day' ? 'all_day' : 'during_course';
-      var qty = Math.max(1, Math.min(maxQty, parseInt(selected && selected.quantity, 10) || maxQty));
-      return '<div class="portal-schedule-course-equipment-item" data-offering-key="'+escHtml(key)+'"><div class="portal-schedule-course-equipment-row"><div class="portal-schedule-course-equipment-left"><label class="portal-schedule-course-equipment-check"><input type="checkbox" data-course-equipment-enabled'+(selected?' checked':'')+'></label><span class="portal-schedule-course-equipment-name">'+escHtml(option.label || key)+'</span></div><div class="portal-schedule-course-equipment-modes"'+(selected?'':' hidden style="display:none"')+'><button type="button" data-drawer-course-equipment-mode="during_course" aria-pressed="'+(selected&&eqMode==='during_course'?'true':'false')+'">'+escHtml(portalT('schedule.courseEquipment.during'))+'</button><button type="button" data-drawer-course-equipment-mode="all_day" aria-pressed="'+(selected&&eqMode==='all_day'?'true':'false')+'">'+escHtml(portalT('schedule.courseEquipment.allDay'))+'</button></div><div class="portal-schedule-course-equipment-sets"'+(selected&&eqMode==='all_day'?'':' hidden style="display:none"')+'><input type="number" min="1" max="'+escHtml(String(maxQty))+'" value="'+escHtml(String(qty))+'" data-course-equipment-quantity></div></div></div>';
+      // During Course always tracks participant count; All Day keeps explicit set qty.
+      var qty = eqMode === 'all_day'
+        ? Math.max(1, Math.min(maxQty, parseInt(selected && selected.quantity, 10) || maxQty))
+        : maxQty;
+      var name = String((option && option.label) || (selected && selected.label) || key || unavailLabelG);
+      var disabled = unavailable && !checked;
+      return '<div class="portal-schedule-course-equipment-item' + (unavailable ? ' is-unavailable' : '') +
+        '" data-offering-key="' + escHtml(key) + '">' +
+        '<div class="portal-schedule-course-equipment-row"><div class="portal-schedule-course-equipment-left">' +
+        '<label class="portal-schedule-course-equipment-check" aria-label="' + escHtml(name) + '">' +
+        '<input type="checkbox" data-course-equipment-enabled' + (checked ? ' checked' : '') +
+        (disabled ? ' disabled' : '') + '></label>' +
+        '<span class="portal-schedule-course-equipment-name">' + escHtml(name) + '</span></div>' +
+        '<div class="portal-schedule-course-equipment-modes" role="group" aria-label="' +
+        escHtml(portalT('schedule.courseEquipment.title') + ': ' + name) + '"' +
+        (checked ? '' : ' hidden style="display:none"') + '>' +
+        '<button type="button" class="portal-schedule-create-activity-btn" data-drawer-course-equipment-mode="during_course" aria-pressed="' +
+        (checked && eqMode === 'during_course' ? 'true' : 'false') + '">' +
+        escHtml(portalT('schedule.courseEquipment.during')) + '</button>' +
+        '<button type="button" class="portal-schedule-create-activity-btn" data-drawer-course-equipment-mode="all_day" aria-pressed="' +
+        (checked && eqMode === 'all_day' ? 'true' : 'false') + '">' +
+        escHtml(portalT('schedule.courseEquipment.allDay')) + '</button></div>' +
+        '<div class="portal-schedule-course-equipment-sets"' +
+        (checked && eqMode === 'all_day' ? '' : ' hidden style="display:none"') + '>' +
+        '<label><span class="portal-schedule-course-equipment-qty-label">' +
+        escHtml(portalT('schedule.courseEquipment.quantity')) + '</span>' +
+        '<input type="number" min="1" max="' + escHtml(String(maxQty)) + '" value="' +
+        escHtml(String(qty)) + '" data-course-equipment-quantity inputmode="numeric"></label></div></div></div>';
+    }
+    var htmlG = options.map(function(option) {
+      var key = String(option.offering_key || '');
+      return renderGroupEquipmentItem(option, state[key] || null, {});
     }).join('');
+    historicalG.forEach(function(s) {
+      var k = s && s.offering_key != null ? String(s.offering_key) : '';
+      var selected = Object.prototype.hasOwnProperty.call(state, k) ? state[k] : null;
+      var label = (selected && selected.label) || (s && s.label) || '';
+      htmlG += renderGroupEquipmentItem(
+        { offering_key: k, label: label },
+        selected,
+        { unavailable: true },
+      );
+    });
+    field.innerHTML = htmlG;
     return;
   }
   // Private multi-item equipment: catalog-owned options + historical unavailable/removable rows.
@@ -2592,16 +2673,21 @@ function scheduleReadDrawerEditPayload() {
   var equipmentField = el('ps-drawer-course-equipment');
   var course_equipment = [];
   if (mode === 'group') {
+    // During Course quantity always tracks participant count (never stale hidden sets).
+    // All Day uses explicit set quantity. Never empty offering_key, cents, or labels.
+    var groupSurfers = scheduleDrawerReadSurferCount() || 1;
     if (equipmentField) equipmentField.querySelectorAll('.portal-schedule-course-equipment-item').forEach(function(item) {
       var enabled = item.querySelector('[data-course-equipment-enabled]');
       var pressed = item.querySelector('[data-drawer-course-equipment-mode][aria-pressed="true"]');
       if (!enabled || !enabled.checked || !pressed) return;
+      var offeringKey = String(item.getAttribute('data-offering-key') || '').trim();
+      if (!offeringKey) return;
+      var modeKey = String(pressed.getAttribute('data-drawer-course-equipment-mode') || 'during_course');
       var quantityNode = item.querySelector('[data-course-equipment-quantity]');
-      course_equipment.push({
-        offering_key: String(item.getAttribute('data-offering-key') || ''),
-        mode: String(pressed.getAttribute('data-drawer-course-equipment-mode') || 'during_course'),
-        quantity: Math.max(1, Math.min(scheduleDrawerReadSurferCount() || 1, parseInt(quantityNode && quantityNode.value, 10) || 1)),
-      });
+      var quantity = modeKey === 'all_day'
+        ? Math.max(1, Math.min(groupSurfers, parseInt(quantityNode && quantityNode.value, 10) || 1))
+        : groupSurfers;
+      course_equipment.push({ offering_key: offeringKey, mode: modeKey, quantity: quantity });
     });
   } else if (mode === 'private') {
     // Exact non-empty identity/intent/count only — never empty offering_key, cents, or labels.
@@ -2993,7 +3079,10 @@ function scheduleWireEditableDrawer(row, ctx) {
       var sets = item.querySelector('.portal-schedule-course-equipment-sets');
       var allDay = button.getAttribute('data-drawer-course-equipment-mode') === 'all_day';
       if (sets) { sets.hidden = !allDay; sets.style.display = allDay ? '' : 'none'; }
-      scheduleDrawerMarkPriceStale(); scheduleDrawerSyncFooter();
+      // Re-render keeps During qty locked to surfers and All Day sets visible state consistent.
+      scheduleDrawerMarkPriceStale();
+      scheduleRefreshDrawerFullDayAddon();
+      scheduleDrawerSyncFooter();
     });
   }
   // Multi-item equipment is owned by #ps-drawer-course-equipment event delegation above.

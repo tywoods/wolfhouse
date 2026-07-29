@@ -777,6 +777,9 @@ function rowMatchesQuoteLine(row, line) {
       || meta.staff_custom_line === true) {
       return false;
     }
+    // Course-owned multi-item equipment also persists as addon_service rows.
+    // Full-day/addon quote lines must never claim them (duplicate_row_claim / misprice).
+    if (meta.course_equipment === true) return false;
     return meta.component === FULL_DAY_EQUIPMENT_ADDON_KEY
       || serviceType === 'addon_service'
       || meta.service_key === FULL_DAY_EQUIPMENT_ADDON_KEY;
