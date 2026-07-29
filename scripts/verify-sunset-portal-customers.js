@@ -226,8 +226,14 @@ if (fs.existsSync(CLIENTS_MODULE_PATH)) {
 }
 
 if (fs.existsSync(ACCESS_PATH)) {
-  const whSlugs = slugsWithAccessFile(ACCESS_PATH, 'tywoods@gmail.com');
-  assert('Wolfhouse default tywoods scoped to wolfhouse-somo only', whSlugs.length === 1 && whSlugs[0] === 'wolfhouse-somo', JSON.stringify(whSlugs));
+  const ownerSlugs = slugsWithAccessFile(ACCESS_PATH, 'tywoods@gmail.com');
+  assert('Default portal access scopes sunset owner to sunset only',
+    ownerSlugs.length === 1 && ownerSlugs[0] === 'sunset', JSON.stringify(ownerSlugs));
+  assert('Default portal access denies sunset owner wolfhouse/other tenants',
+    !ownerSlugs.includes('wolfhouse-somo')
+    && !ownerSlugs.includes('mirleft')
+    && !ownerSlugs.includes('lawave'),
+    JSON.stringify(ownerSlugs));
   const opSlugs = slugsWithAccessFile(ACCESS_PATH, 'operator.stage72c@example.test');
   assert('Wolfhouse operator scoped to wolfhouse-somo',
     opSlugs.length === 1 && opSlugs[0] === 'wolfhouse-somo', JSON.stringify(opSlugs));
