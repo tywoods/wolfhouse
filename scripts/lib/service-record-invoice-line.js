@@ -167,18 +167,25 @@ function formatServiceRecordInvoiceLineText(sr, opts = {}) {
     return `${label} \u2014 Not available`;
   }
 
-  // Dedicated persisted course-equipment rows are already one component/date.
-  // Render their snapshotted Admin unit and exact row total; never collapse board
-  // and wetsuit or infer a legacy rental duration/rate.
-  if (meta.course_equipment === true
-    && (meta.component === 'surfboard' || meta.component === 'wetsuit')) {
-    const componentLabel = meta.component === 'surfboard' ? 'Surfboard' : 'Wetsuit';
+  // Course-equipment rows are independent immutable commercial lines.
+  // Multi-item path: server label + mode + qty × persisted unit = persisted total.
+  // Narrow historical singleton (surfboard/wetsuit component, no offering_key) kept
+  // for read compatibility only — never invent live Admin prices.
+  if (meta.course_equipment === true) {
     const modeLabel = meta.course_equipment_mode === 'all_day' ? 'All Day' : 'During Course';
-    const date = String(sr.service_date || '').slice(0, 10);
     const qty = Math.max(1, Number(sr.quantity) || 1);
     const unit = Number(meta.unit_amount_cents);
     const safeUnit = Number.isSafeInteger(unit) && unit >= 0 ? unit : null;
-    return `${componentLabel} — ${modeLabel} — ${date} — ${qty} × ${formatEurCents(safeUnit)} = ${formatEurCents(totalCents)}`;
+    const offeringKey = String(meta.offering_key || '').trim();
+    if (offeringKey || meta.label) {
+      const name = String(meta.label || offeringKey || 'Equipment').trim();
+      return `${name} — ${modeLabel} — ${qty} × ${formatEurCents(safeUnit)} = ${formatEurCents(totalCents)}`;
+    }
+    if (meta.component === 'surfboard' || meta.component === 'wetsuit') {
+      const componentLabel = meta.component === 'surfboard' ? 'Surfboard' : 'Wetsuit';
+      const date = String(sr.service_date || '').slice(0, 10);
+      return `${componentLabel} — ${modeLabel} — ${date} — ${qty} × ${formatEurCents(safeUnit)} = ${formatEurCents(totalCents)}`;
+    }
   }
 
   if (meta.catalog_service) {
