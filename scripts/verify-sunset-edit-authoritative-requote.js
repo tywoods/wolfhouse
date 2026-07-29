@@ -1620,6 +1620,311 @@ async function main() {
     }
   }
 
+  // ── Paid multi-lesson: guest/name/notes/payment metadata-only allowed ──
+  {
+    console.log('\n[paid multi-lesson metadata-only allowed; commercial change fail-closed]');
+    const { drawer } = loadModules();
+    const DATE = '2026-08-20';
+    const multiLessons = [
+      {
+        kind: 'group',
+        course_id: PACK_ID,
+        date: DATE,
+        schedule_key: '0930_1130',
+        start: '09:30',
+        end: '11:30',
+        tier_key: TIER_DAY,
+        course_label: 'Weekend Course',
+      },
+      {
+        kind: 'group',
+        course_id: PACK_ID,
+        date: DATE,
+        schedule_key: '1215_1415',
+        start: '12:15',
+        end: '14:15',
+        tier_key: TIER_DAY,
+        course_label: 'Weekend Course',
+      },
+    ];
+    const multiServices = multiLessons.map((l, i) => ({
+      id: `sr-ml-${i + 1}`,
+      service_record_id: `sr-ml-${i + 1}`,
+      service_type: 'surf_lesson',
+      service_date: l.date,
+      quantity: 1,
+      amount_due_cents: COURSE_DAY_CENTS,
+      amount_paid_cents: COURSE_DAY_CENTS,
+      payment_status: 'paid',
+      record_source: 'staff_manual',
+      metadata_source: 'staff_manual_schedule',
+      location_id: LOC,
+      service_time_local: l.start,
+      service_time_local_end: l.end,
+      metadata: {
+        source: 'staff_manual_schedule',
+        component: 'course',
+        course_id: l.course_id,
+        course_label: l.course_label,
+        tier_key: l.tier_key,
+        offering_id: packPriceItemCode(l.course_id, l.tier_key),
+        schedule_key: l.schedule_key,
+        start: l.start,
+        end: l.end,
+        lesson_identity: `group|${l.course_id}|${l.date}|${l.schedule_key}`,
+        location_id: LOC,
+      },
+      metadata_component: 'course',
+    }));
+    const paidTotal = COURSE_DAY_CENTS * 2;
+    const multiBodyBase = {
+      guest_name: 'Paid Multi Guest',
+      payment_status: 'paid',
+      service_dates: [DATE],
+      notes: 'keep quiet',
+      components: {
+        course: {
+          quantity: 1,
+          course_id: PACK_ID,
+          course_label: 'Weekend Course',
+          tier_key: TIER_DAY,
+          offering_id: packPriceItemCode(PACK_ID, TIER_DAY),
+        },
+      },
+      lessons: multiLessons,
+    };
+
+    const pgMeta = makeStatefulPg({
+      booking: baseBooking({
+        amount_paid_cents: paidTotal,
+        payment_status: 'paid',
+        balance_due_cents: 0,
+        total_amount_cents: paidTotal,
+        guest_name: 'Paid Multi Guest',
+        check_in: DATE,
+        check_out: DATE,
+        metadata: {
+          source: 'staff_manual_schedule',
+          staff_manual_schedule: true,
+          location_id: LOC,
+          bundle_id: 'bundle-multi-paid',
+          components: ['course'],
+          lessons: multiLessons,
+          notes: 'keep quiet',
+        },
+      }),
+      services: multiServices,
+    });
+    const beforeIds = pgMeta.state.services.map((s) => s.service_record_id).join(',');
+    const beforeAmounts = pgMeta.state.services.map((s) => s.amount_due_cents).join(',');
+    const metaOnly = await drawer.updateSunsetScheduleBooking(pgMeta, {
+      clientSlug: 'sunset',
+      bookingId: BOOKING_ID,
+      locationId: LOC,
+      actor: { email: 'staff@sunset.test' },
+      body: {
+        ...multiBodyBase,
+        guest_name: 'Paid Multi Renamed',
+        notes: 'notes only change',
+        payment_status: 'paid',
+      },
+    });
+    assert(
+      'paid multi-lesson guest/name/notes-only does NOT reprice',
+      metaOnly.ok === true,
+      JSON.stringify(metaOnly.body || metaOnly),
+    );
+    assert(
+      'paid multi-lesson metadata-only retains service rows',
+      pgMeta.state.services.map((s) => s.service_record_id).join(',') === beforeIds,
+    );
+    assert(
+      'paid multi-lesson metadata-only retains amounts',
+      pgMeta.state.services.map((s) => s.amount_due_cents).join(',') === beforeAmounts,
+    );
+    assert(
+      'paid multi-lesson name updated',
+      pgMeta.state.bookings[0].guest_name === 'Paid Multi Renamed',
+    );
+
+    // Commercial change: remove one lesson → paid reprice required.
+    const pgRemove = makeStatefulPg({
+      booking: baseBooking({
+        amount_paid_cents: paidTotal,
+        payment_status: 'paid',
+        balance_due_cents: 0,
+        total_amount_cents: paidTotal,
+        guest_name: 'Paid Multi Guest',
+        check_in: DATE,
+        check_out: DATE,
+        metadata: {
+          source: 'staff_manual_schedule',
+          staff_manual_schedule: true,
+          location_id: LOC,
+          bundle_id: 'bundle-multi-paid',
+          components: ['course'],
+          lessons: multiLessons,
+        },
+      }),
+      services: multiServices,
+    });
+    const removeOne = await drawer.updateSunsetScheduleBooking(pgRemove, {
+      clientSlug: 'sunset',
+      bookingId: BOOKING_ID,
+      locationId: LOC,
+      actor: { email: 'staff@sunset.test' },
+      body: {
+        ...multiBodyBase,
+        lessons: [multiLessons[0]],
+      },
+    });
+    assert(
+      'paid multi-lesson remove lesson fail-closed',
+      removeOne.ok === false
+      && removeOne.status === 409
+      && removeOne.body
+      && removeOne.body.reason_code === 'paid_booking_reprice_required',
+      JSON.stringify(removeOne.body || removeOne),
+    );
+
+    // Commercial change: date/schedule shift → paid reprice required.
+    const pgDate = makeStatefulPg({
+      booking: baseBooking({
+        amount_paid_cents: paidTotal,
+        payment_status: 'paid',
+        balance_due_cents: 0,
+        total_amount_cents: paidTotal,
+        guest_name: 'Paid Multi Guest',
+        check_in: DATE,
+        check_out: DATE,
+        metadata: {
+          source: 'staff_manual_schedule',
+          staff_manual_schedule: true,
+          location_id: LOC,
+          bundle_id: 'bundle-multi-paid',
+          components: ['course'],
+          lessons: multiLessons,
+        },
+      }),
+      services: multiServices,
+    });
+    const shiftDate = await drawer.updateSunsetScheduleBooking(pgDate, {
+      clientSlug: 'sunset',
+      bookingId: BOOKING_ID,
+      locationId: LOC,
+      actor: { email: 'staff@sunset.test' },
+      body: {
+        ...multiBodyBase,
+        service_dates: ['2026-08-21'],
+        lessons: multiLessons.map((l) => ({ ...l, date: '2026-08-21' })),
+      },
+    });
+    assert(
+      'paid multi-lesson date change fail-closed',
+      shiftDate.ok === false
+      && shiftDate.status === 409
+      && shiftDate.body
+      && shiftDate.body.reason_code === 'paid_booking_reprice_required',
+      JSON.stringify(shiftDate.body || shiftDate),
+    );
+
+    const pgSched = makeStatefulPg({
+      booking: baseBooking({
+        amount_paid_cents: paidTotal,
+        payment_status: 'paid',
+        balance_due_cents: 0,
+        total_amount_cents: paidTotal,
+        guest_name: 'Paid Multi Guest',
+        check_in: DATE,
+        check_out: DATE,
+        metadata: {
+          source: 'staff_manual_schedule',
+          staff_manual_schedule: true,
+          location_id: LOC,
+          bundle_id: 'bundle-multi-paid',
+          components: ['course'],
+          lessons: multiLessons,
+        },
+      }),
+      services: multiServices,
+    });
+    const shiftSched = await drawer.updateSunsetScheduleBooking(pgSched, {
+      clientSlug: 'sunset',
+      bookingId: BOOKING_ID,
+      locationId: LOC,
+      actor: { email: 'staff@sunset.test' },
+      body: {
+        ...multiBodyBase,
+        lessons: [
+          {
+            ...multiLessons[0],
+            schedule_key: '1600_1800',
+            start: '16:00',
+            end: '18:00',
+          },
+          multiLessons[1],
+        ],
+      },
+    });
+    assert(
+      'paid multi-lesson schedule/time change fail-closed',
+      shiftSched.ok === false
+      && shiftSched.status === 409
+      && shiftSched.body
+      && shiftSched.body.reason_code === 'paid_booking_reprice_required',
+      JSON.stringify(shiftSched.body || shiftSched),
+    );
+
+    // Surfer count change → paid reprice required.
+    const pgSurf = makeStatefulPg({
+      booking: baseBooking({
+        amount_paid_cents: paidTotal,
+        payment_status: 'paid',
+        balance_due_cents: 0,
+        total_amount_cents: paidTotal,
+        guest_name: 'Paid Multi Guest',
+        check_in: DATE,
+        check_out: DATE,
+        metadata: {
+          source: 'staff_manual_schedule',
+          staff_manual_schedule: true,
+          location_id: LOC,
+          bundle_id: 'bundle-multi-paid',
+          components: ['course'],
+          lessons: multiLessons,
+        },
+      }),
+      services: multiServices,
+    });
+    const surfChange = await drawer.updateSunsetScheduleBooking(pgSurf, {
+      clientSlug: 'sunset',
+      bookingId: BOOKING_ID,
+      locationId: LOC,
+      actor: { email: 'staff@sunset.test' },
+      body: {
+        ...multiBodyBase,
+        components: {
+          course: {
+            quantity: 2,
+            course_id: PACK_ID,
+            course_label: 'Weekend Course',
+            tier_key: TIER_DAY,
+            offering_id: packPriceItemCode(PACK_ID, TIER_DAY),
+          },
+        },
+        lessons: multiLessons,
+      },
+    });
+    assert(
+      'paid multi-lesson surfer change fail-closed',
+      surfChange.ok === false
+      && surfChange.status === 409
+      && surfChange.body
+      && surfChange.body.reason_code === 'paid_booking_reprice_required',
+      JSON.stringify(surfChange.body || surfChange),
+    );
+  }
+
   // ── Client cents ignored / rejected ──
   {
     console.log('\n[client cents ignored]');

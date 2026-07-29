@@ -39,8 +39,15 @@ const {
 const { isSunsetAdminDbReadEnabled } = require('./tenant-business-config');
 const {
   quoteCourseEquipment,
+  quoteCourseEquipmentForLessonSet,
   checkedAdd: checkedCourseEquipmentAdd,
 } = require('./sunset-course-equipment-pricing');
+const {
+  canUsePackMultiDatePath,
+  shouldPriceGroupLessonsIndividually,
+  lessonIdentity,
+  uniqueCalendarDates,
+} = require('./sunset-schedule-lessons');
 const {
   MAX_GROUP_COURSE_INCLUSIVE_DAYS,
   groupCourseAdminTierKeyForInclusiveDays,
@@ -217,10 +224,13 @@ function nestOfferingForQuote(raw) {
  * Build course-owned equipment quote lines for Group/Private.
  * selection is wire array [{offering_key, mode, quantity}]; server owns cents/labels.
  * Money: independent mode unit price × quantity × unique course service dates.
+ * When courses[] is multi, every course must authorize the offering/mode and
+ * configured unit amounts must be equal (or fail course_equipment_price_conflict).
  */
 function buildCourseEquipmentQuoteLines({
   selection,
   course,
+  courses,
   surfers,
   locationId,
   catalog,
@@ -235,8 +245,11 @@ function buildCourseEquipmentQuoteLines({
     || null;
   let equipmentQuote;
   try {
-    equipmentQuote = quoteCourseEquipment({
-      course,
+    const courseList = Array.isArray(courses) && courses.length
+      ? courses
+      : (course ? [course] : []);
+    equipmentQuote = quoteCourseEquipmentForLessonSet({
+      courses: courseList,
       selection,
       surfers,
       offerings,
@@ -245,13 +258,18 @@ function buildCourseEquipmentQuoteLines({
       serviceDates,
     });
   } catch (err) {
+    const reason = err && err.reason
+      ? String(err.reason)
+      : 'invalid_course_equipment';
     return {
       ok: false,
       status: 422,
       body: {
         success: false,
-        reason: 'invalid_course_equipment',
+        reason,
+        reason_code: reason,
         error: String(err.message || err),
+        detail: err && err.detail ? err.detail : undefined,
       },
     };
   }
@@ -282,6 +300,135 @@ function buildCourseEquipmentQuoteLines({
     total_cents: equipmentQuote.total_cents,
     course_equipment: equipmentQuote.course_equipment,
   };
+}
+
+/**
+ * Authoritative per-lesson Group pricing (sync catalog path).
+ * Each canonical lesson resolves its own Admin course/tier (default 1_day) × shared
+ * surfers. Never folds multi rows into the first/primary course package tier.
+ */
+function quoteGroupLessonsIndividuallySync(command, catalog, requireDb, lessons, surfers) {
+  const lines = [];
+  let totalCents = 0;
+  let currency = 'EUR';
+  const qty = Math.max(1, Number(surfers) || 1);
+
+  for (let i = 0; i < lessons.length; i += 1) {
+    const lesson = lessons[i];
+    if (!lesson || lesson.kind !== 'group') {
+      return {
+        ok: false,
+        status: 422,
+        body: { success: false, reason: 'invalid_lessons', error: `lessons[${i}] must be group` },
+      };
+    }
+    const tierKey = String(lesson.tier_key || '1_day').trim() || '1_day';
+    const identity = resolveCourseOfferingIdentity({
+      course_id: lesson.course_id,
+      tier_key: tierKey,
+      offering_id: lesson.offering_id,
+    });
+    if (!identity.ok) return identity;
+    const matches = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id);
+    if (!matches.length) {
+      return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
+    }
+    const offering = nestOfferingForQuote(matches[0]);
+    const lineOut = quoteOfferingLineSync(command, offering, [lesson.date], qty, requireDb);
+    if (!lineOut.ok) return lineOut;
+    const lid = lessonIdentity(lesson);
+    lines.push({
+      ...lineOut.line,
+      component: 'course',
+      course_id: lesson.course_id,
+      tier_key: tierKey,
+      schedule_key: lesson.schedule_key || null,
+      start: lesson.start || null,
+      end: lesson.end || null,
+      lesson_identity: lid,
+      service_dates: [lesson.date],
+      lesson_index: i,
+    });
+    totalCents += lineOut.line.total_cents;
+    currency = lineOut.line.currency || currency;
+  }
+  return { ok: true, lines, totalCents, currency };
+}
+
+/**
+ * Async per-lesson Group pricing with capacity gate + Admin DB re-resolve.
+ */
+async function quoteGroupLessonsIndividually(pg, command, catalog, requireDb, lessons, surfers) {
+  if (!pg) {
+    return quoteGroupLessonsIndividuallySync(command, catalog, requireDb, lessons, surfers);
+  }
+  const lines = [];
+  let totalCents = 0;
+  let currency = 'EUR';
+  const qty = Math.max(1, Number(surfers) || 1);
+
+  for (let i = 0; i < lessons.length; i += 1) {
+    const lesson = lessons[i];
+    if (!lesson || lesson.kind !== 'group') {
+      return {
+        ok: false,
+        status: 422,
+        body: { success: false, reason: 'invalid_lessons', error: `lessons[${i}] must be group` },
+      };
+    }
+    const tierKey = String(lesson.tier_key || '1_day').trim() || '1_day';
+    const identity = resolveCourseOfferingIdentity({
+      course_id: lesson.course_id,
+      tier_key: tierKey,
+      offering_id: lesson.offering_id,
+    });
+    if (!identity.ok) return identity;
+    const matches = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id);
+    if (!matches.length) {
+      return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
+    }
+    const offering = nestOfferingForQuote(matches[0]);
+    const cap = await assertCourseAssignable(pg, {
+      clientSlug: SUNSET_CLIENT_SLUG,
+      locationId: command.locationId,
+      courseId: lesson.course_id,
+      serviceDates: [lesson.date],
+      quantity: qty,
+    });
+    if (!cap.ok) {
+      return {
+        ok: false,
+        status: cap.status || 409,
+        body: {
+          success: false,
+          reason: cap.body && cap.body.error,
+          reason_code: cap.body && (cap.body.reason_code || cap.body.error),
+          error: cap.body && cap.body.error,
+          course_id: lesson.course_id,
+          capacity_by_date: cap.body && cap.body.capacity_by_date,
+        },
+      };
+    }
+    offering._capacity_by_date = cap.capacity_by_date;
+    const lineOut = await quoteOfferingLine(pg, command, offering, [lesson.date], qty, requireDb);
+    if (!lineOut.ok) return lineOut;
+    const lid = lessonIdentity(lesson);
+    lines.push({
+      ...lineOut.line,
+      component: 'course',
+      course_id: lesson.course_id,
+      tier_key: tierKey,
+      schedule_key: lesson.schedule_key || null,
+      start: lesson.start || null,
+      end: lesson.end || null,
+      lesson_identity: lid,
+      service_dates: [lesson.date],
+      lesson_index: i,
+    });
+    totalCents += lineOut.line.total_cents;
+    currency = lineOut.line.currency || currency;
+  }
+  return { ok: true, lines, totalCents, currency };
 }
 
 function mapQuoteFailure(reason, extra = {}) {
@@ -990,8 +1137,14 @@ function quoteHasRentalsArray(body) {
   return !!(body && Array.isArray(body.rentals));
 }
 
+function quoteHasCanonicalLessons(body) {
+  return !!(body && Array.isArray(body.lessons) && body.lessons.length > 0);
+}
+
 function quoteShouldUseComponentsPath(body) {
-  return quoteHasNonEmptyComponents(body) || quoteHasRentalsArray(body);
+  return quoteHasNonEmptyComponents(body)
+    || quoteHasRentalsArray(body)
+    || quoteHasCanonicalLessons(body);
 }
 
 function inclusiveIsoDatesFromRange(dateFrom, dateTo) {
@@ -1140,9 +1293,11 @@ function resolveQuoteComponentsAndRentalsInput(command) {
     : { lunaTrusted: false };
 
   let input;
-  if (hasComponents) {
+  const hasLessons = quoteHasCanonicalLessons(body);
+  if (hasComponents || hasLessons) {
     // Quote is not gated on guest name/phone — Create remains fail-closed.
     // Use command.now as date ref (same as outer dateNorm) — never wall-clock drift.
+    // lessons[] alone is enough: validate expands to components for legacy paths.
     const validated = validateScheduleBookingBody(body, {
       allowBlankGuest: true,
       refDate: command.now,
@@ -1600,12 +1755,27 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
   if (!resolved.ok) return resolved;
   const { input, rentalsNorm } = resolved;
   const serviceDates = input.service_dates || [];
+  const canonicalLessons = Array.isArray(input.lessons) ? input.lessons : [];
+  const groupLessons = canonicalLessons.filter((l) => l && l.kind === 'group');
+  const priceGroupPerLesson = shouldPriceGroupLessonsIndividually(groupLessons);
 
   const lines = [];
   let totalCents = 0;
   let currency = 'EUR';
 
-  if (input.components.course) {
+  if (priceGroupPerLesson) {
+    const surfers = input.surfer_count != null
+      ? Math.max(1, Number(input.surfer_count) || 1)
+      : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
+    const multi = await quoteGroupLessonsIndividually(
+      pg, command, catalog, requireDb, groupLessons, surfers,
+    );
+    if (!multi.ok) return multi;
+    lines.push(...multi.lines);
+    totalCents += multi.totalCents;
+    currency = multi.currency || currency;
+  } else if (input.components.course) {
+    // Legacy / pack multi-date: single course, at most one lesson per day.
     const comp = input.components.course;
     const identity = resolveCourseOfferingIdentity(comp);
     if (!identity.ok) return identity;
@@ -1650,21 +1820,67 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
   // options + active scoped rental identity. Never shared location pricing,
   // equipment_included, rental-catalog prices, or client money.
   // Total = independent mode unit × qty × unique course service dates.
+  // Multi-Group courses: every course must authorize; equal unit amounts required.
   // Absent wire forms (undefined/null/[]) are no selection — not orphan CE.
   const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
   let courseEquipmentEcho = null;
   if (isPresentCourseEquipmentSelection(input.course_equipment)) {
-    let courseForEquipment = null;
+    let coursesForEquipment = [];
     let surfers = null;
     let equipmentDates = serviceDates;
-    if (input.components.course) {
+    if (groupLessons.length) {
+      const courseIds = [...new Set(groupLessons.map((l) => String(l.course_id || '').trim()).filter(Boolean))];
+      const adminPacks = (catalog && catalog._adminCfg && catalog._adminCfg.surf_packs)
+        || (catalog && catalog.surf_packs)
+        || [];
+      for (const courseId of courseIds) {
+        const pack = adminPacks.find((p) => String(p.pack_id || p.course_id || '') === courseId);
+        const tierKey = String(
+          (groupLessons.find((l) => l.course_id === courseId) || {}).tier_key
+          || (canUsePackMultiDatePath(groupLessons) && input.components.course && input.components.course.tier_key)
+          || '1_day',
+        ).trim() || '1_day';
+        const identity = resolveCourseOfferingIdentity({ course_id: courseId, tier_key: tierKey });
+        if (!identity.ok) return identity;
+        const match = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0];
+        if (!match && !pack) {
+          return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
+        }
+        const nested = match ? nestOfferingForQuote(match) : {
+          course_id: courseId,
+          offering_type: 'course',
+          equipment_options: (pack && pack.equipment_options) || [],
+        };
+        // Prefer Admin pack equipment_options (course-owned authority).
+        if (pack && Array.isArray(pack.equipment_options)) {
+          nested.equipment_options = pack.equipment_options;
+          nested.course_id = courseId;
+          nested.pack_id = pack.pack_id || courseId;
+        }
+        coursesForEquipment.push(nested);
+      }
+      surfers = input.surfer_count != null
+        ? Math.max(1, Number(input.surfer_count) || 1)
+        : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
+      equipmentDates = uniqueCalendarDates(groupLessons);
+    } else if (input.components.course) {
       const identity = resolveCourseOfferingIdentity(input.components.course);
       if (!identity.ok) return identity;
       const match = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0];
       if (!match) {
         return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
       }
-      courseForEquipment = nestOfferingForQuote(match);
+      const nested = nestOfferingForQuote(match);
+      const adminPacks = (catalog && catalog._adminCfg && catalog._adminCfg.surf_packs)
+        || (catalog && catalog.surf_packs)
+        || [];
+      const pack = adminPacks.find(
+        (p) => String(p.pack_id || p.course_id || '') === String(input.components.course.course_id),
+      );
+      if (pack && Array.isArray(pack.equipment_options)) {
+        nested.equipment_options = pack.equipment_options;
+      }
+      coursesForEquipment = [nested];
       surfers = Math.max(1, Number(input.components.course.quantity) || 1);
       equipmentDates = serviceDates;
     } else if (input.components.private_lesson) {
@@ -1672,7 +1888,14 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       if (!match) {
         return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
       }
-      courseForEquipment = nestOfferingForQuote(match);
+      const nested = nestOfferingForQuote(match);
+      const plCfg = (catalog && catalog._adminCfg && catalog._adminCfg.private_lesson)
+        || (catalog && catalog.private_lesson)
+        || null;
+      if (plCfg && Array.isArray(plCfg.equipment_options)) {
+        nested.equipment_options = plCfg.equipment_options;
+      }
+      coursesForEquipment = [nested];
       surfers = Math.max(1, Number(input.components.private_lesson.surfer_count) || 1);
       const sessions = input.components.private_lesson.sessions || [];
       const sessionDates = sessions.map((s) => String(s.date).slice(0, 10)).filter(Boolean);
@@ -1682,7 +1905,7 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     }
     const equipmentOut = buildCourseEquipmentQuoteLines({
       selection: input.course_equipment,
-      course: courseForEquipment,
+      courses: coursesForEquipment,
       surfers,
       locationId: command.locationId,
       catalog,
@@ -1817,16 +2040,32 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
 
 function quoteByComponentsSync(command, catalog, requireDb) {
   // Sync callers must not receive a Promise — price with catalog amounts only.
+  // Delegate to the async owner with pg=null so multi-lesson / CE rules stay single-owned.
+  // (quoteGroupLessonsIndividually and CE paths already support sync when pg is null.)
   const resolved = resolveQuoteComponentsAndRentalsInput(command);
   if (!resolved.ok) return resolved;
   const { input, rentalsNorm } = resolved;
   const serviceDates = input.service_dates || [];
+  const canonicalLessons = Array.isArray(input.lessons) ? input.lessons : [];
+  const groupLessons = canonicalLessons.filter((l) => l && l.kind === 'group');
+  const priceGroupPerLesson = shouldPriceGroupLessonsIndividually(groupLessons);
 
   const lines = [];
   let totalCents = 0;
   let currency = 'EUR';
 
-  if (input.components.course) {
+  if (priceGroupPerLesson) {
+    const surfers = input.surfer_count != null
+      ? Math.max(1, Number(input.surfer_count) || 1)
+      : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
+    const multi = quoteGroupLessonsIndividuallySync(
+      command, catalog, requireDb, groupLessons, surfers,
+    );
+    if (!multi.ok) return multi;
+    lines.push(...multi.lines);
+    totalCents += multi.totalCents;
+    currency = multi.currency || currency;
+  } else if (input.components.course) {
     const comp = input.components.course;
     const identity = resolveCourseOfferingIdentity(comp);
     if (!identity.ok) return identity;
@@ -1863,21 +2102,64 @@ function quoteByComponentsSync(command, catalog, requireDb) {
   }
 
   // Course-owned multi-item equipment (sync path — same authority as async).
-  // Absent wire forms (undefined/null/[]) are no selection — not orphan CE.
   const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
   let courseEquipmentEcho = null;
   if (isPresentCourseEquipmentSelection(input.course_equipment)) {
-    let courseForEquipment = null;
+    let coursesForEquipment = [];
     let surfers = null;
     let equipmentDates = serviceDates;
-    if (input.components.course) {
+    if (groupLessons.length) {
+      const courseIds = [...new Set(groupLessons.map((l) => String(l.course_id || '').trim()).filter(Boolean))];
+      const adminPacks = (catalog && catalog._adminCfg && catalog._adminCfg.surf_packs)
+        || (catalog && catalog.surf_packs)
+        || [];
+      for (const courseId of courseIds) {
+        const pack = adminPacks.find((p) => String(p.pack_id || p.course_id || '') === courseId);
+        const tierKey = String(
+          (groupLessons.find((l) => l.course_id === courseId) || {}).tier_key
+          || (canUsePackMultiDatePath(groupLessons) && input.components.course && input.components.course.tier_key)
+          || '1_day',
+        ).trim() || '1_day';
+        const identity = resolveCourseOfferingIdentity({ course_id: courseId, tier_key: tierKey });
+        if (!identity.ok) return identity;
+        const match = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0];
+        if (!match && !pack) {
+          return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
+        }
+        const nested = match ? nestOfferingForQuote(match) : {
+          course_id: courseId,
+          offering_type: 'course',
+          equipment_options: (pack && pack.equipment_options) || [],
+        };
+        if (pack && Array.isArray(pack.equipment_options)) {
+          nested.equipment_options = pack.equipment_options;
+          nested.course_id = courseId;
+          nested.pack_id = pack.pack_id || courseId;
+        }
+        coursesForEquipment.push(nested);
+      }
+      surfers = input.surfer_count != null
+        ? Math.max(1, Number(input.surfer_count) || 1)
+        : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
+      equipmentDates = uniqueCalendarDates(groupLessons);
+    } else if (input.components.course) {
       const identity = resolveCourseOfferingIdentity(input.components.course);
       if (!identity.ok) return identity;
       const match = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0];
       if (!match) {
         return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
       }
-      courseForEquipment = nestOfferingForQuote(match);
+      const nested = nestOfferingForQuote(match);
+      const adminPacks = (catalog && catalog._adminCfg && catalog._adminCfg.surf_packs)
+        || (catalog && catalog.surf_packs)
+        || [];
+      const pack = adminPacks.find(
+        (p) => String(p.pack_id || p.course_id || '') === String(input.components.course.course_id),
+      );
+      if (pack && Array.isArray(pack.equipment_options)) {
+        nested.equipment_options = pack.equipment_options;
+      }
+      coursesForEquipment = [nested];
       surfers = Math.max(1, Number(input.components.course.quantity) || 1);
       equipmentDates = serviceDates;
     } else if (input.components.private_lesson) {
@@ -1885,7 +2167,14 @@ function quoteByComponentsSync(command, catalog, requireDb) {
       if (!match) {
         return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
       }
-      courseForEquipment = nestOfferingForQuote(match);
+      const nested = nestOfferingForQuote(match);
+      const plCfg = (catalog && catalog._adminCfg && catalog._adminCfg.private_lesson)
+        || (catalog && catalog.private_lesson)
+        || null;
+      if (plCfg && Array.isArray(plCfg.equipment_options)) {
+        nested.equipment_options = plCfg.equipment_options;
+      }
+      coursesForEquipment = [nested];
       surfers = Math.max(1, Number(input.components.private_lesson.surfer_count) || 1);
       const sessions = input.components.private_lesson.sessions || [];
       const sessionDates = sessions.map((s) => String(s.date).slice(0, 10)).filter(Boolean);
@@ -1895,7 +2184,7 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     }
     const equipmentOut = buildCourseEquipmentQuoteLines({
       selection: input.course_equipment,
-      course: courseForEquipment,
+      courses: coursesForEquipment,
       surfers,
       locationId: command.locationId,
       catalog,

@@ -148,6 +148,202 @@ function quoteCourseEquipment({
   };
 }
 
+/**
+ * Multi-Group-course equipment authority.
+ *
+ * Shared selection must be authorized by EVERY selected Group course. Product
+ * charges once per surfer per UNIQUE calendar day. When courses configure
+ * different unit amounts for the same offering/mode, fail closed with a specific
+ * configuration conflict — never pick the first course's price.
+ *
+ * Private still uses quoteCourseEquipment with its single Private entity.
+ */
+function quoteCourseEquipmentForLessonSet({
+  courses,
+  selection,
+  surfers,
+  offerings,
+  clientSlug,
+  locationId,
+  serviceDates,
+}) {
+  const list = Array.isArray(courses) ? courses.filter(Boolean) : [];
+  if (!list.length) {
+    throw new TypeError('course equipment requires at least one course configuration');
+  }
+  if (list.length === 1) {
+    return quoteCourseEquipment({
+      course: list[0],
+      selection,
+      surfers,
+      offerings,
+      clientSlug,
+      locationId,
+      serviceDates,
+    });
+  }
+
+  const selected = validateEquipmentSelection(selection, surfers);
+  if (selected.length === 0) {
+    return { total_cents: 0, lines: [], selections: [], course_equipment: [] };
+  }
+
+  const dates = uniqueCourseServiceDates(serviceDates);
+  if (dates.length < 1) {
+    throw new TypeError('course equipment requires unique course service dates');
+  }
+  const dateCount = dates.length;
+
+  const activeScoped = offerings
+    ? activeScopedOfferingMap(offerings, { clientSlug, locationId })
+    : null;
+
+  const courseConfigs = list.map((course) => {
+    const rawOptions = (course && Array.isArray(course.equipment_options))
+      ? course.equipment_options
+      : [];
+    const configured = new Map();
+    for (const raw of rawOptions) {
+      let money;
+      try {
+        money = resolveEquipmentOptionMoney(raw);
+      } catch (err) {
+        throw new TypeError(`equipment option price invalid: ${err.message || err}`);
+      }
+      configured.set(money.offering_key, {
+        ...money,
+        label: raw && raw.label != null ? raw.label : undefined,
+      });
+    }
+    return {
+      course_id: (course && (course.course_id || course.pack_id || course.id)) || null,
+      configured,
+    };
+  });
+
+  const lines = [];
+  let total_cents = 0;
+  const transport = [];
+
+  for (const item of selected) {
+    if (activeScoped && !activeScoped.has(item.offering_key)) {
+      throw new TypeError('equipment offering is not an active scoped rental');
+    }
+
+    const resolved = [];
+    for (const cfg of courseConfigs) {
+      const option = cfg.configured.get(item.offering_key);
+      if (!option) {
+        const err = new TypeError(
+          `equipment is not configured for every selected course (${item.offering_key})`,
+        );
+        err.reason = 'course_equipment_not_authorized_for_all_courses';
+        throw err;
+      }
+      const during = option.during_course_price_cents;
+      const allDay = option.all_day_price_cents;
+      if (!Number.isSafeInteger(during) || during < 0) {
+        throw new TypeError('during_course_price_cents invalid');
+      }
+      if (!Number.isSafeInteger(allDay) || allDay < 0) {
+        throw new TypeError('all_day_price_cents invalid');
+      }
+      resolved.push({
+        course_id: cfg.course_id,
+        during,
+        allDay,
+        unit: item.all_day ? allDay : during,
+        label: option.label,
+      });
+    }
+
+    const units = resolved.map((r) => r.unit);
+    const unit0 = units[0];
+    if (units.some((u) => u !== unit0)) {
+      const err = new TypeError(
+        'course equipment price conflict across selected courses for the same offering/mode',
+      );
+      err.reason = 'course_equipment_price_conflict';
+      err.detail = {
+        offering_key: item.offering_key,
+        mode: item.all_day ? 'all_day' : 'during_course',
+        units_by_course: resolved.map((r) => ({
+          course_id: r.course_id,
+          unit_amount_cents: r.unit,
+        })),
+      };
+      throw err;
+    }
+
+    const during0 = resolved[0].during;
+    const allDay0 = resolved[0].allDay;
+    // Equal-unit conflict check already passed; still require equal mode config
+    // snapshots so we never invent a blended During/All Day pair.
+    if (resolved.some((r) => r.during !== during0 || r.allDay !== allDay0)) {
+      const err = new TypeError(
+        'course equipment price conflict across selected courses for the same offering/mode',
+      );
+      err.reason = 'course_equipment_price_conflict';
+      throw err;
+    }
+
+    const unit = unit0;
+    const perDate = checkedMultiply(unit, item.quantity, 'equipment per-date');
+    const total = checkedMultiply(perDate, dateCount, 'equipment line');
+    total_cents = checkedAdd(total_cents, total, 'equipment total');
+
+    const mode = item.all_day ? 'all_day' : 'during_course';
+    const active = activeScoped && activeScoped.get(item.offering_key);
+    const label = String(
+      (active && (active.label || active.display_name))
+      || resolved.find((r) => r.label)?.label
+      || item.offering_key,
+    );
+    const courseIds = resolved.map((r) => r.course_id).filter(Boolean);
+
+    transport.push({ offering_key: item.offering_key, mode, quantity: item.quantity });
+    lines.push({
+      offering_key: item.offering_key,
+      label,
+      quantity: item.quantity,
+      all_day: item.all_day,
+      mode,
+      during_course_price_cents: during0,
+      all_day_price_cents: allDay0,
+      amount_cents: unit,
+      unit_amount_cents: unit,
+      total_cents: total,
+      date_count: dateCount,
+      service_dates: dates.slice(),
+      course_equipment: true,
+      course_equipment_mode: mode,
+      billing_unit: 'person_per_course_date',
+      price_source: 'course_owned_equipment',
+      metadata: {
+        offering_key: item.offering_key,
+        course_id: courseIds.length === 1 ? courseIds[0] : null,
+        course_ids: courseIds,
+        course_equipment: true,
+        course_equipment_mode: mode,
+        price_basis: 'per_person_per_course_date',
+        pricing_provenance: 'course_owned_equipment_multi_course',
+        during_course_price_cents: during0,
+        all_day_price_cents: allDay0,
+        unit_amount_cents: unit,
+        date_count: dateCount,
+        service_dates: dates.slice(),
+      },
+    });
+  }
+
+  return {
+    total_cents,
+    lines,
+    selections: selected,
+    course_equipment: transport,
+  };
+}
+
 function invoiceLines(quote) {
   return ((quote && quote.lines) || []).map((line) => ({
     description: `${line.label} — ${line.all_day ? 'All Day' : 'During Course'}`,
@@ -198,6 +394,7 @@ module.exports = {
   checkedAdd,
   checkedMultiply,
   quoteCourseEquipment,
+  quoteCourseEquipmentForLessonSet,
   invoiceLines,
   validateConfig,
   normalizeSelection,

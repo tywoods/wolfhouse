@@ -165,8 +165,9 @@ async function main() {
     const pg = makePg(['sr-pl-1', 'sr-pl-2']);
     const green = await writes.applyAuthoritativeQuoteAmounts(pg, [row1, row2], privateQuote(16000, 2), { clientSlug: 'sunset' });
     assert('reattach GREEN ok', green.ok === true && green.total_cents === 16000, JSON.stringify(green));
-    assert('exact authoritative amount assignment (primary + zero peer)',
-      pg.amounts['sr-pl-1'] === 16000 && pg.amounts['sr-pl-2'] === 0, JSON.stringify(pg.amounts));
+    // Each session carries its authoritative share (unit×surfers), not primary+zero.
+    assert('exact authoritative amount assignment (per-session split)',
+      pg.amounts['sr-pl-1'] === 8000 && pg.amounts['sr-pl-2'] === 8000, JSON.stringify(pg.amounts));
   }
 
   {
@@ -186,9 +187,8 @@ async function main() {
     const g = await writes.applyAuthoritativeQuoteAmounts(pg, [a, b], privateQuote(16000, 2), { clientSlug: 'sunset' });
     assert('identical sessions claim same line without double-claim',
       g.ok && g.total_cents === 16000 && g.error !== 'duplicate_row_claim', JSON.stringify(g));
-    assert('identical sessions accounting primary+zero',
-      (pg.amounts['sr-a'] === 16000 && pg.amounts['sr-b'] === 0)
-      || (pg.amounts['sr-b'] === 16000 && pg.amounts['sr-a'] === 0), JSON.stringify(pg.amounts));
+    assert('identical sessions accounting per-session split',
+      pg.amounts['sr-a'] === 8000 && pg.amounts['sr-b'] === 8000, JSON.stringify(pg.amounts));
   }
 
   {
@@ -199,7 +199,8 @@ async function main() {
     const pg = makePg(['sr-y', 'sr-z']);
     const g = await writes.applyAuthoritativeQuoteAmounts(pg, [late, early], privateQuote(12000, 2), { clientSlug: 'sunset' });
     assert('reordered rows GREEN', g.ok && g.total_cents === 12000, JSON.stringify(g));
-    assert('reordered primary is earliest date', pg.amounts['sr-y'] === 12000 && pg.amounts['sr-z'] === 0, JSON.stringify(pg.amounts));
+    assert('reordered rows each get equal session amount',
+      pg.amounts['sr-y'] === 6000 && pg.amounts['sr-z'] === 6000, JSON.stringify(pg.amounts));
   }
 
   console.log('[3] Private + gear multi-line accounting');

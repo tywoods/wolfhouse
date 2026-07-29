@@ -37,6 +37,9 @@ const {
   insertFullDayEquipmentAddonRows,
   insertStaffCustomLineServiceRows,
   prepareCanonicalRentalsForCreate,
+  prepareGenericRentalsForCreate,
+  rentalDurationKeyFromDateRange,
+  inclusiveIsoDatesFromRange,
   buildSchedulePricingIntent,
   schedulePricingIntentsEqual,
   isSunsetBookingFinanciallyCommitted,
@@ -128,6 +131,27 @@ function formatSunsetDrawerDailyItemLabel(dbType, qty, sr) {
     // Compact "Name · quantity" only. Localized name resolved by the UI (i18n key
     // schedule.type.fullDayEquipment); server label falls back to the Spanish product name.
     return `Material el resto del día${sep}${q}`;
+  }
+  // Generic Admin rental catalog rows (service_type addon_service): prefer the
+  // persisted Admin-owned label snapshotted at create/edit. Never surface the
+  // coarse bucket name "addon_service" on the invoice.
+  if (
+    dbType === 'addon_service'
+    || meta.rental_offering === true
+    || meta.generic_rental === true
+    || (meta.offering_key && (meta.duration_key || meta.item_code))
+  ) {
+    const adminName = String(
+      meta.offering_label
+      || meta.label
+      || meta.service_name
+      || meta.offering_key
+      || '',
+    ).trim();
+    if (adminName && adminName.toLowerCase() !== 'addon_service') {
+      return `${adminName}${sep}${q}`;
+    }
+    if (meta.offering_key) return `${String(meta.offering_key).trim()}${sep}${q}`;
   }
   if (component === 'course') {
     const name = meta.course_label || sr?.course_label;
@@ -717,6 +741,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       date_to: agg.date_to,
       components: agg.components,
       course_equipment: course_equipment || null,
+      lessons: canonicalLessonsFromBundle(bundle, agg, meta),
       rentals: Array.isArray(meta.rentals) ? meta.rentals : [],
       custom_line_items: customLineItemsFromBundle(bundle),
       rental_pricing: parseRentalPricingMeta(meta) || meta.rental_pricing || null, slot_time: agg.slot_time,
@@ -800,6 +825,60 @@ function customLineItemsFromBundle(bundle) {
   return [];
 }
 
+/**
+ * Same production owner as drawer readback lessons[]:
+ *  1) booking metadata.lessons (exact create/edit identity)
+ *  2) reconstruct from physical lesson service rows (same-day multi survives)
+ *  3) legacy single-course / single-private expand only when exact lesson
+ *     service rows are absent — never invent multi same-day from an outer range
+ *     when service rows already own lesson identity.
+ */
+function canonicalLessonsFromBundle(bundle, agg, meta) {
+  try {
+    const {
+      normalizeCanonicalLessons,
+      reconstructLessonsFromServiceRows,
+    } = require('./sunset-schedule-lessons');
+    const services = (bundle && bundle.services) || [];
+    const bookingMeta = meta || parseMeta(bundle && bundle.booking && bundle.booking.metadata);
+    // 1) Prefer booking metadata.lessons when present (exact create/edit identity).
+    if (Array.isArray(bookingMeta.lessons) && bookingMeta.lessons.length) {
+      const fromMeta = normalizeCanonicalLessons({ lessons: bookingMeta.lessons });
+      if (fromMeta.ok && fromMeta.present) return fromMeta.lessons;
+    }
+    // 2) Reconstruct from physical service rows (same-day multi survives).
+    const fromRows = reconstructLessonsFromServiceRows(services);
+    if (fromRows.ok && fromRows.present) return fromRows.lessons;
+    // 3) Narrow legacy: single-course / single-private components only.
+    // Only when exact lesson service rows did not yield identity — do not invent
+    // multi same-day cardinality from an outer date range alone.
+    const components = (agg && agg.components) || {};
+    const expanded = normalizeCanonicalLessons({
+      components,
+      service_dates: (() => {
+        const from = agg && agg.date_from ? String(agg.date_from).slice(0, 10) : '';
+        const to = agg && agg.date_to ? String(agg.date_to).slice(0, 10) : from;
+        if (!from) return [];
+        const out = [];
+        let cur = from;
+        let guard = 0;
+        while (cur && cur <= to && guard < 31) {
+          out.push(cur);
+          const d = new Date(`${cur}T12:00:00Z`);
+          d.setUTCDate(d.getUTCDate() + 1);
+          cur = d.toISOString().slice(0, 10);
+          guard += 1;
+        }
+        return out;
+      })(),
+    });
+    if (expanded.ok && expanded.present) return expanded.lessons;
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function pricingIntentFromBundle(bundle) {
   const services = (bundle && bundle.services) || [];
   const agg = aggregateComponentsFromServices(services);
@@ -843,8 +922,43 @@ function pricingIntentFromBundle(bundle) {
   if (agg.components && Object.prototype.hasOwnProperty.call(agg.components, 'course_equipment')) {
     delete agg.components.course_equipment;
   }
+
+  // Reconstruct canonical lessons[] so multi-lesson commercial identity compares
+  // equal to an identical Edit PATCH (guest/name/notes-only must not reprice).
+  const lessons = canonicalLessonsFromBundle(bundle, agg, meta);
+  let components = agg.components || {};
+  if (Array.isArray(lessons) && lessons.length) {
+    // Align class components with validate/expand path (primary course for multi-course).
+    // Aggregate last-row course_id would false-trigger paid reprice for multi-course.
+    try {
+      const { expandLessonsToLegacyComponents } = require('./sunset-schedule-lessons');
+      const surfers = Number(
+        (components.course && components.course.quantity)
+        || (components.private_lesson && components.private_lesson.surfer_count)
+        || 1,
+      ) || 1;
+      const expanded = expandLessonsToLegacyComponents(lessons, surfers);
+      if (expanded.ok && expanded.components) {
+        const next = { ...components };
+        delete next.course;
+        delete next.private_lesson;
+        Object.assign(next, expanded.components);
+        components = next;
+      }
+    } catch (_) { /* keep aggregate components */ }
+  }
+
   return buildSchedulePricingIntent({
     service_dates: (() => {
+      // Prefer unique calendar days from reconstructed lessons when present —
+      // matches requested intent and avoids private-session exclusion mismatches.
+      if (Array.isArray(lessons) && lessons.length) {
+        try {
+          const { uniqueCalendarDates } = require('./sunset-schedule-lessons');
+          const fromLessons = uniqueCalendarDates(lessons);
+          if (fromLessons.length) return fromLessons;
+        } catch (_) { /* fall through */ }
+      }
       const dates = new Set();
       services.forEach((sr) => {
         const m = parseMeta(sr.metadata);
@@ -865,7 +979,8 @@ function pricingIntentFromBundle(bundle) {
       }
       return [...dates].sort();
     })(),
-    components: agg.components,
+    components,
+    lessons: Array.isArray(lessons) ? lessons : [],
     course_equipment,
     rentals,
     custom_line_items,
@@ -894,22 +1009,64 @@ async function updateSunsetScheduleBooking(pg, opts) {
     return { ok: false, status: 403, body: { success: false, error: 'updates_untrusted_booking_source', reason_code: 'updates_untrusted_booking_source' } };
   }
 
-  const rentalPrep = prepareCanonicalRentalsForCreate(opts.body || {});
+  // Mirror Create: generic catalog rentals are prepared first (Admin-priced,
+  // tenant/location fail-closed). Canonical allowlist only sees board/wetsuit/
+  // bundle keys — never rejects an active generic offering_key that quote accepted.
+  const requestBody = opts.body && typeof opts.body === 'object' ? opts.body : {};
+  const requestedRentals = Array.isArray(requestBody.rentals) ? requestBody.rentals : [];
+  const dateFromForRental = String(requestBody.date_from || '').slice(0, 10);
+  const dateToForRental = String(requestBody.date_to || requestBody.date_from || '').slice(0, 10);
+  const genericPrep = await prepareGenericRentalsForCreate({
+    clientSlug,
+    locationId: activeLocationId,
+    pgClient: pg,
+    rentals: requestedRentals,
+    serviceDate: dateFromForRental,
+    source: DB_SOURCE,
+    calendarDayCount: inclusiveIsoDatesFromRange(dateFromForRental, dateToForRental).length,
+    bookingDurationKey: rentalDurationKeyFromDateRange(dateFromForRental, dateToForRental),
+  });
+  if (!genericPrep.ok) {
+    const badCatalogKey = genericPrep.reason === 'rental_offering_not_active'
+      || genericPrep.reason === 'invalid_rental_offering';
+    return {
+      ok: false,
+      status: badCatalogKey ? 400 : 409,
+      body: {
+        success: false,
+        error: genericPrep.reason || genericPrep.error || 'invalid_rental_offering',
+        reason: genericPrep.reason,
+        reason_code: genericPrep.reason,
+      },
+    };
+  }
+  const CANONICAL_RENTAL_KEYS = new Set(['board_rental', 'wetsuit_rental', 'board_and_suit_rental']);
+  const canonicalRequested = requestedRentals.filter((r) => CANONICAL_RENTAL_KEYS.has(String(r && r.offering_key || '').trim()));
+  let prepBody = genericPrep.genericRentals.length
+    ? { ...requestBody, rentals: canonicalRequested, components: requestBody.components || {} }
+    : requestBody;
+  if (genericPrep.genericRentals.length && !canonicalRequested.length) {
+    prepBody = { ...prepBody };
+    delete prepBody.rentals;
+  }
+  const rentalPrep = prepareCanonicalRentalsForCreate(prepBody);
   if (!rentalPrep.ok) {
     return { ok: false, status: 400, body: { success: false, error: rentalPrep.error, reason: rentalPrep.reason, reason_code: rentalPrep.reason } };
   }
 
   const validated = validateScheduleBookingBody({
-    ...(rentalPrep.present ? rentalPrep.body : (opts.body || {})),
-    guest_name: (opts.body && opts.body.guest_name) != null
-      ? opts.body.guest_name
+    ...(rentalPrep.present ? rentalPrep.body : prepBody),
+    guest_name: requestBody.guest_name != null
+      ? requestBody.guest_name
       : bundle.booking.guest_name,
+  }, {
+    allowEmptyComponents: genericPrep.genericRentals.length > 0,
   });
   if (!validated.ok) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
   }
   const input = validated.value;
-  const phoneRaw = opts.body?.guest_phone ?? opts.body?.phone_number ?? opts.body?.phone;
+  const phoneRaw = requestBody.guest_phone ?? requestBody.phone_number ?? requestBody.phone;
   const guest_phone = phoneRaw != null
     ? String(phoneRaw).trim().slice(0, 40)
     : (bundle.booking.phone || '');
@@ -919,7 +1076,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
   const bookingPayment = UI_TO_BOOKING_PAYMENT[input.payment_status];
   const bookingStatus = bookingStatusFromPayment(input.payment_status);
   const paymentMethod = input.payment_status === 'paid'
-    ? normalizePaymentMethod(opts.body && opts.body.payment_method)
+    ? normalizePaymentMethod(requestBody.payment_method)
     : null;
   const editAttribution = resolveBookingEditAttribution(bundle, opts.actor);
   const componentKeys = componentList(input.components);
@@ -929,6 +1086,10 @@ async function updateSunsetScheduleBooking(pg, opts) {
   let rentalSpanDates = rentalPrep.present ? rentalPrep.rentalSpanDates : null;
   let rentalPricingGroupId = rentalPrep.present ? rentalPrep.pricingGroupId : null;
   let rentalPricingDescriptor = buildRentalPricingDescriptor(input.rental_pricing, input.service_dates);
+  const allRequestedRentals = [
+    ...(canonicalRentals || []),
+    ...genericPrep.genericRentals,
+  ];
 
   await pg.query('BEGIN');
   try {
@@ -1014,12 +1175,18 @@ async function updateSunsetScheduleBooking(pg, opts) {
       }
     }
     const existingIntent = pricingIntentFromBundle(lockedBundle);
+    // Explicit rentals[] present (even empty) owns rental intent; generic +
+    // canonical keys both fingerprint. Omitted rentals → preserve existing.
+    const rentalsPresentOnPatch = Object.prototype.hasOwnProperty.call(requestBody, 'rentals');
     const requestedIntent = buildSchedulePricingIntent(input, {
-      rentals: rentalPrep.present
-        ? (rentalPrep.rentals || []).map((r) => ({ ...r, covered_dates: rentalSpanDates || [] }))
+      rentals: rentalsPresentOnPatch
+        ? allRequestedRentals.map((r) => ({
+          ...r,
+          covered_dates: rentalSpanDates || inclusiveIsoDatesFromRange(firstDate, lastDate),
+        }))
         : (canonicalRentals || []),
       rentalCoveredDates: rentalSpanDates || undefined,
-      preserveExistingRentals: !rentalPrep.present ? (canonicalRentals || []) : undefined,
+      preserveExistingRentals: !rentalsPresentOnPatch ? (canonicalRentals || lockedMeta.rentals || []) : undefined,
       custom_line_items: input.custom_line_items || [],
     });
     const pricingChanged = !schedulePricingIntentsEqual(existingIntent, requestedIntent);
@@ -1040,9 +1207,12 @@ async function updateSunsetScheduleBooking(pg, opts) {
       luna_guest_booking: editAttribution.lunaGuestBooking,
       actor_source: editAttribution.actorSource,
       last_edited_by_staff: editAttribution.lastEditedByStaff,
-      rentals: canonicalRentals || lockedMeta.rentals || null,
+      rentals: rentalsPresentOnPatch
+        ? (allRequestedRentals.length ? allRequestedRentals : [])
+        : (canonicalRentals || lockedMeta.rentals || null),
       rental_pricing: rentalPricingDescriptor || lockedMeta.rental_pricing || null,
       custom_line_items: input.custom_line_items || [],
+      lessons: Array.isArray(input.lessons) ? input.lessons : null,
       notes: input.notes || null,
     }, recordLocationId);
 
@@ -1106,7 +1276,61 @@ async function updateSunsetScheduleBooking(pg, opts) {
     }
 
     let assignedCourse = null;
-    if (input.components.course) {
+    let assignedCoursesById = null;
+    const {
+      shouldPriceGroupLessonsIndividually,
+    } = require('./sunset-schedule-lessons');
+    const groupLessonsEdit = Array.isArray(input.lessons)
+      ? input.lessons.filter((l) => l && l.kind === 'group')
+      : [];
+    const multiCourseEdit = groupLessonsEdit.length > 0
+      && shouldPriceGroupLessonsIndividually(groupLessonsEdit);
+
+    if (multiCourseEdit || (input.components.course && groupLessonsEdit.length > 1)) {
+      const { assertCourseAssignable } = require('./sunset-admin-course-join');
+      const { packPriceItemCode } = require('./sunset-admin-price-identity');
+      assignedCoursesById = {};
+      const surfers = input.surfer_count != null
+        ? Math.max(1, Number(input.surfer_count) || 1)
+        : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
+      const byCourse = new Map();
+      for (const lesson of groupLessonsEdit) {
+        const cid = String(lesson.course_id || '').trim();
+        if (!cid) continue;
+        if (!byCourse.has(cid)) byCourse.set(cid, []);
+        byCourse.get(cid).push(lesson);
+      }
+      for (const [courseId, lessonsForCourse] of byCourse.entries()) {
+        const dates = [...new Set(lessonsForCourse.map((l) => String(l.date).slice(0, 10)))].sort();
+        const gate = await assertCourseAssignable(pg, {
+          clientSlug,
+          locationId: recordLocationId,
+          courseId,
+          serviceDates: dates,
+          quantity: surfers,
+          excludeBookingId: bookingId,
+        });
+        if (!gate.ok) return rollback(gate);
+        assignedCoursesById[courseId] = gate;
+        if (!assignedCourse) assignedCourse = gate;
+        for (const lesson of lessonsForCourse) {
+          if (!lesson.tier_key) lesson.tier_key = '1_day';
+          lesson.offering_id = packPriceItemCode(courseId, lesson.tier_key);
+        }
+      }
+      if (input.components.course && assignedCourse) {
+        if (!input.components.course.course_label
+          || input.components.course.course_label === input.components.course.course_id) {
+          input.components.course.course_label = assignedCourse.course_label
+            || input.components.course.course_label;
+        }
+        if (!input.components.course.tier_key) input.components.course.tier_key = '1_day';
+        input.components.course.offering_id = packPriceItemCode(
+          input.components.course.course_id,
+          input.components.course.tier_key,
+        );
+      }
+    } else if (input.components.course) {
       const { assertCourseAssignable } = require('./sunset-admin-course-join');
       const { packPriceItemCode } = require('./sunset-admin-price-identity');
       const gate = await assertCourseAssignable(pg, {
@@ -1171,7 +1395,8 @@ async function updateSunsetScheduleBooking(pg, opts) {
     const createdRows = await insertScheduleComponentServiceRows(pg, {
       clientSlug, bookingId, bookingCode, input, componentKeys,
       attribution: editAttribution, locationId: recordLocationId, srPayment,
-      privateLessonConfig, assignedCourse, canonicalRentals, rentalSpanDates,
+      privateLessonConfig, assignedCourse, assignedCoursesById, canonicalRentals,
+      rentalSpanDates,
       rentalPricingGroupId, rentalPricingDescriptor, bundleId,
       privateLessonDefaultLabel: 'Private Course',
       wrapMeta: (meta, loc) => attachLocationToMetadata(meta, loc),
@@ -1181,24 +1406,99 @@ async function updateSunsetScheduleBooking(pg, opts) {
       },
     });
 
+    // Generic Admin catalog rentals — same Create insert path (auditable rows).
+    for (const descriptor of genericPrep.records || []) {
+      const meta = attachLocationToMetadata({
+        ...descriptor.metadata,
+        source: editAttribution.metadataSource,
+        staff_manual_schedule: editAttribution.staffManualSchedule,
+        bundle_id: bundleId,
+        updated_by_staff: editAttribution.lastEditedByStaff,
+        last_edited_by_staff: editAttribution.lastEditedByStaff,
+      }, recordLocationId);
+      const ins = await pg.query(
+        `INSERT INTO booking_service_records
+           (client_slug, booking_id, booking_code, guest_name, service_type, service_date,
+            quantity, status, amount_due_cents, amount_paid_cents, payment_status, source, metadata)
+         VALUES ($1, $2::uuid, $3, $4, $5, $6::date, $7, 'confirmed', $8, 0, $9, $10, $11::jsonb)
+         RETURNING id::text AS service_record_id, booking_id::text AS booking_id, booking_code,
+           guest_name, service_type::text AS service_type, service_date::text AS service_date,
+           quantity, amount_due_cents, amount_paid_cents, payment_status::text AS payment_status,
+           source AS record_source, metadata,
+           metadata->>'offering_key' AS offering_key,
+           metadata->>'staff_ui_service_type' AS staff_ui_service_type`,
+        [
+          clientSlug, bookingId, bookingCode, input.guest_name, descriptor.service_type,
+          descriptor.service_date || firstDate, descriptor.quantity, descriptor.amount_due_cents,
+          srPayment, editAttribution.dbSource, JSON.stringify(meta),
+        ],
+      );
+      createdRows.push(ins.rows[0]);
+    }
+
     if (require('./sunset-course-equipment-options').isPresentCourseEquipmentSelection(input.course_equipment)) {
       const { listRentalOfferings } = require('./tenant-rental-offerings');
       const rentalOfferings = await listRentalOfferings(pg, {
         clientSlug, locationId: recordLocationId, includeInactive: false,
       });
-      const equipmentCourse = input.components.private_lesson
-        ? privateLessonConfig
-        : (assignedCourse && assignedCourse.pack);
+      const groupLessonsCE = Array.isArray(input.lessons)
+        ? input.lessons.filter((l) => l && l.kind === 'group')
+        : [];
+      let equipmentCourses = null;
+      let equipmentCourse = null;
+      let equipmentSurfers = null;
+      let equipmentDates = null;
+      if (input.components.private_lesson) {
+        equipmentCourse = privateLessonConfig;
+        equipmentSurfers = input.components.private_lesson.surfer_count;
+        equipmentDates = (input.components.private_lesson.sessions || []).map((s) => s.date);
+      } else if (groupLessonsCE.length) {
+        const { uniqueCalendarDates } = require('./sunset-schedule-lessons');
+        const courseIds = [...new Set(groupLessonsCE.map((l) => String(l.course_id).trim()))];
+        equipmentCourses = courseIds.map((cid) => {
+          const assigned = (assignedCoursesById && assignedCoursesById[cid])
+            || (assignedCourse && String(assignedCourse.course_id || '') === cid ? assignedCourse : null);
+          return assigned && assigned.pack
+            ? { ...assigned.pack, course_id: cid, pack_id: assigned.pack.pack_id || cid }
+            : null;
+        }).filter(Boolean);
+        if (equipmentCourses.length !== courseIds.length) {
+          if (courseIds.length === 1 && assignedCourse && assignedCourse.pack) {
+            equipmentCourses = [{
+              ...assignedCourse.pack,
+              course_id: courseIds[0],
+              pack_id: assignedCourse.pack.pack_id || courseIds[0],
+            }];
+          } else {
+            return rollback({
+              ok: false,
+              status: 422,
+              body: {
+                success: false,
+                reason: 'course_equipment_not_authorized_for_all_courses',
+                reason_code: 'course_equipment_not_authorized_for_all_courses',
+                error: 'course equipment requires pack config for every selected course',
+              },
+            });
+          }
+        }
+        equipmentSurfers = input.surfer_count != null
+          ? input.surfer_count
+          : (input.components.course && input.components.course.quantity);
+        equipmentDates = uniqueCalendarDates(groupLessonsCE);
+        equipmentCourse = equipmentCourses[0];
+      } else {
+        equipmentCourse = assignedCourse && assignedCourse.pack;
+        equipmentSurfers = input.components.course && input.components.course.quantity;
+        equipmentDates = input.service_dates;
+      }
       const equipmentRows = await insertCourseEquipmentRows(pg, {
         clientSlug, bookingId, bookingCode, guestName: input.guest_name,
         selection: input.course_equipment,
-        surfers: input.components.private_lesson
-          ? input.components.private_lesson.surfer_count
-          : input.components.course.quantity,
-        bookingDates: input.components.private_lesson
-          ? input.components.private_lesson.sessions.map((s) => s.date)
-          : input.service_dates,
+        surfers: equipmentSurfers,
+        bookingDates: equipmentDates,
         course: equipmentCourse,
+        courses: equipmentCourses,
         offerings: rentalOfferings,
         attribution: editAttribution, locationId: recordLocationId, bundleId, srPayment,
       });
@@ -1251,7 +1551,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       customRows.forEach((r) => createdRows.push(r));
     }
 
-    // Authoritative re-quote body must carry custom lines + components/dates/rentals.
+    // Authoritative re-quote body must carry custom lines + components/dates/rentals/lessons.
     const quotePrepBody = {
       ...(rentalPrep.body && typeof rentalPrep.body === 'object' ? rentalPrep.body : {}),
       guest_name: input.guest_name,
@@ -1259,6 +1559,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       payment_status: input.payment_status,
       notes: input.notes || '',
       components: input.components,
+      lessons: Array.isArray(input.lessons) ? input.lessons : null,
       custom_line_items: input.custom_line_items || [],
       surfer_count: input.surfer_count != null ? input.surfer_count : null,
       date_from: firstDate,
@@ -1266,7 +1567,11 @@ async function updateSunsetScheduleBooking(pg, opts) {
       service_dates: input.service_dates,
       course_equipment: input.course_equipment || null,
     };
-    if (rentalPrep.present && rentalPrep.rentals) {
+    if (rentalsPresentOnPatch) {
+      // Canonical keys only on quote transport body — generic priced via records.
+      if (canonicalRentals && canonicalRentals.length) quotePrepBody.rentals = canonicalRentals;
+      else delete quotePrepBody.rentals;
+    } else if (rentalPrep.present && rentalPrep.rentals) {
       quotePrepBody.rentals = rentalPrep.rentals;
     } else if (canonicalRentals && canonicalRentals.length) {
       quotePrepBody.rentals = canonicalRentals;
@@ -1278,6 +1583,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       locationId: recordLocationId,
       lockedPaidCents: lockedBundle.payments_paid_cents,
       canonicalRentals,
+      genericRentalRecords: genericPrep.records,
       rentalPrepBody: quotePrepBody,
       quotePrepBody: quotePrepBody,
       rentalPricingDescriptor,

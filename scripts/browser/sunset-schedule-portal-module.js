@@ -98,6 +98,40 @@ function schedulePortalNormalizeCourseEquipmentIntent(raw) {
     });
 }
 
+/** Ordered lesson identity for quote/create intent fingerprints (no money). */
+function schedulePortalNormalizeLessonsIntent(lessons) {
+  if (!Array.isArray(lessons) || !lessons.length) return [];
+  return lessons.map(function(l) {
+    if (!l || typeof l !== 'object') return null;
+    var kind = String(l.kind || '').trim().toLowerCase();
+    if (kind === 'private') {
+      return {
+        kind: 'private',
+        date: String(l.date || '').slice(0, 10),
+        start: String(l.start || '').trim(),
+        end: String(l.end || '').trim(),
+      };
+    }
+    return {
+      kind: 'group',
+      course_id: String(l.course_id || '').trim(),
+      date: String(l.date || '').slice(0, 10),
+      schedule_key: String(l.schedule_key || '').trim() || null,
+      tier_key: String(l.tier_key || '').trim() || null,
+    };
+  }).filter(Boolean).sort(function(a, b) {
+    var d = String(a.date || '').localeCompare(String(b.date || ''));
+    if (d) return d;
+    if (a.kind === 'group' && b.kind === 'group') {
+      var c = String(a.course_id || '').localeCompare(String(b.course_id || ''));
+      if (c) return c;
+      return String(a.schedule_key || '').localeCompare(String(b.schedule_key || ''));
+    }
+    return String(a.start || '').localeCompare(String(b.start || ''))
+      || String(a.end || '').localeCompare(String(b.end || ''));
+  });
+}
+
 function schedulePortalCreateIntentKey(payload) {
   var p = payload || {};
   var comps = p.components || {};
@@ -117,6 +151,7 @@ function schedulePortalCreateIntentKey(payload) {
     date_to: p.date_to || null,
     payment_status: p.payment_status || 'unpaid',
     components: ordered,
+    lessons: schedulePortalNormalizeLessonsIntent(p.lessons),
     rentals: schedulePortalNormalizeRentalsIntent(p.rentals),
     course_equipment: schedulePortalNormalizeCourseEquipmentIntent(p.course_equipment),
     custom_line_items: custom,
@@ -154,6 +189,7 @@ function schedulePortalQuotePricingIntentKey(payload) {
     date_from: p.date_from || null,
     date_to: p.date_to || null,
     components: ordered,
+    lessons: schedulePortalNormalizeLessonsIntent(p.lessons),
     rentals: schedulePortalNormalizeRentalsIntent(p.rentals),
     course_equipment: schedulePortalNormalizeCourseEquipmentIntent(p.course_equipment),
     custom_line_items: custom,
@@ -946,6 +982,8 @@ function schedulePortalFetchQuote(createPayload, opts) {
     date_from: createPayload.date_from,
     date_to: createPayload.date_to,
     components: createPayload.components,
+    // Canonical multi-lesson identity — must match Create POST/PATCH.
+    lessons: Array.isArray(createPayload.lessons) ? createPayload.lessons : [],
     rentals: Array.isArray(createPayload.rentals) ? createPayload.rentals : [],
     // Same canonical CE identity as Create (offering_key/mode/quantity). Never money/labels.
     course_equipment: Array.isArray(createPayload.course_equipment) ? createPayload.course_equipment : [],
@@ -1024,6 +1062,16 @@ function schedulePortalFetchQuote(createPayload, opts) {
 
 function schedulePortalServiceDatesFromPayload(payload) {
   if (!payload) return [];
+  // Prefer unique calendar dates from canonical lessons[] (same-day multi → one day).
+  if (Array.isArray(payload.lessons) && payload.lessons.length) {
+    var fromLessons = [];
+    var seenL = {};
+    payload.lessons.forEach(function(l) {
+      var d = l && String(l.date || '').slice(0, 10);
+      if (d && !seenL[d]) { seenL[d] = true; fromLessons.push(d); }
+    });
+    if (fromLessons.length) return fromLessons.sort();
+  }
   if (payload.components && payload.components.private_lesson && payload.components.private_lesson.sessions) {
     var out = [];
     payload.components.private_lesson.sessions.forEach(function(s) {

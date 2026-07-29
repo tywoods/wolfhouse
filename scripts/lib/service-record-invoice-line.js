@@ -143,11 +143,28 @@ function formatEurCents(cents) {
   return `\u20ac${(Number(cents) / 100).toFixed(2)}`;
 }
 
+function resolveGenericRentalInvoiceLabel(meta, fallback) {
+  const m = meta || {};
+  if (
+    m.rental_offering === true
+    || m.generic_rental === true
+    || (m.offering_key && (m.duration_key || m.item_code || m.unit_cents != null))
+  ) {
+    const name = String(m.offering_label || m.label || m.service_name || m.offering_key || '').trim();
+    if (name && name.toLowerCase() !== 'addon_service') return name;
+    if (m.offering_key) return String(m.offering_key).trim();
+  }
+  return fallback;
+}
+
 function formatServiceRecordInvoiceLineText(sr, opts = {}) {
   const meta = parseServiceRecordMetadata(sr.metadata);
-  const label = opts.typeLabel
+  const rawLabel = opts.typeLabel
     ? opts.typeLabel(sr.service_type, meta)
     : (sr.service_type || '\u2014');
+  // Prefer persisted Admin-owned generic rental labels over the coarse
+  // addon_service bucket — including historical snapshots without live catalog.
+  const label = resolveGenericRentalInvoiceLabel(meta, rawLabel);
   const billable = opts.billableCents
     ? opts.billableCents(sr)
     : (sr.amount_due_cents != null ? Number(sr.amount_due_cents) : 0);
@@ -253,5 +270,6 @@ module.exports = {
   resolveRentalInvoiceDisplayQty,
   resolveRentalInvoiceUnitCents,
   normalizeSplitRentalMetadata,
+  resolveGenericRentalInvoiceLabel,
   formatServiceRecordInvoiceLineText,
 };

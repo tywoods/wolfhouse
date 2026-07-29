@@ -1098,7 +1098,22 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
   html += '<div id="ps-drawer-private-when" class="portal-schedule-create-private-when"' +
     (privateOn ? '' : ' style="display:none"') + '>';
   html += '<span class="portal-schedule-create-label">' + escHtml(portalT('schedule.create.privateLesson.sessionsHelp')) + '</span>';
-  html += '<div id="ps-drawer-private-sessions" class="portal-schedule-private-sessions"></div>';
+  // Free multi private sessions (same-day multi preserved) — seed from lessons[] / sessions.
+  var privateSeed = [];
+  if (Array.isArray(ctx.lessons)) {
+    privateSeed = ctx.lessons.filter(function(L) { return L && L.kind === 'private'; }).map(function(L) {
+      return { date: L.date, start: L.start || '', end: L.end || '' };
+    });
+  }
+  if (!privateSeed.length && comps.private_lesson && Array.isArray(comps.private_lesson.sessions)) {
+    privateSeed = comps.private_lesson.sessions.map(function(s) {
+      return { date: s.date, start: s.start || '', end: s.end || '' };
+    });
+  }
+  html += '<div id="ps-drawer-private-sessions" class="portal-schedule-private-sessions" aria-live="polite" data-seed="' +
+    escHtml(JSON.stringify(privateSeed)) + '"></div>';
+  html += '<button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-drawer-add-private-session">' +
+    escHtml(portalT('schedule.create.privateLesson.addSession') || '+ Add session') + '</button>';
   html += '</div></div>';
   html += '</div>'; // main-activity-field
   // Legacy course select — hidden compatibility owner for payload / duration.
@@ -1111,6 +1126,17 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
   html += '<div class="portal-schedule-create-field" id="ps-drawer-course-qty-wrap"' + (courseOn ? '' : ' style="display:none"') +
     '><label for="ps-drawer-course-qty">' + escHtml(portalT('schedule.create.surferCount')) + '</label>' +
     '<input id="ps-drawer-course-qty" type="number" min="1" max="99" value="' + escHtml(String(courseQty)) + '"></div>';
+  // Multi group-lesson rows (same-day / multi-course) — seed from canonical lessons[].
+  html += '<div id="ps-drawer-group-lessons-wrap" class="portal-schedule-create-field"' +
+    (courseOn ? '' : ' style="display:none" hidden aria-hidden="true"') + '>' +
+    '<span class="portal-schedule-create-label">' +
+    escHtml(portalT('schedule.create.lessons') || 'Lessons') + '</span>' +
+    '<div id="ps-drawer-group-lessons" class="portal-schedule-group-lessons" aria-live="polite" data-seed="' +
+    escHtml(JSON.stringify(Array.isArray(ctx.lessons)
+      ? ctx.lessons.filter(function(L) { return L && L.kind === 'group'; })
+      : [])) + '"></div>' +
+    '<button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-drawer-add-group-lesson">' +
+    escHtml(portalT('schedule.create.addLesson') || '+ Add lesson') + '</button></div>';
   html += '<div id="ps-drawer-private-lesson-fields"' + (privateOn ? '' : ' style="display:none"') + '>';
   html += '<div class="portal-schedule-create-field"><label for="ps-drawer-private-lesson-surfers">' +
     escHtml(portalT('schedule.create.surferCount')) + '</label>' +
@@ -1663,6 +1689,18 @@ function scheduleDrawerPopulateComponentFields() {
   if (pf) pf.style.display = privateOn ? '' : 'none';
   if (courseSection) courseSection.style.display = (courseOn || privateOn) ? '' : 'none';
   if (durationConfirm) durationConfirm.style.display = courseOn ? '' : 'none';
+  var groupLessonsWrap = el('ps-drawer-group-lessons-wrap');
+  if (groupLessonsWrap) {
+    groupLessonsWrap.style.display = courseOn ? '' : 'none';
+    groupLessonsWrap.hidden = !courseOn;
+    groupLessonsWrap.setAttribute('aria-hidden', courseOn ? 'false' : 'true');
+    if (!courseOn) {
+      var glBox = el('ps-drawer-group-lessons');
+      if (glBox) glBox.innerHTML = '';
+    } else if (typeof scheduleDrawerSyncGroupLessons === 'function') {
+      scheduleDrawerSyncGroupLessons();
+    }
+  }
   // Private sessions live in main-activity drill-down panel.
   if (scheduleDrawerIsPrivateSessionsDrilldown() || privateOn) {
     if (privatePanel) scheduleDrawerSetVisible(privatePanel, true);
@@ -1739,13 +1777,44 @@ function scheduleRefreshDrawerFullDayAddon() {
     selectedCourseId = dsel ? String(dsel.value || '').trim() : '';
   }
   // Stage 3B Group equipment is catalog-owned + historical unavailable/removable.
+  // Multi-course lesson set: only offerings authorized by EVERY selected course.
   if (mode === 'group') {
     var options = [];
-    (scheduleCoursesCache || []).some(function(course) {
-      if (String(course && course.course_id || '') !== selectedCourseId) return false;
-      options = Array.isArray(course.equipment_options) ? course.equipment_options : [];
-      return true;
-    });
+    var lessonCourseIds = [];
+    if (typeof scheduleDrawerReadGroupLessonRows === 'function') {
+      scheduleDrawerReadGroupLessonRows().forEach(function(r) {
+        var cid = r && String(r.course_id || '').trim();
+        if (cid && lessonCourseIds.indexOf(cid) < 0) lessonCourseIds.push(cid);
+      });
+    }
+    if (!lessonCourseIds.length && selectedCourseId) lessonCourseIds = [selectedCourseId];
+    if (lessonCourseIds.length > 1) {
+      var optionMaps = [];
+      lessonCourseIds.forEach(function(cid) {
+        var map = {};
+        (scheduleCoursesCache || []).forEach(function(course) {
+          if (String(course && course.course_id || '') !== cid) return;
+          (Array.isArray(course.equipment_options) ? course.equipment_options : []).forEach(function(opt) {
+            var k = String(opt && opt.offering_key || '').trim();
+            if (k) map[k] = opt;
+          });
+        });
+        optionMaps.push(map);
+      });
+      if (optionMaps.length) {
+        Object.keys(optionMaps[0]).forEach(function(k) {
+          if (optionMaps.every(function(m) { return !!m[k]; })) {
+            options.push(optionMaps[0][k]);
+          }
+        });
+      }
+    } else {
+      (scheduleCoursesCache || []).some(function(course) {
+        if (String(course && course.course_id || '') !== String(lessonCourseIds[0] || selectedCourseId || '')) return false;
+        options = Array.isArray(course.equipment_options) ? course.equipment_options : [];
+        return true;
+      });
+    }
     var seedG = [];
     try { seedG = JSON.parse(field.getAttribute('data-seed') || '[]'); } catch (_ge) { seedG = []; }
     if (!Array.isArray(seedG)) seedG = seedG && seedG.mode ? [seedG] : [];
@@ -1793,7 +1862,8 @@ function scheduleRefreshDrawerFullDayAddon() {
     }
     seedG.forEach(pushHistoricalG);
     Object.keys(knownHistoricalG).forEach(function(k) { pushHistoricalG(knownHistoricalG[k]); });
-    var showGroup = !!selectedCourseId && (options.length > 0 || historicalG.length > 0);
+    var showGroup = (lessonCourseIds.length > 0 || !!selectedCourseId)
+      && (options.length > 0 || historicalG.length > 0);
     field.style.display = showGroup ? '' : 'none'; field.hidden = !showGroup;
     if (!showGroup) { field.innerHTML = ''; return; }
     var maxQty = scheduleDrawerReadSurferCount() || 1;
@@ -2082,8 +2152,9 @@ function scheduleDrawerReadPrivateSessionsFromDom() {
     var d = row.querySelector('.ps-pl-session-date');
     var s = row.querySelector('.ps-pl-session-start');
     var e = row.querySelector('.ps-pl-session-end');
+    var dateVal = (d && d.value) ? String(d.value).slice(0, 10) : (dateAttr || '');
     out.push({
-      date: dateAttr || (d ? d.value : ''),
+      date: dateVal,
       start: s ? s.value : '',
       end: e ? e.value : '',
     });
@@ -2091,86 +2162,300 @@ function scheduleDrawerReadPrivateSessionsFromDom() {
   return out;
 }
 
-function scheduleDrawerRenderPrivateSessions(sessions) {
+function scheduleDrawerDefaultPrivateSessionTimes(start, end) {
+  var s = start != null ? String(start) : '';
+  var e = end != null ? String(end) : '';
+  if (!s && !e) return { start: '10:00', end: '12:00' };
+  if (s && !e && typeof schedulePrivateLessonDefaultEnd === 'function') {
+    return { start: s, end: schedulePrivateLessonDefaultEnd(s) || '12:00' };
+  }
+  return { start: s || '10:00', end: e || '12:00' };
+}
+
+function scheduleDrawerAppendPrivateSessionRow(seed) {
   var wrap = el('ps-drawer-private-sessions');
   if (!wrap) return;
+  seed = seed || {};
+  var span = scheduleDrawerDateSpan();
+  var date = seed.date || span.from || '';
+  var times = scheduleDrawerDefaultPrivateSessionTimes(seed.start, seed.end);
+  var row = document.createElement('div');
+  row.className = 'portal-schedule-private-session-row';
+  row.setAttribute('data-session-date', date);
+  row.innerHTML = ''
+    + '<div class="portal-schedule-create-field"><label>'
+    + escHtml(portalT('schedule.create.date') || 'Date') + '</label>'
+    + '<input type="date" class="ps-pl-session-date" value="' + escHtml(date) + '"></div>'
+    + '<div class="portal-schedule-private-session-grid">'
+    + '<label><span>' + escHtml(portalT('schedule.create.privateLesson.start')) + '</span>'
+    + '<input class="ps-pl-session-start" type="time" value="' + escHtml(times.start) + '"></label>'
+    + '<label><span>' + escHtml(portalT('schedule.create.privateLesson.end')) + '</span>'
+    + '<input class="ps-pl-session-end" type="time" value="' + escHtml(times.end) + '"></label>'
+    + '</div>'
+    + '<button type="button" class="btn btn-ghost portal-schedule-group-lesson-remove" data-private-session-remove aria-label="Remove session">\u2212</button>';
+  wrap.appendChild(row);
+  var dateEl = row.querySelector('.ps-pl-session-date');
+  if (dateEl) {
+    dateEl.addEventListener('change', function() {
+      row.setAttribute('data-session-date', String(dateEl.value || '').slice(0, 10));
+      scheduleDrawerMarkPriceStale();
+      scheduleRefreshDrawerFullDayAddon();
+      scheduleDrawerSyncFooter();
+    });
+  }
+  var startEl = row.querySelector('.ps-pl-session-start');
+  var endEl = row.querySelector('.ps-pl-session-end');
+  if (startEl) {
+    startEl.addEventListener('change', function() {
+      if (endEl && (!endEl.value || endEl.value === schedulePrivateLessonDefaultEnd(startEl.defaultValue || ''))) {
+        if (typeof schedulePrivateLessonDefaultEnd === 'function') {
+          endEl.value = schedulePrivateLessonDefaultEnd(startEl.value) || endEl.value;
+        }
+      }
+      startEl.defaultValue = startEl.value;
+      scheduleDrawerMarkPriceStale();
+      scheduleRefreshDrawerFullDayAddon();
+      scheduleDrawerSyncFooter();
+    });
+  }
+  if (endEl) {
+    endEl.addEventListener('change', function() {
+      scheduleDrawerMarkPriceStale();
+      scheduleRefreshDrawerFullDayAddon();
+      scheduleDrawerSyncFooter();
+    });
+  }
+  var rem = row.querySelector('[data-private-session-remove]');
+  if (rem) {
+    rem.addEventListener('click', function() {
+      if (wrap.querySelectorAll('.portal-schedule-private-session-row').length <= 1) return;
+      row.remove();
+      scheduleDrawerMarkPriceStale();
+      scheduleRefreshDrawerFullDayAddon();
+      scheduleDrawerSyncFooter();
+    });
+  }
+}
+
+function scheduleDrawerGroupLessonCourseOptionsHtml(selectedId) {
+  var courses = (typeof scheduleCoursesCache !== 'undefined' && scheduleCoursesCache) || [];
   var html = '';
-  (sessions || []).forEach(function(sess, i) {
-    var date = sess.date || '';
-    html += '<div class="portal-schedule-private-session-row" data-session-index="' + String(i + 1) +
-      '" data-session-date="' + escHtml(date) + '">' +
-      '<p class="portal-schedule-card-sub" style="margin:8px 0 4px">' + escHtml(date) + '</p>' +
-      '<div class="portal-schedule-private-session-grid">' +
-      '<label><span>' + escHtml(portalT('schedule.create.privateLesson.start')) + '</span>' +
-      '<input class="ps-pl-session-start" type="time" value="' + escHtml(sess.start || '') + '"></label>' +
-      '<label><span>' + escHtml(portalT('schedule.create.privateLesson.end')) + '</span>' +
-      '<input class="ps-pl-session-end" type="time" value="' + escHtml(sess.end || '') + '"></label>' +
-      '</div></div>';
+  courses.forEach(function(c) {
+    var id = String(c && c.course_id || '').trim();
+    if (!id) return;
+    var lab = String(c.label || id);
+    html += '<option value="' + escHtml(id) + '" data-label="' + escHtml(lab) + '"'
+      + (id === selectedId ? ' selected' : '') + '>' + escHtml(lab) + '</option>';
   });
-  wrap.innerHTML = html;
-  wrap.querySelectorAll('.ps-pl-session-start, .ps-pl-session-end').forEach(function(node) {
-    if (node.dataset.editWired) return;
-    node.dataset.editWired = '1';
+  return html || '<option value="">—</option>';
+}
+
+function scheduleDrawerGroupLessonScheduleOptionsHtml(courseId, selectedKey) {
+  var courses = (typeof scheduleCoursesCache !== 'undefined' && scheduleCoursesCache) || [];
+  var course = null;
+  for (var i = 0; i < courses.length; i++) {
+    if (String(courses[i] && courses[i].course_id || '') === String(courseId || '')) {
+      course = courses[i];
+      break;
+    }
+  }
+  var keys = [];
+  if (course && Array.isArray(course.schedules)) keys = course.schedules.slice();
+  else if (course && course.schedule && Array.isArray(course.schedule.time_slots)) {
+    keys = course.schedule.time_slots.map(function(s) {
+      return s && (s.key || s.schedule_key);
+    }).filter(Boolean);
+  }
+  var html = '<option value="">—</option>';
+  keys.forEach(function(k) {
+    var key = String(k || '').trim();
+    if (!key) return;
+    html += '<option value="' + escHtml(key) + '"' + (key === selectedKey ? ' selected' : '') + '>'
+      + escHtml(key.replace('_', '–')) + '</option>';
+  });
+  return html;
+}
+
+function scheduleDrawerReadGroupLessonRows() {
+  var box = el('ps-drawer-group-lessons');
+  if (!box) return [];
+  var rows = [];
+  box.querySelectorAll('.portal-schedule-group-lesson-row').forEach(function(row) {
+    var dateEl = row.querySelector('[data-group-lesson-date]');
+    var courseEl = row.querySelector('[data-group-lesson-course]');
+    var schedEl = row.querySelector('[data-group-lesson-schedule]');
+    var date = dateEl ? String(dateEl.value || '').slice(0, 10) : '';
+    var courseId = courseEl ? String(courseEl.value || '').trim() : '';
+    if (!date || !courseId) return;
+    var out = { course_id: courseId, date: date };
+    if (courseEl && courseEl.selectedOptions && courseEl.selectedOptions[0]) {
+      out.course_label = courseEl.selectedOptions[0].getAttribute('data-label')
+        || courseEl.selectedOptions[0].textContent || '';
+    }
+    if (schedEl && schedEl.value) out.schedule_key = String(schedEl.value).trim();
+    rows.push(out);
+  });
+  return rows;
+}
+
+function scheduleDrawerAppendGroupLessonRow(seed) {
+  var box = el('ps-drawer-group-lessons');
+  if (!box) return;
+  seed = seed || {};
+  var span = scheduleDrawerDateSpan();
+  var date = seed.date || span.from || '';
+  var courseId = seed.course_id || '';
+  if (!courseId && typeof scheduleDrawerGetSelectedCourseId === 'function') {
+    courseId = scheduleDrawerGetSelectedCourseId() || '';
+  }
+  var row = document.createElement('div');
+  row.className = 'portal-schedule-group-lesson-row';
+  row.innerHTML = ''
+    + '<div class="portal-schedule-create-field"><label>Date</label>'
+    + '<input type="date" data-group-lesson-date value="' + escHtml(date) + '"></div>'
+    + '<div class="portal-schedule-create-field"><label>Course</label>'
+    + '<select data-group-lesson-course>' + scheduleDrawerGroupLessonCourseOptionsHtml(courseId) + '</select></div>'
+    + '<div class="portal-schedule-create-field"><label>Time</label>'
+    + '<select data-group-lesson-schedule>'
+    + scheduleDrawerGroupLessonScheduleOptionsHtml(courseId, seed.schedule_key || '')
+    + '</select></div>'
+    + '<button type="button" class="btn btn-ghost portal-schedule-group-lesson-remove" data-group-lesson-remove aria-label="Remove lesson">\u2212</button>';
+  box.appendChild(row);
+  var courseSel = row.querySelector('[data-group-lesson-course]');
+  var schedSel = row.querySelector('[data-group-lesson-schedule]');
+  if (courseSel) {
+    courseSel.addEventListener('change', function() {
+      if (schedSel) {
+        schedSel.innerHTML = scheduleDrawerGroupLessonScheduleOptionsHtml(courseSel.value, '');
+      }
+      scheduleDrawerMarkPriceStale();
+      scheduleRefreshDrawerFullDayAddon();
+      scheduleDrawerSyncFooter();
+    });
+  }
+  row.querySelectorAll('input,select').forEach(function(node) {
     node.addEventListener('change', function() {
       scheduleDrawerMarkPriceStale();
       scheduleRefreshDrawerFullDayAddon();
       scheduleDrawerSyncFooter();
     });
   });
+  var rem = row.querySelector('[data-group-lesson-remove]');
+  if (rem) {
+    rem.addEventListener('click', function() {
+      if (box.querySelectorAll('.portal-schedule-group-lesson-row').length <= 1) return;
+      row.remove();
+      scheduleDrawerMarkPriceStale();
+      scheduleRefreshDrawerFullDayAddon();
+      scheduleDrawerSyncFooter();
+    });
+  }
 }
 
+function scheduleDrawerSyncGroupLessons() {
+  var wrap = el('ps-drawer-group-lessons-wrap');
+  var box = el('ps-drawer-group-lessons');
+  if (!wrap || !box) return;
+  if (scheduleDrawerMainActivityValue() !== 'group') {
+    box.innerHTML = '';
+    return;
+  }
+  if (box.querySelector('.portal-schedule-group-lesson-row')) return;
+  var seed = [];
+  try { seed = JSON.parse(box.getAttribute('data-seed') || '[]'); } catch (_s) { seed = []; }
+  if (!Array.isArray(seed) || !seed.length) {
+    var ctx = scheduleDrawerState.ctx || {};
+    if (Array.isArray(ctx.lessons)) {
+      seed = ctx.lessons.filter(function(L) { return L && L.kind === 'group'; });
+    }
+  }
+  if (seed && seed.length) {
+    seed.forEach(function(s) { scheduleDrawerAppendGroupLessonRow(s); });
+  } else {
+    scheduleDrawerAppendGroupLessonRow({});
+  }
+  var addBtn = el('ps-drawer-add-group-lesson');
+  if (addBtn && !addBtn.dataset.wired) {
+    addBtn.dataset.wired = '1';
+    addBtn.addEventListener('click', function() {
+      scheduleDrawerAppendGroupLessonRow({});
+      scheduleDrawerMarkPriceStale();
+    });
+  }
+}
+
+/**
+ * Free multi private sessions for Edit (Group lesson row parity).
+ * Preserves same-day multi from readback lessons[] / sessions; supports add/remove.
+ * Does NOT unique-date collapse — two sessions on the same day stay two rows.
+ */
 function scheduleDrawerSyncPrivateSessions(opts) {
   opts = opts || {};
   var wrap = el('ps-drawer-private-sessions');
   if (!wrap) return;
-  var span = scheduleDrawerDateSpan();
-  var from = typeof schedulePortalCanonicalDateIso === 'function'
-    ? schedulePortalCanonicalDateIso(span.from) : String(span.from || '').slice(0, 10);
-  var to = typeof schedulePortalCanonicalDateIso === 'function'
-    ? schedulePortalCanonicalDateIso(span.to || span.from) : String(span.to || span.from || '').slice(0, 10);
-  var dates = [];
-  if (from && to && from <= to && typeof scheduleEnumerateDates === 'function') {
-    dates = scheduleEnumerateDates(from, to) || [];
+  if (scheduleDrawerMainActivityValue() !== 'private') {
+    wrap.innerHTML = '';
+    return;
   }
-  var rangeTooLong = dates.length > 30;
-  if (rangeTooLong) dates = [];
-  var existing = rangeTooLong ? [] : scheduleDrawerReadPrivateSessionsFromDom();
-  if (!existing.length && !opts.skipCtxSeed) {
+  // Keep existing free rows once staff has edited (skipCtxSeed / re-entry).
+  if (wrap.querySelector('.portal-schedule-private-session-row') && opts.skipCtxSeed) return;
+  if (wrap.querySelector('.portal-schedule-private-session-row') && !opts.force) return;
+
+  var seed = [];
+  try { seed = JSON.parse(wrap.getAttribute('data-seed') || '[]'); } catch (_s) { seed = []; }
+  if ((!Array.isArray(seed) || !seed.length) && !opts.skipCtxSeed) {
     var ctx = scheduleDrawerState.ctx || {};
-    var pl = (ctx.components && ctx.components.private_lesson) || null;
-    if (pl && Array.isArray(pl.sessions)) {
-      existing = pl.sessions.map(function(s) {
+    if (Array.isArray(ctx.lessons)) {
+      seed = ctx.lessons.filter(function(L) { return L && L.kind === 'private'; }).map(function(L) {
+        return { date: L.date, start: L.start || '', end: L.end || '' };
+      });
+    }
+    if ((!seed || !seed.length) && ctx.components && ctx.components.private_lesson
+      && Array.isArray(ctx.components.private_lesson.sessions)) {
+      seed = ctx.components.private_lesson.sessions.map(function(s) {
         return { date: s.date, start: s.start || '', end: s.end || '' };
       });
     }
   }
-  var byDate = Object.create(null);
-  for (var e = 0; e < existing.length; e++) {
-    var ed = existing[e] && existing[e].date
-      ? (typeof schedulePortalCanonicalDateIso === 'function'
-        ? schedulePortalCanonicalDateIso(existing[e].date)
-        : String(existing[e].date).slice(0, 10))
-      : '';
-    if (ed && byDate[ed] == null) byDate[ed] = existing[e];
+  // Fall back to date-range expand only when no multi/session seed (single blank day).
+  if (!Array.isArray(seed) || !seed.length) {
+    var span = scheduleDrawerDateSpan();
+    var from = typeof schedulePortalCanonicalDateIso === 'function'
+      ? schedulePortalCanonicalDateIso(span.from) : String(span.from || '').slice(0, 10);
+    var to = typeof schedulePortalCanonicalDateIso === 'function'
+      ? schedulePortalCanonicalDateIso(span.to || span.from) : String(span.to || span.from || '').slice(0, 10);
+    var dates = [];
+    if (from && to && from <= to && typeof scheduleEnumerateDates === 'function') {
+      dates = scheduleEnumerateDates(from, to) || [];
+    }
+    if (dates.length > 30) dates = dates.slice(0, 1);
+    seed = dates.map(function(d) { return { date: d, start: '', end: '' }; });
   }
-  var sessions = [];
-  for (var i = 0; i < dates.length; i++) {
-    var date = dates[i];
-    var prev = byDate[date] || {};
-    sessions.push({
-      date: date,
-      start: prev.start != null ? String(prev.start) : '',
-      end: prev.end != null ? String(prev.end) : '',
+  wrap.innerHTML = '';
+  if (seed && seed.length) {
+    seed.forEach(function(s) { scheduleDrawerAppendPrivateSessionRow(s); });
+  } else {
+    scheduleDrawerAppendPrivateSessionRow({});
+  }
+  var addBtn = el('ps-drawer-add-private-session');
+  if (addBtn && !addBtn.dataset.wired) {
+    addBtn.dataset.wired = '1';
+    addBtn.addEventListener('click', function() {
+      scheduleDrawerAppendPrivateSessionRow({});
+      scheduleDrawerMarkPriceStale();
+      scheduleRefreshDrawerFullDayAddon();
+      scheduleDrawerSyncFooter();
     });
   }
-  try {
-    if (rangeTooLong) wrap.setAttribute('data-range-too-long', '1');
-    else wrap.removeAttribute('data-range-too-long');
-  } catch (_r) { /* ignore */ }
-  scheduleDrawerRenderPrivateSessions(sessions);
-  if (rangeTooLong) {
-    scheduleDrawerValidationState = { ok: false, errorKey: 'schedule.create.privateLesson.rangeTooLong' };
-  }
+}
+
+// Back-compat alias used by older date-range wiring.
+function scheduleDrawerRenderPrivateSessions(sessions) {
+  var wrap = el('ps-drawer-private-sessions');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  (sessions || []).forEach(function(s) { scheduleDrawerAppendPrivateSessionRow(s); });
+  if (!(sessions || []).length) scheduleDrawerAppendPrivateSessionRow({});
 }
 
 function scheduleDrawerMarkPriceStale(){
@@ -2473,7 +2758,9 @@ function scheduleDrawerRefreshQuote() {
         date_from: payload.date_from,
         date_to: payload.date_to,
         components: payload.components,
+        lessons: Array.isArray(payload.lessons) ? payload.lessons : [],
         rentals: Array.isArray(payload.rentals) ? payload.rentals : [],
+        course_equipment: Array.isArray(payload.course_equipment) ? payload.course_equipment : [],
         surfer_count: payload.surfer_count != null ? payload.surfer_count : null,
         custom_line_items: Array.isArray(payload.custom_line_items) ? payload.custom_line_items : [],
       };
@@ -2756,6 +3043,56 @@ function scheduleReadDrawerEditPayload() {
     };
   });
   var surferCount = scheduleDrawerReadSurferCount();
+  // Canonical lessons[] — prefer explicit Edit group rows (same-day multi survives).
+  var lessons = [];
+  if (mode === 'group') {
+    var explicitGroup = typeof scheduleDrawerReadGroupLessonRows === 'function'
+      ? scheduleDrawerReadGroupLessonRows()
+      : [];
+    if (explicitGroup && explicitGroup.length) {
+      explicitGroup.forEach(function(row) {
+        if (!row || !row.course_id || !row.date) return;
+        var L = { kind: 'group', course_id: row.course_id, date: row.date };
+        if (row.schedule_key) L.schedule_key = row.schedule_key;
+        if (row.course_label) L.course_label = row.course_label;
+        if (components.course && components.course.tier_key) L.tier_key = components.course.tier_key;
+        lessons.push(L);
+      });
+      // Align primary course component to first lesson when multi-course.
+      if (lessons.length && components.course) {
+        components.course.course_id = lessons[0].course_id;
+        if (lessons[0].course_label) components.course.course_label = lessons[0].course_label;
+      }
+    } else if (components.course && components.course.course_id) {
+      var lessonDates = [];
+      if (typeof schedulePortalInclusiveIsoDates === 'function') {
+        try { lessonDates = schedulePortalInclusiveIsoDates(dateFrom, dateTo) || []; } catch (_ld) { lessonDates = []; }
+      }
+      if (!lessonDates.length && dateFrom) {
+        var cur = String(dateFrom).slice(0, 10);
+        var endIso = String(dateTo || dateFrom).slice(0, 10);
+        var guard = 0;
+        while (cur && cur <= endIso && guard < 31) {
+          lessonDates.push(cur);
+          var dObj = new Date(cur + 'T12:00:00Z');
+          dObj.setUTCDate(dObj.getUTCDate() + 1);
+          cur = dObj.toISOString().slice(0, 10);
+          guard += 1;
+        }
+      }
+      lessonDates.forEach(function(iso) {
+        var L = { kind: 'group', course_id: components.course.course_id, date: iso };
+        if (components.course.course_label) L.course_label = components.course.course_label;
+        if (components.course.tier_key) L.tier_key = components.course.tier_key;
+        lessons.push(L);
+      });
+    }
+  } else if (components.private_lesson && Array.isArray(components.private_lesson.sessions)) {
+    components.private_lesson.sessions.forEach(function(s) {
+      if (!s || !s.date) return;
+      lessons.push({ kind: 'private', date: s.date, start: s.start, end: s.end });
+    });
+  }
   return {
     guest_name: guest,
     guest_phone: phone || null,
@@ -2770,6 +3107,7 @@ function scheduleReadDrawerEditPayload() {
     // No-lesson equipment qty authority (server forces rentals to this when present).
     surfer_count: surferCount,
     course_equipment: course_equipment,
+    lessons: lessons,
   };
 }
 
@@ -3069,10 +3407,16 @@ function scheduleWireEditableDrawer(row, ctx) {
     scheduleRefreshDrawerFullDayAddon();
     scheduleDrawerRefreshDurationConfirm();
     scheduleDrawerSyncFooter();
+    if (typeof scheduleEnhanceIntSteppersIn === 'function') {
+      scheduleEnhanceIntSteppersIn(el('ps-drawer-edit-form') || el('ps-drawer-body'));
+    }
   });
   // Seed view immediately (radios already checked in HTML) before catalog arrives.
   if (typeof scheduleDrawerSeedMainActivityView === 'function') scheduleDrawerSeedMainActivityView();
   scheduleDrawerPopulateComponentFields();
+  if (typeof scheduleEnhanceIntSteppersIn === 'function') {
+    scheduleEnhanceIntSteppersIn(el('ps-drawer-edit-form') || el('ps-drawer-body'));
+  }
   ['ps-drawer-comp-course', 'ps-drawer-comp-private-lesson', 'ps-drawer-comp-no-lesson'].forEach(function(id) {
     var node = el(id);
     if (node) node.addEventListener('change', function() { scheduleDrawerOnComponentChange(id); });
