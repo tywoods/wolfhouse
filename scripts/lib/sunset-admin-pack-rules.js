@@ -9,6 +9,8 @@ const {
   adminConfigTableHasLocationColumn,
 } = require('./tenant-business-config');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
+const { validateEquipmentOptions, normalizeEquipmentOptions } = require('./sunset-course-equipment-options');
+const { listRentalOfferings } = require('./tenant-rental-offerings');
 const {
   CANONICAL_DAY_DURATION_KEYS,
   isCanonicalDayDurationKey,
@@ -49,8 +51,7 @@ const DEFAULT_PRICE_TIERS = [];
 
 function defaultPackConfig() {
   return {
-    equipment_included: false,
-    equipment_price_cents: 0,
+    equipment_options: [],
     age_band: '12_and_up',
     group_size: 16,
     beaches: ['el_sardinero', 'liencres', 'somo'],
@@ -98,8 +99,7 @@ function mapPackRow(row) {
     beaches: Array.isArray(cfg.beaches) ? cfg.beaches : [],
     weekly: cfg.weekly || 'mon_fri',
     schedules: Array.isArray(cfg.schedules) ? cfg.schedules : [],
-    equipment_included: cfg.equipment_included === true,
-    equipment_price_cents: Number.isSafeInteger(Number(cfg.equipment_price_cents)) && Number(cfg.equipment_price_cents) >= 0 ? Number(cfg.equipment_price_cents) : 0,
+    equipment_options: normalizeEquipmentOptions(cfg.equipment_options),
     price_tiers,
     source: 'db',
   };
@@ -125,14 +125,10 @@ function validatePackBody(body, { requireLabel } = {}) {
     if (!Number.isInteger(n) || n < 1 || n > 999) return { ok: false, error: 'invalid group_size' };
     out.group_size = n;
   }
-  if (body.equipment_included != null) {
-    if (typeof body.equipment_included !== 'boolean') return { ok: false, error: 'equipment_included must be boolean' };
-    out.equipment_included = body.equipment_included;
-  }
-  if (body.equipment_price_cents != null) {
-    const n = Number(body.equipment_price_cents);
-    if (!Number.isSafeInteger(n) || n < 0) return { ok: false, error: 'equipment_price_cents must be integer >= 0' };
-    out.equipment_price_cents = n;
+  if (body.equipment_included != null || body.equipment_price_cents != null) return { ok: false, error: 'obsolete equipment fields are not accepted' };
+  if (body.equipment_options != null) {
+    try { out.equipment_options = validateEquipmentOptions(body.equipment_options); }
+    catch (err) { return { ok: false, error: err.message }; }
   }
   if (body.beaches != null) {
     if (!Array.isArray(body.beaches)) return { ok: false, error: 'beaches must be array' };
@@ -258,6 +254,10 @@ async function createSurfPackRule(client, { clientSlug, locationId, body, actor 
   const label = validated.patch.label;
   await client.query('BEGIN');
   try {
+    if (body.equipment_options != null) {
+      const offerings = await listRentalOfferings(client, { clientSlug, locationId: loc, includeInactive: false });
+      cfg.equipment_options = validateEquipmentOptions(body.equipment_options, { offerings, clientSlug, locationId: loc });
+    }
     const inserted = await client.query(
       hasLoc
         ? `INSERT INTO tenant_surf_pack_rules (tenant_id, client_slug, location_id, label, config_json, active, updated_by)
@@ -313,6 +313,10 @@ async function patchSurfPackRule(client, { ruleId, clientSlug, locationId, body,
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_surf_pack_rules');
   await client.query('BEGIN');
   try {
+    if (body.equipment_options != null) {
+      const offerings = await listRentalOfferings(client, { clientSlug, locationId: loc, includeInactive: false });
+      validated.patch.equipment_options = validateEquipmentOptions(body.equipment_options, { offerings, clientSlug, locationId: loc });
+    }
     const existing = await client.query(
       hasLoc
         ? `SELECT * FROM tenant_surf_pack_rules WHERE id = $1::uuid AND client_slug = $2 AND location_id = $3 AND active = true FOR UPDATE`

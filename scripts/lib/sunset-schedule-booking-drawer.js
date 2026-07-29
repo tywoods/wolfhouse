@@ -119,6 +119,11 @@ function formatSunsetDrawerDailyItemLabel(dbType, qty, sr) {
   const serviceKey = String(meta.service_key || '').toLowerCase();
   const q = Number(qty) || 1;
   const sep = ' · ';
+  if (meta.course_equipment === true) {
+    const name = String(meta.label || meta.offering_key || '').trim() || 'Equipment';
+    const modeLabel = meta.course_equipment_mode === 'all_day' ? 'All Day' : 'During Course';
+    return `${name}${sep}${modeLabel}${sep}${q}`;
+  }
   if (dbType === 'addon_service' && (component === FULL_DAY_EQUIPMENT_ADDON_KEY || serviceKey === FULL_DAY_EQUIPMENT_ADDON_KEY)) {
     // Compact "Name · quantity" only. Localized name resolved by the UI (i18n key
     // schedule.type.fullDayEquipment); server label falls back to the Spanish product name.
@@ -291,10 +296,34 @@ function aggregateComponentsFromServices(services) {
     const meta = parseMeta(sr.metadata);
     const component = String(meta.component || sr.metadata_component || '').toLowerCase();
     const serviceKey = String(meta.service_key || '').toLowerCase();
-    if (meta.course_equipment === true && (component === 'surfboard' || component === 'wetsuit')) {
-      if (!components.course_equipment) components.course_equipment = {
-        mode: meta.course_equipment_mode, quantity: Number(sr.quantity) || 1,
-      };
+    if (meta.course_equipment === true) {
+      if (!Array.isArray(components.course_equipment)) components.course_equipment = [];
+      const offeringKey = String(meta.offering_key || '').trim();
+      const mode = meta.course_equipment_mode === 'all_day' ? 'all_day' : 'during_course';
+      const quantity = Number(sr.quantity) || 1;
+      if (offeringKey) {
+        // Canonical multi-item identity: one entry per offering_key.
+        if (!components.course_equipment.some((x) => x && x.offering_key === offeringKey)) {
+          components.course_equipment.push({
+            offering_key: offeringKey,
+            mode,
+            quantity,
+            label: meta.label != null ? String(meta.label) : undefined,
+          });
+        }
+      } else {
+        // Narrow historical singleton (board/wetsuit) — displayable/removable only.
+        components.course_equipment.push({
+          offering_key: '',
+          mode,
+          quantity,
+          label: meta.label
+            || (component === 'surfboard' ? 'Surfboard'
+              : component === 'wetsuit' ? 'Wetsuit' : 'Equipment'),
+          historical: true,
+          component: component || null,
+        });
+      }
       return;
     }
     // Full-day equipment add-on: per-date quantity map; its dates do NOT expand the booking date range.
@@ -599,6 +628,12 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
   }
   const prices = adminCfg.ok ? (adminCfg.prices || []) : [];
   const agg = aggregateComponentsFromServices(bundle.services);
+  const course_equipment = Array.isArray(agg.components.course_equipment)
+    ? agg.components.course_equipment
+    : (agg.components.course_equipment || null);
+  if (agg.components && Object.prototype.hasOwnProperty.call(agg.components, 'course_equipment')) {
+    delete agg.components.course_equipment;
+  }
   const payment = buildPaymentSummary(
     prices,
     bundle.booking,
@@ -681,6 +716,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       date_from: agg.date_from,
       date_to: agg.date_to,
       components: agg.components,
+      course_equipment: course_equipment || null,
       rentals: Array.isArray(meta.rentals) ? meta.rentals : [],
       custom_line_items: customLineItemsFromBundle(bundle),
       rental_pricing: parseRentalPricingMeta(meta) || meta.rental_pricing || null, slot_time: agg.slot_time,
@@ -794,8 +830,19 @@ function pricingIntentFromBundle(bundle) {
     }));
   }
   const custom_line_items = customLineItemsFromBundle(bundle);
-  const course_equipment = agg.components.course_equipment || null;
-  if (course_equipment) delete agg.components.course_equipment;
+  const course_equipment = Array.isArray(agg.components.course_equipment)
+    ? agg.components.course_equipment
+      .map((row) => ({
+        offering_key: row.offering_key,
+        mode: row.mode,
+        quantity: row.quantity,
+      }))
+      .filter((row) => row.offering_key)
+      .sort((a, b) => String(a.offering_key).localeCompare(String(b.offering_key)))
+    : (agg.components.course_equipment || null);
+  if (agg.components && Object.prototype.hasOwnProperty.call(agg.components, 'course_equipment')) {
+    delete agg.components.course_equipment;
+  }
   return buildSchedulePricingIntent({
     service_dates: (() => {
       const dates = new Set();
@@ -1046,7 +1093,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
     // Reprice: capacity/config after lock (self-exclusion for course seats).
     let privateLessonConfig = defaultPrivateLessonApi();
     if (input.components.private_lesson) {
-      const plLoad = await loadPrivateLessonFromDb(pg, { clientSlug, locationId: recordLocationId });
+      const plLoad = await loadPrivateLessonFromDb(pg, clientSlug, recordLocationId);
       privateLessonConfig = plLoad.api || privateLessonConfig;
     }
 
@@ -1134,14 +1181,27 @@ async function updateSunsetScheduleBooking(pg, opts) {
       },
     });
 
-    if (input.course_equipment) {
+    if (input.course_equipment && (
+      !Array.isArray(input.course_equipment) || input.course_equipment.length > 0
+    )) {
+      const { listRentalOfferings } = require('./tenant-rental-offerings');
+      const rentalOfferings = await listRentalOfferings(pg, {
+        clientSlug, locationId: recordLocationId, includeInactive: false,
+      });
+      const equipmentCourse = input.components.private_lesson
+        ? privateLessonConfig
+        : (assignedCourse && assignedCourse.pack);
       const equipmentRows = await insertCourseEquipmentRows(pg, {
         clientSlug, bookingId, bookingCode, guestName: input.guest_name,
         selection: input.course_equipment,
-        surfers: input.components.private_lesson ? input.components.private_lesson.surfer_count : input.components.course.quantity,
+        surfers: input.components.private_lesson
+          ? input.components.private_lesson.surfer_count
+          : input.components.course.quantity,
         bookingDates: input.components.private_lesson
-          ? input.components.private_lesson.sessions.map((s) => s.date) : input.service_dates,
-        config: require('./sunset-admin-location-store').getCourseEquipmentPricing(recordLocationId),
+          ? input.components.private_lesson.sessions.map((s) => s.date)
+          : input.service_dates,
+        course: equipmentCourse,
+        offerings: rentalOfferings,
         attribution: editAttribution, locationId: recordLocationId, bundleId, srPayment,
       });
       equipmentRows.forEach((r) => createdRows.push(r));

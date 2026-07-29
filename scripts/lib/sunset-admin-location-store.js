@@ -15,10 +15,24 @@ const {
   DEFAULT_SUNSET_LOCATION_ID,
   SUNSET_LOCATIONS,
 } = require('./sunset-school-locations');
-const { normalizeConfig, validateConfig } = require('./sunset-course-equipment-pricing');
+const { validateConfig } = require('./sunset-course-equipment-pricing');
 
 const STORE_PATH = path.join(__dirname, '../../config/clients/sunset.location-admin.json');
 const CFG_PREFIX = 'cfg:';
+
+// Narrow read compatibility for an obsolete Admin route. Invalid legacy JSON
+// fails closed and is never promoted to authoritative course configuration.
+function normalizeLegacyCourseEquipmentPricing(value) {
+  const row = value && value.all_day;
+  if (value && typeof value === 'object' && !Array.isArray(value)
+      && Object.keys(value).every((key) => key === 'all_day')
+      && row && typeof row.enabled === 'boolean'
+      && Number.isSafeInteger(row.surfboard_cents) && row.surfboard_cents >= 0
+      && Number.isSafeInteger(row.wetsuit_cents) && row.wetsuit_cents >= 0) {
+    return validateConfig(value);
+  }
+  return { all_day: { enabled: false, surfboard_cents: 0, wetsuit_cents: 0 } };
+}
 
 function stablePriceKey(category, offeringKey, unit) {
   return `${category}|${offeringKey}|${unit}`;
@@ -142,7 +156,7 @@ function ensureLocationBucket(store, locationId) {
 function getCourseEquipmentPricing(locationId) {
   const loc = normalizeSunsetLocationId(locationId);
   const bucket = readStoreSync().locations[loc];
-  return normalizeConfig(bucket && bucket.course_equipment_pricing);
+  return normalizeLegacyCourseEquipmentPricing(bucket && bucket.course_equipment_pricing);
 }
 
 function putCourseEquipmentPricing(locationId, value) {
@@ -186,7 +200,7 @@ function applyStoreToResolvedConfig(config, locationId) {
     ...config,
     location_id: loc,
     location_label: resolveLocationLabel(loc),
-    course_equipment_pricing: normalizeConfig(bucket && bucket.course_equipment_pricing),
+    course_equipment_pricing: normalizeLegacyCourseEquipmentPricing(bucket && bucket.course_equipment_pricing),
   };
 
   if (next.prices && Array.isArray(next.prices)) {

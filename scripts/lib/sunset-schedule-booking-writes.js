@@ -724,12 +724,13 @@ function rowMatchesQuoteLine(row, line) {
       && !!offeringKey && String(meta.offering_key || '').trim() === offeringKey
       && !!itemCode && String(meta.item_code || '').trim() === itemCode;
   }
-  // Course-equipment lines own exactly one component/date row. This prevents
-  // post-insert repricing from claiming legacy rental or included-course rows.
+  // Course-equipment lines own exactly one independent offering_key row.
+  // Never claim legacy rentals, included-course gear, or other equipment keys.
   if (line && line.course_equipment === true) {
+    const lineKey = String(line.offering_key || (line.metadata && line.metadata.offering_key) || '').trim();
+    const rowKey = String(meta.offering_key || '').trim();
+    if (!lineKey || !rowKey || lineKey !== rowKey) return false;
     return meta.course_equipment === true
-      && meta.component === component
-      && String(row.service_date || '').slice(0, 10) === String(line.service_date || '').slice(0, 10)
       && meta.course_equipment_mode === line.course_equipment_mode;
   }
   if (component === 'course') {
@@ -776,6 +777,9 @@ function rowMatchesQuoteLine(row, line) {
       || meta.staff_custom_line === true) {
       return false;
     }
+    // Course-owned multi-item equipment also persists as addon_service rows.
+    // Full-day/addon quote lines must never claim them (duplicate_row_claim / misprice).
+    if (meta.course_equipment === true) return false;
     return meta.component === FULL_DAY_EQUIPMENT_ADDON_KEY
       || serviceType === 'addon_service'
       || meta.service_key === FULL_DAY_EQUIPMENT_ADDON_KEY;
@@ -1547,8 +1551,18 @@ function validateScheduleBookingBody(body, opts) {
     const surfers = forcedComps.private_lesson
       ? Number(forcedComps.private_lesson.surfer_count) : Number(forcedComps.course.quantity);
     try { course_equipment = normalizeSelection(b.course_equipment, surfers); }
-    catch (err) { return { ok: false, error: err.message }; }
-    if (course_equipment.mode === 'all_day' && forcedComps[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+    catch (err) {
+      return {
+        ok: false,
+        error: 'invalid_course_equipment',
+        reason: 'invalid_course_equipment',
+        detail: String(err.message || err),
+      };
+    }
+    // Quote-stage selection is wire-canonical arrays. Persistence still owns write rows.
+    if (Array.isArray(course_equipment)
+      && course_equipment.some((row) => row && row.mode === 'all_day')
+      && forcedComps[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
       return { ok: false, error: 'course_equipment all_day must not overlap legacy full-day equipment extension' };
     }
   }
@@ -1984,7 +1998,28 @@ function buildSchedulePricingIntent(input, opts) {
     rentals: canonicalRentalsForIntentFingerprint(rentalsSrc),
     // Custom adjustments are pricing intent — changes invalidate stale quote / paid reprice.
     custom_line_items: customLinesForIntentFingerprint(customSrc),
-    course_equipment: input && input.course_equipment ? { ...input.course_equipment } : null,
+    course_equipment: (() => {
+      const raw = input && input.course_equipment;
+      if (raw == null) return null;
+      if (Array.isArray(raw)) {
+        return raw
+          .map((row) => {
+            if (!row || typeof row !== 'object') return null;
+            const offering_key = String(row.offering_key || '').trim();
+            if (!offering_key) return null;
+            return {
+              offering_key,
+              mode: row.mode === 'all_day' ? 'all_day' : 'during_course',
+              quantity: Number(row.quantity) || 0,
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.offering_key.localeCompare(b.offering_key));
+      }
+      // Narrow historical singleton shape for intent equality only.
+      if (raw && typeof raw === 'object') return { ...raw };
+      return null;
+    })(),
   };
 }
 
@@ -2276,6 +2311,8 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
       || meta.staff_custom_line === true) {
       return false;
     }
+    // Multi-item course equipment uses addon_service but is quote-owned, not full-day.
+    if (meta.course_equipment === true) return false;
     const st = String(row.service_type || '').toLowerCase();
     return st === 'addon_service'
       || meta.component === FULL_DAY_EQUIPMENT_ADDON_KEY
@@ -2520,28 +2557,84 @@ async function insertScheduleComponentServiceRows(pg, opts) {
   return createdRows;
 }
 
-/** Server-priced board and wetsuit audit rows, one of each per booking date. */
+/**
+ * Persist course-owned multi-item equipment as independent service rows.
+ * One row per selected offering_key, charged once per booked course (never per day).
+ * Money/labels come only from quoteCourseEquipment at write time.
+ */
 async function insertCourseEquipmentRows(pg, opts) {
-  if (!opts.selection) return [];
-  const quote = quoteCourseEquipment({ config: opts.config, course: opts.course, selection: opts.selection,
-    surfers: opts.surfers, booking_dates: opts.bookingDates });
+  if (opts.selection == null) return [];
+  const selection = Array.isArray(opts.selection) ? opts.selection : opts.selection;
+  if (Array.isArray(selection) && selection.length === 0) return [];
+
+  const bookingDates = (opts.bookingDates || [])
+    .map((d) => String(d || '').slice(0, 10))
+    .filter(Boolean)
+    .sort();
+  const serviceDate = bookingDates[0] || null;
+  if (!serviceDate) throw new TypeError('course equipment requires a booking service date');
+
+  const courseId = (opts.course && (opts.course.course_id || opts.course.pack_id || opts.course.id)) || null;
+  const quote = quoteCourseEquipment({
+    course: opts.course,
+    selection,
+    surfers: opts.surfers,
+    offerings: opts.offerings,
+    clientSlug: opts.clientSlug || opts.clientSlugForOfferings,
+    locationId: opts.locationId,
+  });
+
   const rows = [];
   for (const line of quote.lines) {
+    const mode = line.course_equipment_mode || line.mode
+      || (line.all_day ? 'all_day' : 'during_course');
+    const offeringKey = String(line.offering_key || '').trim();
+    if (!offeringKey) throw new TypeError('course equipment line missing offering_key');
+    const base = Number(line.base_unit_cents != null ? line.base_unit_cents : line.base_amount_cents);
+    const surcharge = Number(
+      line.all_day_surcharge_unit_cents != null
+        ? line.all_day_surcharge_unit_cents
+        : line.all_day_surcharge_cents,
+    );
+    const unit = Number(line.unit_amount_cents != null ? line.unit_amount_cents : line.amount_cents);
+    const total = Number(line.total_cents);
+    if (![base, surcharge, unit, total].every((n) => Number.isSafeInteger(n) && n >= 0)) {
+      throw new TypeError('course equipment line money invalid');
+    }
     const metadata = {
-      source: opts.attribution.metadataSource, staff_manual_schedule: opts.attribution.staffManualSchedule,
-      component: line.component, staff_ui_service_type: line.component, course_equipment: true,
-      course_equipment_mode: quote.mode, price_basis: 'per_person_per_booking_day',
-      unit_amount_cents: line.amount_cents, amount_cents: line.total_cents,
-      location_id: opts.locationId || null, bundle_id: opts.bundleId || null,
+      source: opts.attribution.metadataSource,
+      staff_manual_schedule: opts.attribution.staffManualSchedule,
+      course_equipment: true,
+      offering_key: offeringKey,
+      label: String(line.label || offeringKey),
+      course_equipment_mode: mode,
+      component: 'course_equipment',
+      staff_ui_service_type: 'course_equipment',
+      price_basis: 'per_person_per_course',
+      billing_unit: 'person_per_course',
+      pricing_provenance: 'course_owned_equipment',
+      price_source: 'course_owned_equipment',
+      base_unit_cents: base,
+      all_day_surcharge_unit_cents: surcharge,
+      unit_amount_cents: unit,
+      amount_cents: total,
+      course_id: courseId,
+      location_id: opts.locationId || null,
+      bundle_id: opts.bundleId || null,
     };
-    const row = await insertServiceRecord(pg, [opts.clientSlug, opts.bookingId, opts.bookingCode,
-      opts.guestName, UI_TO_DB_SERVICE_TYPE[line.component], line.service_date, line.quantity,
-      opts.srPayment, opts.attribution.dbSource, JSON.stringify(metadata)]);
+    const row = await insertServiceRecord(pg, [
+      opts.clientSlug, opts.bookingId, opts.bookingCode, opts.guestName,
+      'addon_service', serviceDate, line.quantity,
+      opts.srPayment, opts.attribution.dbSource, JSON.stringify(metadata),
+    ]);
     const id = row && (row.service_record_id || row.id);
-    if (id) await pg.query(
-      'UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid AND client_slug = $3',
-      [line.total_cents, id, opts.clientSlug]);
-    rows.push({ ...row, metadata, amount_due_cents: line.total_cents });
+    if (id) {
+      await pg.query(
+        'UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid AND client_slug = $3',
+        [total, id, opts.clientSlug],
+      );
+    }
+    rows.push({ ...row, metadata, amount_due_cents: total, service_type: 'addon_service' });
   }
   return rows;
 }
@@ -2989,15 +3082,27 @@ async function createSunsetScheduleBooking(pg, opts) {
       createdRows.push(ins.rows[0]);
     }
 
-    if (input.course_equipment) {
+    if (input.course_equipment && (
+      !Array.isArray(input.course_equipment) || input.course_equipment.length > 0
+    )) {
+      const { listRentalOfferings } = require('./tenant-rental-offerings');
+      const rentalOfferings = await listRentalOfferings(pg, {
+        clientSlug, locationId, includeInactive: false,
+      });
+      const equipmentCourse = input.components.private_lesson
+        ? privateLessonConfig
+        : (assignedCourse && assignedCourse.pack);
       const equipmentRows = await insertCourseEquipmentRows(pg, {
         clientSlug, bookingId, bookingCode, guestName: input.guest_name,
         selection: input.course_equipment,
-        surfers: input.components.private_lesson ? input.components.private_lesson.surfer_count : input.components.course.quantity,
+        surfers: input.components.private_lesson
+          ? input.components.private_lesson.surfer_count
+          : input.components.course.quantity,
         bookingDates: input.components.private_lesson
-          ? input.components.private_lesson.sessions.map((s) => s.date) : input.service_dates,
-        config: require('./sunset-admin-location-store').getCourseEquipmentPricing(locationId),
-        course: input.components.private_lesson ? privateLessonConfig : (assignedCourse && assignedCourse.pack),
+          ? input.components.private_lesson.sessions.map((s) => s.date)
+          : input.service_dates,
+        course: equipmentCourse,
+        offerings: rentalOfferings,
         attribution, locationId, bundleId, srPayment,
       });
       equipmentRows.forEach((r) => createdRows.push(r));

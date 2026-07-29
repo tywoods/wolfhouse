@@ -8,7 +8,7 @@ const store = require('./lib/sunset-admin-location-store');
 const { formatServiceRecordInvoiceLineText } = require('./lib/service-record-invoice-line');
 
 function child(location, cents) {
-  const code = `const s=require(${JSON.stringify(require.resolve('./lib/sunset-admin-location-store'))});s.putCourseEquipmentPricing(${JSON.stringify(location)},{during_course:{policy:'extra',surfboard_cents:${cents},wetsuit_cents:1},all_day:{surfboard_cents:2,wetsuit_cents:3}})`;
+  const code = `const s=require(${JSON.stringify(require.resolve('./lib/sunset-admin-location-store'))});s.putCourseEquipmentPricing(${JSON.stringify(location)},{all_day:{enabled:true,surfboard_cents:${cents},wetsuit_cents:1}})`;
   return new Promise((resolve, reject) => {
     const p = spawn(process.execPath, ['-e', code], { stdio: 'inherit' });
     p.on('error', reject); p.on('exit', n => n === 0 ? resolve() : reject(new Error(`child exit ${n}`)));
@@ -17,8 +17,15 @@ function child(location, cents) {
 
 (async () => {
   assert.throws(() => pricing.quoteCourseEquipment({
-    config: { during_course: { policy: 'extra', surfboard_cents: Number.MAX_SAFE_INTEGER, wetsuit_cents: 1 }, all_day: { surfboard_cents: 0, wetsuit_cents: 0 } },
-    selection: { mode: 'during_course', quantity: 1 }, surfers: 1, booking_dates: ['2026-08-01'],
+    course: {
+      equipment_options: [{
+        offering_key: 'softboard',
+        equipment_price_cents: Number.MAX_SAFE_INTEGER,
+        all_day_surcharge_cents: 1,
+      }],
+    },
+    selection: [{ offering_key: 'softboard', mode: 'all_day', quantity: 1 }],
+    surfers: 1,
   }), /overflow/);
   assert.strictEqual(require('./lib/sunset-schedule-booking-writes').checkedMoneyAdd(2, 3, 'booking_total'), 5);
   assert.throws(() => require('./lib/sunset-schedule-booking-writes').checkedMoneyAdd(Number.MAX_SAFE_INTEGER, 1, 'booking_total'), /booking_total_overflow/);
@@ -60,8 +67,8 @@ function child(location, cents) {
   const before = fs.existsSync(store.STORE_PATH) ? fs.readFileSync(store.STORE_PATH) : null;
   try {
     await Promise.all([child('sunset-somo', 111), child('sunset-sardinero', 222)]);
-    assert.strictEqual(store.getCourseEquipmentPricing('sunset-somo').during_course.surfboard_cents, 111);
-    assert.strictEqual(store.getCourseEquipmentPricing('sunset-sardinero').during_course.surfboard_cents, 222);
+    assert.strictEqual(store.getCourseEquipmentPricing('sunset-somo').all_day.surfboard_cents, 111);
+    assert.strictEqual(store.getCourseEquipmentPricing('sunset-sardinero').all_day.surfboard_cents, 222);
     const snapshot = fs.readFileSync(store.STORE_PATH, 'utf8');
     assert.throws(() => store.putCourseEquipmentPricing('sunset-somo', { bad: true }));
     assert.strictEqual(fs.readFileSync(store.STORE_PATH, 'utf8'), snapshot, 'failed mutation rolls back');

@@ -473,7 +473,7 @@ var ADMIN_CANONICAL_PACK_TIER_KEYS = {
 };
 function adminDefaultPackConfigSeed(){
   return {
-    equipment_included: false,
+    equipment_options: [],
     age_band: '12_and_up',
     group_size: 16,
     beaches: ['el_sardinero', 'liencres', 'somo'],
@@ -485,7 +485,26 @@ function adminDefaultPackConfigSeed(){
 
 function adminDefaultPackSeed(){
   var d = adminDefaultPackConfigSeed();
-  return { label: portalT('admin.packs.defaultName'), equipment_included: false, age_band: d.age_band, group_size: d.group_size, beaches: d.beaches.slice(), weekly: d.weekly, schedules: d.schedules.slice(), price_tiers: d.price_tiers.map(function(t){ return Object.assign({}, t); }) };
+  return { label: portalT('admin.packs.defaultName'), equipment_options: [], age_band: d.age_band, group_size: d.group_size, beaches: d.beaches.slice(), weekly: d.weekly, schedules: d.schedules.slice(), price_tiers: d.price_tiers.map(function(t){ return Object.assign({}, t); }) };
+}
+
+function adminEquipmentOfferings(){ return (adminConfigCache && adminConfigCache._equipment_offerings || adminConfigCache && adminConfigCache.rental_offerings || []).filter(function(o){ return o && o.active !== false; }); }
+function adminEquipmentRowsHtml(rows){
+  var active=adminEquipmentOfferings(), selected={};
+  (rows||[]).forEach(function(r){if(r&&r.offering_key)selected[String(r.offering_key)]=true;});
+  return (rows||[]).map(function(r,idx){
+    var key=String(r.offering_key||''), exists=active.some(function(o){return String(o.offering_key)===key;});
+    var opts='<option value="">'+escHtml(portalT('admin.courseEquipment.choose'))+'</option>';
+    if(key&&!exists)opts+='<option value="'+escHtml(key)+'" selected disabled>'+escHtml(key+' — '+portalT('admin.courseEquipment.unavailable'))+'</option>';
+    active.forEach(function(o){var k=String(o.offering_key||'');opts+='<option value="'+escHtml(k)+'"'+(k===key?' selected':'')+((selected[k]&&k!==key)?' disabled':'')+'>'+escHtml(o.label||o.display_name||k)+'</option>';});
+    return '<div class="portal-admin-equipment-option-row" data-equipment-option-row="'+idx+'"><label>'+escHtml(portalT('admin.courseEquipment.item'))+'<select class="admin-equipment-offering">'+opts+'</select></label><label>'+escHtml(portalT('admin.courseEquipment.equipmentPrice'))+'<input class="admin-equipment-price" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((r.equipment_price_cents||0)/100))+'"></label><label>'+escHtml(portalT('admin.courseEquipment.surcharge'))+'<input class="admin-equipment-surcharge" inputmode="decimal" value="'+escHtml(adminEurosFromAmount((r.all_day_surcharge_cents||0)/100))+'"></label><button type="button" class="btn btn-ghost portal-admin-touch" data-admin-action="remove-equipment-option" aria-label="'+escHtml(portalT('admin.action.remove'))+'">×</button></div>';
+  }).join('');
+}
+function adminRenderEquipmentEditor(rows,prefix){return '<section class="portal-admin-equipment-editor" data-admin-equipment-editor="'+escHtml(prefix)+'"><h4>'+escHtml(portalT('admin.courseEquipment.editorTitle'))+'</h4><div data-equipment-option-rows>'+adminEquipmentRowsHtml(rows||[])+'</div><button type="button" class="btn btn-ghost portal-admin-touch" data-admin-action="add-equipment-option">+ '+escHtml(portalT('admin.courseEquipment.add'))+'</button></section>';}
+function adminReadEquipmentOptions(root){
+  var seen={},out=[],error='';
+  Array.prototype.slice.call(root.querySelectorAll('[data-equipment-option-row]')).forEach(function(row){var key=String(row.querySelector('.admin-equipment-offering').value||'').trim(),p=adminParseEurosToCents(row.querySelector('.admin-equipment-price').value),s=adminParseEurosToCents(row.querySelector('.admin-equipment-surcharge').value);if(!key||seen[key])error=portalT('admin.courseEquipment.duplicate');else if(!p.ok||!s.ok)error=portalT('admin.edit.amountInvalid');else{seen[key]=true;out.push({offering_key:key,equipment_price_cents:p.value,all_day_surcharge_cents:s.value});}});
+  return {ok:!error,value:out,error:error};
 }
 
 function adminTimesFromScheduleKey(key){
@@ -615,8 +634,7 @@ function adminRenderPackEditForm(pid, pack){
     adminRenderPillRow('age_band', adminPackAgeOptions(), p.age_band || '12_and_up', false) +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.packs.groupSize')) + '</label>' +
     '<input type="number" id="' + prefix + '-group-size" min="1" max="999" step="1" value="' + escHtml(String(p.group_size || 16)) + '"></div>' +
-    '<label class="portal-admin-edit-field"><input type="checkbox" id="' + prefix + '-equipment-included"' + (p.equipment_included === true ? ' checked' : '') + '> Equipment included <span class="portal-admin-muted">(board + wetsuit, per participant/course day)</span></label>' +
-    '<div class="portal-admin-edit-field"><label>Equipment price (€)</label><input class="admin-pack-equipment-price" type="text" id="' + prefix + '-equipment-price" inputmode="decimal" value="' + escHtml(adminEurosFromAmount((p.equipment_price_cents || 0) / 100)) + '" placeholder="0.00"></div>' +
+    adminRenderEquipmentEditor(p.equipment_options || [], prefix) +
     adminRenderPillRow('beaches', adminPackBeachOptions(), p.beaches || [], true) +
     adminRenderPillRow('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false) +
     adminRenderPackScheduleFields(p, prefix) +
@@ -649,8 +667,8 @@ function adminReadPackFormPayload(pid){
     label: labelEl ? String(labelEl.value || '').trim() : '',
     age_band: adminCollectSinglePill('age_band', '12_and_up', root),
     group_size: (function(){ var g = el(prefix + '-group-size'); var n = parseInt(g && g.value, 10); return (isFinite(n) && n > 0) ? n : 16; })(),
-    equipment_included: !!(el(prefix + '-equipment-included') && el(prefix + '-equipment-included').checked),
-    equipment_price_cents: (function(){ var parsed = adminParseEurosToCents(el(prefix + '-equipment-price') && el(prefix + '-equipment-price').value); return parsed.ok ? parsed.value : null; })(),
+    equipment_options: adminReadEquipmentOptions(root).value,
+    _equipmentError: adminReadEquipmentOptions(root).ok ? '' : adminReadEquipmentOptions(root).error,
     beaches: adminCollectPillValues('beaches', root),
     weekly: adminCollectSinglePill('weekly', 'mon_fri', root),
     schedules: schedulesParsed.ok ? schedulesParsed.value : [],
@@ -1140,8 +1158,7 @@ function renderAdminPrivateLessonEditForm(pl){
     '<input type="text" id="admin-private-label" value="' + escHtml(p.label || '') + '" maxlength="120"></div>' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.privateLessons.price')) + '</label>' +
     '<input type="text" id="admin-private-price" value="' + escHtml(adminEurosFromAmount((p.amount_cents || 0) / 100)) + '" inputmode="decimal" placeholder="0.00"></div>' +
-    '<label class="portal-admin-edit-field"><input type="checkbox" id="admin-private-equipment-included"' + (p.equipment_included === true ? ' checked' : '') + '> Equipment included <span class="portal-admin-muted">(board + wetsuit, per participant/course day)</span></label>' +
-    '<div class="portal-admin-edit-field"><label>Equipment price (€)</label><input type="text" id="admin-private-equipment-price" value="' + escHtml(adminEurosFromAmount((p.equipment_price_cents || 0) / 100)) + '" inputmode="decimal" placeholder="0.00"></div>' +
+    adminRenderEquipmentEditor(p.equipment_options || [], 'admin-private') +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.privateLessons.duration')) + '</label>' +
     '<input type="number" id="admin-private-duration" min="15" max="480" step="1" value="' +
     escHtml(String(p.default_duration_minutes != null ? p.default_duration_minutes : 120)) + '"></div>' +
@@ -1569,6 +1586,10 @@ function loadAdminTab(opts){
         clearAdminLoadTimeout();
         if (loadSeq !== adminLoadSeq) return;
         if (!data || data.success !== true) return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
+        return fetch('/staff/admin/config/rental-offerings' + adminClientQuery() + '&include_inactive=true', { credentials:'same-origin', headers:{Accept:'application/json'} })
+          .then(function(r){return r.ok?r.json():{offerings:[]};}).catch(function(){return {offerings:[]};})
+          .then(function(catalog){
+        data._equipment_offerings = catalog && Array.isArray(catalog.offerings) ? catalog.offerings : (data.rental_offerings || []);
         adminConfigCache = data;
         if (!adminCfgWritesEnabled(data)) adminEditTarget = null;
         // Canonical config load — server truth, no draft replay.
@@ -1576,6 +1597,7 @@ function loadAdminTab(opts){
         adminSelectSubTab(adminActiveSubTab || 'finance');
         if (state) state.style.display = 'none';
         adminReleaseBusy(loadSeq);
+          });
       })
       .catch(function(e){
         clearAdminLoadTimeout();
@@ -1652,6 +1674,20 @@ function wireAdminTab(){
       } else {
         btn.classList.toggle('is-selected');
       }
+      return;
+    }
+    if (action === 'add-equipment-option'){
+      var equipmentEditor=btn.closest('[data-admin-equipment-editor]');
+      var equipmentWrap=equipmentEditor&&equipmentEditor.querySelector('[data-equipment-option-rows]');
+      if(!equipmentWrap)return;
+      var equipmentRows=adminReadEquipmentOptions(equipmentEditor).value;
+      equipmentRows.push({offering_key:'',equipment_price_cents:0,all_day_surcharge_cents:0});
+      equipmentWrap.innerHTML=adminEquipmentRowsHtml(equipmentRows);
+      return;
+    }
+    if (action === 'remove-equipment-option'){
+      var equipmentRow=btn.closest('[data-equipment-option-row]');
+      if(equipmentRow)equipmentRow.remove();
       return;
     }
     if (action === 'add-pack-tier'){
@@ -2152,12 +2188,12 @@ function wireAdminTab(){
       var priceEl = el('admin-private-price');
       var durationEl = el('admin-private-duration');
       var notesEl = el('admin-private-notes');
-      var equipmentPriceParsed = adminParseEurosToCents(el('admin-private-equipment-price') && el('admin-private-equipment-price').value);
+      var privateEquipment = adminReadEquipmentOptions(btn.closest('[data-admin-private-lesson-form]'));
       var labelText = String((labelEl && labelEl.value) || '').trim();
       if (!labelText){ adminShowMessage('error', portalT('admin.edit.nameRequired')); return; }
       var priceParsed = adminParseEurosToCents(priceEl && priceEl.value);
       if (!priceParsed.ok){ adminShowMessage('error', priceParsed.error || portalT('admin.edit.amountInvalid')); return; }
-      if (!equipmentPriceParsed.ok){ adminShowMessage('error', equipmentPriceParsed.error || portalT('admin.edit.amountInvalid')); return; }
+      if (!privateEquipment.ok){ adminShowMessage('error', privateEquipment.error); return; }
       var durationVal = parseInt(String((durationEl && durationEl.value) || '120'), 10);
       if (!Number.isInteger(durationVal) || durationVal < 15 || durationVal > 480){
         adminShowMessage('error', portalT('admin.privateLessons.durationInvalid'));
@@ -2167,8 +2203,7 @@ function wireAdminTab(){
         enabled: !!(enabledEl && enabledEl.checked),
         label: labelText,
         amount_cents: priceParsed.value,
-        equipment_included: !!(el('admin-private-equipment-included') && el('admin-private-equipment-included').checked),
-        equipment_price_cents: equipmentPriceParsed.value,
+        equipment_options: privateEquipment.value,
         currency: 'EUR',
         price_basis: 'per_session',
         default_duration_minutes: durationVal,
@@ -2235,7 +2270,8 @@ function wireAdminTab(){
       var payload = adminReadPackFormPayload(packId || null);
       if (payload._scheduleError){ adminShowMessage('error', payload._scheduleError); return; }
       delete payload._scheduleError;
-      if (payload.equipment_price_cents == null){ adminShowMessage('error', portalT('admin.edit.amountInvalid')); return; }
+      if (payload._equipmentError){ adminShowMessage('error', payload._equipmentError); return; }
+      delete payload._equipmentError;
       if (!payload.label){ adminShowMessage('error', portalT('admin.edit.nameRequired')); return; }
       var savePackOpSeq = adminBeginOp();
       adminShowMessage('', '');
