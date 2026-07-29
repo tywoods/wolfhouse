@@ -1363,24 +1363,6 @@ function renderAdminPrivateLessonCard(cfg, writes){
   html += '</article></div>';
   return html;
 }
-function renderAdminCourseEquipment(cfg, writes){
-  var root = cfg && cfg.course_equipment_pricing || {};
-  var allDay = root.all_day || { enabled: false, surfboard_cents: 0, wetsuit_cents: 0 };
-  function euroInput(id, label, value, disabled){
-    return '<div class="portal-admin-edit-field"><label for="' + id + '">' + escHtml(label) + '</label>' +
-      '<input id="' + id + '" type="text" inputmode="decimal" value="' + escHtml(adminEurosFromAmount((value || 0) / 100)) + '"' +
-      (disabled ? ' disabled' : '') + ' aria-describedby="admin-course-equipment-basis"></div>';
-  }
-  var html = '<section class="portal-admin-subsection" data-admin-course-equipment="1" aria-labelledby="admin-course-equipment-title">' +
-    '<h3 id="admin-course-equipment-title" class="portal-admin-subsection-title">' + escHtml(portalT('admin.courseEquipment.title')) + '</h3>' +
-    '<fieldset><legend>' + escHtml(portalT('admin.courseEquipment.allDay')) + '</legend>' +
-    '<label class="portal-admin-touch"><input id="admin-course-all-day-enabled" type="checkbox"' + (allDay.enabled === true ? ' checked' : '') + (writes ? '' : ' disabled') + '> Enabled</label><div class="portal-admin-course-equipment-grid">' +
-    euroInput('admin-course-all-day-board', portalT('admin.courseEquipment.surfboard'), allDay.surfboard_cents, !writes) + euroInput('admin-course-all-day-suit', portalT('admin.courseEquipment.wetsuit'), allDay.wetsuit_cents, !writes) + '</div></fieldset>' +
-    '<p id="admin-course-equipment-basis" class="portal-admin-muted">Prices in euros per person and booking day.</p>';
-  if (writes) html += '<button type="button" class="btn btn-primary portal-admin-touch" data-admin-action="save-course-equipment">' + escHtml(portalT('admin.action.save')) + '</button>';
-  return html + '</section>';
-}
-
 function renderAdminSectionLessonTimesFromConfig(cfg){
   var box = el('admin-times-body');
   if (!box) return;
@@ -1389,7 +1371,9 @@ function renderAdminSectionLessonTimesFromConfig(cfg){
   var packs = (cfg && cfg.surf_packs) ? cfg.surf_packs : [];
   var defaultCap = (cfg && cfg.lesson_capacity && cfg.lesson_capacity.default_daily_cap != null)
     ? cfg.lesson_capacity.default_daily_cap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
-  box.innerHTML = renderAdminPackCards(packs, writes, defaultCap) + renderAdminPrivateLessonCard(cfg, writes) + renderAdminCourseEquipment(cfg, writes);
+  // Course equipment is owned per Group/Private card (equipment_options). The obsolete
+  // location-wide Equipment + Price (All Day + Surfboard/Wetsuit) block is retired.
+  box.innerHTML = renderAdminPackCards(packs, writes, defaultCap) + renderAdminPrivateLessonCard(cfg, writes);
 }
 
 function renderAdminSectionBusinessInfoFromConfig(cfg){
@@ -1807,21 +1791,6 @@ function wireAdminTab(){
     var cfg = adminConfigCache;
     if (!cfg && action !== 'toggle-pill'){
       adminShowMessage('error', portalT('admin.loading'));
-      return;
-    }
-    if (action === 'save-course-equipment'){
-      if (!adminCfgWritesEnabled(cfg)) return;
-      function readEuros(id){ var parsed = adminParseEurosToCents(el(id) && el(id).value); return parsed.ok ? parsed.value : null; }
-      var payload = { all_day: { enabled: !!(el('admin-course-all-day-enabled') && el('admin-course-all-day-enabled').checked), surfboard_cents: readEuros('admin-course-all-day-board'), wetsuit_cents: readEuros('admin-course-all-day-suit') } };
-      if (payload.all_day.surfboard_cents == null || payload.all_day.wetsuit_cents == null){ adminShowMessage('error', portalT('admin.courseEquipment.invalid')); return; }
-      var op = adminBeginOp();
-      adminApiRequest('PATCH', '/staff/admin/config/course-equipment' + adminClientQuery(), payload).then(function(resp){
-        if (!adminOpStillOwns(op)) return;
-        if (resp.status !== 200 || !resp.data || resp.data.success !== true) throw new Error(portalT('admin.courseEquipment.saveError'));
-        adminConfigCache.course_equipment_pricing = resp.data.course_equipment_pricing;
-        // This focused save must not discard unrelated unsaved Pricing edits.
-        renderAdminFromConfig(adminConfigCache, { preserveDraft: true }); adminShowMessage('success', portalT('admin.courseEquipment.saved')); adminReleaseBusy(op);
-      }).catch(function(){ if (!adminOpStillOwns(op)) return; adminShowMessage('error', portalT('admin.courseEquipment.saveError')); adminReleaseBusy(op); });
       return;
     }
     if (action === 'toggle-pill'){

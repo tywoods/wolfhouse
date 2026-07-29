@@ -9,7 +9,7 @@ process.env.STAFF_AUTH_ALLOW_OPEN = 'true';
 process.env.STAFF_UI_BUILDER_TEST_SEAM = '1';
 
 const api = require('./staff-query-api');
-assert.equal(typeof require('./lib/sunset-course-equipment-pricing').validateConfig, 'function', 'Staff API imported pricing validator must remain callable until its route is retired');
+assert.equal(typeof require('./lib/sunset-course-equipment-pricing').validateConfig, 'function', 'legacy validateConfig remains for historical parse compatibility (Admin write route retired)');
 assert.equal(typeof api.buildUiHtmlForOfflineTest, 'function', 'production Staff API must import and expose the gated UI builder');
 const html = api.buildUiHtmlForOfflineTest(3036, { headers: {} });
 assert.equal(typeof html, 'string');

@@ -1154,7 +1154,7 @@ async function browserFixture() {
     await page.waitForFunction(() => document.querySelector('#c-client')?.value === 'sunset');
     await page.locator('button[data-tab="admin"]').click();
     await page.locator('#admin-tab-pricing').click();
-    await page.locator('#admin-course-equipment-title').waitFor();
+    await page.locator('[data-admin-pack-card]').first().waitFor();
 
     // ── A) Course dropdown: active identities regardless of price ──
     await page.locator('[data-admin-action="edit-pack"]').click();

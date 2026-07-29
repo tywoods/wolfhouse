@@ -196,11 +196,13 @@ function applyStoreToResolvedConfig(config, locationId) {
   const loc = normalizeSunsetLocationId(locationId);
   const store = readStoreSync();
   const bucket = store.locations[loc];
+  // course_equipment_pricing is obsolete as an Admin/quote authority. Historical
+  // JSON may still exist in the location store file; use getCourseEquipmentPricing
+  // only for bounded legacy read/test compatibility — do not project it here.
   const next = {
     ...config,
     location_id: loc,
     location_label: resolveLocationLabel(loc),
-    course_equipment_pricing: normalizeLegacyCourseEquipmentPricing(bucket && bucket.course_equipment_pricing),
   };
 
   if (next.prices && Array.isArray(next.prices)) {
