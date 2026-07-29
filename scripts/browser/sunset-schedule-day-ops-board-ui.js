@@ -41,6 +41,29 @@ function scheduleDayOpsParseMetaBlob(raw){
   try { return JSON.parse(raw); } catch (_) { return {}; }
 }
 
+function scheduleGenericRentalDescriptors(group){
+  var byKey = {};
+  var records = group && Array.isArray(group.records) ? group.records : [];
+  records.forEach(function(row){
+    var meta = scheduleDayOpsParseMetaBlob(row && (row.metadata || row._meta));
+    var key = String(meta.offering_key || meta.offering_id || '').trim();
+    var isGeneric = meta.rental_offering === true || meta.generic_rental === true
+      || (String(meta.component || '').toLowerCase() === 'addon_service' && !!key);
+    if (!isGeneric || !key) return;
+    var label = String(meta.offering_label || meta.catalog_label || meta.label || '').trim();
+    if (!label){
+      label = key.replace(/_rental$/i, '').replace(/[_-]+/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+    }
+    if (!byKey[key]) byKey[key] = { offering_key: key, label: label, quantity: 0 };
+    byKey[key].quantity += Math.max(1, Number(row.quantity) || 1);
+  });
+  return Object.keys(byKey).sort().map(function(key){ return byKey[key]; });
+}
+
+function scheduleGenericRentalDescriptor(group){
+  return scheduleGenericRentalDescriptors(group)[0] || null;
+}
+
 /**
  * Canonical sorted unique booked service dates for a Today card group.
  * Prefer authoritative explicit date arrays; fall back to inclusive from/to.
@@ -237,14 +260,15 @@ function scheduleRenderOpsBookingRow(group){
   var rowSrcCls = src === 'staff' ? ' is-staff' : (src === 'luna' || src === 'demo' ? ' is-luna' : '');
   var railCls = src === 'staff' ? ' is-staff' : (src === 'luna' || src === 'demo' ? ' is-luna' : '');
   var ariaLabel = scheduleRowSourceAriaLabel(g);
-  var qty = scheduleGroupHasPrivateLesson(g)
+  var genericRental = g._genericRentalDescriptor || scheduleGenericRentalDescriptor(g);
+  var qty = genericRental ? genericRental.quantity : scheduleGroupHasPrivateLesson(g)
     ? (g.quantity || scheduleGroupComponentQty(g, 'private_lesson') || 1)
     : scheduleGroupHasLesson(g)
     ? (g.quantity || scheduleGroupComponentQty(g, 'lesson') || 1)
     : scheduleGroupHasCourse(g)
     ? (g.quantity || scheduleGroupComponentQty(g, 'course') || 1)
     : (scheduleGroupBoardsNeeded(g) || scheduleGroupWetsuitsNeeded(g) || 1);
-  var equip = scheduleDayOpsEquipmentPrepLabel(g);
+  var equip = genericRental ? genericRental.label : scheduleDayOpsEquipmentPrepLabel(g);
   var chipCls = src === 'staff' ? 'is-staff' : 'is-luna';
   var chipLabel = src === 'staff' ? portalT('schedule.legend.staff')
     : src === 'demo' ? portalT('schedule.source.demo')
@@ -264,9 +288,11 @@ function scheduleRenderOpsBookingRow(group){
     '</div>';
 }
 
-function scheduleRenderRentalPickupBlock(groups, titleKey, emptyKey){
+function scheduleRenderRentalPickupBlock(groups, titleKey, emptyKey, opts){
+  opts = opts || {};
+  var title = opts.literalTitle ? String(titleKey || '') : portalT(titleKey);
   var html = '<div class="portal-schedule-ops-rental-pickups-block">' +
-    '<div class="portal-schedule-ops-rental-pickups-subhdr">' + escHtml(portalT(titleKey) + ' — ' + String((groups || []).length)) + '</div>';
+    '<div class="portal-schedule-ops-rental-pickups-subhdr">' + escHtml(title + ' — ' + String((groups || []).length)) + '</div>';
   if (groups && groups.length){
     html += '<div class="portal-schedule-ops-lesson-rows">' + scheduleRenderOpsColumnHeader();
     groups.forEach(function(g){ html += scheduleRenderOpsBookingRow(g); });
@@ -359,6 +385,17 @@ function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
   var bothRentals = gearGroups.filter(function(g){ return scheduleRentalPickupKind(g) === 'both'; });
   var boardOnlyRentals = gearGroups.filter(function(g){ return scheduleRentalPickupKind(g) === 'board'; });
   var wetsuitOnlyRentals = gearGroups.filter(function(g){ return scheduleRentalPickupKind(g) === 'wetsuit'; });
+  var genericByLabel = {};
+  gearGroups.forEach(function(g){
+    scheduleGenericRentalDescriptors(g).forEach(function(desc){
+      var label = desc.label || desc.offering_key;
+      if (!genericByLabel[label]) genericByLabel[label] = [];
+      genericByLabel[label].push(Object.assign({}, g, {
+        quantity: desc.quantity,
+        _genericRentalDescriptor: desc,
+      }));
+    });
+  });
   if (gearGroups.length){
     var rentalBoardsTotal = gearGroups.reduce(function(a, g){ return a + scheduleGroupBoardsNeeded(g); }, 0);
     var rentalWetsTotal = gearGroups.reduce(function(a, g){ return a + scheduleGroupWetsuitsNeeded(g); }, 0);
@@ -371,6 +408,9 @@ function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
       (bothRentals.length ? scheduleRenderRentalPickupBlock(bothRentals, 'schedule.ops.rentalBoth', 'schedule.ops.rentalNothingScheduled') : '') +
       (boardOnlyRentals.length ? scheduleRenderRentalPickupBlock(boardOnlyRentals, 'schedule.ops.rentalBoardsOnly', 'schedule.ops.rentalNothingScheduled') : '') +
       (wetsuitOnlyRentals.length ? scheduleRenderRentalPickupBlock(wetsuitOnlyRentals, 'schedule.ops.rentalWetsuitsOnly', 'schedule.ops.rentalNothingScheduled') : '') +
+      Object.keys(genericByLabel).sort().map(function(label){
+        return scheduleRenderRentalPickupBlock(genericByLabel[label], label, 'schedule.ops.rentalNothingScheduled', { literalTitle: true });
+      }).join('') +
       '</section>';
   }
   if (!html) html = '<div class="portal-schedule-ops-empty">' + escHtml(portalT('schedule.emptyDay')) + '</div>';

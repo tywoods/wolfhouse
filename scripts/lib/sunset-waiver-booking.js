@@ -216,6 +216,14 @@ function attachLunaWaiverFields(body) {
   return b;
 }
 
+function bookingCreateResultNeedsWaiver(body) {
+  const records = body && Array.isArray(body.records) ? body.records : [];
+  return records.some((row) => {
+    const type = String(row && (row._scheduleType || row.service_type) || '').toLowerCase();
+    return type === 'lesson' || type === 'course' || type === 'private_lesson' || type === 'surf_lesson';
+  });
+}
+
 /**
  * Soft-fail wrapper for booking-create paths when migration is not applied.
  */
@@ -241,6 +249,7 @@ async function ensureWaiverForBookingSoft(pg, bookingId, options) {
 module.exports = {
   ensureWaiverForBooking,
   ensureWaiverForBookingSoft,
+  bookingCreateResultNeedsWaiver,
   isLessonReadyForGuest,
   resolveWaiverLane,
   buildLunaWaiverInviteMessage,

@@ -6,11 +6,12 @@ const {
   buildGenericRentalAuthoritativeQuote,
   applyAuthoritativeQuoteAmounts,
   buildScheduleBookingIntentFingerprint,
+  scheduleRowFromDb,
 } = require('./lib/sunset-schedule-booking-writes');
 
 let passed = 0;
 async function expect(name, fn) { await fn(); passed += 1; console.log(`PASS ${name}`); }
-const catalog = [{ offering_key: 'kayak_rental', active: true, location_id: 'sunset-somo', excludes: [] }];
+const catalog = [{ offering_key: 'kayak_rental', label: 'Sea Kayak', active: true, location_id: 'sunset-somo', excludes: [] }];
 const loadCatalog = async () => catalog;
 const goodRule = async ({ itemCode, duration, pgClient }) => {
   assert.strictEqual(pgClient, fakePg);
@@ -32,7 +33,18 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
     const r = got.records[0];
     assert.strictEqual(r.service_type, 'addon_service'); assert.strictEqual(r.quantity, 2);
     assert.strictEqual(r.amount_due_cents, 5000); assert.strictEqual(r.metadata.offering_key, 'kayak_rental');
+    assert.strictEqual(r.metadata.offering_label, 'Sea Kayak');
     assert.deepStrictEqual({ duration: r.metadata.duration_key, location: r.metadata.location_id, item: r.metadata.item_code, unit: r.metadata.unit_cents }, { duration: 'half_day', location: 'sunset-somo', item: 'kayak_rental__half_day', unit: 2500 });
+  });
+  await expect('schedule create/readback row preserves generic rental metadata for pickups', async () => {
+    const metadata = { rental_offering: true, offering_key: 'kayak_rental', offering_label: 'Sea Kayak', staff_ui_service_type: 'rental' };
+    const row = scheduleRowFromDb({
+      service_record_id: 'sr-1', service_type: 'addon_service', staff_ui_service_type: 'rental',
+      record_source: 'staff_manual', guest_name: 'Ada', service_date: '2026-08-01', quantity: 2,
+      booking_id: 'b-1', booking_code: 'SUNSET-1', metadata,
+    });
+    assert.strictEqual(row._scheduleType, 'rental');
+    assert.deepStrictEqual(row.metadata, metadata);
   });
   await expect('exact Admin multi-day package wins over repeating selected base package', async () => {
     const calls = [];
