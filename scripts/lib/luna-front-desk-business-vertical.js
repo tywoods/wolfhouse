@@ -23,6 +23,7 @@ const {
 } = require('./luna-front-desk-vertical-scope');
 const { surfSchoolVerticalAdapter } = require('./verticals/surf-school-vertical-adapter');
 const { accommodationVerticalAdapter } = require('./verticals/accommodation-vertical-adapter');
+const { isSurfSchoolClient, resolveSurfSchoolConfig } = require('./surf-school-config');
 
 const SUNSET_TENANT = VERTICAL_TENANT[VERTICAL_IDS.SURF_SCHOOL];
 const WOLFHOUSE_TENANT = VERTICAL_TENANT[VERTICAL_IDS.ACCOMMODATION];
@@ -62,6 +63,35 @@ function resolveBusinessVertical(trustedTenantContext) {
       verticalId: VERTICAL_IDS.SURF_SCHOOL,
       clientSlug: SUNSET_TENANT,
       locationId,
+    };
+  }
+
+  // Other configured surf schools: recognized (slug PRESERVED, never coerced to
+  // sunset) and validated against THAT tenant's own surf-school config — not the
+  // Sunset location helper. Recognition here does not mean the tenant can
+  // transact; the surf-school adapter fails closed for tenants not provisioned
+  // in the pricing/booking spine (Phase 1b).
+  if (isSurfSchoolClient(clientSlug)) {
+    const cfg = resolveSurfSchoolConfig(clientSlug);
+    const rawLoc = ctx.locationId != null ? ctx.locationId : ctx.location_id;
+    const locId = rawLoc != null ? String(rawLoc).trim() : '';
+    if (locId) {
+      const known = Array.isArray(cfg && cfg.locations)
+        && cfg.locations.some((l) => l && l.id === locId);
+      if (!known) {
+        return {
+          ok: false,
+          reason: 'unknown_location',
+          reason_code: 'unknown_location',
+          location_id: locId,
+        };
+      }
+    }
+    return {
+      ok: true,
+      verticalId: VERTICAL_IDS.SURF_SCHOOL,
+      clientSlug,
+      locationId: locId || null,
     };
   }
 

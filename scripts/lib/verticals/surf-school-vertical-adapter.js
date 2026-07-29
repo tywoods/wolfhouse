@@ -106,6 +106,34 @@ function scopeFailure(scope) {
   };
 }
 
+// Phase 1a wall: the surf-school vertical is a valid membership (multiple schools
+// may pass assertResolvedVerticalScope), but only tenants provisioned in the
+// pricing/booking spine may reach the Sunset-backed services. Any recognized but
+// unprovisioned surf school (e.g. lawave) fails closed here with an audited 403,
+// BEFORE any DB acquire / Sunset-hard-coded command. Spine de-tenanting that
+// admits more tenants is Phase 1b.
+const PROVISIONED_CLIENT_SLUGS = Object.freeze([SUNSET_CLIENT_SLUG]);
+
+function assertTenantProvisioned(resolved) {
+  const slug = resolved && resolved.clientSlug;
+  if (PROVISIONED_CLIENT_SLUGS.includes(slug)) return { ok: true };
+  return {
+    ok: false,
+    status: 403,
+    reason: 'tenant_not_provisioned',
+    reason_code: 'tenant_not_provisioned',
+    client_slug: slug || null,
+    body: {
+      success: false,
+      ok: false,
+      reason: 'tenant_not_provisioned',
+      reason_code: 'tenant_not_provisioned',
+      vertical_id: VERTICAL_IDS.SURF_SCHOOL,
+      client_slug: slug || null,
+    },
+  };
+}
+
 const surfSchoolVerticalAdapter = {
   verticalId: VERTICAL_IDS.SURF_SCHOOL,
   supportedClientSlug: SUNSET_CLIENT_SLUG,
@@ -113,6 +141,8 @@ const surfSchoolVerticalAdapter = {
   async listOfferings(pg, request = {}) {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.SURF_SCHOOL);
     if (!scope.ok) return scopeFailure(scope);
+    const provisioned = assertTenantProvisioned(request.resolved);
+    if (!provisioned.ok) return provisioned;
     const rejected = rejectAccommodationTransportFields(request.transportBody);
     if (!rejected.ok) return rejected;
     const built = buildSunsetCatalogCommand({
@@ -130,6 +160,8 @@ const surfSchoolVerticalAdapter = {
   async quoteOffering(pg, request = {}) {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.SURF_SCHOOL);
     if (!scope.ok) return scopeFailure(scope);
+    const provisioned = assertTenantProvisioned(request.resolved);
+    if (!provisioned.ok) return provisioned;
     const rejected = rejectAccommodationTransportFields(request.transportBody);
     if (!rejected.ok) return rejected;
     const built = buildSunsetQuoteCommand({
@@ -147,6 +179,8 @@ const surfSchoolVerticalAdapter = {
   async createBooking(pg, request = {}) {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.SURF_SCHOOL);
     if (!scope.ok) return scopeFailure(scope);
+    const provisioned = assertTenantProvisioned(request.resolved);
+    if (!provisioned.ok) return provisioned;
     const rejected = rejectAccommodationTransportFields(request.transportBody);
     if (!rejected.ok) return rejected;
     if (!pg) {
@@ -175,6 +209,14 @@ const surfSchoolVerticalAdapter = {
         reason_code: scope.reason_code || scope.reason,
       };
     }
+    const provisioned = assertTenantProvisioned(request.resolved);
+    if (!provisioned.ok) {
+      return {
+        ok: false,
+        reason: provisioned.reason,
+        reason_code: provisioned.reason_code,
+      };
+    }
     const offering = request.offering || request.schedule || {};
     const dates = request.serviceDates || request.service_dates || [];
     return evaluateSunsetOfferingDates(offering, dates, request.options || {});
@@ -183,6 +225,8 @@ const surfSchoolVerticalAdapter = {
   async checkAvailability(pg, request = {}) {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.SURF_SCHOOL);
     if (!scope.ok) return scopeFailure(scope);
+    const provisioned = assertTenantProvisioned(request.resolved);
+    if (!provisioned.ok) return provisioned;
     const rejected = rejectAccommodationTransportFields(request.transportBody);
     if (!rejected.ok) return rejected;
     const transportBody = {
@@ -229,6 +273,8 @@ const surfSchoolVerticalAdapter = {
   async assertCourseAssignable(pg, request = {}) {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.SURF_SCHOOL);
     if (!scope.ok) return scopeFailure(scope);
+    const provisioned = assertTenantProvisioned(request.resolved);
+    if (!provisioned.ok) return provisioned;
     return assertCourseAssignable(pg, {
       clientSlug: SUNSET_CLIENT_SLUG,
       locationId: request.resolved.locationId,

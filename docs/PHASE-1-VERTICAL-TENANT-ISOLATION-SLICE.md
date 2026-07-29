@@ -1,9 +1,27 @@
 # Phase 1 — Vertical→Tenant isolation slice (membership + end-to-end propagation)
 
-**Status:** SPEC / not implemented. Do **not** land the predicate change alone.
+**Status:** Phase **1a IMPLEMENTED** (2026-07-29) — membership boundary + adapter
+fail-closed wall + tenant-scoped location validation + hostile regression.
+Phase **1b PENDING** — de-tenant the pricing/booking (money) spine so a second
+school actually transacts. Do **not** land the predicate change without the wall.
 **Owner file (linchpin):** `scripts/lib/luna-front-desk-vertical-scope.js`
 **Blocking review:** Skipper Task 2 (2026-07-28) — verdict **BLOCK a standalone
 `VERTICAL_TENANT` membership widening**.
+
+## Split rationale (discovered 2026-07-29)
+
+The pricing/booking spine is hard-gated to Sunset: `tenant-business-config.js`
+returns `unsupported_client` / throws `tenant_scope_violation` for any non-sunset
+slug. So membership widening alone cannot let a second school transact — it would
+fail deep in the money layer. The slice is therefore two atomic pieces:
+
+- **1a (landed):** widen membership **and** wall the adapter so a recognized but
+  unprovisioned school (e.g. `lawave`) fails closed with an audited 403 **before**
+  any DB acquire / Sunset command. Isolation strictly improves; no green→red.
+  Gate: `scripts/verify-vertical-tenant-isolation-second-school.js` (21 checks).
+- **1b (pending):** de-tenant `tenant-business-config.js` + catalog/quote/create
+  services so `lawave` binds `lawave` end-to-end. The "lawave transacts" asserts
+  from the hostile matrix below land here.
 
 ## Why this is one slice, not a predicate swap
 
@@ -57,17 +75,23 @@ the audited 403 cross-tenant isolation boundary. The FORTRESS matrix
 
 ## Required hostile regression (new second-school suite)
 
-Must prove more than "lawave is recognized":
+Must prove more than "lawave is recognized". `[1a]` = landed in
+`verify-vertical-tenant-isolation-second-school.js`; `[1b]` = pending spine work.
 
-- [ ] `lawave` resolves to `surf_school`.
-- [ ] Resolved slug remains `lawave`, never `sunset`.
-- [ ] `lawave` cannot use `sunset-somo` or `sunset-sardinero`.
-- [ ] `sunset` cannot use a Lawave location.
-- [ ] `lawave` catalog / quote / create queries bind `lawave`.
-- [ ] No `lawave` request invokes a Sunset-hard-coded command.
-- [ ] Forged `resolved={verticalId:'surf_school', clientSlug:'sunset'}` under
-      `lawave` auth returns an audited **403** — **before** DB acquire/write.
-- [ ] Existing Wolfhouse and unknown-tenant denial cases stay GREEN.
+- [x] `[1a]` `lawave` resolves to `surf_school`.
+- [x] `[1a]` Resolved slug remains `lawave`, never `sunset`.
+- [x] `[1a]` `lawave` cannot use `sunset-somo` or `sunset-sardinero`.
+- [x] `[1a]` `sunset` cannot use a Lawave location.
+- [x] `[1a]` No `lawave` request invokes a Sunset-hard-coded command (adapter
+      fails closed with `tenant_not_provisioned` 403 **before** DB acquire — the
+      test injects a pg client that throws on any query).
+- [x] `[1a]` Existing Wolfhouse and unknown-tenant denial cases stay GREEN.
+- [x] `[1a]` Sanctioned-resolver forgery invariant: a `lawave` slug can never
+      resolve to a `sunset` identity (so it can't slip the wall as Sunset).
+- [ ] `[1b]` `lawave` catalog / quote / create queries bind `lawave`.
+- [ ] `[1b]` HTTP-layer forged `resolved={verticalId:'surf_school',
+      clientSlug:'sunset'}` under `lawave` auth returns an audited **403** —
+      compare authenticated tenant to `resolved` before DB acquire/write.
 
 ## Phase 1 gate (authoritative as of 2026-07-29)
 
