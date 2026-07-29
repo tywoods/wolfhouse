@@ -18648,12 +18648,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
               <div class="portal-schedule-create-field" id="ps-create-private-lesson-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1" tabindex="-1"></div>
             </div>
           </div>
-          <div class="portal-schedule-create-main-activity-header portal-schedule-create-equipment-header">
-            <span id="ps-create-equipment-catalog-label" class="portal-schedule-create-label">Equipment</span>
-          </div>
-          <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-labelledby="ps-create-equipment-catalog-label" aria-live="polite"></div>
-        </div>
-                <div class="portal-schedule-course-equipment is-off" id="ps-create-course-equipment" style="display:none" hidden>
+          <div class="portal-schedule-course-equipment is-off" id="ps-create-course-equipment" style="display:none" hidden>
           <div class="portal-schedule-course-equipment-row">
             <div class="portal-schedule-course-equipment-left">
               <label class="portal-schedule-course-equipment-check" for="ps-create-equipment-enabled" aria-label="Surfboard + wetsuit">
@@ -18677,6 +18672,11 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <input id="ps-create-equipment-sets-qty" type="number" min="1" value="1" inputmode="numeric">
           </div>
           <p id="ps-create-equipment-everyday" class="portal-admin-muted" style="display:none" hidden data-i18n="schedule.courseEquipment.everyDay">Applies on every booking day.</p>
+          </div>
+          <div class="portal-schedule-create-main-activity-header portal-schedule-create-equipment-header">
+            <span id="ps-create-equipment-catalog-label" class="portal-schedule-create-label">Equipment</span>
+          </div>
+          <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-labelledby="ps-create-equipment-catalog-label" aria-live="polite"></div>
         </div>
         <!-- Legacy select kept for payload/verifiers; never shown as a second dropdown (drill-down owns course pick). -->
         <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none" hidden aria-hidden="true"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect" hidden>Select course</label><select id="ps-create-course-select" tabindex="-1" aria-hidden="true"></select></div>

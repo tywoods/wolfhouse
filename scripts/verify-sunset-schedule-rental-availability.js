@@ -200,8 +200,14 @@ assert(
   'create form has dynamic rentals container',
   apiSrc.includes('id="ps-create-rentals"') || apiSrc.includes("id='ps-create-rentals'"),
 );
+const includedGearPos = apiSrc.indexOf('id="ps-create-course-equipment"');
+const equipmentTitlePos = apiSrc.indexOf('id="ps-create-equipment-catalog-label"');
 assert(
-  'no hardcoded default-checked surfboard/wetsuit create checkboxes',
+  'lesson-included gear renders above standalone Equipment title',
+  includedGearPos >= 0 && equipmentTitlePos >= 0 && includedGearPos < equipmentTitlePos,
+  `included=${includedGearPos}, title=${equipmentTitlePos}`,
+);
+assert('no hardcoded default-checked surfboard/wetsuit create checkboxes',
   !/id="ps-create-comp-surfboard"[^>]*checked/.test(apiSrc)
     && !/id="ps-create-comp-wetsuit"[^>]*checked/.test(apiSrc),
 );
