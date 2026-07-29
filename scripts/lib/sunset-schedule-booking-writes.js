@@ -415,27 +415,47 @@ async function prepareGenericRentalsForCreate(opts) {
     const commonPriceOpts = { clientSlug: o.clientSlug, locationId: o.locationId, offeringKey: row.offering_key, quantity: row.quantity, pgClient: o.pgClient, loadRule: o.loadRule };
     const dayCount = Number(o.calendarDayCount);
     const bookingDurationKey = String(o.bookingDurationKey || '').trim();
+    const selectedDuration = String(row.duration_key || '').trim();
+    const isHourDuration = /hour|half_day/i.test(selectedDuration);
     let priced;
-    if (Number.isInteger(dayCount) && dayCount > 1 && bookingDurationKey) {
-      // Admin may define a package for the exact booking span. It always wins.
-      priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: bookingDurationKey });
-      if (priced.ok) {
-        priced = { ...priced, pricing_mode: 'exact_duration_package', package_repeat_count: 1, selected_duration_key: row.duration_key };
-      } else if (priced.reason === 'price_not_found') {
-        // No exact package: repeat the selected base package once per calendar day.
-        priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: row.duration_key });
+    if (Number.isInteger(dayCount) && dayCount > 1) {
+      // Multi-day commercial rule:
+      //  - exact active N_days package when selected duration matches the span
+      //  - otherwise active 1_day repeated once per selected date
+      //  - hour packages are never offered/accepted across multi-day ranges
+      if (isHourDuration) {
+        return { ok: false, reason: 'rental_duration_not_compatible' };
+      }
+      const exactKey = bookingDurationKey || (dayCount === 1 ? '1_day' : `${dayCount}_days`);
+      if (selectedDuration === exactKey) {
+        priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: selectedDuration });
+        if (priced.ok) {
+          priced = {
+            ...priced,
+            pricing_mode: 'exact_duration_package',
+            package_repeat_count: 1,
+            selected_duration_key: selectedDuration,
+          };
+        }
+      } else if (selectedDuration === '1_day' || selectedDuration === 'full_day') {
+        const baseKey = selectedDuration === 'full_day' ? '1_day' : selectedDuration;
+        priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: baseKey });
         if (priced.ok) {
           priced = {
             ...priced,
             amount_cents: priced.amount_cents * dayCount,
             pricing_mode: 'repeated_base_package',
             package_repeat_count: dayCount,
-            booking_duration_key: bookingDurationKey,
+            booking_duration_key: exactKey,
+            // Preserve the chosen base duration identity for persistence/readback.
+            duration_key: baseKey,
           };
         }
+      } else {
+        return { ok: false, reason: 'rental_duration_not_compatible' };
       }
     } else {
-      priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: row.duration_key });
+      priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: selectedDuration });
       if (priced.ok) priced = { ...priced, pricing_mode: 'base_package', package_repeat_count: 1 };
     }
     if (!priced.ok) return priced;

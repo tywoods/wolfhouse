@@ -298,28 +298,15 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
 
     if (category === 'rental' || /rental|full_day_equipment/i.test(key)) {
       let identity = null;
-      if (key === 'board_and_suit_rental' || key.startsWith('board_and_suit_rental__')) {
-        const duration = rentalPeriodFromAdminPriceRow(key, price);
-        if (!duration) continue;
-        identity = rentalIdentity('board_and_suit_rental', duration, locationId);
-      } else if (key === 'board_rental' || key.startsWith('board_rental__')) {
-        const duration = rentalPeriodFromAdminPriceRow(key, price);
-        if (!duration) continue;
-        identity = rentalIdentity('board_rental', duration, locationId);
-      } else if (key === 'wetsuit_rental' || key.startsWith('wetsuit_rental__')) {
-        const duration = rentalPeriodFromAdminPriceRow(key, price);
-        if (!duration) continue;
-        identity = rentalIdentity('wetsuit_rental', duration, locationId);
-      } else if (/full_day_equipment/i.test(key)) {
+      if (/full_day_equipment/i.test(key)) {
         identity = fullDayEquipmentIdentity(locationId);
-      } else if (key.includes('__')) {
-        identity = {
-          offering_id: key,
-          item_type: 'rental',
-          item_code: key,
-          billing_unit: String(price.unit || 'day'),
-          billing_mode: 'unit_x_qty',
-        };
+      } else {
+        // Data-driven: any rental price row with a resolvable period joins via
+        // rentalIdentity — no hardcoded board/wetsuit/both allowlist.
+        const duration = rentalPeriodFromAdminPriceRow(key, price);
+        if (!duration) continue;
+        const baseKey = key.includes('__') ? key.split('__')[0] : key;
+        identity = rentalIdentity(baseKey, duration, locationId);
       }
       if (!identity) continue;
       offerings.push({

@@ -984,9 +984,10 @@ async function main() {
     && /portal-schedule-create-footer/.test(editSrc)
     && /id="ps-drawer-cancel"/.test(editSrc)
     && /id="ps-drawer-save"/.test(editSrc));
-  ok('rental host + duration pebbles host pattern',
+  ok('rental host + per-item duration select pattern (Slice 2)',
     /id="ps-drawer-rentals"/.test(editSrc)
-    && /data-rental-duration-pebbles|rental-pebble/.test(editSrc));
+    && (/data-rental-duration-select|ps-drawer-rental-duration/.test(editSrc)
+      || /data-rental-duration-pebbles|rental-pebble/.test(editSrc)));
 
   // ── F) Render seed HTML via real function ────────────────────────────────
   console.log('\n[F] Seeded HTML from scheduleRenderEditableDrawerHtml');
@@ -1439,8 +1440,11 @@ async function main() {
           ]),
           'data-duration-key': '3_days',
         },
+        style: { display: '' },
+        hidden: false,
         getAttribute(k) { return this._attrs[k] != null ? this._attrs[k] : null; },
         setAttribute(k, v) { this._attrs[k] = String(v); },
+        removeAttribute(k) { delete this._attrs[k]; },
         querySelectorAll() { return []; },
         querySelector() { return null; },
         dataset: {},
@@ -1459,7 +1463,10 @@ async function main() {
         scheduleRentalDurationKeyFromDates() { return '3_days'; },
         scheduleEnumerateDates() { return ['2026-07-20', '2026-07-21', '2026-07-22']; },
         getSunsetLocation() { return 'sunset-somo'; },
+        getClient() { return 'sunset'; },
         scheduleAdminPricesCache: [],
+        scheduleRentalOfferingsCache: [],
+        scheduleProjectStandaloneRentals() { return []; },
         scheduleCommonShortRentalDurationKeys() { return []; },
         scheduleActiveShortRentalOfferings() { return []; },
         scheduleActiveRentalsForDuration() { return []; },
@@ -1467,10 +1474,11 @@ async function main() {
         scheduleDrawerReadSurferCount() { return 2; },
         scheduleDrawerApplyRentalExclusionUi() {},
         scheduleWireDrawerRentals() {},
+        scheduleRentalOfferingDisplayLabel(k, lab) { return lab || k; },
         scheduleRentalOfferingLabelKey(k) {
           return k === 'wetsuit_rental' ? 'schedule.type.wetsuitRental'
             : k === 'board_and_suit_rental' ? 'schedule.ops.rentalBoth'
-              : 'schedule.type.boardRental';
+              : (k === 'board_rental' ? 'schedule.type.boardRental' : '');
         },
         portalT(k) { return (en[k] || k); },
         escHtml(s) {

@@ -46,10 +46,12 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
     assert.strictEqual(row._scheduleType, 'rental');
     assert.deepStrictEqual(row.metadata, metadata);
   });
-  await expect('exact Admin multi-day package wins over repeating selected base package', async () => {
+  await expect('exact Admin multi-day package wins when client selects N_days', async () => {
     const calls = [];
     const got = await prepareGenericRentalsForCreate({
-      ...base, calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
+      ...base,
+      rentals: [{ offering_key: 'kayak_rental', duration_key: '3_days', quantity: 2 }],
+      calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
       loadRule: async (args) => {
         calls.push(args.duration);
         if (args.duration === '3_days') return { status: 'found', amount_cents: 6000, currency: 'EUR', item_code: 'kayak_rental__3_days', unit: 'day', location_id: 'sunset-somo' };
@@ -62,21 +64,33 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
     assert.strictEqual(got.records[0].metadata.pricing_mode, 'exact_duration_package');
     assert.strictEqual(got.records[0].metadata.package_repeat_count, 1);
   });
-  await expect('missing multi-day package repeats selected 4-hour package once per calendar day', async () => {
-    const calls = [];
+  await expect('hour package on multi-day range fails closed (Slice 2: no hour multi-day)', async () => {
     const got = await prepareGenericRentalsForCreate({
       ...base, rentals: [{ offering_key: 'kayak_rental', duration_key: '4_hours', quantity: 2 }],
       calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
       loadRule: async (args) => {
-        calls.push(args.duration);
         if (args.duration === '3_days') return { status: 'not_found' };
         return { status: 'found', amount_cents: 2500, currency: 'EUR', item_code: 'kayak_rental__4_hours', unit: 'session', location_id: 'sunset-somo' };
       },
     });
+    assert.strictEqual(got.ok, false);
+    assert.strictEqual(got.reason, 'rental_duration_not_compatible');
+  });
+  await expect('missing multi-day package repeats active 1_day once per calendar day', async () => {
+    const calls = [];
+    const got = await prepareGenericRentalsForCreate({
+      ...base, rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 2 }],
+      calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
+      loadRule: async (args) => {
+        calls.push(args.duration);
+        if (args.duration === '3_days') return { status: 'not_found' };
+        return { status: 'found', amount_cents: 2500, currency: 'EUR', item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo' };
+      },
+    });
     assert.strictEqual(got.ok, true);
-    assert.deepStrictEqual(calls, ['3_days', '4_hours']);
+    assert.deepStrictEqual(calls, ['1_day']);
     assert.strictEqual(got.records[0].amount_due_cents, 15000);
-    assert.strictEqual(got.records[0].metadata.duration_key, '4_hours');
+    assert.strictEqual(got.records[0].metadata.duration_key, '1_day');
     assert.strictEqual(got.records[0].metadata.pricing_mode, 'repeated_base_package');
     assert.strictEqual(got.records[0].metadata.package_repeat_count, 3);
     const quote = buildGenericRentalAuthoritativeQuote(got.records);

@@ -1272,18 +1272,32 @@ function schedulePortalRenderCreateQuotePreview(result) {
   box.style.display = 'block';
 }
 
-function schedulePortalRentalLabel(offeringKey) {
+function schedulePortalRentalLabel(offeringKey, catalogLabel) {
   var key = String(offeringKey || '');
+  if (typeof scheduleRentalOfferingDisplayLabel === 'function') {
+    var display = scheduleRentalOfferingDisplayLabel(key, catalogLabel, portalT);
+    if (display) return display;
+  }
   var i18nKey = (typeof scheduleRentalOfferingLabelKey === 'function' && scheduleRentalOfferingLabelKey(key))
     || (key === 'wetsuit_rental' ? 'schedule.type.wetsuitRental' : key === 'board_and_suit_rental' ? 'schedule.ops.rentalBoth'
       : key === 'board_rental' ? 'schedule.type.boardRental' : '');
   var lab = i18nKey ? portalT(i18nKey) : '';
-  return (lab && lab !== i18nKey) ? lab : '';
+  if (lab && lab !== i18nKey) return lab;
+  // Data-driven: humanize arbitrary catalog keys (Towel, etc.) — never invent Surfboard.
+  if (typeof scheduleHumanizeRentalOfferingKey === 'function') {
+    return scheduleHumanizeRentalOfferingKey(key);
+  }
+  return key ? String(key).replace(/_rental$/i, '').replace(/[_-]+/g, ' ') : '';
 }
 function schedulePortalDurationLabel(durationKey) {
   var key = String(durationKey || '').trim(); if (!key) return '';
   if (typeof adminPeriodLabel === 'function') { var al = adminPeriodLabel(key); if (al && al !== '???' && al !== key) return al; }
-  var tKey = 'admin.period.' + key, t = portalT(tKey); return (t && t !== tKey) ? t : '';
+  var tKey = 'admin.period.' + key, t = portalT(tKey); if (t && t !== tKey) return t;
+  if (typeof scheduleShortRentalDurationFallbackLabel === 'function') {
+    var fb = scheduleShortRentalDurationFallbackLabel(key);
+    if (fb) return fb;
+  }
+  return key;
 }
 function schedulePortalHumanCourseBit(course) {
   var id = course && course.course_id != null ? String(course.course_id).trim() : '';
@@ -1402,8 +1416,8 @@ function schedulePortalRenderCreateIntentSummary(payload) {
     primary.push(portalT('schedule.type.noLesson') || 'Equipment only');
   }
 
-  function gearLabelOnly(key, q) {
-    var lab = schedulePortalRentalLabel(key); if (!lab) return '';
+  function gearLabelOnly(key, q, catalogLabel) {
+    var lab = schedulePortalRentalLabel(key, catalogLabel); if (!lab) return '';
     return (Number(q) > 1) ? (lab + ' \u00d7' + q) : lab;
   }
   if (rentals.length) {
@@ -1411,12 +1425,15 @@ function schedulePortalRenderCreateIntentSummary(payload) {
     for (var ri = 0; ri < rentals.length; ri++) {
       var r = rentals[ri];
       if (!r || !r.offering_key) continue;
-      var gLab = gearLabelOnly(r.offering_key, r.quantity);
+      var gLab = gearLabelOnly(r.offering_key, r.quantity, r.offering_label || r.label);
       if (gLab) gearBits.push(gLab);
-      // One shared duration only — do not repeat per gear line or after course duration.
-      if (!durationLab && r.duration_key) {
+      // Per-item durations may differ; surface human labels on secondary row.
+      if (r.duration_key) {
         var gDur = schedulePortalDurationLabel(r.duration_key);
-        if (gDur && gDur !== String(r.duration_key)) durationLab = gDur;
+        if (gDur) {
+          if (!durationLab) durationLab = gDur;
+          else if (durationLab.indexOf(gDur) < 0) durationLab = durationLab + ', ' + gDur;
+        }
       }
     }
     if (gearBits.length) primary.push(gearBits.join(', '));
