@@ -37,7 +37,6 @@ const {
   isSunsetLocationId,
 } = require('./sunset-school-locations');
 const { isSunsetAdminDbReadEnabled } = require('./tenant-business-config');
-const { getCourseEquipmentPricing } = require('./sunset-admin-location-store');
 const {
   quoteCourseEquipment,
   checkedAdd: checkedCourseEquipmentAdd,
@@ -190,8 +189,11 @@ function nestOfferingForQuote(raw) {
     offering_id: raw.offering_id,
     offering_type: raw.offering_type,
     course_id: raw.course_id || null,
-    equipment_included: raw.equipment_included === true,
-    equipment_price_cents: Number.isSafeInteger(Number(raw.equipment_price_cents)) ? Number(raw.equipment_price_cents) : 0,
+    // Course-owned multi-item equipment options (server labels/cents). No legacy
+    // equipment_included / scalar equipment_price_cents on the current quote path.
+    equipment_options: Array.isArray(raw.equipment_options)
+      ? raw.equipment_options.map((row) => ({ ...row }))
+      : [],
     tier_key: tierOrDuration,
     // Rental windows use duration_key canonically; keep in sync with tier_key so
     // async Admin re-resolve cannot drop multi-day identity.
@@ -208,6 +210,69 @@ function nestOfferingForQuote(raw) {
     price_identity: raw.price_identity || null,
     schedule: raw.schedule || null,
     schedule_summary: raw.schedule && raw.schedule.summary,
+  };
+}
+
+/**
+ * Build course-owned equipment quote lines for Group/Private.
+ * selection is wire array [{offering_key, mode, quantity}]; server owns cents/labels.
+ */
+function buildCourseEquipmentQuoteLines({
+  selection,
+  course,
+  surfers,
+  locationId,
+  catalog,
+}) {
+  if (selection == null) return { ok: true, lines: [], total_cents: 0, course_equipment: null };
+  const offerings = (catalog && catalog._adminCfg && catalog._adminCfg.rental_offerings)
+    || (catalog && catalog.rental_offerings)
+    || null;
+  let equipmentQuote;
+  try {
+    equipmentQuote = quoteCourseEquipment({
+      course,
+      selection,
+      surfers,
+      offerings,
+      clientSlug: SUNSET_CLIENT_SLUG,
+      locationId,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      status: 422,
+      body: {
+        success: false,
+        reason: 'invalid_course_equipment',
+        error: String(err.message || err),
+      },
+    };
+  }
+  const lines = equipmentQuote.lines.map((line) => ({
+    offering_key: line.offering_key,
+    label: line.label,
+    quantity: line.quantity,
+    unit_amount_cents: line.unit_amount_cents,
+    base_unit_cents: line.base_unit_cents,
+    all_day_surcharge_unit_cents: line.all_day_surcharge_unit_cents,
+    total_cents: line.total_cents,
+    currency: 'EUR',
+    price_source: 'course_owned_equipment',
+    billing_unit: 'person_per_course',
+    course_equipment: true,
+    course_equipment_mode: line.course_equipment_mode,
+    metadata: {
+      ...line.metadata,
+      location_id: locationId,
+      price_source: 'course_owned_equipment',
+    },
+  }));
+  return {
+    ok: true,
+    lines,
+    total_cents: equipmentQuote.total_cents,
+    course_equipment: equipmentQuote.course_equipment,
   };
 }
 
@@ -234,6 +299,7 @@ function normalizeQuoteLineItemsForFingerprint(lineItems) {
     return {
       component: line && line.component != null ? String(line.component) : null,
       offering_id: line && line.offering_id != null ? String(line.offering_id) : null,
+      offering_key: line && line.offering_key != null ? String(line.offering_key) : null,
       offering_item_code: line && (line.offering_item_code || line.item_code) != null
         ? String(line.offering_item_code || line.item_code)
         : null,
@@ -751,51 +817,40 @@ function buildOfferingQuoteResult(command, catalog, offering, lineOut) {
   return { ok: true, status: 200, body: quoteBody };
 }
 
-function appendOfferingCourseEquipment(command, offering, result) {
+function appendOfferingCourseEquipment(command, offering, result, catalog) {
   const selection = command.transportBody.course_equipment;
   if (selection == null || !result.ok) return result;
   if (offering.offering_type !== 'course' && offering.offering_type !== 'private_lesson') {
     return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
   }
-  // Entitlement belongs to the exact selected Admin course, never to a
-  // location-wide zero-price policy. Missing and false both fail closed.
-  if (selection && selection.mode === 'during_course' && offering.equipment_included !== true) {
-    return { ok: false, status: 422, body: { success: false, reason: 'course_equipment_not_included' } };
-  }
-  let equipmentQuote;
+  const equipmentOut = buildCourseEquipmentQuoteLines({
+    selection,
+    course: offering,
+    surfers: result.body.quantity,
+    locationId: command.locationId,
+    catalog,
+  });
+  if (!equipmentOut.ok) return equipmentOut;
   try {
-    equipmentQuote = quoteCourseEquipment({
-      config: getCourseEquipmentPricing(command.locationId),
-      course: offering,
-      selection,
-      surfers: result.body.quantity,
-      booking_dates: result.body.service_dates,
-    });
+    result.body.total_cents = checkedCourseEquipmentAdd(
+      result.body.total_cents,
+      equipmentOut.total_cents,
+      'quote total',
+    );
   } catch (err) {
-    return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment', error: String(err.message || err) } };
-  }
-  const equipmentLines = equipmentQuote.lines.map((line) => ({
-    component: line.component,
-    service_date: line.service_date,
-    service_dates: [line.service_date],
-    quantity: line.quantity,
-    unit_amount_cents: line.amount_cents,
-    total_cents: line.total_cents,
-    currency: 'EUR',
-    price_source: 'admin_location_course_equipment',
-    billing_unit: 'person_per_booking_day',
-    course_equipment: true,
-    course_equipment_mode: equipmentQuote.mode,
-    metadata: { ...line.metadata, location_id: command.locationId, price_source: 'admin_location_course_equipment' },
-  }));
-  try {
-    result.body.total_cents = checkedCourseEquipmentAdd(result.body.total_cents, equipmentQuote.total_cents, 'quote total');
-  } catch (err) {
-    return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment', error: String(err.message || err) } };
+    return {
+      ok: false,
+      status: 422,
+      body: {
+        success: false,
+        reason: 'invalid_course_equipment',
+        error: String(err.message || err),
+      },
+    };
   }
   result.body.line_total_cents = result.body.total_cents;
-  result.body.course_equipment = { mode: equipmentQuote.mode, quantity: equipmentQuote.quantity };
-  result.body.line_items.push(...equipmentLines);
+  result.body.course_equipment = equipmentOut.course_equipment;
+  result.body.line_items.push(...equipmentOut.lines);
   result.body.quote_provenance = buildQuoteProvenance(result.body);
   return result;
 }
@@ -843,8 +898,12 @@ async function quoteByOfferingId(pg, command, catalog, requireDb) {
     resolved.quantity,
     requireDb,
   );
-  return appendOfferingCourseEquipment(command, resolved.offering,
-    buildOfferingQuoteResult(command, catalog, resolved.offering, lineOut));
+  return appendOfferingCourseEquipment(
+    command,
+    resolved.offering,
+    buildOfferingQuoteResult(command, catalog, resolved.offering, lineOut),
+    catalog,
+  );
 }
 
 function quoteByOfferingIdSync(command, catalog, requireDb) {
@@ -857,8 +916,12 @@ function quoteByOfferingIdSync(command, catalog, requireDb) {
     resolved.quantity,
     requireDb,
   );
-  return appendOfferingCourseEquipment(command, resolved.offering,
-    buildOfferingQuoteResult(command, catalog, resolved.offering, lineOut));
+  return appendOfferingCourseEquipment(
+    command,
+    resolved.offering,
+    buildOfferingQuoteResult(command, catalog, resolved.offering, lineOut),
+    catalog,
+  );
 }
 
 function quoteUnknownOfferingFallback(catalog, body, offeringId) {
@@ -1558,41 +1621,55 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     currency = lineOut.line.currency;
   }
 
-  // Server-authoritative course coverage: validated selection, derived dates,
-  // and active-school Admin prices. Client cents and component dates are ignored.
-  if (input.course_equipment) {
-    // A location-level zero price is not a course entitlement. Luna may only
-    // quote free during-course gear when this exact catalog course explicitly
-    // includes it; missing/legacy flags fail closed.
-    if (input.components.course && input.course_equipment.mode === 'during_course') {
+  // Course-owned multi-item equipment: exact selected Group/Private course
+  // options + active scoped rental identity. Never shared location pricing,
+  // equipment_included, or per-day multiplication.
+  let courseEquipmentEcho = input.course_equipment || null;
+  if (input.course_equipment != null) {
+    let courseForEquipment = null;
+    let surfers = null;
+    if (input.components.course) {
       const identity = resolveCourseOfferingIdentity(input.components.course);
-      const match = identity.ok
-        ? findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0]
-        : null;
-      if (!match || match.equipment_included !== true) {
-        return { ok: false, status: 422, body: { success: false, reason: 'course_equipment_not_included' } };
+      if (!identity.ok) return identity;
+      const match = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0];
+      if (!match) {
+        return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
       }
+      courseForEquipment = nestOfferingForQuote(match);
+      surfers = Math.max(1, Number(input.components.course.quantity) || 1);
+    } else if (input.components.private_lesson) {
+      const match = (catalog.offerings || []).find((o) => o.offering_type === 'private_lesson');
+      if (!match) {
+        return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
+      }
+      courseForEquipment = nestOfferingForQuote(match);
+      surfers = Math.max(1, Number(input.components.private_lesson.surfer_count) || 1);
+    } else {
+      return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
     }
-    const surfers = input.components.private_lesson
-      ? input.components.private_lesson.surfer_count : input.components.course.quantity;
-    const equipmentDates = input.components.private_lesson
-      ? input.components.private_lesson.sessions.map((s) => s.date) : serviceDates;
-    let equipmentQuote;
-    try {
-      equipmentQuote = quoteCourseEquipment({ config: getCourseEquipmentPricing(command.locationId),
-        selection: input.course_equipment, surfers, booking_dates: equipmentDates });
-      totalCents = checkedCourseEquipmentAdd(totalCents, equipmentQuote.total_cents, 'quote total');
-    } catch (err) {
-      return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment', error: String(err.message || err) } };
-    }
-    for (const line of equipmentQuote.lines) lines.push({
-      component: line.component, service_date: line.service_date, service_dates: [line.service_date],
-      quantity: line.quantity, unit_amount_cents: line.amount_cents, total_cents: line.total_cents,
-      currency: 'EUR', price_source: 'admin_location_course_equipment',
-      billing_unit: 'person_per_booking_day', course_equipment: true,
-      course_equipment_mode: equipmentQuote.mode,
-      metadata: { ...line.metadata, location_id: command.locationId, price_source: 'admin_location_course_equipment' },
+    const equipmentOut = buildCourseEquipmentQuoteLines({
+      selection: input.course_equipment,
+      course: courseForEquipment,
+      surfers,
+      locationId: command.locationId,
+      catalog,
     });
+    if (!equipmentOut.ok) return equipmentOut;
+    try {
+      totalCents = checkedCourseEquipmentAdd(totalCents, equipmentOut.total_cents, 'quote total');
+    } catch (err) {
+      return {
+        ok: false,
+        status: 422,
+        body: {
+          success: false,
+          reason: 'invalid_course_equipment',
+          error: String(err.message || err),
+        },
+      };
+    }
+    lines.push(...equipmentOut.lines);
+    courseEquipmentEcho = equipmentOut.course_equipment;
   }
 
   if (rentalsNorm.present) {
@@ -1681,7 +1758,7 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     client_slug: SUNSET_CLIENT_SLUG,
     location_id: command.locationId,
     channel: command.channel,
-    course_equipment: input.course_equipment || null,
+    course_equipment: courseEquipmentEcho,
     line_items: lines,
     offering_id: primary.offering_id,
     course_id: primary.course_id,
@@ -1751,41 +1828,53 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     currency = lineOut.line.currency;
   }
 
-  // Server-authoritative course coverage: validated selection, derived dates,
-  // and active-school Admin prices. Client cents and component dates are ignored.
-  if (input.course_equipment) {
-    // A location-level zero price is not a course entitlement. Luna may only
-    // quote free during-course gear when this exact catalog course explicitly
-    // includes it; missing/legacy flags fail closed.
-    if (input.components.course && input.course_equipment.mode === 'during_course') {
+  // Course-owned multi-item equipment (sync path — same authority as async).
+  let courseEquipmentEcho = input.course_equipment || null;
+  if (input.course_equipment != null) {
+    let courseForEquipment = null;
+    let surfers = null;
+    if (input.components.course) {
       const identity = resolveCourseOfferingIdentity(input.components.course);
-      const match = identity.ok
-        ? findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0]
-        : null;
-      if (!match || match.equipment_included !== true) {
-        return { ok: false, status: 422, body: { success: false, reason: 'course_equipment_not_included' } };
+      if (!identity.ok) return identity;
+      const match = findCatalogOffering({ offerings: catalog.offerings }, identity.offering_id)[0];
+      if (!match) {
+        return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
       }
+      courseForEquipment = nestOfferingForQuote(match);
+      surfers = Math.max(1, Number(input.components.course.quantity) || 1);
+    } else if (input.components.private_lesson) {
+      const match = (catalog.offerings || []).find((o) => o.offering_type === 'private_lesson');
+      if (!match) {
+        return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
+      }
+      courseForEquipment = nestOfferingForQuote(match);
+      surfers = Math.max(1, Number(input.components.private_lesson.surfer_count) || 1);
+    } else {
+      return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
     }
-    const surfers = input.components.private_lesson
-      ? input.components.private_lesson.surfer_count : input.components.course.quantity;
-    const equipmentDates = input.components.private_lesson
-      ? input.components.private_lesson.sessions.map((s) => s.date) : serviceDates;
-    let equipmentQuote;
-    try {
-      equipmentQuote = quoteCourseEquipment({ config: getCourseEquipmentPricing(command.locationId),
-        selection: input.course_equipment, surfers, booking_dates: equipmentDates });
-      totalCents = checkedCourseEquipmentAdd(totalCents, equipmentQuote.total_cents, 'quote total');
-    } catch (err) {
-      return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment', error: String(err.message || err) } };
-    }
-    for (const line of equipmentQuote.lines) lines.push({
-      component: line.component, service_date: line.service_date, service_dates: [line.service_date],
-      quantity: line.quantity, unit_amount_cents: line.amount_cents, total_cents: line.total_cents,
-      currency: 'EUR', price_source: 'admin_location_course_equipment',
-      billing_unit: 'person_per_booking_day', course_equipment: true,
-      course_equipment_mode: equipmentQuote.mode,
-      metadata: { ...line.metadata, location_id: command.locationId, price_source: 'admin_location_course_equipment' },
+    const equipmentOut = buildCourseEquipmentQuoteLines({
+      selection: input.course_equipment,
+      course: courseForEquipment,
+      surfers,
+      locationId: command.locationId,
+      catalog,
     });
+    if (!equipmentOut.ok) return equipmentOut;
+    try {
+      totalCents = checkedCourseEquipmentAdd(totalCents, equipmentOut.total_cents, 'quote total');
+    } catch (err) {
+      return {
+        ok: false,
+        status: 422,
+        body: {
+          success: false,
+          reason: 'invalid_course_equipment',
+          error: String(err.message || err),
+        },
+      };
+    }
+    lines.push(...equipmentOut.lines);
+    courseEquipmentEcho = equipmentOut.course_equipment;
   }
 
   if (rentalsNorm.present) {
@@ -1863,7 +1952,7 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     client_slug: SUNSET_CLIENT_SLUG,
     location_id: command.locationId,
     channel: command.channel,
-    course_equipment: input.course_equipment || null,
+    course_equipment: courseEquipmentEcho,
     line_items: lines,
     offering_id: primary.offering_id,
     course_id: primary.course_id,

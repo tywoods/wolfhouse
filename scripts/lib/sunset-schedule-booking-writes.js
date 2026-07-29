@@ -1547,8 +1547,18 @@ function validateScheduleBookingBody(body, opts) {
     const surfers = forcedComps.private_lesson
       ? Number(forcedComps.private_lesson.surfer_count) : Number(forcedComps.course.quantity);
     try { course_equipment = normalizeSelection(b.course_equipment, surfers); }
-    catch (err) { return { ok: false, error: err.message }; }
-    if (course_equipment.mode === 'all_day' && forcedComps[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+    catch (err) {
+      return {
+        ok: false,
+        error: 'invalid_course_equipment',
+        reason: 'invalid_course_equipment',
+        detail: String(err.message || err),
+      };
+    }
+    // Quote-stage selection is wire-canonical arrays. Persistence still owns write rows.
+    if (Array.isArray(course_equipment)
+      && course_equipment.some((row) => row && row.mode === 'all_day')
+      && forcedComps[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
       return { ok: false, error: 'course_equipment all_day must not overlap legacy full-day equipment extension' };
     }
   }

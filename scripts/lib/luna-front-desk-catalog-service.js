@@ -87,8 +87,11 @@ function nestCatalogOffering(raw) {
       unit: raw.billing_unit || 'session',
     },
     course_id: raw.course_id || null,
-    equipment_included: raw.equipment_included === true,
-    equipment_price_cents: Number.isSafeInteger(Number(raw.equipment_price_cents)) ? Number(raw.equipment_price_cents) : 0,
+    // Course-owned multi-item equipment options (labels + cents). Current quote
+    // authority never falls back to scalar equipment_included / equipment_price_cents.
+    equipment_options: Array.isArray(raw.equipment_options)
+      ? raw.equipment_options.map((row) => ({ ...row }))
+      : [],
     included_items: Array.isArray(raw.included_items) ? raw.included_items : [],
     unit_amount_cents: raw.unit_amount_cents,
     billing_unit: raw.billing_unit,

@@ -63,6 +63,7 @@
     "verify:staff-query-api-startup-smoke": "node scripts/verify-staff-query-api-startup-smoke.js",
     "verify:staff-query-ui": "node scripts/verify-staff-query-ui.js",
     "verify:sunset-course-equipment-pricing": "node scripts/verify-sunset-course-equipment-pricing.js",
+    "verify:sunset-course-equipment-quote-authority": "node scripts/verify-sunset-course-equipment-quote-authority.js",
     "verify:sunset-course-equipment-catalog": "node scripts/verify-sunset-course-equipment-catalog.js",
     "verify:sunset-admin-course-equipment-production": "node scripts/verify-sunset-admin-course-equipment-production.js",
     "verify:sunset-course-equipment-ui-playwright": "node scripts/verify-sunset-course-equipment-ui-playwright.js",

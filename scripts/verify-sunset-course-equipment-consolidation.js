@@ -5,37 +5,68 @@ const packs = require('./lib/sunset-admin-pack-rules');
 const privateRules = require('./lib/sunset-admin-private-lesson-rules');
 const pricing = require('./lib/sunset-course-equipment-pricing');
 
-// Course entities own included-equipment entitlement and its combined per-person/day price.
+const options = [
+  { offering_key: 'softboard', equipment_price_cents: 725, all_day_surcharge_cents: 0 },
+  { offering_key: 'carbon_fins', equipment_price_cents: 200, all_day_surcharge_cents: 100 },
+];
+
+// Course entities own multi-item equipment_options (obsolete scalar fields rejected).
+assert.equal(packs.validatePackBody({ equipment_included: true, equipment_price_cents: 0 }).ok, false);
 assert.deepStrictEqual(
-  packs.validatePackBody({ equipment_included: true, equipment_price_cents: 0 }).patch,
-  { equipment_included: true, equipment_price_cents: 0 });
-assert.equal(packs.mapPackRow({ id: 'g', label: 'Group', config_json: { equipment_included: true, equipment_price_cents: 725 } }).equipment_price_cents, 725);
-assert.equal(packs.mapPackRow({ id: 'legacy', label: 'Legacy', config_json: { equipment_included: true } }).equipment_price_cents, 0);
-assert.equal(privateRules.validatePrivateLessonBody({ equipment_included: true, equipment_price_cents: 0 }).ok, true);
-assert.equal(privateRules.mapPrivateLessonRow({ id: 'p', active: true, label: 'Private', config_json: { equipment_included: true, equipment_price_cents: 950 } }).equipment_price_cents, 950);
-assert.equal(privateRules.mapPrivateLessonRow({ id: 'legacy', active: true, label: 'Legacy', config_json: {} }).equipment_price_cents, 0);
+  packs.validatePackBody({ equipment_options: options }).patch,
+  { equipment_options: options },
+);
+assert.deepStrictEqual(
+  packs.mapPackRow({ id: 'g', label: 'Group', config_json: { equipment_options: options } }).equipment_options,
+  options,
+);
+assert.deepStrictEqual(
+  packs.mapPackRow({ id: 'legacy', label: 'Legacy', config_json: {} }).equipment_options,
+  [],
+);
+assert.equal(privateRules.validatePrivateLessonBody({ equipment_included: true, equipment_price_cents: 0 }).ok, false);
+assert.deepStrictEqual(
+  privateRules.validatePrivateLessonBody({ equipment_options: options }).patch.equipment_options,
+  options,
+);
+assert.deepStrictEqual(
+  privateRules.mapPrivateLessonRow({
+    id: 'p', active: true, label: 'Private', config_json: { equipment_options: options },
+  }).equipment_options,
+  options,
+);
 
-// Included quote ignores obsolete shared during-course prices and uses the selected course.
-const included = pricing.quoteCourseEquipment({
-  config: { during_course: { policy: 'extra', surfboard_cents: 9999, wetsuit_cents: 9999 }, all_day: { enabled: true, surfboard_cents: 2000, wetsuit_cents: 800 } },
-  course: { equipment_included: true, equipment_price_cents: 725 },
-  selection: { mode: 'during_course', quantity: 2 }, surfers: 2, booking_dates: ['2026-08-01'],
+// Quote uses course-owned options; no shared location pricing / equipment_included.
+const quote = pricing.quoteCourseEquipment({
+  course: { course_id: 'g', equipment_options: options },
+  selection: [
+    { offering_key: 'softboard', mode: 'during_course', quantity: 2 },
+    { offering_key: 'carbon_fins', mode: 'all_day', quantity: 1 },
+  ],
+  surfers: 2,
 });
-assert.equal(included.total_cents, 1450);
-assert.equal(included.lines.reduce((n, line) => n + line.total_cents, 0), 1450);
-assert.throws(() => pricing.quoteCourseEquipment({ config: {}, course: { equipment_included: false, equipment_price_cents: 725 }, selection: { mode: 'during_course', quantity: 1 }, surfers: 1, booking_dates: ['2026-08-01'] }));
-assert.throws(() => pricing.quoteCourseEquipment({ config: { all_day: { enabled: false, surfboard_cents: 1, wetsuit_cents: 1 } }, course: {}, selection: { mode: 'all_day', quantity: 1 }, surfers: 1, booking_dates: ['2026-08-01'] }));
+assert.equal(quote.total_cents, 1450 + 300);
+assert.equal(quote.lines.reduce((n, line) => n + line.total_cents, 0), 1750);
+assert.throws(() => pricing.quoteCourseEquipment({
+  course: { equipment_options: options },
+  selection: [{ offering_key: 'missing', mode: 'during_course', quantity: 1 }],
+  surfers: 1,
+}));
+assert.throws(() => pricing.quoteCourseEquipment({
+  course: { equipment_options: [] },
+  selection: [{ offering_key: 'softboard', mode: 'all_day', quantity: 1 }],
+  surfers: 1,
+}));
 
-const canonical = pricing.validateConfig({ all_day: { enabled: true, surfboard_cents: 0, wetsuit_cents: 0 } });
-assert.deepStrictEqual(canonical, { all_day: { enabled: true, surfboard_cents: 0, wetsuit_cents: 0 } });
-assert.deepStrictEqual(pricing.normalizeConfig({ during_course: { policy: 'extra', surfboard_cents: 1, wetsuit_cents: 2 }, all_day: { surfboard_cents: 3, wetsuit_cents: 4 } }), { all_day: { enabled: true, surfboard_cents: 3, wetsuit_cents: 4 } });
+// Transitional validateConfig remains parse-only for the old Admin location route.
+const legacyShape = { all_day: { enabled: true, surfboard_cents: 0, wetsuit_cents: 0 } };
+assert.deepStrictEqual(pricing.validateConfig(legacyShape), legacyShape);
 
 const ui = fs.readFileSync(require.resolve('./browser/sunset-admin-ui'), 'utf8');
-assert(ui.includes('admin-pack-equipment-price'));
-assert(ui.includes('admin-private-equipment-included'));
-assert(ui.includes('admin-private-equipment-price'));
+assert(ui.includes('equipment_options'));
+assert(ui.includes('adminRenderEquipmentEditor'));
 assert(ui.includes('admin-course-all-day-enabled'));
 assert(!ui.includes('admin-course-during-board'));
 assert(!ui.includes('admin-course-equipment-policy'));
-assert(ui.includes("adminParseEurosToCents"));
-console.log('PASS Sunset course equipment Admin consolidation and per-course pricing');
+assert(ui.includes('adminParseEurosToCents'));
+console.log('PASS Sunset course equipment Admin consolidation and course-owned pricing');
