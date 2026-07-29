@@ -18631,9 +18631,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
               <span data-i18n="schedule.type.privateLesson">Private Course</span>
             </button>
             <input id="ps-create-comp-private-lesson" type="radio" name="ps-create-main-activity" value="private" class="portal-schedule-create-visually-hidden" tabindex="-1" aria-hidden="true">
-            <button type="button" class="portal-schedule-create-activity-btn is-selected" data-create-activity="ps-create-comp-no-lesson" aria-pressed="true">
-              <span data-i18n="schedule.type.noLesson">Equipment only</span>
-            </button>
             <input id="ps-create-comp-no-lesson" type="radio" name="ps-create-main-activity" value="none" class="portal-schedule-create-visually-hidden" tabindex="-1" aria-hidden="true" checked>
           </div>
           <div id="ps-create-course-list" class="portal-schedule-create-components portal-schedule-create-course-list" role="group" aria-labelledby="ps-create-main-activity-label" style="display:none" hidden aria-hidden="true"></div>
@@ -18648,7 +18645,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
               <div class="portal-schedule-create-field" id="ps-create-private-lesson-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1" tabindex="-1"></div>
             </div>
           </div>
-          <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-live="polite"></div>
+          <div class="portal-schedule-create-main-activity-header portal-schedule-create-equipment-header">
+            <span id="ps-create-equipment-catalog-label" class="portal-schedule-create-label">Equipment</span>
+          </div>
+          <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-labelledby="ps-create-equipment-catalog-label" aria-live="polite"></div>
         </div>
                 <div class="portal-schedule-course-equipment is-off" id="ps-create-course-equipment" style="display:none" hidden>
           <div class="portal-schedule-course-equipment-row">
@@ -23125,6 +23125,7 @@ function scheduleReadCreateRentalSelectionFromDom(){
   var selection = [];
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row){
     var key = String(row.getAttribute('data-rental-offering') || '').trim();
+    var rowDuration = String(row.getAttribute('data-rental-duration-key') || duration).trim();
     var check = row.querySelector('.ps-create-rental-check');
     var qtyEl = row.querySelector('input.ps-create-rental-qty-input');
     if (!check || !check.checked || !key) return;
@@ -23144,7 +23145,7 @@ function scheduleReadCreateRentalSelectionFromDom(){
     }
     selection.push({
       offering_key: key,
-      duration_key: duration,
+      duration_key: rowDuration,
       quantity: qty,
     });
   });
@@ -23380,17 +23381,6 @@ function scheduleLookupRentalUnitCents(offeringKey, durationKey, locationId){
 function scheduleRenderCreateRentals(){
   var wrap = el('ps-create-rentals');
   if (!wrap) return;
-  // Group/Private course gear is owned by #ps-create-course-equipment — hide catalog rental rows.
-  var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
-  var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
-  if (courseOn || privateOn) {
-    wrap.innerHTML = '';
-    wrap.style.display = 'none';
-    wrap.hidden = true;
-    wrap.setAttribute('aria-hidden', 'true');
-    wrap.dataset.rentalWired = '';
-    return;
-  }
   wrap.style.display = '';
   wrap.hidden = false;
   wrap.setAttribute('aria-hidden', 'false');
@@ -23414,30 +23404,18 @@ function scheduleRenderCreateRentals(){
     : null;
   var locationId = typeof getSunsetLocation === 'function' ? getSunsetLocation() : '';
   var noLesson = scheduleCreateIsNoLesson();
-  var commonShort = (typeof scheduleActiveShortDurationKeysForOffering === 'function')
-    ? scheduleActiveShortDurationKeysForOffering(
-      scheduleAdminPricesCache, 'board_and_suit_rental', locationId,
-    ) : [];
+  var commonShort = [];
   // No-lesson short-rental pebbles only on a single-day span (1_hour / half_day / 1_day).
   // Multi-day From/To always uses inclusive date duration (4_days → Admin 4-day row).
   // Never force short 1_day identity onto a multi-day booking.
-  var shortMode = noLesson && commonShort.length > 0 && dateDuration === '1_day';
+  var shortMode = dateDuration === '1_day';
   var offerings = [];
   var duration = dateDuration;
   if (shortMode) {
     offerings = (typeof scheduleActiveShortRentalOfferings === 'function')
       ? scheduleActiveShortRentalOfferings(scheduleAdminPricesCache, locationId)
       : [];
-    // Create No lesson intentionally sells the configured bundle only. A missing
-    // active bundle card produces no control; individual Admin cards are not invented.
-    offerings = offerings.filter(function(o){ return o.offering_key === 'board_and_suit_rental'; });
-    commonShort = offerings.length && typeof scheduleActiveShortDurationKeysForOffering === 'function'
-      ? scheduleActiveShortDurationKeysForOffering(
-        scheduleAdminPricesCache, 'board_and_suit_rental', locationId,
-      ) : [];
-    // Prefer prior short pebble; else first common short key (never date 2–7).
-    if (prevDuration && commonShort.indexOf(prevDuration) >= 0) duration = prevDuration;
-    else duration = commonShort[0] || '';
+    duration = '';
   } else {
     offerings = (dateDuration && typeof scheduleActiveRentalsForDuration === 'function')
       ? scheduleActiveRentalsForDuration(scheduleAdminPricesCache, dateDuration, locationId)
@@ -23467,6 +23445,8 @@ function scheduleRenderCreateRentals(){
   var html = '';
   offerings.forEach(function(o){
     var key = o.offering_key;
+    var rowDuration = String(o.duration_key
+      || (Array.isArray(o.duration_keys) && o.duration_keys[0]) || duration || '').trim();
     var labelKey = typeof scheduleRentalOfferingLabelKey === 'function'
       ? scheduleRentalOfferingLabelKey(key)
       : 'schedule.type.boardRental';
@@ -23477,7 +23457,7 @@ function scheduleRenderCreateRentals(){
     if (!legacyLabel || legacyLabel === labelKey) legacyLabel = fallback;
     var offeringLabel = catalogLabel || legacyLabel;
     var was = prev[key] || {};
-    var checked = noLesson ? true : !!was.checked;
+    var checked = !!was.checked;
     var surfers = scheduleReadCreateSurferCount();
     var qty;
     var owner;
@@ -23509,17 +23489,15 @@ function scheduleRenderCreateRentals(){
         + escHtml(String(qty)) + '"></div>';
     }
     var unitCents = typeof scheduleLookupRentalUnitCents === 'function'
-      ? scheduleLookupRentalUnitCents(key, duration, locationId)
+      ? scheduleLookupRentalUnitCents(key, rowDuration, locationId)
       : null;
     var priceHtml = (unitCents != null && typeof scheduleFormatCentsMoney === 'function')
       ? ('<span class="portal-schedule-create-rental-price" data-amount-cents="' + escHtml(String(unitCents)) + '">'
         + escHtml(scheduleFormatCentsMoney(unitCents)) + '</span>')
       : '';
-    html += '<div class="portal-schedule-create-rental-row' + (checked || noLesson ? '' : ' is-off') + '" data-rental-offering="' + escHtml(key) + '"'
+    html += '<div class="portal-schedule-create-rental-row' + (checked ? '' : ' is-off') + '" data-rental-offering="' + escHtml(key) + '" data-rental-duration-key="' + escHtml(rowDuration) + '"'
       + (unitCents != null ? (' data-amount-cents="' + escHtml(String(unitCents)) + '"') : '') + '>'
-      + (noLesson
-        ? '<h3 class="portal-schedule-create-label">' + escHtml(offeringLabel) + '</h3><input type="hidden" class="ps-create-rental-check" data-offering-key="' + escHtml(key) + '" checked>'
-        : '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-create-rental-check" data-offering-key="' + escHtml(key) + '"' + (checked ? ' checked' : '') + '> <span data-i18n="' + escHtml(labelKey) + '">' + escHtml(fallback) + '</span></label>')
+      + '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-create-rental-check" data-offering-key="' + escHtml(key) + '"' + (checked ? ' checked' : '') + '> <span>' + escHtml(offeringLabel) + '</span></label>'
       + priceHtml + qtyHtml + '</div>';
   });
   // One pebble strip beneath offerings for combined short mode (filled after selection).

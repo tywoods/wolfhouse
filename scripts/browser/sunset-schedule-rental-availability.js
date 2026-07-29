@@ -43,7 +43,19 @@ function scheduleRentalOfferingLabelKey(offeringKey) {
 }
 
 function scheduleIsShortRentalDurationKey(key) {
-  return !!SCHEDULE_SHORT_RENTAL_DURATION_SET[String(key || '').trim()];
+  var k = String(key || '').trim();
+  return !!SCHEDULE_SHORT_RENTAL_DURATION_SET[k]
+    || k === '1_day'
+    || /^[1-9][0-9]*_hours$/.test(k);
+}
+
+function scheduleShortRentalDurationSortValue(key) {
+  var k = String(key || '').trim();
+  var hourMatch = k.match(/^([1-9][0-9]*)_hours$/);
+  if (hourMatch) return Number(hourMatch[1]);
+  if (k === 'half_day') return 12;
+  if (k === 'full_day' || k === '1_day') return 24;
+  return Number.MAX_SAFE_INTEGER;
 }
 
 /** Pebble label key: 1_day → Full day in short-rental mode. */
@@ -151,15 +163,9 @@ function scheduleActiveRentalsForDuration(prices, durationKey, locationId) {
       label: scheduleRentalOfferingLabelFromPrice(p),
     });
   }
-  // Stable order: canonical first (board, wetsuit, bundle), then generic
-  // offerings alphabetically after them.
   out.sort(function(a, b) {
-    var ai = SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(a.offering_key);
-    var bi = SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(b.offering_key);
-    var ar = ai < 0 ? SCHEDULE_CANONICAL_RENTAL_OFFERINGS.length : ai;
-    var br = bi < 0 ? SCHEDULE_CANONICAL_RENTAL_OFFERINGS.length : bi;
-    if (ar !== br) return ar - br;
-    return String(a.offering_key).localeCompare(String(b.offering_key));
+    var byLabel = String(a.label || a.offering_key).localeCompare(String(b.label || b.offering_key));
+    return byLabel || String(a.offering_key).localeCompare(String(b.offering_key));
   });
   return out;
 }
@@ -196,26 +202,35 @@ function scheduleCommonShortRentalDurationKeys(prices, locationId) {
 /** Offerings that have at least one sellable short row (No-lesson short mode). */
 function scheduleActiveShortRentalOfferings(prices, locationId) {
   var out = [];
-  var seen = {};
+  var byKey = {};
   var list = Array.isArray(prices) ? prices : [];
-  for (var i = 0; i < SCHEDULE_CANONICAL_RENTAL_OFFERINGS.length; i++) {
-    var key = SCHEDULE_CANONICAL_RENTAL_OFFERINGS[i];
-    var shorts = scheduleActiveShortDurationKeysForOffering(prices, key, locationId);
-    if (!shorts.length) continue;
-    if (seen[key]) continue;
-    seen[key] = true;
-    var label = '';
-    for (var j = 0; j < list.length; j++) {
-      var row = list[j];
-      if (scheduleParseRentalPriceIdentity(row).offering_key === key
-        && scheduleRentalPriceIsSellable(row)
-        && scheduleRentalPriceMatchesLocation(row, locationId)) {
-        label = scheduleRentalOfferingLabelFromPrice(row);
-        if (label) break;
-      }
+  for (var i = 0; i < list.length; i++) {
+    var row = list[i];
+    if (!scheduleRentalPriceIsSellable(row)) continue;
+    if (!scheduleRentalPriceMatchesLocation(row, locationId)) continue;
+    var id = scheduleParseRentalPriceIdentity(row);
+    var isCanonical = SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(id.offering_key) >= 0;
+    if (!isCanonical && !scheduleIsGenericRentalOffering(row, id.offering_key)) continue;
+    if (!scheduleIsShortRentalDurationKey(id.duration_key)) continue;
+    if (!byKey[id.offering_key]) {
+      byKey[id.offering_key] = { offering_key: id.offering_key, duration_keys: [], label: '' };
+      out.push(byKey[id.offering_key]);
     }
-    out.push({ offering_key: key, duration_keys: shorts, label: label });
+    if (byKey[id.offering_key].duration_keys.indexOf(id.duration_key) < 0) {
+      byKey[id.offering_key].duration_keys.push(id.duration_key);
+    }
+    var label = scheduleRentalOfferingLabelFromPrice(row);
+    if (label && !byKey[id.offering_key].label) byKey[id.offering_key].label = label;
   }
+  out.forEach(function(item) {
+    item.duration_keys.sort(function(a, b) {
+      return scheduleShortRentalDurationSortValue(a) - scheduleShortRentalDurationSortValue(b);
+    });
+  });
+  out.sort(function(a, b) {
+    var byLabel = String(a.label || a.offering_key).localeCompare(String(b.label || b.offering_key));
+    return byLabel || String(a.offering_key).localeCompare(String(b.offering_key));
+  });
   return out;
 }
 
