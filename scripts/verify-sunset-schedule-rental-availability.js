@@ -115,30 +115,36 @@ assert(
   'full-day extension excluded from create rentals',
   !oneDay.some((o) => String(o.offering_key).indexOf('full_day') >= 0),
 );
+const threeDay = mod.scheduleActiveRentalsForDuration(somoPrices, '3_days', 'sunset-somo');
 assert(
-  'exact-duration: 3_days does not include 1_day canonical rows',
-  mod.scheduleActiveRentalsForDuration(somoPrices, '3_days', 'sunset-somo').every((o) => o.duration_key === '3_days')
-    && mod.scheduleActiveRentalsForDuration(somoPrices, '3_days', 'sunset-somo').length === 1,
+  'exact-duration: 3_days is the ONLY selectable duration when exact package is active (1_day only as multi-day fallback when exact absent)',
+  threeDay.some((o) => o.offering_key === 'board_rental' && o.duration_key === '3_days')
+    && threeDay.filter((o) => o.offering_key === 'board_rental').every((o) => o.duration_key === '3_days')
+    && !threeDay.some((o) => o.offering_key === 'board_rental' && o.duration_key === '1_day')
+    && !threeDay.some((o) => /hour|half_day/i.test(o.duration_key)),
+  JSON.stringify(threeDay),
 );
 const genericPackagePrices = [
   { category: 'rental', offering_key: 'towel_rental__4_hours', amount: 10, active: true, location_id: 'sunset-somo' },
+  { category: 'rental', offering_key: 'towel_rental__1_day', amount: 8, active: true, location_id: 'sunset-somo' },
   { category: 'rental', offering_key: 'test_rental__1_day', amount: 20, active: true, location_id: 'sunset-somo' },
   { category: 'rental', offering_key: 'test_rental__3_days', amount: 50, active: true, location_id: 'sunset-somo' },
 ];
 const genericThreeDay = mod.scheduleActiveRentalsForDuration(genericPackagePrices, '3_days', 'sunset-somo');
 assert(
-  'generic exact multi-day package wins; hourly base package remains selectable',
-  genericThreeDay.length === 2
-    && genericThreeDay.some((o) => o.offering_key === 'test_rental' && o.duration_key === '3_days' && o.amount_cents === 5000)
-    && genericThreeDay.some((o) => o.offering_key === 'towel_rental' && o.duration_key === '4_hours' && o.amount_cents === 1000),
+  'generic exact multi-day package wins; hour packages not offered across multi-day',
+  genericThreeDay.some((o) => o.offering_key === 'test_rental' && o.duration_key === '3_days' && o.amount_cents === 5000)
+    && genericThreeDay.some((o) => o.offering_key === 'towel_rental' && o.duration_key === '1_day' && o.amount_cents === 800)
+    && !genericThreeDay.some((o) => o.offering_key === 'towel_rental' && o.duration_key === '4_hours'),
   JSON.stringify(genericThreeDay),
 );
 const genericFiveDay = mod.scheduleActiveRentalsForDuration(genericPackagePrices, '5_days', 'sunset-somo');
 assert(
-  'generic base packages remain selectable for arbitrary calendar spans',
+  'generic multi-day without exact package offers 1_day only (not hour packages)',
   genericFiveDay.length === 2
     && genericFiveDay.some((o) => o.offering_key === 'test_rental' && o.duration_key === '1_day')
-    && genericFiveDay.some((o) => o.offering_key === 'towel_rental' && o.duration_key === '4_hours'),
+    && genericFiveDay.some((o) => o.offering_key === 'towel_rental' && o.duration_key === '1_day')
+    && !genericFiveDay.some((o) => o.duration_key === '4_hours'),
   JSON.stringify(genericFiveDay),
 );
 assert(
@@ -362,6 +368,7 @@ const guestPayloadContractOk = (function runPayloadVm() {
         }
         return null;
       },
+      querySelectorAll: function() { return []; },
     },
     el: function(id) {
       if (dom[id]) return dom[id];

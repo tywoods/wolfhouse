@@ -128,8 +128,8 @@ function rentalIdentity(offeringKey, durationKey, locationId) {
   const offeringBase = compoundDuration ? offering.slice(0, compoundIndex) : offering;
   // Rental duration key maps to DB billing grain (same as sunset-rental-price-lookup).
   let billingUnit = 'day';
-  if (duration === '1_hour' || duration === 'session') billingUnit = 'session';
-  else if (duration === 'half_day' || duration === '1_day' || /_days$/.test(duration)) billingUnit = 'day';
+  if (duration === 'session' || /hour|half_day/i.test(duration)) billingUnit = 'session';
+  else if (duration === '1_day' || /^[1-9][0-9]*_days$/.test(duration)) billingUnit = 'day';
   return {
     offering_id: itemCode,
     item_type: 'rental',

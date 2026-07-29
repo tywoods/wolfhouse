@@ -22542,6 +22542,8 @@ function scheduleReadCreatePayload(){
 var scheduleFullDayAddonUnitCents = null;
 var scheduleFullDayAddonEnabled = false;
 var scheduleAdminPricesCache = [];
+/** Enabled rental_offerings identity rows for Schedule Create/Edit projection. */
+var scheduleRentalOfferingsCache = [];
 
 /** Pure range day selection: first=start, second=end; earlier second restarts; same-day supported. */
 function scheduleCreateDateRangeIsValidIso(iso){
@@ -23067,11 +23069,7 @@ function scheduleCreateDateSpanForRentals(){
 function scheduleReadCreateRentalSelectionFromDom(){
   var wrap = el('ps-create-rentals');
   if (!wrap) return [];
-  var shortMode = wrap.getAttribute('data-short-rental') === '1';
-  // Authoritative duration from From/To:
-  // - Multi-day span always wins (never trust a stale short-mode 1_day pebble or a
-  //   sticky data-short-rental=1 left after extending dates without re-render).
-  // - Single-day short mode keeps the pebble selection (1_hour / half_day / 1_day).
+  // Authoritative span duration from From/To (multi-day always wins).
   var duration = String(wrap.getAttribute('data-duration-key') || '').trim();
   var span = typeof scheduleCreateDateSpanForRentals === 'function'
     ? scheduleCreateDateSpanForRentals()
@@ -23082,27 +23080,26 @@ function scheduleReadCreateRentalSelectionFromDom(){
       span.from, span.to || span.from, scheduleEnumerateDates,
     );
   }
-  if (dateDur && dateDur !== '1_day') {
-    // Inclusive multi-day identity — clear sticky short-mode state.
-    shortMode = false;
+  if (dateDur) {
     duration = dateDur;
     try {
       wrap.setAttribute('data-duration-key', duration);
-      wrap.setAttribute('data-short-rental', '0');
+      wrap.setAttribute('data-short-rental', dateDur === '1_day' ? '1' : '0');
     } catch (_d) { /* ignore */ }
-  } else if (!shortMode && dateDur) {
-    duration = dateDur;
-    try { wrap.setAttribute('data-duration-key', duration); } catch (_d2) { /* ignore */ }
   }
   // No lesson: never trust an independently editable equipment quantity.
   var noLesson = typeof scheduleCreateIsNoLesson === 'function' ? scheduleCreateIsNoLesson() : false;
   var selection = [];
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row){
     var key = String(row.getAttribute('data-rental-offering') || '').trim();
-    var rowDuration = String(row.getAttribute('data-rental-duration-key') || duration).trim();
     var check = row.querySelector('.ps-create-rental-check');
     var qtyEl = row.querySelector('input.ps-create-rental-qty-input');
     if (!check || !check.checked || !key) return;
+    // Per-item duration ownership: select first, then data attr, then span default.
+    var durSel = row.querySelector('select.ps-create-rental-duration');
+    var rowDuration = '';
+    if (durSel && durSel.value) rowDuration = String(durSel.value).trim();
+    if (!rowDuration) rowDuration = String(row.getAttribute('data-rental-duration-key') || duration).trim();
     var qty;
     if (noLesson) {
       var snNo = scheduleReadCreateSurferCount();
@@ -23127,9 +23124,10 @@ function scheduleReadCreateRentalSelectionFromDom(){
     // Allowlist = the offering keys the drawer actually rendered from the catalog
     // (data-rental-offering is set only from catalog offerings), so generic
     // rentals pass through while junk keys are dropped. Server re-validates.
+    // No shared multi-item duration intersection — each row carries its own key.
     var genericOfferingKeys = selection.map(function(s){ return s.offering_key; });
     return scheduleSerializeRentalsSelection(selection, duration, {
-      expandCombinedShort: shortMode,
+      expandCombinedShort: false,
       genericOfferingKeys: genericOfferingKeys,
     });
   }
@@ -23147,6 +23145,7 @@ function scheduleApplyCreateRentalExclusionUi(wrap, selectedKeys){
     var key = String(row.getAttribute('data-rental-offering') || '');
     var check = row.querySelector('.ps-create-rental-check');
     var qtyWrap = row.querySelector('.portal-schedule-create-rental-qty');
+    var durSel = row.querySelector('select.ps-create-rental-duration');
     var label = row.querySelector('.portal-schedule-create-check');
     if (!check) return;
     var isOn = selected.indexOf(key) >= 0;
@@ -23163,6 +23162,12 @@ function scheduleApplyCreateRentalExclusionUi(wrap, selectedKeys){
       else label.classList.remove('is-disabled');
     }
     row.classList.toggle('is-off', !isOn && !noLesson);
+    if (durSel) {
+      durSel.disabled = !isOn;
+      if (isOn && durSel.value) {
+        try { row.setAttribute('data-rental-duration-key', String(durSel.value).trim()); } catch (_d) { /* ignore */ }
+      }
+    }
     if (qtyWrap) {
       // Group/Private keep independent gear qty; Equipment only never shows it.
       qtyWrap.style.display = (!noLesson && isOn) ? '' : 'none';
@@ -23249,29 +23254,28 @@ function scheduleRenderCreateRentalDurationPebbles(wrap, commonKeys, selectedDur
 function scheduleWireCreateRentals(wrap){
   if (!wrap || wrap.dataset.rentalWired === '1') return;
   wrap.dataset.rentalWired = '1';
-  wrap.addEventListener('click', function(ev){
-    var t = ev && ev.target;
-    if (!t) return;
-    var btn = t.closest ? t.closest('[data-rental-duration]') : null;
-    if (!btn || !wrap.contains(btn)) return;
-    var dur = String(btn.getAttribute('data-rental-duration') || '').trim();
-    if (!dur) return;
-    var wasOn = btn.getAttribute('aria-checked') === 'true';
-    var nextDur = wasOn ? '' : dur;
-    wrap.setAttribute('data-duration-key', nextDur);
-    wrap.querySelectorAll('[data-rental-duration]').forEach(function(b){
-      var on = !!nextDur && String(b.getAttribute('data-rental-duration') || '') === nextDur;
-      if (on) b.classList.add('is-selected'); else b.classList.remove('is-selected');
-      try { b.setAttribute('aria-checked', on ? 'true' : 'false'); } catch (_a) { /* ignore */ }
-    });
-    if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
-      schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
-    }
-    scheduleUpdateCreateTotalPreview();
-  });
   wrap.addEventListener('change', function(ev){
     var t = ev && ev.target;
     if (!t) return;
+    if (t.classList && t.classList.contains('ps-create-rental-duration')) {
+      var rowDur = t.closest ? t.closest('[data-rental-offering]') : null;
+      if (rowDur) {
+        try { rowDur.setAttribute('data-rental-duration-key', String(t.value || '').trim()); } catch (_rd) { /* ignore */ }
+        var opt = t.options && t.selectedIndex >= 0 ? t.options[t.selectedIndex] : null;
+        var cents = opt ? opt.getAttribute('data-amount-cents') : '';
+        var priceEl = rowDur.querySelector('.portal-schedule-create-rental-price');
+        if (priceEl && cents && typeof scheduleFormatCentsMoney === 'function') {
+          priceEl.setAttribute('data-amount-cents', cents);
+          priceEl.textContent = scheduleFormatCentsMoney(Number(cents));
+        }
+        if (cents) try { rowDur.setAttribute('data-amount-cents', cents); } catch (_ac) { /* ignore */ }
+      }
+      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
+        schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+      }
+      scheduleUpdateCreateTotalPreview();
+      return;
+    }
     if (t.classList && t.classList.contains('ps-create-rental-check')) {
       var key = String(t.getAttribute('data-offering-key') || '');
       var selected = [];
@@ -23290,25 +23294,6 @@ function scheduleWireCreateRentals(wrap){
         if (qtyEl && qtyEl.getAttribute('data-qty-owner') !== 'user' && sn != null) {
           qtyEl.value = String(sn);
           qtyEl.setAttribute('data-qty-owner', 'surfers');
-        }
-      }
-      // Combined Board and wetsuit in No-lesson short mode: show/refresh common pebbles.
-      if (wrap.getAttribute('data-short-rental') === '1') {
-        var common = [];
-        try {
-          common = JSON.parse(wrap.getAttribute('data-common-short-keys') || '[]');
-        } catch (_j) { common = []; }
-        if (scheduleCreateIsCombinedBoardWetsuit(next) && common.length) {
-          scheduleRenderCreateRentalDurationPebbles(
-            wrap, common, wrap.getAttribute('data-duration-key'), 'board_and_suit_rental',
-          );
-        } else {
-          var host = wrap.querySelector('[data-rental-duration-pebbles]');
-          if (host) { host.innerHTML = ''; host.style.display = 'none'; }
-          // Single component: use first available short key for that offering if any.
-          if (next.length === 1 && common.length) {
-            wrap.setAttribute('data-duration-key', common[0]);
-          }
         }
       }
       scheduleRefreshCreateFullDayAddon();
@@ -23359,17 +23344,21 @@ function scheduleRenderCreateRentals(){
   wrap.hidden = false;
   wrap.setAttribute('aria-hidden', 'false');
   var prev = {};
-  var prevDuration = String(wrap.getAttribute('data-duration-key') || '').trim();
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row){
     var key = String(row.getAttribute('data-rental-offering') || '');
     var check = row.querySelector('.ps-create-rental-check');
     var qtyEl = row.querySelector('input.ps-create-rental-qty-input');
+    var durSel = row.querySelector('select.ps-create-rental-duration');
     if (!key) return;
     var qty = parseInt(qtyEl && qtyEl.value, 10);
+    var prevDur = '';
+    if (durSel && durSel.value) prevDur = String(durSel.value).trim();
+    if (!prevDur) prevDur = String(row.getAttribute('data-rental-duration-key') || '').trim();
     prev[key] = {
       checked: !!(check && check.checked),
       quantity: (Number.isInteger(qty) && qty >= 1) ? qty : null,
       qtyOwner: qtyEl ? String(qtyEl.getAttribute('data-qty-owner') || '') : '',
+      duration_key: prevDur,
     };
   });
   var span = scheduleCreateDateSpanForRentals();
@@ -23377,38 +23366,40 @@ function scheduleRenderCreateRentals(){
     ? scheduleRentalDurationKeyFromDates(span.from, span.to, scheduleEnumerateDates)
     : null;
   var locationId = typeof getSunsetLocation === 'function' ? getSunsetLocation() : '';
+  var clientSlug = typeof getClient === 'function' ? String(getClient() || '').trim() : '';
   var noLesson = scheduleCreateIsNoLesson();
-  var commonShort = [];
-  // No-lesson short-rental pebbles only on a single-day span (1_hour / half_day / 1_day).
-  // Multi-day From/To always uses inclusive date duration (4_days → Admin 4-day row).
-  // Never force short 1_day identity onto a multi-day booking.
-  var shortMode = dateDuration === '1_day';
-  var offerings = [];
-  var duration = dateDuration;
-  if (shortMode) {
-    offerings = (typeof scheduleActiveShortRentalOfferings === 'function')
-      ? scheduleActiveShortRentalOfferings(scheduleAdminPricesCache, locationId)
-      : [];
-    duration = '';
-  } else {
-    offerings = (dateDuration && typeof scheduleActiveRentalsForDuration === 'function')
-      ? scheduleActiveRentalsForDuration(scheduleAdminPricesCache, dateDuration, locationId)
-      : [];
-    duration = dateDuration;
+  var dayCount = 1;
+  if (span && span.from && typeof scheduleEnumerateDates === 'function') {
+    var days = scheduleEnumerateDates(span.from, span.to || span.from) || [];
+    dayCount = days.length || 1;
   }
+  // Slice 2: one projection joins enabled rental_offerings identity to active prices.
+  // Per-item duration dropdown — no shared multi-item duration intersection.
+  // Empty cache → null (price-driven discovery until identity loads); non-empty cache is exact join.
+  var identityCatalog = (Array.isArray(scheduleRentalOfferingsCache) && scheduleRentalOfferingsCache.length)
+    ? scheduleRentalOfferingsCache
+    : null;
+  var offerings = (typeof scheduleProjectStandaloneRentals === 'function')
+    ? scheduleProjectStandaloneRentals({
+      offerings: identityCatalog,
+      prices: scheduleAdminPricesCache,
+      locationId: locationId,
+      clientSlug: clientSlug,
+      dateDurationKey: dateDuration || '1_day',
+      dayCount: dayCount,
+    })
+    : ((dateDuration && typeof scheduleActiveRentalsForDuration === 'function')
+      ? scheduleActiveRentalsForDuration(scheduleAdminPricesCache, dateDuration, locationId)
+      : []);
+  var duration = dateDuration || '';
+  var shortMode = dateDuration === '1_day';
   var mode = typeof scheduleRentalOfferingsMode === 'function'
     ? scheduleRentalOfferingsMode(offerings)
     : (offerings.length ? 'separate_only' : 'none');
   wrap.setAttribute('data-duration-key', duration || '');
   wrap.setAttribute('data-rental-mode', mode);
   wrap.setAttribute('data-short-rental', shortMode ? '1' : '0');
-  wrap.setAttribute('data-common-short-keys', JSON.stringify(commonShort));
-  var boardShort = typeof scheduleActiveShortDurationKeysForOffering === 'function'
-    ? scheduleActiveShortDurationKeysForOffering(scheduleAdminPricesCache, 'board_rental', locationId) : [];
-  var wetsuitShort = typeof scheduleActiveShortDurationKeysForOffering === 'function'
-    ? scheduleActiveShortDurationKeysForOffering(scheduleAdminPricesCache, 'wetsuit_rental', locationId) : [];
-  wrap.setAttribute('data-board-short-keys', JSON.stringify(boardShort));
-  wrap.setAttribute('data-wetsuit-short-keys', JSON.stringify(wetsuitShort));
+  wrap.setAttribute('data-common-short-keys', '[]');
   wrap.dataset.rentalWired = '';
   if (!offerings.length || mode === 'none') {
     wrap.innerHTML = '<p class="portal-schedule-create-rentals-empty" data-i18n="schedule.create.noRentalsAvailable">No equipment rentals available for these dates</p>';
@@ -23419,42 +23410,30 @@ function scheduleRenderCreateRentals(){
   var html = '';
   offerings.forEach(function(o){
     var key = o.offering_key;
-    var rowDuration = String(o.duration_key
-      || (Array.isArray(o.duration_keys) && o.duration_keys[0]) || duration || '').trim();
-    var labelKey = typeof scheduleRentalOfferingLabelKey === 'function'
-      ? scheduleRentalOfferingLabelKey(key)
-      : 'schedule.type.boardRental';
-    var fallback = key === 'wetsuit_rental' ? 'Wetsuit'
-      : (key === 'board_and_suit_rental' ? 'Board and wetsuit' : 'Surfboard');
-    var catalogLabel = String(o.label || '').trim();
-    if (catalogLabel === key || catalogLabel.indexOf(key + '__') === 0) catalogLabel = '';
-    if (!catalogLabel && key && ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'].indexOf(key) < 0) {
-      catalogLabel = key.replace(/_rental$/, '').replace(/_/g, ' ').split(' ').map(function(part){
-        return part ? part.charAt(0).toUpperCase() + part.slice(1) : part;
-      }).join(' ');
-    }
-    var legacyLabel = portalT(labelKey);
-    if (!legacyLabel || legacyLabel === labelKey) legacyLabel = fallback;
-    var offeringLabel = catalogLabel || legacyLabel;
+    var durs = Array.isArray(o.durations) ? o.durations : [];
     var was = prev[key] || {};
+    var rowDuration = String(was.duration_key || o.duration_key
+      || (durs[0] && durs[0].duration_key) || duration || '').trim();
+    if (durs.length && !durs.some(function(d){ return d.duration_key === rowDuration; })) {
+      rowDuration = durs[0].duration_key;
+    }
+    var offeringLabel = (typeof scheduleRentalOfferingDisplayLabel === 'function')
+      ? scheduleRentalOfferingDisplayLabel(key, o.label, portalT)
+      : (String(o.label || '').trim() || key);
     var checked = !!was.checked;
     var surfers = scheduleReadCreateSurferCount();
     var qty;
     var owner;
     if (noLesson) {
-      // No lesson: always derive from Number of surfers; clear stale user-owned qty.
       qty = surfers != null ? surfers : 1;
       owner = 'surfers';
     } else {
       qty = (was.quantity != null && was.quantity >= 1)
         ? was.quantity
         : (surfers != null ? surfers : 1);
-      // Unchecked rows seed to current surfers so first toggle defaults correctly.
       if (!checked) qty = surfers != null ? surfers : 1;
-      // Group/Private: preserve independent equipment qty when only some surfers need gear.
       owner = (checked && was.quantity != null && was.qtyOwner === 'user') ? 'user' : 'surfers';
     }
-    // No lesson: do not render an independent Quantity control (hidden + not user-editable).
     var qtyHtml = '';
     if (!noLesson) {
       qtyHtml = '<div class="portal-schedule-create-rental-qty"' + (checked ? '' : ' style="display:none"') + '>'
@@ -23463,25 +23442,38 @@ function scheduleRenderCreateRentals(){
         + escHtml(owner) + '" value="' + escHtml(String(qty)) + '"></label>'
         + '</div>';
     } else {
-      // Hidden mirror so any legacy readers still see surfer-derived qty (not user-editable).
       qtyHtml = '<div class="portal-schedule-create-rental-qty" style="display:none" hidden aria-hidden="true">'
         + '<input type="number" min="1" max="99" class="ps-create-rental-qty-input" data-qty-owner="surfers" tabindex="-1" value="'
         + escHtml(String(qty)) + '"></div>';
     }
-    var unitCents = typeof scheduleLookupRentalUnitCents === 'function'
-      ? scheduleLookupRentalUnitCents(key, rowDuration, locationId)
-      : null;
+    var selectedDur = durs.find(function(d){ return d.duration_key === rowDuration; }) || durs[0] || null;
+    var unitCents = selectedDur && selectedDur.amount_cents != null ? selectedDur.amount_cents : null;
     var priceHtml = (unitCents != null && typeof scheduleFormatCentsMoney === 'function')
       ? ('<span class="portal-schedule-create-rental-price" data-amount-cents="' + escHtml(String(unitCents)) + '">'
         + escHtml(scheduleFormatCentsMoney(unitCents)) + '</span>')
       : '';
+    var durationHtml = '';
+    if (durs.length) {
+      durationHtml = '<label class="portal-schedule-create-rental-duration-label">'
+        + '<span class="portal-visually-hidden" data-i18n="schedule.create.rentalDuration">Duration</span>'
+        + '<select class="ps-create-rental-duration" data-rental-duration-select'
+        + (checked ? '' : ' disabled') + '>';
+      durs.forEach(function(d){
+        var dLab = String(d.label || d.duration_key);
+        var euro = (d.amount_cents != null && typeof scheduleFormatCentsMoney === 'function')
+          ? (' — ' + scheduleFormatCentsMoney(d.amount_cents)) : '';
+        durationHtml += '<option value="' + escHtml(d.duration_key) + '" data-amount-cents="'
+          + escHtml(String(d.amount_cents == null ? '' : d.amount_cents)) + '"'
+          + (d.duration_key === rowDuration ? ' selected' : '') + '>'
+          + escHtml(dLab + euro) + '</option>';
+      });
+      durationHtml += '</select></label>';
+    }
     html += '<div class="portal-schedule-create-rental-row' + (checked ? '' : ' is-off') + '" data-rental-offering="' + escHtml(key) + '" data-rental-duration-key="' + escHtml(rowDuration) + '"'
       + (unitCents != null ? (' data-amount-cents="' + escHtml(String(unitCents)) + '"') : '') + '>'
       + '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-create-rental-check" data-offering-key="' + escHtml(key) + '"' + (checked ? ' checked' : '') + '> <span>' + escHtml(offeringLabel) + '</span></label>'
-      + priceHtml + qtyHtml + '</div>';
+      + durationHtml + priceHtml + qtyHtml + '</div>';
   });
-  // One pebble strip beneath offerings for combined short mode (filled after selection).
-  html += '<div data-rental-duration-pebbles class="portal-schedule-create-rental-pebbles-host" style="display:none"></div>';
   wrap.innerHTML = html;
   var selected = [];
   offerings.forEach(function(o){
@@ -23494,9 +23486,6 @@ function scheduleRenderCreateRentals(){
       : ['board_and_suit_rental'];
   }
   scheduleApplyCreateRentalExclusionUi(wrap, selected);
-  if (shortMode && commonShort.length) {
-    scheduleRenderCreateRentalDurationPebbles(wrap, commonShort, duration, 'board_and_suit_rental');
-  }
   scheduleWireCreateRentals(wrap);
   var modal = el('ps-create-modal');
   if (modal && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(modal);
@@ -23699,13 +23688,19 @@ function scheduleFetchLessonTimesConfig(client, opts){
   var force = opts && opts.force === true;
   if (!force && scheduleLessonTimesLoaded) return Promise.resolve(scheduleLessonTimesCache);
   var cfgUrl = '/staff/admin/config' + adminClientQuery();
+  var offeringsUrl = '/staff/admin/config/rental-offerings' + adminClientQuery();
   var catalogP = (client === 'sunset' && typeof schedulePortalFetchCatalog === 'function')
     ? schedulePortalFetchCatalog({ method: 'POST', service_dates: [] })
     : Promise.resolve(null);
+  var offeringsP = fetch(offeringsUrl)
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .catch(function(){ return null; });
   return fetch(cfgUrl)
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(function(data){
-      return catalogP.then(function(catalogData){
+      return Promise.all([catalogP, offeringsP]).then(function(pair){
+      var catalogData = pair[0];
+      var offeringsData = pair[1];
       var profile = getPortalProfile(client);
       if (data && data.success && data.lesson_times && data.lesson_times.length){
         scheduleLessonTimesCache = data.lesson_times.slice();
@@ -23724,6 +23719,14 @@ function scheduleFetchLessonTimesConfig(client, opts){
       }
       scheduleSetFullDayAddonFromConfig((data && data.prices) || []);
       scheduleAdminPricesCache = Array.isArray(data && data.prices) ? data.prices.slice() : [];
+      // Enabled rental identities for Create/Edit projection (exact tenant/location).
+      if (offeringsData && offeringsData.success && Array.isArray(offeringsData.offerings)) {
+        scheduleRentalOfferingsCache = offeringsData.offerings.slice();
+      } else if (data && Array.isArray(data.rental_offerings)) {
+        scheduleRentalOfferingsCache = data.rental_offerings.slice();
+      } else {
+        scheduleRentalOfferingsCache = [];
+      }
       scheduleRenderCreateRentals();
       if (data && data.private_lesson && data.private_lesson.default_duration_minutes != null) {
         schedulePrivateLessonDurationCache = Number(data.private_lesson.default_duration_minutes) || 120;

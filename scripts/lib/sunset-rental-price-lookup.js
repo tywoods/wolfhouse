@@ -185,9 +185,10 @@ function lookupSunsetRentalPrice(opts) {
 
 function resolveRentalBillingUnit(durationKey) {
   const key = String(durationKey || '').trim();
+  // Hour packages (generic N_hours + legacy 1_hour/2_hours/half_day) bill per session.
   if (/hour|half_day|lesson/i.test(key)) return 'session';
-  // Inclusive 1–7 day windows share billing grain "day" (whole-window price row).
-  if (key === '1_day' || /^[1-7]_days$/.test(key)) return 'day';
+  // Generic positive N_days (+ 1_day / full_day) share billing grain "day".
+  if (key === '1_day' || key === 'full_day' || /^[1-9][0-9]*_days$/.test(key)) return 'day';
   return null;
 }
 

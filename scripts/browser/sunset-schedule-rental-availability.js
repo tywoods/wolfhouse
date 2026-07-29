@@ -2,7 +2,10 @@
  * Sunset Schedule create — rental availability selector helpers (Slice 2).
  * Browser globals; also runnable under Node vm for offline gates.
  *
- * Derives sellable offerings from active location prices for a date-span duration.
+ * Canonical projection joins enabled rental_offerings identity to active positive
+ * rental price rows. Duration packages are generic positive N_hours / N_days
+ * (plus legacy half_day / full_day / 1_hour / 2_hours read-compat). Per-item
+ * duration ownership — never a shared multi-item duration intersection.
  * Does not own quote resolution or booking writes.
  */
 'use strict';
@@ -21,11 +24,11 @@ function scheduleIsGenericRentalOffering(price, offeringKey) {
   var key = String(offeringKey || '').trim();
   if (!key || SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(key) >= 0) return false;
   if (key === SCHEDULE_FULL_DAY_EQUIPMENT_OFFERING) return false;
-  var category = String((price && price.category) || '').trim().toLowerCase();
+  var category = String((price && price.category) || price.item_type || '').trim().toLowerCase();
   return category === 'rental';
 }
 
-/** No-lesson short rental pebbles only (never 2–7 days). */
+/** Legacy short-key set retained for historical pebble helpers only. */
 var SCHEDULE_SHORT_RENTAL_DURATION_KEYS = ['1_hour', '2_hours', 'half_day', 'full_day'];
 var SCHEDULE_SHORT_RENTAL_DURATION_SET = {
   '1_hour': true,
@@ -39,26 +42,63 @@ function scheduleRentalOfferingLabelKey(offeringKey) {
   if (key === 'board_rental') return 'schedule.type.boardRental';
   if (key === 'wetsuit_rental') return 'schedule.type.wetsuitRental';
   if (key === 'board_and_suit_rental') return 'schedule.ops.rentalBoth';
-  return 'schedule.type.boardRental';
+  // Arbitrary catalog items have no fixed i18n key — callers use projected label.
+  return '';
+}
+
+/** Human label from offering key when catalog label missing (never board fallback). */
+function scheduleHumanizeRentalOfferingKey(offeringKey) {
+  var key = String(offeringKey || '').trim();
+  if (!key) return '';
+  return key.replace(/_rental$/i, '').replace(/[_-]+/g, ' ').replace(/\b\w/g, function(c) {
+    return c.toUpperCase();
+  });
+}
+
+function scheduleIsHourRentalDurationKey(key) {
+  var k = String(key || '').trim();
+  if (!k) return false;
+  if (k === 'half_day' || k === '1_hour' || k === '2_hours') return true;
+  return /^[1-9][0-9]*_hours?$/.test(k);
+}
+
+function scheduleIsDayRentalDurationKey(key) {
+  var k = String(key || '').trim();
+  if (!k) return false;
+  if (k === '1_day' || k === 'full_day') return true;
+  return /^[1-9][0-9]*_days$/.test(k);
 }
 
 function scheduleIsShortRentalDurationKey(key) {
   var k = String(key || '').trim();
+  // Legacy short pebbles: fixed set + generic N_hours. 1_day is the inclusive
+  // full-day span identity (not a short pebble key).
   return !!SCHEDULE_SHORT_RENTAL_DURATION_SET[k]
-    || k === '1_day'
-    || /^[1-9][0-9]*_hours$/.test(k);
+    || scheduleIsHourRentalDurationKey(k);
 }
 
 function scheduleShortRentalDurationSortValue(key) {
   var k = String(key || '').trim();
-  var hourMatch = k.match(/^([1-9][0-9]*)_hours$/);
+  var hourMatch = k.match(/^([1-9][0-9]*)_hours?$/);
   if (hourMatch) return Number(hourMatch[1]);
   if (k === 'half_day') return 12;
   if (k === 'full_day' || k === '1_day') return 24;
+  var dayMatch = k.match(/^([1-9][0-9]*)_days$/);
+  if (dayMatch) return 24 * Number(dayMatch[1]);
   return Number.MAX_SAFE_INTEGER;
 }
 
-/** Pebble label key: 1_day → Full day in short-rental mode. */
+/** Duration sort: hours first (by hours), then 1_day, then multi-day packages. */
+function scheduleRentalDurationSortValue(key) {
+  var k = String(key || '').trim();
+  if (scheduleIsHourRentalDurationKey(k)) return scheduleShortRentalDurationSortValue(k);
+  if (k === '1_day' || k === 'full_day') return 1000;
+  var dayMatch = k.match(/^([1-9][0-9]*)_days$/);
+  if (dayMatch) return 1000 + Number(dayMatch[1]);
+  return Number.MAX_SAFE_INTEGER;
+}
+
+/** Pebble/legacy label key. Generic N_hours / N_days use admin.period.* or format. */
 function scheduleShortRentalDurationLabelKey(durationKey) {
   var k = String(durationKey || '').trim();
   if (k === 'full_day') return 'schedule.create.rentalDuration.fullDay';
@@ -74,6 +114,17 @@ function scheduleShortRentalDurationFallbackLabel(durationKey) {
   if (k === '1_hour') return '1 hour';
   if (k === '2_hours') return '2 hours';
   if (k === 'half_day') return 'Half day';
+  if (k === '1_day') return '1 day';
+  var hm = k.match(/^([1-9][0-9]*)_hours?$/);
+  if (hm) {
+    var hn = Number(hm[1]);
+    return hn === 1 ? '1 hour' : (hn + ' hours');
+  }
+  var dm = k.match(/^([1-9][0-9]*)_days$/);
+  if (dm) {
+    var dn = Number(dm[1]);
+    return dn === 1 ? '1 day' : (dn + ' days');
+  }
   return k;
 }
 
@@ -139,57 +190,236 @@ function scheduleRentalPriceMatchesLocation(price, locationId) {
   return String(price.location_id).trim() === wantLoc;
 }
 
-function scheduleActiveRentalsForDuration(prices, durationKey, locationId) {
-  var wantDuration = String(durationKey || '').trim();
-  var exactByOffering = {};
-  var genericBaseByOffering = {};
-  var list = Array.isArray(prices) ? prices : [];
-  for (var i = 0; i < list.length; i++) {
-    var p = list[i];
-    if (!scheduleRentalPriceIsSellable(p)) continue;
-    if (!scheduleRentalPriceMatchesLocation(p, locationId)) continue;
-    var id = scheduleParseRentalPriceIdentity(p);
-    var isCanonical = SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(id.offering_key) >= 0;
-    var isGeneric = !isCanonical && scheduleIsGenericRentalOffering(p, id.offering_key);
-    // Canonical always; generic catalog rentals (data-driven) when priced. The
-    // full-day add-on and non-rental rows (lessons/packages) never qualify.
-    if (!isCanonical && !isGeneric) continue;
-    var offering = {
-      offering_key: id.offering_key,
-      duration_key: id.duration_key,
-      amount_cents: scheduleRentalPriceAmountCents(p),
-      label: scheduleRentalOfferingLabelFromPrice(p),
-    };
-    if (wantDuration && id.duration_key === wantDuration && !exactByOffering[id.offering_key]) {
-      exactByOffering[id.offering_key] = offering;
-    }
-    // Generic items remain available for arbitrary calendar spans. When Admin has
-    // no exact N-day special, carry the shortest configured short package through;
-    // the authoritative server repeats that package once per selected calendar day.
-    if (isGeneric && scheduleIsShortRentalDurationKey(id.duration_key)) {
-      var prior = genericBaseByOffering[id.offering_key];
-      if (!prior || scheduleShortRentalDurationSortValue(id.duration_key)
-          < scheduleShortRentalDurationSortValue(prior.duration_key)) {
-        genericBaseByOffering[id.offering_key] = offering;
+/**
+ * Compatible duration packages for a calendar span.
+ * - One day (1_day): all active N_hours (+ legacy half/1h/2h) plus 1_day.
+ * - Multi-day (N_days): exact active N_days is the ONLY selectable duration when
+ *   present; only when exact is absent may active 1_day be offered for per-date
+ *   repeat. Hour packages are never offered across multi-day ranges.
+ */
+function scheduleCompatibleRentalDurationKeys(activeDurationKeys, dateDurationKey) {
+  var want = String(dateDurationKey || '').trim();
+  var list = Array.isArray(activeDurationKeys) ? activeDurationKeys : [];
+  var set = {};
+  list.forEach(function(k) {
+    var key = String(k || '').trim();
+    if (key) set[key] = true;
+  });
+  var out = [];
+  var multiDay = want && want !== '1_day' && /^[1-9][0-9]*_days$/.test(want);
+  if (!multiDay) {
+    // Single-day span: hour packages + 1_day (full_day folds into 1_day display identity).
+    Object.keys(set).forEach(function(k) {
+      if (scheduleIsHourRentalDurationKey(k)) out.push(k);
+      else if (k === '1_day' || k === 'full_day') {
+        if (out.indexOf('1_day') < 0) out.push('1_day');
       }
+    });
+  } else {
+    // Exact active N_days is exclusive. Only when it is absent may 1_day be
+    // selected (and repeated once per date on the server). Never hour packages.
+    if (set[want]) {
+      out.push(want);
+    } else if (set['1_day'] || set.full_day) {
+      out.push('1_day');
     }
   }
-  var out = [];
-  var keys = {};
-  Object.keys(exactByOffering).forEach(function(key) { keys[key] = true; });
-  Object.keys(genericBaseByOffering).forEach(function(key) { keys[key] = true; });
-  Object.keys(keys).forEach(function(key) {
-    var chosen = exactByOffering[key] || genericBaseByOffering[key];
-    if (chosen) out.push(chosen);
-  });
   out.sort(function(a, b) {
-    var byLabel = String(a.label || a.offering_key).localeCompare(String(b.label || b.offering_key));
-    return byLabel || String(a.offering_key).localeCompare(String(b.offering_key));
+    return scheduleRentalDurationSortValue(a) - scheduleRentalDurationSortValue(b);
   });
   return out;
 }
 
-/** Active short-duration keys for one offering at a location (hour/half_day/1_day only). */
+/**
+ * Display label for a rental identity. Catalog label wins; historical board/
+ * wetsuit i18n only for those keys; never "Surfboard" for Towel/etc.
+ */
+function scheduleRentalOfferingDisplayLabel(offeringKey, catalogLabel, translateFn) {
+  var key = String(offeringKey || '').trim();
+  var catalog = String(catalogLabel || '').trim();
+  if (catalog && catalog !== key && catalog.indexOf(key + '__') !== 0) return catalog;
+  var i18nKey = scheduleRentalOfferingLabelKey(key);
+  if (i18nKey && typeof translateFn === 'function') {
+    var t = translateFn(i18nKey);
+    if (t && t !== i18nKey) return t;
+  }
+  if (key === 'board_rental') return 'Surfboard';
+  if (key === 'wetsuit_rental') return 'Wetsuit';
+  if (key === 'board_and_suit_rental') return 'Board and wetsuit';
+  return scheduleHumanizeRentalOfferingKey(key);
+}
+
+/**
+ * Canonical standalone rental projection for Schedule Create/Edit.
+ * Joins enabled tenant/location rental_offerings identity to active positive
+ * rental price rows. Returns per-item duration options for the selected span.
+ *
+ * @param {{
+ *   offerings?: Array,
+ *   prices?: Array,
+ *   locationId?: string,
+ *   clientSlug?: string,
+ *   dateDurationKey?: string,
+ *   dayCount?: number,
+ * }} opts
+ * @returns {Array<{offering_key,label,durations:Array<{duration_key,amount_cents,label}>}>}
+ */
+function scheduleProjectStandaloneRentals(opts) {
+  var o = opts || {};
+  var locationId = o.locationId != null ? String(o.locationId).trim() : '';
+  var clientSlug = o.clientSlug != null ? String(o.clientSlug).trim() : '';
+  var dateDurationKey = String(o.dateDurationKey || '').trim();
+  if (!dateDurationKey) {
+    var dayCount = Number(o.dayCount);
+    if (Number.isInteger(dayCount) && dayCount > 1) dateDurationKey = String(dayCount) + '_days';
+    else dateDurationKey = '1_day';
+  }
+  var prices = Array.isArray(o.prices) ? o.prices : [];
+  var rawOfferings = Array.isArray(o.offerings) ? o.offerings : null;
+
+  // Enabled identity map when catalog is provided. Empty catalog → no new selectables
+  // (fail closed; historical rows are handled by Edit compatibility only).
+  var identityByKey = null;
+  if (rawOfferings) {
+    identityByKey = {};
+    for (var oi = 0; oi < rawOfferings.length; oi++) {
+      var off = rawOfferings[oi];
+      if (!off || off.active === false) continue;
+      var okKey = String(off.offering_key || '').trim();
+      if (!okKey || okKey === SCHEDULE_FULL_DAY_EQUIPMENT_OFFERING) continue;
+      if (clientSlug) {
+        var offClient = String(off.client_slug || off.tenant || '').trim();
+        if (offClient && offClient !== clientSlug) continue;
+      }
+      // Prefer exact location; allow client-wide (null location) rows.
+      var offLoc = off.location_id != null ? String(off.location_id).trim() : '';
+      if (locationId && offLoc && offLoc !== locationId) continue;
+      if (!identityByKey[okKey]) {
+        identityByKey[okKey] = {
+          offering_key: okKey,
+          label: String(off.label || '').trim() || scheduleHumanizeRentalOfferingKey(okKey),
+          excludes: Array.isArray(off.excludes) ? off.excludes.slice() : [],
+        };
+      }
+    }
+  }
+
+  // Collect sellable durations per offering from prices (authoritative money).
+  var byKey = {};
+  for (var i = 0; i < prices.length; i++) {
+    var p = prices[i];
+    if (!scheduleRentalPriceIsSellable(p)) continue;
+    if (!scheduleRentalPriceMatchesLocation(p, locationId)) continue;
+    if (clientSlug) {
+      var priceClient = String(p.client_slug || p.tenant || '').trim();
+      if (priceClient && priceClient !== clientSlug) continue;
+    }
+    var id = scheduleParseRentalPriceIdentity(p);
+    var key = String(id.offering_key || '').trim();
+    if (!key || key === SCHEDULE_FULL_DAY_EQUIPMENT_OFFERING) continue;
+    var isCanonical = SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(key) >= 0;
+    var isGeneric = !isCanonical && scheduleIsGenericRentalOffering(p, key);
+    if (!isCanonical && !isGeneric) continue;
+    // When identity catalog is present, only enabled identities are newly selectable.
+    if (identityByKey && !identityByKey[key]) continue;
+    var dur = String(id.duration_key || '').trim();
+    if (!dur) continue;
+    // Normalize full_day → 1_day for selection identity (legacy fold).
+    var durKey = dur === 'full_day' ? '1_day' : dur;
+    if (!scheduleIsHourRentalDurationKey(durKey) && !scheduleIsDayRentalDurationKey(durKey)
+      && durKey !== '1_day') {
+      // Unknown non-generic duration shapes are ignored for new selection.
+      if (!scheduleIsShortRentalDurationKey(durKey)) continue;
+    }
+    if (!byKey[key]) {
+      var labelFromId = identityByKey && identityByKey[key] ? identityByKey[key].label : '';
+      var labelFromPrice = scheduleRentalOfferingLabelFromPrice(p);
+      if (labelFromPrice === key || labelFromPrice.indexOf(key + '__') === 0) labelFromPrice = '';
+      byKey[key] = {
+        offering_key: key,
+        label: labelFromId || labelFromPrice || scheduleHumanizeRentalOfferingKey(key),
+        _durationMap: {},
+      };
+    }
+    var cents = scheduleRentalPriceAmountCents(p);
+    if (cents == null || cents <= 0) continue;
+    // Prefer first positive row; do not overwrite with a later lower/higher.
+    if (!byKey[key]._durationMap[durKey]) {
+      byKey[key]._durationMap[durKey] = {
+        duration_key: durKey,
+        amount_cents: cents,
+        label: scheduleShortRentalDurationFallbackLabel(durKey),
+      };
+    }
+  }
+
+  var projected = [];
+  Object.keys(byKey).forEach(function(key) {
+    var item = byKey[key];
+    var activeKeys = Object.keys(item._durationMap);
+    var compatible = scheduleCompatibleRentalDurationKeys(activeKeys, dateDurationKey);
+    if (!compatible.length) return;
+    var durations = compatible.map(function(dk) {
+      return item._durationMap[dk] || {
+        duration_key: dk,
+        amount_cents: item._durationMap['1_day'] ? item._durationMap['1_day'].amount_cents : null,
+        label: scheduleShortRentalDurationFallbackLabel(dk),
+      };
+    }).filter(function(d) {
+      return d && d.amount_cents != null && d.amount_cents > 0;
+    });
+    if (!durations.length) return;
+    projected.push({
+      offering_key: item.offering_key,
+      label: item.label,
+      durations: durations,
+      // Convenience: first compatible duration for initial row render.
+      duration_key: durations[0].duration_key,
+      amount_cents: durations[0].amount_cents,
+      duration_keys: durations.map(function(d) { return d.duration_key; }),
+    });
+  });
+
+  projected.sort(function(a, b) {
+    var byLabel = String(a.label || a.offering_key).localeCompare(String(b.label || b.offering_key));
+    return byLabel || String(a.offering_key).localeCompare(String(b.offering_key));
+  });
+  return projected;
+}
+
+function scheduleActiveRentalsForDuration(prices, durationKey, locationId) {
+  // Compatibility wrapper: project without identity catalog (price-driven only),
+  // then collapse each offering to the preferred duration for the span.
+  var projected = scheduleProjectStandaloneRentals({
+    offerings: null,
+    prices: prices,
+    locationId: locationId,
+    dateDurationKey: durationKey,
+  });
+  return projected.map(function(o) {
+    var preferred = null;
+    var want = String(durationKey || '').trim();
+    for (var i = 0; i < o.durations.length; i++) {
+      if (o.durations[i].duration_key === want) {
+        preferred = o.durations[i];
+        break;
+      }
+    }
+    if (!preferred) preferred = o.durations[0];
+    return {
+      offering_key: o.offering_key,
+      duration_key: preferred.duration_key,
+      amount_cents: preferred.amount_cents,
+      label: o.label,
+    };
+  });
+}
+
+/**
+ * Active single-day-compatible duration keys for one offering at a location.
+ * Data-driven: all active hour packages + 1_day/full_day (no fixed product enumeration).
+ * Preserves stored key identity (full_day stays full_day) for legacy pebble paths.
+ */
 function scheduleActiveShortDurationKeysForOffering(prices, offeringKey, locationId) {
   var want = String(offeringKey || '').trim();
   var set = {};
@@ -200,10 +430,14 @@ function scheduleActiveShortDurationKeysForOffering(prices, offeringKey, locatio
     if (!scheduleRentalPriceMatchesLocation(p, locationId)) continue;
     var id = scheduleParseRentalPriceIdentity(p);
     if (id.offering_key !== want) continue;
-    if (!scheduleIsShortRentalDurationKey(id.duration_key)) continue;
-    set[id.duration_key] = true;
+    var dk = String(id.duration_key || '').trim();
+    // Single-day compatible only (hours + 1_day/full_day); multi-day packages excluded.
+    if (!scheduleIsHourRentalDurationKey(dk) && dk !== '1_day' && dk !== 'full_day') continue;
+    set[dk] = true;
   }
-  return SCHEDULE_SHORT_RENTAL_DURATION_KEYS.filter(function(k) { return !!set[k]; });
+  return Object.keys(set).sort(function(a, b) {
+    return scheduleRentalDurationSortValue(a) - scheduleRentalDurationSortValue(b);
+  });
 }
 
 /**
@@ -411,13 +645,22 @@ if (typeof module !== 'undefined' && module.exports) {
     SCHEDULE_SHORT_RENTAL_DURATION_KEYS: SCHEDULE_SHORT_RENTAL_DURATION_KEYS,
     scheduleIsGenericRentalOffering: scheduleIsGenericRentalOffering,
     scheduleRentalOfferingLabelKey: scheduleRentalOfferingLabelKey,
+    scheduleRentalOfferingDisplayLabel: scheduleRentalOfferingDisplayLabel,
+    scheduleHumanizeRentalOfferingKey: scheduleHumanizeRentalOfferingKey,
+    scheduleIsHourRentalDurationKey: scheduleIsHourRentalDurationKey,
+    scheduleIsDayRentalDurationKey: scheduleIsDayRentalDurationKey,
     scheduleIsShortRentalDurationKey: scheduleIsShortRentalDurationKey,
     scheduleShortRentalDurationLabelKey: scheduleShortRentalDurationLabelKey,
     scheduleShortRentalDurationFallbackLabel: scheduleShortRentalDurationFallbackLabel,
+    scheduleRentalDurationSortValue: scheduleRentalDurationSortValue,
     scheduleRentalDurationKeyFromDates: scheduleRentalDurationKeyFromDates,
     scheduleParseRentalPriceIdentity: scheduleParseRentalPriceIdentity,
     scheduleRentalPriceAmountCents: scheduleRentalPriceAmountCents,
     scheduleRentalPriceIsSellable: scheduleRentalPriceIsSellable,
+    scheduleCompatibleRentalDurationKeys: scheduleCompatibleRentalDurationKeys,
+    scheduleProjectStandaloneRentals: scheduleProjectStandaloneRentals,
+    // Alias used by Create/Edit + focused Slice 2 verifier.
+    scheduleProjectStandaloneRentalCatalog: scheduleProjectStandaloneRentals,
     scheduleActiveRentalsForDuration: scheduleActiveRentalsForDuration,
     scheduleActiveShortDurationKeysForOffering: scheduleActiveShortDurationKeysForOffering,
     scheduleCommonShortRentalDurationKeys: scheduleCommonShortRentalDurationKeys,

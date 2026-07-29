@@ -1266,7 +1266,6 @@ function scheduleReadDrawerRentalSelectionFromDom() {
   var wrap = el('ps-drawer-rentals');
   if (!wrap) return [];
   var duration = String(wrap.getAttribute('data-duration-key') || '').trim();
-  var shortMode = wrap.getAttribute('data-short-rental') === '1';
   var noLesson = scheduleDrawerMainActivityValue() === 'none';
   var selection = [];
   wrap.querySelectorAll('[data-rental-offering]').forEach(function(row) {
@@ -1274,6 +1273,11 @@ function scheduleReadDrawerRentalSelectionFromDom() {
     var check = row.querySelector('.ps-drawer-rental-check');
     var qtyEl = row.querySelector('input.ps-drawer-rental-qty-input');
     if (!check || !check.checked || !key) return;
+    // Per-item duration (Create parity) — never a shared wrap-only key.
+    var durSel = row.querySelector('select.ps-drawer-rental-duration');
+    var rowDuration = '';
+    if (durSel && durSel.value) rowDuration = String(durSel.value).trim();
+    if (!rowDuration) rowDuration = String(row.getAttribute('data-rental-duration-key') || duration).trim();
     var qty;
     if (noLesson) {
       // Equipment only: never trust independently edited equipment qty — surfer-owned only.
@@ -1288,11 +1292,13 @@ function scheduleReadDrawerRentalSelectionFromDom() {
         qty = sn;
       }
     }
-    selection.push({ offering_key: key, duration_key: duration, quantity: qty });
+    selection.push({ offering_key: key, duration_key: rowDuration, quantity: qty });
   });
   if (typeof scheduleSerializeRentalsSelection === 'function') {
+    var genericOfferingKeys = selection.map(function(s) { return s.offering_key; });
     return scheduleSerializeRentalsSelection(selection, duration, {
-      expandCombinedShort: shortMode,
+      expandCombinedShort: false,
+      genericOfferingKeys: genericOfferingKeys,
     });
   }
   return selection;
@@ -1309,6 +1315,7 @@ function scheduleDrawerApplyRentalExclusionUi(wrap, selectedKeys) {
     var key = String(row.getAttribute('data-rental-offering') || '');
     var check = row.querySelector('.ps-drawer-rental-check');
     var qtyWrap = row.querySelector('.portal-schedule-create-rental-qty');
+    var durSel = row.querySelector('select.ps-drawer-rental-duration');
     var label = row.querySelector('.portal-schedule-create-check');
     if (!check) return;
     var isOn = selected.indexOf(key) >= 0;
@@ -1319,6 +1326,12 @@ function scheduleDrawerApplyRentalExclusionUi(wrap, selectedKeys) {
     if (label) {
       if (check.disabled) label.classList.add('is-disabled');
       else label.classList.remove('is-disabled');
+    }
+    if (durSel) {
+      durSel.disabled = !isOn || row.getAttribute('data-compatibility') === '1';
+      if (isOn && durSel.value) {
+        try { row.setAttribute('data-rental-duration-key', String(durSel.value).trim()); } catch (_d) { /* ignore */ }
+      }
     }
     if (qtyWrap) {
       // Group/Private keep independent gear Surfers control; Equipment only never shows it.
@@ -1341,25 +1354,26 @@ function scheduleDrawerIsCombinedBoardWetsuit(selectedKeys) {
 function scheduleWireDrawerRentals(wrap) {
   if (!wrap || wrap.dataset.rentalWired === '1') return;
   wrap.dataset.rentalWired = '1';
-  wrap.addEventListener('click', function(ev) {
-    var t = ev && ev.target;
-    if (!t) return;
-    var btn = t.closest ? t.closest('[data-rental-duration]') : null;
-    if (!btn || !wrap.contains(btn)) return;
-    var dur = String(btn.getAttribute('data-rental-duration') || '').trim();
-    if (!dur) return;
-    wrap.setAttribute('data-duration-key', dur);
-    wrap.querySelectorAll('[data-rental-duration]').forEach(function(b) {
-      var on = String(b.getAttribute('data-rental-duration') || '') === dur;
-      if (on) b.classList.add('is-selected'); else b.classList.remove('is-selected');
-      try { b.setAttribute('aria-checked', on ? 'true' : 'false'); } catch (_a) { /* ignore */ }
-    });
-    scheduleDrawerMarkPriceStale();
-    scheduleDrawerSyncFooter();
-  });
   wrap.addEventListener('change', function(ev) {
     var t = ev && ev.target;
     if (!t) return;
+    if (t.classList && t.classList.contains('ps-drawer-rental-duration')) {
+      var rowDur = t.closest ? t.closest('[data-rental-offering]') : null;
+      if (rowDur) {
+        try { rowDur.setAttribute('data-rental-duration-key', String(t.value || '').trim()); } catch (_rd) { /* ignore */ }
+        var opt = t.options && t.selectedIndex >= 0 ? t.options[t.selectedIndex] : null;
+        var cents = opt ? opt.getAttribute('data-amount-cents') : '';
+        var priceEl = rowDur.querySelector('.portal-schedule-create-rental-price');
+        if (priceEl && cents && typeof scheduleFormatCentsMoney === 'function') {
+          priceEl.setAttribute('data-amount-cents', cents);
+          priceEl.textContent = scheduleFormatCentsMoney(Number(cents));
+        }
+        if (cents) try { rowDur.setAttribute('data-amount-cents', cents); } catch (_ac) { /* ignore */ }
+      }
+      scheduleDrawerMarkPriceStale();
+      scheduleDrawerSyncFooter();
+      return;
+    }
     if (t.classList && t.classList.contains('ps-drawer-rental-check')) {
       var key = String(t.getAttribute('data-offering-key') || '');
       var selected = [];
@@ -1377,23 +1391,6 @@ function scheduleWireDrawerRentals(wrap) {
         if (qtyEl && qtyEl.getAttribute('data-qty-owner') !== 'user' && sn != null) {
           qtyEl.value = String(sn);
           qtyEl.setAttribute('data-qty-owner', 'surfers');
-        }
-      }
-      // Combined Board and wetsuit in No-lesson short mode: show/refresh duration pebbles.
-      if (wrap.getAttribute('data-short-rental') === '1') {
-        var common = [];
-        try { common = JSON.parse(wrap.getAttribute('data-common-short-keys') || '[]'); } catch (_j) { common = []; }
-        if (scheduleDrawerIsCombinedBoardWetsuit(next) && common.length
-          && typeof scheduleRenderCreateRentalDurationPebbles === 'function') {
-          scheduleRenderCreateRentalDurationPebbles(
-            wrap, common, wrap.getAttribute('data-duration-key'),
-          );
-        } else {
-          var host = wrap.querySelector('[data-rental-duration-pebbles]');
-          if (host) { host.innerHTML = ''; host.style.display = 'none'; }
-          if (next.length === 1 && common.length) {
-            wrap.setAttribute('data-duration-key', common[0]);
-          }
         }
       }
       scheduleDrawerMarkPriceStale();
@@ -1440,12 +1437,17 @@ function scheduleRenderDrawerRentals() {
     var key = String(row.getAttribute('data-rental-offering') || '');
     var check = row.querySelector('.ps-drawer-rental-check');
     var qtyEl = row.querySelector('input.ps-drawer-rental-qty-input');
+    var durSel = row.querySelector('select.ps-drawer-rental-duration');
     if (!key) return;
     var qty = parseInt(qtyEl && qtyEl.value, 10);
+    var prevDur = '';
+    if (durSel && durSel.value) prevDur = String(durSel.value).trim();
+    if (!prevDur) prevDur = String(row.getAttribute('data-rental-duration-key') || '').trim();
     prev[key] = {
       checked: !!(check && check.checked),
       quantity: (Number.isInteger(qty) && qty >= 1) ? qty : null,
       qtyOwner: qtyEl ? String(qtyEl.getAttribute('data-qty-owner') || '') : '',
+      duration_key: prevDur,
       compatibility: row.getAttribute('data-compatibility') === '1'
         || (check && check.getAttribute('data-compatibility') === '1'),
     };
@@ -1467,33 +1469,30 @@ function scheduleRenderDrawerRentals() {
     ? scheduleRentalDurationKeyFromDates(span.from, span.to, scheduleEnumerateDates)
     : null;
   var locationId = typeof getSunsetLocation === 'function' ? getSunsetLocation() : '';
+  var clientSlug = typeof getClient === 'function' ? String(getClient() || '').trim() : '';
   var prices = (typeof scheduleAdminPricesCache !== 'undefined' && scheduleAdminPricesCache) || [];
   var noLesson = scheduleDrawerMainActivityValue() === 'none';
-  var commonShort = (typeof scheduleCommonShortRentalDurationKeys === 'function')
-    ? scheduleCommonShortRentalDurationKeys(prices, locationId)
-    : [];
-  // No-lesson short-rental pebbles only on a single-day span (same Create contract).
-  var shortMode = noLesson && commonShort.length > 0 && dateDuration === '1_day';
-  var offerings = [];
-  var duration = dateDuration;
-  if (shortMode) {
-    offerings = (typeof scheduleActiveShortRentalOfferings === 'function')
-      ? scheduleActiveShortRentalOfferings(prices, locationId)
-      : [];
-    if (prevDuration && commonShort.indexOf(prevDuration) >= 0) duration = prevDuration;
-    else duration = commonShort[0] || '';
-  } else {
-    offerings = (dateDuration && typeof scheduleActiveRentalsForDuration === 'function')
+  var duration = dateDuration || '1_day';
+  var identityCatalog = (typeof scheduleRentalOfferingsCache !== 'undefined'
+    && Array.isArray(scheduleRentalOfferingsCache) && scheduleRentalOfferingsCache.length)
+    ? scheduleRentalOfferingsCache
+    : null;
+  // Create/Edit parity: same projection + per-item duration ownership.
+  var offerings = (typeof scheduleProjectStandaloneRentals === 'function')
+    ? scheduleProjectStandaloneRentals({
+      offerings: identityCatalog,
+      prices: prices,
+      locationId: locationId,
+      clientSlug: clientSlug,
+      dateDurationKey: duration,
+    })
+    : ((dateDuration && typeof scheduleActiveRentalsForDuration === 'function')
       ? scheduleActiveRentalsForDuration(prices, dateDuration, locationId)
-      : [];
-    duration = dateDuration;
-  }
-  // Fail-closed: never invent generic board/wetsuit/bundle when catalog is empty.
+      : []);
   var catalogKeys = {};
   (offerings || []).forEach(function(o) {
     if (o && o.offering_key) catalogKeys[String(o.offering_key)] = true;
   });
-  // Preserve seeded/prev checked rentals missing from refreshed catalog as compatibility rows.
   var compatibilityKeys = [];
   Object.keys(prev).forEach(function(key) {
     if (!prev[key] || !prev[key].checked) return;
@@ -1501,18 +1500,24 @@ function scheduleRenderDrawerRentals() {
       compatibilityKeys.push(key);
       offerings = offerings.concat([{
         offering_key: key,
-        duration_key: duration || prev[key].duration_key || prevDuration || '',
+        label: (typeof scheduleRentalOfferingDisplayLabel === 'function')
+          ? scheduleRentalOfferingDisplayLabel(key, '', portalT)
+          : key,
+        duration_key: prev[key].duration_key || duration || prevDuration || '',
+        durations: prev[key].duration_key
+          ? [{ duration_key: prev[key].duration_key, amount_cents: null, label: prev[key].duration_key }]
+          : [],
         _compatibility: true,
       }]);
     }
   });
   var mode = typeof scheduleRentalOfferingsMode === 'function'
     ? scheduleRentalOfferingsMode(offerings.filter(function(o) { return !o._compatibility; }))
-    : (Object.keys(catalogKeys).length ? 'all_three' : 'none');
+    : (Object.keys(catalogKeys).length ? 'separate_only' : 'none');
   wrap.setAttribute('data-duration-key', duration || '');
   wrap.setAttribute('data-rental-mode', mode);
-  wrap.setAttribute('data-short-rental', shortMode ? '1' : '0');
-  wrap.setAttribute('data-common-short-keys', JSON.stringify(commonShort));
+  wrap.setAttribute('data-short-rental', duration === '1_day' ? '1' : '0');
+  wrap.setAttribute('data-common-short-keys', '[]');
   wrap.setAttribute('data-rental-compatibility', compatibilityKeys.length ? '1' : '0');
   if (compatibilityKeys.length) {
     try {
@@ -1533,14 +1538,30 @@ function scheduleRenderDrawerRentals() {
   offerings.forEach(function(o) {
     var key = o.offering_key;
     var isCompat = !!o._compatibility;
-    var labelKey = typeof scheduleRentalOfferingLabelKey === 'function'
-      ? scheduleRentalOfferingLabelKey(key) : 'schedule.type.boardRental';
+    var durs = Array.isArray(o.durations) ? o.durations.slice() : [];
     var was = prev[key] || {};
     var checked = !!was.checked || isCompat;
+    var rowDuration = String(was.duration_key || o.duration_key
+      || (durs[0] && durs[0].duration_key) || duration || '').trim();
+    if (durs.length && !durs.some(function(d) { return d.duration_key === rowDuration; })) {
+      if (was.duration_key) {
+        durs = [{
+          duration_key: was.duration_key,
+          amount_cents: null,
+          label: was.duration_key,
+        }].concat(durs);
+        rowDuration = was.duration_key;
+      } else if (durs[0]) {
+        rowDuration = durs[0].duration_key;
+      }
+    }
+    var offeringLabel = (typeof scheduleRentalOfferingDisplayLabel === 'function')
+      ? scheduleRentalOfferingDisplayLabel(key, o.label, portalT)
+      : (String(o.label || '').trim() || key);
+    if (isCompat) offeringLabel = offeringLabel + ' (' + unavailHint + ')';
     var qty;
     var owner;
     if (noLesson) {
-      // Equipment only: always derive from booking surfer count; clear stale user-owned qty.
       qty = surfers != null ? surfers : 1;
       owner = 'surfers';
     } else {
@@ -1548,13 +1569,10 @@ function scheduleRenderDrawerRentals() {
         ? was.quantity
         : (surfers != null ? surfers : 1);
       if (!checked) qty = surfers != null ? surfers : 1;
-      // Group/Private: preserve independent equipment qty when only some surfers need gear.
       owner = (checked && was.quantity != null && was.qtyOwner === 'user') ? 'user' : 'surfers';
     }
-    // Same anatomy as Create: checkbox offering card + Surfers numeric (hidden for no-lesson).
     var qtyHtml = '';
     if (!noLesson) {
-      // data-i18n seed "Surfers" matches Create hydration contract (never Quantity).
       qtyHtml = '<div class="portal-schedule-create-rental-qty"' + (checked ? '' : ' style="display:none"') + '>'
         + '<label><span data-i18n="schedule.create.rentalQty">'
         + escHtml(portalT('schedule.create.rentalQty') || 'Surfers') + '</span>'
@@ -1562,26 +1580,53 @@ function scheduleRenderDrawerRentals() {
         + escHtml(owner) + '" value="' + escHtml(String(qty)) + '"></label>'
         + '</div>';
     } else {
-      // Hidden mirror so payload readers still see surfer-derived qty (not user-editable).
       qtyHtml = '<div class="portal-schedule-create-rental-qty" style="display:none" hidden aria-hidden="true">'
         + '<input type="number" min="1" max="99" class="ps-drawer-rental-qty-input" data-qty-owner="surfers" tabindex="-1" value="'
         + escHtml(String(qty)) + '"></div>';
     }
-    var labelText = portalT(labelKey) + (isCompat ? (' (' + unavailHint + ')') : '');
+    var selectedDur = null;
+    for (var di = 0; di < durs.length; di++) {
+      if (durs[di].duration_key === rowDuration) { selectedDur = durs[di]; break; }
+    }
+    if (!selectedDur) selectedDur = durs[0] || null;
+    var unitCents = selectedDur && selectedDur.amount_cents != null ? selectedDur.amount_cents : null;
+    var priceHtml = (unitCents != null && typeof scheduleFormatCentsMoney === 'function')
+      ? ('<span class="portal-schedule-create-rental-price" data-amount-cents="' + escHtml(String(unitCents)) + '">'
+        + escHtml(scheduleFormatCentsMoney(unitCents)) + '</span>')
+      : '';
+    var durationHtml = '';
+    if (durs.length && !isCompat) {
+      durationHtml = '<label class="portal-schedule-create-rental-duration-label">'
+        + '<span class="portal-visually-hidden" data-i18n="schedule.create.rentalDuration">Duration</span>'
+        + '<select class="ps-drawer-rental-duration" data-rental-duration-select'
+        + (checked ? '' : ' disabled') + '>';
+      durs.forEach(function(d) {
+        var dLab = String(d.label || d.duration_key);
+        var euro = (d.amount_cents != null && typeof scheduleFormatCentsMoney === 'function')
+          ? (' — ' + scheduleFormatCentsMoney(d.amount_cents)) : '';
+        durationHtml += '<option value="' + escHtml(d.duration_key) + '" data-amount-cents="'
+          + escHtml(String(d.amount_cents == null ? '' : d.amount_cents)) + '"'
+          + (d.duration_key === rowDuration ? ' selected' : '') + '>'
+          + escHtml(dLab + euro) + '</option>';
+      });
+      durationHtml += '</select></label>';
+    } else if (isCompat && rowDuration) {
+      durationHtml = '<span class="portal-schedule-drawer-rental-unavailable-duration">'
+        + escHtml(rowDuration) + '</span>';
+    }
     html += '<div class="portal-schedule-create-rental-row'
       + (isCompat ? ' is-unavailable' : '') + '" data-rental-offering="' + escHtml(key) + '"'
+      + ' data-rental-duration-key="' + escHtml(rowDuration) + '"'
       + ' data-eligible="' + (isCompat ? '0' : '1') + '"'
-      + (isCompat ? ' data-compatibility="1"' : '') + '>'
+      + (isCompat ? ' data-compatibility="1"' : '')
+      + (unitCents != null ? (' data-amount-cents="' + escHtml(String(unitCents)) + '"') : '') + '>'
       + '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-drawer-rental-check" data-offering-key="'
       + escHtml(key) + '"' + (checked ? ' checked' : '')
       + ' data-eligible="' + (isCompat ? '0' : '1') + '"'
       + (isCompat ? ' data-compatibility="1"' : '')
-      + '> <span data-i18n="' + escHtml(labelKey) + '">'
-      + escHtml(labelText) + '</span></label>'
-      + qtyHtml + '</div>';
+      + '> <span>' + escHtml(offeringLabel) + '</span></label>'
+      + durationHtml + priceHtml + qtyHtml + '</div>';
   });
-  // One pebble strip beneath offerings for combined short mode (filled after selection).
-  html += '<div data-rental-duration-pebbles class="portal-schedule-create-rental-pebbles-host" style="display:none"></div>';
   wrap.innerHTML = html;
   var selected = [];
   offerings.forEach(function(o) {
@@ -1595,12 +1640,9 @@ function scheduleRenderDrawerRentals() {
       : ['board_and_suit_rental'];
   }
   scheduleDrawerApplyRentalExclusionUi(wrap, selected);
-  if (shortMode && scheduleDrawerIsCombinedBoardWetsuit(selected) && commonShort.length
-    && typeof scheduleRenderCreateRentalDurationPebbles === 'function') {
-    scheduleRenderCreateRentalDurationPebbles(wrap, commonShort, duration);
-  }
   scheduleWireDrawerRentals(wrap);
 }
+
 
 function scheduleDrawerPopulateComponentFields() {
   var mode = scheduleDrawerMainActivityValue();
