@@ -141,8 +141,8 @@ function scheduleRentalPriceMatchesLocation(price, locationId) {
 
 function scheduleActiveRentalsForDuration(prices, durationKey, locationId) {
   var wantDuration = String(durationKey || '').trim();
-  var out = [];
-  var seen = {};
+  var exactByOffering = {};
+  var genericBaseByOffering = {};
   var list = Array.isArray(prices) ? prices : [];
   for (var i = 0; i < list.length; i++) {
     var p = list[i];
@@ -150,19 +150,38 @@ function scheduleActiveRentalsForDuration(prices, durationKey, locationId) {
     if (!scheduleRentalPriceMatchesLocation(p, locationId)) continue;
     var id = scheduleParseRentalPriceIdentity(p);
     var isCanonical = SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(id.offering_key) >= 0;
+    var isGeneric = !isCanonical && scheduleIsGenericRentalOffering(p, id.offering_key);
     // Canonical always; generic catalog rentals (data-driven) when priced. The
     // full-day add-on and non-rental rows (lessons/packages) never qualify.
-    if (!isCanonical && !scheduleIsGenericRentalOffering(p, id.offering_key)) continue;
-    if (!wantDuration || id.duration_key !== wantDuration) continue;
-    if (seen[id.offering_key]) continue;
-    seen[id.offering_key] = true;
-    out.push({
+    if (!isCanonical && !isGeneric) continue;
+    var offering = {
       offering_key: id.offering_key,
       duration_key: id.duration_key,
       amount_cents: scheduleRentalPriceAmountCents(p),
       label: scheduleRentalOfferingLabelFromPrice(p),
-    });
+    };
+    if (wantDuration && id.duration_key === wantDuration && !exactByOffering[id.offering_key]) {
+      exactByOffering[id.offering_key] = offering;
+    }
+    // Generic items remain available for arbitrary calendar spans. When Admin has
+    // no exact N-day special, carry the shortest configured short package through;
+    // the authoritative server repeats that package once per selected calendar day.
+    if (isGeneric && scheduleIsShortRentalDurationKey(id.duration_key)) {
+      var prior = genericBaseByOffering[id.offering_key];
+      if (!prior || scheduleShortRentalDurationSortValue(id.duration_key)
+          < scheduleShortRentalDurationSortValue(prior.duration_key)) {
+        genericBaseByOffering[id.offering_key] = offering;
+      }
+    }
   }
+  var out = [];
+  var keys = {};
+  Object.keys(exactByOffering).forEach(function(key) { keys[key] = true; });
+  Object.keys(genericBaseByOffering).forEach(function(key) { keys[key] = true; });
+  Object.keys(keys).forEach(function(key) {
+    var chosen = exactByOffering[key] || genericBaseByOffering[key];
+    if (chosen) out.push(chosen);
+  });
   out.sort(function(a, b) {
     var byLabel = String(a.label || a.offering_key).localeCompare(String(b.label || b.offering_key));
     return byLabel || String(a.offering_key).localeCompare(String(b.offering_key));
