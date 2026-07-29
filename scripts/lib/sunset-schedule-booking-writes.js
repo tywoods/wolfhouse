@@ -228,6 +228,7 @@ const FULL_DAY_EQUIPMENT_ADDON_KEY = 'full_day_equipment_extension';
 const FULL_DAY_EQUIPMENT_ADDON_BILLING_UNIT = 'person_per_day';
 const COURSE_EQUIPMENT_KEY = 'course_equipment';
 const { normalizeSelection, quoteCourseEquipment } = require('./sunset-course-equipment-pricing');
+const { isPresentCourseEquipmentSelection } = require('./sunset-course-equipment-options');
 
 function checkedMoneyInteger(value, label) {
   const n = Number(value);
@@ -1612,8 +1613,11 @@ function validateScheduleBookingBody(body, opts) {
   const surfer_count = forced.forced
     ? forced.surfer_count
     : parseAuthoritativeSurferCount(b);
+  // Absent wire forms (undefined / null / []) mean no course equipment selected.
+  // Browser Create always serializes course_equipment: [] for rental-only; do not
+  // treat that empty array as a supplied selection requiring Group/Private.
   let course_equipment = null;
-  if (b.course_equipment != null) {
+  if (isPresentCourseEquipmentSelection(b.course_equipment)) {
     const coursePart = forcedComps.course || forcedComps.private_lesson;
     if (!coursePart) return { ok: false, error: 'course_equipment requires a group or private course' };
     const surfers = forcedComps.private_lesson
@@ -2068,9 +2072,9 @@ function buildSchedulePricingIntent(input, opts) {
     custom_line_items: customLinesForIntentFingerprint(customSrc),
     course_equipment: (() => {
       const raw = input && input.course_equipment;
-      if (raw == null) return null;
+      if (!isPresentCourseEquipmentSelection(raw)) return null;
       if (Array.isArray(raw)) {
-        return raw
+        const rows = raw
           .map((row) => {
             if (!row || typeof row !== 'object') return null;
             const offering_key = String(row.offering_key || '').trim();
@@ -2083,6 +2087,7 @@ function buildSchedulePricingIntent(input, opts) {
           })
           .filter(Boolean)
           .sort((a, b) => a.offering_key.localeCompare(b.offering_key));
+        return rows.length ? rows : null;
       }
       // Narrow historical singleton shape for intent equality only.
       if (raw && typeof raw === 'object') return { ...raw };
@@ -3177,9 +3182,7 @@ async function createSunsetScheduleBooking(pg, opts) {
       createdRows.push(ins.rows[0]);
     }
 
-    if (input.course_equipment && (
-      !Array.isArray(input.course_equipment) || input.course_equipment.length > 0
-    )) {
+    if (isPresentCourseEquipmentSelection(input.course_equipment)) {
       const { listRentalOfferings } = require('./tenant-rental-offerings');
       const rentalOfferings = await listRentalOfferings(pg, {
         clientSlug, locationId, includeInactive: false,
