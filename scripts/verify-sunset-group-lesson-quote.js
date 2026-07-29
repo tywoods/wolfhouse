@@ -270,7 +270,13 @@ async function parity(dates, qty) {
     staffApiSrc.indexOf('async function handleBotSunsetLessonQuote'),
     staffApiSrc.indexOf('async function handleSunsetScheduleBookingCreate'),
   );
-  ok(!/INSERT |UPDATE |DELETE |stripe|whatsapp/i.test(handlerSlice), 'handler source has no write/stripe/whatsapp calls');
+  // The quote handler now tags its read-only offering-quote routing with the
+  // LUNA_WHATSAPP *channel constant* (provenance/routing only — not a message
+  // send). Strip all-caps *WHATSAPP* channel constants before scanning so the
+  // guard still catches real writes / Stripe / WhatsApp *sends* (camelCase
+  // sendWhatsApp(...)) without false-positiving on the channel enum.
+  const handlerScan = handlerSlice.replace(/\b[A-Z][A-Z0-9_]*WHATSAPP[A-Z0-9_]*\b/g, '');
+  ok(!/INSERT |UPDATE |DELETE |stripe|whatsapp/i.test(handlerScan), 'handler source has no write/stripe/whatsapp calls');
 
   console.log('\n── H. Plugin stub redirects guests to courses (no group-lesson money path) ──');
   const glPluginStart = pluginSrc.indexOf('def get_sunset_group_lesson_quote');
