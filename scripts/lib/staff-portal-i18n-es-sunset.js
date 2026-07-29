@@ -106,6 +106,7 @@ module.exports = {
   'schedule.courseEquipment.allDay': 'Todo el día',
   'schedule.courseEquipment.quantity': 'Conjuntos de material',
   'schedule.courseEquipment.everyDay': 'Se aplica a todos los días de la reserva.',
+  'schedule.courseEquipment.unavailable': 'No disponible',
   'admin.courseEquipment.title': 'Material + Precio',
   'admin.courseEquipment.editorTitle': 'Material',
   'admin.courseEquipment.choose': 'Elegir material',

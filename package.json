@@ -489,6 +489,7 @@
     "verify:sunset-schedule-drawer-view-ui": "node scripts/verify-sunset-schedule-drawer-view-ui.js",
     "verify:sunset-schedule-drawer-edit-ui": "node scripts/verify-sunset-schedule-drawer-edit-ui.js",
     "verify:sunset-schedule-edit-multi-equipment-playwright": "node scripts/verify-sunset-schedule-edit-multi-equipment-playwright.js",
+    "verify:sunset-schedule-edit-private-multi-equipment-playwright": "node scripts/verify-sunset-schedule-edit-private-multi-equipment-playwright.js",
     "verify:sunset-schedule-drawer-actions": "node scripts/verify-sunset-schedule-drawer-actions.js",
     "verify:sunset-schedule-drawer-controller": "node scripts/verify-sunset-schedule-drawer-controller.js",
     "verify:sunset-schedule-day-ops-board-ui": "node scripts/verify-sunset-schedule-day-ops-board-ui.js",

@@ -921,6 +921,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.courseEquipment.allDay': 'All Day',
     'schedule.courseEquipment.quantity': 'Equipment sets',
     'schedule.courseEquipment.everyDay': 'Applies on every booking day.',
+    'schedule.courseEquipment.unavailable': 'Unavailable',
 
 
     'schedule.view.week': 'Week',
@@ -1375,6 +1376,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.courseEquipment.allDay': 'Tutto il giorno',
     'schedule.courseEquipment.quantity': 'Set di attrezzatura',
     'schedule.courseEquipment.everyDay': 'Si applica a ogni giorno della prenotazione.',
+    'schedule.courseEquipment.unavailable': 'Non disponibile',
     'admin.courseEquipment.title': 'Attrezzatura + Prezzo',
     'admin.courseEquipment.editorTitle': 'Attrezzatura',
     'admin.courseEquipment.choose': 'Scegli attrezzatura',
