@@ -378,6 +378,12 @@ const {
   setRentalGroupAvailability,
 } = require('./lib/tenant-admin-writes');
 const {
+  listRentalOfferings,
+  createRentalOffering,
+  updateRentalOffering,
+  deleteRentalOffering,
+} = require('./lib/tenant-rental-offerings');
+const {
   defaultPackConfig,
   DEFAULT_PRICE_TIERS,
   validatePackBody,
@@ -39290,6 +39296,83 @@ async function handleAdminConfigPriceGroupAvailabilityPost(query, req, res, user
   }
 }
 
+// ── Rental offerings catalog CRUD (data-driven rentable items; identity only) ──
+// Money (price-per-period) stays on /staff/admin/config/prices. These endpoints
+// own rentable-item identity/grouping/exclusion in tenant_rental_offerings.
+function rentalOfferingLocation(query) {
+  const raw = query.location != null ? String(query.location).trim() : '';
+  return raw || null;
+}
+
+async function handleAdminConfigRentalOfferingsGet(query, req, res, user) {
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  try {
+    const offerings = await withPgClient((pg) => listRentalOfferings(pg, {
+      clientSlug,
+      locationId: rentalOfferingLocation(query),
+      includeInactive: String(query.include_inactive || '') === 'true',
+    }));
+    return sendJSON(res, 200, { success: true, client_slug: clientSlug, offerings });
+  } catch (err) {
+    console.error('[admin.config.rental_offerings.get] failed:', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'read failed', code: err && err.code });
+  }
+}
+
+async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({
+    user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole,
+  });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body = {};
+  if (op !== 'delete') {
+    try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+    if (!body || typeof body !== 'object') return send400(res, 'invalid body');
+  }
+
+  const params = {
+    clientSlug,
+    locationId: rentalOfferingLocation(query),
+    offering_key: op === 'create' ? body.offering_key : offeringKey,
+    label: body.label,
+    group_key: body.group_key,
+    excludes: body.excludes,
+    sort_order: body.sort_order,
+    actorId: user && user.staff_user_id ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      if (op === 'create') return createRentalOffering(pg, params);
+      if (op === 'update') return updateRentalOffering(pg, params);
+      return deleteRentalOffering(pg, params);
+    });
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: `api:admin.config.rental_offering.${op}`,
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: result.ok,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (!result.ok) {
+      return sendJSON(res, op === 'delete' ? 404 : 409, { success: false, error: result.error || 'not found', elapsed_ms: Date.now() - started });
+    }
+    return sendJSON(res, op === 'create' ? 201 : 200, { success: true, ...result, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error(`[admin.config.rental_offering.${op}] write failed:`, err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
+  }
+}
+
 async function handleAdminConfigPriceDelete(ruleIdRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -46872,6 +46955,29 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminConfigPriceGroupAvailabilityPost(parsed.query, req, res, auth.user);
+  }
+
+  // ── Rental offerings catalog CRUD (data-driven rentable items) ──
+  if (pathname === '/staff/admin/config/rental-offerings' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigRentalOfferingsGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/admin/config/rental-offerings' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigRentalOfferingWrite('create', null, parsed.query, req, res, auth.user);
+  }
+  const rentalOfferingMatch = /^\/staff\/admin\/config\/rental-offerings\/([a-z][a-z0-9_]*)$/.exec(pathname);
+  if (rentalOfferingMatch && (method === 'PATCH' || method === 'PUT')) {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigRentalOfferingWrite('update', rentalOfferingMatch[1], parsed.query, req, res, auth.user);
+  }
+  if (rentalOfferingMatch && method === 'DELETE') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigRentalOfferingWrite('delete', rentalOfferingMatch[1], parsed.query, req, res, auth.user);
   }
 
   // ── Staff & Owner WhatsApp numbers — DB-backed allowlist CRUD (admin+owner) ─
