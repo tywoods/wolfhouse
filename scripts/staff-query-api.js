@@ -376,6 +376,7 @@ const {
   patchLessonTimeRule,
   deactivateLessonTimeRule,
   setRentalGroupAvailability,
+  buildActivePositivePriceForOfferingSql,
 } = require('./lib/tenant-admin-writes');
 const {
   listRentalOfferings,
@@ -39373,23 +39374,15 @@ async function handleAdminConfigRentalOfferingWrite(op, offeringKey, query, req,
       if (wantsActiveToggle) {
         if (body.active === true) {
           // Fail closed: do not re-enable an unpriced offering into the bookable catalog.
+          // Exact ownership via split_part — never unescaped LIKE (`_` is a wildcard).
           const hasLoc = loc.locationId != null;
+          const priceQ = buildActivePositivePriceForOfferingSql({ hasLocation: hasLoc });
           const priceCheck = await pg.query(
             // MULTICLIENT_SCOPE_OK: client + location scoped active positive prices for offering
+            priceQ.sql,
             hasLoc
-              ? `SELECT 1 FROM tenant_price_rules
-                  WHERE client_slug = $1 AND location_id = $2 AND item_type = 'rental'
-                    AND active = true AND amount_cents > 0
-                    AND (item_code = $3 OR item_code LIKE $4)
-                  LIMIT 1`
-              : `SELECT 1 FROM tenant_price_rules
-                  WHERE client_slug = $1 AND item_type = 'rental'
-                    AND active = true AND amount_cents > 0
-                    AND (item_code = $2 OR item_code LIKE $3)
-                  LIMIT 1`,
-            hasLoc
-              ? [clientSlug, loc.locationId, offeringKey, `${offeringKey}__%`]
-              : [clientSlug, offeringKey, `${offeringKey}__%`],
+              ? [clientSlug, loc.locationId, offeringKey]
+              : [clientSlug, offeringKey],
           );
           if (!priceCheck.rows.length) {
             return {

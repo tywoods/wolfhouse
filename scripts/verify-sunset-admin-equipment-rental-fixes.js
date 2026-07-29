@@ -25,6 +25,25 @@ const {
   deleteRentalOffering,
   setRentalOfferingActive,
 } = require('./lib/tenant-rental-offerings');
+const {
+  itemCodeBelongsToRentalOffering,
+  hasActivePositiveRentalPriceForOffering,
+  buildActivePositivePriceForOfferingSql,
+} = require('./lib/tenant-admin-writes');
+
+/** PostgreSQL LIKE simulator (`_` = one char, `%` = any sequence). Used only to prove the bug class. */
+function pgLike(str, pattern) {
+  let re = '^';
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === '%') re += '.*';
+    else if (ch === '_') re += '.';
+    else if (/[.*+?^${}()|[\]\\]/.test(ch)) re += `\\${ch}`;
+    else re += ch;
+  }
+  re += '$';
+  return new RegExp(re, 'i').test(String(str));
+}
 
 const ROOT = path.join(__dirname, '..');
 let pass = 0;
@@ -266,6 +285,31 @@ async function main() {
     'enable path rejects unpriced offering',
     /cannot_enable_unpriced|cannotEnableUnpriced|no active positive/.test(apiSrc + offeringsSrc + writesSrc),
   );
+  const ownershipSqlFn = (writesSrc.match(/function buildActivePositivePriceForOfferingSql\([\s\S]*?\n\}/) || [])[0] || '';
+  assert(
+    'ownership SQL builder uses split_part, not unescaped LIKE',
+    /split_part\(item_code,\s*'__',\s*1\)\s*=\s*\$/.test(ownershipSqlFn)
+      && !/LIKE/i.test(ownershipSqlFn)
+      && !/\$\{[^}]+\}__%/.test(ownershipSqlFn),
+  );
+  assert(
+    'deactivatePriceRule remaining check uses shared exact-ownership SQL builder',
+    /deactivatePriceRule[\s\S]{0,2500}buildActivePositivePriceForOfferingSql/.test(writesSrc),
+  );
+  // Handler body is large; require builder import + call site near active=true re-enable.
+  assert(
+    'API re-enable check uses shared exact-ownership SQL builder',
+    /buildActivePositivePriceForOfferingSql/.test(apiSrc)
+      && /body\.active === true[\s\S]{0,500}buildActivePositivePriceForOfferingSql/.test(apiSrc),
+  );
+  const remainBlock = (writesSrc.match(/Last active positive price for a rental offering[\s\S]{0,900}/) || [])[0] || '';
+  const enableBlock = (apiSrc.match(/body\.active === true[\s\S]{0,700}/) || [])[0] || '';
+  assert(
+    'no unescaped LIKE ownership in remaining/enable blocks',
+    !/item_code LIKE/i.test(remainBlock)
+      && !/item_code LIKE/i.test(enableBlock)
+      && !/\$\{offeringKey\}__%/.test(remainBlock + enableBlock),
+  );
 
   console.log('\n[F] Behavioral: disable / re-enable exact row + validation');
   const pg = makeOfferingsPg();
@@ -386,6 +430,173 @@ async function main() {
   assert(
     'pricing model still builds from prices (offerings merged in UI layer)',
     /function buildEquipmentPricingList/.test(modelSrc),
+  );
+
+  console.log('\n[H] Adversarial: underscore-containing sibling offering keys (exact ownership)');
+  // soft_board vs softxboard: PostgreSQL LIKE soft_board__% matches softxboard__1_day
+  // because `_` is a one-character wildcard. Exact split_part ownership must not.
+  const TARGET_KEY = 'soft_board';
+  const SIBLING_KEY = 'softxboard';
+  const targetPriceCode = 'soft_board__1_day';
+  const siblingPriceCode = 'softxboard__1_day';
+  const legacyBareTarget = 'soft_board';
+
+  assert(
+    'BUG CLASS: unescaped LIKE would false-match sibling item_code',
+    pgLike(siblingPriceCode, `${TARGET_KEY}__%`) === true,
+    `expected LIKE ${TARGET_KEY}__% to match ${siblingPriceCode}`,
+  );
+  assert(
+    'BUG CLASS: unescaped LIKE also matches the true target (control)',
+    pgLike(targetPriceCode, `${TARGET_KEY}__%`) === true,
+  );
+  assert(
+    'exact ownership: target duration belongs to soft_board',
+    itemCodeBelongsToRentalOffering(targetPriceCode, TARGET_KEY) === true,
+  );
+  assert(
+    'exact ownership: legacy bare item_code equals offering key',
+    itemCodeBelongsToRentalOffering(legacyBareTarget, TARGET_KEY) === true,
+  );
+  assert(
+    'exact ownership: sibling softxboard duration does NOT belong to soft_board',
+    itemCodeBelongsToRentalOffering(siblingPriceCode, TARGET_KEY) === false,
+  );
+  assert(
+    'exact ownership: target does NOT belong to sibling key',
+    itemCodeBelongsToRentalOffering(targetPriceCode, SIBLING_KEY) === false,
+  );
+  assert(
+    'exact ownership: sibling belongs to its own key',
+    itemCodeBelongsToRentalOffering(siblingPriceCode, SIBLING_KEY) === true,
+  );
+
+  // (1) Sibling price must not prevent soft-disable after target's last price is gone.
+  const afterLastTargetDeleted = [
+    {
+      client_slug: 'sunset',
+      location_id: 'sunset-somo',
+      item_type: 'rental',
+      item_code: targetPriceCode,
+      amount_cents: 1500,
+      active: false, // just deactivated
+    },
+    {
+      client_slug: 'sunset',
+      location_id: 'sunset-somo',
+      item_type: 'rental',
+      item_code: siblingPriceCode,
+      amount_cents: 2200,
+      active: true, // sibling still live — must not count for target
+    },
+  ];
+  const targetStillPriced = hasActivePositiveRentalPriceForOffering(afterLastTargetDeleted, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    offeringKey: TARGET_KEY,
+  });
+  assert(
+    'sibling price cannot block last-price soft-disable of target',
+    targetStillPriced === false,
+    'target must appear unpriced so soft-disable proceeds',
+  );
+  assert(
+    'sibling remains priced under its own key after target last-price delete',
+    hasActivePositiveRentalPriceForOffering(afterLastTargetDeleted, {
+      clientSlug: 'sunset',
+      locationId: 'sunset-somo',
+      offeringKey: SIBLING_KEY,
+    }) === true,
+  );
+
+  // (2) Sibling price must not authorize re-enabling an unpriced target.
+  const unpricedTargetWithSibling = [
+    {
+      client_slug: 'sunset',
+      location_id: 'sunset-somo',
+      item_type: 'rental',
+      item_code: siblingPriceCode,
+      amount_cents: 2200,
+      active: true,
+    },
+  ];
+  assert(
+    'sibling price cannot authorize re-enable of unpriced target',
+    hasActivePositiveRentalPriceForOffering(unpricedTargetWithSibling, {
+      clientSlug: 'sunset',
+      locationId: 'sunset-somo',
+      offeringKey: TARGET_KEY,
+    }) === false,
+  );
+  assert(
+    'true target price does authorize enable',
+    hasActivePositiveRentalPriceForOffering([
+      {
+        client_slug: 'sunset',
+        location_id: 'sunset-somo',
+        item_type: 'rental',
+        item_code: targetPriceCode,
+        amount_cents: 1500,
+        active: true,
+      },
+    ], {
+      clientSlug: 'sunset',
+      locationId: 'sunset-somo',
+      offeringKey: TARGET_KEY,
+    }) === true,
+  );
+  assert(
+    'cross-location sibling/target prices do not authorize',
+    hasActivePositiveRentalPriceForOffering([
+      {
+        client_slug: 'sunset',
+        location_id: 'sunset-sardinero',
+        item_type: 'rental',
+        item_code: targetPriceCode,
+        amount_cents: 1500,
+        active: true,
+      },
+    ], {
+      clientSlug: 'sunset',
+      locationId: 'sunset-somo',
+      offeringKey: TARGET_KEY,
+    }) === false,
+  );
+  assert(
+    'zero amount does not authorize enable',
+    hasActivePositiveRentalPriceForOffering([
+      {
+        client_slug: 'sunset',
+        location_id: 'sunset-somo',
+        item_type: 'rental',
+        item_code: targetPriceCode,
+        amount_cents: 0,
+        active: true,
+      },
+    ], {
+      clientSlug: 'sunset',
+      locationId: 'sunset-somo',
+      offeringKey: TARGET_KEY,
+    }) === false,
+  );
+
+  // SQL builder contract — both production call sites share this exact predicate.
+  const withLoc = buildActivePositivePriceForOfferingSql({ hasLocation: true });
+  const noLoc = buildActivePositivePriceForOfferingSql({ hasLocation: false });
+  assert(
+    'SQL builder emits split_part equality (with location)',
+    /split_part\(item_code,\s*'__',\s*1\)\s*=\s*\$3/.test(withLoc.sql)
+      && /location_id = \$2/.test(withLoc.sql)
+      && /amount_cents > 0/.test(withLoc.sql)
+      && /active = true/.test(withLoc.sql)
+      && /item_type = 'rental'/.test(withLoc.sql)
+      && !/LIKE/i.test(withLoc.sql),
+  );
+  assert(
+    'SQL builder emits split_part equality (no location)',
+    /split_part\(item_code,\s*'__',\s*1\)\s*=\s*\$2/.test(noLoc.sql)
+      && !/location_id/.test(noLoc.sql)
+      && !/LIKE/i.test(noLoc.sql),
   );
 
   console.log(`\n── verify:sunset-admin-equipment-rental-fixes ${fail === 0 ? 'PASSED' : 'FAILED'} (${pass}/${pass + fail}) ──\n`);

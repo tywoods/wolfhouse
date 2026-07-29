@@ -388,6 +388,77 @@ function parseItemCodeParts(itemCode) {
   return { offering_key: text, period_window: null };
 }
 
+/**
+ * Exact rental-offering ownership of a price item_code.
+ * Mirrors PostgreSQL: split_part(item_code, '__', 1) = offeringKey
+ * (legacy bare item_code with no '__' equals the whole key).
+ *
+ * Do NOT use unescaped LIKE `${key}__%` — in PostgreSQL `_` is a one-character
+ * wildcard, so sibling keys like soft_board vs softxboard falsely match.
+ */
+function itemCodeBelongsToRentalOffering(itemCode, offeringKey) {
+  const key = String(offeringKey || '').trim();
+  if (!key) return false;
+  return String(itemCode == null ? '' : itemCode).split('__')[0] === key;
+}
+
+/**
+ * Whether any scoped price row is an active positive price for the offering.
+ * Same guards as the server-side SELECT used by last-price soft-disable and
+ * re-enable validation: client + optional location + item_type=rental +
+ * active + amount_cents > 0 + exact offering ownership.
+ */
+function hasActivePositiveRentalPriceForOffering(prices, {
+  clientSlug,
+  locationId,
+  offeringKey,
+} = {}) {
+  const slug = String(clientSlug || '').trim();
+  const key = String(offeringKey || '').trim();
+  if (!slug || !key) return false;
+  const locProvided = locationId != null && String(locationId).trim() !== '';
+  const loc = locProvided ? String(locationId).trim() : null;
+  for (const p of prices || []) {
+    if (!p) continue;
+    if (String(p.client_slug || '') !== slug) continue;
+    if (locProvided && String(p.location_id || '') !== loc) continue;
+    if (String(p.item_type || '') !== 'rental') continue;
+    if (p.active === false) continue;
+    const amt = p.amount_cents != null ? Number(p.amount_cents) : NaN;
+    if (!(amt > 0)) continue;
+    const code = p.item_code != null ? p.item_code : p.offering_key;
+    if (!itemCodeBelongsToRentalOffering(code, key)) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * SQL for "has an active positive price owned by this offering".
+ * Uses split_part equality — never unescaped LIKE.
+ * Params: hasLocation ? [clientSlug, locationId, offeringKey] : [clientSlug, offeringKey]
+ */
+function buildActivePositivePriceForOfferingSql({ hasLocation } = {}) {
+  if (hasLocation) {
+    return {
+      sql: `SELECT 1 FROM tenant_price_rules
+              WHERE client_slug = $1 AND location_id = $2 AND item_type = 'rental'
+                AND active = true AND amount_cents > 0
+                AND split_part(item_code, '__', 1) = $3
+              LIMIT 1`,
+      paramCount: 3,
+    };
+  }
+  return {
+    sql: `SELECT 1 FROM tenant_price_rules
+            WHERE client_slug = $1 AND item_type = 'rental'
+              AND active = true AND amount_cents > 0
+              AND split_part(item_code, '__', 1) = $2
+            LIMIT 1`,
+    paramCount: 2,
+  };
+}
+
 function resolveRentalGroupOffering(rentalGroup) {
   const key = String(rentalGroup || '').trim();
   if (!RENTAL_GROUP_KEYS.has(key)) return { ok: false, error: 'invalid rental_group' };
@@ -1087,21 +1158,12 @@ async function deactivatePriceRule(client, { ruleId, clientSlug, locationId, act
         ? parts.offering_key
         : String(before.item_code || '').split('__')[0];
       if (offeringKey && isValidOfferingKey(offeringKey)) {
-        const remainSql = hasLoc
-          ? `SELECT 1 FROM tenant_price_rules
-              WHERE client_slug = $1 AND location_id = $2 AND item_type = 'rental'
-                AND active = true AND amount_cents > 0
-                AND (item_code = $3 OR item_code LIKE $4)
-              LIMIT 1`
-          : `SELECT 1 FROM tenant_price_rules
-              WHERE client_slug = $1 AND item_type = 'rental'
-                AND active = true AND amount_cents > 0
-                AND (item_code = $2 OR item_code LIKE $3)
-              LIMIT 1`;
+        // Exact ownership via split_part — never unescaped LIKE ( `_` is a wildcard).
+        const remainQ = buildActivePositivePriceForOfferingSql({ hasLocation: hasLoc });
         const remainParams = hasLoc
-          ? [clientSlug, loc, offeringKey, `${offeringKey}__%`]
-          : [clientSlug, offeringKey, `${offeringKey}__%`];
-        const remaining = await client.query(remainSql, remainParams);
+          ? [clientSlug, loc, offeringKey]
+          : [clientSlug, offeringKey];
+        const remaining = await client.query(remainQ.sql, remainParams);
         if (!remaining.rows.length) {
           const offRes = await setRentalOfferingActive(client, {
             clientSlug,
@@ -2001,4 +2063,7 @@ module.exports = {
   findPriceRuleRow,
   setRentalGroupAvailability,
   resolveRentalGroupOffering,
+  itemCodeBelongsToRentalOffering,
+  hasActivePositiveRentalPriceForOffering,
+  buildActivePositivePriceForOfferingSql,
 };
