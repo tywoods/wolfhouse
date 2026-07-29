@@ -16,6 +16,8 @@ const {
 } = require('./tenant-business-config');
 const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const locationStore = require('./sunset-admin-location-store');
+const { isValidOfferingKey } = require('./tenant-rental-offerings');
+const { parseRentalDurationKey } = require('../browser/sunset-rental-duration-model');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CURRENCY_RE = /^[A-Z]{3}$/;
@@ -392,6 +394,28 @@ function resolveRentalGroupOffering(rentalGroup) {
   return { ok: true, rental_group: key, offering_key: RENTAL_GROUP_OFFERING[key] };
 }
 
+// A rental period is valid if it's a configured window OR any generic
+// N_hours/N_days (or half_day/full_day/1_day) the duration model understands —
+// so generic equipment can be priced by "3 hours", "5 days", etc.
+function isValidRentalPeriod(period) {
+  const p = String(period || '').trim();
+  if (!p) return false;
+  if (RENTAL_PERIOD_WINDOWS.has(p)) return true;
+  return parseRentalDurationKey(p) != null;
+}
+
+// Resolve the offering for a price write from either an explicit offering_key
+// (generic equipment, from the rebuilt Pricing tab) or a legacy rental_group.
+// offering_key wins when present.
+function resolveOfferingForPriceWrite(body) {
+  const rawKey = String((body && body.offering_key) || '').trim();
+  if (rawKey) {
+    if (!isValidOfferingKey(rawKey)) return { ok: false, error: 'invalid offering_key' };
+    return { ok: true, rental_group: null, offering_key: rawKey };
+  }
+  return resolveRentalGroupOffering(body && body.rental_group);
+}
+
 function assertPositiveAmountForActivation(amountCents) {
   const n = Number(amountCents);
   if (!Number.isInteger(n) || n <= 0) {
@@ -401,13 +425,13 @@ function assertPositiveAmountForActivation(amountCents) {
 }
 
 function validatePriceCreateBody(body) {
-  const allowed = new Set(['rental_group', 'period_window', 'amount_cents', 'currency']);
+  const allowed = new Set(['rental_group', 'offering_key', 'period_window', 'amount_cents', 'currency']);
   const unknown = rejectUnknownFields(body, allowed);
   if (!unknown.ok) return unknown;
-  const group = resolveRentalGroupOffering(body.rental_group);
+  const group = resolveOfferingForPriceWrite(body);
   if (!group.ok) return group;
   const period = String(body.period_window || '').trim();
-  if (!RENTAL_PERIOD_WINDOWS.has(period)) return { ok: false, error: 'invalid period_window' };
+  if (!isValidRentalPeriod(period)) return { ok: false, error: 'invalid period_window' };
   const n = Number(body.amount_cents);
   if (!Number.isInteger(n) || n < 0) return { ok: false, error: 'amount_cents must be integer >= 0' };
   // Create always inserts active=true — require a positive sellable amount.

@@ -531,7 +531,7 @@ const { getStaffPortalI18nBootstrapScript, getStaffPortalThemeEarlyScript } = re
 const { buildStaffLoginHtml } = require('./lib/staff-portal-login-page');
 const { getWolfhouseServicesAdminSource } = require('./lib/wolfhouse-services-browser-source');
 const { getSunsetAdminBrowserHelperSource } = require('./lib/sunset-admin-ui-helpers');
-const { getSunsetAdminUiBrowserSource } = require('./lib/sunset-admin-browser-source');
+const { getSunsetAdminUiBrowserSource, getSunsetEquipmentPricingModelSource } = require('./lib/sunset-admin-browser-source');
 const {
   listServices: listTenantServices,
   createService: createTenantService,
@@ -25315,6 +25315,8 @@ function wirePortalHomeScheduleControls(){ wireScheduleControls(); }
 
 /* sunset-admin-ui-helpers: injected from scripts/lib/sunset-admin-ui-helpers.js */
 ${getSunsetAdminBrowserHelperSource()}
+/* sunset-equipment-pricing-model + duration-model: injected before admin-ui */
+${getSunsetEquipmentPricingModelSource()}
 /* sunset-admin-ui: injected from scripts/browser/sunset-admin-ui.js */
 ${getSunsetAdminUiBrowserSource()}
 
