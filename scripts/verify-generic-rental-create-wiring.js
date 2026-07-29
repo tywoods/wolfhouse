@@ -125,6 +125,131 @@ const base = { clientSlug: 'sunset', locationId: 'sunset-somo', serviceDate: '20
     // Exact package presence alone is enough to reject; must not price/repeat 1_day.
     assert.deepStrictEqual(calls, ['3_days']);
   });
+  // Fail-closed exact-N-day probe: only true not_found may fall back to 1_day.
+  // Resolver errors (throw, tables_missing, invalid_location, invalid_amount,
+  // scope mismatch) must never silently price via repeated 1_day.
+  await expect('exact-probe true not_found alone allows 1_day fallback (status=not_found)', async () => {
+    const calls = [];
+    const got = await prepareGenericRentalsForCreate({
+      ...base, rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+      calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
+      loadRule: async (args) => {
+        calls.push(args.duration);
+        if (args.duration === '3_days') return { status: 'not_found' };
+        return {
+          status: 'found', amount_cents: 2500, currency: 'EUR',
+          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
+        };
+      },
+    });
+    assert.strictEqual(got.ok, true);
+    assert.deepStrictEqual(calls, ['3_days', '1_day']);
+    assert.strictEqual(got.records[0].metadata.pricing_mode, 'repeated_base_package');
+    assert.strictEqual(got.records[0].amount_due_cents, 7500);
+  });
+  await expect('exact-probe lookup throw fails closed (never 1_day fallback)', async () => {
+    const calls = [];
+    const got = await prepareGenericRentalsForCreate({
+      ...base, rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+      calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
+      loadRule: async (args) => {
+        calls.push(args.duration);
+        if (args.duration === '3_days') throw new Error('db_timeout');
+        return {
+          status: 'found', amount_cents: 2500, currency: 'EUR',
+          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
+        };
+      },
+    });
+    assert.strictEqual(got.ok, false);
+    assert.strictEqual(got.reason, 'price_lookup_failed');
+    assert.deepStrictEqual(calls, ['3_days']);
+  });
+  await expect('exact-probe tables_missing fails closed (never 1_day fallback)', async () => {
+    const calls = [];
+    const got = await prepareGenericRentalsForCreate({
+      ...base, rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+      calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
+      loadRule: async (args) => {
+        calls.push(args.duration);
+        if (args.duration === '3_days') return { status: 'tables_missing' };
+        return {
+          status: 'found', amount_cents: 2500, currency: 'EUR',
+          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
+        };
+      },
+    });
+    assert.strictEqual(got.ok, false);
+    assert.strictEqual(got.reason, 'price_not_found');
+    assert.strictEqual(got.status, 'tables_missing');
+    assert.deepStrictEqual(calls, ['3_days']);
+  });
+  await expect('exact-probe invalid_location fails closed (never 1_day fallback)', async () => {
+    const calls = [];
+    const got = await prepareGenericRentalsForCreate({
+      ...base, rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+      calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
+      loadRule: async (args) => {
+        calls.push(args.duration);
+        if (args.duration === '3_days') return { status: 'invalid_location' };
+        return {
+          status: 'found', amount_cents: 2500, currency: 'EUR',
+          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
+        };
+      },
+    });
+    assert.strictEqual(got.ok, false);
+    assert.strictEqual(got.reason, 'price_not_found');
+    assert.strictEqual(got.status, 'invalid_location');
+    assert.deepStrictEqual(calls, ['3_days']);
+  });
+  await expect('exact-probe invalid_amount fails closed (never 1_day fallback)', async () => {
+    const calls = [];
+    const got = await prepareGenericRentalsForCreate({
+      ...base, rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+      calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
+      loadRule: async (args) => {
+        calls.push(args.duration);
+        if (args.duration === '3_days') {
+          return {
+            status: 'found', amount_cents: NaN, currency: 'EUR',
+            item_code: 'kayak_rental__3_days', unit: 'day', location_id: 'sunset-somo',
+          };
+        }
+        return {
+          status: 'found', amount_cents: 2500, currency: 'EUR',
+          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
+        };
+      },
+    });
+    assert.strictEqual(got.ok, false);
+    assert.strictEqual(got.reason, 'price_not_found');
+    assert.strictEqual(got.status, 'invalid_amount');
+    assert.deepStrictEqual(calls, ['3_days']);
+  });
+  await expect('exact-probe scope mismatch fails closed (never 1_day fallback)', async () => {
+    const calls = [];
+    const got = await prepareGenericRentalsForCreate({
+      ...base, rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+      calendarDayCount: 3, bookingDurationKey: '3_days', listOfferings: loadCatalog,
+      loadRule: async (args) => {
+        calls.push(args.duration);
+        if (args.duration === '3_days') {
+          return {
+            status: 'found', amount_cents: 6000, currency: 'EUR',
+            item_code: 'board_rental__3_days', unit: 'day', location_id: 'sunset-somo',
+          };
+        }
+        return {
+          status: 'found', amount_cents: 2500, currency: 'EUR',
+          item_code: 'kayak_rental__1_day', unit: 'day', location_id: 'sunset-somo',
+        };
+      },
+    });
+    assert.strictEqual(got.ok, false);
+    assert.strictEqual(got.reason, 'price_scope_mismatch');
+    assert.deepStrictEqual(calls, ['3_days']);
+  });
   await expect('unknown and deactivated catalog offerings fail closed', async () => {
     for (const rows of [[], [{ ...catalog[0], active: false }]]) {
       const got = await prepareGenericRentalsForCreate({ ...base, listOfferings: async () => rows, loadRule: goodRule });

@@ -403,6 +403,111 @@ const baseOpts = {
     JSON.stringify(qStale1dWhenExact),
   );
 
+  // Exact-probe fail-closed: only reason=price_not_found + status=not_found may
+  // fall back to repeated 1_day. Resolver errors must never silent-price via 1_day.
+  const multiDay1dBase = {
+    ...baseOpts,
+    rentals: [{ offering_key: 'towel_rental', duration_key: '1_day', quantity: 1 }],
+    calendarDayCount: 2,
+    bookingDurationKey: '2_days',
+  };
+  const oneDayOnlyRule = async ({ itemCode, duration }) => {
+    if (itemCode === 'towel_rental' && duration === '1_day') {
+      return {
+        status: 'found', amount_cents: 800, currency: 'EUR',
+        item_code: 'towel_rental__1_day', unit: 'day', location_id: 'sunset-somo',
+      };
+    }
+    return { status: 'not_found' };
+  };
+  const qTrueNotFound = await prepareGenericRentalsForCreate({
+    ...multiDay1dBase,
+    loadRule: oneDayOnlyRule,
+  });
+  ok(
+    'exact-probe true not_found falls back to repeated 1_day',
+    qTrueNotFound.ok === true
+      && qTrueNotFound.records[0].amount_due_cents === 1600
+      && qTrueNotFound.records[0].metadata.pricing_mode === 'repeated_base_package',
+    JSON.stringify(qTrueNotFound),
+  );
+  const qLookupThrow = await prepareGenericRentalsForCreate({
+    ...multiDay1dBase,
+    loadRule: async ({ itemCode, duration }) => {
+      if (duration === '2_days') throw new Error('db_timeout');
+      return oneDayOnlyRule({ itemCode, duration });
+    },
+  });
+  ok(
+    'exact-probe lookup throw fails closed (no 1_day fallback)',
+    qLookupThrow.ok === false && qLookupThrow.reason === 'price_lookup_failed',
+    JSON.stringify(qLookupThrow),
+  );
+  const qTablesMissing = await prepareGenericRentalsForCreate({
+    ...multiDay1dBase,
+    loadRule: async ({ itemCode, duration }) => {
+      if (duration === '2_days') return { status: 'tables_missing' };
+      return oneDayOnlyRule({ itemCode, duration });
+    },
+  });
+  ok(
+    'exact-probe tables_missing fails closed (no 1_day fallback)',
+    qTablesMissing.ok === false
+      && qTablesMissing.reason === 'price_not_found'
+      && qTablesMissing.status === 'tables_missing',
+    JSON.stringify(qTablesMissing),
+  );
+  const qInvalidLoc = await prepareGenericRentalsForCreate({
+    ...multiDay1dBase,
+    loadRule: async ({ itemCode, duration }) => {
+      if (duration === '2_days') return { status: 'invalid_location' };
+      return oneDayOnlyRule({ itemCode, duration });
+    },
+  });
+  ok(
+    'exact-probe invalid_location fails closed (no 1_day fallback)',
+    qInvalidLoc.ok === false
+      && qInvalidLoc.reason === 'price_not_found'
+      && qInvalidLoc.status === 'invalid_location',
+    JSON.stringify(qInvalidLoc),
+  );
+  const qInvalidAmt = await prepareGenericRentalsForCreate({
+    ...multiDay1dBase,
+    loadRule: async ({ itemCode, duration }) => {
+      if (duration === '2_days') {
+        return {
+          status: 'found', amount_cents: NaN, currency: 'EUR',
+          item_code: 'towel_rental__2_days', unit: 'day', location_id: 'sunset-somo',
+        };
+      }
+      return oneDayOnlyRule({ itemCode, duration });
+    },
+  });
+  ok(
+    'exact-probe invalid_amount fails closed (no 1_day fallback)',
+    qInvalidAmt.ok === false
+      && qInvalidAmt.reason === 'price_not_found'
+      && qInvalidAmt.status === 'invalid_amount',
+    JSON.stringify(qInvalidAmt),
+  );
+  const qScopeMismatch = await prepareGenericRentalsForCreate({
+    ...multiDay1dBase,
+    loadRule: async ({ itemCode, duration }) => {
+      if (duration === '2_days') {
+        return {
+          status: 'found', amount_cents: 1500, currency: 'EUR',
+          item_code: 'board_rental__2_days', unit: 'day', location_id: 'sunset-somo',
+        };
+      }
+      return oneDayOnlyRule({ itemCode, duration });
+    },
+  });
+  ok(
+    'exact-probe scope mismatch fails closed (no 1_day fallback)',
+    qScopeMismatch.ok === false && qScopeMismatch.reason === 'price_scope_mismatch',
+    JSON.stringify(qScopeMismatch),
+  );
+
   const qHourMulti = await prepareGenericRentalsForCreate({
     ...baseOpts,
     rentals: [{ offering_key: 'towel_rental', duration_key: '12_hours', quantity: 1 }],

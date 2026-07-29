@@ -440,9 +440,18 @@ async function prepareGenericRentalsForCreate(opts) {
         }
       } else if (selectedDuration === '1_day' || selectedDuration === 'full_day') {
         // Reject malicious/stale 1_day when exact active N_days exists for this rental.
+        // 1_day fallback is allowed ONLY when exact probe is a true absence
+        // (reason=price_not_found AND status=not_found). Resolver errors
+        // (lookup throw, tables_missing, invalid_location, invalid_amount,
+        // scope mismatch, null_response, …) must fail closed — never price via 1_day.
         const exactProbe = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: exactKey });
         if (exactProbe.ok) {
           return { ok: false, reason: 'rental_duration_not_compatible' };
+        }
+        const exactAbsent = exactProbe.reason === 'price_not_found'
+          && exactProbe.status === 'not_found';
+        if (!exactAbsent) {
+          return exactProbe;
         }
         const baseKey = selectedDuration === 'full_day' ? '1_day' : selectedDuration;
         priced = await resolveGenericRentalPrice({ ...commonPriceOpts, durationKey: baseKey });
