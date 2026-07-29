@@ -208,8 +208,50 @@ function buildGenericRentalServiceRecord(priced, ctx) {
   return { ok: true, record };
 }
 
+/**
+ * Step 3 foundation: split an incoming rentals[] into the canonical
+ * board/wetsuit/bundle lane (existing component-based persistence) and the
+ * generic lane (priced via resolveGenericRentalPrice, persisted via
+ * buildGenericRentalServiceRecord). Pure — no DB.
+ *
+ * Behavior-preserving by construction: when `genericEnabled` is false, ANY
+ * non-canonical key returns the SAME `invalid_rental_offering` rejection the
+ * create handler produces today, so wiring this in with the flag OFF is a no-op.
+ * When enabled, a non-canonical key is accepted into the generic lane ONLY if it
+ * is a known active catalog offering (`catalogKeys`); an unknown key still
+ * fails closed.
+ *
+ * @param {Array} rentals  shape-validated [{offering_key, duration_key, quantity}]
+ * @param {object} opts { canonicalKeys:string[], catalogKeys:string[], genericEnabled:boolean }
+ * @returns {{ok:true, canonical:Array, generic:Array} | {ok:false, reason, error, index, offering_key}}
+ */
+function partitionRentalsForCreate(rentals, opts) {
+  const o = opts || {};
+  const canonicalSet = new Set((o.canonicalKeys || []).map((k) => String(k)));
+  const catalogSet = new Set((o.catalogKeys || []).map((k) => String(k)));
+  const genericEnabled = o.genericEnabled === true;
+  const list = Array.isArray(rentals) ? rentals : [];
+  const canonical = [];
+  const generic = [];
+  for (let i = 0; i < list.length; i += 1) {
+    const row = list[i];
+    const key = String((row && row.offering_key) || '').trim();
+    if (canonicalSet.has(key)) { canonical.push(row); continue; }
+    if (genericEnabled && catalogSet.has(key)) { generic.push(row); continue; }
+    return {
+      ok: false,
+      reason: 'invalid_rental_offering',
+      error: `rentals[${i}].offering_key is not allowed`,
+      index: i,
+      offering_key: key,
+    };
+  }
+  return { ok: true, canonical, generic };
+}
+
 module.exports = {
   resolveGenericRentalPrice,
   buildGenericRentalServiceRecord,
+  partitionRentalsForCreate,
   GENERIC_RENTAL_SERVICE_TYPE,
 };

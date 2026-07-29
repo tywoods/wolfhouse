@@ -11,9 +11,26 @@ order. No behavior change ships from this file.
 - ✅ Step 2 — same lib, `buildGenericRentalServiceRecord()` maps a priced generic
   rental to a first-class `booking_service_records` descriptor under the existing
   `addon_service` bucket (migration 029 + runtime twin — no new migration).
-- ☐ Step 3 — wire into the create handler behind existing gates (money path).
+- ◐ Step 3 — **foundation landed, live wiring remains**:
+  - `GENERIC_RENTAL_CREATE_ENABLED` flag (default OFF) in `tenant-business-config.js`.
+  - `partitionRentalsForCreate()` in the resolver lib — splits rentals into the
+    canonical (component) lane vs the generic lane; **flag-OFF is a strict no-op**
+    (non-canonical keys rejected exactly as today), flag-ON routes known catalog
+    keys to the generic lane, unknown keys still fail closed.
+  - Remaining (live, needs Sunset DB — Skipper): wire the partition at
+    `sunset-schedule-booking-writes.js:468`, feed generic rows through
+    `resolveGenericRentalPrice` + `buildGenericRentalServiceRecord` +
+    `insertServiceRecord`, preserving idempotency + 409-on-conflict. Generic rows
+    must NOT go through the canonical component mapping (lines 500–524).
 - ☐ Step 4 — retire frozen browser keys (#5) in the template literal.
-- Combined verifier: **47/47** offline.
+- Combined verifier: **54/54** offline.
+
+### Note on the create coupling (why the generic lane is separate)
+`prepareCanonicalRentalsForCreate()` maps every rental into legacy
+`components.{surfboard,wetsuit}` and derives duration from the booking date range
+(`:462`). Generic items have no such component and price on their own period, so
+they take a parallel lane (partition → resolver → service record), leaving the
+canonical board/wetsuit/bundle path untouched.
 
 **Context:** Phase 2 gave the staff catalog data-driven rentable-item identity
 (`tenant_rental_offerings`, migration 051) and per-period money

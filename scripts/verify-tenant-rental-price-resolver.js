@@ -20,6 +20,7 @@
 const {
   resolveGenericRentalPrice,
   buildGenericRentalServiceRecord,
+  partitionRentalsForCreate,
   GENERIC_RENTAL_SERVICE_TYPE,
 } = require('./lib/tenant-rental-price-resolver');
 const { ITEM_ALIASES, lookupSunsetRentalPriceAsync } = require('./lib/sunset-rental-price-lookup');
@@ -191,6 +192,30 @@ async function main() {
     clientSlug: 'sunset', locationId: SOMO, offeringKey: 'kayak_rental', durationKey: 'half_day', quantity: 1, loadRule: makeSpy(table),
   });
   assert('new resolver bypasses the wall for the SAME generic key', bypass.ok === true && bypass.amount_cents === 2500, JSON.stringify(bypass));
+
+  console.log('\n[step 3 foundation] partitionRentalsForCreate — canonical vs generic lanes');
+  const CANON = ['board_rental', 'wetsuit_rental', 'board_and_suit_rental'];
+  const CATALOG = ['kayak_rental', 'sup_rental'];
+  const mk = (k) => ({ offering_key: k, duration_key: 'half_day', quantity: 1 });
+
+  // Flag OFF is a strict no-op: generic key rejected exactly like today (#tripwire).
+  const offGeneric = partitionRentalsForCreate([mk('kayak_rental')], { canonicalKeys: CANON, catalogKeys: CATALOG, genericEnabled: false });
+  assert('flag OFF: generic catalog key still rejected (behavior-preserving)',
+    offGeneric.ok === false && offGeneric.reason === 'invalid_rental_offering', JSON.stringify(offGeneric));
+  const offCanon = partitionRentalsForCreate([mk('board_rental'), mk('wetsuit_rental')], { canonicalKeys: CANON, catalogKeys: CATALOG, genericEnabled: false });
+  assert('flag OFF: canonical keys still pass into canonical lane',
+    offCanon.ok === true && offCanon.canonical.length === 2 && offCanon.generic.length === 0, JSON.stringify(offCanon));
+
+  // Flag ON: catalog generic keys route to the generic lane; canonical stays canonical.
+  const onMix = partitionRentalsForCreate([mk('board_and_suit_rental'), mk('kayak_rental')], { canonicalKeys: CANON, catalogKeys: CATALOG, genericEnabled: true });
+  assert('flag ON: mixed split — 1 canonical, 1 generic',
+    onMix.ok === true && onMix.canonical.length === 1 && onMix.generic.length === 1
+    && onMix.canonical[0].offering_key === 'board_and_suit_rental' && onMix.generic[0].offering_key === 'kayak_rental', JSON.stringify(onMix));
+
+  // Flag ON but key not in catalog → still fail closed (must be a real active offering).
+  const onUnknown = partitionRentalsForCreate([mk('jetski_rental')], { canonicalKeys: CANON, catalogKeys: CATALOG, genericEnabled: true });
+  assert('flag ON: unknown (non-catalog) key still rejected',
+    onUnknown.ok === false && onUnknown.reason === 'invalid_rental_offering' && onUnknown.index === 0, JSON.stringify(onUnknown));
 
   console.log(`\n── verify:tenant-rental-price-resolver ${fail === 0 ? 'PASSED' : 'FAILED'} (${pass}/${pass + fail}) ──\n`);
   process.exit(fail > 0 ? 1 : 0);

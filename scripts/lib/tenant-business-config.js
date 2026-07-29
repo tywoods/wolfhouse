@@ -44,6 +44,16 @@ function isSunsetAdminDbReadEnabled() {
   return /^(1|true|yes|on)$/i.test(String(raw).trim());
 }
 
+// Phase 2 step 3: gate generic (non-canonical) rentable offerings in the booking
+// CREATE path. Default OFF — when off, the create handler keeps its canonical
+// board/wetsuit/bundle-only behavior unchanged. Flip on only after the generic
+// lane is live-validated on staging.
+function isGenericRentalCreateEnabled() {
+  const raw = process.env.GENERIC_RENTAL_CREATE_ENABLED;
+  if (raw == null || String(raw).trim() === '') return false;
+  return /^(1|true|yes|on)$/i.test(String(raw).trim());
+}
+
 function flattenOfferingPrices(offerings, category, currency) {
   const prices = [];
   if (!offerings || typeof offerings !== 'object') return prices;
@@ -1093,6 +1103,7 @@ module.exports = {
   flattenOfferingPrices,
   loadLessonTimesFromConfig,
   isSunsetAdminDbReadEnabled,
+  isGenericRentalCreateEnabled,
   loadTenantBusinessConfigFromDb,
   loadTenantPriceRuleFromDb,
   adminConfigTableHasLocationColumn,
