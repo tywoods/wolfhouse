@@ -1183,6 +1183,8 @@ const STAFF_PORTAL_STRINGS = {
     'admin.prices.days': 'Days',
     'admin.prices.noEquipment': 'No equipment yet — add your first item.',
     'admin.prices.invalidDuration': 'Enter a valid duration',
+    'admin.prices.removeDuration': 'Remove duration price',
+    'admin.prices.cannotEnableUnpriced': 'Add at least one active price before enabling this rental item.',
     'admin.lessonTimes.col.date': 'Date',
     'admin.lessonTimes.col.time': 'Time',
     'admin.lessonTimes.col.label': 'Offering',

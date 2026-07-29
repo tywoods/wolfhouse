@@ -177,6 +177,8 @@ module.exports = {
   'admin.prices.days': 'Días',
   'admin.prices.noEquipment': 'Aún no hay equipo — añade el primero.',
   'admin.prices.invalidDuration': 'Introduce una duración válida',
+  'admin.prices.removeDuration': 'Quitar precio de duración',
+  'admin.prices.cannotEnableUnpriced': 'Añade al menos un precio activo antes de activar este alquiler.',
   'admin.lessonTimes.help': 'Gestiona los horarios de clases en grupo que aparecen en Schedule y usa el equipo.',
   'admin.lessonTimes.recurring': 'Todos los días activos',
   'admin.lessonTimes.seats': 'plazas',

@@ -226,6 +226,56 @@ async function deleteRentalOffering(pg, params = {}) {
 }
 
 /**
+ * Server-authoritative enable/disable for a rental offering identity.
+ * Soft-disables preserve the exact row (key/label/prices/history). Re-enable
+ * updates that same inactive row — never inserts a duplicate.
+ * `active` must be a strict boolean (not "true"/1/null).
+ * Idempotent: already-desired state returns ok with the current row.
+ */
+async function setRentalOfferingActive(pg, params = {}) {
+  const slug = String(params.clientSlug || '').trim();
+  const key = String(params.offering_key || params.offeringKey || '').trim();
+  if (!slug || !key) return { ok: false, error: 'clientSlug and offering_key are required' };
+  if (params.active !== true && params.active !== false) {
+    return { ok: false, error: 'active must be a boolean' };
+  }
+  const wantActive = params.active;
+  const loc = normLoc(params.locationId);
+  const findVals = [slug, key];
+  let locClause = 'location_id IS NULL';
+  if (loc != null) {
+    findVals.push(loc);
+    locClause = `location_id = $${findVals.length}`;
+  }
+
+  const found = await pg.query(
+    // MULTICLIENT_SCOPE_OK: client_slug + offering_key + location (any active state)
+    `SELECT id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active
+       FROM tenant_rental_offerings
+      WHERE client_slug = $1 AND offering_key = $2 AND ${locClause}
+      ORDER BY active DESC, updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+      LIMIT 1`,
+    findVals,
+  );
+  if (!found.rows.length) return { ok: false, error: 'rental item not found' };
+  const current = found.rows[0];
+  if (current.active === wantActive) {
+    return { ok: true, offering: rowToOffering(current), unchanged: true };
+  }
+
+  const res = await pg.query(
+    // MULTICLIENT_SCOPE_OK: id-targeted flip after scoped lookup
+    `UPDATE tenant_rental_offerings
+        SET active = $1, updated_by = $2
+      WHERE id = $3
+      RETURNING id, client_slug, location_id, offering_key, label, group_key, excludes, sort_order, active`,
+    [wantActive, params.actorId || null, current.id],
+  );
+  if (!res.rows.length) return { ok: false, error: 'rental item not found' };
+  return { ok: true, offering: rowToOffering(res.rows[0]), unchanged: false };
+}
+
+/**
  * Idempotent seed/reconcile: bring the catalog for a client(+location) in line
  * with `rows` (from buildRentalOfferingRows). Creates missing items, updates
  * label/group/excludes/sort_order on existing ones. Never deletes — a school
@@ -308,6 +358,7 @@ module.exports = {
   createRentalOffering,
   updateRentalOffering,
   deleteRentalOffering,
+  setRentalOfferingActive,
   seedRentalOfferings,
   applyRentalMutualExclusion,
 };
