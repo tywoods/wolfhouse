@@ -61,6 +61,7 @@ assert.equal(quote(missingFlagCfg, selection).body.reason, 'course_equipment_not
 
 const includedQuoteCfg = JSON.parse(JSON.stringify(quoteCfg));
 includedQuoteCfg.surf_packs[0].equipment_included = true;
+includedQuoteCfg.surf_packs[0].equipment_price_cents = 0;
 const ordinary = quote(includedQuoteCfg, undefined);
 assert.equal(ordinary.ok, true);
 assert.equal(ordinary.body.line_items.length, 1, 'ordinary offering quote must not regress');
@@ -75,8 +76,9 @@ assert.match(allowed.body.quote_provenance.quote_fingerprint, /^[a-f0-9]{64}$/);
 assert.notEqual(allowed.body.quote_provenance.quote_fingerprint, ordinary.body.quote_provenance.quote_fingerprint);
 
 const allDay = quote(quoteCfg, { mode: 'all_day', quantity: 2 });
-assert.equal(allDay.ok, true, JSON.stringify(allDay.body));
-assert.deepStrictEqual(allDay.body.course_equipment, { mode: 'all_day', quantity: 2 });
+assert.equal(allDay.ok, false);
+assert.equal(allDay.body.reason, 'invalid_course_equipment',
+  'All Day is unavailable until the Admin toggle is enabled for that location');
 assert.equal(quote(includedQuoteCfg, { mode: 'during_course', quantity: 3 }).body.reason, 'invalid_course_equipment');
 const changedPriceCfg = JSON.parse(JSON.stringify(includedQuoteCfg));
 changedPriceCfg.prices[0].amount_cents = 4500;
