@@ -151,7 +151,7 @@ async function main() {
     clientSlug: 'sunset', locationId: SOMO, offeringKey: 'kayak_rental',
     durationKey: 'half_day', quantity: 3, loadRule: spyRec,
   });
-  const built = buildGenericRentalServiceRecord(pricedKayak, {
+  const built = buildGenericRentalServiceRecord({ ...pricedKayak, offering_label: 'Sea Kayak' }, {
     bookingId: 'b-1', bookingCode: 'WH-9', guestName: 'Ada', serviceDate: '2026-08-01',
   });
   assert('record built ok', built.ok === true, JSON.stringify(built));
@@ -161,7 +161,8 @@ async function main() {
   assert('amount_due_cents = 7500 (2500 x3)', rec.amount_due_cents === 7500, JSON.stringify(rec));
   assert('quantity preserved (3)', rec.quantity === 3, JSON.stringify(rec));
   assert('unpaid: amount_paid 0 + not_requested', rec.amount_paid_cents === 0 && rec.payment_status === 'not_requested', JSON.stringify(rec));
-  assert('metadata carries offering identity', rec.metadata && rec.metadata.offering_key === 'kayak_rental'
+  assert('metadata carries offering identity and Admin label', rec.metadata && rec.metadata.offering_key === 'kayak_rental'
+    && rec.metadata.offering_label === 'Sea Kayak'
     && rec.metadata.item_code === 'kayak_rental__half_day' && rec.metadata.rental_offering === true, JSON.stringify(rec.metadata));
   assert('metadata carries location + unit_cents', rec.metadata.location_id === SOMO && rec.metadata.unit_cents === 2500, JSON.stringify(rec.metadata));
   assert('booking linkage passed through', rec.booking_id === 'b-1' && rec.booking_code === 'WH-9' && rec.guest_name === 'Ada', JSON.stringify(rec));

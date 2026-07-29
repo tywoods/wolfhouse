@@ -195,6 +195,7 @@ function buildGenericRentalServiceRecord(priced, ctx) {
     metadata: {
       rental_offering: true,
       offering_key: p.offering_key,
+      offering_label: p.offering_label != null ? String(p.offering_label) : null,
       duration_key: p.duration_key,
       item_code: p.item_code,
       unit: p.unit,

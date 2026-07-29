@@ -50,6 +50,7 @@ const DEFAULT_PRICE_TIERS = [];
 function defaultPackConfig() {
   return {
     equipment_included: false,
+    equipment_price_cents: 0,
     age_band: '12_and_up',
     group_size: 16,
     beaches: ['el_sardinero', 'liencres', 'somo'],
@@ -98,6 +99,7 @@ function mapPackRow(row) {
     weekly: cfg.weekly || 'mon_fri',
     schedules: Array.isArray(cfg.schedules) ? cfg.schedules : [],
     equipment_included: cfg.equipment_included === true,
+    equipment_price_cents: Number.isSafeInteger(Number(cfg.equipment_price_cents)) && Number(cfg.equipment_price_cents) >= 0 ? Number(cfg.equipment_price_cents) : 0,
     price_tiers,
     source: 'db',
   };
@@ -126,6 +128,11 @@ function validatePackBody(body, { requireLabel } = {}) {
   if (body.equipment_included != null) {
     if (typeof body.equipment_included !== 'boolean') return { ok: false, error: 'equipment_included must be boolean' };
     out.equipment_included = body.equipment_included;
+  }
+  if (body.equipment_price_cents != null) {
+    const n = Number(body.equipment_price_cents);
+    if (!Number.isSafeInteger(n) || n < 0) return { ok: false, error: 'equipment_price_cents must be integer >= 0' };
+    out.equipment_price_cents = n;
   }
   if (body.beaches != null) {
     if (!Array.isArray(body.beaches)) return { ok: false, error: 'beaches must be array' };

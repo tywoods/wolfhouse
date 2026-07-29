@@ -496,6 +496,70 @@ if (modExists) {
   drawerOpens.length = 0;
   if (rentalChip) clickChip(rentalChip, rentalChip._guestSpan || rentalChip);
   assert('rental-only chip opens drawer via existing wiring', drawerOpens.length === 1 && drawerOpens[0] === 'sr-rental-board');
+  // generic Admin-catalog rental → own pickup block with trusted label + quantity
+  const genericRow = {
+    _scheduleId: 'sr-rental-towel',
+    service_record_id: 'sr-rental-towel',
+    booking_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+    booking_code: 'SUNSET-RENT-TOWEL',
+    guest_name: 'Generic Towel Guest',
+    service_date: '2026-07-20',
+    service_type: 'rental',
+    staff_ui_service_type: 'rental',
+    _scheduleType: 'rental',
+    record_source: 'staff_manual',
+    _isDbManual: true,
+    quantity: 2,
+    payment_status: 'unpaid',
+    metadata: {
+      rental_offering: true,
+      offering_key: 'towel_rental', offering_label: 'Towel',
+      duration_key: '4_hours',
+    },
+    _meta: {
+      rental_offering: true,
+      offering_key: 'towel_rental', offering_label: 'Towel',
+      duration_key: '4_hours',
+    },
+  };
+  const genericRow2 = {
+    ...genericRow,
+    _scheduleId: 'sr-rental-poncho', service_record_id: 'sr-rental-poncho',
+    metadata: { ...genericRow.metadata, offering_key: 'poncho_rental' },
+    _meta: { ...genericRow._meta, offering_key: 'poncho_rental' },
+  };
+  const genericGroup = {
+    _scheduleId: 'sr-rental-towel', booking_id: genericRow.booking_id,
+    guest_name: genericRow.guest_name, service_date: genericRow.service_date,
+    record_source: 'staff_manual', _isDbManual: true,
+    payment_status: 'unpaid', quantity: 0,
+    components: { 'rental:towel_rental': true, 'rental:poncho_rental': true }, records: [genericRow, genericRow2],
+  };
+  const descriptors = ctx.scheduleGenericRentalDescriptors(genericGroup);
+  assert('generic rental descriptors preserve stable offering identities even when labels collide',
+    descriptors.length === 2 && descriptors.map((d) => d.offering_key).sort().join(',') === 'poncho_rental,towel_rental');
+  ctx.scheduleBuildDisplayGroups = () => [genericGroup];
+  ctx.scheduleGroupIsStandaloneRental = () => true;
+  ctx.scheduleRentalPickupKind = () => null;
+  ctx.scheduleGroupBoardsNeeded = () => 0;
+  ctx.scheduleGroupWetsuitsNeeded = () => 0;
+  installCache([genericRow]);
+  ctx.renderScheduleDayOpsBoard({ rows: [genericRow], gear: [genericRow], lessons: [] }, '2026-07-20');
+  const genericHtml = dom['ps-ops-board'].innerHTML;
+  assert('generic rental descriptor uses Admin label and exact quantity',
+    typeof ctx.scheduleGenericRentalDescriptor === 'function'
+      && ctx.scheduleGenericRentalDescriptor(genericGroup).label === 'Towel'
+      && ctx.scheduleGenericRentalDescriptor(genericGroup).quantity === 2);
+  assert('generic Admin rental renders under Rental pickups today',
+    genericHtml.includes('portal-schedule-ops-rental-pickups')
+      && genericHtml.includes('Towel')
+      && genericHtml.includes('Generic Towel Guest')
+      && genericHtml.includes('2×'));
+  assert('same-label offerings render as separate stable pickup sections',
+    (genericHtml.match(/data-rental-offering=/g) || []).length === 2
+      && genericHtml.includes('data-rental-offering="towel_rental"')
+      && genericHtml.includes('data-rental-offering="poncho_rental"'));
+
   ctx.scheduleBuildDaySessions = prevBuildSessions;
   ctx.scheduleBuildDisplayGroups = prevBuildGroups;
   ctx.scheduleGroupIsStandaloneRental = prevStandalone;

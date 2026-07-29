@@ -3,12 +3,11 @@
 const MODES = Object.freeze(['during_course', 'all_day']);
 const COMPONENTS = Object.freeze(['surfboard', 'wetsuit']);
 const DEFAULT_CONFIG = Object.freeze({
-  during_course: Object.freeze({ policy: 'free_with_course', surfboard_cents: 0, wetsuit_cents: 0 }),
-  all_day: Object.freeze({ surfboard_cents: 0, wetsuit_cents: 0 }),
+  all_day: Object.freeze({ enabled: false, surfboard_cents: 0, wetsuit_cents: 0 }),
 });
 
 function cloneDefault() {
-  return { during_course: { ...DEFAULT_CONFIG.during_course }, all_day: { ...DEFAULT_CONFIG.all_day } };
+  return { all_day: { ...DEFAULT_CONFIG.all_day } };
 }
 function strictObject(value, keys, name) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${name} must be an object`);
@@ -28,22 +27,23 @@ function checkedMultiply(a, b, name = 'money total') {
 }
 /** Strict write validator. Free policy canonicalizes both during-course prices to zero. */
 function validateConfig(value) {
-  strictObject(value, ['during_course', 'all_day'], 'course_equipment_pricing');
-  strictObject(value.during_course, ['policy', 'surfboard_cents', 'wetsuit_cents'], 'during_course');
-  strictObject(value.all_day, ['surfboard_cents', 'wetsuit_cents'], 'all_day');
-  const policy = value.during_course.policy;
-  if (policy !== 'free_with_course' && policy !== 'extra') throw new TypeError('during_course.policy must be free_with_course or extra');
+  strictObject(value, ['all_day'], 'course_equipment_pricing');
+  strictObject(value.all_day, ['enabled', 'surfboard_cents', 'wetsuit_cents'], 'all_day');
   const out = cloneDefault();
-  out.during_course.policy = policy;
-  out.during_course.surfboard_cents = policy === 'extra' ? cents(value.during_course.surfboard_cents, 'during_course.surfboard_cents') : 0;
-  out.during_course.wetsuit_cents = policy === 'extra' ? cents(value.during_course.wetsuit_cents, 'during_course.wetsuit_cents') : 0;
+  if (typeof value.all_day.enabled !== 'boolean') throw new TypeError('all_day.enabled must be boolean');
+  out.all_day.enabled = value.all_day.enabled;
   out.all_day.surfboard_cents = cents(value.all_day.surfboard_cents, 'all_day.surfboard_cents');
   out.all_day.wetsuit_cents = cents(value.all_day.wetsuit_cents, 'all_day.wetsuit_cents');
   return out;
 }
 /** Read boundary is fail-safe: absent/malformed legacy config sells nothing and never invents money. */
 function normalizeConfig(value) {
-  try { return validateConfig(value); } catch (_) { return cloneDefault(); }
+  try { return validateConfig(value); } catch (_) {
+    try {
+      if (value && value.all_day) return validateConfig({ all_day: { enabled: true, surfboard_cents: value.all_day.surfboard_cents, wetsuit_cents: value.all_day.wetsuit_cents } });
+    } catch (_) {}
+    return cloneDefault();
+  }
 }
 function normalizeDates(dates) {
   if (!Array.isArray(dates)) throw new TypeError('booking_dates must be an array');
@@ -65,12 +65,19 @@ function clampSelection(selection, surfers) {
   return { mode: selection.mode, quantity: Math.max(1, Math.min(surfers, Number.isInteger(selection.quantity) ? selection.quantity : surfers)) };
 }
 /** Server-authoritative quote and persistence lines; browser submits mode+quantity only. */
-function quoteCourseEquipment({ config, selection, surfers, booking_dates: dates }) {
+function quoteCourseEquipment({ config, course, selection, surfers, booking_dates: dates }) {
   const selected = normalizeSelection(selection, surfers);
   if (!selected) return { total_cents: 0, unit_cents: 0, lines: [], inventory: [] };
   const cfg = normalizeConfig(config);
   const bookingDates = normalizeDates(dates);
-  const prices = selected.mode === 'during_course' ? cfg.during_course : cfg.all_day;
+  let prices;
+  if (selected.mode === 'during_course') {
+    if (!course || course.equipment_included !== true) throw new TypeError('course equipment not included');
+    prices = { surfboard_cents: cents(Number(course.equipment_price_cents || 0), 'equipment_price_cents'), wetsuit_cents: 0 };
+  } else {
+    if (cfg.all_day.enabled !== true) throw new TypeError('all-day equipment disabled');
+    prices = cfg.all_day;
+  }
   const unit = checkedAdd(cents(prices.surfboard_cents, 'surfboard_cents'), cents(prices.wetsuit_cents, 'wetsuit_cents'), 'course equipment unit');
   const lines = [];
   const inventory = [];

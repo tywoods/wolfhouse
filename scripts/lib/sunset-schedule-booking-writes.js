@@ -439,6 +439,8 @@ async function prepareGenericRentalsForCreate(opts) {
       if (priced.ok) priced = { ...priced, pricing_mode: 'base_package', package_repeat_count: 1 };
     }
     if (!priced.ok) return priced;
+    const catalogOffering = active.get(String(row.offering_key || '').trim());
+    priced = { ...priced, offering_label: catalogOffering && catalogOffering.label ? String(catalogOffering.label) : null };
     const mapped = buildGenericRentalServiceRecord(priced, { serviceDate: o.serviceDate, source: o.source });
     if (!mapped.ok) return mapped;
     records.push(mapped.record);
@@ -1631,6 +1633,8 @@ function scheduleRowFromDb(row) {
     course_label: row.course_label || null,
     components: metaComponents,
     bundle_id: row.bundle_id || null,
+    metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : null,
+    _meta: row.metadata && typeof row.metadata === 'object' ? row.metadata : null,
     _needsReply: row.needs_reply === true || row.needs_reply === 't',
     _scheduleType: isPrivateLesson ? 'private_lesson' : (isCourse ? 'course' : (isLesson ? 'lesson' : 'rental')),
     service_record_id: row.service_record_id || row.id || null,
@@ -1664,6 +1668,7 @@ async function findIdempotentBooking(pg, clientSlug, idempotencyKey) {
             sr.metadata->>'lesson_category' AS lesson_category,
             sr.metadata->>'course_id' AS course_id,
             sr.metadata->>'course_label' AS course_label,
+            sr.metadata AS metadata,
             sr.metadata->>'component' AS metadata_component,
             sr.metadata->>'bundle_id' AS bundle_id,
             sr.metadata->>'components' AS metadata_components,
@@ -1714,6 +1719,7 @@ async function insertServiceRecord(pg, params, timeOpts) {
                  metadata->>'lesson_category' AS lesson_category,
                  metadata->>'course_id' AS course_id,
                  metadata->>'course_label' AS course_label,
+                 metadata AS metadata,
                  metadata->>'component' AS metadata_component,
                  metadata->>'bundle_id' AS bundle_id,
                  metadata->>'components' AS metadata_components`,
@@ -1744,6 +1750,7 @@ async function insertServiceRecord(pg, params, timeOpts) {
                  metadata->>'lesson_category' AS lesson_category,
                  metadata->>'course_id' AS course_id,
                  metadata->>'course_label' AS course_label,
+                 metadata AS metadata,
                  metadata->>'component' AS metadata_component,
                  metadata->>'bundle_id' AS bundle_id,
                  metadata->>'components' AS metadata_components`,
@@ -1814,6 +1821,7 @@ async function insertFullDayEquipmentAddonRows(pg, opts) {
                  metadata->>'notes' AS notes,
                  metadata->>'staff_ui_service_type' AS staff_ui_service_type,
                  metadata->>'source' AS metadata_source,
+                 metadata AS metadata,
                  metadata->>'component' AS metadata_component,
                  metadata->>'bundle_id' AS bundle_id,
                  metadata->>'components' AS metadata_components`,
@@ -2515,7 +2523,7 @@ async function insertScheduleComponentServiceRows(pg, opts) {
 /** Server-priced board and wetsuit audit rows, one of each per booking date. */
 async function insertCourseEquipmentRows(pg, opts) {
   if (!opts.selection) return [];
-  const quote = quoteCourseEquipment({ config: opts.config, selection: opts.selection,
+  const quote = quoteCourseEquipment({ config: opts.config, course: opts.course, selection: opts.selection,
     surfers: opts.surfers, booking_dates: opts.bookingDates });
   const rows = [];
   for (const line of quote.lines) {
@@ -2723,7 +2731,7 @@ async function createSunsetScheduleBooking(pg, opts) {
 
   let privateLessonConfig = defaultPrivateLessonApi();
   if (input.components.private_lesson) {
-    const plLoad = await loadPrivateLessonFromDb(pg, { clientSlug, locationId });
+    const plLoad = await loadPrivateLessonFromDb(pg, clientSlug, locationId);
     privateLessonConfig = plLoad.api || privateLessonConfig;
   }
 
@@ -2989,6 +2997,7 @@ async function createSunsetScheduleBooking(pg, opts) {
         bookingDates: input.components.private_lesson
           ? input.components.private_lesson.sessions.map((s) => s.date) : input.service_dates,
         config: require('./sunset-admin-location-store').getCourseEquipmentPricing(locationId),
+        course: input.components.private_lesson ? privateLessonConfig : (assignedCourse && assignedCourse.pack),
         attribution, locationId, bundleId, srPayment,
       });
       equipmentRows.forEach((r) => createdRows.push(r));

@@ -460,6 +460,7 @@ const {
 } = require('./lib/sunset-waiver-staff');
 const {
   ensureWaiverForBookingSoft,
+  bookingCreateResultNeedsWaiver,
 } = require('./lib/sunset-waiver-booking');
 const {
   resolveSunsetInboxChannelConfig,
@@ -21701,6 +21702,7 @@ function scheduleRenderLoadedViewModel(viewModel, loadGen, navSnapshot){
 
 function scheduleRowComponentKey(row){
   var meta = scheduleRowMeta(row);
+  if (meta.rental_offering === true && meta.offering_key) return 'rental:' + String(meta.offering_key);
   if (meta.component) return String(meta.component);
   if (row.staff_ui_service_type){
     var ui = String(row.staff_ui_service_type).toLowerCase();
@@ -22035,8 +22037,9 @@ function scheduleGroupHasOnlyGear(group){
 
 function scheduleGroupIsStandaloneRental(group){
   if (!group || !group.components) return false;
-  if (group.components.lesson || group.components.course) return false;
-  return !!(group.components.surfboard || group.components.wetsuit);
+  if (group.components.lesson || group.components.course || group.components.private_lesson) return false;
+  if (group.components.surfboard || group.components.wetsuit) return true;
+  return Object.keys(group.components).some(function(key){ return String(key).indexOf('rental:') === 0; });
 }
 
 function scheduleOnCreateComponentChange(changedId){
@@ -40752,7 +40755,7 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
     // After Sunset lesson booking create: ensure waiver + Luna Spanish invite copy.
     // Soft-fails if migration 036 is not applied — booking create still succeeds.
     // No live WhatsApp send here.
-    if (bookingId) {
+    if (bookingId && bookingCreateResultNeedsWaiver(bodyOut)) {
       try {
         const waiverOut = await withPgClient(async (pg) => ensureWaiverForBookingSoft(pg, bookingId, {
           locationId: resolved.locationId,
