@@ -341,60 +341,117 @@ function schedulePortalSetVisible(node, show) {
   }
 }
 
-function schedulePortalGetSelectedCreateCourseId() {
-  var sel = el('ps-create-course-select');
-  var fromSel = sel ? String(sel.value || '').trim() : '';
-  if (fromSel) return fromSel;
+/**
+ * Selected Group course product IDs from Create course buttons (multi-select).
+ * Button aria-pressed is authoritative; hidden checkboxes/select mirror for payload.
+ */
+function schedulePortalGetSelectedCreateCourseIds() {
   var list = el('ps-create-course-list');
-  if (!list) return '';
-  var checked = null;
-  try { checked = list.querySelector('input[type="radio"]:checked'); } catch (_q) { checked = null; }
-  if (checked && checked.value) return String(checked.value).trim();
-  // Visible button selected state (aria-pressed) is authoritative when radios lag.
-  try {
-    var pressed = list.querySelector('button[data-course-id][aria-pressed="true"]');
-    if (pressed) {
-      var pid = pressed.getAttribute('data-course-id');
-      if (pid) return String(pid).trim();
+  var ids = [];
+  var seen = {};
+  function pushId(raw) {
+    var id = String(raw || '').trim();
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    ids.push(id);
+  }
+  if (list) {
+    try {
+      list.querySelectorAll('button[data-course-id][aria-pressed="true"]').forEach(function(btn) {
+        pushId(btn.getAttribute('data-course-id'));
+      });
+    } catch (_b) { /* ignore */ }
+    if (!ids.length) {
+      try {
+        list.querySelectorAll('input[type="checkbox"][name="ps-create-course-pick"]:checked, input[type="radio"][name="ps-create-course-pick"]:checked').forEach(function(inp) {
+          pushId(inp.value);
+        });
+      } catch (_c) { /* ignore */ }
     }
-  } catch (_b) { /* ignore */ }
-  return '';
+  }
+  if (!ids.length) {
+    var sel = el('ps-create-course-select');
+    if (sel && sel.multiple && sel.selectedOptions) {
+      try {
+        Array.prototype.forEach.call(sel.selectedOptions, function(opt) { pushId(opt.value); });
+      } catch (_m) { /* ignore */ }
+    } else if (sel) {
+      pushId(sel.value);
+    }
+  }
+  return ids;
 }
 
-/** Keep visible course buttons + hidden radios exclusive with selected id. */
-function schedulePortalSyncCreateCourseButtons(selectedId) {
+/** First selected course id (compat for single-course readers / pending launch). */
+function schedulePortalGetSelectedCreateCourseId() {
+  var ids = schedulePortalGetSelectedCreateCourseIds();
+  return ids.length ? ids[0] : '';
+}
+
+/** Keep visible course buttons + hidden inputs in sync with multi selected ids. */
+function schedulePortalSyncCreateCourseButtons(selectedIds) {
   var list = el('ps-create-course-list');
   if (!list) return;
-  var id = selectedId != null ? String(selectedId).trim() : '';
+  var ids = [];
+  var seen = {};
+  var raw = selectedIds;
+  if (raw == null || raw === '') raw = [];
+  if (!Array.isArray(raw)) raw = [raw];
+  raw.forEach(function(v) {
+    var id = String(v || '').trim();
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    ids.push(id);
+  });
   try {
     list.querySelectorAll('button[data-course-id]').forEach(function(btn) {
       var cid = String(btn.getAttribute('data-course-id') || '').trim();
-      var on = !!(id && cid === id);
+      var on = !!(cid && seen[cid]);
       try { btn.setAttribute('aria-pressed', on ? 'true' : 'false'); } catch (_a) { /* ignore */ }
       if (on) btn.classList.add('is-selected');
       else btn.classList.remove('is-selected');
     });
   } catch (_bt) { /* ignore */ }
   try {
-    list.querySelectorAll('input[type="radio"]').forEach(function(r) {
-      r.checked = !!(id && String(r.value) === id);
+    list.querySelectorAll('input[type="checkbox"][name="ps-create-course-pick"], input[type="radio"][name="ps-create-course-pick"]').forEach(function(inp) {
+      inp.checked = !!(seen[String(inp.value || '')]);
     });
   } catch (_r) { /* ignore */ }
+  var sel = el('ps-create-course-select');
+  if (sel) {
+    try {
+      if (sel.options && sel.options.length) {
+        for (var i = 0; i < sel.options.length; i++) {
+          sel.options[i].selected = !!seen[String(sel.options[i].value || '')];
+        }
+      }
+      // Primary value = first selected (legacy single-select readers).
+      sel.value = ids.length ? ids[0] : '';
+    } catch (_s) { /* ignore */ }
+  }
 }
 
 function schedulePortalClearSelectedCreateCourse() {
   var sel = el('ps-create-course-select');
   if (sel) {
     sel.value = '';
-    try { sel.selectedIndex = -1; } catch (_s) { /* ignore */ }
+    try {
+      if (sel.options && sel.options.length) {
+        for (var i = 0; i < sel.options.length; i++) sel.options[i].selected = false;
+      } else {
+        sel.selectedIndex = -1;
+      }
+    } catch (_s) { /* ignore */ }
   }
   var list = el('ps-create-course-list');
   if (list) {
     try {
-      list.querySelectorAll('input[type="radio"]').forEach(function(r) { r.checked = false; });
+      list.querySelectorAll('input[type="checkbox"][name="ps-create-course-pick"], input[type="radio"][name="ps-create-course-pick"]').forEach(function(inp) {
+        inp.checked = false;
+      });
     } catch (_r) { /* ignore */ }
     if (typeof schedulePortalSyncCreateCourseButtons === 'function') {
-      schedulePortalSyncCreateCourseButtons('');
+      schedulePortalSyncCreateCourseButtons([]);
     } else {
       try {
         list.querySelectorAll('button[data-course-id]').forEach(function(btn) {
@@ -410,62 +467,51 @@ function schedulePortalClearSelectedCreateCourse() {
   if (typeof scheduleRefreshCreateFullDayAddon === 'function') scheduleRefreshCreateFullDayAddon();
 }
 
+/** Ensure hidden select option exists for a course id/label. */
+function schedulePortalEnsureCreateCourseSelectOption(courseId, courseLabel) {
+  var id = String(courseId || '').trim();
+  if (!id) return;
+  var label = courseLabel != null ? String(courseLabel).trim() : '';
+  var sel = el('ps-create-course-select');
+  if (!sel) return;
+  var found = false;
+  if (sel.options && sel.options.length) {
+    for (var i = 0; i < sel.options.length; i++) {
+      if (String(sel.options[i].value) === id) {
+        found = true;
+        if (label && typeof sel.options[i].setAttribute === 'function') {
+          try { sel.options[i].setAttribute('data-label', label); } catch (_l) { /* ignore */ }
+        }
+        break;
+      }
+    }
+  }
+  if (!found) {
+    try {
+      sel.innerHTML = (sel.innerHTML || '')
+        + '<option value="' + (typeof escHtml === 'function' ? escHtml(id) : id)
+        + '" data-label="' + (typeof escHtml === 'function' ? escHtml(label || id) : (label || id)) + '">'
+        + (typeof escHtml === 'function' ? escHtml(label || id) : (label || id)) + '</option>';
+    } catch (_i) { /* ignore */ }
+  }
+}
+
+/**
+ * Select one course (additive multi-select). For exclusive replace use
+ * schedulePortalSetSelectedCreateCourses. Button clicks use toggle.
+ */
 function schedulePortalSelectCreateCourse(courseId, courseLabel, opts) {
   opts = opts || {};
   var id = String(courseId || '').trim();
   if (!id) return false;
   var label = courseLabel != null ? String(courseLabel).trim() : '';
   var quiet = opts.quiet === true;
-  var sel = el('ps-create-course-select');
-  if (sel) {
-    // Ensure option exists so payload reader can resolve data-label.
-    var found = false;
-    if (sel.options && sel.options.length) {
-      for (var i = 0; i < sel.options.length; i++) {
-        if (String(sel.options[i].value) === id) { found = true; break; }
-      }
-    }
-    if (!found) {
-      // Prefer appending an option string (works with offline makeSelect mocks).
-      try {
-        sel.innerHTML = (sel.innerHTML || '')
-          + '<option value="' + (typeof escHtml === 'function' ? escHtml(id) : id)
-          + '" data-label="' + (typeof escHtml === 'function' ? escHtml(label || id) : (label || id)) + '">'
-          + (typeof escHtml === 'function' ? escHtml(label || id) : (label || id)) + '</option>';
-      } catch (_i) { /* ignore */ }
-    } else if (label && sel.options) {
-      for (var j = 0; j < sel.options.length; j++) {
-        if (String(sel.options[j].value) === id) {
-          try {
-            if (typeof sel.options[j].setAttribute === 'function') {
-              sel.options[j].setAttribute('data-label', label);
-            }
-          } catch (_l) { /* ignore */ }
-          break;
-        }
-      }
-    }
-    sel.value = id;
-  }
+  var exclusive = opts.exclusive === true;
+  schedulePortalEnsureCreateCourseSelectOption(id, label);
+  var next = exclusive ? [id] : schedulePortalGetSelectedCreateCourseIds().slice();
+  if (next.indexOf(id) < 0) next.push(id);
   if (typeof schedulePortalSyncCreateCourseButtons === 'function') {
-    schedulePortalSyncCreateCourseButtons(id);
-  } else {
-    var list = el('ps-create-course-list');
-    if (list) {
-      try {
-        list.querySelectorAll('input[type="radio"]').forEach(function(r) {
-          r.checked = String(r.value) === id;
-        });
-      } catch (_c) { /* ignore */ }
-      try {
-        list.querySelectorAll('button[data-course-id]').forEach(function(btn) {
-          var on = String(btn.getAttribute('data-course-id') || '') === id;
-          try { btn.setAttribute('aria-pressed', on ? 'true' : 'false'); } catch (_a) { /* ignore */ }
-          if (on) btn.classList.add('is-selected');
-          else btn.classList.remove('is-selected');
-        });
-      } catch (_b) { /* ignore */ }
-    }
+    schedulePortalSyncCreateCourseButtons(next);
   }
   schedulePortalPendingCourseId = id;
   schedulePortalPendingCourseGen = schedulePortalOpenGen;
@@ -479,7 +525,68 @@ function schedulePortalSelectCreateCourse(courseId, courseLabel, opts) {
       if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
     }
   }
-  return schedulePortalGetSelectedCreateCourseId() === id;
+  return schedulePortalGetSelectedCreateCourseIds().indexOf(id) >= 0;
+}
+
+/** Toggle a course product button on/off (multi-select). */
+function schedulePortalToggleCreateCourse(courseId, courseLabel, opts) {
+  opts = opts || {};
+  var id = String(courseId || '').trim();
+  if (!id) return false;
+  var label = courseLabel != null ? String(courseLabel).trim() : '';
+  var quiet = opts.quiet === true;
+  schedulePortalEnsureCreateCourseSelectOption(id, label);
+  var cur = schedulePortalGetSelectedCreateCourseIds().slice();
+  var idx = cur.indexOf(id);
+  if (idx >= 0) cur.splice(idx, 1);
+  else cur.push(id);
+  if (typeof schedulePortalSyncCreateCourseButtons === 'function') {
+    schedulePortalSyncCreateCourseButtons(cur);
+  }
+  schedulePortalPendingCourseId = cur.length ? cur[cur.length - 1] : null;
+  schedulePortalPendingCourseGen = schedulePortalOpenGen;
+  if (typeof schedulePortalRenderMainActivityPath === 'function') schedulePortalRenderMainActivityPath();
+  if (typeof scheduleRefreshCreateFullDayAddon === 'function') scheduleRefreshCreateFullDayAddon();
+  if (!quiet) {
+    if (typeof schedulePortalSyncCreateFooter === 'function') {
+      schedulePortalSyncCreateFooter();
+    } else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
+      schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+      if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
+    }
+  }
+  return schedulePortalGetSelectedCreateCourseIds().indexOf(id) >= 0;
+}
+
+/** Replace the full multi-selected course set. */
+function schedulePortalSetSelectedCreateCourses(courseIds, opts) {
+  opts = opts || {};
+  var quiet = opts.quiet === true;
+  var next = [];
+  var seen = {};
+  (Array.isArray(courseIds) ? courseIds : []).forEach(function(raw) {
+    var id = String(raw || '').trim();
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    next.push(id);
+    schedulePortalEnsureCreateCourseSelectOption(id, '');
+  });
+  if (typeof schedulePortalSyncCreateCourseButtons === 'function') {
+    schedulePortalSyncCreateCourseButtons(next);
+  }
+  schedulePortalPendingCourseId = next.length ? next[0] : null;
+  schedulePortalPendingCourseGen = schedulePortalOpenGen;
+  if (typeof schedulePortalRenderMainActivityPath === 'function') schedulePortalRenderMainActivityPath();
+  if (typeof scheduleRefreshCreateFullDayAddon === 'function') scheduleRefreshCreateFullDayAddon();
+  if (!quiet) {
+    if (typeof schedulePortalSyncCreateFooter === 'function') {
+      schedulePortalSyncCreateFooter();
+    } else if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
+      schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
+      if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
+    }
+  }
+  return schedulePortalGetSelectedCreateCourseIds().slice();
 }
 
 /** Resolve the private panel host (panel wrapper or legacy private-when id). */
@@ -685,12 +792,24 @@ function schedulePortalRenderCreateCourseList(courses, opts) {
   opts = opts || {};
   var list = el('ps-create-course-list');
   var sel = el('ps-create-course-select');
-  // List host is preferred UI; hidden select + radios still mirror for payload / older sandboxes.
+  // List host is preferred UI; hidden select + checkboxes mirror multi-select for payload.
   if (!list && !sel) return;
   var dates = opts.dates || (typeof scheduleCreateSelectedDates === 'function' ? scheduleCreateSelectedDates() : []);
-  var prev = opts.selectedId != null
-    ? String(opts.selectedId).trim()
-    : schedulePortalGetSelectedCreateCourseId();
+  var prevIds = [];
+  var seenPrev = {};
+  function pushPrev(raw) {
+    var id = String(raw || '').trim();
+    if (!id || seenPrev[id]) return;
+    seenPrev[id] = true;
+    prevIds.push(id);
+  }
+  if (Array.isArray(opts.selectedIds) && opts.selectedIds.length) {
+    opts.selectedIds.forEach(pushPrev);
+  } else if (opts.selectedId != null && String(opts.selectedId).trim()) {
+    pushPrev(opts.selectedId);
+  } else {
+    schedulePortalGetSelectedCreateCourseIds().forEach(pushPrev);
+  }
   var html = '';
   var selHtml = '';
   var availableIds = {};
@@ -705,9 +824,9 @@ function schedulePortalRenderCreateCourseList(courses, opts) {
     var showLabel = baseLabel + summary + (disabled
       ? (' (' + (portalT('schedule.create.courseNotOnSelectedDates') || 'not available on selected dates') + ')')
       : '');
-    var checked = !disabled && prev && String(prev) === id;
-    // Visible options match top-level Main activity: real buttons, no radio glyphs,
-    // exclusive aria-pressed / is-selected. Hidden radios keep payload contracts.
+    var checked = !disabled && !!seenPrev[id];
+    // Multi-select product buttons: several may be aria-pressed simultaneously.
+    // Hidden checkboxes keep multi payload contracts; exclusive radios are gone.
     html += '<button type="button" class="portal-schedule-create-activity-btn'
       + (checked ? ' is-selected' : '')
       + (disabled ? ' is-disabled' : '') + '"'
@@ -717,13 +836,14 @@ function schedulePortalRenderCreateCourseList(courses, opts) {
       + ' aria-pressed="' + (checked ? 'true' : 'false') + '"'
       + (disabled ? ' disabled' : '')
       + '><span>' + escHtml(showLabel) + '</span></button>'
-      + '<input type="radio" name="ps-create-course-pick" value="' + escHtml(id) + '"'
+      + '<input type="checkbox" name="ps-create-course-pick" value="' + escHtml(id) + '"'
       + ' class="portal-schedule-create-visually-hidden" tabindex="-1" aria-hidden="true"'
       + (checked ? ' checked' : '')
       + (disabled ? ' disabled' : '')
       + '>';
     selHtml += '<option value="' + escHtml(id) + '" data-label="' + escHtml(baseLabel) + '"'
       + (disabled ? ' disabled' : '')
+      + (checked ? ' selected' : '')
       + ' data-eligible="' + (eligible ? '1' : '0') + '">'
       + escHtml(baseLabel) + '</option>';
   });
@@ -736,33 +856,29 @@ function schedulePortalRenderCreateCourseList(courses, opts) {
     selHtml = '<option value="">' + escHtml(portalT('schedule.courses.noneConfigured') || '') + '</option>';
   }
   if (list) list.innerHTML = html;
-  if (sel) sel.innerHTML = selHtml;
-  // Retain only if still available. Empty catalog must NOT clear pending launch desire
+  if (sel) {
+    sel.innerHTML = selHtml;
+    try { sel.multiple = true; } catch (_sm) { /* ignore */ }
+  }
+  // Retain only ids still available. Empty catalog must NOT clear pending launch desire
   // (cold→warm race: open with course_id before courses arrive).
-  if (prev && availableIds[prev]) {
-    if (sel) sel.value = prev;
+  var retained = prevIds.filter(function(id) { return !!availableIds[id]; });
+  if (retained.length) {
     if (typeof schedulePortalSyncCreateCourseButtons === 'function') {
-      schedulePortalSyncCreateCourseButtons(prev);
-    } else if (list) {
-      try {
-        list.querySelectorAll('input[type="radio"]').forEach(function(r) {
-          r.checked = String(r.value) === String(prev);
-        });
-      } catch (_c) { /* ignore */ }
+      schedulePortalSyncCreateCourseButtons(retained);
     }
-  } else if (prev && (courses || []).length > 0) {
-    // Catalog returned options but prev is missing/ineligible → require a new pick.
+  } else if (prevIds.length && (courses || []).length > 0) {
+    // Catalog returned options but prev missing/ineligible → require a new pick.
     schedulePortalClearSelectedCreateCourse();
-  } else if (!prev) {
-    if (sel) sel.value = '';
+  } else if (!prevIds.length) {
     if (typeof schedulePortalSyncCreateCourseButtons === 'function') {
-      schedulePortalSyncCreateCourseButtons('');
+      schedulePortalSyncCreateCourseButtons([]);
     }
   } else if (sel) {
     // prev set, catalog empty: leave pending; clear only the select display value.
     sel.value = '';
   }
-  // Wire visible button clicks + hidden radio changes once per render (rebind after innerHTML).
+  // Wire visible button toggles + hidden checkbox changes once per render.
   if (list) {
     try {
       list.querySelectorAll('button[data-course-id]').forEach(function(btn) {
@@ -771,27 +887,43 @@ function schedulePortalRenderCreateCourseList(courses, opts) {
           var cid = String(btn.getAttribute('data-course-id') || '').trim();
           if (!cid) return;
           var lab = String(btn.getAttribute('data-label') || '').trim();
-          schedulePortalSelectCreateCourse(cid, lab);
+          if (typeof schedulePortalToggleCreateCourse === 'function') {
+            schedulePortalToggleCreateCourse(cid, lab);
+          } else {
+            schedulePortalSelectCreateCourse(cid, lab);
+          }
         });
       });
     } catch (_wb) { /* ignore */ }
     try {
-      list.querySelectorAll('input[type="radio"]').forEach(function(radio) {
-        radio.addEventListener('change', function() {
-          if (!radio.checked || radio.disabled) return;
-          var cid = String(radio.value || '').trim();
+      list.querySelectorAll('input[type="checkbox"][name="ps-create-course-pick"]').forEach(function(box) {
+        box.addEventListener('change', function() {
+          if (box.disabled) return;
+          var cid = String(box.value || '').trim();
           var lab = '';
           try {
             var row = list.querySelector('button[data-course-id="' + cid + '"]');
             if (row) lab = String(row.getAttribute('data-label') || '').trim();
           } catch (_l) { /* ignore */ }
-          schedulePortalSelectCreateCourse(cid, lab);
+          if (typeof schedulePortalToggleCreateCourse === 'function') {
+            // Align toggle with checkbox state rather than double-flipping.
+            var cur = schedulePortalGetSelectedCreateCourseIds();
+            var has = cur.indexOf(cid) >= 0;
+            if (box.checked && !has) schedulePortalSelectCreateCourse(cid, lab);
+            else if (!box.checked && has) schedulePortalToggleCreateCourse(cid, lab);
+          } else if (box.checked) {
+            schedulePortalSelectCreateCourse(cid, lab);
+          }
         });
       });
     } catch (_w) { /* ignore */ }
   }
   schedulePortalRenderMainActivityPath();
-  return { availableIds: availableIds, selectedId: schedulePortalGetSelectedCreateCourseId() };
+  return {
+    availableIds: availableIds,
+    selectedId: schedulePortalGetSelectedCreateCourseId(),
+    selectedIds: schedulePortalGetSelectedCreateCourseIds(),
+  };
 }
 
 function schedulePortalApplyDesiredCourseSelect() {
@@ -1221,9 +1353,23 @@ function schedulePortalValidateCreatePayload(payload, opts) {
     if (!schedulePortalIsValidCreatePhone(phone)) return fail('schedule.create.phoneRequired');
   }
   if (comps.course) {
-    if (!String(comps.course.course_id || '').trim()) return fail('schedule.create.courseRequired');
-    // Tier is derived data from inclusive dates + sellable catalog match — never free-typed.
-    if (!String(comps.course.tier_key || '').trim()) return fail('schedule.create.courseDurationUnavailable');
+    var selectedCourses = Array.isArray(comps.course.selected_courses)
+      ? comps.course.selected_courses
+      : [];
+    var hasSelectedCourses = selectedCourses.length > 0;
+    if (!hasSelectedCourses && !String(comps.course.course_id || '').trim()) {
+      return fail('schedule.create.courseRequired');
+    }
+    if (hasSelectedCourses) {
+      for (var sci = 0; sci < selectedCourses.length; sci++) {
+        var sc = selectedCourses[sci] || {};
+        if (!String(sc.course_id || '').trim()) return fail('schedule.create.courseRequired');
+        // Tier is derived from inclusive dates + sellable catalog match — never free-typed.
+        if (!String(sc.tier_key || '').trim()) return fail('schedule.create.courseDurationUnavailable');
+      }
+    } else if (!String(comps.course.tier_key || '').trim()) {
+      return fail('schedule.create.courseDurationUnavailable');
+    }
   }
 
   if (!schedulePortalHasSellableIntent(p)) {
@@ -2004,19 +2150,22 @@ function schedulePortalPopulateCreateCourseFields() {
   if (!sel && !list) return Promise.resolve();
   var myOpenGen = schedulePortalOpenGen;
   var dates = scheduleCreateSelectedDates();
-  // Keep previous selection intent before catalog re-render.
-  var prev = schedulePortalGetSelectedCreateCourseId();
-  if (!prev && schedulePortalPendingCourseId
+  // Keep previous multi-select intent before catalog re-render.
+  var prevIds = typeof schedulePortalGetSelectedCreateCourseIds === 'function'
+    ? schedulePortalGetSelectedCreateCourseIds().slice()
+    : [];
+  if (!prevIds.length && schedulePortalPendingCourseId
     && schedulePortalPendingCourseGen === schedulePortalOpenGen) {
-    prev = String(schedulePortalPendingCourseId);
+    prevIds = [String(schedulePortalPendingCourseId)];
   }
+  var prev = prevIds.length ? prevIds[0] : '';
   return schedulePortalFetchCatalog({ service_dates: dates, method: 'POST' }).then(function(catalogData) {
     if (myOpenGen !== schedulePortalOpenGen) return;
     var courses = (catalogData && Array.isArray(catalogData.courses)) ? catalogData.courses : [];
     if (typeof scheduleCoursesCache !== 'undefined') scheduleCoursesCache = courses.slice();
-    // Drill-down radio-card list is the visible course picker (no second dropdown).
+    // Drill-down multi-select product buttons (no second dropdown / no custom lessons UI).
     if (typeof schedulePortalRenderCreateCourseList === 'function') {
-      schedulePortalRenderCreateCourseList(courses, { dates: dates, selectedId: prev });
+      schedulePortalRenderCreateCourseList(courses, { dates: dates, selectedIds: prevIds, selectedId: prev });
     } else if (sel) {
       // Fallback: keep hidden select populated for payload only.
       var html = '';

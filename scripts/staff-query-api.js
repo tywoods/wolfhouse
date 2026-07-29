@@ -18693,11 +18693,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
               <div class="portal-schedule-create-field" id="ps-create-private-lesson-qty-wrap" style="display:none" hidden aria-hidden="true"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1" tabindex="-1"></div>
             </div>
           </div>
-          <div id="ps-create-group-lessons-wrap" class="portal-schedule-create-field" style="display:none" hidden aria-hidden="true">
-            <span class="portal-schedule-create-label" data-i18n="schedule.create.groupLessons">Lessons</span>
-            <div id="ps-create-group-lessons" class="portal-schedule-group-lessons" aria-live="polite"></div>
-            <button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-create-add-group-lesson" data-i18n="schedule.create.addLesson">+ Add lesson</button>
-          </div>
           <div class="portal-schedule-course-equipment" id="ps-create-course-equipment" style="display:none" hidden>
             <div id="ps-create-course-equipment-list" class="portal-schedule-course-equipment-list"></div>
           </div>
@@ -22290,9 +22285,6 @@ function schedulePopulateCreateComponentFields(){
     try { pf.setAttribute('aria-hidden', 'true'); } catch (_pf) { /* ignore */ }
   }
   scheduleSyncCreateSurferMirrors();
-  if (typeof scheduleSyncCreateGroupLessonsVisibility === 'function') {
-    scheduleSyncCreateGroupLessonsVisibility();
-  }
   // Top-level From/To always authoritative.
   var dateRange = el('ps-create-date-range');
   if (dateRange) dateRange.style.display = '';
@@ -22367,21 +22359,50 @@ function scheduleRefreshCreateFullDayAddon(){ try {
   if (!field) return;
   var courseChecked = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
   var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
-  var selectedCourseId = '';
-  if (typeof schedulePortalGetSelectedCreateCourseId === 'function') {
-    selectedCourseId = String(schedulePortalGetSelectedCreateCourseId() || '').trim();
+  var selectedCourseIds = [];
+  if (typeof schedulePortalGetSelectedCreateCourseIds === 'function') {
+    selectedCourseIds = schedulePortalGetSelectedCreateCourseIds().slice();
+  } else if (typeof schedulePortalGetSelectedCreateCourseId === 'function') {
+    var one = String(schedulePortalGetSelectedCreateCourseId() || '').trim();
+    if (one) selectedCourseIds = [one];
   } else {
     var courseSel = el('ps-create-course-select');
-    selectedCourseId = courseSel ? String(courseSel.value || '').trim() : '';
+    var oneSel = courseSel ? String(courseSel.value || '').trim() : '';
+    if (oneSel) selectedCourseIds = [oneSel];
   }
-  // Group: only after a concrete course option is picked. Private: when Private course is selected.
-  var courseOn = courseChecked && !!selectedCourseId;
+  // Group: only after ≥1 concrete course product is picked. Private: when Private is selected.
+  var courseOn = courseChecked && selectedCourseIds.length > 0;
   var options = [];
   if (courseOn) {
-    for (var ci = 0; ci < scheduleCoursesCache.length; ci++) {
-      var course = scheduleCoursesCache[ci] || {};
-      if (String(course.course_id || course.id || '') === selectedCourseId) { options = course.equipment_options || []; break; }
-    }
+    // Multi-course: only offerings authorized by EVERY selected course (equal-price enforced server-side).
+    var intersection = null;
+    selectedCourseIds.forEach(function(cid){
+      var courseOpts = [];
+      for (var ci = 0; ci < scheduleCoursesCache.length; ci++) {
+        var course = scheduleCoursesCache[ci] || {};
+        if (String(course.course_id || course.id || '') === String(cid)) {
+          courseOpts = Array.isArray(course.equipment_options) ? course.equipment_options.slice() : [];
+          break;
+        }
+      }
+      var byKey = {};
+      courseOpts.forEach(function(o){
+        var k = String((o && o.offering_key) || '').trim();
+        if (k) byKey[k] = o;
+      });
+      if (intersection == null) {
+        intersection = byKey;
+      } else {
+        var next = {};
+        Object.keys(intersection).forEach(function(k){
+          if (byKey[k]) next[k] = intersection[k];
+        });
+        intersection = next;
+      }
+    });
+    options = intersection
+      ? Object.keys(intersection).map(function(k){ return intersection[k]; })
+      : [];
   } else if (privateOn) options = schedulePrivateEquipmentOptionsCache || [];
   var list = el('ps-create-course-equipment-list');
   var signature = options.map(function(o){ return String(o.offering_key || '') + ':' + String(o.label || ''); }).join('|');
@@ -22593,22 +22614,63 @@ function scheduleReadCreatePayload(){
     }
   }
   if (el('ps-create-comp-course') && el('ps-create-comp-course').checked){
+    // Multi-select product buttons: one or more existing Admin courses for the booking span.
+    // Canonical list = exact course IDs + derived tier identities only (no money/date/time invent).
+    var selectedCourseIds = typeof schedulePortalGetSelectedCreateCourseIds === 'function'
+      ? schedulePortalGetSelectedCreateCourseIds()
+      : [];
+    if (!selectedCourseIds.length) {
+      var courseSelFallback = el('ps-create-course-select');
+      var fallbackId = courseSelFallback ? String(courseSelFallback.value || '').trim() : '';
+      if (fallbackId) selectedCourseIds = [fallbackId];
+    }
+    var selectedCourses = [];
     var courseSel = el('ps-create-course-select');
-    var courseOpt = courseSel && courseSel.selectedIndex >= 0 ? courseSel.options[courseSel.selectedIndex] : null;
-    var courseId = courseSel ? String(courseSel.value || '').trim() : '';
+    selectedCourseIds.forEach(function(courseId){
+      courseId = String(courseId || '').trim();
+      if (!courseId) return;
+      var courseLabel = '';
+      try {
+        var btn = el('ps-create-course-list')
+          && el('ps-create-course-list').querySelector('button[data-course-id="' + courseId + '"]');
+        if (btn) courseLabel = String(btn.getAttribute('data-label') || '').trim();
+      } catch (_bl) { /* ignore */ }
+      if (!courseLabel && courseSel && courseSel.options) {
+        for (var oi = 0; oi < courseSel.options.length; oi++) {
+          if (String(courseSel.options[oi].value) === courseId) {
+            courseLabel = courseSel.options[oi].getAttribute('data-label')
+              || courseSel.options[oi].textContent || '';
+            break;
+          }
+        }
+      }
+      var row = {
+        course_id: courseId,
+        course_label: courseLabel || '',
+      };
+      // Each selected course resolves its own tier for the booking date span.
+      var derived = typeof schedulePortalResolveDerivedCourseTier === 'function'
+        ? schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo)
+        : null;
+      if (derived && derived.ok && derived.tier_key) {
+        row.tier_key = derived.tier_key;
+        row.offering_id = derived.offering_id || ('surf_pack_' + courseId + '__' + derived.tier_key);
+        if (derived.tier_label) row.tier_label = derived.tier_label;
+      }
+      selectedCourses.push(row);
+    });
+    var primary = selectedCourses[0] || null;
     components.course = {
       quantity: surferCount != null ? surferCount : null,
-      course_id: courseId,
-      course_label: courseOpt ? (courseOpt.getAttribute('data-label') || courseOpt.textContent || '') : '',
+      course_id: primary ? primary.course_id : '',
+      course_label: primary ? (primary.course_label || '') : '',
+      selected_courses: selectedCourses,
     };
-    // Duration from inclusive dates + catalog duration_days match (never hidden selector).
-    var derived = typeof schedulePortalResolveDerivedCourseTier === 'function'
-      ? schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo)
-      : null;
-    if (derived && derived.ok && derived.tier_key) {
-      components.course.tier_key = derived.tier_key;
-      components.course.offering_id = derived.offering_id || ('surf_pack_' + courseId + '__' + derived.tier_key);
-      if (derived.tier_label) components.course.tier_label = derived.tier_label;
+    if (primary && primary.tier_key) {
+      components.course.tier_key = primary.tier_key;
+      components.course.offering_id = primary.offering_id
+        || ('surf_pack_' + primary.course_id + '__' + primary.tier_key);
+      if (primary.tier_label) components.course.tier_label = primary.tier_label;
     }
   }
   var rentals = typeof scheduleReadCreateRentalSelectionFromDom === 'function'
@@ -22643,66 +22705,10 @@ function scheduleReadCreatePayload(){
       : surferCount;
     course_equipment.push({ offering_key: item.dataset.offeringKey, mode: modeKey, quantity: equipmentQty });
   });
-  // Canonical lessons[] for multi-lesson identity (server also expands legacy components).
+  // Private sessions keep canonical lessons[] (unchanged). Group Create uses
+  // selected course product buttons only — never invent Group lessons[] / schedules.
   var lessons = [];
-  if (components.course && components.course.course_id) {
-    var lessonDates = [];
-    if (typeof schedulePortalInclusiveIsoDates === 'function') {
-      try { lessonDates = schedulePortalInclusiveIsoDates(dateFrom, dateTo) || []; } catch (_ld) { lessonDates = []; }
-    }
-    if (!lessonDates.length && dateFrom) {
-      // Inclusive walk fallback (max 31).
-      var cur = String(dateFrom).slice(0, 10);
-      var endIso = String(dateTo || dateFrom).slice(0, 10);
-      var guard = 0;
-      while (cur && cur <= endIso && guard < 31) {
-        lessonDates.push(cur);
-        var dObj = new Date(cur + 'T12:00:00Z');
-        dObj.setUTCDate(dObj.getUTCDate() + 1);
-        cur = dObj.toISOString().slice(0, 10);
-        guard += 1;
-      }
-    }
-    // Explicit multi-lesson rows win when staff added same-day/time/course variants.
-    // A single unscheduled default row still expands from the inclusive date range
-    // so multi-day packs keep working.
-    var extraRows = typeof scheduleReadCreateGroupLessonRows === 'function'
-      ? scheduleReadCreateGroupLessonRows()
-      : [];
-    var useExplicitRows = false;
-    if (extraRows && extraRows.length) {
-      if (extraRows.length > 1) useExplicitRows = true;
-      else if (extraRows[0] && extraRows[0].schedule_key) useExplicitRows = true;
-      else if (extraRows[0] && String(extraRows[0].course_id) !== String(components.course.course_id)) {
-        useExplicitRows = true;
-      } else if (extraRows[0] && lessonDates.length <= 1
-        && String(extraRows[0].date) === String(lessonDates[0] || dateFrom)) {
-        // Single same-day default row — expand still fine (0 or 1 date).
-        useExplicitRows = false;
-      }
-    }
-    if (useExplicitRows) {
-      extraRows.forEach(function(row) {
-        if (!row || !row.course_id || !row.date) return;
-        var L = { kind: 'group', course_id: row.course_id, date: row.date };
-        if (row.schedule_key) L.schedule_key = row.schedule_key;
-        if (row.course_label) L.course_label = row.course_label;
-        if (components.course.tier_key) L.tier_key = components.course.tier_key;
-        lessons.push(L);
-      });
-    } else {
-      lessonDates.forEach(function(iso) {
-        var L = {
-          kind: 'group',
-          course_id: components.course.course_id,
-          date: iso,
-        };
-        if (components.course.course_label) L.course_label = components.course.course_label;
-        if (components.course.tier_key) L.tier_key = components.course.tier_key;
-        lessons.push(L);
-      });
-    }
-  } else if (components.private_lesson && Array.isArray(components.private_lesson.sessions)) {
+  if (components.private_lesson && Array.isArray(components.private_lesson.sessions)) {
     components.private_lesson.sessions.forEach(function(s) {
       if (!s || !s.date) return;
       lessons.push({ kind: 'private', date: s.date, start: s.start, end: s.end });
@@ -22723,147 +22729,6 @@ function scheduleReadCreatePayload(){
     surfer_count: surferCount,
     lessons: lessons,
   };
-}
-
-/** Optional multi group-lesson rows (same-day / multi-course). Empty → date-range expand. */
-function scheduleReadCreateGroupLessonRows(){
-  var box = el('ps-create-group-lessons');
-  if (!box) return [];
-  var rows = [];
-  box.querySelectorAll('.portal-schedule-group-lesson-row').forEach(function(row){
-    var dateEl = row.querySelector('[data-group-lesson-date]');
-    var courseEl = row.querySelector('[data-group-lesson-course]');
-    var schedEl = row.querySelector('[data-group-lesson-schedule]');
-    var date = dateEl ? String(dateEl.value || '').slice(0, 10) : '';
-    var courseId = courseEl ? String(courseEl.value || '').trim() : '';
-    if (!date || !courseId) return;
-    var out = { course_id: courseId, date: date };
-    if (courseEl && courseEl.selectedOptions && courseEl.selectedOptions[0]) {
-      out.course_label = courseEl.selectedOptions[0].getAttribute('data-label')
-        || courseEl.selectedOptions[0].textContent || '';
-    }
-    if (schedEl && schedEl.value) out.schedule_key = String(schedEl.value).trim();
-    rows.push(out);
-  });
-  return rows;
-}
-
-function scheduleCreateGroupLessonCourseOptionsHtml(selectedId){
-  var courses = (typeof scheduleCoursesCache !== 'undefined' && scheduleCoursesCache) || [];
-  var html = '';
-  courses.forEach(function(c){
-    var id = String(c && c.course_id || '').trim();
-    if (!id) return;
-    var lab = String(c.label || id);
-    html += '<option value="' + escHtml(id) + '" data-label="' + escHtml(lab) + '"'
-      + (id === selectedId ? ' selected' : '') + '>' + escHtml(lab) + '</option>';
-  });
-  return html || '<option value="">—</option>';
-}
-
-function scheduleCreateGroupLessonScheduleOptionsHtml(courseId, selectedKey){
-  var courses = (typeof scheduleCoursesCache !== 'undefined' && scheduleCoursesCache) || [];
-  var course = null;
-  for (var i = 0; i < courses.length; i++) {
-    if (String(courses[i] && courses[i].course_id || '') === String(courseId || '')) {
-      course = courses[i]; break;
-    }
-  }
-  var keys = [];
-  if (course && Array.isArray(course.schedules)) keys = course.schedules.slice();
-  else if (course && course.schedule && Array.isArray(course.schedule.time_slots)) {
-    keys = course.schedule.time_slots.map(function(s){ return s && (s.key || s.schedule_key); }).filter(Boolean);
-  }
-  var html = '<option value="">—</option>';
-  keys.forEach(function(k){
-    var key = String(k || '').trim();
-    if (!key) return;
-    html += '<option value="' + escHtml(key) + '"' + (key === selectedKey ? ' selected' : '') + '>'
-      + escHtml(key.replace('_', '–')) + '</option>';
-  });
-  return html;
-}
-
-function scheduleAppendCreateGroupLessonRow(seed){
-  var box = el('ps-create-group-lessons');
-  if (!box) return;
-  seed = seed || {};
-  var dateFrom = el('ps-create-date-from') ? String(el('ps-create-date-from').value || '').slice(0, 10) : '';
-  var selectedCourse = '';
-  if (typeof schedulePortalGetSelectedCreateCourseId === 'function') {
-    selectedCourse = schedulePortalGetSelectedCreateCourseId() || '';
-  }
-  var date = seed.date || dateFrom;
-  var courseId = seed.course_id || selectedCourse;
-  var row = document.createElement('div');
-  row.className = 'portal-schedule-group-lesson-row';
-  row.innerHTML = ''
-    + '<div class="portal-schedule-create-field"><label>Date</label>'
-    + '<input type="date" data-group-lesson-date value="' + escHtml(date) + '"></div>'
-    + '<div class="portal-schedule-create-field"><label>Course</label>'
-    + '<select data-group-lesson-course>' + scheduleCreateGroupLessonCourseOptionsHtml(courseId) + '</select></div>'
-    + '<div class="portal-schedule-create-field"><label>Time</label>'
-    + '<select data-group-lesson-schedule>' + scheduleCreateGroupLessonScheduleOptionsHtml(courseId, seed.schedule_key || '') + '</select></div>'
-    + '<button type="button" class="btn btn-ghost portal-schedule-group-lesson-remove" data-group-lesson-remove aria-label="Remove lesson">\u2212</button>';
-  box.appendChild(row);
-  var courseSel = row.querySelector('[data-group-lesson-course]');
-  var schedSel = row.querySelector('[data-group-lesson-schedule]');
-  if (courseSel) {
-    courseSel.addEventListener('change', function(){
-      if (schedSel) schedSel.innerHTML = scheduleCreateGroupLessonScheduleOptionsHtml(courseSel.value, '');
-      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
-        schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
-      }
-      if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
-    });
-  }
-  row.querySelectorAll('input,select').forEach(function(node){
-    node.addEventListener('change', function(){
-      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
-        schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
-      }
-      if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
-    });
-  });
-  var rem = row.querySelector('[data-group-lesson-remove]');
-  if (rem) {
-    rem.addEventListener('click', function(){
-      if (box.querySelectorAll('.portal-schedule-group-lesson-row').length <= 1) return;
-      row.remove();
-      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
-        schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
-      }
-      if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
-    });
-  }
-}
-
-function scheduleSyncCreateGroupLessonsVisibility(){
-  var wrap = el('ps-create-group-lessons-wrap');
-  var box = el('ps-create-group-lessons');
-  if (!wrap || !box) return;
-  var groupOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
-  wrap.style.display = groupOn ? '' : 'none';
-  wrap.hidden = !groupOn;
-  wrap.setAttribute('aria-hidden', groupOn ? 'false' : 'true');
-  if (!groupOn) { box.innerHTML = ''; return; }
-  if (!box.querySelector('.portal-schedule-group-lesson-row')) {
-    scheduleAppendCreateGroupLessonRow({});
-  }
-}
-
-function scheduleWireCreateGroupLessons(){
-  var addBtn = el('ps-create-add-group-lesson');
-  if (addBtn && !addBtn.dataset.wired) {
-    addBtn.dataset.wired = '1';
-    addBtn.addEventListener('click', function(){
-      scheduleAppendCreateGroupLessonRow({});
-      if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
-        schedulePortalInvalidateCreateQuoteIntent({ softInvalid: true });
-      }
-    });
-  }
-  scheduleSyncCreateGroupLessonsVisibility();
 }
 
 // Full-day equipment add-on unit price (cents), set from admin config on drawer open. Never hard-coded.
@@ -25389,7 +25254,6 @@ function openScheduleCreateModal(context){
   if (typeof scheduleEnhanceIntSteppersIn === 'function') {
     scheduleEnhanceIntSteppersIn(modal);
   }
-  if (typeof scheduleWireCreateGroupLessons === 'function') scheduleWireCreateGroupLessons();
 }
 
 function scheduleUpdateCreateLessonExtras(){

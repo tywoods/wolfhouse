@@ -1253,39 +1253,91 @@ function normalizeComponents(body, allowEmpty) {
         if (offeringId) entry.offering_id = offeringId;
       }
       if (key === 'course') {
-        const courseId = String(part.course_id || '').trim();
-        if (!courseId) return { ok: false, error: 'components.course.course_id is required' };
-        entry.course_id = courseId;
         const { sanitizeCourseLabelForStorage } = require('./sunset-course-display-label');
-        entry.course_label = sanitizeCourseLabelForStorage(
-          courseId,
-          part.course_label || part.label || '',
-        );
         const { PACK_TIER_KEYS_READABLE, packPriceItemCode } = require('./sunset-admin-pack-rules');
-        let tierKey = '';
-        if (part.tier && part.tier.key != null) tierKey = String(part.tier.key).trim();
-        else if (part.tier_key != null) tierKey = String(part.tier_key).trim();
-        else if (part.duration_key != null) tierKey = String(part.duration_key).trim();
-        const offeringIdRaw = String(part.offering_id || '').trim();
-        // Prefer extracting the admin suffix from surf_pack_<id>__<tier> when
-        // the guest/staff selected the catalog offering_item_code.
-        if (!tierKey && /^surf_pack_.+__.+$/i.test(offeringIdRaw)) {
-          tierKey = offeringIdRaw.split('__').pop() || '';
+
+        function normalizeOneCourseIdentity(raw, idxPath) {
+          const courseId = String((raw && raw.course_id) || '').trim();
+          if (!courseId) {
+            return { ok: false, error: `${idxPath}.course_id is required` };
+          }
+          const row = {
+            course_id: courseId,
+            course_label: sanitizeCourseLabelForStorage(
+              courseId,
+              (raw && (raw.course_label || raw.label)) || '',
+            ),
+          };
+          let tierKey = '';
+          if (raw && raw.tier && raw.tier.key != null) tierKey = String(raw.tier.key).trim();
+          else if (raw && raw.tier_key != null) tierKey = String(raw.tier_key).trim();
+          else if (raw && raw.duration_key != null) tierKey = String(raw.duration_key).trim();
+          const offeringIdRaw = String((raw && raw.offering_id) || '').trim();
+          if (!tierKey && /^surf_pack_.+__.+$/i.test(offeringIdRaw)) {
+            tierKey = offeringIdRaw.split('__').pop() || '';
+          }
+          if (tierKey && !PACK_TIER_KEYS_READABLE.has(tierKey)) {
+            return { ok: false, error: `${idxPath}.tier_key invalid: ${tierKey}` };
+          }
+          if (!tierKey) {
+            return { ok: false, error: `${idxPath}.tier_key is required` };
+          }
+          row.tier_key = tierKey;
+          row.offering_id = packPriceItemCode(courseId, tierKey);
+          return { ok: true, value: row };
         }
-        // Readable set includes explicit legacy keys (1_week, single_class, …)
-        // so existing Admin rows still book; Admin UI only saves 1–7 day keys.
-        if (tierKey && !PACK_TIER_KEYS_READABLE.has(tierKey)) {
-          return { ok: false, error: `components.course.tier_key invalid: ${tierKey}` };
+
+        // Multi product buttons: selected_courses carries exact course IDs + tier identities.
+        const selectedRaw = Array.isArray(part.selected_courses) ? part.selected_courses : null;
+        if (selectedRaw && selectedRaw.length) {
+          const selected = [];
+          const seen = new Set();
+          for (let si = 0; si < selectedRaw.length; si += 1) {
+            const rawSc = selectedRaw[si];
+            // Reject client money on wire rows before identity normalize strips keys.
+            if (rawSc && typeof rawSc === 'object') {
+              for (const mk of Object.keys(rawSc)) {
+                if (MODEL_MONEY_FIELDS.has(String(mk).toLowerCase())) {
+                  return {
+                    ok: false,
+                    error: `components.course.selected_courses[${si}].${mk} must not be supplied by the client`,
+                  };
+                }
+              }
+            }
+            const one = normalizeOneCourseIdentity(
+              rawSc,
+              `components.course.selected_courses[${si}]`,
+            );
+            if (!one.ok) return one;
+            if (seen.has(one.value.course_id)) {
+              return {
+                ok: false,
+                error: `components.course.selected_courses duplicate course_id: ${one.value.course_id}`,
+              };
+            }
+            seen.add(one.value.course_id);
+            selected.push(one.value);
+          }
+          if (!selected.length) {
+            return { ok: false, error: 'components.course.selected_courses requires at least one course' };
+          }
+          // Primary mirrors first selected for single-course readers / legacy gates.
+          entry.course_id = selected[0].course_id;
+          entry.course_label = selected[0].course_label;
+          entry.tier_key = selected[0].tier_key;
+          entry.offering_id = selected[0].offering_id;
+          entry.selected_courses = selected;
+        } else {
+          const one = normalizeOneCourseIdentity(part, 'components.course');
+          if (!one.ok) return one;
+          entry.course_id = one.value.course_id;
+          entry.course_label = one.value.course_label;
+          entry.tier_key = one.value.tier_key;
+          entry.offering_id = one.value.offering_id;
+          // Always expose normalized single-course list for downstream multi-aware owners.
+          entry.selected_courses = [one.value];
         }
-        if (!tierKey) {
-          // Course bookings must resolve an exact Admin offering
-          // (surf_pack_<courseId>__<tier>). Never accept bare course_id.
-          return { ok: false, error: 'components.course.tier_key is required' };
-        }
-        entry.tier_key = tierKey;
-        // Canonical DB item_code — must match tenant_price_rules.item_code.
-        // Prefer server-derived identity over any browser-supplied offering_id.
-        entry.offering_id = packPriceItemCode(courseId, tierKey);
       }
       out[key] = entry;
     }
@@ -1769,15 +1821,24 @@ function validateScheduleBookingBody(body, opts) {
   }
 
   // Always echo canonical lessons (from wire or legacy expand) for readback/fingerprint.
+  // Multi product-button selected_courses (≥2) own course identity without Group lessons[] —
+  // do not invent a single-course lesson expand (would clobber multi persist/quote paths).
   let lessonsOut = null;
   if (lessonsNorm.present) {
     lessonsOut = lessonsNorm.lessons;
   } else if (forcedComps.course || forcedComps.private_lesson) {
-    const expandedBack = normalizeCanonicalLessons({
-      components: forcedComps,
-      service_dates: serviceDates.value,
-    });
-    if (expandedBack.ok && expandedBack.present) lessonsOut = expandedBack.lessons;
+    const multiSelectedCourses = forcedComps.course
+      && Array.isArray(forcedComps.course.selected_courses)
+      && forcedComps.course.selected_courses.length > 1;
+    if (multiSelectedCourses) {
+      lessonsOut = [];
+    } else {
+      const expandedBack = normalizeCanonicalLessons({
+        components: forcedComps,
+        service_dates: serviceDates.value,
+      });
+      if (expandedBack.ok && expandedBack.present) lessonsOut = expandedBack.lessons;
+    }
   }
 
   return {
@@ -2194,6 +2255,15 @@ function buildSchedulePricingIntent(input, opts) {
           row.offering_id = require('./sunset-admin-price-identity')
             .packPriceItemCode(row.course_id, row.tier_key);
         } catch (_) { /* incomplete → equality fails closed */ }
+      }
+      if (Array.isArray(part.selected_courses) && part.selected_courses.length) {
+        row.selected_courses = part.selected_courses.map((sc) => ({
+          course_id: String((sc && sc.course_id) || '').trim(),
+          tier_key: String((sc && sc.tier_key) || '').trim() || null,
+          offering_id: String((sc && sc.offering_id) || '').trim() || null,
+        })).filter((sc) => sc.course_id)
+          .sort((a, b) => a.course_id.localeCompare(b.course_id)
+            || String(a.tier_key || '').localeCompare(String(b.tier_key || '')));
       }
     }
     components[key] = row;
@@ -2710,11 +2780,18 @@ async function insertScheduleComponentServiceRows(pg, opts) {
   });
   const {
     lessonIdentity,
+    normalizeSelectedCourses,
   } = require('./sunset-schedule-lessons');
   const { packPriceItemCode } = require('./sunset-admin-price-identity');
   const groupLessons = Array.isArray(input.lessons)
     ? input.lessons.filter((l) => l && l.kind === 'group')
     : [];
+  const selectedCourses = input.components && input.components.course
+    ? normalizeSelectedCourses(input.components.course)
+    : [];
+  // Multi product-button selection (Create): one auditable course row per selected course.
+  // Prefer this over date-range expand when ≥2 selected courses and no Edit lessons[].
+  const useSelectedCoursesRows = selectedCourses.length > 1 && groupLessons.length === 0;
   // Always prefer one physical row per canonical group lesson when lessons[] owns identity.
   // Pack multi-date without schedule identity still expands via service_dates × course below
   // only when lessons[] is absent (legacy). When lessons[] is present, always one row each.
@@ -2763,7 +2840,68 @@ async function insertScheduleComponentServiceRows(pg, opts) {
     }
   }
 
-  if (useCanonicalGroupLessonRows) {
+  if (useSelectedCoursesRows) {
+    const surfers = input.surfer_count != null
+      ? Math.max(1, Number(input.surfer_count) || 1)
+      : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
+    const primaryDate = Array.isArray(input.service_dates) && input.service_dates.length
+      ? String(input.service_dates[0]).slice(0, 10)
+      : String(input.date_from || '').slice(0, 10);
+    for (const sc of selectedCourses) {
+      const courseId = String(sc.course_id || '').trim();
+      if (!courseId) continue;
+      const tierKey = String(sc.tier_key || '1_day').trim() || '1_day';
+      const assigned = (assignedCoursesById && assignedCoursesById[courseId])
+        || (assignedCourse && String(assignedCourse.course_id || assignedCourse.pack_id || '') === courseId
+          ? assignedCourse
+          : null)
+        || assignedCourse;
+      const pack = assigned && assigned.pack ? assigned.pack : null;
+      const courseLabel = sc.course_label
+        || (pack && pack.label)
+        || (assigned && assigned.course_label)
+        || courseId;
+      const offeringId = packPriceItemCode(courseId, tierKey);
+      const metadata = wrapMeta({
+        ...common(),
+        staff_ui_service_type: 'course',
+        component: 'course',
+        course_id: courseId,
+        course_label: courseLabel,
+        tier_key: tierKey,
+        offering_id: offeringId,
+        selected_course: true,
+        admin_course_assigned: !!assigned,
+        admin_pack_id: assigned ? (assigned.course_id || courseId) : undefined,
+        included_equipment: pack && pack.equipment_included === true ? true : undefined,
+        include_board: pack && pack.equipment_included === true ? true : undefined,
+        include_wetsuit: pack && pack.equipment_included === true ? true : undefined,
+        included_equipment_amount_cents: pack && pack.equipment_included === true ? 0 : undefined,
+      }, locationId);
+      const row = await insertServiceRecord(pg, [
+        clientSlug, bookingId, bookingCode, input.guest_name,
+        UI_TO_DB_SERVICE_TYPE.course, primaryDate, surfers,
+        srPayment, attribution.dbSource, JSON.stringify(metadata),
+      ]);
+      createdRows.push({ ...row, metadata });
+      if (pack && pack.equipment_included === true) {
+        for (const gearComponent of ['surfboard', 'wetsuit']) {
+          const gearMetadata = wrapMeta({
+            ...common(), staff_ui_service_type: gearComponent, component: gearComponent,
+            included_equipment: true, included_course_id: courseId,
+            included_course_service_date: primaryDate, price_basis: 'included_in_course',
+            unit_amount_cents: 0, amount_cents: 0,
+          }, locationId);
+          const gearRow = await insertServiceRecord(pg, [
+            clientSlug, bookingId, bookingCode, input.guest_name,
+            UI_TO_DB_SERVICE_TYPE[gearComponent], primaryDate, surfers,
+            srPayment, attribution.dbSource, JSON.stringify(gearMetadata),
+          ]);
+          createdRows.push({ ...gearRow, metadata: gearMetadata, amount_due_cents: 0 });
+        }
+      }
+    }
+  } else if (useCanonicalGroupLessonRows) {
     const surfers = input.surfer_count != null
       ? Math.max(1, Number(input.surfer_count) || 1)
       : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
@@ -2833,8 +2971,9 @@ async function insertScheduleComponentServiceRows(pg, opts) {
   for (const serviceDate of input.service_dates) {
     for (const componentKey of keys) {
       if (componentKey === 'private_lesson' || componentKey === FULL_DAY_EQUIPMENT_ADDON_KEY) continue;
-      // Canonical lessons own physical course rows — never also expand date-range course.
-      if (componentKey === 'course' && useCanonicalGroupLessonRows) continue;
+      // Canonical lessons / multi selected_courses own physical course rows —
+      // never also expand date-range course.
+      if (componentKey === 'course' && (useCanonicalGroupLessonRows || useSelectedCoursesRows)) continue;
       const part = input.components[componentKey];
       if (!part) continue;
       const metadata = wrapMeta({
@@ -3198,20 +3337,26 @@ async function createSunsetScheduleBooking(pg, opts) {
 
   // Course bookings must join an existing admin-configured surf pack — never mint
   // invented course_ids or arbitrary dates outside that pack's schedule/capacity.
-  // Multi-lesson sets assign every distinct course_id (not only the primary expand).
+  // Multi-lesson sets and multi selected_courses assign every distinct course_id.
   let assignedCourse = null;
   let assignedCoursesById = null;
   let coursePricePreflight = null;
   const {
     shouldPriceGroupLessonsIndividually,
+    normalizeSelectedCourses,
   } = require('./sunset-schedule-lessons');
   const groupLessonsForAssign = Array.isArray(input.lessons)
     ? input.lessons.filter((l) => l && l.kind === 'group')
     : [];
-  const multiCourseAssign = groupLessonsForAssign.length > 0
-    && shouldPriceGroupLessonsIndividually(groupLessonsForAssign);
+  const selectedCoursesForAssign = input.components && input.components.course
+    ? normalizeSelectedCourses(input.components.course)
+    : [];
+  const multiCourseAssign = (groupLessonsForAssign.length > 0
+    && shouldPriceGroupLessonsIndividually(groupLessonsForAssign))
+    || selectedCoursesForAssign.length > 1;
 
-  if (multiCourseAssign || (input.components.course && groupLessonsForAssign.length > 1)) {
+  if (multiCourseAssign || (input.components.course && groupLessonsForAssign.length > 1)
+    || selectedCoursesForAssign.length > 1) {
     const { assertCourseAssignable } = require('./sunset-admin-course-join');
     const { packPriceItemCode } = require('./sunset-admin-price-identity');
     const { resolveActiveSunsetAdminPrice, staffFacingSunsetAdminPriceError } = require('./sunset-admin-price-resolve');
@@ -3219,6 +3364,124 @@ async function createSunsetScheduleBooking(pg, opts) {
     const surfers = input.surfer_count != null
       ? Math.max(1, Number(input.surfer_count) || 1)
       : Math.max(1, Number(input.components.course && input.components.course.quantity) || 1);
+
+    // Product-button multi-course path (no Group lessons[]): each selected course
+    // resolves independently against the booking span dates + its own tier.
+    if (selectedCoursesForAssign.length > 1 && groupLessonsForAssign.length === 0) {
+      const spanDates = Array.isArray(input.service_dates) && input.service_dates.length
+        ? input.service_dates.map((d) => String(d).slice(0, 10)).filter(Boolean)
+        : [];
+      for (const sc of selectedCoursesForAssign) {
+        const courseId = String(sc.course_id || '').trim();
+        if (!courseId) continue;
+        const tierKey = String(sc.tier_key || '').trim();
+        if (!tierKey) {
+          return {
+            ok: false,
+            status: 400,
+            body: {
+              success: false,
+              error: 'components.course.selected_courses.tier_key is required',
+              reason_code: 'course_tier_required',
+              course_id: courseId,
+            },
+          };
+        }
+        const gate = await assertCourseAssignable(pg, {
+          clientSlug,
+          locationId,
+          courseId,
+          serviceDates: spanDates,
+          quantity: surfers,
+        });
+        if (!gate.ok) return gate;
+        assignedCoursesById[courseId] = gate;
+        if (!assignedCourse) assignedCourse = gate;
+        sc.offering_id = packPriceItemCode(courseId, tierKey);
+        const packTiers = ((gate.pack && gate.pack.price_tiers) || [])
+          .map((t) => String((t && t.key) || '').trim())
+          .filter(Boolean);
+        if (packTiers.length && !packTiers.includes(tierKey)) {
+          return {
+            ok: false,
+            status: 400,
+            body: {
+              success: false,
+              error: 'Select a course duration that belongs to the selected course.',
+              reason_code: 'course_tier_mismatch',
+              course_id: courseId,
+              tier_key: tierKey,
+            },
+          };
+        }
+        const lookupArgs = {
+          clientSlug,
+          locationId,
+          quantity: surfers,
+          metadata: {
+            component: 'course',
+            staff_ui_service_type: 'course',
+            course_id: courseId,
+            tier_key: tierKey,
+            offering_id: packPriceItemCode(courseId, tierKey),
+            location_id: locationId,
+          },
+          pgClient: pg,
+        };
+        let pre = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
+        if (!pre || pre.ok !== true) {
+          try {
+            const { syncPackTierToPriceRules } = require('./sunset-admin-price-sync');
+            const pack = gate.pack || {};
+            await syncPackTierToPriceRules(pg, {
+              clientSlug,
+              locationId,
+              packId: pack.pack_id || courseId,
+              packLabel: pack.label || 'Course',
+              tiers: pack.price_tiers || [],
+              actor: opts.actor || {},
+              skipTransaction: true,
+            });
+            pre = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
+          } catch (_) { /* keep original */ }
+        }
+        if (!pre || pre.ok !== true || !(pre.amount_cents > 0)) {
+          const faced = staffFacingSunsetAdminPriceError(
+            (pre && pre.reason) || 'no_price_for_surf_lesson',
+            pre && pre.identity,
+          );
+          return {
+            ok: false,
+            status: 422,
+            body: {
+              success: false,
+              error: faced.error,
+              reason_code: faced.reason_code,
+              detail: (pre && pre.reason) || 'price_not_configured',
+              course_id: courseId,
+              tier_key: tierKey,
+            },
+          };
+        }
+        coursePricePreflight = pre;
+      }
+      if (input.components.course && assignedCourse) {
+        if (!input.components.course.course_label
+          || input.components.course.course_label === input.components.course.course_id) {
+          input.components.course.course_label = assignedCourse.course_label
+            || input.components.course.course_label;
+        }
+        if (selectedCoursesForAssign[0]) {
+          input.components.course.course_id = selectedCoursesForAssign[0].course_id;
+          input.components.course.tier_key = selectedCoursesForAssign[0].tier_key;
+          input.components.course.offering_id = packPriceItemCode(
+            selectedCoursesForAssign[0].course_id,
+            selectedCoursesForAssign[0].tier_key,
+          );
+          input.components.course.selected_courses = selectedCoursesForAssign;
+        }
+      }
+    } else {
     const byCourse = new Map();
     for (const lesson of groupLessonsForAssign) {
       const cid = String(lesson.course_id || '').trim();
@@ -3331,6 +3594,7 @@ async function createSunsetScheduleBooking(pg, opts) {
         input.components.course.tier_key,
       );
     }
+    } // end lessons[] multi-course branch
   } else if (input.components.course) {
     const { assertCourseAssignable } = require('./sunset-admin-course-join');
     const gate = await assertCourseAssignable(pg, {
@@ -3546,6 +3810,10 @@ async function createSunsetScheduleBooking(pg, opts) {
           rentals: allRequestedRentals.length ? allRequestedRentals : null,
           custom_line_items: input.custom_line_items || [],
           lessons: Array.isArray(input.lessons) ? input.lessons : null,
+          selected_courses: input.components && input.components.course
+            && Array.isArray(input.components.course.selected_courses)
+            ? input.components.course.selected_courses
+            : null,
           idempotency_key: input.idempotency_key || null,
           idempotency_intent_fp: idempotencyIntentFp || null,
         }),
@@ -3601,6 +3869,10 @@ async function createSunsetScheduleBooking(pg, opts) {
       const groupLessonsCE = Array.isArray(input.lessons)
         ? input.lessons.filter((l) => l && l.kind === 'group')
         : [];
+      const { uniqueCalendarDates, normalizeSelectedCourses } = require('./sunset-schedule-lessons');
+      const selectedCoursesCE = input.components && input.components.course
+        ? normalizeSelectedCourses(input.components.course)
+        : [];
       let equipmentCourses = null;
       let equipmentCourse = null;
       let equipmentSurfers = null;
@@ -3609,9 +3881,10 @@ async function createSunsetScheduleBooking(pg, opts) {
         equipmentCourse = privateLessonConfig;
         equipmentSurfers = input.components.private_lesson.surfer_count;
         equipmentDates = (input.components.private_lesson.sessions || []).map((s) => s.date);
-      } else if (groupLessonsCE.length) {
-        const { uniqueCalendarDates } = require('./sunset-schedule-lessons');
-        const courseIds = [...new Set(groupLessonsCE.map((l) => String(l.course_id).trim()))];
+      } else if (groupLessonsCE.length || selectedCoursesCE.length > 1) {
+        const courseIds = groupLessonsCE.length
+          ? [...new Set(groupLessonsCE.map((l) => String(l.course_id).trim()).filter(Boolean))]
+          : selectedCoursesCE.map((sc) => String(sc.course_id).trim()).filter(Boolean);
         equipmentCourses = courseIds.map((cid) => {
           const assigned = (assignedCoursesById && assignedCoursesById[cid])
             || (assignedCourse && String(assignedCourse.course_id || '') === cid ? assignedCourse : null);
@@ -3645,7 +3918,9 @@ async function createSunsetScheduleBooking(pg, opts) {
         equipmentSurfers = input.surfer_count != null
           ? input.surfer_count
           : (input.components.course && input.components.course.quantity);
-        equipmentDates = uniqueCalendarDates(groupLessonsCE);
+        equipmentDates = groupLessonsCE.length
+          ? uniqueCalendarDates(groupLessonsCE)
+          : input.service_dates;
         equipmentCourse = equipmentCourses[0];
       } else {
         equipmentCourse = assignedCourse && assignedCourse.pack;
