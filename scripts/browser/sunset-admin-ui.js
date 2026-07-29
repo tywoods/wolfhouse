@@ -245,6 +245,12 @@ function adminEurosFromAmount(amount){
   if (!Number.isFinite(n)) return '';
   return n.toFixed(2);
 }
+/** Readout money: leading €, never trailing "EUR" (avoids wrap + keeps cards tidy). */
+function adminFormatEuroDisplay(amount){
+  var s = adminEurosFromAmount(amount);
+  if (!s) return '';
+  return '€' + s;
+}
 
 function adminParseEurosToCents(text){
   var normalized = String(text || '').trim().replace(',', '.');
@@ -590,7 +596,7 @@ function adminReadEquipmentOptions(root){
 function adminEquipmentCentsText(cents){
   var n = Number(cents);
   if (n === 0) return portalT('admin.courseEquipment.included');
-  return '€' + adminEurosFromAmount((Number.isFinite(n) ? n : 0) / 100);
+  return adminFormatEuroDisplay((Number.isFinite(n) ? n : 0) / 100);
 }
 /** Active catalog label, else stored key for historical/unavailable items. */
 function adminEquipmentLabelForKey(key){
@@ -755,7 +761,7 @@ function adminRenderPackTierReadout(tiers){
   (tiers || []).filter(function(t){
     return t && ADMIN_CANONICAL_PACK_TIER_KEYS[String(t.key || '').trim()];
   }).forEach(function(t){
-    html += '<div class="portal-admin-pack-tier-row"><span>' + escHtml(t.label || t.key) + '</span><strong>' + escHtml(adminEurosFromAmount((t.amount_cents != null ? t.amount_cents : 0) / 100) + ' EUR ' + portalT('admin.packs.perStudent')) + '</strong></div>';
+    html += '<div class="portal-admin-pack-tier-row"><span>' + escHtml(t.label || t.key) + '</span><strong>' + escHtml(adminFormatEuroDisplay((t.amount_cents != null ? t.amount_cents : 0) / 100) + ' ' + portalT('admin.packs.perStudent')) + '</strong></div>';
   });
   return html + '</div>';
 }
@@ -1177,7 +1183,7 @@ function renderAdminSectionPricesFromConfig(cfg){
             escHtml(r.pid) + '">' + escHtml(portalT('admin.action.save')) + '</button>';
         } else {
           html += '<div class="portal-admin-price-card-readout"><span class="portal-admin-price-period">' + escHtml(r.duration_label) + '</span>' +
-            '<span class="portal-admin-price-amount">' + escHtml(euros + ' EUR') + '</span></div>';
+            '<span class="portal-admin-price-amount">' + escHtml((euros ? ('€' + euros) : '')) + '</span></div>';
         }
         html += '</article>';
       });
@@ -1292,7 +1298,7 @@ function renderAdminLessonCards(slots, cfg, writes, defaultCap){
     var fields = adminResolveLessonSlotFields(s);
     var capText = s.capacity != null ? String(s.capacity) : String(defaultCap);
     var duration = adminSlotDurationLabel(s.slot_time);
-    var costText = fields.price_amount != null ? (adminEurosFromAmount(fields.price_amount) + ' ' + (s.price_currency || 'EUR')) : '—';
+    var costText = fields.price_amount != null ? adminFormatEuroDisplay(fields.price_amount) : '—';
     html += '<article class="portal-admin-lesson-card" data-admin-lesson-card="' + escHtml(sid) + '">';
     html += '<div class="portal-admin-card-title-row"><div><div class="portal-admin-lesson-title">' + escHtml(label) + '</div>' +
       '<div class="portal-admin-lesson-meta">' + escHtml(adminLessonFrequencyLabel(fields.frequency)) + '</div></div>';
@@ -1382,7 +1388,7 @@ function renderAdminPrivateLessonEditForm(pl){
 function renderAdminPrivateLessonReadout(pl){
   var p = pl || {};
   // Enabled lives only in the edit form (✎) — keep the card tidy for day-to-day reading.
-  var priceText = adminEurosFromAmount((p.amount_cents || 0) / 100) + ' ' + (p.currency || 'EUR') +
+  var priceText = adminFormatEuroDisplay((p.amount_cents || 0) / 100) +
     ' · ' + portalT('admin.privateLessons.perSession');
   var durationText = String(p.default_duration_minutes != null ? p.default_duration_minutes : 120) + ' ' + portalT('admin.privateLessons.minutes');
   var html = '<div class="portal-admin-lesson-facts">' +
