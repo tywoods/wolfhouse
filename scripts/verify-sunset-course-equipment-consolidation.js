@@ -65,7 +65,11 @@ assert.deepStrictEqual(pricing.validateConfig(legacyShape), legacyShape);
 const ui = fs.readFileSync(require.resolve('./browser/sunset-admin-ui'), 'utf8');
 assert(ui.includes('equipment_options'));
 assert(ui.includes('adminRenderEquipmentEditor'));
-assert(ui.includes('admin-course-all-day-enabled'));
+// Location-wide All Day Surfboard/Wetsuit Admin block is retired (Slice 1).
+assert(!ui.includes('admin-course-all-day-enabled'));
+assert(!ui.includes('admin-course-all-day-board'));
+assert(!ui.includes('admin-course-all-day-suit'));
+assert(!ui.includes('save-course-equipment'));
 assert(!ui.includes('admin-course-during-board'));
 assert(!ui.includes('admin-course-equipment-policy'));
 assert(ui.includes('adminParseEurosToCents'));

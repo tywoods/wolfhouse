@@ -27,11 +27,15 @@ const listen=s=>new Promise((r,j)=>{s.once('error',j);s.listen(0,'127.0.0.1',()=
  await page.route('**/staff/admin/config/surf-packs/verify-demo-pack?**',r=>{const b=JSON.parse(r.request().postData());packWrites.push(b);pack={...pack,...b};return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({success:true,surf_pack:pack})});});
  await page.route('**/staff/admin/config/private-lesson?**',r=>{const b=JSON.parse(r.request().postData());privateWrites.push(b);privateLesson={...privateLesson,...b};return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({success:true,private_lesson:privateLesson})});});
  try{
-  await page.goto(base+'/staff/ui');await page.waitForFunction(()=>document.querySelector('#c-client')?.value==='sunset');await page.locator('button[data-tab="admin"]').click();await page.locator('#admin-tab-pricing').click();await page.locator('#admin-course-equipment-title').waitFor();
-  assert.strictEqual((await page.locator('#admin-course-equipment-title').textContent()).trim(),'Equipment + Price');
+  await page.goto(base+'/staff/ui');await page.waitForFunction(()=>document.querySelector('#c-client')?.value==='sunset');await page.locator('button[data-tab="admin"]').click();await page.locator('#admin-tab-pricing').click();
+  // ── Location-wide Equipment + Price block retired ──
+  assert.strictEqual(await page.locator('#admin-course-equipment-title').count(),0,'global Equipment + Price title removed');
+  assert.strictEqual(await page.locator('[data-admin-course-equipment]').count(),0,'global course equipment section removed');
+  assert.strictEqual(await page.locator('[data-admin-action="save-course-equipment"]').count(),0,'global save action removed');
 
   // ── Read-only Group / Private card Equipment section ──
   const packCard=page.locator('[data-admin-pack-card="verify-demo-pack"]');
+  await packCard.waitFor();
   const privateCard=page.locator('[data-admin-private-lesson-card]');
   const packEq=packCard.locator('[data-admin-equipment-readout]');
   const privEq=privateCard.locator('[data-admin-equipment-readout]');

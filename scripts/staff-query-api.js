@@ -397,7 +397,6 @@ const {
   putPrivateLessonRule,
 } = require('./lib/sunset-admin-private-lesson-rules');
 const sunsetAdminLocationStore = require('./lib/sunset-admin-location-store');
-const { validateConfig: validateCourseEquipmentPricing } = require('./lib/sunset-course-equipment-pricing');
 const {
   SUNSET_CLIENT_SLUG,
   validateScheduleBookingBody,
@@ -38679,7 +38678,11 @@ async function handleAdminConfig(query, res, user) {
 
   const writesOn = isSunsetAdminWritesEnabled() && adminWritesGate(clientSlug);
   const { ok, ...payload } = resolved;
-  payload.course_equipment_pricing = sunsetAdminLocationStore.getCourseEquipmentPricing(locationId);
+  // Location-wide course_equipment_pricing is retired as Admin authority.
+  // Course equipment money lives on each Group/Private equipment_options.
+  if (Object.prototype.hasOwnProperty.call(payload, 'course_equipment_pricing')) {
+    delete payload.course_equipment_pricing;
+  }
   return sendJSON(res, 200, {
     success: true,
     ...payload,
@@ -39669,36 +39672,6 @@ async function handleAdminConfigLessonCapacityPut(query, req, res, user) {
   } catch (err) {
     console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
     return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
-  }
-}
-
-async function handleAdminConfigCourseEquipmentPatch(query, req, res, user) {
-  const clientSlug = String(query.client || DEFAULT_CLIENT).trim();
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
-  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
-  // This write never guesses a location: an absent/foreign identifier must not land in Somo.
-  if (!isSunsetLocationId(query.location)) return sendJSON(res, 400, { success: false, error: 'invalid_location' });
-  let body;
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
-  let canonical;
-  try { canonical = validateCourseEquipmentPricing(body); } catch (_) {
-    return sendJSON(res, 400, { success: false, error: 'invalid_course_equipment_pricing' });
-  }
-  try {
-    const locationId = normalizeSunsetLocationId(query.location);
-    const saved = sunsetAdminLocationStore.putCourseEquipmentPricing(locationId, canonical);
-    try {
-      sunsetAdminLocationStore.appendLocationAudit(locationId, {
-        action: 'update', entity_type: 'course_equipment_pricing', entity_id: locationId,
-        actor_email: user && user.email || 'unknown', after_json: saved,
-      });
-    } catch (auditErr) { console.error('[admin.config.course_equipment] audit failed:', auditErr && auditErr.message); }
-    return sendJSON(res, 200, { success: true, location_id: locationId, course_equipment_pricing: saved });
-  } catch (err) {
-    console.error('[admin.config.course_equipment] write failed:', err && err.message);
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
   }
 }
 
@@ -47175,10 +47148,14 @@ async function router(req, res) {
     return handleAdminConfigLessonCapacityPut(parsed.query, req, res, auth.user);
   }
 
+  // Retired: location-wide course equipment pricing is no longer an Admin write authority.
+  // Course equipment is configured per Group/Private card via equipment_options.
   if (pathname === '/staff/admin/config/course-equipment' && method === 'PATCH') {
-    const auth = await requireAuth(req, res, 'admin');
-    if (!auth.ok) return;
-    return handleAdminConfigCourseEquipmentPatch(parsed.query, req, res, auth.user);
+    return sendJSON(res, 410, {
+      success: false,
+      error: 'course_equipment_pricing_retired',
+      message: 'Location-wide course equipment pricing is retired. Configure equipment on each Group/Private course.',
+    });
   }
 
   if (pathname === '/staff/admin/config/private-lesson' && method === 'PUT') {
