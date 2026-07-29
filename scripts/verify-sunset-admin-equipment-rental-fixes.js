@@ -207,7 +207,12 @@ async function main() {
   console.log('\n[B] Course equipment selector authority (active only + historical fallback)');
   assert(
     'adminEquipmentOfferings filters active !== false',
-    /function adminEquipmentOfferings\(\)\{[^}]*active !== false/.test(adminUi),
+    /function adminEquipmentOfferings\(\)\{[\s\S]*?active === false[\s\S]*?\}/.test(adminUi)
+      || /function adminEquipmentOfferings\(\)\{[^}]*active !== false/.test(adminUi),
+  );
+  assert(
+    'adminEquipmentOfferings also requires active positive price',
+    /function adminEquipmentOfferings\(\)\{[\s\S]*?adminOfferingHasActivePositivePrice/.test(adminUi),
   );
   assert(
     'historical disabled selected fallback option present',

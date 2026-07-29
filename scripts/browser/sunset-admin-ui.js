@@ -293,7 +293,7 @@ function adminReloadConfigKeepingEdit(keepTarget){
   // try/catch around sync fetch throw: direct throw bypasses promise catch/finally and
   // would leave this token owning busy forever. Owning sync failure must release.
   try {
-    fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+    fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
       .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
       .then(function(data){
         var gate = adminReloadKeepingEditOwnership(loadSeq, originSchoolKey, originEditTarget);
@@ -303,7 +303,7 @@ function adminReloadConfigKeepingEdit(keepTarget){
         }
         if (!data || data.success !== true) return Promise.reject(new Error('load failed'));
         // Refresh rental offerings (incl. inactive) so course dropdown + Enabled state stay authoritative.
-        return fetch('/staff/admin/config/rental-offerings' + adminClientQuery() + '&include_inactive=true', { credentials:'same-origin', headers:{Accept:'application/json'} })
+        return fetch('/staff/admin/config/rental-offerings' + adminClientQuery() + '&include_inactive=true&_ts=' + Date.now(), { credentials:'same-origin', cache:'no-store', headers:{Accept:'application/json'} })
           .then(function(r){ return r.ok ? r.json() : { offerings: [] }; }).catch(function(){ return { offerings: [] }; })
           .then(function(catalog){
             var gate2 = adminReloadKeepingEditOwnership(loadSeq, originSchoolKey, originEditTarget);
@@ -499,7 +499,53 @@ function adminDefaultPackSeed(){
   return { label: portalT('admin.packs.defaultName'), equipment_options: [], age_band: d.age_band, group_size: d.group_size, beaches: d.beaches.slice(), weekly: d.weekly, schedules: d.schedules.slice(), price_tiers: d.price_tiers.map(function(t){ return Object.assign({}, t); }) };
 }
 
-function adminEquipmentOfferings(){ return (adminConfigCache && adminConfigCache._equipment_offerings || adminConfigCache && adminConfigCache.rental_offerings || []).filter(function(o){ return o && o.active !== false; }); }
+/**
+ * Exact offering ownership for a price row: canonical key is the segment before
+ * the first `__` in item_code/offering_key. Never unescaped LIKE.
+ */
+function adminPriceOfferingKey(p){
+  var code = String((p && (p.item_code != null ? p.item_code : p.offering_key)) || '').trim();
+  if (!code) return '';
+  return code.split('__')[0];
+}
+
+/**
+ * True when cfg prices contain at least one active positive rental price for
+ * the exact offering key (dead/empty = no such row).
+ */
+function adminOfferingHasActivePositivePrice(offeringKey, cfg){
+  var key = String(offeringKey || '').trim();
+  if (!key) return false;
+  var prices = (cfg && cfg.prices) || (adminConfigCache && adminConfigCache.prices) || [];
+  for (var i = 0; i < prices.length; i++){
+    var p = prices[i];
+    if (!p) continue;
+    var cat = String(p.category || p.item_type || '').toLowerCase();
+    if (cat && cat !== 'rental') continue;
+    if (p.active === false) continue;
+    var amt = p.amount_cents != null ? Number(p.amount_cents) : NaN;
+    if (!(amt > 0)) continue;
+    if (adminPriceOfferingKey(p) === key) return true;
+  }
+  return false;
+}
+
+/** Dead/empty rental: no active positive price rows for exact offering identity. */
+function adminIsDeadEmptyRental(offeringKey, cfg){
+  return !adminOfferingHasActivePositivePrice(offeringKey, cfg);
+}
+
+/**
+ * Course dropdown catalog: active/enabled offering identity AND at least one
+ * active positive tenant/location rental price for that exact key.
+ * Dead/unpriced/zero/inactive-price/disabled offerings are absent.
+ */
+function adminEquipmentOfferings(){
+  return (adminConfigCache && adminConfigCache._equipment_offerings || adminConfigCache && adminConfigCache.rental_offerings || []).filter(function(o){
+    if (!o || o.active === false) return false;
+    return adminOfferingHasActivePositivePrice(o.offering_key, adminConfigCache);
+  });
+}
 function adminAllEquipmentOfferings(){ return (adminConfigCache && adminConfigCache._equipment_offerings || adminConfigCache && adminConfigCache.rental_offerings || []).filter(function(o){ return !!o; }); }
 function adminEquipmentRowsHtml(rows){
   var active=adminEquipmentOfferings(), selected={};
@@ -1020,9 +1066,11 @@ function renderAdminSectionPricesFromConfig(cfg){
   items.forEach(function(item){
     var key = item.offering_key;
     var itemActive = item.active !== false;
+    var isDeadEmpty = adminIsDeadEmptyRental(key, cfg);
     var editing = writes && adminEditTarget === ('equip:' + key);
     var adding = writes && adminEditTarget === ('equip-add-price:' + key);
-    html += '<div class="portal-admin-subsection' + (itemActive ? '' : ' is-equip-disabled') + '" data-admin-equip="' + escHtml(key) + '" data-equip-active="' + (itemActive ? '1' : '0') + '">';
+    html += '<div class="portal-admin-subsection' + (itemActive ? '' : ' is-equip-disabled') + '" data-admin-equip="' + escHtml(key) + '" data-equip-active="' + (itemActive ? '1' : '0') + '"' +
+      (isDeadEmpty ? ' data-equip-dead="1"' : '') + '>';
     html += '<div class="portal-admin-subsection-title-row portal-admin-equip-header">';
     html += '<div class="portal-admin-subsection-title-group">';
     html += '<h3 class="portal-admin-subsection-title">' + escHtml(item.label) + '</h3>';
@@ -1045,6 +1093,13 @@ function renderAdminSectionPricesFromConfig(cfg){
         if (!adding && itemActive){
           html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-equip-price" data-equip-key="' +
             escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button>';
+        }
+        // Dead/empty active identities: clear "Delete rental" soft-delete (not duration ×).
+        // Already-disabled historical items stay visible but do not offer Delete again.
+        if (isDeadEmpty && itemActive){
+          html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-danger portal-admin-touch" data-admin-action="delete-rental-offering" data-equip-key="' +
+            escHtml(key) + '" aria-label="' + escHtml(portalT('admin.prices.deleteRental')) + '">' +
+            escHtml(portalT('admin.prices.deleteRental')) + '</button>';
         }
       } else {
         // Done stays in item header (not detached under the price grid).
@@ -1687,14 +1742,14 @@ function loadAdminTab(opts){
   // try/catch: synchronous fetch throw bypasses Promise.race .catch and would leave
   // this load owning busy permanently. Only the owning token may release.
   try {
-    var request = fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+    var request = fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
       .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); });
     Promise.race([request, timeout])
       .then(function(data){
         clearAdminLoadTimeout();
         if (loadSeq !== adminLoadSeq) return;
         if (!data || data.success !== true) return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
-        return fetch('/staff/admin/config/rental-offerings' + adminClientQuery() + '&include_inactive=true', { credentials:'same-origin', headers:{Accept:'application/json'} })
+        return fetch('/staff/admin/config/rental-offerings' + adminClientQuery() + '&include_inactive=true&_ts=' + Date.now(), { credentials:'same-origin', cache:'no-store', headers:{Accept:'application/json'} })
           .then(function(r){return r.ok?r.json():{offerings:[]};}).catch(function(){return {offerings:[]};})
           .then(function(catalog){
         data._equipment_offerings = catalog && Array.isArray(catalog.offerings) ? catalog.offerings : (data.rental_offerings || []);
@@ -1812,8 +1867,44 @@ function wireAdminTab(){
       if (tierRow && tierRow.parentNode) tierRow.parentNode.removeChild(tierRow);
       return;
     }
-    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'toggle-group-availability' || action === 'toggle-equip-enabled' || action === 'add-equipment' || action === 'edit-equipment' || action === 'add-equip-price' || action === 'save-new-equipment' || action === 'save-price-amount'){
+    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'delete-rental-offering' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'toggle-group-availability' || action === 'toggle-equip-enabled' || action === 'add-equipment' || action === 'edit-equipment' || action === 'add-equip-price' || action === 'save-new-equipment' || action === 'save-price-amount'){
       if (!adminCfgWritesEnabled(cfg)) return;
+    }
+    if (action === 'delete-rental-offering'){
+      var delEquipKey = String(btn.getAttribute('data-equip-key') || '').trim();
+      if (!delEquipKey){ adminShowMessage('error', portalT('admin.edit.saveFailed')); return; }
+      // Only dead/empty identities — never confuse with duration-price × remove.
+      if (!adminIsDeadEmptyRental(delEquipKey, cfg)){
+        adminShowMessage('error', portalT('admin.prices.cannotDeletePriced') || portalT('admin.edit.saveFailed'));
+        return;
+      }
+      if (!window.confirm(portalT('admin.prices.deleteRentalConfirm'))) return;
+      var delEquipOpSeq = adminBeginOp();
+      adminShowMessage('', '');
+      try {
+        adminApiRequest('DELETE', '/staff/admin/config/rental-offerings/' + encodeURIComponent(delEquipKey) + adminClientQuery(), {})
+        .then(function(res){
+          if (!adminOpStillOwns(delEquipOpSeq)) return;
+          if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminReleaseBusy(delEquipOpSeq);
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminShowMessage('success', portalT('admin.prices.deletedRental') || portalT('admin.edit.savedPrice'));
+          adminReleaseBusy(delEquipOpSeq);
+          // Fresh config + offering catalog so course dropdowns drop this key immediately.
+          adminReloadConfig();
+        }).catch(function(err){
+          if (!adminOpStillOwns(delEquipOpSeq)) return;
+          adminReleaseBusy(delEquipOpSeq);
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(delEquipOpSeq)) return;
+        adminReleaseBusy(delEquipOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
+      return;
     }
     if (action === 'toggle-equip-enabled'){
       var toggleEquipKey = String(btn.getAttribute('data-equip-key') || '').trim();
