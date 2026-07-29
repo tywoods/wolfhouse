@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * Stage 4A — course-owned multi-item equipment quote authority.
- * Exercises real luna-front-desk-quote-service Group + Private paths
- * (offering_id + components/schedule) — not helper-only pricing.
+ * Course-owned multi-item equipment quote authority.
+ * Independent During/All Day totals × quantity × unique course dates.
+ * Exercises real luna-front-desk-quote-service Group + Private paths.
  */
 
 const assert = require('assert');
@@ -40,16 +40,17 @@ const RENTALS_SARDINERO = RENTALS_SOMO.map((row) => ({
       : row.location_id,
 }));
 
+// Independent totals (canonical). softboard During €5 / All Day €10.
 const SOMO_OPTIONS = [
-  { offering_key: 'softboard', equipment_price_cents: 500, all_day_surcharge_cents: 1000 },
-  { offering_key: 'carbon_fins', equipment_price_cents: 200, all_day_surcharge_cents: 0 },
-  { offering_key: 'same_label_a', equipment_price_cents: 111, all_day_surcharge_cents: 0 },
-  { offering_key: 'same_label_b', equipment_price_cents: 222, all_day_surcharge_cents: 0 },
-  { offering_key: 'no_price_row', equipment_price_cents: 333, all_day_surcharge_cents: 0 },
+  { offering_key: 'softboard', during_course_price_cents: 500, all_day_price_cents: 1000 },
+  { offering_key: 'carbon_fins', during_course_price_cents: 200, all_day_price_cents: 0 },
+  { offering_key: 'same_label_a', during_course_price_cents: 111, all_day_price_cents: 0 },
+  { offering_key: 'same_label_b', during_course_price_cents: 222, all_day_price_cents: 0 },
+  { offering_key: 'no_price_row', during_course_price_cents: 333, all_day_price_cents: 0 },
 ];
 const SARDINERO_OPTIONS = [
-  { offering_key: 'softboard', equipment_price_cents: 700, all_day_surcharge_cents: 300 },
-  { offering_key: 'carbon_fins', equipment_price_cents: 250, all_day_surcharge_cents: 50 },
+  { offering_key: 'softboard', during_course_price_cents: 700, all_day_price_cents: 1000 },
+  { offering_key: 'carbon_fins', during_course_price_cents: 250, all_day_price_cents: 50 },
 ];
 
 function adminCfg(locationId, opts = {}) {
@@ -144,14 +145,14 @@ function assertLineShape(line, expected) {
   assert.strictEqual(line.label, expected.label);
   assert.strictEqual(line.course_equipment_mode, expected.mode);
   assert.strictEqual(line.quantity, expected.quantity);
-  assert.strictEqual(line.base_unit_cents, expected.base);
-  assert.strictEqual(line.all_day_surcharge_unit_cents, expected.surcharge);
-  assert.strictEqual(line.unit_amount_cents, expected.base + (expected.mode === 'all_day' ? expected.surcharge : 0));
-  assert.strictEqual(line.total_cents, line.unit_amount_cents * expected.quantity);
-  assert.strictEqual(line.billing_unit, 'person_per_course');
+  assert.strictEqual(line.unit_amount_cents, expected.unit);
+  assert.strictEqual(line.during_course_price_cents, expected.during);
+  assert.strictEqual(line.all_day_price_cents, expected.allDay);
+  assert.strictEqual(line.date_count, expected.dateCount);
+  assert.strictEqual(line.total_cents, expected.unit * expected.quantity * expected.dateCount);
+  assert.strictEqual(line.billing_unit, 'person_per_course_date');
   assert.ok(!('component' in line) || !['surfboard', 'wetsuit'].includes(line.component),
     'must not hardcode Surfboard/Wetsuit components');
-  assert.ok(!line.service_date, 'must not charge per course day');
 }
 
 // ── Group components (schedule quote path) ──────────────────────────
@@ -162,20 +163,20 @@ function assertLineShape(line, expected) {
   ];
   const result = quote(groupComponentsBody(selection, 4), 'sunset-somo');
   assert.equal(result.ok, true, JSON.stringify(result.body));
-  // Group 2-day unit × 4 surfers + equipment once (not × days): 16000 + 2*500 + 1*(200+0)
-  assert.strictEqual(result.body.total_cents, 16000 + 1000 + 200, JSON.stringify(result.body));
+  // Group 2-day unit × 4 + softboard 2×500×2 + carbon 1×0×2
+  assert.strictEqual(result.body.total_cents, 16000 + 2000 + 0, JSON.stringify(result.body));
   const lines = equipmentLines(result.body);
   assert.strictEqual(lines.length, 2);
   assertLineShape(lines.find((l) => l.offering_key === 'softboard'), {
-    offering_key: 'softboard', label: 'Softboard', mode: 'during_course', quantity: 2, base: 500, surcharge: 1000,
+    offering_key: 'softboard', label: 'Softboard', mode: 'during_course', quantity: 2,
+    unit: 500, during: 500, allDay: 1000, dateCount: 2,
   });
   assertLineShape(lines.find((l) => l.offering_key === 'carbon_fins'), {
-    offering_key: 'carbon_fins', label: 'Carbon Fins', mode: 'all_day', quantity: 1, base: 200, surcharge: 0,
+    offering_key: 'carbon_fins', label: 'Carbon Fins', mode: 'all_day', quantity: 1,
+    unit: 0, during: 200, allDay: 0, dateCount: 2,
   });
   assert.deepStrictEqual(result.body.course_equipment, selection);
   assert.deepStrictEqual(result.body.quote_provenance.course_equipment, selection);
-  // Multi-day booking must not multiply equipment by day count.
-  assert.ok(lines.every((l) => !l.service_date));
   assert.ok(!JSON.stringify(result.body).includes('equipment_included'));
   assert.ok(!/admin_location_course_equipment|shared location|Surfboard|Wetsuit/.test(
     lines.map((l) => `${l.price_source}|${l.label}|${l.component || ''}`).join('|'),
@@ -191,15 +192,15 @@ function assertLineShape(line, expected) {
   assert.strictEqual(result.body.total_cents, GROUP_UNIT * 2);
 }
 
-// Quantities 1 / 2 / 4 + 0 surcharge always selectable
+// Quantities 1 / 2 / 4 + 0 all-day price always selectable
 {
   for (const qty of [1, 2, 4]) {
     const selection = [{ offering_key: 'carbon_fins', mode: 'all_day', quantity: qty }];
     const result = quote(groupComponentsBody(selection, 4), 'sunset-somo');
     assert.equal(result.ok, true, JSON.stringify(result.body));
     const line = equipmentLines(result.body)[0];
-    assert.strictEqual(line.total_cents, qty * 200);
-    assert.strictEqual(line.all_day_surcharge_unit_cents, 0);
+    assert.strictEqual(line.total_cents, 0);
+    assert.strictEqual(line.all_day_price_cents, 0);
   }
 }
 
@@ -212,8 +213,9 @@ function assertLineShape(line, expected) {
   const result = quote(groupComponentsBody(selection, 2), 'sunset-somo');
   assert.equal(result.ok, true, JSON.stringify(result.body));
   const lines = equipmentLines(result.body);
-  assert.strictEqual(lines.find((l) => l.offering_key === 'same_label_a').total_cents, 111);
-  assert.strictEqual(lines.find((l) => l.offering_key === 'same_label_b').total_cents, 222);
+  // × 2 service dates
+  assert.strictEqual(lines.find((l) => l.offering_key === 'same_label_a').total_cents, 222);
+  assert.strictEqual(lines.find((l) => l.offering_key === 'same_label_b').total_cents, 444);
   assert.strictEqual(lines[0].label, 'Twin Label');
   assert.strictEqual(lines[1].label, 'Twin Label');
 }
@@ -223,7 +225,7 @@ function assertLineShape(line, expected) {
   const selection = [{ offering_key: 'no_price_row', mode: 'during_course', quantity: 1 }];
   const result = quote(groupComponentsBody(selection, 1), 'sunset-somo');
   assert.equal(result.ok, true, JSON.stringify(result.body));
-  assert.strictEqual(equipmentLines(result.body)[0].total_cents, 333);
+  assert.strictEqual(equipmentLines(result.body)[0].total_cents, 666); // 333 × 2 dates
 }
 
 // Fail closed: duplicate / empty / invalid mode / qty / not configured / inactive / foreign
@@ -252,12 +254,12 @@ function assertLineShape(line, expected) {
   const cfg = adminCfg('sunset-somo', {
     groupOptions: [{
       offering_key: 'softboard',
-      equipment_price_cents: Number.MAX_SAFE_INTEGER,
-      all_day_surcharge_cents: 1,
+      during_course_price_cents: 1,
+      all_day_price_cents: Number.MAX_SAFE_INTEGER,
     }],
   });
   const result = quote(
-    groupComponentsBody([{ offering_key: 'softboard', mode: 'all_day', quantity: 1 }], 1),
+    groupComponentsBody([{ offering_key: 'softboard', mode: 'all_day', quantity: 2 }], 2),
     'sunset-somo',
     QUOTE_CHANNELS.MANUAL_STAFF,
     cfg,
@@ -273,9 +275,11 @@ function assertLineShape(line, expected) {
   const sard = quote(groupComponentsBody(selection, 1), 'sunset-sardinero');
   assert.equal(somo.ok, true, JSON.stringify(somo.body));
   assert.equal(sard.ok, true, JSON.stringify(sard.body));
-  assert.strictEqual(equipmentLines(somo.body)[0].total_cents, 1500);
-  assert.strictEqual(equipmentLines(sard.body)[0].total_cents, 1000);
-  assert.notEqual(equipmentLines(somo.body)[0].total_cents, equipmentLines(sard.body)[0].total_cents);
+  // × 2 dates: somo 1000×1×2=2000; sard 1000×1×2=2000 (same all-day, different during)
+  assert.strictEqual(equipmentLines(somo.body)[0].total_cents, 2000);
+  assert.strictEqual(equipmentLines(sard.body)[0].total_cents, 2000);
+  assert.strictEqual(equipmentLines(somo.body)[0].during_course_price_cents, 500);
+  assert.strictEqual(equipmentLines(sard.body)[0].during_course_price_cents, 700);
 }
 
 // Never trust client cents / labels
@@ -284,7 +288,7 @@ function assertLineShape(line, expected) {
     offering_key: 'softboard',
     mode: 'during_course',
     quantity: 1,
-    equipment_price_cents: 1,
+    during_course_price_cents: 1,
     label: 'Client Lie',
     total_cents: 1,
   }];
@@ -300,12 +304,13 @@ function assertLineShape(line, expected) {
   ];
   const result = quote(privateComponentsBody(selection, 3), 'sunset-somo');
   assert.equal(result.ok, true, JSON.stringify(result.body));
-  // private unit × 3 surfers + 2*500 + 3*200
-  assert.strictEqual(result.body.total_cents, PRIVATE_UNIT * 3 + 1000 + 600, JSON.stringify(result.body));
+  // private unit × 3 + softboard 2×500×1 + carbon 3×0×1
+  assert.strictEqual(result.body.total_cents, PRIVATE_UNIT * 3 + 1000 + 0, JSON.stringify(result.body));
   const lines = equipmentLines(result.body);
   assert.strictEqual(lines.length, 2);
   assertLineShape(lines.find((l) => l.offering_key === 'softboard'), {
-    offering_key: 'softboard', label: 'Softboard', mode: 'during_course', quantity: 2, base: 500, surcharge: 1000,
+    offering_key: 'softboard', label: 'Softboard', mode: 'during_course', quantity: 2,
+    unit: 500, during: 500, allDay: 1000, dateCount: 1,
   });
   assert.deepStrictEqual(result.body.course_equipment, selection);
 }
@@ -321,9 +326,9 @@ function assertLineShape(line, expected) {
     course_equipment: selection,
   }, 'sunset-somo', QUOTE_CHANNELS.LUNA_WHATSAPP);
   assert.equal(groupOffering.ok, true, JSON.stringify(groupOffering.body));
-  // once per course: 2 * 1500 equipment, not ×2 days
-  assert.strictEqual(equipmentLines(groupOffering.body)[0].total_cents, 3000);
-  assert.strictEqual(groupOffering.body.total_cents, GROUP_UNIT * 2 + 3000);
+  // 2 × 1000 × 2 dates = 4000
+  assert.strictEqual(equipmentLines(groupOffering.body)[0].total_cents, 4000);
+  assert.strictEqual(groupOffering.body.total_cents, GROUP_UNIT * 2 + 4000);
 
   const privateOffering = quote({
     offering_id: 'private_lesson__session',
@@ -332,14 +337,14 @@ function assertLineShape(line, expected) {
     course_equipment: selection,
   }, 'sunset-somo', QUOTE_CHANNELS.LUNA_WHATSAPP);
   assert.equal(privateOffering.ok, true, JSON.stringify(privateOffering.body));
-  assert.strictEqual(equipmentLines(privateOffering.body)[0].total_cents, 3000);
-  assert.strictEqual(privateOffering.body.total_cents, PRIVATE_UNIT * 2 + 3000);
+  assert.strictEqual(equipmentLines(privateOffering.body)[0].total_cents, 2000);
+  assert.strictEqual(privateOffering.body.total_cents, PRIVATE_UNIT * 2 + 2000);
 }
 
 // Deactivated / removed from course options fail closed at quote time
 {
   const cfg = adminCfg('sunset-somo', {
-    groupOptions: [{ offering_key: 'softboard', equipment_price_cents: 500, all_day_surcharge_cents: 0 }],
+    groupOptions: [{ offering_key: 'softboard', during_course_price_cents: 500, all_day_price_cents: 0 }],
   });
   const result = quote(
     groupComponentsBody([{ offering_key: 'carbon_fins', mode: 'during_course', quantity: 1 }], 1),
@@ -351,6 +356,22 @@ function assertLineShape(line, expected) {
   assert.equal(result.body.reason, 'invalid_course_equipment');
 }
 
+// Legacy config still readable as independent totals
+{
+  const cfg = adminCfg('sunset-somo', {
+    groupOptions: [{ offering_key: 'softboard', equipment_price_cents: 500, all_day_surcharge_cents: 1000 }],
+  });
+  const result = quote(
+    groupComponentsBody([{ offering_key: 'softboard', mode: 'all_day', quantity: 2 }], 2),
+    'sunset-somo',
+    QUOTE_CHANNELS.MANUAL_STAFF,
+    cfg,
+  );
+  assert.equal(result.ok, true, JSON.stringify(result.body));
+  // 1000 × 2 × 2 dates = 4000 — not (500+1000)×2×2 = 6000
+  assert.strictEqual(equipmentLines(result.body)[0].total_cents, 4000);
+}
+
 // No legacy fallbacks on current quote path
 {
   const src = fs.readFileSync(path.join(__dirname, 'lib/luna-front-desk-quote-service.js'), 'utf8');
@@ -358,7 +379,6 @@ function assertLineShape(line, expected) {
   assert.ok(!/equipment_included !== true/.test(src), 'quote must not gate on equipment_included');
   assert.ok(!/selection\.mode ===/.test(src), 'quote must not use singleton selection.mode');
   assert.ok(!/COMPONENTS|surfboard_cents|wetsuit_cents/.test(src), 'quote must not hardcode Surfboard/Wetsuit pricing');
-  // schedule HTTP boundary still routes into the shared quote service
   const api = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
   assert.ok(/handleSunsetScheduleBookingQuote/.test(api));
   assert.ok(/quoteOffering|executeSunsetQuote|luna-front-desk-quote-service/.test(api));

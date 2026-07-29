@@ -216,6 +216,7 @@ function nestOfferingForQuote(raw) {
 /**
  * Build course-owned equipment quote lines for Group/Private.
  * selection is wire array [{offering_key, mode, quantity}]; server owns cents/labels.
+ * Money: independent mode unit price × quantity × unique course service dates.
  */
 function buildCourseEquipmentQuoteLines({
   selection,
@@ -223,6 +224,7 @@ function buildCourseEquipmentQuoteLines({
   surfers,
   locationId,
   catalog,
+  serviceDates,
 }) {
   if (selection == null) return { ok: true, lines: [], total_cents: 0, course_equipment: null };
   const offerings = (catalog && catalog._adminCfg && catalog._adminCfg.rental_offerings)
@@ -237,6 +239,7 @@ function buildCourseEquipmentQuoteLines({
       offerings,
       clientSlug: SUNSET_CLIENT_SLUG,
       locationId,
+      serviceDates,
     });
   } catch (err) {
     return {
@@ -254,12 +257,14 @@ function buildCourseEquipmentQuoteLines({
     label: line.label,
     quantity: line.quantity,
     unit_amount_cents: line.unit_amount_cents,
-    base_unit_cents: line.base_unit_cents,
-    all_day_surcharge_unit_cents: line.all_day_surcharge_unit_cents,
+    during_course_price_cents: line.during_course_price_cents,
+    all_day_price_cents: line.all_day_price_cents,
+    date_count: line.date_count,
+    service_dates: line.service_dates ? line.service_dates.slice() : undefined,
     total_cents: line.total_cents,
     currency: 'EUR',
     price_source: 'course_owned_equipment',
-    billing_unit: 'person_per_course',
+    billing_unit: 'person_per_course_date',
     course_equipment: true,
     course_equipment_mode: line.course_equipment_mode,
     metadata: {
@@ -817,7 +822,7 @@ function buildOfferingQuoteResult(command, catalog, offering, lineOut) {
   return { ok: true, status: 200, body: quoteBody };
 }
 
-function appendOfferingCourseEquipment(command, offering, result, catalog) {
+function appendOfferingCourseEquipment(command, offering, result, catalog, serviceDates) {
   const selection = command.transportBody.course_equipment;
   if (selection == null || !result.ok) return result;
   if (offering.offering_type !== 'course' && offering.offering_type !== 'private_lesson') {
@@ -829,6 +834,7 @@ function appendOfferingCourseEquipment(command, offering, result, catalog) {
     surfers: result.body.quantity,
     locationId: command.locationId,
     catalog,
+    serviceDates: serviceDates || result.body.service_dates || command.transportBody.service_dates,
   });
   if (!equipmentOut.ok) return equipmentOut;
   try {
@@ -903,6 +909,7 @@ async function quoteByOfferingId(pg, command, catalog, requireDb) {
     resolved.offering,
     buildOfferingQuoteResult(command, catalog, resolved.offering, lineOut),
     catalog,
+    resolved.serviceDates,
   );
 }
 
@@ -921,6 +928,7 @@ function quoteByOfferingIdSync(command, catalog, requireDb) {
     resolved.offering,
     buildOfferingQuoteResult(command, catalog, resolved.offering, lineOut),
     catalog,
+    resolved.serviceDates,
   );
 }
 
@@ -1623,11 +1631,13 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
 
   // Course-owned multi-item equipment: exact selected Group/Private course
   // options + active scoped rental identity. Never shared location pricing,
-  // equipment_included, or per-day multiplication.
+  // equipment_included, rental-catalog prices, or client money.
+  // Total = independent mode unit × qty × unique course service dates.
   let courseEquipmentEcho = input.course_equipment || null;
   if (input.course_equipment != null) {
     let courseForEquipment = null;
     let surfers = null;
+    let equipmentDates = serviceDates;
     if (input.components.course) {
       const identity = resolveCourseOfferingIdentity(input.components.course);
       if (!identity.ok) return identity;
@@ -1637,6 +1647,7 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       }
       courseForEquipment = nestOfferingForQuote(match);
       surfers = Math.max(1, Number(input.components.course.quantity) || 1);
+      equipmentDates = serviceDates;
     } else if (input.components.private_lesson) {
       const match = (catalog.offerings || []).find((o) => o.offering_type === 'private_lesson');
       if (!match) {
@@ -1644,6 +1655,9 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       }
       courseForEquipment = nestOfferingForQuote(match);
       surfers = Math.max(1, Number(input.components.private_lesson.surfer_count) || 1);
+      const sessions = input.components.private_lesson.sessions || [];
+      const sessionDates = sessions.map((s) => String(s.date).slice(0, 10)).filter(Boolean);
+      equipmentDates = sessionDates.length ? sessionDates : serviceDates;
     } else {
       return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
     }
@@ -1653,6 +1667,7 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       surfers,
       locationId: command.locationId,
       catalog,
+      serviceDates: equipmentDates,
     });
     if (!equipmentOut.ok) return equipmentOut;
     try {
@@ -1833,6 +1848,7 @@ function quoteByComponentsSync(command, catalog, requireDb) {
   if (input.course_equipment != null) {
     let courseForEquipment = null;
     let surfers = null;
+    let equipmentDates = serviceDates;
     if (input.components.course) {
       const identity = resolveCourseOfferingIdentity(input.components.course);
       if (!identity.ok) return identity;
@@ -1842,6 +1858,7 @@ function quoteByComponentsSync(command, catalog, requireDb) {
       }
       courseForEquipment = nestOfferingForQuote(match);
       surfers = Math.max(1, Number(input.components.course.quantity) || 1);
+      equipmentDates = serviceDates;
     } else if (input.components.private_lesson) {
       const match = (catalog.offerings || []).find((o) => o.offering_type === 'private_lesson');
       if (!match) {
@@ -1849,6 +1866,9 @@ function quoteByComponentsSync(command, catalog, requireDb) {
       }
       courseForEquipment = nestOfferingForQuote(match);
       surfers = Math.max(1, Number(input.components.private_lesson.surfer_count) || 1);
+      const sessions = input.components.private_lesson.sessions || [];
+      const sessionDates = sessions.map((s) => String(s.date).slice(0, 10)).filter(Boolean);
+      equipmentDates = sessionDates.length ? sessionDates : serviceDates;
     } else {
       return { ok: false, status: 422, body: { success: false, reason: 'invalid_course_equipment' } };
     }
@@ -1858,6 +1878,7 @@ function quoteByComponentsSync(command, catalog, requireDb) {
       surfers,
       locationId: command.locationId,
       catalog,
+      serviceDates: equipmentDates,
     });
     if (!equipmentOut.ok) return equipmentOut;
     try {

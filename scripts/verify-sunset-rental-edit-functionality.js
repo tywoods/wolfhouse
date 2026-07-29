@@ -694,7 +694,7 @@ async function behavioralDb() {
       active: true,
       config_json: {
         equipment_options: [
-          { offering_key: 'soft_board', equipment_price_cents: 0, all_day_surcharge_cents: 0 },
+          { offering_key: 'soft_board', during_course_price_cents: 0, all_day_price_cents: 0 },
         ],
       },
     }],
@@ -705,7 +705,7 @@ async function behavioralDb() {
       active: true,
       config_json: {
         equipment_options: [
-          { offering_key: 'soft_board', equipment_price_cents: 0, all_day_surcharge_cents: 0 },
+          { offering_key: 'soft_board', during_course_price_cents: 0, all_day_price_cents: 0 },
         ],
       },
     }],

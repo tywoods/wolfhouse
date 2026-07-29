@@ -19,17 +19,17 @@ const catalog = [
   { offering_key: 'foreign_rental', label: 'Foreign', active: true, client_slug: 'sunset', location_id: 'sardinero' },
 ];
 const options = [
-  { offering_key: 'kayak_rental', equipment_price_cents: 500, all_day_surcharge_cents: 1000 },
-  { offering_key: 'helmet_rental', equipment_price_cents: 200, all_day_surcharge_cents: 0 },
+  { offering_key: 'kayak_rental', during_course_price_cents: 500, all_day_price_cents: 1000 },
+  { offering_key: 'helmet_rental', during_course_price_cents: 200, all_day_price_cents: 0 },
 ];
 assert.deepStrictEqual(validateEquipmentOptions(options, { offerings: catalog, clientSlug: 'sunset', locationId: 'somo' }), options);
-assert.deepStrictEqual(normalizeEquipmentOptions({ equipment_included: true, equipment_price_cents: 999 }), []);
+assert.deepStrictEqual(normalizeEquipmentOptions({ equipment_included: true, during_course_price_cents: 999 }), []);
 for (const bad of [
   [options[0], options[0]],
-  [{ offering_key: 'missing', equipment_price_cents: 1, all_day_surcharge_cents: 0 }],
-  [{ offering_key: 'wetsuit_rental', equipment_price_cents: 1, all_day_surcharge_cents: 0 }],
-  [{ offering_key: 'foreign_rental', equipment_price_cents: 1, all_day_surcharge_cents: 0 }],
-  [{ offering_key: 'kayak_rental', equipment_price_cents: -1, all_day_surcharge_cents: 0 }],
+  [{ offering_key: 'missing', during_course_price_cents: 1, all_day_price_cents: 0 }],
+  [{ offering_key: 'wetsuit_rental', during_course_price_cents: 1, all_day_price_cents: 0 }],
+  [{ offering_key: 'foreign_rental', during_course_price_cents: 1, all_day_price_cents: 0 }],
+  [{ offering_key: 'kayak_rental', during_course_price_cents: -1, all_day_price_cents: 0 }],
 ]) assert.throws(() => validateEquipmentOptions(bad, { offerings: catalog, clientSlug: 'sunset', locationId: 'somo' }));
 assert.throws(() => validateEquipmentSelection([{ offering_key: 'kayak_rental', quantity: 1, all_day: false, amount_cents: 1 }], 2));
 
@@ -44,14 +44,29 @@ assert.deepStrictEqual(mapPrivateLessonRow({ id: 'x', label: 'P', active: true, 
 
 const projected = projectEquipmentOptions(options, catalog, { clientSlug: 'sunset', locationId: 'somo' });
 assert.deepStrictEqual(projected.map((x) => x.label), ['Kayak', 'Helmet']);
-const quote = quoteCourseEquipment({ course: { course_id: 'p', equipment_options: projected }, selection: [
-  { offering_key: 'kayak_rental', quantity: 2, all_day: true },
-  { offering_key: 'helmet_rental', quantity: 1, all_day: true },
-], surfers: 2 });
-assert.strictEqual(quote.total_cents, 3200);
+const quote = quoteCourseEquipment({
+  course: { course_id: 'p', equipment_options: projected },
+  selection: [
+    { offering_key: 'kayak_rental', quantity: 2, all_day: true },
+    { offering_key: 'helmet_rental', quantity: 1, all_day: true },
+  ],
+  surfers: 2,
+  serviceDates: ['2026-09-01'],
+});
+// Independent all-day totals: kayak 1000×2 + helmet 0×1 = 2000
+assert.strictEqual(quote.total_cents, 2000);
 assert.strictEqual(quote.lines.length, 2);
-assert.strictEqual(quote.lines[0].metadata.price_basis, 'per_person_per_course');
+assert.strictEqual(quote.lines[0].metadata.price_basis, 'per_person_per_course_date');
 assert.strictEqual(invoiceLines(quote).length, 2);
+// Legacy pair still normalizes to independent totals
+assert.deepStrictEqual(
+  normalizeEquipmentOptions([{ offering_key: 'kayak_rental', equipment_price_cents: 500, all_day_surcharge_cents: 1000 }]),
+  [{ offering_key: 'kayak_rental', during_course_price_cents: 500, all_day_price_cents: 1000 }],
+);
+// Admin writes reject legacy field names
+assert.throws(() => validateEquipmentOptions([
+  { offering_key: 'kayak_rental', equipment_price_cents: 500, all_day_surcharge_cents: 1000 },
+]));
 
 const rentalRows = [
   { offering_key: 'kayak_rental', label: 'Same label', active: true, client_slug: 'sunset', location_id: 'sunset-somo' },
@@ -61,9 +76,9 @@ const rentalRows = [
   { offering_key: 'foreign_tenant', label: 'Foreign tenant', active: true, client_slug: 'other', location_id: 'sunset-somo' },
 ];
 const configured = options.concat([
-  { offering_key: 'inactive_rental', equipment_price_cents: 1, all_day_surcharge_cents: 0 },
-  { offering_key: 'foreign_location', equipment_price_cents: 1, all_day_surcharge_cents: 0 },
-  { offering_key: 'foreign_tenant', equipment_price_cents: 1, all_day_surcharge_cents: 0 },
+  { offering_key: 'inactive_rental', during_course_price_cents: 1, all_day_price_cents: 0 },
+  { offering_key: 'foreign_location', during_course_price_cents: 1, all_day_price_cents: 0 },
+  { offering_key: 'foreign_tenant', during_course_price_cents: 1, all_day_price_cents: 0 },
 ]);
 const cfg = { ok: true, source: 'db', prices: [{ category: 'package', offering_key: 'surf_pack_p__1_day', unit: 'day', amount_cents: 1000, active: true }], rental_offerings: rentalRows, surf_packs: [{ pack_id: 'p', label: 'G', equipment_options: configured, price_tiers: [{ key: '1_day', label: '1 day', amount_cents: 1000 }], schedules: [], weekly: 'daily' }], private_lesson: { enabled: true, label: 'Private', amount_cents: 2000, equipment_options: configured } };
 const catalogProjection = projectSunsetBookableOfferingsFromConfig(cfg, { locationId: 'somo' });
@@ -74,7 +89,7 @@ assert.deepStrictEqual(catalogProjection.courses[0].equipment_options, exact);
 const scheduled = scheduleCoursesFromBookableProjection(catalogProjection)[0];
 assert.deepStrictEqual(scheduled.equipment_options, exact);
 assert.ok(!Object.prototype.hasOwnProperty.call(scheduled, 'equipment_included'));
-assert.ok(!Object.prototype.hasOwnProperty.call(scheduled, 'equipment_price_cents'));
+assert.ok(!Object.prototype.hasOwnProperty.call(scheduled, 'during_course_price_cents'));
 
 function fakePg(locationId) {
   return { query: async (sql, params = []) => {

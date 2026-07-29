@@ -64,6 +64,7 @@
     "verify:staff-query-ui": "node scripts/verify-staff-query-ui.js",
     "verify:sunset-course-equipment-pricing": "node scripts/verify-sunset-course-equipment-pricing.js",
     "verify:sunset-course-equipment-quote-authority": "node scripts/verify-sunset-course-equipment-quote-authority.js",
+    "verify:sunset-course-equipment-money-matrix": "node scripts/verify-sunset-course-equipment-money-matrix.js",
     "verify:sunset-course-equipment-catalog": "node scripts/verify-sunset-course-equipment-catalog.js",
     "verify:sunset-admin-course-equipment-production": "node scripts/verify-sunset-admin-course-equipment-production.js",
     "verify:sunset-remove-global-course-equipment-authority": "node scripts/verify-sunset-remove-global-course-equipment-authority.js",

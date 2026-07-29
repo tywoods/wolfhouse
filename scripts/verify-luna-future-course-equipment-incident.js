@@ -35,8 +35,8 @@ function baseCfg(equipmentOptions) {
 }
 
 const options = [
-  { offering_key: 'softboard', equipment_price_cents: 0, all_day_surcharge_cents: 500 },
-  { offering_key: 'carbon_fins', equipment_price_cents: 0, all_day_surcharge_cents: 0 },
+  { offering_key: 'softboard', during_course_price_cents: 0, all_day_price_cents: 500 },
+  { offering_key: 'carbon_fins', during_course_price_cents: 0, all_day_price_cents: 0 },
 ];
 const cfg = baseCfg(options);
 
