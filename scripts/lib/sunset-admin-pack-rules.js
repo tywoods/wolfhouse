@@ -10,6 +10,7 @@ const {
 } = require('./tenant-business-config');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
 const { validateEquipmentOptions, normalizeEquipmentOptions } = require('./sunset-course-equipment-options');
+const { listRentalOfferings } = require('./tenant-rental-offerings');
 const {
   CANONICAL_DAY_DURATION_KEYS,
   isCanonicalDayDurationKey,
@@ -253,6 +254,10 @@ async function createSurfPackRule(client, { clientSlug, locationId, body, actor 
   const label = validated.patch.label;
   await client.query('BEGIN');
   try {
+    if (body.equipment_options != null) {
+      const offerings = await listRentalOfferings(client, { clientSlug, locationId: loc, includeInactive: false });
+      cfg.equipment_options = validateEquipmentOptions(body.equipment_options, { offerings, clientSlug, locationId: loc });
+    }
     const inserted = await client.query(
       hasLoc
         ? `INSERT INTO tenant_surf_pack_rules (tenant_id, client_slug, location_id, label, config_json, active, updated_by)
@@ -308,6 +313,10 @@ async function patchSurfPackRule(client, { ruleId, clientSlug, locationId, body,
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_surf_pack_rules');
   await client.query('BEGIN');
   try {
+    if (body.equipment_options != null) {
+      const offerings = await listRentalOfferings(client, { clientSlug, locationId: loc, includeInactive: false });
+      validated.patch.equipment_options = validateEquipmentOptions(body.equipment_options, { offerings, clientSlug, locationId: loc });
+    }
     const existing = await client.query(
       hasLoc
         ? `SELECT * FROM tenant_surf_pack_rules WHERE id = $1::uuid AND client_slug = $2 AND location_id = $3 AND active = true FOR UPDATE`

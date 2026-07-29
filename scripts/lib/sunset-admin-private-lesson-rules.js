@@ -6,6 +6,7 @@
 
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
 const { validateEquipmentOptions, normalizeEquipmentOptions } = require('./sunset-course-equipment-options');
+const { listRentalOfferings } = require('./tenant-rental-offerings');
 
 async function adminConfigTableHasLocationColumn(client, tableName) {
   const result = await client.query(
@@ -254,6 +255,11 @@ async function putPrivateLessonRule(client, { clientSlug, locationId, body, acto
 
   await client.query('BEGIN');
   try {
+    if (body.equipment_options != null) {
+      const offerings = await listRentalOfferings(client, { clientSlug, locationId: loc, includeInactive: false });
+      next.equipment_options = validateEquipmentOptions(body.equipment_options, { offerings, clientSlug, locationId: loc });
+      configJson.equipment_options = next.equipment_options;
+    }
     let row;
     if (existing.row) {
       const updated = await client.query(

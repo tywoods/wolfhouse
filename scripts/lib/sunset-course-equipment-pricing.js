@@ -19,4 +19,10 @@ function quoteCourseEquipment({ course, selection, surfers }) {
   return { total_cents, lines, selections: selected };
 }
 function invoiceLines(quote) { return ((quote && quote.lines) || []).map((line) => ({ description: `${line.label} — ${line.all_day ? 'All Day' : 'During Course'}`, quantity: line.quantity, unit_amount_cents: line.amount_cents, total_cents: line.total_cents, offering_key: line.offering_key })); }
-module.exports = { checkedAdd, checkedMultiply, quoteCourseEquipment, invoiceLines };
+// Transitional parse-only compatibility for the old Admin route. Current
+// quote/create callers must use course-owned equipment_options above.
+function validateConfig(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('invalid course equipment pricing');
+  return value;
+}
+module.exports = { checkedAdd, checkedMultiply, quoteCourseEquipment, invoiceLines, validateConfig };

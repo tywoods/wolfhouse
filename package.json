@@ -60,6 +60,7 @@
     "staff:action": "node scripts/staff-action-runner.js",
     "verify:stage67-staff-intent-smoke": "node scripts/verify-stage67-staff-intent-smoke.js",
     "verify:staff-query-api": "node scripts/verify-staff-query-api.js",
+    "verify:staff-query-api-startup-smoke": "node scripts/verify-staff-query-api-startup-smoke.js",
     "verify:staff-query-ui": "node scripts/verify-staff-query-ui.js",
     "verify:sunset-course-equipment-pricing": "node scripts/verify-sunset-course-equipment-pricing.js",
     "verify:sunset-course-equipment-catalog": "node scripts/verify-sunset-course-equipment-catalog.js",
